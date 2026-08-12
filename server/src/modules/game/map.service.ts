@@ -1,0 +1,314 @@
+/**
+ * 地图服务
+ * 对应原版易语言：地图操作.ecode
+ * 负责地图管理、移动、资源刷新等
+ */
+
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+
+/**
+ * 可前往地图的连接信息
+ */
+export interface MapConnection {
+  mapId: number;
+  /** 地图名 */
+  name: string;
+  /** 距离（用于计算移动时间） */
+  distance?: number;
+  /** 需求条件：0无 1飞行 2传送 3跃迁 */
+  requireTravel?: number;
+  /** 需求标记列表 */
+  requireMarkers?: string[];
+}
+
+/**
+ * 地图上的怪物实例
+ */
+export interface MapMonster {
+  /** 唯一标识 */
+  id: string;
+  /** 怪物名称 */
+  name: string;
+  /** 怪物等级 */
+  level: number;
+  /** 特殊序号 */
+  specialSeq: number;
+  /** 当前HP */
+  hp: number;
+  /** 最大HP */
+  maxHp: number;
+  /** 攻击力 */
+  attack: number;
+  /** 防御力 */
+  defense: number;
+  /** 速度 */
+  speed: number;
+  /** 闪避率（百分比） */
+  dodge?: number;
+  /** 命中率（百分比） */
+  hit?: number;
+  /** 击杀经验值 */
+  exp?: number;
+  /** 是否精英 */
+  isElite?: boolean;
+}
+
+/**
+ * 条件检查结果
+ */
+export interface TravelCheckResult {
+  canTravel: boolean;
+  reason?: string;
+}
+
+@Injectable()
+export class MapService {
+  private readonly logger = new Logger(MapService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 获取所有地图列表
+   */
+  async getAllMaps(): Promise<any[]> {
+    return this.prisma.gameMap.findMany({
+      orderBy: { mapIndex: 'asc' },
+    });
+  }
+
+  /**
+   * 根据ID获取地图
+   */
+  async getMapById(mapId: number): Promise<any> {
+    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    if (!map) {
+      throw new NotFoundException(`地图 ID=${mapId} 不存在`);
+    }
+    return map;
+  }
+
+  /**
+   * 根据名称获取地图
+   */
+  async getMapByName(name: string): Promise<any> {
+    const map = await this.prisma.gameMap.findUnique({ where: { name } });
+    if (!map) {
+      throw new NotFoundException(`地图「${name}」不存在`);
+    }
+    return map;
+  }
+
+  /**
+   * 获取地图的可前往列表
+   * 解析 connections JSON 字段，返回可前往的地图连接信息
+   */
+  getConnections(map: any): MapConnection[] {
+    try {
+      return JSON.parse(map.connections || '[]') as MapConnection[];
+    } catch {
+      this.logger.warn(`地图 ${map.name} connections 解析失败`);
+      return [];
+    }
+  }
+
+  /**
+   * 检查是否可前往目标地图
+   * 检查距离、需求条件、标记要求等
+   * @param currentMap 当前所在地图
+   * @param targetMap 目标地图
+   * @param player 玩家对象（含 markers 等数据）
+   */
+  checkCanTravel(currentMap: any, targetMap: any, player: any): TravelCheckResult {
+    // 1. 检查目标地图是否禁止前往
+    if (targetMap.noTeleport) {
+      return { canTravel: false, reason: '该地图无法传送前往' };
+    }
+
+    // 2. 检查目标地图的进入要求标记
+    const requireMarkers: string[] = this.safeParseJSON(targetMap.requireMarkers, []);
+    if (requireMarkers.length > 0) {
+      const playerMarkers: Record<string, any> = this.safeParseJSON(player.markers, {});
+      for (const marker of requireMarkers) {
+        if (!(marker in playerMarkers)) {
+          const hint = targetMap.failHint || `需要标记「${marker}」`;
+          return { canTravel: false, reason: hint };
+        }
+      }
+    }
+
+    // 3. 检查连接是否可达
+    const connections = this.getConnections(currentMap);
+    const targetConn = connections.find((c) => c.mapId === targetMap.id || c.name === targetMap.name);
+    if (!targetConn) {
+      // 如果能直接通过名称找到目标地图且没有距离限制，也允许
+      // 这里保持宽松，上层逻辑可进一步限制
+      return { canTravel: true };
+    }
+
+    // 4. 检查目标地图的 requiredTravel 需求
+    if (targetMap.requiredTravel > 0) {
+      const playerMarkers: Record<string, any> = this.safeParseJSON(player.markers, {});
+      // requiredTravel: 1=飞行, 2=传送, 3=跃迁
+      const travelMarkerKey = `travel_${targetMap.requiredTravel}`;
+      if (!(travelMarkerKey in playerMarkers)) {
+        const travelTypeMap: Record<number, string> = { 1: '飞行', 2: '传送', 3: '跃迁' };
+        return {
+          canTravel: false,
+          reason: `需要${travelTypeMap[targetMap.requiredTravel] || '特殊'}能力才能前往`,
+        };
+      }
+    }
+
+    return { canTravel: true };
+  }
+
+  /**
+   * 计算移动所需时间（秒）
+   * 根据距离和玩家速度计算
+   * @param distance 距离（来自连接信息）
+   * @param playerSpeed 玩家速度
+   */
+  calcTravelTime(distance: number, playerSpeed: number): number {
+    // 基础时间 = 距离 / 速度 * 系数，最低 1 秒
+    const baseTime = distance > 0 && playerSpeed > 0 ? (distance / playerSpeed) * 10 : 5;
+    return Math.max(1, Math.ceil(baseTime));
+  }
+
+  /**
+   * 刷新地图怪物
+   * 根据地图配置和世界等级生成怪物
+   */
+  async refreshMapMonsters(mapId: number): Promise<void> {
+    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    if (!map) {
+      throw new NotFoundException(`地图 ID=${mapId} 不存在，无法刷新怪物`);
+    }
+
+    // 读取地图固定怪物列表作为模板，结合 monsterCount 生成实际怪物实例
+    const monsterTemplates: any[] = this.safeParseJSON(map.monsters, []);
+    const count = Math.min(map.monsterCount || 3, 20);
+
+    const monsters: MapMonster[] = [];
+    for (let i = 0; i < count; i++) {
+      // 如果存在模板则随机选取，否则生成默认怪物
+      if (monsterTemplates.length > 0) {
+        const template = monsterTemplates[Math.floor(Math.random() * monsterTemplates.length)];
+        monsters.push({
+          id: `monster_${mapId}_${i}_${Date.now()}`,
+          name: template.name || '未知怪物',
+          level: template.level || 1,
+          specialSeq: template.specialSeq || 0,
+          hp: template.hp || 100,
+          maxHp: template.maxHp || template.hp || 100,
+          attack: template.attack || 10,
+          defense: template.defense || 0,
+          speed: template.speed || 100,
+          dodge: template.dodge || 5,
+          hit: template.hit || 85,
+          exp: template.exp || 10,
+          isElite: template.isElite || false,
+        });
+      } else {
+        // 默认怪物
+        monsters.push({
+          id: `monster_${mapId}_${i}_${Date.now()}`,
+          name: '野怪',
+          level: 1,
+          specialSeq: 0,
+          hp: 100,
+          maxHp: 100,
+          attack: 10,
+          defense: 0,
+          speed: 100,
+          dodge: 5,
+          hit: 85,
+          exp: 10,
+          isElite: false,
+        });
+      }
+    }
+
+    // 将生成的怪物写入 spawnMonsters 字段
+    await this.prisma.gameMap.update({
+      where: { id: mapId },
+      data: { spawnMonsters: JSON.stringify(monsters) },
+    });
+
+    this.logger.log(`地图 ${map.name} 刷新了 ${monsters.length} 只怪物`);
+  }
+
+  /**
+   * 获取地图上的怪物列表
+   * 合并固定怪物(spawnMonsters)和临时怪物(tempMonsters)
+   */
+  getMapMonsters(map: any): MapMonster[] {
+    const spawnMonsters: MapMonster[] = this.safeParseJSON(map.spawnMonsters, []);
+    const tempMonsters: MapMonster[] = this.safeParseJSON(map.tempMonsters, []);
+    return [...spawnMonsters, ...tempMonsters];
+  }
+
+  /**
+   * 移除地图上的怪物（死亡后）
+   * 从 spawnMonsters 或 tempMonsters 中移除指定怪物
+   */
+  removeMapMonster(map: any, monsterId: string): void {
+    // 注意：此处只操作内存中的 map 对象，持久化由调用方负责
+    const spawnMonsters: MapMonster[] = this.safeParseJSON(map.spawnMonsters, []);
+    const tempMonsters: MapMonster[] = this.safeParseJSON(map.tempMonsters, []);
+
+    map.spawnMonsters = JSON.stringify(spawnMonsters.filter((m) => m.id !== monsterId));
+    map.tempMonsters = JSON.stringify(tempMonsters.filter((m) => m.id !== monsterId));
+  }
+
+  /**
+   * 地图资源刷新
+   * 定时刷新可采集资源
+   */
+  async refreshMapResources(mapId: number): Promise<void> {
+    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    if (!map) {
+      throw new NotFoundException(`地图 ID=${mapId} 不存在，无法刷新资源`);
+    }
+
+    // 读取 resources2（可采集资源）作为模板，重新生成
+    const resourceTemplates: any[] = this.safeParseJSON(map.resources2, []);
+    if (resourceTemplates.length === 0) {
+      this.logger.warn(`地图 ${map.name} 无可采集资源模板，跳过刷新`);
+      return;
+    }
+
+    // 为每个资源模板生成一个实例
+    const refreshedResources = resourceTemplates.map((tpl: any, idx: number) => ({
+      id: `resource_${mapId}_${idx}_${Date.now()}`,
+      name: tpl.name || '未知资源',
+      type: tpl.type || '普通',
+      amount: tpl.amount || 1,
+      respawnTime: tpl.respawnTime || 300, // 默认5分钟刷新
+    }));
+
+    // 同时保留原始的 resources（不可采集/固定资源）不变
+    const resources: any[] = this.safeParseJSON(map.resources, []);
+
+    await this.prisma.gameMap.update({
+      where: { id: mapId },
+      data: {
+        resources: JSON.stringify(resources),
+        resources2: JSON.stringify(refreshedResources),
+      },
+    });
+
+    this.logger.log(`地图 ${map.name} 刷新了 ${refreshedResources.length} 个可采集资源`);
+  }
+
+  /**
+   * 安全解析 JSON 字符串，解析失败返回默认值
+   */
+  private safeParseJSON<T>(jsonStr: string, defaultValue: T): T {
+    try {
+      return JSON.parse(jsonStr) as T;
+    } catch {
+      return defaultValue;
+    }
+  }
+}

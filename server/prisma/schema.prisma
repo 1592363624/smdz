@@ -1,0 +1,550 @@
+// 使魔大战3 网页版 - 数据库模型定义 (Prisma Schema)
+// 说明：
+// - 使用 SQLite 作为起步数据库（Windows 单机零依赖部署）
+// - 模型结构参考原版易语言数据结构(@Struct.ecode)抽象而来
+// - SQLite 不支持 Json/enum 类型，因此：
+//     * 复杂结构(背包/装备/标记)用 String 存 JSON 字符串
+//     * 角色(Role)用 String 存枚举值
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ========== 用户与认证 ==========
+
+/// 用户表：网页注册/登录账号，可绑定 QQ 号
+model User {
+  id          Int      @id @default(autoincrement())
+  username    String   @unique
+  password    String
+  nickname    String   @default("")
+  qqNumber    String?  @unique
+  role        String   @default("USER")
+  status      String   @default("ACTIVE")
+  avatar      String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  player      Player?
+  messages    ChatMessage[]
+  bindings    UserBinding[]
+  @@index([qqNumber])
+}
+
+/// 绑定关系表：一个账号可绑定多个机器人身份
+model UserBinding {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  botKey    String
+  botType   String   @default("qq")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([userId, botKey])
+}
+
+// ========== 游戏核心 - 玩家相关 ==========
+
+/// 玩家档案：对应易语言的"玩家"数据结构，核心游戏数据用 JSON 字符串存储
+model Player {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 基础属性
+  level      Int      @default(1)
+  exp        Float    @default(0)
+  upgradeExp Float    @default(100)   // 升级所需经验
+  name       String   @default("")    // 玩家/使魔名称
+  type       String   @default("")    // 使魔类型
+  specialSeq Int      @default(0)     // 特殊序号（对应常量表）
+
+  // 战斗属性
+  hp         Float    @default(100)
+  maxHp      Float    @default(100)
+  shield     Float    @default(0)     // 当前护盾
+  maxShield  Float    @default(0)
+  armor      Float    @default(0)     // 当前装甲
+  maxArmor   Float    @default(0)
+  attack     Float    @default(10)
+  defense    Float    @default(0)
+  speed      Float    @default(100)
+  dodge      Float    @default(0)
+  hit        Float    @default(100)
+  crit       Float    @default(5)
+  critDmg    Float    @default(150)
+  regenHp    Float    @default(0)     // 生命回复
+  regenShield Float   @default(0)     // 护盾回复
+  regenArmor Float    @default(0)     // 装甲回复
+
+  // 位置信息
+  mapId      Int      @default(1)     // 当前地图ID
+  location   String   @default("新手村")
+  houseName  String   @default("")    // 家园名称
+
+  // 复杂数据结构（JSON 字符串存储）
+  backpack   String   @default("[]")  // 背包物品 [物品3]
+  equipment  String   @default("[]")  // 装备 [装备]
+  weapons    String   @default("[]")  // 武器 [装备]
+  currentWeapon Int   @default(0)     // 当前武器索引
+  markers    String   @default("{}")  // 标记/成就 [技能]
+  markers2   String   @default("[]")  // 有时限标记 [增益]
+  buffs      String   @default("[]")  // 增益状态 [增益]
+  tasks      String   @default("[]")  // 任务 [任务]
+  titles     String   @default("[]")  // 称号 [技能]
+  skills     String   @default("{}")  // 技能熟练度
+  sets       String   @default("{}")  // 套装信息 [套装]
+  bonus      String   @default("{}")  // 加成属性 [加成]
+  baseBonus  String   @default("{}")  // 基础加成
+  vehicle    String   @default("")    // 驾驶的载具ID
+  safeBox    String   @default("[]")  // 保险柜 [物品3]
+  equipmentPresets String @default("[]") // 装备预设
+  reverse    String   @default("[]")  // 逆向标记
+  recipes    String   @default("[]")  // 已解锁配方
+  stats      String   @default("{}")  // 额外统计
+
+  // 好感度/宠物相关
+  affinity   Float    @default(0)     // 好感度
+  masterQQ   String   @default("")    // 主人QQ
+  vitality   Float    @default(0)     // 活力/特殊序号
+
+  // 时间相关
+  lastOpTime BigInt   @default(0)     // 最后操作时间戳
+  readTime   BigInt   @default(0)     // 读取时间戳
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ========== 游戏地图 ==========
+
+/// 地图/区域表：对应易语言的"地图"数据结构
+model GameMap {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String   @default("")
+  mapIndex    Int      @default(0)     // 地图列表编号
+  level       Int      @default(1)     // 额外升级等级
+  isFrontier  Boolean  @default(false) // 是否开拓地
+  noTeleport  Boolean  @default(false) // 不能传送
+  noMove      Boolean  @default(false) // 不能搬迁
+  isInstance  Boolean  @default(false) // 是否关卡地图
+  requiredTravel Int   @default(0)     // 前往需求：0无 1飞行 2传送 3跃迁
+
+  // 复杂数据结构（JSON 字符串）
+  monsters    String   @default("[]")  // 固定怪物列表
+  spawnMonsters String @default("[]")  // 刷出来的怪物
+  tempMonsters String  @default("[]")  // 临时怪物
+  summons     String   @default("[]")  // 召唤物
+  resources   String   @default("[]")  // 资源
+  resources2  String   @default("[]")  // 可采集资源
+  connections String   @default("[]")  // 可前往地图 [可前往]
+  npcs        String   @default("[]")  // NPC列表
+  items       String   @default("[]")  // 可拾取物品
+  buildings   String   @default("[]")  // 建筑
+  vehicles    String   @default("[]")  // 载具
+  markers     String   @default("{}")  // 永久标记
+  markers2    String   @default("[]")  // 有时间限制标记
+  mapBuffs    String   @default("[]")  // 地图增益
+  requireMarkers String @default("[]") // 进入要求标记
+  failHint    String   @default("")    // 未满足要求的提示
+  clearMarkers String  @default("")    // 进入时清除的标记
+  music       String   @default("")    // 背景音乐
+  monsterCount Int     @default(3)     // 刷怪数量
+  noSpecial   Boolean  @default(false) // 不刷特殊事件
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ========== 游戏物品/装备定义 ==========
+
+/// 物品列表：对应易语言的"物品列表"数据类型
+model GameItem {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String   @default("")
+  value       Float    @default(0)     // 物品价值
+  type        String   @default("")    // 类型：装备/材料/消耗品等
+  useEffects  String   @default("[]")  // 使用效果 [文本]
+  useMarkers  String   @default("[]")  // 使用获得标记
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// 装备定义表：对应易语言的"装备"数据类型
+model GameEquipment {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String   @default("")
+  equipType   String   @default("")    // 部位：头部/武器/脚部/饰品等
+  specialSeq  Int      @default(0)     // 特殊序号（对应常量表）
+  specialEffect Int    @default(0)     // 特效序号
+  damageType  String   @default("物理") // 伤害类型
+  cooldown    Float    @default(5)     // 攻击冷却
+  lockTime    Int      @default(0)     // 锁定时间
+  forcedEffect Boolean @default(false) // 必出特效
+  vehicleForceDmg Boolean @default(false) // 无视载具伤害上限
+
+  // 加成属性（JSON）
+  bonus       String   @default("{}")  // 加成属性 [加成]
+  baseBonus   String   @default("{}")  // 自带加成 [加成]
+  properties  String   @default("{}")  // 属性 [属性]
+  affixes     String   @default("[]")  // 词条列表
+  attackText  String   @default("{}")  // 攻击文本 [攻击文本]
+  buffs       String   @default("[]")  // 攻击造成的增益
+  negativeType Int     @default(0)     // 负面类型
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ========== 使魔/怪物相关 ==========
+
+/// 使魔列表：对应易语言的"使魔列表"数据类型
+model GameFamiliar {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  uniqueSkill   String   @default("")  // 特有技能
+  description   String   @default("")  // 说明
+  description2  String   @default("")  // 说明2
+  skillDesc     String   @default("")  // 技能说明
+  specialSeq    Int      @default(0)   // 特殊序号
+  noSummon      Boolean  @default(false) // 不可召唤
+  hairDrop      String   @default("{}")  // 剪毛产出 [物品3]
+
+  // 好感度描述
+  affinityDesc  String   @default("[]") // 5个好感度描述
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// 怪物/宠物定义表：易语言中怪物和宠物使用同一数据结构
+model GameMonster {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  specialSeq  Int      @default(-1)    // 负数为怪物/宠物
+  type        String   @default("怪物") // 怪物/宠物/执行者
+  description String   @default("")
+
+  // 基础属性
+  level       Int      @default(1)
+  hp          Float    @default(100)
+  attack      Float    @default(10)
+  defense     Float    @default(0)
+  speed       Float    @default(100)
+  dodge       Float    @default(0)
+  hit         Float    @default(100)
+  bonus       String   @default("{}")  // 基础加成 [加成]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ========== 增益/减益 ==========
+
+/// 增益/减益定义表：对应易语言的"增益"数据类型
+model GameBuff {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  description   String   @default("")
+  duration      Int      @default(0)     // 持续时间（秒）
+  chance        Float    @default(100)   // 触发几率
+  stackTime     Boolean  @default(false) // 是否叠加时间
+  bonus         String   @default("{}")  // 加成属性 [加成]
+  triggerText   String   @default("")    // 触发文本
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 制造/蓝图 ==========
+
+/// 制造配方表：对应易语言的"制造"数据类型
+model GameCrafting {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  description   String   @default("")
+  noCraft       Boolean  @default(false) // 不可制造（仅用于分解）
+  level         Int      @default(1)     // 使魔等级需求
+  deconstructMul Float   @default(5)     // 分解倍率
+  expGain       Float    @default(0)     // 制造获得经验
+
+  // JSON 复杂数据
+  outputs       String   @default("[]")  // 产出 [物品3]
+  requirements  String   @default("[]")  // 需求 [物品3]
+  gainMarkers   String   @default("[]")  // 获得标记
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// 蓝图表：对应易语言的"蓝图"数据类型
+model GameBlueprint {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  type          String   @default("")    // 类型
+  type2         String   @default("")    // 类型2
+  craftTime     Int      @default(0)     // 制造时间（秒）
+  cost          Float    @default(0)     // 费用
+  price         Float    @default(0)     // 蓝图价格
+  quantity      Int      @default(1)     // 数量
+
+  // 材料消耗（JSON）
+  materials     String   @default("{}")  // 各种材料消耗
+  components    String   @default("[]")  // 组件 [组件]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 任务/称号 ==========
+
+/// 任务定义表：对应易语言的"任务"数据类型
+model GameTask {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  description   String   @default("")
+  chance        Float    @default(100)   // 出现几率
+  level         Int      @default(1)     // 等级
+  publisher     String   @default("")    // 发布人
+
+  // JSON 复杂数据
+  requirements  String   @default("[]")  // 完成条件 [技能]
+  rewards       String   @default("[]")  // 奖励 [物品3]
+  nextTasks     String   @default("[]")  // 后续任务
+  restrictMarkers String @default("[]")  // 限制标记
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// 称号定义表：对应易语言的"称号"数据类型
+model GameTitle {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  description   String   @default("")
+  bonus         String   @default("{}")  // 加成属性 [加成]
+  requirements  String   @default("[]")  // 获得条件 [技能]
+  rewards       String   @default("[]")  // 奖励 [物品3]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 载具系统 ==========
+
+/// 载具定义表：对应易语言的"载具"数据类型
+model GameVehicle {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  vehicleId     String   @default("")    // 8位文本ID
+  type          String   @default("")    // 类型
+  owner         String   @default("")    // 归属者QQ
+  driver        String   @default("")    // 驾驶员QQ
+  moveType      Int      @default(0)     // 行走方式：0坐地 1陆地 2飞行 3跃迁
+  maxHp         Float    @default(100)
+  currentHp     Float    @default(100)
+  mapIndex      Int      @default(0)     // 所在地图编号
+
+  // 部件系统
+  weaponSlots   Int      @default(0)
+  defenseSlots  Int      @default(0)
+  moveSlots     Int      @default(0)
+  functionSlots Int      @default(0)
+  maxWeapon     Int      @default(5)
+  maxDefense    Int      @default(5)
+  maxMove       Int      @default(5)
+  maxFunction   Int      @default(5)
+  slotStatus    Int      @default(0)     // 0正常 1超建议 2超上限 3两者
+
+  // JSON 复杂数据
+  bonus         String   @default("{}")  // 加成 [加成]
+  parts         String   @default("[]")  // 零件 [物品3]
+  markers       String   @default("{}")  // 标记 [技能]
+  markers2      String   @default("[]")  // 有时限标记 [增益]
+  recipes       String   @default("[]")  // 配方 [技能]
+  builtinParts  String   @default("[]")  // 内置零件 [物品3]
+  coating       Int      @default(0)     // 涂层
+  reverseField  Boolean  @default(false) // 逆转力场
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// 载具部件定义表：对应易语言的"部件"数据类型
+model GameVehiclePart {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  description   String   @default("")
+  partType      Int      @default(0)     // 0核心 1防御 2行走 3武器 4功能
+  moveType      Int      @default(0)     // 行走方式影响
+  limit         Int      @default(0)     // 上限（超过半数衰减）
+  production    Float    @default(0)     // 生产力
+  tagRestrict   String   @default("")    // 标签限制
+
+  // 部件插槽影响
+  weaponEffect  Int      @default(0)
+  defenseEffect Int      @default(0)
+  moveEffect    Int      @default(0)
+  functionEffect Int     @default(0)
+
+  // JSON
+  bonus         String   @default("{}")  // 加成 [加成]
+  builtinParts  String   @default("[]")  // 内置零件 [物品3]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 商店/交易 ==========
+
+/// 商品表：对应易语言的"商品"数据类型
+model GameShopItem {
+  id            Int      @id @default(autoincrement())
+  itemName      String   @default("")
+  itemType      String   @default("")
+  itemCount     Float    @default(1)
+  sellerQQ      String   @default("")    // 出售人QQ
+  price         Float    @default(0)
+  expireAt      DateTime                   // 到期时间
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 建筑/领地 ==========
+
+/// 建筑定义表：对应易语言的"建筑2"数据类型
+model GameBuilding {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  type          String   @default("")    // 天花板/墙壁等
+  description   String   @default("")
+  storage       Float    @default(0)     // 仓库容量
+
+  // JSON
+  materials     String   @default("[]")  // 建造材料 [物品3]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== NPC/对话 ==========
+
+/// NPC对话表：对应易语言的"对话"数据类型
+model GameNpc {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  taskId        String   @default("")    // 触发对话可接任务
+
+  // 对话文本（JSON 数组）
+  hostileChat   String   @default("[]")
+  friendlyChat  String   @default("[]")
+  followText    String   @default("[]")
+  stopText      String   @default("[]")
+  pickupText    String   @default("[]")
+  milkText      String   @default("[]")
+  killText      String   @default("[]")
+  boostStart    String   @default("[]")
+  boostEnd      String   @default("[]")
+  captureText   String   @default("[]")
+  lieDownText   String   @default("[]")
+  wakeUpText    String   @default("[]")
+  strengthenText String  @default("[]")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 攻击文本 ==========
+
+/// 攻击文本表：对应易语言的"攻击文本"数据类型
+model GameAttackText {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  forMonster    Boolean  @default(false) // 怪物专用
+
+  // 各类型文本（JSON 数组）
+  attackTexts   String   @default("[]")
+  shieldBreak   String   @default("[]")
+  armorBreak    String   @default("[]")
+  killTexts     String   @default("[]")
+  missTexts     String   @default("[]")
+  lockTexts     String   @default("[]")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 公屏聊天 / 频道 ==========
+
+model Channel {
+  id          Int           @id @default(autoincrement())
+  name        String        @unique
+  description String        @default("")
+  isPublic    Boolean       @default(true)
+  createdBy   Int?
+  createdAt   DateTime      @default(now())
+  messages    ChatMessage[]
+}
+
+model ChatMessage {
+  id        Int      @id @default(autoincrement())
+  channelId Int
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  senderId  Int?
+  sender    User?    @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  type      String   @default("chat")
+  content   String
+  commandId Int?
+  createdAt DateTime @default(now())
+  @@index([channelId, createdAt])
+}
+
+model CommandLog {
+  id          Int      @id @default(autoincrement())
+  channelId   Int
+  senderId    Int
+  command     String
+  result      String
+  durationMs  Int      @default(0)
+  source      String   @default("web")
+  createdAt   DateTime @default(now())
+  @@index([channelId, createdAt])
+}
+
+// ========== 指令注册表 ==========
+
+model Command {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  alias       String  @default("")
+  description String  @default("")
+  handlerKey  String
+  argsSchema  String  @default("[]")
+  minRole     String  @default("USER")
+  enabled     Boolean @default(true)
+  sortOrder   Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ========== 系统配置中心 ==========
+
+model SystemConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String   @default("")
+  label       String   @default("")
+  description String   @default("")
+  type        String   @default("string")
+  group       String   @default("system")
+  options     String   @default("[]")
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+}

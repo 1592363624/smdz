@@ -1,0 +1,49 @@
+# ===== 依赖与构建产物 =====
+node_modules/
+dist/
+*.log
+
+# TypeScript 编译缓存与产物
+*.tsbuildinfo
+server/prisma/*.js
+server/prisma/*.js.map
+server/prisma/*.d.ts
+
+# ===== 数据库文件 =====
+*.db
+*.db-journal
+
+# ===== 环境变量(含密钥，勿提交) =====
+.env
+.env.local
+.env.*.local
+
+# ===== 运行时临时文件 =====
+server/server.log
+web/vite.log
+admin.json
+login.json
+docs.json
+
+# ===== SSH私钥(绝不可提交) =====
+*.pem
+*.key
+*.ppk
+id_rsa
+id_ed25519
+
+# ===== IDE =====
+.idea/
+.vscode/
+
+# ===== 旧版 E语言源码(仅作参考，非当前架构) =====
+e/
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+
+# ===== CodeBuddy 本地工作记忆(仅本机使用,不同步到仓库) =====
+.codebuddy/
+迁移对比文档_完整版.md
+迁移覆盖度审计报告.md

@@ -1,0 +1,70 @@
+/**
+ * 游戏引擎模块
+ * 整合所有游戏核心逻辑：战斗、物品、地图、玩家、加成计算等
+ * 对应原版易语言：战斗相关.ecode, 物品操作.ecode, 地图操作.ecode, 加成计算.ecode, 数据存取.ecode
+ */
+
+import { Module, Global, forwardRef } from '@nestjs/common';
+import { PrismaModule } from '../../prisma/prisma.module';
+import { AdminModule } from '../admin/admin.module';
+import { GameController } from './game.controller';
+import { GameService } from './game.service';
+import { PlayerService } from './player.service';
+import { TutorialService } from './tutorial.service';
+import { BonusService } from './bonus.service';
+import { CombatService } from './combat.service';
+import { ItemService } from './item.service';
+import { MapService } from './map.service';
+import { FamiliarService } from './familiar.service';
+import { FamiliarSystemService } from './familiar-system.service';
+import { FamiliarSkillsService } from './familiar-skills.service';
+import { ItemSystemService } from './item-system.service';
+import { CombatSystemService } from './combat-system.service';
+
+import { DungeonService } from './dungeon.service';
+import { AchievementService } from './achievement.service';
+import { HomeService } from './home.service';
+import { ShortcutService } from './shortcut.service';
+
+@Global()
+@Module({
+  imports: [PrismaModule, forwardRef(() => AdminModule)],
+  controllers: [GameController],
+  providers: [
+    GameService,
+    PlayerService,
+    TutorialService,
+    BonusService,
+    CombatService,
+    ItemService,
+    MapService,
+    FamiliarService,
+    FamiliarSystemService,
+    FamiliarSkillsService,
+    ItemSystemService,
+    CombatSystemService,
+    DungeonService,
+    AchievementService,
+    HomeService,
+    ShortcutService,
+  ],
+  exports: [
+    GameService,
+    PlayerService,
+    TutorialService,
+    BonusService,
+    CombatService,
+    ItemService,
+    MapService,
+    FamiliarService,
+    FamiliarSystemService,
+    FamiliarSkillsService,
+    ItemSystemService,
+    CombatSystemService,
+    DungeonService,
+    AchievementService,
+    HomeService,
+    ShortcutService,
+  ],
+})
+export class GameModule {}

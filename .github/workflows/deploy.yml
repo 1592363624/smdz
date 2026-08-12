@@ -1,0 +1,203 @@
+name: Deploy to Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package source
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf source.tar.gz \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='*.db' \
+            --exclude='*.db-journal' \
+            --exclude='*.tsbuildinfo' \
+            --exclude='*.log' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            server web
+          tar -tzf source.tar.gz >/dev/null
+          du -h source.tar.gz
+
+      - name: Setup SSH key
+        id: ssh-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_path="$(mktemp)"
+          printf '%s' "${{ secrets.WIN_SSH_KEY }}" > "$key_path"
+          chmod 600 "$key_path"
+          echo "key-path=$key_path" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize deployment path
+        id: path
+        shell: bash
+        run: |
+          set -euo pipefail
+          WIN_PATH="${{ secrets.WIN_PATH }}"
+          WIN_PATH="${WIN_PATH#${WIN_PATH%%[![:space:]]*}}"
+          WIN_PATH="${WIN_PATH%${WIN_PATH##*[![:space:]]}}"
+
+          if [[ "$WIN_PATH" =~ ^/([A-Za-z])(/.*)?$ ]]; then
+            drive_letter="${BASH_REMATCH[1]^}"
+            path_tail="${BASH_REMATCH[2]:-}"
+            upload_path="${drive_letter}:/${path_tail#/}"
+            windows_path="${drive_letter}:\\${path_tail#/}"
+            windows_path="${windows_path//\//\\}"
+          elif [[ "$WIN_PATH" =~ ^([A-Za-z]):[\\/](.*)$ ]]; then
+            drive_letter="${BASH_REMATCH[1]^}"
+            path_tail="${BASH_REMATCH[2]//\\//}"
+            upload_path="${drive_letter}:/${path_tail}"
+            windows_path="${drive_letter}:\\${path_tail}"
+          elif [[ "$WIN_PATH" =~ ^/cygdrive/([A-Za-z])/(.*)$ ]]; then
+            drive_letter="${BASH_REMATCH[1]^}"
+            path_tail="${BASH_REMATCH[2]}"
+            upload_path="/cygdrive/${drive_letter,,}/${path_tail}"
+            windows_path="${drive_letter}:\\${path_tail//\//\\}"
+          else
+            echo "WIN_PATH must be /c/wwwroot/smdz, C:/wwwroot/smdz, or C:\\wwwroot\\smdz" >&2
+            exit 1
+          fi
+
+          path_tail="${path_tail%/}"
+          upload_path="${upload_path%/}"
+          windows_path="${windows_path%\\}"
+          if [[ -z "$path_tail" || "$path_tail" == *".."* || "$path_tail" =~ [^A-Za-z0-9._/-] ]]; then
+            echo "WIN_PATH contains an empty, unsafe, or unsupported path segment" >&2
+            exit 1
+          fi
+
+          echo "upload-path=$upload_path" >> "$GITHUB_OUTPUT"
+          echo "windows-path=$windows_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload rollback script
+        shell: bash
+        env:
+          WIN_HOST: ${{ secrets.WIN_HOST }}
+          WIN_USER: ${{ secrets.WIN_USER }}
+          SSH_KEY_PATH: ${{ steps.ssh-key.outputs.key-path }}
+          UPLOAD_PATH: ${{ steps.path.outputs.upload-path }}
+        run: |
+          set -euo pipefail
+          ssh_options=(
+            -i "$SSH_KEY_PATH"
+            -o StrictHostKeyChecking=accept-new
+            -o UserKnownHostsFile=/dev/null
+            -o LogLevel=ERROR
+          )
+          remote="${WIN_USER}@${WIN_HOST}"
+          echo "===== Upload rollback script ====="
+          scp -O "${ssh_options[@]}" deploy/windows/rollback.ps1 "${remote}:${UPLOAD_PATH}/rollback.ps1"
+
+      - name: Run deployment
+        id: deploy
+        continue-on-error: true
+        shell: bash
+        env:
+          WIN_HOST: ${{ secrets.WIN_HOST }}
+          WIN_USER: ${{ secrets.WIN_USER }}
+          WIN_APP_NAME: ${{ secrets.WIN_APP_NAME }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          SSH_KEY_PATH: ${{ steps.ssh-key.outputs.key-path }}
+          UPLOAD_PATH: ${{ steps.path.outputs.upload-path }}
+          WINDOWS_PATH: ${{ steps.path.outputs.windows-path }}
+        run: |
+          set -euo pipefail
+
+          require_value() {
+            local name="$1"
+            local value="$2"
+            if [[ -z "$value" ]]; then
+              echo "Missing required GitHub secret: $name" >&2
+              exit 1
+            fi
+          }
+
+          require_value WIN_HOST "${WIN_HOST:-}"
+          require_value WIN_USER "${WIN_USER:-}"
+          require_value WIN_APP_NAME "${WIN_APP_NAME:-}"
+          require_value ENV_FILE "${ENV_FILE:-}"
+
+          app_name="${WIN_APP_NAME}"
+          if [[ ! "$app_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "WIN_APP_NAME may contain only letters, digits, dot, underscore, and hyphen" >&2
+            exit 1
+          fi
+
+          ssh_options=(
+            -i "$SSH_KEY_PATH"
+            -o StrictHostKeyChecking=accept-new
+            -o UserKnownHostsFile=/dev/null
+            -o LogLevel=ERROR
+          )
+          remote="${WIN_USER}@${WIN_HOST}"
+
+          echo "===== Upload source archive ====="
+          scp -O "${ssh_options[@]}" source.tar.gz "${remote}:${UPLOAD_PATH}/source.tar.gz"
+
+          echo "===== Upload deployment script ====="
+          scp -O "${ssh_options[@]}" deploy/windows/deploy.ps1 "${remote}:${UPLOAD_PATH}/deploy.ps1"
+
+          echo "===== Upload .env from secrets ====="
+          env_path="$(mktemp)"
+          trap 'rm -f "$env_path"' EXIT
+          printf '%s' "$ENV_FILE" > "$env_path"
+          sed -i 's/\r$//' "$env_path"
+          scp -O "${ssh_options[@]}" "$env_path" "${remote}:${UPLOAD_PATH}/.env.upload"
+
+          echo "===== Run deployment ====="
+          remote_command="powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${WINDOWS_PATH}\\deploy.ps1\" -DeploymentRoot \"${WINDOWS_PATH}\" -AppName \"${app_name}\" -EnvSource \"${WINDOWS_PATH}\\.env.upload\""
+          ssh "${ssh_options[@]}" "$remote" "$remote_command"
+
+      - name: Rollback on failure
+        if: steps.deploy.outcome == 'failure'
+        shell: bash
+        env:
+          WIN_HOST: ${{ secrets.WIN_HOST }}
+          WIN_USER: ${{ secrets.WIN_USER }}
+          WIN_APP_NAME: ${{ secrets.WIN_APP_NAME }}
+          SSH_KEY_PATH: ${{ steps.ssh-key.outputs.key-path }}
+          WINDOWS_PATH: ${{ steps.path.outputs.windows-path }}
+        run: |
+          set -euo pipefail
+          echo "===== 部署失败，尝试远程回滚 (CI 安全网) ====="
+          ssh_options=(
+            -i "$SSH_KEY_PATH"
+            -o StrictHostKeyChecking=accept-new
+            -o UserKnownHostsFile=/dev/null
+            -o LogLevel=ERROR
+          )
+          remote="${WIN_USER}@${WIN_HOST}"
+          rollback_cmd="powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${WINDOWS_PATH}\\rollback.ps1\" -DeploymentRoot \"${WINDOWS_PATH}\" -AppName \"${WIN_APP_NAME}\""
+          ssh "${ssh_options[@]}" "$remote" "$rollback_cmd"
+
+      - name: Notify deployment result
+        if: always()
+        shell: bash
+        run: |
+          if [[ "${{ steps.deploy.outcome }}" == "success" ]]; then
+            echo "===== 部署成功 ====="
+          elif [[ "${{ steps.deploy.outcome }}" == "failure" ]]; then
+            echo "===== 部署失败（已执行回滚）====="
+            exit 1
+          else
+            echo "===== 部署状态: ${{ steps.deploy.outcome }} ====="
+          fi

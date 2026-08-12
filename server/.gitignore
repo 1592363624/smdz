@@ -1,0 +1,16 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.log
+
+# 数据库文件
+prisma/*.db
+prisma/*.db-journal
+
+# 环境变量(含密钥，勿提交)
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
