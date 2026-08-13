@@ -207,9 +207,10 @@
           <span class="menu-bar"></span>
         </button>
         <h2>💬 {{ channel?.name || '世界频道' }}</h2>
-        <span class="conn-status" :class="connected ? 'on' : 'off'">
-          {{ connected ? '已连接' : '连接中...' }}
-        </span>
+        <div class="header-right">
+          <span class="version-tag" title="当前版本">v{{ APP_VERSION }}</span>
+          <a class="reborn-link" href="http://xx.52shell.ltd" target="_blank" rel="noopener noreferrer">《重生之凡人修仙》</a>
+        </div>
       </header>
 
       <!-- 消息列表 -->
@@ -284,7 +285,7 @@ import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi } from '../api';
-import { WS_URL } from '../config';
+import { WS_URL, APP_VERSION } from '../config';
 
 const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));

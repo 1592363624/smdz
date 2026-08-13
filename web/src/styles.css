@@ -669,42 +669,39 @@ vite-plugin-checker-error-overlay,
   font-weight: 700;
 }
 
-/* 连接状态 */
-.conn-status {
+/* 头部跳转链接：《重生之凡人修仙》 */
+.reborn-link {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  color: #fff;
+  text-decoration: none;
+  white-space: nowrap;
+  background: linear-gradient(135deg, #ff8a00, #e52e71);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.reborn-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(229, 46, 113, 0.4);
+}
+
+/* 头部右侧：版本号 + 跳转链接 组合容器 */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* 版本号标签 */
+.version-tag {
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 20px;
-  position: relative;
-}
-.conn-status.on {
-  background: var(--success-bg);
-  color: #4ade80;
-}
-.conn-status.on::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  background: #4ade80;
-  border-radius: 50%;
-  margin-right: 6px;
-  animation: pulse 2s ease-in-out infinite;
-  vertical-align: middle;
-}
-.conn-status.off {
-  background: var(--warning-bg);
-  color: #facc15;
-}
-.conn-status.off::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  background: #facc15;
-  border-radius: 50%;
-  margin-right: 6px;
-  animation: pulse 1.5s ease-in-out infinite;
-  vertical-align: middle;
+  background: var(--glass-border);
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 /* ===== 消息列表 ===== */
@@ -1805,6 +1802,11 @@ vite-plugin-checker-error-overlay,
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .reborn-link {
+    margin-left: 8px;
+    padding: 3px 10px;
+    font-size: 12px;
+  }
 
   /* 消息区域 - 确保可滚动且不溢出 */
   .messages {
@@ -2002,7 +2004,7 @@ vite-plugin-checker-error-overlay,
   .chat-header h2 {
     font-size: 13px;
   }
-  .conn-status {
+  .version-tag {
     font-size: 11px;
     padding: 3px 8px;
   }
