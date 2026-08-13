@@ -218,9 +218,9 @@
           <span v-if="m.sender" class="sender">{{ m.sender.nickname || m.sender.username }}：</span>
           <span v-else-if="m.type !== 'system' && m.type !== 'game' && m.type !== 'combat' && m.type !== 'info'" class="sender">系统：</span>
           <span class="content" style="white-space: pre-line">
-            <template v-for="(seg, si) in parseContent(m.content)" :key="si">
+            <template v-for="(seg, si) in parseContent(m.content, commands)" :key="si">
               <span v-if="seg.type === 'text'">{{ seg.text }}</span>
-              <span v-else class="cmd-clickable" @click="quickSend(seg.text)">{{ seg.text }}</span>
+              <span v-else class="cmd-clickable" :title="'点击发送「' + seg.text + '」'" @click="quickSend(seg.text)">{{ seg.displayText || seg.text }}</span>
             </template>
           </span>
         </div>
@@ -388,67 +388,123 @@ function msgClass(m) {
   return 'chat';
 }
 
-// 解析消息内容，将指令名（被「」包裹或空格分隔的单个单词）转换为可点击片段
-// 匹配模式：「指令名」或者 输入XX / 使用XX 后面的指令名
-function parseContent(content) {
+/**
+ * 解析消息内容，将可点击的指令名转换为可交互片段
+ *
+ * 匹配规则（按优先级）：
+ *   1. 「指令名」—— 中文书名号包裹的精确指令名（最高优先级）
+ *   2. 💡 输入/使用/发送 指令名 说明文字 —— 后端提示格式，提取动词后的第一个词作为指令名
+ *
+ * 关键修复：原正则 /(输入|使用|发送)(\s+)([^\s]+)/g 会错误匹配
+ *   "💡 输入 背包 查看你拥有的物品" → 把"查看你拥有的物品"当指令名
+ *   原因：正则把"输入"后的第一个词(背包)当成前缀的一部分，取了后面的词。
+ *   新逻辑：明确"输入/使用/发送"后的第一个独立词就是指令名，后面的是说明文字。
+ *
+ * @param {string} content - 原始消息文本
+ * @param {Array} cmdList - 已加载的指令列表（用于验证指令名有效性）
+ * @returns {Array} 解析后的片段数组，每项 { type: 'text'|'command', text, displayText?, source? }
+ */
+function parseContent(content, cmdList) {
   if (!content) return [{ type: 'text', text: content }];
 
   const segments = [];
-  // 匹配「指令名」模式，以及输入/使用/发送/输入指令等模式
-  // 正则：匹配「([^」]+)」或者(输入|使用|发送)(\s+)([^\s]+)
-  const regex = /「([^」]+)」|(输入|使用|发送)(\s+)([^\s]+)/g;
+  // 构建已知指令名集合（用于验证提取的指令名是否有效，避免误导用户点击无效内容）
+  const validCmdNames = new Set((cmdList || []).map(c => c.name));
+  const validCmdAliases = new Set(
+    (cmdList || []).flatMap(c => (c.alias || '').split(',').map(a => a.trim()).filter(Boolean))
+  );
+
   let lastIndex = 0;
+
+  // 模式1：「指令名」—— 精确匹配，优先级最高
+  const bookEndRegex = /「([^」]+)」/g;
   let match;
-
-  while ((match = regex.exec(content)) !== null) {
-    // 添加匹配前的文本
+  while ((match = bookEndRegex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      segments.push({
-        type: 'text',
-        text: content.slice(lastIndex, match.index),
-      });
+      segments.push({ type: 'text', text: content.slice(lastIndex, match.index) });
     }
-
-    // 提取指令名
-    let cmdName = match[1];
-    if (!cmdName) {
-      // 第二种匹配模式：输入 指令名 → 匹配到 match[4]
-      cmdName = match[4];
-    }
-
-    if (cmdName) {
-      segments.push({
-        type: 'command',
-        text: cmdName.trim(),
-      });
-    } else {
-      segments.push({
-        type: 'text',
-        text: match[0],
-      });
-    }
-
-    lastIndex = regex.lastIndex;
+    segments.push({ type: 'command', text: match[1].trim(), source: 'bookend' });
+    lastIndex = bookEndRegex.lastIndex;
   }
 
-  // 添加剩余文本
+  // 对剩余文本处理模式2：💡 提示类指令（整行匹配）
   if (lastIndex < content.length) {
-    segments.push({
-      type: 'text',
-      text: content.slice(lastIndex),
-    });
+    const remaining = content.slice(lastIndex);
+    // 匹配以 💡 开头的提示行：💡 + 动词 + 指令名 + 可选说明文字
+    // 关键改进：明确动词后的第一个独立词是指令名，后面都是说明
+    const hintRegex = /^💡\s*(输入|使用|发送|试试|尝试)\s+([^\s]+)(?:\s+(.*?))?$/gm;
+    let hintLastIdx = 0;
+    let hintMatch;
+
+    while ((hintMatch = hintRegex.exec(remaining)) !== null) {
+      // 提示前的普通文本
+      if (hintMatch.index > hintLastIdx) {
+        segments.push({ type: 'text', text: remaining.slice(hintLastIdx, hintMatch.index) });
+      }
+
+      const candidateCmd = hintMatch[2].trim(); // 动词后的第一个词，如"背包"、"装备"
+      const description = (hintMatch[3] || '').trim(); // 后续说明文字
+
+      // 验证候选指令名是否是有效的已知指令（核心防错机制）
+      const isValidCmd = validCmdNames.has(candidateCmd) || validCmdAliases.has(candidateCmd);
+
+      if (isValidCmd && candidateCmd) {
+        // 有效指令：显示完整文字（指令名+说明），但点击只发送纯净指令名
+        segments.push({
+          type: 'command',
+          text: candidateCmd,
+          displayText: description ? `${candidateCmd} ${description}` : candidateCmd,
+          source: 'hint',
+        });
+      } else {
+        // 不是已知指令 → 作为普通文本显示（避免用户点了无效内容报错）
+        segments.push({ type: 'text', text: hintMatch[0] });
+      }
+
+      hintLastIdx = hintRegex.lastIndex;
+    }
+
+    // 剩余未匹配的文本
+    if (hintLastIdx < remaining.length) {
+      segments.push({ type: 'text', text: remaining.slice(hintLastIdx) });
+    }
+  }
+
+  // 如果没有任何匹配，返回原始文本
+  if (segments.length === 0) {
+    return [{ type: 'text', text: content }];
   }
 
   return segments;
 }
 
-// 快速发送指令(填入输入框，便于补充参数后手动发送)
+/**
+ * 快速发送指令（智能模式）
+ * - 如果指令不需要参数（argsSchema 为空数组）→ 直接通过 socket 发送
+ * - 否则 → 填入输入框，便于补充参数后手动发送
+ * @param {string} name - 指令名
+ */
 function quickSend(name) {
-  input.value = name;
-  showAutocomplete.value = false;
-  nextTick(() => {
-    inputEl.value?.focus();
-  });
+  if (!name) return;
+  // 查找该指令是否需要参数（通过 argsSchema 判断）
+  const cmd = commands.value.find(c => c.name === name);
+  // argsSchema 为空数组 "[]" 或不存在时，视为无参数指令，直接发送
+  const needParams = cmd && cmd.argsSchema && cmd.argsSchema !== '[]';
+  if (!needParams) {
+    // 无参数指令 → 直接发送
+    if (socket) {
+      socket.emit('chat:message', { content: name });
+    } else {
+      // socket 未连接时降级为填入输入框
+      input.value = name;
+      nextTick(() => inputEl.value?.focus());
+    }
+  } else {
+    // 需要参数的指令 → 填入输入框并聚焦，让用户补充参数
+    input.value = name + ' ';
+    showAutocomplete.value = false;
+    nextTick(() => inputEl.value?.focus());
+  }
 }
 
 // 快捷操作按钮 — 直接发送对应指令

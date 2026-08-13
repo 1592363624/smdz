@@ -782,12 +782,21 @@ vite-plugin-checker-error-overlay,
   font-weight: 600;
   border-bottom: 1px dashed rgba(251, 191, 36, 0.4);
   transition: all 0.15s ease;
-  touch-action: manipulation;
+  touch-action: manipulation; /* 优化移动端点击响应 */
+  position: relative;
 }
+/* 悬停态：高亮 + 发光 */
 .cmd-clickable:hover {
   color: #fbbf24;
   border-bottom-color: #fbbf24;
   text-shadow: 0 0 8px rgba(251, 191, 36, 0.3);
+}
+/* 激活/按下态：视觉反馈，让用户知道点击已生效 */
+.cmd-clickable:active {
+  color: #fff;
+  background: rgba(251, 191, 36, 0.2);
+  border-radius: 3px;
+  transform: scale(0.97);
 }
 
 /* 系统消息 - 居中紫色 */
