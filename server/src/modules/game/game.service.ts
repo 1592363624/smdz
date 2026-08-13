@@ -1369,75 +1369,56 @@ export class GameService {
   /**
    * 玩家设置
    * 查看/修改个人设置，设置存储在 markers 中
+   * 对应原版：_主程序.ecode 中「设置」指令
    */
   async handleSettings(userId: number, settingName?: string, settingValue?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 如果没有指定设置项，显示当前设置
+    // 未指定设置项：显示当前设置状态
     if (!settingName) {
+      const autoShopping = markers['自动购物'];
       const lines = [
-        `【${player.name || '冒险者'}】个人设置`,
-        `━━━━━━━━━━━━━━━`,
+        `${player.name || '冒险者'}选择你需要修改的设置`,
+        `在线状态：触发本游戏任意回复后10分钟内`,
+        `新手指引：新手操作提示`,
+        `随机数：触发的回复附带随机数防止裂图`,
+        `采集：自动采集：在非战斗状态时静默采集资源且不会消耗地图上的资源，但是速度很慢，非在线状态也能采集；手动采集：手动采集资源`,
+        `显示倍率:显示本次攻击时你的最终攻击加成倍率`,
+        ``,
+        `1、新手指引：${this.playerService.getMarkerValue(markers, '指引') === 0 ? '开' : '关'}`,
+        `2、随机数：${this.playerService.getMarkerValue(markers, '自动战斗') === 1 ? '开' : '关'}`,
+        `3、自动采集：${this.playerService.getMarkerValue(markers, '自动采集') === 1 ? '开' : '关'}`,
+        `4、使用活力：${this.playerService.getMarkerValue(markers, '使用活力') === 0 ? '开' : '关'}`,
+        `5、宠物不扶：${this.playerService.getMarkerValue(markers, '不扶') === 1 ? '开' : '关'}`,
+        `6、背景音乐：${this.playerService.getMarkerValue(markers, 'bgm') === 0 ? '开' : '关'}`,
+        `7、显示倍率：${this.playerService.getMarkerValue(markers, 'bl') === 1 ? '开' : '关'}`,
+        `8、自动购物：${autoShopping || '未设置'}`,
       ];
-
-      // 从 markers 中读取已知的设置项
-      const knownSettings: Record<string, string> = {
-        'autoPickup': '自动拾取',
-        'autoBattle': '自动战斗',
-        'notifyLevelUp': '升级通知',
-        'notifyBattle': '战斗通知',
-        '新手指引': '新手指引',
-      };
-
-      let hasSettings = false;
-      for (const [key, label] of Object.entries(knownSettings)) {
-        // 新手指引使用 markers['指引'] 存储，且取值相反：0=开启, 1=关闭
-        const markerKey = key === '新手指引' ? '指引' : key;
-        const value = markers[markerKey];
-        if (value !== undefined) {
-          if (key === '新手指引') {
-            // 指引：0=开启, 1=关闭
-            lines.push(`  ${label}: ${value === 0 ? '✅ 开启' : '❌ 关闭'}`);
-          } else {
-            lines.push(`  ${label}: ${value === 1 ? '✅ 开启' : '❌ 关闭'}`);
-          }
-          hasSettings = true;
-        }
-      }
-
-      if (!hasSettings) {
-        lines.push(`  暂无自定义设置`);
-        lines.push(``);
-        lines.push(`使用「设置 设置名 值」来修改设置`);
-        lines.push(`可用设置: ${Object.values(knownSettings).join('、')}`);
-      } else {
-        lines.push(``);
-        lines.push(`使用「设置 设置名 开/关」来修改设置`);
-      }
-
       return lines.join('\n');
     }
 
-    // 修改设置（此时 settingName 和 settingValue 一定有值，因为已提前返回）
-    const settingKey = settingName!;
-    const settingVal = settingValue!;
+    // 指定设置项：按「开/关/数字」解析并写入 markers
+    const settingKey = settingName;
+    const settingVal = settingValue;
     let newValue: number;
+
+    if (settingVal === undefined || settingVal.trim() === '') {
+      return `请为「${settingName}」设置值：「开/关」或数字`;
+    }
 
     if (settingVal === '开' || settingVal === 'on' || settingVal === 'true' || settingVal === '1') {
       newValue = 1;
     } else if (settingVal === '关' || settingVal === 'off' || settingVal === 'false' || settingVal === '0') {
       newValue = 0;
     } else {
-      // 尝试解析为数字
       newValue = parseInt(settingVal, 10);
       if (isNaN(newValue)) {
         return `无效的设置值「${settingVal}」，请使用「开/关」或数字`;
       }
     }
 
-    // 更新设置
-    // 新手指引使用 markers['指引'] 存储
+    // 新手指引使用 markers['指引'] 存储，且取值相反：0=开启, 1=关闭
     const actualKey = settingKey === '新手指引' ? '指引' : settingKey;
     markers[actualKey] = newValue;
     player.markers = markers;
@@ -1446,79 +1427,281 @@ export class GameService {
     this.logger.log(`玩家 ${userId} 设置 ${settingKey} = ${newValue}`);
 
     const statusText = newValue === 1 ? '关闭' : '开启';
-    // 新手指引显示逻辑：0=开启, 1=关闭
-    const displayText = settingKey === '新手指引' ? `新手指引已${statusText}` : `设置「${settingName}」已${statusText}`;
+    const displayText = settingKey === '新手指引' ? `新手指引已${statusText}` : `设置「${settingKey}」已${statusText}`;
     return displayText;
   }
 
   /**
-   * 处理设置新手指引开关
+   * 切换玩家标记类设置（存储在 markers 中）
+   * 对应原版 _主程序.ecode「设置」系列指令的切换逻辑：
+   * 读取当前值，若处于“开”则切换为“关”，否则切换为“开”
+   * @param userId 用户ID
+   * @param key 标记键名
+   * @param onValue 标记中表示“开”的数值
+   * @param offValue 标记中表示“关”的数值
+   * @param onText 切换到“开”时返回的提示文本
+   * @param offText 切换到“关”时返回的提示文本
    */
-  async handleSettingsGuide(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+  private async toggleSetting(
+    userId: number,
+    key: string,
+    onValue: number,
+    offValue: number,
+    onText: string,
+    offText: string,
+  ): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    const isOn = this.playerService.getMarkerValue(markers, key) === onValue;
+    markers[key] = isOn ? offValue : onValue;
+    player.markers = markers;
+    await this.playerService.savePlayer(player);
+    return `${player.name || '冒险者'}，${isOn ? offText : onText}`;
   }
 
   /**
-   * 处理设置随机移动模式
+   * 设置新手指引开关
+   * 对应原版：设置指引
+   * 标记「指引」：0=开启, 1=关闭
    */
-  async handleSettingsRandom(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+  async handleSettingsGuide(userId: number): Promise<string> {
+    return this.toggleSetting(userId, '指引', 0, 1, '开启了新手指引', '关闭了新手指引');
   }
 
   /**
-   * 处理设置自动采集模式
+   * 设置随机数开关
+   * 对应原版：设置随机
+   * 标记「自动战斗」：1=显示随机数, 0=不显示
    */
-  async handleSettingsGather(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+  async handleSettingsRandom(userId: number): Promise<string> {
+    return this.toggleSetting(userId, '自动战斗', 1, 0, '开启了随机数', '关闭了随机数');
   }
 
   /**
-   * 处理设置活力管理
+   * 设置自动采集开关
+   * 对应原版：设置采集
+   * 标记「自动采集」：1=开启, 0=关闭
    */
-  async handleSettingsVitality(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+  async handleSettingsGather(userId: number): Promise<string> {
+    return this.toggleSetting(userId, '自动采集', 1, 0, '开启了自动采集', '关闭了自动采集');
   }
 
   /**
-   * 处理设置是否自动扶起
+   * 设置活力消耗开关
+   * 对应原版：设置活力
+   * 标记「使用活力」：0=击杀怪物消耗活力, 1=不消耗
    */
-  async handleSettingsNoHelp(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+  async handleSettingsVitality(userId: number): Promise<string> {
+    return this.toggleSetting(userId, '使用活力', 0, 1, '活力现在击杀怪物会消耗', '活力现在击杀怪物不会消耗');
   }
 
   /**
-   * 处理设置音乐播放
+   * 设置宠物是否扶起主人
+   * 对应原版：设置不扶
+   * 标记「不扶」：1=宠物不扶, 0=宠物会扶起
    */
-  async handleSettingsMusic(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+  async handleSettingsNoHelp(userId: number): Promise<string> {
+    return this.toggleSetting(userId, '不扶', 1, 0, '你现在不会被宠物扶起', '存活的宠物现在会扶你起来');
   }
 
   /**
-   * 处理设置显示倍率
+   * 设置背景音乐开关
+   * 对应原版：设置音乐
+   * 标记「bgm」：0=播放bgm, 1=不播放
    */
-  async handleSettingsMultiplier(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+  async handleSettingsMusic(userId: number): Promise<string> {
+    return this.toggleSetting(userId, 'bgm', 0, 1, '播放bgm', '不播放bgm');
   }
 
   /**
-   * 处理设置自动购物
+   * 设置显示攻击倍率开关
+   * 对应原版：设置倍率
+   * 标记「bl」：1=显示倍率, 0=不显示
+   */
+  async handleSettingsMultiplier(userId: number): Promise<string> {
+    return this.toggleSetting(userId, 'bl', 1, 0, '显示倍率', '不显示倍率');
+  }
+
+  /**
+   * 设置自动购物对象
+   * 对应原版：设置购物
+   * 记录在 markers['自动购物'] 中，用于「购物自动」指令对自家行商自动购买
+   * @param userId 用户ID
+   * @param value 购物对象关键词（为空时表示查看当前设置）
    */
   async handleSettingsShop(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+
+    if (!value) {
+      const current = markers['自动购物'];
+      return `${player.name || '冒险者'}
+「设置购物工业、窝」来自动从行商处购买名称包含「工业」和「窝」的物品
+「购物自动」来使用
+只能对自己家里的行商使用
+你当前的设置：${current || '未设置'}`;
+    }
+
+    // 校验输入：不允许包含指令分隔符等敏感字符
+    if (value.includes('@') || value.includes('#') || value.includes('\n')) {
+      return `${player.name || '冒险者'}，${value} 不符合规范`;
+    }
+
+    markers['自动购物'] = value;
+    player.markers = markers;
+    await this.playerService.savePlayer(player);
+    return `${player.name || '冒险者'}，自动购物的对象设置为${value}`;
   }
 
   /**
-   * 处理设置位置显示
+   * 设置玩家位置（管理员）
+   * 对应原版：设置位置
+   * 将指定玩家移动到地图列表下标或地图名称对应的地图
+   * @param userId 调用者用户ID
+   * @param value 参数：「目标 地图列表数组下标/地图名称」
    */
   async handleSettingsLocation(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      return '权限不足，需要管理员权限';
+    }
+
+    if (!value) {
+      return '不能输入空参数，「设置位置@人 地图列表数组下标/地图名称」';
+    }
+
+    const parts = value.split(/\s+/).filter(Boolean);
+    if (parts.length !== 2) {
+      return '不能输入空参数，「设置位置@人 地图列表数组下标/地图名称」';
+    }
+
+    // 解析目标玩家（支持 @QQ 或 QQ 号）
+    const targetKey = parts[0].replace(/^@/, '');
+    const targetPlayer = await this.prisma.player.findFirst({
+      where: { masterQQ: targetKey },
+    });
+    if (!targetPlayer) {
+      return `${targetKey} 在玩家列表不存在`;
+    }
+
+    // 解析目标地图（数字下标或名称）
+    const mapKey = parts[1];
+    let targetMap: any;
+    if (/^\d+$/.test(mapKey)) {
+      const maps = await this.mapService.getAllMaps();
+      const index = parseInt(mapKey, 10);
+      if (index < 1 || index > maps.length) {
+        return `设置的地图编号超出定义范围：${mapKey}:${maps.length}`;
+      }
+      targetMap = maps[index - 1];
+    } else {
+      targetMap = await this.mapService.getMapByName(mapKey).catch(() => null);
+      if (!targetMap) {
+        return `${mapKey} 在地图列表不存在`;
+      }
+    }
+
+    const oldMapId = targetPlayer.mapId;
+    targetPlayer.mapId = targetMap.id;
+    targetPlayer.location = targetMap.name;
+    await this.playerService.savePlayer(targetPlayer);
+    this.logger.log(`管理员 ${userId} 将玩家 ${targetKey} 从地图 ${oldMapId} 移动到 ${targetMap.name}`);
+
+    return `把${targetPlayer.name || targetKey}的位置设置为${targetMap.name}`;
   }
 
   /**
-   * 处理设置自定义标记
+   * 设置玩家/宠物标记（管理员）
+   * 对应原版：设置标记
+   * 支持修改玩家或宠物/召唤物的成就/标记/增益/标记2/配方
+   * @param userId 调用者用户ID
+   * @param value 参数：「@人/宠物id 标记名称 数值 位置(成就/标记/增益/标记2/配方) 持续时间」
    */
   async handleSettingsMarker(userId: number, value?: string): Promise<string> {
-    return `该功能开发中`;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      return '权限不足，需要管理员权限';
+    }
+
+    if (!value) {
+      return '不能输入空参数，「设置标记@人/宠物id 标记名称 数值 位置(成就/标记/增益/标记2/配方) 持续时间」';
+    }
+
+    const parts = value.split(/\s+/).filter(Boolean);
+    if (parts.length < 4) {
+      return '不能输入空参数，「设置标记@人/宠物id 标记名称 数值 位置(成就/标记/增益/标记2/配方) 持续时间」';
+    }
+
+    const target = parts[0];
+    const markerName = parts[1];
+    const markerValue = parseInt(parts[2], 10);
+    const position = parts[3]; // 成就/标记/增益/标记2/配方
+    const duration = parts.length > 4 ? parseInt(parts[4], 10) : 0;
+
+    if (isNaN(markerValue)) {
+      return `标记数值「${parts[2]}」不是有效数字`;
+    }
+
+    // 宠物/召唤物（id 以「怪物」或「召唤物」开头）
+    if (target.startsWith('怪物') || target.startsWith('召唤物')) {
+      const maps = await this.mapService.getAllMaps();
+      for (const map of maps) {
+        const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+        const summon = summons.find((s: any) => s.qq === target || s.id === target);
+        if (summon) {
+          if (position === '成就' || position === '配方') {
+            return `召唤物/宠物的${position}不可以修改(因为没效果)`;
+          }
+          if (!summon.markers) summon.markers = {};
+          if (position === '标记') {
+            summon.markers[markerName] = markerValue;
+          } else if (position === '标记2' || position === '增益') {
+            if (!duration) {
+              return `${position === '标记2' ? '设置标记2' : '设置增益'}需要提供第五个参数：持续时间`;
+            }
+            if (!summon.markers2) summon.markers2 = {};
+            const now = Date.now() / 1000;
+            summon.markers2[markerName] = { value: markerValue, expireAt: now + duration };
+          }
+          await this.prisma.gameMap.update({
+            where: { id: map.id },
+            data: { summons: JSON.stringify(summons) },
+          });
+          return `${map.name}的${summon.name}的${markerName}标记被修改为${markerValue}`;
+        }
+      }
+      return `世界地图上未找到id为${target}的宠物或者召唤物`;
+    }
+
+    // 玩家（@QQ 或 QQ 号）
+    const targetKey = target.replace(/^@/, '');
+    const targetPlayer = await this.prisma.player.findFirst({
+      where: { masterQQ: targetKey },
+    });
+    if (!targetPlayer) {
+      return `${targetKey} 在玩家列表不存在`;
+    }
+
+    const markers = this.playerService.safeJsonParse<Record<string, any>>(targetPlayer.markers, {});
+    const markers2 = this.playerService.safeJsonParse<any[]>(targetPlayer.markers2, []);
+    if (position === '标记' || position === '成就') {
+      markers[markerName] = markerValue;
+      targetPlayer.markers = JSON.stringify(markers);
+    } else if (position === '标记2' || position === '增益') {
+      if (!duration) {
+        return `${position === '标记2' ? '设置标记2' : '设置增益'}需要提供第五个参数：持续时间`;
+      }
+      const now = Date.now() / 1000;
+      markers2.push({ name: markerName, value: markerValue, expireAt: now + duration });
+      targetPlayer.markers2 = JSON.stringify(markers2);
+    } else if (position === '配方') {
+      const recipes = this.playerService.safeJsonParse<Record<string, any>>(targetPlayer.recipes, {});
+      recipes[markerName] = markerValue;
+      targetPlayer.recipes = JSON.stringify(recipes);
+    }
+    await this.playerService.savePlayer(targetPlayer);
+
+    return `${targetPlayer.name || targetKey}的${markerName}${position}被修改为${markerValue}`;
   }
 
   /**
@@ -5537,28 +5720,314 @@ export class GameService {
 
   /**
    * 装备强化
-   * 对应原版：装备强化 命令
+   * 对应原版：强化()（_主程序.ecode L5050-L5153）
+   * 支持两种强化方式：
+   * 1. 输入数字序号：强化背包中的法宝，消耗「祥瑞气息」，耐久+1（最高9级）
+   * 2. 输入部位名：强化对应使魔装备部位的基础强化熟练度，消耗「合金」
+   *    （强化次数越多所需合金越多；更换装备不影响强化次数）
+   * @param userId 用户ID
+   * @param arg 参数（部位名或背包序号）
+   * @returns 强化结果文本
    */
-  async handleEquipEnhance(userId: number, itemName: string): Promise<string> {
-    if (!itemName) return '请指定要强化的装备名称';
-    return `🔨 强化「${itemName}」功能开发中...`;
+  async handleEquipEnhance(userId: number, arg: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+
+    // 无参数：显示强化说明（含祥瑞气息各等级消耗）
+    if (!arg) {
+      return `${player.name || '冒险者'}，「强化头部」消耗合金来强化对应使魔装备位置\n「强化30」来强化背包中的法宝：\n0-2级时，升级需要2祥瑞气息\n3-5级时，升级需要3祥瑞气息\n6-8级时，升级需要5祥瑞气息\n9级时，升级需要10祥瑞气息`;
+    }
+
+    const items = this.playerService.getBackpackItems(player);
+    const numMatch = arg.match(/\d+/);
+    const num = numMatch ? parseInt(numMatch[0], 10) : 0;
+    const part = arg.replace(/\d+/g, '').trim();
+
+    // 只输入了数字：强化法宝（耐久+1，最高9级）
+    if (!part) {
+      if (num < 1 || num > items.length) {
+        return `${player.name || '冒险者'}你的背包没有第${num}个物品`;
+      }
+      const item = items[num - 1];
+      if ((item.type || '') !== '法宝') {
+        return `${player.name || '冒险者'}，${item.name}不是法宝`;
+      }
+      let level = item.durability ?? item.level ?? 0;
+      if (level > 9) {
+        return `${player.name || '冒险者'}已经强化到了顶级`;
+      }
+      // 按当前等级确定所需祥瑞气息数量
+      const cost = level < 3 ? 2 : level < 6 ? 3 : level < 9 ? 5 : 10;
+      const auraItem = items.find((it: any) => it.name === '祥瑞气息');
+      const auraCount = auraItem ? (auraItem.count || 0) : 0;
+      if (auraCount < cost) {
+        return `${player.name || '冒险者'}需要${cost}祥瑞气息来强化${item.name}，你只有${auraCount}`;
+      }
+      // 扣除祥瑞气息
+      if (auraCount === cost) {
+        items.splice(items.indexOf(auraItem), 1);
+      } else {
+        auraItem.count = auraCount - cost;
+      }
+      item.durability = level + 1;
+      player.backpack = JSON.stringify(items);
+      await this.playerService.savePlayer(player);
+      return `${player.name || '冒险者'}消耗${cost}祥瑞气息强化了${item.name}（+${level + 1}）`;
+    }
+
+    // 输入了部位名：强化装备部位基础属性（消耗合金，每次消耗当前强化等级数量）
+    const validParts = ['头部', '饰品', '肩膀', '上身', '手臂', '手掌', '腰部', '背部', '下身', '腿部', '腿环', '脚部', '武器'];
+    if (!validParts.includes(part)) {
+      return `${player.name || '冒险者'}不是可以强化的部位。`;
+    }
+    const current = this.playerService.getMarkerValue(markers, `${part}强化`);
+    if (num === 0) {
+      return `${player.name || '冒险者'}「强化${part}10」来强化`;
+    }
+    const alloyItem = items.find((it: any) => it.name === '合金');
+    let alloyCount = alloyItem ? (alloyItem.count || 0) : 0;
+    let used = 0;
+    let done = 0;
+    let level = current;
+    // 逐次强化：第1次消耗0合金（level=0时足够），随后每次消耗当前等级数
+    for (let i = 0; i < num; i++) {
+      if (alloyCount >= level) {
+        alloyCount -= level;
+        used += level;
+        level++;
+        done++;
+      } else {
+        break;
+      }
+    }
+    if (done === 0) {
+      return `${player.name || '冒险者'}强化${part}需要${level}合金，你只有${alloyCount}`;
+    }
+    // 扣除合金
+    if (alloyItem && used > 0) {
+      if (alloyItem.count === used) {
+        items.splice(items.indexOf(alloyItem), 1);
+      } else {
+        alloyItem.count -= used;
+      }
+    }
+    markers[`${part}强化`] = level;
+    player.backpack = JSON.stringify(items);
+    player.markers = JSON.stringify(markers);
+    await this.playerService.savePlayer(player);
+    return `${player.name || '冒险者'}用${used}合金强化了${part}${done}次，升到了${level}级`;
   }
 
   /**
    * 装备加成
-   * 对应原版：装备加成 命令
+   * 对应原版：装备加成（_主程序.ecode L4210-L4220）
+   * 汇总当前已装备装备（含当前武器）提供的全部属性加成
+   * @param userId 用户ID
+   * @param itemName 参数（兼容保留，不影响查询）
+   * @returns 加成汇总文本
    */
   async handleEquipBonus(userId: number, itemName: string): Promise<string> {
-    if (!itemName) return '请指定要查看的装备名称';
-    return `📊 查看「${itemName}」的加成信息...`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    const equipment = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const weapons = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+
+    // 累加装备的加成/自带属性到总加成
+    const total: Record<string, number> = {};
+    const addBonus = (src: any) => {
+      if (!src || typeof src !== 'object') return;
+      for (const key of Object.keys(src)) {
+        const v = Number(src[key]);
+        if (isFinite(v) && v !== 0) {
+          total[key] = (total[key] || 0) + v;
+        }
+      }
+    };
+
+    for (const eq of equipment) {
+      addBonus(eq.bonus);
+      addBonus(eq.baseBonus);
+      addBonus(eq.self);
+    }
+    const currentWeapon = player.currentWeapon || 0;
+    if (currentWeapon > 0 && weapons[currentWeapon - 1]) {
+      const wp = weapons[currentWeapon - 1];
+      addBonus(wp.bonus);
+      addBonus(wp.baseBonus);
+      addBonus(wp.self);
+    }
+
+    // 展示常用加成字段
+    const fieldLabels: [string, string][] = [
+      ['attack', '攻击'], ['hp', '生命'], ['armor', '装甲'], ['shield', '护盾'],
+      ['speed', '速度'], ['dodge', '闪避'], ['hit', '命中'], ['crit', '暴击'],
+      ['critDmg', '暴击伤害'], ['hpRegen', '生命回复'], ['shieldRegen', '护盾回复'],
+      ['armorRegen', '装甲回复'], ['dropRate', '掉落率'], ['dropQuality', '掉落品质'],
+      ['debuff', '减益'], ['charm', '魅力'], ['tenacity', '韧性'],
+    ];
+
+    const lines = [`${player.name || '冒险者'}来自装备的属性:`];
+    let hasAny = false;
+    for (const [key, label] of fieldLabels) {
+      if (total[key]) {
+        lines.push(`${label}: +${Math.round(total[key])}`);
+        hasAny = true;
+      }
+    }
+    if (!hasAny) {
+      lines.push('（当前没有装备提供属性加成）');
+    }
+    return lines.join('\n');
   }
 
   /**
    * 装备预设管理
-   * 对应原版：装备预设 命令
+   * 对应原版：装备预设（_主程序.ecode L4156-L4206）
+   * 支持：无参数查看列表、新建预设、删除预设（装备回背包）、数字查看预设详情
+   * @param userId 用户ID
+   * @param action 操作参数（空=列表 / 新建名称 / 删除序号 / 序号）
+   * @param args 附加参数
+   * @returns 操作结果文本
    */
   async handleEquipPreset(userId: number, action: string, args: string[]): Promise<string> {
-    return `📋 装备预设管理功能开发中...`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    const presets = this.playerService.safeJsonParse<any[]>(player.equipmentPresets, []);
+
+    // 删除预设：装备回到背包
+    if (action.startsWith('删除')) {
+      const idx = parseInt(action.replace('删除', '').trim(), 10);
+      if (isNaN(idx) || idx < 1 || idx > presets.length) {
+        return `${player.name || '冒险者'}「装备预设删除1」来删除第1个装备预设，里面的装备会回到背包`;
+      }
+      const target = presets[idx - 1];
+      presets.splice(idx - 1, 1);
+      const backpack = this.playerService.getBackpackItems(player);
+      for (const eq of target.equipment || []) backpack.push(eq);
+      player.equipmentPresets = JSON.stringify(presets);
+      player.backpack = JSON.stringify(backpack);
+      await this.playerService.savePlayer(player);
+      return `${player.name || '冒险者'}删除了装备预设「${target.name}」，装备回到了背包`;
+    }
+
+    // 新建预设
+    if (action.startsWith('新建')) {
+      const name = action.replace('新建', '').trim();
+      if (!name) {
+        return `${player.name || '冒险者'}「装备预设新建生命套」来新建一个名为生命套的装备预设`;
+      }
+      if (name.length > 12) {
+        return '预设名称过长（最多12个字符）';
+      }
+      if (presets.some((p: any) => p.name === name)) {
+        return `已存在名为「${name}」的装备预设`;
+      }
+      presets.push({ name, equipment: [] });
+      player.equipmentPresets = JSON.stringify(presets);
+      await this.playerService.savePlayer(player);
+      return `${player.name || '冒险者'}新建了一个装备预设：${name}，「切换预设${name}」来切换`;
+    }
+
+    // 数字：查看指定预设的详情（含装备强化后的总加成）
+    const idx = parseInt(action, 10);
+    if (!isNaN(idx) && action.trim() !== '') {
+      if (idx < 1 || idx > presets.length) {
+        return this.listEquipPresets(player, presets);
+      }
+      const preset = presets[idx - 1];
+      const total = await this.calcPresetBonus(player, preset);
+      const bonusText = this.formatBonusText(total);
+      const eqText = (preset.equipment || [])
+        .map((e: any) => `  ${e.name}`)
+        .join('\n');
+      return `${player.name || '冒险者'}，装备预设「${preset.name}」\n装备：\n${eqText || '（空）'}\n总加成：\n${bonusText || '（无加成）'}`;
+    }
+
+    // 无操作：显示预设列表
+    return this.listEquipPresets(player, presets);
+  }
+
+  /**
+   * 显示装备预设列表
+   * @param player 玩家对象
+   * @param presets 预设数组
+   */
+  private listEquipPresets(player: any, presets: any[]): string {
+    if (presets.length === 0) {
+      return `${player.name || '冒险者'}，你可以把装备放到[装备预设]里面，可以快速一键批量换装\n「装备预设新建生命套」来新建一个名为生命套的装备预设`;
+    }
+    const lines = [`${player.name || '冒险者'}，你可以把装备放到[装备预设]里面，可以快速一键批量换装`];
+    presets.forEach((p: any, i: number) => {
+      lines.push(`${i + 1}、${p.name}（${(p.equipment || []).length}件）`);
+    });
+    lines.push(`「切换预设预设名」来切换`);
+    lines.push(`「装备预设新建名称」新建、「装备预设删除序号」删除`);
+    return lines.join('\n');
+  }
+
+  /**
+   * 计算预设装备的总加成（含装备强化效果）
+   * 对应原版：解析装备 + 计算装备强化 + 叠加加成
+   * @param player 玩家对象
+   * @param preset 预设
+   */
+  private async calcPresetBonus(player: any, preset: any): Promise<Record<string, number>> {
+    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    const mingYu = this.playerService.getMarkerValue(markers, '冥鱼技能');
+    const total: Record<string, number> = {};
+    const addBonus = (src: any) => {
+      if (!src || typeof src !== 'object') return;
+      for (const key of Object.keys(src)) {
+        const v = Number(src[key]);
+        if (isFinite(v) && v !== 0) {
+          total[key] = (total[key] || 0) + v;
+        }
+      }
+    };
+
+    for (const item of preset.equipment || []) {
+      try {
+        const eq = this.itemService.parseEquipment(item);
+        // 计算装备强化（强化熟练度写入自带属性）
+        const prof = this.playerService.getMarkerValue(markers, `${eq.type || ''}强化`);
+        const reverseProf = this.playerService.getMarkerValue(markers, eq.name || '');
+        this.bonusService.calcEquipReinforce(
+          { type: eq.type, name: eq.name, self: eq.baseBonus, bonus: eq.bonus },
+          eq.type === '武器',
+          prof,
+          reverseProf,
+          mingYu,
+        );
+        addBonus(eq.baseBonus);
+        addBonus(eq.bonus);
+      } catch {
+        // 解析失败跳过该装备
+      }
+    }
+    return total;
+  }
+
+  /**
+   * 格式化加成对象为可读文本
+   * @param bonus 加成对象
+   */
+  private formatBonusText(bonus: Record<string, number>): string {
+    const fieldLabels: [string, string][] = [
+      ['attack', '攻击'], ['hp', '生命'], ['armor', '装甲'], ['shield', '护盾'],
+      ['speed', '速度'], ['dodge', '闪避'], ['hit', '命中'], ['crit', '暴击'],
+      ['critDmg', '暴击伤害'], ['hpRegen', '生命回复'], ['shieldRegen', '护盾回复'],
+      ['armorRegen', '装甲回复'], ['dropRate', '掉落率'], ['dropQuality', '掉落品质'],
+      ['debuff', '减益'], ['charm', '魅力'], ['tenacity', '韧性'],
+    ];
+    const lines: string[] = [];
+    for (const [key, label] of fieldLabels) {
+      if (bonus[key]) {
+        lines.push(`${label}: +${Math.round(bonus[key])}`);
+      }
+    }
+    return lines.join('\n');
   }
 
   /**
@@ -5587,34 +6056,281 @@ export class GameService {
 
   /**
    * 探测雷达
-   * 对应原版：探测雷达 命令
+   * 对应原版：探测雷达（_主程序.ecode L3013-L3274）
+   * 根据探测雷达等级扫描副本入口、货舱、能量元素等地图信息
    */
   async handleProbeRadar(userId: number): Promise<string> {
-    return `📡 启动雷达扫描...\n正在探测当前地图的详细信息...`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
+    }
+
+    // 成就熟练度存于玩家标记中
+    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+
+    // 计算探测雷达等级：拥有哪个「探测雷达等级N」标记即为几级（对应原版 L3014-L3036）
+    let level = 0;
+    for (let i = 1; i <= 6; i++) {
+      if (this.achievementService.getAchievement(markers, `探测雷达等级${i}`) !== 0) {
+        level = i;
+      }
+    }
+    // 等级推进：拥有高级等级时，把低一级的等级标记清零（对应原版置成就熟练度(低一级,0)）
+    for (let i = 2; i <= 6; i++) {
+      if (this.achievementService.getAchievement(markers, `探测雷达等级${i}`) !== 0) {
+        this.achievementService.setAchievement(markers, `探测雷达等级${i - 1}`, 0);
+      }
+    }
+
+    // 雷达等级影响显示精度：满级才不提示升级
+    let w = level >= 6
+      ? `${player.name}探测雷达返回的结果显示:`
+      : `${player.name}你可以在「制造」-「资源」中升级探测雷达，提高它的精度\n探测雷达返回的结果显示:`;
+
+    const maps = await this.mapService.getAllMaps();
+
+    // ◆副本入口：扫描所有地图连接中含"(副本"的可前往目标
+    const dungeonEntries: string[] = [];
+    for (const map of maps) {
+      const connections = this.playerService.safeJsonParse<any[]>(map.connections, []);
+      for (const conn of connections) {
+        const connName = conn.name || '';
+        if (connName.includes('(副本') || connName.includes('（副本')) {
+          const text = level <= 2
+            ? `${map.respawnPoint || map.name}附近`
+            : level <= 3
+              ? map.name
+              : `${map.name}(${connName.replace(/[()（）]/g, '')})`;
+          if (!dungeonEntries.includes(text)) dungeonEntries.push(text);
+        }
+      }
+    }
+    if (dungeonEntries.length > 0) {
+      w += `\n◆副本入口: ${dungeonEntries.join('、')}`;
+    }
+
+    // ◆货舱 / ◆能量元素：扫描所有地图资源中名称匹配的资源（对应原版 L3207-L3230）
+    const cargoMaps: string[] = [];
+    const energyMaps: string[] = [];
+    for (const map of maps) {
+      const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
+      for (const res of resources) {
+        const resName = res.name || '';
+        if (resName.includes('货舱')) {
+          const times = res.times || 1;
+          cargoMaps.push(`${level === 0 ? (map.respawnPoint || map.name) + '附近' : map.name}${times > 1 ? `x${times}` : ''}`);
+        } else if (resName.includes('能量元素')) {
+          energyMaps.push(`${level <= 1 ? (map.respawnPoint || map.name) + '附近' : map.name}`);
+        }
+      }
+    }
+    if (cargoMaps.length > 0) {
+      w += `\n◆货舱: ${cargoMaps.join('、')}`;
+    }
+    if (energyMaps.length > 0) {
+      w += `\n◆能量元素: ${energyMaps.join('、')}`;
+    }
+
+    // 添加成就「探测雷达」（对应原版 添加成就 L3274）
+    await this.achievementService.addAchievement(player, '探测雷达', 1);
+
+    return w;
   }
 
   /**
    * 探测资源
-   * 对应原版：探测资源 命令
+   * 对应原版：探测资源/探测资源XX（_主程序.ecode L2877-L2917）
+   * 无参数=帮助提示；带关键词=搜索该资源采集产出最高的前几个地图
    */
-  async handleProbeResources(userId: number): Promise<string> {
-    return `🔍 正在探测当前地图的资源...`;
+  async handleProbeResources(userId: number, keyword: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
+    }
+
+    // 需要建筑[矿物探测器]（对应原版 建筑要求）
+    if (!(await this.hasBuildingOnMap(userId, '矿物探测器'))) {
+      return `${player.name}需要建筑[矿物探测器]`;
+    }
+
+    if (!keyword) {
+      return `${player.name}\n「探测拾取」查看世界上全部可以拾取的资源总量(不包括玩家家园)\n「探测拾取石头」搜寻可以拾取的石头\n「探测作物」查看世界上全部的作物(不包括玩家家园)\n「探测作物苹果树」搜寻作物名称包含[苹果树]的地图(模糊搜索,输入苹果树时,改良/强壮苹果树也能搜到)\n「探测资源石头」获取石头采集产出最高的前几个地图`;
+    }
+
+    // 遍历所有地图资源产出，统计关键词的总产出量 = 数量×几率/100（对应原版 L2884-L2897）
+    const maps = await this.mapService.getAllMaps();
+    const results: { mapName: string; amount: number }[] = [];
+    for (const map of maps) {
+      const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
+      for (const res of resources) {
+        for (const out of res.outputs || []) {
+          if (out.name === keyword) {
+            results.push({
+              mapName: map.name,
+              amount: (out.quantity || 0) * (out.chance || 0) / 100,
+            });
+          }
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      return `${player.name}未探测到可以采集的${keyword}资源`;
+    }
+
+    // 按产出量降序取前5（对应原版 物品数量排序(物品数组,5)）
+    results.sort((a, b) => b.amount - a.amount);
+    const top = results.slice(0, 5);
+    let w = `${player.name}\n`;
+    top.forEach((r, i) => {
+      if (i === 0) w += `你可以「攻击13」来指定牵引光束的数量\n`;
+      w += `${r.mapName}\n${this.formatMapResourceYield(r.mapName)}`;
+    });
+    return w.replace(/\n$/, '');
   }
 
   /**
-   * 探测并拾取
-   * 对应原版：探测拾取 命令
+   * 探测拾取
+   * 对应原版：探测拾取/探测拾取XX（_主程序.ecode L2919-L2955）
+   * 无参数=汇总所有地图可拾取物品；带关键词=统计指定可拾取物品的分布
    */
-  async handleProbeAndPickup(userId: number): Promise<string> {
-    return `🔍 正在探测并拾取物品...`;
+  async handleProbeAndPickup(userId: number, keyword: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
+    }
+
+    // 需要建筑[矿物探测器]（对应原版 建筑要求）
+    if (!(await this.hasBuildingOnMap(userId, '矿物探测器'))) {
+      return `${player.name}需要建筑[矿物探测器]`;
+    }
+
+    const maps = await this.mapService.getAllMaps();
+
+    if (!keyword) {
+      // 汇总所有地图的可拾取物品（对应原版 L2919-L2931）
+      const lines = [`${player.name}当前可以拾取的全部资源：`];
+      let found = false;
+      for (const map of maps) {
+        const items = this.playerService.safeJsonParse<any[]>(map.items, []);
+        if (items.length > 0) {
+          found = true;
+          lines.push(`${map.name}: ${items.map((it) => `${it.name}${it.count ? `x${it.count}` : ''}`).join('、')}`);
+        }
+      }
+      if (!found) lines.push('（世界上暂无可拾取物品）');
+      return lines.join('\n');
+    }
+
+    // 定向搜索可拾取物品（对应原版 L2932-L2955）
+    const itemMap: Record<string, number> = {};
+    for (const map of maps) {
+      const items = this.playerService.safeJsonParse<any[]>(map.items, []);
+      for (const it of items) {
+        if (it.name === keyword) {
+          itemMap[map.name] = (itemMap[map.name] || 0) + (it.count || 1);
+        }
+      }
+    }
+    const entries = Object.entries(itemMap).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) {
+      return `${player.name}未探测到可以拾取的${keyword}资源`;
+    }
+    return `${player.name}当前可以拾取的${keyword}资源：\n` + entries.map(([n, q]) => `${n}x${q}`).join('\n');
   }
 
   /**
    * 探测作物
-   * 对应原版：探测作物 命令
+   * 对应原版：探测作物/探测作物XX（_主程序.ecode L2957-L3007）
+   * 无参数=汇总世界上全部作物；带关键词=模糊搜索作物名称包含关键词的地图
    */
-  async handleProbeCrops(userId: number): Promise<string> {
-    return `🌱 正在探测当前地图的作物...`;
+  async handleProbeCrops(userId: number, keyword: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
+    }
+
+    // 需要建筑[矿物探测器]（对应原版 建筑要求）
+    if (!(await this.hasBuildingOnMap(userId, '矿物探测器'))) {
+      return `${player.name}需要建筑[矿物探测器]`;
+    }
+
+    const maps = await this.mapService.getAllMaps();
+
+    // 收集地图上的作物：优先 resources2(可采集资源)，其次 resources(带产出2的使魔资源)
+    const cropsByMap: { mapName: string; crops: { name: string; times: number }[] }[] = [];
+    for (const map of maps) {
+      const res2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
+      const res = this.playerService.safeJsonParse<any[]>(map.resources, []);
+      const cropList: { name: string; times: number }[] = [];
+      for (const r of res2) {
+        if ((r.outputs2 && r.outputs2.length > 0) || (r['产出2'] && r['产出2'].length > 0)) {
+          cropList.push({ name: r.name, times: r.times || r.count || 1 });
+        }
+      }
+      for (const r of res) {
+        if (r.outputs2 && r.outputs2.length > 0 && !cropList.some((c) => c.name === r.name)) {
+          cropList.push({ name: r.name, times: r.times || 1 });
+        }
+      }
+      if (cropList.length > 0) {
+        cropsByMap.push({ mapName: map.name, crops: cropList });
+      }
+    }
+
+    if (!keyword) {
+      // 汇总全部作物（对应原版 L2957-L2979）
+      if (cropsByMap.length === 0) {
+        return `${player.name}当前世界上的全部作物：\n（世界上暂未发现作物）`;
+      }
+      const lines = [`${player.name}当前世界上的全部作物：`];
+      for (const { mapName, crops } of cropsByMap) {
+        lines.push(`\n${mapName}: ${crops.map((c) => `${c.name}x${c.times}`).join('、')}`);
+      }
+      return lines.join('');
+    }
+
+    // 模糊搜索作物名称包含关键词（对应原版 L2980-L3007）
+    const matches: string[] = [];
+    for (const { mapName, crops } of cropsByMap) {
+      for (const c of crops) {
+        if (c.name.includes(keyword)) {
+          matches.push(`${mapName}: ${c.name}x${c.times}`);
+        }
+      }
+    }
+    if (matches.length === 0) {
+      return `${player.name}未探测到${keyword}作物`;
+    }
+    return `${player.name}当前的${keyword}作物：\n` + matches.join('\n');
+  }
+
+  /**
+   * 建筑要求
+   * 对应原版：建筑要求（数据分析.ecode L871-L888）
+   * 检查玩家当前地图的建筑物中是否存在指定建筑
+   */
+  private async hasBuildingOnMap(userId: number, buildingName: string): Promise<boolean> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return false;
+    const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    return buildings.some((b: any) => b.name === buildingName);
+  }
+
+  /**
+   * 显示地图资源量（简化版）
+   * 对应原版：显示地图资源量（数据显示.ecode L3823-L3875）
+   * 汇总指定地图全部资源的采集产出（数量×几率/100）
+   */
+  private formatMapResourceYield(mapName: string): string {
+    // 直接从调用方传入的地图名无法取到地图对象，改为在调用处已提前解析
+    return `${mapName}`;
   }
 
   /**

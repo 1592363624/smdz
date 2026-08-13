@@ -74,6 +74,34 @@ function parseItemCountString(str: string): Array<{ name: string; count: number 
 }
 
 /**
+ * 解析资源产出格式字符串 (用于 资源/作物 类型的「产出」「产出2」字段)
+ * 格式: "物品名<数量>，<几率> 物品名<数量>，<几率>"
+ * 例: "能量块1，50 载具零件0.1，50 信号枪，2 合金1，25"
+ * 说明: 数量紧贴在名称后(如"能量块1")，逗号后为几率百分比；缺省数量=1，缺省几率=100
+ */
+function parseResourceOutput(str: string): Array<{ name: string; quantity: number; chance: number }> {
+  if (!str || str.trim() === '') return [];
+  const result: Array<{ name: string; quantity: number; chance: number }> = [];
+  const groups = str.trim().split(/\s+/);
+  for (const group of groups) {
+    if (!group.trim()) continue;
+    // 名称(非数字非逗号前缀) + 紧贴数量(可选) + [，几率](可选)
+    const m = group.match(/^([^，,\d]+)(\d+(?:\.\d+)?)?(?:[，,](\d+(?:\.\d+)?))?$/);
+    if (m && m[1]) {
+      result.push({
+        name: m[1].trim(),
+        quantity: m[2] ? parseFloat(m[2]) : 1,
+        chance: m[3] ? parseFloat(m[3]) : 100,
+      });
+    } else {
+      // 无法解析时整组作为名称兜底
+      result.push({ name: group, quantity: 1, chance: 100 });
+    }
+  }
+  return result;
+}
+
+/**
  * 解析地图连接格式
  * 格式: "地图名，距离 地图名，距离"
  */
@@ -447,16 +475,44 @@ function mapFamiliarToFamiliar(section: ConfigSection) {
 }
 
 /**
- * 将 地图 类型数据映射到 GameMap
+ * 资源类型定义映射
+ * 由「资源」类型 section 收集，供地图资源关联产出数据（探测/牵引/采集使用）
  */
-function mapMapToMap(section: ConfigSection) {
+interface ResourceDef {
+  times: number;        // 可采集次数
+  outputs: Array<{ name: string; quantity: number; chance: number }>;   // 采集产出
+  outputs2: Array<{ name: string; quantity: number; chance: number }>;  // 作物产出
+  gatherCmd: string;    // 采集指令
+}
+
+/**
+ * 将 地图 类型数据映射到 GameMap
+ * @param section 地图配置节
+ * @param resourceDefs 资源类型定义映射（用于把地图资源名关联到产出数据）
+ */
+function mapMapToMap(section: ConfigSection, resourceDefs?: Map<string, ResourceDef>) {
   const fields = section.fields;
 
   // 解析怪物列表
   const monsters = parseSpaceSeparatedString(fields['怪物'] || '');
 
-  // 解析资源列表
-  const resources = parseSpaceSeparatedString(fields['资源'] || '');
+  // 解析资源列表，关联资源类型定义（产出/次数/采集指令），供探测/牵引/采集使用
+  const resourceNames = parseSpaceSeparatedString(fields['资源'] || '');
+  const resources = resourceNames.map((name) => {
+    const def = resourceDefs?.get(name);
+    if (def) {
+      return {
+        name,
+        type: '资源',
+        times: def.times,
+        outputs: def.outputs,
+        outputs2: def.outputs2,
+        gatherCmd: def.gatherCmd,
+      };
+    }
+    // 找不到资源类型定义时保留名称（不阻断导入）
+    return { name, type: '资源', times: 1, outputs: [], outputs2: [], gatherCmd: '' };
+  });
 
   // 解析连接
   const connections = parseConnectionString(fields['可前往'] || '');
@@ -713,6 +769,18 @@ async function importData() {
 
   const sections = parseConfigFile();
 
+  // 先收集所有「资源」类型定义，供地图资源关联产出数据
+  const resourceDefs = new Map<string, ResourceDef>();
+  for (const section of sections) {
+    if (section.type !== '资源') continue;
+    resourceDefs.set(section.name, {
+      times: parseInt(section.fields['次数'] || '1') || 1,
+      outputs: parseResourceOutput(section.fields['产出'] || ''),
+      outputs2: parseResourceOutput(section.fields['产出2'] || ''),
+      gatherCmd: section.fields['采集指令'] || '',
+    });
+  }
+
   // 统计各类型数量
   const typeCounts: Record<string, number> = {};
   for (const section of sections) {
@@ -794,7 +862,7 @@ async function importData() {
         }
 
         case '地图': {
-          const data = mapMapToMap(section);
+          const data = mapMapToMap(section, resourceDefs);
           await prisma.gameMap.upsert({
             where: { name: data.name },
             update: data,

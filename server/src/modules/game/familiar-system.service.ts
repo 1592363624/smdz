@@ -1944,6 +1944,472 @@ export class FamiliarSystemService {
   }
 
   /**
+   * 宠物觉醒
+   * 对应原版：宠物觉醒()
+   * 消耗觉醒丹觉醒宠物，每觉醒一次宠物全属性+0.5%
+   * 觉醒到99的倍数时需要花费(觉醒次数+1)÷10的觉醒丹来突破；次数为-1时返还所有觉醒丹
+   * @param userId 用户ID
+   * @param petName 宠物名称
+   * @param countStr 觉醒次数（负数表示返还觉醒丹）
+   * @returns 操作结果文本
+   */
+  async petAwaken(userId: number, petName: string, countStr: string): Promise<string> {
+    if (!petName || !countStr) {
+      return `「宠物觉醒史莱姆 3」消耗3个觉醒丹来觉醒名为【史莱姆】的宠物3次。
+「宠物觉醒史莱姆 -1」来返回名为【史莱姆】的宠物消耗的觉醒丹。
+每觉醒到99时，需要花费(觉醒次数+1)÷10的觉醒丹来突破
+◆每觉醒一次宠物全属性+0.5%，并获得以下效果：
+◆觉醒≥1：神识初醒 - 每击杀或助攻1次，基础护盾、装甲、生命+8，闪避、命中、攻击+1
+◆觉醒≥100：炼精化气 - 攻击优先级高于觉醒小于100的宠物，命中和闪避+10%，攻击+20%
+◆觉醒≥200：逆转阴阳 - 贯穿+10%，攻击+50%
+◆觉醒≥300：天地同辉 - 宠物驾驶载具时，攻击+20%，载具被命中时33%几率载具受到的伤害减半
+◆觉醒≥400：羽化升仙 - 攻击、护盾、装甲、生命、命中、闪避、护盾回复、装甲修复、生命恢复+50%，可以使用指令「宠物攻击」
+◆觉醒≥500：天神降世 - 命中目标造成目标状态上限3%的额外伤害，攻击时释放技能「天神降世」`;
+    }
+
+    const count = parseInt(countStr, 10);
+    if (isNaN(count) || count === 0) {
+      return `「宠物觉醒史莱姆 3」消耗3个觉醒丹来觉醒名为【史莱姆】的宠物3次。`;
+    }
+
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    // 获取当前地图
+    const map = await this.prisma.gameMap.findUnique({
+      where: { id: player.mapId },
+    });
+    if (!map) {
+      return '你不在任何地图上';
+    }
+
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const petIndex = summons.findIndex(
+      (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+    );
+    if (petIndex === -1) {
+      return `当前地图没有名为「${petName}」并且属于你的宠物`;
+    }
+
+    const pet = summons[petIndex];
+
+    // 临时召唤物不能觉醒
+    if (pet.qq && pet.qq.includes('x')) {
+      return '召唤物不能觉醒';
+    }
+    if ((pet.hp || 0) <= 0) {
+      return `${petName} 没有属性，不能觉醒`;
+    }
+
+    if (!pet.markers) pet.markers = {};
+    const currentAwaken = pet.markers['觉醒'] || 0;
+
+    // 返回觉醒丹：计算历史消耗并重置
+    if (count < 0) {
+      let totalSpent = 0;
+      let d = 0;
+      for (let i = 0; i < currentAwaken; i++) {
+        totalSpent += d % 100 === 99 ? (d + 1) / 10 : 1;
+        d++;
+      }
+      pet.markers['觉醒'] = 0;
+      summons[petIndex] = pet;
+      await this.prisma.gameMap.update({
+        where: { id: map.id },
+        data: { summons: JSON.stringify(summons) },
+      });
+
+      // 返还觉醒丹到背包
+      const backpack = this.playerService.getBackpackItems(player);
+      const pillItem = backpack.find((item: any) => item.name === '觉醒丹');
+      if (pillItem) {
+        pillItem.count = (pillItem.count || 0) + totalSpent;
+      } else {
+        backpack.push({ name: '觉醒丹', type: '资源', count: totalSpent });
+      }
+      player.backpack = JSON.stringify(backpack);
+      await this.playerService.savePlayer(player);
+
+      return `还原了${petName}的${currentAwaken}次觉醒，得到了觉醒丹x${totalSpent}`;
+    }
+
+    // 正向觉醒
+    const backpack = this.playerService.getBackpackItems(player);
+    const pillItem = backpack.find((item: any) => item.name === '觉醒丹');
+    let available = pillItem ? (pillItem.count || 0) : 0;
+
+    let d = currentAwaken;
+    let used = 0;
+    let done = 0;
+    for (let i = 0; i < count; i++) {
+      const cost = d % 100 === 99 ? (d + 1) / 10 : 1;
+      if (available < cost) break;
+      available -= cost;
+      used += cost;
+      d++;
+      done++;
+    }
+
+    if (done === 0) {
+      const nextCost = d % 100 === 99 ? (d + 1) / 10 : 1;
+      return `${petName}，突破「${this.getAwakenStageName(d)}」需要${nextCost}颗觉醒丹，你只有${pillItem ? pillItem.count : 0}`;
+    }
+
+    // 扣除觉醒丹
+    if (pillItem && used > 0) {
+      if (pillItem.count === used) {
+        backpack.splice(backpack.indexOf(pillItem), 1);
+      } else {
+        pillItem.count -= used;
+      }
+    }
+    player.backpack = JSON.stringify(backpack);
+
+    // 记录觉醒次数
+    pet.markers['觉醒'] = d;
+    // 属性加成：每觉醒一次全属性+0.5%（基于初始属性）
+    if (!pet.baseStats) {
+      pet.baseStats = {
+        hp: pet.hp || 0,
+        attack: pet.attack || 0,
+        defense: pet.defense || 0,
+        speed: pet.speed || 100,
+      };
+    }
+    const bonus = 1 + d * 0.005;
+    pet.hp = Math.round((pet.baseStats.hp || 0) * bonus);
+    pet.attack = Math.round((pet.baseStats.attack || 0) * bonus);
+    pet.defense = Math.round((pet.baseStats.defense || 0) * bonus);
+    pet.speed = Math.round((pet.baseStats.speed || 100) * bonus);
+
+    summons[petIndex] = pet;
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: { summons: JSON.stringify(summons) },
+    });
+    await this.playerService.savePlayer(player);
+
+    return `消耗${used}颗觉醒丹让${petName}觉醒了${done}次，突破到了
+${this.getAwakenStageName(d)}(${d})`;
+  }
+
+  /**
+   * 获取觉醒阶段名称
+   * @param awaken 觉醒次数
+   */
+  private getAwakenStageName(awaken: number): string {
+    if (awaken < 100) return `神识初醒(${awaken})`;
+    if (awaken < 200) return `炼精化气(${awaken - 100})(${awaken})`;
+    if (awaken < 300) return `逆转阴阳(${awaken - 200})(${awaken})`;
+    if (awaken < 400) return `天地同辉(${awaken - 300})(${awaken})`;
+    if (awaken < 500) return `羽化升仙(${awaken - 400})(${awaken})`;
+    return `天神降世(${awaken - 500})(${awaken})`;
+  }
+
+  /**
+   * 宠物攻击
+   * 对应原版：宠物攻击()
+   * 远程操作放在指定地图、觉醒≥400、生命大于0的宠物对怪物发起攻击（冷却30秒）
+   * @param userId 用户ID
+   * @param mapName 目标地图名称
+   * @returns 操作结果文本
+   */
+  async petAttack(userId: number, mapName: string): Promise<string> {
+    if (!mapName) {
+      return `「宠物攻击森林出口」来远程操作，让你放在森林出口的宠物对怪物发起攻击`;
+    }
+
+    const map = await this.prisma.gameMap.findFirst({ where: { name: mapName } });
+    if (!map) {
+      return `${mapName} 在地图列表不存在`;
+    }
+
+    // 查找该地图上属于玩家、存活、觉醒≥400的宠物
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const qualifiedPet = summons.find(
+      (s: any) =>
+        s.ownerQQ === userId.toString() &&
+        (s.hp || 0) > 0 &&
+        ((s.markers && s.markers['觉醒']) || 0) >= 400,
+    );
+
+    if (!qualifiedPet) {
+      return `${mapName} 没有属于你、当前生命大于0、觉醒阶段至少为【羽化升仙】的宠物`;
+    }
+
+    // 检查地图上的目标怪物（临时生成的怪物）
+    const spawnMonsters = this.playerService.safeJsonParse<any[]>(map.spawnMonsters || '[]', []);
+    if (spawnMonsters.length === 0) {
+      return `${map.name} 没有目标了`;
+    }
+
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    // 冷却30秒
+    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const now = Date.now() / 1000;
+    const cooldownKey = `宠物攻击${map.name}`;
+    const cd = markers2.find((m: any) => m.name === cooldownKey);
+    if (cd && cd.expireAt > now) {
+      return `宠物攻击冷却中，剩余${Math.ceil(cd.expireAt - now)}秒`;
+    }
+
+    // 宠物对第一个怪物发起攻击（简化战斗：直接结算伤害）
+    const monster = spawnMonsters[0];
+    const petCombat = this.bonusService.calcCombatPower({
+      attack: qualifiedPet.attack || 0,
+      hp: qualifiedPet.hp || 0,
+      armor: qualifiedPet.defense || 0,
+      speed: qualifiedPet.speed || 100,
+    });
+    const monsterCombat = this.bonusService.calcCombatPower({
+      attack: monster.attack || 0,
+      hp: monster.hp || 0,
+      armor: monster.defense || 0,
+      speed: monster.speed || 100,
+    });
+
+    // 简单胜率判定
+    const winRate = petCombat / Math.max(1, petCombat + monsterCombat);
+    const isWin = Math.random() < winRate;
+
+    let resultText: string;
+    if (isWin) {
+      spawnMonsters.shift();
+      resultText = `${qualifiedPet.name} 击败了${monster.name || '怪物'}！`;
+    } else {
+      const hpLoss = Math.max(1, Math.round((monster.attack || 0) * 0.3));
+      qualifiedPet.hp = Math.max(1, (qualifiedPet.hp || 0) - hpLoss);
+      resultText = `${qualifiedPet.name} 未能击败${monster.name || '怪物'}，受到了${hpLoss}点伤害`;
+    }
+
+    // 设置冷却和活动标记
+    const newMarkers2 = markers2.filter((m: any) => m.name !== cooldownKey);
+    newMarkers2.push({ name: cooldownKey, expireAt: now + 30 });
+    player.markers2 = JSON.stringify(newMarkers2);
+
+    // 更新地图与玩家
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: {
+        summons: JSON.stringify(summons),
+        spawnMonsters: JSON.stringify(spawnMonsters),
+      },
+    });
+    await this.playerService.savePlayer(player);
+
+    return resultText;
+  }
+
+  /**
+   * 宠物前往
+   * 对应原版：宠物前往()
+   * 让当前地图上属于玩家的宠物移动到指定地图
+   * @param userId 用户ID
+   * @param petName 宠物名称
+   * @param mapName 目标地图名称
+   * @returns 操作结果文本
+   */
+  async petGoto(userId: number, petName: string, mapName: string): Promise<string> {
+    if (!petName || !mapName) {
+      return `「宠物前往史莱姆 森林出口」来让名为史莱姆的宠物前往你指定的地点`;
+    }
+
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    const map = await this.prisma.gameMap.findUnique({ where: { id: player.mapId } });
+    if (!map) {
+      return '你不在任何地图上';
+    }
+
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const petIndex = summons.findIndex(
+      (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+    );
+    if (petIndex === -1) {
+      return `${map.name} 这里没有属于你的、名为「${petName}」的宠物或NPC`;
+    }
+
+    const targetMap = await this.prisma.gameMap.findFirst({ where: { name: mapName } });
+    if (!targetMap) {
+      return `${mapName} 在地图列表不存在`;
+    }
+
+    const pet = summons[petIndex];
+    summons.splice(petIndex, 1);
+
+    // 处理载具描述
+    const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles || '[]', []);
+    const vehicle = vehicles.find((v: any) => v.id === pet.vehicle || v.driver === pet.qq || v.driver === petName);
+    let moveText: string;
+    if (vehicle && vehicle.walkMode === 0) {
+      moveText = `拖着${vehicle.name}跑到了`;
+    } else if (vehicle && vehicle.walkMode === 1) {
+      moveText = `驾驶${vehicle.name}一路疾驰来到了`;
+    } else if (vehicle && vehicle.walkMode === 2) {
+      moveText = `操纵${vehicle.name}飞到了`;
+    } else if (vehicle && vehicle.walkMode === 4) {
+      moveText = `的${vehicle.name}安装了无法移动的组件，${pet.name}丢下${vehicle.name}跑到了`;
+    } else if (vehicle) {
+      moveText = `操纵${vehicle.name}跃迁到了`;
+    } else {
+      moveText = '跑到了';
+    }
+
+    // 添加到目标地图
+    const targetSummons = this.playerService.safeJsonParse<any[]>(targetMap.summons, []);
+    targetSummons.push(pet);
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: { summons: JSON.stringify(summons) },
+    });
+    await this.prisma.gameMap.update({
+      where: { id: targetMap.id },
+      data: { summons: JSON.stringify(targetSummons) },
+    });
+
+    return `${pet.name}${moveText}${targetMap.name}`;
+  }
+
+  /**
+   * 宠物装备
+   * 对应原版：宠物装备()
+   * 让宠物额外使用背包里的武器/装备/法宝（必须是宝宝，螳螂除外），或把装备还给你
+   * @param userId 用户ID
+   * @param petName 宠物名称
+   * @param itemArg 物品序号（给装备）或物品名称（还装备）
+   * @returns 操作结果文本
+   */
+  async petEquip(userId: number, petName: string, itemArg: string): Promise<string> {
+    if (!petName || !itemArg) {
+      return `「宠物装备史莱姆 17」来让名为【史莱姆】的宠物额外使用你背包里的第17个物品(这个物品必须是武器，或者装备，或者法宝)
+这件物品会被宠物拿过去装备在身上
+必须是使用床补魔生下的宝宝才能使用这个功能
+一个宠物最多额外装备一件武器、一件装备、一件法宝
+「宠物装备史莱姆 火神机枪」来让宠物把它装备的物品(或者背包里的物品)还给你`;
+    }
+
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    const map = await this.prisma.gameMap.findUnique({ where: { id: player.mapId } });
+    if (!map) {
+      return '你不在任何地图上';
+    }
+
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const petIndex = summons.findIndex(
+      (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+    );
+    if (petIndex === -1) {
+      return `${map.name} 这里没有属于你的、名为${petName}的宠物`;
+    }
+
+    const pet = summons[petIndex];
+
+    // 必须是宝宝（补魔生下）或螳螂
+    const isBaby = pet.markers && pet.markers['宝宝'];
+    const isMantis = (pet.type || '').includes('螳螂');
+    if (!isBaby && !isMantis) {
+      return `${map.name} 这里没有属于你的、名为${petName}、是补魔生下来的宝宝的宠物`;
+    }
+    if (pet.qq && pet.qq.includes('x')) {
+      return '召唤物不能执行此操作';
+    }
+
+    // 宠物额外装备列表：装备预设[2].装备
+    if (!pet.equipmentPresets) pet.equipmentPresets = [{}, { equipment: [] }];
+    const extraEquip: any[] = pet.equipmentPresets[2]?.equipment || [];
+
+    // 背包物品
+    const backpack = this.playerService.getBackpackItems(player);
+    const isIndex = /^\d+$/.test(itemArg);
+
+    if (isIndex) {
+      // 给宠物上装备
+      let idx = parseInt(itemArg, 10);
+      if (idx < 1 || idx > backpack.length) {
+        return `背包中没有第${idx}个物品`;
+      }
+      // 原版中背包数组从1开始
+      const item = backpack[idx - 1];
+
+      // 判断物品类型
+      const itemType = item.type || '';
+      const isWeaponType = itemType === '武器';
+      const isEquipType = itemType === '装备';
+      const isMagic = itemType === '法宝';
+
+      if (!isWeaponType && !isEquipType && !isMagic) {
+        return `${item.name}不是装备，也不是武器或者法宝`;
+      }
+
+      // 检查是否已装备同名物品
+      const sameName = extraEquip.some((e: any) => e.name === item.name);
+      if (sameName) {
+        return `${petName} 已经在使用${item.name}这件物品了`;
+      }
+
+      // 检查同类型数量限制
+      const hasWeapon = extraEquip.some((e: any) => (e.type || '') === '武器');
+      const hasEquip = extraEquip.some((e: any) => (e.type || '') === '装备');
+      const hasMagic = extraEquip.some((e: any) => (e.type || '') === '法宝');
+
+      if (isWeaponType && hasWeapon) {
+        return `${petName} 已经在使用额外的武器了，不能装备多件`;
+      }
+      if (isEquipType && hasEquip) {
+        return `${petName} 已经在使用额外的装备了，不能装备多件`;
+      }
+      if (isMagic && hasMagic) {
+        return `${petName} 已经在使用法宝了，不能装备多件`;
+      }
+
+      // 装备给宠物并从玩家背包移除
+      extraEquip.push(item);
+      backpack.splice(idx - 1, 1);
+      player.backpack = JSON.stringify(backpack);
+
+      pet.equipmentPresets[2].equipment = extraEquip;
+      summons[petIndex] = pet;
+
+      await this.prisma.gameMap.update({
+        where: { id: map.id },
+        data: { summons: JSON.stringify(summons) },
+      });
+      await this.playerService.savePlayer(player);
+
+      const typeText = isWeaponType ? '接过了' : isEquipType ? '穿上了' : '佩戴上了';
+      return `${petName}${typeText}${player.name || '你'}递过来的${item.name}`;
+    }
+
+    // 还装备：按名称在宠物额外装备中查找
+    const equipIdx = extraEquip.findIndex((e: any) => e.name === itemArg);
+    if (equipIdx === -1) {
+      return `${petName} 没装备有${itemArg}`;
+    }
+
+    const returned = extraEquip[equipIdx];
+    extraEquip.splice(equipIdx, 1);
+    backpack.push(returned);
+    player.backpack = JSON.stringify(backpack);
+
+    pet.equipmentPresets[2].equipment = extraEquip;
+    summons[petIndex] = pet;
+
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: { summons: JSON.stringify(summons) },
+    });
+    await this.playerService.savePlayer(player);
+
+    return `${petName}把${returned.name}还给了${player.name || '你'}`;
+  }
+
+
+  /**
    * 捕捉宠物
    * 对应原版：捕捉/开始捕捉/停止捕捉()
    * @param userId 用户ID

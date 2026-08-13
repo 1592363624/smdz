@@ -577,31 +577,31 @@ export class GameCommandHandler implements CommandHandler {
         // ========== 设置子指令 ==========
         case '设置指引':
         case 'setting-guide':
-          return this.wrap(await this.gameService.handleSettingsGuide(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsGuide(userId));
 
         case '设置随机':
         case 'setting-random':
-          return this.wrap(await this.gameService.handleSettingsRandom(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsRandom(userId));
 
         case '设置采集':
         case 'setting-gather':
-          return this.wrap(await this.gameService.handleSettingsGather(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsGather(userId));
 
         case '设置活力':
         case 'setting-vitality':
-          return this.wrap(await this.gameService.handleSettingsVitality(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsVitality(userId));
 
         case '设置不扶':
         case 'setting-no-help':
-          return this.wrap(await this.gameService.handleSettingsNoHelp(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsNoHelp(userId));
 
         case '设置音乐':
         case 'setting-music':
-          return this.wrap(await this.gameService.handleSettingsMusic(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsMusic(userId));
 
         case '设置倍率':
         case 'setting-multiplier':
-          return this.wrap(await this.gameService.handleSettingsMultiplier(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsMultiplier(userId));
 
         case '设置购物':
         case 'setting-shop':
@@ -609,11 +609,11 @@ export class GameCommandHandler implements CommandHandler {
 
         case '设置位置':
         case 'setting-location':
-          return this.wrap(await this.gameService.handleSettingsLocation(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsLocation(userId, arg));
 
         case '设置标记':
         case 'setting-marker':
-          return this.wrap(await this.gameService.handleSettingsMarker(userId, firstArg));
+          return this.wrap(await this.gameService.handleSettingsMarker(userId, arg));
 
         // ========== 快捷输入 ==========
         case '快捷':
@@ -1009,75 +1009,77 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.gameService.handleEquipPreset(userId, firstArg, args.slice(1)));
 
         // ========== 商店 ==========
+        // 活跃度/钻石/数据三个商店统一委托给使魔商店子系统显示对应子商店
         case '活跃度商店':
         case 'activity-shop':
-          return this.wrap(await this.gameService.handleActivityShop(userId, arg));
+          return this.wrap(await this.familiarSystem.familiarShop(userId, 'activity'));
 
         case '钻石商店':
         case 'diamond-shop':
-          return this.wrap(await this.gameService.handleDiamondShop(userId, arg));
+          return this.wrap(await this.familiarSystem.familiarShop(userId, 'diamond'));
 
         case '数据商店':
         case 'data-shop':
-          return this.wrap(await this.gameService.handleDataShop(userId, arg));
+          return this.wrap(await this.familiarSystem.familiarShop(userId, 'dataCore'));
 
         // ========== 探测扩展 ==========
+        // 原版探测系列：无关键词=汇总提示/全部列表；有关键词=定向搜索
         case '探测雷达':
         case 'probe-radar':
           return this.wrap(await this.gameService.handleProbeRadar(userId));
 
         case '探测资源':
         case 'probe-resource':
-          return this.wrap(await this.gameService.handleProbeResources(userId));
+          return this.wrap(await this.gameService.handleProbeResources(userId, firstArg));
 
         case '探测拾取':
         case 'probe-pickup':
-          return this.wrap(await this.gameService.handleProbeAndPickup(userId));
+          return this.wrap(await this.gameService.handleProbeAndPickup(userId, firstArg));
 
         case '探测作物':
         case 'probe-crop':
-          return this.wrap(await this.gameService.handleProbeCrops(userId));
+          return this.wrap(await this.gameService.handleProbeCrops(userId, firstArg));
 
         // ========== 宠物扩展 ==========
         case '宠物操作':
         case 'pet-ops':
-          return this.wrap(await this.gameService.handlePetOps(userId, firstArg, args.slice(1)));
+          return this.wrap(await this.familiarSystem.handlePet(userId, firstArg));
 
         case '宠物改名':
         case 'pet-rename':
-          return this.wrap(await this.gameService.handlePetRename(userId, firstArg, args.slice(1).join(' ')));
+          return this.wrap(await this.familiarSystem.renamePet(userId, firstArg, args.slice(1).join(' ')));
 
         case '宠物转让':
         case 'pet-transfer':
-          return this.wrap(await this.gameService.handlePetTransfer(userId, firstArg, args.slice(1).join(' ')));
+          return this.wrap(await this.familiarSystem.transferPet(userId, firstArg, args.slice(1).join(' ')));
 
         case '宠物驾驶':
         case 'pet-drive':
-          return this.wrap(await this.gameService.handlePetDrive(userId, firstArg));
+          return this.wrap(await this.familiarSystem.petDrive(userId, firstArg, args.slice(1).join(' ')));
 
         case '宠物喂食':
         case 'pet-feed':
-          return this.wrap(await this.gameService.handlePetFeed(userId, firstArg));
+          return this.wrap(await this.familiarSystem.petFeed(userId, firstArg, parseInt(args[1], 10) || 1));
 
         case '宠物嗅探':
         case 'pet-sniff':
-          return this.wrap(await this.gameService.handlePetSniff(userId, firstArg));
+          return this.wrap(await this.familiarSystem.petSniff(userId, firstArg, args.slice(1).join(' ')));
 
         case '宠物觉醒':
         case 'pet-awaken':
-          return this.wrap(await this.gameService.handlePetAwaken(userId, firstArg));
+          return this.wrap(await this.familiarSystem.petAwaken(userId, firstArg, args.slice(1).join(' ')));
 
         case '宠物攻击':
         case 'pet-attack':
-          return this.wrap(await this.gameService.handlePetAttack(userId, firstArg));
+          return this.wrap(await this.familiarSystem.petAttack(userId, firstArg));
 
         case '宠物前往':
         case 'pet-goto':
-          return this.wrap(await this.gameService.handlePetGoto(userId, firstArg));
+          return this.wrap(await this.familiarSystem.petGoto(userId, firstArg, args.slice(1).join(' ')));
 
         case '宠物装备':
         case 'pet-equip':
-          return this.wrap(await this.gameService.handlePetEquip(userId, arg));
+          return this.wrap(await this.familiarSystem.petEquip(userId, firstArg, args.slice(1).join(' ')));
 
         // ========== 全部指令 ==========
         case '全部跟随':
