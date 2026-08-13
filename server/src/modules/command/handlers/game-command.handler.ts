@@ -414,6 +414,18 @@ export class GameCommandHandler implements CommandHandler {
         case '圈地':
           return this.wrap(await this.familiarSystem.handleHome(userId, '圈地', ...args.slice(1)));
 
+        case '开挖地基':
+        case 'dig-foundation':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '开挖地基'));
+
+        case '建造地基':
+        case 'build-foundation':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '建造地基'));
+
+        case '建造房子':
+        case 'build-house':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '建造房子'));
+
         case '生产':
           return this.wrap(await this.handleHomeCommand(userId, '生产', args));
 

@@ -75,6 +75,16 @@ export class PlayerService {
         { name: '面包', type: '消耗品', quantity: 3, durability: 0, data: '' },
       ];
 
+      // 初始已装备的武器（石斧直接装备在武器栏）
+      const initialWeapons = [
+        { name: '石斧', type: '武器', slot: 1, quantity: 1, durability: 0, data: 'e' },
+      ];
+
+      // 初始已装备的防具
+      const initialEquipment = [
+        { name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' },
+      ];
+
       // 初始标记："指引"=0 表示新手指引开启
       const initialMarkers = { '指引': 0 };
 
@@ -109,8 +119,8 @@ export class PlayerService {
           location: '新手村',
           // 复杂数据结构
           backpack: JSON.stringify(initialBackpack),
-          equipment: '[]',
-          weapons: '[]',
+          equipment: JSON.stringify(initialEquipment),
+          weapons: JSON.stringify(initialWeapons),
           markers: JSON.stringify(initialMarkers),
           titles: JSON.stringify(initialTitles),
         },

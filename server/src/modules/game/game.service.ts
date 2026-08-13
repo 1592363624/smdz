@@ -142,17 +142,19 @@ export class GameService {
     const lines: string[] = [];
 
     if (isNewPlayer) {
-      // 新玩家欢迎信息
+      // 新玩家欢迎信息 - 仿原版风格
       lines.push(`━━━ 【使魔大战】欢迎你，${player.name || '冒险者'}！━━━`);
       lines.push('');
-      lines.push('📖 你来到了新手村，冒险从这里开始！');
-      lines.push('你的背包里有一些初始装备，先熟悉一下操作吧：');
+      lines.push('📖 你缓缓睁开眼睛，发现自己站在新手村的入口处。');
+      lines.push('四周是熟悉的建筑，远处传来史莱姆的叫声……');
+      lines.push('你摸了摸身上，发现背包里有一些基础物资。');
       lines.push('');
       lines.push('📋 第一步：查看背包');
-      lines.push('  输入 背包 查看你的物品');
+      lines.push('  输入 背包 查看你的物品和身上的装备');
       lines.push('');
       lines.push('⚔️ 第二步：装备武器');
-      lines.push('  输入 装备 石斧 来装备你的第一把武器');
+      lines.push('  输入 装备 装备背包里的武器和防具');
+      lines.push('  你也可以直接 攻击 开始战斗（已经预装备了石斧）');
       lines.push('');
       lines.push('🗡️ 第三步：开始战斗');
       lines.push('  输入 攻击 攻击新手村的史莱姆，获取经验和掉落');
@@ -162,8 +164,9 @@ export class GameService {
       lines.push('');
       lines.push('🏠 第五步：建造家园');
       lines.push('  找到你中意的地点，输入 圈地 开始建造你的家园');
+      lines.push('  然后依次使用 开挖地基 → 建造地基 → 建造房子 完成建造');
       lines.push('');
-      lines.push('💡 提示：输入 帮助 查看所有可用指令');
+      lines.push('💡 提示：输入 查看任务 查看可领取的新手任务');
       lines.push('💡 提示：输入 新手教程 off 可关闭新手指引');
       lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━');
     }
