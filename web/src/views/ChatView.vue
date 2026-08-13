@@ -196,7 +196,7 @@
             @keyup="onInputKeyup"
             @keydown="onInputKeydown"
             @blur="onInputBlur"
-            placeholder="输入聊天内容，或 /指令 发送指令（如 /info）"
+            placeholder="开始愉快地玩耍吧!"
           />
           <!-- 指令自动补全下拉 -->
           <div v-if="showAutocomplete && filteredCommands.length" class="autocomplete-list">

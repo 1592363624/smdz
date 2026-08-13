@@ -5066,4 +5066,27 @@ export class GameService {
       return '';
     }
   }
+
+  /**
+   * 获取玩家当前所在的地图对象
+   * @param userId 用户ID
+   * @returns 地图对象
+   */
+  async getCurrentMap(userId: number): Promise<any> {
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (!player) throw new Error('玩家数据不存在');
+    return this.mapService.getMapById(player.mapId);
+  }
+
+  /**
+   * 更新地图的建筑数据
+   * @param mapId 地图ID
+   * @param buildingsJson 建筑数据JSON字符串
+   */
+  async updateMapBuildings(mapId: number, buildingsJson: string): Promise<void> {
+    await this.prisma.gameMap.update({
+      where: { id: mapId },
+      data: { buildings: buildingsJson },
+    });
+  }
 }

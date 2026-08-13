@@ -993,4 +993,22 @@ export class HomeService {
       return defaultValue;
     }
   }
+
+  /**
+   * 获取所有建筑定义
+   * 从数据库中加载 GameBuilding 表
+   */
+  async getAllBuildingDefs(): Promise<any[]> {
+    return this.prisma.gameBuilding.findMany();
+  }
+
+  /**
+   * 获取建筑产出倍率
+   * 从玩家标记中读取产出倍率设置
+   * @param markers 玩家标记
+   * @returns 产出倍率（默认1.0）
+   */
+  getBuildingOutputRate(markers: Record<string, number>): number {
+    return markers['产出倍率'] || 1.0;
+  }
 }

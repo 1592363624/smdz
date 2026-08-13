@@ -3,7 +3,7 @@
  * 处理所有游戏相关的指令，按指令名分发到对应的子系统
  * 对应原版易语言：_主程序.ecode 中的指令分发逻辑
  */
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { GameService } from '../../game/game.service';
 import { CombatSystemService } from '../../game/combat-system.service';
 import { ItemSystemService } from '../../game/item-system.service';
@@ -20,6 +20,7 @@ import { CommandContext, CommandHandler, CommandResult } from '../interfaces/com
 export class GameCommandHandler implements CommandHandler {
   key = 'game'; // 所有游戏指令的 handlerKey 都设为 'game'
   module = 'game';
+  private readonly logger = new Logger(GameCommandHandler.name);
 
   constructor(
     @Inject(GameService) private readonly gameService: GameService,
@@ -920,10 +921,83 @@ export class GameCommandHandler implements CommandHandler {
     // 生产相关的子命令由 HomeService 处理
     const productionCommands = ['建造', '拆除', '种植', '收获', '生产'];
     if (productionCommands.includes(subCommand)) {
-      // 调用 HomeService 的生产相关方法
-      // 注意：这里是简化的路由，实际实现需要获取玩家/地图数据后调用 HomeService 的方法
-      // 完整实现逻辑在 game.service.ts 后续扩展
-      return `家园功能「${subCommand}」已集成 HomeService 核心计算引擎，后续命令处理将在 GameService 中扩展。`;
+      try {
+        const playerData = await this.playerService.getPlayerData(userId);
+        const { player, markers } = playerData;
+        const map = await this.gameService.getCurrentMap(userId);
+        const backpack = this.playerService.safeJsonParse<any[]>(player.backpack, []);
+
+        // 加载建筑定义列表
+        const buildingDefs = await this.homeService.getAllBuildingDefs();
+
+        let result;
+        switch (subCommand) {
+          case '建造': {
+            const buildingName = args.join(' ') || (args[0] || '');
+            if (!buildingName) return '请指定要建造的建筑名称，例如：建造 训练器';
+            const buildResult = await this.homeService.buildBuilding(map, buildingName, buildingDefs, backpack);
+            if (buildResult.success) {
+              // 保存地图和背包变更
+              await this.gameService.updateMapBuildings(map.id, map.buildings);
+              player.backpack = JSON.stringify(backpack);
+              await this.playerService.savePlayer(player);
+              // 自动推进任务
+              await this.taskService.advance(userId, '建造', buildingName);
+            }
+            return buildResult.message;
+          }
+
+          case '拆除': {
+            const buildingName = args.join(' ') || (args[0] || '');
+            if (!buildingName) return '请指定要拆除的建筑名称，例如：拆除 训练器';
+            const removeResult = await this.homeService.removeBuilding(map, buildingName, buildingDefs, backpack);
+            if (removeResult.success) {
+              await this.gameService.updateMapBuildings(map.id, map.buildings);
+              player.backpack = JSON.stringify(backpack);
+              await this.playerService.savePlayer(player);
+            }
+            return removeResult.message;
+          }
+
+          case '种植': {
+            const seedName = args.join(' ') || (args[0] || '');
+            if (!seedName) return '请指定要种植的种子名称，例如：种植 小麦种子';
+            const plantResult = await this.homeService.plantSeed(map, seedName, backpack, buildingDefs);
+            if (plantResult.success) {
+              await this.gameService.updateMapBuildings(map.id, map.buildings);
+              player.backpack = JSON.stringify(backpack);
+              await this.playerService.savePlayer(player);
+              await this.taskService.advance(userId, '种植', seedName);
+            }
+            return plantResult.message;
+          }
+
+          case '收获': {
+            const cropName = args.join(' ') || (args[0] || '');
+            if (!cropName) return '请指定要收获的作物名称，例如：收获 小麦';
+            const harvestResult = await this.homeService.harvestCrop(map, cropName, buildingDefs, backpack);
+            if (harvestResult.success) {
+              await this.gameService.updateMapBuildings(map.id, map.buildings);
+              player.backpack = JSON.stringify(backpack);
+              await this.playerService.savePlayer(player);
+              await this.taskService.advance(userId, '收获', cropName);
+            }
+            return harvestResult.message;
+          }
+
+          case '生产': {
+            // 生产操作：查看家园产出状态
+            const buildingOutput = await this.homeService.getBuildingOutputRate(markers);
+            return `🏭 家园产出状态\n产出倍率: ${buildingOutput}x\n使用「家园 查看」查看详细产出信息`;
+          }
+
+          default:
+            return `家园功能「${subCommand}」开发中`;
+        }
+      } catch (e) {
+        this.logger.warn(`家园操作失败: ${e.message}`);
+        return `家园操作失败: ${e.message}`;
+      }
     }
 
     // 其他子命令保持原有路由到 familiarSystem.handleHome
