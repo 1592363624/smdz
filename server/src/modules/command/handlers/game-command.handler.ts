@@ -13,6 +13,7 @@ import { PlayerService } from '../../game/player.service';
 import { TutorialService } from '../../game/tutorial.service';
 import { ShortcutService } from '../../game/shortcut.service';
 import { HomeService } from '../../game/home.service';
+import { TaskService } from '../../game/task.service';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class GameCommandHandler implements CommandHandler {
     @Inject(TutorialService) private readonly tutorialService: TutorialService,
     @Inject(ShortcutService) private readonly shortcutService: ShortcutService,
     @Inject(HomeService) private readonly homeService: HomeService,
+    @Inject(TaskService) private readonly taskService: TaskService,
   ) {}
 
   async handle(ctx: CommandContext, args: string[]): Promise<CommandResult> {
@@ -83,6 +85,9 @@ export class GameCommandHandler implements CommandHandler {
             return this.wrap(tutorialText);
           }
           const result = await this.combatSystem.weaponAttack(userId, 0, {});
+          // 自动推进任务
+          await this.taskService.advance(userId, '攻击');
+          await this.taskService.advance(userId, '击杀');
           return this.wrap(result.result);
         }
 
@@ -117,6 +122,8 @@ export class GameCommandHandler implements CommandHandler {
         case '前往':
         case '去':
         case '飞到':
+          // 自动推进任务
+          await this.taskService.advance(userId, '探索', arg);
           return this.wrap(await this.gameService.handleMove(userId, arg));
 
         case '地图':
@@ -145,6 +152,8 @@ export class GameCommandHandler implements CommandHandler {
           if (tutorialText) {
             return this.wrap(tutorialText);
           }
+          // 自动推进任务
+          await this.taskService.advance(userId, '装备', arg);
           return this.wrap(await this.gameService.handleEquip(userId, arg));
         }
 
@@ -155,13 +164,18 @@ export class GameCommandHandler implements CommandHandler {
 
         case '使用':
         case 'use':
+          // 自动推进任务
+          await this.taskService.advance(userId, '使用', arg);
           return this.wrap(await this.gameService.handleUseItem(userId, arg));
 
         // ========== 物品系统 ==========
         case '制造':
         case 'craft':
-        case '制作':
+        case '制作': {
+          // 自动推进任务
+          await this.taskService.advance(userId, '制造', arg);
           return this.wrap(await this.itemSystem.craftItem(userId, arg));
+        }
 
         case '分解':
         case 'deconstruct':
@@ -230,6 +244,8 @@ export class GameCommandHandler implements CommandHandler {
 
         case '兑换':
         case 'exchange':
+          // 自动推进任务
+          await this.taskService.advance(userId, '兑换', firstArg);
           return this.wrap(await this.familiarSystem.exchange(userId, firstArg));
 
         // ========== 使魔技能系统 ==========
@@ -419,12 +435,16 @@ export class GameCommandHandler implements CommandHandler {
 
         case '捕捉':
         case 'capture':
+          // 自动推进任务
+          await this.taskService.advance(userId, '捕捉', firstArg);
           return this.wrap(await this.familiarSystem.capturePet(userId, firstArg, args.slice(1).join(' ')));
 
         // ========== 地图/探索 ==========
         case '传送':
         case 'teleport':
         case '跃迁':
+          // 自动推进任务
+          await this.taskService.advance(userId, '传送', arg);
           return this.wrap(await this.gameService.handleMove(userId, arg));
 
         case '探测':
@@ -439,11 +459,15 @@ export class GameCommandHandler implements CommandHandler {
           if (tutorialText) {
             return this.wrap(tutorialText);
           }
+          // 自动推进任务
+          await this.taskService.advance(userId, '拾取', arg);
           return this.wrap(await this.gameService.handlePickup(userId, arg));
         }
 
         case '开采':
         case 'mine':
+          // 自动推进任务
+          await this.taskService.advance(userId, '开采', firstArg);
           return this.wrap(await this.gameService.handleMine(userId, firstArg));
 
         // ========== 副本系统 ==========

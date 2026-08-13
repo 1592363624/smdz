@@ -25,6 +25,7 @@ import { DungeonService } from './dungeon.service';
 import { AchievementService } from './achievement.service';
 import { HomeService } from './home.service';
 import { ShortcutService } from './shortcut.service';
+import { TaskService } from './task.service';
 
 @Global()
 @Module({
@@ -47,6 +48,7 @@ import { ShortcutService } from './shortcut.service';
     AchievementService,
     HomeService,
     ShortcutService,
+    TaskService,
   ],
   exports: [
     GameService,
@@ -65,6 +67,7 @@ import { ShortcutService } from './shortcut.service';
     AchievementService,
     HomeService,
     ShortcutService,
+    TaskService,
   ],
 })
 export class GameModule {}
