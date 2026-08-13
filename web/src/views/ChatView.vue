@@ -81,6 +81,25 @@
 
       <button v-if="isAdmin" class="logout admin-entry" @click="router.push('/admin')">⚙️ 管理后台</button>
       <button class="logout" @click="logout">退出登录</button>
+
+      <!-- 底部状态栏：连接状态 + 总人数 + 在线人数 -->
+      <div class="sidebar-status">
+        <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
+        <span class="ss-text">
+          <span class="ss-label">服务器</span>
+          <span class="ss-value">{{ connected ? '已连接' : '连接中...' }}</span>
+        </span>
+        <span class="ss-divider"></span>
+        <span class="ss-text">
+          <span class="ss-label">总人数</span>
+          <span class="ss-value">{{ serverStats.totalPlayers }}</span>
+        </span>
+        <span class="ss-divider"></span>
+        <span class="ss-text">
+          <span class="ss-label">在线</span>
+          <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
+        </span>
+      </div>
     </aside>
 
     <!-- 手机端遮罩层（点击关闭抽屉） -->
@@ -160,6 +179,25 @@
 
       <button v-if="isAdmin" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
       <button class="logout" @click="logout">退出登录</button>
+
+      <!-- 手机端底部状态栏 -->
+      <div class="sidebar-status">
+        <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
+        <span class="ss-text">
+          <span class="ss-label">服务器</span>
+          <span class="ss-value">{{ connected ? '已连接' : '连接中...' }}</span>
+        </span>
+        <span class="ss-divider"></span>
+        <span class="ss-text">
+          <span class="ss-label">总人数</span>
+          <span class="ss-value">{{ serverStats.totalPlayers }}</span>
+        </span>
+        <span class="ss-divider"></span>
+        <span class="ss-text">
+          <span class="ss-label">在线</span>
+          <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
+        </span>
+      </div>
     </aside>
 
     <!-- 右侧：公屏聊天 -->
@@ -259,6 +297,10 @@ const input = ref('');
 const connected = ref(false);
 const msgList = ref(null);
 const inputEl = ref(null);
+
+// 服务器统计（总人数、在线人数）
+const serverStats = ref({ totalPlayers: 0, onlinePlayers: 0 });
+let statsTimer = null;
 let socket = null;
 
 // 玩家信息
@@ -546,6 +588,16 @@ async function loadMapConnections() {
   }
 }
 
+// 加载服务器统计（总人数、在线人数）
+async function loadServerStats() {
+  try {
+    const res = await gameApi.stats();
+    serverStats.value = res.data;
+  } catch {
+    // 统计接口可能暂不可用，静默忽略
+  }
+}
+
 // 移动端视图高度修复函数
 let setViewportHeight = null;
 
@@ -569,6 +621,10 @@ onMounted(async () => {
     commands.value = cmds.data;
     // 加载玩家信息和地图连接
     await Promise.allSettled([loadPlayerInfo(), loadMapConnections()]);
+    // 加载服务器统计
+    loadServerStats();
+    // 每 30 秒刷新一次服务器统计
+    statsTimer = setInterval(loadServerStats, 30000);
 
     // 建立 WebSocket 连接(携带 token 认证)
     // 开发环境直连后端，生产环境走同源代理
@@ -613,5 +669,6 @@ onMounted(async () => {
 onUnmounted(() => {
   socket?.disconnect();
   window.removeEventListener('resize', setViewportHeight);
+  if (statsTimer) clearInterval(statsTimer);
 });
 </script>

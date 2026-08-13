@@ -27,6 +27,7 @@ import { ChatService } from './chat.service';
 import { CommandService } from '../command/command.service';
 import { CommandContext, CommandSource } from '../command/interfaces/command.interface';
 import { ShortcutService } from '../game/shortcut.service';
+import { StatsService } from '../game/stats.service';
 
 /// Socket 客户端附加的用户信息
 interface SocketUser {
@@ -51,6 +52,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly jwtService: JwtService,
     private readonly systemConfigService: SystemConfigService,
     private readonly shortcutService: ShortcutService,
+    private readonly statsService: StatsService,
   ) {}
 
   /**
@@ -79,6 +81,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // 加入频道房间（房间名用频道名）
       await client.join(channel.name);
+      // 记录在线状态
+      this.statsService.userOnline(payload.userId);
       this.logger.log(`用户 ${payload.username}(id=${payload.userId}) 已连接并加入频道「${channel.name}」`);
 
       // 通知客户端连接成功
@@ -94,7 +98,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * 连接断开清理
    */
   handleDisconnect(client: Socket) {
-    this.logger.log(`客户端断开: ${client.id}`);
+    const user = client.data?.user as SocketUser | undefined;
+    if (user) {
+      this.statsService.userOffline(user.userId);
+      this.logger.log(`用户 ${user.username}(id=${user.userId}) 断开连接`);
+    } else {
+      this.logger.log(`客户端断开: ${client.id}`);
+    }
   }
 
   /**

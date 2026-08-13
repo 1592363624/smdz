@@ -26,6 +26,7 @@ import { AchievementService } from './achievement.service';
 import { HomeService } from './home.service';
 import { ShortcutService } from './shortcut.service';
 import { TaskService } from './task.service';
+import { StatsService } from './stats.service';
 
 @Global()
 @Module({
@@ -49,6 +50,7 @@ import { TaskService } from './task.service';
     HomeService,
     ShortcutService,
     TaskService,
+    StatsService,
   ],
   exports: [
     GameService,
@@ -68,6 +70,7 @@ import { TaskService } from './task.service';
     HomeService,
     ShortcutService,
     TaskService,
+    StatsService,
   ],
 })
 export class GameModule {}

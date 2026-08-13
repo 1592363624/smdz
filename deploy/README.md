@@ -59,7 +59,7 @@ mkdir C:\wwwroot\smdz
 | `WIN_USER` | `Administrator` | Windows 登录用户名 |
 | `WIN_SSH_KEY` | `-----BEGIN OPENSSH PRIVATE KEY-----...` | SSH 私钥(整段含 BEGIN/END，服务器用密钥认证) |
 | `WIN_PATH` | `/c/wwwroot/smdz` | 部署目标目录(**POSIX 格式**，OpenSSH 路径风格，例如 `C:\wwwroot\smdz` 对应 `/c/wwwroot/smdz`)。**必须以 POSIX 形式填写**，不要写 `C:\...` 或反斜杠 |
-| `ENV_FILE` | `PORT=3333\nDATABASE_URL=...` | **server/.env 完整内容**。`.env` 不进 git,所以通过 Secret 注入。GitHub Actions 会把内容以临时文件形式 SCP 上传到部署目录,部署脚本会把它写入 `server/.env`,然后删除临时文件。可换行后粘贴多行内容(会自动归一化为 LF)。 |
+| `ENV_FILE` | `PORT=3333\nDATABASE_URL=...` | **server/.env 完整内容**。`.env` 不进 git,所以通过 Secret 注入。GitHub Actions 会把内容以临时文件形式 SCP 上传到部署目录,部署脚本会把它写入 `server/.env`,然后删除临时文件。可换行后粘贴多行内容(会自动归一化为 LF)。**注意：`DATABASE_URL` 无需你手动写绝对路径，deploy.ps1 会在部署时强制改写为 `file:<部署根目录>/smdz.db`（即 `server/` 之外），保证数据库文件在重复部署时不被删除。** |
 
 可选（不配用默认值）：
 | `WIN_APP_NAME` | `smdz-server` | PM2 进程名，默认即可。**必须与 `server/ecosystem.config.js` 中的 `name` 保持一致**，否则 deploy.ps1 的 `pm2 delete/start` 会名称对不上 |

@@ -151,6 +151,39 @@ function Get-ServicePort {
     return $defaultPort
 }
 
+# ---------- Resolve database file path from .env ----------
+function Get-DatabaseFilePath {
+    param([string]$EnvFilePath)
+
+    # 缺省：部署根目录下的 smdz.db（server/ 之外，安全位置）
+    $default = Join-Path $DeploymentRoot 'smdz.db'
+    if (-not (Test-Path -LiteralPath $EnvFilePath -PathType Leaf)) {
+        return $default
+    }
+
+    $envContent = Get-Content -LiteralPath $EnvFilePath -Raw
+    $match = [regex]::Match($envContent, 'DATABASE_URL\s*=\s*"?([^"\r\n]+)"?')
+    if (-not $match.Success) {
+        return $default
+    }
+
+    # 去掉 file: 前缀和首尾空白
+    $path = ($match.Groups[1].Value.Trim()) -replace '^file:', ''
+    $path = $path.Trim()
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        return $default
+    }
+
+    # 相对路径(如 file:../smdz.db)由 Prisma 相对 schema 目录(server/prisma)解析
+    if (-not [System.IO.Path]::IsPathRooted($path) -and -not ($path -match '^[A-Za-z]:')) {
+        $schemaDir = Join-Path $ServerDirectory 'prisma'
+        return [System.IO.Path]::GetFullPath((Join-Path $schemaDir $path))
+    }
+
+    # 绝对路径：统一为 Windows 反斜杠形式
+    return $path.Replace('/', '\')
+}
+
 # ============================================================
 #  Main flow
 # ============================================================
@@ -212,11 +245,13 @@ try {
     }
 
     # ---------- Step 3: Backup database file ----------
-    $DatabaseFile = Join-Path $DeploymentRoot 'smdz.db'
+    # 数据库文件位置完全由 server/.env 的 DATABASE_URL 决定，
+    # 这里解析该配置得到唯一真实路径后备份，防止部署删除 server/ 时丢失数据。
+    $DatabaseFile = Get-DatabaseFilePath -EnvFilePath (Join-Path $ServerDirectory '.env')
     $DatabaseBackup = Join-Path $BackupDir 'smdz.db'
     $dbRestored = $false
     if (Test-Path -LiteralPath $DatabaseFile -PathType Leaf) {
-        Write-Host "==> Backing up database file: smdz.db"
+        Write-Host "==> Backing up database file: $DatabaseFile"
         if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) {
             New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
         }
@@ -224,7 +259,7 @@ try {
         $dbRestored = $true
         Write-Host "Database backed up to $DatabaseBackup"
     } else {
-        Write-Host "No database file found, will create new one"
+        Write-Host "No database file found at $DatabaseFile, will create new one"
     }
 
     # ---------- Step 4: Remove old directories ----------
@@ -260,11 +295,40 @@ try {
         Remove-Item -LiteralPath $EnvSource -Force
     }
 
-    # ---------- Step 5b: Restore database file ----------
+    # ---------- Step 5b: 将 DATABASE_URL 改写为指向部署根目录(server/ 之外)的绝对路径 ----------
+    # 无论 .env 里写的是相对路径还是绝对路径，都统一改写为指向
+    # $DeploymentRoot\smdz.db，保证数据库文件位于 server/ 之外，
+    # 部署删除/重建 server/ 时不会丢失；且与备份/恢复解析逻辑一致。
+    $EnvTarget = Join-Path $ServerDirectory '.env'
+    if (-not (Test-Path -LiteralPath $EnvTarget -PathType Leaf)) {
+        throw "server/.env not found, cannot normalize DATABASE_URL"
+    }
+    $absDbPath = (Join-Path $DeploymentRoot 'smdz.db').Replace('\', '/')
+    $newDbUrl = "file:$absDbPath"
+    $envLines = Get-Content -LiteralPath $EnvTarget
+    $envLines = $envLines | ForEach-Object {
+        if ($_ -match '^\s*DATABASE_URL\s*=') {
+            "DATABASE_URL=`"$newDbUrl`""
+        } else {
+            $_
+        }
+    }
+    # 使用无 BOM 的 UTF-8 写入，避免头部 BOM 影响 .env 解析
+    $envContent = $envLines -join [Environment]::NewLine
+    [System.IO.File]::WriteAllText($EnvTarget, $envContent, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "==> Normalized DATABASE_URL to $newDbUrl"
+
+    # ---------- Step 5c: Restore database file ----------
+    # 恢复目标同样由(改写后)server/.env 的 DATABASE_URL 解析，保证与运行路径一致。
+    $restoreTarget = Get-DatabaseFilePath -EnvFilePath $EnvTarget
     if ($dbRestored -and (Test-Path -LiteralPath $DatabaseBackup -PathType Leaf)) {
-        Write-Host "==> Restoring database file from backup"
-        Copy-Item -LiteralPath $DatabaseBackup -Destination $DatabaseFile -Force
-        Write-Host "Database restored to $DatabaseFile"
+        Write-Host "==> Restoring database file from backup to $restoreTarget"
+        $restoreDir = Split-Path -Parent $restoreTarget
+        if (-not (Test-Path -LiteralPath $restoreDir -PathType Container)) {
+            New-Item -ItemType Directory -Path $restoreDir -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $DatabaseBackup -Destination $restoreTarget -Force
+        Write-Host "Database restored to $restoreTarget"
         Remove-Item -LiteralPath $DatabaseBackup -Force
     } else {
         Write-Host "No database backup to restore, will create new database"

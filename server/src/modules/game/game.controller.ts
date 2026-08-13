@@ -10,6 +10,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PlayerService } from './player.service';
 import { MapService } from './map.service';
 import { GameService } from './game.service';
+import { StatsService } from './stats.service';
 
 @ApiTags('游戏')
 @ApiBearerAuth()
@@ -20,6 +21,7 @@ export class GameController {
     private readonly playerService: PlayerService,
     private readonly mapService: MapService,
     private readonly gameService: GameService,
+    private readonly statsService: StatsService,
   ) {}
 
   /**
@@ -83,8 +85,16 @@ export class GameController {
   }
 
   /**
-   * 快捷操作：执行游戏内动作（攻击、信息、背包、地图等）
+   * 获取服务器在线统计（总玩家数、在线人数）
+   * 前端左下角展示用
    */
+  @Get('stats')
+  @ApiOperation({ summary: '获取服务器在线统计（总玩家数、在线人数）' })
+  async getStats() {
+    const stats = await this.statsService.getStats();
+    return { success: true, data: stats };
+  }
+
   @Post('player/action')
   @ApiOperation({ summary: '快捷操作：执行游戏内动作' })
   async quickAction(@Req() req, @Body() body: { action: string }) {
