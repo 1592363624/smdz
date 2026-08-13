@@ -8,29 +8,29 @@ import { PrismaService } from '../../prisma/prisma.service';
 @Injectable()
 export class StatsService {
   private readonly logger = new Logger(StatsService.name);
-  /** 当前在线玩家 userId 集合 */
-  private onlineUsers = new Set<number>();
+  /** 当前在线玩家 userId 集合（静态字段：即使出现多个实例也共享同一份数据） */
+  private static onlineUsers = new Set<number>();
 
   constructor(private readonly prisma: PrismaService) {}
 
   /** 用户上线 */
   userOnline(userId: number): void {
-    this.onlineUsers.add(userId);
+    StatsService.onlineUsers.add(userId);
   }
 
   /** 用户下线 */
   userOffline(userId: number): void {
-    this.onlineUsers.delete(userId);
+    StatsService.onlineUsers.delete(userId);
   }
 
   /** 获取在线人数 */
   getOnlineCount(): number {
-    return this.onlineUsers.size;
+    return StatsService.onlineUsers.size;
   }
 
-  /** 获取总玩家数（Player 表的记录数） */
+  /** 获取总注册用户数（User 表的记录数） */
   async getTotalPlayers(): Promise<number> {
-    return this.prisma.player.count();
+    return this.prisma.user.count();
   }
 
   /** 获取完整统计信息 */

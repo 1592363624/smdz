@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-card">
       <h1 class="game-title">使魔大战3 · 网页版</h1>
-      <p class="subtitle">公屏群聊文字游戏 · 支持AstrBot机器人</p>
+      <p class="subtitle">公屏群聊文字游戏 · 提供API支持对接机器人</p>
 
       <!-- 登录/注册切换 -->
       <div class="tabs">

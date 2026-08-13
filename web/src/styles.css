@@ -620,6 +620,17 @@ vite-plugin-checker-error-overlay,
   font-weight: 600;
   color: var(--text);
 }
+/* 连接状态文字：已连接绿色 / 未连接红色 */
+.sidebar-status .ss-conn {
+  font-size: 13px;
+  font-weight: 600;
+}
+.sidebar-status .ss-conn.on {
+  color: #4ade80;
+}
+.sidebar-status .ss-conn.off {
+  color: #f87171;
+}
 .sidebar-status .ss-online {
   color: #4ade80;
 }
@@ -1639,9 +1650,11 @@ vite-plugin-checker-error-overlay,
   z-index: 100;
   opacity: 0;
   transition: opacity 0.3s ease;
+  pointer-events: none; /* 关闭时不允许拦截点击，避免遮挡页面操作 */
 }
 .mobile-overlay.open {
   opacity: 1;
+  pointer-events: auto; /* 打开抽屉时才能点击遮罩关闭 */
 }
 
 /* 抽屉菜单（仅在手机端可见） */
@@ -1664,9 +1677,11 @@ vite-plugin-checker-error-overlay,
   transform: translateX(-105%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 4px 0 32px rgba(0, 0, 0, 0.5);
+  pointer-events: none; /* 关闭(滑出屏幕)时禁止拦截点击 */
 }
 .mobile-drawer.open {
   transform: translateX(0);
+  pointer-events: auto; /* 打开时恢复交互 */
 }
 
 /* 手机端浮动快捷操作栏 */

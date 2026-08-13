@@ -1,0 +1,3 @@
+# 使魔大战3 桥接插件依赖
+# 使用 aiohttp 进行异步 HTTP 请求（AstrBot 规范禁止使用 requests）
+aiohttp>=3.8.0

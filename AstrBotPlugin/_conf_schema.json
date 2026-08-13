@@ -1,0 +1,33 @@
+{
+  "server_url": {
+    "description": "游戏后端服务地址（协议+主机+端口，如 http://localhost:3333）",
+    "type": "string",
+    "default": "http://localhost:3333",
+    "obvious_hint": true,
+    "hint": "需与游戏后端实际监听地址一致"
+  },
+  "bot_access_token": {
+    "description": "游戏后端机器人访问令牌",
+    "type": "string",
+    "default": "",
+    "invisible": true,
+    "hint": "需与后端 .env 中 BOT_ACCESS_TOKEN 保持一致"
+  },
+  "timeout": {
+    "description": "请求游戏后端超时时间（秒）",
+    "type": "int",
+    "default": 30,
+    "hint": "建议 10-60 秒"
+  },
+  "command_name": {
+    "description": "触发转发的前缀指令名（群/私聊输入该指令+空格+游戏指令触发）",
+    "type": "string",
+    "default": "smdz",
+    "hint": "例如配 smdz，则输入 /smdz 背包 会转发『背包』给游戏"
+  },
+  "forward_all": {
+    "description": "是否转发所有消息到游戏（开启后无需前缀指令，注意会转发机器人在群内收到的全部消息）",
+    "type": "bool",
+    "default": false
+  }
+}

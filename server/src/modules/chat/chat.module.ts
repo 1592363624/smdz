@@ -11,6 +11,7 @@ import { Module, Global, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { GlobalConfig } from '../../config/global.config';
 import { CommandModule } from '../command/command.module';
+import { GameModule } from '../game/game.module';
 import { ChatGateway } from './chat.gateway';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
@@ -19,6 +20,8 @@ import { ChatService } from './chat.service';
 @Module({
   imports: [
     forwardRef(() => CommandModule),
+    // 显式引入 GameModule，确保 ChatGateway 与 GameController 使用同一个 StatsService 实例
+    forwardRef(() => GameModule),
     // 提供 JwtService，用于 WebSocket 连接的 JWT 校验
     JwtModule.register({
       secret: GlobalConfig.getInstance().jwtSecret,

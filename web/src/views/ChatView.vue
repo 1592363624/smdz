@@ -86,8 +86,7 @@
       <div class="sidebar-status">
         <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
         <span class="ss-text">
-          <span class="ss-label">服务器</span>
-          <span class="ss-value">{{ connected ? '已连接' : '连接中...' }}</span>
+          <span class="ss-conn" :class="connected ? 'on' : 'off'">{{ connected ? '已连接' : '未连接' }}</span>
         </span>
         <span class="ss-divider"></span>
         <span class="ss-text">
@@ -184,8 +183,7 @@
       <div class="sidebar-status">
         <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
         <span class="ss-text">
-          <span class="ss-label">服务器</span>
-          <span class="ss-value">{{ connected ? '已连接' : '连接中...' }}</span>
+          <span class="ss-conn" :class="connected ? 'on' : 'off'">{{ connected ? '已连接' : '未连接' }}</span>
         </span>
         <span class="ss-divider"></span>
         <span class="ss-text">
@@ -636,6 +634,8 @@ onMounted(async () => {
 
     socket.on('connect', () => {
       connected.value = true;
+      // 连接建立后再刷新一次统计，确保自己立刻计入在线人数
+      loadServerStats();
     });
     socket.on('disconnect', () => {
       connected.value = false;
