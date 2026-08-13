@@ -247,7 +247,13 @@ try {
     # ---------- Step 3: Backup database file ----------
     # 数据库文件位置完全由 server/.env 的 DATABASE_URL 决定，
     # 这里解析该配置得到唯一真实路径后备份，防止部署删除 server/ 时丢失数据。
-    $DatabaseFile = Get-DatabaseFilePath -EnvFilePath (Join-Path $ServerDirectory '.env')
+    # 用 try/catch 兜底：即使解析函数缺失或抛错，也回退到缺省路径，
+    # 保证 $DatabaseFile 始终有值，避免严格模式下"变量未定义"报错。
+    try {
+        $DatabaseFile = Get-DatabaseFilePath -EnvFilePath (Join-Path $ServerDirectory '.env')
+    } catch {
+        $DatabaseFile = Join-Path $DeploymentRoot 'smdz.db'
+    }
     $DatabaseBackup = Join-Path $BackupDir 'smdz.db'
     $dbRestored = $false
     if (Test-Path -LiteralPath $DatabaseFile -PathType Leaf) {
@@ -320,7 +326,12 @@ try {
 
     # ---------- Step 5c: Restore database file ----------
     # 恢复目标同样由(改写后)server/.env 的 DATABASE_URL 解析，保证与运行路径一致。
-    $restoreTarget = Get-DatabaseFilePath -EnvFilePath $EnvTarget
+    # 兜底：解析失败时恢复目标回退到部署根目录的 smdz.db。
+    try {
+        $restoreTarget = Get-DatabaseFilePath -EnvFilePath $EnvTarget
+    } catch {
+        $restoreTarget = Join-Path $DeploymentRoot 'smdz.db'
+    }
     if ($dbRestored -and (Test-Path -LiteralPath $DatabaseBackup -PathType Leaf)) {
         Write-Host "==> Restoring database file from backup to $restoreTarget"
         $restoreDir = Split-Path -Parent $restoreTarget
