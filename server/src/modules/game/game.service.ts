@@ -149,22 +149,22 @@ export class GameService {
       lines.push('你的背包里有一些初始装备，先熟悉一下操作吧：');
       lines.push('');
       lines.push('📋 第一步：查看背包');
-      lines.push('  输入 /背包 查看你的物品');
+      lines.push('  输入 背包 查看你的物品');
       lines.push('');
       lines.push('⚔️ 第二步：装备武器');
-      lines.push('  输入 /装备 石斧 来装备你的第一把武器');
+      lines.push('  输入 装备 石斧 来装备你的第一把武器');
       lines.push('');
       lines.push('🗡️ 第三步：开始战斗');
-      lines.push('  输入 /攻击 攻击新手村的史莱姆，获取经验和掉落');
+      lines.push('  输入 攻击 攻击新手村的史莱姆，获取经验和掉落');
       lines.push('');
       lines.push('🗺️ 第四步：探索世界');
-      lines.push('  输入 /地图 查看当前地图，输入 /移动 迷雾森林 去探索新区域');
+      lines.push('  输入 地图 查看当前地图，输入 移动 迷雾森林 去探索新区域');
       lines.push('');
       lines.push('🏠 第五步：建造家园');
-      lines.push('  找到你中意的地点，输入 /圈地 开始建造你的家园');
+      lines.push('  找到你中意的地点，输入 圈地 开始建造你的家园');
       lines.push('');
-      lines.push('💡 提示：输入 /帮助 查看所有可用指令');
-      lines.push('💡 提示：输入 /新手教程 off 可关闭新手指引');
+      lines.push('💡 提示：输入 帮助 查看所有可用指令');
+      lines.push('💡 提示：输入 新手教程 off 可关闭新手指引');
       lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━');
     }
 

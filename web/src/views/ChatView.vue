@@ -39,7 +39,7 @@
       <div class="player-info" v-else>
         <div class="pi-row">
           <span class="pi-label">状态</span>
-          <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 /info 查看</span>
+          <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 信息 查看</span>
         </div>
       </div>
 
@@ -73,7 +73,7 @@
         </h3>
         <ul class="cmd-list" v-show="!cmdCollapsed">
           <li v-for="c in commands" :key="c.name" @click="quickSend(c.name)">
-            <span class="cmd-name">/{{ c.name }}</span>
+            <span class="cmd-name">{{ c.name }}</span>
             <span class="cmd-desc">{{ c.description }}</span>
           </li>
         </ul>
@@ -119,7 +119,7 @@
       <div class="player-info" v-else>
         <div class="pi-row">
           <span class="pi-label">状态</span>
-          <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 /info 查看</span>
+          <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 信息 查看</span>
         </div>
       </div>
 
@@ -142,12 +142,20 @@
           <span class="cmd-toggle">{{ cmdCollapsed ? '▶' : '▼' }}</span>
           📖 指令列表 <span class="cmd-count">({{ commands.length }})</span>
         </h3>
-        <ul class="cmd-list" v-show="!cmdCollapsed">
-          <li v-for="c in commands" :key="c.name" @click="mobileMenuOpen = false; quickSend(c.name)">
-            <span class="cmd-name">/{{ c.name }}</span>
-            <span class="cmd-desc">{{ c.description }}</span>
-          </li>
-        </ul>
+        <div class="cmd-body" v-show="!cmdCollapsed">
+          <!-- 指令搜索 -->
+          <div class="cmd-search-wrapper">
+            <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车选中第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
+            <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
+          </div>
+          <ul class="cmd-list">
+            <li v-for="c in cmdSearchResults" :key="c.name" @click="mobileMenuOpen = false; quickSend(c.name)">
+              <span class="cmd-name">{{ c.name }}</span>
+              <span class="cmd-desc">{{ c.description }}</span>
+            </li>
+            <li v-if="cmdSearchResults.length === 0 && cmdSearch" class="cmd-empty">未匹配到指令</li>
+          </ul>
+        </div>
       </div>
 
       <button v-if="isAdmin" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
@@ -169,13 +177,20 @@
       </header>
 
       <!-- 消息列表 -->
-      <div ref="msgList" class="messages">
+      <div ref="msgList" class="messages" @scroll="onMsgScroll">
         <div v-for="(m, i) in messages" :key="i" :class="['msg', msgClass(m)]">
           <span v-if="m.sender" class="sender">{{ m.sender.nickname || m.sender.username }}：</span>
           <span v-else-if="m.type !== 'system' && m.type !== 'game' && m.type !== 'combat' && m.type !== 'info'" class="sender">系统：</span>
-          <span class="content" style="white-space: pre-line">{{ m.content }}</span>
+          <span class="content" style="white-space: pre-line">
+            <template v-for="(seg, si) in parseContent(m.content)" :key="si">
+              <span v-if="seg.type === 'text'">{{ seg.text }}</span>
+              <span v-else class="cmd-clickable" @click="quickSend(seg.text)">{{ seg.text }}</span>
+            </template>
+          </span>
         </div>
         <div v-if="!messages.length" class="empty">暂无消息，发送第一条指令吧！</div>
+        <!-- 回到底部按钮 -->
+        <button v-if="showScrollBtn" class="scroll-bottom-btn" @click="scrollToBottom()">↓ 回到底部</button>
       </div>
 
       <!-- 手机端浮动快捷操作栏 -->
@@ -207,7 +222,7 @@
               :class="{ active: ci === autocompleteIndex }"
               @mousedown.prevent="selectAutocomplete(cmd)"
             >
-              <span class="ac-name">/{{ cmd.name }}</span>
+              <span class="ac-name">{{ cmd.name }}</span>
               <span class="ac-desc">{{ cmd.description }}</span>
             </div>
           </div>
@@ -233,7 +248,7 @@ import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi } from '../api';
-import { WS_URL, COMMAND_PREFIXES } from '../config';
+import { WS_URL } from '../config';
 
 const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
@@ -254,8 +269,22 @@ const mapConnections = ref([]);
 // 手机端菜单状态
 const mobileMenuOpen = ref(false);
 
-// 指令列表折叠状态
-const cmdCollapsed = ref(false);
+// 回到底部按钮
+const showScrollBtn = ref(false);
+let isUserScrolling = false;
+
+// 指令列表折叠状态（手机端默认折叠）
+const cmdCollapsed = ref(window.innerWidth < 768);
+
+// 指令搜索
+const cmdSearch = ref('');
+const cmdSearchResults = computed(() => {
+  const q = cmdSearch.value.trim().toLowerCase();
+  if (!q) return commands.value;
+  return commands.value.filter(
+    c => c.name.toLowerCase().includes(q) || (c.description && c.description.toLowerCase().includes(q))
+  );
+});
 
 // 自动补全状态
 const showAutocomplete = ref(false);
@@ -297,11 +326,16 @@ const hpBarClass = computed(() => {
 
 // 根据输入前缀过滤指令列表，用于自动补全
 const filteredCommands = computed(() => {
-  const text = input.value;
-  // 只对以 / 开头的文本做自动补全
-  if (!text.startsWith('/')) return [];
-  const partial = text.slice(1).toLowerCase();
-  return commands.value.filter((c) => c.name.toLowerCase().startsWith(partial));
+  const text = input.value.trim();
+  // 不需要 / 前缀，只要输入非空就展示自动补全
+  if (!text) return [];
+  const partial = text.toLowerCase();
+  // 优先匹配开头，其次匹配包含
+  const startsWith = commands.value.filter((c) => c.name.toLowerCase().startsWith(partial));
+  const contains = commands.value.filter(
+    (c) => c.name.toLowerCase().includes(partial) && !startsWith.includes(c)
+  );
+  return [...startsWith, ...contains].slice(0, 10);
 });
 
 // 消息样式分类（增强版：支持更多消息类型）
@@ -314,9 +348,63 @@ function msgClass(m) {
   return 'chat';
 }
 
+// 解析消息内容，将指令名（被「」包裹或空格分隔的单个单词）转换为可点击片段
+// 匹配模式：「指令名」或者 输入XX / 使用XX 后面的指令名
+function parseContent(content) {
+  if (!content) return [{ type: 'text', text: content }];
+
+  const segments = [];
+  // 匹配「指令名」模式，以及输入/使用/发送/输入指令等模式
+  // 正则：匹配「([^」]+)」或者(输入|使用|发送)(\s+)([^\s]+)
+  const regex = /「([^」]+)」|(输入|使用|发送)(\s+)([^\s]+)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(content)) !== null) {
+    // 添加匹配前的文本
+    if (match.index > lastIndex) {
+      segments.push({
+        type: 'text',
+        text: content.slice(lastIndex, match.index),
+      });
+    }
+
+    // 提取指令名
+    let cmdName = match[1];
+    if (!cmdName) {
+      // 第二种匹配模式：输入 指令名 → 匹配到 match[4]
+      cmdName = match[4];
+    }
+
+    if (cmdName) {
+      segments.push({
+        type: 'command',
+        text: cmdName.trim(),
+      });
+    } else {
+      segments.push({
+        type: 'text',
+        text: match[0],
+      });
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  // 添加剩余文本
+  if (lastIndex < content.length) {
+    segments.push({
+      type: 'text',
+      text: content.slice(lastIndex),
+    });
+  }
+
+  return segments;
+}
+
 // 快速发送指令(填入输入框，便于补充参数后手动发送)
 function quickSend(name) {
-  input.value = '/' + name;
+  input.value = name;
   showAutocomplete.value = false;
   nextTick(() => {
     inputEl.value?.focus();
@@ -326,12 +414,20 @@ function quickSend(name) {
 // 快捷操作按钮 — 直接发送对应指令
 function quickAction(action) {
   if (!socket) return;
-  socket.emit('chat:message', { content: '/' + action });
+  socket.emit('chat:message', { content: action });
+}
+
+// 指令搜索回车选中第一条
+function selectFirstCmd() {
+  if (cmdSearchResults.value.length > 0) {
+    mobileMenuOpen.value = false;
+    quickSend(cmdSearchResults.value[0].name);
+  }
 }
 
 // 输入框键盘事件：控制自动补全
 function onInputKeyup() {
-  if (filteredCommands.value.length && input.value.startsWith('/')) {
+  if (filteredCommands.value.length && input.value.trim()) {
     showAutocomplete.value = true;
     // 重置选中索引
     if (autocompleteIndex.value >= filteredCommands.value.length) {
@@ -368,7 +464,7 @@ function onInputBlur() {
 }
 
 function selectAutocomplete(cmd) {
-  input.value = '/' + cmd.name + ' ';
+  input.value = cmd.name + ' ';
   showAutocomplete.value = false;
   autocompleteIndex.value = -1;
   nextTick(() => {
@@ -391,15 +487,37 @@ function appendMessage(msg) {
   if (messages.value.length > 300) {
     messages.value.splice(0, messages.value.length - 300);
   }
-  scrollToBottom();
+  // 用户没有手动滚动时，自动滚动到底部
+  if (!isUserScrolling) {
+    scrollToBottom();
+  }
 }
 
 function scrollToBottom() {
+  showScrollBtn.value = false;
+  isUserScrolling = false;
   nextTick(() => {
     if (msgList.value) {
       msgList.value.scrollTop = msgList.value.scrollHeight;
     }
   });
+}
+
+// 消息滚动监听 - 检测用户是否手动向上滚动
+function onMsgScroll() {
+  if (!msgList.value) return;
+  const el = msgList.value;
+  const threshold = 150;
+  const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  if (!isNearBottom) {
+    if (!isUserScrolling) {
+      isUserScrolling = true;
+      showScrollBtn.value = true;
+    }
+  } else {
+    showScrollBtn.value = false;
+    isUserScrolling = false;
+  }
 }
 
 function logout() {
@@ -428,8 +546,19 @@ async function loadMapConnections() {
   }
 }
 
+// 移动端视图高度修复函数
+let setViewportHeight = null;
+
 onMounted(async () => {
   try {
+    // 移动端视图高度修复：动态计算实际可视高度，避免键盘弹出时布局错乱
+    setViewportHeight = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+    setViewportHeight();
+    window.addEventListener('resize', setViewportHeight);
+
     // 加载频道和历史消息
     const ch = await chatApi.getChannel();
     channel.value = ch.data;
@@ -483,5 +612,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   socket?.disconnect();
+  window.removeEventListener('resize', setViewportHeight);
 });
 </script>

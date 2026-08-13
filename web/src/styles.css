@@ -61,11 +61,23 @@ body {
   background: var(--bg);
   color: var(--text);
   height: 100vh;
+  height: 100dvh;
+  height: calc(var(--vh, 1vh) * 100);
   overflow: hidden;
 }
 
 #app {
   height: 100vh;
+  height: 100dvh;
+  height: calc(var(--vh, 1vh) * 100);
+}
+
+/* ===== 安全区域适配（刘海屏、底部指示条） ===== */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 /* ===== 自定义滚动条 ===== */
@@ -321,6 +333,8 @@ vite-plugin-checker-error-overlay,
  * ============================================================ */
 .chat-page {
   height: 100vh;
+  height: 100dvh;
+  height: calc(var(--vh, 1vh) * 100);
   display: flex;
   animation: fadeIn 0.3s ease;
   position: relative;
@@ -486,6 +500,63 @@ vite-plugin-checker-error-overlay,
   white-space: nowrap;
 }
 
+/* 指令搜索 */
+.cmd-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmd-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.cmd-search {
+  width: 100%;
+  padding: 8px 10px;
+  padding-right: 32px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+.cmd-search:focus {
+  border-color: var(--accent2);
+  background: rgba(0, 0, 0, 0.3);
+}
+.cmd-search::placeholder {
+  color: var(--muted-dark);
+}
+.cmd-search-clear {
+  position: absolute;
+  right: 8px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px;
+  border-radius: 50%;
+  transition: color 0.2s;
+}
+.cmd-search-clear:hover {
+  color: var(--text);
+}
+.cmd-empty {
+  padding: 16px 8px !important;
+  text-align: center;
+  color: var(--muted-dark);
+  font-size: 12px;
+  cursor: default !important;
+}
+.cmd-empty:hover {
+  transform: none !important;
+  background: transparent !important;
+}
+
 /* ===== 退出/管理按钮 ===== */
 .logout {
   margin-top: auto;
@@ -577,6 +648,40 @@ vite-plugin-checker-error-overlay,
   display: flex;
   flex-direction: column;
   gap: 10px;
+  position: relative;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 回到底部按钮 */
+.scroll-bottom-btn {
+  position: sticky;
+  bottom: 8px;
+  align-self: center;
+  padding: 8px 18px;
+  background: var(--accent-gradient);
+  background-size: 200% auto;
+  border: none;
+  border-radius: 20px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+  z-index: 5;
+  animation: fadeInUp 0.25s ease-out;
+  flex-shrink: 0;
+}
+.scroll-bottom-btn:hover {
+  background-position: right center;
+  box-shadow: 0 6px 24px rgba(139, 92, 246, 0.5);
+  transform: translateY(-1px);
+}
+.scroll-bottom-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
 }
 
 .msg {
@@ -591,6 +696,7 @@ vite-plugin-checker-error-overlay,
   line-height: 1.6;
   animation: fadeInUp 0.3s ease-out;
   transition: all 0.2s ease;
+  touch-action: manipulation;
 }
 .msg:hover {
   border-color: rgba(139, 92, 246, 0.3);
@@ -600,6 +706,21 @@ vite-plugin-checker-error-overlay,
   color: var(--accent);
   font-weight: 600;
   margin-right: 4px;
+}
+
+/* 可点击指令名 - 在消息内容中高亮显示 */
+.cmd-clickable {
+  color: var(--accent2);
+  cursor: pointer;
+  font-weight: 600;
+  border-bottom: 1px dashed rgba(251, 191, 36, 0.4);
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+.cmd-clickable:hover {
+  color: #fbbf24;
+  border-bottom-color: #fbbf24;
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.3);
 }
 
 /* 系统消息 - 居中紫色 */
@@ -692,6 +813,7 @@ vite-plugin-checker-error-overlay,
   cursor: pointer;
   font-size: 14px;
   transition: all 0.3s ease;
+  touch-action: manipulation;
 }
 .input-bar button:hover:not(:disabled) {
   background-position: right center;
@@ -1588,10 +1710,12 @@ vite-plugin-checker-error-overlay,
   /* 聊天主区域全屏 */
   .chat-main {
     width: 100%;
+    min-height: 0; /* 防止 flex 溢出 */
   }
 
   .chat-header {
     padding: 10px 14px;
+    padding-top: calc(10px + var(--safe-top));
     gap: 8px;
   }
   .chat-header h2 {
@@ -1602,9 +1726,14 @@ vite-plugin-checker-error-overlay,
     white-space: nowrap;
   }
 
+  /* 消息区域 - 确保可滚动且不溢出 */
   .messages {
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 10px 12px;
     gap: 8px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .msg {
@@ -1619,17 +1748,39 @@ vite-plugin-checker-error-overlay,
     padding: 6px 10px;
   }
 
+  /* 快捷操作栏 - 更紧凑 */
+  .mobile-float-actions {
+    padding: 6px 12px;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .mobile-float-actions button {
+    min-height: 38px;
+    font-size: 16px;
+    padding: 6px 4px;
+    border-radius: 6px;
+    touch-action: manipulation;
+  }
+  .mobile-float-actions button:active {
+    transform: scale(0.92);
+    opacity: 0.8;
+  }
+
+  /* 输入框 - 固定在底部，带安全区域 */
   .input-bar {
     padding: 8px 12px;
+    padding-bottom: calc(8px + var(--safe-bottom));
     gap: 8px;
+    flex-shrink: 0;
   }
   .input-bar input {
     padding: 10px 12px;
     font-size: 14px;
   }
   .input-bar button {
-    padding: 10px 18px;
+    padding: 10px 16px;
     font-size: 13px;
+    white-space: nowrap;
   }
 
   .input-wrapper input {
@@ -1650,12 +1801,14 @@ vite-plugin-checker-error-overlay,
   .admin-page {
     height: auto;
     min-height: 100vh;
+    min-height: 100dvh;
   }
   .admin-header {
     flex-direction: column;
     gap: 8px;
     align-items: flex-start;
     padding: 12px 16px;
+    padding-top: calc(12px + var(--safe-top));
   }
   .admin-header h1 {
     font-size: 17px;
@@ -1733,12 +1886,38 @@ vite-plugin-checker-error-overlay,
     max-width: 380px;
     padding: 24px 20px;
   }
+
+  /* 手机端抽屉菜单 - 安全区域适配 */
+  .mobile-drawer {
+    padding: 20px 16px;
+    padding-top: calc(20px + var(--safe-top));
+    padding-bottom: calc(20px + var(--safe-bottom));
+  }
+  .mobile-drawer .cmd-list {
+    max-height: 45vh;
+    max-height: calc(45 * var(--vh, 1vh));
+  }
+  .mobile-drawer .cmd-search {
+    font-size: 14px;
+    padding: 10px 12px;
+    padding-right: 36px;
+  }
+  .mobile-drawer .cmd-name {
+    font-size: 13px;
+  }
+  .mobile-drawer .cmd-desc {
+    font-size: 12px;
+  }
+  .mobile-drawer .cmd-list li {
+    padding: 8px 10px;
+  }
 }
 
 /* 小屏手机 (≤480px) */
 @media (max-width: 480px) {
   .chat-header {
     padding: 8px 10px;
+    padding-top: calc(8px + var(--safe-top));
   }
   .chat-header h2 {
     font-size: 13px;
@@ -1756,27 +1935,30 @@ vite-plugin-checker-error-overlay,
   }
   .input-bar {
     padding: 6px 10px;
+    padding-bottom: calc(6px + var(--safe-bottom));
   }
   .input-bar input {
     padding: 8px 10px;
     font-size: 13px;
   }
   .input-bar button {
-    padding: 8px 14px;
+    padding: 8px 12px;
     font-size: 12px;
   }
   .mobile-float-actions {
-    padding: 6px 10px;
+    padding: 4px 10px;
     gap: 4px;
   }
   .mobile-float-actions button {
-    min-height: 38px;
-    font-size: 16px;
-    padding: 8px 2px;
+    min-height: 34px;
+    font-size: 15px;
+    padding: 6px 2px;
   }
   .mobile-drawer {
     width: 260px;
     padding: 16px 12px;
+    padding-top: calc(16px + var(--safe-top));
+    padding-bottom: calc(16px + var(--safe-bottom));
   }
   .stat-cards {
     grid-template-columns: 1fr 1fr;

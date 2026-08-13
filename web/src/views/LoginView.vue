@@ -59,7 +59,7 @@
         <span>{{ qqLoading ? '跳转中...' : 'QQ 登录' }}</span>
       </button>
 
-      <p class="tip">提示：指令以 / 或 ！ 开头，如「/info」查看信息</p>
+      <p class="tip">提示：输入「信息」查看角色状态，输入「帮助」查看所有指令</p>
     </div>
   </div>
 </template>
