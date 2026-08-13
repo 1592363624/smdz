@@ -612,6 +612,171 @@ export class GameService {
   }
 
   /**
+   * 处理与露娜的对话（对话露娜未知）
+   * 对应原版：对话露娜未知 命令
+   * 当玩家携带"未知物品"（具现装置的产物）与露娜对话时，
+   * 可用其兑换"工业建筑箱"或"专属装备补给箱"，并增加露娜熟练度
+   */
+  async handleDialogueLuna(userId: number, arg: string): Promise<string> {
+    // 获取玩家数据
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers, backpack } = playerData;
+
+    // 获取当前地图，确认露娜在场
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const luna = summons.find((s: any) => s.qq === '怪物露娜1g' || s.name === '露娜');
+    if (!luna) {
+      return '你环顾四周，露娜并不在这里。\n她偶尔会出现在某些地图上，找到她才能用未知物品兑换奖励。';
+    }
+
+    // 解析兑换选项：无参数时展示选项，参数为1/2时执行兑换
+    const choice = parseInt(arg.replace(/[^\d]/g, ''), 10) || 0;
+
+    // 统计背包中的"未知物品"数量
+    const unknownItems = backpack.filter((item: any) => item.name === '未知物品' || item.name.includes('未知物品'));
+    const unknownCount = unknownItems.reduce((sum: number, item: any) => sum + (item.count || 1), 0);
+
+    if (choice === 0) {
+      // 展示兑换菜单
+      if (unknownCount <= 0) {
+        return '【露娜】\n━━━━━━━━━━━━━━━\n这是……具现装置的产物？！\n这种东西对你来说也没用，不如交给我，我可以用你想要的东西作为奖励。\n\n不过你现在好像没有「未知物品」，去具现装置那里看看吧。';
+      }
+      return `【露娜】\n━━━━━━━━━━━━━━━\n这是……具现装置的产物？！\n这种东西对你来说也没用，不如交给我，我可以用你想要的东西作为奖励。\n\n你拥有「未知物品」×${unknownCount}，想兑换什么？\n1、工业建筑箱\n2、专属装备补给箱\n\n输入「对话露娜未知 1」或「对话露娜未知 2」进行兑换`;
+    }
+
+    if (unknownCount <= 0) {
+      return '你的背包中没有「未知物品」，无法兑换。';
+    }
+
+    // 确定兑换目标
+    const rewardName = choice === 1 ? '工业建筑箱' : '专属装备补给箱';
+    if (choice !== 1 && choice !== 2) {
+      return '请输入正确的选项：1=工业建筑箱，2=专属装备补给箱';
+    }
+
+    // 扣除未知物品，给予奖励物品
+    let remaining = unknownCount;
+    player.backpack = backpack
+      .map((item: any) => {
+        if (item.name === '未知物品' || item.name.includes('未知物品')) {
+          const take = Math.min(item.count || 1, remaining);
+          remaining -= take;
+          return { ...item, count: (item.count || 1) - take };
+        }
+        return item;
+      })
+      .filter((item: any) => (item.count || 0) > 0);
+
+    // 发放奖励物品
+    const rewardItem = { name: rewardName, count: unknownCount };
+    player.backpack.push(rewardItem);
+
+    // 增加露娜熟练度
+    markers['露娜熟练度'] = (markers['露娜熟练度'] || 0) + unknownCount * 10;
+    player.markers = JSON.stringify(markers);
+    await this.playerService.savePlayer(player);
+
+    this.logger.log(`玩家 ${userId} 与露娜兑换：${unknownCount}个未知物品 → ${rewardName}`);
+    return `【露娜】\n━━━━━━━━━━━━━━━\n非常感谢！\n（露娜熟练度+${unknownCount * 10}，用${unknownCount}个未知物品跟她换了${rewardName}）`;
+  }
+
+  /**
+   * 处理来倒目的（延时移动）
+   * 对应原版：来倒目的 命令
+   * 由系统延时任务触发，格式为"地图名$来源地图"，将玩家移动到指定地图
+   * 若目标为"四圣祭坛"且四个祭坛均无怪物，则刷出神兽麒麟
+   */
+  async handleArriveAt(userId: number, arg: string): Promise<string> {
+    // 获取玩家数据
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    // 解析参数："目标地图$来源地图"
+    const parts = (arg || '').split('$');
+    const targetName = parts[0]?.trim();
+    if (!targetName) {
+      return '移动输入的数据不正确';
+    }
+
+    // 查找目标地图
+    const targetMap = await this.mapService.getMapByName(targetName);
+    if (!targetMap) {
+      return `目标地图「${targetName}」不存在`;
+    }
+
+    // 记录前往成就
+    try {
+      const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
+      const travelKey = tasks.find((t: any) => t.name === `前往${targetName}`);
+      if (travelKey) {
+        travelKey.count = (travelKey.count || 0) + 1;
+      } else {
+        tasks.push({ name: `前往${targetName}`, count: 1 });
+      }
+      player.tasks = JSON.stringify(tasks);
+    } catch {
+      // 任务记录失败不阻塞移动
+    }
+
+    // 执行移动
+    const fromMapId = player.mapId;
+    player.mapId = targetMap.id;
+    player.location = targetMap.name;
+    await this.playerService.savePlayer(player);
+
+    // 进入地图自动获得地图增益
+    this.combatSystem.applyMapBuffs(player, targetMap);
+
+    // 四圣祭坛特殊逻辑：四个祭坛都清理后刷出麒麟
+    if (targetMap.name === '四圣祭坛') {
+      try {
+        const spawnMonsters = this.playerService.safeJsonParse<any[]>(targetMap.spawnMonsters, []);
+        if (spawnMonsters.length === 0) {
+          const hasMonsterIn = async (name: string): Promise<boolean> => {
+            const m = await this.prisma.gameMap.findUnique({ where: { name } });
+            if (!m) return false;
+            const list = this.playerService.safeJsonParse<any[]>(m.spawnMonsters, []);
+            return list.length > 0;
+          };
+          const cleared = !(await hasMonsterIn('白虎祭坛'))
+            && !(await hasMonsterIn('青龙祭坛'))
+            && !(await hasMonsterIn('玄武祭坛'))
+            && !(await hasMonsterIn('朱雀祭坛'));
+          if (cleared) {
+            spawnMonsters.push({
+              id: `麒麟_${Date.now()}`,
+              name: '神兽麒麟',
+              type: '神兽麒麟',
+              level: Math.max(10, player.level || 10),
+              specialSeq: 0,
+              hp: 5000,
+              maxHp: 5000,
+              attack: 200,
+              defense: 50,
+              speed: 120,
+              exp: 500,
+            });
+            await this.prisma.gameMap.update({
+              where: { id: targetMap.id },
+              data: { spawnMonsters: JSON.stringify(spawnMonsters) },
+            });
+            return `你来到了【四圣祭坛】\n四座祭坛的怪物都已被清除，一股强大的气息在祭坛中央凝聚……\n神兽麒麟出现了！`;
+          }
+        }
+      } catch {
+        // 麒麟生成失败不阻塞移动
+      }
+    }
+
+    this.logger.log(`玩家 ${userId} 延时移动：${fromMapId} → ${targetMap.name}`);
+    const desc = targetMap.description ? `\n${targetMap.description}` : '';
+    return `你来到了【${targetMap.name}】${desc}`;
+  }
+
+  /**
    * 处理家园命令
    * 家园系统的入口，支持子命令
    */

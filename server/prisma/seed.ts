@@ -80,6 +80,8 @@ async function main() {
     { name: '放弃任务', alias: 'abandon-quest', description: '放弃当前任务', handlerKey: 'game', minRole: 'USER', sortOrder: 103 },
     // 社交系统（统一 game 处理器）
     { name: '对话', alias: 'talk,交谈', description: '与NPC对话', handlerKey: 'game', minRole: 'USER', sortOrder: 110 },
+    { name: '对话露娜未知', alias: 'dialogue-luna', description: '与露娜对话，用未知物品兑换奖励', handlerKey: 'game', minRole: 'USER', sortOrder: 110 },
+    { name: '来倒目的', alias: 'arrive', description: '延时移动到指定地图（系统内部命令）', handlerKey: 'game', minRole: 'USER', sortOrder: 110 },
     { name: '救助', alias: 'rescue', description: '救助倒地的玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 111 },
     { name: '赠予', alias: 'give,gift', description: '赠予物品给其他玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 112 },
     { name: '设置跟随', alias: 'follow', description: '设置跟随目标', handlerKey: 'game', minRole: 'USER', sortOrder: 113 },
@@ -357,6 +359,9 @@ async function main() {
     { name: '传送卷轴', description: '可瞬间传送回新手村', value: 25, type: '消耗品', useEffects: JSON.stringify(['传送回新手村']) },
     { name: '钻石', description: '闪闪发光的钻石，游戏中的硬通货', value: 100, type: '货币' },
     { name: '金币', description: '游戏中的通用货币', value: 1, type: '货币' },
+    { name: '未知物品', description: '具现装置凝聚出的未知物质，交给露娜可兑换奖励', value: 10, type: '材料' },
+    { name: '工业建筑箱', description: '露娜赠予的箱子，内含工业建筑材料', value: 100, type: '材料' },
+    { name: '专属装备补给箱', description: '露娜赠予的箱子，内含专属装备', value: 200, type: '材料' },
   ] as const;
 
   for (const item of items) {

@@ -523,7 +523,21 @@ export class GameCommandHandler implements CommandHandler {
         case '对话':
         case 'talk':
         case '交谈':
+          // 若目标是"露娜"或命令为"对话露娜未知"，走露娜专属兑换剧情
+          if (arg.includes('露娜')) {
+            return this.wrap(await this.gameService.handleDialogueLuna(userId, arg));
+          }
           return this.wrap(await this.gameService.handleTalk(userId, arg));
+
+        // 对话露娜未知：用背包中的未知物品与露娜兑换奖励
+        case '对话露娜未知':
+        case 'dialogue-luna':
+          return this.wrap(await this.gameService.handleDialogueLuna(userId, arg));
+
+        // 来倒目的：内部延时移动命令，格式 "来倒目的地图名$来源地图"（由系统延时触发）
+        case '来倒目的':
+        case 'arrive':
+          return this.wrap(await this.gameService.handleArriveAt(userId, arg));
 
         case '救助':
         case 'rescue':
