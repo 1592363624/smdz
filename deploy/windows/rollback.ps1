@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
@@ -9,7 +9,7 @@ param(
     [string]$AppName
 )
 
-# ---------- 强制 UTF-8 输出 ----------
+# ---------- Force UTF-8 output ----------
 [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -26,58 +26,58 @@ $WebBackup = Join-Path $BackupDir 'web'
 $ServerDirectory = Join-Path $DeploymentRoot 'server'
 $WebDirectory = Join-Path $DeploymentRoot 'web'
 
-Write-Host "[CI Rollback] 开始检查回滚备份..."
+Write-Host "[CI Rollback] Checking rollback backup..."
 
 if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) {
-    Write-Host "[CI Rollback] 未找到备份目录 '$BackupDir'，deploy.ps1 可能已自行回滚。"
+    Write-Host "[CI Rollback] Backup directory '$BackupDir' not found; deploy.ps1 probably rolled back already."
     exit 0
 }
 
-Write-Host "[CI Rollback] 发现备份目录，开始恢复..."
+Write-Host "[CI Rollback] Backup found, starting restore..."
 
-# 停止可能的新进程（pm2 可能因应用未启动而报错，这里显式忽略）
-Write-Host "[CI Rollback] 停止新进程 (if any)"
+# Stop any new process (pm2 may error if the app is not running; ignore explicitly)
+Write-Host "[CI Rollback] Stopping new process (if any)"
 try {
     pm2 delete $AppName 2>$null | Out-Null
 } catch {
-    Write-Host "[CI Rollback] pm2 delete 报错（已忽略）: $($_.Exception.Message)"
+    Write-Host "[CI Rollback] pm2 delete error (ignored): $($_.Exception.Message)"
 }
 
-# 删除失败的解压
+# Remove the failed extraction
 if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
     Remove-Item -LiteralPath $ServerDirectory -Recurse -Force
-    Write-Host "[CI Rollback] 已删除失败的 server/"
+    Write-Host "[CI Rollback] Removed failed server/"
 }
 if (Test-Path -LiteralPath $WebDirectory -PathType Container) {
     Remove-Item -LiteralPath $WebDirectory -Recurse -Force
-    Write-Host "[CI Rollback] 已删除失败的 web/"
+    Write-Host "[CI Rollback] Removed failed web/"
 }
 
-# 从备份恢复
+# Restore from backup
 if (Test-Path -LiteralPath $ServerBackup -PathType Container) {
     Move-Item -LiteralPath $ServerBackup -Destination $ServerDirectory -Force
-    Write-Host "[CI Rollback] 已恢复 server/"
+    Write-Host "[CI Rollback] Restored server/"
 }
 if (Test-Path -LiteralPath $WebBackup -PathType Container) {
     Move-Item -LiteralPath $WebBackup -Destination $WebDirectory -Force
-    Write-Host "[CI Rollback] 已恢复 web/"
+    Write-Host "[CI Rollback] Restored web/"
 }
 
-# 重启旧版本
+# Restart the previous version
 if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
     Set-Location -LiteralPath $ServerDirectory
     $ecosystemFile = Join-Path $ServerDirectory 'ecosystem.config.js'
     if (Test-Path -LiteralPath $ecosystemFile -PathType Leaf) {
-        Write-Host "[CI Rollback] 通过 PM2 重启旧版本..."
+        Write-Host "[CI Rollback] Restarting previous version via PM2..."
         pm2 start ecosystem.config.js --name $AppName
         pm2 save
-        Write-Host "[CI Rollback] 旧版本已通过 PM2 重启"
+        Write-Host "[CI Rollback] Previous version restarted via PM2"
     } else {
-        Write-Warning "[CI Rollback] 备份中未找到 ecosystem.config.js，无法自动重启"
+        Write-Warning "[CI Rollback] ecosystem.config.js not found in backup; cannot auto-restart"
     }
 }
 
-# 清理备份
+# Clean up backup
 Remove-Item -LiteralPath $BackupDir -Recurse -Force
-Write-Host "[CI Rollback] 备份目录已清理"
-Write-Host "[CI Rollback] 回滚完成"
+Write-Host "[CI Rollback] Backup directory cleaned"
+Write-Host "[CI Rollback] Rollback completed"

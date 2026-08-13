@@ -67,7 +67,7 @@ function Invoke-Rollback {
         Remove-Item -LiteralPath $WebDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    # 恢复数据库备份（如果部署时备份了）
+    # Restore the database backup (created during deployment, if any)
     $DatabaseBackup = Join-Path $BackupDir 'smdz.db'
     if (Test-Path -LiteralPath $DatabaseBackup -PathType Leaf) {
         $DatabaseFile = Join-Path $DeploymentRoot 'smdz.db'
@@ -155,7 +155,7 @@ function Get-ServicePort {
 function Get-DatabaseFilePath {
     param([string]$EnvFilePath)
 
-    # 缺省：部署根目录下的 smdz.db（server/ 之外，安全位置）
+    # Default: smdz.db in the deployment root (outside server/, a safe location)
     $default = Join-Path $DeploymentRoot 'smdz.db'
     if (-not (Test-Path -LiteralPath $EnvFilePath -PathType Leaf)) {
         return $default
@@ -167,20 +167,20 @@ function Get-DatabaseFilePath {
         return $default
     }
 
-    # 去掉 file: 前缀和首尾空白
+    # Strip the file: prefix and surrounding whitespace
     $path = ($match.Groups[1].Value.Trim()) -replace '^file:', ''
     $path = $path.Trim()
     if ([string]::IsNullOrWhiteSpace($path)) {
         return $default
     }
 
-    # 相对路径(如 file:../smdz.db)由 Prisma 相对 schema 目录(server/prisma)解析
+    # Relative path (e.g. file:../smdz.db) is resolved by Prisma relative to the schema dir (server/prisma)
     if (-not [System.IO.Path]::IsPathRooted($path) -and -not ($path -match '^[A-Za-z]:')) {
         $schemaDir = Join-Path $ServerDirectory 'prisma'
         return [System.IO.Path]::GetFullPath((Join-Path $schemaDir $path))
     }
 
-    # 绝对路径：统一为 Windows 反斜杠形式
+    # Absolute path: normalize to Windows backslash form
     return $path.Replace('/', '\')
 }
 
@@ -245,10 +245,12 @@ try {
     }
 
     # ---------- Step 3: Backup database file ----------
-    # 数据库文件位置完全由 server/.env 的 DATABASE_URL 决定，
-    # 这里解析该配置得到唯一真实路径后备份，防止部署删除 server/ 时丢失数据。
-    # 用 try/catch 兜底：即使解析函数缺失或抛错，也回退到缺省路径，
-    # 保证 $DatabaseFile 始终有值，避免严格模式下"变量未定义"报错。
+    # The database location is fully determined by DATABASE_URL in server/.env.
+    # Resolve it to the real path and back it up so deleting server/ during
+    # deployment never loses player data.
+    # try/catch fallback: even if the resolver is missing or throws, fall back
+    # to the default path so $DatabaseFile always has a value (avoids the
+    # "variable not set" error under Set-StrictMode).
     try {
         $DatabaseFile = Get-DatabaseFilePath -EnvFilePath (Join-Path $ServerDirectory '.env')
     } catch {
@@ -265,7 +267,7 @@ try {
         $dbRestored = $true
         Write-Host "Database backed up to $DatabaseBackup"
     } else {
-        Write-Host "No database file found at $DatabaseFile, will create new one"
+        Write-Host "No database file found at $DatabaseFile, will create a new one"
     }
 
     # ---------- Step 4: Remove old directories ----------
@@ -301,10 +303,11 @@ try {
         Remove-Item -LiteralPath $EnvSource -Force
     }
 
-    # ---------- Step 5b: 将 DATABASE_URL 改写为指向部署根目录(server/ 之外)的绝对路径 ----------
-    # 无论 .env 里写的是相对路径还是绝对路径，都统一改写为指向
-    # $DeploymentRoot\smdz.db，保证数据库文件位于 server/ 之外，
-    # 部署删除/重建 server/ 时不会丢失；且与备份/恢复解析逻辑一致。
+    # ---------- Step 5b: Rewrite DATABASE_URL to an absolute path in the deployment root (outside server/) ----------
+    # Whether .env uses a relative or absolute path, always rewrite it to point
+    # to $DeploymentRoot\smdz.db so the database file lives outside server/.
+    # This prevents data loss when server/ is deleted/rebuilt during deployment,
+    # and keeps it consistent with the backup/restore resolution logic.
     $EnvTarget = Join-Path $ServerDirectory '.env'
     if (-not (Test-Path -LiteralPath $EnvTarget -PathType Leaf)) {
         throw "server/.env not found, cannot normalize DATABASE_URL"
@@ -319,14 +322,15 @@ try {
             $_
         }
     }
-    # 使用无 BOM 的 UTF-8 写入，避免头部 BOM 影响 .env 解析
+    # Write as UTF-8 without BOM so a leading BOM does not break .env parsing
     $envContent = $envLines -join [Environment]::NewLine
     [System.IO.File]::WriteAllText($EnvTarget, $envContent, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "==> Normalized DATABASE_URL to $newDbUrl"
 
     # ---------- Step 5c: Restore database file ----------
-    # 恢复目标同样由(改写后)server/.env 的 DATABASE_URL 解析，保证与运行路径一致。
-    # 兜底：解析失败时恢复目标回退到部署根目录的 smdz.db。
+    # The restore target is resolved from the (rewritten) server/.env DATABASE_URL
+    # so it matches the runtime path.
+    # Fallback: if resolution fails, restore to smdz.db in the deployment root.
     try {
         $restoreTarget = Get-DatabaseFilePath -EnvFilePath $EnvTarget
     } catch {
@@ -342,7 +346,7 @@ try {
         Write-Host "Database restored to $restoreTarget"
         Remove-Item -LiteralPath $DatabaseBackup -Force
     } else {
-        Write-Host "No database backup to restore, will create new database"
+        Write-Host "No database backup to restore, will create a new database"
     }
 
     # ---------- Step 6: Build server ----------
