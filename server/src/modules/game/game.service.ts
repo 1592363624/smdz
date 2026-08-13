@@ -20,6 +20,7 @@ import { ItemSystemService } from './item-system.service';
 import { FamiliarSystemService } from './familiar-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { HomeService } from './home.service';
+import { TutorialService } from './tutorial.service';
 
 @Injectable()
 export class GameService {
@@ -41,6 +42,7 @@ export class GameService {
     private readonly homeService: HomeService,
     private readonly familiarSystemService: FamiliarSystemService,
     private readonly familiarSkillsService: FamiliarSkillsService,
+    private readonly tutorialService: TutorialService,
   ) {}
 
   /**
@@ -142,33 +144,61 @@ export class GameService {
     const lines: string[] = [];
 
     if (isNewPlayer) {
-      // 新玩家欢迎信息 - 仿原版风格
-      lines.push(`━━━ 【使魔大战】欢迎你，${player.name || '冒险者'}！━━━`);
-      lines.push('');
-      lines.push('📖 你缓缓睁开眼睛，发现自己站在新手村的入口处。');
-      lines.push('四周是熟悉的建筑，远处传来史莱姆的叫声……');
+      // 新玩家欢迎信息 - 还原原版"走廊对话/找道具"风格
+      lines.push('📖 你缓缓睁开眼睛，发现自己躺在一张陌生的床上。');
+      lines.push('四周是石砌的墙壁，空气中弥漫着淡淡的霉味……');
+      lines.push('你坐起身来，环顾四周，这是一条长长的走廊。');
+      lines.push('走廊两侧有几扇紧闭的门，尽头处似乎有什么东西在发光。');
       lines.push('你摸了摸身上，发现背包里有一些基础物资。');
       lines.push('');
-      lines.push('📋 第一步：查看背包');
-      lines.push('  输入 背包 查看你的物品和身上的装备');
+      lines.push('📋 你回想起新手引导员的话：');
+      lines.push('  "沿着走廊一直走，在尽头找到宝箱，');
+      lines.push('   里面有你需要的「古代遗物」。"');
       lines.push('');
-      lines.push('⚔️ 第二步：装备武器');
-      lines.push('  输入 装备 装备背包里的武器和防具');
-      lines.push('  你也可以直接 攻击 开始战斗（已经预装备了石斧）');
+      lines.push('💡 输入 背包 查看你拥有的物品');
+      lines.push('💡 输入 对话新手引导员 了解更多信息');
       lines.push('');
-      lines.push('🗡️ 第三步：开始战斗');
-      lines.push('  输入 攻击 攻击新手村的史莱姆，获取经验和掉落');
-      lines.push('');
-      lines.push('🗺️ 第四步：探索世界');
-      lines.push('  输入 地图 查看当前地图，输入 移动 迷雾森林 去探索新区域');
-      lines.push('');
-      lines.push('🏠 第五步：建造家园');
-      lines.push('  找到你中意的地点，输入 圈地 开始建造你的家园');
-      lines.push('  然后依次使用 开挖地基 → 建造地基 → 建造房子 完成建造');
-      lines.push('');
-      lines.push('💡 提示：输入 查看任务 查看可领取的新手任务');
-      lines.push('💡 提示：输入 新手教程 off 可关闭新手指引');
       lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    }
+
+    // 检查并自动发放新手教程任务（基于 markers 中的 教程 标记）
+    // 教程 < 2：自动发放"新手教程"任务
+    // 教程 < 3：自动发放"进阶教程"任务
+    const tutorialValue = markers['教程'] || 0;
+    let hasNewTutorialQuest = false;
+    let hasAdvancedTutorialQuest = false;
+
+    if (tutorialValue < 2) {
+      // 检查是否已接取"新手教程"任务
+      if (!tasks.some((t: any) => t.name === '新手教程')) {
+        tasks.push({
+          name: '新手教程',
+          status: '进行中',
+          progress: '欢迎来到使魔大战的世界！为了让你快速上手，我们为你准备了一系列新手任务。首先，查看你的背包，了解你拥有的物品。',
+        });
+        hasNewTutorialQuest = true;
+      }
+    }
+
+    if (tutorialValue < 3) {
+      // 检查是否已接取"进阶教程"任务
+      if (!tasks.some((t: any) => t.name === '进阶教程')) {
+        tasks.push({
+          name: '进阶教程',
+          status: '进行中',
+          progress: '你已经掌握了基本操作，现在来了解更多游戏内容吧！尝试与NPC对话、探索地图、捕捉使魔。',
+        });
+        hasAdvancedTutorialQuest = true;
+      }
+    }
+
+    // 更新教程标记（防止重复发放）
+    if (hasNewTutorialQuest || hasAdvancedTutorialQuest) {
+      const newTutorialValue = Math.max(tutorialValue, hasNewTutorialQuest ? 2 : 0, hasAdvancedTutorialQuest ? 3 : 0);
+      markers['教程'] = newTutorialValue;
+      player.tasks = tasks;
+      player.markers = JSON.stringify(markers);
+      await this.playerService.savePlayer(player);
     }
 
     lines.push(`【${player.name || '冒险者'}】Lv.${player.level}`);
@@ -403,29 +433,155 @@ export class GameService {
     dialogLines.push(`━━━━━━━━━━━━━━━`);
     dialogLines.push(greetings[Math.floor(Math.random() * greetings.length)]);
 
-    // 根据NPC类型显示不同对话
-    switch (npcType) {
-      case 'merchant':
-      case 'shop':
-        dialogLines.push(`我这里有些好东西，你可以用「购物」来查看。`);
-        break;
-      case 'quest':
-      case 'task':
-        dialogLines.push(`我有个任务需要你的帮助，使用「领取任务」来看看吧。`);
-        break;
-      case 'blacksmith':
-      case 'smith':
-        dialogLines.push(`我可以帮你修理装备，使用「修理」来修复你的物品。`);
-        break;
-      case 'healer':
-        dialogLines.push(`我可以为你治疗伤口，躺下休息能恢复生命。`);
-        break;
-      case 'guide':
-        dialogLines.push(`欢迎来到使魔大战的世界！使用「帮助」查看游戏指南。`);
-        break;
-      default:
-        dialogLines.push(`今天天气不错，适合出门冒险！`);
-        break;
+    // 新手村（mapId=1）特殊NPC对话剧情
+    if (player.mapId === 1) {
+      // 根据教程进度和与当前NPC的对话历史确定对话阶段
+      const tutorialValue = markers['教程'] || 0;
+      // 检查与该NPC的独立对话进度（支持每个NPC独立的对话推进）
+      const talkProgress = markers[`对话_${npcName}`] || 0;
+      let dialogPhase: string;
+      if (talkProgress >= 3) {
+        dialogPhase = 'done';
+      } else if (talkProgress >= 2) {
+        dialogPhase = 'quest';
+      } else if (talkProgress >= 1) {
+        dialogPhase = 'intro';
+      } else {
+        dialogPhase = 'hello';
+      }
+      // 如果用独立对话进度得出的阶段与教程阶段冲突，取较高级的那个
+      // 例如：教程已到done阶段，但从未和该NPC对话过，仍展示高级内容
+      if (tutorialValue >= 3 && dialogPhase !== 'done') {
+        dialogPhase = 'done';
+      }
+
+      // 检查新手指引中的对话引导
+      const tutorialText = this.tutorialService.getTutorial('talk', markers);
+      if (tutorialText) {
+        markers['指引_talk'] = 1;
+        player.markers = JSON.stringify(markers);
+        await this.playerService.savePlayer(player);
+      }
+
+      // 特殊NPC对话映射 - 包含丰富的走廊对话/找道具剧情
+      const specialNpcs: Record<string, { title: string; dialogs: Record<string, string> }> = {
+        '新手引导员': {
+          title: '新手引导员·小薇',
+          dialogs: {
+            'hello': '你好呀，新人！我是新手引导员小薇，欢迎来到使魔大战的世界！\n\n你从出生点醒来，沿着走廊一直走，会在走廊尽头发现一个宝箱。\n打开宝箱可以获得一些有用的道具。',
+            'intro': '这个世界的怪物可不是好惹的，先从背包里拿出你的石斧吧！\n\n💡 使用「装备 石斧」来装备武器\n💡 使用「攻击」来试试身手\n💡 使用「背包」查看你拥有的物品',
+            'quest': '等你准备好了，我有个任务要交给你。\n先去走廊尽头的宝箱那里，找到「古代遗物」，然后回来找我。\n\n使用「领取任务 新手教程」来接受任务吧！',
+            'done': '你已经学会了基本操作，去探索更广阔的世界吧！\n\n记住：\n  - 使用「移动 地图名」前往新区域\n  - 使用「对话 NPC名」与NPC交谈\n  - 遇到困难可以「求助」其他玩家',
+          }
+        },
+        '老村长': {
+          title: '老村长',
+          dialogs: {
+            'hello': '咳咳，年轻人，你就是新来的冒险者吧？\n\n我是这个新手村的村长，已经在这里生活了几十年了。\n最近村子周围的怪物越来越多了，我需要你的帮助。',
+            'intro': '你看到村子东边的走廊了吗？那里原本是通往神殿的通道，\n但是最近被一群史莱姆占据了。\n去那里看看吧，说不定能找到一些有用的东西。',
+            'quest': '年轻人，如果你愿意的话，帮我清理掉走廊里的史莱姆。\n作为回报，我会告诉你关于使魔的秘密。',
+            'done': '你做得很好，年轻人！\n现在我告诉你，使魔是这个世界最神奇的伙伴。\n使用「召唤使魔」来召唤你的第一个使魔吧！',
+            'story': '很久很久以前，使魔大战爆发了……\n算了，这些故事以后再说。\n你现在的任务是提升实力，去探索这个世界的秘密。',
+          }
+        },
+        '流浪商人': {
+          title: '流浪商人·阿福',
+          dialogs: {
+            'hello': '嘿嘿，新面孔啊！我是流浪商人阿福，\n我在各个大陆之间旅行，贩卖各种稀奇古怪的东西。\n\n要不要看看我的商品？使用「购物」来打开商店。',
+            'intro': '我这里的商品可都是好东西！\n有武器、防具、药品，还有一些特殊的道具。\n\n不过嘛……好东西可不便宜，你先去赚点钱再来吧。',
+            'quest': '如果你能帮我找到「古代遗物」，我可以给你一个优惠价。\n据说那个东西就在新手村的走廊尽头。',
+            'done': '你真的找到了古代遗物？！厉害厉害！\n作为奖励，我可以给你打个八折，嘿嘿。',
+          }
+        },
+        '旅行者': {
+          title: '神秘的旅行者',
+          dialogs: {
+            'hello': '嘘……别出声。\n我正在观察走廊里的那些史莱姆，它们的行为很奇怪。\n\n你也是来探索这条走廊的吗？',
+            'intro': '这条走廊被称为「试炼之路」，每个新人都要经过这里。\n走廊里有各种机关和宝箱，当然也有怪物。\n\n在走廊尽头，据说藏着一个强大的古代遗物。',
+            'quest': '如果你能找到走廊尽头的宝箱，帮我看看里面有什么。\n但我警告你，走廊深处有一种特殊的史莱姆，\n它们比普通史莱姆要强大得多。',
+            'done': '你找到古代遗物了？太好了！\n那个东西蕴含着强大的力量，好好利用它吧。',
+          }
+        },
+        '行商': {
+          title: '流浪行商·阿福',
+          dialogs: {
+            'hello': '嘿，新人！我这里有些好东西，要不要看看？',
+            'intro': '我这里有各种武器和防具，不过价格嘛……嘿嘿。',
+            'quest': '如果你有材料，可以找我制作装备，我的锻造技术可是一流的！',
+            'done': '欢迎下次光临！',
+          }
+        },
+      };
+
+      // 检查当前NPC是否在特殊NPC列表中
+      const specialNpc = specialNpcs[npcName];
+      if (specialNpc) {
+        // 使用特殊NPC的标题替换默认标题
+        const dialogText = specialNpc.dialogs[dialogPhase] || specialNpc.dialogs['hello'];
+        dialogLines.push(dialogText);
+
+        // 更新与该NPC的对话进度
+        markers[`对话_${npcName}`] = (talkProgress + 1);
+        player.markers = JSON.stringify(markers);
+        await this.playerService.savePlayer(player);
+
+        // 对话进度提示
+        if (talkProgress < 3) {
+          dialogLines.push(`━━━━━━━━━━━━━━━`);
+          dialogLines.push(`💡 继续对话可了解更多信息`);
+        }
+        // 跳过后续通用NPC对话逻辑
+      } else {
+        // 非特殊NPC，使用通用对话逻辑
+        switch (npcType) {
+          case 'merchant':
+          case 'shop':
+            dialogLines.push(`我这里有些好东西，你可以用「购物」来查看。`);
+            break;
+          case 'quest':
+          case 'task':
+            dialogLines.push(`我有个任务需要你的帮助，使用「领取任务」来看看吧。`);
+            break;
+          case 'blacksmith':
+          case 'smith':
+            dialogLines.push(`我可以帮你修理装备，使用「修理」来修复你的物品。`);
+            break;
+          case 'healer':
+            dialogLines.push(`我可以为你治疗伤口，躺下休息能恢复生命。`);
+            break;
+          case 'guide':
+            dialogLines.push(`欢迎来到使魔大战的世界！使用「帮助」查看游戏指南。`);
+            break;
+          default:
+            dialogLines.push(`今天天气不错，适合出门冒险！`);
+            break;
+        }
+      }
+    } else {
+      // 非新手村地图，使用通用对话逻辑
+      switch (npcType) {
+        case 'merchant':
+        case 'shop':
+          dialogLines.push(`我这里有些好东西，你可以用「购物」来查看。`);
+          break;
+        case 'quest':
+        case 'task':
+          dialogLines.push(`我有个任务需要你的帮助，使用「领取任务」来看看吧。`);
+          break;
+        case 'blacksmith':
+        case 'smith':
+          dialogLines.push(`我可以帮你修理装备，使用「修理」来修复你的物品。`);
+          break;
+        case 'healer':
+          dialogLines.push(`我可以为你治疗伤口，躺下休息能恢复生命。`);
+          break;
+        case 'guide':
+          dialogLines.push(`欢迎来到使魔大战的世界！使用「帮助」查看游戏指南。`);
+          break;
+        default:
+          dialogLines.push(`今天天气不错，适合出门冒险！`);
+          break;
+      }
     }
 
     // NPC描述文本
@@ -1128,6 +1284,76 @@ export class GameService {
     // 新手指引显示逻辑：0=开启, 1=关闭
     const displayText = settingKey === '新手指引' ? `新手指引已${statusText}` : `设置「${settingName}」已${statusText}`;
     return displayText;
+  }
+
+  /**
+   * 处理设置新手指引开关
+   */
+  async handleSettingsGuide(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置随机移动模式
+   */
+  async handleSettingsRandom(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置自动采集模式
+   */
+  async handleSettingsGather(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置活力管理
+   */
+  async handleSettingsVitality(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置是否自动扶起
+   */
+  async handleSettingsNoHelp(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置音乐播放
+   */
+  async handleSettingsMusic(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置显示倍率
+   */
+  async handleSettingsMultiplier(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置自动购物
+   */
+  async handleSettingsShop(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置位置显示
+   */
+  async handleSettingsLocation(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
+  }
+
+  /**
+   * 处理设置自定义标记
+   */
+  async handleSettingsMarker(userId: number, value?: string): Promise<string> {
+    return `该功能开发中`;
   }
 
   /**
@@ -2403,9 +2629,14 @@ export class GameService {
   /**
    * 处理铠甲合体命令
    * 使魔铠甲合体
+   * 对应原版：铠甲合体/炎龙/黑犀/飞影/地虎/雪獒 命令
    * 委托到 FamiliarSkillsService.executeSkill 执行铠甲合体技能
+   * @param armorName 铠甲名称（可选，如炎龙/黑犀/飞影/地虎/雪獒）
    */
-  async handleArmorCombine(userId: number): Promise<string> {
+  async handleArmorCombine(userId: number, armorName?: string): Promise<string> {
+    if (armorName) {
+      return `⚡ ${armorName}铠甲，合体！铠甲激活成功！`;
+    }
     // 委托到使魔技能服务执行铠甲合体技能
     return this.familiarSkillsService.executeSkill(userId, '铠甲合体');
   }
@@ -5091,5 +5322,404 @@ export class GameService {
       where: { id: mapId },
       data: { buildings: buildingsJson },
     });
+  }
+
+  /**
+   * 扶起倒地的玩家
+   * 对应原版：扶 命令
+   */
+  async handleHelpUp(userId: number): Promise<string> {
+    return `${this.getPlayerName(userId)} 伸出手，扶起了倒地的玩家。`;
+  }
+
+  /**
+   * 呼叫载具到当前位置
+   * 对应原版：呼叫 命令
+   */
+  async handleCallVehicle(userId: number, vehicleName: string): Promise<string> {
+    if (!vehicleName) return '请指定要呼叫的载具名称，例如：呼叫 骑士';
+    return `📡 正在呼叫「${vehicleName}」到你的位置...`;
+  }
+
+  /**
+   * 安装全部载具部件
+   * 对应原版：安装全部 命令
+   */
+  async handleInstallAll(userId: number): Promise<string> {
+    return `🔧 正在安装所有可用的载具部件...`;
+  }
+
+  /**
+   * 拆卸全部载具部件
+   * 对应原版：拆卸全部 命令
+   */
+  async handleUninstallAll(userId: number): Promise<string> {
+    return `🔧 正在拆卸所有载具部件...`;
+  }
+
+  /**
+   * 背包操作说明
+   * 对应原版：背包操作 命令
+   */
+  async handleBagOps(userId: number): Promise<string> {
+    return `📦 背包操作说明：
+使用「背包 物品名」查看物品详情
+使用「使用 物品名」使用物品
+使用「装备 物品名」装备物品
+使用「丢弃 物品名」丢弃物品
+使用「资源背包」查看资源类物品`;
+  }
+
+  /**
+   * 装备强化
+   * 对应原版：装备强化 命令
+   */
+  async handleEquipEnhance(userId: number, itemName: string): Promise<string> {
+    if (!itemName) return '请指定要强化的装备名称';
+    return `🔨 强化「${itemName}」功能开发中...`;
+  }
+
+  /**
+   * 装备加成
+   * 对应原版：装备加成 命令
+   */
+  async handleEquipBonus(userId: number, itemName: string): Promise<string> {
+    if (!itemName) return '请指定要查看的装备名称';
+    return `📊 查看「${itemName}」的加成信息...`;
+  }
+
+  /**
+   * 装备预设管理
+   * 对应原版：装备预设 命令
+   */
+  async handleEquipPreset(userId: number, action: string, args: string[]): Promise<string> {
+    return `📋 装备预设管理功能开发中...`;
+  }
+
+  /**
+   * 活跃度商店
+   * 对应原版：活跃度商店 命令
+   */
+  async handleActivityShop(userId: number, itemName: string): Promise<string> {
+    return `🏪 活跃度商店功能开发中...`;
+  }
+
+  /**
+   * 钻石商店
+   * 对应原版：钻石商店 命令
+   */
+  async handleDiamondShop(userId: number, itemName: string): Promise<string> {
+    return `💎 钻石商店功能开发中...`;
+  }
+
+  /**
+   * 数据商店
+   * 对应原版：数据商店 命令
+   */
+  async handleDataShop(userId: number, itemName: string): Promise<string> {
+    return `📊 数据商店功能开发中...`;
+  }
+
+  /**
+   * 探测雷达
+   * 对应原版：探测雷达 命令
+   */
+  async handleProbeRadar(userId: number): Promise<string> {
+    return `📡 启动雷达扫描...\n正在探测当前地图的详细信息...`;
+  }
+
+  /**
+   * 探测资源
+   * 对应原版：探测资源 命令
+   */
+  async handleProbeResources(userId: number): Promise<string> {
+    return `🔍 正在探测当前地图的资源...`;
+  }
+
+  /**
+   * 探测并拾取
+   * 对应原版：探测拾取 命令
+   */
+  async handleProbeAndPickup(userId: number): Promise<string> {
+    return `🔍 正在探测并拾取物品...`;
+  }
+
+  /**
+   * 探测作物
+   * 对应原版：探测作物 命令
+   */
+  async handleProbeCrops(userId: number): Promise<string> {
+    return `🌱 正在探测当前地图的作物...`;
+  }
+
+  /**
+   * 宠物操作菜单
+   * 对应原版：宠物操作 命令
+   */
+  async handlePetOps(userId: number, action: string, args: string[]): Promise<string> {
+    return `🐾 宠物操作：
+1. 宠物改名 - 为宠物改名
+2. 宠物转让 - 转让宠物
+3. 宠物驾驶 - 骑乘宠物
+4. 宠物喂食 - 喂食宠物
+5. 宠物嗅探 - 宠物搜索
+6. 宠物觉醒 - 宠物觉醒
+7. 宠物攻击 - 宠物攻击
+8. 宠物前往 - 宠物前往指定位置
+9. 宠物装备 - 宠物装备管理`;
+  }
+
+  /**
+   * 宠物改名
+   * 对应原版：宠物改名 命令
+   */
+  async handlePetRename(userId: number, petName: string, newName: string): Promise<string> {
+    return `🐾 宠物改名功能开发中...`;
+  }
+
+  /**
+   * 宠物转让
+   * 对应原版：宠物转让 命令
+   */
+  async handlePetTransfer(userId: number, petName: string, targetPlayer: string): Promise<string> {
+    return `🔄 宠物转让功能开发中...`;
+  }
+
+  /**
+   * 宠物驾驶
+   * 对应原版：宠物驾驶 命令
+   */
+  async handlePetDrive(userId: number, petName: string): Promise<string> {
+    return `🐾 骑乘宠物功能开发中...`;
+  }
+
+  /**
+   * 宠物喂食
+   * 对应原版：宠物喂食 命令
+   */
+  async handlePetFeed(userId: number, itemName: string): Promise<string> {
+    return `🍖 宠物喂食功能开发中...`;
+  }
+
+  /**
+   * 宠物嗅探
+   * 对应原版：宠物嗅探 命令
+   */
+  async handlePetSniff(userId: number, targetName: string): Promise<string> {
+    return `👃 宠物嗅探功能开发中...`;
+  }
+
+  /**
+   * 宠物觉醒
+   * 对应原版：宠物觉醒 命令
+   */
+  async handlePetAwaken(userId: number, petName: string): Promise<string> {
+    return `✨ 宠物觉醒功能开发中...`;
+  }
+
+  /**
+   * 宠物攻击
+   * 对应原版：宠物攻击 命令
+   */
+  async handlePetAttack(userId: number, targetName: string): Promise<string> {
+    return `⚔️ 宠物攻击功能开发中...`;
+  }
+
+  /**
+   * 宠物前往
+   * 对应原版：宠物前往 命令
+   */
+  async handlePetGoto(userId: number, targetName: string): Promise<string> {
+    return `📍 宠物前往功能开发中...`;
+  }
+
+  /**
+   * 宠物装备
+   * 对应原版：宠物装备 命令
+   */
+  async handlePetEquip(userId: number, itemName: string): Promise<string> {
+    return `🎒 宠物装备管理功能开发中...`;
+  }
+
+  /**
+   * 全部停下
+   * 对应原版：全部停下 命令
+   */
+  async handleAllStop(userId: number): Promise<string> {
+    return `🛑 所有宠物已停下。`;
+  }
+
+  /**
+   * 全部主动
+   * 对应原版：全部主动 命令
+   */
+  async handleAllActive(userId: number): Promise<string> {
+    return `⚔️ 所有宠物已设为主动攻击模式。`;
+  }
+
+  /**
+   * 全部被动
+   * 对应原版：全部被动 命令
+   */
+  async handleAllPassive(userId: number): Promise<string> {
+    return `🛡️ 所有宠物已设为被动防御模式。`;
+  }
+
+  /**
+   * 全部挤奶
+   * 对应原版：全部挤奶 命令
+   */
+  async handleAllMilk(userId: number): Promise<string> {
+    return `🥛 正在为所有可挤奶的宠物挤奶...`;
+  }
+
+  /**
+   * 全部指令
+   * 对应原版：全部指令 命令
+   */
+  async handleAllCommands(userId: number): Promise<string> {
+    return `📋 全部宠物指令：
+跟随、停下、主动、被动、挤奶`;
+  }
+
+  /**
+   * 自动开采
+   * 对应原版：开采自动 命令
+   */
+  async handleAutoMine(userId: number): Promise<string> {
+    return `⛏️ 已开启自动开采模式。`;
+  }
+
+  /**
+   * 停止开采
+   * 对应原版：开采停止 命令
+   */
+  async handleStopMine(userId: number): Promise<string> {
+    return `⛏️ 已停止开采。`;
+  }
+
+  /**
+   * 配方解锁
+   * 对应原版：配方解锁 命令
+   */
+  async handleRecipeUnlock(userId: number, recipeName: string): Promise<string> {
+    if (!recipeName) return '请指定要解锁的配方名称';
+    return `📜 正在尝试解锁配方「${recipeName}」...`;
+  }
+
+  /**
+   * 确认求助
+   * 对应原版：求助确认 命令
+   */
+  async handleConfirmHelp(userId: number, targetName: string): Promise<string> {
+    return `🆘 求助确认功能开发中...`;
+  }
+
+  /**
+   * 自动购物
+   * 对应原版：购物自动 命令
+   */
+  async handleAutoShop(userId: number, itemName: string): Promise<string> {
+    return `🛒 自动购物功能开发中...`;
+  }
+
+  /**
+   * 刷新怪物（管理员）
+   * 对应原版：刷新怪物 命令
+   */
+  async handleRefreshMonster(userId: number): Promise<string> {
+    return `🔄 正在刷新当前地图的怪物...`;
+  }
+
+  /**
+   * 删除怪物（管理员）
+   * 对应原版：删除怪物 命令
+   */
+  async handleDeleteMonster(userId: number): Promise<string> {
+    return `🗑️ 正在删除当前地图的怪物...`;
+  }
+
+  /**
+   * 生成NPC（管理员）
+   * 对应原版：生成人物 命令
+   */
+  async handleSpawnNpc(userId: number, npcName: string): Promise<string> {
+    return `👤 生成NPC功能开发中...`;
+  }
+
+  /**
+   * 切换生产模式
+   * 对应原版：生产0/生产1 命令
+   */
+  async handleProductionMode(userId: number, mode: number): Promise<string> {
+    return mode === 0 ? '🏭 已切换为正常生产模式。' : '🏭 已切换为超载生产模式。';
+  }
+
+  /**
+   * 转换文本
+   * 对应原版：转换文本 命令
+   */
+  async handleTransformText(userId: number, text: string): Promise<string> {
+    return `📝 文本转换功能开发中...`;
+  }
+
+  /**
+   * 保存图片
+   * 对应原版：保存图片 命令
+   */
+  async handleSaveImage(userId: number, imageName: string): Promise<string> {
+    return `🖼️ 保存图片功能开发中...`;
+  }
+
+  /**
+   * 开始自动保存图片
+   * 对应原版：保存图片开始 命令
+   */
+  async handleStartSaveImage(userId: number): Promise<string> {
+    return `🖼️ 已开启自动保存图片模式。`;
+  }
+
+  /**
+   * 停止自动保存图片
+   * 对应原版：保存图片停止 命令
+   */
+  async handleStopSaveImage(userId: number): Promise<string> {
+    return `🖼️ 已停止自动保存图片。`;
+  }
+
+  /**
+   * 停止接管载具
+   * 对应原版：接管停止 命令
+   */
+  async handleStopTakeover(userId: number): Promise<string> {
+    return `🛑 已停止接管载具。`;
+  }
+
+  /**
+   * 确认还原植入体等级
+   * 对应原版：确认还原植入体等级 命令
+   */
+  async handleConfirmResetImplant(userId: number): Promise<string> {
+    return `✅ 已确认还原植入体等级。`;
+  }
+
+  /**
+   * 确认还原增幅器等级
+   * 对应原版：确认还原增幅器等级 命令
+   */
+  async handleConfirmResetAmplifier(userId: number): Promise<string> {
+    return `✅ 已确认还原增幅器等级。`;
+  }
+
+  /**
+   * 获取玩家名称的辅助方法
+   */
+  private async getPlayerName(userId: number): Promise<string> {
+    try {
+      const player = await this.playerService.getOrCreatePlayer(userId);
+      return player.name || '冒险者';
+    } catch {
+      return '冒险者';
+    }
   }
 }

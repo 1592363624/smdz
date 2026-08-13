@@ -560,6 +560,47 @@ export class GameCommandHandler implements CommandHandler {
         case 'settings':
           return this.wrap(await this.gameService.handleSettings(userId, firstArg, args.slice(1).join(' ')));
 
+        // ========== 设置子指令 ==========
+        case '设置指引':
+        case 'setting-guide':
+          return this.wrap(await this.gameService.handleSettingsGuide(userId, firstArg));
+
+        case '设置随机':
+        case 'setting-random':
+          return this.wrap(await this.gameService.handleSettingsRandom(userId, firstArg));
+
+        case '设置采集':
+        case 'setting-gather':
+          return this.wrap(await this.gameService.handleSettingsGather(userId, firstArg));
+
+        case '设置活力':
+        case 'setting-vitality':
+          return this.wrap(await this.gameService.handleSettingsVitality(userId, firstArg));
+
+        case '设置不扶':
+        case 'setting-no-help':
+          return this.wrap(await this.gameService.handleSettingsNoHelp(userId, firstArg));
+
+        case '设置音乐':
+        case 'setting-music':
+          return this.wrap(await this.gameService.handleSettingsMusic(userId, firstArg));
+
+        case '设置倍率':
+        case 'setting-multiplier':
+          return this.wrap(await this.gameService.handleSettingsMultiplier(userId, firstArg));
+
+        case '设置购物':
+        case 'setting-shop':
+          return this.wrap(await this.gameService.handleSettingsShop(userId, firstArg));
+
+        case '设置位置':
+        case 'setting-location':
+          return this.wrap(await this.gameService.handleSettingsLocation(userId, firstArg));
+
+        case '设置标记':
+        case 'setting-marker':
+          return this.wrap(await this.gameService.handleSettingsMarker(userId, firstArg));
+
         // ========== 快捷输入 ==========
         case '快捷':
         case 'sc':
@@ -916,6 +957,261 @@ export class GameCommandHandler implements CommandHandler {
         case '查看指定玩家':
         case 'view-player':
           return this.wrap(await this.gameService.handleViewPlayer(userId, firstArg));
+
+        // ========== 社交/基础 ==========
+        case '扶':
+        case 'help-up':
+          return this.wrap(await this.gameService.handleHelpUp(userId));
+
+        case '呼叫':
+        case 'call':
+          return this.wrap(await this.gameService.handleCallVehicle(userId, arg));
+
+        // ========== 安装/拆卸 ==========
+        case '安装全部':
+        case 'install-all':
+          return this.wrap(await this.gameService.handleInstallAll(userId));
+
+        case '拆卸全部':
+        case 'uninstall-all':
+          return this.wrap(await this.gameService.handleUninstallAll(userId));
+
+        // ========== 背包操作 ==========
+        case '背包操作':
+        case 'bag-ops':
+          return this.wrap(await this.gameService.handleBagOps(userId));
+
+        // ========== 装备 ==========
+        case '装备强化':
+        case 'equip-enhance':
+          return this.wrap(await this.gameService.handleEquipEnhance(userId, firstArg));
+
+        case '装备加成':
+        case 'equip-bonus':
+          return this.wrap(await this.gameService.handleEquipBonus(userId, firstArg));
+
+        case '装备预设':
+        case 'equip-preset':
+          return this.wrap(await this.gameService.handleEquipPreset(userId, firstArg, args.slice(1)));
+
+        // ========== 商店 ==========
+        case '活跃度商店':
+        case 'activity-shop':
+          return this.wrap(await this.gameService.handleActivityShop(userId, arg));
+
+        case '钻石商店':
+        case 'diamond-shop':
+          return this.wrap(await this.gameService.handleDiamondShop(userId, arg));
+
+        case '数据商店':
+        case 'data-shop':
+          return this.wrap(await this.gameService.handleDataShop(userId, arg));
+
+        // ========== 探测扩展 ==========
+        case '探测雷达':
+        case 'probe-radar':
+          return this.wrap(await this.gameService.handleProbeRadar(userId));
+
+        case '探测资源':
+        case 'probe-resource':
+          return this.wrap(await this.gameService.handleProbeResources(userId));
+
+        case '探测拾取':
+        case 'probe-pickup':
+          return this.wrap(await this.gameService.handleProbeAndPickup(userId));
+
+        case '探测作物':
+        case 'probe-crop':
+          return this.wrap(await this.gameService.handleProbeCrops(userId));
+
+        // ========== 宠物扩展 ==========
+        case '宠物操作':
+        case 'pet-ops':
+          return this.wrap(await this.gameService.handlePetOps(userId, firstArg, args.slice(1)));
+
+        case '宠物改名':
+        case 'pet-rename':
+          return this.wrap(await this.gameService.handlePetRename(userId, firstArg, args.slice(1).join(' ')));
+
+        case '宠物转让':
+        case 'pet-transfer':
+          return this.wrap(await this.gameService.handlePetTransfer(userId, firstArg, args.slice(1).join(' ')));
+
+        case '宠物驾驶':
+        case 'pet-drive':
+          return this.wrap(await this.gameService.handlePetDrive(userId, firstArg));
+
+        case '宠物喂食':
+        case 'pet-feed':
+          return this.wrap(await this.gameService.handlePetFeed(userId, firstArg));
+
+        case '宠物嗅探':
+        case 'pet-sniff':
+          return this.wrap(await this.gameService.handlePetSniff(userId, firstArg));
+
+        case '宠物觉醒':
+        case 'pet-awaken':
+          return this.wrap(await this.gameService.handlePetAwaken(userId, firstArg));
+
+        case '宠物攻击':
+        case 'pet-attack':
+          return this.wrap(await this.gameService.handlePetAttack(userId, firstArg));
+
+        case '宠物前往':
+        case 'pet-goto':
+          return this.wrap(await this.gameService.handlePetGoto(userId, firstArg));
+
+        case '宠物装备':
+        case 'pet-equip':
+          return this.wrap(await this.gameService.handlePetEquip(userId, arg));
+
+        // ========== 全部指令 ==========
+        case '全部跟随':
+        case 'follow-all':
+        case 'all-follow':
+          return this.wrap(await this.gameService.handleFollowAll(userId));
+
+        case '全部停下':
+        case 'all-stop':
+          return this.wrap(await this.gameService.handleAllStop(userId));
+
+        case '全部主动':
+        case 'all-active':
+          return this.wrap(await this.gameService.handleAllActive(userId));
+
+        case '全部被动':
+        case 'all-passive':
+          return this.wrap(await this.gameService.handleAllPassive(userId));
+
+        case '全部挤奶':
+        case 'all-milk':
+          return this.wrap(await this.gameService.handleAllMilk(userId));
+
+        case '全部指令':
+        case 'all-commands':
+          return this.wrap(await this.gameService.handleAllCommands(userId));
+
+        // ========== 家园扩展 ==========
+        case '家园操作':
+        case 'home-ops':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '家园操作', ...args));
+
+        case '家园前线':
+        case 'home-front':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '家园前线', ...args));
+
+        case '家园产出':
+        case 'home-output':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '家园产出', ...args));
+
+        case '家园音乐':
+        case 'home-music':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '家园音乐', ...args));
+
+        case '家园搬迁':
+        case 'home-relocate':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '家园搬迁', ...args));
+
+        case '家园命名':
+        case 'home-rename':
+          return this.wrap(await this.familiarSystem.handleHome(userId, '家园命名', ...args));
+
+        // ========== 开采扩展 ==========
+        case '开采自动':
+        case 'auto-mine':
+          return this.wrap(await this.gameService.handleAutoMine(userId));
+
+        case '开采停止':
+        case 'stop-mine':
+          return this.wrap(await this.gameService.handleStopMine(userId));
+
+        // ========== 配方 ==========
+        case '配方解锁':
+        case 'recipe-unlock':
+          return this.wrap(await this.gameService.handleRecipeUnlock(userId, firstArg));
+
+        // ========== 求助/购物扩展 ==========
+        case '求助确认':
+        case 'confirm-help':
+          return this.wrap(await this.gameService.handleConfirmHelp(userId, firstArg));
+
+        case '购物自动':
+        case 'auto-shop':
+          return this.wrap(await this.gameService.handleAutoShop(userId, firstArg));
+
+        // ========== 管理/调试 ==========
+        case '刷新怪物':
+        case 'refresh-monster':
+          return this.wrap(await this.gameService.handleRefreshMonster(userId));
+
+        case '删除怪物':
+        case 'delete-monster':
+          return this.wrap(await this.gameService.handleDeleteMonster(userId));
+
+        case '生成人物':
+        case 'spawn-npc':
+          return this.wrap(await this.gameService.handleSpawnNpc(userId, firstArg));
+
+        // ========== 生产模式 ==========
+        case '生产0':
+        case 'prod-mode-0':
+          return this.wrap(await this.gameService.handleProductionMode(userId, 0));
+
+        case '生产1':
+        case 'prod-mode-1':
+          return this.wrap(await this.gameService.handleProductionMode(userId, 1));
+
+        // ========== 铠甲合体 ==========
+        case '炎龙':
+        case 'yanlong':
+          return this.wrap(await this.gameService.handleArmorCombine(userId, '炎龙'));
+
+        case '黑犀':
+        case 'heixi':
+          return this.wrap(await this.gameService.handleArmorCombine(userId, '黑犀'));
+
+        case '飞影':
+        case 'feiying':
+          return this.wrap(await this.gameService.handleArmorCombine(userId, '飞影'));
+
+        case '地虎':
+        case 'dihu':
+          return this.wrap(await this.gameService.handleArmorCombine(userId, '地虎'));
+
+        case '雪獒':
+        case 'xueao':
+          return this.wrap(await this.gameService.handleArmorCombine(userId, '雪獒'));
+
+        // ========== 其他 ==========
+        case '转换文本':
+        case 'transform-text':
+          return this.wrap(await this.gameService.handleTransformText(userId, firstArg));
+
+        case '保存图片':
+        case 'save-image':
+          return this.wrap(await this.gameService.handleSaveImage(userId, firstArg));
+
+        case '保存图片开始':
+        case 'start-save-image':
+          return this.wrap(await this.gameService.handleStartSaveImage(userId));
+
+        case '保存图片停止':
+        case 'stop-save-image':
+          return this.wrap(await this.gameService.handleStopSaveImage(userId));
+
+        // ========== 接管停止 ==========
+        case '接管停止':
+        case 'stop-takeover':
+          return this.wrap(await this.gameService.handleStopTakeover(userId));
+
+        // ========== 确认还原 ==========
+        case '确认还原植入体等级':
+        case 'confirm-reset-implant':
+          return this.wrap(await this.gameService.handleConfirmResetImplant(userId));
+
+        case '确认还原增幅器等级':
+        case 'confirm-reset-amplifier':
+          return this.wrap(await this.gameService.handleConfirmResetAmplifier(userId));
 
         default:
           return this.wrap(`未知指令「${cmdName}」`);

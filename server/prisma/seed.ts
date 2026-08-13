@@ -27,7 +27,7 @@ async function main() {
     { name: '帮助', alias: 'help,指令,命令', description: '查看所有可用指令', handlerKey: 'help', minRole: 'USER', sortOrder: 1 },
     { name: '信息', alias: 'info,资料,查看,状态', description: '查看自己的玩家信息', handlerKey: 'info', minRole: 'USER', sortOrder: 2 },
     { name: '背包', alias: 'inventory', description: '查看背包物品', handlerKey: 'inventory', minRole: 'USER', sortOrder: 3 },
-    { name: '移动', alias: 'move,前往,去,飞到', description: '移动到指定地图', handlerKey: 'move', minRole: 'USER', sortOrder: 4 },
+    { name: '移动', alias: 'move,前往,去,飞到,go', description: '移动到指定地图', handlerKey: 'move', minRole: 'USER', sortOrder: 4 },
     { name: '地图', alias: 'map,查看地图', description: '查看当前地图信息', handlerKey: 'map', minRole: 'USER', sortOrder: 5 },
     // 战斗（统一 game 处理器）
     { name: '攻击', alias: 'attack,打,揍', description: '攻击当前地图的怪物', handlerKey: 'game', minRole: 'USER', sortOrder: 10 },
@@ -165,7 +165,7 @@ async function main() {
     // 宠物系统扩展（统一 game 处理器）
     { name: '开始捕捉', alias: 'start-capture', description: '开始捕捉宠物', handlerKey: 'game', minRole: 'USER', sortOrder: 250 },
     { name: '停止捕捉', alias: 'stop-capture', description: '停止捕捉宠物', handlerKey: 'game', minRole: 'USER', sortOrder: 251 },
-    { name: '全部跟随', alias: 'follow-all', description: '所有宠物跟随', handlerKey: 'game', minRole: 'USER', sortOrder: 252 },
+    { name: '全部跟随', alias: 'follow-all,all-follow', description: '所有宠物跟随', handlerKey: 'game', minRole: 'USER', sortOrder: 252 },
     { name: '补魔', alias: 'refill', description: '补充魔力', handlerKey: 'game', minRole: 'USER', sortOrder: 253 },
     { name: '挤奶', alias: 'milk', description: '挤奶', handlerKey: 'game', minRole: 'USER', sortOrder: 254 },
     { name: '剪毛', alias: 'shear', description: '剪毛', handlerKey: 'game', minRole: 'USER', sortOrder: 255 },
@@ -181,12 +181,100 @@ async function main() {
     { name: '更新历史', alias: 'changelog', description: '查看更新历史', handlerKey: 'game', minRole: 'USER', sortOrder: 283 },
     { name: '贸易', alias: 'trade', description: '玩家间贸易', handlerKey: 'game', minRole: 'USER', sortOrder: 284 },
     { name: '购物', alias: 'shop', description: '商店购物', handlerKey: 'game', minRole: 'USER', sortOrder: 285 },
-    { name: '求助', alias: 'help-me', description: '获取帮助', handlerKey: 'game', minRole: 'USER', sortOrder: 286 },
-    { name: '配方', alias: 'recipe', description: '查看制造配方', handlerKey: 'game', minRole: 'USER', sortOrder: 287 },
-    { name: '逆向', alias: 'reverse', description: '逆向操作', handlerKey: 'game', minRole: 'USER', sortOrder: 288 },
-    { name: '预设切换', alias: 'preset,切换预设', description: '切换装备预设', handlerKey: 'game', minRole: 'USER', sortOrder: 289 },
-    { name: '签到', alias: 'daily-checkin', description: '每日签到', handlerKey: 'game', minRole: 'USER', sortOrder: 290 },
-    { name: '文本发送', alias: 'text-send', description: '文本发送', handlerKey: 'game', minRole: 'USER', sortOrder: 291 },
+    // 基础社交类
+    { name: '扶', alias: 'help-up', description: '扶起倒地的玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 286 },
+    { name: '呼叫', alias: 'call', description: '呼叫载具到当前位置', handlerKey: 'game', minRole: 'USER', sortOrder: 287 },
+    // 安装全部/拆卸全部
+    { name: '安装全部', alias: 'install-all', description: '安装所有可用的载具部件', handlerKey: 'game', minRole: 'USER', sortOrder: 288 },
+    { name: '拆卸全部', alias: 'uninstall-all', description: '拆卸所有载具部件', handlerKey: 'game', minRole: 'USER', sortOrder: 289 },
+    // 背包操作
+    { name: '背包操作', alias: 'bag-ops', description: '背包操作说明', handlerKey: 'game', minRole: 'USER', sortOrder: 290 },
+    // 装备强化/加成
+    { name: '装备强化', alias: 'equip-enhance', description: '强化已装备的装备', handlerKey: 'game', minRole: 'USER', sortOrder: 291 },
+    { name: '装备加成', alias: 'equip-bonus', description: '查看装备加成信息', handlerKey: 'game', minRole: 'USER', sortOrder: 292 },
+    { name: '装备预设', alias: 'equip-preset', description: '装备预设管理', handlerKey: 'game', minRole: 'USER', sortOrder: 293 },
+    // 商店类
+    { name: '活跃度商店', alias: 'activity-shop', description: '使用活跃度兑换物品', handlerKey: 'game', minRole: 'USER', sortOrder: 294 },
+    { name: '钻石商店', alias: 'diamond-shop', description: '使用钻石兑换物品', handlerKey: 'game', minRole: 'USER', sortOrder: 295 },
+    { name: '数据商店', alias: 'data-shop', description: '使用数据兑换物品', handlerKey: 'game', minRole: 'USER', sortOrder: 296 },
+    // 探测扩展
+    { name: '探测雷达', alias: 'probe-radar', description: '使用雷达探测当前地图', handlerKey: 'game', minRole: 'USER', sortOrder: 297 },
+    { name: '探测资源', alias: 'probe-resource', description: '探测当前地图资源', handlerKey: 'game', minRole: 'USER', sortOrder: 298 },
+    { name: '探测拾取', alias: 'probe-pickup', description: '探测并拾取物品', handlerKey: 'game', minRole: 'USER', sortOrder: 299 },
+    { name: '探测作物', alias: 'probe-crop', description: '探测当前地图的作物', handlerKey: 'game', minRole: 'USER', sortOrder: 300 },
+    // 宠物扩展
+    { name: '宠物操作', alias: 'pet-ops', description: '宠物操作菜单', handlerKey: 'game', minRole: 'USER', sortOrder: 301 },
+    { name: '宠物改名', alias: 'pet-rename', description: '为宠物改名', handlerKey: 'game', minRole: 'USER', sortOrder: 302 },
+    { name: '宠物转让', alias: 'pet-transfer', description: '转让宠物给其他玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 303 },
+    { name: '宠物驾驶', alias: 'pet-drive', description: '骑乘宠物', handlerKey: 'game', minRole: 'USER', sortOrder: 304 },
+    { name: '宠物喂食', alias: 'pet-feed', description: '喂食宠物', handlerKey: 'game', minRole: 'USER', sortOrder: 305 },
+    { name: '宠物嗅探', alias: 'pet-sniff', description: '宠物嗅探搜索', handlerKey: 'game', minRole: 'USER', sortOrder: 306 },
+    { name: '宠物觉醒', alias: 'pet-awaken', description: '宠物觉醒操作', handlerKey: 'game', minRole: 'USER', sortOrder: 307 },
+    { name: '宠物攻击', alias: 'pet-attack', description: '宠物攻击指令', handlerKey: 'game', minRole: 'USER', sortOrder: 308 },
+    { name: '宠物前往', alias: 'pet-goto', description: '宠物前往指定位置', handlerKey: 'game', minRole: 'USER', sortOrder: 309 },
+    { name: '宠物装备', alias: 'pet-equip', description: '宠物装备管理', handlerKey: 'game', minRole: 'USER', sortOrder: 310 },
+    // 全部指令（全部跟随已存在 sortOrder 252，此处跳过）
+    { name: '全部停下', alias: 'all-stop', description: '所有宠物停下', handlerKey: 'game', minRole: 'USER', sortOrder: 311 },
+    { name: '全部主动', alias: 'all-active', description: '所有宠物设为主动', handlerKey: 'game', minRole: 'USER', sortOrder: 312 },
+    { name: '全部被动', alias: 'all-passive', description: '所有宠物设为被动', handlerKey: 'game', minRole: 'USER', sortOrder: 313 },
+    { name: '全部挤奶', alias: 'all-milk', description: '给所有可挤奶的宠物挤奶', handlerKey: 'game', minRole: 'USER', sortOrder: 314 },
+    { name: '全部指令', alias: 'all-commands', description: '查看所有宠物指令', handlerKey: 'game', minRole: 'USER', sortOrder: 315 },
+    // 家园扩展
+    { name: '家园操作', alias: 'home-ops', description: '家园操作菜单', handlerKey: 'game', minRole: 'USER', sortOrder: 316 },
+    { name: '家园前线', alias: 'home-front', description: '家园前线防御', handlerKey: 'game', minRole: 'USER', sortOrder: 317 },
+    { name: '家园产出', alias: 'home-output', description: '查看家园产出', handlerKey: 'game', minRole: 'USER', sortOrder: 318 },
+    { name: '家园音乐', alias: 'home-music', description: '家园音乐设置', handlerKey: 'game', minRole: 'USER', sortOrder: 319 },
+    { name: '家园搬迁', alias: 'home-relocate', description: '搬迁家园', handlerKey: 'game', minRole: 'USER', sortOrder: 320 },
+    { name: '家园命名', alias: 'home-rename', description: '为家园命名', handlerKey: 'game', minRole: 'USER', sortOrder: 321 },
+    // 开采扩展
+    { name: '开采自动', alias: 'auto-mine', description: '开启自动开采模式', handlerKey: 'game', minRole: 'USER', sortOrder: 322 },
+    { name: '开采停止', alias: 'stop-mine', description: '停止开采', handlerKey: 'game', minRole: 'USER', sortOrder: 323 },
+    // 配方
+    { name: '配方解锁', alias: 'recipe-unlock', description: '解锁新的制造配方', handlerKey: 'game', minRole: 'USER', sortOrder: 324 },
+    // 求助/购物扩展
+    { name: '求助确认', alias: 'confirm-help', description: '确认求助请求', handlerKey: 'game', minRole: 'USER', sortOrder: 325 },
+    { name: '购物自动', alias: 'auto-shop', description: '自动购物模式', handlerKey: 'game', minRole: 'USER', sortOrder: 326 },
+    // 管理扩展
+    { name: '刷新怪物', alias: 'refresh-monster', description: '刷新当前地图怪物(管理员)', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 327 },
+    { name: '删除怪物', alias: 'delete-monster', description: '删除当前地图怪物(管理员)', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 328 },
+    { name: '生成人物', alias: 'spawn-npc', description: '生成NPC(管理员)', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 329 },
+    // 生产模式
+    { name: '生产0', alias: 'prod-mode-0', description: '切换生产模式为正常', handlerKey: 'game', minRole: 'USER', sortOrder: 330 },
+    { name: '生产1', alias: 'prod-mode-1', description: '切换生产模式为超载', handlerKey: 'game', minRole: 'USER', sortOrder: 331 },
+    // 铠甲合体
+    { name: '炎龙', alias: 'yanlong', description: '炎龙铠甲合体', handlerKey: 'game', minRole: 'USER', sortOrder: 332 },
+    { name: '黑犀', alias: 'heixi', description: '黑犀铠甲合体', handlerKey: 'game', minRole: 'USER', sortOrder: 333 },
+    { name: '飞影', alias: 'feiying', description: '飞影铠甲合体', handlerKey: 'game', minRole: 'USER', sortOrder: 334 },
+    { name: '地虎', alias: 'dihu', description: '地虎铠甲合体', handlerKey: 'game', minRole: 'USER', sortOrder: 335 },
+    { name: '雪獒', alias: 'xueao', description: '雪獒铠甲合体', handlerKey: 'game', minRole: 'USER', sortOrder: 336 },
+    // 其他
+    { name: '转换文本', alias: 'transform-text', description: '文本转换操作', handlerKey: 'game', minRole: 'USER', sortOrder: 337 },
+    { name: '保存图片', alias: 'save-image', description: '保存图片到本地', handlerKey: 'game', minRole: 'USER', sortOrder: 338 },
+    { name: '保存图片开始', alias: 'start-save-image', description: '开始自动保存图片', handlerKey: 'game', minRole: 'USER', sortOrder: 339 },
+    { name: '保存图片停止', alias: 'stop-save-image', description: '停止自动保存图片', handlerKey: 'game', minRole: 'USER', sortOrder: 340 },
+    // 接管停止
+    { name: '接管停止', alias: 'stop-takeover', description: '停止接管载具', handlerKey: 'game', minRole: 'USER', sortOrder: 341 },
+    // 确认还原
+    { name: '确认还原植入体等级', alias: 'confirm-reset-implant', description: '确认还原植入体等级', handlerKey: 'game', minRole: 'USER', sortOrder: 342 },
+    { name: '确认还原增幅器等级', alias: 'confirm-reset-amplifier', description: '确认还原增幅器等级', handlerKey: 'game', minRole: 'USER', sortOrder: 343 },
+    // 被挤出排序的旧指令（从原 286-291 移至此处）
+    { name: '求助', alias: 'help-me', description: '获取帮助', handlerKey: 'game', minRole: 'USER', sortOrder: 344 },
+    { name: '配方', alias: 'recipe', description: '查看制造配方', handlerKey: 'game', minRole: 'USER', sortOrder: 345 },
+    { name: '逆向', alias: 'reverse', description: '逆向操作', handlerKey: 'game', minRole: 'USER', sortOrder: 346 },
+    { name: '预设切换', alias: 'preset,切换预设', description: '切换装备预设', handlerKey: 'game', minRole: 'USER', sortOrder: 347 },
+    { name: '签到', alias: 'daily-checkin', description: '每日签到', handlerKey: 'game', minRole: 'USER', sortOrder: 348 },
+    { name: '文本发送', alias: 'text-send', description: '文本发送', handlerKey: 'game', minRole: 'USER', sortOrder: 349 },
+    // 设置子指令（统一 game 处理器）
+    { name: '设置指引', alias: 'setting-guide', description: '设置新手指引开关', handlerKey: 'game', minRole: 'USER', sortOrder: 350 },
+    { name: '设置随机', alias: 'setting-random', description: '设置随机移动模式', handlerKey: 'game', minRole: 'USER', sortOrder: 351 },
+    { name: '设置采集', alias: 'setting-gather', description: '设置自动采集模式', handlerKey: 'game', minRole: 'USER', sortOrder: 352 },
+    { name: '设置活力', alias: 'setting-vitality', description: '设置活力管理', handlerKey: 'game', minRole: 'USER', sortOrder: 353 },
+    { name: '设置不扶', alias: 'setting-no-help', description: '设置是否自动扶起', handlerKey: 'game', minRole: 'USER', sortOrder: 354 },
+    { name: '设置音乐', alias: 'setting-music', description: '设置音乐播放', handlerKey: 'game', minRole: 'USER', sortOrder: 355 },
+    { name: '设置倍率', alias: 'setting-multiplier', description: '设置显示倍率', handlerKey: 'game', minRole: 'USER', sortOrder: 356 },
+    { name: '设置购物', alias: 'setting-shop', description: '设置自动购物', handlerKey: 'game', minRole: 'USER', sortOrder: 357 },
+    { name: '设置位置', alias: 'setting-location', description: '设置位置显示', handlerKey: 'game', minRole: 'USER', sortOrder: 358 },
+    { name: '设置标记', alias: 'setting-marker', description: '设置自定义标记', handlerKey: 'game', minRole: 'USER', sortOrder: 359 },
     // 管理（统一 game 处理器）
     { name: '管理', alias: 'admin,管理员', description: '管理员操作入口', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 999 },
   ] as const;
