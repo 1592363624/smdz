@@ -67,6 +67,15 @@ function Invoke-Rollback {
         Remove-Item -LiteralPath $WebDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    # 恢复数据库备份（如果部署时备份了）
+    $DatabaseBackup = Join-Path $BackupDir 'smdz.db'
+    if (Test-Path -LiteralPath $DatabaseBackup -PathType Leaf) {
+        $DatabaseFile = Join-Path $DeploymentRoot 'smdz.db'
+        Write-Host "==> Restoring database file from backup"
+        Copy-Item -LiteralPath $DatabaseBackup -Destination $DatabaseFile -Force
+        Remove-Item -LiteralPath $DatabaseBackup -Force
+    }
+
     $restoredSomething = $false
     if (Test-Path -LiteralPath $ServerBackup -PathType Container) {
         Write-Host "==> Restoring server/ from backup"
@@ -202,7 +211,23 @@ try {
         Write-Host "web/ does not exist, skipping backup"
     }
 
-    # ---------- Step 3: Remove old directories ----------
+    # ---------- Step 3: Backup database file ----------
+    $DatabaseFile = Join-Path $DeploymentRoot 'smdz.db'
+    $DatabaseBackup = Join-Path $BackupDir 'smdz.db'
+    $dbRestored = $false
+    if (Test-Path -LiteralPath $DatabaseFile -PathType Leaf) {
+        Write-Host "==> Backing up database file: smdz.db"
+        if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) {
+            New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $DatabaseFile -Destination $DatabaseBackup -Force
+        $dbRestored = $true
+        Write-Host "Database backed up to $DatabaseBackup"
+    } else {
+        Write-Host "No database file found, will create new one"
+    }
+
+    # ---------- Step 4: Remove old directories ----------
     if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
         Remove-Item -LiteralPath $ServerDirectory -Recurse -Force
         Write-Host "Removed old server/"
@@ -233,6 +258,16 @@ try {
         Copy-Item -LiteralPath $EnvSource -Destination $EnvTarget -Force
         Write-Host "==> Written server/.env"
         Remove-Item -LiteralPath $EnvSource -Force
+    }
+
+    # ---------- Step 5b: Restore database file ----------
+    if ($dbRestored -and (Test-Path -LiteralPath $DatabaseBackup -PathType Leaf)) {
+        Write-Host "==> Restoring database file from backup"
+        Copy-Item -LiteralPath $DatabaseBackup -Destination $DatabaseFile -Force
+        Write-Host "Database restored to $DatabaseFile"
+        Remove-Item -LiteralPath $DatabaseBackup -Force
+    } else {
+        Write-Host "No database backup to restore, will create new database"
     }
 
     # ---------- Step 6: Build server ----------
