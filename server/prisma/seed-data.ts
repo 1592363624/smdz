@@ -402,6 +402,10 @@ function mapMonsterToMonster(section: ConfigSection) {
 
   const level = parseInt(fields['等级']) || 1;
 
+  // 三层池：护盾 / 装甲（原版怪物有独立护盾与装甲，缺省视为0）
+  const shield = parseFloat(fields['护盾']) || 0;
+  const armor = parseFloat(fields['装甲']) || 0;
+
   return {
     name: section.name,
     specialSeq: -1,
@@ -409,11 +413,16 @@ function mapMonsterToMonster(section: ConfigSection) {
     description: fields['说明'] || '',
     level: level,
     hp: parseFloat(fields['生命']) || 100,
+    maxHp: parseFloat(fields['生命']) || 100,
     attack: parseFloat(fields['攻击']) || 10,
     defense: parseFloat(fields['防御']) || 0,
     speed: parseFloat(fields['速度']) || 100,
     dodge: parseFloat(fields['闪避']) || 0,
     hit: parseFloat(fields['命中']) || 100,
+    shield,
+    maxShield: shield,
+    armor,
+    maxArmor: armor,
     bonus: JSON.stringify(bonus),
   };
 }
@@ -762,6 +771,101 @@ function mapTaskToTask(section: ConfigSection) {
   };
 }
 
+/**
+ * 将 特效 类型数据映射到 GameEffect
+ * 限制字段指明适用于 装备/武器；bonus 存储全部数值加成
+ */
+function mapEffectToEffect(section: ConfigSection) {
+  const fields = section.fields;
+  const bonus: Record<string, any> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    // 排除文本字段
+    if (['说明', '限制'].includes(key)) continue;
+    const num = parseFloat(value);
+    bonus[key] = isNaN(num) ? value : num;
+  }
+  return {
+    name: section.name,
+    description: fields['说明'] || '',
+    limit: fields['限制'] || '',
+    bonus: JSON.stringify(bonus),
+  };
+}
+
+/**
+ * 将 资源 类型数据映射到 GameResource
+ * 含 产出/产出2/使用可得/标记/代发言/时间倍率/不可再生 等完整字段
+ */
+function mapResourceToResource(section: ConfigSection) {
+  const fields = section.fields;
+  return {
+    name: section.name,
+    description: fields['说明'] || '',
+    times: parseInt(fields['次数'] || '1') || 1,
+    gatherCmd: fields['采集指令'] || '',
+    timeScale: parseFloat(fields['时间倍率'] || '1') || 1,
+    renewable: fields['不可再生'] !== '1',
+    gatherText: fields['采集文本'] || '',
+    marker: fields['标记'] || '',
+    proxySpeak: fields['代发言'] || '',
+    outputs: JSON.stringify(parseResourceOutput(fields['产出'] || '')),
+    outputs2: JSON.stringify(parseResourceOutput(fields['产出2'] || '')),
+    useGet: JSON.stringify(parseItemCountString(fields['使用可得'] || '')),
+    useMarkers: JSON.stringify(parseSpaceSeparatedString(fields['使用可得标记'] || '')),
+  };
+}
+
+/**
+ * 将 商店 类型数据映射到 GameShop
+ * 商店节承载三大兑换商店 + 副本列表 + 图片库 + BGM
+ */
+function mapShopToShop(section: ConfigSection) {
+  const fields = section.fields;
+  const imgObj = (keys: string[]) => {
+    const obj: Record<string, number> = {};
+    for (const k of keys) {
+      const v = fields[k];
+      if (!v) continue;
+      // 格式: "名称1 名称2 ..." 或 "名称数量"（如 流珠3）
+      for (const tok of v.trim().split(/\s+/)) {
+        const m = tok.match(/^([^\d]+)(\d+)?$/);
+        if (m) obj[m[1]] = m[2] ? parseInt(m[2]) : 1;
+      }
+    }
+    return JSON.stringify(obj);
+  };
+  return {
+    // 单节 upsert，只取第一条（商店节全局唯一）
+    shopActivity: JSON.stringify(parseItemCountString(fields['活跃度'] || '')),
+    shopDiamond: JSON.stringify(parseItemCountString(fields['钻石'] || '')),
+    shopData: JSON.stringify(parseItemCountString(fields['数据'] || '')),
+    dungeons: JSON.stringify(parseSpaceSeparatedString(fields['副本'] || '')),
+    dungeons2: JSON.stringify(parseSpaceSeparatedString(fields['副本2'] || '')),
+    robotQQ: fields['机器人'] || '',
+    familiarImg: imgObj(['使魔jpg', '使魔png']),
+    characterImg: imgObj(['人物jpg', '人物png']),
+    monsterImg: imgObj(['怪物jpg', '怪物png']),
+    mapImg: imgObj(['地图jpg']),
+    travelingEquip: JSON.stringify(parseItemCountString(fields['行商装备'] || '')),
+    travelingItem: JSON.stringify(parseItemCountString(fields['行商物品'] || '')),
+    bgm: JSON.stringify(fields['bgm'] ? fields['bgm'].split(';').map((s: string) => s.trim()).filter(Boolean) : []),
+  };
+}
+
+/**
+ * 将 更新 类型数据映射到 GameUpdateLog
+ * 更新节内容多为多行文本，已拍平为 content 字段
+ */
+function mapUpdateToUpdateLog(section: ConfigSection) {
+  const fields = section.fields;
+  // 更新节通常无明确字段名，整体内容在 fields 中（key 可能为行号或文本）
+  const content = Object.values(fields).join('\n').trim();
+  return {
+    name: section.name,
+    content,
+  };
+}
+
 // ========== 主导入函数 ==========
 
 async function importData() {
@@ -792,12 +896,51 @@ async function importData() {
   }
   console.log('');
 
+  // 导入 e/@Resource/ 下的套装效果文本与公共风味文本（原版独立资源文件）
+  let setEffectCount = 0;
+  let flavorTextCount = 0;
+  try {
+    const resDir = path.resolve(__dirname, '../../e/@Resource');
+    if (fs.existsSync(resDir)) {
+      const resFiles = fs.readdirSync(resDir).filter((f) => f.endsWith('.txt'));
+      for (const f of resFiles) {
+        const raw = fs.readFileSync(path.join(resDir, f));
+        const content = new TextDecoder('gbk').decode(raw).trim();
+        if (!content) continue;
+        // 套装效果文件命名: "XX套装效果.txt" / "XX效果.txt"
+        const setMatch = f.match(/^(.+?)(?:套装效果|效果)\.txt$/);
+        if (setMatch) {
+          const setName = setMatch[1].replace(/套装$/, '') + '套装';
+          await prisma.gameSetEffect.upsert({
+            where: { name: setName },
+            update: { effectText: content, sourceFile: f },
+            create: { name: setName, effectText: content, sourceFile: f },
+          });
+          setEffectCount++;
+        } else {
+          // 其他公共文本（文本前1/文本后1/种子等）
+          const key = f.replace(/\.txt$/, '');
+          await prisma.gameFlavorText.upsert({
+            where: { name: key },
+            update: { content },
+            create: { name: key, content },
+          });
+          flavorTextCount++;
+        }
+      }
+    }
+  } catch (err) {
+    console.error('⚠️ 导入 @Resource 文本失败:', (err as Error).message);
+  }
+
+
   // 各类型导入计数器
   const counts = {
     weapon: 0, equipment: 0, monster: 0, item: 0,
     familiar: 0, map: 0, crafting: 0, title: 0,
     building: 0, vehicle: 0, attackText: 0, buff: 0,
-    npc: 0, task: 0, skipped: 0,
+    npc: 0, task: 0, effect: 0, resource: 0, shop: 0, update: 0,
+    skipped: 0,
   };
 
   // 记录错误
@@ -960,14 +1103,56 @@ async function importData() {
           break;
         }
 
-        // 以下类型没有对应的 Prisma 模型，跳过
-        case '资源':
-        case '更新':
-        case '特效':
-        case '商店':
-          counts.skipped++;
+        // 特效：装备/武器特殊效果词缀
+        case '特效': {
+          const data = mapEffectToEffect(section);
+          await prisma.gameEffect.upsert({
+            where: { name: data.name },
+            update: data,
+            create: data,
+          });
+          counts.effect++;
           break;
+        }
 
+        // 资源：地图采集节点（完整字段）
+        case '资源': {
+          const data = mapResourceToResource(section);
+          await prisma.gameResource.upsert({
+            where: { name: data.name },
+            update: data,
+            create: data,
+          });
+          counts.resource++;
+          break;
+        }
+
+        // 商店：三大兑换商店 + 图片库 + BGM（仅 1 个节，全局唯一）
+        case '商店': {
+          const data = mapShopToShop(section);
+          // 商店全局唯一，用固定 id=1 保证单条记录 upsert
+          await prisma.gameShop.upsert({
+            where: { id: 1 },
+            update: data,
+            create: { id: 1, ...data },
+          });
+          counts.shop++;
+          break;
+        }
+
+        // 更新：版本更新日志
+        case '更新': {
+          const data = mapUpdateToUpdateLog(section);
+          await prisma.gameUpdateLog.upsert({
+            where: { name: data.name },
+            update: data,
+            create: data,
+          });
+          counts.update++;
+          break;
+        }
+
+        // 以下类型没有对应的 Prisma 模型，跳过
         default:
           // 没有类型字段的节（如 [使魔大战]）也跳过
           if (!section.type) {
@@ -999,6 +1184,12 @@ async function importData() {
   console.log(`   ✅ 增益: ${counts.buff}`);
   console.log(`   ✅ NPC对话: ${counts.npc}`);
   console.log(`   ✅ 任务: ${counts.task}`);
+  console.log(`   ✅ 特效: ${counts.effect}`);
+  console.log(`   ✅ 资源: ${counts.resource}`);
+  console.log(`   ✅ 商店: ${counts.shop}`);
+  console.log(`   ✅ 更新日志: ${counts.update}`);
+  console.log(`   ✅ 套装效果文本: ${setEffectCount}`);
+  console.log(`   ✅ 公共风味文本: ${flavorTextCount}`);
   console.log(`   ⏭️  跳过(无对应模型): ${counts.skipped}`);
   if (errors > 0) {
     console.log(`   ❌ 错误: ${errors}`);

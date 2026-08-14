@@ -292,6 +292,10 @@ export class CombatSystemService {
     // 构造攻击者加成数据（合并基础+装备+增益）
     const attackerBonus = this.buildAttackerBonus(player, playerData);
 
+    // 读取并消费玩家"下次攻击"型标记 buff（兰音系 心无所扰/月落寸光/反转童话）
+    // 这些标记由 familiar-skills 的 setNextAttackBuff 写入，此处命中时生效一次后清除
+    const nextAttack = this.consumeNextAttackBuffs(player);
+
     // 如果有特效文本，先添加到结果中
     if (effectText) {
       resultLines.push(effectText);
@@ -300,9 +304,18 @@ export class CombatSystemService {
     for (const target of targets) {
       if (target.hp <= 0) continue;
 
-      // 命中判定（应用使魔特效的命中率修正）
-      const hitRate = this.calcHitRate(attackerBonus, target, mustHit) + hitRateModifier;
-      const isHit = mustHit ? true : this.checkHit(hitRate);
+      // 命中判定（应用使魔特效的命中率修正 + 心无所扰必中标记）
+      let isHit: boolean;
+      if (mustHit) {
+        isHit = true;
+      } else if (nextAttack.mustHitNext && Math.random() * 100 < (nextAttack.mustHitChance ?? 100)) {
+        // 心无所扰：按几率无视闪避和闪避状态必中
+        isHit = true;
+        resultLines.push('【心无所扰】无视闪避，必定命中！');
+      } else {
+        const hitRate = this.calcHitRate(attackerBonus, target, false) + hitRateModifier;
+        isHit = this.checkHit(hitRate);
+      }
 
       if (!isHit) {
         resultLines.push(`${target.name} 闪避了攻击`);
@@ -312,11 +325,32 @@ export class CombatSystemService {
       // 暴击判定
       const isCrit = this.checkCrit(attackerBonus.crit || 0);
 
+      // 伤害随机区间修正（对应原版 伤害下限/上限，受装备特效影响）
+      // 超载核心：伤害上限 +0.25；霰弹核心：伤害下限 -0.15；雷火剑(武器特殊序号)：伤害上限 +0.5
+      let dmgLower = 0.25;
+      let dmgUpper = 0;
+      const hasEquip = (name: string): boolean => {
+        const eqs = (playerData.equipment as any[]) || [];
+        return eqs.some((e: any) => (e.name || '').includes(name));
+      };
+      if (hasEquip('超载核心')) dmgUpper += 0.25;
+      if (hasEquip('霰弹核心')) dmgLower -= 0.15;
+      if (weapon.specialSeq === 1001 || weapon.name?.includes('雷火剑')) dmgUpper += 0.5;
+
       // 伤害计算
       const defenderBonus = this.buildMonsterBonus(target);
-      // 应用使魔特效的额外穿透
+      // 应用使魔特效的额外穿透（单层，原版震撼弹等）
       if (extraPenetration > 0) {
         defenderBonus.hpAllRes = (defenderBonus.hpAllRes || 0) - extraPenetration;
+      }
+      // 月落寸光：按目标三层平均抗性获得穿透增益(2~20)x(1+技能等级/100)%
+      // 原版：平均值越高增益越高，分别注入护盾/装甲/生命三层穿透
+      if (nextAttack.nextPenetration) {
+        const pen = this.calcMoonlightPenetration(defenderBonus, nextAttack.skillLevelForPen || 0);
+        defenderBonus.shieldPenetration = (defenderBonus.shieldPenetration || 0) + pen;
+        defenderBonus.armorPenetration = (defenderBonus.armorPenetration || 0) + pen;
+        defenderBonus.hpPenetration = (defenderBonus.hpPenetration || 0) + pen;
+        resultLines.push(`【月落寸光】获得 ${pen.toFixed(1)}% 三层穿透`);
       }
       const damageResult = this.calcDamage(
         attackerBonus,
@@ -324,6 +358,7 @@ export class CombatSystemService {
         weapon,
         weapon.damageType || CombatSystemService.DMG_PHYS,
         isCrit,
+        { dmgLower, dmgUpper },
       );
 
       // 应用伤害倍率（含使魔特效修改后的倍率）
@@ -333,6 +368,12 @@ export class CombatSystemService {
 
       // 扣除怪物血量（三池分伤）
       const appliedDamage = this.applyDamageToMonster(target, finalDamage, damageResult.poolDamage);
+
+      // 反转童话：命中后按几率将目标某个属性正负符号反转（持续一定时间）
+      if (nextAttack.reverseResist && Math.random() * 100 < (nextAttack.reverseChance ?? 0)) {
+        this.reverseMonsterResistance(target, nextAttack.reverseDuration || 600);
+        resultLines.push(`【反转童话】${target.name}的某个属性抗性被反转了！`);
+      }
 
       // 构建攻击文本
       const atkText = attackText || this.getAttackText(weapon, weapon.damageType);
@@ -461,6 +502,7 @@ export class CombatSystemService {
    * @param weapon 武器数据
    * @param damageType 伤害类型（物理/火焰/冰霜/雷电）
    * @param isCrit 是否暴击
+   * @param opts 可选伤害修正：dmgLower/dmgUpper 对应原版 伤害下限/伤害上限（受霰弹核心/雷火剑/超载核心影响）
    */
   calcDamage(
     atkBonus: BonusData,
@@ -468,6 +510,7 @@ export class CombatSystemService {
     weapon: WeaponData,
     damageType: number,
     isCrit: boolean,
+    opts?: { dmgLower?: number; dmgUpper?: number },
   ): DamageResult {
     // 1. 计算基础攻击力 = 攻击力 + 武器伤害 + 元素伤害
     const baseAttack = (atkBonus.attack || 0) + (atkBonus.attack2 || 0) + (weapon.damage || 0);
@@ -481,10 +524,10 @@ export class CombatSystemService {
       elec: baseAttack * weaponProps.elec / 100 + (atkBonus.elecDmg || 0) + (atkBonus.elecDmg2 || 0),
     };
 
-    // 3. 暴击倍率
+    // 3. 暴击倍率（对应原版 暴击倍率 = 暴击倍率 × 攻击方.属性.暴击伤害/100，暴击伤害默认150%即1.5倍）
     let critMultiplier = 1.0;
     if (isCrit) {
-      critMultiplier = 1.5 + ((atkBonus.critDmg || 0) / 100);
+      critMultiplier = (atkBonus.critDmg || 150) / 100;
     }
 
     // 4. 命中/闪避比率（影响伤害倍率，对应原版 暴击倍率 = 命中/闪避）
@@ -493,16 +536,18 @@ export class CombatSystemService {
     const hitRatio = Math.max(0.01, hitRate / Math.max(1, dodgeRate));
 
     // 5. 随机修正（对应原版取随机数，范围 伤害下限~1+伤害上限）
-    const dmgLower = 0.25;  // 基础下限
-    const dmgUpper = 0;     // 基础上限
+    // 原版默认 伤害下限=0.25；装备特效：霰弹核心 下限-0.15、超载核心 上限+0.25、雷火剑 上限+0.5
+    const dmgLower = opts?.dmgLower ?? 0.25;  // 基础下限
+    const dmgUpper = opts?.dmgUpper ?? 0;     // 基础上限
     const randomFactor = dmgLower + Math.random() * (1 + dmgUpper - dmgLower);
 
-    // 6. 穿透计算
-    const penetration = this.getPenetration(atkBonus, damageType);
+    // 6. 穿透计算（三层池独立穿透）
+    const penetration = this.getPenetration(atkBonus);
 
-    // 7. 等级差距修正（越低等级打高等级伤害越低）
+    // 7. 等级差距修正（原版：剩余伤害 = 剩余伤害 / (1 - 攻击方.差距) * (1 - 防御方.差距)）
+    // 此处攻击方差距 gap 为正表示"攻击方等级低于目标"，应降低伤害 → 用 1/(1-gap) 放大分母实现降伤
     const levelGap = (atkBonus.gap || 0);
-    const levelFactor = Math.max(0.1, 1 - levelGap);
+    const levelFactor = levelGap >= 1 ? 0.1 : Math.max(0.1, 1 / (1 - levelGap));
 
     // 8. 易伤加成
     const vulnerability = (defBonus.debuff || 0) / 100 + 1;
@@ -515,11 +560,11 @@ export class CombatSystemService {
       elec: rawBreakdown.elec * critMultiplier * hitRatio * randomFactor * levelFactor * vulnerability,
     };
 
-    // 10. 各属性抗性减免
-    const resistBreakdown = this.applyResistances(finalBreakdown, defBonus, penetration, damageType);
+    // 10. 三层池独立抗性减免（护盾/装甲/生命各自抗穿）
+    const resistBreakdown = this.applyResistances(finalBreakdown, defBonus, penetration);
 
-    // 11. 三池分伤
-    const poolDamage = this.distributeDamageToPools(resistBreakdown, defBonus);
+    // 11. 三池串行分伤（破盾溢出打装甲，破甲溢出打生命）
+    const poolDamage = this.distributeDamageToPools(resistBreakdown, atkBonus, defBonus);
 
     // 12. 总伤害
     const totalDamage = poolDamage.shield + poolDamage.armor + poolDamage.hp;
@@ -528,7 +573,7 @@ export class CombatSystemService {
       damage: Math.max(0, Math.floor(totalDamage)),
       isHit: true,
       isCrit,
-      hitRate: hitRate - dodgeRate,
+      hitRate: hitRate / Math.max(1, dodgeRate) * 100,
       damageBreakdown: finalBreakdown,
       poolDamage,
       critMultiplier,
@@ -537,11 +582,12 @@ export class CombatSystemService {
 
   /**
    * 命中判定
-   * 命中率 = 攻击方命中率 - 防御方闪避率（最低5%，最高95%）
-   * 对应原版：命中率判断
+   * 对应原版：a1 = 攻击方.命中/(1-差距)/防御方.闪避；几率判断(a1×100 - 固定闪避 + 最终命中)
+   * hitRate 入参已是百分比（由 calcHitRate 计算：atkHit/defDodge*100 + 特效修正），
+   * 钳制 [5,95] 后做随机判定。
    */
   checkHit(hitRate: number, dodgeRate: number = 0): boolean {
-    const effectiveHitRate = Math.max(5, Math.min(95, hitRate - dodgeRate));
+    const effectiveHitRate = Math.max(5, Math.min(95, hitRate - (dodgeRate || 0)));
     return Math.random() * 100 < effectiveHitRate;
   }
 
@@ -887,7 +933,7 @@ export class CombatSystemService {
       dodge: player.dodge || 0,
       dodge2: 0,
       crit: player.crit || 5,
-      critDmg: player.critDmg || 50,
+      critDmg: player.critDmg || 150,  // 暴击伤害默认150%（原版）
       hp: player.hp || 0,
       shield: player.shield || 0,
       armor: player.armor || 0,
@@ -931,51 +977,84 @@ export class CombatSystemService {
    * 构建怪物加成数据
    */
   private buildMonsterBonus(monster: any): BonusData {
+    // 怪物三层抗性存于 bonus JSON（seed 解析进 GameMonster.bonus），需解析后读取
+    let mb: any = {};
+    try {
+      mb = typeof monster.bonus === 'string' ? JSON.parse(monster.bonus || '{}') : (monster.bonus || {});
+    } catch {
+      mb = {};
+    }
+    // 读取辅助：优先顶层字段，回退到 bonus JSON
+    const pick = (k: string) => (monster[k] !== undefined ? monster[k] : (mb[k] || 0));
+
     return {
       attack: monster.attack || 0,
       hit: monster.hit || 85,
       dodge: monster.dodge || 5,
       hp: monster.hp || 0,
-      hpPhysRes: monster.hpPhysRes || 0,
-      hpFireRes: monster.hpFireRes || 0,
-      hpIceRes: monster.hpIceRes || 0,
-      hpElecRes: monster.hpElecRes || 0,
-      hpAllRes: monster.hpAllRes || 0,
-      shieldDmgCap: monster.shieldDmgCap || 100,
-      armorDmgCap: monster.armorDmgCap || 100,
+      shield: (monster.shield !== undefined ? monster.shield : (monster.maxShield || 0)),
+      armor: (monster.armor !== undefined ? monster.armor : (monster.maxArmor || 0)),
+      // 三层池抗性（原版护盾/装甲/生命各自独立），来自 bonus JSON
+      shieldPhysRes: pick('shieldPhysRes'),
+      shieldFireRes: pick('shieldFireRes'),
+      shieldIceRes: pick('shieldIceRes'),
+      shieldElecRes: pick('shieldElecRes'),
+      shieldAllRes: pick('shieldAllRes'),
+      armorPhysRes: pick('armorPhysRes'),
+      armorFireRes: pick('armorFireRes'),
+      armorIceRes: pick('armorIceRes'),
+      armorElecRes: pick('armorElecRes'),
+      armorAllRes: pick('armorAllRes'),
+      hpPhysRes: pick('hpPhysRes'),
+      hpFireRes: pick('hpFireRes'),
+      hpIceRes: pick('hpIceRes'),
+      hpElecRes: pick('hpElecRes'),
+      hpAllRes: pick('hpAllRes'),
+      shieldDmgCap: pick('shieldDmgCap') || 100,
+      armorDmgCap: pick('armorDmgCap') || 100,
       hpDmgCap: monster.hpDmgCap || 100,
     };
   }
 
   /**
-   * 获取穿透值
-   * 通用穿透 + 对应属性穿透
+   * 三层池穿透结构
    * 对应原版：攻击方.属性.护盾穿透 / 装甲穿透 / 生命穿透
    */
-  private getPenetration(bonus: BonusData, damageType: number): number {
-    const basePen = bonus.penetrate || 0;
-    return basePen + (bonus.hpPenetration || 0);
+  private getPenetration(bonus: BonusData): {
+    shield: number;  // 护盾穿透
+    armor: number;   // 装甲穿透
+    life: number;    // 生命穿透
+  } {
+    // 注：bonus.penetrate 为原版"贯穿几率"，不计入抗性穿透，三层穿透各自独立
+    return {
+      shield: bonus.shieldPenetration || 0,
+      armor: bonus.armorPenetration || 0,
+      life: bonus.hpPenetration || 0,
+    };
   }
 
   /**
-   * 应用各属性抗性减免
-   * 对应原版：剩余物伤 * (1 - 护盾物抗 / 100 * (1 - 穿透/100))
-   * 每个属性伤害分别经过对应抗性减免，再分配到三池
+   * 单层池抗性减免计算
+   * 对应原版（以护盾层为例，攻击目标() 子程序）：
+   *   造成物伤 = 剩余物伤 * (1 - 防御方.护盾物抗/100 * (1 - (攻击方.护盾穿透 + 盾穿.物)/100))
+   * 三层池各自独立使用自己的抗性与穿透，互不干扰
+   *
+   * @param breakdown 该层池入场前的四属性伤害
+   * @param resPrefix 抗性字段前缀：'shield' | 'armor' | 'life'
+   * @param allRes 该层全抗
+   * @param pen 该层穿透值
    */
-  private applyResistances(
+  private applyLayerResistances(
     breakdown: DamageBreakdown,
     defBonus: BonusData,
-    penetration: number,
-    damageType: number,
+    resPrefix: 'shield' | 'armor' | 'life',
+    allRes: number,
+    pen: number,
   ): DamageBreakdown {
-    // 全抗
-    const allRes = defBonus.hpAllRes || 0;
-
-    // 各属性抗性（优先使用hp抗性体系）
-    const physRes = Math.max(0, (defBonus.hpPhysRes || 0) + allRes - penetration);
-    const fireRes = Math.max(0, (defBonus.hpFireRes || 0) + allRes - penetration);
-    const iceRes = Math.max(0, (defBonus.hpIceRes || 0) + allRes - penetration);
-    const elecRes = Math.max(0, (defBonus.hpElecRes || 0) + allRes - penetration);
+    const physRes = Math.max(0, (defBonus[`${resPrefix}PhysRes` as keyof BonusData] as number || 0) + allRes - pen);
+    const fireRes = Math.max(0, (defBonus[`${resPrefix}FireRes` as keyof BonusData] as number || 0) + allRes - pen);
+    const iceRes = Math.max(0, (defBonus[`${resPrefix}IceRes` as keyof BonusData] as number || 0) + allRes - pen);
+    const elecRes = Math.max(0, (defBonus[`${resPrefix}ElecRes` as keyof BonusData] as number || 0) + allRes - pen);
 
     return {
       physical: breakdown.physical * (1 - physRes / 100),
@@ -986,58 +1065,108 @@ export class CombatSystemService {
   }
 
   /**
-   * 三池分伤
-   * 将总伤害分配到护盾(Shield) → 装甲(Armor) → 生命(HP) 三个独立血条
-   * 每个池子有独立的伤害上限百分比
-   * 对应原版：攻击目标() 子程序中的分池逻辑
+   * 应用各属性抗性减免（三层池串行模型入口）
+   * 对应原版 攻击目标() 子程序：先算护盾层（含护盾抗+护盾穿透），
+   * 溢出按比例转入装甲层（含装甲抗+装甲穿透），再溢出转入生命层。
+   * 返回三层池各自"实际可造成"的伤害（已抗减、未扣当前池血量）。
    */
-  private distributeDamageToPools(
+  private applyResistances(
     breakdown: DamageBreakdown,
     defBonus: BonusData,
+    penetration: { shield: number; armor: number; life: number },
+  ): { shield: DamageBreakdown; armor: DamageBreakdown; life: DamageBreakdown } {
+    const shieldResisted = this.applyLayerResistances(
+      breakdown, defBonus, 'shield', defBonus.shieldAllRes || 0, penetration.shield,
+    );
+    const armorResisted = this.applyLayerResistances(
+      breakdown, defBonus, 'armor', defBonus.armorAllRes || 0, penetration.armor,
+    );
+    const lifeResisted = this.applyLayerResistances(
+      breakdown, defBonus, 'life', defBonus.hpAllRes || 0, penetration.life,
+    );
+
+    return { shield: shieldResisted, armor: armorResisted, life: lifeResisted };
+  }
+
+  /**
+   * 三池串行分伤（对应原版 攻击目标() 子程序）
+   * 护盾层先吃满（含攻击护盾加伤），溢出部分按比例缩放剩余四属性伤害转入装甲层；
+   * 装甲层同理，溢出转入生命层。三层各自独立抗性已在 applyResistances 处理。
+   *
+   * @param resisted 三层池各自已抗减的四属性伤害
+   * @param atkBonus 攻击方加成（取 atkShield/atkArmor/atkHp 分池加伤）
+   * @param defBonus 防御方加成（取当前护盾/装甲/生命值与伤害上限）
+   */
+  private distributeDamageToPools(
+    resisted: { shield: DamageBreakdown; armor: DamageBreakdown; life: DamageBreakdown },
+    atkBonus: BonusData,
+    defBonus: BonusData,
   ): PoolDamage {
-    const totalDamage = breakdown.physical + breakdown.fire + breakdown.ice + breakdown.elec;
-    if (totalDamage <= 0) {
-      return { shield: 0, armor: 0, hp: 0 };
-    }
+    const sum = (b: DamageBreakdown) => b.physical + b.fire + b.ice + b.elec;
+    const scale = (b: DamageBreakdown, r: number): DamageBreakdown => ({
+      physical: b.physical * r, fire: b.fire * r, ice: b.ice * r, elec: b.elec * r,
+    });
 
-    // 各属性伤害占总伤害的比例，用于按比例分池
-    const physRatio = totalDamage > 0 ? breakdown.physical / totalDamage : 0;
-    const fireRatio = totalDamage > 0 ? breakdown.fire / totalDamage : 0;
-    const iceRatio = totalDamage > 0 ? breakdown.ice / totalDamage : 0;
-    const elecRatio = totalDamage > 0 ? breakdown.elec / totalDamage : 0;
-
-    // 获取各池子当前值
+    // 各池当前血量
     const currentShield = defBonus.shield || 0;
     const currentArmor = defBonus.armor || 0;
     const currentHp = defBonus.hp || 0;
 
-    // 各池子伤害上限百分比
-    const shieldCap = (defBonus.shieldDmgCap || 100) / 100;
-    const armorCap = (defBonus.armorDmgCap || 100) / 100;
-    const hpCap = (defBonus.hpDmgCap || 100) / 100;
-
-    let remaining = totalDamage;
     const pool: PoolDamage = { shield: 0, armor: 0, hp: 0 };
 
-    // 1. 先扣护盾
-    if (currentShield > 0 && remaining > 0) {
-      const maxShieldDmg = currentShield * shieldCap;
-      pool.shield = Math.min(remaining, maxShieldDmg, currentShield);
-      remaining -= pool.shield;
+    // 单一"剩余四属性伤害"流转（对应原版 剩余物伤/火伤/冰伤/电伤 逐步缩放）
+    // 三层共用同一份剩余伤害：每层先按本层抗穿算本层伤害，破层后缩放剩余伤害再入下一层
+    let remaining: DamageBreakdown = {
+      physical: resisted.shield.physical,
+      fire: resisted.shield.fire,
+      ice: resisted.shield.ice,
+      elec: resisted.shield.elec,
+    };
+
+    // ---- 第一层：护盾 ----
+    // resisted.shield 已是"完整 breakdown 经护盾层抗减"的结果；原版护盾层伤害 = Σ×(1+攻击护盾/100)
+    const shieldDmgRaw = sum(resisted.shield) * (1 + (atkBonus.atkShield || 0) / 100);
+    if (shieldDmgRaw > 0) {
+      pool.shield = Math.min(shieldDmgRaw, currentShield);
+      // 溢出比例（原版 剩余伤害 = (伤害 - 当前护盾) / 伤害），缩放"原始剩余四属性伤害"
+      const overflowRatio = shieldDmgRaw > currentShield
+        ? (shieldDmgRaw - currentShield) / shieldDmgRaw
+        : 0;
+      remaining = scale(remaining, overflowRatio);
+    } else {
+      remaining = { physical: 0, fire: 0, ice: 0, elec: 0 };
     }
 
-    // 2. 再扣装甲
-    if (currentArmor > 0 && remaining > 0) {
-      const maxArmorDmg = currentArmor * armorCap;
-      pool.armor = Math.min(remaining, maxArmorDmg, currentArmor);
-      remaining -= pool.armor;
+    // ---- 第二层：装甲（承接护盾溢出后，对剩余伤害做装甲层抗减）----
+    // 用 resisted.armor 相对 resisted.shield 的抗减比例，应用到 remaining（同一份剩余伤害）
+    const armorLayer: DamageBreakdown = {
+      physical: remaining.physical * (sum(resisted.armor) > 0 ? resisted.armor.physical / (resisted.shield.physical || 1) : 0),
+      fire: remaining.fire * (sum(resisted.armor) > 0 ? resisted.armor.fire / (resisted.shield.fire || 1) : 0),
+      ice: remaining.ice * (sum(resisted.armor) > 0 ? resisted.armor.ice / (resisted.shield.ice || 1) : 0),
+      elec: remaining.elec * (sum(resisted.armor) > 0 ? resisted.armor.elec / (resisted.shield.elec || 1) : 0),
+    };
+    const armorDmgRaw = sum(armorLayer) * (1 + (atkBonus.atkArmor || 0) / 100);
+    if (armorDmgRaw > 0) {
+      pool.armor = Math.min(armorDmgRaw, currentArmor);
+      const overflowRatio = armorDmgRaw > currentArmor
+        ? (armorDmgRaw - currentArmor) / armorDmgRaw
+        : 0;
+      remaining = scale(remaining, overflowRatio);
+    } else {
+      remaining = { physical: 0, fire: 0, ice: 0, elec: 0 };
     }
 
-    // 3. 最后扣生命
-    if (currentHp > 0 && remaining > 0) {
-      const maxHpDmg = currentHp * hpCap;
-      pool.hp = Math.min(remaining, maxHpDmg, currentHp);
-      remaining -= pool.hp;
+    // ---- 第三层：生命（承接装甲溢出后，对剩余伤害做生命层抗减，最底层不再溢出）----
+    const lifeLayer: DamageBreakdown = {
+      physical: remaining.physical * (sum(resisted.life) > 0 ? resisted.life.physical / (resisted.shield.physical || 1) : 0),
+      fire: remaining.fire * (sum(resisted.life) > 0 ? resisted.life.fire / (resisted.shield.fire || 1) : 0),
+      ice: remaining.ice * (sum(resisted.life) > 0 ? resisted.life.ice / (resisted.shield.ice || 1) : 0),
+      elec: remaining.elec * (sum(resisted.life) > 0 ? resisted.life.elec / (resisted.shield.elec || 1) : 0),
+    };
+    const hpDmgRaw = sum(lifeLayer) * (1 + (atkBonus.atkHp || 0) / 100);
+    if (hpDmgRaw > 0) {
+      // 生命为最底层：扣 min(伤害, 当前生命)，溢出（伤害>生命）即击杀，不再传递
+      pool.hp = Math.min(hpDmgRaw, currentHp);
     }
 
     return pool;
@@ -1103,6 +1232,124 @@ export class CombatSystemService {
     if (poolDamage.armor > 0) parts.push(`装甲-${Math.floor(poolDamage.armor)}`);
     if (poolDamage.hp > 0) parts.push(`生命-${Math.floor(poolDamage.hp)}`);
     return parts.join(' ') || `${Math.floor(totalDamage)}`;
+  }
+
+  /**
+   * 安全解析 JSON 字符串
+   * 解析失败时返回默认值，避免字段缺失导致异常。
+   * @param v 待解析值（可能为字符串或已解析对象）
+   * @param def 默认值
+   * @returns 解析结果或默认值
+   */
+  private safeParseJson<T>(v: any, def: T): T {
+    try {
+      if (typeof v !== 'string') return (v as T) ?? def;
+      return JSON.parse(v) as T;
+    } catch {
+      return def;
+    }
+  }
+
+  /**
+   * 读取并消费玩家的"下次攻击"型标记 buff（兰音系）
+   * 对应原版 心无所扰(必中)/月落寸光(穿透蓄势)/反转童话(反转属性) 的一次性标记。
+   * 调用后从玩家 buffs 中移除这些 onceAttack 标记，避免重复生效。
+   * @param player 玩家对象（buff字段会被就地修改）
+   * @returns 聚合后的下次攻击标记数据
+   */
+  private consumeNextAttackBuffs(player: any): {
+    mustHitNext: boolean;
+    mustHitChance: number;
+    nextPenetration: boolean;
+    skillLevelForPen: number;
+    reverseResist: boolean;
+    reverseChance: number;
+    reverseDuration: number;
+  } {
+    const result = {
+      mustHitNext: false,
+      mustHitChance: 100,
+      nextPenetration: false,
+      skillLevelForPen: 0,
+      reverseResist: false,
+      reverseChance: 0,
+      reverseDuration: 600,
+    };
+    const buffs: any[] = this.safeParseJson(player.buffs, []);
+    const remain: any[] = [];
+    for (const b of buffs) {
+      if (b.onceAttack) {
+        // 聚合标记数据
+        if (b.mustHitNext) {
+          result.mustHitNext = true;
+          result.mustHitChance = b.mustHitChance ?? 100;
+        }
+        if (b.nextPenetration) {
+          result.nextPenetration = true;
+          result.skillLevelForPen = b.skillLevelForPen || 0;
+        }
+        if (b.reverseResist) {
+          result.reverseResist = true;
+          result.reverseChance = b.reverseChance ?? 0;
+          result.reverseDuration = b.reverseDuration ?? 600;
+        }
+        // 消费：不保留该 buff
+        continue;
+      }
+      remain.push(b);
+    }
+    player.buffs = JSON.stringify(remain);
+    return result;
+  }
+
+  /**
+   * 计算月落寸光穿透值
+   * 对应原版 月落寸光子程序：输入目标平均抗性，返回 (2~20) x (1+技能等级/100)% 的穿透值。
+   * 平均抗性分档：<10→2, <20→4, <30→6, <40→8, <50→10, <60→12, <70→14, <80→16, <90→18, ≥90→20。
+   * @param defBonus 怪物三层抗性加成
+   * @param skillLevel 兰音技能等级
+   * @returns 穿透百分比（已含技能等级系数）
+   */
+  private calcMoonlightPenetration(defBonus: BonusData, skillLevel: number): number {
+    const avgRes =
+      ((defBonus.shieldPhysRes || 0) + (defBonus.armorPhysRes || 0) + (defBonus.hpPhysRes || 0)) / 3;
+    let base: number;
+    if (avgRes < 10) base = 2;
+    else if (avgRes < 20) base = 4;
+    else if (avgRes < 30) base = 6;
+    else if (avgRes < 40) base = 8;
+    else if (avgRes < 50) base = 10;
+    else if (avgRes < 60) base = 12;
+    else if (avgRes < 70) base = 14;
+    else if (avgRes < 80) base = 16;
+    else if (avgRes < 90) base = 18;
+    else base = 20;
+    return base * (1 + skillLevel / 100);
+  }
+
+  /**
+   * 反转童话：反转怪物某项抗性的正负号
+   * 对应原版 反转童话 子程序：按 fzth1/fzth2 标记反转目标的护盾/装甲/生命某属性抗性符号。
+   * 这里随机挑选一项大于0的抗性将其变为负值，并写入怪物 buffs 让后续攻击享用反转后的抗性。
+   * @param monster 怪物对象（bonus/抗性将就地反转）
+   * @param duration 反转持续时间（秒）
+   */
+  private reverseMonsterResistance(monster: any, duration: number): void {
+    const bonus = this.safeParseJson(monster.bonus, {});
+    const resistKeys = [
+      'shieldPhysRes', 'shieldFireRes', 'shieldIceRes', 'shieldElecRes',
+      'armorPhysRes', 'armorFireRes', 'armorIceRes', 'armorElecRes',
+      'hpPhysRes', 'hpFireRes', 'hpIceRes', 'hpElecRes',
+    ];
+    const positive = resistKeys.filter((k) => (bonus[k] || 0) > 0);
+    if (positive.length === 0) return; // 无正抗性可反转
+    const pick = positive[Math.floor(Math.random() * positive.length)];
+    bonus[pick] = -Math.abs(bonus[pick] || 0); // 正负反转
+    monster.bonus = JSON.stringify(bonus);
+    // 记录反转buff（便于到期恢复，此处简化为持续时间内享受反转效果，超时由其他机制清理）
+    const mbuffs: any[] = this.safeParseJson(monster.buffs, []);
+    mbuffs.push({ name: '反转童话', expireAt: Math.floor(Date.now() / 1000) + duration });
+    monster.buffs = JSON.stringify(mbuffs);
   }
 
   // ==================== 使魔专属战斗特效 ====================

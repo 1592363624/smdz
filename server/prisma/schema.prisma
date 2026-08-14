@@ -235,12 +235,18 @@ model GameMonster {
   // 基础属性
   level       Int      @default(1)
   hp          Float    @default(100)
+  maxHp       Float    @default(100)
   attack      Float    @default(10)
   defense     Float    @default(0)
   speed       Float    @default(100)
   dodge       Float    @default(0)
   hit         Float    @default(100)
-  bonus       String   @default("{}")  // 基础加成 [加成]
+  // 三层池：护盾 / 装甲（原版使魔大战3 怪物有独立护盾与装甲，战斗按 护盾→装甲→生命 串行扣减）
+  shield      Float    @default(0)
+  maxShield   Float    @default(0)
+  armor       Float    @default(0)
+  maxArmor    Float    @default(0)
+  bonus       String   @default("{}")  // 基础加成 [加成]（含三层池各属性抗性/穿透）
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -479,6 +485,101 @@ model GameAttackText {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// ========== 特效(特殊效果词缀) ==========
+// 对应易语言「特效」数据类型：装备/武器的特殊效果（如 精准/核能/如梦似幻）
+// 限制字段指明适用于 装备 或 武器；bonus 存储数值加成
+model GameEffect {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String   @default("")   // 说明文本
+  limit       String   @default("")   // 限制：装备 / 武器 / 空(通用)
+  bonus       String   @default("{}") // 数值加成 JSON（魅力/贯穿/暴击/暴击伤害/攻击冷却/攻击2/物伤2...）
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ========== 资源(采集物) ==========
+// 对应易语言「资源」数据类型：地图上可采集的节点（产出的物品/次数/采集指令等）
+// 原版资源被内联进地图 resources 字段，此处保留独立表以承载完整字段
+model GameResource {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  description   String   @default("")   // 说明
+  times         Int      @default(1)    // 可采集次数（-1=无限）
+  gatherCmd     String   @default("")   // 采集指令（如 挖土/砍树）
+  timeScale     Float    @default(1)   // 时间倍率
+  renewable     Boolean  @default(true) // 不可再生=1 时为 false
+  gatherText    String   @default("")  // 采集文本模板（【名称】【载具】...）
+  marker        String   @default("")  // 采集后获得的标记
+  proxySpeak    String   @default("")  // 代发言（如 召唤1白1）
+  // 产出：JSON 数组 [{name,quantity,chance}]
+  outputs       String   @default("[]") // 产出
+  outputs2      String   @default("[]") // 产出2（作物双层产出）
+  useGet        String   @default("[]") // 使用可得 [{name,count}]
+  useMarkers    String   @default("[]") // 使用可得标记
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 商店(兑换/资源库) ==========
+// 对应易语言「商店」数据类型（仅 1 个节，但承载三大兑换商店 + 图片库 + BGM）
+model GameShop {
+  id            Int      @id @default(autoincrement())
+  // 三大兑换商店（活跃度/钻石/数据）：JSON 数组 [{name,count}]
+  shopActivity  String   @default("[]") // 活跃度商店
+  shopDiamond   String   @default("[]") // 钻石商店
+  shopData      String   @default("[]") // 数据商店
+  // 副本列表
+  dungeons      String   @default("[]") // 副本
+  dungeons2     String   @default("[]") // 副本2
+  robotQQ       String   @default("")   // 机器人QQ
+  // 图片资源库（名称+数量映射，JSON）
+  familiarImg   String   @default("{}") // 使魔jpg/png
+  characterImg  String   @default("{}") // 人物jpg/png
+  monsterImg    String   @default("{}") // 怪物jpg/png
+  mapImg        String   @default("{}") // 地图jpg
+  travelingEquip String  @default("[]") // 行商装备
+  travelingItem String   @default("[]") // 行商物品
+  bgm           String   @default("[]") // BGM 列表
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ========== 版本更新日志 ==========
+// 对应易语言「更新」数据类型（补丁日志，如 0408更新1）
+model GameUpdateLog {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique            // 如 0408更新1
+  content     String   @default("")       // 更新内容（原版为多行文本，已合并）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ========== 套装效果文本 ==========
+// 对应 e/@Resource/ 下的套装效果描述文件（如 一拳套装效果.txt）
+// 原版为独立文本资源，统一入库以便前端展示套装加成说明
+model GameSetEffect {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique            // 套装名（如 一拳套装）
+  effectText  String   @default("")       // 套装效果描述（文件内容）
+  sourceFile  String   @default("")       // 来源文件名
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ========== 通用风味文本 ==========
+// 对应 e/@Resource/ 下的公共文本资源（文本前1/文本后1/种子等）
+model GameFlavorText {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique            // 文本标识（如 文本前1/种子等）
+  content     String   @default("")       // 文本内容
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ========== 公屏聊天 / 频道 ==========

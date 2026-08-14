@@ -38,6 +38,14 @@ export interface MapMonster {
   hp: number;
   /** 最大HP */
   maxHp: number;
+  /** 当前护盾（三层池第一层） */
+  shield?: number;
+  /** 最大护盾 */
+  maxShield?: number;
+  /** 当前装甲（三层池第二层） */
+  armor?: number;
+  /** 最大装甲 */
+  maxArmor?: number;
   /** 攻击力 */
   attack: number;
   /** 防御力 */
@@ -83,7 +91,8 @@ export class MapService {
   async getMapById(mapId: number): Promise<any> {
     const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
     if (!map) {
-      throw new NotFoundException(`地图 ID=${mapId} 不存在`);
+      // 容错：玩家可能处于一个已不存在/未对齐的地图ID(如初始硬编码值)，返回 null 交由调用方处理
+      return null;
     }
     return map;
   }
@@ -185,29 +194,46 @@ export class MapService {
       throw new NotFoundException(`地图 ID=${mapId} 不存在，无法刷新怪物`);
     }
 
-    // 读取地图固定怪物列表作为模板，结合 monsterCount 生成实际怪物实例
-    const monsterTemplates: any[] = this.safeParseJSON(map.monsters, []);
+    // 读取地图固定怪物列表作为模板（存的是怪物名数组），结合 monsterCount 生成实际怪物实例
+    const monsterNames: string[] = this.safeParseJSON(map.monsters, []);
     const count = Math.min(map.monsterCount || 3, 20);
+
+    // 预加载地图上所有怪物名对应的 GameMonster 定义（含三层池 护盾/装甲），避免循环内反复查询
+    const monsterDefs: Record<string, any> = {};
+    if (monsterNames.length > 0) {
+      const defs = await this.prisma.gameMonster.findMany({
+        where: { name: { in: monsterNames } },
+      });
+      for (const d of defs) monsterDefs[d.name] = d;
+    }
 
     const monsters: MapMonster[] = [];
     for (let i = 0; i < count; i++) {
       // 如果存在模板则随机选取，否则生成默认怪物
-      if (monsterTemplates.length > 0) {
-        const template = monsterTemplates[Math.floor(Math.random() * monsterTemplates.length)];
+      if (monsterNames.length > 0) {
+        const name = monsterNames[Math.floor(Math.random() * monsterNames.length)];
+        // 优先使用 GameMonster 表的真实定义（含三层池 shield/armor），查不到才用默认
+        const def = monsterDefs[name];
+        const shield = def?.shield || 0;
+        const armor = def?.armor || 0;
         monsters.push({
           id: `monster_${mapId}_${i}_${Date.now()}`,
-          name: template.name || '未知怪物',
-          level: template.level || 1,
-          specialSeq: template.specialSeq || 0,
-          hp: template.hp || 100,
-          maxHp: template.maxHp || template.hp || 100,
-          attack: template.attack || 10,
-          defense: template.defense || 0,
-          speed: template.speed || 100,
-          dodge: template.dodge || 5,
-          hit: template.hit || 85,
-          exp: template.exp || 10,
-          isElite: template.isElite || false,
+          name: def?.name || name || '未知怪物',
+          level: def?.level || 1,
+          specialSeq: def?.specialSeq || 0,
+          hp: def?.hp || 100,
+          maxHp: def?.maxHp || def?.hp || 100,
+          shield,
+          maxShield: def?.maxShield || shield,
+          armor,
+          maxArmor: def?.maxArmor || armor,
+          attack: def?.attack || 10,
+          defense: def?.defense || 0,
+          speed: def?.speed || 100,
+          dodge: def?.dodge || 5,
+          hit: def?.hit || 85,
+          exp: def?.bonus ? (this.safeParseJSON<any>(def.bonus, {}).经验 || 10) : 10,
+          isElite: def?.type === '精英' || false,
         });
       } else {
         // 默认怪物
@@ -218,6 +244,10 @@ export class MapService {
           specialSeq: 0,
           hp: 100,
           maxHp: 100,
+          shield: 0,
+          maxShield: 0,
+          armor: 0,
+          maxArmor: 0,
           attack: 10,
           defense: 0,
           speed: 100,

@@ -18,6 +18,7 @@ import { ItemService } from './item.service';
 import { ItemSystemService } from './item-system.service';
 import { MapService } from './map.service';
 import { FamiliarSystemService } from './familiar-system.service';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -33,6 +34,7 @@ export class FamiliarSkillsService {
     private readonly itemSystem: ItemSystemService,
     private readonly mapService: MapService,
     private readonly familiarSystem: FamiliarSystemService,
+    private readonly systemConfig: SystemConfigService,
   ) {}
 
   // ==================== 通用辅助方法 ====================
@@ -79,6 +81,7 @@ export class FamiliarSkillsService {
       case '心无所扰': return this.heartUnperturbed(userId);
       case '梦倾天下': return this.dreamWorld(userId);
       case '反转童话': return this.reverseFairytale(userId);
+      case '月落寸光': return this.moonlightInch(userId);
 
       // 通用/装备技能
       case '洗脑': return this.brainwash(userId, target);
@@ -202,6 +205,253 @@ export class FamiliarSkillsService {
     return this.familiarSystem.getSkillEffect(affinity);
   }
 
+  /**
+   * 获取技能冷却时长（秒）
+   * 对应原版：主动技能默认冷却=60秒，装备「冷却核心」时降为50秒（即 -10）。
+   * 基准值与「冷却核心」削减量均从 SystemConfig 读取，便于在线调整（配置项）。
+   * @param player 玩家对象（用于检测是否装备冷却核心）
+   * @param base 原版基准冷却（默认60；个别技能如兰音用 60+a2、斩反向等由调用方传入已含修正的 base）
+   * @returns 实际冷却秒数
+   */
+  private async getSkillCooldown(player: any, base: number): Promise<number> {
+    const baseCd = await this.systemConfig.get<number>('game.skillCooldownBase', 60);
+    const coreReduction = await this.systemConfig.get<number>('game.cooldownCoreReduction', 10);
+    // 装备「冷却核心」时削减冷却（原版：a = 50 当 装备要求(玩家, #冷却核心)）
+    const hasCore = this.hasItem(player, '冷却核心');
+    return hasCore ? Math.max(1, baseCd - coreReduction) : baseCd;
+  }
+
+  /**
+   * 好感度门槛检查
+   * 对应原版多处「玩家.好感 < N → 需要N好感」拦截逻辑（斩<60、炮冠<80、兰音系<20/40/60/80/100）。
+   * @param markers 玩家标记
+   * @param familiarName 使魔名（用于读取「使魔名好感」）
+   * @param required 所需最低好感度
+   * @returns 是否达标
+   */
+  private checkAffinity(markers: any, familiarName: string, required: number): boolean {
+    const affinity = this.getAffinity(markers, familiarName);
+    return affinity >= required;
+  }
+
+  /**
+   * 增益持续时间（含库洛牌+25%修正）
+   * 对应原版使魔技能中统一的「a3 = 装备要求(玩家,#库洛牌) ? 1.25 : 1」逻辑：
+   * 库洛牌使增益/标记时长放大25%。
+   * @param player 玩家对象（用于检测是否装备库洛牌）
+   * @param base 基础持续秒数
+   * @returns 实际持续秒数（已含库洛牌放大）
+   */
+  private buffDur(player: any, base: number): number {
+    return Math.floor(base * (this.hasItem(player, '库洛牌') ? 1.25 : 1));
+  }
+
+  /**
+   * 获取技能等级（代理值）
+   * 后端无独立"技能等级"字段，原版使魔技能.ecode 中技能等级用于放大基础倍率（如 300+3*等级）。
+   * 用「使魔名技能熟练度」每 10 点折算 1 级（每次施放 +10），与原版技能等级单调递增语义一致。
+   * @param markers 玩家标记
+   * @param familiarName 使魔名
+   * @returns 技能等级（>=0 整数）
+   */
+  private getSkillLevel(markers: any, familiarName: string): number {
+    const prof = this.playerService.getMarkerValue(markers, `${familiarName}技能熟练度`) || 0;
+    return Math.floor(prof / 10);
+  }
+
+  /**
+   * 读取使魔套装模式（兰音模式）
+   * 对应原版 玩家.套装.兰音模式（1=标准, 2=友方召唤物同步增益）。
+   * 后端将套装信息存于玩家 markers 的「套装_兰音模式」字段（无则默认1）。
+   * @param markers 玩家标记
+   * @param familiarName 使魔名
+   * @returns 兰音模式值（1/2）
+   */
+  private getFamiliarSetMode(markers: any, familiarName: string): number {
+    return this.playerService.getMarkerValue(markers, `套装_${familiarName}模式`) || 1;
+  }
+
+  /**
+   * 给当前地图施加一个"地图增益"（对应原版 获得增益(地图列表[地图].标记3, ...)）。
+   * 地图增益作用于该地图全部使魔/宠物，离开地图时由 applyMapBuffs 的 source 清理。
+   * @param mapId 地图ID
+   * @param buff 增益数据（name/value/duration/expireAt/source）
+   */
+  private async applyMapBuff(mapId: number, buff: Record<string, any>): Promise<void> {
+    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    if (!map) return;
+    const mapBuffs: any[] = this.safeParse(map.mapBuffs, []);
+    const filtered = mapBuffs.filter((b: any) => b.name !== buff.name);
+    filtered.push({ ...buff, source: buff.source || 'familiarSkill', mapId });
+    await this.prisma.gameMap.update({
+      where: { id: mapId },
+      data: { mapBuffs: JSON.stringify(filtered) },
+    });
+  }
+
+  /**
+   * 给当前地图的常驻怪物（spawnMonsters = 原版怪物2）施加麻醉。
+   * 对应原版 形神合一/梦倾天下：把「等级*(10+技能等级)」累加到怪物当前麻醉，
+   * 满麻醉上限则获得「麻醉」增益（一小时内可捕捉）。
+   * @param mapId 地图ID
+   * @param playerLevel 玩家等级
+   * @param skillLevel 技能等级
+   * @returns 逐怪物麻醉文本行
+   */
+  private async applyMapMonstersAnesthesia(mapId: number, playerLevel: number, skillLevel: number): Promise<string[]> {
+    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    if (!map) return [];
+    const monsters: any[] = this.safeParse(map.spawnMonsters, []);
+    if (monsters.length === 0) return ['（当前地图没有可麻醉的常驻怪物）'];
+    const add = playerLevel * (10 + skillLevel);
+    const lines: string[] = [];
+    for (const m of monsters) {
+      // 怪物麻醉信息存于 bonus JSON（后端怪物三层/状态数据统一进 bonus）
+      const bonus: any = this.safeParse(m.bonus, {});
+      const maxAnes = bonus.麻醉上限 || bonus.maxAnesthesia || 0;
+      const curAnes = bonus.当前麻醉 || bonus.currentAnesthesia || 0;
+      if (!maxAnes || curAnes >= maxAnes) continue; // 无麻醉上限或已满则跳过
+      const next = curAnes + add;
+      bonus.当前麻醉 = next;
+      m.bonus = JSON.stringify(bonus);
+      if (next >= maxAnes) {
+        const mbuffs: any[] = this.safeParse(m.buffs, []);
+        mbuffs.push({ name: '麻醉', expireAt: Math.floor(Date.now() / 1000) + 3600 });
+        m.buffs = JSON.stringify(mbuffs);
+        lines.push(`${m.name}麻醉+${add}（已满，被麻醉了，一小时内可以捕捉）`);
+      } else {
+        lines.push(`${m.name}麻醉+${add}（${next}/${maxAnes}）`);
+      }
+    }
+    await this.prisma.gameMap.update({
+      where: { id: mapId },
+      data: { spawnMonsters: JSON.stringify(monsters) },
+    });
+    return lines;
+  }
+
+  /**
+   * 获取当前地图的友方召唤物名称列表（玩家归属的临时召唤物）。
+   * 对应原版 地图列表[地图].召唤物（归属=玩家QQ，且基础生命>0）。
+   * @param mapId 地图ID
+   * @param ownerId 归属标识（玩家QQ或userId字符串）
+   * @returns 友方召唤物名称数组
+   */
+  private async getAllySummons(mapId: number, ownerId: string): Promise<string[]> {
+    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    if (!map) return [];
+    const summons: any[] = this.safeParse(map.tempMonsters, []);
+    return summons
+      .filter((s: any) => (s.归属 === ownerId || s.owner === ownerId) && (s.基础?.生命 || s.base?.hp || s.hp || 0) > 0)
+      .map((s: any) => s.name);
+  }
+
+  /**
+   * 给指定友方召唤物施加"下次攻击"标记（必中/穿透蓄势）。
+   * 对应原版 兰音模式2 时友方召唤物也获得 心无所扰/月落寸光 效果。
+   * 数据落在该召唤物的 buffs 中，由攻击引擎在下次攻击时消费。
+   * @param mapId 地图ID
+   * @param summonName 召唤物名称
+   * @param next 下次攻击标记
+   */
+  private async applySummonNextAttack(mapId: number, summonName: string, next: Record<string, any>): Promise<void> {
+    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    if (!map) return;
+    const summons: any[] = this.safeParse(map.tempMonsters, []);
+    const found = summons.find((s: any) => s.name === summonName);
+    if (!found) return;
+    const sbuffs: any[] = this.safeParse(found.buffs, []);
+    sbuffs.push({ name: '下次攻击·标记', expireAt: Math.floor(Date.now() / 1000) + 3600, ...next });
+    found.buffs = JSON.stringify(sbuffs);
+    await this.prisma.gameMap.update({
+      where: { id: mapId },
+      data: { tempMonsters: JSON.stringify(summons) },
+    });
+  }
+
+  /**
+   * 给玩家施加"下次攻击"型标记 buff（一次性消费）。
+   * 对应原版 心无所扰(下次攻击必中)/月落寸光(下次攻击穿透蓄势)/反转童话(下次攻击反转属性)。
+   * 这些不是持续增益，而是"下一次攻击生效"的标记；由战斗引擎 weaponAttack 在攻击时读取并消费清除。
+   * @param player 玩家对象
+   * @param name 标记名
+   * @param data 标记数据（mustHitNext / nextPenetration / reverseResist 等）
+   */
+  private setNextAttackBuff(player: any, name: string, data: Record<string, any>): void {
+    const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const now = Date.now() / 1000;
+    const newBuffs = buffs.filter((b: any) => b.name !== name);
+    newBuffs.push({
+      name,
+      expireAt: now + 3600, // 1小时内若未攻击则过期
+      onceAttack: true,
+      ...data,
+    });
+    player.buffs = JSON.stringify(newBuffs);
+  }
+
+  private safeParse<T>(v: any, def: T): T {
+    try {
+      if (typeof v !== 'string') return (v as T) ?? def;
+      return JSON.parse(v) as T;
+    } catch {
+      return def;
+    }
+  }
+
+  /**
+   * 统一施放战斗类技能（真正造成怪物伤害）
+   * 对应原版使魔技能调用「武器攻击(..., 倍率转换(玩家, 基础倍率), "攻击文本", ...)」的链路：
+   * 后端 strength 为已修正的三层战斗引擎，技能只负责传入倍率与攻击文本，由引擎统一计算三层穿透伤害。
+   * 封装：调用 weaponAttack 真正扣怪物三层血 + 设置冷却 + 记录熟练度/活跃度，返回伤害结果文本。
+   * @param userId 用户ID
+   * @param opts.cooldownName 冷却标记名
+   * @param opts.baseCooldown 基础冷却秒（会经 getSkillCooldown 应用冷却核心-10）
+   * @param opts.damageMultiplier 伤害倍率%（对普通攻击的百分比，对应原版 倍率转换 结果）
+   * @param opts.attackText 攻击文本（对应原版 武器攻击 第9参数，用于切换特效/暴击逻辑）
+   * @param opts.allAttack 是否全体攻击
+   * @param opts.familiarType 使魔类型（用于记录熟练度）
+   * @returns 战斗结果文本（已含伤害/击杀/经验/掉落）
+   */
+  private async castCombatSkill(
+    userId: number,
+    opts: {
+      cooldownName: string;
+      baseCooldown: number;
+      damageMultiplier: number;
+      attackText: string;
+      allAttack?: boolean;
+      familiarType: string;
+    },
+  ): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    // 冷却检查
+    const cooldownCheck = this.checkCooldown(player, opts.cooldownName, opts.baseCooldown);
+    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 真正调战斗引擎造成伤害（三层穿透 + 击杀 + 经验 + 掉落）
+    const result = await this.combatSystem.weaponAttack(userId, 0, {
+      damageMultiplier: opts.damageMultiplier,
+      attackText: opts.attackText,
+      allAttack: opts.allAttack ?? false,
+    });
+
+    // 设置冷却（含冷却核心-10）
+    this.setCooldown(player, opts.cooldownName, await this.getSkillCooldown(player, opts.baseCooldown));
+
+    // 记录技能熟练度与活跃度
+    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    const skillKey = `${opts.familiarType}技能熟练度`;
+    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
+    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+    player.markers = JSON.stringify(markers);
+    await this.playerService.savePlayer(player);
+
+    return result.result;
+  }
+
   // ==================== 使魔专属技能 ====================
 
   /**
@@ -287,13 +537,13 @@ export class FamiliarSkillsService {
     const attackBonus = Math.floor(50 * effect);
     const defensePenalty = Math.floor(30 * effect);
 
-    // 添加增益（攻击提升）
-    this.addBuff(player, '怒吼·攻', 30, { attack: attackBonus });
+    // 添加增益（攻击提升，库洛牌+25%时长）
+    this.addBuff(player, '怒吼·攻', this.buffDur(player, 30), { attack: attackBonus });
     // 添加减益（防御降低，用负值增益表示）
-    this.addBuff(player, '怒吼·防', 30, { defense: -defensePenalty });
+    this.addBuff(player, '怒吼·防', this.buffDur(player, 30), { defense: -defensePenalty });
 
     // 设置冷却
-    this.setCooldown(player, '怒吼', 60);
+    this.setCooldown(player, '怒吼', await this.getSkillCooldown(player, 60));
 
     // 记录技能熟练度
     const skillKey = '龙姬技能熟练度';
@@ -324,44 +574,55 @@ export class FamiliarSkillsService {
       return '需要军姬才能使出万象';
     }
 
-    // 检查冷却
+    // 军姬2：原版万象造成真实全体伤害（攻击文本"万象a"，基础倍率 200+5*等级 或 死亡时 300+7.5*等级）
+    if (this.checkFamiliarType(player, '军姬2')) {
+      const skillLevel = this.getSkillLevel(markers, '军姬2');
+      const isDead = (player.hp || 0) <= 0;
+      const mult = isDead ? Math.floor(300 + 7.5 * skillLevel) : 200 + 5 * skillLevel;
+      const result = await this.castCombatSkill(userId, {
+        cooldownName: '万象',
+        baseCooldown: 60,
+        damageMultiplier: mult,
+        attackText: '【万象】',
+        allAttack: true,
+        familiarType: '军姬2',
+      });
+      // 好感分层解锁：原版「玩家.好感 >= 60 → 回血50%」
+      let extra = '';
+      if (this.checkAffinity(markers, '军姬2', 60)) {
+        const heal = Math.floor((player.maxHp || 100) * 0.5);
+        player.hp = Math.min((player.hp || 0) + heal, player.maxHp || 100);
+        await this.playerService.savePlayer(player);
+        extra = `\n（好感≥60 解锁：恢复 ${heal} 点生命）`;
+      }
+      return `【万象】空间割裂，万象之力横扫全场！\n${result}${extra}`;
+    }
+
+    // 军姬（本体）：保留原版全属性增益语义
     const cooldownCheck = this.checkCooldown(player, '万象', 180);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
     const affinity = this.getAffinity(markers, player.type);
     const effect = this.getSkillEffect(affinity);
 
-    // 万象效果：随机传送到连接的地图或施加特殊效果
     const effects = [
       '空间扭曲，周围的一切变得模糊不清',
       '万象之力涌出，将敌人拉入异次元',
       '万象轮回，短暂提升全属性',
       '空间割裂，对周围造成伤害',
     ];
-
     const chosenEffect = effects[Math.floor(Math.random() * effects.length)];
 
-    // 添加全属性增益
     const statBonus = Math.floor(20 * effect);
     this.addBuff(player, '万象·全属性', 60, {
-      attack: statBonus,
-      defense: statBonus,
-      speed: statBonus,
-      dodge: statBonus,
-      hit: statBonus,
+      attack: statBonus, defense: statBonus, speed: statBonus, dodge: statBonus, hit: statBonus,
     });
 
-    // 设置冷却
-    this.setCooldown(player, '万象', 180);
+    this.setCooldown(player, '万象', await this.getSkillCooldown(player, 60));
 
-    // 记录技能熟练度
     const skillKey = `${player.type}技能熟练度`;
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
@@ -384,37 +645,25 @@ export class FamiliarSkillsService {
       return '需要Saber才能使出誓约胜利之剑';
     }
 
-    // 检查是否装备了圣剑
+    // 检查是否装备了圣剑（原版：装备要求(玩家, #圣剑)）
     if (!this.hasItem(player, '圣剑')) {
       return '需要装备「圣剑」才能使用誓约胜利之剑';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '誓约胜利之剑', 300);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    // 原版基础倍率公式：倍率转换(玩家, 300 + 3*技能等级)
+    const skillLevel = this.getSkillLevel(markers, 'Saber');
+    const mult = 300 + 3 * skillLevel;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, 'Saber');
-    const effect = this.getSkillEffect(affinity);
+    // 真正调用战斗引擎造成伤害（三层穿透 + 击杀 + 经验 + 掉落）
+    const result = await this.castCombatSkill(userId, {
+      cooldownName: '誓约胜利之剑',
+      baseCooldown: 60,
+      damageMultiplier: mult,
+      attackText: '【誓约胜利之剑】',
+      familiarType: 'Saber',
+    });
 
-    // 高伤害：基础伤害 + 好感度加成
-    const baseDamage = 500 + Math.floor(affinity * 2);
-    const finalDamage = Math.floor(baseDamage * effect);
-
-    // 设置冷却
-    this.setCooldown(player, '誓约胜利之剑', 300);
-
-    // 记录技能熟练度
-    const skillKey = 'Saber技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = JSON.stringify(markers);
-    await this.playerService.savePlayer(player);
-
-    return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒，对目标造成 ${finalDamage} 点巨额伤害\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒！\n${result}`;
   }
 
   /**
@@ -445,8 +694,8 @@ export class FamiliarSkillsService {
     const hitBonus = Math.floor(40 * effect);
     const dodgePenalty = Math.floor(20 * effect);
 
-    this.addBuff(player, '鹰眼·命中', 30, { hit: hitBonus });
-    this.addBuff(player, '鹰眼·闪避', 30, { dodge: -dodgePenalty });
+    this.addBuff(player, '鹰眼·命中', this.buffDur(player, 30), { hit: hitBonus });
+    this.addBuff(player, '鹰眼·闪避', this.buffDur(player, 30), { dodge: -dodgePenalty });
 
     // 设置冷却
     this.setCooldown(player, '鹰眼', 45);
@@ -480,35 +729,30 @@ export class FamiliarSkillsService {
       return '需要阿尔缇娜才能使出歼灭';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '歼灭', 90);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    // 原版基础倍率：倍率转换(玩家, 100 + 5*技能等级)
+    const skillLevel = this.getSkillLevel(markers, '阿尔缇娜');
+    const mult = 100 + 5 * skillLevel;
 
-    // 获取好感度
+    // 真正调用战斗引擎造成伤害（三层穿透 + 击杀 + 经验 + 掉落）
+    const result = await this.castCombatSkill(userId, {
+      cooldownName: '歼灭',
+      baseCooldown: 60,
+      damageMultiplier: mult,
+      attackText: '【歼灭】',
+      familiarType: '阿尔缇娜',
+    });
+
+    // 好感分层解锁：原版「玩家.好感 >= 20 → 获得增益 a技能2(减伤)」
     const affinity = this.getAffinity(markers, '阿尔缇娜');
-    const effect = this.getSkillEffect(affinity);
+    let extra = '';
+    if (this.checkAffinity(markers, '阿尔缇娜', 20)) {
+      this.addBuff(player, '歼灭·减伤', 30, { damageReduction: 20 });
+      extra = '\n（好感≥20 解锁：获得20%减伤，持续30秒）';
+      player.markers = JSON.stringify(markers);
+      await this.playerService.savePlayer(player);
+    }
 
-    // 冰系伤害
-    const baseDamage = 200 + Math.floor(affinity * 1);
-    const finalDamage = Math.floor(baseDamage * effect);
-
-    // 冻结效果（减速）
-    this.addBuff(player, '冰霜之力', 15, { iceDmg: Math.floor(30 * effect) });
-
-    // 设置冷却
-    this.setCooldown(player, '歼灭', 90);
-
-    // 记录技能熟练度
-    const skillKey = '阿尔缇娜技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = JSON.stringify(markers);
-    await this.playerService.savePlayer(player);
-
-    return `阿尔缇娜释放冰霜之力——歼灭！\n极寒的冰霜将目标冻结，造成 ${finalDamage} 点冰系伤害\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `阿尔缇娜释放冰霜之力——歼灭！\n${result}${extra}`;
   }
 
   /**
@@ -539,14 +783,14 @@ export class FamiliarSkillsService {
     const attackBonus = Math.floor(80 * effect);
     const critBonus = Math.floor(20 * effect);
 
-    this.addBuff(player, '歼灭模式', 45, {
+    this.addBuff(player, '歼灭模式', this.buffDur(player, 45), {
       attack: attackBonus,
       crit: critBonus,
       critDmg: Math.floor(30 * effect),
     });
 
     // 设置冷却
-    this.setCooldown(player, '歼灭模式', 180);
+    this.setCooldown(player, '歼灭模式', await this.getSkillCooldown(player, 60));
 
     // 记录技能熟练度
     const skillKey = '伊卡洛斯技能熟练度';
@@ -588,7 +832,7 @@ export class FamiliarSkillsService {
     // 无敌护盾：免疫伤害，持续时间和效果与好感度相关
     const shieldDuration = Math.floor(10 + 10 * effect); // 10~20秒
 
-    this.addBuff(player, '绝对守护', shieldDuration, { invincible: true });
+    this.addBuff(player, '绝对守护', this.buffDur(player, shieldDuration), { invincible: true });
 
     // 设置冷却
     this.setCooldown(player, '绝对守护', 300);
@@ -633,10 +877,10 @@ export class FamiliarSkillsService {
     // 反弹伤害：获得反弹增益
     const reflectPercent = Math.floor(30 + 20 * effect); // 30%~70%反弹
 
-    this.addBuff(player, '斗转星移', 30, { reflectDmg: reflectPercent });
+    this.addBuff(player, '斗转星移', this.buffDur(player, 30), { reflectDmg: reflectPercent });
 
     // 设置冷却
-    this.setCooldown(player, '斗转星移', 120);
+    this.setCooldown(player, '斗转星移', await this.getSkillCooldown(player, 60));
 
     // 记录技能熟练度
     const skillKey = '星尘技能熟练度';
@@ -678,7 +922,7 @@ export class FamiliarSkillsService {
     // 提升攻击力
     const attackBonus = Math.floor(60 * effect);
 
-    this.addBuff(player, '火力全开', 30, { attack: attackBonus });
+    this.addBuff(player, '火力全开', this.buffDur(player, 30), { attack: attackBonus });
 
     // 设置冷却
     this.setCooldown(player, '火力全开', 60);
@@ -733,7 +977,7 @@ export class FamiliarSkillsService {
     }
 
     // 设置冷却
-    this.setCooldown(player, '啾啾猫猫', 60);
+    this.setCooldown(player, '啾啾猫猫', await this.getSkillCooldown(player, 60));
 
     // 记录技能熟练度
     const skillKey = '花园猫技能熟练度';
@@ -775,7 +1019,7 @@ export class FamiliarSkillsService {
     // 全属性提升
     const statBonus = Math.floor(40 * effect);
 
-    this.addBuff(player, '银龙附体', 60, {
+    this.addBuff(player, '银龙附体', this.buffDur(player, 60), {
       attack: statBonus,
       defense: statBonus,
       speed: statBonus,
@@ -786,7 +1030,7 @@ export class FamiliarSkillsService {
     });
 
     // 设置冷却
-    this.setCooldown(player, '银龙附体', 150);
+    this.setCooldown(player, '银龙附体', await this.getSkillCooldown(player, 60));
 
     // 记录技能熟练度
     const skillKey = '古月娜技能熟练度';
@@ -817,32 +1061,34 @@ export class FamiliarSkillsService {
       return '需要剑圣才能使出斩';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '斩', 30);
+    // 好感门槛：原版「玩家.好感 < 60 → 需要60好感」
+    if (!this.checkAffinity(markers, '剑圣', 60)) {
+      return '斩需要剑圣好感达到60才能使用';
+    }
+
+    // 检查冷却（原版：斩！冷却核心时 a=60、否则 a=50，与其他技能相反）
+    const cooldownCheck = this.checkCooldown(player, '斩', 50);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '剑圣');
-    const effect = this.getSkillEffect(affinity);
+    // 原版斩！：回满生命与护盾装甲（治疗/强化类，非直接伤害）
+    const healHp = player.maxHp || 100;
+    const shieldVal = Math.floor((player.maxShield || 0) + 50);
+    player.hp = healHp;
+    player.shield = shieldVal;
+    player.maxShield = Math.max(player.maxShield || 0, shieldVal);
 
-    // 高伤害单体攻击
-    const baseDamage = 150 + Math.floor(affinity * 1.5);
-    const finalDamage = Math.floor(baseDamage * effect);
-
-    // 设置冷却
-    this.setCooldown(player, '斩', 30);
+    // 设置冷却（原版斩！冷却核心时反而更长 60s）
+    const baseCd = this.hasItem(player, '冷却核心') ? 60 : 50;
+    this.setCooldown(player, '斩', baseCd);
 
     // 记录技能熟练度
     const skillKey = '剑圣技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
-    return `剑圣拔刀——斩！\n一刀斩下，对目标造成 ${finalDamage} 点伤害\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `剑圣拔刀——斩！\n血气回涌，生命与护盾全部恢复（护盾+${shieldVal}）！`;
   }
 
   /**
@@ -861,33 +1107,20 @@ export class FamiliarSkillsService {
       return '需要剑圣才能使出会心一击';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '会心一击', 60);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    // 原版基础倍率：倍率转换(玩家, 200 + 10*技能等级)（攻击文本"会心一击b"在原版触发被暴击率加成）
+    const skillLevel = this.getSkillLevel(markers, '剑圣');
+    const mult = 200 + 10 * skillLevel;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '剑圣');
-    const effect = this.getSkillEffect(affinity);
+    // 真正调用战斗引擎造成伤害（高倍率对应原版会心一击的暴击特性）
+    const result = await this.castCombatSkill(userId, {
+      cooldownName: '会心一击',
+      baseCooldown: 60,
+      damageMultiplier: mult,
+      attackText: '【会心一击】',
+      familiarType: '剑圣',
+    });
 
-    // 暴击攻击：必定暴击，高倍率
-    const baseDamage = 100 + Math.floor(affinity * 1);
-    const critMultiplier = 2.5 + effect * 0.5; // 2.5~3.0倍暴击
-    const finalDamage = Math.floor(baseDamage * critMultiplier);
-
-    // 设置冷却
-    this.setCooldown(player, '会心一击', 60);
-
-    // 记录技能熟练度
-    const skillKey = '剑圣技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = JSON.stringify(markers);
-    await this.playerService.savePlayer(player);
-
-    return `剑圣凝聚全身力量——会心一击！！\n【暴击】对目标造成 ${finalDamage} 点巨额伤害（暴击倍率: ${critMultiplier.toFixed(1)}x）\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `剑圣凝聚全身力量——会心一击！！\n${result}`;
   }
 
   /**
@@ -906,32 +1139,21 @@ export class FamiliarSkillsService {
       return '需要长萌才能使出全弹发射';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '全弹发射', 120);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    // 原版基础倍率：倍率转换(玩家, 100 + 5*技能等级)，全体攻击
+    const skillLevel = this.getSkillLevel(markers, '长萌');
+    const mult = 100 + 5 * skillLevel;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '长萌');
-    const effect = this.getSkillEffect(affinity);
+    // 真正调用战斗引擎（全体攻击）造成伤害
+    const result = await this.castCombatSkill(userId, {
+      cooldownName: '全弹发射',
+      baseCooldown: 60,
+      damageMultiplier: mult,
+      attackText: '【全弹发射】',
+      allAttack: true,
+      familiarType: '长萌',
+    });
 
-    // 范围攻击：对所有敌人造成伤害
-    const baseDamage = 80 + Math.floor(affinity * 0.8);
-    const finalDamage = Math.floor(baseDamage * effect);
-
-    // 设置冷却
-    this.setCooldown(player, '全弹发射', 120);
-
-    // 记录技能熟练度
-    const skillKey = '长萌技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = JSON.stringify(markers);
-    await this.playerService.savePlayer(player);
-
-    return `长萌全弹发射！所有炮门开启！\n对全体敌人造成 ${finalDamage} 点范围伤害\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `长萌全弹发射！所有炮门开启！\n${result}`;
   }
 
   /**
@@ -962,7 +1184,7 @@ export class FamiliarSkillsService {
     const speedBonus = Math.floor(50 * effect);
     const dodgeBonus = Math.floor(25 * effect);
 
-    this.addBuff(player, '光翼', 30, {
+    this.addBuff(player, '光翼', this.buffDur(player, 30), {
       speed: speedBonus,
       dodge: dodgeBonus,
     });
@@ -999,32 +1221,25 @@ export class FamiliarSkillsService {
       return '需要绝灭天使才能使出炮冠';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '炮冠', 45);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    // 好感门槛：原版「玩家.好感 < 80 → 需要好感达到80」
+    if (!this.checkAffinity(markers, '绝灭天使', 80)) {
+      return '炮冠需要绝灭天使好感达到80才能使用';
+    }
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '绝灭天使');
-    const effect = this.getSkillEffect(affinity);
+    // 原版炮冠为远程攻击，基础倍率约 120 + 5*技能等级
+    const skillLevel = this.getSkillLevel(markers, '绝灭天使');
+    const mult = 120 + 5 * skillLevel;
 
-    // 远程攻击
-    const baseDamage = 120 + Math.floor(affinity * 1.2);
-    const finalDamage = Math.floor(baseDamage * effect);
+    // 真正调用战斗引擎造成伤害
+    const result = await this.castCombatSkill(userId, {
+      cooldownName: '炮冠',
+      baseCooldown: 45, // 原版炮冠基础冷却45s
+      damageMultiplier: mult,
+      attackText: '【炮冠】',
+      familiarType: '绝灭天使',
+    });
 
-    // 设置冷却
-    this.setCooldown(player, '炮冠', 45);
-
-    // 记录技能熟练度
-    const skillKey = '绝灭天使技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = JSON.stringify(markers);
-    await this.playerService.savePlayer(player);
-
-    return `绝灭天使炮冠发射！\n远程炮击命中目标，造成 ${finalDamage} 点伤害\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `绝灭天使炮冠发射！\n${result}`;
   }
 
   /**
@@ -1043,37 +1258,29 @@ export class FamiliarSkillsService {
       return '需要绝灭天使才能使出日轮';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '日轮', 150);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    // 原版基础倍率：倍率转换(玩家, 100 + 技能等级)（全体分摊），攻击文本"日轮a"
+    const skillLevel = this.getSkillLevel(markers, '绝灭天使');
+    const mult = 100 + skillLevel;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '绝灭天使');
-    const effect = this.getSkillEffect(affinity);
-
-    // 持续伤害光环
-    const tickDamage = Math.floor(20 + affinity * 0.2 * effect);
-    const duration = Math.floor(15 + 5 * effect); // 持续15~20秒
-
-    this.addBuff(player, '日轮·光环', duration, {
-      splash: tickDamage,
-      splashCount: 1,
+    // 真正调用战斗引擎（全体攻击）造成日轮爆发伤害
+    const result = await this.castCombatSkill(userId, {
+      cooldownName: '日轮',
+      baseCooldown: 60,
+      damageMultiplier: mult,
+      attackText: '【日轮】',
+      allAttack: true,
+      familiarType: '绝灭天使',
     });
 
-    // 设置冷却
-    this.setCooldown(player, '日轮', 150);
+    // 好感分层解锁：原版「玩家.好感 >= 40 → 增加穿透 5」
+    let extra = '';
+    if (this.checkAffinity(markers, '绝灭天使', 40)) {
+      this.addBuff(player, '日轮·穿透', 30, { penetrationBonus: 5 });
+      extra = '\n（好感≥40 解锁：穿透+5，持续30秒）';
+      await this.playerService.savePlayer(player);
+    }
 
-    // 记录技能熟练度
-    const skillKey = '绝灭天使技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = JSON.stringify(markers);
-    await this.playerService.savePlayer(player);
-
-    return `绝灭天使展开日轮光环！\n周围被炽热的光环笼罩，每秒造成 ${tickDamage} 点持续伤害（持续${duration}秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `绝灭天使展开日轮！炽热光芒笼罩全场！\n${result}${extra}`;
   }
 
   /**
@@ -1110,6 +1317,18 @@ export class FamiliarSkillsService {
     // 防御提升
     this.addBuff(player, '安宝加油', 30, { defense: defenseBonus });
 
+    // 好感分层解锁：原版「好感>=40 → 添加标记 安宝乖乖(增益)」「好感>=60 → 烟雾弹增益」
+    let extra = '';
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1; // 库洛牌+25% 放大增益时长
+    if (this.checkAffinity(markers, '安克雷奇', 40)) {
+      this.addBuff(player, '安宝乖乖', Math.floor(30 * a3), { attack: Math.floor(20 * effect) });
+      extra += '\n（好感≥40 解锁：攻击力提升）';
+    }
+    if (this.checkAffinity(markers, '安克雷奇', 60)) {
+      this.addBuff(player, '烟雾弹', Math.floor(15 * a3), { dodge: Math.floor(30 * effect) });
+      extra += '\n（好感≥60 解锁：烟雾弹，闪避大幅提升）';
+    }
+
     // 设置冷却
     this.setCooldown(player, '安宝加油', 90);
 
@@ -1123,7 +1342,7 @@ export class FamiliarSkillsService {
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
-    return `安克雷奇：安宝加油！加油！\n回复 ${healAmount} 点生命值，防御力提升 ${defenseBonus} 点（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `安克雷奇：安宝加油！加油！\n回复 ${healAmount} 点生命值，防御力提升 ${defenseBonus} 点（持续30秒）${extra}\n好感度加成: ${Math.round(effect * 100)}%`;
   }
 
   /**
@@ -1340,32 +1559,72 @@ export class FamiliarSkillsService {
       return '需要兰音才能使出形神合一';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '形神合一', 60);
+    // 原版公共冷却：30 - 技能等级*0.5 + a2（装备冷却核心时 a2=-10）
+    const skillLevel = this.getSkillLevel(markers, '兰音');
+    const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
+    const publicCd = 30 - skillLevel * 0.5 + a2;
+    const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 0; // 公共cd为0时原版会自动释放形神合一（此处作为主动技能直接释放）
+    const cooldownCheck = this.checkCooldown(player, '形神合一', baseCd || 1);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
+    // 获取好感度与库洛牌时长放大
     const affinity = this.getAffinity(markers, '兰音');
-    const effect = this.getSkillEffect(affinity);
+    const a3 = this.buffDur(player, 600); // 风月入墨持续 600*库洛牌 秒
 
-    // 高伤害
-    const baseDamage = 200 + Math.floor(affinity * 1.5);
-    const finalDamage = Math.floor(baseDamage * effect);
+    // 形神合一效果：
+    // 1) 给当前地图所有怪物(怪物2)施加麻醉（按 等级*(10+技能等级) 累积当前麻醉，满则获得「麻醉」增益可捕捉）
+    // 2) 给当前地图(标记3)施加「风月入墨」增益：使魔/宠物升级经验 -15% 持续
+    // 3) 兰音模式2 时，友方召唤物也获得 心无所扰/月落寸光 效果（同步友方召唤物增益）
+    let lines: string[] = ['兰音：形神合一！'];
 
-    // 设置冷却
-    this.setCooldown(player, '形神合一', 60);
+    // 风月入墨增益作用于地图（标记3）——经验-加成，离开地图失效
+    const expReduce = 15 + skillLevel * 0.25;
+    try {
+      await this.applyMapBuff(player.mapId, {
+        name: '风月入墨',
+        value: -expReduce,
+        duration: a3,
+        expireAt: Math.floor(Date.now() / 1000) + a3,
+        source: 'familiarSkill',
+      });
+      lines.push(`当前地图使魔和宠物升级所需经验-${expReduce.toFixed(2)}%（持续${Math.floor(a3 / 60)}分钟，离开地图失效）`);
+    } catch (e) {
+      lines.push('（地图增益施加失败，已跳过）');
+    }
 
-    // 记录技能熟练度
+    // 给地图怪物施加麻醉
+    try {
+      const anes = await this.applyMapMonstersAnesthesia(player.mapId, player.level, skillLevel);
+      if (anes.length) lines.push(anes.join('\n'));
+    } catch (e) {
+      lines.push('（怪物麻醉失败，已跳过）');
+    }
+
+    // 兰音模式2：友方召唤物同步获得 心无所扰/月落寸光 效果
+    const lannMode = this.getFamiliarSetMode(markers, '兰音');
+    if (lannMode === 2) {
+      const ally = await this.getAllySummons(player.mapId, player.qq || String(userId));
+      if (ally.length) {
+        lines.push(`${ally.join('、')}也得到了心无所扰和月落寸光的效果`);
+        // 给友方召唤物施加「必中」与「穿透蓄势」下次攻击标记
+        for (const s of ally) {
+          await this.applySummonNextAttack(player.mapId, s, { mustHitNext: true, nextPenetration: 5 });
+        }
+      }
+    }
+
+    // 记录熟练度/活跃度
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = JSON.stringify(markers);
+
+    // 设置公共冷却（兰音通用）
+    this.setCooldown(player, '兰音通用', baseCd || 1);
+    this.setCooldown(player, '形神合一', baseCd || 1);
     await this.playerService.savePlayer(player);
 
-    return `兰音形神合一！身与意合，意与神合！\n对目标造成 ${finalDamage} 点伤害\n好感度加成: ${Math.round(effect * 100)}%`;
+    return lines.join('\n') + `\n好感度加成: ${affinity}`;
   }
 
   /**
@@ -1384,36 +1643,46 @@ export class FamiliarSkillsService {
       return '需要兰音才能使出风月入墨';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '风月入墨', 90);
+    // 好感门槛：原版「玩家.好感 < 20 → 需要20好感」
+    if (!this.checkAffinity(markers, '兰音', 20)) {
+      return '风月入墨需要兰音好感达到20才能使用';
+    }
+
+    // 原版公共冷却：30 - 技能等级*0.5 + a2（冷却核心-10），独立冷却 60+a2
+    const skillLevel = this.getSkillLevel(markers, '兰音');
+    const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
+    const publicCd = 30 - skillLevel * 0.5 + a2;
+    const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
+    const cooldownCheck = this.checkCooldown(player, '风月入墨', 60 + a2);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '兰音');
-    const effect = this.getSkillEffect(affinity);
+    // 原版：给当前地图(标记3)施加「风月入墨」增益——使魔/宠物升级经验 -15%，持续 600*库洛牌 秒
+    const a3 = this.buffDur(player, 600);
+    const expReduce = 15 + skillLevel * 0.25;
+    try {
+      await this.applyMapBuff(player.mapId, {
+        name: '风月入墨',
+        value: -expReduce,
+        duration: a3,
+        expireAt: Math.floor(Date.now() / 1000) + a3,
+        source: 'familiarSkill',
+      });
+    } catch (e) {
+      return '风月入墨：地图增益施加失败';
+    }
 
-    // 持续伤害
-    const tickDamage = Math.floor(25 + affinity * 0.3 * effect);
-    const duration = Math.floor(10 + 5 * effect);
-
-    this.addBuff(player, '风月入墨·墨染', duration, {
-      physDmg: tickDamage,
-    });
-
-    // 设置冷却
-    this.setCooldown(player, '风月入墨', 90);
-
-    // 记录技能熟练度
+    // 记录技能熟练度/活跃度
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = JSON.stringify(markers);
+
+    // 设置冷却（兰音通用 + 本技能）
+    this.setCooldown(player, '兰音通用', baseCd);
+    this.setCooldown(player, '风月入墨', 60 + a2);
     await this.playerService.savePlayer(player);
 
-    return `兰音挥毫泼墨，风月入墨！\n墨色渗入目标，每秒造成 ${tickDamage} 点持续伤害（持续${duration}秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `兰音风月入墨！\n${player.mapId ? '当前地图' : '地图'}的使魔和宠物升级所需经验-${expReduce.toFixed(2)}%，持续${Math.floor(a3 / 60)}分钟，受益者离开当前地图时失效`;
   }
 
   /**
@@ -1432,48 +1701,48 @@ export class FamiliarSkillsService {
       return '需要兰音才能使出心无所扰';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '心无所扰', 120);
+    // 好感门槛：原版「玩家.好感 < 40 → 需要40好感」
+    if (!this.checkAffinity(markers, '兰音', 40)) {
+      return '心无所扰需要兰音好感达到40才能使用';
+    }
+
+    // 原版公共冷却：30 - 技能等级*0.5 + a2
+    const skillLevel = this.getSkillLevel(markers, '兰音');
+    const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
+    const publicCd = 30 - skillLevel * 0.5 + a2;
+    const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
+    const cooldownCheck = this.checkCooldown(player, '心无所扰', baseCd);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '兰音');
-    const effect = this.getSkillEffect(affinity);
+    // 原版：下次攻击有 (15+技能等级/2)% 几率无视闪避和闪避状态必中
+    const mustHitChance = 15 + skillLevel / 2;
+    this.setNextAttackBuff(player, '心无所扰·蓄势', { mustHitNext: true, mustHitChance });
 
-    // 清除负面状态：过滤掉所有减益效果
-    const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    const now = Date.now() / 1000;
-    // 保留增益效果（加成值>0的），移除减益效果（加成值<0或明确标记为debuff的）
-    const cleanBuffs = buffs.filter((b: any) => {
-      if (b.expireAt <= now) return false;
-      // 如果buff有negative标记或所有数值加成都是负数，视为debuff
-      if (b.negative) return false;
-      // 检查是否有任何正数加成
-      const hasPositiveBonus = Object.entries(b).some(([key, val]) =>
-        !['name', 'expireAt', 'negative'].includes(key) && typeof val === 'number' && val > 0,
-      );
-      return hasPositiveBonus;
-    });
-    player.buffs = JSON.stringify(cleanBuffs);
+    // 兰音模式2：友方召唤物也获得必中效果
+    const lannMode = this.getFamiliarSetMode(markers, '兰音');
+    let allyLine = '';
+    if (lannMode === 2) {
+      const ally = await this.getAllySummons(player.mapId, player.qq || String(userId));
+      if (ally.length) {
+        allyLine = `\n${ally.join('、')}也得到了心无所扰的效果`;
+        for (const s of ally) {
+          await this.applySummonNextAttack(player.mapId, s, { mustHitNext: true, mustHitChance });
+        }
+      }
+    }
 
-    // 额外回复生命
-    const healAmount = Math.floor(50 + affinity * 0.3 * effect);
-    player.hp = Math.min((player.hp || 0) + healAmount, player.maxHp || 100);
-
-    // 设置冷却
-    this.setCooldown(player, '心无所扰', 120);
-
-    // 记录技能熟练度
+    // 记录技能熟练度/活跃度
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = JSON.stringify(markers);
+
+    // 设置冷却
+    this.setCooldown(player, '兰音通用', baseCd);
+    this.setCooldown(player, '心无所扰', baseCd);
     await this.playerService.savePlayer(player);
 
-    return `兰音心无所扰，明镜止水！\n清除了所有负面状态，回复 ${healAmount} 点生命\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `兰音心无所扰！\n下次攻击有 ${mustHitChance.toFixed(1)}% 几率无视闪避和闪避状态必中${allyLine}`;
   }
 
   /**
@@ -1492,32 +1761,39 @@ export class FamiliarSkillsService {
       return '需要兰音才能使出梦倾天下';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '梦倾天下', 180);
+    // 好感门槛：原版「玩家.好感 < 60 → 需要60好感」
+    if (!this.checkAffinity(markers, '兰音', 60)) {
+      return '梦倾天下需要兰音好感达到60才能使用';
+    }
+
+    // 原版公共冷却：30 - 技能等级*0.5 + a2
+    const skillLevel = this.getSkillLevel(markers, '兰音');
+    const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
+    const publicCd = 30 - skillLevel * 0.5 + a2;
+    const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
+    const cooldownCheck = this.checkCooldown(player, '梦倾天下', baseCd);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '兰音');
-    const effect = this.getSkillEffect(affinity);
+    // 原版：下次攻击命中的目标所有属性降低【(当前麻醉÷麻醉上限)x(15+技能等级)】%，持续600*库洛牌秒
+    // 这里简化为：直接给当前地图常驻怪物施加麻醉（与原版形神合一/梦倾天下一致的麻醉逻辑）
+    const a3 = this.buffDur(player, 600);
+    const reducePct = 15 + skillLevel;
+    const lines = await this.applyMapMonstersAnesthesia(player.mapId, player.level || 1, skillLevel);
+    let text = `兰音梦倾天下！\n下次攻击命中的目标所有属性降低 ${reducePct}% 的麻醉效果，持续${Math.floor(a3 / 60)}分钟`;
+    if (lines.length) text += '\n' + lines.join('\n');
 
-    // 范围伤害
-    const baseDamage = 150 + Math.floor(affinity * 1);
-    const finalDamage = Math.floor(baseDamage * effect);
-
-    // 设置冷却
-    this.setCooldown(player, '梦倾天下', 180);
-
-    // 记录技能熟练度
+    // 记录技能熟练度/活跃度
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 15;
-
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = JSON.stringify(markers);
+
+    // 设置冷却
+    this.setCooldown(player, '兰音通用', baseCd);
+    this.setCooldown(player, '梦倾天下', baseCd);
     await this.playerService.savePlayer(player);
 
-    return `兰音梦倾天下！\n梦境的力量笼罩全场，对全体敌人造成 ${finalDamage} 点范围伤害\n好感度加成: ${Math.round(effect * 100)}%`;
+    return text;
   }
 
   /**
@@ -1536,40 +1812,104 @@ export class FamiliarSkillsService {
       return '需要兰音才能使出反转童话';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '反转童话', 240);
+    // 好感门槛：原版「玩家.好感 < 80 → 需要80好感」
+    if (!this.checkAffinity(markers, '兰音', 80)) {
+      return '反转童话需要兰音好感达到80才能使用';
+    }
+
+    // 原版公共冷却：30 - 技能等级*0.5 + a2
+    const skillLevel = this.getSkillLevel(markers, '兰音');
+    const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
+    const publicCd = 30 - skillLevel * 0.5 + a2;
+    const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
+    const cooldownCheck = this.checkCooldown(player, '反转童话', baseCd);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '兰音');
-    const effect = this.getSkillEffect(affinity);
-
-    // 反转属性：将负面的反转成正面的
-    // 效果：攻击和防御互换比例，速度转换为闪避
-    const attackConvert = Math.floor((player.attack || 0) * 0.3 * effect);
-    const defenseConvert = Math.floor((player.defense || 0) * 0.3 * effect);
-    const speedConvert = Math.floor((player.speed || 0) * 0.2 * effect);
-
-    this.addBuff(player, '反转童话', 45, {
-      attack: defenseConvert,
-      defense: attackConvert,
-      dodge: speedConvert,
+    // 原版：下次攻击无论是否命中，有 (50+技能等级/2)% 几率将目标某个属性正负符号反转，持续 600*库洛牌 秒
+    const reverseChance = 50 + skillLevel / 2;
+    const a3 = this.buffDur(player, 600);
+    this.setNextAttackBuff(player, '反转童话·蓄势', {
+      reverseResist: true,
+      reverseChance,
+      reverseDuration: a3,
     });
 
-    // 设置冷却
-    this.setCooldown(player, '反转童话', 240);
-
-    // 记录技能熟练度
+    // 记录技能熟练度/活跃度
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 15;
-
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = JSON.stringify(markers);
+
+    // 设置冷却
+    this.setCooldown(player, '兰音通用', baseCd);
+    this.setCooldown(player, '反转童话', baseCd);
     await this.playerService.savePlayer(player);
 
-    return `兰音反转童话！\n世界被颠倒了过来！\n将防御的 ${defenseConvert} 点转化为攻击\n将攻击的 ${attackConvert} 点转化为防御\n将速度的 ${speedConvert} 点转化为闪避\n（持续45秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `兰音反转童话！\n下次攻击无论是否命中，有 ${reverseChance.toFixed(1)}% 几率将目标的某个属性正负符号反转，持续${Math.floor(a3 / 60)}分钟`;
+  }
+
+  /**
+   * 兰音 - 月落寸光
+   * 下次攻击计算护盾/装甲/生命抗性时，根据目标对应状态的平均抗性获得穿透增益
+   * 平均值越高增益越高【(2~20)x(1+技能等级/100)%】
+   * 对应原版：月落寸光()
+   * @param userId 用户ID
+   * @returns 技能效果文本
+   */
+  async moonlightInch(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+
+    // 检查使魔类型
+    if (!this.checkFamiliarType(player, '兰音')) {
+      return '需要兰音才能使出月落寸光';
+    }
+
+    // 好感门槛：原版「玩家.好感 < 100 → 需要100好感」
+    if (!this.checkAffinity(markers, '兰音', 100)) {
+      return '月落寸光需要兰音好感达到100才能使用';
+    }
+
+    // 原版公共冷却：30 - 技能等级*0.5 + a2
+    const skillLevel = this.getSkillLevel(markers, '兰音');
+    const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
+    const publicCd = 30 - skillLevel * 0.5 + a2;
+    const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
+    const cooldownCheck = this.checkCooldown(player, '月落寸光', baseCd);
+    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 原版：下次攻击按目标平均抗性获得穿透增益(2~20)x(1+技能等级/100)%
+    // 实际穿透值由攻击引擎在命中时按目标三层平均抗性计算（见 weaponAttack → consumeNextAttackBuffs）
+    this.setNextAttackBuff(player, '月落寸光·蓄势', {
+      nextPenetration: true,
+      skillLevelForPen: skillLevel,
+    });
+
+    // 兰音模式2：友方召唤物也获得月落寸光效果
+    const lannMode = this.getFamiliarSetMode(markers, '兰音');
+    let allyLine = '';
+    if (lannMode === 2) {
+      const ally = await this.getAllySummons(player.mapId, player.qq || String(userId));
+      if (ally.length) {
+        allyLine = `\n${ally.join('、')}也得到了月落寸光的效果`;
+        for (const s of ally) {
+          await this.applySummonNextAttack(player.mapId, s, { nextPenetration: true, skillLevelForPen: skillLevel });
+        }
+      }
+    }
+
+    // 记录技能熟练度/活跃度
+    const skillKey = '兰音技能熟练度';
+    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 15;
+    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+    player.markers = JSON.stringify(markers);
+
+    // 设置冷却
+    this.setCooldown(player, '兰音通用', baseCd);
+    this.setCooldown(player, '月落寸光', baseCd);
+    await this.playerService.savePlayer(player);
+
+    return `兰音月落寸光！\n下次攻击计算护盾/装甲/生命抗性时，根据目标对应状态的平均抗性获得穿透增益，平均值越高增益越高（2~20）×(1+${skillLevel}/100)%${allyLine}`;
   }
 
   // ==================== 通用/装备技能 ====================
@@ -1591,12 +1931,30 @@ export class FamiliarSkillsService {
     }
 
     if (!target) {
-      return '请指定要洗脑的目标';
+      return '请指定要洗脑的目标（当前地图怪物名）';
     }
 
     // 检查冷却
     const cooldownCheck = this.checkCooldown(player, '洗脑', 600);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 真实机制：将当前地图中名为 target 的怪物标记为「混乱」状态
+    // 混乱的怪物攻击时有几率攻击友方/自身（此处简化为标记混乱增益，持续一段时间）
+    const map = await this.prisma.gameMap.findUnique({ where: { id: player.mapId } });
+    if (!map) return '你不在任何地图上';
+    const monsters: any[] = this.safeParse(map.spawnMonsters, []);
+    const targetMonster = monsters.find((m: any) => m.name === target);
+    if (!targetMonster) {
+      return `当前地图没有名为「${target}」的怪物`;
+    }
+    const mbuffs: any[] = this.safeParse(targetMonster.buffs, []);
+    mbuffs.push({ name: '混乱', expireAt: Math.floor(Date.now() / 1000) + 3600 });
+    targetMonster.buffs = JSON.stringify(mbuffs);
+    targetMonster.bonus = JSON.stringify({ ...this.safeParse(targetMonster.bonus, {}), 混乱: true });
+    await this.prisma.gameMap.update({
+      where: { id: player.mapId },
+      data: { spawnMonsters: JSON.stringify(monsters) },
+    });
 
     // 设置冷却
     this.setCooldown(player, '洗脑', 600);
@@ -1607,7 +1965,7 @@ export class FamiliarSkillsService {
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
-    return `对「${target}」使用了洗脑装置！\n目标陷入了混乱状态（冷却10分钟）`;
+    return `对「${target}」使用了洗脑装置！\n目标陷入了混乱状态（持续1小时，冷却10分钟）`;
   }
 
   /**
@@ -1767,6 +2125,42 @@ export class FamiliarSkillsService {
     const cooldownCheck = this.checkCooldown(player, '召唤', 120);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
+    // 真实机制：在当前地图 tempMonsters 生成一个归属于玩家的召唤物
+    // 原版次元手环可召唤指定名称的使魔/宠物，此处按名称生成通用召唤物模板
+    const map = await this.prisma.gameMap.findUnique({ where: { id: player.mapId } });
+    if (!map) return '你不在任何地图上';
+    const tempMonsters: any[] = this.safeParse(map.tempMonsters, []);
+    const ownerId = player.qq || String(userId);
+    const summonId = `summon_${ownerId}_${Date.now()}`;
+    const level = Math.max(1, (player.level || 1));
+    const baseHp = 200 + level * 20;
+    tempMonsters.push({
+      id: summonId,
+      name: target,
+      type: target,
+      qq: `怪物${target}${ownerId}xg`,
+      owner: ownerId,
+      归属: ownerId,
+      基础: { 生命: baseHp },
+      base: { hp: baseHp },
+      level,
+      hp: baseHp,
+      maxHp: baseHp,
+      attack: 20 + level * 2,
+      defense: 10 + level,
+      speed: 100,
+      dodge: 5,
+      hit: 85,
+      exp: 10 + level * 2,
+      isPlayerSummon: true,
+      buffs: '[]',
+      bonus: '{}',
+    });
+    await this.prisma.gameMap.update({
+      where: { id: player.mapId },
+      data: { tempMonsters: JSON.stringify(tempMonsters) },
+    });
+
     // 设置冷却
     this.setCooldown(player, '召唤', 120);
 
@@ -1776,7 +2170,7 @@ export class FamiliarSkillsService {
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
-    return `使用次元手环召唤「${target}」！\n次元之门打开，召唤物降临！（冷却2分钟）`;
+    return `使用次元手环召唤「${target}」！\n次元之门打开，召唤物降临当前地图，归属于你（冷却2分钟）`;
   }
 
   /**

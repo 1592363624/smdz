@@ -362,6 +362,10 @@ export class GameCommandHandler implements CommandHandler {
         case 'reverse-fairytale':
           return this.wrap(await this.familiarSkills.executeSkill(userId, '反转童话'));
 
+        case '月落寸光':
+        case 'moonlight-inch':
+          return this.wrap(await this.familiarSkills.executeSkill(userId, '月落寸光'));
+
         // 通用/装备技能
         case '洗脑':
         case 'brainwash':

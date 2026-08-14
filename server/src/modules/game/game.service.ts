@@ -92,6 +92,18 @@ export class GameService {
     // 进入地图时自动获得地图增益
     this.combatSystem.applyMapBuffs(player, targetMap);
 
+    // 懒刷新：若目标地图当前没有已生成的怪物(spawnMonsters 为空)，立即补充刷新，
+    // 避免玩家刚进图攻击时因定时刷新(每分钟)未到点而长时间无怪可打。
+    try {
+      const currentSpawn = this.mapService.getMapMonsters(targetMap);
+      if (currentSpawn.length === 0) {
+        await this.mapService.refreshMapMonsters(targetMap.id);
+        this.logger.log(`玩家 ${userId} 进入「${targetMap.name}」时触发懒刷新怪物`);
+      }
+    } catch (e) {
+      this.logger.warn(`进入地图懒刷新怪物失败: ${e?.message}`);
+    }
+
     // 探索成就：记录玩家首次到达的地图（通过检查 markers 中是否已有该地图探索记录）
     // 使用"探索_地图名"作为成就名，值为1表示已探索
     try {
@@ -6493,7 +6505,45 @@ export class GameService {
    * 对应原版：求助确认 命令
    */
   async handleConfirmHelp(userId: number, targetName: string): Promise<string> {
-    return `🆘 求助确认功能开发中...`;
+    // 对应原版：求助确认（_主程序.ecode L9877）
+    // 机制：当前地图存在"露娜"召唤物（QQ=怪物露娜1g），若其归属为"1"（无人认领），
+    // 则玩家可请求露娜帮忙，持续到下一个整点；成功后露娜归属改为玩家、好感置满。
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
+    }
+
+    const map = await this.getCurrentMap(userId);
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    // 露娜的标识：qq=怪物露娜1g（与 schedule.service 生成露娜时一致）
+    const lunaIdx = summons.findIndex((s: any) => s.qq === '怪物露娜1g');
+    if (lunaIdx === -1) {
+      return `${player.name} 附近没有可以求助的对象`;
+    }
+
+    const luna = summons[lunaIdx];
+    if (luna.ownerQQ === '1' || luna.ownerQQ === undefined || luna.ownerQQ === null) {
+      // 露娜尚无人认领：玩家请求成功，好感置满、归属改玩家
+      // 原版：置成就熟练度("好感"+QQ, 露娜.标记, 100) —— 这里以玩家标记记录对露娜的好感
+      this.playerService.setMarker(markers, `好感怪物露娜1g`, 100);
+      luna.ownerQQ = player.userId.toString();
+      summons[lunaIdx] = luna;
+      await this.prisma.gameMap.update({
+        where: { id: map.id },
+        data: { summons: JSON.stringify(summons) },
+      });
+      // 记录求助成就（任务推进用）
+      const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
+      const helpTask = tasks.find((t: any) => t.name === '求助');
+      if (helpTask) helpTask.count = (helpTask.count || 0) + 1;
+      else tasks.push({ name: '求助', count: 1 });
+      player.tasks = JSON.stringify(tasks);
+      await this.playerService.savePlayer(player);
+      return `${player.name} 好吧，从现在开始到下一个整点之前，我可以帮你解决战斗上的问题。`;
+    } else {
+      return `${player.name} 我正在帮 ${luna.ownerQQ} 解决问题，你之后再找我吧。`;
+    }
   }
 
   /**
@@ -6501,7 +6551,134 @@ export class GameService {
    * 对应原版：购物自动 命令
    */
   async handleAutoShop(userId: number, itemName: string): Promise<string> {
-    return `🛒 自动购物功能开发中...`;
+    // 对应原版：购物自动（_主程序.ecode L9908）
+    // 机制：仅能在自己家园地图使用；读取玩家"自动购物"标记（逗号分隔的目标关键词），
+    // 遍历当前地图"行商"NPC 的背包，匹配关键词的物品以木头/石头/绳子/铁矿为货币购买。
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
+    }
+
+    // 读取自动购物关键词列表（对应原版配置文件 自动购物 项）
+    const autoShopSetting = this.playerService.getMarkerValue(markers as any, '自动购物');
+    // 兼容：标记存为字符串（关键词用、分隔）或数字（0=未设置）
+    const keywordStr = (markers['自动购物'] !== undefined && typeof markers['自动购物'] === 'string')
+      ? markers['自动购物']
+      : '';
+    if (!keywordStr) {
+      return `${player.name} 你未设置自动购物的对象（使用「设置购物 关键词」来设置）`;
+    }
+
+    const keywords = keywordStr.split('、').map((k: string) => k.trim()).filter(Boolean);
+
+    const map = await this.getCurrentMap(userId);
+    const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
+    const merchantIdx = npcs.findIndex((n: any) => n.name === '行商');
+    if (merchantIdx === -1) {
+      return `${player.name} 附近没有「行商」，无法购物`;
+    }
+    const merchant = npcs[merchantIdx];
+    const merchantBackpack = this.playerService.safeJsonParse<any[]>(merchant.backpack, []);
+
+    const backpack = this.playerService.getBackpackItems(player);
+    const boughtItems: string[] = [];      // 实际购买到的物品（显示用）
+    const paidItems: { name: string; quantity: number }[] = []; // 支付的资源
+    let matched = false;
+
+    // 购物熟练度影响价格倍率：a1 = 1 - (10 + 购物/100) / (100 + (10 + 购物/100))
+    const shopSkill = this.achievementService.getAchievement(markers, '购物') || 0;
+    const a2 = 10 + shopSkill / 100;
+    const priceRate = 1 - a2 / (100 + a2); // 越高熟练度越便宜
+    const levelFactor = (player.level || 1) / 10 + 1;
+
+    for (let d = merchantBackpack.length - 1; d >= 0; d--) {
+      const mItem = merchantBackpack[d];
+      // 匹配：物品名或装备特效名包含任一关键词
+      let hit = false;
+      for (const kw of keywords) {
+        if ((mItem.name || '').includes(kw)) { hit = true; break; }
+      }
+      if (!hit) continue;
+
+      // 计算所需资源（原版固定 木头50*、石头40*、绳子30*、铁矿*(a1)）
+      const needWood = 50 * priceRate * levelFactor;
+      const needStone = 40 * priceRate * levelFactor;
+      const needRope = 30 * priceRate * levelFactor;
+      const needIron = priceRate * levelFactor;
+
+      // 检查玩家资源是否充足（木头/石头/绳子/铁矿）
+      const wood = backpack.find((i: any) => i.name === '木头');
+      const stone = backpack.find((i: any) => i.name === '石头');
+      const rope = backpack.find((i: any) => i.name === '绳子');
+      const iron = backpack.find((i: any) => i.name === '铁矿');
+      if (!wood || wood.count < needWood || !stone || stone.count < needStone ||
+          !rope || rope.count < needRope || !iron || iron.count < needIron) {
+        continue; // 资源不足，跳过该物品
+      }
+
+      // 扣除资源
+      this.deductBackpackItem(backpack, '木头', needWood);
+      this.deductBackpackItem(backpack, '石头', needStone);
+      this.deductBackpackItem(backpack, '绳子', needRope);
+      this.deductBackpackItem(backpack, '铁矿', needIron);
+      paidItems.push({ name: '木头', quantity: needWood }, { name: '石头', quantity: needStone },
+        { name: '绳子', quantity: needRope }, { name: '铁矿', quantity: needIron });
+
+      // 给玩家物品（从行商背包移除）
+      const bought = { ...mItem };
+      const existing = backpack.find((i: any) => i.name === bought.name);
+      if (existing) existing.count = (existing.count || 1) + (bought.count || 1);
+      else backpack.push({ name: bought.name, count: bought.count || 1, type: bought.type });
+      merchantBackpack.splice(d, 1);
+      boughtItems.push(`${bought.name}x${Math.round(bought.count || 1)}`);
+      matched = true;
+      break; // 一次购买一件匹配物品（与原版逐个匹配逻辑一致）
+    }
+
+    if (!matched) {
+      return `${player.name} 没有匹配的物品`;
+    }
+
+    // 写回：玩家背包 + 行商背包 + 购物成就
+    player.backpack = JSON.stringify(backpack);
+    merchant.backpack = JSON.stringify(merchantBackpack);
+    npcs[merchantIdx] = merchant;
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: { npcs: JSON.stringify(npcs) },
+    });
+    // 购物成就推进
+    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
+    const shopTask = tasks.find((t: any) => t.name === '购物');
+    if (shopTask) shopTask.count = (shopTask.count || 0) + 1;
+    else tasks.push({ name: '购物', count: 1 });
+    player.tasks = JSON.stringify(tasks);
+    await this.playerService.savePlayer(player);
+
+    const paidDesc = ['木头', '石头', '绳子', '铁矿']
+      .map((n) => {
+        const p = paidItems.find((x) => x.name === n);
+        return p ? `${n}${Math.round(p.quantity)}+` : '';
+      })
+      .filter(Boolean)
+      .join('、');
+    return `${player.name} 花费${paidDesc}购买了${boughtItems.join('、')}`;
+  }
+
+  /**
+   * 从背包数组扣除指定数量物品（按 count 字段，不足则清零移除）
+   * 对应原版：获得物品() 的消耗逻辑
+   */
+  private deductBackpackItem(backpack: any[], name: string, quantity: number): void {
+    const item = backpack.find((i: any) => i.name === name);
+    if (!item) return;
+    if (item.count <= quantity) {
+      const idx = backpack.indexOf(item);
+      if (idx !== -1) backpack.splice(idx, 1);
+    } else {
+      item.count = item.count - quantity;
+    }
   }
 
   /**

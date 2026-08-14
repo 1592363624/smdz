@@ -1,7 +1,9 @@
 /**
  * 补充数据导入脚本
- * 处理 0.txt 蓝图数据、@Resource/ 套装效果和种子数据
- * 以及 使魔大战.txt 中跳过的类型（资源、特效、商店、更新）
+ * 处理 0.txt 蓝图数据、@Resource/ 种子数据
+ * 注意：使魔大战.txt 的 资源/特效/商店/更新 四类 与 套装效果文本
+ *       已统一由 seed-data.ts 导入到独立模型（GameResource/GameEffect/GameShop/GameUpdateLog/GameSetEffect），
+ *       本脚本仅负责蓝图、种子数据，以及攻击文本/武器/装备等独立导入逻辑。
  *
  * 运行: npx ts-node prisma/seed-import-all.ts
  */
@@ -369,91 +371,7 @@ async function importBlueprints(): Promise<{ success: number; errors: number }> 
   return { success, errors };
 }
 
-// ========== 2. 套装效果导入 ==========
-
-/**
- * 读取 @Resource/ 目录下的所有套装效果文件
- * 文件命名规则：文件名去掉"套装效果.txt"或"效果.txt"后缀就是套装名
- * 存储到 SystemConfig 中，key 为 "set_effect_套装名"
- */
-async function importSetEffects(): Promise<{ success: number; errors: number }> {
-  console.log('\n📋 ====== 2. 导入套装效果 ======');
-
-  // 获取目录下所有 txt 文件
-  let files: string[];
-  try {
-    files = fs.readdirSync(RESOURCE_DIR).filter(f => f.endsWith('.txt'));
-  } catch (err) {
-    console.error(`❌ 无法读取目录: ${RESOURCE_DIR}`, (err as Error).message);
-    return { success: 0, errors: 0 };
-  }
-
-  // 筛选套装效果文件（匹配 "套装效果.txt" 或 "效果.txt"）
-  const setEffectFiles = files.filter(f =>
-    f.includes('套装效果') || f.endsWith('效果.txt')
-  ).filter(f => f !== '种子等.txt'); // 排除种子文件
-
-  console.log(`📊 找到 ${setEffectFiles.length} 个套装效果文件`);
-
-  let success = 0;
-  let errors = 0;
-
-  for (const file of setEffectFiles) {
-    try {
-      const filePath = path.join(RESOURCE_DIR, file);
-      const buf = fs.readFileSync(filePath);
-      // 尝试用 UTF-8 解码，如果失败则用 GBK
-      let effectText: string;
-      try {
-        effectText = iconv.decode(buf, 'utf-8');
-        // 检查是否包含乱码
-        if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(effectText)) {
-          effectText = iconv.decode(buf, 'gbk');
-        }
-      } catch {
-        effectText = iconv.decode(buf, 'gbk');
-      }
-      effectText = effectText.trim();
-
-      // 提取套装名：去掉 "套装效果.txt" 或 "效果.txt" 后缀
-      let setName = file;
-      if (setName.endsWith('套装效果.txt')) {
-        setName = setName.slice(0, -'套装效果.txt'.length);
-      } else if (setName.endsWith('效果.txt')) {
-        setName = setName.slice(0, -'效果.txt'.length);
-      }
-
-      const key = `set_effect_${setName}`;
-
-      await prisma.systemConfig.upsert({
-        where: { key },
-        update: {
-          value: effectText,
-          label: `${setName}套装效果`,
-          group: 'set_effects',
-        },
-        create: {
-          key,
-          value: effectText,
-          label: `${setName}套装效果`,
-          description: `${setName}套装效果`,
-          type: 'string',
-          group: 'set_effects',
-        },
-      });
-      success++;
-      console.log(`   ✅ [${setName}]: ${effectText.slice(0, 50)}${effectText.length > 50 ? '...' : ''}`);
-    } catch (err) {
-      errors++;
-      console.error(`❌ 导入套装效果失败: [${file}]`, (err as Error).message);
-    }
-  }
-
-  console.log(`   ✅ 成功: ${success}, ❌ 失败: ${errors}`);
-  return { success, errors };
-}
-
-// ========== 3. 种子数据导入 ==========
+// ========== 2. 种子数据导入 ==========
 
 /**
  * 读取 种子等.txt 并导入到 SystemConfig
@@ -503,81 +421,6 @@ async function importSeedItems(): Promise<{ success: boolean }> {
     console.error('❌ 导入种子数据失败:', (err as Error).message);
     return { success: false };
   }
-}
-
-// ========== 4. 跳过类型数据导入 ==========
-
-/**
- * 从 使魔大战.txt 中解析跳过的类型（资源、特效、商店、更新）
- * 并导入到 SystemConfig 表中
- */
-async function importSkippedTypes(): Promise<{ success: number; errors: number }> {
-  console.log('\n📋 ====== 4. 导入跳过的类型数据 ======');
-
-  const sections = parseConfigFile(DATA_FILE);
-
-  // 需要处理的跳过类型
-  const SKIP_TYPES = ['资源', '特效', '商店', '更新'];
-
-  // 统计各类型数量
-  const typeCounts: Record<string, number> = {};
-  for (const section of sections) {
-    if (SKIP_TYPES.includes(section.type)) {
-      typeCounts[section.type] = (typeCounts[section.type] || 0) + 1;
-    }
-  }
-  console.log('📋 跳过类型分布:');
-  for (const type of SKIP_TYPES) {
-    console.log(`   ${type}: ${typeCounts[type] || 0}`);
-  }
-
-  let success = 0;
-  let errors = 0;
-
-  for (const section of sections) {
-    if (!SKIP_TYPES.includes(section.type)) continue;
-
-    try {
-      // 构建配置 key
-      const key = `${section.type}_${section.name}`;
-
-      // 将字段序列化为 JSON
-      const value = JSON.stringify({
-        name: section.name,
-        type: section.type,
-        fields: section.fields,
-      });
-
-      // 构建描述文本
-      const descFields = Object.entries(section.fields)
-        .slice(0, 3) // 只取前3个字段作为预览
-        .map(([k, v]) => `${k}=${v.slice(0, 30)}`)
-        .join('; ');
-
-      await prisma.systemConfig.upsert({
-        where: { key },
-        update: {
-          value,
-          label: `${section.type}: ${section.name}`,
-        },
-        create: {
-          key,
-          value,
-          label: `${section.type}: ${section.name}`,
-          description: descFields || '',
-          type: 'json',
-          group: section.type,
-        },
-      });
-      success++;
-    } catch (err) {
-      errors++;
-      console.error(`❌ 导入跳过类型失败: [${section.name}] (类型=${section.type})`, (err as Error).message);
-    }
-  }
-
-  console.log(`   ✅ 成功: ${success}, ❌ 失败: ${errors}`);
-  return { success, errors };
 }
 
 // ========== 常量映射解析 ==========
@@ -1187,14 +1030,8 @@ async function main() {
   // 1. 导入蓝图数据
   results.blueprints = await importBlueprints();
 
-  // 2. 导入套装效果
-  results.setEffects = await importSetEffects();
-
-  // 3. 导入种子数据
+  // 2. 导入种子数据（套装效果与 资源/特效/商店/更新 已由 seed-data.ts 导入独立模型，此处不再重复）
   results.seedItems = await importSeedItems();
-
-  // 4. 导入跳过的类型数据
-  results.skippedTypes = await importSkippedTypes();
 
   // 解析常量映射（用于武器、使魔、装备的特殊序号）
   const constantMappings = parseConstantEcode();
@@ -1223,9 +1060,7 @@ async function main() {
   // 汇总
   console.log('\n🎉 ====== 导入完成 ======');
   console.log(`   蓝图:      ${(results.blueprints as any).success} 成功, ${(results.blueprints as any).errors} 失败`);
-  console.log(`   套装效果:  ${(results.setEffects as any).success} 成功, ${(results.setEffects as any).errors} 失败`);
   console.log(`   种子数据:  ${(results.seedItems as any).success ? '成功' : '失败'}`);
-  console.log(`   跳过类型:  ${(results.skippedTypes as any).success} 成功, ${(results.skippedTypes as any).errors} 失败`);
   console.log(`   攻击文本:  ${(results.attackTexts as any).success} 成功, ${(results.attackTexts as any).errors} 失败`);
   console.log(`   武器:      ${(results.weapons as any).success} 成功, ${(results.weapons as any).errors} 失败`);
   console.log(`   装备:      ${(results.equipment as any).success} 成功, ${(results.equipment as any).errors} 失败`);

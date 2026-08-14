@@ -279,7 +279,70 @@ async function main() {
     { name: '设置标记', alias: 'setting-marker', description: '设置自定义标记', handlerKey: 'game', minRole: 'USER', sortOrder: 359 },
     // 管理（统一 game 处理器）
     { name: '管理', alias: 'admin,管理员', description: '管理员操作入口', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 999 },
-  ] as const;
+  ];
+
+  // 使魔技能/通用技能指令批量注册：使 /技能名 可直接施放（指令分发先查 Command 表，
+  // 必须在此注册，否则会报"未找到指令"而无法进入 game-command.handler 的技能 case）。
+  // name 为原版中文技能名，alias 为英文别名；handlerKey 统一 game，由 GameCommandHandler 按名路由到 executeSkill。
+  const familiarSkillCommands: { name: string; alias: string; description: string }[] = [
+    { name: '六道轮回', alias: 'six-paths', description: '使魔技能 - 六道轮回' },
+    { name: '怒吼', alias: 'roar', description: '使魔技能 - 怒吼' },
+    { name: '万象', alias: 'myriad-visions', description: '使魔技能 - 万象' },
+    { name: '誓约胜利之剑', alias: 'excalibur', description: '使魔技能 - 誓约胜利之剑' },
+    { name: '鹰眼', alias: 'hawk-eye', description: '使魔技能 - 鹰眼' },
+    { name: '歼灭', alias: 'annihilate', description: '使魔技能 - 歼灭' },
+    { name: '歼灭模式', alias: 'annihilation-mode', description: '使魔技能 - 歼灭模式' },
+    { name: '绝对守护', alias: 'absolute-guard', description: '使魔技能 - 绝对守护' },
+    { name: '斗转星移', alias: 'stellar-shift', description: '使魔技能 - 斗转星移' },
+    { name: '火力全开', alias: 'full-firepower', description: '使魔技能 - 火力全开' },
+    { name: '啾啾猫猫', alias: 'meow-attack', description: '使魔技能 - 啾啾猫猫' },
+    { name: '银龙附体', alias: 'silver-dragon', description: '使魔技能 - 银龙附体' },
+    { name: '斩', alias: 'slash', description: '使魔技能 - 斩' },
+    { name: '会心一击', alias: 'critical-hit', description: '使魔技能 - 会心一击' },
+    { name: '全弹发射', alias: 'full-salvo', description: '使魔技能 - 全弹发射' },
+    { name: '光翼', alias: 'light-wings', description: '使魔技能 - 光翼' },
+    { name: '炮冠', alias: 'cannon-crown', description: '使魔技能 - 炮冠' },
+    { name: '日轮', alias: 'solar-wheel', description: '使魔技能 - 日轮' },
+    { name: '安宝加油', alias: 'anchor-boost', description: '使魔技能 - 安宝加油' },
+    { name: '灼烂歼鬼', alias: 'scorched-finger', description: '使魔技能 - 灼烂歼鬼' },
+    { name: '冻结傀儡', alias: 'freeze-puppet', description: '使魔技能 - 冻结傀儡' },
+    { name: '封印解除', alias: 'seal-release', description: '使魔技能 - 封印解除' },
+    { name: '召唤银龙', alias: 'summon-dragon', description: '使魔技能 - 召唤银龙' },
+    { name: '形神合一', alias: 'spirit-unity', description: '使魔技能 - 形神合一' },
+    { name: '风月入墨', alias: 'wind-moon', description: '使魔技能 - 风月入墨' },
+    { name: '心无所扰', alias: 'heart-unperturbed', description: '使魔技能 - 心无所扰' },
+    { name: '梦倾天下', alias: 'dream-world', description: '使魔技能 - 梦倾天下' },
+    { name: '反转童话', alias: 'reverse-fairytale', description: '使魔技能 - 反转童话' },
+    { name: '月落寸光', alias: 'moonlight-inch', description: '使魔技能 - 月落寸光' },
+    { name: '洗脑', alias: 'brainwash', description: '通用技能 - 洗脑' },
+    { name: '砸瓦鲁多', alias: 'za-warudo', description: '通用技能 - 砸瓦鲁多' },
+    { name: '训练', alias: 'train', description: '通用技能 - 训练' },
+    { name: '掌控时间', alias: 'time-control', description: '通用技能 - 掌控时间' },
+    { name: '召唤', alias: 'summon-thing', description: '通用技能 - 召唤' },
+    { name: '力量模式', alias: 'power-mode', description: '纳米生化装 - 力量模式' },
+    { name: '速度模式', alias: 'speed-mode', description: '纳米生化装 - 速度模式' },
+    { name: '装甲模式', alias: 'armor-mode', description: '纳米生化装 - 装甲模式' },
+    { name: '隐匿模式', alias: 'stealth-mode', description: '纳米生化装 - 隐匿模式' },
+    { name: '安乐天使', alias: 'ease-angel', description: '使魔技能 - 安乐天使' },
+    { name: '福音书', alias: 'gospel', description: '使魔技能 - 福音书' },
+    { name: '启示录', alias: 'apocalypse', description: '使魔技能 - 启示录' },
+    { name: '铠甲合体', alias: 'armor-combine', description: '使魔技能 - 铠甲合体' },
+    { name: '切换模式', alias: 'switch-mode', description: '使魔技能 - 切换模式' },
+    { name: '使魔挑战', alias: 'familiar-challenge', description: '使魔技能 - 使魔挑战' },
+    { name: '开始挑战', alias: 'start-challenge', description: '使魔技能 - 开始挑战' },
+    { name: '复活使魔', alias: 'revive-familiar', description: '使魔技能 - 复活使魔' },
+    { name: '大召唤术', alias: 'mass-summon', description: '使魔技能 - 大召唤术' },
+  ];
+  for (const s of familiarSkillCommands) {
+    commands.push({
+      name: s.name,
+      alias: s.alias,
+      description: s.description,
+      handlerKey: 'game',
+      minRole: 'USER',
+      sortOrder: 400 + commands.length,
+    } as any);
+  }
 
   for (const cmd of commands) {
     await prisma.command.upsert({
@@ -498,7 +561,9 @@ async function main() {
   }
 
   // 12. 同步删除：以代码为准，删除 seed 中已不存在的记录(处理"删除/重命名"场景)
-  // 每类数据取 seed 里的 name 集合，删除数据库中不在该集合内的记录
+  // 重要：仅对 seed.ts 自身为权威数据源的表(指令/系统配置)做同步删除。
+  // 地图/物品/装备/使魔/怪物/增益/制造 的真实数据由 seed-data.ts 负责导入，
+  // 若在此对它们做 syncDeleted 会因 seed.ts 仅含示例占位而误删真实游戏数据！
   const syncDeleted = async (label: string, seedNames: string[], findMany: any, deleteMany: any) => {
     const seedSet = new Set(seedNames);
     const existing = await findMany({ select: { name: true } });
@@ -510,14 +575,18 @@ async function main() {
       console.log(`🗑️ ${label}: 已删除 ${toDelete.length} 条(代码中已移除): ${toDelete.join(', ')}`);
     }
   };
+  // 仅同步 seed.ts 权威的指令表与系统配置；保留管理员在线修改不被覆盖(update:{})
   await syncDeleted('指令', commands.map((c) => c.name), (q: any) => prisma.command.findMany(q), (q: any) => prisma.command.deleteMany(q));
-  await syncDeleted('地图', maps.map((m) => m.name), (q: any) => prisma.gameMap.findMany(q), (q: any) => prisma.gameMap.deleteMany(q));
-  await syncDeleted('物品', items.map((i) => i.name), (q: any) => prisma.gameItem.findMany(q), (q: any) => prisma.gameItem.deleteMany(q));
-  await syncDeleted('装备', equipment.map((e) => e.name), (q: any) => prisma.gameEquipment.findMany(q), (q: any) => prisma.gameEquipment.deleteMany(q));
-  await syncDeleted('使魔', familiars.map((f) => f.name), (q: any) => prisma.gameFamiliar.findMany(q), (q: any) => prisma.gameFamiliar.deleteMany(q));
-  await syncDeleted('怪物', monsters.map((m) => m.name), (q: any) => prisma.gameMonster.findMany(q), (q: any) => prisma.gameMonster.deleteMany(q));
-  await syncDeleted('增益/减益', buffs.map((b) => b.name), (q: any) => prisma.gameBuff.findMany(q), (q: any) => prisma.gameBuff.deleteMany(q));
-  await syncDeleted('制造配方', craftings.map((c) => c.name), (q: any) => prisma.gameCrafting.findMany(q), (q: any) => prisma.gameCrafting.deleteMany(q));
+  // 系统配置以 key 为主键(非 name)，单独同步删除
+  {
+    const seedKeys = new Set(systemConfigs.map((c: any) => c.key));
+    const existing = await prisma.systemConfig.findMany({ select: { key: true } });
+    const toDelete = existing.map((r: any) => r.key).filter((k: string) => k && !seedKeys.has(k));
+    if (toDelete.length > 0) {
+      await prisma.systemConfig.deleteMany({ where: { key: { in: toDelete } } });
+      console.log(`🗑️ 系统配置: 已删除 ${toDelete.length} 条(代码中已移除): ${toDelete.join(', ')}`);
+    }
+  }
 
   console.log('🎉 种子数据写入完成');
 }

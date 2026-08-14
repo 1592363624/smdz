@@ -114,8 +114,8 @@ export class PlayerService {
           hit: 100,
           crit: 5,
           critDmg: 150,
-          // 位置信息 - 初始地图为新手村
-          mapId: 1,
+          // 位置信息 - 初始地图为新手村（按真实地图表查询其ID，避免硬编码导致与数据ID体系不匹配）
+          mapId: (await this.prisma.gameMap.findFirst({ where: { name: '新手村' } }))?.id ?? 0,
           location: '新手村',
           // 复杂数据结构
           backpack: JSON.stringify(initialBackpack),

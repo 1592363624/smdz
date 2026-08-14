@@ -419,9 +419,12 @@ try {
     Set-Location -LiteralPath $ServerDirectory
     Invoke-CheckedCommand npx 'Running database migrations' 'prisma' 'migrate' 'deploy'
 
-    # ---------- Step 9: Seed data (idempotent) ----------
-    Write-Host "==> Seeding data (idempotent upsert)"
-    Invoke-CheckedCommand npx 'Seeding data' 'prisma' 'db' 'seed'
+    # ---------- Step 9: Seed data (idempotent, 全量导入真实游戏数据) ----------
+    # 注意：prisma db seed 只执行 seed.ts（示例占位数据），不会导入使魔大战.txt / 0.txt 的真实游戏内容。
+    # 必须改用 seed:all（= seed.ts 基础指令/管理员 + seed-data.ts 真实配置数据 + seed-import-all.ts 蓝图等），
+    # 否则部署后游戏里只有示例数据，真实武器/装备/怪物/地图/蓝图等全部缺失。
+    Write-Host "==> Seeding data (full import: seed.ts + seed-data.ts + seed-import-all.ts)"
+    Invoke-CheckedCommand npm 'Seeding full data' 'run' 'seed:all'
 
     # ---------- Step 10: Create logs directory ----------
     $logDir = Join-Path $ServerDirectory 'logs'
