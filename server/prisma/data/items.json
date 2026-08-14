@@ -1,0 +1,954 @@
+[
+  {
+    "name": "钻石",
+    "description": "非一般等价物",
+    "value": 1,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "能量块",
+    "description": "奇怪的能量聚合体，可以用来强化增幅器。",
+    "value": 5,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "水晶",
+    "description": "零号元素结晶，可以用来强化植入体。",
+    "value": 3,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "巧克力",
+    "description": "可以增加你的使魔1好感。",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "经验胶囊",
+    "description": "奇怪的胶囊，使用后提高当前使魔5经验。",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "史诗强化券",
+    "description": "强化植入体的指定属性。",
+    "value": 1,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "传说强化券",
+    "description": "强化增幅器的指定属性。",
+    "value": 1,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "木头",
+    "description": "一般材料。",
+    "value": 1,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "铁矿",
+    "description": "一般材料。",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "石头",
+    "description": "一般材料。",
+    "value": 1,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "绳子",
+    "description": "一般材料。",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "召唤券",
+    "description": "可以召唤一次使魔。“召唤使魔”来使用。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "物品模板",
+    "description": "可以获得布装备。",
+    "value": 0,
+    "type": "物品",
+    "useEffects": "[\"布帽 x0\",\"布手套 x0\"]",
+    "useMarkers": "[\"标记1\",\"标记2\"]"
+  },
+  {
+    "name": "良好装备补给箱",
+    "description": "可以获得防弹衣。",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[\"防弹头盔 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "优秀装备补给箱",
+    "description": "可以获得动力装甲。",
+    "value": 3,
+    "type": "物品",
+    "useEffects": "[\"动力头盔 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "良好武器补给箱",
+    "description": "可以获得一件武器。",
+    "value": 3,
+    "type": "物品",
+    "useEffects": "[\"高斯步枪 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "优秀武器补给箱",
+    "description": "可以获得一件武器。",
+    "value": 3,
+    "type": "物品",
+    "useEffects": "[\"特斯拉 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "资源箱",
+    "description": "可以获得一般资源。",
+    "value": 7,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "钻石树种子",
+    "description": "使用后种下一棵钻石树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "可可树种子",
+    "description": "使用后种下一棵可可树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "苹果树种子",
+    "description": "使用后种下一棵苹果树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "藤蔓种子",
+    "description": "使用后种下一棵藤蔓。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "云杉木种子",
+    "description": "使用后种下一棵云杉木。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "果实",
+    "description": "食物",
+    "value": 3,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "生肉",
+    "description": "食物",
+    "value": 1,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "水晶箱",
+    "description": "可以获得水晶。",
+    "value": 15,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "活性水晶种子",
+    "description": "使用后种下一块活性水晶。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "飞龙战利品箱子",
+    "description": "可以获得一件武器。",
+    "value": 5,
+    "type": "物品",
+    "useEffects": "[\"皇冠 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "地狱战利品箱子",
+    "description": "可以获得一件武器。",
+    "value": 5,
+    "type": "物品",
+    "useEffects": "[\"皇冠 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "纳米装备补给箱",
+    "description": "可以获得纳米生化装。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[\"纳米头盔 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "灭绝装备补给箱",
+    "description": "可以获得装备和资源。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[\"极光之仪 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "誓约装备补给箱",
+    "description": "可以获得装备和资源。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[\"纯白头纱 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "普通武器补给箱",
+    "description": "可以获得装备。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "简单监察者箱子",
+    "description": "可以获得一件武器。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[\"纳米注喷器 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "小苍兰种子",
+    "description": "使用后种下一株小苍兰。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "普通装备补给箱",
+    "description": "可以获得布装备。",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[\"布帽 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "核战废墟补给箱",
+    "description": "可以获得装备和资源。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[\"赛加 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "副本券",
+    "description": "“开启副本”来使用",
+    "value": 20,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "合金",
+    "description": "各种合金，可以用来强化装备。“装备强化”来使用。",
+    "value": 1,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "精英战利品",
+    "description": "精英生物毕生收藏。",
+    "value": 20,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "普通战利品",
+    "description": "普通生物毕生收藏。",
+    "value": 3,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "挑战资源箱",
+    "description": "可以获得强化资源。",
+    "value": 20,
+    "type": "物品",
+    "useEffects": "[\"水晶体0.01 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "挑战物资箱",
+    "description": "可以获得强化资源。",
+    "value": 20,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "饲料",
+    "description": "用来配合麻醉枪捕捉怪物。",
+    "value": 5,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "挑战装备箱",
+    "description": "可以获得装备。",
+    "value": 5,
+    "type": "物品",
+    "useEffects": "[\"影光 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "燃料",
+    "description": "燃料，提供给发电机使用。“安装燃料50”来使用。",
+    "value": 1,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良建筑箱",
+    "description": "可以获得改良建筑。",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[\"改良发电机1 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "精良装备补给箱",
+    "description": "可以获得装备。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[\"虹天剑 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "标准建筑箱",
+    "description": "可以获得标准建筑。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[\"标准发电机1 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强效麻醉镖",
+    "description": "麻醉枪弹药，使用有麻醉效果的武器每造成一次伤害消耗一发，造成双倍麻醉值。",
+    "value": 20,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "制式建筑箱",
+    "description": "可以获得制式建筑。",
+    "value": 50,
+    "type": "物品",
+    "useEffects": "[\"制式发电机1 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "特装建筑箱",
+    "description": "可以获得特装建筑。",
+    "value": 100,
+    "type": "物品",
+    "useEffects": "[\"特装发电机1 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "圣诞礼物",
+    "description": "可以获得礼物。",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[\"改良建筑箱1 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "中等监察者箱子",
+    "description": "可以获得一件武器。",
+    "value": 5,
+    "type": "物品",
+    "useEffects": "[\"纳米注喷器 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "奶",
+    "description": "使用后恢复10%生命/装甲/护盾，死亡状态下也可以使用(死亡状态下使用冷却120秒)。",
+    "value": 20,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良钻石树种子",
+    "description": "使用后种下一棵改良钻石树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良可可树种子",
+    "description": "使用后种下一棵改良可可树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良活性水晶种子",
+    "description": "使用后种下一块改良活性水晶。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良小苍兰种子",
+    "description": "使用后种下一株改良小苍兰。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良苹果树种子",
+    "description": "使用后种下一棵改良苹果树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "载具零件",
+    "description": "用来制造载具部件",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "困难监察者箱子",
+    "description": "可以获得一件武器。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[\"纳米注喷器 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "工业核心",
+    "description": "工业数据核心，可以用来制造工业建筑。使魔挑战达到500层后每日登录奖励。",
+    "value": 800,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "特装核心",
+    "description": "特装数据核心，可以用来制造特装建筑。使魔挑战达到300层后每日登录奖励。",
+    "value": 200,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "花园宝宝",
+    "description": "花园猫幼崽。",
+    "value": 100,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "发带",
+    "description": "附近有通讯台时，可以“呼叫”来召唤行商，一次消耗一条。#换行注意全部行商会在整点被删除，请不要在接近整点时呼叫。#换行召唤一个新的会删除旧的。",
+    "value": 125,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良云杉木种子",
+    "description": "使用后种下一棵改良云杉木。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良藤蔓种子",
+    "description": "使用后种下一棵改良藤蔓。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "打包的收集器",
+    "description": "使用后放出一个能量收集器。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "油瓜种子",
+    "description": "使用后种下一棵油瓜。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "石头人心脏",
+    "description": "使用后种下一块石头人心脏。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "圣诞树种子",
+    "description": "使用后种下一棵圣诞树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "金龙果种子",
+    "description": "使用后种下一棵金龙果。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "猪崽盒子",
+    "description": "使用放出一只猪崽",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "瓶装奶",
+    "description": "使用后恢复30%生命/装甲/护盾，死亡状态下也可以使用(死亡状态下使用冷却30秒)。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "凭证",
+    "description": "使用后获得等级÷2的改良建筑箱，家园建筑上限+1，作物上限+5，每天只能使用一次。#换行“锻造1”来消耗3个凭证重新锻造背包里的第1个物品，使其有可能获得更好的属性(词条随机)#换行已经锻造过或者是从行商处购买的装备，消耗减半。#换行可用于“切换增幅器”和“切换植入体”",
+    "value": 50,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "打包的收集器b",
+    "description": "使用后放出一个改良能量收集器。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良猪崽盒子",
+    "description": "使用后放出一个改良猪崽。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良圣诞树种子",
+    "description": "使用后放出一个改良圣诞树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良油瓜种子",
+    "description": "使用后放出一个改良油瓜。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良金龙果种子",
+    "description": "使用后放出一个改良金龙果。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "瓶子",
+    "description": "普通玻璃瓶",
+    "value": 5,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "蛋",
+    "description": "宠物生下的蛋(未受精)。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "奶酪",
+    "description": "用鲜奶制成的美味食品。食用后获得的经验+100%，持续3分钟，可叠加。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "蛋糕",
+    "description": "用鲜奶和蛋制成的美味食品。食用后掉落率+50%，持续3分钟，可叠加。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "打包的板",
+    "description": "使用放出一块太阳能电池板",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "种子箱",
+    "description": "可以获得种子。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[\"椰树种子1 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮金龙果种子",
+    "description": "使用后放出一个强壮金龙果。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮油瓜种子",
+    "description": "使用后放出一个强壮油瓜。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮圣诞树种子",
+    "description": "使用后放出一个强壮圣诞树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮猪崽盒子",
+    "description": "使用后放出一个强壮猪崽。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮藤蔓种子",
+    "description": "使用后种下一棵强壮藤蔓。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮云杉木种子",
+    "description": "使用后种下一棵强壮云杉木。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮苹果树种子",
+    "description": "使用后种下一棵强壮苹果树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮小苍兰种子",
+    "description": "使用后种下一株强壮小苍兰。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮可可树种子",
+    "description": "使用后种下一棵强壮可可树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮钻石树种子",
+    "description": "使用后种下一棵强壮钻石树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "噩梦监察者箱子",
+    "description": "可以获得一件武器。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[\"纳米注喷器 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "奶油蛋糕",
+    "description": "用鲜奶和蛋制成的美味食品。食用后下次使用技能得到的技能经验翻倍，持续时间无限，可叠加。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "星屑",
+    "description": "星辰能量。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[\"水晶体1 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "水晶体",
+    "description": "“解析”来使用，随机强化一次植入体。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "能量球",
+    "description": "“解析”来使用，随机强化一次增幅器。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强化箱",
+    "description": "绝世强化材料",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[\"水晶体1 x0\"]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "幻想神兽蛋",
+    "description": "设计:嘤嘤嘤(22404579**)#换行神兽的蛋制作成的特殊材料。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "觉醒丹",
+    "description": "设计:嘤嘤嘤(22404579**)#换行用天地间万物灵气炼制的宝物，“宠物觉醒”来使用#换行可以使用神兽之血炼制",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "神兽之血",
+    "description": "设计:嘤嘤嘤(22404579**)#换行神兽的血液，不可多得的宝物。#换行可以用来“炼丹”，详细可以发送“图鉴炼丹炉”",
+    "value": 2,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "孵蛋鸡",
+    "description": "设计:嘤嘤嘤(22404579**)#换行一只孵蛋的鸡，孵出蛋后会被宝宝吃掉。#换行把这只鸡和神兽的蛋丢到地上即可。#换行孵蛋鸡或蛋被捡走会中断孵蛋进程。#换行判断孵蛋鸡和蛋的数量是否≥1只判断第一个#换行地上有多种神兽蛋时，按照青龙、白虎、朱雀、玄武的顺序判断，孵化满这条件的一个。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "小白狐",
+    "description": "活泼的白狐。",
+    "value": 100,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "强壮椰树种子",
+    "description": "使用后种下一颗强壮椰树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "改良椰树种子",
+    "description": "使用后种下一颗改良椰树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "椰树种子",
+    "description": "使用后种下一颗椰树。",
+    "value": 25,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "圣水",
+    "description": "从纯洁的少女身上收集到的水。",
+    "value": 20,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "至纯圣水",
+    "description": "浓缩后的圣水。使用后会让家园的时间加速1分钟。",
+    "value": 50,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "玄武蛋",
+    "description": "设计:嘤嘤嘤(22404579**)#换行虽然是未受精的蛋，但是好像还是可以孵出宝宝#换行你可以发送“图鉴孵蛋鸡”了解更多。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "白虎蛋",
+    "description": "设计:嘤嘤嘤(22404579**)#换行虽然是未受精的蛋，但是好像还是可以孵出宝宝#换行你可以发送“图鉴孵蛋鸡”了解更多。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "青龙蛋",
+    "description": "设计:嘤嘤嘤(22404579**)#换行虽然是未受精的蛋，但是好像还是可以孵出宝宝#换行你可以发送“图鉴孵蛋鸡”了解更多。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "朱雀蛋",
+    "description": "设计:嘤嘤嘤(22404579**)#换行虽然是未受精的蛋，但是好像还是可以孵出宝宝#换行你可以发送“图鉴孵蛋鸡”了解更多。",
+    "value": 10,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "汤圆",
+    "description": "食用后增加随机属性。增加的属性会随使魔等级成长。你可以从“装备加成”中查看",
+    "value": 100,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  },
+  {
+    "name": "灵石",
+    "description": "“融合”来使用，强行激活装备或武器的特效，重复使用覆盖",
+    "value": 100,
+    "type": "物品",
+    "useEffects": "[]",
+    "useMarkers": "[]"
+  }
+]

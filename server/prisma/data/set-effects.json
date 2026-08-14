@@ -1,0 +1,72 @@
+[
+  {
+    "name": "一拳套装",
+    "effectText": "武器锁定时间+5秒，攻击提高0.25倍",
+    "sourceFile": "一拳套装效果.txt"
+  },
+  {
+    "name": "动力套装",
+    "effectText": "每件动力套装，降低受到的能量武器伤害10%，最高50%，当前：",
+    "sourceFile": "动力套装效果.txt"
+  },
+  {
+    "name": "圣诞套装",
+    "effectText": "被命中掉落圣诞礼物，冷却30秒。",
+    "sourceFile": "圣诞套装效果.txt"
+  },
+  {
+    "name": "无畏套装",
+    "effectText": "每件无畏，降低受到的能量武器伤害10%，最高50%，当前：",
+    "sourceFile": "无畏套装效果.txt"
+  },
+  {
+    "name": "游侠套装",
+    "effectText": "每件游侠，降低受到的生体武器伤害10%，最高50%，当前：",
+    "sourceFile": "游侠套装效果.txt"
+  },
+  {
+    "name": "游骑兵套装",
+    "effectText": "每件游骑兵，降低受到的射弹武器伤害10%，最高50%，当前：",
+    "sourceFile": "游骑兵套装效果.txt"
+  },
+  {
+    "name": "生命套装",
+    "effectText": "提高当前生命20%的最终攻击",
+    "sourceFile": "生命套装效果.txt"
+  },
+  {
+    "name": "皇冠套装",
+    "effectText": "装备传说品质几率+25%",
+    "sourceFile": "皇冠套装效果.txt"
+  },
+  {
+    "name": "科学家套装",
+    "effectText": "生产力+5%，并且可以发送“生产1”来使当前驾驶的载具生产时间流逝一小时",
+    "sourceFile": "科学家套装效果.txt"
+  },
+  {
+    "name": "纯白婚纱套装",
+    "effectText": "韧性+50%，当前状态越高，攻击和命中越高",
+    "sourceFile": "纯白婚纱套装效果.txt"
+  },
+  {
+    "name": "蝴蝶晚礼服套装",
+    "effectText": "魅力+50%",
+    "sourceFile": "蝴蝶晚礼服效果.txt"
+  },
+  {
+    "name": "逆兔女郎套装",
+    "effectText": "自身时间流逝速度+15%",
+    "sourceFile": "逆兔女郎效果.txt"
+  },
+  {
+    "name": "防爆套装",
+    "effectText": "每件防爆，降低受到的近战武器伤害10%，最高50%，当前：",
+    "sourceFile": "防爆套装效果.txt"
+  },
+  {
+    "name": "黑婚纱套装",
+    "effectText": "死亡时恢复1生命#换行当前状态越低，攻击和闪避越高",
+    "sourceFile": "黑婚纱套装效果.txt"
+  }
+]

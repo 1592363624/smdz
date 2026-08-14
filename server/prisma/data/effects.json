@@ -1,0 +1,170 @@
+[
+  {
+    "name": "倾国倾城",
+    "description": "倾国倾城",
+    "limit": "装备",
+    "bonus": "{\"魅力\":2}"
+  },
+  {
+    "name": "花园猫猫",
+    "description": "啾啾猫猫",
+    "limit": "",
+    "bonus": "{\"掉落率\":5}"
+  },
+  {
+    "name": "后羿",
+    "description": "后羿射日",
+    "limit": "",
+    "bonus": "{\"贯穿\":2}"
+  },
+  {
+    "name": "波纹",
+    "description": "",
+    "limit": "",
+    "bonus": "{\"护盾2\":2}"
+  },
+  {
+    "name": "裂痕",
+    "description": "",
+    "limit": "",
+    "bonus": "{\"装甲2\":2}"
+  },
+  {
+    "name": "永生",
+    "description": "",
+    "limit": "",
+    "bonus": "{\"生命2\":2}"
+  },
+  {
+    "name": "精准",
+    "description": "",
+    "limit": "",
+    "bonus": "{\"暴击\":3,\"暴击伤害\":15}"
+  },
+  {
+    "name": "向导",
+    "description": "",
+    "limit": "武器",
+    "bonus": "{\"命中2\":5}"
+  },
+  {
+    "name": "高射炮",
+    "description": "拉起弹幕！",
+    "limit": "武器",
+    "bonus": "{\"溅射数量\":1}"
+  },
+  {
+    "name": "风暴前线",
+    "description": "能活着回来真是奇迹",
+    "limit": "武器",
+    "bonus": "{\"攻击冷却\":-1}"
+  },
+  {
+    "name": "航空母舰",
+    "description": "舰队已抵达",
+    "limit": "武器",
+    "bonus": "{\"攻击次数\":2}"
+  },
+  {
+    "name": "三千世界",
+    "description": "无尽繁花",
+    "limit": "武器",
+    "bonus": "{\"攻击冷却\":-2,\"攻击2\":-50}"
+  },
+  {
+    "name": "天火",
+    "description": "末日降临",
+    "limit": "武器",
+    "bonus": "{\"护盾穿透\":2,\"装甲穿透\":2,\"生命穿透\":2}"
+  },
+  {
+    "name": "黑洞视界",
+    "description": "光都逃不掉哦",
+    "limit": "武器",
+    "bonus": "{\"物伤2\":10}"
+  },
+  {
+    "name": "核能",
+    "description": "核弹已发射",
+    "limit": "武器",
+    "bonus": "{\"攻击2\":5}"
+  },
+  {
+    "name": "单片镜",
+    "description": "我看到你了！",
+    "limit": "武器",
+    "bonus": "{\"暴击伤害\":25}"
+  },
+  {
+    "name": "战戟",
+    "description": "一点寒芒先到！",
+    "limit": "武器",
+    "bonus": "{\"攻击冷却\":2,\"攻击2\":15}"
+  },
+  {
+    "name": "燃烧军团",
+    "description": "杂碎！",
+    "limit": "武器",
+    "bonus": "{\"火伤2\":10}"
+  },
+  {
+    "name": "电磁信仰",
+    "description": "你手中跳跃的电光，是我此生不灭的信仰",
+    "limit": "武器",
+    "bonus": "{\"电伤2\":10}"
+  },
+  {
+    "name": "绝对零度",
+    "description": "无法达到的温度",
+    "limit": "武器",
+    "bonus": "{\"冰伤2\":10}"
+  },
+  {
+    "name": "食灵者",
+    "description": "你的灵魂是我的了",
+    "limit": "武器",
+    "bonus": "{\"吸护盾2\":1,\"吸装甲2\":1,\"吸生命2\":1}"
+  },
+  {
+    "name": "亥伯龙",
+    "description": "使用亥伯龙公司的产品是你这辈子最高的荣幸",
+    "limit": "",
+    "bonus": "{\"暴击\":2,\"命中2\":2}"
+  },
+  {
+    "name": "无情",
+    "description": "",
+    "limit": "",
+    "bonus": "{\"暴击\":5}"
+  },
+  {
+    "name": "弹跳",
+    "description": "跳弹啦！",
+    "limit": "",
+    "bonus": "{\"溅射\":3}"
+  },
+  {
+    "name": "自适应",
+    "description": "跳弹啦！",
+    "limit": "",
+    "bonus": "{\"护盾抗性\":3,\"装甲抗性\":4,\"生命抗性\":5}"
+  },
+  {
+    "name": "幽灵",
+    "description": "",
+    "limit": "",
+    "bonus": "{\"闪避2\":2}"
+  },
+  {
+    "name": "祈祷",
+    "description": "",
+    "limit": "",
+    "bonus": "{\"生命回复2\":0.15,\"装甲回复2\":0.15,\"护盾回复2\":0.15}"
+  },
+  {
+    "name": "如梦似幻",
+    "description": "人生五十年，如梦亦似幻[命中时伤害翻倍或为0]",
+    "limit": "武器",
+    "bonus": "{}"
+  }
+]

@@ -415,14 +415,17 @@ try {
     Invoke-CheckedCommand npm 'Installing frontend dependencies' 'ci'
     Invoke-CheckedCommand npm 'Building frontend' 'run' 'build'
 
-    # ---------- Step 8: Database migration ----------
+    # ---------- Step 1b: Sync database schema ----------
+    # NOTE: This project initializes the DB via hand-built early tables and
+    # reconstructs fixed game data from prisma/data/*.json on every seed,
+    # so it does NOT rely on a linear migration history. `prisma db push`
+    # synchronizes the schema to schema.prisma without requiring migration
+    # records (safe for SQLite: only adds columns / creates tables, keeps data).
+    # Using `migrate deploy` here would fail with P3005 (non-empty DB, no history).
     Set-Location -LiteralPath $ServerDirectory
-    Invoke-CheckedCommand npx 'Running database migrations' 'prisma' 'migrate' 'deploy'
+    Invoke-CheckedCommand npx 'Synchronizing database schema' 'prisma' 'db' 'push' '--skip-generate'
 
-    # ---------- Step 9: Seed data (idempotent, 全量导入真实游戏数据) ----------
-    # 注意：prisma db seed 只执行 seed.ts（示例占位数据），不会导入使魔大战.txt / 0.txt 的真实游戏内容。
-    # 必须改用 seed:all（= seed.ts 基础指令/管理员 + seed-data.ts 真实配置数据 + seed-import-all.ts 蓝图等），
-    # 否则部署后游戏里只有示例数据，真实武器/装备/怪物/地图/蓝图等全部缺失。
+    # ---------- Step 9: Seed data
     Write-Host "==> Seeding data (full import: seed.ts + seed-data.ts + seed-import-all.ts)"
     Invoke-CheckedCommand npm 'Seeding full data' 'run' 'seed:all'
 

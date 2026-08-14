@@ -1,0 +1,877 @@
+[
+  {
+    "name": "肝帝I",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "肝帝II",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "肝帝III",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "肝帝IV",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "肝帝V",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "肝帝VI",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了I",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了II",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了III",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了IV",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了V",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了VI",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "仓鼠I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "仓鼠II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "仓鼠III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "仓鼠IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "仓鼠V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "仓鼠VI",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "仓鼠VII",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "仓鼠VIII",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "裁缝I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "裁缝II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "裁缝III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "裁缝IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "裁缝V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "裁缝VI",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "裁缝VII",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "裁缝VIII",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "铁血I",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "铁血II",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "铁血III",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "铁血IV",
+    "description": "-0.25",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "铁血V",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "铁血VI",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "铁血VII",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "多面手I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "多面手II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "多面手III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "多面手IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "打桩机I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "打桩机II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "打桩机III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "打桩机IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "妻妾成群I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "妻妾成群II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "妻妾成群III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "妻妾成群IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "身轻如燕I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "身轻如燕II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "身轻如燕III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "身轻如燕IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "天选之子I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "天选之子II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "天选之子III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "天选之子IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "天选之子V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "刺客I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "刺客II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "刺客III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "刺客IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "刺客V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "狗头人I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "狗头人II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "狗头人III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "狗头人IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "狗头人V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奶王I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奶王II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奶王III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奶王IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奶王V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奴隶主I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奴隶主II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奴隶主III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奴隶主IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "奴隶主V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "猎马人I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "猎马人II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "猎马人III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "猎马人IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "猎马人V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神VI",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神VII",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神VIII",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神IX",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "战神X",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "巨人猎手I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "巨人猎手II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "巨人猎手III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "怪蜀黍I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "怪蜀黍II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "怪蜀黍III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了VII",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了VIII",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了IX",
+    "description": "-0.5",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "住这了X",
+    "description": "-1",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "渴望I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "渴望II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "渴望III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "巨人猎手IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "怪蜀黍IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "渴望IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "巨人猎手V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "渴望V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "怪蜀黍V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂VI",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂VII",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂VIII",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂IX",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "一发入魂X",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "土豪I",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "土豪II",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "土豪III",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "土豪IV",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  },
+  {
+    "name": "土豪V",
+    "description": "",
+    "bonus": "{}",
+    "requirements": "[]",
+    "rewards": "[]"
+  }
+]

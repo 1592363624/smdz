@@ -1,0 +1,146 @@
+[
+  {
+    "name": "增益模板",
+    "description": "【目标】被【名称】【载具】……",
+    "duration": 0,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{}",
+    "triggerText": "【目标】被【名称】【载具】……"
+  },
+  {
+    "name": "网",
+    "description": "【目标】被【名称】【载具】射出的网缠住了",
+    "duration": 15,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{\"闪避2\":-30}",
+    "triggerText": "【目标】被【名称】【载具】射出的网缠住了"
+  },
+  {
+    "name": "破魔",
+    "description": "【目标】被【名称】【载具】削弱了护盾",
+    "duration": 20,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{\"护盾全抗\":-20}",
+    "triggerText": "【目标】被【名称】【载具】削弱了护盾"
+  },
+  {
+    "name": "弱结晶化",
+    "description": "【目标】身体开始长出结晶",
+    "duration": 20,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{\"生命全抗\":-20}",
+    "triggerText": "【目标】身体开始长出结晶"
+  },
+  {
+    "name": "冲击波",
+    "description": "【目标】的装甲被冲击波影响了结构强度",
+    "duration": 20,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{\"装甲全抗\":-20}",
+    "triggerText": "【目标】的装甲被冲击波影响了结构强度"
+  },
+  {
+    "name": "EMP",
+    "description": "【目标】的护盾受到电磁脉冲的冲击",
+    "duration": 10,
+    "chance": 50,
+    "stackTime": false,
+    "bonus": "{\"护盾\":-50}",
+    "triggerText": "【目标】的护盾受到电磁脉冲的冲击"
+  },
+  {
+    "name": "变羊",
+    "description": "【目标】被【名称】【载具】变成了羊",
+    "duration": 10,
+    "chance": 50,
+    "stackTime": false,
+    "bonus": "{\"火伤2\":-70,\"冰伤2\":-70,\"电伤2\":-70,\"物伤2\":-70}",
+    "triggerText": "【目标】被【名称】【载具】变成了羊"
+  },
+  {
+    "name": "虚弱",
+    "description": "【目标】现在感觉自己好虚",
+    "duration": 10,
+    "chance": 33,
+    "stackTime": false,
+    "bonus": "{\"火伤2\":-50,\"冰伤2\":-50,\"电伤2\":-50,\"物伤2\":-50}",
+    "triggerText": "【目标】现在感觉自己好虚"
+  },
+  {
+    "name": "定身",
+    "description": "【目标】不能动了！",
+    "duration": 10,
+    "chance": 33,
+    "stackTime": false,
+    "bonus": "{\"闪避2\":-50}",
+    "triggerText": "【目标】不能动了！"
+  },
+  {
+    "name": "致盲",
+    "description": "【目标】啥也看不见了",
+    "duration": 10,
+    "chance": 33,
+    "stackTime": false,
+    "bonus": "{\"命中2\":-50}",
+    "triggerText": "【目标】啥也看不见了"
+  },
+  {
+    "name": "流血2",
+    "description": "【目标】的回复速度减少了",
+    "duration": 10,
+    "chance": 33,
+    "stackTime": false,
+    "bonus": "{\"生命回复2\":-70,\"装甲回复2\":-70,\"护盾回复2\":-70}",
+    "triggerText": "【目标】的回复速度减少了"
+  },
+  {
+    "name": "流血",
+    "description": "【目标】的回复速度减少了",
+    "duration": 10,
+    "chance": 33,
+    "stackTime": false,
+    "bonus": "{\"生命回复2\":-50,\"装甲回复2\":-50,\"护盾回复2\":-50}",
+    "triggerText": "【目标】的回复速度减少了"
+  },
+  {
+    "name": "回充暂停",
+    "description": "【目标】的护盾回复被暂停了",
+    "duration": 0,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{\"护盾回复2\":-100}",
+    "triggerText": "【目标】的护盾回复被暂停了"
+  },
+  {
+    "name": "修理暂停",
+    "description": "【目标】的装甲修复被暂停了",
+    "duration": 0,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{\"装甲回复2\":-100}",
+    "triggerText": "【目标】的装甲修复被暂停了"
+  },
+  {
+    "name": "腐蚀",
+    "description": "【目标】被【名称】【载具】削弱了护盾、装甲和生命",
+    "duration": 30,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{\"护盾全抗\":-10,\"装甲全抗\":-10,\"生命全抗\":-10}",
+    "triggerText": "【目标】被【名称】【载具】削弱了护盾、装甲和生命"
+  },
+  {
+    "name": "朱雀燃烧",
+    "description": "【目标】被【名称】【载具】点燃了！",
+    "duration": 30,
+    "chance": 100,
+    "stackTime": false,
+    "bonus": "{\"护盾全抗\":-10,\"装甲全抗\":-10,\"生命全抗\":-10}",
+    "triggerText": "【目标】被【名称】【载具】点燃了！"
+  }
+]
