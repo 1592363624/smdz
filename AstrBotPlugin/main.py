@@ -43,12 +43,20 @@ class SmdzBridgePlugin(Star):
         self.command_name = config.get("command_name", "smdz")
         self.forward_all = config.get("forward_all", False)
 
+        # 权限控制配置：总开关、是否允许私聊、允许的群ID、允许的用户QQ号
+        self.enabled = config.get("enabled", True)
+        self.enable_private = config.get("enable_private", False)
+        # 统一转为字符串列表，便于与 event 返回的 ID 字符串比较
+        self.allowed_groups = [str(g) for g in config.get("allowed_groups", [])]
+        self.allowed_users = [str(u) for u in config.get("allowed_users", [])]
+
         # 触发词集合（指令名 + 常用别名），用于在原文中剥离指令前缀
         self._trigger_names = {self.command_name, "smdz", "使魔", "游戏"}
 
         logger.info(
             f"[使魔大战3桥接] 插件初始化完成，服务地址={self.server_url}，"
-            f"触发指令=/{self.command_name}"
+            f"触发指令=/{self.command_name}，"
+            f"允许群={self.allowed_groups or '不限'}，允许用户={self.allowed_users or '不限'}"
         )
 
     # ------------------------------------------------------------------
@@ -124,6 +132,36 @@ class SmdzBridgePlugin(Star):
         except Exception:
             return False
 
+    def _check_permission(self, event: AstrMessageEvent) -> bool:
+        """校验消息来源是否允许使用本插件。
+
+        规则（任一不满足即拒绝）：
+        - 群消息：若配置了 allowed_groups，群ID必须在其中；
+        - 私聊消息：必须开启 enable_private；
+        - 用户：若配置了 allowed_users，发送者QQ号必须在其中。
+
+        Args:
+            event: AstrBot 消息事件。
+
+        Returns:
+            是否允许使用。
+        """
+        group_id = event.get_group_id()
+        if group_id:
+            # 群消息：配置了白名单且当前群不在其中 → 拒绝
+            if self.allowed_groups and group_id not in self.allowed_groups:
+                return False
+        else:
+            # 私聊消息：未开启私聊 → 拒绝
+            if not self.enable_private:
+                return False
+
+        # 用户白名单：非空时校验发送者QQ号
+        if self.allowed_users and event.get_sender_id() not in self.allowed_users:
+            return False
+
+        return True
+
     # ------------------------------------------------------------------
     # 指令入口：/smdz <游戏指令>
     # ------------------------------------------------------------------
@@ -134,6 +172,14 @@ class SmdzBridgePlugin(Star):
         Args:
             event: AstrBot 消息事件。
         """
+        # 总开关与权限校验
+        if not self.enabled:
+            yield event.plain_result("功能已关闭。")
+            return
+        if not self._check_permission(event):
+            yield event.plain_result("当前群/用户未授权使用本插件。")
+            return
+
         # 提取触发指令前缀之后的具体游戏指令
         game_command = self._extract_game_command(event.message_str)
         if not game_command:
@@ -160,9 +206,12 @@ class SmdzBridgePlugin(Star):
         注意：开启后群里收到的所有消息都会尝试作为游戏指令转发，
         为避免自循环，机器人自身发出的消息会被跳过。
         """
-        if not self.forward_all:
+        if not self.enabled or not self.forward_all:
             return
         if self._is_bot_self(event):
+            return
+        # 权限校验：未授权的群/用户静默跳过，不打扰
+        if not self._check_permission(event):
             return
 
         # 若消息是以触发指令开头（如 /smdz 背包），交给 smdz 指令处理，避免重复转发

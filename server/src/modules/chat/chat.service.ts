@@ -76,10 +76,17 @@ export class ChatService {
 
   /**
    * 拉取频道历史消息（用于页面刷新后加载）
+   * 注意：排除 type='command' 的指令原文消息——
+   * 后端在 handleCommand 中会把指令原文持久化但【不实时广播】，
+   * 若历史加载也包含它们，会导致"刷新后多出用户消息、并把系统消息挤出最近 limit 条"的情况。
+   * 因此历史加载与实时显示保持一致：指令原文不进入公屏历史。
    */
   async getMessages(channelId: number, limit = 50) {
     return this.prisma.chatMessage.findMany({
-      where: { channelId },
+      where: {
+        channelId,
+        NOT: { type: 'command' },
+      },
       orderBy: { createdAt: 'desc' },
       take: limit,
       include: { sender: { select: { id: true, username: true, nickname: true } } },

@@ -28,6 +28,28 @@
   "forward_all": {
     "description": "是否转发所有消息到游戏（开启后无需前缀指令，注意会转发机器人在群内收到的全部消息）",
     "type": "bool",
+    "default": false
+  },
+  "enabled": {
+    "description": "插件总开关",
+    "type": "bool",
     "default": true
+  },
+  "enable_private": {
+    "description": "是否允许私聊使用本插件",
+    "type": "bool",
+    "default": false
+  },
+  "allowed_groups": {
+    "description": "允许使用的群ID列表（留空=不限制群；非空则仅这些群可用）",
+    "type": "list",
+    "default": [],
+    "hint": "填入群号，例如 [123456789, 987654321]"
+  },
+  "allowed_users": {
+    "description": "允许使用的用户QQ号列表（留空=不限制用户；非空则仅这些QQ可用）",
+    "type": "list",
+    "default": [],
+    "hint": "填QQ号，例如 [10001, 10002]"
   }
 }
