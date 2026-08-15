@@ -269,7 +269,7 @@
             <span class="content" style="white-space: pre-line">
               <template v-for="(seg, si) in parseContent(m.content, commands)" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
-                <span v-else class="cmd-clickable" :title="'点击发送「' + seg.text + '」'" @click="quickSend(seg.text)">{{ seg.displayText || seg.text }}</span>
+                <span v-else class="cmd-clickable" :title="'左键点击发送 / 右键填入输入框「' + seg.text + '」'" @click="quickSend(seg.text)" @contextmenu.prevent="quickFill(seg.text)">{{ seg.displayText || seg.text }}</span>
               </template>
             </span>
           </div>
@@ -564,6 +564,18 @@ function quickSend(name) {
 function quickAction(action) {
   if (!socket) return;
   socket.emit('chat:message', { content: action });
+}
+
+/**
+ * 右键点击提示指令：将指令内容填入输入框（不发送）
+ * 便于用户先查看/补充参数，确认后再手动发送
+ * @param {string} name - 指令名
+ */
+function quickFill(name) {
+  if (!name) return;
+  input.value = name + ' ';
+  showAutocomplete.value = false;
+  nextTick(() => inputEl.value?.focus());
 }
 
 // 指令搜索回车选中第一条
