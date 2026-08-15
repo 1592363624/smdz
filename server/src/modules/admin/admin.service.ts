@@ -85,7 +85,8 @@ export class AdminService {
 
   /**
    * 获取服务器状态
-   * 统计用户数、玩家数、在线玩家数（暂取有活跃标记的玩家）、地图数、指令数及运行时长
+   * 统计用户数、玩家数、在线玩家数（暂取有活跃标记的玩家）、地图数、指令数、
+   * 怪物种类数、物品种类数及运行时长
    */
   async getServerStatus(): Promise<{
     totalUsers: number;
@@ -93,13 +94,26 @@ export class AdminService {
     onlinePlayers: number;
     totalMaps: number;
     totalCommands: number;
+    totalMonsters: number;
+    totalItems: number;
     uptime: number;
   }> {
-    const [totalUsers, totalPlayers, totalMaps, totalCommands] = await Promise.all([
+    const [
+      totalUsers,
+      totalPlayers,
+      totalMaps,
+      totalCommands,
+      totalMonsters,
+      totalItems,
+    ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.player.count(),
       this.prisma.gameMap.count(),
       this.prisma.command.count(),
+      // 怪物种类数：GameMonster 是全局怪物/宠物定义表，统计种类数量
+      this.prisma.gameMonster.count(),
+      // 物品种类数：GameItem 是全局物品定义表，统计种类数量
+      this.prisma.gameItem.count(),
     ]);
 
     // 在线玩家：取最近 5 分钟内有操作记录的玩家作为"在线"估算
@@ -114,6 +128,8 @@ export class AdminService {
       onlinePlayers,
       totalMaps,
       totalCommands,
+      totalMonsters,
+      totalItems,
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
     };
   }

@@ -6,7 +6,8 @@
  * - 指令注册表存数据库(Command表)，新增/修改指令不用改代码重编译
  * - 每个具体逻辑通过 CommandHandler 注册，key 与数据库 handlerKey 对应
  * - 支持多种来源(网页/AstrBot/API)统一进入 dispatch
- * - 内置冷却机制，通过 SystemConfig 可在线调整冷却时间
+ * - 冷却采用"原版 per-action 模式"：引擎层仅对 attack 指令做武器公共冷却兜底，
+ *   其他指令不做全局统一拦截，冷却由各具体动作逻辑自行决定(见各 handler/service)。
  */
 
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -83,13 +84,14 @@ export class CommandService {
         // TODO: 接入用户角色判断，此处预留
       }
 
-      // 4. 冷却检查
-      //    攻击指令默认5秒冷却，其他指令默认2秒冷却
+      // 4. 冷却检查（原版模式：仅攻击指令在引擎层做公共冷却兜底，其他指令的冷却
+      //    由各具体动作逻辑自行决定，不做全局统一拦截，避免"所有指令统一N秒CD"）
+      //    - attack：读取 game.attackCooldownSeconds，对应原版"武器公共攻击冷却(基础5秒)"
+      //    - 其他指令：默认 0 不拦截；如某指令需要引擎层冷却，可在未来按 Command.cooldownSeconds 配置
       const isAttack = cmdDef.handlerKey === 'attack';
-      // 从 SystemConfig 读取冷却配置，攻击指令用 game.attackCooldownSeconds，其他用 game.cooldownSeconds
-      const cooldownKey = isAttack ? 'game.attackCooldownSeconds' : 'game.cooldownSeconds';
-      const defaultCooldown = isAttack ? 5 : 2;
-      const cooldownSeconds = await this.systemConfig.get<number>(cooldownKey, defaultCooldown);
+      const cooldownSeconds = isAttack
+        ? await this.systemConfig.get<number>('game.attackCooldownSeconds', 5)
+        : 0;
 
       if (ctx.userId) {
         if (this.checkCooldown(ctx.userId, cmdDef.handlerKey, cooldownSeconds)) {
