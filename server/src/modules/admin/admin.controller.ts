@@ -13,6 +13,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -23,6 +24,7 @@ import { SystemConfigService } from '../system-config/system-config.service';
 import { AdminService } from './admin.service';
 import {
   AnnouncementDto,
+  DeleteUserDto,
   GiveItemDto,
   SetWorldLevelDto,
   UpdateConfigDto,
@@ -54,14 +56,22 @@ export class AdminController {
   }
 
   @Post('users/update')
-  @ApiOperation({ summary: '更新用户角色/状态/昵称' })
+  @ApiOperation({ summary: '更新用户角色/状态/昵称/QQ号' })
   async updateUser(@Body() dto: UpdateUserDto) {
     const user = await this.adminService.updateUser(dto.id, {
       role: dto.role,
       status: dto.status,
       nickname: dto.nickname,
+      qqNumber: dto.qqNumber,
     });
     return { success: true, data: user };
+  }
+
+  @Post('users/delete')
+  @ApiOperation({ summary: '删除用户(级联删除其玩家档案，不可删除自己/超级管理员)' })
+  async deleteUser(@Body() dto: DeleteUserDto, @Req() req) {
+    const message = await this.adminService.deleteUser(req.user.userId, dto.id);
+    return { success: true, message };
   }
 
   /// ===== 系统配置中心 =====

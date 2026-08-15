@@ -1677,6 +1677,28 @@ vite-plugin-checker-error-overlay,
 .inline-input {
   width: 120px;
 }
+.qq-input {
+  width: 130px;
+}
+.delete-btn {
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+.delete-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #f87171;
+}
+.delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .saved-badge {
   color: #4ade80;
   animation: fadeIn 0.3s ease;

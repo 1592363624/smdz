@@ -4,7 +4,7 @@
  */
 
 import { ApiProperty } from '@nestjs/swagger';
-import { Allow, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { Allow, IsIn, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
 
 /// 更新用户角色/状态
 export class UpdateUserDto {
@@ -26,6 +26,19 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   nickname?: string;
+
+  @ApiProperty({ description: 'QQ号(可修改，解绑传空字符串)', required: false, example: '123456789' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^(\d{5,12})?$/, { message: 'QQ号格式不正确' })
+  qqNumber?: string;
+}
+
+/// 删除用户
+export class DeleteUserDto {
+  @ApiProperty({ description: '用户ID', example: 1 })
+  @IsInt()
+  id: number;
 }
 
 /// 更新系统配置项

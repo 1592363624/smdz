@@ -60,20 +60,42 @@ export class AdminService {
   }
 
   /**
-   * 更新用户角色/状态/昵称
+   * 更新用户角色/状态/昵称/QQ号
+   * @param id 用户ID
+   * @param data 待更新字段（仅更新传入的字段）
    */
-  async updateUser(id: number, data: { role?: string; status?: string; nickname?: string }) {
+  async updateUser(
+    id: number,
+    data: { role?: string; status?: string; nickname?: string; qqNumber?: string },
+  ) {
     const exists = await this.prisma.user.findUnique({ where: { id } });
     if (!exists) {
       throw new NotFoundException('用户不存在');
     }
+
+    // 组装更新字段：仅更新显式传入的字段，避免误覆盖
+    const updateData: any = {};
+    if (data.role !== undefined) updateData.role = data.role;
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.nickname !== undefined) updateData.nickname = data.nickname;
+    if (data.qqNumber !== undefined) {
+      // 空字符串表示解绑 QQ
+      updateData.qqNumber = data.qqNumber === '' ? null : data.qqNumber;
+    }
+
+    // QQ 号唯一性检查（修改时可能与其他账号冲突）
+    if (updateData.qqNumber !== undefined && updateData.qqNumber !== null) {
+      const conflict = await this.prisma.user.findUnique({
+        where: { qqNumber: updateData.qqNumber },
+      });
+      if (conflict && conflict.id !== id) {
+        throw new BadRequestException('该QQ号已被其他账号绑定');
+      }
+    }
+
     return this.prisma.user.update({
       where: { id },
-      data: {
-        role: data.role ?? exists.role,
-        status: data.status ?? exists.status,
-        nickname: data.nickname ?? exists.nickname,
-      },
+      data: updateData,
       select: {
         id: true,
         username: true,
@@ -83,6 +105,29 @@ export class AdminService {
         qqNumber: true,
       },
     });
+  }
+
+  /**
+   * 删除用户（级联删除其玩家档案、绑定关系；聊天记录发送人置空）
+   * 出于安全考虑，不允许删除自己，也不允许删除 SUPER_ADMIN。
+   * @param operatorId 操作者用户ID
+   * @param targetId 目标用户ID
+   */
+  async deleteUser(operatorId: number, targetId: number): Promise<string> {
+    if (operatorId === targetId) {
+      throw new BadRequestException('不能删除当前登录的管理员账号');
+    }
+    const exists = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!exists) {
+      throw new NotFoundException('用户不存在');
+    }
+    if (exists.role === 'SUPER_ADMIN') {
+      throw new BadRequestException('不能删除超级管理员账号');
+    }
+    // 级联删除：Player / UserBinding 为 onDelete: Cascade，ChatMessage 发送人置空
+    await this.prisma.user.delete({ where: { id: targetId } });
+    this.logger.log(`管理员 ${operatorId} 删除了用户 ${targetId} (${exists.username})`);
+    return `已删除用户 ${exists.username}`;
   }
 
   /**

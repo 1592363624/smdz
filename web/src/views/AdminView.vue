@@ -130,7 +130,9 @@
               <td>
                 <input class="inline-input" :value="u.nickname" @change="updateUser(u, { nickname: $event.target.value })" />
               </td>
-              <td>{{ u.qqNumber || '-' }}</td>
+              <td>
+                <input class="inline-input qq-input" :value="u.qqNumber || ''" placeholder="QQ号" @change="updateUser(u, { qqNumber: $event.target.value })" />
+              </td>
               <td>
                 <select :value="u.role" @change="updateUser(u, { role: $event.target.value })">
                   <option value="USER">USER</option>
@@ -146,6 +148,7 @@
               </td>
               <td>
                 <span v-if="savedUser === u.id" class="saved-badge">✓</span>
+                <button class="delete-btn" title="删除用户(级联删除其角色数据)" @click="deleteUser(u)" :disabled="u.id === user?.id">删除</button>
               </td>
             </tr>
           </tbody>
@@ -320,6 +323,22 @@ async function updateUser(u, changes) {
   Object.assign(u, res.data);
   savedUser.value = u.id;
   setTimeout(() => (savedUser.value = 0), 1500);
+}
+
+async function deleteUser(u) {
+  if (u.id === user.value?.id) return;
+  // 关键操作，需二次确认
+  const ok = confirm(`确定要删除用户「${u.username}」吗？\n将同时删除其游戏角色、绑定关系等数据，不可恢复！`);
+  if (!ok) return;
+  try {
+    const res = await adminApi.deleteUser(u.id);
+    alert(res.message || '删除成功');
+    // 从当前列表移除，避免整页刷新
+    users.value = users.value.filter((x) => x.id !== u.id);
+    total.value -= 1;
+  } catch (e) {
+    alert('删除失败：' + (e.response?.data?.message || e.message));
+  }
 }
 
 // ---- GM 工具 ----

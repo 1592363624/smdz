@@ -79,6 +79,7 @@ export const adminApi = {
   // 用户管理
   listUsers: (params) => http.get('/admin/users', { params }),
   updateUser: (data) => http.post('/admin/users/update', data),
+  deleteUser: (id) => http.post('/admin/users/delete', { id }),
   // 系统配置
   listConfig: () => http.get('/admin/config'),
   getConfig: (key) => http.get(`/admin/config/${key}`),

@@ -2,14 +2,14 @@
   "server_url": {
     "description": "游戏后端服务地址（协议+主机+端口，如 http://localhost:3333）",
     "type": "string",
-    "default": "http://localhost:3333",
+    "default": "http://smdz.52shell.ltd:3333",
     "obvious_hint": true,
     "hint": "需与游戏后端实际监听地址一致"
   },
   "bot_access_token": {
     "description": "游戏后端机器人访问令牌",
     "type": "string",
-    "default": "",
+    "default": "astrbot_web_secret",
     "invisible": true,
     "hint": "需与后端 .env 中 BOT_ACCESS_TOKEN 保持一致"
   },
@@ -28,6 +28,6 @@
   "forward_all": {
     "description": "是否转发所有消息到游戏（开启后无需前缀指令，注意会转发机器人在群内收到的全部消息）",
     "type": "bool",
-    "default": false
+    "default": true
   }
 }
