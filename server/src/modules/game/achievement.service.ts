@@ -8,6 +8,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
+import { StaticDataService } from './static-data.service';
 
 @Injectable()
 export class AchievementService {
@@ -16,6 +17,7 @@ export class AchievementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   /**
@@ -99,8 +101,8 @@ export class AchievementService {
     const playerTitles: string[] = this.playerService.safeJsonParse<string[]>(player.titles, []);
     const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
 
-    // 2. 从 GameTitle 表读取所有称号
-    const allTitles = await this.prisma.gameTitle.findMany();
+    // 2. 从静态配置读取所有称号（JSON 单一来源）
+    const allTitles = this.staticData.getAllTitles();
 
     // 3. 检查每个称号的触发条件
     for (const title of allTitles) {

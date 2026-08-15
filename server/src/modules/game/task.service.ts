@@ -7,6 +7,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
+import { StaticDataService } from './static-data.service';
 
 @Injectable()
 export class TaskService {
@@ -15,6 +16,7 @@ export class TaskService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   /**
@@ -65,7 +67,7 @@ export class TaskService {
     action: string,
     target: string,
   ): Promise<string> {
-    const allGameTasks = await this.prisma.gameTask.findMany();
+    const allGameTasks = this.staticData.getAllTasks();
     const completedMessages: string[] = [];
 
     for (const gameTask of allGameTasks) {
@@ -183,7 +185,7 @@ export class TaskService {
     const activeTaskNames = playerTasks.map((t: any) => t.name);
 
     // 获取所有未激活的任务
-    const allGameTasks = await this.prisma.gameTask.findMany();
+    const allGameTasks = this.staticData.getAllTasks();
     return allGameTasks.filter(t => !activeTaskNames.includes(t.name));
   }
 
@@ -191,7 +193,7 @@ export class TaskService {
    * 领取任务（激活一个 GameTask）
    */
   async acceptTask(userId: number, taskName: string): Promise<string> {
-    const gameTask = await this.prisma.gameTask.findUnique({ where: { name: taskName } });
+    const gameTask = this.staticData.getTaskByName(taskName);
     if (!gameTask) return `任务「${taskName}」不存在`;
 
     const player = await this.prisma.player.findUnique({ where: { userId } });
@@ -225,7 +227,7 @@ export class TaskService {
     if (activeTasks.length > 0) {
       lines.push('━━━ 进行中 ━━━');
       for (const task of activeTasks) {
-        const gameTask = await this.prisma.gameTask.findUnique({ where: { name: task.name } });
+        const gameTask = this.staticData.getTaskByName(task.name);
         const desc = gameTask?.description || '';
         const progress = task.count ? `(${task.count})` : '';
         lines.push(`  ${task.name}${progress}`);

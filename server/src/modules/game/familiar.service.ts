@@ -6,6 +6,7 @@
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StaticDataService } from './static-data.service';
 
 /**
  * 召唤物/宠物实例
@@ -39,24 +40,27 @@ export interface HairDropItem {
 export class FamiliarService {
   private readonly logger = new Logger(FamiliarService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly staticData: StaticDataService,
+  ) {}
 
   /**
    * 获取所有使魔列表
    */
   async getAllFamiliars(): Promise<any[]> {
-    return this.prisma.gameFamiliar.findMany({
-      orderBy: { specialSeq: 'asc' },
-    });
+    // 静态配置 JSON 单一来源，按特殊序号排序
+    return this.staticData
+      .getAllFamiliars()
+      .slice()
+      .sort((a, b) => (a.specialSeq ?? 0) - (b.specialSeq ?? 0));
   }
 
   /**
    * 根据特殊序号获取使魔
    */
   async getFamiliarBySeq(specialSeq: number): Promise<any> {
-    const familiar = await this.prisma.gameFamiliar.findFirst({
-      where: { specialSeq },
-    });
+    const familiar = this.staticData.getFamiliarBySeq(specialSeq);
     if (!familiar) {
       throw new NotFoundException(`特殊序号 ${specialSeq} 对应的使魔不存在`);
     }
@@ -67,9 +71,7 @@ export class FamiliarService {
    * 根据名称获取使魔
    */
   async getFamiliarByName(name: string): Promise<any> {
-    const familiar = await this.prisma.gameFamiliar.findUnique({
-      where: { name },
-    });
+    const familiar = this.staticData.getFamiliarByName(name);
     if (!familiar) {
       throw new NotFoundException(`使魔「${name}」不存在`);
     }

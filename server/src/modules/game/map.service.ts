@@ -6,6 +6,7 @@
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StaticDataService } from './static-data.service';
 
 /**
  * 可前往地图的连接信息
@@ -60,6 +61,8 @@ export interface MapMonster {
   exp?: number;
   /** 是否精英 */
   isElite?: boolean;
+  /** 掉落表（由怪物定义 bonus.drops 解析而来，[{name,quantity,rate}]） */
+  dropTable?: Array<{ name: string; quantity: number; rate: number }>;
 }
 
 /**
@@ -74,7 +77,10 @@ export interface TravelCheckResult {
 export class MapService {
   private readonly logger = new Logger(MapService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly staticData: StaticDataService,
+  ) {}
 
   /**
    * 获取所有地图列表
@@ -198,13 +204,14 @@ export class MapService {
     const monsterNames: string[] = this.safeParseJSON(map.monsters, []);
     const count = Math.min(map.monsterCount || 3, 20);
 
-    // 预加载地图上所有怪物名对应的 GameMonster 定义（含三层池 护盾/装甲），避免循环内反复查询
+    // 预加载地图上所有怪物名对应的怪物定义（含三层池 护盾/装甲），来自静态配置 JSON
     const monsterDefs: Record<string, any> = {};
     if (monsterNames.length > 0) {
-      const defs = await this.prisma.gameMonster.findMany({
-        where: { name: { in: monsterNames } },
-      });
-      for (const d of defs) monsterDefs[d.name] = d;
+      const allDefs = this.staticData.getAllMonsters();
+      for (const name of monsterNames) {
+        const def = allDefs.find((d) => d?.name === name);
+        if (def) monsterDefs[name] = def;
+      }
     }
 
     const monsters: MapMonster[] = [];
@@ -212,10 +219,22 @@ export class MapService {
       // 如果存在模板则随机选取，否则生成默认怪物
       if (monsterNames.length > 0) {
         const name = monsterNames[Math.floor(Math.random() * monsterNames.length)];
-        // 优先使用 GameMonster 表的真实定义（含三层池 shield/armor），查不到才用默认
+        // 优先使用怪物定义的完整数据（含三层池 shield/armor 与掉落表），查不到才用默认
         const def = monsterDefs[name];
         const shield = def?.shield || 0;
         const armor = def?.armor || 0;
+        // 解析怪物掉落表：原版怪物 bonus 内含 drops:[{name,count,chance}]，chance 为百分比
+        // 此处转换为 combat 层 generateDrops 期望的 dropTable:[{name,quantity,rate}]，rate 同为百分比
+        const defBonus = def?.bonus ? this.safeParseJSON<any>(def.bonus, {}) : {};
+        const dropTable: Array<{ name: string; quantity: number; rate: number }> = Array.isArray(defBonus.drops)
+          ? defBonus.drops
+              .filter((d: any) => d && d.name)
+              .map((d: any) => ({
+                name: d.name,
+                quantity: d.count ?? d.quantity ?? 1,
+                rate: d.chance ?? 100,
+              }))
+          : [];
         monsters.push({
           id: `monster_${mapId}_${i}_${Date.now()}`,
           name: def?.name || name || '未知怪物',
@@ -232,8 +251,10 @@ export class MapService {
           speed: def?.speed || 100,
           dodge: def?.dodge || 5,
           hit: def?.hit || 85,
-          exp: def?.bonus ? (this.safeParseJSON<any>(def.bonus, {}).经验 || 10) : 10,
+          exp: defBonus.经验 || 10,
           isElite: def?.type === '精英' || false,
+          // 携带掉落表（原版掉落由怪物 bonus.drops 驱动）
+          dropTable,
         });
       } else {
         // 默认怪物

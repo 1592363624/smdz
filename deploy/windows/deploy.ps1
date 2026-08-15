@@ -417,13 +417,17 @@ try {
 
     # ---------- Step 1b: Sync database schema ----------
     # NOTE: This project initializes the DB via hand-built early tables and
-    # reconstructs fixed game data from prisma/data/*.json on every seed,
-    # so it does NOT rely on a linear migration history. `prisma db push`
+    # does NOT rely on a linear migration history. `prisma db push`
     # synchronizes the schema to schema.prisma without requiring migration
-    # records (safe for SQLite: only adds columns / creates tables, keeps data).
-    # Using `migrate deploy` here would fail with P3005 (non-empty DB, no history).
+    # records. Using `migrate deploy` here would fail with P3005 (non-empty DB, no history).
+    # Since the data-layering reform, fixed game config tables (monsters/items/
+    # equipment/familiars/etc.) are now JSON-driven at runtime (StaticDataService)
+    # and were removed from schema.prisma. Their historical DB tables are safe to
+    # drop (all data is preserved in prisma/data/*.json), so we pass
+    # --accept-data-loss to drop them; dynamic tables (Player/GameMap/GameVehicle/
+    # GameShopItem/Channel/ChatMessage/CommandLog/Command/SystemConfig) keep data.
     Set-Location -LiteralPath $ServerDirectory
-    Invoke-CheckedCommand npx 'Synchronizing database schema' 'prisma' 'db' 'push' '--skip-generate'
+    Invoke-CheckedCommand npx 'Synchronizing database schema (dropping legacy fixed-config tables)' 'prisma' 'db' 'push' '--skip-generate' '--accept-data-loss'
 
     # ---------- Step 9: Seed data
     Write-Host "==> Seeding data (full import: seed.ts + seed-data.ts + seed-import-all.ts)"

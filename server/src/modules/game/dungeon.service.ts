@@ -6,12 +6,16 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StaticDataService } from './static-data.service';
 
 @Injectable()
 export class DungeonService {
   private readonly logger = new Logger(DungeonService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly staticData: StaticDataService,
+  ) {}
 
   /**
    * 安全解析 JSON 字符串，解析失败返回默认值
@@ -53,15 +57,13 @@ export class DungeonService {
         ? monsterTemplates[Math.floor(Math.random() * monsterTemplates.length)]
         : null;
 
-      // 从 GameMonster 表读取真实怪物属性（若模板指定了名称）
+      // 从静态配置读取真实怪物属性（若模板指定了名称，JSON 单一来源）
       let gameMonster: any = null;
       if (template?.name) {
         try {
-          gameMonster = await this.prisma.gameMonster.findUnique({
-            where: { name: template.name },
-          });
+          gameMonster = this.staticData.getMonsterByName(template.name);
         } catch {
-          // 表中不存在该怪物名称，忽略
+          // 配置中不存在该怪物名称，忽略
         }
       }
 

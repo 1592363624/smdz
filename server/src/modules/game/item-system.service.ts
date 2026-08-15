@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService } from './bonus.service';
 import { ItemService, Item3, Equipment } from './item.service';
+import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
 import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP } from './item.service';
 
@@ -36,6 +37,7 @@ export class ItemSystemService {
     private readonly bonusService: BonusService,
     private readonly itemService: ItemService,
     private readonly achievementService: AchievementService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   // ===================================================================
@@ -55,8 +57,8 @@ export class ItemSystemService {
     const { player, backpack, markers, tasks } = playerData;
     const actualCount = count ?? 1;
 
-    // 查找配方
-    const recipes = await this.prisma.gameCrafting.findMany();
+    // 查找配方（静态配置 JSON 单一来源）
+    const recipes = this.staticData.getAllCraftings();
     const recipe = recipes.find(r => r.name === recipeName);
     if (!recipe) {
       return `${player.name}，【${recipeName}】在制造列表不存在。`;
@@ -280,8 +282,8 @@ export class ItemSystemService {
 
       return `${player.name}分解了${item.name}，得到了${crystalAmount}水晶和${energyAmount}能量块。`;
     } else {
-      // 非装备分解：查找制造配方
-      const recipes = await this.prisma.gameCrafting.findMany();
+      // 非装备分解：查找制造配方（静态配置 JSON 单一来源）
+      const recipes = this.staticData.getAllCraftings();
       const recipe = recipes.find(r => r.name === item.name);
       if (!recipe) {
         return `${item.name}还无法分解。`;
@@ -1856,11 +1858,11 @@ export class ItemSystemService {
    * 通过查询数据库中的 GameEquipment 和 GameItem 表来确定
    */
   private async determineItemType(name: string): Promise<string> {
-    // 先查装备表
-    const gameEquip = await this.prisma.gameEquipment.findUnique({ where: { name } });
+    // 先查装备配置（静态 JSON 单一来源）
+    const gameEquip = this.staticData.getEquipmentByName(name);
     if (gameEquip) return '装备';
-    // 再查物品表
-    const gameItem = await this.prisma.gameItem.findUnique({ where: { name } });
+    // 再查物品配置
+    const gameItem = this.staticData.getItemByName(name);
     if (gameItem) return gameItem.type || '资源';
     // 默认返回资源
     return '资源';
@@ -1989,10 +1991,8 @@ export class ItemSystemService {
     quality?: string,
     legendaryRate?: number,
   ): Promise<Item3> {
-    // 从数据库获取装备定义
-    const gameEquip = await this.prisma.gameEquipment.findUnique({
-      where: { name },
-    });
+    // 从静态配置获取装备定义（JSON 单一来源）
+    const gameEquip = this.staticData.getEquipmentByName(name);
 
     const item: Item3 = {
       name,

@@ -8,6 +8,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
+import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
 
 // ==================== 类型定义 ====================
@@ -72,6 +73,7 @@ export class HomeService {
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
     private readonly mapService: MapService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   /**
@@ -999,7 +1001,7 @@ export class HomeService {
    * 从数据库中加载 GameBuilding 表
    */
   async getAllBuildingDefs(): Promise<any[]> {
-    return this.prisma.gameBuilding.findMany();
+    return this.staticData.getAllBuildings();
   }
 
   /**

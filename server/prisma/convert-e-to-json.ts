@@ -4,16 +4,22 @@
  * 功能：将易语言导出的原始配置文件（e/使魔大战.txt、e/0.txt、e/@Constant.ecode、e/@Resource/*.txt）
  * 解析并转换为结构化 JSON，存放到 prisma/data/ 目录。
  *
- * 转换后的 JSON 作为「游戏固定配置数据」的唯一来源（single source of truth），
- * 后续 seed 脚本直接读取这些 JSON 写入数据库，不再依赖 e/ 原始文件，
- * 从而解决 CI/CD 部署时 e/ 被 .gitignore 忽略导致的数据缺失（ENOENT）问题。
+ * 转换后的 JSON 是「游戏固定配置数据」的**运行时单一数据源（single source of truth）**：
+ *  - 架构改革后（2026-08-15），固定配置已从数据库表彻底移除，
+ *    运行时由 StaticDataService（server/src/modules/game/static-data.service.ts）
+ *    直接从 prisma/data/*.json 懒加载+缓存读取，**不再写入数据库**。
+ *  - 因此本工具产出的 JSON 不仅是"seed 数据"，更是游戏逻辑运行的直接数据来源。
+ *    策划改数值 = 直接编辑 JSON → 重启或调用 StaticDataService.refresh() 热重载即生效。
  *
  * 运行：npx ts-node prisma/convert-e-to-json.ts
  *
  * 设计要点：
- *  - 映射逻辑（map*To*）与 seed-data.ts / seed-import-all.ts 的 DB 写入字段保持一致，
- *    JSON 中的对象结构即数据库 upsert 的数据结构，保证零漂移。
+ *  - 映射逻辑（map*To*）产出的对象结构，即 StaticDataService 读取后各 service 消费的数据结构，
+ *    与改造前数据库 upsert 的字段保持一致，保证零漂移、平滑迁移。
+ *  - seed-data.ts（动态数据 GameMap/GameVehicle）与 seed-import-all.ts（SystemConfig）仍会
+ *    读取部分 JSON，但固定配置（怪物/物品/装备/使魔/配方/任务等）不再入库。
  *  - 本工具可重复运行：e/ 数据变更后重新执行即可重建 JSON。
+ *  - 数据归属：`e/` 易语言源码已被 .gitignore 忽略、不进部署；`prisma/data/` 进版本控制并随部署分发。
  */
 
 import * as fs from 'fs';

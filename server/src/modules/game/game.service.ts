@@ -21,6 +21,7 @@ import { FamiliarSystemService } from './familiar-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { HomeService } from './home.service';
 import { TutorialService } from './tutorial.service';
+import { StaticDataService } from './static-data.service';
 
 @Injectable()
 export class GameService {
@@ -43,6 +44,7 @@ export class GameService {
     private readonly familiarSystemService: FamiliarSystemService,
     private readonly familiarSkillsService: FamiliarSkillsService,
     private readonly tutorialService: TutorialService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   /**
@@ -602,11 +604,9 @@ export class GameService {
       dialogLines.push(`${targetNpc.description}`);
     }
 
-    // 检查是否有可领取的任务（通过 GameNpc 表关联）
+    // 检查是否有可领取的任务（通过 NPC 配置关联）
     try {
-      const gameNpc = await this.prisma.gameNpc.findUnique({
-        where: { name: npcName },
-      });
+      const gameNpc = this.staticData.getNpcByName(npcName);
       if (gameNpc && gameNpc.taskId) {
         // 检查玩家是否已接取该任务
         const tasks = playerData.tasks;
@@ -1134,10 +1134,10 @@ export class GameService {
 
     // 2. 如果没有指定任务名，显示当前地图可接任务列表
     if (!questName) {
-      // 查找当前地图NPC发布的任务
-      const availableTasks = await this.prisma.gameTask.findMany({
-        where: { publisher: { in: npcs.map((n: any) => n.name) } },
-      });
+      // 查找当前地图NPC发布的任务（静态配置 JSON 单一来源）
+      const availableTasks = this.staticData
+        .getAllTasks()
+        .filter((t) => npcs.map((n: any) => n.name).includes(t.publisher));
 
       if (availableTasks.length === 0) {
         return '当前地图没有可领取的任务';
@@ -1157,9 +1157,7 @@ export class GameService {
     }
 
     // 3. 从 GameTask 表查找任务
-    const gameTask = await this.prisma.gameTask.findUnique({
-      where: { name: questName },
-    });
+    const gameTask = this.staticData.getTaskByName(questName);
     if (!gameTask) {
       return `不存在【${questName}】任务`;
     }
@@ -1258,9 +1256,7 @@ export class GameService {
     }
 
     // 4. 从 GameTask 读取奖励配置
-    const gameTask = await this.prisma.gameTask.findUnique({
-      where: { name: questName },
-    });
+    const gameTask = this.staticData.getTaskByName(questName);
     if (!gameTask) {
       // 任务已从数据库删除，但玩家任务列表中仍有
       tasks.splice(taskIndex, 1);
@@ -1969,10 +1965,8 @@ export class GameService {
       return `背包中没有【${partName}】`;
     }
 
-    // 4. 通过 GameVehiclePart 表验证是否为有效部件
-    const partDef = await this.prisma.gameVehiclePart.findUnique({
-      where: { name: partName },
-    });
+    // 4. 通过载具部件配置验证是否为有效部件（静态配置 JSON 单一来源）
+    const partDef = this.staticData.getVehiclePartByName(partName);
     if (!partDef) {
       return `【${partName}】不是有效的载具部件`;
     }
@@ -2545,10 +2539,11 @@ export class GameService {
    * 查看游戏图鉴，从 GameItem 表查询所有物品，按类型分类显示
    */
   async handleHandbook(userId: number, category: string): Promise<string> {
-    // 从 GameItem 表查询所有物品
-    const allItems = await this.prisma.gameItem.findMany({
-      orderBy: [{ type: 'asc' }, { name: 'asc' }],
-    });
+    // 从静态配置查询所有物品（JSON 单一来源），按类型/名称排序
+    const allItems = this.staticData
+      .getAllItems()
+      .slice()
+      .sort((a, b) => (a.type || '').localeCompare(b.type || '') || (a.name || '').localeCompare(b.name || ''));
 
     if (allItems.length === 0) {
       return '📖 图鉴中还没有任何物品记录';
@@ -2671,9 +2666,9 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 如果没有指定配方名，显示所有炼丹配方
+    // 如果没有指定配方名，显示所有炼丹配方（静态配置 JSON 单一来源）
     if (!recipeName) {
-      const recipes = await this.prisma.gameCrafting.findMany();
+      const recipes = this.staticData.getAllCraftings();
       const alchemyRecipes = recipes.filter((r: any) =>
         r.name.includes('丹') || r.name.includes('药') || r.name.includes('丸'),
       );
@@ -2768,9 +2763,9 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 如果没有指定物品名，显示所有锻造配方
+    // 如果没有指定物品名，显示所有锻造配方（静态配置 JSON 单一来源）
     if (!itemName) {
-      const recipes = await this.prisma.gameCrafting.findMany();
+      const recipes = this.staticData.getAllCraftings();
       const forgeRecipes = recipes.filter((r: any) =>
         r.name.includes('剑') || r.name.includes('甲') || r.name.includes('盔') ||
         r.name.includes('盾') || r.name.includes('装备') || r.name.includes('武器'),
@@ -3310,10 +3305,8 @@ export class GameService {
       return `背包中没有【${partName}】`;
     }
 
-    // 验证是否为有效部件
-    const partDef = await this.prisma.gameVehiclePart.findUnique({
-      where: { name: partName },
-    });
+    // 验证是否为有效部件（静态配置 JSON 单一来源）
+    const partDef = this.staticData.getVehiclePartByName(partName);
     if (!partDef) {
       return `【${partName}】不是有效的载具部件`;
     }
@@ -3460,10 +3453,8 @@ export class GameService {
         return '请指定要模拟的部件名称，或先驾驶载具后使用「载具模拟」';
       }
 
-      // 查找部件定义
-      const partDef = await this.prisma.gameVehiclePart.findUnique({
-        where: { name: targetName },
-      });
+      // 查找部件定义（静态配置 JSON 单一来源）
+      const partDef = this.staticData.getVehiclePartByName(targetName);
       if (!partDef) {
         return `未找到部件【${targetName}】`;
       }
@@ -4513,11 +4504,8 @@ export class GameService {
   async handleShop(userId: number, action: string, args: string[]): Promise<string> {
     // 如果没有指定操作，显示商店列表
     if (!action) {
-      // 查询商店物品列表（从 GameItem 表中取部分商品）
-      const shopItems = await this.prisma.gameItem.findMany({
-        take: 20,
-        orderBy: { id: 'asc' },
-      });
+      // 查询商店物品列表（静态配置 JSON 单一来源，取前20个）
+      const shopItems = this.staticData.getAllItems().slice(0, 20);
 
       if (shopItems.length === 0) {
         return '🏪 系统商店\n━━━━━━━━━━━━━━━\n当前没有可购买的商品\n\n使用「购物 购买 物品名」购买物品';
@@ -4548,10 +4536,8 @@ export class GameService {
         }
         const itemName = args.join(' ');
 
-        // 查询商品
-        const shopItem = await this.prisma.gameItem.findUnique({
-          where: { name: itemName },
-        });
+        // 查询商品（静态配置 JSON 单一来源）
+        const shopItem = this.staticData.getItemByName(itemName);
         if (!shopItem) {
           return `商店中没有【${itemName}】`;
         }
@@ -4571,9 +4557,7 @@ export class GameService {
         }
         const detailName = args.join(' ');
 
-        const detailItem = await this.prisma.gameItem.findUnique({
-          where: { name: detailName },
-        });
+        const detailItem = this.staticData.getItemByName(detailName);
         if (!detailItem) {
           return `商店中没有【${detailName}】`;
         }
@@ -4631,10 +4615,11 @@ export class GameService {
    * 查看配方列表，从 GameCrafting 表中查询所有可制造配方，按类型分类显示
    */
   async handleRecipe(userId: number, recipeName: string): Promise<string> {
-    // 从 GameCrafting 表查询所有配方
-    const allRecipes = await this.prisma.gameCrafting.findMany({
-      orderBy: { name: 'asc' },
-    });
+    // 从静态配置查询所有配方（JSON 单一来源）
+    const allRecipes = this.staticData
+      .getAllCraftings()
+      .slice()
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     if (allRecipes.length === 0) {
       return '📜 当前没有任何可用的制造配方';
@@ -4718,8 +4703,8 @@ export class GameService {
       return `背包中没有【${targetName}】`;
     }
 
-    // 从 GameCrafting 表中查找包含该物品作为产出的配方（用于分解）
-    const allRecipes = await this.prisma.gameCrafting.findMany();
+    // 从静态配置中查找包含该物品作为产出的配方（用于分解，JSON 单一来源）
+    const allRecipes = this.staticData.getAllCraftings();
     const matchingRecipe = allRecipes.find((recipe: any) => {
       const outputs = this.playerService.safeJsonParse<any[]>(recipe.outputs, []);
       return outputs.some((o: any) => o.name === targetName);

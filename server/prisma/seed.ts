@@ -1,6 +1,8 @@
 /**
  * 数据库种子脚本
- * 初始化默认频道、基础指令表、游戏地图、物品、装备、使魔等。
+ * 初始化默认频道、基础指令表、系统配置、默认管理员账号。
+ * 固定游戏数据（地图/怪物/物品/装备/使魔/配方/任务等）已 JSON 化，
+ * 由 seed-data.ts（动态数据）与 StaticDataService（固定配置）负责。
  * 运行：npm run prisma:seed
  */
 
@@ -360,13 +362,11 @@ async function main() {
     { key: 'command.requirePrefix', value: 'false', label: '必须带前缀才算指令', description: 'true=必须带前缀；false=无前缀时若命中指令名/别名也作为指令', type: 'boolean', group: 'command' },
     { key: 'game.playerBaseHp', value: '100', label: '玩家基础生命', description: '新玩家初始生命值', type: 'number', group: 'game' },
     { key: 'game.playerBaseAttack', value: '10', label: '玩家基础攻击', description: '新玩家初始攻击力', type: 'number', group: 'game' },
-    { key: 'game.attackCooldownSeconds', value: '5', label: '攻击指令冷却时间', description: '攻击指令的冷却间隔(秒)，仅作用于 attack 指令，对应原版武器公共攻击冷却', type: 'number', group: 'game' },
     { key: 'game.expMultiplier', value: '1.0', label: '经验倍率', description: '全局经验获取倍率', type: 'number', group: 'game' },
     { key: 'game.dropMultiplier', value: '1.0', label: '掉落倍率', description: '全局物品掉落倍率', type: 'number', group: 'game' },
     { key: 'game.maxPlayers', value: '1000', label: '最大玩家数', description: '服务器最大玩家数量', type: 'number', group: 'game' },
     { key: 'game.autoSaveInterval', value: '300', label: '自动保存间隔(秒)', description: '后台自动保存玩家数据的间隔', type: 'number', group: 'game' },
     { key: 'game.respawnTime', value: '30', label: '怪物重生时间(秒)', description: '怪物被击杀后重生时间', type: 'number', group: 'game' },
-    { key: 'game.weaponCooldownMultiplier', value: '1.0', label: '武器冷却倍率', description: '武器冷却时间倍率', type: 'number', group: 'game' },
     { key: 'game.spawnMonsterCooldown', value: '60', label: '怪物刷新时间(秒)', description: '地图怪物被清空后刷新时间', type: 'number', group: 'game' },
     { key: 'game.worldLevel', value: '1', label: '世界等级', description: '当前世界等级，影响怪物强度和掉落', type: 'number', group: 'game' },
     { key: 'game.adminQQ', value: '', label: '管理员QQ', description: '拥有管理员权限的QQ号（逗号分隔）', type: 'string', group: 'game' },
@@ -381,164 +381,9 @@ async function main() {
   }
   console.log(`✅ 系统配置: ${systemConfigs.length} 项`);
 
-  // 4. 初始游戏地图
-  const maps = [
-    { name: '新手村', description: '冒险开始的地方，到处是柔弱的史莱姆', mapIndex: 1, level: 1, monsterCount: 3, connections: JSON.stringify([{ name: '迷雾森林', distance: 10, frontier: false }]) },
-    { name: '迷雾森林', description: '浓雾笼罩的森林，有野兽出没', mapIndex: 2, level: 5, monsterCount: 4, connections: JSON.stringify([{ name: '新手村', distance: 10, frontier: false }, { name: '古老遗迹', distance: 20, frontier: false }]) },
-    { name: '古老遗迹', description: '上古文明留下的废墟，藏着珍贵的宝物', mapIndex: 3, level: 10, monsterCount: 5, connections: JSON.stringify([{ name: '迷雾森林', distance: 20, frontier: false }]) },
-    { name: '火焰山', description: '终年燃烧的火山，炎热无比', mapIndex: 4, level: 20, monsterCount: 5, requiredTravel: 1, connections: JSON.stringify([{ name: '新手村', distance: 50, frontier: false }]) },
-    { name: '冰霜峡谷', description: '极寒之地，冰雪覆盖的险峻峡谷', mapIndex: 5, level: 30, monsterCount: 6, requiredTravel: 2, connections: JSON.stringify([{ name: '新手村', distance: 80, frontier: false }]) },
-    { name: '天空之城', description: '漂浮在云端的城市，需要飞行才能到达', mapIndex: 6, level: 40, monsterCount: 6, requiredTravel: 1, connections: JSON.stringify([{ name: '火焰山', distance: 100, frontier: false }]) },
-    { name: '虚空裂隙', description: '时空错乱之地，危险与机遇并存', mapIndex: 7, level: 50, monsterCount: 7, requiredTravel: 3, connections: JSON.stringify([{ name: '冰霜峡谷', distance: 150, frontier: false }]) },
-  ] as const;
-
-  for (const map of maps) {
-    await prisma.gameMap.upsert({
-      where: { name: map.name },
-      update: map as any, // 以代码为准，已存在也更新
-      create: map as any,
-    });
-  }
-  console.log(`✅ 游戏地图: ${maps.length} 个`);
-
-  // 5. 初始物品
-  const items = [
-    { name: '生命药水', description: '恢复50点生命值', value: 10, type: '消耗品', useEffects: JSON.stringify(['恢复50点生命值']) },
-    { name: '魔力药水', description: '恢复30点魔力', value: 15, type: '消耗品', useEffects: JSON.stringify(['恢复30点魔力']) },
-    { name: '铁矿石', description: '常见的矿石，可用于锻造', value: 5, type: '材料' },
-    { name: '银矿石', description: '稀有的银矿石，价值较高', value: 20, type: '材料' },
-    { name: '金矿石', description: '珍贵的金矿石', value: 50, type: '材料' },
-    { name: '木材', description: '普通的木材，可用于建造和制造', value: 2, type: '材料' },
-    { name: '石材', description: '普通的石材，可用于建造', value: 3, type: '材料' },
-    { name: '布匹', description: '柔软的布匹，可用于制作装备', value: 8, type: '材料' },
-    { name: '皮革', description: '结实的皮革，可用于制作装备', value: 10, type: '材料' },
-    { name: '魔法粉末', description: '蕴含魔力的粉末，用于附魔', value: 30, type: '材料' },
-    { name: '史莱姆粘液', description: '史莱姆掉落的粘液，可用于炼金', value: 5, type: '材料' },
-    { name: '野兽之骨', description: '强大野兽的骨头，可用于制作武器', value: 15, type: '材料' },
-    { name: '龙鳞碎片', description: '传说中龙的鳞片碎片，极为珍贵', value: 200, type: '材料' },
-    { name: '经验书', description: '记载着古老知识的书籍，使用可获得经验', value: 50, type: '消耗品', useEffects: JSON.stringify(['获得100点经验']) },
-    { name: '传送卷轴', description: '可瞬间传送回新手村', value: 25, type: '消耗品', useEffects: JSON.stringify(['传送回新手村']) },
-    { name: '钻石', description: '闪闪发光的钻石，游戏中的硬通货', value: 100, type: '货币' },
-    { name: '金币', description: '游戏中的通用货币', value: 1, type: '货币' },
-    { name: '未知物品', description: '具现装置凝聚出的未知物质，交给露娜可兑换奖励', value: 10, type: '材料' },
-    { name: '工业建筑箱', description: '露娜赠予的箱子，内含工业建筑材料', value: 100, type: '材料' },
-    { name: '专属装备补给箱', description: '露娜赠予的箱子，内含专属装备', value: 200, type: '材料' },
-  ] as const;
-
-  for (const item of items) {
-    await prisma.gameItem.upsert({
-      where: { name: item.name },
-      update: item as any, // 以代码为准，已存在也更新
-      create: item as any,
-    });
-  }
-  console.log(`✅ 物品: ${items.length} 种`);
-
-  // 6. 初始装备
-  const equipment = [
-    { name: '新手之剑', description: '冒险者协会发给新手的制式长剑', equipType: '武器', bonus: JSON.stringify({ attack: 5 }), baseBonus: '{}', properties: JSON.stringify({ phys: 100 }), attackText: JSON.stringify({ name: '新手之剑', attacks: ['斩击', '劈砍'] }) },
-    { name: '木盾', description: '简陋的木制盾牌，能提供少量防御', equipType: '副手', bonus: JSON.stringify({ armor: 3, dodge: 2 }), properties: '{}' },
-    { name: '布甲', description: '轻便的布制护甲，提供基本的防护', equipType: '护甲', bonus: JSON.stringify({ armor: 5, hp: 10 }), properties: '{}' },
-    { name: '铁剑', description: '铁匠打造的锋利长剑', equipType: '武器', bonus: JSON.stringify({ attack: 12 }), properties: JSON.stringify({ phys: 100 }) },
-    { name: '铁甲', description: '铁制的坚固护甲，提供良好的防护', equipType: '护甲', bonus: JSON.stringify({ armor: 10, hp: 20 }), properties: '{}' },
-    { name: '铁头盔', description: '铁制的头盔，保护头部', equipType: '头部', bonus: JSON.stringify({ armor: 5, dodge: 1 }), properties: '{}' },
-    { name: '皮靴', description: '轻便的皮靴，提高移动速度', equipType: '脚部', bonus: JSON.stringify({ speed: 10, dodge: 3 }), properties: '{}' },
-    { name: '银戒指', description: '蕴含魔力的银戒指', equipType: '饰品', bonus: JSON.stringify({ attack: 5, magic: 10 }), properties: '{}' },
-    { name: '钢剑', description: '精钢打造的长剑，锋利无比', equipType: '武器', bonus: JSON.stringify({ attack: 25 }), properties: JSON.stringify({ phys: 100 }) },
-    { name: '板甲', description: '厚重的钢板护甲，防御力极高', equipType: '护甲', bonus: JSON.stringify({ armor: 20, hp: 40, dodge: -5 }), properties: '{}' },
-  ] as const;
-
-  for (const eq of equipment) {
-    await prisma.gameEquipment.upsert({
-      where: { name: eq.name },
-      update: eq as any, // 以代码为准，已存在也更新
-      create: eq as any,
-    });
-  }
-  console.log(`✅ 装备: ${equipment.length} 种`);
-
-  // 7. 初始使魔
-  const familiars = [
-    { name: '花园猫', uniqueSkill: '猫爪攻击', description: '可爱的花园猫，擅长快速攻击', specialSeq: 1, noSummon: false, hairDrop: JSON.stringify({ name: '猫毛', count: 1 }) },
-    { name: '长萌', uniqueSkill: '长萌之光', description: '神秘的长萌，拥有治愈能力', specialSeq: 2, noSummon: false },
-    { name: '绝灭天使', uniqueSkill: '灭绝之光', description: '强大的天使型使魔，拥有毁灭性力量', specialSeq: 3, noSummon: false },
-    { name: '剑圣', uniqueSkill: '剑术精通', description: '剑术大师，近战攻击力极强', specialSeq: 4, noSummon: false },
-    { name: '古月娜', uniqueSkill: '月光洗礼', description: '月之使者，拥有强大的辅助能力', specialSeq: 5, noSummon: false },
-    { name: '恶毒', uniqueSkill: '毒液喷溅', description: '擅长使用毒素攻击的使魔', specialSeq: 6, noSummon: false },
-    { name: '阿尔缇娜', uniqueSkill: '冰霜新星', description: '冰之魔女，擅长冰系魔法', specialSeq: 7, noSummon: false },
-    { name: '战斗女仆', uniqueSkill: '女仆的守护', description: '全能型战斗女仆，能打能奶', specialSeq: 8, noSummon: false },
-    { name: '冥鱼', uniqueSkill: '暗影潜行', description: '来自深渊的鱼型使魔，擅长暗杀', specialSeq: 9, noSummon: false },
-    { name: '小樱', uniqueSkill: '樱花飞舞', description: '如樱花般美丽的使魔，拥有多种能力', specialSeq: 10, noSummon: false },
-  ] as const;
-
-  for (const f of familiars) {
-    await prisma.gameFamiliar.upsert({
-      where: { name: f.name },
-      update: f as any, // 以代码为准，已存在也更新
-      create: f as any,
-    });
-  }
-  console.log(`✅ 使魔: ${familiars.length} 种`);
-
-  // 8. 初始怪物
-  const monsters = [
-    { name: '史莱姆', specialSeq: -1, type: '怪物', description: '最基础的怪物，软软的', hp: 30, attack: 5, defense: 1, speed: 50, dodge: 5, hit: 90, bonus: '{}' },
-    { name: '野狼', specialSeq: -1, type: '怪物', description: '凶猛的野狼，速度快', hp: 50, attack: 8, defense: 3, speed: 80, dodge: 10, hit: 85, bonus: '{}' },
-    { name: '哥布林', specialSeq: -1, type: '怪物', description: '狡猾的哥布林，会使用简单武器', hp: 40, attack: 7, defense: 2, speed: 60, dodge: 8, hit: 80, bonus: '{}' },
-    { name: '石巨人', specialSeq: -1, type: '怪物', description: '由岩石组成的巨人，防御力极高', hp: 200, attack: 15, defense: 20, speed: 30, dodge: 2, hit: 70, bonus: '{}' },
-    { name: '火焰精灵', specialSeq: -1, type: '怪物', description: '由火焰组成的精灵，攻击附带灼烧', hp: 60, attack: 12, defense: 5, speed: 70, dodge: 15, hit: 80, bonus: '{}' },
-    { name: '冰霜巨龙', specialSeq: -1, type: '怪物', description: '冰霜系的巨龙，极为强大', hp: 500, attack: 35, defense: 25, speed: 60, dodge: 8, hit: 85, bonus: '{}' },
-    { name: '暗影刺客', specialSeq: -1, type: '怪物', description: '隐匿在暗处的刺客，闪避极高', hp: 80, attack: 20, defense: 5, speed: 95, dodge: 30, hit: 75, bonus: '{}' },
-    { name: '虚空行者', specialSeq: -1, type: '怪物', description: '来自虚空的强大存在', hp: 800, attack: 50, defense: 30, speed: 80, dodge: 15, hit: 90, bonus: '{}' },
-  ] as const;
-
-  for (const m of monsters) {
-    await prisma.gameMonster.upsert({
-      where: { name: m.name },
-      update: m as any, // 以代码为准，已存在也更新
-      create: m as any,
-    });
-  }
-  console.log(`✅ 怪物: ${monsters.length} 种`);
-
-  // 9. 初始增益/减益
-  const buffs = [
-    { name: '灼烧', description: '持续受到火焰伤害', duration: 10, chance: 80, stackTime: false, bonus: JSON.stringify({ fireDamage: 5, attack: -2 }), triggerText: '感到灼烧的痛苦' },
-    { name: '冰冻', description: '移动速度和攻击速度降低', duration: 8, chance: 70, stackTime: false, bonus: JSON.stringify({ speed: -30, dodge: -10 }), triggerText: '被冻住了' },
-    { name: '中毒', description: '持续受到毒素伤害', duration: 15, chance: 75, stackTime: true, bonus: JSON.stringify({ poisonDamage: 3 }), triggerText: '中毒了' },
-    { name: '护盾', description: '获得一个吸收伤害的护盾', duration: 30, chance: 100, stackTime: false, bonus: JSON.stringify({ shield: 50 }), triggerText: '获得护盾' },
-    { name: '狂暴', description: '攻击力大幅提升但防御降低', duration: 15, chance: 100, stackTime: false, bonus: JSON.stringify({ attack: 30, defense: -10 }), triggerText: '进入狂暴状态' },
-    { name: '治愈', description: '持续恢复生命值', duration: 10, chance: 100, stackTime: true, bonus: JSON.stringify({ regenHp: 5 }), triggerText: '感到一股暖流' },
-    { name: '虚弱', description: '攻击力和防御力降低', duration: 12, chance: 80, stackTime: false, bonus: JSON.stringify({ attack: -10, defense: -5 }), triggerText: '变得虚弱无力' },
-    { name: '加速', description: '移动速度和闪避提升', duration: 20, chance: 100, stackTime: false, bonus: JSON.stringify({ speed: 30, dodge: 15 }), triggerText: '感觉身轻如燕' },
-  ] as const;
-
-  for (const b of buffs) {
-    await prisma.gameBuff.upsert({
-      where: { name: b.name },
-      update: b as any, // 以代码为准，已存在也更新
-      create: b as any,
-    });
-  }
-  console.log(`✅ 增益/减益: ${buffs.length} 种`);
-
-  // 10. 初始制造配方
-  const craftings = [
-    { name: '制作木盾', description: '用木材制作一个木盾', level: 1, outputs: JSON.stringify([{ name: '木盾', count: 1 }]), requirements: JSON.stringify([{ name: '木材', count: 5 }]) },
-    { name: '制作铁剑', description: '用铁矿石锻造铁剑', level: 5, outputs: JSON.stringify([{ name: '铁剑', count: 1 }]), requirements: JSON.stringify([{ name: '铁矿石', count: 10 }, { name: '木材', count: 3 }]) },
-    { name: '制作铁甲', description: '用铁矿石锻造铁甲', level: 8, outputs: JSON.stringify([{ name: '铁甲', count: 1 }]), requirements: JSON.stringify([{ name: '铁矿石', count: 15 }, { name: '布匹', count: 5 }]) },
-    { name: '制作生命药水', description: '调配生命药水', level: 2, outputs: JSON.stringify([{ name: '生命药水', count: 1 }]), requirements: JSON.stringify([{ name: '史莱姆粘液', count: 3 }, { name: '魔法粉末', count: 1 }]) },
-    { name: '分解铁矿石', description: '将铁矿石分解为基础材料', noCraft: true, level: 1, outputs: JSON.stringify([{ name: '石材', count: 2 }]), requirements: JSON.stringify([{ name: '铁矿石', count: 1 }]), deconstructMul: 2 },
-  ] as const;
-
-  for (const c of craftings) {
-    await prisma.gameCrafting.upsert({
-      where: { name: c.name },
-      update: c as any, // 以代码为准，已存在也更新
-      create: c as any,
-    });
-  }
-  console.log(`✅ 制造配方: ${craftings.length} 种`);
+  // 4-10. 固定游戏数据（地图/物品/装备/使魔/怪物/增益/配方）已迁移为 JSON 存储，
+  //       由 seed-data.ts + StaticDataService 处理，此处不再内联示例占位数据。
+  //       地图/载具动态数据由 seed-data.ts 从 prisma/data/*.json 导入。
 
   // 11. 默认管理员账号
   const existingAdmin = await prisma.user.findUnique({ where: { username: 'admin' } });
@@ -559,9 +404,9 @@ async function main() {
   }
 
   // 12. 同步删除：以代码为准，删除 seed 中已不存在的记录(处理"删除/重命名"场景)
-  // 重要：仅对 seed.ts 自身为权威数据源的表(指令/系统配置)做同步删除。
-  // 地图/物品/装备/使魔/怪物/增益/制造 的真实数据由 seed-data.ts 负责导入，
-  // 若在此对它们做 syncDeleted 会因 seed.ts 仅含示例占位而误删真实游戏数据！
+  // 仅对 seed.ts 自身为权威数据源的表(指令/系统配置)做同步删除。
+  // 地图/载具等动态数据由 seed-data.ts 从 JSON 导入，不在本脚本做同步删除，
+  // 以免误删 JSON 已更新但 DB 尚未同步的记录。
   const syncDeleted = async (label: string, seedNames: string[], findMany: any, deleteMany: any) => {
     const seedSet = new Set(seedNames);
     const existing = await findMany({ select: { name: true } });

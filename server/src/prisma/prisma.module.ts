@@ -5,10 +5,11 @@
 
 import { Global, Module } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
+import { StaticDataService } from '../modules/game/static-data.service';
 
 @Global()
 @Module({
-  providers: [PrismaService],
-  exports: [PrismaService],
+  providers: [PrismaService, StaticDataService],
+  exports: [PrismaService, StaticDataService],
 })
 export class PrismaModule {}

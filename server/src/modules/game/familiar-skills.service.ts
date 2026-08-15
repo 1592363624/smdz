@@ -19,6 +19,7 @@ import { ItemSystemService } from './item-system.service';
 import { MapService } from './map.service';
 import { FamiliarSystemService } from './familiar-system.service';
 import { SystemConfigService } from '../system-config/system-config.service';
+import { StaticDataService } from './static-data.service';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -35,6 +36,7 @@ export class FamiliarSkillsService {
     private readonly mapService: MapService,
     private readonly familiarSystem: FamiliarSystemService,
     private readonly systemConfig: SystemConfigService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   // ==================== 通用辅助方法 ====================
@@ -2719,10 +2721,8 @@ export class FamiliarSkillsService {
       return `大召唤术需要10张召唤券，你只有${ticketCount}张`;
     }
 
-    // 获取所有可召唤的使魔
-    const allFamiliars = await this.prisma.gameFamiliar.findMany({
-      where: { noSummon: false },
-    });
+    // 获取所有可召唤的使魔（静态配置 JSON 单一来源）
+    const allFamiliars = this.staticData.getAllFamiliars().filter((f) => !f.noSummon);
 
     if (allFamiliars.length === 0) {
       return '没有可召唤的使魔';

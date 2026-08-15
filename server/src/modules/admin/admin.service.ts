@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from '../game/player.service';
 import { ChatService } from '../chat/chat.service';
 import { SystemConfigService } from '../system-config/system-config.service';
+import { StaticDataService } from '../game/static-data.service';
 
 @Injectable()
 export class AdminService {
@@ -21,6 +22,7 @@ export class AdminService {
     private readonly playerService: PlayerService,
     private readonly chatService: ChatService,
     private readonly systemConfigService: SystemConfigService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   /**
@@ -98,23 +100,15 @@ export class AdminService {
     totalItems: number;
     uptime: number;
   }> {
-    const [
-      totalUsers,
-      totalPlayers,
-      totalMaps,
-      totalCommands,
-      totalMonsters,
-      totalItems,
-    ] = await Promise.all([
+    const [totalUsers, totalPlayers, totalMaps, totalCommands] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.player.count(),
       this.prisma.gameMap.count(),
       this.prisma.command.count(),
-      // 怪物种类数：GameMonster 是全局怪物/宠物定义表，统计种类数量
-      this.prisma.gameMonster.count(),
-      // 物品种类数：GameItem 是全局物品定义表，统计种类数量
-      this.prisma.gameItem.count(),
     ]);
+    // 怪物/物品种类数：从静态配置 JSON 统计（固定配置已 JSON 化，以 JSON 为单一来源）
+    const totalMonsters = this.staticData.getAllMonsters().length;
+    const totalItems = this.staticData.getAllItems().length;
 
     // 在线玩家：取最近 5 分钟内有操作记录的玩家作为"在线"估算
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);

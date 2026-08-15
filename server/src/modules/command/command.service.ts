@@ -6,13 +6,12 @@
  * - 指令注册表存数据库(Command表)，新增/修改指令不用改代码重编译
  * - 每个具体逻辑通过 CommandHandler 注册，key 与数据库 handlerKey 对应
  * - 支持多种来源(网页/AstrBot/API)统一进入 dispatch
- * - 冷却采用"原版 per-action 模式"：引擎层仅对 attack 指令做武器公共冷却兜底，
- *   其他指令不做全局统一拦截，冷却由各具体动作逻辑自行决定(见各 handler/service)。
+ * - 冷却采用"原版 per-action 模式"：引擎层不做任何指令级统一冷却，
+ *   所有冷却由具体动作逻辑(战斗/闪避/传送等)写入玩家 markers2 持久化标记控制。
  */
 
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SystemConfigService } from '../system-config/system-config.service';
 import {
   CommandContext,
   CommandHandler,
@@ -25,12 +24,8 @@ import { COMMAND_HANDLER_MAP } from './command-handler-map.provider';
 export class CommandService {
   private readonly logger = new Logger(CommandService.name);
 
-  /** 冷却映射表：userId -> (handlerKey -> 冷却结束时间戳) */
-  private cooldowns: Map<number, Map<string, number>> = new Map();
-
   constructor(
     private readonly prisma: PrismaService,
-    private readonly systemConfig: SystemConfigService,
     @Inject(COMMAND_HANDLER_MAP)
     private readonly handlerMap: Record<string, CommandHandler>,
   ) {}
@@ -84,26 +79,10 @@ export class CommandService {
         // TODO: 接入用户角色判断，此处预留
       }
 
-      // 4. 冷却检查（原版模式：仅攻击指令在引擎层做公共冷却兜底，其他指令的冷却
-      //    由各具体动作逻辑自行决定，不做全局统一拦截，避免"所有指令统一N秒CD"）
-      //    - attack：读取 game.attackCooldownSeconds，对应原版"武器公共攻击冷却(基础5秒)"
-      //    - 其他指令：默认 0 不拦截；如某指令需要引擎层冷却，可在未来按 Command.cooldownSeconds 配置
-      const isAttack = cmdDef.handlerKey === 'attack';
-      const cooldownSeconds = isAttack
-        ? await this.systemConfig.get<number>('game.attackCooldownSeconds', 5)
-        : 0;
-
-      if (ctx.userId) {
-        if (this.checkCooldown(ctx.userId, cmdDef.handlerKey, cooldownSeconds)) {
-          const remaining = this.getCooldownRemaining(ctx.userId, cmdDef.handlerKey);
-          return {
-            success: false,
-            content: `指令冷却中，请等待 ${Math.ceil(remaining)} 秒`,
-            broadcast: false,
-            durationMs: Date.now() - start,
-          };
-        }
-      }
+      // 4. 冷却检查（严格对齐原版 per-action 模式）：
+      //    引擎层不做任何"指令级统一冷却"。所有冷却由具体动作逻辑（战斗/闪避/传送等）
+      //    各自写入玩家 markers2 持久化标记控制。此处直接分发。
+      //    （历史遗留的内存 Map 冷却已移除，避免与"原版绑定玩家标记"冲突。）
 
       // 5. 找到对应的处理器并执行
       const handler: CommandHandler | undefined = this.handlerMap[cmdDef.handlerKey];
@@ -119,11 +98,6 @@ export class CommandService {
       const result = await handler.handle(ctx, args);
       result.durationMs = Date.now() - start;
 
-      // 6. 执行成功后设置冷却
-      if (ctx.userId && result.success) {
-        this.setCooldown(ctx.userId, cmdDef.handlerKey, cooldownSeconds);
-      }
-
       // 7. 记录指令执行日志
       await this.recordLog(ctx, commandName, result);
 
@@ -137,57 +111,6 @@ export class CommandService {
         durationMs: Date.now() - start,
       };
     }
-  }
-
-  /**
-   * 检查指令是否处于冷却中
-   * @param userId 用户ID
-   * @param commandKey 指令handlerKey
-   * @param cooldownSeconds 冷却秒数
-   * @returns true=仍在冷却中
-   */
-  private checkCooldown(userId: number, commandKey: string, cooldownSeconds: number): boolean {
-    if (cooldownSeconds <= 0) return false;
-    const userCooldowns = this.cooldowns.get(userId);
-    if (!userCooldowns) return false;
-    const expiry = userCooldowns.get(commandKey);
-    if (!expiry) return false;
-    // 如果冷却已过期，清理并返回false
-    if (Date.now() >= expiry) {
-      userCooldowns.delete(commandKey);
-      if (userCooldowns.size === 0) {
-        this.cooldowns.delete(userId);
-      }
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * 获取冷却剩余秒数
-   */
-  private getCooldownRemaining(userId: number, commandKey: string): number {
-    const userCooldowns = this.cooldowns.get(userId);
-    if (!userCooldowns) return 0;
-    const expiry = userCooldowns.get(commandKey);
-    if (!expiry) return 0;
-    return Math.max(0, (expiry - Date.now()) / 1000);
-  }
-
-  /**
-   * 设置指令冷却
-   * @param userId 用户ID
-   * @param commandKey 指令handlerKey
-   * @param cooldownSeconds 冷却秒数（由 dispatch 从 SystemConfig 读取）
-   */
-  private setCooldown(userId: number, commandKey: string, cooldownSeconds: number): void {
-    if (cooldownSeconds <= 0) return;
-    if (!this.cooldowns.has(userId)) {
-      this.cooldowns.set(userId, new Map());
-    }
-    const userCooldowns = this.cooldowns.get(userId)!;
-    const expiry = Date.now() + cooldownSeconds * 1000;
-    userCooldowns.set(commandKey, expiry);
   }
 
   /**

@@ -8,6 +8,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
+import { StaticDataService } from './static-data.service';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -111,6 +112,7 @@ export class FamiliarSystemService {
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
     private readonly bonusService: BonusService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -127,10 +129,8 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 查找使魔定义
-    const familiar = await this.prisma.gameFamiliar.findUnique({
-      where: { name: familiarName },
-    });
+    // 查找使魔定义（静态配置 JSON 单一来源）
+    const familiar = this.staticData.getFamiliarByName(familiarName);
     if (!familiar) {
       return `不存在的使魔：${familiarName}`;
     }
@@ -243,10 +243,8 @@ export class FamiliarSystemService {
       return `${player.name || '冒险者'} 你的召唤券只有${ticketCount}，无法召唤${count}次\n你可以在商店兑换召唤券`;
     }
 
-    // 获取所有可召唤的使魔
-    const allFamiliars = await this.prisma.gameFamiliar.findMany({
-      where: { noSummon: false },
-    });
+    // 获取所有可召唤的使魔（静态配置 JSON 单一来源）
+    const allFamiliars = this.staticData.getAllFamiliars().filter((f) => !f.noSummon);
 
     if (allFamiliars.length === 0) {
       return '没有可召唤的使魔';
@@ -360,10 +358,8 @@ export class FamiliarSystemService {
       return '你还没有选择使魔，请先发送「选择使魔」来选择';
     }
 
-    // 获取使魔定义
-    const familiar = await this.prisma.gameFamiliar.findUnique({
-      where: { name: player.type },
-    });
+    // 获取使魔定义（静态配置 JSON 单一来源）
+    const familiar = this.staticData.getFamiliarByName(player.type);
 
     if (!familiar) {
       return `未知的使魔类型: ${player.type}`;
@@ -416,9 +412,7 @@ export class FamiliarSystemService {
       return '请指定使魔名称';
     }
 
-    const familiar = await this.prisma.gameFamiliar.findUnique({
-      where: { name: familiarName },
-    });
+    const familiar = this.staticData.getFamiliarByName(familiarName);
 
     if (!familiar) {
       return `不存在的使魔：${familiarName}`;
@@ -1108,11 +1102,11 @@ export class FamiliarSystemService {
       return '家园中没有建筑，无法产出';
     }
 
-    // 获取建筑定义
+    // 获取建筑定义（静态配置 JSON 单一来源）
     const buildingNames = mapBuildings.map((b: any) => b.name);
-    const buildingDefs = await this.prisma.gameBuilding.findMany({
-      where: { name: { in: buildingNames } },
-    });
+    const buildingDefs = this.staticData
+      .getAllBuildings()
+      .filter((b) => buildingNames.includes(b?.name));
 
     // 构建建筑定义映射
     const buildingDefMap = new Map<string, any>();
@@ -1298,10 +1292,11 @@ export class FamiliarSystemService {
   private async countBuildings(map: any): Promise<number> {
     const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
     const buildingNames = buildings.map((b: any) => b.name);
-    const buildingDefs = await this.prisma.gameBuilding.findMany({
-      where: { name: { in: buildingNames } },
-      select: { name: true, type: true },
-    });
+    // 静态配置 JSON 单一来源，只取 name/type 两个字段
+    const buildingDefs = this.staticData
+      .getAllBuildings()
+      .filter((b) => buildingNames.includes(b?.name))
+      .map((b) => ({ name: b.name, type: b.type }));
 
     // 构建不占位建筑集合
     const noOccupancyNames = new Set<string>();
@@ -1881,10 +1876,8 @@ export class FamiliarSystemService {
       speed: pet.speed || 100,
     });
 
-    // 从怪物定义获取战斗力
-    const monsterDef = await this.prisma.gameMonster.findUnique({
-      where: { name: monsterName },
-    });
+    // 从怪物定义获取战斗力（静态配置 JSON 单一来源）
+    const monsterDef = this.staticData.getMonsterByName(monsterName);
 
     const monsterCombatPower = monsterDef
       ? this.bonusService.calcCombatPower({
@@ -3231,8 +3224,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 检查条件
-    // 收集所有使魔好感度
-    const allFamiliars = await this.prisma.gameFamiliar.findMany();
+    // 收集所有使魔好感度（静态配置 JSON 单一来源）
+    const allFamiliars = this.staticData.getAllFamiliars();
     const affinities: Record<string, number> = {};
     for (const familiar of allFamiliars) {
       const affinityKey = `${familiar.name}好感`;
@@ -3343,8 +3336,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     const ownedTitles = this.playerService.safeJsonParse<any[]>(player.titles, []);
     const ownedNames = new Set(ownedTitles.map((t: any) => t.name));
 
-    // 收集所有使魔好感度
-    const allFamiliars = await this.prisma.gameFamiliar.findMany();
+    // 收集所有使魔好感度（静态配置 JSON 单一来源）
+    const allFamiliars = this.staticData.getAllFamiliars();
     const affinities: Record<string, number> = {};
     for (const familiar of allFamiliars) {
       const affinityKey = `${familiar.name}好感`;

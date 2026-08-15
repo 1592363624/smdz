@@ -6,6 +6,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StaticDataService } from './static-data.service';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -204,7 +205,10 @@ export const AMPLIFIER_STAT_MAP: Record<string, string> = {
 export class ItemService {
   private readonly logger = new Logger(ItemService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly staticData: StaticDataService,
+  ) {}
 
   /**
    * 计算物品价值
@@ -216,8 +220,8 @@ export class ItemService {
   async calculateValue(items: Item3[]): Promise<number> {
     let totalValue = 0;
 
-    // 从数据库加载物品列表以获取物品基础价值
-    const gameItems = await this.prisma.gameItem.findMany();
+    // 从静态配置加载物品列表以获取物品基础价值（JSON 单一来源）
+    const gameItems = this.staticData.getAllItems();
 
     for (const item of items) {
       let foundInList = false;
@@ -551,8 +555,8 @@ export class ItemService {
 
     const actualCount = count < 0 ? backpack[itemIndex].quantity : Math.min(count, backpack[itemIndex].quantity);
 
-    // 从数据库加载物品定义
-    const gameItem = await this.prisma.gameItem.findUnique({ where: { name: itemName } });
+    // 从静态配置加载物品定义（JSON 单一来源）
+    const gameItem = this.staticData.getItemByName(itemName);
     if (!gameItem) {
       return `${player.name},${itemName}在物品列表不存在`;
     }
@@ -625,9 +629,10 @@ export class ItemService {
 
     const backpack: Item3[] = JSON.parse(player.backpack || '[]');
 
-    // 从数据库加载制造配方
-    const recipes = await this.prisma.gameCrafting.findMany();
+    // 从静态配置加载制造配方（JSON 单一来源）
+    const recipes = this.staticData.getAllCraftings();
     let recipeIndex = -1;
+    // 查找目标配方
 
     for (let i = 0; i < recipes.length; i++) {
       if (recipes[i].name === recipeName) {
@@ -862,8 +867,8 @@ export class ItemService {
 
       return `${player.name}分解了${item.name}，得到了${crystalAmount}水晶和${energyAmount}能量块`;
     } else {
-      // 非装备分解：查找制造配方
-      const recipes = await this.prisma.gameCrafting.findMany();
+      // 非装备分解：查找制造配方（静态配置 JSON 单一来源）
+      const recipes = this.staticData.getAllCraftings();
       let recipeIndex = -1;
 
       for (let i = 0; i < recipes.length; i++) {

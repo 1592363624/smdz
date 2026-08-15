@@ -258,6 +258,31 @@ export class CombatSystemService {
     // 4. 获取武器数据
     const weapon = this.getWeaponData(player, weaponIndex);
 
+    // 4.1 武器攻击冷却检查（严格对齐原版：按武器名写入玩家 markers2 持久化标记）
+    //     原版 _主程序.ecode:904 `时间间隔要求(武器名+"冷却", 攻击冷却, 玩家.标记2, ...)`
+    //     noDelay(延时攻击/自动连击) 无视冷却
+    if (!noDelay && weapon?.name) {
+      const now = Date.now();
+      const cooldownSec = weapon.cooldown || 5;
+      const cooldownName = `${weapon.name}冷却`;
+      const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+      const entry = markers2.find((m: any) => m?.name === cooldownName);
+      if (entry && entry.expireAt && now < entry.expireAt) {
+        const remaining = Math.ceil((entry.expireAt - now) / 1000);
+        return {
+          result: `${weapon.name} 冷却中，请等待 ${remaining} 秒`,
+          killed: [],
+          damageDealt: 0,
+          expGained: 0,
+          drops: [],
+        };
+      }
+      // 写入武器冷却标记（覆盖旧标记）
+      const newMarkers2 = markers2.filter((m: any) => m?.name !== cooldownName);
+      newMarkers2.push({ name: cooldownName, expireAt: now + cooldownSec * 1000 });
+      player.markers2 = JSON.stringify(newMarkers2);
+    }
+
     // 5. 确定攻击目标列表
     let targets = this.selectTargets(monsters, player, allAttack, weapon);
 
