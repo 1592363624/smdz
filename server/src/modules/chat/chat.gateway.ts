@@ -14,6 +14,7 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -40,7 +41,7 @@ interface SocketUser {
   cors: { origin: GlobalConfig.getInstance().corsOrigins, credentials: true },
   namespace: '/ws', // 连接地址形如 ws://host/ws
 })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -81,6 +82,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // 加入频道房间（房间名用频道名）
       await client.join(channel.name);
+      // 加入个人专属房间，供服务端定向推送（如移动到达后刷新地图面板）
+      await client.join(`user:${payload.userId}`);
       // 记录在线状态
       this.statsService.userOnline(payload.userId);
       this.logger.log(`用户 ${payload.username}(id=${payload.userId}) 已连接并加入频道「${channel.name}」`);
@@ -92,6 +95,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: '连接认证失败' });
       client.disconnect();
     }
+  }
+
+  /**
+   * 网关初始化完成后，将 Socket.IO 服务端实例注入 ChatService
+   * 使 ChatService.broadcastSystem 具备实时广播能力（供延时到达等场景主动推送）
+   */
+  afterInit(server: Server) {
+    this.chatService.setServer(server);
   }
 
   /**
@@ -202,6 +213,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         type: 'system',
         content: result.content,
         sender: { username: '系统' },
+        createdAt: new Date().toISOString(),
       });
     }
   }

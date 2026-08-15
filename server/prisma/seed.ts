@@ -369,6 +369,7 @@ async function main() {
     { key: 'game.respawnTime', value: '30', label: '怪物重生时间(秒)', description: '怪物被击杀后重生时间', type: 'number', group: 'game' },
     { key: 'game.spawnMonsterCooldown', value: '60', label: '怪物刷新时间(秒)', description: '地图怪物被清空后刷新时间', type: 'number', group: 'game' },
     { key: 'game.worldLevel', value: '1', label: '世界等级', description: '当前世界等级，影响怪物强度和掉落', type: 'number', group: 'game' },
+    { key: 'game.moveTimeEnabled', value: 'true', label: '移动真实耗时', description: '移动是否真实消耗时间(延时到达)。true=移动需等待耗时秒数后才到达，false=即时到达', type: 'boolean', group: 'game' },
     { key: 'game.adminQQ', value: '', label: '管理员QQ', description: '拥有管理员权限的QQ号（逗号分隔）', type: 'string', group: 'game' },
   ] as const;
 

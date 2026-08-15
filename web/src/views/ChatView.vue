@@ -51,17 +51,43 @@
         <button class="qa-attack" @click="quickAction('攻击')">⚔️ 攻击</button>
       </div>
 
-      <!-- 地图连接 -->
-      <div class="map-connections" v-if="mapConnections.length">
-        <h4>🗺️ 地图连接</h4>
-        <div class="mc-grid">
-          <span
-            v-for="mc in mapConnections"
-            :key="mc.name"
-            class="mc-node"
-            :class="{ current: mc.current }"
-            @click="quickAction('go ' + mc.name)"
-          >{{ mc.name }}</span>
+      <!-- 地图总览 -->
+      <div class="map-connections" v-if="mapOverview">
+        <h4>🗺️ 地图总览</h4>
+        <!-- 当前所在地图 -->
+        <div class="mc-current">
+          📍 {{ mapOverview.currentMap.name }}
+          <span class="mc-detail" v-if="mapOverview.currentMap.monsters || mapOverview.currentMap.resources || mapOverview.currentMap.npcs">
+            （怪物{{ mapOverview.currentMap.monsters }} · 资源{{ mapOverview.currentMap.resources }} · NPC{{ mapOverview.currentMap.npcs }}）
+          </span>
+        </div>
+        <!-- 子区域（可前往） -->
+        <div class="mc-block" v-if="mapOverview.subMaps.length">
+          <div class="mc-block-title">子区域</div>
+          <div class="mc-grid">
+            <span
+              v-for="mc in mapOverview.subMaps"
+              :key="'sub-' + mc.name"
+              class="mc-node"
+              @click="quickAction('go ' + mc.name)"
+            >{{ mc.name }}</span>
+          </div>
+        </div>
+        <!-- 全部地图 -->
+        <div class="mc-block">
+          <div class="mc-block-title mc-fold" @click="allMapsCollapsed = !allMapsCollapsed">
+            <span class="mc-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
+            全部地图（{{ mapOverview.allMaps.length }}）
+          </div>
+          <div class="mc-grid" v-show="!allMapsCollapsed">
+            <span
+              v-for="mc in mapOverview.allMaps"
+              :key="'all-' + mc.name"
+              class="mc-node"
+              :class="{ current: mc.isCurrent, reachable: mc.isReachable }"
+              @click="quickAction('go ' + mc.name)"
+            >{{ mc.name }}</span>
+          </div>
         </div>
       </div>
 
@@ -148,10 +174,31 @@
         <button class="qa-attack" @click="mobileMenuOpen = false; quickAction('攻击')">⚔️ 攻击</button>
       </div>
 
-      <div class="map-connections" v-if="mapConnections.length">
-        <h4>🗺️ 地图连接</h4>
-        <div class="mc-grid">
-          <span v-for="mc in mapConnections" :key="mc.name" class="mc-node" :class="{ current: mc.current }" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
+      <div class="map-connections" v-if="mapOverview">
+        <h4>🗺️ 地图总览</h4>
+        <!-- 当前所在地图 -->
+        <div class="mc-current">
+          📍 {{ mapOverview.currentMap.name }}
+          <span class="mc-detail" v-if="mapOverview.currentMap.monsters || mapOverview.currentMap.resources || mapOverview.currentMap.npcs">
+            （怪物{{ mapOverview.currentMap.monsters }} · 资源{{ mapOverview.currentMap.resources }} · NPC{{ mapOverview.currentMap.npcs }}）
+          </span>
+        </div>
+        <!-- 子区域（可前往） -->
+        <div class="mc-block" v-if="mapOverview.subMaps.length">
+          <div class="mc-block-title">子区域</div>
+          <div class="mc-grid">
+            <span v-for="mc in mapOverview.subMaps" :key="'msub-' + mc.name" class="mc-node" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
+          </div>
+        </div>
+        <!-- 全部地图 -->
+        <div class="mc-block">
+          <div class="mc-block-title mc-fold" @click="allMapsCollapsed = !allMapsCollapsed">
+            <span class="mc-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
+            全部地图（{{ mapOverview.allMaps.length }}）
+          </div>
+          <div class="mc-grid" v-show="!allMapsCollapsed">
+            <span v-for="mc in mapOverview.allMaps" :key="'mall-' + mc.name" class="mc-node" :class="{ current: mc.isCurrent, reachable: mc.isReachable }" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
+          </div>
         </div>
       </div>
 
@@ -216,14 +263,17 @@
       <!-- 消息列表 -->
       <div ref="msgList" class="messages" @scroll="onMsgScroll">
         <div v-for="(m, i) in messages" :key="i" :class="['msg', msgClass(m)]">
-          <span v-if="m.sender" class="sender">{{ m.sender.nickname || m.sender.username }}：</span>
-          <span v-else-if="m.type !== 'system' && m.type !== 'game' && m.type !== 'combat' && m.type !== 'info'" class="sender">系统：</span>
-          <span class="content" style="white-space: pre-line">
-            <template v-for="(seg, si) in parseContent(m.content, commands)" :key="si">
-              <span v-if="seg.type === 'text'">{{ seg.text }}</span>
-              <span v-else class="cmd-clickable" :title="'点击发送「' + seg.text + '」'" @click="quickSend(seg.text)">{{ seg.displayText || seg.text }}</span>
-            </template>
-          </span>
+          <div class="msg-body">
+            <span v-if="m.sender" class="sender">{{ m.sender.nickname || m.sender.username }}：</span>
+            <span v-else-if="m.type !== 'system' && m.type !== 'game' && m.type !== 'combat' && m.type !== 'info'" class="sender">系统：</span>
+            <span class="content" style="white-space: pre-line">
+              <template v-for="(seg, si) in parseContent(m.content, commands)" :key="si">
+                <span v-if="seg.type === 'text'">{{ seg.text }}</span>
+                <span v-else class="cmd-clickable" :title="'点击发送「' + seg.text + '」'" @click="quickSend(seg.text)">{{ seg.displayText || seg.text }}</span>
+              </template>
+            </span>
+          </div>
+          <span class="msg-time">{{ formatTime(m.createdAt) }}</span>
         </div>
         <div v-if="!messages.length" class="empty">暂无消息，发送第一条指令吧！</div>
         <!-- 回到底部按钮 -->
@@ -304,8 +354,10 @@ let socket = null;
 
 // 玩家信息
 const playerInfo = ref(null);
-// 地图连接
-const mapConnections = ref([]);
+// 地图总览（当前区域 + 全部地图）
+const mapOverview = ref(null);
+// 全部地图是否折叠（默认折叠，保持面板简洁）
+const allMapsCollapsed = ref(true);
 
 // 手机端菜单状态
 const mobileMenuOpen = ref(false);
@@ -579,6 +631,9 @@ async function sendMessage() {
 }
 
 function appendMessage(msg) {
+  if (!msg) return;
+  // 兜底：socket 实时消息若缺少时间戳，则补当前时间，保证每条消息都能显示精确到秒的时间
+  if (!msg.createdAt) msg.createdAt = new Date().toISOString();
   messages.value.push(msg);
   // 限制本地消息数量，防止内存增长
   if (messages.value.length > 300) {
@@ -588,6 +643,19 @@ function appendMessage(msg) {
   if (!isUserScrolling) {
     scrollToBottom();
   }
+}
+
+/**
+ * 格式化消息时间（精确到秒）
+ * @param ts 时间戳/ISO字符串
+ * @returns HH:mm:ss，非法或缺失时返回空字符串
+ */
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function scrollToBottom() {
@@ -634,12 +702,12 @@ async function loadPlayerInfo() {
   }
 }
 
-async function loadMapConnections() {
+async function loadMapOverview() {
   try {
-    const res = await gameApi.mapConnections();
-    mapConnections.value = res.data;
+    const res = await gameApi.mapOverview();
+    mapOverview.value = res.data;
   } catch {
-    // 地图连接接口可能不存在，静默忽略
+    // 地图总览接口可能不存在，静默忽略
   }
 }
 
@@ -674,8 +742,8 @@ onMounted(async () => {
     // 加载指令列表
     const cmds = await commandApi.list();
     commands.value = cmds.data;
-    // 加载玩家信息和地图连接
-    await Promise.allSettled([loadPlayerInfo(), loadMapConnections()]);
+    // 加载玩家信息和地图总览
+    await Promise.allSettled([loadPlayerInfo(), loadMapOverview()]);
     // 加载服务器统计
     loadServerStats();
     // 每 30 秒刷新一次服务器统计
@@ -707,10 +775,10 @@ onMounted(async () => {
         playerInfo.value = data;
       }
     });
-    // 接收地图连接更新事件
+    // 接收地图总览更新事件（移动到达后由服务端定向推送）
     socket.on('map:update', (data) => {
-      if (data && data.connections) {
-        mapConnections.value = data.connections;
+      if (data && data.overview) {
+        mapOverview.value = data.overview;
       }
     });
     socket.on('error', (e) => {

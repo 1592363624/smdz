@@ -22,6 +22,8 @@ import { FamiliarSkillsService } from './familiar-skills.service';
 import { HomeService } from './home.service';
 import { TutorialService } from './tutorial.service';
 import { StaticDataService } from './static-data.service';
+import { SystemConfigService } from '../system-config/system-config.service';
+import { ChatService } from '../chat/chat.service';
 
 @Injectable()
 export class GameService {
@@ -45,6 +47,8 @@ export class GameService {
     private readonly familiarSkillsService: FamiliarSkillsService,
     private readonly tutorialService: TutorialService,
     private readonly staticData: StaticDataService,
+    private readonly systemConfigService: SystemConfigService,
+    private readonly chatService: ChatService,
   ) {}
 
   /**
@@ -61,12 +65,42 @@ export class GameService {
   }
 
   /**
-   * 处理移动命令
+   * 处理移动命令（延时到达）
    * 对应原版：移动/前往 命令
+   * 发出移动后，玩家进入"移动中"状态，经过实际耗时秒数后才真正到达目的地；
+   * 期间再次发起移动会被拦截并提示剩余时间，杜绝"连发移动瞬间到达"的作弊。
+   * 若配置 game.moveTimeEnabled=false 则退化为即时到达。
    */
   async handleMove(userId: number, targetMapName: string): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    // 读取"移动真实耗时"开关（配置项，可在管理后台在线切换）
+    const moveTimeEnabled = await this.systemConfigService.get<boolean>('game.moveTimeEnabled', true);
+
+    let playerData = await this.playerService.getPlayerData(userId);
+    let { player } = playerData;
+
+    // 1. 检查是否已在移动中
+    const markers = playerData.markers;
+    const movingStr = markers['移动中'];
+    if (movingStr) {
+      let moving: { targetName?: string; targetMapId?: number; arriveAt?: number } | null = null;
+      try {
+        moving = JSON.parse(movingStr);
+      } catch {
+        moving = null;
+      }
+      if (moving && moving.arriveAt) {
+        const now = Date.now();
+        if (now < moving.arriveAt) {
+          // 仍在赶往上一目的地：拦截并提示剩余时间
+          const remain = Math.max(1, Math.ceil((moving.arriveAt - now) / 1000));
+          return `你正在前往【${moving.targetName}】，还需约${remain}秒到达，请耐心等待`;
+        }
+        // 耗时至已到期但尚未落地(如服务重启丢定时器)：先补完成上次移动
+        await this.performArrival(userId, moving.targetMapId!, moving.targetName!);
+        playerData = await this.playerService.getPlayerData(userId);
+        player = playerData.player;
+      }
+    }
 
     const currentMap = await this.mapService.getMapById(player.mapId);
     const targetMap = await this.mapService.getMapByName(targetMapName);
@@ -81,12 +115,76 @@ export class GameService {
       return `无法前往：${check.reason}`;
     }
 
-    // 计算移动时间并更新玩家位置
+    // 计算移动所需耗时（秒）
     const travelTime = this.mapService.calcTravelTime(
       this.getDistance(currentMap, targetMap),
       player.speed || 100,
     );
 
+    // 若关闭了移动耗时开关，则即时到达
+    if (!moveTimeEnabled) {
+      return await this.performArrival(userId, targetMap.id, targetMap.name);
+    }
+
+    // 2. 记录"移动中"状态（持久化到 markers，重启后可恢复），并调度延时到达
+    const newMarkers = this.playerService.safeJsonParse(player.markers, {});
+    newMarkers['移动中'] = JSON.stringify({
+      targetName: targetMap.name,
+      targetMapId: targetMap.id,
+      arriveAt: Date.now() + travelTime * 1000,
+      fromMapId: currentMap.id,
+    });
+    player.markers = JSON.stringify(newMarkers);
+    await this.playerService.savePlayer(player);
+
+    // 3. 启动到达定时器，到点后真正落地（更新位置 + 广播到达）
+    this.scheduleArrival(userId, targetMap.id, targetMap.name, travelTime);
+
+    return `你开始前往【${targetMap.name}】，预计${travelTime}秒后到达`;
+  }
+
+  /**
+   * 调度延时到达
+   * 在 travelTime 秒后调用 performArrival 真正完成移动
+   * @param userId 用户ID
+   * @param targetMapId 目标地图ID
+   * @param targetMapName 目标地图名
+   * @param travelTime 耗时（秒）
+   */
+  private scheduleArrival(userId: number, targetMapId: number, targetMapName: string, travelTime: number): void {
+    const timer = setTimeout(async () => {
+      try {
+        await this.performArrival(userId, targetMapId, targetMapName);
+      } catch (e: any) {
+        this.logger.warn(`玩家 ${userId} 延时到达失败: ${e.message}`);
+      }
+    }, travelTime * 1000);
+    // 定时器不阻止进程退出（对服务生命周期友好）
+    timer.unref?.();
+  }
+
+  /**
+   * 真正完成移动（到达目的地）
+   * 更新玩家位置、应用地图增益、懒刷新怪物、记录探索成就，并向世界频道广播到达消息。
+   * @param userId 用户ID
+   * @param targetMapId 目标地图ID
+   * @param targetMapName 目标地图名
+   */
+  private async performArrival(userId: number, targetMapId: number, targetMapName: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    const targetMap = await this.mapService.getMapById(targetMapId);
+    if (!targetMap) {
+      return `目标地图「${targetMapName}」不存在`;
+    }
+
+    // 清除"移动中"状态
+    const markers = this.playerService.safeJsonParse(player.markers, {});
+    delete markers['移动中'];
+    player.markers = JSON.stringify(markers);
+
+    const fromMapId = player.mapId;
     player.mapId = targetMap.id;
     player.location = targetMap.name;
     await this.playerService.savePlayer(player);
@@ -94,35 +192,90 @@ export class GameService {
     // 进入地图时自动获得地图增益
     this.combatSystem.applyMapBuffs(player, targetMap);
 
-    // 懒刷新：若目标地图当前没有已生成的怪物(spawnMonsters 为空)，立即补充刷新，
-    // 避免玩家刚进图攻击时因定时刷新(每分钟)未到点而长时间无怪可打。
+    // 懒刷新：若目标地图当前没有已生成的怪物，立即补充刷新，避免到达后无怪可打
     try {
       const currentSpawn = this.mapService.getMapMonsters(targetMap);
       if (currentSpawn.length === 0) {
         await this.mapService.refreshMapMonsters(targetMap.id);
-        this.logger.log(`玩家 ${userId} 进入「${targetMap.name}」时触发懒刷新怪物`);
+        this.logger.log(`玩家 ${userId} 到达「${targetMap.name}」时触发懒刷新怪物`);
       }
-    } catch (e) {
-      this.logger.warn(`进入地图懒刷新怪物失败: ${e?.message}`);
+    } catch (e: any) {
+      this.logger.warn(`到达地图懒刷新怪物失败: ${e?.message}`);
     }
 
-    // 探索成就：记录玩家首次到达的地图（通过检查 markers 中是否已有该地图探索记录）
-    // 使用"探索_地图名"作为成就名，值为1表示已探索
+    // 探索成就：记录玩家首次到达的地图
     try {
-      const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+      const mark = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
       const exploreKey = `探索_${targetMap.name}`;
-      if (!markers[exploreKey]) {
-        // 使用 addAchievement 会触发称号检查，但这里传 false 避免重复检查
+      if (!mark[exploreKey]) {
         await this.achievementService.addAchievement(player, '探索', 1, false);
         await this.achievementService.addAchievement(player, exploreKey, 1, true);
-        this.logger.log(`玩家 ${userId} 探索了新地图: ${targetMap.name}`);
+        this.logger.log(`玩家 ${userId} 通过移动探索了新地图: ${targetMap.name}`);
       }
-    } catch (e) {
+    } catch (e: any) {
       this.logger.warn(`探索成就记录失败: ${e.message}`);
     }
 
+    this.logger.log(`玩家 ${userId} 移动到达：${fromMapId} → ${targetMap.name}`);
+
     const desc = targetMap.description ? `\n${targetMap.description}` : '';
-    return `你来到了【${targetMap.name}】${desc}\n移动耗时约${Math.ceil(travelTime)}秒`;
+    const text = `你来到了【${targetMap.name}】${desc}`;
+
+    // 向世界频道广播到达消息（持久化 + 实时推送）
+    await this.chatService.broadcastSystem('世界频道', text, userId);
+
+    // 定向刷新该玩家的地图总览面板
+    try {
+      const overview = await this.getMapOverview(userId);
+      this.chatService.emitToUser(userId, 'map:update', { overview });
+    } catch (e: any) {
+      this.logger.warn(`刷新玩家 ${userId} 地图面板失败: ${e.message}`);
+    }
+
+    return text;
+  }
+
+  /**
+   * 获取地图总览数据（供网页左上角地图面板使用）
+   * 包含：当前所在地图详情（怪物/资源/NPC等子区域信息）、可前往子区域、以及全部地图列表
+   * @param userId 用户ID
+   */
+  async getMapOverview(userId: number) {
+    const { mapId } = await this.playerService.getPlayerLocation(userId);
+    const currentMap = await this.mapService.getMapById(mapId);
+    if (!currentMap) return null;
+
+    // 当前地图的可前往子区域（connections）
+    const subMaps = this.mapService
+      .getConnections(currentMap)
+      .map((c) => ({ name: c.name, mapId: c.mapId, distance: c.distance || 0 }));
+
+    // 全部地图，标记当前所在地图及是否由当前地图直接可达
+    const currentConnNames = new Set(subMaps.map((s) => s.name));
+    const allMaps = (await this.mapService.getAllMaps()).map((m) => ({
+      name: m.name,
+      mapId: m.id,
+      isCurrent: m.id === currentMap.id,
+      isReachable: currentConnNames.has(m.name),
+    }));
+
+    // 当前地图的子区域详情（怪物/资源/NPC标题）
+    const monsters = this.playerService.safeJsonParse<any[]>(currentMap.monsters, []);
+    const resources = this.playerService.safeJsonParse<any[]>(currentMap.resources, []);
+    const npcs = this.playerService.safeJsonParse<any[]>(currentMap.npcs, []);
+
+    return {
+      currentMap: {
+        name: currentMap.name,
+        mapId: currentMap.id,
+        description: currentMap.description || '',
+        monsters: monsters.length,
+        resources: resources.length,
+        npcs: npcs.length,
+      },
+      subMaps,
+      allMaps,
+    };
   }
 
   /**
@@ -735,8 +888,12 @@ export class GameService {
 
     // 执行移动
     const fromMapId = player.mapId;
+    // 清除"移动中"状态，避免与延时移动逻辑冲突
+    const arriveMarkers = this.playerService.safeJsonParse(player.markers, {});
+    delete arriveMarkers['移动中'];
     player.mapId = targetMap.id;
     player.location = targetMap.name;
+    player.markers = JSON.stringify(arriveMarkers);
     await this.playerService.savePlayer(player);
 
     // 进入地图自动获得地图增益

@@ -66,6 +66,8 @@ export const gameApi = {
   playerInfo: () => http.get('/game/player/info'),
   // 获取地图连接
   mapConnections: () => http.get('/game/map/connections'),
+  // 获取地图总览（当前区域+全部地图）
+  mapOverview: () => http.get('/game/map/overview'),
   // 执行游戏内快捷操作
   quickAction: (action) => http.post('/game/player/action', { action }),
   // 获取服务器在线统计（总玩家数、在线人数）

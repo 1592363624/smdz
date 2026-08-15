@@ -761,9 +761,28 @@ vite-plugin-checker-error-overlay,
   animation: fadeInUp 0.3s ease-out;
   transition: all 0.2s ease;
   touch-action: manipulation;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 .msg:hover {
   border-color: rgba(139, 92, 246, 0.3);
+}
+
+/* 消息主体（发送者+内容），占满剩余宽度，让时间戳靠右 */
+.msg-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 消息时间戳 - 精确到秒，靠右小号灰色 */
+.msg-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted-dark);
+  margin-top: 2px;
+  white-space: nowrap;
+  opacity: 0.85;
 }
 
 .msg .sender {
@@ -1039,9 +1058,19 @@ vite-plugin-checker-error-overlay,
   padding: 12px;
   font-size: 12px;
   transition: all 0.25s ease;
+  max-height: 45vh;
+  overflow-y: auto;
 }
 .map-connections:hover {
   border-color: rgba(139, 92, 246, 0.3);
+}
+/* 地图面板滚动条优化 */
+.map-connections::-webkit-scrollbar {
+  width: 4px;
+}
+.map-connections::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.3);
+  border-radius: 2px;
 }
 .map-connections h4 {
   color: var(--muted);
@@ -1074,6 +1103,58 @@ vite-plugin-checker-error-overlay,
   color: var(--accent);
   font-weight: 600;
   box-shadow: 0 0 8px rgba(139, 92, 246, 0.2);
+}
+/* 当前可直接到达的地图（淡高亮提示） */
+.map-connections .mc-node.reachable {
+  border-color: rgba(52, 211, 153, 0.4);
+  color: var(--text);
+  background: rgba(52, 211, 153, 0.08);
+}
+/* 当前所在地图行 */
+.map-connections .mc-current {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+}
+.map-connections .mc-detail {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11px;
+}
+/* 分组区块 */
+.map-connections .mc-block {
+  margin-top: 8px;
+}
+.map-connections .mc-block-title {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+/* 可折叠标题（全部地图） */
+.map-connections .mc-block-title.mc-fold {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  font-weight: 600;
+}
+.map-connections .mc-block-title.mc-fold:hover {
+  color: var(--accent);
+}
+.map-connections .mc-caret {
+  font-size: 10px;
+  color: var(--muted);
 }
 
 /* ============================================================

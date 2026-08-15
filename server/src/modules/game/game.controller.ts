@@ -65,6 +65,20 @@ export class GameController {
   }
 
   /**
+   * 获取地图总览：当前所在地图详情 + 可前往子区域 + 全部地图列表
+   * 供网页左上角地图面板使用
+   */
+  @Get('map/overview')
+  @ApiOperation({ summary: '获取地图总览（当前区域+全部地图）' })
+  async getMapOverview(@Req() req) {
+    const overview = await this.gameService.getMapOverview(req.user.userId);
+    if (!overview) {
+      return { success: false, message: '地图数据不存在' };
+    }
+    return { success: true, data: overview };
+  }
+
+  /**
    * 获取当前玩家所在地图的地图连接（可前往的地图列表）
    */
   @Get('map/connections')
