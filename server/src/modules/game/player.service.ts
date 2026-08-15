@@ -55,6 +55,18 @@ export class PlayerService {
   }
 
   /**
+   * 解析新玩家出生地图
+   * 优先"新手村"，其次回退到"医疗室"（原版出生点，见 maps.json 首条），
+   * 再取第一张地图兜底，避免数据里没有"新手村"导致出生在无效地图（mapId=0）的问题。
+   * @returns 出生地图对象（可能为 null）
+   */
+  private async resolveStartMap(): Promise<any> {
+    return (await this.prisma.gameMap.findFirst({ where: { name: '新手村' } }))
+      || (await this.prisma.gameMap.findFirst({ where: { name: '医疗室' } }))
+      || (await this.prisma.gameMap.findFirst({ orderBy: { id: 'asc' } }));
+  }
+
+  /**
    * 获取或创建玩家
    * 如果用户已有玩家档案则返回，否则创建新档案
    * 新玩家初始化：发放初始装备、初始物品、设置初始位置与标记
@@ -91,6 +103,8 @@ export class PlayerService {
       // 初始称号
       const initialTitles = ['新人'];
 
+      const startMap = await this.resolveStartMap();
+
       player = await this.prisma.player.create({
         data: {
           userId,
@@ -114,9 +128,9 @@ export class PlayerService {
           hit: 100,
           crit: 5,
           critDmg: 150,
-          // 位置信息 - 初始地图为新手村（按真实地图表查询其ID，避免硬编码导致与数据ID体系不匹配）
-          mapId: (await this.prisma.gameMap.findFirst({ where: { name: '新手村' } }))?.id ?? 0,
-          location: '新手村',
+          // 位置信息
+          mapId: startMap?.id ?? 0,
+          location: startMap?.name ?? '新手村',
           // 复杂数据结构
           backpack: JSON.stringify(initialBackpack),
           equipment: JSON.stringify(initialEquipment),
@@ -137,6 +151,21 @@ export class PlayerService {
    */
   async getPlayerData(userId: number): Promise<PlayerData> {
     const player = await this.getOrCreatePlayer(userId);
+
+    // 自动修复存量玩家无效地图（mapId=0 或不存在的地图）
+    // 避免"新手村"地图不存在导致 mapId=0 被写入数据库后，玩家卡在无效地图
+    if (!player.mapId || player.mapId <= 0) {
+      const startMap = await this.resolveStartMap();
+      if (startMap && startMap.id !== player.mapId) {
+        this.logger.warn(`玩家 ${userId} 地图无效(mapId=${player.mapId})，自动修正为 ${startMap.name}(id=${startMap.id})`);
+        await this.prisma.player.update({
+          where: { id: player.id },
+          data: { mapId: startMap.id, location: startMap.name },
+        });
+        player.mapId = startMap.id;
+        player.location = startMap.name;
+      }
+    }
 
     return {
       player,

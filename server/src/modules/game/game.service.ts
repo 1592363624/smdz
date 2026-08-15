@@ -323,7 +323,7 @@ export class GameService {
       lines.push('   里面有你需要的「古代遗物」。"');
       lines.push('');
       lines.push('💡 输入 背包 查看你拥有的物品');
-      lines.push('💡 输入 对话新手引导员 了解更多信息');
+      lines.push('💡 输入 对话 新手引导员 了解更多信息');
       lines.push('');
       lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━');
     }
@@ -558,13 +558,67 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
+    // 特殊NPC剧情映射（新手流程固定NPC，不依赖地图数据）
+    // 原版中这些NPC由"生成人物"指令动态生成，地图 npcs 字段可能为空，
+    // 因此将固定剧情前置处理，保证新手引导中的「对话 新手引导员」始终可用。
+    const specialNpcs: Record<string, { title: string; dialogs: Record<string, string> }> = {
+      '新手引导员': {
+        title: '新手引导员·小薇',
+        dialogs: {
+          'hello': '你好呀，新人！我是新手引导员小薇，欢迎来到使魔大战的世界！\n\n你从出生点醒来，沿着走廊一直走，会在走廊尽头发现一个宝箱。\n打开宝箱可以获得一些有用的道具。',
+          'intro': '这个世界的怪物可不是好惹的，先从背包里拿出你的石斧吧！\n\n💡 使用「装备 石斧」来装备武器\n💡 使用「攻击」来试试身手\n💡 使用「背包」查看你拥有的物品',
+          'quest': '等你准备好了，我有个任务要交给你。\n先去走廊尽头的宝箱那里，找到「古代遗物」，然后回来找我。\n\n使用「领取任务 新手教程」来接受任务吧！',
+          'done': '你已经学会了基本操作，去探索更广阔的世界吧！\n\n记住：\n  - 使用「移动 地图名」前往新区域\n  - 使用「对话 NPC名」与NPC交谈\n  - 遇到困难可以「求助」其他玩家',
+        }
+      },
+      '老村长': {
+        title: '老村长',
+        dialogs: {
+          'hello': '咳咳，年轻人，你就是新来的冒险者吧？\n\n我是这个新手村的村长，已经在这里生活了几十年了。\n最近村子周围的怪物越来越多了，我需要你的帮助。',
+          'intro': '你看到村子东边的走廊了吗？那里原本是通往神殿的通道，\n但是最近被一群史莱姆占据了。\n去那里看看吧，说不定能找到一些有用的东西。',
+          'quest': '年轻人，如果你愿意的话，帮我清理掉走廊里的史莱姆。\n作为回报，我会告诉你关于使魔的秘密。',
+          'done': '你做得很好，年轻人！\n现在我告诉你，使魔是这个世界最神奇的伙伴。\n使用「召唤使魔」来召唤你的第一个使魔吧！',
+          'story': '很久很久以前，使魔大战爆发了……\n算了，这些故事以后再说。\n你现在的任务是提升实力，去探索这个世界的秘密。',
+        }
+      },
+      '流浪商人': {
+        title: '流浪商人·阿福',
+        dialogs: {
+          'hello': '嘿嘿，新面孔啊！我是流浪商人阿福，\n我在各个大陆之间旅行，贩卖各种稀奇古怪的东西。\n\n要不要看看我的商品？使用「购物」来打开商店。',
+          'intro': '我这里的商品可都是好东西！\n有武器、防具、药品，还有一些特殊的道具。\n\n不过嘛……好东西可不便宜，你先去赚点钱再来吧。',
+          'quest': '如果你能帮我找到「古代遗物」，我可以给你一个优惠价。\n据说那个东西就在新手村的走廊尽头。',
+          'done': '你真的找到了古代遗物？！厉害厉害！\n作为奖励，我可以给你打个八折，嘿嘿。',
+        }
+      },
+      '旅行者': {
+        title: '神秘的旅行者',
+        dialogs: {
+          'hello': '嘘……别出声。\n我正在观察走廊里的那些史莱姆，它们的行为很奇怪。\n\n你也是来探索这条走廊的吗？',
+          'intro': '这条走廊被称为「试炼之路」，每个新人都要经过这里。\n走廊里有各种机关和宝箱，当然也有怪物。\n\n在走廊尽头，据说藏着一个强大的古代遗物。',
+          'quest': '如果你能找到走廊尽头的宝箱，帮我看看里面有什么。\n但我警告你，走廊深处有一种特殊的史莱姆，\n它们比普通史莱姆要强大得多。',
+          'done': '你找到古代遗物了？太好了！\n那个东西蕴含着强大的力量，好好利用它吧。',
+        }
+      },
+      '行商': {
+        title: '流浪行商·阿福',
+        dialogs: {
+          'hello': '嘿，新人！我这里有些好东西，要不要看看？',
+          'intro': '我这里有各种武器和防具，不过价格嘛……嘿嘿。',
+          'quest': '如果你有材料，可以找我制作装备，我的锻造技术可是一流的！',
+          'done': '欢迎下次光临！',
+        }
+      },
+    };
+    // 指定了NPC且命中特殊NPC → 视为可对话（无需地图数据中存在该NPC）
+    const isSpecialNpc = !!npcName && !!specialNpcs[npcName];
+
     // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return '你不在任何地图上！';
+    if (!map && !isSpecialNpc) return '你不在任何地图上！';
 
     // 解析地图NPC列表
-    const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
-    if (npcs.length === 0) {
+    const npcs = this.playerService.safeJsonParse<any[]>(map ? map.npcs : [], []);
+    if (npcs.length === 0 && !isSpecialNpc) {
       return '当前地图没有可对话的NPC';
     }
 
@@ -574,13 +628,21 @@ export class GameService {
       for (const npc of npcs) {
         lines.push(`  ${npc.name || '未知'}${npc.description ? ` - ${npc.description}` : ''}`);
       }
+      // 地图无NPC数据时，列出新手固定NPC供玩家选择
+      if (npcs.length === 0) {
+        lines.push(`  ${specialNpcs['新手引导员'].title} - 新手村的引导员`);
+        lines.push(`  ${specialNpcs['老村长'].title} - 新手村的村长`);
+        lines.push(`  ${specialNpcs['流浪商人'].title} - 贩卖各种物品的商人`);
+        lines.push(`  ${specialNpcs['旅行者'].title} - 神秘的旅行者`);
+      }
       lines.push(``);
       lines.push(`使用「对话 NPC名」与NPC对话`);
       return lines.join('\n');
     }
 
-    // 查找指定NPC
-    const targetNpc = npcs.find((n: any) => n.name === npcName);
+    // 查找指定NPC；特殊NPC不存在于地图数据时，用占位对象代替
+    const targetNpc = npcs.find((n: any) => n.name === npcName)
+      || (isSpecialNpc ? { name: npcName, title: specialNpcs[npcName].title, type: 'npc', description: '' } : null);
     if (!targetNpc) {
       return `当前地图没有名为【${npcName}】的NPC`;
     }
@@ -593,15 +655,15 @@ export class GameService {
     // 基础问候
     const greetings = [
       `你好，${player.name || '冒险者'}！`,
-      `欢迎来到${map.name}！`,
+      `欢迎来到${map ? map.name : '新手村'}！`,
       `有什么事吗？`,
     ];
     dialogLines.push(`【${npcTitle}】`);
     dialogLines.push(`━━━━━━━━━━━━━━━`);
     dialogLines.push(greetings[Math.floor(Math.random() * greetings.length)]);
 
-    // 新手村（mapId=1）特殊NPC对话剧情
-    if (player.mapId === 1) {
+    // 新手村特殊NPC对话剧情（特殊NPC在任意地图都可对话，便于新手引导使用）
+    if (player.mapId === 1 || isSpecialNpc) {
       // 根据教程进度和与当前NPC的对话历史确定对话阶段
       const tutorialValue = markers['教程'] || 0;
       // 检查与该NPC的独立对话进度（支持每个NPC独立的对话推进）
@@ -629,56 +691,6 @@ export class GameService {
         player.markers = JSON.stringify(markers);
         await this.playerService.savePlayer(player);
       }
-
-      // 特殊NPC对话映射 - 包含丰富的走廊对话/找道具剧情
-      const specialNpcs: Record<string, { title: string; dialogs: Record<string, string> }> = {
-        '新手引导员': {
-          title: '新手引导员·小薇',
-          dialogs: {
-            'hello': '你好呀，新人！我是新手引导员小薇，欢迎来到使魔大战的世界！\n\n你从出生点醒来，沿着走廊一直走，会在走廊尽头发现一个宝箱。\n打开宝箱可以获得一些有用的道具。',
-            'intro': '这个世界的怪物可不是好惹的，先从背包里拿出你的石斧吧！\n\n💡 使用「装备 石斧」来装备武器\n💡 使用「攻击」来试试身手\n💡 使用「背包」查看你拥有的物品',
-            'quest': '等你准备好了，我有个任务要交给你。\n先去走廊尽头的宝箱那里，找到「古代遗物」，然后回来找我。\n\n使用「领取任务 新手教程」来接受任务吧！',
-            'done': '你已经学会了基本操作，去探索更广阔的世界吧！\n\n记住：\n  - 使用「移动 地图名」前往新区域\n  - 使用「对话 NPC名」与NPC交谈\n  - 遇到困难可以「求助」其他玩家',
-          }
-        },
-        '老村长': {
-          title: '老村长',
-          dialogs: {
-            'hello': '咳咳，年轻人，你就是新来的冒险者吧？\n\n我是这个新手村的村长，已经在这里生活了几十年了。\n最近村子周围的怪物越来越多了，我需要你的帮助。',
-            'intro': '你看到村子东边的走廊了吗？那里原本是通往神殿的通道，\n但是最近被一群史莱姆占据了。\n去那里看看吧，说不定能找到一些有用的东西。',
-            'quest': '年轻人，如果你愿意的话，帮我清理掉走廊里的史莱姆。\n作为回报，我会告诉你关于使魔的秘密。',
-            'done': '你做得很好，年轻人！\n现在我告诉你，使魔是这个世界最神奇的伙伴。\n使用「召唤使魔」来召唤你的第一个使魔吧！',
-            'story': '很久很久以前，使魔大战爆发了……\n算了，这些故事以后再说。\n你现在的任务是提升实力，去探索这个世界的秘密。',
-          }
-        },
-        '流浪商人': {
-          title: '流浪商人·阿福',
-          dialogs: {
-            'hello': '嘿嘿，新面孔啊！我是流浪商人阿福，\n我在各个大陆之间旅行，贩卖各种稀奇古怪的东西。\n\n要不要看看我的商品？使用「购物」来打开商店。',
-            'intro': '我这里的商品可都是好东西！\n有武器、防具、药品，还有一些特殊的道具。\n\n不过嘛……好东西可不便宜，你先去赚点钱再来吧。',
-            'quest': '如果你能帮我找到「古代遗物」，我可以给你一个优惠价。\n据说那个东西就在新手村的走廊尽头。',
-            'done': '你真的找到了古代遗物？！厉害厉害！\n作为奖励，我可以给你打个八折，嘿嘿。',
-          }
-        },
-        '旅行者': {
-          title: '神秘的旅行者',
-          dialogs: {
-            'hello': '嘘……别出声。\n我正在观察走廊里的那些史莱姆，它们的行为很奇怪。\n\n你也是来探索这条走廊的吗？',
-            'intro': '这条走廊被称为「试炼之路」，每个新人都要经过这里。\n走廊里有各种机关和宝箱，当然也有怪物。\n\n在走廊尽头，据说藏着一个强大的古代遗物。',
-            'quest': '如果你能找到走廊尽头的宝箱，帮我看看里面有什么。\n但我警告你，走廊深处有一种特殊的史莱姆，\n它们比普通史莱姆要强大得多。',
-            'done': '你找到古代遗物了？太好了！\n那个东西蕴含着强大的力量，好好利用它吧。',
-          }
-        },
-        '行商': {
-          title: '流浪行商·阿福',
-          dialogs: {
-            'hello': '嘿，新人！我这里有些好东西，要不要看看？',
-            'intro': '我这里有各种武器和防具，不过价格嘛……嘿嘿。',
-            'quest': '如果你有材料，可以找我制作装备，我的锻造技术可是一流的！',
-            'done': '欢迎下次光临！',
-          }
-        },
-      };
 
       // 检查当前NPC是否在特殊NPC列表中
       const specialNpc = specialNpcs[npcName];
