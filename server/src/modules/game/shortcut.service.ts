@@ -85,8 +85,8 @@ export class ShortcutService {
         if (matched) {
           // 替换左边匹配的原文本为目标文本
           result = result.replace(temp.original, temp.target);
-          // 临时输入替换触发一次后清空所有临时输入
-          data.tempInputs = [];
+          // 临时输入替换触发一次后仅移除当前匹配项，保留其他编号选项（如 1/2/3/4）
+          data.tempInputs = data.tempInputs.filter(t => t !== temp);
           this.cache.set(userId, data);
           return result;
         }

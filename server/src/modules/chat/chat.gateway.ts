@@ -139,6 +139,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   /**
    * 接收用户发来的消息（聊天 或 指令）
    * 前端聊天框发送的内容统一走这里。
+   * 支持多行输入：每行作为一个独立指令/聊天消息，按顺序逐行执行。
    */
   @SubscribeMessage('chat:message')
   async handleIncomingMessage(
@@ -150,8 +151,33 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       client.emit('error', { message: '未认证' });
       return;
     }
-    let content = (body?.content || '').trim();
+    const content = (body?.content || '').trim();
     if (!content) return;
+
+    // 多行输入：按换行符拆分，逐行顺序执行（每行间隔 300ms，避免后端处理压力）
+    const lines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length > 1) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        await this.processSingleLine(client, user, line);
+        // 最后一行不等待，其余行之间间隔 300ms
+        if (i < lines.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+      return;
+    }
+
+    // 单行输入：保持原有逻辑
+    await this.processSingleLine(client, user, content);
+  }
+
+  /**
+   * 处理单行消息（指令 或 聊天）
+   * 抽离为独立方法，供单行和多行输入复用
+   */
+  private async processSingleLine(client: Socket, user: SocketUser, rawContent: string) {
+    let content = rawContent;
 
     // 先经过快捷输入系统预处理（快捷键/输入替换/临时替换）
     content = await this.shortcutService.processShortcut(content, user.userId);

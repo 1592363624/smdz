@@ -1497,7 +1497,8 @@ export class GameService {
     }
 
     // 发放资源产出（对应原版：物品.名称 = 产出[b].名称, 物品.数量 = 产出[b].数量）
-    const outputs = this.playerService.safeJsonParse<any[]>(target.outputs, []);
+    // 注意：map.resources 从 JSON 字符串解析后，outputs 字段已经是 JS 数组，无需再次 JSON.parse
+    const outputs = Array.isArray(target.outputs) ? target.outputs : this.playerService.safeJsonParse<any[]>(target.outputs, []);
     for (const out of outputs) {
       if (!out.name) continue;
       // 解析产出名中的数量后缀（如 "钻石3" → 钻石 ×3）；无后缀则使用 count 字段
