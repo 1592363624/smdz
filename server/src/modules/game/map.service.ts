@@ -5,6 +5,7 @@
  */
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StaticDataService } from './static-data.service';
 
@@ -77,10 +78,45 @@ export interface TravelCheckResult {
 export class MapService {
   private readonly logger = new Logger(MapService.name);
 
+  /**
+   * 每张地图的进程内互斥锁（Promise 链实现）
+   * 用于消除"读旧快照 → 改内存 → 整体覆盖写回"的并发丢失更新竞态。
+   * 原版是单线程内存模型（全局访问锁），后端多请求并发必须显式串行化地图状态变更。
+   * 注意：这是单进程锁，若 PM2 cluster 多副本部署，需改分布式锁（当前为单实例部署，够用）。
+   */
+  private readonly mapLocks = new Map<number, Promise<unknown>>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly staticData: StaticDataService,
   ) {}
+
+  /**
+   * 对指定地图加锁执行一段异步操作，保证同一地图的状态变更串行化。
+   * 锁内务必完成"读 → 改 → 写回"的完整闭环，避免并发覆盖。
+   * @param mapId 地图ID
+   * @param fn 需要在锁内执行的异步函数
+   * @returns fn 的返回值
+   */
+  async withMapLock<T>(mapId: number, fn: () => Promise<T>): Promise<T> {
+    // 取当前队尾（上一个任务），没有则用已完成的 Promise
+    const prev = this.mapLocks.get(mapId) ?? Promise.resolve();
+    // 当前任务在前一个任务 settle 之后执行（无论前一个成功或失败都继续）
+    const run = prev.then(fn, fn);
+    // 将"队尾"推进为当前任务（无论成功失败都 resolve，避免锁卡死）
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.mapLocks.set(mapId, tail);
+    // 空闲后清理，防止 map 无限增长
+    tail.finally(() => {
+      if (this.mapLocks.get(mapId) === tail) {
+        this.mapLocks.delete(mapId);
+      }
+    });
+    return run;
+  }
 
   /**
    * 获取所有地图列表
@@ -238,7 +274,7 @@ export class MapService {
               }))
           : [];
         monsters.push({
-          id: `monster_${mapId}_${i}_${Date.now()}`,
+          id: `monster_${mapId}_${i}_${randomUUID()}`,
           name: def?.name || name || '未知怪物',
           level: def?.level || 1,
           specialSeq: def?.specialSeq || 0,
@@ -261,7 +297,7 @@ export class MapService {
       } else {
         // 默认怪物
         monsters.push({
-          id: `monster_${mapId}_${i}_${Date.now()}`,
+          id: `monster_${mapId}_${i}_${randomUUID()}`,
           name: '野怪',
           level: 1,
           specialSeq: 0,
@@ -282,10 +318,12 @@ export class MapService {
       }
     }
 
-    // 将生成的怪物写入 spawnMonsters 字段
-    await this.prisma.gameMap.update({
-      where: { id: mapId },
-      data: { spawnMonsters: JSON.stringify(monsters) },
+    // 将生成的怪物写入 spawnMonsters 字段（加锁，避免与并发的血量更新互相覆盖）
+    await this.withMapLock(mapId, async () => {
+      await this.prisma.gameMap.update({
+        where: { id: mapId },
+        data: { spawnMonsters: JSON.stringify(monsters) },
+      });
     });
 
     this.logger.log(`地图 ${map.name} 刷新了 ${monsters.length} 只怪物`);

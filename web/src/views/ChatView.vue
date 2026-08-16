@@ -278,6 +278,23 @@
         </div>
       </div>
 
+      <!-- 手机端附近玩家 -->
+      <div class="map-connections" v-if="nearbyPlayers.length || nearbyLoaded">
+        <h4>👥 附近玩家 ({{ nearbyPlayers.length }})</h4>
+        <div class="mc-grid" v-if="nearbyPlayers.length">
+          <span
+            v-for="p in nearbyPlayers"
+            :key="'mnp-' + p.userId"
+            class="mc-node nearby-node"
+            :class="{ online: p.online }"
+            @click="mobileMenuOpen = false; startNearbyPrivateChat(p)"
+          >
+            {{ p.nickname || p.username }} <em v-if="!p.online">·离线</em>
+          </span>
+        </div>
+        <div class="mc-block-title" v-else style="color: var(--muted); font-weight: 400;">当前区域暂无其他玩家</div>
+      </div>
+
       <div class="section cmd-section">
         <h3 class="cmd-header" @click="cmdCollapsed = !cmdCollapsed">
           <span class="cmd-toggle">{{ cmdCollapsed ? '▶' : '▼' }}</span>
@@ -442,6 +459,31 @@
           </div>
         </div>
         <div class="ip-empty" v-else>该地图暂无 NPC</div>
+      </div>
+
+      <!-- 附近玩家 -->
+      <div class="ip-block">
+        <h4 class="ip-title">👥 附近玩家 ({{ nearbyPlayers.length }})</h4>
+        <div class="ip-list" v-if="nearbyPlayers.length">
+          <div
+            v-for="p in nearbyPlayers"
+            :key="'np-' + p.userId"
+            class="ip-row player-row"
+            :class="{ online: p.online }"
+            @click="startNearbyPrivateChat(p)"
+          >
+            <span class="ip-row-avatar">
+              <img v-if="p.avatar" :src="p.avatar" class="np-avatar" />
+              <span v-else class="np-avatar-letter">{{ (p.nickname || p.username || '?')[0] }}</span>
+            </span>
+            <span class="ip-row-name">{{ p.nickname || p.username }}</span>
+            <span class="ip-row-meta">
+              Lv.{{ p.level }}
+              <span class="np-online-dot" :class="{ on: p.online }"></span>
+            </span>
+          </div>
+        </div>
+        <div class="ip-empty" v-else>当前区域暂无其他玩家</div>
       </div>
 
       <div class="ip-block">
@@ -672,6 +714,12 @@ let socket = null;
 const playerInfo = ref(null);
 // 地图总览（当前区域 + 全部地图）
 const mapOverview = ref(null);
+// 附近玩家列表（当前区域同一地图内的其他玩家，含在线状态）
+const nearbyPlayers = ref([]);
+// 附近玩家是否已成功加载过（用于移动端空态展示）
+const nearbyLoaded = ref(false);
+// 附近玩家定时刷新计时器
+let nearbyTimer = null;
 // 全部地图是否折叠（默认折叠，保持面板简洁）
 const allMapsCollapsed = ref(true);
 
@@ -1148,6 +1196,17 @@ async function loadMapOverview() {
   }
 }
 
+// 加载附近玩家列表（当前区域同一地图内的其他玩家）
+async function loadNearbyPlayers() {
+  try {
+    const res = await gameApi.nearbyPlayers();
+    nearbyPlayers.value = res.data || [];
+    nearbyLoaded.value = true;
+  } catch {
+    // 附近玩家接口可能暂不可用，静默忽略（保留旧数据）
+  }
+}
+
 // 加载服务器统计（总人数、在线人数）
 async function loadServerStats() {
   try {
@@ -1242,6 +1301,35 @@ async function openPrivateConversation(conv) {
     await chatApi.markPrivateRead(conv.peerId);
   } catch (e) {
     console.error('标记私聊已读失败', e);
+  }
+}
+
+/**
+ * 从附近玩家列表发起私聊：打开私聊面板并切换到指定玩家
+ * @param {object} p 附近玩家对象（含 userId / nickname / username / online）
+ */
+async function startNearbyPrivateChat(p) {
+  if (!p || !p.userId) return;
+  // 若会话已存在，直接切换到该会话
+  const existing = privateConversations.value.find((c) => c.peerId === p.userId);
+  if (existing) {
+    await openPrivateConversation(existing);
+    privatePanelOpen.value = true;
+    return;
+  }
+  // 新会话：先打开面板并加载历史，再在会话列表中补一条占位会话
+  privatePanelOpen.value = true;
+  await openPrivateConversation({ peerId: p.userId });
+  privateConversations.value.unshift({
+    peerId: p.userId,
+    peer: { id: p.userId, nickname: p.nickname, username: p.username },
+    lastMessage: '',
+    lastAt: null,
+    unread: 0,
+  });
+  // 离线玩家仍可发送（消息会持久化，对方上线后可看到）
+  if (!p.online) {
+    showToast(`${p.nickname || p.username} 当前离线，消息将在其上线后送达`, 'info');
   }
 }
 
@@ -1540,11 +1628,13 @@ onMounted(async () => {
     const cmds = await commandApi.list();
     commands.value = cmds.data;
     // 加载玩家信息和地图总览
-    await Promise.allSettled([loadPlayerInfo(), loadMapOverview()]);
+    await Promise.allSettled([loadPlayerInfo(), loadMapOverview(), loadNearbyPlayers()]);
     // 加载服务器统计
     loadServerStats();
     // 每 30 秒刷新一次服务器统计
     statsTimer = setInterval(loadServerStats, 30000);
+    // 每 30 秒刷新一次附近玩家（感知其他玩家进出当前区域/上下线）
+    nearbyTimer = setInterval(loadNearbyPlayers, 30000);
 
     // 建立 WebSocket 连接(携带 token 认证)
     // 开发环境直连后端，生产环境走同源代理
@@ -1577,6 +1667,8 @@ onMounted(async () => {
       if (data && data.overview) {
         mapOverview.value = data.overview;
       }
+      // 移动到达后同步刷新附近玩家
+      loadNearbyPlayers();
     });
     socket.on('error', (e) => {
       console.error('socket error', e);
@@ -1632,6 +1724,7 @@ onUnmounted(() => {
   socket?.disconnect();
   window.removeEventListener('resize', setViewportHeight);
   if (statsTimer) clearInterval(statsTimer);
+  if (nearbyTimer) clearInterval(nearbyTimer);
 });
 </script>
 

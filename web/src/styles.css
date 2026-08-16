@@ -800,6 +800,60 @@ vite-plugin-checker-error-overlay,
   text-align: center;
   padding: 6px 0;
 }
+/* 附近玩家行：头像+昵称横排，等级+在线状态在右侧 */
+.info-panel .player-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.info-panel .player-row .ip-row-avatar {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(139, 92, 246, 0.15);
+}
+.info-panel .player-row .np-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.info-panel .player-row .np-avatar-letter {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent2);
+}
+.info-panel .player-row .ip-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info-panel .player-row .ip-row-meta {
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+/* 在线状态圆点：绿=在线 灰=离线 */
+.np-online-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-dark);
+  display: inline-block;
+}
+.np-online-dot.on {
+  background: #4ade80;
+  box-shadow: 0 0 5px rgba(74, 222, 128, 0.7);
+}
 .info-panel .ip-links {
   display: flex;
   flex-wrap: wrap;
@@ -1409,6 +1463,17 @@ vite-plugin-checker-error-overlay,
   border-color: rgba(52, 211, 153, 0.4);
   color: var(--text);
   background: rgba(52, 211, 153, 0.08);
+}
+/* 手机端附近玩家节点：在线绿框提示，离线弱化 */
+.map-connections .nearby-node.online {
+  border-color: rgba(74, 222, 128, 0.55);
+  color: var(--text);
+  background: rgba(74, 222, 128, 0.1);
+}
+.map-connections .nearby-node em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--muted-dark);
 }
 /* 当前所在地图行 */
 .map-connections .mc-current {

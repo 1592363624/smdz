@@ -27,6 +27,7 @@ import { ChatService } from '../chat/chat.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { TaskService } from './task.service';
 import { ShortcutService } from './shortcut.service';
+import { StatsService } from './stats.service';
 
 @Injectable()
 export class GameService {
@@ -55,6 +56,7 @@ export class GameService {
     private readonly feedbackService: FeedbackService,
     private readonly taskService: TaskService,
     private readonly shortcutService: ShortcutService,
+    private readonly statsService: StatsService,
   ) {}
 
   /**
@@ -352,6 +354,49 @@ export class GameService {
       subMaps,
       allMaps,
     };
+  }
+
+  /**
+   * 获取当前玩家所在区域（同一地图）的附近玩家列表
+   * 用于网页右侧面板展示"附近玩家"，支持与其他玩家交互（私聊/@提及等）
+   * 规则：同一地图内的玩家视为"附近"，标记在线状态，自己除外；在线优先、按等级降序排列
+   * @param userId 当前玩家用户ID
+   * @returns 附近玩家列表 [{ userId, username, nickname, avatar, level, name, hp, maxHp, online }]
+   */
+  async getNearbyPlayers(userId: number): Promise<any[]> {
+    // 当前玩家所在地图
+    const { mapId } = await this.playerService.getPlayerLocation(userId);
+    // 同一地图内的所有玩家档案（关联用户信息用于展示昵称/头像）
+    const players = await this.prisma.player.findMany({
+      where: { mapId },
+      include: {
+        user: {
+          select: { id: true, username: true, nickname: true, avatar: true },
+        },
+      },
+    });
+
+    // 在线用户集合（一次性读取，避免逐个判断）
+    const onlineIds = this.statsService.getOnlineUserIds();
+
+    return players
+      .filter((p) => p.userId !== userId) // 排除自己
+      .map((p) => ({
+        userId: p.userId,
+        username: p.user.username,
+        nickname: p.user.nickname || p.user.username,
+        avatar: p.user.avatar || '',
+        level: p.level,
+        name: p.name,
+        hp: p.hp,
+        maxHp: p.maxHp,
+        online: onlineIds.has(p.userId),
+      }))
+      .sort(
+        (a, b) =>
+          // 在线玩家优先，其次按等级降序
+          Number(b.online) - Number(a.online) || b.level - a.level,
+      );
   }
 
   /**

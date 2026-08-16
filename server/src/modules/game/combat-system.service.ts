@@ -685,19 +685,21 @@ export class CombatSystemService {
     // 生成掉落物
     const drops = this.generateDrops(monster, 1);
 
-    // 从地图移除怪物
+    // 从地图移除怪物（加锁，避免与并发的血量更新/刷新互相覆盖）
     try {
-      const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
-      if (map) {
-        this.mapService.removeMapMonster(map, monster.id);
-        await this.prisma.gameMap.update({
-          where: { id: mapId },
-          data: {
-            spawnMonsters: map.spawnMonsters,
-            tempMonsters: map.tempMonsters,
-          },
-        });
-      }
+      await this.mapService.withMapLock(mapId, async () => {
+        const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+        if (map) {
+          this.mapService.removeMapMonster(map, monster.id);
+          await this.prisma.gameMap.update({
+            where: { id: mapId },
+            data: {
+              spawnMonsters: map.spawnMonsters,
+              tempMonsters: map.tempMonsters,
+            },
+          });
+        }
+      });
     } catch (error) {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
@@ -1224,24 +1226,45 @@ export class CombatSystemService {
   }
 
   /**
-   * 更新地图数据库中怪物的血量
+   * 更新地图数据库中怪物的血量（加锁，消除并发丢失更新）
+   * 原版为单线程内存模型，无并发问题；后端多请求并发时，
+   * 若不加锁，两个请求会同时读到同一旧快照并各自覆盖写回，导致一方伤害"蒸发"。
+   * 此处通过 MapService.withMapLock 串行化同地图的读改写，
+   * 并在锁内重新读取最新 spawnMonsters 后再按 id 定位更新，保证基于最新数据写回。
    */
   private async updateMonsterHpInMap(mapId: number, monster: any): Promise<void> {
     try {
-      const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
-      if (!map) return;
+      await this.mapService.withMapLock(mapId, async () => {
+        const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+        if (!map) return;
 
-      const spawnMonsters = JSON.parse(map.spawnMonsters || '[]');
-      const idx = spawnMonsters.findIndex((m: any) => m.id === monster.id);
-      if (idx !== -1) {
-        spawnMonsters[idx].hp = monster.hp;
-        if (monster.shield !== undefined) spawnMonsters[idx].shield = monster.shield;
-        if (monster.armor !== undefined) spawnMonsters[idx].armor = monster.armor;
-        await this.prisma.gameMap.update({
-          where: { id: mapId },
-          data: { spawnMonsters: JSON.stringify(spawnMonsters) },
-        });
-      }
+        // 优先在 spawnMonsters 中定位，其次 tempMonsters
+        const spawnMonsters = JSON.parse(map.spawnMonsters || '[]');
+        const idx = spawnMonsters.findIndex((m: any) => m.id === monster.id);
+        if (idx !== -1) {
+          spawnMonsters[idx].hp = monster.hp;
+          if (monster.shield !== undefined) spawnMonsters[idx].shield = monster.shield;
+          if (monster.armor !== undefined) spawnMonsters[idx].armor = monster.armor;
+          await this.prisma.gameMap.update({
+            where: { id: mapId },
+            data: { spawnMonsters: JSON.stringify(spawnMonsters) },
+          });
+          return;
+        }
+
+        // 回退：怪物可能在 tempMonsters
+        const tempMonsters = JSON.parse(map.tempMonsters || '[]');
+        const tidx = tempMonsters.findIndex((m: any) => m.id === monster.id);
+        if (tidx !== -1) {
+          tempMonsters[tidx].hp = monster.hp;
+          if (monster.shield !== undefined) tempMonsters[tidx].shield = monster.shield;
+          if (monster.armor !== undefined) tempMonsters[tidx].armor = monster.armor;
+          await this.prisma.gameMap.update({
+            where: { id: mapId },
+            data: { tempMonsters: JSON.stringify(tempMonsters) },
+          });
+        }
+      });
     } catch (error) {
       this.logger.warn(`更新怪物血量失败: ${error.message}`);
     }

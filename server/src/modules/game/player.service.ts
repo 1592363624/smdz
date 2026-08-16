@@ -373,9 +373,14 @@ export class PlayerService {
       const backpack = this.getBackpackItems(player);
 
       // 查找是否已有同名物品，有则叠加数量
+      // 兼容历史字段不一致：既有 quantity（初始装备/消耗品），又有 count（掉落物）
       const existing = backpack.find((item: any) => item.name === itemName);
       if (existing) {
-        existing.count = (existing.count || 1) + count;
+        const cur = existing.quantity ?? existing.count ?? 0;
+        const newVal = cur + count;
+        // 统一写入 count，同时清理 quantity 避免双字段歧义
+        existing.count = newVal;
+        delete existing.quantity;
       } else {
         backpack.push({ name: itemName, count });
       }
@@ -412,7 +417,8 @@ export class PlayerService {
       }
 
       const item = backpack[index];
-      const currentCount = item.count || 1;
+      // 兼容 quantity/count 双字段：优先 count，其次 quantity
+      const currentCount = item.count ?? item.quantity ?? 1;
 
       if (currentCount < count) {
         this.logger.warn(`移除物品失败：${itemName} 数量不足（需要 ${count}，拥有 ${currentCount}）`);
@@ -423,8 +429,9 @@ export class PlayerService {
         // 数量刚好用完，移除该物品条目
         backpack.splice(index, 1);
       } else {
-        // 减少数量
+        // 减少数量（统一写 count，清理 quantity 避免歧义）
         item.count = currentCount - count;
+        delete item.quantity;
       }
 
       // 写回数据库

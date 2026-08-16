@@ -28,6 +28,22 @@ export class StatsService {
     return StatsService.onlineUsers.size;
   }
 
+  /**
+   * 判断指定用户是否在线
+   * @param userId 用户ID
+   * @returns true=在线 / false=离线
+   */
+  isOnline(userId: number): boolean {
+    return StatsService.onlineUsers.has(userId);
+  }
+
+  /**
+   * 获取当前在线用户ID集合（只读引用，供查询附近玩家时做在线标记）
+   */
+  getOnlineUserIds(): Set<number> {
+    return StatsService.onlineUsers;
+  }
+
   /** 获取总注册用户数（User 表的记录数） */
   async getTotalPlayers(): Promise<number> {
     return this.prisma.user.count();

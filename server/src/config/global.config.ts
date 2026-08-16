@@ -34,12 +34,6 @@ export class GlobalConfig {
   /** AstrBot 对接：允许的机器人在线注册码 / 校验 Token */
   public readonly botAccessToken: string;
 
-  /** 指令前缀列表：以这些前缀开头的输入视为指令 */
-  public readonly commandPrefixes: string[];
-
-  /** 是否必须带前缀才当作指令。false 时无前缀的输入也尝试作为指令处理 */
-  public readonly commandRequirePrefix: boolean;
-
   /** 反馈/私聊附件上传目录（相对服务根目录，由代码启动时自动创建） */
   public readonly uploadDir: string;
 
@@ -69,13 +63,8 @@ export class GlobalConfig {
       process.env.DATABASE_URL ||
       'file:../prisma/dev.db'; // SQLite 数据库文件
     this.botAccessToken = process.env.BOT_ACCESS_TOKEN || 'astrbot_web_secret';
-    // 指令前缀：逗号分隔，默认支持 / ! ！；设为空字符串则视为仅使用无前缀指令
-    this.commandPrefixes = (process.env.COMMAND_PREFIXES || '/,! ！')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    // 是否必须带前缀才是指令
-    this.commandRequirePrefix = (process.env.COMMAND_REQUIRE_PREFIX || 'false') !== 'false';
+    // 指令前缀/是否强制前缀 已收敛到系统配置中心(SystemConfig 表 command.prefixes / command.requirePrefix)，
+    // 不再在 .env 中冗余配置，避免双数据源不一致。
     // 附件上传目录（相对服务根目录），由启动时自动创建；可通过环境变量覆盖
     this.uploadDir = process.env.UPLOAD_DIR || 'uploads';
     // 单个附件大小上限（字节），默认 10MB

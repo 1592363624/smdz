@@ -99,6 +99,18 @@ export class GameController {
   }
 
   /**
+   * 获取当前玩家所在区域的附近玩家列表（同一地图，含在线状态）
+   * 供网页右侧面板展示，支持与其他玩家交互（私聊等）
+   */
+  @Get('map/nearby-players')
+  @ApiOperation({ summary: '获取当前区域附近的玩家列表（同一地图，含在线状态）' })
+  async getNearbyPlayers(@Req() req) {
+    const userId = req.user.userId;
+    const nearbyPlayers = await this.gameService.getNearbyPlayers(userId);
+    return { success: true, data: nearbyPlayers };
+  }
+
+  /**
    * 获取服务器在线统计（总玩家数、在线人数）
    * 前端左下角展示用
    */

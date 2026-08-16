@@ -103,6 +103,8 @@ export const gameApi = {
   mapConnections: () => http.get('/game/map/connections'),
   // 获取地图总览（当前区域+全部地图）
   mapOverview: () => http.get('/game/map/overview'),
+  // 获取当前区域附近玩家列表（同一地图，含在线状态）
+  nearbyPlayers: () => http.get('/game/map/nearby-players'),
   // 执行游戏内快捷操作
   quickAction: (action) => http.post('/game/player/action', { action }),
   // 获取服务器在线统计（总玩家数、在线人数）

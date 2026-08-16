@@ -171,6 +171,86 @@ export class ScheduleService {
   }
 
   /**
+   * 移动延时落地兜底 - 每30秒扫描一次
+   * 对应原版：全局"待执行延时"队列由单线程驱动，无丢失问题；
+   * 后端 handleMove 用内存 setTimeout 触发落地，服务重启/定时器丢失会导致玩家永久卡在"移动中"。
+   * 本任务扫描所有玩家 markers 中的「移动中」记录，凡 arriveAt 已到期的，补完成落地：
+   * 更新玩家位置(mapId/location)、清除"移动中"标记、并懒刷新目标地图怪物。
+   */
+  @Cron('*/30 * * * * *') // 每30秒
+  async settlePendingMoves() {
+    try {
+      const players = await this.prisma.player.findMany({
+        where: { userId: { gt: 0 } },
+        select: { id: true, userId: true, markers: true, mapId: true },
+      });
+
+      let settled = 0;
+      for (const p of players) {
+        if (!p.markers) continue;
+        let markers: Record<string, any>;
+        try {
+          markers = JSON.parse(p.markers);
+        } catch {
+          continue;
+        }
+        const movingStr = markers['移动中'];
+        if (!movingStr) continue;
+
+        let moving: { targetName?: string; targetMapId?: number; arriveAt?: number } | null = null;
+        try {
+          moving = JSON.parse(movingStr);
+        } catch {
+          moving = null;
+        }
+        if (!moving || !moving.arriveAt || !moving.targetMapId) continue;
+
+        // 未到期则跳过
+        if (Date.now() < moving.arriveAt) continue;
+
+        // 已到期：补完成落地
+        const targetMap = await this.mapService.getMapById(moving.targetMapId);
+        if (!targetMap) {
+          // 目标地图已不存在，仅清除移动中标记，避免卡死
+          delete markers['移动中'];
+          await this.prisma.player.update({
+            where: { id: p.id },
+            data: { markers: JSON.stringify(markers) },
+          });
+          continue;
+        }
+
+        delete markers['移动中'];
+        await this.prisma.player.update({
+          where: { id: p.id },
+          data: {
+            markers: JSON.stringify(markers),
+            mapId: moving.targetMapId,
+            location: moving.targetName || targetMap.name,
+          },
+        });
+
+        // 懒刷新：目标地图无怪物时补充刷新，避免到达后无怪可打
+        try {
+          const currentSpawn = this.mapService.getMapMonsters(targetMap);
+          if (currentSpawn.length === 0) {
+            await this.mapService.refreshMapMonsters(moving.targetMapId);
+          }
+        } catch (e: any) {
+          this.logger.warn(`兜底落地懒刷新怪物失败: ${e?.message}`);
+        }
+
+        settled++;
+      }
+      if (settled > 0) {
+        this.logger.log(`移动落地兜底: 补完成 ${settled} 名玩家的移动`);
+      }
+    } catch (err: any) {
+      this.logger.error(`移动落地兜底任务失败: ${err.message}`);
+    }
+  }
+
+  /**
    * 行商判断 - 每小时整点执行
    * 对应原版：行商判断()，生成行商、花园宝宝、小白狐、露娜、神之工匠、小雫、小恶魔、小蓝、无主载具
    * 通过运行锁 + 逐步 try-catch，保证单个步骤失败不影响其他步骤
