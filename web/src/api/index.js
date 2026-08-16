@@ -111,6 +111,12 @@ export const gameApi = {
   stats: () => http.get('/game/stats'),
 };
 
+/// 系统/版本接口
+export const systemApi = {
+  // 获取部署版本信息与更新检测配置（用于检测部署完成、弹窗提示更新日志）
+  getVersion: () => http.get('/system/version'),
+};
+
 /// 管理员接口(需ADMIN权限)
 export const adminApi = {
   // 用户管理

@@ -407,7 +407,7 @@
         </button>
         <h2>💬 {{ channel?.name || '世界频道' }}</h2>
         <div class="header-right">
-          <span class="version-tag" title="当前版本">v{{ APP_VERSION }}</span>
+          <span class="version-tag" title="当前版本">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
           <!-- 私聊入口按钮（带未读红点） -->
           <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
             💬 私聊
@@ -740,6 +740,37 @@
         <div v-for="t in toasts" :key="t.id" :class="['toast-item', t.type]">{{ t.message }}</div>
       </transition-group>
     </div>
+
+    <!-- 部署更新提示弹窗：检测到服务器有新版本部署后主动弹出，展示更新日志并自动刷新 -->
+    <div v-if="updateModal.show" class="update-modal-overlay" @click.self="dismissUpdate">
+      <div class="update-modal">
+        <header class="um-header">
+          <h3>✨ 游戏更新完成</h3>
+          <span class="um-version">v{{ APP_VERSION }} · #{{ updateModal.short }}</span>
+        </header>
+        <div class="um-body">
+          <div class="um-meta">
+            <span v-if="updateModal.deployedAt" class="um-meta-item">🕒 {{ formatDeployTime(updateModal.deployedAt) }}</span>
+            <span v-if="updateModal.ref" class="um-meta-item">🌿 {{ updateModal.ref }}</span>
+          </div>
+          <div class="um-log">
+            <div class="um-log-title">📋 本次更新日志</div>
+            <ul class="um-log-list">
+              <li v-for="c in updateModal.commits || []" :key="c.sha || c.short">
+                <span class="um-log-short">{{ c.short }}</span>
+                <span class="um-log-msg">{{ c.message }}</span>
+              </li>
+            </ul>
+            <div v-if="!updateModal.commits || !updateModal.commits.length" class="um-log-empty">暂无详细更新日志</div>
+          </div>
+        </div>
+        <footer class="um-footer">
+          <span v-if="autoReloadSeconds > 0" class="um-countdown">{{ autoReloadSeconds }} 秒后自动刷新…</span>
+          <button class="um-btn um-btn-later" @click="dismissUpdate">稍后</button>
+          <button class="um-btn um-btn-refresh" @click="applyUpdate">立即刷新</button>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -757,8 +788,8 @@
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
-import { chatApi, commandApi, userApi, gameApi, feedbackApi } from '../api';
-import { WS_URL, APP_VERSION } from '../config';
+import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
+import { WS_URL, APP_VERSION, UPDATE_SETTINGS } from '../config';
 
 const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
@@ -1307,6 +1338,98 @@ function showToast(message, type = 'info') {
   }, 3000);
 }
 
+// ===== 部署更新检测（检测部署完成 → 弹窗展示更新日志 → 自动刷新） =====
+// localStorage 键：记录"已确认过的部署版本"(避免刷新后重复弹) 与"上次弹窗时间"(冷却去打扰)
+const UPDATE_SEEN_KEY = 'smdz_seen_deploy_version';
+const UPDATE_PROMPT_KEY = 'smdz_last_prompt_at';
+// 当前部署版本信息(用于右上角版本标签展示短 SHA)
+const deployVersion = ref(null);
+// 更新弹窗内容与显隐
+const updateModal = ref({ show: false, commits: [] });
+// 更新检测配置(以后端下发的为准，管理员可在线调整)
+const updateSettings = ref({ ...UPDATE_SETTINGS });
+// 自动刷新倒计时(秒)
+const autoReloadSeconds = ref(0);
+let updateTimer = null;
+let updateCountdownTimer = null;
+
+/**
+ * 拉取部署版本信息，并同步右上角版本标签与更新检测配置
+ * @returns {object|null} 版本信息对象；接口不可用时返回 null
+ */
+async function loadDeployInfo() {
+  try {
+    const res = await systemApi.getVersion();
+    const data = res.data || {};
+    deployVersion.value = data;
+    // 配置以后端 SystemConfig 下发的为准(管理员在线可调)
+    if (data.settings) updateSettings.value = { ...updateSettings.value, ...data.settings };
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 轮询检测是否完成新部署：
+ * 后端 version.json 的 commit SHA 变化(且未确认过、不在冷却期) → 弹出更新日志弹窗并启动自动刷新倒计时
+ */
+async function checkForUpdate() {
+  const data = await loadDeployInfo();
+  if (!data || !data.sha || !updateSettings.value.enabled) return;
+  // 该版本已确认过(弹过窗/刷过新)→ 跳过
+  const seen = localStorage.getItem(UPDATE_SEEN_KEY);
+  if (data.sha === seen) return;
+  // 冷却期内不重复打扰(玩家点过「稍后」)
+  const lastPrompt = Number(localStorage.getItem(UPDATE_PROMPT_KEY) || 0);
+  if (Date.now() - lastPrompt < (updateSettings.value.promptCooldown || 300) * 1000) return;
+  localStorage.setItem(UPDATE_PROMPT_KEY, String(Date.now()));
+  // 弹出更新提示并开始倒计时
+  updateModal.value = { show: true, ...data };
+  startUpdateCountdown();
+}
+
+/** 启动自动刷新倒计时(0 表示不自动刷新) */
+function startUpdateCountdown() {
+  clearInterval(updateCountdownTimer);
+  autoReloadSeconds.value = Math.max(0, Number(updateSettings.value.autoReloadSeconds) || 0);
+  if (autoReloadSeconds.value <= 0) return;
+  updateCountdownTimer = setInterval(() => {
+    autoReloadSeconds.value -= 1;
+    if (autoReloadSeconds.value <= 0) {
+      clearInterval(updateCountdownTimer);
+      applyUpdate();
+    }
+  }, 1000);
+}
+
+/**
+ * 立即刷新页面。
+ * 先记录"已确认版本"再刷新，避免刷新后加载到新代码再次弹窗。
+ */
+function applyUpdate() {
+  if (updateModal.value.sha) {
+    localStorage.setItem(UPDATE_SEEN_KEY, updateModal.value.sha);
+  }
+  clearInterval(updateCountdownTimer);
+  window.location.reload();
+}
+
+/** 稍后刷新：关闭弹窗，冷却期过后由轮询再次提醒 */
+function dismissUpdate() {
+  clearInterval(updateCountdownTimer);
+  updateModal.value.show = false;
+}
+
+/** 格式化部署时间(精确到分钟) */
+function formatDeployTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // ===== 私聊面板状态 =====
 const privatePanelOpen = ref(false);
 const privateConversations = ref([]);
@@ -1725,6 +1848,15 @@ onMounted(async () => {
     // 每 30 秒刷新一次附近玩家（感知其他玩家进出当前区域/上下线）
     nearbyTimer = setInterval(loadNearbyPlayers, 30000);
 
+    // 部署更新检测：首次加载仅同步版本标签(不弹窗)；随后按配置间隔轮询检测新部署
+    await loadDeployInfo();
+    // 首次访问(本地无已确认记录)时直接记录当前版本，避免加载到最新版还弹"更新完成"提示
+    if (deployVersion.value?.sha && !localStorage.getItem(UPDATE_SEEN_KEY)) {
+      localStorage.setItem(UPDATE_SEEN_KEY, deployVersion.value.sha);
+    }
+    const updateCheckMs = Math.max(5, Number(updateSettings.value.interval) || 30) * 1000;
+    updateTimer = setInterval(checkForUpdate, updateCheckMs);
+
     // 建立 WebSocket 连接(携带 token 认证)
     // 开发环境直连后端，生产环境走同源代理
     const token = localStorage.getItem('token');
@@ -1737,6 +1869,10 @@ onMounted(async () => {
       connected.value = true;
       // 连接建立后再刷新一次统计，确保自己立刻计入在线人数
       loadServerStats();
+      // 部署完成后服务重启会导致 socket 断开并自动重连到新进程，
+      // "重连成功"即新服务就绪的信号：立即检查一次版本变化，秒级弹出更新提示
+      // (轮询仍保留作为兜底，覆盖服务未重启但版本文件更新的场景)
+      checkForUpdate();
     });
     socket.on('disconnect', () => {
       connected.value = false;
@@ -1823,6 +1959,8 @@ onUnmounted(() => {
   window.removeEventListener('resize', setViewportHeight);
   if (statsTimer) clearInterval(statsTimer);
   if (nearbyTimer) clearInterval(nearbyTimer);
+  if (updateTimer) clearInterval(updateTimer);
+  if (updateCountdownTimer) clearInterval(updateCountdownTimer);
 });
 </script>
 
@@ -2488,6 +2626,187 @@ onUnmounted(() => {
   transform: translateY(-8px);
 }
 
+/* ===== 版本标签中的部署短 SHA ===== */
+.version-tag-sha {
+  font-style: normal;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.18);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  color: #c4b5fd;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* ===== 部署更新提示弹窗 ===== */
+.update-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.update-modal {
+  width: 440px;
+  max-width: 94vw;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg2);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 32px rgba(139, 92, 246, 0.15);
+  animation: umPopIn 0.25s ease-out;
+  overflow: hidden;
+}
+@keyframes umPopIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.um-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(10, 10, 26, 0.6);
+}
+.um-header h3 {
+  font-size: 15px;
+  color: var(--text);
+  margin: 0;
+}
+.um-version {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(139, 92, 246, 0.18);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  color: #c4b5fd;
+  font-weight: 600;
+}
+.um-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.um-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.um-meta-item {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.18);
+}
+.um-log-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.um-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.um-log-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(10, 10, 26, 0.5);
+  border: 1px solid var(--glass-border);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.um-log-short {
+  flex-shrink: 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 11px;
+  color: #a78bfa;
+  background: rgba(139, 92, 246, 0.14);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.um-log-msg {
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+.um-log-empty {
+  font-size: 12px;
+  color: var(--muted-dark);
+  text-align: center;
+  padding: 10px 0;
+}
+.um-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--glass-border);
+  background: rgba(10, 10, 26, 0.6);
+}
+.um-countdown {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+  animation: umPulse 1s ease-in-out infinite;
+}
+@keyframes umPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.um-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.um-btn-later {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.um-btn-later:hover {
+  color: var(--text);
+  border-color: var(--text-secondary);
+}
+.um-btn-refresh {
+  background: var(--accent-gradient);
+  color: #fff;
+}
+.um-btn-refresh:hover {
+  filter: brightness(1.1);
+}
+.um-btn-refresh:active {
+  transform: scale(0.96);
+}
+
 /* ===== 移动端适配 ===== */
 @media (max-width: 768px) {
   .side-panel {
@@ -2497,6 +2816,9 @@ onUnmounted(() => {
   .header-action-btn {
     padding: 4px 8px;
     font-size: 12px;
+  }
+  .update-modal {
+    max-height: 90vh;
   }
 }
 </style>

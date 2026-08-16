@@ -148,3 +148,16 @@ server {
 | 用户填混合 (`C:/wwwroot/smdz`) | — | ⚠️ 部分版本可工作，强烈不建议 |
 
 > 自检命令：在本地 cmd 里执行 `ssh 用户名@服务器 "cd /c/wwwroot/smdz && ls"`，能正常列出目录就说明 OpenSSH 路径风格可用。
+
+## 九、版本更新检测机制（部署完成自动提示刷新）
+
+GitHub Actions 在每次部署打包前会生成 `server/version.json`（含本次 commit SHA、部署时间与最近 10 条提交日志），随源码包一起部署到服务器。该文件已加入 `server/.gitignore`，由 CI 每次生成，无需手工维护。
+
+后端提供公开接口 `GET /api/system/version` 读取该文件（本地开发没有此文件时返回默认值，前端据此不弹更新窗）。前端游戏主界面按配置间隔轮询该接口：
+
+- 发现 commit SHA 变化（即判定"部署已完成"）→ 弹出「✨ 游戏更新完成」弹窗展示更新日志（最近提交列表）→ 倒计时后自动刷新页面；玩家也可点击「立即刷新」或「稍后」
+- 相关配置项在管理后台「系统配置」的 `update` 分组中在线调整（改后立即生效，无需重启）：
+  - `update.check.enabled`：是否开启部署更新检测
+  - `update.check.interval`：轮询间隔(秒)
+  - `update.autoReloadSeconds`：弹窗后自动刷新倒计时(秒)，`0`=不自动刷新
+  - `update.promptCooldown`：点击「稍后」后的重复提醒冷却(秒)

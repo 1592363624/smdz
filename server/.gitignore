@@ -11,6 +11,9 @@ prisma/*.db-journal
 .env
 .env.local
 
+# 部署版本清单(由 GitHub Actions 每次部署时生成，勿提交)
+version.json
+
 # IDE
 .idea/
 .vscode/

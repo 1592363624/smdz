@@ -24,3 +24,17 @@ export const COMMAND_PREFIXES = ['/', '！', '!'];
 // 版本号配置
 // 显示在界面右上角，用于标识当前前端版本，发布新版本时在此调整即可，无需改动视图代码。
 export const APP_VERSION = '0.0.4';
+
+// 部署更新检测配置(默认值)
+// 实际生效值由后端 /api/system/version 接口返回(来源 SystemConfig 表，管理员可在线调整)，
+// 此处仅作为后端配置缺失或接口不可用时的兜底。
+export const UPDATE_SETTINGS = {
+  // 是否开启部署完成检测
+  enabled: true,
+  // 轮询间隔(秒)
+  interval: 30,
+  // 弹窗后自动刷新倒计时(秒)，0=不自动刷新
+  autoReloadSeconds: 15,
+  // 点击「稍后」后的重复提醒冷却(秒)
+  promptCooldown: 300,
+};

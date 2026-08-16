@@ -21,6 +21,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { GameModule } from './modules/game/game.module';
 import { GameTasksModule } from './modules/game/game-tasks.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
+import { SystemModule } from './modules/system/system.module';
 import { GlobalConfig } from './config/global.config';
 
 @Module({
@@ -64,6 +65,7 @@ import { GlobalConfig } from './config/global.config';
     GameModule,
     GameTasksModule,
     FeedbackModule,
+    SystemModule,
   ],
 })
 export class AppModule {}

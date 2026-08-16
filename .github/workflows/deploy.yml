@@ -20,6 +20,58 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Generate server/version.json before packaging.
+      # The manifest stores the deployed commit SHA, deploy time and the latest
+      # commit log (changelog). It is shipped inside source.tar.gz, extracted on
+      # the server and served by GET /api/system/version so the web frontend can
+      # detect a finished deployment, show an update dialog and auto-refresh.
+      - name: Generate version manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'EOF'
+          const { execSync } = require('child_process');
+          const fs = require('fs');
+          const sha = (process.env.GITHUB_SHA || '').trim();
+          const ref = (process.env.GITHUB_REF_NAME || 'main').trim();
+          const short = sha ? sha.slice(0, 7) : 'dev';
+          let version = '0.1.0';
+          try {
+            const pkg = JSON.parse(fs.readFileSync('server/package.json', 'utf8'));
+            if (pkg && pkg.version) version = pkg.version;
+          } catch (e) {
+            console.warn('Failed to read server/package.json: ' + e.message);
+          }
+          let commits = [];
+          try {
+            // NOTE: the format string must NOT start with %x1f, otherwise every
+            // line would begin with the separator and produce an extra empty field.
+            const raw = execSync(
+              'git log -10 --pretty=format:%H%x1f%h%x1f%s%x1f%aI%x1f%an',
+              { encoding: 'utf8' }
+            ).toString();
+            commits = raw.split('\n').filter(Boolean).map((line) => {
+              const [full, s, subject, date, author] = line.split('\x1f');
+              return { sha: full, short: s, message: subject, date, author };
+            });
+          } catch (e) {
+            console.warn('git log failed, changelog will be empty: ' + e.message);
+          }
+          const manifest = {
+            version,
+            sha,
+            short,
+            ref,
+            deployedAt: new Date().toISOString(),
+            message: commits.length ? commits[0].message : '',
+            commits,
+            source: 'github-actions',
+          };
+          fs.mkdirSync('server', { recursive: true });
+          fs.writeFileSync('server/version.json', JSON.stringify(manifest, null, 2));
+          console.log('Generated server/version.json (' + commits.length + ' commits)');
+          EOF
+
       - name: Package source
         shell: bash
         run: |
