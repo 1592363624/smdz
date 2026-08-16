@@ -26,6 +26,11 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
+      // 上传附件静态资源代理到后端（反馈/私聊的图片与文件）
+      '/uploads': {
+        target: 'http://localhost:3333',
+        changeOrigin: true,
+      },
     },
   },
   build: {

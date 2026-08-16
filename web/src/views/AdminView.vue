@@ -15,6 +15,7 @@
       <button :class="['tab', tab === 'config' && 'active']" @click="tab = 'config'">⚙️ 系统配置</button>
       <button :class="['tab', tab === 'users' && 'active']" @click="tab = 'users'">👥 用户管理</button>
       <button :class="['tab', tab === 'gm' && 'active']" @click="tab = 'gm'">🔧 GM 工具</button>
+      <button :class="['tab', tab === 'feedback' && 'active']" @click="tab = 'feedback'">📋 反馈管理</button>
     </nav>
 
     <main class="admin-content">
@@ -214,6 +215,140 @@
           </div>
         </div>
       </section>
+
+      <!-- ===== 反馈管理 ===== -->
+      <section v-if="tab === 'feedback'" class="panel">
+        <div class="panel-head">
+          <h2>反馈管理</h2>
+          <p class="hint">查看玩家反馈工单，回复消息并管理处理状态。</p>
+        </div>
+
+        <!-- 状态过滤 -->
+        <div class="fb-filters">
+          <button
+            v-for="s in feedbackStatusFilters"
+            :key="s.value"
+            :class="['fb-filter-btn', { active: feedbackStatus === s.value }]"
+            @click="setFeedbackStatus(s.value)"
+          >
+            {{ s.label }}
+          </button>
+        </div>
+
+        <!-- 工单列表 -->
+        <div v-if="feedbackLoading" class="fb-empty">加载中...</div>
+        <div v-else-if="feedbackList.length" class="fb-list">
+          <div
+            v-for="f in feedbackList"
+            :key="f.id"
+            :class="['fb-card', { active: currentFeedback?.id === f.id }]"
+            @click="openFeedbackDetail(f)"
+          >
+            <div class="fb-card-main">
+              <span class="fb-ticket-no">#{{ f.id }}</span>
+              <span class="fb-title">{{ f.title }}</span>
+              <span :class="['fb-status', 'st-' + String(f.status).toLowerCase()]">{{ statusLabel(f.status) }}</span>
+            </div>
+            <div class="fb-card-sub">
+              <span class="fb-cat">{{ categoryLabel(f.category) }}</span>
+              <span class="fb-user">👤 {{ f.user?.nickname || f.user?.username || '用户' }}</span>
+              <span class="fb-time">🕐 {{ formatTime(f.updatedAt) }}</span>
+            </div>
+            <div class="fb-preview">
+              <span v-if="f.messages?.length" class="fb-preview-text">
+                {{ (f.messages[0].senderType === 'admin' ? '[管理员] ' : '[用户] ') + (f.messages[0].content || '') }}
+              </span>
+              <span v-else class="fb-preview-text fb-preview-empty">暂无消息</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="fb-empty">暂无反馈工单</div>
+
+        <!-- 分页 -->
+        <div class="pagination fb-pagination">
+          <button :disabled="feedbackPage <= 1" @click="loadFeedbackList(feedbackPage - 1)">上一页</button>
+          <span>第 {{ feedbackPage }} 页 / 共 {{ Math.ceil(feedbackTotal / feedbackPageSize) }} 页 (共 {{ feedbackTotal }} 条)</span>
+          <button :disabled="feedbackPage >= Math.ceil(feedbackTotal / feedbackPageSize)" @click="loadFeedbackList(feedbackPage + 1)">下一页</button>
+        </div>
+
+        <!-- 工单详情面板 -->
+        <div v-if="currentFeedback" class="fb-detail">
+          <div class="fb-detail-head">
+            <div>
+              <h3>#{{ currentFeedback.id }} {{ currentFeedback.title }}</h3>
+              <div class="fb-detail-meta">
+                <span :class="['fb-status', 'st-' + String(currentFeedback.status).toLowerCase()]">{{ statusLabel(currentFeedback.status) }}</span>
+                <span class="fb-cat">{{ categoryLabel(currentFeedback.category) }}</span>
+                <span class="fb-user">👤 {{ currentFeedback.user?.nickname || currentFeedback.user?.username || '用户' }}</span>
+                <span class="fb-time">创建于 {{ formatTime(currentFeedback.createdAt) }}</span>
+              </div>
+            </div>
+            <button class="btn-ghost" @click="closeFeedbackDetail">✕ 关闭</button>
+          </div>
+
+          <!-- 状态变更 -->
+          <div class="fb-status-bar">
+            <label for="fb-status-select">处理状态：</label>
+            <select id="fb-status-select" :value="currentFeedback.status" @change="changeFeedbackStatus($event.target.value)">
+              <option v-for="s in feedbackStatusOptions" :key="s" :value="s">{{ statusLabel(s) }}</option>
+            </select>
+          </div>
+
+          <!-- 完整消息列表 -->
+          <div class="fb-messages">
+            <div v-for="m in currentFeedback.messages" :key="m.id" :class="['fb-msg', m.senderType === 'admin' ? 'from-admin' : 'from-user']">
+              <div class="fb-msg-head">
+                <span class="fb-msg-sender">{{ m.sender?.nickname || m.sender?.username || (m.senderType === 'admin' ? '管理员' : '用户') }}</span>
+                <span class="fb-msg-time">{{ formatTime(m.createdAt) }}</span>
+              </div>
+              <div class="fb-msg-content">{{ m.content }}</div>
+              <!-- 附件展示：图片显示缩略图，其它文件显示为下载链接 -->
+              <div v-if="attachmentList(m).length" class="fb-msg-attachments">
+                <a
+                  v-for="(u, i) in attachmentList(m)"
+                  :key="i"
+                  class="fb-attach"
+                  :href="resolveUploadUrl(u)"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <img v-if="isImage(u)" :src="resolveUploadUrl(u)" class="fb-attach-img" :alt="'附件 ' + (i + 1)" />
+                  <span v-else class="fb-attach-file">📄 {{ fileName(u) }}</span>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <!-- 管理员回复区 -->
+          <div class="fb-reply">
+            <textarea v-model="feedbackReplyText" placeholder="输入回复内容..." maxlength="2000"></textarea>
+            <div class="fb-reply-tools">
+              <!-- 已上传的附件预览 -->
+              <div v-if="feedbackReplyAttachments.length" class="fb-reply-attachments">
+                <div v-for="(u, i) in feedbackReplyAttachments" :key="i" class="fb-reply-attach">
+                  <img v-if="isImage(u)" :src="resolveUploadUrl(u)" class="fb-attach-img" alt="附件预览" />
+                  <span v-else class="fb-attach-file">📄 {{ fileName(u) }}</span>
+                  <button class="fb-remove" type="button" title="移除附件" @click="feedbackReplyAttachments.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <div class="fb-reply-actions">
+                <!-- 附件上传：隐藏的文件选择器，经 feedbackApi.upload() 上传后取回 URL -->
+                <input
+                  ref="fbFileInput"
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.zip,.doc,.docx,.txt"
+                  style="display: none"
+                  @change="onReplyFilesSelected"
+                />
+                <button class="btn-ghost" @click="pickReplyFiles" :disabled="feedbackReplying">📎 上传附件</button>
+                <button class="gm-btn" @click="sendFeedbackReply" :disabled="feedbackReplying || !feedbackReplyText.trim()">发送回复</button>
+              </div>
+            </div>
+            <p v-if="feedbackReplyMsg" class="fb-reply-msg" :class="{ error: feedbackReplyError }">{{ feedbackReplyMsg }}</p>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -225,10 +360,11 @@
  * - 系统配置：在线修改指令前缀、游戏数值等配置项
  * - 用户管理：查看/修改用户角色、封禁状态、昵称
  * - GM 工具：发放物品、设置世界等级、发送全服公告
+ * - 反馈管理：查看/回复玩家反馈工单、变更处理状态、上传附件
  */
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { adminApi } from '../api';
+import { adminApi, feedbackApi } from '../api';
 
 const router = useRouter();
 const tab = ref('dashboard');
@@ -389,6 +525,211 @@ async function doSendAnnouncement() {
   }
 }
 
+// ---- 反馈管理 ----
+// 状态过滤按钮（数据驱动：value 为空串表示"全部"）
+const feedbackStatusFilters = [
+  { label: '全部', value: '' },
+  { label: 'OPEN', value: 'OPEN' },
+  { label: 'PROCESSING', value: 'PROCESSING' },
+  { label: 'CLOSED', value: 'CLOSED' },
+];
+// 状态变更下拉的可选项
+const feedbackStatusOptions = ['OPEN', 'PROCESSING', 'CLOSED'];
+// 反馈分类的中文展示映射
+const feedbackCategoryLabels = { general: '一般', bug: 'Bug 反馈', suggestion: '建议', other: '其他' };
+
+const feedbackList = ref([]);
+const feedbackTotal = ref(0);
+const feedbackPage = ref(1);
+const feedbackPageSize = 20; // 分页大小（与后端默认值一致）
+const feedbackStatus = ref('');
+const feedbackLoading = ref(false);
+
+// 当前查看详情的工单（含完整消息列表）
+const currentFeedback = ref(null);
+
+// 回复输入与附件（上传后得到的 URL 列表）
+const feedbackReplyText = ref('');
+const feedbackReplyAttachments = ref([]);
+const feedbackReplying = ref(false);
+const feedbackReplyMsg = ref('');
+const feedbackReplyError = ref(false);
+const fbFileInput = ref(null);
+
+/** 状态英文 → 中文展示文案 */
+function statusLabel(s) {
+  return { OPEN: '待处理', PROCESSING: '处理中', CLOSED: '已关闭' }[s] || s || '-';
+}
+
+/** 分类英文 → 中文展示文案 */
+function categoryLabel(c) {
+  return feedbackCategoryLabels[c] || c || '一般';
+}
+
+/**
+ * 解析消息附件
+ * 后端把附件数组以 JSON 字符串存储（attachments 字段），这里安全解析为数组。
+ * @param {object} m 消息对象
+ * @returns {string[]} 附件 URL 列表
+ */
+function attachmentList(m) {
+  if (Array.isArray(m.attachments)) return m.attachments;
+  try {
+    const arr = JSON.parse(m.attachments || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 判断附件是否为图片（用于缩略图预览与下载链接分流） */
+function isImage(url) {
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test((url || '').split('?')[0]);
+}
+
+/** 从附件 URL 提取文件名（用于非图片附件展示） */
+function fileName(url) {
+  const parts = (url || '').split('/');
+  const name = parts[parts.length - 1] || '附件';
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+/**
+ * 拼接待访问的附件地址
+ * 生产环境前端与后端同源，相对路径(/uploads/...)直接可用；
+ * 开发环境(Vite)未代理 /uploads，需补上后端源地址(与 config.js 中 WS_URL 的约定一致)。
+ */
+function resolveUploadUrl(url) {
+  if (import.meta.env.DEV && url && url.startsWith('/')) {
+    return 'http://localhost:3333' + url;
+  }
+  return url;
+}
+
+/** 时间格式化：YYYY-MM-DD HH:mm */
+function formatTime(t) {
+  if (!t) return '';
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return t;
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 加载反馈工单列表（带分页与状态过滤） */
+async function loadFeedbackList(p) {
+  feedbackLoading.value = true;
+  try {
+    const res = await feedbackApi.adminList({
+      page: p,
+      pageSize: feedbackPageSize,
+      status: feedbackStatus.value || undefined,
+    });
+    feedbackPage.value = p;
+    feedbackList.value = res.data.list;
+    feedbackTotal.value = res.data.total;
+  } catch (e) {
+    alert('加载反馈列表失败：' + (e.response?.data?.message || e.message));
+  } finally {
+    feedbackLoading.value = false;
+  }
+}
+
+/** 点击状态过滤按钮：切换过滤条件并回到第一页 */
+function setFeedbackStatus(s) {
+  feedbackStatus.value = s;
+  loadFeedbackList(1);
+}
+
+/** 打开工单详情：先用列表项占位展示，再拉取完整消息列表 */
+async function openFeedbackDetail(f) {
+  currentFeedback.value = f;
+  try {
+    const res = await feedbackApi.detail(f.id);
+    currentFeedback.value = res.data;
+  } catch (e) {
+    alert('加载反馈详情失败：' + (e.response?.data?.message || e.message));
+  }
+}
+
+/** 关闭详情面板 */
+function closeFeedbackDetail() {
+  currentFeedback.value = null;
+}
+
+/** 管理员变更工单状态：更新详情与列表中的对应项 */
+async function changeFeedbackStatus(s) {
+  const fb = currentFeedback.value;
+  if (!fb || !s || s === fb.status) return;
+  try {
+    const res = await feedbackApi.adminUpdateStatus(fb.id, s);
+    fb.status = res.data.status;
+    const item = feedbackList.value.find((x) => x.id === fb.id);
+    if (item) item.status = res.data.status;
+  } catch (e) {
+    alert('更新状态失败：' + (e.response?.data?.message || e.message));
+  }
+}
+
+/** 触发隐藏的文件选择器 */
+function pickReplyFiles() {
+  fbFileInput.value?.click();
+}
+
+/** 选择文件后上传附件，取回可访问 URL 加入待发送列表 */
+async function onReplyFilesSelected(e) {
+  const files = Array.from(e.target.files || []);
+  // 清空 input 值，允许重复选择同一文件
+  e.target.value = '';
+  if (!files.length) return;
+  try {
+    const res = await feedbackApi.upload(files);
+    const urls = res.data || [];
+    feedbackReplyAttachments.value.push(...urls);
+  } catch (err) {
+    alert('上传附件失败：' + (err.response?.data?.message || err.message));
+  }
+}
+
+/** 发送管理员回复：追加消息并同步更新列表中的最后消息预览 */
+async function sendFeedbackReply() {
+  const fb = currentFeedback.value;
+  const content = feedbackReplyText.value.trim();
+  if (!fb || !content) return;
+  feedbackReplying.value = true;
+  feedbackReplyError.value = false;
+  try {
+    const res = await feedbackApi.reply(fb.id, {
+      content,
+      attachments: feedbackReplyAttachments.value,
+    });
+    fb.messages.push(res.data);
+    // 同步刷新列表项的"最后一条消息"预览与更新时间
+    const item = feedbackList.value.find((x) => x.id === fb.id);
+    if (item) {
+      item.messages = [res.data];
+      item.updatedAt = new Date().toISOString();
+    }
+    feedbackReplyText.value = '';
+    feedbackReplyAttachments.value = [];
+    feedbackReplyMsg.value = '回复已发送';
+    setTimeout(() => (feedbackReplyMsg.value = ''), 2000);
+  } catch (e) {
+    feedbackReplyError.value = true;
+    feedbackReplyMsg.value = '发送失败：' + (e.response?.data?.message || e.message);
+  } finally {
+    feedbackReplying.value = false;
+  }
+}
+
+// 切换到"反馈管理"标签时自动加载数据
+watch(tab, (v) => {
+  if (v === 'feedback') loadFeedbackList(1);
+});
+
 // ---- 通用 ----
 function goChat() { router.push('/chat'); }
 function logout() {
@@ -415,5 +756,403 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* 管理后台样式已移至全局 styles.css */
+/* 管理后台基础样式已移至全局 styles.css，以下为"反馈管理"标签页专用样式 */
+
+/* ===== 状态过滤按钮 ===== */
+.fb-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.fb-filter-btn {
+  padding: 7px 16px;
+  background: rgba(10, 10, 26, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+.fb-filter-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.fb-filter-btn.active {
+  color: #fff;
+  background: var(--accent-gradient);
+  border-color: transparent;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.3);
+}
+
+/* ===== 工单列表卡片 ===== */
+.fb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.fb-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  animation: fadeInUp 0.25s ease-out;
+}
+.fb-card:hover {
+  border-color: rgba(139, 92, 246, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), var(--shadow-glow);
+  transform: translateY(-1px);
+}
+.fb-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-glow);
+}
+.fb-card-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.fb-ticket-no {
+  color: var(--accent2);
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.fb-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-card-sub {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.fb-preview {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-preview-empty {
+  color: var(--muted-dark);
+  font-style: italic;
+}
+
+/* ===== 状态标签（OPEN 红 / PROCESSING 黄 / CLOSED 绿） ===== */
+.fb-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.fb-status.st-open {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+.fb-status.st-processing {
+  color: #facc15;
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+.fb-status.st-closed {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+.fb-cat {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* ===== 空态与分页 ===== */
+.fb-empty {
+  text-align: center;
+  color: var(--muted-dark);
+  padding: 40px 0;
+  font-size: 13px;
+}
+.fb-pagination {
+  margin-top: 16px;
+}
+
+/* ===== 详情面板（下方滑出） ===== */
+.fb-detail {
+  margin-top: 20px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 18px;
+  animation: fadeInUp 0.3s ease-out;
+  box-shadow: var(--glass-shadow);
+}
+.fb-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.fb-detail-head h3 {
+  font-size: 16px;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.fb-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+/* 状态变更栏 */
+.fb-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.fb-status-bar select {
+  padding: 6px 10px;
+  background: rgba(10, 10, 26, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+.fb-status-bar select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+/* ===== 消息列表（气泡） ===== */
+.fb-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 4px;
+  margin-bottom: 14px;
+}
+.fb-msg {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  animation: fadeInUp 0.25s ease-out;
+}
+.fb-msg.from-user {
+  align-self: flex-start;
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  border-top-left-radius: 4px;
+}
+.fb-msg.from-admin {
+  align-self: flex-end;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-top-right-radius: 4px;
+}
+.fb-msg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.fb-msg-sender {
+  font-weight: 600;
+  color: var(--accent);
+}
+.fb-msg.from-admin .fb-msg-sender {
+  color: #c084fc;
+}
+.fb-msg-time {
+  color: var(--muted-dark);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.fb-msg-content {
+  color: var(--text);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* ===== 附件（图片缩略图 / 文件） ===== */
+.fb-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.fb-attach {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  border-radius: 8px;
+  padding: 4px;
+  border: 1px solid var(--glass-border);
+  background: rgba(10, 10, 26, 0.5);
+  transition: all 0.2s ease;
+  max-width: 140px;
+}
+.fb-attach:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
+}
+.fb-attach-img {
+  width: 120px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+  background: var(--bg2);
+}
+.fb-attach-file {
+  font-size: 11px;
+  color: var(--accent2);
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== 回复区 ===== */
+.fb-reply {
+  border-top: 1px solid var(--glass-border);
+  padding-top: 14px;
+}
+.fb-reply textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  background: rgba(10, 10, 26, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  resize: vertical;
+  outline: none;
+  transition: all 0.2s ease;
+}
+.fb-reply textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+.fb-reply-tools {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.fb-reply-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fb-reply-attach {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 4px;
+  background: rgba(10, 10, 26, 0.5);
+}
+.fb-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: all 0.15s ease;
+}
+.fb-remove:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+.fb-reply-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.fb-reply-msg {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #4ade80;
+  animation: fadeIn 0.3s ease;
+}
+.fb-reply-msg.error {
+  color: #f87171;
+}
+
+/* ===== 移动端适配 ===== */
+@media (max-width: 768px) {
+  .fb-filters {
+    gap: 6px;
+  }
+  .fb-filter-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .fb-card {
+    padding: 12px;
+  }
+  .fb-msg {
+    max-width: 95%;
+  }
+  .fb-detail {
+    padding: 14px;
+  }
+  .fb-detail-head {
+    flex-direction: column;
+  }
+}
 </style>

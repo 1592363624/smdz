@@ -33,6 +33,10 @@ model User {
   player      Player?
   messages    ChatMessage[]
   bindings    UserBinding[]
+  privateSent     PrivateMessage[]   @relation("PrivateSent")
+  privateReceived PrivateMessage[]   @relation("PrivateReceived")
+  feedbacks       Feedback[]
+  feedbackMessages FeedbackMessage[]
   @@index([qqNumber])
 }
 
@@ -292,4 +296,54 @@ model SystemConfig {
   options     String   @default("[]")
   updatedAt   DateTime @updatedAt
   createdAt   DateTime @default(now())
+}
+
+// ========== 玩家私聊 ==========
+
+/// 私聊消息表：玩家之间一对一的私聊消息
+/// 双方各存一条记录方向(senderId -> receiverId)，用于按会话拉取历史与未读数统计
+model PrivateMessage {
+  id         Int      @id @default(autoincrement())
+  senderId   Int
+  sender     User     @relation("PrivateSent", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId Int
+  receiver   User     @relation("PrivateReceived", fields: [receiverId], references: [id], onDelete: Cascade)
+  content    String
+  read       Boolean  @default(false) // 接收方是否已读
+  createdAt  DateTime @default(now())
+  @@index([senderId, createdAt])
+  @@index([receiverId, createdAt])
+}
+
+// ========== 反馈系统（工单式，支持附件图片/文件） ==========
+
+/// 反馈工单表：一个用户可提交多条反馈，管理员可查看与回复
+model Feedback {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String                          // 反馈标题
+  category  String   @default("general")    // 分类：bug/suggestion/general/other
+  status    String   @default("OPEN")       // 状态：OPEN/PROCESSING/RESOLVED/CLOSED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  FeedbackMessage[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+/// 反馈工单消息表：工单内的聊天式消息（用户/管理员/系统），支持多条附件
+model FeedbackMessage {
+  id          Int      @id @default(autoincrement())
+  feedbackId  Int
+  feedback    Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  senderId    Int?                          // 发送者用户ID（系统消息可为空）
+  sender      User?    @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  senderType  String   @default("user")     // user/admin/system
+  content     String
+  attachments String   @default("[]")       // 附件数组 JSON：[{ name, url, size, type }]
+  createdAt   DateTime @default(now())
+
+  @@index([feedbackId, createdAt])
 }

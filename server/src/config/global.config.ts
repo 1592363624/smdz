@@ -40,6 +40,18 @@ export class GlobalConfig {
   /** 是否必须带前缀才当作指令。false 时无前缀的输入也尝试作为指令处理 */
   public readonly commandRequirePrefix: boolean;
 
+  /** 反馈/私聊附件上传目录（相对服务根目录，由代码启动时自动创建） */
+  public readonly uploadDir: string;
+
+  /** 单个附件大小上限（字节），默认 10MB */
+  public readonly uploadMaxSize: number;
+
+  /** 上传附件的 URL 前缀（供前端拼接访问地址） */
+  public readonly uploadUrlPrefix: string;
+
+  /** 每条消息最多可携带的附件数量（默认 5） */
+  public readonly maxAttachments: number;
+
   /** 玩家默认属性（游戏数值配置示例，未来可迁移到数据库） */
   public readonly playerDefaults = {
     maxLevel: 100,
@@ -64,6 +76,14 @@ export class GlobalConfig {
       .filter(Boolean);
     // 是否必须带前缀才是指令
     this.commandRequirePrefix = (process.env.COMMAND_REQUIRE_PREFIX || 'false') !== 'false';
+    // 附件上传目录（相对服务根目录），由启动时自动创建；可通过环境变量覆盖
+    this.uploadDir = process.env.UPLOAD_DIR || 'uploads';
+    // 单个附件大小上限（字节），默认 10MB
+    this.uploadMaxSize = Number(process.env.UPLOAD_MAX_SIZE || 10 * 1024 * 1024);
+    // 上传附件的 URL 前缀，用于前端拼接访问地址
+    this.uploadUrlPrefix = process.env.UPLOAD_URL_PREFIX || '/uploads';
+    // 每条消息最多可携带的附件数量
+    this.maxAttachments = Number(process.env.MAX_ATTACHMENTS || 5);
     // CORS 白名单：默认允许本地开发端口与常见前端端口
     this.corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:8080')
       .split(',')

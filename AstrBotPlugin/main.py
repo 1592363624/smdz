@@ -84,8 +84,8 @@ class SmdzBridgePlugin(Star):
                 async with session.post(
                     url, json=payload, headers=headers, timeout=self.timeout
                 ) as resp:
-                    # 后端返回非 200，说明令牌/服务异常
-                    if resp.status != 200:
+                    # 后端返回非 2xx（如 401 令牌错误、500 服务异常），说明请求失败
+                    if resp.status < 200 or resp.status >= 300:
                         body = await resp.text()
                         logger.error(
                             f"[使魔大战3桥接] 游戏服务返回状态 {resp.status}: {body}"

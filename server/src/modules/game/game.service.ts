@@ -24,6 +24,7 @@ import { TutorialService } from './tutorial.service';
 import { StaticDataService } from './static-data.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { ChatService } from '../chat/chat.service';
+import { FeedbackService } from '../feedback/feedback.service';
 
 @Injectable()
 export class GameService {
@@ -49,6 +50,7 @@ export class GameService {
     private readonly staticData: StaticDataService,
     private readonly systemConfigService: SystemConfigService,
     private readonly chatService: ChatService,
+    private readonly feedbackService: FeedbackService,
   ) {}
 
   /**
@@ -319,11 +321,11 @@ export class GameService {
       lines.push('你摸了摸身上，发现背包里有一些基础物资。');
       lines.push('');
       lines.push('📋 你回想起新手引导员的话：');
-      lines.push('  "沿着走廊一直走，在尽头找到宝箱，');
-      lines.push('   里面有你需要的「古代遗物」。"');
+      lines.push('  "先去打开背包，看看里面的基础物资，');
+      lines.push('   然后找新手引导员聊一聊吧。"');
       lines.push('');
-      lines.push('💡 输入 背包 查看你拥有的物品');
-      lines.push('💡 输入 对话 新手引导员 了解更多信息');
+      lines.push('💡 输入「背包」查看你拥有的物品');
+      lines.push('💡 输入「对话 新手引导员」了解更多信息');
       lines.push('');
       lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━');
     }
@@ -556,7 +558,7 @@ export class GameService {
   async handleTalk(userId: number, npcName: string): Promise<string> {
     // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    const { player, markers, tasks } = playerData;
 
     // 特殊NPC剧情映射（新手流程固定NPC，不依赖地图数据）
     // 原版中这些NPC由"生成人物"指令动态生成，地图 npcs 字段可能为空，
@@ -565,9 +567,9 @@ export class GameService {
       '新手引导员': {
         title: '新手引导员·小薇',
         dialogs: {
-          'hello': '你好呀，新人！我是新手引导员小薇，欢迎来到使魔大战的世界！\n\n你从出生点醒来，沿着走廊一直走，会在走廊尽头发现一个宝箱。\n打开宝箱可以获得一些有用的道具。',
+          'hello': '你好呀，新人！我是新手引导员小薇，欢迎来到使魔大战的世界！\n\n你从出生点醒来，先打开背包看看身上的物资吧，\n再和我聊聊，了解一下这个世界。',
           'intro': '这个世界的怪物可不是好惹的，先从背包里拿出你的石斧吧！\n\n💡 使用「装备 石斧」来装备武器\n💡 使用「攻击」来试试身手\n💡 使用「背包」查看你拥有的物品',
-          'quest': '等你准备好了，我有个任务要交给你。\n先去走廊尽头的宝箱那里，找到「古代遗物」，然后回来找我。\n\n使用「领取任务 新手教程」来接受任务吧！',
+          'quest': '等你准备好了，我有个任务要交给你。\n任务我已经帮你接好了，先看看任务列表吧。\n\n使用「查看任务」查看任务详情，\n完成后用「提交任务 新手教程」提交即可！',
           'done': '你已经学会了基本操作，去探索更广阔的世界吧！\n\n记住：\n  - 使用「移动 地图名」前往新区域\n  - 使用「对话 NPC名」与NPC交谈\n  - 遇到困难可以「求助」其他玩家',
         }
       },
@@ -586,17 +588,17 @@ export class GameService {
         dialogs: {
           'hello': '嘿嘿，新面孔啊！我是流浪商人阿福，\n我在各个大陆之间旅行，贩卖各种稀奇古怪的东西。\n\n要不要看看我的商品？使用「购物」来打开商店。',
           'intro': '我这里的商品可都是好东西！\n有武器、防具、药品，还有一些特殊的道具。\n\n不过嘛……好东西可不便宜，你先去赚点钱再来吧。',
-          'quest': '如果你能帮我找到「古代遗物」，我可以给你一个优惠价。\n据说那个东西就在新手村的走廊尽头。',
-          'done': '你真的找到了古代遗物？！厉害厉害！\n作为奖励，我可以给你打个八折，嘿嘿。',
+          'quest': '如果你能帮我收集一些稀有的材料，我可以给你一个优惠价。\n先去探索一下周围的地图，看看能找到什么好东西吧。',
+          'done': '你收集到了不错的材料？厉害厉害！\n作为奖励，我可以给你打个八折，嘿嘿。',
         }
       },
       '旅行者': {
         title: '神秘的旅行者',
         dialogs: {
           'hello': '嘘……别出声。\n我正在观察走廊里的那些史莱姆，它们的行为很奇怪。\n\n你也是来探索这条走廊的吗？',
-          'intro': '这条走廊被称为「试炼之路」，每个新人都要经过这里。\n走廊里有各种机关和宝箱，当然也有怪物。\n\n在走廊尽头，据说藏着一个强大的古代遗物。',
-          'quest': '如果你能找到走廊尽头的宝箱，帮我看看里面有什么。\n但我警告你，走廊深处有一种特殊的史莱姆，\n它们比普通史莱姆要强大得多。',
-          'done': '你找到古代遗物了？太好了！\n那个东西蕴含着强大的力量，好好利用它吧。',
+          'intro': '这条走廊被称为「试炼之路」，每个新人都要经过这里。\n走廊里有各种资源和机关，当然也有怪物。\n\n先提升自己的实力，再向走廊深处前进吧。',
+          'quest': '如果你能前往走廊深处探索，帮我看看那里的情况。\n但我警告你，走廊深处有一种特殊的史莱姆，\n它们比普通史莱姆要强大得多。',
+          'done': '你探索了走廊深处？太好了！\n那条走廊蕴含着许多秘密，好好探索吧。',
         }
       },
       '行商': {
@@ -698,6 +700,24 @@ export class GameService {
         // 使用特殊NPC的标题替换默认标题
         const dialogText = specialNpc.dialogs[dialogPhase] || specialNpc.dialogs['hello'];
         dialogLines.push(dialogText);
+
+        // 引导对话进入"完成"阶段后，自动将新手教程/进阶教程任务标记为已完成
+        // 这两类教程任务 requirements 为空，无法通过行为触发完成，
+        // 因此随引导对话进度联动标记，玩家随后可用「提交任务」清空任务列表
+        if (dialogPhase === 'done') {
+          let tutorialDone = false;
+          for (const t of tasks) {
+            if ((t.name === '新手教程' || t.name === '进阶教程') && t.status !== '已完成') {
+              t.status = '已完成';
+              t.progress = '已按引导完成全部步骤';
+              tutorialDone = true;
+            }
+          }
+          if (tutorialDone) {
+            player.tasks = tasks;
+            await this.playerService.savePlayer(player);
+          }
+        }
 
         // 更新与该NPC的对话进度
         markers[`对话_${npcName}`] = (talkProgress + 1);
@@ -1283,6 +1303,50 @@ export class GameService {
     this.logger.log(`玩家 ${userId} 赠送了 ${itemName} ×${actualCount} 给 ${targetQQ}`);
 
     return `成功将 ${itemName} ×${actualCount} 赠予给 ${targetUser.nickname || targetQQ}`;
+  }
+
+  /**
+   * 处理私聊指令（指令通道）
+   * 格式：私聊 用户名/昵称/ID 消息内容
+   * 将消息持久化到 PrivateMessage 并通过 Socket 实时推送给对方
+   * 对应原版：私聊 命令
+   */
+  async handlePrivateChat(userId: number, targetName: string, content: string): Promise<string> {
+    if (!targetName || !content) {
+      return '请指定私聊对象和内容，格式：私聊 用户名 内容';
+    }
+    // 查找目标用户：优先按用户名/昵称精确匹配，支持数字ID
+    const target = /^\d+$/.test(targetName)
+      ? await this.prisma.user.findUnique({ where: { id: Number(targetName) } })
+      : (await this.prisma.user.findFirst({ where: { username: targetName } })) ||
+        (await this.prisma.user.findFirst({ where: { nickname: targetName } }));
+    if (!target) {
+      return `未找到玩家「${targetName}」`;
+    }
+    if (target.id === userId) {
+      return '不能给自己发送私聊消息';
+    }
+    // 复用聊天服务的持久化 + 实时推送逻辑
+    const msg = await this.chatService.sendPrivateMessage(userId, target.id, content);
+    return `已私聊给 ${target.nickname || target.username}：${content}`;
+  }
+
+  /**
+   * 处理反馈指令（指令通道，简化版）
+   * 格式：反馈 内容  或  反馈 bug 标题|内容
+   * 完整交互（分类选择/附件上传/回复）请使用网页内的反馈面板
+   */
+  async handleFeedback(userId: number, raw: string): Promise<string> {
+    if (!raw) {
+      return '请描述你遇到的问题或建议，格式：反馈 内容\n如需上传图片/分类，请使用网页内的「反馈」面板';
+    }
+    const feedback = await this.feedbackService.create(userId, {
+      title: raw.slice(0, 30),
+      category: 'general',
+      content: raw,
+      attachments: [],
+    });
+    return `反馈已提交，工单号 #${feedback.id}，我们会尽快处理。`;
   }
 
   /**

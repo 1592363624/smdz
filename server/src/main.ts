@@ -6,12 +6,22 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { GlobalConfig } from './config/global.config';
 
 async function bootstrap() {
   // 读取启动配置（端口、CORS 白名单等），来自配置文件/环境变量
   const config = GlobalConfig.getInstance();
+
+  // 确保附件上传目录存在（反馈/私聊的图片与文件）
+  const uploadDir = join(process.cwd(), config.uploadDir);
+  if (!existsSync(uploadDir)) {
+    mkdirSync(uploadDir, { recursive: true });
+    // eslint-disable-next-line no-console
+    console.log(`📁 已创建上传目录: ${uploadDir}`);
+  }
 
   const app = await NestFactory.create(AppModule);
 

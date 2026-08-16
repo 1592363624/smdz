@@ -256,6 +256,13 @@
         <h2>💬 {{ channel?.name || '世界频道' }}</h2>
         <div class="header-right">
           <span class="version-tag" title="当前版本">v{{ APP_VERSION }}</span>
+          <!-- 私聊入口按钮（带未读红点） -->
+          <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
+            💬 私聊
+            <span v-if="unreadPrivateCount > 0" class="unread-badge">{{ unreadPrivateCount > 99 ? '99+' : unreadPrivateCount }}</span>
+          </button>
+          <!-- 反馈入口按钮 -->
+          <button class="header-action-btn" title="反馈" @click="toggleFeedbackPanel">📝 反馈</button>
           <a class="reborn-link" href="http://xx.52shell.ltd" target="_blank" rel="noopener noreferrer">《重生之凡人修仙》</a>
         </div>
       </header>
@@ -269,6 +276,7 @@
             <span class="content" style="white-space: pre-line">
               <template v-for="(seg, si) in parseContent(m.content, commands)" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
+                <span v-else-if="seg.type === 'mention'" class="mention-highlight">{{ seg.text }}</span>
                 <span v-else class="cmd-clickable" :title="'左键点击发送 / 右键填入输入框「' + seg.text + '」'" @click="quickSend(seg.text)" @contextmenu.prevent="quickFill(seg.text)">{{ seg.displayText || seg.text }}</span>
               </template>
             </span>
@@ -317,6 +325,151 @@
         <button @click="sendMessage" :disabled="!connected">发送</button>
       </footer>
     </main>
+
+    <!-- 私聊面板（右侧滑出覆盖层） -->
+    <div v-if="privatePanelOpen" class="panel-overlay" @click.self="closePrivatePanel">
+      <aside class="side-panel private-panel">
+        <header class="panel-header">
+          <h3>💬 私聊</h3>
+          <button class="panel-close" title="关闭" @click="closePrivatePanel">✕</button>
+        </header>
+        <div class="private-body">
+          <!-- 左侧：会话列表 -->
+          <div class="conv-list">
+            <div
+              v-for="conv in privateConversations"
+              :key="conv.peerId"
+              class="conv-item"
+              :class="{ active: privatePeerId === conv.peerId }"
+              @click="openPrivateConversation(conv)"
+            >
+              <div class="conv-top">
+                <span class="conv-name">{{ conv.peer?.nickname || conv.peer?.username || '玩家' }}</span>
+                <span v-if="conv.unread > 0" class="conv-unread">{{ conv.unread > 99 ? '99+' : conv.unread }}</span>
+              </div>
+              <div class="conv-preview">{{ conv.lastMessage || '' }}</div>
+            </div>
+            <div v-if="!privateConversations.length" class="panel-empty">暂无私聊会话</div>
+          </div>
+          <!-- 右侧：聊天窗口 -->
+          <div class="private-chat">
+            <div class="private-msgs" v-if="privatePeerId">
+              <div
+                v-for="(pm, pi) in privateMessages"
+                :key="pm.id || pi"
+                :class="['pmsg', pm.senderId === user?.id ? 'own' : 'other']"
+              >
+                <span class="pmsg-sender">{{ pm.sender?.nickname || pm.sender?.username || '未知' }}：</span>
+                <span class="pmsg-content" style="white-space: pre-line">{{ pm.content }}</span>
+                <span class="pmsg-time">{{ formatTime(pm.createdAt) }}</span>
+              </div>
+              <div v-if="!privateMessages.length" class="panel-empty">暂无消息，发送第一条私聊吧！</div>
+            </div>
+            <div v-else class="panel-empty">选择左侧会话开始私聊</div>
+            <footer class="panel-input-bar">
+              <input
+                v-model="privateInput"
+                :disabled="!privatePeerId || !connected"
+                placeholder="输入私聊内容..."
+                @keyup.enter="sendPrivateMessage"
+              />
+              <button :disabled="!privatePeerId || !connected" @click="sendPrivateMessage">发送</button>
+            </footer>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 反馈面板（右侧滑出覆盖层） -->
+    <div v-if="feedbackPanelOpen" class="panel-overlay" @click.self="closeFeedbackPanel">
+      <aside class="side-panel feedback-panel">
+        <header class="panel-header">
+          <h3>📝 反馈</h3>
+          <button class="panel-new-btn" @click="startNewFeedback">＋ 新建反馈</button>
+          <button class="panel-close" title="关闭" @click="closeFeedbackPanel">✕</button>
+        </header>
+        <div class="feedback-body">
+          <!-- 新建反馈表单 -->
+          <div v-if="feedbackView === 'create'" class="fb-create">
+            <label class="fb-label">标题</label>
+            <input v-model="fbForm.title" class="fb-input" maxlength="100" placeholder="简要描述问题或建议" />
+            <label class="fb-label">分类</label>
+            <select v-model="fbForm.category" class="fb-input">
+              <option value="general">一般问题</option>
+              <option value="bug">Bug 反馈</option>
+              <option value="suggestion">功能建议</option>
+            </select>
+            <label class="fb-label">内容</label>
+            <textarea v-model="fbForm.content" class="fb-input fb-textarea" placeholder="请详细描述你遇到的问题或建议..." rows="4"></textarea>
+            <label class="fb-label">附件</label>
+            <input type="file" multiple class="fb-file" @change="onFbFilesChange" />
+            <div v-if="fbUploadedUrls.length" class="fb-file-list">
+              <span v-for="(u, ui) in fbUploadedUrls" :key="ui" class="fb-file-item">📎 {{ fileName(u) }}</span>
+            </div>
+            <div class="fb-form-actions">
+              <button class="fb-cancel" @click="feedbackView = 'list'">取消</button>
+              <button class="fb-submit" :disabled="fbSubmitting" @click="submitFeedback">{{ fbSubmitting ? '提交中...' : '提交' }}</button>
+            </div>
+          </div>
+          <!-- 我的反馈列表 + 详情 -->
+          <template v-else>
+            <div class="fb-list">
+              <div
+                v-for="t in feedbackTickets"
+                :key="t.id"
+                class="fb-ticket"
+                :class="{ active: currentFeedback?.id === t.id }"
+                @click="openFeedbackTicket(t)"
+              >
+                <div class="fb-ticket-top">
+                  <span class="fb-ticket-title">{{ t.title }}</span>
+                  <span class="fb-ticket-status" :class="'st-' + (t.status || '').toLowerCase()">{{ statusLabel(t.status) }}</span>
+                </div>
+                <div class="fb-ticket-meta">{{ categoryLabel(t.category) }} · {{ formatTime(t.createdAt) }}</div>
+              </div>
+              <div v-if="!feedbackTickets.length" class="panel-empty">暂无反馈工单，点击「新建反馈」提交</div>
+            </div>
+            <div v-if="currentFeedback" class="fb-detail">
+              <div class="fb-detail-msgs">
+                <div
+                  v-for="fm in currentFeedback.messages || []"
+                  :key="fm.id"
+                  :class="['fmsg', fm.senderType === 'admin' ? 'admin' : 'own']"
+                >
+                  <div class="fmsg-head">
+                    <span class="fmsg-sender">{{ fm.senderType === 'admin' ? '管理员' : (fm.sender?.nickname || fm.sender?.username || '我') }}</span>
+                    <span class="fmsg-time">{{ formatTime(fm.createdAt) }}</span>
+                  </div>
+                  <div class="fmsg-content">{{ fm.content }}</div>
+                  <div v-if="fmAttachments(fm).length" class="fmsg-attachments">
+                    <a v-for="(u, ui) in fmAttachments(fm)" :key="ui" :href="u" target="_blank" rel="noopener noreferrer">📎 {{ fileName(u) }}</a>
+                  </div>
+                </div>
+                <div v-if="!(currentFeedback.messages || []).length" class="panel-empty">暂无消息</div>
+              </div>
+              <footer class="panel-input-bar">
+                <input
+                  v-model="feedbackReply"
+                  :disabled="currentFeedback.status === 'CLOSED'"
+                  placeholder="追加回复...（工单关闭后不可回复）"
+                  @keyup.enter="replyFeedback"
+                />
+                <input type="file" multiple class="reply-file" @change="onReplyFilesChange" />
+                <button :disabled="currentFeedback.status === 'CLOSED'" @click="replyFeedback">回复</button>
+              </footer>
+            </div>
+            <div v-else class="panel-empty">点击上方工单查看详情</div>
+          </template>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 全局 Toast 提示 -->
+    <div class="toast-container">
+      <transition-group name="toast-fade">
+        <div v-for="t in toasts" :key="t.id" :class="['toast-item', t.type]">{{ t.message }}</div>
+      </transition-group>
+    </div>
   </div>
 </template>
 
@@ -334,7 +487,7 @@
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
-import { chatApi, commandApi, userApi, gameApi } from '../api';
+import { chatApi, commandApi, userApi, gameApi, feedbackApi } from '../api';
 import { WS_URL, APP_VERSION } from '../config';
 
 const router = useRouter();
@@ -469,14 +622,25 @@ function parseContent(content, cmdList) {
 
   let lastIndex = 0;
 
-  // 模式1：「指令名」—— 精确匹配，优先级最高
+  // 模式1：「指令名 参数」—— 精确匹配，优先级最高
+  // 书名号内第一个词必须是指令名或别名，后续内容作为参数一起发送
+  // 这样可以避免「古代遗物」这类剧情道具名被误识别为可点击指令
   const bookEndRegex = /「([^」]+)」/g;
   let match;
   while ((match = bookEndRegex.exec(content)) !== null) {
     if (match.index > lastIndex) {
       segments.push({ type: 'text', text: content.slice(lastIndex, match.index) });
     }
-    segments.push({ type: 'command', text: match[1].trim(), source: 'bookend' });
+    const inner = match[1].trim();
+    const firstWord = inner.split(/\s+/)[0];
+    const isValidCmd = validCmdNames.has(firstWord) || validCmdAliases.has(firstWord);
+    if (isValidCmd) {
+      // 有效指令：发送完整指令（含参数），如「对话 新手引导员」
+      segments.push({ type: 'command', text: inner, source: 'bookend' });
+    } else {
+      // 非指令内容（如剧情道具名）保持普通文本，避免误导点击
+      segments.push({ type: 'text', text: match[0] });
+    }
     lastIndex = bookEndRegex.lastIndex;
   }
 
@@ -528,7 +692,29 @@ function parseContent(content, cmdList) {
     return [{ type: 'text', text: content }];
   }
 
-  return segments;
+  // 处理文本片段中的 @提及 高亮（在已有 segment 基础上拆解 text 片段）
+  const mentionRegex = /@([\u4e00-\u9fa5A-Za-z0-9_]{1,32})/g;
+  const finalSegments = [];
+  for (const seg of segments) {
+    if (seg.type === 'text' && seg.text) {
+      let lastTextIdx = 0;
+      let m;
+      mentionRegex.lastIndex = 0;
+      while ((m = mentionRegex.exec(seg.text)) !== null) {
+        if (m.index > lastTextIdx) {
+          finalSegments.push({ type: 'text', text: seg.text.slice(lastTextIdx, m.index) });
+        }
+        finalSegments.push({ type: 'mention', text: m[0] });
+        lastTextIdx = mentionRegex.lastIndex;
+      }
+      if (lastTextIdx < seg.text.length) {
+        finalSegments.push({ type: 'text', text: seg.text.slice(lastTextIdx) });
+      }
+    } else {
+      finalSegments.push(seg);
+    }
+  }
+  return finalSegments;
 }
 
 /**
@@ -736,6 +922,332 @@ async function loadServerStats() {
 // 移动端视图高度修复函数
 let setViewportHeight = null;
 
+// ===== 全局 Toast 轻提示 =====
+const toasts = ref([]);
+let toastId = 0;
+/**
+ * 显示一条轻提示（自动消失）
+ * @param {string} message 提示内容
+ * @param {string} type 类型：info / error / success
+ */
+function showToast(message, type = 'info') {
+  const id = ++toastId;
+  toasts.value.push({ id, message, type });
+  // 3 秒后自动移除
+  setTimeout(() => {
+    toasts.value = toasts.value.filter((t) => t.id !== id);
+  }, 3000);
+}
+
+// ===== 私聊面板状态 =====
+const privatePanelOpen = ref(false);
+const privateConversations = ref([]);
+const privatePeerId = ref(null);
+const privateMessages = ref([]);
+const privateInput = ref('');
+// 未读私聊总数（头部红点）
+const unreadPrivateCount = ref(0);
+
+/**
+ * 打开/关闭私聊面板
+ * 打开时刷新会话列表（同步未读计数）
+ */
+function togglePrivatePanel() {
+  if (privatePanelOpen.value) {
+    closePrivatePanel();
+  } else {
+    privatePanelOpen.value = true;
+    loadPrivateConversations();
+  }
+}
+
+/** 关闭私聊面板 */
+function closePrivatePanel() {
+  privatePanelOpen.value = false;
+}
+
+/**
+ * 加载私聊会话列表，并重新计算头部未读总数
+ */
+async function loadPrivateConversations() {
+  try {
+    const res = await chatApi.getPrivateConversations();
+    privateConversations.value = res.data || [];
+    unreadPrivateCount.value = privateConversations.value.reduce((sum, c) => sum + (c.unread || 0), 0);
+  } catch (e) {
+    console.error('加载私聊会话失败', e);
+    showToast('加载私聊会话失败', 'error');
+  }
+}
+
+/**
+ * 点击会话：加载与该用户的私聊历史，并标记已读
+ * @param {object} conv 会话对象（含 peerId）
+ */
+async function openPrivateConversation(conv) {
+  if (!conv || conv.peerId === privatePeerId.value) return;
+  privatePeerId.value = conv.peerId;
+  privateMessages.value = [];
+  try {
+    const res = await chatApi.getPrivateMessages(conv.peerId, 50);
+    privateMessages.value = res.data || [];
+  } catch (e) {
+    console.error('加载私聊历史失败', e);
+    showToast('加载私聊历史失败', 'error');
+  }
+  // 本地清空该会话未读并重新计算总未读
+  conv.unread = 0;
+  unreadPrivateCount.value = privateConversations.value.reduce((sum, c) => sum + (c.unread || 0), 0);
+  // 调用后端标记已读（失败不影响本地展示）
+  try {
+    await chatApi.markPrivateRead(conv.peerId);
+  } catch (e) {
+    console.error('标记私聊已读失败', e);
+  }
+}
+
+/**
+ * 发送私聊消息（经 Socket，发送成功后由服务端回传 chat:private 追加显示）
+ */
+function sendPrivateMessage() {
+  const content = privateInput.value.trim();
+  if (!content || !socket || !privatePeerId.value) return;
+  socket.emit('chat:private', { to: privatePeerId.value, content });
+  privateInput.value = '';
+}
+
+/**
+ * 处理收到的私聊消息（发送方回传 + 接收方推送均走这里）
+ * @param {object} msg 私聊消息对象
+ */
+function handleIncomingPrivate(msg) {
+  if (!msg || !user.value) return;
+  // 对方ID：发给我的是发送方；我发出的则是接收方
+  const peerId = msg.senderId === user.value.id ? msg.receiverId : msg.senderId;
+  if (privatePanelOpen.value && privatePeerId.value === peerId) {
+    // 面板打开且是当前会话 → 直接追加并标记已读
+    privateMessages.value.push(msg);
+    chatApi.markPrivateRead(peerId).catch(() => {});
+  } else {
+    // 否则增加未读计数，并同步更新会话列表
+    unreadPrivateCount.value += 1;
+    const conv = privateConversations.value.find((c) => c.peerId === peerId);
+    if (conv) {
+      conv.unread = (conv.unread || 0) + 1;
+      conv.lastMessage = msg.content;
+      conv.lastAt = msg.createdAt;
+    } else {
+      // 新会话插到最前
+      privateConversations.value.unshift({
+        peerId,
+        peer: msg.senderId === user.value.id ? msg.receiver : msg.sender,
+        lastMessage: msg.content,
+        lastAt: msg.createdAt,
+        unread: 1,
+      });
+    }
+  }
+}
+
+// ===== 反馈面板状态 =====
+const feedbackPanelOpen = ref(false);
+const feedbackTickets = ref([]);
+const currentFeedback = ref(null);
+const feedbackView = ref('list'); // list | create
+const fbSubmitting = ref(false);
+const fbForm = ref({ title: '', category: 'general', content: '' });
+const fbUploadedUrls = ref([]);
+const feedbackReply = ref('');
+const replyUploadedUrls = ref([]);
+
+/**
+ * 打开/关闭反馈面板
+ * 打开时刷新"我的反馈工单"列表
+ */
+function toggleFeedbackPanel() {
+  if (feedbackPanelOpen.value) {
+    closeFeedbackPanel();
+  } else {
+    feedbackPanelOpen.value = true;
+    loadFeedbackTickets();
+  }
+}
+
+/** 关闭反馈面板 */
+function closeFeedbackPanel() {
+  feedbackPanelOpen.value = false;
+}
+
+/**
+ * 加载"我的反馈工单"列表
+ */
+async function loadFeedbackTickets() {
+  try {
+    const res = await feedbackApi.mine();
+    feedbackTickets.value = res.data || [];
+  } catch (e) {
+    console.error('加载反馈列表失败', e);
+    showToast('加载反馈列表失败', 'error');
+  }
+}
+
+/**
+ * 加载单个反馈工单详情
+ * @param {number} id 工单ID
+ */
+async function loadFeedbackDetail(id) {
+  try {
+    const res = await feedbackApi.detail(id);
+    currentFeedback.value = res.data;
+  } catch (e) {
+    console.error('加载反馈详情失败', e);
+    showToast('加载反馈详情失败', 'error');
+  }
+}
+
+/** 点击工单 → 加载详情 */
+function openFeedbackTicket(ticket) {
+  if (!ticket) return;
+  loadFeedbackDetail(ticket.id);
+}
+
+/** 进入新建反馈表单 */
+function startNewFeedback() {
+  feedbackView.value = 'create';
+}
+
+/**
+ * 新建反馈附件选择：调用上传接口得到可访问 URL 列表
+ * @param {Event} e 文件输入 change 事件
+ */
+async function onFbFilesChange(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!files.length) return;
+  try {
+    const res = await feedbackApi.upload(files);
+    fbUploadedUrls.value = [...fbUploadedUrls.value, ...(res.data || [])];
+  } catch (err) {
+    console.error('附件上传失败', err);
+    showToast('附件上传失败', 'error');
+  }
+}
+
+/**
+ * 提交新建反馈工单
+ */
+async function submitFeedback() {
+  const title = fbForm.value.title.trim();
+  const content = fbForm.value.content.trim();
+  if (!title || !content) {
+    showToast('请填写标题和内容', 'error');
+    return;
+  }
+  fbSubmitting.value = true;
+  try {
+    await feedbackApi.create({
+      title,
+      category: fbForm.value.category,
+      content,
+      attachments: fbUploadedUrls.value,
+    });
+    showToast('反馈已提交，感谢你的反馈！', 'success');
+    // 重置表单并返回列表
+    fbForm.value = { title: '', category: 'general', content: '' };
+    fbUploadedUrls.value = [];
+    feedbackView.value = 'list';
+    await loadFeedbackTickets();
+  } catch (err) {
+    console.error('提交反馈失败', err);
+    showToast('提交反馈失败，请稍后重试', 'error');
+  } finally {
+    fbSubmitting.value = false;
+  }
+}
+
+/**
+ * 回复附件选择：调用上传接口得到可访问 URL 列表
+ * @param {Event} e 文件输入 change 事件
+ */
+async function onReplyFilesChange(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!files.length) return;
+  try {
+    const res = await feedbackApi.upload(files);
+    replyUploadedUrls.value = [...replyUploadedUrls.value, ...(res.data || [])];
+  } catch (err) {
+    console.error('回复附件上传失败', err);
+    showToast('附件上传失败', 'error');
+  }
+}
+
+/**
+ * 在当前工单下追加回复
+ */
+async function replyFeedback() {
+  if (!currentFeedback.value) return;
+  const content = feedbackReply.value.trim();
+  if (!content && !replyUploadedUrls.value.length) {
+    showToast('请输入回复内容', 'error');
+    return;
+  }
+  try {
+    await feedbackApi.reply(currentFeedback.value.id, {
+      content,
+      attachments: replyUploadedUrls.value,
+    });
+    feedbackReply.value = '';
+    replyUploadedUrls.value = [];
+    await loadFeedbackDetail(currentFeedback.value.id);
+    await loadFeedbackTickets();
+  } catch (err) {
+    console.error('回复失败', err);
+    showToast('回复失败，请稍后重试', 'error');
+  }
+}
+
+/**
+ * 解析消息中的附件字段（数据库中以 JSON 字符串存储）
+ * @param {object} msg 反馈消息对象
+ * @returns {string[]} 附件 URL 数组
+ */
+function fmAttachments(msg) {
+  if (!msg || !msg.attachments) return [];
+  try {
+    const arr = typeof msg.attachments === 'string' ? JSON.parse(msg.attachments) : msg.attachments;
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 取附件 URL 的文件名（供展示）
+ * @param {string} url 附件 URL
+ * @returns {string} 文件名
+ */
+function fileName(url) {
+  const name = String(url || '').split('/').pop() || url;
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+/** 反馈状态中文标签 */
+function statusLabel(status) {
+  const map = { OPEN: '待处理', PROCESSING: '处理中', CLOSED: '已关闭' };
+  return map[status] || status || '未知';
+}
+
+/** 反馈分类中文标签 */
+function categoryLabel(category) {
+  const map = { general: '一般', bug: 'Bug', suggestion: '建议' };
+  return map[category] || category || '其他';
+}
+
 onMounted(async () => {
   try {
     // 移动端视图高度修复：动态计算实际可视高度，避免键盘弹出时布局错乱
@@ -797,6 +1309,46 @@ onMounted(async () => {
       console.error('socket error', e);
     });
 
+    // 接收私聊消息（发送方回传 + 接收方推送均通过该事件）
+    socket.on('chat:private', (msg) => {
+      handleIncomingPrivate(msg);
+    });
+    // 接收公屏 @提及 通知，弹出轻提示
+    socket.on('chat:at', (data) => {
+      if (!data) return;
+      const fromName = data.from?.nickname || data.from?.username || '有人';
+      showToast(`${fromName} 在公屏 @ 了你`);
+    });
+    // 私聊发送失败提示
+    socket.on('chat:private-error', (data) => {
+      showToast(data?.message || '私聊发送失败', 'error');
+    });
+    // 反馈：收到新消息（管理员回复时推送给用户）
+    socket.on('feedback:message', (data) => {
+      if (!data) return;
+      const { feedbackId } = data;
+      // 当前正在查看该工单 → 刷新详情
+      if (currentFeedback.value && currentFeedback.value.id === feedbackId) {
+        loadFeedbackDetail(feedbackId);
+      }
+      // 反馈面板打开 → 刷新列表保持最新
+      if (feedbackPanelOpen.value) {
+        loadFeedbackTickets();
+      }
+    });
+    // 反馈：状态变更通知
+    socket.on('feedback:status', (data) => {
+      if (!data) return;
+      const { feedbackId, status } = data;
+      if (currentFeedback.value && currentFeedback.value.id === feedbackId) {
+        currentFeedback.value.status = status;
+      }
+      if (feedbackPanelOpen.value) {
+        loadFeedbackTickets();
+      }
+      showToast(`反馈工单状态更新为「${statusLabel(status)}」`);
+    });
+
     scrollToBottom();
   } catch (e) {
     console.error('加载失败', e);
@@ -809,3 +1361,550 @@ onUnmounted(() => {
   if (statsTimer) clearInterval(statsTimer);
 });
 </script>
+
+<style scoped>
+/* ===== 头部操作按钮（私聊/反馈） ===== */
+.header-action-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  background: rgba(20, 16, 42, 0.7);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+.header-action-btn:hover {
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.25);
+}
+.header-action-btn:active {
+  transform: scale(0.95);
+}
+
+/* 未读红点 */
+.unread-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  animation: badgePulse 1.5s ease-in-out infinite;
+}
+@keyframes badgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.5); }
+}
+
+/* ===== @提及高亮 ===== */
+.mention-highlight {
+  color: #fbbf24;
+  font-weight: 700;
+  background: rgba(251, 191, 36, 0.12);
+  border-radius: 4px;
+  padding: 0 2px;
+  white-space: nowrap;
+}
+
+/* ===== 右侧滑出面板通用 ===== */
+.panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: flex-end;
+}
+.side-panel {
+  width: 420px;
+  max-width: 92vw;
+  height: 100%;
+  height: calc(var(--vh, 1vh) * 100);
+  background: var(--bg2);
+  border-left: 1px solid var(--glass-border);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  animation: panelSlideIn 0.25s ease-out;
+}
+@keyframes panelSlideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(10, 10, 26, 0.6);
+}
+.panel-header h3 {
+  flex: 1;
+  font-size: 15px;
+  color: var(--text);
+}
+.panel-close {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.panel-close:hover {
+  color: #fff;
+  border-color: var(--danger);
+}
+.panel-new-btn {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-gradient);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+.panel-new-btn:hover {
+  filter: brightness(1.1);
+}
+.panel-new-btn:active {
+  transform: scale(0.95);
+}
+
+.panel-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--muted-dark);
+  font-size: 13px;
+}
+
+/* ===== 私聊面板 ===== */
+.private-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.conv-list {
+  width: 150px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--glass-border);
+  overflow-y: auto;
+  background: rgba(10, 10, 26, 0.4);
+}
+.conv-item {
+  padding: 10px;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.08);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.conv-item:hover {
+  background: rgba(139, 92, 246, 0.1);
+}
+.conv-item.active {
+  background: rgba(139, 92, 246, 0.2);
+  border-left: 2px solid var(--accent);
+}
+.conv-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.conv-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-unread {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.conv-preview {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.private-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.private-msgs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pmsg {
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 92%;
+  word-break: break-word;
+}
+.pmsg.own {
+  align-self: flex-end;
+  background: rgba(139, 92, 246, 0.18);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+.pmsg.other {
+  align-self: flex-start;
+  background: rgba(20, 16, 42, 0.8);
+  border: 1px solid var(--glass-border);
+}
+.pmsg-sender {
+  font-weight: 600;
+  color: var(--accent2);
+  margin-right: 4px;
+}
+.pmsg-time {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted-dark);
+}
+
+.panel-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--glass-border);
+  background: rgba(10, 10, 26, 0.6);
+}
+.panel-input-bar > input:not([type='file']) {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  background: rgba(10, 10, 26, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.panel-input-bar > input:not([type='file']):focus {
+  border-color: var(--accent);
+}
+.panel-input-bar > input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.panel-input-bar > button {
+  padding: 9px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-gradient);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.panel-input-bar > button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ===== 反馈面板 ===== */
+.feedback-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+.fb-list {
+  flex-shrink: 0;
+  max-height: 45%;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--glass-border);
+}
+.fb-ticket {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.08);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.fb-ticket:hover {
+  background: rgba(139, 92, 246, 0.1);
+}
+.fb-ticket.active {
+  background: rgba(139, 92, 246, 0.2);
+}
+.fb-ticket-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.fb-ticket-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-ticket-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.fb-ticket-status.st-open { background: var(--warning-bg); color: var(--warning); }
+.fb-ticket-status.st-processing { background: var(--info-bg); color: var(--info); }
+.fb-ticket-status.st-closed { background: var(--success-bg); color: var(--success); }
+.fb-ticket-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.fb-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.fb-detail-msgs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fmsg {
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 92%;
+}
+.fmsg.own {
+  align-self: flex-end;
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+}
+.fmsg.admin {
+  align-self: flex-start;
+  background: rgba(139, 92, 246, 0.14);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+.fmsg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.fmsg-sender {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent2);
+}
+.fmsg-time {
+  font-size: 10px;
+  color: var(--muted-dark);
+}
+.fmsg-content {
+  white-space: pre-line;
+  word-break: break-word;
+}
+.fmsg-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+.fmsg-attachments a {
+  color: var(--accent2);
+  font-size: 12px;
+  text-decoration: none;
+}
+.fmsg-attachments a:hover {
+  text-decoration: underline;
+}
+
+/* 新建反馈表单 */
+.fb-create {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fb-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.fb-input {
+  width: 100%;
+  padding: 9px 12px;
+  background: rgba(10, 10, 26, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.fb-input:focus {
+  border-color: var(--accent);
+}
+.fb-textarea {
+  resize: vertical;
+  min-height: 90px;
+  font-family: inherit;
+}
+.fb-file {
+  font-size: 12px;
+  color: var(--muted);
+}
+.fb-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fb-file-item {
+  font-size: 11px;
+  color: var(--accent2);
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.fb-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.fb-cancel {
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.fb-submit {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-gradient);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fb-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.reply-file {
+  max-width: 90px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ===== Toast 提示 ===== */
+.toast-container {
+  position: fixed;
+  top: calc(16px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast-item {
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: rgba(20, 16, 42, 0.95);
+  border: 1px solid var(--border-light);
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: var(--glass-shadow);
+  max-width: 80vw;
+}
+.toast-item.error {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+.toast-item.success {
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #86efac;
+}
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: all 0.25s ease;
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* ===== 移动端适配 ===== */
+@media (max-width: 768px) {
+  .side-panel {
+    width: 100vw;
+    max-width: 100vw;
+  }
+  .header-action-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+}
+</style>

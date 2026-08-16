@@ -29,12 +29,14 @@ import { CommandService } from '../command/command.service';
 import { CommandContext, CommandSource } from '../command/interfaces/command.interface';
 import { ShortcutService } from '../game/shortcut.service';
 import { StatsService } from '../game/stats.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 /// Socket 客户端附加的用户信息
 interface SocketUser {
   userId: number;
   username: string;
   channelId: number;
+  role: string;
 }
 
 @WebSocketGateway({
@@ -54,6 +56,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     private readonly systemConfigService: SystemConfigService,
     private readonly shortcutService: ShortcutService,
     private readonly statsService: StatsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -70,6 +73,14 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       const payload = this.jwtService.verify(token, {
         secret: GlobalConfig.getInstance().jwtSecret,
       });
+      // 从数据库查询最新角色（管理员/封禁即时生效）
+      const dbUser = await this.prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { role: true, status: true },
+      });
+      if (!dbUser || dbUser.status === 'BANNED') {
+        throw new UnauthorizedException('账号不存在或已被封禁');
+      }
       // 确保默认频道存在，并获取其 ID
       const channel = await this.chatService.ensureDefaultChannel();
 
@@ -77,13 +88,18 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         userId: payload.userId,
         username: payload.username,
         channelId: channel.id,
+        role: dbUser.role,
       };
       client.data.user = user;
 
       // 加入频道房间（房间名用频道名）
       await client.join(channel.name);
-      // 加入个人专属房间，供服务端定向推送（如移动到达后刷新地图面板）
+      // 加入个人专属房间，供服务端定向推送（如移动到达后刷新地图面板、私聊/反馈消息）
       await client.join(`user:${payload.userId}`);
+      // 管理员额外加入 admin 房间，用于接收反馈新消息等通知
+      if (['ADMIN', 'SUPER_ADMIN'].includes(dbUser.role)) {
+        await client.join('admin');
+      }
       // 记录在线状态
       this.statsService.userOnline(payload.userId);
       this.logger.log(`用户 ${payload.username}(id=${payload.userId}) 已连接并加入频道「${channel.name}」`);
@@ -152,6 +168,88 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         content,
       });
       this.server.to('世界频道').emit('chat:message', msg);
+      // 解析 @提及并定向通知被提及的玩家（不改变公屏显示，仅推送提醒）
+      await this.notifyMentions(user, content);
+    }
+  }
+
+  /**
+   * 私聊消息（Socket 实时通道，网页私聊面板使用）
+   * 前端发送 { to: 对方用户名/ID, content }，服务端持久化并推送给接收方
+   */
+  @SubscribeMessage('chat:private')
+  async handlePrivateMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { to: string | number; content: string },
+  ) {
+    const user: SocketUser | undefined = client.data.user;
+    if (!user) {
+      client.emit('error', { message: '未认证' });
+      return;
+    }
+    const content = (body?.content || '').trim();
+    const to = body?.to;
+    if (!content || to === undefined || to === null || to === '') return;
+
+    // 根据 用户名/昵称/ID 解析目标用户
+    const target = await this.resolveTargetUser(to, user.userId);
+    if (!target) {
+      client.emit('chat:private-error', { message: '未找到该玩家，请确认用户名是否正确' });
+      return;
+    }
+    if (target.id === user.userId) {
+      client.emit('chat:private-error', { message: '不能给自己发送私聊消息' });
+      return;
+    }
+    try {
+      const msg = await this.chatService.sendPrivateMessage(user.userId, target.id, content);
+      // 回传给自己（便于发送方即时显示）
+      client.emit('chat:private', msg);
+    } catch (e: any) {
+      client.emit('chat:private-error', { message: e.message });
+    }
+  }
+
+  /**
+   * 解析 @提及的目标玩家：按 用户名/昵称/ID 精确匹配
+   * @param to 目标标识（用户名/昵称/数字ID）
+   * @param selfId 当前用户ID（排除自己）
+   */
+  private async resolveTargetUser(to: string | number, selfId: number): Promise<any | null> {
+    // 数字ID 直接查询
+    if (typeof to === 'number' || /^\d+$/.test(String(to))) {
+      return this.prisma.user.findUnique({ where: { id: Number(to) } });
+    }
+    const name = String(to).trim();
+    // 优先按用户名精确匹配，其次昵称精确匹配
+    return (
+      (await this.prisma.user.findFirst({ where: { username: name, id: { not: selfId } } })) ||
+      (await this.prisma.user.findFirst({ where: { nickname: name, id: { not: selfId } } })) ||
+      null
+    );
+  }
+
+  /**
+   * 解析公屏消息中的 @提及，定向推送给被提及的玩家
+   * 被提及玩家在线时收到 chat:at 通知（含提及者信息与原文），可据此跳转回复
+   * @param sender 发送者
+   * @param content 消息内容
+   */
+  private async notifyMentions(sender: SocketUser, content: string) {
+    const mentions = this.chatService.parseMentions(content);
+    if (mentions.length === 0) return;
+    for (const name of mentions) {
+      const target = await this.resolveTargetUser(name, sender.userId);
+      if (!target) continue;
+      // 推送给被提及用户：在公屏看到自己被 @，附带来源信息
+      this.server
+        ?.to(`user:${target.id}`)
+        .emit('chat:at', {
+          from: { id: sender.userId, username: sender.username },
+          content,
+          peerId: target.id,
+          at: new Date().toISOString(),
+        });
     }
   }
 

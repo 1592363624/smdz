@@ -20,6 +20,8 @@ import { SystemConfigModule } from './modules/system-config/system-config.module
 import { PrismaModule } from './prisma/prisma.module';
 import { GameModule } from './modules/game/game.module';
 import { GameTasksModule } from './modules/game/game-tasks.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
+import { GlobalConfig } from './config/global.config';
 
 @Module({
   imports: [
@@ -37,12 +39,20 @@ import { GameTasksModule } from './modules/game/game-tasks.module';
      */
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', '..', 'web', 'dist'),
-      exclude: ['/api/(.*)', '/ws/(.*)'],
+      exclude: ['/api/(.*)', '/ws/(.*)', '/uploads/(.*)'],
       serveStaticOptions: {
         // SPA 回退：所有未匹配到静态文件的请求都返回 index.html
         // 由前端 Vue Router 接管路由
         fallthrough: true,
       },
+    }),
+    /**
+     * 托管用户上传的附件（反馈/私聊的图片与文件）
+     * 通过 UPLOAD_DIR 配置指定目录（默认 uploads/），访问前缀为 /uploads/xxx
+     */
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), GlobalConfig.getInstance().uploadDir),
+      serveRoot: GlobalConfig.getInstance().uploadUrlPrefix,
     }),
     // 业务模块
     UsersModule,
@@ -53,6 +63,7 @@ import { GameTasksModule } from './modules/game/game-tasks.module';
     AdminModule,
     GameModule,
     GameTasksModule,
+    FeedbackModule,
   ],
 })
 export class AppModule {}

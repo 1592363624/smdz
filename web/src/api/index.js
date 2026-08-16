@@ -51,6 +51,41 @@ export const chatApi = {
   getMessages: (channelId = 1, limit = 50) =>
     http.get('/chat/messages', { params: { channelId, limit } }),
   getChannel: () => http.get('/chat/channel'),
+  // 私聊会话列表（含未读数与最后一条消息）
+  getPrivateConversations: () => http.get('/chat/private/conversations'),
+  // 与指定用户的私聊历史
+  getPrivateMessages: (withUserId, limit = 50) =>
+    http.get('/chat/private/messages', { params: { withUserId, limit } }),
+  // 标记与指定用户的私聊为已读
+  markPrivateRead: (withUserId) => http.post('/chat/private/read', { withUserId }),
+  // 通过 HTTP 发送私聊（指令通道等场景）
+  sendPrivateMessage: (to, content) => http.post('/chat/private/send', { to, content }),
+};
+
+/// 反馈接口
+export const feedbackApi = {
+  // 上传附件（multipart/form-data），返回可访问 URL 列表
+  upload: (files) => {
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    return http.post('/feedback/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  // 提交反馈工单
+  create: (data) => http.post('/feedback', data),
+  // 我的反馈工单列表
+  mine: () => http.get('/feedback/mine'),
+  // 反馈工单详情（含完整消息）
+  detail: (id) => http.get(`/feedback/${id}`),
+  // 回复反馈工单
+  reply: (id, data) => http.post(`/feedback/${id}/messages`, data),
+  // 管理员：全部反馈列表
+  adminList: (params) => http.get('/feedback/admin/list', { params }),
+  // 管理员：更新状态
+  adminUpdateStatus: (id, status) => http.post(`/feedback/admin/${id}/status`, { status }),
+  // 管理员：待处理数量
+  adminPendingCount: () => http.get('/feedback/admin/pending-count'),
 };
 
 /// 指令接口

@@ -9,7 +9,15 @@
  *   返回:    { "success": true, "data": { "content": "指令结果文本", ... } }
  */
 
-import { Body, Controller, Headers, HttpException, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { GlobalConfig } from '../../config/global.config';
 import { BotService } from './bot.service';
@@ -24,6 +32,7 @@ export class BotController {
    * 供 AstrBot 插件通过 HTTP 调用，触发网页指令引擎，返回结果。
    */
   @Post('command')
+  @HttpCode(HttpStatus.OK) // 成功执行指令返回 200，而非 NestJS 默认的 201，便于机器人插件识别
   @ApiOperation({ summary: '机器人发送指令(供AstrBot调用)' })
   @ApiHeader({
     name: 'x-bot-token',

@@ -1,0 +1,229 @@
+/**
+ * 反馈系统服务
+ * 封装反馈工单的 CRUD、消息追加、状态变更等核心业务逻辑，
+ * 并通过 Socket.IO 实时推送通知管理员/用户。
+ */
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Server } from 'socket.io';
+import { PrismaService } from '../../prisma/prisma.service';
+
+@Injectable()
+export class FeedbackService {
+  private readonly logger = new Logger(FeedbackService.name);
+  /** Socket.IO 服务端实例，由 FeedbackGateway 注入 */
+  private server: Server | null = null;
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /** 注入 Socket.IO 实例（由 FeedbackGateway 在 afterInit 调用） */
+  setServer(server: Server): void {
+    this.server = server;
+  }
+
+  /**
+   * 创建一条新的反馈工单
+   * 自动创建首条消息，并通过 Socket 广播通知管理员房间
+   */
+  async create(userId: number, data: { title: string; category: string; content: string; attachments: string[] }) {
+    const feedback = await this.prisma.feedback.create({
+      data: {
+        userId,
+        title: data.title,
+        category: data.category,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderId: userId,
+            senderType: 'user',
+            content: data.content,
+            attachments: JSON.stringify(data.attachments || []),
+          },
+        },
+      },
+      include: {
+        user: { select: { id: true, username: true, nickname: true } },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            sender: { select: { id: true, username: true, nickname: true } },
+          },
+        },
+      },
+    });
+
+    // 通知在线管理员：有新反馈工单
+    this.server?.to('admin').emit('feedback:new', {
+      feedback: {
+        id: feedback.id,
+        title: feedback.title,
+        category: feedback.category,
+        user: feedback.user,
+        createdAt: feedback.createdAt,
+      },
+    });
+
+    return feedback;
+  }
+
+  /**
+   * 获取指定用户的反馈列表（按更新时间倒序）
+   */
+  async getUserFeedbacks(userId: number) {
+    return this.prisma.feedback.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        user: { select: { id: true, username: true, nickname: true } },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1, // 仅带最后一条消息预览
+          include: {
+            sender: { select: { id: true, username: true, nickname: true } },
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * 获取单个反馈工单详情（含完整消息列表）
+   * 仅限工单所有者或管理员查看
+   */
+  async getFeedbackDetail(feedbackId: number, userId: number, userRole: string) {
+    const feedback = await this.prisma.feedback.findUnique({
+      where: { id: feedbackId },
+      include: {
+        user: { select: { id: true, username: true, nickname: true } },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            sender: { select: { id: true, username: true, nickname: true } },
+          },
+        },
+      },
+    });
+    if (!feedback) throw new NotFoundException('反馈工单不存在');
+    // 权限校验：仅本人或管理员可查看
+    if (feedback.userId !== userId && !['ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
+      throw new ForbiddenException('无权查看此反馈工单');
+    }
+    return feedback;
+  }
+
+  /**
+   * 在现有反馈工单下追加一条消息（用户或管理员均可）
+   */
+  async addMessage(
+    feedbackId: number,
+    senderId: number,
+    senderType: string,
+    data: { content: string; attachments: string[] },
+    userRole: string,
+  ) {
+    const feedback = await this.prisma.feedback.findUnique({ where: { id: feedbackId } });
+    if (!feedback) throw new NotFoundException('反馈工单不存在');
+
+    // 权限校验：仅本人或管理员可回复
+    if (feedback.userId !== senderId && !['ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
+      throw new ForbiddenException('无权回复此反馈工单');
+    }
+
+    // 如果工单已 CLOSED，管理员级别可再次开启，用户不允许回复
+    if (feedback.status === 'CLOSED' && !['ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
+      throw new ForbiddenException('该反馈工单已关闭，无法继续回复');
+    }
+
+    // 创建消息
+    const msg = await this.prisma.feedbackMessage.create({
+      data: {
+        feedbackId,
+        senderId,
+        senderType,
+        content: data.content,
+        attachments: JSON.stringify(data.attachments || []),
+      },
+      include: {
+        sender: { select: { id: true, username: true, nickname: true } },
+      },
+    });
+
+    // 自动更新工单更新时间
+    await this.prisma.feedback.update({
+      where: { id: feedbackId },
+      data: { updatedAt: new Date() },
+    });
+
+    // 实时推送新消息
+    const receiverRoom = senderType === 'admin' ? `user:${feedback.userId}` : 'admin';
+    this.server?.to(receiverRoom).emit('feedback:message', {
+      feedbackId,
+      message: msg,
+    });
+
+    return msg;
+  }
+
+  /**
+   * 管理员更新反馈状态
+   */
+  async updateStatus(feedbackId: number, status: string) {
+    const feedback = await this.prisma.feedback.findUnique({ where: { id: feedbackId } });
+    if (!feedback) throw new NotFoundException('反馈工单不存在');
+
+    const updated = await this.prisma.feedback.update({
+      where: { id: feedbackId },
+      data: { status },
+      include: {
+        user: { select: { id: true, username: true, nickname: true } },
+      },
+    });
+
+    // 通知工单所有者状态变更
+    this.server?.to(`user:${feedback.userId}`).emit('feedback:status', {
+      feedbackId,
+      status,
+      updatedAt: updated.updatedAt,
+    });
+
+    return updated;
+  }
+
+  /**
+   * 管理员获取所有反馈工单列表（分页）
+   */
+  async getAllFeedbacks(page = 1, pageSize = 20, status?: string) {
+    const where: any = {};
+    if (status) where.status = status;
+
+    const [total, list] = await Promise.all([
+      this.prisma.feedback.count({ where }),
+      this.prisma.feedback.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          user: { select: { id: true, username: true, nickname: true } },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: {
+              sender: { select: { id: true, username: true, nickname: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return { total, list, page, pageSize };
+  }
+
+  /**
+   * 获取未读反馈工单数量（管理员视角：OPEN + PROCESSING）
+   */
+  async getPendingCount() {
+    return this.prisma.feedback.count({
+      where: { status: { in: ['OPEN', 'PROCESSING'] } },
+    });
+  }
+}

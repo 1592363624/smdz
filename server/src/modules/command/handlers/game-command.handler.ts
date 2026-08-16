@@ -564,6 +564,24 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.familiarSystem.setFollow(userId, targetName, isFollow));
         }
 
+        // ========== 私聊 / 反馈 ==========
+        case '私聊':
+        case 'whisper':
+        case 'pm': {
+          const parts = arg.split(/\s+/);
+          const targetName = parts[0] || '';
+          const content = parts.slice(1).join(' ');
+          return this.wrap(await this.gameService.handlePrivateChat(userId, targetName, content));
+        }
+
+        case '反馈':
+        case 'feedback': {
+          const raw = firstArg === 'bug' || firstArg === 'suggestion' || firstArg === '建议' || firstArg === '问题'
+            ? args.slice(1).join(' ')
+            : arg;
+          return this.wrap(await this.gameService.handleFeedback(userId, raw));
+        }
+
         // ========== 状态系统 ==========
         case '躺下':
         case 'lie-down':

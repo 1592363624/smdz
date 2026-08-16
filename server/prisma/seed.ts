@@ -87,6 +87,9 @@ async function main() {
     { name: '救助', alias: 'rescue', description: '救助倒地的玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 111 },
     { name: '赠予', alias: 'give,gift', description: '赠予物品给其他玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 112 },
     { name: '设置跟随', alias: 'follow', description: '设置跟随目标', handlerKey: 'game', minRole: 'USER', sortOrder: 113 },
+    // 私聊 / 反馈（统一 game 处理器）
+    { name: '私聊', alias: 'whisper,pm', description: '私聊其他玩家，格式：私聊 用户名 内容', handlerKey: 'game', minRole: 'USER', sortOrder: 114 },
+    { name: '反馈', alias: 'feedback', description: '提交游戏反馈建议，格式：反馈 内容', handlerKey: 'game', minRole: 'USER', sortOrder: 115 },
     // 状态系统（统一 game 处理器）
     { name: '躺下', alias: 'lie-down', description: '躺下休息', handlerKey: 'game', minRole: 'USER', sortOrder: 120 },
     { name: '起床', alias: 'get-up', description: '起床', handlerKey: 'game', minRole: 'USER', sortOrder: 121 },

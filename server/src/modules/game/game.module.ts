@@ -7,6 +7,7 @@
 import { Module, Global, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AdminModule } from '../admin/admin.module';
+import { FeedbackModule } from '../feedback/feedback.module';
 import { GameController } from './game.controller';
 import { GameService } from './game.service';
 import { PlayerService } from './player.service';

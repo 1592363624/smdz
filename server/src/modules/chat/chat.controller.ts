@@ -3,8 +3,9 @@
  * 提供公屏历史消息查询、频道信息等 HTTP API。
  */
 
-import { Controller, Get, Query } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ChatService } from './chat.service';
 
 @ApiTags('公屏聊天')
@@ -35,5 +36,55 @@ export class ChatController {
   async getChannel() {
     const data = await this.chatService.ensureDefaultChannel();
     return { success: true, data };
+  }
+
+  /**
+   * 获取当前用户的私聊会话列表（含未读数与最后一条消息）
+   */
+  @Get('private/conversations')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取我的私聊会话列表' })
+  async getPrivateConversations(@Req() req) {
+    const data = await this.chatService.getPrivateConversations(req.user.userId);
+    return { success: true, data };
+  }
+
+  /**
+   * 获取与指定用户的私聊历史消息（按时间正序）
+   */
+  @Get('private/messages')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取与指定用户的私聊历史' })
+  @ApiQuery({ name: 'withUserId', required: true, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async getPrivateMessages(@Req() req, @Query('withUserId') withUserId: string, @Query('limit') limit?: string) {
+    const data = await this.chatService.getPrivateMessages(req.user.userId, Number(withUserId), Number(limit) || 50);
+    return { success: true, data };
+  }
+
+  /**
+   * 标记与指定用户的私聊消息为已读
+   */
+  @Post('private/read')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '标记与指定用户的私聊为已读' })
+  async markPrivateRead(@Req() req, @Body() body: { withUserId: number }) {
+    const count = await this.chatService.markPrivateRead(req.user.userId, Number(body.withUserId));
+    return { success: true, data: { updated: count } };
+  }
+
+  /**
+   * 通过 HTTP 发送私聊消息（网页面板优先走 Socket；此接口供指令/机器人等场景复用）
+   */
+  @Post('private/send')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '发送私聊消息' })
+  async sendPrivateMessage(@Req() req, @Body() body: { to: number; content: string }) {
+    const msg = await this.chatService.sendPrivateMessage(req.user.userId, Number(body.to), String(body.content || ''));
+    return { success: true, data: msg };
   }
 }
