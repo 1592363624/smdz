@@ -532,11 +532,23 @@
               <option value="suggestion">功能建议</option>
             </select>
             <label class="fb-label">内容</label>
-            <textarea v-model="fbForm.content" class="fb-input fb-textarea" placeholder="请详细描述你遇到的问题或建议..." rows="4"></textarea>
-            <label class="fb-label">附件</label>
+            <textarea
+              v-model="fbForm.content"
+              class="fb-input fb-textarea"
+              placeholder="请详细描述你遇到的问题或建议...（可直接 Ctrl+V 粘贴剪贴板截图）"
+              rows="4"
+              @paste="(e) => handlePasteImage(e, fbUploadedUrls)"
+            ></textarea>
+            <label class="fb-label">附件（可 Ctrl+V 粘贴图片 / 选择文件）</label>
             <input type="file" multiple class="fb-file" @change="onFbFilesChange" />
             <div v-if="fbUploadedUrls.length" class="fb-file-list">
-              <span v-for="(u, ui) in fbUploadedUrls" :key="ui" class="fb-file-item">📎 {{ fileName(u) }}</span>
+              <div v-for="(u, ui) in fbUploadedUrls" :key="ui" class="fb-file-item">
+                <a v-if="isImage(u)" :href="u" target="_blank" rel="noopener noreferrer">
+                  <img :src="u" class="fb-file-thumb" alt="附件预览" loading="lazy" />
+                </a>
+                <span v-else class="fb-file-name">📎 {{ fileName(u) }}</span>
+                <button class="fb-file-remove" type="button" title="移除附件" @click="fbUploadedUrls.splice(ui, 1)">✕</button>
+              </div>
             </div>
             <div class="fb-form-actions">
               <button class="fb-cancel" @click="feedbackView = 'list'">取消</button>
@@ -574,18 +586,37 @@
                   </div>
                   <div class="fmsg-content">{{ fm.content }}</div>
                   <div v-if="fmAttachments(fm).length" class="fmsg-attachments">
-                    <a v-for="(u, ui) in fmAttachments(fm)" :key="ui" :href="u" target="_blank" rel="noopener noreferrer">📎 {{ fileName(u) }}</a>
+                    <a
+                      v-for="(u, ui) in fmAttachments(fm)"
+                      :key="ui"
+                      :href="u"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <img v-if="isImage(u)" :src="u" class="fb-attach-img" :alt="'附件 ' + (ui + 1)" loading="lazy" />
+                      <span v-else>📎 {{ fileName(u) }}</span>
+                    </a>
                   </div>
                 </div>
                 <div v-if="!(currentFeedback.messages || []).length" class="panel-empty">暂无消息</div>
               </div>
               <footer class="panel-input-bar">
-                <input
-                  v-model="feedbackReply"
-                  :disabled="currentFeedback.status === 'CLOSED'"
-                  placeholder="追加回复...（工单关闭后不可回复）"
-                  @keyup.enter="replyFeedback"
-                />
+                <div class="fb-reply-wrap">
+                  <input
+                    v-model="feedbackReply"
+                    :disabled="currentFeedback.status === 'CLOSED'"
+                    placeholder="追加回复...（可 Ctrl+V 粘贴截图）"
+                    @keyup.enter="replyFeedback"
+                    @paste="(e) => handlePasteImage(e, replyUploadedUrls)"
+                  />
+                  <div v-if="replyUploadedUrls.length" class="fb-reply-attachments">
+                    <div v-for="(u, ui) in replyUploadedUrls" :key="ui" class="fb-reply-attach">
+                      <img v-if="isImage(u)" :src="u" class="fb-file-thumb" alt="附件预览" loading="lazy" />
+                      <span v-else class="fb-file-name">📎 {{ fileName(u) }}</span>
+                      <button class="fb-file-remove" type="button" title="移除附件" @click="replyUploadedUrls.splice(ui, 1)">✕</button>
+                    </div>
+                  </div>
+                </div>
                 <input type="file" multiple class="reply-file" @change="onReplyFilesChange" />
                 <button :disabled="currentFeedback.status === 'CLOSED'" @click="replyFeedback">回复</button>
               </footer>
@@ -1342,6 +1373,38 @@ async function onFbFilesChange(e) {
 }
 
 /**
+ * 通用：处理从剪贴板粘贴的图片，自动上传并加入附件列表
+ * 用户在文本框中直接 Ctrl+V 粘贴截图时触发，无需手动选择文件
+ * @param {ClipboardEvent} e 粘贴事件
+ * @param {import('vue').Ref} urlsRef 目标附件 URL 列表 ref（fbUploadedUrls / replyUploadedUrls）
+ */
+async function handlePasteImage(e, urlsRef) {
+  if (!e.clipboardData) return;
+  // 仅处理剪贴板中的图片项；文本等内容保持默认粘贴行为
+  const items = Array.from(e.clipboardData.items || []);
+  const files = items
+    .filter((it) => it.kind === 'file' && it.type && it.type.startsWith('image/'))
+    .map((it) => it.getAsFile())
+    .filter(Boolean);
+  if (!files.length) return;
+  // 阻止浏览器把图片二进制当作纯文本插入输入框
+  e.preventDefault();
+  try {
+    const res = await feedbackApi.upload(files);
+    urlsRef.value = [...urlsRef.value, ...(res.data || [])];
+    showToast(`已上传 ${files.length} 张图片`, 'success');
+  } catch (err) {
+    console.error('粘贴图片上传失败', err);
+    showToast('粘贴图片上传失败', 'error');
+  }
+}
+
+/** 判断附件 URL 是否为图片（用于缩略图预览） */
+function isImage(url) {
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test((url || '').split('?')[0]);
+}
+
+/**
  * 提交新建反馈工单
  */
 async function submitFeedback() {
@@ -1970,8 +2033,8 @@ onUnmounted(() => {
 }
 .fmsg-attachments {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 6px;
 }
 .fmsg-attachments a {
@@ -1981,6 +2044,15 @@ onUnmounted(() => {
 }
 .fmsg-attachments a:hover {
   text-decoration: underline;
+}
+.fmsg-attachments .fb-attach-img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  cursor: pointer;
+  display: block;
 }
 
 /* 新建反馈表单 */
@@ -2020,15 +2092,115 @@ onUnmounted(() => {
 .fb-file-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  margin-top: 4px;
 }
 .fb-file-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   color: var(--accent2);
-  background: rgba(6, 182, 212, 0.1);
-  border: 1px solid rgba(6, 182, 212, 0.25);
-  padding: 2px 8px;
-  border-radius: 10px;
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  padding: 3px 6px;
+  border-radius: 8px;
+  position: relative;
+}
+.fb-file-item .fb-file-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+  cursor: pointer;
+}
+.fb-file-item .fb-file-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-file-remove {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.fb-file-remove:hover {
+  color: #f87171;
+}
+/* 回复输入框中的附件预览小区域 */
+.fb-reply-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.fb-reply-wrap input {
+  width: 100%;
+  padding: 9px 12px;
+  background: rgba(10, 10, 26, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.fb-reply-wrap input:focus {
+  border-color: var(--accent);
+}
+.fb-reply-wrap input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.fb-reply-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.fb-reply-attach {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+.fb-reply-attach .fb-file-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+  cursor: pointer;
+}
+.fb-reply-attach .fb-file-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: rgba(0,0,0,0.7);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #fff;
+  border: 1px solid var(--border-light);
+}
+.reply-file {
+  max-width: 72px;
+  font-size: 11px;
+  color: var(--muted);
 }
 .fb-form-actions {
   display: flex;
@@ -2058,11 +2230,6 @@ onUnmounted(() => {
 .fb-submit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-.reply-file {
-  max-width: 90px;
-  font-size: 11px;
-  color: var(--muted);
 }
 
 /* ===== Toast 提示 ===== */

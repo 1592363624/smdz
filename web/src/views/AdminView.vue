@@ -321,7 +321,12 @@
 
           <!-- 管理员回复区 -->
           <div class="fb-reply">
-            <textarea v-model="feedbackReplyText" placeholder="输入回复内容..." maxlength="2000"></textarea>
+            <textarea
+              v-model="feedbackReplyText"
+              placeholder="输入回复内容...（可 Ctrl+V 粘贴剪贴板截图）"
+              maxlength="2000"
+              @paste="handleReplyPasteImage"
+            ></textarea>
             <div class="fb-reply-tools">
               <!-- 已上传的附件预览 -->
               <div v-if="feedbackReplyAttachments.length" class="fb-reply-attachments">
@@ -677,6 +682,28 @@ async function changeFeedbackStatus(s) {
 /** 触发隐藏的文件选择器 */
 function pickReplyFiles() {
   fbFileInput.value?.click();
+}
+
+/**
+ * 处理从剪贴板粘贴的图片，自动上传并加入回复附件列表
+ * 管理员在回复框中直接 Ctrl+V 粘贴截图，无需手动选择文件
+ * @param {ClipboardEvent} e 粘贴事件
+ */
+async function handleReplyPasteImage(e) {
+  if (!e.clipboardData) return;
+  const items = Array.from(e.clipboardData.items || []);
+  const files = items
+    .filter((it) => it.kind === 'file' && it.type && it.type.startsWith('image/'))
+    .map((it) => it.getAsFile())
+    .filter(Boolean);
+  if (!files.length) return;
+  e.preventDefault();
+  try {
+    const res = await feedbackApi.upload(files);
+    feedbackReplyAttachments.value.push(...(res.data || []));
+  } catch (err) {
+    alert('粘贴图片上传失败：' + (err.response?.data?.message || err.message));
+  }
 }
 
 /** 选择文件后上传附件，取回可访问 URL 加入待发送列表 */
