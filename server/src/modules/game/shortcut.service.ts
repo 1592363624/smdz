@@ -78,9 +78,12 @@ export class ShortcutService {
     const tempElapsed = (now - data.tempTime) / 1000;
     if (data.tempInputs.length > 0 && tempElapsed <= this.TEMP_EXPIRY_SECONDS) {
       for (const temp of data.tempInputs) {
-        // 左边匹配：检查输入文本是否以原文本开头
-        if (result.startsWith(temp.original)) {
-          // 替换左边匹配的第一个原文本为目标文本
+        // 编号数字类原文本（如 "1"/"2"）使用精确匹配，避免数字 "10" 误触发 "1" 的替换；
+        // 非数字原文本保持"左边匹配"的原有行为（兼容 快捷 临时 原@目标 的灵活用法）。
+        const isNumeric = /^\d+$/.test(temp.original);
+        const matched = isNumeric ? result === temp.original : result.startsWith(temp.original);
+        if (matched) {
+          // 替换左边匹配的原文本为目标文本
           result = result.replace(temp.original, temp.target);
           // 临时输入替换触发一次后清空所有临时输入
           data.tempInputs = [];

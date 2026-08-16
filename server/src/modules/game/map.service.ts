@@ -136,8 +136,10 @@ export class MapService {
    */
   checkCanTravel(currentMap: any, targetMap: any, player: any): TravelCheckResult {
     // 1. 检查目标地图是否禁止前往
+    // 提示文案改为更通用的"无法直接前往"，
+    // 避免在普通移动/前往场景下让玩家误以为是传送技能问题。
     if (targetMap.noTeleport) {
-      return { canTravel: false, reason: '该地图无法传送前往' };
+      return { canTravel: false, reason: '该地图无法直接前往' };
     }
 
     // 2. 检查目标地图的进入要求标记

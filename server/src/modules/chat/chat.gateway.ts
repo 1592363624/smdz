@@ -30,6 +30,7 @@ import { CommandContext, CommandSource } from '../command/interfaces/command.int
 import { ShortcutService } from '../game/shortcut.service';
 import { StatsService } from '../game/stats.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { GameService } from '../game/game.service';
 
 /// Socket 客户端附加的用户信息
 interface SocketUser {
@@ -57,6 +58,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     private readonly shortcutService: ShortcutService,
     private readonly statsService: StatsService,
     private readonly prisma: PrismaService,
+    private readonly gameService: GameService,
   ) {}
 
   /**
@@ -155,7 +157,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     content = await this.shortcutService.processShortcut(content, user.userId);
 
     // 判断是否是指令：根据配置的前缀和"是否必须前缀"决定（见 GlobalConfig）
-    const isCommand = await this.isCommandInput(content);
+    const isCommand = await this.isCommandInput(content, user.userId);
 
     if (isCommand) {
       await this.handleCommand(client, user, content);
@@ -257,9 +259,13 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
    * 判断输入是否应作为指令处理
    * 规则（可配置，从系统配置中心读取）：
    * - 命中任一配置的前缀 → 是指令
-   * - 若 command.requirePrefix=false：无前缀时，若输入命中已注册的指令名/别名 → 是指令；否则视为聊天
+   * - 若 command.requirePrefix=false：无前缀时，若输入命中已注册的指令名/别名 → 是指令；
+   *   若输入与当前地图的采集指令(gatherCmd)匹配 → 也是指令（对齐原版运行时匹配，无需预注册）
+   * - 否则视为普通聊天
+   * @param content 消息内容
+   * @param userId 发送者用户ID（用于判定当前地图采集指令）
    */
-  private async isCommandInput(content: string): Promise<boolean> {
+  private async isCommandInput(content: string, userId: number): Promise<boolean> {
     // 从系统配置中心读取(管理员可在界面在线修改)
     const prefixes = await this.systemConfigService.getCommandPrefixes();
     const requirePrefix = await this.systemConfigService.getCommandRequirePrefix();
@@ -267,9 +273,16 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (prefixes.some((p) => p && content.startsWith(p))) {
       return true;
     }
-    // 无需强制前缀：精确匹配已注册指令名/别名
+    // 无需强制前缀：先匹配已注册指令名/别名
     if (!requirePrefix) {
-      return this.commandService.matchCommandName(content);
+      if (await this.commandService.matchCommandName(content)) {
+        return true;
+      }
+      // 其次匹配当前地图的采集指令（对齐原版：采集指令运行时按地图资源匹配）
+      const cmdName = content.trim().replace(/^[\/！!]+/, '').split(/\s+/)[0];
+      if (cmdName && (await this.gameService.hasGatherCmd(userId, cmdName))) {
+        return true;
+      }
     }
     return false;
   }

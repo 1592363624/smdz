@@ -19,6 +19,7 @@ import { RescueHandler } from './rescue.handler';
 import { TalkHandler } from './talk.handler';
 import { TeleportHandler } from './teleport.handler';
 import { HomeHandler } from './home.handler';
+import { GatherHandler } from './gather.handler';
 import { GameCommandHandler } from './game-command.handler';
 
 /// 指令处理器类列表（供 Nest 注册为 provider）
@@ -39,6 +40,7 @@ export const handlerProviders = [
   TeleportHandler,
   HomeHandler,
   GameCommandHandler,
+  GatherHandler,
 ];
 
 /// 组装 key -> 处理器实例 的映射（由 CommandService 注入 handlerProviders 后构建）

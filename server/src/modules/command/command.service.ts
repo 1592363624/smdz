@@ -66,6 +66,24 @@ export class CommandService {
       });
 
       if (!cmdDef) {
+        // 对齐原版设计：指令表未命中时，兜底尝试"地图资源采集"。
+        // 原版（_主程序.ecode）所有指令匹配失败后进入采集分支，按当前地图资源2的"采集指令"匹配，
+        // 因此采集指令不需要预注册到指令表，而是运行时匹配当前地图资源（如 打开箱子/打开休眠仓/收集木头/捡垃圾）。
+        // 若当前地图无匹配资源，GatherHandler 返回 success=false，此处再退化为未知指令提示。
+        const gatherHandler: CommandHandler | undefined = this.handlerMap['gather'];
+        if (gatherHandler) {
+          try {
+            const gatherResult = await gatherHandler.handle(ctx, [commandName]);
+            if (gatherResult && gatherResult.success) {
+              gatherResult.durationMs = Date.now() - start;
+              await this.recordLog(ctx, commandName, gatherResult);
+              return gatherResult;
+            }
+          } catch (e) {
+            // 采集兜底失败时忽略，走未知指令提示
+            this.logger.warn(`采集兜底失败: ${e.message}`);
+          }
+        }
         return {
           success: false,
           content: `未找到指令「${commandName}」，输入"帮助"查看可用指令`,

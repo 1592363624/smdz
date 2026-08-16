@@ -26,6 +26,7 @@ import { SystemConfigService } from '../system-config/system-config.service';
 import { ChatService } from '../chat/chat.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { TaskService } from './task.service';
+import { ShortcutService } from './shortcut.service';
 
 @Injectable()
 export class GameService {
@@ -53,7 +54,38 @@ export class GameService {
     private readonly chatService: ChatService,
     private readonly feedbackService: FeedbackService,
     private readonly taskService: TaskService,
+    private readonly shortcutService: ShortcutService,
   ) {}
+
+  /**
+   * 生成编号快捷菜单（"编号选项"统一入口）
+   * 对齐原版"快捷输入"的临时输入替换机制：为每个选项生成 编号@触发指令 的临时替换，
+   * 玩家发送对应编号数字即可触发指令，无需记忆指令名。
+   * 统一展示格式：1、选项A  2、选项B ...
+   * @param userId 玩家用户ID
+   * @param options 选项列表 [{ label: 展示文本, cmd: 触发指令(为空则仅展示不生成快捷) }]
+   * @param hint 底部提示语（默认：💡 发送编号数字(如 1)即可快速操作）
+   * @returns 生成的编号菜单展示行（含分隔线和提示），调用方直接 push 到输出即可
+   */
+  private async buildNumberedMenu(
+    userId: number,
+    options: { label: string; cmd: string }[],
+    hint = '💡 发送编号数字(如 1)即可快速操作',
+  ): Promise<string[]> {
+    const lines: string[] = [];
+    const tempGroups: string[] = [];
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i];
+      lines.push(`  ${i + 1}、${opt.label}`);
+      if (opt.cmd) tempGroups.push(`${i + 1}@${opt.cmd}`);
+    }
+    if (tempGroups.length > 0) {
+      // 设置临时输入替换（2分钟有效，触发一次后清空；同时保留直接输入指令的方式）
+      await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
+      lines.push(`${hint}`);
+    }
+    return lines;
+  }
 
   /**
    * 处理玩家攻击命令
@@ -355,21 +387,27 @@ export class GameService {
     const lines: string[] = [];
 
     if (isNewPlayer) {
-      // 新玩家欢迎信息 - 还原原版"走廊对话/找道具"风格
-      lines.push('📖 你缓缓睁开眼睛，发现自己躺在一张陌生的床上。');
-      lines.push('四周是石砌的墙壁，空气中弥漫着淡淡的霉味……');
-      lines.push('你坐起身来，环顾四周，这是一条长长的走廊。');
-      lines.push('走廊两侧有几扇紧闭的门，尽头处似乎有什么东西在发光。');
-      lines.push('你摸了摸身上，发现背包里有一些基础物资。');
+      // 新玩家欢迎信息 - 清晰的起步引导 + 编号快捷菜单
+      lines.push('🎉 欢迎来到使魔大战！');
+      lines.push('━━━━━━━━━━━━━━━');
+      lines.push('📖 你从医疗室醒来，这里有一些基础物资。');
+      lines.push('下面带你了解这个世界：');
       lines.push('');
-      lines.push('📋 你回想起新手引导员的话：');
-      lines.push('  "先去打开背包，看看里面的基础物资，');
-      lines.push('   然后找新手引导员聊一聊吧。"');
+      lines.push('【现在做什么？】');
+      lines.push('  1. 发送「观察附近」看看周围有什么');
+      lines.push('  2. 发送「背包」看看你的基础物资');
+      lines.push('  3. 发送「攻击」试试打怪');
+      lines.push('  4. 发送「使魔大战」打开完整主菜单');
+      lines.push('  5. 发送「帮助」查看常用指令和玩法');
       lines.push('');
-      lines.push('💡 输入「背包」查看你拥有的物品');
-      lines.push('💡 输入「对话 新手引导员」了解更多信息');
+      lines.push('💡 发送下方编号数字可快速操作：');
+      lines.push('  1. 观察附近    2. 查看背包');
+      lines.push('  3. 攻击        4. 打开主菜单');
+      lines.push('  5. 查看帮助');
       lines.push('');
-      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      lines.push('━━━━━━━━━━━━━━━');
+      // 为新玩家生成编号快捷操作（临时输入替换，发数字即可触发）
+      await this.shortcutService.setTempInput(userId, '1@观察附近#2@背包#3@攻击#4@使魔大战#5@帮助');
     }
 
     // 检查并自动发放新手教程任务（基于 markers 中的 教程 标记）
@@ -695,22 +733,39 @@ export class GameService {
       return '当前地图没有可对话的NPC';
     }
 
-    // 如果没有指定NPC名称，显示可对话的NPC列表
+    // 如果没有指定NPC名称，显示可对话的NPC列表（附带编号快捷选项，发数字即可对话）
     if (!npcName) {
       const lines = [`💬 【${map.name}】可对话NPC:`];
+      // 编号快捷对话选项：label=展示文本，cmd=实际触发的「对话 名称」
+      const options: { label: string; cmd: string }[] = [];
       for (const npc of npcs) {
-        lines.push(`  ${npc.name || '未知'}${npc.description ? ` - ${npc.description}` : ''}`);
+        const name = npc.name || '未知';
+        lines.push(`  ${name}${npc.description ? ` - ${npc.description}` : ''}`);
+        options.push({ label: `对话 ${name}`, cmd: `对话 ${name}` });
       }
       // 地图无NPC数据时，列出新手固定NPC供玩家选择
+      // 注意：快捷对话必须用特殊NPC的 key（如 新手引导员），不能用标题（如 新手引导员·小薇），
+      // 因为 handleTalk 通过 specialNpcs[key] 解析特殊NPC。
       if (npcs.length === 0) {
-        lines.push(`  ${specialNpcs['新手引导员'].title} - 新手村的引导员`);
-        lines.push(`  ${specialNpcs['老村长'].title} - 新手村的村长`);
-        lines.push(`  ${specialNpcs['流浪商人'].title} - 贩卖各种物品的商人`);
-        lines.push(`  ${specialNpcs['旅行者'].title} - 神秘的旅行者`);
-        lines.push(`  ${specialNpcs['白'].title} - 从休眠仓中唤醒的少女`);
+        const specialList: { key: string; desc: string }[] = [
+          { key: '新手引导员', desc: '新手村的引导员' },
+          { key: '老村长', desc: '新手村的村长' },
+          { key: '流浪商人', desc: '贩卖各种物品的商人' },
+          { key: '旅行者', desc: '神秘的旅行者' },
+          { key: '白', desc: '从休眠仓中唤醒的少女' },
+        ];
+        for (const sp of specialList) {
+          lines.push(`  ${specialNpcs[sp.key].title} - ${sp.desc}`);
+          options.push({ label: `对话 ${specialNpcs[sp.key].title}`, cmd: `对话 ${sp.key}` });
+        }
       }
       lines.push(``);
-      lines.push(`使用「对话 NPC名」与NPC对话`);
+      const menuLines = await this.buildNumberedMenu(userId, options, '💡 发送编号数字(如 1)即可与对应NPC对话');
+      if (menuLines.length === 0) {
+        lines.push(`使用「对话 NPC名」与NPC对话`);
+      } else {
+        lines.push(...menuLines);
+      }
       return lines.join('\n');
     }
 
@@ -876,6 +931,16 @@ export class GameService {
     } catch {
       // NPC 表查询失败时忽略
     }
+
+    // 对齐原版（_主程序.ecode L1492-1493）：NPC 对话末尾生成编号快捷菜单，
+    // 用临时输入替换让玩家发数字即可继续。原版对所有对话对象统一提供「1、查看 2、攻击」入口。
+    // 此处按需求提供「1、对话 2、任务」：1=继续对话推进对话阶段，2=查看任务。
+    const menuLines = await this.buildNumberedMenu(userId, [
+      { label: `对话 ${npcName}`, cmd: `对话 ${npcName}` }, // 1=继续对话，推进对话阶段
+      { label: '任务', cmd: '查看任务' },                      // 2=查看任务
+    ], '💡 发送编号数字(如 1)快速操作');
+    dialogLines.push(`━━━━━━━━━━━━━━━`);
+    dialogLines.push(...menuLines);
 
     return dialogLines.join('\n');
   }
@@ -1314,6 +1379,28 @@ export class GameService {
   }
 
   /**
+   * 判断当前玩家所在地图是否有匹配给定 gatherCmd 的固定资源。
+   * 用于 ChatGateway 判定"该输入是否应作为采集指令处理"（避免被当作普通聊天广播）。
+   * 对齐原版：采集指令运行时按当前地图资源2的"采集指令"匹配，无需预注册到指令表。
+   * @param userId 玩家ID
+   * @param cmdName 采集指令名（如 打开箱子/打开休眠仓/收集木头/捡垃圾）
+   * @returns true=当前地图存在该采集指令对应的资源
+   */
+  async hasGatherCmd(userId: number, cmdName: string): Promise<boolean> {
+    if (!cmdName) return false;
+    try {
+      const player = await this.prisma.player.findUnique({ where: { userId } });
+      if (!player) return false;
+      const map = await this.mapService.getMapById(player.mapId);
+      if (!map) return false;
+      const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
+      return resources.some((r) => r.gatherCmd === cmdName);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * 处理固定资源的采集指令（对应原版 gatherCmd 机制）
    * 当玩家发送的指令与当前地图固定资源的 gatherCmd 匹配时执行采集，
    * 例如 医疗室 的 打开箱子/打开休眠仓/捡垃圾、走廊 的 收集物品。
@@ -1537,15 +1624,25 @@ export class GameService {
       }
 
       const lines = [`📋 【${map.name}】可领取任务:`];
+      // 编号快捷领取选项：仅对未接取的任务生成，发送编号数字即可一键领取
+      const options: { label: string; cmd: string }[] = [];
       for (const task of availableTasks) {
         const alreadyAccepted = tasks.some((t: any) => t.name === task.name);
         lines.push(`  ${task.name}${alreadyAccepted ? ' [已接取]' : ''}`);
         lines.push(`    等级要求: ${task.level}`);
         lines.push(`    发布人: ${task.publisher || '未知'}`);
         if (task.description) lines.push(`    ${task.description}`);
+        if (!alreadyAccepted) {
+          options.push({ label: `领取任务 ${task.name}`, cmd: `领取任务 ${task.name}` });
+        }
       }
       lines.push(``);
-      lines.push(`使用「领取任务 任务名」领取任务`);
+      const menuLines = await this.buildNumberedMenu(userId, options, '💡 发送编号数字(如 1)即可领取对应任务');
+      if (menuLines.length === 0) {
+        lines.push(`使用「领取任务 任务名」领取任务`);
+      } else {
+        lines.push(...menuLines);
+      }
       return lines.join('\n');
     }
 
@@ -1620,7 +1717,15 @@ export class GameService {
     }
 
     lines.push(``);
-    lines.push(`使用「提交任务 任务名」提交已完成的任务`);
+    // 为已完成任务生成编号快捷提交选项（发送编号数字即可一键提交，无需手输任务名）
+    const completedTasks = tasks.filter((t: any) => t.status === '已完成' && t.name);
+    const options = completedTasks.map((t: any) => ({ label: `提交任务 ${t.name}`, cmd: `提交任务 ${t.name}` }));
+    const menuLines = await this.buildNumberedMenu(userId, options, '💡 发送编号数字(如 1)即可提交对应已完成任务');
+    if (menuLines.length === 0) {
+      lines.push(`使用「提交任务 任务名」提交已完成的任务`);
+    } else {
+      lines.push(...menuLines);
+    }
 
     // 4. 返回格式化任务列表
     return lines.join('\n');
@@ -3429,6 +3534,8 @@ export class GameService {
     const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
     const items = this.playerService.safeJsonParse<any[]>(map.items, []);
     const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
+    // 统一收集所有可编号快捷操作的选项（资源采集 + NPC对话，合并编号生成底部菜单）
+    const quickOptions: { label: string; cmd: string }[] = [];
 
     const lines: string[] = [
       `👀 【${map.name}】附近情况`,
@@ -3446,12 +3553,17 @@ export class GameService {
       lines.push(`👾 怪物: 暂无`);
     }
 
-    // 资源信息
+    // 资源信息（可采集资源计入编号快捷选项，统一在底部生成编号菜单）
     if (resources.length > 0) {
       lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`⛏️ 资源:`);
       for (const r of resources) {
-        lines.push(`  ${r.name || '未知'} ${r.amount ? `×${r.amount}` : ''}`);
+        if (r.gatherCmd) {
+          lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}  -> ${r.gatherCmd}`);
+          quickOptions.push({ label: `${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`, cmd: r.gatherCmd });
+        } else {
+          lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`);
+        }
       }
     }
 
@@ -3465,13 +3577,21 @@ export class GameService {
       }
     }
 
-    // NPC信息
+    // NPC信息（可对话NPC计入编号快捷选项）
     if (npcs.length > 0) {
       lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`💬 NPC:`);
       for (const npc of npcs) {
         lines.push(`  ${npc.name || '未知'}${npc.description ? ` - ${npc.description}` : ''}`);
+        quickOptions.push({ label: `对话 ${npc.name || '未知'}`, cmd: `对话 ${npc.name || '未知'}` });
       }
+    }
+
+    // 统一生成编号快捷操作菜单（资源采集 + NPC对话合并编号，发数字即可操作，避免编号冲突）
+    if (quickOptions.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━`);
+      const menuLines = await this.buildNumberedMenu(userId, quickOptions, '💡 发送编号数字(如 1)即可采集资源或与NPC对话');
+      lines.push(...menuLines);
     }
 
     return lines.join('\n');
@@ -4571,32 +4691,69 @@ export class GameService {
   // ========== 其他命令 ==========
 
   /**
-   * 处理游戏介绍命令
-   * 显示游戏简介，展示使魔大战的基本玩法介绍
+   * 处理游戏主菜单命令
+   * 显示使魔大战的主菜单，并通过临时输入替换生成编号子菜单（对齐原版 _主程序.ecode L1573）。
+   * 玩家直接发编号数字即可进入对应功能，无需记忆指令名。
    * 对应原版：使魔大战 命令
    */
   async handleGameIntro(userId: number): Promise<string> {
-    return [
-      `🎮 使魔大战 - 游戏介绍`,
+    // 主菜单项（编号 + 触发指令）。全部为已验证存在、可正常执行的指令。
+    const menu: { label: string; cmd: string }[] = [
+      { label: '召唤使魔', cmd: '召唤使魔' },
+      { label: '查看使魔', cmd: '使魔数据' },
+      { label: '更换使魔', cmd: '选择使魔' },
+      { label: '查看背包', cmd: '背包' },
+      { label: '使魔数据', cmd: '使魔数据' },
+      { label: '复活使魔', cmd: '复活使魔' },
+      { label: '查看植入体', cmd: '查看植入体' },
+      { label: '个人设置', cmd: '设置' },
+      { label: '查看增幅器', cmd: '查看增幅器' },
+      { label: '观察附近', cmd: '观察附近' },
+      { label: '切换武器', cmd: '切换武器' },
+      { label: '命名使魔', cmd: '命名使魔' },
+      { label: '使魔商店', cmd: '使魔商店' },
+      { label: '使魔家园', cmd: '使魔家园' },
+      { label: '快速移动', cmd: '飞到' },
+      { label: '传送到地图', cmd: '传送' },
+      { label: '探测雷达', cmd: '探测雷达' },
+      { label: '查看任务', cmd: '查看任务' },
+      { label: '游戏图鉴', cmd: '图鉴' },
+      { label: '游戏解释', cmd: '游戏解释' },
+      { label: '制造', cmd: '制造' },
+      { label: '载具模拟', cmd: '载具模拟' },
+      { label: '使魔挑战', cmd: '使魔挑战' },
+      { label: '宠物操作', cmd: '宠物操作' },
+      { label: '装备预设', cmd: '装备预设' },
+      { label: '使魔排行', cmd: '使魔排行' },
+      { label: '使魔称号', cmd: '使魔称号' },
+      { label: '更新历史', cmd: '更新历史' },
+      { label: '逆向', cmd: '逆向' },
+      { label: '扫荡', cmd: '扫荡' },
+      { label: '配方', cmd: '配方' },
+      { label: '全部指令', cmd: '帮助' },
+    ];
+
+    const lines: string[] = [
+      `🎮 使魔大战 - 主菜单`,
       `━━━━━━━━━━━━━━━`,
-      `【世界观】`,
-      `在一个充满神秘力量的世界中，玩家可以培养使魔、建造家园、探索地图、`,
-      `与怪物战斗，并与其他玩家进行贸易和互动。`,
-      `━━━━━━━━━━━━━━━`,
-      `【核心玩法】`,
-      `  1. 战斗系统 - 使用武器和技能与怪物战斗`,
-      `  2. 家园系统 - 建造自己的家园，生产资源`,
-      `  3. 使魔系统 - 培养和进化你的使魔伙伴`,
-      `  4. 载具系统 - 组装和驾驶各种载具`,
-      `  5. 贸易系统 - 与其他玩家交易物品`,
-      `━━━━━━━━━━━━━━━`,
-      `【快速上手】`,
-      `  发送「信息」创建角色`,
-      `  发送「帮助」查看所有命令`,
-      `  发送「新手教程」获取指引`,
-      `━━━━━━━━━━━━━━━`,
-      `祝你在使魔大陆中玩得开心！`,
-    ].join('\n');
+      `发送下方编号数字即可进入对应功能：`,
+    ];
+    // 生成编号临时输入替换（1@指令#2@指令...），玩家发数字即可触发
+    const tempGroups: string[] = [];
+    for (let i = 0; i < menu.length; i++) {
+      lines.push(`  ${i + 1}. ${menu[i].label}`);
+      tempGroups.push(`${i + 1}@${menu[i].cmd}`);
+    }
+    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(`💡 发送编号数字(如 1)即可快速进入功能`);
+    lines.push(`也可以直接发送指令名，如「背包」「攻击」「移动 地图名」`);
+
+    // 设置临时输入替换（2分钟有效，发数字即触发对应指令）
+    if (tempGroups.length > 0) {
+      await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
+    }
+
+    return lines.join('\n');
   }
 
   /**
