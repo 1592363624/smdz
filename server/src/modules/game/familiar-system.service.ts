@@ -133,10 +133,100 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
+    // ========== 无参数：列出可选使魔（对应原版 L766-775） ==========
+    if (!familiarName || familiarName.trim() === '') {
+      // 新玩家（未开始游戏）：列出所有可召唤使魔供选择
+      if (!player.type) {
+        const allFamiliars = this.staticData.getAllFamiliars().filter((f: any) => !f.noSummon);
+        const lines: string[] = [
+          `${player.name || '冒险者'} 选择你的第一个使魔来开始游戏：`,
+          `━━━━━━━━━━━━━━━`,
+        ];
+        const options: { label: string; cmd: string }[] = [];
+        for (const f of allFamiliars) {
+          const name = f.name || '未知';
+          lines.push(`  ${options.length + 1}. ${name}`);
+          options.push({ label: name, cmd: `选择使魔${name}` });
+        }
+        lines.push(`━━━━━━━━━━━━━━━`);
+        // 直接返回文本即可（消息入口已有门禁拦截，此处补充指令本身触发的情况）
+        return lines.join('\n');
+      }
+
+      // 老玩家：列出已拥有好感>0的使魔（对应原版 L766-775）
+      const lines: string[] = [
+        `${player.name || '冒险者'} 选择你想更换的使魔，背包和等级等数据不会清空`,
+        `━━━━━━━━━━━━━━━`,
+      ];
+      const options: { label: string; cmd: string }[] = [];
+      const allFamiliars = this.staticData.getAllFamiliars();
+      for (const f of allFamiliars) {
+        const name = f.name || '未知';
+        const affinity = this.playerService.getMarkerValue(markers, `${name}好感`);
+        if (affinity >= 1) {
+          lines.push(`  ${options.length + 1}. ${name}`);
+          options.push({ label: name, cmd: `选择使魔${name}` });
+        }
+      }
+      if (options.length === 0) {
+        lines.push(`  (尚未拥有任何使魔)`);
+        lines.push(`━━━━━━━━━━━━━━━`);
+        lines.push(`💡 你可以发送「召唤使魔」来解锁更多可更换的使魔`);
+      } else {
+        lines.push(`━━━━━━━━━━━━━━━`);
+        lines.push(`💡 也可以发送「选择使魔 <名称>」直接选择`);
+      }
+      return lines.join('\n');
+    }
+
     // 查找使魔定义（静态配置 JSON 单一来源）
     const familiar = this.staticData.getFamiliarByName(familiarName);
     if (!familiar) {
       return `不存在的使魔：${familiarName}`;
+    }
+
+    // ========== 新玩家首次选择使魔（对应原版 _主程序.ecode L686-722） ==========
+    // 原版：新玩家(老玩家==假)第一次选择使魔 = 清空所有数据、设置角色、正式开局。
+    // 判断依据：player.type 为空即尚未选择使魔开始游戏。
+    if (!player.type) {
+      // 清空初始化的所有玩家数据（对应原版 重定义数组 清空成就/标记/标记2/背包/装备/武器/任务/增益/装备预设）
+      player.achievements = [];
+      player.markers = {};
+      player.markers2 = [];
+      player.backpack = [];
+      player.equipment = [];
+      player.weapons = [];
+      player.tasks = [];
+      player.buffs = [];
+      player.equipmentPresets = [];
+
+      // 设置角色为所选使魔（对应原版：玩家.类型/特殊序号/图片/特有技能）
+      player.type = familiar.name;
+      player.specialSeq = familiar.specialSeq;
+      player.currentWeapon = 0;
+
+      // 初始好感：兰音特殊序号为20，其他为1（对应原版 L704-708）
+      const affinityKey = `${familiar.name}好感`;
+      // 兰音 specialSeq 需按 JSON 实际值判断，原版用 #兰音 常量（序号23）
+      const isLanyin = familiar.name === '兰音' || String(familiar.specialSeq) === '23';
+      const initAffinity = isLanyin ? 20 : 1;
+      markers[affinityKey] = initAffinity;
+      // 同步到玩家 affinity 字段（战斗计算中按好感触发使魔专属效果，如伊卡洛斯好感≥20）
+      player.affinity = initAffinity;
+
+      // 初始等级/生命保持基础值，正式进入游戏
+      player.level = player.level || 1;
+      player.exp = 0;
+      player.upgradeExp = player.upgradeExp || 100;
+      player.hp = player.maxHp || 100;
+      player.shield = player.maxShield || 0;
+      player.armor = player.maxArmor || 0;
+
+      // 标记已开始游戏（老玩家=真），并保存
+      player.markers = JSON.stringify(markers);
+      await this.playerService.savePlayer(player);
+
+      return `选择为${familiar.name}开始游戏\n💡 使用「查看任务」查看任务`;
     }
 
     // 检查是否已拥有该使魔（好感度>0）
@@ -180,19 +270,19 @@ export class FamiliarSystemService {
       return `${player.name || '冒险者'} 更换使魔冷却中，剩余${remaining}秒`;
     }
 
-    // 如果是兰音，确保好感度至少20
-    if (familiar.specialSeq === -1) {
-      // 兰音特殊序号通常为-1或其他值，需要特殊处理
-      if (currentAffinity < 20) {
-        // 自动补足到20
-        markers[affinityKey] = 20;
-      }
+    // 如果是兰音，确保好感度至少20（兰音特殊序号=23，对齐原版 #兰音）
+    const isLanyin = familiar.name === '兰音' || String(familiar.specialSeq) === '23';
+    if (isLanyin && currentAffinity < 20) {
+      // 自动补足到20
+      markers[affinityKey] = 20;
     }
 
     // 执行更换
     player.type = familiarName;
     player.specialSeq = familiar.specialSeq;
     player.uniqueSkill = familiar.uniqueSkill || '';
+    // 同步当前好感到 affinity 字段（战斗计算中按好感触发使魔专属效果）
+    player.affinity = this.playerService.getMarkerValue(markers, affinityKey);
 
     // 设置冷却标记
     const newMarkers2 = markers2.filter((m: any) => m.name !== '更换使魔');

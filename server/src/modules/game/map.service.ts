@@ -323,44 +323,54 @@ export class MapService {
                 rate: d.chance ?? 100,
               }))
           : [];
+        // 怪物等级：定义等级（若为0则用地图等级），用于 _初始化怪物 等级成长
+        const level = def?.level || map.level || 1;
+        // 等级成长系数（对应原版 _初始化怪物 L2764：基础属性 × (1+等级×0.05)）
+        const lvFactor = 1 + level * 0.05;
+        const baseHp = def?.hp || 100;
+        const baseMaxHp = def?.maxHp || baseHp;
+        const baseShield = def?.maxShield || shield;
+        const baseArmor = def?.maxArmor || armor;
         monsters.push({
           id: `monster_${mapId}_${i}_${randomUUID()}`,
           name: def?.name || name || '未知怪物',
-          level: def?.level || 1,
+          level,
           specialSeq: def?.specialSeq || 0,
-          hp: def?.hp || 100,
-          maxHp: def?.maxHp || def?.hp || 100,
-          shield,
-          maxShield: def?.maxShield || shield,
-          armor,
-          maxArmor: def?.maxArmor || armor,
-          attack: def?.attack || 10,
+          hp: Math.floor(baseMaxHp * lvFactor),
+          maxHp: Math.floor(baseMaxHp * lvFactor),
+          shield: Math.floor(baseShield * lvFactor),
+          maxShield: Math.floor(baseShield * lvFactor),
+          armor: Math.floor(baseArmor * lvFactor),
+          maxArmor: Math.floor(baseArmor * lvFactor),
+          attack: Math.floor((def?.attack || 10) * lvFactor),
           defense: def?.defense || 0,
-          speed: def?.speed || 100,
-          dodge: def?.dodge || 5,
-          hit: def?.hit || 85,
-          exp: defBonus.经验 || 10,
+          speed: Math.floor((def?.speed || 100) * lvFactor),
+          dodge: Math.floor((def?.dodge || 5) * lvFactor),
+          hit: Math.floor((def?.hit || 85) * lvFactor),
+          exp: Math.floor((defBonus.经验 || 10) * lvFactor),
           isElite: def?.type === '精英' || false,
           dropTable,
         });
       } else {
+        const level = map.level || 1;
+        const lvFactor = 1 + level * 0.05;
         monsters.push({
           id: `monster_${mapId}_${i}_${randomUUID()}`,
           name: '野怪',
-          level: 1,
+          level,
           specialSeq: 0,
-          hp: 100,
-          maxHp: 100,
+          hp: Math.floor(100 * lvFactor),
+          maxHp: Math.floor(100 * lvFactor),
           shield: 0,
           maxShield: 0,
           armor: 0,
           maxArmor: 0,
-          attack: 10,
+          attack: Math.floor(10 * lvFactor),
           defense: 0,
-          speed: 100,
-          dodge: 5,
-          hit: 85,
-          exp: 10,
+          speed: Math.floor(100 * lvFactor),
+          dodge: Math.floor(5 * lvFactor),
+          hit: Math.floor(85 * lvFactor),
+          exp: Math.floor(10 * lvFactor),
           isElite: false,
         });
       }

@@ -5197,6 +5197,46 @@ export class GameService {
   }
 
   /**
+   * 新玩家"选第一个使魔"门禁（对应原版 _主程序.ecode L11464-11480）
+   * 原版：新玩家(老玩家==假)发任何指令都会被强制拦截，返回"选择你的第一个使魔来开始游戏"，
+   * 列出所有不可召唤=假的使魔并生成编号快捷（数字@选择使魔<名称>），选中后才正式开局。
+   *
+   * @param userId 玩家用户ID
+   * @returns 未选使魔时返回门禁菜单文本；已选使魔返回 null
+   */
+  async getFirstFamiliarGate(userId: number): Promise<string | null> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    // 已选择使魔（type 非空）→ 不拦截
+    if (player.type) return null;
+
+    // 列出所有可召唤使魔（不可召唤=假 的才可被选为第一个使魔）
+    const allFamiliars = this.staticData.getAllFamiliars().filter((f: any) => !f.noSummon);
+
+    const lines: string[] = [
+      `选择你的第一个使魔来开始游戏：`,
+      `━━━━━━━━━━━━━━━`,
+      `发送下方编号数字来进行选择：`,
+    ];
+    const options: { label: string; cmd: string }[] = [];
+    for (const familiar of allFamiliars) {
+      const name = familiar.name || '未知';
+      lines.push(`  ${options.length + 1}. ${name}`);
+      options.push({ label: name, cmd: `选择使魔${name}` });
+    }
+    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(`💡 也可以直接发送「选择使魔 <名称>」来直接选择`);
+
+    // 生成编号临时输入替换（发数字即触发 选择使魔<名称>）
+    if (options.length > 0) {
+      const tempGroups = options.map((o, i) => `${i + 1}@${o.cmd}`);
+      await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
    * 处理游戏术语解释命令
    * 解释游戏中的专业术语，帮助玩家理解游戏机制
    * 对应原版：游戏解释 命令

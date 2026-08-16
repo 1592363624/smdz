@@ -186,6 +186,26 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const isCommand = await this.isCommandInput(content, user.userId);
 
     if (isCommand) {
+      // ========== 新玩家选使魔门禁（对应原版 _主程序.ecode L11464-11480） ==========
+      // 新玩家(未选使魔)发任何指令都会被拦截，返回"选择第一个使魔"菜单；
+      // 仅"选择使魔/更换使魔"指令放行（否则玩家无法开始游戏）。
+      const cmdName = content.trim().replace(/^[\/！!]+/, '').split(/\s+/)[0];
+      if (cmdName !== '选择使魔' && cmdName !== '更换使魔' && cmdName !== 'select' && cmdName !== 'familiar') {
+        const gate = await this.gameService.getFirstFamiliarGate(user.userId);
+        if (gate) {
+          // 门禁菜单只回传给本人（不需要公屏广播）
+          const gateMsg = {
+            type: 'system',
+            content: gate,
+            senderId: user.userId,
+            channelId: user.channelId,
+            createdAt: new Date(),
+          };
+          client.emit('chat:message', gateMsg);
+          return;
+        }
+      }
+
       await this.handleCommand(client, user, content);
     } else {
       // 普通聊天，公屏广播

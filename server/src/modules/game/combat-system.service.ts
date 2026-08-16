@@ -17,6 +17,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
 import { MapService, MapMonster } from './map.service';
+import { StaticDataService } from './static-data.service';
+import { AchievementService } from './achievement.service';
 
 // ==================== 类型定义 ====================
 
@@ -193,6 +195,8 @@ export class CombatSystemService {
     private readonly playerService: PlayerService,
     private readonly bonusService: BonusService,
     private readonly mapService: MapService,
+    private readonly staticData: StaticDataService,
+    private readonly achievementService: AchievementService,
   ) {}
 
   // ==================== 公开接口 ====================
@@ -292,10 +296,10 @@ export class CombatSystemService {
     // 根据玩家的当前使魔类型，触发专属战斗特效（如战斗女仆随机效果、伊卡洛斯歼灭模式等）
     const familiarEffect = this.processFamiliarEffects(player, playerData, weapon, context);
     // 应用使魔特效修改后的参数
-    const effectiveDamageMultiplier = familiarEffect.damageMultiplier; // 修改后的伤害倍率
+    let effectiveDamageMultiplier = familiarEffect.damageMultiplier; // 修改后的伤害倍率
     const effectiveAllAttack = familiarEffect.forceAllAttack || familiarEffect.allAttack; // 实际全体攻击标记
-    const hitRateModifier = familiarEffect.hitRateModifier; // 命中率修正
-    const extraPenetration = familiarEffect.extraPenetration; // 额外穿透
+    let hitRateModifier = familiarEffect.hitRateModifier; // 命中率修正
+    let extraPenetration = familiarEffect.extraPenetration; // 额外穿透
     const effectText = familiarEffect.effectText; // 特效文本
 
     // 如果使魔特效改变了全体攻击标记，重新选择目标
@@ -315,6 +319,102 @@ export class CombatSystemService {
     // 构造攻击者加成数据（合并基础+装备+增益）
     const attackerBonus = this.buildAttackerBonus(player, playerData);
 
+    // ========== 载具加成（对应原版 加成计算.ecode 载具加成 L3334-3379） ==========
+    // 玩家驾驶载具时，将地图上对应载具的加成并入攻击属性（攻击2/闪避2/命中2 + 其余加成）
+    if (player.vehicle) {
+      try {
+        const mapVehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+        const v = mapVehicles.find((x: any) => x && (x.id === player.vehicle || x.编号 === player.vehicle));
+        if (v && (v.currentHp ?? v.当前生命 ?? 1) > 0) {
+          const vBonus = v.bonus || v.加成 || {};
+          const inc = 1; // 法宝3级+5% 的细节可后续补
+          attackerBonus.attack2 = (attackerBonus.attack2 || 0) + (vBonus.attack2 || 0) * inc;
+          attackerBonus.dodge2 = (attackerBonus.dodge2 || 0) + (vBonus.dodge2 || 0) * inc;
+          attackerBonus.hit2 = (attackerBonus.hit2 || 0) + (vBonus.hit2 || 0) * inc;
+          // 其余载具加成（生命/护盾/装甲/伤害/暴击等）
+          for (const key of ['attack', 'hp', 'shield', 'armor', 'dodge', 'hit', 'speed', 'crit', 'critDmg', 'physDmg', 'fireDmg', 'iceDmg', 'elecDmg'] as const) {
+            if (vBonus[key]) {
+              (attackerBonus as any)[key] = ((attackerBonus as any)[key] || 0) + (vBonus[key] || 0) * inc;
+            }
+          }
+          // 发丝（白的发丝）：掉落率/品质固定
+          if (v.hair || v.发丝) {
+            attackerBonus.dropRate = 0;
+            attackerBonus.dropQuality = 0;
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`载具加成失败: ${err.message}`);
+      }
+    }
+
+    // ========== 通用战斗特判（对应原版 战斗相关.ecode 造成伤害 L1004-1185） ==========
+    // 攻击模式（炮击模式）：闪避固定为1（对应原版 L2340-2342 玩家.属性.闪避 = 1）
+    if (player.attackMode === 1) {
+      attackerBonus.dodge = 1;
+      attackerBonus.dodge2 = 0;
+    }
+    // 1. 力量模式/隐匿模式（增益标记）：近战/拳头伤害×1.5；隐匿模式下远程伤害×1.5且暴击率100%
+    const buffs = playerData.buffs || [];
+    const hasPowerMode = buffs.some((b: any) => b && b.name === '力量模式');
+    const hasStealthMode = buffs.some((b: any) => b && b.name === '隐匿模式');
+    const isMelee = !weapon.type || weapon.type.includes('近战') || weapon.name === '拳头';
+    if (hasPowerMode) {
+      if (isMelee) {
+        effectiveDamageMultiplier *= 1.5;
+        resultLines.push('【力量模式】近战伤害×1.5');
+      }
+    }
+    if (hasStealthMode) {
+      if (!isMelee) {
+        effectiveDamageMultiplier *= 1.5;
+        attackerBonus.crit = 100; // 隐匿模式远程暴击率100%
+        resultLines.push('【隐匿模式】远程伤害×1.5且必暴击');
+      } else {
+        resultLines.push('【隐匿攻击】');
+      }
+    }
+
+    // 2. 次元破碎（装备）：33%几率 +20 三层穿透
+    const hasDimBreak = (playerData.equipment || []).some((e: any) => (e.name || '').includes('次元破碎'));
+    if (hasDimBreak && Math.random() < 0.33) {
+      attackerBonus.shieldPenetration = (attackerBonus.shieldPenetration || 0) + 20;
+      attackerBonus.armorPenetration = (attackerBonus.armorPenetration || 0) + 20;
+      attackerBonus.hpPenetration = (attackerBonus.hpPenetration || 0) + 20;
+      resultLines.push('【次元破碎】穿透+20%');
+    }
+
+    // 3. 因果逆转（武器特效==47）：固定命中率+20%
+    if (weapon.specialEffect === 47) {
+      hitRateModifier += 20;
+    }
+
+    // ========== 武器特殊序号特效（对应原版 造成伤害 L1306-1337） ==========
+    // 兰音被动：好感≥100 时，武器冷却越长最终伤害越高（150×冷却/20/100，下限100%，上限200%+技能×5%）
+    if (player.type === '兰音' && (player.affinity || 0) >= 100) {
+      const lanyinSkill = this.playerService.getMarkerValue(playerData.markers, '兰音技能');
+      const cd = weapon.cooldown || 5;
+      let a1 = 150 * cd / 20 / 100;
+      if (a1 < 1) a1 = 1;
+      const cap = 2 + lanyinSkill * 0.05;
+      if (a1 > cap) a1 = cap;
+      effectiveDamageMultiplier *= a1;
+      resultLines.push(`【寸光】伤害×${(a1 * 100).toFixed(0)}%`);
+    }
+    // 镰刀1：卷土重来增益时伤害×3
+    if (weapon.specialSeq === 37 || weapon.name?.includes('镰刀')) {
+      const hasComeback = buffs.some((b: any) => b && b.name === '卷土重来');
+      if (hasComeback) {
+        effectiveDamageMultiplier *= 3;
+        resultLines.push('【镰刀】伤害×3');
+      }
+    }
+    // 艾斯特拉斯：60秒冷却，伤害+390%
+    if (weapon.specialSeq === 25 || weapon.name?.includes('艾斯特拉斯')) {
+      effectiveDamageMultiplier += 390;
+      resultLines.push('【艾斯特拉斯】伤害+390%');
+    }
+
     // 读取并消费玩家"下次攻击"型标记 buff（兰音系 心无所扰/月落寸光/反转童话）
     // 这些标记由 familiar-skills 的 setNextAttackBuff 写入，此处命中时生效一次后清除
     const nextAttack = this.consumeNextAttackBuffs(player);
@@ -327,7 +427,39 @@ export class CombatSystemService {
     for (const target of targets) {
       if (target.hp <= 0) continue;
 
-      // 命中判定（应用使魔特效的命中率修正 + 心无所扰必中标记）
+      // ========== 防御方闪避判定（对应原版 造成伤害 L1267-1428） ==========
+      // 四糸乃：固定闪避+10；伊卡洛斯(歼灭模式)：20%几率获得闪避；绝灭天使：消耗羽毛触发光翼闪避
+      // 「闪避」增益：目标处于闪避状态时大幅提升闪避率（原版"固定闪避"语义）
+      let targetDodgeModifier = 0;
+      let targetHasDodgeBuff = false;
+      const targetType = target.type || '';
+      const targetBuffs: any[] = this.safeParseJson(target.buffs, []);
+      const now = Date.now() / 1000;
+      // 闪避增益（含时长）：闪避状态剩余秒数越多闪避率越高（原版固定闪避+100）
+      const dodgeBuff = targetBuffs.find((b: any) => b && b.name === '闪避');
+      if (dodgeBuff && dodgeBuff.expireAt && dodgeBuff.expireAt > now) {
+        targetHasDodgeBuff = true;
+        targetDodgeModifier += 100;
+        const remain = Math.ceil(dodgeBuff.expireAt - now);
+        if (remain > 0) resultLines.push(`${target.name} 处于闪避状态(${remain}秒)`);
+      }
+      if (targetType.includes('四糸乃')) {
+        targetDodgeModifier += 10;
+      }
+      if (targetType.includes('伊卡洛斯')) {
+        const hasAnnihilation = targetBuffs.some((b: any) => b && b.name === '歼灭模式');
+        if (hasAnnihilation && Math.random() < 0.2) {
+          targetDodgeModifier += 100; // 歼灭模式闪避
+        }
+      }
+      if (targetType.includes('绝灭天使')) {
+        const hasLightWing = targetBuffs.some((b: any) => b && b.name === '光翼');
+        if (hasLightWing) {
+          targetDodgeModifier += 30; // 光翼闪避
+        }
+      }
+
+      // 命中判定（应用使魔特效的命中率修正 + 心无所扰必中标记 + 因果逆转 + 防御方闪避）
       let isHit: boolean;
       if (mustHit) {
         isHit = true;
@@ -336,12 +468,43 @@ export class CombatSystemService {
         isHit = true;
         resultLines.push('【心无所扰】无视闪避，必定命中！');
       } else {
+        // 因果逆转（武器特效==47）：目标有闪避状态时，按 1÷(闪避剩余×2)×100% 几率无视闪避
+        let effectiveDodge = targetDodgeModifier;
+        if (weapon.specialEffect === 47 && targetHasDodgeBuff && dodgeBuff?.expireAt) {
+          const dodgeRemain = Math.max(0.1, dodgeBuff.expireAt - now);
+          const ignoreChance = 1 / (dodgeRemain * 2) * 100;
+          if (Math.random() * 100 < ignoreChance) {
+            effectiveDodge = 0;
+            resultLines.push(`【因果逆转】无视了${target.name}的闪避状态`);
+          }
+        }
         const hitRate = this.calcHitRate(attackerBonus, target, false) + hitRateModifier;
-        isHit = this.checkHit(hitRate);
+        isHit = this.checkHit(hitRate, effectiveDodge);
       }
 
-      if (!isHit) {
+      // ========== 熟练度记录（对应原版 造成伤害 L1483-1496） ==========
+      // 命中：给玩家加「战斗熟练度」与「武器类型熟练度」，反馈到 _计算玩家 的属性成长
+      // 未命中：给防御方(怪物)加「闪避熟练度」
+      if (isHit) {
+        this.achievementService.addAchievement(player, '战斗熟练度', 1);
+        if (weapon.type) {
+          this.achievementService.addAchievement(player, `${weapon.type}熟练度`, 1);
+        }
+        // 记录攻击者，保证参与战斗的玩家获得奖励
+        const targetMarkers = this.safeParseJson<Record<string, number>>(target.markers, {});
+        targetMarkers[`攻击者${player.userId}`] = (targetMarkers[`攻击者${player.userId}`] || 0) + 0.001;
+        target.markers = JSON.stringify(targetMarkers);
+        // 命中后消耗目标的闪避状态（对应原版：命中后闪避状态失效）
+        if (targetHasDodgeBuff) {
+          const remaining = targetBuffs.filter((b: any) => !(b && b.name === '闪避'));
+          target.buffs = JSON.stringify(remaining);
+        }
+      } else {
         resultLines.push(`${target.name} 闪避了攻击`);
+        // 未命中：防御方获得「闪避熟练度」（对应原版 L1484）
+        const tMarkers = this.safeParseJson<Record<string, number>>(target.markers, {});
+        tMarkers['闪避熟练度'] = (tMarkers['闪避熟练度'] || 0) + 1;
+        target.markers = JSON.stringify(tMarkers);
         continue;
       }
 
@@ -375,6 +538,24 @@ export class CombatSystemService {
         defenderBonus.hpPenetration = (defenderBonus.hpPenetration || 0) + pen;
         resultLines.push(`【月落寸光】获得 ${pen.toFixed(1)}% 三层穿透`);
       }
+
+      // ========== 特殊武器特效（对应原版 造成伤害 L1295+，斩首/尖兵/因果逆转/如梦似幻等） ==========
+      // 调用 processSpecialEffects 按武器 specialEffect 触发对应效果，应用额外伤害/倍率/命中修正/穿透
+      const specialEffect = this.processSpecialEffects(player, target, weapon, 0, weapon.damageType || CombatSystemService.DMG_PHYS);
+      if (specialEffect.effectText) {
+        resultLines.push(specialEffect.effectText);
+      }
+      // 应用特效修改后的伤害倍率与命中修正
+      const effectiveDmgMult = effectiveDamageMultiplier * (specialEffect.damageMultiplier || 1.0);
+      // 额外穿透（如特殊装备附带）
+      if (specialEffect.extraPenetration) {
+        attackerBonus.shieldPenetration = (attackerBonus.shieldPenetration || 0) + specialEffect.extraPenetration;
+        attackerBonus.armorPenetration = (attackerBonus.armorPenetration || 0) + specialEffect.extraPenetration;
+        attackerBonus.hpPenetration = (attackerBonus.hpPenetration || 0) + specialEffect.extraPenetration;
+      }
+      // 命中修正（因果逆转等）——攻击判定已在此之前完成，此处用于最终命中率展示，不影响本次判定
+      hitRateModifier += specialEffect.hitRateModifier || 0;
+
       const damageResult = this.calcDamage(
         attackerBonus,
         defenderBonus,
@@ -384,8 +565,8 @@ export class CombatSystemService {
         { dmgLower, dmgUpper },
       );
 
-      // 应用伤害倍率（含使魔特效修改后的倍率）
-      let finalDamage = Math.floor(damageResult.damage * effectiveDamageMultiplier / 100);
+      // 应用伤害倍率（含使魔特效 + 特殊武器特效修改后的倍率，再加特殊特效的额外伤害）
+      let finalDamage = Math.floor(damageResult.damage * effectiveDmgMult / 100) + (specialEffect.bonusDmg || 0);
       if (finalDamage < 1 && isHit) finalDamage = 1; // 保底1点伤害
       totalDamage += finalDamage;
 
@@ -440,10 +621,18 @@ export class CombatSystemService {
       }
     }
 
-    // 8. 保存玩家状态（血量变化）
+    // 8. 召唤物协同攻击（对齐原版 覅攻击pd L320-499：玩家攻击后，归属玩家的召唤物也出手）
+    //    当前地图上归属该玩家的召唤物，若存活则用拳头攻击一次怪物。
+    const summonLines = await this.summonCoAttack(player, playerData.markers, map);
+    if (summonLines.length > 0) {
+      resultLines.push(`━━━ 召唤物攻击 ━━━`);
+      resultLines.push(...summonLines);
+    }
+
+    // 9. 保存玩家状态（血量变化）
     await this.playerService.savePlayer(player);
 
-    // 9. 添加经验到玩家
+    // 10. 添加经验到玩家
     if (totalExp > 0) {
       await this.playerService.addExp(userId, totalExp);
     }
@@ -455,6 +644,92 @@ export class CombatSystemService {
       expGained: totalExp,
       drops: allDrops,
     };
+  }
+
+  /**
+   * 召唤物协同攻击
+   * 对应原版 覅攻击pd L320-499：攻击时遍历地图召唤物，归属当前玩家的存活召唤物用武器攻击怪物。
+   * 本框架召唤物未配置武器时用拳头攻击，属性由使魔定义 + 好感 + 等级计算。
+   * @param player 玩家对象
+   * @param map 当前地图
+   * @returns 召唤物攻击结果文本行
+   */
+  private async summonCoAttack(player: any, markers: any, map: any): Promise<string[]> {
+    const lines: string[] = [];
+    try {
+      const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+      // 只取归属当前玩家且存活的召唤物（对应原版：归属=玩家QQ，当前生命>0）
+      const mySummons = summons.filter(
+        (s: any) =>
+          s &&
+          (String(s.ownerQQ) === String(player.userId) || String(s.归属) === String(player.userId)) &&
+          (s.hp ?? s.当前生命 ?? 1) > 0,
+      );
+      if (mySummons.length === 0) return lines;
+
+      // 获取地图上还活着的怪物
+      const monsters = this.mapService.getMapMonsters(map).filter((m: any) => (m.hp || 0) > 0);
+      if (monsters.length === 0) return lines;
+
+      for (const summon of mySummons) {
+        // 召唤物基础属性：使魔定义 + 玩家对该使魔的好感 + 玩家等级
+        const familiarDef = this.staticData.getFamiliarByName(summon.name) || {};
+        // 好感存于玩家 markers（{使魔名}好感，对应原版 添加成就(使魔名+"好感")）
+        const affinity = this.playerService.getMarkerValue(markers, `${summon.name}好感`);
+        const level = player.level || 1;
+        const summonBonus: BonusData = {
+          attack: (familiarDef.baseAttack ?? familiarDef.attack ?? 10) + affinity + level * 2,
+          attack2: 0,
+          hit: (familiarDef.baseHit ?? familiarDef.hit ?? 80) + affinity,
+          hit2: 0,
+          dodge: familiarDef.dodge ?? 10,
+          dodge2: 0,
+          crit: familiarDef.crit ?? 5,
+          critDmg: familiarDef.critDmg ?? 150,
+          hp: summon.hp ?? 100,
+          shield: summon.shield ?? 0,
+          armor: summon.armor ?? 0,
+        };
+
+        // 拳头攻击
+        const target = monsters[Math.floor(Math.random() * monsters.length)];
+        if (!target) continue;
+        const hitRate = this.calcHitRate(summonBonus, this.buildMonsterBonus(target));
+        const isHit = this.checkHit(hitRate);
+        if (!isHit) {
+          lines.push(`${summon.name} 攻击 ${target.name}，被闪避了`);
+          continue;
+        }
+        const isCrit = this.checkCrit(summonBonus.crit || 0);
+        const dmg = this.calcDamage(
+          summonBonus,
+          this.buildMonsterBonus(target),
+          { name: '拳头', damage: 1, damageType: CombatSystemService.DMG_PHYS, properties: { phys: 100, fire: 0, ice: 0, elec: 0 } },
+          CombatSystemService.DMG_PHYS,
+          isCrit,
+        );
+        const finalDmg = Math.max(1, Math.floor(dmg.damage));
+        const applied = this.applyDamageToMonster(target, finalDmg, dmg.poolDamage);
+        lines.push(`${summon.name} 攻击 ${target.name}，造成 ${this.formatDamageText(finalDmg, applied)}${isCrit ? '【暴击】' : ''}`);
+
+        // 怪物死亡处理
+        if (target.hp <= 0) {
+          const deathResult = await this.handleMonsterDeath(target, player.userId, map.id);
+          lines.push(`${target.name} 已被击杀`);
+          if (deathResult.drops.length > 0) {
+            lines.push(`掉落：${deathResult.drops.map(d => d.name).join('、')}`);
+          }
+          if (deathResult.expGain > 0) {
+            lines.push(`获得 ${deathResult.expGain} 点经验`);
+          }
+        } else {
+          await this.updateMonsterHpInMap(map.id, target);
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`召唤物协同攻击失败: ${err.message}`);
+    }
+    return lines;
   }
 
   /**
@@ -481,7 +756,26 @@ export class CombatSystemService {
       return '当前地图没有目标可以炮击';
     }
 
-    // 简化版炮击：对所有怪物造成基于载具的攻击
+    // ========== 炮击伤害计算（对应原版 _主程序.ecode L800-900） ==========
+    // 原版：需要切换炮击模式或驾驶安装舰炮的载具；炮击伤害倍率由炮台部件决定
+    const mapVehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+    const vehicle = mapVehicles.find((x: any) => x && (x.id === player.vehicle || x.编号 === player.vehicle));
+    const vParts = this.playerService.safeJsonParse<any[]>(vehicle?.parts, []);
+    const partNames = vParts.map((p: any) => p.name || '');
+    // 炮台部件倍率：和平鸽/平定者×4、京兆巨炮×3、速子光矛×4、虹天剑A×2，默认×1（攻击模式炮击）
+    let cannonMult = 1;
+    if (partNames.some((n: string) => n.includes('和平鸽') || n.includes('平定者'))) cannonMult = 4;
+    else if (partNames.some((n: string) => n.includes('京兆巨炮'))) cannonMult = 3;
+    else if (partNames.some((n: string) => n.includes('速子光矛'))) cannonMult = 4;
+    else if (partNames.some((n: string) => n.includes('虹天剑A'))) cannonMult = 2;
+    else if (player.attackMode !== 1) {
+      return '需要切换为炮击模式，或者驾驶安装了舰炮的载具';
+    }
+
+    // 载具攻击加成（含部件）
+    const vBonus = vehicle?.bonus || vehicle?.加成 || {};
+    const vehicleAtk = (vBonus.attack || 0) + (vBonus.physDmg || 0) + (vBonus.fireDmg || 0) + (vBonus.iceDmg || 0) + (vBonus.elecDmg || 0);
+
     let totalDamage = 0;
     const killed: string[] = [];
     const lines: string[] = [];
@@ -489,9 +783,10 @@ export class CombatSystemService {
     for (const monster of monsters) {
       if (monster.hp <= 0) continue;
 
-      // 炮击基础伤害（载具攻击力 + 玩家攻击力）
-      const baseDamage = (player.attack || 10) * 3;
-      const damage = Math.max(1, baseDamage - (monster.defense || 0));
+      // 炮击基础伤害 = (玩家攻击 + 载具攻击) × 炮台倍率
+      const baseDamage = ((player.attack || 10) + vehicleAtk) * cannonMult;
+      const defenderBonus = this.buildMonsterBonus(monster);
+      const damage = Math.max(1, Math.floor(baseDamage - (defenderBonus.armor || 0)));
 
       monster.hp = Math.max(0, monster.hp - damage);
       totalDamage += damage;
@@ -974,6 +1269,232 @@ export class CombatSystemService {
       debuff: 0,
     };
 
+    // ========== 玩家/使魔通用成长公式（对应原版 加成计算.ecode L1799-1833） ==========
+    // 原版 _计算玩家 对所有特殊序号>0（即选了使魔的玩家）按等级+属性熟练度成长：
+    //   - 暴击+3、暴击伤害+150+等级/10、攻击加成=暴击伤害+100
+    //   - 速度=10+等级/5+闪避熟练/4*(1+等级/100)
+    //   - 四元素伤害=10+(等级+对应熟练)*(1+等级/100)
+    //   - 命中=10+(等级/2+战斗熟练/2)*(1+等级/100)；攻击=10+战斗熟练*(1+等级/100)
+    //   - 生命=50+(等级*2+防御熟练)*(1+等级/100)；护盾=20+...；装甲=30+...
+    //   - 闪避=10+(等级/2+防御熟练/2)*(1+等级/100)；全抗+10；三回复+0.1+等级/10
+    // 熟练度存于玩家 markers（原版：显示熟练度等级(标记,"雷电")），本框架沿用同名 key。
+    const markers = playerData.markers || {};
+    const lv = player.level || 1;
+    const prof = (key: string) => this.playerService.getMarkerValue(markers, key);
+    const lvFactor = 1 + lv / 100;
+    const profElec = prof('雷电');
+    const profFire = prof('火焰');
+    const profPhys = prof('物理');
+    const profIce = prof('冰冻');
+    const profCombat = prof('战斗');
+    const profDefense = prof('防御');
+    const profDodge = prof('闪避');
+    const profGather = prof('采集');
+
+    if (player.type) {
+      // 玩家是使魔（特殊序号>0）：应用原版通用成长
+      bonus.crit = (bonus.crit || 0) + 3;
+      bonus.critDmg = (bonus.critDmg || 0) + 150 + lv / 10;
+      bonus.attackBonus = (bonus.critDmg || 0) + 100;
+      bonus.speed = 10 + lv / 5 + profDodge / 4 * lvFactor;
+      bonus.elecDmg = (bonus.elecDmg || 0) + 10 + (lv + profElec) * lvFactor;
+      bonus.fireDmg = (bonus.fireDmg || 0) + 10 + (lv + profFire) * lvFactor;
+      bonus.physDmg = (bonus.physDmg || 0) + 10 + (lv + profPhys) * lvFactor;
+      bonus.iceDmg = (bonus.iceDmg || 0) + 10 + (lv + profIce) * lvFactor;
+      bonus.hit = (bonus.hit || 0) + 10 + (lv / 2 + profCombat / 2) * lvFactor;
+      bonus.attack = (bonus.attack || 0) + 10 + profCombat * lvFactor;
+      bonus.gather = (bonus.gather || 0) + 100 + lv / 3 + profGather * (1 + lv / 1000);
+      bonus.hp = (bonus.hp || 0) + 50 + (lv * 2 + profDefense) * lvFactor;
+      bonus.shield = (bonus.shield || 0) + 20 + (lv * 2 + profDefense) * lvFactor;
+      bonus.armor = (bonus.armor || 0) + 30 + (lv * 2 + profDefense) * lvFactor;
+      bonus.dodge = (bonus.dodge || 0) + 10 + (lv / 2 + profDefense / 2) * lvFactor;
+      bonus.hpAllRes = (bonus.hpAllRes || 0) + 10;
+      bonus.shieldAllRes = (bonus.shieldAllRes || 0) + 10;
+      bonus.armorAllRes = (bonus.armorAllRes || 0) + 10;
+      bonus.hpRegen = (bonus.hpRegen || 0) + 0.1 + lv / 10;
+      bonus.shieldRegen = (bonus.shieldRegen || 0) + 0.1 + lv / 10;
+      bonus.armorRegen = (bonus.armorRegen || 0) + 0.1 + lv / 10;
+    }
+
+    // ========== 使魔专属加成（对应原版 _计算玩家 L1872+ 核心分支） ==========
+    // 按需补充高频使魔的专属规则（数值均来自原版，不臆造）
+    const seq = player.specialSeq ?? 0;
+    const skillLevel = prof(`${player.type}技能`);
+    switch (String(seq)) {
+      case '8': { // 战斗女仆：电伤×1.25；好感≥20 沉着攻击2加成
+        bonus.elecDmg = (bonus.elecDmg || 0) * 1.25;
+        break;
+      }
+      case '1': { // 花园猫：电伤2+25、掉落率+10+技能等级
+        bonus.elecDmg2 = (bonus.elecDmg2 || 0) + 25;
+        bonus.dropRate = (bonus.dropRate || 0) + 10 + skillLevel;
+        break;
+      }
+      case '12': { // 龙姬：物伤2+50，生命/护盾/装甲2-50（残血增伤）
+        bonus.physDmg2 = (bonus.physDmg2 || 0) + 50;
+        bonus.hp2 = (bonus.hp2 || 0) - 50;
+        bonus.shield2 = (bonus.shield2 || 0) - 50;
+        bonus.armor2 = (bonus.armor2 || 0) - 50;
+        break;
+      }
+      case '10': { // 小樱：三元素伤2+10+技能/2、护盾2+15+技能、武器冷却-3
+        bonus.elecDmg2 = (bonus.elecDmg2 || 0) + 10 + skillLevel / 2;
+        bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 10 + skillLevel / 2;
+        bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 10 + skillLevel / 2;
+        bonus.shield2 = (bonus.shield2 || 0) + 15 + skillLevel;
+        break;
+      }
+      case '13': { // 伊卡洛斯：冰伤2+25；好感≥20 溅射+25+技能*2、溅射2+1
+        bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 25;
+        if ((player.affinity || 0) >= 20) {
+          bonus.splash = (bonus.splash || 0) + 25 + skillLevel * 2;
+          bonus.splashCount = (bonus.splashCount || 0) + 1;
+        }
+        break;
+      }
+      case '6': { // 恶毒：火伤2+25；好感≥20 残血暴击；好感≥40 命中/闪避比例攻击2
+        bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 25;
+        if ((player.affinity || 0) >= 20) {
+          const hpRatio = Math.min(1, (player.hp || 0) / Math.max(1, (bonus.hp || 1)));
+          bonus.crit = (bonus.crit || 0) + (15 + skillLevel) * hpRatio;
+          bonus.critDmg = (bonus.critDmg || 0) + (50 + skillLevel * 5) * hpRatio;
+        }
+        if ((player.affinity || 0) >= 40) {
+          let a1 = (bonus.hit || 0) / Math.max(1, (bonus.dodge || 1)) * 100;
+          if (a1 > 50 + skillLevel * 2) a1 = 50 + skillLevel * 2;
+          bonus.attack2 = (bonus.attack2 || 0) + a1;
+        }
+        break;
+      }
+      case '2': { // 长萌：火伤×1.25+火伤2+25；护盾/装甲2+1+技能；好感≥20 回复转命中
+        bonus.fireDmg = (bonus.fireDmg || 0) * 1.25;
+        bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 25;
+        bonus.shield2 = (bonus.shield2 || 0) + 1 + skillLevel;
+        bonus.armor2 = (bonus.armor2 || 0) + 1 + skillLevel;
+        bonus.fireDmg = (bonus.fireDmg || 0) + ((bonus.armor || 0) + (bonus.shield || 0)) * (0.15 + skillLevel / 200);
+        if ((player.affinity || 0) >= 20) {
+          bonus.hit = (bonus.hit || 0) + (bonus.hpRegen || 0) * 10 + (bonus.armorRegen || 0) * 10;
+        }
+        if ((player.affinity || 0) >= 60) {
+          const ratio = (player.hp || 0) / Math.max(1, (bonus.hp || 1));
+          bonus.antiPenetrate = (bonus.antiPenetrate || 0) + ratio * 40;
+        }
+        break;
+      }
+      case '11': { // 伊芙利特：火伤2+25；好感≥80 火抗115；攻击模式 命中2+50+技能、攻击2+33
+        bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 25;
+        if ((player.affinity || 0) >= 80) {
+          bonus.hpFireRes = 115;
+          bonus.armorFireRes = 115;
+          bonus.shieldFireRes = 115;
+        }
+        if (player.attackMode === 1) {
+          bonus.hit2 = (bonus.hit2 || 0) + 50 + skillLevel;
+          bonus.attack2 = (bonus.attack2 || 0) + 33;
+        }
+        break;
+      }
+      case '4': { // 剑圣：物伤2+1.25；好感≥20 近战攻击2+15+技能；好感≥60 攻击/命中2比例加成
+        bonus.physDmg2 = (bonus.physDmg2 || 0) + 1.25;
+        if ((player.affinity || 0) >= 20) {
+          bonus.attack2 = (bonus.attack2 || 0) + 15 + skillLevel;
+        }
+        if ((player.affinity || 0) >= 60) {
+          const ratio = Math.min(1, (player.hp || 0) / Math.max(1, (bonus.hp || 1)));
+          const a1 = 20 + ratio * 20;
+          bonus.attack2 = (bonus.attack2 || 0) + a1;
+          bonus.hit2 = (bonus.hit2 || 0) + a1;
+        }
+        if ((player.affinity || 0) >= 40) {
+          bonus.critDmg = (bonus.critDmg || 0) + 3 * skillLevel;
+        }
+        if ((player.affinity || 0) >= 80) {
+          bonus.atkHp = (bonus.atkHp || 0) + 15 + skillLevel;
+        }
+        break;
+      }
+      case '15': { // 四糸乃：冰伤2+25；好感≥60 冰抗115；好感≥40 闪避+等级*技能
+        bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 25;
+        if ((player.affinity || 0) >= 60) {
+          bonus.hpIceRes = 115;
+          bonus.armorIceRes = 115;
+          bonus.shieldIceRes = 115;
+        }
+        if ((player.affinity || 0) >= 40) {
+          bonus.dodge = (bonus.dodge || 0) + lv * skillLevel;
+        }
+        break;
+      }
+      case '17': { // 安克雷奇：生命回复2+2、生命2+25+技能
+        bonus.hpRegen2 = (bonus.hpRegen2 || 0) + 2;
+        bonus.hp2 = (bonus.hp2 || 0) + 25 + skillLevel;
+        break;
+      }
+      case '3': { // 绝灭天使：命中2/攻击2 按羽毛数量加成（对应原版 _计算玩家 L2076-2097 + 取羽毛）
+        // 羽毛存于 markers['羽毛']（累计时间戳），每10秒自然回复1片，上限10+技能等级（日轮×1.5）
+        const featherMarker = this.playerService.getMarkerValue(markers, '羽毛');
+        const featherMax = 10 + skillLevel;
+        let feather = 0;
+        if (featherMarker > 0) {
+          // 按累计时长估算当前羽毛（简化：距上次结算超过10秒则补1片）
+          const elapsed = Math.floor((Date.now() / 1000 - featherMarker) / 10);
+          feather = Math.min(featherMax, elapsed + 1);
+        }
+        feather = Math.max(0, Math.min(featherMax, feather));
+        // 命中2 = 羽毛 × a3（救世魔王×1.5）；攻击2 = 羽毛 × a3（光翼再×1.5）
+        const pBuffs: any[] = playerData.buffs || [];
+        let a3 = 1;
+        const hasSavior = pBuffs.some((b: any) => b && b.name === '救世魔王');
+        if (hasSavior) a3 = 1.5;
+        const hasLightWing = pBuffs.some((b: any) => b && b.name === '光翼');
+        if (hasLightWing) a3 = a3 * (1 + 0.5 + skillLevel / 100);
+        bonus.hit2 = (bonus.hit2 || 0) + feather * a3;
+        bonus.attack2 = (bonus.attack2 || 0) + feather * a3;
+        break;
+      }
+      case '16': { // 军姬：生命2+25；好感≥20 物伤2+45+技能、闪避2+5+技能/22
+        bonus.hp2 = (bonus.hp2 || 0) + 25;
+        if ((player.affinity || 0) >= 20) {
+          bonus.physDmg2 = (bonus.physDmg2 || 0) + 45 + skillLevel;
+          bonus.dodge2 = (bonus.dodge2 || 0) + 5 + skillLevel / 22;
+        } else {
+          bonus.physDmg2 = (bonus.physDmg2 || 0) + 25;
+        }
+        break;
+      }
+      case '19': { // saber：物伤2+50、攻击2+30；好感≥20 物伤2+40+技能*2；好感≥60 穿透+10、暴伤+技能*3
+        bonus.physDmg2 = (bonus.physDmg2 || 0) + 50;
+        bonus.attack2 = (bonus.attack2 || 0) + 30;
+        if ((player.affinity || 0) >= 20) {
+          bonus.physDmg2 = (bonus.physDmg2 || 0) + 40 + skillLevel * 2;
+        }
+        if ((player.affinity || 0) >= 60) {
+          this.bonusService.addPenetration(bonus, 10);
+          bonus.critDmg = (bonus.critDmg || 0) + skillLevel * 3;
+        }
+        break;
+      }
+      case '14': { // 星尘：电伤+当前护盾*(0.5+技能/100)、电伤2+25、护盾2+25+技能；好感≥40 高盾增韧
+        bonus.elecDmg = (bonus.elecDmg || 0) + (bonus.shield || 0) * (0.5 + skillLevel / 100);
+        bonus.elecDmg2 = (bonus.elecDmg2 || 0) + 25;
+        bonus.shield2 = (bonus.shield2 || 0) + 25 + skillLevel;
+        if ((player.affinity || 0) >= 40) {
+          bonus.tenacity = (bonus.tenacity || 0) + (1 - (bonus.tenacity || 0) / 100) * 50;
+          bonus.antiPenetrate = (bonus.antiPenetrate || 0) + 40;
+          this.bonusService.addPenetration(bonus, 15);
+        }
+        break;
+      }
+      case '7': { // 阿尔缇娜：冰伤2+25、攻击2+18；闪避2+25+技能；a格挡穿透
+        bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 25;
+        bonus.attack2 = (bonus.attack2 || 0) + 18;
+        bonus.dodge2 = (bonus.dodge2 || 0) + 25 + skillLevel;
+        break;
+      }
+      default:
+        break;
+    }
+
     // 尝试合并装备加成
     try {
       if (playerData.equipment && playerData.equipment.length > 0) {
@@ -985,6 +1506,29 @@ export class CombatSystemService {
       }
     } catch {
       // 忽略装备解析错误
+    }
+
+    // ========== 套装加成（对应原版 _计算玩家 L2284 套装判断2 L3381-3444） ==========
+    // 黑花嫁/白花嫁4件套、暴击熟练度→暴伤、武器等级加成（高斯步枪等+等级×2）
+    try {
+      const sets = this.playerService.safeJsonParse<any>(player.sets, {});
+      const weapons = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+      this.bonusService.checkSetBonus({
+        currentHp: player.hp || 0,
+        currentShield: player.shield || 0,
+        currentArmor: player.armor || 0,
+        bonus,
+        attributes: bonus,
+        weapons,
+        currentWeapon: player.currentWeapon || 0,
+        level: player.level || 1,
+        qq: String(player.userId || ''),
+        markers: playerData.markers || {},
+        markers2: playerData.markers2 || [],
+        sets,
+      }, Date.now() / 1000);
+    } catch (err: any) {
+      this.logger.warn(`套装加成计算失败: ${err.message}`);
     }
 
     // 应用递减收益
