@@ -14,25 +14,61 @@
         </div>
       </div>
 
+      <!-- QQ 绑定区域：玩家自行绑定/更换QQ号，供群里机器人识别身份 -->
+      <div class="qq-bind">
+        <template v-if="user?.qqNumber && !qqBinding">
+          <span class="qq-bound">✅ 已绑定 QQ: {{ user.qqNumber }}</span>
+          <button class="qq-btn" @click="openQQBind">更换</button>
+        </template>
+        <template v-else>
+          <div class="qq-bind-row">
+            <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
+            <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '绑定中…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
+          </div>
+          <div v-if="qqError" class="qq-error">{{ qqError }}</div>
+          <div class="qq-tip">绑定后可在QQ群用同号机器人发送“smdz 指令”操作本账号</div>
+        </template>
+      </div>
+
       <!-- 玩家信息面板 -->
       <div class="player-info" v-if="playerInfo">
+        <div class="pi-header">
+          <span class="pi-name">{{ playerInfo.name || '冒险者' }}</span>
+          <span class="pi-type" v-if="playerInfo.type">{{ playerInfo.type }}</span>
+        </div>
         <div class="pi-row">
           <span class="pi-label">等级</span>
-          <span class="pi-value">{{ playerInfo.level }}</span>
+          <span class="pi-value">Lv.{{ playerInfo.level }}</span>
+        </div>
+        <div class="pi-bar-row">
+          <div class="pi-bar-label"><span>经验</span><span>{{ playerInfo.exp }}/{{ playerInfo.upgradeExp }}</span></div>
+          <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
         </div>
         <div class="pi-row">
-          <span class="pi-label">生命值</span>
-          <span class="pi-value">{{ playerInfo.hp }} / {{ playerInfo.maxHp }}</span>
+          <span class="pi-label">❤️ 生命</span>
+          <span class="pi-value">{{ Math.round(playerInfo.hp) }} / {{ Math.round(playerInfo.maxHp) }}</span>
         </div>
-        <div class="pi-hp-bar">
-          <div
-            class="pi-hp-fill"
-            :class="hpBarClass"
-            :style="{ width: hpPercent + '%' }"
-          ></div>
-        </div>
+        <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
         <div class="pi-row">
-          <span class="pi-label">位置</span>
+          <span class="pi-label">🛡️ 护盾</span>
+          <span class="pi-value">{{ Math.round(playerInfo.shield) }} / {{ Math.round(playerInfo.maxShield) }}</span>
+        </div>
+        <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
+        <div class="pi-row">
+          <span class="pi-label">🛡️ 装甲</span>
+          <span class="pi-value">{{ Math.round(playerInfo.armor) }} / {{ Math.round(playerInfo.maxArmor) }}</span>
+        </div>
+        <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
+        <div class="pi-stats">
+          <div class="pi-stat"><span>攻击</span><b>{{ Math.round(playerInfo.attack) }}</b></div>
+          <div class="pi-stat"><span>防御</span><b>{{ Math.round(playerInfo.defense) }}</b></div>
+          <div class="pi-stat"><span>速度</span><b>{{ Math.round(playerInfo.speed) }}</b></div>
+          <div class="pi-stat"><span>闪避</span><b>{{ Math.round(playerInfo.dodge) }}</b></div>
+          <div class="pi-stat"><span>命中</span><b>{{ Math.round(playerInfo.hit) }}</b></div>
+          <div class="pi-stat"><span>暴击</span><b>{{ Math.round(playerInfo.crit) }}%</b></div>
+        </div>
+        <div class="pi-row pi-row-loc">
+          <span class="pi-label">📍 位置</span>
           <span class="pi-location">{{ playerInfo.location }}</span>
         </div>
       </div>
@@ -143,20 +179,60 @@
         </div>
       </div>
 
+      <!-- 手机端：QQ 绑定区域 -->
+      <div class="qq-bind">
+        <template v-if="user?.qqNumber && !qqBinding">
+          <span class="qq-bound">✅ 已绑定 QQ: {{ user.qqNumber }}</span>
+          <button class="qq-btn" @click="openQQBind">更换</button>
+        </template>
+        <template v-else>
+          <div class="qq-bind-row">
+            <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
+            <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '绑定中…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
+          </div>
+          <div v-if="qqError" class="qq-error">{{ qqError }}</div>
+          <div class="qq-tip">绑定后可在QQ群用同号机器人发送“smdz 指令”操作本账号</div>
+        </template>
+      </div>
+
       <div class="player-info" v-if="playerInfo">
+        <div class="pi-header">
+          <span class="pi-name">{{ playerInfo.name || '冒险者' }}</span>
+          <span class="pi-type" v-if="playerInfo.type">{{ playerInfo.type }}</span>
+        </div>
         <div class="pi-row">
           <span class="pi-label">等级</span>
-          <span class="pi-value">{{ playerInfo.level }}</span>
+          <span class="pi-value">Lv.{{ playerInfo.level }}</span>
+        </div>
+        <div class="pi-bar-row">
+          <div class="pi-bar-label"><span>经验</span><span>{{ playerInfo.exp }}/{{ playerInfo.upgradeExp }}</span></div>
+          <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
         </div>
         <div class="pi-row">
-          <span class="pi-label">生命值</span>
-          <span class="pi-value">{{ playerInfo.hp }} / {{ playerInfo.maxHp }}</span>
+          <span class="pi-label">❤️ 生命</span>
+          <span class="pi-value">{{ Math.round(playerInfo.hp) }} / {{ Math.round(playerInfo.maxHp) }}</span>
         </div>
-        <div class="pi-hp-bar">
-          <div class="pi-hp-fill" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div>
-        </div>
+        <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
         <div class="pi-row">
-          <span class="pi-label">位置</span>
+          <span class="pi-label">🛡️ 护盾</span>
+          <span class="pi-value">{{ Math.round(playerInfo.shield) }} / {{ Math.round(playerInfo.maxShield) }}</span>
+        </div>
+        <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
+        <div class="pi-row">
+          <span class="pi-label">�️ 装甲</span>
+          <span class="pi-value">{{ Math.round(playerInfo.armor) }} / {{ Math.round(playerInfo.maxArmor) }}</span>
+        </div>
+        <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
+        <div class="pi-stats">
+          <div class="pi-stat"><span>攻击</span><b>{{ Math.round(playerInfo.attack) }}</b></div>
+          <div class="pi-stat"><span>防御</span><b>{{ Math.round(playerInfo.defense) }}</b></div>
+          <div class="pi-stat"><span>速度</span><b>{{ Math.round(playerInfo.speed) }}</b></div>
+          <div class="pi-stat"><span>闪避</span><b>{{ Math.round(playerInfo.dodge) }}</b></div>
+          <div class="pi-stat"><span>命中</span><b>{{ Math.round(playerInfo.hit) }}</b></div>
+          <div class="pi-stat"><span>暴击</span><b>{{ Math.round(playerInfo.crit) }}%</b></div>
+        </div>
+        <div class="pi-row pi-row-loc">
+          <span class="pi-label">📍 位置</span>
           <span class="pi-location">{{ playerInfo.location }}</span>
         </div>
       </div>
@@ -269,7 +345,7 @@
 
       <!-- 消息列表 -->
       <div ref="msgList" class="messages" @scroll="onMsgScroll">
-        <div v-for="(m, i) in messages" :key="i" :class="['msg', msgClass(m)]">
+        <div v-for="(m, i) in messages" :key="i" :class="['msg', msgClass(m), msgAlign(m)]">
           <div class="msg-body">
             <span v-if="m.sender" class="sender">{{ m.sender.nickname || m.sender.username }}：</span>
             <span v-else-if="m.type !== 'system' && m.type !== 'game' && m.type !== 'combat' && m.type !== 'info'" class="sender">系统：</span>
@@ -325,6 +401,62 @@
         <button @click="sendMessage" :disabled="!connected">发送</button>
       </footer>
     </main>
+
+    <!-- 桌面端右栏：当前地图详情 + 怪物/资源/NPC -->
+    <aside class="info-panel">
+      <div class="ip-block">
+        <h4 class="ip-title">📍 当前地图</h4>
+        <div class="ip-map-name">{{ mapOverview?.currentMap?.name || playerInfo?.location || '未知' }}</div>
+        <div class="ip-map-desc" v-if="mapOverview?.currentMap?.description">{{ mapOverview.currentMap.description }}</div>
+        <div class="ip-map-desc" v-else-if="playerInfo?.location">{{ playerInfo.location }} 的冒险区域</div>
+      </div>
+
+      <div class="ip-block" v-if="mapOverview?.currentMap">
+        <h4 class="ip-title">👾 怪物 ({{ mapOverview.currentMap.monsters || 0 }})</h4>
+        <div class="ip-list" v-if="mapOverview.currentMap.monsterList?.length">
+          <div v-for="m in mapOverview.currentMap.monsterList" :key="'cur-mon-' + m.name" class="ip-row">
+            <span class="ip-row-name">💀 {{ m.name }}</span>
+            <span class="ip-row-meta">Lv.{{ m.level }} · HP {{ Math.round(m.hp || 0) }}</span>
+          </div>
+        </div>
+        <div class="ip-empty" v-else>该地图暂无怪物</div>
+      </div>
+
+      <div class="ip-block" v-if="mapOverview?.currentMap">
+        <h4 class="ip-title">⛏️ 资源 ({{ mapOverview.currentMap.resources || 0 }})</h4>
+        <div class="ip-list" v-if="mapOverview.currentMap.resourceList?.length">
+          <div v-for="r in mapOverview.currentMap.resourceList" :key="'cur-res-' + r.name" class="ip-row">
+            <span class="ip-row-name">📦 {{ r.name }}</span>
+            <span class="ip-row-meta">×{{ r.count }} · {{ r.gatherCmd || '采集' }}</span>
+          </div>
+        </div>
+        <div class="ip-empty" v-else>该地图暂无资源</div>
+      </div>
+
+      <div class="ip-block" v-if="mapOverview?.currentMap">
+        <h4 class="ip-title">💬 NPC ({{ mapOverview.currentMap.npcs || 0 }})</h4>
+        <div class="ip-list" v-if="mapOverview.currentMap.npcList?.length">
+          <div v-for="n in mapOverview.currentMap.npcList" :key="'cur-npc-' + n.name" class="ip-row npc-row" @click="quickAction('对话 ' + n.name)">
+            <span class="ip-row-name">🗨️ {{ n.name }}</span>
+            <span class="ip-row-meta" v-if="n.title">{{ n.title }}</span>
+          </div>
+        </div>
+        <div class="ip-empty" v-else>该地图暂无 NPC</div>
+      </div>
+
+      <div class="ip-block">
+        <h4 class="ip-title">🧭 可前往 ({{ mapOverview?.subMaps?.length || 0 }})</h4>
+        <div class="ip-links" v-if="mapOverview?.subMaps?.length">
+          <span
+            v-for="mc in mapOverview.subMaps"
+            :key="'rs-' + mc.name"
+            class="ip-link"
+            @click="quickAction('go ' + mc.name)"
+          >{{ mc.name }}</span>
+        </div>
+        <div class="ip-empty" v-else>当前地图为孤立区域</div>
+      </div>
+    </aside>
 
     <!-- 私聊面板（右侧滑出覆盖层） -->
     <div v-if="privatePanelOpen" class="panel-overlay" @click.self="closePrivatePanel">
@@ -556,10 +688,67 @@ function onAvatarClick() {
   }
 }
 
+// ---------- QQ 绑定（玩家自行绑定/更换） ----------
+// 输入框内容、是否显示绑定输入框、错误提示、绑定中状态
+const qqInput = ref('');
+const qqBinding = ref(false);
+const qqError = ref('');
+const qqBusy = ref(false);
+
+// 打开绑定输入框（已绑定时进入"更换"模式，回填当前QQ号）
+function openQQBind() {
+  qqInput.value = user.value?.qqNumber || '';
+  qqBinding.value = true;
+  qqError.value = '';
+}
+
+// 绑定/更换 QQ 号：调用后端 bind-qq 接口，成功后同步本地用户信息
+async function bindQQ() {
+  const qq = qqInput.value.trim();
+  // 前端先做基础格式校验（与后端 DTO 规则一致）
+  if (!/^\d{5,12}$/.test(qq)) {
+    qqError.value = '请输入 5-12 位数字QQ号';
+    return;
+  }
+  qqBusy.value = true;
+  qqError.value = '';
+  try {
+    await userApi.bindQQ(qq);
+    // 绑定成功：更新本地 user 并持久化，界面回到已绑定展示态
+    user.value = { ...user.value, qqNumber: qq };
+    localStorage.setItem('user', JSON.stringify(user.value));
+    qqInput.value = '';
+    qqBinding.value = false;
+  } catch (e) {
+    // 展示后端返回的错误（如"该QQ号已被其他账号绑定"）
+    qqError.value = e?.response?.data?.message || '绑定失败，请重试';
+  } finally {
+    qqBusy.value = false;
+  }
+}
+
 // 生命值百分比
 const hpPercent = computed(() => {
   if (!playerInfo.value || !playerInfo.value.maxHp) return 0;
   return Math.round((playerInfo.value.hp / playerInfo.value.maxHp) * 100);
+});
+
+// 经验百分比
+const expPercent = computed(() => {
+  if (!playerInfo.value || !playerInfo.value.upgradeExp) return 0;
+  return Math.min(100, Math.round((playerInfo.value.exp / playerInfo.value.upgradeExp) * 100));
+});
+
+// 护盾百分比
+const shieldPercent = computed(() => {
+  if (!playerInfo.value || !playerInfo.value.maxShield) return 0;
+  return Math.min(100, Math.round((playerInfo.value.shield / playerInfo.value.maxShield) * 100));
+});
+
+// 装甲百分比
+const armorPercent = computed(() => {
+  if (!playerInfo.value || !playerInfo.value.maxArmor) return 0;
+  return Math.min(100, Math.round((playerInfo.value.armor / playerInfo.value.maxArmor) * 100));
 });
 
 // 血条颜色样式
@@ -592,6 +781,25 @@ function msgClass(m) {
   if (m.type === 'combat') return 'combat';
   if (m.type === 'info') return 'info';
   return 'chat';
+}
+
+/**
+ * 消息对齐分类（QQ 聊天风格）
+ * - 系统/游戏/战斗/信息类消息 → center（居中，无论是否带 sender）
+ * - 普通聊天（chat）→ 本人 own（右侧）、他人 other（左侧）
+ * 说明：指令触发的公屏结果多为"系统广播"（如"某某移动到某地"），
+ * 它们即便带玩家 sender，也应居中展示，与玩家主动发起的对话气泡区分开。
+ * @param {object} m 消息对象
+ * @returns {string} 'own' | 'other' | 'center'
+ */
+function msgAlign(m) {
+  // 系统类消息统一居中（覆盖 command/system/game/combat/info）
+  if (m.type === 'system' || m.type === 'game' || m.type === 'combat' || m.type === 'info' || m.type === 'command') {
+    return 'center';
+  }
+  // 普通聊天：按发送者归属区分左右
+  if (!m.sender) return 'center';
+  return m.sender.id === user.value?.id ? 'own' : 'other';
 }
 
 /**
@@ -1262,7 +1470,9 @@ onMounted(async () => {
     const ch = await chatApi.getChannel();
     channel.value = ch.data;
     const msgs = await chatApi.getMessages(ch.data.id, 50);
-    messages.value = msgs.data;
+    // 后端按 createdAt 倒序返回（最新在前），需反转成"旧消息在上、新消息在下"，
+    // 与实时 push 到末尾的顺序一致，避免新消息出现在历史消息中间/顶部
+    messages.value = (msgs.data || []).reverse();
     // 加载指令列表
     const cmds = await commandApi.list();
     commands.value = cmds.data;

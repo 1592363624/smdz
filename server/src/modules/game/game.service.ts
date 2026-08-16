@@ -25,6 +25,7 @@ import { StaticDataService } from './static-data.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { ChatService } from '../chat/chat.service';
 import { FeedbackService } from '../feedback/feedback.service';
+import { TaskService } from './task.service';
 
 @Injectable()
 export class GameService {
@@ -51,6 +52,7 @@ export class GameService {
     private readonly systemConfigService: SystemConfigService,
     private readonly chatService: ChatService,
     private readonly feedbackService: FeedbackService,
+    private readonly taskService: TaskService,
   ) {}
 
   /**
@@ -266,14 +268,54 @@ export class GameService {
     const resources = this.playerService.safeJsonParse<any[]>(currentMap.resources, []);
     const npcs = this.playerService.safeJsonParse<any[]>(currentMap.npcs, []);
 
+    // 怪物列表：从 spawnMonsters + tempMonsters 合并，去重后携带等级/HP
+    // 用 staticData 的怪物 JSON 补全等级/HP，未收录的怪物按基础值兜底
+    const mapMonsters = this.mapService.getMapMonsters(currentMap);
+    const seenMonsters = new Set<string>();
+    const monsterList = mapMonsters
+      .filter((m) => {
+        const key = m.name || '';
+        if (!key || seenMonsters.has(key)) return false;
+        seenMonsters.add(key);
+        return true;
+      })
+      .map((m) => {
+        const def = this.staticData.getMonsterByName(m.name) || {};
+        return {
+          name: m.name,
+          level: def.level ?? m.level ?? currentMap.level ?? 1,
+          hp: def.hp ?? def.maxHp ?? m.hp ?? m.maxHp ?? 0,
+        };
+      });
+
+    // 资源列表：采集型资源携带产出物/数量/gatherCmd
+    const resourceList = resources.map((r: any) => ({
+      name: r.name,
+      type: r.type || '',
+      times: r.times ?? -1,
+      gatherCmd: r.gatherCmd || '采集',
+      // 取首个产出物的名称作为可见掉落，便于玩家判断价值
+      firstDrop: Array.isArray(r.outputs) && r.outputs.length ? r.outputs[0]?.name : '',
+    }));
+
+    // NPC 列表：保留 title 便于展示
+    const npcList = npcs.map((n: any) => ({
+      name: n.name,
+      title: n.title || '',
+      type: n.type || 'npc',
+    }));
+
     return {
       currentMap: {
         name: currentMap.name,
         mapId: currentMap.id,
         description: currentMap.description || '',
-        monsters: monsters.length,
+        monsters: monsters.length || monsterList.length,
         resources: resources.length,
         npcs: npcs.length,
+        monsterList,
+        resourceList,
+        npcList,
       },
       subMaps,
       allMaps,
@@ -398,13 +440,33 @@ export class GameService {
   /**
    * 处理查看背包命令
    */
-  async handleInventory(userId: number): Promise<string> {
+  async handleInventory(userId: number, arg?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
     const items = this.playerService.getBackpackItems(player);
 
     if (items.length === 0) {
       return '🎒 你的背包空空如也';
+    }
+
+    // 查看单项详情（对应原版 物品操作.ecode L815~L818：背包 序号/名称 查看物品详情）
+    if (arg) {
+      // 支持按序号或名称定位
+      const idxNum = parseInt(arg, 10);
+      let item;
+      if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= items.length) {
+        item = items[idxNum - 1];
+      } else {
+        item = items.find((i: any) => i.name === arg);
+      }
+      if (!item) {
+        return `背包中没有找到【${arg}】\n使用「背包」查看物品列表`;
+      }
+      const count = item.count || item.quantity || 1;
+      const type = item.type ? `\n类型: ${item.type}` : '';
+      const rarity = item.rarity || item.quality ? `\n品质: ${item.rarity || item.quality}` : '';
+      const desc = item.description ? `\n${item.description}` : '';
+      return `🎒【${item.name}】×${count}${type}${rarity}${desc}`;
     }
 
     const lines = items.map((item: any, index: number) => {
@@ -610,6 +672,15 @@ export class GameService {
           'done': '欢迎下次光临！',
         }
       },
+      '白': {
+        title: '白',
+        dialogs: {
+          'hello': '这里是哪里？我好像睡了很久……\n你是我醒来后见到的第一个人，谢谢你唤醒了我。',
+          'intro': '我感觉到这条走廊上有奇怪的气息，我们要小心前行。\n我的力量还没有完全恢复，需要你的帮助。',
+          'quest': '你愿意和我一起探索这条走廊吗？我感觉到深处有什么东西在呼唤着我。',
+          'done': '谢谢你一直陪着我，和你在一起让我感觉很安心。',
+        }
+      },
     };
     // 指定了NPC且命中特殊NPC → 视为可对话（无需地图数据中存在该NPC）
     const isSpecialNpc = !!npcName && !!specialNpcs[npcName];
@@ -636,6 +707,7 @@ export class GameService {
         lines.push(`  ${specialNpcs['老村长'].title} - 新手村的村长`);
         lines.push(`  ${specialNpcs['流浪商人'].title} - 贩卖各种物品的商人`);
         lines.push(`  ${specialNpcs['旅行者'].title} - 神秘的旅行者`);
+        lines.push(`  ${specialNpcs['白'].title} - 从休眠仓中唤醒的少女`);
       }
       lines.push(``);
       lines.push(`使用「对话 NPC名」与NPC对话`);
@@ -1239,6 +1311,94 @@ export class GameService {
 
     const respawnMin = Math.ceil(respawnTime / 60000);
     return `开采了 ${targetResource.name} ×${amount}\n该资源将在 ${respawnMin} 分钟后刷新`;
+  }
+
+  /**
+   * 处理固定资源的采集指令（对应原版 gatherCmd 机制）
+   * 当玩家发送的指令与当前地图固定资源的 gatherCmd 匹配时执行采集，
+   * 例如 医疗室 的 打开箱子/打开休眠仓/捡垃圾、走廊 的 收集物品。
+   * 特殊处理：休眠仓（proxySpeak="召唤1白1"）首次采集触发「召唤白」剧情
+   * （对应原版 _主程序.ecode L9777~L9795），并设置标记「召唤白」。
+   *
+   * @param userId 玩家ID
+   * @param cmdName 采集指令名（如 打开箱子/打开休眠仓/收集物品/捡垃圾）
+   * @returns 采集结果文本；未命中任何资源时返回空字符串
+   */
+  async handleGatherResource(userId: number, cmdName: string): Promise<string> {
+    if (!cmdName) return '';
+
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '';
+
+    // 解析地图固定资源列表
+    const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
+    const target = resources.find((r: any) => r.gatherCmd === cmdName);
+    if (!target) return '';
+
+    // 检查采集冷却（通过 markers2 管理）
+    const cooldownKey = `gather_${map.id}_${target.name}`;
+    const now = Date.now();
+    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const cooldownEntry = markers2.find((m: any) => m.key === cooldownKey);
+    if (cooldownEntry && cooldownEntry.expireTime > now) {
+      return `【${target.name}】还需要 ${Math.ceil((cooldownEntry.expireTime - now) / 1000)} 秒才能再次采集`;
+    }
+
+    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+    const gained: string[] = [];
+    let specialText = '';
+
+    // 特殊资源：休眠仓 → 首次打开触发「召唤白」剧情
+    if (target.name === '休眠仓' || target.proxySpeak === '召唤1白1') {
+      if (!markers['召唤白']) {
+        // 对应原版 _主程序.ecode L9777~L9795：设置标记「召唤白」
+        markers['召唤白'] = 1;
+        player.markers = JSON.stringify(markers);
+        await this.playerService.savePlayer(player);
+        specialText = '这里是哪里？\n(随着休眠仓被打开，锁着的门似乎也跟着一起解开了)';
+        this.logger.log(`玩家 ${userId} 唤醒了白`);
+        // 唤醒白后自动接取主线「身世」任务（对应原版 唤醒白 → 对话白触发主线剧情）
+        await this.taskService.acceptTask(userId, '主线-身世');
+      }
+    }
+
+    // 发放资源产出（对应原版：物品.名称 = 产出[b].名称, 物品.数量 = 产出[b].数量）
+    const outputs = this.playerService.safeJsonParse<any[]>(target.outputs, []);
+    for (const out of outputs) {
+      if (!out.name) continue;
+      // 解析产出名中的数量后缀（如 "钻石3" → 钻石 ×3）；无后缀则使用 count 字段
+      const m = /^(.+?)(\d+)$/.exec(String(out.name));
+      const itemName = m ? m[1] : String(out.name);
+      const outCount = m ? parseInt(m[2], 10) : (Math.abs(Number(out.count)) || 1);
+      if (itemName === '电力') continue; // 电力是产出速率类，不直接入包
+      await this.playerService.addToBackpack(userId, itemName, outCount);
+      gained.push(`${itemName}×${outCount}`);
+    }
+
+    // 限次资源（times>0）：扣减次数，用尽后从地图移除
+    if (target.times && target.times > 0) {
+      target.times -= 1;
+      if (target.times <= 0) {
+        const idx = resources.findIndex((r: any) => r.name === target.name);
+        if (idx >= 0) resources.splice(idx, 1);
+      }
+      await this.prisma.gameMap.update({
+        where: { id: map.id },
+        data: { resources: JSON.stringify(resources) },
+      });
+    } else {
+      // 可再生资源：设置冷却（默认5分钟，可由 timeScale 放大）
+      const respawnSec = (target.timeScale && target.timeScale > 0 ? target.timeScale : 1) * 300;
+      const updatedMarkers2 = markers2.filter((m: any) => m.key !== cooldownKey);
+      updatedMarkers2.push({ key: cooldownKey, expireTime: now + respawnSec * 1000 });
+      player.markers2 = JSON.stringify(updatedMarkers2);
+      await this.playerService.savePlayer(player);
+    }
+
+    const gatherText = gained.length > 0 ? `采集了 ${target.name}，获得: ${gained.join('、')}` : `采集了 ${target.name}`;
+    return specialText ? `${specialText}\n${gatherText}` : gatherText;
   }
 
   /**

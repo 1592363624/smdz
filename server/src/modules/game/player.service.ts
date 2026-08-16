@@ -7,6 +7,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
+import { StaticDataService } from './static-data.service';
 
 /**
  * 玩家数据完整解析后的结构
@@ -28,7 +29,10 @@ export interface PlayerData {
 export class PlayerService {
   private readonly logger = new Logger(PlayerService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly staticData: StaticDataService,
+  ) {}
 
   /**
    * 安全解析 JSON 字符串，解析失败时返回默认值
@@ -103,6 +107,19 @@ export class PlayerService {
       // 初始称号
       const initialTitles = ['新人'];
 
+      // 初始任务：自动领取「新手教程」（对应原版 开局自动接取新手引导任务）
+      // 任务要求与奖励从静态数据 tasks.json 读取，避免在代码中硬编码
+      let initialTasks: Array<{ name: string; requirements: Array<{ name: string; count: number }> }> = [];
+      const tutorialTask = this.staticData.getTaskByName('新手教程');
+      if (tutorialTask) {
+        const reqs = this.safeJsonParse<Array<{ name: string; count: number }>>(
+          tutorialTask.requirements, []
+        );
+        if (reqs.length > 0) {
+          initialTasks.push({ name: '新手教程', requirements: JSON.parse(JSON.stringify(reqs)) });
+        }
+      }
+
       const startMap = await this.resolveStartMap();
 
       player = await this.prisma.player.create({
@@ -137,6 +154,7 @@ export class PlayerService {
           weapons: JSON.stringify(initialWeapons),
           markers: JSON.stringify(initialMarkers),
           titles: JSON.stringify(initialTitles),
+          tasks: JSON.stringify(initialTasks),
         },
       });
     }

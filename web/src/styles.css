@@ -391,6 +391,77 @@ vite-plugin-checker-error-overlay,
   background: rgba(139, 92, 246, 0.1);
 }
 
+/* QQ 绑定区域（玩家可自行绑定/更换QQ号，用于群里机器人身份识别） */
+.qq-bind {
+  margin-top: -6px;
+  padding: 0 4px 4px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.qq-bind .qq-bound {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.qq-bind .qq-btn {
+  margin-left: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.qq-bind .qq-btn:hover {
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--text);
+}
+.qq-bind .qq-btn.primary {
+  background: var(--accent-gradient);
+  border: none;
+  color: #fff;
+}
+.qq-bind .qq-btn.primary:hover {
+  filter: brightness(1.1);
+}
+.qq-bind .qq-btn.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.qq-bind .qq-bind-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.qq-bind .qq-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+.qq-bind .qq-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.qq-bind .qq-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ef4444;
+}
+.qq-bind .qq-tip {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .avatar {
   width: 44px;
   height: 44px;
@@ -644,10 +715,109 @@ vite-plugin-checker-error-overlay,
 /* ===== 聊天主区域 ===== */
 .chat-main {
   flex: 1;
+  min-width: 0; /* 允许 flex 子项收缩，避免消息溢出 */
   display: flex;
   flex-direction: column;
   position: relative;
   z-index: 1;
+  /* 桌面端右栏出现时，让聊天区域不强制贴满，留出合理视觉密度 */
+  max-width: 100%;
+}
+
+/* ===== 桌面端右栏（当前地图详情） ===== */
+.info-panel {
+  width: 300px;
+  flex-shrink: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-left: 1px solid var(--glass-border);
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  position: relative;
+  z-index: 1;
+}
+.info-panel .ip-block {
+  background: rgba(10, 10, 26, 0.5);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.info-panel .ip-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent2);
+  letter-spacing: 0.4px;
+}
+.info-panel .ip-map-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.info-panel .ip-map-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-style: italic;
+}
+.info-panel .ip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.info-panel .ip-row {
+  display: flex;
+  flex-direction: column;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, 0.06);
+  transition: background 0.15s ease;
+}
+.info-panel .ip-row:hover {
+  background: rgba(139, 92, 246, 0.14);
+}
+.info-panel .npc-row {
+  cursor: pointer;
+}
+.info-panel .ip-row-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.info-panel .ip-row-meta {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.info-panel .ip-empty {
+  font-size: 11px;
+  color: var(--muted-dark);
+  text-align: center;
+  padding: 6px 0;
+}
+.info-panel .ip-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.info-panel .ip-link {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(6, 182, 212, 0.12);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  color: var(--accent2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.info-panel .ip-link:hover {
+  background: rgba(6, 182, 212, 0.22);
+  color: #fff;
 }
 
 .chat-header {
@@ -755,7 +925,7 @@ vite-plugin-checker-error-overlay,
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   border: 1px solid rgba(139, 92, 246, 0.12);
-  max-width: 80%;
+  max-width: 92%;
   font-size: 14px;
   line-height: 1.6;
   animation: fadeInUp 0.3s ease-out;
@@ -815,15 +985,17 @@ vite-plugin-checker-error-overlay,
   transform: scale(0.97);
 }
 
-/* 系统消息 - 居中紫色 */
+/* 系统消息 - 居中金色高亮（显眼） */
 .msg.system {
   align-self: center;
-  background: rgba(139, 92, 246, 0.1);
-  color: #c8c8e0;
-  border: 1px solid rgba(139, 92, 246, 0.25);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fde68a;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.08);
   max-width: 100%;
   font-size: 13px;
   text-align: center;
+  font-weight: 600;
 }
 
 /* 指令消息 - 暗色 */
@@ -832,28 +1004,58 @@ vite-plugin-checker-error-overlay,
   border: 1px solid var(--border);
 }
 
-/* 游戏消息 - 青色 */
+/* 游戏消息 - 青色（更饱和，左对齐个人指令结果） */
 .msg.game {
   align-self: flex-start;
-  background: rgba(6, 182, 212, 0.06);
-  border: 1px solid rgba(6, 182, 212, 0.2);
+  background: rgba(6, 182, 212, 0.12);
+  border: 1px solid rgba(6, 182, 212, 0.45);
   color: #a5f3fc;
+  font-weight: 500;
 }
 
-/* 战斗消息 - 品红/红色 */
+/* 战斗消息 - 品红/红色（更醒目） */
 .msg.combat {
   align-self: flex-start;
-  background: rgba(236, 72, 153, 0.06);
-  border: 1px solid rgba(236, 72, 153, 0.2);
+  background: rgba(236, 72, 153, 0.14);
+  border: 1px solid rgba(236, 72, 153, 0.5);
   color: #fbcfe8;
+  font-weight: 500;
 }
 
-/* 信息消息 - 蓝色 */
+/* 信息消息 - 蓝色（更饱和） */
 .msg.info {
   align-self: flex-start;
-  background: rgba(59, 130, 246, 0.06);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.45);
   color: #bfdbfe;
+  font-weight: 500;
+}
+
+/* ===== 消息对齐（QQ 聊天风格） =====
+ * - 他人消息 own/other：靠左/靠右的气泡
+ * - 系统/游戏/战斗/信息（无 sender）：居中提示条
+ */
+.msg.other {
+  align-self: flex-start;
+}
+/* 自己发的消息：靠右 + 醒目高亮气泡 */
+.msg.own {
+  align-self: flex-end;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.22), rgba(99, 102, 241, 0.18));
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.15);
+}
+.msg.own .sender {
+  color: #c4b5fd;
+}
+/* 系统类消息：强制居中，覆盖 game/combat/info 的靠左 */
+.msg.center {
+  align-self: center;
+  text-align: center;
+}
+/* 居中消息不显示时间戳（保持清爽） */
+.msg.center .msg-time {
+  display: none;
 }
 
 /* 聊天消息 - 发送者紫色 */
@@ -981,6 +1183,104 @@ vite-plugin-checker-error-overlay,
 .player-info .pi-hp-fill.medium {
   background: linear-gradient(90deg, #eab308, #facc15);
 }
+
+/* 增强版玩家信息面板：头部、经验/护盾/装甲条、6项战斗属性 */
+.player-info .pi-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  border-bottom: 1px dashed rgba(139, 92, 246, 0.2);
+}
+.player-info .pi-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.player-info .pi-type {
+  font-size: 11px;
+  color: var(--accent2);
+  background: rgba(6, 182, 212, 0.12);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.player-info .pi-bar-row {
+  margin-bottom: 6px;
+}
+.player-info .pi-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.player-info .pi-bar-label > span:last-child {
+  color: var(--text);
+  font-weight: 600;
+}
+.player-info .pi-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.player-info .pi-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.player-info .pi-bar-fill.exp {
+  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+}
+.player-info .pi-bar-fill.hp {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+.player-info .pi-bar-fill.hp.low {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+.player-info .pi-bar-fill.hp.medium {
+  background: linear-gradient(90deg, #eab308, #facc15);
+}
+.player-info .pi-bar-fill.shield {
+  background: linear-gradient(90deg, #06b6d4, #22d3ee);
+}
+.player-info .pi-bar-fill.armor {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+.player-info .pi-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px 8px;
+  padding: 6px 0;
+  margin: 4px 0 6px;
+  border-top: 1px dashed rgba(139, 92, 246, 0.15);
+  border-bottom: 1px dashed rgba(139, 92, 246, 0.15);
+  font-size: 11px;
+}
+.player-info .pi-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.3;
+}
+.player-info .pi-stat > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.player-info .pi-stat > b {
+  color: var(--accent2);
+  font-size: 12px;
+  font-weight: 700;
+}
+.player-info .pi-row-loc {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(139, 92, 246, 0.15);
+}
+
 .player-info .pi-location {
   color: var(--accent2);
   font-weight: 600;
@@ -1860,6 +2160,16 @@ vite-plugin-checker-error-overlay,
  * ============================================================ */
 
 /* 平板及以下 (≤1024px) */
+@media (max-width: 1280px) {
+  /* 中屏：隐藏右栏，将中部消息区域放宽 */
+  .info-panel {
+    display: none;
+  }
+  .chat-main {
+    max-width: none;
+  }
+}
+
 @media (max-width: 1024px) {
   .sidebar {
     width: 220px;

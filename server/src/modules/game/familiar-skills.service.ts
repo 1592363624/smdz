@@ -20,6 +20,7 @@ import { MapService } from './map.service';
 import { FamiliarSystemService } from './familiar-system.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from './static-data.service';
+import { TaskService } from './task.service';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -37,6 +38,7 @@ export class FamiliarSkillsService {
     private readonly familiarSystem: FamiliarSystemService,
     private readonly systemConfig: SystemConfigService,
     private readonly staticData: StaticDataService,
+    private readonly taskService: TaskService,
   ) {}
 
   // ==================== 通用辅助方法 ====================
@@ -52,6 +54,9 @@ export class FamiliarSkillsService {
   async executeSkill(userId: number, skillName: string, target?: string): Promise<string> {
     // 先获取玩家数据，确保玩家存在
     await this.playerService.getPlayerData(userId);
+
+    // 自动推进任务：使用技能（对应原版 使魔技能.ecode L1291 等：添加成就("使用技能",1,成就,任务)）
+    await this.taskService.advance(userId, '使用技能');
 
     switch (skillName) {
       // 使魔专属技能

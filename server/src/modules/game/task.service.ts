@@ -1,13 +1,35 @@
 /**
  * 自动任务推进服务
- * 对应原版易语言：任务系统.ecode
- * 当玩家执行游戏操作时，自动检查并推进任务进度
- * 任务完成时自动发放奖励并触发后续任务
+ * 对应原版易语言：任务系统.ecode、数据分析.ecode 中的 添加成就() 与任务完成检查逻辑
+ *
+ * 核心原理（与原版一致）：
+ * 1. 玩家每执行一个操作（发送命令、击杀怪物、采集资源、对话等），调用 advance(actionName)
+ * 2. advance() 遍历玩家所有未完成任务的要求列表，将匹配 actionName 的要求值递减
+ * 3. 要求值归零则删除该要求（对应原版"删除成员"），所有要求被删除则任务完成
+ * 4. 任务完成时自动发放奖励（经验、物品、好感度等）并自动激活后续任务
+ * 5. 每次完成任务自动推进"完成任务"要求，用于支持"套娃"等计数任务
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { StaticDataService } from './static-data.service';
+
+/**
+ * 玩家任务项结构
+ */
+interface PlayerTask {
+  name: string;                                                       // 任务名称（对应 GameTask.name）
+  requirements: Array<{ name: string; count: number }>;               // 剩余要求列表（count 为剩余需要完成的次数）
+  completed?: boolean;                                                // 是否已完成（保留给兼容展示用）
+}
+
+/**
+ * 任务奖励结构
+ */
+interface TaskReward {
+  name: string;
+  count: number;
+}
 
 @Injectable()
 export class TaskService {
@@ -20,38 +42,65 @@ export class TaskService {
   ) {}
 
   /**
-   * 推进任务进度 - 在玩家执行各种游戏操作时统一调用
+   * 推进任务进度 - 对应原版 添加成就() 函数
+   * 遍历玩家所有未完成任务，将匹配 actionName 的要求值递减
+   *
    * @param userId 用户ID
-   * @param action 操作类型，如 '击杀', '制造', '收集', '兑换', '捕捉', '探索', '装备', '升级'
-   * @param target 目标名称，如怪物名、物品名（可选）
+   * @param actionName 操作名称（必须与任务要求中的 name 完全匹配）
    * @param count 完成数量（默认1）
    * @returns 任务完成提示文本，无完成则返回空字符串
    */
-  async advance(userId: number, action: string, target: string = '', count: number = 1): Promise<string> {
-    if (!userId) return '';
+  async advance(userId: number, actionName: string, count: number = 1): Promise<string> {
+    if (!userId || !actionName) return '';
 
     try {
       const player = await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return '';
 
-      // 1. 更新 Player.tasks 中的进度记录
-      const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-      const taskKey = target ? `${action}${target}` : action;
-      const existing = tasks.find((t: any) => t.name === taskKey);
-      if (existing) {
-        existing.count = (existing.count || 0) + count;
-      } else {
-        tasks.push({ name: taskKey, count });
+      // 解析玩家任务列表，兼容新旧格式
+      const tasks = this.parsePlayerTasks(player.tasks);
+      if (tasks.length === 0) return '';
+
+      const completedMessages: string[] = [];
+      let changed = false;
+
+      // 第一步：递减匹配的要求
+      for (const task of tasks) {
+        if (task.completed || !task.requirements || task.requirements.length === 0) continue;
+        // 倒序遍历，便于安全删除
+        for (let j = task.requirements.length - 1; j >= 0; j--) {
+          const req = task.requirements[j];
+          if (req.name === actionName) {
+            req.count -= count;
+            changed = true;
+            // 要求值归零，删除该要求（对应原版：删除成员）
+            if (req.count <= 0) {
+              task.requirements.splice(j, 1);
+            }
+          }
+        }
       }
 
-      // 2. 检查 GameTask 定义中的任务是否满足完成条件
-      const completedText = await this.checkGameTaskCompletion(userId, tasks, action, target);
+      // 第二步：检查完成情况（对应原版：取数组成员数(要求) <= 0 即完成）
+      for (let i = tasks.length - 1; i >= 0; i--) {
+        const task = tasks[i];
+        if (task.completed) continue;
+        if (task.requirements && task.requirements.length === 0) {
+          await this.completeTask(userId, task.name, tasks);
+          completedMessages.push(`✅ 任务完成: ${task.name}`);
+          // 移除已完成任务（对应原版：删除成员(玩家.任务, ...)）
+          tasks.splice(i, 1);
+          changed = true;
+        }
+      }
 
-      // 3. 保存
-      player.tasks = JSON.stringify(tasks);
-      await this.playerService.savePlayer(player);
+      // 第三步：仅在任务发生变化时保存，避免每次指令都写库
+      if (changed) {
+        player.tasks = JSON.stringify(tasks);
+        await this.playerService.savePlayer(player);
+      }
 
-      return completedText;
+      return completedMessages.join('\n');
     } catch (e) {
       this.logger.warn(`推进任务失败: ${e.message}`);
       return '';
@@ -59,119 +108,194 @@ export class TaskService {
   }
 
   /**
-   * 检查已激活的 GameTask 是否满足完成条件
-   */
-  private async checkGameTaskCompletion(
-    userId: number,
-    playerTasks: any[],
-    action: string,
-    target: string,
-  ): Promise<string> {
-    const allGameTasks = this.staticData.getAllTasks();
-    const completedMessages: string[] = [];
-
-    for (const gameTask of allGameTasks) {
-      // 检查玩家是否已激活此任务
-      const taskProgress = playerTasks.find((t: any) => t.name === gameTask.name);
-      if (!taskProgress || taskProgress.completed) continue;
-
-      // 解析任务要求（格式：[{name, count}]）
-      const requirements = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
-        gameTask.requirements, []
-      );
-      if (requirements.length === 0) continue;
-
-      // 检查当前操作是否匹配此任务的任一要求
-      const matchesAction = requirements.some(
-        req => req.name === action || (target && req.name === target)
-      );
-      if (!matchesAction) continue;
-
-      // 检查是否满足所有要求
-      let allRequirementsMet = true;
-      for (const req of requirements) {
-        // 查找玩家标记/背包中的进度
-        const progress = await this.getRequirementProgress(userId, req.name, playerTasks);
-        if (progress < req.count) {
-          allRequirementsMet = false;
-          break;
-        }
-      }
-
-      if (allRequirementsMet) {
-        // 任务完成 - 发放奖励
-        await this.completeTask(userId, gameTask, playerTasks);
-        completedMessages.push(`✅ 任务完成: ${gameTask.name}`);
-      }
-    }
-
-    return completedMessages.join('\n');
-  }
-
-  /**
-   * 获取某项要求的当前进度
-   */
-  private async getRequirementProgress(
-    userId: number, reqName: string, playerTasks: any[]
-  ): Promise<number> {
-    // 1. 检查 Player.tasks 中的进度
-    const taskProgress = playerTasks.find((t: any) => t.name === reqName);
-    if (taskProgress) return taskProgress.count || 0;
-
-    // 2. 检查玩家标记（如 "击杀" 成就）
-    const player = await this.prisma.player.findUnique({ where: { userId } });
-    if (player) {
-      const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
-      if (markers[reqName] !== undefined) return markers[reqName];
-    }
-
-    // 3. 检查背包（如 "铁矿" 收集数量）
-    if (player) {
-      const backpack = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(player.backpack, []);
-      const item = backpack.find(i => i.name === reqName);
-      if (item) return item.count || 0;
-    }
-
-    return 0;
-  }
-
-  /**
    * 完成任务 - 发放奖励并触发后续任务
+   * 对应原版：_主程序.ecode 11836~11963 行的任务完成处理逻辑
+   *
+   * @param userId 用户ID
+   * @param taskName 已完成的任务名称
+   * @param playerTasks 内存中的任务列表（会被修改：追加后续任务、推进"完成任务"要求）
    */
   private async completeTask(
     userId: number,
-    gameTask: any,
-    playerTasks: any[]
+    taskName: string,
+    playerTasks: PlayerTask[],
   ): Promise<void> {
-    // 标记任务已完成
-    const taskProgress = playerTasks.find((t: any) => t.name === gameTask.name);
-    if (taskProgress) taskProgress.completed = true;
+    // 从 GameTask 定义中查找任务数据
+    const gameTask = this.staticData.getTaskByName(taskName);
+    if (!gameTask) {
+      this.logger.warn(`任务 ${taskName} 未在 GameTask 中找到，无法发放奖励`);
+      return;
+    }
 
-    // 发放奖励
-    const rewards = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
-      gameTask.rewards, []
-    );
+    // 1. 发放奖励（对应原版：遍历 奖励1 数组）
+    const rewards = this.parseRewards(gameTask.rewards);
     for (const reward of rewards) {
-      if (reward.name && reward.count > 0) {
-        await this.playerService.addToBackpack(userId, reward.name, reward.count);
+      if (!reward.name || reward.count <= 0) continue;
+      if (reward.name === '好感') {
+        // 好感度奖励：加到玩家 affinity 字段
+        const player = await this.prisma.player.findUnique({ where: { userId } });
+        if (player) {
+          const affinity = Number(player.affinity || 0) + reward.count;
+          await this.prisma.player.update({ where: { userId }, data: { affinity } });
+        }
+      } else {
+        // 物品奖励：直接添加到背包
+        await this.playerService.addToBackpack(userId, reward.name, Math.round(reward.count));
       }
     }
 
-    // 发放经验奖励
-    const expGain = gameTask.level ? gameTask.level * 50 : 0;
-    if (expGain > 0) {
-      await this.playerService.addExp(userId, expGain);
-    }
+    // 2. 发放经验奖励（按任务等级 * 50）
+    const expGain = (gameTask.level || 1) * 50;
+    await this.playerService.addExp(userId, expGain);
 
-    // 触发后续任务
-    const nextTasks = this.playerService.safeJsonParse<string[]>(gameTask.nextTasks, []);
-    for (const nextTaskName of nextTasks) {
-      if (nextTaskName && !playerTasks.find((t: any) => t.name === nextTaskName)) {
-        playerTasks.push({ name: nextTaskName, count: 0, completed: false });
+    // 3. 自动激活后续任务（对应原版：任务.任务 数组 -> 取任务奖励(r, 真)）
+    const nextTaskNames = this.playerService.safeJsonParse<string[]>(gameTask.nextTasks, []);
+    for (const nextName of nextTaskNames) {
+      if (!nextName) continue;
+      if (playerTasks.some(t => t.name === nextName)) continue;
+      const nextGameTask = this.staticData.getTaskByName(nextName);
+      if (!nextGameTask) continue;
+      const reqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+        nextGameTask.requirements, []
+      );
+      // 要求为空的任务（如"进阶-贸易"等条件触发型）不自动激活，避免卡住玩家
+      if (reqs.length > 0) {
+        playerTasks.push({
+          name: nextName,
+          requirements: JSON.parse(JSON.stringify(reqs)), // 深拷贝
+        });
       }
     }
 
-    this.logger.log(`用户 ${userId} 完成任务: ${gameTask.name}`);
+    // 4. 推进"完成任务"要求（对应原版：添加成就("完成任务", 1, 玩家.成就, 玩家.任务)）
+    // 用于支持"套娃"、"套娃2"等以完成任务数为要求的任务
+    const cascadeTasks: string[] = [];
+    for (const ct of playerTasks) {
+      if (ct.completed || !ct.requirements || ct.requirements.length === 0) continue;
+      for (let j = ct.requirements.length - 1; j >= 0; j--) {
+        if (ct.requirements[j].name === '完成任务') {
+          ct.requirements[j].count -= 1;
+          if (ct.requirements[j].count <= 0) {
+            ct.requirements.splice(j, 1);
+          }
+        }
+      }
+      if (ct.requirements.length === 0) {
+        cascadeTasks.push(ct.name);
+      }
+    }
+
+    // 5. 递归完成因"完成任务"计数而满足的任务
+    for (const cascadeName of cascadeTasks) {
+      const idx = playerTasks.findIndex(t => t.name === cascadeName);
+      if (idx >= 0) {
+        playerTasks.splice(idx, 1);
+        await this.completeTask(userId, cascadeName, playerTasks);
+      }
+    }
+
+    // 6. 添加任务熟练度标记（对应原版：添加成就("任务熟练度", 1, 玩家.标记)）
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (player) {
+      const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+      markers['任务熟练度'] = (markers['任务熟练度'] || 0) + 1;
+      await this.prisma.player.update({
+        where: { userId },
+        data: { markers: JSON.stringify(markers) },
+      });
+    }
+
+    this.logger.log(`用户 ${userId} 完成任务: ${taskName}`);
+  }
+
+  /**
+   * 解析奖励列表，兼容新格式 [{name,count}] 与旧格式 ["物品名,数量"]
+   */
+  private parseRewards(rewardsJson: any): TaskReward[] {
+    try {
+      const parsed = this.playerService.safeJsonParse<any[]>(rewardsJson, []);
+      if (!Array.isArray(parsed)) return [];
+      // 新格式：[{name, count}]
+      if (parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0].name !== undefined) {
+        return parsed.map(r => ({
+          name: String(r.name || ''),
+          count: Number(r.count || 0),
+        }));
+      }
+      // 旧格式：["物品名,数量", ...]
+      return parsed
+        .map(r => {
+          const parts = String(r).split(',');
+          return { name: (parts[0] || '').trim(), count: parseInt((parts[1] || '0').trim(), 10) };
+        })
+        .filter(r => r.name && r.count > 0);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 解析玩家任务列表，兼容新旧格式
+   * - 新格式（本系统）：{name, requirements: [{name, count}], completed?}
+   * - 旧格式1（旧 task.service）：{name, count, completed?} 或 {name, count}（进度记录）
+   * - 旧格式2（game.service）：{name, status: '进行中'|'已完成', progress}
+   */
+  private parsePlayerTasks(tasksJson: any): PlayerTask[] {
+    try {
+      const raw = typeof tasksJson === 'string' ? JSON.parse(tasksJson) : (tasksJson || []);
+      if (!Array.isArray(raw)) return [];
+
+      const result: PlayerTask[] = [];
+      for (const item of raw) {
+        if (!item || typeof item !== 'object') continue;
+
+        // 新格式
+        if (Array.isArray(item.requirements)) {
+          result.push({
+            name: item.name,
+            requirements: item.requirements.map((r: any) => ({
+              name: r.name,
+              count: Number(r.count) || 0,
+            })),
+            completed: item.completed === true,
+          });
+          continue;
+        }
+
+        // 旧格式2：game.service 的任务格式
+        if (item.status === '已完成' || item.status === '已提交' || item.completed === true) {
+          // 已完成的任务保留展示，但不参与推进
+          result.push({ name: item.name, requirements: [], completed: true });
+          continue;
+        }
+
+        // 旧格式1 或 旧格式2（进行中）：尝试从 GameTask 初始化要求
+        if (item.status === '进行中' || item.count !== undefined || item.progress !== undefined) {
+          const gameTask = this.staticData.getTaskByName(item.name);
+          if (gameTask) {
+            const reqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+              gameTask.requirements, []
+            );
+            if (reqs.length > 0) {
+              result.push({
+                name: item.name,
+                requirements: JSON.parse(JSON.stringify(reqs)),
+                completed: false,
+              });
+              continue;
+            }
+          }
+          // 找不到对应 GameTask 定义的旧进度记录（如"采集木头"计数），丢弃
+          continue;
+        }
+
+        // 其他未知格式，标记为已完成避免干扰
+        result.push({ name: item.name || '未知任务', requirements: [], completed: true });
+      }
+      return result;
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -181,10 +305,9 @@ export class TaskService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) return [];
 
-    const playerTasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const activeTaskNames = playerTasks.map((t: any) => t.name);
+    const playerTasks = this.parsePlayerTasks(player.tasks);
+    const activeTaskNames = playerTasks.map(t => t.name);
 
-    // 获取所有未激活的任务
     const allGameTasks = this.staticData.getAllTasks();
     return allGameTasks.filter(t => !activeTaskNames.includes(t.name));
   }
@@ -199,12 +322,24 @@ export class TaskService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) return '玩家数据不存在';
 
-    const playerTasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    if (playerTasks.find((t: any) => t.name === taskName)) {
+    const playerTasks = this.parsePlayerTasks(player.tasks);
+    if (playerTasks.some(t => t.name === taskName)) {
       return `你已经领取了任务「${taskName}」`;
     }
 
-    playerTasks.push({ name: taskName, count: 0, completed: false });
+    // 复制要求列表（对应原版：取任务奖励(r, 真)）
+    const reqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+      gameTask.requirements, []
+    );
+    if (reqs.length === 0) {
+      return `任务「${taskName}」没有要求，可能为条件触发型任务`;
+    }
+
+    playerTasks.push({
+      name: taskName,
+      requirements: JSON.parse(JSON.stringify(reqs)), // 深拷贝
+    });
+
     player.tasks = JSON.stringify(playerTasks);
     await this.playerService.savePlayer(player);
 
@@ -218,23 +353,37 @@ export class TaskService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) return '玩家数据不存在';
 
-    const playerTasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const activeTasks = playerTasks.filter((t: any) => !t.completed);
-    const completedTasks = playerTasks.filter((t: any) => t.completed);
+    const playerTasks = this.parsePlayerTasks(player.tasks);
+    if (playerTasks.length === 0) {
+      return '📋 你当前没有任何任务\n使用「领取任务」来接取任务';
+    }
 
     const lines: string[] = ['📋 任务列表'];
 
+    // 进行中的任务
+    const activeTasks = playerTasks.filter(t => !t.completed && t.requirements.length > 0);
     if (activeTasks.length > 0) {
       lines.push('━━━ 进行中 ━━━');
       for (const task of activeTasks) {
         const gameTask = this.staticData.getTaskByName(task.name);
-        const desc = gameTask?.description || '';
-        const progress = task.count ? `(${task.count})` : '';
-        lines.push(`  ${task.name}${progress}`);
-        if (desc) lines.push(`    ${desc}`);
+        lines.push(`  【${task.name}】`);
+        if (gameTask?.description) lines.push(`    ${gameTask.description}`);
+        // 显示每条要求的完成进度
+        if (gameTask) {
+          const allReqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+            gameTask.requirements, []
+          );
+          for (const req of task.requirements) {
+            const totalReq = allReqs.find(r => r.name === req.name);
+            const done = totalReq ? totalReq.count - req.count : 0;
+            lines.push(`    📌 ${req.name}: ${done}/${totalReq ? totalReq.count : req.count}`);
+          }
+        }
       }
     }
 
+    // 已完成的任务
+    const completedTasks = playerTasks.filter(t => t.completed || t.requirements.length === 0);
     if (completedTasks.length > 0) {
       lines.push('━━━ 已完成 ━━━');
       for (const task of completedTasks) {
@@ -242,10 +391,36 @@ export class TaskService {
       }
     }
 
-    if (activeTasks.length === 0 && completedTasks.length === 0) {
-      lines.push('  暂无任务，使用「领取任务」来接取任务');
-    }
-
     return lines.join('\n');
+  }
+
+  /**
+   * 初始化新玩家的默认任务
+   * 在新玩家创建时调用，自动发放"新手教程"任务
+   */
+  async initNewPlayerTasks(userId: number): Promise<void> {
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (!player) return;
+
+    const playerTasks = this.parsePlayerTasks(player.tasks);
+    // 已有任务则跳过（避免重复发放）
+    if (playerTasks.some(t => t.name === '新手教程')) return;
+
+    const gameTask = this.staticData.getTaskByName('新手教程');
+    if (!gameTask) return;
+
+    const reqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+      gameTask.requirements, []
+    );
+    if (reqs.length === 0) return;
+
+    // 追加到已有任务列表末尾
+    playerTasks.push({
+      name: '新手教程',
+      requirements: JSON.parse(JSON.stringify(reqs)),
+    });
+    player.tasks = JSON.stringify(playerTasks);
+    await this.playerService.savePlayer(player);
+    this.logger.log(`新玩家 ${userId} 已自动领取新手教程任务`);
   }
 }

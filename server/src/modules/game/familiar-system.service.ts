@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
+import { TaskService } from './task.service';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -113,6 +114,7 @@ export class FamiliarSystemService {
     private readonly playerService: PlayerService,
     private readonly bonusService: BonusService,
     private readonly staticData: StaticDataService,
+    private readonly taskService: TaskService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -823,15 +825,8 @@ export class FamiliarSystemService {
 
     player.houseName = newName;
 
-    // 记录家园命名成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const nameTask = tasks.find((t: any) => t.name === '家园命名');
-    if (nameTask) {
-      nameTask.count = (nameTask.count || 0) + 1;
-    } else {
-      tasks.push({ name: '家园命名', count: 1 });
-    }
-    player.tasks = JSON.stringify(tasks);
+    // 自动推进任务（对应原版 L2418：添加成就("家园命名", 1, , 玩家.任务)）
+    await this.taskService.advance(userId, '家园命名');
 
     await this.playerService.savePlayer(player);
 
