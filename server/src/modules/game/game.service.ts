@@ -502,7 +502,7 @@ export class GameService {
     lines.push(`⛓️ 装甲: ${Math.round(player.armor || 0)}/${Math.round(player.maxArmor || 0)}`);
     lines.push(`⚔️ 攻击: ${Math.round(player.attack || 0)}`);
     lines.push(`💨 速度: ${Math.round(player.speed || 0)}`);
-    lines.push(`⭐ 经验: ${Math.round(player.exp || 0)}/${Math.round(player.upgradeExp || 100)}`);
+    lines.push(`⭐ 经验: ${Math.round(player.exp || 0)}/${Math.round(this.playerService.calcUpgradeExp(player.level))}`);
     lines.push(`📍 位置: ${map?.name || '未知'}`);
     lines.push(`🔥 战斗力: ${combatPower}`);
 
@@ -600,7 +600,7 @@ export class GameService {
       `【${player.name || '冒险者'}】详细属性`,
       `━━━━━━━━━━━━━━━`,
       `等级: ${player.level}`,
-      `经验: ${Math.round(player.exp || 0)}/${Math.round(player.upgradeExp || 100)}`,
+      `经验: ${Math.round(player.exp || 0)}/${Math.round(this.playerService.calcUpgradeExp(player.level))}`,
       `━━━━━━━━━━━━━━━`,
       `生命: ${Math.round(player.hp || 0)}/${Math.round(player.maxHp || 100)} (回复: ${player.regenHp || 0}/s)`,
       `护盾: ${Math.round(player.shield || 0)}/${Math.round(player.maxShield || 0)} (回复: ${player.regenShield || 0}/s)`,

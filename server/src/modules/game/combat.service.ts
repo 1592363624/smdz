@@ -8,6 +8,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusService, BonusData, AttributeData } from './bonus.service';
 import { AchievementService } from './achievement.service';
+import { PlayerService } from './player.service';
 
 /**
  * 攻击上下文参数
@@ -68,6 +69,7 @@ export class CombatService {
     private readonly prisma: PrismaService,
     private readonly bonusService: BonusService,
     private readonly achievementService: AchievementService,
+    private readonly playerService: PlayerService,
   ) {}
 
   /**
@@ -265,24 +267,24 @@ export class CombatService {
 
     // 更新数据库：将怪物从地图移除
     try {
-      // 给攻击者增加经验（更新 Player 表）
+      // 给攻击者增加经验（通过 addExp 触发升级判定，避免"经验满足但不升级"）
       if (attackerId && expGain > 0) {
-        const player = await this.prisma.player.findUnique({
-          where: { userId: attackerId },
-        });
-        if (player) {
-          const newExp = (player.exp || 0) + expGain;
-          await this.prisma.player.update({
-            where: { userId: attackerId },
-            data: { exp: newExp },
-          });
+        try {
+          await this.playerService.addExp(attackerId, expGain);
+        } catch (e) {
+          this.logger.warn(`击杀加经验失败: ${e.message}`);
+        }
 
-          // 击杀成就：每次击杀怪物增加"击杀"成就计数
-          try {
+        // 击杀成就：每次击杀怪物增加"击杀"成就计数
+        try {
+          const player = await this.prisma.player.findUnique({
+            where: { userId: attackerId },
+          });
+          if (player) {
             await this.achievementService.addAchievement(player, '击杀', 1, false);
-          } catch (e) {
-            this.logger.warn(`击杀成就记录失败: ${e.message}`);
           }
+        } catch (e) {
+          this.logger.warn(`击杀成就记录失败: ${e.message}`);
         }
       }
 

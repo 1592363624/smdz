@@ -1561,8 +1561,43 @@ export class CombatSystemService {
     } catch {
       mb = {};
     }
-    // 读取辅助：优先顶层字段，回退到 bonus JSON
-    const pick = (k: string) => (monster[k] !== undefined ? monster[k] : (mb[k] || 0));
+    // 读取辅助：优先顶层字段，回退到 bonus JSON。
+    // 兼容中文 key 与英文 key 两套命名（monsters.json 的 bonus 里是中文，如"生命物抗"；
+    // 历史代码可能写入英文如 hpPhysRes），二者任一存在都读到。
+    const zhKeyMap: Record<string, string[]> = {
+      shieldPhysRes: ['护盾物抗'],
+      shieldFireRes: ['护盾火抗'],
+      shieldIceRes: ['护盾冰抗'],
+      shieldElecRes: ['护盾电抗'],
+      shieldAllRes: ['护盾全抗'],
+      armorPhysRes: ['装甲物抗'],
+      armorFireRes: ['装甲火抗'],
+      armorIceRes: ['装甲冰抗'],
+      armorElecRes: ['装甲电抗'],
+      armorAllRes: ['装甲全抗'],
+      hpPhysRes: ['生命物抗'],
+      hpFireRes: ['生命火抗'],
+      hpIceRes: ['生命冰抗'],
+      hpElecRes: ['生命电抗'],
+      hpAllRes: ['生命全抗'],
+      shieldDmgCap: ['护盾伤害上限'],
+      armorDmgCap: ['装甲伤害上限'],
+      hpDmgCap: ['生命伤害上限'],
+    };
+    const pick = (k: string) => {
+      // 顶层字段
+      if (monster[k] !== undefined) return monster[k];
+      // 英文 key 直读 bonus
+      if (mb[k] !== undefined) return mb[k];
+      // 中文 key 映射读取
+      const zhKeys = zhKeyMap[k];
+      if (zhKeys) {
+        for (const zk of zhKeys) {
+          if (mb[zk] !== undefined) return mb[zk];
+        }
+      }
+      return 0;
+    };
 
     return {
       attack: monster.attack || 0,
@@ -1589,7 +1624,7 @@ export class CombatSystemService {
       hpAllRes: pick('hpAllRes'),
       shieldDmgCap: pick('shieldDmgCap') || 100,
       armorDmgCap: pick('armorDmgCap') || 100,
-      hpDmgCap: monster.hpDmgCap || 100,
+      hpDmgCap: pick('hpDmgCap') || 100,
     };
   }
 

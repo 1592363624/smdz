@@ -41,7 +41,7 @@ export class GameController {
         userId: player.userId,
         level: player.level,
         exp: player.exp,
-        upgradeExp: player.upgradeExp,
+        upgradeExp: this.playerService.calcUpgradeExp(player.level),
         name: player.name,
         type: player.type,
         hp: player.hp,

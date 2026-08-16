@@ -52,12 +52,23 @@ export class PlayerService {
 
   /**
    * 计算指定等级所需的升级经验
-   * 公式：100 * 1.15^(level-1)
+   * 对应原版（加成计算.ecode L1781-1794）：
+   *   a2 = (c*c + 5) * (1 + 玩家.加成.升级经验 / 100) * (1 - 风月入墨减益 / 100)
+   * 其中 c 为当前等级。若没有"升级经验加成"（装备/称号/使魔提供的升级经验百分比），
+   * 则 upgradeExpBonus=0；"风月入墨"减益为负面增益（0~100 百分比）。
    * @param level 当前等级
+   * @param upgradeExpBonus 升级经验加成（百分比），默认 0
+   * @param windMoonReduce 风月入墨减益（百分比），默认 0
    * @returns 升级所需经验值
    */
-  private calcUpgradeExp(level: number): number {
-    return Math.floor(100 * Math.pow(1.15, level - 1));
+  calcUpgradeExp(
+    level: number,
+    upgradeExpBonus = 0,
+    windMoonReduce = 0,
+  ): number {
+    // 升级经验加成>0 会降低升级门槛（即需要的经验更少），故为 (1 + 加成/100)
+    const base = level * level + 5;
+    return Math.floor(base * (1 + upgradeExpBonus / 100) * (1 - windMoonReduce / 100));
   }
 
   /**
@@ -130,7 +141,7 @@ export class PlayerService {
           // 基础属性
           level: 1,
           exp: 0,
-          upgradeExp: 100,
+          upgradeExp: this.calcUpgradeExp(1),
           name: '冒险者',
           type: '',
           // 战斗属性
@@ -159,6 +170,17 @@ export class PlayerService {
           tasks: JSON.stringify(initialTasks),
         },
       });
+
+      // 新玩家出生后立即刷新出生地图的怪物，避免"开局无怪可打、只能干等每分钟定时刷新"的问题。
+      // 原版玩家在医疗室醒来后应能立即与史莱姆战斗。
+      if (startMap) {
+        try {
+          await this.mapService.refreshMapMonsters(startMap.id);
+          this.logger.log(`新玩家 ${userId} 出生，已在「${startMap.name}」刷出怪物`);
+        } catch (e) {
+          this.logger.warn(`新玩家出生刷怪失败: ${e.message}`);
+        }
+      }
     }
     return player;
   }
@@ -261,8 +283,10 @@ export class PlayerService {
     // 累加经验
     player.exp = (player.exp || 0) + exp;
 
-    // 检查是否满足升级条件：经验 >= 升级所需经验
-    let upgradeExp = player.upgradeExp || this.calcUpgradeExp(player.level);
+    // 升级经验门槛始终按公式实时计算（对齐原版 加成计算.ecode L1781-1794）。
+    // 不信任可能过期的 upgradeExp 字段（存量玩家曾写入错误的 100），确保升级能正常触发。
+    // 升级经验加成暂按 0（玩家 bonus.升级经验 的完整增益系统后续接入）。
+    let upgradeExp = this.calcUpgradeExp(player.level);
     while (player.exp >= upgradeExp) {
       player.exp -= upgradeExp;
       player.level += 1;

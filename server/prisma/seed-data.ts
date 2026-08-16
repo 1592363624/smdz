@@ -89,10 +89,13 @@ async function seedMapDynamicFields(): Promise<number> {
           // 半动态字段从 JSON 取初始值
           ...semiDynamicFields,
         },
-        // update 时只同步 name/mapIndex，保留运行时动态状态
+        // update 时同步 name/mapIndex 及"以代码为准"的固定配置字段（怪物模板/NPC/连接/资源/建筑等），
+        // 保留纯运行时动态状态（spawnMonsters 当前怪物/tempMonsters/summons/markers/markers2）。
+        // 这样修改 maps.json 的地图固定配置（如给医疗室补史莱姆怪物）后，存量数据库会同步生效。
         update: {
           name,
           mapIndex: (row as any).mapIndex ?? 0,
+          ...semiDynamicFields,
         },
       });
       ok++;

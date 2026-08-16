@@ -217,7 +217,8 @@ export class FamiliarSystemService {
       // 初始等级/生命保持基础值，正式进入游戏
       player.level = player.level || 1;
       player.exp = 0;
-      player.upgradeExp = player.upgradeExp || 100;
+      // 升级经验门槛按公式重算，避免沿用错误的存量值（如旧版 100）
+      player.upgradeExp = player.upgradeExp || this.playerService.calcUpgradeExp(player.level);
       player.hp = player.maxHp || 100;
       player.shield = player.maxShield || 0;
       player.armor = player.maxArmor || 0;
@@ -225,6 +226,14 @@ export class FamiliarSystemService {
       // 标记已开始游戏（老玩家=真），并保存
       player.markers = JSON.stringify(markers);
       await this.playerService.savePlayer(player);
+
+      // 开局立即发放新手教程任务，避免"选完使魔→查看任务→空列表"的引导断裂。
+      // 对应原版 _主程序.ecode L11686-11692：新玩家自动领取"新手教程"任务。
+      try {
+        await this.taskService.initNewPlayerTasks(userId);
+      } catch (e) {
+        this.logger.warn(`开局发放新手任务失败: ${e.message}`);
+      }
 
       return `选择为${familiar.name}开始游戏\n💡 使用「查看任务」查看任务`;
     }

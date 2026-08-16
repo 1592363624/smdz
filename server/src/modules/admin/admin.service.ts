@@ -388,7 +388,7 @@ export class AdminService {
       data: {
         level: 1,
         exp: 0,
-        upgradeExp: 100,
+        upgradeExp: this.playerService.calcUpgradeExp(1),
         name: '冒险者',
         type: '',
         hp: 100,
