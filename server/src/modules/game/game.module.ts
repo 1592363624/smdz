@@ -31,7 +31,7 @@ import { StatsService } from './stats.service';
 
 @Global()
 @Module({
-  imports: [PrismaModule, forwardRef(() => AdminModule)],
+  imports: [PrismaModule, forwardRef(() => AdminModule), FeedbackModule],
   controllers: [GameController],
   providers: [
     GameService,
