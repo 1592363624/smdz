@@ -28,7 +28,7 @@ export class GlobalConfig {
   /** JWT 访问令牌有效期（秒） */
   public readonly jwtExpiresIn: number;
 
-  /** SQLite 数据库文件路径 */
+  /** 数据库连接串（MySQL 或 SQLite，由 .env 的 DATABASE_URL 决定） */
   public readonly databaseUrl: string;
 
   /** AstrBot 对接：允许的机器人在线注册码 / 校验 Token */

@@ -1,11 +1,15 @@
 // ============================================================
-// 使魔大战3 网页版 - 数据库模型定义 (Prisma Schema) - MySQL 8.0
+// 使魔大战3 网页版 - 数据库模型定义 (Prisma Schema) - MySQL 8.0 版
 // ============================================================
 // 说明：
-// - 本数据库使用 MySQL 8.0（provider = "mysql"），连接串见 server/.env 的 DATABASE_URL。
-// - 复杂结构(背包/装备/标记)用 String 存 JSON 字符串。
+// - 本文件供 MySQL 8.0 数据库使用（provider = "mysql"），
+//   与 schema.sqlite.prisma（本地 SQLite）对应，二者模型结构保持一致。
+// - MySQL 原生支持 JSON/Boolean/BigInt，但为保持与 SQLite 版字段语义一致，
+//   复杂结构(背包/装备/标记)依旧用 String 存 JSON 字符串。
 // - 由于 MySQL 默认 VARCHAR(191) 长度有限，所有存 JSON 的字段标注 @db.LongText，
 //   存长文本(描述/内容/结果)的字段标注 @db.Text，避免数据被截断。
+// - 切换数据库方式：npm run db:use-mysql / npm run db:use-sqlite
+//   （脚本会覆盖 schema.prisma 为对应 provider 的版本，再 prisma generate）
 
 generator client {
   provider = "prisma-client-js"
@@ -92,25 +96,25 @@ model Player {
   houseName  String   @default("")    // 家园名称
 
   // 复杂数据结构（JSON 字符串存储）
-  backpack   String   @default(dbgenerated("('[]')")) @db.LongText  // 背包物品 [物品3]
-  equipment  String   @default(dbgenerated("('[]')")) @db.LongText  // 装备 [装备]
-  weapons    String   @default(dbgenerated("('[]')")) @db.LongText  // 武器 [装备]
+  backpack   String   @default("[]") @db.LongText  // 背包物品 [物品3]
+  equipment  String   @default("[]") @db.LongText  // 装备 [装备]
+  weapons    String   @default("[]") @db.LongText  // 武器 [装备]
   currentWeapon Int   @default(0)     // 当前武器索引
-  markers    String   @default(dbgenerated("('{}')")) @db.LongText  // 标记/成就 [技能]
-  markers2   String   @default(dbgenerated("('[]')")) @db.LongText  // 有时限标记 [增益]
-  buffs      String   @default(dbgenerated("('[]')")) @db.LongText  // 增益状态 [增益]
-  tasks      String   @default(dbgenerated("('[]')")) @db.LongText  // 任务 [任务]
-  titles     String   @default(dbgenerated("('[]')")) @db.LongText  // 称号 [技能]
-  skills     String   @default(dbgenerated("('{}')")) @db.LongText  // 技能熟练度
-  sets       String   @default(dbgenerated("('{}')")) @db.LongText  // 套装信息 [套装]
-  bonus      String   @default(dbgenerated("('{}')")) @db.LongText  // 加成属性 [加成]
-  baseBonus  String   @default(dbgenerated("('{}')")) @db.LongText  // 基础加成
+  markers    String   @default("{}") @db.LongText  // 标记/成就 [技能]
+  markers2   String   @default("[]") @db.LongText  // 有时限标记 [增益]
+  buffs      String   @default("[]") @db.LongText  // 增益状态 [增益]
+  tasks      String   @default("[]") @db.LongText  // 任务 [任务]
+  titles     String   @default("[]") @db.LongText  // 称号 [技能]
+  skills     String   @default("{}") @db.LongText  // 技能熟练度
+  sets       String   @default("{}") @db.LongText  // 套装信息 [套装]
+  bonus      String   @default("{}") @db.LongText  // 加成属性 [加成]
+  baseBonus  String   @default("{}") @db.LongText  // 基础加成
   vehicle    String   @default("")                 // 驾驶的载具ID
-  safeBox    String   @default(dbgenerated("('[]')")) @db.LongText  // 保险柜 [物品3]
-  equipmentPresets String @default(dbgenerated("('[]')")) @db.LongText // 装备预设
-  reverse    String   @default(dbgenerated("('[]')")) @db.LongText  // 逆向标记
-  recipes    String   @default(dbgenerated("('[]')")) @db.LongText  // 已解锁配方
-  stats      String   @default(dbgenerated("('{}')")) @db.LongText  // 额外统计
+  safeBox    String   @default("[]") @db.LongText  // 保险柜 [物品3]
+  equipmentPresets String @default("[]") @db.LongText // 装备预设
+  reverse    String   @default("[]") @db.LongText  // 逆向标记
+  recipes    String   @default("[]") @db.LongText  // 已解锁配方
+  stats      String   @default("{}") @db.LongText  // 额外统计
 
   // 好感度/宠物相关
   affinity   Float    @default(0)     // 好感度
@@ -131,7 +135,7 @@ model Player {
 model GameMap {
   id          Int      @id @default(autoincrement())
   name        String   @unique
-  description String   @default(dbgenerated("('')")) @db.Text
+  description String   @default("") @db.Text
   mapIndex    Int      @default(0)     // 地图列表编号
   level       Int      @default(1)     // 额外升级等级
   isFrontier  Boolean  @default(false) // 是否开拓地
@@ -141,23 +145,23 @@ model GameMap {
   requiredTravel Int   @default(0)     // 前往需求：0无 1飞行 2传送 3跃迁
 
   // 复杂数据结构（JSON 字符串）
-  monsters    String   @default(dbgenerated("('[]')")) @db.LongText  // 固定怪物列表
-  spawnMonsters String @default(dbgenerated("('[]')")) @db.LongText  // 刷出来的怪物
-  tempMonsters String  @default(dbgenerated("('[]')")) @db.LongText  // 临时怪物
-  summons     String   @default(dbgenerated("('[]')")) @db.LongText  // 召唤物
-  resources   String   @default(dbgenerated("('[]')")) @db.LongText  // 资源
-  resources2  String   @default(dbgenerated("('[]')")) @db.LongText  // 可采集资源
-  connections String   @default(dbgenerated("('[]')")) @db.LongText  // 可前往地图 [可前往]
-  npcs        String   @default(dbgenerated("('[]')")) @db.LongText  // NPC列表
-  items       String   @default(dbgenerated("('[]')")) @db.LongText  // 可拾取物品
-  buildings   String   @default(dbgenerated("('[]')")) @db.LongText  // 建筑
-  vehicles    String   @default(dbgenerated("('[]')")) @db.LongText  // 载具
-  markers     String   @default(dbgenerated("('{}')")) @db.LongText  // 永久标记
-  markers2    String   @default(dbgenerated("('[]')")) @db.LongText  // 有时间限制标记
-  mapBuffs    String   @default(dbgenerated("('[]')")) @db.LongText  // 地图增益
-  requireMarkers String @default(dbgenerated("('[]')")) @db.LongText // 进入要求标记
-  failHint    String   @default(dbgenerated("('')")) @db.Text     // 未满足要求的提示
-  clearMarkers String  @default(dbgenerated("('')")) @db.Text     // 进入时清除的标记
+  monsters    String   @default("[]") @db.LongText  // 固定怪物列表
+  spawnMonsters String @default("[]") @db.LongText  // 刷出来的怪物
+  tempMonsters String  @default("[]") @db.LongText  // 临时怪物
+  summons     String   @default("[]") @db.LongText  // 召唤物
+  resources   String   @default("[]") @db.LongText  // 资源
+  resources2  String   @default("[]") @db.LongText  // 可采集资源
+  connections String   @default("[]") @db.LongText  // 可前往地图 [可前往]
+  npcs        String   @default("[]") @db.LongText  // NPC列表
+  items       String   @default("[]") @db.LongText  // 可拾取物品
+  buildings   String   @default("[]") @db.LongText  // 建筑
+  vehicles    String   @default("[]") @db.LongText  // 载具
+  markers     String   @default("{}") @db.LongText  // 永久标记
+  markers2    String   @default("[]") @db.LongText  // 有时间限制标记
+  mapBuffs    String   @default("[]") @db.LongText  // 地图增益
+  requireMarkers String @default("[]") @db.LongText // 进入要求标记
+  failHint    String   @default("")    @db.Text     // 未满足要求的提示
+  clearMarkers String  @default("")    @db.Text     // 进入时清除的标记
   music       String   @default("")                 // 背景音乐
   monsterCount Int     @default(3)     // 刷怪数量
   noSpecial   Boolean  @default(false) // 不刷特殊事件
@@ -197,12 +201,12 @@ model GameVehicle {
   slotStatus    Int      @default(0)     // 0正常 1超建议 2超上限 3两者
 
   // JSON 复杂数据
-  bonus         String   @default(dbgenerated("('{}')")) @db.LongText  // 加成 [加成]
-  parts         String   @default(dbgenerated("('[]')")) @db.LongText  // 零件 [物品3]
-  markers       String   @default(dbgenerated("('{}')")) @db.LongText  // 标记 [技能]
-  markers2      String   @default(dbgenerated("('[]')")) @db.LongText  // 有时限标记 [增益]
-  recipes       String   @default(dbgenerated("('[]')")) @db.LongText  // 配方 [技能]
-  builtinParts  String   @default(dbgenerated("('[]')")) @db.LongText  // 内置零件 [物品3]
+  bonus         String   @default("{}") @db.LongText  // 加成 [加成]
+  parts         String   @default("[]") @db.LongText  // 零件 [物品3]
+  markers       String   @default("{}") @db.LongText  // 标记 [技能]
+  markers2      String   @default("[]") @db.LongText  // 有时限标记 [增益]
+  recipes       String   @default("[]") @db.LongText  // 配方 [技能]
+  builtinParts  String   @default("[]") @db.LongText  // 内置零件 [物品3]
   coating       Int      @default(0)     // 涂层
   reverseField  Boolean  @default(false) // 逆转力场
 
@@ -230,7 +234,7 @@ model GameShopItem {
 model Channel {
   id          Int           @id @default(autoincrement())
   name        String        @unique
-  description String        @default(dbgenerated("('')")) @db.Text
+  description String        @default("") @db.Text
   isPublic    Boolean       @default(true)
   createdBy   Int?
   createdAt   DateTime      @default(now())
@@ -267,10 +271,10 @@ model CommandLog {
 model Command {
   id          Int     @id @default(autoincrement())
   name        String  @unique
-  alias       String  @default(dbgenerated("('')")) @db.Text
-  description String  @default(dbgenerated("('')")) @db.Text
+  alias       String  @default("") @db.Text
+  description String  @default("") @db.Text
   handlerKey  String
-  argsSchema  String  @default(dbgenerated("('[]')")) @db.Text
+  argsSchema  String  @default("[]") @db.Text
   minRole     String  @default("USER")
   enabled     Boolean @default(true)
   sortOrder   Int     @default(0)
@@ -283,12 +287,12 @@ model Command {
 model SystemConfig {
   id          Int      @id @default(autoincrement())
   key         String   @unique
-  value       String   @default(dbgenerated("('')")) @db.LongText
-  label       String   @default(dbgenerated("('')")) @db.Text
-  description String   @default(dbgenerated("('')")) @db.Text
+  value       String   @default("") @db.LongText
+  label       String   @default("") @db.Text
+  description String   @default("") @db.Text
   type        String   @default("string")
   group       String   @default("system")
-  options     String   @default(dbgenerated("('[]')")) @db.Text
+  options     String   @default("[]") @db.Text
   updatedAt   DateTime @updatedAt
   createdAt   DateTime @default(now())
 }
@@ -336,7 +340,7 @@ model FeedbackMessage {
   sender      User?    @relation(fields: [senderId], references: [id], onDelete: SetNull)
   senderType  String   @default("user")     // user/admin/system
   content     String   @db.Text
-  attachments String   @default(dbgenerated("('[]')")) @db.LongText       // 附件数组 JSON
+  attachments String   @default("[]") @db.LongText       // 附件数组 JSON
   createdAt   DateTime @default(now())
 
   @@index([feedbackId, createdAt])

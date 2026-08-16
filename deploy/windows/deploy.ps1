@@ -67,15 +67,7 @@ function Invoke-Rollback {
         Remove-Item -LiteralPath $WebDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    # Restore the database backup (created during deployment, if any)
-    $DatabaseBackup = Join-Path $BackupDir 'smdz.db'
-    if (Test-Path -LiteralPath $DatabaseBackup -PathType Leaf) {
-        $DatabaseFile = Join-Path $DeploymentRoot 'smdz.db'
-        Write-Host "==> Restoring database file from backup"
-        Copy-Item -LiteralPath $DatabaseBackup -Destination $DatabaseFile -Force
-        Remove-Item -LiteralPath $DatabaseBackup -Force
-    }
-
+    # DB is remote MySQL: no local database file to restore.
     $restoredSomething = $false
     if (Test-Path -LiteralPath $ServerBackup -PathType Container) {
         Write-Host "==> Restoring server/ from backup"
@@ -151,39 +143,6 @@ function Get-ServicePort {
     return $defaultPort
 }
 
-# ---------- Resolve database file path from .env ----------
-function Get-DatabaseFilePath {
-    param([string]$EnvFilePath)
-
-    # Default: smdz.db in the deployment root (outside server/, a safe location)
-    $default = Join-Path $DeploymentRoot 'smdz.db'
-    if (-not (Test-Path -LiteralPath $EnvFilePath -PathType Leaf)) {
-        return $default
-    }
-
-    $envContent = Get-Content -LiteralPath $EnvFilePath -Raw
-    $match = [regex]::Match($envContent, 'DATABASE_URL\s*=\s*"?([^"\r\n]+)"?')
-    if (-not $match.Success) {
-        return $default
-    }
-
-    # Strip the file: prefix and surrounding whitespace
-    $path = ($match.Groups[1].Value.Trim()) -replace '^file:', ''
-    $path = $path.Trim()
-    if ([string]::IsNullOrWhiteSpace($path)) {
-        return $default
-    }
-
-    # Relative path (e.g. file:../smdz.db) is resolved by Prisma relative to the schema dir (server/prisma)
-    if (-not [System.IO.Path]::IsPathRooted($path) -and -not ($path -match '^[A-Za-z]:')) {
-        $schemaDir = Join-Path $ServerDirectory 'prisma'
-        return [System.IO.Path]::GetFullPath((Join-Path $schemaDir $path))
-    }
-
-    # Absolute path: normalize to Windows backslash form
-    return $path.Replace('/', '\')
-}
-
 # ============================================================
 #  Main flow
 # ============================================================
@@ -244,31 +203,12 @@ try {
         Write-Host "web/ does not exist, skipping backup"
     }
 
-    # ---------- Step 3: Backup database file ----------
-    # The database location is fully determined by DATABASE_URL in server/.env.
-    # Resolve it to the real path and back it up so deleting server/ during
-    # deployment never loses player data.
-    # try/catch fallback: even if the resolver is missing or throws, fall back
-    # to the default path so $DatabaseFile always has a value (avoids the
-    # "variable not set" error under Set-StrictMode).
-    try {
-        $DatabaseFile = Get-DatabaseFilePath -EnvFilePath (Join-Path $ServerDirectory '.env')
-    } catch {
-        $DatabaseFile = Join-Path $DeploymentRoot 'smdz.db'
-    }
-    $DatabaseBackup = Join-Path $BackupDir 'smdz.db'
+    # ---------- Step 3: Database backup ----------
+    # NOTE: The application uses a remote MySQL 8.0 database (see server/.env
+    # DATABASE_URL). The database lives on the remote server, not in a local file,
+    # so no local file backup/restore is needed here. Delete server/ freely.
     $dbRestored = $false
-    if (Test-Path -LiteralPath $DatabaseFile -PathType Leaf) {
-        Write-Host "==> Backing up database file: $DatabaseFile"
-        if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) {
-            New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
-        }
-        Copy-Item -LiteralPath $DatabaseFile -Destination $DatabaseBackup -Force
-        $dbRestored = $true
-        Write-Host "Database backed up to $DatabaseBackup"
-    } else {
-        Write-Host "No database file found at $DatabaseFile, will create a new one"
-    }
+    Write-Host "DB is remote MySQL: skipping local database file backup."
 
     # ---------- Step 4: Remove old directories ----------
     if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
@@ -303,51 +243,14 @@ try {
         Remove-Item -LiteralPath $EnvSource -Force
     }
 
-    # ---------- Step 5b: Rewrite DATABASE_URL to an absolute path in the deployment root (outside server/) ----------
-    # Whether .env uses a relative or absolute path, always rewrite it to point
-    # to $DeploymentRoot\smdz.db so the database file lives outside server/.
-    # This prevents data loss when server/ is deleted/rebuilt during deployment,
-    # and keeps it consistent with the backup/restore resolution logic.
+    # ---------- Step 5b: Verify server/.env exists ----------
+    # The remote MySQL connection string in server/.env is used as-is; it is not
+    # rewritten to a local path (the database lives on the remote server).
     $EnvTarget = Join-Path $ServerDirectory '.env'
     if (-not (Test-Path -LiteralPath $EnvTarget -PathType Leaf)) {
-        throw "server/.env not found, cannot normalize DATABASE_URL"
+        throw "server/.env not found, cannot run the service"
     }
-    $absDbPath = (Join-Path $DeploymentRoot 'smdz.db').Replace('\', '/')
-    $newDbUrl = "file:$absDbPath"
-    $envLines = Get-Content -LiteralPath $EnvTarget
-    $envLines = $envLines | ForEach-Object {
-        if ($_ -match '^\s*DATABASE_URL\s*=') {
-            "DATABASE_URL=`"$newDbUrl`""
-        } else {
-            $_
-        }
-    }
-    # Write as UTF-8 without BOM so a leading BOM does not break .env parsing
-    $envContent = $envLines -join [Environment]::NewLine
-    [System.IO.File]::WriteAllText($EnvTarget, $envContent, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Host "==> Normalized DATABASE_URL to $newDbUrl"
-
-    # ---------- Step 5c: Restore database file ----------
-    # The restore target is resolved from the (rewritten) server/.env DATABASE_URL
-    # so it matches the runtime path.
-    # Fallback: if resolution fails, restore to smdz.db in the deployment root.
-    try {
-        $restoreTarget = Get-DatabaseFilePath -EnvFilePath $EnvTarget
-    } catch {
-        $restoreTarget = Join-Path $DeploymentRoot 'smdz.db'
-    }
-    if ($dbRestored -and (Test-Path -LiteralPath $DatabaseBackup -PathType Leaf)) {
-        Write-Host "==> Restoring database file from backup to $restoreTarget"
-        $restoreDir = Split-Path -Parent $restoreTarget
-        if (-not (Test-Path -LiteralPath $restoreDir -PathType Container)) {
-            New-Item -ItemType Directory -Path $restoreDir -Force | Out-Null
-        }
-        Copy-Item -LiteralPath $DatabaseBackup -Destination $restoreTarget -Force
-        Write-Host "Database restored to $restoreTarget"
-        Remove-Item -LiteralPath $DatabaseBackup -Force
-    } else {
-        Write-Host "No database backup to restore, will create a new database"
-    }
+    Write-Host "==> server/.env found; keeping remote MySQL DATABASE_URL as-is."
 
     # ---------- Step 6: Build server ----------
     Set-Location -LiteralPath $ServerDirectory
