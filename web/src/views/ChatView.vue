@@ -1998,12 +1998,18 @@ function categoryLabel(category) {
 onMounted(async () => {
   try {
     // 移动端视图高度修复：动态计算实际可视高度，避免键盘弹出时布局错乱
+    // 关键：必须用 visualViewport.height（键盘弹出时会实时缩小），而非 window.innerHeight
+    // （iOS Safari 键盘弹出时 innerHeight 不变、resize 不触发，导致 --vh 仍为全屏高度，
+    //   聊天栏/输入栏会被键盘盖住）。同时监听 visualViewport 的 resize。
     setViewportHeight = () => {
-      const vh = window.innerHeight * 0.01;
+      const vv = window.visualViewport;
+      const vh = ((vv && vv.height) || window.innerHeight) * 0.01;
       document.documentElement.style.setProperty('--vh', `${vh}px`);
     };
     setViewportHeight();
     window.addEventListener('resize', setViewportHeight);
+    // iOS/Android 键盘弹出时触发 visualViewport 尺寸变化，需单独监听
+    window.visualViewport?.addEventListener('resize', setViewportHeight);
 
     // 加载频道和历史消息
     const ch = await chatApi.getChannel();
@@ -2143,6 +2149,7 @@ onMounted(async () => {
 onUnmounted(() => {
   socket?.disconnect();
   window.removeEventListener('resize', setViewportHeight);
+  window.visualViewport?.removeEventListener('resize', setViewportHeight);
   if (statsTimer) clearInterval(statsTimer);
   if (nearbyTimer) clearInterval(nearbyTimer);
   if (atPlayersTimer) clearInterval(atPlayersTimer);
