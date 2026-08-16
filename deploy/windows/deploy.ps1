@@ -101,30 +101,62 @@ function Invoke-Rollback {
 }
 
 # ---------- Health check function ----------
+# NOTE: Use 127.0.0.1 (IPv4) instead of 'localhost' — on Windows 'localhost' may
+# resolve to the IPv6 loopback (::1) while the service binds IPv4, which would make
+# TCP probing falsely fail even though the service is up. On success we also do an
+# HTTP GET to confirm the service actually answers requests (not just the port).
 function Test-AppHealth {
     param([int]$Port)
 
-    Write-Host "==> Health check: Waiting for service to start (port $Port)"
+    Write-Host "==> Health check: waiting for service to start (127.0.0.1:$Port)"
 
-    for ($i = 0; $i -lt 12; $i++) {
+    for ($i = 0; $i -lt 24; $i++) {
         Start-Sleep -Seconds 5
 
+        # 1) TCP-level probe (fast, useful early signal)
+        $tcpOk = $false
         try {
             $client = New-Object System.Net.Sockets.TcpClient
-            $connect = $client.BeginConnect('localhost', $Port, $null, $null)
-            $wait = $connect.AsyncWaitHandle.WaitOne(3000, $false)
+            $connect = $client.BeginConnect('127.0.0.1', $Port, $null, $null)
+            $wait = $connect.AsyncWaitHandle.WaitOne(5000, $false)
             if ($wait -and $client.Connected) {
-                $client.Close()
-                Write-Host "Health check passed: port $Port is ready"
-                return $true
+                $tcpOk = $true
             }
             $client.Close()
         } catch {
-            Write-Host "Port $Port not ready (attempt $($i+1)/12)"
+            $tcpOk = $false
+        }
+
+        if ($tcpOk) {
+            # 2) HTTP probe to confirm the app answers (not just the port open)
+            try {
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/docs" -UseBasicParsing -TimeoutSec 5
+                Write-Host "Health check passed: service is responding (HTTP $($resp.StatusCode))"
+                return $true
+            } catch {
+                # HTTP not ready yet but port is open — keep waiting (app still booting)
+                Write-Host "Port $Port is open but HTTP not ready yet (attempt $($i+1)/24)"
+            }
+        } else {
+            Write-Host "Port $Port not reachable (attempt $($i+1)/24)"
         }
     }
 
-    Write-Error "Health check failed: service did not start within 60 seconds"
+    # ---- Diagnostic dump before giving up ----
+    Write-Host "==> Health check FAILED. Dumping diagnostics:"
+    Write-Host "--- netstat for 0.0.0.0/$Port and 127.0.0.1/$Port ---"
+    Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
+        Select-Object LocalAddress, LocalPort, State, OwningProcess | Format-Table -AutoSize
+
+    $envFile = Join-Path $ServerDirectory 'out.log'
+    Write-Host "--- tail of server/out.log (if present) ---"
+    if (Test-Path -LiteralPath $envFile -PathType Leaf) {
+        Get-Content -LiteralPath $envFile -Tail 20
+    } else {
+        Write-Host "(no out.log found)"
+    }
+
+    Write-Error "Health check failed: service did not start within 120 seconds"
     return $false
 }
 
