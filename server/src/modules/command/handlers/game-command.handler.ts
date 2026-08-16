@@ -281,7 +281,9 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.familiarSystem.nameFamiliar(userId, arg));
 
         case '使魔数据':
-        case 'familiar-data': {
+        case 'familiar-data':
+        case '查看使魔':
+        case '查看使魔详细': {
           // 检查新手指引
           const tutorialText = await this.checkTutorial(userId, 'familiarData');
           if (tutorialText) {
@@ -914,6 +916,64 @@ export class GameCommandHandler implements CommandHandler {
         case '观察附近':
         case 'look-around':
           return this.wrap(await this.gameService.handleLookAround(userId));
+
+        // ========== 查看XXX 导航系列（对应原版 _主程序.ecode L5442-5570） ==========
+        case '查看宠物':
+        case 'view-pets':
+          return this.wrap(await this.gameService.handleViewPets(userId));
+
+        case '查看载具':
+        case 'view-vehicles':
+          return this.wrap(await this.gameService.handleViewVehicles(userId));
+
+        case '查看作物':
+        case 'view-crops':
+          return this.wrap(await this.gameService.handleViewCrops(userId));
+
+        case '查看建筑':
+        case 'view-buildings':
+          return this.wrap(await this.gameService.handleViewBuildings(userId));
+
+        case '查看家园':
+        case 'view-homes':
+          return this.wrap(await this.gameService.handleViewHomes(userId));
+
+        case '查看成就':
+        case 'view-achievements':
+          return this.wrap(await this.gameService.handleViewAchievements(userId));
+
+        case '查看技能':
+        case 'view-skills':
+          return this.wrap(await this.gameService.handleViewSkills(userId));
+
+        case '查看标记':
+        case 'view-markers':
+          return this.wrap(await this.gameService.handleViewMarkers(userId));
+
+        case '查看标记2':
+        case 'view-markers2':
+          return this.wrap(await this.gameService.handleViewMarkers2(userId));
+
+        // 查看地图 ≈ 地图指令；查看说明 ≈ 地图详情
+        case '查看地图':
+          return this.wrap(await this.gameService.handleMap(userId));
+
+        case '查看说明':
+        case 'view-description':
+          return this.wrap(await this.gameService.handleViewDescription(userId));
+
+        // ========== 对话跟随 / 家园设置（对应原版 L1368/L1397/L5277） ==========
+        case '对话咏星跟随':
+        case 'dialogue-yongxing':
+          return this.wrap(await this.gameService.handleDialogueYongxing(userId));
+
+        case '对话小恶魔跟随':
+        case 'dialogue-little-demon':
+          return this.wrap(await this.gameService.handleDialogueLittleDemon(userId));
+
+        case '设置肉食比例':
+        case 'set-meat-ratio':
+          return this.wrap(await this.gameService.handleSetMeatRatio(userId, arg));
 
         case '召唤货舱':
         case 'summon-cargo':

@@ -28,7 +28,7 @@ async function main() {
     // 基础指令（独立处理器）
     { name: '帮助', alias: 'help,指令,命令', description: '查看所有可用指令', handlerKey: 'help', minRole: 'USER', sortOrder: 1 },
     { name: '信息', alias: 'info,资料,查看,状态', description: '查看自己的玩家信息', handlerKey: 'info', minRole: 'USER', sortOrder: 2 },
-    { name: '背包', alias: 'inventory', description: '查看背包物品', handlerKey: 'inventory', minRole: 'USER', sortOrder: 3 },
+    { name: '背包', alias: 'inventory,查看背包', description: '查看背包物品', handlerKey: 'inventory', minRole: 'USER', sortOrder: 3 },
     { name: '移动', alias: 'move,前往,去,飞到,go', description: '移动到指定地图', handlerKey: 'move', minRole: 'USER', sortOrder: 4 },
     { name: '地图', alias: 'map,查看地图', description: '查看当前地图信息', handlerKey: 'map', minRole: 'USER', sortOrder: 5 },
     // 战斗（统一 game 处理器）
@@ -52,7 +52,7 @@ async function main() {
     { name: '选择使魔', alias: 'select,familiar,更换使魔', description: '选择或更换使魔', handlerKey: 'game', minRole: 'USER', sortOrder: 40 },
     { name: '召唤使魔', alias: 'summon', description: '召唤使魔到当前地图', handlerKey: 'game', minRole: 'USER', sortOrder: 41 },
     { name: '命名使魔', alias: 'name-familiar', description: '为你的使魔命名', handlerKey: 'game', minRole: 'USER', sortOrder: 42 },
-    { name: '使魔数据', alias: 'familiar-data', description: '查看使魔详细数据', handlerKey: 'game', minRole: 'USER', sortOrder: 43 },
+    { name: '使魔数据', alias: 'familiar-data,查看使魔,查看使魔详细', description: '查看使魔详细数据', handlerKey: 'game', minRole: 'USER', sortOrder: 43 },
     { name: '使魔商店', alias: 'familiar-shop', description: '使魔商店', handlerKey: 'game', minRole: 'USER', sortOrder: 44 },
     { name: '兑换', alias: 'exchange', description: '兑换物品', handlerKey: 'game', minRole: 'USER', sortOrder: 45 },
     // 家园系统（统一 game 处理器）
@@ -166,6 +166,20 @@ async function main() {
     { name: '载具操作', alias: 'vehicle-ops', description: '载具操作菜单', handlerKey: 'game', minRole: 'USER', sortOrder: 233 },
     // 地图/探索扩展（统一 game 处理器）
     { name: '观察附近', alias: 'look-around', description: '观察附近环境', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看宠物', alias: 'view-pets', description: '查看当前地图的宠物/NPC', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看载具', alias: 'view-vehicles', description: '查看当前地图的载具', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看作物', alias: 'view-crops', description: '查看当前地图的作物', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看建筑', alias: 'view-buildings', description: '查看当前地图的建筑', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看家园', alias: 'view-homes', description: '查看附近的玩家家园', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看成就', alias: 'view-achievements', description: '查看自己的成就列表', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看技能', alias: 'view-skills', description: '查看技能导航', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看标记', alias: 'view-markers', description: '查看游戏标记', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看标记2', alias: 'view-markers2', description: '查看限时标记', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看地图', alias: 'view-map', description: '查看当前地图信息', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '查看说明', alias: 'view-description', description: '查看当前地图说明', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '对话咏星跟随', alias: 'dialogue-yongxing', description: '与咏星对话并使其跟随(需100好感)', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '对话小恶魔跟随', alias: 'dialogue-little-demon', description: '与小恶魔对话并使其跟随', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
+    { name: '设置肉食比例', alias: 'set-meat-ratio', description: '设置家园肉食植物享用生肉产出比例', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
     { name: '召唤货舱', alias: 'summon-cargo', description: '召唤货舱', handlerKey: 'game', minRole: 'USER', sortOrder: 241 },
     { name: '发射信号枪', alias: 'signal-gun', description: '发射信号枪', handlerKey: 'game', minRole: 'USER', sortOrder: 242 },
     { name: '副本清空', alias: 'clear-dungeon', description: '清空副本', handlerKey: 'game', minRole: 'USER', sortOrder: 243 },
@@ -245,6 +259,8 @@ async function main() {
     { name: '刷新怪物', alias: 'refresh-monster', description: '刷新当前地图怪物(管理员)', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 327 },
     { name: '删除怪物', alias: 'delete-monster', description: '删除当前地图怪物(管理员)', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 328 },
     { name: '生成人物', alias: 'spawn-npc', description: '生成NPC(管理员)', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 329 },
+    { name: '生成废弃载具', alias: 'spawn-wreck', description: '生成废弃载具(管理员)', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 329 },
+    { name: '生成神之工匠', alias: 'spawn-artisan', description: '生成神之工匠NPC(管理员)', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 329 },
     // 生产模式
     { name: '生产0', alias: 'prod-mode-0', description: '切换生产模式为正常', handlerKey: 'game', minRole: 'USER', sortOrder: 330 },
     { name: '生产1', alias: 'prod-mode-1', description: '切换生产模式为超载', handlerKey: 'game', minRole: 'USER', sortOrder: 331 },
@@ -283,7 +299,7 @@ async function main() {
     { name: '设置位置', alias: 'setting-location', description: '设置位置显示', handlerKey: 'game', minRole: 'USER', sortOrder: 358 },
     { name: '设置标记', alias: 'setting-marker', description: '设置自定义标记', handlerKey: 'game', minRole: 'USER', sortOrder: 359 },
     // 管理（统一 game 处理器）
-    { name: '管理', alias: 'admin,管理员', description: '管理员操作入口', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 999 },
+    { name: '管理', alias: 'admin,管理员,gm', description: '管理员操作入口', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 999 },
   ];
 
   // 使魔技能/通用技能指令批量注册：使 /技能名 可直接施放（指令分发先查 Command 表，

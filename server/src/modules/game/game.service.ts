@@ -3643,6 +3643,398 @@ export class GameService {
   }
 
   /**
+   * 处理查看宠物命令（对应原版 _主程序.ecode L5442）
+   * 列出当前地图的召唤物/宠物/NPC，并按编号生成"查看<名称>"快捷，玩家发编号查看详情。
+   */
+  async handleViewPets(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const lines: string[] = [`🐾 【${map.name}】的宠物/NPC:`, `━━━━━━━━━━━━━━━`];
+    const options: { label: string; cmd: string }[] = [];
+
+    if (summons.length === 0) {
+      lines.push('  (当前地图没有宠物或NPC)');
+    } else {
+      summons.forEach((s: any) => {
+        const name = s.name || s.qq || '未知';
+        lines.push(`  ${name}`);
+        // 生成"查看<名称>"快捷，点击查看详情（对应原版 L5454）
+        options.push({ label: name, cmd: `查看 ${name}` });
+      });
+    }
+
+    if (options.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━`);
+      const menu = await this.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看详情');
+      lines.push(...menu);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理查看载具命令（对应原版 _主程序.ecode L5457）
+   * 列出当前地图的载具，并按编号生成"查看<名称>"快捷。
+   */
+  async handleViewVehicles(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+    const lines: string[] = [`🚗 【${map.name}】的载具:`, `━━━━━━━━━━━━━━━`];
+    const options: { label: string; cmd: string }[] = [];
+
+    if (vehicles.length === 0) {
+      lines.push('  (当前地图没有载具)');
+    } else {
+      vehicles.forEach((v: any) => {
+        const name = v.name || '未知载具';
+        lines.push(`  ${name}`);
+        options.push({ label: name, cmd: `查看 ${name}` });
+      });
+    }
+
+    if (options.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━`);
+      const menu = await this.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看详情');
+      lines.push(...menu);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理查看作物命令（对应原版 _主程序.ecode L5466）
+   * 列出当前地图资源2中可产出（产出2非空）的作物，并生成编号快捷。
+   */
+  async handleViewCrops(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    const resources2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
+    // 原版只列出有"产出2"的作物（取数组成员数(产出2) != 0）
+    const crops = resources2.filter((r: any) => {
+      const prod2 = r.产出2 ?? r.production2 ?? r.output2;
+      return prod2 && (Array.isArray(prod2) ? prod2.length > 0 : true);
+    });
+
+    const lines: string[] = [`🌾 【${map.name}】的作物:`, `━━━━━━━━━━━━━━━`];
+    const options: { label: string; cmd: string }[] = [];
+
+    if (crops.length === 0) {
+      lines.push('  (当前地图没有可产出的作物)');
+    } else {
+      crops.forEach((r: any) => {
+        const name = r.name || '未知作物';
+        const count = r.次数 ?? r.count ?? r.amount ?? '';
+        lines.push(`  ${name}${count !== '' ? ` ×${count}` : ''}`);
+        options.push({ label: name, cmd: `查看 ${name}` });
+      });
+    }
+
+    if (options.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━`);
+      const menu = await this.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看详情');
+      lines.push(...menu);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理查看建筑命令（对应原版 _主程序.ecode L5478）
+   * 列出当前地图的建筑，并提示安装/拆卸建筑的相关指令。
+   */
+  async handleViewBuildings(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const lines: string[] = [`🏠 【${map.name}】的建筑:`, `━━━━━━━━━━━━━━━`];
+
+    if (buildings.length === 0) {
+      lines.push('  (当前地图没有建筑)');
+    } else {
+      buildings.forEach((b: any) => {
+        lines.push(`  ${b.name || '未知建筑'}`);
+      });
+    }
+
+    // 对应原版：提示安装/拆卸建筑相关指令
+    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(`💡 使用「安装 燃料」安装建筑或放入燃料`);
+    lines.push(`💡 使用「拆卸」或「拆卸全部」收起建筑`);
+    lines.push(`💡 使用「安装全部」安装全部不占用建筑位置的建筑`);
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理查看家园命令（对应原版 _主程序.ecode L5480）
+   * 列出当前地图可前往的"开拓地"（玩家家园），并生成"前往<名称>"快捷。
+   */
+  async handleViewHomes(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    const connections = this.playerService.safeJsonParse<any[]>(map.connections, []);
+    // 原版只列出"开拓地"类型（isFrontier / 开拓地 标记）
+    const frontiers = connections.filter((c: any) => c.isFrontier === true || c.开拓地 === true || c.type === '开拓地');
+
+    const lines: string[] = [`🏡 附近的玩家家园:`, `━━━━━━━━━━━━━━━`];
+    const options: { label: string; cmd: string }[] = [];
+
+    if (frontiers.length === 0) {
+      lines.push('  附近没有玩家的家园');
+    } else {
+      frontiers.forEach((c: any) => {
+        const name = c.name || '未知家园';
+        lines.push(`  ${name}`);
+        options.push({ label: name, cmd: `前往 ${name}` });
+      });
+    }
+
+    if (options.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━`);
+      const menu = await this.buildNumberedMenu(userId, options, '💡 发送编号数字即可前往该家园');
+      lines.push(...menu);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理查看成就命令（对应原版 _主程序.ecode L5551）
+   * 复用 achievementService.getAchievementsDisplay 输出成就列表。
+   */
+  async handleViewAchievements(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    return this.achievementService.getAchievementsDisplay(player);
+  }
+
+  /**
+   * 处理查看技能命令（对应原版 _主程序.ecode L5549）
+   * 生成技能导航编号菜单：通用技能/使魔技能/查看成就/查看标记/查看标记2。
+   */
+  async handleViewSkills(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const lines: string[] = [`✨ ${player.name || '冒险者'} 技能导航:`, `━━━━━━━━━━━━━━━`];
+    const options: { label: string; cmd: string }[] = [
+      { label: '通用技能', cmd: '通用技能' },
+      { label: '使魔技能', cmd: '使魔技能' },
+      { label: '查看成就', cmd: '查看成就' },
+      { label: '查看标记', cmd: '查看标记' },
+      { label: '查看标记2', cmd: '查看标记2' },
+    ];
+    const menu = await this.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看对应内容');
+    lines.push(...menu);
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理查看标记命令（对应原版 _主程序.ecode L5561）
+   * 列出玩家持久化标记（markers 键值对）。
+   */
+  async handleViewMarkers(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    const lines: string[] = [`🔖 ${player.name || '冒险者'} 游戏标记:`, `━━━━━━━━━━━━━━━`];
+    const entries = Object.entries(markers || {});
+    if (entries.length === 0) {
+      lines.push('  (暂无标记)');
+    } else {
+      for (const [name, value] of entries) {
+        lines.push(`  ${name} ×${value}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理查看标记2命令（对应原版 _主程序.ecode L5566）
+   * 列出玩家限时标记（markers2 数组，含 expireAt）。
+   */
+  async handleViewMarkers2(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers2 } = playerData;
+    const lines: string[] = [`⏱️ ${player.name || '冒险者'} 限时标记:`, `━━━━━━━━━━━━━━━`];
+    const list = Array.isArray(markers2) ? markers2 : [];
+    if (list.length === 0) {
+      lines.push('  (暂无标记)');
+    } else {
+      const now = Date.now();
+      for (const m of list) {
+        if (!m || !m.name) continue;
+        const remain = m.expireAt ? Math.max(0, Math.ceil((m.expireAt - now) / 1000)) : null;
+        lines.push(`  ${m.name}${remain !== null ? ` (剩余${remain}秒)` : ''}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理查看说明命令（对应原版 _主程序.ecode L5503）
+   * 显示当前地图名称、说明、复活点（网页版无图片，仅文本）。
+   */
+  async handleViewDescription(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+    const respawn = map.respawnPoint || map.复活点 || '未知';
+    return [
+      `📖 【${map.name}】说明`,
+      `━━━━━━━━━━━━━━━`,
+      map.description || '（该地图暂无说明）',
+      `复活点: ${respawn}`,
+    ].join('\n');
+  }
+
+  /**
+   * 处理对话咏星跟随命令（对应原版 _主程序.ecode L1368）
+   * 找到当前地图"咏星"怪物，检查好感≥100后将其转为归属于玩家的召唤物（跟随）。
+   */
+  async handleDialogueYongxing(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    // 在怪物2(tempMonsters)中查找"咏星"
+    const tempMonsters = this.playerService.safeJsonParse<any[]>(map.tempMonsters, []);
+    const idx = tempMonsters.findIndex((m: any) => m.name === '咏星');
+    if (idx === -1) {
+      return `${player.name} 附近没有咏星`;
+    }
+
+    // 好感检查（对应原版：好感+玩家QQ >= 100）
+    const affinity = this.playerService.getMarkerValue(markers, `好感${player.userId}`) || 0;
+    if (affinity < 100) {
+      return `${player.name} 需要100好感，当前${affinity}`;
+    }
+
+    const monster = tempMonsters[idx];
+    // 转为召唤物：归属玩家、specialSeq=-2、follow 跟随
+    const summon = {
+      name: monster.name,
+      qq: monster.qq || `怪物${monster.name}1g`,
+      type: monster.type || '咏星',
+      specialSeq: -2,
+      ownerQQ: player.userId.toString(),
+      follow: true,
+      mode: 'follow',
+      hp: monster.hp ?? 0,
+      maxHp: monster.maxHp ?? monster.hp ?? 100,
+    };
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    summons.push(summon);
+    tempMonsters.splice(idx, 1);
+
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: {
+        summons: JSON.stringify(summons),
+        tempMonsters: JSON.stringify(tempMonsters),
+      },
+    });
+
+    // 记录成就「拐妹子」
+    await this.achievementService.addAchievement(player, '拐妹子', 1);
+    return `咏星愿意跟随你了！`;
+  }
+
+  /**
+   * 处理对话小恶魔跟随命令（对应原版 _主程序.ecode L1397）
+   * 找到当前地图"怪物小恶魔1"并直接转为归属于玩家的召唤物（跟随）。
+   */
+  async handleDialogueLittleDemon(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    // 在怪物2(tempMonsters)中查找小恶魔（qq=怪物小恶魔1）
+    const tempMonsters = this.playerService.safeJsonParse<any[]>(map.tempMonsters, []);
+    const idx = tempMonsters.findIndex((m: any) => m.qq === '怪物小恶魔1' || m.name === '小恶魔');
+    if (idx === -1) {
+      return `${player.name} 附近没有小恶魔`;
+    }
+
+    const monster = tempMonsters[idx];
+    const summon = {
+      name: monster.name || '小恶魔',
+      qq: '怪物001xg',
+      type: monster.type || '小恶魔',
+      specialSeq: -2,
+      ownerQQ: player.userId.toString(),
+      follow: true,
+      mode: 'follow',
+      hp: monster.hp ?? 0,
+      maxHp: monster.maxHp ?? monster.hp ?? 100,
+    };
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    summons.push(summon);
+    tempMonsters.splice(idx, 1);
+
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: {
+        summons: JSON.stringify(summons),
+        tempMonsters: JSON.stringify(tempMonsters),
+      },
+    });
+
+    return `那就让我看看你的本事吧！小恶魔开始跟随你。`;
+  }
+
+  /**
+   * 处理设置肉食比例命令（对应原版 _主程序.ecode L5277）
+   * 设置家园地图中"肉食植物能享用的生肉与生肉产出的比例"（存于家园地图标记）。
+   */
+  async handleSetMeatRatio(userId: number, ratioStr: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    const ratio = parseInt(ratioStr, 10);
+    if (!player.houseName) {
+      return `${player.name} 你现在还没有家园，不能干这个`;
+    }
+    if (!ratio || ratio <= 0 || ratio > 100) {
+      return `${player.name} 使用「设置肉食比例90」来设置肉食植物能享用的生肉与生肉产出的比例`;
+    }
+
+    // 根据家园名称找到对应地图（getMapByName 找不到会 throw NotFoundException，需 try/catch）
+    let homeMap: any = null;
+    try {
+      homeMap = await this.mapService.getMapByName(player.houseName);
+    } catch {
+      homeMap = null;
+    }
+    if (!homeMap) {
+      return `${player.name} 找不到你的家园地图「${player.houseName}」`;
+    }
+
+    // 将比例写入家园地图的标记（对应原版：置成就熟练度("肉食比例", 地图.标记, a1)）
+    const mapMarkers = this.playerService.safeJsonParse<Record<string, number>>(homeMap.markers, {});
+    mapMarkers['肉食比例'] = ratio;
+    await this.prisma.gameMap.update({
+      where: { id: homeMap.id },
+      data: { markers: JSON.stringify(mapMarkers) },
+    });
+
+    return `${player.name} ${player.houseName}的肉食植物现在能享用${ratio}%的生肉产出`;
+  }
+
+  /**
    * 处理召唤货舱命令
    * 在当前地图召唤货舱（可采集资源），如果没有则生成一个临时货舱
    */
