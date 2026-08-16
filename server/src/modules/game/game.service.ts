@@ -2981,6 +2981,94 @@ export class GameService {
   }
 
   /**
+   * 查看已装备的装备/武器详情（对应原版 _主程序.ecode L5596 `查看装备/查看武器`）
+   * 支持两种用法：
+   *   - 无参数：列出身上已装备的装备/武器清单
+   *   - 带参数（序号或名称）：查看指定装备/武器的详细属性
+   * 原版按 `查看装备`/`查看武器` 区分查找武器栏或装备栏，此处同样区分。
+   * @param userId 玩家ID
+   * @param arg 参数（空=列表，否则为序号或装备名）
+   * @param kind 装备类型：'武器' 查玩家.weapons，其他查玩家.equipment
+   * @returns 查看结果文本
+   */
+  async handleViewEquip(userId: number, arg: string, kind: '武器' | '装备'): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const list = kind === '武器'
+      ? this.playerService.safeJsonParse<any[]>(player.weapons, [])
+      : this.playerService.safeJsonParse<any[]>(player.equipment, []);
+
+    // 无参数：列出已装备清单（原版无参数时提示用法，网页版直接给列表更方便）
+    if (!arg) {
+      if (list.length === 0) {
+        return `${player.name}，你身上还没有装备任何${kind}。\n使用「背包」查看背包里的物品`;
+      }
+      const lines = list.map((eq: any, i: number) => {
+        const cur = kind === '武器' && i === (player.currentWeapon || 0) - 1 ? ' (当前)' : '';
+        return `${i + 1}. ${eq.name || '未知'}${cur}`;
+      });
+      return `${player.name} 身上的${kind}(${list.length}件):\n${lines.join('\n')}\n\n发送「查看${kind} 序号/名称」查看详情`;
+    }
+
+    // 带参数：按序号或名称定位装备
+    const idxNum = parseInt(arg, 10);
+    let item;
+    if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= list.length) {
+      item = list[idxNum - 1];
+    } else {
+      item = list.find((eq: any) => eq.name === arg);
+    }
+    if (!item) {
+      return `${player.name}，你身上未装备名称为【${arg}】的${kind}。`;
+    }
+    return this.itemSystemService.analyzeEquipment(userId, item.name);
+  }
+
+  /**
+   * 查看保险柜内容（对应原版 _主程序.ecode L5435 `查看保险柜`）
+   * 原版需要建筑【次元保险柜】才可查看，网页版暂不强制建筑要求，直接列出保险柜物品。
+   * 支持带参数（序号或名称）查看单项详情。
+   * @param userId 玩家ID
+   * @param arg 参数（空=列表，否则为序号或物品名）
+   * @returns 查看结果文本
+   */
+  async handleViewSafe(userId: number, arg: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, safeBox } = playerData;
+    if (!safeBox || safeBox.length === 0) {
+      return `${player.name}，你的保险柜空空如也。`;
+    }
+
+    // 带参数：按序号或名称定位物品
+    if (arg) {
+      const idxNum = parseInt(arg, 10);
+      let item;
+      if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= safeBox.length) {
+        item = safeBox[idxNum - 1];
+      } else {
+        item = safeBox.find((sb: any) => sb.name === arg);
+      }
+      if (!item) {
+        return `保险柜中没有找到【${arg}】`;
+      }
+      if (item.type === '装备') {
+        return this.itemSystemService.analyzeEquipment(userId, item.name);
+      }
+      const count = item.quantity ?? item.count ?? 1;
+      return `【${item.name}】×${count}${item.description ? `\n${item.description}` : ''}`;
+    }
+
+    const lines = safeBox.map((item: any, index: number) => {
+      if (item.type === '装备') {
+        return `${index + 1}. ${item.name} [装备]`;
+      }
+      const count = item.quantity ?? item.count ?? 1;
+      return `${index + 1}. ${item.name} ×${count} [${item.type || '资源'}]`;
+    });
+    return `🔒 保险柜 (${safeBox.length}种):\n${lines.join('\n')}`;
+  }
+
+  /**
    * 处理比较装备命令
    * 比较两件装备的属性
    */

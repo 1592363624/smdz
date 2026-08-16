@@ -6,10 +6,14 @@
 import { Injectable } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StatsService } from '../game/stats.service';
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly statsService: StatsService,
+  ) {}
 
   /** Socket.IO 服务端实例引用，由 ChatGateway 在初始化后注入，用于实时广播 */
   private server: Server | null = null;
@@ -236,5 +240,32 @@ export class ChatService {
       mentions.push(m[1]);
     }
     return mentions;
+  }
+
+  /**
+   * 获取"可@提及"的玩家列表（供前端聊天框 @ 下拉选择 / 消息右键 @ 使用）
+   * 返回全部 ACTIVE 账号的简洁信息，并附加实时在线标记（在线优先排序）
+   * @param excludeUserId 需要排除的用户ID（通常是当前登录用户自己，避免@自己）
+   * @returns [{ id, username, nickname, online }]
+   */
+  async getMentionablePlayers(excludeUserId?: number) {
+    const onlineSet = this.statsService.getOnlineUserIds();
+    const users = await this.prisma.user.findMany({
+      where: {
+        status: 'ACTIVE',
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+      },
+      select: { id: true, username: true, nickname: true },
+      orderBy: { username: 'asc' },
+    });
+    // 附加在线标记，并按"在线在前、名字排序在后"排列，方便用户优先@到场的玩家
+    return users
+      .map((u) => ({
+        id: u.id,
+        username: u.username,
+        nickname: u.nickname || u.username,
+        online: onlineSet.has(u.id),
+      }))
+      .sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username));
   }
 }

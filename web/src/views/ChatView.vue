@@ -426,12 +426,12 @@
       <div ref="msgList" class="messages" @scroll="onMsgScroll">
         <div v-for="(m, i) in messages" :key="i" :class="['msg', msgClass(m), msgAlign(m)]">
           <div class="msg-body">
-            <span v-if="m.sender" class="sender">{{ m.sender.nickname || m.sender.username }}：</span>
+            <span v-if="m.sender" class="sender" :title="'右键 @ ' + (m.sender.nickname || m.sender.username)" @contextmenu.prevent="quickAtUser(m.sender)">{{ m.sender.nickname || m.sender.username }}：</span>
             <span v-else-if="m.type !== 'system' && m.type !== 'game' && m.type !== 'combat' && m.type !== 'info'" class="sender">系统：</span>
             <span class="content" style="white-space: pre-line">
               <template v-for="(seg, si) in parseContent(m.content, commands)" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
-                <span v-else-if="seg.type === 'mention'" class="mention-highlight">{{ seg.text }}</span>
+                <span v-else-if="seg.type === 'mention'" class="mention-highlight" :title="'右键 @ ' + seg.text.replace('@', '')" @contextmenu.prevent="quickAtText(seg.text)">{{ seg.text }}</span>
                 <span v-else class="cmd-clickable" :title="'左键点击发送 / 右键填入输入框「' + seg.text + '」'" @click="quickSend(seg.text)" @contextmenu.prevent="quickFill(seg.text)">{{ seg.displayText || seg.text }}</span>
               </template>
             </span>
@@ -460,6 +460,7 @@
             @keyup.enter="sendMessage"
             @keyup="onInputKeyup"
             @keydown="onInputKeydown"
+            @input="onInputChange"
             @blur="onInputBlur"
             placeholder="开始愉快地玩耍吧!"
           />
@@ -474,6 +475,21 @@
             >
               <span class="ac-name">{{ cmd.name }}</span>
               <span class="ac-desc">{{ cmd.description }}</span>
+            </div>
+          </div>
+          <!-- 玩家 @ 下拉（输入 @ 时呼出，支持过滤选择） -->
+          <div v-if="showAtAutocomplete && filteredAtPlayers.length" class="autocomplete-list at-list">
+            <div
+              v-for="(p, pi) in filteredAtPlayers"
+              :key="p.id"
+              class="ac-item"
+              :class="{ active: pi === atAutocompleteIndex }"
+              @mousedown.prevent="selectAtPlayer(p)"
+            >
+              <span class="ac-at-icon">@</span>
+              <span class="ac-name">{{ p.nickname || p.username }}</span>
+              <span class="ac-desc" v-if="p.online">在线</span>
+              <span class="ac-desc" v-else>离线</span>
             </div>
           </div>
         </div>
@@ -816,6 +832,8 @@ const nearbyPlayers = ref([]);
 const nearbyLoaded = ref(false);
 // 附近玩家定时刷新计时器
 let nearbyTimer = null;
+// 可@玩家列表定时刷新计时器
+let atPlayersTimer = null;
 // 全部地图是否折叠（默认折叠，保持面板简洁）
 const allMapsCollapsed = ref(true);
 
@@ -847,6 +865,27 @@ const cmdSearchResults = computed(() => {
 // 自动补全状态
 const showAutocomplete = ref(false);
 const autocompleteIndex = ref(-1);
+
+// ---------- 玩家 @ 提及状态 ----------
+// 可@的玩家列表（含在线状态，在线优先），加载后缓存
+const mentionablePlayers = ref([]);
+// @下拉是否显示、当前选中索引、过滤关键词、@ 在输入框中的起始位置(用于替换)
+const showAtAutocomplete = ref(false);
+const atAutocompleteIndex = ref(-1);
+const atKeyword = ref('');
+const atStartPos = ref(-1);
+
+// 过滤后的 @ 玩家列表（按在线优先、名字匹配过滤）
+const filteredAtPlayers = computed(() => {
+  const kw = atKeyword.value.trim().toLowerCase();
+  const all = mentionablePlayers.value;
+  if (!kw) return all;
+  return all.filter(
+    (p) =>
+      (p.username && p.username.toLowerCase().includes(kw)) ||
+      (p.nickname && p.nickname.toLowerCase().includes(kw)),
+  );
+});
 
 // 是否为管理员(显示管理后台入口)
 const isAdmin = computed(() => ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role));
@@ -1149,7 +1188,102 @@ function quickFill(name) {
   if (!name) return;
   input.value = name + ' ';
   showAutocomplete.value = false;
+  closeAtAutocomplete();
   nextTick(() => inputEl.value?.focus());
+}
+
+/**
+ * 右键点击消息中的玩家名：把 "@昵称 " 填入输入框（@提及该玩家）
+ * 后端 @ 匹配优先按 username，故填入 "@username " 最可靠
+ * @param {object} sender 消息发送者 { id, username, nickname }
+ */
+function quickAtUser(sender) {
+  if (!sender) return;
+  const name = sender.username || sender.nickname;
+  if (!name) return;
+  input.value = '@' + name + ' ';
+  closeAtAutocomplete();
+  nextTick(() => {
+    inputEl.value?.focus();
+    // 光标定位到末尾
+    inputEl.value?.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+/**
+ * 右键点击消息中的 @提及 高亮片段：把 "@xxx " 原样填入输入框
+ * @param {string} text 形如 "@用户名"
+ */
+function quickAtText(text) {
+  const name = String(text || '').replace(/^@/, '').trim();
+  if (!name) return;
+  input.value = '@' + name + ' ';
+  closeAtAutocomplete();
+  nextTick(() => {
+    inputEl.value?.focus();
+    inputEl.value?.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+/**
+ * 检测当前输入是否处于"@模式"（光标前存在最近一个未被空格打断的 @）
+ * 处于 @ 模式时返回 true，并同步更新 @ 起始位置与过滤关键词
+ */
+function detectAtMode() {
+  const el = inputEl.value;
+  const text = input.value;
+  const pos = el ? el.selectionStart ?? text.length : text.length;
+  // 从光标向前找最近一个 @，若 @ 到光标之间没有空格则视为 @ 模式
+  const before = text.slice(0, pos);
+  const atIdx = before.lastIndexOf('@');
+  if (atIdx === -1) return false;
+  // @ 之后到光标前不能包含空白字符（空格/换行会中断 @ 输入）
+  const after = before.slice(atIdx + 1);
+  if (/\s/.test(after)) return false;
+  // @ 前一个字符若非空白则可能是普通文本中的 @（如邮箱），但仍允许（后端同样按此解析）
+  atStartPos.value = atIdx;
+  atKeyword.value = after;
+  return true;
+}
+
+// 输入框值变化事件：处理 @ 玩家下拉的显示与过滤
+function onInputChange() {
+  if (detectAtMode()) {
+    // @ 模式下：更新关键词并重置选中索引，隐藏指令补全
+    showAtAutocomplete.value = true;
+    atAutocompleteIndex.value = filteredAtPlayers.value.length ? 0 : -1;
+    showAutocomplete.value = false;
+  } else {
+    closeAtAutocomplete();
+  }
+}
+
+// 选中某个玩家：把 "关键词" 替换为 "@username "
+function selectAtPlayer(p) {
+  if (!p) return;
+  const name = p.username || p.nickname;
+  if (!name) return;
+  const pos = atStartPos.value;
+  const text = input.value;
+  // 定位 @ 结束位置（@ 后的关键词长度，结合 atStartPos 计算替换区间）
+  const atEnd = pos + 1 + atKeyword.value.length;
+  // 用 @username 替换原 " @关键词 "，并在末尾补一个空格分隔后续输入
+  input.value = text.slice(0, pos) + '@' + name + ' ';
+  closeAtAutocomplete();
+  nextTick(() => {
+    inputEl.value?.focus();
+    // 光标定位到 @username 之后，方便继续输入
+    const caret = pos + 1 + name.length + 1;
+    inputEl.value?.setSelectionRange(caret, caret);
+  });
+}
+
+// 关闭 @ 下拉并重置状态
+function closeAtAutocomplete() {
+  showAtAutocomplete.value = false;
+  atAutocompleteIndex.value = -1;
+  atKeyword.value = '';
+  atStartPos.value = -1;
 }
 
 // 指令搜索回车选中第一条
@@ -1160,8 +1294,13 @@ function selectFirstCmd() {
   }
 }
 
-// 输入框键盘事件：控制自动补全
+// 输入框键盘事件（keyup）：仅在非 @ 模式下控制指令自动补全
 function onInputKeyup() {
+  // @ 模式下隐藏指令补全，避免两者下拉冲突
+  if (showAtAutocomplete.value || detectAtMode()) {
+    showAutocomplete.value = false;
+    return;
+  }
   if (filteredCommands.value.length && input.value.trim()) {
     showAutocomplete.value = true;
     // 重置选中索引
@@ -1174,6 +1313,31 @@ function onInputKeyup() {
 }
 
 function onInputKeydown(e) {
+  // 优先处理 @ 玩家下拉的方向键/回车/退出
+  if (showAtAutocomplete.value && filteredAtPlayers.value.length) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      atAutocompleteIndex.value = Math.min(atAutocompleteIndex.value + 1, filteredAtPlayers.value.length - 1);
+      return;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      atAutocompleteIndex.value = Math.max(atAutocompleteIndex.value - 1, 0);
+      return;
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
+      e.preventDefault();
+      if (atAutocompleteIndex.value >= 0 && atAutocompleteIndex.value < filteredAtPlayers.value.length) {
+        selectAtPlayer(filteredAtPlayers.value[atAutocompleteIndex.value]);
+      } else if (filteredAtPlayers.value.length > 0) {
+        // 未选中时默认选第一个
+        selectAtPlayer(filteredAtPlayers.value[0]);
+      }
+      return;
+    } else if (e.key === 'Escape') {
+      closeAtAutocomplete();
+      return;
+    }
+  }
+  // 指令自动补全键盘控制
   if (!showAutocomplete.value || !filteredCommands.value.length) return;
   if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -1195,6 +1359,7 @@ function onInputBlur() {
   // 延迟关闭，让 mousedown 事件有机会触发
   setTimeout(() => {
     showAutocomplete.value = false;
+    closeAtAutocomplete();
   }, 200);
 }
 
@@ -1202,18 +1367,25 @@ function selectAutocomplete(cmd) {
   input.value = cmd.name + ' ';
   showAutocomplete.value = false;
   autocompleteIndex.value = -1;
+  closeAtAutocomplete();
   nextTick(() => {
     inputEl.value?.focus();
   });
 }
 
 async function sendMessage() {
+  // @ 模式下按回车优先选中玩家，而不是直接发送消息
+  if (showAtAutocomplete.value && filteredAtPlayers.value.length) {
+    selectAtPlayer(filteredAtPlayers.value[atAutocompleteIndex.value >= 0 ? atAutocompleteIndex.value : 0]);
+    return;
+  }
   const content = input.value.trim();
   if (!content || !socket) return;
   // 通过 WebSocket 发送(后端自动判断聊天或指令)
   socket.emit('chat:message', { content });
   input.value = '';
   showAutocomplete.value = false;
+  closeAtAutocomplete();
 }
 
 function appendMessage(msg) {
@@ -1305,6 +1477,16 @@ async function loadNearbyPlayers() {
     nearbyLoaded.value = true;
   } catch {
     // 附近玩家接口可能暂不可用，静默忽略（保留旧数据）
+  }
+}
+
+// 加载可@的玩家列表（全部 ACTIVE 账号，含在线标记，供聊天框 @ 下拉选择）
+async function loadMentionablePlayers() {
+  try {
+    const res = await chatApi.getPlayers();
+    mentionablePlayers.value = res.data || [];
+  } catch {
+    // 接口暂不可用则保留旧数据（@ 下拉可能暂为空，但不影响聊天）
   }
 }
 
@@ -1838,6 +2020,8 @@ onMounted(async () => {
       loadPlayerInfo(),
       loadMapOverview(),
       loadNearbyPlayers(),
+      // 加载可@的玩家列表（供聊天框 @ 下拉选择）
+      loadMentionablePlayers(),
       // 反馈列表（含 unreadCount）确保头部红点正确显示
       loadFeedbackTickets(),
     ]);
@@ -1847,6 +2031,8 @@ onMounted(async () => {
     statsTimer = setInterval(loadServerStats, 30000);
     // 每 30 秒刷新一次附近玩家（感知其他玩家进出当前区域/上下线）
     nearbyTimer = setInterval(loadNearbyPlayers, 30000);
+    // 每 60 秒刷新一次可@玩家列表（同步在线状态与新增账号）
+    atPlayersTimer = setInterval(loadMentionablePlayers, 60000);
 
     // 部署更新检测：首次加载仅同步版本标签(不弹窗)；随后按配置间隔轮询检测新部署
     await loadDeployInfo();
@@ -1959,6 +2145,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', setViewportHeight);
   if (statsTimer) clearInterval(statsTimer);
   if (nearbyTimer) clearInterval(nearbyTimer);
+  if (atPlayersTimer) clearInterval(atPlayersTimer);
   if (updateTimer) clearInterval(updateTimer);
   if (updateCountdownTimer) clearInterval(updateCountdownTimer);
 });
@@ -2019,6 +2206,21 @@ onUnmounted(() => {
   border-radius: 4px;
   padding: 0 2px;
   white-space: nowrap;
+}
+
+/* 消息发送者名（支持右键 @ 提人） */
+.sender {
+  cursor: context-menu;
+}
+
+/* ===== 聊天框 @ 玩家下拉 ===== */
+.at-list .ac-item .ac-at-icon {
+  color: #fbbf24;
+  font-weight: 800;
+  margin-right: 4px;
+}
+.at-list .ac-item .ac-name {
+  color: #fbbf24;
 }
 
 /* ===== 右侧滑出面板通用 ===== */

@@ -51,6 +51,8 @@ export const chatApi = {
   getMessages: (channelId = 1, limit = 50) =>
     http.get('/chat/messages', { params: { channelId, limit } }),
   getChannel: () => http.get('/chat/channel'),
+  // 获取可@提及的玩家列表（含在线状态，在线优先排序）
+  getPlayers: () => http.get('/chat/players'),
   // 私聊会话列表（含未读数与最后一条消息）
   getPrivateConversations: () => http.get('/chat/private/conversations'),
   // 与指定用户的私聊历史

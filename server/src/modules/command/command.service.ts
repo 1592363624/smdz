@@ -54,16 +54,71 @@ export class CommandService {
       }
 
       // 2. 从数据库指令表查找指令定义
-      //    使用 equals 匹配 name，contains 匹配 alias（避免部分匹配问题）
-      const cmdDef = await this.prisma.command.findFirst({
-        where: {
-          enabled: true,
-          OR: [
-            { name: { equals: commandName } },
-            { alias: { contains: commandName } },
-          ],
-        },
+      //    匹配顺序对齐原版"前缀路由"语义（原版无独立指令表，是字符前缀截取）：
+      //    a. name 完全相等（最精确）
+      //    b. alias 逗号拆分后词精确匹配（禁止子串 contains，避免 `查看` 误命中 alias 含 `查看背包` 的 `背包`）
+      //    c. 前缀匹配回退（对应原版"两字/三字/四字命令"前缀路由，如 `选择使魔伊卡洛斯`）
+      let cmdDef = await this.prisma.command.findFirst({
+        where: { enabled: true, name: { equals: commandName } },
       });
+
+      if (!cmdDef) {
+        // 加载全部指令在内存中做 alias 精确 + 前缀匹配（指令表很小，失败时多一次查询可接受）
+        const allCmds = await this.prisma.command.findMany({
+          where: { enabled: true },
+          select: { name: true, alias: true },
+        });
+
+        // 2.1 alias 词精确匹配（逗号拆分后完全相等）
+        const exactAlias = allCmds.find((c) =>
+          (c.alias || '')
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+            .includes(commandName),
+        );
+        if (exactAlias) {
+          cmdDef = await this.prisma.command.findFirst({
+            where: { name: { equals: exactAlias.name }, enabled: true },
+          });
+          // 改写 rawMessage 为标准指令名 + 参数，让 handler 用标准名路由
+          // （否则 handler switch 收到的是玩家原词如 `claim-land`，无法命中 `case '圈地'`）
+          ctx.rawMessage = args.length ? `${exactAlias.name} ${args.join(' ')}` : exactAlias.name;
+        }
+
+        // 2.2 前缀匹配回退（对应原版前缀路由语义）
+        //     玩家无空格输入如 `选择使魔伊卡洛斯` 时，首词是整个字符串，精确匹配会失败。
+        //     若存在某指令名/别名是该输入的前缀，则匹配该指令，并把剩余部分作为参数。
+        if (!cmdDef) {
+          // 展开候选：指令名 + 各别名，均作为"前缀候选"（带来源指令名）
+          const candidates: { key: string; name: string }[] = [];
+          for (const c of allCmds) {
+            candidates.push({ key: c.name, name: c.name });
+            for (const alias of (c.alias || '').split(',').map((s: string) => s.trim()).filter(Boolean)) {
+              candidates.push({ key: alias, name: c.name });
+            }
+          }
+          // 按前缀长度降序，优先匹配更长（更精确）的前缀
+          const prefixMatch = candidates
+            .filter((c) => commandName.length > c.key.length && commandName.startsWith(c.key))
+            .sort((a, b) => b.key.length - a.key.length)[0];
+          if (prefixMatch) {
+            cmdDef = await this.prisma.command.findFirst({
+              where: { name: { equals: prefixMatch.name }, enabled: true },
+            });
+            // 把剩余部分作为第一个参数（如 `选择使魔伊卡洛斯` → 指令`选择使魔` + 参数`伊卡洛斯`）
+            const remain = commandName.substring(prefixMatch.key.length).trim();
+            if (remain) {
+              args.unshift(remain);
+            }
+            // 同步改写 rawMessage 为标准指令名 + 参数（用 cmdDef.name 而非 prefixMatch.key，
+            // 因为 key 可能是别名，handler 的 switch 只认标准中文指令名）
+            if (cmdDef) {
+              ctx.rawMessage = args.length ? `${cmdDef.name} ${args.join(' ')}` : cmdDef.name;
+            }
+          }
+        }
+      }
 
       if (!cmdDef) {
         // 对齐原版设计：指令表未命中时，兜底尝试"地图资源采集"。
@@ -172,16 +227,34 @@ export class CommandService {
     // 取第一个单词
     const name = clean.split(/\s+/)[0];
     if (!name) return false;
+    // 1) name 精确匹配
     const found = await this.prisma.command.findFirst({
-      where: {
-        enabled: true,
-        OR: [
-          { name: { equals: name } },
-          { alias: { contains: name } },
-        ],
-      },
+      where: { enabled: true, name: { equals: name } },
       select: { id: true },
     });
-    return !!found;
+    if (found) return true;
+
+    // 2) alias 词精确匹配（逗号拆分后完全相等，避免子串误匹配）
+    //    与 dispatch 保持一致：禁止 contains 子串匹配
+    const allCmds = await this.prisma.command.findMany({
+      where: { enabled: true },
+      select: { name: true, alias: true },
+    });
+    const aliasExact = allCmds.some((c: any) =>
+      (c.alias || '')
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean)
+        .includes(name),
+    );
+    if (aliasExact) return true;
+
+    // 3) 前缀匹配回退：无空格输入（如 `选择使魔伊卡洛斯`）时，检查是否以某指令名/别名为前缀
+    //    对应原版"两字/三字/四字命令"的前缀路由语义，与 dispatch 的前缀回退保持一致
+    return allCmds.some((c: any) => {
+      if (name.length > c.name.length && name.startsWith(c.name)) return true;
+      return (c.alias || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+        .some((alias: string) => name.length > alias.length && name.startsWith(alias));
+    });
   }
 }

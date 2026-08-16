@@ -41,6 +41,8 @@ export class GameCommandHandler implements CommandHandler {
     }
 
     // 从原始消息中提取指令名（去除前缀）
+    // 注意：无空格输入（如 `选择使魔伊卡洛斯`）的前缀匹配已由 CommandService.dispatch
+    // 统一处理（含别名前缀，改写 rawMessage 为标准"指令 参数"形式），此处只需按空格解析首词。
     const rawMsg = ctx.rawMessage.trim();
     const cmdName = rawMsg.replace(/^[\/！!]/, '').split(/\s+/)[0];
 
@@ -95,7 +97,8 @@ export class GameCommandHandler implements CommandHandler {
           if (tutorialText) {
             return this.wrap(tutorialText);
           }
-          const result = await this.combatSystem.weaponAttack(userId, 0, {});
+          // 原版 `攻击怪物名` 会设置 玩家.目标 后锁定该怪物，这里把参数作为目标名传入
+          const result = await this.combatSystem.weaponAttack(userId, 0, { targetName: arg });
           // 自动推进任务：击杀怪物（对应原版 L9314~L9315）
           // 添加成就("击败怪物", 数量, 成就, 任务) 与 添加成就("击败" + 怪物名, 数量, ...)
           const killedList = result.killed || [];
@@ -961,6 +964,20 @@ export class GameCommandHandler implements CommandHandler {
         case '查看说明':
         case 'view-description':
           return this.wrap(await this.gameService.handleViewDescription(userId));
+
+        // 查看已装备装备/武器（对应原版 L5596 查看装备/查看武器）
+        case '查看装备':
+        case 'view-equip':
+          return this.wrap(await this.gameService.handleViewEquip(userId, arg, '装备'));
+
+        case '查看武器':
+        case 'view-weapon':
+          return this.wrap(await this.gameService.handleViewEquip(userId, arg, '武器'));
+
+        // 查看保险柜（对应原版 L5435 查看保险柜）
+        case '查看保险柜':
+        case 'view-safe':
+          return this.wrap(await this.gameService.handleViewSafe(userId, arg));
 
         // ========== 对话跟随 / 家园设置（对应原版 L1368/L1397/L5277） ==========
         case '对话咏星跟随':

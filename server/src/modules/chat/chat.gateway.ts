@@ -189,8 +189,13 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       // ========== 新玩家选使魔门禁（对应原版 _主程序.ecode L11464-11480） ==========
       // 新玩家(未选使魔)发任何指令都会被拦截，返回"选择第一个使魔"菜单；
       // 仅"选择使魔/更换使魔"指令放行（否则玩家无法开始游戏）。
+      // 注意：无空格输入（如 `选择使魔伊卡洛斯`）也要放行，因此用"首词等于
+      // 或为白名单指令的前缀"判断，与 CommandService.dispatch 的前缀回退保持一致。
       const cmdName = content.trim().replace(/^[\/！!]+/, '').split(/\s+/)[0];
-      if (cmdName !== '选择使魔' && cmdName !== '更换使魔' && cmdName !== 'select' && cmdName !== 'familiar') {
+      const gateAllowed = ['选择使魔', '更换使魔', 'select', 'familiar'].some(
+        (allowed) => cmdName === allowed || (cmdName.length > allowed.length && cmdName.startsWith(allowed)),
+      );
+      if (!gateAllowed) {
         const gate = await this.gameService.getFirstFamiliarGate(user.userId);
         if (gate) {
           // 门禁菜单只回传给本人（不需要公屏广播）

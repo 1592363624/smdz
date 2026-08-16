@@ -39,6 +39,19 @@ export class ChatController {
   }
 
   /**
+   * 获取"可@提及"的玩家列表（前端聊天框 @ 下拉 / 消息右键 @ 使用）
+   * 返回全部 ACTIVE 账号的简洁信息，并附加实时在线标记（在线优先排序）
+   */
+  @Get('players')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取可@提及的玩家列表（含在线状态）' })
+  async getMentionablePlayers(@Req() req) {
+    const data = await this.chatService.getMentionablePlayers(req.user.userId);
+    return { success: true, data };
+  }
+
+  /**
    * 获取当前用户的私聊会话列表（含未读数与最后一条消息）
    */
   @Get('private/conversations')

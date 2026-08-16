@@ -39,6 +39,8 @@ export interface AttackContext {
   isDelayed?: boolean;
   /** 是否由自动战斗循环触发的攻击 */
   isAutoCombat?: boolean;
+  /** 指定攻击目标名（对应原版 `攻击怪物名` 设置玩家.目标） */
+  targetName?: string;
 }
 
 /**
@@ -222,6 +224,7 @@ export class CombatSystemService {
       attackText = '',
       noDelay = false,
       originalTimestamp = Date.now(),
+      targetName = '',
     } = context;
 
     // 1. 获取玩家数据
@@ -286,7 +289,7 @@ export class CombatSystemService {
     }
 
     // 5. 确定攻击目标列表
-    let targets = this.selectTargets(monsters, player, allAttack, weapon);
+    let targets = this.selectTargets(monsters, player, allAttack, weapon, targetName);
 
     if (targets.length === 0) {
       return { result: '没有可以攻击的目标', killed: [], damageDealt: 0, expGained: 0, drops: [] };
@@ -305,7 +308,7 @@ export class CombatSystemService {
     // 如果使魔特效改变了全体攻击标记，重新选择目标
     // 例如：战斗女仆RPG!/机枪会取消全体攻击，云爆弹会强制全体攻击
     if (effectiveAllAttack !== allAttack) {
-      targets = this.selectTargets(monsters, player, effectiveAllAttack, weapon);
+      targets = this.selectTargets(monsters, player, effectiveAllAttack, weapon, targetName);
     }
 
     // 7. 执行攻击循环
@@ -1220,10 +1223,20 @@ export class CombatSystemService {
     player: any,
     allAttack: boolean,
     weapon: WeaponData,
+    targetName?: string,
   ): any[] {
     const alive = monsters.filter(m => (m.hp || 0) > 0);
 
     if (alive.length === 0) return [];
+
+    // 指定目标（对应原版 `攻击怪物名` 设置玩家.目标后按名称锁定目标）
+    if (targetName) {
+      const matched = alive.filter(m => m.name === targetName);
+      if (matched.length > 0) return matched;
+      // 未找到指定名称的目标时，回退随机（避免"攻击指定怪物"完全无效）
+      const targetIdx = Math.floor(Math.random() * alive.length);
+      return [alive[targetIdx]];
+    }
 
     if (allAttack) {
       return alive;
