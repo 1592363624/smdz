@@ -7,6 +7,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StaticDataService } from './static-data.service';
+import { MapService } from './map.service';
 
 @Injectable()
 export class DungeonService {
@@ -15,6 +16,7 @@ export class DungeonService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly staticData: StaticDataService,
+    private readonly mapService: MapService,
   ) {}
 
   /**
@@ -36,8 +38,8 @@ export class DungeonService {
    * @returns 副本数据（含怪物列表、过期时间等）
    */
   async generateDungeon(playerLevel: number, mapId: number): Promise<any> {
-    // 读取地图数据，获取该地图上配置的怪物模板列表
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    // 读取地图数据，获取该地图上配置的怪物模板列表（合并静态 JSON + 动态 DB）
+    const map = await this.mapService.getMapById(mapId);
     if (!map) {
       throw new Error(`地图 ID=${mapId} 不存在，无法生成副本`);
     }

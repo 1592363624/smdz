@@ -236,9 +236,7 @@ export class CombatSystemService {
     }
 
     // 2. 获取当前地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
     if (!map) {
       return { result: '你不在任何地图上！', killed: [], damageDealt: 0, expGained: 0, drops: [] };
     }
@@ -474,9 +472,7 @@ export class CombatSystemService {
     }
 
     // 获取地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
     // 获取地图怪物
@@ -688,15 +684,12 @@ export class CombatSystemService {
     // 从地图移除怪物（加锁，避免与并发的血量更新/刷新互相覆盖）
     try {
       await this.mapService.withMapLock(mapId, async () => {
-        const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+        const map = await this.mapService.getMapById(mapId);
         if (map) {
           this.mapService.removeMapMonster(map, monster.id);
-          await this.prisma.gameMap.update({
-            where: { id: mapId },
-            data: {
-              spawnMonsters: map.spawnMonsters,
-              tempMonsters: map.tempMonsters,
-            },
+          await this.mapService.updateDynamicFields(mapId, {
+            spawnMonsters: map.spawnMonsters,
+            tempMonsters: map.tempMonsters,
           });
         }
       });
@@ -1235,7 +1228,7 @@ export class CombatSystemService {
   private async updateMonsterHpInMap(mapId: number, monster: any): Promise<void> {
     try {
       await this.mapService.withMapLock(mapId, async () => {
-        const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+        const map = await this.mapService.getMapById(mapId);
         if (!map) return;
 
         // 优先在 spawnMonsters 中定位，其次 tempMonsters
@@ -1245,10 +1238,7 @@ export class CombatSystemService {
           spawnMonsters[idx].hp = monster.hp;
           if (monster.shield !== undefined) spawnMonsters[idx].shield = monster.shield;
           if (monster.armor !== undefined) spawnMonsters[idx].armor = monster.armor;
-          await this.prisma.gameMap.update({
-            where: { id: mapId },
-            data: { spawnMonsters: JSON.stringify(spawnMonsters) },
-          });
+          await this.mapService.updateDynamicFields(mapId, { spawnMonsters: JSON.stringify(spawnMonsters) });
           return;
         }
 
@@ -1259,10 +1249,7 @@ export class CombatSystemService {
           tempMonsters[tidx].hp = monster.hp;
           if (monster.shield !== undefined) tempMonsters[tidx].shield = monster.shield;
           if (monster.armor !== undefined) tempMonsters[tidx].armor = monster.armor;
-          await this.prisma.gameMap.update({
-            where: { id: mapId },
-            data: { tempMonsters: JSON.stringify(tempMonsters) },
-          });
+          await this.mapService.updateDynamicFields(mapId, { tempMonsters: JSON.stringify(tempMonsters) });
         }
       });
     } catch (error) {
@@ -1812,9 +1799,7 @@ export class CombatSystemService {
         }
 
         // 获取地图怪物
-        const map = await this.prisma.gameMap.findUnique({
-          where: { id: player.mapId },
-        });
+        const map = await this.mapService.getMapById(player.mapId);
         if (!map) {
           this.stopAutoCombat(userId);
           return;

@@ -10,6 +10,7 @@ import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
+import { MapService } from './map.service';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -115,6 +116,7 @@ export class FamiliarSystemService {
     private readonly bonusService: BonusService,
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
+    private readonly mapService: MapService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -671,10 +673,7 @@ export class FamiliarSystemService {
     let mapBuildings: any[] = [];
     if (player.mapId) {
       try {
-        const map = await this.prisma.gameMap.findUnique({
-          where: { id: player.mapId },
-          select: { name: true, buildings: true },
-        });
+        const map = await this.mapService.getMapById(player.mapId);
         if (map) {
           mapName = map.name;
           mapBuildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
@@ -766,9 +765,12 @@ export class FamiliarSystemService {
     }
 
     // 检查目标地图是否存在
-    const map = await this.prisma.gameMap.findUnique({
-      where: { name: targetMap },
-    });
+    let map: any;
+    try {
+      map = await this.mapService.getMapByName(targetMap);
+    } catch {
+      return `地图「${targetMap}」不存在`;
+    }
 
     if (!map) {
       return `地图「${targetMap}」不存在`;
@@ -1083,9 +1085,7 @@ export class FamiliarSystemService {
       return '你还没有家园所在地图';
     }
 
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '家园所在的地图不存在';
@@ -1332,9 +1332,7 @@ export class FamiliarSystemService {
       return '你还没有家园所在地图';
     }
 
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '家园所在的地图不存在';
@@ -1477,9 +1475,7 @@ export class FamiliarSystemService {
 
     // 这里需要从地图的召唤物列表中查找并修改
     // 由于地图数据在 GameMap 模型的 summons JSON 字段中
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
@@ -1500,10 +1496,7 @@ export class FamiliarSystemService {
     summons[petIndex].image = newName;
     summons[petIndex].name = newName;
 
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
     return `把${oldName}改名为${newName}`;
   }
@@ -1530,9 +1523,7 @@ export class FamiliarSystemService {
     const { player } = playerData;
 
     // 获取当前地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
@@ -1574,10 +1565,7 @@ export class FamiliarSystemService {
     // 清空标记并重置好感
     summons[petIndex].markers = { [`好感${targetQQ}`]: 100 };
 
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
     return `把${petName}转让给了${targetQQ}`;
   }
@@ -1599,9 +1587,7 @@ export class FamiliarSystemService {
     const { player } = playerData;
 
     // 获取当前地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
@@ -1670,13 +1656,7 @@ export class FamiliarSystemService {
     vehicles[vehicleIndex] = vehicle;
 
     // 更新地图数据
-    map.summons = JSON.stringify(summons);
-    map.vehicles = JSON.stringify(vehicles);
-
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons), vehicles: JSON.stringify(vehicles) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons), vehicles: JSON.stringify(vehicles) });
 
     return `${petName} 进入了${vehicle.name}的驾驶舱`;
   }
@@ -1708,9 +1688,7 @@ export class FamiliarSystemService {
     }
 
     // 获取当前地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
@@ -1762,11 +1740,7 @@ export class FamiliarSystemService {
     summons[petIndex] = pet;
 
     // 更新地图和玩家数据
-    map.summons = JSON.stringify(summons);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
     await this.playerService.savePlayer(player);
 
@@ -1792,9 +1766,7 @@ export class FamiliarSystemService {
     const { player, markers } = playerData;
 
     // 获取当前地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
@@ -1910,15 +1882,9 @@ export class FamiliarSystemService {
         expireAt: now + 120,
       });
 
-      map.spawnMonsters = JSON.stringify(spawnMonsters);
-      map.markers = JSON.stringify(mapMarkers3);
-
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: {
-          spawnMonsters: JSON.stringify(spawnMonsters),
-          markers: JSON.stringify(mapMarkers3),
-        },
+      await this.mapService.updateDynamicFields(map.id, {
+        spawnMonsters: JSON.stringify(spawnMonsters),
+        markers: JSON.stringify(mapMarkers3),
       });
 
       await this.playerService.savePlayer(player);
@@ -1964,9 +1930,7 @@ export class FamiliarSystemService {
     const { player } = playerData;
 
     // 获取当前地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
     if (!map) {
       return '你不在任何地图上';
     }
@@ -2002,10 +1966,7 @@ export class FamiliarSystemService {
       }
       pet.markers['觉醒'] = 0;
       summons[petIndex] = pet;
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { summons: JSON.stringify(summons) },
-      });
+      await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
       // 返还觉醒丹到背包
       const backpack = this.playerService.getBackpackItems(player);
@@ -2071,10 +2032,7 @@ export class FamiliarSystemService {
     pet.speed = Math.round((pet.baseStats.speed || 100) * bonus);
 
     summons[petIndex] = pet;
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
     await this.playerService.savePlayer(player);
 
     return `消耗${used}颗觉醒丹让${petName}觉醒了${done}次，突破到了
@@ -2107,7 +2065,12 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `「宠物攻击森林出口」来远程操作，让你放在森林出口的宠物对怪物发起攻击`;
     }
 
-    const map = await this.prisma.gameMap.findFirst({ where: { name: mapName } });
+    let map: any;
+    try {
+      map = await this.mapService.getMapByName(mapName);
+    } catch {
+      return `${mapName} 在地图列表不存在`;
+    }
     if (!map) {
       return `${mapName} 在地图列表不存在`;
     }
@@ -2178,12 +2141,9 @@ ${this.getAwakenStageName(d)}(${d})`;
     player.markers2 = JSON.stringify(newMarkers2);
 
     // 更新地图与玩家
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: {
-        summons: JSON.stringify(summons),
-        spawnMonsters: JSON.stringify(spawnMonsters),
-      },
+    await this.mapService.updateDynamicFields(map.id, {
+      summons: JSON.stringify(summons),
+      spawnMonsters: JSON.stringify(spawnMonsters),
     });
     await this.playerService.savePlayer(player);
 
@@ -2207,7 +2167,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    const map = await this.prisma.gameMap.findUnique({ where: { id: player.mapId } });
+    const map = await this.mapService.getMapById(player.mapId);
     if (!map) {
       return '你不在任何地图上';
     }
@@ -2220,7 +2180,12 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `${map.name} 这里没有属于你的、名为「${petName}」的宠物或NPC`;
     }
 
-    const targetMap = await this.prisma.gameMap.findFirst({ where: { name: mapName } });
+    let targetMap: any;
+    try {
+      targetMap = await this.mapService.getMapByName(mapName);
+    } catch {
+      return `${mapName} 在地图列表不存在`;
+    }
     if (!targetMap) {
       return `${mapName} 在地图列表不存在`;
     }
@@ -2249,14 +2214,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 添加到目标地图
     const targetSummons = this.playerService.safeJsonParse<any[]>(targetMap.summons, []);
     targetSummons.push(pet);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
-    });
-    await this.prisma.gameMap.update({
-      where: { id: targetMap.id },
-      data: { summons: JSON.stringify(targetSummons) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(targetMap.id, { summons: JSON.stringify(targetSummons) });
 
     return `${pet.name}${moveText}${targetMap.name}`;
   }
@@ -2282,7 +2241,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    const map = await this.prisma.gameMap.findUnique({ where: { id: player.mapId } });
+    const map = await this.mapService.getMapById(player.mapId);
     if (!map) {
       return '你不在任何地图上';
     }
@@ -2363,10 +2322,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       pet.equipmentPresets[2].equipment = extraEquip;
       summons[petIndex] = pet;
 
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { summons: JSON.stringify(summons) },
-      });
+      await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
       await this.playerService.savePlayer(player);
 
       const typeText = isWeaponType ? '接过了' : isEquipType ? '穿上了' : '佩戴上了';
@@ -2387,10 +2343,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     pet.equipmentPresets[2].equipment = extraEquip;
     summons[petIndex] = pet;
 
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
     await this.playerService.savePlayer(player);
 
     return `${petName}把${returned.name}还给了${player.name || '你'}`;
@@ -2410,9 +2363,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const { player, markers } = playerData;
 
     // 获取当前地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
@@ -2539,15 +2490,9 @@ ${this.getAwakenStageName(d)}(${d})`;
       monsters.splice(monsterIndex, 1);
 
       // 更新地图
-      map.monsters = JSON.stringify(monsters);
-      map.summons = JSON.stringify(summons);
-
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: {
-          monsters: JSON.stringify(monsters),
-          summons: JSON.stringify(summons),
-        },
+      await this.mapService.updateDynamicFields(map.id, {
+        monsters: JSON.stringify(monsters),
+        summons: JSON.stringify(summons),
       });
 
       // 记录捕捉成就
@@ -2585,7 +2530,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     markers: any,
   ): Promise<string> {
     // 统计全地图中该宠物的数量
-    const allMaps = await this.prisma.gameMap.findMany();
+    const allMaps = await this.mapService.getAllMaps();
     let totalCount = 0;
 
     for (const m of allMaps) {
@@ -2675,11 +2620,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     player.tasks = JSON.stringify(tasks);
 
     // 更新地图
-    map.summons = JSON.stringify(summons);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
     await this.playerService.savePlayer(player);
 
@@ -2738,9 +2679,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 尝试查找目标（先查召唤物，再查玩家）
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (map) {
       const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
@@ -2755,11 +2694,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         });
         summonTarget.buffs = newBuffs;
 
-        map.summons = JSON.stringify(summons);
-        await this.prisma.gameMap.update({
-          where: { id: map.id },
-          data: { summons: JSON.stringify(summons) },
-        });
+        await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
         await this.playerService.savePlayer(player);
         return `给${targetName}套上了行星护盾`;
@@ -2839,9 +2774,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 尝试查找目标
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (map) {
       const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
@@ -2857,11 +2790,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         });
         summonTarget.buffs = newBuffs;
 
-        map.summons = JSON.stringify(summons);
-        await this.prisma.gameMap.update({
-          where: { id: map.id },
-          data: { summons: JSON.stringify(summons) },
-        });
+        await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
         await this.playerService.savePlayer(player);
         return `给${targetName}使用了福音书`;
@@ -2910,9 +2839,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const { player } = playerData;
 
     // 获取当前地图
-    const map = await this.prisma.gameMap.findUnique({
-      where: { id: player.mapId },
-    });
+    const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
@@ -2940,12 +2867,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     summons[petIndex] = pet;
-    map.summons = JSON.stringify(summons);
 
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
-    });
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
     return isFollow
       ? `${pet.name} 开始跟随你`

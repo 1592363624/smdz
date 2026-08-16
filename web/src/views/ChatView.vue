@@ -1,165 +1,211 @@
 <template>
   <div class="chat-page">
-    <!-- 左侧：在线信息与指令面板 -->
+    <!-- 左侧：用户信息 + Tab 切换面板 -->
     <aside class="sidebar">
-      <div class="user-card" :class="{ 'is-admin': isAdmin }" @click="onAvatarClick" :title="avatarTitle">
-        <div class="avatar">
-          <!-- 有 QQ 头像时显示图片，否则显示首字母 -->
-          <img v-if="user?.avatar" :src="user.avatar" class="avatar-img" />
-          <span v-else class="avatar-letter">{{ (user?.nickname || user?.username || '?')[0] }}</span>
-        </div>
-        <div>
-          <div class="name">{{ user?.nickname || user?.username }}</div>
-          <div class="meta">@{{ user?.username }}</div>
-        </div>
-      </div>
-
-      <!-- QQ 绑定区域：玩家自行绑定/更换QQ号，供群里机器人识别身份 -->
-      <div class="qq-bind">
-        <template v-if="user?.qqNumber && !qqBinding">
-          <span class="qq-bound">✅ 已绑定 QQ: {{ user.qqNumber }}</span>
-          <button class="qq-btn" @click="openQQBind">更换</button>
-        </template>
-        <template v-else>
-          <div class="qq-bind-row">
-            <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
-            <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '绑定中…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
+      <!-- 顶部固定：用户卡片 + QQ 绑定 -->
+      <div class="sidebar-header">
+        <div class="user-card" :class="{ 'is-admin': isAdmin }" @click="onAvatarClick" :title="avatarTitle">
+          <div class="avatar">
+            <!-- 有 QQ 头像时显示图片，否则显示首字母 -->
+            <img v-if="user?.avatar" :src="user.avatar" class="avatar-img" />
+            <span v-else class="avatar-letter">{{ (user?.nickname || user?.username || '?')[0] }}</span>
           </div>
-          <div v-if="qqError" class="qq-error">{{ qqError }}</div>
-          <div class="qq-tip">绑定后可在QQ群用同号机器人发送“smdz 指令”操作本账号</div>
-        </template>
-      </div>
+          <div class="user-info">
+            <div class="name">{{ user?.nickname || user?.username }}</div>
+            <div class="meta">@{{ user?.username }}</div>
+          </div>
+          <span v-if="isAdmin" class="admin-badge">ADMIN</span>
+        </div>
 
-      <!-- 玩家信息面板 -->
-      <div class="player-info" v-if="playerInfo">
-        <div class="pi-header">
-          <span class="pi-name">{{ playerInfo.name || '冒险者' }}</span>
-          <span class="pi-type" v-if="playerInfo.type">{{ playerInfo.type }}</span>
-        </div>
-        <div class="pi-row">
-          <span class="pi-label">等级</span>
-          <span class="pi-value">Lv.{{ playerInfo.level }}</span>
-        </div>
-        <div class="pi-bar-row">
-          <div class="pi-bar-label"><span>经验</span><span>{{ playerInfo.exp }}/{{ playerInfo.upgradeExp }}</span></div>
-          <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
-        </div>
-        <div class="pi-row">
-          <span class="pi-label">❤️ 生命</span>
-          <span class="pi-value">{{ Math.round(playerInfo.hp) }} / {{ Math.round(playerInfo.maxHp) }}</span>
-        </div>
-        <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
-        <div class="pi-row">
-          <span class="pi-label">🛡️ 护盾</span>
-          <span class="pi-value">{{ Math.round(playerInfo.shield) }} / {{ Math.round(playerInfo.maxShield) }}</span>
-        </div>
-        <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
-        <div class="pi-row">
-          <span class="pi-label">🛡️ 装甲</span>
-          <span class="pi-value">{{ Math.round(playerInfo.armor) }} / {{ Math.round(playerInfo.maxArmor) }}</span>
-        </div>
-        <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
-        <div class="pi-stats">
-          <div class="pi-stat"><span>攻击</span><b>{{ Math.round(playerInfo.attack) }}</b></div>
-          <div class="pi-stat"><span>防御</span><b>{{ Math.round(playerInfo.defense) }}</b></div>
-          <div class="pi-stat"><span>速度</span><b>{{ Math.round(playerInfo.speed) }}</b></div>
-          <div class="pi-stat"><span>闪避</span><b>{{ Math.round(playerInfo.dodge) }}</b></div>
-          <div class="pi-stat"><span>命中</span><b>{{ Math.round(playerInfo.hit) }}</b></div>
-          <div class="pi-stat"><span>暴击</span><b>{{ Math.round(playerInfo.crit) }}%</b></div>
-        </div>
-        <div class="pi-row pi-row-loc">
-          <span class="pi-label">📍 位置</span>
-          <span class="pi-location">{{ playerInfo.location }}</span>
-        </div>
-      </div>
-      <div class="player-info" v-else>
-        <div class="pi-row">
-          <span class="pi-label">状态</span>
-          <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 信息 查看</span>
+        <!-- QQ 绑定区域：玩家自行绑定/更换QQ号，供群里机器人识别身份 -->
+        <div class="qq-bind">
+          <template v-if="user?.qqNumber && !qqBinding">
+            <span class="qq-bound">✅ QQ {{ user.qqNumber }}</span>
+            <button class="qq-btn" @click="openQQBind">换绑</button>
+          </template>
+          <template v-else>
+            <div class="qq-bind-row">
+              <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
+              <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
+            </div>
+            <div v-if="qqError" class="qq-error">{{ qqError }}</div>
+            <div v-else class="qq-tip">绑后可用 QQ 群机器人操作本账号</div>
+          </template>
         </div>
       </div>
 
-      <!-- 快捷操作按钮 -->
-      <div class="quick-actions">
-        <button class="qa-bag" @click="quickAction('背包')">🎒 背包</button>
-        <button class="qa-info" @click="quickAction('信息')">📋 信息</button>
-        <button class="qa-map" @click="quickAction('地图')">🗺️ 地图</button>
-        <button class="qa-attack" @click="quickAction('攻击')">⚔️ 攻击</button>
+      <!-- 中部：Tab 切换 -->
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab" :class="{ active: sidebarTab === 'me' }" @click="sidebarTab = 'me'">
+          <span class="tab-icon">👤</span>我的
+        </button>
+        <button class="sidebar-tab" :class="{ active: sidebarTab === 'map' }" @click="sidebarTab = 'map'">
+          <span class="tab-icon">🗺️</span>地图
+        </button>
+        <button class="sidebar-tab" :class="{ active: sidebarTab === 'cmd' }" @click="sidebarTab = 'cmd'">
+          <span class="tab-icon">📖</span>指令
+        </button>
       </div>
 
-      <!-- 地图总览 -->
-      <div class="map-connections" v-if="mapOverview">
-        <h4>🗺️ 地图总览</h4>
-        <!-- 当前所在地图 -->
-        <div class="mc-current">
-          📍 {{ mapOverview.currentMap.name }}
-          <span class="mc-detail" v-if="mapOverview.currentMap.monsters || mapOverview.currentMap.resources || mapOverview.currentMap.npcs">
-            （怪物{{ mapOverview.currentMap.monsters }} · 资源{{ mapOverview.currentMap.resources }} · NPC{{ mapOverview.currentMap.npcs }}）
+      <div class="sidebar-content">
+        <!-- 我的 Tab：玩家信息 + 快捷操作 -->
+        <div v-show="sidebarTab === 'me'" class="tab-pane">
+          <div class="player-info" v-if="playerInfo">
+            <div class="pi-header">
+              <span class="pi-name">{{ playerInfo.name || '冒险者' }}</span>
+              <span class="pi-type" v-if="playerInfo.type">{{ playerInfo.type }}</span>
+            </div>
+            <div class="pi-row pi-row-level">
+              <span class="pi-label">等级</span>
+              <span class="pi-value">Lv.{{ playerInfo.level }}</span>
+            </div>
+            <div class="pi-bar-row">
+              <div class="pi-bar-label"><span>经验</span><span>{{ playerInfo.exp }}/{{ playerInfo.upgradeExp }}</span></div>
+              <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
+            </div>
+            <div class="pi-row">
+              <span class="pi-label">❤️ 生命</span>
+              <span class="pi-value">{{ Math.round(playerInfo.hp) }} / {{ Math.round(playerInfo.maxHp) }}</span>
+            </div>
+            <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
+            <div class="pi-row">
+              <span class="pi-label">🛡️ 护盾</span>
+              <span class="pi-value">{{ Math.round(playerInfo.shield) }} / {{ Math.round(playerInfo.maxShield) }}</span>
+            </div>
+            <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
+            <div class="pi-row">
+              <span class="pi-label">🛡️ 装甲</span>
+              <span class="pi-value">{{ Math.round(playerInfo.armor) }} / {{ Math.round(playerInfo.maxArmor) }}</span>
+            </div>
+            <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
+            <div class="pi-stats">
+              <div class="pi-stat"><span>攻击</span><b>{{ Math.round(playerInfo.attack) }}</b></div>
+              <div class="pi-stat"><span>防御</span><b>{{ Math.round(playerInfo.defense) }}</b></div>
+              <div class="pi-stat"><span>速度</span><b>{{ Math.round(playerInfo.speed) }}</b></div>
+              <div class="pi-stat"><span>闪避</span><b>{{ Math.round(playerInfo.dodge) }}</b></div>
+              <div class="pi-stat"><span>命中</span><b>{{ Math.round(playerInfo.hit) }}</b></div>
+              <div class="pi-stat"><span>暴击</span><b>{{ Math.round(playerInfo.crit) }}%</b></div>
+            </div>
+            <div class="pi-row pi-row-loc">
+              <span class="pi-label">📍 位置</span>
+              <span class="pi-location">{{ playerInfo.location }}</span>
+            </div>
+          </div>
+          <div class="player-info" v-else>
+            <div class="pi-row">
+              <span class="pi-label">状态</span>
+              <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 信息 查看</span>
+            </div>
+          </div>
+
+          <!-- 快捷操作按钮 -->
+          <div class="quick-actions">
+            <button class="qa-bag" @click="quickAction('背包')">🎒 背包</button>
+            <button class="qa-info" @click="quickAction('信息')">📋 信息</button>
+            <button class="qa-map" @click="quickAction('地图')">🗺️ 地图</button>
+            <button class="qa-attack" @click="quickAction('攻击')">⚔️ 攻击</button>
+          </div>
+        </div>
+
+        <!-- 地图 Tab：当前地图 + 子区域 + 全部地图 -->
+        <div v-show="sidebarTab === 'map'" class="tab-pane">
+          <div class="map-connections" v-if="mapOverview">
+            <div class="mc-current">
+              📍 {{ mapOverview.currentMap.name }}
+              <span class="mc-detail" v-if="mapOverview.currentMap.monsters || mapOverview.currentMap.resources || mapOverview.currentMap.npcs">
+                怪{{ mapOverview.currentMap.monsters }} · 资{{ mapOverview.currentMap.resources }} · NPC{{ mapOverview.currentMap.npcs }}
+              </span>
+            </div>
+            <div class="mc-block" v-if="mapOverview.subMaps.length">
+              <div class="mc-block-title">子区域</div>
+              <div class="mc-grid">
+                <span
+                  v-for="mc in mapOverview.subMaps"
+                  :key="'sub-' + mc.name"
+                  class="mc-node"
+                  @click="quickAction('go ' + mc.name)"
+                >{{ mc.name }}</span>
+              </div>
+            </div>
+            <div class="mc-block">
+              <div class="mc-block-title mc-fold" @click="allMapsCollapsed = !allMapsCollapsed">
+                <span class="mc-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
+                全部地图（{{ mapOverview.allMaps.length }}）
+              </div>
+              <div class="mc-grid" v-show="!allMapsCollapsed">
+                <span
+                  v-for="mc in mapOverview.allMaps"
+                  :key="'all-' + mc.name"
+                  class="mc-node"
+                  :class="{ current: mc.isCurrent, reachable: mc.isReachable }"
+                  @click="quickAction('go ' + mc.name)"
+                >{{ mc.name }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="map-connections" v-else>
+            <div class="mc-block-title" style="color: var(--muted); font-weight: 400; text-align: center;">地图信息加载中…</div>
+          </div>
+
+          <!-- 附近玩家（也在地图 Tab 中显示） -->
+          <div class="map-connections" v-if="nearbyPlayers.length || nearbyLoaded">
+            <div class="mc-block">
+              <div class="mc-block-title">👥 附近玩家（{{ nearbyPlayers.length }}）</div>
+              <div class="mc-grid" v-if="nearbyPlayers.length">
+                <span
+                  v-for="p in nearbyPlayers"
+                  :key="'subp-' + p.userId"
+                  class="mc-node nearby-node"
+                  :class="{ online: p.online }"
+                  @click="startNearbyPrivateChat(p)"
+                >
+                  {{ p.nickname || p.username }}<em v-if="!p.online">·离线</em>
+                </span>
+              </div>
+              <div class="mc-block-title" v-else style="color: var(--muted); font-weight: 400;">当前区域暂无其他玩家</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 指令 Tab：搜索 + 指令列表（更大空间） -->
+        <div v-show="sidebarTab === 'cmd'" class="tab-pane tab-pane-cmd">
+          <div class="cmd-search-wrapper">
+            <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车发送第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
+            <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
+          </div>
+          <ul class="cmd-list">
+            <li v-for="c in cmdSearchResults" :key="c.name" @click="quickSend(c.name)">
+              <span class="cmd-name">{{ c.name }}</span>
+              <span class="cmd-desc">{{ c.description }}</span>
+            </li>
+            <li v-if="cmdSearchResults.length === 0 && cmdSearch" class="cmd-empty">未匹配到指令</li>
+          </ul>
+          <div class="cmd-stats" v-if="!cmdSearch">共 {{ commands.length }} 条指令</div>
+        </div>
+      </div>
+
+      <!-- 底部固定：状态栏 + 操作按钮 -->
+      <div class="sidebar-footer">
+        <div class="sidebar-status">
+          <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
+          <span class="ss-text">
+            <span class="ss-conn" :class="connected ? 'on' : 'off'">{{ connected ? '已连接' : '未连接' }}</span>
+          </span>
+          <span class="ss-divider"></span>
+          <span class="ss-text">
+            <span class="ss-label">总人数</span>
+            <span class="ss-value">{{ serverStats.totalPlayers }}</span>
+          </span>
+          <span class="ss-divider"></span>
+          <span class="ss-text">
+            <span class="ss-label">在线</span>
+            <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
           </span>
         </div>
-        <!-- 子区域（可前往） -->
-        <div class="mc-block" v-if="mapOverview.subMaps.length">
-          <div class="mc-block-title">子区域</div>
-          <div class="mc-grid">
-            <span
-              v-for="mc in mapOverview.subMaps"
-              :key="'sub-' + mc.name"
-              class="mc-node"
-              @click="quickAction('go ' + mc.name)"
-            >{{ mc.name }}</span>
-          </div>
+        <div class="sidebar-footer-actions">
+          <button v-if="isAdmin" class="logout admin-entry" @click="router.push('/admin')">⚙️ 管理后台</button>
+          <button class="logout" @click="logout">退出</button>
         </div>
-        <!-- 全部地图 -->
-        <div class="mc-block">
-          <div class="mc-block-title mc-fold" @click="allMapsCollapsed = !allMapsCollapsed">
-            <span class="mc-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
-            全部地图（{{ mapOverview.allMaps.length }}）
-          </div>
-          <div class="mc-grid" v-show="!allMapsCollapsed">
-            <span
-              v-for="mc in mapOverview.allMaps"
-              :key="'all-' + mc.name"
-              class="mc-node"
-              :class="{ current: mc.isCurrent, reachable: mc.isReachable }"
-              @click="quickAction('go ' + mc.name)"
-            >{{ mc.name }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 指令列表（可折叠） -->
-      <div class="section cmd-section">
-        <h3 class="cmd-header" @click="cmdCollapsed = !cmdCollapsed">
-          <span class="cmd-toggle">{{ cmdCollapsed ? '▶' : '▼' }}</span>
-          📖 指令列表 <span class="cmd-count">({{ commands.length }})</span>
-        </h3>
-        <ul class="cmd-list" v-show="!cmdCollapsed">
-          <li v-for="c in commands" :key="c.name" @click="quickSend(c.name)">
-            <span class="cmd-name">{{ c.name }}</span>
-            <span class="cmd-desc">{{ c.description }}</span>
-          </li>
-        </ul>
-      </div>
-
-      <button v-if="isAdmin" class="logout admin-entry" @click="router.push('/admin')">⚙️ 管理后台</button>
-      <button class="logout" @click="logout">退出登录</button>
-
-      <!-- 底部状态栏：连接状态 + 总人数 + 在线人数 -->
-      <div class="sidebar-status">
-        <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
-        <span class="ss-text">
-          <span class="ss-conn" :class="connected ? 'on' : 'off'">{{ connected ? '已连接' : '未连接' }}</span>
-        </span>
-        <span class="ss-divider"></span>
-        <span class="ss-text">
-          <span class="ss-label">总人数</span>
-          <span class="ss-value">{{ serverStats.totalPlayers }}</span>
-        </span>
-        <span class="ss-divider"></span>
-        <span class="ss-text">
-          <span class="ss-label">在线</span>
-          <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
-        </span>
       </div>
     </aside>
 
@@ -168,173 +214,186 @@
 
     <!-- 手机端抽屉菜单 -->
     <aside class="mobile-drawer" :class="{ open: mobileMenuOpen }">
-      <div class="user-card" :class="{ 'is-admin': isAdmin }" @click="onAvatarClick" :title="avatarTitle">
-        <div class="avatar">
-          <img v-if="user?.avatar" :src="user.avatar" class="avatar-img" />
-          <span v-else class="avatar-letter">{{ (user?.nickname || user?.username || '?')[0] }}</span>
-        </div>
-        <div>
-          <div class="name">{{ user?.nickname || user?.username }}</div>
-          <div class="meta">@{{ user?.username }}</div>
-        </div>
-      </div>
-
-      <!-- 手机端：QQ 绑定区域 -->
-      <div class="qq-bind">
-        <template v-if="user?.qqNumber && !qqBinding">
-          <span class="qq-bound">✅ 已绑定 QQ: {{ user.qqNumber }}</span>
-          <button class="qq-btn" @click="openQQBind">更换</button>
-        </template>
-        <template v-else>
-          <div class="qq-bind-row">
-            <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
-            <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '绑定中…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
+      <!-- 顶部固定：用户卡片 + QQ 绑定 -->
+      <div class="sidebar-header">
+        <div class="user-card" :class="{ 'is-admin': isAdmin }" @click="onAvatarClick" :title="avatarTitle">
+          <div class="avatar">
+            <img v-if="user?.avatar" :src="user.avatar" class="avatar-img" />
+            <span v-else class="avatar-letter">{{ (user?.nickname || user?.username || '?')[0] }}</span>
           </div>
-          <div v-if="qqError" class="qq-error">{{ qqError }}</div>
-          <div class="qq-tip">绑定后可在QQ群用同号机器人发送“smdz 指令”操作本账号</div>
-        </template>
-      </div>
-
-      <div class="player-info" v-if="playerInfo">
-        <div class="pi-header">
-          <span class="pi-name">{{ playerInfo.name || '冒险者' }}</span>
-          <span class="pi-type" v-if="playerInfo.type">{{ playerInfo.type }}</span>
-        </div>
-        <div class="pi-row">
-          <span class="pi-label">等级</span>
-          <span class="pi-value">Lv.{{ playerInfo.level }}</span>
-        </div>
-        <div class="pi-bar-row">
-          <div class="pi-bar-label"><span>经验</span><span>{{ playerInfo.exp }}/{{ playerInfo.upgradeExp }}</span></div>
-          <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
-        </div>
-        <div class="pi-row">
-          <span class="pi-label">❤️ 生命</span>
-          <span class="pi-value">{{ Math.round(playerInfo.hp) }} / {{ Math.round(playerInfo.maxHp) }}</span>
-        </div>
-        <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
-        <div class="pi-row">
-          <span class="pi-label">🛡️ 护盾</span>
-          <span class="pi-value">{{ Math.round(playerInfo.shield) }} / {{ Math.round(playerInfo.maxShield) }}</span>
-        </div>
-        <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
-        <div class="pi-row">
-          <span class="pi-label">�️ 装甲</span>
-          <span class="pi-value">{{ Math.round(playerInfo.armor) }} / {{ Math.round(playerInfo.maxArmor) }}</span>
-        </div>
-        <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
-        <div class="pi-stats">
-          <div class="pi-stat"><span>攻击</span><b>{{ Math.round(playerInfo.attack) }}</b></div>
-          <div class="pi-stat"><span>防御</span><b>{{ Math.round(playerInfo.defense) }}</b></div>
-          <div class="pi-stat"><span>速度</span><b>{{ Math.round(playerInfo.speed) }}</b></div>
-          <div class="pi-stat"><span>闪避</span><b>{{ Math.round(playerInfo.dodge) }}</b></div>
-          <div class="pi-stat"><span>命中</span><b>{{ Math.round(playerInfo.hit) }}</b></div>
-          <div class="pi-stat"><span>暴击</span><b>{{ Math.round(playerInfo.crit) }}%</b></div>
-        </div>
-        <div class="pi-row pi-row-loc">
-          <span class="pi-label">📍 位置</span>
-          <span class="pi-location">{{ playerInfo.location }}</span>
-        </div>
-      </div>
-      <div class="player-info" v-else>
-        <div class="pi-row">
-          <span class="pi-label">状态</span>
-          <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 信息 查看</span>
-        </div>
-      </div>
-
-      <div class="quick-actions">
-        <button class="qa-bag" @click="mobileMenuOpen = false; quickAction('背包')">🎒 背包</button>
-        <button class="qa-info" @click="mobileMenuOpen = false; quickAction('信息')">📋 信息</button>
-        <button class="qa-map" @click="mobileMenuOpen = false; quickAction('地图')">🗺️ 地图</button>
-        <button class="qa-attack" @click="mobileMenuOpen = false; quickAction('攻击')">⚔️ 攻击</button>
-      </div>
-
-      <div class="map-connections" v-if="mapOverview">
-        <h4>🗺️ 地图总览</h4>
-        <!-- 当前所在地图 -->
-        <div class="mc-current">
-          📍 {{ mapOverview.currentMap.name }}
-          <span class="mc-detail" v-if="mapOverview.currentMap.monsters || mapOverview.currentMap.resources || mapOverview.currentMap.npcs">
-            （怪物{{ mapOverview.currentMap.monsters }} · 资源{{ mapOverview.currentMap.resources }} · NPC{{ mapOverview.currentMap.npcs }}）
-          </span>
-        </div>
-        <!-- 子区域（可前往） -->
-        <div class="mc-block" v-if="mapOverview.subMaps.length">
-          <div class="mc-block-title">子区域</div>
-          <div class="mc-grid">
-            <span v-for="mc in mapOverview.subMaps" :key="'msub-' + mc.name" class="mc-node" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
+          <div class="user-info">
+            <div class="name">{{ user?.nickname || user?.username }}</div>
+            <div class="meta">@{{ user?.username }}</div>
           </div>
+          <span v-if="isAdmin" class="admin-badge">ADMIN</span>
         </div>
-        <!-- 全部地图 -->
-        <div class="mc-block">
-          <div class="mc-block-title mc-fold" @click="allMapsCollapsed = !allMapsCollapsed">
-            <span class="mc-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
-            全部地图（{{ mapOverview.allMaps.length }}）
+
+        <div class="qq-bind">
+          <template v-if="user?.qqNumber && !qqBinding">
+            <span class="qq-bound">✅ QQ {{ user.qqNumber }}</span>
+            <button class="qq-btn" @click="openQQBind">换绑</button>
+          </template>
+          <template v-else>
+            <div class="qq-bind-row">
+              <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
+              <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
+            </div>
+            <div v-if="qqError" class="qq-error">{{ qqError }}</div>
+            <div v-else class="qq-tip">绑后可用 QQ 群机器人操作本账号</div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Tab 切换 -->
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab" :class="{ active: mobileTab === 'me' }" @click="mobileTab = 'me'">
+          <span class="tab-icon">👤</span>我的
+        </button>
+        <button class="sidebar-tab" :class="{ active: mobileTab === 'map' }" @click="mobileTab = 'map'">
+          <span class="tab-icon">🗺️</span>地图
+        </button>
+        <button class="sidebar-tab" :class="{ active: mobileTab === 'cmd' }" @click="mobileTab = 'cmd'">
+          <span class="tab-icon">📖</span>指令
+        </button>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- 我的 Tab -->
+        <div v-show="mobileTab === 'me'" class="tab-pane">
+          <div class="player-info" v-if="playerInfo">
+            <div class="pi-header">
+              <span class="pi-name">{{ playerInfo.name || '冒险者' }}</span>
+              <span class="pi-type" v-if="playerInfo.type">{{ playerInfo.type }}</span>
+            </div>
+            <div class="pi-row pi-row-level">
+              <span class="pi-label">等级</span>
+              <span class="pi-value">Lv.{{ playerInfo.level }}</span>
+            </div>
+            <div class="pi-bar-row">
+              <div class="pi-bar-label"><span>经验</span><span>{{ playerInfo.exp }}/{{ playerInfo.upgradeExp }}</span></div>
+              <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
+            </div>
+            <div class="pi-row">
+              <span class="pi-label">❤️ 生命</span>
+              <span class="pi-value">{{ Math.round(playerInfo.hp) }} / {{ Math.round(playerInfo.maxHp) }}</span>
+            </div>
+            <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
+            <div class="pi-row">
+              <span class="pi-label">🛡️ 护盾</span>
+              <span class="pi-value">{{ Math.round(playerInfo.shield) }} / {{ Math.round(playerInfo.maxShield) }}</span>
+            </div>
+            <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
+            <div class="pi-row">
+              <span class="pi-label">🛡️ 装甲</span>
+              <span class="pi-value">{{ Math.round(playerInfo.armor) }} / {{ Math.round(playerInfo.maxArmor) }}</span>
+            </div>
+            <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
+            <div class="pi-stats">
+              <div class="pi-stat"><span>攻击</span><b>{{ Math.round(playerInfo.attack) }}</b></div>
+              <div class="pi-stat"><span>防御</span><b>{{ Math.round(playerInfo.defense) }}</b></div>
+              <div class="pi-stat"><span>速度</span><b>{{ Math.round(playerInfo.speed) }}</b></div>
+              <div class="pi-stat"><span>闪避</span><b>{{ Math.round(playerInfo.dodge) }}</b></div>
+              <div class="pi-stat"><span>命中</span><b>{{ Math.round(playerInfo.hit) }}</b></div>
+              <div class="pi-stat"><span>暴击</span><b>{{ Math.round(playerInfo.crit) }}%</b></div>
+            </div>
+            <div class="pi-row pi-row-loc">
+              <span class="pi-label">📍 位置</span>
+              <span class="pi-location">{{ playerInfo.location }}</span>
+            </div>
           </div>
-          <div class="mc-grid" v-show="!allMapsCollapsed">
-            <span v-for="mc in mapOverview.allMaps" :key="'mall-' + mc.name" class="mc-node" :class="{ current: mc.isCurrent, reachable: mc.isReachable }" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
+          <div class="player-info" v-else>
+            <div class="pi-row">
+              <span class="pi-label">状态</span>
+              <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 信息 查看</span>
+            </div>
+          </div>
+
+          <div class="quick-actions">
+            <button class="qa-bag" @click="mobileMenuOpen = false; quickAction('背包')">🎒 背包</button>
+            <button class="qa-info" @click="mobileMenuOpen = false; quickAction('信息')">📋 信息</button>
+            <button class="qa-map" @click="mobileMenuOpen = false; quickAction('地图')">🗺️ 地图</button>
+            <button class="qa-attack" @click="mobileMenuOpen = false; quickAction('攻击')">⚔️ 攻击</button>
           </div>
         </div>
-      </div>
 
-      <!-- 手机端附近玩家 -->
-      <div class="map-connections" v-if="nearbyPlayers.length || nearbyLoaded">
-        <h4>👥 附近玩家 ({{ nearbyPlayers.length }})</h4>
-        <div class="mc-grid" v-if="nearbyPlayers.length">
-          <span
-            v-for="p in nearbyPlayers"
-            :key="'mnp-' + p.userId"
-            class="mc-node nearby-node"
-            :class="{ online: p.online }"
-            @click="mobileMenuOpen = false; startNearbyPrivateChat(p)"
-          >
-            {{ p.nickname || p.username }} <em v-if="!p.online">·离线</em>
-          </span>
+        <!-- 地图 Tab -->
+        <div v-show="mobileTab === 'map'" class="tab-pane">
+          <div class="map-connections" v-if="mapOverview">
+            <div class="mc-current">
+              📍 {{ mapOverview.currentMap.name }}
+              <span class="mc-detail" v-if="mapOverview.currentMap.monsters || mapOverview.currentMap.resources || mapOverview.currentMap.npcs">
+                怪{{ mapOverview.currentMap.monsters }} · 资{{ mapOverview.currentMap.resources }} · NPC{{ mapOverview.currentMap.npcs }}
+              </span>
+            </div>
+            <div class="mc-block" v-if="mapOverview.subMaps.length">
+              <div class="mc-block-title">子区域</div>
+              <div class="mc-grid">
+                <span v-for="mc in mapOverview.subMaps" :key="'msub-' + mc.name" class="mc-node" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
+              </div>
+            </div>
+            <div class="mc-block">
+              <div class="mc-block-title mc-fold" @click="allMapsCollapsed = !allMapsCollapsed">
+                <span class="mc-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
+                全部地图（{{ mapOverview.allMaps.length }}）
+              </div>
+              <div class="mc-grid" v-show="!allMapsCollapsed">
+                <span v-for="mc in mapOverview.allMaps" :key="'mall-' + mc.name" class="mc-node" :class="{ current: mc.isCurrent, reachable: mc.isReachable }" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="map-connections" v-if="nearbyPlayers.length || nearbyLoaded">
+            <div class="mc-block">
+              <div class="mc-block-title">👥 附近玩家（{{ nearbyPlayers.length }}）</div>
+              <div class="mc-grid" v-if="nearbyPlayers.length">
+                <span v-for="p in nearbyPlayers" :key="'mnp-' + p.userId" class="mc-node nearby-node" :class="{ online: p.online }" @click="mobileMenuOpen = false; startNearbyPrivateChat(p)">
+                  {{ p.nickname || p.username }}<em v-if="!p.online">·离线</em>
+                </span>
+              </div>
+              <div class="mc-block-title" v-else style="color: var(--muted); font-weight: 400;">当前区域暂无其他玩家</div>
+            </div>
+          </div>
         </div>
-        <div class="mc-block-title" v-else style="color: var(--muted); font-weight: 400;">当前区域暂无其他玩家</div>
-      </div>
 
-      <div class="section cmd-section">
-        <h3 class="cmd-header" @click="cmdCollapsed = !cmdCollapsed">
-          <span class="cmd-toggle">{{ cmdCollapsed ? '▶' : '▼' }}</span>
-          📖 指令列表 <span class="cmd-count">({{ commands.length }})</span>
-        </h3>
-        <div class="cmd-body" v-show="!cmdCollapsed">
-          <!-- 指令搜索 -->
+        <!-- 指令 Tab -->
+        <div v-show="mobileTab === 'cmd'" class="tab-pane tab-pane-cmd">
           <div class="cmd-search-wrapper">
-            <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车选中第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
+            <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车发送第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
             <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
           </div>
           <ul class="cmd-list">
-            <li v-for="c in cmdSearchResults" :key="c.name" @click="mobileMenuOpen = false; quickSend(c.name)">
+            <li v-for="c in cmdSearchResults" :key="'mcmd-' + c.name" @click="mobileMenuOpen = false; quickSend(c.name)">
               <span class="cmd-name">{{ c.name }}</span>
               <span class="cmd-desc">{{ c.description }}</span>
             </li>
             <li v-if="cmdSearchResults.length === 0 && cmdSearch" class="cmd-empty">未匹配到指令</li>
           </ul>
+          <div class="cmd-stats" v-if="!cmdSearch">共 {{ commands.length }} 条指令</div>
         </div>
       </div>
 
-      <button v-if="isAdmin" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
-      <button class="logout" @click="logout">退出登录</button>
-
-      <!-- 手机端底部状态栏 -->
-      <div class="sidebar-status">
-        <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
-        <span class="ss-text">
-          <span class="ss-conn" :class="connected ? 'on' : 'off'">{{ connected ? '已连接' : '未连接' }}</span>
-        </span>
-        <span class="ss-divider"></span>
-        <span class="ss-text">
-          <span class="ss-label">总人数</span>
-          <span class="ss-value">{{ serverStats.totalPlayers }}</span>
-        </span>
-        <span class="ss-divider"></span>
-        <span class="ss-text">
-          <span class="ss-label">在线</span>
-          <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
-        </span>
+      <!-- 底部固定 -->
+      <div class="sidebar-footer">
+        <div class="sidebar-status">
+          <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
+          <span class="ss-text">
+            <span class="ss-conn" :class="connected ? 'on' : 'off'">{{ connected ? '已连接' : '未连接' }}</span>
+          </span>
+          <span class="ss-divider"></span>
+          <span class="ss-text">
+            <span class="ss-label">总人数</span>
+            <span class="ss-value">{{ serverStats.totalPlayers }}</span>
+          </span>
+          <span class="ss-divider"></span>
+          <span class="ss-text">
+            <span class="ss-label">在线</span>
+            <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
+          </span>
+        </div>
+        <div class="sidebar-footer-actions">
+          <button v-if="isAdmin" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
+          <button class="logout" @click="logout">退出</button>
+        </div>
       </div>
     </aside>
 
@@ -354,8 +413,11 @@
             💬 私聊
             <span v-if="unreadPrivateCount > 0" class="unread-badge">{{ unreadPrivateCount > 99 ? '99+' : unreadPrivateCount }}</span>
           </button>
-          <!-- 反馈入口按钮 -->
-          <button class="header-action-btn" title="反馈" @click="toggleFeedbackPanel">📝 反馈</button>
+          <!-- 反馈入口按钮（带未读红点） -->
+          <button class="header-action-btn" title="反馈" @click="toggleFeedbackPanel">
+            📝 反馈
+            <span v-if="unreadFeedbackCount > 0" class="unread-badge">{{ unreadFeedbackCount > 99 ? '99+' : unreadFeedbackCount }}</span>
+          </button>
           <a class="reborn-link" href="http://xx.52shell.ltd" target="_blank" rel="noopener noreferrer">《重生之凡人修仙》</a>
         </div>
       </header>
@@ -604,12 +666,15 @@
                 v-for="t in feedbackTickets"
                 :key="t.id"
                 class="fb-ticket"
-                :class="{ active: currentFeedback?.id === t.id }"
+                :class="{ active: currentFeedback?.id === t.id, 'has-unread': t.unreadCount > 0 }"
                 @click="openFeedbackTicket(t)"
               >
                 <div class="fb-ticket-top">
                   <span class="fb-ticket-title">{{ t.title }}</span>
-                  <span class="fb-ticket-status" :class="'st-' + (t.status || '').toLowerCase()">{{ statusLabel(t.status) }}</span>
+                  <span class="fb-ticket-meta-right">
+                    <span v-if="t.unreadCount > 0" class="fb-unread-dot">{{ t.unreadCount > 99 ? '99+' : t.unreadCount }}</span>
+                    <span class="fb-ticket-status" :class="'st-' + (t.status || '').toLowerCase()">{{ statusLabel(t.status) }}</span>
+                  </span>
                 </div>
                 <div class="fb-ticket-meta">{{ categoryLabel(t.category) }} · {{ formatTime(t.createdAt) }}</div>
               </div>
@@ -725,6 +790,11 @@ const allMapsCollapsed = ref(true);
 
 // 手机端菜单状态
 const mobileMenuOpen = ref(false);
+
+// 桌面端左侧栏 Tab 切换（me=个人/map=地图/cmd=指令）
+const sidebarTab = ref('me');
+// 手机端抽屉 Tab 切换（与桌面端独立，避免互相干扰）
+const mobileTab = ref('me');
 
 // 回到底部按钮
 const showScrollBtn = ref(false);
@@ -1386,6 +1456,8 @@ const fbForm = ref({ title: '', category: 'general', content: '' });
 const fbUploadedUrls = ref([]);
 const feedbackReply = ref('');
 const replyUploadedUrls = ref([]);
+// 未读反馈总数（管理员回复未查看的消息数汇总），用于头部红点展示
+const unreadFeedbackCount = ref(0);
 
 /**
  * 打开/关闭反馈面板
@@ -1407,11 +1479,17 @@ function closeFeedbackPanel() {
 
 /**
  * 加载"我的反馈工单"列表
+ * 同时根据每个工单的 unreadCount 字段汇总头部未读红点
  */
 async function loadFeedbackTickets() {
   try {
     const res = await feedbackApi.mine();
     feedbackTickets.value = res.data || [];
+    // 汇总所有工单中未查看的管理员回复数，作为头部红点显示
+    unreadFeedbackCount.value = feedbackTickets.value.reduce(
+      (sum, t) => sum + (t.unreadCount || 0),
+      0
+    );
   } catch (e) {
     console.error('加载反馈列表失败', e);
     showToast('加载反馈列表失败', 'error');
@@ -1432,10 +1510,15 @@ async function loadFeedbackDetail(id) {
   }
 }
 
-/** 点击工单 → 加载详情 */
-function openFeedbackTicket(ticket) {
+/** 点击工单 → 加载详情（后端在加载时已更新 userLastReadAt） */
+async function openFeedbackTicket(ticket) {
   if (!ticket) return;
-  loadFeedbackDetail(ticket.id);
+  await loadFeedbackDetail(ticket.id);
+  // 后端已更新 userLastReadAt，该工单的未读数变为 0
+  // 重新拉取列表以拿到最新的 unreadCount 并同步刷新头部红点
+  if (ticket.unreadCount > 0) {
+    await loadFeedbackTickets();
+  }
 }
 
 /** 进入新建反馈表单 */
@@ -1628,7 +1711,13 @@ onMounted(async () => {
     const cmds = await commandApi.list();
     commands.value = cmds.data;
     // 加载玩家信息和地图总览
-    await Promise.allSettled([loadPlayerInfo(), loadMapOverview(), loadNearbyPlayers()]);
+    await Promise.allSettled([
+      loadPlayerInfo(),
+      loadMapOverview(),
+      loadNearbyPlayers(),
+      // 反馈列表（含 unreadCount）确保头部红点正确显示
+      loadFeedbackTickets(),
+    ]);
     // 加载服务器统计
     loadServerStats();
     // 每 30 秒刷新一次服务器统计
@@ -1691,10 +1780,19 @@ onMounted(async () => {
     // 反馈：收到新消息（管理员回复时推送给用户）
     socket.on('feedback:message', (data) => {
       if (!data) return;
-      const { feedbackId } = data;
+      const { feedbackId, message: fbMsg } = data;
       // 当前正在查看该工单 → 刷新详情
       if (currentFeedback.value && currentFeedback.value.id === feedbackId) {
         loadFeedbackDetail(feedbackId);
+      }
+      // 管理员回复才计入未读（用户自己发的消息不算）
+      if (fbMsg && fbMsg.senderType === 'admin') {
+        unreadFeedbackCount.value = Math.max(0, (unreadFeedbackCount.value || 0) + 1);
+        // 同步更新对应工单行的未读数字段，便于面板内展示
+        const ticket = feedbackTickets.value.find((t) => t.id === feedbackId);
+        if (ticket) {
+          ticket.unreadCount = (ticket.unreadCount || 0) + 1;
+        }
       }
       // 反馈面板打开 → 刷新列表保持最新
       if (feedbackPanelOpen.value) {
@@ -2067,6 +2165,30 @@ onUnmounted(() => {
 .fb-ticket-status.st-open { background: var(--warning-bg); color: var(--warning); }
 .fb-ticket-status.st-processing { background: var(--info-bg); color: var(--info); }
 .fb-ticket-status.st-closed { background: var(--success-bg); color: var(--success); }
+.fb-ticket.has-unread {
+  border-left: 2px solid var(--danger);
+  background: rgba(239, 68, 68, 0.05);
+}
+.fb-ticket-meta-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+/* 工单列表中的未读小红点（管理员回复未查看） */
+.fb-unread-dot {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  animation: badgePulse 1.5s ease-in-out infinite;
+}
 .fb-ticket-meta {
   margin-top: 3px;
   font-size: 11px;

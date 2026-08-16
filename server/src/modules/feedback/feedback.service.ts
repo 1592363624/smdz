@@ -67,27 +67,60 @@ export class FeedbackService {
 
   /**
    * 获取指定用户的反馈列表（按更新时间倒序）
+   * 同时附带每个工单的未读管理员消息数（用户未查看过的管理员回复）
+   * 未读定义：FeedbackMessage.createdAt > Feedback.userLastReadAt 且 senderType === 'admin'
    */
   async getUserFeedbacks(userId: number) {
-    return this.prisma.feedback.findMany({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        user: { select: { id: true, username: true, nickname: true } },
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1, // 仅带最后一条消息预览
-          include: {
-            sender: { select: { id: true, username: true, nickname: true } },
+    const [list, unreadMap] = await Promise.all([
+      this.prisma.feedback.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          user: { select: { id: true, username: true, nickname: true } },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1, // 最后一条消息预览
+            include: {
+              sender: { select: { id: true, username: true, nickname: true } },
+            },
           },
         },
-      },
-    });
+      }),
+      this.countUnreadByFeedback(userId),
+    ]);
+    return list.map((fb) => ({ ...fb, unreadCount: unreadMap.get(fb.id) || 0 }));
+  }
+
+  /**
+   * 批量统计用户的每个工单中"未读管理员消息数"
+   * 单次 SQL 完成，避免 N+1；返回值 Map<feedbackId, unreadCount>
+   */
+  async countUnreadByFeedback(userId: number): Promise<Map<number, number>> {
+    // 用原生 SQL 一次性 JOIN 统计：未读 = userLastReadAt 之后由 admin 发送的消息数
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{ feedbackId: number; cnt: number | bigint }>
+    >(
+      `SELECT f.id AS feedbackId,
+              (SELECT COUNT(*) FROM FeedbackMessage m
+                 WHERE m.feedbackId = f.id
+                   AND m.senderType = 'admin'
+                   AND m.createdAt > f.userLastReadAt) AS cnt
+         FROM Feedback f
+        WHERE f.userId = ?`,
+      userId,
+    );
+    const map = new Map<number, number>();
+    for (const r of rows) {
+      map.set(r.feedbackId, Number(r.cnt) || 0);
+    }
+    return map;
   }
 
   /**
    * 获取单个反馈工单详情（含完整消息列表）
    * 仅限工单所有者或管理员查看
+   * 副作用：当查看者为工单所有者时，自动更新其 userLastReadAt 为当前时间，
+   *       用于下次 getUserFeedbacks 时不再把这次已看的管理员消息算作未读
    */
   async getFeedbackDetail(feedbackId: number, userId: number, userRole: string) {
     const feedback = await this.prisma.feedback.findUnique({
@@ -106,6 +139,14 @@ export class FeedbackService {
     // 权限校验：仅本人或管理员可查看
     if (feedback.userId !== userId && !['ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
       throw new ForbiddenException('无权查看此反馈工单');
+    }
+    // 工单所有者查看 → 更新最后已读时间（管理员视角不更新，避免污染用户未读统计）
+    if (feedback.userId === userId) {
+      await this.prisma.feedback.update({
+        where: { id: feedbackId },
+        data: { userLastReadAt: new Date() },
+      });
+      feedback.userLastReadAt = new Date();
     }
     return feedback;
   }

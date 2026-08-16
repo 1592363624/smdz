@@ -54,6 +54,7 @@ const DATA_FILES = {
   flavorTexts: 'flavor-texts.json',
   updateLogs: 'update-logs.json',
   vehiclesParts: 'vehicles.json',
+  maps: 'maps.json',
 } as const;
 
 type DataKey = keyof typeof DATA_FILES;
@@ -281,5 +282,22 @@ export class StaticDataService {
 
   getAllUpdateLogs(): any[] {
     return this.loadRaw('updateLogs');
+  }
+
+  // ============ 地图（静态定义，动态状态仍走 DB） ============
+
+  /** 按 ID 获取地图静态定义（maps.json 中 mapIndex 作为 ID） */
+  getMapById(mapId: number): any | undefined {
+    return this.loadRaw('maps').find((m) => m?.id === mapId || m?.mapIndex === mapId);
+  }
+
+  /** 按名称获取地图静态定义 */
+  getMapByName(name: string): any | undefined {
+    return this.loadRaw('maps').find((m) => m?.name === name);
+  }
+
+  /** 获取全部地图静态定义 */
+  getAllMaps(): any[] {
+    return this.loadRaw('maps');
   }
 }

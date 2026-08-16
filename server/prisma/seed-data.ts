@@ -49,12 +49,65 @@ async function upsertMany(
   return ok;
 }
 
+/**
+ * 只导入地图的动态字段到 DB（静态字段由 StaticDataService 从 maps.json 读取）
+ * DB 中只存储 name（唯一键）、mapIndex（排序）和运行时动态字段。
+ * 运行时动态字段包含：
+ *   - 完全动态：spawnMonsters, tempMonsters, summons, markers, markers2
+ *   - 半动态（JSON 初始值，运行时可变）：npcs, buildings, vehicles, items, monsters, connections, resources, resources2
+ * 首次导入时，半动态字段从 JSON 取初始值；后续更新时保留 DB 中的运行时状态。
+ */
+async function seedMapDynamicFields(): Promise<number> {
+  const maps = loadData('maps.json');
+  let ok = 0;
+
+  for (const row of maps) {
+    const name = (row as any).name;
+    if (!name) continue;
+
+    // 从 JSON 中提取半动态字段的初始值（首次创建时使用）
+    const semiDynamicFields: Record<string, any> = {};
+    for (const field of ['npcs', 'buildings', 'vehicles', 'items', 'monsters', 'connections', 'resources', 'resources2']) {
+      if (row[field] !== undefined && row[field] !== null) {
+        semiDynamicFields[field] = row[field];
+      }
+    }
+
+    try {
+      // 使用 upsert：create 时写入 name/mapIndex + 半动态字段初始值；update 时只更新 name/mapIndex
+      await prisma.gameMap.upsert({
+        where: { name },
+        create: {
+          name,
+          mapIndex: (row as any).mapIndex ?? 0,
+          // 完全动态字段初始化为空
+          spawnMonsters: '[]',
+          tempMonsters: '[]',
+          summons: '[]',
+          markers: '{}',
+          markers2: '{}',
+          // 半动态字段从 JSON 取初始值
+          ...semiDynamicFields,
+        },
+        // update 时只同步 name/mapIndex，保留运行时动态状态
+        update: {
+          name,
+          mapIndex: (row as any).mapIndex ?? 0,
+        },
+      });
+      ok++;
+    } catch (err) {
+      console.error(`❌ 地图导入失败: [${name}]`, (err as Error).message);
+    }
+  }
+  return ok;
+}
+
 async function importDynamicData() {
   console.log('🚀 开始导入游戏动态数据（来源: prisma/data/*.json）...\n');
 
-  // 1. 地图（动态状态表：spawnMonsters/resources2 等运行时刷新字段在 DB 持久化）
-  const maps = loadData('maps.json');
-  const mapCount = await upsertMany(prisma.gameMap, maps);
+  // 1. 地图（动态状态表：只写入 name/mapIndex + 动态字段初始值）
+  const mapCount = await seedMapDynamicFields();
   console.log(`   ✅ 地图: ${mapCount}`);
 
   // 2. 载具（动态实例表：玩家拥有的载具 owner/driver/currentHp 在 DB 持久化）

@@ -1488,6 +1488,7 @@ export class GameService {
         // 对应原版 _主程序.ecode L9777~L9795：设置标记「召唤白」
         markers['召唤白'] = 1;
         player.markers = JSON.stringify(markers);
+        delete player.backpack; // 防止 savePlayer 用旧背包数据覆盖数据库
         await this.playerService.savePlayer(player);
         specialText = '这里是哪里？\n(随着休眠仓被打开，锁着的门似乎也跟着一起解开了)';
         this.logger.log(`玩家 ${userId} 唤醒了白`);
@@ -1501,14 +1502,15 @@ export class GameService {
     const outputs = Array.isArray(target.outputs) ? target.outputs : this.playerService.safeJsonParse<any[]>(target.outputs, []);
     for (const out of outputs) {
       if (!out.name) continue;
-      // 解析产出名中的数量后缀（如 "钻石3" → 钻石 ×3）；无后缀则使用 count 字段
-      const m = /^(.+?)(\d+)$/.exec(String(out.name));
-      const itemName = m ? m[1] : String(out.name);
-      const outCount = m ? parseInt(m[2], 10) : (Math.abs(Number(out.count)) || 1);
+      // JSON 格式中 name 和 count 已分离，直接使用 count 字段作为数量
+      const itemName = String(out.name);
+      const outCount = Math.abs(Number(out.count)) || 1;
       if (itemName === '电力') continue; // 电力是产出速率类，不直接入包
       await this.playerService.addToBackpack(userId, itemName, outCount);
       gained.push(`${itemName}×${outCount}`);
     }
+    // addToBackpack 已直接写入数据库，删除 player.backpack 防止后续 savePlayer 用旧数据覆盖
+    delete player.backpack;
 
     // 限次资源（times>0）：扣减次数，用尽后从地图移除
     if (target.times && target.times > 0) {
@@ -6651,10 +6653,7 @@ export class GameService {
    * @param buildingsJson 建筑数据JSON字符串
    */
   async updateMapBuildings(mapId: number, buildingsJson: string): Promise<void> {
-    await this.prisma.gameMap.update({
-      where: { id: mapId },
-      data: { buildings: buildingsJson },
-    });
+    await this.mapService.updateDynamicFields(mapId, { buildings: buildingsJson });
   }
 
   /**

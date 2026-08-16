@@ -575,10 +575,8 @@ export class HomeService {
     // 获取目标地图的名称
     const targetMapName = connections[targetMapIndex].name;
 
-    // 从数据库查找目标地图
-    const targetMap = await this.prisma.gameMap.findUnique({
-      where: { name: targetMapName },
-    });
+    // 从 MapService 获取合并后的目标地图（静态 JSON + 动态 DB）
+    const targetMap = await this.mapService.getMapByName(targetMapName).catch(() => null);
 
     if (!targetMap) {
       return [];

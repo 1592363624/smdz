@@ -8,6 +8,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
+import { MapService } from './map.service';
 
 /**
  * 玩家数据完整解析后的结构
@@ -32,6 +33,7 @@ export class PlayerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly staticData: StaticDataService,
+    private readonly mapService: MapService,
   ) {}
 
   /**
@@ -65,9 +67,9 @@ export class PlayerService {
    * @returns 出生地图对象（可能为 null）
    */
   private async resolveStartMap(): Promise<any> {
-    return (await this.prisma.gameMap.findFirst({ where: { name: '新手村' } }))
-      || (await this.prisma.gameMap.findFirst({ where: { name: '医疗室' } }))
-      || (await this.prisma.gameMap.findFirst({ orderBy: { id: 'asc' } }));
+    return (await this.mapService.getMapByName('新手村').catch(() => null))
+      || (await this.mapService.getMapByName('医疗室').catch(() => null))
+      || (await this.mapService.getAllMaps().then(maps => maps[0]));
   }
 
   /**
@@ -294,10 +296,7 @@ export class PlayerService {
     // 根据 mapId 查询地图名称
     let mapName = player.location || '未知区域';
     try {
-      const gameMap = await this.prisma.gameMap.findUnique({
-        where: { id: player.mapId },
-        select: { name: true },
-      });
+      const gameMap = await this.mapService.getMapById(player.mapId).catch(() => null);
       if (gameMap) {
         mapName = gameMap.name;
       }

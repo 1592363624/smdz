@@ -313,15 +313,16 @@ model PrivateMessage {
 
 /// 反馈工单表：一个用户可提交多条反馈，管理员可查看与回复
 model Feedback {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String   @db.Text                          // 反馈标题
-  category  String   @default("general")    // 分类：bug/suggestion/general/other
-  status    String   @default("OPEN")       // 状态：OPEN/PROCESSING/RESOLVED/CLOSED
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  messages  FeedbackMessage[]
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String   @db.Text                          // 反馈标题
+  category      String   @default("general")    // 分类：bug/suggestion/general/other
+  status        String   @default("OPEN")       // 状态：OPEN/PROCESSING/RESOLVED/CLOSED
+  userLastReadAt DateTime @default(dbgenerated("('1970-01-01 00:00:00')"))  // 用户最后一次查看工单详情时间，用于计算未读管理员消息数
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  messages      FeedbackMessage[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])

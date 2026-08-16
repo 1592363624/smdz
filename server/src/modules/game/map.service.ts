@@ -2,6 +2,13 @@
  * 地图服务
  * 对应原版易语言：地图操作.ecode
  * 负责地图管理、移动、资源刷新等
+ *
+ * 架构说明（静态/动态分离）：
+ * - 静态字段（name, description, connections, npcs, monsters, items, buildings, vehicles,
+ *   requireMarkers, mapBuffs 等）从 StaticDataService 读取 maps.json，无需 seed。
+ * - 动态字段（spawnMonsters, tempMonsters, summons, resources, resources2, markers, markers2）
+ *   仍在数据库 GameMap 表中，用于存储运行时状态。
+ * - getMapById / getMapByName 会自动合并静态定义 + 动态状态后返回。
  */
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -74,6 +81,21 @@ export interface TravelCheckResult {
   reason?: string;
 }
 
+/**
+ * 动态地图状态字段（仅存储在 DB 中，运行时可变）
+ * - 完全动态：spawnMonsters, tempMonsters, summons, markers, markers2
+ * - 半动态（JSON 提供初始值，DB 存储运行时修改）：
+ *   npcs, buildings, vehicles, items, monsters, connections, resources, resources2
+ *   运行时 NPC 增减、建筑建造/拆除、载具生成/移除、怪物模板变更、连接增删、资源采集次数等
+ *   都会修改这些字段，因此 DB 中的值优先于 JSON 静态定义。
+ */
+const DYNAMIC_MAP_FIELDS = [
+  'spawnMonsters', 'tempMonsters', 'summons',
+  'resources', 'resources2', 'markers', 'markers2',
+  'npcs', 'buildings', 'vehicles', 'items', 'monsters', 'connections',
+  'mapBuffs',
+];
+
 @Injectable()
 export class MapService {
   private readonly logger = new Logger(MapService.name);
@@ -119,35 +141,72 @@ export class MapService {
   }
 
   /**
-   * 获取所有地图列表
+   * 合并静态地图定义（来自 JSON）和动态运行时状态（来自 DB）
+   * 静态字段为基础，动态字段覆盖。
+   */
+  private mergeMap(staticMap: any, dbMap: any): any {
+    // 静态定义作为基础
+    const merged = { ...staticMap };
+
+    // DB 的 id 覆盖 JSON 的 mapIndex（运行时使用 DB 自增 id）
+    if (dbMap.id !== undefined) merged.id = dbMap.id;
+
+    // 动态字段：DB 中有值则覆盖，否则保留静态定义
+    for (const field of DYNAMIC_MAP_FIELDS) {
+      if (dbMap[field] !== undefined && dbMap[field] !== null) {
+        merged[field] = dbMap[field];
+      }
+    }
+
+    return merged;
+  }
+
+  /**
+   * 获取所有地图列表（合并静态定义 + 动态状态）
    */
   async getAllMaps(): Promise<any[]> {
-    return this.prisma.gameMap.findMany({
+    const staticMaps = this.staticData.getAllMaps();
+    const dbMaps = await this.prisma.gameMap.findMany({
       orderBy: { mapIndex: 'asc' },
     });
+    // 按 name 建立 DB 动态状态索引
+    const dbMapByName = new Map<string, any>();
+    for (const db of dbMaps) {
+      dbMapByName.set(db.name, db);
+    }
+    return staticMaps.map((sm) => this.mergeMap(sm, dbMapByName.get(sm.name) || {}));
   }
 
   /**
-   * 根据ID获取地图
+   * 根据ID获取地图（合并静态定义 + 动态状态）
    */
   async getMapById(mapId: number): Promise<any> {
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
-    if (!map) {
-      // 容错：玩家可能处于一个已不存在/未对齐的地图ID(如初始硬编码值)，返回 null 交由调用方处理
-      return null;
+    // 先读 DB 获取 name（用于匹配静态 JSON）+ 动态字段
+    const dbMap = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    if (!dbMap) return null;
+
+    // 从静态 JSON 获取完整定义
+    const staticMap = this.staticData.getMapByName(dbMap.name);
+    if (!staticMap) {
+      // 容错：静态 JSON 中不存在但 DB 有，直接返回 DB 数据
+      this.logger.warn(`地图「${dbMap.name}」在静态 JSON 中未找到，回退到 DB 数据`);
+      return dbMap;
     }
-    return map;
+
+    return this.mergeMap(staticMap, dbMap);
   }
 
   /**
-   * 根据名称获取地图
+   * 根据名称获取地图（合并静态定义 + 动态状态）
    */
   async getMapByName(name: string): Promise<any> {
-    const map = await this.prisma.gameMap.findUnique({ where: { name } });
-    if (!map) {
+    const staticMap = this.staticData.getMapByName(name);
+    if (!staticMap) {
       throw new NotFoundException(`地图「${name}」不存在`);
     }
-    return map;
+
+    const dbMap = await this.prisma.gameMap.findUnique({ where: { name } });
+    return this.mergeMap(staticMap, dbMap || {});
   }
 
   /**
@@ -172,8 +231,6 @@ export class MapService {
    */
   checkCanTravel(currentMap: any, targetMap: any, player: any): TravelCheckResult {
     // 1. 检查目标地图是否禁止前往
-    // 提示文案改为更通用的"无法直接前往"，
-    // 避免在普通移动/前往场景下让玩家误以为是传送技能问题。
     if (targetMap.noTeleport) {
       return { canTravel: false, reason: '该地图无法直接前往' };
     }
@@ -194,15 +251,12 @@ export class MapService {
     const connections = this.getConnections(currentMap);
     const targetConn = connections.find((c) => c.mapId === targetMap.id || c.name === targetMap.name);
     if (!targetConn) {
-      // 如果能直接通过名称找到目标地图且没有距离限制，也允许
-      // 这里保持宽松，上层逻辑可进一步限制
       return { canTravel: true };
     }
 
     // 4. 检查目标地图的 requiredTravel 需求
     if (targetMap.requiredTravel > 0) {
       const playerMarkers: Record<string, any> = this.safeParseJSON(player.markers, {});
-      // requiredTravel: 1=飞行, 2=传送, 3=跃迁
       const travelMarkerKey = `travel_${targetMap.requiredTravel}`;
       if (!(travelMarkerKey in playerMarkers)) {
         const travelTypeMap: Record<number, string> = { 1: '飞行', 2: '传送', 3: '跃迁' };
@@ -223,7 +277,6 @@ export class MapService {
    * @param playerSpeed 玩家速度
    */
   calcTravelTime(distance: number, playerSpeed: number): number {
-    // 基础时间 = 距离 / 速度 * 系数，最低 1 秒
     const baseTime = distance > 0 && playerSpeed > 0 ? (distance / playerSpeed) * 10 : 5;
     return Math.max(1, Math.ceil(baseTime));
   }
@@ -233,7 +286,8 @@ export class MapService {
    * 根据地图配置和世界等级生成怪物
    */
   async refreshMapMonsters(mapId: number): Promise<void> {
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    // 获取静态定义（用于 monsters 模板和 monsterCount）
+    const map = await this.getMapById(mapId);
     if (!map) {
       throw new NotFoundException(`地图 ID=${mapId} 不存在，无法刷新怪物`);
     }
@@ -254,15 +308,11 @@ export class MapService {
 
     const monsters: MapMonster[] = [];
     for (let i = 0; i < count; i++) {
-      // 如果存在模板则随机选取，否则生成默认怪物
       if (monsterNames.length > 0) {
         const name = monsterNames[Math.floor(Math.random() * monsterNames.length)];
-        // 优先使用怪物定义的完整数据（含三层池 shield/armor 与掉落表），查不到才用默认
         const def = monsterDefs[name];
         const shield = def?.shield || 0;
         const armor = def?.armor || 0;
-        // 解析怪物掉落表：原版怪物 bonus 内含 drops:[{name,count,chance}]，chance 为百分比
-        // 此处转换为 combat 层 generateDrops 期望的 dropTable:[{name,quantity,rate}]，rate 同为百分比
         const defBonus = def?.bonus ? this.safeParseJSON<any>(def.bonus, {}) : {};
         const dropTable: Array<{ name: string; quantity: number; rate: number }> = Array.isArray(defBonus.drops)
           ? defBonus.drops
@@ -291,11 +341,9 @@ export class MapService {
           hit: def?.hit || 85,
           exp: defBonus.经验 || 10,
           isElite: def?.type === '精英' || false,
-          // 携带掉落表（原版掉落由怪物 bonus.drops 驱动）
           dropTable,
         });
       } else {
-        // 默认怪物
         monsters.push({
           id: `monster_${mapId}_${i}_${randomUUID()}`,
           name: '野怪',
@@ -344,7 +392,6 @@ export class MapService {
    * 从 spawnMonsters 或 tempMonsters 中移除指定怪物
    */
   removeMapMonster(map: any, monsterId: string): void {
-    // 注意：此处只操作内存中的 map 对象，持久化由调用方负责
     const spawnMonsters: MapMonster[] = this.safeParseJSON(map.spawnMonsters, []);
     const tempMonsters: MapMonster[] = this.safeParseJSON(map.tempMonsters, []);
 
@@ -357,7 +404,7 @@ export class MapService {
    * 定时刷新可采集资源
    */
   async refreshMapResources(mapId: number): Promise<void> {
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    const map = await this.getMapById(mapId);
     if (!map) {
       throw new NotFoundException(`地图 ID=${mapId} 不存在，无法刷新资源`);
     }
@@ -369,16 +416,14 @@ export class MapService {
       return;
     }
 
-    // 为每个资源模板生成一个实例
     const refreshedResources = resourceTemplates.map((tpl: any, idx: number) => ({
       id: `resource_${mapId}_${idx}_${Date.now()}`,
       name: tpl.name || '未知资源',
       type: tpl.type || '普通',
       amount: tpl.amount || 1,
-      respawnTime: tpl.respawnTime || 300, // 默认5分钟刷新
+      respawnTime: tpl.respawnTime || 300,
     }));
 
-    // 同时保留原始的 resources（不可采集/固定资源）不变
     const resources: any[] = this.safeParseJSON(map.resources, []);
 
     await this.prisma.gameMap.update({
@@ -390,6 +435,25 @@ export class MapService {
     });
 
     this.logger.log(`地图 ${map.name} 刷新了 ${refreshedResources.length} 个可采集资源`);
+  }
+
+  /**
+   * 更新地图动态字段（仅写 DB，不影响静态 JSON）
+   */
+  async updateDynamicFields(mapId: number, data: Record<string, any>): Promise<void> {
+    // 只允许更新动态字段
+    const updateData: Record<string, any> = {};
+    for (const field of DYNAMIC_MAP_FIELDS) {
+      if (data[field] !== undefined) {
+        updateData[field] = data[field];
+      }
+    }
+    if (Object.keys(updateData).length === 0) return;
+
+    await this.prisma.gameMap.update({
+      where: { id: mapId },
+      data: updateData,
+    });
   }
 
   /**

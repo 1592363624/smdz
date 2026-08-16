@@ -134,7 +134,7 @@ export class ScheduleService {
   @Cron('0 */10 * * * *') // 每10分钟
   async refreshMapResources() {
     try {
-      const maps = await this.prisma.gameMap.findMany();
+      const maps = await this.mapService.getAllMaps();
       for (const map of maps) {
         await this.mapService.refreshMapResources(map.id);
       }
@@ -151,9 +151,8 @@ export class ScheduleService {
   @Cron('0 * * * * *') // 每分钟
   async respawnMonsters() {
     try {
-      const maps = await this.prisma.gameMap.findMany({
-        where: { monsterCount: { gt: 0 } },
-      });
+      const allMaps = await this.mapService.getAllMaps();
+      const maps = allMaps.filter((m: any) => m.monsterCount > 0);
 
       for (const map of maps) {
         const spawnMonsters = JSON.parse(map.spawnMonsters || '[]');
@@ -340,13 +339,10 @@ export class ScheduleService {
         if (keptTemp.length !== tempMonsters.length) changed = true;
 
         if (changed) {
-          await this.prisma.gameMap.update({
-            where: { id: map.id },
-            data: {
-              npcs: JSON.stringify(keptNpcs),
-              summons: JSON.stringify(keptSummons),
-              tempMonsters: JSON.stringify(keptTemp),
-            },
+          await this.mapService.updateDynamicFields(map.id, {
+            npcs: JSON.stringify(keptNpcs),
+            summons: JSON.stringify(keptSummons),
+            tempMonsters: JSON.stringify(keptTemp),
           });
           cleaned++;
         }
@@ -374,9 +370,8 @@ export class ScheduleService {
         title: '流浪商人',
         description: '兜售各种物品的商人',
       });
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { npcs: JSON.stringify(npcs) },
+      await this.mapService.updateDynamicFields(map.id, {
+        npcs: JSON.stringify(npcs),
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了行商`);
     } catch (err: any) {
@@ -421,9 +416,8 @@ export class ScheduleService {
         markers: {},
         vehicle: '',
       });
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { summons: JSON.stringify(summons) },
+      await this.mapService.updateDynamicFields(map.id, {
+        summons: JSON.stringify(summons),
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了 ${petName}（现有 ${currentCount + 1}/${limit}）`);
     } catch (err: any) {
@@ -436,9 +430,10 @@ export class ScheduleService {
    * @param petName 宠物名称
    */
   private async countSpecialPet(petName: string): Promise<number> {
-    const maps = await this.prisma.gameMap.findMany({ select: { summons: true } });
+    const maps = await this.mapService.getAllMaps();
+    const mapsWithSummons = maps.map((m: any) => ({ summons: m.summons }));
     let count = 0;
-    for (const m of maps) {
+    for (const m of mapsWithSummons) {
       const summons = this.parseJsonArray<any>(m.summons);
       count += summons.filter((s: any) => s.name === petName).length;
     }
@@ -470,9 +465,8 @@ export class ScheduleService {
         markers: {},
         vehicle: '',
       });
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { summons: JSON.stringify(summons) },
+      await this.mapService.updateDynamicFields(map.id, {
+        summons: JSON.stringify(summons),
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了露娜`);
     } catch (err: any) {
@@ -510,9 +504,8 @@ export class ScheduleService {
         });
       }
 
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { npcs: JSON.stringify(npcs) },
+      await this.mapService.updateDynamicFields(map.id, {
+        npcs: JSON.stringify(npcs),
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了神之工匠、小雫`);
     } catch (err: any) {
@@ -547,9 +540,8 @@ export class ScheduleService {
         exp: 50,
         isElite: false,
       });
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { tempMonsters: JSON.stringify(tempMonsters) },
+      await this.mapService.updateDynamicFields(map.id, {
+        tempMonsters: JSON.stringify(tempMonsters),
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了小恶魔`);
     } catch (err: any) {
@@ -578,9 +570,8 @@ export class ScheduleService {
         type: '资源',
         data: 'a',
       });
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { items: JSON.stringify(items) },
+      await this.mapService.updateDynamicFields(map.id, {
+        items: JSON.stringify(items),
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了特殊物品小蓝`);
     } catch (err: any) {
@@ -627,9 +618,8 @@ export class ScheduleService {
         builtinParts: [],
         bonus: {},
       });
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { vehicles: JSON.stringify(vehicles) },
+      await this.mapService.updateDynamicFields(map.id, {
+        vehicles: JSON.stringify(vehicles),
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了无主载具「${name}」`);
     } catch (err: any) {
@@ -695,7 +685,7 @@ export class ScheduleService {
    * @param resource 资源对象 { name, type, amount, respawnTime? }
    */
   private async addOrIncrementResource(mapId: number, resource: any): Promise<void> {
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    const map = await this.mapService.getMapById(mapId);
     if (!map) return;
 
     const resources2 = this.parseJsonArray<any>(map.resources2);
@@ -708,9 +698,8 @@ export class ScheduleService {
         ...resource,
       });
     }
-    await this.prisma.gameMap.update({
-      where: { id: mapId },
-      data: { resources2: JSON.stringify(resources2) },
+    await this.mapService.updateDynamicFields(mapId, {
+      resources2: JSON.stringify(resources2),
     });
   }
 
@@ -743,9 +732,8 @@ export class ScheduleService {
       crop.id = `crop_${map.id}_${this.genId()}`;
       resources2.push(crop);
 
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { resources2: JSON.stringify(resources2) },
+      await this.mapService.updateDynamicFields(map.id, {
+        resources2: JSON.stringify(resources2),
       });
       this.logger.log(`掉落货舱: 在地图 ${map.name} 生成了作物「${crop.name}」`);
     } catch (err: any) {
@@ -806,9 +794,8 @@ export class ScheduleService {
           distance: 100,
         });
 
-        await this.prisma.gameMap.update({
-          where: { id: map.id },
-          data: { connections: JSON.stringify(keptConnections) },
+        await this.mapService.updateDynamicFields(map.id, {
+          connections: JSON.stringify(keptConnections),
         });
         this.logger.log(`生成副本: 地图 ${map.name} 添加了副本入口「${name}(副本)」`);
       }
@@ -874,9 +861,8 @@ export class ScheduleService {
       }
 
       // ----- 清理地图过期刷新标记（刷新怪物/刷新资源等，对应原版刷新标记逻辑） -----
-      const maps = await this.prisma.gameMap.findMany({
-        select: { id: true, markers2: true },
-      });
+      const allMapsForCleanup = await this.mapService.getAllMaps();
+      const maps = allMapsForCleanup.map((m: any) => ({ id: m.id, markers2: m.markers2 }));
 
       let cleanedMaps = 0;
       for (const map of maps) {
@@ -886,9 +872,8 @@ export class ScheduleService {
           return BigInt(m.expireAt) > now;
         });
         if (validMapMarkers2.length !== mapMarkers2.length) {
-          await this.prisma.gameMap.update({
-            where: { id: map.id },
-            data: { markers2: JSON.stringify(validMapMarkers2) },
+          await this.mapService.updateDynamicFields(map.id, {
+            markers2: JSON.stringify(validMapMarkers2),
           });
           cleanedMaps++;
         }
@@ -916,7 +901,7 @@ export class ScheduleService {
    * 获取可刷特殊事件的地图列表（排除开拓地/关卡/不刷特殊）
    */
   private async getSpawnableMaps(): Promise<any[]> {
-    const maps = await this.prisma.gameMap.findMany();
+    const maps = await this.mapService.getAllMaps();
     return maps.filter((m: any) => !m.isFrontier && !m.isInstance && !m.noSpecial);
   }
 
@@ -930,9 +915,11 @@ export class ScheduleService {
 
   /**
    * 安全解析 JSON 数组，解析失败返回空数组
-   * @param jsonStr JSON 字符串
+   * 兼容 JSON 字符串和已解析的数组（来自 mapService.getAllMaps 返回的合并数据）
+   * @param jsonStr JSON 字符串或已解析的数组
    */
-  private parseJsonArray<T>(jsonStr: string): T[] {
+  private parseJsonArray<T>(jsonStr: string | T[]): T[] {
+    if (Array.isArray(jsonStr)) return jsonStr;
     try {
       const value = JSON.parse(jsonStr || '[]');
       return Array.isArray(value) ? value : [];

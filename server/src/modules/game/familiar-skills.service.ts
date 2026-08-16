@@ -285,15 +285,12 @@ export class FamiliarSkillsService {
    * @param buff 增益数据（name/value/duration/expireAt/source）
    */
   private async applyMapBuff(mapId: number, buff: Record<string, any>): Promise<void> {
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    const map = await this.mapService.getMapById(mapId);
     if (!map) return;
     const mapBuffs: any[] = this.safeParse(map.mapBuffs, []);
     const filtered = mapBuffs.filter((b: any) => b.name !== buff.name);
     filtered.push({ ...buff, source: buff.source || 'familiarSkill', mapId });
-    await this.prisma.gameMap.update({
-      where: { id: mapId },
-      data: { mapBuffs: JSON.stringify(filtered) },
-    });
+    await this.mapService.updateDynamicFields(mapId, { mapBuffs: JSON.stringify(filtered) });
   }
 
   /**
@@ -306,7 +303,7 @@ export class FamiliarSkillsService {
    * @returns 逐怪物麻醉文本行
    */
   private async applyMapMonstersAnesthesia(mapId: number, playerLevel: number, skillLevel: number): Promise<string[]> {
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    const map = await this.mapService.getMapById(mapId);
     if (!map) return [];
     const monsters: any[] = this.safeParse(map.spawnMonsters, []);
     if (monsters.length === 0) return ['（当前地图没有可麻醉的常驻怪物）'];
@@ -330,10 +327,7 @@ export class FamiliarSkillsService {
         lines.push(`${m.name}麻醉+${add}（${next}/${maxAnes}）`);
       }
     }
-    await this.prisma.gameMap.update({
-      where: { id: mapId },
-      data: { spawnMonsters: JSON.stringify(monsters) },
-    });
+    await this.mapService.updateDynamicFields(mapId, { spawnMonsters: JSON.stringify(monsters) });
     return lines;
   }
 
@@ -345,7 +339,7 @@ export class FamiliarSkillsService {
    * @returns 友方召唤物名称数组
    */
   private async getAllySummons(mapId: number, ownerId: string): Promise<string[]> {
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    const map = await this.mapService.getMapById(mapId);
     if (!map) return [];
     const summons: any[] = this.safeParse(map.tempMonsters, []);
     return summons
@@ -362,7 +356,7 @@ export class FamiliarSkillsService {
    * @param next 下次攻击标记
    */
   private async applySummonNextAttack(mapId: number, summonName: string, next: Record<string, any>): Promise<void> {
-    const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+    const map = await this.mapService.getMapById(mapId);
     if (!map) return;
     const summons: any[] = this.safeParse(map.tempMonsters, []);
     const found = summons.find((s: any) => s.name === summonName);
@@ -370,10 +364,7 @@ export class FamiliarSkillsService {
     const sbuffs: any[] = this.safeParse(found.buffs, []);
     sbuffs.push({ name: '下次攻击·标记', expireAt: Math.floor(Date.now() / 1000) + 3600, ...next });
     found.buffs = JSON.stringify(sbuffs);
-    await this.prisma.gameMap.update({
-      where: { id: mapId },
-      data: { tempMonsters: JSON.stringify(summons) },
-    });
+    await this.mapService.updateDynamicFields(mapId, { tempMonsters: JSON.stringify(summons) });
   }
 
   /**
@@ -1947,7 +1938,7 @@ export class FamiliarSkillsService {
 
     // 真实机制：将当前地图中名为 target 的怪物标记为「混乱」状态
     // 混乱的怪物攻击时有几率攻击友方/自身（此处简化为标记混乱增益，持续一段时间）
-    const map = await this.prisma.gameMap.findUnique({ where: { id: player.mapId } });
+    const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上';
     const monsters: any[] = this.safeParse(map.spawnMonsters, []);
     const targetMonster = monsters.find((m: any) => m.name === target);
@@ -1958,10 +1949,7 @@ export class FamiliarSkillsService {
     mbuffs.push({ name: '混乱', expireAt: Math.floor(Date.now() / 1000) + 3600 });
     targetMonster.buffs = JSON.stringify(mbuffs);
     targetMonster.bonus = JSON.stringify({ ...this.safeParse(targetMonster.bonus, {}), 混乱: true });
-    await this.prisma.gameMap.update({
-      where: { id: player.mapId },
-      data: { spawnMonsters: JSON.stringify(monsters) },
-    });
+    await this.mapService.updateDynamicFields(player.mapId, { spawnMonsters: JSON.stringify(monsters) });
 
     // 设置冷却
     this.setCooldown(player, '洗脑', 600);
@@ -2134,7 +2122,7 @@ export class FamiliarSkillsService {
 
     // 真实机制：在当前地图 tempMonsters 生成一个归属于玩家的召唤物
     // 原版次元手环可召唤指定名称的使魔/宠物，此处按名称生成通用召唤物模板
-    const map = await this.prisma.gameMap.findUnique({ where: { id: player.mapId } });
+    const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上';
     const tempMonsters: any[] = this.safeParse(map.tempMonsters, []);
     const ownerId = player.qq || String(userId);
@@ -2163,10 +2151,7 @@ export class FamiliarSkillsService {
       buffs: '[]',
       bonus: '{}',
     });
-    await this.prisma.gameMap.update({
-      where: { id: player.mapId },
-      data: { tempMonsters: JSON.stringify(tempMonsters) },
-    });
+    await this.mapService.updateDynamicFields(player.mapId, { tempMonsters: JSON.stringify(tempMonsters) });
 
     // 设置冷却
     this.setCooldown(player, '召唤', 120);
