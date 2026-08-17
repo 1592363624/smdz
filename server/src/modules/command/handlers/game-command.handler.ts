@@ -92,11 +92,6 @@ export class GameCommandHandler implements CommandHandler {
         case 'attack':
         case '打':
         case '揍': {
-          // 检查新手指引
-          const tutorialText = await this.checkTutorial(userId, 'attack');
-          if (tutorialText) {
-            return this.wrap(tutorialText);
-          }
           // 原版 `攻击怪物名` 会设置 玩家.目标 后锁定该怪物，这里把参数作为目标名传入
           const result = await this.combatSystem.weaponAttack(userId, 0, { targetName: arg });
           // 自动推进任务：击杀怪物（对应原版 L9314~L9315）
@@ -113,6 +108,12 @@ export class GameCommandHandler implements CommandHandler {
             if (this.playerService.getMarkerValue(playerData.markers, '使用活力') === 0) {
               await this.taskService.advance(userId, '消耗活力', killedList.length);
             }
+          }
+          // 新手引导：攻击照常执行，引导文本作为附加提示（不拦截，避免"首次攻击被吞"）
+          // 对应原版：攻击即攻击，无引导拦截逻辑
+          const tutorialText = await this.checkTutorial(userId, 'attack');
+          if (tutorialText) {
+            return this.wrap(`${result.result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}`);
           }
           return this.wrap(result.result);
         }

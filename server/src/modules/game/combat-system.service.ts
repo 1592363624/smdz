@@ -1053,6 +1053,8 @@ export class CombatSystemService {
         const deathResult = await this.handleMonsterDeath(target, userId, map.id);
         totalExp += deathResult.expGain;
         allDrops.push(...deathResult.drops);
+        // 掉落合并进内存玩家背包（最终由 savePlayer 统一持久化，避免旧对象覆盖丢失）
+        this.mergeDropsIntoPlayer(player, deathResult.drops);
 
         if (deathResult.drops.length > 0) {
           resultLines.push(`掉落：${deathResult.drops.map(d => d.name).join('、')}`);
@@ -1080,16 +1082,32 @@ export class CombatSystemService {
 
     // 8. 召唤物协同攻击（对齐原版 覅攻击pd L320-499：玩家攻击后，归属玩家的召唤物也出手）
     //    当前地图上归属该玩家的召唤物，若存活则用拳头攻击一次怪物。
-    const summonLines = await this.summonCoAttack(player, playerData.markers, map);
+    //    召唤物击杀的掉落已合并进 player 背包；经验通过 out 累计到 totalExp 统一发放。
+    const summonOut = { totalExp: 0 };
+    const summonLines = await this.summonCoAttack(player, playerData.markers, map, summonOut);
     if (summonLines.length > 0) {
       resultLines.push(`━━━ 召唤物攻击 ━━━`);
       resultLines.push(...summonLines);
     }
+    totalExp += summonOut.totalExp;
 
-    // 9. 保存玩家状态（血量变化）
+    // 9. 怪物反击（对应原版 覅攻击pd L290-319：怪物攻击地图上的玩家）
+    //    玩家攻击/召唤物攻击后，地图上仍存活的怪物随机一只发起反击，
+    //    形成"你来我往"的完整战斗闭环。玩家被打死时进入死亡状态。
+    try {
+      const counterLines = await this.monsterCounterAttack(player, playerData, map);
+      if (counterLines.length > 0) {
+        resultLines.push(`━━━ 怪物反击 ━━━`);
+        resultLines.push(...counterLines);
+      }
+    } catch (e: any) {
+      this.logger.warn(`怪物反击失败: ${e.message}`);
+    }
+
+    // 10. 保存玩家状态（血量变化 + 掉落合并后的背包）
     await this.playerService.savePlayer(player);
 
-    // 10. 添加经验到玩家
+    // 11. 添加经验到玩家
     if (totalExp > 0) {
       await this.playerService.addExp(userId, totalExp);
     }
@@ -1108,10 +1126,17 @@ export class CombatSystemService {
    * 对应原版 覅攻击pd L320-499：攻击时遍历地图召唤物，归属当前玩家的存活召唤物用武器攻击怪物。
    * 本框架召唤物未配置武器时用拳头攻击，属性由使魔定义 + 好感 + 等级计算。
    * @param player 玩家对象
+   * @param markers 玩家标记（读取好感）
    * @param map 当前地图
+   * @param out 可选的输出累计对象（totalExp 累计召唤物击杀经验，供 weaponAttack 统一 addExp）
    * @returns 召唤物攻击结果文本行
    */
-  private async summonCoAttack(player: any, markers: any, map: any): Promise<string[]> {
+  private async summonCoAttack(
+    player: any,
+    markers: any,
+    map: any,
+    out?: { totalExp: number },
+  ): Promise<string[]> {
     const lines: string[] = [];
     try {
       const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
@@ -1172,6 +1197,10 @@ export class CombatSystemService {
         // 怪物死亡处理
         if (target.hp <= 0) {
           const deathResult = await this.handleMonsterDeath(target, player.userId, map.id);
+          // 掉落合并进玩家内存背包（最终由 weaponAttack 的 savePlayer 统一持久化）
+          this.mergeDropsIntoPlayer(player, deathResult.drops);
+          // 召唤物击杀经验累计到玩家（由 weaponAttack 末尾 addExp 统一发放）
+          if (out?.totalExp !== undefined) out.totalExp += deathResult.expGain;
           lines.push(`${target.name} 已被击杀`);
           if (deathResult.drops.length > 0) {
             lines.push(`掉落：${deathResult.drops.map(d => d.name).join('、')}`);
@@ -1185,6 +1214,97 @@ export class CombatSystemService {
       }
     } catch (err: any) {
       this.logger.warn(`召唤物协同攻击失败: ${err.message}`);
+    }
+    return lines;
+  }
+
+  /**
+   * 怪物反击
+   * 对应原版 覅攻击pd L290-319：玩家攻击后，地图上仍存活的怪物随机一只发起反击。
+   * 防御方为攻击玩家本人（原版会攻击地图上所有在线玩家，此处简化为只反击攻击者，
+   * 保证单人打怪"你来我往"闭环；多人协战的反击后续可扩展）。
+   * 玩家被打到生命≤0时进入死亡状态（不立即复活，需使用复活/救助等指令），
+   * 与 weaponAttack 开头的 isPlayerDead 检查配合形成死亡惩罚闭环。
+   * @param player 攻击玩家对象
+   * @param playerData 玩家完整数据
+   * @param map 当前地图
+   * @returns 反击结果文本行
+   */
+  private async monsterCounterAttack(player: any, playerData: PlayerData, map: any): Promise<string[]> {
+    const lines: string[] = [];
+    try {
+      // 随机选一只存活怪物（对应原版 L291：b = 取随机数(1, 取数组成员数(地图.怪物2))）
+      const aliveMonsters = this.mapService.getMapMonsters(map).filter((m: any) => (m.hp || 0) > 0);
+      if (aliveMonsters.length === 0) return lines;
+
+      // 玩家已死则不反击（避免鞭尸）
+      if (this.playerService.isPlayerDead(player)) return lines;
+
+      const monster = aliveMonsters[Math.floor(Math.random() * aliveMonsters.length)];
+      const monsterBonus = this.buildMonsterBonus(monster);
+
+      // 怪物攻击（对应原版 战斗() 怪物攻击分支：武器攻击 防御方）
+      // 命中判定：怪物命中 vs 玩家闪避
+      const playerDef = this.buildAttackerBonus(player, playerData);
+      const hitRate = this.calcHitRate(monsterBonus, { dodge: playerDef.dodge || 0, dodge2: playerDef.dodge2 || 0 });
+      if (!this.checkHit(hitRate)) {
+        lines.push(`${monster.name} 向你发起攻击，但被你闪避了`);
+        return lines;
+      }
+
+      // 伤害计算（怪物作为攻击方，玩家作为防御方；怪物武器简化为拳头+怪物四属性伤害）
+      const dmg = this.calcDamage(
+        monsterBonus,
+        {
+          hp: player.hp || 0,
+          shield: player.shield || 0,
+          armor: player.armor || 0,
+          dodge: playerDef.dodge || 0,
+          dodge2: playerDef.dodge2 || 0,
+          // 玩家三层抗性（玩家自身装备/使魔提供的抗性）
+          shieldPhysRes: playerDef.shieldPhysRes || 0,
+          shieldFireRes: playerDef.shieldFireRes || 0,
+          shieldIceRes: playerDef.shieldIceRes || 0,
+          shieldElecRes: playerDef.shieldElecRes || 0,
+          shieldAllRes: playerDef.shieldAllRes || 0,
+          armorPhysRes: playerDef.armorPhysRes || 0,
+          armorFireRes: playerDef.armorFireRes || 0,
+          armorIceRes: playerDef.armorIceRes || 0,
+          armorElecRes: playerDef.armorElecRes || 0,
+          armorAllRes: playerDef.armorAllRes || 0,
+          hpPhysRes: playerDef.hpPhysRes || 0,
+          hpFireRes: playerDef.hpFireRes || 0,
+          hpIceRes: playerDef.hpIceRes || 0,
+          hpElecRes: playerDef.hpElecRes || 0,
+          hpAllRes: playerDef.hpAllRes || 0,
+          hpDmgCap: 100,
+          armorDmgCap: 100,
+          shieldDmgCap: 100,
+        },
+        { name: '怪物攻击', damage: 0, damageType: CombatSystemService.DMG_PHYS, properties: { phys: 100, fire: 0, ice: 0, elec: 0 } },
+        CombatSystemService.DMG_PHYS,
+        false,
+      );
+      const finalDmg = Math.max(1, Math.floor(dmg.damage));
+
+      // 扣除玩家血量（三池：护盾→装甲→生命）
+      const pool = dmg.poolDamage || { shield: 0, armor: 0, hp: finalDmg };
+      const shieldDmg = Math.min(pool.shield, player.shield || 0);
+      const armorDmg = Math.min(pool.armor, player.armor || 0);
+      const hpDmg = Math.min(pool.hp, player.hp || 0);
+      player.shield = Math.max(0, (player.shield || 0) - shieldDmg);
+      player.armor = Math.max(0, (player.armor || 0) - armorDmg);
+      player.hp = Math.max(0, (player.hp || 0) - hpDmg);
+
+      const dmgText = this.formatDamageText(finalDmg, { shield: shieldDmg, armor: armorDmg, hp: hpDmg });
+      if (this.playerService.isPlayerDead(player)) {
+        lines.push(`${monster.name} 攻击你，造成 ${dmgText}，你倒下了！`);
+        lines.push(`你已死亡，可使用「救助」或「复活使魔」来复活`);
+      } else {
+        lines.push(`${monster.name} 攻击你，造成 ${dmgText}`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`怪物反击失败: ${err.message}`);
     }
     return lines;
   }
@@ -1252,12 +1372,21 @@ export class CombatSystemService {
       if (monster.hp <= 0) {
         killed.push(monster.name);
         const deathResult = await this.handleMonsterDeath(monster, userId, map.id);
+        // 掉落合并进内存玩家背包，随后统一保存（避免 addToBackpack 与 savePlayer 覆盖冲突）
+        this.mergeDropsIntoPlayer(player, deathResult.drops);
+        // 经验即时发放（炮击无外部 addExp 汇总，直接在此发放）
+        if (deathResult.expGain > 0) {
+          await this.playerService.addExp(userId, deathResult.expGain);
+        }
         lines.push(`${monster.name} 被摧毁了！获得 ${deathResult.expGain} 点经验`);
         if (deathResult.drops.length > 0) {
           lines.push(`掉落：${deathResult.drops.map(d => d.name).join('、')}`);
         }
       }
     }
+
+    // 保存玩家状态（掉落合并后的背包 + 反伤等血量变化）
+    await this.playerService.savePlayer(player);
 
     return lines.join('\n');
   }
@@ -1527,6 +1656,11 @@ export class CombatSystemService {
   /**
    * 处理怪物死亡
    * 对应原版：怪物死亡后的掉落生成、经验分配、地图更新
+   *
+   * 注意：掉落物不再在此处调用 addToBackpack 单独写库。
+   * 原因：调用方(如 weaponAttack)在击杀后会整体 savePlayer(player)，
+   * 若此处已把掉落写入数据库，随后 savePlayer 用旧内存对象覆盖写回会把掉落抹掉。
+   * 因此这里只返回 drops，由调用方合并进内存玩家对象后统一持久化。
    */
   async handleMonsterDeath(
     monster: any,
@@ -1555,12 +1689,32 @@ export class CombatSystemService {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
 
-    // 将掉落物添加到玩家背包
-    for (const drop of drops) {
-      await this.playerService.addToBackpack(userId, drop.name, drop.quantity || 1);
-    }
-
     return { expGain, drops };
+  }
+
+  /**
+   * 将掉落物合并进玩家内存对象背包（避免 addToBackpack 与 savePlayer 的覆盖冲突）
+   * 掉落物按同名叠加数量，与 playerService.addToBackpack 行为一致，
+   * 但只修改内存对象，由调用方最终 savePlayer 一次性写库。
+   * @param player 玩家对象（backpack 字段为 JSON 字符串）
+   * @param drops 掉落物列表
+   */
+  private mergeDropsIntoPlayer(player: any, drops: any[]): void {
+    if (!drops || drops.length === 0) return;
+    const backpack = this.playerService.getBackpackItems(player);
+    for (const drop of drops) {
+      const count = drop.quantity || drop.count || 1;
+      if (count <= 0) continue;
+      const existing = backpack.find((b: any) => b.name === drop.name);
+      if (existing) {
+        const cur = existing.count ?? existing.quantity ?? 0;
+        existing.count = cur + count;
+        delete existing.quantity; // 统一用 count 字段，避免双字段歧义
+      } else {
+        backpack.push({ name: drop.name, count });
+      }
+    }
+    player.backpack = JSON.stringify(backpack);
   }
 
   /**
@@ -1810,21 +1964,27 @@ export class CombatSystemService {
   /**
    * 构建攻击者加成数据
    * 合并玩家基础属性、装备加成、增益等
+   * 对应原版 加成计算.ecode _计算玩家()：按等级+熟练度成长。
+   * public：供信息显示/属性面板调用，展示"计算后"的成长属性。
    */
-  private buildAttackerBonus(player: any, playerData: PlayerData): BonusData {
+  buildAttackerBonus(player: any, playerData: PlayerData): BonusData {
     // 从玩家基础属性构建
+    // 对齐原版 _计算玩家：加成从 0 起步（原版 玩家.加成 = 空加成 j），
+    // 再由"等级成长 + 使魔专属 + 装备/套装"累加得出最终属性。
+    // 注意：hp/shield/armor 以"上限字段"（maxHp/maxShield/maxArmor）为基数，
+    // 而非当前血量(player.hp)，避免把当前血量当加成基数导致上限虚高。
     const bonus: BonusData = {
-      attack: player.attack || 0,
+      attack: 0,
       attack2: 0,
-      hit: player.hit || 100,
+      hit: 0,
       hit2: 0,
-      dodge: player.dodge || 0,
+      dodge: 0,
       dodge2: 0,
-      crit: player.crit || 5,
-      critDmg: player.critDmg || 150,  // 暴击伤害默认150%（原版）
-      hp: player.hp || 0,
-      shield: player.shield || 0,
-      armor: player.armor || 0,
+      crit: 0,
+      critDmg: 0,  // 暴击伤害由成长公式给出（原版：150+等级/10）
+      hp: 0,       // 生命由成长公式给出（原版：50+(等级×2+防御熟练)×(1+等级/100)，1级≈52）
+      shield: 0,   // 护盾：20+...
+      armor: 0,    // 装甲：30+...
       physDmg: 0,
       physDmg2: 0,
       fireDmg: 0,
@@ -1887,6 +2047,18 @@ export class CombatSystemService {
       bonus.hpRegen = (bonus.hpRegen || 0) + 0.1 + lv / 10;
       bonus.shieldRegen = (bonus.shieldRegen || 0) + 0.1 + lv / 10;
       bonus.armorRegen = (bonus.armorRegen || 0) + 0.1 + lv / 10;
+    } else {
+      // 未选使魔的玩家（特殊序号≤0，原版 _计算玩家 L1834-1835 只叠加"基础"）：
+      // 使用数据库基础字段作为兜底，避免命中/闪避等显示为 0。
+      bonus.attack = player.attack || 0;
+      bonus.hit = player.hit || 100;
+      bonus.dodge = player.dodge || 0;
+      bonus.crit = player.crit || 5;
+      bonus.critDmg = player.critDmg || 150;
+      bonus.hp = player.maxHp || player.hp || 100;
+      bonus.shield = player.maxShield || player.shield || 0;
+      bonus.armor = player.maxArmor || player.armor || 0;
+      bonus.speed = player.speed || 100;
     }
 
     // ========== 使魔专属加成（对应原版 _计算玩家 L1872+ 核心分支） ==========
@@ -2364,6 +2536,10 @@ export class CombatSystemService {
       shieldDmgCap: ['护盾伤害上限'],
       armorDmgCap: ['装甲伤害上限'],
       hpDmgCap: ['生命伤害上限'],
+      physDmg: ['物伤'],
+      fireDmg: ['火伤'],
+      iceDmg: ['冰伤'],
+      elecDmg: ['电伤'],
     };
     const pick = (k: string) => {
       // 顶层字段
@@ -2409,6 +2585,11 @@ export class CombatSystemService {
       // 贯穿几率/抗贯穿（原版 贯穿判断 L3192：几率判断(攻击方.贯穿-防御方.抗贯穿)）
       penetrate: mb['贯穿'] !== undefined ? mb['贯穿'] : (monster.penetrate || 0),
       antiPenetrate: mb['抗贯穿'] !== undefined ? mb['抗贯穿'] : (monster.antiPenetrate || 0),
+      // 怪物四属性伤害（对应原版 _初始化怪物 属性构建，monsters.json bonus 中文 key：物伤/火伤/冰伤/电伤）
+      physDmg: pick('physDmg') || 0,
+      fireDmg: pick('fireDmg') || 0,
+      iceDmg: pick('iceDmg') || 0,
+      elecDmg: pick('elecDmg') || 0,
     };
   }
 

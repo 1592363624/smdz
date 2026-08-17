@@ -10,6 +10,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PlayerService } from './player.service';
 import { MapService } from './map.service';
 import { GameService } from './game.service';
+import { CombatSystemService } from './combat-system.service';
 import { StatsService } from './stats.service';
 
 @ApiTags('游戏')
@@ -21,6 +22,7 @@ export class GameController {
     private readonly playerService: PlayerService,
     private readonly mapService: MapService,
     private readonly gameService: GameService,
+    private readonly combatSystem: CombatSystemService,
     private readonly statsService: StatsService,
   ) {}
 
@@ -34,6 +36,8 @@ export class GameController {
     const userId = req.user.userId;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
+    // 计算后属性（对齐原版 _计算玩家：攻击/生命/护盾/装甲/命中/闪避/暴击等按等级+熟练度成长）
+    const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
     return {
       success: true,
       data: {
@@ -45,18 +49,18 @@ export class GameController {
         name: player.name,
         type: player.type,
         hp: player.hp,
-        maxHp: player.maxHp,
+        maxHp: Math.round(calcBonus.hp || player.maxHp || 100),
         shield: player.shield,
-        maxShield: player.maxShield,
+        maxShield: Math.round(calcBonus.shield || player.maxShield || 0),
         armor: player.armor,
-        maxArmor: player.maxArmor,
-        attack: player.attack,
+        maxArmor: Math.round(calcBonus.armor || player.maxArmor || 0),
+        attack: Math.round(calcBonus.attack || 0),
         defense: player.defense,
-        speed: player.speed,
-        dodge: player.dodge,
-        hit: player.hit,
-        crit: player.crit,
-        critDmg: player.critDmg,
+        speed: Math.round(calcBonus.speed || player.speed || 0),
+        dodge: Math.round(calcBonus.dodge || 0),
+        hit: Math.round(calcBonus.hit || 0),
+        crit: Math.round(calcBonus.crit || 0),
+        critDmg: Math.round(calcBonus.critDmg || 150),
         mapId: player.mapId,
         location: player.location,
         affinity: player.affinity,

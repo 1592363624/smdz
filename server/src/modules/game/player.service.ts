@@ -272,6 +272,8 @@ export class PlayerService {
   /**
    * 增加玩家经验
    * 如果经验超过升级所需，自动升级
+   * 升级后同步重算基础战斗属性（maxHp/maxShield/maxArmor/attack 等），
+   * 对齐原版 _计算玩家 的等级成长公式（加成计算.ecode L1799-1833）。
    * @param userId 用户ID
    * @param exp 增加的经验值
    * @returns 是否升级及新等级
@@ -296,17 +298,68 @@ export class PlayerService {
       this.logger.log(`玩家 ${userId} 升级到 ${player.level} 级`);
     }
 
-    // 持久化
-    await this.prisma.player.update({
-      where: { id: player.id },
-      data: {
-        level: player.level,
-        exp: player.exp,
-        upgradeExp: player.upgradeExp,
-      },
-    });
+    // 升级后重算基础战斗属性（防御方/面板使用的 maxHp/attack 等随等级成长）
+    if (leveledUp) {
+      this.recalcLevelStats(player);
+    }
+
+    // 持久化（含升级后重算的属性字段）
+    await this.savePlayer(player);
 
     return { leveledUp, newLevel: player.level };
+  }
+
+  /**
+   * 按原版 _计算玩家 通用成长公式重算玩家基础战斗属性
+   * 对齐 加成计算.ecode L1799-1833（特殊序号>0 即选了使魔的玩家）：
+   *   - 攻击=10+战斗熟练×(1+等级/100)；命中=10+(等级/2+战斗熟练/2)×(1+等级/100)
+   *   - 生命=50+(等级×2+防御熟练)×(1+等级/100)；护盾=20+...；装甲=30+...
+   *   - 闪避=10+(等级/2+防御熟练/2)×(1+等级/100)
+   *   - 速度=10+等级/5+闪避熟练/4×(1+等级/100)
+   *   - 暴击+3；暴击伤害+150+等级/10
+   * 只更新 DB 存储字段（maxHp/maxShield/maxArmor/attack/hit/dodge/crit/critDmg/speed/regen），
+   * 供防御方受击、面板显示、数据库一致性使用；攻击方完整计算仍在 buildAttackerBonus。
+   * public：供 selectFamiliar 首次选使魔开局时同步重算，使 1 级新玩家属性即符合公式。
+   * @param player 玩家对象（会就地修改 maxHp 等字段）
+   */
+  recalcLevelStats(player: any): void {
+    // 仅对已选使魔（type 非空）的玩家应用等级成长；未选使魔的玩家不成长
+    if (!player.type) return;
+
+    const markers = this.safeJsonParse<Record<string, number>>(player.markers, {});
+    const lv = player.level || 1;
+    const lvFactor = 1 + lv / 100;
+    const prof = (key: string) => markers[key] || 0;
+    const profCombat = prof('战斗');
+    const profDefense = prof('防御');
+    const profDodge = prof('闪避');
+
+    // 原版 _计算玩家 等级成长（加成计算.ecode L1799-1833）：
+    //   攻击=10+战斗熟练×(1+等级/100)；命中=10+(等级/2+战斗熟练/2)×(1+等级/100)
+    //   生命=50+(等级×2+防御熟练)×(1+等级/100)；护盾=20+...；装甲=30+...
+    //   闪避=10+(等级/2+防御熟练/2)×(1+等级/100)
+    //   速度=10+等级/5+闪避熟练/4×(1+等级/100)
+    //   暴击+3；暴击伤害+150+等级/10
+    // 直接按公式覆盖上限（对齐原版：1级玩家生命上限≈52，攻击=10）。
+    player.maxHp = Math.floor(50 + (lv * 2 + profDefense) * lvFactor);
+    player.maxShield = Math.floor(20 + (lv * 2 + profDefense) * lvFactor);
+    player.maxArmor = Math.floor(30 + (lv * 2 + profDefense) * lvFactor);
+    player.attack = Math.floor(10 + profCombat * lvFactor);
+    player.hit = Math.floor(10 + (lv / 2 + profCombat / 2) * lvFactor);
+    player.dodge = Math.floor(10 + (lv / 2 + profDefense / 2) * lvFactor);
+    player.speed = Math.floor(10 + lv / 5 + profDodge / 4 * lvFactor);
+    player.crit = 5 + 3; // 初始5 + 原版暴击+3
+    player.critDmg = Math.floor(150 + 150 + lv / 10);
+    player.regenHp = 0.1 + lv / 10;
+    player.regenShield = 0.1 + lv / 10;
+    player.regenArmor = 0.1 + lv / 10;
+
+    // 当前血量不得超过新上限（原版 L2465：当前生命>属性.生命 时封顶）
+    if ((player.hp || 0) > player.maxHp) player.hp = player.maxHp;
+    if ((player.shield || 0) > player.maxShield) player.shield = player.maxShield;
+    if ((player.armor || 0) > player.maxArmor) player.armor = player.maxArmor;
+
+    this.logger.log(`玩家 ${player.userId} 等级 ${lv}，重算属性: 攻击=${player.attack} HP上限=${player.maxHp}`);
   }
 
   /**

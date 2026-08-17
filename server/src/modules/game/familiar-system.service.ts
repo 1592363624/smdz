@@ -219,9 +219,12 @@ export class FamiliarSystemService {
       player.exp = 0;
       // 升级经验门槛按公式重算，避免沿用错误的存量值（如旧版 100）
       player.upgradeExp = player.upgradeExp || this.playerService.calcUpgradeExp(player.level);
-      player.hp = player.maxHp || 100;
-      player.shield = player.maxShield || 0;
-      player.armor = player.maxArmor || 0;
+      // 按原版 _计算玩家 公式重算基础战斗属性（1级：攻击10、生命上限≈52、护盾≈22、装甲≈32）
+      // 对齐加成计算.ecode L1799-1833，使开局属性即符合等级成长公式
+      this.playerService.recalcLevelStats(player);
+      player.hp = player.maxHp;
+      player.shield = player.maxShield;
+      player.armor = player.maxArmor;
 
       // 标记已开始游戏（老玩家=真），并保存
       player.markers = JSON.stringify(markers);

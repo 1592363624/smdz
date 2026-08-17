@@ -12,6 +12,7 @@
 
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { GameService } from '../game/game.service';
 import {
   CommandContext,
   CommandHandler,
@@ -28,6 +29,7 @@ export class CommandService {
     private readonly prisma: PrismaService,
     @Inject(COMMAND_HANDLER_MAP)
     private readonly handlerMap: Record<string, CommandHandler>,
+    private readonly gameService: GameService,
   ) {}
 
   /**
@@ -43,6 +45,26 @@ export class CommandService {
       const [rawName, ...args] = rawTrimmed.split(/\s+/);
       // 去除前缀字符（/！!），若去除后为空则保留原词（用于无前缀模式）
       const commandName = (rawName || '').replace(/^[\/！!]+/, '') || rawName || '';
+
+      // 1.5 新玩家选使魔门禁（统一层，覆盖 网页/AstrBot/API 所有渠道）
+      //     对应原版 _主程序.ecode L798：非老玩家(未选使魔)发任何指令都被拦截，
+      //     仅"选择使魔/更换使魔"放行，否则返回"选择第一个使魔"菜单。
+      if (ctx.userId) {
+        const gateAllowed = ['选择使魔', '更换使魔', 'select', 'familiar'].some(
+          (allowed) => commandName === allowed || (commandName.length > allowed.length && commandName.startsWith(allowed)),
+        );
+        if (!gateAllowed) {
+          const gate = await this.gameService.getFirstFamiliarGate(ctx.userId);
+          if (gate) {
+            return {
+              success: false,
+              content: gate,
+              broadcast: false,
+              durationMs: Date.now() - start,
+            };
+          }
+        }
+      }
 
       if (!commandName) {
         return {

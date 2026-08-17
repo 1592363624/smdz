@@ -417,12 +417,14 @@ export class GameService {
 
     const map = await this.mapService.getMapById(player.mapId);
 
-    // 计算战斗力
+    // 计算战斗力（基于"计算后"的成长属性，而非 DB 静态字段）
+    // 对应原版 加成计算.ecode _计算玩家：攻击/生命/护盾/装甲按等级+熟练度成长
+    const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
     const bonus: BonusData = {
-      attack: player.attack || 0,
-      hp: player.hp || 0,
-      armor: player.armor || 0,
-      speed: player.speed || 0,
+      attack: calcBonus.attack || 0,
+      hp: calcBonus.hp || 0,
+      armor: calcBonus.armor || 0,
+      speed: calcBonus.speed || 0,
     };
     const combatPower = this.bonusService.calcCombatPower(bonus);
 
@@ -495,13 +497,21 @@ export class GameService {
       await this.playerService.savePlayer(player);
     }
 
+    // 显示计算后的属性：攻击/生命/护盾/装甲/速度均来自 _计算玩家 成长公式（含等级成长）
+    // 原版显示的就是 玩家.属性（计算后），而非基础存储值
+    const showAttack = Math.round(calcBonus.attack || 0);
+    const showMaxHp = Math.round(calcBonus.hp || player.maxHp || 100);
+    const showMaxShield = Math.round(calcBonus.shield || player.maxShield || 0);
+    const showMaxArmor = Math.round(calcBonus.armor || player.maxArmor || 0);
+    const showSpeed = Math.round(calcBonus.speed || player.speed || 0);
+
     lines.push(`【${player.name || '冒险者'}】Lv.${player.level}`);
     lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`❤️ HP: ${Math.round(player.hp || 0)}/${Math.round(player.maxHp || 100)}`);
-    lines.push(`🛡️ 护盾: ${Math.round(player.shield || 0)}/${Math.round(player.maxShield || 0)}`);
-    lines.push(`⛓️ 装甲: ${Math.round(player.armor || 0)}/${Math.round(player.maxArmor || 0)}`);
-    lines.push(`⚔️ 攻击: ${Math.round(player.attack || 0)}`);
-    lines.push(`💨 速度: ${Math.round(player.speed || 0)}`);
+    lines.push(`❤️ HP: ${Math.round(player.hp || 0)}/${showMaxHp}`);
+    lines.push(`🛡️ 护盾: ${Math.round(player.shield || 0)}/${showMaxShield}`);
+    lines.push(`⛓️ 装甲: ${Math.round(player.armor || 0)}/${showMaxArmor}`);
+    lines.push(`⚔️ 攻击: ${showAttack}`);
+    lines.push(`💨 速度: ${showSpeed}`);
     lines.push(`⭐ 经验: ${Math.round(player.exp || 0)}/${Math.round(this.playerService.calcUpgradeExp(player.level))}`);
     lines.push(`📍 位置: ${map?.name || '未知'}`);
     lines.push(`🔥 战斗力: ${combatPower}`);
@@ -596,23 +606,26 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
+    // 计算后属性（对齐原版 _计算玩家：攻击/生命/护盾/装甲/命中/闪避/暴击等按等级+熟练度成长）
+    const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
+
     const lines = [
       `【${player.name || '冒险者'}】详细属性`,
       `━━━━━━━━━━━━━━━`,
       `等级: ${player.level}`,
       `经验: ${Math.round(player.exp || 0)}/${Math.round(this.playerService.calcUpgradeExp(player.level))}`,
       `━━━━━━━━━━━━━━━`,
-      `生命: ${Math.round(player.hp || 0)}/${Math.round(player.maxHp || 100)} (回复: ${player.regenHp || 0}/s)`,
-      `护盾: ${Math.round(player.shield || 0)}/${Math.round(player.maxShield || 0)} (回复: ${player.regenShield || 0}/s)`,
-      `装甲: ${Math.round(player.armor || 0)}/${Math.round(player.maxArmor || 0)} (回复: ${player.regenArmor || 0}/s)`,
+      `生命: ${Math.round(player.hp || 0)}/${Math.round(calcBonus.hp || player.maxHp || 100)} (回复: ${calcBonus.hpRegen || 0}/s)`,
+      `护盾: ${Math.round(player.shield || 0)}/${Math.round(calcBonus.shield || player.maxShield || 0)} (回复: ${calcBonus.shieldRegen || 0}/s)`,
+      `装甲: ${Math.round(player.armor || 0)}/${Math.round(calcBonus.armor || player.maxArmor || 0)} (回复: ${calcBonus.armorRegen || 0}/s)`,
       `━━━━━━━━━━━━━━━`,
-      `攻击: ${Math.round(player.attack || 0)}`,
+      `攻击: ${Math.round(calcBonus.attack || 0)}`,
       `防御: ${Math.round(player.defense || 0)}`,
-      `速度: ${Math.round(player.speed || 0)}`,
-      `闪避: ${Math.round(player.dodge || 0)}%`,
-      `命中: ${Math.round(player.hit || 0)}%`,
-      `暴击: ${Math.round(player.crit || 0)}%`,
-      `暴击伤害: ${Math.round(player.critDmg || 150)}%`,
+      `速度: ${Math.round(calcBonus.speed || player.speed || 0)}`,
+      `闪避: ${Math.round(calcBonus.dodge || 0)}%`,
+      `命中: ${Math.round(calcBonus.hit || 0)}%`,
+      `暴击: ${Math.round(calcBonus.crit || 0)}%`,
+      `暴击伤害: ${Math.round(calcBonus.critDmg || 150)}%`,
       `━━━━━━━━━━━━━━━`,
       `类型: ${player.type || '人类'}`,
       `好感度: ${Math.round(player.affinity || 0)}`,

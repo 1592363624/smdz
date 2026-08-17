@@ -20,13 +20,13 @@
     "hint": "建议 10-60 秒"
   },
   "command_name": {
-    "description": "触发转发的前缀指令名（群/私聊输入该指令+空格+游戏指令触发）",
+    "description": "触发转发的前缀指令名（非空则仅转发以该前缀开头的消息，如配 smdz，输入 /smdz 背包 会转发『背包』；留空则无前缀，收到的所有消息直接转发到游戏）",
     "type": "string",
     "default": "smdz",
-    "hint": "例如配 smdz，则输入 /smdz 背包 会转发『背包』给游戏"
+    "hint": "留空 = 直接发游戏指令即可（会转发所有消息）"
   },
   "forward_all": {
-    "description": "是否转发所有消息到游戏（开启后无需前缀指令，注意会转发机器人在群内收到的全部消息）",
+    "description": "是否转发所有消息到游戏（开启后无视前缀指令，所有消息都会转发；与 command_name 留空效果相同）",
     "type": "bool",
     "default": false
   },

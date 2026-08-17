@@ -10,8 +10,9 @@
 - 玩家身份：请求体 `botIdentity` 填 QQ 号，后端会根据 `User.qqNumber`
   自动绑定到对应网页账号执行指令；未绑定的 QQ 以匿名身份执行。
 - 触发方式：
-  1. 默认模式：输入 `/smdz <游戏指令>`（前缀指令名可在配置中修改）。
-  2. 转发所有模式：开启 `forward_all` 后，群里收到的语句都会尝试转发。
+  1. 前缀模式：配置 `command_name`（如 smdz）后，仅输入 `/smdz <游戏指令>` 会转发；
+  2. 无前缀模式：`command_name` 留空时，收到的所有消息直接转发（等效于开启 forward_all）；
+  3. 全量模式：开启 `forward_all` 后，无论前缀如何，所有消息都会尝试转发。
 """
 
 import asyncio
@@ -50,12 +51,20 @@ class SmdzBridgePlugin(Star):
         self.allowed_groups = [str(g) for g in config.get("allowed_groups", [])]
         self.allowed_users = [str(u) for u in config.get("allowed_users", [])]
 
-        # 触发词集合（指令名 + 常用别名），用于在原文中剥离指令前缀
-        self._trigger_names = {self.command_name, "smdz", "使魔", "游戏"}
+        # 触发词集合（配置指令名 + 常用别名），用于在原文中剥离指令前缀；空配置会被过滤
+        self._trigger_names = {n for n in (self.command_name, "smdz", "使魔", "游戏") if n}
+
+        # 触发模式描述（用于初始化日志展示）
+        if self.forward_all:
+            trigger_desc = "全量转发所有消息"
+        elif not self.command_name:
+            trigger_desc = "无前缀，直接转发所有消息"
+        else:
+            trigger_desc = f"前缀 /{self.command_name}"
 
         logger.info(
             f"[使魔大战3桥接] 插件初始化完成，服务地址={self.server_url}，"
-            f"触发指令=/{self.command_name}，"
+            f"触发模式={trigger_desc}，"
             f"允许群={self.allowed_groups or '不限'}，允许用户={self.allowed_users or '不限'}"
         )
 
@@ -117,14 +126,15 @@ class SmdzBridgePlugin(Star):
         text = text.strip()
         if not text:
             return ""
-        # 按首个空白切分，分离触发词与剩余部分
         first, _, rest = text.partition(" ")
-        # 去除可能的指令前缀符号（/ ！ ！ . 等）
         cleaned = first.lstrip("/.！! ")
         if cleaned in self._trigger_names:
             return rest.strip()
         return text
 
+    # ------------------------------------------------------------------
+    # 私有工具方法
+    # ------------------------------------------------------------------
     def _is_bot_self(self, event: AstrMessageEvent) -> bool:
         """判断消息是否由机器人自身发出，避免转发时造成死循环。"""
         try:
@@ -163,66 +173,63 @@ class SmdzBridgePlugin(Star):
         return True
 
     # ------------------------------------------------------------------
-    # 指令入口：/smdz <游戏指令>
+    # 统一消息入口：按配置动态决定触发方式
     # ------------------------------------------------------------------
-    @filter.command("smdz", alias={"使魔", "游戏"})
-    async def smdz(self, event: AstrMessageEvent):
-        """转发游戏指令（使用方式：/smdz <游戏指令>，如 /smdz 背包）。
-
-        Args:
-            event: AstrBot 消息事件。
-        """
-        # 总开关与权限校验
-        if not self.enabled:
-            yield event.plain_result("功能已关闭。")
-            return
-        if not self._check_permission(event):
-            yield event.plain_result("当前群/用户未授权使用本插件。")
-            return
-
-        # 提取触发指令前缀之后的具体游戏指令
-        game_command = self._extract_game_command(event.message_str)
-        if not game_command:
-            yield event.plain_result(
-                f"用法：/{self.command_name} <游戏指令>\n"
-                "例如：\n"
-                f"/{self.command_name} 背包\n"
-                f"/{self.command_name} 信息\n"
-                f"/{self.command_name} 帮助"
-            )
-            return
-
-        qq_id = event.get_sender_id()
-        content = await self._forward_to_game(qq_id, game_command)
-        yield event.plain_result(content)
-
-    # ------------------------------------------------------------------
-    # 转发所有模式入口（可选）
-    # ------------------------------------------------------------------
-    @filter.event_message_type(filter.EventMessageType.ALL)
+    # priority=1 让本插件优先处理，转发后调用 event.stop_event() 阻断，
+    # 避免后续插件（签到、游戏引导等）对同一条游戏指令重复响应。
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=1)
     async def on_all_message(self, event: AstrMessageEvent):
-        """转发所有消息到游戏（需开启 forward_all 配置）。
+        """统一消息入口，按配置动态决定是否转发到游戏。
 
-        注意：开启后群里收到的所有消息都会尝试作为游戏指令转发，
-        为避免自循环，机器人自身发出的消息会被跳过。
+        触发规则（按优先级）：
+        - forward_all 开启：收到的所有消息都尝试转发，不限制前缀；
+        - command_name 留空：同样转发所有消息（无前缀直接触发，等效 forward_all）；
+        - command_name 非空：仅当消息以该前缀（或内置别名 smdz/使魔/游戏）
+          开头时才转发，并剥离前缀后作为游戏指令；
+        - 机器人自身消息、未授权群/用户的消息一律跳过，避免死循环与越权。
+
+        只要本插件认领了某条消息（转发成功或给出用法提示），都会调用
+        event.stop_event() 阻断该消息继续广播，防止其它插件重复响应。
         """
-        if not self.enabled or not self.forward_all:
+        # 总开关
+        if not self.enabled:
             return
+        # 跳过机器人自身消息，避免转发造成死循环
         if self._is_bot_self(event):
             return
         # 权限校验：未授权的群/用户静默跳过，不打扰
         if not self._check_permission(event):
             return
 
-        # 若消息是以触发指令开头（如 /smdz 背包），交给 smdz 指令处理，避免重复转发
-        first = event.message_str.strip().partition(" ")[0].lstrip("/.！! ")
-        if first in self._trigger_names:
+        text = event.message_str.strip()
+        if not text:
             return
 
-        game_command = self._extract_game_command(event.message_str)
-        if not game_command:
-            return
+        # 1) 全量转发：forward_all 开启，或 command_name 留空（无前缀直接触发）
+        if self.forward_all or not self.command_name:
+            game_command = self._extract_game_command(text)
+            if not game_command:
+                return
+        # 2) 前缀模式：仅匹配配置前缀（含内置别名）的消息才转发
+        else:
+            first = text.partition(" ")[0].lstrip("/.！! ")
+            if first not in self._trigger_names:
+                return
+            game_command = self._extract_game_command(text)
+            if not game_command:
+                # 只给了前缀没给指令内容时，提示用法并阻断后续插件
+                yield event.plain_result(
+                    f"用法：/{self.command_name} <游戏指令>\n"
+                    "例如：\n"
+                    f"/{self.command_name} 背包\n"
+                    f"/{self.command_name} 信息\n"
+                    f"/{self.command_name} 帮助"
+                )
+                event.stop_event()
+                return
 
         qq_id = event.get_sender_id()
         content = await self._forward_to_game(qq_id, game_command)
         yield event.plain_result(content)
+        # 阻断消息继续广播，防止其它插件对同一条指令再次响应
+        event.stop_event()
