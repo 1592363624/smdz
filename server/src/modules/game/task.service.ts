@@ -20,7 +20,7 @@ import { StaticDataService } from './static-data.service';
 interface PlayerTask {
   name: string;                                                       // 任务名称（对应 GameTask.name）
   requirements: Array<{ name: string; count: number }>;               // 剩余要求列表（count 为剩余需要完成的次数）
-  completed?: boolean;                                                // 是否已完成（保留给兼容展示用）
+  completed?: boolean;                                                // 是否已完成（true 表示已完成，仅展示，不参与推进）
 }
 
 /**
@@ -57,7 +57,7 @@ export class TaskService {
       const player = await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return '';
 
-      // 解析玩家任务列表，兼容新旧格式
+      // 解析玩家任务列表（统一为新格式）
       const tasks = this.parsePlayerTasks(player.tasks);
       if (tasks.length === 0) return '';
 
@@ -209,36 +209,29 @@ export class TaskService {
   }
 
   /**
-   * 解析奖励列表，兼容新格式 [{name,count}] 与旧格式 ["物品名,数量"]
+   * 解析奖励列表，统一为对象格式 [{name, count}]（与 tasks.json 一致）
    */
   private parseRewards(rewardsJson: any): TaskReward[] {
     try {
       const parsed = this.playerService.safeJsonParse<any[]>(rewardsJson, []);
       if (!Array.isArray(parsed)) return [];
-      // 新格式：[{name, count}]
-      if (parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0].name !== undefined) {
-        return parsed.map(r => ({
+      return parsed
+        .filter(r => r && typeof r === 'object')
+        .map(r => ({
           name: String(r.name || ''),
           count: Number(r.count || 0),
         }));
-      }
-      // 旧格式：["物品名,数量", ...]
-      return parsed
-        .map(r => {
-          const parts = String(r).split(',');
-          return { name: (parts[0] || '').trim(), count: parseInt((parts[1] || '0').trim(), 10) };
-        })
-        .filter(r => r.name && r.count > 0);
     } catch {
       return [];
     }
   }
 
   /**
-   * 解析玩家任务列表，兼容新旧格式
-   * - 新格式（本系统）：{name, requirements: [{name, count}], completed?}
-   * - 旧格式1（旧 task.service）：{name, count, completed?} 或 {name, count}（进度记录）
-   * - 旧格式2（game.service）：{name, status: '进行中'|'已完成', progress}
+   * 解析玩家任务列表
+   * 数据已由 migrate-player-tasks 统一为单一格式，此处只处理新格式：
+   *   { name, requirements: [{name, count}], completed? }
+   * 对缺失 requirements 的异常条目做规整（尝试从任务定义还原，否则丢弃），
+   * 同时容忍部分历史写法（completed 用 true 或旧 status 完成态标记）。
    */
   private parsePlayerTasks(tasksJson: any): PlayerTask[] {
     try {
@@ -247,50 +240,39 @@ export class TaskService {
 
       const result: PlayerTask[] = [];
       for (const item of raw) {
-        if (!item || typeof item !== 'object') continue;
+        if (!item || typeof item !== 'object' || item.name === undefined || item.name === null) continue;
 
-        // 新格式
-        if (Array.isArray(item.requirements)) {
-          result.push({
-            name: item.name,
-            requirements: item.requirements.map((r: any) => ({
-              name: r.name,
-              count: Number(r.count) || 0,
-            })),
-            completed: item.completed === true,
-          });
-          continue;
-        }
+        const isCompleted =
+          item.completed === true ||
+          item.status === '已完成' ||
+          item.status === '已提交';
 
-        // 旧格式2：game.service 的任务格式
-        if (item.status === '已完成' || item.status === '已提交' || item.completed === true) {
-          // 已完成的任务保留展示，但不参与推进
+        // 已完成任务：requirements 置空，保留展示但不参与推进
+        if (isCompleted) {
           result.push({ name: item.name, requirements: [], completed: true });
           continue;
         }
 
-        // 旧格式1 或 旧格式2（进行中）：尝试从 GameTask 初始化要求
-        if (item.status === '进行中' || item.count !== undefined || item.progress !== undefined) {
+        // 进行中任务：规整 requirements（缺失时从任务定义还原，保证任务可推进）
+        let reqs = Array.isArray(item.requirements)
+          ? item.requirements
+          : this.playerService.safeJsonParse(item.requirements, []);
+        reqs = reqs
+          .filter((r: any) => r && typeof r === 'object' && r.name !== undefined)
+          .map((r: any) => ({ name: r.name, count: Number(r.count) || 0 }));
+
+        if (reqs.length === 0) {
           const gameTask = this.staticData.getTaskByName(item.name);
           if (gameTask) {
-            const reqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
-              gameTask.requirements, []
-            );
-            if (reqs.length > 0) {
-              result.push({
-                name: item.name,
-                requirements: JSON.parse(JSON.stringify(reqs)),
-                completed: false,
-              });
-              continue;
-            }
+            reqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+              gameTask.requirements, [],
+            ).map(r => ({ name: r.name, count: Number(r.count) || 0 }));
           }
-          // 找不到对应 GameTask 定义的旧进度记录（如"采集木头"计数），丢弃
-          continue;
         }
 
-        // 其他未知格式，标记为已完成避免干扰
-        result.push({ name: item.name || '未知任务', requirements: [], completed: true });
+        if (reqs.length === 0) continue; // 无可推进要求的任务，丢弃
+
+        result.push({ name: item.name, requirements: reqs, completed: false });
       }
       return result;
     } catch {

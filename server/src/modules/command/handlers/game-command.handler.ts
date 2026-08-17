@@ -126,12 +126,13 @@ export class GameCommandHandler implements CommandHandler {
         case 'info':
         case '资料':
         case '查看': {
-          // 检查新手指引
+          // 信息照常展示，引导作为附加提示（不拦截，对齐原版：查看即查看）
+          const info = await this.gameService.handleInfo(userId);
           const tutorialText = await this.checkTutorial(userId, 'info');
           if (tutorialText) {
-            return this.wrap(tutorialText);
+            return this.wrap(`${info}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}`);
           }
-          return this.wrap(await this.gameService.handleInfo(userId));
+          return this.wrap(info);
         }
 
         case '背包':

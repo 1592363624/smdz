@@ -2600,6 +2600,34 @@ vite-plugin-checker-error-overlay,
   .mobile-drawer .cmd-list li {
     padding: 8px 10px;
   }
+
+  /* ===== 移动端性能优化：降低 GPU 负担，缓解低端机卡顿 ===== */
+  /* backdrop-filter 在手机上是渲染/滚动卡顿的主要来源，移动端改为半透底即可 */
+  .sidebar,
+  .sidebar-header,
+  .sidebar-footer,
+  .info-panel,
+  .msg,
+  .mobile-float-actions,
+  .player-info,
+  .autocomplete-list,
+  .panel-header,
+  .panel-input-bar,
+  .input-bar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* 聊天页动态背景在手机端关闭，改为静态渐变 */
+  .chat-page::before {
+    animation: none;
+    background:
+      radial-gradient(600px 400px at 20% 25%, rgba(139, 92, 246, 0.04), transparent 60%),
+      radial-gradient(500px 350px at 80% 75%, rgba(6, 182, 212, 0.03), transparent 60%);
+  }
+  /* 键盘弹出时输入栏贴住可视区底部；用 --kb 预留键盘占用高度，避免遮挡 */
+  body.kb-open .chat-main {
+    min-height: 0;
+  }
 }
 
 /* 小屏手机 (≤480px) */

@@ -333,8 +333,18 @@ export class CombatSystemService {
     const allDrops: any[] = [];
     let attackCount = 0;
 
-    // 构造攻击者加成数据（合并基础+装备+增益）
-    const attackerBonus = this.buildAttackerBonus(player, playerData);
+    // 构造攻击者加成数据（合并基础+装备+增益；传入 map 供宠物存活数量加成使用）
+    const attackerBonus = this.buildAttackerBonus(player, playerData, map);
+
+    // ========== 当前生命>0 移除卷土重来（原版 _计算玩家 L2539-2541） ==========
+    // 原版：当前生命>0 时获得增益(卷土重来, -30) 即移除卷土重来（卷土重来仅在死亡时生效）
+    if ((player.hp || 0) > 0 && playerData.buffs && Array.isArray(playerData.buffs)) {
+      const jtIdx = playerData.buffs.findIndex((b: any) => b && b.name === '卷土重来');
+      if (jtIdx >= 0) {
+        playerData.buffs.splice(jtIdx, 1);
+        player.buffs = JSON.stringify(playerData.buffs);
+      }
+    }
 
     // ========== 等级差距（对应原版 加成计算.ecode L1817-1820 新人加成） ==========
     // 原版：世界等级 = 全局标记"世界"；若 玩家.等级 < 世界等级*10，
@@ -1245,7 +1255,7 @@ export class CombatSystemService {
 
       // 怪物攻击（对应原版 战斗() 怪物攻击分支：武器攻击 防御方）
       // 命中判定：怪物命中 vs 玩家闪避
-      const playerDef = this.buildAttackerBonus(player, playerData);
+      const playerDef = this.buildAttackerBonus(player, playerData, map);
       const hitRate = this.calcHitRate(monsterBonus, { dodge: playerDef.dodge || 0, dodge2: playerDef.dodge2 || 0 });
       if (!this.checkHit(hitRate)) {
         lines.push(`${monster.name} 向你发起攻击，但被你闪避了`);
@@ -1886,6 +1896,12 @@ export class CombatSystemService {
     // 解析武器属性
     const properties = rawWeapon.properties || rawWeapon.属性 || { phys: 100, fire: 0, ice: 0, elec: 0 };
 
+    // 普拉娜武器冷却×10（原版 _计算玩家 L1761-1763：玩家.特殊序号==#普拉娜 时 武器.冷却=武器.冷却*10）
+    let rawCooldown = rawWeapon.cooldown || rawWeapon.冷却 || 5;
+    if (Number(attacker.specialSeq) === 22) {
+      rawCooldown = rawCooldown * 10;
+    }
+
     return {
       name: rawWeapon.name || '未知武器',
       damage: rawWeapon.damage || rawWeapon.伤害 || 0,
@@ -1893,7 +1909,7 @@ export class CombatSystemService {
       attackText: rawWeapon.attackText || rawWeapon.攻击文本 || '',
       type: rawWeapon.type || rawWeapon.类型 || '近战武器',
       specialSeq: rawWeapon.specialSeq || rawWeapon.特殊序号 || 0,
-      cooldown: rawWeapon.cooldown || rawWeapon.冷却 || 5,
+      cooldown: rawCooldown,
       lockTime: rawWeapon.lockTime || rawWeapon.锁定 || 0,
       forcedEffect: rawWeapon.forcedEffect || rawWeapon.必出特效 || false,
       vehicleForceDmg: rawWeapon.vehicleForceDmg || rawWeapon.无视载具 || false,
@@ -1967,12 +1983,13 @@ export class CombatSystemService {
    * 对应原版 加成计算.ecode _计算玩家()：按等级+熟练度成长。
    * public：供信息显示/属性面板调用，展示"计算后"的成长属性。
    */
-  buildAttackerBonus(player: any, playerData: PlayerData): BonusData {
+  buildAttackerBonus(player: any, playerData: PlayerData, map?: any): BonusData {
     // 从玩家基础属性构建
     // 对齐原版 _计算玩家：加成从 0 起步（原版 玩家.加成 = 空加成 j），
     // 再由"等级成长 + 使魔专属 + 装备/套装"累加得出最终属性。
     // 注意：hp/shield/armor 以"上限字段"（maxHp/maxShield/maxArmor）为基数，
     // 而非当前血量(player.hp)，避免把当前血量当加成基数导致上限虚高。
+    // map 可选：用于宠物存活数量加成（原版 L2187-2221）
     const bonus: BonusData = {
       attack: 0,
       attack2: 0,
@@ -2407,7 +2424,7 @@ export class CombatSystemService {
         }
         break;
       }
-      case '23': { // 兰音（原版 L2570-2586）：兰音模式判断（攻击/速度模式）+ 魅力×1.5
+      case '23': { // 兰音（原版 L2570-2586 + L2409-2464 反转童话被动）：兰音模式判断（攻击/速度模式）+ 魅力×1.5 + 负数反转
         // 原版：增幅器伤害系 vs 命中闪避系 比较 → 兰音模式1（攻击）/2（速度）；命中/闪避互相补齐
         if ((player.affinity || 0) > 0) {
           const dmgStats = (bonus.fireDmg2 || 0) + (bonus.attack2 || 0) + (bonus.elecDmg2 || 0);
@@ -2430,6 +2447,39 @@ export class CombatSystemService {
         }
         // 魅力×1.5（原版 L2586）
         bonus.charm = (bonus.charm || 0) * 1.5;
+        // 反转童话被动（原版 L2409-2464）：好感≥80 时，护盾/装甲/生命为负则反转，
+        // 每次独立冷却60秒；好感<80 时负数清零。
+        // 注意：该逻辑在 _计算玩家 中位于"回复结算之后"（L2409），依赖当前值，
+        // 此处同步实现对当前护盾/装甲/生命就地修正。
+        if ((player.affinity || 0) >= 80) {
+          const markers2List = Array.isArray(playerData.markers2) ? playerData.markers2 : [];
+          const hasCd = (key: string) => markers2List.some((m: any) => m && m.name === key && (Date.now() / 1000) < (m.expireAt || 0));
+          if ((player.shield || 0) < 0) {
+            if (!hasCd('fz护盾')) {
+              player.shield = -(player.shield || 0);
+            } else {
+              player.shield = 0;
+            }
+          }
+          if ((player.armor || 0) < 0) {
+            if (!hasCd('fz装甲')) {
+              player.armor = -(player.armor || 0);
+            } else {
+              player.armor = 0;
+            }
+          }
+          if ((player.hp || 0) < 0) {
+            if (!hasCd('fz生命')) {
+              player.hp = -(player.hp || 0);
+            } else {
+              player.hp = 0;
+            }
+          }
+        } else {
+          if ((player.hp || 0) < 0) player.hp = 0;
+          if ((player.shield || 0) < 0) player.shield = 0;
+          if ((player.armor || 0) < 0) player.armor = 0;
+        }
         break;
       }
       case '24': { // 军姬2（原版 L2560-2568）：全属性×1.1；好感≥80 护盾×(1+技能×0.03)、四伤+护盾×0.15
@@ -2497,10 +2547,271 @@ export class CombatSystemService {
       this.logger.warn(`套装加成计算失败: ${err.message}`);
     }
 
+    // ========== 好感追加分支（对应原版 _计算玩家 L2285-2315） ==========
+    // 好感≥20：启木之本樱 命中+=物伤×0.05 且 物伤=0（原版 L2286-2291）
+    // 好感≥80：安克雷奇 命中+=生命/100、闪避=命中+生命/100（L2293-2295）；星尘 护盾回复+=(护盾-当前护盾)/100（L2299-2303）
+    // 好感≥100：长萌 装甲回复+=(装甲-当前装甲)/100（L2305-2309）
+    if ((player.affinity || 0) >= 20) {
+      if (seq === 18) { // 启木之本樱
+        bonus.hit = (bonus.hit || 0) + (bonus.physDmg || 0) * 0.05;
+        bonus.physDmg = 0;
+      }
+      if ((player.affinity || 0) >= 80) {
+        if (seq === 17) { // 安克雷奇
+          bonus.hit = (bonus.hit || 0) + (bonus.hp || 0) / 100;
+          bonus.dodge = (bonus.hit || 0) + (bonus.hp || 0) / 100;
+        }
+        if (seq === 14) { // 星尘
+          bonus.shieldRegen = (bonus.shieldRegen || 0) + ((bonus.shield || 0) - (player.shield || 0)) / 100;
+        }
+        if ((player.affinity || 0) >= 100) {
+          if (seq === 2) { // 长萌
+            bonus.armorRegen = (bonus.armorRegen || 0) + ((bonus.armor || 0) - (player.armor || 0)) / 100;
+          }
+        }
+      }
+    }
+
+    // ========== 阿尔缇娜 a模式=1 全抗+50、生命+=四伤、四伤=1（原版 L2316-2328） ==========
+    if (seq === 7 && this.playerService.getMarkerValue(markers, 'a模式') === 1) {
+      bonus.hpAllRes = (bonus.hpAllRes || 0) + 50;
+      bonus.armorAllRes = (bonus.armorAllRes || 0) + 50;
+      bonus.shieldAllRes = (bonus.shieldAllRes || 0) + 50;
+      bonus.hp = (bonus.hp || 0) + (bonus.physDmg || 0) + (bonus.iceDmg || 0) + (bonus.fireDmg || 0) + (bonus.elecDmg || 0);
+      bonus.physDmg = 1;
+      bonus.iceDmg = 1;
+      bonus.fireDmg = 1;
+      bonus.elecDmg = 1;
+    }
+
+    // ========== 套装植入体 1-4 对应属性伤×1.25（原版 L2329-2339） ==========
+    try {
+      const sets = this.playerService.safeJsonParse<any>(player.sets, {});
+      if (sets.implant === 1) bonus.physDmg = (bonus.physDmg || 0) * 1.25;
+      if (sets.implant === 2) bonus.fireDmg = (bonus.fireDmg || 0) * 1.25;
+      if (sets.implant === 3) bonus.iceDmg = (bonus.iceDmg || 0) * 1.25;
+      if (sets.implant === 4) bonus.elecDmg = (bonus.elecDmg || 0) * 1.25;
+      // 攻击模式==1：闪避=1（原版 L2340-2342）
+      if (sets.attackMode === 1) bonus.dodge = 1;
+      // 晚礼服≥4 且非兰音：魅力×1.5（原版 L2590-2595）
+      if ((sets.eveningGown || 0) >= 4 && seq !== 23) {
+        bonus.charm = (bonus.charm || 0) * 1.5;
+      }
+      // 增幅器==1：当前武器冷却-10%（≥1秒）（原版 L2609-2618）
+      if (sets.amplifier === 1 && player.currentWeapon > 0) {
+        const weaponsD = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+        const curW = weaponsD[(player.currentWeapon || 1) - 1];
+        if (curW) {
+          let a1 = (curW.cooldown || 5) * 0.1;
+          if (a1 < 1) a1 = 1;
+          curW.cooldown = (curW.cooldown || 5) - a1;
+        }
+      }
+      // 科学家≥4：生产+5（原版 L2619-2621）
+      if ((sets.scientist || 0) >= 4) bonus.production = (bonus.production || 0) + 5;
+    } catch (err: any) {
+      this.logger.warn(`套装追加处理失败: ${err.message}`);
+    }
+
+    // ========== 三回复 /10（原版 L2343-2345） ==========
+    bonus.hpRegen = (bonus.hpRegen || 0) / 10;
+    bonus.armorRegen = (bonus.armorRegen || 0) / 10;
+    bonus.shieldRegen = (bonus.shieldRegen || 0) / 10;
+
+    // ========== 脏弹/核废料（原版 L2362-2382） ==========
+    const pBuffs = playerData.buffs || [];
+    if (pBuffs.some((b: any) => b && b.name === '脏弹')) {
+      bonus.hpRegen = 0;
+      bonus.hpRegen2 = 0;
+      bonus.armorRegen = (bonus.armorRegen || 0) / 2;
+      bonus.armorRegen2 = (bonus.armorRegen2 || 0) / 2;
+    } else {
+      // 携带核废料且600秒间隔内无法回复生命（原版 L2368-2380）
+      const backpack = this.playerService.safeJsonParse<any[]>(player.backpack, []);
+      if (backpack.some((it: any) => it && it.name === '核废料' && (it.count || 0) > 0)) {
+        bonus.hpRegen = 0;
+        bonus.hpRegen2 = 0;
+      }
+    }
+
+    // ========== 战斗宙斯盾/抗穿透护盾（原版 L2523-2535） ==========
+    // 当前护盾≥75% 且装备战斗宙斯盾：抗贯穿+100；当前护盾≥5% 且装备抗穿透护盾：抗贯穿+100
+    try {
+      const equips = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+      const hasEquip = (name: string) => equips.some((e: any) => e && e.name === name);
+      if ((player.shield || 0) >= (bonus.shield || 0) * 0.75 && hasEquip('战斗宙斯盾')) {
+        bonus.antiPenetrate = (bonus.antiPenetrate || 0) + 100;
+      }
+      if ((player.shield || 0) >= (bonus.shield || 0) * 0.05 && hasEquip('抗穿透护盾')) {
+        bonus.antiPenetrate = (bonus.antiPenetrate || 0) + 100;
+      }
+    } catch {
+      // 忽略装备解析错误
+    }
+
+    // ========== 闪避<1 → 1（原版 L2536-2538） ==========
+    if ((bonus.dodge || 0) < 1) bonus.dodge = 1;
+
+    // ========== 纯洁无瑕/破刃之剑（原版 L2542-2559） ==========
+    // 装备特效要求 + 未被击败/被击败 状态判定（标记2 "被击败"）
+    try {
+      const equips = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+      const hasEffect = (effect: string) => equips.some((e: any) => e && e.forcedEffect === effect || e && e.特效 === effect);
+      const markers2List = Array.isArray(playerData.markers2) ? playerData.markers2 : [];
+      const defeated = markers2List.some((m: any) => m && m.name === '被击败');
+      if (hasEffect('纯洁无瑕') && !defeated) {
+        bonus.charm = (bonus.charm || 0) + 25;
+        this.addAttackBonusPercent(bonus, 25);
+        bonus.hit = (bonus.hit || 0) * 1.25;
+        bonus.dodge = (bonus.dodge || 0) * 1.25;
+      }
+      if (hasEffect('破刃之剑') && defeated) {
+        bonus.charm = (bonus.charm || 0) + 5;
+        this.addAttackBonusPercent(bonus, 5);
+        bonus.hit = (bonus.hit || 0) * 1.05;
+        bonus.dodge = (bonus.dodge || 0) * 1.05;
+      }
+    } catch {
+      // 忽略装备解析错误
+    }
+
+    // ========== 卷土重来/线圈减伤（原版 L2596-2608） ==========
+    // 卷土重来增益 或 套装线圈>0：闪避=1、四伤÷2
+    // 注意原版 L2599/L2605 疑似笔误：火伤=冰伤/2、冰伤=火伤/2（交叉赋值），按原版保留
+    if (pBuffs.some((b: any) => b && b.name === '卷土重来')) {
+      bonus.dodge = 1;
+      bonus.physDmg = (bonus.physDmg || 0) / 2;
+      bonus.fireDmg = (bonus.iceDmg || 0) / 2; // 原版 L2599，疑似笔误（应为火伤/2），按原版保留
+      bonus.elecDmg = (bonus.elecDmg || 0) / 2;
+      bonus.iceDmg = (bonus.fireDmg || 0) / 2; // 原版 L2601，疑似笔误（应为冰伤/2），按原版保留
+    }
+    try {
+      const sets = this.playerService.safeJsonParse<any>(player.sets, {});
+      if ((sets.coil || 0) > 0) {
+        bonus.physDmg = (bonus.physDmg || 0) / 2;
+        bonus.fireDmg = (bonus.iceDmg || 0) / 2; // 原版 L2605，疑似笔误，按原版保留
+        bonus.elecDmg = (bonus.elecDmg || 0) / 2;
+        bonus.iceDmg = (bonus.fireDmg || 0) / 2; // 原版 L2607，疑似笔误，按原版保留
+      }
+    } catch {
+      // 忽略套装解析错误
+    }
+
+    // ========== 宠物存活数量加成（原版 L2187-2221） ==========
+    // 原版：b=宠物存活数量(玩家.地图, 玩家.QQ, c, d, e, 玩家.套装.白)
+    //   - e≠0（有白）：物伤2×1.05
+    //   - b≠0：小樱好感≥80 攻击2+b×10；军姬 攻击2+b×10、全抗+5×b
+    //   - c>0（钳制≤2）：攻击2/命中2/闪避2 + c×10
+    //   - d>0（钳制≤2）：贯穿+5×d、暴击伤害+75×d
+    // 宠物=地图召唤物中归属该玩家且存活的；此处读取当前地图召唤物计算。
+    try {
+      const mapForPet = map;
+      let petCount = 0;   // b：存活宠物总数
+      let c = 0;          // c：存活非白宠物数（钳制≤2）
+      let d = 0;          // d：存活白宠物数（钳制≤2）
+      let hasWhite = false; // e：是否存在白
+      if (mapForPet) {
+        const summons = this.playerService.safeJsonParse<any[]>(mapForPet.summons, []);
+        for (const s of summons) {
+          const isOwner =
+            s &&
+            (String(s.ownerQQ) === String(player.userId) || String(s.归属) === String(player.userId)) &&
+            (s.hp ?? s.当前生命 ?? 1) > 0;
+          if (!isOwner) continue;
+          const isWhite = s.name === '白' || s.名称 === '白';
+          petCount += 1;
+          if (isWhite) d += 1;
+          else c += 1;
+          if (isWhite) hasWhite = true;
+        }
+      }
+      if (hasWhite) {
+        bonus.physDmg2 = (bonus.physDmg2 || 0) * 1.05;
+      }
+      if (petCount > 0) {
+        if (seq === 10 && (player.affinity || 0) >= 80) { // 小樱 团结友爱
+          bonus.attack2 = (bonus.attack2 || 0) + petCount * 10;
+        }
+        if (seq === 16) { // 军姬 森罗万象
+          bonus.attack2 = (bonus.attack2 || 0) + petCount * 10;
+          bonus.hpAllRes = (bonus.hpAllRes || 0) + 5 * petCount;
+          bonus.armorAllRes = (bonus.armorAllRes || 0) + 5 * petCount;
+          bonus.shieldAllRes = (bonus.shieldAllRes || 0) + 5 * petCount;
+        }
+        if (c > 0) {
+          if (c > 2) c = 2;
+          bonus.attack2 = (bonus.attack2 || 0) + c * 10;
+          bonus.hit2 = (bonus.hit2 || 0) + c * 10;
+          bonus.dodge2 = (bonus.dodge2 || 0) + c * 10;
+        }
+        if (d > 0) {
+          if (d > 2) d = 2;
+          bonus.penetrate = (bonus.penetrate || 0) + 5 * d;
+          bonus.critDmg = (bonus.critDmg || 0) + 75 * d;
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`宠物存活数量加成计算失败: ${err.message}`);
+    }
+
+    // ========== 黑色兔子玩偶（原版 L2222-2238） ==========
+    // 装备黑色兔子玩偶：取最高属性系对应 伤2+10
+    try {
+      const equips = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+      if (equips.some((e: any) => e && e.name === '黑色兔子玩偶')) {
+        if ((bonus.elecDmg || 0) > (bonus.fireDmg || 0)) {
+          if ((bonus.elecDmg || 0) > (bonus.iceDmg || 0)) {
+            bonus.elecDmg2 = (bonus.elecDmg2 || 0) + 10;
+          } else {
+            bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 10;
+          }
+        } else if ((bonus.fireDmg || 0) > (bonus.iceDmg || 0)) {
+          bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 10;
+        } else {
+          bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 10;
+        }
+      }
+      // 套装一拳==4：攻击2+25、全部武器锁定+5（原版 L2239-2244）
+      const sets = this.playerService.safeJsonParse<any>(player.sets, {});
+      if ((sets.onePunch || 0) === 4) {
+        bonus.attack2 = (bonus.attack2 || 0) + 25;
+        const weaponsD = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+        for (const w of weaponsD) {
+          if (w) w.lockTime = (w.lockTime || 0) + 5;
+        }
+      }
+    } catch {
+      // 忽略装备解析错误
+    }
+
     // 应用递减收益
     this.bonusService.applyAllDiminishingReturns(bonus);
 
     return bonus;
+  }
+
+  /**
+   * 增加攻击（百分比属性攻击）
+   * 对应原版 加成计算.ecode 增加攻击() L1394-1405（攻击2分支）：
+   *   玩家.属性.电伤 += (加成.攻击 + 加成.电伤 + 基础.电伤)
+   *                   × (1 + 属性.电伤2/100) × (1 + 加成.电伤2/100) × (1 + 加成.攻击2/100)
+   *                   × 攻击2/100
+   *   物伤/冰伤/火伤 同理。
+   * 用于 纯洁无瑕/破刃之剑 等"增加攻击(玩家, , 百分比)"特效。
+   * @param bonus 加成对象（就地修改四属性伤害）
+   * @param attack2 百分比攻击值（原版第二参数：百分比 属性）
+   */
+  private addAttackBonusPercent(bonus: BonusData, attack2: number): void {
+    if (!attack2) return;
+    const atkBonus = (bonus.attack || 0) + (bonus.attackBonus || 0);
+    // 原版 (1 + 属性.攻击2/100) 中的"属性.攻击2"对应本框架 attack2（递减后）；
+    // 这里简化取当前 bonus.attack2（若已应用递减则用递减值，行为接近原版）。
+    const atk2Factor = (1 + (bonus.attack2 || 0) / 100);
+    const mul = (dmg2: number) => (1 + (dmg2 || 0) / 100) * atk2Factor * attack2 / 100;
+    bonus.elecDmg = (bonus.elecDmg || 0) + (atkBonus + (bonus.elecDmg || 0) + (bonus.elecDmg2 || 0)) * mul(bonus.elecDmg2 || 0);
+    bonus.physDmg = (bonus.physDmg || 0) + (atkBonus + (bonus.physDmg || 0) + (bonus.physDmg2 || 0)) * mul(bonus.physDmg2 || 0);
+    bonus.iceDmg = (bonus.iceDmg || 0) + (atkBonus + (bonus.iceDmg || 0) + (bonus.iceDmg2 || 0)) * mul(bonus.iceDmg2 || 0);
+    bonus.fireDmg = (bonus.fireDmg || 0) + (atkBonus + (bonus.fireDmg || 0) + (bonus.fireDmg2 || 0)) * mul(bonus.fireDmg2 || 0);
   }
 
   /**

@@ -190,8 +190,24 @@ export class CommandService {
         };
       }
 
+      // 5.1 行动前离线时间补偿（对应原版 _计算玩家 基于时间差的回复结算 L2383-2408）
+      //     玩家距上次操作超过10秒时，按回复率自动回血/回盾/回甲；结果拼入回复文本。
+      let offlineRegen = '';
+      if (ctx.userId) {
+        try {
+          offlineRegen = await this.gameService.calculateTimeElapsed(ctx.userId);
+        } catch (e: any) {
+          this.logger.warn(`离线补偿失败: ${e.message}`);
+        }
+      }
+
       const result = await handler.handle(ctx, args);
       result.durationMs = Date.now() - start;
+
+      // 5.2 若离线有回复，拼在指令结果之前（如 "生命回复 +12\n<指令结果>"）
+      if (offlineRegen && result.content) {
+        result.content = `${offlineRegen}\n━━━━━━━━━━━━━━━\n${result.content}`;
+      }
 
       // 7. 记录指令执行日志
       await this.recordLog(ctx, commandName, result);

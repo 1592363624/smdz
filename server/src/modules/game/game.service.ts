@@ -1769,17 +1769,38 @@ export class GameService {
     ];
 
     for (const task of tasks) {
-      const statusIcon = task.status === '已完成' ? '✅' : '⏳';
+      // 统一新格式：{ name, requirements: [{name,count}], completed? }
+      const isCompleted = task.completed === true
+        || (Array.isArray(task.requirements) && task.requirements.length === 0);
+      const statusIcon = isCompleted ? '✅' : '⏳';
       lines.push(`${statusIcon} 【${task.name}】`);
-      lines.push(`  状态: ${task.status}`);
-      if (task.progress) {
-        lines.push(`  进度: ${task.progress}`);
+      lines.push(`  状态: ${isCompleted ? '已完成' : '进行中'}`);
+
+      // 展示每条要求的完成进度（已完成/总数）
+      if (Array.isArray(task.requirements) && task.requirements.length > 0) {
+        const gameTask = this.staticData.getTaskByName(task.name);
+        // 从任务定义中对齐每条要求的总数，用于计算"已完成的次数"
+        const totalReqs = gameTask
+          ? this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+              gameTask.requirements, [],
+            )
+          : [];
+        for (const req of task.requirements) {
+          const totalReq = totalReqs.find(r => r.name === req.name);
+          const done = totalReq ? Math.max(totalReq.count - req.count, 0) : 0;
+          const total = totalReq ? totalReq.count : req.count;
+          lines.push(`    进度: ${req.name} ${done}/${total}`);
+        }
       }
     }
 
     lines.push(``);
     // 为已完成任务生成编号快捷提交选项（发送编号数字即可一键提交，无需手输任务名）
-    const completedTasks = tasks.filter((t: any) => t.status === '已完成' && t.name);
+    const completedTasks = tasks.filter((t: any) => {
+      const done = t.completed === true
+        || (Array.isArray(t.requirements) && t.requirements.length === 0);
+      return done && t.name;
+    });
     const options = completedTasks.map((t: any) => ({ label: `提交任务 ${t.name}`, cmd: `提交任务 ${t.name}` }));
     const menuLines = await this.buildNumberedMenu(userId, options, '💡 发送编号数字(如 1)即可提交对应已完成任务');
     if (menuLines.length === 0) {
@@ -1810,8 +1831,15 @@ export class GameService {
     const task = tasks[taskIndex];
 
     // 3. 检查任务是否完成
-    if (task.status !== '已完成') {
-      return `【${questName}】任务还未完成，请先完成任务再提交\n当前进度: ${task.progress || '未知'}`;
+    // 统一新格式：requirements 清空或 completed 标记即视为已完成
+    const isCompleted = task.completed === true
+      || (Array.isArray(task.requirements) && task.requirements.length === 0);
+    if (!isCompleted) {
+      // 未完成：展示剩余要求进度
+      const reqText = Array.isArray(task.requirements) && task.requirements.length > 0
+        ? task.requirements.map(r => `${r.name}(${r.count})`).join('，')
+        : '未知';
+      return `【${questName}】任务还未完成，请先完成任务再提交\n当前进度: ${reqText}`;
     }
 
     // 4. 从 GameTask 读取奖励配置
@@ -1825,18 +1853,15 @@ export class GameService {
     }
 
     // 5. 发放奖励（经验、物品、好感度等）
-    const rewards = this.playerService.safeJsonParse<string[]>(gameTask.rewards, []);
+    // 奖励统一为 {name, count} 对象格式（与 tasks.json 一致）
+    const rewards = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(gameTask.rewards, []);
     const rewardLines: string[] = [];
     const expRewards: number[] = [];
 
-    for (const rewardStr of rewards) {
-      // 奖励格式：["物品名1,数量1", "物品名2,数量2", "经验,数值"]
-      const parts = rewardStr.split(',');
-      if (parts.length < 2) continue;
-
-      const rewardName = parts[0].trim();
-      const rewardValue = parseInt(parts[1].trim(), 10);
-      if (isNaN(rewardValue) || rewardValue <= 0) continue;
+    for (const reward of rewards) {
+      const rewardName = (reward?.name || '').trim();
+      const rewardValue = Number(reward?.count) || 0;
+      if (!rewardName || rewardValue <= 0) continue;
 
       if (rewardName === '经验') {
         // 经验奖励，汇总后统一发放
@@ -6706,7 +6731,13 @@ export class GameService {
       const { player } = playerData;
 
       const now = Date.now();
-      const lastOpTime = player.lastOpTime || player.readTime || now;
+      // lastOpTime/readTime 为 BigInt（schema BigInt），统一转 Number 参与运算
+      const toNum = (v: any) => {
+        if (v === null || v === undefined) return 0;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const lastOpTime = toNum(player.lastOpTime) || toNum(player.readTime) || now;
 
       // 计算时间差（秒）
       const timeDiff = Math.max(0, (now - lastOpTime) / 1000);
@@ -6723,17 +6754,22 @@ export class GameService {
 
       // 如果没有任何回复率，则只更新时间戳
       if (regenHp <= 0 && regenShield <= 0 && regenArmor <= 0) {
-        // 更新最后操作时间
-        player.lastOpTime = now;
+        // 更新最后操作时间（BigInt 字段）
+        player.lastOpTime = BigInt(now);
         await this.playerService.savePlayer(player);
         return '';
       }
 
-      // 应用回复公式：回复量 = 回复率 × 时间差 / 60
-      // 即每60秒回复"回复率"点
-      const hpRegen = Math.floor(regenHp * timeDiff / 60);
-      const shieldRegen = Math.floor(regenShield * timeDiff / 60);
-      const armorRegen = Math.floor(regenArmor * timeDiff / 60);
+      // 应用回复公式：回复量 = 回复率 × 时间差（每秒回复"回复率"点）
+      // 对齐原版 _计算玩家 L2401-2403：
+      //   当前护盾 += 时间差 × 属性.护盾回复 + 时间差 × 属性.护盾回复2/100 × 属性.护盾
+      // 本框架 regenHp/regenShield/regenArmor 已含原版 /10 折算后的每秒回复速率。
+      const maxHpVal = player.maxHp || 100;
+      const maxShieldVal = player.maxShield || 0;
+      const maxArmorVal = player.maxArmor || 0;
+      const hpRegen = Math.floor(regenHp * timeDiff + (player.regenHp2 || 0) / 100 * maxHpVal * timeDiff);
+      const shieldRegen = Math.floor(regenShield * timeDiff + (player.regenShield2 || 0) / 100 * maxShieldVal * timeDiff);
+      const armorRegen = Math.floor(regenArmor * timeDiff + (player.regenArmor2 || 0) / 100 * maxArmorVal * timeDiff);
 
       // 限制回复量不超过最大值
       const hpBefore = player.hp || 0;
@@ -6748,8 +6784,45 @@ export class GameService {
       const maxArmor = player.maxArmor || 0;
       player.armor = Math.min(maxArmor, armorBefore + armorRegen);
 
-      // 更新最后操作时间
-      player.lastOpTime = now;
+      // ===== 躺下经验结算（原版 _计算玩家 L2478-2491） =====
+      // a1 = 等级/100 × 时间差 × (1+属性.经验/100) × (1+|陪睡|×0.5) [若有鹭(陪睡<0)再×1.1]
+      // 仅当 标记"躺下"==1 时生效；离线≥600秒时显示提示文本
+      try {
+        const markersObj = this.playerService.safeJsonParse<any>(player.markers, {});
+        if (markersObj['躺下'] === 1) {
+          const setsObj = this.playerService.safeJsonParse<any>(player.sets, {});
+          const sleepover = Math.abs(Number(setsObj.sleepover) || 0);
+          const isHaveCrane = (Number(setsObj.sleepover) || 0) < 0; // 负数为有鹭
+          let lieExp = (player.level || 1) / 100 * timeDiff
+            * (1 + (player.expBonus || 0) / 100)
+            * (1 + sleepover * 0.5);
+          if (isHaveCrane) lieExp *= 1.1;
+          if (lieExp > 0) {
+            player.exp = (player.exp || 0) + lieExp;
+            if (timeDiff >= 600) {
+              this.logger.log(`躺下离线经验 userId=${userId}, 离线${Math.floor(timeDiff / 60)}分钟, +${lieExp}经验`);
+            }
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`躺下经验结算失败: ${e.message}`);
+      }
+
+      // ===== 活力恢复（原版 _计算玩家 L2625-2643） =====
+      // a1 = max(记录的最高魅力, 100)；活力 += 时间差/1200 × (1+(a1-100)/200)，上限 a1
+      try {
+        const markersObj = this.playerService.safeJsonParse<any>(player.markers, {});
+        const charmBonus = this.playerService.getMarkerValue(markersObj, '活力2');
+        let vitalityMax = 100 + charmBonus;
+        if (vitalityMax < 100) vitalityMax = 100;
+        player.vitality = (player.vitality || 0) + timeDiff / 1200 * (1 + (vitalityMax - 100) / 200);
+        if (player.vitality > vitalityMax) player.vitality = vitalityMax;
+      } catch (e: any) {
+        this.logger.warn(`活力恢复结算失败: ${e.message}`);
+      }
+
+      // 更新最后操作时间（BigInt 字段）
+      player.lastOpTime = BigInt(now);
 
       // 保存玩家数据
       await this.playerService.savePlayer(player);
@@ -6765,9 +6838,12 @@ export class GameService {
       if (actualArmorRegen > 0) regenLines.push(`装甲回复 +${actualArmorRegen}`);
 
       if (regenLines.length > 0) {
+        // 离线时长展示：≥60秒显示分钟，否则显示秒
         const minutes = Math.floor(timeDiff / 60);
-        this.logger.log(`时间补偿 userId=${userId}, 离线${minutes}分钟, ${regenLines.join(', ')}`);
-        return `⏰ 你离开了 ${minutes} 分钟\n${regenLines.join('\n')}`;
+        const seconds = Math.floor(timeDiff % 60);
+        const durationText = minutes > 0 ? `${minutes} 分 ${seconds} 秒` : `${seconds} 秒`;
+        this.logger.log(`时间补偿 userId=${userId}, 离线${durationText}, ${regenLines.join(', ')}`);
+        return `⏰ 你离开了 ${durationText}\n${regenLines.join('\n')}`;
       }
 
       return '';

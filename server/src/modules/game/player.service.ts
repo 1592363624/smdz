@@ -350,9 +350,11 @@ export class PlayerService {
     player.speed = Math.floor(10 + lv / 5 + profDodge / 4 * lvFactor);
     player.crit = 5 + 3; // 初始5 + 原版暴击+3
     player.critDmg = Math.floor(150 + 150 + lv / 10);
-    player.regenHp = 0.1 + lv / 10;
-    player.regenShield = 0.1 + lv / 10;
-    player.regenArmor = 0.1 + lv / 10;
+    // 回复速率：原版 L1831 成长后为 (0.1+等级/10)，L2343-2345 再 /10 折算为每秒回复
+    // （本字段直接存最终每秒回复值，供离线补偿 calculateTimeElapsed 使用）
+    player.regenHp = (0.1 + lv / 10) / 10;
+    player.regenShield = (0.1 + lv / 10) / 10;
+    player.regenArmor = (0.1 + lv / 10) / 10;
 
     // 当前血量不得超过新上限（原版 L2465：当前生命>属性.生命 时封顶）
     if ((player.hp || 0) > player.maxHp) player.hp = player.maxHp;

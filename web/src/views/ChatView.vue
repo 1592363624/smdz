@@ -2003,8 +2003,19 @@ onMounted(async () => {
     //   聊天栏/输入栏会被键盘盖住）。同时监听 visualViewport 的 resize。
     setViewportHeight = () => {
       const vv = window.visualViewport;
-      const vh = ((vv && vv.height) || window.innerHeight) * 0.01;
+      const ih = window.innerHeight;
+      // 兼容不同键盘模式：
+      // - Android adjustResize：键盘压缩布局视口，innerHeight 缩小，但 visualViewport.height 可能不变
+      // - Android adjustPan / iOS：visualViewport.height 缩小
+      // 取两者较小值，能覆盖两种模式，避免输入栏被键盘遮住
+      const vhHeight = Math.min(vv && vv.height ? vv.height : ih, ih);
+      const vh = vhHeight * 0.01;
       document.documentElement.style.setProperty('--vh', `${vh}px`);
+      // 计算"可视区底部到浏览器可视区底部"的偏移量（键盘占用的高度），
+      // 供移动端固定底部的输入栏使用，确保键盘弹出时不遮挡
+      const bottomDiff = Math.max(0, ih - ((vv && vv.offsetTop && vv.offsetTop + vv.height) || ih));
+      document.documentElement.style.setProperty('--kb', `${bottomDiff}px`);
+      document.body.classList.toggle('kb-open', bottomDiff > 1);
     };
     setViewportHeight();
     window.addEventListener('resize', setViewportHeight);
