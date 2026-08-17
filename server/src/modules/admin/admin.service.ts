@@ -131,6 +131,112 @@ export class AdminService {
   }
 
   /**
+   * 清理（重置）指定用户的游戏数据，但保留账号
+   * 将玩家所有游戏进度重置为"未开始游玩"的初始状态（等同新建玩家首次进入），
+   * 与 PlayerService.getOrCreatePlayer 的初始化逻辑保持一致。
+   * 不删除 user，仅重置 Player 行的游戏字段。
+   * @returns 操作结果文本
+   */
+  async resetPlayerData(userId: number): Promise<string> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (!player) {
+      return `账号 ${user.username} 尚无玩家记录，无需清理`;
+    }
+
+    // 初始背包（与新玩家一致）
+    const initialBackpack = [
+      { name: '石斧', type: '装备', quantity: 1, durability: 0, data: 'e' },
+      { name: '皮帽', type: '装备', quantity: 1, durability: 0, data: 'e' },
+      { name: '布衣', type: '装备', quantity: 1, durability: 0, data: 'e' },
+      { name: '新手补给', type: '消耗品', quantity: 1, durability: 0, data: '' },
+      { name: '面包', type: '消耗品', quantity: 3, durability: 0, data: '' },
+    ];
+    const initialWeapons = [{ name: '石斧', type: '武器', slot: 1, quantity: 1, durability: 0, data: 'e' }];
+    const initialEquipment = [{ name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' }];
+
+    // 初始任务：新手教程（从静态数据读取，避免硬编码，与 getOrCreatePlayer 一致）
+    let initialTasks: Array<{ name: string; requirements: Array<{ name: string; count: number }> }> = [];
+    const tutorialTask = this.staticData.getTaskByName('新手教程');
+    if (tutorialTask) {
+      const reqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+        tutorialTask.requirements, [],
+      );
+      if (reqs.length > 0) {
+        initialTasks.push({ name: '新手教程', requirements: JSON.parse(JSON.stringify(reqs)) });
+      }
+    }
+
+    // 起始地图（第一个可用地图）
+    const startMap = await this.prisma.gameMap.findFirst({ orderBy: { mapIndex: 'asc' } });
+    const startMapId = startMap?.id ?? 1;
+    const startMapName = startMap?.name ?? '';
+
+    // 重置所有游戏进度字段（保留 id / userId / 账号）
+    await this.prisma.player.update({
+      where: { id: player.id },
+      data: {
+        level: 1,
+        exp: 0,
+        upgradeExp: 100,
+        name: '冒险者',
+        type: '',
+        specialSeq: 0,
+        hp: 100,
+        maxHp: 100,
+        shield: 0,
+        maxShield: 0,
+        armor: 0,
+        maxArmor: 0,
+        attack: 10,
+        defense: 0,
+        speed: 100,
+        dodge: 0,
+        hit: 100,
+        crit: 5,
+        critDmg: 150,
+        regenHp: 0,
+        regenShield: 0,
+        regenArmor: 0,
+        mapId: startMapId,
+        location: startMapName,
+        houseName: '',
+        backpack: JSON.stringify(initialBackpack),
+        equipment: JSON.stringify(initialEquipment),
+        weapons: JSON.stringify(initialWeapons),
+        currentWeapon: 0,
+        markers: JSON.stringify({ '指引': 0 }),
+        markers2: '[]',
+        buffs: '[]',
+        tasks: JSON.stringify(initialTasks),
+        titles: JSON.stringify(['新人']),
+        skills: '{}',
+        sets: '{}',
+        bonus: '{}',
+        baseBonus: '{}',
+        vehicle: '',
+        safeBox: '[]',
+        equipmentPresets: '[]',
+        reverse: '[]',
+        recipes: '[]',
+        stats: '{}',
+        affinity: 0,
+        masterQQ: '',
+        vitality: 0,
+        lastOpTime: BigInt(0),
+        readTime: BigInt(0),
+      },
+    });
+
+    this.logger.log(`管理员清空了用户 ${userId} (${user.username}) 的游戏数据`);
+    return `已清空账号 ${user.username} 的游戏数据，可重新登录后重新选择使魔开始` ;
+  }
+
+  /**
    * 获取服务器状态
    * 统计用户数、玩家数、在线玩家数（暂取有活跃标记的玩家）、地图数、指令数、
    * 怪物种类数、物品种类数及运行时长

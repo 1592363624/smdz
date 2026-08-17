@@ -26,6 +26,7 @@ import {
   AnnouncementDto,
   DeleteUserDto,
   GiveItemDto,
+  ResetUserDataDto,
   SetWorldLevelDto,
   UpdateConfigDto,
   UpdateUserDto,
@@ -71,6 +72,13 @@ export class AdminController {
   @ApiOperation({ summary: '删除用户(级联删除其玩家档案，不可删除自己/超级管理员)' })
   async deleteUser(@Body() dto: DeleteUserDto, @Req() req) {
     const message = await this.adminService.deleteUser(req.user.userId, dto.id);
+    return { success: true, message };
+  }
+
+  @Post('users/reset-data')
+  @ApiOperation({ summary: '清理用户游戏数据(重置为未开始游玩，保留账号)' })
+  async resetUserData(@Body() dto: ResetUserDataDto) {
+    const message = await this.adminService.resetPlayerData(dto.id);
     return { success: true, message };
   }
 

@@ -41,6 +41,13 @@ export class DeleteUserDto {
   id: number;
 }
 
+/// 清理用户游戏数据（保留账号）
+export class ResetUserDataDto {
+  @ApiProperty({ description: '用户ID', example: 1 })
+  @IsInt()
+  id: number;
+}
+
 /// 更新系统配置项
 export class UpdateConfigDto {
   @ApiProperty({ description: '配置键', example: 'command.prefixes' })
