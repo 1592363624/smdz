@@ -639,7 +639,8 @@ export class MapService {
           bonus: JSON.stringify(finalBonus),
           baseBonus: JSON.stringify(finalBonus),
           extraBonus: '{}',
-          equipments: defBonus.装备 ? JSON.stringify(defBonus.装备List || [defBonus.装备].filter(Boolean)) : '[]',
+          // 装备列表：用上方已按空格正确拆分的 eqList（原版 bonus.装备 形如"射爆核心 超载核心 袖剑"）
+          equipments: JSON.stringify(eqList.length ? eqList : []),
           weapons: defBonus.武器 ? JSON.stringify(String(defBonus.武器).split(/\s+/).filter(Boolean)) : '[]',
           currentWeapon: 0,
           equipmentPresets: '[]',
@@ -647,7 +648,8 @@ export class MapService {
           markers2: '[]',
           buffs: '[]',
           achievements: '[]',
-          set: '{}',
+          // 套装判定结果来自 buildMonsterBonusFromDef 计算的 finalBonus.套装（对齐原版 g.套装）
+          set: JSON.stringify(finalBonus.套装 || {}),
           affinity: 0,
           vitality: 0,
           exp: expVal,

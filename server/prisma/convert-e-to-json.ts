@@ -37,6 +37,9 @@ try {
 // 易语言源码实际位于 e/源码解析成为txt/ 子目录下（带中文目录名）
 const ROOT_DIR = path.resolve(__dirname, '../../');
 const ECODE_DIR = path.resolve(ROOT_DIR, 'e/源码解析成为txt');
+// 原版主配置（GBK 编码）：易语言源码 e/源码解析成为txt/使魔大战.txt。
+// 注：完整原版数据曾临时导出到工作区根目录 _decoded_original.txt(UTF-8 BOM) 用于一次性重建 JSON，
+//     重建后恢复本行指向。解析器已兼容 GBK/UTF-8(BOM)。
 const DATA_FILE = path.resolve(ECODE_DIR, '使魔大战.txt');
 const BLUEPRINT_FILE = path.resolve(ECODE_DIR, '0.txt');
 const CONSTANT_FILE = path.resolve(ECODE_DIR, '@Constant.ecode');
@@ -51,10 +54,17 @@ interface ConfigSection {
   fields: Record<string, string>;
 }
 
-/** 读取并解析 [节头] + 键值对 格式的配置文件（GBK） */
+/** 读取并解析 [节头] + 键值对 格式的配置文件。
+ *  兼容 GBK（原版使魔大战.txt）与 UTF-8(BOM)（完整导出 _decoded_original.txt）：
+ *  检测 UTF-8 BOM(EF BB BF) 则用 utf-8 解码，否则用 gbk。 */
 function parseConfigFile(filePath: string): ConfigSection[] {
   const buf = fs.readFileSync(filePath);
-  const txt = iconv.decode(buf, 'gbk');
+  let txt: string;
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    txt = iconv.decode(buf, 'utf-8');
+  } else {
+    txt = iconv.decode(buf, 'gbk');
+  }
   const sections: ConfigSection[] = [];
   const lines = txt.split(/\r?\n/);
   let current: ConfigSection | null = null;

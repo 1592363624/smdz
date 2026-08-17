@@ -1327,7 +1327,7 @@ vite-plugin-checker-error-overlay,
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
-.input-bar input {
+.input-bar :is(input, textarea.cmd-input) {
   flex: 1;
   padding: 12px 16px;
   background: rgba(10, 10, 26, 0.6);
@@ -1337,7 +1337,7 @@ vite-plugin-checker-error-overlay,
   outline: none;
   transition: all 0.25s ease;
 }
-.input-bar input:focus {
+.input-bar :is(input, textarea.cmd-input):focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
 }
@@ -1721,7 +1721,7 @@ vite-plugin-checker-error-overlay,
   flex: 1;
   display: flex;
 }
-.input-wrapper input {
+.input-wrapper :is(input, textarea.cmd-input) {
   flex: 1;
   padding: 12px 16px;
   background: rgba(10, 10, 26, 0.6);
@@ -1731,9 +1731,21 @@ vite-plugin-checker-error-overlay,
   outline: none;
   transition: all 0.25s ease;
 }
-.input-wrapper input:focus {
+.input-wrapper :is(input, textarea.cmd-input):focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+/* 多行指令输入框：禁用拖拽手柄，回车换行而非发送 */
+.input-wrapper textarea.cmd-input {
+  resize: none;
+  min-height: 46px;
+  max-height: 160px;
+  line-height: 1.5;
+  font-family: inherit;
+  font-size: 14px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .autocomplete-list {
   position: absolute;
@@ -2539,7 +2551,7 @@ vite-plugin-checker-error-overlay,
     gap: 8px;
     flex-shrink: 0;
   }
-  .input-bar input {
+  .input-bar :is(input, textarea.cmd-input) {
     padding: 10px 12px;
     font-size: 14px;
   }
@@ -2549,7 +2561,7 @@ vite-plugin-checker-error-overlay,
     white-space: nowrap;
   }
 
-  .input-wrapper input {
+  .input-wrapper :is(input, textarea.cmd-input) {
     padding: 10px 12px;
     font-size: 14px;
   }
@@ -2739,7 +2751,7 @@ vite-plugin-checker-error-overlay,
     padding: 6px 10px;
     padding-bottom: calc(6px + var(--safe-bottom));
   }
-  .input-bar input {
+  .input-bar :is(input, textarea.cmd-input) {
     padding: 8px 10px;
     font-size: 13px;
   }

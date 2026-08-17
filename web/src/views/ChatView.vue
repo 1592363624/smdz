@@ -479,16 +479,18 @@
       <!-- 输入框 -->
       <footer class="input-bar">
         <div class="input-wrapper">
-          <input
+          <!-- 多行输入框：回车换行，Ctrl+Enter 或点击发送按钮发送 -->
+          <textarea
             ref="inputEl"
             v-model="input"
-            @keyup.enter="sendMessage"
-            @keyup="onInputKeyup"
+            rows="1"
+            class="cmd-input"
             @keydown="onInputKeydown"
+            @keyup="onInputKeyup"
             @input="onInputChange"
             @blur="onInputBlur"
-            placeholder="开始愉快地玩耍吧!"
-          />
+            placeholder="回车换行，Ctrl+Enter 或点击「发送」发送指令"
+          ></textarea>
           <!-- 指令自动补全下拉 -->
           <div v-if="showAutocomplete && filteredCommands.length" class="autocomplete-list">
             <div
@@ -1338,6 +1340,16 @@ function onInputChange() {
   } else {
     closeAtAutocomplete();
   }
+  // 多行文本框随内容自动调整高度
+  autoResizeInput();
+}
+
+// 多行文本框自动高度：根据内容行数在 min/max 高度间伸缩，避免滚动条突兀
+function autoResizeInput() {
+  const el = inputEl.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 }
 
 // 选中某个玩家：把 "关键词" 替换为 "@username "
@@ -1357,6 +1369,7 @@ function selectAtPlayer(p) {
     // 光标定位到 @username 之后，方便继续输入
     const caret = pos + 1 + name.length + 1;
     inputEl.value?.setSelectionRange(caret, caret);
+    autoResizeInput();
   });
 }
 
@@ -1395,6 +1408,12 @@ function onInputKeyup() {
 }
 
 function onInputKeydown(e) {
+  // Ctrl+Enter 组合键发送消息（多行输入时回车用于换行，不触发发送）
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    sendMessage();
+    return;
+  }
   // 优先处理 @ 玩家下拉的方向键/回车/退出
   if (showAtAutocomplete.value && filteredAtPlayers.value.length) {
     if (e.key === 'ArrowDown') {
@@ -1406,6 +1425,7 @@ function onInputKeydown(e) {
       atAutocompleteIndex.value = Math.max(atAutocompleteIndex.value - 1, 0);
       return;
     } else if (e.key === 'Tab' || e.key === 'Enter') {
+      // 仅在下拉激活时拦截回车用于选中玩家，否则回车应换行
       e.preventDefault();
       if (atAutocompleteIndex.value >= 0 && atAutocompleteIndex.value < filteredAtPlayers.value.length) {
         selectAtPlayer(filteredAtPlayers.value[atAutocompleteIndex.value]);
@@ -1419,7 +1439,7 @@ function onInputKeydown(e) {
       return;
     }
   }
-  // 指令自动补全键盘控制
+  // 指令自动补全键盘控制；回车仅用于选中补全项，不发送（发送统一走 Ctrl+Enter/按钮）
   if (!showAutocomplete.value || !filteredCommands.value.length) return;
   if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -1468,6 +1488,7 @@ async function sendMessage() {
   input.value = '';
   showAutocomplete.value = false;
   closeAtAutocomplete();
+  autoResizeInput();
 }
 
 function appendMessage(msg) {
