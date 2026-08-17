@@ -57,8 +57,9 @@ export class QQAuthController {
 
       // 将 token 和用户信息作为 URL 参数传递到前端
       // 前端登录页会解析这些参数并完成登录
+      // qq_new=1 表示本次为首次注册，前端引导用户设置游戏昵称后再进入
       const userData = encodeURIComponent(JSON.stringify(result.user));
-      const redirectUrl = `/login?qq_token=${result.access_token}&qq_user=${userData}`;
+      const redirectUrl = `/login?qq_token=${result.access_token}&qq_user=${userData}&qq_new=${result.isNewUser ? '1' : '0'}`;
       return res.redirect(redirectUrl);
     } catch (err: any) {
       this.logger.error(`QQ 登录回调处理失败: ${err.message}`);

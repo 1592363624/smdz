@@ -47,6 +47,7 @@ export class AdminService {
           username: true,
           nickname: true,
           qqNumber: true,
+          externalId: true,
           role: true,
           status: true,
           createdAt: true,
@@ -81,6 +82,13 @@ export class AdminService {
     if (data.qqNumber !== undefined) {
       // 空字符串表示解绑 QQ
       updateData.qqNumber = data.qqNumber === '' ? null : data.qqNumber;
+      // 兼容旧版绑定：原 qqNumber 是 openid（非5-12位纯数字）时，迁移到 externalId，
+      // 避免后续 QQ 登录识别不到原账号
+      if (updateData.qqNumber !== null && exists.qqNumber && !/^\d{5,12}$/.test(exists.qqNumber)) {
+        if (!exists.externalId) {
+          updateData.externalId = exists.qqNumber;
+        }
+      }
     }
 
     // QQ 号唯一性检查（修改时可能与其他账号冲突）

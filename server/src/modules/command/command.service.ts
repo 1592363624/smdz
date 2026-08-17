@@ -124,6 +124,8 @@ export class CommandService {
                 if (gatherResult && gatherResult.success) {
                   gatherResult.durationMs = Date.now() - start;
                   await this.recordLog(ctx, commandName, gatherResult);
+                  // 采集成功会改变玩家状态，实时推送刷新网页玩家面板
+                  await this.gameService.pushPlayerUpdate(ctx.userId);
                   return gatherResult;
                 }
               } catch (e) {
@@ -182,6 +184,10 @@ export class CommandService {
             if (gatherResult && gatherResult.success) {
               gatherResult.durationMs = Date.now() - start;
               await this.recordLog(ctx, commandName, gatherResult);
+              // 采集成功刷新玩家面板（存在用户上下文时才推送）
+              if (ctx.userId) {
+                await this.gameService.pushPlayerUpdate(ctx.userId);
+              }
               return gatherResult;
             }
           } catch (e) {
@@ -239,6 +245,11 @@ export class CommandService {
 
       // 7. 记录指令执行日志
       await this.recordLog(ctx, commandName, result);
+
+      // 7.1 指令执行后实时推送玩家状态到前端 socket（打怪掉血/加经验/升级/装备等变化即时体现在网页面板）
+      if (ctx.userId) {
+        await this.gameService.pushPlayerUpdate(ctx.userId);
+      }
 
       return result;
     } catch (err: any) {

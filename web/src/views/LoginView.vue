@@ -4,60 +4,87 @@
       <h1 class="game-title">使魔大战3 · 网页版</h1>
       <p class="subtitle">公屏群聊文字游戏 · 提供API支持对接机器人</p>
 
-      <!-- 登录/注册切换 -->
-      <div class="tabs">
-        <button :class="['tab', mode === 'login' && 'active']" @click="switchMode('login')">登录</button>
-        <button :class="['tab', mode === 'register' && 'active']" @click="switchMode('register')">注册</button>
-      </div>
-
-      <form class="form" @submit.prevent="handleSubmit">
+      <!-- QQ 首次注册：引导设置游戏昵称（隐藏常规登录表单） -->
+      <div v-if="qqNeedNickname" class="nickname-setup">
+        <div class="setup-icon">🎮</div>
+        <h2 class="setup-title">设置游戏昵称</h2>
+        <p class="setup-desc">QQ 昵称不会直接作为游戏昵称展示，请为你的角色取一个名字</p>
         <label class="field">
-          <span>用户名</span>
-          <input v-model="username" placeholder="请输入用户名" required minlength="3" maxlength="20" />
+          <span>游戏昵称</span>
+          <input
+            v-model="nickname"
+            placeholder="输入游戏昵称（游戏中展示的名字）"
+            maxlength="20"
+            @keyup.enter="saveNicknameAndEnter"
+          />
         </label>
-        <label class="field">
-          <span>密码</span>
-          <input v-model="password" type="password" placeholder="请输入密码" required minlength="6" />
-        </label>
-        <!-- 注册时显示确认密码字段 -->
-        <label v-if="mode === 'register'" class="field">
-          <span>确认密码</span>
-          <input v-model="confirmPassword" type="password" placeholder="再次输入密码" required minlength="6" />
-        </label>
-        <label v-if="mode === 'register'" class="field">
-          <span>昵称(可选)</span>
-          <input v-model="nickname" placeholder="游戏内显示的名字" maxlength="20" />
-        </label>
-
         <!-- 错误提示 -->
         <transition name="fade">
           <p v-if="error" class="error">{{ error }}</p>
         </transition>
-
-        <button class="submit-btn" type="submit" :disabled="loading">
-          {{ loading ? '处理中...' : mode === 'login' ? '登录' : '注册并进入' }}
+        <button class="submit-btn" type="button" :disabled="loading" @click="saveNicknameAndEnter">
+          {{ loading ? '处理中...' : '保存并进入游戏' }}
         </button>
-      </form>
-
-      <!-- QQ 登录分隔线 -->
-      <div class="divider">
-        <span class="divider-line"></span>
-        <span class="divider-text">或</span>
-        <span class="divider-line"></span>
+        <p class="tip">昵称设置后可在聊天页用户卡片处随时修改</p>
       </div>
 
-      <!-- QQ 登录按钮 -->
-      <button
-        class="qq-login-btn"
-        :disabled="qqLoading"
-        @click="qqLogin"
-        :title="qqConfigured ? '使用QQ账号登录' : 'QQ登录未配置（需设置 QQ_APP_ID）'"
-      >
-        <svg class="qq-icon" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
-        </svg>
-        <span>{{ qqLoading ? '跳转中...' : 'QQ 登录' }}</span>
-      </button>
+      <!-- 常规登录/注册 -->
+      <template v-else>
+        <!-- 登录/注册切换 -->
+        <div class="tabs">
+          <button :class="['tab', mode === 'login' && 'active']" @click="switchMode('login')">登录</button>
+          <button :class="['tab', mode === 'register' && 'active']" @click="switchMode('register')">注册</button>
+        </div>
+
+        <form class="form" @submit.prevent="handleSubmit">
+          <label class="field">
+            <span>用户名</span>
+            <input v-model="username" placeholder="请输入用户名" required minlength="3" maxlength="20" />
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input v-model="password" type="password" placeholder="请输入密码" required minlength="6" />
+          </label>
+          <!-- 注册时显示确认密码字段 -->
+          <label v-if="mode === 'register'" class="field">
+            <span>确认密码</span>
+            <input v-model="confirmPassword" type="password" placeholder="再次输入密码" required minlength="6" />
+          </label>
+          <label v-if="mode === 'register'" class="field">
+            <span>昵称(可选)</span>
+            <input v-model="nickname" placeholder="游戏内显示的名字" maxlength="20" />
+          </label>
+
+          <!-- 错误提示 -->
+          <transition name="fade">
+            <p v-if="error" class="error">{{ error }}</p>
+          </transition>
+
+          <button class="submit-btn" type="submit" :disabled="loading">
+            {{ loading ? '处理中...' : mode === 'login' ? '登录' : '注册并进入' }}
+          </button>
+        </form>
+
+        <!-- QQ 登录分隔线 -->
+        <div class="divider">
+          <span class="divider-line"></span>
+          <span class="divider-text">或</span>
+          <span class="divider-line"></span>
+        </div>
+
+        <!-- QQ 登录按钮 -->
+        <button
+          class="qq-login-btn"
+          :disabled="qqLoading"
+          @click="qqLogin"
+          :title="qqConfigured ? '使用QQ账号登录' : 'QQ登录未配置（需设置 QQ_APP_ID）'"
+        >
+          <svg class="qq-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+          </svg>
+          <span>{{ qqLoading ? '跳转中...' : 'QQ 登录' }}</span>
+        </button>
+      </template>
 
       <p class="tip">提示：输入「信息」查看角色状态，输入「帮助」查看所有指令</p>
     </div>
@@ -88,6 +115,8 @@ const loading = ref(false);
 const error = ref('');
 const qqLoading = ref(false);
 const qqConfigured = ref(false);
+// QQ 首次注册：是否需要引导设置游戏昵称（qq_new=1）
+const qqNeedNickname = ref(false);
 
 // 组件挂载时：检查 QQ 登录是否已配置，并处理 QQ 回调参数
 onMounted(async () => {
@@ -109,8 +138,15 @@ onMounted(async () => {
       localStorage.setItem('token', qqToken);
       const qqUser = JSON.parse(decodeURIComponent(qqUserStr));
       localStorage.setItem('user', JSON.stringify(qqUser));
-      // 自动跳转到聊天页
-      router.push('/chat');
+      // 首次注册：先引导设置游戏昵称，再进入游戏界面
+      if (route.query.qq_new === '1') {
+        qqNeedNickname.value = true;
+        // 预填 QQ 昵称作为默认值，用户可修改为想要的游戏昵称
+        nickname.value = qqUser.nickname || '';
+      } else {
+        // 老用户直接跳转聊天页
+        router.push('/chat');
+      }
     } catch (e) {
       error.value = 'QQ 登录处理失败，请重试';
     }
@@ -179,9 +215,58 @@ function qqLogin() {
   // 跳转到后端 QQ 授权入口
   window.location.href = `${API_BASE}/auth/qq/login`;
 }
+
+/**
+ * QQ 首次注册：保存游戏昵称并进入游戏
+ * 昵称非空校验后调用后端接口，成功后更新本地用户信息并跳转聊天页
+ */
+async function saveNicknameAndEnter() {
+  const nick = nickname.value.trim();
+  if (!nick) {
+    error.value = '请输入游戏昵称';
+    return;
+  }
+  loading.value = true;
+  error.value = '';
+  try {
+    const res = await userApi.updateNickname(nick);
+    // 更新本地用户信息（昵称变更）
+    const cur = JSON.parse(localStorage.getItem('user') || '{}');
+    localStorage.setItem('user', JSON.stringify({ ...cur, ...res.data }));
+    router.push('/chat');
+  } catch (e) {
+    error.value = e.response?.data?.message || e.message || '设置昵称失败，请重试';
+  } finally {
+    loading.value = false;
+  }
+}
 </script>
 
 <style scoped>
+/* QQ 首次注册：设置游戏昵称 */
+.nickname-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px 0;
+}
+.setup-icon {
+  font-size: 42px;
+  text-align: center;
+}
+.setup-title {
+  font-size: 22px;
+  text-align: center;
+  margin: 0;
+}
+.setup-desc {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+  margin: 0 0 6px;
+}
+
 /* 分隔线 */
 .divider {
   display: flex;

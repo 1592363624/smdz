@@ -11,7 +11,17 @@
             <span v-else class="avatar-letter">{{ (user?.nickname || user?.username || '?')[0] }}</span>
           </div>
           <div class="user-info">
-            <div class="name">{{ user?.nickname || user?.username }}</div>
+            <div class="name-row">
+              <span class="name">{{ user?.nickname || user?.username }}</span>
+              <button v-if="!nicknameEditing" class="nickname-edit-btn" title="修改昵称" @click.stop="openNicknameEdit">✏️</button>
+            </div>
+            <!-- 昵称行内编辑 -->
+            <div v-if="nicknameEditing" class="nickname-edit-row">
+              <input v-model="nicknameInput" class="nickname-input" maxlength="20" placeholder="输入新昵称" @keyup.enter="saveNickname" @keyup.esc="nicknameEditing = false" />
+              <button class="qq-btn primary" :disabled="nicknameBusy" @click.stop="saveNickname">{{ nicknameBusy ? '…' : '保存' }}</button>
+              <button class="qq-btn" @click.stop="nicknameEditing = false">取消</button>
+            </div>
+            <div v-if="nicknameError" class="nickname-error">{{ nicknameError }}</div>
             <div class="meta">@{{ user?.username }}</div>
           </div>
           <span v-if="isAdmin" class="admin-badge">ADMIN</span>
@@ -19,16 +29,19 @@
 
         <!-- QQ 绑定区域：玩家自行绑定/更换QQ号，供群里机器人识别身份 -->
         <div class="qq-bind">
-          <template v-if="user?.qqNumber && !qqBinding">
+          <!-- 已绑定真实QQ号（5-12位数字）：直接展示 -->
+          <template v-if="user?.qqNumber && !qqBinding && !isLegacyQqBind">
             <span class="qq-bound">✅ QQ {{ user.qqNumber }}</span>
             <button class="qq-btn" @click="openQQBind">换绑</button>
           </template>
+          <!-- 未绑定 / 旧版绑定(openid)：展示绑定输入框 -->
           <template v-else>
             <div class="qq-bind-row">
               <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
               <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
             </div>
             <div v-if="qqError" class="qq-error">{{ qqError }}</div>
+            <div v-else-if="isLegacyQqBind" class="qq-tip warn">当前绑定为旧版QQ互联标识，与群机器人无法匹配，请换绑为真实QQ号</div>
             <div v-else class="qq-tip">绑后可用 QQ 群机器人操作本账号</div>
           </template>
         </div>
@@ -222,23 +235,36 @@
             <span v-else class="avatar-letter">{{ (user?.nickname || user?.username || '?')[0] }}</span>
           </div>
           <div class="user-info">
-            <div class="name">{{ user?.nickname || user?.username }}</div>
+            <div class="name-row">
+              <span class="name">{{ user?.nickname || user?.username }}</span>
+              <button v-if="!nicknameEditing" class="nickname-edit-btn" title="修改昵称" @click.stop="openNicknameEdit">✏️</button>
+            </div>
+            <!-- 昵称行内编辑 -->
+            <div v-if="nicknameEditing" class="nickname-edit-row">
+              <input v-model="nicknameInput" class="nickname-input" maxlength="20" placeholder="输入新昵称" @keyup.enter="saveNickname" @keyup.esc="nicknameEditing = false" />
+              <button class="qq-btn primary" :disabled="nicknameBusy" @click.stop="saveNickname">{{ nicknameBusy ? '…' : '保存' }}</button>
+              <button class="qq-btn" @click.stop="nicknameEditing = false">取消</button>
+            </div>
+            <div v-if="nicknameError" class="nickname-error">{{ nicknameError }}</div>
             <div class="meta">@{{ user?.username }}</div>
           </div>
           <span v-if="isAdmin" class="admin-badge">ADMIN</span>
         </div>
 
         <div class="qq-bind">
-          <template v-if="user?.qqNumber && !qqBinding">
+          <!-- 已绑定真实QQ号（5-12位数字）：直接展示 -->
+          <template v-if="user?.qqNumber && !qqBinding && !isLegacyQqBind">
             <span class="qq-bound">✅ QQ {{ user.qqNumber }}</span>
             <button class="qq-btn" @click="openQQBind">换绑</button>
           </template>
+          <!-- 未绑定 / 旧版绑定(openid)：展示绑定输入框 -->
           <template v-else>
             <div class="qq-bind-row">
               <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
               <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
             </div>
             <div v-if="qqError" class="qq-error">{{ qqError }}</div>
+            <div v-else-if="isLegacyQqBind" class="qq-tip warn">当前绑定为旧版QQ互联标识，与群机器人无法匹配，请换绑为真实QQ号</div>
             <div v-else class="qq-tip">绑后可用 QQ 群机器人操作本账号</div>
           </template>
         </div>
@@ -890,20 +916,67 @@ const filteredAtPlayers = computed(() => {
 // 是否为管理员(显示管理后台入口)
 const isAdmin = computed(() => ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role));
 
+// 是否为"旧版QQ绑定"：早期版本把 QQ 互联 openid（32位hex）写进了 qqNumber，
+// 导致与 AstrBot 机器人传入的真实QQ号匹配不上。这里判定 qqNumber 是否为
+// 5-12 位纯数字QQ号，若不是则视为旧绑定，提示玩家换绑为真实QQ号。
+const isLegacyQqBind = computed(() => {
+  const qq = user.value?.qqNumber;
+  if (!qq) return false;
+  return !/^\d{5,12}$/.test(qq);
+});
+
 // 头像的 title 提示文本
 const avatarTitle = computed(() => {
   if (isAdmin.value) return '点击进入管理后台';
+  if (isLegacyQqBind.value) return '当前为旧版QQ绑定，请换绑真实QQ号';
   if (user.value?.qqNumber) return `QQ: ${user.value.qqNumber}`;
   return '点击查看用户信息';
 });
 
-// 点击头像事件：管理员跳转管理后台，普通用户显示提示
+// 点击头像事件：管理员跳转管理后台，普通用户复制真实QQ号；旧绑定则打开换绑框
 function onAvatarClick() {
   if (isAdmin.value) {
     router.push('/admin');
+  } else if (isLegacyQqBind.value) {
+    // 旧版绑定(qqNumber=openid)：复制无意义，直接引导换绑真实QQ号
+    openQQBind();
   } else if (user.value?.qqNumber) {
     // 复制 QQ 号到剪贴板
     navigator.clipboard.writeText(user.value.qqNumber).catch(() => {});
+  }
+}
+
+// ---------- 修改昵称（点击用户卡片昵称旁的编辑按钮） ----------
+const nicknameEditing = ref(false);
+const nicknameInput = ref('');
+const nicknameError = ref('');
+const nicknameBusy = ref(false);
+
+// 打开昵称编辑（回填当前昵称）
+function openNicknameEdit() {
+  nicknameInput.value = user.value?.nickname || '';
+  nicknameError.value = '';
+  nicknameEditing.value = true;
+}
+
+// 保存昵称：调用后端接口，成功后同步本地用户信息
+async function saveNickname() {
+  const nick = nicknameInput.value.trim();
+  if (!nick) {
+    nicknameError.value = '昵称不能为空';
+    return;
+  }
+  nicknameBusy.value = true;
+  nicknameError.value = '';
+  try {
+    const res = await userApi.updateNickname(nick);
+    user.value = { ...user.value, ...res.data };
+    localStorage.setItem('user', JSON.stringify(user.value));
+    nicknameEditing.value = false;
+  } catch (e) {
+    nicknameError.value = e?.response?.data?.message || '保存失败，请重试';
+  } finally {
+    nicknameBusy.value = false;
   }
 }
 
@@ -915,8 +988,9 @@ const qqError = ref('');
 const qqBusy = ref(false);
 
 // 打开绑定输入框（已绑定时进入"更换"模式，回填当前QQ号）
+// 旧版绑定（qqNumber=openid）回填空值，避免把32位hex当QQ号带入输入框
 function openQQBind() {
-  qqInput.value = user.value?.qqNumber || '';
+  qqInput.value = isLegacyQqBind.value ? '' : user.value?.qqNumber || '';
   qqBinding.value = true;
   qqError.value = '';
 }
@@ -992,9 +1066,21 @@ const filteredCommands = computed(() => {
   return [...startsWith, ...contains].slice(0, 10);
 });
 
+// 判断系统消息是否归属当前用户（自己的指令结果 vs 别人的公屏系统广播）
+// - 后台回传给自己(无 sender.id，仅 sender.username=系统，如查看背包) → 视为自己的
+// - 公屏广播带 sender.id：等于当前用户 → 自己的；否则是别人的
+function isOwnSystemMessage(m) {
+  if (!m.sender) return true;
+  const self = user.value?.id;
+  // 无 id 的回传系统消息（{username:'系统'}）归属自己
+  if (m.sender.id === undefined || m.sender.id === null) return true;
+  return self === undefined ? true : m.sender.id === self;
+}
+
 // 消息样式分类（增强版：支持更多消息类型）
+// 系统消息额外区分「自己的」与「别人的」，用于颜色区分（自己的保持金色高亮，别人的暗淡）
 function msgClass(m) {
-  if (m.type === 'system') return 'system';
+  if (m.type === 'system') return isOwnSystemMessage(m) ? 'system' : 'system system-other';
   if (m.type === 'command') return 'command';
   if (m.type === 'game') return 'game';
   if (m.type === 'combat') return 'combat';

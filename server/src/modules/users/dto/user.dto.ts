@@ -14,6 +14,15 @@ export class BindQQDto {
   qqNumber: string;
 }
 
+/// 设置游戏昵称请求体（QQ首次注册引导设置）
+export class UpdateNicknameDto {
+  @ApiProperty({ description: '游戏昵称', example: '冒险者小张' })
+  @IsString()
+  @MinLength(1, { message: '昵称不能为空' })
+  @MaxLength(20, { message: '昵称最多20个字符' })
+  nickname: string;
+}
+
 /// 注册请求体
 export class RegisterDto {
   @ApiProperty({ description: '用户名', example: 'player1' })

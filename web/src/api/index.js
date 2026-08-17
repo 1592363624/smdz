@@ -44,6 +44,7 @@ export const authApi = {
 export const userApi = {
   me: () => http.get('/users/me'),
   bindQQ: (qqNumber) => http.post('/users/bind-qq', { qqNumber }),
+  updateNickname: (nickname) => http.post('/users/nickname', { nickname }),
 };
 
 /// 聊天接口

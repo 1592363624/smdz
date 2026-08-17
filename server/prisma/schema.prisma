@@ -25,6 +25,9 @@ model User {
   password    String
   nickname    String   @default("")
   qqNumber    String?  @unique
+  /// QQ 互联 OAuth2 openid（32位十六进制），用于识别 QQ 互联登录身份；
+  /// 与 qqNumber（玩家真实QQ号，供群机器人识别）分离。
+  externalId  String?  @unique
   role        String   @default("USER")
   status      String   @default("ACTIVE")
   avatar      String   @default("")

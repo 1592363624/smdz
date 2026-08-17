@@ -48,7 +48,16 @@ export class UsersService {
   findById(id: number) {
     return this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, username: true, nickname: true, role: true, qqNumber: true, avatar: true, createdAt: true },
+      select: {
+        id: true,
+        username: true,
+        nickname: true,
+        role: true,
+        qqNumber: true,
+        externalId: true,
+        avatar: true,
+        createdAt: true,
+      },
     });
   }
 
@@ -63,17 +72,33 @@ export class UsersService {
 
   /**
    * 绑定 QQ 号到当前用户
+   * 兼容旧版绑定：若用户当前 qqNumber 存的是旧版 openid（非5-12位纯数字），
+   * 换绑真实QQ号时先把 openid 迁移到 externalId，避免后续 QQ 登录识别不到原账号。
    */
   async bindQQ(userId: number, qqNumber: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    // 旧版绑定检测：qqNumber 非 5-12 位纯数字视为 openid
+    const isLegacy = !!user.qqNumber && !/^\d{5,12}$/.test(user.qqNumber);
+    // 待写入的 externalId：保留已有值；旧版绑定且无 externalId 时迁移旧 openid
+    const externalId = user.externalId || (isLegacy ? user.qqNumber : null);
+
     // QQ 号唯一性检查
     const exists = await this.prisma.user.findUnique({ where: { qqNumber } });
     if (exists && exists.id !== userId) {
       throw new ConflictException('该QQ号已被其他账号绑定');
     }
+
     return this.prisma.user.update({
       where: { id: userId },
-      data: { qqNumber },
-      select: { id: true, username: true, nickname: true, qqNumber: true },
+      data: {
+        qqNumber,
+        ...(externalId ? { externalId } : {}),
+      },
+      select: { id: true, username: true, nickname: true, qqNumber: true, externalId: true },
     });
   }
 
@@ -84,5 +109,32 @@ export class UsersService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (player) return player;
     return this.prisma.player.create({ data: { userId } });
+  }
+
+  /**
+   * 设置/修改游戏昵称
+   * 供 QQ 互联首次注册后引导设置昵称，以及用户主动修改昵称使用。
+   * @param userId 用户ID
+   * @param nickname 游戏昵称（1-20字符）
+   */
+  async updateNickname(userId: number, nickname: string) {
+    const exists = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!exists) {
+      throw new NotFoundException('用户不存在');
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { nickname },
+      select: {
+        id: true,
+        username: true,
+        nickname: true,
+        role: true,
+        qqNumber: true,
+        externalId: true,
+        avatar: true,
+        createdAt: true,
+      },
+    });
   }
 }

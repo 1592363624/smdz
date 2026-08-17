@@ -89,7 +89,7 @@ export class QQAuthService {
    * @param code QQ 授权回调返回的 code
    * @returns JWT 和用户信息
    */
-  async handleCallback(code: string): Promise<{ access_token: string; user: any }> {
+  async handleCallback(code: string): Promise<{ access_token: string; user: any; isNewUser: boolean }> {
     const config = await this.getConfig();
 
     // 第一步：用 code 换取 access_token
@@ -151,19 +151,40 @@ export class QQAuthService {
     }
 
     // 第四步：查找或创建用户
-    // 使用 qqNumber 作为唯一标识（openid 作为 qqNumber 存储）
-    let user = await this.prisma.user.findUnique({ where: { qqNumber: openid } });
+    // 身份标识：优先用 externalId（新逻辑，QQ互联 openid 存于此字段）；
+    // 若查不到，兼容存量用户（早期版本把 openid 直接写入了 qqNumber 字段）。
+    // 存量用户保持 qqNumber=openid 不动，仅补录 externalId，便于后续换绑真实QQ号。
+    // isNewUser 标记是否为本次首次注册（前端据此引导设置游戏昵称）。
+    let isNewUser = false;
+    let user = await this.prisma.user.findUnique({ where: { externalId: openid } });
 
     if (!user) {
-      // 创建新用户（使用 QQ openid 作为用户名和 qqNumber）
-      const safeUsername = `qq_${openid.slice(0, 8)}`;
+      // 兼容存量：旧版本把 openid 存到了 qqNumber，查 qqNumber 找到则补录 externalId
+      const legacyUser = await this.prisma.user.findUnique({ where: { qqNumber: openid } });
+      if (legacyUser) {
+        user = await this.prisma.user.update({
+          where: { id: legacyUser.id },
+          data: { externalId: openid },
+        });
+        this.logger.log(`存量 QQ 用户 ${openid} 已补录 externalId，ID=${user.id}`);
+      }
+    }
+
+    if (!user) {
+      // 创建新用户（新逻辑：openid 存 externalId，qqNumber 留空待玩家绑定真实QQ号）
+      // openid 前8位可能与其他 QQ 用户重复，先查重，冲突则追加随机后缀保证 username 唯一
+      isNewUser = true;
+      let safeUsername = `qq_${openid.slice(0, 8)}`;
+      while (await this.prisma.user.findUnique({ where: { username: safeUsername } })) {
+        safeUsername = `qq_${openid.slice(0, 8)}_${Math.random().toString(36).slice(2, 6)}`;
+      }
       const randomPassword = Math.random().toString(36).slice(2, 18);
       user = await this.prisma.user.create({
         data: {
           username: safeUsername,
           password: randomPassword, // 随机密码，用户只能通过 QQ 登录
           nickname: qqNickname || `QQ用户${openid.slice(0, 6)}`,
-          qqNumber: openid,
+          externalId: openid,
           avatar: qqAvatar,
         },
       });
@@ -171,14 +192,16 @@ export class QQAuthService {
       // 创建玩家档案
       await this.usersService.ensurePlayer(user.id);
 
-      this.logger.log(`QQ 用户 ${openid} 已创建本地账号，ID=${user.id}`);
+      this.logger.log(`QQ 用户 ${openid} 已创建本地账号（externalId），ID=${user.id}`);
     } else {
-      // 更新用户信息（昵称、头像可能已变更）
+      // 老用户：更新 QQ 昵称/头像（可能已变更）。
+      // 注意：仅当用户未主动设置过游戏昵称时才回填 QQ 昵称，
+      // 避免 QQ 昵称改动把用户自定义的游戏昵称覆盖掉。
       const updateData: any = {};
-      if (qqNickname) updateData.nickname = qqNickname;
+      if (qqNickname && !user.nickname) updateData.nickname = qqNickname;
       if (qqAvatar) updateData.avatar = qqAvatar;
       if (Object.keys(updateData).length > 0) {
-        await this.prisma.user.update({
+        user = await this.prisma.user.update({
           where: { id: user.id },
           data: updateData,
         });
@@ -193,6 +216,7 @@ export class QQAuthService {
 
     return {
       access_token: token,
+      isNewUser,
       user: {
         id: user.id,
         username: user.username,
@@ -200,6 +224,7 @@ export class QQAuthService {
         role: user.role,
         avatar: user.avatar,
         qqNumber: user.qqNumber,
+        externalId: user.externalId,
       },
     };
   }

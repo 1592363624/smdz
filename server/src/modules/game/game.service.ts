@@ -274,6 +274,62 @@ export class GameService {
   }
 
   /**
+   * 构建当前玩家的状态摘要（等级/经验/HP/护盾/装甲/属性等）
+   * 数据结构与 GET /game/player/info 一致，供前端玩家信息面板展示，
+   * 也用于指令执行后通过 socket 实时刷新玩家面板。
+   * @param userId 用户ID
+   * @returns 玩家状态摘要对象（属性为按等级+熟练度计算后的值）
+   */
+  async buildPlayerInfo(userId: number): Promise<any | null> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    // 计算后属性（对齐原版 _计算玩家，与控制器 getPlayerInfo 保持一致）
+    const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
+    return {
+      id: player.id,
+      userId: player.userId,
+      level: player.level,
+      exp: player.exp,
+      upgradeExp: this.playerService.calcUpgradeExp(player.level),
+      name: player.name,
+      type: player.type,
+      hp: player.hp,
+      maxHp: Math.round(calcBonus.hp || player.maxHp || 100),
+      shield: player.shield,
+      maxShield: Math.round(calcBonus.shield || player.maxShield || 0),
+      armor: player.armor,
+      maxArmor: Math.round(calcBonus.armor || player.maxArmor || 0),
+      attack: Math.round(calcBonus.attack || 0),
+      defense: player.defense,
+      speed: Math.round(calcBonus.speed || player.speed || 0),
+      dodge: Math.round(calcBonus.dodge || 0),
+      hit: Math.round(calcBonus.hit || 0),
+      crit: Math.round(calcBonus.crit || 0),
+      critDmg: Math.round(calcBonus.critDmg || 150),
+      mapId: player.mapId,
+      location: player.location,
+      affinity: player.affinity,
+    };
+  }
+
+  /**
+   * 定向推送玩家状态更新到该用户的前端 socket（触发网页玩家面板实时刷新）
+   * 在指令执行成功（攻击/采集/装备/技能/移动等）后调用，
+   * 使打怪掉血、加经验、升级等变化实时体现在界面上，无需手动 F5。
+   * @param userId 用户ID
+   */
+  async pushPlayerUpdate(userId: number): Promise<void> {
+    try {
+      const data = await this.buildPlayerInfo(userId);
+      if (data) {
+        this.chatService.emitToUser(userId, 'player:update', data);
+      }
+    } catch (e: any) {
+      this.logger.warn(`推送玩家 ${userId} 状态更新失败: ${e.message}`);
+    }
+  }
+
+  /**
    * 获取地图总览数据（供网页左上角地图面板使用）
    * 包含：当前所在地图详情（怪物/资源/NPC等子区域信息）、可前往子区域、以及全部地图列表
    * @param userId 用户ID

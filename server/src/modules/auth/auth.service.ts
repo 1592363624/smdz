@@ -40,7 +40,7 @@ export class AuthService {
     const token = this.jwtService.sign({ userId: user.id, username: user.username });
     return {
       access_token: token,
-      user: { id: user.id, username: user.username, nickname: user.nickname, role: user.role, avatar: user.avatar, qqNumber: user.qqNumber },
+      user: { id: user.id, username: user.username, nickname: user.nickname, role: user.role, avatar: user.avatar, qqNumber: user.qqNumber, externalId: user.externalId },
     };
   }
 }

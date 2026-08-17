@@ -34,38 +34,9 @@ export class GameController {
   @ApiOperation({ summary: '获取当前玩家信息（等级、HP、位置等）' })
   async getPlayerInfo(@Req() req) {
     const userId = req.user.userId;
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
-    // 计算后属性（对齐原版 _计算玩家：攻击/生命/护盾/装甲/命中/闪避/暴击等按等级+熟练度成长）
-    const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
-    return {
-      success: true,
-      data: {
-        id: player.id,
-        userId: player.userId,
-        level: player.level,
-        exp: player.exp,
-        upgradeExp: this.playerService.calcUpgradeExp(player.level),
-        name: player.name,
-        type: player.type,
-        hp: player.hp,
-        maxHp: Math.round(calcBonus.hp || player.maxHp || 100),
-        shield: player.shield,
-        maxShield: Math.round(calcBonus.shield || player.maxShield || 0),
-        armor: player.armor,
-        maxArmor: Math.round(calcBonus.armor || player.maxArmor || 0),
-        attack: Math.round(calcBonus.attack || 0),
-        defense: player.defense,
-        speed: Math.round(calcBonus.speed || player.speed || 0),
-        dodge: Math.round(calcBonus.dodge || 0),
-        hit: Math.round(calcBonus.hit || 0),
-        crit: Math.round(calcBonus.crit || 0),
-        critDmg: Math.round(calcBonus.critDmg || 150),
-        mapId: player.mapId,
-        location: player.location,
-        affinity: player.affinity,
-      },
-    };
+    // 复用 gameService 的玩家状态摘要构建（与 socket 实时推送 player:update 使用同一数据源，保证一致）
+    const data = await this.gameService.buildPlayerInfo(userId);
+    return { success: true, data };
   }
 
   /**
@@ -158,6 +129,9 @@ export class GameController {
           result = `未知快捷操作「${action}」，支持：info/info、攻击/attack、背包/bag、地图/map`;
         }
     }
+
+    // 执行动作后实时推送玩家状态到前端 socket，保证快捷按钮（攻击等）也能即时刷新面板
+    await this.gameService.pushPlayerUpdate(userId);
 
     return { success: true, data: { result } };
   }

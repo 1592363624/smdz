@@ -471,6 +471,52 @@ vite-plugin-checker-error-overlay,
   flex: 1;
   min-width: 0;
 }
+/* 昵称行 + 编辑按钮 */
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nickname-edit-btn {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.2s ease;
+  line-height: 1;
+}
+.nickname-edit-btn:hover {
+  opacity: 1;
+}
+/* 昵称行内编辑 */
+.nickname-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.nickname-edit-row .nickname-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  outline: none;
+}
+.nickname-edit-row .nickname-input:focus {
+  border-color: var(--accent);
+}
+.nickname-error {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #ef4444;
+}
 .user-card .admin-badge {
   flex-shrink: 0;
   font-size: 10px;
@@ -559,6 +605,9 @@ vite-plugin-checker-error-overlay,
   font-size: 11px;
   color: var(--muted);
   line-height: 1.4;
+}
+.qq-bind .qq-tip.warn {
+  color: #f59e0b;
 }
 
 .avatar {
@@ -2163,6 +2212,14 @@ vite-plugin-checker-error-overlay,
 }
 .qq-input {
   width: 130px;
+}
+/* 管理后台：QQ互联 openid 展示（区分旧版绑定与真实QQ号） */
+.qq-ext {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+  line-height: 1.3;
 }
 .delete-btn {
   padding: 6px 12px;

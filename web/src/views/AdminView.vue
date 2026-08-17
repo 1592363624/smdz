@@ -133,6 +133,8 @@
               </td>
               <td>
                 <input class="inline-input qq-input" :value="u.qqNumber || ''" placeholder="QQ号" @change="updateUser(u, { qqNumber: $event.target.value })" />
+                <!-- 展示 QQ 互联 openid，帮助区分"旧版绑定(qqNumber=openid)"与真实QQ号 -->
+                <div v-if="u.externalId" class="qq-ext">互联ID: {{ u.externalId }}</div>
               </td>
               <td>
                 <select :value="u.role" @change="updateUser(u, { role: $event.target.value })">

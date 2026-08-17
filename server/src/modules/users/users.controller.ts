@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { BindQQDto } from './dto/user.dto';
+import { BindQQDto, UpdateNicknameDto } from './dto/user.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('用户')
@@ -30,6 +30,19 @@ export class UsersController {
   @ApiOperation({ summary: '绑定QQ号到当前账号' })
   async bindQQ(@Req() req, @Body() dto: BindQQDto) {
     const user = await this.usersService.bindQQ(req.user.userId, dto.qqNumber);
+    return { success: true, data: user };
+  }
+
+  /**
+   * 设置游戏昵称（需登录）
+   * QQ 互联首次注册后前端引导用户设置，也可用于修改昵称
+   */
+  @Post('nickname')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '设置游戏昵称' })
+  async updateNickname(@Req() req, @Body() dto: UpdateNicknameDto) {
+    const user = await this.usersService.updateNickname(req.user.userId, dto.nickname);
     return { success: true, data: user };
   }
 
