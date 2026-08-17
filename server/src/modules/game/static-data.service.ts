@@ -10,7 +10,7 @@
  * - 加载策略：首次访问时懒加载对应 JSON 到内存，之后走 Map 缓存（O(1) 查询），
  *   避免每次请求都读磁盘。可通过 refresh() 手动重载（热更新，不重启进程）。
  * - 与"动态数据"的分界：本服务只承载固定配置；玩家/频道/聊天/指令日志/地图实时
- *   刷怪状态等动态数据仍走 SQLite（Prisma）。
+ *   刷怪状态等动态数据仍走 MySQL（Prisma）。
  *
  * 对应关系（JSON 文件 -> 原数据库表）：
  *   monsters.json  -> GameMonster       items.json     -> GameItem

@@ -145,6 +145,8 @@ model GameMap {
 
   // 复杂数据结构（JSON 字符串）
   monsters    String   @default(dbgenerated("('[]')")) @db.LongText  // 固定怪物列表
+  spawnMonsters String @default(dbgenerated("('[]')")) @db.LongText  // 刷出来的怪物
+  tempMonsters String  @default(dbgenerated("('[]')")) @db.LongText  // 临时怪物
   summons     String   @default(dbgenerated("('[]')")) @db.LongText  // 召唤物
   resources   String   @default(dbgenerated("('[]')")) @db.LongText  // 资源
   resources2  String   @default(dbgenerated("('[]')")) @db.LongText  // 可采集资源

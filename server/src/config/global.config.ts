@@ -28,7 +28,7 @@ export class GlobalConfig {
   /** JWT 访问令牌有效期（秒） */
   public readonly jwtExpiresIn: number;
 
-  /** 数据库连接串（MySQL 或 SQLite，由 .env 的 DATABASE_URL 决定） */
+  /** 数据库连接串（MySQL，由 .env 的 DATABASE_URL 决定） */
   public readonly databaseUrl: string;
 
   /** AstrBot 对接：允许的机器人在线注册码 / 校验 Token */
@@ -61,7 +61,7 @@ export class GlobalConfig {
     this.jwtExpiresIn = Number(process.env.JWT_EXPIRES_IN || 86400); // 默认 24 小时
     this.databaseUrl =
       process.env.DATABASE_URL ||
-      'file:../prisma/dev.db'; // SQLite 数据库文件
+      'mysql://root:root@localhost:3306/smdz?charset=utf8mb4'; // MySQL 数据库（本地开发回退）
     this.botAccessToken = process.env.BOT_ACCESS_TOKEN || 'astrbot_web_secret';
     // 指令前缀/是否强制前缀 已收敛到系统配置中心(SystemConfig 表 command.prefixes / command.requirePrefix)，
     // 不再在 .env 中冗余配置，避免双数据源不一致。

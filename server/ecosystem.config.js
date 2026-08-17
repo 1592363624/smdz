@@ -10,7 +10,7 @@ module.exports = {
       name: 'smdz-server', // 进程名(需与 GitHub Secret WIN_APP_NAME 保持一致)
       script: 'dist/main.js', // 后端入口
       cwd: __dirname,
-      instances: 1, // 单实例(基于SQLite+内存缓存，避免多实例数据竞争)
+      instances: 1, // 单实例(共享内存中的Socket.IO房间状态，避免多实例数据竞争；数据库为MySQL)
       exec_mode: 'fork',
       autorestart: true, // 崩溃自动重启
       max_memory_restart: '300M',
