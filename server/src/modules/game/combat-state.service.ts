@@ -351,8 +351,9 @@ export class CombatStateService {
    * @param 套装 SetData（原地修改：累加对应计数）
    * @param 名称 装备名称
    * @param 特殊序号 装备特殊序号（0 表示按名称判断）
+   * @param 耐久 装备耐久（仅法宝资源类使用；对应原版 数据分析.ecode L922 陪睡=法宝耐久/等级）
    */
-  setJudgment(套装: SetData, 名称: string, 特殊序号: number): void {
+  setJudgment(套装: SetData, 名称: string, 特殊序号: number, 耐久?: number): void {
     // ===== 第一段：按特殊序号判断（原版 L1588-1667）=====
     if (特殊序号 !== 0) {
       switch (特殊序号) {
@@ -472,6 +473,20 @@ export class CombatStateService {
     else if (w2 === '强袭') 套装.assault = (套装.assault || 0) + 1;
     // 圣诞
     else if (w2 === '圣诞') 套装.christmas = (套装.christmas || 0) + 1;
+
+    // ===== 法宝（资源类装备）判定（对应原版 数据分析.ecode L907-923）=====
+    // 原版扫描 装备预设[2] 的"资源"类型装备，按名称设置 套装.小樱命中次数(=法宝类型常量) 与 套装.陪睡(=耐久/法宝等级)。
+    // 本框架把"资源"类法宝单独传入（recomputeSets 扫描预设2），名称命中即写入；陪睡=耐久值。
+    else if (名称 === '惊鲵') 套装.sakuraHits = 4;
+    else if (名称 === '凌虚') 套装.sakuraHits = 3;
+    else if (名称 === '镇岳') 套装.sakuraHits = 2;
+    else if (名称 === '飞天独龙神女枪') 套装.sakuraHits = 1;
+    else if (名称 === '含光') 套装.sakuraHits = 5;
+    // 法宝等级（陪睡）= 耐久，命中上述任一名称时写入
+    if (套装.sakuraHits && 套装.sakuraHits > 0 && 套装.sakuraHits < 5 && 耐久 !== undefined) {
+      // 原版 L921：小樱命中次数!=0 时 陪睡=耐久
+      套装.sleepover = 耐久;
+    }
     // 注意：原版 L1778 默认分支为空，此处不处理其他名称
   }
 

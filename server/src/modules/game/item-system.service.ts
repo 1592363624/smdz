@@ -671,7 +671,7 @@ export class ItemSystemService {
     equipment.push(newImplant);
 
     // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
-    const sets = this.itemService.recomputeSets(equipment, weapons);
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
     await this.prisma.player.update({
       where: { userId },
       data: {
@@ -718,7 +718,7 @@ export class ItemSystemService {
     equipment.push(newAmp);
 
     // 重算套装判定
-    const sets = this.itemService.recomputeSets(equipment, weapons);
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
     await this.prisma.player.update({
       where: { userId },
       data: {
@@ -1105,7 +1105,7 @@ export class ItemSystemService {
       }
 
       // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
-      const sets = this.itemService.recomputeSets(newEquipment, newWeapons);
+      const sets = this.itemService.recomputeSets(newEquipment, newWeapons, this.extractTreasures(player));
       await this.prisma.player.update({
         where: { userId },
         data: {
@@ -1640,6 +1640,25 @@ export class ItemSystemService {
    */
   async viewPresets(userId: number): Promise<string> {
     return this.equipmentPreset(userId, 'list');
+  }
+
+  /**
+   * 从玩家装备预设中提取"资源"类法宝（对应原版 装备预设[2] 的"资源"类型装备）
+   * 原版 数据分析.ecode L907 扫描 玩家.装备预设[2].装备[a].类型=="资源"，本框架取预设数组索引2（第3个）。
+   * @param player 玩家对象（含 equipmentPresets 字段）
+   * @returns 法宝资源列表
+   */
+  private extractTreasures(player: any): Item3[] {
+    try {
+      const presets: any[] = JSON.parse(player?.equipmentPresets || '[]');
+      const preset2 = presets[2];
+      if (!preset2 || !Array.isArray(preset2.equipment)) return [];
+      return (preset2.equipment as Item3[]).filter(
+        (it: Item3) => it && (it.type === '资源' || it.type === 'resource'),
+      ).map((it: Item3) => it);
+    } catch {
+      return [];
+    }
   }
 
   // ===================================================================

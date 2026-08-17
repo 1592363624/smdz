@@ -166,4 +166,26 @@ describe('套装判定重算 (物品操作.ecode 套装判断 L1581 → player.s
     const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('植入体-强攻')], []));
     expect(sets.implant).toBe(1);
   });
+
+  // 法宝（资源类）：对应原版 数据分析.ecode L907-923，扫描"资源"装备写入 小樱命中次数/陪睡(=耐久)
+  const mkTreasure = (name: string, durabilityLevel: number) => ({
+    name, type: '资源', quantity: 1, durability: 0, data: '', durabilityLevel,
+  });
+
+  it('法宝镇岳(耐久5) → 小樱命中次数=2 且 陪睡=5', () => {
+    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([], [], [mkTreasure('镇岳', 5)]));
+    expect(sets.sakuraHits).toBe(2);
+    expect(sets.sleepover).toBe(5);
+  });
+
+  it('法宝飞天独龙神女枪(耐久8) → 小樱命中次数=1 且 陪睡=8', () => {
+    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([], [], [mkTreasure('飞天独龙神女枪', 8)]));
+    expect(sets.sakuraHits).toBe(1);
+    expect(sets.sleepover).toBe(8);
+  });
+
+  it('普通装备不触发法宝字段（无小樱命中次数）', () => {
+    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('女仆头饰')], []));
+    expect(sets.sakuraHits).toBeUndefined();
+  });
 });

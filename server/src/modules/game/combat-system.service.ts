@@ -184,6 +184,7 @@ export interface WeaponData {
   buffs?: any[];          // 攻击造成的增益
   negativeType?: number;  // 负面类型（1割裂/2灼烧/3深寒/4感电）
   specialEffect?: number; // 特效序号（47因果逆转/45斩首/44尖兵等）
+  self?: any;             // 武器自带属性（原版 z1.自带，含 anesthesia 麻醉字段）
 }
 
 @Injectable()
@@ -798,31 +799,147 @@ export class CombatSystemService {
       // 命中修正（因果逆转等）——攻击判定已在此之前完成，此处用于最终命中率展示，不影响本次判定
       hitRateModifier += specialEffect.hitRateModifier || 0;
 
-      // ========== 武器追加伤害（对应原版 造成伤害 L2797-2892） ==========
-      // 基于武器特殊序号/装备要求的额外属性伤害，注入 attackerBonus 元素伤害字段，
+      // ========== 武器追加伤害（对应原版 造成伤害 L2749-2897 全量） ==========
       // 走完整抗性/倍率流程。目标当前状态 = hp+shield+armor。
+      // 本框架无"不触发特效"概念，默认恒为"触发"（不触发特效==假），故各 .如果真 守卫均成立。
+      // 额外伤害倍率(extraDamageMult) 对应原版 L983 初始化=1，L1805 镇岳陪睡>2 时 +=0.15。
       {
+        const nowSec = Date.now() / 1000;
         const targetCurState = (target.hp || 0) + (target.shield || 0) + (target.armor || 0);
         const targetMaxState = (target.maxHp || target.hp || 0) + (target.maxShield || target.shield || 0) + (target.maxArmor || target.armor || 0);
         const lostState = Math.max(0, targetMaxState - targetCurState);
-        // 斩舰刀（特殊序号-22）：每击追加 +5% 额外伤害（a1 叠加，简化：物伤+5%）
-        if (weapon.specialSeq === -22 || weapon.name?.includes('斩舰刀')) {
-          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + (attackerBonus.attack || 0) * 0.05;
-          resultLines.push('【斩舰刀】物伤+5%');
+        const setsData = this.safeParseJson<any>(player.sets, {});
+        const sakuraHits = setsData['小樱命中次数'] ?? setsData.sakuraHits ?? 0;
+        const sleepLv = setsData['陪睡'] ?? setsData.sleepover ?? 0;
+        // 攻击方标记（原版 攻击方.标记）；防御方标记（原版 防御方.标记 = target.markers）
+        const playerMk = this.safeParseJson<Record<string, number>>(player.markers || {}, {});
+        const targetMk = this.safeParseJson<Record<string, number>>(target.markers || {}, {});
+
+        // ---- 额外伤害倍率：法宝[镇岳]陪睡>2 → +0.15（原版 L1805-1808，特殊序号!=-2 时）----
+        // 原版该段位于 .判断 (攻击方.特殊序号 == -2) 的默认分支，故 specialSeq==-2 时不加。
+        let extraDamageMult = 1;
+        if (player.specialSeq !== -2 && sakuraHits === 2 && sleepLv > 2) {
+          extraDamageMult += 0.15;
+          resultLines.push(`【镇岳·额外伤害倍率】+15%`);
         }
-        // 退魔圣焰（特殊序号-8）：物伤×0.4 转为火/冰/电三系
-        if (weapon.specialSeq === -8 || weapon.name?.includes('退魔圣焰')) {
-          const origPhys = (attackerBonus.physDmg || 0) + (attackerBonus.attack || 0);
-          const conv = origPhys * 0.4;
-          attackerBonus.physDmg = 0;
-          attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + conv;
-          attackerBonus.iceDmg = (attackerBonus.iceDmg || 0) + conv;
-          attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + conv;
-          resultLines.push(`【退魔圣焰】物伤转化+${Math.round(conv * 3)}`);
+
+        // ---- 梅塔特隆（原版 L2737-2740，在 a4 计算之前）：额外伤害.电 += 当前护盾×额外伤害倍率 ----
+        if (weapon.specialSeq === 95 || weapon.name?.includes('梅塔特隆')) {
+          const bonus = (player.shield || 0) * extraDamageMult;
+          attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + bonus;
+          resultLines.push(`【梅塔特隆】电伤+${Math.round(bonus)}`);
         }
+
+        // ========== 法宝追加伤害（原版 L2778-2796） ==========
+        // 镇岳（法宝4级）：命中造成目标当前状态5%的额外物理伤害（×额外伤害倍率）
+        if (sakuraHits === 2 && sleepLv > 3) {
+          const a2 = targetCurState * 0.05 * extraDamageMult;
+          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + a2; // 剩余物伤 += a2（原版 L2782-2783）
+          resultLines.push(`【镇岳】+${Math.round(a2)}`);
+        }
+        // 飞天独龙神女枪（法宝7级）：造成伤害时额外造成目标当前状态5%的雷电伤害
+        else if (sakuraHits === 1 && sleepLv > 7) {
+          const a2 = targetCurState * 0.05 * extraDamageMult;
+          attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + a2;
+          resultLines.push(`【神女枪】+${Math.round(a2)}`);
+        }
+
+        // ========== 武器自带麻醉判定（原版 L2797：z1.自带.麻醉 <= 0） ==========
+        const z1Anesthesia = (weapon.self as any)?.anesthesia || 0;
+        if (z1Anesthesia <= 0) {
+          // 斩舰刀（特殊序号-22）：a1 += 5（每击物伤+5%，原版 L2798-2799）
+          if (weapon.specialSeq === -22 || weapon.name?.includes('斩舰刀')) {
+            attackerBonus.physDmg = (attackerBonus.physDmg || 0) + (attackerBonus.attack || 0) * 0.05;
+            resultLines.push('【斩舰刀】物伤+5%');
+          }
+          // 退魔圣焰（特殊序号-8）：物伤×0.4 转为火/冰/电三系（原版 L2800-2804）
+          if (weapon.specialSeq === -8 || weapon.name?.includes('退魔圣焰')) {
+            const origPhys = (attackerBonus.physDmg || 0) + (attackerBonus.attack || 0);
+            const conv = origPhys * 0.4;
+            attackerBonus.physDmg = 0;
+            attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + conv;
+            attackerBonus.iceDmg = (attackerBonus.iceDmg || 0) + conv;
+            attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + conv;
+            resultLines.push(`【退魔圣焰】物伤转化+${Math.round(conv * 3)}`);
+          }
+          // 袖剑（装备要求 #袖剑，原版 L2808-2817）：满状态>90% + 5秒冷却 → a1 += 10
+          const myState = (player.hp || 0) + (player.shield || 0) + (player.armor || 0);
+          const myMaxState = (player.maxHp || player.hp || 0) + (player.maxShield || player.shield || 0) + (player.maxArmor || player.armor || 0);
+          const hasSleeveDagger = (playerData.equipment as any[])?.some((e: any) => (e.name || '').includes('袖剑'));
+          if (hasSleeveDagger && myState > myMaxState * 0.9 && (!playerMk['袖剑冷却'] || nowSec - (playerMk['袖剑冷却'] || 0) > 5)) {
+            playerMk['袖剑冷却'] = nowSec;
+            attackerBonus.physDmg = (attackerBonus.physDmg || 0) + (attackerBonus.attack || 0) * 0.1;
+            resultLines.push(`【袖剑】物伤+10%`);
+          }
+        }
+
+        // ========== 不触发特效==假 段（原版 L2818-2897） ==========
+        // ---- 觉醒天神（原版 L2819-2829：攻击方特殊序号<-1 且 觉醒熟练≥500） ----
+        if ((player.specialSeq ?? 0) < -1 && (playerMk['觉醒'] ?? 0) >= 500) {
+          const a2 = targetMaxState * 0.03 / 4 * extraDamageMult;
+          attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + a2;
+          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + a2;
+          attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + a2;
+          attackerBonus.iceDmg = (attackerBonus.iceDmg || 0) + a2;
+          resultLines.push(`【天神】+${Math.round(a2 * 4)}`);
+        }
+        // ---- 雪獒铠甲（原版 L2830-2842：取成就熟练度(标记,"铠甲")==#雪獒铠甲(5)，60秒冷却） ----
+        // 原版：a2 = s - 取成就(标记,"xa")；a2/转秒>=60 → 追加剩余伤害×0.75（四系）+ 闪避3秒
+        const armorMk = playerMk['铠甲'] ?? 0;
+        if (armorMk === 5) {
+          const lastXa = playerMk['xa'] || 0;
+          if (nowSec - lastXa >= 60) {
+            playerMk['xa'] = nowSec; // 用正数时间戳记录上次触发时间（原版 添加成就 xa=60*转秒 正数）
+            const m = extraDamageMult;
+            attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + (attackerBonus.fireDmg || 0) * 0.75 * m;
+            attackerBonus.physDmg = (attackerBonus.physDmg || 0) + (attackerBonus.physDmg || 0) * 0.75 * m;
+            attackerBonus.iceDmg = (attackerBonus.iceDmg || 0) + (attackerBonus.iceDmg || 0) * 0.75 * m;
+            attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + (attackerBonus.elecDmg || 0) * 0.75 * m;
+            resultLines.push(`【雪獒】剩余伤害×1.75，闪避+3秒`);
+            // 获得增益(攻击方.增益,"闪避",3)（原版 L2839）
+            const pBuffs = this.safeParseJson<any[]>(player.buffs, []);
+            if (!pBuffs.some((b: any) => b && b.name === '闪避' && b.expireAt > nowSec)) {
+              pBuffs.push({ name: '闪避', expireAt: nowSec + 3 });
+            }
+            player.buffs = JSON.stringify(pBuffs);
+          }
+        }
+        // ---- 无双（原版 L2843-2851：取成就熟练度(防御方.标记,"ww"+攻击方QQ)>=4） ----
+        const wwKey = `ww${player.userId ?? player.qqNumber ?? ''}`;
+        const wwVal = targetMk[wwKey] || 0;
+        if (wwVal >= 4) {
+          // 原版：置成就熟练度("ww"+QQ, 防御方.标记, 0) 清零；目标当前状态×15%/4 四系
+          targetMk[wwKey] = 0;
+          const a2 = targetCurState * 0.15 / 4 * extraDamageMult;
+          attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + a2;
+          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + a2;
+          attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + a2;
+          attackerBonus.iceDmg = (attackerBonus.iceDmg || 0) + a2;
+          resultLines.push(`【无双】+${Math.round(a2 * 4)}`);
+        }
+        // ---- 常春藤（原版 L2852-2867：攻击方活力==#常春藤(-14)，生体/近战武器命中时目标当前状态×5%物伤） ----
+        if (player.vitality === -14 || player.活力 === -14) {
+          const wtype = weapon.type || '';
+          const isBioMelee = wtype.includes('生体') || wtype.includes('近战');
+          if (isBioMelee) {
+            const a2 = targetCurState * 0.05 * extraDamageMult;
+            attackerBonus.physDmg = (attackerBonus.physDmg || 0) + a2;
+            resultLines.push(`【神爪】+${Math.round(a2)}`);
+          }
+        }
+        // ---- 军姬2（原版 L2868-2875：攻击方特殊序号==#军姬2(24)，目标已损失状态×4%/4 四系） ----
+        if ((player.specialSeq ?? 0) === 24) {
+          const a2 = lostState * 0.04 / 4 * extraDamageMult;
+          attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + a2;
+          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + a2;
+          attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + a2;
+          attackerBonus.iceDmg = (attackerBonus.iceDmg || 0) + a2;
+          resultLines.push(`【撕裂】+${Math.round(a2 * 4)}`);
+        }
+        // ---- 武器判断：法芙娜 / 伊苏尔德的剪刀（原版 L2876-2892） ----
         // 法芙娜（特殊序号-20）：目标已损失状态×5%/4，四系均加
         if (weapon.specialSeq === -20 || weapon.name?.includes('法芙娜')) {
-          const bonus = lostState * 0.05 / 4;
+          const bonus = lostState * 0.05 / 4 * extraDamageMult;
           attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + bonus;
           attackerBonus.physDmg = (attackerBonus.physDmg || 0) + bonus;
           attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + bonus;
@@ -831,67 +948,26 @@ export class CombatSystemService {
         }
         // 伊苏尔德的剪刀（特殊序号-24）：目标最大状态×3%/4，四系均加
         if (weapon.specialSeq === -24 || weapon.name?.includes('剪刀')) {
-          const bonus = targetMaxState * 0.03 / 4;
+          const bonus = targetMaxState * 0.03 / 4 * extraDamageMult;
           attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + bonus;
           attackerBonus.physDmg = (attackerBonus.physDmg || 0) + bonus;
           attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + bonus;
           attackerBonus.iceDmg = (attackerBonus.iceDmg || 0) + bonus;
           resultLines.push(`【伊苏尔德的剪刀】+${Math.round(bonus * 4)}`);
         }
+        // ---- 火焰披风（原版 L2893-2897：装备要求 #火焰披风，30秒冷却，自身当前状态/10 火伤 + 穿透5） ----
+        const hasFlameCloak = (playerData.equipment as any[])?.some((e: any) => (e.name || '').includes('火焰披风'));
+        if (hasFlameCloak && (!playerMk['火焰披风'] || nowSec - (playerMk['火焰披风'] || 0) > 30)) {
+          playerMk['火焰披风'] = nowSec;
+          const a2 = ((player.hp || 0) + (player.shield || 0) + (player.armor || 0)) / 10 * extraDamageMult;
+          attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + a2;
+          attackerBonus.penetrate = (attackerBonus.penetrate || 0) + 5;
+          resultLines.push(`【火焰披风】火伤+${Math.round(a2)}，穿透+5`);
+        }
 
-        // ========== 套装追加伤害（对应原版 L2778-2851） ==========
-        // 镇岳/神女枪：法宝套装（套装.小樱命中次数 + 套装.陪睡 等级）
-        // 雪獒铠甲：60秒冷却追加剩余伤害×0.75 + 闪避3秒
-        // 无双：目标标记"ww"+攻击方QQ 累计4次 → 目标当前状态×15%/4
-        // 袖剑：满状态>90% 5秒冷却 → 追加伤害
-        const setsData = this.safeParseJson<any>(player.sets, {});
-        const sakuraHits = setsData['小樱命中次数'] ?? setsData.sakuraHits ?? 0;
-        const sleepLv = setsData['陪睡'] ?? setsData.sleepLv ?? 0;
-        // 镇岳（法宝4级效果：目标当前状态×5%物伤）
-        if ((sakuraHits === 2 && sleepLv > 3)) {
-          const bonus = targetCurState * 0.05;
-          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + bonus;
-          resultLines.push(`【镇岳】+${Math.round(bonus)}`);
-        }
-        // 飞天独龙神女枪（法宝7级效果：目标当前状态×5%电伤）
-        if ((sakuraHits === 3 && sleepLv > 7)) {
-          const bonus = targetCurState * 0.05;
-          attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + bonus;
-          resultLines.push(`【神女枪】+${Math.round(bonus)}`);
-        }
-        // 雪獒铠甲：60秒冷却，剩余伤害×0.75 追加，闪避3秒
-        const playerMk = this.safeParseJson<Record<string, number>>(player.markers || {}, {});
-        const armorMk = playerMk['铠甲'] ?? 0;
-        if (armorMk === 4 && (!playerMk['xa'] || Date.now() / 1000 - (playerMk['xa时间'] || 0) > 60)) {
-          const bonus = (attackerBonus.physDmg || 0) * 0.75;
-          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + bonus;
-          playerMk['xa'] = 1;
-          playerMk['xa时间'] = Date.now() / 1000;
-          resultLines.push(`【雪獒】追加+${Math.round(bonus)}，闪避+3秒`);
-        }
-        // 无双：目标标记"ww"+攻击方QQ ≥4 → 目标当前状态×15%/4 四系
-        const wwKey = `ww${player.userId}`;
-        const wwVal = this.safeParseJson<Record<string, number>>(target.markers || {}, {})[wwKey] || 0;
-        if (wwVal >= 4) {
-          const bonus = targetCurState * 0.15 / 4;
-          attackerBonus.fireDmg = (attackerBonus.fireDmg || 0) + bonus;
-          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + bonus;
-          attackerBonus.elecDmg = (attackerBonus.elecDmg || 0) + bonus;
-          attackerBonus.iceDmg = (attackerBonus.iceDmg || 0) + bonus;
-          resultLines.push(`【无双】+${Math.round(bonus * 4)}`);
-        }
-        // 袖剑：满状态>90% 5秒冷却，追加物伤
-        const myState = (player.hp || 0) + (player.shield || 0) + (player.armor || 0);
-        const myMaxState = (player.maxHp || player.hp || 0) + (player.maxShield || player.shield || 0) + (player.maxArmor || player.armor || 0);
-        const hasSleeveDagger = (playerData.equipment as any[])?.some((e: any) => (e.name || '').includes('袖剑'));
-        if (hasSleeveDagger && myState > myMaxState * 0.9 && (!playerMk['袖剑冷却'] || Date.now() / 1000 - playerMk['袖剑冷却'] > 5)) {
-          playerMk['袖剑冷却'] = Date.now() / 1000;
-          attackerBonus.physDmg = (attackerBonus.physDmg || 0) + (attackerBonus.attack || 0) * 0.1;
-          resultLines.push(`【袖剑】物伤+10%`);
-        }
-        if (armorMk === 4 || wwVal >= 4 || hasSleeveDagger) {
-          player.markers = JSON.stringify({ ...this.safeParseJson<Record<string, number>>(player.markers || {}, {}), ...playerMk });
-        }
+        // 写回攻击方/防御方标记变更
+        player.markers = JSON.stringify(playerMk);
+        if (wwVal >= 4) target.markers = JSON.stringify(targetMk);
       }
 
       // 三段评级熟练度：从玩家标记读取当前熟练度（对应原版 显示熟练度等级），

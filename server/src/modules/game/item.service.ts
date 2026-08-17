@@ -20,6 +20,7 @@ export interface Item3 {
   durability: number;  // 耐久，0=未锁定，1=已锁定
   data: string;       // 装备数据编码字符串（品质前缀 + 加成序列 + 特效）
   maker?: string;     // 制造者
+  durabilityLevel?: number;  // 法宝耐久/等级（原版 数据分析.ecode L922 陪睡=法宝耐久），仅资源类法宝使用
 }
 
 /**
@@ -959,7 +960,7 @@ export class ItemService {
       // 设置当前武器为最新
       const currentWeapon = weapons.length - 1;
       // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
-      const sets = this.recomputeSets(equipment, weapons);
+      const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
       await this.prisma.player.update({
         where: { userId },
         data: {
@@ -974,7 +975,7 @@ export class ItemService {
       // 加入装备列表
       equipment.push(item);
       // 重算套装判定
-      const sets = this.recomputeSets(equipment, weapons);
+      const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
       await this.prisma.player.update({
         where: { userId },
         data: {
@@ -1010,7 +1011,7 @@ export class ItemService {
         equipment.splice(i, 1);
 
         // 重算套装判定
-        const sets = this.recomputeSets(equipment, weapons);
+        const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
         await this.prisma.player.update({
           where: { userId },
           data: {
@@ -1036,7 +1037,7 @@ export class ItemService {
         }
 
         // 重算套装判定
-        const sets = this.recomputeSets(equipment, weapons);
+        const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
         await this.prisma.player.update({
           where: { userId },
           data: {
@@ -1077,20 +1078,44 @@ export class ItemService {
    * 故在任意装备/武器/植入体/增幅器/预设 变更后调用本方法重算写入。
    * @param equipment 已装备列表（Item3[]）
    * @param weapons 已装备武器列表（Item3[]）
+   * @param treasures 法宝资源列表（Item3[]，对应原版 装备预设[2] 的"资源"类型装备）
    * @returns SetData 的 JSON 字符串
    */
-  recomputeSets(equipment: Item3[], weapons: Item3[]): string {
+  recomputeSets(equipment: Item3[], weapons: Item3[], treasures?: Item3[]): string {
     const setData: Record<string, any> = {};
-    const judge = (item: Item3) => {
+    const judge = (item: Item3, durability?: number) => {
       if (!item || !item.name) return;
       // 优先取装备模板 specialSeq（@Constant 常量映射），缺失则按名称前缀判定（setJudgment 第二段）
       const def = this.staticData.getEquipmentByName(item.name);
       const seq = def?.specialSeq || 0;
-      this.combatState.setJudgment(setData, item.name, seq);
+      this.combatState.setJudgment(setData, item.name, seq, durability);
     };
     for (const eq of equipment || []) judge(eq);
     for (const wp of weapons || []) judge(wp);
+    // 法宝（资源类）：对应原版 数据分析.ecode L907-923 扫描 装备预设[2] 的资源装备，写入 小樱命中次数/陪睡(=耐久)
+    for (const tb of treasures || []) {
+      if (tb && (tb.type === '资源' || tb.type === 'resource')) judge(tb, tb.durabilityLevel ?? 0);
+    }
     return JSON.stringify(setData);
+  }
+
+  /**
+   * 从玩家装备预设中提取"资源"类法宝（对应原版 装备预设[2] 的"资源"类型装备）
+   * 原版 数据分析.ecode L907 扫描 玩家.装备预设[2].装备[a].类型=="资源"，本框架取预设数组中索引2（即第3个）。
+   * @param player 玩家对象（含 equipmentPresets 字段）
+   * @returns 法宝资源列表
+   */
+  private getTreasuresFromPresets(player: any): Item3[] {
+    try {
+      const presets: any[] = JSON.parse(player?.equipmentPresets || '[]');
+      const preset2 = presets[2]; // 原版 装备预设[2]
+      if (!preset2 || !Array.isArray(preset2.equipment)) return [];
+      return (preset2.equipment as Item3[]).filter(
+        (it: Item3) => it && (it.type === '资源' || it.type === 'resource'),
+      );
+    } catch {
+      return [];
+    }
   }
 
   /**
