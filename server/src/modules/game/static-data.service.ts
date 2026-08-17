@@ -54,6 +54,7 @@ const DATA_FILES = {
   flavorTexts: 'flavor-texts.json',
   updateLogs: 'update-logs.json',
   vehiclesParts: 'vehicles.json',
+  vehicleParts: 'vehicle-parts.json',
   maps: 'maps.json',
 } as const;
 
@@ -234,6 +235,22 @@ export class StaticDataService {
 
   getAllVehicles(): any[] {
     return this.loadRaw('vehicles');
+  }
+
+  // ============ 原版 部件列表 规格表（vehicle-parts.json） ============
+  // 说明：原版 计算载具 / 叠加载具加成 依赖全局「部件列表」（含 加成.攻击/上限/行走/防御/
+  // 武器/功能/类型/限制2/内置零件/生产 等数值字段）。数据由 e/源码解析成为txt/使魔大战.txt
+  // 中 类型=载具 的节经 数据存取.ecode L603-647 提取生成（见 convert 脚本思路）。
+  // 与 vehicles.json（载具实例模板）区分：此处是部件规格定义。
+
+  /** 按名称查部件规格（对应原版 取部件列表[b].名称 == X 的循环查找） */
+  getVehiclePartSpecByName(name: string): any {
+    return this.findByKey('vehicleParts', name);
+  }
+
+  /** 取全部部件规格（对应原版 部件列表 全局数组） */
+  getAllVehiclePartSpecs(): any[] {
+    return this.loadRaw('vehicleParts');
   }
 
   // ============ 蓝图 ============

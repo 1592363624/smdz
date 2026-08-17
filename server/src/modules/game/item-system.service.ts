@@ -2323,4 +2323,50 @@ export class ItemSystemService {
     // 显示物品（原版 L4946 返回 显示物品(物品数组2)）：近似为名字列表
     return backpackOut.map((i) => `${i.name}${i.count > 1 ? '×' + i.count : ''}`).join('、');
   }
+
+  /**
+   * 物品要求（对应原版 物品操作.ecode L1784-1811 子程序 物品要求）
+   *
+   * 原版语义：在 物品数组 中查找指定名称 的物品；
+   *  - 不提供 要求数量 时：只要存在该物品即返回真（参考参数写回数组下标）；
+   *  - 提供 要求数量 时：物品.数量 >= 要求数量 才返回真（写回下标）；
+   *    否则返回假，并把"需要X的NAME，你只有Y"写入 不满足时返回提示；
+   *  - 遍历完未命中 → 返回假。
+   *
+   * 1:1 还原：遍历顺序、空数量分支、数量不足提示文本（含 文本四舍 近似为整数显示）、未命中返回假。
+   * 返回值封装为 { found, index, hint } 等价原版 逻辑型 + 两个参考参数。
+   *
+   * @param name 物品名称
+   * @param items 物品数组（每项含 名称/数量）
+   * @param requireQty 要求数量（可空；空=存在即满足）
+   * @returns { found: boolean; index: number; hint: string } found=是否满足，index=数组下标，hint=不满足提示
+   */
+  itemRequire(name: string, items: any[], requireQty?: number): { found: boolean; index: number; hint: string } {
+    const result = { found: false, index: -1, hint: '' };
+    if (!Array.isArray(items)) return result;
+    for (let a = 0; a < items.length; a++) {
+      if (items[a] && items[a].名称 === name) {
+        if (requireQty == null) {
+          // 原版 L1794-1796：未提供要求数量 → 存在即满足，写回下标返回真
+          result.index = a;
+          result.found = true;
+          return result;
+        } else {
+          if ((items[a].数量 ?? 0) >= requireQty) {
+            // 原版 L1798-1800：数量满足 → 写回下标返回真
+            result.index = a;
+            result.found = true;
+            return result;
+          } else {
+            // 原版 L1802：数量不足 → 写回提示返回假（文本四舍 近似为整数）
+            result.hint = '需要' + String(requireQty) + '的' + name + '，你只有' + Math.round(items[a].数量 ?? 0);
+            result.found = false;
+            return result;
+          }
+        }
+      }
+    }
+    // 原版 L1810-1811：遍历完未命中 → 返回假
+    return result;
+  }
 }

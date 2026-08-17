@@ -253,3 +253,46 @@ describe('战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946)',
     expect((pd.player.markers as any)['获得装备']).toBe(1);
   });
 });
+
+// ==================== 物品要求 (物品操作.ecode L1784-1811) ====================
+describe('物品要求 - 数量要求判定 (物品操作.ecode L1784-1811)', () => {
+  it('L1794-1796 不提供要求数量 → 存在即满足(found=true)，写回数组下标', () => {
+    const items = [{ 名称: '导弹', 数量: 0 }];
+    const r = itemSystem.itemRequire('导弹', items);
+    expect(r.found).toBe(true);
+    expect(r.index).toBe(0);
+  });
+
+  it('L1798-1800 提供要求数量且数量满足 → found=true', () => {
+    const items = [{ 名称: '氢弹', 数量: 5 }];
+    const r = itemSystem.itemRequire('氢弹', items, 0.1);
+    expect(r.found).toBe(true);
+    expect(r.index).toBe(0);
+  });
+
+  it('L1802 数量不足 → found=false，提示"需要X的NAME，你只有Y"', () => {
+    const items = [{ 名称: '导弹', 数量: 0.05 }];
+    const r = itemSystem.itemRequire('导弹', items, 0.1);
+    expect(r.found).toBe(false);
+    expect(r.hint).toBe('需要0.1的导弹，你只有0');
+  });
+
+  it('L1810-1811 名称未命中 → 返回 found=false', () => {
+    const items = [{ 名称: '电力', 数量: 100 }];
+    const r = itemSystem.itemRequire('氢弹', items, 1);
+    expect(r.found).toBe(false);
+    expect(r.index).toBe(-1);
+  });
+
+  it('多个同名物品 → 返回第一个匹配下标', () => {
+    const items = [{ 名称: '导弹', 数量: 1 }, { 名称: '导弹', 数量: 1 }];
+    const r = itemSystem.itemRequire('导弹', items);
+    expect(r.found).toBe(true);
+    expect(r.index).toBe(0);
+  });
+
+  it('空数组 / 非数组 → found=false', () => {
+    expect(itemSystem.itemRequire('x', []).found).toBe(false);
+    expect(itemSystem.itemRequire('x', null as any).found).toBe(false);
+  });
+});

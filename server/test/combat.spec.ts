@@ -22,6 +22,7 @@ import { MapService } from '../src/modules/game/map.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { AchievementService } from '../src/modules/game/achievement.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
+import { CombatStateService } from '../src/modules/game/combat-state.service';
 
 // 构造 CombatSystemService 实例，注入空 mock（calcDamage 不触碰这些依赖）
 const combat = new CombatSystemService(
@@ -545,6 +546,7 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
       return null;
     },
     getAllAttackTexts: () => [{ name: '自动步枪' }, { name: '轴炮a' }],
+    getAllVehiclePartSpecs: () => [],
   } as any;
 
   // mock CombatStateService：记录 置成就熟练度 调用
@@ -686,5 +688,203 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
     const res = c.generateFrontline(existing, '12345', 0, 0);
     expect(res.summons.length).toBe(2); // 未新增（更新下标1处）
     expect(res.summons[1].当前生命).toBe(50); // 保留既有血量（L5343）
+  });
+});
+
+// ==================== 计算载具 (加成计算.ecode L3556-3912) ====================
+// 载入真实部件规格数据（vehicle-parts.json，由 e/源码解析成为txt/使魔大战.txt 类型=载具 节提取）
+const partSpecs = require('../prisma/data/vehicle-parts.json');
+describe('计算载具 - 载具属性计算 (加成计算.ecode L3556-3912)', () => {
+  const realStatic = {
+    getBuildingByName: () => null,
+    getAllAttackTexts: () => [],
+    getAllVehiclePartSpecs: () => partSpecs,
+  } as any;
+  const stubBonus = { addPenetration: () => {} } as any;
+  const stubCombatState = { timeIntervalRequire: () => false } as any;
+
+  const makeVehicle = () =>
+    new CombatSystemService(
+      {} as PrismaService,
+      {} as PlayerService,
+      {} as BonusService,
+      {} as MapService,
+      realStatic,
+      {} as AchievementService,
+      {} as ItemSystemService,
+      stubCombatState,
+    );
+
+  it('L3581 空名称载具 → 直接返回不报错', () => {
+    const v = makeVehicle();
+    const veh: any = { 名称: '', 零件: [], 加成: {}, 当前生命: 100, 标记2: [] };
+    expect(() => v['computeVehicle'](veh, 0)).not.toThrow();
+  });
+
+  it('L3580/L3591/L3647 核心部件(骑士核心 partType=0, 攻击=15/生命=1/闪避=10) → 加成叠加, 上限取自核心', () => {
+    const v = makeVehicle();
+    const veh: any = {
+      名称: '测试载具',
+      零件: [{ 名称: '骑士核心', 数量: 1 }],
+      加成: {},
+      当前生命: 0,
+      行走上限: 0, 武器上限: 0, 防御上限: 0, 功能上限: 0, 行走方式: 0,
+      标记2: [],
+    };
+    // s=null → 跳过回血，直接封顶逻辑（当前生命0 < 加成.生命 → 不改）
+    v['computeVehicle'](veh, null);
+    expect(veh.加成.攻击).toBe(15);     // 骑士核心 bonus.攻击=15
+    expect(veh.加成.生命).toBe(1);       // bonus.生命=1
+    expect(veh.加成.闪避).toBe(10);      // bonus.闪避=10
+    expect(veh.行走上限).toBe(1);        // 核心 walk=1
+    expect(veh.武器上限).toBe(1);        // 核心 weapon=1
+    expect(veh.当前生命).toBe(0);        // s=null 不回血，保持初始0
+  });
+
+  it('L3719 白的发丝 部件 → vehicle.发丝=true', () => {
+    const v = makeVehicle();
+    const veh: any = {
+      名称: '发丝载具',
+      零件: [{ 名称: '白的发丝', 数量: 1 }],
+      加成: {}, 当前生命: 0, 标记2: [],
+    };
+    v['computeVehicle'](veh, null);
+    expect(veh.发丝).toBe(true);
+  });
+
+  it('L3752 逆转力场 + 攻击部件 → 攻击/攻击2/韧性 ×0.34', () => {
+    // 骑士核心 bonus.攻击=15/攻击2=3/韧性无；逆转力场仅设标志，将已有攻击类加成×0.34
+    const v = makeVehicle();
+    const veh: any = {
+      名称: '逆转载具',
+      零件: [{ 名称: '骑士核心', 数量: 1 }, { 名称: '逆转力场', 数量: 1 }],
+      加成: {},
+      当前生命: 0, 标记2: [],
+    };
+    v['computeVehicle'](veh, null);
+    expect(veh.逆转力场).toBe(true);
+    expect(Math.round(veh.加成.攻击 * 100) / 100).toBe(5.1);    // 15*0.34
+    expect(Math.round(veh.加成.攻击2 * 100) / 100).toBe(1.02);  // 3*0.34
+  });
+
+  it('L3836 行走超限(负行走部件累加超上限) → 当前生命=0, 行走方式=0', () => {
+    // 原版 vehicle.行走 由 负行走部件(取绝对值)累加；骑士核心 行走上限=1，中型足 walk=-1×5 → 行走=5 > 1
+    const v = makeVehicle();
+    const veh: any = {
+      名称: '超限载具',
+      零件: [{ 名称: '骑士核心', 数量: 1 }, { 名称: '中型足', 数量: 5 }],
+      加成: {},
+      当前生命: 50,
+      标记2: [],
+    };
+    v['computeVehicle'](veh, null);
+    expect(veh.行走).toBe(5);   // 0 + 5*|-1|
+    expect(veh.行走上限).toBe(1);
+    expect(veh.当前生命).toBe(0);   // 超限 → 生命清零
+    expect(veh.行走方式).toBe(0);
+  });
+});
+
+// ==================== 免死 (战斗相关.ecode L5020-5096) ====================
+// 构造带真实 PlayerService（getMarkerValue 纯JSON）/ CombatStateService（addBuff/timeIntervalRequire）的实例
+const avoidPlayerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+const avoidCombatState = new CombatStateService();
+const avoidCombat = new CombatSystemService(
+  {} as PrismaService,
+  avoidPlayerService,
+  {} as BonusService,
+  {} as MapService,
+  {} as StaticDataService,
+  {} as AchievementService,
+  {} as ItemSystemService,
+  avoidCombatState,
+);
+
+describe('免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096)', () => {
+  const nowMs = Date.now();
+  const baseDef = (over: any = {}) => ({
+    specialSeq: 0,
+    活力: 0,
+    currentHp: 100,
+    skillLevel: 0,
+    markers: JSON.stringify({}),
+    buffs: [],
+    markers2: [],
+    equipment: [],
+    ...over,
+  });
+
+  it('L5031-L5036 龙姬(specialSeq=12) 怒吼标记存在 → b=2（但被 L5072 默认覆盖为1，原版怒吼免死实际不生效，按原版保留）', () => {
+    const d = baseDef({ specialSeq: 12, buffs: [{ 名称: '怒吼', 有效期至: nowMs + 60000 }], currentHp: 100 });
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
+    // ⚠️原版 L5072 独立判断的 默认 b=1 会覆盖 L5031 的 b=2，故龙姬怒吼实际不免死（原版疑似冗余分支，按原版保留）
+    expect(ok).toBe(false);
+  });
+
+  it('L5031-L5036 龙姬 无怒吼 → b=1 不免死', () => {
+    const d = baseDef({ specialSeq: 12, currentHp: 100 });
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
+    expect(ok).toBe(false);
+  });
+
+  it('L5038-L5042 伊芙利特(specialSeq=11) 五番冷却未过 → 获得增益 五番a 5秒', () => {
+    const d = baseDef({ specialSeq: 11, currentHp: 50 });
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
+    expect(ok).toBe(true); // 五番a 增益已置 → L5072 b=3 免死返回真
+    expect(d.buffs.some((b: any) => b.名称 === '五番a')).toBe(true);
+  });
+
+  it('L5072-L5078 伊芙利特 五番a 增益存在 → b=3 免死(生命-0)', () => {
+    const d = baseDef({ specialSeq: 11, currentHp: 50, buffs: [{ 名称: '五番a', 有效期至: nowMs + 5000 }] });
+    const txtRef = { value: '' };
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, txtRef);
+    expect(ok).toBe(true);
+    expect(txtRef.value).toContain('生命-0');
+    expect(txtRef.value).toContain('神威灵装·五番');
+  });
+
+  it('L5043-L5049 战斗女仆(specialSeq=8) 守护3 熟练度!=0 → b=5（被 L5072 默认覆盖为1，原版实际不免死，按原版保留）', () => {
+    const d = baseDef({ specialSeq: 8, currentHp: 80, markers: JSON.stringify({ 守护3: 1 }) });
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
+    // ⚠️原版 L5072 默认 b=1 覆盖 L5043 的 b=5，故战斗女仆守护3 实际不免死（原版疑似冗余分支）
+    expect(ok).toBe(false);
+  });
+
+  it('L5043-L5049 战斗女仆 无守护3 → b=1 不免死', () => {
+    const d = baseDef({ specialSeq: 8, currentHp: 80 });
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
+    expect(ok).toBe(false);
+  });
+
+  it('L5050-L5063 吸血姬(活力=-15) 场上有分身(活力=-16, 当前生命>0) → 互换生命免死', () => {
+    const clone = { 活力: -16, currentHp: 200 };
+    const d = baseDef({ 活力: -15, currentHp: 30 });
+    const txtRef = { value: '' };
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, txtRef, [clone]);
+    expect(ok).toBe(true);
+    expect(d.currentHp).toBe(200);     // 本体获得分身生命
+    expect(clone.currentHp).toBe(0);   // 分身生命清零
+    expect(txtRef.value).toContain('与分身互换生命');
+  });
+
+  it('L5064-L5067 猫爪吊坠(specialSeq=23) 猫爪冷却未过 → 获得增益 猫爪 10秒', () => {
+    const d = baseDef({ equipment: [{ specialSeq: 23 }], currentHp: 60 });
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
+    expect(ok).toBe(true); // 猫爪 增益已置 → L5072 b=4 免死返回真
+    expect(d.buffs.some((b: any) => b.名称 === '猫爪')).toBe(true);
+  });
+
+  it('L5072-L5078 猫爪增益存在 → b=4 免死(生命-0)', () => {
+    const d = baseDef({ currentHp: 60, buffs: [{ 名称: '猫爪', 有效期至: nowMs + 10000 }] });
+    const txtRef = { value: '' };
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, txtRef);
+    expect(ok).toBe(true);
+    expect(txtRef.value).toContain('猫爪');
+  });
+
+  it('L5069-L5071 无特殊使魔/装备 → b=1 默认不免死', () => {
+    const d = baseDef({ specialSeq: 0, currentHp: 100 });
+    const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
+    expect(ok).toBe(false);
   });
 });

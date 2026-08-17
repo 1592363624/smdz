@@ -4348,6 +4348,189 @@ export class CombatSystemService {
    * @param playerData 玩家完整数据（含 player/markers/buffs/equipment/map）
    * @returns { dead: boolean, extraText: string, deathText: string }
    */
+
+  /** 显示伤害（对应原版 通用 显示伤害）：返回取整后的伤害数值文本 */
+  private displayDamage(value: number): string {
+    return String(Math.round(value || 0));
+  }
+
+  /** 数字到时间（对应原版 通用 数字到时间）：毫秒 → 可读时间文本（秒/分秒） */
+  private msToTimeTextLocal(ms: number): string {
+    const totalSec = Math.max(0, Math.floor((ms || 0) / 1000));
+    if (totalSec < 60) return `${totalSec}秒`;
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return `${min}分${sec}秒`;
+  }
+
+
+  /**
+   * 免死（对应原版 战斗相关.ecode L5020-5096 子程序 免死）
+   *
+   * 原版语义：防御方即将死亡时，按使魔/装备/增益决定能否免死（返回真=免死成功）。
+   * 覆盖分支：龙姬怒吼(b=2)、伊芙利特五番a(b=3)、战斗女仆守护3(b=5)、
+   * 吸血姬与分身互换生命、猫爪吊坠(b=4)、以及 五番a/猫爪 增益要求覆盖 b。
+   * b==2：总伤害 += 当前生命-1 且 当前生命=1（原版 L5080-5083）。
+   * b==3/4/5：当前生命保留，返回免死真（原版 L5084-5092）。
+   *
+   * 依赖：defender.buffs（增益）/ defender.markers2（冷却标记，原地修改）/
+   * defender.equipment（装备 specialSeq）/ defender.markers（取成就熟练度）/
+   * defender.specialSeq / defender.活力 / defender.currentHp。
+   *
+   * @param defender 防御方玩家/召唤物
+   * @param buffs 增益数组（原地修改：五番a/猫爪 获得增益）
+   * @param markers2 冷却标记数组（原地修改：五番冷却/猫爪冷却 时间间隔要求）
+   * @param equipment 装备数组（specialSeq 命中）
+   * @param s 毫秒时间戳
+   * @param rawTimestamp 原始毫秒时间戳（默认=s）
+   * @param totalDamageRef 总伤害引用（b==2 时累加 当前生命-1）
+   * @param damageTextRef 伤害文本引用（原地追加免死提示）
+   * @param defenderGroup 防御方全体（吸血姬分身互换生命用，可空）
+   * @returns 是否免死（真=免死成功，原版返回真）
+   */
+  avoidDeath(
+    defender: any,
+    buffs: any[],
+    markers2: any[],
+    equipment: any[],
+    s: number,
+    rawTimestamp: number,
+    totalDamageRef: { value: number },
+    damageTextRef: { value: string },
+    defenderGroup?: any[],
+  ): boolean {
+    const SEC = 1000;
+    const nowSec = Math.floor(s / SEC);
+    const rawSec = rawTimestamp !== undefined ? rawTimestamp : s;
+    const specialSeq = defender.specialSeq;
+    const 活力 = defender.活力;
+    // 取成就熟练度（原版 取成就熟练度(防御方.标记, name)）
+    const achVal = (name: string): number =>
+      this.playerService.getMarkerValue(defender.markers, name);
+    // 装备要求（原版 装备要求(防御方, #猫爪吊坠, )）：遍历装备命中 specialSeq
+    const hasEquip = (seq: number): boolean =>
+      equipment.some((e: any) => e && e.specialSeq === seq);
+    // 增益要求（原版 增益要求(name, 防御方.增益, , s, a1)）：存在且未过期，返回剩余毫秒
+    const buffRemain = (name: string): number => {
+      const b = buffs.find((x: any) => x && x.名称 === name && (!x.有效期至 || x.有效期至 > nowSec * SEC));
+      if (!b) return 0;
+      return b.有效期至 ? Math.max(0, b.有效期至 - nowSec * SEC) : 0; // 毫秒剩余
+    };
+    const buffActive = (name: string): boolean => buffRemain(name) > 0;
+    // 标记要求（原版 标记要求("怒吼", 防御方.增益, , s)）：buff 名存在且未过期
+    const markerRequire = (name: string): boolean => buffActive(name);
+    // 时间间隔要求（原版 时间间隔要求(name, sec, markers2, s, , raw)）：冷却中返回真，否则加标记返回假
+    const intervalActive = (name: string, sec: number): boolean =>
+      this.combatState.timeIntervalRequire(name, sec, markers2, s, { value: '' }, rawSec);
+    // 获得增益（原版 获得增益(防御方.增益, name, 时间, , raw, , )）
+    const addBuff = (name: string, durSec: number): void => {
+      // gainBuff 的 s 参数为毫秒时间戳（内部 有效期至 = s + 时间*SECOND_MS）
+      this.combatState.gainBuff(buffs, name, durSec, false, rawSec, 0);
+    };
+
+    let b = 1;
+    // 原版 L5031-5036：龙姬(specialSeq=12) 怒吼标记 → b=2，否则 b=1
+    if (specialSeq === 12) {
+      if (markerRequire('怒吼')) {
+        b = 2;
+      } else {
+        b = 1;
+      }
+    }
+    // 原版 L5038-5042：伊芙利特(specialSeq=11) 五番冷却未过 → 获得增益 五番a 5秒
+    else if (specialSeq === 11) {
+      if (intervalActive('五番冷却', 60 - (defender.skillLevel || 0) / 2) === false) {
+        addBuff('五番a', 5);
+      }
+    }
+    // 原版 L5043-5049：战斗女仆(specialSeq=8) 守护3 熟练度!=0 → b=5，否则 b=1
+    else if (specialSeq === 8) {
+      if (achVal('守护3') !== 0) {
+        b = 5;
+      } else {
+        b = 1;
+      }
+    }
+    // 原版 L5050-5063：吸血姬(活力=-15) 与场上的 吸血姬分身(活力=-16, 当前生命>0) 互换生命
+    else if (活力 === -15) {
+      if (Array.isArray(defenderGroup)) {
+        for (const member of defenderGroup) {
+          if (member && member.活力 === -16 && (member.currentHp || member.当前生命 || 0) > 0) {
+            damageTextRef.value =
+              damageTextRef.value +
+              '\n' +
+              '生命' +
+              this.displayDamage(-(defender.currentHp || 0)) +
+              '(' + '0' + ')';
+            defender.currentHp = member.currentHp || member.当前生命 || 0;
+            member.currentHp = 0;
+            damageTextRef.value =
+              damageTextRef.value +
+              '\n' +
+              '【目标】与分身互换生命' +
+              '(' + '生命+' + this.displayDamage(defender.currentHp || 0) + ')';
+            return true;
+          }
+        }
+      }
+    }
+    // 原版 L5064-5067：猫爪吊坠(specialSeq=23) 猫爪冷却未过 → 获得增益 猫爪 10秒
+    else if (hasEquip(23)) {
+      if (intervalActive('猫爪冷却', 90) === false) {
+        addBuff('猫爪', 10);
+      }
+    }
+    // 原版 L5069-5071：默认 b=1
+    else {
+      b = 1;
+    }
+    // 原版 L5072-5078：增益要求 覆盖 b（猫爪→4，五番a→3）
+    if (buffActive('猫爪')) {
+      b = 4;
+    } else if (buffActive('五番a')) {
+      b = 3;
+    } else {
+      b = 1;
+    }
+    // 原版 L5079-5095：b 分支
+    if (b === 2) {
+      totalDamageRef.value = totalDamageRef.value + (defender.currentHp || 0) - 1;
+      damageTextRef.value =
+        damageTextRef.value +
+        '\n' +
+        '生命' +
+        this.displayDamage(-((defender.currentHp || 0) - 1)) +
+        '(' + '1' + ')';
+      defender.currentHp = 1;
+      return true;
+    } else if (b === 3) {
+      damageTextRef.value =
+        damageTextRef.value +
+        '\n' +
+        '生命-0' +
+        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
+        '(' + '神威灵装·五番' + this.msToTimeTextLocal(buffRemain('五番a')) + ')';
+      return true;
+    } else if (b === 4) {
+      damageTextRef.value =
+        damageTextRef.value +
+        '\n' +
+        '生命-0' +
+        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
+        '(' + '猫爪' + this.msToTimeTextLocal(buffRemain('猫爪')) + ')';
+      return true;
+    } else if (b === 5) {
+      damageTextRef.value =
+        damageTextRef.value +
+        '\n' +
+        '生命-0' +
+        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
+        '(' + '女仆' + ')';
+      return true;
+    }
+    return false;
+  }
+
   playerDeath(playerData: any): { dead: boolean; extraText: string; deathText: string } {
     const nowSec = Math.floor(Date.now() / 1000);
     const player = playerData.player;
@@ -4378,6 +4561,15 @@ export class CombatSystemService {
 
     // 当前生命>0 → 不可能死（原版入口隐含 玩家.当前生命<=0 才进入；此处保守判定）
     if (player.当前生命 > 0 || player.currentHp > 0) {
+      return { dead: false, extraText, deathText };
+    }
+
+    // 原版 造成伤害 入口：当前生命<=0 先调 免死()，返回真则仍存活（龙姬/伊芙利特/战斗女仆/吸血姬/猫爪/五番a 分支）
+    const dmgTextRef = { value: '' };
+    const totalDmgRef = { value: Number.MAX_SAFE_INTEGER }; // 致死总伤害
+    if (this.avoidDeath(player, buffs, markers2, equipment, nowSec * 1000, nowSec * 1000, totalDmgRef, dmgTextRef)) {
+      // 免死成功：b==2 已把 当前生命 置 1；b==3/4/5 保留当前生命；吸血姬已互换
+      extraText = extraText + dmgTextRef.value;
       return { dead: false, extraText, deathText };
     }
 
@@ -4678,29 +4870,259 @@ export class CombatSystemService {
   }
 
   /**
-   * 计算载具（生成前线场景的基础阶段，对应原版 加成计算.ecode L3556 计算载具 被本子程序调用的路径）
-   *
-   * 原版 生成前线 调用 `计算载具(zj, s, , , , )`：第3-6参数（计算产出/玩家成就/玩家任务/生产力提高/所在地图）均空，
-   * 因此 计算载具 仅执行【属性计算阶段】（跳过生产产出分支）。
-   * 进一步：本场景 zj 的零件是 资源（"阵地核心"/"轻型装甲"），均不在 部件列表 中命中，
-   * 故 计算载具 实际只做：载具.加成 = 全新空加成（原版 L3580 `载具.加成 = j`，j 为局部全新 加成）、
-   * 防御/武器/行走/功能/加成.生命 清零，然后根据零件（资源，无部件匹配）不贡献任何加成 → 载具.加成.生命 保持 0。
-   *
-   * 完整 计算载具（含部件匹配/硅基核心/生产产出）为 RKT ⬜ 独立大项，此处仅实现生成前线所需的等价执行路径。
-   *
-   * @param vehicle 载具对象（原地修改：重置加成/清空防御武器行走功能/生命上限置0）
+   * 取物品数量（对应原版 物品操作.ecode L2022 取物品数量）
+   * 遍历物品数组，累加同名物品的数量；若为装备也返回1。
+   * 本方法为 计算载具 内部依赖的轻量等价实现。
    */
-  private computeVehicleBasic(vehicle: any): void {
-    // 原版 L3580: 载具.加成 = j（j 为全新 加成，全字段默认0）
-    vehicle.加成 = {};
+  private getItemQty(name: string, items: any[]): number {
+    if (!Array.isArray(items)) return 0;
+    let total = 0;
+    for (const it of items) {
+      if (it && it.名称 === name) {
+        // 装备按1计；资源/物品按 数量 计
+        total += it.类型 === '装备' ? 1 : (it.数量 ?? 0);
+      }
+    }
+    return total;
+  }
+
+  /**
+   * 物品要求（计算载具 内部轻量等价，对应原版 物品操作.ecode L1784 物品要求）
+   * 返回是否满足：不提供要求数量时存在即满足；提供时数量需 >= 要求。
+   * 复用 getItemQty 实现，避免依赖 itemSystem 实例。
+   */
+  private reqItem(name: string, items: any[], requireQty?: number): boolean {
+    const qty = this.getItemQty(name, items);
+    if (requireQty == null) return qty > 0;
+    return qty >= requireQty;
+  }
+
+  /**
+   * 计算载具（对应原版 加成计算.ecode L3556-3912 子程序 计算载具）
+   *
+   * 原版语义：重新计算载具的各项属性（防御/武器/行走/功能上限与超限、加成叠加、硅基核心、
+   * 逆转力场、湮灭圣光/审判导弹等穿透、小雫/小凰等生产加成、超限判定），并在提供 s 且非产出时
+   * 处理 琪莎拉 自动回血；最终按 上限 标志决定产出分支。
+   *
+   * 本方法 1:1 还原 L3556-3897 全部属性计算逻辑；产出分支（原版 L3898-3911 调 取生产产出）
+   * 因 取生产产出 属独立生产系统大项（RKT⬜），此处标注 TODO，不在本函数内展开。
+   *
+   * 数据来源：原版 部件列表 全局 = staticData.getAllVehiclePartSpecs()（vehicle-parts.json，
+   * 由 e/源码解析成为txt/使魔大战.txt 类型=载具 节提取）；部件限制 全局（商店-部件限制）当前无数据 → 空数组。
+   *
+   * @param vehicle 载具对象（原地修改：重置并叠加属性/加成/上限等）
+   * @param s 长整数时间戳（可空；为空则跳过时间相关回血）
+   * @param calcOutput 是否计算产出（可空）
+   * @param achieve 玩家成就数组（计算产出时用，可空）
+   * @param tasks 玩家任务数组（计算产出时用，可空）
+   * @param productivity 生产力提高（可空）
+   * @param mapId 所在地图（可空）
+   */
+  private computeVehicle(
+    vehicle: any,
+    s: number,
+    calcOutput?: boolean,
+    achieve?: any[],
+    tasks?: any[],
+    productivity?: number,
+    mapId?: number,
+  ): void {
+    const 部件列表 = this.staticData.getAllVehiclePartSpecs() || [];
+    const 部件限制: any[] = []; // 原版 部件限制 全局（商店-部件限制），当前无数据
+    const j: any = {}; // 全新空加成
+    let 生产类Flag = false; // 原版 生产类 标志（核心部件含生产加成时置真）
+    vehicle.加成 = j;
+    if (vehicle.名称 === '') {
+      return; // 原版 L3581-3583
+    }
     vehicle.防御 = 0;
     vehicle.武器 = 0;
     vehicle.行走 = 0;
     vehicle.功能 = 0;
     vehicle.加成.生命 = 0;
     vehicle.行走方式 = 0;
-    // 本场景零件（阵地核心/轻型装甲）均为资源名，不在 部件列表 中 → 不贡献任何加成
-    // 故 载具.加成.生命 保持 0，后续调用方以 zj.当前生命 = zj.加成.生命 赋 0
+    if (Array.isArray(vehicle.零件) && vehicle.零件.length > 0) {
+      // 原版 L3591：载具.类型 = 子文本替换(零件[1].名称, "核心", ...)（仅取类型前缀）
+      vehicle.类型 = (vehicle.零件[0].名称 || '').replace('核心', '');
+    }
+    vehicle.发丝 = false;
+    vehicle.逆转力场 = false;
+    vehicle.上限 = 0;
+    vehicle.涂层 = 0;
+    const 物品: any = { 类型: '资源' };
+    const 计算用零件: any[] = [];
+    // 原版 L3598-3612：遍历零件，展开内置零件 + 加入计算用零件
+    for (const p of vehicle.零件 || []) {
+      // 在 部件列表 中查找同名部件，展开其 内置零件
+      const spec = 部件列表.find((b: any) => b.name === p.名称);
+      if (spec && Array.isArray(spec.builtinParts)) {
+        for (const inner of spec.builtinParts) {
+          const innerItem = { ...inner, 耐久: -11, 数量: inner.count ?? inner.数量 ?? 0 };
+          计算用零件.push(innerItem);
+        }
+      }
+      计算用零件.push(p);
+    }
+    // 原版 L3613-3619：硅基核心判定
+    let 硅基核心加成 = 1;
+    if (this.getItemQty('硅基核心阿尔法', 计算用零件) > 0) 硅基核心加成 = 1.035;
+    else if (this.getItemQty('硅基核心贝塔', 计算用零件) > 0) 硅基核心加成 = 1.025;
+    // 原版 L3620-3718：遍历计算用零件，匹配 部件列表 套用加成/上限/超限
+    for (const cp of 计算用零件) {
+      if (cp.名称 === '白的发丝') vehicle.发丝 = true;
+      else if (cp.名称 === '逆转力场') vehicle.逆转力场 = true;
+      const spec = 部件列表.find((b: any) => b.name === cp.名称);
+      if (!spec) continue;
+      const 生产类 = (spec.bonus && spec.bonus.生产 > 0);
+      // 核心必须是第一个（类型==0）
+      if (spec.partType === 0) {
+        vehicle.行走上限 = spec.walk;
+        vehicle.防御上限 = spec.defense;
+        vehicle.武器上限 = spec.weapon;
+        vehicle.功能上限 = spec.function;
+        vehicle.行走方式 = spec.moveType;
+        if (spec.bonus && spec.bonus.生产 > 0) 生产类Flag = true;
+      } else {
+        if (cp.耐久 !== -11) { // 内置零件不参与
+          if (spec.limit2) {
+            物品.名称 = spec.limit2;
+            物品.数量 = cp.数量;
+            部件限制.push(物品);
+          }
+          // 行走/防御/武器/功能 上限与超限（原版 L3647-3714 四段）
+          this.applyPartLimit(vehicle, spec, cp, '行走', 'walk');
+          this.applyPartLimit(vehicle, spec, cp, '防御', 'defense');
+          this.applyPartLimit(vehicle, spec, cp, '武器', 'weapon');
+          this.applyPartLimit(vehicle, spec, cp, '功能', 'function');
+        }
+      }
+      // 原版 L3718-3746：叠加载具加成（内置零件耐久==-11 时全量，否则按上限分段）
+      if (cp.耐久 === -11) {
+        this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, cp.数量 ?? 1, 生产类, 硅基核心加成);
+      } else if (spec.limit == null || spec.limit <= 0) { // 原版 L3648/L3735：上限<=0 为无上限，全量叠加
+        this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, cp.数量 ?? 1, 生产类, 硅基核心加成);
+      } else {
+        const qty = cp.数量 ?? 1;
+        if (qty <= spec.limit) {
+          this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, qty, 生产类, 硅基核心加成);
+        } else {
+          this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, spec.limit, 生产类, 硅基核心加成);
+          this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, (qty - spec.limit) / 2, 生产类, 硅基核心加成);
+          vehicle.上限 = 1;
+        }
+      }
+    }
+    // 原版 L3752-3759：逆转力场 加成修正
+    if (vehicle.逆转力场) {
+      vehicle.加成.护盾全抗 += (1 - vehicle.加成.护盾全抗 / 100) * vehicle.加成.生命;
+      vehicle.加成.装甲全抗 += (1 - vehicle.加成.装甲全抗 / 100) * vehicle.加成.生命;
+      vehicle.加成.生命全抗 += (1 - vehicle.加成.生命全抗 / 100) * vehicle.加成.生命;
+      vehicle.加成.攻击 *= 0.34;
+      vehicle.加成.攻击2 *= 0.34;
+      vehicle.加成.韧性 *= 0.34;
+    }
+    // 原版 L3760-3768：上限负值保护
+    if (vehicle.武器上限 < 0) vehicle.武器上限 = 0;
+    if (vehicle.防御上限 < 0) vehicle.防御上限 = 0;
+    if (vehicle.行走上限 < 0) vehicle.行走上限 = 0;
+    // 原版 L3769-3801：导弹类穿透（湮灭圣光/审判导弹/星爆导弹/炼狱导弹）
+    let c = 0;
+    if (this.reqItem('湮灭圣光', 计算用零件) &&
+        this.reqItem('氢弹', 计算用零件, 0.1)) {
+      c = 1;
+      vehicle.加成.贯穿 += 20;
+      this.bonusService.addPenetration(vehicle.加成, 20);
+    }
+    if (c === 0) {
+      if (this.reqItem('审判导弹', 计算用零件) &&
+          this.reqItem('导弹', 计算用零件, 0.1)) {
+        vehicle.加成.贯穿 += 10;
+        this.bonusService.addPenetration(vehicle.加成, 10);
+      } else if (this.reqItem('星爆导弹', 计算用零件) &&
+                 this.reqItem('导弹', 计算用零件, 0.05)) {
+        vehicle.加成.贯穿 += 8;
+        this.bonusService.addPenetration(vehicle.加成, 8);
+      } else if (this.reqItem('炼狱导弹', 计算用零件) &&
+                 this.reqItem('导弹', 计算用零件, 0.01)) {
+        vehicle.加成.贯穿 += 5;
+        this.bonusService.addPenetration(vehicle.加成, 5);
+      }
+    }
+    // 原版 L3802-3834：小雫/小凰/小蓝/小粉 上限加成 与 生产加成
+    c = 0;
+    if (!生产类Flag) {
+      if (this.reqItem('小雫', 计算用零件)) vehicle.防御上限 += 1;
+      if (this.reqItem('小凰', 计算用零件)) vehicle.武器上限 += 1;
+      if (this.reqItem('小蓝', 计算用零件)) vehicle.功能上限 += 1;
+      if (this.reqItem('小粉', 计算用零件)) vehicle.行走上限 += 1;
+      vehicle.加成.生产 *= (1 + (productivity ?? 0) / 100);
+    } else {
+      // 生产类：需 所在地图 查驾驶员（咏星/兰音幼崽），本场景无 → 跳过
+      let 咏星 = 0;
+      if (this.reqItem('小粉', 计算用零件)) {
+        vehicle.加成.生产 *= (1 + 0.05 + (productivity ?? 0) / 100 + 咏星);
+      } else {
+        vehicle.加成.生产 *= (1 + (productivity ?? 0) / 100 + 咏星);
+      }
+    }
+    vehicle.加成.生产 = Math.round(vehicle.加成.生产 * 100) / 100;
+    // 原版 L3836-3854：超限判定（行走/武器/防御/功能 超上限 → 当前生命=0）
+    if (vehicle.行走 > vehicle.行走上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
+    if (vehicle.武器 > vehicle.武器上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
+    if (vehicle.防御 > vehicle.防御上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
+    if (vehicle.功能 > vehicle.功能上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
+    // 原版 L3855-3864：部件限制超出 → 当前生命=0
+    if (部件限制.length > 0) {
+      for (const pl of 部件限制) {
+        if (this.getItemQty(pl.名称, 部件限制) > pl.数值) { c = 1; vehicle.当前生命 = 0; break; }
+      }
+    }
+    // 原版 L3865-3897：生命回血（琪莎拉）/ 上限标志
+    if (c === 0) {
+      if (s == null) {
+        return; // 原版 L3866-3868
+      }
+      if (vehicle.当前生命 < vehicle.加成.生命) {
+        if (this.getItemQty('琪莎拉', 计算用零件) > 0) {
+          if (vehicle.当前生命 === 0) {
+            if (this.combatState.timeIntervalRequire('h1', 60, vehicle.标记2 || [], s, { value: '' }, s) === false) {
+              vehicle.当前生命 += 1;
+            }
+          } else {
+            if (this.combatState.timeIntervalRequire('h1', 30, vehicle.标记2 || [], s, { value: '' }, s) === false) {
+              vehicle.当前生命 += 1;
+            }
+          }
+        }
+      }
+    } else {
+      vehicle.上限 = vehicle.上限 === 1 ? 3 : 2;
+    }
+    // 原版 L3895-3897：生命封顶
+    if (vehicle.当前生命 > vehicle.加成.生命) vehicle.当前生命 = vehicle.加成.生命;
+    // 原版 L3898-3911：产出分支（取生产产出）—— 独立生产系统大项(RKT⬜)，此处跳过
+    if (calcOutput && s != null) {
+      // TODO: 取生产产出(vehicle, s, ..., achieve, tasks, ..., 咏星, 兰音幼崽) —— RKT ⬜ 生产系统
+    }
+  }
+
+  /** 原版 L3647-3714 四段：按部件类型套用 行走/防御/武器/功能 上限与超限 */
+  private applyPartLimit(vehicle: any, spec: any, cp: any, field: string, specKey: string): void {
+    const cur = (vehicle as any)[field] ?? 0;
+    const limit = (vehicle as any)[field + '上限'] ?? 0;
+    const specVal = (spec as any)[specKey] ?? 0;
+    if (specVal >= 0) {
+      if ((spec.limit ?? 0) <= 0) {
+        (vehicle as any)[field + '上限'] = limit + (cp.数量 ?? 1) * specVal;
+      } else if ((cp.数量 ?? 1) <= spec.limit) {
+        (vehicle as any)[field + '上限'] = limit + (cp.数量 ?? 1) * specVal;
+      } else {
+        (vehicle as any)[field + '上限'] = limit + spec.limit * specVal + ((cp.数量 ?? 1) - spec.limit) / 2 * specVal;
+        vehicle.上限 = 1;
+      }
+    } else {
+      (vehicle as any)[field] = cur + (cp.数量 ?? 1) * Math.abs(specVal);
+    }
   }
 
   /**
@@ -4851,8 +5273,8 @@ export class CombatSystemService {
     zj.零件.push({ 名称: '阵地核心', 类型: '资源', 数量: 1 });
     // 原版 L5391-5394：加入 轻型装甲×(10 + c + 前线等级)
     zj.零件.push({ 名称: '轻型装甲', 类型: '资源', 数量: 10 + c + frontLineLevel });
-    // 原版 L5398：计算载具(zj, s, , , , ) —— 本场景等价基础阶段
-    this.computeVehicleBasic(zj);
+    // 原版 L5398：计算载具(zj, s, , , , ) —— 完整 计算载具（本场景仅传 s，不进产出分支）
+    this.computeVehicle(zj, s);
 
     // 原版 L5399：g.载具 = zj.编号
     g.载具 = zj.编号;

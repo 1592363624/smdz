@@ -71,8 +71,8 @@
 | 套装判断2 | L3381 | — | ⬜ | |
 | 增加穿透 | L3446 | `combat-system`? | ⬜ | |
 | 增强器 | L3453 | — | ⬜ | 1护盾2装甲3生命 |
-| 计算载具 | L3556 | — | ⬜ | |
-| 叠加载具加成 | L3913 | — | ⬜ | |
+| 计算载具 | L3556 | `combat-system.computeVehicle` + `vehicle-parts.json` | ✅ | 1:1 还原(L3556-3912)：载具.加成重置；展开内置零件+匹配部件列表套用上限/行走/防御/武器/功能四类(正负二分支，原版L3647-3714)；硅基核心阿尔法=1.035/贝塔=1.025；核心partType=0设上限与行走方式；逆转力场攻击/攻击2/韧性×0.34+全抗加成(L3752)；湮灭圣光+氢弹→贯穿+20/审判/星爆/炼狱导弹+导弹→贯穿+10/8/5并加穿透(L3769-3801)；小雫/小凰/小蓝/小粉上限+1(L3804-3815)；超限判定当前生命=0/行走方式=0(L3836-3854)；部件限制超限清零(L3855)；上限标志1→3/2(L3887-3894)；封顶当前生命≤加成.生命(L3895)。⚠️产出分支L3898-3911调取生产产出→RKT⬜(独立生产系统大项)；部件限制全局当前无数据→空数组。`vehicle-parts.json`(74个类型=载具节，由使魔大战.txt提取)为硬前置数据。新增 test/combat.spec.ts 5用例 |
+| 叠加载具加成 | L3913 | `combat-system.stackVehicleBonus` | ✅ | 1:1 还原(L3913-4020)：核心负面降低=硅基核心加成>1?1-(硅基核心加成-1)*2:1；逐字段>0用硅基核心加成否则用核心负面降低(攻击2/生命2/护盾2/装甲2/闪避2/命中2/电火冰物伤2/溅射2/速度2/生命回复2/护盾回复2/装甲回复2/攻击/护盾/装甲/生命/闪避/命中/电火冰物伤/溅射/速度)；生产字段生产类?×1:×1/4；攻击次数累加 |
 
 ### 2.2 _初始化怪物 深层 (buildMonsterBonusFromDef) 自检 (🔶 阶段A)
 
@@ -163,13 +163,13 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 计算反伤 | L4791 | — | ⬜ | |
 | 战利品 | L4874 | `item-system.distributeLoot` + `combat-system.handleMonsterDeath` | ✅ | 装备展开/资源(好感·经验·默认)/成就/背包写入/掉落文本；combat-system注入itemSystem；新增 test/item-system.spec.ts 4用例 |
 | 掉落残骸 | L4947 | `combat-system.dropWreckage` | ✅ | 地精系列累加载具残骸次数；新增 test/combat.spec.ts 3用例 |
-| 光荣弹 | L4987 | — | ⬜ | |
-| 免死 | L5020 | — | ⬜ | 免死返回真 |
+| 光荣弹 | L4987 | — | ⬜ | 死亡触发一次性反击：构造临时装备(四伤25+必中)、按 死方(生命+装甲+护盾)与 攻方(四伤*0.25) 比值算倍率a1、护盾/装甲/生命穿透+50、调造成伤害(光荣弹a)；依赖完整造成伤害对外调用链(临时装备+返回伤害文本w1)，当前 calcDamage 闭包未暴露该入口，待接入 |
+| 免死 | L5020 | `combat-system.avoidDeath` + 接入 `playerDeath` | ✅ | 1:1 还原(L5020-5096)：龙姬(specialSeq=12)怒吼→b=2、伊芙利特(specialSeq=11)五番冷却未过→获得增益五番a、战斗女仆(specialSeq=8)守护3→b=5、吸血姬(活力=-15)与分身(活力=-16)互换生命、猫爪吊坠(specialSeq=23)猫爪冷却未过→获得增益猫爪；L5072 独立判断 增益要求猫爪→b=4/五番a→b=3/默认→b=1（⚠️原版 L5072 默认 b=1 会覆盖 龙姬b=2/战斗女仆b=5，致怒吼/守护3 实际不免死，原版疑似冗余分支，按原版保留）；b==2 总伤害+当前生命-1且当前生命=1、b==3/4/5 生命-0免死返回真。依赖 combatState.gainBuff/timeIntervalRequire + playerService.getMarkerValue；新增 test/combat.spec.ts 10用例 |
 | 行动无限制 | L5097 | `combat-system.actionUnrestricted` | ✅ | 1移动2复活3采集4工作5躺下6自动开采；markers2秒级expireAt一致；新增 test/combat.spec.ts 9用例 |
-| 玩家死亡 | L5173 | `combat-system.playerDeath` | ✅ | 卷土重来/军姬森罗万象/死亡行者/石中剑 复活豁免；军姬宠物存活借 map.summons 近似；新增 test/combat.spec.ts 5用例 |
+| 玩家死亡 | L5173 | `combat-system.playerDeath` | ✅ | 卷土重来/军姬森罗万象/死亡行者/石中剑 复活豁免；军姬宠物存活借 map.summons 近似；**已接入 avoidDeath（原版 免死 优先于 玩家死亡，L5020 先于 L5173 调用）**；新增 test/combat.spec.ts 5用例 |
 | 选择目标 | L5233 | — | ⬜ | |
 | 置掉落 | L5245 | `combat-system.setDrop` | ✅ | 掉落率dl/品质dp/传说率xy/宝石缎带ds 写入怪物标记；⚠️原版L5291传说率段误用掉落品质按原版保留；新增 test/combat.spec.ts 4用例 |
-| 生成前线 | L5319 | `combat-system.generateFrontline` + 私有 `stackVehicleBonus`/`computeVehicleBasic`/`getAttackTextByName` | ✅ | 1:1 还原：前线召唤物(必中/生命1/闪避1/四伤1/命中=等级+1/特殊序号-2)、遍历建筑加成.攻击!=0加射弹武器(26/25/25/25×攻×数量,c+=生命×数量)、无建筑默认火力自动步枪(攻击文本.名称清空)、套装.增幅器=3、阵地载具(阵地核心×1+轻型装甲×(10+c+等级))、置成就熟练度跟随/阵地、按g2.编号新增/更新。⚠️依赖原版战斗建筑(含加成.攻击)，当前buildings.json仅生产建筑→武器数组常空走默认分支，逻辑完整保留待数据补全；`计算载具`完整复刻(RKT⬜)此处仅执行生成前线调用的基础属性阶段(零件为资源不贡献加成→生命0) |
+| 生成前线 | L5319 | `combat-system.generateFrontline` + 私有 `stackVehicleBonus`/`computeVehicle`/`getAttackTextByName` | ✅ | 1:1 还原：前线召唤物(必中/生命1/闪避1/四伤1/命中=等级+1/特殊序号-2)、遍历建筑加成.攻击!=0加射弹武器(26/25/25/25×攻×数量,c+=生命×数量)、无建筑默认火力自动步枪(攻击文本.名称清空)、套装.增幅器=3、阵地载具(阵地核心×1+轻型装甲×(10+c+等级))、置成就熟练度跟随/阵地、按g2.编号新增/更新。⚠️依赖原版战斗建筑(含加成.攻击)，当前buildings.json仅生产建筑→武器数组常空走默认分支，逻辑完整保留待数据补全；生成前线调用完整 `computeVehicle`(L3556已✅)计算阵地载具真实属性 |
 | 选择高血量目标 | L5423 | `combat-system.selectHighHpTarget` | ✅ | 返回生命+装甲+护盾总和最大者索引；新增 test/combat.spec.ts 4用例 |
 
 ### 3.1 造成伤害 核心已对齐段 自检 (🔶)
@@ -209,6 +209,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 词条转换 | L1838 | `item-system.rollAffix` | ✅ | 深度还原(L1838-1996)：中文词条→英文BonusData键，按品质倍率随机区间(护盾500-1000×倍率等) |
 | 词条数据层(静态JSON) | 数据存取 L513 / 使魔大战.txt 属性= | `convert-e-to-json.ts`+`StaticDataService` | ✅ | equipments.json 296/307 装备已带属性=词条(原硬编码'[]')；generateEquipment 经 gameEquip.affixes 读取并展开 |
 | 解析装备 | L1262 | `item-system.parseEquip` | ⬜ |
+| 物品要求 | L1784 | `item-system.itemRequire` | ✅ | 1:1 还原(L1784-1811)：遍历物品数组，空要求数量→存在即满足写回下标；指定数量→数量≥要求才满足；不足→found=false 且 hint="需要X的NAME，你只有Y"；未命中→false。返回封装{found,index,hint}；test/item-system.spec.ts 6用例 |
 | 装备要求 | L1512 | `item-system` | ⬜ |
 | 套装判断 | L1581 | `bonus`? | ⬜ |
 | 物品要求 | L1784 | — | ⬜ |
