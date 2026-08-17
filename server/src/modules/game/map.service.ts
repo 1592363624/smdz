@@ -341,52 +341,74 @@ export class MapService {
           : [];
         // 怪物等级：定义等级（若为0则用地图等级），用于 _初始化怪物 等级成长
         const level = def?.level || map.level || 1;
-        // 等级成长系数（对应原版 _初始化怪物 L2764：基础属性 × (1+等级×0.05)）
+        // 觉醒因子：原版 _初始化怪物 L2764-2777 用 (1 + 觉醒/200)，怪物默认觉醒=0 → 因子=1
+        const awaken = defBonus.觉醒 || 0;
+        const awakenFactor = 1 + awaken / 200;
+        // 等级成长系数 lvFactor = (1 + 等级×0.05)，原版 _初始化怪物 L2764 起每一条都乘此项
         const lvFactor = 1 + level * 0.05;
+        // 三层池血量额外随等级线性增长 +等级×20（原版 L2764-2766：生命/护盾/装甲专用）
+        //   基础生命 = def.hp（monsters.json 的 hp 字段，对应原版 g.基础.生命）
+        //   基础护盾 = defBonus.护盾（对应原版 g.基础.护盾，来自 monsters.json bonus）
+        //   基础装甲 = defBonus.装甲（对应原版 g.基础.装甲）
         const baseHp = def?.hp || 100;
-        const baseMaxHp = def?.maxHp || baseHp;
-        const baseShield = def?.maxShield || shield;
-        const baseArmor = def?.maxArmor || armor;
+        const baseShield = defBonus.护盾 !== undefined ? defBonus.护盾 : shield;
+        const baseArmor = defBonus.装甲 !== undefined ? defBonus.装甲 : armor;
+        const hpVal = Math.floor(lvFactor * (baseHp + level * 20) * awakenFactor);
+        const shieldVal = Math.floor(lvFactor * (baseShield + level * 20) * awakenFactor);
+        const armorVal = Math.floor(lvFactor * (baseArmor + level * 20) * awakenFactor);
+        // 其余属性（L2767-2777）：仅 ×lvFactor×awakenFactor，无 +等级×20 项
+        const dodgeVal = Math.floor(lvFactor * (def?.dodge || 5) * awakenFactor);
+        const hitVal = Math.floor(lvFactor * (def?.hit || 85) * awakenFactor);
+        const atkVal = Math.floor(lvFactor * (def?.attack || 10) * awakenFactor);
+        const speedVal = Math.floor(lvFactor * (def?.speed || 100) * awakenFactor);
+        const expVal = Math.floor(lvFactor * (defBonus.经验 || 10) * awakenFactor);
         monsters.push({
           id: `monster_${mapId}_${i}_${randomUUID()}`,
           name: def?.name || name || '未知怪物',
           level,
           specialSeq: def?.specialSeq || 0,
-          hp: Math.floor(baseMaxHp * lvFactor),
-          maxHp: Math.floor(baseMaxHp * lvFactor),
-          shield: Math.floor(baseShield * lvFactor),
-          maxShield: Math.floor(baseShield * lvFactor),
-          armor: Math.floor(baseArmor * lvFactor),
-          maxArmor: Math.floor(baseArmor * lvFactor),
-          attack: Math.floor((def?.attack || 10) * lvFactor),
+          hp: hpVal,
+          maxHp: hpVal,
+          shield: shieldVal,
+          maxShield: shieldVal,
+          armor: armorVal,
+          maxArmor: armorVal,
+          attack: atkVal,
           defense: def?.defense || 0,
-          speed: Math.floor((def?.speed || 100) * lvFactor),
-          dodge: Math.floor((def?.dodge || 5) * lvFactor),
-          hit: Math.floor((def?.hit || 85) * lvFactor),
-          exp: Math.floor((defBonus.经验 || 10) * lvFactor),
+          speed: speedVal,
+          dodge: dodgeVal,
+          hit: hitVal,
+          exp: expVal,
           isElite: def?.type === '精英' || false,
           dropTable,
         });
       } else {
         const level = map.level || 1;
+        // 对齐原版 _初始化怪物 L2764-2777 等级成长公式（野怪：基础生命100/护盾0/装甲0/攻击10/闪避5/命中85/经验10）
         const lvFactor = 1 + level * 0.05;
+        const hpVal = Math.floor(lvFactor * (100 + level * 20));
+        const atkVal = Math.floor(lvFactor * 10);
+        const speedVal = Math.floor(lvFactor * 100);
+        const dodgeVal = Math.floor(lvFactor * 5);
+        const hitVal = Math.floor(lvFactor * 85);
+        const expVal = Math.floor(lvFactor * 10);
         monsters.push({
           id: `monster_${mapId}_${i}_${randomUUID()}`,
           name: '野怪',
           level,
           specialSeq: 0,
-          hp: Math.floor(100 * lvFactor),
-          maxHp: Math.floor(100 * lvFactor),
+          hp: hpVal,
+          maxHp: hpVal,
           shield: 0,
           maxShield: 0,
           armor: 0,
           maxArmor: 0,
-          attack: Math.floor(10 * lvFactor),
+          attack: atkVal,
           defense: 0,
-          speed: Math.floor(100 * lvFactor),
-          dodge: Math.floor(5 * lvFactor),
-          hit: Math.floor(85 * lvFactor),
-          exp: Math.floor(10 * lvFactor),
+          speed: speedVal,
+          dodge: dodgeVal,
+          hit: hitVal,
+          exp: expVal,
           isElite: false,
         });
       }
