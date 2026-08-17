@@ -120,7 +120,7 @@ const setData = combatState.setJudgment(setData, eqName, specialSeq);
   3. 一拳套装判定原误用 `w1=substring(0,4)==='一拳'`（"一拳套装"4字="一拳套"不匹配），改为 `w2==='一拳'`（取2字，对齐原版 取文本左边(名称,2)）。
   4. 一拳加攻原误用 `addMonsterAttackPercent`（乘四伤），原版「增加攻击(玩家,,25)」第二参数为空→加**攻击力**，改 `b.攻击*=1.25`；`refreshMapMonsters` 写 attack 字段优先用 `finalBonus.攻击`（含一拳加成）。
 - **修复验证**：一拳套(4件)→攻击125、线圈(动能线圈123)→物伤÷2=75、雪心增益(xuexin)→闪避×0.75、觉醒400→生命×3，全部正确。
-- ⚠️ 当前 monsters.json **无任何怪物配置套装装备**（一拳/雪心/线圈等），故线上怪物套装效果实际不触发，属数据层现状非代码缺失；套装代码已就位，玩家/使魔穿套装即生效。
+- 经完整原版数据重建后，monsters.json **已含带套装装备的怪物**（34 个：防爆16/生命19/无畏5/动力5/圣诞6/强袭6/纳米3/纯白9/黑婚1/黑手1/心形2/创可贴1/线圈1），怪物套装效果已随 refreshMapMonsters 写入 GameMonster.set 生效；玩家侧套装经 2026-08-17 recomputeSets 修复后亦生效。
 
 ---
 
@@ -156,6 +156,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 攻击目标 | L4021 | `combat-system` + `combat-state` | 🔶 | **基石层已建**：`combat-state.service.ts` 1:1 复刻 添加成就L678/取成就熟练度L719/置成就熟练度L850/标记要求L747/添加标记L778/增益要求L799/获得增益L1522/时间间隔要求L1008。待补：护盾层(L4113-4271)/装甲层(L4275-4396)/生命层(L4398-4511)特效分支（激变星/强袭/坚韧护盾/盾逆/吸血姬/兰音护盾文本/破盾成就/捕捉模式/免死/麻醉等）需怪物对象扩展 markers/sets/好感/成就/活力 字段后接入 |
 | _初始化怪物(深层) | L2748-3052 | `map.service.buildMonsterBonusFromDef`/`combat-state` | 🔶 | **基石层+阶段A已建**：状态机helper + `套装判断`(物品操作L1581,完整specialSeq常量映射 `constants/special-seq.constant.ts`)+`装备要求`(L1512)+`buildMonsterBonusFromDef`(整合L2748-3052等级成长/好感/击杀标记/觉醒/一拳/雪心/恶智/线圈/套装判定)。待补：装备生成(L2748)/法宝加成(L2863)/载具加成/增益计算/战斗力(L3031)。依赖怪物对象扩展 markers/sets/好感/成就/活力 字段 |
 | 套装判断 | L1581 | `combat-state.setJudgment` | ✅ | 1:1 复刻：按 specialSeq switch + 按名称前缀(取文本左边4/2字)累加 SetData 字段；增幅器71-75/植入体76-79范围、动力封顶5 等已对齐 |
+| 套装效果生效(玩家) | _计算玩家 L2284/L3381 | `item.service.recomputeSets`+`buildAttackerBonus` | ✅ | **2026-08-17 修复**：原 player.sets 永不被写入→玩家穿套装全不生效。新增 recomputeSets 在 equipItem/unequipItem/equipImplantItem/equipAmplifierItem/equipmentPreset 装备变更后遍历 equipment+weapons 调 setJudgment 累加写入 player.sets；buildAttackerBonus 实时消费 maid/amplifier/lifeBless/onePunch/implan/coil 等（植入体×1.25/L2329、增幅器==1冷却/L2609、科学家≥4/L2619、晚礼服≥4/L2590、线圈÷2/L2596、一拳==4/L2239 等已就位）。test/item-system.spec.ts 5 用例回归 |
 | 装备要求 | L1512 | `combat-state.equipRequire` | ✅ | 1:1 复刻：武器(当前手持)/装备(名称或specialSeq)检索，增幅器/植入体范围判断 |
 | 战斗 | L4512 | `combat.service` / `game-command` | 🔶 | 怪物闪避/幻时/移动临时怪物已部分 |
 | 挑战怪物 | L4726 | `combat.service` | ⬜ | |

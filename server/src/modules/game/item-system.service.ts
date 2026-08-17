@@ -641,7 +641,7 @@ export class ItemSystemService {
    */
   async equipImplantItem(userId: number, implantName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, equipment } = playerData;
+    const { player, backpack, equipment, weapons } = playerData;
 
     // 在背包中查找植入体
     const bpIndex = backpack.findIndex(
@@ -670,11 +670,14 @@ export class ItemSystemService {
     const newImplant = backpack.splice(bpIndex, 1)[0];
     equipment.push(newImplant);
 
+    // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
+    const sets = this.itemService.recomputeSets(equipment, weapons);
     await this.prisma.player.update({
       where: { userId },
       data: {
         backpack: JSON.stringify(backpack),
         equipment: JSON.stringify(equipment),
+        sets,
       },
     });
 
@@ -688,7 +691,7 @@ export class ItemSystemService {
    */
   async equipAmplifierItem(userId: number, amplifierName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, equipment } = playerData;
+    const { player, backpack, equipment, weapons } = playerData;
 
     const bpIndex = backpack.findIndex(
       (bp: Item3) => bp.name === amplifierName && bp.type === '装备',
@@ -714,11 +717,14 @@ export class ItemSystemService {
     const newAmp = backpack.splice(bpIndex, 1)[0];
     equipment.push(newAmp);
 
+    // 重算套装判定
+    const sets = this.itemService.recomputeSets(equipment, weapons);
     await this.prisma.player.update({
       where: { userId },
       data: {
         backpack: JSON.stringify(backpack),
         equipment: JSON.stringify(equipment),
+        sets,
       },
     });
 
@@ -1098,6 +1104,8 @@ export class ItemSystemService {
         }
       }
 
+      // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
+      const sets = this.itemService.recomputeSets(newEquipment, newWeapons);
       await this.prisma.player.update({
         where: { userId },
         data: {
@@ -1106,6 +1114,7 @@ export class ItemSystemService {
           backpack: JSON.stringify(backpack),
           currentWeapon: newWeapons.length > 0 ? 0 : 0,
           equipmentPresets: JSON.stringify(presets),
+          sets,
         },
       });
 
@@ -2004,7 +2013,9 @@ export class ItemSystemService {
    * 随机文本：从逗号分隔的候选串中随机取一个（对齐原版 随机文本()）
    */
   private randomText(candidates: string): string {
-    const arr = candidates.split('，').map((s) => s.trim()).filter(Boolean);
+    // 原版候选串统一用半角逗号分隔（随机文本()/随机词条展开/affixCandidateFor 返回均为半角），
+    // 故按半角逗号拆分；同时兼容全角逗号兜底。
+    const arr = candidates.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
     if (arr.length === 0) return '';
     return arr[Math.floor(Math.random() * arr.length)];
   }

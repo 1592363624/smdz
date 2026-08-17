@@ -7,6 +7,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StaticDataService } from './static-data.service';
+import { CombatStateService } from './combat-state.service';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -208,6 +209,7 @@ export class ItemService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly staticData: StaticDataService,
+    private readonly combatState: CombatStateService,
   ) {}
 
   /**
@@ -956,23 +958,29 @@ export class ItemService {
       weapons.push(item);
       // 设置当前武器为最新
       const currentWeapon = weapons.length - 1;
+      // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
+      const sets = this.recomputeSets(equipment, weapons);
       await this.prisma.player.update({
         where: { userId },
         data: {
           backpack: JSON.stringify(backpack),
           weapons: JSON.stringify(weapons),
           currentWeapon,
+          sets,
         },
       });
       return `${player.name}装备了${item.name}`;
     } else {
       // 加入装备列表
       equipment.push(item);
+      // 重算套装判定
+      const sets = this.recomputeSets(equipment, weapons);
       await this.prisma.player.update({
         where: { userId },
         data: {
           backpack: JSON.stringify(backpack),
           equipment: JSON.stringify(equipment),
+          sets,
         },
       });
       return `${player.name}装备了${item.name}`;
@@ -1001,11 +1009,14 @@ export class ItemService {
         backpack.push(equipment[i]);
         equipment.splice(i, 1);
 
+        // 重算套装判定
+        const sets = this.recomputeSets(equipment, weapons);
         await this.prisma.player.update({
           where: { userId },
           data: {
             backpack: JSON.stringify(backpack),
             equipment: JSON.stringify(equipment),
+            sets,
           },
         });
         return `${player.name}卸下了${slot}`;
@@ -1024,12 +1035,15 @@ export class ItemService {
           currentWeapon = weapons.length > 0 ? 0 : 0;
         }
 
+        // 重算套装判定
+        const sets = this.recomputeSets(equipment, weapons);
         await this.prisma.player.update({
           where: { userId },
           data: {
             backpack: JSON.stringify(backpack),
             weapons: JSON.stringify(weapons),
             currentWeapon,
+            sets,
           },
         });
         return `${player.name}卸下了${slot}`;
@@ -1054,6 +1068,29 @@ export class ItemService {
       if (equipType.includes(wt)) return true;
     }
     return specialSeq > 0 && specialSeq < 100;
+  }
+
+  /**
+   * 重算玩家套装判定结果（对应原版 _计算玩家 实时调 套装判断 累加 玩家.套装）
+   * 原版 _计算玩家 每次构建属性时遍历"玩家.装备"+本体特殊序号逐件 套装判断 累加写入 玩家.套装；
+   * 本框架将结果持久化到 player.sets 字段（buildAttackerBonus 读取），
+   * 故在任意装备/武器/植入体/增幅器/预设 变更后调用本方法重算写入。
+   * @param equipment 已装备列表（Item3[]）
+   * @param weapons 已装备武器列表（Item3[]）
+   * @returns SetData 的 JSON 字符串
+   */
+  recomputeSets(equipment: Item3[], weapons: Item3[]): string {
+    const setData: Record<string, any> = {};
+    const judge = (item: Item3) => {
+      if (!item || !item.name) return;
+      // 优先取装备模板 specialSeq（@Constant 常量映射），缺失则按名称前缀判定（setJudgment 第二段）
+      const def = this.staticData.getEquipmentByName(item.name);
+      const seq = def?.specialSeq || 0;
+      this.combatState.setJudgment(setData, item.name, seq);
+    };
+    for (const eq of equipment || []) judge(eq);
+    for (const wp of weapons || []) judge(wp);
+    return JSON.stringify(setData);
   }
 
   /**

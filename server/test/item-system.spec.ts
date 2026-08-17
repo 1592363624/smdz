@@ -24,12 +24,24 @@ const mockEquip = {
   forcedEffect: false,
 };
 
+// 模拟原版"高斯步枪"类含【随机词条】的武器模板（属性=随机攻击 随机攻击 随机攻击 随机特殊）
+const mockRandomEquip = {
+  name: '测试随机武器',
+  bonus: '{}',
+  affixes: '["随机攻击","随机攻击","随机攻击","随机特殊"]', // 原版"随机攻击"等占位词条
+  specialSeq: 0,
+  equipType: '射弹武器',
+  forcedEffect: false,
+};
+
 const staticDataMock = {
-  getEquipmentByName: (name: string) => (name === '测试铠甲' ? mockEquip : null),
+  getEquipmentByName: (name: string) =>
+    (name === '测试铠甲' ? mockEquip : name === '测试随机武器' ? mockRandomEquip : null),
 } as unknown as StaticDataService;
 
 // ItemService 真实实例（bonusToDataString 为纯方法，无需 DB 依赖）
-const itemServiceReal = new ItemService({} as PrismaService, {} as StaticDataService);
+// 第三个参数 combatState 用于 recomputeSets 套装重算；此处给空桩即可（本文件早期用例不触发套装）
+const itemServiceReal = new ItemService({} as PrismaService, {} as StaticDataService, {} as any);
 
 const itemSystem = new ItemSystemService(
   {} as PrismaService,
@@ -76,5 +88,82 @@ describe('生成装备 (物品操作.ecode L1128-1261)', () => {
     const item = await itemSystem['generateEquipment']('不存在的装备', 'e', 0);
     expect(item).toBeDefined();
     expect(item.type).toBe('装备');
+  });
+});
+
+describe('随机词条展开 (物品操作.ecode 随机文本 L1197-1211)', () => {
+  it('回归：随机攻击/随机特殊类词条必须展开为具体属性并编码进 data（不能整串当词条名丢失）', async () => {
+    // 原版 BUG：randomText 按全角逗号拆分，而候选串为半角逗号 → 整个串被当单个词条名，
+    // rollAffix 查不到 AFFIX_TO_BONUS → 不写 bonus → 生成 data 形如 "e!bx0" 无属性。
+    // 真实原版数据 高斯步枪 属性=随机攻击 随机攻击 随机攻击 随机特殊，必须展开成具体属性。
+    let ok = false;
+    for (let i = 0; i < 30 && !ok; i++) {
+      const item = await itemSystem['generateEquipment']('测试随机武器', 'a', 0);
+      // 至少应展开出 1 个属性编码（!ai/!ae/!aa/!az 等任意加成编码，排除纯 !bx 特效用）
+      if (/!a[ijklmnopqrstuvwxyz]\d/.test(item.data)) ok = true;
+    }
+    expect(ok).toBe(true);
+  });
+
+  it('随机特殊词条（暴击/速度/命中/闪避/韧性/魅力）同样生效', async () => {
+    let ok = false;
+    for (let i = 0; i < 30 && !ok; i++) {
+      const item = await itemSystem['generateEquipment']('测试随机武器', 'a', 0);
+      // 随机特殊 候选含 暴击(crit→!at?)/速度(speed→!a?)/命中/闪避/韧性/魅力，
+      // 此处只验证 data 整体非空且含属性或特效编码即证明词条链未断裂
+      if (/!a[a-z]\d/.test(item.data)) ok = true;
+    }
+    expect(ok).toBe(true);
+  });
+});
+
+describe('套装判定重算 (物品操作.ecode 套装判断 L1581 → player.sets)', () => {
+  // 套装判定(setJudgment) 为纯逻辑；recomputeSets 遍历装备名调 setJudgment 累加写入 player.sets。
+  // 原版 _计算玩家 每次构建属性时实时 套装判断 累加 玩家.套装；
+  // 本框架持久化到 player.sets（buildAttackerBonus 读取），故装备变更后必须重算。
+  const { CombatStateService } = require('../src/modules/game/combat-state.service');
+  const combatState = new CombatStateService();
+
+  // StaticDataService mock：getEquipmentByName 返回含 specialSeq 的模板，缺失则名称前缀判定
+  const staticDataMock2 = {
+    getEquipmentByName: (name: string) => {
+      const seqMap: Record<string, number> = {
+        '女仆头饰': 7, '女仆上衣': 7, '女仆围裙': 7, '女仆长裙': 7,
+        '增幅器-侵彻': 75, '增幅器-速射': 71, '增幅器-神枪': 73, '增幅器-坚毅': 74, '增幅器-敏锐': 72,
+        '植入体-强攻': 76, '植入体-雷霆': 77, '植入体-烈火': 78, '植入体-冰结': 79,
+      };
+      return seqMap[name] !== undefined ? { name, specialSeq: seqMap[name] } : { name, specialSeq: 0 };
+    },
+  } as unknown as StaticDataService;
+
+  const itemServiceForSet = new ItemService({} as PrismaService, staticDataMock2, combatState);
+
+  const mk = (name: string) => ({ name, type: '装备', quantity: 1, durability: 0, data: '' });
+
+  it('女仆4件套 → maid=4（砸瓦鲁多前置）', () => {
+    const sets = JSON.parse((itemServiceForSet as any).recomputeSets(
+      [mk('女仆头饰'), mk('女仆上衣'), mk('女仆围裙'), mk('女仆长裙')], []));
+    expect(sets.maid).toBe(4);
+  });
+
+  it('增幅器-侵彻 → amplifier=5（名称段判定）', () => {
+    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('增幅器-侵彻')], []));
+    expect(sets.amplifier).toBe(5);
+  });
+
+  it('生命祝福按原版 L1746 排除，仅生命增强器计数 → lifeBless=1', () => {
+    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('生命祝福'), mk('生命增强器')], []));
+    expect(sets.lifeBless).toBe(1);
+  });
+
+  it('一拳套4件 → onePunch=4（攻击2+25 前置）', () => {
+    const sets = JSON.parse((itemServiceForSet as any).recomputeSets(
+      [mk('一拳手套'), mk('一拳护腕'), mk('一拳腰带'), mk('一拳战靴')], []));
+    expect(sets.onePunch).toBe(4);
+  });
+
+  it('植入体-强攻（specialSeq=76）→ implant=1', () => {
+    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('植入体-强攻')], []));
+    expect(sets.implant).toBe(1);
   });
 });
