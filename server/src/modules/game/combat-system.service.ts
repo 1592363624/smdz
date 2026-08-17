@@ -262,8 +262,8 @@ export class CombatSystemService {
       return { result: '你不在任何地图上！', killed: [], damageDealt: 0, expGained: 0, drops: [] };
     }
 
-    // 3. 从地图获取怪物列表
-    const monsters = this.mapService.getMapMonsters(map);
+    // 3. 从地图获取怪物列表（GameMonster 表，async）
+    const monsters = await this.mapService.getMapMonsters(map);
     if (monsters.length === 0) {
       return {
         result: '当前地图没有怪物，等待刷新...',
@@ -1160,7 +1160,7 @@ export class CombatSystemService {
       if (mySummons.length === 0) return lines;
 
       // 获取地图上还活着的怪物
-      const monsters = this.mapService.getMapMonsters(map).filter((m: any) => (m.hp || 0) > 0);
+      const monsters = (await this.mapService.getMapMonsters(map)).filter((m: any) => (m.hp || 0) > 0);
       if (monsters.length === 0) return lines;
 
       for (const summon of mySummons) {
@@ -1244,7 +1244,7 @@ export class CombatSystemService {
     const lines: string[] = [];
     try {
       // 随机选一只存活怪物（对应原版 L291：b = 取随机数(1, 取数组成员数(地图.怪物2))）
-      const aliveMonsters = this.mapService.getMapMonsters(map).filter((m: any) => (m.hp || 0) > 0);
+      const aliveMonsters = (await this.mapService.getMapMonsters(map)).filter((m: any) => (m.hp || 0) > 0);
       if (aliveMonsters.length === 0) return lines;
 
       // 玩家已死则不反击（避免鞭尸）
@@ -1337,8 +1337,8 @@ export class CombatSystemService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 获取地图怪物
-    const monsters = this.mapService.getMapMonsters(map);
+    // 获取地图怪物（GameMonster 表，async）
+    const monsters = await this.mapService.getMapMonsters(map);
     if (monsters.length === 0) {
       return '当前地图没有目标可以炮击';
     }
@@ -1683,18 +1683,9 @@ export class CombatSystemService {
     // 生成掉落物
     const drops = this.generateDrops(monster, 1);
 
-    // 从地图移除怪物（加锁，避免与并发的血量更新/刷新互相覆盖）
+    // 从地图移除怪物（GameMonster 表，按自增 id 删除；加锁避免并发竞态）
     try {
-      await this.mapService.withMapLock(mapId, async () => {
-        const map = await this.mapService.getMapById(mapId);
-        if (map) {
-          this.mapService.removeMapMonster(map, monster.id);
-          await this.mapService.updateDynamicFields(mapId, {
-            spawnMonsters: map.spawnMonsters,
-            tempMonsters: map.tempMonsters,
-          });
-        }
-      });
+      await this.mapService.removeMapMonster(mapId, monster.id);
     } catch (error) {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
@@ -3117,38 +3108,31 @@ export class CombatSystemService {
   }
 
   /**
-   * 更新地图数据库中怪物的血量（加锁，消除并发丢失更新）
+   * 更新地图数据库中怪物的血量（GameMonster 表，加锁消除并发丢失更新）
    * 原版为单线程内存模型，无并发问题；后端多请求并发时，
    * 若不加锁，两个请求会同时读到同一旧快照并各自覆盖写回，导致一方伤害"蒸发"。
-   * 此处通过 MapService.withMapLock 串行化同地图的读改写，
-   * 并在锁内重新读取最新 spawnMonsters 后再按 id 定位更新，保证基于最新数据写回。
+   * 此处通过 MapService.withMapLock 串行化同地图的读改写，按怪物自增 id 定位写回三层池。
    */
   private async updateMonsterHpInMap(mapId: number, monster: any): Promise<void> {
     try {
-      await this.mapService.withMapLock(mapId, async () => {
-        const map = await this.mapService.getMapById(mapId);
-        if (!map) return;
-
-        // 优先在 spawnMonsters 中定位，其次 tempMonsters
-        const spawnMonsters = JSON.parse(map.spawnMonsters || '[]');
-        const idx = spawnMonsters.findIndex((m: any) => m.id === monster.id);
-        if (idx !== -1) {
-          spawnMonsters[idx].hp = monster.hp;
-          if (monster.shield !== undefined) spawnMonsters[idx].shield = monster.shield;
-          if (monster.armor !== undefined) spawnMonsters[idx].armor = monster.armor;
-          await this.mapService.updateDynamicFields(mapId, { spawnMonsters: JSON.stringify(spawnMonsters) });
-          return;
-        }
-
-        // 回退：怪物可能在 tempMonsters
-        const tempMonsters = JSON.parse(map.tempMonsters || '[]');
-        const tidx = tempMonsters.findIndex((m: any) => m.id === monster.id);
-        if (tidx !== -1) {
-          tempMonsters[tidx].hp = monster.hp;
-          if (monster.shield !== undefined) tempMonsters[tidx].shield = monster.shield;
-          if (monster.armor !== undefined) tempMonsters[tidx].armor = monster.armor;
-          await this.mapService.updateDynamicFields(mapId, { tempMonsters: JSON.stringify(tempMonsters) });
-        }
+      // 优先取自增 id；旧调用方可能传 qq 字符串，需先解析
+      const monsterId = typeof monster.id === 'number' ? monster.id : undefined;
+      if (monsterId === undefined) {
+        // 退化：按 qq 查 id（兼容临时怪物字符串 id 场景）
+        const found = await this.mapService.getMapMonsters(mapId);
+        const hit = found.find((m: any) => m.qq === monster.id || String(m.id) === String(monster.id));
+        if (!hit) return;
+        await this.mapService.updateMonsterFields(mapId, hit.id, {
+          hp: monster.hp,
+          shield: monster.shield,
+          armor: monster.armor,
+        });
+        return;
+      }
+      await this.mapService.updateMonsterFields(mapId, monsterId, {
+        hp: monster.hp,
+        shield: monster.shield,
+        armor: monster.armor,
       });
     } catch (error) {
       this.logger.warn(`更新怪物血量失败: ${error.message}`);
@@ -3929,7 +3913,7 @@ export class CombatSystemService {
           return;
         }
 
-        const monsters = this.mapService.getMapMonsters(map);
+        const monsters = await this.mapService.getMapMonsters(map);
         if (monsters.length === 0) {
           // 地图没有怪物了，停止自动战斗
           this.stopAutoCombat(userId);

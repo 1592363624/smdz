@@ -232,7 +232,7 @@ export class GameService {
 
     // 懒刷新：若目标地图当前没有已生成的怪物，立即补充刷新，避免到达后无怪可打
     try {
-      const currentSpawn = this.mapService.getMapMonsters(targetMap);
+      const currentSpawn = await this.mapService.getMapMonsters(targetMap);
       if (currentSpawn.length === 0) {
         await this.mapService.refreshMapMonsters(targetMap.id);
         this.logger.log(`玩家 ${userId} 到达「${targetMap.name}」时触发懒刷新怪物`);
@@ -377,7 +377,7 @@ export class GameService {
 
     // 怪物列表：从 spawnMonsters + tempMonsters 合并，去重后携带等级/HP
     // 用 staticData 的怪物 JSON 补全等级/HP，未收录的怪物按基础值兜底
-    const mapMonsters = this.mapService.getMapMonsters(currentMap);
+    const mapMonsters = await this.mapService.getMapMonsters(currentMap);
     const seenMonsters = new Set<string>();
     const monsterList = mapMonsters
       .filter((m) => {
@@ -654,7 +654,7 @@ export class GameService {
     if (!currentMap) return '你不在任何地图上';
 
     const connections = this.mapService.getConnections(currentMap);
-    const monsters = this.mapService.getMapMonsters(currentMap);
+    const monsters = await this.mapService.getMapMonsters(currentMap);
 
     const lines = [
       `🗺️ 【${currentMap.name}】`,
@@ -1202,12 +1202,12 @@ export class GameService {
     // 四圣祭坛特殊逻辑：四个祭坛都清理后刷出麒麟
     if (targetMap.name === '四圣祭坛') {
       try {
-        const spawnMonsters = this.playerService.safeJsonParse<any[]>(targetMap.spawnMonsters, []);
-        if (spawnMonsters.length === 0) {
+        const residentMonsters = (await this.mapService.getMapMonsters(targetMap.id)).filter((m: any) => !m.isTemp);
+        if (residentMonsters.length === 0) {
           const hasMonsterIn = async (name: string): Promise<boolean> => {
-            const m = await this.prisma.gameMap.findUnique({ where: { name } });
+            const m = await this.mapService.getMapByName(name);
             if (!m) return false;
-            const list = this.playerService.safeJsonParse<any[]>(m.spawnMonsters, []);
+            const list = await this.mapService.getMapMonsters(m.id);
             return list.length > 0;
           };
           const cleared = !(await hasMonsterIn('白虎祭坛'))
@@ -1215,22 +1215,18 @@ export class GameService {
             && !(await hasMonsterIn('玄武祭坛'))
             && !(await hasMonsterIn('朱雀祭坛'));
           if (cleared) {
-            spawnMonsters.push({
-              id: `麒麟_${Date.now()}`,
+            // 神兽麒麟：事件型临时怪物，写入 GameMonster 表 isTemp=true
+            await this.mapService.addTempMonster(targetMap.id, {
               name: '神兽麒麟',
               type: '神兽麒麟',
-              level: Math.max(10, player.level || 10),
               specialSeq: 0,
+              level: Math.max(10, player.level || 10),
               hp: 5000,
               maxHp: 5000,
               attack: 200,
               defense: 50,
               speed: 120,
               exp: 500,
-            });
-            await this.prisma.gameMap.update({
-              where: { id: targetMap.id },
-              data: { spawnMonsters: JSON.stringify(spawnMonsters) },
             });
             return `你来到了【四圣祭坛】\n四座祭坛的怪物都已被清除，一股强大的气息在祭坛中央凝聚……\n神兽麒麟出现了！`;
           }
@@ -1274,7 +1270,7 @@ export class GameService {
     if (!map) return '你不在任何地图上！';
 
     // 解析地图各 JSON 字段
-    const monsters = this.mapService.getMapMonsters(map);
+    const monsters = await this.mapService.getMapMonsters(map);
     const resources2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
     const items = this.playerService.safeJsonParse<any[]>(map.items, []);
     const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
@@ -2414,14 +2410,24 @@ export class GameService {
       return `副本生成失败：${err.message}`;
     }
 
-    // 7. 将副本怪物添加到地图的 tempMonsters 字段
+    // 7. 将副本怪物作为临时怪物添加到 GameMonster 表（isTemp=true）
     const map = await this.mapService.getMapById(player.mapId);
-    const currentTempMonsters = this.playerService.safeJsonParse<any[]>(map.tempMonsters, []);
-    const updatedTempMonsters = [...currentTempMonsters, ...dungeon.monsters];
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { tempMonsters: JSON.stringify(updatedTempMonsters) },
-    });
+    for (const dm of (dungeon.monsters || [])) {
+      await this.mapService.addTempMonster(map.id, {
+        name: dm.name,
+        type: dm.type || '怪物',
+        specialSeq: dm.specialSeq ?? -1,
+        level: dm.level || 1,
+        hp: dm.hp || 100,
+        maxHp: dm.hp || 100,
+        shield: dm.shield || 0,
+        maxShield: dm.shield || 0,
+        armor: dm.armor || 0,
+        maxArmor: dm.armor || 0,
+        bonus: dm.bonus || '{}',
+        exp: dm.exp || 10,
+      });
+    }
 
     // 8. 设置副本标记（dungeon_active=1, dungeon_expire=时间戳）
     const now = Date.now();
@@ -2487,27 +2493,36 @@ export class GameService {
       return `副本刷新失败：${err.message}`;
     }
 
-    // 5. 更新地图的 tempMonsters：移除旧副本怪物，添加新副本怪物
+    // 5. 更新地图的临时怪物：移除旧副本怪物，添加新副本怪物（均存于 GameMonster 表 isTemp=true）
     const map = await this.mapService.getMapById(player.mapId);
-    const currentTempMonsters = this.playerService.safeJsonParse<any[]>(map.tempMonsters, []);
-
-    // 移除旧的 dungeon_id 匹配的怪物
     const oldDungeonId = markers['dungeon_id'];
-    const filteredTempMonsters = currentTempMonsters.filter(
-      (m: any) => m.dungeonId !== oldDungeonId,
-    );
+    // 移除旧的 dungeon 临时怪物（按 qq 前缀 dungeon_${id}_ 识别）
+    if (oldDungeonId) {
+      const oldMonsters = await this.mapService.getMapMonsters(map.id);
+      const toDelete = oldMonsters.filter((m: any) => m.qq && String(m.qq).startsWith(`dungeon_${oldDungeonId}_`));
+      for (const m of toDelete) {
+        await this.mapService.removeMapMonster(map.id, m.id);
+      }
+    }
 
-    // 为新副本怪物设置 dungeonId 以便后续识别
-    const newMonsters = dungeon.monsters.map((m: any) => ({
-      ...m,
-      dungeonId: dungeon.id,
-    }));
-
-    const updatedTempMonsters = [...filteredTempMonsters, ...newMonsters];
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { tempMonsters: JSON.stringify(updatedTempMonsters) },
-    });
+    // 添加新副本怪物，qq 前缀携带 dungeonId 以便后续识别
+    for (const dm of (dungeon.monsters || [])) {
+      await this.mapService.addTempMonster(map.id, {
+        name: dm.name,
+        type: dm.type || '怪物',
+        specialSeq: dm.specialSeq ?? -1,
+        level: dm.level || 1,
+        hp: dm.hp || 100,
+        maxHp: dm.hp || 100,
+        shield: dm.shield || 0,
+        maxShield: dm.shield || 0,
+        armor: dm.armor || 0,
+        maxArmor: dm.armor || 0,
+        bonus: dm.bonus || '{}',
+        exp: dm.exp || 10,
+        qq: `dungeon_${dungeon.id}_${dm.name}_${Date.now()}`,
+      });
+    }
 
     // 6. 刷新副本过期时间（从当前时间重新计算2小时）
     const newExpireTime = now + 2 * 60 * 60 * 1000;
@@ -2892,7 +2907,7 @@ export class GameService {
     if (!map) return '你不在任何地图上！';
 
     // 获取地图上的怪物
-    let monsters = this.mapService.getMapMonsters(map);
+    let monsters = await this.mapService.getMapMonsters(map);
     if (monsters.length === 0) {
       return '当前地图没有怪物，等待刷新...';
     }
@@ -2912,23 +2927,18 @@ export class GameService {
       monster.hp = (monster.hp || 50) - damage;
 
       if (monster.hp <= 0) {
-        // 怪物死亡，获得经验
+        // 怪物死亡，获得经验，从 GameMonster 表移除
         const expGain = (monster.level || 1) * 10 + 10;
         totalExp += expGain;
         totalKills++;
         resultLines.push(`  ✅ 击败【${monster.name}】，获得 ${expGain} 经验`);
+        await this.mapService.removeMapMonster(map.id, monster.id);
       } else {
         resultLines.push(`  ⚔️ 攻击【${monster.name}】，造成 ${damage} 伤害（剩余 ${monster.hp} HP）`);
+        // 存活怪物写回三层池血量
+        await this.mapService.updateMonsterFields(map.id, monster.id, { hp: monster.hp });
       }
     }
-
-    // 移除已死亡的怪物
-    const spawnMonsters = JSON.parse(map.spawnMonsters || '[]');
-    const aliveMonsters = spawnMonsters.filter((m: any) => m.hp > 0);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { spawnMonsters: JSON.stringify(aliveMonsters) },
-    });
 
     // 发放总经验
     if (totalExp > 0) {
@@ -3777,7 +3787,7 @@ export class GameService {
     if (!map) return '你不在任何地图上！';
 
     // 解析地图各字段
-    const monsters = this.mapService.getMapMonsters(map);
+    const monsters = await this.mapService.getMapMonsters(map);
     const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
     const items = this.playerService.safeJsonParse<any[]>(map.items, []);
     const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
@@ -4111,10 +4121,10 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 在怪物2(tempMonsters)中查找"咏星"
-    const tempMonsters = this.playerService.safeJsonParse<any[]>(map.tempMonsters, []);
-    const idx = tempMonsters.findIndex((m: any) => m.name === '咏星');
-    if (idx === -1) {
+    // 在 GameMonster 表（临时怪物）中查找"咏星"
+    const tempMonsters = await this.mapService.getMapMonsters(map.id);
+    const targetMonster = tempMonsters.find((m: any) => m.name === '咏星');
+    if (!targetMonster) {
       return `${player.name} 附近没有咏星`;
     }
 
@@ -4124,7 +4134,7 @@ export class GameService {
       return `${player.name} 需要100好感，当前${affinity}`;
     }
 
-    const monster = tempMonsters[idx];
+    const monster = targetMonster;
     // 转为召唤物：归属玩家、specialSeq=-2、follow 跟随
     const summon = {
       name: monster.name,
@@ -4139,13 +4149,13 @@ export class GameService {
     };
     const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
     summons.push(summon);
-    tempMonsters.splice(idx, 1);
+    // 从 GameMonster 表移除该临时怪物（已转为召唤物）
+    await this.mapService.removeMapMonster(map.id, monster.id);
 
     await this.prisma.gameMap.update({
       where: { id: map.id },
       data: {
         summons: JSON.stringify(summons),
-        tempMonsters: JSON.stringify(tempMonsters),
       },
     });
 
@@ -4164,14 +4174,14 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 在怪物2(tempMonsters)中查找小恶魔（qq=怪物小恶魔1）
-    const tempMonsters = this.playerService.safeJsonParse<any[]>(map.tempMonsters, []);
-    const idx = tempMonsters.findIndex((m: any) => m.qq === '怪物小恶魔1' || m.name === '小恶魔');
-    if (idx === -1) {
+    // 在 GameMonster 表（临时怪物）中查找小恶魔（qq=怪物小恶魔1）
+    const tempMonsters = await this.mapService.getMapMonsters(map.id);
+    const targetMonster = tempMonsters.find((m: any) => m.qq === '怪物小恶魔1' || m.name === '小恶魔');
+    if (!targetMonster) {
       return `${player.name} 附近没有小恶魔`;
     }
 
-    const monster = tempMonsters[idx];
+    const monster = targetMonster;
     const summon = {
       name: monster.name || '小恶魔',
       qq: '怪物001xg',
@@ -4185,13 +4195,13 @@ export class GameService {
     };
     const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
     summons.push(summon);
-    tempMonsters.splice(idx, 1);
+    // 从 GameMonster 表移除该临时怪物（已转为召唤物）
+    await this.mapService.removeMapMonster(map.id, monster.id);
 
     await this.prisma.gameMap.update({
       where: { id: map.id },
       data: {
         summons: JSON.stringify(summons),
-        tempMonsters: JSON.stringify(tempMonsters),
       },
     });
 
@@ -4306,7 +4316,7 @@ export class GameService {
     if (!map) return '你不在任何地图上！';
 
     // 在地图上刷新怪物（信号吸引怪物）
-    const monsters = this.mapService.getMapMonsters(map);
+    const monsters = await this.mapService.getMapMonsters(map);
     const newMonster = {
       id: `signal_${Date.now()}`,
       name: '被吸引的怪物',
@@ -4323,13 +4333,20 @@ export class GameService {
       isElite: false,
     };
 
-    const spawnMonsters = JSON.parse(map.spawnMonsters || '[]');
-    spawnMonsters.push(newMonster);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: {
-        spawnMonsters: JSON.stringify(spawnMonsters),
-      },
+    // 信号吸引的怪物作为临时怪物写入 GameMonster 表
+    await this.mapService.addTempMonster(map.id, {
+      name: '被吸引的怪物',
+      type: '怪物',
+      specialSeq: 0,
+      level: Math.max(1, (player.level || 1)),
+      hp: 80,
+      maxHp: 80,
+      attack: 15,
+      defense: 3,
+      speed: 100,
+      dodge: 5,
+      hit: 85,
+      exp: 20,
     });
 
     // 保存背包变化
@@ -4419,12 +4436,8 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上';
 
-    // 清空地图上的怪物
-    map.spawnMonsters = JSON.stringify([]);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { spawnMonsters: JSON.stringify([]) },
-    });
+    // 清空地图上的怪物（GameMonster 表，删除本地图全部怪物实例）
+    await this.mapService.clearMapMonsters(map.id);
 
     this.logger.log(`玩家 ${userId} 清空了副本 ${map.name} 的怪物`);
     return `已清空「${map.name}」中的所有怪物`;

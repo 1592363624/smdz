@@ -145,8 +145,6 @@ model GameMap {
 
   // 复杂数据结构（JSON 字符串）
   monsters    String   @default(dbgenerated("('[]')")) @db.LongText  // 固定怪物列表
-  spawnMonsters String @default(dbgenerated("('[]')")) @db.LongText  // 刷出来的怪物
-  tempMonsters String  @default(dbgenerated("('[]')")) @db.LongText  // 临时怪物
   summons     String   @default(dbgenerated("('[]')")) @db.LongText  // 召唤物
   resources   String   @default(dbgenerated("('[]')")) @db.LongText  // 资源
   resources2  String   @default(dbgenerated("('[]')")) @db.LongText  // 可采集资源
@@ -167,6 +165,112 @@ model GameMap {
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ========== 怪物运行时实例 ==========
+// 对应原版易语言「玩家」结构体（@Struct.ecode L287-341）中怪物/宠物部分的运行时实例。
+// 设计原则（经架构评审）：
+//  - 固定定义（怪物种类模板：基础属性/武器列表/装备列表/套装/初始标记）存于静态
+//    JSON（monsters.json），由 StaticDataService 读取，不建表、改数值即热重载。
+//  - 本表只存「运行时动态状态」：当前三层池血量、增益(markers2)、好感、活力、
+//    成就（击杀数）、套装对象、运算后的属性(bonus)/基础(baseBonus)。
+//  - 字段尽量 1:1 对齐原版「玩家」结构体，便于 _初始化怪物（加成计算 L2644）
+//    与 攻击目标（战斗相关 L4021）逐行复刻时直接读写，预留后续扩展。
+//  - 特殊序号：<1 区分怪物/宠物（0未初始化，-1敌对怪物，-2宠物）；宠物真实
+//    特殊序号存于 vitality 字段（原版 L288 注释）。
+
+model GameMonster {
+  id          Int      @id @default(autoincrement())
+  /// 所属地图（对应原版 地图.编号；本表每条记录是一个地图上的怪物实例）
+  mapId       Int      @default(1)
+  /// 怪物类型名（对应原版 玩家.类型，查 monsters.json 模板的 key）
+  type        String   @default("")
+  /// 显示名称（对应原版 玩家.名称）
+  name        String   @default("")
+  /// 唯一标识（对应原版 玩家.QQ，原版为"怪物"+生成编号()）
+  qq          String   @default("")
+  /// 特殊序号（对应原版 玩家.特殊序号：-1敌对怪物 -2宠物 0未初始化；宠物真序号在 vitality）
+  specialSeq  Int      @default(-1)
+  /// 归属（对应原版 玩家.归属，宠物主人 QQ）
+  ownerQQ     String   @default("")
+  /// 等级（对应原版 玩家.等级；运行时可能由 强制等级/世界等级 覆盖）
+  level       Int      @default(1)
+  /// 图片（对应原版 玩家.图片，觉醒/图片名作为显示名前缀）
+  image       String   @default("")
+
+  // ===== 基础战斗属性（对应 monsters.json 顶层的 攻击/防御/速度，原版 _初始化怪物 写入 g.属性）=====
+  /// 攻击力（怪物定义 attack，原版 玩家.攻击）
+  attack      Float    @default(0)
+  /// 防御力（怪物定义 defense，原版 玩家.防御）
+  defense     Float    @default(0)
+  /// 速度（怪物定义 speed，原版 玩家.速度）
+  speed       Float    @default(0)
+  /// 闪避率（怪物定义 dodge，原版 玩家.闪避，百分比）
+  dodge       Float    @default(0)
+  /// 命中率（怪物定义 hit，原版 玩家.命中，百分比）
+  hit         Float    @default(0)
+  /// 是否精英（怪物定义 type=精英，原版标记）
+  isElite     Boolean  @default(false)
+
+  // ===== 三层池：当前值（战斗中实时变化）=====
+  hp          Float    @default(0)    // 当前生命（玩家.当前生命）
+  maxHp       Float    @default(0)    // 生命上限（=属性.生命，用于回血封顶）
+  shield      Float    @default(0)    // 当前护盾（玩家.当前护盾）
+  maxShield   Float    @default(0)    // 护盾上限（=属性.护盾）
+  armor       Float    @default(0)    // 当前装甲（玩家.当前装甲）
+  maxArmor    Float    @default(0)    // 装甲上限（=属性.装甲）
+
+  // ===== 运算后属性（对应原版 玩家.属性 / 玩家.加成 / 玩家.基础）=====
+  /// 受加成后的最终属性（BonusData JSON 字符串）
+  bonus       String   @default(dbgenerated("('{}')")) @db.LongText
+  /// 基础加成（怪物基础属性，等级成长前的，JSON 字符串）
+  baseBonus   String   @default(dbgenerated("('{}')")) @db.LongText
+  /// 额外加成（对应原版 玩家.加成，JSON 字符串）
+  extraBonus  String   @default(dbgenerated("('{}')")) @db.LongText
+
+  // ===== 装备/武器（对应原版 玩家.装备 / 玩家.武器，含词条；存 JSON 字符串）=====
+  equipments  String   @default(dbgenerated("('[]')")) @db.LongText  // 装备数组 [装备]
+  weapons     String   @default(dbgenerated("('[]')")) @db.LongText  // 武器数组 [装备]
+  currentWeapon Int     @default(0)    // 当前武器索引（玩家.当前武器）
+  equipmentPresets String @default(dbgenerated("('[]')")) @db.LongText // 装备预设 [装备预设]
+
+  // ===== 状态机（对应原版 玩家.标记 / 标记2 / 增益 / 成就）=====
+  /// 永久标记/熟练度（玩家.标记：觉醒/强制等级/好感/宝宝/击杀 等，JSON 数组）
+  markers     String   @default(dbgenerated("('[]')")) @db.LongText
+  /// 限时标记/增益数组（玩家.标记2：激变星/强袭冷却/玄武光环 等，JSON 数组）
+  markers2    String   @default(dbgenerated("('[]')")) @db.LongText
+  /// 增益（玩家.增益，JSON 数组）
+  buffs       String   @default(dbgenerated("('[]')")) @db.LongText
+  /// 成就熟练度（玩家.成就：击杀数/猩红 等，JSON 数组）
+  achievements String  @default(dbgenerated("('[]')")) @db.LongText
+  /// 套装对象（玩家.套装：陪睡/接管载具/攻击模式/六道轮回/线圈/强袭/小樱命中次数/一拳/当前麻醉 等，JSON）
+  set         String   @default(dbgenerated("('{}')")) @db.LongText
+
+  // ===== 关系/宠物相关 =====
+  /// 好感（玩家.好感；宠物为奶量；影响伤害系数）
+  affinity    Float    @default(0)
+  /// 活力（玩家.活力；宠物存特殊序号；决定免死逻辑如 #吸血姬）
+  vitality    Int      @default(0)
+  /// 经验（玩家.经验，击杀奖励；怪物被击杀时给攻击者）
+  exp         Float    @default(0)
+  /// 背包（玩家.背包，掉落物；JSON 数组）
+  backpack    String   @default(dbgenerated("('[]')")) @db.LongText
+
+  // ===== 时间/标识 =====
+  /// 时间差（玩家.时间差，分钟；用于回血计算）
+  timeDiff    Float    @default(0)
+  /// 读取时间（玩家.读取时间，长整数时间戳）
+  readTime    BigInt   @default(0)
+  /// 是否宠物（QQ 以"g"结尾，对应原版 L2644 注释）
+  isPet       Boolean  @default(false)
+  /// 是否临时怪物（原版 地图.临时怪物；如事件/召唤怪，清掉重刷时保留策略由业务逻辑定）
+  isTemp      Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([mapId])
+  @@index([type])
 }
 
 // 说明：怪物/物品/装备/使魔/配方/任务/称号/建筑/NPC/载具部件/蓝图/增益/商店/

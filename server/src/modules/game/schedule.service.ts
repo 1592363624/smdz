@@ -155,12 +155,12 @@ export class ScheduleService {
       const maps = allMaps.filter((m: any) => m.monsterCount > 0);
 
       for (const map of maps) {
-        const spawnMonsters = JSON.parse(map.spawnMonsters || '[]');
-        const tempMonsters = JSON.parse(map.tempMonsters || '[]');
-        const totalMonsters = spawnMonsters.length + tempMonsters.length;
+        // 常驻怪物数量来自 GameMonster 表（isTemp=false）；不足则整批重刷
+        const monsters = await this.mapService.getMapMonsters(map.id);
+        const residentCount = monsters.filter((m: any) => !m.isTemp).length;
 
-        // 如果怪物数量少于配置，补充刷新
-        if (totalMonsters < map.monsterCount) {
+        // 如果常驻怪物数量少于配置，整批刷新（refreshMapMonsters 内部先删后插）
+        if (residentCount < map.monsterCount) {
           await this.mapService.refreshMapMonsters(map.id);
         }
       }
@@ -231,7 +231,7 @@ export class ScheduleService {
 
         // 懒刷新：目标地图无怪物时补充刷新，避免到达后无怪可打
         try {
-          const currentSpawn = this.mapService.getMapMonsters(targetMap);
+          const currentSpawn = await this.mapService.getMapMonsters(targetMap);
           if (currentSpawn.length === 0) {
             await this.mapService.refreshMapMonsters(moving.targetMapId);
           }
@@ -331,18 +331,20 @@ export class ScheduleService {
         });
         if (keptSummons.length !== summons.length) changed = true;
 
-        // 清理 tempMonsters 中的 小恶魔
-        const tempMonsters = this.parseJsonArray<any>(map.tempMonsters);
-        const keptTemp = tempMonsters.filter(
-          (m: any) => (m.name || '') !== '小恶魔' && (m.qq || '') !== '怪物小恶魔1',
+        // 清理 GameMonster 表中的 小恶魔（临时怪物）
+        const tempMonsters = await this.mapService.getMapMonsters(map.id);
+        const demonMonsters = tempMonsters.filter(
+          (m: any) => (m.name || '') === '小恶魔' || (m.qq || '') === '怪物小恶魔1',
         );
-        if (keptTemp.length !== tempMonsters.length) changed = true;
+        for (const dm of demonMonsters) {
+          await this.mapService.removeMapMonster(map.id, dm.id);
+        }
+        if (demonMonsters.length > 0) changed = true;
 
         if (changed) {
           await this.mapService.updateDynamicFields(map.id, {
             npcs: JSON.stringify(keptNpcs),
             summons: JSON.stringify(keptSummons),
-            tempMonsters: JSON.stringify(keptTemp),
           });
           cleaned++;
         }
@@ -520,11 +522,11 @@ export class ScheduleService {
   private async spawnLittleDemon(maps: any[]): Promise<void> {
     try {
       const map = this.pickRandomMap(maps);
-      const tempMonsters = this.parseJsonArray<any>(map.tempMonsters);
-      if (tempMonsters.some((m: any) => m.qq === '怪物小恶魔1')) return;
+      const existing = await this.mapService.getMapMonsters(map.id);
+      if (existing.some((m: any) => m.qq === '怪物小恶魔1')) return;
 
-      tempMonsters.push({
-        id: `demon_${map.id}_${this.genId()}`,
+      // 小恶魔作为临时怪物写入 GameMonster 表
+      await this.mapService.addTempMonster(map.id, {
         name: '小恶魔',
         type: '小恶魔',
         qq: '怪物小恶魔1',
@@ -538,10 +540,6 @@ export class ScheduleService {
         dodge: 5,
         hit: 85,
         exp: 50,
-        isElite: false,
-      });
-      await this.mapService.updateDynamicFields(map.id, {
-        tempMonsters: JSON.stringify(tempMonsters),
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了小恶魔`);
     } catch (err: any) {

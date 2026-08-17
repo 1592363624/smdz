@@ -1961,23 +1961,41 @@ export class FamiliarSystemService {
     const isSuccess = Math.random() * 100 < successRate;
 
     if (isSuccess) {
-      // 成功找到怪物
-      const spawnMonsters = this.playerService.safeJsonParse<any[]>(map.spawnMonsters, []);
+      // 成功找到怪物：写入 GameMonster 表（临时怪物 isTemp=true，嗅探产物）
+      const defBonus = monsterDef?.bonus ? this.playerService.safeJsonParse<any>(monsterDef.bonus, {}) : {};
       const newMonster = monsterDef
         ? {
             name: monsterDef.name,
-            type: monsterDef.type,
-            level: monsterDef.level,
-            hp: monsterDef.hp,
-            attack: monsterDef.attack,
-            defense: monsterDef.defense,
-            speed: monsterDef.speed,
+            type: monsterDef.type || '怪物',
+            specialSeq: monsterDef.specialSeq ?? -1,
+            level: monsterDef.level || 1,
+            hp: monsterDef.hp || 100,
+            maxHp: monsterDef.hp || 100,
+            shield: monsterDef.shield || 0,
+            maxShield: monsterDef.shield || 0,
+            armor: monsterDef.armor || 0,
+            maxArmor: monsterDef.armor || 0,
+            bonus: monsterDef.bonus || '{}',
+            exp: defBonus.经验 || 10,
           }
-        : { name: monsterName, level: 1, hp: 100, attack: 10, defense: 5, speed: 100 };
+        : {
+            name: monsterName,
+            type: '怪物',
+            specialSeq: -1,
+            level: 1,
+            hp: 100,
+            maxHp: 100,
+            shield: 0,
+            maxShield: 0,
+            armor: 0,
+            maxArmor: 0,
+            bonus: '{}',
+            exp: 10,
+          };
 
-      spawnMonsters.push(newMonster);
+      await this.mapService.addTempMonster(map.id, newMonster);
 
-      // 添加嗅探标记到地图标记3
+      // 添加嗅探标记到地图标记3（map.markers 仍为 GameMap 字段，保留）
       const mapMarkers3 = this.playerService.safeJsonParse<any[]>(map.markers || '[]', []);
       mapMarkers3.push({
         name: `嗅探${monsterName}`,
@@ -1985,7 +2003,6 @@ export class FamiliarSystemService {
       });
 
       await this.mapService.updateDynamicFields(map.id, {
-        spawnMonsters: JSON.stringify(spawnMonsters),
         markers: JSON.stringify(mapMarkers3),
       });
 
@@ -2190,8 +2207,8 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `${mapName} 没有属于你、当前生命大于0、觉醒阶段至少为【羽化升仙】的宠物`;
     }
 
-    // 检查地图上的目标怪物（临时生成的怪物）
-    const spawnMonsters = this.playerService.safeJsonParse<any[]>(map.spawnMonsters || '[]', []);
+    // 检查地图上的目标怪物（来自 GameMonster 表，临时生成的怪物 isTemp=true）
+    const spawnMonsters = await this.mapService.getMapMonsters(map.id);
     if (spawnMonsters.length === 0) {
       return `${map.name} 没有目标了`;
     }
@@ -2229,7 +2246,8 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     let resultText: string;
     if (isWin) {
-      spawnMonsters.shift();
+      // 击败：从 GameMonster 表移除该怪物（按自增 id）
+      await this.mapService.removeMapMonster(map.id, monster.id);
       resultText = `${qualifiedPet.name} 击败了${monster.name || '怪物'}！`;
     } else {
       const hpLoss = Math.max(1, Math.round((monster.attack || 0) * 0.3));
@@ -2242,10 +2260,9 @@ ${this.getAwakenStageName(d)}(${d})`;
     newMarkers2.push({ name: cooldownKey, expireAt: now + 30 });
     player.markers2 = JSON.stringify(newMarkers2);
 
-    // 更新地图与玩家
+    // 更新玩家（地图怪物已通过表操作更新，仅保存玩家与召唤物）
     await this.mapService.updateDynamicFields(map.id, {
       summons: JSON.stringify(summons),
-      spawnMonsters: JSON.stringify(spawnMonsters),
     });
     await this.playerService.savePlayer(player);
 

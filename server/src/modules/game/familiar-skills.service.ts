@@ -303,9 +303,8 @@ export class FamiliarSkillsService {
    * @returns 逐怪物麻醉文本行
    */
   private async applyMapMonstersAnesthesia(mapId: number, playerLevel: number, skillLevel: number): Promise<string[]> {
-    const map = await this.mapService.getMapById(mapId);
-    if (!map) return [];
-    const monsters: any[] = this.safeParse(map.spawnMonsters, []);
+    // 常驻怪物来自 GameMonster 表
+    const monsters: any[] = await this.mapService.getMapMonsters(mapId);
     if (monsters.length === 0) return ['（当前地图没有可麻醉的常驻怪物）'];
     const add = playerLevel * (10 + skillLevel);
     const lines: string[] = [];
@@ -326,8 +325,9 @@ export class FamiliarSkillsService {
       } else {
         lines.push(`${m.name}麻醉+${add}（${next}/${maxAnes}）`);
       }
+      // 逐行写回 GameMonster 表（保留自增 id）
+      await this.mapService.saveGameMonster(m);
     }
-    await this.mapService.updateDynamicFields(mapId, { spawnMonsters: JSON.stringify(monsters) });
     return lines;
   }
 
@@ -341,7 +341,8 @@ export class FamiliarSkillsService {
   private async getAllySummons(mapId: number, ownerId: string): Promise<string[]> {
     const map = await this.mapService.getMapById(mapId);
     if (!map) return [];
-    const summons: any[] = this.safeParse(map.tempMonsters, []);
+    // 友方召唤物存于 GameMap.summons（tempMonsters 字段已废弃，怪物统一进 GameMonster 表）
+    const summons: any[] = this.safeParse(map.summons, []);
     return summons
       .filter((s: any) => (s.归属 === ownerId || s.owner === ownerId) && (s.基础?.生命 || s.base?.hp || s.hp || 0) > 0)
       .map((s: any) => s.name);
@@ -358,13 +359,14 @@ export class FamiliarSkillsService {
   private async applySummonNextAttack(mapId: number, summonName: string, next: Record<string, any>): Promise<void> {
     const map = await this.mapService.getMapById(mapId);
     if (!map) return;
-    const summons: any[] = this.safeParse(map.tempMonsters, []);
+    // 友方召唤物存于 GameMap.summons
+    const summons: any[] = this.safeParse(map.summons, []);
     const found = summons.find((s: any) => s.name === summonName);
     if (!found) return;
     const sbuffs: any[] = this.safeParse(found.buffs, []);
     sbuffs.push({ name: '下次攻击·标记', expireAt: Math.floor(Date.now() / 1000) + 3600, ...next });
     found.buffs = JSON.stringify(sbuffs);
-    await this.mapService.updateDynamicFields(mapId, { tempMonsters: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(mapId, { summons: JSON.stringify(summons) });
   }
 
   /**
@@ -1940,7 +1942,7 @@ export class FamiliarSkillsService {
     // 混乱的怪物攻击时有几率攻击友方/自身（此处简化为标记混乱增益，持续一段时间）
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上';
-    const monsters: any[] = this.safeParse(map.spawnMonsters, []);
+    const monsters: any[] = await this.mapService.getMapMonsters(map.id);
     const targetMonster = monsters.find((m: any) => m.name === target);
     if (!targetMonster) {
       return `当前地图没有名为「${target}」的怪物`;
@@ -1949,7 +1951,7 @@ export class FamiliarSkillsService {
     mbuffs.push({ name: '混乱', expireAt: Math.floor(Date.now() / 1000) + 3600 });
     targetMonster.buffs = JSON.stringify(mbuffs);
     targetMonster.bonus = JSON.stringify({ ...this.safeParse(targetMonster.bonus, {}), 混乱: true });
-    await this.mapService.updateDynamicFields(player.mapId, { spawnMonsters: JSON.stringify(monsters) });
+    await this.mapService.saveGameMonster(targetMonster);
 
     // 设置冷却
     this.setCooldown(player, '洗脑', 600);
@@ -2120,16 +2122,16 @@ export class FamiliarSkillsService {
     const cooldownCheck = this.checkCooldown(player, '召唤', 120);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 真实机制：在当前地图 tempMonsters 生成一个归属于玩家的召唤物
+    // 真实机制：在当前地图 summons 生成一个归属于玩家的召唤物
     // 原版次元手环可召唤指定名称的使魔/宠物，此处按名称生成通用召唤物模板
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上';
-    const tempMonsters: any[] = this.safeParse(map.tempMonsters, []);
+    const summons: any[] = this.safeParse(map.summons, []);
     const ownerId = player.qq || String(userId);
     const summonId = `summon_${ownerId}_${Date.now()}`;
     const level = Math.max(1, (player.level || 1));
     const baseHp = 200 + level * 20;
-    tempMonsters.push({
+    summons.push({
       id: summonId,
       name: target,
       type: target,
@@ -2151,7 +2153,7 @@ export class FamiliarSkillsService {
       buffs: '[]',
       bonus: '{}',
     });
-    await this.mapService.updateDynamicFields(player.mapId, { tempMonsters: JSON.stringify(tempMonsters) });
+    await this.mapService.updateDynamicFields(player.mapId, { summons: JSON.stringify(summons) });
 
     // 设置冷却
     this.setCooldown(player, '召唤', 120);

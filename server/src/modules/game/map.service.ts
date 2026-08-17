@@ -6,8 +6,10 @@
  * 架构说明（静态/动态分离）：
  * - 静态字段（name, description, connections, npcs, monsters, items, buildings, vehicles,
  *   requireMarkers, mapBuffs 等）从 StaticDataService 读取 maps.json，无需 seed。
- * - 动态字段（spawnMonsters, tempMonsters, summons, resources, resources2, markers, markers2）
- *   仍在数据库 GameMap 表中，用于存储运行时状态。
+ * - 动态字段（summons, resources, resources2, markers, markers2）仍在数据库 GameMap 表中，用于存储运行时状态。
+ * - 怪物运行时实例已独立为 GameMonster 表（对应原版「玩家」结构体，1:1 对齐 @Struct.ecode L287-341），
+ *   不再存于 GameMap.spawnMonsters/tempMonsters（已删除）。常驻怪物由 refreshMapMonsters
+ *   按 maps.json 的 monsters 模板生成；临时怪物（嗅探/事件/召唤）由 addTempMonster 写入 isTemp=true。
  * - getMapById / getMapByName 会自动合并静态定义 + 动态状态后返回。
  */
 
@@ -32,45 +34,95 @@ export interface MapConnection {
 }
 
 /**
- * 地图上的怪物实例
+ * 地图上的怪物实例（对应 GameMonster 表行 + 原版「玩家」结构体运行时视图）
+ * 战斗/使魔/管理模块直接读写 hp/shield/armor/bonus/buffs/markers 等字段，
+ * 所有字段与原版 玩家 结构体（@Struct.ecode L287-341）1:1 对齐。
  */
 export interface MapMonster {
-  /** 唯一标识 */
-  id: string;
-  /** 怪物名称 */
+  /** 数据库自增ID（对应原版 玩家.QQ，原版为"怪物"+生成编号()） */
+  id: number;
+  /** 所属地图ID */
+  mapId: number;
+  /** 怪物类型名（对应原版 玩家.类型，查 monsters.json 模板的 key） */
+  type: string;
+  /** 显示名称（对应原版 玩家.名称） */
   name: string;
-  /** 怪物等级 */
-  level: number;
-  /** 特殊序号 */
+  /** 唯一标识字符串（对应原版 玩家.QQ，"怪物"+生成编号()） */
+  qq: string;
+  /** 唯一标识字符串（兼容旧调用方按字符串比较 id，存为"monster_"+id） */
+  uid?: string;
+  /** 特殊序号 specialSeq */
   specialSeq: number;
+  /** 归属（宠物主人 QQ） */
+  ownerQQ?: string;
+  /** 等级 */
+  level: number;
+  /** 图片/觉醒名前缀 */
+  image?: string;
   /** 当前HP */
   hp: number;
   /** 最大HP */
   maxHp: number;
   /** 当前护盾（三层池第一层） */
-  shield?: number;
+  shield: number;
   /** 最大护盾 */
-  maxShield?: number;
+  maxShield: number;
   /** 当前装甲（三层池第二层） */
-  armor?: number;
+  armor: number;
   /** 最大装甲 */
-  maxArmor?: number;
-  /** 攻击力 */
+  maxArmor: number;
+  /** 攻击力（怪物定义 attack） */
   attack: number;
-  /** 防御力 */
+  /** 防御力（怪物定义 defense） */
   defense: number;
-  /** 速度 */
+  /** 速度（怪物定义 speed） */
   speed: number;
-  /** 闪避率（百分比） */
-  dodge?: number;
-  /** 命中率（百分比） */
-  hit?: number;
-  /** 击杀经验值 */
-  exp?: number;
+  /** 闪避率（怪物定义 dodge，百分比） */
+  dodge: number;
+  /** 命中率（怪物定义 hit，百分比） */
+  hit: number;
   /** 是否精英 */
-  isElite?: boolean;
-  /** 掉落表（由怪物定义 bonus.drops 解析而来，[{name,quantity,rate}]） */
-  dropTable?: Array<{ name: string; quantity: number; rate: number }>;
+  isElite: boolean;
+  /** 受加成后的最终属性（BonusData JSON 字符串） */
+  bonus: string;
+  /** 基础加成（JSON 字符串） */
+  baseBonus: string;
+  /** 额外加成（JSON 字符串） */
+  extraBonus: string;
+  /** 装备数组 JSON 字符串 */
+  equipments: string;
+  /** 武器数组 JSON 字符串 */
+  weapons: string;
+  /** 当前武器索引 */
+  currentWeapon: number;
+  /** 装备预设 JSON 字符串 */
+  equipmentPresets: string;
+  /** 永久标记/熟练度 JSON 字符串 */
+  markers: string;
+  /** 限时标记/增益 JSON 字符串 */
+  markers2: string;
+  /** 增益 JSON 字符串 */
+  buffs: string;
+  /** 成就熟练度 JSON 字符串 */
+  achievements: string;
+  /** 套装对象 JSON 字符串 */
+  set: string;
+  /** 好感 */
+  affinity: number;
+  /** 活力（宠物存特殊序号） */
+  vitality: number;
+  /** 击杀经验 */
+  exp: number;
+  /** 背包 JSON 字符串 */
+  backpack: string;
+  /** 时间差（分钟） */
+  timeDiff: number;
+  /** 读取时间（长整数时间戳） */
+  readTime: bigint;
+  /** 是否宠物 */
+  isPet: boolean;
+  /** 是否临时怪物 */
+  isTemp: boolean;
 }
 
 /**
@@ -83,14 +135,15 @@ export interface TravelCheckResult {
 
 /**
  * 动态地图状态字段（仅存储在 DB 中，运行时可变）
- * - 完全动态：spawnMonsters, tempMonsters, summons, markers, markers2
+ * - 完全动态：summons, markers, markers2
  * - 半动态（JSON 提供初始值，DB 存储运行时修改）：
  *   npcs, buildings, vehicles, items, monsters, connections, resources, resources2
  *   运行时 NPC 增减、建筑建造/拆除、载具生成/移除、怪物模板变更、连接增删、资源采集次数等
  *   都会修改这些字段，因此 DB 中的值优先于 JSON 静态定义。
+ * 注意：怪物运行时实例已迁移到 GameMonster 表，不再出现在 DYNAMIC_MAP_FIELDS。
  */
 const DYNAMIC_MAP_FIELDS = [
-  'spawnMonsters', 'tempMonsters', 'summons',
+  'summons',
   'resources', 'resources2', 'markers', 'markers2',
   'npcs', 'buildings', 'vehicles', 'items', 'monsters', 'connections',
   'mapBuffs',
@@ -298,8 +351,13 @@ export class MapService {
   }
 
   /**
-   * 刷新地图怪物
-   * 根据地图配置和世界等级生成怪物
+   * 刷新地图怪物（常驻怪物）
+   * 对应原版 地图操作.ecode 怪物刷新 / _初始化怪物（加成计算 L2644-2777）。
+   * 实现：
+   *  - 先清空本地图所有「常驻(isTemp=false)」怪物实例（原版整批重刷语义）；
+   *  - 按 maps.json 的 monsters 模板名 + map.monsterCount 重新生成并写入 GameMonster 表。
+   *  - 模板 + 等级成长公式对齐原版 L2764-2777（生命/护盾/装甲 额外 +等级×20，其余仅 ×lvFactor×awakenFactor）。
+   * 临时怪物(isTemp=true，嗅探/事件/召唤产物)不参与整批重刷，保留至被击杀或逻辑移除。
    */
   async refreshMapMonsters(mapId: number): Promise<void> {
     // 获取静态定义（用于 monsters 模板和 monsterCount）
@@ -322,7 +380,8 @@ export class MapService {
       }
     }
 
-    const monsters: MapMonster[] = [];
+    // 构建待插入的常驻怪物实例数据
+    const inserts: any[] = [];
     for (let i = 0; i < count; i++) {
       if (monsterNames.length > 0) {
         const name = monsterNames[Math.floor(Math.random() * monsterNames.length)];
@@ -330,15 +389,6 @@ export class MapService {
         const shield = def?.shield || 0;
         const armor = def?.armor || 0;
         const defBonus = def?.bonus ? this.safeParseJSON<any>(def.bonus, {}) : {};
-        const dropTable: Array<{ name: string; quantity: number; rate: number }> = Array.isArray(defBonus.drops)
-          ? defBonus.drops
-              .filter((d: any) => d && d.name)
-              .map((d: any) => ({
-                name: d.name,
-                quantity: d.count ?? d.quantity ?? 1,
-                rate: d.chance ?? 100,
-              }))
-          : [];
         // 怪物等级：定义等级（若为0则用地图等级），用于 _初始化怪物 等级成长
         const level = def?.level || map.level || 1;
         // 觉醒因子：原版 _初始化怪物 L2764-2777 用 (1 + 觉醒/200)，怪物默认觉醒=0 → 因子=1
@@ -347,9 +397,6 @@ export class MapService {
         // 等级成长系数 lvFactor = (1 + 等级×0.05)，原版 _初始化怪物 L2764 起每一条都乘此项
         const lvFactor = 1 + level * 0.05;
         // 三层池血量额外随等级线性增长 +等级×20（原版 L2764-2766：生命/护盾/装甲专用）
-        //   基础生命 = def.hp（monsters.json 的 hp 字段，对应原版 g.基础.生命）
-        //   基础护盾 = defBonus.护盾（对应原版 g.基础.护盾，来自 monsters.json bonus）
-        //   基础装甲 = defBonus.装甲（对应原版 g.基础.装甲）
         const baseHp = def?.hp || 100;
         const baseShield = defBonus.护盾 !== undefined ? defBonus.护盾 : shield;
         const baseArmor = defBonus.装甲 !== undefined ? defBonus.装甲 : armor;
@@ -362,11 +409,15 @@ export class MapService {
         const atkVal = Math.floor(lvFactor * (def?.attack || 10) * awakenFactor);
         const speedVal = Math.floor(lvFactor * (def?.speed || 100) * awakenFactor);
         const expVal = Math.floor(lvFactor * (defBonus.经验 || 10) * awakenFactor);
-        monsters.push({
-          id: `monster_${mapId}_${i}_${randomUUID()}`,
+        inserts.push({
+          mapId,
+          type: def?.type || '怪物',
           name: def?.name || name || '未知怪物',
+          // 唯一标识：原版为"怪物"+生成编号()，这里用"monster_"+mapId+序号+UUID 保证唯一且可读
+          qq: `monster_${mapId}_${i}_${randomUUID()}`,
+          specialSeq: def?.specialSeq || -1,
           level,
-          specialSeq: def?.specialSeq || 0,
+          image: def?.image || '',
           hp: hpVal,
           maxHp: hpVal,
           shield: shieldVal,
@@ -378,9 +429,26 @@ export class MapService {
           speed: speedVal,
           dodge: dodgeVal,
           hit: hitVal,
-          exp: expVal,
           isElite: def?.type === '精英' || false,
-          dropTable,
+          // 三层池抗性/伤害/武器/装备/掉落等存于 bonus（对应原版 玩家.加成）
+          bonus: def?.bonus || '{}',
+          baseBonus: def?.bonus || '{}',
+          extraBonus: '{}',
+          equipments: defBonus.装备 ? JSON.stringify(defBonus.装备List || [defBonus.装备].filter(Boolean)) : '[]',
+          weapons: defBonus.武器 ? JSON.stringify(String(defBonus.武器).split(/\s+/).filter(Boolean)) : '[]',
+          currentWeapon: 0,
+          equipmentPresets: '[]',
+          markers: '[]',
+          markers2: '[]',
+          buffs: '[]',
+          achievements: '[]',
+          set: '{}',
+          affinity: 0,
+          vitality: 0,
+          exp: expVal,
+          backpack: '[]',
+          isPet: false,
+          isTemp: false,
         });
       } else {
         const level = map.level || 1;
@@ -392,11 +460,13 @@ export class MapService {
         const dodgeVal = Math.floor(lvFactor * 5);
         const hitVal = Math.floor(lvFactor * 85);
         const expVal = Math.floor(lvFactor * 10);
-        monsters.push({
-          id: `monster_${mapId}_${i}_${randomUUID()}`,
+        inserts.push({
+          mapId,
+          type: '野怪',
           name: '野怪',
+          qq: `monster_${mapId}_${i}_${randomUUID()}`,
+          specialSeq: -1,
           level,
-          specialSeq: 0,
           hp: hpVal,
           maxHp: hpVal,
           shield: 0,
@@ -408,43 +478,175 @@ export class MapService {
           speed: speedVal,
           dodge: dodgeVal,
           hit: hitVal,
-          exp: expVal,
           isElite: false,
+          bonus: '{}',
+          baseBonus: '{}',
+          extraBonus: '{}',
+          equipments: '[]',
+          weapons: '[]',
+          currentWeapon: 0,
+          equipmentPresets: '[]',
+          markers: '[]',
+          markers2: '[]',
+          buffs: '[]',
+          achievements: '[]',
+          set: '{}',
+          affinity: 0,
+          vitality: 0,
+          exp: expVal,
+          backpack: '[]',
+          isPet: false,
+          isTemp: false,
         });
       }
     }
 
-    // 将生成的怪物写入 spawnMonsters 字段（加锁，避免与并发的血量更新互相覆盖）
+    // 整批重刷：加锁删除本地图常驻怪物，再批量插入（保留临时怪物 isTemp=true）
     await this.withMapLock(mapId, async () => {
-      await this.prisma.gameMap.update({
-        where: { id: mapId },
-        data: { spawnMonsters: JSON.stringify(monsters) },
+      await this.prisma.gameMonster.deleteMany({
+        where: { mapId, isTemp: false },
       });
+      if (inserts.length > 0) {
+        await this.prisma.gameMonster.createMany({ data: inserts });
+      }
     });
 
-    this.logger.log(`地图 ${map.name} 刷新了 ${monsters.length} 只怪物`);
+    this.logger.log(`地图 ${map.name} 刷新了 ${inserts.length} 只常驻怪物`);
   }
 
   /**
-   * 获取地图上的怪物列表
-   * 合并固定怪物(spawnMonsters)和临时怪物(tempMonsters)
+   * 获取地图上的怪物列表（来自 GameMonster 表）
+   * 兼容旧调用方传 map 对象或 mapId。返回常驻+临时怪物实例（含完整 玩家 结构体字段）。
+   * @param mapOrId 地图对象（含 id）或地图ID
    */
-  getMapMonsters(map: any): MapMonster[] {
-    const spawnMonsters: MapMonster[] = this.safeParseJSON(map.spawnMonsters, []);
-    const tempMonsters: MapMonster[] = this.safeParseJSON(map.tempMonsters, []);
-    return [...spawnMonsters, ...tempMonsters];
+  async getMapMonsters(mapOrId: any): Promise<MapMonster[]> {
+    const mapId = typeof mapOrId === 'number' ? mapOrId : mapOrId?.id;
+    if (mapId === undefined || mapId === null) return [];
+    return (await this.prisma.gameMonster.findMany({
+      where: { mapId },
+      orderBy: { id: 'asc' },
+    })) as unknown as MapMonster[];
+  }
+
+  /**
+   * 获取地图上存活的怪物列表（hp>0）
+   */
+  async getAliveMapMonsters(mapOrId: any): Promise<MapMonster[]> {
+    const all = await this.getMapMonsters(mapOrId);
+    return all.filter((m: any) => (m.hp || 0) > 0);
+  }
+
+  /**
+   * 按ID获取单个怪物实例
+   */
+  async getGameMonsterById(id: number): Promise<MapMonster | null> {
+    const m = await this.prisma.gameMonster.findUnique({ where: { id } });
+    return (m as unknown as MapMonster) || null;
   }
 
   /**
    * 移除地图上的怪物（死亡后）
-   * 从 spawnMonsters 或 tempMonsters 中移除指定怪物
+   * 从 GameMonster 表删除指定记录（兼容旧调用方的字符串/数字 id）。
+   * @param mapOrId 地图对象或ID（保留以兼容旧签名，实际按 monsterId 删除）
+   * @param monsterId 怪物自增ID 或 qq 字符串
    */
-  removeMapMonster(map: any, monsterId: string): void {
-    const spawnMonsters: MapMonster[] = this.safeParseJSON(map.spawnMonsters, []);
-    const tempMonsters: MapMonster[] = this.safeParseJSON(map.tempMonsters, []);
+  async removeMapMonster(mapOrId: any, monsterId: number | string): Promise<void> {
+    try {
+      if (typeof monsterId === 'number') {
+        await this.prisma.gameMonster.delete({ where: { id: monsterId } });
+      } else {
+        // 旧调用方可能传 qq 字符串（如 "monster_xxx"）
+        await this.prisma.gameMonster.deleteMany({ where: { qq: String(monsterId) } });
+      }
+    } catch (e: any) {
+      this.logger.warn(`移除怪物 ${monsterId} 失败（可能已不存在）: ${e?.message}`);
+    }
+  }
 
-    map.spawnMonsters = JSON.stringify(spawnMonsters.filter((m) => m.id !== monsterId));
-    map.tempMonsters = JSON.stringify(tempMonsters.filter((m) => m.id !== monsterId));
+  /**
+   * 写回怪物三层池血量（加锁，消除并发丢失更新）
+   * 对应原版单线程内存模型下对 地图.怪物2[x].当前生命/护盾/装甲 的直接写回。
+   */
+  async updateMonsterFields(mapId: number, monsterId: number, data: {
+    hp?: number; shield?: number; armor?: number; buffs?: string; bonus?: string; markers2?: string;
+  }): Promise<void> {
+    await this.withMapLock(mapId, async () => {
+      const update: any = {};
+      if (data.hp !== undefined) update.hp = data.hp;
+      if (data.shield !== undefined) update.shield = data.shield;
+      if (data.armor !== undefined) update.armor = data.armor;
+      if (data.buffs !== undefined) update.buffs = data.buffs;
+      if (data.bonus !== undefined) update.bonus = data.bonus;
+      if (data.markers2 !== undefined) update.markers2 = data.markers2;
+      if (Object.keys(update).length === 0) return;
+      await this.prisma.gameMonster.update({ where: { id: monsterId }, data: update });
+    });
+  }
+
+  /**
+   * 保存完整怪物实例（用于使魔技能修改 buffs/bonus 等整行写回）
+   */
+  async saveGameMonster(monster: MapMonster): Promise<void> {
+    const { id, ...rest } = monster as any;
+    await this.prisma.gameMonster.update({ where: { id }, data: rest });
+  }
+
+  /**
+   * 添加临时怪物（嗅探/事件/召唤产物，isTemp=true）
+   * 返回新建记录的完整行（含自增 id，供后续读写）。
+   */
+  async addTempMonster(mapId: number, data: Partial<MapMonster> & { name: string }): Promise<MapMonster> {
+    const row = await this.prisma.gameMonster.create({
+      data: {
+        mapId,
+        type: data.type || '怪物',
+        name: data.name,
+        qq: data.qq || `temp_${mapId}_${randomUUID()}`,
+        specialSeq: data.specialSeq ?? -1,
+        level: data.level ?? 1,
+        image: data.image || '',
+        hp: data.hp ?? 100,
+        maxHp: data.maxHp ?? (data.hp ?? 100),
+        shield: data.shield ?? 0,
+        maxShield: data.maxShield ?? (data.shield ?? 0),
+        armor: data.armor ?? 0,
+        maxArmor: data.maxArmor ?? (data.armor ?? 0),
+        attack: data.attack ?? 0,
+        defense: data.defense ?? 0,
+        speed: data.speed ?? 100,
+        dodge: data.dodge ?? 0,
+        hit: data.hit ?? 85,
+        isElite: data.isElite ?? false,
+        bonus: data.bonus || '{}',
+        baseBonus: data.baseBonus || (data.bonus || '{}'),
+        extraBonus: data.extraBonus || '{}',
+        equipments: data.equipments || '[]',
+        weapons: data.weapons || '[]',
+        currentWeapon: data.currentWeapon ?? 0,
+        equipmentPresets: data.equipmentPresets || '[]',
+        markers: data.markers || '[]',
+        markers2: data.markers2 || '[]',
+        buffs: data.buffs || '[]',
+        achievements: data.achievements || '[]',
+        set: data.set || '{}',
+        affinity: data.affinity ?? 0,
+        vitality: data.vitality ?? 0,
+        exp: data.exp ?? 0,
+        backpack: data.backpack || '[]',
+        isPet: data.isPet ?? false,
+        isTemp: true,
+      },
+    });
+    return row as unknown as MapMonster;
+  }
+
+  /**
+   * 清空地图上全部怪物实例（GameMonster 表）
+   * 对应原版「清空副本」/「清空地图怪物」语义，直接 deleteMany 本地图所有记录
+   * （常驻 + 临时一并清除，随后由刷新/事件逻辑重新生成）。
+   */
+  async clearMapMonsters(mapId: number): Promise<void> {
+    await this.prisma.gameMonster.deleteMany({ where: { mapId } });
   }
 
   /**
