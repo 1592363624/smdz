@@ -30,8 +30,10 @@ export class AchievementService {
    * @param checkTitle 是否检查称号触发，默认true
    */
   async addAchievement(player: any, name: string, value: number, checkTitle = true): Promise<void> {
-    // 1. 解析 player.markers 为对象
-    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+    // 1. 解析 player.markers 为对象（兼容字符串或已为对象的场景，避免连续调用时对象/字符串混用丢失成就）
+    const markers = typeof player.markers === 'object' && player.markers !== null
+      ? player.markers
+      : this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
 
     // 2. 如果成就名存在，累加数值；如果数值<=0，删除成就
     if (markers[name] !== undefined) {

@@ -13,6 +13,7 @@ import { BonusService } from '../src/modules/game/bonus.service';
 import { ItemService } from '../src/modules/game/item.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { AchievementService } from '../src/modules/game/achievement.service';
+import { MapService } from '../src/modules/game/map.service';
 
 // 构造带中文 bonus 与词条的装备模板，验证中文键→英文键映射
 const mockEquip = {
@@ -187,5 +188,68 @@ describe('套装判定重算 (物品操作.ecode 套装判断 L1581 → player.s
   it('普通装备不触发法宝字段（无小樱命中次数）', () => {
     const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('女仆头饰')], []));
     expect(sets.sakuraHits).toBeUndefined();
+  });
+});
+
+// ==================== 战利品 (战斗相关.ecode L4874-4946) ====================
+describe('战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946)', () => {
+  // distributeLoot 依赖 playerService.getBackpackItems / achievementService.addAchievement(写库)
+  // 用真实实例但 savePlayer 置空，避免 DB 依赖
+  const playerServiceLoot = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+  (playerServiceLoot as any).savePlayer = async () => {};
+  const achievementLoot = new AchievementService({} as PrismaService, playerServiceLoot, {} as StaticDataService);
+  const itemSystemLoot = new ItemSystemService(
+    {} as PrismaService,
+    playerServiceLoot,
+    {} as BonusService,
+    itemServiceReal,
+    achievementLoot,
+    staticDataMock,
+  );
+
+  const mkPlayer = () => ({
+    player: {
+      name: '战利品测试', type: '战斗女仆',
+      backpack: '[]', markers: '{}', exp: 0,
+      套装: {}, 属性: {}, 成就: [], 任务: [],
+    },
+  });
+
+  it('L4889/L4892 空名/电力 跳过', async () => {
+    const pd = mkPlayer();
+    const txt = await itemSystemLoot.distributeLoot(pd, [{ name: '' }, { name: '电力' }]);
+    expect(txt).toBe('');
+    expect(JSON.parse(pd.player.backpack).length).toBe(0);
+  });
+
+  it('L4922 资源类(怪物材料) → 加入背包 + 采集资源成就', async () => {
+    const pd = mkPlayer();
+    const txt = await itemSystemLoot.distributeLoot(pd, [{ name: '怪物材料', type: '资源', quantity: 2 }]);
+    expect(txt).toContain('怪物材料');
+    const bp = JSON.parse(pd.player.backpack);
+    expect(bp.find((b: any) => b.name === '怪物材料').count).toBe(2);
+    // addAchievement 将 markers 直接写为对象（非字符串），按对象读取
+    expect((pd.player.markers as any)['采集资源']).toBe(2);
+  });
+
+  it('L4927 资源-经验 → 玩家经验 += 数量×(1+经验/100)', async () => {
+    const pd = mkPlayer();
+    pd.player.属性 = { 经验: 0 };
+    const txt = await itemSystemLoot.distributeLoot(pd, [{ name: '经验', type: '资源', quantity: 50 }]);
+    expect(pd.player.exp).toBe(50);
+    // 经验加成 100%：数量 50 *2 = 100
+    const pd2 = mkPlayer();
+    pd2.player.属性 = { 经验: 100 };
+    await itemSystemLoot.distributeLoot(pd2, [{ name: '经验', type: '资源', quantity: 50 }]);
+    expect(pd2.player.exp).toBe(100);
+  });
+
+  it('L4906 装备类 → 生成装备并加入背包 + 获得装备成就', async () => {
+    const pd = mkPlayer();
+    const txt = await itemSystemLoot.distributeLoot(pd, [{ name: '测试铠甲', type: '装备', quantity: 1 }]);
+    expect(txt).toContain('测试铠甲');
+    const bp = JSON.parse(pd.player.backpack);
+    expect(bp.find((b: any) => b.name === '测试铠甲')).toBeDefined();
+    expect((pd.player.markers as any)['获得装备']).toBe(1);
   });
 });

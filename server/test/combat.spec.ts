@@ -21,6 +21,7 @@ import { BonusService } from '../src/modules/game/bonus.service';
 import { MapService } from '../src/modules/game/map.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { AchievementService } from '../src/modules/game/achievement.service';
+import { ItemSystemService } from '../src/modules/game/item-system.service';
 
 // 构造 CombatSystemService 实例，注入空 mock（calcDamage 不触碰这些依赖）
 const combat = new CombatSystemService(
@@ -30,7 +31,319 @@ const combat = new CombatSystemService(
   {} as MapService,
   {} as StaticDataService,
   {} as AchievementService,
+  {} as ItemSystemService,
+  {} as any,
 );
+
+// ==================== 行动无限制 (战斗相关.ecode L5097-5172) ====================
+describe('行动无限制 - 状态限制检查 (战斗相关.ecode L5097-5172)', () => {
+  // actionUnrestricted 调用 playerService 的 safeJsonParse/getMarkerValue/setMarker（纯本地 JSON 操作，不依赖 Prisma）
+  const playerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+  const combat2 = new CombatSystemService(
+    {} as PrismaService,
+    playerService,
+    {} as BonusService,
+    {} as MapService,
+    {} as StaticDataService,
+    {} as AchievementService,
+    {} as ItemSystemService,
+    {} as any,
+    );
+
+  const basePlayer = () => ({
+    name: '测试者',
+    attackMode: 0,
+    markers: JSON.stringify({}),
+    markers2: JSON.stringify([]),
+  });
+
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  it('L5106 移动标记未过期 → 被限制(restricted=true)', () => {
+    const p = basePlayer();
+    p.markers2 = JSON.stringify([{ name: '移动', expireAt: nowSec() + 30 }]);
+    const r = combat2.actionUnrestricted(p);
+    expect(r.restricted).toBe(true);
+    expect(r.text).toContain('移动中');
+  });
+
+  it('L5113 复活 / L5120 采集 / L5127 工作 标记 → 被限制', () => {
+    const names = ['复活', '采集', '工作'];
+    for (const n of names) {
+      const p = basePlayer();
+      p.markers2 = JSON.stringify([{ name: n, expireAt: nowSec() + 30 }]);
+      const r = combat2.actionUnrestricted(p);
+      expect(r.restricted).toBe(true);
+    }
+  });
+
+  it('L5134 炮击模式(attackMode=1) 默认(cannonOk=true) → 可行动；cannonOk=false → 限制', () => {
+    const p = basePlayer();
+    p.attackMode = 1;
+    expect(combat2.actionUnrestricted(p, { cannonOk: true }).restricted).toBe(false);
+    expect(combat2.actionUnrestricted(p, { cannonOk: false }).restricted).toBe(true);
+  });
+
+  it('L5143 躺下(标记"躺下"=1) → 自动起床返回可行动(restricted=false) 并清空标记', () => {
+    const p = basePlayer();
+    p.markers = JSON.stringify({ 躺下: 1 });
+    const r = combat2.actionUnrestricted(p);
+    expect(r.restricted).toBe(false);
+    expect(combat2.actionUnrestricted(p).restricted).toBe(false); // 二次已清躺下，仍不受限
+  });
+
+  it('L5151 自动开采(标记"自动开采"!=0) → 被限制；无视理由=6 则通过', () => {
+    const p = basePlayer();
+    p.markers = JSON.stringify({ 自动开采: 1 });
+    expect(combat2.actionUnrestricted(p).restricted).toBe(true);
+    expect(combat2.actionUnrestricted(p, { ignoreReason: 6 }).restricted).toBe(false);
+  });
+
+  it('L5158 长须鲸开采(标记"自动开采2"!=0, blueWhale=true) → 被限制', () => {
+    const p = basePlayer();
+    p.markers = JSON.stringify({ 自动开采2: 1 });
+    expect(combat2.actionUnrestricted(p, { blueWhale: true }).restricted).toBe(true);
+    expect(combat2.actionUnrestricted(p, { blueWhale: false }).restricted).toBe(false);
+  });
+
+  it('L5165 麻痹标记 → 被限制；无视理由=1 则通过', () => {
+    const p = basePlayer();
+    p.markers2 = JSON.stringify([{ name: '麻痹', expireAt: nowSec() + 30 }]);
+    expect(combat2.actionUnrestricted(p).restricted).toBe(true);
+    expect(combat2.actionUnrestricted(p, { ignoreReason: 1 }).restricted).toBe(false);
+  });
+
+  it('L5172 无任何限制标记 → 可行动(restricted=false)', () => {
+    const r = combat2.actionUnrestricted(basePlayer());
+    expect(r.restricted).toBe(false);
+    expect(r.text).toBe('');
+  });
+});
+
+// ==================== 玩家死亡 (战斗相关.ecode L5173-5231) ====================
+describe('玩家死亡 - 复活豁免判定 (战斗相关.ecode L5173-5231)', () => {
+  const playerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+  const combat3 = new CombatSystemService(
+    {} as PrismaService,
+    playerService,
+    {} as BonusService,
+    {} as MapService,
+    {} as StaticDataService,
+    {} as AchievementService,
+    {} as ItemSystemService,
+    {} as any,
+    );
+
+  const baseDeath = (over: any = {}) => ({
+    player: {
+      name: '测试者',
+      currentHp: 0, 当前生命: 0,
+      specialSeq: 0, type: '',
+      属性: { 生命: 100 }, 生命上限: 100,
+      markers2: JSON.stringify([]),
+      额外文本: '',
+    },
+    buffs: [],
+    equipment: [],
+    map: { summons: JSON.stringify([]) },
+    ...over,
+  });
+
+  it('L5182 卷土重来增益存在 → 不死(dead=false)', () => {
+    const nowSec = Math.floor(Date.now() / 1000) + 100;
+    const pd = baseDeath({ buffs: [{ name: '卷土重来', expireAt: nowSec }] });
+    const r = combat3.playerDeath(pd);
+    expect(r.dead).toBe(false);
+    expect(r.extraText).toContain('卷土重来');
+  });
+
+  it('L5214 石中剑(specialSeq=-35) 冷却未触发 → 复活(dead=false)，二次进入冷却 → 真死', () => {
+    const pd = baseDeath({ equipment: [{ name: '石中剑', specialSeq: -35 }] });
+    const r1 = combat3.playerDeath(pd);
+    expect(r1.dead).toBe(false);
+    // 原版：复活后生命恢复，不会再次判死；此处模拟"再次濒死"前需重置生命为0
+    pd.player.currentHp = 0; pd.player.当前生命 = 0;
+    // 二次：冷却已写入，未过期 → 真死
+    const r2 = combat3.playerDeath(pd);
+    expect(r2.dead).toBe(true);
+    expect(r2.deathText).toContain('已经死掉了');
+  });
+
+  it('L5204 死亡行者(specialSeq=16) 冷却未触发 → 复活(dead=false)', () => {
+    const pd = baseDeath({ equipment: [{ name: '死亡行者', specialSeq: 16 }] });
+    const r1 = combat3.playerDeath(pd);
+    expect(r1.dead).toBe(false);
+    pd.player.currentHp = 0; pd.player.当前生命 = 0;
+    const r2 = combat3.playerDeath(pd);
+    expect(r2.dead).toBe(true);
+  });
+
+  it('L5224 无豁免条件 → 真死(dead=true)', () => {
+    const r = combat3.playerDeath(baseDeath());
+    expect(r.dead).toBe(true);
+    expect(r.deathText).toContain('已经死掉了');
+  });
+
+  it('L5185 军姬(specialSeq=16) 且有存活宠物 → 森罗万象复活(dead=false)', () => {
+    const pd = baseDeath({
+      player: {
+        name: '军姬玩家', currentHp: 0, 当前生命: 0, specialSeq: 16, type: '军姬', qqNumber: 'testQQ',
+        属性: { 生命: 100 }, 生命上限: 100, markers2: JSON.stringify([]), 额外文本: '',
+      },
+      map: { summons: JSON.stringify([{ userId: 'testQQ', hp: 50 }]) },
+    });
+    const r = combat3.playerDeath(pd);
+    expect(r.dead).toBe(false);
+    expect(r.extraText).toContain('森罗万象');
+  });
+});
+
+// ==================== 置掉落 (战斗相关.ecode L5245-5317) ====================
+describe('置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317)', () => {
+  const combat4 = new CombatSystemService(
+    {} as PrismaService,
+    {} as PlayerService,
+    {} as BonusService,
+    {} as MapService,
+    {} as StaticDataService,
+    {} as AchievementService,
+    {} as ItemSystemService,
+    {} as any,
+    );
+
+  const attacker = (over: any = {}) => ({
+    qqNumber: 'testQQ',
+    属性: { 掉落率: 0, 掉落品质: 0 },
+    套装: { 传说率: 0 },
+    equipment: [],
+    ...over,
+  });
+
+  it('L5251 掉落率!=0 → 写入怪物标记 "dl"+QQ（取最高值）', () => {
+    const a = attacker({ 属性: { 掉落率: 50, 掉落品质: 0 } });
+    let mk = combat4.setDrop(a, []);
+    const dl = mk.find((m: any) => m.name === 'dltestQQ');
+    expect(dl).toBeDefined();
+    expect(dl.数值).toBe(50);
+    // 更高掉落率覆盖
+    const a2 = attacker({ 属性: { 掉落率: 80, 掉落品质: 0 } });
+    mk = combat4.setDrop(a2, mk);
+    expect(mk.find((m: any) => m.name === 'dltestQQ').数值).toBe(80);
+    // 更低掉落率不覆盖
+    const a3 = attacker({ 属性: { 掉落率: 30, 掉落品质: 0 } });
+    mk = combat4.setDrop(a3, mk);
+    expect(mk.find((m: any) => m.name === 'dltestQQ').数值).toBe(80);
+  });
+
+  it('L5269 掉落品质!=0 → 写入 "dp"+QQ；L5287 传说率!=0 → 写入 "xy"+QQ', () => {
+    const a = attacker({ 属性: { 掉落率: 0, 掉落品质: 20 }, 套装: { 传说率: 5 } });
+    const mk = combat4.setDrop(a, []);
+    expect(mk.find((m: any) => m.name === 'dptestQQ').数值).toBe(20);
+    expect(mk.find((m: any) => m.name === 'xytestQQ').数值).toBe(5);
+  });
+
+  it('L5305 宝石缎带(specialSeq=98) → 写入 "ds"+QQ=1', () => {
+    const a = attacker({ equipment: [{ name: '宝石缎带', specialSeq: 98 }] });
+    const mk = combat4.setDrop(a, []);
+    expect(mk.find((m: any) => m.name === 'dstestQQ')).toBeDefined();
+    expect(mk.find((m: any) => m.name === 'dstestQQ').数值).toBe(1);
+  });
+
+  it('无条件(掉落率/品质/传说率=0且无缎带) → 不写入任何记录', () => {
+    const mk = combat4.setDrop(attacker(), []);
+    expect(mk.length).toBe(0);
+  });
+});
+
+// ==================== 挑战怪物 (战斗相关.ecode L4726-4790) ====================
+describe('挑战怪物 - 名字映射 (战斗相关.ecode L4726-4790)', () => {
+  const combat5 = new CombatSystemService(
+    {} as PrismaService,
+    {} as PlayerService,
+    {} as BonusService,
+    {} as MapService,
+    {} as StaticDataService,
+    {} as AchievementService,
+    {} as ItemSystemService,
+    {} as any,
+    );
+
+  it('L4731 固定映射：a<100 b∈{1,6}=绿毛龟 / {2,7}=水元素 / {3,8}=巨齿鲨 / {4,9}=螳螂', () => {
+    expect(combat5.challengeMonsterName(1)).toBe('绿毛龟');
+    expect(combat5.challengeMonsterName(16)).toBe('绿毛龟');
+    expect(combat5.challengeMonsterName(2)).toBe('水元素');
+    expect(combat5.challengeMonsterName(7)).toBe('水元素');
+    expect(combat5.challengeMonsterName(3)).toBe('巨齿鲨');
+    expect(combat5.challengeMonsterName(8)).toBe('巨齿鲨');
+    expect(combat5.challengeMonsterName(4)).toBe('螳螂');
+    expect(combat5.challengeMonsterName(9)).toBe('螳螂');
+  });
+
+  it('L4745 a<200 分段映射', () => {
+    expect(combat5.challengeMonsterName(101)).toBe('第四帝国火力手');
+    expect(combat5.challengeMonsterName(112)).toBe('纳米战士');
+    expect(combat5.challengeMonsterName(123)).toBe('钢铁之翼');
+    expect(combat5.challengeMonsterName(134)).toBe('Doge');
+  });
+
+  it('L4758 a<300 分段映射', () => {
+    expect(combat5.challengeMonsterName(201)).toBe('CELL直升机');
+    expect(combat5.challengeMonsterName(212)).toBe('岩石巨人');
+  });
+
+  it('L4772 a>=300 且 b∈{1,6}：a>=900 随机(精英兔子/露娜)，否则 精英兔子', () => {
+    // 精英兔子是固定返回值（a<900）
+    for (let i = 0; i < 20; i++) {
+      const name = combat5.challengeMonsterName(301);
+      expect(['精英兔子', '精英兔子']).toContain(name); // 固定精英兔子
+    }
+    // a>=900：仅可能是 精英兔子 或 露娜
+    for (let i = 0; i < 20; i++) {
+      const name = combat5.challengeMonsterName(901);
+      expect(['精英兔子', '露娜']).toContain(name);
+    }
+  });
+
+  it('L4786 a>=300 默认分支从固定候选池返回', () => {
+    const pool = ['熔岩巨人', '防御节点', '执行者', '洛', '海神龙', '鹭', '洛', '可畏', '柴郡', '机械降神'];
+    for (let i = 0; i < 20; i++) {
+      expect(pool).toContain(combat5.challengeMonsterName(300));
+    }
+  });
+});
+
+// ==================== 掉落残骸 (战斗相关.ecode L4947-4985) ====================
+describe('掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L4947-4985)', () => {
+  const combat6 = new CombatSystemService(
+    {} as PrismaService,
+    {} as PlayerService,
+    {} as BonusService,
+    {} as MapService,
+    {} as StaticDataService,
+    {} as AchievementService,
+    {} as ItemSystemService,
+    {} as any,
+    );
+
+  it('L4954 各名称系数：地精=1 / 十夫长=1.5 / 百夫长=2 / 千夫长=2.5 / 将军=3', () => {
+    expect(combat6.dropWreckage([], '地精').find((r: any) => r.名称 === '载具残骸').次数).toBe(1);
+    expect(combat6.dropWreckage([], '地精十夫长').find((r: any) => r.名称 === '载具残骸').次数).toBe(1.5);
+    expect(combat6.dropWreckage([], '地精百夫长').find((r: any) => r.名称 === '载具残骸').次数).toBe(2);
+    expect(combat6.dropWreckage([], '地精千夫长').find((r: any) => r.名称 === '载具残骸').次数).toBe(2.5);
+    expect(combat6.dropWreckage([], '地精将军').find((r: any) => r.名称 === '载具残骸').次数).toBe(3);
+  });
+
+  it('L4967 已存在载具残骸 → 累加次数', () => {
+    const res = combat6.dropWreckage([{ 名称: '载具残骸', 次数: 2 }], '地精');
+    expect(res.find((r: any) => r.名称 === '载具残骸').次数).toBe(3);
+  });
+
+  it('L4964 非地精系列 → 不修改（原版返回）', () => {
+    const res = combat6.dropWreckage([{ 名称: '其他', 次数: 5 }], '史莱姆');
+    expect(res.length).toBe(1);
+    expect(res[0].名称).toBe('其他');
+  });
+});
 
 // 最小武器：100 物伤、无属性偏向
 const plainWeapon = {
@@ -180,5 +493,198 @@ describe('造成伤害 - 暴击伤害 (战斗相关.ecode L2395)', () => {
     expect(resCrit.damage).toBeCloseTo(resNoCrit.damage * 1.5, 0);
     expect(resCrit.critMultiplier).toBeCloseTo(1.5, 5);
     jest.restoreAllMocks();
+  });
+});
+
+// ==================== 选择高血量目标 (战斗相关.ecode L5423-5438) ====================
+describe('选择高血量目标 - 最高血量索引 (战斗相关.ecode L5423-5438)', () => {
+  it('L5429 返回总和(生命+装甲+护盾)最大者的索引', () => {
+    const defenders = [
+      { 当前生命: 10, 当前装甲: 0, 当前护盾: 0 },  // 10
+      { 当前生命: 5, 当前装甲: 5, 当前护盾: 5 },   // 15
+      { 当前生命: 100, 当前装甲: 0, 当前护盾: 0 }, // 100 → 最高
+    ];
+    expect(combat.selectHighHpTarget(defenders)).toBe(2);
+  });
+
+  it('L5429 支持 hp/armor/shield 字段别名', () => {
+    const defenders = [
+      { hp: 30, armor: 10, shield: 10 }, // 50
+      { hp: 80, armor: 0, shield: 0 },   // 80 → 最高
+    ];
+    expect(combat.selectHighHpTarget(defenders)).toBe(1);
+  });
+
+  it('L5434 空数组 → 返回 0', () => {
+    expect(combat.selectHighHpTarget([])).toBe(0);
+    expect(combat.selectHighHpTarget(null as any)).toBe(0);
+  });
+
+  it('L5435 多目标同血量 → 返回排序末位索引', () => {
+    const defenders = [
+      { 当前生命: 50, 当前装甲: 0, 当前护盾: 0 },
+      { 当前生命: 50, 当前装甲: 0, 当前护盾: 0 },
+    ];
+    // 升序排序末位=索引1
+    expect(combat.selectHighHpTarget(defenders)).toBe(1);
+  });
+});
+
+// ==================== 生成前线 (战斗相关.ecode L5319-5422) ====================
+describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422)', () => {
+  // 真实 PlayerService 提供 safeJsonParse（generateFrontline 用其解析地图 JSON 字段）
+  const playerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+
+  // mock StaticDataService：getBuildingByName 返回带 加成.攻击/生命/攻击文本 的战斗建筑，
+  // getAllAttackTexts 返回含 "自动步枪" 的攻击文本列表（取攻击文本 命中/默认逻辑）
+  const mockStatic = {
+    getBuildingByName: (name: string) => {
+      if (name === '防御炮台') {
+        return { name: '防御炮台', 加成: { 攻击: 5, 生命: 3, 攻击文本: '轴炮a' }, 攻击文本: '轴炮a' };
+      }
+      return null;
+    },
+    getAllAttackTexts: () => [{ name: '自动步枪' }, { name: '轴炮a' }],
+  } as any;
+
+  // mock CombatStateService：记录 置成就熟练度 调用
+  const profCalls: { name: string; value: number }[] = [];
+  const mockCombatState = {
+    setAchievementProficiency: (name: string, arr: any[], value: number) => {
+      profCalls.push({ name, value });
+      // 等价原版 setAchievementProficiency：非空则设置/新增，0则删除
+      const idx = arr.findIndex((x) => x.名称 === name);
+      if (value !== 0) {
+        if (idx >= 0) arr[idx].数值 = value;
+        else arr.push({ 名称: name, 数值: value });
+      } else if (idx >= 0) arr.splice(idx, 1);
+    },
+  } as any;
+
+  const makeCombat = () =>
+    new CombatSystemService(
+      {} as PrismaService,
+      playerService,
+      {} as BonusService,
+      {} as MapService,
+      mockStatic,
+      {} as AchievementService,
+      {} as ItemSystemService,
+      mockCombatState,
+    );
+
+  const baseMap = (over: any = {}) => ({
+    summons: JSON.stringify([]),
+    vehicles: JSON.stringify([]),
+    buildings: JSON.stringify([]),
+    ...over,
+  });
+
+  it('L5336-5350 基础字段：名称/类型=前线、QQ=怪物前线+qq+sg、必中/生命/闪避/四伤=1、命中=等级+1、特殊序号=-2', () => {
+    const c = makeCombat();
+    const res = c.generateFrontline(baseMap(), '12345', 0, 3);
+    const g = res.summon;
+    expect(g.名称).toBe('前线');
+    expect(g.类型).toBe('前线');
+    expect(g.QQ).toBe('怪物前线12345sg');
+    expect(g.归属).toBe('12345');
+    expect(g.属性.必中).toBe(true);
+    expect(g.属性.生命).toBe(1);
+    expect(g.属性.闪避).toBe(1);
+    expect(g.属性.物伤).toBe(1);
+    expect(g.属性.冰伤).toBe(1);
+    expect(g.属性.电伤).toBe(1);
+    expect(g.属性.火伤).toBe(1);
+    expect(g.属性.命中).toBe(4); // 前线等级3 + 1
+    expect(g.特殊序号).toBe(-2);
+  });
+
+  it('L5372-5380 无建筑(加成.攻击均0) → 默认"火力"武器(属性26/25/25/25)，且攻击文本.名称清空', () => {
+    const c = makeCombat();
+    const res = c.generateFrontline(baseMap({ buildings: JSON.stringify([{ name: '基础发电机', count: 1 }]) }), '12345', 0, 0);
+    expect(res.summon.武器.length).toBe(1);
+    const z = res.summon.武器[0];
+    expect(z.名称).toBe('火力');
+    expect(z.类型).toBe('射弹武器');
+    expect(z.载具强制伤害).toBe(true);
+    expect(z.冷却).toBe(10);
+    expect(z.属性.物).toBe(26);
+    expect(z.属性.电).toBe(25);
+    expect(z.属性.冰).toBe(25);
+    expect(z.属性.火).toBe(25);
+    // 原版 L5381：z.攻击文本.名称 = ""
+    expect(z.攻击文本.name).toBe('');
+  });
+
+  it('L5356-5368 战斗建筑(加成.攻击!=0) → 加武器(属性=26/25/25/25×攻击×数量)，c累加生命×数量', () => {
+    const c = makeCombat();
+    const res = c.generateFrontline(
+      baseMap({ buildings: JSON.stringify([{ name: '防御炮台', count: 2 }]) }),
+      '12345', 0, 0,
+    );
+    expect(res.summon.武器.length).toBe(1);
+    const z = res.summon.武器[0];
+    expect(z.名称).toBe('防御炮台');
+    // 攻击=5，数量=2 → 26*5*2=260
+    expect(z.属性.物).toBe(260);
+    expect(z.属性.电).toBe(250);
+    expect(z.属性.冰).toBe(250);
+    expect(z.属性.火).toBe(250);
+    expect(z.加成.攻击).toBe(10); // 叠加载具加成：5×2
+  });
+
+  it('L5382-5399 阵地载具：零件=阵地核心×1 + 轻型装甲×(10+c+等级)，编号=g.QQ，载具生命由计算载具置0', () => {
+    const c = makeCombat();
+    // 带防御炮台(生命=3，数量2) → c = 3*2 = 6；前线等级=1 → 轻型装甲数量=10+6+1=17
+    const res = c.generateFrontline(
+      baseMap({ buildings: JSON.stringify([{ name: '防御炮台', count: 2 }]) }),
+      '12345', 0, 1,
+    );
+    const v = res.vehicles.find((x: any) => x.名称 === '阵地');
+    expect(v).toBeDefined();
+    expect(v.编号).toBe('怪物前线12345sg');
+    expect(v.归属).toBe('怪物前线12345sg');
+    expect(v.驾驶员).toBe('怪物前线12345sg');
+    const core = v.零件.find((p: any) => p.名称 === '阵地核心');
+    const armor = v.零件.find((p: any) => p.名称 === '轻型装甲');
+    expect(core.数量).toBe(1);
+    expect(armor.数量).toBe(17);
+    // 计算载具基础阶段：本场景零件为资源不贡献加成 → 载具.加成.生命=0
+    expect(v.加成.生命).toBe(0);
+    expect(v.当前生命).toBe(0);
+  });
+
+  it('L5401-5402 置成就熟练度 跟随/阵地 = 1', () => {
+    profCalls.length = 0;
+    const c = makeCombat();
+    c.generateFrontline(baseMap(), '12345', 0, 0);
+    const names = profCalls.map((p) => p.name);
+    expect(names).toContain('跟随');
+    expect(names).toContain('阵地');
+    expect(profCalls.find((p) => p.name === '跟随')!.value).toBe(1);
+    expect(profCalls.find((p) => p.name === '阵地')!.value).toBe(1);
+  });
+
+  it('L5403-5411 首次生成(g2.编号==0) → 新增召唤物到 summons，新增载具到 vehicles', () => {
+    const c = makeCombat();
+    const res = c.generateFrontline(baseMap(), '12345', 0, 0);
+    expect(res.summons.length).toBe(1);
+    expect(res.summons[0].QQ).toBe('怪物前线12345sg');
+    expect(res.vehicles.length).toBe(1);
+    expect(res.vehicles[0].名称).toBe('阵地');
+  });
+
+  it('L5412-5419 已存在召唤物(g2.编号!=0) → 更新而非新增，summons长度不变', () => {
+    const c = makeCombat();
+    // 既有前线召唤物放在 summons 下标1（前面放占位），使其编号写回=1（非0=已找到），当前生命=50
+    const existing = baseMap({
+      summons: JSON.stringify([
+        { QQ: '占位', 编号: 0 },
+        { QQ: '怪物前线12345sg', 编号: 0, 名称: '前线', 当前生命: 50 },
+      ]),
+    });
+    const res = c.generateFrontline(existing, '12345', 0, 0);
+    expect(res.summons.length).toBe(2); // 未新增（更新下标1处）
+    expect(res.summons[1].当前生命).toBe(50); // 保留既有血量（L5343）
   });
 });

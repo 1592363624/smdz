@@ -17,8 +17,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
 import { MapService, MapMonster } from './map.service';
+import { ItemSystemService } from './item-system.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
+import { CombatStateService } from './combat-state.service';
 
 // ==================== 类型定义 ====================
 
@@ -144,6 +146,7 @@ export interface WeaponAttackResult {
 export interface MonsterDeathResult {
   expGain: number;
   drops: any[];
+  dropText?: string;
 }
 
 /**
@@ -214,6 +217,8 @@ export class CombatSystemService {
     private readonly mapService: MapService,
     private readonly staticData: StaticDataService,
     private readonly achievementService: AchievementService,
+    private readonly itemSystem: ItemSystemService,
+    private readonly combatState: CombatStateService,
   ) {}
 
   // ==================== 公开接口 ====================
@@ -815,6 +820,18 @@ export class CombatSystemService {
         const playerMk = this.safeParseJson<Record<string, number>>(player.markers || {}, {});
         const targetMk = this.safeParseJson<Record<string, number>>(target.markers || {}, {});
 
+        // ---- 无双勇士标记累计（原版 战斗相关.ecode L1964-1966） ----
+        // 装备要求(攻击方,#无双勇士) 成立时：添加成就("ww"+攻击方.QQ, 1, 防御方.标记) 即给目标标记累加 ww 计数；
+        // 之后在 L2843（本块"无双"分支）读该值>=4 时触发无双效果并清零。对应本框架 key = ww+userId。
+        const hasUndyingWarrior = (playerData.equipment as any[])?.some(
+          (e: any) => e.specialSeq === 92 || (e.name || '').includes('无双勇士'),
+        );
+        if (hasUndyingWarrior) {
+          const wwKey = `ww${player.userId ?? player.qqNumber ?? ''}`;
+          targetMk[wwKey] = (targetMk[wwKey] || 0) + 1;
+          resultLines.push(`【无双】${targetMk[wwKey]}`);
+        }
+
         // ---- 额外伤害倍率：法宝[镇岳]陪睡>2 → +0.15（原版 L1805-1808，特殊序号!=-2 时）----
         // 原版该段位于 .判断 (攻击方.特殊序号 == -2) 的默认分支，故 specialSeq==-2 时不加。
         let extraDamageMult = 1;
@@ -1135,15 +1152,13 @@ export class CombatSystemService {
         killed.push(target.name);
         resultLines.push(`${target.name} 已被击杀`);
 
-        // 处理怪物死亡
-        const deathResult = await this.handleMonsterDeath(target, userId, map.id);
+        // 处理怪物死亡（传入 attacker=playerData 触发 置掉落+战利品 发放闭环）
+        const deathResult = await this.handleMonsterDeath(target, userId, map.id, playerData);
         totalExp += deathResult.expGain;
         allDrops.push(...deathResult.drops);
-        // 掉落合并进内存玩家背包（最终由 savePlayer 统一持久化，避免旧对象覆盖丢失）
-        this.mergeDropsIntoPlayer(player, deathResult.drops);
 
-        if (deathResult.drops.length > 0) {
-          resultLines.push(`掉落：${deathResult.drops.map(d => d.name).join('、')}`);
+        if (deathResult.dropText) {
+          resultLines.push(`掉落：${deathResult.dropText}`);
         }
         if (deathResult.expGain > 0) {
           resultLines.push(`获得 ${deathResult.expGain} 点经验`);
@@ -1280,16 +1295,14 @@ export class CombatSystemService {
         const applied = this.applyDamageToMonster(target, finalDmg, dmg.poolDamage);
         lines.push(`${summon.name} 攻击 ${target.name}，造成 ${this.formatDamageText(finalDmg, applied)}${isCrit ? '【暴击】' : ''}`);
 
-        // 怪物死亡处理
+        // 怪物死亡处理（传入 attacker=playerData 触发 置掉落+战利品 发放闭环）
         if (target.hp <= 0) {
-          const deathResult = await this.handleMonsterDeath(target, player.userId, map.id);
-          // 掉落合并进玩家内存背包（最终由 weaponAttack 的 savePlayer 统一持久化）
-          this.mergeDropsIntoPlayer(player, deathResult.drops);
+          const deathResult = await this.handleMonsterDeath(target, player.userId, map.id, player);
           // 召唤物击杀经验累计到玩家（由 weaponAttack 末尾 addExp 统一发放）
           if (out?.totalExp !== undefined) out.totalExp += deathResult.expGain;
           lines.push(`${target.name} 已被击杀`);
-          if (deathResult.drops.length > 0) {
-            lines.push(`掉落：${deathResult.drops.map(d => d.name).join('、')}`);
+          if (deathResult.dropText) {
+            lines.push(`掉落：${deathResult.dropText}`);
           }
           if (deathResult.expGain > 0) {
             lines.push(`获得 ${deathResult.expGain} 点经验`);
@@ -1457,16 +1470,15 @@ export class CombatSystemService {
 
       if (monster.hp <= 0) {
         killed.push(monster.name);
-        const deathResult = await this.handleMonsterDeath(monster, userId, map.id);
-        // 掉落合并进内存玩家背包，随后统一保存（避免 addToBackpack 与 savePlayer 覆盖冲突）
-        this.mergeDropsIntoPlayer(player, deathResult.drops);
+        // 传入 attacker=player 触发 置掉落+战利品 发放闭环（distributeLoot 写背包）
+        const deathResult = await this.handleMonsterDeath(monster, userId, map.id, player);
         // 经验即时发放（炮击无外部 addExp 汇总，直接在此发放）
         if (deathResult.expGain > 0) {
           await this.playerService.addExp(userId, deathResult.expGain);
         }
         lines.push(`${monster.name} 被摧毁了！获得 ${deathResult.expGain} 点经验`);
-        if (deathResult.drops.length > 0) {
-          lines.push(`掉落：${deathResult.drops.map(d => d.name).join('、')}`);
+        if (deathResult.dropText) {
+          lines.push(`掉落：${deathResult.dropText}`);
         }
       }
     }
@@ -1752,12 +1764,29 @@ export class CombatSystemService {
     monster: any,
     userId: number,
     mapId: number,
+    attacker?: any,
   ): Promise<MonsterDeathResult> {
     // 计算经验值
     const expGain = this.calcMonsterExp(monster);
 
-    // 生成掉落物
+    // 生成掉落物（基础掉落清单，含 name/type/quantity/data）
     const drops = this.generateDrops(monster, 1);
+
+    // 置掉落（原版 战利品 前序 置掉落 L5245）：记录攻击者对怪物的掉落能力到怪物标记
+    // 注意：原版在怪物删除前写怪物.标记，本框架怪物即时删除，此处保留原版调用顺序（行为可见）
+    if (attacker) {
+      const monsterMarkers = this.playerService.safeJsonParse<any[]>(monster.markers, []);
+      monster.markers = JSON.stringify(this.setDrop(attacker, monsterMarkers));
+    }
+
+    // 战利品发放（原版 战斗相关.ecode L4874）：装备展开/资源经验/成就/背包写入/掉落文本
+    let dropText = '';
+    if (attacker && drops.length > 0) {
+      const playerData = await this.playerService.getPlayerData(userId);
+      dropText = await this.itemSystem.distributeLoot(playerData, drops);
+      // distributeLoot 已直接写入 player.backpack（与"内存合并后统一save"一致），
+      // 调用方不再需要 mergeDropsIntoPlayer
+    }
 
     // 从地图移除怪物（GameMonster 表，按自增 id 删除；加锁避免并发竞态）
     try {
@@ -1766,7 +1795,7 @@ export class CombatSystemService {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
 
-    return { expGain, drops };
+    return { expGain, drops, dropText };
   }
 
   /**
@@ -4196,5 +4225,686 @@ export class CombatSystemService {
     }
 
     return '';
+  }
+
+  // ==================== 行动无限制 ====================
+
+  /**
+   * 行动无限制（对应原版 战斗相关.ecode L5097-5172 子程序）
+   *
+   * 原版语义：检查玩家是否处于"被限制"状态，返回真=被限制（不可行动），假=可行动。
+   * 参数：
+   *   - 玩家：玩家对象（含 markers / markers2 / attackMode / 套装）
+   *   - 返回文本：引用参数，被限制时写入剩余时间提示
+   *   - s：当前秒（时间戳，秒）
+   *   - 炮击可：炮击模式下是否仍允许（默认真=炮击模式也允许）
+   *   - 无视理由：1移动 2复活 3采集 4工作 5躺下 6自动开采，对应数字可无视该限制
+   *   - 长须鲸开采：长须鲸开采时额外检查"自动开采2"
+   *
+   * 1:1 还原各.如果真分支顺序（移动→复活→采集→工作→攻击模式→躺下→自动开采→长须鲸→麻痹）。
+   * markers2 标记（移动/复活/采集/工作/麻痹）采用秒级 expireAt（与原版 s 秒一致，
+   * 与 game.service 内 markers2 增益冷却写法一致）。
+   *
+   * @param player 玩家对象
+   * @param opts 可选参数（炮击可 / 无视理由 / 长须鲸开采）
+   * @returns { restricted: boolean, text: string } restricted 为真表示被限制
+   */
+  actionUnrestricted(
+    player: any,
+    opts?: { cannonOk?: boolean; ignoreReason?: number; blueWhale?: boolean },
+  ): { restricted: boolean; text: string } {
+    const nowSec = Date.now() / 1000;
+    const cannonOk = opts?.cannonOk ?? true;
+    const ignoreReason = opts?.ignoreReason ?? 0;
+    const blueWhale = opts?.blueWhale ?? false;
+    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    let text = '';
+
+    // 标记要求(name, markers2, 返回文本, s)：存在且未过期则写入剩余时间文本并返回真
+    const marker2Require = (name: string, reason: number): boolean => {
+      if (ignoreReason === reason) return false;
+      const entry = markers2.find((m: any) => m && m.name === name);
+      if (entry && entry.expireAt && entry.expireAt > nowSec) {
+        const remain = Math.ceil(entry.expireAt - nowSec);
+        text = `${player.name} ${name}中，还需要 ${remain} 秒`; // 原版：玩家.名称 + name + "还需要" + 剩余
+        return true;
+      }
+      return false;
+    };
+
+    // 移动限制（原版 L5106-5112）
+    if (marker2Require('移动', 1)) {
+      return { restricted: true, text };
+    }
+    // 复活限制（原版 L5113-5119）
+    if (marker2Require('复活', 2)) {
+      return { restricted: true, text };
+    }
+    // 采集限制（原版 L5120-5126）
+    if (marker2Require('采集', 3)) {
+      return { restricted: true, text };
+    }
+    // 工作限制（原版 L5127-5133）
+    if (marker2Require('工作', 4)) {
+      return { restricted: true, text };
+    }
+    // 炮击模式（原版 L5134-5142：套装.攻击模式==1）
+    if (player.attackMode === 1) {
+      if (cannonOk) {
+        return { restricted: false, text: '' };
+      }
+      text = `${player.name} 炮击模式下不可以`;
+      return { restricted: true, text };
+    }
+    // 躺下（原版 L5143-5150：取成就熟练度(玩家.标记,"躺下")==1 → 自动起床返回假）
+    if (this.playerService.getMarkerValue(markers, '躺下') === 1) {
+      if (ignoreReason !== 5) {
+        // 原版 躺下起床显示(玩家, 2) 自动起床：置成就熟练度("躺下",0)
+        text = `${player.name} 从躺下状态起身`; // 原版 L5145 躺下起床显示(玩家,2)+"【分段】"，此处内联等价文本
+        this.playerService.setMarker(markers, '躺下', 0);
+        player.markers = JSON.stringify(markers);
+        return { restricted: false, text };
+      }
+    }
+    // 自动开采（原版 L5151-5157：取成就熟练度(玩家.标记,"自动开采")!=0）
+    if (this.playerService.getMarkerValue(markers, '自动开采') !== 0) {
+      if (ignoreReason !== 6) {
+        text = `${player.name} 自动开采中，"开采停止"来停止`;
+        return { restricted: true, text };
+      }
+    }
+    // 长须鲸开采（原版 L5158-5164：取成就熟练度(玩家.标记,"自动开采2")!=0）
+    if (blueWhale) {
+      if (this.playerService.getMarkerValue(markers, '自动开采2') !== 0) {
+        text = `${player.name} 自动开采中，"开采停止"来停止`;
+        return { restricted: true, text };
+      }
+    }
+    // 麻痹（原版 L5165-5171：标记要求("麻痹", 玩家.标记2) → 无视理由!=1）
+    if (marker2Require('麻痹', 1)) {
+      return { restricted: true, text };
+    }
+    // 原版 L5172 默认返回(假)
+    return { restricted: false, text: '' };
+  }
+
+  // ==================== 玩家死亡 ====================
+
+  /**
+   * 玩家死亡判定（对应原版 战斗相关.ecode L5173-5231 子程序）
+   *
+   * 原版语义：玩家当前生命<=0 时，依次检查各种"免死/复活豁免"：
+   *   - 增益"卷土重来"存在 → 不死（额外文本）
+   *   - 军姬(特殊序号=16) 且有存活宠物 → 冷却"sf"60秒未过则森罗万象复活（生命/2）
+   *   - 装备"死亡行者"(specialSeq=16) 冷却90秒未过 → 复活（生命/2）
+   *   - 装备"石中剑"(specialSeq=-35) 冷却90秒未过 → 复活（生命/2）
+   *   - 否则 → 真死，w 文本="已经死掉了!你可以"复活使魔"或者"删除怪物""
+   * 返回真=真死；返回文本 w 写入死亡提示。
+   *
+   * 1:1 还原各.判断分支顺序（卷土重来→军姬→默认→b==1→死亡行者→石中剑→默认）。
+   * 依赖：playerData.buffs / playerData.equipment / playerData.markers2 / playerData.map.summons。
+   *
+   * @param playerData 玩家完整数据（含 player/markers/buffs/equipment/map）
+   * @returns { dead: boolean, extraText: string, deathText: string }
+   */
+  playerDeath(playerData: any): { dead: boolean; extraText: string; deathText: string } {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const player = playerData.player;
+    const buffs = Array.isArray(playerData.buffs) ? playerData.buffs : [];
+    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const equipment = Array.isArray(playerData.equipment) ? playerData.equipment : [];
+
+    // 时间间隔要求(name, sec, markers2, s)：存在且未过期 → 冷却中(真)；否则(假)=可触发
+    const intervalActive = (name: string, sec: number): boolean => {
+      const e = markers2.find((m: any) => m && m.name === name);
+      return !!(e && e.expireAt && e.expireAt > nowSec);
+    };
+    // 写入冷却标记
+    const setInterval = (name: string, sec: number) => {
+      const filtered = markers2.filter((m: any) => !(m && m.name === name));
+      filtered.push({ name, expireAt: nowSec + sec });
+      player.markers2 = JSON.stringify(filtered);
+    };
+    // 装备要求(玩家, specialSeq)：遍历装备命中 specialSeq
+    const hasEquip = (seq: number): boolean =>
+      equipment.some((e: any) => e && e.specialSeq === seq);
+    // 增益要求(name)：buff 存在且未过期
+    const buffActive = (name: string): boolean =>
+      buffs.some((b: any) => b && b.name === name && (!b.expireAt || b.expireAt > nowSec));
+
+    let extraText = player.额外文本 || '';
+    let deathText = '';
+
+    // 当前生命>0 → 不可能死（原版入口隐含 玩家.当前生命<=0 才进入；此处保守判定）
+    if (player.当前生命 > 0 || player.currentHp > 0) {
+      return { dead: false, extraText, deathText };
+    }
+
+    // 卷土重来（原版 L5182-5184）
+    if (buffActive('卷土重来')) {
+      extraText = extraText + `卷土重来`;
+      return { dead: false, extraText, deathText };
+    }
+
+    // 军姬（原版 L5185-5199：特殊序号==16 且有存活宠物）
+    if (player.specialSeq === 16 || player.type === '军姬') {
+      // 宠物存活数量：map.summons 中归属本玩家且 hp>0（原版按 玩家.地图/玩家.QQ 查）
+      const map = playerData.map || {};
+      const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+      const alivePet = summons.some(
+        (s: any) => s && (s.userId === player.qqNumber || s.userId === player.userId) && (s.hp || s.当前生命 || 0) > 0,
+      );
+      let b = 0;
+      if (alivePet) {
+        // 冷却"sf"60秒（原版 L5187：时间间隔要求("sf",60,...) 真=冷却中 b=0，假=未冷却 b=1）
+        b = intervalActive('sf', 60) ? 0 : 1;
+      } else {
+        b = 0;
+      }
+      if (b === 1) {
+        extraText = extraText + `死亡状态下被"森罗万象"复活`;
+        player.当前生命 = (player.属性?.生命 || player.生命上限 || 1) / 2; // 原版 玩家.属性.生命/2
+        return { dead: false, extraText, deathText };
+      }
+    }
+
+    // 死亡行者（原版 L5204-5212：specialSeq=16 装备）
+    if (hasEquip(16)) {
+      if (!intervalActive('死亡行者', 90)) {
+        extraText = extraText + `死亡状态下被死亡行者复活`;
+        player.当前生命 = (player.属性?.生命 || player.生命上限 || 1) / 2;
+        setInterval('死亡行者', 90);
+        return { dead: false, extraText, deathText };
+      }
+      deathText = `${player.name} 已经死掉了!你可以"复活使魔"或者"删除怪物"`;
+      return { dead: true, extraText, deathText };
+    }
+
+    // 石中剑（原版 L5214-5222：specialSeq=-35 装备）
+    if (hasEquip(-35)) {
+      if (!intervalActive('石中剑', 90)) {
+        extraText = extraText + `死亡状态下被石中剑复活`;
+        player.当前生命 = (player.属性?.生命 || player.生命上限 || 1) / 2;
+        setInterval('石中剑', 90);
+        return { dead: false, extraText, deathText };
+      }
+      deathText = `${player.name} 已经死掉了!你可以"复活使魔"或者"删除怪物"`;
+      return { dead: true, extraText, deathText };
+    }
+
+    // 默认（原版 L5224-5226）：真死
+    deathText = `${player.name} 已经死掉了!你可以"复活使魔"或者"删除怪物"`;
+    return { dead: true, extraText, deathText };
+  }
+
+  // ==================== 置掉落 ====================
+
+  /**
+   * 置掉落（对应原版 战斗相关.ecode L5245-5317 子程序）
+   *
+   * 原版语义：记录攻击者对某怪物的最高掉落能力（掉落率/掉落品质/传说率/宝石缎带），
+   * 写入怪物.标记 数组（以 "dl"/"dp"/"xy"/"ds" + 玩家QQ 为 name 的成就条目）。
+   * 后续战利品() 据此决定掉落数量/品质。
+   *
+   * 1:1 还原四段（掉落率→"dl" / 掉落品质→"dp" / 传说率→"xy" / 宝石缎带→"ds"），
+   * 各段比较：玩家能力值 > 怪物已有记录值 才覆盖（否则保留更高记录）。
+   * ⚠️原版 L5291 传说率段比较误用 `玩家.属性.掉落品质`（疑似笔误，按原版保留）。
+   *
+   * @param attacker 攻击玩家（含 属性.掉落率/掉落品质、套装.传说率、QQ、equipment）
+   * @param monsterMarkers 怪物.标记 数组（会被原地更新，返回新数组）
+   * @returns 更新后的怪物标记数组
+   */
+  setDrop(attacker: any, monsterMarkers: any[]): any[] {
+    const markers = Array.isArray(monsterMarkers) ? monsterMarkers.slice() : [];
+    const qq = attacker.qqNumber || attacker.QQ || attacker.userId || '';
+
+    // 写入/更新怪物标记中某前缀+QQ 的成就条目（取最高值）
+    const writeMarker = (prefix: string, value: number): void => {
+      const name = prefix + qq;
+      const idx = markers.findIndex((m: any) => m && m.name === name);
+      if (idx >= 0) {
+        // 已存在：仅当新值更大才覆盖（原版 玩家.能力 > 怪物.标记[a].数值 才删除重写）
+        if (value > (markers[idx].数值 || 0)) {
+          markers[idx] = { name, 数值: value };
+        }
+      } else {
+        // 无记录：新增（原版 b==-1 判定后 置成就熟练度 新增）
+        markers.push({ name, 数值: value });
+      }
+    };
+    // 仅记录存在（不比较大小，存在即写1）：宝石缎带段
+    const writeMarkerOnce = (prefix: string, value: number): void => {
+      const name = prefix + qq;
+      const idx = markers.findIndex((m: any) => m && m.name === name);
+      if (idx < 0) {
+        markers.push({ name, 数值: value });
+      }
+    };
+
+    // 掉落率（原版 L5251-5267：玩家.属性.掉落率 != 0）
+    if ((attacker.属性?.掉落率 || attacker.dropRate || 0) !== 0) {
+      writeMarker('dl', attacker.属性?.掉落率 || attacker.dropRate || 0);
+    }
+    // 掉落品质（原版 L5269-5285：玩家.属性.掉落品质 != 0）
+    if ((attacker.属性?.掉落品质 || attacker.dropQuality || 0) !== 0) {
+      writeMarker('dp', attacker.属性?.掉落品质 || attacker.dropQuality || 0);
+    }
+    // 传说率（原版 L5287-5303：玩家.套装.传说率 != 0；⚠️L5291 比较误用 掉落品质，按原版保留）
+    if ((attacker.套装?.传说率 || attacker.legendRate || 0) !== 0) {
+      writeMarker('xy', attacker.套装?.传说率 || attacker.legendRate || 0);
+    }
+    // 宝石缎带（原版 L5305-5317：装备要求(#宝石缎带) 成立 → 写 "ds"=1）
+    const equipment = Array.isArray(attacker.equipment) ? attacker.equipment : [];
+    const hasGemRibbon = equipment.some((e: any) => e && e.specialSeq === 98); // #宝石缎带 常量=98
+    if (hasGemRibbon) {
+      writeMarkerOnce('ds', 1);
+    }
+
+    return markers;
+  }
+
+  // ==================== 挑战怪物 ====================
+
+  /**
+   * 挑战怪物（对应原版 战斗相关.ecode L4726-4790 子程序）
+   *
+   * 原版语义：根据整数 a 分段返回挑战怪物名字：
+   *   - b = a % 10
+   *   - a<100 / a<200 / a<300 / a>=300 四段，按 b 值映射到具体怪物名或随机文本
+   * 本框架用随机文本(逗号串)取随机一项，与原版 随机文本() 等价。
+   *
+   * 1:1 还原各分段与 b 值映射（含 a>=900 精英兔子/露娜 分支）。
+   *
+   * @param a 挑战编号（整数）
+   * @returns 怪物名字
+   */
+  challengeMonsterName(a: number): string {
+    const rand = (csv: string): string => {
+      const arr = csv.split('，'); // 原版用中文逗号
+      return arr[Math.floor(Math.random() * arr.length)];
+    };
+    const b = a % 10;
+
+    if (a < 100) {
+      if (b === 1 || b === 6) return '绿毛龟';
+      if (b === 2 || b === 7) return '水元素';
+      if (b === 3 || b === 8) return '巨齿鲨';
+      if (b === 4 || b === 9) return '螳螂';
+      return rand('钢铁之翼，苏醒守卫者，Doge，腐化剑龙');
+    }
+    if (a < 200) {
+      if (b === 1 || b === 6) return '第四帝国火力手';
+      if (b === 2 || b === 7) return '纳米战士';
+      if (b === 3 || b === 8) return '钢铁之翼';
+      if (b === 4 || b === 9) return 'Doge';
+      return rand('闪电飞龙，火焰飞龙，冰霜飞龙，剧毒飞龙');
+    }
+    if (a < 300) {
+      if (b === 1 || b === 6) return 'CELL直升机';
+      if (b === 2 || b === 7) return '岩石巨人';
+      if (b === 3 || b === 8) return rand('Doge，闪电飞龙，火焰飞龙，冰霜飞龙，剧毒飞龙');
+      if (b === 4 || b === 9) return rand('精英哥布林，无畏战士');
+      return rand('熔岩巨人，精英钢铁之翼，防御节点，执行者，洛');
+    }
+    // a >= 300
+    if (b === 1 || b === 6) {
+      return a >= 900 ? rand('精英兔子，露娜') : '精英兔子';
+    }
+    if (b === 2 || b === 7) return rand('要塞，绫波');
+    if (b === 3 || b === 8) return rand('精英钢铁之翼，彼岸花，曼陀罗');
+    if (b === 4 || b === 9) return rand('精英闪电飞龙，精英火焰飞龙，精英冰霜飞龙，精英剧毒飞龙，无畏战士，稻草人，拉菲');
+    return rand('熔岩巨人，防御节点，执行者，洛，海神龙，鹭，洛，可畏，柴郡，机械降神');
+  }
+
+  // ==================== 掉落残骸 ====================
+
+  /**
+   * 掉落残骸（对应原版 战斗相关.ecode L4947-4985 子程序）
+   *
+   * 原版语义：特定地精系列怪物死亡时，给地图.资源2 中的"载具残骸"资源累加次数 b：
+   *   地精=1 / 地精十夫长=1.5 / 地精百夫长=2 / 地精千夫长=2.5 / 地精将军=3
+   *   若地图资源2 无"载具残骸"则按 资源列表1 找到该资源模板新增（次数=b）。
+   *
+   * 1:1 还原各名称分段与系数，以及"存在则累加/不存在则新增"逻辑。
+   *
+   * @param resources2 地图.资源2 数组（会被原地更新）
+   * @param name 怪物名称
+   * @returns 更新后的资源2数组
+   */
+  dropWreckage(resources2: any[], name: string): any[] {
+    const res = Array.isArray(resources2) ? resources2.slice() : [];
+    let b = 0;
+    if (name === '地精') b = 1;
+    else if (name === '地精十夫长') b = 1.5;
+    else if (name === '地精百夫长') b = 2;
+    else if (name === '地精千夫长') b = 2.5;
+    else if (name === '地精将军') b = 3;
+    else return res; // 原版 默认 返回()
+
+    // 已存在"载具残骸"则累加
+    let found = false;
+    for (let i = 0; i < res.length; i++) {
+      if (res[i] && res[i].名称 === '载具残骸') {
+        res[i] = { ...res[i], 次数: (res[i].次数 || 0) + b };
+        found = true;
+        break;
+      }
+    }
+    // 不存在则新增（原版从 资源列表1 取模板，此处直接构造最小模板）
+    if (!found) {
+      res.push({ 名称: '载具残骸', 次数: b });
+    }
+    return res;
+  }
+
+  // ==================== 选择高血量目标 ====================
+
+  /**
+   * 选择高血量目标（对应原版 战斗相关.ecode L5423-5438 子程序）
+   *
+   * 原版语义：遍历防御方数组，记录每个目标的 当前生命+当前装甲+当前护盾 总和与索引 a，
+   * 按数量升序排序（物品数量排序 默认从小到大），返回最后一个（即总和最大者）的索引耐久。
+   * 无目标返回 0。
+   *
+   * 1:1 还原：总和计算、升序排序、返回末位索引。
+   *
+   * @param defenders 防御方数组（每项含 当前生命/当前装甲/当前护盾 或 hp/armor/shield）
+   * @returns 最高血量目标的数组索引（无目标返回 0）
+   */
+  /**
+   * 取攻击文本（对应原版 数据显示.ecode L2413 子程序 取攻击文本）
+   *
+   * 原版语义：从全局 文本列表 中按名称查找攻击文本，命中返回该项，否则返回 文本列表[1]（默认第一项）。
+   * 本方法等价实现：从 StaticDataService 的 attack-texts 配置按 name 查找，未命中返回 { name: '' }。
+   *
+   * @param name 攻击文本名称（如 "自动步枪"）
+   * @returns 攻击文本对象（至少含 name 字段，原版 攻击文本 结构）
+   */
+  private getAttackTextByName(name: string): any {
+    const list: any[] = this.staticData.getAllAttackTexts() || [];
+    const hit = list.find((t: any) => t.name === name);
+    // 原版：命中返回 文本列表[b]，否则返回 文本列表[1]（下标1即数组第1项）
+    return hit || list[0] || { name: '' };
+  }
+
+  /**
+   * 叠加载具加成（对应原版 加成计算.ecode L3913-4076 子程序 叠加载具加成）
+   *
+   * 原版语义：把 目标加成 按 数量 累加进 加成（参考，原地修改）。
+   * 当 硅基核心加成 > 1 时，正向字段（原值>0）乘 硅基核心加成，负向字段（原值<=0）乘 核心负面降低 = 1 - (硅基核心加成-1)*2；
+   * 当 硅基核心加成 <= 1 时（本场景传 1），核心负面降低 = 1，正负字段均乘 数量（等价直接叠加）。
+   *
+   * 本方法 1:1 还原逐字段叠加逻辑（攻击2/生命2/护盾2/装甲2/闪避2/命中2/电伤2/火伤2/冰伤2/物伤2/溅射2/速度2/
+   * 生产/生命回复2/护盾回复2/装甲回复2/攻击次数/攻击/护盾/装甲/生命/闪避/命中/电伤/火伤/冰伤/物伤/溅射/速度）。
+   * 注意：原版每个字段都有「若>0 乘硅基核心加成 否则 乘核心负面降低」的二分支，本场景 硅基核心加成=1 → 核心负面降低=1 → 等价全乘 数量。
+   *
+   * @param bonus 被累加的加成对象（原地修改）
+   * @param target 来源加成对象
+   * @param count 数量（倍数）
+   * @param produce 生产类（原版参数，本场景固定 假，未参与计算路径）
+   * @param siliconCore 硅基核心加成（原版参数，本场景固定 1）
+   */
+  private stackVehicleBonus(
+    bonus: any,
+    target: any,
+    count: number,
+    produce: boolean,
+    siliconCore: number,
+  ): void {
+    const coreNegReduce = siliconCore > 1 ? 1 - (siliconCore - 1) * 2 : 1;
+    // 逐字段累加：原版正负二分支，本场景 siliconCore=1 → 等价 字段值 * count
+    const fields = [
+      '攻击2', '生命2', '护盾2', '装甲2', '闪避2', '命中2', '电伤2', '火伤2', '冰伤2', '物伤2',
+      '溅射2', '速度2', '生命回复2', '护盾回复2', '装甲回复2', '攻击', '护盾', '装甲', '生命',
+      '闪避', '命中', '电伤', '火伤', '冰伤', '物伤', '溅射', '速度',
+    ];
+    for (const f of fields) {
+      const tv = target[f] ?? 0;
+      // 原版：>0 用硅基核心加成，否则用核心负面降低
+      const factor = tv > 0 ? siliconCore : coreNegReduce;
+      bonus[f] = (bonus[f] ?? 0) + tv * count * factor;
+    }
+    // 生产 字段（原版 L3986-4000，正负与 生产类 共同决定）
+    if (target.生产) {
+      if (produce) bonus.生产 = (bonus.生产 ?? 0) + target.生产 * count * siliconCore;
+      else bonus.生产 = (bonus.生产 ?? 0) + (target.生产 * count * siliconCore) / 4;
+    } else {
+      if (produce) bonus.生产 = (bonus.生产 ?? 0) + target.生产 * count * coreNegReduce;
+      else bonus.生产 = (bonus.生产 ?? 0) + (target.生产 * count) / 4 * coreNegReduce;
+    }
+    // 攻击次数（原版 L4001）
+    bonus.攻击次数 = (bonus.攻击次数 ?? 0) + (target.攻击次数 ?? 0) * count;
+  }
+
+  /**
+   * 计算载具（生成前线场景的基础阶段，对应原版 加成计算.ecode L3556 计算载具 被本子程序调用的路径）
+   *
+   * 原版 生成前线 调用 `计算载具(zj, s, , , , )`：第3-6参数（计算产出/玩家成就/玩家任务/生产力提高/所在地图）均空，
+   * 因此 计算载具 仅执行【属性计算阶段】（跳过生产产出分支）。
+   * 进一步：本场景 zj 的零件是 资源（"阵地核心"/"轻型装甲"），均不在 部件列表 中命中，
+   * 故 计算载具 实际只做：载具.加成 = 全新空加成（原版 L3580 `载具.加成 = j`，j 为局部全新 加成）、
+   * 防御/武器/行走/功能/加成.生命 清零，然后根据零件（资源，无部件匹配）不贡献任何加成 → 载具.加成.生命 保持 0。
+   *
+   * 完整 计算载具（含部件匹配/硅基核心/生产产出）为 RKT ⬜ 独立大项，此处仅实现生成前线所需的等价执行路径。
+   *
+   * @param vehicle 载具对象（原地修改：重置加成/清空防御武器行走功能/生命上限置0）
+   */
+  private computeVehicleBasic(vehicle: any): void {
+    // 原版 L3580: 载具.加成 = j（j 为全新 加成，全字段默认0）
+    vehicle.加成 = {};
+    vehicle.防御 = 0;
+    vehicle.武器 = 0;
+    vehicle.行走 = 0;
+    vehicle.功能 = 0;
+    vehicle.加成.生命 = 0;
+    vehicle.行走方式 = 0;
+    // 本场景零件（阵地核心/轻型装甲）均为资源名，不在 部件列表 中 → 不贡献任何加成
+    // 故 载具.加成.生命 保持 0，后续调用方以 zj.当前生命 = zj.加成.生命 赋 0
+  }
+
+  /**
+   * 生成前线（对应原版 战斗相关.ecode L5319-5422 子程序 生成前线）
+   *
+   * 原版语义：在地图上为一个玩家（qq）生成一个"前线"召唤物（玩家结构）和"阵地"载具，
+   * 前者承担防御（武器来自地图建筑加成.攻击），后者提供后勤（零件=阵地核心+轻型装甲）。
+   * 已存在同名召唤物/载具则更新，否则新增。置成就熟练度 跟随/阵地。
+   *
+   * 逐行还原要点：
+   * - g.名称/类型="前线"、g.归属=qq、g.QQ="怪物前线"+qq+"sg"
+   * - g.属性.必中=true、生命=1、闪避=1、物伤=冰伤=电伤=火伤=1、命中=前线等级+1、特殊序号=-2
+   * - 武器 z：类型="射弹武器"、载具强制伤害=true、冷却=10
+   * - 遍历地图建筑：建筑.加成.攻击!=0 → 加一把武器（名称=建筑名、加成、攻击文本、属性=26/25/25/25×攻击×数量），c+=生命×数量
+   * - 无武器 → 默认"火力"自动步枪（属性26/25/25/25）
+   * - g.套装.增幅器=3、g.属性.攻击=1
+   * - 载具 zj：名称="阵地"、零件=[阵地核心×1, 轻型装甲×(10+c+前线等级)]、归属/驾驶员/编号=g.QQ，计算载具
+   * - 置成就熟练度("跟随"/"阵地", g.标记, 1)
+   * - 按 g2(已有召唤物)/zj.列表编号 决定 新增或更新 到 d.召唤物/d.载具
+   *
+   * 注：原版依赖全局 建筑列表（含 加成.攻击/加成.生命/攻击文本）。当前网页版 map.buildings 为生产建筑 JSON，
+   * 暂无带 加成.攻击 的战斗建筑，故武器数组通常为空 → 走"火力自动步枪"默认分支；逻辑完整保留，待战斗建筑数据补全即生效。
+   *
+   * @param map DB GameMap 记录（含 summons/vehicles/buildings 的 JSON 字符串）
+   * @param qq 玩家QQ文本
+   * @param s 长整数时间戳（原版参数，生成前线场景未参与计算，保留传参对齐）
+   * @param frontLineLevel 前线等级（短整数）
+   * @returns { summon, summons, vehicles } 修改后的召唤物与写回用的数组（调用方负责持久化）
+   */
+  generateFrontline(map: any, qq: string, s: number, frontLineLevel: number): {
+    summon: any;
+    summons: any[];
+    vehicles: any[];
+  } {
+    // 解析地图动态字段（JSON 字符串 → 数组），与原版 d.建筑/d.召唤物/d.载具 对应
+    const buildings: any[] = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const summons: any[] = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const vehicles: any[] = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+
+    // 原版 L5336-5343：构造"前线"召唤物 g（玩家结构）
+    const g: any = {
+      名称: '前线',
+      类型: '前线',
+      归属: qq,
+      QQ: '怪物前线' + qq + 'sg',
+      属性: {},
+      武器: [],
+      装备: [],
+      套装: {},
+      标记: [],
+    };
+    g.属性.必中 = true;
+    g.属性.生命 = 1;
+    g.当前生命 = 1; // 先置1，后续按 g2 是否存在覆盖
+    g.属性.闪避 = 1;
+    g.属性.物伤 = 1;
+    g.属性.冰伤 = 1;
+    g.属性.电伤 = 1;
+    g.属性.火伤 = 1;
+    g.属性.命中 = frontLineLevel + 1;
+    g.特殊序号 = -2;
+
+    // 原版 L5340：取已存在的召唤物（按 QQ）。原版 取召唤物 命中时会写回 编号=数组下标，此处等价模拟
+    const g2Idx = summons.findIndex((x: any) => x.QQ === g.QQ);
+    const g2 = g2Idx >= 0 ? summons[g2Idx] : {};
+    if (g2Idx >= 0) {
+      g2.编号 = g2Idx; // 等价 取召唤物 L487：地图.召唤物[a].编号 = a
+      // 原版 L5343：g.当前生命 = g2.当前生命（保留既有血量）
+      g.当前生命 = g2.当前生命 ?? 1;
+    }
+
+    // 原版 L5351-5367：构造武器 z（射弹武器）
+    let c = 0; // 轻型装甲数量累加（c += 加成.生命 × 数量）
+    // 原版 L5354-5355：重定义数组 武器/装备 为0成员
+    g.武器 = [];
+    g.装备 = [];
+    // 原版 L5356-5371：遍历地图建筑
+    for (const b of buildings) {
+      // 取建筑完整定义（含 加成.攻击/加成.生命/攻击文本），原版 取建筑(d.建筑[a].名称)
+      const j = this.staticData.getBuildingByName(b.name) || b;
+      const jBonus = j.加成 || b.加成 || {};
+      if (jBonus.攻击 !== 0 && jBonus.攻击 != null) {
+        const z: any = {
+          类型: '射弹武器',
+          载具强制伤害: true,
+          冷却: 10,
+          名称: b.name,
+          加成: {},
+          攻击文本: {},
+          属性: {},
+        };
+        z.加成 = z.加成 || {};
+        // 原版 L5361：z.攻击文本 = 取攻击文本(j.攻击文本)
+        const atkText = this.getAttackTextByName(j.攻击文本 || b.攻击文本 || '');
+        z.攻击文本 = { name: atkText?.name ?? '' };
+        // 原版 L5362：叠加载具加成(z.加成, j.加成, 数量, 假, 1)
+        this.stackVehicleBonus(z.加成, jBonus, b.count ?? 1, false, 1);
+        // 原版 L5363-5366：属性 = 26/25/25/25 × 攻击 × 数量
+        const atkVal = jBonus.攻击 ?? 0;
+        const cnt = b.count ?? 1;
+        z.属性.物 = 26 * atkVal * cnt;
+        z.属性.电 = 25 * atkVal * cnt;
+        z.属性.冰 = 25 * atkVal * cnt;
+        z.属性.火 = 25 * atkVal * cnt;
+        g.武器.push(z);
+        // 原版 L5368：c = c + j.加成.生命 × 数量
+        c = c + (jBonus.生命 ?? 0) * cnt;
+      }
+    }
+
+    // 原版 L5372-5380：无武器则默认"火力"自动步枪
+    if (g.武器.length === 0) {
+      const z: any = {
+        类型: '射弹武器',
+        载具强制伤害: true,
+        冷却: 10,
+        名称: '火力',
+        攻击文本: {},
+        属性: {},
+      };
+      const atkText = this.getAttackTextByName('自动步枪');
+      z.攻击文本 = { name: atkText?.name ?? '' };
+      z.属性.物 = 26;
+      z.属性.电 = 25;
+      z.属性.冰 = 25;
+      z.属性.火 = 25;
+      g.武器.push(z);
+    }
+
+    // 原版 L5381：z.攻击文本.名称 = ""
+    // 注意：原版此行把刚构造的 z（默认分支的火力武器）的攻击文本名称清空；逐行保留
+    if (g.武器.length > 0) {
+      g.武器[g.武器.length - 1].攻击文本 = g.武器[g.武器.length - 1].攻击文本 || {};
+      g.武器[g.武器.length - 1].攻击文本.name = '';
+    }
+
+    // 原版 L5382-5383
+    g.套装 = g.套装 || {};
+    g.套装.增幅器 = 3;
+    g.属性.攻击 = 1;
+
+    // 原版 L5384-5399：构造"阵地"载具 zj
+    const zjIdx = vehicles.findIndex((x: any) => x.编号 === g.QQ);
+    const zj: any = { 名称: '阵地', 零件: [], 归属: g.QQ, 驾驶员: g.QQ, 编号: g.QQ, 加成: {}, 当前生命: 0, 列表编号: zjIdx };
+    // 原版 L5386：重定义数组 零件 为0成员
+    zj.零件 = [];
+    // 原版 L5387-5390：加入 阵地核心×1
+    zj.零件.push({ 名称: '阵地核心', 类型: '资源', 数量: 1 });
+    // 原版 L5391-5394：加入 轻型装甲×(10 + c + 前线等级)
+    zj.零件.push({ 名称: '轻型装甲', 类型: '资源', 数量: 10 + c + frontLineLevel });
+    // 原版 L5398：计算载具(zj, s, , , , ) —— 本场景等价基础阶段
+    this.computeVehicleBasic(zj);
+
+    // 原版 L5399：g.载具 = zj.编号
+    g.载具 = zj.编号;
+
+    // 原版 L5400：g2 = 取召唤物(g.QQ, d) —— 重新取一次（判断编号）。等价写回 编号=下标
+    const g2Idx2 = summons.findIndex((x: any) => x.QQ === g.QQ);
+    const g2b = g2Idx2 >= 0 ? summons[g2Idx2] : {};
+    if (g2Idx2 >= 0) g2b.编号 = g2Idx2; // 等价 取召唤物 L487
+
+    // 原版 L5401-5402：置成就熟练度("跟随"/"阵地", g.标记, 1)
+    const markerArr: any[] = Array.isArray(g.标记) ? g.标记 : [];
+    this.combatState.setAchievementProficiency('跟随', markerArr, 1);
+    this.combatState.setAchievementProficiency('阵地', markerArr, 1);
+    g.标记 = markerArr;
+
+    // 原版 L5403-5421：按 g2.编号 决定 新增/更新
+    if (g2b.编号 == null || g2b.编号 === 0 || g2Idx2 < 0) {
+      // 原版 L5404：g.当前生命 = 1
+      g.当前生命 = 1;
+      // 原版 L5405-5410：载具 列表编号==0 → 新增，否则更新
+      if (zj.列表编号 == null || zj.列表编号 === 0 || zjIdx < 0) {
+        zj.当前生命 = zj.加成.生命;
+        vehicles.push(zj);
+      } else {
+        zj.当前生命 = zj.加成.生命;
+        vehicles[zjIdx] = zj;
+      }
+      summons.push(g);
+    } else {
+      // 原版 L5413：d.召唤物[g2.编号] = g
+      summons[g2Idx2] = g;
+      // 原版 L5414-5419：载具 列表编号==0 → 新增，否则更新
+      if (zj.列表编号 == null || zj.列表编号 === 0 || zjIdx < 0) {
+        zj.当前生命 = zj.加成.生命;
+        vehicles.push(zj);
+      } else {
+        zj.当前生命 = zj.加成.生命;
+        vehicles[zjIdx] = zj;
+      }
+    }
+
+    return { summon: g, summons, vehicles };
+  }
+
+  selectHighHpTarget(defenders: any[]): number {
+    if (!Array.isArray(defenders) || defenders.length === 0) return 0;
+    const list = defenders.map((d: any, idx: number) => ({
+      idx,
+      total: (d.当前生命 ?? d.hp ?? 0) + (d.当前装甲 ?? d.armor ?? 0) + (d.当前护盾 ?? d.shield ?? 0),
+    }));
+    // 原版 物品数量排序 默认升序（从小到大），返回末位=总和最大
+    list.sort((a: any, b: any) => a.total - b.total);
+    return list[list.length - 1].idx;
   }
 }

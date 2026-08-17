@@ -159,18 +159,18 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 套装效果生效(玩家) | _计算玩家 L2284/L3381 | `item.service.recomputeSets`+`buildAttackerBonus` | ✅ | **2026-08-17 修复**：原 player.sets 永不被写入→玩家穿套装全不生效。新增 recomputeSets 在 equipItem/unequipItem/equipImplantItem/equipAmplifierItem/equipmentPreset 装备变更后遍历 equipment+weapons 调 setJudgment 累加写入 player.sets；buildAttackerBonus 实时消费 maid/amplifier/lifeBless/onePunch/implan/coil 等（植入体×1.25/L2329、增幅器==1冷却/L2609、科学家≥4/L2619、晚礼服≥4/L2590、线圈÷2/L2596、一拳==4/L2239 等已就位）。test/item-system.spec.ts 5 用例回归 |
 | 装备要求 | L1512 | `combat-state.equipRequire` | ✅ | 1:1 复刻：武器(当前手持)/装备(名称或specialSeq)检索，增幅器/植入体范围判断 |
 | 战斗 | L4512 | `combat.service` / `game-command` | 🔶 | 怪物闪避/幻时/移动临时怪物已部分 |
-| 挑战怪物 | L4726 | `combat.service` | ⬜ | |
+| 挑战怪物 | L4726 | `combat-system.challengeMonsterName` | ✅ | 按整数 a 分段返回怪物名(绿毛龟/水元素/.../精英兔子/露娜)；新增 test/combat.spec.ts 5用例 |
 | 计算反伤 | L4791 | — | ⬜ | |
-| 战利品 | L4874 | `item-system`? | ⬜ | |
-| 掉落残骸 | L4947 | — | ⬜ | |
+| 战利品 | L4874 | `item-system.distributeLoot` + `combat-system.handleMonsterDeath` | ✅ | 装备展开/资源(好感·经验·默认)/成就/背包写入/掉落文本；combat-system注入itemSystem；新增 test/item-system.spec.ts 4用例 |
+| 掉落残骸 | L4947 | `combat-system.dropWreckage` | ✅ | 地精系列累加载具残骸次数；新增 test/combat.spec.ts 3用例 |
 | 光荣弹 | L4987 | — | ⬜ | |
 | 免死 | L5020 | — | ⬜ | 免死返回真 |
-| 行动无限制 | L5097 | `combat.service`? | ⬜ | 1移动2复活3采集4工作5躺下6自动开采 |
-| 玩家死亡 | L5173 | `combat.service.playerDead`? | ⬜ | |
+| 行动无限制 | L5097 | `combat-system.actionUnrestricted` | ✅ | 1移动2复活3采集4工作5躺下6自动开采；markers2秒级expireAt一致；新增 test/combat.spec.ts 9用例 |
+| 玩家死亡 | L5173 | `combat-system.playerDeath` | ✅ | 卷土重来/军姬森罗万象/死亡行者/石中剑 复活豁免；军姬宠物存活借 map.summons 近似；新增 test/combat.spec.ts 5用例 |
 | 选择目标 | L5233 | — | ⬜ | |
-| 置掉落 | L5245 | — | ⬜ | |
-| 生成前线 | L5319 | — | ⬜ | |
-| 选择高血量目标 | L5423 | — | ⬜ | |
+| 置掉落 | L5245 | `combat-system.setDrop` | ✅ | 掉落率dl/品质dp/传说率xy/宝石缎带ds 写入怪物标记；⚠️原版L5291传说率段误用掉落品质按原版保留；新增 test/combat.spec.ts 4用例 |
+| 生成前线 | L5319 | `combat-system.generateFrontline` + 私有 `stackVehicleBonus`/`computeVehicleBasic`/`getAttackTextByName` | ✅ | 1:1 还原：前线召唤物(必中/生命1/闪避1/四伤1/命中=等级+1/特殊序号-2)、遍历建筑加成.攻击!=0加射弹武器(26/25/25/25×攻×数量,c+=生命×数量)、无建筑默认火力自动步枪(攻击文本.名称清空)、套装.增幅器=3、阵地载具(阵地核心×1+轻型装甲×(10+c+等级))、置成就熟练度跟随/阵地、按g2.编号新增/更新。⚠️依赖原版战斗建筑(含加成.攻击)，当前buildings.json仅生产建筑→武器数组常空走默认分支，逻辑完整保留待数据补全；`计算载具`完整复刻(RKT⬜)此处仅执行生成前线调用的基础属性阶段(零件为资源不贡献加成→生命0) |
+| 选择高血量目标 | L5423 | `combat-system.selectHighHpTarget` | ✅ | 返回生命+装甲+护盾总和最大者索引；新增 test/combat.spec.ts 4用例 |
 
 ### 3.1 造成伤害 核心已对齐段 自检 (🔶)
 

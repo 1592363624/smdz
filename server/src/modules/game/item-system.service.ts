@@ -2238,4 +2238,89 @@ export class ItemSystemService {
       default: return rawAffix;
     }
   }
+
+  // ==================== 战利品 ====================
+
+  /**
+   * 战利品（对应原版 战斗相关.ecode L4874-4946 子程序）
+   *
+   * 原版语义：处理怪物死亡后的掉落发放——遍历掉落物数组，按类型（装备/资源）分别处理：
+   *   装备：数量<1→1；按数量循环，data 空则 生成装备(名, , 传说率)；加成就"获得装备"/"获得"+名；加入背包
+   *   资源-好感：加成就(玩家.类型+"好感")/("好感")
+   *   资源-经验：数量×(1+玩家.属性.经验/100) 加到玩家经验
+   *   资源-默认：加成就"采集资源"/("采集"+名)；获得物品(背包)
+   *   空名/电力 跳过；判断几率 模式按 几率 字段判定是否继续
+   * 返回显示物品文本（掉落列表）。
+   *
+   * 1:1 还原各分支顺序与字面量。本框架：
+   *   - 原版"判断物品2"在本框架无对应（仅校验物品结构），此处近似为「确保数量有效」；
+   *   - 原版"显示物品"近似为 名字列表文本（掉落清单）；
+   *   - 背包写入直接操作 playerData.player.backpack（与战斗结算"内存合并后统一save"一致）。
+   *
+   * @param playerData 玩家完整数据（含 player/成就/任务/标记/背包）
+   * @param drops 掉落物数组（每项含 name/type/quantity/data/chance）
+   * @param opts.judgeChance 是否按几率判定（原版 判断几率 参数）
+   * @returns 掉落显示文本
+   */
+  async distributeLoot(playerData: any, drops: any[], opts?: { judgeChance?: boolean }): Promise<string> {
+    const player = playerData.player;
+    const judgeChance = opts?.judgeChance ?? false;
+    const backpack = this.playerService.getBackpackItems(player);
+    const backpackOut: any[] = []; // 物品数组2（最终掉落清单）
+    const legendRate = player.套装?.传说率 || player.legendRate || 0;
+
+    for (const drop of (drops || [])) {
+      if (!drop || drop.name === '') continue; // 原版 L4889 空名跳过
+      if (drop.name === '电力') continue;       // 原版 L4892 电力跳过
+
+      // 判断几率（原版 L4895-4903）
+      if (judgeChance) {
+        const chance = drop.chance || 0;
+        if (Math.random() * 100 >= chance) continue;
+      }
+
+      // 判断物品2（本框架近似：确保数量≥1；原版用于校验物品结构）
+      let qty = drop.quantity || drop.count || 1;
+      if (qty < 1) qty = 1;
+
+      // 本框架 generateDrops 产出掉落未带 type，默认按资源处理（装备类需 dropTable 配置 type=装备）
+      const dropType = drop.type || '资源';
+      if (dropType === '装备') {
+        // 原版 L4906-4921：按数量循环生成并加入背包
+        for (let b = 0; b < qty; b++) {
+          let item = { ...drop };
+          if (!item.data) {
+            // 原版 生成装备(名称, , 玩家.套装.传说率, , , , )
+            item = await this.generateEquipment(item.name, '', legendRate);
+          }
+          await this.achievementService.addAchievement(player, '获得装备', 1, false);
+          await this.achievementService.addAchievement(player, '获得' + item.name, qty, false);
+          backpack.push({ name: item.name, count: 1, data: item.data || '' });
+          backpackOut.push({ name: item.name, count: 1, data: item.data || '' });
+        }
+      } else if (dropType === '资源') {
+        // 原版 L4922-4938
+        if (drop.name === '好感') {
+          await this.achievementService.addAchievement(player, (player.type || '') + '好感', qty, false);
+          await this.achievementService.addAchievement(player, '好感', qty, false);
+        } else if (drop.name === '经验') {
+          const adj = Math.floor(qty * (1 + (player.属性?.经验 || player.expBonus || 0) / 100));
+          if (adj > 0) {
+            player.exp = (player.exp || 0) + adj;
+          }
+        } else {
+          await this.achievementService.addAchievement(player, '采集资源', qty, false);
+          await this.achievementService.addAchievement(player, '采集' + drop.name, qty, false);
+          backpack.push({ name: drop.name, count: qty });
+          backpackOut.push({ name: drop.name, count: qty });
+        }
+      } else {
+        // 默认（原版 L4939 空分支）：不处理
+      }
+    }
+
+    player.backpack = JSON.stringify(backpack);
+    // 显示物品（原版 L4946 返回 显示物品(物品数组2)）：近似为名字列表
+    return backpackOut.map((i) => `${i.name}${i.count > 1 ? '×' + i.count : ''}`).join('、');
+  }
 }
