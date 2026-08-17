@@ -108,9 +108,37 @@ export class CommandService {
           ctx.rawMessage = args.length ? `${exactAlias.name} ${args.join(' ')}` : exactAlias.name;
         }
 
-        // 2.2 前缀匹配回退（对应原版前缀路由语义）
+        // 2.2 地图资源采集指令精确匹配（对齐原版 _主程序.ecode 默认兜底分支 L11351-11370）
+        //     原版语义：指令表(两字/四字命令前缀)未命中后，落到"采集"默认分支，
+        //     用消息全文精确匹配当前地图资源的"采集指令"(gatherCmd，如 打开箱子/收集木头/捡垃圾)。
+        //     必须在"命令前缀回退"之前判定：否则 `打开箱子` 会被攻击指令的单字别名 `打` 前缀吞掉，
+        //     导致采集被误判为攻击（=原版不会发生的错误）。
+        if (!cmdDef && ctx.userId) {
+          const isGather = await this.gameService.hasGatherCmd(ctx.userId, commandName);
+          if (isGather) {
+            // 命中地图采集指令 → 直接交由采集兜底处理器处理，不再做指令表前缀匹配
+            const gatherHandler: CommandHandler | undefined = this.handlerMap['gather'];
+            if (gatherHandler) {
+              try {
+                const gatherResult = await gatherHandler.handle(ctx, [commandName]);
+                if (gatherResult && gatherResult.success) {
+                  gatherResult.durationMs = Date.now() - start;
+                  await this.recordLog(ctx, commandName, gatherResult);
+                  return gatherResult;
+                }
+              } catch (e) {
+                // 采集兜底失败时忽略，继续走指令表前缀匹配/未知指令提示
+                this.logger.warn(`采集指令兜底失败: ${e.message}`);
+              }
+            }
+          }
+        }
+
+        // 2.3 前缀匹配回退（对应原版前缀路由语义）
         //     玩家无空格输入如 `选择使魔伊卡洛斯` 时，首词是整个字符串，精确匹配会失败。
         //     若存在某指令名/别名是该输入的前缀，则匹配该指令，并把剩余部分作为参数。
+        //     注意：仅跳过单字别名（如攻击别名 `打`），避免把 `打开箱子` 等采集指令误吞进攻击；
+        //     单字别名仍需通过 name/alias 精确匹配（输入 `打` 或 `攻击`）正常触发。
         if (!cmdDef) {
           // 展开候选：指令名 + 各别名，均作为"前缀候选"（带来源指令名）
           const candidates: { key: string; name: string }[] = [];
@@ -120,9 +148,9 @@ export class CommandService {
               candidates.push({ key: alias, name: c.name });
             }
           }
-          // 按前缀长度降序，优先匹配更长（更精确）的前缀
+          // 按前缀长度降序，优先匹配更长（更精确）的前缀；跳过单字候选避免误吞采集指令
           const prefixMatch = candidates
-            .filter((c) => commandName.length > c.key.length && commandName.startsWith(c.key))
+            .filter((c) => c.key.length >= 2 && commandName.length > c.key.length && commandName.startsWith(c.key))
             .sort((a, b) => b.key.length - a.key.length)[0];
           if (prefixMatch) {
             cmdDef = await this.prisma.command.findFirst({
@@ -288,11 +316,12 @@ export class CommandService {
     if (aliasExact) return true;
 
     // 3) 前缀匹配回退：无空格输入（如 `选择使魔伊卡洛斯`）时，检查是否以某指令名/别名为前缀
-    //    对应原版"两字/三字/四字命令"的前缀路由语义，与 dispatch 的前缀回退保持一致
+    //    对应原版"两字/三字/四字命令"的前缀路由语义，与 dispatch 的前缀回退保持一致。
+    //    跳过单字候选（如攻击别名`打`），避免把 `打开箱子` 等地图采集指令误判为攻击指令。
     return allCmds.some((c: any) => {
-      if (name.length > c.name.length && name.startsWith(c.name)) return true;
+      if (c.name.length >= 2 && name.length > c.name.length && name.startsWith(c.name)) return true;
       return (c.alias || '').split(',').map((s: string) => s.trim()).filter(Boolean)
-        .some((alias: string) => name.length > alias.length && name.startsWith(alias));
+        .some((alias: string) => alias.length >= 2 && name.length > alias.length && name.startsWith(alias));
     });
   }
 }
