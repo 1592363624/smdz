@@ -23,6 +23,8 @@
  */
 
 import { Injectable } from '@nestjs/common';
+import { SetData } from './bonus.service';
+import { SEQ, AMPLIFIER_SEQ_RANGE, IMPLANT_SEQ_RANGE } from './constants/special-seq.constant';
 
 /** #转秒：原版易语言时间常数，1秒 = 1000 毫秒 */
 const SECOND_MS = 1000;
@@ -339,5 +341,194 @@ export class CombatStateService {
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
     return `${min}分${sec}秒`;
+  }
+
+  /**
+   * 套装判断（物品操作.ecode L1581）
+   * 根据装备的 特殊序号 或 名称，累加 套装 各字段计数。
+   * 与原版一致：第一段按 specialSeq switch；第二段按名称前缀（取文本左边 N 字）判断。
+   *
+   * @param 套装 SetData（原地修改：累加对应计数）
+   * @param 名称 装备名称
+   * @param 特殊序号 装备特殊序号（0 表示按名称判断）
+   */
+  setJudgment(套装: SetData, 名称: string, 特殊序号: number): void {
+    // ===== 第一段：按特殊序号判断（原版 L1588-1667）=====
+    if (特殊序号 !== 0) {
+      switch (特殊序号) {
+        case SEQ.植入体强攻: 套装.implant = 1; break;
+        case SEQ.植入体雷霆: 套装.implant = 2; break;
+        case SEQ.植入体烈火: 套装.implant = 3; break;
+        case SEQ.植入体冰结: 套装.implant = 4; break;
+        case SEQ.增幅器侵彻: 套装.amplifier = 5; break;
+        case SEQ.增幅器速射: 套装.amplifier = 1; break;
+        case SEQ.增幅器敏锐: 套装.amplifier = 2; break;
+        case SEQ.增幅器神枪: 套装.amplifier = 3; break;
+        case SEQ.增幅器坚毅: 套装.amplifier = 4; break;
+        case SEQ.纳米套装: 套装.nanoSuit = (套装.nanoSuit || 0) + 1; break;
+        case SEQ.科学家套装: 套装.scientist = (套装.scientist || 0) + 1; break;
+        case SEQ.纯白婚纱套装: 套装.whiteWedding = (套装.whiteWedding || 0) + 1; break;
+        case SEQ.白色丝袜: 套装.scientist = (套装.scientist || 0) + 1; break;
+        case SEQ.黑婚纱套装: 套装.blackWedding = (套装.blackWedding || 0) + 1; break;
+        case SEQ.一拳套装: 套装.onePunch = (套装.onePunch || 0) + 1; break;
+        case SEQ.女仆套装: 套装.maid = (套装.maid || 0) + 1; break;
+        case SEQ.生命套装: 套装.lifeBless = (套装.lifeBless || 0) + 1; break;
+        case SEQ.皇冠套装: 套装.crown = (套装.crown || 0) + 1; break;
+        case SEQ.动力套装:
+          套装.power = (套装.power || 0) + 1;
+          if (套装.power > 5) 套装.power = 5; // 原版 L1627-1629 封顶5
+          break;
+        case SEQ.游侠套装: 套装.wanderer = (套装.wanderer || 0) + 1; break;
+        case SEQ.游骑兵套装: 套装.ranger = (套装.ranger || 0) + 1; break;
+        case SEQ.防爆套装: 套装.antiExplosion = (套装.antiExplosion || 0) + 1; break;
+        case SEQ.无畏套装: 套装.fearless = (套装.fearless || 0) + 1; break;
+        case SEQ.强袭套装: 套装.assault = (套装.assault || 0) + 1; break;
+        case SEQ.圣诞套装: 套装.christmas = (套装.christmas || 0) + 1; break;
+        case SEQ.动能线圈: 套装.coil = 1; break;
+        case SEQ.热能线圈: 套装.coil = 2; break;
+        case SEQ.极寒线圈: 套装.coil = 3; break;
+        case SEQ.磁暴线圈: 套装.coil = 4; break;
+        case SEQ.黑手套:
+          套装.blackWedding = (套装.blackWedding || 0) + 1;
+          套装.eveningGown = (套装.eveningGown || 0) + 1;
+          break;
+        case SEQ.黑色裤袜:
+          套装.blackWedding = (套装.blackWedding || 0) + 1;
+          套装.eveningGown = (套装.eveningGown || 0) + 1;
+          break;
+        case SEQ.蝴蝶晚礼服: 套装.eveningGown = (套装.eveningGown || 0) + 1; break;
+        case SEQ.心形贴: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; break;
+        case SEQ.创可贴: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; break;
+        case SEQ.逆兔女郎: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; break;
+        default: break;
+      }
+      return;
+    }
+
+    // ===== 第二段：按名称判断（原版 L1669-1782，特殊序号==0 或 默认分支）=====
+    const w1 = (名称 || '').substring(0, 4); // 取文本左边(名称,4)
+    const w2 = (名称 || '').substring(0, 2); // 取文本左边(名称,2)
+    if (名称 === '植入体-强攻') 套装.implant = 1;
+    else if (名称 === '植入体-烈火') 套装.implant = 2;
+    else if (名称 === '植入体-冰结') 套装.implant = 3;
+    else if (名称 === '植入体-雷霆') 套装.implant = 4;
+    else if (名称 === '增幅器-侵彻') 套装.amplifier = 5;
+    else if (名称 === '增幅器-速射') 套装.amplifier = 1;
+    else if (名称 === '增幅器-敏锐') 套装.amplifier = 2;
+    else if (名称 === '增幅器-神枪') 套装.amplifier = 3;
+    else if (名称 === '增幅器-坚毅') 套装.amplifier = 4;
+    // 纳米系列（原版 L1690-1705：左边4字=="纳米" 且为特定部件）
+    else if (w1 === '纳米') {
+      if (['纳米裤子', '纳米手套', '纳米装甲', '纳米头盔', '纳米臂甲', '纳米鞋'].includes(名称)) {
+        套装.nanoSuit = (套装.nanoSuit || 0) + 1;
+      }
+    }
+    // 科学家（左边2字=="科学"）
+    else if (w2 === '科学') 套装.scientist = (套装.scientist || 0) + 1;
+    // 白
+    else if (w2 === '白') {
+      if (名称 === '白色裤袜') 套装.whiteWedding = (套装.whiteWedding || 0) + 1;
+      else if (名称 === '白色丝袜') 套装.scientist = (套装.scientist || 0) + 1;
+    }
+    // 纯白
+    else if (w1 === '纯白') {
+      if (['纯白头纱', '纯白婚纱', '纯白手套'].includes(名称)) {
+        套装.whiteWedding = (套装.whiteWedding || 0) + 1;
+      }
+    }
+    // 黑
+    else if (w2 === '黑') {
+      if (['黑头纱', '黑婚纱', '黑手套', '黑色裤袜'].includes(名称)) {
+        套装.blackWedding = (套装.blackWedding || 0) + 1;
+      }
+    }
+    // 一拳（原版 w1=左边4字，但"一拳套装"正好4字 → 用 substring(0,4)）
+    else if (w1 === '一拳') 套装.onePunch = (套装.onePunch || 0) + 1;
+    // 女仆
+    else if (w2 === '女仆') 套装.maid = (套装.maid || 0) + 1;
+    // 生命（且名称 != "生命祝福"，原版 L1746-1749）
+    else if (w2 === '生命') {
+      if (名称 !== '生命祝福') 套装.lifeBless = (套装.lifeBless || 0) + 1;
+    }
+    // 皇冠 / 长筒靴 / 蕾丝边腿环
+    else if (名称 === '皇冠' || 名称 === '长筒靴' || 名称 === '蕾丝边腿环') {
+      套装.crown = (套装.crown || 0) + 1;
+    }
+    // 动力（封顶5）
+    else if (w2 === '动力') {
+      套装.power = (套装.power || 0) + 1;
+      if (套装.power > 5) 套装.power = 5;
+    }
+    // 游侠
+    else if (w2 === '游侠') 套装.wanderer = (套装.wanderer || 0) + 1;
+    // 游骑
+    else if (w2 === '游骑') 套装.ranger = (套装.ranger || 0) + 1;
+    // 防爆（且名称 != "防爆盾"）
+    else if (w2 === '防爆') {
+      if (名称 !== '防爆盾') 套装.antiExplosion = (套装.antiExplosion || 0) + 1;
+    }
+    // 无畏
+    else if (w2 === '无畏') 套装.fearless = (套装.fearless || 0) + 1;
+    // 强袭
+    else if (w2 === '强袭') 套装.assault = (套装.assault || 0) + 1;
+    // 圣诞
+    else if (w2 === '圣诞') 套装.christmas = (套装.christmas || 0) + 1;
+    // 注意：原版 L1778 默认分支为空，此处不处理其他名称
+  }
+
+  /**
+   * 装备要求（物品操作.ecode L1512）
+   * 判断玩家是否装备了指定特殊序号或名称的装备（或手持对应武器）。
+   *
+   * @param 装备列表 玩家已装备列表，每项 { 名称, 特殊序号 }
+   * @param 武器列表 玩家武器列表，每项 { 名称, 特殊序号 }（当前武器索引 = 当前武器）
+   * @param 当前武器 当前手持武器下标（0 表示拳头/无武器）
+   * @param 特殊序号 检索的特殊序号（0 表示按名称）
+   * @param 名称 检索的名称
+   * @param 是否武器 是否检索武器（真=检查当前手持武器；假=检查装备列表）
+   * @returns 是否装备/手持
+   */
+  equipRequire(
+    装备列表: Array<{ 名称: string; 特殊序号?: number }>,
+    武器列表: Array<{ 名称: string; 特殊序号?: number }>,
+    当前武器: number,
+    特殊序号: number,
+    名称?: string,
+    是否武器?: boolean,
+  ): boolean {
+    if (是否武器) {
+      // 第一段：武器检索（原版 L1519-1535）
+      if (当前武器 === 0) return false;
+      const cur = 武器列表[当前武器 - 1] || 武器列表[当前武器]; // 易语言数组从1开始
+      if (!cur) return false;
+      if (特殊序号 !== 0) {
+        return cur.特殊序号 === 特殊序号;
+      }
+      return cur.名称 === 名称;
+    }
+    // 第二段：装备检索（原版 L1537-1579）
+    if (特殊序号 !== 0) {
+      for (const eq of 装备列表) {
+        if (特殊序号 === eq.特殊序号) return true;
+        // 增幅器范围 71-75（原版 L1542-1543）
+        if (特殊序号 === SEQ.增幅器 &&
+          eq.特殊序号! >= AMPLIFIER_SEQ_RANGE[0] && eq.特殊序号! <= AMPLIFIER_SEQ_RANGE[1]) return true;
+        // 植入体范围 76-79（原版 L1547-1548）
+        if (特殊序号 === SEQ.植入体 &&
+          eq.特殊序号! >= IMPLANT_SEQ_RANGE[0] && eq.特殊序号! <= IMPLANT_SEQ_RANGE[1]) return true;
+      }
+      return false;
+    }
+    // 按名称检索（原版 L1557-1576）
+    for (const eq of 装备列表) {
+      if (名称 === '增幅器') {
+        if ((eq.名称 || '').substring(0, 6) === '增幅器') return true;
+      } else if (名称 === '植入体') {
+        if ((eq.名称 || '').substring(0, 6) === '植入体') return true;
+      } else if (eq.名称 === 名称) {
+        return true;
+      }
+    }
+    return false;
   }
 }
