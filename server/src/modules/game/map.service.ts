@@ -230,9 +230,25 @@ export class MapService {
    * @param player 玩家对象（含 markers 等数据）
    */
   checkCanTravel(currentMap: any, targetMap: any, player: any): TravelCheckResult {
-    // 1. 检查目标地图是否禁止前往
-    if (targetMap.noTeleport) {
-      return { canTravel: false, reason: '该地图无法直接前往' };
+    // 0. 新手剧情区放行：医疗室/走廊设为不可传送，但玩家触发「召唤白」剧情后
+    //    （打开休眠仓，"锁着的门解开了"）应能沿连接前往走廊/森林出口，推进主线任务。
+    //    因此先判断是否命中"召唤白解锁的新手区路径"，命中则直接放行 noTeleport。
+    const playerMarkers: Record<string, any> = this.safeParseJSON(player?.markers, {});
+    const summonBai = '召唤白' in playerMarkers;
+    const isStoryNewbieRoute =
+      summonBai &&
+      (currentMap.name === '医疗室' && targetMap.name === '走廊') ||
+      (currentMap.name === '走廊' && targetMap.name === '森林出口');
+    // 解锁后仍可原路返回（双向都放开新手区内部路径）
+    const isNewbieInternal =
+      (currentMap.name === '走廊' && targetMap.name === '医疗室');
+    if ((isStoryNewbieRoute || isNewbieInternal) && summonBai) {
+      // 属于新手剧情解锁路径，跳过 noTeleport 限制，进入后续连接判定
+    } else {
+      // 1. 检查目标地图是否禁止前往（非新手剧情解锁路径）
+      if (targetMap.noTeleport) {
+        return { canTravel: false, reason: '该地图无法直接前往' };
+      }
     }
 
     // 2. 检查目标地图的进入要求标记
