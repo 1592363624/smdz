@@ -21,6 +21,7 @@ import { FamiliarSystemService } from './familiar-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { ItemSystemService } from './item-system.service';
 import { CombatSystemService } from './combat-system.service';
+import { CombatStateService } from './combat-state.service';
 
 import { DungeonService } from './dungeon.service';
 import { AchievementService } from './achievement.service';
@@ -46,6 +47,7 @@ import { StatsService } from './stats.service';
     FamiliarSkillsService,
     ItemSystemService,
     CombatSystemService,
+    CombatStateService,
     DungeonService,
     AchievementService,
     HomeService,
@@ -66,6 +68,7 @@ import { StatsService } from './stats.service';
     FamiliarSkillsService,
     ItemSystemService,
     CombatSystemService,
+    CombatStateService,
     DungeonService,
     AchievementService,
     HomeService,
