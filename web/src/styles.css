@@ -2203,6 +2203,11 @@ vite-plugin-checker-error-overlay,
   text-align: left;
   border-bottom: 1px solid var(--glass-border);
   font-size: 14px;
+  /* 长 username（如完整 QQ OpenID，约35字符）超出显示省略号，避免撑宽表格 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 .user-table th {
   background: rgba(10, 10, 26, 0.5);

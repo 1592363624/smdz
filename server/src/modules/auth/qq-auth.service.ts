@@ -172,11 +172,12 @@ export class QQAuthService {
 
     if (!user) {
       // 创建新用户（新逻辑：openid 存 externalId，qqNumber 留空待玩家绑定真实QQ号）
-      // openid 前8位可能与其他 QQ 用户重复，先查重，冲突则追加随机后缀保证 username 唯一
+      // username 使用完整 QQ 互联 OpenID（32位hex），保证全局唯一，避免只取前几位导致他人注册冲突。
+      // 仍保留查重回退：极端情况下若已存在同 username，追加随机后缀兜底（理论上不会发生）。
       isNewUser = true;
-      let safeUsername = `qq_${openid.slice(0, 8)}`;
+      let safeUsername = `qq_${openid}`;
       while (await this.prisma.user.findUnique({ where: { username: safeUsername } })) {
-        safeUsername = `qq_${openid.slice(0, 8)}_${Math.random().toString(36).slice(2, 6)}`;
+        safeUsername = `qq_${openid}_${Math.random().toString(36).slice(2, 6)}`;
       }
       const randomPassword = Math.random().toString(36).slice(2, 18);
       user = await this.prisma.user.create({

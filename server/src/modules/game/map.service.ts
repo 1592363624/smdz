@@ -17,6 +17,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StaticDataService } from './static-data.service';
+import { BonusService } from './bonus.service';
+import { CombatStateService } from './combat-state.service';
 
 /**
  * 可前往地图的连接信息
@@ -164,6 +166,8 @@ export class MapService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly staticData: StaticDataService,
+    private readonly bonusService: BonusService,
+    private readonly combatState: CombatStateService,
   ) {}
 
   /**
@@ -351,6 +355,189 @@ export class MapService {
   }
 
   /**
+   * 构建怪物最终加成（对应原版 _初始化怪物 加成计算 L2644-3052 的"纯计算"部分）。
+   *
+   * 原版流程：怪物列表检索 → 生成装备/叠加加成进 g.基础 → 等级成长(L2764-2777)
+   * → 法宝/载具/增益/buff/反转童话/套装判断2 → 觉醒分段(L2890-2934)
+   * → 一拳/冰雪之心/恶毒之刃/线圈 → 战斗力 → 特殊序号。
+   *
+   * 本后端 monsters.json 的 bonus 已是"基础属性+武器/装备加成"的综合体（human 录入时已合并），
+   * 故跳过"生成装备并叠加"环节，直接对该综合 bonus 应用后续乘数/加数，对齐最终属性效果。
+   *
+   * @param defBonus 怪物定义 bonus（中文键 JSON，已是综合属性）
+   * @param opts 计算参数：等级(level)/觉醒(awaken)/好感(affinity)/击杀(killCount)/
+   *             装备名列表(equipments)/特殊序号(specialSeq)/冰雪之心(xuexin)/恶毒之刃(edzhi)
+   * @returns 最终加成对象（中文键，与原版 monsters.json bonus 格式一致，供 GameMonster.bonus 直接存储，buildMonsterBonus 会解析）
+   */
+  private buildMonsterBonusFromDef(defBonus: Record<string, any>, opts: {
+    level: number;
+    awaken: number;
+    affinity?: number;   // 好感（宠物奶量系数，L2822）
+    killCount?: number;  // 击杀标记值（L2832）
+    equipments?: string[]; // 装备名列表（用于套装判断 L2758/L2820）
+    specialSeq?: number; // 怪物特殊序号（套装判断第二参数）
+    xuexin?: boolean;    // 冰雪之心增益（L3002）
+    edzhi?: boolean;     // 恶毒之刃增益（L3005）
+  }): Record<string, any> {
+    const level = opts.level || 1;
+    const awaken = opts.awaken || 0;
+    // 等级成长系数 lvFactor = (1 + 等级×0.05)，原版 _初始化怪物 L2764 起每一条都乘此项
+    const lvFactor = 1 + level * 0.05;
+    // 觉醒因子：(1 + 觉醒/200)，原版 L2764-2777
+    const awakenFactor = 1 + awaken / 200;
+
+    // ===== 套装判断（原版 L2758/L2820 套装判断）=====
+    // 维护本地 setData，套装判断写入；一拳/线圈等从 setData 读取（对齐原版 g.套装 字段）
+    // 原版：对"玩家/怪物自身特殊序号"与"每件装备名"都各做一次套装判断累加。
+    const setData: Record<string, any> = {};
+    // 1) 自身特殊序号（怪物/玩家本体套装，如怪物穿动能线圈 specialSeq=123）
+    const selfSeq = opts.specialSeq || 0;
+    if (selfSeq !== 0) {
+      this.combatState.setJudgment(setData, '', selfSeq);
+    }
+    // 2) 遍历装备名累加套装计数（装备无 specialSeq 时按名称前缀判定）
+    const eqNames: string[] = opts.equipments || [];
+    for (const eqName of eqNames) {
+      this.combatState.setJudgment(setData, eqName, 0);
+    }
+    // 一拳套装（原版 L2884：套装.一拳==4）
+    const onePunch = setData.onePunch || 0;
+    // 线圈（原版 L3025：套装.线圈>0）
+    const coil = setData.coil || 0;
+
+    // ===== 好感系数 a1（原版 L2822-2830）=====
+    // a1 = 1 + (好感[归属] - 100)/1000；<1 则取 1；宝宝标记 ×1.5；×(1+觉醒/200)
+    let a1 = 1 + ((opts.affinity || 0) - 100) / 1000;
+    if (a1 < 1) a1 = 1;
+    // 注：宝宝标记(标记.宝宝==1)在常驻怪物场景为 0，此处不触发（宠物场景由调用方传 opts）
+    a1 = a1 * awakenFactor;
+
+    // 工作副本：从 defBonus 深拷贝，后续所有乘数/加数就地修改
+    const b: Record<string, any> = { ...defBonus };
+    // 把套装判断结果写入 bonus.套装（供战斗/其他逻辑读取，对齐原版 g.套装）
+    b.套装 = setData;
+
+    // ===== 击杀标记加成（原版 L2832-2846）=====
+    // 觉醒>0 时：陪睡>6 则击杀属性翻倍；基础三池 +b*8，闪避/命中/四伤 +b
+    const kill = opts.killCount || 0;
+    if (awaken > 0 && kill > 0) {
+      let kb = kill;
+      if ((b.陪睡 || 0) > 6) kb = kb * 2; // 原版 L2834：所有法宝7级效果击杀翻倍
+      b.生命 = (b.生命 || 0) + kb * 8;
+      b.护盾 = (b.护盾 || 0) + kb * 8;
+      b.装甲 = (b.装甲 || 0) + kb * 8;
+      b.闪避 = (b.闪避 || 0) + kb;
+      b.命中 = (b.命中 || 0) + kb;
+      b.火伤 = (b.火伤 || 0) + kb;
+      b.物伤 = (b.物伤 || 0) + kb;
+      b.冰伤 = (b.冰伤 || 0) + kb;
+      b.电伤 = (b.电伤 || 0) + kb;
+    }
+
+    // ===== 等级成长 + 好感系数（原版 L2847-2861，对应"不重新生成"分支的最终乘子）=====
+    // 常驻/首次均在 spawn 时一次性计算，使用 lvFactor × a1（a1 已含 awakenFactor）
+    const grow = (key: string, hasLevel20: boolean) => {
+      const base = b[key] || 0;
+      if (hasLevel20) {
+        // 生命/护盾/装甲专用：基础 + 等级×20（原版 L2764-2766）
+        b[key] = lvFactor * (base + level * 20) * a1;
+      } else {
+        b[key] = lvFactor * base * a1;
+      }
+    };
+    grow('生命', true);
+    grow('护盾', true);
+    grow('装甲', true);
+    grow('闪避', false);
+    grow('命中', false);
+    grow('生命回复', false);
+    grow('护盾回复', false);
+    grow('装甲回复', false);
+    grow('暴击伤害', false);
+    grow('电伤', false);
+    grow('火伤', false);
+    grow('物伤', false);
+    grow('冰伤', false);
+    // 经验（原版 L2861，用 g1.等级 即 level，无 a1）
+    b.经验 = Math.floor(lvFactor * (b.经验 || 10));
+    // 麻醉（原版 L2780/L2860）：取绝对值 × 成长
+    b.麻醉 = Math.floor(lvFactor * Math.abs(b.麻醉 || 0) * a1);
+
+    // ===== 觉醒分段（原版 L2890-2934）=====
+    // 觉醒≥100 炼精化气：命中×1.1、闪避×1.1、增加攻击(+20)
+    // 觉醒≥200 逆转阴阳：贯穿+10、增加攻击(+50)
+    // 觉醒≥400 羽化升仙：三池/闪避/命中/三回复 ×1.5、增加攻击(+50)
+    // 注：≥300 天地同辉需载具存活判定（此处无载具，跳过 +20 攻击）；≥500 天神降世仅改名
+    if (awaken >= 100) {
+      b.命中 = (b.命中 || 0) * 1.1;
+      b.闪避 = (b.闪避 || 0) * 1.1;
+      this.addMonsterAttackPercent(b, 20);
+    }
+    if (awaken >= 200) {
+      b.贯穿 = (b.贯穿 || 0) + 10;
+      this.addMonsterAttackPercent(b, 50);
+    }
+    if (awaken >= 400) {
+      b.生命 = (b.生命 || 0) * 1.5;
+      b.护盾 = (b.护盾 || 0) * 1.5;
+      b.装甲 = (b.装甲 || 0) * 1.5;
+      b.闪避 = (b.闪避 || 0) * 1.5;
+      b.命中 = (b.命中 || 0) * 1.5;
+      b.生命回复 = (b.生命回复 || 0) * 1.5;
+      b.护盾回复 = (b.护盾回复 || 0) * 1.5;
+      b.装甲回复 = (b.装甲回复 || 0) * 1.5;
+      this.addMonsterAttackPercent(b, 50);
+    }
+
+    // ===== 一拳套装（原版 L2884-2889）：套装.一拳==4 → 增加攻击力(+25%) =====
+    // 原版「增加攻击 (玩家, , 25)」第二参数为空 → 百分比加玩家.攻击（攻击力），非四属性伤害
+    if (onePunch === 4) {
+      b.攻击 = (b.攻击 || 0) * 1.25;
+      // 原版还有 武器[a].锁定+5，这里武器锁定由战斗系统处理，跳过
+    }
+
+    // ===== 冰雪之心增益（原版 L3002-3003）：闪避×0.75 =====
+    if (opts.xuexin) {
+      b.闪避 = (b.闪避 || 0) * 0.75;
+    }
+
+    // ===== 恶毒之刃增益（原版 L3005判定后 L3005-3011）：三回复全 /2 =====
+    if (opts.edzhi) {
+      b.生命回复 = (b.生命回复 || 0) / 2;
+      b.装甲回复 = (b.装甲回复 || 0) / 2;
+      b.护盾回复 = (b.护盾回复 || 0) / 2;
+      b.生命回复2 = (b.生命回复2 || 0) / 2;
+      b.装甲回复2 = (b.装甲回复2 || 0) / 2;
+      b.护盾回复2 = (b.护盾回复2 || 0) / 2;
+    }
+
+    // ===== 线圈（原版 L3025-3030）：套装.线圈>0 → 四伤均 /2 =====
+    // 原版笔误：冰伤 = 火伤/2（交叉赋值），按原版保留
+    if (coil > 0) {
+      b.物伤 = (b.物伤 || 0) / 2;
+      b.火伤 = (b.火伤 || 0) / 2;
+      b.电伤 = (b.电伤 || 0) / 2;
+      b.冰伤 = (b.火伤 || 0) / 2; // 原版 L3029：冰伤=火伤/2（疑似笔误，按原版保留）
+    }
+
+    return b as Record<string, any>;
+  }
+
+  /**
+   * 怪物"增加攻击(百分比)"（对应原版 增加攻击(玩家,,百分比) L1394-1405）。
+   * 与原版一致：按百分比提升四属性伤害（物/火/冰/电伤）。
+   * 注意：怪物无 attackBonus 字段体系，这里直接对四伤做百分比乘法。
+   */
+  private addMonsterAttackPercent(b: Record<string, any>, pct: number): void {
+    if (!pct) return;
+    const mult = 1 + pct / 100;
+    b.物伤 = (b.物伤 || 0) * mult;
+    b.火伤 = (b.火伤 || 0) * mult;
+    b.冰伤 = (b.冰伤 || 0) * mult;
+    b.电伤 = (b.电伤 || 0) * mult;
+  }
+
+  /**
    * 刷新地图怪物（常驻怪物）
    * 对应原版 地图操作.ecode 怪物刷新 / _初始化怪物（加成计算 L2644-2777）。
    * 实现：
@@ -391,24 +578,42 @@ export class MapService {
         const defBonus = def?.bonus ? this.safeParseJSON<any>(def.bonus, {}) : {};
         // 怪物等级：定义等级（若为0则用地图等级），用于 _初始化怪物 等级成长
         const level = def?.level || map.level || 1;
-        // 觉醒因子：原版 _初始化怪物 L2764-2777 用 (1 + 觉醒/200)，怪物默认觉醒=0 → 因子=1
+        // 觉醒：怪物定义 bonus.觉醒（原版 L2763 取成就熟练度(标记,"觉醒")，怪物默认0）
         const awaken = defBonus.觉醒 || 0;
-        const awakenFactor = 1 + awaken / 200;
-        // 等级成长系数 lvFactor = (1 + 等级×0.05)，原版 _初始化怪物 L2764 起每一条都乘此项
+
+        // === 整合 _初始化怪物 深层计算（加成计算 L2644-3052）===
+        // 对综合 bonus 应用等级成长 + 好感 + 击杀 + 觉醒档 + 一拳/冰雪之心/恶毒之刃/线圈
+        // 返回最终 bonus（含成长后的 生命/护盾/装甲/闪避/命中/四伤 等）
+        const eqList: string[] = defBonus.equipmentList
+          ? (Array.isArray(defBonus.equipmentList) ? defBonus.equipmentList : [defBonus.equipmentList])
+          : (defBonus.装备 ? [defBonus.装备].filter(Boolean) : []);
+        const finalBonus = this.buildMonsterBonusFromDef(defBonus, {
+          level,
+          awaken,
+          affinity: 0,
+          killCount: 0,
+          equipments: eqList,
+          specialSeq: def?.specialSeq || -1,
+          xuexin: false,
+          edzhi: false,
+        });
+        // 三层池基础值取自最终 bonus（已含成长+好感系数）
+        const baseHp = def?.hp || (finalBonus.生命 || 100);
+        const baseShield = finalBonus.护盾 !== undefined ? finalBonus.护盾 : (shield || 0);
+        const baseArmor = finalBonus.装甲 !== undefined ? finalBonus.装甲 : (armor || 0);
+        // 等级成长系数 lvFactor（三层池额外 +等级×20；原版 L2764-2766）
         const lvFactor = 1 + level * 0.05;
-        // 三层池血量额外随等级线性增长 +等级×20（原版 L2764-2766：生命/护盾/装甲专用）
-        const baseHp = def?.hp || 100;
-        const baseShield = defBonus.护盾 !== undefined ? defBonus.护盾 : shield;
-        const baseArmor = defBonus.装甲 !== undefined ? defBonus.装甲 : armor;
+        const awakenFactor = 1 + awaken / 200;
         const hpVal = Math.floor(lvFactor * (baseHp + level * 20) * awakenFactor);
         const shieldVal = Math.floor(lvFactor * (baseShield + level * 20) * awakenFactor);
         const armorVal = Math.floor(lvFactor * (baseArmor + level * 20) * awakenFactor);
-        // 其余属性（L2767-2777）：仅 ×lvFactor×awakenFactor，无 +等级×20 项
-        const dodgeVal = Math.floor(lvFactor * (def?.dodge || 5) * awakenFactor);
-        const hitVal = Math.floor(lvFactor * (def?.hit || 85) * awakenFactor);
-        const atkVal = Math.floor(lvFactor * (def?.attack || 10) * awakenFactor);
+        // 其余属性（L2767-2777）：仅 ×lvFactor×awakenFactor
+        const dodgeVal = Math.floor(lvFactor * (def?.dodge || finalBonus.闪避 || 5) * awakenFactor);
+        const hitVal = Math.floor(lvFactor * (def?.hit || finalBonus.命中 || 85) * awakenFactor);
+        // 攻击：优先用 finalBonus.攻击（已含一拳等套装加攻），否则用 def.attack 基础值
+        const atkVal = Math.floor(lvFactor * (finalBonus.攻击 || def?.attack || 10) * awakenFactor);
         const speedVal = Math.floor(lvFactor * (def?.speed || 100) * awakenFactor);
-        const expVal = Math.floor(lvFactor * (defBonus.经验 || 10) * awakenFactor);
+        const expVal = Math.floor(lvFactor * (finalBonus.经验 || 10) * awakenFactor);
         inserts.push({
           mapId,
           type: def?.type || '怪物',
@@ -430,9 +635,9 @@ export class MapService {
           dodge: dodgeVal,
           hit: hitVal,
           isElite: def?.type === '精英' || false,
-          // 三层池抗性/伤害/武器/装备/掉落等存于 bonus（对应原版 玩家.加成）
-          bonus: def?.bonus || '{}',
-          baseBonus: def?.bonus || '{}',
+          // 最终加成（含等级成长/觉醒/套装等，对应原版 玩家.加成）
+          bonus: JSON.stringify(finalBonus),
+          baseBonus: JSON.stringify(finalBonus),
           extraBonus: '{}',
           equipments: defBonus.装备 ? JSON.stringify(defBonus.装备List || [defBonus.装备].filter(Boolean)) : '[]',
           weapons: defBonus.武器 ? JSON.stringify(String(defBonus.武器).split(/\s+/).filter(Boolean)) : '[]',
@@ -454,12 +659,14 @@ export class MapService {
         const level = map.level || 1;
         // 对齐原版 _初始化怪物 L2764-2777 等级成长公式（野怪：基础生命100/护盾0/装甲0/攻击10/闪避5/命中85/经验10）
         const lvFactor = 1 + level * 0.05;
+        // 野怪综合 bonus：空 defBonus 经 buildMonsterBonusFromDef 得到默认成长属性（生命/闪避/命中等默认值）
+        const wildBonus = this.buildMonsterBonusFromDef({}, { level, awaken: 0 });
         const hpVal = Math.floor(lvFactor * (100 + level * 20));
         const atkVal = Math.floor(lvFactor * 10);
         const speedVal = Math.floor(lvFactor * 100);
-        const dodgeVal = Math.floor(lvFactor * 5);
-        const hitVal = Math.floor(lvFactor * 85);
-        const expVal = Math.floor(lvFactor * 10);
+        const dodgeVal = Math.floor(lvFactor * (wildBonus.闪避 || 5));
+        const hitVal = Math.floor(lvFactor * (wildBonus.命中 || 85));
+        const expVal = Math.floor(lvFactor * (wildBonus.经验 || 10));
         inserts.push({
           mapId,
           type: '野怪',
@@ -479,8 +686,8 @@ export class MapService {
           dodge: dodgeVal,
           hit: hitVal,
           isElite: false,
-          bonus: '{}',
-          baseBonus: '{}',
+          bonus: JSON.stringify(wildBonus),
+          baseBonus: JSON.stringify(wildBonus),
           extraBonus: '{}',
           equipments: '[]',
           weapons: '[]',

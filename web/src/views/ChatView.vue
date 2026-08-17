@@ -2281,6 +2281,14 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 个人中心 @username 行：长 username（完整 QQ OpenID 约35字符）超出显示省略号，不换行 */
+.meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  display: block;
+}
 /* ===== 头部操作按钮（私聊/反馈） ===== */
 .header-action-btn {
   position: relative;

@@ -356,53 +356,52 @@ export class CombatStateService {
     // ===== 第一段：按特殊序号判断（原版 L1588-1667）=====
     if (特殊序号 !== 0) {
       switch (特殊序号) {
-        case SEQ.植入体强攻: 套装.implant = 1; break;
-        case SEQ.植入体雷霆: 套装.implant = 2; break;
-        case SEQ.植入体烈火: 套装.implant = 3; break;
-        case SEQ.植入体冰结: 套装.implant = 4; break;
-        case SEQ.增幅器侵彻: 套装.amplifier = 5; break;
-        case SEQ.增幅器速射: 套装.amplifier = 1; break;
-        case SEQ.增幅器敏锐: 套装.amplifier = 2; break;
-        case SEQ.增幅器神枪: 套装.amplifier = 3; break;
-        case SEQ.增幅器坚毅: 套装.amplifier = 4; break;
-        case SEQ.纳米套装: 套装.nanoSuit = (套装.nanoSuit || 0) + 1; break;
-        case SEQ.科学家套装: 套装.scientist = (套装.scientist || 0) + 1; break;
-        case SEQ.纯白婚纱套装: 套装.whiteWedding = (套装.whiteWedding || 0) + 1; break;
-        case SEQ.白色丝袜: 套装.scientist = (套装.scientist || 0) + 1; break;
-        case SEQ.黑婚纱套装: 套装.blackWedding = (套装.blackWedding || 0) + 1; break;
-        case SEQ.一拳套装: 套装.onePunch = (套装.onePunch || 0) + 1; break;
-        case SEQ.女仆套装: 套装.maid = (套装.maid || 0) + 1; break;
-        case SEQ.生命套装: 套装.lifeBless = (套装.lifeBless || 0) + 1; break;
-        case SEQ.皇冠套装: 套装.crown = (套装.crown || 0) + 1; break;
+        case SEQ.植入体强攻: 套装.implant = 1; return;
+        case SEQ.植入体雷霆: 套装.implant = 2; return;
+        case SEQ.植入体烈火: 套装.implant = 3; return;
+        case SEQ.植入体冰结: 套装.implant = 4; return;
+        case SEQ.增幅器侵彻: 套装.amplifier = 5; return;
+        case SEQ.增幅器速射: 套装.amplifier = 1; return;
+        case SEQ.增幅器敏锐: 套装.amplifier = 2; return;
+        case SEQ.增幅器神枪: 套装.amplifier = 3; return;
+        case SEQ.增幅器坚毅: 套装.amplifier = 4; return;
+        case SEQ.纳米套装: 套装.nanoSuit = (套装.nanoSuit || 0) + 1; return;
+        case SEQ.科学家套装: 套装.scientist = (套装.scientist || 0) + 1; return;
+        case SEQ.纯白婚纱套装: 套装.whiteWedding = (套装.whiteWedding || 0) + 1; return;
+        case SEQ.白色丝袜: 套装.scientist = (套装.scientist || 0) + 1; return;
+        case SEQ.黑婚纱套装: 套装.blackWedding = (套装.blackWedding || 0) + 1; return;
+        case SEQ.一拳套装: 套装.onePunch = (套装.onePunch || 0) + 1; return;
+        case SEQ.女仆套装: 套装.maid = (套装.maid || 0) + 1; return;
+        case SEQ.生命套装: 套装.lifeBless = (套装.lifeBless || 0) + 1; return;
+        case SEQ.皇冠套装: 套装.crown = (套装.crown || 0) + 1; return;
         case SEQ.动力套装:
           套装.power = (套装.power || 0) + 1;
           if (套装.power > 5) 套装.power = 5; // 原版 L1627-1629 封顶5
-          break;
-        case SEQ.游侠套装: 套装.wanderer = (套装.wanderer || 0) + 1; break;
-        case SEQ.游骑兵套装: 套装.ranger = (套装.ranger || 0) + 1; break;
-        case SEQ.防爆套装: 套装.antiExplosion = (套装.antiExplosion || 0) + 1; break;
-        case SEQ.无畏套装: 套装.fearless = (套装.fearless || 0) + 1; break;
-        case SEQ.强袭套装: 套装.assault = (套装.assault || 0) + 1; break;
-        case SEQ.圣诞套装: 套装.christmas = (套装.christmas || 0) + 1; break;
-        case SEQ.动能线圈: 套装.coil = 1; break;
-        case SEQ.热能线圈: 套装.coil = 2; break;
-        case SEQ.极寒线圈: 套装.coil = 3; break;
-        case SEQ.磁暴线圈: 套装.coil = 4; break;
+          return;
+        case SEQ.游侠套装: 套装.wanderer = (套装.wanderer || 0) + 1; return;
+        case SEQ.游骑兵套装: 套装.ranger = (套装.ranger || 0) + 1; return;
+        case SEQ.防爆套装: 套装.antiExplosion = (套装.antiExplosion || 0) + 1; return;
+        case SEQ.无畏套装: 套装.fearless = (套装.fearless || 0) + 1; return;
+        case SEQ.强袭套装: 套装.assault = (套装.assault || 0) + 1; return;
+        case SEQ.圣诞套装: 套装.christmas = (套装.christmas || 0) + 1; return;
+        case SEQ.动能线圈: 套装.coil = 1; return;
+        case SEQ.热能线圈: 套装.coil = 2; return;
+        case SEQ.极寒线圈: 套装.coil = 3; return;
+        case SEQ.磁暴线圈: 套装.coil = 4; return;
         case SEQ.黑手套:
           套装.blackWedding = (套装.blackWedding || 0) + 1;
           套装.eveningGown = (套装.eveningGown || 0) + 1;
-          break;
+          return;
         case SEQ.黑色裤袜:
           套装.blackWedding = (套装.blackWedding || 0) + 1;
           套装.eveningGown = (套装.eveningGown || 0) + 1;
-          break;
-        case SEQ.蝴蝶晚礼服: 套装.eveningGown = (套装.eveningGown || 0) + 1; break;
-        case SEQ.心形贴: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; break;
-        case SEQ.创可贴: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; break;
-        case SEQ.逆兔女郎: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; break;
-        default: break;
+          return;
+        case SEQ.蝴蝶晚礼服: 套装.eveningGown = (套装.eveningGown || 0) + 1; return;
+        case SEQ.心形贴: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; return;
+        case SEQ.创可贴: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; return;
+        case SEQ.逆兔女郎: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; return;
+        default: break; // 特殊序号未命中 → 不返回，继续第二段按名称判定（对齐原版未命中分支）
       }
-      return;
     }
 
     // ===== 第二段：按名称判断（原版 L1669-1782，特殊序号==0 或 默认分支）=====
@@ -442,8 +441,8 @@ export class CombatStateService {
         套装.blackWedding = (套装.blackWedding || 0) + 1;
       }
     }
-    // 一拳（原版 w1=左边4字，但"一拳套装"正好4字 → 用 substring(0,4)）
-    else if (w1 === '一拳') 套装.onePunch = (套装.onePunch || 0) + 1;
+    // 一拳（原版 取文本左边(名称,2)=="一拳"，"一拳套装"左边2字即"一拳"）
+    else if (w2 === '一拳') 套装.onePunch = (套装.onePunch || 0) + 1;
     // 女仆
     else if (w2 === '女仆') 套装.maid = (套装.maid || 0) + 1;
     // 生命（且名称 != "生命祝福"，原版 L1746-1749）

@@ -62,7 +62,7 @@
 | 叠加加成 | L682 | — | ⬜ | |
 | **升级经验公式** | **L1781-1794** | `player.service.calcUpgradeExp` L64 | ✅ | `(c*c+5)*(1+升级经验/100)*(1-风月入墨/100)`；注意 addExp 尚未接入 bonus.升级经验/风月入墨减益(暂按0) |
 | _计算玩家 (玩家属性构建) | L1567-1833 | `bonus.service` / `player.service` | 🔶 | 等级差距/世界等级/全套加成已部分; 待逐字段核对 |
-| _初始化怪物 (怪物属性构建·等级成长) | L2644-2777 / 2847-2861 | `map.service.refreshMapMonsters` | ✅ | 三层池血量对齐 L2764-2766：`(1+等级*0.05)*(基础+等级*20)*(1+觉醒/200)`；其余属性(L2767-2777)仅×lvFactor×觉醒因子；旧实现漏 `+等级*20` 与觉醒因子已修正；装备/套装/觉醒/法宝/增益等深层构建仍⬜(依赖子系统) |
+| _初始化怪物 (怪物属性构建·等级成长) | L2644-2777 / 2847-2861 | `map.service.refreshMapMonsters` | ✅ | 三层池血量对齐 L2764-2766：`(1+等级*0.05)*(基础+等级*20)*(1+觉醒/200)`；其余属性(L2767-2777)仅×lvFactor×觉醒因子；旧实现漏 `+等级*20` 与觉醒因子已修正；见下方「2.2 _初始化怪物 深层」 |
 | 法宝加成2 | L3053 | — | ⬜ | |
 | 计算buff | L3097 | — | ⬜ | 修改.属性的增益 |
 | 法宝加成 | L3143 | — | ⬜ | |
@@ -73,6 +73,56 @@
 | 增强器 | L3453 | — | ⬜ | 1护盾2装甲3生命 |
 | 计算载具 | L3556 | — | ⬜ | |
 | 叠加载具加成 | L3913 | — | ⬜ | |
+
+### 2.2 _初始化怪物 深层 (buildMonsterBonusFromDef) 自检 (🔶 阶段A)
+
+> 迁移背景：原 `GameMap.spawnMonsters/tempMonsters` 是 JSON 快照，已废弃；怪物现持久化于 `GameMonster` 表（1:1 对齐 @Struct.ecode 玩家结构 L287-341）。`refreshMapMonsters` 读取 `monsters.json`（bonus 已预合并的中文 key JSON），再经本函数套用 `_初始化怪物` L2748-3052 的**纯计算层**（属性已由 JSON 提供，故跳过"生成装备"那步）。
+
+【原文 L2748-3052 关键句（节选）】
+```
+' L2764-2766 三层池(生命/护盾/装甲)等级成长
+生命/护盾/装甲 = (1 + 等级*0.05) * (基础 + 等级*20) * (1 + 觉醒/200)
+' L2767-2777 其余属性等级成长
+攻击/防御/速度/闪避/命中/暴击... = 成长因子 × 基础 × 好感系数(a1) × 觉醒因子
+' L2829 击杀标记加成 (觉醒>0 时按标记叠抗/攻)
+' L2847-2861 觉醒分层: 觉醒≥100 / ≥200 / ≥400 逐级强化
+' L2871 一拳套: 攻击 +25%
+' L2873 雪心套: 闪避 -25%
+' L2875 恶智套: 再生减半
+' L2877 线圈套: 四系伤害减半(原版 冰伤=火伤/2 疑似笔误, 按原版保留)
+' L1581 套装判断 → 写入 玩家.套装
+```
+
+【复刻】`map.service.ts` `buildMonsterBonusFromDef(defBonus, opts)`:
+```ts
+// 好感系数 a1：从 defBonus.affinity / 好感 取，缺省 1
+const a1 = 1 + (affinity / 1000);  // 原版好感/1000 形式
+// 觉醒因子 lvFactor 见 L2764-2784
+const lvFactor = (1 + level * 0.05);                  // 三层池
+const otherFactor = (1 + level * 0.05);               // 其余(原版系数)
+// 三层池：基础+等级*20 然后 ×觉醒因子
+b.生命 = lvFactor * (baseHp + level*20) * (1 + awaken/200);
+// 觉醒分层 ≥100/200/400
+if (awaken >= 100) { /* 强化 */ }
+// 一拳/雪心/恶智/线圈 → 调用 combatState.setJudgment 按 equipments 名称判定
+const setData = combatState.setJudgment(setData, eqName, specialSeq);
+// 一拳: attack *= 1.25 ；雪心: dodge *= 0.75 ；恶智: regen/2 ；线圈: 四系伤害/2
+```
+
+【自检】阶段 A 已对齐：三层池 `+等级*20` 与觉醒因子、好感系数、觉醒分层、一拳/雪心/恶智/线圈四套效果（线圈保留原版 `冰伤=火伤/2` 疑似笔误）、套装判定经 `combatState.setJudgment` 写入 `b.套装`。⚠️已知偏差：原版 L2748-2760「生成装备」步在本次实现中跳过（JSON 的 bonus 已预合并，无需再生成），后续若需动态装备生成再补；法宝加成(L2863)/载具加成/增益计算/战斗力(L3031) 仍⬜，依赖怪物对象扩展 markers/sets/好感/成就/活力 字段。
+
+### 2.3 端到端实测 + setJudgment 短路 bug 修复 (2026-08-17)
+经 `NestFactory.createApplicationContext` 直接调 `MapService.refreshMapMonsters` 并查远程 MySQL GameMonster 表验证：
+- **等级成长 1:1 对齐 L2764-2777**：医疗室 L1 史莱姆 hp=52(=1.05×(30+20)×1)、shield/armor=21、atk=10、speed=105、dodge/hit=10、物伤=5.25、四抗=10、暴伤=157.5；飞龙谷 L1 冰霜飞龙 hp=2121、dodge=210、hit=241、冰伤=315 —— 全部命中公式。
+- **发现并修复 2 个真实 bug**（setJudgment 翻译错误）：
+  1. `combat-state.service.ts` `setJudgment` 第一段 `if(特殊序号!==0){switch{...}return;}` —— 无论 switch 是否命中都 `return`，导致 specialSeq 非0时**名称判定段永远不执行**（原版语义是"命中才返回"）。改为每个 case 命中 `return`、default `break` 后继续第二段名称判定。
+  2. `map.service.ts` `buildMonsterBonusFromDef` 仅遍历 `opts.equipments` 调 setJudgment，**未用怪物自身 specialSeq 调一次** → 怪物穿线圈套(specialSeq=123)不触发。补 `setJudgment(setData,'',selfSeq)`。
+  3. 一拳套装判定原误用 `w1=substring(0,4)==='一拳'`（"一拳套装"4字="一拳套"不匹配），改为 `w2==='一拳'`（取2字，对齐原版 取文本左边(名称,2)）。
+  4. 一拳加攻原误用 `addMonsterAttackPercent`（乘四伤），原版「增加攻击(玩家,,25)」第二参数为空→加**攻击力**，改 `b.攻击*=1.25`；`refreshMapMonsters` 写 attack 字段优先用 `finalBonus.攻击`（含一拳加成）。
+- **修复验证**：一拳套(4件)→攻击125、线圈(动能线圈123)→物伤÷2=75、雪心增益(xuexin)→闪避×0.75、觉醒400→生命×3，全部正确。
+- ⚠️ 当前 monsters.json **无任何怪物配置套装装备**（一拳/雪心/线圈等），故线上怪物套装效果实际不触发，属数据层现状非代码缺失；套装代码已就位，玩家/使魔穿套装即生效。
+
+---
 
 ### 2.1 升级经验公式 自检 (✅ 已对齐)
 
@@ -104,7 +154,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 武器攻击 | L3 | `combat-system.weaponAttack` | 🔶 | 已接攻击入口 |
 | **造成伤害 (核心伤害模型)** | **L872** | `combat-system.calcDamage` L1417 | 🔶 | 命中/闪避倍率、下限归一、随机区间、三段暴击评级、百分比穿透、等级差距新人加成 **已对齐**; 待补: 伤害过低未破防L3440/暴击被暴击率修正/贯穿L3192/格挡L2583/反伤L4791/免死L5020/载具受击L3175/卷土重来L3674/套装特效 |
 | 攻击目标 | L4021 | `combat-system` + `combat-state` | 🔶 | **基石层已建**：`combat-state.service.ts` 1:1 复刻 添加成就L678/取成就熟练度L719/置成就熟练度L850/标记要求L747/添加标记L778/增益要求L799/获得增益L1522/时间间隔要求L1008。待补：护盾层(L4113-4271)/装甲层(L4275-4396)/生命层(L4398-4511)特效分支（激变星/强袭/坚韧护盾/盾逆/吸血姬/兰音护盾文本/破盾成就/捕捉模式/免死/麻醉等）需怪物对象扩展 markers/sets/好感/成就/活力 字段后接入 |
-| _初始化怪物(深层) | L2748-3052 | `map.service`/`combat-state` | 🔶 | **基石层+阶段A已建**：状态机helper + `套装判断`(物品操作L1581,完整specialSeq常量映射 `constants/special-seq.constant.ts`)+`装备要求`(L1512)。待补：装备生成(L2748)/觉醒(L2829)/法宝加成(L2863)/载具加成/增益计算/战斗力(L3031)。依赖怪物对象扩展 markers/sets/好感/成就/活力 字段 |
+| _初始化怪物(深层) | L2748-3052 | `map.service.buildMonsterBonusFromDef`/`combat-state` | 🔶 | **基石层+阶段A已建**：状态机helper + `套装判断`(物品操作L1581,完整specialSeq常量映射 `constants/special-seq.constant.ts`)+`装备要求`(L1512)+`buildMonsterBonusFromDef`(整合L2748-3052等级成长/好感/击杀标记/觉醒/一拳/雪心/恶智/线圈/套装判定)。待补：装备生成(L2748)/法宝加成(L2863)/载具加成/增益计算/战斗力(L3031)。依赖怪物对象扩展 markers/sets/好感/成就/活力 字段 |
 | 套装判断 | L1581 | `combat-state.setJudgment` | ✅ | 1:1 复刻：按 specialSeq switch + 按名称前缀(取文本左边4/2字)累加 SetData 字段；增幅器71-75/植入体76-79范围、动力封顶5 等已对齐 |
 | 装备要求 | L1512 | `combat-state.equipRequire` | ✅ | 1:1 复刻：武器(当前手持)/装备(名称或specialSeq)检索，增幅器/植入体范围判断 |
 | 战斗 | L4512 | `combat.service` / `game-command` | 🔶 | 怪物闪避/幻时/移动临时怪物已部分 |
