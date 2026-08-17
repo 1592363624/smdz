@@ -153,13 +153,13 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 丢弃物品 | L1050 | `inventory`? | ⬜ |
 | 生成装备 | L1128 | `item-system.generateEquipment` | ✅ | 深度还原(L1128-1261)：品质随机/词条展开(随机护盾等)/去重/词条转换/特效生成/序列化 |
 | 词条转换 | L1838 | `item-system.rollAffix` | ✅ | 深度还原(L1838-1996)：中文词条→英文BonusData键，按品质倍率随机区间(护盾500-1000×倍率等) |
+| 词条数据层(静态JSON) | 数据存取 L513 / 使魔大战.txt 属性= | `convert-e-to-json.ts`+`StaticDataService` | ✅ | equipments.json 296/307 装备已带属性=词条(原硬编码'[]')；generateEquipment 经 gameEquip.affixes 读取并展开 |
 | 解析装备 | L1262 | `item-system.parseEquip` | ⬜ |
 | 装备要求 | L1512 | `item-system` | ⬜ |
 | 套装判断 | L1581 | `bonus`? | ⬜ |
 | 物品要求 | L1784 | — | ⬜ |
 | 判断物品2 | L1812 | — | ⬜ |
 | 寻找装备 | L1824 | — | ⬜ |
-| 词条转换 | L1838 | — | ⬜ |
 | 资源需求 | L1997 | — | ⬜ |
 | 取物品数量 | L2022 | — | ⬜ |
 | 装备特效要求 | L2042 | — | ⬜ |

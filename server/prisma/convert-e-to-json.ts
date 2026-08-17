@@ -34,11 +34,13 @@ try {
   process.exit(1);
 }
 
+// 易语言源码实际位于 e/源码解析成为txt/ 子目录下（带中文目录名）
 const ROOT_DIR = path.resolve(__dirname, '../../');
-const DATA_FILE = path.resolve(ROOT_DIR, 'e/使魔大战.txt');
-const BLUEPRINT_FILE = path.resolve(ROOT_DIR, 'e/0.txt');
-const CONSTANT_FILE = path.resolve(ROOT_DIR, 'e/@Constant.ecode');
-const RESOURCE_DIR = path.resolve(ROOT_DIR, 'e/@Resource');
+const ECODE_DIR = path.resolve(ROOT_DIR, 'e/源码解析成为txt');
+const DATA_FILE = path.resolve(ECODE_DIR, '使魔大战.txt');
+const BLUEPRINT_FILE = path.resolve(ECODE_DIR, '0.txt');
+const CONSTANT_FILE = path.resolve(ECODE_DIR, '@Constant.ecode');
+const RESOURCE_DIR = path.resolve(ECODE_DIR, '@Resource');
 const OUT_DIR = path.resolve(__dirname, 'data');
 
 // ========== 通用解析 ==========
@@ -223,7 +225,10 @@ function mapWeaponToEquipment(section: ConfigSection, specialSeq: number) {
     bonus: JSON.stringify(bonus),
     baseBonus: '{}',
     properties: JSON.stringify(propertiesObj),
-    affixes: '[]',
+    // 词条(affixes) 直接取自原版"属性"字段（空格分隔），对应原版 数据存取.ecode L513：
+    //   z.词条 = 分割文本(读配置项3(p, w[a], "属性", "随机"), " ", )
+    // 运行时 generateEquipment 会按词条随机展开(随机攻击→具体属性)并经 词条转换 赋随机值。
+    affixes: JSON.stringify(parseSpaceSeparatedString(fields['属性'] || '')),
     attackText: JSON.stringify({ name: fields['攻击文本'] || '' }),
     buffs: JSON.stringify(parseSpaceSeparatedString(fields['增益'] || '')),
     negativeType: 0,
@@ -264,7 +269,9 @@ function mapEquipmentToEquipment(section: ConfigSection, specialSeq: number) {
     bonus: JSON.stringify(bonus),
     baseBonus: '{}',
     properties: JSON.stringify(propertiesObj),
-    affixes: '[]',
+    // 词条(affixes) 直接取自原版"属性"字段（空格分隔），对应原版 数据存取.ecode L513：
+    //   z.词条 = 分割文本(读配置项3(p, w[a], "属性", "随机"), " ", )
+    affixes: JSON.stringify(parseSpaceSeparatedString(fields['属性'] || '')),
     attackText: JSON.stringify(attackTextObj),
     buffs: '[]',
     negativeType: 0,

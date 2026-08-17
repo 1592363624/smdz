@@ -114,7 +114,7 @@
     "gatherText": "【名称】【载具】正在打开医疗箱",
     "marker": "医疗箱",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"提卡x\",\"count\":100,\"chance\":-1},{\"name\":\"奶2\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"提卡b\",\"count\":100,\"chance\":-1}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
