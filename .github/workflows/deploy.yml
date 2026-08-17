@@ -17,14 +17,20 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Full history is required so git log can walk back to the previous
+      # deployment SHA and list every commit in a multi-commit push (otherwise
+      # the default shallow clone would only expose the latest commit).
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Generate server/version.json before packaging.
-      # The manifest stores the deployed commit SHA, deploy time and the latest
-      # commit log (changelog). It is shipped inside source.tar.gz, extracted on
-      # the server and served by GET /api/system/version so the web frontend can
-      # detect a finished deployment, show an update dialog and auto-refresh.
+      # The manifest stores the deployed commit SHA, deploy time and the commit
+      # logs (changelog) between the previous deployment SHA and the current HEAD.
+      # It is shipped inside source.tar.gz, extracted on the server and served by
+      # GET /api/system/version so the web frontend can detect a finished
+      # deployment, show an update dialog and auto-refresh.
       - name: Generate version manifest
         shell: bash
         run: |
@@ -32,6 +38,7 @@ jobs:
           node - <<'EOF'
           const { execSync } = require('child_process');
           const fs = require('fs');
+          const path = require('path');
           const sha = (process.env.GITHUB_SHA || '').trim();
           const ref = (process.env.GITHUB_REF_NAME || 'main').trim();
           const short = sha ? sha.slice(0, 7) : 'dev';
@@ -42,14 +49,44 @@ jobs:
           } catch (e) {
             console.warn('Failed to read server/package.json: ' + e.message);
           }
+
+          // Locate the previous deployed version.json (if any) to learn the SHA
+          // of the last deployment. We only list commits that are NEW since the
+          // previous deploy, so a push containing multiple commits will show the
+          // entire batch instead of just the latest one (or an arbitrary last 10).
+          let prevSha = '';
+          const prevManifestPath = path.join('server', 'version.json');
+          try {
+            if (fs.existsSync(prevManifestPath)) {
+              const prev = JSON.parse(fs.readFileSync(prevManifestPath, 'utf8'));
+              if (prev && prev.sha) prevSha = prev.sha.trim();
+            }
+          } catch (e) {
+            console.warn('Failed to read previous version.json: ' + e.message);
+          }
+
           let commits = [];
           try {
-            // NOTE: the format string must NOT start with %x1f, otherwise every
-            // line would begin with the separator and produce an extra empty field.
-            const raw = execSync(
-              'git log -10 --pretty=format:%H%x1f%h%x1f%s%x1f%aI%x1f%an',
-              { encoding: 'utf8' }
-            ).toString();
+            // Fetch full history so git log can walk back to the previous SHA
+            // even when the runner did a shallow checkout.
+            execSync('git fetch --unshallow --quiet || git fetch --quiet --depth=1000', { stdio: 'ignore' });
+
+            // Build the revision range. If we know the previous deploy SHA and it
+            // exists in history, list commits from (prevSha, HEAD]; otherwise list
+            // the latest 50 as a sensible fallback.
+            let range = null;
+            if (prevSha) {
+              try {
+                execSync(`git cat-file -e ${prevSha}^{commit}`, { stdio: 'ignore' });
+                range = `${prevSha}..${sha || 'HEAD'}`;
+              } catch (e) {
+                range = null;
+              }
+            }
+            const logCmd = range
+              ? `git log ${range} --pretty=format:%H%x1f%h%x1f%s%x1f%aI%x1f%an`
+              : 'git log -50 --pretty=format:%H%x1f%h%x1f%s%x1f%aI%x1f%an';
+            const raw = execSync(logCmd, { encoding: 'utf8' }).toString();
             commits = raw.split('\n').filter(Boolean).map((line) => {
               const [full, s, subject, date, author] = line.split('\x1f');
               return { sha: full, short: s, message: subject, date, author };
@@ -57,19 +94,42 @@ jobs:
           } catch (e) {
             console.warn('git log failed, changelog will be empty: ' + e.message);
           }
+
+          // Always keep a complete recent-commits list too, so the manual
+          // "view changelog" panel can still show context even if the range is empty.
+          let recent = [];
+          try {
+            const raw = execSync(
+              'git log -20 --pretty=format:%H%x1f%h%x1f%s%x1f%aI%x1f%an',
+              { encoding: 'utf8' }
+            ).toString();
+            recent = raw.split('\n').filter(Boolean).map((line) => {
+              const [full, s, subject, date, author] = line.split('\x1f');
+              return { sha: full, short: s, message: subject, date, author };
+            });
+          } catch (e) {
+            console.warn('git log (recent) failed: ' + e.message);
+          }
+
           const manifest = {
             version,
             sha,
             short,
             ref,
             deployedAt: new Date().toISOString(),
-            message: commits.length ? commits[0].message : '',
+            // message: headline of the latest commit in the deployment batch
+            message: commits.length ? commits[0].message : (recent.length ? recent[0].message : ''),
+            // commits: only the NEW commits since previous deployment (this push batch)
             commits,
+            // recentCommits: always the latest 20, for manual changelog viewing
+            recentCommits: recent,
+            // prevSha: the deployment SHA this batch was built on top of
+            prevSha,
             source: 'github-actions',
           };
           fs.mkdirSync('server', { recursive: true });
           fs.writeFileSync('server/version.json', JSON.stringify(manifest, null, 2));
-          console.log('Generated server/version.json (' + commits.length + ' commits)');
+          console.log('Generated server/version.json (batch=' + commits.length + ', recent=' + recent.length + ')');
           EOF
 
       - name: Package source

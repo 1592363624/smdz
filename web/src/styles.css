@@ -537,9 +537,12 @@ vite-plugin-checker-error-overlay,
   background: rgba(139, 92, 246, 0.1);
 }
 
-/* QQ 绑定区域（玩家可自行绑定/更换QQ号，用于群里机器人身份识别） */
+/* QQ 绑定区域：展示 OpenID 与绑定状态，QQ 号通过群机器人指令绑定 */
 .qq-bind {
   padding: 4px 2px 0;
+}
+.qq-bind .qq-bound-row {
+  margin-top: 4px;
 }
 .qq-bind .qq-bound {
   display: inline-flex;
@@ -548,8 +551,39 @@ vite-plugin-checker-error-overlay,
   font-size: 11px;
   color: var(--muted);
 }
+.qq-bind .openid-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px dashed var(--glass-border);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.qq-bind .openid-row:hover {
+  border-color: var(--accent);
+  background: rgba(139, 92, 246, 0.06);
+}
+.qq-bind .openid-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.qq-bind .openid-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .qq-bind .qq-btn {
-  margin-left: 6px;
+  margin-left: 0;
   padding: 2px 8px;
   font-size: 11px;
   border-radius: 6px;
@@ -563,48 +597,31 @@ vite-plugin-checker-error-overlay,
   background: rgba(139, 92, 246, 0.1);
   color: var(--text);
 }
-.qq-bind .qq-btn.primary {
-  background: var(--accent-gradient);
-  border: none;
-  color: #fff;
-  font-weight: 600;
-}
-.qq-bind .qq-btn.primary:hover {
-  filter: brightness(1.1);
-}
-.qq-bind .qq-btn.primary:disabled {
-  opacity: 0.6;
+.qq-bind .qq-btn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
-.qq-bind .qq-bind-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.qq-bind .bind-cmd {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(18, 183, 245, 0.1);
+  color: #12b7f5;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  word-break: break-all;
 }
-.qq-bind .qq-input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
-  font-size: 12px;
-  border-radius: 6px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text);
-}
-.qq-bind .qq-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-.qq-bind .qq-error {
+.qq-bind .copy-tip {
   margin-top: 4px;
   font-size: 11px;
-  color: #ef4444;
+  color: #10b981;
 }
 .qq-bind .qq-tip {
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 11px;
   color: var(--muted);
-  line-height: 1.4;
+  line-height: 1.5;
 }
 .qq-bind .qq-tip.warn {
   color: #f59e0b;
@@ -1094,6 +1111,12 @@ vite-plugin-checker-error-overlay,
   background: var(--glass-border);
   color: var(--muted);
   white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.version-tag:hover {
+  color: #fff;
+  background: var(--accent);
 }
 
 /* ===== 消息列表 ===== */

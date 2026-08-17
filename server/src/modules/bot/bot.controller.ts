@@ -21,11 +21,15 @@ import {
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { GlobalConfig } from '../../config/global.config';
 import { BotService } from './bot.service';
+import { UsersService } from '../users/users.service';
 
 @ApiTags('AstrBot机器人对接')
 @Controller('bot')
 export class BotController {
-  constructor(private readonly botService: BotService) {}
+  constructor(
+    private readonly botService: BotService,
+    private readonly usersService: UsersService,
+  ) {}
 
   /**
    * 机器人指令入口
@@ -56,5 +60,29 @@ export class BotController {
       channelName: body.channelName,
     });
     return { success: true, data: result };
+  }
+
+  /**
+   * 插件端 QQ 号绑定入口
+   * 用户在 QQ 群中发送"使魔大战绑定QQ <OpenID>"，插件从消息事件中获取发送者 QQ 号，
+   * 并携带 OpenID 调用本接口完成绑定。QQ 号来自 AstrBot 事件，避免网页端手动填写他人 QQ 号。
+   */
+  @Post('bind-qq')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '插件端通过 OpenID 绑定用户真实QQ号' })
+  @ApiHeader({
+    name: 'x-bot-token',
+    description: '机器人访问令牌(与BOT_ACCESS_TOKEN一致)',
+    required: true,
+  })
+  async bindQQ(
+    @Headers('x-bot-token') token: string,
+    @Body() body: { externalId: string; qqNumber: string },
+  ) {
+    if (token !== GlobalConfig.getInstance().botAccessToken) {
+      throw new HttpException('访问令牌无效', HttpStatus.UNAUTHORIZED);
+    }
+    const user = await this.usersService.bindQQByExternalId(body.externalId, body.qqNumber);
+    return { success: true, data: user };
   }
 }

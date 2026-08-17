@@ -124,8 +124,8 @@ export class CommandService {
                 if (gatherResult && gatherResult.success) {
                   gatherResult.durationMs = Date.now() - start;
                   await this.recordLog(ctx, commandName, gatherResult);
-                  // 采集成功会改变玩家状态，实时推送刷新网页玩家面板
-                  await this.gameService.pushPlayerUpdate(ctx.userId);
+                  // 采集成功会改变玩家/地图状态，实时推送刷新网页面板
+                  await this.pushState(ctx.userId);
                   return gatherResult;
                 }
               } catch (e) {
@@ -184,10 +184,8 @@ export class CommandService {
             if (gatherResult && gatherResult.success) {
               gatherResult.durationMs = Date.now() - start;
               await this.recordLog(ctx, commandName, gatherResult);
-              // 采集成功刷新玩家面板（存在用户上下文时才推送）
-              if (ctx.userId) {
-                await this.gameService.pushPlayerUpdate(ctx.userId);
-              }
+              // 采集成功会改变玩家/地图状态，实时推送刷新网页面板
+              await this.pushState(ctx.userId);
               return gatherResult;
             }
           } catch (e) {
@@ -246,10 +244,8 @@ export class CommandService {
       // 7. 记录指令执行日志
       await this.recordLog(ctx, commandName, result);
 
-      // 7.1 指令执行后实时推送玩家状态到前端 socket（打怪掉血/加经验/升级/装备等变化即时体现在网页面板）
-      if (ctx.userId) {
-        await this.gameService.pushPlayerUpdate(ctx.userId);
-      }
+      // 7.1 指令执行后实时推送玩家/地图状态到前端 socket（打怪掉血/加经验/升级/装备/移动采集等变化即时体现在网页面板）
+      await this.pushState(ctx.userId);
 
       return result;
     } catch (err: any) {
@@ -260,6 +256,22 @@ export class CommandService {
         broadcast: false,
         durationMs: Date.now() - start,
       };
+    }
+  }
+
+  /**
+   * 指令执行成功后，向该用户前端做一次全量状态推送
+   * 同时刷新玩家面板(player:update) 和 地图面板+附近玩家(map:update)，
+   * 使打怪/采集/移动等产生的数值变化立即体现在网页上，无需手动刷新。
+   * @param userId 用户ID
+   */
+  private async pushState(userId?: number): Promise<void> {
+    if (!userId) return;
+    try {
+      await this.gameService.pushPlayerUpdate(userId);
+      await this.gameService.pushMapUpdate(userId);
+    } catch (e: any) {
+      this.logger.warn(`指令后推送玩家状态失败: ${e.message}`);
     }
   }
 

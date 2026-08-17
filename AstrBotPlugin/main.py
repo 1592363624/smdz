@@ -117,6 +117,77 @@ class SmdzBridgePlugin(Star):
 
         return "游戏指令执行失败，请检查指令是否正确。"
 
+    def _extract_bind_openid(self, text: str) -> str:
+        """检测是否为 QQ 绑定指令，并提取 OpenID。
+
+        支持的格式：
+        - 使魔大战绑定QQ <openid>
+        - smdz绑定QQ <openid>
+        - 绑定QQ <openid>
+
+        Args:
+            text: 用户发送的原始消息。
+
+        Returns:
+            提取到的 openid；若不是绑定指令或格式错误则返回空字符串。
+        """
+        text = text.strip()
+        prefixes = ("使魔大战绑定QQ", "smdz绑定QQ", "绑定QQ")
+        for prefix in prefixes:
+            # 支持有无空格分隔
+            if text.startswith(prefix):
+                rest = text[len(prefix):].strip()
+                return rest
+        return ""
+
+    async def _bind_qq(self, qq_id: str, openid: str) -> str:
+        """调用游戏后端绑定接口，将发送者 QQ 号与网页账号（openid）绑定。
+
+        Args:
+            qq_id: 消息来源 QQ 号（ AstrBot 从事件中自动获取）。
+            openid: 用户在网页端复制的 OpenID。
+
+        Returns:
+            绑定结果提示文本。
+        """
+        url = f"{self.server_url}/api/bot/bind-qq"
+        headers = {
+            "x-bot-token": self.bot_access_token,
+            "Content-Type": "application/json",
+        }
+        payload = {"externalId": openid, "qqNumber": qq_id}
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, json=payload, headers=headers, timeout=self.timeout
+                ) as resp:
+                    if resp.status < 200 or resp.status >= 300:
+                        body = await resp.text()
+                        logger.error(
+                            f"[使魔大战3桥接] 绑定QQ返回状态 {resp.status}: {body}"
+                        )
+                        return f"绑定失败（HTTP {resp.status}），请稍后再试。"
+                    data = await resp.json()
+        except aiohttp.ClientConnectorError as exc:
+            logger.error(f"[使魔大战3桥接] 无法连接游戏服务: {exc}")
+            return "无法连接游戏服务，请确认后端已启动且服务地址配置正确。"
+        except asyncio.TimeoutError:
+            logger.error("[使魔大战3桥接] 请求游戏服务超时")
+            return "游戏服务响应超时，请稍后再试。"
+
+        if data.get("success"):
+            user = data.get("data") or {}
+            nickname = user.get("nickname") or user.get("username") or "玩家"
+            return (
+                f"✅ 绑定成功！\n"
+                f"网页账号：{nickname}\n"
+                f"绑定QQ：{qq_id}\n"
+                f"现在可以在本群使用游戏指令了。"
+            )
+
+        return f"绑定失败：{data.get('message', '未知错误')}"
+
     def _extract_game_command(self, text: str) -> str:
         """从原始消息中剥离触发指令前缀，返回真正要转发的游戏指令。
 
@@ -227,6 +298,21 @@ class SmdzBridgePlugin(Star):
                 )
                 event.stop_event()
                 return
+
+        # 优先处理 QQ 号绑定指令：用户在网页端复制 OpenID，在群里发送绑定指令，
+        # 插件从消息事件中自动获取发送者 QQ 号，调用后端完成绑定。
+        # 放在触发词剥离之后，因此支持 "绑定QQ <openid>" 或 "/smdz 绑定QQ <openid>" 两种形式。
+        openid = self._extract_bind_openid(game_command)
+        if openid:
+            qq_id = event.get_sender_id()
+            if not openid.isalnum() or len(openid) < 16:
+                yield event.plain_result("OpenID 格式不正确，请从网页端复制完整的 OpenID 后重试。")
+                event.stop_event()
+                return
+            content = await self._bind_qq(qq_id, openid)
+            yield event.plain_result(content)
+            event.stop_event()
+            return
 
         qq_id = event.get_sender_id()
         content = await self._forward_to_game(qq_id, game_command)

@@ -330,6 +330,23 @@ export class GameService {
   }
 
   /**
+   * 定向推送地图总览到该用户的前端 socket（触发网页地图面板 + 附近玩家实时刷新）
+   * 在指令执行（攻击/采集/移动等，会让怪物HP、资源数量、所在地图/附近玩家变化）后调用。
+   * 前端收到 map:update 后会自动重载附近玩家列表，因此一并覆盖"附近玩家"。
+   * @param userId 用户ID
+   */
+  async pushMapUpdate(userId: number): Promise<void> {
+    try {
+      const overview = await this.getMapOverview(userId);
+      if (overview) {
+        this.chatService.emitToUser(userId, 'map:update', { overview });
+      }
+    } catch (e: any) {
+      this.logger.warn(`推送玩家 ${userId} 地图面板更新失败: ${e.message}`);
+    }
+  }
+
+  /**
    * 获取地图总览数据（供网页左上角地图面板使用）
    * 包含：当前所在地图详情（怪物/资源/NPC等子区域信息）、可前往子区域、以及全部地图列表
    * @param userId 用户ID

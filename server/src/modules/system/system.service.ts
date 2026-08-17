@@ -26,7 +26,10 @@ export class SystemService {
 
   /**
    * 获取部署版本信息与更新检测配置
-   * @returns {object} 含 version/sha/short/ref/deployedAt/message/commits + settings
+   * @returns {object} 含 version/sha/short/ref/deployedAt/message/commits/recentCommits/prevSha + settings
+   *   - commits: 本次部署相对上次部署新增的 commit（即本次 push 的一整批）
+   *   - recentCommits: 始终保留的最近 20 条（用于手动点击版本号查看更新记录）
+   *   - prevSha: 本次部署所基于的上次部署 SHA
    */
   async getDeployInfo() {
     const manifest = this.readVersionManifest();
@@ -63,6 +66,8 @@ export class SystemService {
         deployedAt: null,
         message: '',
         commits: [],
+        recentCommits: [],
+        prevSha: '',
         source: 'local',
       };
     }

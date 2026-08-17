@@ -1982,76 +1982,230 @@ export class ItemSystemService {
   }
 
   /**
-   * 生成装备（简化版）
-   * 对应原版：生成装备()
-   * 根据名称和品质参数生成装备物品
+   * 中文词条名 → 英文 BonusData 键 映射
+   * 对齐原版《词条转换》(物品操作.ecode L1849-1992) 的每个 case 写入的 z.加成.xxx 字段。
+   * 原版用中文语义字段名(护盾/装甲/生命...)，运行时 BonusData 用英文键，此处做桥接。
+   */
+  private static readonly AFFIX_TO_BONUS: Record<string, string> = {
+    护盾: 'shield', 装甲: 'armor', 生命: 'hp',
+    生命全抗: 'hpAllRes', 装甲全抗: 'armorAllRes', 护盾全抗: 'shieldAllRes',
+    物攻: 'physDmg', 电攻: 'elecDmg', 火攻: 'fireDmg', 冰攻: 'iceDmg', 攻击: 'attack',
+    暴击: 'crit',
+    生命物抗: 'hpPhysRes', 生命火抗: 'hpFireRes', 生命冰抗: 'hpIceRes', 生命电抗: 'hpElecRes',
+    装甲物抗: 'armorPhysRes', 装甲火抗: 'armorFireRes', 装甲冰抗: 'armorIceRes', 装甲电抗: 'armorElecRes',
+    护盾物抗: 'shieldPhysRes', 护盾火抗: 'shieldFireRes', 护盾冰抗: 'shieldIceRes', 护盾电抗: 'shieldElecRes',
+    速度: 'speed', 命中: 'hit', 闪避: 'dodge',
+    掉落率: 'dropRate', 掉落数量: 'dropQuality', 采集: 'gather',
+    护盾回复: 'shieldRegen', 装甲修复: 'armorRegen', 生命恢复: 'hpRegen',
+    韧性: 'tenacity', 暴击伤害: 'critDmg', 魅力: 'charm',
+  };
+
+  /**
+   * 随机文本：从逗号分隔的候选串中随机取一个（对齐原版 随机文本()）
+   */
+  private randomText(candidates: string): string {
+    const arr = candidates.split('，').map((s) => s.trim()).filter(Boolean);
+    if (arr.length === 0) return '';
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  /**
+   * 词条转换（深度还原 物品操作.ecode L1838-1996）
+   * 对应原版子程序 词条转换(z, 词条, 倍率, 下限增加, 上限增加)：
+   * 按词条名随机出 [下限, 上限]×倍率 区间内的数值，写入 bonus 对应英文键。
+   * 下限增加/上限增加 入参为"百分比×100"（如品质下限0.1→传10），方法内 /100 还原。
+   *
+   * @param bonus 累加写入的加成对象（英文键）
+   * @param affix 中文词条名
+   * @param mult 品质词条倍率（e=1/d=2/c=3/b=4/a=6/s=9/神迹=12）
+   * @param lowerIncPct 下限增加（已×100），默认 10
+   * @param upperIncPct 上限增加（已×100），默认 10
+   */
+  private rollAffix(
+    bonus: Record<string, number>,
+    affix: string,
+    mult: number,
+    lowerIncPct = 10,
+    upperIncPct = 10,
+  ): void {
+    const lowerInc = lowerIncPct / 100;
+    const upperInc = upperIncPct / 100;
+    const key = ItemSystemService.AFFIX_TO_BONUS[affix];
+    if (!key) {
+      // 原版默认分支：记录错误（无法识别的装备词条）
+      this.logger.warn(`无法识别的装备词条【${affix}】`);
+      return;
+    }
+    // 原版公式统一形式：0.01 * 取随机数((baseLo + baseLo*下限增加)*倍率, (baseHi + baseHi*上限增加)*倍率)
+    const roll = (baseLo: number, baseHi: number): number => {
+      const lo = (baseLo + baseLo * lowerInc) * mult;
+      const hi = (baseHi + baseHi * upperInc) * mult;
+      // 取随机整数 [lo, hi] 并 /100（原版 0.01*取随机数）
+      return (0.01 * Math.floor(lo + Math.random() * (hi - lo + 1)));
+    };
+    // 各词条区间严格对齐原版 L1849-1992
+    switch (affix) {
+      case '护盾': case '装甲': case '生命':
+        bonus[key] = roll(500, 1000); break;
+      case '生命全抗': bonus[key] = roll(50, 125); break;
+      case '装甲全抗': bonus[key] = roll(50, 112.5); break;
+      case '护盾全抗': bonus[key] = roll(50, 100); break;
+      case '物攻': case '电攻': case '火攻': case '冰攻':
+        bonus[key] = roll(400, 800); break;
+      case '攻击': bonus[key] = roll(300, 600); break;
+      case '暴击': bonus[key] = roll(50, 120); break;
+      case '生命物抗': case '生命火抗': case '生命冰抗': case '生命电抗':
+        bonus[key] = roll(200, 500); break;
+      case '装甲物抗': case '装甲火抗': case '装甲冰抗': case '装甲电抗':
+        bonus[key] = roll(200, 450); break;
+      case '护盾物抗': case '护盾火抗': case '护盾冰抗': case '护盾电抗':
+        bonus[key] = roll(200, 400); break;
+      case '速度': case '命中': case '闪避': bonus[key] = roll(300, 600); break;
+      case '掉落率': bonus[key] = roll(100, 200); break;
+      case '掉落数量': bonus[key] = roll(200, 400); break; // 原版写入 掉落品质
+      case '采集': bonus[key] = roll(400, 800); break;     // 原版写入 掉落率
+      case '护盾回复': case '装甲修复': case '生命恢复': bonus[key] = roll(100, 800); break;
+      case '韧性': bonus[key] = roll(50, 120); break;
+      case '暴击伤害': bonus[key] = roll(100, 240); break;
+      case '魅力': bonus[key] = roll(40, 100); break;
+      default:
+        this.logger.warn(`无法识别的装备词条【${affix}】`);
+    }
+  }
+
+  /**
+   * 生成装备（深度还原 物品操作.ecode L1128-1261）
+   * 对应原版子程序 生成装备(名称, 品质, 传说率, 品质上限, 加成文本, 品质下限, 不生成特效)：
+   * 1) 品质随机（传说率偏移）
+   * 2) 从装备模板取基础加成(中文键→英文键) + 按词条数组逐条随机展开→词条转换
+   * 3) 特效生成（武器/装备区分、必出特效/15%几率）
+   * 4) 序列化：品质 + 加成转数据 + !bx特效
+   *
+   * @param name 装备名称
+   * @param quality 品质(e/d/c/b/a/s)，空则随机
+   * @param legendaryRate 传说率偏移(0~100)
+   * @param qualityUpper 品质上限(0~1) 默认0.1
+   * @param bonusText 加成文本(以@@开头则追加制造者)
+   * @param qualityLower 品质下限(0~1) 默认0.1
+   * @param noEffect 不生成特效
    */
   private async generateEquipment(
     name: string,
     quality?: string,
     legendaryRate?: number,
+    qualityUpper = 0.1,
+    bonusText?: string,
+    qualityLower = 0.1,
+    noEffect = false,
   ): Promise<Item3> {
-    // 从静态配置获取装备定义（JSON 单一来源）
     const gameEquip = this.staticData.getEquipmentByName(name);
 
-    const item: Item3 = {
-      name,
-      type: '装备',
-      quantity: 1,
-      durability: 0,
-      data: '',
-    };
+    const item: Item3 = { name, type: '装备', quantity: 1, durability: 0, data: '' };
 
-    // 确定品质
-    let qualityPrefix = quality || 'e';
-    if (!quality) {
-      const rand = Math.random() * 100;
+    // ---- 1) 品质随机（原版 L1144-1160）----
+    let q = quality || '';
+    if (q === '') {
+      const a = Math.floor(Math.random() * 100) + 1; // 取随机数(1,100)
       const rate = legendaryRate || 0;
-      if (rand > 92 - rate) qualityPrefix = 's';
-      else if (rand >= 82 - rate) qualityPrefix = 'a';
-      else if (rand >= 72 - rate) qualityPrefix = 'b';
-      else if (rand >= 42 - rate) qualityPrefix = 'c';
-      else if (rand >= 18 - rate) qualityPrefix = 'd';
-      else qualityPrefix = 'e';
+      if (a > 92 - rate) q = 's';
+      else if (a >= 82 - rate) q = 'a';
+      else if (a >= 72 - rate) q = 'b';
+      else if (a >= 42 - rate) q = 'c';
+      else if (a >= 18 - rate) q = 'd';
+      else q = 'e';
     }
 
-    // 构建装备数据
+    // ---- 2) 基础加成：模板 bonus(中文键JSON) → 英文键 BonusData ----
     const bonus: Record<string, number> = {};
     if (gameEquip?.bonus) {
       try {
-        const parsed = JSON.parse(gameEquip.bonus);
-        Object.assign(bonus, parsed);
+        const parsed = JSON.parse(gameEquip.bonus); // 中文键 JSON
+        for (const [cnKey, val] of Object.entries(parsed)) {
+          const enKey = ItemSystemService.AFFIX_TO_BONUS[cnKey] || cnKey;
+          bonus[enKey] = Number(val) || 0;
+        }
       } catch { /* ignore */ }
     }
 
-    // 根据品质倍率调整属性
-    const qualityMultiplier: Record<string, number> = {
-      e: 1, d: 2, c: 3, b: 4, a: 6, s: 9,
-    };
-    const multiplier = qualityMultiplier[qualityPrefix] || 1;
-    for (const key of Object.keys(bonus)) {
-      bonus[key] = Math.round((bonus[key] || 0) * multiplier * 100) / 100;
+    // 词条倍率（原版 L1174-1188）
+    const qualityMult: Record<string, number> = { e: 1, d: 2, c: 3, b: 4, a: 6, s: 9 };
+    let affixMult = qualityMult[q] || 1;
+    const templateAffixes: string[] = [];
+    if (gameEquip?.affixes) {
+      try { templateAffixes.push(...JSON.parse(gameEquip.affixes)); } catch { /* ignore */ }
+    }
+    if (q === '' ) { // 神迹（默认分支，原版未指定字符时）
+      affixMult = 12;
+      if (templateAffixes.length < 5) templateAffixes.push('随机攻击');
     }
 
-    let data = qualityPrefix;
-    for (const [key, value] of Object.entries(bonus)) {
-      if (value !== 0) {
-        // 查找对应的编码前缀
-        const code = Object.entries(BONUS_CODE_MAP).find(([_, v]) => v === key)?.[0];
-        if (code) {
-          data += `!${code}${value}`;
+    // ---- 3) 词条循环：随机展开 + 去重 + 词条转换（原版 L1193-1227）----
+    let usedAffixes = '';
+    for (const rawAffix of templateAffixes) {
+      if (!rawAffix || rawAffix.trim() === '') continue; // 删全部空 后为空则跳过
+      let affix = rawAffix;
+      // 随机词条展开（原版 L1197-1211）
+      switch (affix) {
+        case '随机护盾': affix = this.randomText('护盾,攻击,物攻,冰攻,火攻,电攻,护盾全抗,护盾物抗,护盾冰抗,护盾火抗,护盾电抗,护盾回复'); break;
+        case '随机装甲': affix = this.randomText('装甲,攻击,物攻,冰攻,火攻,电攻,装甲全抗,装甲物抗,装甲冰抗,装甲火抗,装甲电抗,装甲修复'); break;
+        case '随机生命': affix = this.randomText('生命,攻击,物攻,冰攻,火攻,电攻,生命全抗,生命物抗,生命冰抗,生命火抗,生命电抗,生命恢复'); break;
+        case '随机攻击': affix = this.randomText('护盾,装甲,生命,攻击,物攻,冰攻,火攻,电攻,生命全抗,装甲全抗,护盾全抗,速度,命中,闪避'); break;
+        case '随机防御': affix = this.randomText('护盾,装甲,生命,生命全抗,护盾全抗,装甲全抗,生命物抗,生命冰抗,生命火抗,生命电抗,装甲物抗,装甲冰抗,装甲火抗,装甲电抗,护盾物抗,护盾冰抗,护盾火抗,护盾电抗,闪避,护盾回复,装甲修复,生命恢复'); break;
+        case '随机特殊': affix = this.randomText('暴击,速度,命中,闪避,掉落率,掉落数量,韧性,魅力'); break;
+        default: affix = rawAffix; // 已是具体词条名
+      }
+      // 去重（原版 L1213-1225）：用 "1"+词条+"1" 拼接检查是否已存在
+      if (usedAffixes !== '') {
+        let guard = 0;
+        while (usedAffixes.includes('1' + affix + '1') && guard < 1000) {
+          affix = this.randomText(this.affixCandidateFor(rawAffix));
+          guard++;
         }
+      }
+      usedAffixes += '1' + affix + '1';
+      this.rollAffix(bonus, affix, affixMult, qualityLower * 100, qualityUpper * 100);
+    }
+
+    // ---- 4) 特效生成（原版 L1230-1253）----
+    let effect = 0;
+    if (!noEffect) {
+      const isWeapon = (gameEquip?.specialSeq ?? 0) !== 0 || (gameEquip?.equipType || '').includes('武器');
+      const forced = gameEquip?.forcedEffect === true || gameEquip?.forcedEffect === 'true';
+      const effectCount = 50; // 武器特效/装备特效 数量上限（原版 取数组成员数，此处取常量上限）
+      if (isWeapon) {
+        if (forced) effect = Math.floor(Math.random() * effectCount) + 1;
+        else if (Math.random() < 0.15) effect = Math.floor(Math.random() * effectCount) + 1;
+      } else {
+        if (forced) effect = Math.floor(Math.random() * effectCount) + 1;
+        else if (Math.random() < 0.15) effect = Math.floor(Math.random() * effectCount) + 1;
       }
     }
 
-    // 随机特效
-    const hasEffect = Math.random() < 0.15;
-    if (hasEffect) {
-      const effectId = Math.floor(Math.random() * 50) + 1;
-      data += `!bx${effectId}`;
+    // ---- 5) 序列化（原版 L1254-1259）----
+    let data = q;
+    if (bonusText && bonusText.startsWith('@@')) {
+      data += '!' + bonusText + this.itemService.bonusToDataString(bonus) + '!bx' + effect;
+    } else {
+      data += this.itemService.bonusToDataString(bonus) + '!bx' + effect;
     }
+    data = data.replace('!!', '!'); // 原版 子文本替换(!! → !)
 
     item.data = data;
     return item;
+  }
+
+  /**
+   * 词条去重时重新随机的候选串（对齐原版 随机词条 展开映射，L1197-1208）
+   */
+  private affixCandidateFor(rawAffix: string): string {
+    switch (rawAffix) {
+      case '随机护盾': return '护盾,攻击,物攻,冰攻,火攻,电攻,护盾全抗,护盾物抗,护盾冰抗,护盾火抗,护盾电抗,护盾回复';
+      case '随机装甲': return '装甲,攻击,物攻,冰攻,火攻,电攻,装甲全抗,装甲物抗,装甲冰抗,装甲火抗,装甲电抗,装甲修复';
+      case '随机生命': return '生命,攻击,物攻,冰攻,火攻,电攻,生命全抗,生命物抗,生命冰抗,生命火抗,生命电抗,生命恢复';
+      case '随机攻击': return '护盾,装甲,生命,攻击,物攻,冰攻,火攻,电攻,生命全抗,装甲全抗,护盾全抗,速度,命中,闪避';
+      case '随机防御': return '护盾,装甲,生命,生命全抗,护盾全抗,装甲全抗,生命物抗,生命冰抗,生命火抗,生命电抗,装甲物抗,装甲冰抗,装甲火抗,装甲电抗,护盾物抗,护盾冰抗,护盾火抗,护盾电抗,闪避,护盾回复,装甲修复,生命恢复';
+      case '随机特殊': return '暴击,速度,命中,闪避,掉落率,掉落数量,韧性,魅力';
+      default: return rawAffix;
+    }
   }
 }

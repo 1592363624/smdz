@@ -35,15 +35,12 @@ http.interceptors.response.use(
 );
 
 /// 认证接口
-export const authApi = {
-  register: (data) => http.post('/auth/register', data),
-  login: (data) => http.post('/auth/login', data),
-};
+/// 注：登录仅通过 QQ 互联完成，前端不再调用用户名+密码的自注册/自登录接口。
+export const authApi = {};
 
 /// 用户接口
 export const userApi = {
   me: () => http.get('/users/me'),
-  bindQQ: (qqNumber) => http.post('/users/bind-qq', { qqNumber }),
   updateNickname: (nickname) => http.post('/users/nickname', { nickname }),
 };
 

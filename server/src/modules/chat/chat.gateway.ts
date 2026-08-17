@@ -104,6 +104,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       }
       // 记录在线状态
       this.statsService.userOnline(payload.userId);
+      // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新
+      this.refreshStatsBroadcast();
       this.logger.log(`用户 ${payload.username}(id=${payload.userId}) 已连接并加入频道「${channel.name}」`);
 
       // 通知客户端连接成功
@@ -130,9 +132,24 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const user = client.data?.user as SocketUser | undefined;
     if (user) {
       this.statsService.userOffline(user.userId);
+      // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新
+      this.refreshStatsBroadcast();
       this.logger.log(`用户 ${user.username}(id=${user.userId}) 断开连接`);
     } else {
       this.logger.log(`客户端断开: ${client.id}`);
+    }
+  }
+
+  /**
+   * 重新统计并广播"服务器统计"（总玩家数/在线人数）到所有客户端
+   * 在用户上线/离线时调用，让网页左下角统计即时变化，无需手动刷新
+   */
+  private async refreshStatsBroadcast(): Promise<void> {
+    try {
+      const stats = await this.statsService.getStats();
+      this.server.emit('stats:update', stats);
+    } catch (e: any) {
+      this.logger.warn(`广播服务器统计失败: ${e.message}`);
     }
   }
 

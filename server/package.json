@@ -15,7 +15,9 @@
     "seed:data": "ts-node prisma/seed-data.ts",
     "seed:import-all": "ts-node prisma/seed-import-all.ts",
     "seed:all": "ts-node prisma/seed.ts && ts-node prisma/seed-data.ts && ts-node prisma/seed-import-all.ts && ts-node prisma/migrate-player-tasks.ts",
-    "migrate:tasks": "ts-node prisma/migrate-player-tasks.ts"
+    "migrate:tasks": "ts-node prisma/migrate-player-tasks.ts",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
@@ -48,11 +50,14 @@
     "@nestjs/schematics": "^10.2.3",
     "@types/bcrypt": "^5.0.2",
     "@types/express": "^5.0.0",
+    "@types/jest": "^29.5.14",
     "@types/multer": "^2.2.0",
     "@types/node": "^22.10.2",
     "@types/passport-jwt": "^4.0.1",
+    "jest": "^29.7.0",
     "prisma": "^5.22.0",
     "socket.io-client": "^4.8.3",
+    "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   }

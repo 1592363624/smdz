@@ -25,7 +25,7 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
-  // 全局接口前缀，便于统一路由，如 /api/auth/login
+  // 全局接口前缀，便于统一路由，如 /api/auth/qq/login
   app.setGlobalPrefix('api');
 
   // 全局参数校验管道（配合 class-validator 使用）

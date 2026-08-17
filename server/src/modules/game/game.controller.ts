@@ -130,8 +130,9 @@ export class GameController {
         }
     }
 
-    // 执行动作后实时推送玩家状态到前端 socket，保证快捷按钮（攻击等）也能即时刷新面板
+    // 执行动作后实时推送玩家/地图状态到前端 socket，保证快捷按钮操作即时刷新页面
     await this.gameService.pushPlayerUpdate(userId);
+    await this.gameService.pushMapUpdate(userId);
 
     return { success: true, data: { result } };
   }

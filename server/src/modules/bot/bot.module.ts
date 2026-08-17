@@ -9,11 +9,12 @@
 
 import { Module } from '@nestjs/common';
 import { CommandModule } from '../command/command.module';
+import { UsersModule } from '../users/users.module';
 import { BotController } from './bot.controller';
 import { BotService } from './bot.service';
 
 @Module({
-  imports: [CommandModule],
+  imports: [CommandModule, UsersModule],
   providers: [BotService],
   controllers: [BotController],
 })

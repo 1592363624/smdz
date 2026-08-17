@@ -27,23 +27,24 @@
           <span v-if="isAdmin" class="admin-badge">ADMIN</span>
         </div>
 
-        <!-- QQ 绑定区域：玩家自行绑定/更换QQ号，供群里机器人识别身份 -->
+        <!-- QQ 绑定区域：仅展示 OpenID 与绑定状态，手动输入已取消 -->
         <div class="qq-bind">
-          <!-- 已绑定真实QQ号（5-12位数字）：直接展示 -->
-          <template v-if="user?.qqNumber && !qqBinding && !isLegacyQqBind">
-            <span class="qq-bound">✅ QQ {{ user.qqNumber }}</span>
-            <button class="qq-btn" @click="openQQBind">换绑</button>
-          </template>
-          <!-- 未绑定 / 旧版绑定(openid)：展示绑定输入框 -->
-          <template v-else>
-            <div class="qq-bind-row">
-              <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
-              <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
-            </div>
-            <div v-if="qqError" class="qq-error">{{ qqError }}</div>
-            <div v-else-if="isLegacyQqBind" class="qq-tip warn">当前绑定为旧版QQ互联标识，与群机器人无法匹配，请换绑为真实QQ号</div>
-            <div v-else class="qq-tip">绑后可用 QQ 群机器人操作本账号</div>
-          </template>
+          <!-- OpenID 展示与复制 -->
+          <div class="openid-row" @click="copyOpenId">
+            <span class="openid-label">OpenID</span>
+            <span class="openid-value" :title="user?.externalId || '未登录'">{{ maskedOpenId }}</span>
+            <button class="qq-btn" :disabled="!user?.externalId" title="点击复制 OpenID">📋</button>
+          </div>
+          <!-- 已绑定真实QQ号 -->
+          <div v-if="user?.qqNumber && !isLegacyQqBind" class="qq-bound-row">
+            <span class="qq-bound">✅ 已绑定 QQ {{ user.qqNumber }}</span>
+          </div>
+          <!-- 未绑定 -->
+          <div v-else class="qq-tip">
+            请在 QQ 群中发送：<br/>
+            <code class="bind-cmd">使魔大战绑定QQ {{ user?.externalId || '你的OpenID' }}</code>
+          </div>
+          <div v-if="copyTip" class="copy-tip">{{ copyTip }}</div>
         </div>
       </div>
 
@@ -252,21 +253,19 @@
         </div>
 
         <div class="qq-bind">
-          <!-- 已绑定真实QQ号（5-12位数字）：直接展示 -->
-          <template v-if="user?.qqNumber && !qqBinding && !isLegacyQqBind">
-            <span class="qq-bound">✅ QQ {{ user.qqNumber }}</span>
-            <button class="qq-btn" @click="openQQBind">换绑</button>
-          </template>
-          <!-- 未绑定 / 旧版绑定(openid)：展示绑定输入框 -->
-          <template v-else>
-            <div class="qq-bind-row">
-              <input v-model="qqInput" class="qq-input" placeholder="输入你的QQ号" maxlength="12" @keyup.enter="bindQQ" />
-              <button class="qq-btn primary" :disabled="qqBusy" @click="bindQQ">{{ qqBusy ? '…' : (user?.qqNumber ? '保存' : '绑定') }}</button>
-            </div>
-            <div v-if="qqError" class="qq-error">{{ qqError }}</div>
-            <div v-else-if="isLegacyQqBind" class="qq-tip warn">当前绑定为旧版QQ互联标识，与群机器人无法匹配，请换绑为真实QQ号</div>
-            <div v-else class="qq-tip">绑后可用 QQ 群机器人操作本账号</div>
-          </template>
+          <div class="openid-row" @click="copyOpenId">
+            <span class="openid-label">OpenID</span>
+            <span class="openid-value" :title="user?.externalId || '未登录'">{{ maskedOpenId }}</span>
+            <button class="qq-btn" :disabled="!user?.externalId" title="点击复制 OpenID">📋</button>
+          </div>
+          <div v-if="user?.qqNumber && !isLegacyQqBind" class="qq-bound-row">
+            <span class="qq-bound">✅ 已绑定 QQ {{ user.qqNumber }}</span>
+          </div>
+          <div v-else class="qq-tip">
+            请在 QQ 群中发送：<br/>
+            <code class="bind-cmd">使魔大战绑定QQ {{ user?.externalId || '你的OpenID' }}</code>
+          </div>
+          <div v-if="copyTip" class="copy-tip">{{ copyTip }}</div>
         </div>
       </div>
 
@@ -433,7 +432,7 @@
         </button>
         <h2>💬 {{ channel?.name || '世界频道' }}</h2>
         <div class="header-right">
-          <span class="version-tag" title="当前版本">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
+          <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
           <!-- 私聊入口按钮（带未读红点） -->
           <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
             💬 私聊
@@ -783,33 +782,49 @@
       </transition-group>
     </div>
 
-    <!-- 部署更新提示弹窗：检测到服务器有新版本部署后主动弹出，展示更新日志并自动刷新 -->
+    <!-- 部署更新提示弹窗：检测到服务器有新版本部署后主动弹出，或点击版本号手动查看 -->
     <div v-if="updateModal.show" class="update-modal-overlay" @click.self="dismissUpdate">
       <div class="update-modal">
         <header class="um-header">
-          <h3>✨ 游戏更新完成</h3>
+          <h3>{{ updateModal.manual ? '📜 更新记录' : '✨ 游戏更新完成' }}</h3>
           <span class="um-version">v{{ APP_VERSION }} · #{{ updateModal.short }}</span>
         </header>
         <div class="um-body">
           <div class="um-meta">
             <span v-if="updateModal.deployedAt" class="um-meta-item">🕒 {{ formatDeployTime(updateModal.deployedAt) }}</span>
             <span v-if="updateModal.ref" class="um-meta-item">🌿 {{ updateModal.ref }}</span>
+            <span v-if="updateModal.manual" class="um-meta-item um-meta-manual">👆 手动查看</span>
           </div>
           <div class="um-log">
-            <div class="um-log-title">📋 本次更新日志</div>
+            <div class="um-log-title">📋 本次更新日志（相对上次部署新增 {{ (updateModal.commits || []).length }} 条提交）</div>
             <ul class="um-log-list">
               <li v-for="c in updateModal.commits || []" :key="c.sha || c.short">
                 <span class="um-log-short">{{ c.short }}</span>
                 <span class="um-log-msg">{{ c.message }}</span>
+                <span v-if="c.author" class="um-log-author">{{ c.author }}</span>
+                <span v-if="c.date" class="um-log-date">{{ formatDeployTime(c.date) }}</span>
               </li>
             </ul>
-            <div v-if="!updateModal.commits || !updateModal.commits.length" class="um-log-empty">暂无详细更新日志</div>
+            <div v-if="!updateModal.commits || !updateModal.commits.length" class="um-log-empty">本次部署未解析到新增提交，展示最近提交：</div>
+          </div>
+          <!-- 最近提交：手动查看模式或本次批次为空时展示，便于他人追溯 -->
+          <div class="um-log">
+            <div class="um-log-title">🕘 最近提交</div>
+            <ul class="um-log-list">
+              <li v-for="c in (updateModal.commits && updateModal.commits.length ? [] : (updateModal.recentCommits || []))" :key="c.sha || c.short">
+                <span class="um-log-short">{{ c.short }}</span>
+                <span class="um-log-msg">{{ c.message }}</span>
+                <span v-if="c.author" class="um-log-author">{{ c.author }}</span>
+                <span v-if="c.date" class="um-log-date">{{ formatDeployTime(c.date) }}</span>
+              </li>
+            </ul>
+            <div v-if="!(updateModal.recentCommits && updateModal.recentCommits.length)" class="um-log-empty">暂无提交记录</div>
           </div>
         </div>
         <footer class="um-footer">
-          <span v-if="autoReloadSeconds > 0" class="um-countdown">{{ autoReloadSeconds }} 秒后自动刷新…</span>
-          <button class="um-btn um-btn-later" @click="dismissUpdate">稍后</button>
-          <button class="um-btn um-btn-refresh" @click="applyUpdate">立即刷新</button>
+          <span v-if="autoReloadSeconds > 0 && !updateModal.manual" class="um-countdown">{{ autoReloadSeconds }} 秒后自动刷新…</span>
+          <button class="um-btn um-btn-later" @click="dismissUpdate">{{ updateModal.manual ? '关闭' : '稍后' }}</button>
+          <button v-if="!updateModal.manual" class="um-btn um-btn-refresh" @click="applyUpdate">立即刷新</button>
         </footer>
       </div>
     </div>
@@ -928,21 +943,16 @@ const isLegacyQqBind = computed(() => {
 // 头像的 title 提示文本
 const avatarTitle = computed(() => {
   if (isAdmin.value) return '点击进入管理后台';
-  if (isLegacyQqBind.value) return '当前为旧版QQ绑定，请换绑真实QQ号';
-  if (user.value?.qqNumber) return `QQ: ${user.value.qqNumber}`;
+  if (user.value?.externalId) return `点击复制 OpenID: ${user.value.externalId}`;
   return '点击查看用户信息';
 });
 
-// 点击头像事件：管理员跳转管理后台，普通用户复制真实QQ号；旧绑定则打开换绑框
+// 点击头像事件：管理员跳转管理后台，普通用户复制 OpenID
 function onAvatarClick() {
   if (isAdmin.value) {
     router.push('/admin');
-  } else if (isLegacyQqBind.value) {
-    // 旧版绑定(qqNumber=openid)：复制无意义，直接引导换绑真实QQ号
-    openQQBind();
-  } else if (user.value?.qqNumber) {
-    // 复制 QQ 号到剪贴板
-    navigator.clipboard.writeText(user.value.qqNumber).catch(() => {});
+  } else if (user.value?.externalId) {
+    copyOpenId();
   }
 }
 
@@ -980,44 +990,30 @@ async function saveNickname() {
   }
 }
 
-// ---------- QQ 绑定（玩家自行绑定/更换） ----------
-// 输入框内容、是否显示绑定输入框、错误提示、绑定中状态
-const qqInput = ref('');
-const qqBinding = ref(false);
-const qqError = ref('');
-const qqBusy = ref(false);
+// ---------- OpenID 展示与复制 ----------
+// OpenID 中间部分用星号隐藏，保留前 6 位与后 4 位
+const maskedOpenId = computed(() => {
+  const id = user.value?.externalId;
+  if (!id) return '未获取';
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 6)}...${id.slice(-4)}`;
+});
 
-// 打开绑定输入框（已绑定时进入"更换"模式，回填当前QQ号）
-// 旧版绑定（qqNumber=openid）回填空值，避免把32位hex当QQ号带入输入框
-function openQQBind() {
-  qqInput.value = isLegacyQqBind.value ? '' : user.value?.qqNumber || '';
-  qqBinding.value = true;
-  qqError.value = '';
-}
+// 复制提示文本（2 秒后自动清空）
+const copyTip = ref('');
+let copyTipTimer = null;
 
-// 绑定/更换 QQ 号：调用后端 bind-qq 接口，成功后同步本地用户信息
-async function bindQQ() {
-  const qq = qqInput.value.trim();
-  // 前端先做基础格式校验（与后端 DTO 规则一致）
-  if (!/^\d{5,12}$/.test(qq)) {
-    qqError.value = '请输入 5-12 位数字QQ号';
-    return;
-  }
-  qqBusy.value = true;
-  qqError.value = '';
-  try {
-    await userApi.bindQQ(qq);
-    // 绑定成功：更新本地 user 并持久化，界面回到已绑定展示态
-    user.value = { ...user.value, qqNumber: qq };
-    localStorage.setItem('user', JSON.stringify(user.value));
-    qqInput.value = '';
-    qqBinding.value = false;
-  } catch (e) {
-    // 展示后端返回的错误（如"该QQ号已被其他账号绑定"）
-    qqError.value = e?.response?.data?.message || '绑定失败，请重试';
-  } finally {
-    qqBusy.value = false;
-  }
+// 复制 OpenID 到剪贴板
+function copyOpenId() {
+  const id = user.value?.externalId;
+  if (!id) return;
+  navigator.clipboard.writeText(id)
+    .then(() => {
+      copyTip.value = 'OpenID 已复制，请到 QQ 群发送绑定指令';
+      if (copyTipTimer) clearTimeout(copyTipTimer);
+      copyTipTimer = setTimeout(() => { copyTip.value = ''; }, 2000);
+    })
+    .catch(() => {});
 }
 
 // 生命值百分比
@@ -1613,7 +1609,8 @@ const UPDATE_PROMPT_KEY = 'smdz_last_prompt_at';
 // 当前部署版本信息(用于右上角版本标签展示短 SHA)
 const deployVersion = ref(null);
 // 更新弹窗内容与显隐
-const updateModal = ref({ show: false, commits: [] });
+// manual=true 表示用户主动点击版本号查看（无自动刷新、可关闭）；false 表示检测到新部署自动弹出
+const updateModal = ref({ show: false, manual: false, commits: [], recentCommits: [] });
 // 更新检测配置(以后端下发的为准，管理员可在线调整)
 const updateSettings = ref({ ...UPDATE_SETTINGS });
 // 自动刷新倒计时(秒)
@@ -1652,9 +1649,31 @@ async function checkForUpdate() {
   const lastPrompt = Number(localStorage.getItem(UPDATE_PROMPT_KEY) || 0);
   if (Date.now() - lastPrompt < (updateSettings.value.promptCooldown || 300) * 1000) return;
   localStorage.setItem(UPDATE_PROMPT_KEY, String(Date.now()));
-  // 弹出更新提示并开始倒计时
-  updateModal.value = { show: true, ...data };
+  // 弹出更新提示并开始倒计时（自动检测模式，稍后/立即刷新可用）
+  updateModal.value = { show: true, manual: false, ...data };
   startUpdateCountdown();
+}
+
+/**
+ * 点击版本号手动打开更新记录弹窗（不触发自动刷新、不影响"已确认"状态）
+ * 便于他人在任意时刻查看本次/最近的更新日志。
+ */
+function openUpdateLog() {
+  // 确保已拉取最新部署信息
+  loadDeployInfo().then((data) => {
+    const info = data || deployVersion.value || {};
+    updateModal.value = {
+      show: true,
+      manual: true,
+      // 自动检测模式已弹过时，手动查看不再标记为"新版本" → 复用当前部署信息即可
+      ...info,
+      commits: info.commits || [],
+      recentCommits: info.recentCommits || info.commits || [],
+    };
+    // 手动模式下不启动自动刷新倒计时
+    clearInterval(updateCountdownTimer);
+    autoReloadSeconds.value = 0;
+  });
 }
 
 /** 启动自动刷新倒计时(0 表示不自动刷新) */
@@ -2183,6 +2202,12 @@ onMounted(async () => {
       }
       // 移动到达后同步刷新附近玩家
       loadNearbyPlayers();
+    });
+    // 接收服务器统计更新事件（在线人数/总玩家数变化时实时刷新左下角）
+    socket.on('stats:update', (data) => {
+      if (data) {
+        serverStats.value = data;
+      }
     });
     socket.on('error', (e) => {
       console.error('socket error', e);
@@ -3021,6 +3046,11 @@ onUnmounted(() => {
   background: rgba(139, 92, 246, 0.08);
   border: 1px solid rgba(139, 92, 246, 0.18);
 }
+.um-meta-manual {
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
 .um-log-title {
   font-size: 13px;
   font-weight: 600;
@@ -3058,6 +3088,18 @@ onUnmounted(() => {
 .um-log-msg {
   color: var(--text-secondary);
   word-break: break-word;
+}
+.um-log-author {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #f0abfc;
+}
+.um-log-date {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 .um-log-empty {
   font-size: 12px;
