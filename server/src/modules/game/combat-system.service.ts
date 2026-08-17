@@ -1903,11 +1903,31 @@ export class CombatSystemService {
         bonus.dropRate = (bonus.dropRate || 0) + 10 + skillLevel;
         break;
       }
-      case '12': { // 龙姬：物伤2+50，生命/护盾/装甲2-50（残血增伤）
+      case '12': { // 龙姬（原版 L1894-1914）：物伤2+50、生命/护盾/装甲2-50；好感分支
         bonus.physDmg2 = (bonus.physDmg2 || 0) + 50;
         bonus.hp2 = (bonus.hp2 || 0) - 50;
         bonus.shield2 = (bonus.shield2 || 0) - 50;
         bonus.armor2 = (bonus.armor2 || 0) - 50;
+        // 怒吼增益时生命保底1（原版 L1899-1904）
+        const pBuffsD = playerData.buffs || [];
+        if (pBuffsD.some((b: any) => b && b.name === '怒吼') && (player.hp || 0) < 1) {
+          player.hp = 1;
+        }
+        // 好感≥80：暴伤+5×技能等级（原版 L1905-1907）
+        if ((player.affinity || 0) >= 80) {
+          bonus.critDmg = (bonus.critDmg || 0) + 5 * skillLevel;
+        }
+        // 好感≥20：残血增伤（已损失状态比例×物伤）（原版 L1908-1911）
+        if ((player.affinity || 0) >= 20) {
+          const curState = (player.hp || 0) + (player.shield || 0) + (player.armor || 0);
+          const maxState = (bonus.hp || 1) + (bonus.shield || 0) + (bonus.armor || 0);
+          const lostRatio = Math.max(0, Math.min(1, 1 - curState / Math.max(1, maxState)));
+          bonus.physDmg = (bonus.physDmg || 0) + (bonus.physDmg || 0) * lostRatio * (1 + skillLevel / 200);
+        }
+        // 好感≥60：攻击2 + 龙闪熟练度（原版 L1912-1914）
+        if ((player.affinity || 0) >= 60) {
+          bonus.attack2 = (bonus.attack2 || 0) + this.playerService.getMarkerValue(markers, '龙闪');
+        }
         break;
       }
       case '10': { // 小樱：三元素伤2+10+技能/2、护盾2+15+技能、武器冷却-3
@@ -1915,23 +1935,82 @@ export class CombatSystemService {
         bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 10 + skillLevel / 2;
         bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 10 + skillLevel / 2;
         bonus.shield2 = (bonus.shield2 || 0) + 15 + skillLevel;
+        // 原版 L2049-2071：好感≥100 且满状态时，最高属性伤害系+10+技能（混沌魔力）
+        if ((player.affinity || 0) >= 100) {
+          const curState = (player.hp || 0) + (player.shield || 0) + (player.armor || 0);
+          const maxState = (bonus.hp || 1) + (bonus.shield || 0) + (bonus.armor || 0);
+          if (curState >= maxState) {
+            const elec = bonus.elecDmg || 0;
+            const fire = bonus.fireDmg || 0;
+            const ice = bonus.iceDmg || 0;
+            if (elec > fire) {
+              if (elec > ice) {
+                bonus.elecDmg2 = (bonus.elecDmg2 || 0) + 10 + skillLevel;
+              } else {
+                bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 10 + skillLevel;
+              }
+            } else if (fire > ice) {
+              bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 10 + skillLevel;
+            } else {
+              bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 10 + skillLevel;
+            }
+          }
+        }
         break;
       }
-      case '13': { // 伊卡洛斯：冰伤2+25；好感≥20 溅射+25+技能*2、溅射2+1
+      case '18': { // 启·木之本樱（原版 L1925-1931）：三元素伤2+15+技能、武器冷却-3
+        bonus.elecDmg2 = (bonus.elecDmg2 || 0) + 15 + skillLevel;
+        bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 15 + skillLevel;
+        bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 15 + skillLevel;
+        break;
+      }
+      case '13': { // 伊卡洛斯（原版 L1932-1952）：冰伤2+25；好感分支
         bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 25;
+        // 好感≥20：溅射+25+技能×2、溅射2+1（原版 L1934-1937）
         if ((player.affinity || 0) >= 20) {
           bonus.splash = (bonus.splash || 0) + 25 + skillLevel * 2;
           bonus.splashCount = (bonus.splashCount || 0) + 1;
         }
+        // 好感≥40：攻击2 + (溅射2 + 武器溅射2)×20（原版 L1938-1948）
+        if ((player.affinity || 0) >= 40) {
+          let weaponSplash2 = 0;
+          if ((player.affinity || 0) >= 60) {
+            // 武器锁定置0 + 武器溅射2
+            const weaponsD = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+            const curW = weaponsD[(player.currentWeapon || 1) - 1];
+            if (curW) {
+              curW.lockTime = 0;
+              weaponSplash2 = (curW.bonus?.splash2 ?? curW.加成?.溅射2 ?? 0) + (curW.baseBonus?.splash2 ?? curW.基础加成?.溅射2 ?? 0);
+            }
+          }
+          bonus.attack2 = (bonus.attack2 || 0) + ((bonus.splashCount || 0) + weaponSplash2) * 20;
+        }
+        // 好感≥80：攻击2 + 闪避增益值×10（原版 L1949-1952）
+        if ((player.affinity || 0) >= 80) {
+          const dodgeBuff = (playerData.buffs || []).find((b: any) => b && b.name === '闪避');
+          const dodgeVal = dodgeBuff?.value || 0;
+          bonus.attack2 = (bonus.attack2 || 0) + dodgeVal * 10;
+        }
         break;
       }
-      case '6': { // 恶毒：火伤2+25；好感≥20 残血暴击；好感≥40 命中/闪避比例攻击2
+      case '6': { // 恶毒（原版 L1954-1974）：火伤2+25；好感≥20 残血暴击；好感≥40 命中/闪避攻击2；鹰眼增益
         bonus.fireDmg2 = (bonus.fireDmg2 || 0) + 25;
+        // 好感≥20：残血暴击/暴伤（原版 L1956-1960）
         if ((player.affinity || 0) >= 20) {
-          const hpRatio = Math.min(1, (player.hp || 0) / Math.max(1, (bonus.hp || 1)));
+          const curState = (player.hp || 0) + (player.shield || 0) + (player.armor || 0);
+          const maxState = (bonus.hp || 1) + (bonus.shield || 0) + (bonus.armor || 0);
+          const hpRatio = Math.min(1, curState / Math.max(1, maxState));
           bonus.crit = (bonus.crit || 0) + (15 + skillLevel) * hpRatio;
           bonus.critDmg = (bonus.critDmg || 0) + (50 + skillLevel * 5) * hpRatio;
         }
+        // 鹰眼增益：溅射+50+技能、溅射2+2、命中2+50+技能、穿透15（原版 L1961-1967）
+        if ((playerData.buffs || []).some((b: any) => b && b.name === '鹰眼')) {
+          bonus.splash = (bonus.splash || 0) + 50 + skillLevel;
+          bonus.splashCount = (bonus.splashCount || 0) + 2;
+          bonus.hit2 = (bonus.hit2 || 0) + 50 + skillLevel;
+          this.bonusService.addPenetration(bonus, 15);
+        }
+        // 好感≥40：命中/闪避比例攻击2（原版 L1968-1974）
         if ((player.affinity || 0) >= 40) {
           let a1 = (bonus.hit || 0) / Math.max(1, (bonus.dodge || 1)) * 100;
           if (a1 > 50 + skillLevel * 2) a1 = 50 + skillLevel * 2;
@@ -1949,8 +2028,14 @@ export class CombatSystemService {
           bonus.hit = (bonus.hit || 0) + (bonus.hpRegen || 0) * 10 + (bonus.armorRegen || 0) * 10;
         }
         if ((player.affinity || 0) >= 60) {
-          const ratio = (player.hp || 0) / Math.max(1, (bonus.hp || 1));
-          bonus.antiPenetrate = (bonus.antiPenetrate || 0) + ratio * 40;
+          // 原版 L1985-1995：护盾/装甲≥20%各+25韧性；当前状态/上限×40 抗贯穿
+          let a = 0;
+          if ((player.shield || 0) / Math.max(1, (bonus.shield || 1)) >= 0.2) a += 1;
+          if ((player.armor || 0) / Math.max(1, (bonus.armor || 1)) >= 0.2) a += 1;
+          bonus.tenacity = (bonus.tenacity || 0) + (1 - (bonus.tenacity || 0) / 100) * a * 25;
+          const curState = (player.hp || 0) + (player.shield || 0) + (player.armor || 0);
+          const maxState = (bonus.hp || 1) + (bonus.shield || 0) + (bonus.armor || 0);
+          bonus.antiPenetrate = (bonus.antiPenetrate || 0) + curState / Math.max(1, maxState) * 40;
         }
         break;
       }
@@ -1986,7 +2071,7 @@ export class CombatSystemService {
         }
         break;
       }
-      case '15': { // 四糸乃：冰伤2+25；好感≥60 冰抗115；好感≥40 闪避+等级*技能
+      case '15': { // 四糸乃（原版 L2034-2047）：冰伤2+25；好感≥60 冰抗115；好感≥40 闪避+等级*技能、武器冰属性×1.15+技能/200
         bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 25;
         if ((player.affinity || 0) >= 60) {
           bonus.hpIceRes = 115;
@@ -1995,6 +2080,15 @@ export class CombatSystemService {
         }
         if ((player.affinity || 0) >= 40) {
           bonus.dodge = (bonus.dodge || 0) + lv * skillLevel;
+          // 武器冰属性系数 × (1.15 + 技能/200)（原版 L2043-2045）
+          const weaponsD = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+          const curW = weaponsD[(player.currentWeapon || 1) - 1];
+          if (curW) {
+            const props = curW.properties || curW.属性 || {};
+            const ice = props.ice ?? props.冰 ?? 0;
+            props.ice = props.冰 = ice * (1.15 + skillLevel / 200);
+            curW.properties = curW.属性 = props;
+          }
         }
         break;
       }
@@ -2003,7 +2097,7 @@ export class CombatSystemService {
         bonus.hp2 = (bonus.hp2 || 0) + 25 + skillLevel;
         break;
       }
-      case '3': { // 绝灭天使：命中2/攻击2 按羽毛数量加成（对应原版 _计算玩家 L2076-2097 + 取羽毛）
+      case '3': { // 绝灭天使（对应原版 _计算玩家 L2076-2097 + 取羽毛）
         // 羽毛存于 markers['羽毛']（累计时间戳），每10秒自然回复1片，上限10+技能等级（日轮×1.5）
         const featherMarker = this.playerService.getMarkerValue(markers, '羽毛');
         const featherMax = 10 + skillLevel;
@@ -2014,14 +2108,29 @@ export class CombatSystemService {
           feather = Math.min(featherMax, elapsed + 1);
         }
         feather = Math.max(0, Math.min(featherMax, feather));
-        // 命中2 = 羽毛 × a3（救世魔王×1.5）；攻击2 = 羽毛 × a3（光翼再×1.5）
         const pBuffs: any[] = playerData.buffs || [];
+        // a3 倍率：救世魔王×1.5（韧性+50%、穿透+10）；光翼×(1+0.5+技能/100)（原版 L2077-2091）
         let a3 = 1;
         const hasSavior = pBuffs.some((b: any) => b && b.name === '救世魔王');
-        if (hasSavior) a3 = 1.5;
+        if (hasSavior) {
+          a3 = 1.5;
+          bonus.tenacity = (bonus.tenacity || 0) + (1 - (bonus.tenacity || 0) / 100) * 50;
+          this.bonusService.addPenetration(bonus, 10);
+        }
         const hasLightWing = pBuffs.some((b: any) => b && b.name === '光翼');
         if (hasLightWing) a3 = a3 * (1 + 0.5 + skillLevel / 100);
+        // 炮冠增益：贯穿 + 羽毛/2×a3、穿透+10（原版 L2084-2088）
+        if (pBuffs.some((b: any) => b && b.name === '炮冠')) {
+          bonus.penetrate = (bonus.penetrate || 0) + Math.round(feather / 2 * a3 * 100) / 100;
+          this.bonusService.addPenetration(bonus, 10);
+        }
+        // 命中2 = 羽毛 × a3（原版 L2092）
         bonus.hit2 = (bonus.hit2 || 0) + feather * a3;
+        // 无光盾时：每片羽毛额外+1%暴伤（原版 L2093-2096：光盾存在时羽毛+1并暴伤+羽毛）
+        if (!pBuffs.some((b: any) => b && b.name === '光盾')) {
+          bonus.critDmg = (bonus.critDmg || 0) + feather;
+        }
+        // 攻击2 = 羽毛 × a3（原版 L2097）
         bonus.attack2 = (bonus.attack2 || 0) + feather * a3;
         break;
       }
@@ -2035,7 +2144,7 @@ export class CombatSystemService {
         }
         break;
       }
-      case '19': { // saber：物伤2+50、攻击2+30；好感≥20 物伤2+40+技能*2；好感≥60 穿透+10、暴伤+技能*3
+      case '19': { // saber（原版 L2107-2132）：物伤2+50、攻击2+30；好感≥20 物伤2+40+技能*2；好感≥60 穿透+10、暴伤+技能*3；ex增益
         bonus.physDmg2 = (bonus.physDmg2 || 0) + 50;
         bonus.attack2 = (bonus.attack2 || 0) + 30;
         if ((player.affinity || 0) >= 20) {
@@ -2045,23 +2154,135 @@ export class CombatSystemService {
           this.bonusService.addPenetration(bonus, 10);
           bonus.critDmg = (bonus.critDmg || 0) + skillLevel * 3;
         }
+        // ex增益（原版 L2117-2132）：好感≥80 物伤2+50+技能；好感≥100 全属性+15+技能/2
+        if ((playerData.buffs || []).some((b: any) => b && b.name === 'ex')) {
+          if ((player.affinity || 0) >= 80) {
+            bonus.physDmg2 = (bonus.physDmg2 || 0) + 50 + skillLevel;
+          }
+          if ((player.affinity || 0) >= 100) {
+            const a1 = 15 + skillLevel / 2;
+            bonus.attack2 = (bonus.attack2 || 0) + a1;
+            bonus.armor2 = (bonus.armor2 || 0) + a1;
+            bonus.shield2 = (bonus.shield2 || 0) + a1;
+            bonus.hp2 = (bonus.hp2 || 0) + a1;
+            bonus.dodge2 = (bonus.dodge2 || 0) + a1;
+            bonus.hit2 = (bonus.hit2 || 0) + a1;
+          }
+        }
         break;
       }
-      case '14': { // 星尘：电伤+当前护盾*(0.5+技能/100)、电伤2+25、护盾2+25+技能；好感≥40 高盾增韧
+      case '14': { // 星尘（原版 L2134-2156）：电伤+护盾*(0.5+技能/100)、电伤2+25、护盾2+25+技能；好感≥40 高盾增韧；中子星/xta/xtb增益
         bonus.elecDmg = (bonus.elecDmg || 0) + (bonus.shield || 0) * (0.5 + skillLevel / 100);
         bonus.elecDmg2 = (bonus.elecDmg2 || 0) + 25;
         bonus.shield2 = (bonus.shield2 || 0) + 25 + skillLevel;
         if ((player.affinity || 0) >= 40) {
-          bonus.tenacity = (bonus.tenacity || 0) + (1 - (bonus.tenacity || 0) / 100) * 50;
-          bonus.antiPenetrate = (bonus.antiPenetrate || 0) + 40;
+          // 原版 L2138-2146：护盾>50%时 韧性+50%、抗贯穿+40、穿透+15、必中
+          if ((player.shield || 0) / Math.max(1, (bonus.shield || 1)) > 0.5) {
+            bonus.tenacity = (bonus.tenacity || 0) + (1 - (bonus.tenacity || 0) / 100) * 50;
+            bonus.antiPenetrate = (bonus.antiPenetrate || 0) + 40;
+            this.bonusService.addPenetration(bonus, 15);
+            bonus.mustHit = true;
+          }
+        }
+        // 中子星增益：全抗 + 增益值×0.025（原版 L2147-2150）
+        const neutronStar = (playerData.buffs || []).find((b: any) => b && b.name === '中子星');
+        if (neutronStar) {
+          const a1 = Number(neutronStar.value) || 0;
+          bonus.hpAllRes = (bonus.hpAllRes || 0) + a1 * 0.025;
+          bonus.armorAllRes = (bonus.armorAllRes || 0) + a1 * 0.025;
+          bonus.shieldAllRes = (bonus.shieldAllRes || 0) + a1 * 0.025;
+        }
+        // xta/xtb 增益：护盾回复/护盾回复2 + 增益值（原版 L2151-2156）
+        const xta = (playerData.buffs || []).find((b: any) => b && b.name === 'xta');
+        if (xta) bonus.shieldRegen = (bonus.shieldRegen || 0) + (Number(xta.value) || 0);
+        const xtb = (playerData.buffs || []).find((b: any) => b && b.name === 'xtb');
+        if (xtb) bonus.shieldRegen2 = (bonus.shieldRegen2 || 0) + (Number(xtb.value) || 0);
+        break;
+      }
+      case '7': { // 阿尔缇娜（原版 L2158-2176）：冰伤2+25、攻击2+18；闪避2+25+技能；a格挡/a格挡2/a模式
+        bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 25;
+        bonus.attack2 = (bonus.attack2 || 0) + 18;
+        // a格挡2增益：穿透+15、贯穿+15（原版 L2161-2164）
+        if ((playerData.buffs || []).some((b: any) => b && b.name === 'a格挡2')) {
           this.bonusService.addPenetration(bonus, 15);
+          bonus.penetrate = (bonus.penetrate || 0) + 15;
+        }
+        // a格挡增益：攻击2 + 增益值×5、暴伤 + 增益值×10（原版 L2165-2169）
+        const aBlock = (playerData.buffs || []).find((b: any) => b && b.name === 'a格挡');
+        if (aBlock) {
+          const a1 = Number(aBlock.value) || 0;
+          bonus.attack2 = (bonus.attack2 || 0) + a1 * 5;
+          bonus.critDmg = (bonus.critDmg || 0) + a1 * 10;
+        }
+        // a模式（原版 L2170-2175）：a模式=0 攻击2+25+技能+穿透15；否则 生命2+1.25+技能
+        const aMode = this.playerService.getMarkerValue(markers, 'a模式');
+        if (!aMode || aMode === 0) {
+          bonus.attack2 = (bonus.attack2 || 0) + 25 + skillLevel;
+          this.bonusService.addPenetration(bonus, 15);
+        } else {
+          bonus.hp2 = (bonus.hp2 || 0) + 1.25 + skillLevel;
+        }
+        bonus.dodge2 = (bonus.dodge2 || 0) + 25 + skillLevel;
+        break;
+      }
+      case '22': { // 普拉娜（原版 L1761-1763/L1684-1708）：武器冷却×10；好感≥60 甩枪穿透；好感≥100 标记武器熟练
+        // 武器冷却×10 在武器层面处理（getWeaponData 中），此处处理好感特效
+        if ((player.affinity || 0) >= 60) {
+          // 好感≥80：甩枪穿透增益（原版 L1693-1695：标记2 甩枪 +20，持续1+技能×0.01秒）
+          if ((player.affinity || 0) >= 80) {
+            bonus.penetrate = (bonus.penetrate || 0) + 20;
+          }
         }
         break;
       }
-      case '7': { // 阿尔缇娜：冰伤2+25、攻击2+18；闪避2+25+技能；a格挡穿透
-        bonus.iceDmg2 = (bonus.iceDmg2 || 0) + 25;
-        bonus.attack2 = (bonus.attack2 || 0) + 18;
-        bonus.dodge2 = (bonus.dodge2 || 0) + 25 + skillLevel;
+      case '23': { // 兰音（原版 L2570-2586）：兰音模式判断（攻击/速度模式）+ 魅力×1.5
+        // 原版：增幅器伤害系 vs 命中闪避系 比较 → 兰音模式1（攻击）/2（速度）；命中/闪避互相补齐
+        if ((player.affinity || 0) > 0) {
+          const dmgStats = (bonus.fireDmg2 || 0) + (bonus.attack2 || 0) + (bonus.elecDmg2 || 0);
+          const accStats = (bonus.hit2 || 0) + (bonus.dodge2 || 0);
+          if (dmgStats > accStats) {
+            // 攻击模式：火/电伤互相补齐×1.1
+            if ((bonus.fireDmg || 0) > (bonus.elecDmg || 0)) {
+              bonus.elecDmg = (bonus.fireDmg || 0) * 1.1;
+            } else {
+              bonus.fireDmg = (bonus.elecDmg || 0) * 1.1;
+            }
+          } else {
+            // 速度模式：命中/闪避互相补齐×1.25
+            if ((bonus.hit || 0) > (bonus.dodge || 0)) {
+              bonus.dodge = (bonus.hit || 0) * 1.25;
+            } else {
+              bonus.hit = (bonus.dodge || 0) * 1.25;
+            }
+          }
+        }
+        // 魅力×1.5（原版 L2586）
+        bonus.charm = (bonus.charm || 0) * 1.5;
+        break;
+      }
+      case '24': { // 军姬2（原版 L2560-2568）：全属性×1.1；好感≥80 护盾×(1+技能×0.03)、四伤+护盾×0.15
+        const scaleAll = (field: keyof BonusData) => {
+          const v = bonus[field] as number | undefined;
+          if (typeof v === 'number') (bonus as any)[field] = v * 1.1;
+        };
+        scaleAll('attack'); scaleAll('attack2');
+        scaleAll('hp'); scaleAll('hp2');
+        scaleAll('shield'); scaleAll('shield2');
+        scaleAll('armor'); scaleAll('armor2');
+        scaleAll('physDmg'); scaleAll('physDmg2');
+        scaleAll('fireDmg'); scaleAll('fireDmg2');
+        scaleAll('iceDmg'); scaleAll('iceDmg2');
+        scaleAll('elecDmg'); scaleAll('elecDmg2');
+        scaleAll('dodge'); scaleAll('dodge2');
+        scaleAll('hit'); scaleAll('hit2');
+        if ((player.affinity || 0) >= 80) {
+          bonus.shield = (bonus.shield || 0) * (1 + skillLevel * 0.03);
+          const shBonus = (bonus.shield || 0) * 0.15;
+          bonus.physDmg = (bonus.physDmg || 0) + shBonus;
+          bonus.fireDmg = (bonus.fireDmg || 0) + shBonus;
+          bonus.elecDmg = (bonus.elecDmg || 0) + shBonus;
+          bonus.iceDmg = (bonus.iceDmg || 0) + shBonus;
+        }
         break;
       }
       default:
