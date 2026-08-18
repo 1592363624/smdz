@@ -369,13 +369,15 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     };
     const result = await this.commandService.dispatch(ctx);
 
-    // 将指令原文也作为一条聊天记录展示
-    await this.chatService.saveMessage({
+    // 将指令原文作为一条公屏消息广播，让所有人（含发送者）都能看到"谁发了什么指令"
+    // 对齐原版群聊：玩家发出的指令在公屏可见，其后才是系统回复结果
+    const cmdMsg = await this.chatService.saveMessage({
       channelId: user.channelId,
       senderId: user.userId,
       type: 'command',
       content,
     });
+    this.server.to('世界频道').emit('chat:message', cmdMsg);
 
     if (result.broadcast) {
       // 公屏广播指令结果（如移动，所有人都能看到）

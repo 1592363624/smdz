@@ -10,6 +10,28 @@ import { PrismaService } from '../../prisma/prisma.service';
 /// 常用指令列表最大数量（防止用户滥用存储/过长面板）
 const MAX_FAVORITE_COMMANDS = 20;
 
+/// 常用指令项：cmd 为实际发送内容（可为任意文本，不一定是指令），label 为面板展示文字（缺省等于 cmd）
+export interface FavoriteCommand {
+  cmd: string;
+  label: string;
+}
+
+/// 将任意常用指令元素归一化为 FavoriteCommand（兼容字符串与对象两种写法）
+function normalizeFavoriteItem(item: unknown): FavoriteCommand | null {
+  if (typeof item === 'string') {
+    const cmd = item.trim();
+    return cmd ? { cmd, label: cmd } : null;
+  }
+  if (item && typeof item === 'object') {
+    const obj = item as Record<string, unknown>;
+    const cmd = typeof obj.cmd === 'string' ? obj.cmd.trim() : '';
+    if (!cmd) return null;
+    const label = typeof obj.label === 'string' && obj.label.trim() ? obj.label.trim() : cmd;
+    return { cmd, label };
+  }
+  return null;
+}
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -144,24 +166,24 @@ export class UsersService {
   }
 
   /**
-   * 解析用户常用指令 JSON 字段为字符串数组
-   * 兼容字段缺失/非法 JSON 场景，保证返回数组不抛错。
+   * 解析用户常用指令 JSON 字段为 FavoriteCommand 数组
+   * 兼容字段缺失/非法 JSON/字符串元素/对象元素场景，保证返回数组不抛错。
+   * 元素去重（按 cmd 去重），保留顺序。
    * @param raw favoriteCommands 原始字符串
    */
-  private parseFavoriteCommands(raw: string | null | undefined): string[] {
+  private parseFavoriteCommands(raw: string | null | undefined): FavoriteCommand[] {
     if (!raw) return [];
     try {
       const arr = JSON.parse(raw);
       if (!Array.isArray(arr)) return [];
-      // 仅保留字符串且非空白的元素，去重并保留顺序
       const seen = new Set<string>();
-      const result: string[] = [];
+      const result: FavoriteCommand[] = [];
       for (const item of arr) {
-        if (typeof item !== 'string') continue;
-        const v = item.trim();
-        if (!v || seen.has(v)) continue;
-        seen.add(v);
-        result.push(v);
+        const norm = normalizeFavoriteItem(item);
+        if (!norm) continue;
+        if (seen.has(norm.cmd)) continue;
+        seen.add(norm.cmd);
+        result.push(norm);
       }
       return result;
     } catch {
@@ -170,11 +192,11 @@ export class UsersService {
   }
 
   /**
-   * 获取当前用户的常用指令列表
+   * 获取当前用户的常用指令列表（已归一化为 {cmd,label}，去重保序）
    * @param userId 用户ID
-   * @returns 常用指令字符串数组（已去重、保序）
+   * @returns FavoriteCommand 数组
    */
-  async getFavoriteCommands(userId: number): Promise<string[]> {
+  async getFavoriteCommands(userId: number): Promise<FavoriteCommand[]> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { favoriteCommands: true },
@@ -185,23 +207,23 @@ export class UsersService {
 
   /**
    * 设置（全量覆盖）当前用户的常用指令列表
-   * - 去重、去空白、限制最大数量（超出部分截断）
-   * - 校验元素均为字符串，防止非法数据写入
+   * - 元素可为字符串（视为 cmd=label）或 {cmd,label} 对象（兼容前端两种传法）
+   * - 去重（按 cmd）、去空白、限制最大数量（超出部分截断）
    * @param userId 用户ID
-   * @param commands 常用指令字符串数组
+   * @param commands 常用指令数组（字符串或对象混合）
    */
-  async setFavoriteCommands(userId: number, commands: string[]): Promise<string[]> {
+  async setFavoriteCommands(userId: number, commands: unknown[]): Promise<FavoriteCommand[]> {
     if (!Array.isArray(commands)) {
       throw new BadRequestException('常用指令必须为数组');
     }
     const seen = new Set<string>();
-    const cleaned: string[] = [];
+    const cleaned: FavoriteCommand[] = [];
     for (const item of commands) {
-      if (typeof item !== 'string') continue;
-      const v = item.trim();
-      if (!v || seen.has(v)) continue;
-      seen.add(v);
-      cleaned.push(v);
+      const norm = normalizeFavoriteItem(item);
+      if (!norm) continue;
+      if (seen.has(norm.cmd)) continue;
+      seen.add(norm.cmd);
+      cleaned.push(norm);
       if (cleaned.length >= MAX_FAVORITE_COMMANDS) break;
     }
     await this.prisma.user.update({

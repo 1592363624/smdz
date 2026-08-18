@@ -922,6 +922,59 @@ vite-plugin-checker-error-overlay,
   color: var(--accent2);
   text-align: center;
 }
+/* 拖拽手柄（编辑态显示） */
+.fav-chip .fav-grip {
+  cursor: grab;
+  opacity: 0.5;
+  font-size: 11px;
+  letter-spacing: -2px;
+  margin-right: 2px;
+}
+.fav-chip.dragging {
+  opacity: 0.4;
+}
+.fav-chip.dragover {
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 1px var(--accent2);
+}
+/* 添加区：发送内容 + 显示名 + 按钮 */
+.fav-add-label {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.fav-add-label:focus {
+  border-color: var(--accent2);
+  outline: none;
+}
+.fav-add-btn {
+  align-self: flex-start;
+  font-size: 13px;
+  color: #fff;
+  background: var(--accent2);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.fav-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.fav-add-btn:not(:disabled):hover {
+  background: var(--accent, #7c3aed);
+}
+/* 非编辑态且无常用时的提示 */
+.fav-hint {
+  font-size: 12px;
+  color: var(--muted-dark);
+  text-align: center;
+}
 
 /* ===== 退出/管理按钮 ===== */
 .logout {

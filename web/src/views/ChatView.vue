@@ -183,7 +183,7 @@
 
         <!-- 指令 Tab：搜索 + 指令列表（更大空间） -->
         <div v-show="sidebarTab === 'cmd'" class="tab-pane tab-pane-cmd">
-          <!-- 我的常用指令：用户自定义置顶区，可编辑 -->
+          <!-- 我的常用指令：用户自定义置顶区，可编辑、可拖拽排序 -->
           <div class="fav-cmds">
             <div class="fav-head">
               <span class="fav-title">⭐ 我的常用</span>
@@ -191,25 +191,38 @@
             </div>
             <div v-if="favoriteCommands.length || favEditing" class="fav-list">
               <span
-                v-for="f in favoriteCommands"
-                :key="'fav-' + f"
+                v-for="(f, fi) in favoriteCommands"
+                :key="'fav-' + f.cmd"
                 class="fav-chip"
-                :class="{ editing: favEditing }"
+                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi }"
+                :draggable="favEditing"
+                @dragstart="onFavDragStart(fi)"
+                @dragover.prevent="onFavDragOver(fi)"
+                @drop="onFavDrop(fi)"
                 @click="onFavoriteClick(f)"
               >
-                {{ f }}
+                <span v-if="favEditing" class="fav-grip" title="拖拽排序">⋮⋮</span>
+                {{ f.label }}
                 <span v-if="favEditing" class="fav-del">✕</span>
               </span>
-              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，点击下方添加</span>
+              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
             </div>
             <div v-if="favEditing" class="fav-add">
               <input
                 class="fav-add-input"
                 v-model="favAddInput"
-                placeholder="搜索并添加指令..."
+                placeholder="发送内容（任意文本，如：攻击 史莱姆）"
                 @click.stop
-                @keyup.enter="favAddCandidates.length && addFavorite(favAddCandidates[0].name)"
+                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
               />
+              <input
+                class="fav-add-label"
+                v-model="favAddLabel"
+                placeholder="显示名（可选，留空用发送内容）"
+                @click.stop
+                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
+              />
+              <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="addFavorite()">+ 添加</button>
               <div v-if="favAddCandidates.length" class="fav-candidates">
                 <span
                   v-for="c in favAddCandidates"
@@ -219,6 +232,7 @@
                 >{{ c.name }}</span>
               </div>
             </div>
+            <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
             <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
           </div>
 
@@ -421,7 +435,7 @@
 
         <!-- 指令 Tab -->
         <div v-show="mobileTab === 'cmd'" class="tab-pane tab-pane-cmd">
-          <!-- 我的常用指令：用户自定义置顶区，可编辑 -->
+          <!-- 我的常用指令：用户自定义置顶区，可编辑、可拖拽排序 -->
           <div class="fav-cmds">
             <div class="fav-head">
               <span class="fav-title">⭐ 我的常用</span>
@@ -429,25 +443,38 @@
             </div>
             <div v-if="favoriteCommands.length || favEditing" class="fav-list">
               <span
-                v-for="f in favoriteCommands"
-                :key="'mfav-' + f"
+                v-for="(f, fi) in favoriteCommands"
+                :key="'mfav-' + f.cmd"
                 class="fav-chip"
-                :class="{ editing: favEditing }"
+                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi }"
+                :draggable="favEditing"
+                @dragstart="onFavDragStart(fi)"
+                @dragover.prevent="onFavDragOver(fi)"
+                @drop="onFavDrop(fi)"
                 @click="mobileMenuOpen = false; onFavoriteClick(f)"
               >
-                {{ f }}
+                <span v-if="favEditing" class="fav-grip" title="拖拽排序">⋮⋮</span>
+                {{ f.label }}
                 <span v-if="favEditing" class="fav-del">✕</span>
               </span>
-              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，点击下方添加</span>
+              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
             </div>
             <div v-if="favEditing" class="fav-add">
               <input
                 class="fav-add-input"
                 v-model="favAddInput"
-                placeholder="搜索并添加指令..."
+                placeholder="发送内容（任意文本，如：攻击 史莱姆）"
                 @click.stop
-                @keyup.enter="favAddCandidates.length && addFavorite(favAddCandidates[0].name)"
+                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
               />
+              <input
+                class="fav-add-label"
+                v-model="favAddLabel"
+                placeholder="显示名（可选，留空用发送内容）"
+                @click.stop
+                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
+              />
+              <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="mobileMenuOpen = false; addFavorite()">+ 添加</button>
               <div v-if="favAddCandidates.length" class="fav-candidates">
                 <span
                   v-for="c in favAddCandidates"
@@ -457,6 +484,7 @@
                 >{{ c.name }}</span>
               </div>
             </div>
+            <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
             <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
           </div>
 
@@ -983,20 +1011,21 @@ const cmdSearchResults = computed(() => {
   );
 });
 
-// ---------- 我的常用指令（用户自定义，置顶展示、可编辑） ----------
-// 常用指令文本数组，如 ["攻击","背包"]
+// ---------- 我的常用指令（用户自定义，置顶展示、可编辑、可拖拽排序） ----------
+// 常用指令数组：每项 { cmd, label }。cmd 为实际发送内容（任意文本，模拟从输入框发送）；label 为按钮展示文字
 const favoriteCommands = ref([]);
-// 常用指令编辑态（true=进入编辑模式，显示删除按钮/添加框）
+// 常用指令编辑态（true=进入编辑模式，显示删除按钮/添加框/拖拽手柄）
 const favEditing = ref(false);
-// 添加常用指令的输入内容（指令名或搜索关键词）
+// 添加常用指令：cmd 为发送内容（任意文本），label 为可选显示名
 const favAddInput = ref('');
-// 添加时的候选指令（基于输入从全量指令过滤）
+const favAddLabel = ref('');
+// 添加时的候选指令（基于 cmd 文本从全量指令过滤，仅作快速选择辅助；也可直接输入任意文本）
 const favAddCandidates = computed(() => {
   const q = favAddInput.value.trim().toLowerCase();
   if (!q) return [];
   return commands.value
     .filter(c => c.name.toLowerCase().includes(q))
-    .filter(c => !favoriteCommands.value.includes(c.name))
+    .filter(c => !favoriteCommands.value.some(f => f.cmd === c.name))
     .slice(0, 30);
 });
 // 保存中/提示
@@ -1005,12 +1034,19 @@ const favMsg = ref('');
 let favMsgTimer = null;
 // 常用指令数量上限（与后端 MAX_FAVORITE_COMMANDS 保持一致）
 const MAX_FAVORITES = 20;
+// 拖拽排序状态：当前拖拽项索引、拖拽经过项索引
+const dragIndex = ref(-1);
+const dragOverIndex = ref(-1);
 
 // 加载我的常用指令
 async function loadFavorites() {
   try {
     const res = await userApi.getFavorites();
-    favoriteCommands.value = Array.isArray(res.data) ? res.data : [];
+    // 兼容后端返回的字符串数组（早期格式）或 {cmd,label} 对象数组，统一归一化
+    const list = Array.isArray(res.data) ? res.data : [];
+    favoriteCommands.value = list.map((it) =>
+      typeof it === 'string' ? { cmd: it, label: it } : { cmd: it.cmd, label: it.label || it.cmd }
+    );
   } catch {
     favoriteCommands.value = [];
   }
@@ -1023,11 +1059,27 @@ function showFavMsg(text) {
   favMsgTimer = setTimeout(() => (favMsg.value = ''), 1800);
 }
 
-// 添加一条常用指令（去重 + 上限校验）
-async function addFavorite(name) {
-  const v = (name || '').trim();
-  if (!v) return;
-  if (favoriteCommands.value.includes(v)) {
+// 提交整体列表到后端（全量覆盖，保留当前顺序）
+async function saveFavorites(next) {
+  favBusy.value = true;
+  try {
+    const res = await userApi.setFavorites(next);
+    favoriteCommands.value = Array.isArray(res.data) ? res.data : next;
+    return true;
+  } catch (e) {
+    showFavMsg(e?.response?.data?.message || '保存失败');
+    return false;
+  } finally {
+    favBusy.value = false;
+  }
+}
+
+// 添加一条常用指令（去重按 cmd + 上限校验）
+async function addFavorite(cmdText) {
+  const cmd = (cmdText != null ? cmdText : favAddInput.value).trim();
+  if (!cmd) return;
+  const label = (favAddLabel.value || cmd).trim() || cmd;
+  if (favoriteCommands.value.some((f) => f.cmd === cmd)) {
     showFavMsg('已在常用列表中');
     return;
   }
@@ -1035,48 +1087,65 @@ async function addFavorite(name) {
     showFavMsg(`最多 ${MAX_FAVORITES} 条`);
     return;
   }
-  favBusy.value = true;
-  try {
-    const next = [...favoriteCommands.value, v];
-    const res = await userApi.setFavorites(next);
-    favoriteCommands.value = Array.isArray(res.data) ? res.data : next;
+  const next = [...favoriteCommands.value, { cmd, label }];
+  const ok = await saveFavorites(next);
+  if (ok) {
     favAddInput.value = '';
+    favAddLabel.value = '';
     showFavMsg('已添加');
-  } catch (e) {
-    showFavMsg(e?.response?.data?.message || '添加失败');
-  } finally {
-    favBusy.value = false;
   }
 }
 
-// 删除一条常用指令
-async function removeFavorite(name) {
-  favBusy.value = true;
-  try {
-    const next = favoriteCommands.value.filter(c => c !== name);
-    const res = await userApi.setFavorites(next);
-    favoriteCommands.value = Array.isArray(res.data) ? res.data : next;
-    showFavMsg('已删除');
-  } catch (e) {
-    showFavMsg(e?.response?.data?.message || '删除失败');
-  } finally {
-    favBusy.value = false;
-  }
+// 删除一条常用指令（按 cmd 匹配）
+async function removeFavorite(cmd) {
+  const next = favoriteCommands.value.filter((f) => f.cmd !== cmd);
+  const ok = await saveFavorites(next);
+  if (ok) showFavMsg('已删除');
+}
+
+// 拖拽排序：拖拽开始记录索引
+function onFavDragStart(idx) {
+  dragIndex.value = idx;
+}
+// 拖拽经过某一项：记录目标索引，便于视觉反馈
+function onFavDragOver(idx) {
+  dragOverIndex.value = idx;
+}
+// 拖拽放下：交换顺序并提交
+async function onFavDrop(idx) {
+  const from = dragIndex.value;
+  dragIndex.value = -1;
+  dragOverIndex.value = -1;
+  if (from < 0 || from === idx) return;
+  const next = [...favoriteCommands.value];
+  const [moved] = next.splice(from, 1);
+  next.splice(idx, 0, moved);
+  await saveFavorites(next);
+  showFavMsg('顺序已保存');
 }
 
 // 进入/退出编辑模式
 function toggleFavEdit() {
   favEditing.value = !favEditing.value;
   favAddInput.value = '';
+  favAddLabel.value = '';
+  dragIndex.value = -1;
+  dragOverIndex.value = -1;
   if (!favEditing.value) favMsg.value = '';
 }
 
-// 点击常用指令：编辑态→删除；非编辑态→发送
-function onFavoriteClick(name) {
+// 点击常用指令：编辑态→删除；非编辑态→直接模拟从输入框发送（任意文本）
+function onFavoriteClick(item) {
   if (favEditing.value) {
-    removeFavorite(name);
+    removeFavorite(item.cmd);
   } else {
-    quickSend(name);
+    // 直接走 socket 发送（与输入框发送完全一致），cmd 可为任意文本、未必是指令
+    if (socket) {
+      socket.emit('chat:message', { content: item.cmd });
+    } else {
+      input.value = item.cmd;
+      nextTick(() => inputEl.value?.focus());
+    }
   }
 }
 

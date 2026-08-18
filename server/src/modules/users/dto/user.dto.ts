@@ -16,14 +16,16 @@ export class UpdateNicknameDto {
 }
 
 /// 设置常用指令请求体（全量覆盖用户常用指令列表）
+/// 每条元素可为字符串（视为 cmd=label），或 { cmd, label } 对象；cmd 为实际发送内容，label 为面板展示文字
 export class SetFavoriteCommandsDto {
   @ApiProperty({
-    description: '常用指令列表（全量覆盖，每条为指令文本如 "攻击"；服务端去重、去空白、最多保留20条）',
-    example: ['攻击', '背包', '信息'],
-    type: [String],
+    description:
+      '常用指令列表（全量覆盖）。每条可为字符串（如 "攻击"）或对象 { cmd:"攻击 史莱姆", label:"攻击史莱姆" }；cmd 为实际发送内容（可为任意文本，不一定是指令），label 为按钮展示文字。服务端按 cmd 去重、最多保留20条',
+    example: ['攻击', '背包', { cmd: '攻击 史莱姆', label: '攻击史莱姆' }],
+    type: 'array',
+    items: { oneOf: [{ type: 'string' }, { type: 'object', properties: { cmd: { type: 'string' }, label: { type: 'string' } } }] },
   })
   @IsArray()
   @ArrayMaxSize(20, { message: '常用指令最多20条' })
-  @IsString({ each: true })
-  commands: string[];
+  commands: (string | { cmd: string; label?: string })[];
 }
