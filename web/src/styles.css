@@ -1410,6 +1410,15 @@ vite-plugin-checker-error-overlay,
   font-weight: 600;
 }
 
+/* 系统消息 - 别人的（非本人触发的公屏广播）：灰色调暗淡显示，与自己的金色高亮区分 */
+.msg.system-other {
+  background: rgba(30, 27, 52, 0.55);
+  color: #9ca3af;
+  border-color: rgba(139, 92, 246, 0.18);
+  box-shadow: none;
+  font-weight: 400;
+}
+
 /* 指令消息 - 暗色 */
 .msg.command {
   background: rgba(10, 10, 26, 0.7);
@@ -1460,14 +1469,21 @@ vite-plugin-checker-error-overlay,
 .msg.own .sender {
   color: #c4b5fd;
 }
-/* 系统类消息：强制居中，覆盖 game/combat/info 的靠左 */
+/* 系统类消息：强制居中，覆盖 game/combat/info 的靠左；
+   改为纵向排列（内容在上、时间在下居中），让居中消息也能显示精确到秒的时间戳 */
 .msg.center {
   align-self: center;
   text-align: center;
+  flex-direction: column;
+  align-items: center;
 }
-/* 居中消息不显示时间戳（保持清爽） */
+.msg.center .msg-body {
+  width: 100%;
+}
+/* 居中消息的时间戳：显示在内容下方居中小字（不再隐藏，满足"世界频道可见发送时间（精确到秒）"需求） */
 .msg.center .msg-time {
-  display: none;
+  align-self: center;
+  margin-top: 4px;
 }
 
 /* 聊天消息 - 发送者紫色 */

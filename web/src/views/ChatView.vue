@@ -2392,10 +2392,10 @@ onMounted(async () => {
     // iOS/Android 键盘弹出时触发 visualViewport 尺寸变化，需单独监听
     window.visualViewport?.addEventListener('resize', setViewportHeight);
 
-    // 加载频道和历史消息
+    // 加载频道和历史消息（拉取最近 100 条：指令原文与系统回复都保留，刷新后仍可见自己的指令）
     const ch = await chatApi.getChannel();
     channel.value = ch.data;
-    const msgs = await chatApi.getMessages(ch.data.id, 50);
+    const msgs = await chatApi.getMessages(ch.data.id, 100);
     // 后端按 createdAt 倒序返回（最新在前），需反转成"旧消息在上、新消息在下"，
     // 与实时 push 到末尾的顺序一致，避免新消息出现在历史消息中间/顶部
     messages.value = (msgs.data || []).reverse();

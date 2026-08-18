@@ -42,8 +42,17 @@ export class PlayerService {
    * @param defaultVal 解析失败时的默认值
    */
   safeJsonParse<T>(jsonStr: string, defaultVal: T): T {
+    // 守卫：DB 字段为 NULL/undefined 时，JSON.parse(null) 会返回 null 而非抛错，
+    // 若不处理会导致调用方拿到 null 后 .filter 等崩溃（如 map.summons/map.vehicles 为空字段）。
+    if (jsonStr === null || jsonStr === undefined) {
+      return defaultVal;
+    }
     try {
-      return JSON.parse(jsonStr) as T;
+      const parsed = JSON.parse(jsonStr) as T;
+      // 字段存储为字符串 "null" 时 JSON.parse 返回 null（不抛错），需回退默认值，
+      // 避免调用方对 null 调用 .filter 等崩溃。
+      if (parsed === null) return defaultVal;
+      return parsed;
     } catch {
       this.logger.warn(`JSON 解析失败，使用默认值: ${jsonStr}`);
       return defaultVal;

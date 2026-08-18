@@ -139,13 +139,15 @@ function buildMocks() {
     }),
     getMarkerValue: jest.fn((markers: any, key: string) => markers?.[key] ?? 0),
     safeJsonParse: jest.fn(<T>(v: any, d: T): T => {
-      try { return (typeof v === 'string' ? JSON.parse(v) : v) as T; } catch { return d; }
+      // 与生产 PlayerService.safeJsonParse 一致：undefined/null 输入直接回退默认值
+      if (v === null || v === undefined) return d;
+      try { const p = (typeof v === 'string' ? JSON.parse(v) : v) as T; return (p === null ? d : p); } catch { return d; }
     }),
     getBackpackItems: jest.fn((player: any) => JSON.parse(player.backpack || '[]')),
   } as unknown as jest.Mocked<PlayerService>;
 
   const mapService = {
-    getMapById: jest.fn(async (mapId: number) => ({ id: mapId, name: '医疗室', vehicles: '[]' })),
+    getMapById: jest.fn(async (mapId: number) => ({ id: mapId, name: '医疗室', vehicles: '[]', summons: '[]' })),
     getMapMonsters: jest.fn(async (mapOrId: any) => {
       const id = typeof mapOrId === 'number' ? mapOrId : mapOrId?.id;
       return monstersByMap.get(id) || [];
@@ -161,6 +163,7 @@ function buildMocks() {
       const found = list.find((m: any) => m.id === monster.id);
       if (found) found.hp = monster.hp;
     }),
+    updateDynamicFields: jest.fn(async (_mapId: number, _data: Record<string, any>) => {}),
   } as unknown as jest.Mocked<MapService>;
 
   const staticData = {
@@ -552,6 +555,48 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       // 闪避成功 → 含光回复生命上限10% = 10，从90回到100
       expect(player.hp).toBe(100);
+    });
+  });
+
+  // ---------- 载具承伤（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L3175-3288） ----------
+  describe('载具承伤（玩家驾驶载具时怪物攻击先打载具）', () => {
+    // 直接驱动 monsterCounterAttack：构造驾驶载具的玩家 + 高伤怪物，
+    // calcDamage mock 固定伤害，验证「载具先承伤 → 破碎后溢出到玩家」与原版 L3175 一致。
+    async function runVehicleCounter(vehicle: any | null, dmg: number) {
+      const player = makePlayer({ userId: 2, hp: 100, maxHp: 100, vehicle: vehicle ? vehicle.id : null });
+      const monster = makeMonster({ id: 1001, hp: 100, attack: 999, specialSeq: 0, buffs: '[]', markers2: '[]' });
+      mocks.players.set(2, player);
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
+        攻击: 200, 命中: 200, 闪避: 0, 闪避2: 0, 生命: 50, 护盾: 0, 装甲: 0,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+        生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
+      } as any);
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: dmg, poolDamage: { shield: 0, armor: 0, hp: dmg }, rating: '', critMultiplier: 1 });
+      const vehicles = vehicle ? JSON.stringify([vehicle]) : '[]';
+      await (combat as any).monsterCounterAttack(player, await mocks.playerService.getPlayerData(2), { id: 1, name: '医疗室', vehicles });
+      return { player, monster };
+    }
+
+    it('驾驶载具且载具耐久足够 → 伤害全被载具吸收，玩家 hp 不变、载具扣血', async () => {
+      const v = { id: 'V1', name: '测试载具', currentHp: 30, maxHp: 100, parts: '[]', markers2: '[]' };
+      const { player } = await runVehicleCounter(v, 20);
+      expect(player.hp).toBe(100); // 玩家不掉血（载具吸收全部）
+    });
+
+    it('驾驶载具但耐久不足 → 载具破碎，溢出伤害落到玩家三池', async () => {
+      const v = { id: 'V1', name: '测试载具', currentHp: 20, maxHp: 100, parts: '[]', markers2: '[]' };
+      const { player } = await runVehicleCounter(v, 50); // 溢出 30 落到玩家
+      expect(player.hp).toBeLessThan(100); // 玩家受到溢出伤害
+      expect(player.hp).toBe(70); // 100 - 30 溢出
+    });
+
+    it('未驾驶载具 → 伤害直接落玩家三池（无载具承伤分支）', async () => {
+      const { player } = await runVehicleCounter(null, 30);
+      expect(player.hp).toBe(70); // 100 - 30 直接扣玩家
     });
   });
 

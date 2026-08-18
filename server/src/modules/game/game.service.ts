@@ -2910,31 +2910,30 @@ export class GameService {
       return '当前地图没有怪物，等待刷新...';
     }
 
-    // 快速扫荡：对每个怪物执行一次攻击
+    // 快速扫荡：对每个存活怪物发起一次完整攻击（复用 weaponAttack 全量战斗模型，
+    // 对齐原版「扫荡」即连续攻击循环；含怪物反击/召唤物协同闭环）。
     let totalExp = 0;
     let totalKills = 0;
     const resultLines: string[] = ['⚔️ 开始扫荡！'];
 
     for (const monster of monsters) {
       if (monster.hp <= 0) continue;
-
-      // 简化版攻击计算
-      const playerAtk = player.attack || 10;
-      const damage = Math.max(1, playerAtk - (monster.defense || 2));
-
-      monster.hp = (monster.hp || 50) - damage;
-
-      if (monster.hp <= 0) {
-        // 怪物死亡，获得经验，从 GameMonster 表移除
-        const expGain = (monster.level || 1) * 10 + 10;
-        totalExp += expGain;
-        totalKills++;
-        resultLines.push(`  ✅ 击败【${monster.name}】，获得 ${expGain} 经验`);
-        await this.mapService.removeMapMonster(map.id, monster.id);
-      } else {
-        resultLines.push(`  ⚔️ 攻击【${monster.name}】，造成 ${damage} 伤害（剩余 ${monster.hp} HP）`);
-        // 存活怪物写回三层池血量
-        await this.mapService.updateMonsterFields(map.id, monster.id, { hp: monster.hp });
+      try {
+        // 当前武器（无则拳头）走完整伤害/反击模型
+        const weaponIndex = (player.currentWeapon || 0) > 0 ? player.currentWeapon - 1 : 0;
+        const result = await this.combatSystem.weaponAttack(userId, weaponIndex, {
+          noDelay: true,
+          isAutoCombat: true,
+        });
+        totalExp += result.expGained || 0;
+        totalKills += (result.killed || []).length;
+        // 仅摘出与本次目标相关的摘要，避免刷屏
+        const lines = (result.result || '').split('\n').filter(
+          (l: string) => l.includes(monster.name) || l.includes('怪物反击') || l.includes('召唤物'),
+        );
+        if (lines.length > 0) resultLines.push(`  ── ${monster.name} ──`, ...lines);
+      } catch (e: any) {
+        this.logger.warn(`扫荡攻击 ${monster.name} 失败: ${e.message}`);
       }
     }
 

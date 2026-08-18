@@ -2290,13 +2290,64 @@ export class CombatSystemService {
         CombatSystemService.DMG_PHYS,
         false,
       );
-      const finalDmg = Math.max(1, Math.floor(dmg.damage));
+      let finalDmg = Math.max(1, Math.floor(dmg.damage));
 
-      // 扣除玩家血量（三池：护盾→装甲→生命）
+      // ========== 载具承伤（对应原版 战斗相关.ecode L3175-3288：防御方驾驶载具时载具先承伤害） ==========
+      // 原版 L3175：载具.当前生命 > 0 → b=1，怪物伤害先作用于载具（载具承第一道伤）；
+      // 载具破碎（当前生命<=0）后溢出伤害才落到玩家三池。L3181 阿尔缇娜(#阿尔缇娜=7)攻击时
+      // 额外 贯穿×1.5 + 伤害×(1.25+技等/200)。本框架载具实例存于地图 map.vehicles JSON，
+      // 经 player.vehicle(ID) 匹配，与 weaponAttack 攻击方载具加成(L393-397)取数同源。
+      let vehicleOverflow = 0; // 载具破碎后溢出到玩家的伤害
+      {
+        const vId = victim.vehicle || '';
+        if (vId) {
+          const mapVehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+          const vIdx = mapVehicles.findIndex((x: any) => x && (x.id === vId || x.编号 === vId));
+          if (vIdx >= 0) {
+            const v = mapVehicles[vIdx];
+            const vHp = v.currentHp ?? v.当前生命 ?? 0;
+            if (vHp > 0) {
+              // 阿尔缇娜攻击：贯穿×1.5、四系伤害×(1.25+技等/200)（原版 L3181-3189）
+              let vehDmg = finalDmg;
+              if ((monster.specialSeq ?? 0) === 7) {
+                vehDmg = Math.floor(vehDmg * (1.25 + (monster.skillLevel ?? 0) / 200));
+                lines.push(`【阿尔缇娜】贯穿载具伤害×${(1.25 + (monster.skillLevel ?? 0) / 200).toFixed(3)}`);
+              }
+              const afterVeh = vHp - vehDmg;
+              if (afterVeh > 0) {
+                v.currentHp = afterVeh;
+                v.当前生命 = afterVeh;
+                lines.push(`${monster.name} 的攻击被${v.name || '载具'}挡下，载具耐久-${Math.round(vehDmg)}（剩余${Math.round(afterVeh)}）`);
+                vehDmg = 0; // 载具完全吸收，玩家不掉血
+              } else {
+                v.currentHp = 0;
+                v.当前生命 = 0;
+                vehicleOverflow = -afterVeh; // 溢出部分落到玩家
+                vehDmg = vehicleOverflow; // 破碎后剩余伤害=溢出值，作用于玩家三池
+                lines.push(`${v.name || '载具'}被击毁！溢出${Math.round(vehicleOverflow)}点伤害落到${youText}身上`);
+              }
+              mapVehicles[vIdx] = v;
+              map.vehicles = JSON.stringify(mapVehicles); // 写回地图载具实例
+              // 持久化地图载具状态（原版 载具.当前生命 即时变更需落库）
+              try {
+                await this.mapService.updateDynamicFields(map.id, { vehicles: map.vehicles });
+              } catch (e: any) {
+                this.logger.warn(`载具承伤持久化失败: ${e.message}`);
+              }
+              finalDmg = vehDmg; // 剩余作用于玩家三池的伤害（载具吸收则为0）
+            }
+          }
+        }
+      }
+
+      // 扣除玩家血量（三池：护盾→装甲→生命），仅结算载具未吸收的部分
       const pool = dmg.poolDamage || { shield: 0, armor: 0, hp: finalDmg };
-      const shieldDmg = Math.min(pool.shield, victim.shield || 0);
-      const armorDmg = Math.min(pool.armor, victim.armor || 0);
-      const hpDmg = Math.min(pool.hp, victim.hp || 0);
+      // 载具溢出时按溢出值等比缩放三池分配（原版 剩余物伤/火/冰/电 拆分；本框架以 finalDmg 比例近似）
+      // finalDmg<=0（载具完全吸收）时 scale=0，确保玩家不掉血。
+      const vehScale = finalDmg > 0 && dmg.poolDamage ? finalDmg / Math.max(1, dmg.damage) : 0;
+      const shieldDmg = Math.min(Math.round((pool.shield || 0) * vehScale), victim.shield || 0);
+      const armorDmg = Math.min(Math.round((pool.armor || 0) * vehScale), victim.armor || 0);
+      const hpDmg = Math.min(Math.round((pool.hp || 0) * vehScale), victim.hp || 0);
       victim.shield = Math.max(0, (victim.shield || 0) - shieldDmg);
       victim.armor = Math.max(0, (victim.armor || 0) - armorDmg);
       victim.hp = Math.max(0, (victim.hp || 0) - hpDmg);
