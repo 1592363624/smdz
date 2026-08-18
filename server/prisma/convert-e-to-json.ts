@@ -541,15 +541,49 @@ function mapDialogueToNpc(section: ConfigSection) {
 function mapTaskToTask(section: ConfigSection) {
   const fields = section.fields;
   const rewards = parseItemCountString(fields['奖励'] || '');
-  const requirements = parseItemCountString(fields['要求'] || '');
+  // 原版 数据存取.ecode L652~L656：要求字段按空格分割为「名称数量」紧挨格式（如 移动1 / 发送"观察附近"1），
+  // 再用 去数字(取末尾文字) + 取数字(取末尾数字) 拆分成 名称 + 数值。
+  // 注意：不能用 parseItemCountString（它按逗号「名称,数量」解析），否则会全部解析为空。
+  const requirements = parseNameCountString(fields['要求'] || '');
+  // 原版 数据存取.ecode L664：任务.任务 = 分割文本(读配置项3(p, w[a], "任务", ""), " ", )
+  // 即完成本任务后自动激活的后续任务名（空格分隔），对应 GameTask.nextTasks。
+  const nextTasks = parseSpaceSeparatedString(fields['任务'] || '');
   return {
     name: section.name,
     description: fields['说明'] || '',
     chance: 100, level: 1, publisher: '',
     requirements: JSON.stringify(requirements),
     rewards: JSON.stringify(rewards),
-    nextTasks: '[]', restrictMarkers: '[]',
+    nextTasks: JSON.stringify(nextTasks), restrictMarkers: '[]',
   };
+}
+
+/**
+ * 解析原版「要求」「奖励」等字段的「名称数量」紧挨格式（空格分隔，名称与数字直接相连）。
+ * 对应原版 数据存取.ecode L652~L656：
+ *   w1 = 分割文本(读配置项3(p, w[a], "要求", ""), " ", )
+ *   j.名称 = 去数字(w1[b])   ' 去掉末尾数字后的文字
+ *   j.数值 = 到数值(取数字(w1[b]))  ' 取末尾连续数字
+ * 示例：
+ *   "移动1 前往森林出口1"           -> [{name:"移动",count:1},{name:"前往森林出口",count:1}]
+ *   "发送"观察附近"1 使用优秀装备补给箱1" -> [{name:'发送"观察附近"',count:1},{name:"使用优秀装备补给箱",count:1}]
+ */
+function parseNameCountString(str: string): Array<{ name: string; count: number }> {
+  if (!str || !str.trim()) return [];
+  const result: Array<{ name: string; count: number }> = [];
+  for (const group of str.trim().split(/\s+/)) {
+    if (!group.trim()) continue;
+    // 从右往左找到第一个非数字字符的位置，左边为名称，右边连续数字为数量
+    let i = group.length - 1;
+    while (i >= 0 && /\d/.test(group[i])) i--;
+    if (i < 0) continue; // 整串都是数字，跳过
+    const name = group.slice(0, i + 1).trim();
+    const countStr = group.slice(i + 1).trim();
+    if (!name) continue;
+    const count = countStr ? parseInt(countStr, 10) : 1;
+    result.push({ name, count: Number.isNaN(count) ? 1 : count });
+  }
+  return result;
 }
 
 function mapEffectToEffect(section: ConfigSection) {

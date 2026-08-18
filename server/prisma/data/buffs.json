@@ -142,32 +142,5 @@
     "stackTime": false,
     "bonus": "{\"护盾全抗\":-10,\"装甲全抗\":-10,\"生命全抗\":-10}",
     "triggerText": "【目标】被【名称】【载具】点燃了！"
-  },
-  {
-    "name": "亲",
-    "description": "",
-    "duration": 0,
-    "chance": 100,
-    "stackTime": false,
-    "bonus": "{\"攻击2\":15}",
-    "triggerText": ""
-  },
-  {
-    "name": "蹭",
-    "description": "",
-    "duration": 0,
-    "chance": 100,
-    "stackTime": false,
-    "bonus": "{\"闪避2\":15}",
-    "triggerText": ""
-  },
-  {
-    "name": "抱",
-    "description": "",
-    "duration": 0,
-    "chance": 100,
-    "stackTime": false,
-    "bonus": "{\"命中2\":15}",
-    "triggerText": ""
   }
 ]

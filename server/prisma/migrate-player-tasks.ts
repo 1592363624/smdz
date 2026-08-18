@@ -84,19 +84,29 @@ function normalizeTask(task: any, taskDefs: Map<string, any>): any | null {
     return { name, requirements: [], completed: true };
   }
 
-  // 2) 未完成：优先保留已有 requirements，缺失则从任务定义还原
-  let reqs = parseRequirements(task.requirements);
-  if (!reqs) {
+  // 2) 未完成：优先保留已有 requirements，缺失（含空数组 []）则从任务定义还原
+  //    注意：原版任务模板本就带 requirements，历史上因解析错误导致大量条目存为 []，
+  //    空数组必须当作「缺失」从定义还原，否则这些任务会被误判为「无要求」而瞬间完成/卡死。
+  const origReqs = parseRequirements(task.requirements);
+  let reqs = origReqs;
+  let restored = false;
+  if (!reqs || reqs.length === 0) {
     const def = taskDefs.get(name);
-    if (def) reqs = parseRequirements(def.requirements);
+    if (def) {
+      const defReqs = parseRequirements(def.requirements);
+      if (defReqs && defReqs.length > 0) {
+        reqs = defReqs;
+        restored = true; // 标记：从空数组/缺失成功还原
+      }
+    }
   }
 
-  if (!reqs) {
+  if (!reqs || reqs.length === 0) {
     // 既无 requirements 又无法从定义还原的无意义记录，丢弃
     return null;
   }
 
-  return { name, requirements: reqs };
+  return { name, requirements: reqs, restored };
 }
 
 async function main() {
@@ -144,17 +154,18 @@ async function main() {
       if (!norm) continue;
       // 判断是否发生了实质性结构变化（requirements 丢失后还原 / 已完成收拢 / 字段清理）
       if (
-        t && (
+        norm.restored ||
+        (t && (
           !Array.isArray(t.requirements) ||
           t.completed !== norm.completed ||
           t.status !== undefined ||
           t.progress !== undefined ||
           t.count !== undefined
-        )
+        ))
       ) {
         restruct = true;
       }
-      normalized.push(norm);
+      normalized.push({ name: norm.name, requirements: norm.requirements });
     }
 
     // 仅在有变化时才写库，减少无谓更新

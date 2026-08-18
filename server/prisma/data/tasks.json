@@ -5,7 +5,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"击败怪物\",\"count\":1},{\"name\":\"采集资源\",\"count\":1}]",
     "rewards": "[{\"name\":\"次元破碎15（是装备时\",\"count\":0}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -16,7 +16,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"对话白\",\"count\":3}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -27,7 +27,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"对话\",\"count\":3}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -38,7 +38,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"移动\",\"count\":5}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -49,7 +49,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集木头\",\"count\":20}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -60,7 +60,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集木头\",\"count\":50}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -71,7 +71,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集木头\",\"count\":100}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -82,7 +82,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集石头\",\"count\":50}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -93,7 +93,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集石头\",\"count\":100}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -104,7 +104,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集铁矿\",\"count\":10}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -115,7 +115,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集石头\",\"count\":20}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -126,7 +126,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集铁矿\",\"count\":25}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -137,7 +137,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集铁矿\",\"count\":50}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -148,7 +148,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"打开货舱\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -159,7 +159,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"打开货舱\",\"count\":3}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -170,7 +170,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"打开货舱\",\"count\":7}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -181,7 +181,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集能量块\",\"count\":5}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -192,7 +192,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集能量块\",\"count\":10}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -203,7 +203,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集能量块\",\"count\":20}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -214,7 +214,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集水晶\",\"count\":10}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -225,7 +225,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集水晶\",\"count\":25}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -236,7 +236,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集水晶\",\"count\":50}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -247,18 +247,18 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"击败怪物\",\"count\":3}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
   {
     "name": "狩猎大师",
-    "description": "去整点猎物吧",
+    "description": "采集点水晶吧",
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"击败怪物\",\"count\":7}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -269,7 +269,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"兑换\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -280,7 +280,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"完成任务\",\"count\":3}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -291,29 +291,29 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"完成任务\",\"count\":5}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
   {
     "name": "奴隶主",
-    "description": "让NPC干活（带着npc或者宠物采集资源）",
+    "description": "让NPC干活（带着npc和宠物采集资源）",
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"奴役\",\"count\":3}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
   {
     "name": "快乐种植园",
-    "description": "让NPC干活（带着npc或者宠物采集资源）",
+    "description": "让NPC干活（带着npc和宠物采集资源）",
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"奴役\",\"count\":5}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -324,7 +324,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"击败怪物\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -335,9 +335,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“观察附近”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-移动\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -346,9 +346,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"移动\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-苏醒\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -357,9 +357,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"前往森林出口\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-背包\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -368,9 +368,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“查看背包”\",\"count\":1},{\"name\":\"使用优秀装备补给箱\",\"count\":1},{\"name\":\"发送“资源背包”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-装备\",\"教程-了解自己\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -379,20 +379,20 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"查看背包详细\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-战斗准备\"]",
     "restrictMarkers": "[]"
   },
   {
     "name": "教程-捕捉宠物",
-    "description": "使用上一教程给予的麻醉枪（装备上麻醉枪后发送“切换武器”来切换成麻醉枪），使用麻醉枪攻击，把怪物麻痹后发送“捕捉”来捕捉怪物成为你的宠物。#换行宠物可以帮助你战斗和采集资源(每个宠物使采集效率+100%)，并且死亡可以复活。#换行捕捉花园宝宝和小白狐不能完成此任务",
+    "description": "使用上一教程给予的麻醉枪（装备上麻醉枪后发送“切换武器”来切换成麻醉枪），使用麻醉枪攻击，把怪物麻痹后发送“捕捉”来捕捉怪物成为你的宠物。宠物可以帮助你战斗和采集资源(每个宠物使采集效率+100%)，并且死亡可以复活。",
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"捕捉\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-宠物操作\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -401,9 +401,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"飞行\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-捕捉宠物\",\"教程-分解\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -412,9 +412,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集资源\",\"count\":10},{\"name\":\"装备隐形披风\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-高效移动\",\"教程-建造房子\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -423,9 +423,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"强化增幅器\",\"count\":1},{\"name\":\"强化植入体\",\"count\":1},{\"name\":\"发送“查看植入体”\",\"count\":1},{\"name\":\"发送“查看增幅器”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-拥有机甲\",\"教程-装备强化\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -434,9 +434,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"分解\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-强化\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -445,9 +445,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"组装载具\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-驾驶机甲\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -456,9 +456,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"驾驶载具\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-完善机甲\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -467,7 +467,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“宠物操作”\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -478,9 +478,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"使用装备\",\"count\":1},{\"name\":\"使用武器\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-攻击\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -489,9 +489,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“攻击史莱姆”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-采集资源\",\"教程-图鉴\",\"教程-闪避\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -500,9 +500,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“圈地”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-家具\",\"教程-制造\",\"教程-家园命名\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -511,9 +511,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"制造\",\"count\":1},{\"name\":\"安装床\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-生产\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -522,9 +522,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"安装基础发电机\",\"count\":1},{\"name\":\"安装基础油井\",\"count\":1},{\"name\":\"安装基础组装机\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-种植\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -533,9 +533,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"种植\",\"count\":2},{\"name\":\"使用种子箱\",\"count\":10}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-收获\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -544,7 +544,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"拾取\",\"count\":10}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -555,18 +555,18 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"组装轻型足\",\"count\":1},{\"name\":\"组装轻型装甲\",\"count\":1},{\"name\":\"组装能量剑\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-维修\"]",
     "restrictMarkers": "[]"
   },
   {
     "name": "教程-制造",
-    "description": "发送“制造”来进入制造菜单，然后选择你想制造的项目，选择“建筑”，然后制造一张床。#换行缺少资源可以从地图上采集，或者击败怪物获得，你可以从图鉴中查找资源的出处，比如“图鉴合金”来寻找获得合金的途径。",
+    "description": "发送“制造”来进入制造菜单，然后选择你想制造的项目，选择“建筑”，然后制造一个基础发电机。#换行缺少资源可以从地图上采集，或者击败怪物获得，你可以从图鉴中查找资源的出处，比如“图鉴合金”来寻找获得合金的途径。",
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"制造床\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -577,9 +577,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“图鉴”\",\"count\":3}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-称号\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -588,9 +588,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“查看使魔”\",\"count\":1},{\"name\":\"发送“使魔大战”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-技能\",\"教程-商店\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -599,9 +599,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“使魔技能”\",\"count\":1},{\"name\":\"使用技能\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-探测雷达\",\"教程-通用技能\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -610,9 +610,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“查看地图”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-移动\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -621,9 +621,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"家园命名\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-开挖地基\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -632,7 +632,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"采集资源\",\"count\":20}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -643,9 +643,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“探测雷达”\",\"count\":3}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-求助露娜\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -654,9 +654,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"求助\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-行商\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -665,7 +665,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"购物\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -676,9 +676,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“维修”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-使魔挑战\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -687,7 +687,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“装备强化”\",\"count\":1},{\"name\":\"强化头部\",\"count\":1},{\"name\":\"强化肩膀\",\"count\":1},{\"name\":\"强化上身\",\"count\":1},{\"name\":\"强化手臂\",\"count\":1},{\"name\":\"强化手掌\",\"count\":1},{\"name\":\"强化背部\",\"count\":1},{\"name\":\"强化腰部\",\"count\":1},{\"name\":\"强化饰品\",\"count\":1},{\"name\":\"强化下身\",\"count\":1},{\"name\":\"强化腿环\",\"count\":1},{\"name\":\"强化腿部\",\"count\":1},{\"name\":\"强化脚部\",\"count\":1},{\"name\":\"强化腿环\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -698,9 +698,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"领取称号\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-佩戴称号\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -709,7 +709,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"佩戴称号\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -720,7 +720,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“使魔挑战”\",\"count\":1},{\"name\":\"发送“开始挑战”\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -731,7 +731,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"兑换\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -742,9 +742,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"对话白\",\"count\":3}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"主线-继续询问\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -753,9 +753,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"对话史莱姆\",\"count\":3}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"主线-取水\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -764,9 +764,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"击败水元素\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"主线-搜寻\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -775,9 +775,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"前往湖边\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"主线-不速之客\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -786,9 +786,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"前往森林深处\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"主线-逃跑\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -797,7 +797,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"闪避\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -808,9 +808,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“通用技能”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"教程-活力\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -819,7 +819,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“查看使魔”\",\"count\":1},{\"name\":\"消耗活力\",\"count\":10}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -830,9 +830,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"组装激光采集器\",\"count\":1},{\"name\":\"组装采集模块\",\"count\":1},{\"name\":\"组装轻型足\",\"count\":1},{\"name\":\"组装盾构机核心\",\"count\":1},{\"name\":\"组装隐形模块\",\"count\":1},{\"name\":\"开采自动\",\"count\":1},{\"name\":\"开采\",\"count\":1},{\"name\":\"组装床\",\"count\":1},{\"name\":\"发送“开采”\",\"count\":1},{\"name\":\"发送“开采自动”\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"进阶-呼叫\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -841,9 +841,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"击败小恶魔\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"进阶-采矿机甲\",\"进阶-蓬勃发展\",\"进阶-切换植入体\",\"进阶-切换增幅器\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -852,9 +852,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"建筑数量\",\"count\":10}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"进阶-欣欣向荣\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -863,7 +863,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"建筑数量\",\"count\":30}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -874,9 +874,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"呼叫\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"进阶-活力\",\"进阶-繁衍\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -885,9 +885,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“查看使魔”\",\"count\":1},{\"name\":\"消耗活力\",\"count\":100}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"进阶-贸易\",\"进阶-卷土重来\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -896,9 +896,9 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“切换增幅器”\",\"count\":1},{\"name\":\"切换增幅器\",\"count\":1}]",
     "rewards": "[]",
-    "nextTasks": "[]",
+    "nextTasks": "[\"进阶-逆向\"]",
     "restrictMarkers": "[]"
   },
   {
@@ -907,7 +907,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"发送“切换植入体”\",\"count\":1},{\"name\":\"切换植入体\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -918,7 +918,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"生崽\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -929,7 +929,7 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"贸易\",\"count\":3},{\"name\":\"消耗活力\",\"count\":30}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
@@ -940,18 +940,18 @@
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"逆向\",\"count\":10}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
   {
     "name": "进阶-卷土重来",
-    "description": "被击倒后会进入30秒的“卷土重来”状态(冷却30秒)，闪避为1，攻击减半，可以继续活动，卷土重来状态下击杀目标能满血复活。#换行其他玩家可以发送“扶”来扶起处于卷土重来状态的玩家，存活的宠物会自动扶起卷土重来状态的玩家。#换行完成一次在卷土重来状态下的击杀",
+    "description": "被击倒后会进入30秒的“卷土重来”状态(冷却30秒)，闪避为1，攻击减半，可以继续活动，卷土重来状态下击杀目标能满血复活。#换行其他玩家可以发送“扶”来扶起处于卷土重来状态的玩家，存活的宠物会自动扶起卷土重来状态的玩家。",
     "chance": 100,
     "level": 1,
     "publisher": "",
-    "requirements": "[]",
+    "requirements": "[{\"name\":\"卷土重来\",\"count\":1}]",
     "rewards": "[]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
