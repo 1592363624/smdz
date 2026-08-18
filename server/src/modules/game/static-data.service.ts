@@ -23,6 +23,7 @@
  *   effects.json   -> GameEffect        attack-texts.json -> GameAttackText
  *   set-effects.json-> GameSetEffect    flavor-texts.json-> GameFlavorText
  *   update-logs.json-> GameUpdateLog
+ *   vehicle-recipes.json -> 原版载具生产配方（无配置时保持空数组）
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -55,7 +56,9 @@ const DATA_FILES = {
   updateLogs: 'update-logs.json',
   vehiclesParts: 'vehicles.json',
   vehicleParts: 'vehicle-parts.json',
+  merchant: 'merchant.json',
   maps: 'maps.json',
+  vehicleRecipes: 'vehicle-recipes.json',
 } as const;
 
 type DataKey = keyof typeof DATA_FILES;
@@ -237,6 +240,17 @@ export class StaticDataService {
     return this.loadRaw('vehicles');
   }
 
+  // ============ 载具生产配方 ============
+
+  /** 原版「取配方」使用的载具生产配方；与普通制造配方分开。 */
+  getVehicleRecipeByName(name: string): any {
+    return this.findByKey('vehicleRecipes', name);
+  }
+
+  getAllVehicleRecipes(): any[] {
+    return this.loadRaw('vehicleRecipes');
+  }
+
   // ============ 原版 部件列表 规格表（vehicle-parts.json） ============
   // 说明：原版 计算载具 / 叠加载具加成 依赖全局「部件列表」（含 加成.攻击/上限/行走/防御/
   // 武器/功能/类型/限制2/内置零件/生产 等数值字段）。数据由 e/源码解析成为txt/使魔大战.txt
@@ -251,6 +265,71 @@ export class StaticDataService {
   /** 取全部部件规格（对应原版 部件列表 全局数组） */
   getAllVehiclePartSpecs(): any[] {
     return this.loadRaw('vehicleParts');
+  }
+
+  /** 原版 @Global 行商物品/行商装备池，保留重复项以保持随机权重。 */
+  getMerchantConfig(): { equipmentText: string; itemText: string } {
+    // 商店配置是 e/使魔大战.txt 的 SSOT；优先读取其解析结果。
+    const shop = this.loadRaw<any>('shops')[0];
+    const parse = (value: any): any[] => {
+      if (Array.isArray(value)) return value;
+      if (typeof value !== 'string') return [];
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+    const equipment = parse(shop?.travelingEquip);
+    const items = parse(shop?.travelingItem);
+    if (equipment.length || items.length) {
+      return {
+        equipmentText: equipment.map((item) => item?.name || item?.名称 || '').filter(Boolean).join('，'),
+        itemText: items
+          .map((item) => `${item?.name || item?.名称 || ''}${item?.count ?? item?.数量 ?? 1}`)
+          .filter(Boolean)
+          .join('，'),
+      };
+    }
+
+    // 兼容只携带旧版 merchant.json 的部署包。
+    const merchant = this.loadRaw<any>('merchant')[0];
+    return merchant || { equipmentText: '', itemText: '' };
+  }
+
+  /**
+   * 读取原版 [商店] 的三个兑换子商店。
+   * 数据存取.ecode L805-824 按顺序填充活跃度、钻石、数据商店；
+   * 返回值保留配置顺序，兑换时必须先查活跃度再查钻石、数据核心。
+   */
+  getShopConfig(): {
+    activity: Array<{ name: string; count: number }>;
+    diamond: Array<{ name: string; count: number }>;
+    dataCore: Array<{ name: string; count: number }>;
+  } {
+    const row = this.loadRaw<any>('shops')[0] || {};
+    const parse = (value: any): Array<{ name: string; count: number }> => {
+      if (Array.isArray(value)) return value;
+      if (typeof value !== 'string') return [];
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+    const normalize = (value: any): Array<{ name: string; count: number }> => parse(value)
+      .map((item: any) => ({
+        name: String(item?.name ?? item?.名称 ?? '').trim(),
+        count: Number(item?.count ?? item?.数量 ?? 0),
+      }))
+      .filter((item) => item.name && Number.isFinite(item.count));
+    return {
+      activity: normalize(row.shopActivity),
+      diamond: normalize(row.shopDiamond),
+      dataCore: normalize(row.shopData),
+    };
   }
 
   // ============ 蓝图 ============

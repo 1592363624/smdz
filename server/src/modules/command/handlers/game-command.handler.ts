@@ -347,9 +347,14 @@ export class GameCommandHandler implements CommandHandler {
 
         case '兑换':
         case 'exchange':
-          // 自动推进任务（对应原版：添加成就("兑换")）
-          await this.taskService.advance(userId, '兑换');
-          return this.wrap(await this.familiarSystem.exchange(userId, firstArg));
+          // 对应原版 _主程序.ecode L2630-L2634：数字是兑换次数，其余文本是物品名称。
+          {
+            const exchangeText = arg || firstArg;
+            const digits = exchangeText.match(/\d+/g);
+            const count = digits ? Number(digits.join('')) || 1 : 1;
+            const itemName = exchangeText.replace(/\d/g, '').replace(/\s+/g, '');
+            return this.wrap(await this.familiarSystem.exchange(userId, itemName, count));
+          }
 
         // ========== 使魔技能系统 ==========
         case '六道轮回':
@@ -558,7 +563,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'capture':
           // 自动推进任务（对应原版：添加成就("捕捉")）
           await this.taskService.advance(userId, '捕捉');
-          return this.wrap(await this.familiarSystem.capturePet(userId, firstArg, args.slice(1).join(' ')));
+          return this.wrap(await this.familiarSystem.capturePet(userId, 'capture', firstArg || args.slice(1).join(' ')));
 
         // ========== 地图/探索 ==========
         case '传送':
@@ -931,11 +936,11 @@ export class GameCommandHandler implements CommandHandler {
 
         case '安乐天使':
         case 'ease-angel':
-          return this.wrap(await this.gameService.handleEaseAngel(userId));
+          return this.wrap(await this.gameService.handleEaseAngel(userId, arg));
 
         case '福音书':
         case 'gospel':
-          return this.wrap(await this.gameService.handleGospel(userId));
+          return this.wrap(await this.gameService.handleGospel(userId, arg));
 
         case '启示录':
         case 'apocalypse':
@@ -1141,7 +1146,7 @@ export class GameCommandHandler implements CommandHandler {
 
         case '停止捕捉':
         case 'stop-capture':
-          return this.wrap(await this.gameService.handleStopCapture(userId));
+          return this.wrap(await this.gameService.handleStopCapture(userId, firstArg));
 
         case '全部跟随':
         case 'follow-all':
@@ -1614,9 +1619,8 @@ export class GameCommandHandler implements CommandHandler {
           }
 
           case '生产': {
-            // 生产操作：查看家园产出状态
-            const buildingOutput = await this.homeService.getBuildingOutputRate(markers);
-            return `🏭 家园产出状态\n产出倍率: ${buildingOutput}x\n使用「家园 查看」查看详细产出信息`;
+            // 生产操作直接观测并领取家园产出，对应地图操作.ecode 观测地图。
+            return this.homeService.collectHomeOutput(userId);
           }
 
           default:

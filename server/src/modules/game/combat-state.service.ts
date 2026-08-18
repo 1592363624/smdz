@@ -85,7 +85,7 @@ export class CombatStateService {
     // 时间：优先中文 有效期至，否则英文 expireAt；<1e12 视为秒，否则毫秒
     const rawTime = it.有效期至 ?? it.expireAt ?? 0;
     const expireMs = rawTime > 0 && rawTime < 1e12 ? rawTime * SECOND_MS : rawTime;
-    const strength = it.强度 ?? it.value ?? 0;
+    const strength = it.强度 ?? it.value ?? it.strength ?? 0;
     return { 名称: name, 强度: strength, 有效期至: expireMs };
   }
 

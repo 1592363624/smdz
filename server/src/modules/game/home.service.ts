@@ -21,6 +21,8 @@ import { MapService } from './map.service';
 export interface ProduceItem {
   name: string;
   quantity: number;
+  /** 静态配置和历史存档使用 count；进入计算前会归一化为 quantity */
+  count?: number;
   chance?: number;
 }
 
@@ -95,7 +97,7 @@ export class HomeService {
       name: '临时',
       outputs: items.map(item => ({
         name: item.name,
-        quantity: item.quantity,
+        quantity: this.getProduceQuantity(item),
       })),
       priority: specifiedPriority ?? 1,
       count: buildingCount ?? 1,
@@ -248,20 +250,21 @@ export class HomeService {
 
       // 遍历该生产者的所有产出
       for (const output of producer.outputs) {
+        const outputQuantity = this.getProduceQuantity(output);
         // 计算基础产出量
         // 公式：数量 × 人力供应倍率 × 次数 × 生产时间 / 60
-        let quantity = output.quantity * laborSupplyRate * producer.count * productionTime / 60;
+        let quantity = outputQuantity * laborSupplyRate * producer.count * productionTime / 60;
 
         if (productionType === 1) {
           // 作物类型：作物相同时间产出是建筑的10%
-          if (output.quantity > 0) {
+          if (outputQuantity > 0) {
             quantity = quantity * cropOutputRate * 0.1;
           } else {
             quantity = quantity * 0.1;
           }
         } else {
           // 建筑类型
-          if (output.quantity > 0) {
+          if (outputQuantity > 0) {
             // 正产出：应用建筑产出倍率
             quantity = quantity * buildingOutputRate;
             // 电力/燃料有独立倍率
@@ -278,8 +281,8 @@ export class HomeService {
           }
         }
 
-        // 跳过电力消耗（电力消耗在整体平衡中处理）
-        if (output.name === '电力' && output.quantity < 0) continue;
+        // 原版产出资源 L116：电力只参与总平衡，不写入家园存放地。
+        if (output.name === '电力') continue;
 
         // 添加到产出列表
         tempItem.name = output.name;
@@ -318,7 +321,8 @@ export class HomeService {
     const supplyTimes: number[] = [];
 
     for (const output of producer.outputs) {
-      if (output.quantity < 0) {
+      const outputQuantity = this.getProduceQuantity(output);
+      if (outputQuantity < 0) {
         // 有消耗项（负产出）
         if (output.name !== '电力') {
           // 电力已经在其他地方判断了，这里只处理其他消耗品
@@ -326,7 +330,7 @@ export class HomeService {
           const availableAmount = this.getItemQuantity(output.name, storage);
           // 计算可供消耗的时间 = 库存量 / (消耗率 / 倍率)
           // 消耗率 = |数量| / 倍率（每秒消耗量）
-          const consumeRate = Math.abs(output.quantity) / consumeRateDivisor;
+          const consumeRate = Math.abs(outputQuantity) / consumeRateDivisor;
           if (consumeRate > 0) {
             const supplyTime = availableAmount / consumeRate;
             supplyTimes.push(supplyTime);
@@ -371,11 +375,11 @@ export class HomeService {
       const producer: Producer = {
         name: def.name,
         type: def.type || '',
-        count: building.quantity || 1,
+        count: this.getItemQuantityValue(building),
         // 从建筑定义的 materials 字段解析产出（原版中建筑产出存储在产出2，这里统一用 outputs）
-        outputs: this.safeParseJSON<ProduceItem[]>(def.materials, []),
-        priority: 2, // 建筑默认优先级2
-        notOccupy: false,
+        outputs: this.normalizeProduceItems(this.safeParseJSON<any[]>(def.materials, [])),
+        priority: def.priority ?? ((building.type || def.type) === '作物' ? 1 : 2),
+        notOccupy: Boolean(def.notOccupy ?? def['不占']),
       };
 
       producers.push(producer);
@@ -425,11 +429,12 @@ export class HomeService {
     // ----- 计算建筑总产出 -----
     for (const building of buildings) {
       for (const output of building.outputs) {
+        const outputQuantity = this.getProduceQuantity(output);
         tempItem.name = output.name;
-        tempItem.quantity = output.quantity * building.count;
+        tempItem.quantity = outputQuantity * building.count;
 
         if (output.name === '电力') {
-          if (output.quantity > 0) {
+          if (outputQuantity > 0) {
             // 正电力产出：发电
             tempItem.quantity = tempItem.quantity * buildingOutputRate * powerFuelOutputRate * laborSupplyRate;
             powerGeneration += tempItem.quantity;
@@ -438,14 +443,14 @@ export class HomeService {
             tempItem.quantity = tempItem.quantity * powerConsumeRate;
           }
         } else if (output.name === '燃料') {
-          if (output.quantity > 0) {
+          if (outputQuantity > 0) {
             tempItem.quantity = tempItem.quantity * buildingOutputRate * powerFuelOutputRate * laborSupplyRate;
           } else {
             tempItem.quantity = tempItem.quantity * fuelConsumeRate;
           }
         } else {
           // 其他物品
-          if (output.quantity > 0) {
+          if (outputQuantity > 0) {
             tempItem.quantity = tempItem.quantity * buildingOutputRate * laborSupplyRate;
           }
         }
@@ -463,11 +468,12 @@ export class HomeService {
     // ----- 计算作物总产出 -----
     for (const crop of crops) {
       for (const output of crop.outputs) {
+        const outputQuantity = this.getProduceQuantity(output);
         tempItem.name = output.name;
         // 作物的产出/10=建筑相同时间产出
-        tempItem.quantity = output.quantity * crop.count / 10;
+        tempItem.quantity = outputQuantity * crop.count / 10;
 
-        if (output.name === '电力' && output.quantity > 0) {
+        if (output.name === '电力' && outputQuantity > 0) {
           powerGeneration += tempItem.quantity;
         }
 
@@ -593,7 +599,7 @@ export class HomeService {
         // 没有标记的资源才能被牵引
         const resourceOutputs: ProduceItem[] = (resource as any).outputs || (resource as any)['产出'] || [];
         for (const item of resourceOutputs) {
-          const quantity = item.quantity * (item.chance || 100) / 100 * count * 5; // 牵引光束5倍于基础产出
+          const quantity = this.getProduceQuantity(item) * (item.chance || 100) / 100 * count * 5; // 牵引光束5倍于基础产出
 
           if (item.name === '燃料' || item.name === '电力') {
             this.addToOutput(output, {
@@ -636,7 +642,7 @@ export class HomeService {
         // 检查是否"不占"类型（不占建筑位置）
         const notOccupy = def.notOccupy || false;
         if (!notOccupy) {
-          total += building.quantity || 1;
+          total += this.getItemQuantityValue(building);
         }
       }
     }
@@ -668,7 +674,7 @@ export class HomeService {
     }
 
     // 解析建造材料需求
-    const materials = this.safeParseJSON<any[]>(def.materials, []);
+    const materials = this.normalizeProduceItems(this.safeParseJSON<any[]>(def.materials, []));
 
     // 检查材料是否足够
     for (const material of materials) {
@@ -694,9 +700,9 @@ export class HomeService {
     const mapBuildings = this.safeParseJSON<any[]>(map.buildings, []);
     const existingBuilding = mapBuildings.find((b: any) => b.name === buildingName);
     if (existingBuilding) {
-      existingBuilding.quantity = (existingBuilding.quantity || 1) + 1;
+      this.setItemQuantity(existingBuilding, this.getItemQuantityValue(existingBuilding) + 1);
     } else {
-      mapBuildings.push({ name: buildingName, quantity: 1, type: def.type || '' });
+      mapBuildings.push({ name: buildingName, quantity: 1, count: 1, type: def.type || '' });
     }
 
     // 更新地图建筑数据
@@ -738,14 +744,15 @@ export class HomeService {
     const building = mapBuildings[buildingIndex];
 
     // 减少数量
-    if (building.quantity > 1) {
-      building.quantity -= 1;
+    const buildingQuantity = this.getItemQuantityValue(building);
+    if (buildingQuantity > 1) {
+      this.setItemQuantity(building, buildingQuantity - 1);
     } else {
       mapBuildings.splice(buildingIndex, 1);
     }
 
     // 返还50%材料
-    const materials = this.safeParseJSON<any[]>(def.materials, []);
+    const materials = this.normalizeProduceItems(this.safeParseJSON<any[]>(def.materials, []));
     const returnedItems: string[] = [];
     for (const material of materials) {
       if (material.quantity >= 0) continue; // 跳过产出项
@@ -802,8 +809,9 @@ export class HomeService {
 
     // 消耗种子
     const seedItem = backpack[seedIndex];
-    if (seedItem.quantity > 1) {
-      seedItem.quantity -= 1;
+    const seedQuantity = this.getItemQuantityValue(seedItem);
+    if (seedQuantity > 1) {
+      this.setItemQuantity(seedItem, seedQuantity - 1);
     } else {
       backpack.splice(seedIndex, 1);
     }
@@ -812,9 +820,9 @@ export class HomeService {
     const mapBuildings = this.safeParseJSON<any[]>(map.buildings, []);
     const existingCrop = mapBuildings.find((b: any) => b.name === cropName);
     if (existingCrop) {
-      existingCrop.quantity = (existingCrop.quantity || 1) + 1;
+      this.setItemQuantity(existingCrop, this.getItemQuantityValue(existingCrop) + 1);
     } else {
-      mapBuildings.push({ name: cropName, quantity: 1, type: '作物' });
+      mapBuildings.push({ name: cropName, quantity: 1, count: 1, type: '作物' });
     }
 
     map.buildings = JSON.stringify(mapBuildings);
@@ -850,9 +858,9 @@ export class HomeService {
     }
 
     // 获取产出
-    const outputs = this.safeParseJSON<ProduceItem[]>(def.materials, []);
+    const outputs = this.normalizeProduceItems(this.safeParseJSON<any[]>(def.materials, []));
     const crop = mapBuildings[cropIndex];
-    const cropCount = crop.quantity || 1;
+    const cropCount = this.getItemQuantityValue(crop);
 
     // 移除作物
     mapBuildings.splice(cropIndex, 1);
@@ -930,7 +938,7 @@ export class HomeService {
     let total = 0;
     for (const item of items) {
       if (item.name === name) {
-        total += item.quantity || item.count || 1;
+        total += this.getItemQuantityValue(item);
       }
     }
     return total;
@@ -945,12 +953,12 @@ export class HomeService {
     for (let i = items.length - 1; i >= 0 && remaining > 0; i--) {
       const item = items[i];
       if (item.name === name) {
-        const itemQty = item.quantity || 1;
+        const itemQty = this.getItemQuantityValue(item);
         if (itemQty <= remaining) {
           remaining -= itemQty;
           items.splice(i, 1);
         } else {
-          item.quantity = itemQty - remaining;
+          this.setItemQuantity(item, itemQty - remaining);
           remaining = 0;
         }
       }
@@ -964,9 +972,9 @@ export class HomeService {
   private addItemToArray(name: string, quantity: number, items: any[]): void {
     const existing = items.find((item: any) => item.name === name);
     if (existing) {
-      existing.quantity = (existing.quantity || 0) + quantity;
+      this.setItemQuantity(existing, this.getItemQuantityValue(existing) + quantity);
     } else {
-      items.push({ name, quantity, type: '资源' });
+      items.push({ name, quantity, count: quantity, type: '资源' });
     }
   }
 
@@ -980,6 +988,32 @@ export class HomeService {
       existing.quantity += item.quantity;
     } else {
       outputList.push({ name: item.name, quantity: item.quantity });
+    }
+  }
+
+  private normalizeProduceItems(items: any[]): ProduceItem[] {
+    return (Array.isArray(items) ? items : [])
+      .filter((item) => item && item.name)
+      .map((item) => ({
+        ...item,
+        name: String(item.name),
+        quantity: Number(item.quantity ?? item.count ?? 0),
+      }));
+  }
+
+  private getProduceQuantity(item: any): number {
+    return Number(item?.quantity ?? item?.count ?? 0);
+  }
+
+  private getItemQuantityValue(item: any): number {
+    return Number(item?.quantity ?? item?.count ?? 1);
+  }
+
+  private setItemQuantity(item: any, value: number): void {
+    if (Object.prototype.hasOwnProperty.call(item, 'count') && !Object.prototype.hasOwnProperty.call(item, 'quantity')) {
+      item.count = value;
+    } else {
+      item.quantity = value;
     }
   }
 
@@ -1010,5 +1044,337 @@ export class HomeService {
    */
   getBuildingOutputRate(markers: Record<string, number>): number {
     return markers['产出倍率'] || 1.0;
+  }
+
+  /**
+   * 观测并领取家园产出。
+   * 对应地图操作.ecode L53-540：先计算电力/燃料可支撑时间，再按优先级执行产出。
+   * 该入口集中所有家园公式，避免旧使魔服务维护另一套简化实现。
+   */
+  async collectHomeOutput(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    const progress = this.playerService.getMarkerValue(markers, '家园进度');
+    if (progress < 4) return '家园尚未建成，无法产出';
+    if (!player.houseName && !player.mapId) return '你还没有家园所在地图';
+
+    const map = player.houseName
+      ? await this.mapService.getMapByName(player.houseName).catch(() => null)
+      : await this.mapService.getMapById(player.mapId);
+    if (!map) return '家园所在的地图不存在';
+
+    const buildings = this.safeParseJSON<any[]>(map.buildings, []);
+    const definitions = this.staticData.getAllBuildings();
+    const producers = this.convertToProduction(buildings, definitions);
+    // 原版地图.资源2中“产出2”非空的条目才是作物；作物不存于建筑列表。
+    const cropResources = this.safeParseJSON<any[]>(map.resources2, []);
+    const cropProducers: Producer[] = cropResources
+      .filter((resource: any) => {
+        const outputs = resource?.outputs2 ?? resource?.产出2 ?? [];
+        return Array.isArray(outputs) && outputs.length > 0;
+      })
+      .map((resource: any): Producer => ({
+        name: resource.name ?? resource.名称 ?? '',
+        type: '作物',
+        count: Number(resource.count ?? resource.times ?? resource.次数 ?? 0),
+        outputs: this.normalizeProduceItems(resource.outputs2 ?? resource.产出2 ?? []),
+        priority: Number(resource.priority ?? resource.优先级 ?? 1),
+      }))
+      .filter((resource) => resource.count > 0 && resource.outputs.length > 0);
+    const storage = this.playerService.getBackpackItems(player);
+    const summons = this.safeParseJSON<any[]>(map.summons, []);
+    const alive = (pet: any): boolean => (pet?.hp ?? pet?.当前生命 ?? 0) > 0;
+    const hasPet = (name: string, seq: number, requireAlive = true): boolean => summons.some((pet: any) => {
+      const petSeq = pet?.vitality ?? pet?.活力 ?? pet?.specialSeq;
+      return (pet?.name === name || pet?.名称 === name || petSeq === seq) && (!requireAlive || alive(pet));
+    });
+    const petCount = summons.length;
+    const countBuilding = (name: string): number => buildings
+      .filter((b: any) => b?.name === name)
+      .reduce((sum: number, b: any) => sum + this.getItemQuantityValue(b), 0);
+    const markerValue = (source: any, name: string): number => {
+      if (Array.isArray(source)) {
+        const item = source.find((x: any) => (x?.名称 ?? x?.name) === name);
+        return Number(item?.数值 ?? item?.value ?? item?.count ?? 0);
+      }
+      return Number(source?.[name] ?? 0);
+    };
+
+    const now = Date.now() / 1000;
+    const lastOutput = markerValue(markers, '家园产出时间');
+    const timeDiff = lastOutput > 0 ? Math.max(0, now - lastOutput) : 60;
+    const mapMarkers = this.safeParseJSON<any>(map.markers, {});
+    const overloaded = markerValue(mapMarkers, '生产模式') === 1;
+    let buildingOutputRate = overloaded ? 1.25 : 1;
+    const cropOutputRateBase = 1;
+    let cropOutputRate = cropOutputRateBase;
+    let powerConsumeRate = 1;
+    let fuelConsumeRate = overloaded ? 1.5 : 1;
+    let powerFuelOutputRate = 1;
+
+    // 原版 L54：兰音幼崽令地图时间流逝速度×105%。
+    if (hasPet('兰音幼崽', -30)) {
+      // 原版效果作用于时间差本身，保留小数，不提前取整。
+      (markers as any)['家园产出时间倍率'] = 1.05;
+    }
+    const effectiveTimeDiff = hasPet('兰音幼崽', -30) ? timeDiff * 1.05 : timeDiff;
+
+    const irrigation = countBuilding('工业灌溉');
+    if (irrigation > 0) {
+      const cropCount = producers.filter((p) => p.priority === 1)
+        .reduce((sum, p) => sum + p.count, 0);
+      cropOutputRate += 0.2 + Math.min(irrigation, cropCount) / 100;
+    }
+    const controlCircuit = countBuilding('工业控制电路');
+    if (controlCircuit > 0) powerFuelOutputRate *= 1 + controlCircuit / 100;
+    if (hasPet('龙女仆', -6)) buildingOutputRate *= 1.05;
+    if (hasPet('执行者', -3)) powerConsumeRate *= 0.95;
+    if (hasPet('英招', -7)) cropOutputRate += 0.1;
+
+    // 原版防御节点只改写世界模拟器的电力消耗，并影响核心训练概率。
+    const hasDefenseNode = hasPet('防御节点', -28);
+    if (hasDefenseNode) {
+      const worldSimulator = producers.find((producer) => producer.name === '世界模拟器');
+      const powerCost = worldSimulator?.outputs.find((output) =>
+        output.name === '电力' && this.getProduceQuantity(output) < 0,
+      );
+      if (powerCost) powerCost.quantity = this.getProduceQuantity(powerCost) * 1.1;
+    }
+
+    // 原版作物上限：按玩家等级与凭证限制资源2/作物数量，并封顶作物倍率。
+    const cropLimit = Math.ceil((player.level || 1) / 5) + markerValue(markers, '凭证') * 5;
+    let cropSeen = 0;
+    const limitedCrops: Producer[] = [];
+    for (const crop of cropProducers) {
+      if (cropSeen >= cropLimit) break;
+      const count = Math.min(crop.count, cropLimit - cropSeen);
+      if (count <= 0) continue;
+      limitedCrops.push({ ...crop, count });
+      cropSeen += count;
+    }
+    if (cropLimit > 0) cropOutputRate = Math.min(cropOutputRate, 1 + cropLimit * 0.1 / 100);
+
+    const buildingProducers = producers.filter((p) => p.priority !== 1);
+    const tractorCount = countBuilding('工业牵引光束') + (hasPet('熔岩巨人', -19) ? 5 : 0);
+    if (tractorCount > 0) {
+      const tractorOutput = await this.industrialTractorBeamOutput(
+        tractorCount,
+        map,
+        buildingOutputRate,
+        powerFuelOutputRate,
+        1,
+      );
+      for (const item of tractorOutput) {
+        buildingProducers.push(this.createTempBuilding(item.name, this.getProduceQuantity(item), undefined, 1, 2));
+      }
+    }
+
+    // 每只宠物每分钟消耗0.5生肉（地图操作.ecode L349）。
+    if (petCount > 0) {
+      buildingProducers.push(this.createTempBuilding('生肉', -petCount * 0.5, undefined, 1, 2));
+    }
+
+    // 原版 L215/L506：肥料只在本次观测期间临时加入存放地，计算完成后完整移除。
+    const temporaryFertilizer = 0.15 * effectiveTimeDiff;
+    this.addItemToArray('肥料', temporaryFertilizer, storage);
+
+    // 原版人力计算：按摩椅每个额外提供1岗位并增加2%，其余岗位按建筑数量/6计算。
+    const massageCount = countBuilding('按摩椅');
+    const buildingCount = this.getBuildingCount(buildings, definitions);
+    const productionBuildingCount = buildingProducers.length;
+    let laborSupplyRate = 0;
+    if (massageCount > 0) {
+      const denominator = buildingCount / 6;
+      laborSupplyRate = denominator > 0
+        ? (petCount + massageCount) * (1 + massageCount / 50) / denominator
+        : 0;
+    } else {
+      const denominator = productionBuildingCount / 6;
+      laborSupplyRate = denominator > 0 ? petCount / denominator : 0;
+    }
+    laborSupplyRate = Math.min(1, Math.max(0, laborSupplyRate));
+
+    // 朱雀：正合金产出增加，地热锻炉使用原版特殊数值312.5/375。
+    const vermilion = summons.find((pet: any) => (pet?.vitality ?? pet?.活力 ?? pet?.specialSeq) === -21
+      || pet?.name === '朱雀' || pet?.名称 === '朱雀');
+    if (vermilion && alive(vermilion)) {
+      const factor = 1 + Number(vermilion.level || 1) / 100;
+      for (const producer of buildingProducers) {
+        for (const output of producer.outputs) {
+          const quantity = this.getProduceQuantity(output);
+          if (output.name === '合金' && quantity > 0) {
+            output.quantity = quantity + (producer.name === '地热锻炉' ? 312.5 : 2.5) * factor;
+          } else if (output.name === '铁矿' && quantity < 0) {
+            output.quantity = quantity - (producer.name === '地热锻炉' ? 375 : 3) * factor;
+          }
+        }
+      }
+    }
+
+    const baseAnalysis = this.getMapOutput(
+      effectiveTimeDiff,
+      buildingProducers,
+      limitedCrops,
+      storage,
+      cropOutputRate,
+      buildingOutputRate,
+      powerConsumeRate,
+      fuelConsumeRate,
+      powerFuelOutputRate,
+      1,
+    );
+
+    // 原版 L334：腐化南方巨兽龙移除全部生物质，并转换为水晶和生肉。
+    if (hasPet('腐化南方巨兽龙', -29)) {
+      const rawBiomass = Math.max(0, this.getItemQuantity('生物质', baseAnalysis.totalOutput));
+      if (rawBiomass > 0) {
+        buildingProducers.push(this.createTempBuildingMulti([
+          { name: '水晶', quantity: rawBiomass * 500 },
+          { name: '生肉', quantity: rawBiomass * 50 },
+          { name: '生物质', quantity: -rawBiomass },
+        ], 1, 7));
+      }
+    }
+
+    // 肉食植物：把基础产出的90%生肉按原版比例转换为绳子/果实/肥料。
+    if (hasPet('肉食植物', -25)) {
+      const rawMeat = Math.max(0, this.getItemQuantity('生肉', baseAnalysis.totalOutput));
+      if (rawMeat > 0) {
+        const ratio = (markerValue(mapMarkers, '肉食比例') || 90) / 100;
+        buildingProducers.push(this.createTempBuildingMulti([
+          { name: '绳子', quantity: rawMeat * ratio * 3 },
+          { name: '果实', quantity: rawMeat * ratio / 10 },
+          { name: '肥料', quantity: rawMeat * ratio / 1000 },
+          { name: '生肉', quantity: -rawMeat * ratio },
+        ], 1, 5));
+      }
+    }
+
+    // 小雨下/小恶魔/白兔子/腐化南方巨兽龙的固定家园产出，均按“每日数量/1440”转为每分钟资源。
+    if (hasPet('小雨下', -18)) {
+      buildingProducers.push(this.createTempBuildingMulti([
+        { name: '灵石', quantity: 6 / 1440 },
+        { name: '生肉', quantity: -1000 / 1440 },
+      ], 1, 7));
+    }
+    if (hasPet('小恶魔', -20)) {
+      buildingProducers.push(this.createTempBuildingMulti([
+        { name: '糖心巧克力', quantity: 3 / 1440 },
+        { name: '巧克力', quantity: -600 / 1440 },
+      ], 1, 7));
+    }
+    if (hasPet('白兔子', -17) && this.getItemQuantity('奶', baseAnalysis.totalOutput) > 0) {
+      buildingProducers.push(this.createTempBuilding('奶油蛋糕', 0.002084, undefined, 1, 2));
+    }
+
+    if (hasPet('螳螂', -26)) {
+      const mantis = summons.find((pet: any) => (pet?.vitality ?? pet?.活力 ?? pet?.specialSeq) === -26
+        || pet?.name === '螳螂' || pet?.名称 === '螳螂');
+      const gather = Number(mantis?.采集 ?? mantis?.属性?.采集 ?? mantis?.gathering ?? 0);
+      if (gather > 0) {
+        buildingProducers.push(this.createTempBuilding('铁矿', cropLimit * gather / 1440, undefined, 1, 2));
+      }
+    }
+
+    // 心之守望在完成总览计算后，为每个每分钟产量>=1的非电力产物额外+1。
+    if (hasPet('心之守望', -12)) {
+      const heart = summons.find((pet: any) => (pet?.vitality ?? pet?.活力 ?? pet?.specialSeq) === -12
+        || pet?.name === '心之守望' || pet?.名称 === '心之守望');
+      const heartFactor = 1 + Number(heart?.level || 1) / 100;
+      for (const item of baseAnalysis.totalOutput) {
+        if (item.name !== '电力' && item.quantity >= 1) {
+          buildingProducers.push(this.createTempBuilding(item.name, heartFactor, undefined, 1, 2));
+        }
+      }
+    }
+
+    // 兔子窝补充所有非电力负产出。金额按原版 a1=2000*兔子窝数量/负产出种类均分。
+    const rabbitNestCount = countBuilding('兔子窝');
+    const shortages = baseAnalysis.totalOutput
+      .filter((item) => item.quantity < 0 && item.name !== '电力')
+      .map((item) => item.name)
+      .filter((name, index, names) => names.indexOf(name) === index);
+    if (rabbitNestCount > 0 && shortages.length > 0) {
+      const budgetPerItem = 2000 * rabbitNestCount / shortages.length;
+      for (const shortageName of shortages) {
+        const itemDef = this.staticData.getItemByName(shortageName);
+        const value = Number(itemDef?.value ?? 0);
+        const perMinute = value > 0
+          ? budgetPerItem / value / 1440
+          : budgetPerItem * Math.abs(value || 1) / 1440;
+        buildingProducers.push(this.createTempBuilding(shortageName, perMinute, undefined, 1, 7));
+      }
+    }
+
+    const analysis = this.getMapOutput(
+      effectiveTimeDiff,
+      buildingProducers,
+      limitedCrops,
+      storage,
+      cropOutputRate,
+      buildingOutputRate,
+      powerConsumeRate,
+      fuelConsumeRate,
+      powerFuelOutputRate,
+      1,
+    );
+
+    markers['家园产出时间'] = now;
+    player.markers = JSON.stringify(markers);
+    const resultLines = [`${player.name || '冒险者'}的家园产出`];
+    if (!analysis.hasPower) {
+      this.removeItemQuantity('肥料', temporaryFertilizer, storage);
+      await this.playerService.savePlayer(player);
+      return `${resultLines[0]}\n电力不足，建筑生产停止`;
+    }
+
+    const duration = analysis.remainingFuel;
+    const outputItems: ProduceItem[] = [];
+    for (let priority = 1; priority <= 7; priority++) {
+      const cropOut = this.produceResources(
+        limitedCrops.filter((p) => p.priority === priority),
+        storage,
+        duration,
+        priority,
+        1,
+        buildingOutputRate,
+        cropOutputRate,
+        1,
+        1,
+        1,
+        1,
+      );
+      const buildingOut = this.produceResources(
+        buildingProducers.filter((p) => p.priority === priority),
+        storage,
+        duration,
+        priority,
+        2,
+        buildingOutputRate,
+        cropOutputRate,
+        powerConsumeRate,
+        fuelConsumeRate,
+        powerFuelOutputRate,
+        1,
+      );
+      for (const item of [...cropOut, ...buildingOut]) {
+        this.addToOutput(outputItems, item);
+        // 原版每次产出资源都会立即写回存放地，后续优先级可以继续使用前一优先级产出的物品。
+        if (item.quantity > 0) {
+          this.addItemToArray(item.name, item.quantity, storage);
+          resultLines.push(`获得${item.name}x${item.quantity}`);
+        } else if (item.quantity < 0) {
+          this.removeItemQuantity(item.name, Math.abs(item.quantity), storage);
+        }
+      }
+    }
+
+    this.removeItemQuantity('肥料', temporaryFertilizer, storage);
+
+    player.backpack = JSON.stringify(storage);
+    await this.playerService.savePlayer(player);
+    if (resultLines.length === 1) resultLines.push('本次没有产出任何物品');
+    return resultLines.join('\n');
   }
 }

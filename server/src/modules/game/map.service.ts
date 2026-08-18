@@ -148,7 +148,7 @@ const DYNAMIC_MAP_FIELDS = [
   'summons',
   'resources', 'resources2', 'markers', 'markers2',
   'npcs', 'buildings', 'vehicles', 'items', 'monsters', 'connections',
-  'mapBuffs',
+  'mapBuffs', 'music',
 ];
 
 @Injectable()
@@ -231,7 +231,17 @@ export class MapService {
     for (const db of dbMaps) {
       dbMapByName.set(db.name, db);
     }
-    return staticMaps.map((sm) => this.mergeMap(sm, dbMapByName.get(sm.name) || {}));
+    const merged = staticMaps.map((sm) => this.mergeMap(sm, dbMapByName.get(sm.name) || {}));
+
+    // 原版会在运行时把玩家家园追加到全局地图列表。动态家园不在静态
+    // maps.json 中，因此不能只返回静态地图，否则前往/观察/地图总览会丢失家园。
+    const staticNames = new Set(staticMaps.map((sm: any) => sm.name));
+    for (const dbMap of dbMaps) {
+      if (!staticNames.has(dbMap.name)) {
+        merged.push(dbMap);
+      }
+    }
+    return merged;
   }
 
   /**
@@ -258,12 +268,212 @@ export class MapService {
    */
   async getMapByName(name: string): Promise<any> {
     const staticMap = this.staticData.getMapByName(name);
+    const dbMap = await this.prisma.gameMap.findUnique({ where: { name } });
     if (!staticMap) {
+      if (dbMap) return dbMap;
       throw new NotFoundException(`地图「${name}」不存在`);
     }
-
-    const dbMap = await this.prisma.gameMap.findUnique({ where: { name } });
     return this.mergeMap(staticMap, dbMap || {});
+  }
+
+  /**
+   * 确保一个玩家家园的院子、屋内和前线地图存在，并补齐双向入口。
+   *
+   * 对应原版 接口1.ecode L1395-1480：读取玩家存档后，把
+   * `${房子名称}`、`${房子名称}屋内`、`${房子名称}前线` 作为动态地图
+   * 追加到地图列表。进度小于4时只创建院子；房屋建成后再创建后两张地图。
+   */
+  async ensureHouseMaps(
+    houseName: string,
+    baseMapId: number,
+    homeProgress: number,
+  ): Promise<{ yard: any; interior?: any; frontline?: any }> {
+    if (!houseName) throw new NotFoundException('家园名称为空，无法创建家园地图');
+
+    const baseMap = await this.getMapById(baseMapId);
+    if (!baseMap) {
+      throw new NotFoundException(`家园所在地图 ID=${baseMapId} 不存在`);
+    }
+
+    const yard = await this.ensureDynamicMap(houseName, {
+      description: `玩家在${baseMap.name}圈定的家园`,
+      isFrontier: true,
+      connections: JSON.stringify([{ name: baseMap.name, mapId: baseMap.id, distance: 10, isFrontier: false }]),
+    });
+    await this.appendMapConnection(baseMap.id, {
+      name: houseName,
+      mapId: yard.id,
+      distance: 10,
+      isFrontier: true,
+    });
+
+    if (homeProgress < 4) {
+      return { yard };
+    }
+
+    const buildings = yard.buildings || '[]';
+    const items = yard.items || '[]';
+    const interior = await this.ensureDynamicMap(`${houseName}屋内`, {
+      description: `${houseName}的屋内`,
+      isFrontier: true,
+      buildings,
+      items,
+      connections: JSON.stringify([{ name: houseName, mapId: yard.id, distance: 10, isFrontier: true }]),
+    });
+    const frontline = await this.ensureDynamicMap(`${houseName}前线`, {
+      description: `${houseName}的前线防御阵地`,
+      isInstance: true,
+      buildings,
+      items,
+      connections: JSON.stringify([{ name: houseName, mapId: yard.id, distance: 10, isFrontier: true }]),
+    });
+
+    await this.appendMapConnection(yard.id, {
+      name: interior.name,
+      mapId: interior.id,
+      distance: 10,
+      isFrontier: true,
+    });
+    await this.appendMapConnection(yard.id, {
+      name: frontline.name,
+      mapId: frontline.id,
+      distance: 10,
+      isFrontier: true,
+    });
+
+    return { yard, interior, frontline };
+  }
+
+  /**
+   * 重命名家园的三张动态地图并同步所有地图入口。
+   * 对应原版 _主程序.ecode L2333-2417：改家园名称时同时修改院子、屋内、前线，
+   * 并把其他地图中指向旧院子的入口改为新名称。
+   */
+  async renameHouseMaps(oldName: string, newName: string): Promise<void> {
+    if (!oldName || !newName || oldName === newName) return;
+    const oldNames = [oldName, `${oldName}屋内`, `${oldName}前线`];
+    const newNames = [newName, `${newName}屋内`, `${newName}前线`];
+    const rows = await this.prisma.gameMap.findMany({ where: { name: { in: oldNames } } });
+    const conflicts = await this.prisma.gameMap.findMany({
+      where: { name: { in: newNames }, id: { notIn: rows.map((row) => row.id) } },
+      select: { name: true },
+    });
+    if (conflicts.length > 0) {
+      throw new Error(`地图名称已存在：${conflicts[0].name}`);
+    }
+
+    const renameToken = `__家园改名_${randomUUID()}`;
+    for (let i = 0; i < rows.length; i++) {
+      await this.prisma.gameMap.update({
+        where: { id: rows[i].id },
+        data: { name: `${renameToken}${i}` },
+      });
+    }
+    for (let i = 0; i < rows.length; i++) {
+      await this.prisma.gameMap.update({
+        where: { id: rows[i].id },
+        data: { name: newNames[oldNames.indexOf(rows[i].name)] || newNames[i] },
+      });
+    }
+
+    const allMaps = await this.prisma.gameMap.findMany({
+      select: { id: true, connections: true },
+    });
+    const replacements = new Map(oldNames.map((name, index) => [name, newNames[index]]));
+    for (const map of allMaps) {
+      const connections = this.safeParseJSON<any[]>(map.connections, []);
+      let changed = false;
+      for (const connection of connections) {
+        const replacement = replacements.get(connection?.name);
+        if (replacement) {
+          connection.name = replacement;
+          changed = true;
+        }
+      }
+      if (changed) {
+        await this.prisma.gameMap.update({
+          where: { id: map.id },
+          data: { connections: JSON.stringify(connections) },
+        });
+      }
+    }
+  }
+
+  /** 删除地图中指向指定名称的入口，供家园搬迁移除旧世界地图入口。 */
+  async removeMapConnection(mapId: number, targetName: string): Promise<void> {
+    await this.withMapLock(mapId, async () => {
+      const current = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+      if (!current) return;
+      const connections = this.safeParseJSON<any[]>(current.connections, []);
+      const filtered = connections.filter((connection: any) => connection?.name !== targetName);
+      if (filtered.length !== connections.length) {
+        await this.prisma.gameMap.update({
+          where: { id: mapId },
+          data: { connections: JSON.stringify(filtered) },
+        });
+      }
+    });
+  }
+
+  /** 创建/读取不在静态 maps.json 中的运行时地图。 */
+  private async ensureDynamicMap(name: string, defaults: Record<string, any>): Promise<any> {
+    const existing = await this.prisma.gameMap.findUnique({ where: { name } });
+    if (existing) return existing;
+
+    const latest = await this.prisma.gameMap.findFirst({
+      orderBy: { mapIndex: 'desc' },
+      select: { mapIndex: true },
+    });
+    const mapIndex = (latest?.mapIndex || 0) + 1;
+    const row = await this.prisma.gameMap.create({
+      data: {
+        name,
+        description: defaults.description || '',
+        mapIndex,
+        level: defaults.level || 1,
+        isFrontier: defaults.isFrontier ?? false,
+        noTeleport: defaults.noTeleport ?? false,
+        noMove: defaults.noMove ?? false,
+        isInstance: defaults.isInstance ?? false,
+        requiredTravel: defaults.requiredTravel || 0,
+        monsters: defaults.monsters || '[]',
+        spawnMonsters: defaults.spawnMonsters || '[]',
+        tempMonsters: defaults.tempMonsters || '[]',
+        summons: defaults.summons || '[]',
+        resources: defaults.resources || '[]',
+        resources2: defaults.resources2 || '[]',
+        connections: defaults.connections || '[]',
+        npcs: defaults.npcs || '[]',
+        items: defaults.items || '[]',
+        buildings: defaults.buildings || '[]',
+        vehicles: defaults.vehicles || '[]',
+        markers: defaults.markers || '{}',
+        markers2: defaults.markers2 || '[]',
+        mapBuffs: defaults.mapBuffs || '[]',
+        requireMarkers: defaults.requireMarkers || '[]',
+        failHint: defaults.failHint || '',
+        clearMarkers: defaults.clearMarkers || '',
+        music: defaults.music || '',
+        monsterCount: defaults.monsterCount || 0,
+        noSpecial: defaults.noSpecial ?? true,
+      },
+    });
+    return row;
+  }
+
+  /** 按名称追加地图入口，幂等且串行化，避免并发命令覆盖已有连接。 */
+  private async appendMapConnection(mapId: number, connection: Record<string, any>): Promise<void> {
+    await this.withMapLock(mapId, async () => {
+      const current = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+      if (!current) return;
+      const connections = this.safeParseJSON<any[]>(current.connections, []);
+      if (connections.some((item: any) => item?.name === connection.name)) return;
+      connections.push(connection);
+      await this.prisma.gameMap.update({
+        where: { id: mapId },
+        data: { connections: JSON.stringify(connections) },
+      });
+    });
   }
 
   /**
@@ -724,6 +934,94 @@ export class MapService {
   }
 
   /**
+   * 按指定类型生成一只运行时怪物。
+   *
+   * 对应原版 _主程序.ecode L2087-2160 中反复设置“玩家2.类型”后调用
+   * `_初始化怪物` 并加入 `地图.怪物2`。前线波次不能使用常驻刷新，因为每只
+   * 怪物的类型和等级由前线熟练度决定，故单独写入 GameMonster。
+   */
+  async spawnMonsterByName(
+    mapId: number,
+    name: string,
+    options: { level?: number; isTemp?: boolean; ownerQQ?: string } = {},
+  ): Promise<MapMonster> {
+    const map = await this.getMapById(mapId);
+    if (!map) throw new NotFoundException(`地图 ID=${mapId} 不存在，无法生成怪物`);
+
+    const def = this.staticData.getAllMonsters().find((item: any) => item?.name === name);
+    if (!def) throw new NotFoundException(`怪物「${name}」不存在`);
+
+    const defBonus = def.bonus ? this.safeParseJSON<Record<string, any>>(def.bonus, {}) : {};
+    const level = options.level ?? def.level ?? map.level ?? 1;
+    const awaken = Number(defBonus.觉醒 || 0);
+    const equipmentList: string[] = Array.isArray(defBonus.equipmentList)
+      ? defBonus.equipmentList
+      : (defBonus.装备 ? String(defBonus.装备).split(/\s+/).filter(Boolean) : []);
+    const finalBonus = this.buildMonsterBonusFromDef(defBonus, {
+      level,
+      awaken,
+      affinity: 0,
+      killCount: 0,
+      equipments: equipmentList,
+      specialSeq: def.specialSeq || -1,
+      xuexin: false,
+      edzhi: false,
+    });
+
+    const lvFactor = 1 + level * 0.05;
+    const awakenFactor = 1 + awaken / 200;
+    const baseHp = def.hp || finalBonus.生命 || 100;
+    const baseShield = finalBonus.护盾 !== undefined ? finalBonus.护盾 : (def.shield || 0);
+    const baseArmor = finalBonus.装甲 !== undefined ? finalBonus.装甲 : (def.armor || 0);
+    const hp = Math.floor(lvFactor * (baseHp + level * 20) * awakenFactor);
+    const shield = Math.floor(lvFactor * (baseShield + level * 20) * awakenFactor);
+    const armor = Math.floor(lvFactor * (baseArmor + level * 20) * awakenFactor);
+    const row = await this.prisma.gameMonster.create({
+      data: {
+        mapId,
+        type: def.type || '怪物',
+        name: def.name,
+        qq: `monster_${mapId}_${randomUUID()}`,
+        specialSeq: def.specialSeq || -1,
+        ownerQQ: options.ownerQQ || '',
+        level,
+        image: def.image || '',
+        hp,
+        maxHp: hp,
+        shield,
+        maxShield: shield,
+        armor,
+        maxArmor: armor,
+        attack: Math.floor(lvFactor * (finalBonus.攻击 || def.attack || 10) * awakenFactor),
+        defense: def.defense || 0,
+        speed: Math.floor(lvFactor * (def.speed || 100) * awakenFactor),
+        dodge: Math.floor(lvFactor * (def.dodge || finalBonus.闪避 || 5) * awakenFactor),
+        hit: Math.floor(lvFactor * (def.hit || finalBonus.命中 || 85) * awakenFactor),
+        isElite: def.type === '精英',
+        bonus: JSON.stringify(finalBonus),
+        baseBonus: JSON.stringify(finalBonus),
+        extraBonus: '{}',
+        equipments: JSON.stringify(equipmentList),
+        weapons: defBonus.武器 ? JSON.stringify(String(defBonus.武器).split(/\s+/).filter(Boolean)) : '[]',
+        currentWeapon: 0,
+        equipmentPresets: '[]',
+        markers: '{}',
+        markers2: '[]',
+        buffs: '[]',
+        achievements: '[]',
+        set: JSON.stringify(finalBonus.套装 || {}),
+        affinity: 0,
+        vitality: 0,
+        exp: Math.floor(lvFactor * (finalBonus.经验 || 10) * awakenFactor),
+        backpack: '[]',
+        isPet: false,
+        isTemp: options.isTemp ?? true,
+      },
+    });
+    return row as unknown as MapMonster;
+  }
+
+  /**
    * 获取地图上的怪物列表（来自 GameMonster 表）
    * 兼容旧调用方传 map 对象或 mapId。返回常驻+临时怪物实例（含完整 玩家 结构体字段）。
    * @param mapOrId 地图对象（含 id）或地图ID
@@ -777,7 +1075,8 @@ export class MapService {
    * 对应原版单线程内存模型下对 地图.怪物2[x].当前生命/护盾/装甲 的直接写回。
    */
   async updateMonsterFields(mapId: number, monsterId: number, data: {
-    hp?: number; shield?: number; armor?: number; buffs?: string; bonus?: string; markers2?: string;
+    hp?: number; shield?: number; armor?: number; buffs?: string; bonus?: string;
+    markers?: string; markers2?: string;
   }): Promise<void> {
     await this.withMapLock(mapId, async () => {
       const update: any = {};
@@ -786,6 +1085,7 @@ export class MapService {
       if (data.armor !== undefined) update.armor = data.armor;
       if (data.buffs !== undefined) update.buffs = data.buffs;
       if (data.bonus !== undefined) update.bonus = data.bonus;
+      if (data.markers !== undefined) update.markers = data.markers;
       if (data.markers2 !== undefined) update.markers2 = data.markers2;
       if (Object.keys(update).length === 0) return;
       await this.prisma.gameMonster.update({ where: { id: monsterId }, data: update });

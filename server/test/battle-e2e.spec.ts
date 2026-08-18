@@ -575,6 +575,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
         生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
         生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
       } as any);
+      jest.spyOn(combat as any, 'checkHit').mockReturnValue(true);
       jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: dmg, poolDamage: { shield: 0, armor: 0, hp: dmg }, rating: '', critMultiplier: 1 });
       const vehicles = vehicle ? JSON.stringify([vehicle]) : '[]';
       await (combat as any).monsterCounterAttack(player, await mocks.playerService.getPlayerData(2), { id: 1, name: '医疗室', vehicles });

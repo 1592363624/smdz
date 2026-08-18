@@ -300,7 +300,12 @@ export class FamiliarSkillsService {
    * @param skillLevel 技能等级
    * @returns 逐怪物麻醉文本行
    */
-  private async applyMapMonstersAnesthesia(mapId: number, playerLevel: number, skillLevel: number): Promise<string[]> {
+  private async applyMapMonstersAnesthesia(
+    mapId: number,
+    playerLevel: number,
+    skillLevel: number,
+    anesthetistQQ?: string | number,
+  ): Promise<string[]> {
     // 常驻怪物来自 GameMonster 表
     const monsters: any[] = await this.mapService.getMapMonsters(mapId);
     if (monsters.length === 0) return ['（当前地图没有可麻醉的常驻怪物）'];
@@ -309,16 +314,25 @@ export class FamiliarSkillsService {
     for (const m of monsters) {
       // 怪物麻醉信息存于 bonus JSON（后端怪物三层/状态数据统一进 bonus）
       const bonus: any = this.safeParse(m.bonus, {});
-      const maxAnes = bonus.麻醉上限 || bonus.maxAnesthesia || 0;
+      const maxAnes = Number(bonus.麻醉上限 ?? bonus.maxAnesthesia ?? bonus.麻醉 ?? 0);
       const curAnes = bonus.当前麻醉 || bonus.currentAnesthesia || 0;
       if (!maxAnes || curAnes >= maxAnes) continue; // 无麻醉上限或已满则跳过
       const next = curAnes + add;
       bonus.当前麻醉 = next;
       m.bonus = JSON.stringify(bonus);
       if (next >= maxAnes) {
-        const mbuffs: any[] = this.safeParse(m.buffs, []);
-        mbuffs.push({ name: '麻醉', expireAt: Math.floor(Date.now() / 1000) + 3600 });
-        m.buffs = JSON.stringify(mbuffs);
+        const markers2: any[] = this.safeParse(m.markers2, []);
+        const filteredMarkers2 = markers2.filter((entry: any) => (entry?.名称 ?? entry?.name) !== '麻醉');
+        filteredMarkers2.push({ 名称: '麻醉', 强度: 0, 有效期至: Date.now() + 3600 * 1000 });
+        m.markers2 = JSON.stringify(filteredMarkers2);
+        if (anesthetistQQ !== undefined) {
+          const monsterMarkers: any[] = this.safeParse(m.markers, []);
+          const markerName = `麻醉者${anesthetistQQ}`;
+          const marker = monsterMarkers.find((entry: any) => (entry?.名称 ?? entry?.name) === markerName);
+          if (marker) marker.数值 = 1;
+          else monsterMarkers.push({ 名称: markerName, 数值: 1 });
+          m.markers = JSON.stringify(monsterMarkers);
+        }
         lines.push(`${m.name}麻醉+${add}（已满，被麻醉了，一小时内可以捕捉）`);
       } else {
         lines.push(`${m.name}麻醉+${add}（${next}/${maxAnes}）`);
@@ -1592,7 +1606,7 @@ export class FamiliarSkillsService {
 
     // 给地图怪物施加麻醉
     try {
-      const anes = await this.applyMapMonstersAnesthesia(player.mapId, player.level, skillLevel);
+      const anes = await this.applyMapMonstersAnesthesia(player.mapId, player.level, skillLevel, player.qqNumber ?? userId);
       if (anes.length) lines.push(anes.join('\n'));
     } catch (e) {
       lines.push('（怪物麻醉失败，已跳过）');
@@ -1776,7 +1790,7 @@ export class FamiliarSkillsService {
     // 这里简化为：直接给当前地图常驻怪物施加麻醉（与原版形神合一/梦倾天下一致的麻醉逻辑）
     const a3 = this.buffDur(player, 600);
     const reducePct = 15 + skillLevel;
-    const lines = await this.applyMapMonstersAnesthesia(player.mapId, player.level || 1, skillLevel);
+    const lines = await this.applyMapMonstersAnesthesia(player.mapId, player.level || 1, skillLevel, player.qqNumber ?? userId);
     let text = `兰音梦倾天下！\n下次攻击命中的目标所有属性降低 ${reducePct}% 的麻醉效果，持续${Math.floor(a3 / 60)}分钟`;
     if (lines.length) text += '\n' + lines.join('\n');
 

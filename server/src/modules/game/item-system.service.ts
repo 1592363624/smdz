@@ -2271,6 +2271,30 @@ export class ItemSystemService {
   }
 
   /**
+   * 行商专用装备生成入口。
+   * 原版 后台运作.ecode L1494-1497：品质固定为 s，品质上限1、下限0.6，
+   * 并写入“@@行商出售”来源标记；汪酱保持原版的空品质分支。
+   */
+  async generateMerchantEquipment(name: string, isWangJiang = false): Promise<Item3> {
+    return this.generateEquipment(
+      name,
+      isWangJiang ? undefined : 's',
+      0,
+      1,
+      '@@行商出售',
+      0.6,
+    );
+  }
+
+  /**
+   * 兑换/战利品装备入口。
+   * 对应战斗相关.ecode L4913-4918：没有已有数据时按普通奖励品质生成装备。
+   */
+  async generateRewardEquipment(name: string): Promise<Item3> {
+    return this.generateEquipment(name, '', 0);
+  }
+
+  /**
    * 词条去重时重新随机的候选串（对齐原版 随机词条 展开映射，L1197-1208）
    */
   private affixCandidateFor(rawAffix: string): string {

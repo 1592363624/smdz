@@ -113,6 +113,58 @@ function parseItemCountString(str: string): Array<{ name: string; count: number 
   return result;
 }
 
+/**
+ * 载具生产配方的物品格式：名称,数量[,耐久百分比]。
+ * 耐久小于100的产出是副产物，消耗也按耐久比例扣除；缺省耐久为100。
+ */
+function parseVehicleRecipeItems(str: string): Array<{ name: string; quantity: number; durability: number }> {
+  if (!str || !str.trim()) return [];
+  const result: Array<{ name: string; quantity: number; durability: number }> = [];
+  for (const group of str.trim().split(/\s+/)) {
+    const parts = group.split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+    result.push({
+      name: parts[0],
+      quantity: parseFloat(parts[1]) || 0,
+      durability: parts.length >= 3 ? (parseFloat(parts[2]) || 0) : 100,
+    });
+  }
+  return result;
+}
+
+/**
+ * 商店字段使用“名称+数字”格式（例如“优秀武器补给箱100”），
+ * 与产出/奖励字段的“名称,数量”格式不同，不能共用 parseItemCountString。
+ * 对应数据存取.ecode L805-824 的 去数字/取数字。
+ */
+function parseShopCostString(str: string): Array<{ name: string; count: number }> {
+  if (!str || !str.trim()) return [];
+  return str
+    .trim()
+    .split(/\s+/)
+    .map((token) => {
+      const match = token.match(/^(.+?)(\d+(?:\.\d+)?)$/);
+      if (!match) return null;
+      return { name: match[1], count: Number(match[2]) };
+    })
+    .filter((item): item is { name: string; count: number } => Boolean(item));
+}
+
+/** 行商池由逗号分隔，数字后缀是出售数量而不是名称的一部分。 */
+function parseTravelingPoolString(str: string): Array<{ name: string; count: number }> {
+  if (!str || !str.trim()) return [];
+  return str
+    .split(/[，,]/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token) => {
+      const match = token.match(/^(.+?)(\d+(?:\.\d+)?)$/);
+      return match
+        ? { name: match[1], count: Number(match[2]) || 1 }
+        : { name: token, count: 1 };
+    });
+}
+
 function parseDropString(str: string): Array<{ name: string; count: number; chance: number }> {
   if (!str || !str.trim()) return [];
   const result: Array<{ name: string; count: number; chance: number }> = [];
@@ -450,6 +502,22 @@ function mapCraftingToCrafting(section: ConfigSection) {
   };
 }
 
+function mapVehicleRecipeToRecipe(section: ConfigSection) {
+  const fields = section.fields;
+  const outputs = parseVehicleRecipeItems(fields['产出'] || fields['输出'] || '');
+  const inputs = parseVehicleRecipeItems(fields['消耗'] || fields['需求'] || '');
+  return {
+    name: section.name,
+    description: fields['说明'] || '',
+    level: parseInt(fields['等级']) || 1,
+    outputs: JSON.stringify(outputs),
+    inputs: JSON.stringify(inputs),
+    // 保留中文别名，便于直接对照原版字段和兼容手工配置。
+    产出: outputs,
+    消耗: inputs,
+  };
+}
+
 function mapTitleToTitle(section: ConfigSection) {
   const fields = section.fields;
   const rewards = parseItemCountString(fields['奖励'] || '');
@@ -636,9 +704,9 @@ function mapShopToShop(section: ConfigSection) {
     return JSON.stringify(obj);
   };
   return {
-    shopActivity: JSON.stringify(parseItemCountString(fields['活跃度'] || '')),
-    shopDiamond: JSON.stringify(parseItemCountString(fields['钻石'] || '')),
-    shopData: JSON.stringify(parseItemCountString(fields['数据'] || '')),
+    shopActivity: JSON.stringify(parseShopCostString(fields['活跃度'] || '')),
+    shopDiamond: JSON.stringify(parseShopCostString(fields['钻石'] || '')),
+    shopData: JSON.stringify(parseShopCostString(fields['数据'] || '')),
     dungeons: JSON.stringify(parseSpaceSeparatedString(fields['副本'] || '')),
     dungeons2: JSON.stringify(parseSpaceSeparatedString(fields['副本2'] || '')),
     robotQQ: fields['机器人'] || '',
@@ -646,8 +714,8 @@ function mapShopToShop(section: ConfigSection) {
     characterImg: imgObj(['人物jpg', '人物png']),
     monsterImg: imgObj(['怪物jpg', '怪物png']),
     mapImg: imgObj(['地图jpg']),
-    travelingEquip: JSON.stringify(parseItemCountString(fields['行商装备'] || '')),
-    travelingItem: JSON.stringify(parseItemCountString(fields['行商物品'] || '')),
+    travelingEquip: JSON.stringify(parseTravelingPoolString(fields['行商装备'] || '')),
+    travelingItem: JSON.stringify(parseTravelingPoolString(fields['行商物品'] || '')),
     bgm: JSON.stringify(fields['bgm'] ? fields['bgm'].split(';').map((s: string) => s.trim()).filter(Boolean) : []),
   };
 }
@@ -828,6 +896,7 @@ function main() {
   const titles: any[] = [];
   const buildings: any[] = [];
   const vehicles: any[] = [];
+  const vehicleRecipes: any[] = [];
   const buffs: any[] = [];
   const npcs: any[] = [];
   const tasks: any[] = [];
@@ -849,6 +918,7 @@ function main() {
       case '称号': titles.push(mapTitleToTitle(s)); break;
       case '建筑': buildings.push(mapBuildingToBuilding(s)); break;
       case '载具': vehicles.push(mapVehicleToVehicle(s)); break;
+      case '配方': vehicleRecipes.push(mapVehicleRecipeToRecipe(s)); break;
       case '增益': buffs.push(mapBuffToBuff(s)); break;
       case '对话': npcs.push(mapDialogueToNpc(s)); break;
       case '任务': tasks.push(mapTaskToTask(s)); break;
@@ -872,6 +942,7 @@ function main() {
   writeJson('titles.json', titles);
   writeJson('buildings.json', buildings);
   writeJson('vehicles.json', vehicles);
+  writeJson('vehicle-recipes.json', vehicleRecipes);
   writeJson('buffs.json', buffs);
   writeJson('npcs.json', npcs);
   writeJson('tasks.json', tasks);

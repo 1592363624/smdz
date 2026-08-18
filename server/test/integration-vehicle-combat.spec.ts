@@ -2,7 +2,7 @@
  * 载具承伤 + 扫荡完整模型 端到端集成测试（真实远程 MySQL）
  *
  * 对应原版：
- *  - 载具承伤：战斗相关.ecode L3175-3288（防御方驾驶载具时，载具先承第一道伤，破碎后溢出落到玩家三池）
+ *  - 载具承伤：战斗相关.ecode L3175-3529（防御方驾驶载具时，载具先承第一道伤；普通溢出不会在同次攻击转给玩家）
  *  - 扫荡完整模型：game.service.ts handleSweep 现改为调用 combatSystem.weaponAttack 完整闭环
  *    （原版 .扫荡 即连续自动攻击，含怪物反击/召唤物协同/死亡掉落）
  *
@@ -10,7 +10,7 @@
  *  - 启动真实 Nest ApplicationContext，连远程 smdz 库，获取真实服务实例。
  *  - 动态创建测试账号（User + Player，标记在线），避免干扰真实玩家。
  *  - 测试1 载具吸收：玩家驾驶耐久充足的载具 → 怪物反击 → 断言玩家 hp 不变、载具扣血。
- *  - 测试2 载具破碎溢出：玩家驾驶耐久不足的载具 → 怪物反击 → 断言载具破碎、溢出伤害落到玩家 hp。
+ *  - 测试2 载具破碎：玩家驾驶不足1点耐久的载具 → 怪物反击 → 断言载具破碎、玩家 hp 不因普通溢出下降。
  *  - 测试3 无载具直扣：玩家无载具 → 怪物反击 → 断言玩家 hp 直接下降。
  *  - 测试4 扫荡走完整模型：调用 gameService.handleSweep → 断言返回击杀/经验且玩家存在。
  *  - afterAll 清理测试账号（User 级联删 Player）。
@@ -41,10 +41,14 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
   const stamp = () => Math.random().toString(36).slice(2, 8);
 
   /** 构造一个含指定耐久载具的地图 vehicles JSON，并写入 Player.vehicle */
-  async function setupVehicle(uid: number, vehicleHp: number) {
+  async function setupVehicle(uid: number, vehicleHp: number, extra: Record<string, any> = {}) {
     const vId = `V_${stamp()}`;
     const vName = '测试战车';
-    const vehicles = [{ id: vId, 编号: vId, name: vName, currentHp: vehicleHp, 当前生命: vehicleHp, maxHp: 200, 最大生命: 200 }];
+    const vehicles = [{
+      id: vId, 编号: vId, name: vName,
+      currentHp: vehicleHp, 当前生命: vehicleHp, maxHp: 200, 最大生命: 200,
+      ...extra,
+    }];
     await mapService.updateDynamicFields(mapId, { vehicles: JSON.stringify(vehicles) });
     const pd = await playerService.getPlayerData(uid);
     pd.player.vehicle = vId;
@@ -100,8 +104,9 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     return playerService.getPlayerData(uid);
   }
 
-  /** 固定小伤害 10（三池全扣 hp），命中必中，便于断言载具承伤行为 */
-  function mockFixedDamage(damage: number) {
+  /** 固定伤害，命中必中，便于断言载具承伤行为。 */
+  function mockFixedDamage(damage: number, options: Record<string, any> = {}) {
+    const breakdown = options.damageBreakdown || { physical: damage, fire: 0, ice: 0, elec: 0 };
     jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
       攻击: 200, 命中: 300, 闪避: 0, 闪避2: 0, 生命: 50, 护盾: 0, 装甲: 0,
       护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
@@ -110,8 +115,16 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
       生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
     } as any);
     jest.spyOn(combat as any, 'calcDamage').mockReturnValue({
-      damage, poolDamage: { shield: 0, armor: 0, hp: damage }, rating: '', critMultiplier: 1,
+      damage,
+      poolDamage: options.poolDamage || { shield: 0, armor: 0, hp: damage },
+      damageBreakdown: breakdown,
+      vehicleBreakdown: options.vehicleBreakdown || breakdown,
+      rating: '',
+      critMultiplier: 1,
+      ...options,
     } as any);
+    // 该专项只验证载具承伤，命中不能引入随机失败。
+    jest.spyOn(combat as any, 'checkHit').mockReturnValue(true);
   }
 
   /** 将指定玩家重置为干净战斗态（满血、无载具、无增减益干扰），保证跨套件共享远程库时断言稳定 */
@@ -146,17 +159,17 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     const vehicles = JSON.parse(mapAfter.vehicles || '[]');
     const v = vehicles.find((x: any) => x && (x.id === vId || x.编号 === vId));
 
-    // 载具完全吸收 10 点 → 玩家 hp 不变
+    // 原版普通载具承伤固定为1或2，不承受完整的10点三池伤害。
     expect(after.player.hp).toBe(beforeHp);
-    // 载具耐久从 200 降到 190
-    expect(v.currentHp).toBe(190);
-    expect(v.当前生命).toBe(190);
+    // 当前状态100，10/2不超过状态，因此载具承伤为1。
+    expect(v.currentHp).toBe(199);
+    expect(v.当前生命).toBe(199);
   });
 
-  it('测试2 载具破碎溢出：玩家驾驶耐久不足载具 → 载具破碎、溢出伤害落到玩家 hp', async () => {
+  it('测试2 载具破碎：普通攻击不把同次溢出伤害扣到玩家 hp', async () => {
     const uid = createdUserIds[1];
     await resetPlayer(uid, 100);
-    const { vId } = await setupVehicle(uid, 5); // 耐久不足，10 点伤害会破碎
+    const { vId } = await setupVehicle(uid, 0.5); // 载具普通承伤为1，因此本次会被击毁
     const beforeHp = 100;
 
     mockFixedDamage(10);
@@ -174,8 +187,8 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     // 载具破碎：耐久归零
     expect(v.currentHp).toBe(0);
     expect(v.当前生命).toBe(0);
-    // 溢出 5 点（10-5）落到玩家 hp → hp 从 100 降到 95
-    expect(after.player.hp).toBe(beforeHp - 5);
+    // 原版 L3512-L3515 清空普通剩余四属性，同次普通溢出不会落到玩家。
+    expect(after.player.hp).toBe(beforeHp);
   });
 
   it('测试3 无载具直扣：玩家无载具 → 怪物反击直接扣玩家 hp', async () => {
@@ -216,5 +229,190 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     // 玩家应仍存活（扫荡为自动攻击闭环，遇死亡有卷土重来保护）
     const after = await getPlayer(uid);
     expect(after.player.hp).toBeGreaterThanOrEqual(0);
+  });
+
+  it('测试5 阵地：有效载具承受完整伤害，不受普通1/2点上限限制', async () => {
+    const uid = createdUserIds[0];
+    await resetPlayer(uid, 100);
+    const { vId } = await setupVehicle(uid, 200);
+    mockFixedDamage(10);
+
+    const pd = await getPlayer(uid);
+    const map = await mapService.getMapById(mapId);
+    const monster = (await mapService.getMapMonsters(mapId)).find((m: any) => (m.hp || 0) > 0);
+    expect(monster).toBeDefined();
+    monster.markers = JSON.stringify({ 阵地: 1 });
+    const monsterBonus = (combat as any).buildMonsterBonus(monster);
+    await (combat as any).monsterCounterAttackOnePlayer(monster, monsterBonus, pd.player, pd, map, true);
+
+    const after = await getPlayer(uid);
+    const mapAfter = await mapService.getMapById(mapId);
+    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    expect(vehicle.currentHp).toBe(190);
+    expect(after.player.hp).toBe(100);
+  });
+
+  it('测试6 损伤控制系统A：首次高伤害触发sk1无敌窗口', async () => {
+    const uid = createdUserIds[1];
+    await resetPlayer(uid, 100);
+    const { vId } = await setupVehicle(uid, 200, {
+      parts: JSON.stringify([{ name: '损伤控制系统A', 名称: '损伤控制系统A' }]),
+    });
+    mockFixedDamage(10);
+
+    const attackerData = await getPlayer(createdUserIds[0]);
+    const map = await mapService.getMapById(mapId);
+    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+
+    const after = await getPlayer(uid);
+    const mapAfter = await mapService.getMapById(mapId);
+    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    const markers = JSON.parse(vehicle.markers2 || '[]');
+    expect(after.player.hp).toBe(100);
+    expect(vehicle.currentHp).toBe(200);
+    expect(markers.some((m: any) => (m.name || m.名称) === 'sk1')).toBe(true);
+  });
+
+  it('测试7 贯穿：载具只承受普通伤害，贯穿额外伤害直接作用于玩家三池', async () => {
+    const uid = createdUserIds[2];
+    await resetPlayer(uid, 100);
+    const pd = await getPlayer(uid);
+    pd.player.shield = 100;
+    pd.player.maxShield = 100;
+    pd.player.armor = 100;
+    pd.player.maxArmor = 100;
+    await playerService.savePlayer(pd.player);
+    const { vId } = await setupVehicle(uid, 200);
+    mockFixedDamage(100, {
+      poolDamage: { shield: 70, armor: 20, hp: 10 },
+      penetrated: true,
+      vehicleExtraPoolDamage: { shield: 0, armor: 20, hp: 10 },
+      vehicleExtraBreakdown: {
+        shield: { physical: 0, fire: 0, ice: 0, elec: 0 },
+        armor: { physical: 20, fire: 0, ice: 0, elec: 0 },
+        life: { physical: 10, fire: 0, ice: 0, elec: 0 },
+      },
+    });
+
+    const attackerData = await getPlayer(createdUserIds[0]);
+    const victimData = await getPlayer(uid);
+    const map = await mapService.getMapById(mapId);
+    const monster = (await mapService.getMapMonsters(mapId)).find((m: any) => (m.hp || 0) > 0);
+    expect(monster).toBeDefined();
+    const monsterBonus = (combat as any).buildMonsterBonus(monster);
+    await (combat as any).monsterCounterAttackOnePlayer(monster, monsterBonus, victimData.player, victimData, map, false);
+
+    const after = await getPlayer(uid);
+    const mapAfter = await mapService.getMapById(mapId);
+    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    expect(vehicle.currentHp).toBe(199);
+    expect(after.player.shield).toBe(100);
+    expect(after.player.armor).toBe(80);
+    expect(after.player.hp).toBe(90);
+  });
+
+  it('测试8 贯穿抵抗：损伤控制系统B抵抗贯穿并消耗sk冷却', async () => {
+    const uid = createdUserIds[0];
+    await resetPlayer(uid, 100);
+    const { vId } = await setupVehicle(uid, 200, {
+      parts: JSON.stringify([{ name: '损伤控制系统B', 名称: '损伤控制系统B' }]),
+    });
+    mockFixedDamage(100, {
+      penetrated: true,
+      poolDamage: { shield: 70, armor: 20, hp: 10 },
+      vehicleExtraPoolDamage: { shield: 0, armor: 20, hp: 10 },
+    });
+
+    const attackerData = await getPlayer(createdUserIds[1]);
+    const map = await mapService.getMapById(mapId);
+    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+
+    const after = await getPlayer(uid);
+    const mapAfter = await mapService.getMapById(mapId);
+    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    const markers = JSON.parse(vehicle.markers2 || '[]');
+    // 同一命中还会经过B系统的sk0损控，故载具本次不掉耐久；贯穿抵抗本身由sk标记记录。
+    expect(vehicle.currentHp).toBe(200);
+    expect(after.player.hp).toBe(100);
+    expect(markers.some((m: any) => (m.name || m.名称) === 'sk')).toBe(true);
+    expect(markers.some((m: any) => (m.name || m.名称) === 'sk1')).toBe(true);
+  });
+
+  it('测试9 福音书系统：首次触发只让载具承受1点并记录福ys', async () => {
+    const uid = createdUserIds[1];
+    await resetPlayer(uid, 100);
+    const { vId } = await setupVehicle(uid, 200, {
+      parts: JSON.stringify([{ name: '福音书系统', 名称: '福音书系统' }]),
+    });
+    mockFixedDamage(10);
+
+    const attackerData = await getPlayer(createdUserIds[0]);
+    const map = await mapService.getMapById(mapId);
+    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+
+    const after = await getPlayer(uid);
+    const mapAfter = await mapService.getMapById(mapId);
+    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    const markers = JSON.parse(after.player.markers2 || '[]');
+    expect(vehicle.currentHp).toBe(199);
+    expect(after.player.hp).toBe(100);
+    expect(markers.some((m: any) => (m.name || m.名称) === '福ys')).toBe(true);
+  });
+
+  it('测试10 虹天剑：首次命中按载具最大生命一半，虹a冷却后恢复普通承伤', async () => {
+    const uid = createdUserIds[2];
+    await resetPlayer(uid, 100);
+    const { vId } = await setupVehicle(uid, 200);
+    mockFixedDamage(10);
+
+    const victimData = await getPlayer(uid);
+    const map = await mapService.getMapById(mapId);
+    const monster = (await mapService.getMapMonsters(mapId)).find((m: any) => (m.hp || 0) > 0);
+    expect(monster).toBeDefined();
+    monster.specialSeq = -9;
+    const monsterBonus = (combat as any).buildMonsterBonus(monster);
+    await (combat as any).monsterCounterAttackOnePlayer(
+      monster, monsterBonus, victimData.player, victimData, map, false,
+    );
+
+    let mapAfter = await mapService.getMapById(mapId);
+    let vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    expect(vehicle.currentHp).toBe(100);
+    const firstMarkers = JSON.parse(monster.markers2 || '[]');
+    expect(firstMarkers.some((m: any) => (m.name || m.名称) === '虹a')).toBe(true);
+
+    const victimDataSecond = await getPlayer(uid);
+    mapAfter = await mapService.getMapById(mapId);
+    const secondMonsterBonus = (combat as any).buildMonsterBonus(monster);
+    await (combat as any).monsterCounterAttackOnePlayer(
+      monster, secondMonsterBonus, victimDataSecond.player, victimDataSecond, mapAfter, false,
+    );
+    mapAfter = await mapService.getMapById(mapId);
+    vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    expect(vehicle.currentHp).toBe(99);
+  });
+
+  it('测试11 涂层：对应物理属性只按0.05倍计入阵地完整载具伤害', async () => {
+    const uid = createdUserIds[0];
+    await resetPlayer(uid, 100);
+    const { vId } = await setupVehicle(uid, 200, { coating: 1 });
+    mockFixedDamage(100, {
+      damageBreakdown: { physical: 100, fire: 0, ice: 0, elec: 0 },
+      vehicleBreakdown: { physical: 100, fire: 0, ice: 0, elec: 0 },
+    });
+
+    const pd = await getPlayer(uid);
+    const map = await mapService.getMapById(mapId);
+    const monster = (await mapService.getMapMonsters(mapId)).find((m: any) => (m.hp || 0) > 0);
+    expect(monster).toBeDefined();
+    monster.markers = JSON.stringify({ 阵地: 1 });
+    const monsterBonus = (combat as any).buildMonsterBonus(monster);
+    await (combat as any).monsterCounterAttackOnePlayer(monster, monsterBonus, pd.player, pd, map, false);
+
+    const after = await getPlayer(uid);
+    const mapAfter = await mapService.getMapById(mapId);
+    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    expect(vehicle.currentHp).toBe(195);
+    expect(after.player.hp).toBe(100);
   });
 });

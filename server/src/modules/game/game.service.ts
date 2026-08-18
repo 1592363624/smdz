@@ -27,10 +27,12 @@ import { FeedbackService } from '../feedback/feedback.service';
 import { TaskService } from './task.service';
 import { ShortcutService } from './shortcut.service';
 import { StatsService } from './stats.service';
+import { CombatStateService } from './combat-state.service';
 
 @Injectable()
 export class GameService {
   private readonly logger = new Logger(GameService.name);
+  private readonly reloadTimers = new Map<number, NodeJS.Timeout>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -55,6 +57,7 @@ export class GameService {
     private readonly taskService: TaskService,
     private readonly shortcutService: ShortcutService,
     private readonly statsService: StatsService,
+    private readonly combatState: CombatStateService,
   ) {}
 
   /**
@@ -369,7 +372,6 @@ export class GameService {
     }));
 
     // 当前地图的子区域详情（怪物/资源/NPC标题）
-    const monsters = this.playerService.safeJsonParse<any[]>(currentMap.monsters, []);
     const resources = this.playerService.safeJsonParse<any[]>(currentMap.resources, []);
     const npcs = this.playerService.safeJsonParse<any[]>(currentMap.npcs, []);
 
@@ -415,7 +417,8 @@ export class GameService {
         name: currentMap.name,
         mapId: currentMap.id,
         description: currentMap.description || '',
-        monsters: monsters.length || monsterList.length,
+        // 怪物实例统一来自 GameMonster；currentMap.monsters 仅是静态模板，不代表当前存活数量。
+        monsters: mapMonsters.length,
         resources: resources.length,
         npcs: npcs.length,
         monsterList,
@@ -2194,22 +2197,32 @@ export class GameService {
 
     if (!value) {
       const current = markers['自动购物'];
-      return `${player.name || '冒险者'}
-「设置购物工业、窝」来自动从行商处购买名称包含「工业」和「窝」的物品
-「购物自动」来使用
-只能对自己家里的行商使用
-你当前的设置：${current || '未设置'}`;
+      return `${player.name || '冒险者'}#换行「设置购物工业、窝」来自动从行商处购买名称包含「工业」和「窝」的物品#换行「购物自动」来使用#换行只能对自己家里的行商使用#换行你当前的设置：${current || ''}`;
     }
 
-    // 校验输入：不允许包含指令分隔符等敏感字符
-    if (value.includes('@') || value.includes('#') || value.includes('\n')) {
-      return `${player.name || '冒险者'}，${value} 不符合规范`;
+    // 对应文本操作.ecode L55-77：原版仅拒绝消息控制字符；等号会被转成可保存的文本。
+    const invalidNames: Array<[string, string]> = [
+      ['#', '不能包含#'],
+      ['!', '不能包含英文感叹号'],
+      ['`', '不能包含`'],
+      ['\n', '不能包含换行符'],
+      ['\r', '不能包含换行符'],
+      ['@', '不能包含@'],
+      ['&', '不能包含&'],
+      ['^', '不能包含^'],
+      ['%', '不能包含%'],
+    ];
+    for (const [token, hint] of invalidNames) {
+      if (value.includes(token)) {
+        return `${player.name || '冒险者'}${hint}`;
+      }
     }
+    value = value.replace(/=/g, '【等号】');
 
     markers['自动购物'] = value;
     player.markers = markers;
     await this.playerService.savePlayer(player);
-    return `${player.name || '冒险者'}，自动购物的对象设置为${value}`;
+    return `${player.name || '冒险者'}自动购物的对象设置为${value}`;
   }
 
   /**
@@ -2860,30 +2873,84 @@ export class GameService {
 
   /**
    * 处理开始战斗命令
-   * 进入战斗循环模式，设置战斗状态标记
+   * 对应原版 _主程序.ecode L2077-2163：在家园前线生成一轮地精攻势，
+   * 写入 GameMonster，生成/刷新前线防御召唤物，并开启前线活动状态。
    */
   async handleStartBattle(userId: number): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否死亡
     if (this.playerService.isPlayerDead(player)) {
       return this.playerService.handlePlayerDeath(userId, player);
     }
 
-    // 检查是否已在战斗模式
-    if (markers['battle_mode']) {
-      return '你已经处于战斗模式中了，使用「攻击」进行战斗';
+    const homeProgress = this.playerService.getMarkerValue(markers, '家园进度');
+    if (homeProgress < 4 || !player.houseName) {
+      return `${player.name || '冒险者'}需要先完成房子的建造`;
     }
 
-    // 设置战斗模式标记
+    const stats = this.playerService.safeJsonParse<Record<string, any>>(player.stats, {});
+    const baseMapId = Number(stats['家园原地图ID'] || stats.houseBaseMapId || player.mapId || 0);
+    const houseMaps = await this.mapService.ensureHouseMaps(player.houseName, baseMapId, 4);
+    const frontlineMap = houseMaps.frontline;
+    if (!frontlineMap) {
+      return `${player.name || '冒险者'}#一个错误发生了:家园前线地图编号为0`;
+    }
+
+    const existingMonsters = await this.mapService.getMapMonsters(frontlineMap);
+    if (existingMonsters.length !== 0) {
+      return `${player.name || '冒险者'}还有需要解决的敌人`;
+    }
+
+    // 原版：活跃度+1、置成就熟练度("阵地", 玩家2.标记, 1)，然后按前线等级分支。
+    markers['活跃度'] = this.playerService.getMarkerValue(markers, '活跃度') + 1;
+    markers['阵地'] = 1;
+    const frontlineLevel = this.playerService.getMarkerValue(markers, '前线');
+    const wave: string[] = ['地精', '地精'];
+    if (frontlineLevel >= 15 && frontlineLevel < 40) {
+      wave.push('地精十夫长');
+    } else if (frontlineLevel >= 40 && frontlineLevel < 60) {
+      wave.push('地精十夫长', '地精百夫长');
+    } else if (frontlineLevel >= 60) {
+      wave.push('地精十夫长', '地精百夫长', '地精千夫长');
+      if (frontlineLevel >= 80) wave.push('地精将军');
+    }
+
+    const ownerQQ = String((player as any).qqNumber || (player as any).externalId || player.userId || userId);
+    for (const monsterName of wave) {
+      const monster = await this.mapService.spawnMonsterByName(frontlineMap.id, monsterName, {
+        level: frontlineLevel,
+        isTemp: true,
+        ownerQQ,
+      });
+      // 原版在加入怪物列表前为每只怪物写入当前玩家的掉落能力。
+      const dropMarkers = this.combatSystem.setDrop(player, []);
+      if (dropMarkers.length > 0) {
+        await this.mapService.updateMonsterFields(frontlineMap.id, monster.id, {
+          markers: JSON.stringify(dropMarkers),
+        });
+      }
+    }
+
+    const generated = this.combatSystem.generateFrontline(
+      frontlineMap,
+      ownerQQ,
+      Date.now(),
+      frontlineLevel,
+    );
+    await this.mapService.updateDynamicFields(frontlineMap.id, {
+      summons: JSON.stringify(generated.summons),
+      vehicles: JSON.stringify(generated.vehicles),
+      markers2: JSON.stringify([{ 名称: '活动', 强度: 0, 有效期至: Date.now() + 120000 }]),
+    });
+
+    // 保留现有网页版的战斗模式标记，供自动攻击入口读取；前线波次才是本命令的实际效果。
     markers['battle_mode'] = true;
     player.markers = markers;
     await this.playerService.savePlayer(player);
 
     this.logger.log(`玩家 ${userId} 进入战斗模式`);
-    return '⚔️ 进入战斗模式！\n你可以使用「攻击」命令与当前地图的怪物战斗\n使用「停止战斗」退出战斗模式';
+    return `${player.name || '冒险者'}\n地精的攻势开始了`;
   }
 
   /**
@@ -3826,9 +3893,9 @@ export class GameService {
    * 装备技能：创造护盾保护自己
    * 委托到 FamiliarSkillsService.executeSkill 执行安乐天使技能
    */
-  async handleEaseAngel(userId: number): Promise<string> {
-    // 委托到使魔技能服务执行安乐天使技能，创造护盾
-    return this.familiarSkillsService.executeSkill(userId, '安乐天使');
+  async handleEaseAngel(userId: number, targetName?: string): Promise<string> {
+    // 对应原版 _主程序.ecode L995-1041：目标可为自己、当前地图召唤物或其他玩家。
+    return this.familiarSystemService.safetyAngel(userId, targetName?.trim() || undefined);
   }
 
   /**
@@ -3836,9 +3903,9 @@ export class GameService {
    * 装备技能：增益效果
    * 委托到 FamiliarSkillsService.executeSkill 执行福音书技能
    */
-  async handleGospel(userId: number): Promise<string> {
-    // 委托到使魔技能服务执行福音书技能，施加增益效果
-    return this.familiarSkillsService.executeSkill(userId, '福音书');
+  async handleGospel(userId: number, targetName?: string): Promise<string> {
+    // 对应原版 _主程序.ecode L1044-1090：一天一次，目标解析与安乐天使相同。
+    return this.familiarSystemService.gospelBook(userId, targetName?.trim() || undefined);
   }
 
   /**
@@ -5346,10 +5413,9 @@ export class GameService {
    * 停止当前的捕捉操作，委托到 FamiliarSystemService 的捕捉系统
    * 对应原版：停止捕捉 命令
    */
-  async handleStopCapture(userId: number): Promise<string> {
+  async handleStopCapture(userId: number, targetName?: string): Promise<string> {
     // 委托到 FamiliarSystemService 的捕捉系统（stop 动作）
-    // 由于没有指定目标名称，使用默认清除所有麻醉标记
-    return this.familiarSystemService.capturePet(userId, 'stop', 'all');
+    return this.familiarSystemService.capturePet(userId, 'stop', targetName);
   }
 
   /**
@@ -5957,84 +6023,71 @@ export class GameService {
 
   /**
    * 处理购物命令
-   * 系统商店购物系统，查看商店物品、购买物品、查看商品详情
-   * 对应原版：购物 命令
+   * 对应原版：_主程序.ecode L9892-10088。
+   * 行商是地图召唤物，不是静态 NPC；价格和赠品概率逐字沿用原版公式。
    */
   async handleShop(userId: number, action: string, args: string[]): Promise<string> {
-    // 如果没有指定操作，显示商店列表
-    if (!action) {
-      // 查询商店物品列表（静态配置 JSON 单一来源，取前20个）
-      const shopItems = this.staticData.getAllItems().slice(0, 20);
-
-      if (shopItems.length === 0) {
-        return '🏪 系统商店\n━━━━━━━━━━━━━━━\n当前没有可购买的商品\n\n使用「购物 购买 物品名」购买物品';
-      }
-
-      const lines = [
-        `🏪 系统商店`,
-        `━━━━━━━━━━━━━━━`,
-      ];
-      for (const item of shopItems) {
-        lines.push(`  ${item.name} - ${item.value} 金币`);
-        if (item.description) {
-          lines.push(`    ${item.description}`);
-        }
-      }
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`购物 购买 物品名 - 购买物品`);
-      lines.push(`购物 详情 物品名 - 查看详情`);
-
-      return lines.join('\n');
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
     }
 
-    switch (action) {
-      case '购买':
-      case 'buy': {
-        if (args.length < 1) {
-          return '请指定要购买的物品名称，格式：购物 购买 物品名';
-        }
-        const itemName = args.join(' ');
-
-        // 查询商品（静态配置 JSON 单一来源）
-        const shopItem = this.staticData.getItemByName(itemName);
-        if (!shopItem) {
-          return `商店中没有【${itemName}】`;
-        }
-
-        // 添加物品到背包（简化版）
-        await this.playerService.addToBackpack(userId, shopItem.name, 1);
-
-        this.logger.log(`玩家 ${userId} 购买了 ${shopItem.name}`);
-        return `✅ 购买成功！\n获得了 ${shopItem.name} ×1\n${shopItem.description ? `\n${shopItem.description}` : ''}`;
-      }
-
-      case '详情':
-      case 'detail':
-      case 'info': {
-        if (args.length < 1) {
-          return '请指定要查看的物品名称，格式：购物 详情 物品名';
-        }
-        const detailName = args.join(' ');
-
-        const detailItem = this.staticData.getItemByName(detailName);
-        if (!detailItem) {
-          return `商店中没有【${detailName}】`;
-        }
-
-        return [
-          `📋 【${detailItem.name}】`,
-          `━━━━━━━━━━━━━━━`,
-          `类型: ${detailItem.type || '普通物品'}`,
-          `价格: ${detailItem.value} 金币`,
-          detailItem.description ? `描述: ${detailItem.description}` : '',
-          `━━━━━━━━━━━━━━━`,
-          `使用「购物 购买 ${detailItem.name}」购买`,
-        ].filter(Boolean).join('\n');
-      }
-
-      default:
-        return `未知操作「${action}」，可用操作：购买、详情`;
+    const map = await this.getCurrentMap(userId);
+    const merchantInfo = this.findMerchantInSummons(map);
+    if (!merchantInfo) {
+      return `${player.name}附近没有“行商”，无法购物`;
     }
+
+    const { summons, index: merchantIndex } = merchantInfo;
+    const merchant = summons[merchantIndex];
+    const merchantBackpack = this.parseJsonArray(merchant.backpack);
+    const requested = [action || '', ...(args || [])].join(' ').trim();
+    const numeric = requested.match(/\d+/);
+    const requestedNumber = numeric ? Number(numeric[0]) : 0;
+    const isDetail = /^(查看|detail|info)/i.test(requested);
+    const isPurchase = /^(购买|buy)/i.test(requested);
+    const indexByName = !numeric && (isPurchase || isDetail)
+      ? merchantBackpack.findIndex((item: any) => (item?.name || item?.名称) === requested.replace(/^(购买|查看|buy|detail|info)\s*/i, '').trim()) + 1
+      : 0;
+    const itemIndex = indexByName || requestedNumber;
+    const numericPurchase = !isDetail && !isPurchase && requestedNumber > 0;
+
+    // 原版 a<1 或超出库存时显示列表；行商为空时显示原版售罄文案。
+    if (isDetail && itemIndex >= 1 && itemIndex <= merchantBackpack.length) {
+      const item = merchantBackpack[itemIndex - 1];
+      return `${player.name}#换行${this.formatMerchantItem(item)}#换行1、购买#z9#z92、返回`;
+    }
+    if ((isPurchase || numericPurchase) && itemIndex >= 1 && itemIndex <= merchantBackpack.length) {
+      const houseMap = player.houseName ? await this.mapService.getMapByName(player.houseName) : null;
+      const purchaseGate = this.checkMerchantPurchaseGate(player, map, houseMap);
+      if (purchaseGate.blocked) {
+        return `${player.name}${purchaseGate.message}`;
+      }
+      if (purchaseGate.markers2Changed) {
+        player.markers2 = JSON.stringify(purchaseGate.markers2);
+        await this.playerService.savePlayer(player);
+      }
+      return this.purchaseMerchantItem(userId, player, markers, map, summons, merchantIndex, merchantBackpack, itemIndex - 1);
+    }
+
+    if (merchantBackpack.length === 0) {
+      return `行商#换行我的东西都卖完了，请下个整点再来吧。`;
+    }
+
+    const shopSkill = this.achievementService.getAchievement(markers, '购物');
+    const affinity = 10 + shopSkill / 100;
+    const priceRate = 1 - affinity / (100 + affinity);
+    const levelFactor = (player.level || 1) / 10 + 1;
+    const lines = [
+      `行商#换行${player.name}有你喜欢的吗？`,
+      `好感${affinity}(优惠${this.roundText(affinity / (100 + affinity) * 100)}%)`,
+      `◆购买需要${this.roundText(priceRate * levelFactor * 50)}木头、${this.roundText(priceRate * levelFactor * 40)}石头、${this.roundText(priceRate * levelFactor * 30)}铁矿、${this.roundText(priceRate * levelFactor * 30)}绳子`,
+    ];
+    merchantBackpack.forEach((item: any, itemNumber: number) => {
+      lines.push(`${itemNumber + 1}、${this.formatMerchantItem(item, true)}`);
+    });
+    return lines.join('\n');
   }
 
   /**
@@ -6145,63 +6198,229 @@ export class GameService {
 
   /**
    * 处理逆向命令
-   * 逆向解析物品/装备，将物品还原为材料（简化版：调用分解逻辑）
+   * 对应原版 _主程序.ecode L9459-L9560 与物品操作.ecode L2158-L2179。
+   * 逆向不是分解，也不读取制造配方：它消耗装备本身，按装备数据品质首字符
+   * 增加同名逆向熟练度，熟练度上限为20。
    */
   async handleReverse(userId: number, targetName: string): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack } = playerData;
+    const reverse = this.readReverseProficiencies(player);
+    const name = player.name || '冒险者';
+    const rawTarget = (targetName || '').trim();
 
-    if (!targetName) {
-      return '请指定要逆向解析的物品名称，格式：逆向 物品名';
+    // 原版「逆向」显示已完成项目；「逆向0」显示仍在进行的项目。
+    if (!rawTarget) {
+      return this.formatReverseMenu(name, reverse, false);
+    }
+    if (/^0+$/.test(rawTarget)) {
+      return this.formatReverseMenu(name, reverse, true);
     }
 
-    // 查找背包中的物品
-    const targetItem = backpack.find((item: any) => item.name === targetName);
-    if (!targetItem) {
-      return `背包中没有【${targetName}】`;
+    if (rawTarget === '全部') {
+      const result = this.reverseAllEligible(name, backpack, reverse);
+      if (result.count === 0) return `${name}没有可以逆向的装备了`;
+      await this.saveReverseResult(userId, player, backpack, reverse, result.count);
+      return this.formatReverseBatchResult(name, result.count, result.items);
     }
 
-    // 从静态配置中查找包含该物品作为产出的配方（用于分解，JSON 单一来源）
-    const allRecipes = this.staticData.getAllCraftings();
-    const matchingRecipe = allRecipes.find((recipe: any) => {
-      const outputs = this.playerService.safeJsonParse<any[]>(recipe.outputs, []);
-      return outputs.some((o: any) => o.name === targetName);
-    });
-
-    if (!matchingRecipe) {
-      return `【${targetName}】无法被逆向解析，没有对应的分解配方`;
+    // 纯数字参数是背包 1-based 序号；名称参数按原版逆向全部分支的精确名称匹配。
+    if (/^\d+$/.test(rawTarget)) {
+      const index = Number(rawTarget);
+      if (index > backpack.length) {
+        return `${name}“逆向1”来逆向背包的第1个物品\n“逆向火焰披风”来逆向对应名称的装备`;
+      }
+      if (index <= 0) return this.formatReverseMenu(name, reverse, true);
+      const item = backpack[index - 1];
+      const failure = this.reverseItemFailure(name, item, reverse);
+      if (failure) return failure;
+      const result = this.reverseOne(item, reverse);
+      backpack.splice(index - 1, 1);
+      await this.saveReverseResult(userId, player, backpack, reverse, 1);
+      return this.formatReverseSingleResult(name, item, result, reverse);
     }
 
-    // 获取分解材料（从配方需求中获取）
-    const requirements = this.playerService.safeJsonParse<any[]>(matchingRecipe.requirements, []);
-    if (requirements.length === 0) {
-      return `【${targetName}】没有可逆向解析的材料`;
+    // 原版名称模式只处理同名装备，不按配方、数量或模糊名称匹配。
+    const targetIndex = backpack.findIndex((item: any) =>
+      this.itemName(item) === rawTarget && !this.reverseItemFailure('', item, reverse),
+    );
+    if (targetIndex < 0) {
+      return this.formatReverseMenu(name, reverse, true);
     }
+    const item = backpack[targetIndex];
+    const result = this.reverseOne(item, reverse);
+    backpack.splice(targetIndex, 1);
+    await this.saveReverseResult(userId, player, backpack, reverse, 1);
+    return this.formatReverseSingleResult(name, item, result, reverse);
+  }
 
-    // 消耗一个目标物品
-    const count = targetItem.count || 1;
-    if (count <= 1) {
-      const idx = backpack.indexOf(targetItem);
-      if (idx !== -1) backpack.splice(idx, 1);
-    } else {
-      targetItem.count = count - 1;
+  /** 解析玩家.reverse；条目结构对齐原版 技能={名称,数值}。 */
+  private readReverseProficiencies(player: any): Array<{ name: string; value: number }> {
+    const raw = typeof player.reverse === 'string'
+      ? this.playerService.safeJsonParse<any[]>(player.reverse, [])
+      : (Array.isArray(player.reverse) ? player.reverse : []);
+    return raw
+      .filter((entry: any) => entry && (entry.name ?? entry.名称))
+      .map((entry: any) => ({
+        name: String(entry.name ?? entry.名称),
+        value: Number(entry.value ?? entry.数值 ?? 0),
+      }));
+  }
+
+  private reverseProficiency(reverse: Array<{ name: string; value: number }>, itemName: string): number {
+    return reverse.find((entry) => entry.name === itemName)?.value || 0;
+  }
+
+  private setReverseProficiency(
+    reverse: Array<{ name: string; value: number }>,
+    itemName: string,
+    amount: number,
+  ): number {
+    const existing = reverse.find((entry) => entry.name === itemName);
+    if (existing) {
+      existing.value += amount;
+      return existing.value;
     }
+    reverse.push({ name: itemName, value: amount });
+    return amount;
+  }
 
-    // 产出分解材料（数量按比例缩减，简化版取一半）
-    const materialLines: string[] = [];
-    for (const req of requirements) {
-      const materialCount = Math.max(1, Math.floor((req.count || req.quantity || 1) / 2));
-      await this.playerService.addToBackpack(userId, req.name, materialCount);
-      materialLines.push(`  ${req.name} ×${materialCount}`);
+  private itemName(item: any): string {
+    return String(item?.name ?? item?.名称 ?? '');
+  }
+
+  private itemType(item: any): string {
+    return String(item?.type ?? item?.类型 ?? '');
+  }
+
+  private reverseValue(item: any): number {
+    const prefix = String(item?.data ?? item?.数据 ?? '').charAt(0);
+    if (prefix === 'x') return 1;
+    if (prefix === 's') return 0.2;
+    if (prefix === 'a') return 0.1;
+    if (prefix === 'b') return 0.05;
+    if (prefix === 'c') return 0.025;
+    if (prefix === 'd') return 0.0125;
+    return 0.00625;
+  }
+
+  private reverseItemFailure(
+    playerName: string,
+    item: any,
+    reverse: Array<{ name: string; value: number }>,
+  ): string {
+    const itemName = this.itemName(item);
+    const prefix = itemName.substring(0, 6);
+    if (Number(item?.durability ?? item?.耐久 ?? 0) === 1) {
+      return playerName ? `${playerName}这个装备被锁定` : 'locked';
     }
+    if (prefix === '植入体') return playerName ? `${playerName}植入体不可以` : 'implant';
+    if (prefix === '增幅器') return playerName ? `${playerName}增幅器不可以` : 'amplifier';
+    if (this.itemType(item) !== '装备') {
+      return playerName ? `${playerName}${itemName}不是装备` : 'not-equipment';
+    }
+    if (this.reverseProficiency(reverse, itemName) >= 20) {
+      return playerName ? `${playerName}${itemName}这个已经不需要逆向了` : 'complete';
+    }
+    return '';
+  }
 
-    // 保存背包
+  private reverseOne(item: any, reverse: Array<{ name: string; value: number }>): number {
+    return this.setReverseProficiency(reverse, this.itemName(item), this.reverseValue(item));
+  }
+
+  private reverseAllEligible(
+    playerName: string,
+    backpack: any[],
+    reverse: Array<{ name: string; value: number }>,
+  ): { count: number; items: Array<{ name: string; value: number }> } {
+    const results = new Map<string, number>();
+    let count = 0;
+    // 原版从背包尾部向前遍历；删除时用倒序保持同样的命中顺序。
+    for (let i = backpack.length - 1; i >= 0; i--) {
+      const item = backpack[i];
+      if (this.itemType(item) !== '装备') continue;
+      if (this.reverseItemFailure('', item, reverse)) continue;
+      const itemName = this.itemName(item);
+      const value = this.reverseOne(item, reverse);
+      results.set(itemName, (results.get(itemName) || 0) + value);
+      backpack.splice(i, 1);
+      count++;
+    }
+    return {
+      count,
+      items: Array.from(results, ([name, value]) => ({ name, value })),
+    };
+  }
+
+  private formatReverseNumber(value: number): string {
+    return String(Math.round(value));
+  }
+
+  private formatReverseMenu(
+    playerName: string,
+    reverse: Array<{ name: string; value: number }>,
+    inProgress: boolean,
+  ): string {
+    const lines = [
+      playerName,
+      '“逆向3”来逆向背包的第3个物品，“逆向动力上衣”来逆向名为动力上衣的装备，“逆向全部”来全部逆向',
+      '逆向将消耗掉用来逆向的装备',
+      '逆向完成后装备的基础属性将提高25%',
+      inProgress ? '正在逆向的项目：' : '已完成逆向的项目：',
+    ];
+    let count = 0;
+    for (const entry of reverse) {
+      const matches = inProgress ? entry.value < 20 : entry.value >= 20;
+      if (!matches) continue;
+      count++;
+      lines.push(`${count}、${entry.name}${inProgress ? this.formatReverseNumber(entry.value * 5) + '%' : ''}`);
+    }
+    if (!inProgress) lines.push('1、查看逆向中的项目');
+    return lines.join('\n');
+  }
+
+  private formatReverseBatchResult(
+    playerName: string,
+    count: number,
+    items: Array<{ name: string; value: number }>,
+  ): string {
+    const lines = [`${playerName}逆向了${count}件装备`];
+    for (const item of items) {
+      lines.push(`${item.name}+${this.formatReverseNumber(item.value * 5)}%(${this.formatReverseNumber(item.value * 5)}%)`);
+    }
+    return lines.join('\n');
+  }
+
+  private formatReverseSingleResult(
+    playerName: string,
+    item: any,
+    value: number,
+    reverse: Array<{ name: string; value: number }>,
+  ): string {
+    const parsed = this.itemService.parseEquipment(item);
+    const quality = this.itemService.getEquipmentQuality(parsed);
+    const current = this.reverseProficiency(reverse, this.itemName(item));
+    return `${playerName}逆向了${this.itemName(item)}[${quality}]\n` +
+      `${this.itemName(item)}+${this.formatReverseNumber(value * 5)}%(${this.formatReverseNumber(current * 5)}%)`;
+  }
+
+  private async saveReverseResult(
+    userId: number,
+    player: any,
+    backpack: any[],
+    reverse: Array<{ name: string; value: number }>,
+    count: number,
+  ): Promise<void> {
+    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+    markers['逆向'] = (markers['逆向'] || 0) + count;
+    player.markers = markers;
     player.backpack = backpack;
+    player.reverse = reverse;
     await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 逆向解析了 ${targetName}`);
-    return `🔬 逆向解析成功！\n消耗 1 个【${targetName}】\n获得材料:\n${materialLines.join('\n')}`;
+    // 原版把“逆向”作为任务成就写入；放在玩家存档之后，避免 taskService 的独立保存被旧 player.tasks 覆盖。
+    await this.taskService.advance(userId, '逆向', count);
+    this.logger.log(`玩家 ${userId} 逆向了${count}件装备`);
   }
 
   /**
@@ -6220,162 +6439,196 @@ export class GameService {
 
   /**
    * 处理回充命令
-   * 回充能量/护盾，消耗资源回复护盾或能量
+   * 对应原版 _主程序.ecode L7001-L7010：装备护盾回充器后启动10秒回充增益，
+   * 共用90秒「回充冷却」，不消耗背包物品。
    */
   async handleRecharge(userId: number): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack } = playerData;
-
-    // 检查是否死亡
+    const { player, markers, markers2 } = playerData;
     if (this.playerService.isPlayerDead(player)) {
       return this.playerService.handlePlayerDeath(userId, player);
     }
-
-    // 检查背包中是否有能量块
-    const energyBlock = backpack.find((item: any) =>
-      item.name.includes('能量块') || item.name.includes('能源') || item.name === '电池',
+    if (!this.hasEquippedSpecial(playerData, '护盾回充器', 4)) {
+      return `${player.name}需要护盾回充器`;
+    }
+    const remaining = { value: '' };
+    const now = Date.now();
+    const cooling = this.combatState.timeIntervalRequire(
+      '回充冷却', 90, markers2, now, remaining, now,
     );
-
-    if (!energyBlock) {
-      return '背包中没有可用的能量块或能源，无法回充\n可以在商店购买或在地图上采集';
+    if (cooling) {
+      player.markers2 = markers2;
+      await this.playerService.savePlayer(player);
+      return `${player.name}护盾回充冷却${remaining.value}`;
     }
-
-    // 消耗一个能量块
-    const count = energyBlock.count || 1;
-    if (count <= 1) {
-      const idx = backpack.indexOf(energyBlock);
-      if (idx !== -1) backpack.splice(idx, 1);
-    } else {
-      energyBlock.count = count - 1;
-    }
-
-    // 回复护盾（回复最大护盾的 30%）
-    const shieldRecovery = Math.floor((player.maxShield || 100) * 0.3);
-    player.shield = Math.min(player.maxShield || 100, (player.shield || 0) + shieldRecovery);
-
-    // 保存背包和血量
-    player.backpack = backpack;
+    this.incrementMarker(markers, '活跃度', 1);
+    this.combatState.addMarker('回充', 10, markers2, now);
+    player.markers = markers;
+    player.markers2 = markers2;
     await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 回充了 ${shieldRecovery} 点护盾`);
-    return `⚡ 回充成功！\n消耗 1 个【${energyBlock.name}】\n护盾回复 ${shieldRecovery} 点\n当前护盾: ${Math.round(player.shield)}/${Math.round(player.maxShield || 100)}`;
+    return `${player.name}启动了护盾回充器`;
   }
 
   /**
-   * 处理修理物品命令
-   * 修理装备，消耗材料修复装备耐久（简化版：返回提示）
+   * 处理修理命令
+   * 对应原版 _主程序.ecode L7012-L7021：装备纳米注喷器后启动10秒修理增益，
+   * 与回充共用90秒「回充冷却」，不读取修理目标，也不消耗修理材料。
    */
   async handleRepairItem(userId: number, itemName: string): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack } = playerData;
-
-    if (!itemName) {
-      // 显示可修理的装备
-      const equipment = backpack.filter((item: any) =>
-        item.type === '装备' || item.durability !== undefined,
-      );
-      if (equipment.length === 0) {
-        return '背包中没有需要修理的装备';
-      }
-      const lines = ['🔧 可修理的装备:', `━━━━━━━━━━━━━━━`];
-      for (const item of equipment) {
-        const dur = item.durability !== undefined ? `(耐久: ${item.durability})` : '';
-        lines.push(`  ${item.name} ${dur}`);
-      }
-      lines.push(``);
-      lines.push(`使用「修理 装备名」进行修理`);
-      return lines.join('\n');
+    const { player, markers, markers2 } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
     }
-
-    // 查找指定装备
-    const targetItem = backpack.find((item: any) => item.name === itemName);
-    if (!targetItem) {
-      return `背包中没有【${itemName}】`;
+    if (!this.hasEquippedSpecial(playerData, '纳米注喷器', 13)) {
+      return `${player.name}需要纳米注喷器`;
     }
-
-    // 简化版：检查是否有修理材料（铁锭、修复石等）
-    const repairMaterial = backpack.find((item: any) =>
-      item.name === '铁锭' || item.name === '修复石' || item.name.includes('修复'),
+    const remaining = { value: '' };
+    const now = Date.now();
+    const cooling = this.combatState.timeIntervalRequire(
+      '回充冷却', 90, markers2, now, remaining, now,
     );
-    if (!repairMaterial) {
-      return `修理【${itemName}】需要铁锭或修复石\n背包中没有找到修理材料`;
+    if (cooling) {
+      player.markers2 = markers2;
+      await this.playerService.savePlayer(player);
+      return `${player.name}装甲修理冷却${remaining.value}`;
     }
-
-    // 消耗修理材料
-    const matCount = repairMaterial.count || 1;
-    if (matCount <= 1) {
-      const idx = backpack.indexOf(repairMaterial);
-      if (idx !== -1) backpack.splice(idx, 1);
-    } else {
-      repairMaterial.count = matCount - 1;
-    }
-
-    // 回复耐久（简化版：设置耐久为100）
-    targetItem.durability = 100;
-
-    // 保存背包
-    player.backpack = backpack;
+    this.incrementMarker(markers, '活跃度', 1);
+    this.combatState.addMarker('修理', 10, markers2, now);
+    player.markers = markers;
+    player.markers2 = markers2;
     await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 修理了 ${itemName}`);
-    return `🔧 修理成功！\n消耗 1 个【${repairMaterial.name}】\n【${itemName}】的耐久已恢复至 100`;
+    return `${player.name}启动了纳米注喷器`;
   }
 
   /**
    * 处理装填命令
-   * 装填弹药/能量，消耗弹药资源（简化版）
+   * 对应原版 _主程序.ecode L7410-L7489：普拉娜超装填或管风琴装填，
+   * 通过「工作」标记和延时事件完成，不消耗背包弹药。
    */
   async handleReload(userId: number, targetName: string): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack } = playerData;
+    const { player, markers, markers2, weapons } = playerData;
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
+    }
 
-    if (!targetName) {
-      // 显示背包中的弹药
-      const ammo = backpack.filter((item: any) =>
-        item.type === '弹药' || item.name.includes('弹') || item.name.includes('子弹'),
-      );
-      if (ammo.length === 0) {
-        return '背包中没有弹药可以装填\n可以在商店购买或在地图上采集';
+    let mode: 'plana' | 'organ' | '' = '';
+    if (Number(player.specialSeq) === 22 && Number(player.affinity || 0) >= 60) {
+      mode = 'plana';
+    } else if (Number(player.currentWeapon || 0) !== 0) {
+      const currentWeapon = this.currentWeaponItem(player, weapons);
+      if (this.equipmentSpecialSeq(currentWeapon) === -14 || this.itemName(currentWeapon) === '管风琴') {
+        mode = 'organ';
       }
-      const lines = ['🔫 可装填的弹药:', `━━━━━━━━━━━━━━━`];
-      for (const item of ammo) {
-        lines.push(`  ${item.name} ×${item.count || 1}`);
-      }
-      lines.push(``);
-      lines.push(`使用「装填 弹药名」进行装填`);
-      return lines.join('\n');
     }
 
-    // 查找指定弹药
-    const ammoItem = backpack.find((item: any) => item.name === targetName);
-    if (!ammoItem) {
-      return `背包中没有【${targetName}】`;
+    if (!mode) return `${player.name}当前还不需要装填1`;
+
+    if (mode === 'organ') {
+      const loaded = this.achievementService.getAchievement(markers, '管风琴');
+      if (loaded === 4) return `${player.name}还不需要装填3`;
+      const seconds = (4 - loaded) * 15;
+      this.normalizeMarkers2(markers2);
+      this.combatState.addMarker('工作', seconds, markers2, Date.now());
+      player.markers = markers;
+      player.markers2 = markers2;
+      await this.playerService.savePlayer(player);
+      this.scheduleReloadCompletion(userId, 'organ', seconds);
+      return `${player.name}正在给管风琴装填${4 - loaded}发火箭弹，需要${seconds}秒`;
     }
 
-    // 消耗弹药
-    const count = ammoItem.count || 1;
-    if (count <= 1) {
-      const idx = backpack.indexOf(ammoItem);
-      if (idx !== -1) backpack.splice(idx, 1);
-    } else {
-      ammoItem.count = count - 1;
-    }
-
-    // 设置装填标记
-    const markers = playerData.markers;
-    markers['reloaded'] = true;
-    markers['ammo_type'] = targetName;
+    const pending = weapons.filter((weapon: any) =>
+      this.achievementService.getAchievement(markers, `${this.itemName(weapon)}t`) < 1,
+    );
+    if (pending.length === 0) return `${player.name}当前还不需要装填`;
+    const weaponNames = pending.map((weapon: any) => this.itemName(weapon)).join('、');
+    const seconds = pending.length * 3;
+    this.normalizeMarkers2(markers2);
+    this.combatState.addMarker('工作', seconds, markers2, Date.now());
     player.markers = markers;
-
-    // 保存背包
-    player.backpack = backpack;
+    player.markers2 = markers2;
     await this.playerService.savePlayer(player);
+    this.scheduleReloadCompletion(userId, 'plana', seconds);
+    return `${player.name}正在给${weaponNames}超装填，需要${seconds}秒`;
+  }
 
-    this.logger.log(`玩家 ${userId} 装填了 ${targetName}`);
-    return `🔫 装填成功！\n消耗 1 个【${targetName}】\n武器已装填完毕，下次攻击将使用该弹药`;
+  private currentWeaponItem(player: any, weapons: any[]): any | null {
+    const index = Number(player.currentWeapon || 0);
+    if (index <= 0) return null;
+    return weapons[index - 1] || weapons[index] || null;
+  }
+
+  private equipmentSpecialSeq(item: any): number {
+    if (!item) return 0;
+    const explicit = Number(item.specialSeq ?? item.特殊序号 ?? 0);
+    if (explicit !== 0) return explicit;
+    const definition = this.staticData.getEquipmentByName(this.itemName(item));
+    return Number(definition?.specialSeq ?? definition?.特殊序号 ?? 0);
+  }
+
+  private hasEquippedSpecial(
+    playerData: any,
+    equipmentName: string,
+    specialSeq: number,
+  ): boolean {
+    const equipment = (playerData.equipment || []).map((item: any) => ({
+      名称: this.itemName(item),
+      特殊序号: this.equipmentSpecialSeq(item),
+    }));
+    // 先按特殊序号查询，再保留名称查询作为静态数据中未写入特殊序号时的兼容映射。
+    return this.combatState.equipRequire(equipment, [], 0, specialSeq, equipmentName, false)
+      || this.combatState.equipRequire(equipment, [], 0, 0, equipmentName, false);
+  }
+
+  private incrementMarker(markers: Record<string, any>, key: string, amount: number): void {
+    markers[key] = Number(markers[key] || 0) + amount;
+  }
+
+  private normalizeMarkers2(markers2: any[]): void {
+    const normalized = markers2.map((entry: any) => this.combatState.normalizeBuffItem(entry));
+    markers2.splice(0, markers2.length, ...normalized);
+  }
+
+  private scheduleReloadCompletion(
+    userId: number,
+    mode: 'plana' | 'organ',
+    seconds: number,
+  ): void {
+    const previous = this.reloadTimers.get(userId);
+    if (previous) clearTimeout(previous);
+    const timer = setTimeout(async () => {
+      this.reloadTimers.delete(userId);
+      try {
+        const playerData = await this.playerService.getPlayerData(userId);
+        const { player, markers, weapons } = playerData;
+        let result: string;
+        if (mode === 'organ') {
+          this.achievementService.setAchievement(markers, '管风琴', 4);
+          result = `${player.name}的管风琴装填完毕了。`;
+        } else {
+          const completed: string[] = [];
+          for (const weapon of weapons) {
+            const weaponName = this.itemName(weapon);
+            if (this.achievementService.getAchievement(markers, `${weaponName}t`) < 1) {
+              this.achievementService.setAchievement(markers, `${weaponName}t`, 1);
+              completed.push(weaponName);
+            }
+          }
+          const skillLevel = Math.floor(
+            Number(markers['普拉娜技能熟练度'] || 0) / 10,
+          ) + 1;
+          result = `${player.name}给${completed.join('、')}进行了超装填，它们下次命中的时候会造成${1.25 + skillLevel / 100}倍的伤害。`;
+        }
+        player.markers = markers;
+        await this.playerService.savePlayer(player);
+        await this.chatService.broadcastSystem('世界频道', result, userId);
+      } catch (error: any) {
+        this.logger.warn(`玩家 ${userId} 装填延时完成失败: ${error.message}`);
+      }
+    }, Math.max(0, seconds * 1000));
+    timer.unref?.();
+    this.reloadTimers.set(userId, timer);
   }
 
   /**
@@ -7189,24 +7442,322 @@ export class GameService {
    * 对应原版：呼叫 命令
    */
   async handleCallVehicle(userId: number, vehicleName: string): Promise<string> {
-    if (!vehicleName) return '请指定要呼叫的载具名称，例如：呼叫 骑士';
-    return `📡 正在呼叫「${vehicleName}」到你的位置...`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    const currentMap = await this.mapService.getMapById(player.mapId);
+    if (!currentMap) return `${player.name || '冒险者'}不在服务区`;
+
+    // 原版 建筑要求("通讯台") 同时检查地图建筑和当前驾驶载具的部件。
+    const currentBuildings = this.playerService.safeJsonParse<any[]>(currentMap.buildings, []);
+    const currentVehicles = this.playerService.safeJsonParse<any[]>(currentMap.vehicles, []);
+    const currentVehicle = currentVehicles.find((vehicle: any) =>
+      String(vehicle?.id ?? vehicle?.编号 ?? '') === String(player.vehicle || ''),
+    );
+    const currentVehicleParts = this.playerService.safeJsonParse<any[]>(currentVehicle?.parts, []);
+    const hasCommunication = currentBuildings.some((building: any) =>
+      (building?.name ?? building?.名称) === '通讯台',
+    ) || currentVehicleParts.some((part: any) =>
+      (part?.name ?? part?.名称) === '通讯台',
+    );
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const ownerIds = new Set([
+      String(userId),
+      String(player.id),
+      String(user?.qqNumber || ''),
+      String(user?.externalId || ''),
+      String(player.masterQQ || ''),
+    ].filter(Boolean));
+    const jsonArray = (value: any): any[] => this.playerService.safeJsonParse<any[]>(value, []);
+    const ownerOf = (unit: any): boolean => ownerIds.has(String(
+      unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '',
+    ));
+    const markerValue = (unit: any, markerName: string): number => {
+      const raw = unit?.markers ?? unit?.标记 ?? {};
+      const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+      if (Array.isArray(parsed)) {
+        const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
+        return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+      }
+      return Number(parsed?.[markerName] ?? 0);
+    };
+    const allMaps = await this.mapService.getAllMaps();
+    const candidates: Array<{ kind: 'pet' | 'vehicle'; map: any; unit: any; index: number }> = [];
+    for (const map of allMaps) {
+      for (const [index, unit] of jsonArray(map.summons).entries()) {
+        if (ownerOf(unit)) candidates.push({ kind: 'pet', map, unit, index });
+      }
+      for (const [index, unit] of jsonArray(map.vehicles).entries()) {
+        if (ownerOf(unit)) candidates.push({ kind: 'vehicle', map, unit, index });
+      }
+    }
+
+    const rawTarget = (vehicleName || '').trim();
+    if (!rawTarget) {
+      if (candidates.length === 0 && !hasCommunication) return `${player.name || '冒险者'}没有可以呼叫的对象`;
+      const lines = [`${player.name || '冒险者'}选择你想叫到身边的对象:`];
+      if (hasCommunication) {
+        lines.push(`行商`);
+        lines.push(`神之工匠`);
+      }
+      candidates.forEach((candidate, index) => {
+        const label = candidate.unit.name ?? candidate.unit.名称 ?? candidate.unit.type ?? candidate.unit.类型 ?? '未命名';
+        lines.push(`${(hasCommunication ? 2 : 0) + index + 1}、${label}(${candidate.map.name})`);
+      });
+      return lines.join('\n');
+    }
+
+    // 原版使用“宠物QQ/载具编号”快捷前缀；普通名称和图片名称也可直接匹配。
+    const explicitKind: 'pet' | 'vehicle' | undefined = rawTarget.startsWith('宠物')
+      ? 'pet' : rawTarget.startsWith('载具') ? 'vehicle' : undefined;
+    const target = explicitKind ? rawTarget.substring(2) : rawTarget;
+    if (target === '行商') {
+      if (!hasCommunication) {
+        return `${player.name || '冒险者'}需要建筑【通讯台】`;
+      }
+      const homeMap = player.houseName ? await this.mapService.getMapByName(player.houseName) : null;
+      if (!homeMap) {
+        return `${player.name || '冒险者'}#错误:玩家${user?.qqNumber || userId}(${player.name || '冒险者'})的院子[${player.houseName || ''}]在地图列表不存在`;
+      }
+
+      const nowMs = Date.now();
+      const nowSec = nowMs / 1000;
+      const hour = new Date(nowMs).getHours();
+      const slot = hour < 12
+        ? { name: '通讯1', message: '12点才能再次使用' }
+        : hour >= 18
+          ? { name: '通讯2', message: '0点才能再次使用' }
+          : { name: '通讯3', message: '18点才能再次使用' };
+      const existingSlotMarkers = jsonArray(player.markers2);
+      const hadFreeCall = existingSlotMarkers.some((marker: any) => {
+        const name = marker?.name ?? marker?.名称;
+        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
+        return name === slot.name && expireSec > nowSec;
+      });
+      const markers2 = existingSlotMarkers.filter((marker: any) => {
+        const name = marker?.name ?? marker?.名称;
+        if (name !== slot.name) return true;
+        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
+        return expireSec > nowSec;
+      });
+      const backpack = this.playerService.getBackpackItems(player);
+      let merchantLevel = 0;
+      let extraText = '';
+      if (hadFreeCall) {
+        const band = backpack.find((item: any) => (item?.name ?? item?.名称) === '发带');
+        const bandCount = this.itemQuantity(band);
+        if (bandCount < 1) return `${player.name || '冒险者'}${slot.message}`;
+        const affinity = (10 + this.achievementService.getAchievement(markers, '购物') / 100) / 2;
+        const maxLevel = 3 + Math.floor(affinity / 5);
+        merchantLevel = bandCount >= maxLevel ? maxLevel : Math.trunc(bandCount);
+        this.deductBackpackItem(backpack, '发带', merchantLevel);
+        extraText = `,消耗发带${merchantLevel},还有${bandCount - merchantLevel}`;
+      } else {
+        const endOfDay = new Date(nowMs);
+        endOfDay.setHours(24, 0, 0, 0);
+        markers2.push({ name: slot.name, expireAt: endOfDay.getTime() / 1000 });
+      }
+
+      const affinityChance = (10 + this.achievementService.getAchievement(markers, '购物') / 100) / 2;
+      let extraCount = 0;
+      let triggerText = '';
+      for (let i = 0; i < merchantLevel; i++) {
+        if (Math.random() * 100 < affinityChance) {
+          extraCount++;
+          if (!triggerText) triggerText = `,并带来了更多物品。[行商好感触发,${this.roundText(affinityChance)}%]`;
+        }
+      }
+      const homeSummons = this.playerService.safeJsonParse<any[]>(homeMap.summons, [])
+        .filter((summon: any) => (summon?.name ?? summon?.名称) !== '行商');
+      const inventory = await this.generateMerchantInventory(merchantLevel, extraCount);
+      homeSummons.push({
+        name: '行商',
+        type: '行商',
+        ownerQQ: '',
+        qq: `召唤物${nowMs}`,
+        level: merchantLevel,
+        backpack: JSON.stringify(inventory),
+        markers: '{}',
+        markers2: '[]',
+        buffs: '[]',
+      });
+      this.achievementService.setAchievement(markers, '呼叫行商', this.achievementService.getAchievement(markers, '呼叫行商') + merchantLevel);
+      this.achievementService.setAchievement(markers, '呼叫', this.achievementService.getAchievement(markers, '呼叫') + merchantLevel);
+      player.markers = markers;
+      player.backpack = JSON.stringify(backpack);
+      player.markers2 = JSON.stringify(markers2);
+      await this.mapService.updateDynamicFields(homeMap.id, { summons: JSON.stringify(homeSummons) });
+      await this.playerService.savePlayer(player);
+      return `行商来到了${homeMap.name}院子里${extraText}${triggerText}`;
+    }
+
+    if (target === '神之工匠') {
+      const nowMs = Date.now();
+      const nowSec = nowMs / 1000;
+      const markers2 = jsonArray(player.markers2).filter((marker: any) => {
+        const name = marker?.name ?? marker?.名称;
+        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
+        return name !== '通讯4' || expireSec <= nowSec;
+      });
+      const hasCooldown = jsonArray(player.markers2).some((marker: any) => {
+        const name = marker?.name ?? marker?.名称;
+        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
+        return name === '通讯4' && expireSec > nowSec;
+      });
+      const backpack = this.playerService.getBackpackItems(player);
+      if (hasCooldown) {
+        const spirit = backpack.find((item: any) => (item?.name ?? item?.名称) === '灵石');
+        if (this.itemQuantity(spirit) < 10) return `${player.name || '冒险者'}明天才能再次使用`;
+        this.deductBackpackItem(backpack, '灵石', 10);
+      } else {
+        const endOfDay = new Date(nowMs);
+        endOfDay.setHours(24, 0, 0, 0);
+        markers2.push({ name: '通讯4', expireAt: endOfDay.getTime() / 1000 });
+      }
+      const summons = jsonArray(currentMap.summons).filter((summon: any) =>
+        (summon?.qq ?? summon?.QQ) !== 'npc1g' && (summon?.qq ?? summon?.QQ) !== 'npc2g',
+      );
+      summons.push(
+        { name: '神之工匠', type: '粉狐狐', qq: 'npc1g', ownerQQ: '1', hp: 100, maxHp: 100, markers: '{}', markers2: '[]', buffs: '[]' },
+        { name: '小雫', type: '精英小雫', qq: 'npc2g', ownerQQ: '1', hp: 100, maxHp: 100, markers: '{}', markers2: '[]', buffs: '[]' },
+      );
+      player.backpack = JSON.stringify(backpack);
+      player.markers2 = JSON.stringify(markers2);
+      await this.mapService.updateDynamicFields(currentMap.id, { summons: JSON.stringify(summons) });
+      await this.playerService.savePlayer(player);
+      const greetings = ['我闻到了好闻的灵石味道！', '这些灵石都是你的吗？', '看来有人需要帮忙呢！'];
+      const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+      return `【粉狐狐】“${greeting}”#换行神之工匠带着她的狐娘女仆来到了${currentMap.name}`;
+    }
+
+    const matched = candidates.find((candidate) => {
+      if (explicitKind && candidate.kind !== explicitKind) return false;
+      const unit = candidate.unit;
+      return String(unit.qq ?? unit.QQ ?? unit.id ?? unit.编号 ?? '') === target
+        || (unit.name ?? unit.名称 ?? '') === target
+        || (unit.image ?? unit.图片 ?? unit.type ?? unit.类型 ?? '') === target;
+    });
+    if (!matched) return `${player.name || '冒险者'}你呼叫的对象${rawTarget}不在服务区`;
+
+    if (matched.kind === 'pet') {
+      if (markerValue(matched.unit, '阵地') !== 0) {
+        return `${player.name || '冒险者'}\n${matched.unit.name ?? matched.unit.名称}防御阵地不能移动`;
+      }
+      if (markerValue(matched.unit, '幼崽') !== 0) {
+        return `${player.name || '冒险者'}\n${matched.unit.name ?? matched.unit.名称}还是宝宝，不能离开家`;
+      }
+    } else if (Number(matched.unit.moveType ?? matched.unit.行走方式 ?? 0) === 4) {
+      return `${player.name || '冒险者'}${matched.unit.name ?? matched.unit.名称}安装了无法移动的组件`;
+    }
+
+    const sourceMap = matched.map;
+    const sourceSummons = jsonArray(sourceMap.summons);
+    const sourceVehicles = jsonArray(sourceMap.vehicles);
+    const targetSummons = jsonArray(currentMap.summons);
+    const targetVehicles = jsonArray(currentMap.vehicles);
+    if (matched.kind === 'pet') {
+      sourceSummons.splice(matched.index, 1);
+      targetSummons.push(matched.unit);
+      // 原版召唤物移动时会携带其驾驶的载具。
+      const petVehicleId = matched.unit.vehicle ?? matched.unit.载具 ?? '';
+      if (petVehicleId) {
+        const vehicleIndex = sourceVehicles.findIndex((v: any) =>
+          String(v.id ?? v.编号 ?? '') === String(petVehicleId),
+        );
+        if (vehicleIndex >= 0) targetVehicles.push(...sourceVehicles.splice(vehicleIndex, 1));
+      }
+    } else {
+      sourceVehicles.splice(matched.index, 1);
+      targetVehicles.push(matched.unit);
+    }
+    if (sourceMap.id === currentMap.id) {
+      await this.mapService.updateDynamicFields(currentMap.id, {
+        summons: JSON.stringify(targetSummons),
+        vehicles: JSON.stringify(targetVehicles),
+      });
+    } else {
+      await this.mapService.updateDynamicFields(sourceMap.id, {
+        summons: JSON.stringify(sourceSummons),
+        vehicles: JSON.stringify(sourceVehicles),
+      });
+      await this.mapService.updateDynamicFields(currentMap.id, {
+        summons: JSON.stringify(targetSummons),
+        vehicles: JSON.stringify(targetVehicles),
+      });
+    }
+    const label = matched.unit.name ?? matched.unit.名称 ?? '对象';
+    return `${label}来到了${currentMap.name}`;
   }
 
   /**
-   * 安装全部载具部件
-   * 对应原版：安装全部 命令
+   * 安装全部不占用位置的建筑。
+   * 对应原版 _主程序.ecode L1859-1931；这里的“部件”是原版建筑资源，
+   * 与「安装」命令的载具部件分支不同。
    */
   async handleInstallAll(userId: number): Promise<string> {
-    return `🔧 正在安装所有可用的载具部件...`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name || '冒险者'}不在服务区`;
+    if (map.name !== player.houseName) {
+      return `${player.name || '冒险者'}你没在自己的院子里。`;
+    }
+
+    const backpack = this.playerService.getBackpackItems(player);
+    const buildings: any[] = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const installed: any[] = [];
+    for (let i = backpack.length - 1; i >= 0; i--) {
+      const item = backpack[i];
+      const name = item?.name ?? item?.名称 ?? '';
+      const type = item?.type ?? item?.类型 ?? '';
+      const definition = this.staticData.getBuildingByName(name);
+      const noPosition = Boolean(definition?.noOccupy ?? definition?.不占 ??
+        (typeof definition?.description === 'string' && definition.description.includes('不占用建筑位置')));
+      if (type !== '资源' || name.includes('硅基') || !definition || !noPosition) continue;
+      const amount = Math.trunc(this.itemQuantity(item));
+      if (amount <= 0) continue;
+      installed.push({ name, type: '资源', quantity: amount });
+      this.deductBackpackItem(backpack, name, amount);
+    }
+
+    if (installed.length === 0) {
+      return `${player.name || '冒险者'}你背包里面没有不占位置的建筑了。`;
+    }
+    for (const item of installed) this.addItemToCollection(buildings, item);
+    player.backpack = JSON.stringify(backpack);
+    await this.mapService.updateDynamicFields(map.id, { buildings: JSON.stringify(buildings) });
+    await this.playerService.savePlayer(player);
+    return `${player.name || '冒险者'}把${this.formatMerchantItems(installed)}放到了${map.name}里`;
   }
 
   /**
-   * 拆卸全部载具部件
-   * 对应原版：拆卸全部 命令
+   * 拆卸当前家园地图上的全部建筑。
+   * 对应原版 _主程序.ecode L2054-2060。
    */
   async handleUninstallAll(userId: number): Promise<string> {
-    return `🔧 正在拆卸所有载具部件...`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name || '冒险者'}不在服务区`;
+    const allowed = map.name === player.houseName
+      || map.name === `${player.houseName}屋内`
+      || map.name === `${player.houseName}前线`;
+    if (!allowed) {
+      return `${player.name || '冒险者'}只能拆卸自己家里的东西`;
+    }
+
+    const buildings: any[] = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const backpack = this.playerService.getBackpackItems(player);
+    const packed = buildings.map((item: any) => ({ ...item }));
+    for (const item of packed) this.addItemToCollection(backpack, item);
+    player.backpack = JSON.stringify(backpack);
+    await this.mapService.updateDynamicFields(map.id, { buildings: JSON.stringify([]) });
+    await this.playerService.savePlayer(player);
+    return `${player.name || '冒险者'}把${map.name}的${this.formatMerchantItems(packed)}拆卸装箱了`;
   }
 
   /**
@@ -8043,119 +8594,332 @@ export class GameService {
    * 对应原版：购物自动 命令
    */
   async handleAutoShop(userId: number, itemName: string): Promise<string> {
-    // 对应原版：购物自动（_主程序.ecode L9908）
-    // 机制：仅能在自己家园地图使用；读取玩家"自动购物"标记（逗号分隔的目标关键词），
-    // 遍历当前地图"行商"NPC 的背包，匹配关键词的物品以木头/石头/绳子/铁矿为货币购买。
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
     if (this.playerService.isPlayerDead(player)) {
       return this.playerService.handlePlayerDeath(userId, player);
     }
 
-    // 读取自动购物关键词列表（对应原版配置文件 自动购物 项）
-    const autoShopSetting = this.playerService.getMarkerValue(markers as any, '自动购物');
-    // 兼容：标记存为字符串（关键词用、分隔）或数字（0=未设置）
+    const map = await this.getCurrentMap(userId);
+    const merchantInfo = this.findMerchantInSummons(map);
+    if (!merchantInfo) {
+      return `${player.name}附近没有“行商”，无法购物`;
+    }
+
     const keywordStr = (markers['自动购物'] !== undefined && typeof markers['自动购物'] === 'string')
       ? markers['自动购物']
       : '';
     if (!keywordStr) {
-      return `${player.name} 你未设置自动购物的对象（使用「设置购物 关键词」来设置）`;
+      return `${player.name}你未设置自动购物的对象`;
     }
 
     const keywords = keywordStr.split('、').map((k: string) => k.trim()).filter(Boolean);
-
-    const map = await this.getCurrentMap(userId);
-    const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
-    const merchantIdx = npcs.findIndex((n: any) => n.name === '行商');
-    if (merchantIdx === -1) {
-      return `${player.name} 附近没有「行商」，无法购物`;
+    const houseMap = player.houseName ? await this.mapService.getMapByName(player.houseName) : null;
+    if (!houseMap || houseMap.id !== map.id) {
+      return `${player.name}只能在自己院子里使用这个功能`;
     }
-    const merchant = npcs[merchantIdx];
-    const merchantBackpack = this.playerService.safeJsonParse<any[]>(merchant.backpack, []);
+
+    const { summons, index: merchantIdx } = merchantInfo;
+    const merchant = summons[merchantIdx];
+    const merchantBackpack = this.parseJsonArray(merchant.backpack);
 
     const backpack = this.playerService.getBackpackItems(player);
-    const boughtItems: string[] = [];      // 实际购买到的物品（显示用）
-    const paidItems: { name: string; quantity: number }[] = []; // 支付的资源
+    const boughtItems: any[] = [];
+    const paidItems: any[] = [];
+    const gifts: any[] = [];
     let matched = false;
-
-    // 购物熟练度影响价格倍率：a1 = 1 - (10 + 购物/100) / (100 + (10 + 购物/100))
+    let resourceShortage = false;
     const shopSkill = this.achievementService.getAchievement(markers, '购物') || 0;
     const a2 = 10 + shopSkill / 100;
-    const priceRate = 1 - a2 / (100 + a2); // 越高熟练度越便宜
+    const priceRate = 1 - a2 / (100 + a2);
     const levelFactor = (player.level || 1) / 10 + 1;
+    const costs = [
+      { name: '木头', quantity: 50 * priceRate * levelFactor },
+      { name: '石头', quantity: 40 * priceRate * levelFactor },
+      { name: '绳子', quantity: 30 * priceRate * levelFactor },
+      { name: '铁矿', quantity: 30 * priceRate * levelFactor },
+    ];
 
+    // 原版从背包尾部向前检查，资源不足时停止后续购买。
     for (let d = merchantBackpack.length - 1; d >= 0; d--) {
       const mItem = merchantBackpack[d];
-      // 匹配：物品名或装备特效名包含任一关键词
-      let hit = false;
-      for (const kw of keywords) {
-        if ((mItem.name || '').includes(kw)) { hit = true; break; }
-      }
-      if (!hit) continue;
-
-      // 计算所需资源（原版固定 木头50*、石头40*、绳子30*、铁矿*(a1)）
-      const needWood = 50 * priceRate * levelFactor;
-      const needStone = 40 * priceRate * levelFactor;
-      const needRope = 30 * priceRate * levelFactor;
-      const needIron = priceRate * levelFactor;
-
-      // 检查玩家资源是否充足（木头/石头/绳子/铁矿）
-      const wood = backpack.find((i: any) => i.name === '木头');
-      const stone = backpack.find((i: any) => i.name === '石头');
-      const rope = backpack.find((i: any) => i.name === '绳子');
-      const iron = backpack.find((i: any) => i.name === '铁矿');
-      if (!wood || wood.count < needWood || !stone || stone.count < needStone ||
-          !rope || rope.count < needRope || !iron || iron.count < needIron) {
-        continue; // 资源不足，跳过该物品
-      }
-
-      // 扣除资源
-      this.deductBackpackItem(backpack, '木头', needWood);
-      this.deductBackpackItem(backpack, '石头', needStone);
-      this.deductBackpackItem(backpack, '绳子', needRope);
-      this.deductBackpackItem(backpack, '铁矿', needIron);
-      paidItems.push({ name: '木头', quantity: needWood }, { name: '石头', quantity: needStone },
-        { name: '绳子', quantity: needRope }, { name: '铁矿', quantity: needIron });
-
-      // 给玩家物品（从行商背包移除）
-      const bought = { ...mItem };
-      const existing = backpack.find((i: any) => i.name === bought.name);
-      if (existing) existing.count = (existing.count || 1) + (bought.count || 1);
-      else backpack.push({ name: bought.name, count: bought.count || 1, type: bought.type });
-      merchantBackpack.splice(d, 1);
-      boughtItems.push(`${bought.name}x${Math.round(bought.count || 1)}`);
+      const displayName = this.formatMerchantItem(mItem, true);
+      if (!keywords.some((keyword) => displayName.includes(keyword))) continue;
       matched = true;
-      break; // 一次购买一件匹配物品（与原版逐个匹配逻辑一致）
+
+      if (!this.hasEnoughResources(backpack, costs)) {
+        resourceShortage = true;
+        break;
+      }
+      for (const cost of costs) {
+        this.deductBackpackItem(backpack, cost.name, cost.quantity);
+        this.addItemToCollection(paidItems, { ...cost, type: '资源' });
+      }
+
+      const bought = { ...mItem };
+      merchantBackpack.splice(d, 1);
+      this.addItemToCollection(backpack, bought);
+      boughtItems.push(bought);
+
+      const giftChance = Math.min(a2 / 4, 15);
+      if (Math.random() * 100 < giftChance) {
+        const gift = this.generateMerchantResource();
+        this.addItemToCollection(backpack, gift);
+        this.addItemToCollection(gifts, gift);
+      }
     }
 
-    if (!matched) {
-      return `${player.name} 没有匹配的物品`;
+    // 原版以“实际购买的物品数组”是否为空决定“没有匹配的物品”；
+    // 首件匹配但资源不足时也走这个分支，而不是输出空的购买清单。
+    if (!matched || boughtItems.length === 0) {
+      return `${player.name}没有匹配的物品`;
     }
 
-    // 写回：玩家背包 + 行商背包 + 购物成就
+    const purchasedCount = boughtItems.length;
+    if (purchasedCount > 0) {
+      this.achievementService.setAchievement(markers, '购物', shopSkill + purchasedCount);
+      player.markers = markers;
+      const tasks = this.parseJsonArray(player.tasks);
+      const task = tasks.find((entry: any) => (entry?.name || entry?.名称) === '购物');
+      if (task) task.count = Number(task.count || task.数量 || 0) + purchasedCount;
+      else tasks.push({ name: '购物', count: purchasedCount });
+      player.tasks = JSON.stringify(tasks);
+    }
     player.backpack = JSON.stringify(backpack);
     merchant.backpack = JSON.stringify(merchantBackpack);
-    npcs[merchantIdx] = merchant;
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { npcs: JSON.stringify(npcs) },
-    });
-    // 购物成就推进
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const shopTask = tasks.find((t: any) => t.name === '购物');
-    if (shopTask) shopTask.count = (shopTask.count || 0) + 1;
-    else tasks.push({ name: '购物', count: 1 });
-    player.tasks = JSON.stringify(tasks);
+    summons[merchantIdx] = merchant;
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
     await this.playerService.savePlayer(player);
 
-    const paidDesc = ['木头', '石头', '绳子', '铁矿']
-      .map((n) => {
-        const p = paidItems.find((x) => x.name === n);
-        return p ? `${n}${Math.round(p.quantity)}+` : '';
-      })
-      .filter(Boolean)
-      .join('、');
-    return `${player.name} 花费${paidDesc}购买了${boughtItems.join('、')}`;
+    const paidDesc = this.formatMerchantItems(paidItems);
+    let result = `${player.name}花费${paidDesc}购买了${this.formatMerchantItems(boughtItems)}`;
+    if (gifts.length > 0) {
+      result += `#换行行商额外赠送了${this.formatMerchantItems(gifts)}`;
+    }
+    if (resourceShortage) {
+      result += '#换行有资源不足以购买全部匹配的物品';
+    }
+    return result;
+  }
+
+  /** 读取行商召唤物；原版购物不会读取地图 npcs。 */
+  private findMerchantInSummons(map: any): { summons: any[]; index: number } | null {
+    if (!map) return null;
+    const summons = this.parseJsonArray(map.summons);
+    const index = summons.findIndex((summon: any) =>
+      (summon?.name ?? summon?.名称) === '行商',
+    );
+    return index < 0 ? null : { summons, index };
+  }
+
+  private parseJsonArray(value: any): any[] {
+    if (Array.isArray(value)) return value;
+    return this.playerService.safeJsonParse<any[]>(value, []);
+  }
+
+  /**
+   * 对应原版购物分支 L10031-L10042：开拓地限制与购买冷却。
+   * 原版在自己的院子里不加“购买冷却”，在其他地图购买时每10秒允许一次。
+   */
+  private checkMerchantPurchaseGate(
+    player: any,
+    map: any,
+    houseMap: any,
+  ): { blocked: boolean; message: string; markers2: any[]; markers2Changed: boolean } {
+    const markers2 = this.parseJsonArray(player.markers2);
+    const ownHouse = Boolean(houseMap && houseMap.id === map.id);
+    const hasAnotherHome = Boolean(map?.isFrontier && player.houseName && houseMap && !ownHouse);
+    if (hasAnotherHome) {
+      return {
+        blocked: true,
+        message: '她现在不卖东西给你(别人家里)',
+        markers2,
+        markers2Changed: false,
+      };
+    }
+
+    if (ownHouse) {
+      return { blocked: false, message: '', markers2, markers2Changed: false };
+    }
+
+    const now = Date.now();
+    let changed = false;
+    let activeExpire = 0;
+    for (let i = markers2.length - 1; i >= 0; i--) {
+      const marker = markers2[i];
+      const name = marker?.名称 ?? marker?.name ?? '';
+      const rawExpire = Number(marker?.有效期至 ?? marker?.expireAt ?? 0);
+      const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      if (expireMs <= now && !String(name).startsWith('刷新')) {
+        markers2.splice(i, 1);
+        changed = true;
+        continue;
+      }
+      if (name === '购买冷却' && expireMs > now) {
+        activeExpire = Math.max(activeExpire, expireMs);
+      }
+    }
+
+    if (activeExpire > now) {
+      const remaining = Math.max(1, Math.ceil((activeExpire - now) / 1000));
+      return {
+        blocked: true,
+        message: `还需要${remaining}秒`,
+        markers2,
+        markers2Changed: changed,
+      };
+    }
+
+    markers2.push({ name: '购买冷却', expireAt: now + 10 * 1000 });
+    return { blocked: false, message: '', markers2, markers2Changed: true };
+  }
+
+  private itemQuantity(item: any): number {
+    return Number(item?.quantity ?? item?.count ?? 1) || 0;
+  }
+
+  private roundText(value: number): string {
+    return String(Math.round(value * 100) / 100);
+  }
+
+  /** 行商列表显示名包含原版显示特效名称所需的特效标签。 */
+  private formatMerchantItem(item: any, includeQuantity = false, includeEffect = true): string {
+    const name = item?.name ?? item?.名称 ?? '';
+    let effect = '';
+    if ((item?.type ?? item?.类型) === '装备' && item?.data) {
+      const parsed = this.itemService.parseEquipment(item as any);
+      if (parsed.specialEffect > 0) {
+        const effects = this.staticData.getAllEffects();
+        const effectRow = effects[parsed.specialEffect - 1];
+        effect = effectRow?.name || effectRow?.description || `特效${parsed.specialEffect}`;
+      }
+    }
+    if ((item?.type ?? item?.类型) === '装备') {
+      return `${name}${includeEffect && effect ? `【${effect}】` : ''}`;
+    }
+    return `${name}${includeQuantity ? `x${this.roundText(this.itemQuantity(item))}` : ''}`;
+  }
+
+  private formatMerchantItems(items: any[]): string {
+    return (items || []).map((item) => this.formatMerchantItem(item, true)).join('、');
+  }
+
+  private addItemToCollection(collection: any[], item: any): void {
+    const type = item?.type ?? item?.类型 ?? '资源';
+    const amount = this.itemQuantity(item);
+    if (type === '装备') {
+      collection.push({ ...item, type: '装备', quantity: amount || 1 });
+      return;
+    }
+    const existing = collection.find((entry: any) =>
+      (entry?.name ?? entry?.名称) === (item?.name ?? item?.名称) &&
+      (entry?.type ?? entry?.类型 ?? '资源') !== '装备',
+    );
+    if (existing) {
+      if (existing.quantity !== undefined) existing.quantity = this.itemQuantity(existing) + amount;
+      else existing.count = this.itemQuantity(existing) + amount;
+    } else {
+      collection.push({ ...item, type, quantity: amount || 1 });
+    }
+  }
+
+  private hasEnoughResources(backpack: any[], costs: any[]): boolean {
+    return costs.every((cost) => {
+      const item = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === cost.name);
+      // 原版按双精度数值比较；容忍 JS 二进制浮点在 50*10/11*1.1 等边界上的极小误差。
+      const epsilon = Math.max(1e-9, Math.abs(cost.quantity) * 1e-12);
+      return item && this.itemQuantity(item) + epsilon >= cost.quantity;
+    });
+  }
+
+  private generateMerchantResource(): any {
+    const config = this.staticData.getMerchantConfig();
+    const candidates = String(config.itemText || '').split(/[，,]/).map((value) => value.trim()).filter(Boolean);
+    const raw = candidates.length > 0 ? candidates[Math.floor(Math.random() * candidates.length)] : '';
+    const match = raw.match(/\d+(?:\.\d+)?/);
+    const quantity = match ? Math.trunc(Number(match[0])) || 1 : 1;
+    const name = raw.replace(/\d/g, '').trim() || raw;
+    return { name, type: '资源', quantity, durability: 0, data: '' };
+  }
+
+  private async generateMerchantInventory(level: number, extra: number): Promise<any[]> {
+    const config = this.staticData.getMerchantConfig();
+    const equipmentPool = String(config.equipmentText || '').split(/[，,]/).map((value) => value.trim()).filter(Boolean);
+    const inventory: any[] = [];
+    const times = Math.max(1, Math.trunc(level || 0));
+    for (let i = 0; i < 3 * times; i++) {
+      const name = equipmentPool.length > 0
+        ? equipmentPool[Math.floor(Math.random() * equipmentPool.length)]
+        : '';
+      if (!name) continue;
+      inventory.push(await this.itemSystemService.generateMerchantEquipment(name, name === '汪酱'));
+    }
+    for (let i = 0; i < Math.max(0, 3 * times + Math.trunc(extra || 0)); i++) {
+      inventory.push(this.generateMerchantResource());
+    }
+    return inventory;
+  }
+
+  private async purchaseMerchantItem(
+    userId: number,
+    player: any,
+    markers: any,
+    map: any,
+    summons: any[],
+    merchantIndex: number,
+    merchantBackpack: any[],
+    itemIndex: number,
+  ): Promise<string> {
+    const shopSkill = this.achievementService.getAchievement(markers, '购物');
+    const affinity = 10 + shopSkill / 100;
+    const priceRate = 1 - affinity / (100 + affinity);
+    const levelFactor = (player.level || 1) / 10 + 1;
+    const costs = [
+      { name: '木头', quantity: 50 * priceRate * levelFactor },
+      { name: '石头', quantity: 40 * priceRate * levelFactor },
+      { name: '绳子', quantity: 30 * priceRate * levelFactor },
+      { name: '铁矿', quantity: 30 * priceRate * levelFactor },
+    ];
+    const backpack = this.playerService.getBackpackItems(player);
+    if (!this.hasEnoughResources(backpack, costs)) {
+      const missing = costs
+        .filter((cost) => {
+          const item = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === cost.name);
+          return !item || this.itemQuantity(item) < cost.quantity;
+        })
+        .map((cost) => {
+          const item = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === cost.name);
+          return `#换行需要${cost.name}x${this.roundText(cost.quantity)}，你只有${this.roundText(this.itemQuantity(item))}`;
+        }).join('');
+      return `${player.name}${missing}`;
+    }
+
+    const item = merchantBackpack[itemIndex];
+    const paidText = this.formatMerchantItems(costs);
+    for (const cost of costs) this.deductBackpackItem(backpack, cost.name, cost.quantity);
+    this.addItemToCollection(backpack, item);
+    merchantBackpack.splice(itemIndex, 1);
+
+    const giftChance = Math.min(affinity / 4, 15);
+    let result = `${player.name}用${paidText}从行商处购买了${this.formatMerchantItem(item, true, false)}`;
+    if (Math.random() * 100 < giftChance) {
+      const gift = this.generateMerchantResource();
+      this.addItemToCollection(backpack, gift);
+      result += `#换行行商把${gift.name}x${gift.quantity}送给了${player.name}(${this.roundText(giftChance)}%)`;
+    }
+
+    this.achievementService.setAchievement(markers, '购物', shopSkill + 1);
+    player.markers = markers;
+    player.backpack = JSON.stringify(backpack);
+    const tasks = this.parseJsonArray(player.tasks);
+    const task = tasks.find((entry: any) => (entry?.name || entry?.名称) === '购物');
+    if (task) task.count = Number(task.count || task.数量 || 0) + 1;
+    else tasks.push({ name: '购物', count: 1 });
+    player.tasks = JSON.stringify(tasks);
+    summons[merchantIndex].backpack = JSON.stringify(merchantBackpack);
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.playerService.savePlayer(player);
+    return result;
   }
 
   /**
@@ -8163,13 +8927,15 @@ export class GameService {
    * 对应原版：获得物品() 的消耗逻辑
    */
   private deductBackpackItem(backpack: any[], name: string, quantity: number): void {
-    const item = backpack.find((i: any) => i.name === name);
+    const item = backpack.find((i: any) => (i?.name ?? i?.名称) === name);
     if (!item) return;
-    if (item.count <= quantity) {
+    const current = this.itemQuantity(item);
+    if (current <= quantity) {
       const idx = backpack.indexOf(item);
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
-      item.count = item.count - quantity;
+      if (item.quantity !== undefined) item.quantity = current - quantity;
+      else item.count = current - quantity;
     }
   }
 

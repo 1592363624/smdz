@@ -4,7 +4,7 @@
  * 完整实现：使魔选择/召唤/命名/技能/家园 + 宠物改名/转让/驾驶/喂食/嗅探/捕捉
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
@@ -12,6 +12,8 @@ import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
 import { MapService } from './map.service';
 import { CombatSystemService } from './combat-system.service';
+import { HomeService } from './home.service';
+import { ItemSystemService } from './item-system.service';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -105,29 +107,6 @@ export interface OutputItem {
 export class FamiliarSystemService {
   private readonly logger = new Logger(FamiliarSystemService.name);
 
-  /** 使魔商店物品列表 */
-  private readonly familiarShopItems: ShopItem[] = [
-    { name: '召唤券', cost: 100, costType: '钻石', description: '召唤券' },
-    { name: '优秀武器补给箱', cost: 300, costType: '钻石', description: '优秀武器补给箱' },
-    { name: '糖心巧克力', cost: 50, costType: '钻石', description: '提高宠物好感' },
-    { name: '觉醒丹', cost: 200, costType: '钻石', description: '宠物觉醒' },
-    { name: '饲料', cost: 10, costType: '钻石', description: '捕捉宠物用' },
-    { name: '生肉', cost: 5, costType: '钻石', description: '宠物嗅探消耗' },
-  ];
-
-  /** 活跃度商店物品列表 */
-  private readonly activityShopItems: ShopItem[] = [
-    { name: '优秀武器补给箱', cost: 50, costType: 'activity', description: '优秀武器补给箱' },
-    { name: '召唤券', cost: 100, costType: 'activity', description: '召唤券' },
-    { name: '糖心巧克力', cost: 30, costType: 'activity', description: '提高宠物好感' },
-  ];
-
-  /** 数据商店物品列表 */
-  private readonly dataShopItems: ShopItem[] = [
-    { name: '召唤券', cost: 10, costType: 'dataCore', description: '召唤券' },
-    { name: '觉醒丹', cost: 50, costType: 'dataCore', description: '宠物觉醒' },
-  ];
-
   /** 狩猎宠物类型列表 */
   private readonly huntingPetTypes = ['常春藤', '狼', '虎', '巨齿鲨'];
 
@@ -142,6 +121,8 @@ export class FamiliarSystemService {
     private readonly taskService: TaskService,
     private readonly mapService: MapService,
     private readonly combatSystem: CombatSystemService,
+    @Optional() private readonly homeService?: HomeService,
+    @Optional() private readonly itemSystem?: ItemSystemService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -646,6 +627,55 @@ export class FamiliarSystemService {
 
   // ==================== 使魔商店 ====================
 
+  /** 将数据存取.ecode 载入的商店项转换为运行时商店项。 */
+  private getShopCatalog(): {
+    activity: ShopItem[];
+    diamond: ShopItem[];
+    dataCore: ShopItem[];
+  } {
+    const config = this.staticData.getShopConfig();
+    const map = (items: Array<{ name: string; count: number }>, costType: ShopItem['costType']): ShopItem[] =>
+      items.map((item) => ({ name: item.name, cost: item.count, costType }));
+    return {
+      activity: map(config.activity, 'activity'),
+      diamond: map(config.diamond, '钻石'),
+      dataCore: map(config.dataCore, 'dataCore'),
+    };
+  }
+
+  private getItemQuantity(item: any): number {
+    return Number(item?.quantity ?? item?.count ?? item?.数量 ?? item?.数量值 ?? 0) || 0;
+  }
+
+  private addResourceToBackpack(backpack: any[], name: string, count: number, type = '资源'): void {
+    const equipment = type === '装备';
+    if (equipment) {
+      backpack.push({ name, type, quantity: 1, durability: 0, data: '' });
+      return;
+    }
+    const existing = backpack.find((item: any) =>
+      (item?.name ?? item?.名称) === name && (item?.type ?? item?.类型 ?? '资源') !== '装备',
+    );
+    if (existing) {
+      const next = this.getItemQuantity(existing) + count;
+      if (existing.quantity !== undefined || existing.数量 !== undefined) existing.quantity = next;
+      else existing.count = next;
+      return;
+    }
+    backpack.push({ name, type, quantity: count });
+  }
+
+  private async addExchangeReward(backpack: any[], itemName: string, count: number): Promise<void> {
+    const equipmentDef = this.staticData.getEquipmentByName(itemName);
+    if (equipmentDef?.name && this.itemSystem) {
+      for (let i = 0; i < count; i++) {
+        backpack.push(await this.itemSystem.generateRewardEquipment(itemName));
+      }
+      return;
+    }
+    this.addResourceToBackpack(backpack, itemName, count, equipmentDef?.name ? '装备' : '资源');
+  }
+
   /**
    * 使魔商店
    * 对应原版：使魔商店()
@@ -657,56 +687,43 @@ export class FamiliarSystemService {
   async familiarShop(userId: number, shopType?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
+    const catalog = this.getShopCatalog();
+    const normalizedType = ({
+      活跃度: 'activity',
+      activity: 'activity',
+      钻石: 'diamond',
+      diamond: 'diamond',
+      数据: 'dataCore',
+      数据核心: 'dataCore',
+      data: 'dataCore',
+      dataCore: 'dataCore',
+    } as Record<string, string>)[shopType || ''] || '';
 
-    // 获取钻石数量
+    // 原版“使魔商店”本身只显示三个子商店的入口。
+    if (!normalizedType) {
+      if (shopType) return `${player.name || '冒险者'}没有这个商店`;
+      return `${player.name || '冒险者'}#换行1、活跃度商店#2、钻石商店#3、数据商店`;
+    }
+
     const backpack = this.playerService.getBackpackItems(player);
     const diamondItem = backpack.find((item: any) => item.name === '钻石');
-    const diamondCount = diamondItem ? (diamondItem.count || 0) : 0;
-
-    // 获取数据核心数量
     const dataCoreItem = backpack.find((item: any) => item.name === '数据核心');
-    const dataCoreCount = dataCoreItem ? (dataCoreItem.count || 0) : 0;
-
-    // 获取活跃度
+    const diamondCount = this.getItemQuantity(diamondItem);
+    const dataCoreCount = this.getItemQuantity(dataCoreItem);
     const activity = this.playerService.getMarkerValue(markers, '活跃度');
-
-    let result = '';
-
-    if (!shopType || shopType === '钻石') {
-      result += `💎 钻石商店（你有${Math.round(diamondCount)}钻石）\n`;
-      this.diamondShopItems.forEach((item, index) => {
-        result += `${index + 1}、${item.name}（${item.cost}钻石）\n`;
-      });
-      result += `━━━━━━━━━━━━━━━\n`;
-    }
-
-    if (!shopType || shopType === 'activity') {
-      result += `⭐ 活跃度商店（你有${Math.round(activity)}活跃度）\n`;
-      this.activityShopItems.forEach((item, index) => {
-        result += `${index + 1}、${item.name}（${item.cost}活跃度）\n`;
-      });
-      result += `━━━━━━━━━━━━━━━\n`;
-    }
-
-    if (!shopType || shopType === 'dataCore') {
-      result += `💠 数据商店（你有${Math.round(dataCoreCount)}数据核心）\n`;
-      this.dataShopItems.forEach((item, index) => {
-        result += `${index + 1}、${item.name}（${item.cost}数据核心）\n`;
-      });
-    }
-
-    return result || '请选择商店类型：活跃度商店、钻石商店、数据商店';
+    const shop = catalog[normalizedType as keyof typeof catalog];
+    const currencyName = normalizedType === 'activity' ? '活跃度'
+      : normalizedType === 'diamond' ? '钻石' : '数据核心';
+    const balance = normalizedType === 'activity' ? activity
+      : normalizedType === 'diamond' ? diamondCount : dataCoreCount;
+    let result = `${player.name || '冒险者'}你有${Math.round(balance)}${currencyName}`;
+    shop.forEach((item, index) => {
+      result += `#换行${index + 1}、${item.name}(${item.cost})`;
+    });
+    if (normalizedType === 'activity') result += '#换行“兑换优秀武器补给箱3”来兑换3次';
+    if (normalizedType === 'diamond') result += '#换行“兑换召唤券3”来兑换3次';
+    return result;
   }
-
-  /** 钻石商店物品 */
-  private readonly diamondShopItems: ShopItem[] = [
-    { name: '召唤券', cost: 100, costType: '钻石' },
-    { name: '优秀武器补给箱', cost: 300, costType: '钻石' },
-    { name: '糖心巧克力', cost: 50, costType: '钻石' },
-    { name: '觉醒丹', cost: 200, costType: '钻石' },
-    { name: '饲料', cost: 10, costType: '钻石' },
-    { name: '生肉', cost: 5, costType: '钻石' },
-  ];
 
   /**
    * 兑换
@@ -718,97 +735,76 @@ export class FamiliarSystemService {
    * @returns 兑换结果文本
    */
   async exchange(userId: number, itemName: string, count: number = 1): Promise<string> {
-    if (!itemName) {
+    const rawName = (itemName || '').trim();
+    if (!rawName) {
       return '请指定要兑换的物品名称';
     }
 
-    if (count < 1) {
-      count = 1;
-    }
+    // 原版 取数字/去数字：兑换优秀武器补给箱3 => 名称“优秀武器补给箱”、数量3。
+    const embeddedDigits = rawName.match(/\d+/g);
+    if (count === 1 && embeddedDigits?.length) count = Number(embeddedDigits.join('')) || 1;
+    count = Math.max(1, Math.trunc(Number(count) || 1));
+    const normalizedName = rawName.replace(/\d/g, '').replace(/\s+/g, '');
 
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 查找物品在哪个商店
-    const allShops = [
-      ...this.diamondShopItems.map(item => ({ ...item, source: '钻石' as const })),
-      ...this.activityShopItems.map(item => ({ ...item, source: 'activity' as const })),
-      ...this.dataShopItems.map(item => ({ ...item, source: 'dataCore' as const })),
-    ];
-
-    const shopItem = allShops.find(item => item.name === itemName);
+    const catalog = this.getShopCatalog();
+    // 原版判定顺序必须是：活跃度 -> 钻石 -> 数据核心。
+    const shopItem = catalog.activity.find((item) => item.name === normalizedName)
+      || catalog.diamond.find((item) => item.name === normalizedName)
+      || catalog.dataCore.find((item) => item.name === normalizedName);
     if (!shopItem) {
-      return `商店中没有「${itemName}」`;
+      return `商店中没有「${normalizedName}」`;
     }
 
-    // 检查并扣除货币
-    if (shopItem.source === '钻石') {
-      const backpack = this.playerService.getBackpackItems(player);
-      const diamondItem = backpack.find((item: any) => item.name === '钻石');
-      const diamondCount = diamondItem ? (diamondItem.count || 0) : 0;
-      const totalCost = shopItem.cost * count;
+    const source = shopItem.costType;
+    const totalCost = shopItem.cost * count;
+    const backpack = this.playerService.getBackpackItems(player);
+    const currencyName = source === 'activity' ? '活跃度' : source === '钻石' ? '钻石' : '数据核心';
 
-      if (diamondCount < totalCost) {
-        return `需要${totalCost}钻石，你只有${Math.round(diamondCount)}`;
-      }
-
-      // 扣除钻石
-      if (diamondCount === totalCost) {
-        const idx = backpack.findIndex((item: any) => item.name === '钻石');
-        if (idx !== -1) backpack.splice(idx, 1);
-      } else {
-        diamondItem!.count = diamondCount - totalCost;
-      }
-      player.backpack = JSON.stringify(backpack);
-    } else if (shopItem.source === 'activity') {
+    if (source === 'activity') {
       const activity = this.playerService.getMarkerValue(markers, '活跃度');
-      const totalCost = shopItem.cost * count;
-
       if (activity < totalCost) {
         return `需要${totalCost}活跃度，你只有${Math.round(activity)}`;
       }
-
       markers['活跃度'] = activity - totalCost;
-      player.markers = JSON.stringify(markers);
-    } else if (shopItem.source === 'dataCore') {
-      const backpack = this.playerService.getBackpackItems(player);
-      const dataCoreItem = backpack.find((item: any) => item.name === '数据核心');
-      const dataCoreCount = dataCoreItem ? (dataCoreItem.count || 0) : 0;
-      const totalCost = shopItem.cost * count;
-
-      if (dataCoreCount < totalCost) {
-        return `需要${totalCost}数据核心，你只有${Math.round(dataCoreCount)}`;
-      }
-
-      // 扣除数据核心
-      if (dataCoreCount === totalCost) {
-        const idx = backpack.findIndex((item: any) => item.name === '数据核心');
-        if (idx !== -1) backpack.splice(idx, 1);
-      } else {
-        dataCoreItem!.count = dataCoreCount - totalCost;
-      }
-      player.backpack = JSON.stringify(backpack);
-    }
-
-    // 发放物品
-    await this.playerService.addToBackpack(userId, itemName, count);
-
-    // 记录兑换成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const exchangeTask = tasks.find((t: any) => t.name === '兑换');
-    if (exchangeTask) {
-      exchangeTask.count = (exchangeTask.count || 0) + count;
     } else {
-      tasks.push({ name: '兑换', count });
+      const currencyItem = backpack.find((item: any) => item.name === currencyName);
+      const current = this.getItemQuantity(currencyItem);
+      if (current < totalCost) {
+        return `需要${totalCost}${currencyName}，你只有${Math.round(current)}`;
+      }
+      if (current === totalCost) {
+        const index = currencyItem ? backpack.indexOf(currencyItem) : -1;
+        if (index >= 0) backpack.splice(index, 1);
+      } else if (currencyItem) {
+        if (currencyItem.quantity !== undefined) currencyItem.quantity = current - totalCost;
+        else currencyItem.count = current - totalCost;
+      }
     }
-    player.tasks = JSON.stringify(tasks);
+
+    await this.addExchangeReward(backpack, normalizedName, count);
+    // 数据商店兑换还会调用后台运作.ecode 的“活跃度(玩家,a)”。
+    if (source === 'dataCore') {
+      markers['活跃度'] = this.playerService.getMarkerValue(markers, '活跃度') + count;
+      markers['历史活跃度'] = this.playerService.getMarkerValue(markers, '历史活跃度') + count;
+      if (player.type) {
+        const affinityKey = `${player.type}好感`;
+        markers[affinityKey] = this.playerService.getMarkerValue(markers, affinityKey) + count / 100;
+      }
+    }
+    markers['兑换'] = this.playerService.getMarkerValue(markers, '兑换') + count;
+    player.backpack = JSON.stringify(backpack);
+    player.markers = JSON.stringify(markers);
 
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '兑换', count);
 
-    const currencyName = shopItem.source === '钻石' ? '钻石'
-      : shopItem.source === 'activity' ? '活跃度' : '数据核心';
-
-    return `${player.name || '冒险者'} 用${shopItem.cost * count}${currencyName}兑换了${itemName}x${count}`;
+    const display = this.staticData.getEquipmentByName(normalizedName)
+      ? normalizedName
+      : `${normalizedName}x${count}`;
+    return `${player.name || '冒险者'}用${totalCost}${currencyName}兑换了${display}`;
   }
 
   // ==================== 家园系统 ====================
@@ -832,15 +828,22 @@ export class FamiliarSystemService {
 
     switch (subCommand) {
       case 'music':
+      case '家园音乐':
         return this.handleHomeMusic(userId, args[0]);
       case '搬迁':
+      case '家园搬迁':
         return this.handleHomeRelocate(userId, args[0]);
       case '命名':
+      case '家园命名':
         return this.handleHomeRename(userId, args[0]);
       case '产出':
+      case '家园产出':
         return this.handleHomeOutput(userId);
       case '前线':
+      case '家园前线':
         return this.handleHomeFrontline(userId);
+      case '家园操作':
+        return this.getHomeStatus(player, markers);
       case '圈地':
         return this.handleHomeClaim(userId, player, markers);
       case '开挖地基':
@@ -856,6 +859,47 @@ export class FamiliarSystemService {
     }
   }
 
+  /** 读取家园原始所在地图。家园建成后玩家可能已移动到屋内/前线，不能再用 player.mapId 推断。 */
+  private getHouseBaseMapId(player: any): number {
+    const stats = this.playerService.safeJsonParse<Record<string, any>>(player.stats, {});
+    return Number(stats['家园原地图ID'] || stats.houseBaseMapId || player.mapId || 0);
+  }
+
+  /** 原版圈地使用固定词库加生成编号为家园命名；名称必须全局唯一。 */
+  private async generateHouseName(userId: number): Promise<string> {
+    const prefixes = [
+      '深渊', '天空之城', '新世界', '边陲之地', '边缘世界', '无主之地',
+      '1号采矿基地', '惑星', '矮行星', '脉冲星', '激变星', '红巨星',
+      '白矮星', '超新星', '中转站', '潘多拉', '维斯卡', '环形世界', '避难所',
+    ];
+    const base = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const suffix = `${userId}${Date.now().toString().slice(-6)}`;
+    const candidate = `${base}${suffix}`;
+    const occupied = await this.prisma.player.findFirst({ where: { houseName: candidate } });
+    return occupied ? `${base}${userId}${Math.floor(Math.random() * 1000000)}` : candidate;
+  }
+
+  /** 取得玩家家园关联动态地图；必要时按原版流程补建。 */
+  private async getHouseMaps(player: any, progress: number): Promise<{ yard: any; interior?: any; frontline?: any } | null> {
+    if (!player.houseName) return null;
+    const baseMapId = this.getHouseBaseMapId(player);
+    if (!baseMapId) return null;
+    return this.mapService.ensureHouseMaps(player.houseName, baseMapId, progress);
+  }
+
+  /** 取得玩家家园院子；建造和产出操作只应写入院子。 */
+  private async getHouseYard(player: any, progress: number): Promise<any | null> {
+    const maps = await this.getHouseMaps(player, progress);
+    return maps?.yard || null;
+  }
+
+  /** 当前玩家是否位于自己的院子，复刻原版建造操作的地点门禁。 */
+  private async isAtHouseYard(player: any): Promise<boolean> {
+    if (!player.houseName || !player.mapId) return false;
+    const currentMap = await this.mapService.getMapById(player.mapId);
+    return currentMap?.name === player.houseName;
+  }
+
   /**
    * 获取家园状态
    * 显示家园进度、建筑数量、产出预览等信息
@@ -863,16 +907,16 @@ export class FamiliarSystemService {
   private async getHomeStatus(player: any, markers: any): Promise<string> {
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
 
-    // 获取家园所在地图
+    // 原版动态地图的家园院子与玩家当前所在地图分离；已圈地后优先读取院子。
     let mapName = player.houseName || '未设置';
     let mapBuildings: any[] = [];
-    if (player.mapId) {
+    const homeMap = player.houseName
+      ? await this.mapService.getMapByName(player.houseName).catch(() => null)
+      : (player.mapId ? await this.mapService.getMapById(player.mapId) : null);
+    if (homeMap) {
       try {
-        const map = await this.mapService.getMapById(player.mapId);
-        if (map) {
-          mapName = map.name;
-          mapBuildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
-        }
+        mapName = homeMap.name;
+        mapBuildings = this.playerService.safeJsonParse<any[]>(homeMap.buildings, []);
       } catch {
         // 忽略
       }
@@ -936,8 +980,18 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 更新家园音乐
-    player.houseMusic = musicName;
+    if (!player.houseName) {
+      return '你还没有家园，无法设置家园音乐';
+    }
+
+    const progress = this.playerService.getMarkerValue(playerData.markers, '家园进度');
+    const maps = await this.getHouseMaps(player, progress);
+    if (!maps) return '家园地图不存在，无法设置家园音乐';
+
+    // 原版同时修改院子、屋内、前线三张动态地图的音乐。
+    await this.mapService.updateDynamicFields(maps.yard.id, { music: musicName });
+    if (maps.interior) await this.mapService.updateDynamicFields(maps.interior.id, { music: musicName });
+    if (maps.frontline) await this.mapService.updateDynamicFields(maps.frontline.id, { music: musicName });
     await this.playerService.savePlayer(player);
 
     return `已将家园背景音乐更换为：${musicName}`;
@@ -976,10 +1030,24 @@ export class FamiliarSystemService {
       return `「${targetMap}」不可搬迁至此`;
     }
 
-    // 执行搬迁
-    player.houseName = targetMap;
+    if (map.isInstance || map.isFrontier) {
+      return `「${targetMap}」不可搬迁至此`;
+    }
+
+    // 原版“搬迁”只改变家园所在的世界地图，不改变家园名称和内部三张地图。
+    const stats = this.playerService.safeJsonParse<Record<string, any>>(player.stats, {});
+    const oldBaseMapId = Number(stats['家园原地图ID'] || stats.houseBaseMapId || 0);
+    stats['家园原地图ID'] = map.id;
+    stats['家园原地图'] = map.name;
+    player.stats = JSON.stringify(stats);
     player.mapId = map.id;
     player.location = map.name;
+    if (player.houseName) {
+      await this.mapService.ensureHouseMaps(player.houseName, map.id, progress);
+      if (oldBaseMapId > 0 && oldBaseMapId !== map.id) {
+        await this.mapService.removeMapConnection(oldBaseMapId, player.houseName);
+      }
+    }
 
     // 记录家园搬迁成就
     const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
@@ -1020,6 +1088,15 @@ export class FamiliarSystemService {
       return `与其他家园同名：${newName}`;
     }
 
+    const oldName = player.houseName;
+    if (oldName && oldName !== newName) {
+      try {
+        await this.mapService.renameHouseMaps(oldName, newName);
+      } catch (error: any) {
+        return error?.message || `家园名称修改失败：${newName}`;
+      }
+    }
+
     player.houseName = newName;
 
     // 自动推进任务（对应原版 L2418：添加成就("家园命名", 1, , 玩家.任务)）
@@ -1044,13 +1121,27 @@ export class FamiliarSystemService {
       return `你的家园已经开始建造了（当前进度: ${this.getProgressText(progress)}）`;
     }
 
+    const currentMap = await this.mapService.getMapById(player.mapId);
+    if (!currentMap) return '你不在任何地图上，无法圈地';
+    if (currentMap.isInstance || currentMap.isFrontier) {
+      return `${player.name || '冒险者'} 不能在副本或玩家的家园内圈地`;
+    }
+
+    const houseName = await this.generateHouseName(userId);
+    const stats = this.playerService.safeJsonParse<Record<string, any>>(player.stats, {});
+    stats['家园原地图ID'] = currentMap.id;
+    stats['家园原地图'] = currentMap.name;
+    player.houseName = houseName;
+    player.stats = JSON.stringify(stats);
+    await this.mapService.ensureHouseMaps(houseName, currentMap.id, 1);
+
     // 设置家园进度为1
     markers['家园进度'] = 1;
     player.markers = JSON.stringify(markers);
 
     await this.playerService.savePlayer(player);
 
-    return `${player.name || '冒险者'} 你圈了一块地，准备开始建造家园\n清理掉土堆和杂草后「开挖地基」`;
+    return `${player.name || '冒险者'}在${currentMap.name}圈了一块地，你暂时称呼它为${houseName}\n清理掉土堆和杂草后「开挖地基」`;
   }
 
   /**
@@ -1064,6 +1155,11 @@ export class FamiliarSystemService {
       if (progress === 0) return '请先「圈地」来开始建造你的家园';
       if (progress >= 2) return '已经完成了开挖地基，继续「建造地基」吧';
       return `当前进度: ${this.getProgressText(progress)}，无法开挖地基`;
+    }
+
+    const yard = await this.getHouseYard(player, progress);
+    if (!yard || !(await this.isAtHouseYard(player))) {
+      return `${player.name || '冒险者'}你不在你家园里，不能进行这个操作。`;
     }
 
     // 检查所需材料
@@ -1131,6 +1227,11 @@ export class FamiliarSystemService {
       return `当前进度: ${this.getProgressText(progress)}，无法建造地基`;
     }
 
+    const yard = await this.getHouseYard(player, progress);
+    if (!yard || !(await this.isAtHouseYard(player))) {
+      return `${player.name || '冒险者'}你不在你家园里，不能进行这个操作。`;
+    }
+
     // 检查所需材料
     const required = [
       { name: '木头', count: 80 },
@@ -1195,6 +1296,11 @@ export class FamiliarSystemService {
       return `当前进度: ${this.getProgressText(progress)}，无法建造房子`;
     }
 
+    const yard = await this.getHouseYard(player, progress);
+    if (!yard || !(await this.isAtHouseYard(player))) {
+      return `${player.name || '冒险者'}你不在你家园里，不能进行这个操作。`;
+    }
+
     // 检查所需材料
     const required = [
       { name: '木头', count: 300 },
@@ -1230,6 +1336,9 @@ export class FamiliarSystemService {
     player.markers = JSON.stringify(markers);
     player.backpack = JSON.stringify(backpack);
 
+    // 原版建成房子时追加“屋内”和“前线”地图，并在院子中加入两个入口。
+    await this.mapService.ensureHouseMaps(player.houseName, this.getHouseBaseMapId(player), 4);
+
     // 记录成就
     const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
     const constructTask = tasks.find((t: any) => t.name === '建造房子');
@@ -1261,12 +1370,32 @@ export class FamiliarSystemService {
 
   // ==================== 家园产出计算 ====================
 
+  /** 原版“文本四舍”只用于提示文本，不改变实际扣除的小数数量。 */
+  private roundLikeOriginal(value: number): number {
+    return Math.round(Number(value) || 0);
+  }
+
+  /** 背包数量兼容原版 quantity 与旧版 count，并保持原条目的字段风格。 */
+  private setItemQuantity(item: any, value: number): void {
+    if (!item) return;
+    if (item.quantity !== undefined) {
+      item.quantity = value;
+    } else {
+      item.count = value;
+    }
+  }
+
   /**
    * 家园产出
    * 对应原版：家园产出() / 取地图产出() / 产出资源()
    * 计算家园中所有建筑和作物的产出，并将产出物品添加到玩家背包
    */
   private async handleHomeOutput(userId: number): Promise<string> {
+    // 原版地图操作.ecode 的完整观测逻辑统一由 HomeService 执行；保留下方旧实现仅供
+    // 没有注入 HomeService 的历史单元测试夹具回退，线上 Nest 实例始终走此入口。
+    if (this.homeService) {
+      return this.homeService.collectHomeOutput(userId);
+    }
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
@@ -1275,12 +1404,14 @@ export class FamiliarSystemService {
       return '家园尚未建成，无法产出';
     }
 
-    // 获取家园所在地图
-    if (!player.mapId) {
+    // 已圈地后家园院子是独立动态地图，不能把玩家当前所在地图当作家园。
+    if (!player.houseName && !player.mapId) {
       return '你还没有家园所在地图';
     }
 
-    const map = await this.mapService.getMapById(player.mapId);
+    const map = player.houseName
+      ? await this.mapService.getMapByName(player.houseName).catch(() => null)
+      : await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '家园所在的地图不存在';
@@ -1519,67 +1650,76 @@ export class FamiliarSystemService {
 
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
     if (progress < 4) {
-      return '家园尚未建成，无法查看前线';
+      return `${player.name || '冒险者'}需要先完成房屋的建造`;
     }
 
-    // 获取家园所在地图
-    if (!player.mapId) {
-      return '你还没有家园所在地图';
+    const maps = await this.getHouseMaps(player, progress);
+    const map = maps?.frontline;
+    if (!map) return `${player.name || '冒险者'}#一个错误发生了:家园前线地图编号为0`;
+
+    const qq = String((player as any).qqNumber || (player as any).externalId || player.userId || userId);
+    let summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    let vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+    const frontlineQQ = `怪物前线${qq}sg`;
+    const existing = summons.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
+    if (!existing) {
+      // 原版 L2240：首次查看前线时以等级0生成前线，而不是只展示静态状态。
+      const generated = this.combatSystem.generateFrontline(map, qq, Date.now(), 0);
+      summons = generated.summons;
+      vehicles = generated.vehicles;
+      await this.mapService.updateDynamicFields(map.id, {
+        summons: JSON.stringify(summons),
+        vehicles: JSON.stringify(vehicles),
+      });
     }
-
-    const map = await this.mapService.getMapById(player.mapId);
-
-    if (!map) {
-      return '家园所在的地图不存在';
-    }
-
-    // 解析地图上的召唤物
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
 
     // 检查是否有特殊宠物（特殊序号 > 0 的宠物）
     const specialPets = summons.filter((s: any) => {
-      const specialSeq = s.specialSeq || 0;
-      return specialSeq > 0 && s.hp > 0;
+      const specialSeq = s.specialSeq ?? s.特殊序号 ?? 0;
+      const hp = s.hp ?? s.当前生命 ?? 0;
+      return specialSeq > 0 && hp > 0;
     });
 
-    // 获取建筑数量
-    const totalBuildings = await this.countBuildings(map);
+    // 原版直接累加前线地图建筑数量，用于显示防御上限。
+    const totalBuildings = this.playerService
+      .safeJsonParse<any[]>(map.buildings, [])
+      .reduce((sum: number, b: any) => sum + Number(b.count ?? b.数量 ?? 1), 0);
 
     // 获取地图上的建筑列表
     const mapBuildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const frontline = summons.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
+    const frontLevel = this.playerService.getMarkerValue(markers, '前线');
 
     const lines = [
-      `🏠 家园前线 - ${player.houseName || map.name}`,
-      `━━━━━━━━━━━━━━━`,
-      `📍 地点: ${map.name}`,
-      `📦 建筑数量: ${totalBuildings} (${mapBuildings.length}种)`,
-      `👥 召唤物数量: ${summons.length}`,
+      `${player.name || '冒险者'},${player.houseName}前线防御阵地`,
+      `防御阵地和地精无视载具伤害上限，攻击无载具目标时一击必杀`,
+      `防御:${totalBuildings}/${frontLevel + 3} 等级:${frontLevel}`,
+      `火力通道:`,
     ];
+
+    for (const weapon of frontline?.武器 || frontline?.weapons || []) {
+      const name = weapon.名称 ?? weapon.name ?? '';
+      const physical = weapon.属性?.物 ?? weapon.attributes?.physical ?? 0;
+      lines.push(`${name}（伤害${physical}%）`);
+    }
 
     // 显示特殊宠物
     if (specialPets.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`⭐ 特殊存在:`);
+      lines.push(`特殊存在:`);
       for (const pet of specialPets) {
-        lines.push(`  ${pet.name} (HP: ${pet.hp})`);
+        lines.push(`  ${pet.name || pet.名称} (HP: ${pet.hp ?? pet.当前生命 ?? 0})`);
       }
     }
 
     // 显示建筑列表
     if (mapBuildings.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`📋 建筑列表:`);
+      lines.push(`建筑列表:`);
       for (const b of mapBuildings) {
-        lines.push(`  ${b.name} x${b.count || 1}`);
+        lines.push(`  ${b.name || b.名称} x${b.count ?? b.数量 ?? 1}`);
       }
     }
 
-    // 检查是否有工业牵引光束
-    const hasTractorBeam = mapBuildings.some((b: any) => b.name === '工业牵引光束');
-    if (hasTractorBeam) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`🔦 工业牵引光束已激活`);
-    }
+    lines.push('发送「开始战斗」开始地精的攻势');
 
     return lines.join('\n');
   }
@@ -2005,9 +2145,9 @@ export class FamiliarSystemService {
       return `需要消耗${petLevel}的生肉，你只有${meatCount}`;
     }
 
-    // 检查怪物是否在当前地图存在
-    const monsters = this.playerService.safeJsonParse<any[]>(map.monsters, []);
-    const monsterExists = monsters.some((m: any) => m.name === monsterName || m === monsterName);
+    // 检查怪物是否在当前地图存在；运行时实例统一读取 GameMonster 表。
+    const monsters = await this.mapService.getMapMonsters(map);
+    const monsterExists = monsters.some((m: any) => m.name === monsterName || m.名称 === monsterName);
 
     if (!monsterExists) {
       return `在${map.name}无法找到「${monsterName}」这种怪物`;
@@ -2587,10 +2727,75 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '你不在任何地图上';
     }
 
-    const monsters = this.playerService.safeJsonParse<any[]>(map.monsters, []);
+    // 原版地图.怪物2是运行时实例。当前版本实例在 GameMonster 表，旧地图 JSON
+    // 只作为存量数据回退，避免迁移前已经存在的捕捉目标直接消失。
+    const persistentMonsters = typeof (this.mapService as any).getMapMonsters === 'function'
+      ? await this.mapService.getMapMonsters(map)
+      : [];
+    const legacyMonsters = this.playerService.safeJsonParse<any[]>(map.monsters, []);
+    const usePersistentMonster = persistentMonsters.length > 0;
+    const monsters = usePersistentMonster ? persistentMonsters : legacyMonsters;
+    const nowMs = Date.now();
+    const playerName = player.name || '冒险者';
+    const playerQQ = String(player.qqNumber ?? player.userId ?? userId);
+
+    const parseJson = <T>(value: any, fallback: T): T =>
+      this.playerService.safeJsonParse<T>(value, fallback);
+    const readEntryName = (entry: any): string => entry?.名称 ?? entry?.name ?? '';
+    const readEntryTimeMs = (entry: any): number => {
+      const raw = Number(entry?.有效期至 ?? entry?.expireAt ?? 0);
+      return raw > 0 && raw < 1e12 ? raw * 1000 : raw;
+    };
+    const activeEntry = (entries: any[], name: string): any | undefined => entries.find((entry: any) =>
+      readEntryName(entry) === name && (!readEntryTimeMs(entry) || readEntryTimeMs(entry) > nowMs),
+    );
+    const readMarkerValue = (entries: any, name: string): number => {
+      if (Array.isArray(entries)) {
+        const entry = entries.find((item: any) => readEntryName(item) === name);
+        return Number(entry?.数值 ?? entry?.value ?? entry?.count ?? 0);
+      }
+      return Number(entries?.[name] ?? 0);
+    };
+    const getMonsterDefinition = (monster: any): any =>
+      this.staticData.getMonsterByName(monster?.name ?? monster?.名称 ?? target ?? '') || {};
+    const getMonsterBonus = (monster: any, definition: any): any => ({
+      ...parseJson<any>(definition?.bonus, {}),
+      ...parseJson<any>(monster?.bonus, {}),
+    });
+    const getBaseAnesthesia = (monster: any, definition: any, bonus: any): number => {
+      const definitionBonus = parseJson<any>(definition?.bonus, {});
+      const value = definitionBonus.麻醉 ?? definitionBonus.anesthesia
+        ?? definition?.麻醉 ?? definition?.anesthesia
+        ?? monster?.麻醉 ?? monster?.anesthesia
+        ?? bonus.麻醉 ?? bonus.anesthesia ?? 0;
+      return Number(value || 0);
+    };
+    const getDescription = (monster: any, definition: any): string => String(
+      monster?.description ?? monster?.说明 ?? definition?.description ?? definition?.说明 ?? '',
+    );
+    const getMonsterBuffs = (monster: any): any[] => parseJson<any[]>(monster?.buffs ?? monster?.增益, []);
+    const getMonsterMarkers2 = (monster: any): any[] => parseJson<any[]>(monster?.markers2 ?? monster?.标记2, []);
+    const saveMonsterState = async (monster: any, fields: { buffs?: any[]; markers2?: any[] }): Promise<void> => {
+      if (fields.buffs) monster.buffs = JSON.stringify(fields.buffs);
+      if (fields.markers2) monster.markers2 = JSON.stringify(fields.markers2);
+      if (!usePersistentMonster) {
+        const legacyIndex = legacyMonsters.indexOf(monster);
+        if (legacyIndex >= 0) {
+          await this.mapService.updateDynamicFields(map.id, { monsters: JSON.stringify(legacyMonsters) });
+        }
+        return;
+      }
+      if (typeof (this.mapService as any).updateMonsterFields === 'function') {
+        await (this.mapService as any).updateMonsterFields(map.id, monster.id, {
+          ...(fields.buffs ? { buffs: monster.buffs } : {}),
+          ...(fields.markers2 ? { markers2: monster.markers2 } : {}),
+        });
+      } else if (typeof (this.mapService as any).saveGameMonster === 'function') {
+        await (this.mapService as any).saveGameMonster(monster);
+      }
+    };
 
     if (action === 'start') {
-      // 开始捕捉
       if (!target) {
         return '请指定目标：开始捕捉史莱姆';
       }
@@ -2602,40 +2807,50 @@ ${this.getAwakenStageName(d)}(${d})`;
 
       const monster = monsters[monsterIndex];
       const monsterData = typeof monster === 'string' ? { name: monster } : monster;
+      const definition = getMonsterDefinition(monsterData);
+      const bonus = getMonsterBonus(monsterData, definition);
+      const baseAnesthesia = getBaseAnesthesia(monsterData, definition, bonus);
+      const description = getDescription(monsterData, definition);
 
-      // 检查是否可以麻醉捕捉
-      if (monsterData.anesthesia === undefined && !monsterData.description?.includes('【特殊驯服方式】')) {
-        return `${target} 不是可以捕捉的对象，或者不能通过正常麻醉的方式捕捉`;
+      // 原版 _主程序.ecode L6246-6247。
+      if (baseAnesthesia <= 0 && !description.includes('【特殊驯服方式】')) {
+        return `${playerName}${target}不是可以捕捉的对象，或者不能通过正常麻醉的方式捕捉\n${description}`;
       }
 
-      // 设置捕捉模式（10分钟免疫生命伤害）
-      const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-      const now = Date.now() / 1000;
-      const newMarkers2 = markers2.filter((m: any) => m.name !== '麻醉');
-      newMarkers2.push({
-        name: '麻醉',
-        expireAt: now + 600,
-      });
-      player.markers2 = JSON.stringify(newMarkers2);
+      const anesthesiaMarkers = getMonsterMarkers2(monsterData);
+      const anesthesiaBuffs = getMonsterBuffs(monsterData);
+      // 兼容历史版本把“麻醉”写入 buffs 的数据；新写入仍按原版放入标记2。
+      if (activeEntry(anesthesiaMarkers, '麻醉') || activeEntry(anesthesiaBuffs, '麻醉')) {
+        return `${playerName}${target}已经被麻醉了`;
+      }
 
-      await this.playerService.savePlayer(player);
+      const captureBuffs = anesthesiaBuffs.filter((entry: any) => readEntryName(entry) !== '捕捉模式');
+      captureBuffs.push({ 名称: '捕捉模式', 强度: 0, 有效期至: nowMs + 600 * 1000, 是否叠加时间: false });
+      await saveMonsterState(monsterData, { buffs: captureBuffs });
 
-      return `${target} 被设置为捕捉模式\n「停止捕捉${target}」来取消`;
+      return `${playerName},${target}被设置为捕捉模式\n“停止捕捉${target}”来取消`;
     }
 
     if (action === 'stop') {
-      // 停止捕捉
       if (!target) {
         return '请指定目标：停止捕捉史莱姆';
       }
 
-      const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-      const newMarkers2 = markers2.filter((m: any) => m.name !== '麻醉');
-      player.markers2 = JSON.stringify(newMarkers2);
+      const monsterIndex = monsters.findIndex((m: any) => m.name === target || m === target);
+      if (monsterIndex === -1) {
+        return `${playerName}附近没有${target}`;
+      }
+      const monster = monsters[monsterIndex];
+      const marker2 = getMonsterMarkers2(monster);
+      const buffs = getMonsterBuffs(monster);
+      // 原版 L6267 检查的是“麻醉”标记2而非“捕捉模式”增益；疑似笔误，按原版保留。
+      if (activeEntry(marker2, '麻醉') || activeEntry(buffs, '麻醉')) {
+        const nextBuffs = buffs.filter((entry: any) => readEntryName(entry) !== '捕捉模式');
+        await saveMonsterState(monster, { buffs: nextBuffs });
+        return `${playerName},${target}被取消了捕捉模式`;
+      }
 
-      await this.playerService.savePlayer(player);
-
-      return `${target} 被取消了捕捉模式`;
+      return `${playerName}${target}已经被麻醉了`;
     }
 
     // 捕捉
@@ -2649,7 +2864,6 @@ ${this.getAwakenStageName(d)}(${d})`;
         return this.captureSpecialPet(userId, target, map, player, markers);
       }
 
-      // 普通怪物捕捉
       const monsterIndex = monsters.findIndex((m: any) => {
         if (typeof m === 'string') return m === target;
         return m.name === target;
@@ -2660,58 +2874,87 @@ ${this.getAwakenStageName(d)}(${d})`;
       }
 
       const monster = monsters[monsterIndex];
-      const monsterData = typeof monster === 'string' ? { name: monster, 麻醉: 100 } : monster;
+      const monsterData = typeof monster === 'string' ? { name: monster } : monster;
+      const definition = getMonsterDefinition(monsterData);
+      const bonus = getMonsterBonus(monsterData, definition);
+      const baseAnesthesia = getBaseAnesthesia(monsterData, definition, bonus);
+      const description = getDescription(monsterData, definition);
 
-      // 检查麻醉值
-      const anestReq = Math.abs(monsterData.anesthesia || 100);
-      const feedRequired = Math.ceil(anestReq / 150);
-
-      // 检查饲料
-      const backpack = this.playerService.getBackpackItems(player);
-      const feedItem = backpack.find((item: any) => item.name === '饲料');
-      const feedCount = feedItem ? (feedItem.count || 0) : 0;
-
-      if (feedCount < feedRequired) {
-        return `捕捉${target}需要${feedRequired}的饲料，你只有${feedCount}`;
+      // 原版 L6169-6177：特殊麻醉目标走专属驯服流程，普通捕捉不处理。
+      if (baseAnesthesia < 0 && monsterData.vitality !== -15 && monsterData.活力 !== -15) {
+        const detail = description.includes('【特殊驯服方式】')
+          ? description.slice(description.indexOf('【特殊驯服方式】'))
+          : '(不可捕捉)';
+        return `${playerName}\n${target}\n特殊麻醉值${this.roundLikeOriginal(Number(bonus.当前麻醉 ?? 0))}/${this.roundLikeOriginal(Math.abs(baseAnesthesia))}${detail}`;
       }
 
-      // 扣除饲料
-      if (feedCount === feedRequired) {
+      const monsterMarkers = parseJson<any[]>(monsterData.markers ?? monsterData.标记, []);
+      const anesthesiaOwnerValue = readMarkerValue(monsterMarkers, `麻醉者${playerQQ}`);
+      const currentAnesthesia = Number(bonus.当前麻醉 ?? bonus.currentAnesthesia ?? 0);
+      const anesthesiaLimit = Math.abs(baseAnesthesia);
+
+      // 原版 L6182-6184：必须由当前玩家实际造成过麻醉，且麻醉值已满。
+      if (anesthesiaOwnerValue === 0) {
+        return `${playerName}你未对${target}造成任何麻醉值，没有权利捕捉。`;
+      }
+      if (currentAnesthesia < anesthesiaLimit) {
+        return `${playerName}\n${target}\n麻醉${this.roundLikeOriginal(currentAnesthesia)}/${this.roundLikeOriginal(anesthesiaLimit)}，捕捉需要${this.roundLikeOriginal(Math.abs(baseAnesthesia / 150))}的饲料\n请使用带麻醉效果的武器麻醉目标\n“开始捕捉${target}”来进入捕捉模式，捕捉模式下的目标被攻击不会减少生命值`;
+      }
+
+      // 原版 L6188-6192：比较和扣除使用 abs(基础麻醉/150) 的原始小数值，文本四舍只影响显示。
+      const feedRequired = Math.abs(baseAnesthesia) / 150;
+      const backpack = this.playerService.getBackpackItems(player);
+      const feedItem = backpack.find((item: any) => item.name === '饲料');
+      const feedCount = feedItem ? Number(feedItem.quantity ?? feedItem.count ?? 0) : 0;
+
+      if (feedCount < feedRequired) {
+        return `${playerName}捕捉${target}需要${this.roundLikeOriginal(feedRequired)}的饲料，你只有${this.roundLikeOriginal(feedCount)}`;
+      }
+
+      if (feedCount <= feedRequired) {
         const idx = backpack.findIndex((item: any) => item.name === '饲料');
         if (idx !== -1) backpack.splice(idx, 1);
       } else {
-        feedItem!.count = feedCount - feedRequired;
+        this.setItemQuantity(feedItem, feedCount - feedRequired);
       }
       player.backpack = JSON.stringify(backpack);
 
-      // 创建宠物
+      // 原版 L6195-6224：将怪物转为 specialSeq=-2 的召唤物，保留原实例属性。
+      const sourceName = monsterData.name || target;
       const newPet = {
-        name: target,
-        type: monsterData.name || target,
+        ...monsterData,
+        name: sourceName,
+        type: monsterData.type || sourceName,
         specialSeq: -2,
-        ownerQQ: player.userId.toString(),
-        qq: `${player.userId}_pet_${target}`,
-        hp: monsterData.hp || 100,
-        attack: monsterData.attack || 10,
-        defense: monsterData.defense || 5,
-        speed: monsterData.speed || 100,
-        level: monsterData.level || 1,
-        markers: { [`好感${player.userId}`]: 100 },
+        ownerQQ: playerQQ,
+        qq: `${monsterData.qq || `${player.userId}_pet_${target}`}g`,
+        hp: monsterData.hp || monsterData.maxHp || 100,
+        maxHp: monsterData.maxHp || monsterData.hp || 100,
+        attack: monsterData.attack || definition.attack || 10,
+        defense: monsterData.defense || definition.defense || 5,
+        speed: monsterData.speed || definition.speed || 100,
+        level: monsterData.level || definition.level || 1,
+        markers: { [`好感${playerQQ}`]: 100 },
         vehicle: '',
+        isPet: true,
       };
+      delete newPet.id;
+      delete newPet.mapId;
 
       // 添加到地图召唤物
       const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
       summons.push(newPet);
 
-      // 从怪物列表中移除
-      monsters.splice(monsterIndex, 1);
-
-      // 更新地图
-      await this.mapService.updateDynamicFields(map.id, {
-        monsters: JSON.stringify(monsters),
-        summons: JSON.stringify(summons),
-      });
+      if (usePersistentMonster) {
+        await this.mapService.removeMapMonster(map.id, monsterData.id);
+        await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+      } else {
+        monsters.splice(monsterIndex, 1);
+        await this.mapService.updateDynamicFields(map.id, {
+          monsters: JSON.stringify(monsters),
+          summons: JSON.stringify(summons),
+        });
+      }
 
       // 记录捕捉成就
       const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
@@ -2766,10 +3009,17 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `你近期已经抓到过${target}了，冷却${remaining}秒`;
     }
 
+    // 先确认目标仍在当前地图，避免目标不存在时错误扣除饲料。
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const petIndex = summons.findIndex((s: any) => s.name === target);
+    if (petIndex === -1) {
+      return `附近没有${target}`;
+    }
+
     // 检查饲料
     const backpack = this.playerService.getBackpackItems(player);
     const feedItem = backpack.find((item: any) => item.name === '饲料');
-    const feedCount = feedItem ? (feedItem.count || 0) : 0;
+    const feedCount = feedItem ? Number(feedItem.quantity ?? feedItem.count ?? 0) : 0;
 
     if (feedCount < 100) {
       return '需要100饲料';
@@ -2780,20 +3030,22 @@ ${this.getAwakenStageName(d)}(${d})`;
       const idx = backpack.findIndex((item: any) => item.name === '饲料');
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
-      feedItem!.count = feedCount - 100;
+      this.setItemQuantity(feedItem, feedCount - 100);
     }
     player.backpack = JSON.stringify(backpack);
 
     // 40%成功率
     const isSuccess = Math.random() < 0.4;
 
-    // 当前地图中找到该宠物
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
-    const petIndex = summons.findIndex((s: any) => s.name === target);
-
-    if (petIndex === -1) {
-      return `附近没有${target}`;
-    }
+    const addLocalItem = (itemName: string, count: number): void => {
+      const existing = backpack.find((item: any) => item.name === itemName);
+      if (existing) {
+        const current = Number(existing.quantity ?? existing.count ?? 0);
+        this.setItemQuantity(existing, current + count);
+      } else {
+        backpack.push({ name: itemName, count });
+      }
+    };
 
     let result = `拿100饲料引诱${target}`;
 
@@ -2801,8 +3053,8 @@ ${this.getAwakenStageName(d)}(${d})`;
       // 捕捉成功
       result += `\n${target} 吃掉饲料后，紧紧跟着你`;
 
-      // 添加到背包
-      await this.playerService.addToBackpack(userId, target, 1);
+      // 添加到当前背包，和饲料扣除一起由本次 savePlayer 原子写回。
+      addLocalItem(target, 1);
 
       // 设置冷却
       const newMarkers2 = markers2.filter((m: any) => m.name !== `${target}冷却`);
@@ -2824,7 +3076,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     const rewardItems = ['木头', '石头', '铁矿', '绳子'];
     const rewardName = rewardItems[Math.floor(Math.random() * rewardItems.length)];
     const rewardCount = Math.floor(Math.random() * 5) + 1;
-    await this.playerService.addToBackpack(userId, rewardName, rewardCount);
+    addLocalItem(rewardName, rewardCount);
+    player.backpack = JSON.stringify(backpack);
     result += `\n得到了${rewardName}x${rewardCount}`;
 
     // 记录成就
@@ -2861,7 +3114,10 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 检查是否有安乐天使装备
     const backpack = this.playerService.getBackpackItems(player);
-    const hasAngel = backpack.some((item: any) => item.name === '安乐天使');
+    const equipment = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    // 原版“装备要求”检查已装备栏；兼容尚未完成装备迁移的存量存档时也接受背包中的同名物品。
+    const hasAngel = equipment.some((item: any) => (item.name || item.名称) === '安乐天使')
+      || backpack.some((item: any) => (item.name || item.名称) === '安乐天使');
     if (!hasAngel) {
       return '需要安乐天使';
     }
@@ -2897,11 +3153,14 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 尝试查找目标（先查召唤物，再查玩家）
+    const normalizedTarget = this.normalizeSkillTarget(targetName);
     const map = await this.mapService.getMapById(player.mapId);
 
     if (map) {
       const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
-      const summonTarget = summons.find((s: any) => s.name === targetName);
+      const summonTarget = summons.find((s: any) =>
+        (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
+      );
 
       if (summonTarget) {
         if (!summonTarget.buffs) summonTarget.buffs = [];
@@ -2915,14 +3174,12 @@ ${this.getAwakenStageName(d)}(${d})`;
         await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
         await this.playerService.savePlayer(player);
-        return `给${targetName}套上了行星护盾`;
+        return `给${summonTarget.name || summonTarget.名称}套上了行星护盾`;
       }
     }
 
     // 对玩家使用
-    const targetPlayer = await this.prisma.player.findFirst({
-      where: { masterQQ: targetName },
-    });
+    const targetPlayer = await this.findSkillTargetPlayer(normalizedTarget);
 
     if (targetPlayer) {
       const targetBuffs = this.playerService.safeJsonParse<any[]>(targetPlayer.buffs, []);
@@ -2939,11 +3196,14 @@ ${this.getAwakenStageName(d)}(${d})`;
       });
 
       await this.playerService.savePlayer(player);
-      return `给${targetName}套上了行星护盾`;
+      return `给${targetPlayer.name || normalizedTarget}套上了行星护盾`;
     }
 
+    // 原版目标不存在时返回错误，不会把技能悄悄改成对自己使用。
+    const currentMarkers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    player.markers2 = JSON.stringify(currentMarkers2.filter((m: any) => m.name !== '安乐'));
     await this.playerService.savePlayer(player);
-    return `给自己套上了行星护盾`;
+    return `${player.name || '冒险者'},${normalizedTarget}在玩家列表不存在`;
   }
 
   /**
@@ -2960,7 +3220,9 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 检查是否有福音书装备
     const backpack = this.playerService.getBackpackItems(player);
-    const hasGospel = backpack.some((item: any) => item.name === '福音书');
+    const equipment = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const hasGospel = equipment.some((item: any) => (item.name || item.名称) === '福音书')
+      || backpack.some((item: any) => (item.name || item.名称) === '福音书');
     if (!hasGospel) {
       return '需要福音书';
     }
@@ -2976,8 +3238,9 @@ ${this.getAwakenStageName(d)}(${d})`;
     player.markers = JSON.stringify(markers);
 
     const now = Date.now() / 1000;
+    const normalizedTarget = this.normalizeSkillTarget(targetName);
 
-    if (!targetName) {
+    if (!normalizedTarget) {
       // 对自己使用
       const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
       const newBuffs = buffs.filter((b: any) => b.name !== '福音书');
@@ -2996,7 +3259,9 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     if (map) {
       const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
-      const summonTarget = summons.find((s: any) => s.name === targetName);
+      const summonTarget = summons.find((s: any) =>
+        (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
+      );
 
       if (summonTarget) {
         if (!summonTarget.buffs) summonTarget.buffs = [];
@@ -3011,14 +3276,12 @@ ${this.getAwakenStageName(d)}(${d})`;
         await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
         await this.playerService.savePlayer(player);
-        return `给${targetName}使用了福音书`;
+        return `给${summonTarget.name || summonTarget.名称}使用了福音书`;
       }
     }
 
     // 对玩家使用
-    const targetPlayer = await this.prisma.player.findFirst({
-      where: { masterQQ: targetName },
-    });
+    const targetPlayer = await this.findSkillTargetPlayer(normalizedTarget);
 
     if (targetPlayer) {
       const targetBuffs = this.playerService.safeJsonParse<any[]>(targetPlayer.buffs, []);
@@ -3036,11 +3299,41 @@ ${this.getAwakenStageName(d)}(${d})`;
       });
 
       await this.playerService.savePlayer(player);
-      return `给${targetName}使用了福音书`;
+      return `给${targetPlayer.name || normalizedTarget}使用了福音书`;
     }
 
+    // 原版目标不存在时不消耗“每日一次”标记，也不回退到自己。
+    delete markers['福音书'];
+    player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
-    return `给自己使用了福音书`;
+    return `${player.name || '冒险者'},${normalizedTarget}在玩家列表不存在`;
+  }
+
+  /** 兼容“[@QQ]”快捷目标和普通名称，保持原版目标解析语义。 */
+  private normalizeSkillTarget(targetName?: string): string {
+    const raw = (targetName || '').trim();
+    const wrapped = raw.match(/^\[@?(.+)\]$/);
+    return (wrapped ? wrapped[1] : raw).trim();
+  }
+
+  /** 以玩家名称、QQ、openid、用户名依次查找玩家目标。 */
+  private async findSkillTargetPlayer(targetName: string): Promise<any | null> {
+    if (!targetName) return null;
+    const byName = await this.prisma.player.findFirst({ where: { name: targetName } });
+    if (byName) return byName;
+    const byMaster = await this.prisma.player.findFirst({ where: { masterQQ: targetName } });
+    if (byMaster) return byMaster;
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { qqNumber: targetName },
+          { externalId: targetName },
+          { username: targetName },
+          { nickname: targetName },
+        ],
+      },
+    });
+    return user ? this.prisma.player.findUnique({ where: { userId: user.id } }) : null;
   }
 
   /**
@@ -3064,10 +3357,19 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const ownerIds = new Set([
+      String(userId),
+      String(player.id),
+      String(user?.qqNumber || ''),
+      String(user?.externalId || ''),
+      String(player.masterQQ || ''),
+    ].filter(Boolean));
 
     // 查找宠物
     const petIndex = summons.findIndex(
-      (s: any) => (s.name === targetName || s.qq === targetName) && s.ownerQQ === player.userId.toString(),
+      (s: any) => (s.name === targetName || s.名称 === targetName || s.qq === targetName || s.QQ === targetName)
+        && ownerIds.has(String(s.ownerQQ ?? s.归属 ?? s.owner ?? '')),
     );
 
     if (petIndex === -1) {

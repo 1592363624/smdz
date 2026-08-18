@@ -44,6 +44,8 @@ export interface AttackContext {
   isAutoCombat?: boolean;
   /** 指定攻击目标名（对应原版 `攻击怪物名` 设置玩家.目标） */
   targetName?: string;
+  /** 指定 GameMonster 实例，避免同名怪物被重复选中 */
+  targetId?: number | string;
 }
 
 /**
@@ -106,6 +108,18 @@ export interface DamageResult {
   critMultiplier: number; // 暴击倍率
   /** 三段暴击评级文本（绝杀/完美/致命/强力/正中/擦过/描边 + 百分比），无评级则为空 */
   rating?: string;
+  /** 进入三池当前值截断前、经过护盾层抗性的四属性伤害（载具承伤使用） */
+  vehicleBreakdown?: DamageBreakdown;
+  /** 贯穿判定是否命中（载具损伤控制系统使用） */
+  penetrated?: boolean;
+  /** 贯穿直接注入三池的伤害，载具承伤时不会由载具吸收 */
+  vehicleExtraPoolDamage?: PoolDamage;
+  /** 贯穿直接伤害的四属性明细，供载具涂层逐属性缩放 */
+  vehicleExtraBreakdown?: {
+    shield: DamageBreakdown;
+    armor: DamageBreakdown;
+    life: DamageBreakdown;
+  };
 }
 
 /**
@@ -189,6 +203,7 @@ export interface WeaponData {
   negativeType?: number;  // 负面类型（1割裂/2灼烧/3深寒/4感电）
   specialEffect?: number; // 特效序号（47因果逆转/45斩首/44尖兵等）
   self?: any;             // 武器自带属性（原版 z1.自带，含 anesthesia 麻醉字段）
+  anesthesia?: number;    // 武器自带麻醉值（中文静态配置 bonus.麻醉）
 }
 
 @Injectable()
@@ -247,6 +262,7 @@ export class CombatSystemService {
       noDelay = false,
       originalTimestamp = Date.now(),
       targetName = '',
+      targetId,
     } = context;
 
     // 连击触发标记：武器特殊序号（火神机枪/三千世界）攻击后，在冷却结束时自动再次攻击（对应原版 连击 L474-545）
@@ -324,7 +340,7 @@ export class CombatSystemService {
     }
 
     // 5. 确定攻击目标列表
-    let targets = this.selectTargets(monsters, player, allAttack, weapon, targetName);
+    let targets = this.selectTargets(monsters, player, allAttack, weapon, targetName, targetId);
 
     if (targets.length === 0) {
       return { result: '没有可以攻击的目标', killed: [], damageDealt: 0, expGained: 0, drops: [] };
@@ -347,7 +363,7 @@ export class CombatSystemService {
     // 如果使魔特效改变了全体攻击标记，重新选择目标
     // 例如：战斗女仆RPG!/机枪会取消全体攻击，云爆弹会强制全体攻击
     if (effectiveAllAttack !== allAttack) {
-      targets = this.selectTargets(monsters, player, effectiveAllAttack, weapon, targetName);
+      targets = this.selectTargets(monsters, player, effectiveAllAttack, weapon, targetName, targetId);
     }
 
     // 7. 执行攻击循环
@@ -530,6 +546,10 @@ export class CombatSystemService {
     // 并在攻击次数>1 时输出"攻击N次，命中X次，被闪避Y次，命中零伤Z次，有效伤W次"。
     const atkStats = { total: 0, hit: 0, dodged: 0, nullDmg: 0, effective: 0 };
 
+    // 原版 战斗相关.ecode L1338-L1349：有麻醉效果的武器优先消耗一枚强效麻醉镖。
+    // 原版判断是“数量>1”，因此恰好一枚时仍按普通麻醉处理并保留该物品。
+    const anesthesiaEffect = this.prepareWeaponAnesthesia(player, weapon, resultLines);
+
     for (const target of targets) {
       if (target.hp <= 0) continue;
       atkStats.total++; // 单次攻击尝试计数（对应原版 攻击N次）
@@ -603,7 +623,7 @@ export class CombatSystemService {
           this.achievementService.addAchievement(player, `${weapon.type}熟练度`, 1);
         }
         // 记录攻击者，保证参与战斗的玩家获得奖励
-        const targetMarkers = this.safeParseJson<Record<string, number>>(target.markers, {});
+        const targetMarkers = this.normalizeMarkerObject(target.markers);
         targetMarkers[`攻击者${player.userId}`] = (targetMarkers[`攻击者${player.userId}`] || 0) + 0.001;
         target.markers = JSON.stringify(targetMarkers);
         // 使魔被动特效：给目标添加增益（如龙姬"点燃"）
@@ -654,7 +674,7 @@ export class CombatSystemService {
         atkStats.dodged++; // 被闪避计数（对应原版 火伤2 被闪避次数）
         resultLines.push(`${target.name} 闪避了攻击`);
         // 未命中：防御方获得「闪避熟练度」（对应原版 L1484）
-        const tMarkers = this.safeParseJson<Record<string, number>>(target.markers, {});
+        const tMarkers = this.normalizeMarkerObject(target.markers);
         tMarkers['闪避熟练度'] = (tMarkers['闪避熟练度'] || 0) + 1;
         target.markers = JSON.stringify(tMarkers);
         continue;
@@ -1777,11 +1797,39 @@ export class CombatSystemService {
         };
       }
       if (finalDamage < 1 && isHit) finalDamage = 1; // 保底1点伤害（免疫场景已在上方 continue 跳过）
+
+      // 原版 战斗相关.ecode L4419-L4424：捕捉模式只免疫生命层，护盾/装甲仍可损失。
+      // 总伤害仍按完整伤害累计，供原版麻醉公式使用。
+      const captureMode = (target.specialSeq ?? -1) === -1
+        && this.hasActiveMonsterEntry(target.buffs, '捕捉模式');
+      const appliedPool: PoolDamage = captureMode
+        ? { ...scaledPool, hp: 0 }
+        : { ...scaledPool };
+
+      // 原版 战斗相关.ecode L4444-L4448：带麻醉的非生体武器不能直接击杀目标。
+      if (!captureMode && anesthesiaEffect > 0 && (weapon.type || '') !== '生体武器'
+        && target.hp > 0 && appliedPool.hp >= target.hp) {
+        const allowedHpDamage = Math.max(0, target.hp - 1);
+        const preventedHpDamage = appliedPool.hp - allowedHpDamage;
+        appliedPool.hp = allowedHpDamage;
+        finalDamage = Math.max(0, finalDamage - preventedHpDamage);
+      }
+
       atkStats.effective++; // 有效伤（对应原版 物伤2 实际造成伤害次数）
       totalDamage += finalDamage;
 
       // 扣除怪物血量（三池分伤）
-      const appliedDamage = this.applyDamageToMonster(target, finalDamage, scaledPool);
+      const appliedDamage = this.applyDamageToMonster(target, finalDamage, appliedPool);
+
+      // 原版 战斗相关.ecode L3822-L3838：命中后累加当前麻醉并记录麻醉者。
+      const anesthesiaText = this.applyWeaponAnesthesia(
+        target,
+        player,
+        weapon,
+        finalDamage,
+        anesthesiaEffect,
+      );
+      if (anesthesiaText) resultLines.push(anesthesiaText);
 
       // ========== 溅射伤害（对应原版 造成伤害 L624-705 溅射循环） ==========
       // 战斗女仆RPG!/恶毒好感等设置 splashCount：对主目标外额外 splashCount 个存活目标，
@@ -1873,7 +1921,9 @@ export class CombatSystemService {
       const atkText = attackText || this.getAttackText(weapon, weapon.damageType);
       const critText = isCrit ? '【暴击】' : '';
       const ratingText = damageResult.rating || '';
-      const dmgText = this.formatDamageText(finalDamage, scaledPool);
+      const dmgText = captureMode
+        ? this.formatCaptureDamageText(finalDamage, appliedDamage, target, scaledPool.hp > 0)
+        : this.formatDamageText(finalDamage, appliedDamage);
       resultLines.push(`${atkText} ${target.name}，造成 ${dmgText}${critText}${ratingText ? ` ${ratingText}` : ''}`);
 
       attackCount++;
@@ -2258,9 +2308,20 @@ export class CombatSystemService {
         return lines;
       }
 
+      // 载具数据需要在伤害计算前读取：阿尔缇娜的贯穿加成发生在原版“贯穿判断”之前。
+      const mapVehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+      const vehicleIndex = mapVehicles.findIndex((x: any) => x && (x.id === victim.vehicle || x.编号 === victim.vehicle));
+      const vehicle = vehicleIndex >= 0 ? mapVehicles[vehicleIndex] : undefined;
+      const vehicleCurrentHp = Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? 0);
+      const altinaMultiplier = 1.25 + Number(monster.skillLevel ?? 0) / 200;
+      const damageAttackerBonus: BonusData = { ...monsterBonus };
+      if (vehicleCurrentHp > 0 && (monster.specialSeq ?? 0) === 7) {
+        damageAttackerBonus.贯穿 = (damageAttackerBonus.贯穿 || 0) * 1.5;
+      }
+
       // 伤害计算（怪物作为攻击方，玩家作为防御方；怪物武器简化为拳头+怪物四属性伤害）
       const dmg = this.calcDamage(
-        monsterBonus,
+        damageAttackerBonus,
         {
           生命: victim.hp || 0,
           护盾: victim.shield || 0,
@@ -2290,69 +2351,36 @@ export class CombatSystemService {
         CombatSystemService.DMG_PHYS,
         false,
       );
-      let finalDmg = Math.max(1, Math.floor(dmg.damage));
+      const finalDmg = Math.max(0, Math.floor(dmg.damage));
 
-      // ========== 载具承伤（对应原版 战斗相关.ecode L3175-3288：防御方驾驶载具时载具先承伤害） ==========
-      // 原版 L3175：载具.当前生命 > 0 → b=1，怪物伤害先作用于载具（载具承第一道伤）；
-      // 载具破碎（当前生命<=0）后溢出伤害才落到玩家三池。L3181 阿尔缇娜(#阿尔缇娜=7)攻击时
-      // 额外 贯穿×1.5 + 伤害×(1.25+技等/200)。本框架载具实例存于地图 map.vehicles JSON，
-      // 经 player.vehicle(ID) 匹配，与 weaponAttack 攻击方载具加成(L393-397)取数同源。
-      let vehicleOverflow = 0; // 载具破碎后溢出到玩家的伤害
-      {
-        const vId = victim.vehicle || '';
-        if (vId) {
-          const mapVehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
-          const vIdx = mapVehicles.findIndex((x: any) => x && (x.id === vId || x.编号 === vId));
-          if (vIdx >= 0) {
-            const v = mapVehicles[vIdx];
-            const vHp = v.currentHp ?? v.当前生命 ?? 0;
-            if (vHp > 0) {
-              // 阿尔缇娜攻击：贯穿×1.5、四系伤害×(1.25+技等/200)（原版 L3181-3189）
-              let vehDmg = finalDmg;
-              if ((monster.specialSeq ?? 0) === 7) {
-                vehDmg = Math.floor(vehDmg * (1.25 + (monster.skillLevel ?? 0) / 200));
-                lines.push(`【阿尔缇娜】贯穿载具伤害×${(1.25 + (monster.skillLevel ?? 0) / 200).toFixed(3)}`);
-              }
-              const afterVeh = vHp - vehDmg;
-              if (afterVeh > 0) {
-                v.currentHp = afterVeh;
-                v.当前生命 = afterVeh;
-                lines.push(`${monster.name} 的攻击被${v.name || '载具'}挡下，载具耐久-${Math.round(vehDmg)}（剩余${Math.round(afterVeh)}）`);
-                vehDmg = 0; // 载具完全吸收，玩家不掉血
-              } else {
-                v.currentHp = 0;
-                v.当前生命 = 0;
-                vehicleOverflow = -afterVeh; // 溢出部分落到玩家
-                vehDmg = vehicleOverflow; // 破碎后剩余伤害=溢出值，作用于玩家三池
-                lines.push(`${v.name || '载具'}被击毁！溢出${Math.round(vehicleOverflow)}点伤害落到${youText}身上`);
-              }
-              mapVehicles[vIdx] = v;
-              map.vehicles = JSON.stringify(mapVehicles); // 写回地图载具实例
-              // 持久化地图载具状态（原版 载具.当前生命 即时变更需落库）
-              try {
-                await this.mapService.updateDynamicFields(map.id, { vehicles: map.vehicles });
-              } catch (e: any) {
-                this.logger.warn(`载具承伤持久化失败: ${e.message}`);
-              }
-              finalDmg = vehDmg; // 剩余作用于玩家三池的伤害（载具吸收则为0）
-            }
-          }
-        }
-      }
+      // ========== 载具承伤（对应原版 战斗相关.ecode L3175-3529） ==========
+      // 原版载具分支结尾会清空普通四属性剩余伤害；载具击毁的同一次普通攻击不把
+      // 溢出伤害转给驾驶员，只有“阵地”强制分支会继续穿透玩家三池。
+      const vehicleResolution = await this.resolveVehicleDamage({
+        vehicle,
+        vehicleIndex,
+        mapVehicles,
+        map,
+        attacker: monster,
+        attackerBonus: damageAttackerBonus,
+        victim,
+        damage: dmg,
+        baseDamage: finalDmg,
+        altinaMultiplier,
+        lines,
+      });
+      const playerDamage = vehicleResolution.damageToPlayer;
 
       // 扣除玩家血量（三池：护盾→装甲→生命），仅结算载具未吸收的部分
-      const pool = dmg.poolDamage || { shield: 0, armor: 0, hp: finalDmg };
-      // 载具溢出时按溢出值等比缩放三池分配（原版 剩余物伤/火/冰/电 拆分；本框架以 finalDmg 比例近似）
-      // finalDmg<=0（载具完全吸收）时 scale=0，确保玩家不掉血。
-      const vehScale = finalDmg > 0 && dmg.poolDamage ? finalDmg / Math.max(1, dmg.damage) : 0;
-      const shieldDmg = Math.min(Math.round((pool.shield || 0) * vehScale), victim.shield || 0);
-      const armorDmg = Math.min(Math.round((pool.armor || 0) * vehScale), victim.armor || 0);
-      const hpDmg = Math.min(Math.round((pool.hp || 0) * vehScale), victim.hp || 0);
+      const pool = vehicleResolution.poolDamage || dmg.poolDamage || { shield: 0, armor: 0, hp: playerDamage };
+      const shieldDmg = Math.min(Math.max(0, Math.round(pool.shield || 0)), victim.shield || 0);
+      const armorDmg = Math.min(Math.max(0, Math.round(pool.armor || 0)), victim.armor || 0);
+      const hpDmg = Math.min(Math.max(0, Math.round(pool.hp || 0)), victim.hp || 0);
       victim.shield = Math.max(0, (victim.shield || 0) - shieldDmg);
       victim.armor = Math.max(0, (victim.armor || 0) - armorDmg);
       victim.hp = Math.max(0, (victim.hp || 0) - hpDmg);
 
-      const dmgText = this.formatDamageText(finalDmg, { shield: shieldDmg, armor: armorDmg, hp: hpDmg });
+      const dmgText = this.formatDamageText(playerDamage, { shield: shieldDmg, armor: armorDmg, hp: hpDmg });
       if (this.playerService.isPlayerDead(victim)) {
         // ========== 卷土重来（对应原版 造成伤害 L3674：怪物击杀玩家，若 jlq 冷却未过则进入卷土重来状态） ==========
         // 原版：防御方.特殊序号>0(玩家) 且 时间间隔要求("jlq",60,防御方.标记2)==假 →
@@ -2397,6 +2425,412 @@ export class CombatSystemService {
       this.logger.warn(`怪物反击单体失败: ${err.message}`);
     }
     return lines;
+  }
+
+  /**
+   * 结算单次攻击对载具的影响。
+   *
+   * 对应原版 战斗相关.ecode L3175-L3529：这里保留原版的执行顺序，
+   * 并把“普通剩余伤害”和“贯穿直接伤害”分开。原版在载具分支结束时
+   * 会清空普通剩余四属性，所以载具被击毁的同一次普通攻击不会自动溢出
+   * 到驾驶员；贯穿产生的额外三池伤害仍按原版继续结算。
+   */
+  private async resolveVehicleDamage(options: {
+    vehicle?: any;
+    vehicleIndex: number;
+    mapVehicles: any[];
+    map: any;
+    attacker: any;
+    attackerBonus: BonusData;
+    victim: any;
+    damage: DamageResult;
+    baseDamage: number;
+    altinaMultiplier: number;
+    lines: string[];
+  }): Promise<{ damageToPlayer: number; poolDamage: PoolDamage }> {
+    const {
+      vehicle,
+      vehicleIndex,
+      mapVehicles,
+      map,
+      attacker,
+      attackerBonus,
+      victim,
+      damage,
+      baseDamage,
+      altinaMultiplier,
+      lines,
+    } = options;
+
+    const zeroBreakdown = (): DamageBreakdown => ({ physical: 0, fire: 0, ice: 0, elec: 0 });
+    const zeroPool = (): PoolDamage => ({ shield: 0, armor: 0, hp: 0 });
+    const sumBreakdown = (b: DamageBreakdown): number => b.physical + b.fire + b.ice + b.elec;
+    const sumPool = (p: PoolDamage): number => p.shield + p.armor + p.hp;
+    const scaleBreakdown = (b: DamageBreakdown, ratio: number): DamageBreakdown => ({
+      physical: b.physical * ratio,
+      fire: b.fire * ratio,
+      ice: b.ice * ratio,
+      elec: b.elec * ratio,
+    });
+    const scalePool = (p: PoolDamage, ratio: number): PoolDamage => ({
+      shield: p.shield * ratio,
+      armor: p.armor * ratio,
+      hp: p.hp * ratio,
+    });
+    const copyPool = (p: PoolDamage): PoolDamage => ({
+      shield: Math.max(0, Number(p.shield || 0)),
+      armor: Math.max(0, Number(p.armor || 0)),
+      hp: Math.max(0, Number(p.hp || 0)),
+    });
+    const subtractPool = (whole: PoolDamage, part: PoolDamage): PoolDamage => ({
+      shield: Math.max(0, whole.shield - part.shield),
+      armor: Math.max(0, whole.armor - part.armor),
+      hp: Math.max(0, whole.hp - part.hp),
+    });
+    const hasBreakdown = (b: DamageBreakdown): boolean => sumBreakdown(b) > 0;
+
+    const vehicleParts = this.getVehiclePartNames(vehicle);
+    const hasPart = (name: string): boolean => vehicleParts.includes(name);
+    const currentHp = Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? 0);
+    const hasVehicle = !!vehicle && currentHp > 0;
+    const reverseField = !!(vehicle?.reverseField ?? vehicle?.逆转力场);
+    const nowMs = Date.now();
+    const status = Math.max(0, Number(victim.hp || 0) + Number(victim.armor || 0) + Number(victim.shield || 0));
+    const attackerMarkers = this.playerService.safeJsonParse<any[]>(attacker?.markers2, []);
+    const victimMarkers = this.playerService.safeJsonParse<any[]>(victim?.markers2, []);
+    const victimBuffs = this.playerService.safeJsonParse<any[]>(victim?.buffs, []);
+    const vehicleMarkers = this.playerService.safeJsonParse<any[]>(vehicle?.markers2, []);
+    let attackerMarkersChanged = false;
+    let vehicleChanged = false;
+
+    const persistAttackerMarkers = async (): Promise<void> => {
+      if (!attackerMarkersChanged) return;
+      attacker.markers2 = JSON.stringify(attackerMarkers);
+      if (typeof attacker.id === 'number') {
+        await this.updateMonsterHpInMap(map.id, attacker);
+      }
+    };
+    const persistVehicle = async (): Promise<void> => {
+      if (!hasVehicle || vehicleIndex < 0) return;
+      vehicle.markers2 = JSON.stringify(vehicleMarkers);
+      mapVehicles[vehicleIndex] = vehicle;
+      map.vehicles = JSON.stringify(mapVehicles);
+      if (vehicleChanged || vehicleIndex >= 0) {
+        try {
+          await this.mapService.updateDynamicFields(map.id, { vehicles: map.vehicles });
+        } catch (e: any) {
+          this.logger.warn(`载具承伤持久化失败: ${e.message}`);
+        }
+      }
+    };
+
+    const basePool = copyPool(damage.poolDamage || { shield: 0, armor: 0, hp: baseDamage });
+    let extraPool = copyPool(damage.vehicleExtraPoolDamage || zeroPool());
+    let extraBreakdown = damage.vehicleExtraBreakdown || {
+      shield: zeroBreakdown(),
+      armor: zeroBreakdown(),
+      life: zeroBreakdown(),
+    };
+    let remaining = damage.vehicleBreakdown
+      ? { ...damage.vehicleBreakdown }
+      : damage.damageBreakdown
+        ? { ...damage.damageBreakdown }
+        : { physical: baseDamage, fire: 0, ice: 0, elec: 0 };
+    const originalRemainingTotal = Math.max(0, sumBreakdown(remaining));
+    const originalExtraPool = copyPool(extraPool);
+    let penetrationResisted = false;
+
+    // 原版 L3192-L3212：损伤控制系统B优先于A，只有贯穿命中时才消耗“sk”冷却。
+    // 原始源码的这一段没有C分支，按原版保留。
+    if (hasVehicle && damage.penetrated) {
+      if (hasPart('损伤控制系统B')) {
+        const cooldown = hasPart('损伤控制系统强化') ? 35 : 60;
+        if (!this.combatState.timeIntervalRequire('sk', cooldown, vehicleMarkers, nowMs, { value: '' }, nowMs)) {
+          penetrationResisted = true;
+        }
+      } else if (hasPart('损伤控制系统A')) {
+        const cooldown = hasPart('损伤控制系统强化') ? 20 : 45;
+        if (!this.combatState.timeIntervalRequire('sk', cooldown, vehicleMarkers, nowMs, { value: '' }, nowMs)) {
+          penetrationResisted = true;
+        }
+      }
+      if (penetrationResisted) {
+        damage.penetrated = false;
+        extraPool = zeroPool();
+        extraBreakdown = {
+          shield: zeroBreakdown(),
+          armor: zeroBreakdown(),
+          life: zeroBreakdown(),
+        };
+        vehicleChanged = true;
+        lines.push('【贯穿抵抗】');
+      }
+    }
+
+    // 载具部件使用中文标记2作为唯一状态容器；上面的时间接口会原地归一化它。
+    if (hasVehicle) {
+      vehicleChanged = true;
+      vehicle.markers2 = JSON.stringify(vehicleMarkers);
+    }
+
+    // 原版 L3181-L3188/L3482-L3484：阿尔缇娜先放大四属性，载具伤害结算后再放大一次。
+    if (hasVehicle && (attacker.specialSeq ?? 0) === 7) {
+      remaining = scaleBreakdown(remaining, altinaMultiplier);
+      extraBreakdown = {
+        shield: scaleBreakdown(extraBreakdown.shield, altinaMultiplier),
+        armor: scaleBreakdown(extraBreakdown.armor, altinaMultiplier),
+        life: scaleBreakdown(extraBreakdown.life, altinaMultiplier),
+      };
+      extraPool = scalePool(extraPool, altinaMultiplier);
+      lines.push(`【阿尔缇娜】贯穿载具伤害×${altinaMultiplier.toFixed(3)}`);
+    }
+
+    // 原版 L3298-L3316：已存在的“福音书”先把四属性剩余伤害固定为0.25，
+    // 并清除贯穿额外伤害；该步骤发生在载具涂层和阵地判断之前。
+    const gospelStrengthText = { value: 0 };
+    const gospelTimeText = { value: 0 };
+    const hasGospel = this.combatState.buffRequire('福音书', victimBuffs, gospelStrengthText, nowMs, gospelTimeText);
+    if (hasGospel && gospelStrengthText.value > 0) {
+      remaining = { physical: 0.25, fire: 0.25, ice: 0.25, elec: 0.25 };
+      extraPool = zeroPool();
+      extraBreakdown = {
+        shield: zeroBreakdown(),
+        armor: zeroBreakdown(),
+        life: zeroBreakdown(),
+      };
+      victim.buffs = JSON.stringify(victimBuffs);
+      lines.push(`【福音书${gospelStrengthText.value}】`);
+    } else if (hasGospel) {
+      victim.buffs = JSON.stringify(victimBuffs);
+    }
+
+    const terrainValue = this.normalizeMarkerObject(attacker?.markers)['阵地'] || 0;
+    // 原版 L3350-L3355：阵地攻击方不走载具的1/2点伤害上限；前线作为防御方时仍走普通载具分支。
+    const forceVehicleDamage = terrainValue !== 0 && victim.name !== '前线';
+    const poolFromRemaining = (): PoolDamage => {
+      const normalPool = penetrationResisted ? subtractPool(basePool, originalExtraPool) : subtractPool(basePool, originalExtraPool);
+      const remainingRatio = originalRemainingTotal > 0
+        ? sumBreakdown(remaining) / originalRemainingTotal
+        : 1;
+      const adjustedPool = scalePool(normalPool, remainingRatio);
+      return {
+        shield: adjustedPool.shield + extraPool.shield,
+        armor: adjustedPool.armor + extraPool.armor,
+        hp: adjustedPool.hp + extraPool.hp,
+      };
+    };
+
+    // 原版 L3320-L3347：逆转力场不承受伤害，也不能替驾驶员挡伤害。
+    // 贯穿抵抗仍发生在此前的原版位置，因此只在抵抗触发时从玩家三池中移除贯穿额外伤害。
+    if (hasVehicle && reverseField) {
+      if (terrainValue === 1) {
+        const lethalPool: PoolDamage = {
+          shield: Math.max(0, Number(victim.shield || 0)),
+          armor: Math.max(0, Number(victim.armor || 0)),
+          hp: Math.max(0, Number(victim.hp || 0)),
+        };
+        await persistVehicle();
+        await persistAttackerMarkers();
+        return { damageToPlayer: sumPool(lethalPool), poolDamage: lethalPool };
+      }
+      const playerPool = poolFromRemaining();
+      await persistVehicle();
+      await persistAttackerMarkers();
+      return { damageToPlayer: sumPool(playerPool), poolDamage: playerPool };
+    }
+
+    if (!hasVehicle) {
+      await persistAttackerMarkers();
+      if (terrainValue === 1) {
+        // 原版 L3518-L3526：载具已失效且“阵地”熟练度为1时，四层穿透设为200并追加四属性必杀伤害。
+        attackerBonus.生命穿透 = 200;
+        attackerBonus.护盾穿透 = 200;
+        attackerBonus.装甲穿透 = 200;
+        const lethalPool: PoolDamage = {
+          shield: Math.max(0, Number(victim.shield || 0)),
+          armor: Math.max(0, Number(victim.armor || 0)),
+          hp: Math.max(0, Number(victim.hp || 0)),
+        };
+        return { damageToPlayer: sumPool(lethalPool), poolDamage: lethalPool };
+      }
+      const playerPool = poolFromRemaining();
+      return { damageToPlayer: sumPool(playerPool), poolDamage: playerPool };
+    }
+
+    // 涂层只影响仍然进入载具承伤阶段的攻击；逆转力场已在上面提前返回。
+    const coating = this.getVehicleCoating(vehicle, vehicleParts);
+    const coatingFactor = coating > 0 ? 0.05 : 1;
+    const applyCoating = (b: DamageBreakdown): DamageBreakdown => {
+      if (coating === 1) return { physical: b.physical * 0.05, fire: b.fire, ice: b.ice, elec: b.elec };
+      if (coating === 2) return { physical: b.physical, fire: b.fire * 0.05, ice: b.ice, elec: b.elec };
+      if (coating === 3) return { physical: b.physical, fire: b.fire, ice: b.ice * 0.05, elec: b.elec };
+      if (coating === 4) return { physical: b.physical, fire: b.fire, ice: b.ice, elec: b.elec * 0.05 };
+      return b;
+    };
+    remaining = applyCoating(remaining);
+    extraBreakdown = {
+      shield: applyCoating(extraBreakdown.shield),
+      armor: applyCoating(extraBreakdown.armor),
+      life: applyCoating(extraBreakdown.life),
+    };
+    if (hasBreakdown(extraBreakdown.shield) || hasBreakdown(extraBreakdown.armor) || hasBreakdown(extraBreakdown.life)) {
+      extraPool = {
+        shield: Math.min(sumBreakdown(extraBreakdown.shield), Math.max(0, Number(victim.shield || 0))),
+        armor: Math.min(sumBreakdown(extraBreakdown.armor), Math.max(0, Number(victim.armor || 0))),
+        hp: Math.min(sumBreakdown(extraBreakdown.life), Math.max(0, Number(victim.hp || 0))),
+      };
+    } else if (coating > 0) {
+      extraPool = scalePool(extraPool, coatingFactor);
+    }
+
+    let vehicleDamage = 0;
+    const remainingDamage = Math.max(0, sumBreakdown(remaining));
+
+    // 原版 L3357-L3366：虹天剑首次命中载具走专用分支；虹a冷却期间走普通承伤。
+    const rainbowOnCooldown = (attacker.specialSeq ?? 0) === -9
+      ? this.combatState.timeIntervalRequire('虹a', 120, attackerMarkers, nowMs, { value: '' }, nowMs)
+      : false;
+    if (forceVehicleDamage) {
+      // 阵地/地精攻击载具时跳过普通载具伤害上限，但仍经过涂层、贯穿和损控前置。
+      vehicleDamage = remainingDamage;
+    } else if ((attacker.specialSeq ?? 0) === -9 && !rainbowOnCooldown) {
+      const vehicleMaxHp = Number(
+        vehicle?.bonus?.生命 ?? vehicle?.加成?.生命 ?? vehicle?.maxHp ?? vehicle?.最大生命 ?? currentHp,
+      );
+      vehicleDamage = Math.max(0, vehicleMaxHp / 2);
+      attackerMarkersChanged = true;
+      lines.push(`(虹天剑${Math.floor(vehicleDamage)})`);
+    } else {
+      // 原版 L3367-L3447：先过损伤控制/福音书，再把普通承伤固定为0/1/2。
+      if (remainingDamage > 0 && remainingDamage >= 0.05 * status) {
+        if (hasPart('损伤控制系统A')) {
+          const cooldown = hasPart('损伤控制系统强化') ? 35 : 60;
+          if (!this.combatState.timeIntervalRequire('sk0', cooldown, vehicleMarkers, nowMs, { value: '' }, nowMs)) {
+            this.combatState.gainBuff(vehicleMarkers, 'sk1', 5, false, nowMs, 0);
+            vehicleChanged = true;
+          }
+        } else if (hasPart('损伤控制系统B')) {
+          const cooldown = hasPart('损伤控制系统强化') ? 25 : 50;
+          if (!this.combatState.timeIntervalRequire('sk0', cooldown, vehicleMarkers, nowMs, { value: '' }, nowMs)) {
+            this.combatState.gainBuff(vehicleMarkers, 'sk1', 5, false, nowMs, 0);
+            vehicleChanged = true;
+          }
+        } else if (hasPart('损伤控制系统C')) {
+          const cooldown = hasPart('损伤控制系统强化') ? 15 : 40;
+          if (!this.combatState.timeIntervalRequire('sk0', cooldown, vehicleMarkers, nowMs, { value: '' }, nowMs)) {
+            this.combatState.gainBuff(vehicleMarkers, 'sk1', 5, false, nowMs, 0);
+            vehicleChanged = true;
+          }
+        } else {
+          const sets = this.playerService.safeJsonParse<any>(victim.sets, {});
+          const sakuraHits = Number(sets['小樱命中次数'] ?? sets.sakuraHits ?? 0);
+          const sleepover = Number(sets['陪睡'] ?? sets.sleepover ?? 0);
+          if (sakuraHits > 0 && sakuraHits < 5 && sleepover > 7 &&
+              !this.combatState.timeIntervalRequire('sk0', 60, vehicleMarkers, nowMs, { value: '' }, nowMs)) {
+            this.combatState.gainBuff(vehicleMarkers, 'sk1', 2, false, nowMs, 0);
+            vehicleChanged = true;
+          }
+        }
+
+        const sk1Text = { value: 0 };
+        const sk1Time = { value: 0 };
+        const hasSk1 = this.combatState.buffRequire('sk1', vehicleMarkers, sk1Text, nowMs, sk1Time);
+        if (!hasSk1 && hasPart('福音书系统')) {
+          const gospelCdText = { value: 0 };
+          if (!this.combatState.buffRequire('福音cd', victimMarkers, gospelCdText, nowMs, { value: 0 })) {
+            const gospelStrength = this.combatState.gainBuff(victimMarkers, '福ys', 600, false, nowMs, 1, true);
+            victim.markers2 = JSON.stringify(victimMarkers);
+            vehicleDamage = 1;
+            extraPool = zeroPool();
+            if (gospelStrength >= 5) {
+              this.combatState.gainBuff(victimMarkers, '福音cd', 3600, false, nowMs);
+              lines.push('【福音书过载】');
+            } else {
+              lines.push(`【福音书${gospelStrength}】`);
+            }
+            victim.markers2 = JSON.stringify(victimMarkers);
+          }
+        }
+
+        const remainingSk1 = { value: 0 };
+        const remainingSk1Time = { value: 0 };
+        if (this.combatState.buffRequire('sk1', vehicleMarkers, remainingSk1, nowMs, remainingSk1Time)) {
+          vehicleDamage = 0;
+          extraPool = zeroPool();
+          lines.push(`【损控${Math.ceil(remainingSk1Time.value)}秒】`);
+        } else if (vehicleDamage === 0) {
+          if (remainingDamage < 0.05 * status) {
+            lines.push(`(伤害过低未破防:${Math.floor(remainingDamage)})`);
+            vehicleDamage = 0;
+          } else {
+            vehicleDamage = remainingDamage / 2 > status ? 2 : 1;
+            if ((attacker.specialSeq ?? 0) === 24 && Number(attacker.affinity || 0) >= 40) {
+              const skillLevel = Number(attacker.skillLevel ?? this.playerService.getMarkerValue(this.normalizeMarkerObject(attacker.markers), `${attacker.type || ''}技能`));
+              vehicleDamage *= 1.5 + skillLevel * 0.025;
+            }
+            const effect = attacker.weaponEffect ?? attacker.specialEffect ?? attacker.effect ?? attacker.特效;
+            if (Number(effect) === 46) {
+              vehicleDamage *= 1.25 + Math.random() * 0.25;
+            }
+          }
+        }
+      }
+    }
+
+    // 原版 L3472-L3484：觉醒300的防御方对负特殊序号攻击方有33%减半，
+    // 随后阿尔缇娜载具伤害再次乘倍率。
+    const victimMarkersObject = this.normalizeMarkerObject(victim.markers);
+    const awakening = Number(victimMarkersObject['觉醒'] || 0);
+    if ((attacker.specialSeq ?? 0) < -1 && awakening >= 300 && Math.random() * 100 < 33) {
+      vehicleDamage /= 2;
+      lines.push('(天地同辉)');
+    }
+    if (hasVehicle && (attacker.specialSeq ?? 0) === 7) {
+      vehicleDamage *= altinaMultiplier;
+    }
+
+    vehicleDamage = Math.min(Math.max(0, vehicleDamage), currentHp);
+    const afterVehicle = Math.max(0, currentHp - vehicleDamage);
+    vehicle.currentHp = afterVehicle;
+    vehicle.当前生命 = afterVehicle;
+    vehicleChanged = true;
+    lines.push(`${vehicle.name || vehicle.名称 || '载具'}生命-${Math.floor(vehicleDamage)}(${Math.floor(afterVehicle)})`);
+
+    // 载具承伤分支结束时清空普通剩余四属性；只把额外三池伤害交给驾驶员。
+    const playerPool = copyPool(extraPool);
+    await persistVehicle();
+    if ((attacker.specialSeq ?? 0) === -9) attackerMarkersChanged = true;
+    await persistAttackerMarkers();
+    return { damageToPlayer: sumPool(playerPool), poolDamage: playerPool };
+  }
+
+  /** 读取载具零件名称，兼容英文/中文字段和内置零件数组。 */
+  private getVehiclePartNames(vehicle: any): string[] {
+    if (!vehicle) return [];
+    const parse = (value: any): any[] => Array.isArray(value)
+      ? value
+      : this.playerService.safeJsonParse<any[]>(value, []);
+    const names: string[] = [];
+    const visit = (part: any): void => {
+      if (!part) return;
+      const name = String(part.name ?? part.名称 ?? '');
+      if (name) names.push(name);
+      for (const inner of parse(part.builtinParts ?? part.内置零件 ?? part.builtin ?? part.内置)) visit(inner);
+    };
+    for (const part of parse(vehicle.parts ?? vehicle.零件)) visit(part);
+    for (const part of parse(vehicle.builtinParts ?? vehicle.内置零件)) visit(part);
+    return names;
+  }
+
+  /** 载具涂层类型：物理=1、火焰=2、冰冻=3、雷电=4（@Constant.ecode L277-L280）。 */
+  private getVehicleCoating(vehicle: any, partNames: string[]): number {
+    const raw = Number(vehicle?.coating ?? vehicle?.涂层 ?? 0);
+    if (raw >= 1 && raw <= 4) return raw;
+    if (partNames.includes('坚固涂层')) return CombatSystemService.DMG_PHYS;
+    if (partNames.includes('耐热涂层')) return CombatSystemService.DMG_FIRE;
+    if (partNames.includes('耐寒涂层')) return CombatSystemService.DMG_ICE;
+    if (partNames.includes('电阻涂层')) return CombatSystemService.DMG_ELEC;
+    return 0;
   }
 
   /**
@@ -2636,18 +3070,41 @@ export class CombatSystemService {
     //   - 只有护盾 或 只有装甲：额外生命伤害 = 剩余×0.3，剩余×0.7走正常流程
     //   - 护盾+装甲都有：额外生命×0.1、额外装甲×0.2、剩余×0.7
     const penetrateRatio = (atkBonus.贯穿 || 0) - (defBonus.抗贯穿 || 0);
+    const emptyBreakdown = (): DamageBreakdown => ({ physical: 0, fire: 0, ice: 0, elec: 0 });
+    const scaleBreakdown = (b: DamageBreakdown, ratio: number): DamageBreakdown => ({
+      physical: b.physical * ratio,
+      fire: b.fire * ratio,
+      ice: b.ice * ratio,
+      elec: b.elec * ratio,
+    });
     let pierce = { directLife: 0, directArmor: 0, directShield: 0 };
-    if (penetrateRatio > 0 && Math.random() * 100 < penetrateRatio) {
+    let pierceBreakdown = {
+      shield: emptyBreakdown(),
+      armor: emptyBreakdown(),
+      life: emptyBreakdown(),
+    };
+    const penetrated = penetrateRatio > 0 && Math.random() * 100 < penetrateRatio;
+    if (penetrated) {
       const hasShield = (defBonus.护盾 || 0) > 0;
       const hasArmor = (defBonus.装甲 || 0) > 0;
       if (hasShield && hasArmor) {
         // 护盾1装甲1：额外生命=剩余×0.1、额外装甲=剩余×0.2
         const total = sumBreakdown(resistBreakdown.shield);
         pierce = { directLife: total * 0.1, directArmor: total * 0.2, directShield: 0 };
+        pierceBreakdown = {
+          shield: emptyBreakdown(),
+          armor: scaleBreakdown(resistBreakdown.shield, 0.2),
+          life: scaleBreakdown(resistBreakdown.shield, 0.1),
+        };
       } else if (hasShield || hasArmor) {
         // 护盾1装甲0 / 护盾0装甲1：额外生命=剩余×0.3
         const total = sumBreakdown(resistBreakdown.shield);
         pierce = { directLife: total * 0.3, directArmor: 0, directShield: 0 };
+        pierceBreakdown = {
+          shield: emptyBreakdown(),
+          armor: emptyBreakdown(),
+          life: scaleBreakdown(resistBreakdown.shield, 0.3),
+        };
       }
     }
 
@@ -2656,6 +3113,11 @@ export class CombatSystemService {
 
     // 14. 总伤害
     const totalDamage = poolDamage.shield + poolDamage.armor + poolDamage.hp;
+    const vehicleExtraPoolDamage: PoolDamage = {
+      shield: Math.min(pierce.directShield, Math.max(0, defBonus.护盾 || 0)),
+      armor: Math.min(pierce.directArmor, Math.max(0, defBonus.装甲 || 0)),
+      hp: Math.min(pierce.directLife, Math.max(0, defBonus.生命 || 0)),
+    };
 
     return {
       damage: Math.max(0, Math.floor(totalDamage)),
@@ -2666,6 +3128,10 @@ export class CombatSystemService {
       poolDamage,
       critMultiplier,
       rating,
+      vehicleBreakdown: resistBreakdown.shield,
+      penetrated,
+      vehicleExtraPoolDamage,
+      vehicleExtraBreakdown: pierceBreakdown,
     };
   }
 
@@ -2929,6 +3395,112 @@ export class CombatSystemService {
     }
 
     return { expGain, drops, dropText };
+  }
+
+  /**
+   * 原版 战斗相关.ecode L1338-L1349：准备本次攻击的麻醉倍率。
+   * 强效麻醉镖只有在数量大于1时才会被消耗，且将麻醉效果提升为2倍。
+   */
+  private prepareWeaponAnesthesia(
+    player: any,
+    weapon: WeaponData,
+    resultLines: string[],
+  ): number {
+    const weaponAnesthesia = Number(weapon.self?.anesthesia ?? weapon.anesthesia ?? 0);
+    if (weaponAnesthesia <= 0) return 0;
+
+    const backpack = this.playerService.getBackpackItems(player);
+    const dart = backpack.find((item: any) => item?.name === '强效麻醉镖');
+    const dartCount = Number(dart?.quantity ?? dart?.count ?? 0);
+    if (dart && dartCount > 1) {
+      if (Object.prototype.hasOwnProperty.call(dart, 'quantity')) dart.quantity = dartCount - 1;
+      else dart.count = dartCount - 1;
+      player.backpack = JSON.stringify(backpack);
+      resultLines.push('【强效麻醉】');
+      return 2;
+    }
+    return 1;
+  }
+
+  /** 原版标记2兼容读取：同时支持中文字段和英文存量字段、秒/毫秒时间戳。 */
+  private hasActiveMonsterEntry(value: any, name: string, nowMs = Date.now()): boolean {
+    const entries = this.safeParseJson<any[]>(value, []);
+    return entries.some((entry: any) => {
+      const entryName = entry?.名称 ?? entry?.name;
+      if (entryName !== name) return false;
+      const rawExpire = Number(entry?.有效期至 ?? entry?.expireAt ?? 0);
+      const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      return !expireAt || expireAt > nowMs;
+    });
+  }
+
+  /** 将原版标记数组或当前对象格式统一为可序列化的中文标记对象。 */
+  private normalizeMarkerObject(value: any): Record<string, number> {
+    const parsed = this.safeParseJson<any>(value, {});
+    if (!Array.isArray(parsed)) return parsed && typeof parsed === 'object' ? parsed : {};
+    const markers: Record<string, number> = {};
+    for (const entry of parsed) {
+      const name = entry?.名称 ?? entry?.name;
+      if (!name) continue;
+      markers[name] = Number(entry?.数值 ?? entry?.value ?? entry?.count ?? 0);
+    }
+    return markers;
+  }
+
+  /**
+   * 原版 战斗相关.ecode L3822-L3838：命中后应用武器麻醉，并记录当前玩家的麻醉权限。
+   * 当前麻醉和麻醉者标记都写入 GameMonster JSON，兼容存量实例。
+   */
+  private applyWeaponAnesthesia(
+    target: any,
+    player: any,
+    weapon: WeaponData,
+    totalDamage: number,
+    anesthesiaEffect: number,
+  ): string {
+    const weaponAnesthesia = Number(weapon.self?.anesthesia ?? weapon.anesthesia ?? 0);
+    if (weaponAnesthesia <= 0 || anesthesiaEffect <= 0 || totalDamage <= 0) return '';
+
+    const bonus = this.safeParseJson<Record<string, any>>(target.bonus, {});
+    const baseBonus = this.safeParseJson<Record<string, any>>(target.baseBonus, {});
+    const maxAnesthesia = Math.abs(Number(bonus.麻醉 ?? baseBonus.麻醉 ?? 0));
+    const baseAnesthesia = Number(baseBonus.麻醉 ?? bonus.麻醉 ?? 0);
+    // 原版：基础麻醉为负数的怪物不能用武器麻醉。
+    if (baseAnesthesia <= 0 || maxAnesthesia <= 0) return '';
+
+    const current = Math.max(0, Number(bonus.当前麻醉 ?? bonus.currentAnesthesia ?? 0));
+    if (current >= maxAnesthesia) return '';
+
+    let multiplier = anesthesiaEffect;
+    // 原版 战斗相关.ecode L4249-L4254/L4383-L4388：护盾或装甲当前值超过上限50%时，
+    // 麻醉效果分别乘0.6，判定顺序与原版一致。
+    if ((target.maxShield || 0) > 0 && (target.shield || 0) / target.maxShield > 0.5) multiplier *= 0.6;
+    if ((target.maxArmor || 0) > 0 && (target.armor || 0) / target.maxArmor > 0.5) multiplier *= 0.6;
+
+    const added = totalDamage * weaponAnesthesia / 100 * multiplier;
+    if (added <= 0) return '';
+    const next = current + added;
+    bonus.当前麻醉 = next;
+    target.bonus = JSON.stringify(bonus);
+
+    const full = next >= maxAnesthesia;
+    if (full) {
+      const markers2 = this.safeParseJson<any[]>(target.markers2, []);
+      const retained = markers2.filter((entry: any) => (entry?.名称 ?? entry?.name) !== '麻醉');
+      retained.push({ 名称: '麻醉', 强度: 0, 有效期至: Date.now() + 3600 * 1000 });
+      target.markers2 = JSON.stringify(retained);
+    }
+
+    const ownerQQ = String(player.qqNumber ?? player.userId ?? '');
+    if (ownerQQ) {
+      const markers = this.normalizeMarkerObject(target.markers);
+      const ownerKey = `麻醉者${ownerQQ}`;
+      markers[ownerKey] = (Number(markers[ownerKey]) || 0) + 1;
+      target.markers = JSON.stringify(markers);
+    }
+
+    const text = `麻醉+${Math.round(added)}(${Math.round(next)}/${Math.round(maxAnesthesia)})`;
+    return full ? `${text}\n${target.name}被麻醉了，现在一小时内可以捕捉` : text;
   }
 
   /**
@@ -3225,38 +3797,54 @@ export class CombatSystemService {
       };
     }
 
-    // 解析武器属性
-    const properties = rawWeapon.properties || rawWeapon.属性 || { phys: 100, fire: 0, ice: 0, elec: 0 };
+    // 解析武器属性。存量玩家的武器通常只有 name/data，固定数值需要回读静态装备定义。
+    const staticWeapon = typeof (this.staticData as any)?.getEquipmentByName === 'function'
+      ? ((this.staticData as any).getEquipmentByName(rawWeapon.name) || {})
+      : {};
+    const parseObject = (value: any): any => {
+      if (typeof value !== 'string') return value || {};
+      try { return JSON.parse(value) || {}; } catch { return {}; }
+    };
+    const rawBonus = parseObject(rawWeapon.bonus || rawWeapon.加成);
+    const staticBonus = parseObject(staticWeapon.bonus);
+    const properties = parseObject(
+      rawWeapon.properties || rawWeapon.属性 || staticWeapon.properties || staticWeapon.属性,
+    );
+    const anesthesia = Number(
+      rawWeapon.anesthesia ?? rawWeapon.麻醉 ?? rawBonus.麻醉 ?? staticBonus.麻醉 ?? 0,
+    );
 
     // 普拉娜武器冷却×10（原版 _计算玩家 L1761-1763：玩家.特殊序号==#普拉娜 时 武器.冷却=武器.冷却*10）
-    let rawCooldown = rawWeapon.cooldown || rawWeapon.冷却 || 5;
+    let rawCooldown = rawWeapon.cooldown ?? rawWeapon.冷却 ?? staticWeapon.cooldown ?? 5;
     if (Number(attacker.specialSeq) === 22) {
       rawCooldown = rawCooldown * 10;
     }
 
     return {
       name: rawWeapon.name || '未知武器',
-      damage: rawWeapon.damage || rawWeapon.伤害 || 0,
-      damageType: this.resolveDamageType(rawWeapon.damageType || rawWeapon.伤害类型 || '物理'),
-      attackText: rawWeapon.attackText || rawWeapon.攻击文本 || '',
-      type: rawWeapon.type || rawWeapon.类型 || '近战武器',
-      specialSeq: rawWeapon.specialSeq || rawWeapon.特殊序号 || 0,
-      cooldown: rawCooldown,
-      lockTime: rawWeapon.lockTime || rawWeapon.锁定 || 0,
-      forcedEffect: rawWeapon.forcedEffect || rawWeapon.必出特效 || false,
-      vehicleForceDmg: rawWeapon.vehicleForceDmg || rawWeapon.无视载具 || false,
+      damage: rawWeapon.damage ?? rawWeapon.伤害 ?? staticWeapon.damage ?? staticWeapon.伤害 ?? 0,
+      damageType: this.resolveDamageType(rawWeapon.damageType || rawWeapon.伤害类型 || staticWeapon.damageType || staticWeapon.伤害类型 || '物理'),
+      attackText: rawWeapon.attackText || rawWeapon.攻击文本 || staticWeapon.attackText || staticWeapon.攻击文本 || '',
+      type: rawWeapon.type || rawWeapon.类型 || staticWeapon.equipType || staticWeapon.type || '近战武器',
+      specialSeq: rawWeapon.specialSeq ?? rawWeapon.特殊序号 ?? staticWeapon.specialSeq ?? 0,
+      cooldown: rawCooldown || staticWeapon.cooldown || 5,
+      lockTime: rawWeapon.lockTime ?? rawWeapon.锁定 ?? staticWeapon.lockTime ?? 0,
+      forcedEffect: rawWeapon.forcedEffect ?? rawWeapon.必出特效 ?? staticWeapon.forcedEffect ?? false,
+      vehicleForceDmg: rawWeapon.vehicleForceDmg ?? rawWeapon.无视载具 ?? staticWeapon.vehicleForceDmg ?? false,
       properties: {
-        phys: properties.phys || properties.物 || 100,
-        fire: properties.fire || properties.火 || 0,
-        ice: properties.ice || properties.冰 || 0,
-        elec: properties.elec || properties.电 || 0,
+        phys: properties.phys ?? properties.物 ?? 100,
+        fire: properties.fire ?? properties.火 ?? 0,
+        ice: properties.ice ?? properties.冰 ?? 0,
+        elec: properties.elec ?? properties.电 ?? 0,
       },
-      bonus: rawWeapon.bonus || rawWeapon.加成 || {},
-      baseBonus: rawWeapon.baseBonus || rawWeapon.基础加成 || {},
-      attackTexts: rawWeapon.attackTexts || rawWeapon.攻击文本列表 || [],
-      buffs: rawWeapon.buffs || rawWeapon.增益 || [],
-      negativeType: rawWeapon.negativeType || rawWeapon.负面类型 || 0,
-      specialEffect: rawWeapon.specialEffect || rawWeapon.特效 || 0,
+      bonus: { ...staticBonus, ...rawBonus },
+      baseBonus: parseObject(rawWeapon.baseBonus || rawWeapon.基础加成 || staticWeapon.baseBonus || staticWeapon.基础加成),
+      attackTexts: parseObject(rawWeapon.attackTexts || rawWeapon.攻击文本列表 || staticWeapon.attackTexts || staticWeapon.攻击文本列表) || [],
+      buffs: parseObject(rawWeapon.buffs || rawWeapon.增益 || staticWeapon.buffs || staticWeapon.增益) || [],
+      negativeType: rawWeapon.negativeType ?? rawWeapon.负面类型 ?? staticWeapon.negativeType ?? 0,
+      specialEffect: rawWeapon.specialEffect ?? rawWeapon.特效 ?? staticWeapon.specialEffect ?? 0,
+      self: { ...(rawWeapon.self || rawWeapon.自带 || {}), anesthesia },
+      anesthesia,
     };
   }
 
@@ -3286,10 +3874,18 @@ export class CombatSystemService {
     allAttack: boolean,
     weapon: WeaponData,
     targetName?: string,
+    targetId?: number | string,
   ): any[] {
     const alive = monsters.filter(m => (m.hp || 0) > 0);
 
     if (alive.length === 0) return [];
+
+    if (targetId !== undefined && targetId !== null) {
+      const matched = alive.find((m: any) =>
+        String(m.id) === String(targetId) || String(m.qq) === String(targetId),
+      );
+      if (matched) return [matched];
+    }
 
     // 指定目标（对应原版 `攻击怪物名` 设置玩家.目标后按名称锁定目标）
     if (targetName) {
@@ -4427,8 +5023,10 @@ export class CombatSystemService {
     poolDamage: PoolDamage,
   ): PoolDamage {
     // 实际扣减
-    const shieldDmg = Math.min(poolDamage.shield, monster.shield || monster.maxShield || 0);
-    const armorDmg = Math.min(poolDamage.armor, monster.armor || monster.maxArmor || 0);
+    const currentShield = monster.shield !== undefined ? monster.shield : (monster.maxShield || 0);
+    const currentArmor = monster.armor !== undefined ? monster.armor : (monster.maxArmor || 0);
+    const shieldDmg = Math.min(poolDamage.shield, currentShield);
+    const armorDmg = Math.min(poolDamage.armor, currentArmor);
     const hpDmg = Math.min(poolDamage.hp, monster.hp || 0);
 
     // 更新怪物状态
@@ -4462,6 +5060,10 @@ export class CombatSystemService {
           hp: monster.hp,
           shield: monster.shield,
           armor: monster.armor,
+          bonus: monster.bonus,
+          markers: monster.markers,
+          markers2: monster.markers2,
+          buffs: monster.buffs,
         });
         return;
       }
@@ -4469,6 +5071,10 @@ export class CombatSystemService {
         hp: monster.hp,
         shield: monster.shield,
         armor: monster.armor,
+        bonus: monster.bonus,
+        markers: monster.markers,
+        markers2: monster.markers2,
+        buffs: monster.buffs,
       });
     } catch (error) {
       this.logger.warn(`更新怪物血量失败: ${error.message}`);
@@ -4484,6 +5090,20 @@ export class CombatSystemService {
     if (poolDamage.shield > 0) parts.push(`护盾-${Math.floor(poolDamage.shield)}`);
     if (poolDamage.armor > 0) parts.push(`装甲-${Math.floor(poolDamage.armor)}`);
     if (poolDamage.hp > 0) parts.push(`生命-${Math.floor(poolDamage.hp)}`);
+    return parts.join(' ') || `${Math.floor(totalDamage)}`;
+  }
+
+  /** 原版捕捉模式生命层文本：生命不扣除，但显示当前生命和“捕捉中”状态。 */
+  private formatCaptureDamageText(
+    totalDamage: number,
+    poolDamage: PoolDamage,
+    monster: any,
+    showLife: boolean,
+  ): string {
+    const parts: string[] = [];
+    if (poolDamage.shield > 0) parts.push(`护盾-${Math.floor(poolDamage.shield)}`);
+    if (poolDamage.armor > 0) parts.push(`装甲-${Math.floor(poolDamage.armor)}`);
+    if (showLife) parts.push(`生命-0(${Math.floor(monster.hp || 0)})(捕捉中)`);
     return parts.join(' ') || `${Math.floor(totalDamage)}`;
   }
 
@@ -5572,9 +6192,11 @@ export class CombatSystemService {
     // 标记要求(name, markers2, 返回文本, s)：存在且未过期则写入剩余时间文本并返回真
     const marker2Require = (name: string, reason: number): boolean => {
       if (ignoreReason === reason) return false;
-      const entry = markers2.find((m: any) => m && m.name === name);
-      if (entry && entry.expireAt && entry.expireAt > nowSec) {
-        const remain = Math.ceil(entry.expireAt - nowSec);
+      const entry = markers2.find((m: any) => m && (m.name ?? m.名称) === name);
+      const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+      const expireAtSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
+      if (entry && expireAtSec > nowSec) {
+        const remain = Math.ceil(expireAtSec - nowSec);
         text = `${player.name} ${name}中，还需要 ${remain} 秒`; // 原版：玩家.名称 + name + "还需要" + 剩余
         return true;
       }
@@ -6231,9 +6853,23 @@ export class CombatSystemService {
    * @param productivity 生产力提高（可空）
    * @param mapId 所在地图（可空）
    */
+  /**
+   * 对外提供原版「计算载具」的纯重算入口。
+   * 生产系统先调用它得到载具加成、核心类型和超限标志，再执行「取生产产出」。
+   */
+  recalculateVehicle(
+    vehicle: any,
+    s: number | null = null,
+    productivity = 0,
+    mapId?: number,
+  ): any {
+    this.computeVehicle(vehicle, s, false, undefined, undefined, productivity, mapId);
+    return vehicle;
+  }
+
   private computeVehicle(
     vehicle: any,
-    s: number,
+    s: number | null,
     calcOutput?: boolean,
     achieve?: any[],
     tasks?: any[],
@@ -6286,6 +6922,17 @@ export class CombatSystemService {
       else if (cp.名称 === '逆转力场') vehicle.逆转力场 = true;
       const spec = 部件列表.find((b: any) => b.name === cp.名称);
       if (!spec) continue;
+      // 原版限制2=“涂层”时把部件名称转换为通用伤害类型（加成计算.ecode L3596、
+      // 战斗相关.ecode L3321-L3344）。静态部件数据缺少该派生字段时仍按名称补齐。
+      if (spec.limit2 === '涂层' || ['坚固涂层', '耐热涂层', '耐寒涂层', '电阻涂层'].includes(cp.名称)) {
+        const coatingByName: Record<string, number> = {
+          坚固涂层: CombatSystemService.DMG_PHYS,
+          耐热涂层: CombatSystemService.DMG_FIRE,
+          耐寒涂层: CombatSystemService.DMG_ICE,
+          电阻涂层: CombatSystemService.DMG_ELEC,
+        };
+        if (coatingByName[cp.名称]) vehicle.涂层 = coatingByName[cp.名称];
+      }
       const 生产类 = (spec.bonus && spec.bonus.生产 > 0);
       // 核心必须是第一个（类型==0）
       if (spec.partType === 0) {
@@ -6667,7 +7314,8 @@ export class CombatSystemService {
 
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return `${player.name} 你不在任何地图上。`;
-    const monsters = this.playerService.safeJsonParse<any[]>(map.monsters, []);
+    // 原版地图.怪物2是运行时实例；当前项目统一从 GameMonster 表读取。
+    const monsters = await this.mapService.getMapMonsters(map);
     if (monsters.length === 0) return `${player.name} 当前地图没有可攻击的怪物。`;
 
     const lines: string[] = [];
@@ -6675,7 +7323,11 @@ export class CombatSystemService {
 
     // 原版 L261-291：对地图每个怪物发起攻击（复用 weaponAttack，内含召唤物协同攻击）
     for (let i = 0; i < monsters.length; i++) {
-      const r = await this.weaponAttack(userId, 0, { targetName: monsters[i].name, allAttack: false });
+      const r = await this.weaponAttack(userId, 0, {
+        targetName: monsters[i].name,
+        targetId: monsters[i].id,
+        allAttack: false,
+      });
       lines.push(r.result);
       if (r.killed) lines.push(`击败了【${monsters[i].name}】`);
     }
