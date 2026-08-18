@@ -29,6 +29,20 @@ import { SEQ, AMPLIFIER_SEQ_RANGE, IMPLANT_SEQ_RANGE } from './constants/special
 /** #转秒：原版易语言时间常数，1秒 = 1000 毫秒 */
 const SECOND_MS = 1000;
 
+/**
+ * 增益/标记条目格式归一化（兼容层）
+ *
+ * 项目历史原因存在两套写入约定：
+ *  - combat-state 内部约定（原版对齐）：中文 key { 名称, 强度, 有效期至 }，有效期至=毫秒
+ *  - 运行时 game 逻辑层约定：英文 key { name, value, expireAt }，expireAt=秒级时间戳
+ * 两套格式并存导致 buffRequire/timeIntervalRequire/markerRequire 读不到运行时写入的增益。
+ *
+ * 本函数将任意格式条目原地归一化为「中文 key + 毫秒」，保证两层数据互相可读，
+ * 存量数据（无论哪种格式）都能被战斗状态机正确识别。幂等（中文/毫秒再归一化不变）。
+ *
+ * @param it 原始条目（可能含中/英 key、秒/毫秒时间）
+ * @returns 归一化后的 BuffItem
+ */
 /** 成就/熟练度条目（原版「技能」数组项） */
 export interface AchievementItem {
   /** 名称（如 "在线时间" / "破盾" / "火力全开"） */
@@ -51,6 +65,30 @@ export interface BuffItem {
 
 @Injectable()
 export class CombatStateService {
+  /**
+   * 增益/标记条目格式归一化（兼容层，非原版逻辑）
+   *
+   * 项目历史原因存在两套写入约定：
+   *  - combat-state 内部约定（原版对齐）：中文 key { 名称, 强度, 有效期至 }，有效期至=毫秒
+   *  - 运行时 game 逻辑层约定：英文 key { name, value, expireAt }，expireAt=秒级时间戳
+   * 两套格式并存导致 buffRequire/timeIntervalRequire/markerRequire 读不到运行时写入的增益。
+   *
+   * 本函数将任意格式条目归一化为「中文 key + 毫秒」，保证两层数据互相可读，
+   * 存量数据（无论哪种格式）都能被战斗状态机正确识别。幂等（中文/毫秒再归一化不变）。
+   *
+   * @param it 原始条目（可能含中/英 key、秒/毫秒时间）
+   * @returns 归一化后的 BuffItem
+   */
+  normalizeBuffItem(it: any): BuffItem {
+    if (!it) return { 名称: '', 有效期至: 0 };
+    const name = it.名称 ?? it.name ?? '';
+    // 时间：优先中文 有效期至，否则英文 expireAt；<1e12 视为秒，否则毫秒
+    const rawTime = it.有效期至 ?? it.expireAt ?? 0;
+    const expireMs = rawTime > 0 && rawTime < 1e12 ? rawTime * SECOND_MS : rawTime;
+    const strength = it.强度 ?? it.value ?? 0;
+    return { 名称: name, 强度: strength, 有效期至: expireMs };
+  }
+
   /**
    * 添加成就（数据分析.ecode L678）
    * 不保存负数：若遍历到同名项且最终值 ≤0 则删除；未遍历到且值为负直接返回。
@@ -159,6 +197,10 @@ export class CombatStateService {
     返回剩余时间: { value: string },
     时间戳: number,
   ): boolean {
+    // 兼容层：先归一化数组（中/英文 key、秒/毫秒时间统一为 中文key+毫秒），保证存量数据可读
+    const arr: BuffItem[] = 标记数组.map((it) => this.normalizeBuffItem(it));
+    标记数组.length = 0;
+    标记数组.push(...arr);
     // 第一步：清理过期标记（名称左边4字 == "刷新" 的不过期）
     for (let i = 标记数组.length - 1; i >= 0; i--) {
       const it = 标记数组[i];
@@ -226,6 +268,10 @@ export class CombatStateService {
     s: number,
     剩余时间返回值: { value: number },
   ): boolean {
+    // 兼容层：先归一化数组（中/英文 key、秒/毫秒时间统一为 中文key+毫秒），保证存量数据可读
+    const arr: BuffItem[] = 增益.map((it) => this.normalizeBuffItem(it));
+    增益.length = 0;
+    增益.push(...arr);
     let c = 0;
     for (let i = 增益.length - 1; i >= 0; i--) {
       // 原版：s - 有效期至 > 0 删除（已过期）

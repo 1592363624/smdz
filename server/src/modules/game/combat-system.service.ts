@@ -1037,70 +1037,45 @@ export class CombatSystemService {
       // 扣除怪物血量（三池分伤）
       const appliedDamage = this.applyDamageToMonster(target, finalDamage, damageResult.poolDamage);
 
-      // ========== 反伤（对应原版 计算反伤 子程序 L4791-4873） ==========
+      // ========== 反伤（对应原版 计算反伤 子程序 L4791-4873，已抽为独立方法 calcReflectDamage） ==========
       // 防御方（目标）携带反伤来源时，按比例把伤害反弹给攻击方：
       //   恶毒好感≥100(色欲30s)：反伤100%；军姬好感≥40(剑阵)：反伤100%
       //   荆棘之翼：+15%；小鱼发饰(60s冷却)：+200%；军姬2好感≥40：+100%+(2+技能等级×0.05)%
-      // 反伤倍率 = min(攻击方理论受伤×倍率, 防御方当前状态) / 防御方理论伤害 × 100
+      // 反伤绝对值 = 计算反伤() 返回的百分比如实折算（防御方理论伤害 × 百分比/100）
       {
-        const tBuffs3 = this.safeParseJson<any[]>(target.buffs, []);
-        const tMk2 = this.safeParseJson<Record<string, number>>(target.markers, {});
-        let reflectMult = 0;
-        let reflectLimited = false;
-        // 恶毒好感≥100：色欲冷却30秒内反伤100%（每次触发重置冷却）
-        if (targetType.includes('恶毒') && (tMk2['恶毒好感'] || 0) >= 100) {
-          if (!tMk2['色欲'] || Date.now() / 1000 - (tMk2['色欲时间'] || 0) > 30) {
-            tMk2['色欲'] = 1;
-            tMk2['色欲时间'] = Date.now() / 1000;
-            reflectMult += 1;
-            resultLines.push(`${target.name} 触发【色欲反伤】！`);
-          }
+        // 构造防御方当前武器 z2 的属性系数（原版 L4845：当前武器==0 则用拳头 物=100）
+        const defWeapons: any[] = this.safeParseJson(target.weapons, []);
+        const defCurW = target.currentWeapon ? (defWeapons[target.currentWeapon - 1] || defWeapons[target.currentWeapon]) : null;
+        const z2Props = defCurW
+          ? {
+              phys: defCurW.properties?.phys ?? defCurW.属性?.物 ?? 100,
+              fire: defCurW.properties?.fire ?? defCurW.属性?.火 ?? 0,
+              ice: defCurW.properties?.ice ?? defCurW.属性?.冰 ?? 0,
+              elec: defCurW.properties?.elec ?? defCurW.属性?.电 ?? 0,
+            }
+          : { phys: 100, fire: 0, ice: 0, elec: 0 };
+        const nowSec = Math.floor(Date.now() / 1000);
+        const origTs = Date.now();
+        // 原版 伤害倍率 参数 = 本次造成伤害的总倍率（攻击命中/防御闪避），对应本框架 dmgMult
+        const reflectDmg = this.calcReflectDamage(
+          target,
+          defenderBonus,
+          attackerBonus,
+          {
+            phys: weapon.properties?.phys ?? 100,
+            fire: weapon.properties?.fire ?? 0,
+            ice: weapon.properties?.ice ?? 0,
+            elec: weapon.properties?.elec ?? 0,
+          },
+          z2Props,
+          effectiveDmgMult, // 原版 伤害倍率（本次造成伤害的总倍率，含特效修正）
+          nowSec,
+          origTs,
+        );
+        if (reflectDmg > 0) {
+          player.hp = Math.max(0, (player.hp || 0) - Math.floor(reflectDmg));
+          resultLines.push(`【反伤】${target.name} 反弹了 ${Math.floor(reflectDmg)} 点伤害给你！`);
         }
-        // 军姬好感≥40：有剑阵增益时反伤100%
-        if (targetType.includes('军姬') && !targetType.includes('军姬2') && (tMk2['军姬好感'] || 0) >= 40 &&
-            tBuffs3.some((b: any) => b && b.name === '剑阵')) {
-          reflectMult += 1;
-          resultLines.push(`${target.name} 触发【剑阵反伤】！`);
-        }
-        // 荆棘之翼：+15%
-        if (target.name?.includes('荆棘之翼')) {
-          reflectMult += 0.15;
-        }
-        // 小鱼发饰：60秒冷却 +200%
-        if (target.name?.includes('小鱼发饰') && (!tMk2['小鱼冷却时间'] || Date.now() / 1000 - tMk2['小鱼冷却时间'] > 60)) {
-          tMk2['小鱼冷却时间'] = Date.now() / 1000;
-          reflectMult += 2;
-          resultLines.push(`${target.name} 触发【小鱼发饰反伤】！`);
-        }
-        // 军姬2好感≥40：+100%+(2+技能等级×0.05)%
-        if (targetType.includes('军姬2') && (tMk2['军姬2好感'] || 0) >= 40 && (target.hp || 0) > 0) {
-          reflectMult += 1 + (2 + (tMk2['军姬2技能熟练度'] || 0) * 0.05);
-          reflectLimited = true;
-          resultLines.push(`${target.name} 触发【军姬2反伤】！`);
-        }
-        if (reflectMult > 0) {
-          // 攻击方理论受伤（原版 L4851）：Σ(攻击方四属性伤害×武器系数)×暴击伤害/100×暴击/100×伤害倍率/100
-          const atkRaw = (attackerBonus.physDmg || 0) * (weapon.properties?.phys || 100) / 100
-            + (attackerBonus.fireDmg || 0) * (weapon.properties?.fire || 0) / 100
-            + (attackerBonus.iceDmg || 0) * (weapon.properties?.ice || 0) / 100
-            + (attackerBonus.elecDmg || 0) * (weapon.properties?.elec || 0) / 100;
-          const atkTheory = atkRaw * (attackerBonus.critDmg || 150) / 100 * (attackerBonus.crit || 5) / 100 * effectiveDmgMult / 100;
-          // 防御方理论伤害（原版 L4853）：目标自己的武器/属性理论伤害
-          const defTheory = Math.max(1, (defenderBonus.physDmg || 0) + (defenderBonus.fireDmg || 0) + (defenderBonus.iceDmg || 0) + (defenderBonus.elecDmg || 0));
-          // 反伤 = min(攻击方理论受伤×倍率, 防御方当前状态) / 防御方理论伤害 × 100
-          const defState = (target.hp || 0) + (target.shield || 0) + (target.armor || 0);
-          let reflectDmg = Math.min(atkTheory * reflectMult, defState) / defTheory * 100;
-          // 军姬2限制：反伤 ≤ (2+技能等级×0.05)×防御方总状态
-          if (reflectLimited) {
-            const cap = (2 + (tMk2['军姬2技能熟练度'] || 0) * 0.05) * ((target.maxHp || target.hp || 0) + (target.maxShield || target.shield || 0) + (target.maxArmor || target.armor || 0));
-            reflectDmg = Math.min(reflectDmg, cap);
-          }
-          if (reflectDmg > 0) {
-            player.hp = Math.max(0, (player.hp || 0) - Math.floor(reflectDmg));
-            resultLines.push(`【反伤】${target.name} 反弹了 ${Math.floor(reflectDmg)} 点伤害给你！`);
-          }
-        }
-        target.markers = JSON.stringify(tMk2);
       }
 
       // 反转童话：命中后按几率将目标某个属性正负符号反转（持续一定时间）
@@ -1676,6 +1651,148 @@ export class CombatSystemService {
       critMultiplier,
       rating,
     };
+  }
+
+  /**
+   * 计算反伤（对应原版 战斗相关.ecode 计算反伤() L4791-4873）
+   * 返回防御方应反弹给攻击方的绝对伤害值。
+   *
+   * 原版逻辑（逐行对照）：
+   *   L4806 恶毒好感≥100 且 色欲(30s)未冷却 → 返回 100（即反伤100%）
+   *   L4815 军姬好感≥40 且有剑阵增益 → 返回 100
+   *   L4824 装备要求(防御方,#荆棘之翼) → 倍率+0.15
+   *   L4827 装备要求(防御方,#小鱼发饰) 且 小鱼冷却(60s)未过 → 倍率+2
+   *   L4833 军姬2 当前生命>0 且 好感≥40 → 倍率+1+(2+技能等级×0.05)，军姬倍率限制=真
+   *   L4844 倍率!=0 时：
+   *     z2 = 防御方当前武器（无武器=拳头，物=100）
+   *     a2 = Σ(攻击方.属性.四伤 × z1.属性.四/100) × 攻击方.暴击伤害/100 × 攻击方.暴击/100
+   *     a2 = a2 × 伤害倍率/100
+   *     a1 = Σ(防御方.属性.四伤 × z2.属性.四/100) × 防御方.暴击伤害/100 × 防御方.暴击/100
+   *     a3 = 防御方当前生命+装甲+护盾
+   *     若 a2×倍率 > a3 则 a2=a3 否则 a2=a2×倍率
+   *     a1 = a2/a1×100（攻击方该受伤害占防御方理论伤害的百分比）
+   *     最终 += a1
+   *     若 军姬倍率限制：a1重取防御方总状态，若 最终 > (2+技能×0.05)×a1 则截断
+   *   L4873 返回 最终（百分比）
+   *
+   * 本框架映射：原版返回的「百分比」按"防御方理论伤害(a1原始)"折算为绝对反伤值返回，
+   * 即 绝对反伤 = 防御方理论伤害 × 最终/100，与 calcDamage 调用处直接扣攻击方 hp 的语义一致。
+   *
+   * @param defender 防御方（PlayerData，含 bonus/属性/武器/好感/技能等级/增益/标记2）
+   * @param defenderBonus 防御方最终属性（BonusData）
+   * @param attackerBonus 攻击方最终属性（BonusData）
+   * @param z1Props 攻击方武器属性系数 {phys,fire,ice,elec}
+   * @param z2Props 防御方当前武器属性系数 {phys,fire,ice,elec}（拳头默认全0仅物=100）
+   * @param damageMultPct 本次造成伤害倍率（百分比，对应原版 伤害倍率 参数）
+   * @param nowSec 当前秒级时间戳
+   * @param origTimestamp 原始毫秒时间戳
+   * @returns 绝对反伤值（已折算，可直接从攻击方 hp 扣除）
+   */
+  calcReflectDamage(
+    defender: any,
+    defenderBonus: BonusData,
+    attackerBonus: BonusData,
+    z1Props: { phys: number; fire: number; ice: number; elec: number },
+    z2Props: { phys: number; fire: number; ice: number; elec: number },
+    damageMultPct: number,
+    nowSec: number,
+    origTimestamp: number,
+  ): number {
+    const defBuffs: any[] = this.safeParseJson(defender.buffs, []);
+    const defMarkers2: any[] = this.safeParseJson(defender.markers2, []);
+    const affinity = defender.affinity || 0;
+    const seq = defender.specialSeq ?? 0;
+    const skillLevel = this.playerService.getMarkerValue(
+      this.safeParseJson(defender.markers, {}),
+      `${defender.type}技能`,
+    ) || 0;
+    const equipments: Array<{ 名称: string; 特殊序号?: number }> = this.safeParseJson(defender.equipments, []);
+    const weapons: Array<{ 名称: string; 特殊序号?: number }> = this.safeParseJson(defender.weapons, []);
+    const currentWeapon = defender.currentWeapon || 0;
+
+    // L4806 恶毒好感≥100：色欲(30s)冷却未过则反伤100%
+    if (affinity >= 100 && seq === 6) {
+      // 原版 #恶毒 = 6
+      if (this.combatState.timeIntervalRequire('色欲', 30, defMarkers2, origTimestamp, { value: '' }, origTimestamp) === false) {
+        return 100; // 原版 返回(100)
+      }
+    }
+    // L4815 军姬好感≥40：有剑阵增益则反伤100%
+    if (affinity >= 40 && seq === 16) {
+      // 原版 #军姬 = 16
+      const a2Ref = { value: 0 };
+      if (this.combatState.buffRequire('剑阵', defBuffs, a2Ref, origTimestamp, { value: 0 })) {
+        return 100; // 原版 返回(100)
+      }
+    }
+    // L4824 荆棘之翼（#荆棘之翼=18）：倍率+0.15
+    let mult = 0.1; // 原版 倍率 默认 0.1
+    if (this.combatState.equipRequire(equipments, weapons, currentWeapon, 18, '荆棘之翼', false)) {
+      mult += 0.15;
+    }
+    // L4827 小鱼发饰（#小鱼发饰=35）：小鱼冷却(60s)未过则倍率+2
+    if (this.combatState.equipRequire(equipments, weapons, currentWeapon, 35, '小鱼发饰', false)) {
+      if (this.combatState.timeIntervalRequire('小鱼冷却', 60, defMarkers2, nowSec, { value: '' }, origTimestamp) === false) {
+        mult += 2;
+      }
+    }
+    // L4833 军姬2（#军姬2=24）：当前生命>0 且 好感≥40 → 倍率+1+(2+技能等级×0.05)
+    let junjiLimit = false;
+    if (seq === 24 && (defender.hp || 0) > 0 && affinity >= 40) {
+      mult += 1 + (2 + skillLevel * 0.05);
+      junjiLimit = true;
+    }
+
+    // L4844 倍率!=0 才进入伤害计算
+    if (mult === 0) return 0;
+
+    // L4845 防御方当前武器/拳头（z2）
+    let z2Phys = 100, z2Fire = 0, z2Ice = 0, z2Elec = 0;
+    if (currentWeapon !== 0) {
+      const curW = weapons[currentWeapon - 1] || weapons[currentWeapon];
+      if (curW) {
+        const props = (curW as any).属性 || (curW as any).properties || { phys: 100, fire: 0, ice: 0, elec: 0 };
+        z2Phys = props.phys ?? 100; z2Fire = props.fire ?? 0; z2Ice = props.ice ?? 0; z2Elec = props.elec ?? 0;
+      }
+    }
+
+    // L4851 a2 = 攻击方理论受伤：Σ(攻击方.属性.四伤 × z1.属性.四/100) × 暴击伤害/100 × 暴击/100
+    const a2Raw =
+      (attackerBonus.physDmg || 0) * (z1Props.phys || 100) / 100 +
+      (attackerBonus.fireDmg || 0) * (z1Props.fire || 0) / 100 +
+      (attackerBonus.iceDmg || 0) * (z1Props.ice || 0) / 100 +
+      (attackerBonus.elecDmg || 0) * (z1Props.elec || 0) / 100;
+    let a2 = a2Raw * (attackerBonus.critDmg || 150) / 100 * (attackerBonus.crit || 5) / 100;
+    // L4852 a2 = a2 × 伤害倍率/100
+    a2 = a2 * damageMultPct / 100;
+
+    // L4853 a1 = 防御方理论伤害：Σ(防御方.属性.四伤 × z2.属性.四/100) × 暴击伤害/100 × 暴击/100
+    const a1Raw =
+      (defenderBonus.physDmg || 0) * z2Phys / 100 +
+      (defenderBonus.fireDmg || 0) * z2Fire / 100 +
+      (defenderBonus.iceDmg || 0) * z2Ice / 100 +
+      (defenderBonus.elecDmg || 0) * z2Elec / 100;
+    const a1 = a1Raw * (defenderBonus.critDmg || 150) / 100 * (defenderBonus.crit || 5) / 100;
+
+    // L4855 a3 = 防御方当前生命+装甲+护盾
+    const a3 = (defender.hp || 0) + (defender.armor || 0) + (defender.shield || 0);
+    // L4856 若 a2×倍率 > a3 则 a2=a3（封顶为防御方当前状态），否则 a2=a2×倍率
+    if (a2 * mult > a3) {
+      a2 = a3;
+    } else {
+      a2 = a2 * mult;
+    }
+    // L4862 最终百分比 = a2 / a1 × 100（攻击方应受伤害占防御方理论伤害之比）
+    let finalPct = a1 !== 0 ? (a2 / a1) * 100 : 0;
+    // L4864 军姬倍率限制：最终 ≤ (2+技能等级×0.05) × 防御方总状态
+    if (junjiLimit) {
+      const defTotal = (defenderBonus.hp || 0) + (defenderBonus.armor || 0) + (defenderBonus.shield || 0);
+      const cap = (2 + skillLevel * 0.05) * defTotal;
+      if (finalPct > cap) finalPct = cap; // 原版 最终 = cap
+    }
+    // 原版返回「百分比」，此处折算为绝对反伤值（防御方理论伤害 × 百分比/100），
+    // 与 calcDamage 调用处直接扣攻击方 hp 的语义一致。
+    return (a1 * finalPct) / 100;
   }
 
   /**
@@ -2878,6 +2995,69 @@ export class CombatSystemService {
       }
     } catch {
       // 忽略装备解析错误
+    }
+
+    // ========== 计算增益（对应原版 _计算玩家 末尾 + 计算buff L3097-3142） ==========
+    // 原版 _计算玩家 删除过期增益(L1864-1871)后，由 计算buff() 把活跃增益并入玩家属性：
+    //   - mqtx/湮灭/削弱闪避/xla/xlb/xlc 特殊效果
+    //   - default 分支：在"增益列表"按名称查找，将其加成按增益模式叠加到玩家属性
+    // 本框架增益列表定义在 buffs.json（bonus 字段为字符串化 JSON，需解析为 BonusData）。
+    try {
+      const playerBuffs: any[] = playerData.buffs || [];
+      if (playerBuffs.length > 0) {
+        const nowSec = Date.now() / 1000;
+        // 中→英 key 映射：buffs.json 的 bonus 字段使用中文 key（闪避2/生命2/护盾全抗等），
+        // 而 BonusData 合并逻辑使用英文 key（dodge2/hp2/shieldAllRes 等）。
+        // 原版 增益列表 加成本就是中文 key，此处统一转换为英文 key 再叠加。
+        const zhToEn: Record<string, string> = {
+          攻击: 'attack', 生命: 'hp', 护盾: 'shield', 装甲: 'armor', 闪避: 'dodge', 命中: 'hit',
+          速度: 'speed', 魅力: 'charm', 钻石: 'diamond', 暴击: 'crit', 暴击伤害: 'critDmg',
+          攻击加成: 'attackBonus', 生命回复: 'hpRegen', 护盾回复: 'shieldRegen', 装甲回复: 'armorRegen',
+          掉落率: 'dropRate', 掉落品质: 'dropQuality', 韧性: 'tenacity', 减益: 'debuff',
+          全攻击: 'allAttack', 治疗效果: 'healEffect', 冷却: 'cooldown', 采集: 'gather',
+          生命伤害上限: 'hpDmgCap', 装甲伤害上限: 'armorDmgCap', 护盾伤害上限: 'shieldDmgCap',
+          生命物抗: 'hpPhysRes', 生命火抗: 'hpFireRes', 生命冰抗: 'hpIceRes', 生命电抗: 'hpElecRes',
+          护盾物抗: 'shieldPhysRes', 护盾火抗: 'shieldFireRes', 护盾冰抗: 'shieldIceRes', 护盾电抗: 'shieldElecRes',
+          装甲物抗: 'armorPhysRes', 装甲火抗: 'armorFireRes', 装甲冰抗: 'armorIceRes', 装甲电抗: 'armorElecRes',
+          生命全抗: 'hpAllRes', 护盾全抗: 'shieldAllRes', 装甲全抗: 'armorAllRes',
+          电伤: 'elecDmg', 火伤: 'fireDmg', 物伤: 'physDmg', 冰伤: 'iceDmg',
+          吸生命: 'leechHp', 吸装甲: 'leechArmor', 吸护盾: 'leechShield',
+          贯穿: 'penetrate', 抗贯穿: 'antiPenetrate', 必中: 'mustHit', 攻击护盾: 'atkShield',
+          攻击装甲: 'atkArmor', 攻击生命: 'atkHp', 溅射: 'splash', 溅射数量: 'splashCount',
+          生命穿透: 'hpPenetration', 装甲穿透: 'armorPenetration', 护盾穿透: 'shieldPenetration',
+          攻击次数: 'attackCount', 生产: 'production', 卷土重来: 'comeback', 麻醉: 'anesthesia',
+          攻击2: 'attack2', 生命2: 'hp2', 护盾2: 'shield2', 装甲2: 'armor2', 闪避2: 'dodge2',
+          命中2: 'hit2', 速度2: 'speed2', 生命回复2: 'hpRegen2', 护盾回复2: 'shieldRegen2',
+          装甲回复2: 'armorRegen2', 电伤2: 'elecDmg2', 火伤2: 'fireDmg2', 物伤2: 'physDmg2',
+          冰伤2: 'iceDmg2', 吸生命2: 'leechHp2', 吸装甲2: 'leechArmor2', 吸护盾2: 'leechShield2',
+          反伤: 'reflectDmg',
+        };
+        const mapZhBonus = (raw: any): BonusData => {
+          const out: any = {};
+          for (const k of Object.keys(raw || {})) {
+            const en = zhToEn[k] || k; // 已是英文 key 则原样保留
+            out[en] = raw[k];
+          }
+          return out;
+        };
+        // 解析增益列表定义为 BuffData[]（bonus 字符串→对象，中文key→英文key），供 default 分支查表
+        const buffDefs: any[] = this.staticData.getAllBuffs().map((d: any) => ({
+          name: d.name,
+          bonus: d.bonus ? mapZhBonus(typeof d.bonus === 'string' ? this.playerService.safeJsonParse<BonusData>(d.bonus, {}) : d.bonus) : {},
+        }));
+        this.bonusService.calculateBuffs(
+          bonus,                 // 属性对象（原版 玩家.属性）
+          playerBuffs,          // 玩家活跃增益
+          buffDefs,             // 增益列表定义
+          nowSec,               // 当前时间戳（秒）
+          {
+            currentAnesthesia: (bonus.anesthesia || 0), // 原版 玩家.套装.当前麻醉；框架未独立建模麻醉量，用属性麻醉上限近似
+            bonus,              // 增益模式叠加目标（原版 玩家.属性 与 玩家.加成 分离，本框架合并）
+          },
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(`计算增益失败: ${err.message}`);
     }
 
     // 应用递减收益
@@ -4410,6 +4590,9 @@ export class CombatSystemService {
     // 装备要求（原版 装备要求(防御方, #猫爪吊坠, )）：遍历装备命中 specialSeq
     const hasEquip = (seq: number): boolean =>
       equipment.some((e: any) => e && e.specialSeq === seq);
+    // 兼容层：将运行时 buffs/markers2 原地归一化为「中文key+毫秒」，兼容 game 层英文 key+秒级写入
+    for (let i = 0; i < buffs.length; i++) buffs[i] = this.combatState.normalizeBuffItem(buffs[i]);
+    for (let i = 0; i < markers2.length; i++) markers2[i] = this.combatState.normalizeBuffItem(markers2[i]);
     // 增益要求（原版 增益要求(name, 防御方.增益, , s, a1)）：存在且未过期，返回剩余毫秒
     const buffRemain = (name: string): number => {
       const b = buffs.find((x: any) => x && x.名称 === name && (!x.有效期至 || x.有效期至 > nowSec * SEC));
@@ -4567,7 +4750,9 @@ export class CombatSystemService {
     // 原版 造成伤害 入口：当前生命<=0 先调 免死()，返回真则仍存活（龙姬/伊芙利特/战斗女仆/吸血姬/猫爪/五番a 分支）
     const dmgTextRef = { value: '' };
     const totalDmgRef = { value: Number.MAX_SAFE_INTEGER }; // 致死总伤害
-    if (this.avoidDeath(player, buffs, markers2, equipment, nowSec * 1000, nowSec * 1000, totalDmgRef, dmgTextRef)) {
+    // 传入 buffs/markers2 的浅拷贝副本：avoidDeath 内部会把元素原地归一化为中文 key（兼容层），
+    // 若直接传原引用会破坏本函数后续 buffActive（依赖英文 key）的读取，故隔离副本。
+    if (this.avoidDeath(player, [...buffs], [...markers2], equipment, nowSec * 1000, nowSec * 1000, totalDmgRef, dmgTextRef)) {
       // 免死成功：b==2 已把 当前生命 置 1；b==3/4/5 保留当前生命；吸血姬已互换
       extraText = extraText + dmgTextRef.value;
       return { dead: false, extraText, deathText };

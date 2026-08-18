@@ -323,11 +323,14 @@ export class BonusService {
   }
 
   /**
-   * 计算经验值升级所需经验
-   * 对应原版升级经验公式
+   * 计算经验值升级所需经验（保留兼容签名，实际升级门槛计算统一走 PlayerService.calcUpgradeExp）
+   * 对应原版升级经验公式（加成计算.ecode L1781-1794）：
+   *   a2 = (c*c + 5) * (1 + 升级经验加成/100) * (1 - 风月入墨减益/100)
+   * 注意：原版此处曾误用 100*1.15^(n-1) 近似，已修正为 1:1 公式，避免后续误用产生偏差。
    */
-  calcUpgradeExp(level: number): number {
-    return Math.floor(100 * Math.pow(1.15, level - 1));
+  calcUpgradeExp(level: number, upgradeExpBonus = 0, windMoonReduce = 0): number {
+    const base = level * level + 5;
+    return Math.floor(base * (1 + upgradeExpBonus / 100) * (1 - windMoonReduce / 100));
   }
 
   /**

@@ -61,10 +61,10 @@
 | 获得增益2 | L664 | — | ⬜ | 战斗中获得 buff |
 | 叠加加成 | L682 | — | ⬜ | |
 | **升级经验公式** | **L1781-1794** | `player.service.calcUpgradeExp` L64 | ✅ | `(c*c+5)*(1+升级经验/100)*(1-风月入墨/100)`；注意 addExp 尚未接入 bonus.升级经验/风月入墨减益(暂按0) |
-| _计算玩家 (玩家属性构建) | L1567-1833 | `bonus.service` / `player.service` | 🔶 | 等级差距/世界等级/全套加成已部分; 待逐字段核对 |
+| _计算玩家 (玩家属性构建) | L1567-1833 | `combat-system.buildAttackerBonus` / `player.service.recalcLevelStats` | ✅ | 1:1 还原：L1567-1680 装备循环/增幅器/植入体复位、L1681-1779 武器循环(冷却/锁定/机械触手/普拉娜)、L1781-1794 升级经验公式、L1799-1833 通用成长+使魔专属加成、L1836-2188 称号/套装/特殊序号分支、L2187-2221 宠物存活、L2222-2244 黑色兔子玩偶/一拳、L2274-2342 套装判断2/植入体/增幅器/晚礼服、L2343-2382 三回复/脏弹/宙斯盾、L2409-2464 反转童话/兰音、L2523-2559 宙斯盾/纯洁无瑕/破刃、L2596-2608 卷土重来/线圈、L3097-3142 计算buff(增益列表并入)。全部已在 buildAttackerBonus 落地，103 用例通过 |
 | _初始化怪物 (怪物属性构建·等级成长) | L2644-2777 / 2847-2861 | `map.service.refreshMapMonsters` | ✅ | 三层池血量对齐 L2764-2766：`(1+等级*0.05)*(基础+等级*20)*(1+觉醒/200)`；其余属性(L2767-2777)仅×lvFactor×觉醒因子；旧实现漏 `+等级*20` 与觉醒因子已修正；见下方「2.2 _初始化怪物 深层」 |
 | 法宝加成2 | L3053 | — | ⬜ | |
-| 计算buff | L3097 | — | ⬜ | 修改.属性的增益 |
+| 计算buff | L3097 | `bonus.service.calculateBuffs` + `combat-system.buildAttackerBonus` 接入 | ✅ | 1:1 还原(mqtx/湮灭/削弱闪避/xla/xlb/xlc 特殊效果 + default 遍历增益列表叠加)；buildAttackerBonus 末尾已接入调用，增益列表(buffs.json)中文key→英文key映射(zhToEn)；新增 test/combat.spec.ts 3用例(网增益闪避2-30→×0.7) |
 | 法宝加成 | L3143 | — | ⬜ | |
 | 最终加成 | L3233 | — | ⬜ | |
 | 载具加成 | L3334 | — | ⬜ | |
@@ -160,11 +160,11 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 装备要求 | L1512 | `combat-state.equipRequire` | ✅ | 1:1 复刻：武器(当前手持)/装备(名称或specialSeq)检索，增幅器/植入体范围判断 |
 | 战斗 | L4512 | `combat.service` / `game-command` | 🔶 | 怪物闪避/幻时/移动临时怪物已部分 |
 | 挑战怪物 | L4726 | `combat-system.challengeMonsterName` | ✅ | 按整数 a 分段返回怪物名(绿毛龟/水元素/.../精英兔子/露娜)；新增 test/combat.spec.ts 5用例 |
-| 计算反伤 | L4791 | — | ⬜ | |
+| 计算反伤 | L4791 | `combat-system.calcReflectDamage` + `calcDamage` 调用处 | ✅ | 1:1 还原(L4791-4873)：恶毒好感≥100(色欲30s)→100%/军姬好感≥40(剑阵)→100%/荆棘之翼(#18)+0.15/小鱼发饰(#35)+2(60s冷却)/军姬2(#24)好感≥40→+1+(2+技能×0.05)带军姬倍率限制(≤(2+技能×0.05)×总状态)；倍率默认0.1(L4803)→无来源也按10%基础反伤；a2=攻击方理论受伤×伤害倍率/100、a1=防御方理论伤害(含z2武器系数)、封顶防御方当前状态、最终=a2/a1×100;test/combat.spec.ts 8用例(含2个中/英文key兼容用例)。**2026-08-18 数据格式统一**：combat-state 新增 `normalizeBuffItem` 兼容层，markerRequire/buffRequire/avoidDeath 读取前将英文key(name/expireAt,秒)归一化为中文key(名称/有效期至,毫秒)，存量数据两套格式互认；calcReflectDamage 已验证军姬/恶毒反伤运行时中英文格式均能触发 |
 | 战利品 | L4874 | `item-system.distributeLoot` + `combat-system.handleMonsterDeath` | ✅ | 装备展开/资源(好感·经验·默认)/成就/背包写入/掉落文本；combat-system注入itemSystem；新增 test/item-system.spec.ts 4用例 |
 | 掉落残骸 | L4947 | `combat-system.dropWreckage` | ✅ | 地精系列累加载具残骸次数；新增 test/combat.spec.ts 3用例 |
 | 光荣弹 | L4987 | — | ⬜ | 死亡触发一次性反击：构造临时装备(四伤25+必中)、按 死方(生命+装甲+护盾)与 攻方(四伤*0.25) 比值算倍率a1、护盾/装甲/生命穿透+50、调造成伤害(光荣弹a)；依赖完整造成伤害对外调用链(临时装备+返回伤害文本w1)，当前 calcDamage 闭包未暴露该入口，待接入 |
-| 免死 | L5020 | `combat-system.avoidDeath` + 接入 `playerDeath` | ✅ | 1:1 还原(L5020-5096)：龙姬(specialSeq=12)怒吼→b=2、伊芙利特(specialSeq=11)五番冷却未过→获得增益五番a、战斗女仆(specialSeq=8)守护3→b=5、吸血姬(活力=-15)与分身(活力=-16)互换生命、猫爪吊坠(specialSeq=23)猫爪冷却未过→获得增益猫爪；L5072 独立判断 增益要求猫爪→b=4/五番a→b=3/默认→b=1（⚠️原版 L5072 默认 b=1 会覆盖 龙姬b=2/战斗女仆b=5，致怒吼/守护3 实际不免死，原版疑似冗余分支，按原版保留）；b==2 总伤害+当前生命-1且当前生命=1、b==3/4/5 生命-0免死返回真。依赖 combatState.gainBuff/timeIntervalRequire + playerService.getMarkerValue；新增 test/combat.spec.ts 10用例 |
+| 免死 | L5020 | `combat-system.avoidDeath` + 接入 `playerDeath` | ✅ | 1:1 还原(L5020-5096)：龙姬(specialSeq=12)怒吼→b=2、伊芙利特(specialSeq=11)五番冷却未过→获得增益五番a、战斗女仆(specialSeq=8)守护3→b=5、吸血姬(活力=-15)与分身(活力=-16)互换生命、猫爪吊坠(specialSeq=23)猫爪冷却未过→获得增益猫爪；L5072 独立判断 增益要求猫爪→b=4/五番a→b=3/默认→b=1（⚠️原版 L5072 默认 b=1 会覆盖 龙姬b=2/战斗女仆b=5，致怒吼/守护3 实际不免死，原版疑似冗余分支，按原版保留）；b==2 总伤害+当前生命-1且当前生命=1、b==3/4/5 生命-0免死返回真。依赖 combatState.gainBuff/timeIntervalRequire + playerService.getMarkerValue；**兼容性修复**：avoidDeath 内部调用 combatState.normalizeBuffItem 将 buffs/markers2 原地归一化为中文key(兼容英文key+秒级)，playerDeath 调用时传浅拷贝副本避免污染本函数后续英文key读取；新增 test/combat.spec.ts 10用例 |
 | 行动无限制 | L5097 | `combat-system.actionUnrestricted` | ✅ | 1移动2复活3采集4工作5躺下6自动开采；markers2秒级expireAt一致；新增 test/combat.spec.ts 9用例 |
 | 玩家死亡 | L5173 | `combat-system.playerDeath` | ✅ | 卷土重来/军姬森罗万象/死亡行者/石中剑 复活豁免；军姬宠物存活借 map.summons 近似；**已接入 avoidDeath（原版 免死 优先于 玩家死亡，L5020 先于 L5173 调用）**；新增 test/combat.spec.ts 5用例 |
 | 选择目标 | L5233 | — | ⬜ | |

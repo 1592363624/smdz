@@ -124,6 +124,7 @@ describe('行动无限制 - 状态限制检查 (战斗相关.ecode L5097-5172)',
 // ==================== 玩家死亡 (战斗相关.ecode L5173-5231) ====================
 describe('玩家死亡 - 复活豁免判定 (战斗相关.ecode L5173-5231)', () => {
   const playerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+  // playerDeath 内部调用 avoidDeath，avoidDeath 兼容层依赖 combatState.normalizeBuffItem，须注入真实实例
   const combat3 = new CombatSystemService(
     {} as PrismaService,
     playerService,
@@ -132,7 +133,7 @@ describe('玩家死亡 - 复活豁免判定 (战斗相关.ecode L5173-5231)', ()
     {} as StaticDataService,
     {} as AchievementService,
     {} as ItemSystemService,
-    {} as any,
+    new CombatStateService(),
     );
 
   const baseDeath = (over: any = {}) => ({
@@ -886,5 +887,209 @@ describe('免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096)', 
     const d = baseDef({ specialSeq: 0, currentHp: 100 });
     const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
     expect(ok).toBe(false);
+  });
+});
+
+// ==================== 计算反伤 (战斗相关.ecode L4791-4873) ====================
+describe('计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873)', () => {
+  const playerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+  const combatState = new CombatStateService();
+  const reflectCombat = new CombatSystemService(
+    {} as PrismaService,
+    playerService,
+    {} as BonusService,
+    {} as MapService,
+    {} as StaticDataService,
+    {} as AchievementService,
+    {} as ItemSystemService,
+    combatState,
+  );
+
+  const nowSec = () => Math.floor(Date.now() / 1000);
+  const nowMs = () => Date.now();
+
+  // 攻击方属性（z1 用攻击方武器属性）
+  const atkBonus = { physDmg: 50, fireDmg: 0, iceDmg: 0, elecDmg: 0, crit: 5, critDmg: 150 };
+  const z1Props = { phys: 100, fire: 0, ice: 0, elec: 0 };
+  const defBonus = { physDmg: 40, fireDmg: 0, iceDmg: 0, elecDmg: 0, crit: 5, critDmg: 150 };
+
+  // 基础防御方：无反伤来源
+  const baseDefender = () => ({
+    type: '普通',
+    specialSeq: 0,
+    affinity: 0,
+    hp: 100,
+    shield: 0,
+    armor: 0,
+    currentWeapon: 0,
+    equipments: JSON.stringify([]),
+    weapons: JSON.stringify([]),
+    markers: JSON.stringify({}),
+    markers2: JSON.stringify([]),
+    buffs: JSON.stringify([]),
+  });
+
+  it('L4806 恶毒好感≥100 且 色欲(30s)未冷却 → 返回100', () => {
+    const d = baseDefender();
+    d.type = '恶毒';
+    d.specialSeq = 6; // 原版 #恶毒 = 6
+    d.affinity = 100;
+    const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    expect(r).toBe(100);
+  });
+
+  it('L4815 军姬好感≥40 且有剑阵增益 → 返回100', () => {
+    const d = baseDefender();
+    d.type = '军姬';
+    d.specialSeq = 16; // 原版 #军姬 = 16
+    d.affinity = 40;
+    // buffRequire 按中文 key 读取（名称/有效期至，毫秒时间戳），与原版战斗状态机一致
+    d.buffs = JSON.stringify([{ 名称: '剑阵', 有效期至: nowMs() + 60000 }]);
+    const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    expect(r).toBe(100);
+  });
+
+  it('L4824 装备荆棘之翼(#18) → 倍率+0.15 产生反伤值', () => {
+    const d = baseDefender();
+    d.equipments = JSON.stringify([{ 名称: '荆棘之翼', 特殊序号: 18 }]);
+    const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    // 倍率=0.1+0.15=0.25；a2=50*1*150/100*5/100*150/100=5.625; a2*0.25=1.406; a1=40*1*150/100*5/100=3; pct=1.406/3*100≈46.875; 反伤=3*46.875/100≈1.406
+    expect(r).toBeGreaterThan(0);
+    expect(Math.abs(r - 1.40625)).toBeLessThan(0.01);
+  });
+
+  it('L4827 装备小鱼发饰(#35) 且 小鱼冷却(60s)未过 → 倍率+2', () => {
+    const d = baseDefender();
+    d.equipments = JSON.stringify([{ 名称: '小鱼发饰', 特殊序号: 35 }]);
+    const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    // 倍率=0.1+2=2.1; a2*2.1=11.8125; a1=3; pct=11.8125/3*100=393.75; 反伤=3*3.9375≈11.8125
+    expect(Math.abs(r - 11.8125)).toBeLessThan(0.01);
+  });
+
+  it('L4833 军姬2(#24) 当前生命>0 且 好感≥40 → 倍率+1+(2+技能×0.05) 并触发军姬倍率限制', () => {
+    const d = baseDefender();
+    d.type = '军姬2';
+    d.specialSeq = 24; // 原版 #军姬2 = 24
+    d.affinity = 40;
+    d.hp = 50;
+    d.markers = JSON.stringify({ 军姬2技能: 10 });
+    d.equipments = JSON.stringify([]);
+    const r = reflectCombat['calcReflectDamage'](d, { ...defBonus, hp: 200, armor: 0, shield: 0 }, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    // 倍率=0.1+1+(2+10*0.05)=3.6; 但军姬限制 cap=(2+10*0.05)*200=250; pct 受 cap 限制
+    expect(r).toBeGreaterThan(0);
+    expect(r).toBeLessThanOrEqual(250);
+  });
+
+  it('L4803 无任何反伤来源 → 倍率默认0.1 产生基础反伤(原版 倍率 默认0.1)', () => {
+    const d = baseDefender();
+    // 原版 L4803 倍率 默认 0.1，故无装备/好感时仍按 10% 基础反伤结算：
+    // a2=50*1.5*0.05*1.5=5.625; a1=40*1.5*0.05=3; pct=5.625*0.1/3*100=18.75; 反伤=3*0.1875=0.5625
+    const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    expect(Math.abs(r - 0.5625)).toBeLessThan(0.001);
+  });
+
+  // ============ 运行时数据格式兼容层（中/英文 key + 秒/毫秒） ============
+  it('兼容层：英文 key(name/expireAt,秒) 的 buff 也能被识别（运行时 game 层约定）', () => {
+    const d = baseDefender();
+    d.type = '军姬';
+    d.specialSeq = 16;
+    d.affinity = 40;
+    // 运行时 game 层用 英文 key + 秒级时间戳（Date.now()/1000）写入
+    d.buffs = JSON.stringify([{ name: '剑阵', expireAt: nowSec() + 60 }]);
+    const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    expect(r).toBe(100);
+  });
+
+  it('兼容层：英文 key(name/expireAt,秒) 的 markers2 也能被 timeIntervalRequire 识别', () => {
+    const d = baseDefender();
+    d.type = '恶毒';
+    d.specialSeq = 6;
+    d.affinity = 100;
+    // 情况A：运行时用 英文 key + 秒级时间戳 写入 markers2 的 色欲 刚写入30s内（仍在冷却）
+    // 原版 L4806 逻辑：时间间隔要求(色欲,30) 返回 真(冷却中) → 不返回100 → 走基础反伤 0.5625
+    d.markers2 = JSON.stringify([{ name: '色欲', expireAt: nowSec() + 30 }]);
+    const rInCooldown = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    expect(Math.abs(rInCooldown - 0.5625)).toBeLessThan(0.001);
+
+    // 情况B：空 markers2（色欲未冷却）→ timeIntervalRequire 返回 假 → 命中 返回100
+    // 证明英文 key 格式的 markers2 被 timeIntervalRequire 正确读取（兼容层生效）
+    const d2 = baseDefender();
+    d2.type = '恶毒';
+    d2.specialSeq = 6;
+    d2.affinity = 100;
+    d2.markers2 = JSON.stringify([]);
+    const rNoCooldown = reflectCombat['calcReflectDamage'](d2, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    expect(rNoCooldown).toBe(100);
+  });
+});
+
+// ==================== 计算增益接入 (加成计算.ecode L3097-3142 计算buff 接入 buildAttackerBonus) ====================
+// 验证 _计算玩家 末尾调用 计算buff 后，增益列表定义的加成在玩家属性中生效。
+describe('计算增益接入 - buildAttackerBonus 调用 calculateBuffs', () => {
+  // mock StaticDataService：返回含"网"(闪避2=-30)的增益列表定义
+  const buffStatic = {
+    getAllBuffs: () => [
+      { name: '网', bonus: '{"闪避2":-30}' },
+      { name: '破魔', bonus: '{"护盾全抗":-20}' },
+    ],
+  } as any;
+  const buffPlayerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+  const buffBonusService = new BonusService();
+  const buffCombat = new CombatSystemService(
+    {} as PrismaService,
+    buffPlayerService,
+    buffBonusService,
+    {} as MapService,
+    buffStatic,
+    {} as AchievementService,
+    {} as ItemSystemService,
+    {} as any,
+  );
+
+  const basePlayerForBuff = () => ({
+    userId: 1,
+    type: '测试使魔',        // 非空的 type → 走使魔成长分支
+    specialSeq: 8,           // 战斗女仆（仅取成长，避免其它使魔分支干扰）
+    affinity: 0,
+    level: 10,
+    hp: 100, shield: 100, armor: 100,
+    currentWeapon: 0,
+    weapons: '[]', equipment: '[]', backpack: '[]', sets: '{}',
+    markers: JSON.stringify({}), markers2: JSON.stringify([]),
+  });
+
+  const buffPlayerData = (buffs: any[]) => ({
+    player: basePlayerForBuff(),
+    markers: {},
+    buffs,
+    equipment: [],
+    tasks: [],
+    backpack: [],
+    weapons: [],
+    markers2: [],
+    safeBox: [],
+  });
+
+  it('无增益 → dodge 为纯成长值（不叠加增益列表）', () => {
+    const bonus = buffCombat.buildAttackerBonus(basePlayerForBuff(), buffPlayerData([]));
+    // 战斗女仆 specialSeq=8 成长：闪避=10+(等级/2+防御/2)*(1+等级/100)，防御熟练=0
+    // = 10 + (10/2+0)/1.1 = 10 + 5/1.1 ≈ 14.545，向下取整前为浮点
+    const expected = 10 + (10 / 2) * (1 + 10 / 100);
+    expect(Math.abs((bonus.dodge || 0) - expected)).toBeLessThan(0.001);
+  });
+
+  it('L3097-3142 default 分支：带"网"增益(未过期) → 闪避2=-30 按增益模式乘到闪避(×0.7)', () => {
+    const buffs = [{ name: '网', expireAt: Date.now() / 1000 + 60, strength: 1 }];
+    const bonus = buffCombat.buildAttackerBonus(basePlayerForBuff(), buffPlayerData(buffs));
+    const base = 10 + (10 / 2) * (1 + 10 / 100);
+    // 增益模式：dodge *= (1 + 闪避2/100) = (1 + (-30)/100) = 0.7
+    expect(Math.abs((bonus.dodge || 0) - base * 0.7)).toBeLessThan(0.001);
+  });
+
+  it('过期增益 → 不参与叠加（闪避保持纯成长值）', () => {
+    const buffs = [{ name: '网', expireAt: Date.now() / 1000 - 10, strength: 1 }];
+    const bonus = buffCombat.buildAttackerBonus(basePlayerForBuff(), buffPlayerData(buffs));
+    const base = 10 + (10 / 2) * (1 + 10 / 100);
+    expect(Math.abs((bonus.dodge || 0) - base)).toBeLessThan(0.001);
   });
 });
