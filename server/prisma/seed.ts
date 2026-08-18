@@ -29,7 +29,7 @@ async function main() {
     { name: '帮助', alias: 'help,指令,命令', description: '查看所有可用指令', handlerKey: 'help', minRole: 'USER', sortOrder: 1 },
     { name: '信息', alias: 'info,资料,查看,状态', description: '查看自己的玩家信息', handlerKey: 'info', minRole: 'USER', sortOrder: 2 },
     { name: '背包', alias: 'inventory,查看背包', description: '查看背包物品', handlerKey: 'inventory', minRole: 'USER', sortOrder: 3 },
-    { name: '移动', alias: 'move,前往,去,飞到,go', description: '移动到指定地图', handlerKey: 'move', minRole: 'USER', sortOrder: 4 },
+    { name: '移动', alias: 'move,前往,去,飞到,go', description: '移动到指定地图', handlerKey: 'game', minRole: 'USER', sortOrder: 4 },
     { name: '地图', alias: 'map,查看地图', description: '查看当前地图信息', handlerKey: 'map', minRole: 'USER', sortOrder: 5 },
     // 战斗（统一 game 处理器）
     { name: '攻击', alias: 'attack,打,揍', description: '攻击当前地图的怪物', handlerKey: 'game', minRole: 'USER', sortOrder: 10 },

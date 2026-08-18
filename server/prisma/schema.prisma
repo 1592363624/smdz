@@ -31,6 +31,8 @@ model User {
   role        String   @default("USER")
   status      String   @default("ACTIVE")
   avatar      String   @default("")
+  /// 用户自定义的常用指令列表（JSON 数组，如 ["攻击","背包"]），前端指令面板置顶展示
+  favoriteCommands String @default(dbgenerated("('[]')")) @db.LongText
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

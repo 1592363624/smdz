@@ -42,6 +42,10 @@ export const authApi = {};
 export const userApi = {
   me: () => http.get('/users/me'),
   updateNickname: (nickname) => http.post('/users/nickname', { nickname }),
+  // 获取我的常用指令列表
+  getFavorites: () => http.get('/users/favorite-commands'),
+  // 设置（全量覆盖）我的常用指令列表
+  setFavorites: (commands) => http.post('/users/favorite-commands', { commands }),
 };
 
 /// 聊天接口

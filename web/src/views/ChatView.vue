@@ -183,6 +183,45 @@
 
         <!-- 指令 Tab：搜索 + 指令列表（更大空间） -->
         <div v-show="sidebarTab === 'cmd'" class="tab-pane tab-pane-cmd">
+          <!-- 我的常用指令：用户自定义置顶区，可编辑 -->
+          <div class="fav-cmds">
+            <div class="fav-head">
+              <span class="fav-title">⭐ 我的常用</span>
+              <button class="fav-edit-btn" @click="toggleFavEdit">{{ favEditing ? '完成' : '编辑' }}</button>
+            </div>
+            <div v-if="favoriteCommands.length || favEditing" class="fav-list">
+              <span
+                v-for="f in favoriteCommands"
+                :key="'fav-' + f"
+                class="fav-chip"
+                :class="{ editing: favEditing }"
+                @click="onFavoriteClick(f)"
+              >
+                {{ f }}
+                <span v-if="favEditing" class="fav-del">✕</span>
+              </span>
+              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，点击下方添加</span>
+            </div>
+            <div v-if="favEditing" class="fav-add">
+              <input
+                class="fav-add-input"
+                v-model="favAddInput"
+                placeholder="搜索并添加指令..."
+                @click.stop
+                @keyup.enter="favAddCandidates.length && addFavorite(favAddCandidates[0].name)"
+              />
+              <div v-if="favAddCandidates.length" class="fav-candidates">
+                <span
+                  v-for="c in favAddCandidates"
+                  :key="'favc-' + c.name"
+                  class="fav-cand"
+                  @click="addFavorite(c.name)"
+                >{{ c.name }}</span>
+              </div>
+            </div>
+            <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
+          </div>
+
           <div class="cmd-search-wrapper">
             <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车发送第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
             <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
@@ -382,6 +421,45 @@
 
         <!-- 指令 Tab -->
         <div v-show="mobileTab === 'cmd'" class="tab-pane tab-pane-cmd">
+          <!-- 我的常用指令：用户自定义置顶区，可编辑 -->
+          <div class="fav-cmds">
+            <div class="fav-head">
+              <span class="fav-title">⭐ 我的常用</span>
+              <button class="fav-edit-btn" @click="mobileMenuOpen = false; toggleFavEdit()">{{ favEditing ? '完成' : '编辑' }}</button>
+            </div>
+            <div v-if="favoriteCommands.length || favEditing" class="fav-list">
+              <span
+                v-for="f in favoriteCommands"
+                :key="'mfav-' + f"
+                class="fav-chip"
+                :class="{ editing: favEditing }"
+                @click="mobileMenuOpen = false; onFavoriteClick(f)"
+              >
+                {{ f }}
+                <span v-if="favEditing" class="fav-del">✕</span>
+              </span>
+              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，点击下方添加</span>
+            </div>
+            <div v-if="favEditing" class="fav-add">
+              <input
+                class="fav-add-input"
+                v-model="favAddInput"
+                placeholder="搜索并添加指令..."
+                @click.stop
+                @keyup.enter="favAddCandidates.length && addFavorite(favAddCandidates[0].name)"
+              />
+              <div v-if="favAddCandidates.length" class="fav-candidates">
+                <span
+                  v-for="c in favAddCandidates"
+                  :key="'mfavc-' + c.name"
+                  class="fav-cand"
+                  @click="mobileMenuOpen = false; addFavorite(c.name)"
+                >{{ c.name }}</span>
+              </div>
+            </div>
+            <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
+          </div>
+
           <div class="cmd-search-wrapper">
             <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车发送第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
             <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
@@ -904,6 +982,103 @@ const cmdSearchResults = computed(() => {
     c => c.name.toLowerCase().includes(q) || (c.description && c.description.toLowerCase().includes(q))
   );
 });
+
+// ---------- 我的常用指令（用户自定义，置顶展示、可编辑） ----------
+// 常用指令文本数组，如 ["攻击","背包"]
+const favoriteCommands = ref([]);
+// 常用指令编辑态（true=进入编辑模式，显示删除按钮/添加框）
+const favEditing = ref(false);
+// 添加常用指令的输入内容（指令名或搜索关键词）
+const favAddInput = ref('');
+// 添加时的候选指令（基于输入从全量指令过滤）
+const favAddCandidates = computed(() => {
+  const q = favAddInput.value.trim().toLowerCase();
+  if (!q) return [];
+  return commands.value
+    .filter(c => c.name.toLowerCase().includes(q))
+    .filter(c => !favoriteCommands.value.includes(c.name))
+    .slice(0, 30);
+});
+// 保存中/提示
+const favBusy = ref(false);
+const favMsg = ref('');
+let favMsgTimer = null;
+// 常用指令数量上限（与后端 MAX_FAVORITE_COMMANDS 保持一致）
+const MAX_FAVORITES = 20;
+
+// 加载我的常用指令
+async function loadFavorites() {
+  try {
+    const res = await userApi.getFavorites();
+    favoriteCommands.value = Array.isArray(res.data) ? res.data : [];
+  } catch {
+    favoriteCommands.value = [];
+  }
+}
+
+// toast 提示
+function showFavMsg(text) {
+  favMsg.value = text;
+  if (favMsgTimer) clearTimeout(favMsgTimer);
+  favMsgTimer = setTimeout(() => (favMsg.value = ''), 1800);
+}
+
+// 添加一条常用指令（去重 + 上限校验）
+async function addFavorite(name) {
+  const v = (name || '').trim();
+  if (!v) return;
+  if (favoriteCommands.value.includes(v)) {
+    showFavMsg('已在常用列表中');
+    return;
+  }
+  if (favoriteCommands.value.length >= MAX_FAVORITES) {
+    showFavMsg(`最多 ${MAX_FAVORITES} 条`);
+    return;
+  }
+  favBusy.value = true;
+  try {
+    const next = [...favoriteCommands.value, v];
+    const res = await userApi.setFavorites(next);
+    favoriteCommands.value = Array.isArray(res.data) ? res.data : next;
+    favAddInput.value = '';
+    showFavMsg('已添加');
+  } catch (e) {
+    showFavMsg(e?.response?.data?.message || '添加失败');
+  } finally {
+    favBusy.value = false;
+  }
+}
+
+// 删除一条常用指令
+async function removeFavorite(name) {
+  favBusy.value = true;
+  try {
+    const next = favoriteCommands.value.filter(c => c !== name);
+    const res = await userApi.setFavorites(next);
+    favoriteCommands.value = Array.isArray(res.data) ? res.data : next;
+    showFavMsg('已删除');
+  } catch (e) {
+    showFavMsg(e?.response?.data?.message || '删除失败');
+  } finally {
+    favBusy.value = false;
+  }
+}
+
+// 进入/退出编辑模式
+function toggleFavEdit() {
+  favEditing.value = !favEditing.value;
+  favAddInput.value = '';
+  if (!favEditing.value) favMsg.value = '';
+}
+
+// 点击常用指令：编辑态→删除；非编辑态→发送
+function onFavoriteClick(name) {
+  if (favEditing.value) {
+    removeFavorite(name);
+  } else {
+    quickSend(name);
+  }
+}
 
 // 自动补全状态
 const showAutocomplete = ref(false);
@@ -2158,6 +2333,8 @@ onMounted(async () => {
     // 加载指令列表
     const cmds = await commandApi.list();
     commands.value = cmds.data;
+    // 加载我的常用指令（置顶展示）
+    await loadFavorites();
     // 加载玩家信息和地图总览
     await Promise.allSettled([
       loadPlayerInfo(),

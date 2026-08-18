@@ -6,7 +6,6 @@
 import { CommandHandler } from '../interfaces/command.interface';
 import { HelpHandler } from './help.handler';
 import { InfoHandler } from './info.handler';
-import { MoveHandler } from './move.handler';
 import { InventoryHandler } from './inventory.handler';
 import { AttackHandler } from './attack.handler';
 import { MapHandler } from './map.handler';
@@ -26,7 +25,6 @@ import { GameCommandHandler } from './game-command.handler';
 export const handlerProviders = [
   HelpHandler,
   InfoHandler,
-  MoveHandler,
   InventoryHandler,
   AttackHandler,
   MapHandler,

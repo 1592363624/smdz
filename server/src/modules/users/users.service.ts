@@ -4,8 +4,11 @@
  * 注：登录仅通过 QQ 互联完成，不再提供用户名+密码的自注册/自登录。
  */
 
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+
+/// 常用指令列表最大数量（防止用户滥用存储/过长面板）
+const MAX_FAVORITE_COMMANDS = 20;
 
 @Injectable()
 export class UsersService {
@@ -138,5 +141,73 @@ export class UsersService {
         createdAt: true,
       },
     });
+  }
+
+  /**
+   * 解析用户常用指令 JSON 字段为字符串数组
+   * 兼容字段缺失/非法 JSON 场景，保证返回数组不抛错。
+   * @param raw favoriteCommands 原始字符串
+   */
+  private parseFavoriteCommands(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    try {
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      // 仅保留字符串且非空白的元素，去重并保留顺序
+      const seen = new Set<string>();
+      const result: string[] = [];
+      for (const item of arr) {
+        if (typeof item !== 'string') continue;
+        const v = item.trim();
+        if (!v || seen.has(v)) continue;
+        seen.add(v);
+        result.push(v);
+      }
+      return result;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 获取当前用户的常用指令列表
+   * @param userId 用户ID
+   * @returns 常用指令字符串数组（已去重、保序）
+   */
+  async getFavoriteCommands(userId: number): Promise<string[]> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { favoriteCommands: true },
+    });
+    if (!user) throw new NotFoundException('用户不存在');
+    return this.parseFavoriteCommands(user.favoriteCommands);
+  }
+
+  /**
+   * 设置（全量覆盖）当前用户的常用指令列表
+   * - 去重、去空白、限制最大数量（超出部分截断）
+   * - 校验元素均为字符串，防止非法数据写入
+   * @param userId 用户ID
+   * @param commands 常用指令字符串数组
+   */
+  async setFavoriteCommands(userId: number, commands: string[]): Promise<string[]> {
+    if (!Array.isArray(commands)) {
+      throw new BadRequestException('常用指令必须为数组');
+    }
+    const seen = new Set<string>();
+    const cleaned: string[] = [];
+    for (const item of commands) {
+      if (typeof item !== 'string') continue;
+      const v = item.trim();
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      cleaned.push(v);
+      if (cleaned.length >= MAX_FAVORITE_COMMANDS) break;
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { favoriteCommands: JSON.stringify(cleaned) },
+    });
+    return cleaned;
   }
 }

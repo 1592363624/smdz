@@ -12,9 +12,9 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiOkResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { UpdateNicknameDto } from './dto/user.dto';
+import { UpdateNicknameDto, SetFavoriteCommandsDto } from './dto/user.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('用户')
@@ -45,5 +45,30 @@ export class UsersController {
   async me(@Req() req) {
     const user = await this.usersService.findById(req.user.userId);
     return { success: true, data: user };
+  }
+
+  /**
+   * 获取当前用户自定义的常用指令列表（前端指令面板置顶展示）
+   */
+  @Get('favorite-commands')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取我的常用指令' })
+  @ApiOkResponse({ description: '返回常用指令字符串数组', type: [String] })
+  async getFavoriteCommands(@Req() req) {
+    const list = await this.usersService.getFavoriteCommands(req.user.userId);
+    return { success: true, data: list };
+  }
+
+  /**
+   * 设置（全量覆盖）当前用户的常用指令列表
+   */
+  @Post('favorite-commands')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '设置我的常用指令' })
+  async setFavoriteCommands(@Req() req, @Body() dto: SetFavoriteCommandsDto) {
+    const list = await this.usersService.setFavoriteCommands(req.user.userId, dto.commands);
+    return { success: true, data: list };
   }
 }

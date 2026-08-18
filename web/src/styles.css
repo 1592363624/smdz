@@ -809,6 +809,120 @@ vite-plugin-checker-error-overlay,
   background: transparent !important;
 }
 
+/* ===== 我的常用指令（可编辑置顶区） ===== */
+.fav-cmds {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.fav-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.fav-edit-btn {
+  font-size: 12px;
+  color: var(--accent2);
+  background: transparent;
+  border: 1px solid var(--accent2);
+  border-radius: 6px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.fav-edit-btn:hover {
+  background: rgba(139, 92, 246, 0.12);
+}
+.fav-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fav-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: rgba(139, 92, 246, 0.14);
+  color: var(--text);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+.fav-chip:hover {
+  background: rgba(139, 92, 246, 0.24);
+}
+.fav-chip.editing {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.fav-chip.editing:hover {
+  background: rgba(239, 68, 68, 0.24);
+}
+.fav-del {
+  font-size: 11px;
+  color: #ef4444;
+  line-height: 1;
+}
+.fav-empty {
+  font-size: 12px;
+  color: var(--muted-dark);
+}
+.fav-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+.fav-add-input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.fav-add-input:focus {
+  border-color: var(--accent2);
+  outline: none;
+}
+.fav-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+.fav-cand {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.14);
+  color: var(--text);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.fav-cand:hover {
+  background: rgba(59, 130, 246, 0.28);
+}
+.fav-msg {
+  font-size: 12px;
+  color: var(--accent2);
+  text-align: center;
+}
+
 /* ===== 退出/管理按钮 ===== */
 .logout {
   margin-top: auto;
