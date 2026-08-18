@@ -2227,14 +2227,37 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `宠物攻击冷却中，剩余${Math.ceil(cd.expireAt - now)}秒`;
     }
 
-    // 宠物对第一个怪物发起攻击（逐次真实结算，对齐原版 宠物攻击() 走武器攻击链路）
-    const monster = spawnMonsters[0];
-    const resultText = await this.combatSystem.resolvePetVsMonster(qualifiedPet, monster, map.id, userId);
+    // 宠物攻击：逐次真实结算（对齐原版 宠物攻击() 走武器攻击链路）
+    // 天神降世联动（对应原版 _主程序.ecode L397-400）：觉醒≥500 且"降"冷却(180秒)未过
+    // → 对地图上所有存活怪物各发起一次必中结算（原版 武器攻击(...,"天神a",100)）。
+    const awaken = (qualifiedPet.markers && qualifiedPet.markers['觉醒']) || 0;
+    let resultText = '';
+    const petMarkers2 = this.playerService.safeJsonParse<any[]>(qualifiedPet.markers2, []);
+    const skyfallCd = petMarkers2.find((m: any) => m.name === '降');
+    const canSkyfall = awaken >= 500 && !(skyfallCd && skyfallCd.expireAt > Date.now() / 1000);
 
-    // 击杀：从 GameMonster 表移除该怪物（按自增 id）
-    if (monster.hp <= 0) {
-      await this.mapService.removeMapMonster(map.id, monster.id);
+    if (canSkyfall) {
+      // 天神降世：对所有存活怪物逐次结算（必中）
+      resultText += `【天神降世】${qualifiedPet.name} 对所有敌人降下审判！\n`;
+      for (const m of spawnMonsters) {
+        if ((m.hp || 0) <= 0) continue;
+        const r = await this.combatSystem.resolvePetVsMonster(qualifiedPet, m, map.id, userId);
+        resultText += r + '\n';
+        if (m.hp <= 0) await this.mapService.removeMapMonster(map.id, m.id);
+      }
+      // 写入"降"冷却 180 秒（原版 时间间隔要求("降",180)）
+      const newPetM2 = petMarkers2.filter((m: any) => m.name !== '降');
+      newPetM2.push({ name: '降', expireAt: Date.now() / 1000 + 180 });
+      qualifiedPet.markers2 = JSON.stringify(newPetM2);
+    } else {
+      // 普通宠物攻击：只对第一个怪物发起结算
+      const monster = spawnMonsters[0];
+      resultText = await this.combatSystem.resolvePetVsMonster(qualifiedPet, monster, map.id, userId);
+      if (monster.hp <= 0) {
+        await this.mapService.removeMapMonster(map.id, monster.id);
+      }
     }
+
     // resolvePetVsMonster 已通过对象引用直接修改 qualifiedPet.hp（反伤掉血等），
     // 此处将更新后的宠物实例写回 summons 数组并持久化。
     const petIdx = summons.findIndex((s: any) => s === qualifiedPet);
@@ -2251,7 +2274,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     });
     await this.playerService.savePlayer(player);
 
-    return resultText;
+    return resultText.trim();
   }
 
   /**

@@ -13,7 +13,6 @@ import { GameService } from './game.service';
 import { PlayerService } from './player.service';
 import { TutorialService } from './tutorial.service';
 import { BonusService } from './bonus.service';
-import { CombatService } from './combat.service';
 import { ItemService } from './item.service';
 import { MapService } from './map.service';
 import { FamiliarService } from './familiar.service';
@@ -39,7 +38,6 @@ import { StatsService } from './stats.service';
     PlayerService,
     TutorialService,
     BonusService,
-    CombatService,
     ItemService,
     MapService,
     FamiliarService,
@@ -60,7 +58,6 @@ import { StatsService } from './stats.service';
     PlayerService,
     TutorialService,
     BonusService,
-    CombatService,
     ItemService,
     MapService,
     FamiliarService,

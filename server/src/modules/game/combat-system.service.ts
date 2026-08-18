@@ -1405,6 +1405,37 @@ export class CombatSystemService {
       const playerDef = this.buildAttackerBonus(player, playerData, map);
       const hitRate = this.calcHitRate(monsterBonus, { 闪避: playerDef.闪避 || 0, 闪避2: playerDef.闪避2 || 0 });
 
+      // ========== 防御方被动：幻时凝固（对应原版 战斗相关.ecode L1517-1547） ==========
+      // 玩家作为防御方被怪物攻击时，若满足触发条件，则冻结攻击方(怪物)30秒（"幻时"增益）。
+      // 触发条件：① 花园猫 且 好感≥60；② 身上有"幸福"增益。120秒冷却（写入怪物 markers2）。
+      {
+        const affinity = player.affinity || 0;
+        const happyBuff = this.safeParseJson<any[]>(player.buffs, []).find((b: any) => b && b.name === '幸福');
+        const phantomTrigger = (player.type === '花园猫' && affinity >= 60) || !!happyBuff;
+        if (phantomTrigger) {
+          const monsterMarkers2 = this.safeParseJson<any[]>(monster.markers2, []);
+          const cdText: { value: string } = { value: '' };
+          // 原版 时间间隔要求("幻时冷却",120, 攻击方.标记2, s) → 命中冷却则抵抗
+          if (!this.combatState.timeIntervalRequire('幻时冷却', 120, monsterMarkers2, Date.now(), cdText, Date.now())) {
+            // 给怪物(攻击方)施加"幻时"增益30秒（原版 获得增益(攻击方.增益,"幻时",30)）
+            const monsterBuffs = this.safeParseJson<any[]>(monster.buffs, []);
+            this.combatState.gainBuff(monsterBuffs, '幻时', 30, false, Date.now(), 0);
+            monster.buffs = JSON.stringify(monsterBuffs);
+            lines.push(`${player.name} 发动了【幻时】，${monster.name} 被幻时凝固`);
+          } else {
+            lines.push(`${monster.name} 幻时抵抗${cdText.value}`);
+          }
+          monster.markers2 = JSON.stringify(monsterMarkers2);
+          // 花园猫专属：减少自身主动技能冷却10秒（原版 L1536-1543）
+          if (player.type === '花园猫' && affinity >= 60) {
+            const pMarkers2 = this.safeParseJson<any[]>(player.markers2, []);
+            this.combatState.gainBuff(pMarkers2, `${player.type}技能冷却`, -10, true, Date.now(), 0);
+            player.markers2 = JSON.stringify(pMarkers2);
+            this.achievementService.addAchievement(player, '猫猫闪避', 1);
+          }
+        }
+      }
+
       // 读取玩家"闪避"增益 buff（handleDodge 写入），作为固定闪避值。
       // 原版 战斗相关.ecode L1204-1262：释放闪避后 固定闪避+100 → 命中判定 a1×100 - 固定闪避 必失败 → 100%免伤。
       const playerBuffs = this.safeParseJson<any[]>(player.buffs, []);
@@ -1428,6 +1459,29 @@ export class CombatSystemService {
             if (counterLines) lines.push(counterLines);
           } catch (e: any) {
             this.logger.warn(`花园猫反击失败: ${e.message}`);
+          }
+        }
+        // ========== 防御方被动：含光回防（对应原版 战斗相关.ecode L1429-1444） ==========
+        // 原版：在「闪避状态判定 c==1」分支内，玩家成功闪避后，若装备含光(法宝9级,耐久>8)
+        // 则回复最高防御类型上限的10%。此处玩家作为防御方成功闪避怪物反击，触发含光续航。
+        {
+          const equipList: any[] = this.safeParseJson(playerData.equipment, []);
+          const hanGuang = equipList.find((e: any) => (e.name || '').includes('含光'));
+          if (hanGuang && (hanGuang.durability ?? hanGuang.耐久 ?? 0) > 8) {
+            // 取最高防御类型：护盾 > 装甲 > 生命（原版 取最高防御）
+            if ((player.maxShield || 0) >= (player.maxArmor || 0) && (player.maxShield || 0) >= (player.maxHp || 0)) {
+              const heal = Math.round((player.maxShield || 0) * 0.1);
+              player.shield = Math.min((player.maxShield || 0), (player.shield || 0) + heal);
+              lines.push(`【含光】${player.name} 回复了 ${heal} 护盾`);
+            } else if ((player.maxArmor || 0) >= (player.maxHp || 0)) {
+              const heal = Math.round((player.maxArmor || 0) * 0.1);
+              player.armor = Math.min((player.maxArmor || 0), (player.armor || 0) + heal);
+              lines.push(`【含光】${player.name} 修复了 ${heal} 装甲`);
+            } else {
+              const heal = Math.round((player.maxHp || 0) * 0.1);
+              player.hp = Math.min((player.maxHp || 0), (player.hp || 0) + heal);
+              lines.push(`【含光】${player.name} 恢复了 ${heal} 生命`);
+            }
           }
         }
         return lines;

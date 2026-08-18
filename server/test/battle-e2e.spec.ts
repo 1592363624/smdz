@@ -192,15 +192,8 @@ function buildMocks() {
     },
   } as unknown as jest.Mocked<PrismaService>;
 
-  // combatState 提供 combat 引擎内 calcReflectDamage / buff 规范化 所需的占位方法
-  const combatState = {
-    equipRequire: jest.fn(() => false),
-    buffRequire: jest.fn(() => false),
-    timeIntervalRequire: jest.fn(() => false),
-    normalizeBuffItem: jest.fn((it: any) => it),
-    gainBuff: jest.fn(),
-    setAchievementProficiency: jest.fn(),
-  } as unknown as jest.Mocked<CombatStateService>;
+  // combatState 使用真实实例（纯逻辑类，无 prisma 依赖），提供 gainBuff/timeIntervalRequire 等真实实现
+  const combatState = new CombatStateService() as unknown as jest.Mocked<CombatStateService>;
 
   return {
     players, monstersByMap, saveLog, addExpLog,
@@ -353,6 +346,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const pet = { name: '战斗女仆', attack: 500, hit: 200, dodge: 10, crit: 5, critDmg: 150, hp: 200, shield: 0, armor: 0 };
       const monster = makeMonster({ id: 1001, hp: 30, attack: 0 });
       registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'checkHit').mockReturnValue(true); // 消除随机命中
 
       const text = await combat.resolvePetVsMonster(pet, monster, 1, 2);
 
@@ -471,6 +465,82 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       else expect(result.killed).toContain('史莱姆');
       // 造成伤害 > 0
       expect(result.damageDealt).toBeGreaterThan(0);
+    });
+  });
+
+  // ---------- 防御方被动：幻时凝固 / 含光回防（玩家被怪物攻击） ----------
+  describe('防御方被动 幻时凝固/含光回防（monsterCounterAttack 复刻 战斗相关.ecode L1429-1547）', () => {
+    // 直接驱动 monsterCounterAttack：构造存活怪物 + 玩家，让怪物命中玩家
+    async function runCounter(player: any, monster: any) {
+      mocks.players.set(player.userId, player);
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      // 怪物命中玩家：buildMonsterBonus 返回高命中、无闪避
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
+        攻击: 200, 命中: 200, 闪避: 0, 闪避2: 0, 生命: 50, 护盾: 0, 装甲: 0,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+        生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
+      } as any);
+      // 伤害固定为 10，便于含光回复断言
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: 10, poolDamage: { shield: 0, armor: 0, hp: 10 }, rating: '', critMultiplier: 1 });
+      return combat.weaponAttack; // 占位（实际用 monsterCounterAttack 私有）
+    }
+
+    it('幻时凝固：花园猫(好感≥60)被攻击 → 怪物获得「幻时」增益，result 含"被幻时凝固"', async () => {
+      const player = makePlayer({ userId: 2, type: '花园猫', affinity: 80, hp: 100, maxHp: 100 });
+      const monster = makeMonster({ id: 1001, hp: 100, attack: 50, buffs: '[]', markers2: '[]' });
+      mocks.players.set(2, player);
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
+        攻击: 200, 命中: 200, 闪避: 0, 闪避2: 0, 生命: 50, 护盾: 0, 装甲: 0,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+        生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
+      } as any);
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: 10, poolDamage: { shield: 0, armor: 0, hp: 10 }, rating: '', critMultiplier: 1 });
+
+      // 调用私有 monsterCounterAttack（玩家被怪物攻击）
+      const lines = await (combat as any).monsterCounterAttack(player, await mocks.playerService.getPlayerData(2), { id: 1, name: '医疗室', vehicles: '[]' });
+
+      // 怪物被加「幻时」增益（原版 获得增益(攻击方.增益,"幻时",30)）
+      // 注意：combatState.gainBuff 写入中文 key {名称,有效期至}（归一化约定）
+      const monsterBuffs = JSON.parse(monster.buffs);
+      const phantom = monsterBuffs.find((b: any) => b.名称 === '幻时');
+      expect(phantom).toBeDefined();
+      expect(phantom.有效期至).toBeGreaterThan(Date.now());
+      // 文本可见
+      expect(lines.join('\n')).toContain('被幻时凝固');
+    });
+
+    it('含光回防：装备含光(耐久>8)闪避成功 → 回复最高防御类型上限10%', async () => {
+      // 原版含光在「闪避状态判定」分支内回复：玩家成功闪避怪物反击后，装备含光(耐久>8)回复最高防御上限10%。
+      // 玩家 hp=90/maxHp=100，含"闪避"buff(必闪避怪物反击)，装备含光耐久9 → 闪避后回复 maxHp*0.1=10 → 100。
+      const player = makePlayer({
+        userId: 2, hp: 90, maxHp: 100, shield: 0, maxShield: 0, armor: 0, maxArmor: 0,
+        buffs: JSON.stringify([{ name: '闪避', value: 100, expireAt: Date.now() / 1000 + 30 }]),
+        equipment: JSON.stringify([{ name: '含光剑', durability: 9 }]),
+      });
+      const monster = makeMonster({ id: 1001, hp: 100, attack: 50 });
+      mocks.players.set(2, player);
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
+        攻击: 200, 命中: 200, 闪避: 0, 闪避2: 0, 生命: 50, 护盾: 0, 装甲: 0,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+        生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
+      } as any);
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: 10, poolDamage: { shield: 0, armor: 0, hp: 10 }, rating: '', critMultiplier: 1 });
+
+      await (combat as any).monsterCounterAttack(player, await mocks.playerService.getPlayerData(2), { id: 1, name: '医疗室', vehicles: '[]' });
+
+      // 闪避成功 → 含光回复生命上限10% = 10，从90回到100
+      expect(player.hp).toBe(100);
     });
   });
 });

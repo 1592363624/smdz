@@ -12,7 +12,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
-import { CombatService } from './combat.service';
 import { CombatSystemService } from './combat-system.service';
 import { ItemService } from './item.service';
 import { ItemSystemService } from './item-system.service';
@@ -30,7 +29,6 @@ export class FamiliarSkillsService {
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
     private readonly bonusService: BonusService,
-    private readonly combatService: CombatService,
     private readonly combatSystem: CombatSystemService,
     private readonly itemService: ItemService,
     private readonly itemSystem: ItemSystemService,

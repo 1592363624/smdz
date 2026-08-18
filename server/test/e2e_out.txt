@@ -1,0 +1,59 @@
+  console.log
+    PHANTOM_LINES::
+    冒险者 发动了【幻时】，史莱姆 被幻时凝固
+    史莱姆 攻击你，造成 生命-10
+
+      at Object.<anonymous> (test/battle-e2e.spec.ts:509:15)
+
+  console.log
+    PHANTOM_BUFFS::[{"名称":"幻时","有效期至":1787034787727,"是否叠加时间":false,"强度":0}]
+
+      at Object.<anonymous> (test/battle-e2e.spec.ts:511:15)
+
+FAIL test/battle-e2e.spec.ts (7.401 s)
+  战斗系统端到端回归（五轮原汁原味修复）
+    轮次1 闪避生效（修复1：handleDodge 写入「闪避」buff 被怪物反击消费）
+      ○ skipped 玩家有「闪避」buff 时，怪物反击被 100% 免伤，玩家 hp 不变
+    轮次2 当前武器攻击（修复2：指令攻击用 player.currentWeapon）
+      ○ skipped 装备了武器(currentWeapon>0)时，写入「武器名+冷却」标记而非拳头
+      ○ skipped 未装备武器(currentWeapon=0)时，退化为拳头，写入「拳头冷却」
+    轮次3 战斗统计（修复3：攻击>1次附加「战斗统计」行）
+      ○ skipped 全体攻击多目标(total>1)时，result 含「战斗统计」行
+      ○ skipped 单目标攻击(total=1)时，result 不出现「战斗统计」行
+    轮次4 宠物真实结算（修复4：resolvePetVsMonster 走三层引擎而非概率）
+      ○ skipped 宠物攻击弱怪命中并击杀 → 怪物从地图移除
+      ○ skipped 宠物攻击强怪未击杀 → 怪物扣血且宠物受 0.3×怪物攻击 反伤
+      ○ skipped 宠物未命中（怪物闪避） → 不掉血、不反伤
+    轮次5 连击/溅射（修复5：processWeaponSpecialEffects 触发 combo；splashCount 对额外目标）
+      ○ skipped 火神机枪(specialSeq=1002)触发 combo 标记
+      ○ skipped 雷火剑(specialSeq=1001)冷却缩短为 1/3
+      ○ skipped 机械触手(specialSeq=90)冷却固定为 6 秒
+      ○ skipped 普通武器不触发 combo，冷却保持基础值
+      ○ skipped 溅射：splashCount 个额外目标受到真实伤害（result 含溅射文本）
+    综合 基础攻击减血闭环
+      ○ skipped 必中攻击弱怪 → 怪物 hp 下降或被击杀，玩家获得经验
+    防御方被动 幻时凝固/含光回防（monsterCounterAttack 复刻 战斗相关.ecode L1429-1547）
+      × 幻时凝固：花园猫(好感≥60)被攻击 → 怪物获得「幻时」增益，result 含"被幻时凝固" (40 ms)
+      √ 含光回防：装备含光(耐久>8)闪避成功 → 回复最高防御类型上限10% (2 ms)
+
+  ● 战斗系统端到端回归（五轮原汁原味修复） › 防御方被动 幻时凝固/含光回防（monsterCounterAttack 复刻 战斗相关.ecode L1429-1547） › 幻时凝固：花园猫(好感≥60)被攻击 → 怪物获得「幻时」增益，result 含"被幻时凝固"
+
+    expect(received).toBeDefined()
+
+    Received: undefined
+
+    [0m [90m 514 |[39m       [36mconst[39m monsterBuffs [33m=[39m [33mJSON[39m[33m.[39mparse(monster[33m.[39mbuffs)[33m;[39m
+     [90m 515 |[39m       [36mconst[39m phantom [33m=[39m monsterBuffs[33m.[39mfind((b[33m:[39m any) [33m=>[39m b[33m.[39mname [33m===[39m [32m'幻时'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 516 |[39m       expect(phantom)[33m.[39mtoBeDefined()[33m;[39m
+     [90m     |[39m                       [31m[1m^[22m[39m
+     [90m 517 |[39m       expect(phantom[33m.[39m有效期至)[33m.[39mtoBeGreaterThan([33mDate[39m[33m.[39mnow())[33m;[39m
+     [90m 518 |[39m       [90m// 文本可见[39m
+     [90m 519 |[39m       expect(lines[33m.[39mjoin([32m'\n'[39m))[33m.[39mtoContain([32m'被幻时凝固'[39m)[33m;[39m[0m
+
+      at Object.<anonymous> (test/battle-e2e.spec.ts:516:23)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 14 skipped, 1 passed, 16 total
+Snapshots:   0 total
+Time:        7.955 s, estimated 9 s
+Ran all test suites matching /test\\battle-e2e.spec.ts/i with tests matching "幻时凝固".
