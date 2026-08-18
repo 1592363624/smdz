@@ -2950,48 +2950,173 @@ export class GameService {
   }
 
   /**
-   * 处理闪避命令
-   * 释放闪避技能，持续一段时间内提高闪避率
+   * 处理闪避命令（对应原版 _主程序.ecode L1839 分发 + 使魔技能.ecode L550 释放闪避 子程序）
+   * 1:1 复刻：发「闪避」指令 → 检查冷却(飞羽套装加成) → 调用释放闪避(熟练度决定持续秒数) → 写入闪避增益。
+   * 冷却公式 15*(1+a2*0.05)（a2=飞羽套装等级封顶10），持续 a1=(a/(25+a)+1)*4（a=闪避熟练度等级）。
    */
   async handleDodge(userId: number): Promise<string> {
-    // 获取玩家数据
+    // 获取玩家数据（对应原版 玩家 参数）
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    const { player } = playerData;
+    const markers: Record<string, number> = playerData.markers || {};
+    const markers2: any[] = playerData.markers2 || [];
 
-    // 检查是否死亡
+    // 检查是否死亡（原版 L1846 玩家死亡 优先判定）
     if (this.playerService.isPlayerDead(player)) {
       return this.playerService.handlePlayerDeath(userId, player);
     }
 
-    // 检查冷却时间
-    const now = Date.now();
-    const cooldown = markers['dodge_cooldown'] || 0;
-    if (now < cooldown) {
-      const remaining = Math.ceil((cooldown - now) / 1000);
-      return `闪避技能还在冷却中，剩余 ${remaining} 秒`;
+    // ========== 飞羽套装加成（对应原版 _主程序.ecode L1840-1844） ==========
+    // 增益要求("飞羽", 玩家.增益, a2) 取飞羽套装强度 a2，封顶 10
+    let a2 = 0;
+    for (const m of markers2) {
+      if (m && (m.name === '飞羽')) a2 = Math.max(a2, Number(m.strength ?? m.强度 ?? 0));
+    }
+    if (a2 > 10) a2 = 10; // 原版 L1841-1842 封顶
+    let w2 = '';
+    if (a2 > 0) {
+      // 原版 L1844：冷却+15*a2*0.05 秒
+      w2 = `(冷却+${Math.round(15 * a2 * 0.05 * 100) / 100}秒)`;
     }
 
-    // 设置闪避状态：写入"闪避"增益 buff（含 expireAt）。
-    // 对应原版 战斗相关.ecode L1204-1262：释放闪避后获得「闪避」增益，
-    // 战斗命中判定时按 固定闪避+100 计算（几乎必闪避 → 100%免伤）。
-    // 复用怪物反击 monsterCounterAttack 中已有的 dodgeBuff 读取逻辑，与原版语义统一。
+    // ========== 冷却判定（对应原版 _主程序.ecode L1848） ==========
+    // 时间间隔要求("闪避冷却", 15*(1+a2*0.05), 玩家.标记2)
+    const nowMs = Date.now();
+    const nowSec = nowMs / 1000;
+    const cooldownSec = 15 * (1 + a2 * 0.05);
+    const cdMark = markers2.find((m: any) => m && m.name === '闪避冷却');
+    if (cdMark && cdMark.expireAt && cdMark.expireAt > nowSec) {
+      const remaining = Math.ceil(cdMark.expireAt - nowSec);
+      // 原版 L1849：玩家.名称 + w + w2（w 来自玩家死亡/状态提示，这里仅回冷却）
+      return `${player.name}闪避冷却中，剩余 ${remaining} 秒${w2}`;
+    }
+
+    // ========== 释放闪避 子程序（使魔技能.ecode L550-633） ==========
+    // 麻醉标记（原版 L561-562）：静默返回（网页版无独立麻醉系统，保留判定骨架）
+    if (markers2.some((m: any) => m && m.name === '麻醉')) {
+      return '';
+    }
+    // 闪避属性过低无法释放（原版 L564-565：玩家.属性.闪避 <= 1）
+    const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
+    if ((calcBonus.闪避 || 0) <= 1) {
+      return `${player.name}因为闪避属性过低无法释放闪避`;
+    }
+    // 闪避熟练度等级 a（原版 L567：显示熟练度等级(玩家.标记,"闪避")）
+    const a = Number(markers['闪避'] || 0);
+    // 持续秒数 a1（原版 L568：a1=(a/(25+a)+1)*4）
+    let a1 = (a / (25 + a) + 1) * 4;
+    // 空间主宰装备（原版 L569-573）：a1*=2 并加"空间主宰"括号
+    const hasSpaceMaster = this.hasEquip(player, '空间主宰');
+    if (hasSpaceMaster) {
+      const kzMark = markers2.find((m: any) => m && m.name === 'kz');
+      if (!kzMark || !kzMark.expireAt || kzMark.expireAt <= nowSec) {
+        a1 = a1 * 2;
+        w2 = w2 ? `${w2}(空间主宰)` : '(空间主宰)';
+        // 写入 kz 60秒冷却标记（原版 L570 时间间隔要求("kz",60)）
+        this.setMarkers2(markers2, 'kz', nowSec + 60);
+      }
+    }
+    // 文本（原版 L576：玩家.名称+"尝试闪避攻击("+文本四舍(a1)+"秒)"+w2）
+    const roundedA1 = Math.round(a1 * 100) / 100;
+    let w = `${player.name}尝试闪避攻击(${roundedA1}秒)${w2}`;
+    // 添加成就（原版 L577-578）
+    await this.achievementService.addAchievement(player, '闪避', 1);
+    await this.achievementService.addAchievement(player, '闪避熟练度', 1);
+    // 写入闪避增益（原版 L579：添加标记("闪避", a1, 玩家.增益)）→ 映射 player.buffs 供战斗命中判定读取
     const playerBuffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    const dodgeDuration = 30; // 闪避持续时间（秒），对应原版固定闪避窗口
-    const nowSec = now / 1000;
-    // 若已有生效中的闪避增益则延长，否则新建
     const existingDodge = playerBuffs.find((b: any) => b && b.name === '闪避' && (!b.expireAt || b.expireAt > nowSec));
     if (existingDodge) {
-      existingDodge.expireAt = nowSec + dodgeDuration;
+      existingDodge.expireAt = nowSec + a1; // 原版延长至 a1 秒
     } else {
-      playerBuffs.push({ name: '闪避', value: 100, expireAt: nowSec + dodgeDuration, duration: dodgeDuration });
+      playerBuffs.push({ name: '闪避', value: 100, expireAt: nowSec + a1, duration: a1 });
     }
     player.buffs = JSON.stringify(playerBuffs);
-    markers['dodge_cooldown'] = now + 60000; // 60秒冷却
-    player.markers = JSON.stringify(markers);
+    // 写入冷却标记（原版 L1848：时间间隔要求 "闪避冷却" cooldownSec）
+    this.setMarkers2(markers2, '闪避冷却', nowSec + cooldownSec);
+    player.markers2 = JSON.stringify(markers2);
+
+    // ========== 使魔专属分支（原版 L580-632） ==========
+    const aff = Number(player.affinity || 0);
+    const seq = Number(player.specialSeq || 0);
+    if (seq === 1) {
+      // #花园猫（原版 @Constant 花园猫="1"；L580-585）：好感≥100 → 啾啾猫猫增益 + 闪避击熟练度
+      if (aff >= 100) {
+        this.setMarkers2(markers2, '啾啾猫猫', nowSec + 3);
+        await this.achievementService.addAchievement(player, '闪避击', 1);
+        player.markers2 = JSON.stringify(markers2);
+        w += '(啾啾猫猫)';
+      }
+    } else if (seq === 8) {
+      // #战斗女仆（原版 @Constant 战斗女仆="8"；L587-597）：好感≥100 → 清空当前武器攻击冷却
+      if (aff >= 100) {
+        const weapons: any[] = playerData.weapons || [];
+        const curIdx = Number(player.currentWeapon || 0);
+        const wname = weapons[curIdx]?.name || '拳头';
+        const wcdName = wname === '拳头' ? '拳头冷却' : `${wname}冷却`;
+        const newM2 = markers2.filter((m: any) => !(m && m.name === wcdName));
+        player.markers2 = JSON.stringify(newM2);
+        w += `清空了${wname}的攻击冷却`;
+      }
+    } else if (seq === 12) {
+      // #龙姬（原版 @Constant 龙姬="12"；L599-608）：好感≥60 → 龙闪（当前状态压缩到1%，差值折算百分比）
+      if (aff >= 60) {
+        const total = (calcBonus.护盾 || player.shield || 0) + (calcBonus.装甲 || player.armor || 0) + (calcBonus.生命 || player.maxHp || 0);
+        const cur = (player.shield || 0) + (player.armor || 0) + (player.hp || 0);
+        const a1pct = total > 0 ? (cur / total) * 100 : 0;
+        await this.achievementService.addAchievement(player, '龙闪', Math.round(a1pct));
+        player.hp = (player.hp || 0) * 0.01;
+        player.armor = (player.armor || 0) * 0.01;
+        player.shield = (player.shield || 0) * 0.01;
+        w += `(龙闪${Math.round(a1pct)}%)`;
+      }
+    } else if (seq === 22) {
+      // #普拉娜（原版 L610-619）：好感≥30 → 火力压制增益
+      if (aff >= 30) {
+        // 原版 玩家.技能等级：使魔技能等级，网页版按"普拉娜技能熟练度"每10点折算1级（对齐 familiar-skills.getSkillLevel）
+        const skillLevel = Math.floor((Number(markers['普拉娜技能熟练度'] || 0)) / 10) + 1;
+        const yzMark = markers2.find((m: any) => m && m.name === '压制');
+        if (!yzMark || !yzMark.expireAt || yzMark.expireAt <= nowSec) {
+          this.setMarkers2(markers2, '压制', nowSec + (18 + skillLevel * 1.2), 16);
+          w += '\n火力压制16%';
+        } else {
+          this.setMarkers2(markers2, '压制', nowSec + (4.5 + skillLevel * 0.3), 1.5);
+          w += '\n火力压制1.5%';
+        }
+        player.markers2 = JSON.stringify(markers2);
+      }
+    }
+
     await this.playerService.savePlayer(player);
 
-    this.logger.log(`玩家 ${userId} 释放闪避技能`);
-    return '💨 释放闪避技能！\n在 30 秒内大幅提升闪避率\n冷却时间：60 秒';
+    this.logger.log(`玩家 ${userId} 释放闪避技能，持续 ${roundedA1} 秒，冷却 ${Math.round(cooldownSec * 100) / 100} 秒`);
+    return w;
+  }
+
+  /**
+   * 判断玩家是否装备指定名称的装备（对应原版 装备要求）
+   * @param player 玩家对象
+   * @param name 装备名称
+   */
+  private hasEquip(player: any, name: string): boolean {
+    const equips: any[] = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    return equips.some((e: any) => e && (e.name === name || e.名称 === name));
+  }
+
+  /**
+   * 写入/覆盖 markers2 增益标记（对应原版 获得增益/添加标记）
+   * @param markers2 增益数组（就地修改）
+   * @param name 标记名
+   * @param expireAt 到期时间戳（秒）
+   * @param strength 强度（可选）
+   */
+  private setMarkers2(markers2: any[], name: string, expireAt: number, strength?: number): void {
+    const idx = markers2.findIndex((m: any) => m && m.name === name);
+    if (idx >= 0) {
+      markers2[idx].expireAt = expireAt;
+      if (strength !== undefined) markers2[idx].strength = strength;
+    } else {
+      markers2.push(strength !== undefined ? { name, expireAt, strength } : { name, expireAt });
+    }
   }
 
   // ========== 玩家信息命令 ==========

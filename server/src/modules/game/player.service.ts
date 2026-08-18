@@ -285,10 +285,23 @@ export class PlayerService {
     // 累加经验
     player.exp = (player.exp || 0) + exp;
 
-    // 升级经验门槛始终按公式实时计算（对齐原版 加成计算.ecode L1781-1794）。
+    // 升级经验门槛按公式实时计算（对齐原版 加成计算.ecode L1781-1794）。
     // 不信任可能过期的 upgradeExp 字段（存量玩家曾写入错误的 100），确保升级能正常触发。
-    // 升级经验加成暂按 0（玩家 bonus.升级经验 的完整增益系统后续接入）。
-    let upgradeExp = this.calcUpgradeExp(player.level);
+    // 升级经验加成/风月入墨减益在升级循环内为常量（不随等级变化），循环前取一次即可。
+    const bonus = this.safeJsonParse<any>(player.bonus, {});
+    const upgradeExpBonus = Number(bonus['升级经验'] || 0); // 玩家.加成.升级经验（百分比）
+    // 风月入墨减益：来自玩家增益列表中"风月入墨"的强度（数据分析.ecode L799 增益要求 返回强度）。
+    // 原版 增益要求("风月入墨", 玩家.增益, a3, s) 把减益百分比写入 a3。
+    let windMoonReduce = 0;
+    const buffs = this.safeJsonParse<any[]>(player.buffs, []);
+    for (const b of buffs) {
+      const name = b['名称'] || b.name;
+      if (name === '风月入墨') {
+        windMoonReduce = Number(b['强度'] || b.strength || 0);
+        break;
+      }
+    }
+    let upgradeExp = this.calcUpgradeExp(player.level, upgradeExpBonus, windMoonReduce);
     while (player.exp >= upgradeExp) {
       player.exp -= upgradeExp;
       player.level += 1;

@@ -22,6 +22,7 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
 import { AchievementService } from '../src/modules/game/achievement.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
+import { StatsService } from '../src/modules/game/stats.service';
 
 // ==================== 内存测试夹具 ====================
 
@@ -186,9 +187,19 @@ function buildMocks() {
     distributeLoot: jest.fn(async () => ''),
   } as unknown as jest.Mocked<ItemSystemService>;
 
+  // statsService：monsterCounterAttack 用 getOnlineUserIds 判定"活跃"(在线) 才算反击目标。
+  // 测试玩家 userId=2 视为在线（原版攻击者必然在线）。
+  const statsService = {
+    getOnlineUserIds: jest.fn(() => new Set<number>([2])),
+  } as unknown as jest.Mocked<StatsService>;
+
   const prisma = {
     systemConfig: {
       findUnique: jest.fn(async () => ({ value: '1' })),
+    },
+    // monsterCounterAttack 查同图真实玩家；测试为内存隔离，返回空，仅反击内存 attacker
+    player: {
+      findMany: jest.fn(async () => []),
     },
   } as unknown as jest.Mocked<PrismaService>;
 
@@ -198,7 +209,7 @@ function buildMocks() {
   return {
     players, monstersByMap, saveLog, addExpLog,
     playerService, mapService, staticData, bonusService,
-    achievementService, itemSystem, prisma, combatState,
+    achievementService, itemSystem, prisma, combatState, statsService,
   };
 }
 
@@ -222,7 +233,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
     combat = new CombatSystemService(
       mocks.prisma, mocks.playerService, mocks.bonusService,
       mocks.mapService, mocks.staticData, mocks.achievementService,
-      mocks.itemSystem, mocks.combatState,
+      mocks.itemSystem, mocks.combatState, mocks.statsService,
     );
 
     // 反伤计算（calcReflectDamage）已由 combat.spec.ts 独立覆盖，
@@ -423,9 +434,9 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       registerMonsters(mocks, 1, [main, extra1, extra2]);
 
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      // 注入使魔特效：溅射 1 个目标、必中、倍率 1；allAttack=false 使 effectiveAllAttack=false
+      // 注入使魔特效：溅射 1 个目标、必中、倍率×1（百分制 100）；allAttack=false 使 effectiveAllAttack=false
       jest.spyOn(combat as any, 'processFamiliarEffects').mockReturnValue({
-        damageMultiplier: 1, forceAllAttack: false, allAttack: false, hitRateModifier: 0,
+        damageMultiplier: 100, forceAllAttack: false, allAttack: false, hitRateModifier: 0,
         extraPenetration: 0, effectText: '', attackBonus: 0, critDmgBonus: 0,
         attackerBuffs: [], defenderBuffs: [], markerOps: [],
         splashCount: 1, splashDamageMultiplier: 1, splashMustHit: true,
@@ -541,6 +552,496 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       // 闪避成功 → 含光回复生命上限10% = 10，从90回到100
       expect(player.hp).toBe(100);
+    });
+  });
+
+  // ---------- 光荣弹（玩家死亡装备 #光荣弹=44 → 必中反击攻击者） ----------
+  describe('光荣弹（gloryGrenade 复刻 战斗相关.ecode L4987-5018）', () => {
+    it('玩家死亡且装备光荣弹(44) → 对怪物发起必中反击并造成真实伤害', async () => {
+      // 死者：玩家 hp=0（已死）、装备 [{specialSeq:44}]、属性 生命/装甲/护盾 用于倍率计算
+      const player = makePlayer({
+        userId: 2, hp: 0, maxHp: 100,
+        属性: { 生命: 300, 装甲: 100, 护盾: 100 },
+        equipment: [{ specialSeq: 44 }],
+      });
+      mocks.players.set(2, player);
+      // 攻击者：怪物，四系伤害各10（用于倍率 a1 分母），hp 充足避免触发击杀结算分支
+      const monster = makeMonster({ id: 1001, hp: 1000, 物伤: 10, 火伤: 10, 冰伤: 10, 电伤: 10 });
+      registerMonsters(mocks, 1, [monster]);
+
+      // 复刻链路：buildAttackerBonus/buildMonsterBonus/calcDamage 均 spy 为受控值
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+      // calcDamage 固定返回 damage=10、poolDamage.hp=500，使 finalDmg=10*(a1/100)
+      // a1 = (300+100+100)/( (10+10+10+10)*0.25 )*100 = 500/10*100 = 5000% → finalDmg=500
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({
+        damage: 10, poolDamage: { shield: 0, armor: 0, hp: 500 }, rating: '', critMultiplier: 1,
+      });
+
+      const text = await (combat as any).gloryGrenade(
+        player, monster, await mocks.playerService.getPlayerData(2), { id: 1 }, Date.now(),
+      );
+
+      // 文本可见「光荣弹」且含倍率括号（原版 加括号("倍率"+...)）
+      expect(text).toContain('光荣弹');
+      expect(text).toMatch(/倍率\d+%/);
+      // 怪物受到真实伤害（1000 - 500 = 500，未致死故不触发 handleMonsterDeath）
+      expect(monster.hp).toBe(500);
+    });
+
+    it('玩家未死亡 → 光荣弹不触发（返回空文本）', async () => {
+      const player = makePlayer({
+        userId: 2, hp: 100, maxHp: 100,
+        属性: { 生命: 300, 装甲: 100, 护盾: 100 },
+        equipment: [{ specialSeq: 44 }],
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 1000, 物伤: 10, 火伤: 10, 冰伤: 10, 电伤: 10 });
+      registerMonsters(mocks, 1, [monster]);
+
+      const text = await (combat as any).gloryGrenade(
+        player, monster, await mocks.playerService.getPlayerData(2), { id: 1 }, Date.now(),
+      );
+      expect(text).toBe('');
+    });
+
+    it('玩家死亡但无光荣弹装备 → 不触发反击', async () => {
+      const player = makePlayer({
+        userId: 2, hp: 0, maxHp: 100,
+        属性: { 生命: 300, 装甲: 100, 护盾: 100 },
+        equipment: [],
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 1000, 物伤: 10, 火伤: 10, 冰伤: 10, 电伤: 10 });
+      registerMonsters(mocks, 1, [monster]);
+
+      const text = await (combat as any).gloryGrenade(
+        player, monster, await mocks.playerService.getPlayerData(2), { id: 1 }, Date.now(),
+      );
+      expect(text).toBe('');
+    });
+  });
+
+  // ---------- 套装特效（复刻 战斗相关.ecode 造成伤害 L1981-2062/L2447 等） ----------
+  describe('套装特效（穿透/增幅器/超压 复刻）', () => {
+    it('两极反转(装备63) → 攻击时三层穿透+8，result 含「两极反转」', async () => {
+      const player = makePlayer({
+        userId: 2,
+        equipment: [{ specialSeq: 63, name: '两极反转' }],
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 50 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('两极反转');
+      expect(monster.hp).toBeLessThan(50); // 正常造成伤害（穿透+8 使伤害略增）
+    });
+
+    it('增幅器套装=2 且目标 s敏锐>=5 → 伤害被免疫（敏锐），怪物不死', async () => {
+      // 原版 L1981-1990：防御方.套装.增幅器==2 且 s敏锐>=5 → 伤害倍率=0
+      const player = makePlayer({
+        userId: 2,
+        sets: JSON.stringify({ 增幅器: 2 }),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100, markers: JSON.stringify({ s敏锐: 5 }) });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('敏锐');
+      expect(monster.hp).toBe(100); // 伤害被免疫，hp 不变
+    });
+
+    it('增幅器套装=1 速射(s速射<5) → 伤害×0.9，result 含「速射」', async () => {
+      const player = makePlayer({
+        userId: 2,
+        sets: JSON.stringify({ 增幅器: 1 }),
+        markers: JSON.stringify({ s速射: 0 }),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 50 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('速射');
+      expect(monster.hp).toBeLessThan(50);
+    });
+
+    it('创世纪(武器-18) → 清空目标三池与经验，result 含「创世纪」', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      // 目标怪物携带状态与经验
+      const monster = makeMonster({
+        id: 1001, hp: 80, maxHp: 100, shield: 30, maxShield: 50, armor: 20, maxArmor: 40, exp: 999,
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      // 强制当前武器为创世纪
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '创世纪', specialSeq: -18, type: '近战武器', negativeType: 0 } as any);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('创世纪');
+      expect(monster.hp).toBe(0);
+      expect(monster.shield).toBe(0);
+      expect(monster.armor).toBe(0);
+      expect((monster as any).exp ?? 0).toBe(0);
+    });
+
+    it('安乐天使(防御方增益) → 伤害被免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100,
+        buffs: JSON.stringify([{ name: '安乐天使', expireAt: Date.now() / 1000 + 60 }]),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('安乐天使');
+      expect(monster.hp).toBe(100); // 免疫，hp 不变
+    });
+
+    it('短衬衫2(防御方标记2) → 伤害×0.1，result 含「短衬衫」', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, markers: JSON.stringify({ 短衬衫2: 1 }),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('短衬衫');
+      expect(monster.hp).toBeLessThan(100); // 仍造成伤害（×0.1）
+    });
+
+    it('负面类型=1(割裂) 累计4次 → 触发正式「割裂」增益', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      // 前3次未触发，第4次触发：用 markers 预置割裂1=3
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, markers: JSON.stringify({ 割裂1: 3 }),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '裂创', specialSeq: 0, type: '近战武器', negativeType: 1 } as any);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      // 原版 L2070-2076：触发时仅添加成就"触发割裂"，不立即附加"割裂"文本；
+      // "割裂"文本在后续攻击(防御方已带割裂增益)时才显示（L2139）。此处验证正式增益已写入。
+      const mb = JSON.parse(monster.buffs || '[]');
+      expect(mb.some((b: any) => b.name === '割裂')).toBe(true);
+    });
+
+    it('感电+星尘(好感≥60) → 超新星电伤，穿透+10', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 14, affinity: 80, skillLevel: 10 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, shield: 40, maxShield: 50,
+        buffs: JSON.stringify([{ name: '感电', expireAt: Date.now() / 1000 + 60 }]),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('感电');
+      expect(result.result).toContain('超新星');
+    });
+
+    it('龙姬(特殊序号12) 携带龙姬增伤 → 驱魔加成攻击，result 含「驱魔」', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 12, markers: JSON.stringify({ 龙姬增伤: 50 }) });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('驱魔');
+    });
+
+    it('恶毒(6) 攻击 → 防御方获得「恶毒之刃」增益，result 含文本', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 6 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('恶毒之刃');
+      const mb = JSON.parse(monster.buffs || '[]');
+      expect(mb.some((b: any) => b.name === '恶毒之刃')).toBe(true);
+    });
+
+    it('伊芙利特(11) 好感≥80 → 防御方获得「燃烧」增益，result 含(燃烧)', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 11, affinity: 80 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('燃烧');
+      const mb = JSON.parse(monster.buffs || '[]');
+      expect(mb.some((b: any) => b.name === '燃烧')).toBe(true);
+    });
+
+    it('军姬(16) 标记万象2=1 → 伤害×(2+技等/100)，怪物受更高伤', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 16, skillLevel: 10, markers: JSON.stringify({ 万象2: 1 }) });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('万象2');
+      // 倍率 (2+10/100)=2.1 → 伤害应明显高于基础（此处验证怪物扣血 > 普通一击约50）
+      expect(monster.hp).toBeLessThan(50);
+    });
+
+    it('星尘(14) 标记dz>0 → 斗转星移追加电伤，result 含文本', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 14, skillLevel: 10, markers: JSON.stringify({ dz: 20 }) });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('斗转星移');
+    });
+
+    it('防御方恶毒(6) 好感≥100 → 色欲免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100, specialSeq: 6, affinity: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('色欲');
+      expect(monster.hp).toBe(100);
+    });
+
+    it('防御方 saber(19) 好感≥40 且含 ex 增益 → 免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, specialSeq: 19, affinity: 40,
+        buffs: JSON.stringify([{ name: 'ex', expireAt: Date.now() / 1000 + 60 }]),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('ex');
+      expect(monster.hp).toBe(100);
+    });
+
+    it('防御方四糸乃(15) 好感≥80 → 冰凯免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, specialSeq: 15, affinity: 80,
+        buffs: JSON.stringify([{ name: 'bk1', expireAt: Date.now() / 1000 + 60 }]),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('冰凯');
+      expect(monster.hp).toBe(100);
+    });
+
+    it('吸血姬(活力=-15) 命中 → 防御方获得「猩红」增益，result 含文本', async () => {
+      const player = makePlayer({ userId: 2, vitality: -15, qqNumber: '12345' });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('猩红');
+      const mb = JSON.parse(monster.buffs || '[]');
+      expect(mb.some((b: any) => b.name === '猩红')).toBe(true);
+    });
+
+    it('防御方战斗女仆(8) 含守护1 → 免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, specialSeq: 8,
+        buffs: JSON.stringify([{ name: '守护1', expireAt: Date.now() / 1000 + 60 }]),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('守护');
+      expect(monster.hp).toBe(100);
+    });
+
+    it('防御方军姬(16) 好感≥40 → 获得「剑阵」增益并回血，result 含文本', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 30, maxHp: 100, specialSeq: 16, affinity: 80 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('剑阵');
+      const mb = JSON.parse(monster.buffs || '[]');
+      expect(mb.some((b: any) => b.name === '剑阵')).toBe(true);
+      expect(monster.hp).toBe(100); // 好感≥80 回满血
+    });
+
+    it('防御方军姬2(24) 好感≥20 且标记jj2hg1>0 → 招架免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, specialSeq: 24, affinity: 20,
+        markers: JSON.stringify({ jj2hg1: 1 }),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('招架');
+      expect(monster.hp).toBe(100);
+    });
+
+    it('防御方增益含「剑阵」 → 免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100,
+        buffs: JSON.stringify([{ name: '剑阵', expireAt: Date.now() / 1000 + 60 }]),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('剑阵');
+      expect(monster.hp).toBe(100);
+    });
+
+    it('格挡系统：防御方带圆盾(51) 冷却过期 → 触发格挡回满三池并免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 1 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, equipment: [{ specialSeq: 51, name: '圆盾' }],
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0); // 格挡必触发
+      try {
+        const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+        expect(result.result).toContain('圆盾');
+        expect(monster.hp).toBe(100); // 圆盾回满 + 免疫，hp 不变
+      } finally {
+        randSpy.mockRestore();
+      }
+    });
+
+    it('格挡系统：防御方带防爆盾(9) 无圆盾 → 触发默认格挡×0.25 减伤，仍造成伤害', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 1 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, equipment: [{ specialSeq: 9, name: '防爆盾' }],
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0); // 格挡必触发
+      try {
+        const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+        expect(result.result).toContain('格挡');
+        expect(monster.hp).toBeLessThan(100); // 减伤但仍造成伤害
+        expect(monster.hp).toBeGreaterThan(50); // 约1/4伤害，应剩 >50
+      } finally {
+        randSpy.mockRestore();
+      }
+    });
+
+    it('格挡系统：防御方无格挡来源 → 不触发格挡，正常造成伤害', async () => {
+      const player = makePlayer({ userId: 2, specialSeq: 1 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).not.toContain('格挡');
+      expect(monster.hp).toBeLessThan(100);
+    });
+
+    it('激变星增益 → 伤害0 免疫，怪物 hp 不变', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100,
+        buffs: JSON.stringify([{ name: '激变星', expireAt: Date.now() / 1000 + 60, strength: 5 }]),
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('激变星');
+      expect(monster.hp).toBe(100);
     });
   });
 });

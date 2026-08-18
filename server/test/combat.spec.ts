@@ -23,6 +23,7 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
 import { AchievementService } from '../src/modules/game/achievement.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
+import { StatsService } from '../src/modules/game/stats.service';
 
 // 构造 CombatSystemService 实例，注入空 mock（calcDamage 不触碰这些依赖）
 const combat = new CombatSystemService(
@@ -34,6 +35,7 @@ const combat = new CombatSystemService(
   {} as AchievementService,
   {} as ItemSystemService,
   {} as any,
+  {} as StatsService,
 );
 
 // ==================== 行动无限制 (战斗相关.ecode L5097-5172) ====================
@@ -49,6 +51,7 @@ describe('行动无限制 - 状态限制检查 (战斗相关.ecode L5097-5172)',
     {} as AchievementService,
     {} as ItemSystemService,
     {} as any,
+    {} as StatsService,
     );
 
   const basePlayer = () => ({
@@ -134,6 +137,7 @@ describe('玩家死亡 - 复活豁免判定 (战斗相关.ecode L5173-5231)', ()
     {} as AchievementService,
     {} as ItemSystemService,
     new CombatStateService(),
+    {} as StatsService,
     );
 
   const baseDeath = (over: any = {}) => ({
@@ -211,6 +215,7 @@ describe('置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317)', () =>
     {} as AchievementService,
     {} as ItemSystemService,
     {} as any,
+    {} as StatsService,
     );
 
   const attacker = (over: any = {}) => ({
@@ -268,6 +273,7 @@ describe('挑战怪物 - 名字映射 (战斗相关.ecode L4726-4790)', () => {
     {} as AchievementService,
     {} as ItemSystemService,
     {} as any,
+    {} as StatsService,
     );
 
   it('L4731 固定映射：a<100 b∈{1,6}=绿毛龟 / {2,7}=水元素 / {3,8}=巨齿鲨 / {4,9}=螳螂', () => {
@@ -325,6 +331,7 @@ describe('掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L494
     {} as AchievementService,
     {} as ItemSystemService,
     {} as any,
+    {} as StatsService,
     );
 
   it('L4954 各名称系数：地精=1 / 十夫长=1.5 / 百夫长=2 / 千夫长=2.5 / 将军=3', () => {
@@ -574,6 +581,7 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
       {} as AchievementService,
       {} as ItemSystemService,
       mockCombatState,
+      {} as StatsService,
     );
 
   const baseMap = (over: any = {}) => ({
@@ -714,6 +722,7 @@ describe('计算载具 - 载具属性计算 (加成计算.ecode L3556-3912)', ()
       {} as AchievementService,
       {} as ItemSystemService,
       stubCombatState,
+      {} as StatsService,
     );
 
   it('L3581 空名称载具 → 直接返回不报错', () => {
@@ -799,6 +808,7 @@ const avoidCombat = new CombatSystemService(
   {} as AchievementService,
   {} as ItemSystemService,
   avoidCombatState,
+  {} as StatsService,
 );
 
 describe('免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096)', () => {
@@ -903,6 +913,7 @@ describe('计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873)', () 
     {} as AchievementService,
     {} as ItemSystemService,
     combatState,
+    {} as StatsService,
   );
 
   const nowSec = () => Math.floor(Date.now() / 1000);
@@ -1044,6 +1055,7 @@ describe('计算增益接入 - buildAttackerBonus 调用 calculateBuffs', () => 
     {} as AchievementService,
     {} as ItemSystemService,
     {} as any,
+    {} as StatsService,
   );
 
   const basePlayerForBuff = () => ({

@@ -21,6 +21,7 @@ import { ItemSystemService } from './item-system.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
 import { CombatStateService } from './combat-state.service';
+import { StatsService } from './stats.service';
 
 // ==================== 类型定义 ====================
 
@@ -219,6 +220,7 @@ export class CombatSystemService {
     private readonly achievementService: AchievementService,
     private readonly itemSystem: ItemSystemService,
     private readonly combatState: CombatStateService,
+    private readonly statsService: StatsService,
   ) {}
 
   // ==================== 公开接口 ====================
@@ -832,6 +834,10 @@ export class CombatSystemService {
       // 走完整抗性/倍率流程。目标当前状态 = hp+shield+armor。
       // 本框架无"不触发特效"概念，默认恒为"触发"（不触发特效==假），故各 .如果真 守卫均成立。
       // 额外伤害倍率(extraDamageMult) 对应原版 L983 初始化=1，L1805 镇岳陪睡>2 时 +=0.15。
+      // forcedMult：强制伤害倍率修正（套装/装备触发 伤害0/×0.1/×1.5 等），默认1，在最终伤害处乘入。
+      let forcedMult = 1;
+      // dmgImmune：套装免疫（增幅器2敏锐 s敏锐>=5 → 伤害倍率=0），需跳过保底1点伤害并计为命中零伤。
+      let dmgImmune = false;
       {
         const nowSec = Date.now() / 1000;
         const targetCurState = (target.hp || 0) + (target.shield || 0) + (target.armor || 0);
@@ -1006,6 +1012,593 @@ export class CombatSystemService {
           resultLines.push(`【火焰披风】火伤+${Math.round(a2)}，穿透+5`);
         }
 
+        // ========== 装备要求类穿透（原版 造成伤害 L2447 / L2021-2062） ==========
+        // 两极反转（装备 specialSeq=63）：穿透+8（原版 L2447 增加穿透(攻击方.属性, 8)）
+        const hasReverse = (playerData.equipment as any[])?.some(
+          (e: any) => e.specialSeq === 63 || (e.name || '').includes('两极反转'),
+        );
+        if (hasReverse) {
+          const cd = playerMk['两极反转冷却'] || 0;
+          if (!playerMk['两级反转'] || nowSec - (playerMk['两级反转'] || 0) > 25) {
+            playerMk['两级反转'] = nowSec;
+            attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 8;
+            attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 8;
+            attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 8;
+            resultLines.push('【两极反转】穿透+8');
+          }
+        }
+
+        // 法宝穿透：惊鲵(小樱命中次数=4)陪睡>5 → 火穿/甲穿/命穿+10（原版 L2021-2026）
+        if (sakuraHits === 4 && sleepLv > 5) {
+          attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
+          attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
+          attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
+          resultLines.push('【惊鲵·穿透】三层穿透+10');
+        }
+        // 法宝[镇岳](小樱命中次数=2)：陪睡>1 → 物穿/甲穿/命穿+10（原版 L2028-2033）
+        if (sakuraHits === 2 && sleepLv > 1) {
+          attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
+          attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
+          attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
+          // 陪睡>9 且 攻击方.属性.贯穿>0 → 各+贯穿/3，贯穿清零（原版 L2034-2041）
+          if (sleepLv > 9 && (attackerBonus.贯穿 || 0) > 0) {
+            const pen3 = (attackerBonus.贯穿 || 0) / 3;
+            attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + pen3;
+            attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + pen3;
+            attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + pen3;
+            attackerBonus.贯穿 = 0;
+          }
+        }
+        // 植入体 1-4：分别 → 物/火/冰/电 三层穿透+10（原版 L2046-2062）
+        const implant = setsData['植入体'] ?? setsData.implant ?? 0;
+        if (implant === 1) {
+          attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
+          attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
+          attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
+        } else if (implant === 2) {
+          attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
+          attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
+          attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
+        } else if (implant === 3) {
+          attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
+          attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
+          attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
+        } else if (implant === 4) {
+          attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
+          attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
+          attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
+        }
+
+        // ========== 增幅器套装 2/4/1（原版 造成伤害 L1981-2018） ==========
+        // 原版 套装.增幅器 对应本框架 setsData['增幅器']。
+        const amplifier = setsData['增幅器'] ?? setsData.amplifier ?? 0;
+        if (amplifier === 2) {
+          // 敏锐（防御方 s敏锐>=5 → 伤害倍率=0）
+          const sMin = targetMk['s敏锐'] || 0;
+          if (sMin >= 5) {
+            targetMk['s敏锐'] = Math.max(0, sMin - 5);
+            forcedMult = 0;
+            dmgImmune = true; // 套装免疫：跳过保底1点伤害
+            resultLines.push('【敏锐】本次伤害被免疫');
+          }
+        } else if (amplifier === 4) {
+          // 坚毅（防御方 s坚毅>=5 → 易伤 -a*10）
+          const sJie = targetMk['s坚毅'] || 0;
+          if (sJie >= 5) {
+            targetMk['s坚毅'] = 0;
+            defenderBonus.减益 = (defenderBonus.减益 || 0) - sJie * 10;
+            resultLines.push(`【坚毅】易伤-${sJie * 10}%`);
+          }
+        } else if (amplifier === 1) {
+          // 速射（攻击方 s速射>=5 → 蓄力 伤害×1.5 + 三层穿透+10；否则 伤害×0.9）
+          const sSpeed = playerMk['s速射'] || 0;
+          if (sSpeed >= 5) {
+            playerMk['s速射'] = 0;
+            forcedMult *= 1.5;
+            attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
+            attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
+            attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
+            resultLines.push('【蓄力】伤害×1.5，穿透+10');
+          } else {
+            forcedMult *= 0.9;
+            playerMk['s速射'] = (playerMk['s速射'] || 0) + 1;
+            resultLines.push('【速射】伤害×0.9');
+          }
+        }
+
+        // ========== 超压（普拉娜专属，原版 造成伤害 L1892-1911） ==========
+        // 取成就熟练度(攻击方.标记, z1.名称+"t")>=1 → 伤害倍率×1.25（普拉娜好感>=60 → ×(1.25+技等×0.01)）
+        if ((playerMk[`${weapon.name}t`] || 0) >= 1) {
+          delete playerMk[`${weapon.name}t`];
+          const isPlana = (player.specialSeq ?? 0) === 23 || player.type === '普拉娜'; // #普拉娜=23
+          if (isPlana && (player.affinity ?? player.好感 ?? 0) >= 60) {
+            forcedMult *= 1.25 + (player.skillLevel ?? player.技能等级 ?? 0) * 0.01;
+          } else {
+            forcedMult *= 1.25;
+          }
+          resultLines.push('【超压】伤害提升');
+        }
+
+        // ========== 第二批套装/武器/负面类型特效（原版 造成伤害 L1813-2160） ==========
+        // 防御方增益集合（原版 防御方.增益）；此处从 target.buffs 读取（怪物/玩家统一）
+        const defenderBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+        const hasDefBuff = (name: string) =>
+          defenderBuffs.some((b: any) => b && (b.name || b.名称) === name);
+
+        // ---- 创世纪（z1.特殊序号 == #创世纪(-18)：清空防御方三池+背包+经验，显示类型=1） ----
+        // 原版 L1813-1821：防御方.当前护盾/当前装甲/当前生命=0；若为怪物则重定义背包、经验=0
+        if (weapon.specialSeq === -18 || weapon.name?.includes('创世纪')) {
+          target.hp = 0; (target as any).currentHp = 0;
+          target.shield = 0; (target as any).currentShield = 0;
+          target.armor = 0; (target as any).currentArmor = 0;
+          if ((target as any).backpack || (target as any).背包) {
+            (target as any).backpack = []; (target as any).背包 = [];
+          }
+          (target as any).exp = 0; (target as any).经验 = 0;
+          resultLines.push('【创世纪】目标状态被清空');
+        }
+
+        // ---- 安乐天使（防御方增益含"安乐天使" → 伤害倍率=0，免疫，原版 L1824-1826） ----
+        if (hasDefBuff('安乐天使')) {
+          forcedMult = 0;
+          dmgImmune = true; // 与敏锐同：跳过保底1点伤害
+          resultLines.push('【安乐天使】本次伤害被免疫');
+        }
+
+        // ---- 短衬衫2（防御方标记2含"短衬衫2" → 伤害×0.1，不叠加，原版 L1945-1947） ----
+        if (targetMk['短衬衫2']) {
+          forcedMult *= 0.1;
+          resultLines.push('【短衬衫】伤害×0.1');
+        }
+
+        // ---- 永恒主宰（防御方装备含#永恒主宰(83)，60s cd → 伤害=0，原版 L1949-1953） ----
+        const defEquip = (target as any).equipment as any[];
+        const hasEternal = defEquip?.some((e: any) => e.specialSeq === 83 || (e.name || '').includes('永恒主宰'));
+        if (hasEternal && (!targetMk['yzj'] || nowSec - (targetMk['yzj'] || 0) > 60)) {
+          targetMk['yzj'] = nowSec;
+          forcedMult = 0;
+          dmgImmune = true;
+          resultLines.push('【永恒主宰】本次伤害被免疫');
+        }
+
+        // ---- 负面类型触发计数（原版 L2070-2106：z1.负面类型 1/2/3/默认 → 割裂1/灼烧1/深寒1/感电1 累计，≥4 转正式增益） ----
+        const negativeType = (weapon as any).negativeType ?? (weapon as any).负面类型 ?? 0;
+        if (negativeType > 0) {
+          let cntKey = '', formal = '', effName = '';
+          if (negativeType === 1) { cntKey = '割裂1'; formal = '割裂'; effName = '割裂'; }
+          else if (negativeType === 2) { cntKey = '灼烧1'; formal = '灼烧'; effName = '灼烧'; }
+          else if (negativeType === 3) { cntKey = '深寒1'; formal = '深寒'; effName = '深寒'; }
+          else { cntKey = '感电1'; formal = '感电'; effName = '感电'; }
+          const cnt = (targetMk[cntKey] || 0) + 1;
+          if (cnt >= 4) {
+            // 计数清零，并给防御方加正式增益（原版 获得增益(防御方.增益, formal, 30,...)）
+            targetMk[cntKey] = 0;
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === formal && b.expireAt > nowSec + 30)) {
+              tBuffs.push({ name: formal, expireAt: nowSec + 30 });
+            }
+            target.buffs = JSON.stringify(tBuffs);
+            if (effName === '灼烧' || effName === '深寒' || effName === '感电') {
+              resultLines.push(`【${effName}】`);
+            }
+            // 深寒额外：所有武器CD+3（原版 L2091-2093）
+            if (effName === '深寒') {
+              const tWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+              tWeapons.forEach((w: any) => {
+                targetMk[`${w.name || w.名称}冷却`] = nowSec;
+              });
+            }
+          } else {
+            targetMk[cntKey] = cnt;
+          }
+        }
+
+        // ---- 感电增益 + 星尘超新星（原版 L2109-2136） ----
+        // 负面类型可能刚把"感电"写入防御方增益，此处重新解析以纳入本次生效
+        const defBuffs2 = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+        if (defBuffs2.some((b: any) => b && (b.name || b.名称) === '感电')) {
+          resultLines.push('【感电】');
+          // 增加全抗(防御方.属性, -5,-5,-5)：原版火/冰/电三系抗性各-5，本框架以三层全抗各-5 等效表达
+          defenderBonus.生命全抗 = (defenderBonus.生命全抗 || 0) - 5;
+          defenderBonus.护盾全抗 = (defenderBonus.护盾全抗 || 0) - 5;
+          defenderBonus.装甲全抗 = (defenderBonus.装甲全抗 || 0) - 5;
+          // 星尘好感≥60 → 穿透+10、攻击+25+技等/2、超新星电伤
+          if ((player.affinity ?? (player as any).好感 ?? 0) >= 60 && (player.specialSeq ?? 0) === 14) { // #星尘=14
+            attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
+            attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
+            attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
+            attackerBonus.攻击 = (attackerBonus.攻击 || 0) + (25 + (player.skillLevel ?? (player as any).技能等级 ?? 0) / 2);
+            const maxSh = target.maxShield || target.shield || 0;
+            const curSh = target.currentShield || target.shield || 0;
+            const a2 = maxSh > 0 ? 1 - curSh / maxSh : 0;
+            const sn = a2 < 0.1 ? maxSh * 0.1 : maxSh * a2; // 原版 L2116-2122
+            attackerBonus.电伤 = (attackerBonus.电伤 || 0) + sn;
+            resultLines.push(`【超新星】电伤+${Math.round(sn)}`);
+          }
+        }
+
+        // ---- 圣诞套装（防御方.套装.圣诞==2，30s cd → 掉落圣诞礼物，原版 L2151-2158） ----
+        const defSets = this.safeParseJson<any>(target.sets || '{}', {});
+        if ((defSets['圣诞'] ?? defSets.christmas) === 2 && (!targetMk['圣诞'] || nowSec - (targetMk['圣诞'] || 0) > 30)) {
+          targetMk['圣诞'] = nowSec;
+          resultLines.push('【掉落礼物】圣诞礼物'); // 实际入地图物品池由战利品系统处理，此处记录触发
+        }
+
+        // ---- 龙姬驱魔（攻击方特殊序号==#龙姬(12)：龙姬增伤清零加成，原版 L2161-2168） ----
+        if ((player.specialSeq ?? 0) === 12) {
+          const dragonDmg = playerMk['龙姬增伤'] || 0;
+          if (dragonDmg !== 0) {
+            attackerBonus.攻击 = (attackerBonus.攻击 || 0) + dragonDmg; // 增加单项攻击(攻击方,1,a1)
+            resultLines.push(`【驱魔】+${Math.round(dragonDmg)}`);
+            playerMk['龙姬增伤'] = 0;
+          }
+        }
+
+        // ========== 第三批 使魔/装备专属特效（原版 造成伤害 L2161-2258 / L2439 / L2471-2586） ==========
+        const atkSeq = player.specialSeq ?? 0;
+        const defSeq = target.specialSeq ?? 0;
+        const atkVit = player.vitality ?? (player as any).活力 ?? 0;
+        const defVit = target.vitality ?? (target as any).活力 ?? 0;
+        const atkAff = player.affinity ?? (player as any).好感 ?? 0;
+        const defAff = target.affinity ?? (target as any).好感 ?? 0;
+        const atkSkill = player.skillLevel ?? (player as any).技能等级 ?? 0;
+        const defSkill = target.skillLevel ?? (target as any).技能等级 ?? 0;
+        const defWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+
+        // ---- 攻击方使魔专属（原版 L2161-2218） ----
+        // 古月娜(#古月娜=5) / 银龙：防御方所有武器 +"冷却"标记1秒（L2170-2173）
+        if (atkSeq === 5 || player.type === '银龙' || (player as any).类型 === '银龙') {
+          defWeapons.forEach((w: any) => {
+            targetMk[`${w.name || w.名称}冷却`] = nowSec;
+          });
+        }
+        // 恶毒(#恶毒=6)：防御方增益加"恶毒之刃" 15+技等（L2175-2177）
+        if (atkSeq === 6) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '恶毒之刃' && b.expireAt > nowSec + 15 + atkSkill)) {
+            tBuffs.push({ name: '恶毒之刃', expireAt: nowSec + 15 + atkSkill });
+          }
+          target.buffs = JSON.stringify(tBuffs);
+          resultLines.push('【恶毒之刃】');
+        }
+        // 伊芙利特(#伊芙利特=11) 好感≥80：防御方标记2加"燃烧" 15秒 强度10+技等/2（L2178-2182）
+        if (atkSeq === 11 && atkAff >= 80) {
+          targetMk['燃烧'] = nowSec; // 简化：冷却标记占位
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '燃烧' && b.expireAt > nowSec + 15)) {
+            tBuffs.push({ name: '燃烧', expireAt: nowSec + 15, strength: 10 + atkSkill / 2 });
+          }
+          target.buffs = JSON.stringify(tBuffs);
+          resultLines.push('(燃烧)');
+        }
+        // 绝灭天使(#绝灭天使=3) 增益含"炮冠"：炮冠冷却30 + 取羽毛特效（L2184-2190，简化为置冷却标记+文本）
+        if (atkSeq === 3) {
+          const atkBuffs = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
+          if (atkBuffs.some((b: any) => b && (b.name || b.名称) === '炮冠')) {
+            playerMk['炮冠冷却'] = nowSec; // 30秒冷却（L2186 时间间隔要求 30）
+            resultLines.push('【炮冠】');
+          }
+        }
+        // 军姬(#军姬=16)：好感≥100 → 防御方加"影光"60秒；增益含"万象"且近战/拳头 → 转轮增益（L2192-2205）
+        if (atkSeq === 16) {
+          if (atkAff >= 100) {
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '影光' && b.expireAt > nowSec + 60)) {
+              tBuffs.push({ name: '影光', expireAt: nowSec + 60 });
+            }
+            target.buffs = JSON.stringify(tBuffs);
+          }
+          const atkBuffs2 = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
+          if (atkBuffs2.some((b: any) => b && (b.name || b.名称) === '万象') &&
+              (weapon.name === '拳头' || weapon.type === '近战武器')) {
+            if (!targetMk['zllq'] || nowSec - (targetMk['zllq'] || 0) > 30) {
+              targetMk['zllq'] = nowSec;
+              const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+              if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '转轮' && b.expireAt > nowSec + 30)) {
+                tBuffs.push({ name: '转轮', expireAt: nowSec + 30, strength: (attackerBonus.物伤 || 0) / 10 });
+              }
+              target.buffs = JSON.stringify(tBuffs);
+              resultLines.push(`【剑阵转轮】+${Math.round((attackerBonus.物伤 || 0) / 10)}`);
+            }
+          }
+          // 军姬 标记"万象2"==1 → 伤害×(2+技等/100)（L2206-2209）
+          if ((playerMk['万象2'] || 0) === 1) {
+            playerMk['万象2'] = 0;
+            forcedMult *= (2 + atkSkill / 100);
+            resultLines.push('【万象2】');
+          }
+        }
+        // 星尘(#星尘=14) 标记"dz"!=0 → 斗转星移 剩余电伤 += dz×(5+技等/10)（L2211-2218）
+        if (atkSeq === 14) {
+          const dz = playerMk['dz'] || 0;
+          if (dz !== 0) {
+            playerMk['dz'] = 0;
+            const a2 = dz * (5 + atkSkill / 10);
+            attackerBonus.电伤 = (attackerBonus.电伤 || 0) + a2;
+            resultLines.push(`【斗转星移】+${Math.round(a2)}`);
+          }
+        }
+
+        // ---- 防御方使魔专属（原版 L2224-2258） ----
+        // 恶毒(#恶毒=6) 好感≥100 色欲2冷却30 → 伤害0（L2224-2231）
+        if (defSeq === 6 && defAff >= 100) {
+          if (!targetMk['色欲2'] || nowSec - (targetMk['色欲2'] || 0) > 30) {
+            targetMk['色欲2'] = nowSec;
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push('【色欲】');
+          }
+        }
+        // 龙姬(#龙姬=12)：防御方增益加"怒吼"（L2233-2234）
+        if (defSeq === 12) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '怒吼')) {
+            tBuffs.push({ name: '怒吼', expireAt: nowSec + 30 });
+          }
+          target.buffs = JSON.stringify(tBuffs);
+        }
+        // 长萌(#长萌=2) 好感≥40 → 防御方增益加"长萌承受"（L2235-2238）
+        if (defSeq === 2 && defAff >= 40) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '长萌承受' && b.expireAt > nowSec + 30)) {
+            tBuffs.push({ name: '长萌承受', expireAt: nowSec + 30 });
+          }
+          target.buffs = JSON.stringify(tBuffs);
+        }
+        // saber(#saber=19) 好感≥40 增益含"ex" → 伤害0（L2240-2246）
+        if (defSeq === 19 && defAff >= 40) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (tBuffs.some((b: any) => b && (b.name || b.名称) === 'ex')) {
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push('【ex】');
+          }
+        }
+        // 四糸乃(#四糸乃=15) 好感≥80 冰凯冷却20 → 加"bk1"；增益含"bk1" → 伤害0（L2248-2258）
+        if (defSeq === 15) {
+          if (defAff >= 80 && (!targetMk['冰凯'] || nowSec - (targetMk['冰凯'] || 0) > 20)) {
+            targetMk['冰凯'] = nowSec;
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === 'bk1')) {
+              tBuffs.push({ name: 'bk1', expireAt: nowSec + 20 });
+            }
+            target.buffs = JSON.stringify(tBuffs);
+          }
+          const tBuffs2 = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (tBuffs2.some((b: any) => b && (b.name || b.名称) === 'bk1')) {
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push('【冰凯】');
+          }
+        }
+
+        // ---- 吸血姬(活力=-15) 命中附加[猩红] 10秒（原版 L2439-2445） ----
+        if (atkVit === -15) {
+          if (!playerMk['xhcd'] || nowSec - (playerMk['xhcd'] || 0) > 180) {
+            playerMk['xhcd'] = nowSec;
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '猩红' && b.expireAt > nowSec + 10)) {
+              tBuffs.push({ name: '猩红', expireAt: nowSec + 10 });
+            }
+            target.buffs = JSON.stringify(tBuffs);
+            // 记录猩红添加者：原版 置成就熟练度("x红x"+QQ, 防御方.标记, #吸血姬猩红)
+            targetMk[`x红x${player.qqNumber ?? player.userId ?? ''}`] = 15.312381;
+            resultLines.push('【猩红】');
+          }
+        }
+
+        // ---- 战斗女仆(#战斗女仆=8) 守护/超频（原版 L2471-2497 / L2521-2531） ----
+        if (atkSeq === 8) {
+          // 攻击方守护1 → 进守护2、守护1-1（L2471-2481，回合消耗，本框架简化为文本）
+          const atkBuffs = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
+          if (atkBuffs.some((b: any) => b && (b.name || b.名称) === '守护1')) {
+            resultLines.push('【守护】');
+          }
+          // 好感≥60：与防御方交换武器冷却，并 战斗中增加攻击 5+技等/2（L2482-2497）
+          if (atkAff >= 60) {
+            for (const w of defWeapons) {
+              const wkey = `${w.name || w.名称}冷却`;
+              if (!targetMk[wkey]) {
+                if (!playerMk['超频'] || nowSec - (playerMk['超频'] || 0) > 30) {
+                  playerMk['超频'] = nowSec;
+                  const a2 = targetMk[wkey] || 0;
+                  targetMk[wkey] = a2; // 交换（简化：防御方武器进入冷却）
+                  playerMk[`${weapon.name}冷却`] = (playerMk[`${weapon.name}冷却`] || 0) - a2;
+                  attackerBonus.电伤 = (attackerBonus.电伤 || 0) + (attackerBonus.电伤 || 0); // 原版 a2=攻击方.属性.电伤（占位，实际用于后续加成）
+                  attackerBonus.攻击 = (attackerBonus.攻击 || 0) + (5 + atkSkill / 2); // 战斗中增加攻击(攻击方, 5+技等/2)
+                  resultLines.push('【超频】');
+                }
+                break;
+              }
+            }
+          }
+        }
+        // 防御方战斗女仆 守护1 → 伤害0（L2521-2531）
+        if (defSeq === 8) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (tBuffs.some((b: any) => b && (b.name || b.名称) === '守护1')) {
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push('【守护】');
+          }
+        }
+
+        // ---- 防御方套装/标记免疫（原版 L2533-2586） ----
+        // 绝灭天使(#绝灭天使=3) 增益含"光盾" → 伤害0（L2533-2538）
+        if (defSeq === 3) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (tBuffs.some((b: any) => b && (b.name || b.名称) === '光盾')) {
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push('【光盾】');
+          }
+        }
+        // 军姬(#军姬=16) 好感≥40 jz冷却60 → 加"剑阵"12秒；好感≥80 回满血（L2540-2558）
+        if (defSeq === 16 && defAff >= 40) {
+          if (!targetMk['jz'] || nowSec - (targetMk['jz'] || 0) > 60) {
+            targetMk['jz'] = nowSec;
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵' && b.expireAt > nowSec + 12)) {
+              tBuffs.push({ name: '剑阵', expireAt: nowSec + 12 });
+            }
+            target.buffs = JSON.stringify(tBuffs);
+            if (defAff >= 80) {
+              // 恢复 生命上限 生命（原版 当前生命 += 属性.生命 封顶）
+              const maxHp = target.maxHp || target.hp || 0;
+              target.hp = Math.min(maxHp, (target.hp || 0) + maxHp);
+              resultLines.push(`【剑阵】恢复${maxHp}生命`);
+            }
+          }
+        }
+        // 军姬2(#军姬2=24) 好感≥20 标记jj2hg1>0 → 伤害0+招架（L2570-2578）
+        if (defSeq === 24 && defAff >= 20) {
+          if ((targetMk['jj2hg1'] || 0) > 0) {
+            targetMk['jj2hg1'] = (targetMk['jj2hg1'] || 0) - 1;
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push('【招架】');
+          }
+        }
+        // 防御方增益含"剑阵" → 伤害0（L2583-2586）
+        {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵')) {
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push('【剑阵】');
+          }
+        }
+
+        // ========== 格挡系统（原版 造成伤害 L2512-2688 几率判断(格挡) 子系统） ==========
+        // 先累计 格挡 值（来自防御方使魔/装备/增益/标记），再 几率判断(格挡) 概率触发；
+        // 触发后 暴击倍率(=本框架 finalDamage 倍率) 乘 0.25 或随机比例，圆盾则三池回满+免疫。
+        const defEquip2 = (target as any).equipment as any[];
+        const defSets2 = this.safeParseJson<any>(target.sets || '{}', {});
+        const defSakuraHits = defSets2['小樱命中次数'] ?? defSets2.sakuraHits ?? 0;
+        const defSleepLv = defSets2['陪睡'] ?? defSets2.sleepover ?? 0;
+        let blockVal = 0;
+        // 花园猫(specialSeq=1) 标记"猫猫闪避">0 → 格挡=100 + 技能冷却-60 + 幻时增益（L2512-2519）
+        if (defSeq === 1) {
+          if ((targetMk['猫猫闪避'] || 0) > 0) {
+            blockVal = 100;
+            targetMk['猫猫闪避'] = 0;
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '幻时')) {
+              tBuffs.push({ name: '幻时', expireAt: nowSec + 30 });
+            }
+            target.buffs = JSON.stringify(tBuffs);
+            targetMk[`${(target.type || (target as any).类型 || '')}技能冷却`] = nowSec;
+            resultLines.push('【幻时】');
+          }
+        }
+        // 阿尔缇娜(specialSeq=7) 好感≥40 → 格挡 += 15+技等/2；增益"a技能2" → 再+15+技等/2（L2560-2568）
+        if (defSeq === 7) {
+          if (defAff >= 40) blockVal += 15 + defSkill / 2;
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (tBuffs.some((b: any) => b && (b.name || b.名称) === 'a技能2')) blockVal += 15 + defSkill / 2;
+        }
+        // 防爆盾装备 → 格挡+10（L2587-2589）
+        if (defEquip2?.some((e: any) => e.specialSeq === 9 || (e.name || '').includes('防爆盾'))) blockVal += 10;
+        // 神兽之力金刚不坏装备 → 格挡+10（L2590-2592）
+        if (defEquip2?.some((e: any) => e.specialSeq === 102 || (e.name || '').includes('神兽之力金刚不坏'))) blockVal += 10;
+        // 圆盾装备 → 格挡+5（L2593-2595）
+        if (defEquip2?.some((e: any) => e.specialSeq === 51 || (e.name || '').includes('圆盾'))) blockVal += 5;
+        // 烟雾弹增益 → 格挡+20（L2596-2599）
+        {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (tBuffs.some((b: any) => b && (b.name || b.名称) === '烟雾弹')) blockVal += 20;
+        }
+        // 裸体围裙装备 → 易伤+5 + 格挡修正（L2600-2610）
+        if (defEquip2?.some((e: any) => e.specialSeq === 65 || (e.name || '').includes('裸体围裙'))) {
+          defenderBonus.减益 = (defenderBonus.减益 || 0) + 5;
+          if (weapon.type !== '近战武器') blockVal -= 10;
+          if (weapon.type !== '生体武器') blockVal -= 10;
+        }
+        // 透明围裙标记 → 格挡 += a2*5+5（L2612-2617）
+        {
+          const a2 = targetMk['透明围裙'] || 0;
+          if (a2 > 0) {
+            blockVal += a2 * 5 + 5;
+            defenderBonus.减益 = (defenderBonus.减益 || 0) + 5;
+            resultLines.push(`【格挡+】${a2 * 5 + 5}%`);
+          }
+        }
+        // 含光(sakuraHits=5) 陪睡>6 → 格挡+50（L2619-2621）
+        if (defSakuraHits === 5 && defSleepLv > 6) blockVal += 50;
+
+        // 触发格挡：原版 几率判断(格挡) = 随机0~100 < 格挡 则触发（L2622）
+        if (blockVal > 0 && Math.random() * 100 < blockVal) {
+          let blockMult = 0.25; // 默认格挡：暴击倍率×0.25（L2671）
+          resultLines.push('【格挡】');
+          // 含光(sakuraHits=5) 陪睡>7 → 随机比例削弱（L2656-2659）
+          if (defSakuraHits === 5 && defSleepLv > 7) {
+            const a2 = (Math.floor(Math.random() * 1401) + 100) / 10000;
+            blockMult = a2;
+            resultLines.push(`【格挡】${Math.round((1 - a2) * 100)}%`);
+          }
+          // 铃铛装备：冷却15秒→0.25，否则随机比例（L2660-2668）
+          if (defEquip2?.some((e: any) => e.specialSeq === 64 || (e.name || '').includes('铃铛'))) {
+            if (!targetMk['铃铛冷却'] || nowSec - (targetMk['铃铛冷却'] || 0) > 15) {
+              targetMk['铃铛冷却'] = nowSec;
+              blockMult = 0.25;
+            } else {
+              const a2 = (Math.floor(Math.random() * 1401) + 100) / 10000;
+              blockMult = a2;
+              resultLines.push(`【格挡】${Math.round((1 - a2) * 100)}%`);
+            }
+          }
+          // 圆盾装备 冷却120 → 三池回满 + 伤害0（L2677-2685）
+          if (defEquip2?.some((e: any) => e.specialSeq === 51 || (e.name || '').includes('圆盾'))) {
+            if (!targetMk['圆盾冷却'] || nowSec - (targetMk['圆盾冷却'] || 0) > 120) {
+              targetMk['圆盾冷却'] = nowSec;
+              const maxHp = target.maxHp || target.hp || 0;
+              const maxSh = target.maxShield || target.shield || 0;
+              const maxAr = target.maxArmor || target.armor || 0;
+              target.hp = maxHp; target.shield = maxSh; target.armor = maxAr;
+              blockMult = 0;
+              resultLines.push('【圆盾】');
+            }
+          }
+          if ((player.specialSeq ?? 0) > 0) {
+            playerMk['防御熟练度'] = (playerMk['防御熟练度'] || 0) + 3;
+          }
+          forcedMult *= blockMult;
+          if (blockMult === 0) dmgImmune = true; // 圆盾/免疫场景跳过保底1
+        }
+
+        // ========== 套装类型减伤（原版 L2689-2723） ==========
+        const suitVal = (k: string) => defSets2[k] ?? 0;
+        if (suitVal('防爆') > 0 && weapon.type === '近战武器') {
+          forcedMult *= (1 - suitVal('防爆') / 10);
+          resultLines.push(`【防爆】${suitVal('防爆') * 10}%`);
+        }
+        if (suitVal('游骑兵') > 0 && weapon.type === '射弹武器') {
+          forcedMult *= (1 - suitVal('游骑兵') / 10);
+          resultLines.push(`【游骑兵】${suitVal('游骑兵') * 10}%`);
+        }
+        if (suitVal('游侠') > 0 && weapon.type === '生体武器') {
+          forcedMult *= (1 - suitVal('游侠') / 10);
+          resultLines.push(`【游侠】${suitVal('游侠') * 10}%`);
+        }
+        if (suitVal('动力') > 0 && weapon.type === '能量武器') {
+          forcedMult *= (1 - suitVal('动力') / 10);
+          resultLines.push(`【动力】${suitVal('动力') * 10}%`);
+        }
+        if (suitVal('无畏') > 0 && weapon.type === '制导武器') {
+          forcedMult *= (1 - suitVal('无畏') / 10);
+          resultLines.push(`【无畏】${suitVal('无畏') * 10}%`);
+        }
+        // 激变星增益 → 伤害0（L2724-2727）
+        {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const jbx = tBuffs.find((b: any) => b && (b.name || b.名称) === '激变星');
+          if (jbx) {
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push(`【激变星】${Math.round(jbx.strength || 0)}秒`);
+          }
+        }
+
         // 写回攻击方/防御方标记变更
         player.markers = JSON.stringify(playerMk);
         if (wwVal >= 4) target.markers = JSON.stringify(targetMk);
@@ -1054,14 +1647,33 @@ export class CombatSystemService {
         continue;
       }
 
+      // 套装免疫（增幅器2敏锐 s敏锐>=5 → 伤害倍率=0）：跳过保底1点伤害，计为命中零伤
+      if (dmgImmune) {
+        atkStats.nullDmg++;
+        continue;
+      }
+
       // 应用伤害倍率（含使魔特效 + 特殊武器特效修改后的倍率，再加特殊特效的额外伤害）
-      let finalDamage = Math.floor(damageResult.damage * effectiveDmgMult / 100) + (specialEffect.bonusDmg || 0);
-      if (finalDamage < 1 && isHit) finalDamage = 1; // 保底1点伤害
+      // forcedMult：套装/装备强制倍率修正（敏锐免疫/蓄力×1.5/速射×0.9/超压×1.25 等）
+      let finalDamage = Math.floor(damageResult.damage * effectiveDmgMult * forcedMult / 100) + (specialEffect.bonusDmg || 0);
+      // 格挡/套装倍率(forcedMult≠1)会改变最终总伤害，但 calcDamage 内部的三池分配 poolDamage
+      // 是基于未乘倍率的 damageResult.damage 算出的。需按比例同步缩放 poolDamage，
+      // 否则实际扣血/展示文本仍按原 damage 的三池数值（如格挡后仍扣满 100 导致误杀）。
+      let scaledPool = damageResult.poolDamage;
+      if (damageResult.damage > 0 && finalDamage !== damageResult.damage) {
+        const ratio = finalDamage / damageResult.damage;
+        scaledPool = {
+          shield: Math.round((damageResult.poolDamage.shield || 0) * ratio),
+          armor: Math.round((damageResult.poolDamage.armor || 0) * ratio),
+          hp: Math.round((damageResult.poolDamage.hp || 0) * ratio),
+        };
+      }
+      if (finalDamage < 1 && isHit) finalDamage = 1; // 保底1点伤害（免疫场景已在上方 continue 跳过）
       atkStats.effective++; // 有效伤（对应原版 物伤2 实际造成伤害次数）
       totalDamage += finalDamage;
 
       // 扣除怪物血量（三池分伤）
-      const appliedDamage = this.applyDamageToMonster(target, finalDamage, damageResult.poolDamage);
+      const appliedDamage = this.applyDamageToMonster(target, finalDamage, scaledPool);
 
       // ========== 溅射伤害（对应原版 造成伤害 L624-705 溅射循环） ==========
       // 战斗女仆RPG!/恶毒好感等设置 splashCount：对主目标外额外 splashCount 个存活目标，
@@ -1153,7 +1765,7 @@ export class CombatSystemService {
       const atkText = attackText || this.getAttackText(weapon, weapon.damageType);
       const critText = isCrit ? '【暴击】' : '';
       const ratingText = damageResult.rating || '';
-      const dmgText = this.formatDamageText(finalDamage, damageResult.poolDamage);
+      const dmgText = this.formatDamageText(finalDamage, scaledPool);
       resultLines.push(`${atkText} ${target.name}，造成 ${dmgText}${critText}${ratingText ? ` ${ratingText}` : ''}`);
 
       attackCount++;
@@ -1376,114 +1988,165 @@ export class CombatSystemService {
   }
 
   /**
-   * 怪物反击
-   * 对应原版 覅攻击pd L290-319：玩家攻击后，地图上仍存活的怪物随机一只发起反击。
-   * 防御方为攻击玩家本人（原版会攻击地图上所有在线玩家，此处简化为只反击攻击者，
-   * 保证单人打怪"你来我往"闭环；多人协战的反击后续可扩展）。
-   * 玩家被打到生命≤0时进入死亡状态（不立即复活，需使用复活/救助等指令），
-   * 与 weaponAttack 开头的 isPlayerDead 检查配合形成死亡惩罚闭环。
-   * @param player 攻击玩家对象
-   * @param playerData 玩家完整数据
+   * 怪物反击（扩至全图玩家）
+   * 对应原版 战斗相关.ecode L4647-4713：怪物作为攻击方时，遍历地图上所有玩家，
+   * 将「在线(活跃增益) + 当前生命>0 + 无隐匿模式 + 无炮冠」的玩家加入防御方数组，
+   * 怪物对每个武器依次攻击数组内全部防御方（每位防御方独立做命中/闪避/伤害判定）。
+   * 原版注释 L290-319 是每分钟定时器入口，本函数复刻的是「怪物攻击玩家」这一闭环本体。
+   * @param attacker 发起攻击的玩家（原攻击方，用于区分"你"的提示文本）
+   * @param attackerData 攻击者完整数据
    * @param map 当前地图
    * @returns 反击结果文本行
    */
-  private async monsterCounterAttack(player: any, playerData: PlayerData, map: any): Promise<string[]> {
+  private async monsterCounterAttack(attacker: any, attackerData: PlayerData, map: any): Promise<string[]> {
     const lines: string[] = [];
     try {
       // 随机选一只存活怪物（对应原版 L291：b = 取随机数(1, 取数组成员数(地图.怪物2))）
       const aliveMonsters = (await this.mapService.getMapMonsters(map)).filter((m: any) => (m.hp || 0) > 0);
       if (aliveMonsters.length === 0) return lines;
 
-      // 玩家已死则不反击（避免鞭尸）
-      if (this.playerService.isPlayerDead(player)) return lines;
-
       const monster = aliveMonsters[Math.floor(Math.random() * aliveMonsters.length)];
       const monsterBonus = this.buildMonsterBonus(monster);
 
-      // 怪物攻击（对应原版 战斗() 怪物攻击分支：武器攻击 防御方）
+      // ========== 收集全图可反击玩家（对应原版 L4663-4685 防御方筛选） ==========
+      // 原版筛选：有"活跃"增益(在线) + 当前生命>0 + 无"隐匿模式" + 无"炮冠" 的玩家。
+      // 原版 地图.玩家 数组含发起攻击的玩家本人（玩家在地图玩家列表中），故攻击者也会被反击。
+      const onlineIds = this.statsService.getOnlineUserIds();
+      // 同一地图的所有玩家档案（DB）
+      const mapPlayers = await this.prisma.player.findMany({
+        where: { mapId: map.id, userId: { not: undefined } },
+        select: { userId: true },
+      });
+      // 候选 uid 集合：同图玩家 + 攻击者本人（攻击者可能不在 DB 玩家列表，如内存 mock 场景）
+      const candidateUids = new Set<number>(mapPlayers.map((mp: any) => mp.userId));
+      if (attacker?.userId) candidateUids.add(attacker.userId);
+      const victimIds: number[] = [];
+      for (const uid of candidateUids) {
+        if (!onlineIds.has(uid)) continue; // 不攻击离线（原版 增益要求("活跃")==假 跳过）
+        try {
+          const pd = await this.playerService.getPlayerData(uid);
+          const victim = pd.player;
+          if (this.playerService.isPlayerDead(victim)) continue; // 当前生命<=0 跳过（鞭尸豁免）
+          // 隐匿模式 / 炮冠：原版 标记要求("隐匿模式"/"炮冠", 玩家2.增益) → 查增益列表
+          const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
+          if (vBuffs.some((b: any) => b && (b.name || b.名称) === '隐匿模式')) continue;
+          if (vBuffs.some((b: any) => b && (b.name || b.名称) === '炮冠')) continue;
+          victimIds.push(uid);
+        } catch (e: any) {
+          this.logger.warn(`读取反击目标 ${uid} 失败: ${e.message}`);
+        }
+      }
+      if (victimIds.length === 0) return lines;
+
+      // 怪物对每个武器依次攻击全部防御方（原版 L4686-4695：循环 攻击方.武器 × 防御方）
+      // 本版怪物武器简化为拳头，循环受害者数组即可还原"攻击地图上所有符合条件玩家"。
+      for (const uid of victimIds) {
+        try {
+          const victimData = await this.playerService.getPlayerData(uid);
+          const oneLines = await this.monsterCounterAttackOnePlayer(
+            monster, monsterBonus, victimData.player, victimData, map, attacker.userId === uid,
+          );
+          lines.push(...oneLines);
+        } catch (e: any) {
+          this.logger.warn(`怪物反击玩家 ${uid} 失败: ${e.message}`);
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`怪物反击失败: ${err.message}`);
+    }
+    return lines;
+  }
+
+  /**
+   * 怪物对单个玩家发起反击（伤害/闪避/被动特效本体）
+   * 对应原版 战斗相关.ecode L4663-4712：对防御方数组中的某位玩家执行 武器攻击 防御方 分支。
+   * @param monster 攻击方怪物
+   * @param monsterBonus 怪物属性加成
+   * @param victim 受害玩家对象
+   * @param victimData 受害玩家完整数据
+   * @param map 当前地图
+   * @param isSelf 是否攻击者本人（用于"你"的提示文本）
+   * @returns 该玩家的反击结果文本行
+   */
+  private async monsterCounterAttackOnePlayer(
+    monster: any, monsterBonus: BonusData, victim: any, victimData: PlayerData, map: any, isSelf: boolean,
+  ): Promise<string[]> {
+    const lines: string[] = [];
+    try {
       // 命中判定：怪物命中 vs 玩家闪避；玩家若处于「闪避」状态(固定闪避+100)则几乎必闪避(100%免伤)
-      const playerDef = this.buildAttackerBonus(player, playerData, map);
-      const hitRate = this.calcHitRate(monsterBonus, { 闪避: playerDef.闪避 || 0, 闪避2: playerDef.闪避2 || 0 });
+      const victimDef = this.buildAttackerBonus(victim, victimData, map);
+      const hitRate = this.calcHitRate(monsterBonus, { 闪避: victimDef.闪避 || 0, 闪避2: victimDef.闪避2 || 0 });
+      const youText = isSelf ? '你' : victim.name; // 原版对全图不同玩家用各自名称
 
       // ========== 防御方被动：幻时凝固（对应原版 战斗相关.ecode L1517-1547） ==========
-      // 玩家作为防御方被怪物攻击时，若满足触发条件，则冻结攻击方(怪物)30秒（"幻时"增益）。
-      // 触发条件：① 花园猫 且 好感≥60；② 身上有"幸福"增益。120秒冷却（写入怪物 markers2）。
       {
-        const affinity = player.affinity || 0;
-        const happyBuff = this.safeParseJson<any[]>(player.buffs, []).find((b: any) => b && b.name === '幸福');
-        const phantomTrigger = (player.type === '花园猫' && affinity >= 60) || !!happyBuff;
+        const affinity = victim.affinity || 0;
+        const happyBuff = this.safeParseJson<any[]>(victim.buffs, []).find((b: any) => b && b.name === '幸福');
+        const phantomTrigger = (victim.type === '花园猫' && affinity >= 60) || !!happyBuff;
         if (phantomTrigger) {
           const monsterMarkers2 = this.safeParseJson<any[]>(monster.markers2, []);
           const cdText: { value: string } = { value: '' };
-          // 原版 时间间隔要求("幻时冷却",120, 攻击方.标记2, s) → 命中冷却则抵抗
           if (!this.combatState.timeIntervalRequire('幻时冷却', 120, monsterMarkers2, Date.now(), cdText, Date.now())) {
-            // 给怪物(攻击方)施加"幻时"增益30秒（原版 获得增益(攻击方.增益,"幻时",30)）
             const monsterBuffs = this.safeParseJson<any[]>(monster.buffs, []);
             this.combatState.gainBuff(monsterBuffs, '幻时', 30, false, Date.now(), 0);
             monster.buffs = JSON.stringify(monsterBuffs);
-            lines.push(`${player.name} 发动了【幻时】，${monster.name} 被幻时凝固`);
+            lines.push(`${victim.name} 发动了【幻时】，${monster.name} 被幻时凝固`);
           } else {
             lines.push(`${monster.name} 幻时抵抗${cdText.value}`);
           }
           monster.markers2 = JSON.stringify(monsterMarkers2);
-          // 花园猫专属：减少自身主动技能冷却10秒（原版 L1536-1543）
-          if (player.type === '花园猫' && affinity >= 60) {
-            const pMarkers2 = this.safeParseJson<any[]>(player.markers2, []);
-            this.combatState.gainBuff(pMarkers2, `${player.type}技能冷却`, -10, true, Date.now(), 0);
-            player.markers2 = JSON.stringify(pMarkers2);
-            this.achievementService.addAchievement(player, '猫猫闪避', 1);
+          if (victim.type === '花园猫' && affinity >= 60) {
+            const pMarkers2 = this.safeParseJson<any[]>(victim.markers2, []);
+            this.combatState.gainBuff(pMarkers2, `${victim.type}技能冷却`, -10, true, Date.now(), 0);
+            victim.markers2 = JSON.stringify(pMarkers2);
+            this.achievementService.addAchievement(victim, '猫猫闪避', 1);
           }
         }
       }
 
       // 读取玩家"闪避"增益 buff（handleDodge 写入），作为固定闪避值。
-      // 原版 战斗相关.ecode L1204-1262：释放闪避后 固定闪避+100 → 命中判定 a1×100 - 固定闪避 必失败 → 100%免伤。
-      const playerBuffs = this.safeParseJson<any[]>(player.buffs, []);
+      const victimBuffs = this.safeParseJson<any[]>(victim.buffs, []);
       const nowSec = Date.now() / 1000;
-      const dodgeBuff = playerBuffs.find((b: any) => b && b.name === '闪避' && (!b.expireAt || b.expireAt > nowSec));
+      const dodgeBuff = victimBuffs.find((b: any) => b && b.name === '闪避' && (!b.expireAt || b.expireAt > nowSec));
       let fixedDodge = 0;
       if (dodgeBuff) {
-        fixedDodge = dodgeBuff.value || 100; // 默认固定闪避+100
+        fixedDodge = dodgeBuff.value || 100;
         const remain = Math.ceil((dodgeBuff.expireAt || 0) - nowSec);
-        if (remain > 0) lines.push(`你处于闪避状态（剩余${remain}秒），闪开了攻击`);
+        if (remain > 0) lines.push(`${youText}处于闪避状态（剩余${remain}秒），闪开了攻击`);
       }
 
       if (!this.checkHit(hitRate, fixedDodge)) {
-        lines.push(`${monster.name} 向你发起攻击，但被你闪避了`);
+        lines.push(`${monster.name} 向${youText}发起攻击，但被${youText}闪避了`);
         // ========== 花园猫闪避反击（对应原版 战斗相关.ecode L1429-1560 防御方闪避成功分支） ==========
-        // 原版：玩家(攻击方)闪避成功后，若类型为花园猫则自动反击且必中。
-        // 此处玩家作为防御方闪避了怪物反击，同样触发花园猫反击链（handleGardenCatCounter 内部校验使魔类型）。
-        if (player.type === '花园猫') {
+        if (victim.type === '花园猫') {
           try {
-            const counterLines = await this.handleGardenCatCounter(player.userId, 0);
+            const counterLines = await this.handleGardenCatCounter(victim.userId, 0);
             if (counterLines) lines.push(counterLines);
           } catch (e: any) {
             this.logger.warn(`花园猫反击失败: ${e.message}`);
           }
         }
         // ========== 防御方被动：含光回防（对应原版 战斗相关.ecode L1429-1444） ==========
-        // 原版：在「闪避状态判定 c==1」分支内，玩家成功闪避后，若装备含光(法宝9级,耐久>8)
-        // 则回复最高防御类型上限的10%。此处玩家作为防御方成功闪避怪物反击，触发含光续航。
         {
-          const equipList: any[] = this.safeParseJson(playerData.equipment, []);
+          const equipList: any[] = this.safeParseJson(victimData.equipment, []);
           const hanGuang = equipList.find((e: any) => (e.name || '').includes('含光'));
           if (hanGuang && (hanGuang.durability ?? hanGuang.耐久 ?? 0) > 8) {
-            // 取最高防御类型：护盾 > 装甲 > 生命（原版 取最高防御）
-            if ((player.maxShield || 0) >= (player.maxArmor || 0) && (player.maxShield || 0) >= (player.maxHp || 0)) {
-              const heal = Math.round((player.maxShield || 0) * 0.1);
-              player.shield = Math.min((player.maxShield || 0), (player.shield || 0) + heal);
-              lines.push(`【含光】${player.name} 回复了 ${heal} 护盾`);
-            } else if ((player.maxArmor || 0) >= (player.maxHp || 0)) {
-              const heal = Math.round((player.maxArmor || 0) * 0.1);
-              player.armor = Math.min((player.maxArmor || 0), (player.armor || 0) + heal);
-              lines.push(`【含光】${player.name} 修复了 ${heal} 装甲`);
+            if ((victim.maxShield || 0) >= (victim.maxArmor || 0) && (victim.maxShield || 0) >= (victim.maxHp || 0)) {
+              const heal = Math.round((victim.maxShield || 0) * 0.1);
+              victim.shield = Math.min((victim.maxShield || 0), (victim.shield || 0) + heal);
+              lines.push(`【含光】${victim.name} 回复了 ${heal} 护盾`);
+            } else if ((victim.maxArmor || 0) >= (victim.maxHp || 0)) {
+              const heal = Math.round((victim.maxArmor || 0) * 0.1);
+              victim.armor = Math.min((victim.maxArmor || 0), (victim.armor || 0) + heal);
+              lines.push(`【含光】${victim.name} 修复了 ${heal} 装甲`);
             } else {
-              const heal = Math.round((player.maxHp || 0) * 0.1);
-              player.hp = Math.min((player.maxHp || 0), (player.hp || 0) + heal);
-              lines.push(`【含光】${player.name} 恢复了 ${heal} 生命`);
+              const heal = Math.round((victim.maxHp || 0) * 0.1);
+              victim.hp = Math.min((victim.maxHp || 0), (victim.hp || 0) + heal);
+              lines.push(`【含光】${victim.name} 恢复了 ${heal} 生命`);
             }
           }
         }
+        await this.playerService.savePlayer(victim);
         return lines;
       }
 
@@ -1491,27 +2154,26 @@ export class CombatSystemService {
       const dmg = this.calcDamage(
         monsterBonus,
         {
-          生命: player.hp || 0,
-          护盾: player.shield || 0,
-          装甲: player.armor || 0,
-          闪避: playerDef.闪避 || 0,
-          闪避2: playerDef.闪避2 || 0,
-          // 玩家三层抗性（玩家自身装备/使魔提供的抗性）
-          护盾物抗: playerDef.护盾物抗 || 0,
-          护盾火抗: playerDef.护盾火抗 || 0,
-          护盾冰抗: playerDef.护盾冰抗 || 0,
-          护盾电抗: playerDef.护盾电抗 || 0,
-          护盾全抗: playerDef.护盾全抗 || 0,
-          装甲物抗: playerDef.装甲物抗 || 0,
-          装甲火抗: playerDef.装甲火抗 || 0,
-          装甲冰抗: playerDef.装甲冰抗 || 0,
-          装甲电抗: playerDef.装甲电抗 || 0,
-          装甲全抗: playerDef.装甲全抗 || 0,
-          生命物抗: playerDef.生命物抗 || 0,
-          生命火抗: playerDef.生命火抗 || 0,
-          生命冰抗: playerDef.生命冰抗 || 0,
-          生命电抗: playerDef.生命电抗 || 0,
-          生命全抗: playerDef.生命全抗 || 0,
+          生命: victim.hp || 0,
+          护盾: victim.shield || 0,
+          装甲: victim.armor || 0,
+          闪避: victimDef.闪避 || 0,
+          闪避2: victimDef.闪避2 || 0,
+          护盾物抗: victimDef.护盾物抗 || 0,
+          护盾火抗: victimDef.护盾火抗 || 0,
+          护盾冰抗: victimDef.护盾冰抗 || 0,
+          护盾电抗: victimDef.护盾电抗 || 0,
+          护盾全抗: victimDef.护盾全抗 || 0,
+          装甲物抗: victimDef.装甲物抗 || 0,
+          装甲火抗: victimDef.装甲火抗 || 0,
+          装甲冰抗: victimDef.装甲冰抗 || 0,
+          装甲电抗: victimDef.装甲电抗 || 0,
+          装甲全抗: victimDef.装甲全抗 || 0,
+          生命物抗: victimDef.生命物抗 || 0,
+          生命火抗: victimDef.生命火抗 || 0,
+          生命冰抗: victimDef.生命冰抗 || 0,
+          生命电抗: victimDef.生命电抗 || 0,
+          生命全抗: victimDef.生命全抗 || 0,
           生命伤害上限: 100,
           装甲伤害上限: 100,
           护盾伤害上限: 100,
@@ -1524,22 +2186,56 @@ export class CombatSystemService {
 
       // 扣除玩家血量（三池：护盾→装甲→生命）
       const pool = dmg.poolDamage || { shield: 0, armor: 0, hp: finalDmg };
-      const shieldDmg = Math.min(pool.shield, player.shield || 0);
-      const armorDmg = Math.min(pool.armor, player.armor || 0);
-      const hpDmg = Math.min(pool.hp, player.hp || 0);
-      player.shield = Math.max(0, (player.shield || 0) - shieldDmg);
-      player.armor = Math.max(0, (player.armor || 0) - armorDmg);
-      player.hp = Math.max(0, (player.hp || 0) - hpDmg);
+      const shieldDmg = Math.min(pool.shield, victim.shield || 0);
+      const armorDmg = Math.min(pool.armor, victim.armor || 0);
+      const hpDmg = Math.min(pool.hp, victim.hp || 0);
+      victim.shield = Math.max(0, (victim.shield || 0) - shieldDmg);
+      victim.armor = Math.max(0, (victim.armor || 0) - armorDmg);
+      victim.hp = Math.max(0, (victim.hp || 0) - hpDmg);
 
       const dmgText = this.formatDamageText(finalDmg, { shield: shieldDmg, armor: armorDmg, hp: hpDmg });
-      if (this.playerService.isPlayerDead(player)) {
-        lines.push(`${monster.name} 攻击你，造成 ${dmgText}，你倒下了！`);
-        lines.push(`你已死亡，可使用「救助」或「复活使魔」来复活`);
+      if (this.playerService.isPlayerDead(victim)) {
+        // ========== 卷土重来（对应原版 造成伤害 L3674：怪物击杀玩家，若 jlq 冷却未过则进入卷土重来状态） ==========
+        // 原版：防御方.特殊序号>0(玩家) 且 时间间隔要求("jlq",60,防御方.标记2)==假 →
+        // 获得增益("卷土重来", 30+玩家.属性.卷土重来)，立即满状态复活。
+        const vMk2 = this.safeParseJson<any[]>(victim.markers2, []);
+        const jlq = vMk2.find((m: any) => m && m.name === 'jlq');
+        const nowSecV = Math.floor(Date.now() / 1000);
+        if (!(jlq && jlq.expireAt > nowSecV)) {
+          const vBonus = this.safeParseJson<any>(victim.bonus, {});
+          const jtlSec = 30 + (vBonus['卷土重来'] || 0);
+          const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
+          // 原版 获得增益("卷土重来", 30+卷土重来属性) 写入玩家增益
+          vBuffs.push({ name: '卷土重来', expireAt: nowSecV + jtlSec });
+          victim.buffs = JSON.stringify(vBuffs);
+          // 满状态复活（原版 当前生命/护盾/装甲 = 属性.对应上限）
+          victim.hp = victim.maxHp || victim.hp;
+          victim.shield = victim.maxShield || victim.shield;
+          victim.armor = victim.maxArmor || victim.armor;
+          // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）
+          vMk2.push({ name: 'jlq', expireAt: nowSecV + 60 });
+          victim.markers2 = JSON.stringify(vMk2);
+          lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}进入了卷土重来状态(${jtlSec}秒)`);
+        } else {
+          lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}倒下了！`);
+          if (isSelf) lines.push(`你已死亡，可使用「救助」或「复活使魔」来复活`);
+          // 光荣弹（对应原版 战斗相关.ecode L584/591 死亡分支）：玩家死亡且装备 #光荣弹(44)
+          try {
+            const gloryText = await this.gloryGrenade(victim, monster, victimData, map, Date.now());
+            if (gloryText) {
+              lines.push(gloryText);
+              await this.updateMonsterHpInMap(map.id, monster).catch(() => undefined);
+            }
+          } catch (e: any) {
+            this.logger.warn(`光荣弹触发失败: ${e.message}`);
+          }
+        }
       } else {
-        lines.push(`${monster.name} 攻击你，造成 ${dmgText}`);
+        lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}`);
       }
+      await this.playerService.savePlayer(victim);
     } catch (err: any) {
-      this.logger.warn(`怪物反击失败: ${err.message}`);
+      this.logger.warn(`怪物反击单体失败: ${err.message}`);
     }
     return lines;
   }
@@ -2074,6 +2770,109 @@ export class CombatSystemService {
     }
 
     return { expGain, drops, dropText };
+  }
+
+  /**
+   * 光荣弹（对应原版 战斗相关.ecode L4987-5018 子程序 光荣弹）
+   *
+   * 原版语义：当"死掉的"一方（防御方/攻击方）当前生命<=0 且装备了 #光荣弹(常量44)，
+   * 则以其作为攻击方、对"攻击者"发起一次**必中**反击。反击伤害按双方属性比计算总倍率 a1，
+   * 再以 a1%（百分比）作为总伤害倍率传入 造成伤害。
+   *
+   * 本版复刻核心场景：玩家(deadOne)死亡时装备光荣弹 → 必中反击怪物(attacker)。
+   * 临时装备 z2：物/电/冰/火 各+25、自带必中、护盾/装甲/生命 穿透各+50、名称"光荣弹"；
+   * 攻击文本="光荣弹a"；最终伤害 = 计算伤害 × (a1/100)（对齐原版 造成伤害 第7参 总倍率）。
+   *
+   * 注：原版攻击者可能是玩家或怪物、死者也可能是玩家或怪物。本版先实现"玩家死→反击怪物"
+   * 这一主流路径；"怪物带光荣弹反击玩家"的罕见场景（需怪物装备含 specialSeq=44）待怪物
+   * 装备系统补全后接入，此处不阻断主流程。
+   *
+   * @param deadOne 死者（本版为玩家，作攻击方）
+   * @param attacker 攻击者（本版为怪物，作防御方，会被反击伤害）
+   * @param playerData 玩家完整数据（含 equipment/bonus/map，供 buildAttackerBonus）
+   * @param map 地图对象
+   * @param rawTimestamp 原始毫秒时间戳
+   * @returns 光荣弹反击文本（含倍率括号），无触发则返回空串
+   */
+  async gloryGrenade(
+    deadOne: any,
+    attacker: any,
+    playerData: PlayerData,
+    map: any,
+    rawTimestamp: number,
+  ): Promise<string> {
+    let text = '';
+
+    // 原版 L4998：死掉的.当前生命 <= 0 才触发（兼容 当前生命/currentHp/hp 三种写法）
+    const deadHp = deadOne.当前生命 ?? deadOne.currentHp ?? deadOne.hp ?? 0;
+    if (deadHp > 0) return text;
+
+    // 原版 L4999：装备要求(死掉的, #光荣弹) —— 玩家装备数组中 specialSeq===44
+    const equipment = Array.isArray(playerData.equipment) ? playerData.equipment : [];
+    const hasGlory = equipment.some((e: any) => e && e.specialSeq === 44);
+    if (!hasGlory) return text;
+
+    // 原版 L5000-5005：构造临时装备 z2（四系伤害各25、必中、穿透+50）
+    const atkBonus = this.buildAttackerBonus(deadOne, playerData, map);
+    atkBonus.物伤 = (atkBonus.物伤 || 0) + 25;
+    atkBonus.电伤 = (atkBonus.电伤 || 0) + 25;
+    atkBonus.冰伤 = (atkBonus.冰伤 || 0) + 25;
+    atkBonus.火伤 = (atkBonus.火伤 || 0) + 25;
+    atkBonus.护盾穿透 = (atkBonus.护盾穿透 || 0) + 50;
+    atkBonus.装甲穿透 = (atkBonus.装甲穿透 || 0) + 50;
+    atkBonus.生命穿透 = (atkBonus.生命穿透 || 0) + 50;
+
+    // 原版 L5006-5010：计算总倍率 a1（百分比）
+    // a1 = (死者 生命+装甲+护盾) / (攻击者 物伤*0.25+火伤*0.25+冰伤*0.25+电伤*0.25) * 100
+    const deadTotal = (deadOne.属性?.生命 || deadOne.生命上限 || 1)
+      + (deadOne.属性?.装甲 || deadOne.装甲上限 || 0)
+      + (deadOne.属性?.护盾 || deadOne.护盾上限 || 0);
+    const atkQuarter = (attacker.物伤 || 0) * 0.25 + (attacker.火伤 || 0) * 0.25
+      + (attacker.冰伤 || 0) * 0.25 + (attacker.电伤 || 0) * 0.25;
+    let a1: number;
+    if (atkQuarter > 0 && deadTotal > atkQuarter) {
+      a1 = (deadTotal / atkQuarter) * 100;
+    } else if (atkQuarter > 0) {
+      // 原版 默认分支：攻击者四系伤害和 > 死者总状态 → 倒数倍率
+      a1 = (atkQuarter / deadTotal) * 100;
+    } else {
+      a1 = 100; // 攻击者无伤害则按基础倍率
+    }
+
+    // 原版 L5014：造成伤害(死掉的, 攻击者, s, z2, w1, "", a1, 0,0,0, 真, "光荣弹a", 真, d, ...)
+    // 必中 → 跳过命中判定直接算伤害；a1 作为总伤害倍率（百分比）。
+    const defenderBonus = this.buildMonsterBonus(attacker);
+    const z2 = {
+      name: '光荣弹',
+      damage: 0,
+      damageType: CombatSystemService.DMG_PHYS,
+      properties: { phys: 0, fire: 0, ice: 0, elec: 0 },
+      必中: true,
+    };
+    const dmg = this.calcDamage(atkBonus, defenderBonus, z2 as any, CombatSystemService.DMG_PHYS, false);
+    const finalDmg = Math.max(1, Math.floor(dmg.damage * (a1 / 100)));
+
+    // 对攻击者（怪物）施加光荣弹伤害（三池扣减 + 可能致死）
+    this.applyDamageToMonster(attacker, finalDmg, dmg.poolDamage || { shield: 0, armor: 0, hp: finalDmg });
+    const pool = dmg.poolDamage || { shield: 0, armor: 0, hp: finalDmg };
+    const dmgText = this.formatDamageText(finalDmg, {
+      shield: Math.min(pool.shield, attacker.shield || 0),
+      armor: Math.min(pool.armor, attacker.armor || 0),
+      hp: Math.min(pool.hp, attacker.hp || 0),
+    });
+    text = `${deadOne.name} 引爆【光荣弹】，对 ${attacker.name} 造成 ${dmgText}`;
+    text = text + `（倍率${Math.round(a1)}%）`;
+
+    // 原版 L5014 后若攻击者被光荣弹打死，按正常怪物死亡流程结算掉落（对齐 造成伤害 致死分支）
+    if ((attacker.hp || 0) <= 0) {
+      try {
+        const death = await this.handleMonsterDeath(attacker, deadOne.userId || deadOne.qqNumber, map.id, deadOne);
+        if (death.dropText) text = text + '\n' + death.dropText;
+      } catch (e: any) {
+        this.logger.warn(`光荣弹击杀结算失败: ${e.message}`);
+      }
+    }
+    return text;
   }
 
   /**
