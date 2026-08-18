@@ -108,7 +108,7 @@ export class GameController {
       case '信息':
         result = await this.gameService.handleInfo(userId);
         break;
-      case 'attack':
+      case '攻击':
       case '攻击':
         result = await this.gameService.handleAttack(userId);
         break;

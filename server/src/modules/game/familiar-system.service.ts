@@ -39,7 +39,7 @@ export interface SummonUnit {
 export interface ShopItem {
   name: string;
   cost: number;
-  costType: 'diamond' | 'activity' | 'dataCore';
+  costType: '钻石' | 'activity' | 'dataCore';
   description?: string;
 }
 
@@ -83,12 +83,12 @@ export class FamiliarSystemService {
 
   /** 使魔商店物品列表 */
   private readonly familiarShopItems: ShopItem[] = [
-    { name: '召唤券', cost: 100, costType: 'diamond', description: '召唤券' },
-    { name: '优秀武器补给箱', cost: 300, costType: 'diamond', description: '优秀武器补给箱' },
-    { name: '糖心巧克力', cost: 50, costType: 'diamond', description: '提高宠物好感' },
-    { name: '觉醒丹', cost: 200, costType: 'diamond', description: '宠物觉醒' },
-    { name: '饲料', cost: 10, costType: 'diamond', description: '捕捉宠物用' },
-    { name: '生肉', cost: 5, costType: 'diamond', description: '宠物嗅探消耗' },
+    { name: '召唤券', cost: 100, costType: '钻石', description: '召唤券' },
+    { name: '优秀武器补给箱', cost: 300, costType: '钻石', description: '优秀武器补给箱' },
+    { name: '糖心巧克力', cost: 50, costType: '钻石', description: '提高宠物好感' },
+    { name: '觉醒丹', cost: 200, costType: '钻石', description: '宠物觉醒' },
+    { name: '饲料', cost: 10, costType: '钻石', description: '捕捉宠物用' },
+    { name: '生肉', cost: 5, costType: '钻石', description: '宠物嗅探消耗' },
   ];
 
   /** 活跃度商店物品列表 */
@@ -579,7 +579,7 @@ export class FamiliarSystemService {
 
     let result = '';
 
-    if (!shopType || shopType === 'diamond') {
+    if (!shopType || shopType === '钻石') {
       result += `💎 钻石商店（你有${Math.round(diamondCount)}钻石）\n`;
       this.diamondShopItems.forEach((item, index) => {
         result += `${index + 1}、${item.name}（${item.cost}钻石）\n`;
@@ -607,12 +607,12 @@ export class FamiliarSystemService {
 
   /** 钻石商店物品 */
   private readonly diamondShopItems: ShopItem[] = [
-    { name: '召唤券', cost: 100, costType: 'diamond' },
-    { name: '优秀武器补给箱', cost: 300, costType: 'diamond' },
-    { name: '糖心巧克力', cost: 50, costType: 'diamond' },
-    { name: '觉醒丹', cost: 200, costType: 'diamond' },
-    { name: '饲料', cost: 10, costType: 'diamond' },
-    { name: '生肉', cost: 5, costType: 'diamond' },
+    { name: '召唤券', cost: 100, costType: '钻石' },
+    { name: '优秀武器补给箱', cost: 300, costType: '钻石' },
+    { name: '糖心巧克力', cost: 50, costType: '钻石' },
+    { name: '觉醒丹', cost: 200, costType: '钻石' },
+    { name: '饲料', cost: 10, costType: '钻石' },
+    { name: '生肉', cost: 5, costType: '钻石' },
   ];
 
   /**
@@ -638,7 +638,7 @@ export class FamiliarSystemService {
 
     // 查找物品在哪个商店
     const allShops = [
-      ...this.diamondShopItems.map(item => ({ ...item, source: 'diamond' as const })),
+      ...this.diamondShopItems.map(item => ({ ...item, source: '钻石' as const })),
       ...this.activityShopItems.map(item => ({ ...item, source: 'activity' as const })),
       ...this.dataShopItems.map(item => ({ ...item, source: 'dataCore' as const })),
     ];
@@ -649,7 +649,7 @@ export class FamiliarSystemService {
     }
 
     // 检查并扣除货币
-    if (shopItem.source === 'diamond') {
+    if (shopItem.source === '钻石') {
       const backpack = this.playerService.getBackpackItems(player);
       const diamondItem = backpack.find((item: any) => item.name === '钻石');
       const diamondCount = diamondItem ? (diamondItem.count || 0) : 0;
@@ -712,7 +712,7 @@ export class FamiliarSystemService {
 
     await this.playerService.savePlayer(player);
 
-    const currencyName = shopItem.source === 'diamond' ? '钻石'
+    const currencyName = shopItem.source === '钻石' ? '钻石'
       : shopItem.source === 'activity' ? '活跃度' : '数据核心';
 
     return `${player.name || '冒险者'} 用${shopItem.cost * count}${currencyName}兑换了${itemName}x${count}`;
@@ -1939,10 +1939,10 @@ export class FamiliarSystemService {
 
     // 计算成功率：宠物战斗力 ÷ 怪物战斗力 × 2500%
     const petCombatPower = this.bonusService.calcCombatPower({
-      attack: pet.attack || 0,
-      hp: pet.hp || 0,
-      armor: pet.defense || 0,
-      speed: pet.speed || 100,
+      攻击: pet.attack || 0,
+      生命: pet.hp || 0,
+      装甲: pet.defense || 0,
+      速度: pet.speed || 100,
     });
 
     // 从怪物定义获取战斗力（静态配置 JSON 单一来源）
@@ -1950,10 +1950,10 @@ export class FamiliarSystemService {
 
     const monsterCombatPower = monsterDef
       ? this.bonusService.calcCombatPower({
-          attack: monsterDef.attack || 0,
-          hp: monsterDef.hp || 0,
-          armor: monsterDef.defense || 0,
-          speed: monsterDef.speed || 100,
+          攻击: monsterDef.attack || 0,
+          生命: monsterDef.hp || 0,
+          装甲: monsterDef.defense || 0,
+          速度: monsterDef.speed || 100,
         })
       : 100;
 
@@ -2228,16 +2228,16 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 宠物对第一个怪物发起攻击（简化战斗：直接结算伤害）
     const monster = spawnMonsters[0];
     const petCombat = this.bonusService.calcCombatPower({
-      attack: qualifiedPet.attack || 0,
-      hp: qualifiedPet.hp || 0,
-      armor: qualifiedPet.defense || 0,
-      speed: qualifiedPet.speed || 100,
+      攻击: qualifiedPet.attack || 0,
+      生命: qualifiedPet.hp || 0,
+      装甲: qualifiedPet.defense || 0,
+      速度: qualifiedPet.speed || 100,
     });
     const monsterCombat = this.bonusService.calcCombatPower({
-      attack: monster.attack || 0,
-      hp: monster.hp || 0,
-      armor: monster.defense || 0,
-      speed: monster.speed || 100,
+      攻击: monster.attack || 0,
+      生命: monster.hp || 0,
+      装甲: monster.defense || 0,
+      速度: monster.speed || 100,
     });
 
     // 简单胜率判定
@@ -2561,7 +2561,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       }
 
       const monster = monsters[monsterIndex];
-      const monsterData = typeof monster === 'string' ? { name: monster, anesthesia: 100 } : monster;
+      const monsterData = typeof monster === 'string' ? { name: monster, 麻醉: 100 } : monster;
 
       // 检查麻醉值
       const anestReq = Math.abs(monsterData.anesthesia || 100);
@@ -3123,29 +3123,29 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 根据使魔类型应用不同的加成效果
     switch (player.type) {
       case '龙姬':
-        bonus.attack = (bonus.attack || 0) + Math.floor(10 * affinityBonus);
+        bonus.攻击 = (bonus.攻击 || 0) + Math.floor(10 * affinityBonus);
         break;
       case '军姬':
       case '军姬2':
-        bonus.speed = (bonus.speed || 0) + Math.floor(10 * affinityBonus);
+        bonus.速度 = (bonus.速度 || 0) + Math.floor(10 * affinityBonus);
         break;
       case 'Saber':
-        bonus.attack = (bonus.attack || 0) + Math.floor(15 * affinityBonus);
-        bonus.defense = (bonus.defense || 0) + Math.floor(5 * affinityBonus);
+        bonus.攻击 = (bonus.攻击 || 0) + Math.floor(15 * affinityBonus);
+        bonus.防御 = (bonus.防御 || 0) + Math.floor(5 * affinityBonus);
         break;
       case '冥鱼':
-        bonus.crit = (bonus.crit || 0) + Math.floor(5 * affinityBonus);
+        bonus.暴击 = (bonus.暴击 || 0) + Math.floor(5 * affinityBonus);
         break;
       case '伊卡洛斯':
-        bonus.attack = (bonus.attack || 0) + Math.floor(20 * affinityBonus);
+        bonus.攻击 = (bonus.攻击 || 0) + Math.floor(20 * affinityBonus);
         break;
       case '兰音':
-        bonus.allResist = (bonus.allResist || 0) + Math.floor(10 * affinityBonus);
+        bonus.全抗性 = (bonus.全抗性 || 0) + Math.floor(10 * affinityBonus);
         break;
       default:
         // 通用加成
-        bonus.attack = (bonus.attack || 0) + Math.floor(5 * affinityBonus);
-        bonus.defense = (bonus.defense || 0) + Math.floor(5 * affinityBonus);
+        bonus.攻击 = (bonus.攻击 || 0) + Math.floor(5 * affinityBonus);
+        bonus.防御 = (bonus.防御 || 0) + Math.floor(5 * affinityBonus);
         break;
     }
   }

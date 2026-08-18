@@ -97,8 +97,8 @@ export class FamiliarSkillsService {
       case '掌控时间': return this.timeControl(userId);
       case '召唤': return this.summon(userId, target);
       case '力量模式': return this.nanoMode(userId, 'power');
-      case '速度模式': return this.nanoMode(userId, 'speed');
-      case '装甲模式': return this.nanoMode(userId, 'armor');
+      case '速度模式': return this.nanoMode(userId, '速度');
+      case '装甲模式': return this.nanoMode(userId, '装甲');
       case '隐匿模式': return this.nanoMode(userId, 'stealth');
 
       // 新增缺失技能
@@ -538,9 +538,9 @@ export class FamiliarSkillsService {
     const defensePenalty = Math.floor(30 * effect);
 
     // 添加增益（攻击提升，库洛牌+25%时长）
-    this.addBuff(player, '怒吼·攻', this.buffDur(player, 30), { attack: attackBonus });
+    this.addBuff(player, '怒吼·攻', this.buffDur(player, 30), { 攻击: attackBonus });
     // 添加减益（防御降低，用负值增益表示）
-    this.addBuff(player, '怒吼·防', this.buffDur(player, 30), { defense: -defensePenalty });
+    this.addBuff(player, '怒吼·防', this.buffDur(player, 30), { 防御: -defensePenalty });
 
     // 设置冷却
     this.setCooldown(player, '怒吼', await this.getSkillCooldown(player, 60));
@@ -615,7 +615,7 @@ export class FamiliarSkillsService {
 
     const statBonus = Math.floor(20 * effect);
     this.addBuff(player, '万象·全属性', 60, {
-      attack: statBonus, defense: statBonus, speed: statBonus, dodge: statBonus, hit: statBonus,
+      attack: statBonus, 防御: statBonus, 速度: statBonus, 闪避: statBonus, 命中: statBonus,
     });
 
     this.setCooldown(player, '万象', await this.getSkillCooldown(player, 60));
@@ -694,8 +694,8 @@ export class FamiliarSkillsService {
     const hitBonus = Math.floor(40 * effect);
     const dodgePenalty = Math.floor(20 * effect);
 
-    this.addBuff(player, '鹰眼·命中', this.buffDur(player, 30), { hit: hitBonus });
-    this.addBuff(player, '鹰眼·闪避', this.buffDur(player, 30), { dodge: -dodgePenalty });
+    this.addBuff(player, '鹰眼·命中', this.buffDur(player, 30), { 命中: hitBonus });
+    this.addBuff(player, '鹰眼·闪避', this.buffDur(player, 30), { 闪避: -dodgePenalty });
 
     // 设置冷却
     this.setCooldown(player, '鹰眼', 45);
@@ -877,7 +877,7 @@ export class FamiliarSkillsService {
     // 反弹伤害：获得反弹增益
     const reflectPercent = Math.floor(30 + 20 * effect); // 30%~70%反弹
 
-    this.addBuff(player, '斗转星移', this.buffDur(player, 30), { reflectDmg: reflectPercent });
+    this.addBuff(player, '斗转星移', this.buffDur(player, 30), { 反伤: reflectPercent });
 
     // 设置冷却
     this.setCooldown(player, '斗转星移', await this.getSkillCooldown(player, 60));
@@ -922,7 +922,7 @@ export class FamiliarSkillsService {
     // 提升攻击力
     const attackBonus = Math.floor(60 * effect);
 
-    this.addBuff(player, '火力全开', this.buffDur(player, 30), { attack: attackBonus });
+    this.addBuff(player, '火力全开', this.buffDur(player, 30), { 攻击: attackBonus });
 
     // 设置冷却
     this.setCooldown(player, '火力全开', 60);
@@ -1315,17 +1315,17 @@ export class FamiliarSkillsService {
     player.hp = Math.min((player.hp || 0) + healAmount, player.maxHp || 100);
 
     // 防御提升
-    this.addBuff(player, '安宝加油', 30, { defense: defenseBonus });
+    this.addBuff(player, '安宝加油', 30, { 防御: defenseBonus });
 
     // 好感分层解锁：原版「好感>=40 → 添加标记 安宝乖乖(增益)」「好感>=60 → 烟雾弹增益」
     let extra = '';
     const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1; // 库洛牌+25% 放大增益时长
     if (this.checkAffinity(markers, '安克雷奇', 40)) {
-      this.addBuff(player, '安宝乖乖', Math.floor(30 * a3), { attack: Math.floor(20 * effect) });
+      this.addBuff(player, '安宝乖乖', Math.floor(30 * a3), { 攻击: Math.floor(20 * effect) });
       extra += '\n（好感≥40 解锁：攻击力提升）';
     }
     if (this.checkAffinity(markers, '安克雷奇', 60)) {
-      this.addBuff(player, '烟雾弹', Math.floor(15 * a3), { dodge: Math.floor(30 * effect) });
+      this.addBuff(player, '烟雾弹', Math.floor(15 * a3), { 闪避: Math.floor(30 * effect) });
       extra += '\n（好感≥60 解锁：烟雾弹，闪避大幅提升）';
     }
 
@@ -1374,7 +1374,7 @@ export class FamiliarSkillsService {
     const finalDamage = Math.floor(baseDamage * effect);
     const burnDamage = Math.floor(15 * effect);
 
-    this.addBuff(player, '灼烂歼鬼·灼烧', 15, { fireDmg: burnDamage });
+    this.addBuff(player, '灼烂歼鬼·灼烧', 15, { 火伤: burnDamage });
 
     // 设置冷却
     this.setCooldown(player, '灼烂歼鬼', 90);
@@ -1421,7 +1421,7 @@ export class FamiliarSkillsService {
     const finalDamage = Math.floor(baseDamage * effect);
     const freezeDuration = Math.floor(5 + 5 * effect); // 5~10秒
 
-    this.addBuff(player, '冻结傀儡·冰冻', freezeDuration, { speed: -50 });
+    this.addBuff(player, '冻结傀儡·冰冻', freezeDuration, { 速度: -50 });
 
     // 设置冷却
     this.setCooldown(player, '冻结傀儡', 120);
@@ -2139,7 +2139,7 @@ export class FamiliarSkillsService {
       owner: ownerId,
       归属: ownerId,
       基础: { 生命: baseHp },
-      base: { hp: baseHp },
+      base: { 生命: baseHp },
       level,
       hp: baseHp,
       maxHp: baseHp,
@@ -2202,22 +2202,22 @@ export class FamiliarSkillsService {
     switch (mode) {
       case 'power':
         buffName = '纳米·力量模式';
-        buffData = { attack: Math.floor(80 * effect), crit: Math.floor(15 * effect) };
+        buffData = { 攻击: Math.floor(80 * effect), 暴击: Math.floor(15 * effect) };
         modeText = '力量模式';
         break;
-      case 'speed':
+      case '速度':
         buffName = '纳米·速度模式';
-        buffData = { speed: Math.floor(80 * effect), dodge: Math.floor(30 * effect) };
+        buffData = { 速度: Math.floor(80 * effect), 闪避: Math.floor(30 * effect) };
         modeText = '速度模式';
         break;
-      case 'armor':
+      case '装甲':
         buffName = '纳米·装甲模式';
-        buffData = { defense: Math.floor(80 * effect), armor: Math.floor(50 * effect) };
+        buffData = { 防御: Math.floor(80 * effect), 装甲: Math.floor(50 * effect) };
         modeText = '装甲模式';
         break;
       case 'stealth':
         buffName = '纳米·隐匿模式';
-        buffData = { dodge: Math.floor(50 * effect), hit: Math.floor(30 * effect) };
+        buffData = { 闪避: Math.floor(50 * effect), 命中: Math.floor(30 * effect) };
         modeText = '隐匿模式';
         break;
       default:
@@ -2273,7 +2273,7 @@ export class FamiliarSkillsService {
     player.hp = maxHp;
 
     // 创造护盾（持续20秒）
-    this.addBuff(player, '安乐天使·护盾', 20, { invincible: true, shield: Math.floor(500 * effect) });
+    this.addBuff(player, '安乐天使·护盾', 20, { invincible: true, 护盾: Math.floor(500 * effect) });
 
     // 设置冷却
     this.setCooldown(player, '安乐天使', 300);
@@ -2464,22 +2464,22 @@ export class FamiliarSkillsService {
     switch (mode) {
       case '攻击模式':
         buffName = '模式·攻击';
-        buffData = { attack: Math.floor(100 * effect), crit: Math.floor(20 * effect), defense: -Math.floor(30 * effect) };
+        buffData = { 攻击: Math.floor(100 * effect), 暴击: Math.floor(20 * effect), 防御: -Math.floor(30 * effect) };
         modeText = '攻击模式';
         break;
       case '防御模式':
         buffName = '模式·防御';
-        buffData = { defense: Math.floor(100 * effect), armor: Math.floor(60 * effect), attack: -Math.floor(30 * effect) };
+        buffData = { 防御: Math.floor(100 * effect), 装甲: Math.floor(60 * effect), 攻击: -Math.floor(30 * effect) };
         modeText = '防御模式';
         break;
       case '速度模式':
         buffName = '模式·速度';
-        buffData = { speed: Math.floor(100 * effect), dodge: Math.floor(30 * effect), attack: -Math.floor(20 * effect) };
+        buffData = { 速度: Math.floor(100 * effect), 闪避: Math.floor(30 * effect), 攻击: -Math.floor(20 * effect) };
         modeText = '速度模式';
         break;
       case '平衡模式':
         buffName = '模式·平衡';
-        buffData = { attack: Math.floor(40 * effect), defense: Math.floor(40 * effect), speed: Math.floor(40 * effect) };
+        buffData = { 攻击: Math.floor(40 * effect), 防御: Math.floor(40 * effect), 速度: Math.floor(40 * effect) };
         modeText = '平衡模式';
         break;
       default:

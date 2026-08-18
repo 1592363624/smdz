@@ -139,8 +139,8 @@ export class CombatService {
       totalDamage += finalDamage;
 
       // 扣除防御者生命值
-      if (defender.hp !== undefined) {
-        defender.hp = Math.max(0, defender.hp - finalDamage);
+      if (defender.生命 !== undefined) {
+        defender.生命 = Math.max(0, defender.生命 - finalDamage);
       }
 
       // 构建攻击文本
@@ -151,7 +151,7 @@ export class CombatService {
       );
 
       // 处理击杀
-      if (defender.hp !== undefined && defender.hp <= 0) {
+      if (defender.生命 !== undefined && defender.生命 <= 0) {
         killed.push(defender.name || '未知怪物');
         resultLines.push(`${defender.name || '目标'} 已被击杀`);
 
@@ -169,10 +169,10 @@ export class CombatService {
       }
 
       // 生命偷取处理
-      if (attackerBonus.leechHp && finalDamage > 0) {
-        const leechAmount = Math.floor(finalDamage * (attackerBonus.leechHp / 100));
-        if (attacker.hp !== undefined) {
-          attacker.hp = (attacker.hp || 0) + leechAmount;
+      if (attackerBonus.吸生命 && finalDamage > 0) {
+        const leechAmount = Math.floor(finalDamage * (attackerBonus.吸生命 / 100));
+        if (attacker.生命 !== undefined) {
+          attacker.生命 = (attacker.生命 || 0) + leechAmount;
         }
       }
     }
@@ -201,8 +201,8 @@ export class CombatService {
     damageType: number,
   ): DamageResult {
     // 命中判定
-    const hitRate = (attacker.hit || 0) + (attacker.hit2 || 0) + (attacker.mustHit ? 100 : 0);
-    const dodgeRate = (defender.dodge || 0) + (defender.dodge2 || 0);
+    const hitRate = (attacker.命中 || 0) + (attacker.命中2 || 0) + (attacker.必中 ? 100 : 0);
+    const dodgeRate = (defender.闪避 || 0) + (defender.闪避2 || 0);
     const isHit = this.checkHit(hitRate, dodgeRate);
 
     if (!isHit) {
@@ -210,14 +210,14 @@ export class CombatService {
     }
 
     // 暴击判定
-    const critRate = (attacker.crit || 0) + (attacker.critDmg || 0);
+    const critRate = (attacker.暴击 || 0) + (attacker.暴击伤害 || 0);
     const isCrit = this.checkCrit(critRate);
-    const critMultiplier = isCrit ? 1.5 + (attacker.critDmg || 0) / 100 : 1.0;
+    const critMultiplier = isCrit ? 1.5 + (attacker.暴击伤害 || 0) / 100 : 1.0;
 
     // 基础攻击力 = 攻击力 + 武器伤害 + 元素伤害
     const baseAttack =
-      (attacker.attack || 0) +
-      (attacker.attack2 || 0) +
+      (attacker.攻击 || 0) +
+      (attacker.攻击2 || 0) +
       (weapon?.damage || 0);
 
     // 元素伤害加成
@@ -421,14 +421,14 @@ export class CombatService {
   private getElemenalDamage(bonus: BonusData, damageType: number): number {
     switch (damageType) {
       case CombatService.DAMAGE_FIRE:
-        return (bonus.fireDmg || 0) + (bonus.fireDmg2 || 0);
+        return (bonus.火伤 || 0) + (bonus.火伤2 || 0);
       case CombatService.DAMAGE_ICE:
-        return (bonus.iceDmg || 0) + (bonus.iceDmg2 || 0);
+        return (bonus.冰伤 || 0) + (bonus.冰伤2 || 0);
       case CombatService.DAMAGE_ELEC:
-        return (bonus.elecDmg || 0) + (bonus.elecDmg2 || 0);
+        return (bonus.电伤 || 0) + (bonus.电伤2 || 0);
       case CombatService.DAMAGE_PHYS:
       default:
-        return (bonus.physDmg || 0) + (bonus.physDmg2 || 0);
+        return (bonus.物伤 || 0) + (bonus.物伤2 || 0);
     }
   }
 
@@ -437,18 +437,18 @@ export class CombatService {
    * 通用穿透（penetrate）和对应属性的穿透之和
    */
   private getPenetration(bonus: BonusData, damageType: number): number {
-    const basePen = bonus.penetrate || 0;
+    const basePen = bonus.贯穿 || 0;
 
     // 根据伤害类型获取对应的专项穿透
     switch (damageType) {
       case CombatService.DAMAGE_PHYS:
-        return basePen + (bonus.hpPenetration || 0);
+        return basePen + (bonus.生命穿透 || 0);
       case CombatService.DAMAGE_FIRE:
-        return basePen + (bonus.hpPenetration || 0);
+        return basePen + (bonus.生命穿透 || 0);
       case CombatService.DAMAGE_ICE:
-        return basePen + (bonus.hpPenetration || 0);
+        return basePen + (bonus.生命穿透 || 0);
       case CombatService.DAMAGE_ELEC:
-        return basePen + (bonus.shieldPenetration || 0);
+        return basePen + (bonus.护盾穿透 || 0);
       default:
         return basePen;
     }
@@ -465,16 +465,16 @@ export class CombatService {
     // 优先使用生命抗性（HP 抗性体系）
     switch (damageType) {
       case CombatService.DAMAGE_PHYS:
-        baseRes = (defender.hpPhysRes || 0) + (defender.hpAllRes || 0);
+        baseRes = (defender.生命物抗 || 0) + (defender.生命全抗 || 0);
         break;
       case CombatService.DAMAGE_FIRE:
-        baseRes = (defender.hpFireRes || 0) + (defender.hpAllRes || 0);
+        baseRes = (defender.生命火抗 || 0) + (defender.生命全抗 || 0);
         break;
       case CombatService.DAMAGE_ICE:
-        baseRes = (defender.hpIceRes || 0) + (defender.hpAllRes || 0);
+        baseRes = (defender.生命冰抗 || 0) + (defender.生命全抗 || 0);
         break;
       case CombatService.DAMAGE_ELEC:
-        baseRes = (defender.hpElecRes || 0) + (defender.hpAllRes || 0);
+        baseRes = (defender.生命电抗 || 0) + (defender.生命全抗 || 0);
         break;
     }
 
@@ -496,14 +496,14 @@ export class CombatService {
     const pool: DamagePool = { hp: 0, armor: 0, shield: 0 };
 
     // 获取各池子的当前值
-    const currentShield = defender.shield || 0;
-    const currentArmor = defender.armor || 0;
-    const currentHp = defender.hp || 0;
+    const currentShield = defender.护盾 || 0;
+    const currentArmor = defender.装甲 || 0;
+    const currentHp = defender.生命 || 0;
 
     // 各池子伤害上限（百分比），默认100%
-    const shieldCap = (defender.shieldDmgCap || 100) / 100;
-    const armorCap = (defender.armorDmgCap || 100) / 100;
-    const hpCap = (defender.hpDmgCap || 100) / 100;
+    const shieldCap = (defender.护盾伤害上限 || 100) / 100;
+    const armorCap = (defender.装甲伤害上限 || 100) / 100;
+    const hpCap = (defender.生命伤害上限 || 100) / 100;
 
     let remaining = damage;
 
@@ -541,19 +541,19 @@ export class CombatService {
     defender: BonusData,
   ): number {
     // 攻击方伤害上限加成
-    const atkShieldCap = (attacker.atkShield || 0) / 100 + 1;
-    const atkArmorCap = (attacker.atkArmor || 0) / 100 + 1;
-    const atkHpCap = (attacker.atkHp || 0) / 100 + 1;
+    const atkShieldCap = (attacker.攻击护盾 || 0) / 100 + 1;
+    const atkArmorCap = (attacker.攻击装甲 || 0) / 100 + 1;
+    const atkHpCap = (attacker.攻击生命 || 0) / 100 + 1;
 
     // 防御方各池子当前值
-    const shield = defender.shield || 0;
-    const armor = defender.armor || 0;
-    const hp = defender.hp || 0;
+    const shield = defender.护盾 || 0;
+    const armor = defender.装甲 || 0;
+    const hp = defender.生命 || 0;
 
     // 计算各池子理论最大可承受伤害
-    const maxShieldDmg = shield * ((defender.shieldDmgCap || 100) / 100) * atkShieldCap;
-    const maxArmorDmg = armor * ((defender.armorDmgCap || 100) / 100) * atkArmorCap;
-    const maxHpDmg = hp * ((defender.hpDmgCap || 100) / 100) * atkHpCap;
+    const maxShieldDmg = shield * ((defender.护盾伤害上限 || 100) / 100) * atkShieldCap;
+    const maxArmorDmg = armor * ((defender.装甲伤害上限 || 100) / 100) * atkArmorCap;
+    const maxHpDmg = hp * ((defender.生命伤害上限 || 100) / 100) * atkHpCap;
 
     // 总伤害上限
     const totalCap = maxShieldDmg + maxArmorDmg + maxHpDmg;

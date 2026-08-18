@@ -1154,10 +1154,10 @@ export class ItemSystemService {
 
     // 植入体类型对应的属性加成
     const implantTypeMap: Record<string, { stat: string; baseValue: number }> = {
-      '物攻': { stat: 'physDmg', baseValue: 1 },
-      '火攻': { stat: 'fireDmg', baseValue: 1 },
-      '冰攻': { stat: 'iceDmg', baseValue: 1 },
-      '电攻': { stat: 'elecDmg', baseValue: 1 },
+      '物攻': { stat: '物伤', baseValue: 1 },
+      '火攻': { stat: '火伤', baseValue: 1 },
+      '冰攻': { stat: '冰伤', baseValue: 1 },
+      '电攻': { stat: '电伤', baseValue: 1 },
     };
 
     const typeInfo = implantTypeMap[type];
@@ -1384,10 +1384,10 @@ export class ItemSystemService {
 
     // 增幅器类型对应的二阶属性加成
     const ampTypeMap: Record<string, { stat: string; baseValue: number }> = {
-      '攻击': { stat: 'attack2', baseValue: 1 },
-      '防御': { stat: 'armor2', baseValue: 1 },
-      '生命': { stat: 'hp2', baseValue: 5 },
-      '暴击': { stat: 'crit', baseValue: 0.5 },
+      '攻击': { stat: '攻击2', baseValue: 1 },
+      '防御': { stat: '装甲2', baseValue: 1 },
+      '生命': { stat: '生命2', baseValue: 5 },
+      '暴击': { stat: '暴击', baseValue: 0.5 },
     };
 
     const typeInfo = ampTypeMap[type];
@@ -1694,10 +1694,10 @@ export class ItemSystemService {
       markerValue?: number; // 标记值
       description: string;  // 效果描述
     }> = {
-      '面包': { type: 'recovery', target: 'hp', value: 30, description: '恢复 30 点生命值' },
-      '治疗药水': { type: 'recovery', target: 'hp', value: 100, description: '恢复 100 点生命值' },
-      '护盾药水': { type: 'recovery', target: 'shield', value: 80, description: '恢复 80 点护盾值' },
-      '装甲修复剂': { type: 'recovery', target: 'armor', value: 60, description: '修复 60 点装甲值' },
+      '面包': { type: 'recovery', target: '生命', value: 30, description: '恢复 30 点生命值' },
+      '治疗药水': { type: 'recovery', target: '生命', value: 100, description: '恢复 100 点生命值' },
+      '护盾药水': { type: 'recovery', target: '护盾', value: 80, description: '恢复 80 点护盾值' },
+      '装甲修复剂': { type: 'recovery', target: '装甲', value: 60, description: '修复 60 点装甲值' },
       '新手补给': { type: 'marker', markerKey: '新手补给', markerValue: 1, description: '获得新手补给标记' },
     };
 
@@ -1722,7 +1722,7 @@ export class ItemSystemService {
 
     if (effect.type === 'recovery') {
       // 回复类效果
-      const targetField = effect.target || 'hp';
+      const targetField = effect.target || '生命';
       const maxField = 'max' + targetField.charAt(0).toUpperCase() + targetField.slice(1);
 
       // 获取当前值和最大值
@@ -1733,7 +1733,7 @@ export class ItemSystemService {
       const actualHeal = Math.min(effect.value || 0, maxValue - currentValue);
       (player as any)[targetField] = currentValue + actualHeal;
 
-      effectResult = `恢复了 ${actualHeal} 点${targetField === 'hp' ? '生命' : targetField === 'shield' ? '护盾' : '装甲'}`;
+      effectResult = `恢复了 ${actualHeal} 点${targetField === '生命' ? '生命' : targetField === '护盾' ? '护盾' : '装甲'}`;
     } else if (effect.type === 'buff') {
       // 增益类效果（简化版：记录到 markers）
       if (effect.buffName) {
@@ -1975,21 +1975,21 @@ export class ItemSystemService {
   private formatBonusStats(bonus: Record<string, number>): string[] {
     const lines: string[] = [];
     const displayMap: Record<string, string> = {
-      shield: '护盾', armor: '装甲', hp: '生命', attack: '攻击',
-      speed: '速度', dodge: '闪避', hit: '命中', crit: '暴击',
-      critDmg: '暴击伤害', physDmg: '物伤', elecDmg: '电伤',
-      fireDmg: '火伤', iceDmg: '冰伤', hpRegen: '生命恢复',
-      shieldRegen: '护盾回复', armorRegen: '装甲修复',
-      tenacity: '韧性', gather: '采集', dropRate: '掉落率',
-      dropQuality: '掉落品质', charm: '魅力',
-      hpAllRes: '生命全抗', shieldAllRes: '护盾全抗', armorAllRes: '装甲全抗',
-      hpPhysRes: '生命物抗', hpFireRes: '生命火抗', hpIceRes: '生命冰抗', hpElecRes: '生命电抗',
-      shieldPhysRes: '护盾物抗', shieldFireRes: '护盾火抗', shieldIceRes: '护盾冰抗', shieldElecRes: '护盾电抗',
-      armorPhysRes: '装甲物抗', armorFireRes: '装甲火抗', armorIceRes: '装甲冰抗', armorElecRes: '装甲电抗',
-      shield2: '护盾II', armor2: '装甲II', hp2: '生命II', attack2: '攻击II',
-      speed2: '速度II', dodge2: '闪避II', hit2: '命中II',
-      hpRegen2: '生命恢复II', shieldRegen2: '护盾回复II', armorRegen2: '装甲修复II',
-      physDmg2: '物伤II', elecDmg2: '电伤II', fireDmg2: '火伤II', iceDmg2: '冰伤II',
+      shield: '护盾', 装甲: '装甲', 生命: '生命', 攻击: '攻击',
+      speed: '速度', 闪避: '闪避', 命中: '命中', 暴击: '暴击',
+      critDmg: '暴击伤害', 物伤: '物伤', 电伤: '电伤',
+      fireDmg: '火伤', 冰伤: '冰伤', 生命回复: '生命恢复',
+      shieldRegen: '护盾回复', 装甲回复: '装甲修复',
+      tenacity: '韧性', 采集: '采集', 掉落率: '掉落率',
+      dropQuality: '掉落品质', 魅力: '魅力',
+      hpAllRes: '生命全抗', 护盾全抗: '护盾全抗', 装甲全抗: '装甲全抗',
+      hpPhysRes: '生命物抗', 生命火抗: '生命火抗', 生命冰抗: '生命冰抗', 生命电抗: '生命电抗',
+      shieldPhysRes: '护盾物抗', 护盾火抗: '护盾火抗', 护盾冰抗: '护盾冰抗', 护盾电抗: '护盾电抗',
+      armorPhysRes: '装甲物抗', 装甲火抗: '装甲火抗', 装甲冰抗: '装甲冰抗', 装甲电抗: '装甲电抗',
+      shield2: '护盾II', 装甲2: '装甲II', 生命2: '生命II', 攻击2: '攻击II',
+      speed2: '速度II', 闪避2: '闪避II', 命中2: '命中II',
+      hpRegen2: '生命恢复II', 护盾回复2: '护盾回复II', 装甲回复2: '装甲修复II',
+      physDmg2: '物伤II', 电伤2: '电伤II', 火伤2: '火伤II', 冰伤2: '冰伤II',
     };
 
     for (const [key, value] of Object.entries(bonus)) {
@@ -2015,17 +2015,17 @@ export class ItemSystemService {
    * 原版用中文语义字段名(护盾/装甲/生命...)，运行时 BonusData 用英文键，此处做桥接。
    */
   private static readonly AFFIX_TO_BONUS: Record<string, string> = {
-    护盾: 'shield', 装甲: 'armor', 生命: 'hp',
-    生命全抗: 'hpAllRes', 装甲全抗: 'armorAllRes', 护盾全抗: 'shieldAllRes',
-    物攻: 'physDmg', 电攻: 'elecDmg', 火攻: 'fireDmg', 冰攻: 'iceDmg', 攻击: 'attack',
-    暴击: 'crit',
-    生命物抗: 'hpPhysRes', 生命火抗: 'hpFireRes', 生命冰抗: 'hpIceRes', 生命电抗: 'hpElecRes',
-    装甲物抗: 'armorPhysRes', 装甲火抗: 'armorFireRes', 装甲冰抗: 'armorIceRes', 装甲电抗: 'armorElecRes',
-    护盾物抗: 'shieldPhysRes', 护盾火抗: 'shieldFireRes', 护盾冰抗: 'shieldIceRes', 护盾电抗: 'shieldElecRes',
-    速度: 'speed', 命中: 'hit', 闪避: 'dodge',
-    掉落率: 'dropRate', 掉落数量: 'dropQuality', 采集: 'gather',
-    护盾回复: 'shieldRegen', 装甲修复: 'armorRegen', 生命恢复: 'hpRegen',
-    韧性: 'tenacity', 暴击伤害: 'critDmg', 魅力: 'charm',
+    护盾: '护盾', 装甲: '装甲', 生命: '生命',
+    生命全抗: '生命全抗', 装甲全抗: '装甲全抗', 护盾全抗: '护盾全抗',
+    物攻: '物伤', 电攻: '电伤', 火攻: '火伤', 冰攻: '冰伤', 攻击: '攻击',
+    暴击: '暴击',
+    生命物抗: '生命物抗', 生命火抗: '生命火抗', 生命冰抗: '生命冰抗', 生命电抗: '生命电抗',
+    装甲物抗: '装甲物抗', 装甲火抗: '装甲火抗', 装甲冰抗: '装甲冰抗', 装甲电抗: '装甲电抗',
+    护盾物抗: '护盾物抗', 护盾火抗: '护盾火抗', 护盾冰抗: '护盾冰抗', 护盾电抗: '护盾电抗',
+    速度: '速度', 命中: '命中', 闪避: '闪避',
+    掉落率: '掉落率', 掉落数量: '掉落品质', 采集: '采集',
+    护盾回复: '护盾回复', 装甲修复: '装甲回复', 生命恢复: '生命回复',
+    韧性: '韧性', 暴击伤害: '暴击伤害', 魅力: '魅力',
   };
 
   /**
@@ -2042,10 +2042,10 @@ export class ItemSystemService {
   /**
    * 词条转换（深度还原 物品操作.ecode L1838-1996）
    * 对应原版子程序 词条转换(z, 词条, 倍率, 下限增加, 上限增加)：
-   * 按词条名随机出 [下限, 上限]×倍率 区间内的数值，写入 bonus 对应英文键。
+   * 按词条名随机出 [下限, 上限]×倍率 区间内的数值，写入 bonus 对应中文键（BonusData 字段）。
    * 下限增加/上限增加 入参为"百分比×100"（如品质下限0.1→传10），方法内 /100 还原。
    *
-   * @param bonus 累加写入的加成对象（英文键）
+   * @param bonus 累加写入的加成对象（中文键 BonusData）
    * @param affix 中文词条名
    * @param mult 品质词条倍率（e=1/d=2/c=3/b=4/a=6/s=9/神迹=12）
    * @param lowerIncPct 下限增加（已×100），默认 10
@@ -2145,7 +2145,7 @@ export class ItemSystemService {
       else q = 'e';
     }
 
-    // ---- 2) 基础加成：模板 bonus(中文键JSON) → 英文键 BonusData ----
+    // ---- 2) 基础加成：模板 bonus(中文键JSON) → BonusData 中文键（AFFIX_TO_BONUS 仅做词条名→属性字段的语义映射）----
     const bonus: Record<string, number> = {};
     if (gameEquip?.bonus) {
       try {

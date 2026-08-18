@@ -294,18 +294,18 @@ export class GameService {
       name: player.name,
       type: player.type,
       hp: player.hp,
-      maxHp: Math.round(calcBonus.hp || player.maxHp || 100),
+      maxHp: Math.round(calcBonus.生命 || player.maxHp || 100),
       shield: player.shield,
-      maxShield: Math.round(calcBonus.shield || player.maxShield || 0),
+      maxShield: Math.round(calcBonus.护盾 || player.maxShield || 0),
       armor: player.armor,
-      maxArmor: Math.round(calcBonus.armor || player.maxArmor || 0),
-      attack: Math.round(calcBonus.attack || 0),
+      maxArmor: Math.round(calcBonus.装甲 || player.maxArmor || 0),
+      attack: Math.round(calcBonus.攻击 || 0),
       defense: player.defense,
-      speed: Math.round(calcBonus.speed || player.speed || 0),
-      dodge: Math.round(calcBonus.dodge || 0),
-      hit: Math.round(calcBonus.hit || 0),
-      crit: Math.round(calcBonus.crit || 0),
-      critDmg: Math.round(calcBonus.critDmg || 150),
+      speed: Math.round(calcBonus.速度 || player.speed || 0),
+      dodge: Math.round(calcBonus.闪避 || 0),
+      hit: Math.round(calcBonus.命中 || 0),
+      crit: Math.round(calcBonus.暴击 || 0),
+      critDmg: Math.round(calcBonus.暴击伤害 || 150),
       mapId: player.mapId,
       location: player.location,
       affinity: player.affinity,
@@ -494,10 +494,10 @@ export class GameService {
     // 对应原版 加成计算.ecode _计算玩家：攻击/生命/护盾/装甲按等级+熟练度成长
     const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
     const bonus: BonusData = {
-      attack: calcBonus.attack || 0,
-      hp: calcBonus.hp || 0,
-      armor: calcBonus.armor || 0,
-      speed: calcBonus.speed || 0,
+      攻击: calcBonus.攻击 || 0,
+      生命: calcBonus.生命 || 0,
+      装甲: calcBonus.装甲 || 0,
+      速度: calcBonus.速度 || 0,
     };
     const combatPower = this.bonusService.calcCombatPower(bonus);
 
@@ -572,11 +572,11 @@ export class GameService {
 
     // 显示计算后的属性：攻击/生命/护盾/装甲/速度均来自 _计算玩家 成长公式（含等级成长）
     // 原版显示的就是 玩家.属性（计算后），而非基础存储值
-    const showAttack = Math.round(calcBonus.attack || 0);
-    const showMaxHp = Math.round(calcBonus.hp || player.maxHp || 100);
-    const showMaxShield = Math.round(calcBonus.shield || player.maxShield || 0);
-    const showMaxArmor = Math.round(calcBonus.armor || player.maxArmor || 0);
-    const showSpeed = Math.round(calcBonus.speed || player.speed || 0);
+    const showAttack = Math.round(calcBonus.攻击 || 0);
+    const showMaxHp = Math.round(calcBonus.生命 || player.maxHp || 100);
+    const showMaxShield = Math.round(calcBonus.护盾 || player.maxShield || 0);
+    const showMaxArmor = Math.round(calcBonus.装甲 || player.maxArmor || 0);
+    const showSpeed = Math.round(calcBonus.速度 || player.speed || 0);
 
     lines.push(`【${player.name || '冒险者'}】Lv.${player.level}`);
     lines.push(`━━━━━━━━━━━━━━━`);
@@ -688,17 +688,17 @@ export class GameService {
       `等级: ${player.level}`,
       `经验: ${Math.round(player.exp || 0)}/${Math.round(this.playerService.calcUpgradeExp(player.level))}`,
       `━━━━━━━━━━━━━━━`,
-      `生命: ${Math.round(player.hp || 0)}/${Math.round(calcBonus.hp || player.maxHp || 100)} (回复: ${calcBonus.hpRegen || 0}/s)`,
-      `护盾: ${Math.round(player.shield || 0)}/${Math.round(calcBonus.shield || player.maxShield || 0)} (回复: ${calcBonus.shieldRegen || 0}/s)`,
-      `装甲: ${Math.round(player.armor || 0)}/${Math.round(calcBonus.armor || player.maxArmor || 0)} (回复: ${calcBonus.armorRegen || 0}/s)`,
+      `生命: ${Math.round(player.hp || 0)}/${Math.round(calcBonus.生命 || player.maxHp || 100)} (回复: ${calcBonus.生命回复 || 0}/s)`,
+      `护盾: ${Math.round(player.shield || 0)}/${Math.round(calcBonus.护盾 || player.maxShield || 0)} (回复: ${calcBonus.护盾回复 || 0}/s)`,
+      `装甲: ${Math.round(player.armor || 0)}/${Math.round(calcBonus.装甲 || player.maxArmor || 0)} (回复: ${calcBonus.装甲回复 || 0}/s)`,
       `━━━━━━━━━━━━━━━`,
-      `攻击: ${Math.round(calcBonus.attack || 0)}`,
+      `攻击: ${Math.round(calcBonus.攻击 || 0)}`,
       `防御: ${Math.round(player.defense || 0)}`,
-      `速度: ${Math.round(calcBonus.speed || player.speed || 0)}`,
-      `闪避: ${Math.round(calcBonus.dodge || 0)}%`,
-      `命中: ${Math.round(calcBonus.hit || 0)}%`,
-      `暴击: ${Math.round(calcBonus.crit || 0)}%`,
-      `暴击伤害: ${Math.round(calcBonus.critDmg || 150)}%`,
+      `速度: ${Math.round(calcBonus.速度 || player.speed || 0)}`,
+      `闪避: ${Math.round(calcBonus.闪避 || 0)}%`,
+      `命中: ${Math.round(calcBonus.命中 || 0)}%`,
+      `暴击: ${Math.round(calcBonus.暴击 || 0)}%`,
+      `暴击伤害: ${Math.round(calcBonus.暴击伤害 || 150)}%`,
       `━━━━━━━━━━━━━━━`,
       `类型: ${player.type || '人类'}`,
       `好感度: ${Math.round(player.affinity || 0)}`,
@@ -2835,12 +2835,12 @@ export class GameService {
 
     // 显示加成摘要
     const bonusFields: { key: string; label: string }[] = [
-      { key: 'attack', label: '攻击' },
-      { key: 'hp', label: '生命' },
-      { key: 'armor', label: '装甲' },
-      { key: 'shield', label: '护盾' },
-      { key: 'speed', label: '速度' },
-      { key: 'dodge', label: '闪避' },
+      { key: '攻击', label: '攻击' },
+      { key: '生命', label: '生命' },
+      { key: '装甲', label: '装甲' },
+      { key: '护盾', label: '护盾' },
+      { key: '速度', label: '速度' },
+      { key: '闪避', label: '闪避' },
     ];
 
     const hasBonus = bonusFields.some((bf) => (totalBonus as any)[bf.key]);
@@ -4662,14 +4662,14 @@ export class GameService {
     ];
 
     const bonusFields: { key: string; label: string }[] = [
-      { key: 'attack', label: '攻击' },
-      { key: 'hp', label: '生命' },
-      { key: 'armor', label: '装甲' },
-      { key: 'shield', label: '护盾' },
-      { key: 'speed', label: '速度' },
-      { key: 'dodge', label: '闪避' },
-      { key: 'hit', label: '命中' },
-      { key: 'crit', label: '暴击' },
+      { key: '攻击', label: '攻击' },
+      { key: '生命', label: '生命' },
+      { key: '装甲', label: '装甲' },
+      { key: '护盾', label: '护盾' },
+      { key: '速度', label: '速度' },
+      { key: '闪避', label: '闪避' },
+      { key: '命中', label: '命中' },
+      { key: '暴击', label: '暴击' },
     ];
 
     let hasBonus = false;
@@ -7147,11 +7147,11 @@ export class GameService {
 
     // 展示常用加成字段
     const fieldLabels: [string, string][] = [
-      ['attack', '攻击'], ['hp', '生命'], ['armor', '装甲'], ['shield', '护盾'],
-      ['speed', '速度'], ['dodge', '闪避'], ['hit', '命中'], ['crit', '暴击'],
-      ['critDmg', '暴击伤害'], ['hpRegen', '生命回复'], ['shieldRegen', '护盾回复'],
-      ['armorRegen', '装甲回复'], ['dropRate', '掉落率'], ['dropQuality', '掉落品质'],
-      ['debuff', '减益'], ['charm', '魅力'], ['tenacity', '韧性'],
+      ['攻击', '攻击'], ['生命', '生命'], ['装甲', '装甲'], ['护盾', '护盾'],
+      ['速度', '速度'], ['闪避', '闪避'], ['命中', '命中'], ['暴击', '暴击'],
+      ['暴击伤害', '暴击伤害'], ['生命回复', '生命回复'], ['护盾回复', '护盾回复'],
+      ['装甲回复', '装甲回复'], ['掉落率', '掉落率'], ['掉落品质', '掉落品质'],
+      ['减益', '减益'], ['魅力', '魅力'], ['韧性', '韧性'],
     ];
 
     const lines = [`${player.name || '冒险者'}来自装备的属性:`];
@@ -7302,11 +7302,11 @@ export class GameService {
    */
   private formatBonusText(bonus: Record<string, number>): string {
     const fieldLabels: [string, string][] = [
-      ['attack', '攻击'], ['hp', '生命'], ['armor', '装甲'], ['shield', '护盾'],
-      ['speed', '速度'], ['dodge', '闪避'], ['hit', '命中'], ['crit', '暴击'],
-      ['critDmg', '暴击伤害'], ['hpRegen', '生命回复'], ['shieldRegen', '护盾回复'],
-      ['armorRegen', '装甲回复'], ['dropRate', '掉落率'], ['dropQuality', '掉落品质'],
-      ['debuff', '减益'], ['charm', '魅力'], ['tenacity', '韧性'],
+      ['攻击', '攻击'], ['生命', '生命'], ['装甲', '装甲'], ['护盾', '护盾'],
+      ['速度', '速度'], ['闪避', '闪避'], ['命中', '命中'], ['暴击', '暴击'],
+      ['暴击伤害', '暴击伤害'], ['生命回复', '生命回复'], ['护盾回复', '护盾回复'],
+      ['装甲回复', '装甲回复'], ['掉落率', '掉落率'], ['掉落品质', '掉落品质'],
+      ['减益', '减益'], ['魅力', '魅力'], ['韧性', '韧性'],
     ];
     const lines: string[] = [];
     for (const [key, label] of fieldLabels) {

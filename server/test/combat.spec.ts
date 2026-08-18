@@ -355,13 +355,13 @@ const plainWeapon = {
 
 // 防御方无抗性，但提供充足生命池（hp），使伤害能落到生命层并反映倍率
 // （原版中防御方始终有生命池；缺少则 distributeDamageToPools 按 Math.min(dmg,0)=0 归零）
-const noResistDef = { dodge: 100, hp: 1_000_000, shield: 0, armor: 0 } as any;
+const noResistDef = { 闪避: 100, 生命: 1_000_000, 护盾: 0, 装甲: 0 } as any;
 
 describe('造成伤害 - 总伤害倍率与归一 (战斗相关.ecode L2274, L2289)', () => {
   it('L2274 倍率 = 命中/闪避 (正常区间, 不归一)', () => {
     // 命中200 / 闪避100 = 2.0；下限0.25 → 2*0.25=0.5<1 不触发归一
     const res = combat.calcDamage(
-      { attack: 0, hit: 200 } as any,
+      { 攻击: 0, 命中: 200 } as any,
       noResistDef,
       plainWeapon as any,
       1, false,
@@ -374,7 +374,7 @@ describe('造成伤害 - 总伤害倍率与归一 (战斗相关.ecode L2274, L22
   it('L2289 命中/闪避>4 且无索敌计算机 → 倍率强制归一为1', () => {
     // 命中500 / 闪避100 = 5.0；下限0.25 → 5*0.25=1.25>1 触发归一
     const res = combat.calcDamage(
-      { attack: 0, hit: 500 } as any,
+      { 攻击: 0, 命中: 500 } as any,
       noResistDef,
       plainWeapon as any,
       1, false,
@@ -386,7 +386,7 @@ describe('造成伤害 - 总伤害倍率与归一 (战斗相关.ecode L2274, L22
 
   it('L2289 命中/闪避>4 且有索敌计算机 → 保留原始倍率', () => {
     const res = combat.calcDamage(
-      { attack: 0, hit: 500 } as any,
+      { 攻击: 0, 命中: 500 } as any,
       noResistDef,
       plainWeapon as any,
       1, false,
@@ -405,7 +405,7 @@ describe('造成伤害 - 随机区间边界 (战斗相关.ecode L2317)', () => {
     mockRandom(0);
     // 命中200/闪避100=2；下限0.25 → minMult=0.5；基础100 → damage=50
     const res = combat.calcDamage(
-      { attack: 0, hit: 200 } as any,
+      { 攻击: 0, 命中: 200 } as any,
       noResistDef,
       plainWeapon as any,
       1, false,
@@ -418,7 +418,7 @@ describe('造成伤害 - 随机区间边界 (战斗相关.ecode L2317)', () => {
     mockRandom(0.999);
     // 命中200/闪避100=2；区间[0.5,1.5] → ≈1.499；基础100 → ≈149.9 → floor 149
     const res = combat.calcDamage(
-      { attack: 0, hit: 200 } as any,
+      { 攻击: 0, 命中: 200 } as any,
       noResistDef,
       plainWeapon as any,
       1, false,
@@ -437,8 +437,8 @@ describe('造成伤害 - 三段暴击评级阈值 (战斗相关.ecode L2309-2379
     mockRandom(0);
     // 命中100/闪避1000=0.1 → 下限0.25 → 0.1*0.25=0.025 → 评级<0.2
     const res = combat.calcDamage(
-      { attack: 0, hit: 100 } as any,
-      { dodge: 1000, hp: 1_000_000, shield: 0, armor: 0 } as any,
+      { 攻击: 0, 命中: 100 } as any,
+      { 闪避: 1000, 生命: 1_000_000, 护盾: 0, 装甲: 0 } as any,
       plainWeapon as any,
       1, false,
       { dmgLower: 0.25, dmgUpper: 0 },
@@ -449,7 +449,7 @@ describe('造成伤害 - 三段暴击评级阈值 (战斗相关.ecode L2309-2379
   it('评级【绝杀】: 倍率>1.2 时 (索敌计算机保留高倍率)', () => {
     mockRandom(0);
     const res = combat.calcDamage(
-      { attack: 0, hit: 500 } as any,
+      { 攻击: 0, 命中: 500 } as any,
       noResistDef,
       plainWeapon as any,
       1, false,
@@ -461,7 +461,7 @@ describe('造成伤害 - 三段暴击评级阈值 (战斗相关.ecode L2309-2379
   it('评级始终落在七级之一 (绝杀/完美/致命/强力/正中/擦过/描边)', () => {
     mockRandom(0);
     const res = combat.calcDamage(
-      { attack: 0, hit: 110 } as any,
+      { 攻击: 0, 命中: 110 } as any,
       noResistDef,
       plainWeapon as any,
       1, false,
@@ -475,17 +475,18 @@ describe('造成伤害 - 三段暴击评级阈值 (战斗相关.ecode L2309-2379
 });
 
 describe('造成伤害 - 暴击伤害 (战斗相关.ecode L2395)', () => {
+  beforeEach(() => jest.spyOn(Math, 'random').mockReturnValue(0));
+  afterEach(() => jest.restoreAllMocks());
   it('L2395 isCrit 时倍率 × 暴击伤害/100 (默认150%→1.5)', () => {
-    jest.spyOn(Math, 'random').mockReturnValue(0);
     const resNoCrit = combat.calcDamage(
-      { attack: 0, hit: 200, critDmg: 150 } as any,
+      { 攻击: 0, 命中: 200, 暴击伤害: 150 } as any,
       noResistDef,
       plainWeapon as any,
       1, false,
       { dmgLower: 0.25, dmgUpper: 0 },
     );
     const resCrit = combat.calcDamage(
-      { attack: 0, hit: 200, critDmg: 150 } as any,
+      { 攻击: 0, 命中: 200, 暴击伤害: 150 } as any,
       noResistDef,
       plainWeapon as any,
       1, true,
@@ -494,7 +495,6 @@ describe('造成伤害 - 暴击伤害 (战斗相关.ecode L2395)', () => {
     // 暴击后 damage 应约为非暴击的 1.5 倍
     expect(resCrit.damage).toBeCloseTo(resNoCrit.damage * 1.5, 0);
     expect(resCrit.critMultiplier).toBeCloseTo(1.5, 5);
-    jest.restoreAllMocks();
   });
 });
 
@@ -511,8 +511,8 @@ describe('选择高血量目标 - 最高血量索引 (战斗相关.ecode L5423-5
 
   it('L5429 支持 hp/armor/shield 字段别名', () => {
     const defenders = [
-      { hp: 30, armor: 10, shield: 10 }, // 50
-      { hp: 80, armor: 0, shield: 0 },   // 80 → 最高
+      { 生命: 30, 装甲: 10, 护盾: 10 }, // 50
+      { 生命: 80, 装甲: 0, 护盾: 0 },   // 80 → 最高
     ];
     expect(combat.selectHighHpTarget(defenders)).toBe(1);
   });
@@ -909,9 +909,9 @@ describe('计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873)', () 
   const nowMs = () => Date.now();
 
   // 攻击方属性（z1 用攻击方武器属性）
-  const atkBonus = { physDmg: 50, fireDmg: 0, iceDmg: 0, elecDmg: 0, crit: 5, critDmg: 150 };
+  const atkBonus = { 物伤: 50, 火伤: 0, 冰伤: 0, 电伤: 0, 暴击: 5, 暴击伤害: 150 };
   const z1Props = { phys: 100, fire: 0, ice: 0, elec: 0 };
-  const defBonus = { physDmg: 40, fireDmg: 0, iceDmg: 0, elecDmg: 0, crit: 5, critDmg: 150 };
+  const defBonus = { 物伤: 40, 火伤: 0, 冰伤: 0, 电伤: 0, 暴击: 5, 暴击伤害: 150 };
 
   // 基础防御方：无反伤来源
   const baseDefender = () => ({
@@ -974,7 +974,7 @@ describe('计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873)', () 
     d.hp = 50;
     d.markers = JSON.stringify({ 军姬2技能: 10 });
     d.equipments = JSON.stringify([]);
-    const r = reflectCombat['calcReflectDamage'](d, { ...defBonus, hp: 200, armor: 0, shield: 0 }, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
+    const r = reflectCombat['calcReflectDamage'](d, { ...defBonus, 生命: 200, 装甲: 0, 护盾: 0 }, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
     // 倍率=0.1+1+(2+10*0.05)=3.6; 但军姬限制 cap=(2+10*0.05)*200=250; pct 受 cap 限制
     expect(r).toBeGreaterThan(0);
     expect(r).toBeLessThanOrEqual(250);
@@ -1075,7 +1075,7 @@ describe('计算增益接入 - buildAttackerBonus 调用 calculateBuffs', () => 
     // 战斗女仆 specialSeq=8 成长：闪避=10+(等级/2+防御/2)*(1+等级/100)，防御熟练=0
     // = 10 + (10/2+0)/1.1 = 10 + 5/1.1 ≈ 14.545，向下取整前为浮点
     const expected = 10 + (10 / 2) * (1 + 10 / 100);
-    expect(Math.abs((bonus.dodge || 0) - expected)).toBeLessThan(0.001);
+    expect(Math.abs((bonus.闪避 || 0) - expected)).toBeLessThan(0.001);
   });
 
   it('L3097-3142 default 分支：带"网"增益(未过期) → 闪避2=-30 按增益模式乘到闪避(×0.7)', () => {
@@ -1083,13 +1083,13 @@ describe('计算增益接入 - buildAttackerBonus 调用 calculateBuffs', () => 
     const bonus = buffCombat.buildAttackerBonus(basePlayerForBuff(), buffPlayerData(buffs));
     const base = 10 + (10 / 2) * (1 + 10 / 100);
     // 增益模式：dodge *= (1 + 闪避2/100) = (1 + (-30)/100) = 0.7
-    expect(Math.abs((bonus.dodge || 0) - base * 0.7)).toBeLessThan(0.001);
+    expect(Math.abs((bonus.闪避 || 0) - base * 0.7)).toBeLessThan(0.001);
   });
 
   it('过期增益 → 不参与叠加（闪避保持纯成长值）', () => {
     const buffs = [{ name: '网', expireAt: Date.now() / 1000 - 10, strength: 1 }];
     const bonus = buffCombat.buildAttackerBonus(basePlayerForBuff(), buffPlayerData(buffs));
     const base = 10 + (10 / 2) * (1 + 10 / 100);
-    expect(Math.abs((bonus.dodge || 0) - base)).toBeLessThan(0.001);
+    expect(Math.abs((bonus.闪避 || 0) - base)).toBeLessThan(0.001);
   });
 });
