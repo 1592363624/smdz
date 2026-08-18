@@ -92,8 +92,12 @@ export class GameCommandHandler implements CommandHandler {
         case 'attack':
         case '打':
         case '揍': {
+          // 原版 `武器攻击()` 使用玩家当前装备武器（玩家.当前武器），而非固定拳头。
+          // 若玩家已装备武器(当前武器>0)则用当前武器（触发该武器 cooldown/特殊序号特效），否则退化为拳头。
+          const pd = await this.playerService.getPlayerData(userId);
+          const weaponIndex = (pd.player.currentWeapon || 0) > 0 ? pd.player.currentWeapon : 0;
           // 原版 `攻击怪物名` 会设置 玩家.目标 后锁定该怪物，这里把参数作为目标名传入
-          const result = await this.combatSystem.weaponAttack(userId, 0, { targetName: arg });
+          const result = await this.combatSystem.weaponAttack(userId, weaponIndex, { targetName: arg });
           // 自动推进任务：击杀怪物（对应原版 L9314~L9315）
           // 添加成就("击败怪物", 数量, 成就, 任务) 与 添加成就("击败" + 怪物名, 数量, ...)
           const killedList = result.killed || [];
@@ -121,6 +125,36 @@ export class GameCommandHandler implements CommandHandler {
         case '炮击':
         case 'cannon':
           return this.wrap(await this.combatSystem.cannonAttack(userId));
+
+        // ========== 自动战斗 / 延时攻击（对应原版 自动战斗 / 延时攻击指令） ==========
+        case '自动战斗':
+        case 'auto': {
+          // 取当前装备武器索引，启动每5秒自动攻击循环（死亡/无怪自动停止）
+          const pd = await this.playerService.getPlayerData(userId);
+          const weaponIndex = (pd.player.currentWeapon || 0) > 0 ? pd.player.currentWeapon : 0;
+          const started = this.combatSystem.startAutoCombat(userId, weaponIndex);
+          return this.wrap(started ? '🔄 已开启自动战斗（每5秒攻击一次，直到死亡或地图无怪）' : '自动战斗启动失败');
+        }
+
+        case '停止自动战斗':
+        case 'stop':
+          this.combatSystem.stopAutoCombat(userId);
+          return this.wrap('⏹ 已停止自动战斗');
+
+        case '延时攻击':
+        case 'delay': {
+          // 取当前武器锁定时间（原版 武器攻击 L70-86：有锁定时间的武器触发延时攻击）
+          const pd = await this.playerService.getPlayerData(userId);
+          const weaponIndex = (pd.player.currentWeapon || 0) > 0 ? pd.player.currentWeapon : 0;
+          const weapons = this.playerService.safeJsonParse<any[]>(pd.player.weapons, []);
+          const w = weaponIndex > 0 ? weapons[weaponIndex - 1] : null;
+          const lockTime = w?.lockTime ?? w?.锁定时间 ?? 0;
+          if (lockTime <= 0) {
+            return this.wrap('当前武器没有锁定时间，无法发动延时攻击');
+          }
+          const ok = this.combatSystem.scheduleDelayedAttack(userId, weaponIndex, lockTime);
+          return this.wrap(ok ? `⏳ 已安排延时攻击（锁定${lockTime}秒后自动出手）` : '延时攻击安排失败');
+        }
 
         case '信息':
         case 'info':

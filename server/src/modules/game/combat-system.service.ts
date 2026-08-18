@@ -247,6 +247,13 @@ export class CombatSystemService {
       targetName = '',
     } = context;
 
+    // 连击触发标记：武器特殊序号（火神机枪/三千世界）攻击后，在冷却结束时自动再次攻击（对应原版 连击 L474-545）
+    let comboTrigger = false;
+    let comboCooldown = 5;
+
+    // 攻击结果文本行（提前初始化，武器冷却阶段的特效文本也需写入）
+    const resultLines: string[] = [];
+
     // 1. 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -288,7 +295,12 @@ export class CombatSystemService {
     //     noDelay(延时攻击/自动连击) 无视冷却
     if (!noDelay && weapon?.name) {
       const now = Date.now();
-      const cooldownSec = weapon.cooldown || 5;
+      // 武器特殊序号冷却修正（机械触手→6s / 雷火剑→1/3 / 火神机枪·三千世界→触发连击）
+      // 对应原版 武器攻击 L94-103 冷却分支 + 触发自动连击标记
+      const wepFx = this.processWeaponSpecialEffects(weapon, weapon.cooldown || 5);
+      comboTrigger = wepFx.triggerCombo;
+      comboCooldown = wepFx.cooldown;
+      const cooldownSec = wepFx.cooldown;
       const cooldownName = `${weapon.name}冷却`;
       const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
       const entry = markers2.find((m: any) => m?.name === cooldownName);
@@ -306,6 +318,7 @@ export class CombatSystemService {
       const newMarkers2 = markers2.filter((m: any) => m?.name !== cooldownName);
       newMarkers2.push({ name: cooldownName, expireAt: now + cooldownSec * 1000 });
       player.markers2 = JSON.stringify(newMarkers2);
+      if (wepFx.effectText) resultLines.push(wepFx.effectText);
     }
 
     // 5. 确定攻击目标列表
@@ -320,10 +333,14 @@ export class CombatSystemService {
     const familiarEffect = this.processFamiliarEffects(player, playerData, weapon, context);
     // 应用使魔特效修改后的参数
     let effectiveDamageMultiplier = familiarEffect.damageMultiplier; // 修改后的伤害倍率
-    const effectiveAllAttack = familiarEffect.forceAllAttack || familiarEffect.allAttack; // 实际全体攻击标记
+    const effectiveAllAttack = familiarEffect.forceAllAttack || familiarEffect.allAttack; // 实际全体攻击波标记
     let hitRateModifier = familiarEffect.hitRateModifier; // 命中率修正
     let extraPenetration = familiarEffect.extraPenetration; // 额外穿透
     const effectText = familiarEffect.effectText; // 特效文本
+    // 溅射参数（战斗女仆RPG!/恶毒好感等设置）：对主目标外额外 splashCount 个目标造成分摊/必中伤害
+    const splashCount = familiarEffect.splashCount || 0;
+    const splashDamageMultiplier = familiarEffect.splashDamageMultiplier || 1;
+    const splashMustHit = familiarEffect.splashMustHit || false;
 
     // 如果使魔特效改变了全体攻击标记，重新选择目标
     // 例如：战斗女仆RPG!/机枪会取消全体攻击，云爆弹会强制全体攻击
@@ -332,7 +349,6 @@ export class CombatSystemService {
     }
 
     // 7. 执行攻击循环
-    const resultLines: string[] = [];
     const killed: string[] = [];
     let totalDamage = 0;
     let totalExp = 0;
@@ -507,8 +523,14 @@ export class CombatSystemService {
       resultLines.push(effectText);
     }
 
+    // ========== 战斗结果统计计数器（对应原版 简略模式 L755-771 攻击N次/命中X次/被闪避Y次） ==========
+    // 原版用成就计数 冰伤2(未命中)/火伤2(被闪避)/电伤2(命中零伤)/物伤2(有效伤) 记录每次攻击结果，
+    // 并在攻击次数>1 时输出"攻击N次，命中X次，被闪避Y次，命中零伤Z次，有效伤W次"。
+    const atkStats = { total: 0, hit: 0, dodged: 0, nullDmg: 0, effective: 0 };
+
     for (const target of targets) {
       if (target.hp <= 0) continue;
+      atkStats.total++; // 单次攻击尝试计数（对应原版 攻击N次）
       // 防御方使魔免伤标记（恶毒色欲/saber ex/四糸乃冰凯 触发时置真，本次伤害=0）
       let dmgNullified = false;
       // 裸体围裙/透明围裙 易伤（格挡判定中累加，防御方 bonus 构建后应用）
@@ -573,6 +595,7 @@ export class CombatSystemService {
       // 命中：给玩家加「战斗熟练度」与「武器类型熟练度」，反馈到 _计算玩家 的属性成长
       // 未命中：给防御方(怪物)加「闪避熟练度」
       if (isHit) {
+        atkStats.hit++; // 命中计数（对应原版 物伤2 有效伤累计基础）
         this.achievementService.addAchievement(player, '战斗熟练度', 1);
         if (weapon.type) {
           this.achievementService.addAchievement(player, `${weapon.type}熟练度`, 1);
@@ -626,6 +649,7 @@ export class CombatSystemService {
           }
         }
       } else {
+        atkStats.dodged++; // 被闪避计数（对应原版 火伤2 被闪避次数）
         resultLines.push(`${target.name} 闪避了攻击`);
         // 未命中：防御方获得「闪避熟练度」（对应原版 L1484）
         const tMarkers = this.safeParseJson<Record<string, number>>(target.markers, {});
@@ -1025,6 +1049,7 @@ export class CombatSystemService {
 
       // 防御方使魔免伤：色欲/ex/冰凯 触发时本次伤害=0（原版 伤害倍率=0）
       if (dmgNullified) {
+        atkStats.nullDmg++; // 命中零伤（对应原版 电伤2 命中没造成伤害）
         resultLines.push(`${target.name} 的防御抵消了本次伤害！`);
         continue;
       }
@@ -1032,10 +1057,50 @@ export class CombatSystemService {
       // 应用伤害倍率（含使魔特效 + 特殊武器特效修改后的倍率，再加特殊特效的额外伤害）
       let finalDamage = Math.floor(damageResult.damage * effectiveDmgMult / 100) + (specialEffect.bonusDmg || 0);
       if (finalDamage < 1 && isHit) finalDamage = 1; // 保底1点伤害
+      atkStats.effective++; // 有效伤（对应原版 物伤2 实际造成伤害次数）
       totalDamage += finalDamage;
 
       // 扣除怪物血量（三池分伤）
       const appliedDamage = this.applyDamageToMonster(target, finalDamage, damageResult.poolDamage);
+
+      // ========== 溅射伤害（对应原版 造成伤害 L624-705 溅射循环） ==========
+      // 战斗女仆RPG!/恶毒好感等设置 splashCount：对主目标外额外 splashCount 个存活目标，
+      // 造成分摊伤害（溅射倍率），溅射必中（splashMustHit）。原版溅射伤害按各自目标抗性结算。
+      if (splashCount > 0 && !effectiveAllAttack) {
+        const splashTargets = targets
+          .filter((t: any) => t !== target && (t.hp || 0) > 0);
+        // 随机取 splashCount 个（不足则全取）
+        for (let s = 0; s < splashCount && s < splashTargets.length; s++) {
+          const st = splashTargets[s];
+          const splashDef = this.buildMonsterBonus(st);
+          const splashHit = splashMustHit ? true : this.checkHit(this.calcHitRate(attackerBonus, splashDef));
+          if (!splashHit) {
+            resultLines.push(`${st.name} 闪避了溅射伤害`);
+            continue;
+          }
+          const splashDmg = this.calcDamage(
+            attackerBonus,
+            splashDef,
+            weapon,
+            weapon.damageType || CombatSystemService.DMG_PHYS,
+            isCrit,
+          );
+          const splashFinal = Math.max(1, Math.floor(splashDmg.damage * splashDamageMultiplier));
+          this.applyDamageToMonster(st, splashFinal, splashDmg.poolDamage);
+          resultLines.push(`${st.name} 受到溅射伤害 ${splashFinal}`);
+          if (st.hp <= 0) {
+            const sd = await this.handleMonsterDeath(st, userId, map.id, playerData);
+            if (sd.expGain > 0) {
+              totalExp += sd.expGain;
+              resultLines.push(`${st.name} 被溅射击杀，获得 ${sd.expGain} 点经验`);
+            }
+            if (sd.dropText) resultLines.push(`掉落：${sd.dropText}`);
+            await this.updateMonsterHpInMap(map.id, st);
+          } else {
+            await this.updateMonsterHpInMap(map.id, st);
+          }
+        }
+      }
 
       // ========== 反伤（对应原版 计算反伤 子程序 L4791-4873，已抽为独立方法 calcReflectDamage） ==========
       // 防御方（目标）携带反伤来源时，按比例把伤害反弹给攻击方：
@@ -1188,6 +1253,24 @@ export class CombatSystemService {
       await this.playerService.addExp(userId, totalExp);
     }
 
+    // ========== 简略战斗结果统计（对应原版 战斗相关.ecode L755-771 简略模式） ==========
+    // 原版在攻击次数>1 时输出"攻击N次，命中X次，被闪避Y次，命中零伤Z次，有效伤W次"。
+    // 此处当发生多次攻击尝试时附加统计行，还原原版战斗结算反馈。
+    if (atkStats.total > 1) {
+      resultLines.push(
+        `━━━ 战斗统计 ━━━\n` +
+        `攻击${atkStats.total}次，命中${atkStats.hit}次，被闪避${atkStats.dodged}次，` +
+        `命中零伤${atkStats.nullDmg}次，有效伤${atkStats.effective}次`,
+      );
+    }
+
+    // ========== 自动连击（对应原版 武器攻击 L474-545 连击循环） ==========
+    // 火神机枪/三千世界 等武器特殊序号触发：冷却结束时自动再次攻击（递归 weaponAttack，最多30次）。
+    // noDelay(延时攻击/自动连击/自动战斗) 不再二次触发连击，避免无限递归。
+    if (!noDelay && comboTrigger && weapon?.name) {
+      this.triggerCombo(userId, weaponIndex, comboCooldown, weapon.name);
+    }
+
     return {
       result: resultLines.join('\n'),
       killed,
@@ -1318,11 +1401,35 @@ export class CombatSystemService {
       const monsterBonus = this.buildMonsterBonus(monster);
 
       // 怪物攻击（对应原版 战斗() 怪物攻击分支：武器攻击 防御方）
-      // 命中判定：怪物命中 vs 玩家闪避
+      // 命中判定：怪物命中 vs 玩家闪避；玩家若处于「闪避」状态(固定闪避+100)则几乎必闪避(100%免伤)
       const playerDef = this.buildAttackerBonus(player, playerData, map);
       const hitRate = this.calcHitRate(monsterBonus, { 闪避: playerDef.闪避 || 0, 闪避2: playerDef.闪避2 || 0 });
-      if (!this.checkHit(hitRate)) {
+
+      // 读取玩家"闪避"增益 buff（handleDodge 写入），作为固定闪避值。
+      // 原版 战斗相关.ecode L1204-1262：释放闪避后 固定闪避+100 → 命中判定 a1×100 - 固定闪避 必失败 → 100%免伤。
+      const playerBuffs = this.safeParseJson<any[]>(player.buffs, []);
+      const nowSec = Date.now() / 1000;
+      const dodgeBuff = playerBuffs.find((b: any) => b && b.name === '闪避' && (!b.expireAt || b.expireAt > nowSec));
+      let fixedDodge = 0;
+      if (dodgeBuff) {
+        fixedDodge = dodgeBuff.value || 100; // 默认固定闪避+100
+        const remain = Math.ceil((dodgeBuff.expireAt || 0) - nowSec);
+        if (remain > 0) lines.push(`你处于闪避状态（剩余${remain}秒），闪开了攻击`);
+      }
+
+      if (!this.checkHit(hitRate, fixedDodge)) {
         lines.push(`${monster.name} 向你发起攻击，但被你闪避了`);
+        // ========== 花园猫闪避反击（对应原版 战斗相关.ecode L1429-1560 防御方闪避成功分支） ==========
+        // 原版：玩家(攻击方)闪避成功后，若类型为花园猫则自动反击且必中。
+        // 此处玩家作为防御方闪避了怪物反击，同样触发花园猫反击链（handleGardenCatCounter 内部校验使魔类型）。
+        if (player.type === '花园猫') {
+          try {
+            const counterLines = await this.handleGardenCatCounter(player.userId, 0);
+            if (counterLines) lines.push(counterLines);
+          } catch (e: any) {
+            this.logger.warn(`花园猫反击失败: ${e.message}`);
+          }
+        }
         return lines;
       }
 
@@ -4217,8 +4324,9 @@ export class CombatSystemService {
     // 连击次数+1
     state.comboCount++;
 
-    // 最多连击3次
-    if (state.comboCount >= 3) {
+    // 最多连击30次（对齐原版 武器攻击 L526-545 连击上限30）
+    const MAX_COMBO = 30;
+    if (state.comboCount >= MAX_COMBO) {
       this.logger.log(`自动连击结束 userId=${userId}, weapon=${weaponName}, 连击次数=${state.comboCount}`);
       this.comboState.delete(userId);
       return;
@@ -4245,7 +4353,7 @@ export class CombatSystemService {
     }, cooldown * 1000);
 
     state.timer = timer;
-    this.logger.log(`安排自动连击 userId=${userId}, weapon=${weaponName}, combo=${state.comboCount}/${3}`);
+    this.logger.log(`安排自动连击 userId=${userId}, weapon=${weaponName}, combo=${state.comboCount}/${30}`);
   }
 
   /**
@@ -4303,6 +4411,82 @@ export class CombatSystemService {
     } catch (error) {
       this.logger.warn(`应用地图增益失败: ${error.message}`);
     }
+  }
+
+  // ==================== 宠物攻击真实结算 ====================
+
+  /**
+   * 宠物攻击怪物（逐次真实结算，对齐原版 宠物攻击() 子程序）
+   * 原版宠物攻击并非概率胜率模型，而是走「武器攻击→造成伤害」同一套真实伤害链路：
+   * 宠物作为攻击方对怪物发起一次攻击，经过命中→暴击→三层扣减（护盾→装甲→生命），
+   * 命中则扣减怪物血量、击杀则发放掉落；未命中宠物不掉血；若怪物携带反伤则宠物受反弹伤害。
+   *
+   * @param pet 宠物/召唤物实例（含 name/hp/attack/defense/speed/type 等）
+   * @param monster 目标怪物实例（GameMap 上的 MapMonster）
+   * @param mapId 地图ID（用于击杀后写回怪物血量 / 掉落发放）
+   * @param ownerUserId 宠物归属玩家ID（击杀经验/掉落归属）
+   * @returns 结算结果文本
+   */
+  async resolvePetVsMonster(
+    pet: any,
+    monster: any,
+    mapId: number,
+    ownerUserId: number,
+  ): Promise<string> {
+    const petBonus: BonusData = {
+      攻击: pet.attack || 10,
+      攻击2: 0,
+      命中: pet.hit || pet.命中 || 80,
+      命中2: 0,
+      闪避: pet.dodge || pet.闪避 || 10,
+      闪避2: 0,
+      暴击: pet.crit || pet.暴击 || 5,
+      暴击伤害: pet.critDmg || pet.暴击伤害 || 150,
+      生命: pet.hp || 100,
+      护盾: pet.shield || 0,
+      装甲: pet.armor || 0,
+    };
+    const monsterBonus = this.buildMonsterBonus(monster);
+
+    // 命中判定（宠物命中 vs 怪物闪避）
+    const hitRate = this.calcHitRate(petBonus, monsterBonus);
+    if (!this.checkHit(hitRate)) {
+      return `${pet.name} 攻击 ${monster.name}，被闪避了`;
+    }
+
+    // 暴击判定
+    const isCrit = this.checkCrit(petBonus.暴击 || 0);
+
+    // 伤害计算（宠物为攻击方、怪物为防御方，走统一三层引擎）
+    const dmg = this.calcDamage(
+      petBonus,
+      monsterBonus,
+      { name: pet.name || '宠物攻击', damage: 1, damageType: CombatSystemService.DMG_PHYS, properties: { phys: 100, fire: 0, ice: 0, elec: 0 } },
+      CombatSystemService.DMG_PHYS,
+      isCrit,
+    );
+    const finalDamage = Math.max(1, Math.floor(dmg.damage));
+    this.applyDamageToMonster(monster, finalDamage, dmg.poolDamage);
+
+    // 怪物被击杀 → 发放掉落与经验（传入 attacker=ownerUserId 触发掉落闭环）
+    if (monster.hp <= 0) {
+      const deathResult = await this.handleMonsterDeath(monster, ownerUserId, mapId, null);
+      let text = `${pet.name} 击败了 ${monster.name}！`;
+      if (deathResult.expGain > 0) text += ` 获得 ${deathResult.expGain} 点经验`;
+      if (deathResult.dropText) text += ` 掉落：${deathResult.dropText}`;
+      return text;
+    }
+
+    // 怪物存活 → 写回血量，并按怪物反伤给宠物造成反弹伤害（原版 计算反伤 简化）
+    await this.updateMonsterHpInMap(mapId, monster);
+    const monsterAtk = monster.attack || 0;
+    if (monsterAtk > 0) {
+      const reflect = Math.max(1, Math.round(monsterAtk * 0.3));
+      pet.hp = Math.max(1, (pet.hp || 0) - reflect);
+      return `${pet.name} 对 ${monster.name} 造成 ${finalDamage} 点伤害，但被反击受到了 ${reflect} 点伤害`;
+    }
+
+    return `${pet.name} 对 ${monster.name} 造成 ${finalDamage} 点伤害`;
   }
 
   // ==================== 花园猫闪避反击处理 ====================

@@ -2973,10 +2973,23 @@ export class GameService {
       return `闪避技能还在冷却中，剩余 ${remaining} 秒`;
     }
 
-    // 设置闪避状态，持续 30 秒
-    markers['dodging'] = true;
+    // 设置闪避状态：写入"闪避"增益 buff（含 expireAt）。
+    // 对应原版 战斗相关.ecode L1204-1262：释放闪避后获得「闪避」增益，
+    // 战斗命中判定时按 固定闪避+100 计算（几乎必闪避 → 100%免伤）。
+    // 复用怪物反击 monsterCounterAttack 中已有的 dodgeBuff 读取逻辑，与原版语义统一。
+    const playerBuffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const dodgeDuration = 30; // 闪避持续时间（秒），对应原版固定闪避窗口
+    const nowSec = now / 1000;
+    // 若已有生效中的闪避增益则延长，否则新建
+    const existingDodge = playerBuffs.find((b: any) => b && b.name === '闪避' && (!b.expireAt || b.expireAt > nowSec));
+    if (existingDodge) {
+      existingDodge.expireAt = nowSec + dodgeDuration;
+    } else {
+      playerBuffs.push({ name: '闪避', value: 100, expireAt: nowSec + dodgeDuration, duration: dodgeDuration });
+    }
+    player.buffs = JSON.stringify(playerBuffs);
     markers['dodge_cooldown'] = now + 60000; // 60秒冷却
-    player.markers = markers;
+    player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
     this.logger.log(`玩家 ${userId} 释放闪避技能`);

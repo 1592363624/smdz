@@ -1,7 +1,17 @@
 /**
- * 战斗系统服务
- * 对应原版易语言：战斗相关.ecode
- * 负责武器攻击、伤害计算、技能效果、怪物掉落等
+ * @deprecated 遗留旧版简化战斗引擎（未接线死代码）。
+ * 所有真实战斗逻辑已统一到 `combat-system.service.ts`（CombatSystemService）：
+ * 三层血量串行扣减、四属性抗性穿透、怪物反击、荆棘反伤、使魔特效、格挡、免死、召唤物协同均已完整复刻。
+ * 本文件仅保留作历史参考，未被任何业务代码调用（game.module 的 providers/exports 与 game.service、
+ * familiar-skills.service 的构造注入均为声明，无实际方法调用）。如需彻底移除，请同步清理：
+ *   - game.module.ts 对 CombatService 的 import / providers / exports
+ *   - game.service.ts、familiar-skills.service.ts 的 import 与构造参数声明
+ * 移除前请确认无运行时依赖（当前已确认无）。
+ */
+
+/**
+ * 战斗系统服务（旧版/简化，对应原版易语言：战斗相关.ecode 早期移植）
+ * 负责武器攻击、伤害计算、技能效果、怪物掉落等（单池简化模型，已被 combat-system 取代）
  */
 
 import { Injectable, Logger } from '@nestjs/common';

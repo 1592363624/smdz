@@ -11,6 +11,7 @@ import { BonusService, BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
 import { MapService } from './map.service';
+import { CombatSystemService } from './combat-system.service';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -117,6 +118,7 @@ export class FamiliarSystemService {
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
     private readonly mapService: MapService,
+    private readonly combatSystem: CombatSystemService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -2225,35 +2227,18 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `宠物攻击冷却中，剩余${Math.ceil(cd.expireAt - now)}秒`;
     }
 
-    // 宠物对第一个怪物发起攻击（简化战斗：直接结算伤害）
+    // 宠物对第一个怪物发起攻击（逐次真实结算，对齐原版 宠物攻击() 走武器攻击链路）
     const monster = spawnMonsters[0];
-    const petCombat = this.bonusService.calcCombatPower({
-      攻击: qualifiedPet.attack || 0,
-      生命: qualifiedPet.hp || 0,
-      装甲: qualifiedPet.defense || 0,
-      速度: qualifiedPet.speed || 100,
-    });
-    const monsterCombat = this.bonusService.calcCombatPower({
-      攻击: monster.attack || 0,
-      生命: monster.hp || 0,
-      装甲: monster.defense || 0,
-      速度: monster.speed || 100,
-    });
+    const resultText = await this.combatSystem.resolvePetVsMonster(qualifiedPet, monster, map.id, userId);
 
-    // 简单胜率判定
-    const winRate = petCombat / Math.max(1, petCombat + monsterCombat);
-    const isWin = Math.random() < winRate;
-
-    let resultText: string;
-    if (isWin) {
-      // 击败：从 GameMonster 表移除该怪物（按自增 id）
+    // 击杀：从 GameMonster 表移除该怪物（按自增 id）
+    if (monster.hp <= 0) {
       await this.mapService.removeMapMonster(map.id, monster.id);
-      resultText = `${qualifiedPet.name} 击败了${monster.name || '怪物'}！`;
-    } else {
-      const hpLoss = Math.max(1, Math.round((monster.attack || 0) * 0.3));
-      qualifiedPet.hp = Math.max(1, (qualifiedPet.hp || 0) - hpLoss);
-      resultText = `${qualifiedPet.name} 未能击败${monster.name || '怪物'}，受到了${hpLoss}点伤害`;
     }
+    // resolvePetVsMonster 已通过对象引用直接修改 qualifiedPet.hp（反伤掉血等），
+    // 此处将更新后的宠物实例写回 summons 数组并持久化。
+    const petIdx = summons.findIndex((s: any) => s === qualifiedPet);
+    if (petIdx >= 0) summons[petIdx] = qualifiedPet;
 
     // 设置冷却和活动标记
     const newMarkers2 = markers2.filter((m: any) => m.name !== cooldownKey);
