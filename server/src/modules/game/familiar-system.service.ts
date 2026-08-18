@@ -32,6 +32,29 @@ export interface SummonUnit {
   hp?: number;
   /** 战斗力 */
   combatPower?: number;
+  /** === 原版召唤物为"玩家2实例"，携带完整玩家级数组（对应 _主程序.ecode L9783 重定义数组） === */
+  /** 对召唤者好感（原版 添加成就("好感"+玩家.QQ, 30)） */
+  好感?: number;
+  /** 剧情房子（原版 玩家2.房子 = 对话列表[1].任务） */
+  房子?: string;
+  /** 成就数组 */
+  成就?: any[];
+  /** 背包数组 */
+  背包?: any[];
+  /** 增益数组 */
+  增益?: any[];
+  /** 武器数组 */
+  武器?: any[];
+  /** 装备数组 */
+  装备?: any[];
+  /** 标记2数组 */
+  标记2?: any[];
+  /** 标记数组 */
+  标记?: any[];
+  /** 任务数组 */
+  任务?: any[];
+  /** 装备预设数组 */
+  装备预设?: any[];
 }
 
 /**
@@ -419,6 +442,74 @@ export class FamiliarSystemService {
     await this.playerService.savePlayer(player);
 
     return `${player.name || '冒险者'} 使用了${count}张召唤券，召唤出了${summonedItems.join('、')}\n重复召唤出的使魔会转化为对应使魔的好感`;
+  }
+
+  /**
+   * 召唤固定剧情角色"白"（特殊召唤，不消耗召唤券）
+   * 对应原版：召唤1白1()（_主程序.ecode L9777-9795）
+   * 原版逻辑：
+   *   玩家2.名称 = "白"; 玩家2.类型 = "白"; 玩家2.QQ = "召唤物" + 生成编号()
+   *   玩家2.归属 = 玩家.QQ
+   *   重定义数组(玩家2.成就/背包/增益/武器/装备/标记2/标记/任务/装备预设, 假, 0)  // 全新实例
+   *   添加成就("好感" + 玩家.QQ, 30, 玩家2.标记)  // 对召唤者好感 30
+   *   玩家2.房子 = 对话列表[1].任务  // 剧情：初始休眠仓
+   *   加入成员(地图列表[玩家.地图].召唤物, 玩家2)
+   *   添加成就("召唤白", 1, 玩家.标记)
+   * @param userId 用户ID
+   * @param name 剧情角色名（固定"白"）
+   * @returns 结果文本
+   */
+  async summonStoryFamiliar(userId: number, name: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    // 获取当前地图的召唤物列表
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) {
+      return `${player.name || '冒险者'} 你不在任何地图上，无法召唤。`;
+    }
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+
+    // 原版：重复召唤"白"时，先移除已有的"白"召唤物（避免叠加）
+    const existingIdx = summons.findIndex((s: any) => s.name === name);
+    if (existingIdx !== -1) {
+      summons.splice(existingIdx, 1);
+    }
+
+    // 构造"白"召唤物实例（对应原版 玩家2 重定义数组后的全新实例）
+    const whiteUnit: SummonUnit = {
+      specialSeq: 0,
+      name,
+      type: name,
+      qq: `召唤物${Math.floor(Math.random() * 900000) + 100000}`,
+      ownerQQ: String(player.qqNumber || player.id),
+      affinity: 30, // 对应原版 添加成就("好感"+玩家.QQ, 30)
+      level: 1,
+      hp: 100,
+      combatPower: 0,
+      好感: 30,
+      房子: '初始休眠仓', // 原版 玩家2.房子 = 对话列表[1].任务（剧情占位）
+      成就: [],
+      背包: [],
+      增益: [],
+      武器: [],
+      装备: [],
+      标记2: [],
+      标记: [],
+      任务: [],
+      装备预设: [],
+    };
+
+    summons.push(whiteUnit);
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+
+    // 记录"召唤白"成就（对应原版 L9795 添加成就("召唤白", 1, 玩家.标记)）
+    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    this.playerService.setMarker(markers, '召唤白', 1);
+    player.markers = JSON.stringify(markers);
+    await this.playerService.savePlayer(player);
+
+    return `${player.name || '冒险者'} 打开了休眠仓，召唤出了【${name}】\n随着休眠仓被打开，锁着的门似乎也跟着一起解开了`;
   }
 
   /**

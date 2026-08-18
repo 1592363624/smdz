@@ -833,6 +833,52 @@ export class ItemSystemService {
   }
 
   /**
+   * 从保险柜移除物品（取回背包）
+   * 对应原版：移除()（_主程序.ecode L3310-3360）
+   * 原版逻辑：检查玩家拥有"次元保险柜"建筑后，调用 背包操作(玩家.保险柜, 玩家, 消息数据, "保险柜", 4)
+   * 其中第 5 参数 4 表示"从保险柜取出"模式。此处实现与 保护() 反向的搬运。
+   * @param userId 用户ID
+   * @param itemName 物品名称
+   * @returns 结果文本
+   */
+  async removeFromVault(userId: number, itemName: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, backpack, safeBox } = playerData;
+
+    // 原版 L3315：检查次元保险柜建筑，未拥有则提示无法取出
+    if (safeBox.length === 0) {
+      return `${player.name} 你没有次元保险柜或保险柜是空的，无法取出物品。`;
+    }
+
+    // 在保险柜中查找目标物品（按名称匹配）
+    const sbIndex = safeBox.findIndex((sb: Item3) => sb.name === itemName);
+    if (sbIndex === -1) {
+      return `${player.name} 你的次元保险柜中没有【${itemName}】。`;
+    }
+
+    const item = safeBox.splice(sbIndex, 1)[0];
+
+    // 取回背包（装备/消耗品按名称叠加，避免重复堆叠）
+    const existing = backpack.find((bp: Item3) => bp.name === item.name);
+    if (existing && item.type !== '装备') {
+      existing.quantity = (existing.quantity || 0) + (item.quantity || 1);
+    } else {
+      backpack.push(item);
+    }
+
+    await this.prisma.player.update({
+      where: { userId },
+      data: {
+        backpack: JSON.stringify(backpack),
+        safeBox: JSON.stringify(safeBox),
+      },
+    });
+
+    const displayName = item.type === '装备' ? item.name : `${item.name} ×${item.quantity || 1}`;
+    return `${player.name}从次元保险柜中取出了【${displayName}】。`;
+  }
+
+  /**
    * 丢弃物品
    * 对应原版：丢弃()
    * 将背包中的物品丢弃（从数据中移除）

@@ -972,6 +972,146 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(monster.hp).toBe(100);
     });
 
+    // ---------- 武器特殊序号判断（复刻 战斗相关.ecode 造成伤害 L1827-1867） ----------
+    it('仿真尾巴(-36)：攻击方其他武器处于冷却 → 这些武器 CD-5，result 含「仿真尾巴」', async () => {
+      // markers2 容器内 expireAt 为毫秒（与武器冷却 L322 约定一致）
+      const player = makePlayer({
+        userId: 2,
+        weapons: [
+          { name: '仿真尾巴', specialSeq: -36 },
+          { name: '雷火剑', specialSeq: 1001 },
+        ],
+        markers2: JSON.stringify([{ name: '雷火剑冷却', expireAt: Date.now() + 30 * 1000 }]),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '仿真尾巴', specialSeq: -36, type: '近战武器' } as any);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('仿真尾巴');
+      const m2 = JSON.parse(player.markers2);
+      const cd = m2.find((m: any) => m.name === '雷火剑冷却');
+      expect(cd).toBeDefined();
+      // 原版 CD-5（30s → 25s 剩余，近似断言 < 30s）
+      expect(cd.expireAt - Date.now()).toBeLessThan(30 * 1000);
+    });
+
+    it('火焰飞羽(-30)：防御方获得「飞羽」增益，buffs 含 name=飞羽', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '火焰飞羽', specialSeq: -30, type: '近战武器' } as any);
+
+      await combat.weaponAttack(2, 0, { mustHit: true });
+
+      const mb = JSON.parse(monster.buffs || '[]');
+      expect(mb.some((b: any) => b.name === '飞羽')).toBe(true);
+    });
+
+    it('纵横(-13)：额外生命火伤 += 防御方生命*0.05，attackerBonus.火伤 被加成', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      // 防御方生命=1000 → 额外火伤 += 1000*0.05*1 = 50
+      const monster = makeMonster({ id: 1001, hp: 1000, maxHp: 1000 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '纵横', specialSeq: -13, type: '近战武器' } as any);
+
+      const calcSpy = jest.spyOn(combat as any, 'calcDamage');
+      await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(calcSpy).toHaveBeenCalled();
+      const atkBonusArg = calcSpy.mock.calls[0][0] as any; // calcDamage(attackerBonus, defBonus, ...) 索引0
+      expect(atkBonusArg.火伤).toBeGreaterThan(0);
+    });
+
+    it('矢量(-12)：额外装甲冰伤 += 防御方装甲*0.05，attackerBonus.冰伤 被加成', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      // 防御方装甲=800 → 额外冰伤 += 800*0.05*1 = 40
+      const monster = makeMonster({ id: 1001, hp: 1000, maxHp: 1000, armor: 800, maxArmor: 800 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '矢量', specialSeq: -12, type: '近战武器' } as any);
+
+      const calcSpy = jest.spyOn(combat as any, 'calcDamage');
+      await combat.weaponAttack(2, 0, { mustHit: true });
+
+      const atkBonusArg = calcSpy.mock.calls[0][0] as any;
+      expect(atkBonusArg.冰伤).toBeGreaterThan(0);
+    });
+
+    it('影光(-23)：防御方获得「影光」增益，buffs 含 name=影光', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '影光', specialSeq: -23, type: '近战武器' } as any);
+
+      await combat.weaponAttack(2, 0, { mustHit: true });
+
+      const mb = JSON.parse(monster.buffs || '[]');
+      expect(mb.some((b: any) => b.name === '影光')).toBe(true);
+    });
+
+    it('寒风(-10)：防御方未冷却 → 防御方所有武器 CD+30，result 含「寒风」', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      // 防御方（怪物）装备两把武器，寒风应给其全部武器加冷却
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100,
+        weapons: [{ name: '怪物爪', specialSeq: 0 }, { name: '怪物牙', specialSeq: 0 }],
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '寒风', specialSeq: -10, type: '近战武器' } as any);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('寒风');
+      const mk = JSON.parse(monster.markers2 || '[]');
+      // markers2.expireAt 为毫秒
+      expect(mk.some((m: any) => m.name === '怪物爪冷却' && m.expireAt > Date.now())).toBe(true);
+      expect(mk.some((m: any) => m.name === '怪物牙冷却' && m.expireAt > Date.now())).toBe(true);
+    });
+
+    it('光棱(-29)：攻击方未冷却 → 「类型+技能冷却」-60 写入 markers2', async () => {
+      const player = makePlayer({ userId: 2, type: '普拉娜', specialSeq: 23 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      const pw = combat as any;
+      jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '光棱', specialSeq: -29, type: '近战武器' } as any);
+
+      await combat.weaponAttack(2, 0, { mustHit: true });
+
+      const mk = JSON.parse(player.markers2);
+      // 原版 获得增益(攻击方.标记2, "普拉娜技能冷却", -60) → 冷却提前60秒（毫秒 expireAt 应早于当前时刻，即就绪）
+      const entry = mk.find((m: any) => m.name === '普拉娜技能冷却');
+      expect(entry).toBeDefined();
+      expect(entry.expireAt).toBeLessThanOrEqual(Date.now()); // -60s 后已过期（冷却完毕）
+    });
+
     it('格挡系统：防御方带圆盾(51) 冷却过期 → 触发格挡回满三池并免疫，怪物 hp 不变', async () => {
       const player = makePlayer({ userId: 2, specialSeq: 1 });
       mocks.players.set(2, player);

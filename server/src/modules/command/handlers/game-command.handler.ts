@@ -275,7 +275,12 @@ export class GameCommandHandler implements CommandHandler {
 
         case '移除':
         case 'remove':
-          return this.wrap(`移除功能开发中`);
+          // 对应原版：移除()（_主程序.ecode L3310-3360）
+          // 从次元保险柜取出指定物品（模式 4 = 取出）。无参数时提示。
+          if (!arg) {
+            return this.wrap(`${'请指定要取出的物品名称，例如：移除 物品名'}`);
+          }
+          return this.wrap(await this.itemSystem.removeFromVault(userId, arg));
 
         case '保护':
         case 'protect':
@@ -314,6 +319,11 @@ export class GameCommandHandler implements CommandHandler {
           const count = parseInt(firstArg, 10) || 1;
           return this.wrap(await this.familiarSystem.summonFamiliar(userId, count));
         }
+
+        // 召唤固定剧情角色"白"（对应原版 _主程序.ecode L9777 召唤1白1）
+        case '召唤1白1':
+        case 'summon-white':
+          return this.wrap(await this.familiarSystem.summonStoryFamiliar(userId, '白'));
 
         case '命名使魔':
         case 'name-familiar':
@@ -950,6 +960,22 @@ export class GameCommandHandler implements CommandHandler {
         case '开始挑战':
         case 'start-challenge':
           return this.wrap(await this.gameService.handleStartChallenge(userId));
+
+        // ========== 带"覅"前缀的管理/调试延时攻击命令（对应原版 _主程序.ecode） ==========
+        // 覅下一层：使魔挑战副本进入下一层（_主程序.ecode L6431 覅下一层）
+        case '覅下一层':
+        case 'challenge-next-layer':
+          return this.wrap(await this.gameService.familiarChallengeNextLayer(userId));
+
+        // 覅攻击pd：地图定点管理员攻击 + 载具修复（_主程序.ecode L200 覅攻击pd）
+        case '覅攻击pd':
+        case 'admin-attack-pd':
+          return this.wrap(await this.combatSystem.adminAttackMap(userId, arg));
+
+        // 覅公jj：延时攻击（按 QQ$武器 定位召唤物/怪物/玩家并以其武器攻击）（_主程序.ecode L536 覅公jj）
+        case '覅公jj':
+        case 'delayed-attack-qq':
+          return this.wrap(await this.combatSystem.delayedAttackByQQWeapon(userId, arg));
 
         // ========== 地图/探索命令 ==========
         case '观察附近':

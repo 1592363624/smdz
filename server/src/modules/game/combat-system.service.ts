@@ -1145,6 +1145,114 @@ export class CombatSystemService {
           resultLines.push('【安乐天使】本次伤害被免疫');
         }
 
+        // ========== 武器特殊序号判断（原版 造成伤害 L1827-1867，紧接安乐天使之后） ==========
+        // 对应 @Constant.ecode：仿真尾巴=-36 / 火焰飞羽=-30 / 纵横=-13 / 矢量=-12 / 影光=-23 / 寒风=-10 / 光棱=-29
+        // 原版本段三类目标字段：
+        //   · 武器冷却(仿真尾巴减CD/寒风加CD) → 原版「攻击方.标记2 / 防御方.标记2」= 框架 markers2 数组（元素 {name, expireAt}），与武器攻击冷却 L94-103 同一容器
+        //   · 技能冷却(光棱) → 同为 markers2 数组（"类型+技能冷却"）
+        //   · 防御方增益(火焰飞羽/影光) → 框架 target.buffs（中文 key {name, expireAt}）
+        //   · 额外生命/装甲伤害(纵横/矢量) → BonusData（中文属性 key）
+
+        // 本地解析 markers2 数组（原版 标记2 容器），与 L295-322 武器冷却读写约定一致
+        // 注意：本段 markers2 容器的 expireAt 统一采用「毫秒」单位（与武器冷却 L322 一致），
+        // 与 targetMk/playerMk（markers 对象，秒级 nowSec）不同，操作时需换算。
+        const nowMs = nowSec * 1000;
+        const atkMk2 = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+        const defMk2 = this.safeParseJson<any[]>(target.markers2 || '[]', []);
+
+        // ---- 仿真尾巴（z1.特殊序号==#仿真尾巴(-36)：遍历攻击方武器，非仿真尾巴且处于"名称+冷却"状态则 CD-5，原版 L1827-1841） ----
+        if (weapon.specialSeq === -36 || weapon.name?.includes('仿真尾巴')) {
+          const atkWeapons = this.safeParseJson<any[]>(player.weapons || (player as any).武器 || '[]', []);
+          let b = 0;
+          for (const w of atkWeapons) {
+            const wName = w.name || w.名称;
+            if (w.specialSeq === -36 || (wName || '').includes('仿真尾巴')) continue; // 跳过仿真尾巴自身
+            const cdKey = `${wName}冷却`;
+            // 增益要求(攻击方.标记2, "名称+冷却") 存在且未过期即处于冷却中；markers2.expireAt 为毫秒
+            const entry = atkMk2.find((m: any) => m?.name === cdKey && m.expireAt > nowMs);
+            if (entry) {
+              entry.expireAt = Math.max(nowMs, entry.expireAt - 5 * 1000); // 获得增益(...,-5,真,...) 减5秒（毫秒换算，不低于当前时刻）
+              b++;
+            }
+          }
+          if (b > 0) resultLines.push(`【仿真尾巴】${b}把武器CD-5`);
+        }
+
+        // ---- 火焰飞羽（z1.特殊序号==#火焰飞羽(-30)：给防御方加"飞羽"增益60秒，原版 L1843-1844） ----
+        if (weapon.specialSeq === -30 || weapon.name?.includes('火焰飞羽')) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (!tBuffs.some((x: any) => (x.name || x.名称) === '飞羽' && x.expireAt > nowSec + 30)) {
+            tBuffs.push({ name: '飞羽', expireAt: nowSec + 30, 强度: 1 }); // 原版 获得增益(防御方.增益,"飞羽",30,假,s,1,真)
+          }
+          target.buffs = JSON.stringify(tBuffs);
+        }
+
+        // ---- 纵横（z1.特殊序号==#纵横(-13)：额外生命火伤 += 防御方生命*0.05*额外伤害倍率，原版 L1845-1846） ----
+        if (weapon.specialSeq === -13 || weapon.name?.includes('纵横')) {
+          const targetHp = target.maxHp || target.hp || (target as any).属性?.生命 || 0;
+          attackerBonus.火伤 = (attackerBonus.火伤 || 0) + targetHp * 0.05 * extraDamageMult;
+        }
+
+        // ---- 矢量（z1.特殊序号==#矢量(-12)：额外装甲冰伤 += 防御方装甲*0.05*额外伤害倍率，原版 L1847-1848） ----
+        if (weapon.specialSeq === -12 || weapon.name?.includes('矢量')) {
+          const targetArmor = target.maxArmor || target.armor || (target as any).属性?.装甲 || 0;
+          attackerBonus.冰伤 = (attackerBonus.冰伤 || 0) + targetArmor * 0.05 * extraDamageMult;
+        }
+
+        // ---- 影光（z1.特殊序号==#影光(-23)：给防御方加"影光"增益60秒，原版 L1849-1850；
+        //      后续 L2263 读"影光"增益 → 易伤 += a1*2.5 已在 calcDamage 对应段实现） ----
+        if (weapon.specialSeq === -23 || weapon.name?.includes('影光')) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (!tBuffs.some((x: any) => (x.name || x.名称) === '影光' && x.expireAt > nowSec + 60)) {
+            tBuffs.push({ name: '影光', expireAt: nowSec + 60, 强度: 1 }); // 原版 获得增益(防御方.增益,"影光",60,假,s,1,真)
+          }
+          target.buffs = JSON.stringify(tBuffs);
+        }
+
+        // ---- 寒风（z1.特殊序号==#寒风(-10)：防御方未处于"被寒风冷却"(180s)时，防御方所有武器CD+30，原版 L1851-1857） ----
+        // 原版 时间间隔要求("被寒风冷却",180,防御方.标记2,...)==假 → 未冷却，触发。markers2.expireAt 为毫秒，间隔比对用毫秒
+        if (weapon.specialSeq === -10 || weapon.name?.includes('寒风')) {
+          const hfc = defMk2.find((m: any) => m?.name === '被寒风冷却');
+          if (!hfc || nowMs - (hfc.expireAt || 0) > 180 * 1000) {
+            // 写入"被寒风冷却"标记（expireAt 记录触发时刻，毫秒，间隔比对同原版 180s）
+            const exist = defMk2.find((m: any) => m?.name === '被寒风冷却');
+            if (exist) exist.expireAt = nowMs;
+            else defMk2.push({ name: '被寒风冷却', expireAt: nowMs });
+            const defWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+            for (const w of defWeapons) {
+              const wName = w.name || w.名称;
+              const tKey = `${wName}冷却`; // 获得增益(防御方.标记2,"名称+冷却",30,真,s)
+              const te = defMk2.find((m: any) => m?.name === tKey);
+              if (te) te.expireAt = Math.max(te.expireAt, (nowSec + 30) * 1000);
+              else defMk2.push({ name: tKey, expireAt: (nowSec + 30) * 1000 });
+            }
+            resultLines.push('【寒风】');
+          }
+        }
+
+        // ---- 光棱（z1.特殊序号==#光棱(-29)：攻击方未处于"光棱"(240s)时，攻击方「类型+技能冷却」-60 并释放使魔技能，原版 L1859-1863） ----
+        if (weapon.specialSeq === -29 || weapon.name?.includes('光棱')) {
+          const gl = atkMk2.find((m: any) => m?.name === '光棱');
+          if (!gl || nowMs - (gl.expireAt || 0) > 240 * 1000) {
+            // 写入"光棱"冷却记录（expireAt 记录触发时刻，毫秒，间隔比对同原版 240s）
+            const gle = atkMk2.find((m: any) => m?.name === '光棱');
+            if (gle) gle.expireAt = nowMs;
+            else atkMk2.push({ name: '光棱', expireAt: nowMs });
+            const typeKey = `${player.type || (player as any).类型 || '玩家'}技能冷却`;
+            const sk = atkMk2.find((m: any) => m?.name === typeKey);
+            if (sk) sk.expireAt = Math.max(nowMs, sk.expireAt - 60 * 1000); // 获得增益(攻击方.标记2,"类型+技能冷却",-60,真,s)
+            else atkMk2.push({ name: typeKey, expireAt: Math.max(nowMs, (nowSec - 60) * 1000) });
+            // 原版 释放使魔技能(攻击方, s)：自动释放攻击方使魔技能。
+            // ⚠️ 该行为依赖 combat-system 反向回调 familiarSkills，当前 weaponAttack 链路未注入，
+            // 为避免循环依赖与递归副作用，此处仅落地增益写入（与原版 L1861 前半一致），
+            // 自动释放使魔技能列为待补（同光荣弹性质，需外部注入 FamiliarSkillsService）。
+          }
+        }
+
+        // 写回 markers2 数组变更（原版 标记2 容器）
+        player.markers2 = JSON.stringify(atkMk2);
+        target.markers2 = JSON.stringify(defMk2);
+
         // ---- 短衬衫2（防御方标记2含"短衬衫2" → 伤害×0.1，不叠加，原版 L1945-1947） ----
         if (targetMk['短衬衫2']) {
           forcedMult *= 0.1;
@@ -6482,5 +6590,102 @@ export class CombatSystemService {
     // 原版 物品数量排序 默认升序（从小到大），返回末位=总和最大
     list.sort((a: any, b: any) => a.total - b.total);
     return list[list.length - 1].idx;
+  }
+
+  /**
+   * 地图定点管理员攻击 + 载具修复（对应原版 _主程序.ecode L200-535 覅攻击pd）
+   *
+   * 原版分支是完整"战斗()"driver 的入口，逐行还原要点：
+   *   - L261-291 对地图每个怪物发起攻击（玩家武器 + 召唤物协同），含怪物闪避判定
+   *   - L320-499 召唤物协同攻击、闪避、扶人、天神降世、觉醒宠物攻击（战斗循环子系统）
+   *   - L507-530 载具修复：将玩家载具修复至满血，并发放载具材料
+   *   - L202-206 延时递归（每回合约 2 秒）驱动后续怪物攻击
+   *
+   * 本框架现状：weaponAttack 已实现"玩家攻击地图怪物 + 召唤物协同攻击(summonCoAttack)"，
+   * 故复用 weaponAttack 对所有地图怪物发起攻击；载具修复分支按原版 L507-530 独立实现。
+   * 原版 L320-499 的"召唤物闪避/扶人/天神降世/觉醒宠物/怪物→玩家攻击循环"依赖战斗循环 driver，
+   * 当前尚未实现，按原版保留并在 TODO 标注（见战斗引擎复刻进度记录）。
+   *
+   * @param userId 用户ID
+   * @param arg 地图参数（可选，原版按地图名定位，此处默认当前地图）
+   * @returns 结果文本
+   */
+  async adminAttackMap(userId: number, arg: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name} 你不在任何地图上。`;
+    const monsters = this.playerService.safeJsonParse<any[]>(map.monsters, []);
+    if (monsters.length === 0) return `${player.name} 当前地图没有可攻击的怪物。`;
+
+    const lines: string[] = [];
+    lines.push(`${player.name} 开始对地图【${map.name}】的${monsters.length}个怪物进行定点攻击`);
+
+    // 原版 L261-291：对地图每个怪物发起攻击（复用 weaponAttack，内含召唤物协同攻击）
+    for (let i = 0; i < monsters.length; i++) {
+      const r = await this.weaponAttack(userId, 0, { targetName: monsters[i].name, allAttack: false });
+      lines.push(r.result);
+      if (r.killed) lines.push(`击败了【${monsters[i].name}】`);
+    }
+
+    // 原版 L507-530：载具修复分支（独立实现）。
+    // 本框架 GameVehicle 以 currentHp/maxHp 表示生命，对应原版 载具.当前生命/载具.生命。
+    const vehicleId = player.vehicle;
+    if (vehicleId) {
+      const vehicle = await this.prisma.gameVehicle.findUnique({ where: { id: vehicleId } });
+      if (vehicle) {
+        // 原版 L516-517：载具.当前生命 = 载具.生命（修复至满血）
+        await this.prisma.gameVehicle.update({
+          where: { id: vehicleId },
+          data: { currentHp: vehicle.maxHp },
+        });
+        // 发放载具材料（原版 L518-530）
+        await this.playerService.addToBackpack(userId, '载具材料', 1);
+        lines.push(`${player.name} 修复了载具至满血，并获得载具材料 x1`);
+      }
+    }
+
+    // 原版 L320-499 召唤物闪避/扶人/天神降世/觉醒宠物/怪物→玩家攻击循环：待 combat-system 战斗循环 driver 实现，按原版保留
+    lines.push('（原版 L320-499 召唤物协同攻击/闪避/天神降世/觉醒宠物/怪物→玩家攻击循环：待战斗循环 driver 实现，按原版保留）');
+
+    return lines.join('\n');
+  }
+
+  /**
+   * 延时攻击：按 QQ$武器 定位召唤物/怪物/玩家并以其武器攻击（对应原版 _主程序.ecode L536-674 覅公jj）
+   *
+   * 原版三种模式：
+   *   1. 召唤物$武器（含"g"）：用召唤物武器攻击地图怪物2
+   *   2. 怪物$武器：怪物用武器攻击玩家数组（含幻时）
+   *   3. 玩家$武器（默认）：玩家用当前武器攻击地图怪物2
+   *
+   * 本框架现状：weaponAttack 已实现"玩家攻击地图怪物 + 召唤物协同"，故模式3直接复用；
+   * 模式1（召唤物攻击怪物2）/模式2（怪物→玩家数组）需召唤物/怪物攻击 driver，当前未完整实现，
+   * 按原版保留并在 TODO 标注（见战斗引擎复刻进度记录）。
+   *
+   * @param userId 用户ID
+   * @param arg 形如 "QQ$武器名" 的参数
+   * @returns 结果文本
+   */
+  async delayedAttackByQQWeapon(userId: number, arg: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    if (!arg) return `${player.name} 请指定延时攻击目标，例如：覅公jj QQ$武器名`;
+
+    // 原版 L540：取玩家QQ；解析 a$（QQ$武器）或 两字命令（怪物$武器）
+    const parts = arg.split('$');
+    const targetQQ = parts[0];
+    const weaponName = parts.slice(1).join('$');
+
+    // 原版 L643-669：默认玩家$武器 模式 —— 玩家用当前武器攻击地图怪物2
+    if (targetQQ === String(player.qqNumber || player.id)) {
+      const r = await this.weaponAttack(userId, 0, { targetName: weaponName || undefined, allAttack: true });
+      return `${player.name} 以【${weaponName || '当前武器'}】发起延时攻击\n${r.result}`;
+    }
+
+    // 原版 L558-632：召唤物$武器 / 怪物$武器 模式 —— 待召唤物/怪物攻击 driver 实现，按原版保留
+    return `${player.name} 延时攻击目标【${targetQQ}】为召唤物/怪物，需战斗循环 driver 支持（原版 L558-632 召唤物/怪物延时攻击待实现，按原版保留）`;
   }
 }

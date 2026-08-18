@@ -3907,6 +3907,88 @@ export class GameService {
     return this.familiarSkillsService.executeSkill(userId, '开始挑战');
   }
 
+  /**
+   * 使魔挑战进入下一层（对应原版 _主程序.ecode L6431-6463 覅下一层）
+   * 1:1 还原分支逻辑：
+   *   置成就熟练度("挑战a", 玩家.标记, 0)        // 重置本层挑战熟练度
+   *   添加成就("挑战等级", 1, 玩家.成就, 玩家.任务) // 挑战层数 +1
+   *   添加成就("挑战成功", 1, 玩家2.成就, 玩家.任务)
+   *   a = 挑战等级; b = 向上取整(a/5)
+   *   获得物品(玩家.背包, 挑战装备箱 x b); 获得物品(玩家.背包, 挑战资源箱)
+   *   玩家2.类型 = 挑战怪物(a)
+   *   等级分段：a<300→ceil(a/5); a<500→a-300+60; 默认→(a-500)*10+260
+   *   _初始化怪物(玩家2, , 玩家.地图); 加入成员(地图.怪物2, 玩家2)
+   *   观察附近 + 提示
+   * 说明：原版"怪物2"对应本框架 tempMonsters（副本/挑战专用临时怪数组）。
+   * @param userId 用户ID
+   * @returns 结果文本
+   */
+  async familiarChallengeNextLayer(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    // 解析标记对象（原版 玩家.标记）
+    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+
+    // 原版 L6432：重置"挑战a"熟练度
+    this.playerService.setMarker(markers, '挑战a', 0);
+    // 原版 L6433：挑战等级 +1
+    const level = this.playerService.getMarkerValue(markers, '挑战等级') + 1;
+    this.playerService.setMarker(markers, '挑战等级', level);
+    // 原版 L6434：挑战成功 +1
+    this.playerService.setMarker(markers, '挑战成功', this.playerService.getMarkerValue(markers, '挑战成功') + 1);
+
+    // 原版 L6436：b = 向上取整(a/5)
+    const b = Math.ceil(level / 5);
+
+    // 原版 L6437-6442：发放挑战装备箱(b个) + 挑战资源箱(1个)
+    await this.playerService.addToBackpack(userId, '挑战装备箱', b);
+    await this.playerService.addToBackpack(userId, '挑战资源箱', 1);
+
+    // 原版 L6443：玩家2.类型 = 挑战怪物(a)
+    const monsterName = this.combatSystem.challengeMonsterName(level);
+
+    // 原版 L6444-6450：等级分段
+    let monsterLevel: number;
+    if (level < 300) monsterLevel = Math.ceil(level / 5);
+    else if (level < 500) monsterLevel = level - 300 + 60;
+    else monsterLevel = (level - 500) * 10 + 260;
+
+    // 原版 L6451：_初始化怪物 —— 读取怪物配置并构造实例
+    const cfg = this.staticData.getMonsterByName(monsterName) || {};
+    const baseHp = cfg.maxHp || cfg.hp || 100;
+    const baseAtk = cfg.attack || cfg.攻击 || 30;
+    const baseDef = cfg.defense || cfg.防御 || 10;
+    const monster = {
+      name: monsterName,
+      type: monsterName,
+      level: monsterLevel,
+      hp: Math.round(baseHp * (1 + monsterLevel * 0.1)),
+      maxHp: Math.round(baseHp * (1 + monsterLevel * 0.1)),
+      attack: Math.round(baseAtk * (1 + monsterLevel * 0.1)),
+      defense: Math.round(baseDef * (1 + monsterLevel * 0.1)),
+      exp: cfg.exp || 50,
+      // 原版 _初始化怪物 的 bonus 由 buildMonsterBonus 构建，本框架挑战怪复用配置
+    };
+
+    // 原版 L6452：加入地图怪物2（本框架 tempMonsters）
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) {
+      return `${player.name} 你不在任何地图上，无法进入下一层。`;
+    }
+    const tempMonsters = this.playerService.safeJsonParse<any[]>(map.tempMonsters, []);
+    tempMonsters.push(monster);
+    await this.mapService.updateDynamicFields(map.id, { tempMonsters: JSON.stringify(tempMonsters) });
+
+    // 保存玩家标记（挑战等级/挑战成功/挑战a 写入）
+    player.markers = JSON.stringify(markers);
+    await this.playerService.savePlayer(player);
+
+    // 原版 L6453-6455：观察附近 + 提示文本
+    const look = await this.handleLookAround(userId);
+    return `${player.name} 准备挑战第${level}层，得到了${b}个挑战装备箱和挑战资源箱\n${look}`;
+  }
+
   // ========== 地图/探索命令 ==========
 
   /**
