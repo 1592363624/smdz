@@ -214,10 +214,30 @@ jobs:
             -o StrictHostKeyChecking=accept-new
             -o UserKnownHostsFile=/dev/null
             -o LogLevel=ERROR
+            -o ConnectTimeout=15
+            -o ConnectionAttempts=1
           )
+
+          scp_retry() {
+            local source="$1"
+            local destination="$2"
+            local attempt
+            for attempt in 1 2 3; do
+              if scp -O "${ssh_options[@]}" "$source" "$destination"; then
+                return 0
+              fi
+              if [[ "$attempt" -lt 3 ]]; then
+                echo "SCP failed (attempt $attempt/3), retrying in 5 seconds..." >&2
+                sleep 5
+              fi
+            done
+            echo "SCP failed after 3 attempts: $source -> $destination" >&2
+            return 1
+          }
+
           remote="${WIN_USER}@${WIN_HOST}"
           echo "===== Upload rollback script ====="
-          scp -O "${ssh_options[@]}" deploy/windows/rollback.ps1 "${remote}:${UPLOAD_PATH}/rollback.ps1"
+          scp_retry deploy/windows/rollback.ps1 "${remote}:${UPLOAD_PATH}/rollback.ps1"
 
       - name: Run deployment
         id: deploy
@@ -259,21 +279,41 @@ jobs:
             -o StrictHostKeyChecking=accept-new
             -o UserKnownHostsFile=/dev/null
             -o LogLevel=ERROR
+            -o ConnectTimeout=15
+            -o ConnectionAttempts=1
           )
+
+          scp_retry() {
+            local source="$1"
+            local destination="$2"
+            local attempt
+            for attempt in 1 2 3; do
+              if scp -O "${ssh_options[@]}" "$source" "$destination"; then
+                return 0
+              fi
+              if [[ "$attempt" -lt 3 ]]; then
+                echo "SCP failed (attempt $attempt/3), retrying in 5 seconds..." >&2
+                sleep 5
+              fi
+            done
+            echo "SCP failed after 3 attempts: $source -> $destination" >&2
+            return 1
+          }
+
           remote="${WIN_USER}@${WIN_HOST}"
 
           echo "===== Upload source archive ====="
-          scp -O "${ssh_options[@]}" source.tar.gz "${remote}:${UPLOAD_PATH}/source.tar.gz"
+          scp_retry source.tar.gz "${remote}:${UPLOAD_PATH}/source.tar.gz"
 
           echo "===== Upload deployment script ====="
-          scp -O "${ssh_options[@]}" deploy/windows/deploy.ps1 "${remote}:${UPLOAD_PATH}/deploy.ps1"
+          scp_retry deploy/windows/deploy.ps1 "${remote}:${UPLOAD_PATH}/deploy.ps1"
 
           echo "===== Upload .env from secrets ====="
           env_path="$(mktemp)"
           trap 'rm -f "$env_path"' EXIT
           printf '%s' "$ENV_FILE" > "$env_path"
           sed -i 's/\r$//' "$env_path"
-          scp -O "${ssh_options[@]}" "$env_path" "${remote}:${UPLOAD_PATH}/.env.upload"
+          scp_retry "$env_path" "${remote}:${UPLOAD_PATH}/.env.upload"
 
           echo "===== Run deployment ====="
           remote_command="powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${WINDOWS_PATH}\\deploy.ps1\" -DeploymentRoot \"${WINDOWS_PATH}\" -AppName \"${app_name}\" -EnvSource \"${WINDOWS_PATH}\\.env.upload\""
@@ -296,6 +336,8 @@ jobs:
             -o StrictHostKeyChecking=accept-new
             -o UserKnownHostsFile=/dev/null
             -o LogLevel=ERROR
+            -o ConnectTimeout=15
+            -o ConnectionAttempts=1
           )
           remote="${WIN_USER}@${WIN_HOST}"
           rollback_cmd="powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${WINDOWS_PATH}\\rollback.ps1\" -DeploymentRoot \"${WINDOWS_PATH}\" -AppName \"${WIN_APP_NAME}\""
