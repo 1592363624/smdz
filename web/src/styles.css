@@ -1453,8 +1453,8 @@ vite-plugin-checker-error-overlay,
 }
 
 /* ===== 消息对齐（QQ 聊天风格） =====
- * - 他人消息 own/other：靠左/靠右的气泡
- * - 系统/游戏/战斗/信息（无 sender）：居中提示条
+ * - 玩家聊天/指令消息：本人靠右、他人靠左
+ * - 系统/游戏/战斗/信息回复：居中提示条
  */
 .msg.other {
   align-self: flex-start;

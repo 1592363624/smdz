@@ -1333,15 +1333,15 @@ function msgClass(m) {
 /**
  * 消息对齐分类（QQ 聊天风格）
  * - 系统/游戏/战斗/信息类消息 → center（居中，无论是否带 sender）
- * - 普通聊天（chat）→ 本人 own（右侧）、他人 other（左侧）
+ * - 普通聊天和玩家指令（chat/command）→ 本人 own（右侧）、他人 other（左侧）
  * 说明：指令触发的公屏结果多为"系统广播"（如"某某移动到某地"），
  * 它们即便带玩家 sender，也应居中展示，与玩家主动发起的对话气泡区分开。
  * @param {object} m 消息对象
  * @returns {string} 'own' | 'other' | 'center'
  */
 function msgAlign(m) {
-  // 系统类消息统一居中（覆盖 command/system/game/combat/info）
-  if (m.type === 'system' || m.type === 'game' || m.type === 'combat' || m.type === 'info' || m.type === 'command') {
+  // 系统回复统一居中；command 是玩家实际发送的指令，应按发送者左右排列
+  if (m.type === 'system' || m.type === 'game' || m.type === 'combat' || m.type === 'info') {
     return 'center';
   }
   // 普通聊天：按发送者归属区分左右
