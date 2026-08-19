@@ -731,7 +731,7 @@ describe('计算载具 - 载具属性计算 (加成计算.ecode L3556-3912)', ()
     expect(() => v['computeVehicle'](veh, 0)).not.toThrow();
   });
 
-  it('L3580/L3591/L3647 核心部件(骑士核心 partType=0, 攻击=15/生命=1/闪避=10) → 加成叠加, 上限取自核心', () => {
+  it('L3580/L3591/L3647 核心部件(骑士核心 partType=0, 内置能量剑) → 加成叠加, 上限取自核心', () => {
     const v = makeVehicle();
     const veh: any = {
       名称: '测试载具',
@@ -743,7 +743,8 @@ describe('计算载具 - 载具属性计算 (加成计算.ecode L3556-3912)', ()
     };
     // s=null → 跳过回血，直接封顶逻辑（当前生命0 < 加成.生命 → 不改）
     v['computeVehicle'](veh, null);
-    expect(veh.加成.攻击).toBe(15);     // 骑士核心 bonus.攻击=15
+    // 原版计算载具会展开骑士核心内置的能量剑，额外叠加攻击10。
+    expect(veh.加成.攻击).toBe(25);     // 核心15 + 内置能量剑10
     expect(veh.加成.生命).toBe(1);       // bonus.生命=1
     expect(veh.加成.闪避).toBe(10);      // bonus.闪避=10
     expect(veh.行走上限).toBe(1);        // 核心 walk=1
@@ -763,7 +764,8 @@ describe('计算载具 - 载具属性计算 (加成计算.ecode L3556-3912)', ()
   });
 
   it('L3752 逆转力场 + 攻击部件 → 攻击/攻击2/韧性 ×0.34', () => {
-    // 骑士核心 bonus.攻击=15/攻击2=3/韧性无；逆转力场仅设标志，将已有攻击类加成×0.34
+    // 骑士核心 bonus.攻击=15/攻击2=3，内置能量剑再提供攻击10；
+    // 逆转力场将已有攻击类加成×0.34。
     const v = makeVehicle();
     const veh: any = {
       名称: '逆转载具',
@@ -773,7 +775,7 @@ describe('计算载具 - 载具属性计算 (加成计算.ecode L3556-3912)', ()
     };
     v['computeVehicle'](veh, null);
     expect(veh.逆转力场).toBe(true);
-    expect(Math.round(veh.加成.攻击 * 100) / 100).toBe(5.1);    // 15*0.34
+    expect(Math.round(veh.加成.攻击 * 100) / 100).toBe(8.5);    // 25*0.34
     expect(Math.round(veh.加成.攻击2 * 100) / 100).toBe(1.02);  // 3*0.34
   });
 

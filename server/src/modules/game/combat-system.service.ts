@@ -46,6 +46,8 @@ export interface AttackContext {
   targetName?: string;
   /** 指定 GameMonster 实例，避免同名怪物被重复选中 */
   targetId?: number | string;
+  /** 指定攻击发生的目标地图（原版 武器攻击 的“地图”参数） */
+  targetMapId?: number;
 }
 
 /**
@@ -153,6 +155,32 @@ export interface WeaponAttackResult {
   damageDealt: number;  // 造成的总伤害
   expGained: number;    // 获得的总经验
   drops: any[];         // 掉落物品列表
+}
+
+/** 载具生产结算的运行时结果。数量单位与原版物品数组一致，时间单位为毫秒/秒。 */
+export interface VehicleProductionResult {
+  productionDisplay: string;
+  productionSpeed: number;
+  byproductMultiplier: number;
+  consumptionMultiplier: number;
+  efficiency: number;
+  availableTime: number;
+  consumedProductivity: number;
+  elapsedMs: number;
+  outputPerMinute: Array<{ name: string; quantity: number }>;
+  consumptionPerMinute: Array<{ name: string; quantity: number }>;
+  combinedPerMinute: Array<{ name: string; quantity: number }>;
+  produced: Array<{ name: string; quantity: number }>;
+  consumed: Array<{ name: string; quantity: number }>;
+  stopped: boolean;
+  reason?: string;
+}
+
+export interface VehicleRecalculationOptions {
+  /** 咏星驾驶员提供的生产速率加成（原版固定为0.15）。 */
+  yongxing?: number;
+  /** 兰音幼崽使经过时间乘1.05。 */
+  lannBaby?: boolean;
 }
 
 /**
@@ -287,10 +315,17 @@ export class CombatSystemService {
       };
     }
 
-    // 2. 获取当前地图
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) {
+    // 2. 获取攻击者所在地图与攻击目标地图。
+    // 原版 武器攻击() 将地图作为显式参数传入；炮击可以在同一复活点的其他地图开火。
+    const sourceMap = await this.mapService.getMapById(player.mapId);
+    if (!sourceMap) {
       return { result: '你不在任何地图上！', killed: [], damageDealt: 0, expGained: 0, drops: [] };
+    }
+    const map = context.targetMapId !== undefined
+      ? await this.mapService.getMapById(context.targetMapId)
+      : sourceMap;
+    if (!map) {
+      return { result: '目标地图不存在！', killed: [], damageDealt: 0, expGained: 0, drops: [] };
     }
 
     // 3. 从地图获取怪物列表（GameMonster 表，async）
@@ -408,8 +443,12 @@ export class CombatSystemService {
     // 玩家驾驶载具时，将地图上对应载具的加成并入攻击属性（攻击2/闪避2/命中2 + 其余加成）
     if (player.vehicle) {
       try {
-        const mapVehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
-        const v = mapVehicles.find((x: any) => x && (x.id === player.vehicle || x.编号 === player.vehicle));
+        const mapVehicles = this.playerService.safeJsonParse<any[]>(sourceMap.vehicles, []);
+        const v = mapVehicles.find((x: any) => x && (
+          String(x.id) === String(player.vehicle)
+          || String(x.编号) === String(player.vehicle)
+          || String(x.vehicleId) === String(player.vehicle)
+        ));
         if (v && (v.currentHp ?? v.当前生命 ?? 1) > 0) {
           const vBonus = v.bonus || v.加成 || {};
           const inc = 1; // 法宝3级+5% 的细节可后续补
@@ -2836,82 +2875,256 @@ export class CombatSystemService {
   /**
    * 炮击 - 载具炮台攻击
    * 对应原版：炮击()
-   * 使用载具的炮台攻击当前地图上的所有怪物
+   * 对应 _主程序.ecode L800-L950：校验炮击模式/载具/武器/目标地图后，
+   * 调用完整 武器攻击() 结算，而不是另造一套简化伤害公式。
    */
-  async cannonAttack(userId: number): Promise<string> {
+  async cannonAttack(userId: number, targetMapName = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
+    const targetName = targetMapName.trim();
 
-    // 检查是否驾驶载具
-    if (!player.vehicle) {
-      return '你没有驾驶任何载具，无法使用炮击！';
+    // 原版 L808：炮击没有参数时只提示使用格式，不进入载具/死亡判断。
+    if (!targetName) {
+      return `${player.name}“炮击飞龙谷”来使用`;
     }
 
-    // 获取地图
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return '你不在任何地图上！';
+    const parse = <T>(value: any, fallback: T): T => {
+      if (value === null || value === undefined) return fallback;
+      if (typeof value !== 'string') return value as T;
+      try {
+        const parsed = JSON.parse(value);
+        return (parsed === null ? fallback : parsed) as T;
+      } catch {
+        return fallback;
+      }
+    };
 
-    // 获取地图怪物（GameMonster 表，async）
-    const monsters = await this.mapService.getMapMonsters(map);
+    const currentMap = await this.mapService.getMapById(player.mapId);
+    if (!currentMap) return '你不在任何地图上！';
+
+    // 原版 取载具(玩家.载具, 当前地图)；同时兼容已经迁移到 GameVehicle 表的载具。
+    const vehicleSource = await this.findCannonVehicle(player, currentMap, parse);
+    const vehicle = vehicleSource?.vehicle;
+    const partNames = this.getVehiclePartNames(vehicle);
+    const sets = parse<any>(player.sets, {});
+    const attackMode = Number(player.attackMode ?? sets.attackMode ?? sets.攻击模式 ?? 0);
+
+    // 原版 L812-L829：先计算炮台 b 值，随后又用攻击模式分支无条件覆盖 b。
+    // 这是原版疑似冗余/笔误：即使载具装有舰炮，攻击模式不是1时仍会被覆盖为0，按原版保留。
+    let cannonMode = 0;
+    if (vehicle) {
+      if (partNames.includes('和平鸽')) cannonMode = 4;
+      if (partNames.includes('平定者')) cannonMode = 4;
+      if (partNames.includes('京兆巨炮')) cannonMode = 3;
+      if (partNames.includes('速子光矛')) cannonMode = 4;
+      if (partNames.includes('虹天剑A')) cannonMode = 2;
+      if (attackMode === 1) cannonMode = 1;
+      else cannonMode = 0;
+    }
+    // 原版 L826-L830 的覆盖分支在载具存在与否之外再次执行。
+    if (attackMode === 1) cannonMode = 1;
+    else cannonMode = 0;
+
+    if (cannonMode === 0) {
+      return `${player.name}需要切换为炮击模式，或者驾驶安装了舰炮的载具\n1、转换  2、架炮`;
+    }
+
+    if (vehicle && Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0) === 0) {
+      return `${player.name}载具需要“维修”`;
+    }
+
+    const weapons = parse<any[]>(player.weapons, []);
+    const weaponIndex = Number(player.currentWeapon || 0);
+    const weapon = weaponIndex > 0
+      ? (weapons[weaponIndex - 1] || weapons[weaponIndex] || {})
+      : {};
+    const weaponName = String(weapon.name ?? weapon.名称 ?? '拳头');
+    const weaponType = String(weapon.type ?? weapon.类型 ?? '近战武器');
+
+    if (weaponIndex === 0) {
+      return `${player.name}拳头无法射出去`;
+    }
+    if (weaponType === '近战武器' || weaponType.includes('近战')) {
+      return `${player.name}近战武器无法射出去`;
+    }
+
+    const markers = parse<Record<string, number>>(playerData.markers ?? player.markers, {});
+    if (weaponName === '管风琴' && Number(markers.管风琴 || 0) <= 0) {
+      return `${player.name},管风琴没有弹药了,需要“装填”`;
+    }
+
+    let targetMap: any;
+    try {
+      targetMap = await this.mapService.getMapByName(targetName);
+    } catch {
+      targetMap = null;
+    }
+    if (!targetMap) {
+      return `${player.name}${targetName}在地图列表不存在`;
+    }
+
+    // b=2/3 时原版允许跨复活点；由于上面的原版覆盖分支，正常路径为 b=1。
+    const currentRespawn = currentMap.respawnPoint ?? currentMap.复活点 ?? '';
+    const targetRespawn = targetMap.respawnPoint ?? targetMap.复活点 ?? '';
+    if (cannonMode !== 2 && cannonMode !== 3 && currentRespawn !== targetRespawn) {
+      return `${player.name}当前地图${currentMap.name}(${currentRespawn}附近)无法炮击处于${targetRespawn}附近的目标`;
+    }
+
+    const monsters = await this.mapService.getMapMonsters(targetMap);
     if (monsters.length === 0) {
-      return '当前地图没有目标可以炮击';
+      return `${player.name}${targetMap.name}没有目标`;
     }
 
-    // ========== 炮击伤害计算（对应原版 _主程序.ecode L800-900） ==========
-    // 原版：需要切换炮击模式或驾驶安装舰炮的载具；炮击伤害倍率由炮台部件决定
-    const mapVehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
-    const vehicle = mapVehicles.find((x: any) => x && (x.id === player.vehicle || x.编号 === player.vehicle));
-    const vParts = this.playerService.safeJsonParse<any[]>(vehicle?.parts, []);
-    const partNames = vParts.map((p: any) => p.name || '');
-    // 炮台部件倍率：和平鸽/平定者×4、京兆巨炮×3、速子光矛×4、虹天剑A×2，默认×1（攻击模式炮击）
-    let cannonMult = 1;
-    if (partNames.some((n: string) => n.includes('和平鸽') || n.includes('平定者'))) cannonMult = 4;
-    else if (partNames.some((n: string) => n.includes('京兆巨炮'))) cannonMult = 3;
-    else if (partNames.some((n: string) => n.includes('速子光矛'))) cannonMult = 4;
-    else if (partNames.some((n: string) => n.includes('虹天剑A'))) cannonMult = 2;
-    else if (player.attackMode !== 1) {
-      return '需要切换为炮击模式，或者驾驶安装了舰炮的载具';
+    const now = Date.now();
+    const markers2 = parse<any[]>(player.markers2, []);
+    const featherCount = Number(player.specialSeq === 3 ? (markers.羽毛 ?? markers.feather ?? 0) : 0);
+    const hasFeatherLimit = player.specialSeq === 3 && featherCount >= 10;
+    const hasFastLoader = partNames.includes('高速装弹机');
+    const fastLoaderLevel = Number(markers.高速1 || 0);
+    const cooldownFactor = hasFeatherLimit
+      ? 0
+      : hasFastLoader
+        ? (fastLoaderLevel === 2 ? 2.5 : 0)
+        : 1;
+    const cooldownSeconds = (Number(weapon.cooldown ?? weapon.冷却 ?? 5) || 5) * 1.5 * cooldownFactor;
+    const cooldownEntry = markers2.find((item: any) =>
+      item?.name === `${weaponName}冷却` && Number(item.expireAt ?? item.expireTime ?? 0) > now,
+    );
+    if (cooldownEntry) {
+      const remaining = Math.max(1, Math.ceil((Number(cooldownEntry.expireAt ?? cooldownEntry.expireTime) - now) / 1000));
+      return `${player.name}${weaponName}攻击冷却中，还需要${remaining}秒`;
+    }
+    markers2.splice(0, markers2.length, ...markers2.filter((item: any) => item?.name !== `${weaponName}冷却`));
+    if (cooldownSeconds > 0) {
+      markers2.push({ name: `${weaponName}冷却`, expireAt: now + cooldownSeconds * 1000 });
     }
 
-    // 载具攻击加成（含部件）
-    const vBonus = vehicle?.bonus || vehicle?.加成 || {};
-    const vehicleAtk = (vBonus.攻击 || 0) + (vBonus.物伤 || 0) + (vBonus.火伤 || 0) + (vBonus.冰伤 || 0) + (vBonus.电伤 || 0);
-
-    let totalDamage = 0;
-    const killed: string[] = [];
-    const lines: string[] = [];
-
-    for (const monster of monsters) {
-      if (monster.hp <= 0) continue;
-
-      // 炮击基础伤害 = (玩家攻击 + 载具攻击) × 炮台倍率
-      const baseDamage = ((player.attack || 10) + vehicleAtk) * cannonMult;
-      const defenderBonus = this.buildMonsterBonus(monster);
-      const damage = Math.max(1, Math.floor(baseDamage - (defenderBonus.装甲 || 0)));
-
-      monster.hp = Math.max(0, monster.hp - damage);
-      totalDamage += damage;
-      lines.push(`炮击命中 ${monster.name}，造成 ${damage} 点伤害`);
-
-      if (monster.hp <= 0) {
-        killed.push(monster.name);
-        // 传入 attacker=player 触发 置掉落+战利品 发放闭环（distributeLoot 写背包）
-        const deathResult = await this.handleMonsterDeath(monster, userId, map.id, player);
-        // 经验即时发放（炮击无外部 addExp 汇总，直接在此发放）
-        if (deathResult.expGain > 0) {
-          await this.playerService.addExp(userId, deathResult.expGain);
-        }
-        lines.push(`${monster.name} 被摧毁了！获得 ${deathResult.expGain} 点经验`);
-        if (deathResult.dropText) {
-          lines.push(`掉落：${deathResult.dropText}`);
-        }
+    let prefix = '';
+    if (hasFastLoader) {
+      if (fastLoaderLevel !== 2) {
+        markers.高速1 = fastLoaderLevel + 1;
+        prefix = `（装弹机2）`;
+      } else {
+        markers.高速1 = 0;
+        prefix = '（装弹机装填）';
       }
     }
-
-    // 保存玩家状态（掉落合并后的背包 + 反伤等血量变化）
+    if (hasFeatherLimit) {
+      markers.羽毛 = featherCount - 10;
+      prefix += `（羽毛${featherCount}）`;
+    }
+    player.markers = JSON.stringify(markers);
+    player.markers2 = JSON.stringify(markers2);
+    // weaponAttack 会重新读取玩家；先持久化炮击前置消耗和冷却，避免新旧 PlayerData 覆盖。
     await this.playerService.savePlayer(player);
 
-    return lines.join('\n');
+    const attack = await this.weaponAttack(userId, weaponIndex, {
+      noDelay: true,
+      allAttack: false,
+      attackText: cannonMode === 3 ? '京兆巨炮a' : '远程炮击',
+      damageMultiplier: 100,
+      targetMapId: targetMap.id,
+      originalTimestamp: now,
+    });
+
+    // 原版 L925-L932：炮击后记录成就、活动标记和活跃度；地图标记用当前项目的 markers2 表达。
+    await this.achievementService.addAchievement(player, '炮击', 1);
+    const targetMarkers2 = parse<any[]>(targetMap.markers2, []);
+    const activeEntry = targetMarkers2.find((item: any) => item?.name === '活动');
+    if (activeEntry) activeEntry.expireAt = now + 60 * 1000;
+    else targetMarkers2.push({ name: '活动', expireAt: now + 60 * 1000 });
+    await this.mapService.updateDynamicFields(targetMap.id, { markers2: JSON.stringify(targetMarkers2) });
+
+    // 原版 L918-L923：若炮击载具带有脏弹，则消耗一枚并污染目标地图120秒。
+    const dirtyBomb = this.findVehiclePart(vehicle, '脏弹', parse);
+    if (dirtyBomb && Number(dirtyBomb.quantity ?? dirtyBomb.数量 ?? 0) >= 1) {
+      const count = Number(dirtyBomb.quantity ?? dirtyBomb.数量) - 1;
+      if (dirtyBomb.quantity !== undefined) dirtyBomb.quantity = count;
+      if (dirtyBomb.数量 !== undefined) dirtyBomb.数量 = count;
+      await this.persistCannonVehicle(vehicleSource, parse);
+      const polluted = parse<any[]>(targetMap.markers2, []);
+      polluted.push({ name: '脏弹', value: 120, expireAt: now + 120 * 1000 });
+      await this.mapService.updateDynamicFields(targetMap.id, { markers2: JSON.stringify(polluted) });
+      return `${prefix}${attack.result}\n脏弹里面装载的核废料污染了${targetMap.name}`;
+    }
+
+    return prefix ? `${prefix}${attack.result}` : attack.result;
+  }
+
+  /** 炮击载具查找：当前地图 JSON 优先，兼容 GameVehicle 表及中英文旧字段。 */
+  private async findCannonVehicle(
+    player: any,
+    map: any,
+    parse: <T>(value: any, fallback: T) => T,
+  ): Promise<{ kind: 'map' | 'db'; map: any; index?: number; db?: any; vehicle: any } | null> {
+    const key = String(player.vehicle ?? '');
+    const vehicles = parse<any[]>(map.vehicles, []);
+    const index = vehicles.findIndex((item: any) => [item?.id, item?.编号, item?.vehicleId, item?.name, item?.名称]
+      .filter((value: any) => value !== undefined && value !== null)
+      .map(String)
+      .includes(key));
+    if (index >= 0) return { kind: 'map', map, index, vehicle: vehicles[index] };
+
+    const gameVehicle = (this.prisma as any).gameVehicle;
+    if (!gameVehicle || !key) return null;
+    const numericId = Number(key);
+    let db = Number.isInteger(numericId) && numericId > 0
+      ? await gameVehicle.findUnique({ where: { id: numericId } })
+      : null;
+    if (!db) {
+      db = await gameVehicle.findFirst({ where: { OR: [{ vehicleId: key }, { name: key }] } });
+    }
+    if (!db) return null;
+    const mapKeys = [map.id, map.mapIndex].filter((value: any) => value !== undefined && value !== null).map(String);
+    if (Number(db.mapIndex || 0) > 0 && !mapKeys.includes(String(db.mapIndex))) return null;
+    return { kind: 'db', map, db, vehicle: db };
+  }
+
+  private findVehiclePart(
+    vehicle: any,
+    name: string,
+    parse: <T>(value: any, fallback: T) => T,
+  ): any | null {
+    const parts: any[] = parse<any[]>(vehicle?.parts ?? vehicle?.零件, []);
+    // DB 载具的 parts 通常是字符串；把解析后的数组挂回运行时对象，
+    // 使炮击后的脏弹消耗能够由 persistCannonVehicle 写回。
+    if (vehicle && typeof vehicle.parts === 'string') vehicle.parts = parts;
+    if (vehicle && typeof vehicle.零件 === 'string') vehicle.零件 = parts;
+    const visit = (part: any): any => {
+      if (!part) return null;
+      if (String(part.name ?? part.名称 ?? '') === name) return part;
+      for (const nested of parse<any[]>(part.builtinParts ?? part.内置零件 ?? part.builtin ?? part.内置, [])) {
+        const found = visit(nested);
+        if (found) return found;
+      }
+      return null;
+    };
+    for (const part of parts) {
+      const found = visit(part);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  private async persistCannonVehicle(
+    source: { kind: 'map' | 'db'; map: any; index?: number; db?: any; vehicle: any } | null,
+    parse: <T>(value: any, fallback: T) => T,
+  ): Promise<void> {
+    if (!source) return;
+    if (source.kind === 'db' && source.db) {
+      const stored = source.vehicle;
+      await (this.prisma as any).gameVehicle.update({
+        where: { id: source.db.id },
+        data: {
+          parts: JSON.stringify(parse<any[]>(stored.parts ?? stored.零件, [])),
+        },
+      });
+      return;
+    }
+    if (source.index === undefined) return;
+    const vehicles = parse<any[]>(source.map.vehicles, []);
+    vehicles[source.index] = source.vehicle;
+    await this.mapService.updateDynamicFields(source.map.id, { vehicles: JSON.stringify(vehicles) });
   }
 
   /**
@@ -6793,12 +7006,13 @@ export class CombatSystemService {
       bonus[f] = (bonus[f] ?? 0) + tv * count * factor;
     }
     // 生产 字段（原版 L3986-4000，正负与 生产类 共同决定）
-    if (target.生产) {
-      if (produce) bonus.生产 = (bonus.生产 ?? 0) + target.生产 * count * siliconCore;
-      else bonus.生产 = (bonus.生产 ?? 0) + (target.生产 * count * siliconCore) / 4;
+    const targetProduction = Number(target.生产 ?? 0);
+    if (targetProduction > 0) {
+      if (produce) bonus.生产 = (bonus.生产 ?? 0) + targetProduction * count * siliconCore;
+      else bonus.生产 = (bonus.生产 ?? 0) + (targetProduction * count * siliconCore) / 4;
     } else {
-      if (produce) bonus.生产 = (bonus.生产 ?? 0) + target.生产 * count * coreNegReduce;
-      else bonus.生产 = (bonus.生产 ?? 0) + (target.生产 * count) / 4 * coreNegReduce;
+      if (produce) bonus.生产 = (bonus.生产 ?? 0) + targetProduction * count * coreNegReduce;
+      else bonus.生产 = (bonus.生产 ?? 0) + (targetProduction * count) / 4 * coreNegReduce;
     }
     // 攻击次数（原版 L4001）
     bonus.攻击次数 = (bonus.攻击次数 ?? 0) + (target.攻击次数 ?? 0) * count;
@@ -6813,9 +7027,10 @@ export class CombatSystemService {
     if (!Array.isArray(items)) return 0;
     let total = 0;
     for (const it of items) {
-      if (it && it.名称 === name) {
+      if (it && (it.名称 ?? it.name) === name) {
         // 装备按1计；资源/物品按 数量 计
-        total += it.类型 === '装备' ? 1 : (it.数量 ?? 0);
+        const type = it.类型 ?? it.type;
+        total += type === '装备' ? 1 : Number(it.数量 ?? it.quantity ?? it.count ?? 0);
       }
     }
     return total;
@@ -6830,6 +7045,362 @@ export class CombatSystemService {
     const qty = this.getItemQty(name, items);
     if (requireQty == null) return qty > 0;
     return qty >= requireQty;
+  }
+
+  /** 统一读取载具 JSON 中的物品/零件，兼容中文原版字段和当前英文存量字段。 */
+  private normalizeVehicleItem(item: any): any {
+    const name = item?.名称 ?? item?.name ?? '';
+    const quantity = Number(item?.数量 ?? item?.quantity ?? item?.count ?? 1);
+    const durability = Number(item?.耐久 ?? item?.durability ?? 100);
+    return {
+      ...(item || {}),
+      名称: String(name),
+      name: item?.name ?? String(name),
+      数量: Number.isFinite(quantity) ? quantity : 0,
+      quantity: item?.quantity ?? item?.count ?? (Number.isFinite(quantity) ? quantity : 0),
+      耐久: Number.isFinite(durability) ? durability : 100,
+      durability: item?.durability ?? (Number.isFinite(durability) ? durability : 100),
+      类型: item?.类型 ?? item?.type ?? '资源',
+      type: item?.type ?? item?.类型 ?? '资源',
+    };
+  }
+
+  private normalizeVehicleRecipe(recipe: any): any {
+    const name = recipe?.名称 ?? recipe?.name ?? '';
+    const value = Number(recipe?.数值 ?? recipe?.value ?? recipe?.production ?? recipe?.count ?? 0);
+    return {
+      ...(recipe || {}),
+      名称: String(name),
+      name: recipe?.name ?? String(name),
+      数值: Number.isFinite(value) ? value : 0,
+      value: recipe?.value ?? (Number.isFinite(value) ? value : 0),
+    };
+  }
+
+  private parseVehicleJson<T>(value: any, fallback: T): T {
+    if (Array.isArray(value) || (value && typeof value === 'object')) return value as T;
+    if (typeof value !== 'string' || !value.trim()) return fallback;
+    try {
+      const parsed = JSON.parse(value);
+      return parsed === null || parsed === undefined ? fallback : parsed as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private normalizeRuntimeVehicle(vehicle: any): void {
+    const parts = this.parseVehicleJson<any[]>(vehicle?.零件 ?? vehicle?.parts, []);
+    const recipes = this.parseVehicleJson<any[]>(vehicle?.配方 ?? vehicle?.recipes, []);
+    vehicle.零件 = Array.isArray(parts) ? parts.map((item) => this.normalizeVehicleItem(item)) : [];
+    vehicle.配方 = Array.isArray(recipes) ? recipes.map((item) => this.normalizeVehicleRecipe(item)) : [];
+    vehicle.标记2 = this.parseVehicleJson<any[]>(vehicle?.标记2 ?? vehicle?.markers2, []);
+    vehicle.加成 = this.parseVehicleJson<any>(vehicle?.加成 ?? vehicle?.bonus, {});
+    vehicle.名称 = String(vehicle?.名称 ?? vehicle?.name ?? '');
+    vehicle.name = vehicle?.name ?? vehicle.名称;
+    vehicle.类型 = String(vehicle?.类型 ?? vehicle?.type ?? '');
+    vehicle.type = vehicle?.type ?? vehicle.类型;
+    vehicle.编号 = String(vehicle?.编号 ?? vehicle?.vehicleId ?? vehicle?.id ?? '');
+    vehicle.vehicleId = vehicle?.vehicleId ?? vehicle.编号;
+    vehicle.归属 = String(vehicle?.归属 ?? vehicle?.owner ?? '');
+    vehicle.owner = vehicle?.owner ?? vehicle.归属;
+    vehicle.驾驶员 = String(vehicle?.驾驶员 ?? vehicle?.driver ?? '');
+    vehicle.driver = vehicle?.driver ?? vehicle.驾驶员;
+    const currentHp = Number(vehicle?.当前生命 ?? vehicle?.currentHp ?? vehicle?.hp ?? 0);
+    vehicle.当前生命 = Number.isFinite(currentHp) ? currentHp : 0;
+    vehicle.currentHp = vehicle.当前生命;
+    const maxHp = Number(vehicle?.生命 ?? vehicle?.maxHp ?? 0);
+    vehicle.生命 = Number.isFinite(maxHp) ? maxHp : 0;
+    vehicle.maxHp = vehicle.生命;
+    const slotStatus = Number(vehicle?.上限 ?? vehicle?.slotStatus ?? 0);
+    vehicle.上限 = Number.isFinite(slotStatus) ? slotStatus : 0;
+    vehicle.slotStatus = vehicle.上限;
+    const moveType = Number(vehicle?.行走方式 ?? vehicle?.moveType ?? 0);
+    vehicle.行走方式 = Number.isFinite(moveType) ? moveType : 0;
+    vehicle.moveType = vehicle.行走方式;
+  }
+
+  private vehicleRecipeItems(recipe: any, field: '产出' | '消耗'): any[] {
+    const raw = field === '产出'
+      ? (recipe?.产出 ?? recipe?.outputs)
+      : (recipe?.消耗 ?? recipe?.inputs);
+    const parsed = this.parseVehicleJson<any[]>(raw, []);
+    return Array.isArray(parsed) ? parsed.map((item) => this.normalizeVehicleItem(item)) : [];
+  }
+
+  private getRuntimeVehicleRecipe(name: string): any | undefined {
+    const recipe = this.staticData.getVehicleRecipeByName(name);
+    if (!recipe) return undefined;
+    return {
+      ...recipe,
+      名称: recipe.名称 ?? recipe.name ?? name,
+      产出: this.vehicleRecipeItems(recipe, '产出'),
+      消耗: this.vehicleRecipeItems(recipe, '消耗'),
+    };
+  }
+
+  /** 原版 获得物品：同名资源叠加，默认不保留消耗后的非正数条目。 */
+  private mergeVehicleItem(items: any[], item: any, allowNegative = false): void {
+    const normalized = this.normalizeVehicleItem(item);
+    if (!normalized.名称 || !Number.isFinite(normalized.数量) || normalized.数量 === 0) return;
+    const existingIndex = items.findIndex((entry: any) =>
+      (entry?.名称 ?? entry?.name) === normalized.名称,
+    );
+    if (existingIndex >= 0) {
+      const existing = this.normalizeVehicleItem(items[existingIndex]);
+      const next = existing.数量 + normalized.数量;
+      if (!allowNegative && next <= 0) {
+        items.splice(existingIndex, 1);
+      } else {
+        existing.数量 = next;
+        existing.quantity = next;
+        if (existing.count !== undefined) existing.count = next;
+        items[existingIndex] = existing;
+      }
+      return;
+    }
+    if (normalized.数量 > 0 || allowNegative) items.push(normalized);
+  }
+
+  private addVehicleItemArray(items: any[], name: string, quantity: number, allowNegative = false): void {
+    this.mergeVehicleItem(items, { 名称: name, 数量: quantity, 类型: '资源', 耐久: 100 }, allowNegative);
+  }
+
+  private recipeAllocation(recipes: any[], name: string): number {
+    return recipes
+      .filter((recipe: any) => recipe.名称 === name)
+      .reduce((sum: number, recipe: any) => sum + Number(recipe.数值 || 0), 0);
+  }
+
+  /**
+   * 原版 物品操作.ecode L2692-2954：结算载具生产。
+   *
+   * 该方法同时生成每分钟显示数据和按经过时间写回载具零件的实际产出，
+   * 因为原版「生产」「计算载具」都通过同一个取生产产出函数完成这两件事。
+   * 调用方负责在返回的 produced/consumed 上推进玩家成就与任务。
+   */
+  calculateVehicleProduction(
+    vehicle: any,
+    timestamp: number,
+    options: { yongxing?: number; lannBaby?: boolean } = {},
+  ): VehicleProductionResult {
+    this.normalizeRuntimeVehicle(vehicle);
+    const now = Number(timestamp);
+    const productionDisplay = {
+      productionSpeed: 1,
+      byproductMultiplier: 1,
+      consumptionMultiplier: 1,
+      efficiency: 1,
+    };
+    const emptyResult = (overrides: Partial<VehicleProductionResult> = {}): VehicleProductionResult => ({
+      productionDisplay: [
+        String((productionDisplay.productionSpeed - 1) * 100),
+        String((productionDisplay.byproductMultiplier - 1) * 100),
+        String((1 - productionDisplay.consumptionMultiplier) * 100),
+        String(productionDisplay.efficiency * 100),
+      ].join('!'),
+      productionSpeed: productionDisplay.productionSpeed,
+      byproductMultiplier: productionDisplay.byproductMultiplier,
+      consumptionMultiplier: productionDisplay.consumptionMultiplier,
+      efficiency: productionDisplay.efficiency,
+      availableTime: 0,
+      consumedProductivity: 0,
+      elapsedMs: 0,
+      outputPerMinute: [],
+      consumptionPerMinute: [],
+      combinedPerMinute: [],
+      produced: [],
+      consumed: [],
+      stopped: false,
+      ...overrides,
+    });
+
+    const parts = vehicle.零件;
+    const recipes = vehicle.配方;
+    const systemII = Math.min(5, Math.max(0, this.getItemQty('生产调度系统II', parts)));
+    productionDisplay.productionSpeed += systemII * 0.09;
+    if ((options.yongxing || 0) > 0) productionDisplay.productionSpeed += 0.25;
+
+    // 原版先于时间戳处理判断载具是否因部件超限而失效。
+    if (Number(vehicle.上限 || 0) > 1) {
+      return emptyResult({ stopped: true, reason: 'vehicle-over-limit' });
+    }
+
+    if (recipes.length === 0) {
+      vehicle.配方 = [{ 名称: '1', 数值: now }];
+      return emptyResult();
+    }
+    if (recipes[0].名称 !== '1') {
+      recipes.unshift({ 名称: '1', 数值: now });
+    }
+
+    const lastRead = Number(recipes[0].数值);
+    const rawElapsedMs = Number.isFinite(lastRead) ? now - lastRead : 0;
+    let elapsedMs = rawElapsedMs;
+    if (options.lannBaby) elapsedMs *= 1.05;
+    recipes[0].数值 = now;
+
+    const productionPower = Number(vehicle.加成?.生产 || 0);
+    if (productionPower === 0) {
+      if (this.getItemQty('具现装置', parts) > 0) {
+        this.addVehicleItemArray(parts, '未知物品', elapsedMs / 1000 / 86400);
+      }
+      return emptyResult({ elapsedMs });
+    }
+
+    const systemI = Math.min(
+      Math.max(0, 5 - systemII),
+      Math.max(0, this.getItemQty('生产调度系统', parts)),
+    );
+    productionDisplay.productionSpeed += systemI * 0.05;
+
+    const acceleration8 = this.recipeAllocation(recipes, '生产加速8') > 0;
+    const acceleration6 = this.recipeAllocation(recipes, '生产加速6') > 0;
+    const acceleration4 = this.recipeAllocation(recipes, '生产加速4') > 0;
+    if (acceleration8) productionDisplay.productionSpeed += 0.25;
+    else if (acceleration6) productionDisplay.productionSpeed += 0.15;
+    else if (acceleration4) productionDisplay.productionSpeed += 0.05;
+    if (this.getItemQty('小蓝', parts) > 0) productionDisplay.productionSpeed += 0.05;
+
+    const type = String(vehicle.类型 || '');
+    if (type === '九尾狐') {
+      productionDisplay.byproductMultiplier += 1;
+      productionDisplay.consumptionMultiplier -= 0.05;
+    } else if (type === '夜璃') {
+      productionDisplay.byproductMultiplier += 0.75;
+    } else if (type === '河狸') {
+      productionDisplay.byproductMultiplier += 0.5;
+    } else if (type === '工作台') {
+      productionDisplay.byproductMultiplier += 0.25;
+    }
+    if (this.getItemQty('小凰', parts) > 0) productionDisplay.byproductMultiplier += 0.25;
+    if (this.getItemQty('小雫', parts) > 0) productionDisplay.consumptionMultiplier -= 0.02;
+    if (this.getItemQty('具现装置', parts) > 0) productionDisplay.consumptionMultiplier -= 0.05;
+
+    const outputPerMinute: any[] = [];
+    const consumptionPerMinute: any[] = [];
+    const combinedPerMinute: any[] = [];
+    let consumedProductivity = 0;
+
+    // 第一遍只生成「每分钟」面板数据，同时按配方顺序计算总生产力。
+    for (let index = 1; index < recipes.length; index++) {
+      const assignment = Number(recipes[index].数值 || 0);
+      consumedProductivity += assignment;
+      const recipe = this.getRuntimeVehicleRecipe(recipes[index].名称);
+      if (!recipe) continue;
+      for (const output of recipe.产出) {
+        const ratio = Number(output.耐久 ?? 100) / 100;
+        const quantity = Number(output.数量 || 0)
+          * (ratio < 1 ? ratio * productionDisplay.byproductMultiplier : 1)
+          * assignment * productionDisplay.productionSpeed;
+        this.addVehicleItemArray(outputPerMinute, output.名称, quantity);
+        this.addVehicleItemArray(combinedPerMinute, output.名称, quantity, true);
+      }
+      for (const input of recipe.消耗) {
+        const ratio = Number(input.耐久 ?? 100) / 100;
+        const quantity = Number(input.数量 || 0)
+          * productionDisplay.consumptionMultiplier * ratio
+          * assignment * productionDisplay.productionSpeed;
+        this.addVehicleItemArray(consumptionPerMinute, input.名称, quantity);
+        this.addVehicleItemArray(combinedPerMinute, input.名称, -quantity, true);
+      }
+    }
+
+    if (consumedProductivity > productionPower && consumedProductivity > 0) {
+      productionDisplay.efficiency = productionPower / consumedProductivity;
+      for (const item of [...outputPerMinute, ...consumptionPerMinute, ...combinedPerMinute]) {
+        item.数量 *= productionDisplay.efficiency;
+      }
+    }
+
+    const productionDisplayText = [
+      String((productionDisplay.productionSpeed - 1) * 100),
+      String((productionDisplay.byproductMultiplier - 1) * 100),
+      String((1 - productionDisplay.consumptionMultiplier) * 100),
+      String(productionDisplay.efficiency * 100),
+    ].join('!');
+
+    const produced: any[] = [];
+    const consumed: any[] = [];
+    // 第二遍按原版顺序逐个配方结算。前一个配方的产出会立即进入零件，
+    // 因而可以作为后一个配方的输入。
+    for (let index = 1; index < recipes.length; index++) {
+      const assignment = Number(recipes[index].数值 || 0);
+      if (assignment <= 0) continue;
+      const recipe = this.getRuntimeVehicleRecipe(recipes[index].名称);
+      if (!recipe || recipe.产出.length === 0) continue;
+
+      let maxMinutes: number | undefined;
+      for (const input of recipe.消耗) {
+        const rate = Number(input.数量 || 0)
+          * productionDisplay.consumptionMultiplier
+          * assignment * productionDisplay.productionSpeed
+          * productionDisplay.efficiency;
+        if (rate <= 0) continue;
+        const supportedMinutes = this.getItemQty(input.名称, parts) / rate;
+        maxMinutes = maxMinutes === undefined ? supportedMinutes : Math.min(maxMinutes, supportedMinutes);
+      }
+
+      for (const output of recipe.产出) {
+        const ratio = Number(output.耐久 ?? 100) / 100;
+        const rate = Number(output.数量 || 0) * assignment * productionDisplay.productionSpeed
+          * productionDisplay.efficiency
+          * (ratio < 1 ? ratio * productionDisplay.byproductMultiplier : 1);
+        const limit = this.getItemQty(`生产限制${output.名称}`, parts);
+        if (limit > 0 && rate > 0) {
+          const remainingMinutes = (limit - this.getItemQty(output.名称, parts)) / rate;
+          maxMinutes = maxMinutes === undefined ? remainingMinutes : Math.min(maxMinutes, remainingMinutes);
+        }
+      }
+
+      const elapsedMinutes = Math.max(0, elapsedMs / 1000 / 60);
+      const minutes = Math.max(0, Math.min(maxMinutes ?? 0, elapsedMinutes));
+      if (minutes <= 0 || !Number.isFinite(minutes)) continue;
+
+      for (const output of recipe.产出) {
+        const ratio = Number(output.耐久 ?? 100) / 100;
+        const quantity = minutes * Number(output.数量 || 0) * assignment
+          * productionDisplay.productionSpeed * productionDisplay.efficiency
+          * (ratio < 1 ? ratio * productionDisplay.byproductMultiplier : 1);
+        this.addVehicleItemArray(parts, output.名称, quantity);
+        this.addVehicleItemArray(produced, output.名称, quantity);
+      }
+      for (const input of recipe.消耗) {
+        const ratio = Number(input.耐久 ?? 100) / 100;
+        const quantity = minutes * Number(input.数量 || 0)
+          * productionDisplay.consumptionMultiplier * ratio * assignment
+          * productionDisplay.productionSpeed * productionDisplay.efficiency;
+        this.addVehicleItemArray(parts, input.名称, -quantity);
+        this.addVehicleItemArray(consumed, input.名称, quantity);
+      }
+    }
+
+    let availableTime = 0;
+    for (const item of combinedPerMinute) {
+      const quantity = Number(item.数量 || 0);
+      const supportedSeconds = quantity < 0
+        ? this.getItemQty(item.名称, parts) / -quantity * 60
+        : 86400.12345678;
+      availableTime = availableTime === 0
+        ? supportedSeconds
+        : Math.min(availableTime, supportedSeconds);
+    }
+
+    return {
+      productionDisplay: productionDisplayText,
+      productionSpeed: productionDisplay.productionSpeed,
+      byproductMultiplier: productionDisplay.byproductMultiplier,
+      consumptionMultiplier: productionDisplay.consumptionMultiplier,
+      efficiency: productionDisplay.efficiency,
+      availableTime,
+      consumedProductivity,
+      elapsedMs,
+      outputPerMinute,
+      consumptionPerMinute,
+      combinedPerMinute,
+      produced,
+      consumed,
+      stopped: false,
+    };
   }
 
   /**
@@ -6862,9 +7433,47 @@ export class CombatSystemService {
     s: number | null = null,
     productivity = 0,
     mapId?: number,
+    options: VehicleRecalculationOptions = {},
   ): any {
-    this.computeVehicle(vehicle, s, false, undefined, undefined, productivity, mapId);
+    this.computeVehicle(vehicle, s, false, undefined, undefined, productivity, mapId, options);
     return vehicle;
+  }
+
+  /** 原版「计算载具(..., 计算产出=真)」的公开入口。 */
+  produceVehicle(
+    vehicle: any,
+    timestamp: number,
+    productivity = 0,
+    mapId?: number,
+    options: VehicleRecalculationOptions = {},
+  ): VehicleProductionResult {
+    const result = this.computeVehicle(
+      vehicle,
+      timestamp,
+      true,
+      undefined,
+      undefined,
+      productivity,
+      mapId,
+      options,
+    );
+    return result || {
+      productionDisplay: '0!0!0!100',
+      productionSpeed: 1,
+      byproductMultiplier: 1,
+      consumptionMultiplier: 1,
+      efficiency: 1,
+      availableTime: 0,
+      consumedProductivity: 0,
+      elapsedMs: 0,
+      outputPerMinute: [],
+      consumptionPerMinute: [],
+      combinedPerMinute: [],
+      produced: [],
+      consumed: [],
+      stopped: true,
+      reason: 'invalid-vehicle',
+    };
   }
 
   private computeVehicle(
@@ -6875,7 +7484,10 @@ export class CombatSystemService {
     tasks?: any[],
     productivity?: number,
     mapId?: number,
-  ): void {
+    options: VehicleRecalculationOptions = {},
+  ): VehicleProductionResult | undefined {
+    // DB 载具和历史地图 JSON 使用英文/中文混合字段，先统一为原版中文运行时结构。
+    this.normalizeRuntimeVehicle(vehicle);
     const 部件列表 = this.staticData.getAllVehiclePartSpecs() || [];
     const 部件限制: any[] = []; // 原版 部件限制 全局（商店-部件限制），当前无数据
     const j: any = {}; // 全新空加成
@@ -6898,7 +7510,6 @@ export class CombatSystemService {
     vehicle.逆转力场 = false;
     vehicle.上限 = 0;
     vehicle.涂层 = 0;
-    const 物品: any = { 类型: '资源' };
     const 计算用零件: any[] = [];
     // 原版 L3598-3612：遍历零件，展开内置零件 + 加入计算用零件
     for (const p of vehicle.零件 || []) {
@@ -6906,7 +7517,15 @@ export class CombatSystemService {
       const spec = 部件列表.find((b: any) => b.name === p.名称);
       if (spec && Array.isArray(spec.builtinParts)) {
         for (const inner of spec.builtinParts) {
-          const innerItem = { ...inner, 耐久: -11, 数量: inner.count ?? inner.数量 ?? 0 };
+          const innerItem = {
+            ...inner,
+            名称: inner.名称 ?? inner.name ?? '',
+            name: inner.name ?? inner.名称 ?? '',
+            耐久: -11,
+            durability: -11,
+            数量: inner.count ?? inner.数量 ?? inner.quantity ?? 0,
+            quantity: inner.count ?? inner.数量 ?? inner.quantity ?? 0,
+          };
           计算用零件.push(innerItem);
         }
       }
@@ -6945,9 +7564,19 @@ export class CombatSystemService {
       } else {
         if (cp.耐久 !== -11) { // 内置零件不参与
           if (spec.limit2) {
-            物品.名称 = spec.limit2;
-            物品.数量 = cp.数量;
-            部件限制.push(物品);
+            // 原版通过“获得物品”加入物品3副本；不能复用同一个对象，
+            // 且物品3的限制值字段是“数量”而不是“数值”。
+            const limitItem = {
+              名称: spec.limit2,
+              name: spec.limit2,
+              类型: '资源',
+              type: '资源',
+              数量: Number(cp.数量 ?? 0),
+              quantity: Number(cp.数量 ?? 0),
+              耐久: 100,
+              durability: 100,
+            };
+            部件限制.push(limitItem);
           }
           // 行走/防御/武器/功能 上限与超限（原版 L3647-3714 四段）
           this.applyPartLimit(vehicle, spec, cp, '行走', 'walk');
@@ -6974,12 +7603,15 @@ export class CombatSystemService {
     }
     // 原版 L3752-3759：逆转力场 加成修正
     if (vehicle.逆转力场) {
-      vehicle.加成.护盾全抗 += (1 - vehicle.加成.护盾全抗 / 100) * vehicle.加成.生命;
-      vehicle.加成.装甲全抗 += (1 - vehicle.加成.装甲全抗 / 100) * vehicle.加成.生命;
-      vehicle.加成.生命全抗 += (1 - vehicle.加成.生命全抗 / 100) * vehicle.加成.生命;
-      vehicle.加成.攻击 *= 0.34;
-      vehicle.加成.攻击2 *= 0.34;
-      vehicle.加成.韧性 *= 0.34;
+      vehicle.加成.护盾全抗 = Number(vehicle.加成.护盾全抗 || 0)
+        + (1 - Number(vehicle.加成.护盾全抗 || 0) / 100) * Number(vehicle.加成.生命 || 0);
+      vehicle.加成.装甲全抗 = Number(vehicle.加成.装甲全抗 || 0)
+        + (1 - Number(vehicle.加成.装甲全抗 || 0) / 100) * Number(vehicle.加成.生命 || 0);
+      vehicle.加成.生命全抗 = Number(vehicle.加成.生命全抗 || 0)
+        + (1 - Number(vehicle.加成.生命全抗 || 0) / 100) * Number(vehicle.加成.生命 || 0);
+      vehicle.加成.攻击 = Number(vehicle.加成.攻击 || 0) * 0.34;
+      vehicle.加成.攻击2 = Number(vehicle.加成.攻击2 || 0) * 0.34;
+      vehicle.加成.韧性 = Number(vehicle.加成.韧性 || 0) * 0.34;
     }
     // 原版 L3760-3768：上限负值保护
     if (vehicle.武器上限 < 0) vehicle.武器上限 = 0;
@@ -6990,21 +7622,21 @@ export class CombatSystemService {
     if (this.reqItem('湮灭圣光', 计算用零件) &&
         this.reqItem('氢弹', 计算用零件, 0.1)) {
       c = 1;
-      vehicle.加成.贯穿 += 20;
+      vehicle.加成.贯穿 = Number(vehicle.加成.贯穿 || 0) + 20;
       this.bonusService.addPenetration(vehicle.加成, 20);
     }
     if (c === 0) {
       if (this.reqItem('审判导弹', 计算用零件) &&
           this.reqItem('导弹', 计算用零件, 0.1)) {
-        vehicle.加成.贯穿 += 10;
+        vehicle.加成.贯穿 = Number(vehicle.加成.贯穿 || 0) + 10;
         this.bonusService.addPenetration(vehicle.加成, 10);
       } else if (this.reqItem('星爆导弹', 计算用零件) &&
                  this.reqItem('导弹', 计算用零件, 0.05)) {
-        vehicle.加成.贯穿 += 8;
+        vehicle.加成.贯穿 = Number(vehicle.加成.贯穿 || 0) + 8;
         this.bonusService.addPenetration(vehicle.加成, 8);
       } else if (this.reqItem('炼狱导弹', 计算用零件) &&
                  this.reqItem('导弹', 计算用零件, 0.01)) {
-        vehicle.加成.贯穿 += 5;
+        vehicle.加成.贯穿 = Number(vehicle.加成.贯穿 || 0) + 5;
         this.bonusService.addPenetration(vehicle.加成, 5);
       }
     }
@@ -7017,8 +7649,8 @@ export class CombatSystemService {
       if (this.reqItem('小粉', 计算用零件)) vehicle.行走上限 += 1;
       vehicle.加成.生产 *= (1 + (productivity ?? 0) / 100);
     } else {
-      // 生产类：需 所在地图 查驾驶员（咏星/兰音幼崽），本场景无 → 跳过
-      let 咏星 = 0;
+      // 生产类：咏星由 GameService 根据当前地图召唤物传入。
+      const 咏星 = Number(options.yongxing || 0);
       if (this.reqItem('小粉', 计算用零件)) {
         vehicle.加成.生产 *= (1 + 0.05 + (productivity ?? 0) / 100 + 咏星);
       } else {
@@ -7034,7 +7666,8 @@ export class CombatSystemService {
     // 原版 L3855-3864：部件限制超出 → 当前生命=0
     if (部件限制.length > 0) {
       for (const pl of 部件限制) {
-        if (this.getItemQty(pl.名称, 部件限制) > pl.数值) { c = 1; vehicle.当前生命 = 0; break; }
+        const limit = Number(pl.数量 ?? pl.quantity ?? pl.数值 ?? 0);
+        if (this.getItemQty(pl.名称, 部件限制) > limit) { c = 1; vehicle.当前生命 = 0; break; }
       }
     }
     // 原版 L3865-3897：生命回血（琪莎拉）/ 上限标志
@@ -7060,10 +7693,24 @@ export class CombatSystemService {
     }
     // 原版 L3895-3897：生命封顶
     if (vehicle.当前生命 > vehicle.加成.生命) vehicle.当前生命 = vehicle.加成.生命;
-    // 原版 L3898-3911：产出分支（取生产产出）—— 独立生产系统大项(RKT⬜)，此处跳过
+    // 同步英文字段，供 GameVehicle 持久化以及现有战斗代码读取。
+    vehicle.生命 = Number(vehicle.加成.生命 || 0);
+    vehicle.maxHp = vehicle.生命;
+    vehicle.currentHp = vehicle.当前生命;
+    vehicle.moveType = vehicle.行走方式;
+    vehicle.slotStatus = vehicle.上限;
+    // 原版 L3898-3911：产出分支（取生产产出）。
     if (calcOutput && s != null) {
-      // TODO: 取生产产出(vehicle, s, ..., achieve, tasks, ..., 咏星, 兰音幼崽) —— RKT ⬜ 生产系统
+      if (vehicle.上限 < 2) {
+        return this.calculateVehicleProduction(vehicle, s, {
+          yongxing: options.yongxing,
+          lannBaby: options.lannBaby,
+        });
+      }
+      // 原版超限分支不调用取生产产出，但仍保存本次读取时间。
+      if (vehicle.配方.length > 0) vehicle.配方[0].数值 = s;
     }
+    return undefined;
   }
 
   /** 原版 L3647-3714 四段：按部件类型套用 行走/防御/武器/功能 上限与超限 */

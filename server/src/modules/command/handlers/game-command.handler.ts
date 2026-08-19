@@ -124,7 +124,7 @@ export class GameCommandHandler implements CommandHandler {
 
         case '炮击':
         case 'cannon':
-          return this.wrap(await this.combatSystem.cannonAttack(userId));
+          return this.wrap(await this.combatSystem.cannonAttack(userId, arg));
 
         // ========== 自动战斗 / 延时攻击（对应原版 自动战斗 / 延时攻击指令） ==========
         case '自动战斗':
@@ -540,7 +540,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.familiarSystem.handleHome(userId, '建造房子'));
 
         case '生产':
-          return this.wrap(await this.handleHomeCommand(userId, '生产', args));
+          return this.wrap(await this.gameService.handleVehicleProduction(userId, args.join(' ')));
 
         case '建造':
           return this.wrap(await this.handleHomeCommand(userId, '建造', args));
@@ -1465,11 +1465,11 @@ export class GameCommandHandler implements CommandHandler {
         // ========== 生产模式 ==========
         case '生产0':
         case 'prod-mode-0':
-          return this.wrap(await this.gameService.handleProductionMode(userId, 0));
+          return this.wrap(await this.gameService.handleVehicleProduction(userId, '0'));
 
         case '生产1':
         case 'prod-mode-1':
-          return this.wrap(await this.gameService.handleProductionMode(userId, 1));
+          return this.wrap(await this.gameService.handleVehicleProduction(userId, '1'));
 
         // ========== 铠甲合体 ==========
         case '炎龙':

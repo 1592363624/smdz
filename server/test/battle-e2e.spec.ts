@@ -561,7 +561,8 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
   // ---------- 载具承伤（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L3175-3288） ----------
   describe('载具承伤（玩家驾驶载具时怪物攻击先打载具）', () => {
     // 直接驱动 monsterCounterAttack：构造驾驶载具的玩家 + 高伤怪物，
-    // calcDamage mock 固定伤害，验证「载具先承伤 → 破碎后溢出到玩家」与原版 L3175 一致。
+    // calcDamage mock 固定伤害，验证普通伤害先由载具承受；原版普通载具分支
+    // 结算后会清零剩余三池，不把溢出伤害继续转给玩家。
     async function runVehicleCounter(vehicle: any | null, dmg: number) {
       const player = makePlayer({ userId: 2, hp: 100, maxHp: 100, vehicle: vehicle ? vehicle.id : null });
       const monster = makeMonster({ id: 1001, hp: 100, attack: 999, specialSeq: 0, buffs: '[]', markers2: '[]' });
@@ -588,11 +589,10 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(player.hp).toBe(100); // 玩家不掉血（载具吸收全部）
     });
 
-    it('驾驶载具但耐久不足 → 载具破碎，溢出伤害落到玩家三池', async () => {
+    it('驾驶载具但耐久不足 → 载具破碎，普通伤害余量不会落到玩家三池', async () => {
       const v = { id: 'V1', name: '测试载具', currentHp: 20, maxHp: 100, parts: '[]', markers2: '[]' };
-      const { player } = await runVehicleCounter(v, 50); // 溢出 30 落到玩家
-      expect(player.hp).toBeLessThan(100); // 玩家受到溢出伤害
-      expect(player.hp).toBe(70); // 100 - 30 溢出
+      const { player } = await runVehicleCounter(v, 50); // 原版清零普通伤害余量
+      expect(player.hp).toBe(100); // 战斗相关.ecode L3500 附近：普通分支不伤及驾驶员
     });
 
     it('未驾驶载具 → 伤害直接落玩家三池（无载具承伤分支）', async () => {

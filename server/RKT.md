@@ -71,7 +71,7 @@
 | 套装判断2 | L3381 | — | ⬜ | |
 | 增加穿透 | L3446 | `combat-system`? | ⬜ | |
 | 增强器 | L3453 | — | ⬜ | 1护盾2装甲3生命 |
-| 计算载具 | L3556 | `combat-system.computeVehicle` + `vehicle-parts.json` | ✅ | 1:1 还原(L3556-3912)：载具.加成重置；展开内置零件+匹配部件列表套用上限/行走/防御/武器/功能四类(正负二分支，原版L3647-3714)；硅基核心阿尔法=1.035/贝塔=1.025；核心partType=0设上限与行走方式；逆转力场攻击/攻击2/韧性×0.34+全抗加成(L3752)；湮灭圣光+氢弹→贯穿+20/审判/星爆/炼狱导弹+导弹→贯穿+10/8/5并加穿透(L3769-3801)；小雫/小凰/小蓝/小粉上限+1(L3804-3815)；超限判定当前生命=0/行走方式=0(L3836-3854)；部件限制超限清零(L3855)；上限标志1→3/2(L3887-3894)；封顶当前生命≤加成.生命(L3895)。⚠️产出分支L3898-3911调取生产产出→RKT⬜(独立生产系统大项)；部件限制全局当前无数据→空数组。`vehicle-parts.json`(74个类型=载具节，由使魔大战.txt提取)为硬前置数据。新增 test/combat.spec.ts 5用例 |
+| 计算载具 | L3556 | `combat-system.computeVehicle` + `vehicle-parts.json` | ✅ | 1:1 还原(L3556-3912)：载具.加成重置；展开内置零件+匹配部件列表套用上限/行走/防御/武器/功能四类(正负二分支，原版L3647-3714)；硅基核心阿尔法=1.035/贝塔=1.025；核心partType=0设上限与行走方式；逆转力场攻击/攻击2/韧性×0.34+全抗加成(L3752)；湮灭圣光+氢弹→贯穿+20/审判/星爆/炼狱导弹+导弹→贯穿+10/8/5并加穿透(L3769-3801)；小雫/小凰/小蓝/小粉上限+1(L3804-3815)；超限判定当前生命=0/行走方式=0(L3836-3854)；部件限制按`物品3.名称/数量`统计，超限清零(L3855，修复了临时对象复用和错误读取`数值`)；上限标志1→3/2(L3887-3894)；封顶当前生命≤加成.生命(L3895)；产出分支L3898-3911已接入`calculateVehicleProduction`。`vehicle-parts.json`现为完整导出的166条载具部件规格，为硬前置数据。`test/combat.spec.ts`及`test/vehicle-production.spec.ts`覆盖核心/内置部件/超限 |
 | 叠加载具加成 | L3913 | `combat-system.stackVehicleBonus` | ✅ | 1:1 还原(L3913-4020)：核心负面降低=硅基核心加成>1?1-(硅基核心加成-1)*2:1；逐字段>0用硅基核心加成否则用核心负面降低(攻击2/生命2/护盾2/装甲2/闪避2/命中2/电火冰物伤2/溅射2/速度2/生命回复2/护盾回复2/装甲回复2/攻击/护盾/装甲/生命/闪避/命中/电火冰物伤/溅射/速度)；生产字段生产类?×1:×1/4；攻击次数累加 |
 
 ### 2.2 _初始化怪物 深层 (buildMonsterBonusFromDef) 自检 (🔶 阶段A)
@@ -228,11 +228,11 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 打开箱子 | L2220 | `gather`? | ⬜ |
 | 激活装备特效 | L2459 | — | ⬜ |
 | 宠物觉醒装备 | L2493 | — | ⬜ |
-| 组装载具 | L2518 | — | ⬜ |
+| 组装载具 | L2518 | `game.service.handleAssembleVehicle` / `handleInstallPart` | 🔶 | 基础组装与部件安装已接线；完整拆卸返还、仓储和所有原版分支仍需逐项核对 |
 | 取咏星加成 | L2599 | — | ⬜ |
-| 配方配平 | L2612 | — | ⬜ |
-| 取生产产出 | L2692 | — | ⬜ |
-| 叠加物品数组 | L2955 | — | ⬜ |
+| 配方配平 | L2612-2690 | `game.service.handleVehicleProduction` 的`配平`分支 | ✅ | 按目标配方消耗、其他配方产出、耐久、副产物倍率、生产效率和顺序写回生产力；原版无匹配产出时保留提示。 |
+| 取生产产出 | L2692-2954 | `combat-system.calculateVehicleProduction` / `produceVehicle` | ✅ | 首次读取时间、生产速度/副产物/消耗倍率、生产力超限效率、限制库存、按配方顺序消耗与产出、无生产力具现装置、超限停止均已实现；`test/vehicle-production.spec.ts` 10/10 |
+| 叠加物品数组 | L2955-2963 | `combat-system.mergeVehicleItem` / `addVehicleItemArray` | ✅ | 同名物品合并、中文/英文存量字段兼容、消耗归零删除，生产产出与载具零件写回使用同一逻辑 |
 | 获得物品 | L2964 | `item-system.gainItem` | 🔶 |
 
 ---
@@ -342,13 +342,46 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
   - `startAutoCombat`(L5177) 已是「每5秒自动 `weaponAttack`」的 cron 式循环；`schedule.service.ts` 已有每分钟怪物刷新等定时。
   - 故不再新建 `runBattleRound`（会与现有 `weaponAttack`+自动战斗闭环分裂，违反单一真相）。
 - **本轮补齐的真实子链路（用户点名「载具」）**：
-  - **载具承伤**（原版 L3175-3288）：在 `monsterCounterAttackOnePlayer` 扣玩家血前插入——玩家驾驶载具(`victim.vehicle` 匹配 `map.vehicles` 实例且 `currentHp>0`) → 伤害先扣载具耐久，载具破碎后溢出到玩家三池；阿尔缇娜(`specialSeq=7`)攻击额外 贯穿×1.5+伤害×(1.25+技等/200)；载具状态写回并持久化 `map.vehicles`。**部件级细节（损伤控制系统/贯穿抵抗/侵彻拆分）暂以"载具先承全部伤害"近似**，标注 TODO 按原版保留。
+  - **载具承伤**（原版 L3175-3288）：在 `monsterCounterAttackOnePlayer` 扣玩家血前插入——玩家驾驶载具(`victim.vehicle` 匹配 `map.vehicles` 实例且 `currentHp>0`) → 普通伤害先扣载具耐久；原版普通分支在载具承伤后清零剩余三池，因此载具耐久不足时同一次普通攻击不会把余量继续打到玩家；阿尔缇娜(`specialSeq=7`)攻击额外贯穿×1.5+伤害×(1.25+技等/200)；载具状态写回并持久化 `map.vehicles`。**部件级细节（损伤控制系统/贯穿抵抗/侵彻拆分）仍待逐行补齐**，不以近似实现冒充完成。
   - **扫荡走完整模型**（原版扫荡=攻击循环）：`handleSweep`(game.service L2893) 原用 `playerAtk-monster.defense` 假公式 → 改为逐怪调用 `combatSystem.weaponAttack`（含反击/召唤物闭环），消除与原版不一致。
 - **仍待补（下一轮，独立大项）**：载具部件级受击（损伤控制系统/贯穿抵抗/侵彻拆分，L3194-3288 全量）；天神降世(觉醒)在反击方怪物侧的加成；家园产出剩余特殊分支；占位 handler 内部（§11.4）。
 
 ### §11.2 载具受击子系统（已部分落地，见 §11.1）
-- 核心承伤闭环（载具先承伤/破碎溢出/阿尔缇娜贯穿）已于 2026-08-18 在 `monsterCounterAttackOnePlayer` 接入。
+- 核心承伤闭环（载具先承伤/普通分支清零余池/阿尔缇娜贯穿）已于 2026-08-19 在 `monsterCounterAttackOnePlayer` 接入；普通载具耐久不足的原版行为由 `test/battle-e2e.spec.ts` 覆盖。
 - 余下部件级细节随 §11.1 待补项单独立项。
+
+### §11.2.1 载具生产逐行对照（2026-08-19）
+
+【原文 `_主程序.ecode L10929-L11222`】
+
+- `生产` 无参数的帮助文本、`生产0` 查看生产线、`生产1` 时间加速。
+- `生产限制/配平/排序/配方名+生产力` 均在同一载具上下文内执行，载具来源优先接管状态，其次玩家驾驶状态。
+
+【原文 `物品操作.ecode L2612-L2690`】
+
+- 配方配平按目标配方的消耗寻找其他配方产出，乘耐久、副产物、生产效率和生产速度后写回生产力。
+
+【原文 `物品操作.ecode L2692-L2954`】
+
+- 以配方首项时间戳计算经过时间，按生产配方顺序消耗/产出；支持生产调度系统 I/II、生产加速、九尾狐、咏星、兰音幼崽、小凰/小雫/具现装置、生产限制、生产力超限和超限部件停止。
+- 生产结果写回地图 JSON 或 `GameVehicle`，并推进生产成就及按物品拆分的任务。
+
+【原文 `物品操作.ecode L2955-L2963`、`@Struct.ecode L635-L645`】
+
+- 载具物品使用 `物品3.名称/数量/类型/耐久`；`mergeVehicleItem` 兼容现有英文 `name/quantity/type/durability` 存量数据。
+
+【复刻】
+
+- `server/src/modules/game/combat-system.service.ts`：`computeVehicle`、`calculateVehicleProduction`、`produceVehicle`、`mergeVehicleItem`。
+- `server/src/modules/game/game.service.ts`：`findProductionVehicle`、`handleVehicleProduction`、`handleDriveVehicle`、`handleTakeoverVehicle`。
+- `server/src/modules/command/handlers/game-command.handler.ts`：裸 `生产/生产0/生产1` 路由；`家园 生产` 保留家园命令路由。
+- `server/prisma/convert-e-to-json.ts`、`server/prisma/data/vehicle-parts.json`、`server/prisma/data/vehicle-recipes.json`：完整静态载具数据 166/95。
+
+【自检结论】
+
+- `test/vehicle-production.spec.ts`：10/10；`test/combat.spec.ts`、`test/battle-e2e.spec.ts` 与生产相关回归合计 135/135。
+- `npm run build` 通过；全量 `npm test -- --runInBand`：13/13 套件、214/214 测试通过。
+- 已知偏差：载具受击的损伤控制系统、贯穿抵抗、侵彻拆分仍未完成；部件限制全局无外部配置时按原版空数组运行。不得据此把整个 RKT 标记为完成。
 
 ### §11.3 家园子系统（前线/产出）
 - **前线：✅ 已完成（2026-08-18）**。对照接口1.ecode L1395-1480，`MapService.ensureHouseMaps` 持久化院子、屋内、前线三张动态地图并维护入口；对照 _主程序.ecode L2228-2254，`FamiliarSystemService.handleHomeFrontline` 首次查看调用 `generateFrontline` 并保存召唤物/载具；对照 _主程序.ecode L2077-2163，`GameService.handleStartBattle` 按前线等级分支生成地精 `GameMonster`、置掉落、开启活动。真实数据库专项 `test/integration-home-frontline.spec.ts` 6/6 通过。
@@ -383,7 +416,7 @@ d.名称 = 玩家列表[a].房子名称
 
 【复刻】`map.service.ts` `ensureHouseMaps`：动态 `GameMap` 按名称幂等创建，院子与世界地图、屋内/前线与院子互相追加连接；`getAllMaps/getMapByName` 会返回数据库中的动态地图；`renameHouseMaps` 同步改名入口，搬迁移除旧世界入口。
 
-【自检结论】专项真实数据库测试 6/6，通过 `npm test -- --runInBand` 全量 11 suites/188 tests，`npm run build` 通过。已知偏差仅为静态战斗建筑数据及家园产出剩余特殊分支，未将其伪报为完成。
+【自检结论】专项真实数据库测试 6/6，通过 `npm test -- --runInBand` 全量 13 suites/214 tests，`npm run build` 通过。已知偏差仅为静态战斗建筑数据及家园产出剩余特殊分支，未将其伪报为完成。
 
 ---
 

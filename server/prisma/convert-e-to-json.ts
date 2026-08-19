@@ -38,9 +38,11 @@ try {
 const ROOT_DIR = path.resolve(__dirname, '../../');
 const ECODE_DIR = path.resolve(ROOT_DIR, 'e/源码解析成为txt');
 // 原版主配置（GBK 编码）：易语言源码 e/源码解析成为txt/使魔大战.txt。
-// 注：完整原版数据曾临时导出到工作区根目录 _decoded_original.txt(UTF-8 BOM) 用于一次性重建 JSON，
-//     重建后恢复本行指向。解析器已兼容 GBK/UTF-8(BOM)。
+// 工作区根目录的 _decoded_original.txt 是当前完整 UTF-8 导出；旧版 GBK 文件是裁剪版，
+// 缺少后续版本的使魔、载具和生产配置。存在完整导出时，所有静态数据都以它为准。
+const COMPLETE_DATA_FILE = path.resolve(ROOT_DIR, '_decoded_original.txt');
 const DATA_FILE = path.resolve(ECODE_DIR, '使魔大战.txt');
+const RECIPE_DATA_FILE = fs.existsSync(COMPLETE_DATA_FILE) ? COMPLETE_DATA_FILE : DATA_FILE;
 const BLUEPRINT_FILE = path.resolve(ECODE_DIR, '0.txt');
 const CONSTANT_FILE = path.resolve(ECODE_DIR, '@Constant.ecode');
 const RESOURCE_DIR = path.resolve(ECODE_DIR, '@Resource');
@@ -229,25 +231,38 @@ interface ConstantMappings {
 
 function parseConstantEcode(): ConstantMappings {
   const buf = fs.readFileSync(CONSTANT_FILE);
-  const txt = iconv.decode(buf, 'gbk');
+  // The checked-in export is UTF-8 with BOM, while older source dumps may be GBK.
+  // Keep the same encoding detection used by parseConfigFile so constant names
+  // continue to match the UTF-8 config sections (notably familiar specialSeq).
+  const txt = buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf
+    ? iconv.decode(buf, 'utf-8')
+    : iconv.decode(buf, 'gbk');
   const weapons: Record<string, number> = {};
   const familiars: Record<string, number> = {};
   const equipment: Record<string, number> = {};
   let section: 'initial' | 'equip' | 'weapon' | 'familiar' = 'initial';
+  let sectionBreaks = 0;
 
   for (const line of txt.split(/\r?\n/)) {
     const t = line.trim();
     if (!t) continue;
-    if (t === '.常量') { section = 'initial'; continue; }
+    if (t === '.常量') {
+      sectionBreaks += 1;
+      // @Constant.ecode uses a bare .常量 line as the boundary between
+      // equipment, weapon and familiar constants. Numeric sign alone cannot
+      // distinguish the first familiar (1) from an equipment constant.
+      if (sectionBreaks === 1) section = 'equip';
+      else if (sectionBreaks === 2) section = 'weapon';
+      else if (sectionBreaks === 3) section = 'familiar';
+      continue;
+    }
     const m = t.match(/^\.常量\s+(\S+)\s*,\s*"(-?\d+)"/);
     if (!m) continue;
     const name = m[1];
     const val = parseInt(m[2]);
-    if (val < 0 && val >= -100) { section = 'weapon'; weapons[name] = val; }
-    else if (val > 0 && val <= 100 && section === 'weapon') { section = 'familiar'; familiars[name] = val; }
-    else if (val > 0 && val <= 100 && section === 'familiar') { familiars[name] = val; }
-    else if (val > 0 && val <= 200 && section === 'initial') { section = 'equip'; equipment[name] = val; }
-    else if (val > 0 && section === 'equip') { equipment[name] = val; }
+    if (section === 'weapon' && val < 0 && val >= -100) weapons[name] = val;
+    else if (section === 'familiar' && val > 0 && val <= 100) familiars[name] = val;
+    else if (section === 'equip' && val > 0) equipment[name] = val;
   }
   return { weapons, familiars, equipment };
 }
@@ -502,20 +517,48 @@ function mapCraftingToCrafting(section: ConfigSection) {
   };
 }
 
+/** 配置节自身的特殊序号优先于常量表，兼容名称别名和不可召唤条目。 */
+function resolveSpecialSeq(section: ConfigSection, fallback: number): number {
+  const raw = section.fields['特殊序号'];
+  if (raw !== undefined && raw.trim() !== '') {
+    const value = Number(raw);
+    if (Number.isFinite(value)) return value;
+  }
+  return fallback;
+}
+
 function mapVehicleRecipeToRecipe(section: ConfigSection) {
   const fields = section.fields;
   const outputs = parseVehicleRecipeItems(fields['产出'] || fields['输出'] || '');
   const inputs = parseVehicleRecipeItems(fields['消耗'] || fields['需求'] || '');
+  const name = section.name.replace(/配方/g, '');
+  const production = parseFloat(fields['生产力消耗'] || fields['生产力'] || '1') || 1;
+  const unlockRequirements = parseUnlockRequirements(fields['解锁需求'] || '');
   return {
-    name: section.name,
+    // 原版 数据存取.ecode L910：pf.名称=子文本替换(节名,"配方",...)
+    name,
     description: fields['说明'] || '',
     level: parseInt(fields['等级']) || 1,
+    production,
+    生产力: production,
+    unlockRequirements: JSON.stringify(unlockRequirements),
+    解锁需求: unlockRequirements,
     outputs: JSON.stringify(outputs),
     inputs: JSON.stringify(inputs),
     // 保留中文别名，便于直接对照原版字段和兼容手工配置。
     产出: outputs,
     消耗: inputs,
   };
+}
+
+/** 原版解锁需求使用“行为+名称+数量”紧凑格式，例如“采集钻石10000”。 */
+function parseUnlockRequirements(str: string): Array<{ name: string; count: number }> {
+  if (!str || !str.trim()) return [];
+  return str.trim().split(/\s+/).map((token) => {
+    const match = token.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
+    if (!match) return { name: token, count: 1 };
+    return { name: match[1], count: parseFloat(match[2]) || 0 };
+  });
 }
 
 function mapTitleToTitle(section: ConfigSection) {
@@ -569,6 +612,51 @@ function mapVehicleToVehicle(section: ConfigSection) {
     bonus: JSON.stringify(bonus),
     parts: '[]', markers: '{}', markers2: '[]',
     recipes: '[]', builtinParts: '[]', coating: 0, reverseField: false,
+  };
+}
+
+/** 原版「部件列表」规格，供计算载具和载具生产使用。 */
+function mapVehiclePartSpec(section: ConfigSection) {
+  const fields = section.fields;
+  const partTypeMap: Record<string, number> = { 核心: 0, 防御: 1, 行走: 2, 武器: 3, 功能: 4 };
+  // 原版 数据存取.ecode L608-620：坐地不是缺省值，明确写入 4；未填写才是 0。
+  const moveTypeMap: Record<string, number> = { 坐地: 4, 陆地: 1, 飞行: 2, 跃迁: 3 };
+  const numberField = (name: string, fallback = 0): number => {
+    const value = Number.parseFloat(fields[name] || '');
+    return Number.isFinite(value) ? value : fallback;
+  };
+  const compactItems = (value: string): Array<{ name: string; count: number }> => {
+    if (!value) return [];
+    return value.split(/[\s,，、]+/).filter(Boolean).map((token) => {
+      const match = token.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
+      if (!match) return { name: token, count: 1 };
+      return { name: match[1], count: Number.parseFloat(match[2]) || 0 };
+    });
+  };
+  const bonus: Record<string, number> = {};
+  const structural = new Set([
+    '说明', '限制', '上限', '行走方式', '内置零件', '限制2',
+    // 这些是载具部件的插槽/超限字段，不属于加成对象。
+    '行走', '防御', '武器', '功能',
+  ]);
+  for (const [key, raw] of Object.entries(fields)) {
+    if (structural.has(key)) continue;
+    const value = Number.parseFloat(raw);
+    if (Number.isFinite(value)) bonus[key] = value;
+  }
+  return {
+    name: section.name,
+    description: fields['说明'] || '',
+    limit: numberField('上限'),
+    partType: partTypeMap[fields['限制'] || ''] ?? 1,
+    moveType: fields['行走方式'] ? (moveTypeMap[fields['行走方式']] ?? 0) : 0,
+    walk: numberField('行走'),
+    defense: numberField('防御'),
+    weapon: numberField('武器'),
+    function: numberField('功能'),
+    limit2: fields['限制2'] || '',
+    builtinParts: compactItems(fields['内置零件'] || ''),
+    bonus,
   };
 }
 
@@ -871,7 +959,12 @@ function writeJson(name: string, data: any) {
 
 function main() {
   console.log('🚀 开始将 e/ 原始配置转换为 JSON...\n');
-  const sections = parseConfigFile(DATA_FILE);
+  const sections = parseConfigFile(RECIPE_DATA_FILE);
+  const completeSections = sections;
+  const recipeSections = completeSections.filter((section) => section.type === '配方');
+  // 完整导出包含后续版本新增的生产核心/生产部件；旧版配置只有早期部件。
+  const vehiclePartSections = (fs.existsSync(COMPLETE_DATA_FILE) ? completeSections : sections)
+    .filter((section) => section.type === '载具');
   const constant = parseConstantEcode();
 
   // 资源类型定义（供地图资源关联）
@@ -907,18 +1000,17 @@ function main() {
 
   for (const s of sections) {
     switch (s.type) {
-      case '武器': equipments.push(mapWeaponToEquipment(s, constant.weapons[s.name] || 0)); break;
-      case '装备': equipments.push(mapEquipmentToEquipment(s, constant.equipment[s.name] || 0)); break;
+      case '武器': equipments.push(mapWeaponToEquipment(s, resolveSpecialSeq(s, constant.weapons[s.name] || 0))); break;
+      case '装备': equipments.push(mapEquipmentToEquipment(s, resolveSpecialSeq(s, constant.equipment[s.name] || 0))); break;
       case '怪物': monsters.push(mapMonsterToMonster(s)); break;
       case '物品': items.push(mapItemToItem(s)); break;
-      case '使魔': familiars.push(mapFamiliarToFamiliar(s, constant.familiars[s.name] || 0)); break;
+      case '使魔': familiars.push(mapFamiliarToFamiliar(s, resolveSpecialSeq(s, constant.familiars[s.name] || 0))); break;
       case '地图': maps.push(mapMapToMap(s, resourceDefs)); break;
       case '文本': attackTexts.push(mapTextToAttackText(s)); break;
       case '制造': craftings.push(mapCraftingToCrafting(s)); break;
       case '称号': titles.push(mapTitleToTitle(s)); break;
       case '建筑': buildings.push(mapBuildingToBuilding(s)); break;
       case '载具': vehicles.push(mapVehicleToVehicle(s)); break;
-      case '配方': vehicleRecipes.push(mapVehicleRecipeToRecipe(s)); break;
       case '增益': buffs.push(mapBuffToBuff(s)); break;
       case '对话': npcs.push(mapDialogueToNpc(s)); break;
       case '任务': tasks.push(mapTaskToTask(s)); break;
@@ -928,6 +1020,7 @@ function main() {
       case '更新': updateLogs.push(mapUpdateToUpdateLog(s)); break;
     }
   }
+  for (const s of recipeSections) vehicleRecipes.push(mapVehicleRecipeToRecipe(s));
 
   const { blueprints, purchase } = parseBlueprintSections();
   const { setEffects, flavorTexts, seedItems } = readResourceTexts() as any;
@@ -942,6 +1035,7 @@ function main() {
   writeJson('titles.json', titles);
   writeJson('buildings.json', buildings);
   writeJson('vehicles.json', vehicles);
+  writeJson('vehicle-parts.json', vehiclePartSections.map(mapVehiclePartSpec));
   writeJson('vehicle-recipes.json', vehicleRecipes);
   writeJson('buffs.json', buffs);
   writeJson('npcs.json', npcs);

@@ -2614,6 +2614,571 @@ export class GameService {
     return totalBonus;
   }
 
+  /** 解析载具运行时 JSON，兼容 DB 字符串和地图 JSON 对象。 */
+  private parseVehicleValue<T>(value: any, fallback: T): T {
+    if (Array.isArray(value) || (value && typeof value === 'object')) return value as T;
+    if (typeof value !== 'string' || !value.trim()) return fallback;
+    return this.playerService.safeJsonParse<T>(value, fallback);
+  }
+
+  /** 将 DB/地图载具转换为原版中文字段运行时结构。 */
+  private toRuntimeVehicle(raw: any): any {
+    const normalizeItem = (item: any): any => {
+      const name = String(item?.名称 ?? item?.name ?? '');
+      const quantity = Number(item?.数量 ?? item?.quantity ?? item?.count ?? 1);
+      const durability = Number(item?.耐久 ?? item?.durability ?? 100);
+      return {
+        ...(item || {}),
+        名称: name,
+        name: item?.name ?? name,
+        类型: item?.类型 ?? item?.type ?? '资源',
+        type: item?.type ?? item?.类型 ?? '资源',
+        数量: Number.isFinite(quantity) ? quantity : 0,
+        quantity: item?.quantity ?? item?.count ?? (Number.isFinite(quantity) ? quantity : 0),
+        耐久: Number.isFinite(durability) ? durability : 100,
+        durability: item?.durability ?? (Number.isFinite(durability) ? durability : 100),
+      };
+    };
+    const normalizeRecipe = (recipe: any): any => {
+      const name = String(recipe?.名称 ?? recipe?.name ?? '');
+      const value = Number(recipe?.数值 ?? recipe?.value ?? recipe?.production ?? recipe?.count ?? 0);
+      return {
+        ...(recipe || {}),
+        名称: name,
+        name: recipe?.name ?? name,
+        数值: Number.isFinite(value) ? value : 0,
+        value: recipe?.value ?? (Number.isFinite(value) ? value : 0),
+      };
+    };
+    const parts = this.parseVehicleValue<any[]>(raw?.零件 ?? raw?.parts, []);
+    const recipes = this.parseVehicleValue<any[]>(raw?.配方 ?? raw?.recipes, []);
+    const bonus = this.parseVehicleValue<any>(raw?.加成 ?? raw?.bonus, {});
+    const markers2 = this.parseVehicleValue<any[]>(raw?.标记2 ?? raw?.markers2, []);
+    const currentHp = Number(raw?.当前生命 ?? raw?.currentHp ?? raw?.hp ?? 0);
+    const maxHp = Number(raw?.生命 ?? raw?.maxHp ?? 0);
+    const slotStatus = Number(raw?.上限 ?? raw?.slotStatus ?? 0);
+    const moveType = Number(raw?.行走方式 ?? raw?.moveType ?? 0);
+    return {
+      ...(raw || {}),
+      名称: String(raw?.名称 ?? raw?.name ?? ''),
+      name: raw?.name ?? raw?.名称 ?? '',
+      类型: String(raw?.类型 ?? raw?.type ?? ''),
+      type: raw?.type ?? raw?.类型 ?? '',
+      编号: String(raw?.编号 ?? raw?.vehicleId ?? raw?.id ?? ''),
+      vehicleId: raw?.vehicleId ?? raw?.编号 ?? raw?.id ?? '',
+      归属: String(raw?.归属 ?? raw?.owner ?? ''),
+      owner: raw?.owner ?? raw?.归属 ?? '',
+      驾驶员: String(raw?.驾驶员 ?? raw?.driver ?? ''),
+      driver: raw?.driver ?? raw?.驾驶员 ?? '',
+      当前生命: Number.isFinite(currentHp) ? currentHp : 0,
+      currentHp: Number.isFinite(currentHp) ? currentHp : 0,
+      生命: Number.isFinite(maxHp) ? maxHp : 0,
+      maxHp: Number.isFinite(maxHp) ? maxHp : 0,
+      上限: Number.isFinite(slotStatus) ? slotStatus : 0,
+      slotStatus: Number.isFinite(slotStatus) ? slotStatus : 0,
+      行走方式: Number.isFinite(moveType) ? moveType : 0,
+      moveType: Number.isFinite(moveType) ? moveType : 0,
+      零件: Array.isArray(parts) ? parts.map(normalizeItem) : [],
+      配方: Array.isArray(recipes) ? recipes.map(normalizeRecipe) : [],
+      加成: bonus && typeof bonus === 'object' ? bonus : {},
+      标记2: Array.isArray(markers2) ? markers2 : [],
+    };
+  }
+
+  /** 将原版中文运行时字段写回兼容的中英文载具对象。 */
+  private toStoredVehicle(runtime: any): any {
+    const parts = (runtime.零件 || []).map((item: any) => ({
+      ...(item || {}),
+      名称: item?.名称 ?? item?.name ?? '',
+      name: item?.name ?? item?.名称 ?? '',
+      类型: item?.类型 ?? item?.type ?? '资源',
+      type: item?.type ?? item?.类型 ?? '资源',
+      数量: Number(item?.数量 ?? item?.quantity ?? item?.count ?? 0),
+      quantity: Number(item?.quantity ?? item?.数量 ?? item?.count ?? 0),
+      耐久: Number(item?.耐久 ?? item?.durability ?? 100),
+      durability: Number(item?.durability ?? item?.耐久 ?? 100),
+    }));
+    const recipes = (runtime.配方 || []).map((recipe: any) => ({
+      ...(recipe || {}),
+      名称: recipe?.名称 ?? recipe?.name ?? '',
+      name: recipe?.name ?? recipe?.名称 ?? '',
+      数值: Number(recipe?.数值 ?? recipe?.value ?? 0),
+      value: Number(recipe?.value ?? recipe?.数值 ?? 0),
+    }));
+    const bonus = runtime.加成 || {};
+    const markers2 = runtime.标记2 || [];
+    return {
+      ...(runtime || {}),
+      名称: runtime.名称 ?? runtime.name ?? '',
+      name: runtime.name ?? runtime.名称 ?? '',
+      编号: runtime.编号 ?? runtime.vehicleId ?? runtime.id ?? '',
+      vehicleId: runtime.vehicleId ?? runtime.编号 ?? runtime.id ?? '',
+      类型: runtime.类型 ?? runtime.type ?? '',
+      type: runtime.type ?? runtime.类型 ?? '',
+      归属: runtime.归属 ?? runtime.owner ?? '',
+      owner: runtime.owner ?? runtime.归属 ?? '',
+      驾驶员: runtime.驾驶员 ?? runtime.driver ?? '',
+      driver: runtime.driver ?? runtime.驾驶员 ?? '',
+      当前生命: Number(runtime.当前生命 ?? runtime.currentHp ?? 0),
+      currentHp: Number(runtime.currentHp ?? runtime.当前生命 ?? 0),
+      生命: Number(runtime.生命 ?? runtime.maxHp ?? 0),
+      maxHp: Number(runtime.maxHp ?? runtime.生命 ?? 0),
+      上限: Number(runtime.上限 ?? runtime.slotStatus ?? 0),
+      slotStatus: Number(runtime.slotStatus ?? runtime.上限 ?? 0),
+      行走方式: Number(runtime.行走方式 ?? runtime.moveType ?? 0),
+      moveType: Number(runtime.moveType ?? runtime.行走方式 ?? 0),
+      零件: parts,
+      parts,
+      配方: recipes,
+      recipes,
+      加成: bonus,
+      bonus,
+      标记2: markers2,
+      markers2,
+    };
+  }
+
+  private vehicleDbData(runtime: any): Record<string, any> {
+    const stored = this.toStoredVehicle(runtime);
+    return {
+      name: stored.name,
+      vehicleId: String(stored.vehicleId || ''),
+      type: stored.type,
+      owner: String(stored.owner || ''),
+      driver: String(stored.driver || ''),
+      moveType: Number(stored.moveType || 0),
+      maxHp: Number(stored.maxHp || 0),
+      currentHp: Number(stored.currentHp || 0),
+      slotStatus: Number(stored.slotStatus || 0),
+      bonus: JSON.stringify(stored.bonus || {}),
+      parts: JSON.stringify(stored.parts || []),
+      markers2: JSON.stringify(stored.markers2 || []),
+      recipes: JSON.stringify(stored.recipes || []),
+    };
+  }
+
+  /** 持久化生产结算后的载具；地图 JSON 和 GameVehicle 共用同一运行时结构。 */
+  private async persistRuntimeVehicle(source: any, runtime: any): Promise<void> {
+    if (source.kind === 'db') {
+      await this.prisma.gameVehicle.update({
+        where: { id: source.db.id },
+        data: this.vehicleDbData(runtime),
+      });
+      return;
+    }
+    const vehicles = this.parseVehicleValue<any[]>(source.map?.vehicles, []);
+    if (source.index == null || source.index < 0 || source.index >= vehicles.length) return;
+    vehicles[source.index] = this.toStoredVehicle(runtime);
+    await this.mapService.updateDynamicFields(source.map.id, {
+      vehicles: JSON.stringify(vehicles),
+    });
+  }
+
+  /** 根据玩家驾驶/接管状态寻找当前可操作载具。 */
+  private async findProductionVehicle(userId: number, player: any, currentMap: any): Promise<any | null> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const ownerIds = new Set([
+      String(userId), String(player?.userId ?? ''), String(user?.qqNumber ?? ''),
+      String(user?.externalId ?? ''), String(player?.masterQQ ?? ''),
+    ].filter(Boolean));
+    const sets = this.parseVehicleValue<any>(player?.sets, {});
+    const takeover = String(sets?.takeVehicle ?? sets?.接管载具 ?? '');
+    const requested = takeover || String(player?.vehicle ?? '');
+
+    const matchUnit = (unit: any, key: string): boolean => {
+      const ids = [unit?.编号, unit?.vehicleId, unit?.id, unit?.name, unit?.名称]
+        .filter((value) => value !== undefined && value !== null)
+        .map(String);
+      if (key && ids.includes(key)) return true;
+      const driver = String(unit?.驾驶员 ?? unit?.driver ?? '');
+      return !key && ownerIds.has(driver);
+    };
+    const mapSource = (map: any, index: number): any => {
+      const vehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
+      const raw = vehicles[index];
+      if (!raw) return null;
+      return { kind: 'map', map, index, raw, runtime: this.toRuntimeVehicle(raw) };
+    };
+
+    const findDbVehicle = async (key: string): Promise<any | null> => {
+      const numericId = Number(key);
+      let db = Number.isInteger(numericId) && numericId > 0
+        ? await this.prisma.gameVehicle.findUnique({ where: { id: numericId } })
+        : null;
+      if (!db && key) {
+        db = await this.prisma.gameVehicle.findFirst({
+          where: { OR: [{ vehicleId: key }, { name: key }] },
+        });
+      }
+      return db;
+    };
+
+    const currentVehicles = this.parseVehicleValue<any[]>(currentMap?.vehicles, []);
+
+    // 当前玩家.vehicle 是数据库载具主键时优先读取 GameVehicle；接管状态仍按原版优先查地图 JSON。
+    // 这样旧地图中的同编号载具不会劫持新数据库载具的生产命令。
+    if (!takeover && requested) {
+      const db = await findDbVehicle(requested);
+      if (db) return { kind: 'db', db, runtime: this.toRuntimeVehicle(db), map: currentMap };
+    }
+
+    let index = currentVehicles.findIndex((unit) => matchUnit(unit, requested));
+    if (index >= 0) return mapSource(currentMap, index);
+
+    // 接管载具可能暂时不在玩家所在地图；原版会全图检索并自动清理失效接管状态。
+    if (takeover) {
+      const maps = await this.mapService.getAllMaps();
+      for (const map of maps) {
+        if (map.id === currentMap?.id) continue;
+        const vehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
+        index = vehicles.findIndex((unit) => matchUnit(unit, takeover));
+        if (index >= 0) return mapSource(map, index);
+      }
+    }
+
+    const db = requested ? await findDbVehicle(requested) : null;
+    if (!db && !requested) {
+      const candidates = await this.prisma.gameVehicle.findMany({ orderBy: { id: 'asc' } });
+      const owned = candidates.find((vehicle) => ownerIds.has(String(vehicle.driver)) || ownerIds.has(String(vehicle.owner)));
+      if (owned) return { kind: 'db', db: owned, runtime: this.toRuntimeVehicle(owned), map: currentMap };
+    }
+    if (db) return { kind: 'db', db, runtime: this.toRuntimeVehicle(db), map: currentMap };
+    return null;
+  }
+
+  private vehicleProductionOptions(map: any, vehicle: any): { yongxing: number; lannBaby: boolean } {
+    const summons = this.parseVehicleValue<any[]>(map?.summons, []);
+    const driver = String(vehicle?.驾驶员 ?? vehicle?.driver ?? '');
+    const driverSummon = summons.find((summon: any) =>
+      [summon?.QQ, summon?.qq, summon?.编号, summon?.id].filter(Boolean).map(String).includes(driver),
+    );
+    const seq = (summon: any): number => Number(
+      summon?.活力 ?? summon?.vitality ?? summon?.特殊序号 ?? summon?.specialSeq ?? 0,
+    );
+    return {
+      // 原版常量：咏星特殊序号=-27，兰音幼崽特殊序号=-30。
+      yongxing: driverSummon && seq(driverSummon) === -27 ? 0.15 : 0,
+      lannBaby: summons.some((summon: any) => seq(summon) === -30),
+    };
+  }
+
+  private formatVehicleItems(items: any[]): string {
+    const values = (items || []).filter((item: any) => Number(item?.quantity ?? item?.数量 ?? 0) !== 0);
+    if (values.length === 0) return '无';
+    return values.map((item: any) => {
+      const name = item?.name ?? item?.名称 ?? '';
+      const quantity = Number(item?.quantity ?? item?.数量 ?? 0);
+      return `${name}x${this.roundText(quantity)}`;
+    }).join('、');
+  }
+
+  private formatVehicleTime(seconds: number): string {
+    if (seconds === 86400.12345678) return '时间无限，显示一天的产量';
+    const total = Math.max(0, Math.floor(Number(seconds) || 0));
+    const day = Math.floor(total / 86400);
+    const hour = Math.floor((total % 86400) / 3600);
+    const minute = Math.floor((total % 3600) / 60);
+    const second = total % 60;
+    const parts: string[] = [];
+    if (day) parts.push(`${day}天`);
+    if (hour || parts.length) parts.push(`${hour}小时`);
+    if (minute || parts.length) parts.push(`${minute}分`);
+    parts.push(`${second}秒`);
+    return parts.join('');
+  }
+
+  /**
+   * 载具生产命令。
+   * 对应原版 _主程序.ecode L10929-11222，以及物品操作.ecode L2612-2954。
+   */
+  async handleVehicleProduction(userId: number, argument = ''): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name || '冒险者'}不在服务区`;
+
+    let command = String(argument || '').trim();
+    if (command.startsWith('生产')) command = command.substring(2).trim();
+    if (!command) {
+      return [
+        `${player.name || '冒险者'},这是一个高级功能，上手难度较高，你应该先完成[教程]系列任务和[进阶]系列任务再来尝试。`,
+        `“生产生肉分解1 5.2”来为当前驾驶的载具输入[生肉分解1]这个配方，并且把5.2的生产力分配给这个配方。可以输入负数来减少生产力。`,
+        `“生产排序2 3”来调整两个配方的先后顺序。`,
+        `“生产排序插入12 3”来把第12个配方在排序上插入到3的位置。`,
+        `“生产限制资源箱10000”来对[资源箱]这种产物进行限制，输入0移除。`,
+        `“生产配平5”来让载具其他配方自动根据消耗进行生产力分配。`,
+        `产出的物品会存放于载具内，配方需要消耗的材料直接放入载具内即可。`,
+        `载具生命为0时也可以生产，但是有部件超出容许安装限制时无法生产。`,
+        `生产所需的配方可以发送“配方”来获取。`,
+        `载具的核心不是生产类载具的核心时，生产力降低75%。`,
+        `1、配方    2、查看产物`,
+      ].join('\n');
+    }
+
+    const source = await this.findProductionVehicle(userId, player, map);
+    if (!source) {
+      const sets = this.parseVehicleValue<any>(player.sets, {});
+      const takeover = String(sets?.takeVehicle ?? sets?.接管载具 ?? '');
+      if (takeover) {
+        sets.takeVehicle = '';
+        sets.接管载具 = '';
+        player.sets = sets;
+        await this.playerService.savePlayer(player);
+        return `${player.name || '冒险者'}由于你之前接管的载具${takeover}不在世界上，已自动停止接管`;
+      }
+      return `${player.name || '冒险者'}必须“驾驶”或者“接管”载具之后才能执行此操作`;
+    }
+
+    const runtime = source.runtime;
+    const productionBonus = this.achievementService.getAchievement(playerData.markers, '生产');
+    // 接管载具可能来自其他地图；兰音幼崽/咏星状态应从载具所在地图读取。
+    const productionMap = source.kind === 'map'
+      ? source.map
+      : (Number(source.db?.mapIndex || 0) > 0
+        ? await this.mapService.getMapById(Number(source.db.mapIndex))
+        : map);
+    const productionOptions = this.vehicleProductionOptions(productionMap || map, runtime);
+    const timestamp = Date.now();
+    const production = this.combatSystem.produceVehicle(
+      runtime,
+      timestamp,
+      productionBonus,
+      map.id,
+      productionOptions,
+    );
+
+    // 生产结算必须先持久化，后续生产限制/排序/配方设置才不会覆盖已结算的时间戳。
+    await this.persistRuntimeVehicle(source, runtime);
+
+    // 原版实际产出同时推进「生产」成就和按物品拆分的任务要求。
+    const producedByName = new Map<string, number>();
+    for (const item of production.produced) {
+      const name = String(item.name || '');
+      const quantity = Number(item.quantity || 0);
+      if (name && quantity > 0) producedByName.set(name, (producedByName.get(name) || 0) + quantity);
+    }
+    if (producedByName.size > 0) {
+      const markers = playerData.markers || {};
+      const total = [...producedByName.values()].reduce((sum, value) => sum + value, 0);
+      this.achievementService.setAchievement(
+        markers,
+        '生产',
+        this.achievementService.getAchievement(markers, '生产') + total,
+      );
+      player.markers = markers;
+      await this.playerService.savePlayer(player);
+      for (const [name, quantity] of producedByName) {
+        await this.taskService.advance(userId, `生产${name}`, quantity);
+        await this.taskService.advance(userId, '生产', quantity);
+      }
+    }
+
+    const playerName = player.name || '冒险者';
+    if (Number(runtime.加成?.生产 || 0) === 0) {
+      return `${playerName},${runtime.名称}没有生产力，你可以组装生产线，或者使用专门的生产类载具。专门的生产类载具效率更高`;
+    }
+    if (runtime.上限 > 1) {
+      return `${playerName},${runtime.名称}有部件超出了容许安装限制，无法正常运作`;
+    }
+
+    if (command === '0') {
+      if (runtime.配方.length < 2) {
+        return `${playerName}你尚未对${runtime.名称}输入配方\n“生产生肉分解1 5.2”来为当前驾驶的载具输入[生肉分解1]这个配方，并且把5.2的生产力分配给这个配方。`;
+      }
+      const recipeLines = runtime.配方.slice(1).map((recipe: any, index: number) => {
+        const def = this.staticData.getVehicleRecipeByName(recipe.名称);
+        const level = Number(def?.level ?? def?.等级 ?? 0);
+        return `${index + 1}、${recipe.名称}(${level}级) ${this.roundText(Number(recipe.数值 || 0))}生产力`;
+      });
+      const speedPercent = production.consumedProductivity > Number(runtime.加成.生产 || 0)
+        ? production.productionSpeed * production.efficiency * 100
+        : production.productionSpeed * 100;
+      const lines = [
+        `${playerName},${runtime.名称}的生产线:`,
+        ...recipeLines,
+        `◆生产力${this.roundText(production.consumedProductivity)}/${this.roundText(Number(runtime.加成.生产 || 0))},可生产${this.formatVehicleTime(production.availableTime)}`,
+        `◆生产速度${this.roundText(speedPercent)}%${production.byproductMultiplier !== 1 ? `,副产物+${this.roundText((production.byproductMultiplier - 1) * 100)}%` : ''}${production.consumptionMultiplier !== 1 ? `,消耗-${this.roundText((1 - production.consumptionMultiplier) * 100)}%` : ''}`,
+        `◆每分钟消耗:${this.formatVehicleItems(production.consumptionPerMinute)}`,
+        `◆每分钟产出:${this.formatVehicleItems(production.outputPerMinute)}`,
+        `◆消耗+产出:${this.formatVehicleItems(production.combinedPerMinute)}`,
+      ];
+      if (production.availableTime > 0 && production.availableTime !== 86400.12345678) {
+        lines.push(`◆最终产物:${this.formatVehicleItems(production.combinedPerMinute.map((item) => ({
+          ...item,
+          quantity: Number(item.quantity || 0) * production.availableTime / 60,
+        })))}`);
+      }
+      const missing = production.combinedPerMinute
+        .filter((item) => Number(item.quantity || 0) < 0 &&
+          this.itemQuantity((runtime.零件 || []).find((part: any) => (part.名称 ?? part.name) === item.name)) <= 0)
+        .length > 0;
+      if (missing) lines.push('【缺少部分物品导致无法生产，你可以手动把物品组装到载具上】');
+      await this.persistRuntimeVehicle(source, runtime);
+      return lines.join('\n');
+    }
+
+    if (command === '1') {
+      const sets = this.parseVehicleValue<any>(player.sets, {});
+      const scientist = Number(sets?.scientist ?? sets?.科学家 ?? 0);
+      if (scientist < 4) return `${playerName}需要装备科学家外套/裙子/手套以及白色丝袜`;
+      if (runtime.配方.length < 2) return `${playerName}${runtime.名称}未输入配方`;
+      const markers2 = playerData.markers2 || [];
+      const cooldownText = { value: '' };
+      const cooling = this.combatState.timeIntervalRequire(
+        '生产1',
+        36000,
+        markers2,
+        timestamp,
+        cooldownText,
+        timestamp,
+      );
+      player.markers2 = markers2;
+      if (cooling) {
+        await this.playerService.savePlayer(player);
+        return `${playerName}${cooldownText.value}`;
+      }
+      runtime.配方[0].数值 = Number(runtime.配方[0].数值 || timestamp) - 3600 * 1000;
+      await this.persistRuntimeVehicle(source, runtime);
+      await this.playerService.savePlayer(player);
+      return `${playerName},${runtime.名称}的时间加速流逝了一小时`;
+    }
+
+    if (command.startsWith('限制')) {
+      const payload = command.substring(2).trim();
+      const numberMatch = payload.match(/[-+]?\d+(?:\.\d+)?/);
+      const productName = payload.replace(/[-+]?\d+(?:\.\d+)?/g, '').trim();
+      if (!productName) {
+        return `“生产限制资源箱10000.2”来对[资源箱]这种产物进行限制，载具内物品数量达到目标后不会继续生产；输入0移除`;
+      }
+      const limit = Math.max(0, numberMatch ? Number(numberMatch[0]) : 0);
+      const limitName = `生产限制${productName}`;
+      const parts = runtime.零件 || [];
+      const existingIndex = parts.findIndex((part: any) => (part.名称 ?? part.name) === limitName);
+      if (existingIndex >= 0) {
+        if (limit === 0) {
+          parts.splice(existingIndex, 1);
+          await this.persistRuntimeVehicle(source, runtime);
+          return `${playerName},移除了${productName}的生产限制`;
+        }
+        parts[existingIndex].名称 = limitName;
+        parts[existingIndex].name = limitName;
+        parts[existingIndex].数量 = limit;
+        parts[existingIndex].quantity = limit;
+      } else if (limit > 0) {
+        parts.push({ 名称: limitName, name: limitName, 类型: '资源', type: '资源', 数量: limit, quantity: limit, 耐久: 100, durability: 100 });
+      } else {
+        return `${playerName},移除了${productName}的生产限制`;
+      }
+      await this.persistRuntimeVehicle(source, runtime);
+      return `${playerName},${productName}的生产限制被设置为${limit}`;
+    }
+
+    if (command.startsWith('配平')) {
+      const payload = command.substring(2).trim();
+      let recipeNumber = Number(payload);
+      if (!/^\d+$/.test(payload)) {
+        const actualIndex = runtime.配方.findIndex((recipe: any, index: number) => index > 0 && recipe.名称 === payload);
+        recipeNumber = actualIndex > 0 ? actualIndex : 0;
+      }
+      const recipeCount = Math.max(0, runtime.配方.length - 1);
+      if (!recipeNumber) return `${playerName}“生产配平5”或者“生产配平木头分解1”来配平`;
+      if (recipeNumber < 1 || recipeNumber > recipeCount) {
+        return `${playerName},${runtime.名称}只有${recipeCount}个配方，输入的值超范围或者小于1:${recipeNumber}`;
+      }
+      const target = runtime.配方[recipeNumber];
+      const targetDef = this.staticData.getVehicleRecipeByName(target.名称);
+      const targetInputs = this.parseVehicleValue<any[]>(targetDef?.消耗 ?? targetDef?.inputs, []);
+      const productionView = this.combatSystem.calculateVehicleProduction(runtime, timestamp, productionOptions);
+      const messages: string[] = [`${runtime.名称}\n配方${target.名称}x${this.roundText(Number(target.数值 || 0))}`];
+      for (const input of targetInputs) {
+        const inputName = input?.名称 ?? input?.name ?? '';
+        const inputQty = Number(input?.数量 ?? input?.quantity ?? 0);
+        const inputDurability = Number(input?.耐久 ?? input?.durability ?? 100) / 100;
+        const need = inputQty * inputDurability * Number(target.数值 || 0)
+          * productionView.consumptionMultiplier * productionView.efficiency * productionView.productionSpeed;
+        let matched = false;
+        for (let index = 1; index < runtime.配方.length; index++) {
+          if (index === recipeNumber) continue;
+          const other = runtime.配方[index];
+          const otherDef = this.staticData.getVehicleRecipeByName(other.名称);
+          const outputs = this.parseVehicleValue<any[]>(otherDef?.产出 ?? otherDef?.outputs, []);
+          const output = outputs.find((item: any) => (item?.名称 ?? item?.name) === inputName);
+          if (!output) continue;
+          const outputQty = Number(output.数量 ?? output.quantity ?? 0);
+          const outputDurability = Number(output.耐久 ?? output.durability ?? 100) / 100;
+          const perProduction = outputQty * (outputDurability < 1 ? outputDurability * productionView.byproductMultiplier : 1)
+            * productionView.efficiency * productionView.productionSpeed;
+          if (perProduction <= 0) continue;
+          other.数值 = need / perProduction;
+          other.value = other.数值;
+          messages.push(`配方${other.名称}产出${inputName}，生产力调整为${this.roundText(other.数值)}`);
+          matched = true;
+        }
+        if (!matched) messages.push(`没有其他产出${inputName}的配方`);
+      }
+      await this.persistRuntimeVehicle(source, runtime);
+      return messages.join('\n');
+    }
+
+    if (command.startsWith('排序')) {
+      const insertMatch = command.match(/^排序插入\s*(\d+)\s+(\d+)$/);
+      const swapMatch = command.match(/^排序\s*(\d+)\s+(\d+)$/);
+      const recipeCount = Math.max(0, runtime.配方.length - 1);
+      if (insertMatch) {
+        const from = Number(insertMatch[1]);
+        const to = Number(insertMatch[2]);
+        if (from < 1 || from > recipeCount || to < 1 || to > recipeCount || from === to) {
+          return `${playerName},${runtime.名称}只有${recipeCount}个配方，或者你输入的值不符合规范(小于1或者相等)\n${from} ${to}`;
+        }
+        const moved = runtime.配方.splice(from, 1)[0];
+        runtime.配方.splice(to, 0, moved);
+        await this.persistRuntimeVehicle(source, runtime);
+        await this.taskService.advance(userId, '生产排序');
+        return `${playerName},${runtime.名称}的配方[${moved.名称}]移动到了${to}号`;
+      }
+      if (swapMatch) {
+        const first = Number(swapMatch[1]);
+        const second = Number(swapMatch[2]);
+        if (first < 1 || second < 1 || first > recipeCount || second > recipeCount || first === second) {
+          return `${playerName},${runtime.名称}只有${recipeCount}个配方，或者你输入的值不符合规范(小于1或者相等)\n${first} ${second}`;
+        }
+        const temp = runtime.配方[first];
+        runtime.配方[first] = runtime.配方[second];
+        runtime.配方[second] = temp;
+        await this.persistRuntimeVehicle(source, runtime);
+        await this.taskService.advance(userId, '生产排序');
+        return `${playerName},${runtime.名称}的配方[${runtime.配方[second].名称}]和[${runtime.配方[first].名称}]交换了位置`;
+      }
+      return `${playerName}\n“生产排序2 3”来调整两个配方的先后顺序。“生产排序插入12 3”来把第12个配方插入到3的位置。`;
+    }
+
+    const recipeInput = command.split(/\s+/).filter(Boolean);
+    if (recipeInput.length !== 2) {
+      return `${playerName}你输入的数据不正确，请检查：${command}`;
+    }
+    const recipeName = recipeInput[0];
+    const allocation = Number(recipeInput[1]);
+    const unlocked = this.parseVehicleValue<any>(player.recipes, []);
+    const unlockedNames = Array.isArray(unlocked)
+      ? unlocked.map((recipe: any) => String(recipe?.名称 ?? recipe?.name ?? recipe))
+      : Object.keys(unlocked || {}).filter((key) => Number(unlocked[key]) !== 0);
+    if (!unlockedNames.includes(recipeName) || !this.staticData.getVehicleRecipeByName(recipeName)) {
+      return `${playerName}你尚未解锁这个配方，或者输入的配方不存在：${recipeName}`;
+    }
+    if (!Number.isFinite(allocation)) {
+      return `${playerName}你输入的数据不正确，请检查：${command}`;
+    }
+    if (runtime.配方.length === 0) runtime.配方.push({ 名称: '1', name: '1', 数值: timestamp, value: timestamp });
+    this.combatState.addAchievement(recipeName, allocation, runtime.配方 as any);
+    const current = runtime.配方.find((recipe: any) => recipe.名称 === recipeName);
+    const currentValue = Number(current?.数值 || 0);
+    const view = this.combatSystem.calculateVehicleProduction(runtime, timestamp, productionOptions);
+    await this.persistRuntimeVehicle(source, runtime);
+    await this.taskService.advance(userId, '设置生产配方');
+    const currentOutput = view.combinedPerMinute.filter((item) => Number(item.quantity || 0) !== 0);
+    return `${playerName}为${runtime.名称}设置了${recipeName}\n它当前占用的生产力为${this.roundText(currentValue)}\n${runtime.名称}当前产出:${this.formatVehicleItems(currentOutput)}`;
+  }
+
   /**
    * 安装载具部件
    * 将背包中的部件安装到当前驾驶的载具上
@@ -4745,7 +5310,7 @@ export class GameService {
 
     // 获取用户QQ号
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    const userQQ = user?.qqNumber || '';
+    const userQQ = user?.qqNumber || String(userId);
 
     // 检查背包中是否有该部件
     const backpack = this.playerService.getBackpackItems(player);
@@ -4780,6 +5345,8 @@ export class GameService {
           vehicleId: Math.random().toString(36).substring(2, 10).toUpperCase(),
           type: '组装',
           owner: userQQ,
+          driver: userQQ,
+          mapIndex: player.mapId,
           maxHp: 100,
           currentHp: 100,
           parts: JSON.stringify([{
@@ -4819,38 +5386,176 @@ export class GameService {
       return '请指定载具名称或ID，格式：驾驶 载具名';
     }
 
-    // 获取玩家QQ号
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    const userQQ = user?.qqNumber || '';
-
-    // 查找载具（按名称或ID）
-    let vehicle = await this.prisma.gameVehicle.findFirst({
-      where: {
-        OR: [
-          { name: vehicleName },
-          { vehicleId: vehicleName },
-          { id: parseInt(vehicleName, 10) || 0 },
-        ],
-      },
-    });
-    if (!vehicle) {
-      return `未找到载具【${vehicleName}】`;
-    }
-
-    // 设置玩家驾驶的载具
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    player.vehicle = String(vehicle.id);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const map = await this.mapService.getMapById(player.mapId);
+    const playerName = player.name || '冒险者';
+    const driverId = String(user?.qqNumber || user?.externalId || userId);
+    const ownerIds = new Set([
+      String(userId), String(user?.qqNumber || ''), String(user?.externalId || ''),
+      String(player.masterQQ || ''),
+    ].filter(Boolean));
+
+    const vehicleKeys = (value: any): string[] => [
+      value?.编号, value?.vehicleId, value?.id, value?.名称, value?.name,
+    ].filter((key) => key !== undefined && key !== null && String(key) !== '').map(String);
+    const matchesVehicle = (value: any): boolean => vehicleKeys(value).includes(String(vehicleName));
+    const ownerOf = (value: any): string => String(value?.归属 ?? value?.owner ?? '');
+    const isAllowedOwner = (value: any): boolean => {
+      const owner = ownerOf(value);
+      return owner === '无主' || ownerIds.has(owner);
+    };
+
+    const mapVehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
+    const mapIndex = mapVehicles.findIndex(matchesVehicle);
+    let source: any = null;
+    if (mapIndex >= 0) {
+      source = {
+        kind: 'map',
+        map,
+        index: mapIndex,
+        runtime: this.toRuntimeVehicle(mapVehicles[mapIndex]),
+      };
+    } else {
+      const numericId = Number(vehicleName);
+      let dbVehicle: any = Number.isInteger(numericId) && numericId > 0
+        ? await this.prisma.gameVehicle.findUnique({ where: { id: numericId } })
+        : null;
+      if (!dbVehicle) {
+        dbVehicle = await this.prisma.gameVehicle.findFirst({
+          where: {
+            OR: [
+              { name: vehicleName },
+              { vehicleId: vehicleName },
+            ],
+          },
+        });
+      }
+      // 原版只从当前地图的载具数组取值。GameVehicle 是当前项目的持久化映射：
+      // mapIndex=0 表示旧存量未记录位置，允许归属者继续使用；新载具会写入当前 mapId。
+      const vehicleMap = Number(dbVehicle?.mapIndex || 0);
+      if (dbVehicle && (vehicleMap === 0 || vehicleMap === Number(map?.id) || vehicleMap === Number(map?.mapIndex))) {
+        source = { kind: 'db', db: dbVehicle, map, runtime: this.toRuntimeVehicle(dbVehicle) };
+      }
+    }
+
+    if (!source) return `${playerName}附近没有${vehicleName}`;
+    if (!isAllowedOwner(source.runtime)) {
+      return `${playerName}这是别人的${source.runtime.名称}，你不能驾驶`;
+    }
+
+    const runtime = source.runtime;
+    const targetKeys = new Set(vehicleKeys(runtime));
+    if (source.kind === 'db') targetKeys.add(String(source.db.id));
+    const oldVehicleKey = String(player.vehicle || '');
+    const targetWasUnowned = ownerOf(runtime) === '无主';
+    let mapChanged = false;
+    const summons = this.parseVehicleValue<any[]>(map?.summons, []);
+    const dbUpdates: Promise<any>[] = [];
+
+    // 原版 L10328-L10340：先让原驾驶员离开目标载具；玩家和召唤物分别清除自己的载具字段。
+    const previousDriver = String(runtime.驾驶员 ?? runtime.driver ?? '');
+    if (previousDriver && !ownerIds.has(previousDriver)) {
+      let previousUser: any = null;
+      const numericDriver = Number(previousDriver);
+      if (Number.isInteger(numericDriver) && numericDriver > 0) {
+        previousUser = await this.prisma.user.findUnique({ where: { id: numericDriver } });
+      }
+      if (!previousUser) {
+        previousUser = await this.prisma.user.findFirst({
+          where: { OR: [{ qqNumber: previousDriver }, { externalId: previousDriver }] },
+        });
+      }
+      if (previousUser) {
+        const previousData = await this.playerService.getPlayerData(previousUser.id);
+        if (previousData?.player && previousData.player.vehicle) {
+          previousData.player.vehicle = '';
+          await this.playerService.savePlayer(previousData.player);
+        }
+      } else {
+        const summon = summons.find((unit: any) => [
+          unit?.QQ, unit?.qq, unit?.编号, unit?.id,
+        ].filter(Boolean).map(String).includes(previousDriver));
+        if (summon) {
+          summon.载具 = '';
+          summon.vehicle = '';
+          mapChanged = true;
+        }
+      }
+    }
+
+    // 原版 L10346-L10350：驾驶新载具时清除玩家原来载具的驾驶员。
+    if (oldVehicleKey && !targetKeys.has(oldVehicleKey)) {
+      const oldMapIndex = mapVehicles.findIndex((unit: any) => vehicleKeys(unit).includes(oldVehicleKey));
+      if (oldMapIndex >= 0) {
+        mapVehicles[oldMapIndex].驾驶员 = '';
+        mapVehicles[oldMapIndex].driver = '';
+        mapChanged = true;
+      } else {
+        const oldNumericId = Number(oldVehicleKey);
+        const oldDbVehicle = Number.isInteger(oldNumericId) && oldNumericId > 0
+          ? await this.prisma.gameVehicle.findUnique({ where: { id: oldNumericId } })
+          : await this.prisma.gameVehicle.findFirst({ where: { vehicleId: oldVehicleKey } });
+        if (oldDbVehicle && oldDbVehicle.id !== source.db?.id) {
+          dbUpdates.push(this.prisma.gameVehicle.update({
+            where: { id: oldDbVehicle.id },
+            data: { driver: '' },
+          }));
+        }
+      }
+    }
+
+    runtime.驾驶员 = driverId;
+    runtime.driver = driverId;
+    if (targetWasUnowned) {
+      runtime.归属 = driverId;
+      runtime.owner = driverId;
+    }
+    if (source.kind === 'map') {
+      mapVehicles[source.index] = this.toStoredVehicle(runtime);
+      mapChanged = true;
+    } else {
+      dbUpdates.push(this.prisma.gameVehicle.update({
+        where: { id: source.db.id },
+        data: {
+          owner: String(runtime.owner || runtime.归属 || ''),
+          driver: driverId,
+          mapIndex: Number(map?.id || 0),
+        },
+      }));
+    }
+    if (mapChanged) {
+      await this.mapService.updateDynamicFields(map.id, {
+        vehicles: JSON.stringify(mapVehicles),
+        summons: JSON.stringify(summons),
+      });
+    }
+    await Promise.all(dbUpdates);
+
+    player.vehicle = source.kind === 'db'
+      ? String(source.db.id)
+      : String(runtime.编号 || runtime.vehicleId || runtime.id || '');
+    const sets = this.parseVehicleValue<any>(player.sets, {});
+    // 原版 L10314：驾驶成功后立即终止接管状态。
+    sets.takeVehicle = '';
+    sets.接管载具 = '';
+    player.sets = sets;
     await this.playerService.savePlayer(player);
 
-    // 更新载具驾驶员
-    await this.prisma.gameVehicle.update({
-      where: { id: vehicle.id },
-      data: { driver: userQQ },
-    });
+    if (targetWasUnowned) {
+      await this.achievementService.addAchievement(player, '拾取载具', 1);
+      await this.taskService.advance(userId, '拾取载具' + runtime.名称);
+    }
+    await this.achievementService.addAchievement(player, '驾驶载具', 1);
+    await this.taskService.advance(userId, '驾驶' + runtime.类型);
 
-    this.logger.log(`玩家 ${userId} 驾驶了载具 ${vehicle.name}`);
-    return `✅ 已驾驶载具【${vehicle.name}】\n使用「载具」查看状态，使用「脱出」离开载具`;
+    const vehicleText = `${runtime.名称}(${runtime.类型})`;
+    const result = targetWasUnowned
+      ? `${playerName}获取了${runtime.名称}的权限,然后进入了${vehicleText}的驾驶舱,"脱出"来离开`
+      : `${playerName}进入了${vehicleText}的驾驶舱,"脱出"来离开`;
+    this.logger.log(`玩家 ${userId} 驾驶了载具 ${runtime.名称}`);
+    return result;
   }
 
   /**
@@ -5050,20 +5755,43 @@ export class GameService {
       return '你当前没有驾驶任何载具';
     }
 
-    const vehicleId = parseInt(player.vehicle, 10);
-    if (isNaN(vehicleId)) return '载具数据异常';
+    const vehicleKey = String(player.vehicle);
+    const map = await this.mapService.getMapById(player.mapId);
+    const mapVehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
+    const vehicleKeys = (value: any): string[] => [
+      value?.编号, value?.vehicleId, value?.id,
+    ].filter((key) => key !== undefined && key !== null && String(key) !== '').map(String);
+    const index = mapVehicles.findIndex((value: any) => vehicleKeys(value).includes(vehicleKey));
 
-    // 获取载具信息（用于日志）
-    const vehicle = await this.prisma.gameVehicle.findUnique({
-      where: { id: vehicleId },
-    });
+    if (index >= 0) {
+      const runtime = this.toRuntimeVehicle(mapVehicles[index]);
+      runtime.驾驶员 = '';
+      runtime.driver = '';
+      mapVehicles[index] = this.toStoredVehicle(runtime);
+      await this.mapService.updateDynamicFields(map.id, { vehicles: JSON.stringify(mapVehicles) });
+      player.vehicle = '';
+      await this.playerService.savePlayer(player);
+      await this.achievementService.addAchievement(player, '脱出', 1);
+      this.logger.log(`玩家 ${userId} 从载具 ${runtime.名称} 中脱出`);
+      return `${player.name}离开了${runtime.名称}(${runtime.类型})`;
+    }
 
-    // 清除玩家载具状态
+    const numericId = Number(vehicleKey);
+    const vehicle: any = Number.isInteger(numericId) && numericId > 0
+      ? await this.prisma.gameVehicle.findUnique({ where: { id: numericId } })
+      : await this.prisma.gameVehicle.findFirst({ where: { vehicleId: vehicleKey } });
+    if (!vehicle) {
+      player.vehicle = '';
+      await this.playerService.savePlayer(player);
+      return `#错误：附近没有载具${vehicleKey},已弹射`;
+    }
+
+    await this.prisma.gameVehicle.update({ where: { id: vehicle.id }, data: { driver: '' } });
     player.vehicle = '';
     await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 从载具 ${vehicle?.name || vehicleId} 中脱出`);
-    return `✅ 已从载具【${vehicle?.name || '未知'}】中脱出`;
+    await this.achievementService.addAchievement(player, '脱出', 1);
+    this.logger.log(`玩家 ${userId} 从载具 ${vehicle.name} 中脱出`);
+    return `${player.name}离开了${vehicle.name}(${vehicle.type})`;
   }
 
   /**
@@ -5073,41 +5801,59 @@ export class GameService {
    */
   async handleTakeoverVehicle(userId: number, targetName: string): Promise<string> {
     if (!targetName) {
-      return '请指定要接管的载具名称或ID，格式：接管 载具名';
+      return '请发送“接管骑士”来接管名为骑士的载具';
     }
 
-    // 查找目标载具
-    let vehicle = await this.prisma.gameVehicle.findFirst({
-      where: {
-        OR: [
-          { name: targetName },
-          { vehicleId: targetName },
-          { id: parseInt(targetName, 10) || 0 },
-        ],
-      },
-    });
-    if (!vehicle) {
-      return `未找到载具【${targetName}】`;
-    }
-
-    // 获取玩家QQ号
+    // 原版只允许接管当前玩家拥有的载具；接管状态写入玩家.套装.接管载具，
+    // 不改变驾驶员，也不把玩家.vehicle 改成被接管载具。
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    const userQQ = user?.qqNumber || '';
-
-    // 更新载具驾驶员
-    await this.prisma.gameVehicle.update({
-      where: { id: vehicle.id },
-      data: { driver: userQQ },
-    });
-
-    // 驾驶载具
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    player.vehicle = String(vehicle.id);
+    const ownerIds = new Set([
+      String(userId), String(user?.qqNumber ?? ''), String(user?.externalId ?? ''),
+      String(player.masterQQ ?? ''),
+    ].filter(Boolean));
+    const map = await this.mapService.getMapById(player.mapId);
+    const vehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
+    const match = (item: any): boolean => {
+      const identifiers = [item?.名称, item?.name, item?.编号, item?.vehicleId, item?.id]
+        .filter((value) => value !== undefined && value !== null).map(String);
+      const owner = String(item?.归属 ?? item?.owner ?? '');
+      return identifiers.includes(String(targetName)) && ownerIds.has(owner);
+    };
+    let vehicle: any = vehicles.find(match);
+    let vehicleId = vehicle ? String(vehicle.编号 ?? vehicle.vehicleId ?? vehicle.id ?? '') : '';
+
+    if (!vehicle) {
+      const numericId = Number(targetName);
+      if (Number.isInteger(numericId) && numericId > 0) {
+        vehicle = await this.prisma.gameVehicle.findUnique({ where: { id: numericId } });
+      }
+      if (!vehicle) {
+        vehicle = await this.prisma.gameVehicle.findFirst({
+          where: { OR: [{ name: targetName }, { vehicleId: targetName }] },
+        });
+      }
+      if (vehicle && ownerIds.has(String(vehicle.owner ?? ''))) {
+        vehicleId = String(vehicle.vehicleId || vehicle.id);
+      } else {
+        vehicle = null;
+      }
+    }
+
+    if (!vehicle) {
+      return `${player.name || '冒险者'},${map?.name || '当前地图'}这里没有名称或者id为${targetName}并且属于你的载具`;
+    }
+
+    const sets = this.parseVehicleValue<any>(player.sets, {});
+    sets.takeVehicle = vehicleId;
+    sets.接管载具 = vehicleId;
+    player.sets = sets;
     await this.playerService.savePlayer(player);
 
-    this.logger.log(`玩家 ${userId} 接管了载具 ${vehicle.name}`);
-    return `✅ 已接管载具【${vehicle.name}】\n使用「载具」查看状态`;
+    const vehicleName = vehicle.名称 ?? vehicle.name ?? targetName;
+    this.logger.log(`玩家 ${userId} 接管了载具 ${vehicleName}`);
+    return `${player.name || '冒险者'}已对${vehicleName}进行接管，现在无需驾驶即可拆装部件、设置生产\n“接管停止”可停止接管\n“驾驶”也可以中止接管`;
   }
 
   /**
@@ -8775,7 +9521,8 @@ export class GameService {
   }
 
   private itemQuantity(item: any): number {
-    return Number(item?.quantity ?? item?.count ?? 1) || 0;
+    if (item == null) return 0;
+    return Number(item.quantity ?? item.count ?? 1) || 0;
   }
 
   private roundText(value: number): string {
@@ -9008,7 +9755,24 @@ export class GameService {
    * 对应原版：接管停止 命令
    */
   async handleStopTakeover(userId: number): Promise<string> {
-    return `🛑 已停止接管载具。`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const sets = this.parseVehicleValue<any>(player.sets, {});
+    const takeover = String(sets?.takeVehicle ?? sets?.接管载具 ?? '');
+    if (!takeover) return `${player.name || '冒险者'}你没有在接管载具`;
+
+    let vehicleName = takeover;
+    const map = await this.mapService.getMapById(player.mapId);
+    const vehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
+    const vehicle = vehicles.find((item: any) =>
+      [item?.编号, item?.vehicleId, item?.id].filter((value) => value !== undefined && value !== null).map(String).includes(takeover),
+    );
+    if (vehicle) vehicleName = vehicle.名称 ?? vehicle.name ?? takeover;
+    sets.takeVehicle = '';
+    sets.接管载具 = '';
+    player.sets = sets;
+    await this.playerService.savePlayer(player);
+    return `${player.name || '冒险者'}停止了对${vehicleName}的接管`;
   }
 
   /**
