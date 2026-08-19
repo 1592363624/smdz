@@ -331,7 +331,9 @@ function mapEquipmentToEquipment(section: ConfigSection, specialSeq: number) {
   const propertiesObj: Record<string, any> = {};
   if (properties.length > 0) propertiesObj['attrs'] = properties;
   const attackTextObj: Record<string, any> = {};
-  if (fields['攻击文本']) attackTextObj['name'] = fields['攻击文本'];
+  // 原版非武器装备用“召唤”字段承载攻击时召唤配置；旧配置仍兼容“攻击文本”。
+  const summonText = fields['召唤'] ?? fields['攻击文本'] ?? '';
+  if (summonText) attackTextObj['name'] = summonText;
   return {
     name: section.name,
     description: fields['说明'] || '',
@@ -453,16 +455,25 @@ function mapMapToMap(section: ConfigSection, resourceDefs: Map<string, any>) {
   for (const key of ['复活要求', '复活提示', '不可搬迁', '等级']) {
     if (fields[key] !== undefined) extraFields[key] = fields[key];
   }
+  const travelRequirement = fields['前往需求'] || '';
+  const requiredTravel = travelRequirement === '飞行'
+    ? 1
+    : travelRequirement === '传送'
+      ? 2
+      : travelRequirement === '跃迁'
+        ? 3
+        : 0;
   return {
     name: section.name,
     description: fields['说明'] || '',
     mapIndex: 0,
     level: parseInt(fields['等级']) || 1,
-    isFrontier: false,
+    isFrontier: fields['开拓地'] === '1',
     noTeleport: fields['不可传送'] === '1',
-    noMove: false,
+    noMove: fields['不可搬迁'] === '1',
     isInstance: fields['关卡'] === '1',
-    requiredTravel: 0,
+    requiredTravel,
+    respawnPoint: fields['复活点'] || section.name,
     monsters: JSON.stringify(monsters),
     spawnMonsters: JSON.stringify(spawnMonsters),
     tempMonsters: '[]',
@@ -477,12 +488,12 @@ function mapMapToMap(section: ConfigSection, resourceDefs: Map<string, any>) {
     markers: '{}',
     markers2: '[]',
     mapBuffs: '[]',
-    requireMarkers: JSON.stringify(parseSpaceSeparatedString(fields['复活要求'] || '')),
-    failHint: fields['复活提示'] || '',
-    clearMarkers: '',
+    requireMarkers: JSON.stringify(parseSpaceSeparatedString(fields['标记要求'] || fields['复活要求'] || '')),
+    failHint: fields['标记提示'] || fields['复活提示'] || '',
+    clearMarkers: fields['删除标记'] || '',
     music: '',
     monsterCount: parseInt(fields['刷怪数量']) || 3,
-    noSpecial: true,
+    noSpecial: fields['不刷特殊'] === '1',
   };
 }
 

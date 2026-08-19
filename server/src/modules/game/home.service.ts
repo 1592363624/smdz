@@ -368,18 +368,19 @@ export class HomeService {
     const producers: Producer[] = [];
 
     for (const building of buildings) {
+      const buildingName = this.getItemName(building);
       // 在建筑定义列表中查找匹配项
-      const def = buildingDefs.find(d => d.name === building.name);
+      const def = buildingDefs.find(d => this.getItemName(d) === buildingName);
       if (!def) continue;
 
       const producer: Producer = {
-        name: def.name,
-        type: def.type || '',
+        name: this.getItemName(def),
+        type: def.type || def['类型'] || '',
         count: this.getItemQuantityValue(building),
         // 从建筑定义的 materials 字段解析产出（原版中建筑产出存储在产出2，这里统一用 outputs）
-        outputs: this.normalizeProduceItems(this.safeParseJSON<any[]>(def.materials, [])),
-        priority: def.priority ?? ((building.type || def.type) === '作物' ? 1 : 2),
-        notOccupy: Boolean(def.notOccupy ?? def['不占']),
+        outputs: this.normalizeProduceItems(this.safeParseJSON<any[]>(def.materials ?? def['材料'] ?? '[]', [])),
+        priority: def.priority ?? def['优先级'] ?? ((building.type || building['类型'] || def.type || def['类型']) === '作物' ? 1 : 2),
+        notOccupy: Boolean(def.notOccupy ?? def['不占'] ?? def.notOccupyBuilding),
       };
 
       producers.push(producer);
@@ -637,10 +638,10 @@ export class HomeService {
 
     for (const building of buildings) {
       // 在建筑定义列表中查找
-      const def = buildingDefs.find(d => d.name === building.name);
+      const def = buildingDefs.find(d => this.getItemName(d) === this.getItemName(building));
       if (def) {
         // 检查是否"不占"类型（不占建筑位置）
-        const notOccupy = def.notOccupy || false;
+        const notOccupy = def.notOccupy ?? def['不占'] ?? false;
         if (!notOccupy) {
           total += this.getItemQuantityValue(building);
         }
@@ -937,7 +938,7 @@ export class HomeService {
   private getItemQuantity(name: string, items: any[]): number {
     let total = 0;
     for (const item of items) {
-      if (item.name === name) {
+      if (this.getItemName(item) === name) {
         total += this.getItemQuantityValue(item);
       }
     }
@@ -952,7 +953,7 @@ export class HomeService {
     let remaining = quantity;
     for (let i = items.length - 1; i >= 0 && remaining > 0; i--) {
       const item = items[i];
-      if (item.name === name) {
+      if (this.getItemName(item) === name) {
         const itemQty = this.getItemQuantityValue(item);
         if (itemQty <= remaining) {
           remaining -= itemQty;
@@ -969,12 +970,13 @@ export class HomeService {
    * 向数组中添加物品（相同名称合并数量）
    * 对应原版：获得物品()
    */
-  private addItemToArray(name: string, quantity: number, items: any[]): void {
-    const existing = items.find((item: any) => item.name === name);
+  private addItemToArray(name: string, quantity: number, items: any[], extra: Record<string, any> = {}): void {
+    if (!name || !Number.isFinite(quantity) || quantity === 0) return;
+    const existing = items.find((item: any) => this.getItemName(item) === name);
     if (existing) {
       this.setItemQuantity(existing, this.getItemQuantityValue(existing) + quantity);
     } else {
-      items.push({ name, quantity, count: quantity, type: '资源' });
+      items.push({ name, quantity, count: quantity, type: '资源', ...extra });
     }
   }
 
@@ -993,39 +995,62 @@ export class HomeService {
 
   private normalizeProduceItems(items: any[]): ProduceItem[] {
     return (Array.isArray(items) ? items : [])
-      .filter((item) => item && item.name)
+      .filter((item) => item && this.getItemName(item))
       .map((item) => ({
         ...item,
-        name: String(item.name),
-        quantity: Number(item.quantity ?? item.count ?? 0),
+        name: this.getItemName(item),
+        quantity: Number(item.quantity ?? item.count ?? item['数量'] ?? 0),
       }));
   }
 
   private getProduceQuantity(item: any): number {
-    return Number(item?.quantity ?? item?.count ?? 0);
+    return Number(item?.quantity ?? item?.count ?? item?.['数量'] ?? 0);
   }
 
   private getItemQuantityValue(item: any): number {
-    return Number(item?.quantity ?? item?.count ?? 1);
+    return Number(item?.quantity ?? item?.count ?? item?.['数量'] ?? 1);
   }
 
   private setItemQuantity(item: any, value: number): void {
-    if (Object.prototype.hasOwnProperty.call(item, 'count') && !Object.prototype.hasOwnProperty.call(item, 'quantity')) {
+    if (Object.prototype.hasOwnProperty.call(item, '数量')
+      && !Object.prototype.hasOwnProperty.call(item, 'quantity')
+      && !Object.prototype.hasOwnProperty.call(item, 'count')) {
+      item['数量'] = value;
+    } else if (Object.prototype.hasOwnProperty.call(item, 'count') && !Object.prototype.hasOwnProperty.call(item, 'quantity')) {
       item.count = value;
     } else {
       item.quantity = value;
     }
   }
 
+  private getItemName(item: any): string {
+    return String(item?.name ?? item?.['名称'] ?? '').trim();
+  }
+
+  private readMarkerValue(source: any, name: string): number {
+    const parsed = typeof source === 'string' ? this.safeParseJSON<any>(source, {}) : source;
+    if (Array.isArray(parsed)) {
+      const item = parsed.find((value: any) => this.getItemName(value) === name);
+      return Number(item?.value ?? item?.数值 ?? item?.count ?? item?.数量 ?? 0);
+    }
+    return Number(parsed?.[name] ?? 0);
+  }
+
   /**
    * 安全解析 JSON 字符串
    */
-  private safeParseJSON<T>(jsonStr: string, defaultValue: T): T {
+  private safeParseJSON<T>(jsonStr: string | T, defaultValue: T): T {
+    if (typeof jsonStr !== 'string') return jsonStr as T;
     try {
       return JSON.parse(jsonStr) as T;
     } catch {
       return defaultValue;
     }
+  }
+
+  /** 原版“文本四舍”：保留两位小数后转文本。 */
+  private roundLikeOriginal(value: number): number {
+    return Math.round(value * 100) / 100;
   }
 
   /**
@@ -1082,30 +1107,30 @@ export class HomeService {
         priority: Number(resource.priority ?? resource.优先级 ?? 1),
       }))
       .filter((resource) => resource.count > 0 && resource.outputs.length > 0);
-    const storage = this.playerService.getBackpackItems(player);
+    // 原版“产出存放”就是地图.物品，不是玩家背包；普通地图拾取命令再把它移入背包。
+    const storage = this.safeParseJSON<any[]>(map.items, []);
     const summons = this.safeParseJSON<any[]>(map.summons, []);
-    const alive = (pet: any): boolean => (pet?.hp ?? pet?.当前生命 ?? 0) > 0;
-    const hasPet = (name: string, seq: number, requireAlive = true): boolean => summons.some((pet: any) => {
+    const alive = (pet: any): boolean => (pet?.hp ?? pet?.currentHp ?? pet?.当前生命 ?? 0) > 0;
+    // 地图操作.ecode 的“是否有特殊宠物”默认不要求存活，只有兰音幼崽调用时显式传入真。
+    const hasPet = (name: string, seq: number, requireAlive = false): boolean => summons.some((pet: any) => {
       const petSeq = pet?.vitality ?? pet?.活力 ?? pet?.specialSeq;
-      return (pet?.name === name || pet?.名称 === name || petSeq === seq) && (!requireAlive || alive(pet));
+      const petName = this.getItemName(pet);
+      return (petName === name || petSeq === seq) && (!requireAlive || alive(pet));
     });
     const petCount = summons.length;
     const countBuilding = (name: string): number => buildings
-      .filter((b: any) => b?.name === name)
+      .filter((b: any) => this.getItemName(b) === name)
       .reduce((sum: number, b: any) => sum + this.getItemQuantityValue(b), 0);
-    const markerValue = (source: any, name: string): number => {
-      if (Array.isArray(source)) {
-        const item = source.find((x: any) => (x?.名称 ?? x?.name) === name);
-        return Number(item?.数值 ?? item?.value ?? item?.count ?? 0);
-      }
-      return Number(source?.[name] ?? 0);
-    };
 
     const now = Date.now() / 1000;
-    const lastOutput = markerValue(markers, '家园产出时间');
-    const timeDiff = lastOutput > 0 ? Math.max(0, now - lastOutput) : 60;
     const mapMarkers = this.safeParseJSON<any>(map.markers, {});
-    const overloaded = markerValue(mapMarkers, '生产模式') === 1;
+    // 新版本使用地图标记保存观测时间；兼容此前写入玩家标记的存量家园。
+    const lastOutput = this.readMarkerValue(mapMarkers, '观测时间')
+      || this.readMarkerValue(mapMarkers, '读取时间')
+      || this.readMarkerValue(mapMarkers, '家园产出时间')
+      || this.readMarkerValue(markers, '家园产出时间');
+    const timeDiff = lastOutput > 0 ? Math.max(0, now - lastOutput) : 60;
+    const overloaded = this.readMarkerValue(mapMarkers, '生产模式') === 1;
     let buildingOutputRate = overloaded ? 1.25 : 1;
     const cropOutputRateBase = 1;
     let cropOutputRate = cropOutputRateBase;
@@ -1114,11 +1139,29 @@ export class HomeService {
     let powerFuelOutputRate = 1;
 
     // 原版 L54：兰音幼崽令地图时间流逝速度×105%。
-    if (hasPet('兰音幼崽', -30)) {
+    if (hasPet('兰音幼崽', -30, true)) {
       // 原版效果作用于时间差本身，保留小数，不提前取整。
       (markers as any)['家园产出时间倍率'] = 1.05;
     }
-    const effectiveTimeDiff = hasPet('兰音幼崽', -30) ? timeDiff * 1.05 : timeDiff;
+    const effectiveTimeDiff = hasPet('兰音幼崽', -30, true) ? timeDiff * 1.05 : timeDiff;
+
+    // 原版地图操作.ecode L58-L75：普通宠物与具现装置的产出先进入地图物品，
+    // 同时把按分钟显示的统计项写入总产出。垃圾的固定“宠物数/1440”按原版字面保留。
+    const ambientOutput: ProduceItem[] = [];
+    if (petCount > 0) {
+      const eggQuantity = effectiveTimeDiff / 86400 * petCount;
+      const garbageQuantity = petCount / 1440;
+      this.addItemToArray('蛋', eggQuantity, storage);
+      this.addItemToArray('垃圾', garbageQuantity, storage);
+      ambientOutput.push({ name: '垃圾', quantity: garbageQuantity });
+      ambientOutput.push({ name: '蛋', quantity: eggQuantity });
+    }
+    const manifestationCount = countBuilding('具现装置');
+    if (manifestationCount > 0) {
+      const unknownQuantity = effectiveTimeDiff / 86400;
+      this.addItemToArray('未知物品', unknownQuantity, storage);
+      ambientOutput.push({ name: '未知物品', quantity: 1 / 1440 });
+    }
 
     const irrigation = countBuilding('工业灌溉');
     if (irrigation > 0) {
@@ -1143,7 +1186,7 @@ export class HomeService {
     }
 
     // 原版作物上限：按玩家等级与凭证限制资源2/作物数量，并封顶作物倍率。
-    const cropLimit = Math.ceil((player.level || 1) / 5) + markerValue(markers, '凭证') * 5;
+    const cropLimit = Math.ceil((player.level || 1) / 5) + this.readMarkerValue(markers, '凭证') * 5;
     let cropSeen = 0;
     const limitedCrops: Producer[] = [];
     for (const crop of cropProducers) {
@@ -1197,8 +1240,9 @@ export class HomeService {
 
     // 朱雀：正合金产出增加，地热锻炉使用原版特殊数值312.5/375。
     const vermilion = summons.find((pet: any) => (pet?.vitality ?? pet?.活力 ?? pet?.specialSeq) === -21
-      || pet?.name === '朱雀' || pet?.名称 === '朱雀');
-    if (vermilion && alive(vermilion)) {
+      || this.getItemName(pet) === '朱雀');
+    // 原版地图操作.ecode L161 未传入“存活才返回真”，按特殊序号命中即可。
+    if (vermilion) {
       const factor = 1 + Number(vermilion.level || 1) / 100;
       for (const producer of buildingProducers) {
         for (const output of producer.outputs) {
@@ -1225,86 +1269,163 @@ export class HomeService {
       1,
     );
 
+    let worldSimulationText = '';
+    const directOutput = ambientOutput.map((item) => ({ ...item }));
+    // 原版地图操作.ecode L254-L320：世界模拟器只在建筑可运行且有电时训练。
+    const worldSimulatorCount = countBuilding('世界模拟器');
+    const buildingTime = baseAnalysis.remainingFuel;
+    if (worldSimulatorCount > 0 && baseAnalysis.hasPower && buildingTime > 0) {
+      const previousAi = this.readMarkerValue(mapMarkers, 'AI');
+      let aiProgress = previousAi + buildingTime * worldSimulatorCount;
+      const trainingCount = Math.floor(aiProgress / 86400);
+      const alphaCoreCount = countBuilding('硅基核心阿尔法');
+      const betaCoreCount = countBuilding('硅基核心贝塔');
+      let alphaChance: number;
+      let betaChance: number;
+
+      if (alphaCoreCount >= worldSimulatorCount) {
+        alphaChance = 35;
+        betaChance = 50;
+      } else if (alphaCoreCount > 0) {
+        alphaChance = 35 * alphaCoreCount / worldSimulatorCount;
+        betaChance = 50 * alphaCoreCount / worldSimulatorCount;
+        if (betaCoreCount >= worldSimulatorCount - alphaCoreCount) {
+          alphaChance += 15 * (worldSimulatorCount - alphaCoreCount) / worldSimulatorCount;
+          betaChance += 55 * (worldSimulatorCount - alphaCoreCount) / worldSimulatorCount;
+        } else {
+          alphaChance += 15 * betaCoreCount / worldSimulatorCount;
+          betaChance += 55 * betaCoreCount / worldSimulatorCount;
+          alphaChance += 5 * (worldSimulatorCount - alphaCoreCount - betaCoreCount) / worldSimulatorCount;
+          betaChance += 45 * (worldSimulatorCount - alphaCoreCount - betaCoreCount) / worldSimulatorCount;
+        }
+      } else if (betaCoreCount === 0) {
+        alphaChance = 5;
+        betaChance = 45;
+      } else if (betaCoreCount >= worldSimulatorCount) {
+        alphaChance = 15;
+        betaChance = 55;
+      } else {
+        alphaChance = 15 * betaCoreCount / worldSimulatorCount;
+        betaChance = 55 * betaCoreCount / worldSimulatorCount;
+        alphaChance += 5 * (worldSimulatorCount - betaCoreCount) / worldSimulatorCount;
+        betaChance += 45 * (worldSimulatorCount - betaCoreCount) / worldSimulatorCount;
+      }
+
+      if (hasDefenseNode) {
+        alphaChance += 3;
+        betaChance += 5;
+      }
+
+      if (trainingCount > 0) {
+        aiProgress -= trainingCount * 86400;
+        for (let i = 0; i < trainingCount; i++) {
+          const roll = Math.floor(Math.random() * 9901) + 100;
+          const generatedName = roll / 100 <= alphaChance
+            ? '硅基核心阿尔法'
+            : roll / 100 <= alphaChance + betaChance
+              ? '硅基核心贝塔'
+              : '废弃硅基核心';
+          this.addItemToArray(generatedName, 1, storage, { data: 'a' });
+          directOutput.push({ name: generatedName, quantity: 1 });
+        }
+      }
+      this.writeMarkerValue(mapMarkers, 'AI', aiProgress);
+      worldSimulationText = `正在训练硅基核心:${this.roundLikeOriginal(aiProgress / 864)}%(${this.roundLikeOriginal(alphaChance)}/${this.roundLikeOriginal(betaChance)}/${this.roundLikeOriginal(100 - alphaChance - betaChance)})`;
+    }
+
+    // 特殊产出判断必须读取“当前已累计的总产出”，顺序与原版 L334-L499 一致。
+    const specialTotal = baseAnalysis.totalOutput.map((item) => ({ ...item }));
+    // 原版世界模拟器生成的核心只写入地图.物品，不加入总产出2；普通宠物/具现装置产出则属于总产出2。
+    for (const item of ambientOutput) this.addToOutput(specialTotal, item);
+    const addSpecial = (items: ProduceItem[], priority: number): void => {
+      for (const item of items) {
+        this.addToOutput(specialTotal, item);
+      }
+      // 原版使用“生成临时建筑_多产出”，同一特殊产出的正负物品共享最小生产时间。
+      if (items.length > 0) buildingProducers.push(this.createTempBuildingMulti(items, 1, priority));
+    };
+
     // 原版 L334：腐化南方巨兽龙移除全部生物质，并转换为水晶和生肉。
     if (hasPet('腐化南方巨兽龙', -29)) {
-      const rawBiomass = Math.max(0, this.getItemQuantity('生物质', baseAnalysis.totalOutput));
+      const rawBiomass = Math.max(0, this.getItemQuantity('生物质', specialTotal));
       if (rawBiomass > 0) {
-        buildingProducers.push(this.createTempBuildingMulti([
+        addSpecial([
           { name: '水晶', quantity: rawBiomass * 500 },
           { name: '生肉', quantity: rawBiomass * 50 },
           { name: '生物质', quantity: -rawBiomass },
-        ], 1, 7));
+        ], 7);
       }
     }
 
-    // 肉食植物：把基础产出的90%生肉按原版比例转换为绳子/果实/肥料。
+    // 白兔子：家园蛋和奶的产量大于0时，每日生产3个奶油蛋糕。
+    if (hasPet('白兔子', -17) && this.getItemQuantity('奶', specialTotal) > 0) {
+      addSpecial([{ name: '奶油蛋糕', quantity: 0.002084 }], 2);
+    }
+
+    // 小雨下、小恶魔的固定产出数值按原版字面保留。
+    if (hasPet('小雨下', -18)) {
+      addSpecial([
+        { name: '灵石', quantity: 0.004167 },
+        { name: '生肉', quantity: -0.694445 },
+      ], 7);
+    }
+    if (hasPet('小恶魔', -20)) {
+      addSpecial([
+        { name: '糖心巧克力', quantity: 0.0020833 },
+        { name: '巧克力', quantity: -0.416667 },
+      ], 7);
+    }
+
+    // 肉食植物：把多余生肉按地图“肉食比例”转换为绳子/果实/肥料。
     if (hasPet('肉食植物', -25)) {
-      const rawMeat = Math.max(0, this.getItemQuantity('生肉', baseAnalysis.totalOutput));
+      const rawMeat = Math.max(0, this.getItemQuantity('生肉', specialTotal));
       if (rawMeat > 0) {
-        const ratio = (markerValue(mapMarkers, '肉食比例') || 90) / 100;
-        buildingProducers.push(this.createTempBuildingMulti([
+        const ratio = (this.readMarkerValue(mapMarkers, '肉食比例') || 90) / 100;
+        addSpecial([
           { name: '绳子', quantity: rawMeat * ratio * 3 },
           { name: '果实', quantity: rawMeat * ratio / 10 },
           { name: '肥料', quantity: rawMeat * ratio / 1000 },
           { name: '生肉', quantity: -rawMeat * ratio },
-        ], 1, 5));
+        ], 5);
       }
-    }
-
-    // 小雨下/小恶魔/白兔子/腐化南方巨兽龙的固定家园产出，均按“每日数量/1440”转为每分钟资源。
-    if (hasPet('小雨下', -18)) {
-      buildingProducers.push(this.createTempBuildingMulti([
-        { name: '灵石', quantity: 6 / 1440 },
-        { name: '生肉', quantity: -1000 / 1440 },
-      ], 1, 7));
-    }
-    if (hasPet('小恶魔', -20)) {
-      buildingProducers.push(this.createTempBuildingMulti([
-        { name: '糖心巧克力', quantity: 3 / 1440 },
-        { name: '巧克力', quantity: -600 / 1440 },
-      ], 1, 7));
-    }
-    if (hasPet('白兔子', -17) && this.getItemQuantity('奶', baseAnalysis.totalOutput) > 0) {
-      buildingProducers.push(this.createTempBuilding('奶油蛋糕', 0.002084, undefined, 1, 2));
     }
 
     if (hasPet('螳螂', -26)) {
       const mantis = summons.find((pet: any) => (pet?.vitality ?? pet?.活力 ?? pet?.specialSeq) === -26
-        || pet?.name === '螳螂' || pet?.名称 === '螳螂');
+        || this.getItemName(pet) === '螳螂');
       const gather = Number(mantis?.采集 ?? mantis?.属性?.采集 ?? mantis?.gathering ?? 0);
       if (gather > 0) {
-        buildingProducers.push(this.createTempBuilding('铁矿', cropLimit * gather / 1440, undefined, 1, 2));
+        addSpecial([{ name: '铁矿', quantity: cropLimit * gather / 1440 }], 2);
       }
     }
 
-    // 心之守望在完成总览计算后，为每个每分钟产量>=1的非电力产物额外+1。
-    if (hasPet('心之守望', -12)) {
-      const heart = summons.find((pet: any) => (pet?.vitality ?? pet?.活力 ?? pet?.specialSeq) === -12
-        || pet?.name === '心之守望' || pet?.名称 === '心之守望');
-      const heartFactor = 1 + Number(heart?.level || 1) / 100;
-      for (const item of baseAnalysis.totalOutput) {
-        if (item.name !== '电力' && item.quantity >= 1) {
-          buildingProducers.push(this.createTempBuilding(item.name, heartFactor, undefined, 1, 2));
-        }
-      }
-    }
-
-    // 兔子窝补充所有非电力负产出。金额按原版 a1=2000*兔子窝数量/负产出种类均分。
+    // 兔子窝补充所有非电力负产出，金额按原版 a1=2000*兔子窝数量/负产出种类均分。
     const rabbitNestCount = countBuilding('兔子窝');
-    const shortages = baseAnalysis.totalOutput
+    const shortageNames = specialTotal
       .filter((item) => item.quantity < 0 && item.name !== '电力')
       .map((item) => item.name)
       .filter((name, index, names) => names.indexOf(name) === index);
-    if (rabbitNestCount > 0 && shortages.length > 0) {
-      const budgetPerItem = 2000 * rabbitNestCount / shortages.length;
-      for (const shortageName of shortages) {
+    if (rabbitNestCount > 0 && shortageNames.length > 0) {
+      const budgetPerItem = 2000 * rabbitNestCount / shortageNames.length;
+      for (const shortageName of shortageNames) {
         const itemDef = this.staticData.getItemByName(shortageName);
         const value = Number(itemDef?.value ?? 0);
         const perMinute = value > 0
           ? budgetPerItem / value / 1440
           : budgetPerItem * Math.abs(value || 1) / 1440;
-        buildingProducers.push(this.createTempBuilding(shortageName, perMinute, undefined, 1, 7));
+        addSpecial([{ name: shortageName, quantity: perMinute }], 7);
       }
+    }
+
+    // 心之守望在所有产出/消耗计算完成后，为每个每分钟产量>=1的非电力产物额外+1。
+    if (hasPet('心之守望', -12)) {
+      const heart = summons.find((pet: any) => (pet?.vitality ?? pet?.活力 ?? pet?.specialSeq) === -12
+        || this.getItemName(pet) === '心之守望');
+      const heartFactor = 1 + Number(heart?.level || 1) / 100;
+      const heartItems = specialTotal
+        .filter((item) => item.name !== '电力' && item.quantity >= 1)
+        .map((item) => ({ name: item.name, quantity: heartFactor }));
+      addSpecial(heartItems, 2);
     }
 
     const analysis = this.getMapOutput(
@@ -1320,17 +1441,22 @@ export class HomeService {
       1,
     );
 
+    this.writeMarkerValue(mapMarkers, '观测时间', now);
     markers['家园产出时间'] = now;
     player.markers = JSON.stringify(markers);
     const resultLines = [`${player.name || '冒险者'}的家园产出`];
     if (!analysis.hasPower) {
       this.removeItemQuantity('肥料', temporaryFertilizer, storage);
+      await this.persistHomeMap(map, storage, mapMarkers);
       await this.playerService.savePlayer(player);
       return `${resultLines[0]}\n电力不足，建筑生产停止`;
     }
 
     const duration = analysis.remainingFuel;
-    const outputItems: ProduceItem[] = [];
+    const outputItems: ProduceItem[] = directOutput.map((item) => ({ ...item }));
+    for (const item of directOutput) {
+      if (item.quantity > 0) resultLines.push(`获得${item.name}x${item.quantity}`);
+    }
     for (let priority = 1; priority <= 7; priority++) {
       const cropOut = this.produceResources(
         limitedCrops.filter((p) => p.priority === priority),
@@ -1372,9 +1498,38 @@ export class HomeService {
 
     this.removeItemQuantity('肥料', temporaryFertilizer, storage);
 
-    player.backpack = JSON.stringify(storage);
+    if (worldSimulationText) resultLines.push(worldSimulationText);
+    await this.persistHomeMap(map, storage, mapMarkers);
     await this.playerService.savePlayer(player);
     if (resultLines.length === 1) resultLines.push('本次没有产出任何物品');
     return resultLines.join('\n');
+  }
+
+  private writeMarkerValue(target: any, name: string, value: number): void {
+    if (Array.isArray(target)) {
+      const existing = target.find((item: any) => this.getItemName(item) === name);
+      if (existing) {
+        if (existing.value !== undefined) existing.value = value;
+        else if (existing.数值 !== undefined) existing.数值 = value;
+        else existing.value = value;
+      } else {
+        target.push({ name, value });
+      }
+      return;
+    }
+    if (target && typeof target === 'object') target[name] = value;
+  }
+
+  private async persistHomeMap(map: any, storage: any[], mapMarkers: any): Promise<void> {
+    const items = JSON.stringify(storage);
+    const markers = JSON.stringify(mapMarkers);
+    map.items = items;
+    map.markers = markers;
+    const mapService = this.mapService as any;
+    if (typeof mapService.updateDynamicFields === 'function') {
+      await mapService.updateDynamicFields(map.id, { items, markers });
+    } else if (this.prisma?.gameMap?.update) {
+      await this.prisma.gameMap.update({ where: { id: map.id }, data: { items, markers } });
+    }
   }
 }

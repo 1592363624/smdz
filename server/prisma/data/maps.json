@@ -9,6 +9,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "医疗室",
     "monsters": "[]",
     "spawnMonsters": "[\"医疗室\"]",
     "tempMonsters": "[]",
@@ -28,7 +29,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "走廊",
@@ -40,6 +41,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "医疗室",
     "monsters": "[]",
     "spawnMonsters": "[\"医疗室\"]",
     "tempMonsters": "[]",
@@ -54,12 +56,12 @@
     "markers": "{}",
     "markers2": "[]",
     "mapBuffs": "[]",
-    "requireMarkers": "[]",
-    "failHint": "",
+    "requireMarkers": "[\"召唤白\"]",
+    "failHint": "先“观察附近”看看附近有什么吧",
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "森林出口",
@@ -71,6 +73,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "森林出口",
     "monsters": "[\"精英史莱姆\",\"史莱姆\",\"史莱姆\",\"史莱姆\",\"史莱姆\",\"史莱姆\",\"史莱姆\",\"史莱姆\",\"史莱姆\",\"兔子\",\"斑点牛\",\"马\",\"白兔子\",\"森林狼\"]",
     "spawnMonsters": "[\"森林出口\"]",
     "tempMonsters": "[]",
@@ -90,7 +93,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "森林深处",
@@ -102,6 +105,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "森林出口",
     "monsters": "[\"绿毛龟\",\"绿毛龟\",\"绿毛龟\",\"绿毛龟\",\"绿毛龟\",\"绿毛龟\",\"精英绿毛龟\",\"兔子\",\"斑点牛\",\"马\",\"白兔子\",\"森林狼\",\"常春藤\"]",
     "spawnMonsters": "[\"森林出口\"]",
     "tempMonsters": "[]",
@@ -121,7 +125,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "雪原",
@@ -133,6 +137,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "远峰",
     "monsters": "[\"狼\",\"狼\",\"狼\",\"狼\",\"狼\",\"狼\",\"狼\",\"狼\",\"精英狼\",\"兔子\",\"斑点牛\",\"虎\",\"白兔子\"]",
     "spawnMonsters": "[\"远峰\"]",
     "tempMonsters": "[]",
@@ -152,7 +157,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "远峰",
@@ -164,6 +169,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "远峰",
     "monsters": "[\"狼\",\"狼\",\"狼\",\"狼\",\"石油巨人\",\"石油巨人\",\"石油巨人\",\"石油巨人\",\"精英狼\",\"兔子\",\"斑点牛\",\"原油巨人\",\"虎\",\"白兔子\"]",
     "spawnMonsters": "[\"远峰\"]",
     "tempMonsters": "[]",
@@ -183,7 +189,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "城镇出口",
@@ -195,6 +201,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "城镇中心",
     "monsters": "[]",
     "spawnMonsters": "[\"城镇中心\"]",
     "tempMonsters": "[]",
@@ -214,7 +221,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "城镇中心",
@@ -226,6 +233,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "城镇中心",
     "monsters": "[]",
     "spawnMonsters": "[\"城镇中心\"]",
     "tempMonsters": "[]",
@@ -245,7 +253,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "城镇老区",
@@ -257,6 +265,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "城镇中心",
     "monsters": "[\"Doge\"]",
     "spawnMonsters": "[\"城镇中心\"]",
     "tempMonsters": "[]",
@@ -276,7 +285,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "草原",
@@ -288,6 +297,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "火山",
     "monsters": "[\"火鸡\",\"豪猪\",\"火鸡\",\"豪猪\",\"火鸡\",\"豪猪\",\"火鸡\",\"豪猪\",\"火鸡\",\"豪猪\",\"火鸡\",\"白兔子\",\"豪猪\",\"火鸡\",\"豪猪\",\"火鸡\",\"豪猪\",\"精英火鸡\",\"精英豪猪\",\"兔子\",\"斑点牛\",\"斑点牛\",\"马\",\"常春藤\"]",
     "spawnMonsters": "[\"火山\"]",
     "tempMonsters": "[]",
@@ -307,7 +317,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "湖边",
@@ -319,6 +329,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "森林出口",
     "monsters": "[\"水元素\",\"水元素\",\"水元素\",\"水元素\",\"水元素\",\"水元素\",\"水元素\",\"水元素\",\"水元素\",\"精英水元素\",\"兔子\",\"斑点牛\",\"马\",\"白兔子\",\"森林狼\",\"常春藤\"]",
     "spawnMonsters": "[\"森林出口\"]",
     "tempMonsters": "[]",
@@ -338,7 +349,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "居民区",
@@ -350,6 +361,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "城镇中心",
     "monsters": "[]",
     "spawnMonsters": "[\"城镇中心\"]",
     "tempMonsters": "[]",
@@ -369,7 +381,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "火山",
@@ -381,6 +393,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "火山",
     "monsters": "[]",
     "spawnMonsters": "[\"火山\"]",
     "tempMonsters": "[]",
@@ -400,7 +413,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "沙滩",
@@ -412,6 +425,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "沙滩",
     "monsters": "[]",
     "spawnMonsters": "[\"沙滩\"]",
     "tempMonsters": "[]",
@@ -431,7 +445,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "地堡",
@@ -443,6 +457,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "火山",
     "monsters": "[\"自动炮塔\",\"自动炮塔\",\"自动炮塔\",\"自动炮塔\",\"自动炮塔\",\"火箭炮塔\",\"重型炮塔\",\"咏星\"]",
     "spawnMonsters": "[\"火山\"]",
     "tempMonsters": "[]",
@@ -474,6 +489,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "火山",
     "monsters": "[\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"精英火焰飞龙\",\"精英闪电飞龙\",\"精英冰霜飞龙\",\"精英剧毒飞龙\"]",
     "spawnMonsters": "[\"火山\"]",
     "tempMonsters": "[]",
@@ -493,7 +509,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "虚数空间",
@@ -502,9 +518,10 @@
     "level": 1,
     "isFrontier": false,
     "noTeleport": false,
-    "noMove": false,
+    "noMove": true,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "虚数空间",
     "monsters": "[]",
     "spawnMonsters": "[\"虚数空间\"]",
     "tempMonsters": "[]",
@@ -533,9 +550,10 @@
     "level": 1,
     "isFrontier": false,
     "noTeleport": false,
-    "noMove": false,
+    "noMove": true,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "虚数空间",
     "monsters": "[]",
     "spawnMonsters": "[\"虚数空间\"]",
     "tempMonsters": "[]",
@@ -564,9 +582,10 @@
     "level": 1,
     "isFrontier": false,
     "noTeleport": false,
-    "noMove": false,
+    "noMove": true,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "虚数空间",
     "monsters": "[]",
     "spawnMonsters": "[\"虚数空间\"]",
     "tempMonsters": "[]",
@@ -598,6 +617,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "森林出口",
     "monsters": "[\"螳螂\",\"螳螂\",\"螳螂\",\"螳螂\",\"螳螂\",\"螳螂\",\"螳螂\",\"螳螂\",\"精英螳螂\",\"兔子\",\"白兔子\",\"兔子\",\"白兔子\",\"粉狐狐\",\"常春藤\"]",
     "spawnMonsters": "[\"森林出口\"]",
     "tempMonsters": "[]",
@@ -629,6 +649,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "森林出口",
     "monsters": "[\"肉食植物\",\"肉食植物\",\"肉食植物\",\"肉食植物\",\"肉食植物\",\"肉食植物\",\"肉食植物\",\"精英肉食植物\",\"兔子\",\"斑点牛\",\"马\",\"白兔子\",\"常春藤\"]",
     "spawnMonsters": "[\"森林出口\"]",
     "tempMonsters": "[]",
@@ -648,7 +669,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "城镇广场",
@@ -660,6 +681,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "城镇中心",
     "monsters": "[]",
     "spawnMonsters": "[\"城镇中心\"]",
     "tempMonsters": "[]",
@@ -679,7 +701,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "靶场",
@@ -691,6 +713,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "城镇中心",
     "monsters": "[\"白板靶\",\"抗性靶\"]",
     "spawnMonsters": "[\"城镇中心\"]",
     "tempMonsters": "[]",
@@ -722,6 +745,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "沙滩",
     "monsters": "[\"巨齿鲨\",\"巨齿鲨\",\"巨齿鲨\",\"巨齿鲨\",\"巨齿鲨\",\"巨齿鲨\",\"巨齿鲨\",\"巨齿鲨\",\"巨齿鲨\",\"精英巨齿鲨\"]",
     "spawnMonsters": "[\"沙滩\"]",
     "tempMonsters": "[]",
@@ -741,7 +765,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "仓库废墟",
@@ -750,9 +774,10 @@
     "level": 1,
     "isFrontier": false,
     "noTeleport": false,
-    "noMove": false,
+    "noMove": true,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "虚数空间",
     "monsters": "[]",
     "spawnMonsters": "[\"虚数空间\"]",
     "tempMonsters": "[]",
@@ -781,9 +806,10 @@
     "level": 1,
     "isFrontier": false,
     "noTeleport": false,
-    "noMove": false,
+    "noMove": true,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "虚数空间",
     "monsters": "[\"新生卫士\",\"新生防卫者\",\"新生监护者\",\"新生卫士\",\"新生防卫者\",\"新生监护者\",\"苏醒防卫者\"]",
     "spawnMonsters": "[\"虚数空间\"]",
     "tempMonsters": "[]",
@@ -815,6 +841,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL研究中心",
     "monsters": "[]",
     "spawnMonsters": "[\"CELL研究中心\"]",
     "tempMonsters": "[]",
@@ -831,10 +858,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "阵列 仓库 硬盘",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "研究中心大厅",
@@ -846,6 +873,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL研究中心",
     "monsters": "[\"CELL雇佣兵\",\"CELL狙击手\",\"CELL佣兵队长\"]",
     "spawnMonsters": "[\"CELL研究中心\"]",
     "tempMonsters": "[]",
@@ -865,7 +893,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "实验室",
@@ -877,6 +905,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL研究中心",
     "monsters": "[\"纳米战士\",\"纳米复仇者\",\"纳米复仇者\",\"纳米战士\",\"纳米复仇者\",\"纳米复仇者\",\"粉狐狐\"]",
     "spawnMonsters": "[\"CELL研究中心\"]",
     "tempMonsters": "[]",
@@ -896,7 +925,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "CELL总部",
@@ -908,6 +937,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL总部",
     "monsters": "[]",
     "spawnMonsters": "[\"CELL总部\"]",
     "tempMonsters": "[]",
@@ -924,10 +954,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "服务器 节点 数据中心",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "总部大厅",
@@ -939,6 +969,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL总部",
     "monsters": "[\"纳米战士\",\"CELL狙击手\",\"CELL佣兵队长\"]",
     "spawnMonsters": "[\"CELL总部\"]",
     "tempMonsters": "[]",
@@ -958,7 +989,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "CELL指挥中心",
@@ -970,6 +1001,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL总部",
     "monsters": "[\"纳米复仇者\",\"纳米复仇者\",\"纳米复仇者\"]",
     "spawnMonsters": "[\"CELL总部\"]",
     "tempMonsters": "[]",
@@ -989,7 +1021,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "CELL后勤部",
@@ -1001,6 +1033,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL后勤部",
     "monsters": "[]",
     "spawnMonsters": "[\"CELL后勤部\"]",
     "tempMonsters": "[]",
@@ -1017,10 +1050,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "物资a 物资b 物资c",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "后勤大厅",
@@ -1032,6 +1065,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL后勤部",
     "monsters": "[\"CELL狙击手\",\"CELL狙击手\",\"CELL佣兵队长\"]",
     "spawnMonsters": "[\"CELL后勤部\"]",
     "tempMonsters": "[]",
@@ -1051,7 +1085,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "后勤仓库",
@@ -1063,6 +1097,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "CELL后勤部",
     "monsters": "[\"纳米战士\",\"纳米复仇者\",\"CELL佣兵队长\"]",
     "spawnMonsters": "[\"CELL后勤部\"]",
     "tempMonsters": "[]",
@@ -1082,7 +1117,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "灭绝之地",
@@ -1094,6 +1129,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "灭绝之地",
     "monsters": "[]",
     "spawnMonsters": "[\"灭绝之地\"]",
     "tempMonsters": "[]",
@@ -1110,10 +1146,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "能量块a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "城市废墟",
@@ -1125,6 +1161,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "灭绝之地",
     "monsters": "[\"腐化翼龙\",\"腐化霸王龙\",\"腐化剑龙\",\"腐化翼龙\",\"腐化霸王龙\",\"腐化剑龙\",\"腐化翼龙\",\"腐化霸王龙\",\"腐化南方巨兽龙\"]",
     "spawnMonsters": "[\"灭绝之地\"]",
     "tempMonsters": "[]",
@@ -1141,10 +1178,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "能量块a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "誓约之地",
@@ -1156,6 +1193,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "誓约之地",
     "monsters": "[]",
     "spawnMonsters": "[\"誓约之地\"]",
     "tempMonsters": "[]",
@@ -1172,10 +1210,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "誓约a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "巧克力仓库",
@@ -1187,6 +1225,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "誓约之地",
     "monsters": "[\"执行者\"]",
     "spawnMonsters": "[\"誓约之地\"]",
     "tempMonsters": "[]",
@@ -1203,10 +1242,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "誓约a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "飞龙巢穴",
@@ -1218,6 +1257,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "火山",
     "monsters": "[\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"火焰飞龙\",\"闪电飞龙\",\"冰霜飞龙\",\"剧毒飞龙\",\"精英火焰飞龙\",\"精英闪电飞龙\",\"精英冰霜飞龙\",\"精英剧毒飞龙\",\"青眼白龙\",\"青眼白龙\",\"青眼白龙\"]",
     "spawnMonsters": "[\"火山\"]",
     "tempMonsters": "[]",
@@ -1237,7 +1277,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "哥布林巢穴",
@@ -1249,6 +1289,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "火山",
     "monsters": "[\"哥布林\",\"哥布林\",\"哥布林\",\"哥布林\",\"哥布林\",\"哥布林\",\"哥布林\",\"哥布林\",\"哥布林\",\"哥布林工兵\",\"哥布林工兵\",\"哥布林工兵\",\"哥布林工兵\",\"精英哥布林\"]",
     "spawnMonsters": "[\"火山\"]",
     "tempMonsters": "[]",
@@ -1280,6 +1321,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "浮空岛",
     "monsters": "[]",
     "spawnMonsters": "[\"浮空岛\"]",
     "tempMonsters": "[]",
@@ -1299,7 +1341,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "世界树冠",
@@ -1311,6 +1353,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "浮空岛",
     "monsters": "[\"钢铁之翼\",\"钢铁之翼\",\"钢铁之翼\",\"钢铁之翼\",\"钢铁之翼\",\"钢铁之翼\",\"钢铁之翼\",\"钢铁之翼\",\"钢铁之翼\",\"精英钢铁之翼\",\"鹭\",\"兔子\",\"白兔子\",\"彩虹鸟\"]",
     "spawnMonsters": "[\"浮空岛\"]",
     "tempMonsters": "[]",
@@ -1330,7 +1373,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "核战废墟",
@@ -1342,6 +1385,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "核战废墟",
     "monsters": "[]",
     "spawnMonsters": "[\"核战废墟\"]",
     "tempMonsters": "[]",
@@ -1358,10 +1402,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "物资d",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "哨站",
@@ -1373,6 +1417,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "核战废墟",
     "monsters": "[\"第四帝国士兵\",\"第四帝国士兵\",\"第四帝国士兵\",\"第四帝国火力手\"]",
     "spawnMonsters": "[\"核战废墟\"]",
     "tempMonsters": "[]",
@@ -1392,7 +1437,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "荒地",
@@ -1404,6 +1449,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "荒地",
     "monsters": "[]",
     "spawnMonsters": "[\"荒地\"]",
     "tempMonsters": "[]",
@@ -1423,7 +1469,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "大矿坑",
@@ -1435,6 +1481,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "古堡",
     "monsters": "[\"防御节点\",\"合金巨人\",\"合金巨人\",\"合金巨人\",\"寒铁巨人\",\"辐射巨人\"]",
     "spawnMonsters": "[\"古堡\"]",
     "tempMonsters": "[]",
@@ -1454,7 +1501,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "熔岩裂谷",
@@ -1466,6 +1513,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "古堡",
     "monsters": "[\"岩石巨人\",\"寒铁巨人\",\"合金巨人\",\"山岭巨人\",\"熔岩巨人\",\"马\",\"辐射巨人\",\"咏星\"]",
     "spawnMonsters": "[\"古堡\"]",
     "tempMonsters": "[]",
@@ -1485,7 +1533,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "灵山岛",
@@ -1497,6 +1545,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "灵山岛",
     "monsters": "[]",
     "spawnMonsters": "[\"灵山岛\"]",
     "tempMonsters": "[]",
@@ -1513,10 +1562,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "灵山a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "挖掘场",
@@ -1528,6 +1577,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "灵山岛",
     "monsters": "[\"CELL雇佣兵\",\"无标识士兵\",\"CELL直升机\"]",
     "spawnMonsters": "[\"灵山岛\"]",
     "tempMonsters": "[]",
@@ -1544,10 +1594,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "灵山岛a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "外星基地",
@@ -1559,6 +1609,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "灵山岛",
     "monsters": "[\"哨兵\",\"哨兵\",\"猎手\",\"哨兵\",\"猎手\",\"哨兵\",\"猎手\",\"哨兵\",\"要塞\",\"要塞\"]",
     "spawnMonsters": "[\"灵山岛\"]",
     "tempMonsters": "[]",
@@ -1575,10 +1626,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "灵山岛a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "礁石岛",
@@ -1590,6 +1641,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "沙滩",
     "monsters": "[\"海神龙\"]",
     "spawnMonsters": "[\"沙滩\"]",
     "tempMonsters": "[]",
@@ -1609,7 +1661,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "古堡",
@@ -1621,6 +1673,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "古堡",
     "monsters": "[]",
     "spawnMonsters": "[\"古堡\"]",
     "tempMonsters": "[]",
@@ -1652,6 +1705,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "荒地",
     "monsters": "[\"树人\",\"树人\",\"树人\",\"精英树人\",\"树人\",\"树人\",\"树人\",\"树人\",\"精英树人\",\"鹭\",\"兔子\",\"白兔子\",\"森林狼\",\"斑点牛\",\"马\",\"虎\",\"粉狐狐\",\"彩虹鸟\"]",
     "spawnMonsters": "[\"荒地\"]",
     "tempMonsters": "[]",
@@ -1671,7 +1725,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "祭坛",
@@ -1683,6 +1737,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "荒地",
     "monsters": "[\"触手藤\",\"触手藤\",\"触手藤\",\"触手藤\",\"精英触手藤\",\"兔子\",\"白兔子\"]",
     "spawnMonsters": "[\"荒地\"]",
     "tempMonsters": "[]",
@@ -1702,7 +1757,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "阁楼",
@@ -1714,6 +1769,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "古堡",
     "monsters": "[\"洛\"]",
     "spawnMonsters": "[\"古堡\"]",
     "tempMonsters": "[]",
@@ -1745,6 +1801,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "巢都",
     "monsters": "[]",
     "spawnMonsters": "[\"巢都\"]",
     "tempMonsters": "[]",
@@ -1764,7 +1821,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "巢都",
@@ -1776,6 +1833,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "巢都",
     "monsters": "[\"无畏战士\",\"无畏战士\",\"无畏战士\",\"无畏战士\",\"无畏战士\",\"无畏战士\",\"无畏战士\",\"无畏战士\",\"无畏战士\",\"鹭\",\"斑点牛\"]",
     "spawnMonsters": "[\"巢都\"]",
     "tempMonsters": "[]",
@@ -1795,7 +1853,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "太空",
@@ -1807,6 +1865,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "太空",
     "monsters": "[\"刽子手级\"]",
     "spawnMonsters": "[\"太空\"]",
     "tempMonsters": "[]",
@@ -1838,6 +1897,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "沙滩",
     "monsters": "[\"柴郡\",\"绫波\"]",
     "spawnMonsters": "[\"沙滩\"]",
     "tempMonsters": "[]",
@@ -1857,7 +1917,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "人工岛",
@@ -1869,6 +1929,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "沙滩",
     "monsters": "[\"可畏\",\"拉菲\"]",
     "spawnMonsters": "[\"沙滩\"]",
     "tempMonsters": "[]",
@@ -1888,7 +1949,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "组装车间",
@@ -1900,6 +1961,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "组装车间",
     "monsters": "[]",
     "spawnMonsters": "[\"组装车间\"]",
     "tempMonsters": "[]",
@@ -1916,10 +1978,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "工地a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "流水线",
@@ -1931,6 +1993,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "组装车间",
     "monsters": "[\"彼岸花\",\"曼陀罗\"]",
     "spawnMonsters": "[\"组装车间\"]",
     "tempMonsters": "[]",
@@ -1947,10 +2010,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "工地a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "庄园",
@@ -1962,6 +2025,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "荒地",
     "monsters": "[\"兔子\",\"斑点牛\",\"马\",\"兔子\",\"斑点牛\",\"马\",\"稻草人\",\"兔子\",\"斑点牛\",\"马\",\"兔子\",\"斑点牛\",\"马\",\"稻草人\",\"茸\"]",
     "spawnMonsters": "[\"荒地\"]",
     "tempMonsters": "[]",
@@ -1981,7 +2045,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "基地深处",
@@ -1990,9 +2054,10 @@
     "level": 1,
     "isFrontier": false,
     "noTeleport": false,
-    "noMove": false,
+    "noMove": true,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "虚数空间",
     "monsters": "[\"苏醒卫士\",\"苏醒防卫者\",\"苏醒监护者\",\"苏醒卫士\",\"苏醒防卫者\",\"苏醒监护者\",\"长明防卫者\"]",
     "spawnMonsters": "[\"虚数空间\"]",
     "tempMonsters": "[]",
@@ -2012,7 +2077,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "战场边缘",
@@ -2024,6 +2089,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "远峰",
     "monsters": "[\"简单监察者\"]",
     "spawnMonsters": "[\"远峰\"]",
     "tempMonsters": "[]",
@@ -2055,6 +2121,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "远峰",
     "monsters": "[\"中等监察者\"]",
     "spawnMonsters": "[\"远峰\"]",
     "tempMonsters": "[]",
@@ -2086,6 +2153,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "远峰",
     "monsters": "[\"困难监察者\"]",
     "spawnMonsters": "[\"远峰\"]",
     "tempMonsters": "[]",
@@ -2117,6 +2185,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "巢都",
     "monsters": "[\"机械降神\"]",
     "spawnMonsters": "[\"巢都\"]",
     "tempMonsters": "[]",
@@ -2148,6 +2217,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "森林出口",
     "monsters": "[\"艾露迪\",\"黑化艾露迪\",\"艾露迪\",\"黑化艾露迪\",\"粉狐狐\",\"彩虹鸟\"]",
     "spawnMonsters": "[\"森林出口\"]",
     "tempMonsters": "[]",
@@ -2167,7 +2237,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "暗影岛",
@@ -2179,6 +2249,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "暗影岛",
     "monsters": "[\"格温\"]",
     "spawnMonsters": "[\"暗影岛\"]",
     "tempMonsters": "[]",
@@ -2198,7 +2269,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "古堡中层",
@@ -2210,6 +2281,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "古堡",
     "monsters": "[\"龙女仆\",\"龙女仆\",\"龙女仆\",\"龙女仆\",\"龙女仆\",\"龙女仆\",\"龙女仆\",\"吸血姬\"]",
     "spawnMonsters": "[\"古堡\"]",
     "tempMonsters": "[]",
@@ -2238,9 +2310,10 @@
     "level": 1,
     "isFrontier": false,
     "noTeleport": false,
-    "noMove": false,
+    "noMove": true,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "虚数空间",
     "monsters": "[\"银\"]",
     "spawnMonsters": "[\"虚数空间\"]",
     "tempMonsters": "[]",
@@ -2272,6 +2345,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "远峰",
     "monsters": "[\"噩梦监察者\"]",
     "spawnMonsters": "[\"远峰\"]",
     "tempMonsters": "[]",
@@ -2303,6 +2377,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "荒地",
     "monsters": "[\"神兽玄武\"]",
     "spawnMonsters": "[\"荒地\"]",
     "tempMonsters": "[]",
@@ -2334,6 +2409,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "昆仑山",
     "monsters": "[\"英招\",\"英招\",\"英招\",\"英招\",\"英招\",\"英招\",\"彩虹鸟\",\"粉狐狐\"]",
     "spawnMonsters": "[\"昆仑山\"]",
     "tempMonsters": "[]",
@@ -2353,7 +2429,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "昆仑山",
@@ -2365,6 +2441,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "昆仑山",
     "monsters": "[\"白兔子\",\"白兔子\",\"森林狼\",\"森林狼\",\"虎\",\"虎\",\"茸\",\"粉狐狐\"]",
     "spawnMonsters": "[\"昆仑山\"]",
     "tempMonsters": "[]",
@@ -2384,7 +2461,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "朱雀之地",
@@ -2396,6 +2473,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "荒地",
     "monsters": "[\"神兽朱雀\"]",
     "spawnMonsters": "[\"荒地\"]",
     "tempMonsters": "[]",
@@ -2427,6 +2505,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "荒地",
     "monsters": "[\"神兽白虎\"]",
     "spawnMonsters": "[\"荒地\"]",
     "tempMonsters": "[]",
@@ -2458,6 +2537,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "荒地",
     "monsters": "[\"神兽青龙\"]",
     "spawnMonsters": "[\"荒地\"]",
     "tempMonsters": "[]",
@@ -2489,6 +2569,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "浮空岛",
     "monsters": "[\"深蓝心之守望\"]",
     "spawnMonsters": "[\"浮空岛\"]",
     "tempMonsters": "[]",
@@ -2520,6 +2601,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "四圣祭坛",
     "monsters": "[]",
     "spawnMonsters": "[\"四圣祭坛\"]",
     "tempMonsters": "[]",
@@ -2536,10 +2618,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "四圣a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "白虎祭坛",
@@ -2551,6 +2633,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "四圣祭坛",
     "monsters": "[\"神兽白虎\"]",
     "spawnMonsters": "[\"四圣祭坛\"]",
     "tempMonsters": "[]",
@@ -2567,10 +2650,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "四圣a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "朱雀祭坛",
@@ -2582,6 +2665,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "四圣祭坛",
     "monsters": "[\"神兽朱雀\"]",
     "spawnMonsters": "[\"四圣祭坛\"]",
     "tempMonsters": "[]",
@@ -2598,10 +2682,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "四圣a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "玄武祭坛",
@@ -2613,6 +2697,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "四圣祭坛",
     "monsters": "[\"神兽玄武\"]",
     "spawnMonsters": "[\"四圣祭坛\"]",
     "tempMonsters": "[]",
@@ -2629,10 +2714,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "四圣a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "青龙祭坛",
@@ -2644,6 +2729,7 @@
     "noMove": false,
     "isInstance": true,
     "requiredTravel": 0,
+    "respawnPoint": "四圣祭坛",
     "monsters": "[\"神兽青龙\"]",
     "spawnMonsters": "[\"四圣祭坛\"]",
     "tempMonsters": "[]",
@@ -2660,10 +2746,10 @@
     "mapBuffs": "[]",
     "requireMarkers": "[]",
     "failHint": "",
-    "clearMarkers": "",
+    "clearMarkers": "四圣a",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "战舰坟场",
@@ -2672,9 +2758,10 @@
     "level": 1,
     "isFrontier": false,
     "noTeleport": false,
-    "noMove": false,
+    "noMove": true,
     "isInstance": false,
-    "requiredTravel": 0,
+    "requiredTravel": 3,
+    "respawnPoint": "战舰坟场",
     "monsters": "[\"牧羊人α\",\"牧羊人γ\"]",
     "spawnMonsters": "[\"战舰坟场\"]",
     "tempMonsters": "[]",
@@ -2705,7 +2792,8 @@
     "noTeleport": false,
     "noMove": false,
     "isInstance": false,
-    "requiredTravel": 0,
+    "requiredTravel": 2,
+    "respawnPoint": "血族城堡",
     "monsters": "[\"吸血姬分身\",\"吸血姬分身\",\"吸血姬分身\",\"吸血姬分身\",\"吸血姬\"]",
     "spawnMonsters": "[\"血族城堡\"]",
     "tempMonsters": "[]",
@@ -2737,6 +2825,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "森林出口",
     "monsters": "[\"绿毛龟\",\"绿毛龟\",\"绿毛龟\",\"绿毛龟\",\"绿毛龟\",\"绿毛龟\",\"精英绿毛龟\",\"兔子\",\"斑点牛\",\"马\",\"白兔子\",\"森林狼\"]",
     "spawnMonsters": "[\"森林出口\"]",
     "tempMonsters": "[]",
@@ -2756,7 +2845,7 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   },
   {
     "name": "光伏电站",
@@ -2768,6 +2857,7 @@
     "noMove": false,
     "isInstance": false,
     "requiredTravel": 0,
+    "respawnPoint": "沙滩",
     "monsters": "[\"自动炮塔\",\"自动炮塔\",\"自动炮塔\",\"自动炮塔\",\"自动炮塔\",\"自动炮塔\",\"自动炮塔\",\"咏星\"]",
     "spawnMonsters": "[\"沙滩\"]",
     "tempMonsters": "[]",
@@ -2787,6 +2877,6 @@
     "clearMarkers": "",
     "music": "",
     "monsterCount": 3,
-    "noSpecial": true
+    "noSpecial": false
   }
 ]

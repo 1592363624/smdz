@@ -167,7 +167,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 免死 | L5020 | `combat-system.avoidDeath` + 接入 `playerDeath` | ✅ | 1:1 还原(L5020-5096)：龙姬(specialSeq=12)怒吼→b=2、伊芙利特(specialSeq=11)五番冷却未过→获得增益五番a、战斗女仆(specialSeq=8)守护3→b=5、吸血姬(活力=-15)与分身(活力=-16)互换生命、猫爪吊坠(specialSeq=23)猫爪冷却未过→获得增益猫爪；L5072 独立判断 增益要求猫爪→b=4/五番a→b=3/默认→b=1（⚠️原版 L5072 默认 b=1 会覆盖 龙姬b=2/战斗女仆b=5，致怒吼/守护3 实际不免死，原版疑似冗余分支，按原版保留）；b==2 总伤害+当前生命-1且当前生命=1、b==3/4/5 生命-0免死返回真。依赖 combatState.gainBuff/timeIntervalRequire + playerService.getMarkerValue；**兼容性修复**：avoidDeath 内部调用 combatState.normalizeBuffItem 将 buffs/markers2 原地归一化为中文key(兼容英文key+秒级)，playerDeath 调用时传浅拷贝副本避免污染本函数后续英文key读取；新增 test/combat.spec.ts 10用例 |
 | 行动无限制 | L5097 | `combat-system.actionUnrestricted` | ✅ | 1移动2复活3采集4工作5躺下6自动开采；markers2秒级expireAt一致；新增 test/combat.spec.ts 9用例 |
 | 玩家死亡 | L5173 | `combat-system.playerDeath` | ✅ | 卷土重来/军姬森罗万象/死亡行者/石中剑 复活豁免；军姬宠物存活借 map.summons 近似；**已接入 avoidDeath（原版 免死 优先于 玩家死亡，L5020 先于 L5173 调用）**；新增 test/combat.spec.ts 5用例 |
-| 选择目标 | L5233 | — | ⬜ | |
+| 选择目标 | L5233 | `combat-system.selectTargets` | ✅ | 支持指定目标、目标名称回退、全体攻击和随机单目标选择；由 `weaponAttack` 统一调用。 |
 | 置掉落 | L5245 | `combat-system.setDrop` | ✅ | 掉落率dl/品质dp/传说率xy/宝石缎带ds 写入怪物标记；⚠️原版L5291传说率段误用掉落品质按原版保留；新增 test/combat.spec.ts 4用例 |
 | 生成前线 | L5319-5422 | `combat-system.generateFrontline` + `familiar-system.handleHomeFrontline` / `game.service.handleStartBattle` | ✅ | 生成前线主体、首次查看前线自动生成、阵地召唤物/载具状态持久化均已接线；开始战斗后按前线等级生成地精波次、写入 `GameMonster`、置掉落并写入地图活动标记。原版建筑加成.攻击无对应静态建筑时仍按原版走默认火力自动步枪分支；阵地载具使用完整 `computeVehicle`。`test/integration-home-frontline.spec.ts` 覆盖首次生成、重复查看保留状态及 `<15/<40/<60/≥60` 波次 |
 | 选择高血量目标 | L5423 | `combat-system.selectHighHpTarget` | ✅ | 返回生命+装甲+护盾总和最大者索引；新增 test/combat.spec.ts 4用例 |
@@ -243,20 +243,21 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 |------|----------|---------|------|
 | 军姬X传送判断 | L3 | `familiar-skills`? | ⬜ |
 | 普拉娜幼崽剪毛 | L14 | `familiar-system.pranaShear` | ✅ | 1:1 复刻：玩家.type==普拉娜幼崽 且装备剪刀时，每小时给当前地图动物剪毛获得毛发x1（_主程序 多处理 普拉娜幼崽剪毛 调用 + 使魔技能 L14-49）。familiar-system.service.ts L3520-3562 已实现 |
-| 全属性调整 | L87 | — | ⬜ |
-| 取羽毛 | L125 | `familiar-skills` | ⬜ |
-| 纯白之翼 | L164 | — | ⬜ |
-| 释放使魔技能 (自动释放) | L179 | `familiar-skills` | ⬜ |
-| 召唤物存在 | L210 | — | ⬜ |
-| 攻击召唤 | L236 | `combat-system.summonCoAttack` | 🔶 |
-| 宠物搜索物品 | L374 | — | ⬜ |
-| 随机未冷却武器 | L486 | — | ⬜ |
-| 技能经验 | L506 | — | ⬜ |
-| 急救包 | L539 | — | ⬜ |
+| 全属性调整 | L87-124 | `bonus.adjustAllAttributes` | ✅ | 按原版字段顺序原地缩放护盾/装甲/生命、三层抗性、命中闪避、四属性伤害、暴击、回复、贯穿及三层攻击伤害上限字段；`calculateBuffs` 的梦倾天下分支已调用。 |
+| 取羽毛 | L125-163 | `combat-system.getFeather` | ✅ | 按原版时间锚点每10秒恢复、技能等级封顶、日轮1.5倍上限/好感≥40时恢复间隔减半、指定扣除及`-0.371`清空分支；炮击、光翼和属性计算已接入，专项断言已补。 |
+| 纯白之翼 | L164-176 | `familiar-system.autoCastSkill` | ✅ | 检查“纯白之翼”、纯白cd、使魔公共冷却和自动训练冷却后触发技能；`test/familiar-auto-skill.spec.ts` 覆盖花园猫/兰音/冷却分支 |
+| 释放使魔技能 (自动释放) | L179-207 | `familiar-system.autoCastSkill` + `familiar-skills.executeSkill` | ✅ | 兰音公共冷却归零时切换“形神合一”，其余技能沿用统一技能入口 |
+| 召唤物存在 | L210-235 | `map.summonExists` | ✅ | 类型1跨全部地图查询友方 `summons`，类型2查询 `GameMonster`，兼容中英文字段和 JSON 字符串。 |
+| 攻击召唤 | L236-373 | `combat-system.attackSummons` | ✅ | 兰音/雷火剑专属召唤、装备攻击文本召唤、全局唯一 QQ、60秒冷却、重力井拦截、宠物分身继承、友方地图写回与敌方 `GameMonster` 写入均已接入 `weaponAttack`；专项测试覆盖。 |
+| 宠物搜索物品 | L374-485 | `familiar-skills.searchPetItems` | ✅ | 按麒麟/高好感/全宠物顺序、好感概率、魅力数量与冷却、建筑/小挎包、200好感装备分支处理；`test/familiar-search.spec.ts` 6例 |
+| 随机未冷却武器 | L486-503 | `combat-system.randomAvailableWeapon` | ✅ | 从未冷却武器中随机返回1-based索引，并由技能攻击链路消费 |
+| 技能经验 | L506-538 | `familiar-skills.gainSkillExperience` | ✅ | 按原版“最高技能/白套装/bj2/创可贴/nydg”顺序计算倍率并写回“类型+技能熟练度”；伊芙利特专项测试覆盖技能经验文本与标记 |
+| 急救包 | L539-547 | `familiar-skills.applyFirstAid` | ✅ | 按属性三层上限的10%恢复护盾、装甲、生命，保持原版输出顺序 |
+| **灼烂歼鬼（伊芙利特）** | **L1967-2006** | `familiar-skills.scorchedFinger` / `game-command.handler` | ✅ | 特殊序号门禁、冷却核心50/60秒、急救包、三层回满、库洛牌30/37.5秒增益、技能经验/使用技能/活跃度及好感≥100时当前武器“空间震a”全体攻击均已接入；`test/familiar-scorched-finger.spec.ts` 4例通过 |
 | 释放闪避 | L550 | `game.service.handleDodge` | ✅ | 1:1 复刻：发「闪避」指令(_主程序 L1839 分发)→ 飞羽套装冷却加成(a2封顶10, L1840-1844)→ 冷却公式 15*(1+a2*0.05)(L1848)→ 释放闪避子程序(使魔技能 L550-633)：麻醉标记静默(L561)、闪避属性≤1拒绝(L564-565)、持续秒数 a1=(a/(25+a)+1)*4(L567-568, a=闪避熟练度)、空间主宰 a1*2(L569-573)、文本"名称尝试闪避攻击(a1秒)"(L576)、成就"闪避"/"闪避熟练度"+1(L577-578)、写入"闪避"增益 a1秒(L579)；使魔分支：花园猫(aff100→啾啾猫猫+闪避击 L580-585)、战斗女仆(aff100→清空武器冷却 L587-597)、龙姬(aff60→龙闪 L599-608)、普拉娜(aff30→火力压制 L610-619)。specialSeq 按 @Constant 修正(familiars.json 原全0→花园猫1/战斗女仆8/龙姬12/普拉娜22/兰音23等)，存量玩家 specialSeq 已远程修复(saber→19)。**2026-08-18 补全普拉娜(22)/兰音(23)使魔定义**：familiars.json 原缺失此2条导致无法选使魔；现已按 @Constant 补全(specialSeq 唯一无冲突)，selectFamiliar 兰音初始好感=20 逻辑(isLanyin)自动生效。端到端实测 test/integration-dodge.spec.ts 3例 + test/integration-familiar-select.spec.ts 2例(普拉娜seq22/兰音seq23+好感20)通过 |
 | **使魔技能 (触发)** | **L634** | `familiar-skills` | ✅ | 兰音(specialSeq=23)全技能已落地：形神合一(L1545,地图怪物麻醉+风月入墨经验减)/风月入墨(L1640,好感≥20)/心无所扰(L1687,好感≥40,无视闪避必中)/梦倾天下/反转童话(L2535,好感≥80)/月落寸光(L2550,好感≥100,抗性穿透)；公共冷却 30-技能等级*0.5+a2(冷却核心-10)；兰音模式2友方召唤物同步(使魔技能 L2395/L1602)。普拉娜(specialSeq=22)火力全开(L897,攻击+60%好感加成,持续30秒)。指令分发 game-command.handler 兰音技能组(形神合一/风月入墨/心无所扰/梦倾天下/反转童话/月落寸光)+火力全开 已全部接线。selectFamiliar 兰音初始好感=20(isLanyin)对齐 #兰音 常量。✅ 2026-08-18 补全普拉娜/兰音使魔定义后端到端 test/integration-familiar-select.spec.ts 2例通过。**2026-08-18 实战端到端实测**：新建 test/integration-lann-plana-skill.spec.ts 8例(真实远程库)，逐一验证：风月入墨地图增益 value=-17.5%(skillLevel10,对齐 expReduce=15+等级*0.25)、心无所扰模式2友方召唤物 buffs 同步 mustHitNext、月落寸光模式2同步 nextPenetration+skillLevelForPen=10、形神合一地图风月入墨增益+友方同步文本、梦倾天下/反转童话蓄势标记写入、好感<40拦截心无所扰、普拉娜火力全开攻击加成落地+类型不匹配拦截。同步逻辑 ownerId 用 String(userId)(Prisma Player 无 qq 字段，getAllySummons 用 player.qq||String(userId) 故友方召唤物归属须=userId字符串)。13例端到端(dodge3+select2+lann8)全通过 |
-| 月落寸光 | L2603 | — | ⬜ |
-| 反转童话 | L2631 | — | ⬜ |
+| 月落寸光 | L2603 | `familiar-skills.moonlightInch` | ✅ | 好感≥100、公共冷却、抗性穿透与兰音模式2友方召唤物同步已接入；见 `test/integration-lann-plana-skill.spec.ts` |
+| 反转童话 | L2631 | `familiar-skills.reverseFairytale` | ✅ | 好感≥80、下次攻击反转标记与公共冷却已接入；见 `test/integration-lann-plana-skill.spec.ts` |
 
 ---
 
@@ -264,7 +265,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 
 | 单元 | 原文行号 | TS 实现 | 状态 |
 |------|----------|---------|------|
-| 地图移动/连接/怪物刷新 | 全文件 | `map.service` | 🔶 | 出生刷怪/semiDynamicFields 已修; 移动/连接逻辑待逐行 |
+| 地图移动/连接/怪物刷新 | 全文件 | `map.service` | 🔶 | 出生刷怪/semiDynamicFields 已修；`refreshMapResources` 对齐地图操作.ecode L995-1020，同时重建 `resources/resources2`；移动/连接其余分支仍待逐行 |
 
 ---
 
@@ -272,7 +273,8 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 
 | 单元 | 原文行号 | TS 实现 | 状态 |
 |------|----------|---------|------|
-| 每分钟刷新怪物/世界事件 | 全文件 | `schedule.service` | ⬜ |
+| 副本关闭与地图刷新 | 后台运作.ecode L1039-1106 | `dungeon.service.closeDungeon` | ✅ | 迁移玩家、合并召唤物/载具到地图23、移除“(副本)”入口、清理标记并刷新怪物/资源；`test/dungeon.spec.ts` 2例 |
+| 每分钟刷新怪物/世界事件 | 全文件 | `schedule.service` | 🔶 | cron 主体已接入；后台世界事件及部分特殊分支仍需逐项核对 |
 
 ---
 
@@ -300,7 +302,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 物品（制造/移除/保护/丢弃/分解/图鉴/使用/背包搜索） | ~25 | ✅ 完 | 含战利品分发、词条转换 |
 | 地图（观察附近/移动/传送/飞到/探测/拾取/采集） | ~25 | ✅ 完 | 出生刷怪、地图连接、资源点 |
 | 家园（家园/搬迁/命名/音乐/操作/前线/产出） | ~10 | 🔶 半 | 动态院子/屋内/前线地图、入口、改名/搬迁持久化及前线状态已接通；家园产出核心已实现但特殊宠物/资源分支仍有逐项缺口 |
-| 副本（开启副本/刷新副本/副本清空） | ~5 | 🔶 半 | 副本清空 ✅；开启/刷新 ⬜ |
+| 副本（开启副本/刷新副本/副本清空） | ~5 | ✅ | `game.service.handleStartDungeon/handleRefreshDungeon/handleClearDungeon` + `dungeon.service` 已接线；正式数据按复活点分为9组/25张地图，保留副本券、300秒刷新冷却、120秒通关标记和30秒延时关闭 |
 | 商店（使魔商店/兑换/设置购物） | ~6 | 🔶 半 | 商店刷新定时 ✅；兑换交互 ⬜ |
 | 捕捉（捕捉/开始捕捉/停止捕捉） | ~4 | ✅ | `familiar-system.capturePet` 已实现开始/停止捕捉、麻醉门禁、饲料扣除、成功转宠物、特殊捕捉奖励及 `GameMonster` 优先读取；`test/capture.spec.ts` 覆盖主分支 |
 | 救助/对话/呼叫/设置跟随/福音书/安乐天使/炮击 | ~10 | ⬜ 占位 | handler 已注册，内部为占位/部分 |
@@ -325,9 +327,13 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 生成装备+词条转换 | 物品操作 L1128/L1838 | ✅ `test/item-system.spec.ts` |
 | 战利品分发 | 战斗相关 L4874 | ✅ `test/item-system.spec.ts`（4 用例） |
 | 使魔兰音 etc. 专项 | 使魔技能 L? | ✅ `test/integration-lann-plana-skill.spec.ts` |
+| 伊芙利特灼烂歼鬼 | 使魔技能 L1967-2006 | ✅ `test/familiar-scorched-finger.spec.ts`（4用例） |
+| 副本生命周期 | 后台运作 L1039-1106 / _主程序 L3863-3965、L7396-7409 | ✅ `test/dungeon.spec.ts`（2用例） |
 | 指令分发路由 | _主程序 L126-130 | 🔶 部分（依赖 §11.1 战斗循环，路由层本身已通） |
 | 怪物抗性映射 | buildMonsterBonus | ✅ 已含于 combat.spec.ts |
-| 战斗循环 driver e2e | 战斗相关 L320-499 | ⬜ 待 §11.1 实现后补 `test/battle-e2e.spec.ts` |
+| 战斗循环 driver e2e | 战斗相关 L320-499 | ✅ `test/battle-e2e.spec.ts` |
+
+本轮验证：`npm test` 通过 20/20 套件、244/244 测试；`npm run build` 通过；`git diff --check` 通过。地图静态数据共90张，正式副本候选9组/25张，`noSpecial` 按原版字段转换为26张 `true`、64张 `false`。
 
 ---
 
@@ -380,12 +386,29 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 【自检结论】
 
 - `test/vehicle-production.spec.ts`：10/10；`test/combat.spec.ts`、`test/battle-e2e.spec.ts` 与生产相关回归合计 135/135。
-- `npm run build` 通过；全量 `npm test -- --runInBand`：13/13 套件、214/214 测试通过。
+- `npm run build` 通过；全量 `npm test`：20/20 套件、244/244 测试通过。
 - 已知偏差：载具受击的损伤控制系统、贯穿抵抗、侵彻拆分仍未完成；部件限制全局无外部配置时按原版空数组运行。不得据此把整个 RKT 标记为完成。
+
+### §11.2.2 副本生命周期与伊芙利特技能逐行对照（2026-08-19）
+
+【原文 `_主程序.ecode L3863-L3965`、`后台运作.ecode L1039-L1106`、`_主程序.ecode L7396-L7409`】
+
+- 开启副本按 `关卡 && !开拓地 && 名称前缀 != 使魔挑战` 收集复活点；消耗“副本券”、增加“开启副本”与5点活跃度，并追加“复活点(副本)”入口。
+- 刷新副本使用“刷新副本冷却”300秒；关闭时把同复活点地图的玩家、召唤物、载具迁移到地图列表[23]，删除副本入口，刷新地图并清理配置的删除标记。
+- 副本通关使用同复活点“刷新”标记120秒，并延时30秒调用关闭逻辑。
+
+【原文 `使魔技能.ecode L506-L547、L1967-L2006`】
+
+- `scorchedFinger` 按特殊序号11门禁；冷却核心决定50/60秒；执行急救包、回满生命/护盾/装甲、写入30秒或库洛牌37.5秒“灼烂歼鬼”，再记技能经验、使用技能和活跃度；好感≥100且有怪物时调用当前武器“空间震a”全体攻击。
+
+【复刻与自检】
+
+- `server/src/modules/game/dungeon.service.ts`：`getInstanceGroups`、`closeDungeon`；`server/src/modules/game/game.service.ts`：三个副本命令入口；`server/src/modules/game/familiar-skills.service.ts`：`scorchedFinger`、技能经验与急救包；`server/prisma/convert-e-to-json.ts`：地图字段转换。
+- `server/test/dungeon.spec.ts` 2/2、`server/test/familiar-scorched-finger.spec.ts` 4/4、`server/test/attack-summon.spec.ts` 6/6；全量20/20套件、244/244测试及构建均通过。
 
 ### §11.3 家园子系统（前线/产出）
 - **前线：✅ 已完成（2026-08-18）**。对照接口1.ecode L1395-1480，`MapService.ensureHouseMaps` 持久化院子、屋内、前线三张动态地图并维护入口；对照 _主程序.ecode L2228-2254，`FamiliarSystemService.handleHomeFrontline` 首次查看调用 `generateFrontline` 并保存召唤物/载具；对照 _主程序.ecode L2077-2163，`GameService.handleStartBattle` 按前线等级分支生成地精 `GameMonster`、置掉落、开启活动。真实数据库专项 `test/integration-home-frontline.spec.ts` 6/6 通过。
-- **产出：🔶 部分完成**。`HomeService.collectHomeOutput` 已覆盖电力/燃料、人力、超载、工业建筑、兰音幼崽及多种特殊宠物产出；原版全部资源节点、补充消耗和特殊事件仍需继续逐项核对 `地图操作.ecode L1-600`。
+- **产出：✅ 核心闭环完成（2026-08-19）**。`HomeService.collectHomeOutput` 已按 `地图操作.ecode L1-600` 接通地图 `items/markers` 观测持久化、普通宠物/具现装置、作物/建筑优先级生产、电力/燃料/人力/超载、世界模拟器 AI、工业牵引、朱雀/腐化南方巨兽龙/白兔子/小雨下/小恶魔/肉食植物/螳螂/兔子窝/心之守望等特殊产出。特殊多产出共享消耗时间，世界模拟器核心保留 `data=a`；`test/home-output.spec.ts` 覆盖地图仓储隔离、具现装置、AI 核心和消耗约束。剩余差异仅为原版显示文本和少数运行时属性初始化的边缘分支，不阻塞产出玩法闭环。
 
 ### §11.4 占位 handler 内部实现
 - `炮击/福音书/安乐天使/呼叫/设置跟随` 等 handler 仍有占位或简化实现，需逐条从原版 ecode 复刻；捕捉已移出本清单并完成。
@@ -416,7 +439,7 @@ d.名称 = 玩家列表[a].房子名称
 
 【复刻】`map.service.ts` `ensureHouseMaps`：动态 `GameMap` 按名称幂等创建，院子与世界地图、屋内/前线与院子互相追加连接；`getAllMaps/getMapByName` 会返回数据库中的动态地图；`renameHouseMaps` 同步改名入口，搬迁移除旧世界入口。
 
-【自检结论】专项真实数据库测试 6/6，通过 `npm test -- --runInBand` 全量 13 suites/214 tests，`npm run build` 通过。已知偏差仅为静态战斗建筑数据及家园产出剩余特殊分支，未将其伪报为完成。
+【自检结论】专项真实数据库测试 6/6，通过 `npm test` 全量 20 suites/244 tests，`npm run build` 通过。已知偏差仅为静态战斗建筑数据及家园产出剩余特殊分支，未将其伪报为完成。
 
 ---
 

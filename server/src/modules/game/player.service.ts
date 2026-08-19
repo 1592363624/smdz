@@ -81,6 +81,19 @@ export class PlayerService {
   }
 
   /**
+   * 对应 数据显示.ecode L1640-L1665 的“显示熟练度等级”。
+   * 等级从1开始，熟练度达到当前等级平方后再升一级。
+   */
+  getSkillLevel(markers: any, name: string): number {
+    // 原版调用方传入“使魔名称”，实际标记名为“使魔名称+技能熟练度”。
+    // 例如兰音对应“兰音技能熟练度”，不能误读为“兰音熟练度”。
+    const proficiency = Math.max(0, this.getMarkerValue(markers, `${name}技能熟练度`));
+    let level = 1;
+    while (proficiency >= level * level) level += 1;
+    return level;
+  }
+
+  /**
    * 解析新玩家出生地图
    * 优先"新手村"，其次回退到"医疗室"（原版出生点，见 maps.json 首条），
    * 再取第一张地图兜底，避免数据里没有"新手村"导致出生在无效地图（mapId=0）的问题。

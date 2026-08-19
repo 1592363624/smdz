@@ -180,10 +180,17 @@ export interface VehicleData {
  * 地图增益上下文，用于获得地图增益()：描述地图上的建筑/召唤物/物品/标记
  */
 export interface MapBonusContext {
-  buildings?: { name: string }[];   // 地图建筑（如"花园猫窝"）
-  summons?: { equipment?: { name: string }[] }[]; // 地图召唤物及其装备
-  items?: { name: string; quantity?: number }[];  // 地图物品
+  buildings?: any[];                // 地图建筑（如"花园猫窝"）
+  summons?: any[];                  // 地图召唤物及其装备
+  items?: any[];                    // 地图物品
   markers3?: BuffData[];            // 地图标记3（含有效期与强度的增益）
+  /** 孵化完成后由地图/召唤物服务创建真实幼崽实例。 */
+  onHatch?: (request: {
+    type: string;
+    ownerQQ: string;
+    createdAt: number;
+    growthSeconds: number;
+  }) => void;
 }
 
 /**
@@ -348,21 +355,15 @@ export class BonusService {
    * @returns 战斗力数值
    */
   calcCombatPower(bonus: BonusData): number {
-    const safe = (v: number | undefined) => v || 0;
+    const safe = (v: number | undefined) => this.safeNum(v);
 
-    // 各部位抗性分母：1 - (该部位四抗之和 / 500)，避免除零取最小值保护
-    const hpDenom = Math.max(
-      0.1,
-      1 - (safe(bonus.生命火抗) + safe(bonus.生命冰抗) + safe(bonus.生命电抗) + safe(bonus.生命物抗)) / 500,
-    );
-    const armorDenom = Math.max(
-      0.1,
-      1 - (safe(bonus.装甲火抗) + safe(bonus.装甲冰抗) + safe(bonus.装甲电抗) + safe(bonus.装甲物抗)) / 500,
-    );
-    const shieldDenom = Math.max(
-      0.1,
-      1 - (safe(bonus.护盾火抗) + safe(bonus.护盾冰抗) + safe(bonus.护盾电抗) + safe(bonus.护盾物抗)) / 500,
-    );
+    // 原版没有对分母做截断，按加成计算.ecode L653-L663 原样保留。
+    const hpDenom =
+      1 - (safe(bonus.生命火抗) + safe(bonus.生命冰抗) + safe(bonus.生命电抗) + safe(bonus.生命物抗)) / 500;
+    const armorDenom =
+      1 - (safe(bonus.装甲火抗) + safe(bonus.装甲冰抗) + safe(bonus.装甲电抗) + safe(bonus.装甲物抗)) / 500;
+    const shieldDenom =
+      1 - (safe(bonus.护盾火抗) + safe(bonus.护盾冰抗) + safe(bonus.护盾电抗) + safe(bonus.护盾物抗)) / 500;
 
     // 第一段：生命/装甲/护盾（经抗性放大后）* 3
     let a1 =
@@ -373,10 +374,7 @@ export class BonusService {
       safe(bonus.电伤) + safe(bonus.物伤) + safe(bonus.冰伤) + safe(bonus.火伤);
     const critBonus = (safe(bonus.暴击) / 100) * (safe(bonus.暴击伤害) / 100) * elementDmg;
     const atkBoost = 1 + (safe(bonus.攻击生命) + safe(bonus.攻击装甲) + safe(bonus.攻击护盾)) / 300;
-    const penDenom = Math.max(
-      0.1,
-      1 - (safe(bonus.护盾穿透) + safe(bonus.装甲穿透) + safe(bonus.生命穿透)) / 300,
-    );
+    const penDenom = 1 - (safe(bonus.护盾穿透) + safe(bonus.装甲穿透) + safe(bonus.生命穿透)) / 300;
     a1 += ((elementDmg + critBonus) * atkBoost) / penDenom;
 
     // 第三段：三部位回复加成（含二阶回复按比例折算）
@@ -407,8 +405,13 @@ export class BonusService {
    * @param v 数值
    * @returns 安全数值
    */
-  private safeNum(v: number | undefined | null): number {
-    return typeof v === 'number' && isFinite(v) ? v : 0;
+  private safeNum(v: number | string | undefined | null): number {
+    if (typeof v === 'number') return isFinite(v) ? v : 0;
+    if (typeof v === 'string' && v.trim() !== '') {
+      const parsed = Number(v);
+      return isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
   }
 
   /**
@@ -474,7 +477,7 @@ export class BonusService {
    * @param attributes 属性对象（会被原地修改）
    * @param factor 调整系数（如 0.9 表示整体降低10%）
    */
-  private adjustAllAttributes(attributes: BonusData, factor: number): void {
+  adjustAllAttributes(attributes: BonusData, factor: number): void {
     attributes.护盾 = this.safeNum(attributes.护盾) * factor;
     attributes.装甲 = this.safeNum(attributes.装甲) * factor;
     attributes.生命 = this.safeNum(attributes.生命) * factor;
@@ -945,11 +948,60 @@ export class BonusService {
   /**
    * 统计列表中指定名称物品的数量（数量缺省视为1）
    */
-  private countItem(items: { name: string; quantity?: number }[] | undefined, name: string): number {
-    if (!items) return 0;
-    return items
-      .filter((it) => it && it.name === name)
-      .reduce((sum, it) => sum + (it.quantity || 1), 0);
+  private countItem(items: any[] | string | undefined, name: string): number {
+    let list: any[] = [];
+    if (Array.isArray(items)) list = items;
+    else if (typeof items === 'string') {
+      try {
+        const parsed = JSON.parse(items);
+        list = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        list = [];
+      }
+    }
+    return list
+      .filter((item) => String(item?.name ?? item?.名称 ?? '') === name)
+      .reduce((sum, item) => {
+        const raw = item?.quantity ?? item?.数量 ?? item?.count;
+        const quantity = raw === undefined || raw === null || raw === '' ? 1 : this.safeNum(raw);
+        return sum + quantity;
+      }, 0);
+  }
+
+  /** 原版“获得物品”的最小地图数组映射，兼容存量中英文数量字段。 */
+  private adjustItemQuantity(items: any[] | undefined, name: string, delta: number): void {
+    if (!Array.isArray(items) || !delta) return;
+    const index = items.findIndex((item) => String(item?.name ?? item?.名称 ?? '') === name);
+    if (index < 0) {
+      if (delta > 0) items.push({ name, quantity: delta, count: delta, type: '资源' });
+      return;
+    }
+
+    const item = items[index];
+    const next = this.countItem([item], name) + delta;
+    if (next <= 0) {
+      items.splice(index, 1);
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(item, '数量')) item.数量 = next;
+    if (Object.prototype.hasOwnProperty.call(item, 'quantity')) item.quantity = next;
+    if (Object.prototype.hasOwnProperty.call(item, 'count')) item.count = next;
+    if (!('数量' in item) && !('quantity' in item) && !('count' in item)) item.quantity = next;
+  }
+
+  private hasEquipment(summon: any, name: string): boolean {
+    const raw = summon?.equipment ?? summon?.装备 ?? summon?.equipments ?? summon?.装备列表 ?? [];
+    let list: any[];
+    if (Array.isArray(raw)) list = raw;
+    else if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        list = Array.isArray(parsed) ? parsed : raw.split(/\s+/);
+      } catch {
+        list = raw.split(/\s+/);
+      }
+    } else list = [];
+    return list.some((item) => String(item?.name ?? item?.名称 ?? item ?? '') === name);
   }
 
   /**
@@ -966,7 +1018,7 @@ export class BonusService {
     const markers3 = map.markers3 || (map.markers3 = []);
 
     // 1. 花园猫窝建筑：每座提供 50+5*数量 强度的"啾啾猫猫"增益
-    const catHouseCount = (map.buildings || []).filter((b) => b && b.name === '花园猫窝').length;
+    const catHouseCount = this.countItem(map.buildings, '花园猫窝');
     if (catHouseCount > 0) {
       this.applyBuff(markers3, '啾啾猫猫', 30, false, originalTime, 50 + 5 * catHouseCount);
     }
@@ -974,8 +1026,7 @@ export class BonusService {
     // 2. 召唤物装备"叹息之墙"：提供60秒"叹息之墙"增益
     for (const summon of map.summons || []) {
       if (!summon) continue;
-      const equipList = summon.equipment || [];
-      if (equipList.some((e) => e && e.name === '叹息之墙')) {
+      if (this.hasEquipment(summon, '叹息之墙')) {
         this.applyBuff(markers3, '叹息之墙', 60, false, originalTime);
         break;
       }
@@ -985,21 +1036,47 @@ export class BonusService {
     for (let i = markers3.length - 1; i >= 0; i--) {
       const marker = markers3[i];
       if (!marker) continue;
-      if (now >= this.safeNum(marker.expireAt)) {
+      const markerName = String((marker as any).name ?? (marker as any).名称 ?? '');
+      const rawExpireAt = this.safeNum((marker as any).expireAt ?? (marker as any).有效期至);
+      const expireAt = rawExpireAt > 1e12 ? rawExpireAt / 1000 : rawExpireAt;
+      if (now >= expireAt) {
         // 过期：若为"孵化中"且存在孵蛋鸡，原版会孵化神兽蛋（需召唤系统支持）
-        if (marker.name === '孵化中' && this.countItem(map.items, '孵蛋鸡') >= 1) {
-          this.logger.log(`地图增益：标记"孵化中"到期，触发孵蛋逻辑（需召唤系统支持）`);
+        if (markerName === '孵化中' && this.countItem(map.items, '孵蛋鸡') >= 1) {
+          const eggs: Array<[string, string]> = [
+            ['青龙蛋', '青龙'],
+            ['白虎蛋', '白虎'],
+            ['朱雀蛋', '朱雀'],
+            ['玄武蛋', '玄武'],
+            ['麒麟蛋', '麒麟'],
+            ['心之守望蛋', '心之守望'],
+          ];
+          const selectedEgg = eggs.find(([eggName]) => this.countItem(map.items, eggName) >= 1);
+          if (selectedEgg) {
+            const [, summonType] = selectedEgg;
+            const ownerQQ = String((marker as any).strength ?? (marker as any).强度 ?? '');
+            this.adjustItemQuantity(map.items, '孵蛋鸡', -1);
+            this.adjustItemQuantity(map.items, selectedEgg[0], -1);
+            this.adjustItemQuantity(map.items, '合金', 10);
+            map.onHatch?.({
+              type: summonType,
+              ownerQQ,
+              createdAt: now,
+              // 原版：86400*1.5 - (当前时间-有效期至)/#转秒。
+              growthSeconds: 86400 * 1.5 - (now - expireAt),
+            });
+            this.logger.log(`地图增益：孵蛋鸡孵化${summonType}蛋，生成${summonType}幼崽`);
+          }
         }
         markers3.splice(i, 1);
       } else {
         // 未过期：将剩余时长转成秒后作为增益加到玩家身上
         this.applyBuff(
           playerBuffs,
-          marker.name,
-          (this.safeNum(marker.expireAt) - now) / 1,
-          !!marker.stackTime,
+          markerName,
+          (expireAt - now) / 1,
+          !!((marker as any).stackTime ?? (marker as any).是否叠加时间),
           now,
-          this.safeNum(marker.strength),
+          this.safeNum((marker as any).strength ?? (marker as any).强度),
         );
       }
     }

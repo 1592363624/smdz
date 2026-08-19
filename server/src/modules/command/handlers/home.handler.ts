@@ -21,8 +21,8 @@ export class HomeHandler implements CommandHandler {
     if (!ctx.userId) {
       return { success: false, content: '未登录', broadcast: false, durationMs: 0 };
     }
-    const subCommand = args.join(' ');
-    const result = await this.gameService.handleHome(ctx.userId, subCommand);
+    const subCommand = args.shift() || '';
+    const result = await this.gameService.handleHome(ctx.userId, subCommand, ...args);
     return { success: true, content: result, broadcast: false, durationMs: 0 };
   }
 }

@@ -245,6 +245,43 @@ export class MapService {
   }
 
   /**
+   * 查询原版“召唤物存在”。类型1查全局地图召唤物，类型2查全局 GameMonster。
+   * 召唤物字段兼容当前英文 JSON、原版中文字段以及已解析数组。
+   */
+  async summonExists(type: number, qq: string): Promise<boolean> {
+    const targetQQ = String(qq ?? '');
+    if (!targetQQ) return false;
+
+    if (type === 1) {
+      const maps = await this.getAllMaps();
+      return maps.some((map: any) => {
+        const raw = map?.summons ?? map?.召唤物 ?? [];
+        const summons = Array.isArray(raw)
+          ? raw
+          : this.safeParseJSON<any[]>(raw, []);
+        return summons.some((summon: any) =>
+          String(summon?.qq ?? summon?.QQ ?? '') === targetQQ,
+        );
+      });
+    }
+
+    const monsters = (this.prisma as any).gameMonster;
+    if (!monsters) return false;
+    if (typeof monsters.findFirst === 'function') {
+      const found = await monsters.findFirst({
+        where: { qq: targetQQ },
+        select: { id: true },
+      });
+      return Boolean(found);
+    }
+    if (typeof monsters.findMany === 'function') {
+      const found = await monsters.findMany({ where: { qq: targetQQ } });
+      return Array.isArray(found) && found.length > 0;
+    }
+    return false;
+  }
+
+  /**
    * 根据ID获取地图（合并静态定义 + 动态状态）
    */
   async getMapById(mapId: number): Promise<any> {
@@ -462,7 +499,7 @@ export class MapService {
   }
 
   /** 按名称追加地图入口，幂等且串行化，避免并发命令覆盖已有连接。 */
-  private async appendMapConnection(mapId: number, connection: Record<string, any>): Promise<void> {
+  async appendMapConnection(mapId: number, connection: Record<string, any>): Promise<void> {
     await this.withMapLock(mapId, async () => {
       const current = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
       if (!current) return;
@@ -765,7 +802,8 @@ export class MapService {
 
     // 读取地图固定怪物列表作为模板（存的是怪物名数组），结合 monsterCount 生成实际怪物实例
     const monsterNames: string[] = this.safeParseJSON(map.monsters, []);
-    const count = Math.min(map.monsterCount || 3, 20);
+    // 原版“刷新地图”仅在地图配置了怪物模板时生成怪物；空模板不能退化成野怪。
+    const count = monsterNames.length > 0 ? Math.min(map.monsterCount || 3, 20) : 0;
 
     // 预加载地图上所有怪物名对应的怪物定义（含三层池 护盾/装甲），来自静态配置 JSON
     const monsterDefs: Record<string, any> = {};
@@ -940,11 +978,11 @@ export class MapService {
    * `_初始化怪物` 并加入 `地图.怪物2`。前线波次不能使用常驻刷新，因为每只
    * 怪物的类型和等级由前线熟练度决定，故单独写入 GameMonster。
    */
-  async spawnMonsterByName(
+  private async buildMonsterSpawnData(
     mapId: number,
     name: string,
-    options: { level?: number; isTemp?: boolean; ownerQQ?: string } = {},
-  ): Promise<MapMonster> {
+    options: { level?: number; isTemp?: boolean; ownerQQ?: string; qq?: string } = {},
+  ): Promise<Record<string, any>> {
     const map = await this.getMapById(mapId);
     if (!map) throw new NotFoundException(`地图 ID=${mapId} 不存在，无法生成怪物`);
 
@@ -976,49 +1014,70 @@ export class MapService {
     const hp = Math.floor(lvFactor * (baseHp + level * 20) * awakenFactor);
     const shield = Math.floor(lvFactor * (baseShield + level * 20) * awakenFactor);
     const armor = Math.floor(lvFactor * (baseArmor + level * 20) * awakenFactor);
+    return {
+      mapId,
+      type: def.type || '怪物',
+      name: def.name,
+      qq: options.qq || `monster_${mapId}_${randomUUID()}`,
+      specialSeq: def.specialSeq || -1,
+      ownerQQ: options.ownerQQ || '',
+      level,
+      image: def.image || '',
+      hp,
+      maxHp: hp,
+      shield,
+      maxShield: shield,
+      armor,
+      maxArmor: armor,
+      attack: Math.floor(lvFactor * (finalBonus.攻击 || def.attack || 10) * awakenFactor),
+      defense: def.defense || 0,
+      speed: Math.floor(lvFactor * (def.speed || 100) * awakenFactor),
+      dodge: Math.floor(lvFactor * (def.dodge || finalBonus.闪避 || 5) * awakenFactor),
+      hit: Math.floor(lvFactor * (def.hit || finalBonus.命中 || 85) * awakenFactor),
+      isElite: def.type === '精英',
+      bonus: JSON.stringify(finalBonus),
+      baseBonus: JSON.stringify(finalBonus),
+      extraBonus: '{}',
+      equipments: JSON.stringify(equipmentList),
+      weapons: defBonus.武器 ? JSON.stringify(String(defBonus.武器).split(/\s+/).filter(Boolean)) : '[]',
+      currentWeapon: 0,
+      equipmentPresets: '[]',
+      markers: '{}',
+      markers2: '[]',
+      buffs: '[]',
+      achievements: '[]',
+      set: JSON.stringify(finalBonus.套装 || {}),
+      affinity: 0,
+      vitality: 0,
+      exp: Math.floor(lvFactor * (finalBonus.经验 || 10) * awakenFactor),
+      backpack: '[]',
+      isPet: false,
+      isTemp: options.isTemp ?? true,
+    };
+  }
+
+  async spawnMonsterByName(
+    mapId: number,
+    name: string,
+    options: { level?: number; isTemp?: boolean; ownerQQ?: string; qq?: string } = {},
+  ): Promise<MapMonster> {
+    const data = await this.buildMonsterSpawnData(mapId, name, options);
     const row = await this.prisma.gameMonster.create({
-      data: {
-        mapId,
-        type: def.type || '怪物',
-        name: def.name,
-        qq: `monster_${mapId}_${randomUUID()}`,
-        specialSeq: def.specialSeq || -1,
-        ownerQQ: options.ownerQQ || '',
-        level,
-        image: def.image || '',
-        hp,
-        maxHp: hp,
-        shield,
-        maxShield: shield,
-        armor,
-        maxArmor: armor,
-        attack: Math.floor(lvFactor * (finalBonus.攻击 || def.attack || 10) * awakenFactor),
-        defense: def.defense || 0,
-        speed: Math.floor(lvFactor * (def.speed || 100) * awakenFactor),
-        dodge: Math.floor(lvFactor * (def.dodge || finalBonus.闪避 || 5) * awakenFactor),
-        hit: Math.floor(lvFactor * (def.hit || finalBonus.命中 || 85) * awakenFactor),
-        isElite: def.type === '精英',
-        bonus: JSON.stringify(finalBonus),
-        baseBonus: JSON.stringify(finalBonus),
-        extraBonus: '{}',
-        equipments: JSON.stringify(equipmentList),
-        weapons: defBonus.武器 ? JSON.stringify(String(defBonus.武器).split(/\s+/).filter(Boolean)) : '[]',
-        currentWeapon: 0,
-        equipmentPresets: '[]',
-        markers: '{}',
-        markers2: '[]',
-        buffs: '[]',
-        achievements: '[]',
-        set: JSON.stringify(finalBonus.套装 || {}),
-        affinity: 0,
-        vitality: 0,
-        exp: Math.floor(lvFactor * (finalBonus.经验 || 10) * awakenFactor),
-        backpack: '[]',
-        isPet: false,
-        isTemp: options.isTemp ?? true,
-      },
+      data,
     });
     return row as unknown as MapMonster;
+  }
+
+  /**
+   * 构造地图召唤物实例。与 GameMonster 使用同一套静态怪物初始化，
+   * 但返回 JSON 召唤物对象，由调用方在地图锁内写回 map.summons。
+   */
+  async createMapSummonByName(
+    mapId: number,
+    name: string,
+    options: { level?: number; ownerQQ?: string; qq?: string } = {},
+  ): Promise<any> {
+    return this.buildMonsterSpawnData(mapId, name, { ...options, isTemp: true });
   }
 
   /**
@@ -1112,6 +1171,7 @@ export class MapService {
         name: data.name,
         qq: data.qq || `temp_${mapId}_${randomUUID()}`,
         specialSeq: data.specialSeq ?? -1,
+        ownerQQ: data.ownerQQ || '',
         level: data.level ?? 1,
         image: data.image || '',
         hp: data.hp ?? 100,
@@ -1168,27 +1228,43 @@ export class MapService {
       throw new NotFoundException(`地图 ID=${mapId} 不存在，无法刷新资源`);
     }
 
-    // 读取 resources2（可采集资源）作为模板，重新生成
-    const resourceTemplates: any[] = this.safeParseJSON(map.resources2, []);
-    if (resourceTemplates.length === 0) {
-      this.logger.warn(`地图 ${map.name} 无可采集资源模板，跳过刷新`);
+    // 原版“刷新地图”清空资源2，再按地图资源名称从全局资源列表复制完整定义。
+    // 优先读取静态地图配置，避免把运行时采集次数或临时资源当作模板。
+    const staticMap = this.staticData.getMapByName(map.name);
+    const configuredResources: any[] = this.safeParseJSON(
+      staticMap?.resources ?? map.resources,
+      [],
+    );
+    if (configuredResources.length === 0) {
+      await this.prisma.gameMap.update({
+        where: { id: mapId },
+        data: { resources2: '[]' },
+      });
+      this.logger.log(`地图 ${map.name} 刷新了 0 个可采集资源`);
       return;
     }
 
-    const refreshedResources = resourceTemplates.map((tpl: any, idx: number) => ({
-      id: `resource_${mapId}_${idx}_${Date.now()}`,
-      name: tpl.name || '未知资源',
-      type: tpl.type || '普通',
-      amount: tpl.amount || 1,
-      respawnTime: tpl.respawnTime || 300,
-    }));
-
-    const resources: any[] = this.safeParseJSON(map.resources, []);
+    const resourceDefinitions = this.staticData.getAllResources();
+    const refreshedResources = configuredResources.map((configured: any) => {
+      const name = String(configured?.name ?? configured?.名称 ?? '').trim();
+      const definition = resourceDefinitions.find((resource: any) => resource?.name === name);
+      // 保留地图配置中可能被事件改写的字段，同时用资源列表补齐原版运行时字段。
+      return {
+        ...(definition || {}),
+        ...configured,
+        name,
+        type: configured?.type || configured?.类型 || definition?.type || '资源',
+        times: configured?.times ?? definition?.times ?? 1,
+        outputs: configured?.outputs ?? definition?.outputs ?? [],
+        outputs2: configured?.outputs2 ?? definition?.outputs2 ?? [],
+        gatherCmd: configured?.gatherCmd ?? definition?.gatherCmd ?? '',
+      };
+    }).filter((resource: any) => resource.name);
 
     await this.prisma.gameMap.update({
       where: { id: mapId },
       data: {
-        resources: JSON.stringify(resources),
+        resources: JSON.stringify(refreshedResources),
         resources2: JSON.stringify(refreshedResources),
       },
     });

@@ -236,6 +236,21 @@ export class CommandService {
       const result = await handler.handle(ctx, args);
       result.durationMs = Date.now() - start;
 
+      // 原版 _主程序.ecode L11462：玩家指令结束后触发纯白之翼自动技能。
+      // 自动技能复用 FamiliarSkillsService 的正式入口，结果并入本次指令文本。
+      if (ctx.userId) {
+        try {
+          const autoSkillText = await this.gameService.triggerAutoFamiliarSkill(ctx.userId);
+          if (autoSkillText) {
+            result.content = result.content
+              ? `${result.content}\n${autoSkillText}`
+              : autoSkillText;
+          }
+        } catch (e: any) {
+          this.logger.warn(`纯白之翼自动技能失败: ${e.message}`);
+        }
+      }
+
       // 5.2 若离线有回复，拼在指令结果之前（如 "生命回复 +12\n<指令结果>"）
       if (offlineRegen && result.content) {
         result.content = `${offlineRegen}\n━━━━━━━━━━━━━━━\n${result.content}`;

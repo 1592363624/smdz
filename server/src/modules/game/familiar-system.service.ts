@@ -4,7 +4,7 @@
  * 完整实现：使魔选择/召唤/命名/技能/家园 + 宠物改名/转让/驾驶/喂食/嗅探/捕捉
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
@@ -14,6 +14,7 @@ import { MapService } from './map.service';
 import { CombatSystemService } from './combat-system.service';
 import { HomeService } from './home.service';
 import { ItemSystemService } from './item-system.service';
+import { FamiliarSkillsService } from './familiar-skills.service';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -123,6 +124,8 @@ export class FamiliarSystemService {
     private readonly combatSystem: CombatSystemService,
     @Optional() private readonly homeService?: HomeService,
     @Optional() private readonly itemSystem?: ItemSystemService,
+    @Inject(forwardRef(() => FamiliarSkillsService))
+    @Optional() private readonly familiarSkills?: FamiliarSkillsService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -209,6 +212,7 @@ export class FamiliarSystemService {
       // 设置角色为所选使魔（对应原版：玩家.类型/特殊序号/图片/特有技能）
       player.type = familiar.name;
       player.specialSeq = familiar.specialSeq;
+      player.uniqueSkill = familiar.uniqueSkill || '';
       player.currentWeapon = 0;
 
       // 初始好感：兰音特殊序号为20，其他为1（对应原版 L704-708）
@@ -552,7 +556,7 @@ export class FamiliarSystemService {
     // 获取技能等级
     const skillKey = `${player.type}技能熟练度`;
     const skillExp = this.playerService.getMarkerValue(markers, skillKey);
-    const skillLevel = Math.floor(skillExp / 100) + 1;
+    const skillLevel = this.playerService.getSkillLevel(markers, player.type);
 
     // 获取好感度描述
     let affinityDesc = '陌生';
@@ -607,7 +611,7 @@ export class FamiliarSystemService {
     // 获取技能等级
     const skillKey = `${familiarName}技能熟练度`;
     const skillExp = this.playerService.getMarkerValue(markers, skillKey);
-    const skillLevel = Math.floor(skillExp / 100) + 1;
+    const skillLevel = this.playerService.getSkillLevel(markers, familiarName);
 
     const lines = [
       `【${familiar.name}】`,
@@ -3829,10 +3833,10 @@ ${this.getAwakenStageName(d)}(${d})`;
     const newExp = currentExp + familiarExp;
 
     // 计算等级变化
-    const oldLevel = Math.floor(currentExp / 100) + 1;
-    const newLevel = Math.floor(newExp / 100) + 1;
-
+    const oldLevel = this.playerService.getSkillLevel(markers, player.type);
     markers[expKey] = newExp;
+    const newLevel = this.playerService.getSkillLevel(markers, player.type);
+
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
@@ -3863,13 +3867,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 使用技能熟练度标记
     const skillKey = `${player.type}技能熟练度`;
     const currentExp = this.playerService.getMarkerValue(markers, skillKey);
-    const currentLevel = Math.floor(currentExp / 100) + 1;
+    const currentLevel = this.playerService.getSkillLevel(markers, player.type);
 
     // 每次使用技能增加10点熟练度
     const newExp = currentExp + 10;
-    const newLevel = Math.floor(newExp / 100) + 1;
-
     markers[skillKey] = newExp;
+    const newLevel = this.playerService.getSkillLevel(markers, player.type);
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
@@ -3973,55 +3976,82 @@ ${this.getAwakenStageName(d)}(${d})`;
    * @param userId 用户ID
    * @returns 是否自动释放了技能
    */
-  async autoCastSkill(userId: number): Promise<boolean> {
+  async autoCastSkill(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
     // 检查是否装备了纯白之翼
     const backpack = this.playerService.getBackpackItems(player);
     if (!backpack.some((item: any) => item.name === '纯白之翼')) {
-      return false;
+      return '';
     }
 
-    // 检查技能冷却
+    // 原版 _主程序 L11462 先检查“纯白cd”30秒，再进入纯白之翼子程序。
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
+    const pureWhiteCooldown = markers2.find((m: any) => m.name === '纯白cd');
+    if (pureWhiteCooldown && pureWhiteCooldown.expireAt > now) {
+      return '';
+    }
+
+    // 原版 使魔技能 L169：主动技能公共冷却未结束时不自动释放。
     const skillCooldown = markers2.find((m: any) => m.name === `${player.type}技能冷却`);
     if (skillCooldown && skillCooldown.expireAt > now) {
-      return false; // 技能冷却中
+      return '';
     }
 
-    // 检查自动训练冷却（5秒间隔）
+    // 原版 使魔技能 L171：自动训练间隔为5秒。
     const autoTrain = markers2.find((m: any) => m.name === '自动训练');
     if (autoTrain && autoTrain.expireAt > now) {
-      return false;
+      return '';
     }
 
-    // 设置自动训练冷却
-    const newMarkers2 = markers2.filter((m: any) => m.name !== '自动训练');
-    newMarkers2.push({
-      name: '自动训练',
-      expireAt: now + 5,
-    });
-    player.markers2 = JSON.stringify(newMarkers2);
-
-    // 自动释放使魔技能
-    if (player.uniqueSkill) {
-      // 设置技能冷却
-      const skillMarkers = newMarkers2.filter((m: any) => m.name !== `${player.type}技能冷却`);
-      skillMarkers.push({
-        name: `${player.type}技能冷却`,
-        expireAt: now + 60,
-      });
-      player.markers2 = JSON.stringify(skillMarkers);
-
-      // 增加活跃度
-      markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-      player.markers = JSON.stringify(markers);
-      await this.playerService.savePlayer(player);
+    let normalizedSkill = this.normalizeUniqueSkill(player.uniqueSkill, player.type);
+    if (player.type === '兰音') {
+      const skillExp = this.playerService.getMarkerValue(markers, '兰音技能熟练度');
+      const skillLevel = this.playerService.getSkillLevel(markers, '兰音');
+      const hasCoolCore = backpack.some((item: any) => item.name === '冷却核心');
+      const publicCooldownZero = hasCoolCore ? skillLevel >= 40 : skillLevel >= 60;
+      if (publicCooldownZero) normalizedSkill = '形神合一';
+    }
+    if (!normalizedSkill || !this.familiarSkills) {
+      return '';
     }
 
-    return true;
+    const nextMarkers2 = markers2.filter((m: any) => m.name !== '自动训练' && m.name !== '纯白cd');
+    nextMarkers2.push({ name: '自动训练', expireAt: now + 5 });
+    nextMarkers2.push({ name: '纯白cd', expireAt: now + 30 });
+    player.markers2 = JSON.stringify(nextMarkers2);
+    await this.playerService.savePlayer(player);
+
+    // 原版通过“新建延时”投递技能命令；服务端直接调用同一个技能入口，
+    // 这样仍复用主动技能自身的门禁、冷却、经验、战斗和文本逻辑。
+    try {
+      const text = await this.familiarSkills.executeSkill(userId, normalizedSkill);
+      return text || '';
+    } catch (error: any) {
+      this.logger.warn(`纯白之翼自动释放失败: ${error.message}`);
+      return '';
+    }
+  }
+
+  /** 将存量特有技能文本映射为 FamiliarSkillsService 的规范技能名。 */
+  private normalizeUniqueSkill(raw: any, type: any): string {
+    const value = String(raw ?? '').trim().replace(/[！!。]+$/g, '');
+    const aliases: Record<string, string> = {
+      ex: '誓约胜利之剑',
+      '半月斩': '斩',
+    };
+    if (aliases[value]) return aliases[value];
+    const supported = new Set([
+      '六道轮回', '怒吼', '万象', '誓约胜利之剑', '鹰眼', '歼灭', '歼灭模式',
+      '绝对守护', '斗转星移', '火力全开', '啾啾猫猫', '银龙附体', '斩',
+      '会心一击', '全弹发射', '光翼', '炮冠', '日轮', '安宝加油', '灼烂歼鬼',
+      '冻结傀儡', '封印解除', '召唤银龙', '形神合一', '风月入墨', '心无所扰',
+      '梦倾天下', '反转童话', '月落寸光', '安乐天使', '福音书', '启示录',
+      '铠甲合体', '切换模式', '使魔挑战', '开始挑战', '复活使魔', '大召唤术',
+    ]);
+    return supported.has(value) ? value : '';
   }
 
   /**
@@ -4051,7 +4081,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 技能等级减cd（每级-0.5秒）
     const skillKey = '兰音技能熟练度';
     const skillExp = this.playerService.getMarkerValue(markers, skillKey);
-    const skillLevel = Math.floor(skillExp / 100) + 1;
+    const skillLevel = this.playerService.getSkillLevel(markers, '兰音');
     const levelReduction = Math.floor(skillLevel * 0.5);
     cooldown -= levelReduction;
 
@@ -4077,7 +4107,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 计算公共冷却
     const skillKey = '兰音技能熟练度';
     const skillExp = this.playerService.getMarkerValue(markers, skillKey);
-    const skillLevel = Math.floor(skillExp / 100) + 1;
+    const skillLevel = this.playerService.getSkillLevel(markers, '兰音');
 
     // 检查是否装备冷却核心
     const backpack = this.playerService.getBackpackItems(player);

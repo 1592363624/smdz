@@ -74,7 +74,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     const markers: any = {
       '兰音好感': 100,
       '套装_兰音模式': 2,
-      '兰音技能熟练度': 100, // skillLevel=10
+      '兰音技能熟练度': 81, // 平方阈值下 skillLevel=10
     };
     await prisma.player.create({
       data: {
@@ -201,7 +201,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
 
     const p2 = await playerService.getPlayerData(user.id);
     const markers = JSON.parse(p2.player.markers || '{}');
-    expect(markers['兰音技能熟练度']).toBeGreaterThanOrEqual(110);
+    expect(markers['兰音技能熟练度']).toBeGreaterThanOrEqual(91);
   });
 
   it('测试5 梦倾天下/反转童话：好感门槛(60/80)通过并写入蓄势标记', async () => {

@@ -33,6 +33,7 @@ import { CombatStateService } from './combat-state.service';
 export class GameService {
   private readonly logger = new Logger(GameService.name);
   private readonly reloadTimers = new Map<number, NodeJS.Timeout>();
+  private readonly dungeonClearTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -59,6 +60,21 @@ export class GameService {
     private readonly statsService: StatsService,
     private readonly combatState: CombatStateService,
   ) {}
+
+  /**
+   * 原版玩家指令收尾钩子：触发纯白之翼自动技能和宠物后台搜索。
+   * 对应 _主程序 L11462 及 L11573-L11669 的顺序：技能自动处理后进入宠物互动/搜索。
+   */
+  async triggerAutoFamiliarSkill(userId: number): Promise<string> {
+    const lines: string[] = [];
+    const autoSkillText = await this.familiarSystemService.autoCastSkill(userId);
+    if (autoSkillText) lines.push(autoSkillText);
+
+    const petSearchText = await this.familiarSkillsService.searchPetItems(userId);
+    if (petSearchText) lines.push(petSearchText);
+
+    return lines.join('\n');
+  }
 
   /**
    * 生成编号快捷菜单（"编号选项"统一入口）
@@ -142,21 +158,43 @@ export class GameService {
     }
 
     const currentMap = await this.mapService.getMapById(player.mapId);
-    const targetMap = await this.mapService.getMapByName(targetMapName);
+    if (!currentMap) {
+      return `地图不存在，请检查名称`;
+    }
+
+    const requestedName = String(targetMapName || '').trim();
+    const dungeonEntry = this.mapService.getConnections(currentMap)
+      .find((connection: any) => connection?.name === requestedName);
+    const isDungeonEntry = requestedName.endsWith('(副本)');
+    let targetMap: any = null;
+    if (isDungeonEntry) {
+      // 原版 _主程序.ecode L6578-L6604：必须先验证当前地图存在该临时入口，
+      // 再去掉“(副本)”解析真实地图并按传送路径移动。
+      if (!dungeonEntry) return `${player.name}#错误：副本不存在"${requestedName}"`;
+      const baseName = requestedName.slice(0, -4);
+      targetMap = await this.mapService.getMapByName(baseName).catch(() => null);
+    } else {
+      targetMap = await this.mapService.getMapByName(requestedName).catch(() => null);
+    }
 
     if (!currentMap || !targetMap) {
       return `地图不存在，请检查名称`;
     }
 
     // 检查是否可以前往
-    const check = this.mapService.checkCanTravel(currentMap, targetMap, player);
+    const check = isDungeonEntry
+      ? { canTravel: true }
+      : this.mapService.checkCanTravel(currentMap, targetMap, player);
     if (!check.canTravel) {
       return `无法前往：${check.reason}`;
     }
 
     // 计算移动所需耗时（秒）
+    const travelDistance = isDungeonEntry
+      ? Number(dungeonEntry?.distance || 100)
+      : this.getDistance(currentMap, targetMap);
     const travelTime = this.mapService.calcTravelTime(
-      this.getDistance(currentMap, targetMap),
+      travelDistance,
       player.speed || 100,
     );
 
@@ -226,10 +264,8 @@ export class GameService {
     const fromMapId = player.mapId;
     player.mapId = targetMap.id;
     player.location = targetMap.name;
-    await this.playerService.savePlayer(player);
-
     // 进入地图时自动获得地图增益
-    this.combatSystem.applyMapBuffs(player, targetMap);
+    await this.combatSystem.applyMapBuffs(player, targetMap);
 
     // 懒刷新：若目标地图当前没有已生成的怪物，立即补充刷新，避免到达后无怪可打
     try {
@@ -1195,10 +1231,8 @@ export class GameService {
     player.mapId = targetMap.id;
     player.location = targetMap.name;
     player.markers = JSON.stringify(arriveMarkers);
-    await this.playerService.savePlayer(player);
-
     // 进入地图自动获得地图增益
-    this.combatSystem.applyMapBuffs(player, targetMap);
+    await this.combatSystem.applyMapBuffs(player, targetMap);
 
     // 四圣祭坛特殊逻辑：四个祭坛都清理后刷出麒麟
     if (targetMap.name === '四圣祭坛') {
@@ -1246,11 +1280,17 @@ export class GameService {
    * 处理家园命令
    * 家园系统的入口，支持子命令
    */
-  async handleHome(userId: number, subCommand: string): Promise<string> {
-    if (!subCommand) {
-      return '家园系统：\n家园音乐 - 播放家园音乐\n家园搬迁 - 搬迁家园\n家园命名 - 为家园命名\n查看 - 查看家园信息';
+  async handleHome(userId: number, subCommand: string, ...args: string[]): Promise<string> {
+    const normalized = (subCommand || '').trim();
+    if (!normalized) {
+      return this.familiarSystemService.handleHome(userId, '');
     }
-    return `家园功能「${subCommand}」正在开发中...`;
+
+    // 旧的 HomeHandler 会把“命名 新名称”作为一个字符串传入；按原版命令
+    // 的首个词识别子命令，其余文本作为参数交给家园系统。
+    const parts = normalized.split(/\s+/);
+    const command = parts.shift() || '';
+    return this.familiarSystemService.handleHome(userId, command, ...parts, ...args);
   }
 
   /**
@@ -2382,88 +2422,65 @@ export class GameService {
    * @param userId 用户ID
    * @returns 副本开启信息
    */
-  async handleStartDungeon(userId: number): Promise<string> {
-    // 1. 获取玩家数据
+  async handleStartDungeon(userId: number, dungeonName = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    const { player } = playerData;
+    const name = dungeonName.trim();
 
-    // 2. 检查玩家是否死亡
+    // 原版 L3863-L3884：无参数时列出唯一的复活点，并保留“a、刷新副本”快捷入口。
+    if (!name) {
+      const groups = await this.dungeonService.getInstanceGroups();
+      const lines = [`${player.name}选择你需要开启的副本`];
+      const shortcuts: string[] = [];
+      groups.forEach((group, index) => {
+        lines.push(`${index + 1}、${group.name}`);
+        shortcuts.push(`${index + 1}@开启副本 ${group.name}`);
+      });
+      lines.push('a、刷新副本');
+      shortcuts.push('a@刷新副本');
+      await this.shortcutService.setTempInput(userId, shortcuts.join('#'));
+      return lines.join('\n');
+    }
+
+    const group = await this.dungeonService.findInstanceGroup(name);
+    const anchor = group?.maps.find((map) => map.name === name && (map.respawnPoint || map.复活点) === name);
+    if (!group || !anchor) return `${player.name},${name}不是副本`;
     if (this.playerService.isPlayerDead(player)) {
       return this.playerService.handlePlayerDeath(userId, player);
     }
 
-    // 3. 检查是否已经有副本在进行中（通过 markers 检查）
-    if (markers['dungeon_active'] === 1) {
-      return '你已经在副本中了！\n使用「刷新副本」可以重新生成副本怪物。';
+    const currentMap = await this.mapService.getMapById(player.mapId);
+    if (!currentMap) return `${player.name}不在任何地图上`;
+    if (currentMap.isFrontier || currentMap.isInstance) {
+      return `${player.name}不能在家园或者副本里开`;
     }
 
-    // 4. 检查背包是否有副本钥匙（item name: "副本钥匙"）
     const backpack = this.playerService.getBackpackItems(player);
-    const keyItem = backpack.find((item: any) => item.name === '副本钥匙');
-    if (!keyItem || (keyItem.count || 1) < 1) {
-      return '开启副本需要消耗一个「副本钥匙」\n你没有副本钥匙，请通过活动或商店获取。';
+    const ticket = backpack.find((item: any) => (item?.name || item?.名称) === '副本券');
+    const ticketCount = Number(ticket?.count ?? ticket?.quantity ?? ticket?.数量 ?? 0);
+    if (!ticket || ticketCount < 1) {
+      return `${player.name}需要副本券，去活跃度商店看看吧`;
     }
 
-    // 5. 消耗一个副本钥匙
-    const removed = await this.playerService.removeFromBackpack(userId, '副本钥匙', 1);
-    if (!removed) {
-      return '消耗副本钥匙失败，请重试。';
-    }
+    // 原版 L3909-L3917：先记录成就、消耗副本券、增加5点活跃度，再追加入口。
+    this.achievementService.setAchievement(
+      playerData.markers,
+      '开启副本',
+      this.achievementService.getAchievement(playerData.markers, '开启副本') + 1,
+    );
+    playerData.markers['活跃度'] = this.playerService.getMarkerValue(playerData.markers, '活跃度') + 5;
+    const removed = await this.playerService.removeFromBackpack(userId, '副本券', 1);
+    if (!removed) return `${player.name}需要副本券，去活跃度商店看看吧`;
+    await this.playerService.savePlayer({ id: player.id, markers: playerData.markers });
 
-    // 6. 使用 DungeonService.generateDungeon 生成副本怪物
-    let dungeon: any;
-    try {
-      dungeon = await this.dungeonService.generateDungeon(player.level, player.mapId);
-    } catch (err: any) {
-      this.logger.error(`生成副本失败 userId=${userId}`, err);
-      // 回滚：归还副本钥匙
-      await this.playerService.addToBackpack(userId, '副本钥匙', 1);
-      return `副本生成失败：${err.message}`;
-    }
-
-    // 7. 将副本怪物作为临时怪物添加到 GameMonster 表（isTemp=true）
-    const map = await this.mapService.getMapById(player.mapId);
-    for (const dm of (dungeon.monsters || [])) {
-      await this.mapService.addTempMonster(map.id, {
-        name: dm.name,
-        type: dm.type || '怪物',
-        specialSeq: dm.specialSeq ?? -1,
-        level: dm.level || 1,
-        hp: dm.hp || 100,
-        maxHp: dm.hp || 100,
-        shield: dm.shield || 0,
-        maxShield: dm.shield || 0,
-        armor: dm.armor || 0,
-        maxArmor: dm.armor || 0,
-        bonus: dm.bonus || '{}',
-        exp: dm.exp || 10,
-      });
-    }
-
-    // 8. 设置副本标记（dungeon_active=1, dungeon_expire=时间戳）
-    const now = Date.now();
-    markers['dungeon_active'] = 1;
-    markers['dungeon_expire'] = now + 2 * 60 * 60 * 1000; // 2小时后过期
-    markers['dungeon_id'] = dungeon.id;
-    player.markers = markers;
-    await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 在地图 ${map.name} 开启了副本 ${dungeon.id}`);
-
-    // 9. 返回副本开启信息
-    const eliteCount = dungeon.monsters.filter((m: any) => m.isElite).length;
-    const lines = [
-      `🗡️ 副本已开启！`,
-      `━━━━━━━━━━━━━━━`,
-      `副本怪物: ${dungeon.monsters.length} 只`,
-      eliteCount > 0 ? `⚠️ 精英怪物: ${eliteCount} 只` : '',
-      `⏰ 副本持续时间: 2 小时`,
-      `━━━━━━━━━━━━━━━`,
-      `使用「攻击」挑战副本怪物`,
-      `使用「刷新副本」重新生成怪物`,
-    ];
-
-    return lines.filter(Boolean).join('\n');
+    const target = anchor;
+    await this.mapService.appendMapConnection(currentMap.id, {
+      name: `${group.name}(副本)`,
+      mapId: target?.id,
+      distance: 100,
+      isInstance: true,
+    });
+    return `${player.name}在“${currentMap.name}”开启了副本${group.name}`;
   }
 
   /**
@@ -2472,91 +2489,42 @@ export class GameService {
    * @param userId 用户ID
    * @returns 刷新结果
    */
-  async handleRefreshDungeon(userId: number): Promise<string> {
+  async handleRefreshDungeon(userId: number, dungeonName = ''): Promise<string> {
     // 1. 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    const { player } = playerData;
+    const name = dungeonName.trim();
 
-    // 2. 检查是否有副本在进行中
-    if (markers['dungeon_active'] !== 1) {
-      return '你当前没有开启的副本\n使用「开启副本」来开启一个副本。';
-    }
-
-    // 3. 检查副本是否过期
-    const now = Date.now();
-    const expireTime = markers['dungeon_expire'] || 0;
-    if (now >= expireTime) {
-      // 副本已过期，清理标记
-      delete markers['dungeon_active'];
-      delete markers['dungeon_expire'];
-      delete markers['dungeon_id'];
-      player.markers = markers;
-      await this.playerService.savePlayer(player);
-      return '副本已过期，请重新使用「开启副本」开启新副本。';
-    }
-
-    // 4. 重新生成副本怪物
-    let dungeon: any;
-    try {
-      dungeon = await this.dungeonService.generateDungeon(player.level, player.mapId);
-    } catch (err: any) {
-      this.logger.error(`刷新副本失败 userId=${userId}`, err);
-      return `副本刷新失败：${err.message}`;
-    }
-
-    // 5. 更新地图的临时怪物：移除旧副本怪物，添加新副本怪物（均存于 GameMonster 表 isTemp=true）
-    const map = await this.mapService.getMapById(player.mapId);
-    const oldDungeonId = markers['dungeon_id'];
-    // 移除旧的 dungeon 临时怪物（按 qq 前缀 dungeon_${id}_ 识别）
-    if (oldDungeonId) {
-      const oldMonsters = await this.mapService.getMapMonsters(map.id);
-      const toDelete = oldMonsters.filter((m: any) => m.qq && String(m.qq).startsWith(`dungeon_${oldDungeonId}_`));
-      for (const m of toDelete) {
-        await this.mapService.removeMapMonster(map.id, m.id);
-      }
-    }
-
-    // 添加新副本怪物，qq 前缀携带 dungeonId 以便后续识别
-    for (const dm of (dungeon.monsters || [])) {
-      await this.mapService.addTempMonster(map.id, {
-        name: dm.name,
-        type: dm.type || '怪物',
-        specialSeq: dm.specialSeq ?? -1,
-        level: dm.level || 1,
-        hp: dm.hp || 100,
-        maxHp: dm.hp || 100,
-        shield: dm.shield || 0,
-        maxShield: dm.shield || 0,
-        armor: dm.armor || 0,
-        maxArmor: dm.armor || 0,
-        bonus: dm.bonus || '{}',
-        exp: dm.exp || 10,
-        qq: `dungeon_${dungeon.id}_${dm.name}_${Date.now()}`,
+    // 原版 L3924-L3948：无参数时列出副本复活点，参数由临时输入替换回填。
+    if (!name) {
+      const groups = await this.dungeonService.getInstanceGroups();
+      const lines = [`${player.name}选择你需要刷新的副本`];
+      const shortcuts: string[] = [];
+      groups.forEach((group, index) => {
+        lines.push(`${index + 1}、${group.name}`);
+        shortcuts.push(`${index + 1}@刷新副本 ${group.name}`);
       });
+      if (shortcuts.length > 0) await this.shortcutService.setTempInput(userId, shortcuts.join('#'));
+      return lines.join('\n');
     }
 
-    // 6. 刷新副本过期时间（从当前时间重新计算2小时）
-    const newExpireTime = now + 2 * 60 * 60 * 1000;
-    markers['dungeon_expire'] = newExpireTime;
-    markers['dungeon_id'] = dungeon.id;
-    player.markers = markers;
-    await this.playerService.savePlayer(player);
+    // 原版 L3959：刷新副本冷却 300 秒。
+    const markers2 = playerData.markers2;
+    const cooldownText = { value: '' };
+    const now = Date.now();
+    this.normalizeDungeonMarkers2(markers2);
+    if (this.combatState.timeIntervalRequire('刷新副本冷却', 300, markers2, now, cooldownText, now)) {
+      player.markers2 = JSON.stringify(markers2);
+      await this.playerService.savePlayer({ id: player.id, markers2 });
+      return `${player.name}${cooldownText.value}`;
+    }
+    player.markers2 = JSON.stringify(markers2);
+    await this.playerService.savePlayer({ id: player.id, markers2 });
 
-    this.logger.log(`玩家 ${userId} 在地图 ${map.name} 刷新了副本 ${dungeon.id}`);
-
-    // 7. 返回刷新结果
-    const eliteCount = dungeon.monsters.filter((m: any) => m.isElite).length;
-    const lines = [
-      `🔄 副本已刷新！`,
-      `━━━━━━━━━━━━━━━`,
-      `副本怪物: ${dungeon.monsters.length} 只`,
-      eliteCount > 0 ? `⚠️ 精英怪物: ${eliteCount} 只` : '',
-      `⏰ 副本刷新后持续: 2 小时`,
-      `━━━━━━━━━━━━━━━`,
-      `使用「攻击」挑战副本怪物`,
-    ];
-
-    return lines.filter(Boolean).join('\n');
+    const group = await this.dungeonService.findInstanceGroup(name);
+    if (!group) return `${player.name},${name}不是副本`;
+    const result = await this.dungeonService.closeDungeon(group.name);
+    return result.message;
   }
 
   // ========== 载具部件系统 ==========
@@ -3703,8 +3671,8 @@ export class GameService {
     } else if (seq === 22) {
       // #普拉娜（原版 L610-619）：好感≥30 → 火力压制增益
       if (aff >= 30) {
-        // 原版 玩家.技能等级：使魔技能等级，网页版按"普拉娜技能熟练度"每10点折算1级（对齐 familiar-skills.getSkillLevel）
-        const skillLevel = Math.floor((Number(markers['普拉娜技能熟练度'] || 0)) / 10) + 1;
+        // 原版 玩家.技能等级：按熟练度平方阈值计算（数据显示.ecode L1640-L1665）。
+        const skillLevel = this.playerService.getSkillLevel(markers, '普拉娜');
         const yzMark = markers2.find((m: any) => m && m.name === '压制');
         if (!yzMark || !yzMark.expireAt || yzMark.expireAt <= nowSec) {
           this.setMarkers2(markers2, '压制', nowSec + (18 + skillLevel * 1.2), 16);
@@ -5276,20 +5244,56 @@ export class GameService {
    * 清空当前副本的怪物，重置副本状态
    * 对应原版：清空副本 命令
    */
-  async handleClearDungeon(userId: number): Promise<string> {
-    // 获取玩家数据
+  async handleClearDungeon(userId: number, dungeonName = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
+    let name = dungeonName.trim();
+    if (!name) {
+      const currentMap = await this.mapService.getMapById(player.mapId);
+      name = String(currentMap?.respawnPoint || currentMap?.复活点 || '').trim();
+    }
+    const group = await this.dungeonService.findInstanceGroup(name);
+    if (!group) return name ? `${name}不是副本` : `${player.name}不在副本中`;
 
-    // 获取当前地图
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return '你不在任何地图上';
+    // 原版 L7396-L7404：同一副本刷新标记冷却120秒，通关后30秒执行关闭。
+    const markerMap = group.maps.find((map) => map.name === group.name) || group.maps[0];
+    const markers2 = this.parseDungeonArray(markerMap.markers2);
+    const now = Date.now();
+    this.normalizeDungeonMarkers2(markers2);
+    const refreshMarker = markers2.find((marker: any) => marker?.名称 === `${group.name}刷新`);
+    if (refreshMarker && refreshMarker.有效期至 > now) return `${group.name}刷新冷却中`;
+    markers2.push({ 名称: `${group.name}刷新`, 有效期至: now + 120 * 1000 });
+    await this.mapService.updateDynamicFields(markerMap.id, { markers2: JSON.stringify(markers2) });
 
-    // 清空地图上的怪物（GameMonster 表，删除本地图全部怪物实例）
-    await this.mapService.clearMapMonsters(map.id);
+    const previous = this.dungeonClearTimers.get(group.name);
+    if (previous) clearTimeout(previous);
+    const timer = setTimeout(async () => {
+      this.dungeonClearTimers.delete(group.name);
+      try {
+        await this.dungeonService.closeDungeon(group.name);
+      } catch (error: any) {
+        this.logger.warn(`副本 ${group.name} 延时关闭失败: ${error?.message}`);
+      }
+    }, 30 * 1000);
+    timer.unref?.();
+    this.dungeonClearTimers.set(group.name, timer);
 
-    this.logger.log(`玩家 ${userId} 清空了副本 ${map.name} 的怪物`);
-    return `已清空「${map.name}」中的所有怪物`;
+    return `${group.name}副本已通关，副本将在30秒后传送全部玩家离开。`;
+  }
+
+  private parseDungeonArray(value: any): any[] {
+    if (Array.isArray(value)) return [...value];
+    try {
+      const parsed = JSON.parse(value || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private normalizeDungeonMarkers2(markers2: any[]): void {
+    const normalized = markers2.map((marker: any) => this.combatState.normalizeBuffItem(marker));
+    markers2.splice(0, markers2.length, ...normalized);
   }
 
   // ========== 载具命令 ==========
@@ -7362,7 +7366,7 @@ export class GameService {
             }
           }
           const skillLevel = Math.floor(
-            Number(markers['普拉娜技能熟练度'] || 0) / 10,
+            this.playerService.getSkillLevel(markers, '普拉娜'),
           ) + 1;
           result = `${player.name}给${completed.join('、')}进行了超装填，它们下次命中的时候会造成${1.25 + skillLevel / 100}倍的伤害。`;
         }
@@ -8836,7 +8840,9 @@ export class GameService {
    * 对应原版：活跃度商店 命令
    */
   async handleActivityShop(userId: number, itemName: string): Promise<string> {
-    return `🏪 活跃度商店功能开发中...`;
+    return itemName
+      ? this.familiarSystemService.exchange(userId, itemName)
+      : this.familiarSystemService.familiarShop(userId, 'activity');
   }
 
   /**
@@ -8844,7 +8850,9 @@ export class GameService {
    * 对应原版：钻石商店 命令
    */
   async handleDiamondShop(userId: number, itemName: string): Promise<string> {
-    return `💎 钻石商店功能开发中...`;
+    return itemName
+      ? this.familiarSystemService.exchange(userId, itemName)
+      : this.familiarSystemService.familiarShop(userId, 'diamond');
   }
 
   /**
@@ -8852,7 +8860,9 @@ export class GameService {
    * 对应原版：数据商店 命令
    */
   async handleDataShop(userId: number, itemName: string): Promise<string> {
-    return `📊 数据商店功能开发中...`;
+    return itemName
+      ? this.familiarSystemService.exchange(userId, itemName)
+      : this.familiarSystemService.familiarShop(userId, 'dataCore');
   }
 
   /**
@@ -9156,7 +9166,7 @@ export class GameService {
    * 对应原版：宠物改名 命令
    */
   async handlePetRename(userId: number, petName: string, newName: string): Promise<string> {
-    return `🐾 宠物改名功能开发中...`;
+    return this.familiarSystemService.renamePet(userId, petName, newName);
   }
 
   /**
@@ -9164,39 +9174,39 @@ export class GameService {
    * 对应原版：宠物转让 命令
    */
   async handlePetTransfer(userId: number, petName: string, targetPlayer: string): Promise<string> {
-    return `🔄 宠物转让功能开发中...`;
+    return this.familiarSystemService.transferPet(userId, targetPlayer, petName);
   }
 
   /**
    * 宠物驾驶
    * 对应原版：宠物驾驶 命令
    */
-  async handlePetDrive(userId: number, petName: string): Promise<string> {
-    return `🐾 骑乘宠物功能开发中...`;
+  async handlePetDrive(userId: number, petName: string, vehicleName = '原'): Promise<string> {
+    return this.familiarSystemService.petDrive(userId, petName, vehicleName);
   }
 
   /**
    * 宠物喂食
    * 对应原版：宠物喂食 命令
    */
-  async handlePetFeed(userId: number, itemName: string): Promise<string> {
-    return `🍖 宠物喂食功能开发中...`;
+  async handlePetFeed(userId: number, petName: string, count = 1): Promise<string> {
+    return this.familiarSystemService.petFeed(userId, petName, count);
   }
 
   /**
    * 宠物嗅探
    * 对应原版：宠物嗅探 命令
    */
-  async handlePetSniff(userId: number, targetName: string): Promise<string> {
-    return `👃 宠物嗅探功能开发中...`;
+  async handlePetSniff(userId: number, targetName: string, monsterName = ''): Promise<string> {
+    return this.familiarSystemService.petSniff(userId, targetName, monsterName);
   }
 
   /**
    * 宠物觉醒
    * 对应原版：宠物觉醒 命令
    */
-  async handlePetAwaken(userId: number, petName: string): Promise<string> {
-    return `✨ 宠物觉醒功能开发中...`;
+  async handlePetAwaken(userId: number, petName: string, count = '1'): Promise<string> {
+    return this.familiarSystemService.petAwaken(userId, petName, count);
   }
 
   /**
@@ -9204,23 +9214,23 @@ export class GameService {
    * 对应原版：宠物攻击 命令
    */
   async handlePetAttack(userId: number, targetName: string): Promise<string> {
-    return `⚔️ 宠物攻击功能开发中...`;
+    return this.familiarSystemService.petAttack(userId, targetName);
   }
 
   /**
    * 宠物前往
    * 对应原版：宠物前往 命令
    */
-  async handlePetGoto(userId: number, targetName: string): Promise<string> {
-    return `📍 宠物前往功能开发中...`;
+  async handlePetGoto(userId: number, targetName: string, mapName = ''): Promise<string> {
+    return this.familiarSystemService.petGoto(userId, targetName, mapName);
   }
 
   /**
    * 宠物装备
    * 对应原版：宠物装备 命令
    */
-  async handlePetEquip(userId: number, itemName: string): Promise<string> {
-    return `🎒 宠物装备管理功能开发中...`;
+  async handlePetEquip(userId: number, petName: string, itemArg = ''): Promise<string> {
+    return this.familiarSystemService.petEquip(userId, petName, itemArg);
   }
 
   /**

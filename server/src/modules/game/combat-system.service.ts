@@ -48,6 +48,17 @@ export interface AttackContext {
   targetId?: number | string;
   /** 指定攻击发生的目标地图（原版 武器攻击 的“地图”参数） */
   targetMapId?: number;
+  /**
+   * 原版武器攻击的运行时攻击方（召唤物/怪物）。
+   * 玩家指令不设置此字段；设置后仍复用同一套命中、伤害、特效和掉落链路。
+   */
+  attackerOverride?: any;
+  /** 运行时攻击方的已解析数据，通常由 attackerOverride 自动构造。 */
+  attackerDataOverride?: PlayerData;
+  /** 运行时攻击方不应再次启动玩家战斗驱动器。 */
+  skipBattleDriver?: boolean;
+  /** 跳过本次攻击的攻击时召唤触发（用于特殊递归攻击入口）。 */
+  skipAttackSummons?: boolean;
 }
 
 /**
@@ -300,12 +311,18 @@ export class CombatSystemService {
     // 攻击结果文本行（提前初始化，武器冷却阶段的特效文本也需写入）
     const resultLines: string[] = [];
 
-    // 1. 获取玩家数据
-    const playerData = await this.playerService.getPlayerData(userId);
+    // 1. 获取攻击方数据。原版 武器攻击() 的“攻击方”既可以是玩家，
+    // 也可以是召唤物/怪物；后两者没有独立 Player 表，使用运行时对象进入同一条结算链。
+    const runtimeActor = context.attackerOverride;
+    const isRuntimeActor = !!runtimeActor;
+    const playerData = context.attackerDataOverride
+      || (runtimeActor ? this.createRuntimeActorData(runtimeActor) : await this.playerService.getPlayerData(userId));
     const { player } = playerData;
 
     // 检查是否死亡
-    if (this.playerService.isPlayerDead(player)) {
+    // 原版“覅公jj”明确允许对死亡召唤物按 QQ 定位（原版 _主程序 L544 注释），
+    // 因此运行时攻击方不做玩家死亡门禁；普通玩家仍按现有规则处理。
+    if (!isRuntimeActor && this.playerService.isPlayerDead(player)) {
       return {
         result: '你已经死亡，无法攻击。请先使用"救助"命令复活。',
         killed: [],
@@ -317,7 +334,9 @@ export class CombatSystemService {
 
     // 2. 获取攻击者所在地图与攻击目标地图。
     // 原版 武器攻击() 将地图作为显式参数传入；炮击可以在同一复活点的其他地图开火。
-    const sourceMap = await this.mapService.getMapById(player.mapId);
+    const sourceMap = await this.mapService.getMapById(
+      Number(player.mapId || runtimeActor?.mapId || runtimeActor?.地图 || context.targetMapId || 0),
+    );
     if (!sourceMap) {
       return { result: '你不在任何地图上！', killed: [], damageDealt: 0, expGained: 0, drops: [] };
     }
@@ -383,7 +402,7 @@ export class CombatSystemService {
 
     // 6. 处理使魔专属战斗特效
     // 根据玩家的当前使魔类型，触发专属战斗特效（如战斗女仆随机效果、伊卡洛斯歼灭模式等）
-    const familiarEffect = this.processFamiliarEffects(player, playerData, weapon, context);
+      const familiarEffect = this.processFamiliarEffects(player, playerData, weapon, context);
     // 应用使魔特效修改后的参数
     let effectiveDamageMultiplier = familiarEffect.damageMultiplier; // 修改后的伤害倍率
     const effectiveAllAttack = familiarEffect.forceAllAttack || familiarEffect.allAttack; // 实际全体攻击波标记
@@ -410,6 +429,14 @@ export class CombatSystemService {
 
     // 构造攻击者加成数据（合并基础+装备+增益；传入 map 供宠物存活数量加成使用）
     const attackerBonus = this.buildAttackerBonus(player, playerData, map);
+
+    // 原版“造成伤害”在命中/伤害计算前触发攻击召唤。一次武器攻击可能有
+    // 多个目标，但召唤自身有全局唯一 QQ 和冷却，因此在本轮目标循环前触发
+    // 一次即可；全体攻击不会重复生成同一只召唤物。
+    if (!context.skipAttackSummons) {
+      const summonLines = await this.attackSummons(map, player, playerData, weapon, originalTimestamp);
+      resultLines.push(...summonLines);
+    }
 
     // ========== 当前生命>0 移除卷土重来（原版 _计算玩家 L2539-2541） ==========
     // 原版：当前生命>0 时获得增益(卷土重来, -30) 即移除卷土重来（卷土重来仅在死亡时生效）
@@ -2033,29 +2060,37 @@ export class CombatSystemService {
     // 8. 召唤物协同攻击（对齐原版 覅攻击pd L320-499：玩家攻击后，归属玩家的召唤物也出手）
     //    当前地图上归属该玩家的召唤物，若存活则用拳头攻击一次怪物。
     //    召唤物击杀的掉落已合并进 player 背包；经验通过 out 累计到 totalExp 统一发放。
-    const summonOut = { totalExp: 0 };
-    const summonLines = await this.summonCoAttack(player, playerData.markers, map, summonOut);
-    if (summonLines.length > 0) {
-      resultLines.push(`━━━ 召唤物攻击 ━━━`);
-      resultLines.push(...summonLines);
+    if (!context.skipBattleDriver && !isRuntimeActor) {
+      const summonOut = { totalExp: 0 };
+      const summonLines = await this.summonCoAttack(player, playerData.markers, map, summonOut);
+      if (summonLines.length > 0) {
+        resultLines.push(`━━━ 召唤物攻击 ━━━`);
+        resultLines.push(...summonLines);
+      }
+      totalExp += summonOut.totalExp;
     }
-    totalExp += summonOut.totalExp;
 
     // 9. 怪物反击（对应原版 覅攻击pd L290-319：怪物攻击地图上的玩家）
     //    玩家攻击/召唤物攻击后，地图上仍存活的怪物随机一只发起反击，
     //    形成"你来我往"的完整战斗闭环。玩家被打死时进入死亡状态。
-    try {
-      const counterLines = await this.monsterCounterAttack(player, playerData, map);
-      if (counterLines.length > 0) {
-        resultLines.push(`━━━ 怪物反击 ━━━`);
-        resultLines.push(...counterLines);
+    if (!context.skipBattleDriver && !isRuntimeActor) {
+      try {
+        const counterLines = await this.monsterCounterAttack(player, playerData, map);
+        if (counterLines.length > 0) {
+          resultLines.push(`━━━ 怪物反击 ━━━`);
+          resultLines.push(...counterLines);
+        }
+      } catch (e: any) {
+        this.logger.warn(`怪物反击失败: ${e.message}`);
       }
-    } catch (e: any) {
-      this.logger.warn(`怪物反击失败: ${e.message}`);
     }
 
     // 10. 保存玩家状态（血量变化 + 掉落合并后的背包）
-    await this.playerService.savePlayer(player);
+    if (isRuntimeActor) {
+      await this.persistRuntimeActor(runtimeActor, map);
+    } else {
+      await this.playerService.savePlayer(player);
+    }
 
     // 11. 添加经验到玩家
     if (totalExp > 0) {
@@ -2076,7 +2111,7 @@ export class CombatSystemService {
     // ========== 自动连击（对应原版 武器攻击 L474-545 连击循环） ==========
     // 火神机枪/三千世界 等武器特殊序号触发：冷却结束时自动再次攻击（递归 weaponAttack，最多30次）。
     // noDelay(延时攻击/自动连击/自动战斗) 不再二次触发连击，避免无限递归。
-    if (!noDelay && comboTrigger && weapon?.name) {
+    if (!isRuntimeActor && !noDelay && comboTrigger && weapon?.name) {
       this.triggerCombo(userId, weaponIndex, comboCooldown, weapon.name);
     }
 
@@ -2266,13 +2301,36 @@ export class CombatSystemService {
    * @returns 该玩家的反击结果文本行
    */
   private async monsterCounterAttackOnePlayer(
-    monster: any, monsterBonus: BonusData, victim: any, victimData: PlayerData, map: any, isSelf: boolean,
+    monster: any,
+    monsterBonus: BonusData,
+    victim: any,
+    victimData: PlayerData,
+    map: any,
+    isSelf: boolean,
+    weaponOverride?: WeaponData,
+    runtimeVictim = false,
   ): Promise<string[]> {
     const lines: string[] = [];
     try {
       // 命中判定：怪物命中 vs 玩家闪避；玩家若处于「闪避」状态(固定闪避+100)则几乎必闪避(100%免伤)
-      const victimDef = this.buildAttackerBonus(victim, victimData, map);
-      const hitRate = this.calcHitRate(monsterBonus, { 闪避: victimDef.闪避 || 0, 闪避2: victimDef.闪避2 || 0 });
+      // 启示录混乱分支的防御方就是攻击方怪物自身，仍使用怪物初始化属性，
+      // 不能把怪物误当作玩家套用使魔成长公式。
+      const victimDef = runtimeVictim
+        ? this.buildMonsterBonus(victim)
+        : this.buildAttackerBonus(victim, victimData, map);
+      const attackWeapon = weaponOverride || {
+        name: '怪物攻击',
+        damage: 0,
+        damageType: CombatSystemService.DMG_PHYS,
+        properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+      };
+      const attackBonus: BonusData = { ...monsterBonus };
+      const weaponBonus = attackWeapon.bonus || {};
+      for (const key of ['攻击', '攻击2', '命中', '命中2', '暴击', '暴击伤害', '物伤', '物伤2', '火伤', '火伤2', '冰伤', '冰伤2', '电伤', '电伤2', '贯穿'] as const) {
+        const value = Number((weaponBonus as any)[key] ?? (weaponBonus as any)[this.toEnglishBonusKey(key)] ?? 0);
+        if (value) (attackBonus as any)[key] = ((attackBonus as any)[key] || 0) + value;
+      }
+      const hitRate = this.calcHitRate(attackBonus, { 闪避: victimDef.闪避 || 0, 闪避2: victimDef.闪避2 || 0 });
       const youText = isSelf ? '你' : victim.name; // 原版对全图不同玩家用各自名称
 
       // ========== 防御方被动：幻时凝固（对应原版 战斗相关.ecode L1517-1547） ==========
@@ -2353,7 +2411,7 @@ export class CombatSystemService {
       const vehicle = vehicleIndex >= 0 ? mapVehicles[vehicleIndex] : undefined;
       const vehicleCurrentHp = Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? 0);
       const altinaMultiplier = 1.25 + Number(monster.skillLevel ?? 0) / 200;
-      const damageAttackerBonus: BonusData = { ...monsterBonus };
+      const damageAttackerBonus: BonusData = { ...attackBonus };
       if (vehicleCurrentHp > 0 && (monster.specialSeq ?? 0) === 7) {
         damageAttackerBonus.贯穿 = (damageAttackerBonus.贯穿 || 0) * 1.5;
       }
@@ -2386,8 +2444,8 @@ export class CombatSystemService {
           装甲伤害上限: 100,
           护盾伤害上限: 100,
         },
-        { name: '怪物攻击', damage: 0, damageType: CombatSystemService.DMG_PHYS, properties: { phys: 100, fire: 0, ice: 0, elec: 0 } },
-        CombatSystemService.DMG_PHYS,
+        attackWeapon,
+        attackWeapon.damageType || CombatSystemService.DMG_PHYS,
         false,
       );
       const finalDmg = Math.max(0, Math.floor(dmg.damage));
@@ -2435,9 +2493,11 @@ export class CombatSystemService {
           vBuffs.push({ name: '卷土重来', expireAt: nowSecV + jtlSec });
           victim.buffs = JSON.stringify(vBuffs);
           // 满状态复活（原版 当前生命/护盾/装甲 = 属性.对应上限）
-          victim.hp = victim.maxHp || victim.hp;
-          victim.shield = victim.maxShield || victim.shield;
-          victim.armor = victim.maxArmor || victim.armor;
+          // 存量玩家可能没有同步 max* 字段；原版使用计算后的属性上限，
+          // 因此依次回退到当前防御属性构建结果，最后才保留原值。
+          victim.hp = Number(victim.maxHp || victimDef.生命 || victim.hp || 0);
+          victim.shield = Number(victim.maxShield || victimDef.护盾 || victim.shield || 0);
+          victim.armor = Number(victim.maxArmor || victimDef.装甲 || victim.armor || 0);
           // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）
           vMk2.push({ name: 'jlq', expireAt: nowSecV + 60 });
           victim.markers2 = JSON.stringify(vMk2);
@@ -2457,13 +2517,334 @@ export class CombatSystemService {
           }
         }
       } else {
-        lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}`);
+        lines.push(`${monster.name} 使用${attackWeapon.name}攻击${youText}，造成 ${dmgText}`);
       }
-      await this.playerService.savePlayer(victim);
+      if (runtimeVictim) {
+        await this.persistRuntimeActor(victim, map);
+      } else {
+        await this.playerService.savePlayer(victim);
+      }
     } catch (err: any) {
       this.logger.warn(`怪物反击单体失败: ${err.message}`);
     }
     return lines;
+  }
+
+  /**
+   * 原版“攻击召唤”（使魔技能.ecode L236-373）。
+   *
+   * 这一步必须发生在每个目标的命中判定之前：它只负责按唯一 QQ、冷却和
+   * 重力井规则生成对象，不参与本次攻击的伤害结算。友方对象写入地图
+   * summons，敌对对象写入 GameMonster，正好对应原版的两套临时数组。
+   */
+  async attackSummons(
+    map: any,
+    attacker: any,
+    attackerData: PlayerData,
+    weapon: WeaponData,
+    timestamp = Date.now(),
+  ): Promise<string[]> {
+    const lines: string[] = [];
+    // 保持旧版轻量测试夹具/外部注入实现的兼容性；完整 MapService 会提供
+    // 这两个能力，缺失时不影响原有伤害结算。
+    if (typeof (this.mapService as any).summonExists !== 'function'
+      || typeof (this.mapService as any).createMapSummonByName !== 'function') {
+      return lines;
+    }
+    const nowMs = timestamp >= 1e12 ? timestamp : timestamp * 1000;
+    const specialSeq = Number(attacker?.specialSeq ?? attacker?.特殊序号 ?? 0);
+    const attackerQQ = String(
+      attacker?.qqNumber
+      ?? attacker?.QQ
+      ?? attacker?.qq
+      ?? attacker?.userId
+      ?? attacker?.id
+      ?? '',
+    );
+    if (!attackerQQ || !map?.id) return lines;
+
+    const skillLevel = this.skillLevelFromMarkers(
+      attackerData.markers,
+      String(attacker?.type ?? attacker?.类型 ?? ''),
+    );
+    const displayName = String(attacker?.name ?? attacker?.名称 ?? attacker?.type ?? attacker?.类型 ?? '攻击方');
+
+    // 兰音：特殊序号23，友方宇航兔唯一存在于所有地图。
+    if (specialSeq === 23 || attacker?.type === '兰音') {
+      const summonQQ = `怪物宇航兔${attackerQQ}xg`;
+      if (!(await this.mapService.summonExists(1, summonQQ))
+        && this.setAttackSummonCooldown(attacker, attackerData, '召yht', Math.max(0, 60 - skillLevel), nowMs)) {
+        const summon = await this.mapService.createMapSummonByName(map.id, '宇航兔', {
+          level: this.forcedSummonLevel(attacker, false),
+          ownerQQ: attackerQQ,
+          qq: summonQQ,
+        });
+        this.setForcedLevelMarker(summon, this.forcedSummonLevel(attacker, false));
+        if (await this.appendFriendlySummon(map, summon)) {
+          lines.push('#换行【一只宇航兔从地下钻了出来】');
+        }
+      }
+    }
+
+    // 雷火剑：原版常量为-34，兼容历史测试/旧配置中的1001以及名称判断。
+    const isThunderFireSword = weapon && (
+      Number(weapon.specialSeq) === -34
+      || Number(weapon.specialSeq) === 1001
+      || String(weapon.name ?? '').includes('雷火剑')
+    );
+    if (isThunderFireSword) {
+      const summonQQ = `怪物2巨航兔${attackerQQ}xg`;
+      if (!(await this.mapService.summonExists(1, summonQQ))
+        && this.setAttackSummonCooldown(attacker, attackerData, '召2yht', 60, nowMs)) {
+        const summon = await this.mapService.createMapSummonByName(map.id, '巨型宇航兔', {
+          level: this.forcedSummonLevel(attacker, false),
+          ownerQQ: attackerQQ,
+          qq: summonQQ,
+        });
+        this.setForcedLevelMarker(summon, this.forcedSummonLevel(attacker, false));
+        if (await this.appendFriendlySummon(map, summon)) {
+          lines.push('#换行【一只巨型宇航兔从地下钻了出来】');
+        }
+      }
+    }
+
+    const equipment = Array.isArray(attackerData.equipment) ? attackerData.equipment : [];
+    for (const rawEquipment of equipment) {
+      const summonText = this.getAttackSummonText(rawEquipment);
+      if (!summonText) continue;
+
+      const [namePart, entryText = '', gravityText = ''] = summonText
+        .split(/[;；]/)
+        .map((part) => part.trim());
+      const summonName = namePart || '';
+      if (!summonName) continue;
+      const friendly = specialSeq !== -1;
+      const summonQQ = `怪物${summonName}${attackerQQ}${friendly ? 'xg' : ''}`;
+      const exists = await this.mapService.summonExists(friendly ? 1 : 2, summonQQ);
+      if (exists) continue;
+
+      // 原版只让敌对怪物受到重力井影响；被拦截本身也会占用60秒召唤冷却。
+      if (!friendly && this.hasGravityWell(map, nowMs)) {
+        if (this.setAttackSummonCooldown(attacker, attackerData, `${summonName}冷却`, 60, nowMs)) {
+          lines.push(gravityText
+            ? `#换行【${gravityText}】`
+            : `#换行【${summonName}因为重力异常无法入场】`);
+        }
+        continue;
+      }
+
+      if (!this.setAttackSummonCooldown(attacker, attackerData, `${summonName}冷却`, 60, nowMs)) {
+        continue;
+      }
+
+      try {
+        if (friendly) {
+          const isPet = specialSeq < -1;
+          const forcedLevel = this.forcedSummonLevel(attacker, isPet);
+          const summon = await this.mapService.createMapSummonByName(map.id, summonName, {
+            level: forcedLevel,
+            ownerQQ: isPet
+              ? String(attacker?.ownerQQ ?? attacker?.归属 ?? '')
+              : attackerQQ,
+            qq: summonQQ,
+          });
+          this.setForcedLevelMarker(summon, forcedLevel);
+          if (isPet) this.applyPetCloneState(summon, attacker);
+          if (await this.appendFriendlySummon(map, summon)) {
+            lines.push(entryText
+              ? `#换行【${entryText}】`
+              : `#换行【${summonName}在${displayName}的呼叫下跃迁到了${map.name}】`);
+          }
+        } else {
+          await this.mapService.spawnMonsterByName(map.id, summonName, {
+            level: this.forcedSummonLevel(attacker, false),
+            isTemp: true,
+            qq: summonQQ,
+          });
+          lines.push(entryText
+            ? `#换行【${entryText}】`
+            : `#换行【${summonName}在${displayName}的呼叫下跃迁到了${map.name}】`);
+        }
+      } catch (error: any) {
+        // 原版找不到怪物模板时不会中断整次攻击；保留冷却并继续处理其他装备。
+        this.logger.warn(`攻击召唤「${summonName}」失败: ${error?.message || error}`);
+      }
+    }
+    return lines;
+  }
+
+  private setAttackSummonCooldown(
+    attacker: any,
+    attackerData: PlayerData,
+    name: string,
+    seconds: number,
+    nowMs: number,
+  ): boolean {
+    const raw = attacker?.markers2 ?? attacker?.标记2 ?? attackerData.markers2 ?? [];
+    const entries = this.safeParseJson<any[]>(raw, Array.isArray(raw) ? raw : []);
+    const active = entries.some((entry: any) => {
+      const entryName = entry?.name ?? entry?.名称;
+      const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+      const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      return entryName === name && expireAt > nowMs;
+    });
+    if (active) return false;
+
+    const next = entries.filter((entry: any) => (entry?.name ?? entry?.名称) !== name);
+    next.push({ name, expireAt: nowMs + Math.max(0, seconds) * 1000 });
+    attacker.markers2 = JSON.stringify(next);
+    attackerData.markers2 = next;
+    if (attacker.标记2 !== undefined) attacker.标记2 = next;
+    return true;
+  }
+
+  private forcedSummonLevel(attacker: any, isPet: boolean): number {
+    const level = Number(attacker?.level ?? attacker?.等级 ?? 1) || 1;
+    return Math.max(1, Math.floor(isPet ? level : level / 3));
+  }
+
+  private setForcedLevelMarker(summon: any, level: number): void {
+    const markers = this.normalizeMarkerObject(summon?.markers ?? summon?.标记 ?? {});
+    markers['强制等级'] = level;
+    summon.markers = JSON.stringify(markers);
+    if (summon.标记 !== undefined) summon.标记 = markers;
+  }
+
+  private applyPetCloneState(summon: any, attacker: any): void {
+    const originalName = String(summon?.name ?? summon?.名称 ?? '');
+    if (!originalName.includes('分身')) return;
+
+    const image = String(attacker?.image ?? attacker?.图片 ?? attacker?.name ?? attacker?.名称 ?? '');
+    const cloneName = `${image}分身`;
+    summon.name = cloneName;
+    summon.名称 = cloneName;
+    summon.image = cloneName;
+    summon.图片 = cloneName;
+
+    const presets = this.safeParseJson<any[]>(
+      attacker?.equipmentPresets ?? attacker?.装备预设 ?? [],
+      Array.isArray(attacker?.equipmentPresets ?? attacker?.装备预设)
+        ? (attacker?.equipmentPresets ?? attacker?.装备预设)
+        : [],
+    );
+    summon.equipmentPresets = JSON.stringify(presets);
+    summon.装备预设 = presets;
+
+    const sourceMarkers = this.normalizeMarkerObject(attacker?.markers ?? attacker?.标记 ?? {});
+    const markers = this.normalizeMarkerObject(summon?.markers ?? summon?.标记 ?? {});
+    for (const key of ['觉醒', '击杀', '宝宝']) {
+      if (sourceMarkers[key] !== undefined) markers[key] = sourceMarkers[key];
+    }
+    const owner = String(attacker?.ownerQQ ?? attacker?.归属 ?? '');
+    if (owner && sourceMarkers[`好感${owner}`] !== undefined) {
+      markers[`好感${owner}`] = sourceMarkers[`好感${owner}`];
+    }
+    const attackerQQ = String(attacker?.qq ?? attacker?.QQ ?? '');
+    if (attackerQQ) markers[attackerQQ] = 14.421425;
+    summon.markers = JSON.stringify(markers);
+    summon.标记 = markers;
+  }
+
+  private async appendFriendlySummon(map: any, summon: any): Promise<boolean> {
+    const write = async (): Promise<boolean> => {
+      const current = await this.mapService.getMapById(map.id) || map;
+      const raw = current?.summons ?? current?.召唤物 ?? [];
+      const summons = Array.isArray(raw)
+        ? [...raw]
+        : this.playerService.safeJsonParse<any[]>(raw, []);
+      const qq = String(summon?.qq ?? summon?.QQ ?? '');
+      if (summons.some((item: any) => String(item?.qq ?? item?.QQ ?? '') === qq)) return false;
+      summons.push(summon);
+      await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+      map.summons = JSON.stringify(summons);
+      return true;
+    };
+    if (typeof (this.mapService as any).withMapLock === 'function') {
+      return (this.mapService as any).withMapLock(map.id, write);
+    }
+    return write();
+  }
+
+  private getAttackSummonText(rawEquipment: any): string {
+    const name = String(rawEquipment?.name ?? rawEquipment?.名称 ?? rawEquipment ?? '');
+    if (!name) return '';
+    const staticDefinition = typeof (this.staticData as any).getEquipmentByName === 'function'
+      ? (this.staticData as any).getEquipmentByName(name)
+      : undefined;
+    const type = String(
+      rawEquipment?.equipType
+      ?? rawEquipment?.type
+      ?? rawEquipment?.位置
+      ?? rawEquipment?.分类
+      ?? staticDefinition?.equipType
+      ?? staticDefinition?.type
+      ?? '',
+    );
+    const isWeapon = type.endsWith('武器')
+      || (typeof (this.staticData as any).isWeapon === 'function'
+        && (this.staticData as any).isWeapon(staticDefinition));
+    if (isWeapon) return '';
+
+    const parseText = (value: any): string => {
+      if (!value) return '';
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return parseText(parsed);
+        } catch {
+          return value.trim();
+        }
+      }
+      if (typeof value === 'object') {
+        return String(value.name ?? value.名称 ?? '').trim();
+      }
+      return '';
+    };
+    return parseText(
+      rawEquipment?.attackText
+      ?? rawEquipment?.攻击文本
+      ?? staticDefinition?.attackText
+      ?? staticDefinition?.攻击文本,
+    );
+  }
+
+  private hasGravityWell(map: any, timestamp = Date.now()): boolean {
+    const parseArray = (value: any): any[] => {
+      if (Array.isArray(value)) return value;
+      return this.playerService.safeJsonParse<any[]>(value, []);
+    };
+    const active = (value: any): boolean => parseArray(value).some((item: any) => {
+      const name = String(item?.name ?? item?.名称 ?? item ?? '');
+      if (name !== '重力井') return false;
+      const rawExpire = Number(item?.expireAt ?? item?.有效期至 ?? 0);
+      const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      return !expireAt || expireAt > timestamp;
+    });
+    if (active(map?.markers3 ?? map?.标记3) || active(map?.mapBuffs)) return true;
+
+    const markers = map?.markers ?? map?.标记;
+    if (active(markers)) return true;
+    const markerObject = this.safeParseJson<Record<string, any>>(markers, {});
+    if (markerObject && Number(markerObject['重力井'] ?? 0) > 0) return true;
+
+    const vehicles = parseArray(map?.vehicles ?? map?.载具);
+    const collectPartNames = (value: any, names: string[]): void => {
+      for (const part of parseArray(value)) {
+        const name = String(part?.name ?? part?.名称 ?? part ?? '');
+        if (name) names.push(name);
+        collectPartNames(part?.parts ?? part?.零件, names);
+        collectPartNames(part?.builtinParts ?? part?.内置零件, names);
+      }
+    };
+    return vehicles.some((vehicle: any) => {
+      const currentHp = Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? 0);
+      const driver = vehicle?.driver ?? vehicle?.驾驶员 ?? vehicle?.ownerDriver ?? '';
+      if (currentHp <= 0 || !String(driver)) return false;
+      const names: string[] = [];
+      collectPartNames(vehicle?.parts ?? vehicle?.零件, names);
+      collectPartNames(vehicle?.builtinParts ?? vehicle?.内置零件, names);
+      return names.includes('重力井') || String(vehicle?.name ?? vehicle?.名称 ?? '') === '重力井';
+    });
   }
 
   /**
@@ -2804,7 +3185,11 @@ export class CombatSystemService {
           } else {
             vehicleDamage = remainingDamage / 2 > status ? 2 : 1;
             if ((attacker.specialSeq ?? 0) === 24 && Number(attacker.affinity || 0) >= 40) {
-              const skillLevel = Number(attacker.skillLevel ?? this.playerService.getMarkerValue(this.normalizeMarkerObject(attacker.markers), `${attacker.type || ''}技能`));
+              const skillLevel = Number(attacker.skillLevel ?? (
+                              attacker.type
+                                ? this.skillLevelFromMarkers(this.normalizeMarkerObject(attacker.markers), attacker.type)
+                                : 0
+              ));
               vehicleDamage *= 1.5 + skillLevel * 0.025;
             }
             const effect = attacker.weaponEffect ?? attacker.specialEffect ?? attacker.effect ?? attacker.特效;
@@ -2977,7 +3362,9 @@ export class CombatSystemService {
 
     const now = Date.now();
     const markers2 = parse<any[]>(player.markers2, []);
-    const featherCount = Number(player.specialSeq === 3 ? (markers.羽毛 ?? markers.feather ?? 0) : 0);
+    const featherCount = Number(
+      player.specialSeq === 3 ? this.getFeather(player, markers, now) : 0,
+    );
     const hasFeatherLimit = player.specialSeq === 3 && featherCount >= 10;
     const hasFastLoader = partNames.includes('高速装弹机');
     const fastLoaderLevel = Number(markers.高速1 || 0);
@@ -3010,7 +3397,7 @@ export class CombatSystemService {
       }
     }
     if (hasFeatherLimit) {
-      markers.羽毛 = featherCount - 10;
+      this.getFeather(player, markers, now, 10);
       prefix += `（羽毛${featherCount}）`;
     }
     player.markers = JSON.stringify(markers);
@@ -3397,10 +3784,11 @@ export class CombatSystemService {
     const defMarkers2: any[] = this.safeParseJson(defender.markers2, []);
     const affinity = defender.affinity || 0;
     const seq = defender.specialSeq ?? 0;
-    const skillLevel = this.playerService.getMarkerValue(
-      this.safeParseJson(defender.markers, {}),
-      `${defender.type}技能`,
-    ) || 0;
+    const skillLevel = Number(defender.skillLevel ?? (
+      defender.type
+        ? this.skillLevelFromMarkers(this.safeParseJson(defender.markers, {}), defender.type)
+        : 0
+    ));
     const equipments: Array<{ 名称: string; 特殊序号?: number }> = this.safeParseJson(defender.equipments, []);
     const weapons: Array<{ 名称: string; 特殊序号?: number }> = this.safeParseJson(defender.weapons, []);
     const currentWeapon = defender.currentWeapon || 0;
@@ -3497,6 +3885,8 @@ export class CombatSystemService {
    * 钳制 [5,95] 后做随机判定。
    */
   checkHit(hitRate: number, dodgeRate: number = 0): boolean {
+    // “闪避”技能写入100代表本次攻击必闪；不能被普通命中保底5%覆盖。
+    if (dodgeRate >= 100) return false;
     const effectiveHitRate = Math.max(5, Math.min(95, hitRate - (dodgeRate || 0)));
     return Math.random() * 100 < effectiveHitRate;
   }
@@ -3999,8 +4389,10 @@ export class CombatSystemService {
 
     // 从攻击者装备或背包中获取武器
     const weapons = attacker.weapons || attacker.equipment || [];
-    const rawWeapon = weapons[weaponIndex - 1];
-    if (!rawWeapon) {
+    const rawWeaponValue = weapons[weaponIndex - 1];
+    // 怪物静态配置的“武器”是名称字符串，玩家/召唤物存量通常是装备对象；
+    // 两种结构都对应原版 武器 数组成员。
+    if (!rawWeaponValue) {
       return {
         name: '拳头',
         damage: 1,
@@ -4009,6 +4401,9 @@ export class CombatSystemService {
         properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
       };
     }
+    const rawWeapon = typeof rawWeaponValue === 'string'
+      ? { name: rawWeaponValue }
+      : rawWeaponValue;
 
     // 解析武器属性。存量玩家的武器通常只有 name/data，固定数值需要回读静态装备定义。
     const staticWeapon = typeof (this.staticData as any)?.getEquipmentByName === 'function'
@@ -4119,6 +4514,99 @@ export class CombatSystemService {
   }
 
   /**
+   * 原版 使魔技能.ecode L125-161：取羽毛。
+   * 羽毛标记保存“上次结算时间”，不是当前数量；当前数量由时间差按10秒
+   * 自动恢复并封顶。返回值是扣除前数量，扣除后的时间锚点写回 markers。
+   * `deduction=-0.371` 是原版用于读取后清空时间锚点的特殊分支，按原样保留。
+   */
+  getFeather(
+    player: any,
+    markers: Record<string, any>,
+    nowMs = Date.now(),
+    deduction?: number,
+  ): number {
+    const nowSec = nowMs >= 1e12 ? nowMs / 1000 : nowMs;
+    const skillLevel = Number(player.skillLevel ?? (
+      player.type
+        ? this.skillLevelFromMarkers(markers, player.type)
+        : 0
+    ));
+    let max = 10 + skillLevel;
+    let intervalFactor = 1;
+    const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const nowForBuff = nowSec;
+    const solar = buffs.some((b: any) => {
+      if ((b?.name ?? b?.名称) !== '日轮') return false;
+      const raw = Number(b?.expireAt ?? b?.有效期至 ?? 0);
+      const expireSec = raw >= 1e12 ? raw / 1000 : raw;
+      return !expireSec || expireSec > nowForBuff;
+    });
+    if (solar) {
+      max *= 1.5;
+      if (Number(player.affinity ?? player.好感 ?? 0) >= 40) intervalFactor = 0.5;
+    }
+
+    const rawStamp = Number(markers.羽毛 ?? markers.feather ?? 0);
+    const stampSec = rawStamp >= 1e12 ? rawStamp / 1000 : rawStamp;
+    const elapsed = Math.max(0, (nowSec - stampSec) / (10 * intervalFactor));
+    let available = elapsed > max ? max : elapsed;
+    if (!rawStamp) available = max;
+    available = Math.max(0, Math.min(max, available));
+    const beforeDeduction = available;
+
+    const actualDeduction = deduction === undefined ? 0 : deduction;
+    if (actualDeduction === -0.371) {
+      available = 0;
+    } else if (available > actualDeduction) {
+      available -= actualDeduction;
+    } else {
+      available = 0;
+    }
+
+    markers.羽毛 = available > 0
+      ? (nowSec - available * 10 * intervalFactor)
+      : nowSec;
+    markers.feather = undefined;
+    player.markers = JSON.stringify(markers);
+    return beforeDeduction;
+  }
+
+  /** 真实 PlayerService 与轻量测试夹具都使用同一套技能等级规则。 */
+  private skillLevelFromMarkers(markers: any, familiarName: string): number {
+    const service = this.playerService as any;
+    if (typeof service.getSkillLevel === 'function') {
+      return Number(service.getSkillLevel(markers, familiarName)) || 1;
+    }
+    const proficiency = Math.max(0, Number(
+      service.getMarkerValue?.(markers, `${familiarName}技能熟练度`)
+      ?? (markers || {})[`${familiarName}技能熟练度`]
+      ?? 0,
+    ));
+    let level = 1;
+    while (proficiency >= level * level) level += 1;
+    return level;
+  }
+
+  /** 原版 使魔技能.ecode L486-503：从未冷却武器中随机返回一个1-based索引。 */
+  private chooseRandomReadyWeapon(player: any, playerData: PlayerData, nowMs = Date.now()): number | null {
+    const weapons = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    if (!Array.isArray(weapons) || weapons.length === 0) return null;
+    const markers2 = playerData.markers2 || this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const ready: number[] = [];
+    for (let index = 0; index < weapons.length; index += 1) {
+      const raw = weapons[index];
+      const name = String(raw?.name ?? raw?.名称 ?? raw ?? '');
+      if (!name) continue;
+      const marker = markers2.find((item: any) => (item?.name ?? item?.名称) === `${name}冷却`);
+      const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+      const expireMs = rawExpire >= 1e12 ? rawExpire : rawExpire * 1000;
+      if (!marker || !rawExpire || expireMs <= nowMs) ready.push(index + 1);
+    }
+    if (ready.length === 0) return null;
+    return ready[Math.floor(Math.random() * ready.length)];
+  }
+
+  /**
    * 构建攻击者加成数据
    * 合并玩家基础属性、装备加成、增益等
    * 对应原版 加成计算.ecode _计算玩家()：按等级+熟练度成长。
@@ -4222,7 +4710,66 @@ export class CombatSystemService {
     // ========== 使魔专属加成（对应原版 _计算玩家 L1872+ 核心分支） ==========
     // 按需补充高频使魔的专属规则（数值均来自原版，不臆造）
     const seq = player.specialSeq ?? 0;
-    const skillLevel = prof(`${player.type}技能`);
+    const skillLevel = player.type ? this.skillLevelFromMarkers(markers, player.type) : 0;
+    // 原版玩家结构在计算属性时直接写入“技能等级”；保留英文/中文别名，
+    // 让后续战斗特效和载具分支读取到同一套平方阈值结果。
+    player.skillLevel = skillLevel;
+    player.技能等级 = skillLevel;
+
+    // 原版 L1681-1779：装备机械触手或使用普拉娜时，当前武器冷却中会
+    // 从“随机未冷却武器”切换到可用武器；普拉娜高好感还会记录超压熟练。
+    // 这里使用与 weaponAttack 相同的 markers2 容器，并兼容秒/毫秒存量时间戳。
+    try {
+      const equipment = playerData.equipment || this.playerService.safeJsonParse<any[]>(player.equipment, []);
+      const hasMechanicalTentacle = equipment.some((item: any) =>
+        String(item?.name ?? item?.名称 ?? '').includes('机械触手')
+        || Number(item?.specialSeq ?? item?.特殊序号 ?? 0) === 110,
+      );
+      const isPlana = Number(player.specialSeq ?? 0) === 22 || player.type === '普拉娜';
+      let weaponMode = hasMechanicalTentacle ? -2 : (isPlana ? -1 : 0);
+      const affinity = Number(player.affinity ?? this.playerService.getMarkerValue(markers, `${player.type}好感`));
+      const markers2 = playerData.markers2 || this.playerService.safeJsonParse<any[]>(player.markers2, []);
+      const nowMs = Date.now();
+      const isActive = (name: string): boolean => {
+        const item = markers2.find((entry: any) => (entry?.name ?? entry?.名称) === name);
+        const rawExpire = Number(item?.expireAt ?? item?.有效期至 ?? 0);
+        if (!item || !rawExpire) return false;
+        const expireMs = rawExpire >= 1e12 ? rawExpire : rawExpire * 1000;
+        return expireMs > nowMs;
+      };
+
+      if (weaponMode === -1 && affinity >= 60) {
+        weaponMode = -2;
+        if (affinity >= 80 && !isActive('甩枪')) {
+          markers2.push({ name: '甩枪', expireAt: nowMs + 20 * 1000, value: 1 + skillLevel * 0.01 });
+        }
+        if (affinity >= 100 && !isActive('pll')) {
+          const currentName = Number(player.currentWeapon || 0) > 0
+            ? String((playerData.weapons?.[Number(player.currentWeapon) - 1] as any)?.name
+              ?? (playerData.weapons?.[Number(player.currentWeapon) - 1] as any)?.名称
+              ?? '拳头')
+            : '拳头';
+          markers[`${currentName}t`] = 1;
+          markers2.push({ name: 'pll', expireAt: nowMs + 15 * 1000 });
+        }
+      }
+
+      if (weaponMode === -2) {
+        const currentName = Number(player.currentWeapon || 0) > 0
+          ? String((playerData.weapons?.[Number(player.currentWeapon) - 1] as any)?.name
+            ?? (playerData.weapons?.[Number(player.currentWeapon) - 1] as any)?.名称
+            ?? '拳头')
+          : '拳头';
+        if (isActive(`${currentName}冷却`)) {
+          const nextWeapon = this.chooseRandomReadyWeapon(player, playerData, nowMs);
+          if (nextWeapon !== null) player.currentWeapon = nextWeapon;
+        }
+      }
+      player.markers2 = JSON.stringify(markers2);
+      player.markers = JSON.stringify(markers);
+    } catch (error: any) {
+      this.logger.warn(`随机未冷却武器处理失败: ${error.message}`);
+    }
     switch (String(seq)) {
       case '8': { // 战斗女仆：电伤×1.25；好感≥20 沉着攻击2加成
         bonus.电伤 = (bonus.电伤 || 0) * 1.25;
@@ -4428,16 +4975,8 @@ export class CombatSystemService {
         break;
       }
       case '3': { // 绝灭天使（对应原版 _计算玩家 L2076-2097 + 取羽毛）
-        // 羽毛存于 markers['羽毛']（累计时间戳），每10秒自然回复1片，上限10+技能等级（日轮×1.5）
-        const featherMarker = this.playerService.getMarkerValue(markers, '羽毛');
-        const featherMax = 10 + skillLevel;
-        let feather = 0;
-        if (featherMarker > 0) {
-          // 按累计时长估算当前羽毛（简化：距上次结算超过10秒则补1片）
-          const elapsed = Math.floor((Date.now() / 1000 - featherMarker) / 10);
-          feather = Math.min(featherMax, elapsed + 1);
-        }
-        feather = Math.max(0, Math.min(featherMax, feather));
+        // 羽毛存于时间锚点标记，统一通过原版“取羽毛”子程序计算恢复/封顶。
+        const feather = this.getFeather(player, markers, Date.now());
         const pBuffs: any[] = playerData.buffs || [];
         // a3 倍率：救世魔王×1.5（韧性+50%、穿透+10）；光翼×(1+0.5+技能/100)（原版 L2077-2091）
         let a3 = 1;
@@ -5306,6 +5845,90 @@ export class CombatSystemService {
     return parts.join(' ') || `${Math.floor(totalDamage)}`;
   }
 
+  /**
+   * 把地图 JSON 中的召唤物/怪物运行时对象适配为 PlayerData 视图。
+   * 原版所有攻击方都使用同一个“玩家”结构体；当前数据库把怪物字段拆开，
+   * 这里仅做字段别名与 JSON 解析，不改变结算顺序或数值。
+   */
+  private createRuntimeActorData(actor: any): PlayerData {
+    const parse = <T>(value: any, fallback: T): T => {
+      if (value === undefined || value === null) return fallback;
+      if (typeof value !== 'string') return value as T;
+      return this.playerService.safeJsonParse<T>(value, fallback);
+    };
+    const array = (value: any): any[] => {
+      const parsed = parse<any>(value, []);
+      return Array.isArray(parsed) ? parsed : [];
+    };
+
+    const equipment = array(actor.equipment ?? actor.equipments ?? actor.装备);
+    const weapons = array(actor.weapons ?? actor.武器);
+    const backpack = array(actor.backpack ?? actor.背包);
+    const markers2 = array(actor.markers2 ?? actor.标记2);
+    const buffs = array(actor.buffs ?? actor.增益);
+    const tasks = array(actor.tasks ?? actor.任务);
+    const safeBox = array(actor.safeBox ?? actor.保险柜);
+    const markers = this.normalizeMarkerObject(actor.markers ?? actor.标记 ?? {});
+
+    // 后续通用结算代码读取英文存量字段；没有英文字段时补上 JSON 视图。
+    if (actor.equipment === undefined) actor.equipment = JSON.stringify(equipment);
+    if (actor.weapons === undefined) actor.weapons = JSON.stringify(weapons);
+    if (actor.backpack === undefined) actor.backpack = JSON.stringify(backpack);
+    if (actor.markers2 === undefined) actor.markers2 = JSON.stringify(markers2);
+    if (actor.buffs === undefined) actor.buffs = JSON.stringify(buffs);
+    if (actor.markers === undefined) actor.markers = JSON.stringify(markers);
+    if (actor.sets === undefined && actor.set !== undefined) actor.sets = actor.set;
+
+    return {
+      player: actor,
+      backpack,
+      equipment,
+      weapons,
+      markers,
+      markers2,
+      buffs,
+      tasks,
+      safeBox,
+      sets: parse<any>(actor.sets ?? actor.set ?? {}, {}),
+    };
+  }
+
+  /** 兼容少量历史武器配置中的英文加成字段。 */
+  private toEnglishBonusKey(key: string): string {
+    const keys: Record<string, string> = {
+      攻击: 'attack', 攻击2: 'attack2', 命中: 'hit', 命中2: 'hit2',
+      暴击: 'crit', 暴击伤害: 'critDmg', 物伤: 'physDmg', 物伤2: 'physDmg2',
+      火伤: 'fireDmg', 火伤2: 'fireDmg2', 冰伤: 'iceDmg', 冰伤2: 'iceDmg2',
+      电伤: 'elecDmg', 电伤2: 'elecDmg2', 贯穿: 'penetration',
+    };
+    return keys[key] || key;
+  }
+
+  /** 将运行时攻击方的状态写回 GameMonster 或地图召唤物数组。 */
+  private async persistRuntimeActor(actor: any, map: any): Promise<void> {
+    if (!actor) return;
+
+    // GameMonster 是 Prisma 行，具有数值 id；召唤物是 map.summons 内的 JSON 对象。
+    if (typeof actor.id === 'number' && actor.id > 0 && actor.mapId !== undefined) {
+      await this.mapService.saveGameMonster(actor);
+      return;
+    }
+
+    const summons = this.playerService.safeJsonParse<any[]>(map?.summons, []);
+    const actorQQ = String(actor.qq ?? actor.QQ ?? '');
+    const index = summons.findIndex((item: any) => String(item?.qq ?? item?.QQ ?? '') === actorQQ);
+    if (index < 0) return;
+
+    // 同步原版中文别名，避免后续战斗循环只看到旧快照。
+    if (actor.当前生命 !== undefined || actor.hp !== undefined) actor.当前生命 = actor.hp;
+    if (actor.当前护盾 !== undefined || actor.shield !== undefined) actor.当前护盾 = actor.shield;
+    if (actor.当前装甲 !== undefined || actor.armor !== undefined) actor.当前装甲 = actor.armor;
+    if (actor.增益 !== undefined) actor.增益 = this.playerService.safeJsonParse<any[]>(actor.buffs, []);
+    if (actor.标记2 !== undefined) actor.标记2 = this.playerService.safeJsonParse<any[]>(actor.markers2, []);
+    summons[index] = actor;
+    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+  }
+
   /** 原版捕捉模式生命层文本：生命不扣除，但显示当前生命和“捕捉中”状态。 */
   private formatCaptureDamageText(
     totalDamage: number,
@@ -5522,7 +6145,7 @@ export class CombatSystemService {
   ): FamiliarEffectResult {
     const result = { ...base };
     const markers = playerData.markers || {};
-    const skillLevel = markers['军姬技能熟练度'] || 0;
+    const skillLevel = this.skillLevelFromMarkers(markers, '军姬');
     const affinity = markers['军姬好感'] || 0;
 
     // 好感≥100：给目标附加"影光"
@@ -5566,7 +6189,7 @@ export class CombatSystemService {
   ): FamiliarEffectResult {
     const result = { ...base };
     const markers = playerData.markers || {};
-    const skillLevel = markers['星尘技能熟练度'] || 0;
+    const skillLevel = this.skillLevelFromMarkers(markers, '星尘');
     const dz = markers['dz'] || 0;
     if (dz !== 0) {
       const bonus = dz * (5 + skillLevel / 10);
@@ -5595,7 +6218,7 @@ export class CombatSystemService {
   ): FamiliarEffectResult {
     const result = { ...base };
     const markers = playerData.markers || {};
-    const skillLevel = markers['小樱技能熟练度'] || 0;
+    const skillLevel = this.skillLevelFromMarkers(markers, '小樱');
 
     // 空间魔力：消耗标记，本次命中+25+技能等级
     const spaceMagic = markers['空间魔力'] || 0;
@@ -5640,7 +6263,7 @@ export class CombatSystemService {
     const markers = playerData.markers || {};
     const affinity = markers['伊芙利特好感'] || 0;
     if (affinity >= 40) {
-      const skillLevel = markers['伊芙利特技能熟练度'] || 0;
+      const skillLevel = this.skillLevelFromMarkers(markers, '伊芙利特');
       const bufVal = 20;
       result.attackerBuffs = [
         ...(result.attackerBuffs || []),
@@ -5667,7 +6290,7 @@ export class CombatSystemService {
     const markers = playerData.markers || {};
     const affinity = markers['龙姬好感'] || 0;
     if (affinity >= 40) {
-      const skillLevel = markers['龙姬技能熟练度'] || 0;
+      const skillLevel = this.skillLevelFromMarkers(markers, '龙姬');
       result.defenderBuffs = [
         ...(result.defenderBuffs || []),
         { name: '点燃', value: 20, duration: Math.floor(5 + skillLevel / 2) },
@@ -5848,7 +6471,7 @@ export class CombatSystemService {
   ): FamiliarEffectResult {
     const result = { ...base };
     const markers = playerData.markers || {};
-    const skillLevel = markers['普拉娜技能熟练度'] || 0;
+    const skillLevel = this.skillLevelFromMarkers(markers, '普拉娜');
     const affinity = markers['普拉娜好感'] || 0;
 
     // 好感≥20：火力加成（压制增益叠加，简化：本次攻击直接加攻击加成）
@@ -6224,33 +6847,143 @@ export class CombatSystemService {
    * @param player 玩家对象
    * @param map 地图对象
    */
-  applyMapBuffs(player: any, map: any): void {
+  async applyMapBuffs(player: any, map: any): Promise<void> {
     try {
-      // 解析地图的 mapBuffs JSON 字段
-      const mapBuffs: any[] = JSON.parse(map.mapBuffs || '[]');
-      if (mapBuffs.length === 0) return;
-
-      // 解析玩家当前的 buffs
-      const playerBuffs: any[] = JSON.parse(player.buffs || '[]');
+      const parseArray = (value: any): any[] => {
+        if (Array.isArray(value)) return value;
+        return this.playerService.safeJsonParse<any[]>(value, []);
+      };
       const now = Date.now() / 1000;
 
-      for (const mapBuff of mapBuffs) {
-        // 移除同名的旧增益
-        const filteredBuffs = playerBuffs.filter((b: any) => b.name !== mapBuff.name);
+      // mapBuffs 是原版地图“标记3”的持久化载体；没有有效期的静态增益按配置时长初始化。
+      const mapBuffs = parseArray(map.mapBuffs).map((raw: any) => {
+        const buff = { ...(raw || {}) };
+        if (buff.name === undefined && buff.名称 !== undefined) buff.name = buff.名称;
+        if (buff.strength === undefined && buff.强度 !== undefined) buff.strength = buff.强度;
+        if (buff.strength === undefined && buff.value !== undefined) buff.strength = buff.value;
+        const rawExpire = Number(buff.expireAt ?? buff.有效期至 ?? 0);
+        if (Number.isFinite(rawExpire) && rawExpire > 0) {
+          buff.expireAt = rawExpire > 1e12 ? rawExpire / 1000 : rawExpire;
+        } else {
+          const duration = Number(buff.duration ?? buff.持续时间 ?? 86400) || 86400;
+          buff.expireAt = now + duration;
+        }
+        return buff;
+      });
 
-        // 添加新增益（地图增益持续到离开地图，设为永久 = 很大的过期时间）
-        filteredBuffs.push({
-          name: mapBuff.name,
-          value: mapBuff.value,
-          duration: mapBuff.duration || 86400, // 默认24小时
-          expireAt: now + (mapBuff.duration || 86400),
-          source: 'mapBuff',
-          mapId: map.id,
-        });
+      // 原版地图标记离开地图即失效；兼容之前没有 source 标记的存量同名增益。
+      let playerBuffs: any[] = parseArray(player.buffs);
+      const configuredMapNames = new Set(
+        mapBuffs.map((buff: any) => String(buff?.name ?? buff?.名称 ?? '')).filter(Boolean),
+      );
+      playerBuffs = playerBuffs.filter((buff: any) =>
+        buff?.source !== 'mapBuff' && buff?.source !== 'mapMarker' && !configuredMapNames.has(String(buff?.name ?? '')),
+      );
 
-        // 更新 buffs
-        player.buffs = JSON.stringify(filteredBuffs);
+      const buildings = parseArray(map.buildings);
+      const summons = parseArray(map.summons);
+      const items = parseArray(map.items);
+      const hatchRequests: Array<{ type: string; ownerQQ: string; createdAt: number; growthSeconds: number }> = [];
+
+      // 一次调用贯通：建筑/召唤物产生地图增益，过期标记清理，孵蛋鸡到期孵化，
+      // 以及剩余标记复制到玩家增益。对应原版 加成计算.ecode L577-L652。
+      this.bonusService.getMapBonus(playerBuffs, {
+        buildings,
+        summons,
+        items,
+        markers3: mapBuffs,
+        onHatch: (request) => hatchRequests.push(request),
+      }, now, now);
+
+      // getMapBonus 负责原版幼崽的物品/标记修改；这里把请求转换为可参与战斗的真实召唤物。
+      let hatchIndex = 0;
+      for (const request of hatchRequests) {
+        const childQQ = `怪物${Date.now()}${Math.floor(Math.random() * 100000)}${hatchIndex++}g`;
+        let child: any;
+        try {
+          child = await this.mapService.createMapSummonByName(map.id, request.type, {
+            ownerQQ: request.ownerQQ,
+            qq: childQQ,
+          });
+        } catch (error: any) {
+          // 原版蛋对应的神兽都在静态怪物表；存量配置缺失时仍保留可管理的幼崽对象。
+          this.logger.warn(`孵化${request.type}时未找到静态怪物定义，使用基础幼崽: ${error?.message}`);
+          child = {
+            name: request.type,
+            type: request.type,
+            qq: childQQ,
+            ownerQQ: request.ownerQQ,
+            level: 1,
+            hp: 100,
+            maxHp: 100,
+            shield: 0,
+            maxShield: 0,
+            armor: 0,
+            maxArmor: 0,
+            attack: 10,
+            defense: 0,
+            speed: 100,
+            dodge: 0,
+            hit: 85,
+            bonus: '{}',
+            baseBonus: '{}',
+            extraBonus: '{}',
+            equipments: '[]',
+            weapons: '[]',
+            markers2: '[]',
+            buffs: '[]',
+            achievements: '[]',
+            set: '{}',
+            backpack: '[]',
+          };
+        }
+
+        child.name = `${request.type}幼崽`;
+        child.type = request.type;
+        child.qq = childQQ;
+        child.QQ = childQQ;
+        child.ownerQQ = request.ownerQQ;
+        child.归属 = request.ownerQQ;
+        child.isPet = true;
+        child.specialSeq = -2;
+        child.affinity = 150;
+        child.好感 = 150;
+        child.markers = {
+          [`好感${request.ownerQQ}`]: 150,
+          时间2: request.createdAt,
+          幼崽: Math.max(0, request.growthSeconds),
+          跟随: 1,
+          宝宝: 1,
+        };
+        child.标记 = child.markers;
+        child.follow = false;
+        child.mode = 'idle';
+        summons.push(child);
       }
+
+      const activeMapNames = new Set(
+        mapBuffs.map((buff: any) => String(buff?.name ?? buff?.名称 ?? '')).filter(Boolean),
+      );
+      for (const buff of playerBuffs) {
+        if (activeMapNames.has(String(buff?.name ?? ''))) {
+          buff.source = 'mapBuff';
+          buff.mapId = map.id;
+        }
+      }
+
+      player.buffs = JSON.stringify(playerBuffs);
+      if (typeof (this.playerService as any).savePlayer === 'function') {
+        await (this.playerService as any).savePlayer(player);
+      }
+
+      await this.mapService.updateDynamicFields(map.id, {
+        mapBuffs: JSON.stringify(mapBuffs),
+        items: JSON.stringify(items),
+        summons: JSON.stringify(summons),
+      });
+      map.mapBuffs = JSON.stringify(mapBuffs);
+      map.items = JSON.stringify(items);
+      map.summons = JSON.stringify(summons);
 
       this.logger.log(`应用地图增益 map=${map.name}, buffs=${mapBuffs.map((b: any) => b.name).join(',')}`);
     } catch (error) {
@@ -7959,47 +8692,238 @@ export class CombatSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return `${player.name} 你不在任何地图上。`;
-    // 原版地图.怪物2是运行时实例；当前项目统一从 GameMonster 表读取。
+    // 原版 L200-206：参数是地图列表的1-based编号，非法编号直接返回空文本。
+    const maps = await this.mapService.getAllMaps();
+    const requested = Number((arg || '').trim());
+    const mapIndex = Number.isInteger(requested) && requested > 0 ? requested : 0;
+    const map = mapIndex > 0 ? maps[mapIndex - 1] : await this.mapService.getMapById(player.mapId);
+    if (!map) return '';
+    const actualMapIndex = mapIndex || Number(map.mapIndex || map.id || 0);
+    if (mapIndex > maps.length) return '';
+
+    const nowMs = Date.now();
+    const mapMarkers2 = this.playerService.safeJsonParse<any[]>(map.markers2, []);
+    const cooldownText = { value: '' };
+    if (actualMapIndex > 0 && this.combatState.timeIntervalRequire(
+      `gw${actualMapIndex}`,
+      2,
+      mapMarkers2,
+      nowMs,
+      cooldownText,
+      nowMs,
+    )) {
+      return '';
+    }
+    map.markers2 = JSON.stringify(mapMarkers2);
+
+    // 原版 L208-210：定点攻击前先移动临时怪物；GameMonster 已由地图服务独立持久化，
+    // 读取最新实例即等价于原版内存中的移动后数组。
     const monsters = await this.mapService.getMapMonsters(map);
-    if (monsters.length === 0) return `${player.name} 当前地图没有可攻击的怪物。`;
+    if (monsters.length === 0) return '';
 
     const lines: string[] = [];
-    lines.push(`${player.name} 开始对地图【${map.name}】的${monsters.length}个怪物进行定点攻击`);
-
-    // 原版 L261-291：对地图每个怪物发起攻击（复用 weaponAttack，内含召唤物协同攻击）
-    for (let i = 0; i < monsters.length; i++) {
-      const r = await this.weaponAttack(userId, 0, {
-        targetName: monsters[i].name,
-        targetId: monsters[i].id,
-        allAttack: false,
+    const activityText = { value: '' };
+    const active = this.combatState.markerRequire('活动', mapMarkers2, activityText, nowMs);
+    if (!active) {
+      // 原版 L212-235、L507-530：活动结束时只修复地图怪物和召唤物所挂载的低等级载具，
+      // 不再执行攻击，也不发放额外物品。
+      await this.repairMapVehicles(map, monsters, lines);
+      map.markers2 = JSON.stringify(mapMarkers2);
+      await this.mapService.updateDynamicFields(map.id, {
+        markers2: map.markers2,
+        vehicles: map.vehicles,
       });
-      lines.push(r.result);
-      if (r.killed) lines.push(`击败了【${monsters[i].name}】`);
+      return lines.join('\n');
     }
 
-    // 原版 L507-530：载具修复分支（独立实现）。
-    // 本框架 GameVehicle 以 currentHp/maxHp 表示生命，对应原版 载具.当前生命/载具.生命。
-    const vehicleId = player.vehicle;
-    if (vehicleId) {
-      const vehicle = await this.prisma.gameVehicle.findUnique({ where: { id: vehicleId } });
-      if (vehicle) {
-        // 原版 L516-517：载具.当前生命 = 载具.生命（修复至满血）
-        await this.prisma.gameVehicle.update({
-          where: { id: vehicleId },
-          data: { currentHp: vehicle.maxHp },
-        });
-        // 发放载具材料（原版 L518-530）
-        await this.playerService.addToBackpack(userId, '载具材料', 1);
-        lines.push(`${player.name} 修复了载具至满血，并获得载具材料 x1`);
+    this.combatState.gainBuff(mapMarkers2, '战斗', 120, false, nowMs, 1, true);
+
+    // 原版 L246-289：逐只处理怪物的闪避释放。
+    await this.runAdminMonsterDodge(monsters, nowMs, lines);
+
+    // 原版 L290-319：最多100次随机选择怪物，首个真正产生攻击文本的怪物结束本轮。
+    for (let i = 0; i < 100 && lines.length === 0; i++) {
+      const alive = monsters.filter((item: any) => (item.hp || 0) > 0);
+      if (alive.length === 0) break;
+      const monster = alive[Math.floor(Math.random() * alive.length)];
+      if (this.hasActiveRuntimeBuff(monster.buffs, '麻醉', nowMs)
+        || this.hasActiveRuntimeBuff(monster.buffs, '幻时', nowMs)) continue;
+      const attackLines = await this.runMapMonsterAttack(monster, map, userId);
+      if (attackLines.length > 0) lines.push(...attackLines);
+    }
+
+    // 原版 L320-499：召唤物协同、觉醒优先与普通召唤物攻击。
+    const summonLines = await this.runMapSummonAttacks(map, player, userId);
+    if (summonLines.length > 0) lines.push(...summonLines);
+
+    map.markers2 = JSON.stringify(mapMarkers2);
+    await this.mapService.updateDynamicFields(map.id, {
+      markers2: map.markers2,
+      summons: map.summons,
+      vehicles: map.vehicles,
+    });
+    return lines.join('\n');
+  }
+
+  /** 活动结束时修复怪物/召唤物挂载的低等级载具（原版 L214-229、L510-525）。 */
+  private async repairMapVehicles(map: any, monsters: any[], lines: string[]): Promise<void> {
+    const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const actors = [...monsters, ...summons];
+    let changed = false;
+    for (const actor of actors) {
+      const vehicleRef = actor?.vehicle ?? actor?.载具;
+      if (!vehicleRef) continue;
+      const vehicle = vehicles.find((item: any) => String(item?.id ?? item?.编号 ?? item?.name ?? item?.名称) === String(vehicleRef));
+      if (!vehicle) continue;
+      const current = Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0);
+      const maximum = Number(vehicle.maxHp ?? vehicle.生命 ?? vehicle.加成?.生命 ?? 0);
+      const listIndex = Number(vehicle.列表编号 ?? vehicle.listIndex ?? 1);
+      const upper = Number(vehicle.上限 ?? vehicle.limit ?? 0);
+      if (current !== maximum && listIndex !== 0 && upper < 2) {
+        vehicle.currentHp = maximum;
+        vehicle.当前生命 = maximum;
+        changed = true;
+        lines.push(`${actor.name ?? actor.名称}修好了${vehicle.name ?? vehicle.名称}`);
       }
     }
+    if (changed) map.vehicles = JSON.stringify(vehicles);
+  }
 
-    // 原版 L320-499 召唤物闪避/扶人/天神降世/觉醒宠物/怪物→玩家攻击循环：待 combat-system 战斗循环 driver 实现，按原版保留
-    lines.push('（原版 L320-499 召唤物协同攻击/闪避/天神降世/觉醒宠物/怪物→玩家攻击循环：待战斗循环 driver 实现，按原版保留）');
+  /** 原版 L246-289 的怪物闪避释放。 */
+  private async runAdminMonsterDodge(monsters: any[], nowMs: number, lines: string[]): Promise<void> {
+    for (const monster of monsters) {
+      if ((monster.hp || 0) <= 0) continue;
+      const buffs = this.playerService.safeJsonParse<any[]>(monster.buffs, []);
+      const markers2 = this.playerService.safeJsonParse<any[]>(monster.markers2, []);
+      if (this.hasActiveRuntimeBuff(monster.buffs, '麻醉', nowMs)) continue;
+      const cooldown = Number(monster.dodgeCooldown ?? monster.闪避冷却 ?? this.safeJsonObject(monster.bonus).闪避冷却 ?? 0);
+      if (cooldown <= 0 || Math.random() * 100 >= 50) continue;
+      const fly = buffs.find((item: any) => (item?.name ?? item?.名称) === '飞羽');
+      const flyLevel = Math.min(10, Number(fly?.value ?? fly?.强度 ?? 0));
+      let actualCooldown = cooldown * (1 + flyLevel * 0.05);
+      const shock = this.hasActiveRuntimeBuff(monster.markers2, '空间震', nowMs);
+      if (shock) actualCooldown *= 2;
+      const cdText = { value: '' };
+      if (this.combatState.timeIntervalRequire('闪避冷却', actualCooldown, markers2, nowMs, cdText, nowMs)) continue;
+      this.combatState.gainBuff(buffs, '闪避', 4, false, nowMs, 0);
+      monster.buffs = JSON.stringify(buffs);
+      monster.markers2 = JSON.stringify(markers2);
+      await this.mapService.updateMonsterFields(monster.mapId, monster.id, {
+        buffs: monster.buffs,
+        markers2: monster.markers2,
+      });
+      const suffix = flyLevel > 0 ? `(冷却+${cooldown * flyLevel * 0.05}秒)` : '';
+      lines.push(`${monster.name}尝试闪避攻击。${shock ? `${suffix}(双倍冷却)` : suffix}`);
+    }
+  }
 
-    return lines.join('\n');
+  /** 原版 战斗() 的怪物攻击分支：一只怪物的全部武器攻击所有可攻击参与者。 */
+  private async runMapMonsterAttack(monster: any, map: any, userId: number): Promise<string[]> {
+    const lines: string[] = [];
+    const monsterBonus = this.buildMonsterBonus(monster);
+    const weaponList = this.getRuntimeWeapons(monster);
+    const weapons = weaponList.length > 0 ? weaponList : [null];
+    const victims: Array<{ actor: any; data: PlayerData; runtime: boolean; isSelf: boolean }> = [];
+
+    // 原版 L4647-L4660：地图有启示录标记时，25% 概率改为怪物攻击自己，
+    // 不再进入玩家/召唤物防御方筛选。启示录技能原文写入“福音书”，两者均兼容。
+    const mapMarkers2 = this.playerService.safeJsonParse<any[]>(map.markers2, []);
+    const apocalypseActive = this.hasActiveRuntimeBuff(map.markers2, '启示录')
+      || this.hasActiveRuntimeBuff(map.markers2, '福音书');
+    const apocalypseConfusion = apocalypseActive && Math.random() * 100 < 25;
+    if (apocalypseConfusion) {
+      monster.mapId = map.id;
+      victims.push({
+        actor: monster,
+        data: this.createRuntimeActorData(monster),
+        runtime: true,
+        isSelf: false,
+      });
+      lines.push(`${monster.name}陷入【启示录混乱】`);
+    } else {
+      // 原版顺序：玩家先加入防御方，召唤物随后加入。
+      const online = new Set(this.statsService.getOnlineUserIds());
+      online.add(userId);
+      const rows = await this.prisma.player.findMany({ where: { mapId: map.id }, select: { userId: true } });
+      for (const row of rows) {
+        if (!online.has(row.userId)) continue;
+        const data = await this.playerService.getPlayerData(row.userId);
+        if (this.playerService.isPlayerDead(data.player)) continue;
+        const buffs = this.playerService.safeJsonParse<any[]>(data.player.buffs, []);
+        if (buffs.some((item: any) => ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
+        victims.push({ actor: data.player, data, runtime: false, isSelf: row.userId === userId });
+      }
+
+      const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+      for (const summon of summons) {
+        if ((summon?.hp ?? summon?.当前生命 ?? 0) <= 0) continue;
+        summon.mapId = map.id;
+        victims.push({ actor: summon, data: this.createRuntimeActorData(summon), runtime: true, isSelf: false });
+      }
+    }
+    for (const rawWeapon of weapons) {
+      const weapon = rawWeapon ? this.getWeaponData(monster, weaponList.indexOf(rawWeapon) + 1) : undefined;
+      for (const victim of victims) {
+        lines.push(...await this.monsterCounterAttackOnePlayer(
+          monster,
+          monsterBonus,
+          victim.actor,
+          victim.data,
+          map,
+          victim.isSelf,
+          weapon,
+          victim.runtime,
+        ));
+      }
+      if (lines.some((line) => line.includes('幻时凝固'))) break;
+    }
+    await this.mapService.saveGameMonster(monster);
+    return lines;
+  }
+
+  /** 原版 L320-499 的召唤物武器循环，使用统一武器攻击结算。 */
+  private async runMapSummonAttacks(map: any, player: any, userId: number): Promise<string[]> {
+    const lines: string[] = [];
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    for (const summon of summons) {
+      const owner = summon?.ownerQQ ?? summon?.归属;
+      if (String(owner) !== String(player.userId) && String(owner) !== String(player.qqNumber || '')) continue;
+      if ((summon?.hp ?? summon?.当前生命 ?? 0) <= 0) continue;
+      const active = this.playerService.getMarkerValue(
+        this.normalizeMarkerObject(summon.markers ?? summon.标记 ?? {}),
+        '主动',
+      );
+      if (active === 1) continue;
+      const weaponList = this.getRuntimeWeapons(summon);
+      const weaponIndex = weaponList.length > 0 ? 1 : 0;
+      summon.mapId = map.id;
+      const result = await this.weaponAttack(userId, weaponIndex, {
+        attackerOverride: summon,
+        targetMapId: map.id,
+        noDelay: true,
+        isDelayed: true,
+        skipBattleDriver: true,
+      });
+      if (result.result) lines.push(result.result);
+      if (result.killed.length > 0) break;
+    }
+    return lines;
+  }
+
+  private safeJsonObject(value: any): Record<string, any> {
+    if (value && typeof value === 'object') return value;
+    return this.playerService.safeJsonParse<Record<string, any>>(value, {});
+  }
+
+  private hasActiveRuntimeBuff(value: any, name: string, nowMs = Date.now()): boolean {
+    const list = this.playerService.safeJsonParse<any[]>(value, Array.isArray(value) ? value : []);
+    return list.some((item: any) => {
+      if ((item?.name ?? item?.名称) !== name) return false;
+      const raw = Number(item?.expireAt ?? item?.有效期至 ?? 0);
+      if (!raw) return true;
+      return (raw < 1e12 ? raw * 1000 : raw) > nowMs;
+    });
   }
 
   /**
@@ -8022,20 +8946,175 @@ export class CombatSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    if (!arg) return `${player.name} 请指定延时攻击目标，例如：覅公jj QQ$武器名`;
+    const input = (arg || '').trim();
+    if (!input) return '';
 
-    // 原版 L540：取玩家QQ；解析 a$（QQ$武器）或 两字命令（怪物$武器）
-    const parts = arg.split('$');
+    // 原版 L536-540：关键词按“QQ$武器名”拆分，成员数不为2时只返回格式错误。
+    const parts = input.split('$');
+    if (parts.length !== 2) return `延迟攻击输入的数据不正确：${input}`;
     const targetQQ = parts[0];
-    const weaponName = parts.slice(1).join('$');
+    const weaponName = parts[1];
 
-    // 原版 L643-669：默认玩家$武器 模式 —— 玩家用当前武器攻击地图怪物2
-    if (targetQQ === String(player.qqNumber || player.id)) {
-      const r = await this.weaponAttack(userId, 0, { targetName: weaponName || undefined, allAttack: true });
-      return `${player.name} 以【${weaponName || '当前武器'}】发起延时攻击\n${r.result}`;
+    // 原版 L541-565：召唤物（QQ 以 g 结尾或名称以“召唤物”开头）全地图查找，
+    // 不要求当前生命大于0；找到武器后以“全体攻击+无延时”调用同一个武器攻击子程序。
+    if (targetQQ.endsWith('g') || targetQQ.startsWith('召唤物')) {
+      const maps = await this.getAllMapsForDelayedAttack(player.mapId);
+      for (const map of maps) {
+        const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+        const summon = summons.find((item: any) => String(item?.QQ ?? item?.qq ?? '') === targetQQ);
+        if (!summon) continue;
+
+        const weapons = this.getRuntimeWeapons(summon);
+        const weaponIndex = weapons.findIndex((item: any) => this.getRuntimeWeaponName(item) === weaponName);
+        if (weaponIndex < 0) {
+          return `${summon.name ?? summon.名称 ?? targetQQ}的延时攻击武器${weaponName}不在身上`;
+        }
+
+        summon.mapId = map.id;
+        const result = await this.weaponAttack(userId, weaponIndex + 1, {
+          attackerOverride: summon,
+          targetMapId: map.id,
+          allAttack: true,
+          noDelay: true,
+          isDelayed: true,
+          skipBattleDriver: true,
+        });
+        return result.result;
+      }
+      return '';
     }
 
-    // 原版 L558-632：召唤物$武器 / 怪物$武器 模式 —— 待召唤物/怪物攻击 driver 实现，按原版保留
-    return `${player.name} 延时攻击目标【${targetQQ}】为召唤物/怪物，需战斗循环 driver 支持（原版 L558-632 召唤物/怪物延时攻击待实现，按原版保留）`;
+    // 原版 L566-652：怪物$武器。怪物在幻时地图中只输出“被幻时凝固”，
+    // 否则收集存活召唤物和未隐匿/未炮冠的玩家，逐一作为防御方结算该武器。
+    if (input.startsWith('怪物')) {
+      const maps = await this.getAllMapsForDelayedAttack(player.mapId);
+      for (const map of maps) {
+        const monsters = await this.mapService.getMapMonsters(map);
+        const monster = monsters.find((item: any) => String(item?.qq ?? item?.QQ ?? '') === targetQQ);
+        if (!monster) continue;
+
+        const weaponList = this.getRuntimeWeapons(monster);
+        const weaponIndex = weaponList.findIndex((item: any) => this.getRuntimeWeaponName(item) === weaponName);
+        if (weaponIndex < 0) {
+          return `${monster.name}的延时攻击武器${weaponName}不在身上`;
+        }
+
+        const mapMarkers = this.playerService.safeJsonParse<any[]>(map.markers3 ?? map.标记3 ?? '[]', []);
+        const nowMs = Date.now();
+        const isFrozen = mapMarkers.some((item: any) => {
+          const name = item?.名称 ?? item?.name;
+          const expire = Number(item?.有效期至 ?? item?.expireAt ?? 0);
+          const expireMs = expire > 0 && expire < 1e12 ? expire * 1000 : expire;
+          return name === '幻时' && (!expireMs || expireMs > nowMs);
+        });
+        if (isFrozen) return `${monster.name}被幻时凝固`;
+
+        monster.mapId = map.id;
+        const attackWeapon = this.getWeaponData(monster, weaponIndex + 1);
+        const monsterBonus = this.buildMonsterBonus(monster);
+        const victims: Array<{ actor: any; data: PlayerData; runtime: boolean; isSelf: boolean }> = [];
+
+        const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+        for (const summon of summons) {
+          if ((summon?.hp ?? summon?.当前生命 ?? 0) <= 0) continue;
+          summon.mapId = map.id;
+          victims.push({
+            actor: summon,
+            data: this.createRuntimeActorData(summon),
+            runtime: true,
+            isSelf: false,
+          });
+        }
+
+        const playerRows = await this.prisma.player.findMany({
+          where: { mapId: map.id },
+          select: { userId: true },
+        });
+        for (const row of playerRows) {
+          const victimData = await this.playerService.getPlayerData(row.userId);
+          const victim = victimData.player;
+          if (this.playerService.isPlayerDead(victim)) continue;
+          const buffs = this.playerService.safeJsonParse<any[]>(victim.buffs, []);
+          if (buffs.some((item: any) => ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
+          victims.push({
+            actor: victim,
+            data: victimData,
+            runtime: false,
+            isSelf: row.userId === userId,
+          });
+        }
+
+        const lines: string[] = [];
+        for (const victim of victims) {
+          lines.push(...await this.monsterCounterAttackOnePlayer(
+            monster,
+            monsterBonus,
+            victim.actor,
+            victim.data,
+            map,
+            victim.isSelf,
+            attackWeapon,
+            victim.runtime,
+          ));
+        }
+        await this.mapService.saveGameMonster(monster);
+        return lines.join('\n');
+      }
+      return '';
+    }
+
+    // 原版 L653-671：玩家$武器只允许“当前武器名称”匹配，然后使用当前武器攻击其所在地图。
+    const targetUser = await this.findUserByDelayedTarget(targetQQ, player, userId);
+    if (!targetUser?.id) return '';
+    const targetData = await this.playerService.getPlayerData(targetUser.id);
+    const currentWeapon = Number(targetData.player.currentWeapon || 0);
+    const currentWeapons = this.getRuntimeWeapons(targetData.player);
+    const currentWeaponItem = currentWeapon > 0 ? currentWeapons[currentWeapon - 1] : undefined;
+    if (!currentWeapon || this.getRuntimeWeaponName(currentWeaponItem) !== weaponName) {
+      return `${targetData.player.name}的延时攻击武器${weaponName}不在身上`;
+    }
+    const result = await this.weaponAttack(targetUser.id, currentWeapon, {
+      noDelay: true,
+      isDelayed: true,
+      skipBattleDriver: true,
+    });
+    return result.result;
+  }
+
+  /** 读取延时攻击所需的地图快照，优先保留当前地图作为兜底。 */
+  private async getAllMapsForDelayedAttack(currentMapId: number): Promise<any[]> {
+    const current = await this.mapService.getMapById(currentMapId).catch(() => null);
+    const all = await this.mapService.getAllMaps().catch(() => []);
+    const maps = Array.isArray(all) ? all : [];
+    if (current && !maps.some((item: any) => item?.id === current.id)) maps.unshift(current);
+    return maps;
+  }
+
+  private getRuntimeWeapons(actor: any): any[] {
+    const value = actor?.weapons ?? actor?.武器 ?? '[]';
+    const weapons = this.playerService.safeJsonParse<any[]>(value, Array.isArray(value) ? value : []);
+    return Array.isArray(weapons) ? weapons : [];
+  }
+
+  private getRuntimeWeaponName(weapon: any): string {
+    return String(weapon?.name ?? weapon?.名称 ?? weapon ?? '');
+  }
+
+  private async findUserByDelayedTarget(targetQQ: string, player: any, userId: number): Promise<any | null> {
+    if (String(targetQQ) === String(player.userId) || String(targetQQ) === String(player.id)) {
+      return { id: userId };
+    }
+    const byQQ = await this.prisma.user.findFirst({
+      where: { qqNumber: targetQQ },
+      select: { id: true },
+    }).catch(() => null);
+    if (byQQ) return byQQ;
+    if (/^\d+$/.test(targetQQ)) {
+      return await this.prisma.user.findUnique({
+        where: { id: Number(targetQQ) },
+        select: { id: true },
+      }).catch(() => null);
+    }
+    return null;
   }
 }

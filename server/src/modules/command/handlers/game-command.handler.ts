@@ -611,11 +611,11 @@ export class GameCommandHandler implements CommandHandler {
         case 'start-dungeon':
           // 自动推进任务（对应原版 L3910）
           await this.taskService.advance(userId, '开启副本');
-          return this.wrap(await this.gameService.handleStartDungeon(userId));
+          return this.wrap(await this.gameService.handleStartDungeon(userId, arg));
 
         case '刷新副本':
         case 'refresh-dungeon':
-          return this.wrap(await this.gameService.handleRefreshDungeon(userId));
+          return this.wrap(await this.gameService.handleRefreshDungeon(userId, arg));
 
         // ========== 载具系统 ==========
         case '安装':
@@ -1070,7 +1070,7 @@ export class GameCommandHandler implements CommandHandler {
         // ========== 副本命令 ==========
         case '副本清空':
         case 'clear-dungeon':
-          return this.wrap(await this.gameService.handleClearDungeon(userId));
+          return this.wrap(await this.gameService.handleClearDungeon(userId, arg));
 
         // ========== 载具命令 ==========
         case '组装':

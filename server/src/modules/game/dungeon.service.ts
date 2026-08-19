@@ -1,13 +1,25 @@
 /**
- * 副本/关卡生成服务
- * 对应原版：后台运作.ecode 中的副本生成功能
- * 支持从 GameMonster 表读取真实怪物模板，生成精英怪变种和掉落物品
+ * 副本生命周期服务。
+ *
+ * 原版不是运行时随机生成一组“副本怪物”，而是按地图的复活点把一组关卡
+ * 地图作为一个副本开放：开启时追加“复活点(副本)”入口，关闭时迁移人员、
+ * 召唤物和载具，清理标记并刷新这一组地图。
  */
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
+
+export interface DungeonMapGroup {
+  name: string;
+  maps: any[];
+}
+
+export interface CloseDungeonResult {
+  name: string;
+  movedPlayers: string[];
+  message: string;
+}
 
 @Injectable()
 export class DungeonService {
@@ -15,161 +27,167 @@ export class DungeonService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly staticData: StaticDataService,
     private readonly mapService: MapService,
   ) {}
 
   /**
-   * 安全解析 JSON 字符串，解析失败返回默认值
+   * 原版 _主程序.ecode L3869-L3881/L3930-L3940 的副本候选地图筛选。
+   * 同一复活点只显示一次；家园和“使魔挑战”不属于可开启副本。
    */
-  private safeParseJSON<T>(jsonStr: string, defaultValue: T): T {
-    try {
-      return JSON.parse(jsonStr) as T;
-    } catch {
-      return defaultValue;
-    }
-  }
-
-  /**
-   * 生成副本
-   * 根据玩家等级和地图生成临时副本
-   * @param playerLevel 玩家等级
-   * @param mapId 地图ID
-   * @returns 副本数据（含怪物列表、过期时间等）
-   */
-  async generateDungeon(playerLevel: number, mapId: number): Promise<any> {
-    // 读取地图数据，获取该地图上配置的怪物模板列表（合并静态 JSON + 动态 DB）
-    const map = await this.mapService.getMapById(mapId);
-    if (!map) {
-      throw new Error(`地图 ID=${mapId} 不存在，无法生成副本`);
-    }
-
-    // 解析地图上的怪物模板列表（monsters JSON 字段，存放固定怪物配置）
-    const monsterTemplates: any[] = this.safeParseJSON(map.monsters, []);
-
-    const dungeonId = `dungeon_${Date.now()}`;
-    const monsters: any[] = [];
-
-    // 副本怪物数量：基础3只，每10级增加1只，最多10只
-    const monsterCount = Math.min(3 + Math.floor(playerLevel / 10), 10);
-
-    for (let i = 0; i < monsterCount; i++) {
-      // 从地图模板中随机选取一个作为基础
-      const template = monsterTemplates.length > 0
-        ? monsterTemplates[Math.floor(Math.random() * monsterTemplates.length)]
-        : null;
-
-      // 从静态配置读取真实怪物属性（若模板指定了名称，JSON 单一来源）
-      let gameMonster: any = null;
-      if (template?.name) {
-        try {
-          gameMonster = this.staticData.getMonsterByName(template.name);
-        } catch {
-          // 配置中不存在该怪物名称，忽略
-        }
+  async getInstanceGroups(): Promise<DungeonMapGroup[]> {
+    const maps = await this.mapService.getAllMaps();
+    const groups = new Map<string, any[]>();
+    for (const [index, map] of maps.entries()) {
+      const name = String(map.respawnPoint || map.复活点 || map.name || '').trim();
+      // 原版循环从地图列表第3项开始，医疗室/走廊只是新手剧情副本，
+      // 不出现在“开启副本/刷新副本”菜单中。
+      if (index < 2 || !map.isInstance || map.isFrontier || !name || String(map.name || '').startsWith('使魔挑战')) {
+        continue;
       }
-
-      // 精英怪判定：20% 概率生成精英变种
-      const isElite = Math.random() < 0.2;
-      const eliteMultiplier = isElite ? 1.5 : 1; // 精英怪属性 1.5 倍
-
-      // 怪物等级 = 玩家等级 ± 2 级波动
-      const level = Math.max(1, playerLevel + Math.floor(Math.random() * 5) - 2);
-
-      // 从 GameMonster → 模板 → 默认值 依次取属性
-      const baseHp = gameMonster?.hp ?? template?.hp ?? (50 + level * 10);
-      const baseAttack = gameMonster?.attack ?? template?.attack ?? (5 + level * 2);
-      const baseDefense = gameMonster?.defense ?? template?.defense ?? (2 + level);
-      const baseSpeed = gameMonster?.speed ?? template?.speed ?? (50 + level);
-      const baseDodge = gameMonster?.dodge ?? template?.dodge ?? (5 + Math.floor(level / 5));
-      const baseHit = gameMonster?.hit ?? template?.hit ?? (80 + Math.floor(level / 10));
-      const baseExp = Math.floor((gameMonster?.level ?? level) * 10 + 10);
-
-      const monster = {
-        id: `dungeon_${dungeonId}_${i}`,
-        name: isElite
-          ? `⚡精英${gameMonster?.name || template?.name || '副本怪物'} Lv.${level}`
-          : `${gameMonster?.name || template?.name || '副本怪物'} Lv.${level}`,
-        level,
-        specialSeq: gameMonster?.specialSeq ?? template?.specialSeq ?? 0,
-        // 精英怪物攻防血 1.5 倍，速度、闪避、命中不变
-        hp: Math.floor(baseHp * eliteMultiplier),
-        maxHp: Math.floor(baseHp * eliteMultiplier),
-        attack: Math.floor(baseAttack * eliteMultiplier),
-        defense: Math.floor(baseDefense * eliteMultiplier),
-        speed: baseSpeed,
-        dodge: baseDodge,
-        hit: baseHit,
-        exp: Math.floor(baseExp * (isElite ? 2 : 1)), // 精英怪经验 2 倍
-        drops: await this.generateDrops(gameMonster, template, level, isElite),
-        isDungeon: true,
-        isElite,
-      };
-
-      monsters.push(monster);
+      const group = groups.get(name) || [];
+      group.push(map);
+      groups.set(name, group);
     }
+    return [...groups.entries()].map(([name, groupMaps]) => ({ name, maps: groupMaps }));
+  }
 
-    this.logger.log(`为地图 ${map.name} 生成了副本，${monsters.length} 只怪物（${monsters.filter(m => m.isElite).length} 只精英）`);
-
-    return {
-      id: dungeonId,
-      mapId,
-      monsters,
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2小时过期
-    };
+  async findInstanceGroup(name: string): Promise<DungeonMapGroup | null> {
+    const normalized = String(name || '').trim();
+    if (!normalized) return null;
+    const groups = await this.getInstanceGroups();
+    return groups.find((group) => group.name === normalized) || null;
   }
 
   /**
-   * 生成副本怪物的掉落物品
-   * @param gameMonster GameMonster 表记录（可能为 null）
-   * @param template 地图怪物模板（可能为 null）
-   * @param level 怪物等级
-   * @param isElite 是否为精英怪
-   * @returns 掉落物品数组
+   * 原版后台运作.ecode L1039-L1106：关闭并刷新一个复活点下的副本地图组。
+   * 玩家仍然使用数据库中的基础地图 ID；“(副本)”只是一条临时入口名称。
    */
-  private async generateDrops(
-    gameMonster: any,
-    template: any,
-    level: number,
-    isElite: boolean,
-  ): Promise<any[]> {
-    const drops: any[] = [];
+  async closeDungeon(respawnPoint: string): Promise<CloseDungeonResult> {
+    const group = await this.findInstanceGroup(respawnPoint);
+    if (!group) {
+      return {
+        name: respawnPoint,
+        movedPlayers: [],
+        message: `${respawnPoint}副本不存在`,
+      };
+    }
 
-    // 通用掉落：魔物精华（数量随等级提升）
-    const essenceCount = Math.max(1, Math.floor(level / 5) + 1) * (isElite ? 2 : 1);
-    drops.push({
-      name: '魔物精华',
-      count: essenceCount,
-      chance: 80, // 80% 概率掉落
+    const allMaps = await this.mapService.getAllMaps();
+    const instanceMapIds = group.maps
+      .map((map) => Number(map.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    // 原版固定把关闭副本中的玩家送到地图列表[23]。
+    // 这里按静态地图顺序取第23张，保留该硬编码语义；数据不足时才回退到医疗室。
+    const exitMap = allMaps[22]
+      || await this.mapService.getMapByName('医疗室').catch(() => null)
+      || allMaps[0];
+    if (!exitMap) {
+      throw new Error('没有可用的副本出口地图');
+    }
+
+    const movedPlayers: string[] = [];
+    if (instanceMapIds.length > 0) {
+      const players = await this.prisma.player.findMany({
+        where: { mapId: { in: instanceMapIds } },
+        select: { id: true, name: true, markers: true },
+      });
+      for (const player of players) {
+        const markers = this.parseObject(player.markers, {});
+        delete markers['移动中'];
+        await this.prisma.player.update({
+          where: { id: player.id },
+          data: {
+            mapId: exitMap.id,
+            location: exitMap.name,
+            markers: JSON.stringify(markers),
+          },
+        });
+        movedPlayers.push(player.name || `玩家${player.id}`);
+      }
+    }
+
+    // 把副本内的召唤物和载具带回原版固定出口，再清空副本地图容器。
+    const exitSummons = this.parseArray(exitMap.summons, []);
+    const exitVehicles = this.parseArray(exitMap.vehicles, []);
+    for (const map of group.maps) {
+      exitSummons.push(...this.parseArray(map.summons, []));
+      exitVehicles.push(...this.parseArray(map.vehicles, []));
+      await this.mapService.updateDynamicFields(map.id, {
+        summons: '[]',
+        vehicles: '[]',
+      });
+    }
+    await this.mapService.updateDynamicFields(exitMap.id, {
+      summons: JSON.stringify(exitSummons),
+      vehicles: JSON.stringify(exitVehicles),
     });
 
-    // 精英怪额外掉落：副本碎片
-    if (isElite) {
-      drops.push({
-        name: '副本碎片',
-        count: 1,
-        chance: 100,
+    // 原版先删除所有入口，再刷新所有复活点相同的地图。
+    const dungeonEntry = `${group.name}(副本)`;
+    for (const map of allMaps) {
+      await this.mapService.removeMapConnection(map.id, dungeonEntry);
+    }
+
+    for (const map of group.maps) {
+      // refreshMapMonsters 保留临时怪物；原版刷新地图会清空怪物2，因此先全删再按模板重刷。
+      await this.mapService.clearMapMonsters(map.id);
+      await this.mapService.refreshMapMonsters(map.id);
+      await this.mapService.refreshMapResources(map.id).catch((error: any) => {
+        this.logger.warn(`刷新副本资源失败 map=${map.name}: ${error?.message}`);
       });
     }
 
-    // 若 GameMonster 表有 bonus 加成字段，解析其中的掉落信息
-    if (gameMonster?.bonus) {
-      try {
-        const bonus = typeof gameMonster.bonus === 'string'
-          ? JSON.parse(gameMonster.bonus)
-          : gameMonster.bonus;
-        // 如果 bonus 中配置了 dropItems，则加入掉落列表
-        if (Array.isArray(bonus.dropItems)) {
-          for (const dropItem of bonus.dropItems) {
-            drops.push(dropItem);
+    // 原版 d=地图列表中名称等于 w2 的地图，清理该地图配置的“删除标记”。
+    const markerMap = group.maps.find((map) => map.name === group.name) || group.maps[0];
+    const clearMarkers = String(markerMap?.clearMarkers || '').split(/\s+/).filter(Boolean);
+    if (clearMarkers.length > 0) {
+      const players = await this.prisma.player.findMany({
+        select: { id: true, markers: true },
+      });
+      for (const player of players) {
+        const markers = this.parseObject(player.markers, {});
+        let changed = false;
+        for (const marker of clearMarkers) {
+          if (Object.prototype.hasOwnProperty.call(markers, marker)) {
+            delete markers[marker];
+            changed = true;
           }
         }
-      } catch {
-        // bonus 解析失败，忽略
+        if (changed) {
+          await this.prisma.player.update({
+            where: { id: player.id },
+            data: { markers: JSON.stringify(markers) },
+          });
+        }
       }
     }
 
-    return drops;
+    const movedText = movedPlayers.length > 0
+      ? `，${movedPlayers.join('、')}被传送离开了副本。`
+      : '';
+    const message = `${group.name}副本已关闭${movedText}`;
+    this.logger.log(`副本 ${group.name} 已关闭，迁移玩家 ${movedPlayers.length} 人`);
+    return { name: group.name, movedPlayers, message };
+  }
+
+  private parseArray(value: any, fallback: any[]): any[] {
+    if (Array.isArray(value)) return [...value];
+    try {
+      const parsed = JSON.parse(value || '[]');
+      return Array.isArray(parsed) ? parsed : [...fallback];
+    } catch {
+      return [...fallback];
+    }
+  }
+
+  private parseObject(value: any, fallback: Record<string, any>): Record<string, any> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return { ...value };
+    try {
+      const parsed = JSON.parse(value || '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : { ...fallback };
+    } catch {
+      return { ...fallback };
+    }
   }
 }

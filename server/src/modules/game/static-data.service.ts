@@ -57,6 +57,7 @@ const DATA_FILES = {
   vehiclesParts: 'vehicles.json',
   vehicleParts: 'vehicle-parts.json',
   merchant: 'merchant.json',
+  seedItems: 'seed-items.json',
   maps: 'maps.json',
   vehicleRecipes: 'vehicle-recipes.json',
 } as const;
@@ -296,6 +297,22 @@ export class StaticDataService {
     // 兼容只携带旧版 merchant.json 的部署包。
     const merchant = this.loadRaw<any>('merchant')[0];
     return merchant || { equipmentText: '', itemText: '' };
+  }
+
+  /**
+   * 原版 @Constant「种子等」的展开结果。
+   * 该文件由易语言长文本配置离线提取，数组顺序和重复项都是随机权重的一部分。
+   */
+  getMerchantExtraItems(): string[] {
+    const file = path.join(DATA_DIR, DATA_FILES.seedItems);
+    if (!fs.existsSync(file)) return [];
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      return Array.isArray(parsed) ? parsed.map(String) : (Array.isArray(parsed?.items) ? parsed.items.map(String) : []);
+    } catch (err: any) {
+      this.logger.warn(`静态数据 ${DATA_FILES.seedItems} 解析失败: ${err.message}`);
+      return [];
+    }
   }
 
   /**
