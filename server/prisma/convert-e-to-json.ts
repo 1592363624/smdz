@@ -116,6 +116,16 @@ function parseItemCountString(str: string): Array<{ name: string; count: number 
 }
 
 /**
+ * 物品“使用可得”按空格保存多个独立产出池；池内再用逗号分隔随机候选。
+ * 例如“椰树种子1，椰树种子1，金龙果种子1”必须保留为一个池，
+ * 不能按“名称,数量”解析，否则会丢失随机权重并把数量解析成0。
+ */
+function parseUseEffectString(str: string): string[] {
+  if (!str || !str.trim()) return [];
+  return str.trim().split(/\s+/).map((group) => group.trim()).filter(Boolean);
+}
+
+/**
  * 载具生产配方的物品格式：名称,数量[,耐久百分比]。
  * 耐久小于100的产出是副产物，消耗也按耐久比例扣除；缺省耐久为100。
  */
@@ -197,7 +207,27 @@ function parseConnectionString(str: string): Array<{ name: string; distance: num
 }
 
 function parseResourceOutput(str: string): Array<{ name: string; count: number; chance: number }> {
-  return parseDropString(str);
+  if (!str || !str.trim()) return [];
+  const result: Array<{ name: string; count: number; chance: number }> = [];
+  for (const group of str.trim().split(/\s+/)) {
+    if (!group.trim()) continue;
+    const parts = group.split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+
+    // 资源产出使用“物品名+数量，概率”格式。数量可以是负数，
+    // 没有数量时保留名称（末尾 e/d/c/b/a/s/x 表示装备品质）。
+    const compact = parts[0].match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
+    const name = (compact?.[1] || parts[0]).trim();
+    const count = compact ? Number.parseFloat(compact[2]) : 0;
+    const chance = Number.parseFloat(parts[1]);
+    if (!name) continue;
+    result.push({
+      name,
+      count: Number.isFinite(count) ? count : 0,
+      chance: Number.isFinite(chance) ? chance : 0,
+    });
+  }
+  return result;
 }
 
 function parseDamageString(damageStr: string): Record<string, number> {
@@ -405,10 +435,7 @@ function mapMonsterToMonster(section: ConfigSection) {
 
 function mapItemToItem(section: ConfigSection) {
   const fields = section.fields;
-  const useEffects: string[] = [];
-  if (fields['使用可得']) {
-    useEffects.push(...parseItemCountString(fields['使用可得']).map((i) => `${i.name} x${i.count}`));
-  }
+  const useEffects = parseUseEffectString(fields['使用可得'] || '');
   return {
     name: section.name,
     description: fields['说明'] || '',
@@ -445,7 +472,19 @@ function mapMapToMap(section: ConfigSection, resourceDefs: Map<string, any>) {
   const resources = resourceNames.map((name) => {
     const def = resourceDefs.get(name);
     if (def) {
-      return { name, type: '资源', times: def.times, outputs: def.outputs, outputs2: def.outputs2, gatherCmd: def.gatherCmd };
+      return {
+        name,
+        type: '资源',
+        times: def.times,
+        outputs: def.outputs,
+        outputs2: def.outputs2,
+        gatherCmd: def.gatherCmd,
+        timeScale: def.timeScale,
+        renewable: def.renewable,
+        gatherText: def.gatherText,
+        marker: def.marker,
+        proxySpeak: def.proxySpeak,
+      };
     }
     return { name, type: '资源', times: 1, outputs: [], outputs2: [], gatherCmd: '' };
   });
@@ -513,10 +552,12 @@ function mapTextToAttackText(section: ConfigSection) {
 
 function mapCraftingToCrafting(section: ConfigSection) {
   const fields = section.fields;
-  const outputs = parseItemCountString(fields['产出'] || '');
-  const requirements = parseItemCountString(fields['需求'] || '');
+  // 原版制造列表在读取时会移除节名末尾的“制造”，并使用“名称数量”格式。
+  // 这里不能复用逗号格式解析器，否则完整导出的 400+ 配方会全部变成空配方。
+  const outputs = parseNameCountString(fields['产出'] || '');
+  const requirements = parseNameCountString(fields['需求'] || '');
   return {
-    name: section.name,
+    name: section.name.replace(/制造$/, ''),
     description: fields['说明'] || '',
     noCraft: fields['不可制造'] === '1',
     level: 1,
@@ -707,7 +748,9 @@ function mapDialogueToNpc(section: ConfigSection) {
 
 function mapTaskToTask(section: ConfigSection) {
   const fields = section.fields;
-  const rewards = parseItemCountString(fields['奖励'] || '');
+  // 任务配置使用“名称数量”的紧凑格式（如“能量块5 经验胶囊5”），
+  // 与称号/制造等使用“名称,数量”的字段格式不同。
+  const rewards = parseNameCountString(fields['奖励'] || '');
   // 原版 数据存取.ecode L652~L656：要求字段按空格分割为「名称数量」紧挨格式（如 移动1 / 发送"观察附近"1），
   // 再用 去数字(取末尾文字) + 取数字(取末尾数字) 拆分成 名称 + 数值。
   // 注意：不能用 parseItemCountString（它按逗号「名称,数量」解析），否则会全部解析为空。
@@ -735,20 +778,30 @@ function mapTaskToTask(section: ConfigSection) {
  *   "移动1 前往森林出口1"           -> [{name:"移动",count:1},{name:"前往森林出口",count:1}]
  *   "发送"观察附近"1 使用优秀装备补给箱1" -> [{name:'发送"观察附近"',count:1},{name:"使用优秀装备补给箱",count:1}]
  */
-function parseNameCountString(str: string): Array<{ name: string; count: number }> {
+function parseNameCountString(str: string): Array<{ name: string; count: number; type?: string }> {
   if (!str || !str.trim()) return [];
-  const result: Array<{ name: string; count: number }> = [];
-  for (const group of str.trim().split(/\s+/)) {
+  const result: Array<{ name: string; count: number; type?: string }> = [];
+  // 原版任务奖励用括号标记装备奖励的特殊语义：数量不是堆叠数，
+  // 而是命中概率（百分比）。先替换成无空格哨兵，避免括号内文字被拆成多个奖励。
+  const normalized = str.trim().replace(
+    /[（(]\s*是装备时\s*[，,]\s*数量是几率\s*[）)]/g,
+    '__装备概率奖励__',
+  );
+  for (const group of normalized.split(/\s+/)) {
     if (!group.trim()) continue;
-    // 从右往左找到第一个非数字字符的位置，左边为名称，右边连续数字为数量
-    let i = group.length - 1;
-    while (i >= 0 && /\d/.test(group[i])) i--;
-    if (i < 0) continue; // 整串都是数字，跳过
-    const name = group.slice(0, i + 1).trim();
-    const countStr = group.slice(i + 1).trim();
+    const isEquipmentReward = group.includes('__装备概率奖励__');
+    const token = group.replace(/__装备概率奖励__/g, '').trim();
+    const match = token.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
+    if (!match) continue;
+    const name = match[1].trim();
+    const countStr = match[2].trim();
     if (!name) continue;
     const count = countStr ? parseInt(countStr, 10) : 1;
-    result.push({ name, count: Number.isNaN(count) ? 1 : count });
+    result.push({
+      name,
+      count: Number.isNaN(count) ? 1 : count,
+      ...(isEquipmentReward ? { type: '装备' } : {}),
+    });
   }
   return result;
 }
@@ -987,6 +1040,11 @@ function main() {
       outputs: parseResourceOutput(s.fields['产出'] || ''),
       outputs2: parseResourceOutput(s.fields['产出2'] || ''),
       gatherCmd: s.fields['采集指令'] || '',
+      timeScale: parseFloat(s.fields['时间倍率'] || '1') || 1,
+      renewable: s.fields['不可再生'] !== '1',
+      gatherText: s.fields['采集文本'] || '',
+      marker: s.fields['标记'] || '',
+      proxySpeak: s.fields['代发言'] || '',
     });
   }
 

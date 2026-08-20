@@ -54,12 +54,25 @@ export class ItemSystemService {
    */
   async craftItem(userId: number, recipeName: string, count?: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, markers, tasks } = playerData;
+    const { player, backpack, markers } = playerData;
     const actualCount = count ?? 1;
+
+    // 存量掉落使用 count，初始/任务物品使用 quantity；制造内部统一到 quantity，
+    // 写回时同时保留 count，保证任务奖励和旧背包都能继续制造。
+    for (const item of backpack) {
+      if (item.type !== '装备') {
+        const quantity = Number(item.quantity ?? item.count ?? 0);
+        item.quantity = quantity;
+        item.count = quantity;
+      }
+    }
 
     // 查找配方（静态配置 JSON 单一来源）
     const recipes = this.staticData.getAllCraftings();
-    const recipe = recipes.find(r => r.name === recipeName);
+    const normalizedName = String(recipeName || '').replace(/制造$/, '');
+    const recipe = recipes.find(r => r.name === recipeName)
+      || recipes.find(r => r.name === normalizedName)
+      || recipes.find(r => r.name === `${normalizedName}制造`);
     if (!recipe) {
       return `${player.name}，【${recipeName}】在制造列表不存在。`;
     }
@@ -67,8 +80,16 @@ export class ItemSystemService {
       return `你输入了正确的名称，但是【${recipeName}】不是可以制造的项目（仅用于分解）。`;
     }
 
-    const outputs: Item3[] = JSON.parse(recipe.outputs || '[]');
-    const requirements: Item3[] = JSON.parse(recipe.requirements || '[]');
+    const normalizeRecipeItems = (value: any): Item3[] => {
+      const raw = Array.isArray(value) ? value : this.playerService.safeJsonParse<any[]>(value, []);
+      return raw.map((item: any) => ({
+        ...item,
+        name: item.name ?? item.名称,
+        quantity: Number(item.quantity ?? item.count ?? item.数量 ?? 0),
+      })).filter((item: Item3) => item.name && Number.isFinite(item.quantity));
+    };
+    const outputs = normalizeRecipeItems(recipe.outputs);
+    const requirements = normalizeRecipeItems(recipe.requirements);
     const gainMarkers: string[] = JSON.parse(recipe.gainMarkers || '[]');
 
     if (outputs.length === 0) {
@@ -188,7 +209,7 @@ export class ItemSystemService {
 
     // 更新标记/成就 — 使用成就系统服务
     this.achievementService.setAchievement(markers, '制造', (markers['制造'] || 0) + maxCount);
-    this.achievementService.setAchievement(markers, '制造' + recipeName, (markers['制造' + recipeName] || 0) + maxCount);
+    this.achievementService.setAchievement(markers, '制造' + recipe.name, (markers['制造' + recipe.name] || 0) + maxCount);
 
     for (const gm of gainMarkers) {
       if (gm) {
@@ -202,14 +223,12 @@ export class ItemSystemService {
       data: {
         backpack: JSON.stringify(cleanedBackpack),
         markers: JSON.stringify(markers),
-        tasks: JSON.stringify(tasks),
       },
     });
 
     // 制造后检查称号触发
     try {
       player.markers = markers;
-      player.tasks = tasks;
       await this.achievementService.checkTitles(player);
     } catch (e) {
       this.logger.warn(`制造后称号检查失败: ${e.message}`);
@@ -228,7 +247,7 @@ export class ItemSystemService {
    */
   async deconstructItem(userId: number, itemName: string, count?: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, markers, tasks } = playerData;
+    const { player, backpack, markers } = playerData;
 
     // 查找物品
     const itemIndex = backpack.findIndex((bp: Item3) => bp.name === itemName);
@@ -237,7 +256,16 @@ export class ItemSystemService {
     }
 
     const item = backpack[itemIndex];
-    const actualCount = (count === undefined || count < 0) ? item.quantity : Math.min(count, item.quantity);
+    const available = item.type === '装备'
+      ? Math.max(1, Number(item.quantity ?? item.count ?? 1))
+      : Number(item.quantity ?? item.count ?? 0);
+    const requested = Number(count);
+    const actualCount = count === undefined || requested < 0
+      ? available
+      : Math.min(Math.floor(requested), available);
+    if (!Number.isFinite(actualCount) || actualCount <= 0) {
+      return `${player.name} 你的背包中没有可分解的${itemName}。`;
+    }
 
     if (item.type === '装备') {
       // 检查是否植入体或增幅器
@@ -257,8 +285,13 @@ export class ItemSystemService {
       const crystalAmount = Math.floor(qualityValue * 0.5 * actualCount);
       const energyAmount = Math.floor(qualityValue * 0.3 * actualCount);
 
-      // 移除原物品
-      backpack.splice(itemIndex, 1);
+      // 按实际分解数量扣除，避免“分解物品1”把整组堆叠物品全部删除。
+      if (actualCount >= available) {
+        backpack.splice(itemIndex, 1);
+      } else {
+        item.quantity = available - actualCount;
+        item.count = item.quantity;
+      }
 
       // 添加产物
       this.addItemToBackpack(backpack, {
@@ -276,7 +309,6 @@ export class ItemSystemService {
         data: {
           backpack: JSON.stringify(backpack),
           markers: JSON.stringify(markers),
-          tasks: JSON.stringify(tasks),
         },
       });
 
@@ -292,8 +324,12 @@ export class ItemSystemService {
       const requirements: Item3[] = JSON.parse(recipe.requirements || '[]');
       const deconstructMul = recipe.deconstructMul || 5;
 
-      // 移除原物品
-      backpack.splice(itemIndex, 1);
+      if (actualCount >= available) {
+        backpack.splice(itemIndex, 1);
+      } else {
+        item.quantity = available - actualCount;
+        item.count = item.quantity;
+      }
 
       // 返还材料（按分解倍率）
       const returnItems: Item3[] = [];
@@ -408,7 +444,7 @@ export class ItemSystemService {
    */
   async upgradeImplant(userId: number, target: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, equipment, backpack, markers, tasks } = playerData;
+    const { player, equipment, backpack, markers } = playerData;
 
     // 解析命令：target可能是 "3" 或 "攻击3" 或 "3"
     let count = 1;
@@ -1927,6 +1963,11 @@ export class ItemSystemService {
     return equipment.specialSeq > 0 && equipment.specialSeq < 100;
   }
 
+  /** 供指令层在装备成功后判断应推进“使用武器”还是“使用装备”。 */
+  isWeaponItem(item: Item3): boolean {
+    return item?.type === '装备' && this.isWeapon(this.parseEquipment(item));
+  }
+
   /**
    * 判断物品类型（装备/资源/消耗品）
    * 通过查询数据库中的 GameEquipment 和 GameItem 表来确定
@@ -1949,7 +1990,7 @@ export class ItemSystemService {
     let total = 0;
     for (const bp of backpack) {
       if (bp.name === name) {
-        total += bp.type !== '装备' ? bp.quantity : 1;
+        total += bp.type !== '装备' ? Number(bp.quantity ?? bp.count ?? 0) : 1;
       }
     }
     return total;
@@ -1967,8 +2008,10 @@ export class ItemSystemService {
           remaining--;
           i--;
         } else {
-          const remove = Math.min(backpack[i].quantity, remaining);
-          backpack[i].quantity -= remove;
+          const current = Number(backpack[i].quantity ?? backpack[i].count ?? 0);
+          const remove = Math.min(current, remaining);
+          backpack[i].quantity = current - remove;
+          backpack[i].count = backpack[i].quantity;
           remaining -= remove;
           if (backpack[i].quantity <= 0) {
             backpack.splice(i, 1);
@@ -1992,9 +2035,12 @@ export class ItemSystemService {
       (bp: Item3) => bp.name === item.name && bp.type === item.type,
     );
     if (existing) {
-      existing.quantity += item.quantity;
+      const next = Number(existing.quantity ?? existing.count ?? 0) + Number(item.quantity ?? item.count ?? 0);
+      existing.quantity = next;
+      existing.count = next;
     } else {
-      backpack.push({ ...item });
+      const quantity = Number(item.quantity ?? item.count ?? 0);
+      backpack.push({ ...item, quantity, count: quantity });
     }
   }
 
@@ -2290,8 +2336,8 @@ export class ItemSystemService {
    * 兑换/战利品装备入口。
    * 对应战斗相关.ecode L4913-4918：没有已有数据时按普通奖励品质生成装备。
    */
-  async generateRewardEquipment(name: string): Promise<Item3> {
-    return this.generateEquipment(name, '', 0);
+  async generateRewardEquipment(name: string, quality = ''): Promise<Item3> {
+    return this.generateEquipment(name, quality, 0);
   }
 
   /**
@@ -2330,9 +2376,17 @@ export class ItemSystemService {
    * @param playerData 玩家完整数据（含 player/成就/任务/标记/背包）
    * @param drops 掉落物数组（每项含 name/type/quantity/data/chance）
    * @param opts.judgeChance 是否按几率判定（原版 判断几率 参数）
+   * @param opts.onTaskProgress 战利品实际入包后回传任务动作，避免物品系统反向依赖任务系统
    * @returns 掉落显示文本
    */
-  async distributeLoot(playerData: any, drops: any[], opts?: { judgeChance?: boolean }): Promise<string> {
+  async distributeLoot(
+    playerData: any,
+    drops: any[],
+    opts?: {
+      judgeChance?: boolean;
+      onTaskProgress?: (actionName: string, count: number) => void;
+    },
+  ): Promise<string> {
     const player = playerData.player;
     const judgeChance = opts?.judgeChance ?? false;
     const backpack = this.playerService.getBackpackItems(player);
@@ -2340,49 +2394,75 @@ export class ItemSystemService {
     const legendRate = player.套装?.传说率 || player.legendRate || 0;
 
     for (const drop of (drops || [])) {
-      if (!drop || drop.name === '') continue; // 原版 L4889 空名跳过
-      if (drop.name === '电力') continue;       // 原版 L4892 电力跳过
+      const dropName = String(drop?.name ?? drop?.名称 ?? '').trim();
+      if (!drop || dropName === '') continue; // 原版 L4889 空名跳过
+      if (dropName === '电力') continue;       // 原版 L4892 电力跳过
 
       // 判断几率（原版 L4895-4903）
       if (judgeChance) {
-        const chance = drop.chance || 0;
+        const chance = Number(drop.chance ?? drop.几率 ?? 0);
         if (Math.random() * 100 >= chance) continue;
       }
 
-      // 判断物品2（本框架近似：确保数量≥1；原版用于校验物品结构）
-      let qty = drop.quantity || drop.count || 1;
-      if (qty < 1) qty = 1;
+      const explicitType = String(drop.type ?? drop.类型 ?? '').trim().toLowerCase();
+      const isEquipment = explicitType === '装备'
+        || explicitType === 'equipment'
+        || (!explicitType && typeof this.staticData?.getEquipmentByName === 'function'
+          && !!this.staticData.getEquipmentByName(dropName));
+      const rawQuantity = drop.quantity ?? drop.count ?? drop.数量;
+      const parsedQuantity = rawQuantity === undefined || rawQuantity === null || rawQuantity === ''
+        ? 1
+        : Number(rawQuantity);
+      if (!Number.isFinite(parsedQuantity)) continue;
 
-      // 本框架 generateDrops 产出掉落未带 type，默认按资源处理（装备类需 dropTable 配置 type=装备）
-      const dropType = drop.type || '资源';
+      // 原版只有装备会把数量<1修正为1；资源的负数表示从背包扣除，
+      // 例如载具零件-2、强化箱-1，不能统一改成1。
+      const qty = isEquipment ? Math.max(1, Math.floor(parsedQuantity)) : parsedQuantity;
+
+      // 本框架同时兼容中文/英文类型标记；没有标记时按静态装备表识别。
+      const dropType = isEquipment ? '装备' : '资源';
       if (dropType === '装备') {
         // 原版 L4906-4921：按数量循环生成并加入背包
         for (let b = 0; b < qty; b++) {
           let item = { ...drop };
           if (!item.data) {
             // 原版 生成装备(名称, , 玩家.套装.传说率, , , , )
-            item = await this.generateEquipment(item.name, '', legendRate);
+            item = await this.generateEquipment(dropName, '', legendRate);
           }
           await this.achievementService.addAchievement(player, '获得装备', 1, false);
           await this.achievementService.addAchievement(player, '获得' + item.name, qty, false);
-          backpack.push({ name: item.name, count: 1, data: item.data || '' });
-          backpackOut.push({ name: item.name, count: 1, data: item.data || '' });
+          opts?.onTaskProgress?.('获得装备', 1);
+          opts?.onTaskProgress?.('获得' + item.name, qty);
+          backpack.push({
+            ...item,
+            name: item.name || dropName,
+            type: '装备',
+            quantity: 1,
+            count: 1,
+            data: item.data || '',
+          });
+          backpackOut.push({ name: item.name || dropName, count: 1, data: item.data || '' });
         }
       } else if (dropType === '资源') {
         // 原版 L4922-4938
-        if (drop.name === '好感') {
+        if (dropName === '好感') {
           await this.achievementService.addAchievement(player, (player.type || '') + '好感', qty, false);
           await this.achievementService.addAchievement(player, '好感', qty, false);
-        } else if (drop.name === '经验') {
+          if (qty > 0) opts?.onTaskProgress?.('好感', qty);
+        } else if (dropName === '经验') {
           const adj = Math.floor(qty * (1 + (player.属性?.经验 || player.expBonus || 0) / 100));
           if (adj > 0) {
             player.exp = (player.exp || 0) + adj;
           }
         } else {
           await this.achievementService.addAchievement(player, '采集资源', qty, false);
-          await this.achievementService.addAchievement(player, '采集' + drop.name, qty, false);
-          backpack.push({ name: drop.name, count: qty });
-          backpackOut.push({ name: drop.name, count: qty });
+          await this.achievementService.addAchievement(player, '采集' + dropName, qty, false);
+          const changed = this.mergeLootResource(backpack, dropName, qty, drop);
+          if (changed && qty > 0) {
+            opts?.onTaskProgress?.('采集资源', qty);
+            opts?.onTaskProgress?.('采集' + dropName, qty);
+          }
+          if (changed) backpackOut.push({ name: dropName, count: qty });
         }
       } else {
         // 默认（原版 L4939 空分支）：不处理
@@ -2392,6 +2472,36 @@ export class ItemSystemService {
     player.backpack = JSON.stringify(backpack);
     // 显示物品（原版 L4946 返回 显示物品(物品数组2)）：近似为名字列表
     return backpackOut.map((i) => `${i.name}${i.count > 1 ? '×' + i.count : ''}`).join('、');
+  }
+
+  /**
+   * 复刻“获得物品(背包, 物品)”的资源分支：正数叠加，负数扣除，
+   * 数量归零时删除；不存在的负数资源不会凭空写入负库存。
+   */
+  private mergeLootResource(backpack: any[], name: string, quantity: number, source: any): boolean {
+    if (!Number.isFinite(quantity) || quantity === 0) return false;
+
+    const index = backpack.findIndex((item: any) => item?.name === name && item?.type !== '装备');
+    if (index < 0) {
+      if (quantity <= 0) return false;
+      backpack.push({
+        name,
+        type: source?.type || source?.类型 || '资源',
+        count: quantity,
+        quantity,
+      });
+      return true;
+    }
+
+    const item = backpack[index];
+    const current = Number(item.quantity ?? item.count ?? 0);
+    const next = current + quantity;
+    if (next <= 0) backpack.splice(index, 1);
+    else {
+      item.count = next;
+      item.quantity = next;
+    }
+    return true;
   }
 
   /**

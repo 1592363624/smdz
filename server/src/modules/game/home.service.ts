@@ -713,6 +713,50 @@ export class HomeService {
   }
 
   /**
+   * 将背包中的建筑安装到当前地图。
+   * 原版“安装”是把已制造建筑移入地图建筑数组，不是再次扣除建筑材料。
+   */
+  installBuilding(
+    map: any,
+    buildingName: string,
+    backpack: any[],
+    count = 1,
+  ): { success: boolean; message: string; installed: number } {
+    const def = buildingName
+      ? this.staticData.getBuildingByName(buildingName)
+      : undefined;
+    if (!def) {
+      return { success: false, message: `「${buildingName}」不是建筑`, installed: 0 };
+    }
+
+    const available = this.getItemQuantity(buildingName, backpack);
+    const installed = Math.min(Math.max(1, Math.floor(count)), Math.floor(available));
+    if (installed <= 0) {
+      return { success: false, message: `你没有${buildingName}`, installed: 0 };
+    }
+
+    this.removeItemQuantity(buildingName, installed, backpack);
+    const buildings = this.safeParseJSON<any[]>(map.buildings, []);
+    const existing = buildings.find((item: any) => this.getItemName(item) === buildingName);
+    if (existing) {
+      this.setItemQuantity(existing, this.getItemQuantityValue(existing) + installed);
+    } else {
+      buildings.push({
+        name: buildingName,
+        count: installed,
+        quantity: installed,
+        type: def.type || def['类型'] || '建筑',
+      });
+    }
+    map.buildings = JSON.stringify(buildings);
+    return {
+      success: true,
+      message: `把${installed}个${buildingName}放到了${map.name || '当前地图'}`,
+      installed,
+    };
+  }
+
+  /**
    * 建筑拆除
    * 对应原版：拆除建筑相关逻辑
    * 拆除地图上的建筑，返还部分材料（50%）
@@ -1442,11 +1486,14 @@ export class HomeService {
     );
 
     this.writeMarkerValue(mapMarkers, '观测时间', now);
+    // 原版地图操作会把供电状态写入地图标记，贸易和其他家园功能都依赖该状态。
+    this.writeMarkerValue(mapMarkers, '有电', analysis.hasPower ? 1 : 0);
     markers['家园产出时间'] = now;
     player.markers = JSON.stringify(markers);
     const resultLines = [`${player.name || '冒险者'}的家园产出`];
     if (!analysis.hasPower) {
       this.removeItemQuantity('肥料', temporaryFertilizer, storage);
+      this.writeMarkerValue(mapMarkers, '每日产出', []);
       await this.persistHomeMap(map, storage, mapMarkers);
       await this.playerService.savePlayer(player);
       return `${resultLines[0]}\n电力不足，建筑生产停止`;
@@ -1498,6 +1545,19 @@ export class HomeService {
 
     this.removeItemQuantity('肥料', temporaryFertilizer, storage);
 
+    // 保存本次观测得到的每日正产出，供家园贸易按原版“每日产出的2%”使用。
+    const dailyOutput = new Map<string, number>();
+    const elapsed = Math.max(1, effectiveTimeDiff);
+    for (const item of outputItems) {
+      if (item.name === '电力' || item.quantity <= 0) continue;
+      dailyOutput.set(item.name, (dailyOutput.get(item.name) || 0) + item.quantity * 86400 / elapsed);
+    }
+    this.writeMarkerValue(
+      mapMarkers,
+      '每日产出',
+      Array.from(dailyOutput.entries()).map(([name, quantity]) => ({ name, quantity })),
+    );
+
     if (worldSimulationText) resultLines.push(worldSimulationText);
     await this.persistHomeMap(map, storage, mapMarkers);
     await this.playerService.savePlayer(player);
@@ -1505,7 +1565,7 @@ export class HomeService {
     return resultLines.join('\n');
   }
 
-  private writeMarkerValue(target: any, name: string, value: number): void {
+  private writeMarkerValue(target: any, name: string, value: any): void {
     if (Array.isArray(target)) {
       const existing = target.find((item: any) => this.getItemName(item) === name);
       if (existing) {

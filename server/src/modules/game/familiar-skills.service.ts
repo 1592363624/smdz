@@ -54,10 +54,8 @@ export class FamiliarSkillsService {
     // 先获取玩家数据，确保玩家存在
     await this.playerService.getPlayerData(userId);
 
-    // 自动推进任务：使用技能（对应原版 使魔技能.ecode L1291 等：添加成就("使用技能",1,成就,任务)）
-    await this.taskService.advance(userId, '使用技能');
-
-    switch (skillName) {
+    const result = await (async (): Promise<string> => {
+      switch (skillName) {
       // 使魔专属技能
       case '六道轮回': return this.sixPaths(userId);
       case '怒吼': return this.roar(userId);
@@ -112,9 +110,21 @@ export class FamiliarSkillsService {
       case '复活使魔': return this.reviveFamiliar(userId);
       case '大召唤术': return this.massSummon(userId);
 
-      default:
-        return `未知技能「${skillName}」`;
+        default:
+          return `未知技能「${skillName}」`;
+      }
+    })();
+
+    // 技能真正执行成功后才推进任务，失败、冷却或条件不足不能消耗任务次数。
+    if (this.isSuccessfulSkillResult(result)) {
+      await this.taskService.advance(userId, '使用技能');
     }
+    return result;
+  }
+
+  private isSuccessfulSkillResult(result: string): boolean {
+    if (!result?.trim()) return false;
+    return !/(失败|错误|未知技能|需要|无法|不能|不可|未找到|冷却中|请先|请指定|还需要|不足|不是)/.test(result);
   }
 
   /**

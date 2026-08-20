@@ -314,22 +314,13 @@ export class FamiliarSystemService {
     });
     player.markers2 = JSON.stringify(newMarkers2);
 
-    // 记录更换使魔成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const taskExist = tasks.find((t: any) => t.name === '更换使魔');
-    if (taskExist) {
-      taskExist.count = (taskExist.count || 0) + 1;
-    } else {
-      tasks.push({ name: '更换使魔', count: 1 });
-    }
-    player.tasks = JSON.stringify(tasks);
-
     // 增加活跃度
     const activity = this.playerService.getMarkerValue(markers, '活跃度');
     markers['活跃度'] = activity + 1;
     player.markers = JSON.stringify(markers);
 
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '更换使魔');
 
     return `${player.name || '冒险者'} 从${player.type}更换为${familiarName}（冷却${Math.ceil(cooldown / 60)}分钟）`;
   }
@@ -395,16 +386,6 @@ export class FamiliarSystemService {
     player.markers = JSON.stringify(markers);
     player.backpack = JSON.stringify(backpack);
 
-    // 记录召唤使魔成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const summonTask = tasks.find((t: any) => t.name === '召唤使魔');
-    if (summonTask) {
-      summonTask.count = (summonTask.count || 0) + 1;
-    } else {
-      tasks.push({ name: '召唤使魔', count: 1 });
-    }
-    player.tasks = JSON.stringify(tasks);
-
     // 检查召唤冷却
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '召唤冷却');
@@ -425,6 +406,7 @@ export class FamiliarSystemService {
     }
 
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '召唤使魔');
 
     return `${player.name || '冒险者'} 使用了${count}张召唤券，召唤出了${summonedItems.join('、')}\n重复召唤出的使魔会转化为对应使魔的好感`;
   }
@@ -1053,17 +1035,8 @@ export class FamiliarSystemService {
       }
     }
 
-    // 记录家园搬迁成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const relocateTask = tasks.find((t: any) => t.name === '家园搬迁');
-    if (relocateTask) {
-      relocateTask.count = (relocateTask.count || 0) + 1;
-    } else {
-      tasks.push({ name: '家园搬迁', count: 1 });
-    }
-    player.tasks = JSON.stringify(tasks);
-
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '家园搬迁');
 
     return `家园已搬迁至「${targetMap}」`;
   }
@@ -1103,10 +1076,9 @@ export class FamiliarSystemService {
 
     player.houseName = newName;
 
-    // 自动推进任务（对应原版 L2418：添加成就("家园命名", 1, , 玩家.任务)）
-    await this.taskService.advance(userId, '家园命名');
-
     await this.playerService.savePlayer(player);
+    // 先持久化新名称，再推进任务，避免任务服务读取旧玩家对象时覆盖本次改名。
+    await this.taskService.advance(userId, '家园命名');
 
     return `家园已命名为「${newName}」`;
   }
@@ -1202,17 +1174,8 @@ export class FamiliarSystemService {
     player.markers = JSON.stringify(markers);
     player.backpack = JSON.stringify(backpack);
 
-    // 记录成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const digTask = tasks.find((t: any) => t.name === '开挖地基');
-    if (digTask) {
-      digTask.count = (digTask.count || 0) + 1;
-    } else {
-      tasks.push({ name: '开挖地基', count: 1 });
-    }
-    player.tasks = JSON.stringify(tasks);
-
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '开挖地基');
 
     return `${player.name || '冒险者'} 消耗了80木头、120石头、40铁矿和40绳子\n地基已经挖好，接下来「建造地基」`;
   }
@@ -1271,17 +1234,8 @@ export class FamiliarSystemService {
     player.markers = JSON.stringify(markers);
     player.backpack = JSON.stringify(backpack);
 
-    // 记录成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const foundationTask = tasks.find((t: any) => t.name === '建造地基');
-    if (foundationTask) {
-      foundationTask.count = (foundationTask.count || 0) + 1;
-    } else {
-      tasks.push({ name: '建造地基', count: 1 });
-    }
-    player.tasks = JSON.stringify(tasks);
-
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '建造地基');
 
     return `${player.name || '冒险者'} 消耗了80木头、120石头、40铁矿和40绳子\n地基已经建造好了，接下来「建造房子」`;
   }
@@ -1343,17 +1297,8 @@ export class FamiliarSystemService {
     // 原版建成房子时追加“屋内”和“前线”地图，并在院子中加入两个入口。
     await this.mapService.ensureHouseMaps(player.houseName, this.getHouseBaseMapId(player), 4);
 
-    // 记录成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const constructTask = tasks.find((t: any) => t.name === '建造房子');
-    if (constructTask) {
-      constructTask.count = (constructTask.count || 0) + 1;
-    } else {
-      tasks.push({ name: '建造房子', count: 1 });
-    }
-    player.tasks = JSON.stringify(tasks);
-
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '建造房子');
 
     return `${player.name || '冒险者'} 消耗了300木头、500石头、160铁矿和120绳子\n🏠 家园建好了！\n你可以开始在家园里面安装生产设备、放置怪物和NPC了`;
   }
@@ -1387,6 +1332,12 @@ export class FamiliarSystemService {
     } else {
       item.count = value;
     }
+  }
+
+  /** 兼容直接实例化服务的旧测试/工具夹具；正式运行时始终由任务服务推进。 */
+  private async advanceTask(userId: number, actionName: string, count = 1): Promise<void> {
+    if (typeof (this.taskService as any)?.advance !== 'function') return;
+    await (this.taskService as any).advance(userId, actionName, count);
   }
 
   /**
@@ -2066,22 +2017,13 @@ export class FamiliarSystemService {
     const currentAffinity = pet.markers[affinityKey] || 0;
     pet.markers[affinityKey] = currentAffinity + count * 10;
 
-    // 记录喂食成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const feedTask = tasks.find((t: any) => t.name === '宠物喂食');
-    if (feedTask) {
-      feedTask.count = (feedTask.count || 0) + count;
-    } else {
-      tasks.push({ name: '宠物喂食', count });
-    }
-    player.tasks = JSON.stringify(tasks);
-
     summons[petIndex] = pet;
 
     // 更新地图和玩家数据
     await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '宠物喂食', count);
 
     const newAffinity = pet.markers[affinityKey] || 0;
     return `${petName} 对你的好感提高了${count * 10}（当前${Math.round(newAffinity)}）`;
@@ -2467,6 +2409,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     // → 对地图上所有存活怪物各发起一次必中结算（原版 武器攻击(...,"天神a",100)）。
     const awaken = (qualifiedPet.markers && qualifiedPet.markers['觉醒']) || 0;
     let resultText = '';
+    const taskProgress: Array<{ actionName: string; count: number }> = [];
     const petMarkers2 = this.playerService.safeJsonParse<any[]>(qualifiedPet.markers2, []);
     const skyfallCd = petMarkers2.find((m: any) => m.name === '降');
     const canSkyfall = awaken >= 500 && !(skyfallCd && skyfallCd.expireAt > Date.now() / 1000);
@@ -2476,7 +2419,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       resultText += `【天神降世】${qualifiedPet.name} 对所有敌人降下审判！\n`;
       for (const m of spawnMonsters) {
         if ((m.hp || 0) <= 0) continue;
-        const r = await this.combatSystem.resolvePetVsMonster(qualifiedPet, m, map.id, userId);
+        const r = await this.combatSystem.resolvePetVsMonster(qualifiedPet, m, map.id, userId, playerData, taskProgress);
         resultText += r + '\n';
         if (m.hp <= 0) await this.mapService.removeMapMonster(map.id, m.id);
       }
@@ -2487,7 +2430,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     } else {
       // 普通宠物攻击：只对第一个怪物发起结算
       const monster = spawnMonsters[0];
-      resultText = await this.combatSystem.resolvePetVsMonster(qualifiedPet, monster, map.id, userId);
+      resultText = await this.combatSystem.resolvePetVsMonster(qualifiedPet, monster, map.id, userId, playerData, taskProgress);
       if (monster.hp <= 0) {
         await this.mapService.removeMapMonster(map.id, monster.id);
       }
@@ -2508,6 +2451,9 @@ ${this.getAwakenStageName(d)}(${d})`;
       summons: JSON.stringify(summons),
     });
     await this.playerService.savePlayer(player);
+    for (const progress of taskProgress) {
+      await this.taskService.advance(userId, progress.actionName, progress.count);
+    }
 
     return resultText.trim();
   }
@@ -2960,23 +2906,9 @@ ${this.getAwakenStageName(d)}(${d})`;
         });
       }
 
-      // 记录捕捉成就
-      const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-      const captureTask = tasks.find((t: any) => t.name === '捕捉');
-      if (captureTask) {
-        captureTask.count = (captureTask.count || 0) + 1;
-      } else {
-        tasks.push({ name: '捕捉', count: 1 });
-      }
-      const captureTargetTask = tasks.find((t: any) => t.name === `捕捉${target}`);
-      if (captureTargetTask) {
-        captureTargetTask.count = (captureTargetTask.count || 0) + 1;
-      } else {
-        tasks.push({ name: `捕捉${target}`, count: 1 });
-      }
-      player.tasks = JSON.stringify(tasks);
-
       await this.playerService.savePlayer(player);
+      await this.advanceTask(userId, '捕捉');
+      await this.advanceTask(userId, `捕捉${target}`);
 
       return `驯养了一只${target}\n${target} 对你的好感度为100`;
     }
@@ -3084,20 +3016,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     player.backpack = JSON.stringify(backpack);
     result += `\n得到了${rewardName}x${rewardCount}`;
 
-    // 记录成就
-    const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-    const captureTask = tasks.find((t: any) => t.name === `捕捉${target}`);
-    if (captureTask) {
-      captureTask.count = (captureTask.count || 0) + 1;
-    } else {
-      tasks.push({ name: `捕捉${target}`, count: 1 });
-    }
-    player.tasks = JSON.stringify(tasks);
-
     // 更新地图
     await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
     await this.playerService.savePlayer(player);
+    await this.advanceTask(userId, '捕捉');
+    await this.advanceTask(userId, `捕捉${target}`);
 
     return result;
   }

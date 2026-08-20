@@ -6,7 +6,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"击败怪物\",\"count\":1},{\"name\":\"采集资源\",\"count\":1}]",
-    "rewards": "[{\"name\":\"次元破碎15（是装备时\",\"count\":0}]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":5},{\"name\":\"次元破碎\",\"count\":15,\"type\":\"装备\"}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -17,7 +17,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"对话白\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":5},{\"name\":\"次元破碎\",\"count\":33},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -28,7 +28,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"对话\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -39,7 +39,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"移动\",\"count\":5}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -50,7 +50,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集木头\",\"count\":20}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -61,7 +61,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集木头\",\"count\":50}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -72,7 +72,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集木头\",\"count\":100}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":6},{\"name\":\"水晶\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -83,7 +83,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集石头\",\"count\":50}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -94,7 +94,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集石头\",\"count\":100}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":6},{\"name\":\"水晶\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -105,7 +105,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集铁矿\",\"count\":10}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -116,7 +116,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集石头\",\"count\":20}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -127,7 +127,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集铁矿\",\"count\":25}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -138,7 +138,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集铁矿\",\"count\":50}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":6},{\"name\":\"水晶\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -149,7 +149,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"打开货舱\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -160,7 +160,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"打开货舱\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -171,7 +171,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"打开货舱\",\"count\":7}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":6},{\"name\":\"水晶\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -182,7 +182,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集能量块\",\"count\":5}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -193,7 +193,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集能量块\",\"count\":10}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -204,7 +204,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集能量块\",\"count\":20}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":6},{\"name\":\"水晶\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -215,7 +215,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集水晶\",\"count\":10}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -226,7 +226,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集水晶\",\"count\":25}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -237,7 +237,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集水晶\",\"count\":50}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":6},{\"name\":\"水晶\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -248,7 +248,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"击败怪物\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -259,7 +259,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"击败怪物\",\"count\":7}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":6},{\"name\":\"水晶\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -270,7 +270,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"兑换\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -281,7 +281,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"完成任务\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -292,7 +292,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"完成任务\",\"count\":5}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":10},{\"name\":\"水晶\",\"count\":15},{\"name\":\"次元之刃\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -303,7 +303,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"奴役\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":4},{\"name\":\"能量块\",\"count\":4},{\"name\":\"水晶\",\"count\":10},{\"name\":\"经验胶囊\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -314,7 +314,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"奴役\",\"count\":5}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":5},{\"name\":\"能量块\",\"count\":6},{\"name\":\"水晶\",\"count\":15},{\"name\":\"经验胶囊\",\"count\":15}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -325,7 +325,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"击败怪物\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"好感\",\"count\":3},{\"name\":\"能量块\",\"count\":2},{\"name\":\"水晶\",\"count\":5},{\"name\":\"经验胶囊\",\"count\":5}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -336,7 +336,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“观察附近”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀装备补给箱\",\"count\":1},{\"name\":\"麻醉枪\",\"count\":100}]",
     "nextTasks": "[\"教程-移动\"]",
     "restrictMarkers": "[]"
   },
@@ -347,7 +347,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"移动\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀装备补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-苏醒\"]",
     "restrictMarkers": "[]"
   },
@@ -358,7 +358,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"前往森林出口\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-背包\"]",
     "restrictMarkers": "[]"
   },
@@ -369,7 +369,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“查看背包”\",\"count\":1},{\"name\":\"使用优秀装备补给箱\",\"count\":1},{\"name\":\"发送“资源背包”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-装备\",\"教程-了解自己\"]",
     "restrictMarkers": "[]"
   },
@@ -380,7 +380,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"查看背包详细\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-战斗准备\"]",
     "restrictMarkers": "[]"
   },
@@ -391,7 +391,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"捕捉\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-宠物操作\"]",
     "restrictMarkers": "[]"
   },
@@ -402,7 +402,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"飞行\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1},{\"name\":\"麻醉枪\",\"count\":100},{\"name\":\"饲料\",\"count\":100}]",
     "nextTasks": "[\"教程-捕捉宠物\",\"教程-分解\"]",
     "restrictMarkers": "[]"
   },
@@ -413,7 +413,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集资源\",\"count\":10},{\"name\":\"装备隐形披风\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-高效移动\",\"教程-建造房子\"]",
     "restrictMarkers": "[]"
   },
@@ -424,7 +424,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"强化增幅器\",\"count\":1},{\"name\":\"强化植入体\",\"count\":1},{\"name\":\"发送“查看植入体”\",\"count\":1},{\"name\":\"发送“查看增幅器”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"骑士核心\",\"count\":1},{\"name\":\"轻型足\",\"count\":1},{\"name\":\"轻型装甲\",\"count\":1},{\"name\":\"能量剑\",\"count\":1},{\"name\":\"合金\",\"count\":1000}]",
     "nextTasks": "[\"教程-拥有机甲\",\"教程-装备强化\"]",
     "restrictMarkers": "[]"
   },
@@ -435,7 +435,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"分解\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-强化\"]",
     "restrictMarkers": "[]"
   },
@@ -446,7 +446,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"组装载具\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-驾驶机甲\"]",
     "restrictMarkers": "[]"
   },
@@ -457,7 +457,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"驾驶载具\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-完善机甲\"]",
     "restrictMarkers": "[]"
   },
@@ -468,7 +468,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“宠物操作”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -479,7 +479,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"使用装备\",\"count\":1},{\"name\":\"使用武器\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1},{\"name\":\"隐形披风\",\"count\":100}]",
     "nextTasks": "[\"教程-攻击\"]",
     "restrictMarkers": "[]"
   },
@@ -490,7 +490,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“攻击史莱姆”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":1},{\"name\":\"优秀装备补给箱\",\"count\":1},{\"name\":\"隐形披风\",\"count\":100}]",
     "nextTasks": "[\"教程-采集资源\",\"教程-图鉴\",\"教程-闪避\"]",
     "restrictMarkers": "[]"
   },
@@ -501,7 +501,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“圈地”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":100},{\"name\":\"合金\",\"count\":1000}]",
     "nextTasks": "[\"教程-家具\",\"教程-制造\",\"教程-家园命名\"]",
     "restrictMarkers": "[]"
   },
@@ -512,7 +512,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"制造\",\"count\":1},{\"name\":\"安装床\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":100}]",
     "nextTasks": "[\"教程-生产\"]",
     "restrictMarkers": "[]"
   },
@@ -523,7 +523,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"安装基础发电机\",\"count\":1},{\"name\":\"安装基础油井\",\"count\":1},{\"name\":\"安装基础组装机\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":100},{\"name\":\"种子箱\",\"count\":10}]",
     "nextTasks": "[\"教程-种植\"]",
     "restrictMarkers": "[]"
   },
@@ -534,7 +534,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"种植\",\"count\":2},{\"name\":\"使用种子箱\",\"count\":10}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":100}]",
     "nextTasks": "[\"教程-收获\"]",
     "restrictMarkers": "[]"
   },
@@ -545,7 +545,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"拾取\",\"count\":10}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":100}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -556,7 +556,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"组装轻型足\",\"count\":1},{\"name\":\"组装轻型装甲\",\"count\":1},{\"name\":\"组装能量剑\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[\"教程-维修\"]",
     "restrictMarkers": "[]"
   },
@@ -567,7 +567,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"制造床\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"燃料\",\"count\":10000}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -578,7 +578,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“图鉴”\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[\"教程-称号\"]",
     "restrictMarkers": "[]"
   },
@@ -589,7 +589,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“查看使魔”\",\"count\":1},{\"name\":\"发送“使魔大战”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"召唤券\",\"count\":20},{\"name\":\"钻石\",\"count\":1000}]",
     "nextTasks": "[\"教程-技能\",\"教程-商店\"]",
     "restrictMarkers": "[]"
   },
@@ -600,7 +600,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“使魔技能”\",\"count\":1},{\"name\":\"使用技能\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[\"教程-探测雷达\",\"教程-通用技能\"]",
     "restrictMarkers": "[]"
   },
@@ -611,7 +611,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“查看地图”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀装备补给箱\",\"count\":1}]",
     "nextTasks": "[\"教程-移动\"]",
     "restrictMarkers": "[]"
   },
@@ -622,7 +622,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"家园命名\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":100},{\"name\":\"合金\",\"count\":1000}]",
     "nextTasks": "[\"教程-开挖地基\"]",
     "restrictMarkers": "[]"
   },
@@ -633,7 +633,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"采集资源\",\"count\":20}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":100},{\"name\":\"合金\",\"count\":1000}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -644,7 +644,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“探测雷达”\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[\"教程-求助露娜\"]",
     "restrictMarkers": "[]"
   },
@@ -655,7 +655,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"求助\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[\"教程-行商\"]",
     "restrictMarkers": "[]"
   },
@@ -666,7 +666,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"购物\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -677,7 +677,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“维修”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10}]",
     "nextTasks": "[\"教程-使魔挑战\"]",
     "restrictMarkers": "[]"
   },
@@ -688,7 +688,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“装备强化”\",\"count\":1},{\"name\":\"强化头部\",\"count\":1},{\"name\":\"强化肩膀\",\"count\":1},{\"name\":\"强化上身\",\"count\":1},{\"name\":\"强化手臂\",\"count\":1},{\"name\":\"强化手掌\",\"count\":1},{\"name\":\"强化背部\",\"count\":1},{\"name\":\"强化腰部\",\"count\":1},{\"name\":\"强化饰品\",\"count\":1},{\"name\":\"强化下身\",\"count\":1},{\"name\":\"强化腿环\",\"count\":1},{\"name\":\"强化腿部\",\"count\":1},{\"name\":\"强化脚部\",\"count\":1},{\"name\":\"强化腿环\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"合金\",\"count\":10000}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -699,7 +699,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"领取称号\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[\"教程-佩戴称号\"]",
     "restrictMarkers": "[]"
   },
@@ -710,7 +710,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"佩戴称号\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -721,7 +721,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“使魔挑战”\",\"count\":1},{\"name\":\"发送“开始挑战”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -732,7 +732,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"兑换\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -743,7 +743,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"对话白\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"主线补给箱\",\"count\":10}]",
     "nextTasks": "[\"主线-继续询问\"]",
     "restrictMarkers": "[]"
   },
@@ -754,7 +754,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"对话史莱姆\",\"count\":3}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"主线补给箱\",\"count\":10}]",
     "nextTasks": "[\"主线-取水\"]",
     "restrictMarkers": "[]"
   },
@@ -765,7 +765,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"击败水元素\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"主线补给箱\",\"count\":10}]",
     "nextTasks": "[\"主线-搜寻\"]",
     "restrictMarkers": "[]"
   },
@@ -776,7 +776,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"前往湖边\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"主线补给箱\",\"count\":10}]",
     "nextTasks": "[\"主线-不速之客\"]",
     "restrictMarkers": "[]"
   },
@@ -787,7 +787,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"前往森林深处\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"主线补给箱\",\"count\":10}]",
     "nextTasks": "[\"主线-逃跑\"]",
     "restrictMarkers": "[]"
   },
@@ -798,7 +798,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"闪避\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -809,7 +809,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“通用技能”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[\"教程-活力\"]",
     "restrictMarkers": "[]"
   },
@@ -820,7 +820,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“查看使魔”\",\"count\":1},{\"name\":\"消耗活力\",\"count\":10}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"优秀武器补给箱\",\"count\":10},{\"name\":\"优秀装备补给箱\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -831,7 +831,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"组装激光采集器\",\"count\":1},{\"name\":\"组装采集模块\",\"count\":1},{\"name\":\"组装轻型足\",\"count\":1},{\"name\":\"组装盾构机核心\",\"count\":1},{\"name\":\"组装隐形模块\",\"count\":1},{\"name\":\"开采自动\",\"count\":1},{\"name\":\"开采\",\"count\":1},{\"name\":\"组装床\",\"count\":1},{\"name\":\"发送“开采”\",\"count\":1},{\"name\":\"发送“开采自动”\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":1000},{\"name\":\"精英战利品\",\"count\":200}]",
     "nextTasks": "[\"进阶-呼叫\"]",
     "restrictMarkers": "[]"
   },
@@ -842,7 +842,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"击败小恶魔\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"凭证\",\"count\":10},{\"name\":\"制式建筑箱\",\"count\":5},{\"name\":\"载具零件\",\"count\":200}]",
     "nextTasks": "[\"进阶-采矿机甲\",\"进阶-蓬勃发展\",\"进阶-切换植入体\",\"进阶-切换增幅器\"]",
     "restrictMarkers": "[]"
   },
@@ -853,7 +853,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"建筑数量\",\"count\":10}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"特装建筑箱\",\"count\":5}]",
     "nextTasks": "[\"进阶-欣欣向荣\"]",
     "restrictMarkers": "[]"
   },
@@ -864,7 +864,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"建筑数量\",\"count\":30}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"特装建筑箱\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -875,7 +875,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"呼叫\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"资源箱\",\"count\":1000},{\"name\":\"精英战利品\",\"count\":200},{\"name\":\"饲料\",\"count\":500}]",
     "nextTasks": "[\"进阶-活力\",\"进阶-繁衍\"]",
     "restrictMarkers": "[]"
   },
@@ -886,7 +886,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“查看使魔”\",\"count\":1},{\"name\":\"消耗活力\",\"count\":100}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"奶\",\"count\":20}]",
     "nextTasks": "[\"进阶-贸易\",\"进阶-卷土重来\"]",
     "restrictMarkers": "[]"
   },
@@ -897,7 +897,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“切换增幅器”\",\"count\":1},{\"name\":\"切换增幅器\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"奶\",\"count\":20}]",
     "nextTasks": "[\"进阶-逆向\"]",
     "restrictMarkers": "[]"
   },
@@ -908,7 +908,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"发送“切换植入体”\",\"count\":1},{\"name\":\"切换植入体\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"奶\",\"count\":20}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -919,7 +919,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"生崽\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"特装建筑箱\",\"count\":10},{\"name\":\"精英战利品\",\"count\":200},{\"name\":\"饲料\",\"count\":500}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -930,7 +930,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"贸易\",\"count\":3},{\"name\":\"消耗活力\",\"count\":30}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"奶\",\"count\":20}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -941,7 +941,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"逆向\",\"count\":10}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"强化箱\",\"count\":10}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   },
@@ -952,7 +952,7 @@
     "level": 1,
     "publisher": "",
     "requirements": "[{\"name\":\"卷土重来\",\"count\":1}]",
-    "rewards": "[]",
+    "rewards": "[{\"name\":\"奶\",\"count\":20}]",
     "nextTasks": "[]",
     "restrictMarkers": "[]"
   }

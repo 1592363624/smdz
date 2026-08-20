@@ -1273,6 +1273,99 @@ export class MapService {
   }
 
   /**
+   * 只处理原版“刷新资源<名称>”标记，恢复已到期的单个资源。
+   * 地图刷新线程不能整批覆盖资源，否则会把尚未耗尽的资源和玩家进度一并重置。
+   */
+  async refreshExpiredMapResources(mapId: number): Promise<number> {
+    return this.withMapLock(mapId, async () => {
+      const map = await this.getMapById(mapId);
+      if (!map) {
+        throw new NotFoundException(`地图 ID=${mapId} 不存在，无法刷新资源`);
+      }
+
+      const markers2 = this.safeParseJSON<any[]>(map.markers2, []);
+      if (markers2.length === 0) return 0;
+
+      const resources = this.safeParseJSON<any[]>(map.resources, []);
+      const resources2 = this.safeParseJSON<any[]>(map.resources2, []);
+      const now = Date.now();
+      const activeMarkers: any[] = [];
+      let restored = 0;
+      let resourcesChanged = false;
+      let resources2Changed = false;
+
+      for (const marker of markers2) {
+        const markerName = String(marker?.name ?? marker?.名称 ?? marker?.key ?? '').trim();
+        const expireAt = this.normalizeMapMarkerTime(marker?.expireAt ?? marker?.有效期至 ?? marker?.expireTime);
+        if (!markerName.startsWith('刷新资源') || !expireAt || expireAt > now) {
+          activeMarkers.push(marker);
+          continue;
+        }
+
+        const resourceName = markerName.slice('刷新资源'.length).trim();
+        if (!resourceName) continue;
+
+        const field = marker?.resourceField === 'resources2'
+          ? 'resources2'
+          : marker?.resourceField === 'resources'
+            ? 'resources'
+            : (resources.length > 0 || resources2.length === 0 ? 'resources' : 'resources2');
+        const targetResources = field === 'resources2' ? resources2 : resources;
+        if (targetResources.some((resource: any) =>
+          String(resource?.name ?? resource?.名称 ?? '').trim() === resourceName,
+        )) {
+          continue;
+        }
+
+        const template = this.getMapResourceTemplate(map, resourceName);
+        if (!template) continue;
+        targetResources.push(template);
+        restored += 1;
+        if (field === 'resources2') resources2Changed = true;
+        else resourcesChanged = true;
+      }
+
+      const data: Record<string, string> = {
+        markers2: JSON.stringify(activeMarkers),
+      };
+      if (resourcesChanged) data.resources = JSON.stringify(resources);
+      if (resources2Changed) data.resources2 = JSON.stringify(resources2);
+      await this.prisma.gameMap.update({ where: { id: mapId }, data });
+      return restored;
+    });
+  }
+
+  private normalizeMapMarkerTime(value: any): number {
+    const time = Number(value ?? 0);
+    if (!Number.isFinite(time) || time <= 0) return 0;
+    return time < 1e12 ? time * 1000 : time;
+  }
+
+  private getMapResourceTemplate(map: any, resourceName: string): any | null {
+    const staticMap = this.staticData.getMapByName(map.name);
+    const configuredResources = this.safeParseJSON<any[]>(staticMap?.resources, []);
+    const configured = configuredResources.find((resource: any) =>
+      String(resource?.name ?? resource?.名称 ?? '').trim() === resourceName,
+    );
+    const definition = this.staticData.getAllResources().find((resource: any) =>
+      String(resource?.name ?? resource?.名称 ?? '').trim() === resourceName,
+    );
+    if (!configured && !definition) return null;
+
+    const template = {
+      ...(definition || {}),
+      ...(configured || {}),
+      name: resourceName,
+      type: configured?.type || configured?.类型 || definition?.type || definition?.类型 || '资源',
+      times: configured?.times ?? configured?.次数 ?? definition?.times ?? definition?.次数 ?? 1,
+      outputs: configured?.outputs ?? configured?.产出 ?? definition?.outputs ?? definition?.产出 ?? [],
+      outputs2: configured?.outputs2 ?? configured?.产出2 ?? definition?.outputs2 ?? definition?.产出2 ?? [],
+      gatherCmd: configured?.gatherCmd ?? configured?.采集指令 ?? definition?.gatherCmd ?? definition?.采集指令 ?? '',
+    };
+    return JSON.parse(JSON.stringify(template));
+  }
+
+  /**
    * 更新地图动态字段（仅写 DB，不影响静态 JSON）
    */
   async updateDynamicFields(mapId: number, data: Record<string, any>): Promise<void> {

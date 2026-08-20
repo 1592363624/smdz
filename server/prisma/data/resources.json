@@ -9,7 +9,7 @@
     "gatherText": "【名称】【载具】正在破解货舱",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"能量块1\",\"count\":50,\"chance\":-1},{\"name\":\"能量块1\",\"count\":50,\"chance\":-1},{\"name\":\"水晶1\",\"count\":50,\"chance\":-1},{\"name\":\"水晶1\",\"count\":50,\"chance\":-1},{\"name\":\"良好装备补给箱1\",\"count\":25,\"chance\":-1},{\"name\":\"良好武器补给箱1\",\"count\":25,\"chance\":-1},{\"name\":\"优秀装备补给箱1\",\"count\":10,\"chance\":-1},{\"name\":\"优秀武器补给箱1\",\"count\":10,\"chance\":-1},{\"name\":\"信号枪\",\"count\":2,\"chance\":-1},{\"name\":\"超级计算机\",\"count\":0.5,\"chance\":-1},{\"name\":\"羊刀\",\"count\":2,\"chance\":-1},{\"name\":\"载具零件0.1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":25,\"chance\":-1},{\"name\":\"凭证0.01\",\"count\":10,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"能量块\",\"count\":1,\"chance\":50},{\"name\":\"能量块\",\"count\":1,\"chance\":50},{\"name\":\"水晶\",\"count\":1,\"chance\":50},{\"name\":\"水晶\",\"count\":1,\"chance\":50},{\"name\":\"良好装备补给箱\",\"count\":1,\"chance\":25},{\"name\":\"良好武器补给箱\",\"count\":1,\"chance\":25},{\"name\":\"优秀装备补给箱\",\"count\":1,\"chance\":10},{\"name\":\"优秀武器补给箱\",\"count\":1,\"chance\":10},{\"name\":\"信号枪\",\"count\":0,\"chance\":2},{\"name\":\"超级计算机\",\"count\":0,\"chance\":0.5},{\"name\":\"羊刀\",\"count\":0,\"chance\":2},{\"name\":\"载具零件\",\"count\":0.1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":25},{\"name\":\"凭证\",\"count\":0.01,\"chance\":10}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -24,7 +24,7 @@
     "gatherText": "【名称】【载具】正在汇聚能量",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"能量块1\",\"count\":50,\"chance\":-1},{\"name\":\"能量块1\",\"count\":50,\"chance\":-1},{\"name\":\"能量块1\",\"count\":50,\"chance\":-1},{\"name\":\"能量块1\",\"count\":50,\"chance\":-1},{\"name\":\"能量块2\",\"count\":25,\"chance\":-1},{\"name\":\"能量块2\",\"count\":25,\"chance\":-1},{\"name\":\"改良建筑箱1\",\"count\":15,\"chance\":-1},{\"name\":\"标准建筑箱0.5\",\"count\":5,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"能量块\",\"count\":1,\"chance\":50},{\"name\":\"能量块\",\"count\":1,\"chance\":50},{\"name\":\"能量块\",\"count\":1,\"chance\":50},{\"name\":\"能量块\",\"count\":1,\"chance\":50},{\"name\":\"能量块\",\"count\":2,\"chance\":25},{\"name\":\"能量块\",\"count\":2,\"chance\":25},{\"name\":\"改良建筑箱\",\"count\":1,\"chance\":15},{\"name\":\"标准建筑箱\",\"count\":0.5,\"chance\":5}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -39,7 +39,7 @@
     "gatherText": "【名称】【载具】开始刨土",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石3\",\"count\":100,\"chance\":-1},{\"name\":\"传说强化券1\",\"count\":33,\"chance\":-1},{\"name\":\"史诗强化券1\",\"count\":33,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":3,\"chance\":100},{\"name\":\"传说强化券\",\"count\":1,\"chance\":33},{\"name\":\"史诗强化券\",\"count\":1,\"chance\":33}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -54,7 +54,7 @@
     "gatherText": "【名称】【载具】开始割草",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石3\",\"count\":100,\"chance\":-1},{\"name\":\"传说强化券1\",\"count\":33,\"chance\":-1},{\"name\":\"史诗强化券1\",\"count\":33,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":3,\"chance\":100},{\"name\":\"传说强化券\",\"count\":1,\"chance\":33},{\"name\":\"史诗强化券\",\"count\":1,\"chance\":33}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -69,7 +69,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砍树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头3\",\"count\":100,\"chance\":-1},{\"name\":\"绳子1\",\"count\":50,\"chance\":-1},{\"name\":\"巧克力0.1\",\"count\":4,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":3,\"chance\":100},{\"name\":\"绳子\",\"count\":1,\"chance\":50},{\"name\":\"巧克力\",\"count\":0.1,\"chance\":4}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -84,7 +84,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砍树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头2\",\"count\":100,\"chance\":-1},{\"name\":\"巧克力0.1\",\"count\":2,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":2,\"chance\":100},{\"name\":\"巧克力\",\"count\":0.1,\"chance\":2}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -99,7 +99,7 @@
     "gatherText": "【名称】【载具】开始用【武器】捞石头",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"石头1\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":5,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"石头\",\"count\":1,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":5}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -114,7 +114,7 @@
     "gatherText": "【名称】【载具】正在打开医疗箱",
     "marker": "医疗箱",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"提卡x\",\"count\":100,\"chance\":-1},{\"name\":\"奶2\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"提卡x\",\"count\":0,\"chance\":100},{\"name\":\"奶\",\"count\":2,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -129,7 +129,7 @@
     "gatherText": "【名称】【载具】正在打开休眠仓",
     "marker": "休眠仓",
     "proxySpeak": "召唤1白1",
-    "outputs": "[{\"name\":\"增幅器s\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"增幅器s\",\"count\":0,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -144,7 +144,7 @@
     "gatherText": "【名称】【载具】正在收集散落在地上的物品物品",
     "marker": "散落的物品",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石3\",\"count\":100,\"chance\":-1},{\"name\":\"优秀装备补给箱1\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":3,\"chance\":100},{\"name\":\"优秀装备补给箱\",\"count\":1,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -159,7 +159,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸石头",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"石头2\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":15,\"chance\":-1},{\"name\":\"合金1\",\"count\":5,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"石头\",\"count\":2,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":15},{\"name\":\"合金\",\"count\":1,\"chance\":5}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -174,7 +174,7 @@
     "gatherText": "【名称】【载具】开始捡垃圾",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"高斯狙击枪\",\"count\":10,\"chance\":-1},{\"name\":\"史诗强化券1\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"高斯狙击枪\",\"count\":0,\"chance\":10},{\"name\":\"史诗强化券\",\"count\":1,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -189,7 +189,7 @@
     "gatherText": "【名称】【载具】开始捡垃圾",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石1\",\"count\":100,\"chance\":-1},{\"name\":\"传说强化券1\",\"count\":10,\"chance\":-1},{\"name\":\"巧克力1\",\"count\":5,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":1,\"chance\":100},{\"name\":\"传说强化券\",\"count\":1,\"chance\":10},{\"name\":\"巧克力\",\"count\":1,\"chance\":5}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -204,7 +204,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砍树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头4\",\"count\":100,\"chance\":-1},{\"name\":\"绳子2\",\"count\":50,\"chance\":-1},{\"name\":\"巧克力0.1\",\"count\":6,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":4,\"chance\":100},{\"name\":\"绳子\",\"count\":2,\"chance\":50},{\"name\":\"巧克力\",\"count\":0.1,\"chance\":6}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -219,7 +219,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸石头",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"石头3\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":25,\"chance\":-1},{\"name\":\"合金1\",\"count\":10,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"石头\",\"count\":3,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":25},{\"name\":\"合金\",\"count\":1,\"chance\":10}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -234,7 +234,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸铁矿",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"铁矿2\",\"count\":100,\"chance\":-1},{\"name\":\"石头2\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":25,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"铁矿\",\"count\":2,\"chance\":100},{\"name\":\"石头\",\"count\":2,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":25}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -249,7 +249,7 @@
     "gatherText": "【名称】【载具】开始用【武器】捞碎铁",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"铁矿1\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"铁矿\",\"count\":1,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":50}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -264,7 +264,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸石头",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"石头6\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"石头\",\"count\":6,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":50}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -279,7 +279,7 @@
     "gatherText": "【名称】【载具】开始用【武器】翻草",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子1\",\"count\":100,\"chance\":-1},{\"name\":\"果实1\",\"count\":25,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":1,\"chance\":100},{\"name\":\"果实\",\"count\":1,\"chance\":25}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -294,7 +294,7 @@
     "gatherText": "【名称】【载具】开始用【武器】翻草",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子2\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":10,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":2,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":10}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -309,7 +309,7 @@
     "gatherText": "【名称】【载具】开始用【武器】凿零号元素结晶",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"水晶1\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"水晶\",\"count\":1,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":50}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -324,7 +324,7 @@
     "gatherText": "【名称】【载具】开始用【武器】凿零号元素结晶",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"水晶1\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1},{\"name\":\"水晶1\",\"count\":50,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1},{\"name\":\"水晶1\",\"count\":50,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"水晶\",\"count\":1,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":50},{\"name\":\"水晶\",\"count\":1,\"chance\":50},{\"name\":\"石头\",\"count\":1,\"chance\":50},{\"name\":\"水晶\",\"count\":1,\"chance\":50}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -339,7 +339,7 @@
     "gatherText": "【名称】【载具】开始用【武器】凿零号元素结晶",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"水晶1\",\"count\":50,\"chance\":-1},{\"name\":\"木头1\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"水晶\",\"count\":1,\"chance\":50},{\"name\":\"木头\",\"count\":1,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -354,7 +354,7 @@
     "gatherText": "【名称】【载具】开始用【武器】凿能量元素结晶",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"能量块0.25\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":25,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"能量块\",\"count\":0.25,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":25}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -369,7 +369,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砍树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头2\",\"count\":100,\"chance\":-1},{\"name\":\"绳子1\",\"count\":10,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":2,\"chance\":100},{\"name\":\"绳子\",\"count\":1,\"chance\":10}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -384,8 +384,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍钻石树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"钻石4\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"钻石\",\"count\":4,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -399,8 +399,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍可可树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"巧克力0.1\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"巧克力\",\"count\":0.1,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -414,8 +414,8 @@
     "gatherText": "【名称】【载具】开始用【武器】拆除活性水晶",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"水晶-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"水晶0.6\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"水晶\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"水晶\",\"count\":0.6,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -429,8 +429,8 @@
     "gatherText": "【名称】【载具】开始用【武器】拆除能量收集器",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"能量块-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"能量块0.25\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"能量块\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"能量块\",\"count\":0.25,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -444,8 +444,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍苹果树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-100\",\"count\":100,\"chance\":-1},{\"name\":\"果实-5\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"果实0.3\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-100,\"chance\":100},{\"name\":\"果实\",\"count\":-5,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"果实\",\"count\":0.3,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -459,8 +459,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除藤蔓",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"绳子0.7\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0035\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"绳子\",\"count\":0.7,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0035,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -474,8 +474,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍云杉木",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"木头4\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"木头\",\"count\":4,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -489,7 +489,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "数据中心",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心10\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":10,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":10,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":10}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -504,7 +504,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "节点",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心6\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":5,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":6,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":5}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -519,7 +519,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "服务器",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心8\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":8,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":8,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":8}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -534,7 +534,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "阵列",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心10\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":10,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":10,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":10}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -549,7 +549,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "仓库",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心8\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":8,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":8,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":8}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -564,7 +564,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "硬盘",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心6\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":5,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":6,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":5}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -579,7 +579,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "物资a",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心6\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":5,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":6,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":5}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -594,7 +594,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "物资b",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心8\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":8,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":8,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":8}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -609,7 +609,7 @@
     "gatherText": "【名称】【载具】正在收集数据",
     "marker": "物资c",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"数据核心10\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":10,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"数据核心\",\"count\":10,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":10}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -624,7 +624,7 @@
     "gatherText": "【名称】【载具】正在汇聚能量",
     "marker": "能量块a",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"能量块80\",\"count\":100,\"chance\":-1},{\"name\":\"经验胶囊40\",\"count\":100,\"chance\":-1},{\"name\":\"灭绝装备补给箱1\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"能量块\",\"count\":80,\"chance\":100},{\"name\":\"经验胶囊\",\"count\":40,\"chance\":100},{\"name\":\"灭绝装备补给箱\",\"count\":1,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -639,7 +639,7 @@
     "gatherText": "【名称】【载具】正在拆包装",
     "marker": "誓约a",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"巧克力10\",\"count\":100,\"chance\":-1},{\"name\":\"誓约装备补给箱1\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"巧克力\",\"count\":10,\"chance\":100},{\"name\":\"誓约装备补给箱\",\"count\":1,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -654,7 +654,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砍树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头6\",\"count\":100,\"chance\":-1},{\"name\":\"绳子2\",\"count\":100,\"chance\":-1},{\"name\":\"巧克力0.1\",\"count\":15,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":6,\"chance\":100},{\"name\":\"绳子\",\"count\":2,\"chance\":100},{\"name\":\"巧克力\",\"count\":0.1,\"chance\":15}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -669,8 +669,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除小苍兰",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"经验胶囊-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"经验胶囊0.25\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"经验胶囊\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"经验胶囊\",\"count\":0.25,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -684,7 +684,7 @@
     "gatherText": "【名称】【载具】正在偷取物资",
     "marker": "物资d",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"能量块40\",\"count\":100,\"chance\":-1},{\"name\":\"水晶40\",\"count\":100,\"chance\":-1},{\"name\":\"经验胶囊1000\",\"count\":100,\"chance\":-1},{\"name\":\"核战废墟补给箱1\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"能量块\",\"count\":40,\"chance\":100},{\"name\":\"水晶\",\"count\":40,\"chance\":100},{\"name\":\"经验胶囊\",\"count\":1000,\"chance\":100},{\"name\":\"核战废墟补给箱\",\"count\":1,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -699,7 +699,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸钻石",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石2\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":15,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":2,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":15}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -714,7 +714,7 @@
     "gatherText": "【名称】【载具】开始用【武器】敲合金",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金2\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":15,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":2,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":15}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -729,7 +729,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸铁矿",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"铁矿4\",\"count\":100,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"铁矿\",\"count\":4,\"chance\":100},{\"name\":\"合金\",\"count\":1,\"chance\":50},{\"name\":\"石头\",\"count\":1,\"chance\":50}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -744,7 +744,7 @@
     "gatherText": "【名称】【载具】开始用【武器】敲合金",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金3\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":25,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":3,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":25}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -759,7 +759,7 @@
     "gatherText": "【名称】【载具】开始用【武器】敲合金",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金4\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":4,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":50}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -774,7 +774,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸钻石",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石3\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":25,\"chance\":-1},{\"name\":\"合金1\",\"count\":15,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":3,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":25},{\"name\":\"合金\",\"count\":1,\"chance\":15}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -789,7 +789,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸钻石",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石4\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":25,\"chance\":-1},{\"name\":\"钻石1\",\"count\":50,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":4,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":25},{\"name\":\"钻石\",\"count\":1,\"chance\":50}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -804,7 +804,7 @@
     "gatherText": "【名称】【载具】开始用【武器】敲合金",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金5\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":100,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":5,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":100},{\"name\":\"石头\",\"count\":1,\"chance\":50},{\"name\":\"铁矿\",\"count\":1,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":50}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -819,7 +819,7 @@
     "gatherText": "【名称】【载具】正在打开仓库",
     "marker": "灵山岛a",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"合金350\",\"count\":100,\"chance\":-1},{\"name\":\"纳米装备补给箱1\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":350,\"chance\":100},{\"name\":\"纳米装备补给箱\",\"count\":1,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -849,7 +849,7 @@
     "gatherText": "【名称】【载具】正在拆包装",
     "marker": "工地a",
     "proxySpeak": "覅本清",
-    "outputs": "[{\"name\":\"改良建筑箱1\",\"count\":100,\"chance\":-1},{\"name\":\"标准建筑箱0.5\",\"count\":20,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"改良建筑箱\",\"count\":1,\"chance\":100},{\"name\":\"标准建筑箱\",\"count\":0.5,\"chance\":20}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -864,8 +864,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍改良钻石树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"钻石6\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"钻石\",\"count\":6,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -879,8 +879,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍改良可可树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"巧克力0.15\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"巧克力\",\"count\":0.15,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -894,8 +894,8 @@
     "gatherText": "【名称】【载具】开始用【武器】拆除改良活性水晶",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"水晶-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"水晶0.9\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.028\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"水晶\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"水晶\",\"count\":0.9,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.028,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -909,8 +909,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除改良小苍兰",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"经验胶囊-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"经验胶囊0.375\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"经验胶囊\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"经验胶囊\",\"count\":0.375,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -924,8 +924,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍改良苹果树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-200\",\"count\":100,\"chance\":-1},{\"name\":\"果实-5\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"果实0.45\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-200,\"chance\":100},{\"name\":\"果实\",\"count\":-5,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"果实\",\"count\":0.45,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -939,7 +939,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸凝固的石油",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"燃料1\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":50,\"chance\":-1},{\"name\":\"石头1\",\"count\":50,\"chance\":-1},{\"name\":\"燃料1\",\"count\":50,\"chance\":-1},{\"name\":\"燃料1\",\"count\":50,\"chance\":-1},{\"name\":\"燃料1\",\"count\":25,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"燃料\",\"count\":1,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":50},{\"name\":\"石头\",\"count\":1,\"chance\":50},{\"name\":\"燃料\",\"count\":1,\"chance\":50},{\"name\":\"燃料\",\"count\":1,\"chance\":50},{\"name\":\"燃料\",\"count\":1,\"chance\":25}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -954,8 +954,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍改良云杉木",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"木头6\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"木头\",\"count\":6,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -969,8 +969,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除改良藤蔓",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"绳子1.05\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"绳子\",\"count\":1.05,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -984,8 +984,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除油瓜",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"燃料-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"燃料2\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"燃料\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"燃料\",\"count\":2,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -999,8 +999,8 @@
     "gatherText": "【名称】【载具】开始用【武器】破坏石头心脏",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"燃料-50\",\"count\":100,\"chance\":-1},{\"name\":\"石头-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"石头3\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0035\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"燃料\",\"count\":-50,\"chance\":100},{\"name\":\"石头\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"石头\",\"count\":3,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0035,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1014,8 +1014,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍圣诞树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"木头1\",\"count\":100,\"chance\":-1},{\"name\":\"圣诞礼物0.025\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"木头\",\"count\":1,\"chance\":100},{\"name\":\"圣诞礼物\",\"count\":0.025,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1029,8 +1029,8 @@
     "gatherText": "【名称】【载具】开始用【武器】割除金龙果",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"合金8\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"合金\",\"count\":8,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1044,8 +1044,8 @@
     "gatherText": "【名称】【载具】开始用【武器】宰猪",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"生肉-20\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"生肉2\",\"count\":100,\"chance\":-1},{\"name\":\"果实-0.1\",\"count\":100,\"chance\":-1},{\"name\":\"垃圾0.007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"生肉\",\"count\":-20,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"生肉\",\"count\":2,\"chance\":100},{\"name\":\"果实\",\"count\":-0.1,\"chance\":100},{\"name\":\"垃圾\",\"count\":0.007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1059,8 +1059,8 @@
     "gatherText": "【名称】【载具】开始用【武器】拆除改良能量收集器",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"能量块-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"能量块0.375\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"能量块\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"能量块\",\"count\":0.375,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1074,8 +1074,8 @@
     "gatherText": "【名称】【载具】开始用【武器】宰改良猪",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"生肉-30\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"生肉3\",\"count\":100,\"chance\":-1},{\"name\":\"果实-0.15\",\"count\":100,\"chance\":-1},{\"name\":\"垃圾0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"生肉\",\"count\":-30,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"生肉\",\"count\":3,\"chance\":100},{\"name\":\"果实\",\"count\":-0.15,\"chance\":100},{\"name\":\"垃圾\",\"count\":0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1089,8 +1089,8 @@
     "gatherText": "【名称】【载具】开始用【武器】割除改良金龙果",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金-300\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"合金12\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.021\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":-300,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"合金\",\"count\":12,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.021,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1104,8 +1104,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍改良圣诞树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"木头1.5\",\"count\":100,\"chance\":-1},{\"name\":\"圣诞礼物0.0375\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.021\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"木头\",\"count\":1.5,\"chance\":100},{\"name\":\"圣诞礼物\",\"count\":0.0375,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.021,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1119,8 +1119,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除改良油瓜",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"燃料-400\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"燃料3\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.021\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"燃料\",\"count\":-400,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"燃料\",\"count\":3,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.021,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1134,7 +1134,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸石头",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"石头6\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1},{\"name\":\"石头2\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"石头\",\"count\":6,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":50},{\"name\":\"石头\",\"count\":2,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1149,8 +1149,8 @@
     "gatherText": "【名称】【载具】开始用【武器】拆除太阳能板",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"铁矿-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"电力100\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"铁矿\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"电力\",\"count\":100,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1164,8 +1164,8 @@
     "gatherText": "【名称】【载具】开始用【武器】分解残骸",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金5\",\"count\":50,\"chance\":-1},{\"name\":\"合金5\",\"count\":25,\"chance\":-1},{\"name\":\"残骸0.33\",\"count\":100,\"chance\":-1},{\"name\":\"载具零件0.4\",\"count\":50,\"chance\":-1},{\"name\":\"凭证0.002\",\"count\":100,\"chance\":-1},{\"name\":\"改良建筑箱0.15\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"铁矿0.0001\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":5,\"chance\":50},{\"name\":\"合金\",\"count\":5,\"chance\":25},{\"name\":\"残骸\",\"count\":0.33,\"chance\":100},{\"name\":\"载具零件\",\"count\":0.4,\"chance\":50},{\"name\":\"凭证\",\"count\":0.002,\"chance\":100},{\"name\":\"改良建筑箱\",\"count\":0.15,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"铁矿\",\"count\":0.0001,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1179,8 +1179,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除强壮油瓜",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"燃料-800\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"燃料4\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.03\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"燃料\",\"count\":-800,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"燃料\",\"count\":4,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.03,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1194,8 +1194,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍强壮圣诞树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-400\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"木头2\",\"count\":100,\"chance\":-1},{\"name\":\"圣诞礼物0.05\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.03\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-400,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"木头\",\"count\":2,\"chance\":100},{\"name\":\"圣诞礼物\",\"count\":0.05,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.03,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1209,8 +1209,8 @@
     "gatherText": "【名称】【载具】开始用【武器】割除强壮金龙果",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金-600\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"合金16\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.03\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":-600,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"合金\",\"count\":16,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.03,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1224,8 +1224,8 @@
     "gatherText": "【名称】【载具】开始用【武器】宰强壮猪",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"生肉-40\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"生肉4\",\"count\":100,\"chance\":-1},{\"name\":\"果实-0.2\",\"count\":100,\"chance\":-1},{\"name\":\"垃圾0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"生肉\",\"count\":-40,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"生肉\",\"count\":4,\"chance\":100},{\"name\":\"果实\",\"count\":-0.2,\"chance\":100},{\"name\":\"垃圾\",\"count\":0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1239,8 +1239,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除强壮藤蔓",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子-400\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"绳子1.4\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":-400,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"绳子\",\"count\":1.4,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1254,8 +1254,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍强壮云杉木",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-400\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"木头8\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-400,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"木头\",\"count\":8,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1269,8 +1269,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍强壮树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-400\",\"count\":100,\"chance\":-1},{\"name\":\"果实5\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"果实0.6\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-400,\"chance\":100},{\"name\":\"果实\",\"count\":5,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"果实\",\"count\":0.6,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1284,8 +1284,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除强壮小苍兰",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"经验胶囊-400\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"经验胶囊0.5\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"经验胶囊\",\"count\":-400,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"经验胶囊\",\"count\":0.5,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1299,8 +1299,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍强壮可可树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-400\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"巧克力0.2\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-400,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"巧克力\",\"count\":0.2,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1314,8 +1314,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍强壮钻石树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"钻石-400\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"钻石8\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"钻石\",\"count\":-400,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"钻石\",\"count\":8,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1329,8 +1329,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍强壮椰树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-400\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"奶0.0014\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.014\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-400,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"奶\",\"count\":0.0014,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.014,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1344,8 +1344,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍椰树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-100\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"奶0.0007\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0105\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-100,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"奶\",\"count\":0.0007,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0105,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1359,8 +1359,8 @@
     "gatherText": "【名称】【载具】开始用【武器】砍改良椰树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头-200\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"奶0.00105\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":-200,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"奶\",\"count\":0.00105,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1374,8 +1374,8 @@
     "gatherText": "【名称】【载具】开始用【武器】拆除活性灵石",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"灵石-1\",\"count\":100,\"chance\":-1},{\"name\":\"灵石种子-1\",\"count\":10,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"灵石0.00007\",\"count\":100,\"chance\":-1},{\"name\":\"石头-0.7\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"灵石\",\"count\":-1,\"chance\":100},{\"name\":\"灵石种子\",\"count\":-1,\"chance\":10}]",
+    "outputs2": "[{\"name\":\"灵石\",\"count\":0.00007,\"chance\":100},{\"name\":\"石头\",\"count\":-0.7,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1389,7 +1389,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砸铀",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"石头6\",\"count\":100,\"chance\":-1},{\"name\":\"铁矿1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":50,\"chance\":-1},{\"name\":\"石头2\",\"count\":100,\"chance\":-1},{\"name\":\"铀0.01\",\"count\":10,\"chance\":-1},{\"name\":\"电力10\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"石头\",\"count\":6,\"chance\":100},{\"name\":\"铁矿\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":50},{\"name\":\"石头\",\"count\":2,\"chance\":100},{\"name\":\"铀\",\"count\":0.01,\"chance\":10},{\"name\":\"电力\",\"count\":10,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1404,7 +1404,7 @@
     "gatherText": "【名称】【载具】开始用【武器】分解残骸",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金5\",\"count\":50,\"chance\":-1},{\"name\":\"合金5\",\"count\":25,\"chance\":-1},{\"name\":\"残骸0.03\",\"count\":100,\"chance\":-1},{\"name\":\"载具零件0.05\",\"count\":20,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":5,\"chance\":50},{\"name\":\"合金\",\"count\":5,\"chance\":25},{\"name\":\"残骸\",\"count\":0.03,\"chance\":100},{\"name\":\"载具零件\",\"count\":0.05,\"chance\":20}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1419,8 +1419,8 @@
     "gatherText": "【名称】【载具】开始用【武器】破拆箱子",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"矿物探测器-2\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"核废料0.0007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"矿物探测器\",\"count\":-2,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"核废料\",\"count\":0.0007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1434,8 +1434,8 @@
     "gatherText": "【名称】【载具】开始用【武器】破拆箱子",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"凭证-10\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"核废料0.0007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"凭证\",\"count\":-10,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"核废料\",\"count\":0.0007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1449,8 +1449,8 @@
     "gatherText": "【名称】【载具】开始用【武器】破拆箱子",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"残骸-2000\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"核废料0.0007\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"残骸\",\"count\":-2000,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"核废料\",\"count\":0.0007,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1464,7 +1464,7 @@
     "gatherText": "【名称】【载具】开始用【武器】分解残骸",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"合金1\",\"count\":50,\"chance\":-1},{\"name\":\"合金1\",\"count\":25,\"chance\":-1},{\"name\":\"残骸0.006\",\"count\":100,\"chance\":-1},{\"name\":\"载具零件0.01\",\"count\":20,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"合金\",\"count\":1,\"chance\":50},{\"name\":\"合金\",\"count\":1,\"chance\":25},{\"name\":\"残骸\",\"count\":0.006,\"chance\":100},{\"name\":\"载具零件\",\"count\":0.01,\"chance\":20}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1479,7 +1479,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砍树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子4.5\",\"count\":100,\"chance\":-1},{\"name\":\"生肉0.5\",\"count\":50,\"chance\":-1},{\"name\":\"果实0.1\",\"count\":30,\"chance\":-1},{\"name\":\"生物质0.02\",\"count\":15,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":4.5,\"chance\":100},{\"name\":\"生肉\",\"count\":0.5,\"chance\":50},{\"name\":\"果实\",\"count\":0.1,\"chance\":30},{\"name\":\"生物质\",\"count\":0.02,\"chance\":15}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1494,7 +1494,7 @@
     "gatherText": "【名称】【载具】正在打开集装箱",
     "marker": "补jx1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"寒风s\",\"count\":100,\"chance\":-1},{\"name\":\"工业建筑箱-3\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"寒风s\",\"count\":0,\"chance\":100},{\"name\":\"工业建筑箱\",\"count\":-3,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1509,7 +1509,7 @@
     "gatherText": "【名称】【载具】正在打开礼包",
     "marker": "补xs1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"经验胶囊-100\",\"count\":100,\"chance\":-1},{\"name\":\"奶-10\",\"count\":100,\"chance\":-1},{\"name\":\"巧克力-20\",\"count\":100,\"chance\":-1},{\"name\":\"果实-100\",\"count\":100,\"chance\":-1},{\"name\":\"生肉-300\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"经验胶囊\",\"count\":-100,\"chance\":100},{\"name\":\"奶\",\"count\":-10,\"chance\":100},{\"name\":\"巧克力\",\"count\":-20,\"chance\":100},{\"name\":\"果实\",\"count\":-100,\"chance\":100},{\"name\":\"生肉\",\"count\":-300,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1524,7 +1524,7 @@
     "gatherText": "【名称】【载具】正在尝试窃取宝藏",
     "marker": "补ql1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"专属装备补给箱-1\",\"count\":100,\"chance\":-1},{\"name\":\"强化箱-3\",\"count\":100,\"chance\":-1},{\"name\":\"凭证-1\",\"count\":100,\"chance\":-1},{\"name\":\"灵石-3\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"专属装备补给箱\",\"count\":-1,\"chance\":100},{\"name\":\"强化箱\",\"count\":-3,\"chance\":100},{\"name\":\"凭证\",\"count\":-1,\"chance\":100},{\"name\":\"灵石\",\"count\":-3,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1539,7 +1539,7 @@
     "gatherText": "【名称】【载具】正在尝试窃取宝藏",
     "marker": "补xw1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"专属装备补给箱-1\",\"count\":100,\"chance\":-1},{\"name\":\"强化箱-3\",\"count\":100,\"chance\":-1},{\"name\":\"凭证-1\",\"count\":100,\"chance\":-1},{\"name\":\"灵石-3\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"专属装备补给箱\",\"count\":-1,\"chance\":100},{\"name\":\"强化箱\",\"count\":-3,\"chance\":100},{\"name\":\"凭证\",\"count\":-1,\"chance\":100},{\"name\":\"灵石\",\"count\":-3,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1554,7 +1554,7 @@
     "gatherText": "【名称】【载具】正在尝试窃取宝藏",
     "marker": "补bh1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"专属装备补给箱-1\",\"count\":100,\"chance\":-1},{\"name\":\"强化箱-3\",\"count\":100,\"chance\":-1},{\"name\":\"凭证-1\",\"count\":100,\"chance\":-1},{\"name\":\"灵石-3\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"专属装备补给箱\",\"count\":-1,\"chance\":100},{\"name\":\"强化箱\",\"count\":-3,\"chance\":100},{\"name\":\"凭证\",\"count\":-1,\"chance\":100},{\"name\":\"灵石\",\"count\":-3,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1569,7 +1569,7 @@
     "gatherText": "【名称】【载具】正在尝试窃取宝藏",
     "marker": "补zq1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"专属装备补给箱-1\",\"count\":100,\"chance\":-1},{\"name\":\"强化箱-3\",\"count\":100,\"chance\":-1},{\"name\":\"凭证-1\",\"count\":100,\"chance\":-1},{\"name\":\"灵石-3\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"专属装备补给箱\",\"count\":-1,\"chance\":100},{\"name\":\"强化箱\",\"count\":-3,\"chance\":100},{\"name\":\"凭证\",\"count\":-1,\"chance\":100},{\"name\":\"灵石\",\"count\":-3,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1584,7 +1584,7 @@
     "gatherText": "【名称】【载具】正在尝试窃取宝藏",
     "marker": "补sw1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"向量a\",\"count\":100,\"chance\":-1},{\"name\":\"驱逐舰核心-1\",\"count\":100,\"chance\":-1},{\"name\":\"圣水-20\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"向量a\",\"count\":0,\"chance\":100},{\"name\":\"驱逐舰核心\",\"count\":-1,\"chance\":100},{\"name\":\"圣水\",\"count\":-20,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1599,7 +1599,7 @@
     "gatherText": "【名称】【载具】正在尝试窃取宝藏",
     "marker": "补wc1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"毁灭之爪s\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"毁灭之爪s\",\"count\":0,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1614,7 +1614,7 @@
     "gatherText": "【名称】【载具】正在尝试窃取宝藏",
     "marker": "补xj1",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"糖心巧克力-20\",\"count\":100,\"chance\":-1},{\"name\":\"神兽之血-100\",\"count\":100,\"chance\":-1},{\"name\":\"灵石-3\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"糖心巧克力\",\"count\":-20,\"chance\":100},{\"name\":\"神兽之血\",\"count\":-100,\"chance\":100},{\"name\":\"灵石\",\"count\":-3,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1629,7 +1629,7 @@
     "gatherText": "【名称】【载具】正在打开箱子",
     "marker": "补sm2",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"灵石种子-1\",\"count\":100,\"chance\":-1},{\"name\":\"小白狐-5\",\"count\":100,\"chance\":-1},{\"name\":\"花园宝宝-5\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"灵石种子\",\"count\":-1,\"chance\":100},{\"name\":\"小白狐\",\"count\":-5,\"chance\":100},{\"name\":\"花园宝宝\",\"count\":-5,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1644,7 +1644,7 @@
     "gatherText": "【名称】【载具】正在搜索君临者级残骸",
     "marker": "补jl2",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"福音书系统-1\",\"count\":100,\"chance\":-1},{\"name\":\"具现装置-1\",\"count\":100,\"chance\":-1},{\"name\":\"水晶-50000\",\"count\":100,\"chance\":-1},{\"name\":\"未知物品-5\",\"count\":100,\"chance\":-1},{\"name\":\"线圈补给箱-3\",\"count\":100,\"chance\":-1},{\"name\":\"要塞零件-1\",\"count\":100,\"chance\":-1},{\"name\":\"灵石种子-3\",\"count\":100,\"chance\":-1},{\"name\":\"星屑-10\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"福音书系统\",\"count\":-1,\"chance\":100},{\"name\":\"具现装置\",\"count\":-1,\"chance\":100},{\"name\":\"水晶\",\"count\":-50000,\"chance\":100},{\"name\":\"未知物品\",\"count\":-5,\"chance\":100},{\"name\":\"线圈补给箱\",\"count\":-3,\"chance\":100},{\"name\":\"要塞零件\",\"count\":-1,\"chance\":100},{\"name\":\"灵石种子\",\"count\":-3,\"chance\":100},{\"name\":\"星屑\",\"count\":-10,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1659,7 +1659,7 @@
     "gatherText": "【名称】【载具】开始用【武器】给太阳能电池板除锈",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"残骸0.005\",\"count\":20,\"chance\":-1},{\"name\":\"电力100\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"残骸\",\"count\":0.005,\"chance\":20},{\"name\":\"电力\",\"count\":100,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1674,7 +1674,7 @@
     "gatherText": "【名称】【载具】开始用【武器】给飞轮除锈",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"电力100\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"电力\",\"count\":100,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1689,7 +1689,7 @@
     "gatherText": "【名称】【载具】开始用【武器】砍发光树",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"木头4\",\"count\":100,\"chance\":-1},{\"name\":\"绳子2\",\"count\":50,\"chance\":-1},{\"name\":\"巧克力0.1\",\"count\":6,\"chance\":-1},{\"name\":\"电力60\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"木头\",\"count\":4,\"chance\":100},{\"name\":\"绳子\",\"count\":2,\"chance\":50},{\"name\":\"巧克力\",\"count\":0.1,\"chance\":6},{\"name\":\"电力\",\"count\":60,\"chance\":100}]",
     "outputs2": "[]",
     "useGet": "[]",
     "useMarkers": "[]"
@@ -1704,8 +1704,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除发光草",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"核废料-10\",\"count\":100,\"chance\":-1},{\"name\":\"绳子-20\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"核废料0.21\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.05\",\"count\":100,\"chance\":-1},{\"name\":\"电力-10\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"核废料\",\"count\":-10,\"chance\":100},{\"name\":\"绳子\",\"count\":-20,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"核废料\",\"count\":0.21,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.05,\"chance\":100},{\"name\":\"电力\",\"count\":-10,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1719,8 +1719,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除改良发光草",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"核废料-20\",\"count\":100,\"chance\":-1},{\"name\":\"绳子-30\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"核废料0.315\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.075\",\"count\":100,\"chance\":-1},{\"name\":\"电力-15\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"核废料\",\"count\":-20,\"chance\":100},{\"name\":\"绳子\",\"count\":-30,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"核废料\",\"count\":0.315,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.075,\"chance\":100},{\"name\":\"电力\",\"count\":-15,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1734,8 +1734,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除强壮发光草",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"核废料-40\",\"count\":100,\"chance\":-1},{\"name\":\"绳子-40\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"核废料0.42\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.1\",\"count\":100,\"chance\":-1},{\"name\":\"电力-20\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"核废料\",\"count\":-40,\"chance\":100},{\"name\":\"绳子\",\"count\":-40,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"核废料\",\"count\":0.42,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.1,\"chance\":100},{\"name\":\"电力\",\"count\":-20,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1749,8 +1749,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除浆果豆蔻",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子-100\",\"count\":100,\"chance\":-1},{\"name\":\"果实-10\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"圣水0.0001\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.035\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":-100,\"chance\":100},{\"name\":\"果实\",\"count\":-10,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"圣水\",\"count\":0.0001,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.035,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1764,8 +1764,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除多汁豆蔻",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子-100\",\"count\":100,\"chance\":-1},{\"name\":\"果实-20\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"圣水0.00015\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.0525\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":-100,\"chance\":100},{\"name\":\"果实\",\"count\":-20,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"圣水\",\"count\":0.00015,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.0525,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   },
@@ -1779,8 +1779,8 @@
     "gatherText": "【名称】【载具】开始用【武器】铲除饱满豆蔻",
     "marker": "",
     "proxySpeak": "",
-    "outputs": "[{\"name\":\"绳子-100\",\"count\":100,\"chance\":-1},{\"name\":\"果实-40\",\"count\":100,\"chance\":-1}]",
-    "outputs2": "[{\"name\":\"圣水0.0002\",\"count\":100,\"chance\":-1},{\"name\":\"肥料-0.07\",\"count\":100,\"chance\":-1}]",
+    "outputs": "[{\"name\":\"绳子\",\"count\":-100,\"chance\":100},{\"name\":\"果实\",\"count\":-40,\"chance\":100}]",
+    "outputs2": "[{\"name\":\"圣水\",\"count\":0.0002,\"chance\":100},{\"name\":\"肥料\",\"count\":-0.07,\"chance\":100}]",
     "useGet": "[]",
     "useMarkers": "[]"
   }

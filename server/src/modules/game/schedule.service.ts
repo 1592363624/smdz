@@ -13,6 +13,8 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { MapService } from './map.service';
+import { AutoMineService } from './auto-mine.service';
+import { GameService } from './game.service';
 
 /**
  * 默认副本名称列表（未配置 game.instanceNames 时使用）
@@ -40,12 +42,54 @@ export class ScheduleService {
   private cargoRunning = false;
   /** 生成副本运行锁 */
   private instanceRunning = false;
+  /** 自动开采增量结算运行锁 */
+  private autoMineRunning = false;
+  /** 救援延时兜底运行锁 */
+  private rescueRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
     private readonly mapService: MapService,
+    private readonly autoMineService: AutoMineService,
+    private readonly gameService: GameService,
   ) {}
+
+  /**
+   * 自动开采每分钟结算一次已积累时间，保留玩家的进行中标记。
+   * 这样服务重启或玩家长时间离线时，收益不会因为内存定时器丢失而消失。
+   */
+  @Cron('15 * * * * *')
+  async processAutoMining() {
+    if (this.autoMineRunning) return;
+    this.autoMineRunning = true;
+    try {
+      const settled = await this.autoMineService.checkpointAll();
+      if (settled > 0) this.logger.log(`自动开采结算: ${settled} 名玩家`);
+    } catch (err: any) {
+      this.logger.error(`自动开采结算失败: ${err?.message || err}`);
+    } finally {
+      this.autoMineRunning = false;
+    }
+  }
+
+  /**
+   * 救援延时兜底：扶/救助/复活使魔把状态写入 markers2，
+   * 进程重启后由 GameService 按过期时间补完成。
+   */
+  @Cron('*/5 * * * * *')
+  async settlePendingRescues() {
+    if (this.rescueRunning) return;
+    this.rescueRunning = true;
+    try {
+      const settled = await this.gameService.settlePendingRescues();
+      if (settled > 0) this.logger.log(`救援延时结算: ${settled} 项`);
+    } catch (err: any) {
+      this.logger.error(`救援延时结算失败: ${err?.message || err}`);
+    } finally {
+      this.rescueRunning = false;
+    }
+  }
 
   /**
    * 自动保存 - 每3分钟执行一次
@@ -128,17 +172,18 @@ export class ScheduleService {
   }
 
   /**
-   * 地图资源刷新 - 每10分钟执行一次
-   * 对应原版：地图刷新
+   * 地图资源刷新 - 每分钟检查一次已到期的单项刷新标记
+   * 对应原版：后台运作中的“刷新资源<名称>”处理
    */
-  @Cron('0 */10 * * * *') // 每10分钟
+  @Cron('0 * * * * *') // 每分钟
   async refreshMapResources() {
     try {
       const maps = await this.mapService.getAllMaps();
+      let restored = 0;
       for (const map of maps) {
-        await this.mapService.refreshMapResources(map.id);
+        restored += await this.mapService.refreshExpiredMapResources(map.id);
       }
-      this.logger.log(`地图资源刷新完成: ${maps.length} 个地图`);
+      this.logger.log(`地图资源刷新完成: 检查 ${maps.length} 个地图，恢复 ${restored} 个资源`);
     } catch (err: any) {
       this.logger.error(`地图资源刷新失败: ${err.message}`);
     }

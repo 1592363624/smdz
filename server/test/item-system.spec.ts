@@ -232,6 +232,23 @@ describe('战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946)',
     expect((pd.player.markers as any)['采集资源']).toBe(2);
   });
 
+  it('L4935/物品操作 L2964 负数资源 → 从背包扣除，归零删除，不写入负库存', async () => {
+    const pd = mkPlayer();
+    pd.player.backpack = JSON.stringify([{ name: '载具零件', type: '资源', count: 3, quantity: 3 }]);
+
+    await itemSystemLoot.distributeLoot(pd, [{ name: '载具零件', type: '资源', quantity: -2 }]);
+    expect(JSON.parse(pd.player.backpack)).toEqual([
+      expect.objectContaining({ name: '载具零件', count: 1, quantity: 1 }),
+    ]);
+
+    await itemSystemLoot.distributeLoot(pd, [{ name: '载具零件', type: '资源', quantity: -2 }]);
+    expect(JSON.parse(pd.player.backpack).some((item: any) => item.name === '载具零件')).toBe(false);
+
+    await itemSystemLoot.distributeLoot(pd, [{ name: '不存在的资源', type: '资源', quantity: -5 }]);
+    expect(JSON.parse(pd.player.backpack).some((item: any) => item.name === '不存在的资源')).toBe(false);
+    expect((pd.player.markers as any)['采集资源']).toBeUndefined();
+  });
+
   it('L4927 资源-经验 → 玩家经验 += 数量×(1+经验/100)', async () => {
     const pd = mkPlayer();
     pd.player.属性 = { 经验: 0 };

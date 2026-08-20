@@ -28,6 +28,7 @@ import { HomeService } from './home.service';
 import { ShortcutService } from './shortcut.service';
 import { TaskService } from './task.service';
 import { StatsService } from './stats.service';
+import { AutoMineService } from './auto-mine.service';
 
 @Global()
 @Module({
@@ -52,6 +53,7 @@ import { StatsService } from './stats.service';
     ShortcutService,
     TaskService,
     StatsService,
+    AutoMineService,
   ],
   exports: [
     GameService,
@@ -72,6 +74,7 @@ import { StatsService } from './stats.service';
     ShortcutService,
     TaskService,
     StatsService,
+    AutoMineService,
   ],
 })
 export class GameModule {}

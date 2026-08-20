@@ -12,7 +12,7 @@
  * - 递减收益：二阶段属性超过阈值后按比例衰减
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
@@ -22,6 +22,7 @@ import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
 import { CombatStateService } from './combat-state.service';
 import { StatsService } from './stats.service';
+import { TaskService } from './task.service';
 
 // ==================== 类型定义 ====================
 
@@ -201,6 +202,7 @@ export interface MonsterDeathResult {
   expGain: number;
   drops: any[];
   dropText?: string;
+  taskProgress?: Array<{ actionName: string; count: number }>;
 }
 
 /**
@@ -275,6 +277,7 @@ export class CombatSystemService {
     private readonly itemSystem: ItemSystemService,
     private readonly combatState: CombatStateService,
     private readonly statsService: StatsService,
+    @Optional() private readonly taskService?: TaskService,
   ) {}
 
   // ==================== 公开接口 ====================
@@ -425,10 +428,21 @@ export class CombatSystemService {
     let totalDamage = 0;
     let totalExp = 0;
     const allDrops: any[] = [];
+    const taskProgress: Array<{ actionName: string; count: number }> = [];
     let attackCount = 0;
+    let comebackKill = false;
 
     // 构造攻击者加成数据（合并基础+装备+增益；传入 map 供宠物存活数量加成使用）
     const attackerBonus = this.buildAttackerBonus(player, playerData, map);
+    const comebackNowMs = Date.now();
+    const hadComebackState = !isRuntimeActor
+      && Array.isArray(playerData.buffs)
+      && playerData.buffs.some((entry: any) => {
+        if ((entry?.name ?? entry?.名称) !== '卷土重来') return false;
+        const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+        const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+        return !expireAt || expireAt > comebackNowMs;
+      });
 
     // 原版“造成伤害”在命中/伤害计算前触发攻击召唤。一次武器攻击可能有
     // 多个目标，但召唤自身有全局唯一 QQ 和冷却，因此在本轮目标循环前触发
@@ -441,7 +455,9 @@ export class CombatSystemService {
     // ========== 当前生命>0 移除卷土重来（原版 _计算玩家 L2539-2541） ==========
     // 原版：当前生命>0 时获得增益(卷土重来, -30) 即移除卷土重来（卷土重来仅在死亡时生效）
     if ((player.hp || 0) > 0 && playerData.buffs && Array.isArray(playerData.buffs)) {
-      const jtIdx = playerData.buffs.findIndex((b: any) => b && b.name === '卷土重来');
+      const jtIdx = playerData.buffs.findIndex(
+        (b: any) => b && (b.name ?? b.名称) === '卷土重来',
+      );
       if (jtIdx >= 0) {
         playerData.buffs.splice(jtIdx, 1);
         player.buffs = JSON.stringify(playerData.buffs);
@@ -1929,6 +1945,7 @@ export class CombatSystemService {
               resultLines.push(`${st.name} 被溅射击杀，获得 ${sd.expGain} 点经验`);
             }
             if (sd.dropText) resultLines.push(`掉落：${sd.dropText}`);
+            taskProgress.push(...(sd.taskProgress || []));
             await this.updateMonsterHpInMap(map.id, st);
           } else {
             await this.updateMonsterHpInMap(map.id, st);
@@ -2032,6 +2049,7 @@ export class CombatSystemService {
         const deathResult = await this.handleMonsterDeath(target, userId, map.id, playerData);
         totalExp += deathResult.expGain;
         allDrops.push(...deathResult.drops);
+        taskProgress.push(...(deathResult.taskProgress || []));
 
         if (deathResult.dropText) {
           resultLines.push(`掉落：${deathResult.dropText}`);
@@ -2057,17 +2075,29 @@ export class CombatSystemService {
       }
     }
 
+    // 原版击杀结算：处于“卷土重来”状态的攻击方成功击杀目标后，
+    // 回满三层状态并推进一次对应任务。任务推进延后到本方法保存玩家后，
+    // 避免 TaskService 的读改写被本次战斗的旧玩家快照覆盖。
+    if (hadComebackState && killed.length > 0) {
+      player.hp = Number(player.maxHp || attackerBonus.生命 || player.hp || 0);
+      player.shield = Number(player.maxShield || attackerBonus.护盾 || player.shield || 0);
+      player.armor = Number(player.maxArmor || attackerBonus.装甲 || player.armor || 0);
+      comebackKill = true;
+      resultLines.push(`${player.name || '你'}卷土重来！`);
+    }
+
     // 8. 召唤物协同攻击（对齐原版 覅攻击pd L320-499：玩家攻击后，归属玩家的召唤物也出手）
     //    当前地图上归属该玩家的召唤物，若存活则用拳头攻击一次怪物。
     //    召唤物击杀的掉落已合并进 player 背包；经验通过 out 累计到 totalExp 统一发放。
     if (!context.skipBattleDriver && !isRuntimeActor) {
-      const summonOut = { totalExp: 0 };
-      const summonLines = await this.summonCoAttack(player, playerData.markers, map, summonOut);
+      const summonOut = { totalExp: 0, taskProgress: [] as Array<{ actionName: string; count: number }> };
+      const summonLines = await this.summonCoAttack(player, playerData, map, summonOut);
       if (summonLines.length > 0) {
         resultLines.push(`━━━ 召唤物攻击 ━━━`);
         resultLines.push(...summonLines);
       }
       totalExp += summonOut.totalExp;
+      taskProgress.push(...summonOut.taskProgress);
     }
 
     // 9. 怪物反击（对应原版 覅攻击pd L290-319：怪物攻击地图上的玩家）
@@ -2090,6 +2120,16 @@ export class CombatSystemService {
       await this.persistRuntimeActor(runtimeActor, map);
     } else {
       await this.playerService.savePlayer(player);
+    }
+    if (!isRuntimeActor && this.taskService && taskProgress.length > 0) {
+      for (const progress of taskProgress) {
+        await this.taskService.advance(userId, progress.actionName, progress.count);
+      }
+    }
+    if (comebackKill) {
+      if (this.taskService) {
+        await this.taskService.advance(userId, '卷土重来');
+      }
     }
 
     // 11. 添加经验到玩家
@@ -2129,16 +2169,19 @@ export class CombatSystemService {
    * 对应原版 覅攻击pd L320-499：攻击时遍历地图召唤物，归属当前玩家的存活召唤物用武器攻击怪物。
    * 本框架召唤物未配置武器时用拳头攻击，属性由使魔定义 + 好感 + 等级计算。
    * @param player 玩家对象
-   * @param markers 玩家标记（读取好感）
+   * @param playerData 玩家完整数据（读取好感并复用同一玩家对象）
    * @param map 当前地图
    * @param out 可选的输出累计对象（totalExp 累计召唤物击杀经验，供 weaponAttack 统一 addExp）
    * @returns 召唤物攻击结果文本行
    */
   private async summonCoAttack(
     player: any,
-    markers: any,
+    playerData: PlayerData,
     map: any,
-    out?: { totalExp: number },
+    out?: {
+      totalExp: number;
+      taskProgress: Array<{ actionName: string; count: number }>;
+    },
   ): Promise<string[]> {
     const lines: string[] = [];
     try {
@@ -2160,7 +2203,7 @@ export class CombatSystemService {
         // 召唤物基础属性：使魔定义 + 玩家对该使魔的好感 + 玩家等级
         const familiarDef = this.staticData.getFamiliarByName(summon.name) || {};
         // 好感存于玩家 markers（{使魔名}好感，对应原版 添加成就(使魔名+"好感")）
-        const affinity = this.playerService.getMarkerValue(markers, `${summon.name}好感`);
+        const affinity = this.playerService.getMarkerValue(playerData.markers, `${summon.name}好感`);
         const level = player.level || 1;
         const summonBonus: BonusData = {
           攻击: (familiarDef.baseAttack ?? familiarDef.attack ?? 10) + affinity + level * 2,
@@ -2199,9 +2242,10 @@ export class CombatSystemService {
 
         // 怪物死亡处理（传入 attacker=playerData 触发 置掉落+战利品 发放闭环）
         if (target.hp <= 0) {
-          const deathResult = await this.handleMonsterDeath(target, player.userId, map.id, player);
+          const deathResult = await this.handleMonsterDeath(target, player.userId, map.id, playerData);
           // 召唤物击杀经验累计到玩家（由 weaponAttack 末尾 addExp 统一发放）
           if (out?.totalExp !== undefined) out.totalExp += deathResult.expGain;
+          out?.taskProgress.push(...(deathResult.taskProgress || []));
           lines.push(`${target.name} 已被击杀`);
           if (deathResult.dropText) {
             lines.push(`掉落：${deathResult.dropText}`);
@@ -3976,18 +4020,32 @@ export class CombatSystemService {
 
     // 置掉落（原版 战利品 前序 置掉落 L5245）：记录攻击者对怪物的掉落能力到怪物标记
     // 注意：原版在怪物删除前写怪物.标记，本框架怪物即时删除，此处保留原版调用顺序（行为可见）
+    const attackerPlayer = attacker?.player ?? attacker;
     if (attacker) {
       const monsterMarkers = this.playerService.safeJsonParse<any[]>(monster.markers, []);
-      monster.markers = JSON.stringify(this.setDrop(attacker, monsterMarkers));
+      monster.markers = JSON.stringify(this.setDrop(attackerPlayer, monsterMarkers));
     }
 
     // 战利品发放（原版 战斗相关.ecode L4874）：装备展开/资源经验/成就/背包写入/掉落文本
     let dropText = '';
-    if (attacker && drops.length > 0) {
-      const playerData = await this.playerService.getPlayerData(userId);
-      dropText = await this.itemSystem.distributeLoot(playerData, drops);
-      // distributeLoot 已直接写入 player.backpack（与"内存合并后统一save"一致），
-      // 调用方不再需要 mergeDropsIntoPlayer
+    const taskProgress: Array<{ actionName: string; count: number }> = [];
+    if (userId && drops.length > 0) {
+      let playerData: any;
+      try {
+        playerData = attacker?.player
+          ? attacker
+          : attacker?.backpack !== undefined && attacker?.userId !== undefined
+            ? { player: attacker }
+            : await this.playerService.getPlayerData(userId);
+      } catch (error: any) {
+        this.logger.warn(`读取掉落归属玩家失败: ${error?.message || error}`);
+      }
+      if (playerData?.player) {
+        dropText = await this.itemSystem.distributeLoot(playerData, drops, {
+          onTaskProgress: (actionName, count) => taskProgress.push({ actionName, count }),
+        });
+      }
+      // 传入攻击方的 PlayerData 时，掉落直接写入 weaponAttack 使用的同一内存玩家对象。
     }
 
     // 从地图移除怪物（GameMonster 表，按自增 id 删除；加锁避免并发竞态）
@@ -3997,7 +4055,7 @@ export class CombatSystemService {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
 
-    return { expGain, drops, dropText };
+    return { expGain, drops, dropText, taskProgress };
   }
 
   /**
@@ -4242,11 +4300,20 @@ export class CombatSystemService {
   generateDrops(monster: any, dropMultiplier: number): any[] {
     const drops: any[] = [];
 
+    // 兼容两种数据来源：早期运行时对象使用 dropTable，转换后的真实怪物
+    // 配置将掉落表放在 bonus JSON 的 drops 字段中。
+    const legacyDropTable = Array.isArray(monster?.dropTable)
+      ? monster.dropTable
+      : this.safeParseJson<any[]>(monster?.dropTable, []);
+    const monsterBonus = this.safeParseJson<Record<string, any>>(monster?.bonus, {});
+    const bonusDropTable = Array.isArray(monsterBonus?.drops) ? monsterBonus.drops : [];
+    const dropTable = legacyDropTable.length > 0 ? legacyDropTable : bonusDropTable;
+
     // 如果没有掉落表，使用默认掉落
-    const dropTable = monster.dropTable || [];
     if (dropTable.length === 0) {
       // 基础掉落：根据怪物等级给一些基础材料
-      if (Math.random() < 0.3 * dropMultiplier) {
+      const multiplier = Number.isFinite(Number(dropMultiplier)) ? Math.max(0, Number(dropMultiplier)) : 1;
+      if (Math.random() < 0.3 * multiplier) {
         drops.push({
           name: '怪物材料',
           quantity: Math.floor(monster.level || 1) + 1,
@@ -4257,14 +4324,41 @@ export class CombatSystemService {
 
     // 根据掉落率判定每个掉落项
     for (const dropEntry of dropTable) {
-      const dropRate = (dropEntry.rate || 0) * dropMultiplier;
-      if (Math.random() * 100 < dropRate) {
-        drops.push({
-          itemId: dropEntry.itemId,
-          name: dropEntry.name || '未知物品',
-          quantity: dropEntry.quantity || 1,
-        });
-      }
+      if (!dropEntry || typeof dropEntry !== 'object') continue;
+
+      const name = String(dropEntry.name ?? dropEntry.名称 ?? dropEntry.itemName ?? '').trim();
+      if (!name) continue;
+
+      const rawChance = dropEntry.chance ?? dropEntry.rate ?? dropEntry.几率;
+      const chance = rawChance === undefined || rawChance === null || rawChance === ''
+        ? 100
+        : Number(rawChance);
+      const multiplier = Number.isFinite(Number(dropMultiplier)) ? Math.max(0, Number(dropMultiplier)) : 1;
+      const dropRate = Math.max(0, Math.min(100, (Number.isFinite(chance) ? chance : 0) * multiplier));
+      if (Math.random() * 100 >= dropRate) continue;
+
+      const rawQuantity = dropEntry.quantity ?? dropEntry.count ?? dropEntry.数量;
+      const quantity = rawQuantity === undefined || rawQuantity === null || rawQuantity === ''
+        ? 1
+        : Number(rawQuantity);
+      if (!Number.isFinite(quantity)) continue;
+
+      const explicitType = String(dropEntry.type ?? dropEntry.类型 ?? '').trim().toLowerCase();
+      const equipmentByDefinition = typeof this.staticData?.getEquipmentByName === 'function'
+        && !!this.staticData.getEquipmentByName(name);
+      const type = explicitType === '装备' || explicitType === 'equipment'
+        || equipmentByDefinition
+        ? '装备'
+        : (explicitType === '消耗品' || explicitType === 'consumable' ? '消耗品' : '资源');
+
+      drops.push({
+        itemId: dropEntry.itemId ?? dropEntry.itemID,
+        name,
+        type,
+        quantity,
+        chance: Number.isFinite(chance) ? chance : 0,
+        ...(dropEntry.data ? { data: dropEntry.data } : {}),
+      });
     }
 
     return drops;
@@ -7010,6 +7104,8 @@ export class CombatSystemService {
     monster: any,
     mapId: number,
     ownerUserId: number,
+    ownerPlayerData?: any,
+    taskProgress?: Array<{ actionName: string; count: number }>,
   ): Promise<string> {
     const petBonus: BonusData = {
       攻击: pet.attack || 10,
@@ -7048,7 +7144,13 @@ export class CombatSystemService {
 
     // 怪物被击杀 → 发放掉落与经验（传入 attacker=ownerUserId 触发掉落闭环）
     if (monster.hp <= 0) {
-      const deathResult = await this.handleMonsterDeath(monster, ownerUserId, mapId, null);
+      const deathResult = await this.handleMonsterDeath(
+        monster,
+        ownerUserId,
+        mapId,
+        ownerPlayerData,
+      );
+      taskProgress?.push(...(deathResult.taskProgress || []));
       let text = `${pet.name} 击败了 ${monster.name}！`;
       if (deathResult.expGain > 0) text += ` 获得 ${deathResult.expGain} 点经验`;
       if (deathResult.dropText) text += ` 掉落：${deathResult.dropText}`;

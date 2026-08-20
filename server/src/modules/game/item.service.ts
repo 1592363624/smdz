@@ -17,6 +17,8 @@ export interface Item3 {
   name: string;
   type: string;       // 装备 / 资源 / 消耗品
   quantity: number;
+  /** 兼容掉落物和旧存档使用的数量字段。 */
+  count?: number;
   durability: number;  // 耐久，0=未锁定，1=已锁定
   data: string;       // 装备数据编码字符串（品质前缀 + 加成序列 + 特效）
   maker?: string;     // 制造者
@@ -556,7 +558,19 @@ export class ItemService {
       return `${player.name} 你的背包中没有${itemName}`;
     }
 
-    const actualCount = count < 0 ? backpack[itemIndex].quantity : Math.min(count, backpack[itemIndex].quantity);
+    const item = backpack[itemIndex];
+    const available = Number(item.quantity ?? item.count ?? 0);
+    if (!Number.isFinite(available) || available <= 0) {
+      return `${player.name} 你的背包中没有可用的${itemName}`;
+    }
+    const requestedCount = Number(count);
+    if (!Number.isFinite(requestedCount) || requestedCount === 0) {
+      return '使用数量必须是正整数';
+    }
+    const actualCount = requestedCount < 0
+      ? available
+      : Math.min(Math.floor(requestedCount), available);
+    if (actualCount <= 0) return '使用数量必须是正整数';
 
     // 从静态配置加载物品定义（JSON 单一来源）
     const gameItem = this.staticData.getItemByName(itemName);
@@ -564,28 +578,100 @@ export class ItemService {
       return `${player.name},${itemName}在物品列表不存在`;
     }
 
-    // 检查是否有使用效果
-    const useEffects: string[] = JSON.parse(gameItem.useEffects || '[]');
-    const useMarkers: string[] = JSON.parse(gameItem.useMarkers || '[]');
+    // 检查是否有使用效果。使用可得的每个数组元素是一个产出池，
+    // 池内逗号分隔的重复候选项会自然形成原版随机权重。
+    const parseJsonArray = <T>(value: any, fallback: T[]): T[] => {
+      if (Array.isArray(value)) return value as T[];
+      if (typeof value !== 'string' || !value.trim()) return fallback;
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed as T[] : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    const useEffects = parseJsonArray<string>(gameItem.useEffects, []);
+    const useMarkers = parseJsonArray<string>(gameItem.useMarkers, []);
 
     if (useEffects.length === 0) {
       return `${player.name},${itemName}不是可以直接使用的物品，或者暂时还无法使用`;
     }
+
+    type UseCandidate = { name: string; count: number };
+    const parseCandidate = (raw: string): UseCandidate | null => {
+      let token = String(raw || '').trim();
+      if (!token) return null;
+
+      // 兼容旧版转换器曾生成的“名称 x0”格式；原始配置里的数量仍由
+      // 名称末尾数字解析，例如“椰树种子1”应得到数量1。
+      const legacyCount = token.match(/^(.*?)\s+x(-?\d+(?:\.\d+)?)$/i);
+      if (legacyCount) token = legacyCount[1].trim();
+      const match = token.match(/^(.+?)(-?\d+(?:\.\d+)?)$/);
+      if (!match) return { name: token, count: 1 };
+      const name = match[1].trim();
+      const parsedCount = Number(match[2]);
+      return name && Number.isFinite(parsedCount)
+        ? { name, count: parsedCount }
+        : { name: token, count: 1 };
+    };
+
+    const pools: UseCandidate[][] = [];
+    for (const effect of useEffects) {
+      const pool = String(effect || '')
+        .split(/[，,、]/)
+        .map(parseCandidate)
+        .filter((candidate): candidate is UseCandidate => !!candidate);
+      if (pool.length > 0) pools.push(pool);
+    }
+
+    const obtained: Array<{ name: string; count: number }> = [];
+    for (const pool of pools) {
+      if (pool.length === 1) {
+        const candidate = pool[0];
+        if (candidate.count > 0) obtained.push({ name: candidate.name, count: candidate.count * actualCount });
+        continue;
+      }
+      for (let i = 0; i < actualCount; i++) {
+        const candidate = pool[Math.floor(Math.random() * pool.length)];
+        if (!candidate || candidate.count <= 0) continue;
+        const existing = obtained.find((item) => item.name === candidate.name);
+        if (existing) existing.count += candidate.count;
+        else obtained.push({ name: candidate.name, count: candidate.count });
+      }
+    }
+
+    const addObtained = (name: string, amount: number): void => {
+      if (!name || !Number.isFinite(amount) || amount <= 0) return;
+      if (this.staticData.getEquipmentByName(name)) {
+        // 使用箱子的装备先按独立物品入包；装备系统会继续按静态定义处理它。
+        const copies = Math.max(1, Math.floor(amount));
+        for (let i = 0; i < copies; i++) {
+          backpack.push({ name, type: '装备', quantity: 1, count: 1, durability: 0, data: 'e' });
+        }
+        return;
+      }
+      const existing = backpack.find((entry) => entry.name === name && entry.type !== '装备');
+      const current = Number(existing?.quantity ?? existing?.count ?? 0);
+      const next = current + amount;
+      if (existing) {
+        existing.quantity = next;
+        existing.count = next;
+      } else {
+        backpack.push({ name, type: '资源', quantity: amount, count: amount, durability: 0, data: '' });
+      }
+    };
+    for (const item of obtained) addObtained(item.name, item.count);
 
     // 解析玩家标记
     const markers = JSON.parse(player.markers || '{}');
     const markers2 = JSON.parse(player.markers2 || '[]');
     const buffs = JSON.parse(player.buffs || '[]');
 
-    let resultText = '';
-
-    // 处理不同物品的使用效果
-    // 简化实现：根据 useEffects 数组中的第一项处理
-    // 完整实现需要根据不同的物品类型执行不同的效果逻辑
-
     // 消耗物品
-    backpack[itemIndex].quantity -= actualCount;
-    if (backpack[itemIndex].quantity <= 0) {
+    const remaining = available - actualCount;
+    if (item.quantity !== undefined) item.quantity = remaining;
+    else item.count = remaining;
+    if (remaining <= 0) {
       backpack.splice(itemIndex, 1);
     }
 
@@ -612,7 +698,10 @@ export class ItemService {
       },
     });
 
-    resultText = `${player.name}使用了${actualCount}个${itemName}`;
+    const obtainedText = obtained.length > 0
+      ? `，获得${obtained.map((item) => `${item.name}×${item.count}`).join('、')}`
+      : '';
+    const resultText = `${player.name}使用了${actualCount}个${itemName}${obtainedText}`;
 
     return resultText;
   }

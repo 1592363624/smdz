@@ -161,7 +161,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 战斗 | L4512 | `combat.service` / `game-command` | 🔶 | 怪物闪避/幻时/移动临时怪物已部分 |
 | 挑战怪物 | L4726 | `combat-system.challengeMonsterName` | ✅ | 按整数 a 分段返回怪物名(绿毛龟/水元素/.../精英兔子/露娜)；新增 test/combat.spec.ts 5用例 |
 | 计算反伤 | L4791 | `combat-system.calcReflectDamage` + `calcDamage` 调用处 | ✅ | 1:1 还原(L4791-4873)：恶毒好感≥100(色欲30s)→100%/军姬好感≥40(剑阵)→100%/荆棘之翼(#18)+0.15/小鱼发饰(#35)+2(60s冷却)/军姬2(#24)好感≥40→+1+(2+技能×0.05)带军姬倍率限制(≤(2+技能×0.05)×总状态)；倍率默认0.1(L4803)→无来源也按10%基础反伤；a2=攻击方理论受伤×伤害倍率/100、a1=防御方理论伤害(含z2武器系数)、封顶防御方当前状态、最终=a2/a1×100;test/combat.spec.ts 8用例(含2个中/英文key兼容用例)。**2026-08-18 数据格式统一**：combat-state 新增 `normalizeBuffItem` 兼容层，markerRequire/buffRequire/avoidDeath 读取前将英文key(name/expireAt,秒)归一化为中文key(名称/有效期至,毫秒)，存量数据两套格式互认；calcReflectDamage 已验证军姬/恶毒反伤运行时中英文格式均能触发 |
-| 战利品 | L4874 | `item-system.distributeLoot` + `combat-system.handleMonsterDeath` | ✅ | 装备展开/资源(好感·经验·默认)/成就/背包写入/掉落文本；combat-system注入itemSystem；新增 test/item-system.spec.ts 4用例 |
+| 战利品 | L4874 | `item-system.distributeLoot` + `combat-system.handleMonsterDeath` | ✅ | 装备展开/资源(好感·经验·默认)/成就/背包写入/掉落文本；兼容 `dropTable` 与真实怪物 `bonus.drops`，资源负数按原版扣除/归零删除；战斗最终保存后推进采集/装备任务；`test/item-system.spec.ts`、`test/battle-e2e.spec.ts` 覆盖 |
 | 掉落残骸 | L4947 | `combat-system.dropWreckage` | ✅ | 地精系列累加载具残骸次数；新增 test/combat.spec.ts 3用例 |
 | 光荣弹 | L4987 | — | ⬜ | 死亡触发一次性反击：构造临时装备(四伤25+必中)、按 死方(生命+装甲+护盾)与 攻方(四伤*0.25) 比值算倍率a1、护盾/装甲/生命穿透+50、调造成伤害(光荣弹a)；依赖完整造成伤害对外调用链(临时装备+返回伤害文本w1)，当前 calcDamage 闭包未暴露该入口，待接入 |
 | 免死 | L5020 | `combat-system.avoidDeath` + 接入 `playerDeath` | ✅ | 1:1 还原(L5020-5096)：龙姬(specialSeq=12)怒吼→b=2、伊芙利特(specialSeq=11)五番冷却未过→获得增益五番a、战斗女仆(specialSeq=8)守护3→b=5、吸血姬(活力=-15)与分身(活力=-16)互换生命、猫爪吊坠(specialSeq=23)猫爪冷却未过→获得增益猫爪；L5072 独立判断 增益要求猫爪→b=4/五番a→b=3/默认→b=1（⚠️原版 L5072 默认 b=1 会覆盖 龙姬b=2/战斗女仆b=5，致怒吼/守护3 实际不免死，原版疑似冗余分支，按原版保留）；b==2 总伤害+当前生命-1且当前生命=1、b==3/4/5 生命-0免死返回真。依赖 combatState.gainBuff/timeIntervalRequire + playerService.getMarkerValue；**兼容性修复**：avoidDeath 内部调用 combatState.normalizeBuffItem 将 buffs/markers2 原地归一化为中文key(兼容英文key+秒级)，playerDeath 调用时传浅拷贝副本避免污染本函数后续英文key读取；新增 test/combat.spec.ts 10用例 |
@@ -305,8 +305,8 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 副本（开启副本/刷新副本/副本清空） | ~5 | ✅ | `game.service.handleStartDungeon/handleRefreshDungeon/handleClearDungeon` + `dungeon.service` 已接线；正式数据按复活点分为9组/25张地图，保留副本券、300秒刷新冷却、120秒通关标记和30秒延时关闭 |
 | 商店（使魔商店/兑换/设置购物） | ~6 | 🔶 半 | 商店刷新定时 ✅；兑换交互 ⬜ |
 | 捕捉（捕捉/开始捕捉/停止捕捉） | ~4 | ✅ | `familiar-system.capturePet` 已实现开始/停止捕捉、麻醉门禁、饲料扣除、成功转宠物、特殊捕捉奖励及 `GameMonster` 优先读取；`test/capture.spec.ts` 覆盖主分支 |
-| 救助/对话/呼叫/设置跟随/福音书/安乐天使/炮击 | ~10 | ⬜ 占位 | handler 已注册，内部为占位/部分 |
-| 任务/查看/成就/标记/管理命令 | ~30 | ✅ 完 | 任务发放、面板、管理后台 |
+| 救助/扶/复活使魔/对话/呼叫/设置跟随/福音书/安乐天使/炮击 | ~12 | 🔶 | `扶`、`救助`、`复活使魔` 已按原版完成社交救援、倒地使魔复活、载具维修、5/30秒延时与任务推进；其余命令仍有独立子分支待补 |
+| 任务/查看/成就/标记/管理命令 | ~30 | ✅ 完 | `TaskService` 已完成自动推进、自动结算、奖励、后续/级联、发布人好感、教程、旧任务格式兼容、放弃任务冷却；采集/贸易/购物/求助/使用/战斗掉落均已接入任务动作 |
 | 日常/定时（自动战斗/自动采集/商店刷新/神王降临/副本） | 后台 | ✅ 完 | `后台运作.ecode` 经 cron 驱动 |
 
 图例：✅ 完全实现并接线 ｜ 🔶 部分实现/存在子分支缺口 ｜ ⬜ 已注册 handler 但内部为占位或空白
@@ -325,7 +325,8 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 升级经验公式 | 加成计算 L1786 | ✅ `test/bonus.spec.ts` |
 | 伤害计算模型 | 战斗相关 L2274-2379 | ✅ `test/combat.spec.ts`（34 用例） |
 | 生成装备+词条转换 | 物品操作 L1128/L1838 | ✅ `test/item-system.spec.ts` |
-| 战利品分发 | 战斗相关 L4874 | ✅ `test/item-system.spec.ts`（4 用例） |
+| 战利品分发 | 战斗相关 L4874 | ✅ `test/item-system.spec.ts`（含装备/资源/负数资源语义） |
+| 任务系统自动推进与结算 | 数据分析 L268-286/L678-705/L719；_主程序 L5571-5593/L7321-7385/L9391-9445/L11250-11266/L11686-11700/L11834-11961 | ✅ `task.service.ts` + command/game/gather/item/combat handlers；`test/task.service.spec.ts`、`test/task-command.spec.ts`、`test/gather-task.spec.ts`、`test/social-task.spec.ts`、`test/battle-e2e.spec.ts` | 自动推进、完成即结算、奖励/装备概率、后续与“完成任务”级联、教程、发布人好感归属、配方解锁、放弃任务冷却、旧存档格式；原版负数资源语义由 `test/item-system.spec.ts` 覆盖 |
 | 使魔兰音 etc. 专项 | 使魔技能 L? | ✅ `test/integration-lann-plana-skill.spec.ts` |
 | 伊芙利特灼烂歼鬼 | 使魔技能 L1967-2006 | ✅ `test/familiar-scorched-finger.spec.ts`（4用例） |
 | 副本生命周期 | 后台运作 L1039-1106 / _主程序 L3863-3965、L7396-7409 | ✅ `test/dungeon.spec.ts`（2用例） |
@@ -410,8 +411,38 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 - **前线：✅ 已完成（2026-08-18）**。对照接口1.ecode L1395-1480，`MapService.ensureHouseMaps` 持久化院子、屋内、前线三张动态地图并维护入口；对照 _主程序.ecode L2228-2254，`FamiliarSystemService.handleHomeFrontline` 首次查看调用 `generateFrontline` 并保存召唤物/载具；对照 _主程序.ecode L2077-2163，`GameService.handleStartBattle` 按前线等级分支生成地精 `GameMonster`、置掉落、开启活动。真实数据库专项 `test/integration-home-frontline.spec.ts` 6/6 通过。
 - **产出：✅ 核心闭环完成（2026-08-19）**。`HomeService.collectHomeOutput` 已按 `地图操作.ecode L1-600` 接通地图 `items/markers` 观测持久化、普通宠物/具现装置、作物/建筑优先级生产、电力/燃料/人力/超载、世界模拟器 AI、工业牵引、朱雀/腐化南方巨兽龙/白兔子/小雨下/小恶魔/肉食植物/螳螂/兔子窝/心之守望等特殊产出。特殊多产出共享消耗时间，世界模拟器核心保留 `data=a`；`test/home-output.spec.ts` 覆盖地图仓储隔离、具现装置、AI 核心和消耗约束。剩余差异仅为原版显示文本和少数运行时属性初始化的边缘分支，不阻塞产出玩法闭环。
 
+### §11.3.1 任务系统闭环（2026-08-20）
+
+【原文 `_主程序.ecode L5571-5593/L7321-7385/L9391-9445/L11250-11266/L11686-11700/L11834-11961`、`数据分析.ecode L268-286/L678-705`】
+
+- `添加成就` 会同步修改所有同名任务要求；要求清空后在同一轮行动中自动发放奖励、接入后续任务、推进“完成任务”，并删除已完成任务。
+- 任务奖励按任务熟练度/完成任务倍率发放，装备奖励按概率生成；好感奖励写入任务发布人并处理100好感归属切换；解锁配方和活跃度也在同一结算链路中完成。
+- 查看/领取/放弃任务、教程任务、旧存档任务格式和发布人互斥规则均已接通；正常任务没有手动提交阶段，旧的“已完成/待提交”存档仍保留兼容提交入口。
+- 战斗掉落现在读取转换后怪物 `bonus.drops`（兼容旧 `dropTable`），资源 `count<0` 按原版 `获得物品` 语义从背包扣除，正向掉落在玩家最终保存后再推进 `采集资源/采集<物品>` 与 `获得装备/获得<装备>` 任务，避免旧玩家快照覆盖掉落。
+
+【复刻】
+
+- `server/src/modules/game/task.service.ts`：`advance`、`settleCompletedTasks`、`settleOneTask`、`acceptTask`、`listTasks`、`ensureTutorialTasks`、`abandonTask`。
+- `server/src/modules/game/combat-system.service.ts`、`item-system.service.ts`：战斗死亡掉落、同一玩家对象背包合并、最终 `savePlayer` 后任务推进；`server/test/task.service.spec.ts`、`task-command.spec.ts`、`gather-task.spec.ts`、`social-task.spec.ts`、`battle-e2e.spec.ts`、`item-system.spec.ts` 已覆盖主要闭环。
+
+【自检结论】本轮任务/物品/战斗相关专项 7 个套件共 178 个测试通过，覆盖 `task.service.spec.ts`、`task-command.spec.ts`、`item-system.spec.ts`、`battle-e2e.spec.ts`、`combat.spec.ts`、`attack-summon.spec.ts`、`familiar-scorched-finger.spec.ts`；`npm run build` 通过。全量测试未在本轮重复执行，保留既有未覆盖的非任务模块风险。
+
+### §11.3.1.1 任务动作收口（2026-08-20）
+
+- `对话`仅在指定 NPC 且实际对话成功后推进；空参数列表展示、NPC 不存在和带参数失败不会推进。
+- 普通`求助`恢复露娜提示，只有`求助确认`成功接管露娜时推进`求助`；`维修`继续由统一的`发送“维修”`收尾处理，不在 handler 内重复推进。
+- `飞到`从普通移动中独立出来，补齐死亡、工作/移动状态、目标地图、战斗、10 秒冷却和载具行走方式限制；成功起飞推进`飞行`，到达与普通移动共用幂等结算。
+- 专项验证：`task.service.spec.ts`、`task-command.spec.ts`、`social-task.spec.ts`、`gather-task.spec.ts`、`auto-mine.spec.ts`、`fly-task.spec.ts`、`rescue-social.spec.ts`、`item-use.spec.ts` 共 46 个用例通过；`npm run build` 通过。
+
+### §11.3.2 自动开采闭环（2026-08-20）
+
+- `开采自动/开采停止` 已由 `AutoMineService` 接管：按原版“自动开采/自动开采2”标记保存开始时间，区分硅基核心阿尔法载具，并校验载具生命和激光采集器/行星解裂器/引力调频器。
+- 自动开采产出逐项按原版每小时公式结算：固定资源过滤标记资源，跳过电力，应用采集加成、附近使魔数量和产出几率；统一复用战利品写入逻辑，兼容装备、正负资源数量和任务推进。
+- `ScheduleService` 每分钟增量结算并保留进行中标记，服务重启/离线期间不会丢失收益；停止命令清除标记并推进采集资源任务与采集熟练度。
+- 新增 `test/auto-mine.spec.ts` 覆盖采集器门禁、每小时公式、任务推进、后台增量结算和阿尔法核心分支。
+
 ### §11.4 占位 handler 内部实现
-- `炮击/福音书/安乐天使/呼叫/设置跟随` 等 handler 仍有占位或简化实现，需逐条从原版 ecode 复刻；捕捉已移出本清单并完成。
+- `福音书/安乐天使/呼叫/设置跟随/炮击` 等 handler 仍有占位或简化实现，需逐条从原版 ecode 复刻；`扶/救助/复活使魔` 已移出占位清单并完成。
 
 ### 11.5 本轮家园前线逐行对照与自检（2026-08-18）
 

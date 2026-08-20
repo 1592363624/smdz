@@ -43,6 +43,9 @@ export class AchievementService {
       }
     } else {
       // 3. 如果成就名不存在，添加新成就
+      // 原版“添加成就”声明为“不保存负数”：不存在的成就收到负数/0时直接忽略，
+      // 只有正数才创建初始记录。
+      if (value <= 0) return;
       markers[name] = value;
     }
 

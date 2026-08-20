@@ -172,6 +172,7 @@ function buildMocks() {
     getAllAttackTexts: jest.fn(() => []),
     getAllVehiclePartSpecs: jest.fn(() => []),
     getBuildingByName: jest.fn(() => null),
+    getEquipmentByName: jest.fn((name: string) => name === '测试装备' ? { name } : undefined),
   } as unknown as jest.Mocked<StaticDataService>;
 
   const bonusService = {
@@ -196,6 +197,10 @@ function buildMocks() {
     getOnlineUserIds: jest.fn(() => new Set<number>([2])),
   } as unknown as jest.Mocked<StatsService>;
 
+  const taskService = {
+    advance: jest.fn(async () => ''),
+  };
+
   const prisma = {
     systemConfig: {
       findUnique: jest.fn(async () => ({ value: '1' })),
@@ -213,6 +218,7 @@ function buildMocks() {
     players, monstersByMap, saveLog, addExpLog,
     playerService, mapService, staticData, bonusService,
     achievementService, itemSystem, prisma, combatState, statsService,
+    taskService,
   };
 }
 
@@ -232,12 +238,12 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
   beforeEach(() => {
     jest.restoreAllMocks();
-    mocks = buildMocks();
-    combat = new CombatSystemService(
-      mocks.prisma, mocks.playerService, mocks.bonusService,
-      mocks.mapService, mocks.staticData, mocks.achievementService,
-      mocks.itemSystem, mocks.combatState, mocks.statsService,
-    );
+      mocks = buildMocks();
+      combat = new CombatSystemService(
+        mocks.prisma, mocks.playerService, mocks.bonusService,
+        mocks.mapService, mocks.staticData, mocks.achievementService,
+        mocks.itemSystem, mocks.combatState, mocks.statsService, mocks.taskService as any,
+      );
 
     // 反伤计算（calcReflectDamage）已由 combat.spec.ts 独立覆盖，
     // 本端到端测试聚焦"接线正确性"，故隔离为 0，避免依赖真实 combatState 细节。
@@ -462,6 +468,61 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
   // ---------- 综合：基础攻击减血闭环 ----------
   describe('综合 基础攻击减血闭环', () => {
+    it('真实 bonus.drops 掉落 → 背包在最终 savePlayer 后保留，资源/装备任务均推进', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001,
+        hp: 1,
+        exp: 10,
+        dropTable: [],
+        bonus: JSON.stringify({
+          drops: [
+            { name: '铁矿', count: 2, chance: 100 },
+            { name: '测试装备', count: 1, chance: 100 },
+          ],
+        }),
+      });
+      registerMonsters(mocks, 1, [monster]);
+
+      mocks.itemSystem.distributeLoot.mockImplementation(async (playerData: any, drops: any[], opts: any) => {
+        const backpack = JSON.parse(playerData.player.backpack || '[]');
+        for (const drop of drops) {
+          if (drop.type === '装备') {
+            backpack.push({ name: drop.name, type: '装备', quantity: 1, count: 1, data: 'e' });
+            opts?.onTaskProgress?.('获得装备', 1);
+            opts?.onTaskProgress?.(`获得${drop.name}`, 1);
+          } else {
+            backpack.push({ name: drop.name, type: '资源', quantity: drop.quantity, count: drop.quantity });
+            opts?.onTaskProgress?.('采集资源', drop.quantity);
+            opts?.onTaskProgress?.(`采集${drop.name}`, drop.quantity);
+          }
+        }
+        playerData.player.backpack = JSON.stringify(backpack);
+        return '铁矿×2、测试装备';
+      });
+
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.killed).toContain('史莱姆');
+      expect(result.drops).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: '铁矿', type: '资源', quantity: 2 }),
+        expect.objectContaining({ name: '测试装备', type: '装备', quantity: 1 }),
+      ]));
+      const savedPlayer = mocks.saveLog[mocks.saveLog.length - 1];
+      expect(JSON.parse(savedPlayer.backpack)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: '铁矿', count: 2 }),
+        expect.objectContaining({ name: '测试装备', type: '装备', count: 1 }),
+      ]));
+      expect(mocks.taskService.advance).toHaveBeenCalledWith(2, '采集资源', 2);
+      expect(mocks.taskService.advance).toHaveBeenCalledWith(2, '获得装备', 1);
+      expect(mocks.taskService.advance).toHaveBeenCalledWith(2, '采集铁矿', 2);
+      expect(mocks.taskService.advance).toHaveBeenCalledWith(2, '获得测试装备', 1);
+    });
+
     it('必中攻击弱怪 → 怪物 hp 下降或被击杀，玩家获得经验', async () => {
       const player = makePlayer({ userId: 2 });
       mocks.players.set(2, player);

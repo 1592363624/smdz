@@ -10,9 +10,10 @@
  *   所有冷却由具体动作逻辑(战斗/闪避/传送等)写入玩家 markers2 持久化标记控制。
  */
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from '../game/game.service';
+import { TaskService } from '../game/task.service';
 import {
   CommandContext,
   CommandHandler,
@@ -30,6 +31,7 @@ export class CommandService {
     @Inject(COMMAND_HANDLER_MAP)
     private readonly handlerMap: Record<string, CommandHandler>,
     private readonly gameService: GameService,
+    @Optional() private readonly taskService?: TaskService,
   ) {}
 
   /**
@@ -42,6 +44,7 @@ export class CommandService {
       // 1. 解析指令名：取第一个空格前的单词作为指令名
       //    兼容 /指令、！指令、! 指令 以及无前缀的直接输入
       const rawTrimmed = ctx.rawMessage.trim();
+      const sentText = rawTrimmed.replace(/^[\/！!]+/, '').trim();
       const [rawName, ...args] = rawTrimmed.split(/\s+/);
       // 去除前缀字符（/！!），若去除后为空则保留原词（用于无前缀模式）
       const commandName = (rawName || '').replace(/^[\/！!]+/, '') || rawName || '';
@@ -73,6 +76,10 @@ export class CommandService {
           broadcast: false,
           durationMs: Date.now() - start,
         };
+      }
+
+      if (ctx.userId && this.taskService) {
+        await this.taskService.ensureTutorialTasks(ctx.userId);
       }
 
       // 2. 从数据库指令表查找指令定义
@@ -122,6 +129,7 @@ export class CommandService {
               try {
                 const gatherResult = await gatherHandler.handle(ctx, [commandName]);
                 if (gatherResult && gatherResult.success) {
+                  await this.finishCommandTasks(ctx, sentText, gatherResult);
                   gatherResult.durationMs = Date.now() - start;
                   await this.recordLog(ctx, commandName, gatherResult);
                   // 采集成功会改变玩家/地图状态，实时推送刷新网页面板
@@ -182,6 +190,7 @@ export class CommandService {
           try {
             const gatherResult = await gatherHandler.handle(ctx, [commandName]);
             if (gatherResult && gatherResult.success) {
+              await this.finishCommandTasks(ctx, sentText, gatherResult);
               gatherResult.durationMs = Date.now() - start;
               await this.recordLog(ctx, commandName, gatherResult);
               // 采集成功会改变玩家/地图状态，实时推送刷新网页面板
@@ -256,6 +265,8 @@ export class CommandService {
         result.content = `${offlineRegen}\n━━━━━━━━━━━━━━━\n${result.content}`;
       }
 
+      await this.finishCommandTasks(ctx, sentText, result);
+
       // 7. 记录指令执行日志
       await this.recordLog(ctx, commandName, result);
 
@@ -271,6 +282,24 @@ export class CommandService {
         broadcast: false,
         durationMs: Date.now() - start,
       };
+    }
+  }
+
+  private async finishCommandTasks(
+    ctx: CommandContext,
+    sentText: string,
+    result: CommandResult,
+  ): Promise<void> {
+    if (!ctx.userId || !this.taskService) return;
+    if (result.success && sentText) {
+      await this.taskService.advance(ctx.userId, '发送“' + sentText + '”');
+      await this.taskService.advance(ctx.userId, '发送指令');
+    }
+    const taskNotice = this.taskService.consumeNotifications(ctx.userId);
+    if (taskNotice) {
+      result.content = result.content
+        ? result.content + '\n━━━━━━━━━━━━━━━\n' + taskNotice
+        : taskNotice;
     }
   }
 

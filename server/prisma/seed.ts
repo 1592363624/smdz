@@ -29,7 +29,8 @@ async function main() {
     { name: '帮助', alias: 'help,指令,命令', description: '查看所有可用指令', handlerKey: 'help', minRole: 'USER', sortOrder: 1 },
     { name: '信息', alias: 'info,资料,查看,状态', description: '查看自己的玩家信息', handlerKey: 'info', minRole: 'USER', sortOrder: 2 },
     { name: '背包', alias: 'inventory,查看背包', description: '查看背包物品', handlerKey: 'inventory', minRole: 'USER', sortOrder: 3 },
-    { name: '移动', alias: 'move,前往,去,飞到,go', description: '移动到指定地图', handlerKey: 'game', minRole: 'USER', sortOrder: 4 },
+    { name: '移动', alias: 'move,前往,去,go', description: '移动到指定地图', handlerKey: 'game', minRole: 'USER', sortOrder: 4 },
+    { name: '飞到', alias: 'fly', description: '飞行到指定地图', handlerKey: 'game', minRole: 'USER', sortOrder: 4 },
     { name: '地图', alias: 'map,查看地图', description: '查看当前地图信息', handlerKey: 'map', minRole: 'USER', sortOrder: 5 },
     // 战斗（统一 game 处理器）
     { name: '攻击', alias: 'attack,打,揍', description: '攻击当前地图的怪物', handlerKey: 'game', minRole: 'USER', sortOrder: 10 },
@@ -84,7 +85,7 @@ async function main() {
     { name: '对话', alias: 'talk,交谈', description: '与NPC对话', handlerKey: 'game', minRole: 'USER', sortOrder: 110 },
     { name: '对话露娜未知', alias: 'dialogue-luna', description: '与露娜对话，用未知物品兑换奖励', handlerKey: 'game', minRole: 'USER', sortOrder: 110 },
     { name: '来倒目的', alias: 'arrive', description: '延时移动到指定地图（系统内部命令）', handlerKey: 'game', minRole: 'USER', sortOrder: 110 },
-    { name: '救助', alias: 'rescue', description: '救助倒地的玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 111 },
+    { name: '救助', alias: 'rescue', description: '救助倒地使魔或维修载具', handlerKey: 'game', minRole: 'USER', sortOrder: 111 },
     { name: '赠予', alias: 'give,gift', description: '赠予物品给其他玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 112 },
     { name: '设置跟随', alias: 'follow', description: '设置跟随目标', handlerKey: 'game', minRole: 'USER', sortOrder: 113 },
     // 私聊 / 反馈（统一 game 处理器）
@@ -133,7 +134,7 @@ async function main() {
     { name: '佩戴称号', alias: 'equip-title', description: '佩戴称号', handlerKey: 'game', minRole: 'USER', sortOrder: 185 },
     { name: '使魔排行', alias: 'familiar-rank', description: '查看使魔排行榜', handlerKey: 'game', minRole: 'USER', sortOrder: 186 },
     { name: '大召唤术', alias: 'mass-summon', description: '大规模召唤使魔', handlerKey: 'game', minRole: 'USER', sortOrder: 187 },
-    { name: '复活使魔', alias: 'revive-familiar', description: '复活已阵亡的使魔', handlerKey: 'game', minRole: 'USER', sortOrder: 188 },
+    { name: '复活使魔', alias: 'revive-familiar', description: '倒地后延时自救', handlerKey: 'game', minRole: 'USER', sortOrder: 188 },
     { name: '使魔挑战', alias: 'familiar-challenge', description: '查看使魔挑战', handlerKey: 'game', minRole: 'USER', sortOrder: 189 },
     { name: '开始挑战', alias: 'start-challenge', description: '开始使魔挑战', handlerKey: 'game', minRole: 'USER', sortOrder: 190 },
     // 使魔技能（统一 game 处理器）
@@ -354,7 +355,7 @@ async function main() {
     { name: '切换模式', alias: 'switch-mode', description: '使魔技能 - 切换模式' },
     { name: '使魔挑战', alias: 'familiar-challenge', description: '使魔技能 - 使魔挑战' },
     { name: '开始挑战', alias: 'start-challenge', description: '使魔技能 - 开始挑战' },
-    { name: '复活使魔', alias: 'revive-familiar', description: '使魔技能 - 复活使魔' },
+    { name: '复活使魔', alias: 'revive-familiar', description: '倒地后延时自救' },
     { name: '大召唤术', alias: 'mass-summon', description: '使魔技能 - 大召唤术' },
   ];
   for (const s of familiarSkillCommands) {

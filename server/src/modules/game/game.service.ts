@@ -4,7 +4,7 @@
  * 负责协调各子服务，提供统一的游戏操作入口
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
@@ -28,12 +28,22 @@ import { TaskService } from './task.service';
 import { ShortcutService } from './shortcut.service';
 import { StatsService } from './stats.service';
 import { CombatStateService } from './combat-state.service';
+import { AutoMineService } from './auto-mine.service';
+
+interface QuestSource {
+  npcName: string;
+  taskNames: string[];
+  publisher?: string;
+}
 
 @Injectable()
 export class GameService {
   private readonly logger = new Logger(GameService.name);
   private readonly reloadTimers = new Map<number, NodeJS.Timeout>();
   private readonly dungeonClearTimers = new Map<string, NodeJS.Timeout>();
+  /** 扶/救助/自救的进程内延时任务；状态本身同时持久化在 markers2。 */
+  private readonly rescueTimers = new Map<number, NodeJS.Timeout>();
+  private readonly tradeLocks = new Map<string, Promise<void>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -59,6 +69,7 @@ export class GameService {
     private readonly shortcutService: ShortcutService,
     private readonly statsService: StatsService,
     private readonly combatState: CombatStateService,
+    @Optional() private readonly autoMineService?: AutoMineService,
   ) {}
 
   /**
@@ -221,6 +232,196 @@ export class GameService {
   }
 
   /**
+   * 处理飞到命令。
+   * 飞行和普通前往共用到达结算，但入口条件、冷却和延迟时间按原版飞行分支单独处理。
+   */
+  async handleFlyTo(userId: number, targetMapName: string): Promise<string> {
+    let playerData = await this.playerService.getPlayerData(userId);
+    let { player } = playerData;
+    const playerName = player.name || '冒险者';
+    const markers = playerData.markers || this.playerService.safeJsonParse(player.markers, {});
+    const markers2 = Array.isArray(playerData.markers2)
+      ? playerData.markers2
+      : this.parseJsonArray(player.markers2);
+
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(userId, player);
+    }
+
+    // 原版新手地图（地图序号小于3）不能直接飞行，只能先观察并按剧情移动。
+    if (Number(player.mapId) < 3) {
+      return `${playerName}当前不可用，观察附近看看吧`;
+    }
+
+    // 飞行不能覆盖正在进行的移动/工作；已到期的移动先补结算，兼容服务重启丢失定时器。
+    const moving = this.playerService.safeJsonParse<any>(markers['移动中'], null);
+    if (moving?.arriveAt) {
+      if (Date.now() < Number(moving.arriveAt)) {
+        return `你正在前往【${moving.targetName || '目的地'}】，还需约${Math.max(1, Math.ceil((moving.arriveAt - Date.now()) / 1000))}秒到达，请耐心等待`;
+      }
+      if (moving.targetMapId) {
+        await this.performArrival(userId, Number(moving.targetMapId), String(moving.targetName || '目的地'));
+        playerData = await this.playerService.getPlayerData(userId);
+        player = playerData.player;
+      }
+    }
+
+    const currentMap = await this.mapService.getMapById(player.mapId);
+    if (!currentMap) return '地图不存在，请检查名称';
+
+    const activeMarkerText = { value: '' };
+    if (this.combatState?.markerRequire?.('工作', markers2, activeMarkerText, Date.now())) {
+      return `${playerName}正在工作，${activeMarkerText.value || '请稍后再试'}`;
+    }
+
+    const requestedName = String(targetMapName || '').trim();
+    if (!requestedName) {
+      const maps = typeof this.mapService.getAllMaps === 'function'
+        ? await this.mapService.getAllMaps()
+        : [];
+      const options = maps
+        .filter((map: any) => map && !map.noTeleport && !map.不可传送 && !map.isFrontier && !map.开拓地)
+        .map((map: any) => String(map.name || ''))
+        .filter((name: string) => name && name !== currentMap.name);
+      if (this.shortcutService?.setTempInput && options.length > 0) {
+        await this.shortcutService.setTempInput(
+          userId,
+          options.map((name: string, index: number) => `${index + 1}@飞到${name}`).join('#'),
+        );
+      }
+      return `${playerName}请选择地点:\n${options.map((name: string, index: number) => `${index + 1}、${name}`).join('\n')}\n你也可以发送“飞到@人”来飞到其他玩家身边`;
+    }
+
+    let targetMap: any = null;
+    const playerTarget = requestedName.match(/^\[@([^\]]+)\]$/);
+    if (playerTarget) {
+      const identity = playerTarget[1];
+      const userModel: any = (this.prisma as any).user;
+      let targetUser: any = null;
+      if (userModel?.findFirst) {
+        targetUser = await userModel.findFirst({
+          where: { OR: [{ qqNumber: identity }, { externalId: identity }] },
+        });
+      }
+      if (!targetUser && userModel?.findUnique && /^\d+$/.test(identity)) {
+        targetUser = await userModel.findUnique({ where: { id: Number(identity) } });
+      }
+      if (!targetUser) return `${playerName}对方未加入游戏：${requestedName}`;
+      const targetPlayer = await (this.prisma as any).player?.findUnique?.({
+        where: { userId: targetUser.id },
+      });
+      if (!targetPlayer) return `${playerName}对方未加入游戏：${requestedName}`;
+      targetMap = await this.mapService.getMapById(targetPlayer.mapId);
+    } else {
+      targetMap = await this.mapService.getMapByName(requestedName).catch(() => null);
+    }
+
+    if (!targetMap) return `${playerName},${requestedName}在地图列表不存在。`;
+    if (targetMap.id === currentMap.id) return `${playerName}不能原地飞。`;
+    if (targetMap.noTeleport || targetMap.不可传送) {
+      return `${playerName}目的地${targetMap.name}无法飞过去。`;
+    }
+
+    let monsters: any[] = [];
+    try {
+      monsters = typeof this.mapService.getMapMonsters === 'function'
+        ? await this.mapService.getMapMonsters(currentMap)
+        : [];
+    } catch {
+      monsters = [];
+    }
+    const battleText = { value: '' };
+    if (monsters.length > 0 && this.combatState?.markerRequire?.('战斗', markers2, battleText, Date.now())) {
+      return `${playerName}战斗状态，${battleText.value || '请先结束战斗'}`;
+    }
+
+    const cooldownText = { value: '' };
+    if (this.combatState?.timeIntervalRequire?.('飞行冷却', 10, markers2, Date.now(), cooldownText, Date.now())) {
+      player.markers2 = JSON.stringify(markers2);
+      await this.playerService.savePlayer(player);
+      return `${playerName}${cooldownText.value}`;
+    }
+
+    if (typeof this.mapService.checkCanTravel === 'function') {
+      const check = this.mapService.checkCanTravel(currentMap, targetMap, player);
+      if (!check.canTravel) return `${playerName}${check.reason || '无法前往该地图'}`;
+    }
+
+    const vehicle = await this.findTravelVehicle(player, currentMap);
+    const moveType = Number(vehicle?.行走方式 ?? vehicle?.moveType ?? 0);
+    if (vehicle && moveType === 0) {
+      return `${playerName}当前驾驶的载具${vehicle.名称 || vehicle.name}未安装行走机构或有的部件超过了上限`;
+    }
+    if (vehicle && moveType === 1) {
+      return `${playerName}当前驾驶的载具${vehicle.名称 || vehicle.name}只能使用“前往”来移动`;
+    }
+    if (vehicle && moveType === 4) {
+      return `${playerName}当前驾驶的载具${vehicle.名称 || vehicle.name}安装了无法移动的组件`;
+    }
+
+    const hasFox = [...(playerData.equipment || []), ...(playerData.weapons || [])]
+      .some((item: any) => String(item?.name ?? item?.名称 ?? '') === '狐');
+    let arrivalMap = targetMap;
+    let confused = false;
+    if (!vehicle && !hasFox && Math.random() < 0.1) {
+      const maps = typeof this.mapService.getAllMaps === 'function'
+        ? await this.mapService.getAllMaps()
+        : [];
+      const candidates = maps.filter((map: any) =>
+        map && map.id !== currentMap.id && Number(map.id) >= 3 && !map.noTeleport && !map.不可传送 && !map.isFrontier && !map.开拓地,
+      );
+      if (candidates.length > 0) {
+        arrivalMap = candidates[Math.floor(Math.random() * candidates.length)];
+        confused = arrivalMap.id !== targetMap.id;
+      }
+    }
+
+    const seconds = vehicle || hasFox ? 5 : 10;
+    const nextMarkers = this.playerService.safeJsonParse(player.markers, {});
+    nextMarkers['移动中'] = JSON.stringify({
+      targetName: arrivalMap.name,
+      targetMapId: arrivalMap.id,
+      arriveAt: Date.now() + seconds * 1000,
+      fromMapId: currentMap.id,
+      mode: '飞行',
+    });
+    player.markers = JSON.stringify(nextMarkers);
+    player.markers2 = JSON.stringify(markers2);
+    await this.playerService.savePlayer(player);
+    this.scheduleArrival(userId, arrivalMap.id, arrivalMap.name, seconds);
+
+    return confused
+      ? `${playerName}飞了起来，但是遇到了混乱气流……`
+      : `${playerName}飞了起来……`;
+  }
+
+  /** 查找玩家当前驾驶或接管的载具，避免把其他地图的载具当成当前载具。 */
+  private async findTravelVehicle(player: any, currentMap: any): Promise<any | null> {
+    const sets = this.parseVehicleValue<any>(player?.sets, {});
+    const key = String(player?.vehicle || sets?.takeVehicle || sets?.接管载具 || '');
+    if (!key) return null;
+    const vehicles = this.parseVehicleValue<any[]>(currentMap?.vehicles, []);
+    const keys = (value: any): string[] => [
+      value?.编号, value?.vehicleId, value?.id, value?.名称, value?.name,
+    ].filter((value) => value !== undefined && value !== null && String(value) !== '').map(String);
+    const local = vehicles.find((value: any) => keys(value).includes(key));
+    if (local) return this.toRuntimeVehicle(local);
+
+    const gameVehicle: any = (this.prisma as any).gameVehicle;
+    if (!gameVehicle) return null;
+    const numericId = Number(key);
+    let vehicle = Number.isInteger(numericId) && numericId > 0
+      ? await gameVehicle.findUnique?.({ where: { id: numericId } })
+      : null;
+    if (!vehicle && gameVehicle.findFirst) {
+      vehicle = await gameVehicle.findFirst({ where: { OR: [{ vehicleId: key }, { name: key }] } });
+    }
+    if (!vehicle) return null;
+    if (Number(vehicle.mapIndex || 0) && Number(vehicle.mapIndex) !== Number(currentMap.id)) return null;
+    return this.toRuntimeVehicle(vehicle);
+  }
+
+  /**
    * 调度延时到达
    * 在 travelTime 秒后调用 performArrival 真正完成移动
    * @param userId 用户ID
@@ -247,7 +448,12 @@ export class GameService {
    * @param targetMapId 目标地图ID
    * @param targetMapName 目标地图名
    */
-  private async performArrival(userId: number, targetMapId: number, targetMapName: string): Promise<string> {
+  private async performArrival(
+    userId: number,
+    targetMapId: number,
+    targetMapName: string,
+    options: { skipMapRefresh?: boolean } = {},
+  ): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
@@ -256,8 +462,16 @@ export class GameService {
       return `目标地图「${targetMapName}」不存在`;
     }
 
+    // 定时器、服务重启补偿和内部到达命令可能同时触发；同一目标已经落地时不重复推进任务。
+    const currentMarkers = this.playerService.safeJsonParse(player.markers, {});
+    const pending = this.playerService.safeJsonParse<any>(currentMarkers['移动中'], null);
+    if (Number(player.mapId) === Number(targetMap.id)
+      && (!pending || Number(pending.targetMapId) !== Number(targetMap.id))) {
+      return `你已经在【${targetMap.name}】`;
+    }
+
     // 清除"移动中"状态
-    const markers = this.playerService.safeJsonParse(player.markers, {});
+    const markers = currentMarkers;
     delete markers['移动中'];
     player.markers = JSON.stringify(markers);
 
@@ -266,16 +480,20 @@ export class GameService {
     player.location = targetMap.name;
     // 进入地图时自动获得地图增益
     await this.combatSystem.applyMapBuffs(player, targetMap);
+    await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, `前往${targetMap.name}`);
 
     // 懒刷新：若目标地图当前没有已生成的怪物，立即补充刷新，避免到达后无怪可打
-    try {
-      const currentSpawn = await this.mapService.getMapMonsters(targetMap);
-      if (currentSpawn.length === 0) {
-        await this.mapService.refreshMapMonsters(targetMap.id);
-        this.logger.log(`玩家 ${userId} 到达「${targetMap.name}」时触发懒刷新怪物`);
+    if (!options.skipMapRefresh) {
+      try {
+        const currentSpawn = await this.mapService.getMapMonsters(targetMap);
+        if (currentSpawn.length === 0) {
+          await this.mapService.refreshMapMonsters(targetMap.id);
+          this.logger.log(`玩家 ${userId} 到达「${targetMap.name}」时触发懒刷新怪物`);
+        }
+      } catch (e: any) {
+        this.logger.warn(`到达地图懒刷新怪物失败: ${e?.message}`);
       }
-    } catch (e: any) {
-      this.logger.warn(`到达地图懒刷新怪物失败: ${e?.message}`);
     }
 
     // 探索成就：记录玩家首次到达的地图
@@ -522,6 +740,7 @@ export class GameService {
    * 处理查看信息命令
    */
   async handleInfo(userId: number): Promise<string> {
+    await this.taskService.ensureTutorialTasks(userId);
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, tasks } = playerData;
 
@@ -565,46 +784,6 @@ export class GameService {
       lines.push('━━━━━━━━━━━━━━━');
       // 为新玩家生成编号快捷操作（临时输入替换，发数字即可触发）
       await this.shortcutService.setTempInput(userId, '1@观察附近#2@背包#3@攻击#4@使魔大战#5@帮助');
-    }
-
-    // 检查并自动发放新手教程任务（基于 markers 中的 教程 标记）
-    // 教程 < 2：自动发放"新手教程"任务
-    // 教程 < 3：自动发放"进阶教程"任务
-    const tutorialValue = markers['教程'] || 0;
-    let hasNewTutorialQuest = false;
-    let hasAdvancedTutorialQuest = false;
-
-    if (tutorialValue < 2) {
-      // 检查是否已接取"新手教程"任务
-      if (!tasks.some((t: any) => t.name === '新手教程')) {
-        tasks.push({
-          name: '新手教程',
-          status: '进行中',
-          progress: '欢迎来到使魔大战的世界！为了让你快速上手，我们为你准备了一系列新手任务。首先，查看你的背包，了解你拥有的物品。',
-        });
-        hasNewTutorialQuest = true;
-      }
-    }
-
-    if (tutorialValue < 3) {
-      // 检查是否已接取"进阶教程"任务
-      if (!tasks.some((t: any) => t.name === '进阶教程')) {
-        tasks.push({
-          name: '进阶教程',
-          status: '进行中',
-          progress: '你已经掌握了基本操作，现在来了解更多游戏内容吧！尝试与NPC对话、探索地图、捕捉使魔。',
-        });
-        hasAdvancedTutorialQuest = true;
-      }
-    }
-
-    // 更新教程标记（防止重复发放）
-    if (hasNewTutorialQuest || hasAdvancedTutorialQuest) {
-      const newTutorialValue = Math.max(tutorialValue, hasNewTutorialQuest ? 2 : 0, hasAdvancedTutorialQuest ? 3 : 0);
-      markers['教程'] = newTutorialValue;
-      player.tasks = tasks;
-      player.markers = JSON.stringify(markers);
-      await this.playerService.savePlayer(player);
     }
 
     // 显示计算后的属性：攻击/生命/护盾/装甲/速度均来自 _计算玩家 成长公式（含等级成长）
@@ -747,8 +926,8 @@ export class GameService {
   /**
    * 处理使用物品命令
    */
-  async handleUseItem(userId: number, itemName: string): Promise<string> {
-    return this.itemService.useItem(userId, itemName);
+  async handleUseItem(userId: number, itemName: string, count = 1): Promise<string> {
+    return this.itemService.useItem(userId, itemName, count);
   }
 
   /**
@@ -759,10 +938,17 @@ export class GameService {
     const { player } = playerData;
     const items = this.playerService.getBackpackItems(player);
 
-    const index = items.findIndex((item: any) => item.name === itemName);
-    if (index === -1) return `背包中没有【${itemName}】`;
+    const normalizedName = String(itemName || '').trim();
+    const numericIndex = /^\d+$/.test(normalizedName)
+      ? Number(normalizedName) - 1
+      : -1;
+    const index = numericIndex >= 0
+      ? numericIndex
+      : items.findIndex((item: any) => item.name === normalizedName);
+    if (index < 0 || index >= items.length) return `背包中没有【${itemName}】`;
 
-    return this.itemService.equipItem(userId, index);
+    // ItemService 使用 1-based 背包编号；这里的数组下标是 0-based。
+    return this.itemService.equipItem(userId, index + 1);
   }
 
   /**
@@ -807,15 +993,70 @@ export class GameService {
 
   /**
    * 处理救助命令
-   * 当玩家倒地时，允许其自救回到正常状态
+   * 对应原版：救助 命令（救起倒地使魔，或维修使魔的载具）
    */
   async handleRescue(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    if (!this.playerService.isPlayerDead(player)) {
-      return '你还活着，不需要救助';
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name || '冒险者'}当前不在有效地图中`;
+
+    const markers2 = this.parseRescueMarkers(player.markers2 ?? playerData.markers2);
+    const active = this.getActiveRescueMarker(markers2);
+    if (active) {
+      return `${player.name || '冒险者'}正在${this.rescueActionText(active.rescueType)}，还需要${this.remainingRescueSeconds(active)}秒`;
     }
-    return this.playerService.handlePlayerDeath(userId, player);
+
+    const summons = this.parseRescueArray(map.summons);
+    const deadSummonIndex = summons.findIndex((summon: any) => {
+      const maxHp = this.rescueMaxHp(summon);
+      return maxHp > 0 && this.rescueHp(summon) <= 0;
+    });
+
+    if (deadSummonIndex >= 0) {
+      const summon = summons[deadSummonIndex];
+      const position = deadSummonIndex + 1;
+      let seconds = 30;
+      // 原版军姬2：宠物越靠前救助越快，最低3秒。
+      if (Number(player.specialSeq) === 24 || player.type === '军姬2') {
+        seconds = Math.max(3, 30 * (1 - (2 / position) * 0.9));
+      }
+
+      const marker = this.createRescueMarker('familiar', seconds, {
+        mapId: map.id,
+        summonId: this.rescueUnitId(summon),
+      });
+      markers2.push(marker);
+      player.markers2 = JSON.stringify(markers2);
+      await this.playerService.savePlayer(player);
+      await this.taskService.advance(userId, '救助');
+      this.scheduleRescueCompletion(userId, marker);
+
+      const summonName = this.rescueUnitName(summon);
+      return `${player.name || '冒险者'}正在抢救${summonName}，需要${this.formatRescueSeconds(seconds)}秒`;
+    }
+
+    const vehicles = this.parseRescueArray(map.vehicles);
+    const damagedVehicleIds = new Set<string>();
+    for (const summon of summons) {
+      const vehicleKey = this.rescueVehicleKey(summon);
+      if (!vehicleKey) continue;
+      const vehicle = vehicles.find((candidate: any) => this.rescueVehicleKeys(candidate).has(vehicleKey));
+      if (!vehicle || !this.isDamagedRescueVehicle(vehicle)) continue;
+      damagedVehicleIds.add(vehicleKey);
+    }
+
+    if (damagedVehicleIds.size === 0) {
+      return `${player.name || '冒险者'}，这里还没有需要抢救的宠物`;
+    }
+
+    const marker = this.createRescueMarker('vehicle', 30, { mapId: map.id });
+    markers2.push(marker);
+    player.markers2 = JSON.stringify(markers2);
+    await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '救助');
+    this.scheduleRescueCompletion(userId, marker);
+    return `${player.name || '冒险者'}正在帮助宠物维修载具中，需要30秒`;
   }
 
   /**
@@ -826,7 +1067,7 @@ export class GameService {
   async handleTalk(userId: number, npcName: string): Promise<string> {
     // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers, tasks } = playerData;
+    const { player, markers } = playerData;
 
     // 特殊NPC剧情映射（新手流程固定NPC，不依赖地图数据）
     // 原版中这些NPC由"生成人物"指令动态生成，地图 npcs 字段可能为空，
@@ -837,7 +1078,7 @@ export class GameService {
         dialogs: {
           'hello': '你好呀，新人！我是新手引导员小薇，欢迎来到使魔大战的世界！\n\n你从出生点醒来，先打开背包看看身上的物资吧，\n再和我聊聊，了解一下这个世界。',
           'intro': '这个世界的怪物可不是好惹的，先从背包里拿出你的石斧吧！\n\n💡 使用「装备 石斧」来装备武器\n💡 使用「攻击」来试试身手\n💡 使用「背包」查看你拥有的物品',
-          'quest': '等你准备好了，我有个任务要交给你。\n任务我已经帮你接好了，先看看任务列表吧。\n\n使用「查看任务」查看任务详情，\n完成后用「提交任务 新手教程」提交即可！',
+          'quest': '等你准备好了，我有个任务要交给你。\n任务我已经帮你接好了，先看看任务列表吧。\n\n使用「查看任务」查看任务详情，完成要求后奖励会自动发放。',
           'done': '你已经学会了基本操作，去探索更广阔的世界吧！\n\n记住：\n  - 使用「移动 地图名」前往新区域\n  - 使用「对话 NPC名」与NPC交谈\n  - 遇到困难可以「求助」其他玩家',
         }
       },
@@ -996,24 +1237,6 @@ export class GameService {
         const dialogText = specialNpc.dialogs[dialogPhase] || specialNpc.dialogs['hello'];
         dialogLines.push(dialogText);
 
-        // 引导对话进入"完成"阶段后，自动将新手教程/进阶教程任务标记为已完成
-        // 这两类教程任务 requirements 为空，无法通过行为触发完成，
-        // 因此随引导对话进度联动标记，玩家随后可用「提交任务」清空任务列表
-        if (dialogPhase === 'done') {
-          let tutorialDone = false;
-          for (const t of tasks) {
-            if ((t.name === '新手教程' || t.name === '进阶教程') && t.status !== '已完成') {
-              t.status = '已完成';
-              t.progress = '已按引导完成全部步骤';
-              tutorialDone = true;
-            }
-          }
-          if (tutorialDone) {
-            player.tasks = tasks;
-            await this.playerService.savePlayer(player);
-          }
-        }
-
         // 更新与该NPC的对话进度
         markers[`对话_${npcName}`] = (talkProgress + 1);
         player.markers = JSON.stringify(markers);
@@ -1084,16 +1307,14 @@ export class GameService {
       dialogLines.push(`${targetNpc.description}`);
     }
 
-    // 检查是否有可领取的任务（通过 NPC 配置关联）
+    // 检查是否有可领取的任务（通过当前 NPC/召唤物任务池关联）
     try {
-      const gameNpc = this.staticData.getNpcByName(npcName);
-      if (gameNpc && gameNpc.taskId) {
-        // 检查玩家是否已接取该任务
-        const tasks = playerData.tasks;
-        const hasTask = tasks.some((t: any) => t.name === gameNpc.taskId);
-        if (!hasTask) {
+      const source = this.getQuestSources([targetNpc])[0];
+      if (source) {
+        const available = await this.taskService.getAvailableTasks(userId, source.taskNames, source.publisher);
+        if (available.length > 0) {
           dialogLines.push(`━━━━━━━━━━━━━━━`);
-          dialogLines.push(`💡 ${npcName} 似乎有任务要交给你，试试「领取任务 ${gameNpc.taskId}」`);
+          dialogLines.push(`💡 ${npcName} 似乎有任务要交给你，试试「领取任务」查看任务池`);
         }
       }
     } catch {
@@ -1209,30 +1430,14 @@ export class GameService {
       return `目标地图「${targetName}」不存在`;
     }
 
-    // 记录前往成就
-    try {
-      const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-      const travelKey = tasks.find((t: any) => t.name === `前往${targetName}`);
-      if (travelKey) {
-        travelKey.count = (travelKey.count || 0) + 1;
-      } else {
-        tasks.push({ name: `前往${targetName}`, count: 1 });
-      }
-      player.tasks = JSON.stringify(tasks);
-    } catch {
-      // 任务记录失败不阻塞移动
-    }
-
-    // 执行移动
-    const fromMapId = player.mapId;
-    // 清除"移动中"状态，避免与延时移动逻辑冲突
+    // 统一走普通移动/飞行共用的到达结算，确保地图增益、懒刷新、探索和任务只处理一次。
     const arriveMarkers = this.playerService.safeJsonParse(player.markers, {});
-    delete arriveMarkers['移动中'];
-    player.mapId = targetMap.id;
-    player.location = targetMap.name;
-    player.markers = JSON.stringify(arriveMarkers);
-    // 进入地图自动获得地图增益
-    await this.combatSystem.applyMapBuffs(player, targetMap);
+    const pending = this.playerService.safeJsonParse<any>(arriveMarkers['移动中'], null);
+    if (player.mapId === targetMap.id && !pending) {
+      return `你已经在【${targetMap.name}】`;
+    }
+    const arrivalResult = await this.performArrival(userId, targetMap.id, targetMap.name, { skipMapRefresh: true });
+    if (!arrivalResult || /不存在/.test(arrivalResult)) return arrivalResult;
 
     // 四圣祭坛特殊逻辑：四个祭坛都清理后刷出麒麟
     if (targetMap.name === '四圣祭坛') {
@@ -1271,9 +1476,7 @@ export class GameService {
       }
     }
 
-    this.logger.log(`玩家 ${userId} 延时移动：${fromMapId} → ${targetMap.name}`);
-    const desc = targetMap.description ? `\n${targetMap.description}` : '';
-    return `你来到了【${targetMap.name}】${desc}`;
+    return arrivalResult;
   }
 
   /**
@@ -1540,6 +1743,11 @@ export class GameService {
     player.markers2 = JSON.stringify(updatedMarkers2);
     await this.playerService.savePlayer(player);
 
+    // 原版“采集资源”在有跟随者协助时会把实际采集次数减一记为“奴役”。
+    // 当前资源点一次结算的 amount 就是实际采集次数，保留首轮为0的原版边界。
+    const enslaved = Math.max(0, Math.floor(amount) - 1);
+    if (enslaved > 0) await this.taskService.advance(userId, '奴役', enslaved);
+
     this.logger.log(`玩家 ${userId} 开采了 ${resourceName} ×${amount}`);
 
     const respawnMin = Math.ceil(respawnTime / 60000);
@@ -1561,8 +1769,12 @@ export class GameService {
       if (!player) return false;
       const map = await this.mapService.getMapById(player.mapId);
       if (!map) return false;
-      const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
-      return resources.some((r) => r.gatherCmd === cmdName);
+      const resources = this.getGatherResources(map);
+      const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+      const parsed = this.parseGatherCommand(cmdName);
+      return resources.some((r) => r.gatherCmd === parsed.name
+        && this.getResourceTimes(r) !== 0
+        && this.isGatherResourceAvailable(r, markers));
     } catch {
       return false;
     }
@@ -1579,7 +1791,7 @@ export class GameService {
    * @param cmdName 采集指令名（如 打开箱子/打开休眠仓/收集物品/捡垃圾）
    * @returns 采集结果文本；未命中任何资源时返回空字符串
    */
-  async handleGatherResource(userId: number, cmdName: string): Promise<string> {
+  async handleGatherResource(userId: number, cmdName: string, requestedCount?: number): Promise<string> {
     if (!cmdName) return '';
 
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1588,11 +1800,18 @@ export class GameService {
     if (!map) return '';
 
     // 解析地图固定资源列表
-    const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
-    const target = resources.find((r: any) => r.gatherCmd === cmdName);
+    const resources = this.getGatherResources(map);
+    const resourceField = this.getGatherResourceField(map);
+    const parsedCommand = this.parseGatherCommand(cmdName);
+    const gatherName = parsedCommand.name;
+    const count = Math.max(1, Math.floor(Number.isFinite(requestedCount) ? requestedCount as number : parsedCommand.count));
+    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const target = resources.find((r: any) => r.gatherCmd === gatherName
+      && this.getResourceTimes(r) !== 0
+      && this.isGatherResourceAvailable(r, markers));
     if (!target) return '';
 
-    // 检查采集冷却（通过 markers2 管理）
+    // 次数=-1 是原版的无限资源，不是冷却资源；只有显式的运行时冷却标记才拦截。
     const cooldownKey = `gather_${map.id}_${target.name}`;
     const now = Date.now();
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
@@ -1601,9 +1820,9 @@ export class GameService {
       return `【${target.name}】还需要 ${Math.ceil((cooldownEntry.expireTime - now) / 1000)} 秒才能再次采集`;
     }
 
-    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
     const gained: string[] = [];
     let specialText = '';
+    const backpack = this.playerService.getBackpackItems(player);
 
     // 特殊资源：休眠仓 → 首次打开触发「召唤白」剧情
     if (target.name === '休眠仓' || target.proxySpeak === '召唤1白1') {
@@ -1611,7 +1830,6 @@ export class GameService {
         // 对应原版 _主程序.ecode L9777~L9795：设置标记「召唤白」
         markers['召唤白'] = 1;
         player.markers = JSON.stringify(markers);
-        delete player.backpack; // 防止 savePlayer 用旧背包数据覆盖数据库
         await this.playerService.savePlayer(player);
         specialText = '这里是哪里？\n(随着休眠仓被打开，锁着的门似乎也跟着一起解开了)';
         this.logger.log(`玩家 ${userId} 唤醒了白`);
@@ -1620,43 +1838,190 @@ export class GameService {
       }
     }
 
-    // 发放资源产出（对应原版：物品.名称 = 产出[b].名称, 物品.数量 = 产出[b].数量）
-    // 注意：map.resources 从 JSON 字符串解析后，outputs 字段已经是 JS 数组，无需再次 JSON.parse
-    const outputs = Array.isArray(target.outputs) ? target.outputs : this.playerService.safeJsonParse<any[]>(target.outputs, []);
+    const actualGatherCount = this.getGatherCount(target, count);
+    const dropRate = this.getGatherDropRate(playerData);
+    const outputs = this.parseResourceOutputs(target.outputs);
+    const awarded = new Map<string, number>();
+    const awardedEquipment = new Map<string, number>();
     for (const out of outputs) {
-      if (!out.name) continue;
-      // JSON 格式中 name 和 count 已分离，直接使用 count 字段作为数量
-      const itemName = String(out.name);
-      const outCount = Math.abs(Number(out.count)) || 1;
-      if (itemName === '电力') continue; // 电力是产出速率类，不直接入包
-      await this.playerService.addToBackpack(userId, itemName, outCount);
-      gained.push(`${itemName}×${outCount}`);
+      if (!out.name || out.name === '电力') continue;
+      const chance = Number(out.chance);
+      for (let i = 0; i < actualGatherCount; i++) {
+        if (Number.isFinite(chance) && chance >= 0 && Math.random() * 100 >= chance * dropRate) continue;
+        const parsed = this.parseResourceOutputName(out.name, Number(out.count));
+        if (!parsed.name) continue;
+        const itemType = this.staticData.getEquipmentByName(parsed.name) ? '装备' : '资源';
+        if (itemType === '装备') {
+          const quality = parsed.quality || '';
+          const equipment = await this.itemSystemService.generateRewardEquipment(parsed.name, quality);
+          backpack.push({ ...equipment, type: '装备', quantity: 1, count: 1 });
+          awardedEquipment.set(parsed.name, (awardedEquipment.get(parsed.name) || 0) + 1);
+        } else {
+          const amount = parsed.count > 0
+            ? parsed.count * this.getGatherMultiplier(playerData)
+            : Math.abs(parsed.count);
+          if (amount > 0) awarded.set(parsed.name, (awarded.get(parsed.name) || 0) + amount);
+        }
+      }
     }
-    // addToBackpack 已直接写入数据库，删除 player.backpack 防止后续 savePlayer 用旧数据覆盖
-    delete player.backpack;
+    for (const [itemName, amount] of awarded) {
+      const existing = backpack.find((item: any) => item?.name === itemName && item?.type !== '装备');
+      if (existing) {
+        const next = Number(existing.count ?? existing.quantity ?? 0) + amount;
+        existing.count = next;
+        existing.quantity = next;
+      } else {
+        backpack.push({ name: itemName, type: '资源', count: amount, quantity: amount });
+      }
+      gained.push(`${itemName}×${this.formatGatherNumber(amount)}`);
+    }
+    for (const [itemName, amount] of awardedEquipment) gained.push(`${itemName}×${amount}`);
+    player.backpack = JSON.stringify(backpack);
 
-    // 限次资源（times>0）：扣减次数，用尽后从地图移除
-    if (target.times && target.times > 0) {
-      target.times -= 1;
+    // 原版采集成功后会把资源自身的“标记”写入玩家永久标记，
+    // 例如医疗箱、休眠仓和散落的物品每个玩家只能领取一次。
+    const resourceMarker = String(target.marker ?? target.标记 ?? '').trim();
+    if (resourceMarker && actualGatherCount > 0) {
+      markers[resourceMarker] = Number(markers[resourceMarker] ?? 0) + 1;
+      player.markers = JSON.stringify(markers);
+    }
+
+    // 限次资源：按原版实际采集次数扣减，用尽后刷新或移除。
+    const resourceTimes = this.getResourceTimes(target);
+    if (resourceTimes > 0) {
+      target.times = resourceTimes - actualGatherCount;
       if (target.times <= 0) {
         const idx = resources.findIndex((r: any) => r.name === target.name);
         if (idx >= 0) resources.splice(idx, 1);
       }
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { resources: JSON.stringify(resources) },
-      });
-    } else {
-      // 可再生资源：设置冷却（默认5分钟，可由 timeScale 放大）
-      const respawnSec = (target.timeScale && target.timeScale > 0 ? target.timeScale : 1) * 300;
-      const updatedMarkers2 = markers2.filter((m: any) => m.key !== cooldownKey);
-      updatedMarkers2.push({ key: cooldownKey, expireTime: now + respawnSec * 1000 });
-      player.markers2 = JSON.stringify(updatedMarkers2);
-      await this.playerService.savePlayer(player);
+      const mapData: Record<string, string> = {
+        [resourceField]: JSON.stringify(resources),
+      };
+      // 原版“次数归零”会添加“刷新资源<名称>”地图标记，后台刷新任务按该标记恢复资源。
+      if (target.times <= 0 && target.renewable !== false) {
+        const mapMarkers2 = this.playerService.safeJsonParse<any[]>(map.markers2, []);
+        const refreshedMarkers2 = mapMarkers2.filter((entry: any) =>
+          (entry?.name ?? entry?.名称) !== `刷新资源${target.name}`,
+        );
+        refreshedMarkers2.push({
+          name: `刷新资源${target.name}`,
+          expireAt: now + 1800 * 1000,
+          resourceField,
+        });
+        mapData.markers2 = JSON.stringify(refreshedMarkers2);
+      }
+      await this.prisma.gameMap.update({ where: { id: map.id }, data: mapData });
+    }
+    await this.playerService.savePlayer(player);
+
+    // 任务按原版“实际采集次数”和“实际产出数量”分别推进。
+    if (actualGatherCount > 0) {
+      await this.taskService.advance(userId, '采集', actualGatherCount);
+      await this.taskService.advance(userId, gatherName, actualGatherCount);
+      await this.taskService.advance(userId, '奴役', Math.max(0, actualGatherCount - 1));
+    }
+    for (const [itemName, amount] of awarded) {
+      await this.taskService.advance(userId, '采集资源', amount);
+      await this.taskService.advance(userId, `采集${itemName}`, amount);
+    }
+    for (const [itemName, amount] of awardedEquipment) {
+      await this.taskService.advance(userId, '获得装备', amount);
+      await this.taskService.advance(userId, `获得${itemName}`, amount);
     }
 
     const gatherText = gained.length > 0 ? `采集了 ${target.name}，获得: ${gained.join('、')}` : `采集了 ${target.name}`;
     return specialText ? `${specialText}\n${gatherText}` : gatherText;
+  }
+
+  /** 兼容新格式与早期错误导出的 resources JSON。 */
+  private parseResourceOutputs(value: any): any[] {
+    const outputs = Array.isArray(value)
+      ? value
+      : this.playerService.safeJsonParse<any[]>(value, []);
+    if (!Array.isArray(outputs)) return [];
+    return outputs.map((output: any) => {
+      if (!output || typeof output !== 'object') return output;
+
+      // 早期导出把“木头3，100”写成 {name:"木头3", count:100}。
+      // 名称末尾数字是数量，旧 count 才是概率；没有紧凑数量时概率默认100%。
+      const rawName = String(output.name ?? output.名称 ?? '').trim();
+      const rawCount = Number(output.count ?? output.quantity ?? output.数量 ?? 0);
+      const hasChance = output.chance !== undefined || output.几率 !== undefined;
+      const compact = rawName.replace(/[edcbasx]$/i, '').match(/-?\d+(?:\.\d+)?$/);
+      return {
+        ...output,
+        name: rawName,
+        count: Number.isFinite(rawCount) ? rawCount : 0,
+        chance: hasChance
+          ? Number(output.chance ?? output.几率 ?? 0)
+          : (compact ? rawCount : 100),
+      };
+    });
+  }
+
+  private getGatherResources(map: any): any[] {
+    const resources = this.playerService.safeJsonParse<any[]>(map?.resources, []);
+    if (resources.length > 0) return resources;
+    return this.playerService.safeJsonParse<any[]>(map?.resources2, []);
+  }
+
+  private getGatherResourceField(map: any): 'resources' | 'resources2' {
+    const resources = this.playerService.safeJsonParse<any[]>(map?.resources, []);
+    return resources.length > 0 ? 'resources' : 'resources2';
+  }
+
+  private isGatherResourceAvailable(resource: any, markers: Record<string, any>): boolean {
+    const marker = String(resource?.marker ?? resource?.标记 ?? '').trim();
+    if (!marker) return true;
+    return Number(markers[marker] ?? 0) < 1;
+  }
+
+  private parseResourceOutputName(rawName: any, rawCount: number): { name: string; count: number; quality: string } {
+    const source = String(rawName ?? '').trim();
+    const qualityMatch = source.match(/^(.*?)([edcbasx])$/i);
+    const quality = qualityMatch ? qualityMatch[2].toLowerCase() : '';
+    const withoutQuality = qualityMatch ? qualityMatch[1] : source;
+    const compact = withoutQuality.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
+    if (!compact) return { name: withoutQuality, count: quality ? 0 : Number(rawCount) || 0, quality };
+    return {
+      name: compact[1].trim(),
+      // 旧 JSON 把概率写进 count；只要名称仍带紧凑数量，就以名称中的数量为准。
+      count: Number(compact[2]),
+      quality,
+    };
+  }
+
+  private getResourceTimes(resource: any): number {
+    const value = Number(resource?.times ?? resource?.次数 ?? -1);
+    return Number.isFinite(value) ? value : -1;
+  }
+
+  private getGatherCount(resource: any, requestedCount: number): number {
+    const base = this.getResourceTimes(resource);
+    const count = Math.max(1, Math.floor(Number.isFinite(requestedCount) ? requestedCount : 1));
+    if (base === 0) return 0;
+    return base > 0 ? Math.min(base, count) : Math.min(Math.abs(base), count);
+  }
+
+  private parseGatherCommand(value: string): { name: string; count: number } {
+    const input = String(value || '').trim();
+    const match = input.match(/^(.*?)(\d+)$/);
+    if (!match) return { name: input, count: 1 };
+    return { name: match[1].trim(), count: Math.max(1, Number(match[2])) };
+  }
+
+  private getGatherMultiplier(playerData: any): number {
+    const bonus = this.combatSystem.buildAttackerBonus(playerData.player, playerData);
+    return Math.max(0, Number(bonus.采集 || 100) / 100);
+  }
+
+  private getGatherDropRate(playerData: any): number {
+    const bonus = this.combatSystem.buildAttackerBonus(playerData.player, playerData);
+    return Math.max(0, 1 + Number(bonus.掉落率 || 0) / 100);
+  }
+
+  private formatGatherNumber(value: number): string {
+    return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
   }
 
   /**
@@ -1772,155 +2137,150 @@ export class GameService {
    * 从当前地图的NPC处领取任务
    */
   async handleAcceptQuest(userId: number, questName?: string): Promise<string> {
-    // 1. 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, tasks } = playerData;
-
-    // 获取当前地图
+    const { player } = playerData;
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 解析地图NPC列表
     const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const units = [...npcs, ...summons];
+    const sources = this.getQuestSources(units);
 
-    // 2. 如果没有指定任务名，显示当前地图可接任务列表
     if (!questName) {
-      // 查找当前地图NPC发布的任务（静态配置 JSON 单一来源）
-      const availableTasks = this.staticData
-        .getAllTasks()
-        .filter((t) => npcs.map((n: any) => n.name).includes(t.publisher));
+      const available: Array<{ task: any; publisher?: string; npcName: string }> = [];
+      for (const source of sources) {
+        const tasks = await this.taskService.getAvailableTasks(userId, source.taskNames, source.publisher);
+        for (const task of tasks) {
+          if (!available.some((item) => item.task.name === task.name)) {
+            available.push({ task, publisher: source.publisher, npcName: source.npcName });
+          }
+        }
+      }
 
-      if (availableTasks.length === 0) {
+      if (available.length === 0) {
         return '当前地图没有可领取的任务';
       }
 
       const lines = [`📋 【${map.name}】可领取任务:`];
-      // 编号快捷领取选项：仅对未接取的任务生成，发送编号数字即可一键领取
       const options: { label: string; cmd: string }[] = [];
-      for (const task of availableTasks) {
-        const alreadyAccepted = tasks.some((t: any) => t.name === task.name);
-        lines.push(`  ${task.name}${alreadyAccepted ? ' [已接取]' : ''}`);
-        lines.push(`    等级要求: ${task.level}`);
-        lines.push(`    发布人: ${task.publisher || '未知'}`);
-        if (task.description) lines.push(`    ${task.description}`);
-        if (!alreadyAccepted) {
-          options.push({ label: `领取任务 ${task.name}`, cmd: `领取任务 ${task.name}` });
-        }
+      for (const item of available) {
+        lines.push(`  ${item.task.name}`);
+        lines.push(`    发布人: ${item.npcName}`);
+        lines.push(`    等级要求: ${item.task.level || 1}`);
+        if (item.task.description) lines.push(`    ${item.task.description}`);
+        options.push({ label: `领取任务 ${item.task.name}`, cmd: `领取任务 ${item.task.name}` });
       }
       lines.push(``);
       const menuLines = await this.buildNumberedMenu(userId, options, '💡 发送编号数字(如 1)即可领取对应任务');
-      if (menuLines.length === 0) {
-        lines.push(`使用「领取任务 任务名」领取任务`);
-      } else {
-        lines.push(...menuLines);
-      }
+      lines.push(...(menuLines.length > 0 ? menuLines : [`使用「领取任务 任务名」领取任务`]));
       return lines.join('\n');
     }
 
-    // 3. 从 GameTask 表查找任务
-    const gameTask = this.staticData.getTaskByName(questName);
-    if (!gameTask) {
-      return `不存在【${questName}】任务`;
-    }
-
-    // 4. 检查任务等级要求
-    if ((player.level || 1) < gameTask.level) {
-      return `等级不足，需要 ${gameTask.level} 级才能领取【${questName}】任务（当前 ${player.level} 级）`;
-    }
-
-    // 5. 检查任务是否已经接取
-    if (tasks.some((t: any) => t.name === questName)) {
-      return `你已经接取了【${questName}】任务`;
-    }
-
-    // 6. 检查任务前置条件（restrictMarkers）
-    const restrictMarkers = this.playerService.safeJsonParse<string[]>(gameTask.restrictMarkers, []);
-    const markers = playerData.markers;
-    for (const marker of restrictMarkers) {
-      if (!this.playerService.hasMarker(markers, marker)) {
-        return `不满足前置条件：需要【${marker}】标记`;
+    let source = sources.find((item) => item.taskNames.includes(questName));
+    if (!source) {
+      const npc = units.find((item: any) => this.questUnitName(item) === questName || item?.type === questName);
+      if (npc) {
+        const candidate = this.getQuestSources([npc])[0];
+        if (candidate) {
+          const tasks = await this.taskService.getAvailableTasks(userId, candidate.taskNames, candidate.publisher);
+          if (tasks.length > 0) {
+            const selected = tasks[Math.floor(Math.random() * tasks.length)];
+            return this.taskService.acceptTask(userId, selected.name, candidate.publisher);
+          }
+          return `「${questName}」当前没有可领取的任务`;
+        }
       }
     }
 
-    // 7. 将任务添加到玩家的 tasks 字段
-    const newTask = {
-      name: questName,
-      status: '进行中',
-      progress: gameTask.description || '完成指定条件即可提交',
-    };
-    tasks.push(newTask);
-    player.tasks = tasks;
-    await this.playerService.savePlayer(player);
+    // 兼容没有 NPC 运行时对象的旧存档：明确输入任务名仍可接取静态任务。
+    const publisher = source?.publisher;
+    return this.taskService.acceptTask(userId, questName, publisher);
+  }
 
-    this.logger.log(`玩家 ${userId} 领取了任务【${questName}】`);
+  /**
+   * 将地图运行时单位映射为原版“对话列表”的任务池。
+   * 静态 NPC 配置使用 taskId，运行时召唤物同时兼容任务/任务池字段；
+   * publisher 保留 QQ/id，用于任务发布人互斥和好感奖励回写。
+   */
+  private getQuestSources(units: any[]): QuestSource[] {
+    const sources: QuestSource[] = [];
+    for (const unit of units || []) {
+      if (!unit || typeof unit !== 'object') continue;
 
-    // 8. 返回任务领取信息
-    return `✅ 领取任务成功！\n━━━━━━━━━━━━━━━\n【${questName}】\n${gameTask.description || '无描述'}\n━━━━━━━━━━━━━━━\n前往完成任务后，使用「提交任务 ${questName}」提交`;
+      const npcName = this.questUnitName(unit);
+      const type = String(unit.type ?? unit.类型 ?? '').trim();
+      const directTaskPool = unit.taskId ?? unit.taskID ?? unit.任务池 ?? unit.任务;
+      const configNames = [
+        String(unit.dialog ?? unit.对话 ?? '').trim(),
+        `${type}对话`,
+        `${npcName}对话`,
+        type,
+        npcName,
+      ].filter(Boolean);
+
+      let taskPool: any = directTaskPool;
+      let config: any;
+      for (const configName of configNames) {
+        config = this.staticData.getNpcByName(configName);
+        if (config) {
+          if (taskPool === undefined || taskPool === null || taskPool === '') {
+            taskPool = config.taskId ?? config.taskID ?? config.任务池 ?? config.任务;
+          }
+          break;
+        }
+      }
+
+      // 普通召唤物使用“通用对话”任务池；无主的特殊宠物/怪物不作为任务发布人。
+      const owner = String(unit.ownerQQ ?? unit.ownerId ?? unit.归属 ?? '');
+      const isOwnedSummon = owner !== '' && owner !== '1';
+      if ((taskPool === undefined || taskPool === null || taskPool === '') && isOwnedSummon) {
+        const generic = this.staticData.getNpcByName('通用对话');
+        taskPool = generic?.taskId ?? generic?.taskID ?? generic?.任务池 ?? generic?.任务;
+      }
+
+      const taskNames = this.splitQuestNames(taskPool)
+        .filter((name) => !!this.staticData.getTaskByName(name));
+      if (taskNames.length === 0) continue;
+
+      const publisherValue = unit.qq ?? unit.QQ ?? unit.id ?? unit.编号;
+      const publisher = publisherValue === undefined || publisherValue === null || publisherValue === ''
+        ? undefined
+        : String(publisherValue);
+      sources.push({ npcName: npcName || type || '未知对象', taskNames, publisher });
+    }
+    return sources;
+  }
+
+  private splitQuestNames(value: any): string[] {
+    const raw = Array.isArray(value)
+      ? value.flatMap((item) => typeof item === 'string' ? item : [item?.name ?? item?.名称 ?? ''])
+      : [value];
+    return [...new Set(raw
+      .flatMap((item) => String(item ?? '').split(/[，,、\n]+/))
+      .map((item) => item.trim())
+      .filter(Boolean))];
+  }
+
+  private questUnitName(unit: any): string {
+    return String(
+      unit?.name
+      ?? unit?.名称
+      ?? unit?.image
+      ?? unit?.图片
+      ?? unit?.title
+      ?? unit?.type
+      ?? unit?.类型
+      ?? '',
+    ).trim();
   }
 
   /**
    * 查看任务
    * 查看当前已接取的任务列表
    */
-  async handleViewQuests(userId: number): Promise<string> {
-    // 1. 获取玩家数据
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, tasks } = playerData;
-
-    // 2. 从 player.tasks 解析任务列表
-    if (tasks.length === 0) {
-      return '📋 你当前没有任何任务\n前往地图NPC处使用「领取任务」接取任务';
-    }
-
-    // 3. 显示每个任务的名称、进度、状态
-    const lines = [
-      `📋 【${player.name || '冒险者'}】任务列表 (${tasks.length}个)`,
-      `━━━━━━━━━━━━━━━`,
-    ];
-
-    for (const task of tasks) {
-      // 统一新格式：{ name, requirements: [{name,count}], completed? }
-      const isCompleted = task.completed === true
-        || (Array.isArray(task.requirements) && task.requirements.length === 0);
-      const statusIcon = isCompleted ? '✅' : '⏳';
-      lines.push(`${statusIcon} 【${task.name}】`);
-      lines.push(`  状态: ${isCompleted ? '已完成' : '进行中'}`);
-
-      // 展示每条要求的完成进度（已完成/总数）
-      if (Array.isArray(task.requirements) && task.requirements.length > 0) {
-        const gameTask = this.staticData.getTaskByName(task.name);
-        // 从任务定义中对齐每条要求的总数，用于计算"已完成的次数"
-        const totalReqs = gameTask
-          ? this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
-              gameTask.requirements, [],
-            )
-          : [];
-        for (const req of task.requirements) {
-          const totalReq = totalReqs.find(r => r.name === req.name);
-          const done = totalReq ? Math.max(totalReq.count - req.count, 0) : 0;
-          const total = totalReq ? totalReq.count : req.count;
-          lines.push(`    进度: ${req.name} ${done}/${total}`);
-        }
-      }
-    }
-
-    lines.push(``);
-    // 为已完成任务生成编号快捷提交选项（发送编号数字即可一键提交，无需手输任务名）
-    const completedTasks = tasks.filter((t: any) => {
-      const done = t.completed === true
-        || (Array.isArray(t.requirements) && t.requirements.length === 0);
-      return done && t.name;
-    });
-    const options = completedTasks.map((t: any) => ({ label: `提交任务 ${t.name}`, cmd: `提交任务 ${t.name}` }));
-    const menuLines = await this.buildNumberedMenu(userId, options, '💡 发送编号数字(如 1)即可提交对应已完成任务');
-    if (menuLines.length === 0) {
-      lines.push(`使用「提交任务 任务名」提交已完成的任务`);
-    } else {
-      lines.push(...menuLines);
-    }
-
-    // 4. 返回格式化任务列表
-    return lines.join('\n');
+  async handleViewQuests(userId: number, selector = ''): Promise<string> {
+    return this.taskService.listTasks(userId, selector);
   }
 
   /**
@@ -1928,89 +2288,8 @@ export class GameService {
    * 完成的任务进行提交，获得奖励
    */
   async handleCompleteQuest(userId: number, questName: string): Promise<string> {
-    // 1. 获取玩家数据
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, tasks } = playerData;
-
-    // 2. 从 player.tasks 查找任务
-    const taskIndex = tasks.findIndex((t: any) => t.name === questName);
-    if (taskIndex === -1) {
-      return `你当前没有接取【${questName}】任务`;
-    }
-
-    const task = tasks[taskIndex];
-
-    // 3. 检查任务是否完成
-    // 统一新格式：requirements 清空或 completed 标记即视为已完成
-    const isCompleted = task.completed === true
-      || (Array.isArray(task.requirements) && task.requirements.length === 0);
-    if (!isCompleted) {
-      // 未完成：展示剩余要求进度
-      const reqText = Array.isArray(task.requirements) && task.requirements.length > 0
-        ? task.requirements.map(r => `${r.name}(${r.count})`).join('，')
-        : '未知';
-      return `【${questName}】任务还未完成，请先完成任务再提交\n当前进度: ${reqText}`;
-    }
-
-    // 4. 从 GameTask 读取奖励配置
-    const gameTask = this.staticData.getTaskByName(questName);
-    if (!gameTask) {
-      // 任务已从数据库删除，但玩家任务列表中仍有
-      tasks.splice(taskIndex, 1);
-      player.tasks = tasks;
-      await this.playerService.savePlayer(player);
-      return `任务数据异常，已从任务列表中移除【${questName}】`;
-    }
-
-    // 5. 发放奖励（经验、物品、好感度等）
-    // 奖励统一为 {name, count} 对象格式（与 tasks.json 一致）
-    const rewards = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(gameTask.rewards, []);
-    const rewardLines: string[] = [];
-    const expRewards: number[] = [];
-
-    for (const reward of rewards) {
-      const rewardName = (reward?.name || '').trim();
-      const rewardValue = Number(reward?.count) || 0;
-      if (!rewardName || rewardValue <= 0) continue;
-
-      if (rewardName === '经验') {
-        // 经验奖励，汇总后统一发放
-        expRewards.push(rewardValue);
-        rewardLines.push(`经验 +${rewardValue}`);
-      } else if (rewardName === '好感') {
-        // 好感度奖励
-        player.affinity = (player.affinity || 0) + rewardValue;
-        rewardLines.push(`好感度 +${rewardValue}`);
-      } else {
-        // 物品奖励
-        const added = await this.playerService.addToBackpack(userId, rewardName, rewardValue);
-        if (added) {
-          rewardLines.push(`${rewardName} ×${rewardValue}`);
-        }
-      }
-    }
-
-    // 发放经验奖励
-    for (const exp of expRewards) {
-      await this.playerService.addExp(userId, exp);
-    }
-
-    // 6. 从玩家任务列表中移除
-    tasks.splice(taskIndex, 1);
-    player.tasks = tasks;
-    await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 提交了任务【${questName}】，获得奖励: ${rewardLines.join(', ')}`);
-
-    // 7. 返回任务完成信息
-    return [
-      `✅ 任务完成！`,
-      `━━━━━━━━━━━━━━━`,
-      `【${questName}】`,
-      `━━━━━━━━━━━━━━━`,
-      `获得奖励:`,
-      ...rewardLines.map((r) => `  ${r}`),
-    ].join('\n');
+    const result = await this.taskService.completePendingTask(userId, questName);
+    return result || '正常任务完成后奖励已自动发放';
   }
 
   /**
@@ -3148,6 +3427,87 @@ export class GameService {
   }
 
   /**
+   * 原版“安装”统一入口：生产建筑放院子，功能建筑放屋内；非建筑则安装到载具。
+   */
+  async handleInstall(userId: number, rawName: string): Promise<string> {
+    const input = String(rawName || '').trim();
+    if (!input) return '请指定要安装的建筑或部件名称';
+    const match = input.match(/^(.*?)(\d+)$/);
+    const name = (match?.[1] || input).trim();
+    const count = Math.max(1, Number(match?.[2] || 1));
+    const building = this.staticData.getBuildingByName(name);
+
+    if (!building) return this.handleInstallPart(userId, input);
+
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上';
+    const houseName = String(player.houseName || '').trim();
+    if (!houseName) return '你还没有家园';
+
+    const materials = this.playerService.safeJsonParse<any[]>(building.materials, []);
+    const isProductionBuilding = materials.some((item: any) =>
+      Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0) !== 0,
+    );
+    const isYard = map.name === houseName;
+    const isIndoor = map.name === `${houseName}屋内`;
+    if (isProductionBuilding && !isYard) {
+      return `${player.name}生产类建筑只能安装在自己的院子里`;
+    }
+    if (!isProductionBuilding && !isIndoor && !player.vehicle) {
+      return `${player.name}功能类建筑只能安装在自己屋子里或载具里`;
+    }
+
+    // 建筑在屋内时写入地图；载具内的功能建筑走组装入口。
+    if (!isProductionBuilding && !isIndoor && player.vehicle) {
+      return this.handleAssembleBuilding(userId, name, count);
+    }
+
+    const backpack = this.playerService.getBackpackItems(player);
+    const result = this.homeService.installBuilding(map, name, backpack, count);
+    if (!result.success) return result.message;
+    await this.mapService.updateDynamicFields(map.id, { buildings: map.buildings });
+    player.backpack = JSON.stringify(backpack);
+    await this.playerService.savePlayer(player);
+    return result.message;
+  }
+
+  /** 把床等功能建筑放入当前载具的零件/物品数组。 */
+  private async handleAssembleBuilding(userId: number, buildingName: string, count = 1): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const vehicleId = Number(player.vehicle);
+    if (!Number.isInteger(vehicleId) || vehicleId <= 0) return '载具数据异常';
+    const vehicle = await this.prisma.gameVehicle.findUnique({ where: { id: vehicleId } });
+    if (!vehicle) return '载具数据不存在';
+
+    const available = this.playerService.getBackpackItems(player)
+      .filter((item: any) => item.name === buildingName)
+      .reduce((sum: number, item: any) => sum + Number(item.count ?? item.quantity ?? 0), 0);
+    const assembled = Math.min(Math.max(1, Math.floor(count)), Math.floor(available));
+    if (assembled <= 0) return `背包中没有【${buildingName}】`;
+    if (!await this.playerService.removeFromBackpack(userId, buildingName, assembled)) {
+      return '从背包移除建筑失败';
+    }
+
+    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const existing = parts.find((part: any) => part.name === buildingName);
+    if (existing) {
+      const next = Number(existing.quantity ?? existing.count ?? 0) + assembled;
+      existing.quantity = next;
+      existing.count = next;
+    } else {
+      parts.push({ name: buildingName, type: '资源', quantity: assembled, count: assembled, partType: -1 });
+    }
+    await this.prisma.gameVehicle.update({
+      where: { id: vehicle.id },
+      data: { parts: JSON.stringify(parts) },
+    });
+    return `把${assembled}个${buildingName}组装到了载具【${vehicle.name}】里`;
+  }
+
+  /**
    * 安装载具部件
    * 将背包中的部件安装到当前驾驶的载具上
    * @param userId 用户ID
@@ -4151,7 +4511,7 @@ export class GameService {
    * 处理炼丹命令
    * 消耗材料炼制丹药，从制造配方中查找炼丹配方
    */
-  async handleAlchemy(userId: number, recipeName: string): Promise<string> {
+  async handleAlchemy(userId: number, recipeName: string, count = 1): Promise<string> {
     // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -4183,8 +4543,8 @@ export class GameService {
       return lines.join('\n');
     }
 
-    // 委托给 itemService.craftItem 执行制造
-    return this.itemService.craftItem(userId, recipeName, 1);
+    // 炼丹与普通制造共用完整物品系统，保持 count/quantity 双格式兼容。
+    return this.itemSystemService.craftItem(userId, recipeName, count);
   }
 
   /**
@@ -4248,7 +4608,7 @@ export class GameService {
    * 处理锻造命令
    * 消耗材料锻造装备，从制造配方中查找锻造配方
    */
-  async handleForge(userId: number, itemName: string): Promise<string> {
+  async handleForge(userId: number, itemName: string, count = 1): Promise<string> {
     // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -4281,8 +4641,7 @@ export class GameService {
       return lines.join('\n');
     }
 
-    // 委托给 itemService.craftItem 执行制造
-    return this.itemService.craftItem(userId, itemName, 1);
+    return this.itemSystemService.craftItem(userId, itemName, count);
   }
 
   /**
@@ -4413,12 +4772,27 @@ export class GameService {
 
   /**
    * 处理复活使魔命令
-   * 复活已阵亡的使魔
-   * 委托到 FamiliarSkillsService.executeSkill 执行复活使魔技能
+   * 对应原版：复活使魔（玩家倒地后的30秒自救）
    */
   async handleReviveFamiliar(userId: number): Promise<string> {
-    // 委托到使魔技能服务执行复活使魔技能
-    return this.familiarSkillsService.executeSkill(userId, '复活使魔');
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    if (!this.playerService.isPlayerDead(player)) {
+      return `${player.name || '冒险者'}还不需要抢救`;
+    }
+
+    const markers2 = this.parseRescueMarkers(player.markers2 ?? playerData.markers2);
+    const active = this.getActiveRescueMarker(markers2);
+    if (active) {
+      return `${player.name || '冒险者'}正在${this.rescueActionText(active.rescueType)}，还需要${this.remainingRescueSeconds(active)}秒`;
+    }
+
+    const marker = this.createRescueMarker('self', 30, { mapId: player.mapId });
+    markers2.push(marker);
+    player.markers2 = JSON.stringify(markers2);
+    await this.playerService.savePlayer(player);
+    this.scheduleRescueCompletion(userId, marker);
+    return `${player.name || '冒险者'}正在抢救中，需要30秒`;
   }
 
   /**
@@ -5321,6 +5695,11 @@ export class GameService {
     const partItem = backpack.find((item: any) => item.name === partName);
     if (!partItem) {
       return `背包中没有【${partName}】`;
+    }
+
+    // 床等功能建筑也可以组装到载具，原版任务使用“组装床”而不是“安装床”。
+    if (this.staticData.getBuildingByName(partName)) {
+      return this.handleAssembleBuilding(userId, partName, 1);
     }
 
     // 验证是否为有效部件（静态配置 JSON 单一来源）
@@ -6350,27 +6729,7 @@ export class GameService {
    * 对应原版：放弃任务 命令
    */
   async handleAbandonQuest(userId: number, questName: string): Promise<string> {
-    if (!questName) {
-      return '请指定要放弃的任务名称，格式：放弃任务 任务名';
-    }
-
-    // 获取玩家数据
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, tasks } = playerData;
-
-    // 查找任务
-    const taskIndex = tasks.findIndex((t: any) => t.name === questName);
-    if (taskIndex === -1) {
-      return `你没有接取名为「${questName}」的任务`;
-    }
-
-    // 从任务列表中移除
-    tasks.splice(taskIndex, 1);
-    player.tasks = JSON.stringify(tasks);
-    await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 放弃了任务「${questName}」`);
-    return `已放弃任务「${questName}」`;
+    return this.taskService.abandonTask(userId, questName);
   }
 
   // ========== 其他命令 ==========
@@ -6606,6 +6965,25 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
+    // 原版“贸易”在玩家家园院子中是家园贸易；市场功能保留为普通地图上的贸易子命令。
+    // 支持显式“贸易 交易”，无参数在他人家园院子中也直接执行原版贸易。
+    const homeTradeRequested = ['交易', 'home', 'home-trade'].includes(String(action || '').trim().toLowerCase());
+    if (!action || homeTradeRequested) {
+      const currentMap = await this.getCurrentMap(userId).catch(() => null);
+      const restrictedHomeMap = Boolean(
+        currentMap?.isInstance || /(?:屋内|前线)$/.test(String(currentMap?.name || '')),
+      );
+      const owner = currentMap?.name
+        ? await this.prisma.player.findFirst({ where: { houseName: currentMap.name } })
+        : null;
+      if (homeTradeRequested || owner || restrictedHomeMap) {
+        if (!owner || owner.userId === userId || restrictedHomeMap) {
+          return `${player.name || '冒险者'}去到别人家院子里，再次发送“贸易”即可与对方贸易\n每次消耗10活力，每个玩家你一天只能与对方贸易一次`;
+        }
+        return this.handleHomeTrade(userId, owner.userId, currentMap.name);
+      }
+    }
+
     // 获取用户QQ号
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const userQQ = user?.qqNumber || '';
@@ -6683,11 +7061,13 @@ export class GameService {
         });
 
         this.logger.log(`玩家 ${userId} 上架了 ${itemName}，价格 ${price}`);
+        await this.taskService.advance(userId, '贸易');
         return `✅ 成功上架 ${itemName}\n价格: ${price}\n商品将在7天后自动下架`;
       }
 
       case '下架':
-      case 'cancel': {
+      case 'cancel':
+      case 'remove': {
         if (args.length < 1) {
           return '请指定要下架的商品编号，格式：贸易 下架 编号';
         }
@@ -6721,6 +7101,7 @@ export class GameService {
         });
 
         this.logger.log(`玩家 ${userId} 下架了 ${targetItem.itemName}`);
+        await this.taskService.advance(userId, '贸易');
         return `✅ 已下架 ${targetItem.itemName}，物品已归还背包`;
       }
 
@@ -6763,12 +7144,152 @@ export class GameService {
         // 通知卖家（通过记录日志）
         this.logger.log(`玩家 ${userId} 购买了 ${buyItem.itemName}（卖家: ${buyItem.sellerQQ}）`);
 
+        await this.taskService.advance(userId, '贸易');
         return `✅ 购买成功！\n获得了 ${buyItem.itemName} ×${buyItem.itemCount}\n花费: ${buyItem.price}`;
       }
 
       default:
         return `未知操作「${action}」，可用操作：上架、下架、购买`;
     }
+  }
+
+  /** 串行化同一对玩家的家园贸易，避免并发指令重复消耗活力或发奖。 */
+  private async withTradeLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.tradeLocks.get(key) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(() => current);
+    this.tradeLocks.set(key, tail);
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.tradeLocks.get(key) === tail) this.tradeLocks.delete(key);
+    }
+  }
+
+  /**
+   * 执行原版家园贸易：在他人家园院子中消耗10活力，双方获得对方家园每日正产出的2%。
+   * 电力不参与贸易；“银”在被贸易家园中时会把小于1的正产出提升到1。
+   */
+  private async handleHomeTrade(
+    userId: number,
+    targetUserId: number,
+    targetMapName: string,
+  ): Promise<string> {
+    const lockKey = [userId, targetUserId].sort((a, b) => a - b).join(':');
+    return this.withTradeLock(`home-trade:${lockKey}`, async () => {
+      const actorData = await this.playerService.getPlayerData(userId);
+      const actor = actorData.player;
+      const actorMap = await this.mapService.getMapById(actor.mapId);
+      const target = await this.prisma.player.findUnique({ where: { userId: targetUserId } });
+      if (!target) return '贸易对象不存在';
+      if (!actorMap || actorMap.name !== targetMapName || actorMap.name !== target.houseName) {
+        return '请先去到对方家园院子里再进行贸易';
+      }
+      if (actorMap.isInstance || /(?:屋内|前线)$/.test(String(actorMap.name || ''))) {
+        return '屋内或家园前线不能进行贸易，请回到对方家园院子';
+      }
+      if (targetUserId === userId) return '不能和自己的家园贸易';
+      if (this.playerService.isPlayerDead(actor)) {
+        return this.playerService.handlePlayerDeath(userId, actor);
+      }
+      if (Number(actor.vitality || 0) < 10) return `${actor.name || '冒险者'}你的剩余活力不足10`;
+
+      // 先观测目标家园，刷新电力状态和每日产出缓存；被贸易者不会减少产出物。
+      await this.homeService.collectHomeOutput(targetUserId);
+      const observedMap = await this.mapService.getMapByName(targetMapName).catch(() => null);
+      if (!observedMap) return `家园地图「${targetMapName}」不存在`;
+
+      const mapMarkers = this.playerService.safeJsonParse<any>(observedMap.markers, {});
+      const readMarker = (name: string): any => {
+        if (Array.isArray(mapMarkers)) {
+          const marker = mapMarkers.find((item: any) => (item?.name ?? item?.名称) === name);
+          return marker?.value ?? marker?.数值 ?? marker?.count ?? 0;
+        }
+        return mapMarkers?.[name];
+      };
+      if (Number(readMarker('有电') || 0) !== 1) {
+        return `${actor.name || '冒险者'},${targetMapName}断电啦！没法再与你贸易了。`;
+      }
+
+      const targetUser = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+      const targetIdentity = String(targetUser?.qqNumber || targetUser?.externalId || targetUserId);
+      const tradeKey = `贸易${targetIdentity}`;
+      const nowMs = Date.now();
+      const nowSec = nowMs / 1000;
+      const markers2 = this.playerService.safeJsonParse<any[]>(actor.markers2, []);
+      let activeCooldown = 0;
+      const validMarkers = markers2.filter((marker: any) => {
+        const markerName = marker?.name ?? marker?.名称 ?? marker?.key;
+        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const expireSec = rawExpire > 1e12 ? rawExpire / 1000 : rawExpire;
+        if (markerName === tradeKey && expireSec > nowSec) activeCooldown = expireSec;
+        return !markerName || markerName !== tradeKey || expireSec <= nowSec;
+      });
+      if (activeCooldown > nowSec) {
+        return `${actor.name || '冒险者'}今天已经和${target.name || '对方'}贸易过了，明天才能再次贸易`;
+      }
+
+      const rawOutput = readMarker('每日产出');
+      const outputItems = Array.isArray(rawOutput)
+        ? rawOutput
+        : rawOutput && typeof rawOutput === 'object'
+          ? Object.entries(rawOutput).map(([name, quantity]) => ({ name, quantity }))
+          : [];
+      const summons = this.parseJsonArray(observedMap.summons);
+      const hasSilver = summons.some((unit: any) =>
+        (unit?.name ?? unit?.名称 ?? unit?.type ?? unit?.类型) === '银',
+      );
+      const tradeItems = new Map<string, number>();
+      for (const item of outputItems) {
+        const name = String(item?.name ?? item?.名称 ?? '');
+        const dailyQuantity = Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0);
+        if (!name || name === '电力' || !Number.isFinite(dailyQuantity) || dailyQuantity <= 0) continue;
+        let amount = dailyQuantity * 0.02;
+        if (hasSilver && amount > 0 && amount < 1) amount = 1;
+        tradeItems.set(name, (tradeItems.get(name) || 0) + amount);
+      }
+
+      const targetData = await this.playerService.getPlayerData(targetUserId);
+      const addItem = (backpack: any[], name: string, amount: number): void => {
+        const existing = backpack.find((item: any) => (item?.name ?? item?.名称) === name);
+        if (existing) {
+          const current = Number(existing.count ?? existing.quantity ?? 0);
+          existing.count = current + amount;
+          delete existing.quantity;
+        } else {
+          backpack.push({ name, count: amount });
+        }
+      };
+      for (const [name, amount] of tradeItems) {
+        addItem(actorData.backpack, name, amount);
+        addItem(targetData.backpack, name, amount);
+      }
+
+      const tomorrow = new Date(nowMs);
+      tomorrow.setHours(24, 0, 0, 0);
+      validMarkers.push({ name: tradeKey, expireAt: tomorrow.getTime() / 1000 });
+      actor.vitality = Number(actor.vitality || 0) - 10;
+      actor.markers2 = JSON.stringify(validMarkers);
+      actor.backpack = actorData.backpack;
+      targetData.player.backpack = targetData.backpack;
+      await Promise.all([
+        this.playerService.savePlayer(actor),
+        this.playerService.savePlayer(targetData.player),
+      ]);
+
+      await this.taskService.advance(userId, '消耗活力', 10);
+      await this.taskService.advance(userId, '贸易');
+      await this.taskService.advance(targetUserId, '贸易');
+
+      const itemText = Array.from(tradeItems.entries())
+        .map(([name, amount]) => `${name}x${this.roundText(amount)}`)
+        .join('、');
+      const silverText = hasSilver ? '\n银：贸易所得中小于1的正产出已提升到1' : '';
+      return `${actor.name || '冒险者'}和${target.name || '对方'}都得到了${itemText || '对方家园的正产出（本次为0）'}${silverText}`;
+    });
   }
 
   /**
@@ -6847,7 +7368,19 @@ export class GameService {
    */
   async handleHelpMe(userId: number, question: string): Promise<string> {
     if (!question) {
-      return '请描述你的问题，格式：求助 你的问题描述';
+      const playerData = await this.playerService.getPlayerData(userId);
+      const { player } = playerData;
+      const map = await this.mapService.getMapById(player.mapId);
+      const summons = this.parseJsonArray(map?.summons);
+      const luna = summons.find((summon: any) =>
+        String(summon?.qq ?? summon?.QQ ?? '') === '怪物露娜1g',
+      );
+      if (!luna) return `${player.name || '冒险者'}和谁求助呢？`;
+
+      if (this.shortcutService?.setTempInput) {
+        await this.shortcutService.setTempInput(userId, '1@求助确认');
+      }
+      return `【${luna.name || luna.名称 || '露娜'}】\n有解决不了的麻烦需要我帮忙的吗？\n1、求助确认`;
     }
 
     // 获取玩家信息
@@ -8184,7 +8717,395 @@ export class GameService {
    * 对应原版：扶 命令
    */
   async handleHelpUp(userId: number): Promise<string> {
-    return `${this.getPlayerName(userId)} 伸出手，扶起了倒地的玩家。`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const playerName = player.name || '冒险者';
+    if (this.playerService.isPlayerDead(player)) {
+      return `${playerName}已经倒地，无法扶助其他玩家`;
+    }
+
+    const markers2 = this.parseRescueMarkers(player.markers2 ?? playerData.markers2);
+    const active = this.getActiveRescueMarker(markers2);
+    if (active) {
+      return `${playerName}正在${this.rescueActionText(active.rescueType)}，还需要${this.remainingRescueSeconds(active)}秒`;
+    }
+
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${playerName}当前不在有效地图中`;
+
+    let nearbyPlayers: any[] = [];
+    if (this.prisma?.player?.findMany) {
+      nearbyPlayers = await this.prisma.player.findMany({ where: { mapId: player.mapId } });
+    } else if (Array.isArray(map.players)) {
+      nearbyPlayers = map.players
+        .filter((entry: any) => typeof entry === 'object')
+        .map((entry: any) => entry.player || entry);
+    }
+
+    const target = nearbyPlayers.find((candidate: any) =>
+      Number(candidate?.userId ?? candidate?.id) !== Number(userId)
+      && this.hasActiveRescueBuff(candidate?.buffs),
+    );
+    if (!target) {
+      return `${playerName}当前地图没有需要帮助的玩家。`;
+    }
+
+    const marker = this.createRescueMarker('player', 5, {
+      mapId: player.mapId,
+    });
+    markers2.push(marker);
+    player.markers2 = JSON.stringify(markers2);
+    await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '救助');
+    this.scheduleRescueCompletion(userId, marker);
+    return `${playerName}正在救助玩家，大概需要5秒`;
+  }
+
+  /** 解析救援相关 JSON，兼容对象、数组和旧版中英文字段。 */
+  private parseRescueArray(value: any): any[] {
+    if (Array.isArray(value)) return value;
+    return this.playerService.safeJsonParse<any[]>(value, []);
+  }
+
+  private parseRescueMarkers(value: any): any[] {
+    return this.parseRescueArray(value);
+  }
+
+  private createRescueMarker(
+    rescueType: 'self' | 'familiar' | 'vehicle' | 'player',
+    seconds: number,
+    extra: Record<string, any> = {},
+  ): any {
+    const expireAt = Math.ceil(Date.now() / 1000) + Math.max(1, Math.ceil(seconds));
+    return {
+      name: rescueType === 'player' ? '工作' : '复活',
+      rescueType,
+      expireAt,
+      token: `rescue-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      ...extra,
+    };
+  }
+
+  private getActiveRescueMarker(markers2: any[]): any | null {
+    const now = Date.now() / 1000;
+    return markers2.find((marker: any) => {
+      const name = marker?.name ?? marker?.名称;
+      if (name !== '复活' && name !== '工作') return false;
+      const expireAt = this.rescueExpireAtSeconds(marker);
+      return expireAt > now;
+    }) || null;
+  }
+
+  private rescueExpireAtSeconds(marker: any): number {
+    const raw = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return raw >= 1e12 ? raw / 1000 : raw;
+  }
+
+  private remainingRescueSeconds(marker: any): number {
+    return Math.max(1, Math.ceil(this.rescueExpireAtSeconds(marker) - Date.now() / 1000));
+  }
+
+  private rescueActionText(type: string): string {
+    if (type === 'player') return '救助玩家';
+    if (type === 'vehicle') return '维修载具';
+    if (type === 'familiar') return '抢救使魔';
+    return '抢救';
+  }
+
+  private formatRescueSeconds(seconds: number): number {
+    return Math.max(1, Math.round(seconds));
+  }
+
+  private rescueHp(unit: any): number {
+    return Number(unit?.hp ?? unit?.currentHp ?? unit?.当前生命 ?? 0) || 0;
+  }
+
+  private rescueMaxHp(unit: any): number {
+    const attributes = this.parseRescueObject(unit?.attributes ?? unit?.属性);
+    return this.firstPositiveNumber(
+      unit?.maxHp,
+      unit?.maxHealth,
+      unit?.生命,
+      attributes?.生命,
+      attributes?.hp,
+    );
+  }
+
+  private firstPositiveNumber(...values: any[]): number {
+    for (const value of values) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return 0;
+  }
+
+  private parseRescueObject(value: any): any {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    return this.playerService.safeJsonParse<any>(value, {});
+  }
+
+  private setRescueHp(unit: any, hp: number): void {
+    const value = Math.max(0, hp);
+    if (unit?.hp !== undefined) unit.hp = value;
+    if (unit?.currentHp !== undefined) unit.currentHp = value;
+    if (unit?.当前生命 !== undefined) unit.当前生命 = value;
+    if (unit?.hp === undefined && unit?.currentHp === undefined && unit?.当前生命 === undefined) {
+      unit.hp = value;
+    }
+  }
+
+  private rescueUnitId(unit: any): string {
+    return String(unit?.qq ?? unit?.QQ ?? unit?.id ?? unit?.编号 ?? unit?.name ?? unit?.名称 ?? '');
+  }
+
+  private rescueUnitName(unit: any): string {
+    return String(unit?.name ?? unit?.名称 ?? unit?.type ?? unit?.类型 ?? '使魔');
+  }
+
+  private rescueVehicleKey(summon: any): string {
+    const raw = summon?.vehicle ?? summon?.载具 ?? summon?.vehicleId ?? summon?.载具编号;
+    if (raw && typeof raw === 'object') {
+      return String(raw?.id ?? raw?.编号 ?? raw?.vehicleId ?? raw?.name ?? raw?.名称 ?? '');
+    }
+    return String(raw ?? '');
+  }
+
+  private rescueVehicleKeys(vehicle: any): Set<string> {
+    return new Set([
+      vehicle?.id,
+      vehicle?.编号,
+      vehicle?.vehicleId,
+      vehicle?.name,
+      vehicle?.名称,
+    ].filter((value) => value !== undefined && value !== null && String(value) !== '').map(String));
+  }
+
+  private rescueVehicleMaxHp(vehicle: any): number {
+    const bonus = this.parseRescueObject(vehicle?.bonus ?? vehicle?.加成);
+    return this.firstPositiveNumber(vehicle?.maxHp, vehicle?.生命, bonus?.生命);
+  }
+
+  private rescueVehicleHp(vehicle: any): number {
+    return Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? vehicle?.hp ?? 0) || 0;
+  }
+
+  private isDamagedRescueVehicle(vehicle: any): boolean {
+    const maxHp = this.rescueVehicleMaxHp(vehicle);
+    return maxHp > 0 && this.rescueVehicleHp(vehicle) !== maxHp;
+  }
+
+  private setRescueVehicleHp(vehicle: any, hp: number): void {
+    const value = Math.max(0, hp);
+    if (vehicle?.currentHp !== undefined) vehicle.currentHp = value;
+    if (vehicle?.当前生命 !== undefined) vehicle.当前生命 = value;
+    if (vehicle?.hp !== undefined) vehicle.hp = value;
+    if (vehicle?.currentHp === undefined && vehicle?.当前生命 === undefined && vehicle?.hp === undefined) {
+      vehicle.currentHp = value;
+    }
+  }
+
+  private hasActiveRescueBuff(value: any): boolean {
+    const buffs = this.parseRescueArray(value);
+    const now = Date.now() / 1000;
+    return buffs.some((buff: any) => {
+      if ((buff?.name ?? buff?.名称) !== '卷土重来') return false;
+      const raw = Number(buff?.expireAt ?? buff?.有效期至 ?? 0);
+      const expireAt = raw >= 1e12 ? raw / 1000 : raw;
+      return !expireAt || expireAt > now;
+    });
+  }
+
+  private shortenRescueBuff(buffs: any[], name: string, seconds: number): boolean {
+    const nowMs = Date.now();
+    let changed = false;
+    for (let index = buffs.length - 1; index >= 0; index--) {
+      const buff = buffs[index];
+      if ((buff?.name ?? buff?.名称) !== name) continue;
+      const raw = Number(buff?.expireAt ?? buff?.有效期至 ?? 0);
+      if (!raw) {
+        buffs.splice(index, 1);
+        changed = true;
+        continue;
+      }
+      const isMs = raw >= 1e12 || buff?.有效期至 !== undefined;
+      const expireMs = isMs ? raw : raw * 1000;
+      const nextMs = expireMs - seconds * 1000;
+      if (nextMs <= nowMs) {
+        buffs.splice(index, 1);
+      } else if (isMs) {
+        if (buff?.有效期至 !== undefined) buff.有效期至 = nextMs;
+        else buff.expireAt = nextMs;
+      } else {
+        buff.expireAt = nextMs / 1000;
+      }
+      changed = true;
+    }
+    return changed;
+  }
+
+  private async saveRescueMap(map: any, summons: any[], vehicles: any[]): Promise<void> {
+    const data: Record<string, string> = {};
+    if (summons) data.summons = JSON.stringify(summons);
+    if (vehicles) data.vehicles = JSON.stringify(vehicles);
+    if (Object.keys(data).length === 0) return;
+    await this.mapService.updateDynamicFields(map.id, data);
+  }
+
+  private async removeRescueMarker(userId: number, token: string): Promise<any | null> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const markers2 = this.parseRescueMarkers(player.markers2 ?? playerData.markers2);
+    const before = markers2.length;
+    const remaining = markers2.filter((marker: any) => marker?.token !== token);
+    if (remaining.length !== before) {
+      player.markers2 = JSON.stringify(remaining);
+      await this.playerService.savePlayer(player);
+    }
+    return player;
+  }
+
+  private rescueTimerMap(): Map<number, NodeJS.Timeout> {
+    const service = this as any;
+    if (!service.rescueTimers) service.rescueTimers = new Map<number, NodeJS.Timeout>();
+    return service.rescueTimers;
+  }
+
+  private async scheduleRescueCompletion(userId: number, marker: any): Promise<void> {
+    const timers = this.rescueTimerMap();
+    const previous = timers.get(userId);
+    if (previous) clearTimeout(previous);
+    const delay = Math.max(0, this.rescueExpireAtSeconds(marker) * 1000 - Date.now());
+    const timer = setTimeout(async () => {
+      timers.delete(userId);
+      try {
+        await this.completeRescue(userId, marker);
+      } catch (error: any) {
+        this.logger.warn(`救援延时完成失败 userId=${userId}: ${error?.message || error}`);
+      }
+    }, delay);
+    timer.unref?.();
+    timers.set(userId, timer);
+  }
+
+  /** 后台兜底：服务重启或进程内定时器丢失后，补结算已到期的救援。 */
+  async settlePendingRescues(): Promise<number> {
+    if (!this.prisma?.player?.findMany) return 0;
+    const players = await this.prisma.player.findMany({
+      where: { userId: { gt: 0 } },
+      select: { userId: true, markers2: true },
+    });
+    const now = Date.now() / 1000;
+    let settled = 0;
+    for (const player of players || []) {
+      const markers = this.parseRescueMarkers(player.markers2);
+      for (const marker of markers) {
+        const name = marker?.name ?? marker?.名称;
+        if (!marker?.rescueType || (name !== '复活' && name !== '工作')) continue;
+        if (this.rescueExpireAtSeconds(marker) > now) {
+          if (!this.rescueTimerMap().has(Number(player.userId))) {
+            await this.scheduleRescueCompletion(Number(player.userId), marker);
+          }
+          continue;
+        }
+        await this.completeRescue(Number(player.userId), marker);
+        settled += 1;
+      }
+    }
+    return settled;
+  }
+
+  /** 完成自救、使魔救助、载具维修或玩家扶助。 */
+  private async completeRescue(userId: number, marker: any): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const markers2 = this.parseRescueMarkers(player.markers2 ?? playerData.markers2);
+    if (!markers2.some((entry: any) => entry?.token === marker?.token)) return '';
+
+    if (marker.rescueType === 'self') {
+      if (this.playerService.isPlayerDead(player)) {
+        const maxHp = Number(player.maxHp || 100);
+        player.hp = Math.floor(maxHp / 2);
+        player.shield = 0;
+        player.armor = 0;
+        await this.playerService.savePlayer(player);
+        await this.taskService.advance(userId, '复活');
+      }
+      await this.removeRescueMarker(userId, marker.token);
+      return `${player.name || '冒险者'}感觉好一点了吗？恢复了${Math.floor(Number(player.maxHp || 100) / 2)}生命`;
+    }
+
+    if (marker.rescueType === 'player') {
+      const mapId = Number(player.mapId);
+      const nearby = this.prisma?.player?.findMany
+        ? await this.prisma.player.findMany({ where: { mapId } })
+        : [];
+      const targets = (nearby || []).filter((candidate: any) =>
+        Number(candidate?.userId ?? candidate?.id) !== Number(userId)
+        && this.hasActiveRescueBuff(candidate?.buffs),
+      );
+      const target = targets.find((candidate: any) =>
+        !marker.targetUserId || Number(candidate.userId ?? candidate.id) === Number(marker.targetUserId),
+      );
+      let result = `${player.name || '冒险者'}当前没有处于卷土重来状态的倒地玩家，救助失败`;
+      if (target) {
+        // 原版“救起了ss”不只处理最初发现的目标：延时结束时遍历同地图所有
+        // 仍处于卷土重来的玩家，避免救援期间新倒地的玩家被遗漏。
+        const rescueTargets = marker.targetUserId
+          ? [target]
+          : targets;
+        const rescuedNames: string[] = [];
+        for (const rescueTarget of rescueTargets) {
+          const buffs = this.parseRescueArray(rescueTarget.buffs);
+          this.shortenRescueBuff(buffs, '卷土重来', 30);
+          rescueTarget.buffs = JSON.stringify(buffs);
+          rescueTarget.hp = Math.floor(Number(rescueTarget.maxHp || 100) / 2);
+          await this.playerService.savePlayer(rescueTarget);
+          rescuedNames.push(rescueTarget.name || '倒地玩家');
+        }
+        result = `${player.name || '冒险者'}扶起了${rescuedNames.join('、')}`;
+      }
+      await this.removeRescueMarker(userId, marker.token);
+      if (result.includes('扶起了')) {
+        await this.chatService?.broadcastSystem?.('世界频道', result, userId).catch?.(() => undefined);
+      }
+      return result;
+    }
+
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) {
+      await this.removeRescueMarker(userId, marker.token);
+      return `${player.name || '冒险者'}当前地图不存在，救助失败`;
+    }
+
+    const summons = this.parseRescueArray(map.summons);
+    const vehicles = this.parseRescueArray(map.vehicles);
+    const repairedNames: string[] = [];
+    let revivedCount = 0;
+    for (const summon of summons) {
+      const maxHp = this.rescueMaxHp(summon);
+      if (maxHp > 0 && this.rescueHp(summon) <= 0) {
+        this.setRescueHp(summon, 1);
+        revivedCount += 1;
+      }
+      const vehicleKey = this.rescueVehicleKey(summon);
+      if (!vehicleKey) continue;
+      const vehicle = vehicles.find((candidate: any) => this.rescueVehicleKeys(candidate).has(vehicleKey));
+      if (!vehicle || !this.isDamagedRescueVehicle(vehicle)) continue;
+      this.setRescueVehicleHp(vehicle, this.rescueVehicleMaxHp(vehicle));
+      repairedNames.push(`${this.rescueUnitName(summon)}修好了${vehicle.name ?? vehicle.名称 ?? '载具'}`);
+    }
+
+    await this.saveRescueMap(map, summons, vehicles);
+    await this.removeRescueMarker(userId, marker.token);
+    const lines: string[] = [];
+    if (revivedCount > 0) lines.push(`${player.name || '冒险者'}救起了${revivedCount}只宠物`);
+    lines.push(...repairedNames);
+    const result = lines.length > 0 ? lines.join('\n') : `${player.name || '冒险者'}当前没有需要抢救的宠物`;
+    if (lines.length > 0) {
+      await this.chatService?.broadcastSystem?.('世界频道', result, userId).catch?.(() => undefined);
+    }
+    return result;
   }
 
   /**
@@ -9279,7 +10200,9 @@ export class GameService {
    * 对应原版：开采自动 命令
    */
   async handleAutoMine(userId: number): Promise<string> {
-    return `⛏️ 已开启自动开采模式。`;
+    return this.autoMineService
+      ? this.autoMineService.start(userId)
+      : `${this.getPlayerName(userId)}自动开采服务尚未加载`;
   }
 
   /**
@@ -9287,16 +10210,17 @@ export class GameService {
    * 对应原版：开采停止 命令
    */
   async handleStopMine(userId: number): Promise<string> {
-    return `⛏️ 已停止开采。`;
+    return this.autoMineService
+      ? this.autoMineService.stop(userId)
+      : `${this.getPlayerName(userId)}自动开采服务尚未加载`;
   }
 
   /**
    * 配方解锁
    * 对应原版：配方解锁 命令
    */
-  async handleRecipeUnlock(userId: number, recipeName: string): Promise<string> {
-    if (!recipeName) return '请指定要解锁的配方名称';
-    return `📜 正在尝试解锁配方「${recipeName}」...`;
+  async handleRecipeUnlock(userId: number, recipeName = ''): Promise<string> {
+    return this.taskService.acceptRecipeUnlockTask(userId, recipeName);
   }
 
   /**
@@ -9332,13 +10256,9 @@ export class GameService {
         where: { id: map.id },
         data: { summons: JSON.stringify(summons) },
       });
-      // 记录求助成就（任务推进用）
-      const tasks = this.playerService.safeJsonParse<any[]>(player.tasks, []);
-      const helpTask = tasks.find((t: any) => t.name === '求助');
-      if (helpTask) helpTask.count = (helpTask.count || 0) + 1;
-      else tasks.push({ name: '求助', count: 1 });
-      player.tasks = JSON.stringify(tasks);
+      player.markers = JSON.stringify(markers);
       await this.playerService.savePlayer(player);
+      await this.taskService.advance(userId, '求助');
       return `${player.name} 好吧，从现在开始到下一个整点之前，我可以帮你解决战斗上的问题。`;
     } else {
       return `${player.name} 我正在帮 ${luna.ownerQQ} 解决问题，你之后再找我吧。`;
@@ -9435,17 +10355,13 @@ export class GameService {
     if (purchasedCount > 0) {
       this.achievementService.setAchievement(markers, '购物', shopSkill + purchasedCount);
       player.markers = markers;
-      const tasks = this.parseJsonArray(player.tasks);
-      const task = tasks.find((entry: any) => (entry?.name || entry?.名称) === '购物');
-      if (task) task.count = Number(task.count || task.数量 || 0) + purchasedCount;
-      else tasks.push({ name: '购物', count: purchasedCount });
-      player.tasks = JSON.stringify(tasks);
     }
     player.backpack = JSON.stringify(backpack);
     merchant.backpack = JSON.stringify(merchantBackpack);
     summons[merchantIdx] = merchant;
     await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '购物', purchasedCount);
 
     const paidDesc = this.formatMerchantItems(paidItems);
     let result = `${player.name}花费${paidDesc}购买了${this.formatMerchantItems(boughtItems)}`;
@@ -9668,14 +10584,10 @@ export class GameService {
     this.achievementService.setAchievement(markers, '购物', shopSkill + 1);
     player.markers = markers;
     player.backpack = JSON.stringify(backpack);
-    const tasks = this.parseJsonArray(player.tasks);
-    const task = tasks.find((entry: any) => (entry?.name || entry?.名称) === '购物');
-    if (task) task.count = Number(task.count || task.数量 || 0) + 1;
-    else tasks.push({ name: '购物', count: 1 });
-    player.tasks = JSON.stringify(tasks);
     summons[merchantIndex].backpack = JSON.stringify(merchantBackpack);
     await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
     await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, '购物');
     return result;
   }
 

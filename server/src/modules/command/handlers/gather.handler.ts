@@ -39,19 +39,25 @@ export class GatherHandler implements CommandHandler {
       return { success: false, content: '请输入采集指令', broadcast: false, durationMs: 0 };
     }
 
-    const result = await this.gameService.handleGatherResource(ctx.userId, cmdName);
+    const compact = cmdName.match(/^(.*?)(\d+)$/);
+    const gatherName = compact ? compact[1].trim() : cmdName;
+    const gatherCount = compact ? Math.max(1, Number(compact[2])) : 1;
+    const result = await this.gameService.handleGatherResource(ctx.userId, gatherName, gatherCount);
     if (result) {
-      // 推进"采集资源"成就（搜刮容器也算）
-      await this.taskService.advance(ctx.userId, '采集资源');
-      // 收集木头/石头等 → 映射为"采集木头"/"采集石头"推进任务要求
-      const m = /^收集(.+)$/.exec(cmdName);
-      if (m) {
-        await this.taskService.advance(ctx.userId, '采集' + m[1]);
-      }
-      return { success: true, content: result, broadcast: false, durationMs: 0 };
+      // 冷却、死亡等提示也有返回文本，但不能因此消耗任务次数。
+      const taskNotice = this.taskService.consumeNotifications(ctx.userId);
+      const content = taskNotice
+        ? `${result}\n━━━━━━━━━━━━━━━\n${taskNotice}`
+        : result;
+      return { success: true, content, broadcast: false, durationMs: 0 };
     }
 
     // 当前地图没有匹配 gatherCmd 的资源
-    return { success: false, content: `当前地图没有可「${cmdName}」的资源`, broadcast: false, durationMs: 0 };
+    return { success: false, content: `当前地图没有可「${gatherName}」的资源`, broadcast: false, durationMs: 0 };
+  }
+
+  private isSuccessfulAction(result: string): boolean {
+    if (!result?.trim()) return false;
+    return !/(失败|错误|未知|不存在|无法|不能|不可|未找到|请指定|请先|冷却中|还需要|已死亡|不在|当前地图没有)/.test(result);
   }
 }
