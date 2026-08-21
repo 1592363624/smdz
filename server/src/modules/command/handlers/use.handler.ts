@@ -35,9 +35,10 @@ export class UseHandler implements CommandHandler {
       return { success: false, content: '请指定要使用的物品名称', broadcast: false, durationMs: 0 };
     }
     const result = await this.gameService.handleUseItem(ctx.userId, itemName, count);
-    if (!/(没有|不存在|无法|不能|不可|不是|错误|失败|请指定|正整数)/.test(result)) {
-      await this.taskService.advance(ctx.userId, '使用物品', count);
-      await this.taskService.advance(ctx.userId, `使用${itemName}`, count);
+    if (!/(没有|不存在|无法|不能|不可|不是|错误|失败|请指定|正整数)/.test(result) && !/种下了/.test(result)) {
+      const actualCount = Number(result.match(/(?:使用了|使用|开启了|打开了)[^\d]*(\d+)/)?.[1] || count);
+      await this.taskService.advance(ctx.userId, '使用物品', actualCount);
+      await this.taskService.advance(ctx.userId, `使用${itemName}`, actualCount);
     }
     return { success: true, content: result, broadcast: false, durationMs: 0 };
   }

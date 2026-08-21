@@ -442,24 +442,28 @@ export class ItemSystemService {
    * 对应原版：强化植入体()
    * 消耗水晶（随机）或水晶+史诗强化券（指定属性）强化植入体
    */
-  async upgradeImplant(userId: number, target: string): Promise<string> {
+  async upgradeImplant(userId: number, target = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, equipment, backpack, markers } = playerData;
+    const { player, equipment, backpack, markers, weapons } = playerData;
 
-    // 解析命令：target可能是 "3" 或 "攻击3" 或 "3"
+    // 原版参数是“属性名+次数”，不带参数时只展示帮助，不执行一次强化。
+    const rawTarget = String(target || '').trim();
+    if (!rawTarget) {
+      return `${player.name}请输入“强化植入体3”随机强化，或输入“强化植入体攻击3”指定属性强化。`;
+    }
+
+    // 解析命令：target 可以是“3”“攻击3”或“攻击 3”。
     let count = 1;
     let statTarget = '';
-    const numMatch = target.match(/(\d+)/);
+    const numMatch = rawTarget.match(/(\d+)/);
     if (numMatch) {
       count = parseInt(numMatch[1], 10);
     }
-    const textPart = target.replace(/\d+/g, '').trim();
+    const textPart = rawTarget.replace(/\d+/g, '').trim();
     statTarget = textPart;
 
     // 查找植入体装备
-    const implantIndex = equipment.findIndex(
-      (eq: Item3) => eq.name.includes('植入体') || eq.name.startsWith('植入体'),
-    );
+    const implantIndex = this.findSpecialEquipmentIndex(equipment, 'implant');
     if (implantIndex === -1) {
       return `${player.name}你身上未装备植入体。`;
     }
@@ -477,7 +481,8 @@ export class ItemSystemService {
     const implant = this.parseEquipment(implantItem);
 
     // 获取植入体等级
-    const implantLevel: number = markers['植入体等级'] ?? 0;
+    let implantLevel = Number(markers['植入体等级'] ?? 0);
+    if (!Number.isFinite(implantLevel) || implantLevel < 0) implantLevel = 0;
 
     // 计算材料
     let crystalQty = this.getItemQuantity('水晶', backpack);
@@ -489,13 +494,23 @@ export class ItemSystemService {
     let failReason = '';
 
     for (let i = 0; i < count; i++) {
-      if (crystalQty <= implantLevel) {
+      const materialCost = implantLevel;
+      if (crystalQty <= materialCost) {
         failReason = '水晶不足';
         break;
       }
-      usedMaterial += Math.max(1, implantLevel);
-      crystalQty -= Math.max(1, implantLevel);
+
+      // 指定属性强化每次都必须同时消耗一张史诗强化券，不能先扣水晶再留下半次强化。
+      if (statTarget !== '' && couponQty < 1) {
+        failReason = '史诗强化券不足';
+        break;
+      }
+
+      usedMaterial += materialCost;
+      crystalQty -= materialCost;
+      if (statTarget !== '') couponQty--;
       upgradedCount++;
+      implantLevel++;
 
       if (statTarget === '') {
         // 随机强化
@@ -507,11 +522,6 @@ export class ItemSystemService {
         }
       } else {
         // 指定属性强化
-        if (couponQty < 1) {
-          failReason = '史诗强化券不足';
-          break;
-        }
-        couponQty--;
         const statKey = IMPLANT_STAT_MAP[statTarget];
         if (statKey) {
           implant.bonus[statKey] = (implant.bonus[statKey] || 0) + 1;
@@ -535,10 +545,11 @@ export class ItemSystemService {
     equipment[implantIndex] = implantItem;
 
     // 更新标记 — 使用成就系统服务
-    this.achievementService.setAchievement(markers, '植入体等级', (markers['植入体等级'] as number || 0) + upgradedCount);
+    this.achievementService.setAchievement(markers, '植入体等级', implantLevel);
     this.achievementService.setAchievement(markers, '强化植入体', (markers['强化植入体'] as number || 0) + upgradedCount);
 
     // 保存
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
     await this.prisma.player.update({
       where: { userId },
       data: {
@@ -561,24 +572,27 @@ export class ItemSystemService {
    * 对应原版：强化增幅器()
    * 消耗能量块（随机）或能量块+传说强化券（指定属性）强化增幅器
    */
-  async upgradeAmplifier(userId: number, target: string): Promise<string> {
+  async upgradeAmplifier(userId: number, target = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, equipment, backpack, markers } = playerData;
+    const { player, equipment, backpack, markers, weapons } = playerData;
 
-    // 解析命令
+    const rawTarget = String(target || '').trim();
+    if (!rawTarget) {
+      return `${player.name}请输入“强化增幅器3”随机强化，或输入“强化增幅器攻击3”指定属性强化。`;
+    }
+
+    // 解析命令：target 可以是“3”“攻击3”或“攻击 3”。
     let count = 1;
     let statTarget = '';
-    const numMatch = target.match(/(\d+)/);
+    const numMatch = rawTarget.match(/(\d+)/);
     if (numMatch) {
       count = parseInt(numMatch[1], 10);
     }
-    const textPart = target.replace(/\d+/g, '').trim();
+    const textPart = rawTarget.replace(/\d+/g, '').trim();
     statTarget = textPart;
 
     // 查找增幅器装备
-    const ampIndex = equipment.findIndex(
-      (eq: Item3) => eq.name.includes('增幅器') || eq.name.startsWith('增幅器'),
-    );
+    const ampIndex = this.findSpecialEquipmentIndex(equipment, 'amplifier');
     if (ampIndex === -1) {
       return `${player.name}你身上未装备增幅器。`;
     }
@@ -594,7 +608,8 @@ export class ItemSystemService {
     const ampItem = equipment[ampIndex];
     const amp = this.parseEquipment(ampItem);
 
-    const ampLevel: number = markers['增幅器等级'] ?? 0;
+    let ampLevel = Number(markers['增幅器等级'] ?? 0);
+    if (!Number.isFinite(ampLevel) || ampLevel < 0) ampLevel = 0;
     let energyQty = this.getItemQuantity('能量块', backpack);
     let couponQty = this.getItemQuantity('传说强化券', backpack);
 
@@ -604,13 +619,22 @@ export class ItemSystemService {
     let failReason = '';
 
     for (let i = 0; i < count; i++) {
-      if (energyQty <= ampLevel) {
+      const materialCost = ampLevel;
+      if (energyQty <= materialCost) {
         failReason = '能量块不足';
         break;
       }
-      usedMaterial += Math.max(1, ampLevel);
-      energyQty -= Math.max(1, ampLevel);
+
+      if (statTarget !== '' && couponQty < 1) {
+        failReason = '传说强化券不足';
+        break;
+      }
+
+      usedMaterial += materialCost;
+      energyQty -= materialCost;
+      if (statTarget !== '') couponQty--;
       upgradedCount++;
+      ampLevel++;
 
       if (statTarget === '') {
         const randomStat = IMPLANT_STATS[Math.floor(Math.random() * IMPLANT_STATS.length)];
@@ -620,11 +644,6 @@ export class ItemSystemService {
           resultItems.push({ name: randomStat });
         }
       } else {
-        if (couponQty < 1) {
-          failReason = '传说强化券不足';
-          break;
-        }
-        couponQty--;
         const statKey = AMPLIFIER_STAT_MAP[statTarget];
         if (statKey) {
           amp.bonus[statKey] = (amp.bonus[statKey] || 0) + 1;
@@ -646,7 +665,7 @@ export class ItemSystemService {
     equipment[ampIndex] = ampItem;
 
     // 更新标记 — 使用成就系统服务
-    this.achievementService.setAchievement(markers, '增幅器等级', (markers['增幅器等级'] as number || 0) + upgradedCount);
+    this.achievementService.setAchievement(markers, '增幅器等级', ampLevel);
     this.achievementService.setAchievement(markers, '强化增幅器', (markers['强化增幅器'] as number || 0) + upgradedCount);
 
     await this.prisma.player.update({
@@ -1212,92 +1231,130 @@ export class ItemSystemService {
   }
 
   // ===================================================================
-  //  植入体系统（基于 markers 存储）
+  //  植入体系统（装备栏为唯一状态源）
   // ===================================================================
 
+  private findSpecialEquipmentIndex(equipment: Item3[], kind: 'implant' | 'amplifier'): number {
+    const [minSeq, maxSeq] = kind === 'implant' ? [76, 79] : [71, 75];
+    const prefix = kind === 'implant' ? '植入体' : '增幅器';
+    return (equipment || []).findIndex((item: Item3) => {
+      const name = String(item?.name || '');
+      if (name.startsWith(prefix)) return true;
+      const definition = this.staticData.getEquipmentByName(name);
+      const type = String(definition?.equipType ?? definition?.type ?? '');
+      const seq = Number((item as any)?.specialSeq ?? definition?.specialSeq ?? 0);
+      return type === prefix || seq === (kind === 'implant' ? 2 : 1) || (seq >= minSeq && seq <= maxSeq);
+    });
+  }
+
+  private getSpecialLevel(markers: Record<string, any>, key: string): number {
+    const raw = markers?.[key];
+    const value = typeof raw === 'object' && raw !== null
+      ? (raw.value ?? raw.数值 ?? raw.level ?? 0)
+      : raw;
+    const level = Number(value ?? 0);
+    return Number.isFinite(level) && level > 0 ? Math.floor(level) : 0;
+  }
+
+  private getEnhancementRefund(level: number): number {
+    const normalized = Math.max(0, Math.floor(Number(level) || 0));
+    return normalized * (normalized + 1) / 2;
+  }
+
+  private clearSpecialEquipmentBonus(item: Item3): void {
+    // 植入体/增幅器的静态基础加成为空，原版还原后将装备数据重置为 x。
+    // 保留名称，使当前切换类型不受还原影响；下次切换仍只改名称。
+    item.data = 'x';
+  }
+
   /**
-   * 查看植入体
-   * 从 markers 中读取植入体数据，显示当前植入体类型、等级和属性加成
-   * @param userId 玩家ID
+   * 查看植入体。
+   * 原版从玩家装备中寻找“植入体”，等级仍记录在“植入体等级”熟练度，
+   * 装备 data 中的加成则是实际生效的强化结果。
    */
   async viewImplant(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
-
-    // 从 markers 中读取植入体数据
-    const implantData = markers['implant'];
-    if (!implantData) {
-      return `${player.name}，你还没有植入体，请先使用"切换植入体"命令选择一个类型。`;
+    const { player, equipment, markers } = playerData;
+    const implantIndex = this.findSpecialEquipmentIndex(equipment, 'implant');
+    if (implantIndex === -1) {
+      return `${player.name}你身上未装备植入体`;
     }
 
-    const implant = typeof implantData === 'string' ? JSON.parse(implantData) : implantData;
-    const type = implant.type || '物攻';
-    const level = implant.level || 1;
-
-    // 植入体类型对应的属性加成
-    const implantTypeMap: Record<string, { stat: string; baseValue: number }> = {
-      '物攻': { stat: '物伤', baseValue: 1 },
-      '火攻': { stat: '火伤', baseValue: 1 },
-      '冰攻': { stat: '冰伤', baseValue: 1 },
-      '电攻': { stat: '电伤', baseValue: 1 },
-    };
-
-    const typeInfo = implantTypeMap[type];
-    const bonusValue = typeInfo ? typeInfo.baseValue * level : 0;
-    const statName = typeInfo ? typeInfo.stat : '未知';
-
-    const lines: string[] = [];
-    lines.push(`【植入体信息】`);
-    lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`类型: ${type}`);
-    lines.push(`等级: Lv.${level}`);
-    lines.push(`属性加成: ${statName} +${bonusValue}`);
-    lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`切换消耗: 100 水晶`);
-    lines.push(`强化消耗: ${level * 10} 水晶/次 (成功率 ${Math.max(10, 100 - level * 5)}%)`);
-    lines.push(`史诗强化券: 100% 成功率`);
-    lines.push(`传说强化券: 90% 成功率`);
-
+    const implantItem = equipment[implantIndex];
+    const implant = this.parseEquipment(implantItem);
+    const level = this.getSpecialLevel(markers, '植入体等级');
+    const bonusLines = this.formatBonusStats(implant.bonus);
+    const lines = [
+      `${player.name}的植入体（等级${level}）`,
+      bonusLines.length > 0 ? bonusLines.join('\n') : '暂无强化加成',
+      '“强化植入体”来强化植入体',
+      '“还原植入体”来重置，还原无损耗',
+      '“切换植入体”来消耗2张凭证来切换植入体的强化类型',
+      `当前类型：${implantItem.name}`,
+    ];
     return lines.join('\n');
   }
 
   /**
-   * 切换植入体（基于 markers 存储）
-   * 切换到指定类型的植入体，消耗切换资源
-   * @param userId 玩家ID
-   * @param type 植入体类型：物攻/火攻/冰攻/电攻
+   * 切换植入体。
+   * 原版切换只改变装备名称/特殊序号，不重置已有强化；费用为2个凭证。
    */
-  async switchImplant(userId: number, type: string): Promise<string> {
+  async switchImplant(userId: number, type = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, markers } = playerData;
-
-    // 验证植入体类型
-    const validTypes = ['物攻', '火攻', '冰攻', '电攻'];
-    if (!validTypes.includes(type)) {
-      return `${player.name}，无效的植入体类型【${type}】。可选类型：${validTypes.join('、')}`;
+    const { player, equipment, backpack, weapons } = playerData;
+    const rawType = String(type || '').trim().replace(/^植入体[-:]?/, '');
+    if (!rawType) {
+      return [
+        `${player.name}`,
+        '◆1、植入体-强攻：最终物攻+25%，护盾/装甲/生命物理穿透+10%',
+        '◆2、植入体-烈火：最终火攻+25%，护盾/装甲/生命火焰穿透+10%',
+        '◆3、植入体-冰结：最终冰攻+25%，护盾/装甲/生命冰冻穿透+10%',
+        '◆4、植入体-雷霆：最终电攻+25%，护盾/装甲/生命雷电穿透+10%',
+        '◆6、植入体：无特殊效果',
+      ].join('\n');
     }
 
-    // 消耗切换资源（100 水晶）
-    const crystalCost = 100;
-    const crystalQty = this.getItemQuantity('水晶', backpack);
-    if (crystalQty < crystalCost) {
-      return `${player.name}，切换植入体需要 ${crystalCost} 个水晶，你只有 ${crystalQty} 个。`;
+    const options: Record<string, { name: string; seq: number }> = {
+      强攻: { name: '植入体-强攻', seq: 76 },
+      烈火: { name: '植入体-烈火', seq: 78 },
+      冰结: { name: '植入体-冰结', seq: 79 },
+      雷霆: { name: '植入体-雷霆', seq: 77 },
+      无: { name: '植入体', seq: 2 },
+    };
+    const selected = options[rawType];
+    if (!selected) {
+      return `${player.name},“${rawType}”不是允许的类型`;
     }
-    this.removeItemFromBackpack(backpack, '水晶', crystalCost);
 
-    // 更新 markers 中的植入体数据
-    const implantData = { type, level: 1 };
-    markers['implant'] = implantData;
+    const implantIndex = this.findSpecialEquipmentIndex(equipment, 'implant');
+    if (implantIndex === -1) {
+      return `${player.name}你身上未装备植入体`;
+    }
 
+    const credentialCost = 2;
+    const credentialQty = this.getItemQuantity('凭证', backpack);
+    if (credentialQty < credentialCost) {
+      return `${player.name}每次需要消耗2凭证`;
+    }
+
+    const implantItem = equipment[implantIndex];
+    const oldName = implantItem.name;
+    implantItem.name = selected.name;
+    (implantItem as any).specialSeq = selected.seq;
+    this.removeItemFromBackpack(backpack, '凭证', credentialCost);
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
+
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
     await this.prisma.player.update({
       where: { userId },
       data: {
+        equipment: JSON.stringify(equipment),
         backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        sets,
       },
     });
 
-    return `${player.name}消耗了 ${crystalCost} 个水晶，切换植入体为【${type}】（Lv.1）。`;
+    return `${player.name}把植入体切换为${rawType}（${oldName}→${implantItem.name}）`;
   }
 
   /**
@@ -1392,140 +1449,136 @@ export class ItemSystemService {
     }
   }
 
-  /**
-   * 还原植入体
-   * 重置植入体等级到 1 级，返还部分消耗材料
-   * @param userId 玩家ID
-   */
+  /** 显示原版两步确认中的第一步，不修改玩家数据。 */
   async resetImplant(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, markers } = playerData;
+    const { player, equipment, markers } = playerData;
+    if (this.findSpecialEquipmentIndex(equipment, 'implant') === -1) {
+      return `${player.name}你未装备植入体。`;
+    }
+    const level = this.getSpecialLevel(markers, '植入体等级');
+    const refund = this.getEnhancementRefund(level);
+    return `${player.name}确定要重置植入体的强化吗？将返还：${refund}的水晶，不返还史诗强化券\n发送“确认还原植入体等级”执行`;
+  }
 
-    const implantData = markers['implant'];
-    if (!implantData) {
-      return `${player.name}，你还没有植入体，无需还原。`;
+  /** 执行“确认还原植入体等级”，返还全部累计水晶且不返还强化券。 */
+  async confirmResetImplant(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, equipment, backpack, markers, weapons } = playerData;
+    const implantIndex = this.findSpecialEquipmentIndex(equipment, 'implant');
+    if (implantIndex === -1) {
+      return `${player.name}你未装备植入体。`;
     }
 
-    const implant = typeof implantData === 'string' ? JSON.parse(implantData) : implantData;
-    const level = implant.level || 1;
-
-    if (level <= 1) {
-      return `${player.name}，植入体等级已是 Lv.1，无需还原。`;
-    }
-
-    // 计算返还材料：返还 50% 的水晶消耗
-    let totalCrystalCost = 0;
-    for (let i = 1; i < level; i++) {
-      totalCrystalCost += i * 10;
-    }
-    const refundCrystal = Math.floor(totalCrystalCost * 0.5);
-
-    // 重置植入体等级
-    implant.level = 1;
-    markers['implant'] = implant;
-
-    // 返还水晶
-    if (refundCrystal > 0) {
+    const level = this.getSpecialLevel(markers, '植入体等级');
+    const refund = this.getEnhancementRefund(level);
+    this.achievementService.setAchievement(markers, '植入体等级', 0);
+    delete markers.implant;
+    this.clearSpecialEquipmentBonus(equipment[implantIndex]);
+    if (refund > 0) {
       this.addItemToBackpack(backpack, {
-        name: '水晶', type: '资源', quantity: refundCrystal, durability: 0, data: '',
+        name: '水晶', type: '资源', quantity: refund, durability: 0, data: '',
       });
     }
 
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
     await this.prisma.player.update({
       where: { userId },
       data: {
+        equipment: JSON.stringify(equipment),
         backpack: JSON.stringify(backpack),
         markers: JSON.stringify(markers),
+        sets,
+        sets,
+        sets,
       },
     });
-
-    return `${player.name}还原了植入体（Lv.${level} → Lv.1），返还了 ${refundCrystal} 个水晶。`;
+    return `${player.name}把植入体重置了，得到了${refund}的水晶`;
   }
 
   // ===================================================================
-  //  增幅器系统（基于 markers 存储）
+  //  增幅器系统（装备栏为唯一状态源）
   // ===================================================================
 
-  /**
-   * 查看增幅器
-   * 从 markers 中读取增幅器数据，显示当前增幅器类型、等级和属性加成
-   * @param userId 玩家ID
-   */
+  /** 查看增幅器，实际加成从装备 data 解析。 */
   async viewAmplifier(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
-
-    const ampData = markers['amplifier'];
-    if (!ampData) {
-      return `${player.name}，你还没有增幅器，请先使用"切换增幅器"命令选择一个类型。`;
+    const { player, equipment, markers } = playerData;
+    const amplifierIndex = this.findSpecialEquipmentIndex(equipment, 'amplifier');
+    if (amplifierIndex === -1) {
+      return `${player.name}你身上未装备增幅器`;
     }
 
-    const amp = typeof ampData === 'string' ? JSON.parse(ampData) : ampData;
-    const type = amp.type || '攻击';
-    const level = amp.level || 1;
-
-    // 增幅器类型对应的二阶属性加成
-    const ampTypeMap: Record<string, { stat: string; baseValue: number }> = {
-      '攻击': { stat: '攻击2', baseValue: 1 },
-      '防御': { stat: '装甲2', baseValue: 1 },
-      '生命': { stat: '生命2', baseValue: 5 },
-      '暴击': { stat: '暴击', baseValue: 0.5 },
-    };
-
-    const typeInfo = ampTypeMap[type];
-    const bonusValue = typeInfo ? typeInfo.baseValue * level : 0;
-    const statName = typeInfo ? typeInfo.stat : '未知';
-
-    const lines: string[] = [];
-    lines.push(`【增幅器信息】`);
-    lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`类型: ${type}`);
-    lines.push(`等级: Lv.${level}`);
-    lines.push(`属性加成: ${statName} +${bonusValue}`);
-    lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`切换消耗: 50 能量块`);
-    lines.push(`强化消耗: ${level * 5} 能量块/次`);
-
-    return lines.join('\n');
+    const amplifierItem = equipment[amplifierIndex];
+    const amplifier = this.parseEquipment(amplifierItem);
+    const level = this.getSpecialLevel(markers, '增幅器等级');
+    const bonusLines = this.formatBonusStats(amplifier.bonus);
+    return [
+      `${player.name}的增幅器（等级${level}）`,
+      bonusLines.length > 0 ? bonusLines.join('\n') : '暂无强化加成',
+      '“强化增幅器”来强化增幅器',
+      '“还原增幅器”来重置，还原无损耗',
+      '“切换增幅器”来消耗5张凭证来切换增幅器的强化类型',
+      `当前类型：${amplifierItem.name}`,
+    ].join('\n');
   }
 
-  /**
-   * 切换增幅器（基于 markers 存储）
-   * 切换到指定类型的增幅器，消耗切换资源
-   * @param userId 玩家ID
-   * @param type 增幅器类型：攻击/防御/生命/暴击
-   */
-  async switchAmplifier(userId: number, type: string): Promise<string> {
+  /** 切换增幅器，原版只修改名称/特殊序号并消耗5个凭证。 */
+  async switchAmplifier(userId: number, type = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, markers } = playerData;
-
-    // 验证增幅器类型
-    const validTypes = ['攻击', '防御', '生命', '暴击'];
-    if (!validTypes.includes(type)) {
-      return `${player.name}，无效的增幅器类型【${type}】。可选类型：${validTypes.join('、')}`;
+    const { player, equipment, backpack, weapons } = playerData;
+    const rawType = String(type || '').trim().replace(/^增幅器[-:]?/, '');
+    if (!rawType) {
+      return [
+        `${player.name}`,
+        '◆1、增幅器-速射：攻击伤害降低10%，攻击冷却降低10%，每攻击5次造成150%伤害并提高10%穿透',
+        '◆2、增幅器-敏锐：被攻击时叠加层数，被命中时可抵挡一次攻击伤害',
+        '◆3、增幅器-神枪：伤害随机数固定值+20%',
+        '◆4、增幅器-坚毅：被命中时叠加层数，每层减少受到的10%伤害',
+        '◆5、增幅器-侵彻：贯穿几率+10%，贯穿时追加目标三项上限伤害',
+        '◆6、增幅器：无特殊效果',
+      ].join('\n');
     }
 
-    // 消耗切换资源（50 能量块）
-    const energyCost = 50;
-    const energyQty = this.getItemQuantity('能量块', backpack);
-    if (energyQty < energyCost) {
-      return `${player.name}，切换增幅器需要 ${energyCost} 个能量块，你只有 ${energyQty} 个。`;
+    const options: Record<string, { name: string; seq: number }> = {
+      速射: { name: '增幅器-速射', seq: 74 },
+      敏锐: { name: '增幅器-敏锐', seq: 73 },
+      神枪: { name: '增幅器-神枪', seq: 71 },
+      坚毅: { name: '增幅器-坚毅', seq: 72 },
+      侵彻: { name: '增幅器-侵彻', seq: 75 },
+      无: { name: '增幅器', seq: 1 },
+    };
+    const selected = options[rawType];
+    if (!selected) {
+      return `${player.name},“${rawType}”不是允许的类型`;
     }
-    this.removeItemFromBackpack(backpack, '能量块', energyCost);
 
-    // 更新 markers 中的增幅器数据
-    const ampData = { type, level: 1 };
-    markers['amplifier'] = ampData;
+    const amplifierIndex = this.findSpecialEquipmentIndex(equipment, 'amplifier');
+    if (amplifierIndex === -1) {
+      return `${player.name}你身上未装备增幅器`;
+    }
+
+    const credentialCost = 5;
+    if (this.getItemQuantity('凭证', backpack) < credentialCost) {
+      return `${player.name}每次需要消耗5凭证`;
+    }
+
+    const amplifierItem = equipment[amplifierIndex];
+    const oldName = amplifierItem.name;
+    amplifierItem.name = selected.name;
+    (amplifierItem as any).specialSeq = selected.seq;
+    this.removeItemFromBackpack(backpack, '凭证', credentialCost);
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
 
     await this.prisma.player.update({
       where: { userId },
       data: {
+        equipment: JSON.stringify(equipment),
         backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        sets,
       },
     });
-
-    return `${player.name}消耗了 ${energyCost} 个能量块，切换增幅器为【${type}】（Lv.1）。`;
+    return `${player.name}把增幅器切换为${rawType}（${oldName}→${amplifierItem.name}）`;
   }
 
   /**
@@ -1575,54 +1628,49 @@ export class ItemSystemService {
     return `${player.name}消耗 ${energyCost} 个能量块强化增幅器成功！\n增幅器等级: Lv.${level} → Lv.${level + 1}`;
   }
 
-  /**
-   * 还原增幅器
-   * 重置增幅器等级到 1 级，返还部分消耗材料
-   * @param userId 玩家ID
-   */
+  /** 显示原版两步确认中的第一步，不修改玩家数据。 */
   async resetAmplifier(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, markers } = playerData;
+    const { player, equipment, markers } = playerData;
+    if (this.findSpecialEquipmentIndex(equipment, 'amplifier') === -1) {
+      return `${player.name}你未装备增幅器。`;
+    }
+    const level = this.getSpecialLevel(markers, '增幅器等级');
+    const refund = this.getEnhancementRefund(level);
+    return `${player.name}确定要重置增幅器的强化吗？将返还：${refund}的能量块，不返还传说强化券\n发送“确认还原增幅器等级”执行`;
+  }
 
-    const ampData = markers['amplifier'];
-    if (!ampData) {
-      return `${player.name}，你还没有增幅器，无需还原。`;
+  /** 执行“确认还原增幅器等级”，返还全部累计能量块且不返还强化券。 */
+  async confirmResetAmplifier(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, equipment, backpack, markers, weapons } = playerData;
+    const amplifierIndex = this.findSpecialEquipmentIndex(equipment, 'amplifier');
+    if (amplifierIndex === -1) {
+      return `${player.name}你未装备增幅器。`;
     }
 
-    const amp = typeof ampData === 'string' ? JSON.parse(ampData) : ampData;
-    const level = amp.level || 1;
-
-    if (level <= 1) {
-      return `${player.name}，增幅器等级已是 Lv.1，无需还原。`;
-    }
-
-    // 计算返还材料：返还 50% 的能量块消耗
-    let totalEnergyCost = 0;
-    for (let i = 1; i < level; i++) {
-      totalEnergyCost += i * 5;
-    }
-    const refundEnergy = Math.floor(totalEnergyCost * 0.5);
-
-    // 重置增幅器等级
-    amp.level = 1;
-    markers['amplifier'] = amp;
-
-    // 返还能量块
-    if (refundEnergy > 0) {
+    const level = this.getSpecialLevel(markers, '增幅器等级');
+    const refund = this.getEnhancementRefund(level);
+    this.achievementService.setAchievement(markers, '增幅器等级', 0);
+    delete markers.amplifier;
+    this.clearSpecialEquipmentBonus(equipment[amplifierIndex]);
+    if (refund > 0) {
       this.addItemToBackpack(backpack, {
-        name: '能量块', type: '资源', quantity: refundEnergy, durability: 0, data: '',
+        name: '能量块', type: '资源', quantity: refund, durability: 0, data: '',
       });
     }
 
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
     await this.prisma.player.update({
       where: { userId },
       data: {
+        equipment: JSON.stringify(equipment),
         backpack: JSON.stringify(backpack),
         markers: JSON.stringify(markers),
+        sets,
       },
     });
-
-    return `${player.name}还原了增幅器（Lv.${level} → Lv.1），返还了 ${refundEnergy} 个能量块。`;
+    return `${player.name}把增幅器重置了，得到了${refund}的能量块`;
   }
 
   // ===================================================================
@@ -2291,9 +2339,23 @@ export class ItemSystemService {
     // ---- 4) 特效生成（原版 L1230-1253）----
     let effect = 0;
     if (!noEffect) {
-      const isWeapon = (gameEquip?.specialSeq ?? 0) !== 0 || (gameEquip?.equipType || '').includes('武器');
+      const isWeapon = typeof this.staticData.isWeapon === 'function'
+        ? this.staticData.isWeapon(gameEquip)
+        : (() => {
+          const specialSeq = Number(gameEquip?.specialSeq ?? 0);
+          if (specialSeq !== 0) return specialSeq < 0;
+          const type = String(gameEquip?.equipType ?? gameEquip?.type ?? '');
+          return type.endsWith('武器') || type === '工具';
+        })();
       const forced = gameEquip?.forcedEffect === true || gameEquip?.forcedEffect === 'true';
-      const effectCount = 50; // 武器特效/装备特效 数量上限（原版 取数组成员数，此处取常量上限）
+      const effects = isWeapon
+        ? (typeof (this.staticData as any).getWeaponEffects === 'function'
+          ? (this.staticData as any).getWeaponEffects()
+          : this.staticData.getAllEffects().filter((row: any) => !row?.limit || row.limit === '武器'))
+        : (typeof (this.staticData as any).getEquipmentEffects === 'function'
+          ? (this.staticData as any).getEquipmentEffects()
+          : this.staticData.getAllEffects().filter((row: any) => !row?.limit || row.limit === '装备'));
+      const effectCount = effects.length;
       if (isWeapon) {
         if (forced) effect = Math.floor(Math.random() * effectCount) + 1;
         else if (Math.random() < 0.15) effect = Math.floor(Math.random() * effectCount) + 1;

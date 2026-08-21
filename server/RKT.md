@@ -301,11 +301,11 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 装备/武器（装备/卸下/切换武器/锁定/强化/解析/植入体/增幅器） | ~30 | ✅/🔶 | 装备/卸下/切换 ✅；植入体/增幅器强化 🔶 部分 |
 | 物品（制造/移除/保护/丢弃/分解/图鉴/使用/背包搜索） | ~25 | ✅ 完 | 含战利品分发、词条转换 |
 | 地图（观察附近/移动/传送/飞到/探测/拾取/采集） | ~25 | ✅ 完 | 出生刷怪、地图连接、资源点 |
-| 家园（家园/搬迁/命名/音乐/操作/前线/产出） | ~10 | 🔶 半 | 动态院子/屋内/前线地图、入口、改名/搬迁持久化及前线状态已接通；家园产出核心已实现但特殊宠物/资源分支仍有逐项缺口 |
+| 家园（家园/搬迁/命名/音乐/操作/前线/产出/种植/收获） | ~12 | 🔶 半 | 动态院子/屋内/前线地图、入口、改名/搬迁持久化、前线状态、产出核心和作物种植/收获已接通；特殊宠物/资源分支仍有逐项缺口 |
 | 副本（开启副本/刷新副本/副本清空） | ~5 | ✅ | `game.service.handleStartDungeon/handleRefreshDungeon/handleClearDungeon` + `dungeon.service` 已接线；正式数据按复活点分为9组/25张地图，保留副本券、300秒刷新冷却、120秒通关标记和30秒延时关闭 |
 | 商店（使魔商店/兑换/设置购物） | ~6 | 🔶 半 | 商店刷新定时 ✅；兑换交互 ⬜ |
 | 捕捉（捕捉/开始捕捉/停止捕捉） | ~4 | ✅ | `familiar-system.capturePet` 已实现开始/停止捕捉、麻醉门禁、饲料扣除、成功转宠物、特殊捕捉奖励及 `GameMonster` 优先读取；`test/capture.spec.ts` 覆盖主分支 |
-| 救助/扶/复活使魔/对话/呼叫/设置跟随/福音书/安乐天使/炮击 | ~12 | 🔶 | `扶`、`救助`、`复活使魔` 已按原版完成社交救援、倒地使魔复活、载具维修、5/30秒延时与任务推进；其余命令仍有独立子分支待补 |
+| 救助/扶/复活使魔/对话/呼叫/设置跟随/福音书/安乐天使/炮击 | ~12 | 🔶 | `扶`、`救助`、`复活使魔`、`福音书`、`安乐天使`、`炮击`及`全部跟随/停下/主动/被动`已接通状态写回和任务推进；`设置跟随`单目标的好感/幼崽/阵地限制、`呼叫`少数分支仍待逐条补齐 |
 | 任务/查看/成就/标记/管理命令 | ~30 | ✅ 完 | `TaskService` 已完成自动推进、自动结算、奖励、后续/级联、发布人好感、教程、旧任务格式兼容、放弃任务冷却；采集/贸易/购物/求助/使用/战斗掉落均已接入任务动作 |
 | 日常/定时（自动战斗/自动采集/商店刷新/神王降临/副本） | 后台 | ✅ 完 | `后台运作.ecode` 经 cron 驱动 |
 
@@ -326,7 +326,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 伤害计算模型 | 战斗相关 L2274-2379 | ✅ `test/combat.spec.ts`（34 用例） |
 | 生成装备+词条转换 | 物品操作 L1128/L1838 | ✅ `test/item-system.spec.ts` |
 | 战利品分发 | 战斗相关 L4874 | ✅ `test/item-system.spec.ts`（含装备/资源/负数资源语义） |
-| 任务系统自动推进与结算 | 数据分析 L268-286/L678-705/L719；_主程序 L5571-5593/L7321-7385/L9391-9445/L11250-11266/L11686-11700/L11834-11961 | ✅ `task.service.ts` + command/game/gather/item/combat handlers；`test/task.service.spec.ts`、`test/task-command.spec.ts`、`test/gather-task.spec.ts`、`test/social-task.spec.ts`、`test/battle-e2e.spec.ts` | 自动推进、完成即结算、奖励/装备概率、后续与“完成任务”级联、教程、发布人好感归属、配方解锁、放弃任务冷却、旧存档格式；原版负数资源语义由 `test/item-system.spec.ts` 覆盖 |
+| 任务系统自动推进与结算 | 数据分析 L268-286/L678-705/L719；_主程序 L5571-5593/L7321-7385/L9391-9445/L11250-11266/L11686-11700/L11834-11961 | ✅ `task.service.ts` + command/game/gather/item/combat/home handlers；`test/task.service.spec.ts`、`test/task-command.spec.ts`、`test/gather-task.spec.ts`、`test/social-task.spec.ts`、`test/battle-e2e.spec.ts` | 自动推进、完成即结算、奖励/装备概率、后续与“完成任务”级联、教程、发布人好感归属、配方解锁、放弃任务冷却、种植/收获动作均已接入；旧存档兼容代码仍保留，但开发验收不以旧存档兼容为前提，允许直接重置玩家数据 |
 | 使魔兰音 etc. 专项 | 使魔技能 L? | ✅ `test/integration-lann-plana-skill.spec.ts` |
 | 伊芙利特灼烂歼鬼 | 使魔技能 L1967-2006 | ✅ `test/familiar-scorched-finger.spec.ts`（4用例） |
 | 副本生命周期 | 后台运作 L1039-1106 / _主程序 L3863-3965、L7396-7409 | ✅ `test/dungeon.spec.ts`（2用例） |
@@ -410,6 +410,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 ### §11.3 家园子系统（前线/产出）
 - **前线：✅ 已完成（2026-08-18）**。对照接口1.ecode L1395-1480，`MapService.ensureHouseMaps` 持久化院子、屋内、前线三张动态地图并维护入口；对照 _主程序.ecode L2228-2254，`FamiliarSystemService.handleHomeFrontline` 首次查看调用 `generateFrontline` 并保存召唤物/载具；对照 _主程序.ecode L2077-2163，`GameService.handleStartBattle` 按前线等级分支生成地精 `GameMonster`、置掉落、开启活动。真实数据库专项 `test/integration-home-frontline.spec.ts` 6/6 通过。
 - **产出：✅ 核心闭环完成（2026-08-19）**。`HomeService.collectHomeOutput` 已按 `地图操作.ecode L1-600` 接通地图 `items/markers` 观测持久化、普通宠物/具现装置、作物/建筑优先级生产、电力/燃料/人力/超载、世界模拟器 AI、工业牵引、朱雀/腐化南方巨兽龙/白兔子/小雨下/小恶魔/肉食植物/螳螂/兔子窝/心之守望等特殊产出。特殊多产出共享消耗时间，世界模拟器核心保留 `data=a`；`test/home-output.spec.ts` 覆盖地图仓储隔离、具现装置、AI 核心和消耗约束。剩余差异仅为原版显示文本和少数运行时属性初始化的边缘分支，不阻塞产出玩法闭环。
+- **种植/收获：✅ 基础闭环完成（2026-08-20）**。按 `_主程序.ecode L4590-4628` 使用物品 `useEffects` 将种子映射到 `resources.json` 作物定义；`HomeService.plantSeed` 将资源定义写入当前地图 `resources2`，`GameService.handleUseSeed` 接通“使用种子”直用入口，家园命令支持批量种植。`harvestCrop` 支持 `resources2` 作物并从资源 `outputs` 发放正向产出，命令层同步保存地图/背包并推进 `种植`、`种植<作物>`、`收获` 任务；字符串形式的 `outputs/outputs2` 也统一解析。`test/home-crop.spec.ts` 覆盖种子映射、批量合并、收获和直用任务动作。
 
 ### §11.3.1 任务系统闭环（2026-08-20）
 
@@ -432,7 +433,43 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 - `对话`仅在指定 NPC 且实际对话成功后推进；空参数列表展示、NPC 不存在和带参数失败不会推进。
 - 普通`求助`恢复露娜提示，只有`求助确认`成功接管露娜时推进`求助`；`维修`继续由统一的`发送“维修”`收尾处理，不在 handler 内重复推进。
 - `飞到`从普通移动中独立出来，补齐死亡、工作/移动状态、目标地图、战斗、10 秒冷却和载具行走方式限制；成功起飞推进`飞行`，到达与普通移动共用幂等结算。
-- 专项验证：`task.service.spec.ts`、`task-command.spec.ts`、`social-task.spec.ts`、`gather-task.spec.ts`、`auto-mine.spec.ts`、`fly-task.spec.ts`、`rescue-social.spec.ts`、`item-use.spec.ts` 共 46 个用例通过；`npm run build` 通过。
+- 普通`移动/前往`按原版在创建移动状态后推进`移动`，数量取最短路径节点数（含起点和终点）；实际到达再推进`前往<地图>`，未到达、失败和重复到达不会重复记账。
+- 载具动作按原版任务归属收口：核心创建推进`组装载具`，已有载具/床等部件推进`组装部件`及`组装<部件名>`，拆卸推进`拆卸部件`及`拆卸<部件名>`；组装/拆卸按实际库存、插槽和载具数量推进，失败文案不记任务。
+- 手动开采和固定采集的冷却读取/覆盖统一兼容`key/name/名称`以及秒/毫秒时间戳，实际资源数量分别推进`采集资源`和具体资源任务；挤奶按成功对象数量推进，奶量、每日冷却、茸增产和青龙经验均在服务层一次结算。
+- 专项验证：本轮任务闭环 6 个套件共 53 个用例通过（含`task.service.spec.ts`、`task-command.spec.ts`、`task-game-actions.spec.ts`、`gather-task.spec.ts`、`auto-mine.spec.ts`、`fly-task.spec.ts`）；`npm run build` 与 `git diff --check` 通过。
+
+### §11.3.1.2 目标技能状态收口（2026-08-20）
+
+- `安乐天使`：已装备门禁只认当前装备；支持自己、当前地图召唤物和玩家目标；20秒护盾、300秒冷却，目标不存在时回滚冷却；兼容召唤物/旧存档 `buffs` 字符串与秒/毫秒 `markers2`。
+- `福音书`：支持自己、当前地图召唤物和玩家目标；300秒增益、每日一次标记，目标不存在时回滚每日标记；显式目标为自己时不会被旧玩家快照覆盖。
+- `全部跟随/全部停下/全部主动/全部被动`：统一筛选当前地图归属玩家且非幼崽/非阵地召唤物，同时写回 `follow`、`mode` 和原版 `跟随/主动` 标记；不会再把召唤物自身 QQ 当成归属。
+- 专项验证：`familiar-target-skills.spec.ts`、`task-game-actions.spec.ts` 共 8 个用例通过；`npm run build` 通过。
+
+【宠物群控专项】`familiar-follow.spec.ts` 覆盖全部跟随的归属隔离以及停下/主动/被动状态持久化，共 2 个用例通过。
+
+### §11.3.1.3 家园作物与任务动作收口（2026-08-20）
+
+- 种子不再按普通物品掉落处理：`GameService.handleUseSeed` 在当前地图校验屋内/他人家园/普通地图作物上限后，调用 `HomeService.plantSeed`，保存 `resources2` 与玩家背包。
+- `HomeService.plantSeed` 从 `items.json.useEffects` 找到资源名，再从 `resources.json` 复制作物定义；`outputs/outputs2` 同时兼容 JSON 字符串和数组，作物数量写入 `count/times`。
+- `HomeService.harvestCrop` 优先读取 `resources2`，从资源定义 `outputs` 发放正向产出并移除作物；命令层同步推进 `种植`、`种植<作物>`、`收获`，避免任务动作只记半条链路。
+- 专项验证：`test/home-crop.spec.ts`、`test/home-output.spec.ts`、`test/task-command.spec.ts`、`test/task-game-actions.spec.ts`、`test/task.service.spec.ts` 共 45 个用例通过；`npm run build` 通过。
+
+### §11.3.1.4 融合23与造神任务闭环（2026-08-20）
+
+【原文 `_主程序.ecode L8603-L8613/L8620-L8733/L8764/L8774-L8992`】
+
+- `融合23 0` 无消耗移除装备特效；`融合23 -1` 在神之工匠处无消耗激活特效；没有神之工匠时，`融合23` 消耗1灵石和1凭证激活特效。
+- 有神之工匠时，`融合23` 仅接受传说品质装备，消耗3灵石并按10%成功率升级为神迹；失败时仅对原本没有特效的装备激活补偿特效。
+- 造神成功时将品质前缀改为`x`，保留原有特效和制造者，并按原版最多补充一个缺失的普通属性；`融合23 修正`按装备品质上限补齐缺失属性。
+- `融合23 自选`按武器/装备特效池生成临时编号输入，费用为特效总数的三分之一四舍五入；`融合23 42` 将汪酱的暴击伤害覆盖到前一件装备并消耗3凭证。
+
+【复刻】
+
+- `server/src/modules/game/game.service.ts`：`handleMerge` 保留普通资源融合，并新增 `handleFusion23`、特效/属性数据重写、特效池、神之工匠检测和资源扣除闭环。
+- `server/src/modules/command/handlers/game-command.handler.ts`：完整传递 `融合23` 的第二参数；造神成功推进`造神`，普通融合/无工匠激活/汪酱暴击伤害按原版推进`融合`，移除特效、修正和神之工匠无消耗激活不虚增任务。
+- `server/test/fusion-task.spec.ts`：覆盖造神成功保留特效、失败补偿、灵石/凭证扣除、移除特效、属性修正和任务分流，共6个用例。
+
+【自检结论】`fusion-task.spec.ts` 与任务/战斗回归共5个套件、99个用例通过；`npm run build` 通过。开发阶段不以旧存档兼容为验收前提，允许重置玩家数据。
 
 ### §11.3.2 自动开采闭环（2026-08-20）
 
@@ -442,7 +479,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 - 新增 `test/auto-mine.spec.ts` 覆盖采集器门禁、每小时公式、任务推进、后台增量结算和阿尔法核心分支。
 
 ### §11.4 占位 handler 内部实现
-- `福音书/安乐天使/呼叫/设置跟随/炮击` 等 handler 仍有占位或简化实现，需逐条从原版 ecode 复刻；`扶/救助/复活使魔` 已移出占位清单并完成。
+- `设置跟随` 已完成单目标好感/归属转换、幼崽/阵地限制和跟随状态持久化；`全部跟随/停下/主动/被动` 已完成归属隔离与状态写回。`呼叫` 的行商、神之工匠、宠物和载具主要分支已接通，仍有少数特殊对象分支待逐条核对；`扶/救助/复活使魔/福音书/安乐天使/炮击/宠物群控` 已移出纯占位清单并完成主要闭环。
 
 ### 11.5 本轮家园前线逐行对照与自检（2026-08-18）
 

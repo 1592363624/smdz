@@ -88,7 +88,7 @@ export class GameCommandHandler implements CommandHandler {
 
   private isSuccessfulAction(result: string): boolean {
     if (!result?.trim()) return false;
-    return !/(失败|错误|未知指令|未知操作|未知技能|不存在|无法|不能|不可|未找到|无效|请选择|请指定|请输入|请先|正在前往|正在工作|战斗状态|当前不可用|只能使用|未安装|还需要|等级不足|需要等级|材料不足|数量不足|活力不足|余额不足|没有足够|你只有|不够|尚未|未解锁|冷却中|已死亡|不在|不是|已经签到过|地上没有|背包中没有|当前地图没有可|当前地图没有名为|附近没有|没有载具|没有家园|没有可挤奶|没有可剪毛|没有可以|你还没有|你没有|耐久度已满|还不需要修|无需维修)/.test(result);
+    return !/(失败|错误|未知指令|未知操作|未知技能|不存在|无法|不能|不可|未找到|无效|请选择|请指定|请输入|请先|正在前往|正在工作|战斗状态|当前不可用|只能使用|未安装|没有安装|还需要|等级不足|需要等级|材料不足|数量不足|活力不足|余额不足|没有足够|你只有|不够|尚未|未解锁|冷却中|已死亡|不在|不是|已经签到过|地上没有|背包中没有|当前地图没有可|当前地图没有名为|附近没有|没有目标|没有载具|没有家园|没有可挤奶|没有可剪毛|没有可以|你还没有|你没有|耐久度已满|还不需要修|无需维修)/.test(result);
   }
 
   /** 命令响应状态只识别明确错误，查询结果中的“没有”不代表命令失败。 */
@@ -102,6 +102,13 @@ export class GameCommandHandler implements CommandHandler {
     const match = value.match(/^(.*?)(\d+)$/);
     if (!match) return { name: value, count: 1 };
     return { name: match[1].trim(), count: Math.max(1, Number(match[2])) };
+  }
+
+  /** 从载具批量操作的响应中读取实际完成数量，避免库存不足时虚增任务进度。 */
+  private parseActionResultCount(result: string, fallback: number): number {
+    const match = result.match(/(?:[x×]\s*(\d+)|把\s*(\d+)\s*个|拆卸了[^\n]*?[x×]\s*(\d+))/i);
+    const count = Number(match?.[1] || match?.[2] || match?.[3] || fallback);
+    return Number.isFinite(count) && count > 0 ? count : 1;
   }
 
   private parseCraftArguments(args: string[]): { recipeName: string; count: number } {
@@ -169,8 +176,12 @@ export class GameCommandHandler implements CommandHandler {
         }
 
         case '炮击':
-        case 'cannon':
-          return this.wrap(await this.combatSystem.cannonAttack(userId, arg));
+        case 'cannon': {
+          const result = await this.combatSystem.cannonAttack(userId, arg);
+          // 原版 _主程序.ecode L947：炮击成功后推进炮击任务。
+          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '炮击');
+          return this.wrap(result);
+        }
 
         // ========== 自动战斗 / 延时攻击（对应原版 自动战斗 / 延时攻击指令） ==========
         case '自动战斗':
@@ -233,11 +244,9 @@ export class GameCommandHandler implements CommandHandler {
         case 'move':
         case '前往':
         case '去': {
-          const result = await this.runTaskAction(
-            userId,
-            () => this.gameService.handleMove(userId, arg),
-            [{ name: '移动' }],
-          );
+          // 普通移动按原版在 GameService 创建移动状态后推进“移动”，
+          // 避免命令层按固定1次重复记账或在失败时提前记账。
+          const result = await this.gameService.handleMove(userId, arg);
           return this.wrap(result);
         }
 
@@ -304,9 +313,10 @@ export class GameCommandHandler implements CommandHandler {
         case 'use': {
           const useArgs = this.parseUseArguments(args);
           const result = await this.gameService.handleUseItem(userId, useArgs.itemName, useArgs.count);
-          if (this.isSuccessfulAction(result) && useArgs.itemName) {
-            await this.taskService.advance(userId, '使用物品', useArgs.count);
-            await this.taskService.advance(userId, '使用' + useArgs.itemName, useArgs.count);
+          if (this.isSuccessfulAction(result) && useArgs.itemName && !/种下了/.test(result)) {
+            const actualCount = Number(result.match(/(?:使用了|使用|开启了|打开了)[^\d]*(\d+)/)?.[1] || useArgs.count);
+            await this.taskService.advance(userId, '使用物品', actualCount);
+            await this.taskService.advance(userId, '使用' + useArgs.itemName, actualCount);
           }
           return this.wrap(result);
         }
@@ -367,7 +377,10 @@ export class GameCommandHandler implements CommandHandler {
           if (equipmentParts.has(enhancementPart)) {
             const result = await this.gameService.handleEquipEnhance(userId, arg);
             if (this.isSuccessfulAction(result)) {
-              const count = Number(arg.match(/\d+/)?.[0] || 1);
+              // 原版使用实际完成次数 c；资源不足时不能按请求次数虚增任务进度。
+              const count = Number(result.match(/强化了[^\d]*(\d+)次/)?.[1]
+                || arg.match(/\d+/)?.[0] || 1);
+              await this.taskService.advance(userId, '强化装备', count);
               await this.taskService.advance(userId, '强化' + enhancementPart, count);
             }
             return this.wrap(result);
@@ -602,9 +615,8 @@ export class GameCommandHandler implements CommandHandler {
         // ========== 家园系统 ==========
         case '家园':
         case 'home':
-          // 新版家园子命令路由：生产相关的子命令由 HomeService 处理
-          // 建造/拆除/种植/收获/生产 由 HomeService 处理
-          // 其他子命令（music/搬迁/命名/产出/前线/圈地/开挖地基/建造地基/建造房子/查看）保持原有路由
+          // 家园子命令统一经过此路由；建筑安装/拆卸仍由 GameService
+          // 依据当前地图分流到家园或载具，避免家园快捷指令落入载具分支。
           return this.wrap(await this.handleHomeCommand(userId, firstArg, args.slice(1)));
 
         case '使魔家园':
@@ -647,8 +659,13 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.familiarSystem.handlePet(userId, firstArg));
 
         case '捕捉':
-        case 'capture':
-          return this.wrap(await this.familiarSystem.capturePet(userId, 'capture', firstArg || args.slice(1).join(' ')));
+        case 'capture': {
+          const target = firstArg || args.slice(1).join(' ');
+          const result = await this.familiarSystem.capturePet(userId, 'capture', target);
+          // 捕捉成功后的任务推进由 FamiliarSystemService 在保存宠物后负责，
+          // handler 只负责分发，避免同一次捕捉被记两次。
+          return this.wrap(result);
+        }
 
         // ========== 地图/探索 ==========
         case '传送':
@@ -678,7 +695,6 @@ export class GameCommandHandler implements CommandHandler {
         case '拾取':
         case 'pickup': {
           const result = await this.gameService.handlePickup(userId, arg);
-          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '拾取');
           const tutorialText = await this.checkTutorial(userId, 'pickup');
           return this.wrap(tutorialText ? `${result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result);
         }
@@ -686,13 +702,6 @@ export class GameCommandHandler implements CommandHandler {
         case '开采':
         case 'mine': {
           const result = await this.gameService.handleMine(userId, firstArg);
-          // 无参数时只是显示资源列表，不算一次开采。
-          if (firstArg && this.isSuccessfulAction(result)) {
-            await this.taskService.advance(userId, '开采');
-            await this.taskService.advance(userId, '采集资源');
-            if (firstArg === '货舱') await this.taskService.advance(userId, '打开货舱');
-            else await this.taskService.advance(userId, '采集' + firstArg);
-          }
           return this.wrap(result);
         }
 
@@ -714,18 +723,21 @@ export class GameCommandHandler implements CommandHandler {
           const action = this.parseCountedAction(arg);
           const result = await this.gameService.handleInstall(userId, arg);
           if (this.isSuccessfulAction(result)) {
-            await this.taskService.advance(userId, '安装', action.count);
-            if (action.name) await this.taskService.advance(userId, '安装' + action.name, action.count);
+            const count = this.parseActionResultCount(result, action.count);
+            await this.taskService.advance(userId, '安装', count);
+            if (action.name) await this.taskService.advance(userId, '安装' + action.name, count);
           }
           return this.wrap(result);
         }
 
         case '拆卸':
         case 'uninstall': {
-          const result = await this.gameService.handleUninstallPart(userId, arg);
+          const action = this.parseCountedAction(arg);
+          const result = await this.gameService.handleUninstallPart(userId, action.name, action.count);
           if (this.isSuccessfulAction(result)) {
-            await this.taskService.advance(userId, '拆卸');
-            if (arg) await this.taskService.advance(userId, '拆卸' + arg);
+            const count = this.parseActionResultCount(result, action.count);
+            await this.taskService.advance(userId, '拆卸部件', count);
+            if (action.name) await this.taskService.advance(userId, '拆卸' + action.name, count);
           }
           return this.wrap(result);
         }
@@ -798,7 +810,10 @@ export class GameCommandHandler implements CommandHandler {
         case 'follow': {
           const parts = arg.split(/\s+/);
           const targetName = parts[0] || '';
-          const isFollow = parts[1] !== 'stop' && parts[1] !== 'false' && parts[1] !== '取消';
+          const mode = parts[1];
+          const isFollow = mode === undefined
+            ? undefined
+            : mode !== 'stop' && mode !== 'false' && mode !== '取消';
           return this.wrap(await this.familiarSystem.setFollow(userId, targetName, isFollow));
         }
 
@@ -990,15 +1005,32 @@ export class GameCommandHandler implements CommandHandler {
           const craft = this.parseCraftArguments(args);
           const result = await this.gameService.handleAlchemy(userId, craft.recipeName, craft.count);
           if (craft.recipeName && this.isSuccessfulAction(result)) {
-            await this.taskService.advance(userId, '制造', craft.count);
-            await this.taskService.advance(userId, '制造' + craft.recipeName, craft.count);
+            // 原版 _主程序.ecode L8597 使用独立的“炼丹”任务动作，不能
+            // 把炼丹错误归入普通“制造”任务。
+            await this.taskService.advance(userId, '炼丹', craft.count);
           }
           return this.wrap(result);
         }
 
         case '融合':
-        case 'merge':
-          return this.wrap(await this.gameService.handleMerge(userId, firstArg));
+        case 'merge': {
+          const result = await this.gameService.handleMerge(userId, firstArg, args.slice(1));
+          if (firstArg && this.isSuccessfulAction(result)) {
+            // 融合23 的10%成功分支对应原版独立成就“造神”；
+            // 普通融合以及特效/暴击伤害融合仍推进“融合”。
+            const fusionMode = args.slice(1).join(' ').trim();
+            if (/造神成功/.test(result)) {
+              await this.taskService.advance(userId, '造神');
+            } else if (
+              !/^23$/.test(firstArg)
+              || fusionMode === '42'
+              || (fusionMode === '' && /激活了/.test(result))
+            ) {
+              await this.taskService.advance(userId, '融合');
+            }
+          }
+          return this.wrap(result);
+        }
 
         case '锻造':
         case 'forge': {
@@ -1092,8 +1124,11 @@ export class GameCommandHandler implements CommandHandler {
         // ========== 带"覅"前缀的管理/调试延时攻击命令（对应原版 _主程序.ecode） ==========
         // 覅下一层：使魔挑战副本进入下一层（_主程序.ecode L6431 覅下一层）
         case '覅下一层':
-        case 'challenge-next-layer':
-          return this.wrap(await this.gameService.familiarChallengeNextLayer(userId));
+        case 'challenge-next-layer': {
+          const result = await this.gameService.familiarChallengeNextLayer(userId);
+          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '挑战等级');
+          return this.wrap(result);
+        }
 
         // 覅攻击pd：地图定点管理员攻击 + 载具修复（_主程序.ecode L200 覅攻击pd）
         case '覅攻击pd':
@@ -1171,8 +1206,11 @@ export class GameCommandHandler implements CommandHandler {
 
         // ========== 对话跟随 / 家园设置（对应原版 L1368/L1397/L5277） ==========
         case '对话咏星跟随':
-        case 'dialogue-yongxing':
-          return this.wrap(await this.gameService.handleDialogueYongxing(userId));
+        case 'dialogue-yongxing': {
+          const result = await this.gameService.handleDialogueYongxing(userId);
+          if (result.includes('愿意跟随')) await this.taskService.advance(userId, '拐妹子');
+          return this.wrap(result);
+        }
 
         case '对话小恶魔跟随':
         case 'dialogue-little-demon':
@@ -1183,8 +1221,12 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.gameService.handleSetMeatRatio(userId, arg));
 
         case '召唤货舱':
-        case 'summon-cargo':
-          return this.wrap(await this.gameService.handleSummonCargo(userId));
+        case 'summon-cargo': {
+          const result = await this.gameService.handleSummonCargo(userId);
+          // 原版 _主程序.ecode L6293：成功召唤货舱才推进任务。
+          if (result.includes('召唤货舱成功')) await this.taskService.advance(userId, '召唤货舱');
+          return this.wrap(result);
+        }
 
         case '发射信号枪':
         case 'signal-gun':
@@ -1199,10 +1241,12 @@ export class GameCommandHandler implements CommandHandler {
         case '组装':
         case 'assemble': {
           const action = this.parseCountedAction(arg);
-          const result = await this.gameService.handleAssembleVehicle(userId, action.name);
+          const result = await this.gameService.handleAssembleVehicle(userId, action.name, action.count);
           if (this.isSuccessfulAction(result)) {
-            await this.taskService.advance(userId, action.name === '床' ? '组装床' : '组装载具', action.count);
-            if (action.name) await this.taskService.advance(userId, '组装' + action.name, action.count);
+            const isVehicleAssembly = /成功组装载具|组装了一个载具/.test(result);
+            const count = isVehicleAssembly ? 1 : this.parseActionResultCount(result, action.count);
+            await this.taskService.advance(userId, isVehicleAssembly ? '组装载具' : '组装部件', count);
+            if (action.name) await this.taskService.advance(userId, '组装' + action.name, count);
           }
           return this.wrap(result);
         }
@@ -1219,16 +1263,25 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.gameService.handleNameVehicle(userId, firstArg));
 
         case '载具模拟':
-        case 'simulate-vehicle':
-          return this.wrap(await this.gameService.handleSimulateVehicle(userId, firstArg));
+        case 'simulate-vehicle': {
+          const result = await this.gameService.handleSimulateVehicle(userId, firstArg);
+          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '载具模拟');
+          return this.wrap(result);
+        }
 
         case '维修':
-        case 'repair':
-          return this.wrap(await this.gameService.handleRepairVehicle(userId, firstArg));
+        case 'repair': {
+          const result = await this.gameService.handleRepairVehicle(userId, firstArg);
+          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '维修载具');
+          return this.wrap(result);
+        }
 
         case '脱出':
-        case 'exit':
-          return this.wrap(await this.gameService.handleExitVehicle(userId));
+        case 'exit': {
+          const result = await this.gameService.handleExitVehicle(userId);
+          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '脱出');
+          return this.wrap(result);
+        }
 
         case '接管':
         case 'takeover':
@@ -1285,14 +1338,12 @@ export class GameCommandHandler implements CommandHandler {
         case '挤奶':
         case 'milk': {
           const result = await this.gameService.handleMilk(userId, firstArg);
-          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '挤奶');
           return this.wrap(result);
         }
 
         case '剪毛':
         case 'shear': {
           const result = await this.gameService.handleShear(userId, firstArg);
-          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '剪毛');
           return this.wrap(result);
         }
 
@@ -1400,7 +1451,6 @@ export class GameCommandHandler implements CommandHandler {
         case '呼叫':
         case 'call': {
           const result = await this.gameService.handleCallVehicle(userId, arg);
-          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '呼叫');
           return this.wrap(result);
         }
 
@@ -1500,7 +1550,12 @@ export class GameCommandHandler implements CommandHandler {
 
         case '宠物觉醒':
         case 'pet-awaken':
-          return this.wrap(await this.familiarSystem.petAwaken(userId, firstArg, args.slice(1).join(' ')));
+        {
+          const result = await this.familiarSystem.petAwaken(userId, firstArg, args.slice(1).join(' '));
+          const awakened = Number(result.match(/觉醒了(\d+)次/)?.[1] || 0);
+          if (awakened > 0) await this.taskService.advance(userId, '觉醒宠物', awakened);
+          return this.wrap(result);
+        }
 
         case '宠物攻击':
         case 'pet-attack':
@@ -1688,20 +1743,52 @@ export class GameCommandHandler implements CommandHandler {
    * 将新版生产相关的家园子命令分发到 HomeService，其他保持原有路由
    */
   private async handleHomeCommand(userId: number, subCommand: string, args: string[]): Promise<string> {
+    const normalizedSubCommand = String(subCommand || '').trim();
+
+    // 原版家园菜单直接生成“安装基础发电机1/拆卸基础发电机2”这类无空格快捷指令。
+    // 兼容它们，同时保留“家园 安装 ...”形式。
+    const compactHomeAction = normalizedSubCommand.match(/^(安装|拆卸)(.+)$/);
+    if (normalizedSubCommand === '安装' || normalizedSubCommand === '拆卸' || compactHomeAction) {
+      const actionName = compactHomeAction?.[1] || normalizedSubCommand;
+      const raw = compactHomeAction?.[2]?.trim() || args.join(' ').trim();
+      if (actionName === '安装') {
+        const action = this.parseCountedAction(raw);
+        const result = await this.gameService.handleInstall(userId, raw);
+        if (this.isSuccessfulAction(result)) {
+          const count = this.parseActionResultCount(result, action.count);
+          await this.taskService.advance(userId, '安装', count);
+          if (action.name) await this.taskService.advance(userId, '安装' + action.name, count);
+        }
+        return result;
+      }
+      const action = this.parseCountedAction(raw);
+      const result = await this.gameService.handleUninstallPart(userId, action.name, action.count);
+      if (this.isSuccessfulAction(result)) {
+        const count = this.parseActionResultCount(result, action.count);
+        await this.taskService.advance(userId, '拆卸部件', count);
+        if (action.name) await this.taskService.advance(userId, '拆卸' + action.name, count);
+      }
+      return result;
+    }
+
     // 生产相关的子命令由 HomeService 处理
     const productionCommands = ['建造', '拆除', '种植', '收获', '生产'];
-    if (productionCommands.includes(subCommand)) {
+    if (productionCommands.includes(normalizedSubCommand)) {
       try {
         const playerData = await this.playerService.getPlayerData(userId);
         const { player, markers } = playerData;
-        const map = await this.gameService.getCurrentMap(userId);
+        const yardAction = ['建造', '拆除', '种植', '收获'].includes(normalizedSubCommand);
+        const map = yardAction ? await this.gameService.getCurrentMap(userId) : null;
+        if (yardAction && (!map || !player.houseName || map.name !== player.houseName)) {
+          return `${player.name || '冒险者'}只能在自己的院子里进行${normalizedSubCommand}操作`;
+        }
         const backpack = this.playerService.safeJsonParse<any[]>(player.backpack, []);
 
         // 加载建筑定义列表
         const buildingDefs = await this.homeService.getAllBuildingDefs();
 
         let result;
-        switch (subCommand) {
+        switch (normalizedSubCommand) {
           case '建造': {
             const buildingName = args.join(' ') || (args[0] || '');
             if (!buildingName) return '请指定要建造的建筑名称，例如：建造 训练器';
@@ -1720,15 +1807,31 @@ export class GameCommandHandler implements CommandHandler {
           }
 
           case '拆除': {
-            const buildingName = args.join(' ') || (args[0] || '');
+            const parsed = this.parseCountedAction(args.join(' '));
+            const buildingName = parsed.name;
             if (!buildingName) return '请指定要拆除的建筑名称，例如：拆除 训练器';
-            const removeResult = await this.homeService.removeBuilding(map, buildingName, buildingDefs, backpack);
-            if (removeResult.success) {
+            let removed = 0;
+            let removeResult: { success: boolean; message: string } = {
+              success: false,
+              message: `地图上没有「${buildingName}」`,
+            };
+            for (let i = 0; i < parsed.count; i++) {
+              removeResult = await this.homeService.removeBuilding(map, buildingName, buildingDefs, backpack);
+              if (!removeResult.success) break;
+              removed++;
+            }
+            if (removed > 0) {
               await this.gameService.updateMapBuildings(map.id, map.buildings);
               player.backpack = JSON.stringify(backpack);
               await this.playerService.savePlayer(player);
+              await this.taskService.advance(userId, '拆除', removed);
+              await this.taskService.advance(userId, `拆除${buildingName}`, removed);
             }
-            return removeResult.message;
+            return removed === parsed.count
+              ? `拆除了「${buildingName}」×${removed}`
+              : removed > 0
+                ? `拆除了「${buildingName}」×${removed}\n${removeResult.message}`
+                : removeResult.message;
           }
 
           case '种植': {
@@ -1736,17 +1839,20 @@ export class GameCommandHandler implements CommandHandler {
             const seedName = parsed.name;
             if (!seedName) return '请指定要种植的种子名称，例如：种植 小麦种子';
             let planted = 0;
+            let plantedCropName = '';
             let plantResult: { success: boolean; message: string } = { success: false, message: '' };
             for (let i = 0; i < parsed.count; i++) {
               plantResult = await this.homeService.plantSeed(map, seedName, backpack, buildingDefs);
               if (!plantResult.success) break;
               planted++;
+              plantedCropName ||= plantResult.message.match(/「([^」]+)」/)?.[1] || seedName.replace(/种子$/, '');
             }
             if (planted > 0) {
-              await this.gameService.updateMapBuildings(map.id, map.buildings);
+              await this.gameService.updateMapBuildings(map.id, map.buildings, map.resources2);
               player.backpack = JSON.stringify(backpack);
               await this.playerService.savePlayer(player);
               await this.taskService.advance(userId, '种植', planted);
+              if (plantedCropName) await this.taskService.advance(userId, `种植${plantedCropName}`, planted);
             }
             if (planted === parsed.count) {
               return '成功种植了' + planted + '个「' + seedName.replace(/种子$/, '') + '」';
@@ -1762,10 +1868,11 @@ export class GameCommandHandler implements CommandHandler {
             if (!cropName) return '请指定要收获的作物名称，例如：收获 小麦';
             const harvestResult = await this.homeService.harvestCrop(map, cropName, buildingDefs, backpack);
             if (harvestResult.success) {
-              await this.gameService.updateMapBuildings(map.id, map.buildings);
+              await this.gameService.updateMapBuildings(map.id, map.buildings, map.resources2);
               player.backpack = JSON.stringify(backpack);
               await this.playerService.savePlayer(player);
               await this.taskService.advance(userId, '收获');
+              await this.taskService.advance(userId, `收获${cropName}`);
             }
             return harvestResult.message;
           }
@@ -1780,7 +1887,7 @@ export class GameCommandHandler implements CommandHandler {
           }
 
           default:
-            return `家园功能「${subCommand}」开发中`;
+            return `家园功能「${normalizedSubCommand}」开发中`;
         }
       } catch (e) {
         this.logger.warn(`家园操作失败: ${e.message}`);
@@ -1789,7 +1896,7 @@ export class GameCommandHandler implements CommandHandler {
     }
 
     // 其他子命令保持原有路由到 familiarSystem.handleHome
-    return await this.familiarSystem.handleHome(userId, subCommand, ...args);
+    return await this.familiarSystem.handleHome(userId, normalizedSubCommand, ...args);
   }
 
   private wrap(content: string): CommandResult {

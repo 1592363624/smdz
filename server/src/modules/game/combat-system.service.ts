@@ -202,7 +202,14 @@ export interface MonsterDeathResult {
   expGain: number;
   drops: any[];
   dropText?: string;
-  taskProgress?: Array<{ actionName: string; count: number }>;
+  taskProgress?: Array<{ actionName: string; count: number; userId?: number }>;
+}
+
+interface CombatTaskProgress {
+  actionName: string;
+  count: number;
+  /** 反击场景的受害者可能不是当前发起战斗的玩家。 */
+  userId?: number;
 }
 
 /**
@@ -428,7 +435,7 @@ export class CombatSystemService {
     let totalDamage = 0;
     let totalExp = 0;
     const allDrops: any[] = [];
-    const taskProgress: Array<{ actionName: string; count: number }> = [];
+    const taskProgress: CombatTaskProgress[] = [];
     let attackCount = 0;
     let comebackKill = false;
 
@@ -759,6 +766,10 @@ export class CombatSystemService {
         const tMarkers = this.normalizeMarkerObject(target.markers);
         tMarkers['闪避熟练度'] = (tMarkers['闪避熟练度'] || 0) + 1;
         target.markers = JSON.stringify(tMarkers);
+        // 原版“闪避攻击”成就只在玩家作为攻击方的玩家对战分支产生。
+        if (player.specialSeq > 0 && target.userId && Number(target.specialSeq ?? 0) > 0) {
+          taskProgress.push({ userId: Number(target.userId), actionName: '闪避攻击', count: 1 });
+        }
         continue;
       }
 
@@ -1391,6 +1402,8 @@ export class CombatSystemService {
             if (effName === '灼烧' || effName === '深寒' || effName === '感电') {
               resultLines.push(`【${effName}】`);
             }
+            // 原版在负面效果累计到4层时给攻击方任务记一次对应触发动作。
+            taskProgress.push({ actionName: `触发${formal}`, count: 1 });
             // 深寒额外：所有武器CD+3（原版 L2091-2093）
             if (effName === '深寒') {
               const tWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
@@ -1811,7 +1824,9 @@ export class CombatSystemService {
 
         // 写回攻击方/防御方标记变更
         player.markers = JSON.stringify(playerMk);
-        if (wwVal >= 4) target.markers = JSON.stringify(targetMk);
+        // targetMk 不只承载无双计数，也承载负面效果累计、冷却和装备特效状态。
+        // 原先只在无双触发时写回，会丢失割裂/灼烧/深寒/感电的未满4层计数。
+        target.markers = JSON.stringify(targetMk);
       }
 
       // 三段评级熟练度：从玩家标记读取当前熟练度（对应原版 显示熟练度等级），
@@ -1901,7 +1916,20 @@ export class CombatSystemService {
       totalDamage += finalDamage;
 
       // 扣除怪物血量（三池分伤）
+      const shieldBeforeDamage = target.shield === undefined ? 0 : Number(target.shield || 0);
+      const armorBeforeDamage = target.armor === undefined ? 0 : Number(target.armor || 0);
       const appliedDamage = this.applyDamageToMonster(target, finalDamage, appliedPool);
+
+      // 战斗事件任务在实际扣池后记录，避免把计算阶段的池分配误当成成功事件。
+      if (damageResult.penetrated && finalDamage > 0) {
+        taskProgress.push({ actionName: '贯穿', count: 1 });
+      }
+      if (shieldBeforeDamage > 0 && Number(target.shield || 0) <= 0) {
+        taskProgress.push({ actionName: '破盾', count: 1 });
+      }
+      if (armorBeforeDamage > 0 && Number(target.armor || 0) <= 0) {
+        taskProgress.push({ actionName: '破甲', count: 1 });
+      }
 
       // 原版 战斗相关.ecode L3822-L3838：命中后累加当前麻醉并记录麻醉者。
       const anesthesiaText = this.applyWeaponAnesthesia(
@@ -1936,7 +1964,18 @@ export class CombatSystemService {
             isCrit,
           );
           const splashFinal = Math.max(1, Math.floor(splashDmg.damage * splashDamageMultiplier));
-          this.applyDamageToMonster(st, splashFinal, splashDmg.poolDamage);
+          const splashShieldBefore = Number(st.shield || 0);
+          const splashArmorBefore = Number(st.armor || 0);
+          const splashApplied = this.applyDamageToMonster(st, splashFinal, splashDmg.poolDamage);
+          if (splashDmg.penetrated && splashFinal > 0) {
+            taskProgress.push({ actionName: '贯穿', count: 1 });
+          }
+          if (splashShieldBefore > 0 && splashApplied.shield > 0 && Number(st.shield || 0) <= 0) {
+            taskProgress.push({ actionName: '破盾', count: 1 });
+          }
+          if (splashArmorBefore > 0 && splashApplied.armor > 0 && Number(st.armor || 0) <= 0) {
+            taskProgress.push({ actionName: '破甲', count: 1 });
+          }
           resultLines.push(`${st.name} 受到溅射伤害 ${splashFinal}`);
           if (st.hp <= 0) {
             const sd = await this.handleMonsterDeath(st, userId, map.id, playerData);
@@ -2105,7 +2144,7 @@ export class CombatSystemService {
     //    形成"你来我往"的完整战斗闭环。玩家被打死时进入死亡状态。
     if (!context.skipBattleDriver && !isRuntimeActor) {
       try {
-        const counterLines = await this.monsterCounterAttack(player, playerData, map);
+        const counterLines = await this.monsterCounterAttack(player, playerData, map, taskProgress);
         if (counterLines.length > 0) {
           resultLines.push(`━━━ 怪物反击 ━━━`);
           resultLines.push(...counterLines);
@@ -2123,7 +2162,7 @@ export class CombatSystemService {
     }
     if (!isRuntimeActor && this.taskService && taskProgress.length > 0) {
       for (const progress of taskProgress) {
-        await this.taskService.advance(userId, progress.actionName, progress.count);
+        await this.taskService.advance(progress.userId ?? userId, progress.actionName, progress.count);
       }
     }
     if (comebackKill) {
@@ -2274,7 +2313,12 @@ export class CombatSystemService {
    * @param map 当前地图
    * @returns 反击结果文本行
    */
-  private async monsterCounterAttack(attacker: any, attackerData: PlayerData, map: any): Promise<string[]> {
+  private async monsterCounterAttack(
+    attacker: any,
+    attackerData: PlayerData,
+    map: any,
+    taskProgress?: CombatTaskProgress[],
+  ): Promise<string[]> {
     const lines: string[] = [];
     try {
       // 随机选一只存活怪物（对应原版 L291：b = 取随机数(1, 取数组成员数(地图.怪物2))）
@@ -2321,6 +2365,7 @@ export class CombatSystemService {
           const victimData = await this.playerService.getPlayerData(uid);
           const oneLines = await this.monsterCounterAttackOnePlayer(
             monster, monsterBonus, victimData.player, victimData, map, attacker.userId === uid,
+            undefined, false, taskProgress,
           );
           lines.push(...oneLines);
         } catch (e: any) {
@@ -2353,8 +2398,15 @@ export class CombatSystemService {
     isSelf: boolean,
     weaponOverride?: WeaponData,
     runtimeVictim = false,
+    taskProgress?: CombatTaskProgress[],
   ): Promise<string[]> {
     const lines: string[] = [];
+    const localTaskProgress = taskProgress ?? [];
+    const queueTaskProgress = (actionName: string, count = 1): void => {
+      if (!runtimeVictim && victim?.userId && count > 0) {
+        localTaskProgress.push({ userId: Number(victim.userId), actionName, count });
+      }
+    };
     try {
       // 命中判定：怪物命中 vs 玩家闪避；玩家若处于「闪避」状态(固定闪避+100)则几乎必闪避(100%免伤)
       // 启示录混乱分支的防御方就是攻击方怪物自身，仍使用怪物初始化属性，
@@ -2446,6 +2498,11 @@ export class CombatSystemService {
           }
         }
         await this.playerService.savePlayer(victim);
+        if (!taskProgress && this.taskService) {
+          for (const progress of localTaskProgress) {
+            await this.taskService.advance(progress.userId ?? Number(victim.userId), progress.actionName, progress.count);
+          }
+        }
         return lines;
       }
 
@@ -2514,6 +2571,8 @@ export class CombatSystemService {
 
       // 扣除玩家血量（三池：护盾→装甲→生命），仅结算载具未吸收的部分
       const pool = vehicleResolution.poolDamage || dmg.poolDamage || { shield: 0, armor: 0, hp: playerDamage };
+      const shieldBeforeDamage = Number(victim.shield || 0);
+      const armorBeforeDamage = Number(victim.armor || 0);
       const shieldDmg = Math.min(Math.max(0, Math.round(pool.shield || 0)), victim.shield || 0);
       const armorDmg = Math.min(Math.max(0, Math.round(pool.armor || 0)), victim.armor || 0);
       const hpDmg = Math.min(Math.max(0, Math.round(pool.hp || 0)), victim.hp || 0);
@@ -2521,8 +2580,19 @@ export class CombatSystemService {
       victim.armor = Math.max(0, (victim.armor || 0) - armorDmg);
       victim.hp = Math.max(0, (victim.hp || 0) - hpDmg);
 
+      // 贯穿抵抗可能在载具结算中把 dmg.penetrated 清零，必须读取最终值。
+      if (dmg.penetrated) queueTaskProgress('被贯穿');
+      if (shieldBeforeDamage > 0 && shieldDmg > 0 && Number(victim.shield || 0) <= 0) {
+        queueTaskProgress('被破盾');
+      }
+      if (armorBeforeDamage > 0 && armorDmg > 0 && Number(victim.armor || 0) <= 0) {
+        queueTaskProgress('被破甲');
+      }
+
       const dmgText = this.formatDamageText(playerDamage, { shield: shieldDmg, armor: armorDmg, hp: hpDmg });
-      if (this.playerService.isPlayerDead(victim)) {
+      const wasDefeated = this.playerService.isPlayerDead(victim);
+      if (wasDefeated) {
+        queueTaskProgress('被击败');
         // ========== 卷土重来（对应原版 造成伤害 L3674：怪物击杀玩家，若 jlq 冷却未过则进入卷土重来状态） ==========
         // 原版：防御方.特殊序号>0(玩家) 且 时间间隔要求("jlq",60,防御方.标记2)==假 →
         // 获得增益("卷土重来", 30+玩家.属性.卷土重来)，立即满状态复活。
@@ -2567,6 +2637,11 @@ export class CombatSystemService {
         await this.persistRuntimeActor(victim, map);
       } else {
         await this.playerService.savePlayer(victim);
+      }
+      if (!taskProgress && this.taskService) {
+        for (const progress of localTaskProgress) {
+          await this.taskService.advance(progress.userId ?? Number(victim.userId), progress.actionName, progress.count);
+        }
       }
     } catch (err: any) {
       this.logger.warn(`怪物反击单体失败: ${err.message}`);
@@ -4044,6 +4119,17 @@ export class CombatSystemService {
         dropText = await this.itemSystem.distributeLoot(playerData, drops, {
           onTaskProgress: (actionName, count) => taskProgress.push({ actionName, count }),
         });
+        // 原版“奖励玩家”只在装备宝石缎带时记录稀有掉落：每个已成功
+        // 结算且原始几率 <= 1% 的掉落条目计一次，不按装备数量展开。
+        const rareCount = drops.filter((drop: any) => {
+          const name = String(drop?.name ?? drop?.名称 ?? '').trim();
+          const chance = Number(drop?.chance ?? drop?.几率);
+          return name && name !== '电力' && Number.isFinite(chance) && chance <= 1;
+        }).length;
+        if (rareCount > 0 && this.hasGemRibbon(playerData.player)) {
+          await this.achievementService.addAchievement(playerData.player, '稀有掉落', rareCount, false);
+          taskProgress.push({ actionName: '稀有掉落', count: rareCount });
+        }
       }
       // 传入攻击方的 PlayerData 时，掉落直接写入 weaponAttack 使用的同一内存玩家对象。
     }
@@ -7670,13 +7756,25 @@ export class CombatSystemService {
       writeMarker('xy', attacker.套装?.传说率 || attacker.legendRate || 0);
     }
     // 宝石缎带（原版 L5305-5317：装备要求(#宝石缎带) 成立 → 写 "ds"=1）
-    const equipment = Array.isArray(attacker.equipment) ? attacker.equipment : [];
-    const hasGemRibbon = equipment.some((e: any) => e && e.specialSeq === 98); // #宝石缎带 常量=98
+    const equipment = this.safeParseJson<any[]>(attacker.equipment, []);
+    const hasGemRibbon = equipment.some((e: any) => e && (
+      Number(e.specialSeq ?? e.特殊序号) === 98
+      || String(e.name ?? e.名称 ?? '').trim() === '宝石缎带'
+    )); // #宝石缎带 常量=98
     if (hasGemRibbon) {
       writeMarkerOnce('ds', 1);
     }
 
     return markers;
+  }
+
+  /** 判断玩家当前装备栏是否有宝石缎带，兼容 JSON 字符串和数组存档。 */
+  private hasGemRibbon(player: any): boolean {
+    const equipment = this.safeParseJson<any[]>(player?.equipment, []);
+    return equipment.some((item: any) => item && (
+      Number(item.specialSeq ?? item.特殊序号) === 98
+      || String(item.name ?? item.名称 ?? '').trim() === '宝石缎带'
+    ));
   }
 
   // ==================== 挑战怪物 ====================
@@ -8844,13 +8942,14 @@ export class CombatSystemService {
     await this.runAdminMonsterDodge(monsters, nowMs, lines);
 
     // 原版 L290-319：最多100次随机选择怪物，首个真正产生攻击文本的怪物结束本轮。
+    const taskProgress: CombatTaskProgress[] = [];
     for (let i = 0; i < 100 && lines.length === 0; i++) {
       const alive = monsters.filter((item: any) => (item.hp || 0) > 0);
       if (alive.length === 0) break;
       const monster = alive[Math.floor(Math.random() * alive.length)];
       if (this.hasActiveRuntimeBuff(monster.buffs, '麻醉', nowMs)
         || this.hasActiveRuntimeBuff(monster.buffs, '幻时', nowMs)) continue;
-      const attackLines = await this.runMapMonsterAttack(monster, map, userId);
+      const attackLines = await this.runMapMonsterAttack(monster, map, userId, taskProgress);
       if (attackLines.length > 0) lines.push(...attackLines);
     }
 
@@ -8864,6 +8963,13 @@ export class CombatSystemService {
       summons: map.summons,
       vehicles: map.vehicles,
     });
+    if (this.taskService && taskProgress.length > 0) {
+      for (const progress of taskProgress) {
+        if (progress.userId) {
+          await this.taskService.advance(progress.userId, progress.actionName, progress.count);
+        }
+      }
+    }
     return lines.join('\n');
   }
 
@@ -8921,7 +9027,12 @@ export class CombatSystemService {
   }
 
   /** 原版 战斗() 的怪物攻击分支：一只怪物的全部武器攻击所有可攻击参与者。 */
-  private async runMapMonsterAttack(monster: any, map: any, userId: number): Promise<string[]> {
+  private async runMapMonsterAttack(
+    monster: any,
+    map: any,
+    userId: number,
+    taskProgress?: CombatTaskProgress[],
+  ): Promise<string[]> {
     const lines: string[] = [];
     const monsterBonus = this.buildMonsterBonus(monster);
     const weaponList = this.getRuntimeWeapons(monster);
@@ -8976,6 +9087,7 @@ export class CombatSystemService {
           victim.isSelf,
           weapon,
           victim.runtime,
+          taskProgress,
         ));
       }
       if (lines.some((line) => line.includes('幻时凝固'))) break;

@@ -230,6 +230,16 @@ function parseResourceOutput(str: string): Array<{ name: string; count: number; 
   return result;
 }
 
+/** 原版“剪毛”字段使用物品名+数量格式，例如“上等毛发1”。 */
+function parseHairString(str: string): { name: string; count: number } {
+  const value = (str || '毛发1').trim() || '毛发1';
+  const match = value.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
+  return {
+    name: (match?.[1] || value).trim() || '毛发',
+    count: match ? Number(match[2]) || 1 : 1,
+  };
+}
+
 function parseDamageString(damageStr: string): Record<string, number> {
   const TYPE_MAP: Record<string, string> = { '物': '物理', '火': '火焰', '冰': '冰冻', '电': '雷电' };
   const properties: Record<string, number> = {};
@@ -412,6 +422,7 @@ function mapMonsterToMonster(section: ConfigSection) {
   if (fields['装备']) bonus['equipmentList'] = parseSpaceSeparatedString(fields['装备']);
   const shield = parseFloat(fields['护盾']) || 0;
   const armor = parseFloat(fields['装甲']) || 0;
+  const hairDrop = parseHairString(fields['剪毛'] || '毛发1');
   return {
     name: section.name,
     specialSeq: -1,
@@ -429,6 +440,7 @@ function mapMonsterToMonster(section: ConfigSection) {
     maxShield: shield,
     armor,
     maxArmor: armor,
+    hairDrop: JSON.stringify([hairDrop]),
     bonus: JSON.stringify(bonus),
   };
 }
@@ -460,7 +472,7 @@ function mapFamiliarToFamiliar(section: ConfigSection, specialSeq: number) {
     skillDesc: fields['技能说明'] || '',
     specialSeq,
     noSummon: fields['不可召唤'] === '1',
-    hairDrop: '{}',
+    hairDrop: JSON.stringify([parseHairString(fields['剪毛'] || '毛发1')]),
     affinityDesc: JSON.stringify(affinityDesc),
   };
 }

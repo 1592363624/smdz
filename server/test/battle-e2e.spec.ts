@@ -523,6 +523,28 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(mocks.taskService.advance).toHaveBeenCalledWith(2, '获得测试装备', 1);
     });
 
+    it('装备宝石缎带时，成功的1%以内掉落推进稀有掉落任务', async () => {
+      const player = makePlayer({
+        userId: 2,
+        equipment: JSON.stringify([{ name: '宝石缎带', specialSeq: 98 }]),
+      });
+      const monster = makeMonster({ id: 1002 });
+      mocks.itemSystem.distributeLoot.mockResolvedValueOnce('稀有装备');
+      jest.spyOn(combat as any, 'generateDrops').mockReturnValue([
+        { name: '稀有装备', type: '装备', quantity: 1, chance: 0.5 },
+      ]);
+
+      const death = await combat.handleMonsterDeath(monster, 2, 1, { player });
+
+      expect(death.taskProgress).toContainEqual({ actionName: '稀有掉落', count: 1 });
+      expect(mocks.achievementService.addAchievement).toHaveBeenCalledWith(
+        player,
+        '稀有掉落',
+        1,
+        false,
+      );
+    });
+
     it('必中攻击弱怪 → 怪物 hp 下降或被击杀，玩家获得经验', async () => {
       const player = makePlayer({ userId: 2 });
       mocks.players.set(2, player);

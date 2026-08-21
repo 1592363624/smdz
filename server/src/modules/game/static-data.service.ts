@@ -152,9 +152,15 @@ export class StaticDataService {
     return this.loadRaw('equipments').filter((e) => e?.equipType === type);
   }
 
-  /** 是否武器（equipType 以"武器"结尾，如 射弹武器/能量武器/近战武器） */
+  /**
+   * 是否武器（对应原版 数据分析.ecode L394-414）。
+   * 特殊序号非0时，负数是武器、正数是装备；只有特殊序号为0时才按类型判断。
+   */
   isWeapon(e: any): boolean {
-    return typeof e?.equipType === 'string' && e.equipType.endsWith('武器');
+    const specialSeq = Number(e?.specialSeq ?? e?.特殊序号 ?? 0);
+    if (specialSeq !== 0) return specialSeq < 0;
+    const type = String(e?.equipType ?? e?.type ?? e?.类型 ?? '');
+    return type.endsWith('武器') || type === '工具';
   }
 
   getAllWeapons(): any[] {
@@ -379,6 +385,31 @@ export class StaticDataService {
 
   getAllEffects(): any[] {
     return this.loadRaw('effects');
+  }
+
+  /**
+   * 原版维护两套独立特效数组，编号从1开始分别计算。
+   * effects.json 保留配置文件的扁平顺序，这里只负责还原运行时的两个池。
+   */
+  getWeaponEffects(): any[] {
+    return this.getAllEffects().filter((effect) => {
+      const limit = String(effect?.limit ?? '').trim();
+      return limit === '' || limit === '武器';
+    });
+  }
+
+  getEquipmentEffects(): any[] {
+    return this.getAllEffects().filter((effect) => {
+      const limit = String(effect?.limit ?? '').trim();
+      return limit === '' || limit === '装备';
+    });
+  }
+
+  /** 按原版池内编号读取特效，编号无效时返回 undefined。 */
+  getEffectById(id: number, weapon: boolean): any | undefined {
+    if (!Number.isInteger(id) || id <= 0) return undefined;
+    const pool = weapon ? this.getWeaponEffects() : this.getEquipmentEffects();
+    return pool[id - 1];
   }
 
   getAllAttackTexts(): any[] {

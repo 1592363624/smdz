@@ -97,7 +97,7 @@ describe('固定采集任务推进', () => {
       source: 'web',
     } as any);
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
     expect(result.content).toContain('还需要');
     expect(taskService.advance).not.toHaveBeenCalled();
   });

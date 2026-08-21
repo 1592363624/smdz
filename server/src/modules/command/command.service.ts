@@ -128,12 +128,16 @@ export class CommandService {
             if (gatherHandler) {
               try {
                 const gatherResult = await gatherHandler.handle(ctx, [commandName]);
-                if (gatherResult && gatherResult.success) {
+                // 已命中当前地图采集指令时，即使动作因冷却/状态限制失败，也要
+                // 返回处理器的原始提示；否则会被错误降级成“未知指令”。
+                if (gatherResult) {
                   await this.finishCommandTasks(ctx, sentText, gatherResult);
                   gatherResult.durationMs = Date.now() - start;
                   await this.recordLog(ctx, commandName, gatherResult);
-                  // 采集成功会改变玩家/地图状态，实时推送刷新网页面板
-                  await this.pushState(ctx.userId);
+                  if (gatherResult.success) {
+                    // 采集成功会改变玩家/地图状态，实时推送刷新网页面板
+                    await this.pushState(ctx.userId);
+                  }
                   return gatherResult;
                 }
               } catch (e) {

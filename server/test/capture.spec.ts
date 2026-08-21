@@ -90,17 +90,20 @@ function makeCaptureFixture(feed: { quantity?: number; count?: number } = { quan
       bonus: JSON.stringify({ 麻醉: 225 }),
     })),
   };
+  const taskService: any = {
+    advance: jest.fn(async () => ''),
+  };
   const service = new FamiliarSystemService(
     {} as any,
     playerService,
     {} as any,
     staticData,
-    {} as any,
+    taskService,
     mapService,
     {} as any,
     undefined,
   );
-  return { player, map, monster, monsters, removedMonsterIds, playerService, mapService, service };
+  return { player, map, monster, monsters, removedMonsterIds, playerService, mapService, taskService, service };
 }
 
 describe('GameMonster 捕捉闭环', () => {
@@ -160,6 +163,8 @@ describe('GameMonster 捕捉闭环', () => {
     const backpack = JSON.parse(fixture.player.backpack);
     expect(backpack).toEqual([{ name: '饲料', [field]: 0.5 }]);
     expect(fixture.playerService.savePlayer).toHaveBeenCalled();
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(11, '捕捉', 1);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(11, '捕捉测试史莱姆', 1);
   });
 
   it('特殊宠物捕捉也兼容 count 字段，并在保存时保留捕捉物与奖励', async () => {

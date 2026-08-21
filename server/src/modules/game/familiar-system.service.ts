@@ -814,6 +814,7 @@ export class FamiliarSystemService {
 
     switch (subCommand) {
       case 'music':
+      case '音乐':
       case '家园音乐':
         return this.handleHomeMusic(userId, args[0]);
       case '搬迁':
@@ -829,7 +830,7 @@ export class FamiliarSystemService {
       case '家园前线':
         return this.handleHomeFrontline(userId);
       case '家园操作':
-        return this.getHomeStatus(player, markers);
+        return this.getHomeOperations(player, markers);
       case '圈地':
         return this.handleHomeClaim(userId, player, markers);
       case '开挖地基':
@@ -1676,6 +1677,25 @@ export class FamiliarSystemService {
 
     lines.push('发送「开始战斗」开始地精的攻势');
 
+    return lines.join('\n');
+  }
+
+  /** 原版“家园操作”菜单：显示家园管理、建筑安装和快捷入口。 */
+  private getHomeOperations(player: any, markers: any): string {
+    const name = player.name || '冒险者';
+    const lines = [
+      name,
+      '「家园命名」来修改家园名称',
+      '「家园搬迁」来搬迁家园',
+      '「家园音乐」来更换背景音乐',
+      '「安装基础发电机1」来安装建筑',
+      '「拆卸基础发电机1」来收起建筑',
+      '「安装燃料50」来把燃料放入院子',
+      '「家园产出」来观测家园生产',
+    ];
+    if (this.playerService.getMarkerValue(markers, '家园进度') >= 4) {
+      lines.push('「家园前线」来查看防御阵地');
+    }
     return lines.join('\n');
   }
 
@@ -3040,48 +3060,42 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 检查是否有安乐天使装备
-    const backpack = this.playerService.getBackpackItems(player);
-    const equipment = this.playerService.safeJsonParse<any[]>(player.equipment, []);
-    // 原版“装备要求”检查已装备栏；兼容尚未完成装备迁移的存量存档时也接受背包中的同名物品。
-    const hasAngel = equipment.some((item: any) => (item.name || item.名称) === '安乐天使')
-      || backpack.some((item: any) => (item.name || item.名称) === '安乐天使');
-    if (!hasAngel) {
+    // 原版“装备要求”只检查当前已装备栏，背包中的同名物品不能直接触发技能。
+    if (!this.hasEquippedSkillItem(player, '安乐天使')) {
       return '需要安乐天使';
     }
 
-    // 检查冷却
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const cooldownMarker = markers2.find((m: any) => m.name === '安乐');
-    const now = Date.now() / 1000;
-    if (cooldownMarker && cooldownMarker.expireAt > now) {
-      const remaining = Math.ceil(cooldownMarker.expireAt - now);
+    const parsedMarkers2 = typeof player.markers2 === 'string'
+      ? this.playerService.safeJsonParse<any[]>(player.markers2, [])
+      : player.markers2;
+    const markers2 = Array.isArray(parsedMarkers2) ? parsedMarkers2 : [];
+    const cooldownMarker = markers2.find((m: any) => (m?.name ?? m?.名称) === '安乐');
+    const nowMs = Date.now();
+    const now = nowMs / 1000;
+    const rawExpire = Number(cooldownMarker?.expireAt ?? cooldownMarker?.有效期至 ?? 0);
+    const expireAtMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+    if (cooldownMarker && expireAtMs > nowMs) {
+      const remaining = Math.ceil((expireAtMs - nowMs) / 1000);
       return `冷却中，剩余${remaining}秒`;
     }
 
-    // 设置冷却（300秒 = 5分钟）
-    const newMarkers2 = markers2.filter((m: any) => m.name !== '安乐');
+    // 设置冷却（300秒 = 5分钟）；markers2 新数据统一使用毫秒时间戳。
+    const newMarkers2 = markers2.filter((m: any) => (m?.name ?? m?.名称) !== '安乐');
     newMarkers2.push({
       name: '安乐',
-      expireAt: now + 300,
+      expireAt: nowMs + 300 * 1000,
     });
     player.markers2 = JSON.stringify(newMarkers2);
 
-    if (!targetName) {
+    const normalizedTarget = this.normalizeSkillTarget(targetName);
+    if (!normalizedTarget) {
       // 对自己使用
-      const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-      const newBuffs = buffs.filter((b: any) => b.name !== '安乐天使');
-      newBuffs.push({
-        name: '安乐天使',
-        expireAt: now + 20,
-      });
-      player.buffs = JSON.stringify(newBuffs);
+      player.buffs = JSON.stringify(this.addSkillBuff(player, '安乐天使', 20, now));
       await this.playerService.savePlayer(player);
       return `给自己套上了行星护盾`;
     }
 
     // 尝试查找目标（先查召唤物，再查玩家）
-    const normalizedTarget = this.normalizeSkillTarget(targetName);
     const map = await this.mapService.getMapById(player.mapId);
 
     if (map) {
@@ -3091,13 +3105,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       );
 
       if (summonTarget) {
-        if (!summonTarget.buffs) summonTarget.buffs = [];
-        const newBuffs = summonTarget.buffs.filter((b: any) => b.name !== '安乐天使');
-        newBuffs.push({
-          name: '安乐天使',
-          expireAt: now + 20,
-        });
-        summonTarget.buffs = newBuffs;
+        summonTarget.buffs = this.addSkillBuff(summonTarget, '安乐天使', 20, now);
 
         await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
@@ -3110,13 +3118,14 @@ ${this.getAwakenStageName(d)}(${d})`;
     const targetPlayer = await this.findSkillTargetPlayer(normalizedTarget);
 
     if (targetPlayer) {
-      const targetBuffs = this.playerService.safeJsonParse<any[]>(targetPlayer.buffs, []);
-      const newBuffs = targetBuffs.filter((b: any) => b.name !== '安乐天使');
-      newBuffs.push({
-        name: '安乐天使',
-        expireAt: now + 20,
-      });
-      targetPlayer.buffs = JSON.stringify(newBuffs);
+      const targetDisplayName = targetPlayer.name || normalizedTarget;
+      if (targetPlayer.id === player.id) {
+        player.buffs = JSON.stringify(this.addSkillBuff(player, '安乐天使', 20, now));
+        await this.playerService.savePlayer(player);
+        return `给${targetDisplayName}套上了行星护盾`;
+      }
+
+      const newBuffs = this.addSkillBuff(targetPlayer, '安乐天使', 20, now);
 
       await this.prisma.player.update({
         where: { id: targetPlayer.id },
@@ -3124,12 +3133,11 @@ ${this.getAwakenStageName(d)}(${d})`;
       });
 
       await this.playerService.savePlayer(player);
-      return `给${targetPlayer.name || normalizedTarget}套上了行星护盾`;
+      return `给${targetDisplayName}套上了行星护盾`;
     }
 
     // 原版目标不存在时返回错误，不会把技能悄悄改成对自己使用。
-    const currentMarkers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    player.markers2 = JSON.stringify(currentMarkers2.filter((m: any) => m.name !== '安乐'));
+    player.markers2 = JSON.stringify(markers2.filter((m: any) => (m?.name ?? m?.名称) !== '安乐'));
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'},${normalizedTarget}在玩家列表不存在`;
   }
@@ -3146,12 +3154,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否有福音书装备
-    const backpack = this.playerService.getBackpackItems(player);
-    const equipment = this.playerService.safeJsonParse<any[]>(player.equipment, []);
-    const hasGospel = equipment.some((item: any) => (item.name || item.名称) === '福音书')
-      || backpack.some((item: any) => (item.name || item.名称) === '福音书');
-    if (!hasGospel) {
+    // 原版“装备要求”只检查当前已装备栏，背包中的同名物品不能直接触发技能。
+    if (!this.hasEquippedSkillItem(player, '福音书')) {
       return '需要福音书';
     }
 
@@ -3170,14 +3174,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     if (!normalizedTarget) {
       // 对自己使用
-      const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-      const newBuffs = buffs.filter((b: any) => b.name !== '福音书');
-      newBuffs.push({
-        name: '福音书',
-        expireAt: now + 300,
-        strength: 10,
-      });
-      player.buffs = JSON.stringify(newBuffs);
+      player.buffs = JSON.stringify(this.addSkillBuff(player, '福音书', 300, now, { strength: 10 }));
       await this.playerService.savePlayer(player);
       return `给自己使用了福音书`;
     }
@@ -3192,14 +3189,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       );
 
       if (summonTarget) {
-        if (!summonTarget.buffs) summonTarget.buffs = [];
-        const newBuffs = summonTarget.buffs.filter((b: any) => b.name !== '福音书');
-        newBuffs.push({
-          name: '福音书',
-          expireAt: now + 300,
-          strength: 10,
-        });
-        summonTarget.buffs = newBuffs;
+        summonTarget.buffs = this.addSkillBuff(summonTarget, '福音书', 300, now, { strength: 10 });
 
         await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
@@ -3212,14 +3202,14 @@ ${this.getAwakenStageName(d)}(${d})`;
     const targetPlayer = await this.findSkillTargetPlayer(normalizedTarget);
 
     if (targetPlayer) {
-      const targetBuffs = this.playerService.safeJsonParse<any[]>(targetPlayer.buffs, []);
-      const newBuffs = targetBuffs.filter((b: any) => b.name !== '福音书');
-      newBuffs.push({
-        name: '福音书',
-        expireAt: now + 300,
-        strength: 10,
-      });
-      targetPlayer.buffs = JSON.stringify(newBuffs);
+      const targetDisplayName = targetPlayer.name || normalizedTarget;
+      if (targetPlayer.id === player.id) {
+        player.buffs = JSON.stringify(this.addSkillBuff(player, '福音书', 300, now, { strength: 10 }));
+        await this.playerService.savePlayer(player);
+        return `给${targetDisplayName}使用了福音书`;
+      }
+
+      const newBuffs = this.addSkillBuff(targetPlayer, '福音书', 300, now, { strength: 10 });
 
       await this.prisma.player.update({
         where: { id: targetPlayer.id },
@@ -3227,7 +3217,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       });
 
       await this.playerService.savePlayer(player);
-      return `给${targetPlayer.name || normalizedTarget}使用了福音书`;
+      return `给${targetDisplayName}使用了福音书`;
     }
 
     // 原版目标不存在时不消耗“每日一次”标记，也不回退到自己。
@@ -3235,6 +3225,37 @@ ${this.getAwakenStageName(d)}(${d})`;
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'},${normalizedTarget}在玩家列表不存在`;
+  }
+
+  /** 读取技能目标的增益，兼容玩家字段字符串和召唤物字段数组/字符串。 */
+  private addSkillBuff(
+    target: any,
+    buffName: string,
+    durationSeconds: number,
+    nowSeconds: number,
+    extra: Record<string, any> = {},
+  ): any[] {
+    const rawBuffs = typeof target?.buffs === 'string'
+      ? this.playerService.safeJsonParse<any[]>(target.buffs, [])
+      : target?.buffs;
+    const buffs = Array.isArray(rawBuffs) ? rawBuffs : [];
+    const next = buffs.filter((buff: any) => (buff?.name ?? buff?.名称) !== buffName);
+    next.push({
+      name: buffName,
+      expireAt: nowSeconds + durationSeconds,
+      ...extra,
+    });
+    return next;
+  }
+
+  /** 技能装备门禁与 FamiliarSkillsService 保持一致，只认当前装备。 */
+  private hasEquippedSkillItem(player: any, itemName: string): boolean {
+    const rawEquipment = typeof player?.equipment === 'string'
+      ? this.playerService.safeJsonParse<any[]>(player.equipment, [])
+      : player?.equipment;
+    return Array.isArray(rawEquipment) && rawEquipment.some((item: any) =>
+      String(item?.name ?? item?.名称 ?? '').trim() === itemName,
+    );
   }
 
   /** 兼容“[@QQ]”快捷目标和普通名称，保持原版目标解析语义。 */
@@ -3265,15 +3286,49 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
+   * 更新召唤物的幼崽成长计时。
+   * 对应原版 数据分析.ecode L947-971 的“计算幼崽”。
+   * 返回 true 表示仍是幼崽，false 表示本次已经长大。
+   */
+  private updateSummonGrowth(summon: any, markers: Record<string, any>): boolean {
+    let remaining = Number(markers['幼崽'] ?? 0);
+    if (!Number.isFinite(remaining) || remaining <= 0) return false;
+
+    const rawTime = Number(markers['时间2'] ?? 0);
+    const previous = rawTime > 1e12 ? rawTime / 1000 : rawTime;
+    const now = Math.floor(Date.now() / 1000);
+    const elapsed = previous > 0 ? Math.max(0, now - previous) : 0;
+    remaining -= elapsed;
+
+    if (remaining > 0) {
+      markers['幼崽'] = remaining;
+      markers['时间2'] = now;
+      return true;
+    }
+
+    // 原版“置成就熟练度(..., 0)”会删除幼崽和时间标记。
+    delete markers['幼崽'];
+    delete markers['时间2'];
+    const type = String(summon?.type ?? summon?.类型 ?? '');
+    const definition = type ? this.staticData.getMonsterByName(type) : null;
+    const vitality = Number(definition?.vitality ?? definition?.活力 ?? definition?.specialSeq ?? definition?.特殊序号);
+    if (Number.isFinite(vitality)) {
+      summon.vitality = vitality;
+      if (summon.活力 !== undefined) summon.活力 = vitality;
+    }
+    return false;
+  }
+
+  /**
    * 设置跟随
-   * 对应原版：设置跟随()
-   * 设置宠物跟随或停止跟随玩家
+   * 对应原版 _主程序.ecode L1121-1174。
+   * 无显式第二参数时按原版切换“跟随”标记；传入 stop/false 由网页指令层显式关闭。
    * @param userId 用户ID
    * @param targetName 宠物名称或QQ
-   * @param isFollow 是否跟随
+   * @param isFollow 是否跟随；省略时按当前状态切换
    * @returns 操作结果文本
    */
-  async setFollow(userId: number, targetName: string, isFollow: boolean): Promise<string> {
+  async setFollow(userId: number, targetName: string, isFollow?: boolean): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
@@ -3284,8 +3339,23 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    // 原版检查的是地图列表编号，而不是数据库自增 id。
+    const configuredMapIndex = Number(map.mapIndex ?? map.地图编号 ?? 0);
+    const mapIndex = configuredMapIndex > 0
+      ? configuredMapIndex
+      : Number(map.id ?? player.mapId ?? 0);
+    if (mapIndex <= 2 || map.isInstance || map.关卡) {
+      return `${player.name || '冒险者'}此操作在此处不可用`;
+    }
+
+    const rawSummons = typeof map.summons === 'string'
+      ? this.playerService.safeJsonParse<any[]>(map.summons, [])
+      : map.summons;
+    const summons = Array.isArray(rawSummons) ? rawSummons : [];
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const playerQQ = String(
+      user?.qqNumber || (player as any).qqNumber || player.masterQQ || player.userId || userId,
+    );
     const ownerIds = new Set([
       String(userId),
       String(player.id),
@@ -3294,10 +3364,11 @@ ${this.getAwakenStageName(d)}(${d})`;
       String(player.masterQQ || ''),
     ].filter(Boolean));
 
-    // 查找宠物
-    const petIndex = summons.findIndex(
-      (s: any) => (s.name === targetName || s.名称 === targetName || s.qq === targetName || s.QQ === targetName)
-        && ownerIds.has(String(s.ownerQQ ?? s.归属 ?? s.owner ?? '')),
+    // 查找目标；先按名称/图片/QQ匹配，再按归属和好感决定是否允许控制。
+    const petIndex = summons.findIndex((s: any) =>
+      [s.name, s.名称, s.image, s.图片, s.qq, s.QQ].some(
+        (value) => String(value ?? '') === String(targetName ?? ''),
+      ),
     );
 
     if (petIndex === -1) {
@@ -3305,22 +3376,69 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     const pet = summons[petIndex];
+    const owner = String(pet.ownerQQ ?? pet.归属 ?? pet.owner ?? pet.ownerId ?? '');
+    const isOwner = ownerIds.has(owner);
+    const rawPetMarkers = typeof pet.markers === 'string'
+      ? this.playerService.safeJsonParse<any>(pet.markers, {})
+      : (pet.markers ?? pet.标记 ?? {});
+    const petMarkers: Record<string, any> = Array.isArray(rawPetMarkers)
+      ? Object.fromEntries(rawPetMarkers.map((item: any) => [
+        item?.name ?? item?.名称,
+        item?.value ?? item?.数值 ?? item?.count ?? 0,
+      ]).filter(([name]) => Boolean(name)))
+      : (rawPetMarkers && typeof rawPetMarkers === 'object' ? { ...rawPetMarkers } : {});
+    this.updateSummonGrowth(pet, petMarkers);
+    const affinity = pet.name === '白' || pet.名称 === '白'
+      ? 100
+      : Number(
+        petMarkers[`好感${playerQQ}`]
+        ?? petMarkers[`好感${userId}`]
+        ?? pet.affinity
+        ?? pet.好感
+        ?? 0,
+      );
 
-    if (isFollow) {
+    if (!isOwner && affinity < 100) {
+      return `${pet.name || pet.名称 || targetName}，我不会跟你走的(好感不足100)`;
+    }
+    if (Number(petMarkers['阵地'] ?? 0) !== 0) {
+      return `${pet.name || pet.名称 || targetName}不能行走`;
+    }
+    if (Number(petMarkers['幼崽'] ?? 0) !== 0) {
+      return `${pet.name || pet.名称 || targetName}还不能行走`;
+    }
+
+    const currentFollow = Number(petMarkers['跟随'] ?? (pet.follow ? 0 : 1));
+    const nextFollow = isFollow === undefined ? currentFollow === 1 : isFollow;
+    const petName = pet.name || pet.名称 || targetName;
+    if (nextFollow) {
       pet.follow = true;
       pet.mode = 'follow';
+      petMarkers['跟随'] = 0;
+      // 原版任务/NPC 通过好感获得跟随后会转为当前玩家归属。
+      if (!isOwner) {
+        pet.ownerQQ = playerQQ;
+        if (pet.归属 !== undefined) pet.归属 = playerQQ;
+        if (pet.qq === 'npc2g' || pet.QQ === 'npc2g') {
+          pet.qq = `怪物${Date.now()}g`;
+          if (pet.QQ !== undefined) pet.QQ = pet.qq;
+        }
+      }
     } else {
       pet.follow = false;
       pet.mode = 'idle';
+      petMarkers['跟随'] = 1;
     }
+    pet.markers = JSON.stringify(petMarkers);
+    if (pet.标记 !== undefined) pet.标记 = pet.markers;
 
     summons[petIndex] = pet;
 
     await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
-    return isFollow
-      ? `${pet.name} 开始跟随你`
-      : `${pet.name} 停止跟随`;
+    return nextFollow
+      ? `${petName} 开始跟随你`
+      : `${petName} 停止跟随`;
   }
 
   /**

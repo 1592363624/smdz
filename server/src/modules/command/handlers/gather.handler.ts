@@ -49,7 +49,12 @@ export class GatherHandler implements CommandHandler {
       const content = taskNotice
         ? `${result}\n━━━━━━━━━━━━━━━\n${taskNotice}`
         : result;
-      return { success: true, content, broadcast: false, durationMs: 0 };
+      return {
+        success: this.isSuccessfulAction(result),
+        content,
+        broadcast: false,
+        durationMs: 0,
+      };
     }
 
     // 当前地图没有匹配 gatherCmd 的资源

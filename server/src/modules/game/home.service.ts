@@ -840,16 +840,35 @@ export class HomeService {
       return { success: false, message: `背包中没有「${seedName}」` };
     }
 
-    // 查找作物定义（从建筑定义中查找）
-    // 种子名称通常以"种子"结尾，对应的作物名称去掉"种子"后缀
-    let cropName = seedName;
-    if (seedName.endsWith('种子')) {
+    // 原版种子通过物品.使用效果指向资源列表中的作物，而不是建筑列表。
+    // 旧测试/旧开发数据可能只有“建筑作物”定义，因此保留后备查找。
+    const seedDef = this.staticData.getItemByName(seedName);
+    const useEffects = this.safeParseJSON<any[]>(seedDef?.useEffects ?? seedDef?.['使用效果'] ?? [], []);
+    const effectName = useEffects
+      .flatMap((effect: any) => String(effect ?? '').split(/[，,、]/))
+      .map((effect: string) => effect.trim())
+      .find(Boolean);
+    let cropName = effectName || seedName;
+    if (!effectName && seedName.endsWith('种子')) {
       cropName = seedName.substring(0, seedName.length - 2);
     }
 
-    const def = buildingDefs.find(d => d.name === cropName);
-    if (!def) {
-      return { success: false, message: `找不到「${cropName}」的作物定义` };
+    const resourceDef = this.staticData.getAllResources().find((resource: any) =>
+      this.getItemName(resource) === cropName,
+    );
+    const legacyBuildingDef = buildingDefs.find(d => this.getItemName(d) === cropName);
+    const resourceOutputs = this.normalizeProduceItems(
+      resourceDef?.outputs2
+      ?? resourceDef?.['产出2']
+      ?? legacyBuildingDef?.outputs2
+      ?? legacyBuildingDef?.['产出2']
+      ?? legacyBuildingDef?.materials
+      ?? [],
+    );
+    if (!resourceDef || resourceOutputs.length === 0) {
+      if (!legacyBuildingDef) {
+        return { success: false, message: `找不到「${cropName}」的作物定义` };
+      }
     }
 
     // 消耗种子
@@ -861,16 +880,25 @@ export class HomeService {
       backpack.splice(seedIndex, 1);
     }
 
-    // 将作物添加到地图建筑列表（作为作物类型）
-    const mapBuildings = this.safeParseJSON<any[]>(map.buildings, []);
-    const existingCrop = mapBuildings.find((b: any) => b.name === cropName);
+    // 原版作物存储在地图.resources2，字段中带有资源定义和产出2。
+    const resources2 = this.safeParseJSON<any[]>(map.resources2, []);
+    const existingCrop = resources2.find((resource: any) => this.getItemName(resource) === cropName);
     if (existingCrop) {
-      this.setItemQuantity(existingCrop, this.getItemQuantityValue(existingCrop) + 1);
+      this.setResourceQuantity(existingCrop, this.getResourceQuantityValue(existingCrop) + 1);
     } else {
-      mapBuildings.push({ name: cropName, quantity: 1, count: 1, type: '作物' });
+      const crop = resourceDef
+        ? JSON.parse(JSON.stringify(resourceDef))
+        : { name: cropName, type: '作物', outputs2: [] };
+      crop.name = cropName;
+      crop.type = crop.type || crop['类型'] || '作物';
+      crop.times = 1;
+      crop.count = 1;
+      crop.outputs = this.normalizeProduceItems(crop.outputs ?? crop['产出'] ?? []);
+      crop.outputs2 = resourceOutputs;
+      resources2.push(crop);
     }
 
-    map.buildings = JSON.stringify(mapBuildings);
+    map.resources2 = JSON.stringify(resources2);
 
     return { success: true, message: `成功种植了「${cropName}」` };
   }
@@ -891,19 +919,59 @@ export class HomeService {
     buildingDefs: any[],
     backpack: any[],
   ): Promise<{ success: boolean; message: string }> {
+    // 新格式：作物位于resources2，收获物来自资源定义的outputs。
+    const resources2 = this.safeParseJSON<any[]>(map.resources2, []);
+    const resourceIndex = resources2.findIndex((resource: any) =>
+      this.getItemName(resource) === cropName
+      && this.normalizeProduceItems(resource?.outputs2 ?? resource?.['产出2'] ?? []).length > 0,
+    );
+    if (resourceIndex >= 0) {
+      const crop = resources2[resourceIndex];
+      const resourceDef = this.staticData.getAllResources().find((resource: any) =>
+        this.getItemName(resource) === cropName,
+      );
+      const outputs = this.normalizeProduceItems(
+        resourceDef?.outputs ?? resourceDef?.['产出'] ?? crop.outputs ?? crop['产出'] ?? [],
+      );
+      const cropCount = this.getResourceQuantityValue(crop);
+
+      resources2.splice(resourceIndex, 1);
+      map.resources2 = JSON.stringify(resources2);
+
+      const harvested: string[] = [];
+      for (const output of outputs) {
+        // 资源定义中的负产出代表拆除/收获时的消耗项，只有正向产出进入背包。
+        const totalQuantity = output.quantity * cropCount;
+        if (totalQuantity <= 0) continue;
+        this.addItemToArray(output.name, totalQuantity, backpack);
+        harvested.push(`${output.name}×${totalQuantity}`);
+      }
+
+      return {
+        success: true,
+        message: `收获了「${cropName}」×${cropCount}，获得：${harvested.join('、') || '无产出'}`,
+      };
+    }
+
+    // 兼容之前错误写入map.buildings的开发数据。
     const mapBuildings = this.safeParseJSON<any[]>(map.buildings, []);
-    const cropIndex = mapBuildings.findIndex((b: any) => b.name === cropName);
+    const cropIndex = mapBuildings.findIndex((b: any) => this.getItemName(b) === cropName);
     if (cropIndex === -1) {
       return { success: false, message: `地图上没有「${cropName}」` };
     }
 
-    const def = buildingDefs.find(d => d.name === cropName);
+    const def = buildingDefs.find(d => this.getItemName(d) === cropName);
+    const resourceDef = this.staticData.getAllResources().find((resource: any) =>
+      this.getItemName(resource) === cropName,
+    );
     if (!def) {
-      return { success: false, message: `找不到「${cropName}」的定义` };
+      if (!resourceDef) return { success: false, message: `找不到「${cropName}」的定义` };
     }
 
     // 获取产出
-    const outputs = this.normalizeProduceItems(this.safeParseJSON<any[]>(def.materials, []));
+    const outputs = def
+      ? this.normalizeProduceItems(this.safeParseJSON<any[]>(def.materials, []))
+      : this.normalizeProduceItems(resourceDef?.outputs ?? resourceDef?.['产出'] ?? []);
     const crop = mapBuildings[cropIndex];
     const cropCount = this.getItemQuantityValue(crop);
 
@@ -923,7 +991,7 @@ export class HomeService {
 
     return {
       success: true,
-      message: `收获了「${cropName}」×${cropCount}，获得：${harvested.join('、')}`,
+      message: `收获了「${cropName}」×${cropCount}，获得：${harvested.join('、') || '无产出'}`,
     };
   }
 
@@ -1037,8 +1105,11 @@ export class HomeService {
     }
   }
 
-  private normalizeProduceItems(items: any[]): ProduceItem[] {
-    return (Array.isArray(items) ? items : [])
+  private normalizeProduceItems(items: any): ProduceItem[] {
+    const parsedItems = typeof items === 'string'
+      ? this.safeParseJSON<any[]>(items, [])
+      : items;
+    return (Array.isArray(parsedItems) ? parsedItems : [])
       .filter((item) => item && this.getItemName(item))
       .map((item) => ({
         ...item,
@@ -1055,6 +1126,10 @@ export class HomeService {
     return Number(item?.quantity ?? item?.count ?? item?.['数量'] ?? 1);
   }
 
+  private getResourceQuantityValue(resource: any): number {
+    return Number(resource?.quantity ?? resource?.count ?? resource?.times ?? resource?.['数量'] ?? resource?.['次数'] ?? 1);
+  }
+
   private setItemQuantity(item: any, value: number): void {
     if (Object.prototype.hasOwnProperty.call(item, '数量')
       && !Object.prototype.hasOwnProperty.call(item, 'quantity')
@@ -1064,6 +1139,18 @@ export class HomeService {
       item.count = value;
     } else {
       item.quantity = value;
+    }
+  }
+
+  private setResourceQuantity(resource: any, value: number): void {
+    if (Object.prototype.hasOwnProperty.call(resource, '次数')) {
+      resource['次数'] = value;
+    } else if (Object.prototype.hasOwnProperty.call(resource, 'times')
+      && !Object.prototype.hasOwnProperty.call(resource, 'count')
+      && !Object.prototype.hasOwnProperty.call(resource, 'quantity')) {
+      resource.times = value;
+    } else {
+      this.setItemQuantity(resource, value);
     }
   }
 
@@ -1140,13 +1227,13 @@ export class HomeService {
     const cropResources = this.safeParseJSON<any[]>(map.resources2, []);
     const cropProducers: Producer[] = cropResources
       .filter((resource: any) => {
-        const outputs = resource?.outputs2 ?? resource?.产出2 ?? [];
-        return Array.isArray(outputs) && outputs.length > 0;
+        const outputs = this.normalizeProduceItems(resource?.outputs2 ?? resource?.产出2 ?? []);
+        return outputs.length > 0;
       })
       .map((resource: any): Producer => ({
         name: resource.name ?? resource.名称 ?? '',
         type: '作物',
-        count: Number(resource.count ?? resource.times ?? resource.次数 ?? 0),
+        count: this.getResourceQuantityValue(resource),
         outputs: this.normalizeProduceItems(resource.outputs2 ?? resource.产出2 ?? []),
         priority: Number(resource.priority ?? resource.优先级 ?? 1),
       }))

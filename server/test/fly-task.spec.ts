@@ -69,6 +69,8 @@ function makeService(options: {
       getMapById: jest.fn(async (id: number) => Number(id) === currentMap.id ? currentMap : targetMap),
       getMapByName: jest.fn(async (name: string) => name === targetMap.name ? targetMap : null),
       getAllMaps: jest.fn(async () => [currentMap, targetMap]),
+      getConnections: jest.fn((map: any) => parseJson(map?.connections, [])),
+      calcTravelTime: jest.fn(() => 1),
       getMapMonsters: jest.fn(async () => []),
       checkCanTravel: jest.fn(() => ({ canTravel: true })),
     },
@@ -78,6 +80,7 @@ function makeService(options: {
     },
     taskService: { advance: jest.fn(async () => '') },
     shortcutService: { setTempInput: jest.fn(async () => undefined) },
+    systemConfigService: { get: jest.fn(async () => true) },
     combatSystem: { applyMapBuffs: jest.fn(async () => undefined) },
     achievementService: { addAchievement: jest.fn(async () => undefined) },
     chatService: { broadcastSystem: jest.fn(async () => undefined), emitToUser: jest.fn() },
@@ -86,7 +89,7 @@ function makeService(options: {
       scheduled.push({ userId, mapId, name, seconds });
     }),
   });
-  return { service, player, currentMap, targetMap, saved, scheduled, playerService };
+  return { service, player, currentMap, targetMap, saved, scheduled, playerService, mapService: service.mapService };
 }
 
 describe('飞行任务动作', () => {
@@ -167,5 +170,43 @@ describe('飞行任务动作', () => {
     expect(second).toContain('已经在');
     expect(fixture.service.taskService.advance).toHaveBeenCalledTimes(1);
     expect(fixture.service.taskService.advance).toHaveBeenCalledWith(42, '前往目标地图');
+  });
+
+  it('普通移动在开始时按最短路径长度推进移动，到达时推进具体地图任务', async () => {
+    const fixture = makeService({
+      currentMap: {
+        id: 7,
+        name: '当前地图',
+        noTeleport: false,
+        isFrontier: false,
+        connections: JSON.stringify([{ name: '中转地图', distance: 10 }]),
+        vehicles: '[]',
+        summons: '[]',
+      },
+      targetMap: {
+        id: 8,
+        name: '目标地图',
+        noTeleport: false,
+        isFrontier: false,
+        connections: '[]',
+        vehicles: '[]',
+        summons: '[]',
+      },
+    });
+    const relayMap = {
+      id: 9,
+      name: '中转地图',
+      connections: JSON.stringify([{ name: '目标地图', distance: 10 }]),
+    };
+    fixture.mapService.getAllMaps.mockResolvedValue([fixture.currentMap, relayMap, fixture.targetMap]);
+
+    const result = await fixture.service.handleMove(42, '目标地图');
+
+    expect(result).toContain('开始前往');
+    expect(fixture.service.taskService.advance).toHaveBeenCalledWith(42, '移动', 3);
+
+    await fixture.service.performArrival(42, 8, '目标地图');
+    expect(fixture.service.taskService.advance).toHaveBeenCalledWith(42, '前往目标地图');
+    expect(fixture.service.taskService.advance.mock.calls.filter((call: any[]) => call[1] === '移动')).toHaveLength(1);
   });
 });

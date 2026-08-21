@@ -3,7 +3,7 @@ import { CommandService } from '../src/modules/command/command.service';
 
 describe('任务相关制造入口', () => {
   it('制造床2按配方名和数量执行，并按实际数量推进任务', async () => {
-    const taskService = {
+    const taskService: any = {
       ensureTutorialTasks: jest.fn(async () => []),
       advance: jest.fn(async () => ''),
       consumeNotifications: jest.fn(() => ''),
@@ -116,6 +116,7 @@ describe('任务相关制造入口', () => {
 
     expect(result.success).toBe(true);
     expect(gameService.handleEquipEnhance).toHaveBeenCalledWith(42, '头部10');
+    expect(taskService.advance).toHaveBeenCalledWith(42, '强化装备', 10);
     expect(taskService.advance).toHaveBeenCalledWith(42, '强化头部', 10);
   });
 
@@ -345,5 +346,320 @@ describe('任务相关移动入口', () => {
       ['目标地图'],
     );
     expect(taskService.advance).toHaveBeenCalledWith(42, '发送“飞到 目标地图”');
+  });
+});
+
+describe('家园安装/拆卸快捷入口任务推进', () => {
+  function makeHandler(gameService: any, taskService: any): GameCommandHandler {
+    return new GameCommandHandler(
+      gameService,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      taskService,
+    );
+  }
+
+  function makeTaskService(): any {
+    return {
+      ensureTutorialTasks: jest.fn(async () => []),
+      advance: jest.fn(async () => ''),
+      consumeNotifications: jest.fn(() => ''),
+    };
+  }
+
+  it('家园紧凑安装按服务实际数量推进通用和具体安装任务', async () => {
+    const taskService = makeTaskService();
+    const gameService = {
+      handleInstall: jest.fn(async () => '把1个基础发电机放到了测试家园'),
+    };
+    const handler = makeHandler(gameService, taskService);
+
+    const result = await handler.handle({
+      userId: 42,
+      rawMessage: '家园 安装基础发电机2',
+      source: 'web',
+    } as any, ['安装基础发电机2']);
+
+    expect(result.success).toBe(true);
+    expect(gameService.handleInstall).toHaveBeenCalledWith(42, '基础发电机2');
+    expect(taskService.advance).toHaveBeenCalledWith(42, '安装', 1);
+    expect(taskService.advance).toHaveBeenCalledWith(42, '安装基础发电机', 1);
+  });
+
+  it('家园紧凑拆卸按服务实际数量推进通用和具体拆卸任务', async () => {
+    const taskService = makeTaskService();
+    const gameService = {
+      handleUninstallPart: jest.fn(async () => '成功从载具【测试车】拆卸了【轮胎】×2(行走)'),
+    };
+    const handler = makeHandler(gameService, taskService);
+
+    const result = await handler.handle({
+      userId: 42,
+      rawMessage: '家园 拆卸轮胎3',
+      source: 'web',
+    } as any, ['拆卸轮胎3']);
+
+    expect(result.success).toBe(true);
+    expect(gameService.handleUninstallPart).toHaveBeenCalledWith(42, '轮胎', 3);
+    expect(taskService.advance).toHaveBeenCalledWith(42, '拆卸部件', 2);
+    expect(taskService.advance).toHaveBeenCalledWith(42, '拆卸轮胎', 2);
+  });
+
+  it('家园安装失败时不推进任何安装任务', async () => {
+    const taskService = makeTaskService();
+    const gameService = {
+      handleInstall: jest.fn(async () => '背包中没有【基础发电机】'),
+    };
+    const handler = makeHandler(gameService, taskService);
+
+    const result = await handler.handle({
+      userId: 42,
+      rawMessage: '家园 安装基础发电机2',
+      source: 'web',
+    } as any, ['安装基础发电机2']);
+
+    expect(result.success).toBe(false);
+    expect(taskService.advance).not.toHaveBeenCalled();
+  });
+});
+
+describe('原版任务动作收尾', () => {
+  function makeHandler() {
+    const taskService: any = {
+      ensureTutorialTasks: jest.fn(async () => []),
+      advance: jest.fn(async () => ''),
+      consumeNotifications: jest.fn(() => ''),
+    };
+    const gameService = {
+      handleAlchemy: jest.fn(async () => '冒险者炼制出了2个觉醒丹'),
+      handleMerge: jest.fn(async () => '融合成功'),
+      handleDialogueYongxing: jest.fn(async () => '咏星愿意跟随你了！'),
+      handleSummonCargo: jest.fn(async () => '召唤货舱成功！'),
+      handleSimulateVehicle: jest.fn(async () => '载具模拟完成'),
+      handleRepairVehicle: jest.fn(async () => '维修成功'),
+      handleExitVehicle: jest.fn(async () => '冒险者离开了载具'),
+      handleCallVehicle: jest.fn(async (_userId: number, name: string) =>
+        name === '行商' ? '行商来到了院子里' : '宠物来到了当前地图'),
+      familiarChallengeNextLayer: jest.fn(async () => '准备挑战第2层'),
+    };
+    const combatSystem = {
+      cannonAttack: jest.fn(async () => '远程炮击造成12点伤害'),
+    };
+    const familiarSystem = {
+      // 捕捉服务在成功落库后负责自己的“捕捉/捕捉目标”任务推进。
+      capturePet: jest.fn(async (_userId: number, _mode: string, target: string) => {
+        await taskService.advance(42, '捕捉');
+        if (target) await taskService.advance(42, '捕捉' + target);
+        return '成功捕捉了史莱姆';
+      }),
+      petAwaken: jest.fn(async () => '消耗2颗觉醒丹让史莱姆觉醒了2次'),
+    };
+    const handler = new GameCommandHandler(
+      gameService as any,
+      combatSystem as any,
+      {} as any,
+      familiarSystem as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      taskService as any,
+    );
+    return { handler, taskService, gameService, combatSystem, familiarSystem };
+  }
+
+  it('补齐原版动作并只在业务成功后推进任务', async () => {
+    const fixture = makeHandler();
+    const ctx = (rawMessage: string) => ({ userId: 42, rawMessage, source: 'web' } as any);
+
+    await fixture.handler.handle(ctx('炮击 目标谷'), ['目标谷']);
+    await fixture.handler.handle(ctx('捕捉 史莱姆'), ['史莱姆']);
+    await fixture.handler.handle(ctx('炼丹 觉醒丹 2'), ['觉醒丹', '2']);
+    await fixture.handler.handle(ctx('融合 装备'), ['装备']);
+    await fixture.handler.handle(ctx('对话咏星跟随'), []);
+    await fixture.handler.handle(ctx('召唤货舱'), []);
+    await fixture.handler.handle(ctx('载具模拟 部件'), ['部件']);
+    await fixture.handler.handle(ctx('维修'), []);
+    await fixture.handler.handle(ctx('脱出'), []);
+    await fixture.handler.handle(ctx('呼叫 行商'), ['行商']);
+    await fixture.handler.handle(ctx('覅下一层'), []);
+    await fixture.handler.handle(ctx('宠物觉醒 史莱姆 2'), ['史莱姆', '2']);
+
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '炮击');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '捕捉');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '捕捉史莱姆');
+    expect(fixture.taskService.advance.mock.calls.filter((call: any[]) => call[1] === '捕捉')).toHaveLength(1);
+    expect(fixture.taskService.advance.mock.calls.filter((call: any[]) => call[1] === '捕捉史莱姆')).toHaveLength(1);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '炼丹', 2);
+    expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '制造', 2);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '融合');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '拐妹子');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '召唤货舱');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '载具模拟');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '维修载具');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '脱出');
+    // 行商的“呼叫行商/呼叫”由 GameService 按真实行商等级推进；
+    // handler 层 mock 不应伪造服务内部的等级副作用。
+    expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '呼叫行商');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '挑战等级');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '觉醒宠物', 2);
+  });
+
+  it('炮击失败和捕捉失败不消耗任务次数', async () => {
+    const fixture = makeHandler();
+    fixture.combatSystem.cannonAttack.mockResolvedValue('当前地图没有目标');
+    fixture.familiarSystem.capturePet.mockResolvedValue('附近没有史莱姆');
+
+    await fixture.handler.handle({ userId: 42, rawMessage: '炮击', source: 'web' } as any, []);
+    await fixture.handler.handle({ userId: 42, rawMessage: '捕捉 史莱姆', source: 'web' } as any, ['史莱姆']);
+
+    expect(fixture.taskService.advance).not.toHaveBeenCalled();
+  });
+});
+
+describe('载具任务动作收尾', () => {
+  function makeHandler() {
+    const taskService: any = {
+      ensureTutorialTasks: jest.fn(async () => []),
+      advance: jest.fn(async () => ''),
+      consumeNotifications: jest.fn(() => ''),
+    };
+    const gameService: any = {
+      handleAssembleVehicle: jest.fn(async () => '✅ 成功将【轻型足】×2安装到载具【白天鹅】上'),
+      handleUninstallPart: jest.fn(async () => '✅ 成功从载具【白天鹅】拆卸了【轻型足】×2(行走)'),
+    };
+    const handler = new GameCommandHandler(
+      gameService,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      taskService,
+    );
+    return { handler, gameService, taskService };
+  }
+
+  it('已有载具组装按实际数量推进组装部件和具体部件任务', async () => {
+    const fixture = makeHandler();
+    const result = await fixture.handler.handle(
+      { userId: 42, rawMessage: '组装 轻型足3', source: 'web' } as any,
+      ['轻型足3'],
+    );
+
+    expect(result.success).toBe(true);
+    expect(fixture.gameService.handleAssembleVehicle).toHaveBeenCalledWith(42, '轻型足', 3);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '组装部件', 2);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '组装轻型足', 2);
+    expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '组装载具', expect.anything());
+  });
+
+  it('核心创建载具只推进一次组装载具，具体核心动作仍同步记录', async () => {
+    const fixture = makeHandler();
+    fixture.gameService.handleAssembleVehicle.mockResolvedValue('✅ 成功组装载具：白天鹅');
+
+    await fixture.handler.handle(
+      { userId: 42, rawMessage: '组装 骑士核心2', source: 'web' } as any,
+      ['骑士核心2'],
+    );
+
+    expect(fixture.gameService.handleAssembleVehicle).toHaveBeenCalledWith(42, '骑士核心', 2);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '组装载具', 1);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '组装骑士核心', 1);
+    expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '组装部件', expect.anything());
+  });
+
+  it('拆卸按实际数量推进拆卸部件和具体部件任务，失败不推进', async () => {
+    const fixture = makeHandler();
+
+    await fixture.handler.handle(
+      { userId: 42, rawMessage: '拆卸 轻型足3', source: 'web' } as any,
+      ['轻型足3'],
+    );
+
+    expect(fixture.gameService.handleUninstallPart).toHaveBeenCalledWith(42, '轻型足', 3);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '拆卸部件', 2);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '拆卸轻型足', 2);
+
+    fixture.taskService.advance.mockClear();
+    fixture.gameService.handleUninstallPart.mockResolvedValue('载具上没有安装【轻型足】');
+    await fixture.handler.handle(
+      { userId: 42, rawMessage: '拆卸 轻型足', source: 'web' } as any,
+      ['轻型足'],
+    );
+    expect(fixture.taskService.advance).not.toHaveBeenCalled();
+  });
+
+  it('安装按服务返回的实际数量推进，库存不足不使用请求数量', async () => {
+    const fixture = makeHandler();
+    fixture.gameService.handleInstall = jest.fn(async () =>
+      '✅ 成功将【轻型足】×1安装到载具【白天鹅】上');
+
+    await fixture.handler.handle(
+      { userId: 42, rawMessage: '安装 轻型足3', source: 'web' } as any,
+      ['轻型足3'],
+    );
+
+    expect(fixture.gameService.handleInstall).toHaveBeenCalledWith(42, '轻型足3');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '安装', 1);
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '安装轻型足', 1);
+    expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '安装', 3);
+  });
+});
+
+describe('采集命令总路由', () => {
+  it('命中地图采集指令时保留冷却提示，不降级成未知指令', async () => {
+    const taskService = {
+      ensureTutorialTasks: jest.fn(async () => []),
+      advance: jest.fn(async () => ''),
+      consumeNotifications: jest.fn(() => ''),
+    };
+    const gatherHandler = {
+      handle: jest.fn(async () => ({
+        success: false,
+        content: '【木头】还需要 299 秒才能再次采集',
+        broadcast: false,
+        durationMs: 0,
+      })),
+    };
+    const commandLog = { create: jest.fn(async () => ({})) };
+    const service = new CommandService(
+      {
+        command: {
+          findFirst: jest.fn(async () => null),
+          findMany: jest.fn(async () => []),
+        },
+        commandLog,
+      } as any,
+      { gather: gatherHandler } as any,
+      {
+        getFirstFamiliarGate: jest.fn(async () => null),
+        hasGatherCmd: jest.fn(async () => true),
+      } as any,
+      taskService as any,
+    );
+
+    const result = await service.dispatch({
+      userId: 42,
+      rawMessage: '收集木头',
+      source: 'web',
+    } as any);
+
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('还需要 299 秒');
+    expect(result.content).not.toContain('未找到指令');
+    expect(gatherHandler.handle).toHaveBeenCalled();
+    expect(taskService.advance).not.toHaveBeenCalled();
+    expect(commandLog.create).toHaveBeenCalled();
   });
 });
