@@ -240,6 +240,85 @@ export class GameService {
   }
 
   /**
+   * 处理“传送”命令（对应 _主程序.ecode L1676-1789）。
+   * 与“前往/移动”不同：传送要求天蓝吊坠或军姬2免费传送，5 秒冷却，成功后立即落地。
+   */
+  async handleTeleport(userId: number, targetMapName: string): Promise<string> {
+    let playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const name = player.name || '冒险者';
+    if (this.playerService.isPlayerDead(player)) return this.playerService.handlePlayerDeath(userId, player);
+
+    const markers2 = Array.isArray(playerData.markers2)
+      ? playerData.markers2
+      : this.parseJsonArray(player.markers2);
+    const restriction = this.combatSystem.actionUnrestricted(player);
+    if (restriction.restricted) return restriction.text;
+
+    const currentMap = await this.mapService.getMapById(player.mapId);
+    if (!currentMap) return '地图不存在，请检查名称';
+    const requested = String(targetMapName || '').trim();
+    if (!requested) {
+      const maps = await this.mapService.getAllMaps();
+      const available = maps.filter((m: any) => m && !m.noTeleport && !m.不可传送 && !m.isFrontier && !m.开拓地);
+      return `${name}请选择地点:\n${available.map((m: any, i: number) => `${i + 1}、${m.name}`).join('\n')}\n你也可以发送“传送@人”来传送到其他玩家身边`;
+    }
+
+    let targetMap: any = null;
+    const playerTarget = requested.match(/^\[@([^\]]+)\]$/);
+    if (playerTarget) {
+      const identity = playerTarget[1];
+      const userModel: any = (this.prisma as any).user;
+      const targetUser = await userModel?.findFirst?.({ where: { OR: [{ qqNumber: identity }, { externalId: identity }] } })
+        ?? (/^\d+$/.test(identity) ? await userModel?.findUnique?.({ where: { id: Number(identity) } }) : null);
+      if (!targetUser) return `${name}对方未加入游戏：${requested}`;
+      const targetPlayer = await (this.prisma as any).player?.findUnique?.({ where: { userId: targetUser.id } });
+      if (!targetPlayer) return `${name}对方未加入游戏：${requested}`;
+      targetMap = await this.mapService.getMapById(targetPlayer.mapId);
+    } else {
+      targetMap = await this.mapService.getMapByName(requested).catch(() => null);
+    }
+    if (!targetMap) return `${name},${requested}在地图列表不存在。`;
+    if (targetMap.id === currentMap.id) return `${name}不能原地重组。`;
+    if (targetMap.noTeleport || targetMap.不可传送 || targetMap.isFrontier || targetMap.开拓地) {
+      return `${name}目的地${requested}存在严重干扰，贸然前往后果不可预料。`;
+    }
+
+    const vehicle = await this.findTravelVehicle(player, currentMap);
+    const moveType = Number(vehicle?.行走方式 ?? vehicle?.moveType ?? 0);
+    if (vehicle && moveType === 1) return `${name}当前驾驶的载具${vehicle.名称 || vehicle.name}只能使用“前往”来移动`;
+    if (vehicle && (moveType === 0 || moveType === 4)) {
+      return `${name}当前驾驶的载具${vehicle.名称 || vehicle.name}${moveType === 4 ? '安装了无法移动的组件' : '未安装行走机构或有的部件超过了上限'}`;
+    }
+
+    const equipment = playerData.equipment || this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const hasPendant = equipment.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '天蓝吊坠');
+    const freeByFamiliar = await this.familiarSystemService.canFreeTeleport(userId);
+    if (!hasPendant && !freeByFamiliar) return `${name},需要装备“天蓝吊坠”`;
+
+    const cooldownText = { value: '' };
+    if (this.combatState.timeIntervalRequire('传送冷却', 5, markers2, Date.now(), cooldownText, Date.now())) {
+      player.markers2 = JSON.stringify(markers2);
+      await this.playerService.savePlayer(player);
+      return `${name}${cooldownText.value}`;
+    }
+    const travelCheck = this.mapService.checkCanTravel(currentMap, targetMap, player);
+    if (!travelCheck.canTravel) return `${name}${travelCheck.reason || '无法前往该地图'}`;
+
+    player.mapId = targetMap.id;
+    player.location = targetMap.name;
+    player.markers2 = JSON.stringify(markers2);
+    await this.combatSystem.applyMapBuffs(player, targetMap);
+    await this.playerService.savePlayer(player);
+    await this.taskService.advance(userId, `前往${targetMap.name}`);
+    await this.taskService.advance(userId, '传送');
+    try {
+      if ((await this.mapService.getMapMonsters(targetMap)).length === 0) await this.mapService.refreshMapMonsters(targetMap.id);
+    } catch { /* 原版到达后刷新失败不阻断传送 */ }
+    return `${name}在${targetMap.name}完成了分子重组。`;
+  }
+
+  /**
    * 处理飞到命令。
    * 飞行和普通前往共用到达结算，但入口条件、冷却和延迟时间按原版飞行分支单独处理。
    */
@@ -2996,11 +3075,9 @@ export class GameService {
 
   // ========== 载具部件系统 ==========
 
-  /**
-   * 部件类型名称映射
-   */
+  // 原版 部件类型转换 L2180-L2195：0核心部件、1防御部件、2行走机构、4功能部件，默认武器部件。
   private readonly PART_TYPE_NAMES: Record<number, string> = {
-    0: '核心', 1: '防御', 2: '行走', 3: '武器', 4: '功能',
+    0: '核心部件', 1: '防御部件', 2: '行走机构', 3: '武器部件', 4: '功能部件',
   };
 
   /**
@@ -6589,6 +6666,236 @@ export class GameService {
       : `${playerName}进入了${vehicleText}的驾驶舱,"脱出"来离开`;
     this.logger.log(`玩家 ${userId} 驾驶了载具 ${runtime.名称}`);
     return result;
+  }
+
+  /** 解析“核心1 轻型足2”式载具模拟参数；首个零件固定需要1个，其余取尾部数字。 */
+  private parseVehicleAssemblyParts(parts: string[]): any[] {
+    return parts.map((rawPart, index) => {
+      const value = String(rawPart || '').trim();
+      const name = index === 0 ? value.replace(/\d+/g, '') : value.replace(/\d+(?=\s*$)/, '').trim();
+      const quantity = index === 0 ? 1 : Math.trunc(Number(value.match(/(\d+)\s*$/)?.[1] || 0));
+      return { 名称: name, name, 类型: '资源', type: '资源', 数量: quantity, quantity };
+    }).filter((part) => part.名称 && Number.isFinite(part.数量) && part.数量 > 0);
+  }
+
+  private async backpackQuantity(backpack: any[], name: string): Promise<number> {
+    let total = 0;
+    for (const item of backpack) {
+      if ((item?.name ?? item?.名称) === name && item?.type !== '装备') {
+        total += Number(item.quantity ?? item.count ?? 0);
+      }
+    }
+    return total;
+  }
+
+  private async addBackpackItem(backpack: any[], item: any): Promise<void> {
+    const existing = backpack.find((entry: any) =>
+      (entry?.name ?? entry?.名称) === (item?.name ?? item?.名称)
+      && (entry?.type ?? entry?.类型 ?? '资源') !== '装备');
+    if (existing) {
+      const next = Number(existing.quantity ?? existing.count ?? 0) + Number(item.quantity ?? item.count ?? 0);
+      existing.quantity = next;
+      existing.count = next;
+      return;
+    }
+    backpack.push({ ...item });
+  }
+
+  /** 对应原版 制造()：dryRun 只校验，正式执行才消耗资源并产出物品。 */
+  private async craftVehiclePart(
+    player: any,
+    backpack: any[],
+    markers: Record<string, number>,
+    name: string,
+    count: number,
+    dryRun: boolean,
+  ): Promise<{ success: boolean; text: string }> {
+    const recipe = this.staticData.getAllCraftings().find((row: any) => row.name === name);
+    if (!recipe) return { success: false, text: `${player.name},【${name}】在制造列表不存在。` };
+    if (recipe.noCraft) {
+      return { success: false, text: `你输入了正确的名称，但是【${name}】不是可以制造的项目(它只是用来分解用的)，你也许想：` };
+    }
+
+    const normalizeItems = (value: any): any[] => {
+      const rows = Array.isArray(value) ? value : this.playerService.safeJsonParse<any[]>(value, []);
+      return rows.map((row: any) => ({
+        ...row,
+        name: row?.name ?? row?.名称,
+        名称: row?.名称 ?? row?.name,
+        type: row?.type ?? row?.类型 ?? '资源',
+        类型: row?.类型 ?? row?.type ?? '资源',
+        quantity: Number(row?.quantity ?? row?.count ?? row?.数量 ?? 0),
+        数量: Number(row?.quantity ?? row?.count ?? row?.数量 ?? 0),
+      })).filter((row: any) => row.name && Number.isFinite(row.quantity));
+    };
+    const requirements = normalizeItems(recipe.requirements);
+    const outputs = normalizeItems(recipe.outputs);
+    const gainMarkers: string[] = this.playerService.safeJsonParse<string[]>(recipe.gainMarkers, []);
+    if (outputs.length === 0) {
+      return { success: false, text: `！！警告：制造项目${recipe.name}的制造产出为空，请检查文件` };
+    }
+    if (player.level < recipe.level) return { success: false, text: `需要等级${recipe.level}` };
+    if (gainMarkers.some((markerName) => markerName && (markers[markerName] || 0) >= 1)) {
+      return { success: false, text: '这个不可以重复制造。' };
+    }
+
+    const insufficient: string[] = [];
+    for (const requirement of requirements) {
+      const required = requirement.quantity * count;
+      const owned = await this.backpackQuantity(backpack, requirement.name);
+      if (owned < required) insufficient.push(`需要${requirement.name} ×${required}，你只有${owned}`);
+    }
+    if (insufficient.length > 0) return { success: false, text: insufficient.join('\n') };
+    if (dryRun) return { success: true, text: '' };
+
+    for (const requirement of requirements) {
+      let remaining = requirement.quantity * count;
+      for (let index = backpack.length - 1; index >= 0 && remaining > 0; index--) {
+        const item = backpack[index];
+        if ((item?.name ?? item?.名称) !== requirement.name) continue;
+        const current = Number(item.quantity ?? item.count ?? 0);
+        const removed = Math.min(current, remaining);
+        remaining -= removed;
+        if (current - removed <= 0) backpack.splice(index, 1);
+        else {
+          item.quantity = current - removed;
+          item.count = current - removed;
+        }
+      }
+    }
+
+    const producedTexts: string[] = [];
+    for (const output of outputs) {
+      const outputQuantity = output.quantity * count;
+      const outputItem = {
+        ...output,
+        quantity: outputQuantity,
+        数量: outputQuantity,
+      };
+      await this.addBackpackItem(backpack, outputItem);
+      producedTexts.push(`${output.name} ×${outputQuantity}`);
+    }
+    markers['制造'] = (markers['制造'] || 0) + count;
+    markers[`制造${name}`] = (markers[`制造${name}`] || 0) + count;
+    for (const markerName of gainMarkers) {
+      if (markerName) markers[markerName] = (markers[markerName] || 0) + count;
+    }
+    return { success: true, text: `${player.name}用制造了${count}的${name}\n得到了${producedTexts.join('、')}` };
+  }
+
+  /** 对应原版 组装载具()：先模拟扣除已有零件，再自动制造缺失零件并写入当前地图。 */
+  async assembleVehicleFromParts(userId: number, rawParts: string[]): Promise<string> {
+    const requiredParts = this.parseVehicleAssemblyParts(rawParts);
+    if (!requiredParts.length) return '核心必须在最前面';
+    const coreSpec = this.staticData.getVehiclePartSpecByName(requiredParts[0].名称);
+    if (!coreSpec || !String(requiredParts[0].名称).replace(/\d+$/, '').endsWith('核心')) {
+      return '核心必须在最前面';
+    }
+
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const ownerQQ = String(user?.qqNumber || userId);
+    const playerName = player.name || '冒险者';
+
+    const restriction = this.combatSystem.actionUnrestricted(player, { cannonOk: false, ignoreReason: 6 });
+    if (restriction.restricted) return `${playerName}${restriction.text}`;
+    if (this.playerService.isPlayerDead(player)) {
+      return `${playerName}已经死掉了!你可以“复活使魔”或者“删除怪物”`;
+    }
+
+    if (await this.hasOwnedProductionVehicle(ownerQQ, coreSpec)) {
+      return `${playerName}一个玩家只能同时存在一个生产类载具，你可以在普通载具上组装生产线，一样有生产的效果。`;
+    }
+
+    const backpack = this.playerService.getBackpackItems(player);
+    const temporaryBackpack = JSON.parse(JSON.stringify(backpack));
+    const missingParts: any[] = [];
+    for (const part of requiredParts) {
+      const owned = await this.backpackQuantity(temporaryBackpack, part.名称);
+      if (owned >= part.数量) continue;
+      const stillMissing = part.数量 - owned;
+      missingParts.push({ ...part, 数量: stillMissing, quantity: stillMissing });
+    }
+
+    let aborted = false;
+    let failureText = '';
+    for (const part of missingParts) {
+      const dryRun = await this.craftVehiclePart(player, temporaryBackpack, markers, part.名称, part.数量, true);
+      if (!dryRun.success) {
+        failureText += failureText
+          ? `、${part.名称}x${part.数量}`
+          : `\n缺少这些物品，并且背包里面的数量不够/背包里面的资源不足以制造缺少的数量：${part.名称}x${part.数量}`;
+        aborted = true;
+      }
+    }
+    if (aborted) return `${playerName}${failureText}`;
+
+    const craftTexts: string[] = [];
+    for (const part of missingParts) {
+      const crafted = await this.craftVehiclePart(player, backpack, markers, part.名称, part.数量, false);
+      if (crafted.text) craftTexts.push(crafted.text);
+    }
+
+    const timestamp = Date.now();
+    const runtime = this.toRuntimeVehicle({});
+    runtime.零件 = requiredParts.map((part) => ({ ...part }));
+    runtime.配方 = [{ 名称: '1', name: '1', 数值: timestamp, value: timestamp }];
+    runtime.编号 = `V${timestamp.toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    runtime.vehicleId = runtime.编号;
+    runtime.归属 = ownerQQ;
+    runtime.owner = ownerQQ;
+    this.combatSystem.recalculateVehicle(runtime, timestamp);
+    const calculatedHp = Number(runtime.加成?.生命 || 0);
+    runtime.当前生命 = calculatedHp;
+    runtime.currentHp = calculatedHp;
+    runtime.生命 = calculatedHp;
+    runtime.maxHp = calculatedHp;
+    runtime.名称 = `${playerName}的${String(requiredParts[0].名称).replace('核心', '')}`;
+    runtime.name = runtime.名称;
+
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${playerName}不在任何地图上`;
+    const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
+    vehicles.push(this.toStoredVehicle(runtime));
+    await this.mapService.updateDynamicFields(map.id, { vehicles: JSON.stringify(vehicles) });
+
+    for (const part of requiredParts) {
+      let remaining = part.数量;
+      for (let index = backpack.length - 1; index >= 0 && remaining > 0; index--) {
+        const item = backpack[index];
+        if ((item?.name ?? item?.名称) !== part.名称) continue;
+        const current = Number(item.quantity ?? item.count ?? 0);
+        const removed = Math.min(current, remaining);
+        remaining -= removed;
+        if (current - removed <= 0) backpack.splice(index, 1);
+        else {
+          item.quantity = current - removed;
+          item.count = current - removed;
+        }
+      }
+    }
+    player.backpack = JSON.stringify(backpack);
+    player.markers = JSON.stringify(markers);
+    await this.playerService.savePlayer(player);
+
+    await this.achievementService.addAchievement(player, '组装载具', 1);
+    await this.taskService.advance(userId, `组装${requiredParts[0].名称}`, 1);
+
+    return [`${playerName}组装了一个载具：${runtime.名称}`, ...craftTexts].filter(Boolean).join('\n');
+  }
+
+  private async hasOwnedProductionVehicle(ownerQQ: string, coreSpec: any): Promise<boolean> {
+    if (!(Number(coreSpec?.partType ?? coreSpec?.类型) === 0 && Number(coreSpec?.bonus?.生产 || 0) !== 0)) return false;
+    const maps = await this.mapService.getAllMaps();
+    return maps.some((map: any) => this.parseVehicleValue<any[]>(map?.vehicles, []).some((vehicleRaw: any) => {
+      if (String(vehicleRaw?.归属 ?? vehicleRaw?.owner ?? '') !== ownerQQ) return false;
+      const vehicle = this.toRuntimeVehicle(vehicleRaw);
+      return Number(vehicle.加成?.生产 || 0) !== 0 || (vehicle.零件 || []).some((part: any) => {
+        const spec = this.staticData.getVehiclePartSpecByName(part.名称);
+        return Number(spec?.partType) === 0 && Number(spec?.bonus?.生产 || 0) !== 0;
+      });
+    }));
   }
 
   /**

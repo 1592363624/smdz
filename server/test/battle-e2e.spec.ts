@@ -381,6 +381,8 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 500, attack: 100 });
       registerMonsters(mocks, 1, [monster]);
 
+      jest.spyOn(combat as any, 'checkHit').mockReturnValue(true); // 消除随机命中
+
       const text = await combat.resolvePetVsMonster(pet, monster, 1, 2);
 
       expect(monster.hp).toBeLessThan(500);
@@ -753,6 +755,65 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
   // ---------- 套装特效（复刻 战斗相关.ecode 造成伤害 L1981-2062/L2447 等） ----------
   describe('套装特效（穿透/增幅器/超压 复刻）', () => {
+    it('坚韧护盾(装备131)：护盾被打穿时终止后续伤害，15秒内不重复触发', async () => {
+      jest.useFakeTimers().setSystemTime(1_000_000);
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({
+        id: 1001, hp: 100, maxHp: 100, shield: 30, maxShield: 30,
+        equipment: [{ specialSeq: 131, name: '坚韧护盾' }],
+      });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
+        ...weakDefenderBonus(), 护盾: 30, 生命: 100,
+      } as any);
+      jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({
+        damage: 5000, poolDamage: { shield: 5000, armor: 0, hp: 5000 },
+        damageBreakdown: { physical: 5000, fire: 0, ice: 0, elec: 0 },
+        vehicleBreakdown: { physical: 5000, fire: 0, ice: 0, elec: 0 },
+        rating: '', critMultiplier: 1, penetrated: false,
+      } as any);
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+      const first = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+      expect(first.result).toContain('坚韧护盾');
+      expect(monster.shield).toBe(0);
+      expect(monster.hp).toBe(100);
+
+      jest.setSystemTime(1_005_000);
+      monster.hp = 100;
+      const second = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+      expect(second.result).not.toContain('坚韧护盾');
+      expect(monster.hp).toBeLessThan(100);
+      jest.useRealTimers();
+    });
+
+    it('神兽之力青龙(武器-31)：命中后给目标5秒麻痹并叠加武器冷却5秒', async () => {
+      const player = makePlayer({ userId: 2 });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100, weapons: [{ name: '神兽之力青龙' }] });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+      jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+      await combat.weaponAttack(2, 0, {
+        mustHit: true,
+        targetName: '史莱姆',
+        weaponOverride: {
+          name: '神兽之力青龙', damage: 10, damageType: 1, specialSeq: -31,
+          properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+        } as any,
+      });
+
+      const markers2 = Array.isArray(monster.markers2) ? monster.markers2 : JSON.parse(monster.markers2);
+      expect(markers2.find((m: any) => m.name === '麻痹')).toBeDefined();
+      expect(markers2.find((m: any) => m.name === '神兽之力青龙冷却')).toBeDefined();
+    });
+
     it('两极反转(装备63) → 攻击时三层穿透+8，result 含「两极反转」', async () => {
       const player = makePlayer({
         userId: 2,

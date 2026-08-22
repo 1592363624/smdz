@@ -305,6 +305,47 @@ export class ItemService {
       return equipment;
     }
 
+    // 先从静态装备表恢复原版“装备”结构；数据串只覆盖动态词条/特效/制造者。
+    // 原版 解析装备() L1262-1511：先复制装备列表项，再解析数据串覆盖加成。
+    const definition = typeof (this.staticData as any).getEquipmentByName === 'function'
+      ? (this.staticData as any).getEquipmentByName(item.name)
+      : undefined;
+    const parseJson = <T>(value: any, fallback: T): T => {
+      if (value === undefined || value === null || value === '') return fallback;
+      if (typeof value === 'object') return value as T;
+      try { return JSON.parse(String(value)) as T; } catch { return fallback; }
+    };
+    const addBonus = (target: Record<string, number>, source: any) => {
+      if (!source || typeof source !== 'object') return;
+      for (const [key, raw] of Object.entries(source)) {
+        const value = Number(raw);
+        if (Number.isFinite(value) && value !== 0) target[key] = (target[key] || 0) + value;
+      }
+    };
+    if (definition) {
+      equipment.type = String(definition.equipType ?? definition.type ?? definition.类型 ?? '');
+      equipment.specialSeq = Number(definition.specialSeq ?? definition.特殊序号 ?? 0) || 0;
+      equipment.damageType = String(definition.damageType ?? definition.伤害类型 ?? equipment.damageType);
+      equipment.cooldown = Number(definition.cooldown ?? definition.冷却 ?? equipment.cooldown) || 0;
+      equipment.forcedEffect = definition.forcedEffect === true || definition.forcedEffect === 'true' || definition.必出特效 === true;
+      equipment.vehicleForceDmg = definition.vehicleForceDmg === true || definition.vehicleForceDmg === 'true' || definition.无视载具伤害上限 === true;
+      equipment.lockTime = Number(definition.lockTime ?? definition.锁定 ?? 0) || 0;
+      equipment.description = String(definition.description ?? definition.说明 ?? '');
+      equipment.baseBonus = parseJson<Record<string, number>>(definition.baseBonus ?? definition.自带加成, {});
+      equipment.affixes = parseJson<string[]>(definition.affixes ?? definition.词条, []);
+      equipment.attackText = parseJson<any>(definition.attackText ?? definition.攻击文本, null);
+      equipment.buffs = parseJson<any[]>(definition.buffs ?? definition.增益, []);
+      const props = parseJson<any>(definition.properties ?? definition.属性, {});
+      const damage = props?.damage ?? props?.伤害 ?? props;
+      equipment.properties = {
+        phys: Number(damage?.phys ?? damage?.物理 ?? 0) || 0,
+        elec: Number(damage?.elec ?? damage?.雷电 ?? damage?.电 ?? 0) || 0,
+        fire: Number(damage?.fire ?? damage?.火焰 ?? damage?.火 ?? 0) || 0,
+        ice: Number(damage?.ice ?? damage?.冰冻 ?? damage?.冰霜 ?? damage?.冰 ?? 0) || 0,
+      };
+      equipment.bonus = {};
+    }
+
     // 解析数据编码：格式为 "品质前缀!aa值!ab值!...!bx特效编号!@@制造者"
     const parts = item.data.split('!');
     if (parts.length === 0) return equipment;
@@ -336,9 +377,47 @@ export class ItemService {
       }
     }
 
-    // 试图从数据库加载装备定义以获取更多信息
-    // 此部分为简化实现，实际需从 GameEquipment 表查询
-    // 暂时设置基础数据
+    const isWeapon = definition
+      ? (typeof (this.staticData as any).isWeapon === 'function'
+        ? (this.staticData as any).isWeapon(definition)
+        : equipment.specialSeq < 0 || /武器$|工具$/.test(equipment.type))
+      : false;
+    if (isWeapon) {
+      // 原版 L1300-1332：按四属性最大值判定负面类型；相等时落入类型4。
+      const { phys, fire, ice, elec } = equipment.properties;
+      if (phys > fire && phys > ice && phys > elec) equipment.negativeType = 1;
+      else if (fire > phys && fire > ice && fire > elec) equipment.negativeType = 2;
+      else if (ice > phys && ice > fire && ice > elec) equipment.negativeType = 3;
+      else equipment.negativeType = 4;
+    }
+
+    // bx 特效覆盖武器伤害属性，并把特效加成叠入“自带加成”（原版 L1430-1480）。
+    if (equipment.specialEffect > 0) {
+      if (isWeapon) {
+        if (equipment.specialEffect === 37) {
+          equipment.properties.phys *= 1.15; equipment.properties.fire *= 1.15;
+          equipment.properties.ice *= 1.15; equipment.properties.elec *= 1.15;
+        } else if (equipment.specialEffect === 38) equipment.properties.phys *= 1.25;
+        else if (equipment.specialEffect === 39) equipment.properties.phys = equipment.properties.fire * 1.25; // 原版疑似笔误，按原版保留
+        else if (equipment.specialEffect === 40) equipment.properties.phys = equipment.properties.ice * 1.25;
+        else if (equipment.specialEffect === 41) equipment.properties.phys = equipment.properties.elec * 1.25;
+      }
+      const effect = typeof (this.staticData as any).getEffectById === 'function'
+        ? (this.staticData as any).getEffectById(equipment.specialEffect, isWeapon)
+        : (() => {
+          const rows = typeof (this.staticData as any).getAllEffects === 'function'
+            ? (this.staticData as any).getAllEffects().filter((row: any) => !row?.limit || row.limit === (isWeapon ? '武器' : '装备'))
+            : [];
+          return rows[equipment.specialEffect - 1];
+        })();
+      if (effect) {
+        addBonus(equipment.baseBonus, parseJson<Record<string, number>>(effect.bonus ?? effect.加成, {}));
+        if (effect.attackText || effect.攻击文本) equipment.attackText = parseJson<any>(effect.attackText ?? effect.攻击文本, equipment.attackText);
+        if (effect.buffs || effect.增益) equipment.buffs = parseJson<any[]>(effect.buffs ?? effect.增益, equipment.buffs);
+      }
+    }
+
+    equipment.data = item.data;
 
     return equipment;
   }

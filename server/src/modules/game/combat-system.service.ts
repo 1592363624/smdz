@@ -60,6 +60,8 @@ export interface AttackContext {
   skipBattleDriver?: boolean;
   /** 跳过本次攻击的攻击时召唤触发（用于特殊递归攻击入口）。 */
   skipAttackSummons?: boolean;
+  /** 测试与运行时递归入口可直接指定武器，绕过玩家当前武器索引。 */
+  weaponOverride?: WeaponData;
 }
 
 /**
@@ -370,7 +372,7 @@ export class CombatSystemService {
     }
 
     // 4. 获取武器数据
-    const weapon = this.getWeaponData(player, weaponIndex);
+    const weapon = context.weaponOverride || this.getWeaponData(player, weaponIndex);
 
     // 4.1 武器攻击冷却检查（严格对齐原版：按武器名写入玩家 markers2 持久化标记）
     //     原版 _主程序.ecode:904 `时间间隔要求(武器名+"冷却", 攻击冷却, 玩家.标记2, ...)`
@@ -427,7 +429,8 @@ export class CombatSystemService {
     // 如果使魔特效改变了全体攻击标记，重新选择目标
     // 例如：战斗女仆RPG!/机枪会取消全体攻击，云爆弹会强制全体攻击
     if (effectiveAllAttack !== allAttack) {
-      targets = this.selectTargets(monsters, player, effectiveAllAttack, weapon, targetName, targetId);
+      const reselected = this.selectTargets(monsters, player, effectiveAllAttack, weapon, targetName, targetId);
+      targets.length = 0; targets.push(...reselected);
     }
 
     // 7. 执行攻击循环
@@ -961,7 +964,7 @@ export class CombatSystemService {
         const sleepLv = setsData['陪睡'] ?? setsData.sleepover ?? 0;
         // 攻击方标记（原版 攻击方.标记）；防御方标记（原版 防御方.标记 = target.markers）
         const playerMk = this.safeParseJson<Record<string, number>>(player.markers || {}, {});
-        const targetMk = this.safeParseJson<Record<string, number>>(target.markers || {}, {});
+        const targetMk = this.playerService.safeJsonParse<Record<string, number>>(target.markers || {}, {});
 
         // ---- 无双勇士标记累计（原版 战斗相关.ecode L1964-1966） ----
         // 装备要求(攻击方,#无双勇士) 成立时：添加成就("ww"+攻击方.QQ, 1, 防御方.标记) 即给目标标记累加 ww 计数；
@@ -1269,7 +1272,7 @@ export class CombatSystemService {
         // 本地解析 markers2 数组（原版 标记2 容器），与 L295-322 武器冷却读写约定一致
         // 注意：本段 markers2 容器的 expireAt 统一采用「毫秒」单位（与武器冷却 L322 一致），
         // 与 targetMk/playerMk（markers 对象，秒级 nowSec）不同，操作时需换算。
-        const nowMs = nowSec * 1000;
+        const nowMs = Date.now();
         const atkMk2 = this.safeParseJson<any[]>(player.markers2 || '[]', []);
         const defMk2 = this.safeParseJson<any[]>(target.markers2 || '[]', []);
 
@@ -1359,6 +1362,21 @@ export class CombatSystemService {
             // ⚠️ 该行为依赖 combat-system 反向回调 familiarSkills，当前 weaponAttack 链路未注入，
             // 为避免循环依赖与递归副作用，此处仅落地增益写入（与原版 L1861 前半一致），
             // 自动释放使魔技能列为待补（同光荣弹性质，需外部注入 FamiliarSkillsService）。
+          }
+        }
+
+        // ---- 神兽之力青龙（原版 L4500-4507：命中后给防御方5秒麻痹，并把每件武器冷却延长5秒） ----
+        if (weapon.specialSeq === -31 || weapon.name?.includes('神兽之力青龙')) {
+          defMk2.push({ name: '麻痹', expireAt: nowMs + 5 * 1000, 强度: 0 });
+          const targetWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+          for (const targetWeapon of targetWeapons) {
+            const targetWeaponName = targetWeapon?.name || targetWeapon?.名称;
+            if (targetWeaponName) {
+              const cooldownKey = `${targetWeaponName}冷却`;
+              const cooldownEntry = defMk2.find((m: any) => m?.name === cooldownKey);
+              if (cooldownEntry) cooldownEntry.expireAt += 5 * 1000;
+              else defMk2.push({ name: cooldownKey, expireAt: nowMs + 5 * 1000 });
+            }
           }
         }
 
@@ -1627,8 +1645,9 @@ export class CombatSystemService {
                   const a2 = targetMk[wkey] || 0;
                   targetMk[wkey] = a2; // 交换（简化：防御方武器进入冷却）
                   playerMk[`${weapon.name}冷却`] = (playerMk[`${weapon.name}冷却`] || 0) - a2;
-                  attackerBonus.电伤 = (attackerBonus.电伤 || 0) + (attackerBonus.电伤 || 0); // 原版 a2=攻击方.属性.电伤（占位，实际用于后续加成）
-                  attackerBonus.攻击 = (attackerBonus.攻击 || 0) + (5 + atkSkill / 2); // 战斗中增加攻击(攻击方, 5+技等/2)
+                  // 原版“战斗中增加攻击(攻击方, 5+技能等级/2)”会把固定攻击同时
+                  // 转换为四属性伤害；不能只重复当前电伤，否则其它三系不会获得增量。
+                  this.addCombatAttack(attackerBonus, 5 + atkSkill / 2);
                   resultLines.push('【超频】');
                 }
                 break;
@@ -1826,7 +1845,7 @@ export class CombatSystemService {
         player.markers = JSON.stringify(playerMk);
         // targetMk 不只承载无双计数，也承载负面效果累计、冷却和装备特效状态。
         // 原先只在无双触发时写回，会丢失割裂/灼烧/深寒/感电的未满4层计数。
-        target.markers = JSON.stringify(targetMk);
+        if (target.userId) target.markers = JSON.stringify(targetMk);
       }
 
       // 三段评级熟练度：从玩家标记读取当前熟练度（对应原版 显示熟练度等级），
@@ -1903,6 +1922,23 @@ export class CombatSystemService {
         ? { ...scaledPool, hp: 0 }
         : { ...scaledPool };
 
+      const defenderSets = this.safeParseJson<any>(target.sets || (target as any).套装 || '{}', {});
+      // 原版“强袭”四件套在三层扣血前限制单池伤害：当前池≥70%且本次伤害超过70%
+      // 上限时，该层只受70%上限伤害；30秒冷却按防御方标记2记录。
+      const assaultMarkers = this.safeParseJson<any[]>(target.markers2, []);
+      const assaultCap = (currentPool: number, maxPool: number): number => {
+        if ((defenderSets?.强袭 ?? 0) !== 4 || maxPool <= 0) return currentPool;
+        if (currentPool / maxPool < 0.7 || currentPool <= maxPool * 0.7) return currentPool;
+        if (this.combatState.timeIntervalRequire('强袭冷却', 30, assaultMarkers, Date.now(), { value: '' }, Date.now())) {
+          return maxPool * 0.7;
+        }
+        return currentPool;
+      };
+      appliedPool.shield = Math.min(appliedPool.shield, assaultCap(target.shield || 0, defenderBonus.护盾 || 0));
+      appliedPool.armor = Math.min(appliedPool.armor, assaultCap(target.armor || 0, defenderBonus.装甲 || 0));
+      appliedPool.hp = Math.min(appliedPool.hp, assaultCap(target.hp || 0, defenderBonus.生命 || 0));
+
+      // 原版 L4260-4271：坚韧护盾在护盾被打穿后终止本次后续特效，先阻止生命池继续扣减。
       // 原版 战斗相关.ecode L4444-L4448：带麻醉的非生体武器不能直接击杀目标。
       if (!captureMode && anesthesiaEffect > 0 && (weapon.type || '') !== '生体武器'
         && target.hp > 0 && appliedPool.hp >= target.hp) {
@@ -1918,7 +1954,54 @@ export class CombatSystemService {
       // 扣除怪物血量（三池分伤）
       const shieldBeforeDamage = target.shield === undefined ? 0 : Number(target.shield || 0);
       const armorBeforeDamage = target.armor === undefined ? 0 : Number(target.armor || 0);
+      const defenderEquipment = ((target as any).equipment || []) as any[];
+      const hasTenaciousShield = defenderEquipment.some((item: any) =>
+        item && (item.specialSeq === 131 || (item.name || item.名称) === '坚韧护盾'));
+      const tenaciousShieldMarkers = this.safeParseJson<any[]>(target.markers2, []);
+      let tenaciousShieldTriggered = false;
+      const tenaciousShieldMax = (target as any).maxShield ?? defenderBonus.护盾 ?? 0;
+      const tenaciousShieldWillBreak = appliedPool.shield >= shieldBeforeDamage && shieldBeforeDamage > 0;
+      if (hasTenaciousShield && tenaciousShieldWillBreak) appliedPool.hp = 0;
+      const tenaciousShieldActive = hasTenaciousShield
+        && shieldBeforeDamage > 0
+        && tenaciousShieldMax > 0
+        && shieldBeforeDamage / tenaciousShieldMax >= 0.15;
       const appliedDamage = this.applyDamageToMonster(target, finalDamage, appliedPool);
+      if ((defenderSets?.强袭 ?? 0) === 4) target.markers2 = JSON.stringify(assaultMarkers);
+
+      // 原版 L4260-4271：坚韧护盾在护盾被打穿后触发；15秒冷却未过则本次后续特效终止。
+      const tenaciousShieldBreak = appliedDamage.shield > 0 && Number(target.shield || 0) <= 0;
+      if (tenaciousShieldActive && tenaciousShieldBreak) {
+        if (!this.combatState.timeIntervalRequire(
+          '坚韧hd',
+          15,
+          tenaciousShieldMarkers,
+          Date.now(),
+          { value: '' },
+          Date.now(),
+        )) {
+          target.markers2 = JSON.stringify(tenaciousShieldMarkers);
+          tenaciousShieldTriggered = true;
+          resultLines.push(`【坚韧护盾】`);
+        }
+        target.markers2 = JSON.stringify(tenaciousShieldMarkers);
+      }
+
+      // 原版破盾/破甲分支：木天蓼(-26)或好感≥40绝灭天使的“日轮a”命中后，
+      // 将对应回复逆转增益写入防御方，持续 10×(1-韧性/100) 秒。
+      const reversePool = (poolBefore: number, maxPool: number, poolName: '盾逆' | '甲逆') => {
+        if (poolBefore <= 0 || maxPool <= 0 || poolBefore / maxPool < 0.15) return;
+        const isWoodCat = weapon.specialSeq === -26 || (weapon.name || (weapon as any).名称) === '木天蓼';
+        const isSolar = attackText === '日轮a' && (player.affinity || 0) >= 40;
+        if (!isWoodCat && !isSolar) return;
+        const reverseSeconds = 10 * (1 - (defenderBonus.韧性 || 0) / 100);
+        const buffs = this.safeParseJson<any[]>(target.buffs, []);
+        this.combatState.gainBuff(buffs, poolName, reverseSeconds, false, Date.now() / 1000);
+        target.buffs = JSON.stringify(buffs);
+        resultLines.push(`【${poolName === '盾逆' ? '盾回逆转' : '甲回逆转'}${Math.round(reverseSeconds)}秒】`);
+      };
+      reversePool(shieldBeforeDamage, defenderBonus.护盾 || 0, '盾逆');
+      reversePool(armorBeforeDamage, defenderBonus.装甲 || 0, '甲逆');
 
       // 战斗事件任务在实际扣池后记录，避免把计算阶段的池分配误当成成功事件。
       if (damageResult.penetrated && finalDamage > 0) {
@@ -1930,6 +2013,7 @@ export class CombatSystemService {
       if (armorBeforeDamage > 0 && Number(target.armor || 0) <= 0) {
         taskProgress.push({ actionName: '破甲', count: 1 });
       }
+
 
       // 原版 战斗相关.ecode L3822-L3838：命中后累加当前麻醉并记录麻醉者。
       const anesthesiaText = this.applyWeaponAnesthesia(
@@ -2037,6 +2121,12 @@ export class CombatSystemService {
       if (nextAttack.reverseResist && Math.random() * 100 < (nextAttack.reverseChance ?? 0)) {
         this.reverseMonsterResistance(target, nextAttack.reverseDuration || 600);
         resultLines.push(`【反转童话】${target.name}的某个属性抗性被反转了！`);
+      }
+
+      // 原版 L4260-4271：坚韧护盾在护盾被打穿后终止本次后续文本/反伤等处理。
+      if (tenaciousShieldActive && tenaciousShieldBreak && tenaciousShieldTriggered) {
+        await this.updateMonsterHpInMap(map.id, target);
+        continue;
       }
 
       // 构建攻击文本（含三段评级显示）
@@ -2647,6 +2737,25 @@ export class CombatSystemService {
       this.logger.warn(`怪物反击单体失败: ${err.message}`);
     }
     return lines;
+  }
+
+  /** 对齐加成计算.ecode L1409-1429“战斗中增加攻击”。 */
+  private addCombatAttack(bonus: BonusData, fixedAttack = 0, percentAttack = 0): void {
+    if (fixedAttack !== 0) {
+      const attack2 = Number(bonus.攻击2 || 0) / 100;
+      const factor = 1 + attack2;
+      for (const key of ['电伤', '物伤', '冰伤', '火伤'] as const) {
+        const secondary = Number((bonus as any)[`${key}2`] || 0) / 100;
+        (bonus as any)[key] = Number((bonus as any)[key] || 0) + fixedAttack * (1 + secondary) * factor;
+      }
+      return;
+    }
+    if (percentAttack !== 0) {
+      const factor = 1 + percentAttack / 100;
+      for (const key of ['电伤', '物伤', '冰伤', '火伤'] as const) {
+        (bonus as any)[key] = Number((bonus as any)[key] || 0) * factor;
+      }
+    }
   }
 
   /**
@@ -5803,10 +5912,21 @@ export class CombatSystemService {
       const effective = total * (1 - (pen || 0) / 100);
       return Math.min(100, Math.max(0, effective)) / 100;
     };
-    const physRes = calcRes(defBonus[`${resPrefix}PhysRes` as keyof BonusData] as number || 0);
-    const fireRes = calcRes(defBonus[`${resPrefix}FireRes` as keyof BonusData] as number || 0);
-    const iceRes = calcRes(defBonus[`${resPrefix}IceRes` as keyof BonusData] as number || 0);
-    const elecRes = calcRes(defBonus[`${resPrefix}ElecRes` as keyof BonusData] as number || 0);
+    const lifePrefix = resPrefix === 'life' ? '生命' : resPrefix;
+    const physKey = `${lifePrefix}物抗`;
+    const fireKey = `${lifePrefix}火抗`;
+    const iceKey = `${lifePrefix}冰抗`;
+    const elecKey = `${lifePrefix}电抗`;
+    const readResist = (key: string) => Number(
+      (defBonus as any)[key]
+      ?? (defBonus as any)[key.replace('抗', 'Res')]
+      ?? (defBonus as any)[`${key.slice(0, -1)}${key.endsWith('火抗') ? 'Fire' : key.endsWith('冰抗') ? 'Ice' : key.endsWith('电抗') ? 'Elec' : 'Phys'}Res`]
+      ?? 0,
+    ) || 0;
+    const physRes = calcRes(readResist(physKey));
+    const fireRes = calcRes(readResist(fireKey));
+    const iceRes = calcRes(readResist(iceKey));
+    const elecRes = calcRes(readResist(elecKey));
 
     return {
       physical: breakdown.physical * (1 - physRes),
@@ -8343,8 +8463,8 @@ export class CombatSystemService {
    * 逆转力场、湮灭圣光/审判导弹等穿透、小雫/小凰等生产加成、超限判定），并在提供 s 且非产出时
    * 处理 琪莎拉 自动回血；最终按 上限 标志决定产出分支。
    *
-   * 本方法 1:1 还原 L3556-3897 全部属性计算逻辑；产出分支（原版 L3898-3911 调 取生产产出）
-   * 因 取生产产出 属独立生产系统大项（RKT⬜），此处标注 TODO，不在本函数内展开。
+   * 本方法 1:1 还原 L3556-3912 全部属性计算逻辑；产出分支由 calculateVehicleProduction
+   * 对应原版 L3898-3911 的 取生产产出。
    *
    * 数据来源：原版 部件列表 全局 = staticData.getAllVehiclePartSpecs()（vehicle-parts.json，
    * 由 e/源码解析成为txt/使魔大战.txt 类型=载具 节提取）；部件限制 全局（商店-部件限制）当前无数据 → 空数组。
@@ -8881,8 +9001,8 @@ export class CombatSystemService {
    *
    * 本框架现状：weaponAttack 已实现"玩家攻击地图怪物 + 召唤物协同攻击(summonCoAttack)"，
    * 故复用 weaponAttack 对所有地图怪物发起攻击；载具修复分支按原版 L507-530 独立实现。
-   * 原版 L320-499 的"召唤物闪避/扶人/天神降世/觉醒宠物/怪物→玩家攻击循环"依赖战斗循环 driver，
-   * 当前尚未实现，按原版保留并在 TODO 标注（见战斗引擎复刻进度记录）。
+   * 原版 L320-499 的召唤物攻击循环由 runMapSummonAttacks 接入统一武器攻击；
+   * 觉醒宠物与怪物反击分别由 weaponAttack 协同分支和 monsterCounterAttack 结算。
    *
    * @param userId 用户ID
    * @param arg 地图参数（可选，原版按地图名定位，此处默认当前地图）
@@ -9148,9 +9268,8 @@ export class CombatSystemService {
    *   2. 怪物$武器：怪物用武器攻击玩家数组（含幻时）
    *   3. 玩家$武器（默认）：玩家用当前武器攻击地图怪物2
    *
-   * 本框架现状：weaponAttack 已实现"玩家攻击地图怪物 + 召唤物协同"，故模式3直接复用；
-   * 模式1（召唤物攻击怪物2）/模式2（怪物→玩家数组）需召唤物/怪物攻击 driver，当前未完整实现，
-   * 按原版保留并在 TODO 标注（见战斗引擎复刻进度记录）。
+   * 本框架三种模式均复用统一战斗模型：召唤物通过 attackerOverride 攻击怪物，
+   * 怪物通过 monsterCounterAttackOnePlayer 攻击玩家/召唤物，玩家走 weaponAttack。
    *
    * @param userId 用户ID
    * @param arg 形如 "QQ$武器名" 的参数

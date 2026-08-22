@@ -25,7 +25,7 @@ export class TeleportHandler implements CommandHandler {
     if (!targetMap) {
       return { success: false, content: '请指定目标地图', broadcast: false, durationMs: 0 };
     }
-    const result = await this.gameService.handleMove(ctx.userId, targetMap);
+    const result = await this.gameService.handleTeleport(ctx.userId, targetMap);
     return { success: true, content: result, broadcast: false, durationMs: 0 };
   }
 }

@@ -118,6 +118,76 @@ describe('随机词条展开 (物品操作.ecode 随机文本 L1197-1211)', () =
   });
 });
 
+describe('装备解析 (物品操作.ecode L1262-1511)', () => {
+  it('从静态定义恢复部位/属性/基础字段，并解析编码加成、制造者和特效', () => {
+    const parser = new ItemService({} as PrismaService, {
+      getEquipmentByName: () => ({
+        name: '解析武器', equipType: '射弹武器', specialSeq: -1,
+        cooldown: 10, lockTime: 3, forcedEffect: true,
+        vehicleForceDmg: false, damageType: '物理',
+        description: '测试', baseBonus: '{"魅力":2}',
+        properties: '{"damage":{"物理":90,"火焰":10}}',
+        affixes: '["随机攻击"]', attackText: '{"name":"枪击"}', buffs: '[]',
+      }),
+      isWeapon: () => true,
+      getEffectById: () => ({ bonus: '{"贯穿":5}' }),
+    } as unknown as StaticDataService, {} as any);
+    const parsed = parser.parseEquipment({
+      name: '解析武器', type: '装备', quantity: 1, durability: 7,
+      data: 'a!ai25!bx1!@@工匠',
+    });
+    expect(parsed.type).toBe('射弹武器');
+    expect(parsed.specialSeq).toBe(-1);
+    expect(parsed.properties.phys).toBe(90);
+    expect(parsed.properties.fire).toBe(10);
+    expect(parsed.bonus.攻击).toBe(25);
+    expect(parsed.baseBonus.魅力).toBe(2);
+    expect(parsed.baseBonus.贯穿).toBe(5);
+    expect(parsed.maker).toBe('工匠');
+    expect(parsed.negativeType).toBe(1);
+    expect(parsed.durability).toBe(7);
+  });
+
+  it('保留原版 bx39 的属性覆盖行为（火焰属性写入物理）', () => {
+    const parser = new ItemService({} as PrismaService, {
+      getEquipmentByName: () => ({ name: '龙息', equipType: '射弹武器', specialSeq: -39, properties: '{"damage":{"物理":20,"火焰":80}}' }),
+      isWeapon: () => true,
+      getEffectById: () => undefined,
+    } as unknown as StaticDataService, {} as any);
+    const parsed = parser.parseEquipment({ name: '龙息', type: '装备', quantity: 1, durability: 0, data: 'e!bx39' });
+    expect(parsed.properties.phys).toBe(100);
+    expect(parsed.properties.fire).toBe(80);
+  });
+});
+
+describe('分解装备 (物品操作.ecode L2076-2157)', () => {
+  it('按品质与分解倍率返还水晶/能量块，并识别 count 形式的配方需求', async () => {
+    const backpack = [{ name: '高斯步枪', type: '装备', quantity: 1, durability: 0, data: 'd' }];
+    const playerService = {
+      getPlayerData: jest.fn(async () => ({ player: { userId: 7, name: '测试者', sets: '{}' }, backpack, markers: {} })),
+      safeJsonParse: (value: any, fallback: any) => {
+        try { return typeof value === 'string' ? JSON.parse(value) : (value ?? fallback); } catch { return fallback; }
+      },
+    } as unknown as PlayerService;
+    const prisma = { player: { update: jest.fn(async () => undefined) } } as unknown as PrismaService;
+    const achievements = { setAchievement: jest.fn() } as unknown as AchievementService;
+    const staticData = {
+      getEquipmentByName: () => ({ name: '高斯步枪', equipType: '射弹武器', specialSeq: -1, properties: '{"damage":{"物理":100}}' }),
+      isWeapon: () => true,
+      getAllCraftings: () => [{ name: '高斯步枪', deconstructMul: 5, requirements: '[{"name":"铁","count":2}]' }],
+      getEffectById: () => undefined,
+    } as unknown as StaticDataService;
+    const service = new ItemSystemService(
+      prisma, playerService, {} as BonusService,
+      new ItemService(prisma, staticData, {} as any), achievements, staticData,
+    );
+    await service.deconstructItem(7, '高斯步枪', 1);
+    expect(backpack.find((item: any) => item.name === '水晶')?.quantity).toBeCloseTo(8);
+    expect(backpack.find((item: any) => item.name === '能量块')?.quantity).toBeCloseTo(4);
+    expect(backpack.some((item: any) => item.name === '高斯步枪')).toBe(false);
+  });
+});
+
 describe('套装判定重算 (物品操作.ecode 套装判断 L1581 → player.sets)', () => {
   // 套装判定(setJudgment) 为纯逻辑；recomputeSets 遍历装备名调 setJudgment 累加写入 player.sets。
   // 原版 _计算玩家 每次构建属性时实时 套装判断 累加 玩家.套装；

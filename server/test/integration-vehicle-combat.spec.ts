@@ -37,8 +37,48 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
   const createdUserIds: number[] = [];
   let mapId = 0;
+  let createdMapIds: number[] = [];
 
   const stamp = () => Math.random().toString(36).slice(2, 8);
+
+  /** 创建隔离地图，避免共享起始地图的怪物刷新/扫荡状态影响承伤断言。 */
+  async function setupIsolatedMap(): Promise<number> {
+    const name = `vehicle_e2e_${Date.now()}_${stamp()}`;
+    const map = await prisma.gameMap.create({
+      data: {
+        name,
+        description: '载具承伤集成测试专用地图',
+        vehicles: JSON.stringify([]),
+        markers: JSON.stringify({}),
+        markers2: JSON.stringify([]),
+        summons: JSON.stringify([]),
+        items: JSON.stringify([]),
+      },
+    });
+    createdMapIds.push(map.id);
+    return map.id;
+  }
+
+  /** 创建零抗性受击怪，保证 mock calcDamage 后的载具分支只验证承伤规则。 */
+  async function setupControlledMonster(specialSeq = -1, markers = '[]') {
+    return mapService.addTempMonster(mapId, {
+      name: `承伤测试怪_${stamp()}`,
+      type: '承伤测试怪',
+      hp: 1000,
+      maxHp: 1000,
+      attack: 0,
+      hit: 300,
+      dodge: 0,
+      specialSeq,
+      markers,
+      bonus: JSON.stringify({
+        攻击: 200, 命中: 300, 闪避: 0, 生命: 1000,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+      }),
+    });
+  }
 
   /** 构造一个含指定耐久载具的地图 vehicles JSON，并写入 Player.vehicle */
   async function setupVehicle(uid: number, vehicleHp: number, extra: Record<string, any> = {}) {
@@ -65,8 +105,8 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     statsService = app.get(StatsService);
     gameService = app.get(GameService);
 
-    const startMap = await (playerService as any).resolveStartMap();
-    mapId = startMap.id;
+    await (playerService as any).resolveStartMap();
+    mapId = await setupIsolatedMap();
 
     // 创建三个测试账号（同地图、在线，分别对应载具吸收/破碎/无载具）
     for (let i = 0; i < 3; i++) {
@@ -93,6 +133,10 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
   });
 
   afterAll(async () => {
+    for (const id of createdMapIds) {
+      try { await prisma.gameMonster.deleteMany({ where: { mapId: id } }); } catch { /* 已清 */ }
+      try { await prisma.gameMap.delete({ where: { id } }); } catch { /* 已删 */ }
+    }
     for (const uid of createdUserIds) {
       try { await prisma.user.delete({ where: { id: uid } }); } catch { /* 已删 */ }
       (StatsService as any).onlineUsers.delete(uid);
@@ -146,6 +190,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     const { vId } = await setupVehicle(uid, 200); // 充足耐久
     const beforeHp = 100;
 
+    await setupControlledMonster();
     mockFixedDamage(10);
 
     const attackerData = await getPlayer(createdUserIds[1]);
@@ -172,6 +217,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     const { vId } = await setupVehicle(uid, 0.5); // 载具普通承伤为1，因此本次会被击毁
     const beforeHp = 100;
 
+    await setupControlledMonster();
     mockFixedDamage(10);
 
     const attackerData = await getPlayer(createdUserIds[0]);
@@ -195,6 +241,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     const uid = createdUserIds[2];
     await resetPlayer(uid, 100); // 显式重置满血、无载具
 
+    await setupControlledMonster();
     mockFixedDamage(10);
 
     const attackerData = await getPlayer(createdUserIds[0]);
@@ -239,7 +286,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const pd = await getPlayer(uid);
     const map = await mapService.getMapById(mapId);
-    const monster = (await mapService.getMapMonsters(mapId)).find((m: any) => (m.hp || 0) > 0);
+    const monster = await setupControlledMonster();
     expect(monster).toBeDefined();
     monster.markers = JSON.stringify({ 阵地: 1 });
     const monsterBonus = (combat as any).buildMonsterBonus(monster);
@@ -297,7 +344,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     const attackerData = await getPlayer(createdUserIds[0]);
     const victimData = await getPlayer(uid);
     const map = await mapService.getMapById(mapId);
-    const monster = (await mapService.getMapMonsters(mapId)).find((m: any) => (m.hp || 0) > 0);
+    const monster = await setupControlledMonster();
     expect(monster).toBeDefined();
     const monsterBonus = (combat as any).buildMonsterBonus(monster);
     await (combat as any).monsterCounterAttackOnePlayer(monster, monsterBonus, victimData.player, victimData, map, false);
@@ -367,7 +414,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const victimData = await getPlayer(uid);
     const map = await mapService.getMapById(mapId);
-    const monster = (await mapService.getMapMonsters(mapId)).find((m: any) => (m.hp || 0) > 0);
+    const monster = await setupControlledMonster();
     expect(monster).toBeDefined();
     monster.specialSeq = -9;
     const monsterBonus = (combat as any).buildMonsterBonus(monster);
@@ -403,7 +450,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const pd = await getPlayer(uid);
     const map = await mapService.getMapById(mapId);
-    const monster = (await mapService.getMapMonsters(mapId)).find((m: any) => (m.hp || 0) > 0);
+    const monster = await setupControlledMonster();
     expect(monster).toBeDefined();
     monster.markers = JSON.stringify({ 阵地: 1 });
     const monsterBonus = (combat as any).buildMonsterBonus(monster);

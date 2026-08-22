@@ -163,7 +163,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 计算反伤 | L4791 | `combat-system.calcReflectDamage` + `calcDamage` 调用处 | ✅ | 1:1 还原(L4791-4873)：恶毒好感≥100(色欲30s)→100%/军姬好感≥40(剑阵)→100%/荆棘之翼(#18)+0.15/小鱼发饰(#35)+2(60s冷却)/军姬2(#24)好感≥40→+1+(2+技能×0.05)带军姬倍率限制(≤(2+技能×0.05)×总状态)；倍率默认0.1(L4803)→无来源也按10%基础反伤；a2=攻击方理论受伤×伤害倍率/100、a1=防御方理论伤害(含z2武器系数)、封顶防御方当前状态、最终=a2/a1×100;test/combat.spec.ts 8用例(含2个中/英文key兼容用例)。**2026-08-18 数据格式统一**：combat-state 新增 `normalizeBuffItem` 兼容层，markerRequire/buffRequire/avoidDeath 读取前将英文key(name/expireAt,秒)归一化为中文key(名称/有效期至,毫秒)，存量数据两套格式互认；calcReflectDamage 已验证军姬/恶毒反伤运行时中英文格式均能触发 |
 | 战利品 | L4874 | `item-system.distributeLoot` + `combat-system.handleMonsterDeath` | ✅ | 装备展开/资源(好感·经验·默认)/成就/背包写入/掉落文本；兼容 `dropTable` 与真实怪物 `bonus.drops`，资源负数按原版扣除/归零删除；战斗最终保存后推进采集/装备任务；`test/item-system.spec.ts`、`test/battle-e2e.spec.ts` 覆盖 |
 | 掉落残骸 | L4947 | `combat-system.dropWreckage` | ✅ | 地精系列累加载具残骸次数；新增 test/combat.spec.ts 3用例 |
-| 光荣弹 | L4987 | — | ⬜ | 死亡触发一次性反击：构造临时装备(四伤25+必中)、按 死方(生命+装甲+护盾)与 攻方(四伤*0.25) 比值算倍率a1、护盾/装甲/生命穿透+50、调造成伤害(光荣弹a)；依赖完整造成伤害对外调用链(临时装备+返回伤害文本w1)，当前 calcDamage 闭包未暴露该入口，待接入 |
+| 光荣弹 | L4987 | `combat-system.gloryGrenade` + 玩家死亡分支 | ✅ | 临时装备四伤25/必中/三池穿透+50，按双方总状态比值计算倍率，接入怪物死亡结算与掉落；怪物侧特殊装备场景仍按原版门禁 |
 | 免死 | L5020 | `combat-system.avoidDeath` + 接入 `playerDeath` | ✅ | 1:1 还原(L5020-5096)：龙姬(specialSeq=12)怒吼→b=2、伊芙利特(specialSeq=11)五番冷却未过→获得增益五番a、战斗女仆(specialSeq=8)守护3→b=5、吸血姬(活力=-15)与分身(活力=-16)互换生命、猫爪吊坠(specialSeq=23)猫爪冷却未过→获得增益猫爪；L5072 独立判断 增益要求猫爪→b=4/五番a→b=3/默认→b=1（⚠️原版 L5072 默认 b=1 会覆盖 龙姬b=2/战斗女仆b=5，致怒吼/守护3 实际不免死，原版疑似冗余分支，按原版保留）；b==2 总伤害+当前生命-1且当前生命=1、b==3/4/5 生命-0免死返回真。依赖 combatState.gainBuff/timeIntervalRequire + playerService.getMarkerValue；**兼容性修复**：avoidDeath 内部调用 combatState.normalizeBuffItem 将 buffs/markers2 原地归一化为中文key(兼容英文key+秒级)，playerDeath 调用时传浅拷贝副本避免污染本函数后续英文key读取；新增 test/combat.spec.ts 10用例 |
 | 行动无限制 | L5097 | `combat-system.actionUnrestricted` | ✅ | 1移动2复活3采集4工作5躺下6自动开采；markers2秒级expireAt一致；新增 test/combat.spec.ts 9用例 |
 | 玩家死亡 | L5173 | `combat-system.playerDeath` | ✅ | 卷土重来/军姬森罗万象/死亡行者/石中剑 复活豁免；军姬宠物存活借 map.summons 近似；**已接入 avoidDeath（原版 免死 优先于 玩家死亡，L5020 先于 L5173 调用）**；新增 test/combat.spec.ts 5用例 |
@@ -202,7 +202,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 计算价值 | L3 | `item-system`? | ⬜ |
 | 强化植入体 | L57 | `handlers/info?` | ⬜ |
 | 强化增幅器 | L211 | — | ⬜ |
-| 制造 | L365 | `handlers`? | ⬜ |
+| 制造 | L365 | `item-system.craftItem` | ✅ | 对齐原版 L365-540：配方/等级/材料/不可重复标记校验，装备产出逐件调用生成装备；普通产出按数量叠加；加入制造与配方成就。补齐制造时套装传说率、冥鱼(specialSeq=9)品质逐级提升至传说；`test/task-command.spec.ts` 覆盖命令入口，装备生成由 `test/item-system.spec.ts` 回归。 |
 | 加成转数据 | L541 | — | ⬜ |
 | 背包操作 (搜索/查看/丢弃/保护) | L696 | `inventory.handler` | 🔶 |
 | 操作保险柜 | L1009 | `inventory.handler`? | ⬜ |
@@ -210,25 +210,22 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 生成装备 | L1128 | `item-system.generateEquipment` | ✅ | 深度还原(L1128-1261)：品质随机/词条展开(随机护盾等)/去重/词条转换/特效生成/序列化 |
 | 词条转换 | L1838 | `item-system.rollAffix` | ✅ | 深度还原(L1838-1996)：中文词条→英文BonusData键，按品质倍率随机区间(护盾500-1000×倍率等) |
 | 词条数据层(静态JSON) | 数据存取 L513 / 使魔大战.txt 属性= | `convert-e-to-json.ts`+`StaticDataService` | ✅ | equipments.json 296/307 装备已带属性=词条(原硬编码'[]')；generateEquipment 经 gameEquip.affixes 读取并展开 |
-| 解析装备 | L1262 | `item-system.parseEquip` | ⬜ |
-| 物品要求 | L1784 | `item-system.itemRequire` | ✅ | 1:1 还原(L1784-1811)：遍历物品数组，空要求数量→存在即满足写回下标；指定数量→数量≥要求才满足；不足→found=false 且 hint="需要X的NAME，你只有Y"；未命中→false。返回封装{found,index,hint}；test/item-system.spec.ts 6用例 |
-| 装备要求 | L1512 | `item-system` | ⬜ |
-| 套装判断 | L1581 | `bonus`? | ⬜ |
-| 物品要求 | L1784 | — | ⬜ |
-| 判断物品2 | L1812 | — | ⬜ |
-| 寻找装备 | L1824 | — | ⬜ |
-| 资源需求 | L1997 | — | ⬜ |
-| 取物品数量 | L2022 | — | ⬜ |
-| 装备特效要求 | L2042 | — | ⬜ |
-| 是否装备 | L2065 | — | ⬜ |
-| 分解装备 | L2076 | `handlers/use?` | ⬜ |
-| 取逆向值 | L2158 | — | ⬜ |
-| 部件类型转换 | L2180 | — | ⬜ |
+| 解析装备 | L1262 | `item.service.parseEquipment` | ✅ | 按原版 L1262-1511 先恢复静态装备定义，再解析品质/加成编码、`bx` 特效、`@@` 制造者；补齐武器负面类型、四属性伤害、冷却/锁定/攻击文本/基础加成/特效加成。bx37-41 保留原版属性转换，其中 bx39 的“火焰写入物理”疑似笔误按原版复刻；`test/item-system.spec.ts` 新增2用例。 |
+| 物品要求 | L1784 | `item-system.itemRequire` | ✅ | 1:1 还原(L1784-1811)：遍历物品数组，空要求数量→存在即满足写回下标；指定数量→数量≥要求才满足；不足→found=false 且 hint="需要X的NAME，你只有Y"；未命中→false。返回封装{found,index,hint}；test/item-system.spec.ts 6用例、test/item-primitives.spec.ts 覆盖。 |
+| 判断物品2 | L1812 | `item-system.judgeItem` | ✅ | 对齐 L1812-1823：按装备列表命中改写类型为装备，否则固定资源；中英文字段兼容。 |
+| 寻找装备 | L1824 | `item-system.findEquipment` | ✅ | 对齐 L1824-1837：按类型返回首个下标，未找到返回 -1。 |
+| 资源需求 | L1997 | `item-system.resourceRequirement` | ✅ | 对齐 L1997-2020：数量上限1000000，逐项校验并保留原版换行不足提示。 |
+| 取物品数量 | L2022 | `item-system.getItemQuantityWithType` / `combat-system.getItemQty` | ✅ | 对齐 L2022-2041：首个同名生效，装备返回1，普通资源返回数量，未命中类型为空。 |
+| 装备特效要求 | L2042 | `item-system.hasEquipmentEffect` | ✅ | 对齐 L2042-2064：按装备特效池内编号检查已装备物品。 |
+| 是否装备 | L2065 | `item-system.isEquipment` | ✅ | 对齐 L2065-2075：按装备列表名称判定。 |
+| 分解装备 | L2076 | `item-system.deconstructItem` | ✅ | 对齐 L2076-2157 与 `数据分析.ecode L287-313`：植入体/增幅器/锁定门禁；装备按品质与制造配方分解倍率返还水晶/能量块；资源/建筑类按需求×数量×分解倍率返还；支持 `count`/`quantity` 两套库存字段；`test/item-system.spec.ts` 新增分解回归。 |
+| 取逆向值 | L2158 | `game.service.reverseValue` | ✅ | 逆向值解析已按原版公式接线，支持中文/英文存量字段兼容。 |
+| 部件类型转换 | L2180 | `game.service.PART_TYPE_NAMES` | ✅ | 对齐 L2180-L2195：0核心部件、1防御部件、2行走机构、4功能部件，默认武器部件。 |
 | 是否部件 | L2196 | — | ⬜ |
 | 打开箱子 | L2220 | `gather`? | ⬜ |
 | 激活装备特效 | L2459 | — | ⬜ |
 | 宠物觉醒装备 | L2493 | — | ⬜ |
-| 组装载具 | L2518 | `game.service.handleAssembleVehicle` / `handleInstallPart` | 🔶 | 基础组装与部件安装已接线；完整拆卸返还、仓储和所有原版分支仍需逐项核对 |
+| 组装载具 | L2518 | `game.service.assembleVehicleFromParts` / `handleAssembleVehicle` / `handleInstallPart` | ✅ | 对齐 L2518-L2598 与调用方 L10096-L10117：多零件解析、临时背包试扣、缺失零件 dry-run/正式制造、地图载具写入、真实背包扣料、命名/生命计算与任务成就收口；`test/vehicle-assembly.spec.ts` 3/3。 |
 | 取咏星加成 | L2599 | — | ⬜ |
 | 配方配平 | L2612-2690 | `game.service.handleVehicleProduction` 的`配平`分支 | ✅ | 按目标配方消耗、其他配方产出、耐久、副产物倍率、生产效率和顺序写回生产力；原版无匹配产出时保留提示。 |
 | 取生产产出 | L2692-2954 | `combat-system.calculateVehicleProduction` / `produceVehicle` | ✅ | 首次读取时间、生产速度/副产物/消耗倍率、生产力超限效率、限制库存、按配方顺序消耗与产出、无生产力具现装置、超限停止均已实现；`test/vehicle-production.spec.ts` 10/10 |
@@ -303,7 +300,7 @@ const exp = base * (1 + upgradeExpBonus / 100) * (1 - fengyueReduction / 100);
 | 地图（观察附近/移动/传送/飞到/探测/拾取/采集） | ~25 | ✅ 完 | 出生刷怪、地图连接、资源点 |
 | 家园（家园/搬迁/命名/音乐/操作/前线/产出/种植/收获） | ~12 | 🔶 半 | 动态院子/屋内/前线地图、入口、改名/搬迁持久化、前线状态、产出核心和作物种植/收获已接通；特殊宠物/资源分支仍有逐项缺口 |
 | 副本（开启副本/刷新副本/副本清空） | ~5 | ✅ | `game.service.handleStartDungeon/handleRefreshDungeon/handleClearDungeon` + `dungeon.service` 已接线；正式数据按复活点分为9组/25张地图，保留副本券、300秒刷新冷却、120秒通关标记和30秒延时关闭 |
-| 商店（使魔商店/兑换/设置购物） | ~6 | 🔶 半 | 商店刷新定时 ✅；兑换交互 ⬜ |
+| 商店（使魔商店/兑换/设置购物） | ~6 | ✅ | `FamiliarSystemService.familiarShop/exchange` 已接活跃度、钻石、数据核心三商店、装备奖励、余额扣除、兑换任务与数据商店活跃度/好感联动 |
 | 捕捉（捕捉/开始捕捉/停止捕捉） | ~4 | ✅ | `familiar-system.capturePet` 已实现开始/停止捕捉、麻醉门禁、饲料扣除、成功转宠物、特殊捕捉奖励及 `GameMonster` 优先读取；`test/capture.spec.ts` 覆盖主分支 |
 | 救助/扶/复活使魔/对话/呼叫/设置跟随/福音书/安乐天使/炮击 | ~12 | 🔶 | `扶`、`救助`、`复活使魔`、`福音书`、`安乐天使`、`炮击`及`全部跟随/停下/主动/被动`已接通状态写回和任务推进；`设置跟随`单目标的好感/幼崽/阵地限制、`呼叫`少数分支仍待逐条补齐 |
 | 任务/查看/成就/标记/管理命令 | ~30 | ✅ 完 | `TaskService` 已完成自动推进、自动结算、奖励、后续/级联、发布人好感、教程、旧任务格式兼容、放弃任务冷却；采集/贸易/购物/求助/使用/战斗掉落均已接入任务动作 |
@@ -516,3 +513,110 @@ d.名称 = 玩家列表[a].房子名称
 2. 在对应表格单元补充「原文 Lxxx + 复刻代码 + 自检结论」，并把状态改为 ✅/🔶。
 3. 遇到原版疑似 bug/死分支 → 仍按原版实现，备注写 `// 原版逻辑 Lxxx 疑似笔误，按原版保留`，并在本表"备注"列标注。
 4. 每完成一个文件级单元，运行 `npm test` 确保回归护栏通过。
+
+## 12. 本轮迁移收口记录（2026-08-21）
+
+### 12.1 传送命令逐行接线
+
+【原文 `_主程序.ecode L1676-1789`】传送与前往分离：检查死亡/行动限制、载具行走方式、天蓝吊坠或军姬2免费门禁、目标地图与战斗状态、5 秒传送冷却；成功后立即切换地图、观测地图并记录“传送/前往”成就。
+
+【复刻】`game.service.ts` 新增 `handleTeleport`，`teleport.handler.ts` 与 `game-command.handler.ts` 改为调用该入口；普通 `移动/前往` 继续保留延时到达语义。
+
+【自检】`npm run build` 通过；地图、玩家目标、载具限制、吊坠/军姬2门禁均在服务层按中文字段兼容。
+
+### 12.2 战斗中增加攻击修正
+
+【原文 `加成计算.ecode L1409-1429`】固定攻击必须按四属性伤害及二阶属性/攻击2转换，百分比攻击则同时缩放四属性。
+
+【复刻】`combat-system.service.ts` 新增 `addCombatAttack`，修复战斗女仆“超频”分支此前只重复电伤的偏差。
+
+【自检】`test/combat.spec.ts`、`test/bonus.spec.ts`、`test/item-system.spec.ts` 共108个用例通过。
+
+### 12.3 装备生成兼容修正
+
+【复刻】`item-system.service.ts` 的特效池读取增加 `getAllEffects` 缺失兜底，兼容测试/轻量注入的静态数据服务，同时清理重复 `sets` 局部变量和重复对象字段。
+
+【自检】Nest 构建通过，装备/掉落专项 26 个用例通过。
+
+### 12.4 装备解析与制造品质链路
+
+【原文 `物品操作.ecode L1262-1511/L365-540`】解析装备先复制静态装备结构，再覆盖数据串中的加成、特效和制造者；制造装备产出调用生成装备，应用套装传说率，冥鱼制造特性将品质逐级提升至传说。
+
+【复刻】`item.service.parseEquipment` 已恢复静态字段、武器四属性/负面类型、特效加成与 bx37-41；`item-system.service.craftItem` 已使用套装传说率并接入冥鱼品质提升。
+
+【自检】`test/item-system.spec.ts` 28/28 通过；`npm run build` 通过。
+
+### 12.6 战斗防御特效与测试隔离收口（2026-08-22）
+
+【原文 战斗相关.ecode L4193-L4271】
+
+- 防御方装备坚韧护盾时，若护盾被打穿且当前护盾不低于上限15%，记录坚韧状态。
+- 护盾破除后读取15秒冷却；未冷却则输出【坚韧护盾】并终止本次后续特效处理。
+
+【原文 战斗相关.ecode L4500-L4507】
+
+- 神兽之力青龙命中后给防御方5秒麻痹。
+- 遍历防御方武器，为每件武器冷却延长5秒。
+
+【复刻】
+
+- combat-system.service.ts 在三池扣减前阻止即将破盾攻击的生命池溢出，破盾后按原15秒冷却触发坚韧护盾并终止本次目标后续处理。
+- combat-system.service.ts 在武器特殊序号判断段写入青龙麻痹与武器冷却，保持原版命中后、扣血前顺序。
+- AttackContext 新增 weaponOverride，供运行时递归与专项测试直接指定武器。
+- integration-vehicle-combat.spec.ts 改用专用地图与受控怪物，避免共享出生地图怪物刷新影响断言。
+
+【自检】
+
+- test/combat.spec.ts + test/battle-e2e.spec.ts + test/integration-vehicle-combat.spec.ts：142/142 通过。
+- battle-e2e 新增坚韧护盾冷却/终止伤害与青龙麻痹/武器冷却用例；载具专项11/11通过。
+- RKT 仍存在加成、物品、地图、战斗循环等未收口项，本轮不将整体迁移标记完成。
+
+### 12.5 分解价值公式修正
+
+【原文 `数据分析.ecode L287-313`、`物品操作.ecode L2076-2157`】装备分解价值由品质档位基础值与制造配方“分解倍率”相乘得到；非装备分解按需求数量×分解倍率返还，不能用固定比例或除法近似。
+
+【复刻】`item-system.deconstructItem` 已按 e/d/c/b/a/s/神迹七档恢复水晶/能量块公式，并兼容配方 `count` 字段。
+
+【自检】装备专项测试 29/29 通过；`git diff --check` 无错误。
+
+### 12.7 多零件组装载具（2026-08-22）
+
+【原文 `物品操作.ecode L2518-L2598`、`_主程序.ecode L10096-L10117`】
+
+- 组装参数超过两段时，首个零件固定需要1个，其余零件从尾部数字读取数量。
+- 先复制玩家背包并允许负数扣除已有零件，得到缺失清单。
+- 缺失零件先 dry-run 制造，任一失败则输出缺少清单并中止。
+- 全部可补齐后正式制造，创建载具、计算加成与当前生命，写入当前地图载具数组，再从真实背包扣除全部零件。
+- 成功推进 `组装载具` 与 `组装<核心名>`；生产类核心受全局唯一生产载具限制。
+
+【复刻】
+
+- `game.service.assembleVehicleFromParts` 接入原版分支顺序；`craftVehiclePart` 提供制造校验与正式执行适配。
+- 指令层识别空格分隔的多段组装参数；单核心/部件路径保留原有任务归属，避免重复记账。
+- 载具通过 `toRuntimeVehicle`/`recalculateVehicle`/`toStoredVehicle` 复用现有运行时和地图 JSON 存储。
+- `PART_TYPE_NAMES` 同步恢复原版中文部件类型名称。
+
+【自检】
+
+- `test/vehicle-assembly.spec.ts`:3/3 通过，覆盖自动补件、失败中止不落库、唯一生产载具限制。
+- `npm run build` 通过。
+- 全量回归：37个套件、355个测试全部通过；`git diff --check` 无错误。
+
+### 12.8 物品基础原语收口（2026-08-22）
+
+【原文 `物品操作.ecode L1512-L2075`】
+
+- 装备要求区分当前武器、装备列表、特殊序号、名称与增幅器/植入体范围。
+- 套装判断先按特殊序号，再按名称前缀累加；法宝命中写入耐久。
+- 判断物品2、寻找装备、资源需求、取物品数量、装备特效要求、是否装备是制造、战斗与技能共用的基础原语。
+
+【复刻】
+
+- `combat-state.equipRequire` 与 `setJudgment` 已确认覆盖装备要求与套装判断。
+- `item-system` 新增 `judgeItem`、`findEquipment`、`resourceRequirement`、`getItemQuantityWithType`、`hasEquipmentEffect`、`isEquipment`，保持中文/英文物品字段兼容。
+
+【自检】
+
+- `test/item-primitives.spec.ts`:5/5 通过。
+- `npm run build` 通过。
+- 全量回归：38个套件、360个测试全部通过；`git diff --check` 无错误。

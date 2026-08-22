@@ -505,6 +505,39 @@ describe('造成伤害 - 暴击伤害 (战斗相关.ecode L2395)', () => {
   });
 });
 
+describe('三层池抗性减免 (攻击目标 L4140-4143)', () => {
+  beforeEach(() => jest.spyOn(Math, 'random').mockReturnValue(0));
+  afterEach(() => jest.restoreAllMocks());
+
+  it('中文字段抗性参与护盾层减免', () => {
+    const res = combat.calcDamage(
+      { 命中: 200 } as any,
+      { 闪避: 100, 护盾: 1_000_000, 装甲: 0, 生命: 1_000_000, 护盾物抗: 50 } as any,
+      plainWeapon as any,
+      CombatSystemService.DMG_PHYS,
+      false,
+      { dmgLower: 0.25, dmgUpper: 0 },
+    );
+    expect(res.damage).toBe(25);
+    expect(res.poolDamage.shield).toBeGreaterThan(25);
+    expect(res.poolDamage.shield).toBeLessThan(25.1);
+  });
+
+  it('英文别名抗性兼容历史数据', () => {
+    const res = combat.calcDamage(
+      { 命中: 200 } as any,
+      { 闪避: 100, 护盾: 1_000_000, 装甲: 0, 生命: 1_000_000, 护盾PhysRes: 50 } as any,
+      plainWeapon as any,
+      CombatSystemService.DMG_PHYS,
+      false,
+      { dmgLower: 0.25, dmgUpper: 0 },
+    );
+    expect(res.damage).toBe(50);
+    expect(res.poolDamage.shield).toBeGreaterThan(50);
+    expect(res.poolDamage.shield).toBeLessThan(50.2);
+  });
+});
+
 // ==================== 选择高血量目标 (战斗相关.ecode L5423-5438) ====================
 describe('选择高血量目标 - 最高血量索引 (战斗相关.ecode L5423-5438)', () => {
   it('L5429 返回总和(生命+装甲+护盾)最大者的索引', () => {

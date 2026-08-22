@@ -35,10 +35,48 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
   let statsService: StatsService;
 
   const createdUserIds: number[] = [];
+  const createdMapIds: number[] = [];
   let mapId = 0;
   let monsterId = 0;
 
   const stamp = () => Math.random().toString(36).slice(2, 8);
+
+  async function setupIsolatedMap(): Promise<number> {
+    const map = await prisma.gameMap.create({
+      data: {
+        name: 'counter_e2e_' + Date.now() + '_' + stamp(),
+        description: '怪物反击集成测试专用地图',
+        vehicles: JSON.stringify([]),
+        markers: JSON.stringify({}),
+        markers2: JSON.stringify([]),
+        summons: JSON.stringify([]),
+        items: JSON.stringify([]),
+      },
+    });
+    createdMapIds.push(map.id);
+    return map.id;
+  }
+
+  async function setupControlledMonster() {
+    return mapService.addTempMonster(mapId, {
+      name: '反击测试怪_' + stamp(),
+      type: '反击测试怪',
+      hp: 1000,
+      maxHp: 1000,
+      attack: 0,
+      hit: 500,
+      dodge: 0,
+      specialSeq: -1,
+      markers: '[]',
+      markers2: '[]',
+      bonus: JSON.stringify({
+        攻击: 200, 命中: 500, 闪避: 0, 生命: 1000,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+      }),
+    });
+  }
 
   beforeAll(async () => {
     app = await NestFactory.createApplicationContext(AppModule, { logger: false });
@@ -48,20 +86,11 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     mapService = app.get(MapService);
     statsService = app.get(StatsService);
 
-    // 出生地图（确保测试账号落在已刷怪的地图）
-    const startMap = await (playerService as any).resolveStartMap();
-    mapId = startMap.id;
-
-    // 确保地图有存活怪物（无则强制刷新）
-    let monsters = await mapService.getAliveMapMonsters(mapId);
-    if (monsters.length === 0) {
-      await mapService.refreshMapMonsters(mapId);
-      monsters = await mapService.getAliveMapMonsters(mapId);
-    }
-    if (monsters.length === 0) {
-      throw new Error('出生地图无存活怪物，无法执行端到端测试');
-    }
-    monsterId = monsters[0].id;
+    // 专用地图与受控怪物，避免共享出生地图刷新状态导致环境脆弱。
+    await (playerService as any).resolveStartMap();
+    mapId = await setupIsolatedMap();
+    const monster = await setupControlledMonster();
+    monsterId = monster.id;
 
     // 创建两个测试账号（同地图、在线）
     for (const tag of ['a', 'b']) {
@@ -93,6 +122,10 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     for (const uid of createdUserIds) {
       try { await prisma.user.delete({ where: { id: uid } }); } catch { /* 已删 */ }
       (StatsService as any).onlineUsers.delete(uid);
+    }
+    for (const id of createdMapIds) {
+      try { await prisma.gameMonster.deleteMany({ where: { mapId: id } }); } catch { /* 已清 */ }
+      try { await prisma.gameMap.delete({ where: { id } }); } catch { /* 已删 */ }
     }
     if (app) await app.close();
   });

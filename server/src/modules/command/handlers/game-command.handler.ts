@@ -1240,6 +1240,13 @@ export class GameCommandHandler implements CommandHandler {
         // ========== 载具命令 ==========
         case '组装':
         case 'assemble': {
+          // 原版 _主程序.ecode L10096-L10117：多段空格参数表示按模拟配方直接组装新载具。
+          const parts = arg.split(/\s+/).filter(Boolean);
+          if (parts.length > 2) {
+            const multiPartResult = await this.gameService.assembleVehicleFromParts(userId, parts);
+            return this.wrap(multiPartResult);
+          }
+
           const action = this.parseCountedAction(arg);
           const result = await this.gameService.handleAssembleVehicle(userId, action.name, action.count);
           if (this.isSuccessfulAction(result)) {

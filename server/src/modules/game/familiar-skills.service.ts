@@ -1713,7 +1713,7 @@ export class FamiliarSkillsService {
       cooldownName: '日轮',
       baseCooldown: 60,
       damageMultiplier: mult,
-      attackText: '【日轮】',
+      attackText: '日轮a',
       allAttack: true,
       familiarType: '绝灭天使',
     });
@@ -1726,7 +1726,7 @@ export class FamiliarSkillsService {
       await this.playerService.savePlayer(player);
     }
 
-    return `绝灭天使展开日轮！炽热光芒笼罩全场！\n${result}${extra}`;
+    return `绝灭天使展开日轮！\n${result}${extra}`;
   }
 
   /**

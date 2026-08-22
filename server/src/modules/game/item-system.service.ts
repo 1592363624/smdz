@@ -165,6 +165,10 @@ export class ItemSystemService {
     // 产出物品
     const producedList: Item3[] = [];
     let isEquipment = false;
+    const playerSets = this.playerService.safeJsonParse<any>(player.sets, {});
+    const legendaryRate = Number(playerSets?.传说率 ?? playerSets?.legendRate ?? player.legendRate ?? 0) || 0;
+    const hasMingYu = Number(player.specialSeq ?? 0) === 9 || String(player.type ?? '') === '冥鱼';
+    const nextQuality: Record<string, string> = { e: 'd', d: 'c', c: 'b', b: 'a', a: 's' };
     for (const out of outputs) {
       const type = await this.determineItemType(out.name);
       if (type === '装备') { isEquipment = true; break; }
@@ -176,7 +180,14 @@ export class ItemSystemService {
         for (const out of outputs) {
           const itemType = await this.determineItemType(out.name);
           if (itemType === '装备') {
-            const generated = await this.generateEquipment(out.name, '', 0);
+            let generated = await this.generateEquipment(out.name, '', legendaryRate);
+            // 原版 制造() L250-258：冥鱼在制造时将普通→良好→优秀→精良→史诗→传说，
+            // 每件装备独立重掷，神迹/传说不再提升。
+            if (hasMingYu) {
+              const quality = generated.data.charAt(0);
+              const upgraded = nextQuality[quality];
+              if (upgraded) generated = await this.generateEquipment(out.name, upgraded, legendaryRate);
+            }
             this.addItemToBackpack(cleanedBackpack, generated);
             producedList.push(generated);
           } else {
@@ -280,10 +291,19 @@ export class ItemSystemService {
       const equipment = this.parseEquipment(item);
       const quality = this.getEquipmentQuality(equipment);
 
-      // 根据品质计算分解价值
-      const qualityValue = QUALITY_VALUE_MAP[quality] || 15;
-      const crystalAmount = Math.floor(qualityValue * 0.5 * actualCount);
-      const energyAmount = Math.floor(qualityValue * 0.3 * actualCount);
+      // 原版 数据分析.ecode L287-313：品质基础值 × 制造配方分解倍率，
+      // e/d/c/b/a/s/其它分别为 (0.8/0.4)/(1.6/0.8)/(2/1.6)/(4/2.4)/
+      // (10/6)/(20/12)/(40/24)。不使用“品质价值×固定比例”的近似。
+      const qualityBase: Record<string, [number, number]> = {
+        e: [0.8, 0.4], d: [1.6, 0.8], c: [2, 1.6], b: [4, 2.4],
+        a: [10, 6], s: [20, 12],
+      };
+      const prefix = item.data?.charAt(0) || 'e';
+      const [crystalUnit, energyUnit] = qualityBase[prefix] || [40, 24];
+      const recipe = this.staticData.getAllCraftings().find((r: any) => r.name === item.name);
+      const dismantleMultiplier = Number(recipe?.deconstructMul ?? 5) || 5;
+      const crystalAmount = crystalUnit * dismantleMultiplier * actualCount;
+      const energyAmount = energyUnit * dismantleMultiplier * actualCount;
 
       // 按实际分解数量扣除，避免“分解物品1”把整组堆叠物品全部删除。
       if (actualCount >= available) {
@@ -321,8 +341,15 @@ export class ItemSystemService {
         return `${item.name}还无法分解。`;
       }
 
-      const requirements: Item3[] = JSON.parse(recipe.requirements || '[]');
-      const deconstructMul = recipe.deconstructMul || 5;
+      const requirements: Item3[] = (Array.isArray(recipe.requirements)
+        ? recipe.requirements
+        : this.playerService.safeJsonParse<any[]>(recipe.requirements, []))
+        .map((req: any) => ({
+          ...req,
+          name: req.name ?? req.名称,
+          quantity: Number(req.quantity ?? req.count ?? req.数量 ?? 0),
+        }));
+      const deconstructMul = Number(recipe.deconstructMul ?? 5) || 5;
 
       if (actualCount >= available) {
         backpack.splice(itemIndex, 1);
@@ -334,7 +361,8 @@ export class ItemSystemService {
       // 返还材料（按分解倍率）
       const returnItems: Item3[] = [];
       for (const req of requirements) {
-        const returnQty = Math.floor((req.quantity * actualCount) / deconstructMul);
+        // 原版 分解装备 L2090-2101：需求数量 × 数量 × 分解倍率（工作台加成为1时）。
+        const returnQty = Number(req.quantity) * actualCount * deconstructMul;
         if (returnQty > 0) {
           this.addItemToBackpack(backpack, {
             name: req.name, type: '资源', quantity: returnQty, durability: 0, data: '',
@@ -1343,8 +1371,6 @@ export class ItemSystemService {
     (implantItem as any).specialSeq = selected.seq;
     this.removeItemFromBackpack(backpack, '凭证', credentialCost);
     const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
-
-    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
     await this.prisma.player.update({
       where: { userId },
       data: {
@@ -1488,8 +1514,6 @@ export class ItemSystemService {
         equipment: JSON.stringify(equipment),
         backpack: JSON.stringify(backpack),
         markers: JSON.stringify(markers),
-        sets,
-        sets,
         sets,
       },
     });
@@ -2020,6 +2044,11 @@ export class ItemSystemService {
    * 判断物品类型（装备/资源/消耗品）
    * 通过查询数据库中的 GameEquipment 和 GameItem 表来确定
    */
+  /** 公开原版 是否装备() 判定，供其他子系统复用。 */
+  isEquipment(name: string): boolean {
+    return !!this.staticData.getEquipmentByName(name);
+  }
+
   private async determineItemType(name: string): Promise<string> {
     // 先查装备配置（静态 JSON 单一来源）
     const gameEquip = this.staticData.getEquipmentByName(name);
@@ -2348,13 +2377,16 @@ export class ItemSystemService {
           return type.endsWith('武器') || type === '工具';
         })();
       const forced = gameEquip?.forcedEffect === true || gameEquip?.forcedEffect === 'true';
+      const allEffects = typeof (this.staticData as any).getAllEffects === 'function'
+        ? (this.staticData as any).getAllEffects()
+        : [];
       const effects = isWeapon
         ? (typeof (this.staticData as any).getWeaponEffects === 'function'
           ? (this.staticData as any).getWeaponEffects()
-          : this.staticData.getAllEffects().filter((row: any) => !row?.limit || row.limit === '武器'))
+          : allEffects.filter((row: any) => !row?.limit || row.limit === '武器'))
         : (typeof (this.staticData as any).getEquipmentEffects === 'function'
           ? (this.staticData as any).getEquipmentEffects()
-          : this.staticData.getAllEffects().filter((row: any) => !row?.limit || row.limit === '装备'));
+          : allEffects.filter((row: any) => !row?.limit || row.limit === '装备'));
       const effectCount = effects.length;
       if (isWeapon) {
         if (forced) effect = Math.floor(Math.random() * effectCount) + 1;
@@ -2583,6 +2615,62 @@ export class ItemSystemService {
    * @param requireQty 要求数量（可空；空=存在即满足）
    * @returns { found: boolean; index: number; hint: string } found=是否满足，index=数组下标，hint=不满足提示
    */
+  /** 对应原版 判断物品2()：按装备列表命中则改写为装备，否则固定为资源。 */
+  judgeItem(item: any): void {
+    if (!item) return;
+    const name = String(item?.名称 ?? item?.name ?? '');
+    item.类型 = this.staticData.getEquipmentByName(name) ? '装备' : '资源';
+    item.type = item.类型;
+  }
+
+  /** 对应原版 寻找装备()：按类型返回第一个下标；未找到返回 -1。 */
+  findEquipment(equipments: any[], type: string): number {
+    if (!Array.isArray(equipments)) return -1;
+    return equipments.findIndex((item) => (item?.类型 ?? item?.type) === type);
+  }
+
+  /** 对应原版 资源需求()：数量上限1000000，逐项校验并返回原版换行提示。 */
+  resourceRequirement(count: number, requirements: any[], backpack: any[]): { success: boolean; text: string } {
+    let actualCount = Math.floor(Number(count) || 0);
+    if (actualCount > 1000000) actualCount = 1000000;
+    let text = '';
+    for (const requirement of Array.isArray(requirements) ? requirements : []) {
+      const name = String(requirement?.name ?? requirement?.名称 ?? '');
+      const required = Number(requirement?.quantity ?? requirement?.count ?? 0) * actualCount;
+      const owned = this.getItemQuantity(name, backpack);
+      if (owned < required) {
+        text += `\n需要${name}x${this.roundDisplay(required)}，你只有${this.roundDisplay(owned)}`;
+      }
+    }
+    return { success: !text, text };
+  }
+
+  /** 对应原版 取物品数量()：首个同名物品生效，装备返回1，未命中返回空类型并返回0。 */
+  getItemQuantityWithType(name: string, items: any[]): { quantity: number; type: string } {
+    for (const item of Array.isArray(items) ? items : []) {
+      if ((item?.name ?? item?.名称) === name) {
+        const type = String(item?.type ?? item?.类型 ?? '');
+        return { quantity: type !== '装备' ? Number(item.quantity ?? item.count ?? item.数量 ?? 0) : 1, type };
+      }
+    }
+    return { quantity: 0, type: '' };
+  }
+
+  /** 对应原版 装备特效要求()：按特效池内编号检查玩家装备。 */
+  hasEquipmentEffect(equipments: any[], effectName: string): boolean {
+    const effects = typeof (this.staticData as any).getEquipmentEffects === 'function'
+      ? (this.staticData as any).getEquipmentEffects()
+      : (this.staticData.getAllEffects?.() || []).filter((row: any) => !row?.limit || row.limit === '装备');
+    const effectId = effects.findIndex((effect: any) => effect?.name === effectName) + 1;
+    if (!effectId) return false;
+    return equipments.some((item: any) => this.parseEquipment(item).specialEffect === effectId);
+  }
+
+  private roundDisplay(value: number): number {
+    return Math.round(Number(value) * 100) / 100;
+  }
+
+
   itemRequire(name: string, items: any[], requireQty?: number): { found: boolean; index: number; hint: string } {
     const result = { found: false, index: -1, hint: '' };
     if (!Array.isArray(items)) return result;
