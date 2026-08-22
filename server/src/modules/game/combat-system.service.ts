@@ -136,6 +136,8 @@ export interface DamageResult {
     armor: DamageBreakdown;
     life: DamageBreakdown;
   };
+  /** 增强器等防御装备在本次伤害中生成的特效文本（原版“特效”引用参数） */
+  effectText?: string;
 }
 
 /**
@@ -1864,7 +1866,14 @@ export class CombatSystemService {
         weapon,
         weapon.damageType || CombatSystemService.DMG_PHYS,
         isCrit,
-        { dmgLower, dmgUpper, sniperComputer: hasSniper, amplifier3: (attackerBonus as any).amplifier3 === 3, mastery },
+        {
+          dmgLower,
+          dmgUpper,
+          sniperComputer: hasSniper,
+          amplifier3: (attackerBonus as any).amplifier3 === 3,
+          mastery,
+          defenderEquipment: playerData.equipment,
+        },
       );
       // 写回累加后的熟练度（玩家为真实玩家，非怪物）
       // 注意：playerData.markers 是解析对象，savePlayer 保存的是 player.markers 字符串，
@@ -2136,7 +2145,8 @@ export class CombatSystemService {
       const dmgText = captureMode
         ? this.formatCaptureDamageText(finalDamage, appliedDamage, target, scaledPool.hp > 0)
         : this.formatDamageText(finalDamage, appliedDamage);
-      resultLines.push(`${atkText} ${target.name}，造成 ${dmgText}${critText}${ratingText ? ` ${ratingText}` : ''}`);
+      const enhancerText = damageResult.effectText || '';
+      resultLines.push(`${atkText} ${target.name}，造成 ${dmgText}${critText}${ratingText ? ` ${ratingText}` : ''}${enhancerText ? ` ${enhancerText}` : ''}`);
 
       attackCount++;
 
@@ -3772,6 +3782,8 @@ export class CombatSystemService {
       amplifier3?: boolean;
       /** 三段评级熟练度值（可读写，用于累加熟练度并计算倍率加成） */
       mastery?: { 致命?: number; 强力?: number; 正中?: number; 擦过?: number; 描边?: number };
+      /** 防御方装备列表；生命/装甲/护盾增强器按 L3166-L3172 顺序判断 */
+      defenderEquipment?: Array<{ specialSeq?: number; name?: string; 特殊序号?: number; 名称?: string }>;
     },
   ): DamageResult {
     // 1. 计算基础攻击力 = 攻击力 + 武器伤害 + 元素伤害
@@ -3888,6 +3900,35 @@ export class CombatSystemService {
       elec: rawBreakdown.elec * dmgMult * levelFactor * vulnerability,
     };
 
+    // 11.5 防御方增强器：先改写防御方抗性，再进入三层抗穿流程。
+    let enhancerEffectText = '';
+    const defenderEquipment = opts?.defenderEquipment || [];
+    if (defenderEquipment.some((item) =>
+      item.specialSeq === 55
+      || item.特殊序号 === 55
+      || (item.name || item.名称) === '生命增强器')) {
+      enhancerEffectText = this.bonusService.enhancer(
+        defBonus, 3, finalBreakdown.physical, finalBreakdown.fire,
+        finalBreakdown.ice, finalBreakdown.elec, 20, enhancerEffectText,
+      );
+    } else if (defenderEquipment.some((item) =>
+      item.specialSeq === 56
+      || item.特殊序号 === 56
+      || (item.name || item.名称) === '装甲增强器')) {
+      enhancerEffectText = this.bonusService.enhancer(
+        defBonus, 2, finalBreakdown.physical, finalBreakdown.fire,
+        finalBreakdown.ice, finalBreakdown.elec, 20, enhancerEffectText,
+      );
+    } else if (defenderEquipment.some((item) =>
+      item.specialSeq === 57
+      || item.特殊序号 === 57
+      || (item.name || item.名称) === '护盾增强器')) {
+      enhancerEffectText = this.bonusService.enhancer(
+        defBonus, 1, finalBreakdown.physical, finalBreakdown.fire,
+        finalBreakdown.ice, finalBreakdown.elec, 20, enhancerEffectText,
+      );
+    }
+
     // 12. 三层池独立抗性减免（护盾/装甲/生命各自抗穿）
     const penetration = this.getPenetration(atkBonus);
     const resistBreakdown = this.applyResistances(finalBreakdown, defBonus, penetration);
@@ -3960,6 +4001,7 @@ export class CombatSystemService {
       penetrated,
       vehicleExtraPoolDamage,
       vehicleExtraBreakdown: pierceBreakdown,
+      effectText: enhancerEffectText,
     };
   }
 

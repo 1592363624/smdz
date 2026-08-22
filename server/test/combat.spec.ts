@@ -264,6 +264,8 @@ describe('置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317)', () =>
 
 // ==================== 挑战怪物 (战斗相关.ecode L4726-4790) ====================
 describe('挑战怪物 - 名字映射 (战斗相关.ecode L4726-4790)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   const combat5 = new CombatSystemService(
     {} as PrismaService,
     {} as PlayerService,
@@ -363,6 +365,58 @@ const plainWeapon = {
 // 防御方无抗性，但提供充足生命池（hp），使伤害能落到生命层并反映倍率
 // （原版中防御方始终有生命池；缺少则 distributeDamageToPools 按 Math.min(dmg,0)=0 归零）
 const noResistDef = { 闪避: 100, 生命: 1_000_000, 护盾: 0, 装甲: 0 } as any;
+
+// ==================== 增强器 (加成计算.ecode L3453-L3574 / 战斗相关.ecode L3166-L3172) ====================
+describe('增强器 - 防御装备按最高剩余伤害提升抗性', () => {
+  const realBonus = new BonusService();
+  (combat as any).bonusService = realBonus;
+
+  it('物理剩余最高 → 生命增强器提升生命物抗并追加原文特效', () => {
+    const def = { 生命物抗: 20 } as any;
+    const effectText = realBonus.enhancer(def, 3, 100, 0, 0, 0, 20, '');
+    expect(def.生命物抗).toBeCloseTo(36);
+    expect(effectText).toBe('(物抗+20)');
+  });
+
+  it('火焰剩余最高 → 护盾增强器提升护盾火抗', () => {
+    const def = { 护盾火抗: 50 } as any;
+    const effectText = realBonus.enhancer(def, 1, 0, 100, 0, 0, 20, '[前缀]');
+    expect(def.护盾火抗).toBeCloseTo(60);
+    expect(effectText).toBe('[前缀](火抗+20)');
+  });
+
+  it('电伤剩余最高 → 装甲增强器提升装甲电抗', () => {
+    const def = {} as any;
+    const effectText = realBonus.enhancer(def, 2, 10, 10, 10, 30, 20, '');
+    expect(def.装甲电抗).toBeCloseTo(20);
+    expect(effectText).toBe('(电抗+20)');
+  });
+
+  it('无更高类型时保留原版默认冰抗分支', () => {
+    const def = {} as any;
+    const effectText = realBonus.enhancer(def, 3, 10, 10, 10, 10, 20, '');
+    expect(def.生命冰抗).toBeCloseTo(20);
+    expect(effectText).toBe('(冰抗+20)');
+  });
+
+  it('L3166-L3172 装备判断顺序：生命优先于装甲和护盾', () => {
+    const res = combat.calcDamage(
+      { 攻击: 0, 命中: 100 } as any,
+      { ...noResistDef },
+      plainWeapon as any,
+      1, false,
+      {
+        dmgLower: 1, dmgUpper: 0,
+        defenderEquipment: [
+          { specialSeq: 56 }, { specialSeq: 57 }, { specialSeq: 55 },
+        ],
+      },
+    );
+    expect(res.effectText).toContain('物抗+20');
+    expect(res.effectText).not.toContain('冰抗+20');
+    expect(res.damage).toBeGreaterThan(0);
+  });
+});
 
 describe('造成伤害 - 总伤害倍率与归一 (战斗相关.ecode L2274, L2289)', () => {
   it('L2274 倍率 = 命中/闪避 (正常区间, 不归一)', () => {

@@ -330,6 +330,75 @@ export class BonusService {
   }
 
   /**
+   * 增强器：按剩余最高伤害提升对应三层抗性。
+   * 对应原版 加成计算.ecode L3453-L3574；类型注释：1护盾、2装甲、3生命。
+   */
+  enhancer(
+    bonus: BonusData,
+    type: 1 | 2 | 3,
+    remainingPhysical: number,
+    remainingFire: number,
+    remainingIce: number,
+    remainingElec: number,
+    increase: number,
+    effectText: string,
+  ): string {
+    let damageType = 0;
+    if (remainingElec > remainingPhysical && remainingElec > remainingIce && remainingElec > remainingFire) {
+      damageType = 1;
+    }
+    if (damageType === 0
+      && remainingPhysical > remainingElec
+      && remainingPhysical > remainingIce
+      && remainingPhysical > remainingFire) {
+      damageType = 2;
+    }
+    if (damageType === 0
+      && remainingFire > remainingElec
+      && remainingFire > remainingIce
+      && remainingFire > remainingPhysical) {
+      damageType = 3;
+    }
+    if (damageType === 0
+      && remainingIce > remainingElec
+      && remainingIce > remainingPhysical
+      && remainingIce > remainingFire) {
+      damageType = 4;
+    }
+
+    const layer = type === 1 ? '护盾' : type === 2 ? '装甲' : '生命';
+    let nextEffectText = effectText;
+    let kindKey = '冰抗';
+    let kindField: '电抗' | '物抗' | '火抗' | '冰抗' = '冰抗';
+    if (damageType === 1) {
+      kindKey = '电抗';
+      kindField = '电抗';
+    } else if (damageType === 2) {
+      kindKey = '物抗';
+      kindField = '物抗';
+    } else if (damageType === 3) {
+      kindKey = '火抗';
+      kindField = '火抗';
+    }
+    const fields = {
+      护盾: {
+        电抗: '护盾电抗', 物抗: '护盾物抗', 火抗: '护盾火抗', 冰抗: '护盾冰抗',
+      },
+      装甲: {
+        电抗: '装甲电抗', 物抗: '装甲物抗', 火抗: '装甲火抗', 冰抗: '装甲冰抗',
+      },
+      生命: {
+        电抗: '生命电抗', 物抗: '生命物抗', 火抗: '生命火抗', 冰抗: '生命冰抗',
+      },
+    } as const;
+    const field = fields[layer][kindField];
+    const current = (bonus[field] || 0) as number;
+    bonus[field] = current + (1 - current / 100) * increase;
+    nextEffectText += `(${kindKey}+${increase})`;
+    return nextEffectText;
+  }
+
+  /**
    * 计算经验值升级所需经验（保留兼容签名，实际升级门槛计算统一走 PlayerService.calcUpgradeExp）
    * 对应原版升级经验公式（加成计算.ecode L1781-1794）：
    *   a2 = (c*c + 5) * (1 + 升级经验加成/100) * (1 - 风月入墨减益/100)
@@ -1437,52 +1506,6 @@ export class BonusService {
       }
     }
   }
-
-  /**
-   * 增强器
-   * 对应原版：增强器()（加成计算.ecode L3453-L3556）
-   * 根据剩余四种伤害中最高的一种，为指定部位（1护盾 2装甲 3生命）增加对应抗性。
-   * @param attributes 属性对象（原地修改）
-   * @param type 目标部位：1护盾 2装甲 3生命
-   * @param remainingPhys 剩余物伤
-   * @param remainingFire 剩余火伤
-   * @param remainingIce 剩余冰伤
-   * @param remainingElec 剩余电伤
-   * @param increaseValue 增加值
-   * @returns 特效文本（如"(电抗+5)"）
-   */
-  calculateEnhancer(
-    attributes: BonusData,
-    type: number,
-    remainingPhys: number,
-    remainingFire: number,
-    remainingIce: number,
-    remainingElec: number,
-    increaseValue: number,
-  ): string {
-    // 判断剩余伤害最高类型：1电 2物 3火 4冰（默认冰）
-    let b = 0;
-    if (remainingElec > remainingPhys && remainingElec > remainingIce && remainingElec > remainingFire) b = 1;
-    if (b === 0 && remainingPhys > remainingElec && remainingPhys > remainingIce && remainingPhys > remainingFire) b = 2;
-    if (b === 0 && remainingFire > remainingElec && remainingFire > remainingIce && remainingFire > remainingPhys) b = 3;
-    if (b === 0 && remainingIce > remainingElec && remainingIce > remainingPhys && remainingIce > remainingFire) b = 4;
-
-    // 目标部位前缀：1护盾 2装甲 3生命
-    const targetPrefix = type === 1 ? '护盾' : type === 2 ? '装甲' : '生命';
-    // 伤害类型 → 抗性后缀（0与4均落冰抗，对齐原版默认分支）
-    const suffix = b === 1 ? 'Elec' : b === 2 ? 'Phys' : b === 3 ? 'Fire' : 'Ice';
-    const resName = b === 1 ? '电' : b === 2 ? '物' : b === 3 ? '火' : '冰';
-    const field = `${targetPrefix}${suffix}Res` as keyof BonusData;
-
-    // 按堆叠公式增加对应抗性
-    const cur = this.safeNum(attributes[field] as number);
-    (attributes[field] as number) = cur + ((100 - cur) / 100) * increaseValue;
-
-    const effectText = `(${resName}抗+${increaseValue})`;
-    this.logger.log(`增强器：${targetPrefix}${suffix}Res 增加 ${increaseValue}`);
-    return effectText;
-  }
-
   /**
    * 载具加成
    * 对应原版：载具加成()（加成计算.ecode L3334-L3379）
