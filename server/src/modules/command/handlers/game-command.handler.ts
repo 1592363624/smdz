@@ -1081,6 +1081,10 @@ export class GameCommandHandler implements CommandHandler {
         case 'familiar-rank':
           return this.wrap(await this.gameService.handleFamiliarRank(userId));
 
+        case '排行':
+        case 'ranking':
+          return this.wrap(await this.gameService.handleRanking(userId, firstArg));
+
         case '大召唤术':
         case 'mass-summon':
           return this.wrap(await this.gameService.handleMassSummon(userId, firstArg));

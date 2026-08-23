@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noImplicitAny": false,
-    "strictNullChecks": false,
+    "strictNullChecks": true,
     "rootDir": ".",
     "outDir": "./dist-test"
   },

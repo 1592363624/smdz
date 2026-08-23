@@ -11,6 +11,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { MapService } from '../src/modules/game/map.service';
 import { BonusService, BonusData } from '../src/modules/game/bonus.service';
+import { CombatStateService } from '../src/modules/game/combat-state.service';
 
 // 构造 PlayerService 实例，注入空 mock（calcUpgradeExp 不触碰任何依赖）
 const playerService = new PlayerService(
@@ -19,6 +20,7 @@ const playerService = new PlayerService(
   {} as MapService,
 );
 const bonusService = new BonusService();
+const combatState = new CombatStateService();
 
 describe('升级经验公式 (加成计算.ecode L1781-1794)', () => {
   it('L1786 基础公式: 1级需要 (1*1+5)=6 经验', () => {
@@ -128,5 +130,134 @@ describe('加成核心闭环 (加成计算.ecode L3-L62/L577-L663)', () => {
       expect.objectContaining({ name: '啾啾猫猫', strength: 60 }),
       expect.objectContaining({ name: '叹息之墙' }),
     ]));
+  });
+});
+
+describe('获得增益2 (加成计算.ecode L664-L681)', () => {
+  it('新增时按韧性折算持续时间', () => {
+    const buffs: any[] = [];
+    combatState.gainBuff2(buffs, { 名称: '福音书', 持续时间: 300, 强度: 10 }, 1000, 20);
+    expect(buffs).toHaveLength(1);
+    expect(buffs[0].名称).toBe('福音书');
+    expect(buffs[0].强度).toBe(10);
+    expect(buffs[0].有效期至).toBe(1000 + 240 * 1000);
+  });
+
+  it('同名增益直接替换，不叠加旧有效期或强度', () => {
+    const buffs: any[] = [{ 名称: '福音书', 强度: 5, 有效期至: 999 }];
+    combatState.gainBuff2(buffs, { 名称: '福音书', 持续时间: 300, 强度: 10 }, 1000, 0);
+    expect(buffs).toHaveLength(1);
+    expect(buffs[0]).toEqual({ 名称: '福音书', 持续时间: 300, 强度: 10, 有效期至: 301000 });
+  });
+});
+
+describe('法宝加成 (加成计算.ecode L3053-L3232)', () => {
+  it('L3143-L3232 四类属性法宝按等级阈值写入属性', () => {
+    const goddess: BonusData = {};
+    bonusService.calculateTreasureBonus(goddess, { sakuraHits: 1, sleepover: 9 });
+    expect(goddess).toMatchObject({ 电伤2: 13, 护盾2: 10, 生命2: 10, 装甲2: 10, 暴击伤害: 1000 });
+
+    const zhenyue: BonusData = {};
+    bonusService.calculateTreasureBonus(zhenyue, { sakuraHits: 2, sleepover: 6 });
+    expect(zhenyue).toMatchObject({ 物伤2: 5, 护盾2: 15, 生命2: 15, 装甲2: 15, 贯穿: 15, 抗贯穿: 10 });
+
+    const jingni: BonusData = {};
+    bonusService.calculateTreasureBonus(jingni, { sakuraHits: 4, sleepover: 10 });
+    expect(jingni).toMatchObject({
+      火伤2: 18, 溅射2: 1, 溅射: 50, 暴击伤害: 600, 贯穿: 10,
+    });
+
+    const lingxu: BonusData = {};
+    bonusService.calculateTreasureBonus(lingxu, { sakuraHits: 3, sleepover: 7 });
+    expect(lingxu).toMatchObject({
+      冰伤2: 5, 抗贯穿: 25, 攻击护盾: 20, 攻击装甲: 20,
+      护盾2: 20, 生命2: 20, 装甲2: 20, 韧性: 20,
+    });
+  });
+
+  it('L3053-L3096 含光按最高防御层放大并追加全抗与回复2', () => {
+    const shieldAttrs: BonusData = { 护盾: 100, 装甲: 10, 生命: 20, 护盾火抗: 50, 护盾冰抗: 50, 护盾物抗: 50, 护盾电抗: 50 };
+    bonusService.calculateHanGuangBonus(shieldAttrs, { sakuraHits: 5, sleepover: 6 });
+    expect(shieldAttrs.护盾).toBe(500);
+    expect(shieldAttrs.护盾火抗).toBeCloseTo(75);
+    expect(shieldAttrs.护盾回复2).toBe(2);
+    expect(shieldAttrs.抗贯穿).toBe(30);
+
+    const armorAttrs: BonusData = { 护盾: 10, 装甲: 100, 生命: 20, 装甲火抗: 50, 装甲冰抗: 50, 装甲物抗: 50, 装甲电抗: 50 };
+    bonusService.calculateHanGuangBonus(armorAttrs, { sakuraHits: 5, sleepover: 3 });
+    expect(armorAttrs.装甲).toBe(250);
+    expect(armorAttrs.装甲火抗).toBeCloseTo(75);
+    expect(armorAttrs.装甲回复2).toBe(2);
+    expect(armorAttrs.抗贯穿).toBeUndefined();
+
+    const lifeAttrs: BonusData = { 护盾: 10, 装甲: 20, 生命: 100, 生命火抗: 50, 生命冰抗: 50, 生命物抗: 50, 生命电抗: 50 };
+    bonusService.calculateHanGuangBonus(lifeAttrs, { sakuraHits: 5, sleepover: 1 });
+    expect(lifeAttrs.生命).toBe(100);
+    expect(lifeAttrs.生命火抗).toBeCloseTo(75);
+    expect(lifeAttrs.生命回复2).toBeUndefined();
+    expect(lifeAttrs.抗贯穿).toBeUndefined();
+  });
+});
+
+describe('计算增益 (加成计算.ecode L81-L575)', () => {
+  it('成就铠甲按特殊类型写入攻击、防御、穿透与冷却', () => {
+    const yanlong: BonusData = {};
+    bonusService.calculateGameBonus({ bonus: yanlong, markers: { 铠甲: 1 } }, 1000);
+    expect(yanlong).toMatchObject({ 攻击2: 10, 生命穿透: 6, 装甲穿透: 6, 护盾穿透: 6 });
+
+    const heixi: BonusData = {};
+    bonusService.calculateGameBonus({ bonus: heixi, markers: { 铠甲: 2 } }, 1000);
+    expect(heixi).toMatchObject({ 护盾2: 12, 生命2: 12, 装甲2: 12 });
+    expect(heixi.生命火抗).toBeCloseTo(15);
+    expect(heixi.护盾电抗).toBeCloseTo(15);
+    expect(heixi.装甲物抗).toBeCloseTo(15);
+  });
+
+  it('特殊增益按强度、技能等级与阈值生效', () => {
+    const bonus: BonusData = { 冰伤: 100, 冰伤2: 10, 命中2: 5, 护盾回复: 1, 护盾回复2: 0 };
+    bonusService.calculateGameBonus({
+      bonus,
+      skillLevel: 4,
+      buffs: [
+        { name: '冰精灵', expireAt: 2000, strength: 3 },
+        { name: '五番', expireAt: 2000, strength: 9 },
+        { name: 'xta', expireAt: 2000, strength: 0.25, value: 0.25 },
+      ],
+    }, 1000);
+    expect(bonus.冰伤2).toBe(30 + 4 + 10);
+    expect(bonus.生命穿透).toBe(10);
+    expect(bonus.攻击2).toBe(45);
+    expect(bonus.暴击).toBe(9);
+    expect(bonus.暴击伤害).toBe(45);
+    expect(bonus.护盾回复).toBe(0.75);
+    expect(bonus.护盾回复2).toBe(-25);
+  });
+
+  it('装备分支按原版顺序处理叹息之墙、丝袜、神龙和肩炮', () => {
+    const bonus: BonusData = {
+      护盾: 100, 装甲: 50, 生命: 20,
+      物伤: 40, 冰伤: 30, 火伤: 20, 电伤: 10,
+      暴击: 120,
+    };
+    const attrs: BonusData = {};
+    const weapon: any = { name: '拳头', cooldown: 10, 冷却: 10, specialSeq: 8 };
+    bonusService.calculateGameBonus({
+      bonus,
+      attributes: attrs,
+      equipment: [{ name: '神龙保佑', specialSeq: 36 }, { name: '神龙祥瑞', specialSeq: 37 }],
+      weapons: [weapon],
+      currentWeapon: 1,
+      currentHp: 100,
+      sets: { lifeBless: 5 },
+    }, 1000);
+
+    expect(bonus.闪避).toBeUndefined();
+    expect(attrs.命中2).toBe(5);
+    expect(attrs.护盾2).toBe(10);
+    expect(attrs.装甲2).toBe(10);
+    expect(bonus.攻击).toBe(20);
+    expect(bonus.暴击).toBe(100);
+    expect(weapon.cooldown).toBe(10);
+    expect(bonus.溅射2).toBe(1);
   });
 });

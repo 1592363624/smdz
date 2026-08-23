@@ -1305,6 +1305,8 @@ export class HomeService {
     if (hasPet('龙女仆', -6)) buildingOutputRate *= 1.05;
     if (hasPet('执行者', -3)) powerConsumeRate *= 0.95;
     if (hasPet('英招', -7)) cropOutputRate += 0.1;
+    // 宠物加成文本（对齐原版"宠物加成文本"变量，在最终输出中拼接）
+    const petBonusText: string[] = [];
 
     // 原版防御节点只改写世界模拟器的电力消耗，并影响核心训练概率。
     const hasDefenseNode = hasPet('防御节点', -28);
@@ -1525,8 +1527,12 @@ export class HomeService {
       const mantis = summons.find((pet: any) => (pet?.vitality ?? pet?.活力 ?? pet?.specialSeq) === -26
         || this.getItemName(pet) === '螳螂');
       const gather = Number(mantis?.采集 ?? mantis?.属性?.采集 ?? mantis?.gathering ?? 0);
+      // 对齐原版 L427-428：采集属性<=0时提示"没有采集工具或装备"
       if (gather > 0) {
         addSpecial([{ name: '铁矿', quantity: cropLimit * gather / 1440 }], 2);
+      } else {
+        const mantisName = this.getItemName(mantis) || '螳螂';
+        petBonusText.push(`${mantisName}:没有采集工具或装备`);
       }
     }
 
@@ -1646,6 +1652,8 @@ export class HomeService {
     );
 
     if (worldSimulationText) resultLines.push(worldSimulationText);
+    // 对齐原版 L591-604：拼接宠物加成文本
+    if (petBonusText.length > 0) resultLines.push(petBonusText.join('、'));
     await this.persistHomeMap(map, storage, mapMarkers);
     await this.playerService.savePlayer(player);
     if (resultLines.length === 1) resultLines.push('本次没有产出任何物品');

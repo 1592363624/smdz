@@ -4,10 +4,13 @@
  * 负责装备、物品和载具的管理
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StaticDataService } from './static-data.service';
 import { CombatStateService } from './combat-state.service';
+import { PlayerService } from './player.service';
+import { MapService } from './map.service';
+import { ItemSystemService } from './item-system.service';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -158,6 +161,26 @@ export const IMPLANT_STATS = [
 ];
 
 /**
+ * 植入体随机强化池
+ * 原版 物品操作.ecode L134：随机文本("生命,装甲,护盾,攻击,速度,闪避,命中,生命恢复,装甲修复,护盾回复,电攻,物攻,冰攻,火攻,攻击")
+ * 注意：攻击出现2次（权重双倍），顺序与原文一致，禁止去重或重排
+ */
+export const IMPLANT_RANDOM_POOL = [
+  '生命', '装甲', '护盾', '攻击', '速度', '闪避', '命中',
+  '生命恢复', '装甲修复', '护盾回复', '电攻', '物攻', '冰攻', '火攻', '攻击',
+];
+
+/**
+ * 增幅器随机强化池
+ * 原版 物品操作.ecode L288：随机文本("生命,装甲,护盾,攻击,速度,闪避,命中,生命恢复,装甲修复,护盾回复,电攻,冰攻,火攻,攻击,物攻")
+ * 与植入体池的差异：电攻后直接是冰攻/火攻，物攻移到末尾，攻击出现2次（权重双倍）
+ */
+export const AMPLIFIER_RANDOM_POOL = [
+  '生命', '装甲', '护盾', '攻击', '速度', '闪避', '命中',
+  '生命恢复', '装甲修复', '护盾回复', '电攻', '冰攻', '火攻', '攻击', '物攻',
+];
+
+/**
  * 植入体属性名到加成字段名的映射
  */
 export const IMPLANT_STAT_MAP: Record<string, string> = {
@@ -213,6 +236,11 @@ export class ItemService {
     private readonly prisma: PrismaService,
     private readonly staticData: StaticDataService,
     private readonly combatState: CombatStateService,
+    private readonly playerService: PlayerService,
+    private readonly mapService: MapService,
+    @Optional()
+    @Inject(forwardRef(() => ItemSystemService))
+    private readonly itemSystem?: ItemSystemService,
   ) {}
 
   /**
@@ -610,21 +638,24 @@ export class ItemService {
   }
 
   /**
-   * 使用物品
-   * 处理物品使用效果，包括开箱、恢复等
-   * 对应原版：打开箱子() 和 使用物品相关逻辑
+   * 使用物品（打开箱子）
+   * 1:1 复刻 物品操作.ecode L2220-2458：
+   * 开箱防重入锁(L2251-2255) → 特殊物品分支(L2284-2377) → 使用可得出货走战利品品质链路(L2379-2415) →
+   * 成就与消耗(L2449-2457) → 文本格式对齐原版(L2434-2448)。
    * @param userId 玩家ID
    * @param itemName 物品名称
-   * @param count 使用数量，默认1
+   * @param count 使用数量，默认1；-1 表示使用全部（原版 使用数量<0 分支）
    * @returns 使用结果文本
    */
   async useItem(userId: number, itemName: string, count: number = 1): Promise<string> {
-    const player = await this.prisma.player.findUnique({ where: { userId } });
+    const playerData = await this.playerService.getPlayerData(userId);
+    const player = playerData.player as any;
     if (!player) return `玩家不存在`;
 
-    const backpack: Item3[] = JSON.parse(player.backpack || '[]');
+    // 原版以 玩家.背包 为准；getPlayerData.backpack 是同一份解析数组
+    const backpack: Item3[] = playerData.backpack;
 
-    // 检查物品是否存在
+    // 检查物品是否存在（L2258-2266 由背包定位物品列表编号的语义在本框架为直接查找）
     let itemIndex = -1;
     for (let i = 0; i < backpack.length; i++) {
       if (backpack[i].name === itemName) {
@@ -646,7 +677,8 @@ export class ItemService {
     if (!Number.isFinite(requestedCount) || requestedCount === 0) {
       return '使用数量必须是正整数';
     }
-    const actualCount = requestedCount < 0
+    // L2245-2249：使用数量<0 → 使用全部；否则按指定数量
+    let actualCount = requestedCount < 0
       ? available
       : Math.min(Math.floor(requestedCount), available);
     if (actualCount <= 0) return '使用数量必须是正整数';
@@ -654,7 +686,8 @@ export class ItemService {
     // 从静态配置加载物品定义（JSON 单一来源）
     const gameItem = this.staticData.getItemByName(itemName);
     if (!gameItem) {
-      return `${player.name},${itemName}在物品列表不存在`;
+      // L2267-2270
+      return `#错误：${itemName}在物品列表不存在(必须先在物品列表里面定义才可以被使用)`;
     }
 
     // 检查是否有使用效果。使用可得的每个数组元素是一个产出池，
@@ -670,12 +703,179 @@ export class ItemService {
       }
     };
     const useEffects = parseJsonArray<string>(gameItem.useEffects, []);
-    const useMarkers = parseJsonArray<string>(gameItem.useMarkers, []);
 
     if (useEffects.length === 0) {
-      return `${player.name},${itemName}不是可以直接使用的物品，或者暂时还无法使用`;
+      // L2272-2282：不可用文本 + 背包同类物品展示
+      let notUsableText = `${player.name},${itemName}不是可以直接使用的物品，或者暂时还无法使用`;
+      for (const entry of backpack) {
+        if (entry.name === itemName) {
+          notUsableText += `\n${entry.name}x${Number(entry.quantity ?? entry.count ?? 0)}`;
+          break;
+        }
+      }
+      return notUsableText;
     }
 
+    const nowMs = Date.now();
+    // 兼容层：把 markers2/buffs 归一化为中文 key + 毫秒，保证存量数据可读
+    const rawMarkers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const rawBuffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const markers2 = this.combatState.normalizeBuffItem
+      ? rawMarkers2.map((it) => this.combatState.normalizeBuffItem(it))
+      : rawMarkers2;
+    const buffs = this.combatState.normalizeBuffItem
+      ? rawBuffs.map((it) => this.combatState.normalizeBuffItem(it))
+      : rawBuffs;
+    const markers: Record<string, number> = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+
+    // L2251-2255：开箱防重入锁 a1=max(120, 数量*180/100000000)，处理完成后 L2458 移除（净零冷却，仅处理期生效）
+    const lockSeconds = Math.max(120, Math.abs(actualCount) * 180 / 100000000);
+    this.combatState.gainBuff(markers2, '开箱', lockSeconds, false, nowMs);
+
+    const cdText = { value: '' };
+    const remainRef = { value: 0 };
+    const strengthRef = { value: 0 };
+
+    /** 三池回复：按 属性.护盾(上限值)×比例×数量 加到当前生命/护盾/装甲（原版 L2289-2298 字面） */
+    const restorePools = (ratio: number): void => {
+      const base = Number(player.maxShield ?? player.shield ?? 0);
+      player.hp = Number(player.hp ?? player.currentHp ?? 0) + base * ratio * actualCount;
+      player.shield = Number(player.shield ?? 0) + base * ratio * actualCount;
+      player.armor = Number(player.armor ?? 0) + base * ratio * actualCount;
+    };
+
+    /** 数字到时间（秒→分秒文本），格式沿用本框架 msToTimeText 约定 */
+    const secondsToTimeText = (sec: number): string => {
+      const totalSec = Math.max(0, Math.floor(sec));
+      if (totalSec < 60) return `${totalSec}秒`;
+      return `${Math.floor(totalSec / 60)}分${totalSec % 60}秒`;
+    };
+
+    /** 有效期当天：距今日午夜的剩余秒数（原版 有效期当天） */
+    const secondsUntilMidnight = (): number => {
+      const endOfDay = new Date(nowMs);
+      endOfDay.setHours(24, 0, 0, 0);
+      return Math.max(1, Math.floor((endOfDay.getTime() - nowMs) / 1000));
+    };
+
+    let w4 = '';
+    let earlyReturn: string | null = null;
+    // 特殊分支先行产出的物品（如凭证的改良建筑箱），随出货段一起走战利品链路
+    const specialObtained: Array<{ name: string; count: number }> = [];
+    const mergeObtained = (entry: { name: string; count: number }): void => {
+      const existing = specialObtained.find((it) => it.name === entry.name);
+      if (existing) existing.count += entry.count;
+      else specialObtained.push({ ...entry });
+    };
+
+    /** 冷却检查：冷却中返回剩余文本（原版 时间间隔要求/标记要求 的 返回文本 语义） */
+    const cooldownRemainText = (name: string, seconds: number): string | null => {
+      if (this.combatState.markerRequire(name, markers2, cdText, nowMs)) return cdText.value;
+      this.combatState.addMarker(name, seconds, markers2, nowMs);
+      return null;
+    };
+
+    // ===== L2284-2377 特殊物品分支 =====
+    if (itemName === '奶') {
+      // L2284-2300：死亡状态可用（复活冷却120秒），恢复10%三池
+      if (Number(player.hp ?? 0) <= 0) {
+        const remain = cooldownRemainText('使用奶', 120);
+        if (remain !== null) {
+          w4 = `\n使用奶复活冷却${remain}`;
+        } else {
+          restorePools(0.1);
+          w4 = `\n使用了${actualCount}的奶，恢复了${actualCount * 10}%的状态`;
+        }
+      } else {
+        restorePools(0.1);
+        w4 = `\n享用了${actualCount}的奶，恢复了${actualCount * 10}%的状态`;
+      }
+    } else if (itemName === '瓶装奶') {
+      // L2302-2318：死亡状态可用（复活冷却30秒），恢复30%三池
+      if (Number(player.hp ?? 0) <= 0) {
+        const remain = cooldownRemainText('使用奶2', 30);
+        if (remain !== null) {
+          w4 = `\n使用瓶装奶复活冷却${remain}`;
+        } else {
+          restorePools(0.3);
+          w4 = `\n使用了${actualCount}的瓶装奶，恢复了${actualCount * 30}%的状态`;
+        }
+      } else {
+        restorePools(0.3);
+        w4 = `\n享用了${actualCount}的瓶装奶，恢复了${actualCount * 30}%的状态`;
+      }
+    } else if (itemName === '凭证') {
+      // L2320-2333：每日一次；冷却中不消耗直接返回
+      const remain = cooldownRemainText('凭证', secondsUntilMidnight());
+      if (remain !== null) {
+        earlyReturn = `${player.name}${remain}`;
+      } else {
+        const boxCount = Math.floor(Number(player.level ?? 1) / 2);
+        w4 = `\n得到了${boxCount}的改良建筑箱`;
+        mergeObtained({ name: '改良建筑箱', count: boxCount });
+        markers['凭证'] = (markers['凭证'] || 0) + 1;
+        actualCount = 1;
+      }
+    } else if (itemName === '蛋糕') {
+      // L2335-2339：掉落率+50% 增益，可叠加时间
+      w4 = `\n享用了${actualCount}的蛋糕，掉落率+50%`;
+      this.combatState.gainBuff(buffs, '蛋糕', 180 * actualCount, true, nowMs);
+      this.combatState.buffRequire('蛋糕', buffs, strengthRef, nowMs, remainRef);
+      w4 += `(${secondsToTimeText(remainRef.value)})`;
+    } else if (itemName === '奶酪') {
+      // L2340-2345：获得经验+100% 增益（经验加成在 bonus.service 计算增益 L152 已消费）
+      w4 = `\n享用了${actualCount}的奶酪，获得经验+100%`;
+      this.combatState.gainBuff(buffs, '奶酪', 180 * actualCount, true, nowMs);
+      this.combatState.buffRequire('奶酪', buffs, strengthRef, nowMs, remainRef);
+      w4 += `(${secondsToTimeText(remainRef.value)})`;
+      // 原版此处调用 _计算玩家 重算属性；本框架按需重算，无需显式刷新
+    } else if (itemName === '粽子') {
+      // L2346-2350：使魔技能临时等级+10
+      w4 = `\n享用了${actualCount}的粽子，使魔技能临时等级+10`;
+      this.combatState.gainBuff(buffs, '粽子', 3600 * actualCount, true, nowMs);
+      this.combatState.buffRequire('粽子', buffs, strengthRef, nowMs, remainRef);
+      w4 += `(${secondsToTimeText(remainRef.value)})`;
+    } else if (itemName === '奶油蛋糕') {
+      // L2351-2354：技能经验获取翻倍（nydg 成就计数）
+      w4 = `\n享用了${actualCount}的奶油蛋糕，技能经验获取翻倍`;
+      markers['nydg'] = (markers['nydg'] || 0) + actualCount;
+      w4 += `(${markers['nydg']}次)`;
+    } else if (itemName === '至纯圣水') {
+      // L2355-2373：家园时间加速 N 分钟
+      const homeMap = player.houseName
+        ? await this.mapService.getMapByName(player.houseName).catch(() => null)
+        : null;
+      if (!homeMap) {
+        earlyReturn = `\n你还没有家园，无法使用这个`;
+      } else {
+        w4 = `\n享用了${actualCount}的至纯圣水，${player.houseName}的时间加速了${actualCount}分钟`;
+        const mapMarkers = this.playerService.safeJsonParse<Record<string, number>>(homeMap.markers, {});
+        const shiftSeconds = actualCount * 60;
+        for (const key of ['观测时间', '观测时间2']) {
+          const current = Number(mapMarkers[key] ?? 0);
+          mapMarkers[key] = current > 0 ? current - shiftSeconds : nowMs / 1000 - shiftSeconds;
+        }
+        for (const key of ['全部拾取', '拾取']) {
+          const value = Number(mapMarkers[key] ?? 0);
+          if (value > 0) {
+            const next = value - shiftSeconds;
+            if (next <= 0) delete mapMarkers[key];
+            else mapMarkers[key] = next;
+          }
+        }
+        await this.prisma.gameMap.update({
+          where: { id: homeMap.id },
+          data: { markers: JSON.stringify(mapMarkers) },
+        });
+      }
+    }
+
+    if (earlyReturn !== null) {
+      // L2321-2324 / L2357-2361：提前返回不消耗、不移除锁（净零）
+      return earlyReturn;
+    }
+
+    // ===== 出货段 L2378-2415 =====
     type UseCandidate = { name: string; count: number };
     const parseCandidate = (raw: string): UseCandidate | null => {
       let token = String(raw || '').trim();
@@ -703,84 +903,123 @@ export class ItemService {
       if (pool.length > 0) pools.push(pool);
     }
 
-    const obtained: Array<{ name: string; count: number }> = [];
+    const obtained: Array<{ name: string; count: number }> = specialObtained;
     for (const pool of pools) {
       if (pool.length === 1) {
+        // L2402-2405：单候选池直接乘以数量
         const candidate = pool[0];
-        if (candidate.count > 0) obtained.push({ name: candidate.name, count: candidate.count * actualCount });
+        if (candidate.count > 0) mergeObtained({ name: candidate.name, count: candidate.count * actualCount });
         continue;
       }
+      // L2407-2410：多候选池每次使用随机取一
       for (let i = 0; i < actualCount; i++) {
         const candidate = pool[Math.floor(Math.random() * pool.length)];
         if (!candidate || candidate.count <= 0) continue;
-        const existing = obtained.find((item) => item.name === candidate.name);
-        if (existing) existing.count += candidate.count;
-        else obtained.push({ name: candidate.name, count: candidate.count });
+        mergeObtained({ name: candidate.name, count: candidate.count });
       }
     }
 
-    const addObtained = (name: string, amount: number): void => {
-      if (!name || !Number.isFinite(amount) || amount <= 0) return;
-      if (this.staticData.getEquipmentByName(name)) {
-        // 使用箱子的装备先按独立物品入包；装备系统会继续按静态定义处理它。
-        const copies = Math.max(1, Math.floor(amount));
-        for (let i = 0; i < copies; i++) {
-          backpack.push({ name, type: '装备', quantity: 1, count: 1, durability: 0, data: 'e' });
+    // L2415 战利品(玩家,,物品数组)：装备经生成装备获得品质/词条/特效；
+    // 经验走 属性.经验 加成；资源叠加入包。
+    let equipmentCount = 0;
+    let newEquipmentItems: any[] = [];
+    if (obtained.length > 0 && this.itemSystem) {
+      const backpackLenBefore = this.playerService.getBackpackItems(player).length;
+      await this.itemSystem.distributeLoot(playerData, obtained.map((o) => ({ name: o.name, quantity: o.count })));
+      const afterBackpack = this.playerService.getBackpackItems(player);
+      newEquipmentItems = afterBackpack.slice(backpackLenBefore).filter((it: any) => it.type === '装备');
+      equipmentCount = newEquipmentItems.length;
+    } else if (obtained.length > 0) {
+      // 无 itemSystem（测试/轻量环境）兜底：直接入包，不入品质链路
+      for (const o of obtained) {
+        if (this.staticData.getEquipmentByName(o.name)) {
+          for (let i = 0; i < Math.max(1, Math.floor(o.count)); i++) {
+            backpack.push({ name: o.name, type: '装备', quantity: 1, count: 1, durability: 0, data: 'e' });
+            equipmentCount++;
+          }
+        } else {
+          const existing = backpack.find((entry) => entry.name === o.name && entry.type !== '装备');
+          if (existing) {
+            existing.quantity = Number(existing.quantity ?? existing.count ?? 0) + o.count;
+            existing.count = existing.quantity;
+          } else {
+            backpack.push({ name: o.name, type: '资源', quantity: o.count, count: o.count, durability: 0, data: '' });
+          }
         }
-        return;
       }
-      const existing = backpack.find((entry) => entry.name === name && entry.type !== '装备');
-      const current = Number(existing?.quantity ?? existing?.count ?? 0);
-      const next = current + amount;
-      if (existing) {
-        existing.quantity = next;
-        existing.count = next;
-      } else {
-        backpack.push({ name, type: '资源', quantity: amount, count: amount, durability: 0, data: '' });
-      }
-    };
-    for (const item of obtained) addObtained(item.name, item.count);
-
-    // 解析玩家标记
-    const markers = JSON.parse(player.markers || '{}');
-    const markers2 = JSON.parse(player.markers2 || '[]');
-    const buffs = JSON.parse(player.buffs || '[]');
-
-    // 消耗物品
-    const remaining = available - actualCount;
-    if (item.quantity !== undefined) item.quantity = remaining;
-    else item.count = remaining;
-    if (remaining <= 0) {
-      backpack.splice(itemIndex, 1);
+      player.backpack = JSON.stringify(backpack);
     }
 
-    // 添加使用标记
+    // ===== 文本段 L2416-2448 =====
+    // w3 资源汇总（重新读包统计本次新增资源；distributeLoot 已写回 player.backpack）
+    const finalBackpack = this.playerService.safeJsonParse<Item3[]>(player.backpack, []);
+    const resourceSummary: string[] = [];
+    for (const o of obtained) {
+      if (!this.staticData.getEquipmentByName(o.name)) {
+        resourceSummary.push(`${o.name}x${Math.round(o.count)}`);
+      }
+    }
+    const w3 = resourceSummary.join('、');
+
+    // 装备清单（原版 显示物品(物品数组,,,真,)：[序号]名称+品质大写前缀+【特效】）
+    const equipmentText = newEquipmentItems.map((eq: any, idx: number) => {
+      const qualityLetter = String(eq.data || '').charAt(0).toUpperCase();
+      let effectName = '';
+      try {
+        const parsed = this.parseEquipment(eq as Item3);
+        if (parsed.specialEffect > 0) {
+          const isWeapon = parsed.type === '武器';
+          const effectRow = typeof (this.staticData as any).getEffectById === 'function'
+            ? (this.staticData as any).getEffectById(parsed.specialEffect, isWeapon)
+            : undefined;
+          effectName = effectRow?.name || effectRow?.description || '';
+        }
+      } catch {
+        effectName = '';
+      }
+      return `[${idx + 1}]${eq.name}${qualityLetter}${effectName ? `【${effectName}】` : ''}`;
+    }).join('、');
+
+    // 原版默认分支（不显示装备名称=假）：a>50 只显示件数，否则逐件显示
+    let resultText = `\n${player.name}使用了${actualCount}的${itemName},得到了${w3}和`;
+    if (equipmentCount > 50) {
+      resultText += `${equipmentCount}件装备${w4}`;
+    } else {
+      resultText += `${equipmentText}${w4}`;
+    }
+
+    // ===== 成就与消耗 L2449-2457 =====
+    const useMarkers = parseJsonArray<string>(gameItem.useMarkers, []);
     for (const marker of useMarkers) {
-      if (!markers[marker]) markers[marker] = 0;
-      markers[marker] += actualCount;
+      markers[marker] = (markers[marker] || 0) + 1;
+    }
+    // 注意：原版「使用物品」成就累加的是装备数量 a（非使用次数）
+    markers['使用' + itemName] = (markers['使用' + itemName] || 0) + actualCount;
+    if (equipmentCount > 0) markers['使用物品'] = (markers['使用物品'] || 0) + equipmentCount;
+
+    // L2454-2457：从背包扣除已使用的物品（distributeLoot 之后重新扣除）
+    const usedEntry = finalBackpack.find((entry) => entry.name === itemName && entry.type !== '装备')
+      ?? finalBackpack.find((entry) => entry.name === itemName);
+    if (usedEntry) {
+      const remaining = Number(usedEntry.quantity ?? usedEntry.count ?? 0) - actualCount;
+      const idx = finalBackpack.indexOf(usedEntry);
+      if (remaining <= 0) finalBackpack.splice(idx, 1);
+      else {
+        usedEntry.quantity = remaining;
+        usedEntry.count = remaining;
+      }
     }
 
-    // 更新成就
-    if (!markers['使用' + itemName]) markers['使用' + itemName] = 0;
-    markers['使用' + itemName] += actualCount;
-    if (!markers['使用物品']) markers['使用物品'] = 0;
-    markers['使用物品'] += actualCount;
+    player.backpack = JSON.stringify(finalBackpack);
+    player.markers = markers;
+    player.markers2 = markers2;
+    player.buffs = buffs;
 
-    // 保存到数据库
-    await this.prisma.player.update({
-      where: { userId },
-      data: {
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
-        markers2: JSON.stringify(markers2),
-        buffs: JSON.stringify(buffs),
-      },
-    });
+    // L2458：移除开箱锁（净零冷却）
+    this.combatState.gainBuff(markers2, '开箱', -lockSeconds, false, nowMs);
 
-    const obtainedText = obtained.length > 0
-      ? `，获得${obtained.map((item) => `${item.name}×${item.count}`).join('、')}`
-      : '';
-    const resultText = `${player.name}使用了${actualCount}个${itemName}${obtainedText}`;
+    // 保存到数据库（hp/shield/armor 变更随 savePlayer 标量字段一并写入）
+    await this.playerService.savePlayer(player);
 
     return resultText;
   }

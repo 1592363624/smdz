@@ -304,7 +304,7 @@ export class CombatStateService {
    * @param 是否叠加强度 是否叠加强度（否则取 max）
    * @returns 最终强度
    */
-  gainBuff(
+ gainBuff(
     增益: BuffItem[],
     名称: string,
     时间: number,
@@ -349,6 +349,34 @@ export class CombatStateService {
     };
     增益.push(z);
     return 强度 || 0;
+  }
+
+  /**
+   * 获得增益2（加成计算.ecode L664-L681）
+   * 战斗中获得 buff：同名直接替换，并按防御方韧性折算持续时间；否则新增。
+   * @param 增益 增益数组（原地修改）
+   * @param 增益定义 完整增益对象
+   * @param s 当前毫秒时间戳
+   * @param 韧性 防御方韧性百分比
+   */
+  gainBuff2(
+    增益: BuffItem[],
+    增益定义: Omit<BuffItem, '有效期至'> & { 持续时间?: number },
+    s: number,
+    韧性 = 0,
+  ): void {
+    const durationSeconds = this.safeNumber(增益定义.持续时间);
+    const expireAt = s + (1 - this.safeNumber(韧性) / 100) * durationSeconds * SECOND_MS;
+    const existingIndex = 增益.findIndex((item) => item?.名称 === 增益定义.名称);
+    if (existingIndex >= 0) {
+      增益[existingIndex] = { ...增益定义, 有效期至: expireAt };
+      return;
+    }
+    增益.push({ ...增益定义, 有效期至: expireAt });
+  }
+
+  private safeNumber(value: any): number {
+    return Number.isFinite(Number(value)) ? Number(value) : 0;
   }
 
   /**

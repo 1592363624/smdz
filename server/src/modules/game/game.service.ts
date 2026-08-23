@@ -200,6 +200,21 @@ export class GameService {
       return `无法前往：${check.reason}`;
     }
 
+    // 对齐原版 _主程序.ecode L6555：载具行走方式 0(未安装行走机构)/4(坐地) 时不能"前往"
+    // 仅在玩家有载具时检查，无载具则步行不受限
+    if (player.vehicle) {
+      const travelVehicle = await this.findTravelVehicle(player, currentMap);
+      if (travelVehicle) {
+        const walkMode = Number(travelVehicle?.行走方式 ?? travelVehicle?.walkMode ?? 0);
+        if (walkMode === 0) {
+          return `${player.name}的载具${travelVehicle?.name || travelVehicle?.名称 || ''}没有安装行走机构，无法行走`;
+        }
+        if (walkMode === 4) {
+          return `${player.name}的载具${travelVehicle?.name || travelVehicle?.名称 || ''}处于坐地模式，无法行走`;
+        }
+      }
+    }
+
     // 计算移动所需耗时（秒）
     const travelDistance = isDungeonEntry
       ? Number(dungeonEntry?.distance || 100)
@@ -565,6 +580,14 @@ export class GameService {
     const fromMapId = player.mapId;
     player.mapId = targetMap.id;
     player.location = targetMap.name;
+
+    // 对齐原版 地图操作.ecode L1093-1269 玩家移动+召唤物移动：
+    // 1) 玩家载具从原地图迁移到目标地图
+    // 2) 召唤物驾驶的载具迁移（行走方式≠0且≠4）
+    // 3) 跟随玩家的召唤物迁移到目标地图
+    // 4) 移除"风月入墨"增益（离开地图时失效）
+    await this.migratePlayerAssetsOnMove(fromMapId, targetMap.id, player);
+
     // 进入地图时自动获得地图增益
     await this.combatSystem.applyMapBuffs(player, targetMap);
     await this.playerService.savePlayer(player);
@@ -613,6 +636,120 @@ export class GameService {
     }
 
     return text;
+  }
+
+  /**
+   * 玩家移动时迁移载具和跟随召唤物（对齐原版 地图操作.ecode L1093-1269）。
+   * - 玩家载具：从原地图 vehicles 数组中移除，添加到目标地图 vehicles 数组
+   * - 召唤物驾驶的载具：行走方式≠0(无行走机构)且≠4(坐地)时迁移
+   * - 跟随召唤物：标记中"跟随"熟练度<1 的召唤物迁移到目标地图
+   * - 风月入墨增益：离开地图时从玩家增益列表中移除
+   * @param fromMapId 原地图ID
+   * @param toMapId 目标地图ID
+   * @param player 玩家对象（含 vehicle/qq/buffs 等字段）
+   */
+  private async migratePlayerAssetsOnMove(
+    fromMapId: number,
+    toMapId: number,
+    player: any,
+  ): Promise<void> {
+    if (!fromMapId || Number(fromMapId) === Number(toMapId)) return;
+
+    const playerQQ = String(player.userId ?? player.qq ?? '');
+    if (!playerQQ) return;
+
+    try {
+      // 同时加载原地图和目标地图的动态状态
+      const fromMap = await this.mapService.getMapById(Number(fromMapId));
+      const toMap = await this.mapService.getMapById(Number(toMapId));
+      if (!fromMap || !toMap) return;
+
+      const parse = (v: any): any[] => {
+        if (Array.isArray(v)) return v;
+        try { return JSON.parse(v) || []; } catch { return []; }
+      };
+
+      let fromVehicles = parse(fromMap.vehicles);
+      let fromSummons = parse(fromMap.summons);
+      let toVehicles = parse(toMap.vehicles);
+      let toSummons = parse(toMap.summons);
+
+      const vehicleKey = (v: any) => String(v?.id ?? v?.编号 ?? v?.vehicleId ?? '');
+      const summonOwner = (s: any) => String(s?.归属 ?? s?.owner ?? s?.qq ?? '');
+
+      // === 1. 玩家载具迁移（原版 L1125-1142）===
+      if (player.vehicle) {
+        const pVehicleKey = String(player.vehicle);
+        const idx = fromVehicles.findIndex((v: any) => vehicleKey(v) === pVehicleKey);
+        if (idx >= 0) {
+          // 从原地图移除载具，添加到目标地图
+          toVehicles.push(fromVehicles[idx]);
+          fromVehicles.splice(idx, 1);
+        }
+      }
+
+      // === 2. 召唤物驾驶的载具迁移（原版 L1201-1243）===
+      // 只迁移跟随玩家的召唤物的载具（行走方式≠0且≠4）
+      const followSummons = fromSummons.filter((s: any) => summonOwner(s) === playerQQ);
+      for (const summon of followSummons) {
+        const sVehicle = String(summon?.载具 ?? summon?.vehicle ?? '');
+        if (!sVehicle) continue;
+
+        // 检查"跟随"熟练度<1（原版 取成就熟练度(标记,"跟随")<1）
+        const summonMarkers = parse(summon?.标记 ?? summon?.markers);
+        const followSkill = summonMarkers['跟随'] ?? 0;
+        if (Number(followSkill) >= 1) continue; // 熟练度>=1 不迁移（非跟随状态）
+
+        const vIdx = fromVehicles.findIndex((v: any) => vehicleKey(v) === sVehicle);
+        if (vIdx < 0) continue;
+
+        const sv = fromVehicles[vIdx];
+        const walkMode = Number(sv?.行走方式 ?? sv?.walkMode ?? 0);
+        // 行走方式 0=无行走机构（不能动），4=坐地（不能动）
+        if (walkMode === 0 || walkMode === 4) continue;
+
+        toVehicles.push(sv);
+        fromVehicles.splice(vIdx, 1);
+      }
+
+      // === 3. 跟随召唤物迁移（原版 L1244-1256）===
+      for (let i = fromSummons.length - 1; i >= 0; i--) {
+        const s = fromSummons[i];
+        if (summonOwner(s) !== playerQQ) continue;
+
+        // 跟随熟练度<1 才迁移
+        const sMarkers = parse(s?.标记 ?? s?.markers);
+        const fSkill = sMarkers['跟随'] ?? 0;
+        if (Number(fSkill) >= 1) continue;
+
+        // 更新召唤物地图字段并迁移
+        (s as any).地图 = toMap.id;
+        (s as any).mapId = toMap.id;
+        toSummons.push(s);
+        fromSummons.splice(i, 1);
+      }
+
+      // === 4. 移除"风月入墨"增益（原版 L1146-1154）===
+      // 原版在移动时从 player.增益 中删除"风月入墨"（离开地图失效）
+      let buffs = parse(player.buffs);
+      const beforeLen = buffs.length;
+      buffs = buffs.filter((b: any) => String(b?.name ?? b?.名称 ?? '') !== '风月入墨');
+      if (buffs.length !== beforeLen) {
+        player.buffs = JSON.stringify(buffs);
+      }
+
+      // === 写回地图动态字段 ===
+      await this.mapService.updateDynamicFields(Number(fromMapId), {
+        vehicles: JSON.stringify(fromVehicles),
+        summons: JSON.stringify(fromSummons),
+      });
+      await this.mapService.updateDynamicFields(Number(toMapId), {
+        vehicles: JSON.stringify(toVehicles),
+        summons: JSON.stringify(toSummons),
+      });
+    } catch (e: any) {
+      this.logger.warn(`迁移玩家载具/召唤物失败: ${e?.message}`);
+    }
   }
 
   /**
@@ -941,6 +1078,105 @@ export class GameService {
       }
     }
 
+    // ========== 装备栏面板（对齐原版 数据显示.ecode 使魔数据 L2032-2210） ==========
+    // 原版按部位遍历：头部/饰品/肩膀/上身/背部/手臂/手掌/腰部/下身/腿环/腿部/脚部/武器/植入体/增幅器/背上备用武器
+    const equipmentList = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const weaponList = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    const currentWeaponIdx = Number(player.currentWeapon ?? 0);
+    const slotNames = ['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部'];
+    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(`📋 装备:`);
+
+    // 品质前缀映射（对齐原版 显示品质 L1591-1639）
+    const qualityPrefix = (data: string): string => {
+      const c = (data || '').charAt(0).toLowerCase();
+      const map: Record<string, string> = { e: '普通', d: '良好', c: '优秀', b: '精良', a: '史诗', s: '传说' };
+      return map[c] || '神迹';
+    };
+
+    for (const slotName of slotNames) {
+      const eqIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === slotName);
+      if (eqIdx >= 0) {
+        const eq = equipmentList[eqIdx];
+        const qName = qualityPrefix(eq.data || eq.数据 || '');
+        const fx = eq.effect || eq.特效 || 0;
+        const fxStr = fx > 0 ? `[特效${fx}]` : '';
+        const enhanceLv = this.combatState.getAchievementProficiency(markers, slotName + '强化');
+        lines.push(`  ${slotName}: ${qName} ${eq.name || eq.名称 || '未知'}${fxStr}(+${enhanceLv})`);
+      } else {
+        const enhanceLv = this.combatState.getAchievementProficiency(markers, slotName + '强化');
+        lines.push(`  ${slotName}: 无(+${enhanceLv})`);
+      }
+    }
+
+    // 武器栏（L2160-2168）
+    if (currentWeaponIdx > 0 && weaponList[currentWeaponIdx - 1]) {
+      const w = weaponList[currentWeaponIdx - 1];
+      const qName = qualityPrefix(w.data || w.数据 || '');
+      const fx = w.effect || w.特效 || 0;
+      const fxStr = fx > 0 ? `[特效${fx}]` : '';
+      const enhanceLv = this.combatState.getAchievementProficiency(markers, '武器强化');
+      lines.push(`  武器: ${qName} ${w.name || w.名称 || '拳头'}${fxStr}(+${enhanceLv})`);
+    } else {
+      const enhanceLv = this.combatState.getAchievementProficiency(markers, '武器强化');
+      lines.push(`  武器: 普通 拳头(+${enhanceLv})`);
+    }
+
+    // 植入体（L2170-2179）
+    const implantIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === '植入体');
+    if (implantIdx >= 0) {
+      const im = equipmentList[implantIdx];
+      const qName = qualityPrefix(im.data || im.数据 || '');
+      lines.push(`  植入: ${qName} ${im.name || im.名称 || '未知'}`);
+    } else {
+      lines.push(`  植入: 无`);
+    }
+
+    // 增幅器（L2180-2189）
+    const ampIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === '增幅器');
+    if (ampIdx >= 0) {
+      const am = equipmentList[ampIdx];
+      const qName = qualityPrefix(am.data || am.数据 || '');
+      lines.push(`  增幅: ${qName} ${am.name || am.名称 || '未知'}`);
+    } else {
+      lines.push(`  增幅: 无`);
+    }
+
+    // 背上备用武器（L2190-2209）
+    let backupIdx = 0;
+    for (let i = 0; i < weaponList.length; i++) {
+      if (i + 1 !== currentWeaponIdx) {
+        const w = weaponList[i];
+        const qName = qualityPrefix(w.data || w.数据 || '');
+        const fx = w.effect || w.特效 || 0;
+        const fxStr = fx > 0 ? `[特效${fx}]` : '';
+        if (backupIdx === 0) {
+          lines.push(`  背上: ${qName} ${w.name || w.名称 || '未知'}${fxStr}`);
+        } else {
+          lines.push(`       ${qName} ${w.name || w.名称 || '未知'}${fxStr}`);
+        }
+        backupIdx++;
+      }
+    }
+
+    // 当前增益效果（对齐原版 显示使魔数据 L956-963）
+    const buffList: any[] = Array.isArray(playerData.buffs) && playerData.buffs.length > 0
+      ? playerData.buffs
+      : this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    if (Array.isArray(buffList) && buffList.length > 0) {
+      const now = Date.now();
+      const buffStrs = buffList.map((buff: any) => {
+        const name = buff.name || buff.名称 || '未知';
+        const expireAt = Number(buff.expireAt ?? buff.有效期至 ?? 0);
+        const remainSec = Math.max(0, Math.floor((expireAt - now) / 1000));
+        const mm = Math.floor(remainSec / 60);
+        const ss = remainSec % 60;
+        return `${name}(${mm}:${String(ss).padStart(2, '0')})`;
+      });
+      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(`✨ 增益: ${buffStrs.join('、')}`);
+    }
+
     return lines.join('\n');
   }
 
@@ -1016,34 +1252,219 @@ export class GameService {
   /**
    * 处理查看状态命令（详细属性）
    */
+  /**
+   * 处理详细属性面板命令
+   * 对应原版 数据显示.ecode 显示使魔数据(L723-995)：详细模式(参数详细=真)
+   * 显示计算后的完整属性面板，含四系抗性、穿透、回复、增益等
+   */
   async handleStatus(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    const { player, markers, buffs, weapons, equipment, sets } = playerData;
 
     // 计算后属性（对齐原版 _计算玩家：攻击/生命/护盾/装甲/命中/闪避/暴击等按等级+熟练度成长）
     const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
+    const b = calcBonus;
+    const num = (v: any) => Math.round(Number(v) || 0);
+    const fmt = (v: any) => {
+      const n = Number(v) || 0;
+      return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    };
 
-    const lines = [
-      `【${player.name || '冒险者'}】详细属性`,
-      `━━━━━━━━━━━━━━━`,
-      `等级: ${player.level}`,
-      `经验: ${Math.round(player.exp || 0)}/${Math.round(this.playerService.calcUpgradeExp(player.level))}`,
-      `━━━━━━━━━━━━━━━`,
-      `生命: ${Math.round(player.hp || 0)}/${Math.round(calcBonus.生命 || player.maxHp || 100)} (回复: ${calcBonus.生命回复 || 0}/s)`,
-      `护盾: ${Math.round(player.shield || 0)}/${Math.round(calcBonus.护盾 || player.maxShield || 0)} (回复: ${calcBonus.护盾回复 || 0}/s)`,
-      `装甲: ${Math.round(player.armor || 0)}/${Math.round(calcBonus.装甲 || player.maxArmor || 0)} (回复: ${calcBonus.装甲回复 || 0}/s)`,
-      `━━━━━━━━━━━━━━━`,
-      `攻击: ${Math.round(calcBonus.攻击 || 0)}`,
-      `防御: ${Math.round(player.defense || 0)}`,
-      `速度: ${Math.round(calcBonus.速度 || player.speed || 0)}`,
-      `闪避: ${Math.round(calcBonus.闪避 || 0)}%`,
-      `命中: ${Math.round(calcBonus.命中 || 0)}%`,
-      `暴击: ${Math.round(calcBonus.暴击 || 0)}%`,
-      `暴击伤害: ${Math.round(calcBonus.暴击伤害 || 150)}%`,
-      `━━━━━━━━━━━━━━━`,
-      `类型: ${player.type || '人类'}`,
-      `好感度: ${Math.round(player.affinity || 0)}`,
-    ];
+    const lines: string[] = [];
+    lines.push(`【${player.name || '冒险者'}】详细属性`);
+    lines.push('━━━━━━━━━━━━━━━');
+    // 基础信息（L768-779）
+    lines.push(`等级: ${player.level}`);
+    const expStr = `经验: ${num(player.exp)}/${num(this.playerService.calcUpgradeExp(player.level))}`;
+    lines.push(expStr);
+    // 觉醒信息（L773-777）
+    const awakenVal = this.combatState.getAchievementProficiency(markers, '觉醒');
+    const killVal = this.combatState.getAchievementProficiency(markers, '击杀');
+    if (awakenVal > 0) {
+      lines.push(`击杀: ${killVal} (觉醒可获得击杀属性加成)`);
+    }
+    lines.push('━━━━━━━━━━━━━━━');
+    // 三池（L780-786）
+    if (num(b.护盾) !== 0) lines.push(`护盾: ${num(player.shield)}/${num(b.护盾)}`);
+    if (num(b.装甲) !== 0) lines.push(`装甲: ${num(player.armor)}/${num(b.装甲)}`);
+    lines.push(`生命: ${num(player.hp)}/${num(b.生命)}`);
+    // 四系攻击（L787-788）
+    lines.push(`物攻: ${fmt(b.物伤)}  电攻: ${fmt(b.电伤)}`);
+    lines.push(`火攻: ${fmt(b.火伤)}  冰攻: ${fmt(b.冰伤)}`);
+    // 命中/闪避/速度/暴击（L789-790）
+    lines.push(`命中: ${fmt(b.命中)}  闪避: ${fmt(b.闪避)}`);
+    lines.push(`速度: ${fmt(b.速度)}  暴击: ${num(b.暴击)}%`);
+    // 好感/采集（L791-806）
+    const affinityVal = this.combatState.getAchievementProficiency(markers, '好感' + player.qq || '');
+    if (player.type) {
+      const famAff = this.combatState.getAchievementProficiency(markers, (player.type || '') + '好感');
+      lines.push(`好感: ${fmt(famAff)}  采集: ${num(b.采集)}%`);
+    } else {
+      lines.push(`好感: ${fmt(affinityVal)}`);
+    }
+    // 战力/挑战等级（L807）
+    const combatPower = this.bonusService.calcCombatPower(b);
+    const challengeLevel = this.combatState.getAchievementProficiency(player.achievements || {}, '挑战等级');
+    lines.push(`战力: ${combatPower}  挑战: ${challengeLevel}`);
+    lines.push('━━━━━━━━━━━━━━━');
+    // ========== 详细属性段（L808-976，对应原版 详细=真 分支） ==========
+    // 护盾抗性（L809-813）
+    if (num(b.护盾伤害上限) !== 0) lines.push(`◆护盾单次最多减少${fmt(b.护盾伤害上限)}%`);
+    lines.push(`◆护盾物/火/冰/电抗:`);
+    lines.push(`  ${fmt(b.护盾物抗)}%/${fmt(b.护盾火抗)}%/${fmt(b.护盾冰抗)}%/${fmt(b.护盾电抗)}%`);
+    // 装甲抗性（L814-818）
+    if (num(b.装甲伤害上限) !== 0) lines.push(`◆装甲单次最多减少${fmt(b.装甲伤害上限)}%`);
+    lines.push(`◆装甲物/火/冰/电抗:`);
+    lines.push(`  ${fmt(b.装甲物抗)}%/${fmt(b.装甲火抗)}%/${fmt(b.装甲冰抗)}%/${fmt(b.装甲电抗)}%`);
+    // 生命抗性（L819-823）
+    if (num(b.生命伤害上限) !== 0) lines.push(`◆生命单次最多减少${fmt(b.生命伤害上限)}%`);
+    lines.push(`◆生命物/火/冰/电抗:`);
+    lines.push(`  ${fmt(b.生命物抗)}%/${fmt(b.生命火抗)}%/${fmt(b.生命冰抗)}%/${fmt(b.生命电抗)}%`);
+    // 暴击伤害/韧性（L824）
+    lines.push(`◆暴击伤害: ${fmt(b.暴击伤害)}%  韧性: ${fmt(b.韧性)}%`);
+    // 经验加成/升级经验（L825-835）
+    if (player.type) {
+      if (num(b.经验) !== 0 || num(b.升级经验) !== 0) {
+        lines.push(`◆获得经验+${fmt(b.经验)}%  升级经验${fmt(b.升级经验)}%`);
+      }
+    } else {
+      if (num(b.升级经验) !== 0) {
+        lines.push(`◆升级经验${fmt(b.升级经验)}%`);
+      }
+    }
+    // 穿透（L836-838）
+    if (num(b.护盾穿透) + num(b.装甲穿透) + num(b.生命穿透) !== 0) {
+      lines.push(`◆护盾/装甲/生命穿透: ${fmt(b.护盾穿透)}/${fmt(b.装甲穿透)}/${fmt(b.生命穿透)}%`);
+    }
+    // 攻击冷却（L839-850）：玩家按武器列举
+    const weaponList = weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    if (Array.isArray(weaponList) && weaponList.length > 0) {
+      const cdParts: string[] = weaponList.map((w: any, i: number) =>
+        `${w.name || w.名称 || `武器${i + 1}`}:${num(w.cooldown ?? w.冷却 ?? 0)}`,
+      );
+      lines.push(`◆攻击冷却:`);
+      lines.push(`  ${cdParts.join('  ')}`);
+    }
+    // 额外攻击次数（L851-853）
+    if (num(b.攻击次数) > 0) {
+      lines.push(`◆额外攻击次数: ${num(b.攻击次数)}`);
+    }
+    // 贯穿/抗贯穿（L854-856）
+    if (num(b.贯穿) + num(b.抗贯穿) !== 0) {
+      lines.push(`◆贯穿: ${fmt(b.贯穿)}%  抗贯穿: ${fmt(b.抗贯穿)}%`);
+    }
+    // 溅射（L857-859）
+    if (num(b.溅射) + num(b.溅射2 ?? 0) !== 0) {
+      lines.push(`◆溅射伤害: ${num(b.溅射)}% (数量${num(b.溅射数量 ?? 0)})`);
+    }
+    // 三回复（L860-868）
+    if (num(b.护盾回复) + num(b.护盾回复2 ?? 0) !== 0) {
+      lines.push(`◆护盾回复: ${fmt(b.护盾回复)}+${fmt(b.护盾回复2)}%`);
+    }
+    if (num(b.装甲回复) + num(b.装甲回复2 ?? 0) !== 0) {
+      lines.push(`◆装甲修复: ${fmt(b.装甲回复)}+${fmt(b.装甲回复2)}%`);
+    }
+    if (num(b.生命回复) + num(b.生命回复2 ?? 0) !== 0) {
+      lines.push(`◆生命恢复: ${fmt(b.生命回复)}+${fmt(b.生命回复2)}%`);
+    }
+    // 三偷取（L869-877）
+    if (num(b.吸护盾) + num(b.吸护盾2 ?? 0) !== 0) {
+      lines.push(`◆护盾偷取: ${num(b.吸护盾)}+${num(b.吸护盾2)}%`);
+    }
+    if (num(b.吸装甲) + num(b.吸装甲2 ?? 0) !== 0) {
+      lines.push(`◆装甲偷取: ${num(b.吸装甲)}+${num(b.吸装甲2)}%`);
+    }
+    if (num(b.吸生命) + num(b.吸生命2 ?? 0) !== 0) {
+      lines.push(`◆生命偷取: ${num(b.吸生命)}+${num(b.吸生命2)}%`);
+    }
+    // 三部位伤害倍率（L878）
+    lines.push(`◆护盾/装甲/生命伤害: ${100 + num(b.攻击护盾)}/${100 + num(b.攻击装甲)}/${100 + num(b.攻击生命)}`);
+    // 掉落（L879-884）
+    if (num(b.掉落率) + num(b.掉落品质) !== 0) {
+      lines.push(`◆掉落几率+${fmt(b.掉落率)}% (数量+${fmt(b.掉落品质)}%)`);
+    }
+    if (sets && num((sets as any).legendaryRate ?? (sets as any).传说率) !== 0) {
+      lines.push(`◆传说几率+${fmt((num((sets as any).legendaryRate ?? (sets as any).传说率)) * 12.5)}%`);
+    }
+    // 每秒回复（L885-889）：玩家版除以3
+    const hpRegenPerSec = (num(b.生命回复) + num(b.生命回复2) / 100 * num(b.生命)) /
+      (1 - (num(b.生命火抗) + num(b.生命物抗) + num(b.生命冰抗) + num(b.生命电抗)) / 400);
+    const armorRegenPerSec = (num(b.装甲回复) + num(b.装甲回复2) / 100 * num(b.装甲)) /
+      (1 - (num(b.装甲火抗) + num(b.装甲物抗) + num(b.装甲冰抗) + num(b.装甲电抗)) / 400);
+    const shieldRegenPerSec = (num(b.护盾回复) + num(b.护盾回复2) / 100 * num(b.护盾)) /
+      (1 - (num(b.护盾火抗) + num(b.护盾物抗) + num(b.护盾冰抗) + num(b.护盾电抗)) / 400);
+    const totalRegen = hpRegenPerSec + armorRegenPerSec + shieldRegenPerSec;
+    lines.push(`◆每秒回复: ${fmt(totalRegen / 3)}`);
+    // 卷土重来（L890-892）
+    if (player.type) {
+      lines.push(`◆卷土重来持续时间: ${30 + num(b.卷土重来)}`);
+    }
+    // 每秒输出DPS（L893-920）
+    const currentWeaponIdx = num(player.currentWeapon ?? player.当前武器 ?? 0);
+    if (currentWeaponIdx > 0 && Array.isArray(weaponList) && weaponList.length >= currentWeaponIdx) {
+      const z = weaponList[currentWeaponIdx - 1];
+      const zPhys = Number(z?.bonus?.物 ?? z?.属性?.物 ?? 0);
+      const zFire = Number(z?.bonus?.火 ?? z?.属性?.火 ?? 0);
+      const zIce = Number(z?.bonus?.冰 ?? z?.属性?.冰 ?? 0);
+      const zElec = Number(z?.bonus?.电 ?? z?.属性?.电 ?? 0);
+      const zCd = Number(z?.cooldown ?? z?.冷却 ?? 10) || 10;
+      const baseDps = (num(b.冰伤) * zIce / 100 + num(b.火伤) * zFire / 100 + num(b.物伤) * zPhys / 100 + num(b.电伤) * zElec / 100) / zCd;
+      const critDps = (num(b.暴击伤害) - 100) / 100 * num(b.暴击) / 100 * baseDps;
+      lines.push(`◆每秒输出: ${fmt(baseDps + critDps)}`);
+    } else {
+      const baseDps = num(b.物伤) / 10;
+      const critDps = num(b.暴击) / 100 * (num(b.暴击伤害) - 100) / 100 * baseDps;
+      lines.push(`◆每秒输出: ${fmt(baseDps + critDps)}`);
+    }
+    // 攻击加成倍率（L903-904）
+    const atkBonus = (100 + (1 * (1 + num(b.电伤2) / 100) * (1 + num(b.攻击2) / 100) +
+      1 * (1 + num(b.物伤2) / 100) + 1 * (1 + num(b.火伤2) / 100) + 1 * (1 + num(b.冰伤2) / 100) - 4) * 100) *
+      (1 + num(b.攻击2) / 100);
+    lines.push(`◆攻击加成倍率: ${fmt(atkBonus)}%`);
+    // 当前增益效果（L956-963）
+    const buffList: any[] = Array.isArray(buffs) && buffs.length > 0
+      ? buffs
+      : this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    if (Array.isArray(buffList) && buffList.length > 0) {
+      const now = Date.now();
+      const buffStrs = buffList.map((buff: any) => {
+        const name = buff.name || buff.名称 || '未知';
+        const expireAt = Number(buff.expireAt ?? buff.有效期至 ?? 0);
+        const remainSec = Math.max(0, Math.floor((expireAt - now) / 1000));
+        const mm = Math.floor(remainSec / 60);
+        const ss = remainSec % 60;
+        return `${name}(${mm}:${String(ss).padStart(2, '0')})`;
+      });
+      lines.push(`◆当前增益: ${buffStrs.join('、')}`);
+    }
+    // 魅力/活力（L977-985）
+    if (player.type) {
+      const productivity = this.combatState.getAchievementProficiency(markers, '生产');
+      if (productivity > 0) {
+        lines.push(`载具生产力+${productivity}%  魅力: ${fmt(b.魅力)}`);
+      } else {
+        lines.push(`魅力: ${fmt(b.魅力)}`);
+      }
+      const vitality = this.combatState.getAchievementProficiency(markers, '活力2');
+      lines.push(`活力: ${num(player.vitality ?? player.活力 ?? 0)}/${vitality}`);
+    }
+    // 驾驶载具（L986-992）
+    const map = await this.mapService.getMapById(player.mapId);
+    if (map?.name) {
+      const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+      const playerVehicles = this.playerService.safeJsonParse<any[]>(player.vehicles, []);
+      const allVehicles = [...(vehicles || []), ...(playerVehicles || [])];
+      const driven = allVehicles.find((v: any) =>
+        v.owner === String(userId) || v.归属 === String(userId) ||
+        v.driver === String(userId) || v.驾驶者 === String(userId),
+      );
+      if (driven) {
+        const vName = driven.name || driven.名称 || '载具';
+        const vHp = num(driven.currentHp ?? driven.当前生命 ?? 0);
+        const vMaxHp = num(driven.bonus?.生命 ?? driven.加成?.生命 ?? 0);
+        lines.push(`正在驾驶 ${vName}(${vHp}/${vMaxHp})`);
+      }
+    }
 
     return lines.join('\n');
   }
@@ -4853,12 +5274,10 @@ export class GameService {
 
   /**
    * 处理强化植入体命令
-   * 强化指定的植入体
+   * 对应原版：物品操作.ecode 强化植入体()，参数格式"属性名+次数"（如"攻击3"/"3"）
    */
-  async handleEnhanceImplant(userId: number, implantName: string): Promise<string> {
-    // implantName 参数可能是强化券类型或空
-    const couponType = implantName || '';
-    return this.itemSystemService.enhanceImplant(userId, couponType);
+  async handleEnhanceImplant(userId: number, target: string): Promise<string> {
+    return this.itemSystemService.upgradeImplant(userId, target || '');
   }
 
   /**
@@ -4903,10 +5322,10 @@ export class GameService {
 
   /**
    * 处理强化增幅器命令
-   * 强化指定的增幅器
+   * 对应原版：物品操作.ecode 强化增幅器()，参数格式"属性名+次数"（如"攻击3"/"3"）
    */
-  async handleEnhanceAmplifier(userId: number, amplifierName: string): Promise<string> {
-    return this.itemSystemService.enhanceAmplifier(userId);
+  async handleEnhanceAmplifier(userId: number, target: string): Promise<string> {
+    return this.itemSystemService.upgradeAmplifier(userId, target || '');
   }
 
   /**
@@ -5484,6 +5903,157 @@ export class GameService {
   async handleFamiliarRank(userId: number): Promise<string> {
     // 委托到熟悉系统服务获取使魔排行数据
     return this.familiarSystemService.getFamiliarRanking(userId);
+  }
+
+  /**
+   * 排行榜（对应原版 _主程序.ecode L9560-L9745 排行命令）
+   * 支持：财富（游戏总财富排行，原版 L9635-9676）/ 载具（最有价值的载具排行，原版 L9714-9726）
+   *
+   * 财富 = 战斗力/1000 + Σ(宠物战斗力/100+100) + 计算价值(载具零件+家园三图物品建筑+背包+保险柜)
+   */
+  async handleRanking(userId: number, type: string): Promise<string> {
+    const requester = await this.prisma.player.findUnique({ where: { userId } });
+    const requesterName = requester?.name || '冒险者';
+    const normalized = (type || '财富').trim();
+
+    if (normalized === '财富' || normalized === 'wealth') {
+      return this.handleWealthRanking(requesterName);
+    }
+    if (normalized === '载具' || normalized === 'vehicle') {
+      return this.handleVehicleValueRanking(requesterName);
+    }
+    // 原版 L9731：无匹配类型
+    return `${requesterName}不是可以查看的排行榜`;
+  }
+
+  /** 游戏总财富排行（原版 L9635-9676） */
+  private async handleWealthRanking(requesterName: string): Promise<string> {
+    const players = await this.prisma.player.findMany();
+    const maps = await this.prisma.gameMap.findMany();
+    const entries: Array<{ name: string; value: number }> = [];
+
+    for (const p of players) {
+      // 战斗力/1000（原版 L9641）：按计算后属性构建
+      let value = 0;
+      try {
+        const playerData = await this.playerService.getPlayerData(p.userId);
+        const calcBonus = this.combatSystem.buildAttackerBonus(p, playerData);
+        const combatPower = this.bonusService.calcCombatPower({
+          攻击: calcBonus.攻击 || 0,
+          生命: calcBonus.生命 || 0,
+          装甲: calcBonus.装甲 || 0,
+          速度: calcBonus.速度 || 0,
+        });
+        value += combatPower / 1000;
+
+        const ownerKey = String((p as any).qq || p.userId);
+        // 宠物：归属匹配的召唤物 战斗力/100+100（原版 L9643-9648）
+        for (const map of maps) {
+          const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+          for (const pet of summons) {
+            const owner = String(pet.ownerId ?? pet.归属 ?? '');
+            if (owner !== ownerKey) continue;
+            const petPower = Number(
+              pet.combatPower ?? pet.战斗力
+              ?? this.playerService.safeJsonParse<any>(pet.markers, {})?.['战斗力'] ?? 0,
+            );
+            value += petPower / 100 + 100;
+          }
+        }
+
+        // 载具零件 + 家园三图物品/建筑 + 背包 + 保险柜 → 计算价值（原版 L9649-9673）
+        const items: any[] = [];
+        const houseName = String(p.houseName || '');
+        for (const map of maps) {
+          const mapName = String(map.name || '');
+          const isHome = houseName && (mapName === houseName
+            || mapName === houseName + '屋内' || mapName === houseName + '前线');
+          if (!isHome) {
+            // 非家园地图仅统计玩家载具零件
+            const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+            for (const v of vehicles) {
+              const owner = String(v.ownerId ?? v.归属 ?? '');
+              if (owner !== ownerKey) continue;
+              this.pushVehicleParts(items, v);
+            }
+            continue;
+          }
+          const mapItems = this.playerService.safeJsonParse<any[]>(map.items, []);
+          const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+          const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+          items.push(...mapItems, ...buildings);
+          for (const v of vehicles) {
+            const owner = String(v.ownerId ?? v.归属 ?? '');
+            if (owner !== ownerKey) continue;
+            this.pushVehicleParts(items, v);
+          }
+        }
+        const backpack = this.playerService.safeJsonParse<any[]>(p.backpack, []);
+        const safeBox = this.playerService.safeJsonParse<any[]>(p.safeBox, []);
+        items.push(...backpack, ...safeBox);
+        value += await this.itemService.calculateValue(items as any);
+      } catch {
+        // 单个玩家数据异常时按当前累计值参与排名
+      }
+      entries.push({ name: String(p.name || '冒险者'), value });
+    }
+
+    return this.formatRankingText(requesterName, '游戏总财富排行', entries);
+  }
+
+  /** 最有价值的载具排行（原版 L9714-9726）：全地图玩家载具按制造成本估值 */
+  private async handleVehicleValueRanking(requesterName: string): Promise<string> {
+    const players = await this.prisma.player.findMany();
+    const nameByOwner = new Map<string, string>();
+    for (const p of players) {
+      nameByOwner.set(String((p as any).qq || p.userId), String(p.name || '冒险者'));
+    }
+
+    const maps = await this.prisma.gameMap.findMany();
+    const entries: Array<{ name: string; value: number }> = [];
+    for (const map of maps) {
+      const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+      for (const v of vehicles) {
+        const owner = String(v.ownerId ?? v.归属 ?? '');
+        // 原版 L9718：去数字(归属)=="" 才计入（排除怪物/NPC载具）
+        if (owner.replace(/\D/g, '') === '') continue;
+        if (!nameByOwner.has(owner)) continue;
+        const parts: any[] = [];
+        this.pushVehicleParts(parts, v);
+        const value = await this.itemService.calculateValue(parts as any);
+        entries.push({ name: `${String(v.name ?? v.名称 ?? '载具')}(${nameByOwner.get(owner)})`, value });
+      }
+    }
+
+    return this.formatRankingText(requesterName, '最有价值的载具排行', entries);
+  }
+
+  /** 取制造成本：把载具零件展开为可估值的物品数组（原版 取制造成本） */
+  private pushVehicleParts(target: any[], vehicle: any): void {
+    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts ?? vehicle.零件 ?? [], []);
+    for (const part of parts) {
+      const name = String(part?.name ?? part?.['名称'] ?? '').trim();
+      if (!name) continue;
+      target.push({ name, type: part.type ?? '资源', quantity: Number(part.quantity ?? part.count ?? 1), count: Number(part.quantity ?? part.count ?? 1) });
+    }
+  }
+
+  /** 排行榜输出（原版 L9733-9745）：取最高战斗力排序后取前30 */
+  private formatRankingText(requesterName: string, title: string, entries: Array<{ name: string; value: number }>): string {
+    const sorted = [...entries].sort((a, b) => b.value - a.value).slice(0, 30);
+    if (sorted.length === 0) {
+      return `${requesterName}不是可以查看的排行榜`;
+    }
+    let text = `${requesterName}\n${title}`;
+    sorted.forEach((entry, idx) => {
+      text += `\n${idx + 1}、${entry.name}(${this.displayDamage(entry.value)})`;
+    });
+    return text;
+  }
+
+  /** 显示伤害（原版 通用 显示伤害）：取整数值文本 */
+  private displayDamage(value: number): string {
+    return String(Math.round(value || 0));
   }
 
   /**
@@ -10559,6 +11129,8 @@ export class GameService {
     if (!matched) return `${player.name || '冒险者'}你呼叫的对象${rawTarget}不在服务区`;
 
     if (matched.kind === 'pet') {
+      // 对齐原版 L6045：先调用 计算幼崽 更新成长计时，再检查标记
+      this.familiarSystemService.checkAndUpdateGrowth(matched.unit);
       if (markerValue(matched.unit, '阵地') !== 0) {
         return `${player.name || '冒险者'}\n${matched.unit.name ?? matched.unit.名称}防御阵地不能移动`;
       }
@@ -11862,6 +12434,17 @@ export class GameService {
       inventory.push(this.generateMerchantResource());
     }
     return inventory;
+  }
+
+  /**
+   * 公开接口：为行商生成物品库存（装备+资源），供 ScheduleService 调用。
+   * 对齐原版 后台运作.ecode L1228 生成行商物品(g.背包)。
+   * @param level 行商等级（默认1），决定装备/资源数量
+   * @param extra 资源额外数量（默认0）
+   * @returns 物品数组
+   */
+  async buildMerchantInventory(level = 1, extra = 0): Promise<any[]> {
+    return this.generateMerchantInventory(level, extra);
   }
 
   private async purchaseMerchantItem(

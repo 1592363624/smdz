@@ -517,9 +517,11 @@ export class FamiliarSystemService {
    * @returns 使魔数据文本
    */
   async viewFamiliarData(userId: number): Promise<string> {
+    // 对齐原版 数据显示.ecode L723-995 显示使魔数据()
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    const { player, markers, buffs } = playerData;
 
+    // 原版 L736-747：未选择使魔时返回提示
     if (!player.type) {
       return '你还没有选择使魔，请先发送「选择使魔」来选择';
     }
@@ -531,7 +533,11 @@ export class FamiliarSystemService {
       return `未知的使魔类型: ${player.type}`;
     }
 
-    // 获取好感度
+    // ====== 通过 buildAttackerBonus 获取计算后的完整属性 ======
+    // 对齐原版 玩家.属性（计算后），而非 DB 基础存储值
+    const calc = this.combatSystem.buildAttackerBonus(player, playerData);
+
+    // 获取好感度（对齐原版 L750/L792-804）
     const affinityKey = `${player.type}好感`;
     const affinity = this.playerService.getMarkerValue(markers, affinityKey);
 
@@ -540,7 +546,7 @@ export class FamiliarSystemService {
     const skillExp = this.playerService.getMarkerValue(markers, skillKey);
     const skillLevel = this.playerService.getSkillLevel(markers, player.type);
 
-    // 获取好感度描述
+    // 好感度描述
     let affinityDesc = '陌生';
     const affinityLevels = [0, 25, 50, 75, 100];
     const affinityTexts = ['陌生', '熟悉', '友好', '亲密', '挚爱'];
@@ -551,18 +557,167 @@ export class FamiliarSystemService {
       }
     }
 
-    const lines = [
-      `【${familiar.name}】Lv.${player.level}`,
-      `━━━━━━━━━━━━━━━`,
-      `类型: ${player.type}`,
-      `特有技能: ${familiar.uniqueSkill || '无'}`,
-      `技能等级: ${skillLevel}（经验: ${Math.round(skillExp)}）`,
-      `好感度: ${Math.round(affinity)}（${affinityDesc}）`,
-      `━━━━━━━━━━━━━━━`,
-      `${familiar.description || ''}`,
-    ];
+    // 好感度全属性加成（对齐原版 L754/L800: 全属性+(好感-100)/10%）
+    const affinityBonus = affinity > 100 ? `（全属性+${Math.round((affinity - 100) / 10)}%）` : '';
 
-    return lines.filter(Boolean).join('\n');
+    // ====== 构建显示文本 ======
+    const lines: string[] = [];
+
+    // 基础信息（对齐原版 L736-786）
+    lines.push(`【${familiar.name}】Lv.${player.level}`);
+    lines.push('━━━━━━━━━━━━━━━');
+
+    // 护盾/装甲/生命（对齐原版 L780-786）
+    if (calc.护盾) {
+      lines.push(`护盾: ${Math.round(player.shield || 0)}/${Math.round(calc.护盾)}`);
+    }
+    if (calc.装甲) {
+      lines.push(`装甲: ${Math.round(player.armor || 0)}/${Math.round(calc.装甲)}`);
+    }
+    lines.push(`生命: ${Math.round(player.hp || 0)}/${Math.round(calc.生命 || player.maxHp || 100)}`);
+
+    // 四系攻击（对齐原版 L787-788）
+    lines.push(`物攻: ${Math.round(calc.物伤 || 0)}  电攻: ${Math.round(calc.电伤 || 0)}`);
+    lines.push(`火攻: ${Math.round(calc.火伤 || 0)}  冰攻: ${Math.round(calc.冰伤 || 0)}`);
+
+    // 命中/闪避/速度/暴击（对齐原版 L789-790）
+    lines.push(`命中: ${Math.round(calc.命中 || 0)}  闪避: ${Math.round(calc.闪避 || 0)}`);
+    lines.push(`速度: ${Math.round(calc.速度 || 0)}  暴击: ${Math.round(calc.暴击 || 0)}%`);
+
+    // 好感度+采集（对齐原版 L791-806）
+    lines.push(`好感: ${Math.round(affinity)}（${affinityDesc}）${affinityBonus}`);
+
+    // 战力（对齐原版 L807）
+    const combatPower = this.bonusService.calcCombatPower({
+      攻击: calc.攻击 || 0,
+      生命: calc.生命 || 0,
+      装甲: calc.装甲 || 0,
+      速度: calc.速度 || 0,
+    });
+    lines.push(`战力: ${combatPower}`);
+
+    // 详细模式属性（对齐原版 L808-976 详细=真）
+    lines.push('━━━━━━━━━━━━━━━');
+
+    // 三层抗性（对齐原版 L809-823）
+    if (calc.护盾伤害上限) {
+      lines.push(`◆护盾单次最多减少${Math.round(calc.护盾伤害上限)}%`);
+    }
+    lines.push('◆护盾物/火/冰/电抗:');
+    lines.push(`  ${Math.round(calc.护盾物抗 || 0)}%/${Math.round(calc.护盾火抗 || 0)}%/${Math.round(calc.护盾冰抗 || 0)}%/${Math.round(calc.护盾电抗 || 0)}%`);
+
+    if (calc.装甲伤害上限) {
+      lines.push(`◆装甲单次最多减少${Math.round(calc.装甲伤害上限)}%`);
+    }
+    lines.push('◆装甲物/火/冰/电抗:');
+    lines.push(`  ${Math.round(calc.装甲物抗 || 0)}%/${Math.round(calc.装甲火抗 || 0)}%/${Math.round(calc.装甲冰抗 || 0)}%/${Math.round(calc.装甲电抗 || 0)}%`);
+
+    if (calc.生命伤害上限) {
+      lines.push(`◆生命单次最多减少${Math.round(calc.生命伤害上限)}%`);
+    }
+    lines.push('◆生命物/火/冰/电抗:');
+    lines.push(`  ${Math.round(calc.生命物抗 || 0)}%/${Math.round(calc.生命火抗 || 0)}%/${Math.round(calc.生命冰抗 || 0)}%/${Math.round(calc.生命电抗 || 0)}%`);
+
+    // 暴击伤害/韧性（对齐原版 L824）
+    lines.push(`◆暴击伤害: ${Math.round(calc.暴击伤害 || 0)}%  韧性: ${Math.round(calc.韧性 || 0)}%`);
+
+    // 穿透（对齐原版 L836-838：仅非0时显示）
+    const totalPen = (calc.护盾穿透 || 0) + (calc.装甲穿透 || 0) + (calc.生命穿透 || 0);
+    if (totalPen) {
+      lines.push(`◆护盾/装甲/生命穿透: ${Math.round(calc.护盾穿透 || 0)}/${Math.round(calc.装甲穿透 || 0)}/${Math.round(calc.生命穿透 || 0)}%`);
+    }
+
+    // 贯穿/抗贯穿（对齐原版 L854-856）
+    if ((calc.贯穿 || 0) + (calc.抗贯穿 || 0) !== 0) {
+      lines.push(`◆贯穿: ${Math.round(calc.贯穿 || 0)}%  抗贯穿: ${Math.round(calc.抗贯穿 || 0)}%`);
+    }
+
+    // 三层回复（对齐原版 L860-868）
+    if ((calc.护盾回复 || 0) + (calc.护盾回复2 || 0) !== 0) {
+      lines.push(`◆护盾回复: ${Math.round(calc.护盾回复 || 0)}+${Math.round(calc.护盾回复2 || 0)}%`);
+    }
+    if ((calc.装甲回复 || 0) + (calc.装甲回复2 || 0) !== 0) {
+      lines.push(`◆装甲修复: ${Math.round(calc.装甲回复 || 0)}+${Math.round(calc.装甲回复2 || 0)}%`);
+    }
+    if ((calc.生命回复 || 0) + (calc.生命回复2 || 0) !== 0) {
+      lines.push(`◆生命恢复: ${Math.round(calc.生命回复 || 0)}+${Math.round(calc.生命回复2 || 0)}%`);
+    }
+
+    // 三层偷取（对齐原版 L869-877）
+    if ((calc.吸护盾 || 0) + (calc.吸护盾2 || 0) !== 0) {
+      lines.push(`◆护盾偷取: ${Math.round(calc.吸护盾 || 0)}+${Math.round(calc.吸护盾2 || 0)}%`);
+    }
+    if ((calc.吸装甲 || 0) + (calc.吸装甲2 || 0) !== 0) {
+      lines.push(`◆装甲偷取: ${Math.round(calc.吸装甲 || 0)}+${Math.round(calc.吸装甲2 || 0)}%`);
+    }
+    if ((calc.吸生命 || 0) + (calc.吸生命2 || 0) !== 0) {
+      lines.push(`◆生命偷取: ${Math.round(calc.吸生命 || 0)}+${Math.round(calc.吸生命2 || 0)}%`);
+    }
+
+    // 伤害分配（对齐原版 L878）
+    lines.push(`◆护盾/装甲/生命伤害: ${100 + Math.round(calc.攻击护盾 || 0)}/${100 + Math.round(calc.攻击装甲 || 0)}/${100 + Math.round(calc.攻击生命 || 0)}`);
+
+    // 武器列表（对齐原版 L906-920）
+    const weapons = playerData.weapons || [];
+    if (Array.isArray(weapons) && weapons.length > 0) {
+      const weaponNames = weapons.map((w: any, i: number) =>
+        `${w?.name || w?.名称 || '未知'}${w?.data ? `[${this.familiarQualityPrefix(w.data)}]` : ''}`
+      );
+      lines.push(`◆使用的武器: ${weaponNames.join('、')}`);
+    }
+
+    // 装备列表（对齐原版 L922-930）
+    const equipments = playerData.equipment || [];
+    if (Array.isArray(equipments) && equipments.length > 0) {
+      const equipNames = equipments.map((e: any) =>
+        `${e?.name || e?.名称 || '未知'}${e?.data ? `[${this.familiarQualityPrefix(e.data)}]` : ''}`
+      );
+      lines.push(`◆使用的装备: ${equipNames.join('、')}`);
+    }
+
+    // 增益（对齐原版 L956-963）
+    if (buffs && Array.isArray(buffs) && buffs.length > 0) {
+      const buffNames = buffs.map((b: any) => b?.name || b?.名称 || '未知');
+      lines.push(`◆当前增益: ${buffNames.join('、')}`);
+    }
+
+    // 魅力/活力（对齐原版 L977-984）
+    lines.push('━━━━━━━━━━━━━━━');
+    lines.push(`魅力: ${Math.round(calc.魅力 || 0)}`);
+
+    // 活力（对齐原版 L983-984: 活力/活力2）
+    const vitality2 = this.playerService.getMarkerValue(markers, '活力2');
+    lines.push(`活力: ${Math.round(player.vitality || 0)}/${Math.round(vitality2)}`);
+
+    // 技能信息
+    lines.push('━━━━━━━━━━━━━━━');
+    lines.push(`特有技能: ${familiar.uniqueSkill || '无'}`);
+    lines.push(`技能等级: ${skillLevel}（经验: ${Math.round(skillExp)}）`);
+
+    // 描述
+    if (familiar.description) {
+      lines.push('━━━━━━━━━━━━━━━');
+      lines.push(familiar.description);
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * 使魔品质前缀
+   * 对齐原版 数据显示.ecode L1591-1617 显示品质()
+   * 取装备数据首位字符映射品质：e=普通 d=良好 c=优秀 b=精良 a=史诗 s=传说 default=神迹
+   * @param data 装备数据字符串
+   * @returns 品质前缀文本
+   */
+  private familiarQualityPrefix(data: string): string {
+    if (!data || typeof data !== 'string') return '神迹';
+    const prefix = data.charAt(0);
+    const qualityMap: Record<string, string> = {
+      'e': '普通', 'd': '良好', 'c': '优秀', 'b': '精良',
+      'a': '史诗', 's': '传说',
+    };
+    return qualityMap[prefix] || '神迹';
   }
 
   /**
@@ -2439,7 +2594,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       resultText += `【天神降世】${qualifiedPet.name} 对所有敌人降下审判！\n`;
       for (const m of spawnMonsters) {
         if ((m.hp || 0) <= 0) continue;
-        const r = await this.combatSystem.resolvePetVsMonster(qualifiedPet, m, map.id, userId, playerData, taskProgress);
+        const r = await this.combatSystem.resolvePetVsMonster(qualifiedPet, m, map.id, userId, playerData, taskProgress, '天神a', true);
         resultText += r + '\n';
         if (m.hp <= 0) await this.mapService.removeMapMonster(map.id, m.id);
       }
@@ -3317,6 +3472,16 @@ ${this.getAwakenStageName(d)}(${d})`;
       if (summon.活力 !== undefined) summon.活力 = vitality;
     }
     return false;
+  }
+
+  /**
+   * 检查并更新召唤物幼崽成长计时（public 包装）。
+   * 对应原版 _主程序.ecode L6045 在呼叫/操作宠物前先调用 计算幼崽 的逻辑。
+   * @returns true 表示仍是幼崽，false 表示已长大（标记已被清除）
+   */
+  checkAndUpdateGrowth(summon: any): boolean {
+    const markers = summon?.markers ?? summon?.标记 ?? {};
+    return this.updateSummonGrowth(summon, markers);
   }
 
   /**

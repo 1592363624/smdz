@@ -3,14 +3,14 @@
  * 对应原版：物品操作.ecode + 加成计算.ecode(部分) + 数据分析.ecode(部分)
  * 完整实现：物品管理、装备系统、制造、强化、植入体、增幅器、锁定、保护等
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService } from './bonus.service';
 import { ItemService, Item3, Equipment } from './item.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
-import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP } from './item.service';
+import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POOL, AMPLIFIER_RANDOM_POOL } from './item.service';
 
 // ========== 类型定义 ==========
 
@@ -35,6 +35,7 @@ export class ItemSystemService {
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
     private readonly bonusService: BonusService,
+    @Inject(forwardRef(() => ItemService))
     private readonly itemService: ItemService,
     private readonly achievementService: AchievementService,
     private readonly staticData: StaticDataService,
@@ -467,113 +468,119 @@ export class ItemSystemService {
 
   /**
    * 强化植入体
-   * 对应原版：强化植入体()
+   * 对应原版：物品操作.ecode 强化植入体() L57-210
+   * 判定顺序严格对齐原文 L82-86：①装备门禁 → ②b==0 帮助文本 → ③属性校验 → ④强化循环
    * 消耗水晶（随机）或水晶+史诗强化券（指定属性）强化植入体
    */
   async upgradeImplant(userId: number, target = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, equipment, backpack, markers, weapons } = playerData;
 
-    // 原版参数是“属性名+次数”，不带参数时只展示帮助，不执行一次强化。
+    // 【原文 L78-80】b=到整数(取数字(对象))；循环次数=b；对象=去数字(对象)
     const rawTarget = String(target || '').trim();
-    if (!rawTarget) {
-      return `${player.name}请输入“强化植入体3”随机强化，或输入“强化植入体攻击3”指定属性强化。`;
-    }
-
-    // 解析命令：target 可以是“3”“攻击3”或“攻击 3”。
-    let count = 1;
-    let statTarget = '';
     const numMatch = rawTarget.match(/(\d+)/);
-    if (numMatch) {
-      count = parseInt(numMatch[1], 10);
-    }
-    const textPart = rawTarget.replace(/\d+/g, '').trim();
-    statTarget = textPart;
+    const b = numMatch ? parseInt(numMatch[1], 10) : 0;
+    const count = b;
+    const statTarget = rawTarget.replace(/\d+/g, '').trim();
 
-    // 查找植入体装备
+    // 【原文 L82-83】装备门禁最先判断，未装备时无论参数如何都直接返回
     const implantIndex = this.findSpecialEquipmentIndex(equipment, 'implant');
     if (implantIndex === -1) {
-      return `${player.name}你身上未装备植入体。`;
+      return `${player.name}你身上未装备植入体`;
     }
 
-    if (count <= 0) {
-      return `${player.name} 输入"强化植入体3"来随机强化3次，"强化植入体攻击3"来消耗史诗强化券强化3次攻击。`;
+    // 【原文 L84-85】b==0（无次数参数）时展示帮助文本
+    if (b === 0) {
+      return `${player.name}“强化植入体3”来随机强化3次，“强化植入体攻击3”来消耗史诗强化券来强化3次攻击`;
     }
 
-    // 检查目标属性是否有效
+    // 【原文 L87-121】属性校验：空串（随机）与14个合法属性名通过，其余提示无效
     if (statTarget !== '' && !IMPLANT_STATS.includes(statTarget)) {
-      return `${player.name}，${statTarget}不是可以强化的植入体属性。`;
+      return `${player.name},${statTarget}不是可以强化的植入体属性`;
     }
 
     const implantItem = equipment[implantIndex];
     const implant = this.parseEquipment(implantItem);
 
-    // 获取植入体等级
-    let implantLevel = Number(markers['植入体等级'] ?? 0);
-    if (!Number.isFinite(implantLevel) || implantLevel < 0) implantLevel = 0;
+    // 【原文 L81】等级=取成就熟练度(玩家.标记,"植入体等级")
+    let implantLevel = this.getSpecialLevel(markers, '植入体等级');
 
-    // 计算材料
+    // 【原文 L123-124】强化材料=水晶数量；强化券=史诗强化券数量
     let crystalQty = this.getItemQuantity('水晶', backpack);
     let couponQty = this.getItemQuantity('史诗强化券', backpack);
 
     let usedMaterial = 0;
     let upgradedCount = 0;
-    const resultItems: Array<{ name: string }> = [];
+    // 物品数组：获得物品() 会按名称合并数量，此处用 Map 复刻该行为
+    const resultItems = new Map<string, number>();
     let failReason = '';
 
+    // 【原文 L127-153】强化主循环：材料判断为严格大于（强化材料 > 等级）
     for (let i = 0; i < count; i++) {
-      const materialCost = implantLevel;
-      if (crystalQty <= materialCost) {
+      if (crystalQty <= implantLevel) {
+        // 【原文 L148-150】水晶不足跳出循环
         failReason = '水晶不足';
         break;
       }
 
-      // 指定属性强化每次都必须同时消耗一张史诗强化券，不能先扣水晶再留下半次强化。
-      if (statTarget !== '' && couponQty < 1) {
+      if (statTarget === '') {
+        // 随机强化路径不消耗强化券
+      } else if (couponQty >= 1) {
+        // 【原文 L137-138】指定属性每次消耗一张史诗强化券
+        couponQty--;
+      } else {
+        // 【原文 L141-143】史诗强化券不足跳出循环
         failReason = '史诗强化券不足';
         break;
       }
 
-      usedMaterial += materialCost;
-      crystalQty -= materialCost;
-      if (statTarget !== '') couponQty--;
+      usedMaterial += implantLevel;
+      crystalQty -= implantLevel;
       upgradedCount++;
       implantLevel++;
 
       if (statTarget === '') {
-        // 随机强化
-        const randomStat = IMPLANT_STATS[Math.floor(Math.random() * IMPLANT_STATS.length)];
+        // 【原文 L133-135】随机强化：从15项池抽取（攻击占2项=双倍权重），顺序与原文一致
+        const randomStat = IMPLANT_RANDOM_POOL[Math.floor(Math.random() * IMPLANT_RANDOM_POOL.length)];
         const statKey = IMPLANT_STAT_MAP[randomStat];
         if (statKey) {
           implant.bonus[statKey] = (implant.bonus[statKey] || 0) + 1;
-          resultItems.push({ name: randomStat });
+          resultItems.set(randomStat, (resultItems.get(randomStat) || 0) + 1);
         }
       } else {
         // 指定属性强化
         const statKey = IMPLANT_STAT_MAP[statTarget];
         if (statKey) {
           implant.bonus[statKey] = (implant.bonus[statKey] || 0) + 1;
-          resultItems.push({ name: statTarget });
+          resultItems.set(statTarget, (resultItems.get(statTarget) || 0) + 1);
         }
       }
     }
 
-    if (usedMaterial === 0) {
-      return `${player.name} 材料不足，无法强化植入体。${failReason ? '（' + failReason + '）' : ''}`;
-    }
-
-    // 消耗材料
+    // 【原文 L156-158】循环结束后统一扣除水晶（无论是否成功强化过都执行，与原版一致）
     this.removeItemFromBackpack(backpack, '水晶', usedMaterial);
-    if (statTarget !== '') {
+
+    // 【原文 L159-166】组装结果文本；显示物品()+子文本替换(x→+) 等价于"名称+N"清单
+    const itemsText = [...resultItems.entries()].map(([name, qty]) => `${name}+${qty}`).join('、');
+    let w: string;
+    if (statTarget === '') {
+      w = `${player.name}使用${usedMaterial}块水晶强化了${upgradedCount}次植入体：\n${itemsText}`;
+    } else {
+      // 【原文 L163-165】指定属性时扣除已强化数量的史诗强化券
+      w = `${player.name}使用${usedMaterial}块水晶和${upgradedCount}张史诗强化券强化了${upgradedCount}次植入体：\n${itemsText}`;
       this.removeItemFromBackpack(backpack, '史诗强化券', upgradedCount);
     }
+
+    // 【原文 L202】w = 子文本替换(w,"x","+",,,真) + #换行符 + w4
+    w = `${w}\n${failReason}`;
 
     // 更新植入体装备数据
     implantItem.data = this.buildEquipmentData(implant);
     equipment[implantIndex] = implantItem;
 
-    // 更新标记 — 使用成就系统服务
-    this.achievementService.setAchievement(markers, '植入体等级', implantLevel);
+    // 【原文 L205-206】添加成就("植入体等级",已强化,玩家.标记)；添加成就("强化植入体",已强化,玩家.成就)
+    // 本框架将标记与成就统一存放在 markers 字段（既定架构决策）
+    this.achievementService.setAchievement(markers, '植入体等级', (markers['植入体等级'] as number || 0) + upgradedCount);
     this.achievementService.setAchievement(markers, '强化植入体', (markers['强化植入体'] as number || 0) + upgradedCount);
 
     // 保存
@@ -584,133 +591,141 @@ export class ItemSystemService {
         equipment: JSON.stringify(equipment),
         backpack: JSON.stringify(backpack),
         markers: JSON.stringify(markers),
+        sets,
       },
     });
 
-    const resultText = resultItems.map(r => r.name).join('、');
-    if (statTarget === '') {
-      return `${player.name}使用${usedMaterial}块水晶强化了${upgradedCount}次植入体：\n${resultText}${failReason ? '\n' + failReason : ''}`;
-    } else {
-      return `${player.name}使用${usedMaterial}块水晶和${upgradedCount}张史诗强化券强化了${upgradedCount}次植入体：\n${resultText}${failReason ? '\n' + failReason : ''}`;
-    }
+    return w;
   }
 
   /**
    * 强化增幅器
-   * 对应原版：强化增幅器()
-   * 消耗能量块（随机）或能量块+传说强化券（指定属性）强化增幅器
+   * 对应原版：物品操作.ecode 强化增幅器() L211-364
+   * 判定顺序严格对齐原文 L236-240：①装备门禁 → ②b==0 帮助文本 → ③属性校验 → ④强化循环
+   * 消耗能量块（随机）或能量块+传说强化券（指定属性）强化增幅器，写入二阶加成字段(Xxx2)
    */
   async upgradeAmplifier(userId: number, target = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, equipment, backpack, markers, weapons } = playerData;
 
+    // 【原文 L232-234】b=到整数(取数字(对象))；循环次数=b；对象=去数字(对象)
     const rawTarget = String(target || '').trim();
-    if (!rawTarget) {
-      return `${player.name}请输入“强化增幅器3”随机强化，或输入“强化增幅器攻击3”指定属性强化。`;
-    }
-
-    // 解析命令：target 可以是“3”“攻击3”或“攻击 3”。
-    let count = 1;
-    let statTarget = '';
     const numMatch = rawTarget.match(/(\d+)/);
-    if (numMatch) {
-      count = parseInt(numMatch[1], 10);
-    }
-    const textPart = rawTarget.replace(/\d+/g, '').trim();
-    statTarget = textPart;
+    const b = numMatch ? parseInt(numMatch[1], 10) : 0;
+    const count = b;
+    const statTarget = rawTarget.replace(/\d+/g, '').trim();
 
-    // 查找增幅器装备
+    // 【原文 L236-237】装备门禁最先判断，未装备时无论参数如何都直接返回
     const ampIndex = this.findSpecialEquipmentIndex(equipment, 'amplifier');
     if (ampIndex === -1) {
-      return `${player.name}你身上未装备增幅器。`;
+      return `${player.name}你身上未装备增幅器`;
     }
 
-    if (count <= 0) {
-      return `${player.name} 输入"强化增幅器3"来随机强化3次，"强化增幅器攻击3"来消耗传说强化券强化3次攻击。`;
+    // 【原文 L238-239】b==0（无次数参数）时展示帮助文本
+    if (b === 0) {
+      return `${player.name}“强化增幅器3”来随机强化3次，“强化增幅器攻击3”来消耗传说强化券来强化3次攻击`;
     }
 
+    // 【原文 L241-275】属性校验：空串（随机）与14个合法属性名通过，其余提示无效
     if (statTarget !== '' && !IMPLANT_STATS.includes(statTarget)) {
-      return `${player.name}，${statTarget}不是可以强化的增幅器属性。`;
+      return `${player.name},${statTarget}不是可以强化的增幅器属性`;
     }
 
     const ampItem = equipment[ampIndex];
     const amp = this.parseEquipment(ampItem);
 
-    let ampLevel = Number(markers['增幅器等级'] ?? 0);
-    if (!Number.isFinite(ampLevel) || ampLevel < 0) ampLevel = 0;
+    // 【原文 L235】等级=取成就熟练度(玩家.标记,"增幅器等级")
+    let ampLevel = this.getSpecialLevel(markers, '增幅器等级');
+
+    // 【原文 L277-278】强化材料=能量块数量；强化券=传说强化券数量
     let energyQty = this.getItemQuantity('能量块', backpack);
     let couponQty = this.getItemQuantity('传说强化券', backpack);
 
     let usedMaterial = 0;
     let upgradedCount = 0;
-    const resultItems: Array<{ name: string }> = [];
+    // 物品数组：获得物品() 会按名称合并数量，此处用 Map 复刻该行为
+    const resultItems = new Map<string, number>();
     let failReason = '';
 
+    // 【原文 L281-307】强化主循环：材料判断为严格大于（强化材料 > 等级）
     for (let i = 0; i < count; i++) {
-      const materialCost = ampLevel;
-      if (energyQty <= materialCost) {
+      if (energyQty <= ampLevel) {
+        // 【原文 L302-304】能量块不足跳出循环
         failReason = '能量块不足';
         break;
       }
 
-      if (statTarget !== '' && couponQty < 1) {
+      if (statTarget === '') {
+        // 随机强化路径不消耗强化券
+      } else if (couponQty >= 1) {
+        // 【原文 L291-292】指定属性每次消耗一张传说强化券
+        couponQty--;
+      } else {
+        // 【原文 L295-297】传说强化券不足跳出循环
         failReason = '传说强化券不足';
         break;
       }
 
-      usedMaterial += materialCost;
-      energyQty -= materialCost;
-      if (statTarget !== '') couponQty--;
+      usedMaterial += ampLevel;
+      energyQty -= ampLevel;
       upgradedCount++;
       ampLevel++;
 
       if (statTarget === '') {
-        const randomStat = IMPLANT_STATS[Math.floor(Math.random() * IMPLANT_STATS.length)];
+        // 【原文 L287-289】随机强化：从15项池抽取（攻击占2项=双倍权重，物攻在末尾），顺序与原文一致
+        const randomStat = AMPLIFIER_RANDOM_POOL[Math.floor(Math.random() * AMPLIFIER_RANDOM_POOL.length)];
         const statKey = AMPLIFIER_STAT_MAP[randomStat];
         if (statKey) {
           amp.bonus[statKey] = (amp.bonus[statKey] || 0) + 1;
-          resultItems.push({ name: randomStat });
+          resultItems.set(randomStat, (resultItems.get(randomStat) || 0) + 1);
         }
       } else {
+        // 指定属性强化（写入二阶加成字段 Xxx2）
         const statKey = AMPLIFIER_STAT_MAP[statTarget];
         if (statKey) {
           amp.bonus[statKey] = (amp.bonus[statKey] || 0) + 1;
-          resultItems.push({ name: statTarget });
+          resultItems.set(statTarget, (resultItems.get(statTarget) || 0) + 1);
         }
       }
     }
 
-    if (usedMaterial === 0) {
-      return `${player.name} 材料不足，无法强化增幅器。${failReason ? '（' + failReason + '）' : ''}`;
-    }
-
+    // 【原文 L310-312】循环结束后统一扣除能量块（无论是否成功强化过都执行，与原版一致）
     this.removeItemFromBackpack(backpack, '能量块', usedMaterial);
-    if (statTarget !== '') {
+
+    // 【原文 L313-320】组装结果文本；显示物品()+子文本替换(x→+) 等价于"名称+N"清单
+    const itemsText = [...resultItems.entries()].map(([name, qty]) => `${name}+${qty}`).join('、');
+    let w: string;
+    if (statTarget === '') {
+      w = `${player.name}使用${usedMaterial}块能量块强化了${upgradedCount}次增幅器：\n${itemsText}`;
+    } else {
+      // 【原文 L317-319】指定属性时扣除已强化数量的传说强化券
+      w = `${player.name}使用${usedMaterial}块能量块和${upgradedCount}张传说强化券强化了${upgradedCount}次增幅器：\n${itemsText}`;
       this.removeItemFromBackpack(backpack, '传说强化券', upgradedCount);
     }
+
+    // 【原文 L356】w = 子文本替换(w,"x","+",,,真) + #换行符 + w4
+    w = `${w}\n${failReason}`;
 
     ampItem.data = this.buildEquipmentData(amp);
     equipment[ampIndex] = ampItem;
 
-    // 更新标记 — 使用成就系统服务
-    this.achievementService.setAchievement(markers, '增幅器等级', ampLevel);
+    // 【原文 L359-360】添加成就("增幅器等级",已强化,玩家.标记)；添加成就("强化增幅器",已强化,玩家.成就)
+    // 本框架将标记与成就统一存放在 markers 字段（既定架构决策）
+    this.achievementService.setAchievement(markers, '增幅器等级', (markers['增幅器等级'] as number || 0) + upgradedCount);
     this.achievementService.setAchievement(markers, '强化增幅器', (markers['强化增幅器'] as number || 0) + upgradedCount);
 
+    const sets = this.itemService.recomputeSets(equipment, weapons, this.extractTreasures(player));
     await this.prisma.player.update({
       where: { userId },
       data: {
         equipment: JSON.stringify(equipment),
         backpack: JSON.stringify(backpack),
         markers: JSON.stringify(markers),
+        sets,
       },
     });
 
-    const resultText = resultItems.map(r => r.name).join('、');
-    if (statTarget === '') {
-      return `${player.name}使用${usedMaterial}块能量块强化了${upgradedCount}次增幅器：\n${resultText}${failReason ? '\n' + failReason : ''}`;
-    } else {
-      return `${player.name}使用${usedMaterial}块能量块和${upgradedCount}张传说强化券强化了${upgradedCount}次增幅器：\n${resultText}${failReason ? '\n' + failReason : ''}`;
-    }
+    return w;
   }
 
   // ===================================================================
@@ -1383,12 +1398,7 @@ export class ItemSystemService {
     return `${player.name}把植入体切换为${rawType}（${oldName}→${implantItem.name}）`;
   }
 
-  /**
-   * 强化植入体（基于 markers 存储）
-   * 消耗水晶和强化券提升植入体等级，等级越高成功率越低
-   * @param userId 玩家ID
-   * @param couponType 强化券类型：''=普通(仅水晶), '史诗'=史诗强化券(100%成功率), '传说'=传说强化券(90%成功率)
-   */
+  // ================ 以下为原版强化植入体的旧版占位实现（已被 upgradeImplant 替代）================
   async enhanceImplant(userId: number, couponType: string = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack, markers } = playerData;
@@ -1400,54 +1410,15 @@ export class ItemSystemService {
     }
 
     const implant = typeof implantData === 'string' ? JSON.parse(implantData) : implantData;
+
+    // 强化参数（原版占位逻辑：基础消耗=等级×5，成功率=100-等级×10%）
     const level = implant.level || 1;
-    const maxLevel = 20;
-
-    // 检查是否已达最大等级
-    if (level >= maxLevel) {
-      return `${player.name}，植入体已达最高等级 Lv.${maxLevel}，无法继续强化。`;
-    }
-
-    // 计算消耗和成功率
-    const crystalCost = level * 10;
-    const baseSuccessRate = Math.max(10, 100 - level * 5);
-    let successRate = baseSuccessRate;
-    let needsCoupon = false;
-    let couponName = '';
-
-    if (couponType === '史诗') {
-      // 史诗强化券：100% 成功率
-      successRate = 100;
-      needsCoupon = true;
-      couponName = '史诗强化券';
-    } else if (couponType === '传说') {
-      // 传说强化券：90% 成功率
-      successRate = 90;
-      needsCoupon = true;
-      couponName = '传说强化券';
-    }
-
-    // 检查水晶
-    const crystalQty = this.getItemQuantity('水晶', backpack);
-    if (crystalQty < crystalCost) {
-      return `${player.name}，强化需要 ${crystalCost} 个水晶，你只有 ${crystalQty} 个。`;
-    }
-
-    // 检查强化券
-    if (needsCoupon) {
-      const couponQty = this.getItemQuantity(couponName, backpack);
-      if (couponQty < 1) {
-        return `${player.name}，强化需要 1 张${couponName}，你还没有。`;
-      }
-      this.removeItemFromBackpack(backpack, couponName, 1);
-    }
-
-    // 消耗水晶
-    this.removeItemFromBackpack(backpack, '水晶', crystalCost);
-
-    // 判定成功率
-    const roll = Math.random() * 100;
-    const success = roll < successRate;
+    const crystalCost = level * 5;
+    const baseRate = Math.max(10, 100 - level * 10);
+    const successRate = Math.min(100, baseRate);
+    const needsCoupon = level >= 5;
+    const couponName = '强化券';
+    const success = Math.random() * 100 < successRate;
 
     if (success) {
       implant.level = level + 1;

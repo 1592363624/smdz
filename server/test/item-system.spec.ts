@@ -42,7 +42,7 @@ const staticDataMock = {
 
 // ItemService 真实实例（bonusToDataString 为纯方法，无需 DB 依赖）
 // 第三个参数 combatState 用于 recomputeSets 套装重算；此处给空桩即可（本文件早期用例不触发套装）
-const itemServiceReal = new ItemService({} as PrismaService, {} as StaticDataService, {} as any);
+const itemServiceReal = new ItemService({} as PrismaService, {} as StaticDataService, {} as any, {} as any, {} as any);
 
 const itemSystem = new ItemSystemService(
   {} as PrismaService,
@@ -131,7 +131,7 @@ describe('装备解析 (物品操作.ecode L1262-1511)', () => {
       }),
       isWeapon: () => true,
       getEffectById: () => ({ bonus: '{"贯穿":5}' }),
-    } as unknown as StaticDataService, {} as any);
+    } as unknown as StaticDataService, {} as any, {} as any, {} as any);
     const parsed = parser.parseEquipment({
       name: '解析武器', type: '装备', quantity: 1, durability: 7,
       data: 'a!ai25!bx1!@@工匠',
@@ -153,7 +153,7 @@ describe('装备解析 (物品操作.ecode L1262-1511)', () => {
       getEquipmentByName: () => ({ name: '龙息', equipType: '射弹武器', specialSeq: -39, properties: '{"damage":{"物理":20,"火焰":80}}' }),
       isWeapon: () => true,
       getEffectById: () => undefined,
-    } as unknown as StaticDataService, {} as any);
+    } as unknown as StaticDataService, {} as any, {} as any, {} as any);
     const parsed = parser.parseEquipment({ name: '龙息', type: '装备', quantity: 1, durability: 0, data: 'e!bx39' });
     expect(parsed.properties.phys).toBe(100);
     expect(parsed.properties.fire).toBe(80);
@@ -179,7 +179,7 @@ describe('分解装备 (物品操作.ecode L2076-2157)', () => {
     } as unknown as StaticDataService;
     const service = new ItemSystemService(
       prisma, playerService, {} as BonusService,
-      new ItemService(prisma, staticData, {} as any), achievements, staticData,
+      new ItemService(prisma, staticData, {} as any, {} as any, {} as any), achievements, staticData,
     );
     await service.deconstructItem(7, '高斯步枪', 1);
     expect(backpack.find((item: any) => item.name === '水晶')?.quantity).toBeCloseTo(8);
@@ -207,7 +207,7 @@ describe('套装判定重算 (物品操作.ecode 套装判断 L1581 → player.s
     },
   } as unknown as StaticDataService;
 
-  const itemServiceForSet = new ItemService({} as PrismaService, staticDataMock2, combatState);
+  const itemServiceForSet = new ItemService({} as PrismaService, staticDataMock2, combatState, {} as any, {} as any);
 
   const mk = (name: string) => ({ name, type: '装备', quantity: 1, durability: 0, data: '' });
 

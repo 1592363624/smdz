@@ -332,7 +332,13 @@ export class ScheduleService {
       await this.spawnArtisanAndXiaonv(maps);
 
       // 6. 生成小恶魔（怪物2）
-      await this.spawnLittleDemon(maps);
+      // 对齐原版 L1358：小恶魔仅在开拓地生成（开拓地==假时重选）
+      const frontierMaps = await this.mapService.getAllMaps();
+      const frontierOnly = frontierMaps.filter((m: any) =>
+        m.isFrontier && !m.isInstance && !m.noSpecial);
+      if (frontierOnly.length > 0) {
+        await this.spawnLittleDemon(frontierOnly);
+      }
 
       // 7. 生成小蓝（5%几率生成特殊物品）
       await this.spawnBlueItem(maps);
@@ -401,26 +407,35 @@ export class ScheduleService {
   }
 
   /**
-   * 生成行商 NPC（随机地图）
+   * 生成行商 NPC（随机地图，含物品库存）
+   * 对齐原版 后台运作.ecode L1213-1231：生成行商时调用 生成行商物品(g.背包)
    * @param maps 可刷特殊的地图列表
    */
   private async spawnMerchant(maps: any[]): Promise<void> {
     try {
       const map = this.pickRandomMap(maps);
-      const npcs = this.parseJsonArray<any>(map.npcs);
-      // 若地图已存在行商则跳过，避免重复
-      if (npcs.some((n: any) => n.name === '行商')) return;
+      const summons = this.parseJsonArray<any>(map.summons);
+      // 若地图已有行商则跳过，避免重复（原版也按 name 判断）
+      if (summons.some((n: any) => n?.name === '行商' || n?.名称 === '行商')) return;
 
-      npcs.push({
+      // 生成行商物品库存（对齐原版 L1228 生成行商物品(g.背包)）
+      const inventory = await this.gameService.buildMerchantInventory(1, 0);
+
+      // 行商作为召唤物加入地图（对齐原版 L1223-1231：归属="1"，类型=名称）
+      summons.push({
+        归属: '1',
         name: '行商',
-        type: 'npc',
-        title: '流浪商人',
-        description: '兜售各种物品的商人',
+        类型: '行商',
+        type: '行商',
+        背包: inventory,
+        qq: `召唤物${Date.now()}`,
+        markers: {},
+        标记: {},
       });
       await this.mapService.updateDynamicFields(map.id, {
-        npcs: JSON.stringify(npcs),
+        summons: JSON.stringify(summons),
       });
-      this.logger.log(`行商判断: 在地图 ${map.name} 生成了行商`);
+      this.logger.log(`行商判断: 在地图 ${map.name} 生成了行商（含${inventory.length}件物品）`);
     } catch (err: any) {
       this.logger.error(`生成行商失败: ${err.message}`);
     }

@@ -15,9 +15,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService, PlayerData } from './player.service';
-import { BonusService, BonusData } from './bonus.service';
+import { BonusService, BonusData, SetData } from './bonus.service';
 import { MapService, MapMonster } from './map.service';
 import { ItemSystemService } from './item-system.service';
+import { ItemService } from './item.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
 import { CombatStateService } from './combat-state.service';
@@ -289,6 +290,7 @@ export class CombatSystemService {
     private readonly combatState: CombatStateService,
     private readonly statsService: StatsService,
     @Optional() private readonly taskService?: TaskService,
+    @Optional() private readonly petItemService?: ItemService,
   ) {}
 
   // ==================== 公开接口 ====================
@@ -1860,6 +1862,13 @@ export class CombatSystemService {
         擦过: markers['擦过熟练度'] || 0,
         描边: markers['描边熟练度'] || 0,
       };
+      // 侵彻参数：增幅器5 需在 L959 块外重新读取玩家套装数据（原版 攻击方.套装.增幅器==5）
+      const amplifierSets = this.safeParseJson<any>(player.sets, {});
+      const amplifier5Flag = (amplifierSets['增幅器'] ?? amplifierSets.amplifier ?? 0) === 5;
+      const weaponAnesthesiaVal = (weapon.self as any)?.anesthesia ?? weapon.anesthesia ?? 0;
+      // 吸血姬猩红真伤：传入防御方标记/增益（原版 L4093-4110）
+      const vtdDefMarkers = this.playerService.safeJsonParse<Record<string, any>>(target.markers || '{}', {});
+      const vtdProfBefore = Number(vtdDefMarkers['猩红'] ?? 0);
       const damageResult = this.calcDamage(
         attackerBonus,
         defenderBonus,
@@ -1871,10 +1880,18 @@ export class CombatSystemService {
           dmgUpper,
           sniperComputer: hasSniper,
           amplifier3: (attackerBonus as any).amplifier3 === 3,
+          amplifier5: amplifier5Flag,
+          weaponAnesthesia: weaponAnesthesiaVal,
           mastery,
           defenderEquipment: playerData.equipment,
+          defenderMarkers: vtdDefMarkers,
+          defenderBuffs: this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []),
         },
       );
+      // 真伤释放后熟练度被清零 → 写回防御方标记
+      if (vtdProfBefore > 0 && Number(vtdDefMarkers['猩红'] ?? 0) === 0) {
+        target.markers = JSON.stringify(vtdDefMarkers);
+      }
       // 写回累加后的熟练度（玩家为真实玩家，非怪物）
       // 注意：playerData.markers 是解析对象，savePlayer 保存的是 player.markers 字符串，
       // 因此写回对象后需同步回 player.markers，确保后续 savePlayer 能持久化。
@@ -2049,13 +2066,24 @@ export class CombatSystemService {
             resultLines.push(`${st.name} 闪避了溅射伤害`);
             continue;
           }
+          const stMarkersVtd = this.playerService.safeJsonParse<Record<string, any>>(st.markers || '{}', {});
+          const stProfBefore = Number(stMarkersVtd['猩红'] ?? 0);
           const splashDmg = this.calcDamage(
             attackerBonus,
             splashDef,
             weapon,
             weapon.damageType || CombatSystemService.DMG_PHYS,
             isCrit,
+            {
+              amplifier5: amplifier5Flag,
+              weaponAnesthesia: weaponAnesthesiaVal,
+              defenderMarkers: stMarkersVtd,
+              defenderBuffs: this.safeParseJson<any[]>(st.buffs || '[]', []),
+            },
           );
+          if (stProfBefore > 0 && Number(stMarkersVtd['猩红'] ?? 0) === 0) {
+            st.markers = JSON.stringify(stMarkersVtd);
+          }
           const splashFinal = Math.max(1, Math.floor(splashDmg.damage * splashDamageMultiplier));
           const splashShieldBefore = Number(st.shield || 0);
           const splashArmorBefore = Number(st.armor || 0);
@@ -2618,6 +2646,10 @@ export class CombatSystemService {
       }
 
       // 伤害计算（怪物作为攻击方，玩家作为防御方；怪物武器简化为拳头+怪物四属性伤害）
+      // 侵彻仅限玩家套装增幅器5触发，怪物无套装故 amplifier5=false
+      const monsterWeaponAnesthesia = (attackWeapon.self as any)?.anesthesia ?? attackWeapon.anesthesia ?? 0;
+      const victimMarkersVtd = this.playerService.safeJsonParse<Record<string, any>>(victim.markers || '{}', {});
+      const victimProfBefore = Number(victimMarkersVtd['猩红'] ?? 0);
       const dmg = this.calcDamage(
         damageAttackerBonus,
         {
@@ -2648,7 +2680,15 @@ export class CombatSystemService {
         attackWeapon,
         attackWeapon.damageType || CombatSystemService.DMG_PHYS,
         false,
+        {
+          weaponAnesthesia: monsterWeaponAnesthesia,
+          defenderMarkers: victimMarkersVtd,
+          defenderBuffs: this.safeParseJson<any[]>(victim.buffs || '[]', []),
+        },
       );
+      if (victimProfBefore > 0 && Number(victimMarkersVtd['猩红'] ?? 0) === 0) {
+        victim.markers = JSON.stringify(victimMarkersVtd);
+      }
       const finalDmg = Math.max(0, Math.floor(dmg.damage));
 
       // ========== 载具承伤（对应原版 战斗相关.ecode L3175-3529） ==========
@@ -3250,6 +3290,11 @@ export class CombatSystemService {
     const hasGospel = this.combatState.buffRequire('福音书', victimBuffs, gospelStrengthText, nowMs, gospelTimeText);
     if (hasGospel && gospelStrengthText.value > 0) {
       remaining = { physical: 0.25, fire: 0.25, ice: 0.25, elec: 0.25 };
+      this.combatState.gainBuff2(
+        victimBuffs,
+        { 名称: '福音书', 持续时间: 300, 强度: 10 },
+        nowMs,
+      );
       extraPool = zeroPool();
       extraBreakdown = {
         shield: zeroBreakdown(),
@@ -3780,10 +3825,18 @@ export class CombatSystemService {
       sniperComputer?: boolean;
       /** 套装增幅器=3：三段评级阈值 +20% 且评级后倍率 +20% */
       amplifier3?: boolean;
+      /** 套装增幅器=5：贯穿时追加侵彻伤害（原版 L3266-3284） */
+      amplifier5?: boolean;
+      /** 武器自带麻醉值（原版 z1.自带.麻醉；增幅器5需检查为0才触发侵彻） */
+      weaponAnesthesia?: number;
       /** 三段评级熟练度值（可读写，用于累加熟练度并计算倍率加成） */
       mastery?: { 致命?: number; 强力?: number; 正中?: number; 擦过?: number; 描边?: number };
       /** 防御方装备列表；生命/装甲/护盾增强器按 L3166-L3172 顺序判断 */
       defenderEquipment?: Array<{ specialSeq?: number; name?: string; 特殊序号?: number; 名称?: string }>;
+      /** 防御方标记对象（猩红熟练度读写，吸血姬真伤释放判定用） */
+      defenderMarkers?: Record<string, any> | null;
+      /** 防御方增益数组（判断猩红增益是否活跃） */
+      defenderBuffs?: any[];
     },
   ): DamageResult {
     // 1. 计算基础攻击力 = 攻击力 + 武器伤害 + 元素伤害
@@ -3977,8 +4030,71 @@ export class CombatSystemService {
       }
     }
 
+    // 12.6 侵彻（对应原版 战斗相关.ecode L3266-3284）
+    // 原版条件：攻击方.套装.增幅器==5 且 z1.自带.麻醉==0 且 伤害倍率!=0 且 已贯穿
+    // 效果：按防御方三池上限的0.005×倍率追加四属性额外伤害到对应池
+    let penetrateText = '';
+    if (penetrated && opts?.amplifier5 && (opts?.weaponAnesthesia ?? 0) === 0 && dmgMult !== 0) {
+      const defHp = defBonus.生命 || 0;
+      const defArmor = defBonus.装甲 || 0;
+      const defShield = defBonus.护盾 || 0;
+      const totalPenetrate = (defHp * 0.02 + defArmor * 0.02 + defShield * 0.02) * dmgMult;
+      // 追加额外四属性伤害到贯穿breakdown（原版 L3269-3280）
+      const hpAdd = defHp * 0.005 * dmgMult;
+      const armorAdd = defArmor * 0.005 * dmgMult;
+      const shieldAdd = defShield * 0.005 * dmgMult;
+      pierceBreakdown.life = {
+        physical: pierceBreakdown.life.physical + hpAdd,
+        fire: pierceBreakdown.life.fire + hpAdd,
+        ice: pierceBreakdown.life.ice + hpAdd,
+        elec: pierceBreakdown.life.elec + hpAdd,
+      };
+      pierceBreakdown.armor = {
+        physical: pierceBreakdown.armor.physical + armorAdd,
+        fire: pierceBreakdown.armor.fire + armorAdd,
+        ice: pierceBreakdown.armor.ice + armorAdd,
+        elec: pierceBreakdown.armor.elec + armorAdd,
+      };
+      pierceBreakdown.shield = {
+        physical: pierceBreakdown.shield.physical + shieldAdd,
+        fire: pierceBreakdown.shield.fire + shieldAdd,
+        ice: pierceBreakdown.shield.ice + shieldAdd,
+        elec: pierceBreakdown.shield.elec + shieldAdd,
+      };
+      // 重算 pierce 直接伤害值（汇总追加后的四属性总额）
+      pierce.directLife = sumBreakdown(pierceBreakdown.life);
+      pierce.directArmor = sumBreakdown(pierceBreakdown.armor);
+      pierce.directShield = sumBreakdown(pierceBreakdown.shield);
+      penetrateText = `（侵彻${Math.round(totalPenetrate)})`;
+    }
+
+    // 吸血姬猩红真伤释放（战斗相关.ecode L4093-4110）：
+    // 防御方有"猩红"熟练度且当前无活跃猩红增益 → 本次攻击附加等额真伤（三池结转），
+    // 上限=防御方当前三池总和（L4101-4103），随后熟练度清零（L4109）。
+    let vampireTrueText = '';
+    const vampireTrue: { value: number } = { value: 0 };
+    if (opts?.defenderMarkers) {
+      const prof = Number(opts.defenderMarkers['猩红'] ?? 0);
+      if (prof > 0) {
+        const nowMsVtd = Date.now();
+        const hasScarletBuff = (opts?.defenderBuffs || []).some((b: any) => {
+          if (!b) return false;
+          if ((b.名称 ?? b.name) !== '猩红') return false;
+          const rawExpire = Number(b.有效期至 ?? b.expireAt ?? 0);
+          const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+          return expireMs > nowMsVtd;
+        });
+        if (!hasScarletBuff) {
+          const totalState = (defBonus.生命 || 0) + (defBonus.装甲 || 0) + (defBonus.护盾 || 0);
+          vampireTrue.value = Math.min(prof, totalState);
+          vampireTrueText = `（猩红${Math.round(prof)}）`;
+          opts.defenderMarkers['猩红'] = 0; // 原版 置成就熟练度("猩红",标记,0)
+        }
+      }
+    }
+
     // 13. 三池串行分伤（破盾溢出打装甲，破甲溢出打生命；贯穿跳过池直接注入）
-    const poolDamage = this.distributeDamageToPools(resistBreakdown, atkBonus, defBonus, pierce.directLife > 0 || pierce.directArmor > 0 ? pierce : undefined);
+    const poolDamage = this.distributeDamageToPools(resistBreakdown, atkBonus, defBonus, pierce.directLife > 0 || pierce.directArmor > 0 ? pierce : undefined, vampireTrue);
 
     // 14. 总伤害
     const totalDamage = poolDamage.shield + poolDamage.armor + poolDamage.hp;
@@ -4001,7 +4117,7 @@ export class CombatSystemService {
       penetrated,
       vehicleExtraPoolDamage,
       vehicleExtraBreakdown: pierceBreakdown,
-      effectText: enhancerEffectText,
+      effectText: enhancerEffectText + penetrateText + vampireTrueText,
     };
   }
 
@@ -4944,6 +5060,8 @@ export class CombatSystemService {
    * public：供信息显示/属性面板调用，展示"计算后"的成长属性。
    */
   buildAttackerBonus(player: any, playerData: PlayerData, map?: any): BonusData {
+    // 原版 L1746-1760：每次计算玩家前先重置武器自带/加成，避免套装判断2
+    // 写入的等级加成跨次累加。这里保留原始快照，供同一武器对象反复重置。
     // 从玩家基础属性构建
     // 对齐原版 _计算玩家：加成从 0 起步（原版 玩家.加成 = 空加成 j），
     // 再由"等级成长 + 使魔专属 + 装备/套装"累加得出最终属性。
@@ -4978,6 +5096,34 @@ export class CombatSystemService {
       世界等级差距: 0,
       减益: 0,
     };
+
+    try {
+      const weapons = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+      if (Array.isArray(weapons) && weapons.length > 0) {
+        weapons.forEach((weapon: any, index: number) => {
+          if (!weapon || typeof weapon !== 'object') return;
+          if (!weapon.__originalBonus) weapon.__originalBonus = JSON.stringify(weapon.bonus ?? weapon.加成 ?? {});
+          if (!weapon.__originalBaseBonus) {
+            weapon.__originalBaseBonus = JSON.stringify(
+              weapon.baseBonus ?? weapon.基础加成 ?? weapon.self ?? weapon.自带 ?? {},
+            );
+          }
+
+          const parseSnapshot = <T>(value: string, fallback: T): T => {
+            try { return JSON.parse(value) as T; } catch { return fallback; }
+          };
+          weapon.bonus = weapon.加成 = parseSnapshot<Record<string, number>>(weapon.__originalBonus, {});
+          weapon.baseBonus = weapon.基础加成 = weapon.self = weapon.自带 =
+            parseSnapshot<Record<string, number>>(weapon.__originalBaseBonus, {});
+
+          if (typeof weapon.baseBonus?.攻击 === 'number') {
+            weapon.baseBonus.攻击 += index * (1 + lv / 100);
+          }
+        });
+      }
+    } catch (error: any) {
+      this.logger.warn(`武器自带加成重置失败: ${error.message}`);
+    }
 
     // ========== 玩家/使魔通用成长公式（对应原版 加成计算.ecode L1799-1833） ==========
     // 原版 _计算玩家 对所有特殊序号>0（即选了使魔的玩家）按等级+属性熟练度成长：
@@ -5539,7 +5685,7 @@ export class CombatSystemService {
     // 黑花嫁/白花嫁4件套、暴击熟练度→暴伤、武器等级加成（高斯步枪等+等级×2）
     try {
       const sets = this.playerService.safeJsonParse<any>(player.sets, {});
-      const weapons = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+      const weapons = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
       this.bonusService.checkSetBonus({
         currentHp: player.hp || 0,
         currentShield: player.shield || 0,
@@ -5556,6 +5702,35 @@ export class CombatSystemService {
       }, Date.now() / 1000);
     } catch (err: any) {
       this.logger.warn(`套装加成计算失败: ${err.message}`);
+    }
+
+    // ========== 法宝加成（对应原版 法宝加成 L3143-3232、法宝加成2 L3053-3096） ==========
+    try {
+      const sets = this.playerService.safeJsonParse<any>(player.sets, {});
+      this.bonusService.calculateTreasureBonus(bonus, sets);
+      this.bonusService.calculateHanGuangBonus(bonus, sets);
+    } catch (err: any) {
+      this.logger.warn(`法宝加成计算失败: ${err.message}`);
+    }
+
+    // ========== 计算增益（对应原版 加成计算.ecode L81-L575） ==========
+    try {
+      this.bonusService.calculateGameBonus({
+        bonus,
+        attributes: bonus,
+        markers,
+        buffs: playerData.buffs || [],
+        equipment: playerData.equipment || this.playerService.safeJsonParse<any[]>(player.equipment, []),
+        weapons: playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []),
+        currentWeapon: player.currentWeapon,
+        level: lv,
+        skillLevel,
+        affinity: player.affinity,
+        sets: this.playerService.safeJsonParse<SetData>(player.sets, {}),
+        currentHp: player.hp,
+      }, Date.now() / 1000);
+    } catch (err: any) {
+      this.logger.warn(`计算增益处理失败: ${err.message}`);
     }
 
     // ========== 好感追加分支（对应原版 _计算玩家 L2285-2315） ==========
@@ -5824,6 +5999,45 @@ export class CombatSystemService {
       this.logger.warn(`计算增益失败: ${err.message}`);
     }
 
+    // ========== 最终加成（对应原版 _计算玩家 末尾 calculateFinalBonus 调用） ==========
+    // 原版将"玩家.属性"(基础)与"玩家.加成"(装备/套装/增益累加)分离，
+    // 最后调用 calculateFinalBonus(玩家.属性, 玩家.加成) 合并：
+    //   - 四系伤害 = (伤害 + 攻击) * (1 + 伤害2/100) * (1 + 攻击2/100)²
+    //   - 速度/命中/闪避/护盾/装甲/生命 *= (1 + 对应2/100)²
+    // 本框架将两者合并为同一 bonus 对象，需先抽取"2"字段和"攻击"为独立来源再合并。
+    // 原版 target(属性) 不含攻击，攻击来自 source(加成)，故将攻击移入 source 后从 target 清零。
+    try {
+      const attackVal = bonus.攻击 || 0;
+      const source2: BonusData = {
+        攻击: attackVal,
+        攻击2: bonus.攻击2 || 0,
+        电伤2: bonus.电伤2 || 0,
+        火伤2: bonus.火伤2 || 0,
+        物伤2: bonus.物伤2 || 0,
+        冰伤2: bonus.冰伤2 || 0,
+        速度2: bonus.速度2 || 0,
+        命中2: bonus.命中2 || 0,
+        闪避2: bonus.闪避2 || 0,
+        护盾2: bonus.护盾2 || 0,
+        装甲2: bonus.装甲2 || 0,
+        生命2: bonus.生命2 || 0,
+        生命回复2: bonus.生命回复2 || 0,
+        护盾回复2: bonus.护盾回复2 || 0,
+        装甲回复2: bonus.装甲回复2 || 0,
+      };
+      // 将攻击和"2"字段从 target 清零，让 calculateFinalBonus 重新计算
+      bonus.攻击 = 0;
+      bonus.攻击2 = 0; bonus.电伤2 = 0; bonus.火伤2 = 0;
+      bonus.物伤2 = 0; bonus.冰伤2 = 0;
+      bonus.速度2 = 0; bonus.命中2 = 0; bonus.闪避2 = 0;
+      bonus.护盾2 = 0; bonus.装甲2 = 0; bonus.生命2 = 0;
+      bonus.生命回复2 = 0; bonus.护盾回复2 = 0; bonus.装甲回复2 = 0;
+      this.bonusService.calculateFinalBonus(bonus, source2);
+      // calculateFinalBonus 会把 source.攻击 累加回 target.攻击
+    } catch (err: any) {
+      this.logger.warn(`最终加成计算失败: ${err.message}`);
+    }
+
     // 应用递减收益
     this.bonusService.applyAllDiminishingReturns(bonus);
 
@@ -6016,6 +6230,7 @@ export class CombatSystemService {
     atkBonus: BonusData,
     defBonus: BonusData,
     penetrate?: { directLife: number; directArmor: number; directShield: number },
+    vampireTrue?: { value: number },
   ): PoolDamage {
     const sum = (b: DamageBreakdown) => b.physical + b.fire + b.ice + b.elec;
     const scale = (b: DamageBreakdown, r: number): DamageBreakdown => ({
@@ -6051,12 +6266,22 @@ export class CombatSystemService {
 
     // ---- 第一层：护盾 ----
     // resisted.shield 已是"完整 breakdown 经护盾层抗减"的结果；原版护盾层伤害 = Σ×(1+攻击护盾/100)
-    const shieldDmgRaw = sum(resisted.shield) * (1 + (atkBonus.攻击护盾 || 0) / 100);
-    if (shieldDmgRaw > 0) {
-      pool.shield = Math.min(shieldDmgRaw, currentShield);
+    let shieldDmg = sum(resisted.shield) * (1 + (atkBonus.攻击护盾 || 0) / 100);
+    // 吸血姬真伤·护盾层（原版 L4175-4190）：伤害<当前护盾时真伤并入，超出部分结转下层
+    if (vampireTrue && vampireTrue.value > 0 && shieldDmg < currentShield) {
+      if (shieldDmg + vampireTrue.value > currentShield) {
+        vampireTrue.value = vampireTrue.value - currentShield + shieldDmg;
+        shieldDmg = currentShield + 1; // L4180 不加上的话破盾就不继续了
+      } else {
+        shieldDmg += vampireTrue.value;
+        vampireTrue.value = 0;
+      }
+    }
+    if (shieldDmg > 0) {
+      pool.shield = Math.min(shieldDmg, currentShield);
       // 溢出比例（原版 剩余伤害 = (伤害 - 当前护盾) / 伤害），缩放"原始剩余四属性伤害"
-      const overflowRatio = shieldDmgRaw > currentShield
-        ? (shieldDmgRaw - currentShield) / shieldDmgRaw
+      const overflowRatio = shieldDmg > currentShield
+        ? (shieldDmg - currentShield) / shieldDmg
         : 0;
       remaining = scale(remaining, overflowRatio);
     } else {
@@ -6071,11 +6296,21 @@ export class CombatSystemService {
       ice: remaining.ice * (sum(resisted.armor) > 0 ? resisted.armor.ice / (resisted.shield.ice || 1) : 0),
       elec: remaining.elec * (sum(resisted.armor) > 0 ? resisted.armor.elec / (resisted.shield.elec || 1) : 0),
     };
-    const armorDmgRaw = sum(armorLayer) * (1 + (atkBonus.攻击装甲 || 0) / 100);
-    if (armorDmgRaw > 0) {
-      pool.armor = Math.min(armorDmgRaw, currentArmor);
-      const overflowRatio = armorDmgRaw > currentArmor
-        ? (armorDmgRaw - currentArmor) / armorDmgRaw
+    let armorDmg = sum(armorLayer) * (1 + (atkBonus.攻击装甲 || 0) / 100);
+    // 吸血姬真伤·装甲层（原版 L4312-4327）：伤害<当前装甲时真伤并入，超出部分结转下层
+    if (vampireTrue && vampireTrue.value > 0 && armorDmg < currentArmor) {
+      if (armorDmg + vampireTrue.value > currentArmor) {
+        vampireTrue.value = vampireTrue.value - currentArmor + armorDmg;
+        armorDmg = currentArmor + 1; // L4317 不加上的话破甲就不继续了
+      } else {
+        armorDmg += vampireTrue.value;
+        vampireTrue.value = 0;
+      }
+    }
+    if (armorDmg > 0) {
+      pool.armor = Math.min(armorDmg, currentArmor);
+      const overflowRatio = armorDmg > currentArmor
+        ? (armorDmg - currentArmor) / armorDmg
         : 0;
       remaining = scale(remaining, overflowRatio);
     } else {
@@ -6098,10 +6333,20 @@ export class CombatSystemService {
       ice: remaining.ice * (sum(resisted.life) > 0 ? resisted.life.ice / (resisted.shield.ice || 1) : 0),
       elec: remaining.elec * (sum(resisted.life) > 0 ? resisted.life.elec / (resisted.shield.elec || 1) : 0),
     };
-    const hpDmgRaw = sum(lifeLayer) * (1 + (atkBonus.攻击生命 || 0) / 100);
-    if (hpDmgRaw > 0) {
+    let hpDmg = sum(lifeLayer) * (1 + (atkBonus.攻击生命 || 0) / 100);
+    // 吸血姬真伤·生命层（原版 L4453-4463）：伤害<当前生命时并入，最底层不再结转
+    if (vampireTrue && vampireTrue.value > 0 && hpDmg < currentHp) {
+      if (hpDmg + vampireTrue.value > currentHp) {
+        vampireTrue.value = vampireTrue.value - currentHp + hpDmg;
+        hpDmg = currentHp;
+      } else {
+        hpDmg += vampireTrue.value;
+        vampireTrue.value = 0;
+      }
+    }
+    if (hpDmg > 0) {
       // 生命为最底层：扣 min(伤害, 当前生命)，溢出（伤害>生命）即击杀，不再传递
-      pool.hp = Math.min(hpDmgRaw, currentHp);
+      pool.hp = Math.min(hpDmg, currentHp);
     }
 
     return pool;
@@ -6131,6 +6376,32 @@ export class CombatSystemService {
       monster.armor = Math.max(0, (monster.armor || 0) - armorDmg);
     }
     monster.hp = Math.max(0, (monster.hp || 0) - hpDmg);
+
+    // 猩红积累（战斗相关.ecode L3854-3859）：防御方带活跃猩红增益时，
+    // 本次总伤害（上限=三池当前总和）累计入防御方"猩红"熟练度，供真伤释放。
+    if (totalDamage > 0) {
+      try {
+        const mBuffs: any[] = typeof monster.buffs === 'string' ? JSON.parse(monster.buffs || '[]') : (monster.buffs || []);
+        const nowMs = Date.now();
+        const hasScarletBuff = mBuffs.some((b: any) => {
+          if (!b) return false;
+          if ((b.名称 ?? b.name) !== '猩红') return false;
+          const rawExpire = Number(b.有效期至 ?? b.expireAt ?? 0);
+          const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+          return expireMs > nowMs;
+        });
+        if (hasScarletBuff) {
+          const mMarkers: Record<string, any> = typeof monster.markers === 'string'
+            ? JSON.parse(monster.markers || '{}')
+            : (monster.markers || {});
+          const stateCap = (monster.hp || 0) + (currentArmor || 0) + (currentShield || 0);
+          mMarkers['猩红'] = (Number(mMarkers['猩红'] ?? 0) || 0) + Math.min(totalDamage, stateCap);
+          monster.markers = typeof monster.markers === 'string' ? JSON.stringify(mMarkers) : mMarkers;
+        }
+      } catch {
+        /* 标记/增益解析失败时跳过积累 */
+      }
+    }
 
     return { shield: shieldDmg, armor: armorDmg, hp: hpDmg };
   }
@@ -7354,6 +7625,8 @@ export class CombatSystemService {
     ownerUserId: number,
     ownerPlayerData?: any,
     taskProgress?: Array<{ actionName: string; count: number }>,
+    attackText?: string,
+    mustHit?: boolean,
   ): Promise<string> {
     const petBonus: BonusData = {
       攻击: pet.attack || 10,
@@ -7368,12 +7641,60 @@ export class CombatSystemService {
       护盾: pet.shield || 0,
       装甲: pet.armor || 0,
     };
+
+    // 宠物觉醒装备（物品操作.ecode L2493-2517）：解析 装备预设[2].装备 并入宠物属性。
+    // 武器并入 加成/自带；防具/饰品同样并入并做套装判断（原版 L2508-2510）。
+    const presetEquip = pet.equipmentPresets?.[2]?.equipment ?? pet.装备预设?.[2]?.装备 ?? [];
+    const toNum = (v: any): number => (typeof v === 'number' && isFinite(v) ? v : 0);
+    const petSetData: SetData = {};
+    for (const entry of (Array.isArray(presetEquip) ? presetEquip : [])) {
+      if (!entry || String(entry.type ?? entry.类型 ?? '') !== '装备') continue; // L2500
+      let parsed;
+      try {
+        parsed = this.petItemService?.parseEquipment(entry as any);
+      } catch {
+        continue;
+      }
+      if (!parsed) continue;
+      const isWeaponEq = parsed.type === '武器'
+        || (typeof this.staticData.isWeapon === 'function' && this.staticData.isWeapon(parsed));
+      const sources = [parsed.bonus, parsed.baseBonus];
+      for (const src of sources) {
+        for (const [key, value] of Object.entries(src || {})) {
+          const num = toNum(value);
+          if (num === 0) continue;
+          switch (key) {
+            case '攻击': case '命中': case '闪避': case '暴击': case '暴击伤害':
+            case '生命': case '护盾': case '装甲': case '速度':
+              (petBonus as any)[key] = toNum((petBonus as any)[key]) + num;
+              break;
+            default:
+              break; // 其余字段当前宠物战斗模型未消费
+          }
+        }
+      }
+      if (!isWeaponEq) {
+        // L2510：非武器做套装判断
+        try {
+          this.combatState.setJudgment(petSetData, parsed.name, parsed.specialSeq);
+        } catch {
+          /* 静态数据缺失时跳过 */
+        }
+      }
+    }
+    // 一拳套装生效（原版 _初始化怪物尾段 L2884-2889：套装.一拳==4 → 增加攻击力+25%）
+    if ((petSetData.onePunch || 0) >= 4) {
+      petBonus.攻击 = toNum(petBonus.攻击) * 1.25;
+    }
+
     const monsterBonus = this.buildMonsterBonus(monster);
 
-    // 命中判定（宠物命中 vs 怪物闪避）
-    const hitRate = this.calcHitRate(petBonus, monsterBonus);
-    if (!this.checkHit(hitRate)) {
-      return `${pet.name} 攻击 ${monster.name}，被闪避了`;
+    // 命中判定（宠物命中 vs 怪物闪避）；天神降世必中（原版 L400 传入"真"必中参数）
+    if (!mustHit) {
+      const hitRate = this.calcHitRate(petBonus, monsterBonus);
+      if (!this.checkHit(hitRate)) {
+        return `${pet.name} 攻击 ${monster.name}，被闪避了`;
+      }
     }
 
     // 暴击判定
@@ -7389,6 +7710,14 @@ export class CombatSystemService {
     );
     const finalDamage = Math.max(1, Math.floor(dmg.damage));
     this.applyDamageToMonster(monster, finalDamage, dmg.poolDamage);
+
+    // 对齐原版 战斗相关.ecode L2065-2066：攻击文本为"天神a"时给防御方施加"降"debuff（30秒）
+    // "降"在 bonus.service.calculateGameBonus L145-148 中使被命中方全抗-10%
+    if (attackText === '天神a') {
+      const mBuffs = this.safeParseJson<any[]>(monster.buffs, []);
+      this.combatState.gainBuff(mBuffs, '降', 30, false, Date.now(), 0);
+      monster.buffs = JSON.stringify(mBuffs);
+    }
 
     // 怪物被击杀 → 发放掉落与经验（传入 attacker=ownerUserId 触发掉落闭环）
     if (monster.hp <= 0) {

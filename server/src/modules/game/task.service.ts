@@ -705,6 +705,11 @@ export class TaskService {
       lines.push(`  完成可获得: ${rewards.map((reward) => `${reward.name}×${this.formatNumber(reward.count * this.getRewardScale(markers))}`).join('、')}`);
     }
     lines.push('  完成任务后奖励自动发放。');
+    // 对齐原版 数据显示.ecode L452-454：任务文本含"采集"时追加说明
+    const fullText = lines.join('\n');
+    if (fullText.includes('采集')) {
+      lines.push('  ·击杀怪物掉落资源、从地上拾取不是玩家丢弃的资源，也属于[采集]行为');
+    }
     return lines;
   }
 

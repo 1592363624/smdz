@@ -89,7 +89,7 @@ describe('贸易、购物、求助任务触发', () => {
         getAchievement: jest.fn(() => 0),
         setAchievement: jest.fn((target: any, name: string, value: number) => { target[name] = value; }),
       },
-      staticData: {},
+      staticData: { getMerchantConfig: jest.fn(() => ({ itemText: '木头2', equipmentText: '' })) },
       itemService: { parseEquipment: jest.fn() },
       logger: { log: jest.fn() },
     });

@@ -1,25 +1,43 @@
 import { ItemService } from '../src/modules/game/item.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
+import { CombatStateService } from '../src/modules/game/combat-state.service';
+import { PlayerService } from '../src/modules/game/player.service';
+import { MapService } from '../src/modules/game/map.service';
 
-describe('物品使用产出闭环', () => {
-  it('种子箱按使用可得随机池发放种子并消耗箱子', async () => {
-    const player: any = {
+/**
+ * 打开箱子 1:1 复刻自检（物品操作.ecode L2220-2458）
+ */
+
+function buildCombatStateStub() {
+  const combatState = new CombatStateService();
+  return combatState;
+}
+
+describe('打开箱子（使用物品）', () => {
+  function buildPlayer(overrides: Record<string, any> = {}) {
+    return {
       id: 1,
       userId: 42,
       name: '测试玩家',
-      backpack: JSON.stringify([{
-        name: '种子箱',
-        type: '资源',
-        quantity: 10,
-        count: 10,
-        durability: 0,
-        data: '',
-      }]),
-      markers: '{}',
-      markers2: '[]',
-      buffs: '[]',
-    };
+      level: 10,
+      hp: 100,
+      maxHp: 1000,
+      shield: 500,
+      maxShield: 500,
+      armor: 300,
+      maxArmor: 300,
+      exp: 0,
+      backpack: JSON.stringify([]),
+      markers: {},
+      markers2: [],
+      buffs: [],
+      houseName: '',
+      ...overrides,
+    } as any;
+  }
+
+  function buildHarness(player: any, staticItems: Record<string, any>, equipmentNames: string[] = []) {
     const prisma: any = {
       player: {
         findUnique: jest.fn(async () => player),
@@ -28,37 +46,246 @@ describe('物品使用产出闭环', () => {
           return player;
         }),
       },
+      gameMap: {
+        update: jest.fn(async () => ({})),
+      },
+    };
+    const savedPlayers: any[] = [];
+    const playerService: any = {
+      safeJsonParse: <T>(json: any, fallback: T): T => {
+        if (typeof json !== 'string') return (json === undefined || json === null ? fallback : json) as T;
+        try { return JSON.parse(json) as T; } catch { return fallback; }
+      },
+      getBackpackItems: (p: any) => {
+        if (!Array.isArray(p.backpack)) p.backpack = JSON.parse(p.backpack || '[]');
+        return p.backpack;
+      },
+      getPlayerData: async () => ({
+        player,
+        backpack: typeof player.backpack === 'string' ? JSON.parse(player.backpack) : player.backpack,
+        markers: player.markers,
+        markers2: player.markers2,
+        buffs: player.buffs,
+      }),
+      savePlayer: async (p: any) => {
+        savedPlayers.push(JSON.parse(JSON.stringify({
+          backpack: typeof p.backpack === 'string' ? p.backpack : JSON.stringify(p.backpack),
+          markers: p.markers,
+          markers2: p.markers2,
+          buffs: p.buffs,
+          hp: p.hp,
+          shield: p.shield,
+          armor: p.armor,
+          exp: p.exp,
+        })));
+      },
     };
     const staticData: any = {
-      getItemByName: jest.fn((name: string) => name === '种子箱'
-        ? {
-            name,
-            useEffects: JSON.stringify(['椰树种子1，椰树种子1，金龙果种子1']),
-            useMarkers: '[]',
-          }
-        : undefined),
-      getEquipmentByName: jest.fn(() => undefined),
+      getItemByName: jest.fn((name: string) => staticItems[name]),
+      getEquipmentByName: jest.fn((name: string) =>
+        equipmentNames.includes(name) ? { name } : undefined),
+      getAllEffects: jest.fn(() => []),
+      getEffectById: jest.fn(() => undefined),
     };
+    const mapService: any = {
+      getMapByName: jest.fn(async () => null),
+    };
+
+    /** 模拟真实 distributeLoot：装备生成品质数据入包，经验直接累加，资源叠加 */
+    const itemSystem: any = {
+      distributeLoot: async (_playerData: any, drops: any[]) => {
+        const parts: string[] = [];
+        for (const drop of drops) {
+          if (equipmentNames.includes(drop.name)) {
+            const p = playerService.getBackpackItems(player);
+            for (let i = 0; i < Math.max(1, Math.floor(drop.quantity)); i++) {
+              p.push({ name: drop.name, type: '装备', quantity: 1, count: 1, durability: 0, data: 'c' });
+              parts.push(`${drop.name}×1`);
+            }
+            player.backpack = JSON.stringify(p);
+          } else if (drop.name === '经验') {
+            player.exp = (player.exp || 0) + Math.floor(drop.quantity);
+            parts.push(`经验${Math.floor(drop.quantity)}`);
+          } else {
+            const p = playerService.getBackpackItems(player);
+            const existing = p.find((it: any) => it.name === drop.name && it.type !== '装备');
+            if (existing) {
+              existing.quantity += drop.quantity;
+              existing.count = existing.quantity;
+            } else {
+              p.push({ name: drop.name, type: '资源', quantity: drop.quantity, count: drop.quantity });
+            }
+            player.backpack = JSON.stringify(p);
+            parts.push(`${drop.name}x${drop.quantity}`);
+          }
+        }
+        return parts.join('、');
+      },
+    };
+
     const service = new ItemService(
       prisma as PrismaService,
       staticData as StaticDataService,
-      {} as any,
+      buildCombatStateStub(),
+      playerService as unknown as PlayerService,
+      mapService as unknown as MapService,
+      itemSystem,
+    );
+    return { service, prisma, playerService, savedPlayers };
+  }
+
+  it('装备箱产出走品质链路：生成带品质数据的独立装备并按原版文本展示', async () => {
+    const player = buildPlayer({
+      backpack: JSON.stringify([{ name: '普通装备箱', type: '资源', quantity: 2, count: 2 }]),
+    });
+    const { service } = buildHarness(
+      player,
+      { '普通装备箱': { name: '普通装备箱', useEffects: JSON.stringify(['铁剑1']), useMarkers: '[]' } },
+      ['铁剑'],
     );
 
-    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const result = await service.useItem(42, '种子箱', 10);
-      const backpack = JSON.parse(player.backpack);
+    const text = await service.useItem(42, '普通装备箱', 2);
+    const backpack = typeof player.backpack === 'string' ? JSON.parse(player.backpack) : player.backpack;
 
-      expect(result).toContain('椰树种子×10');
-      expect(backpack.find((item: any) => item.name === '种子箱')).toBeUndefined();
-      expect(backpack.find((item: any) => item.name === '椰树种子')).toEqual(expect.objectContaining({
-        quantity: 10,
-        count: 10,
-      }));
-      expect(prisma.player.update).toHaveBeenCalled();
+    expect(text).toContain('测试玩家使用了2的普通装备箱');
+    expect(text).toContain('[1]铁剑C');
+    // 箱子已消耗
+    expect(backpack.find((it: any) => it.name === '普通装备箱')).toBeUndefined();
+    // 两件独立品质装备入包
+    const swords = backpack.filter((it: any) => it.name === '铁剑');
+    expect(swords.length).toBe(2);
+    expect(swords[0].data).toBe('c');
+    // 使用物品成就按装备件数累计（原版 L2453）
+    expect(player.markers['使用物品']).toBe(2);
+    expect(player.markers['使用普通装备箱']).toBe(2);
+  });
+
+  it('种子箱多候选池随机发放资源并消耗箱子（原 L2407-2410）', async () => {
+    const player = buildPlayer({
+      backpack: JSON.stringify([{ name: '种子箱', type: '资源', quantity: 10, count: 10 }]),
+    });
+    const { service } = buildHarness(
+      player,
+      { '种子箱': { name: '种子箱', useEffects: JSON.stringify(['椰树种子1，椰树种子1，金龙果种子1']), useMarkers: '[]' } },
+    );
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const text = await service.useItem(42, '种子箱', 10);
+      const backpack = JSON.parse(player.backpack);
+      expect(text).toContain('椰树种子x10');
+      expect(backpack.find((it: any) => it.name === '种子箱')).toBeUndefined();
+      expect(backpack.find((it: any) => it.name === '椰树种子')?.quantity).toBe(10);
     } finally {
-      random.mockRestore();
+      jest.restoreAllMocks();
     }
+  });
+
+  it('奶恢复三池并附带经验掉落；死亡状态受120秒复活冷却限制', async () => {
+    const player = buildPlayer({
+      backpack: JSON.stringify([{ name: '奶', type: '资源', quantity: 5, count: 5 }]),
+    });
+    const { service } = buildHarness(
+      player,
+      { '奶': { name: '奶', useEffects: JSON.stringify(['经验10000']), useMarkers: '[]' } },
+    );
+
+    // 存活状态：享用了
+    let text = await service.useItem(42, '奶', 1);
+    expect(text).toContain('享用了1的奶，恢复了10%的状态');
+    expect(player.hp).toBeCloseTo(150); // 100 + 500*0.1
+    expect(player.exp).toBe(10000);
+
+    // 死亡状态复活成功
+    player.hp = 0;
+    text = await service.useItem(42, '奶', 1);
+    expect(text).toContain('使用了1的奶，恢复了10%的状态');
+    expect(player.hp).toBeGreaterThan(0);
+
+    // 冷却中（死亡状态）：不复活不回复，但仍正常消耗并获得经验掉落（原版 L2286-2287 仅跳过回复）
+    const backpackBefore = JSON.parse(player.backpack).length;
+    player.hp = 0; // 复活冷却仅对死亡状态生效，需再次处于死亡状态
+    const beforeExp = player.exp;
+    text = await service.useItem(42, '奶', 1);
+    expect(text).toContain('使用奶复活冷却');
+    expect(player.exp).toBe(beforeExp + 10000);
+    const afterPack = JSON.parse(player.backpack);
+    expect(afterPack.find((it: any) => it.name === '奶')?.quantity).toBe(2); // 5-1-1-1
+  });
+
+  it('凭证每日一次发放等级/2的改良建筑箱，冷却中不消耗凭证', async () => {
+    const player = buildPlayer({
+      level: 11,
+      backpack: JSON.stringify([{ name: '凭证', type: '资源', quantity: 5, count: 5 }]),
+    });
+    const { service } = buildHarness(
+      player,
+      { '凭证': { name: '凭证', useEffects: JSON.stringify(['经验1']), useMarkers: '[]' } },
+    );
+
+    const text = await service.useItem(42, '凭证', 3);
+    expect(text).toContain('得到了5的改良建筑箱'); // floor(11/2)=5
+    const backpack = JSON.parse(player.backpack);
+    // 实际消耗固定为 1（原版 使用数量=1）
+    expect(backpack.find((it: any) => it.name === '凭证')?.quantity).toBe(4);
+    expect(backpack.find((it: any) => it.name === '改良建筑箱')?.quantity).toBe(5);
+    expect(player.markers['凭证']).toBe(1);
+
+    // 同日再次使用：进入冷却且不消耗
+    const text2 = await service.useItem(42, '凭证', 1);
+    expect(text2).not.toContain('改良建筑箱');
+    expect(text2).toMatch(/\d+分|\d+秒|\d+小时/); // 剩余冷却时间文本
+    expect(JSON.parse(player.backpack).find((it: any) => it.name === '凭证')?.quantity).toBe(4);
+  });
+
+  it('蛋糕授予掉落率+50%增益并显示剩余时间', async () => {
+    const player = buildPlayer({
+      backpack: JSON.stringify([{ name: '蛋糕', type: '资源', quantity: 2, count: 2 }]),
+    });
+    const { service } = buildHarness(
+      player,
+      { '蛋糕': { name: '蛋糕', useEffects: JSON.stringify(['经验40000']), useMarkers: '[]' } },
+    );
+
+    const text = await service.useItem(42, '蛋糕', 2);
+    expect(text).toContain('享用了2的蛋糕，掉落率+50%');
+    expect(text).toMatch(/\(\d+分\d+秒\)/);
+    const cakeBuff = player.buffs.find((b: any) => b.名称 === '蛋糕');
+    expect(cakeBuff).toBeTruthy();
+    expect(cakeBuff.有效期至).toBeGreaterThan(Date.now());
+  });
+
+  it('至纯圣水无家园时提前返回不消耗；有家园时加速观测时间', async () => {
+    const playerNoHome = buildPlayer({
+      backpack: JSON.stringify([{ name: '至纯圣水', type: '资源', quantity: 3, count: 3 }]),
+    });
+    const noHome = buildHarness(
+      playerNoHome,
+      { '至纯圣水': { name: '至纯圣水', useEffects: JSON.stringify(['经验4000']), useMarkers: '[]' } },
+    );
+    const text1 = await noHome.service.useItem(42, '至纯圣水', 1);
+    expect(text1).toContain('你还没有家园，无法使用这个');
+    expect(JSON.parse(playerNoHome.backpack).find((it: any) => it.name === '至纯圣水')?.quantity).toBe(3);
+
+    // 有家园
+    const homeMap: any = { id: 9, markers: JSON.stringify({ 观测时间: Date.now() / 1000 }) };
+    const playerWithHome = buildPlayer({
+      houseName: '测试屋',
+      backpack: JSON.stringify([{ name: '至纯圣水', type: '资源', quantity: 6, count: 6 }]),
+    });
+    const prisma: any = {
+      player: { findUnique: jest.fn(async () => playerWithHome), update: jest.fn() },
+      gameMap: { update: jest.fn(async ({ data }: any) => { homeMap.markers = data.markers; return {}; }) },
+    };
+    const harness = buildHarness(playerWithHome, {
+      '至纯圣水': { name: '至纯圣水', useEffects: JSON.stringify(['经验4000']), useMarkers: '[]' },
+    });
+    (harness.service as any).mapService.getMapByName = jest.fn(async () => homeMap);
+    (harness.service as any).prisma = prisma;
+
+    const text2 = await harness.service.useItem(42, '至纯圣水', 5);
+    expect(text2).toContain('测试屋的时间加速了5分钟');
+    const markers = JSON.parse(homeMap.markers);
+    // 加速后观测时间应比当前时间早约 300 秒
+    expect(Date.now() / 1000 - markers['观测时间']).toBeGreaterThanOrEqual(295);
   });
 });

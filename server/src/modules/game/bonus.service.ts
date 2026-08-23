@@ -74,6 +74,7 @@ export interface BonusData {
   升级经验?: number;       // 升级经验 [upgradeExp]
   溅射?: number;           // 溅射 [splash]
   溅射数量?: number;       // 溅射数量 [splashCount]
+  溅射2?: number;          // 溅射2 [splash2]，原版 L849/L1936/L3192
   生命穿透?: number;       // 生命穿透 [hpPenetration]
   装甲穿透?: number;       // 装甲穿透 [armorPenetration]
   护盾穿透?: number;       // 护盾穿透 [shieldPenetration]
@@ -537,6 +538,22 @@ export class BonusService {
         bonus.护盾电抗 = this.safeNum(bonus.护盾电抗) * f;
       }
     }
+  }
+
+  /** 供法宝加成2使用的增加全抗公开入口，公式与私有实现一致。 */
+  private addAllResistancePublic(bonus: BonusData, lifeAllRes = 0, shieldAllRes = 0, armorAllRes = 0): void {
+    this.addAllResistance(bonus, lifeAllRes, shieldAllRes, armorAllRes);
+  }
+
+  private normalizeEquip(item: any): any {
+    return item && typeof item === 'object' ? item : {};
+  }
+
+  private normalizeWeapon(item: any): any {
+    const weapon = item && typeof item === 'object' ? item : {};
+    if (weapon.cooldown === undefined && weapon.冷却 !== undefined) weapon.cooldown = weapon.冷却;
+    if (weapon.冷却 === undefined && weapon.cooldown !== undefined) weapon.冷却 = weapon.cooldown;
+    return weapon;
   }
 
   /**
@@ -1403,16 +1420,17 @@ export class BonusService {
    * 获取当前武器名称
    * 非数字QQ（怪物/宠物）使用当前武器索引；数字QQ（玩家）使用第一把武器
    */
-  private findCurrentWeaponName(player: { qq?: string; weapons?: { name: string }[]; currentWeapon?: number }): string {
+  private findCurrentWeaponName(player: { qq?: string; weapons?: Array<{ name?: string; 名称?: string; baseBonus?: any; 基础加成?: any; self?: any; 自带?: any }>; currentWeapon?: number }): string {
     const qq = String(player.qq || '');
     const weapons = player.weapons || [];
     if (/^\d+$/.test(qq)) {
       const w = weapons[0];
-      return w ? w.name : '';
+      return w ? (w.name ?? w.名称 ?? '') : '';
     }
-    const idx = this.safeNum(player.currentWeapon);
-    const w = weapons[idx];
-    return w ? w.name : '';
+      // 原版当前武器是 1-based 序号。
+      const idx = Math.max(0, this.safeNum(player.currentWeapon) - 1);
+      const w = weapons[idx];
+      return w ? (w.name ?? w.名称 ?? '') : '';
   }
 
   /**
@@ -1433,7 +1451,7 @@ export class BonusService {
       currentArmor?: number;
       bonus?: BonusData;
       attributes?: BonusData;
-      weapons?: { name: string }[];
+      weapons?: Array<{ name?: string; 名称?: string; baseBonus?: any; 基础加成?: any; self?: any; 自带?: any }>;
       currentWeapon?: number;
       level?: number;
       qq?: string;
@@ -1479,18 +1497,31 @@ export class BonusService {
     const weaponName = this.findCurrentWeaponName(player);
     if (weaponName) {
       const level = this.safeNum(player.level);
+      const weaponIndex = Math.max(0, this.safeNum(player.currentWeapon) - 1);
+      const weapon = (player.weapons || [])[weaponIndex] || {};
+      const weaponSelf = weapon.self ?? weapon.自带 ?? weapon.baseBonus ?? weapon.基础加成 ?? {};
+      const selfField = (field: '物伤' | '电伤' | '火伤' | '冰伤') => {
+        const key = field === '电伤' ? '电伤'
+          : field === '火伤' ? '火伤'
+            : field === '冰伤' ? '冰伤' : '物伤';
+        return this.safeNum(weaponSelf[key]);
+      };
       switch (weaponName) {
         case '高斯步枪':
           attrs.物伤 = this.safeNum(attrs.物伤) + level * 2;
+          weaponSelf.物伤 = selfField('物伤') + level * 2;
           break;
         case '追风者':
           attrs.电伤 = this.safeNum(attrs.电伤) + level * 2;
+          weaponSelf.电伤 = selfField('电伤') + level * 2;
           break;
         case '琴弦':
           attrs.火伤 = this.safeNum(attrs.火伤) + level * 2;
+          weaponSelf.火伤 = selfField('火伤') + level * 2;
           break;
         case '三叉戟':
           attrs.冰伤 = this.safeNum(attrs.冰伤) + level * 2;
+          weaponSelf.冰伤 = selfField('冰伤') + level * 2;
           break;
         case '高斯狙击枪':
           attrs.物伤2 = this.safeNum(attrs.物伤2) + ratio * 25;
@@ -1505,6 +1536,589 @@ export class BonusService {
           break;
       }
     }
+  }
+
+  /**
+   * 法宝加成
+   * 对应原版：法宝加成()（加成计算.ecode L3143-L3232）
+   * 法宝类型来自套装.小樱命中次数，等级来自套装.陪睡。
+   */
+  calculateTreasureBonus(attributes: BonusData, sets: SetData): void {
+    const treasureType = this.safeNum(sets.sakuraHits);
+    const level = this.safeNum(sets.sleepover);
+
+    switch (treasureType) {
+      case 1: { // 飞天独龙神女枪
+        if (level > 0) attributes.电伤2 = this.safeNum(attributes.电伤2) + 5;
+        if (level > 1) {
+          attributes.护盾2 = this.safeNum(attributes.护盾2) + 10;
+          attributes.生命2 = this.safeNum(attributes.生命2) + 10;
+          attributes.装甲2 = this.safeNum(attributes.装甲2) + 10;
+        }
+        if (level > 5) attributes.电伤2 = this.safeNum(attributes.电伤2) + 8;
+        if (level > 8) attributes.暴击伤害 = this.safeNum(attributes.暴击伤害) + 1000;
+        break;
+      }
+      case 2: { // 镇岳
+        if (level > 0) attributes.物伤2 = this.safeNum(attributes.物伤2) + 5;
+        if (level > 4) {
+          attributes.护盾2 = this.safeNum(attributes.护盾2) + 15;
+          attributes.生命2 = this.safeNum(attributes.生命2) + 15;
+          attributes.装甲2 = this.safeNum(attributes.装甲2) + 15;
+        }
+        if (level > 5) {
+          attributes.贯穿 = this.safeNum(attributes.贯穿) + 15;
+          attributes.抗贯穿 = this.safeNum(attributes.抗贯穿) + 10;
+        }
+        if (level > 8) attributes.物伤2 = this.safeNum(attributes.物伤2) + 15;
+        break;
+      }
+      case 4: { // 惊鲵
+        if (level > 0) attributes.火伤2 = this.safeNum(attributes.火伤2) + 3;
+        if (level > 1) attributes.火伤2 = this.safeNum(attributes.火伤2) + 5;
+        if (level > 7) {
+          attributes.溅射2 = this.safeNum(attributes.溅射2) + 1;
+          attributes.溅射 = this.safeNum(attributes.溅射) + 50;
+        }
+        if (level > 8) {
+          attributes.火伤2 = this.safeNum(attributes.火伤2) + 10;
+          attributes.暴击伤害 = this.safeNum(attributes.暴击伤害) + 200;
+        }
+        if (level > 9) {
+          attributes.贯穿 = this.safeNum(attributes.贯穿) + 10;
+          attributes.暴击伤害 = this.safeNum(attributes.暴击伤害) + 400;
+        }
+        break;
+      }
+      case 3: { // 凌虚
+        if (level > 0) attributes.冰伤2 = this.safeNum(attributes.冰伤2) + 5;
+        if (level > 1) attributes.抗贯穿 = this.safeNum(attributes.抗贯穿) + 10;
+        if (level > 3) {
+          attributes.攻击护盾 = this.safeNum(attributes.攻击护盾) + 20;
+          attributes.攻击装甲 = this.safeNum(attributes.攻击装甲) + 20;
+        }
+        if (level > 5) {
+          attributes.护盾2 = this.safeNum(attributes.护盾2) + 20;
+          attributes.生命2 = this.safeNum(attributes.生命2) + 20;
+          attributes.装甲2 = this.safeNum(attributes.装甲2) + 20;
+        }
+        if (level > 6) {
+          attributes.抗贯穿 = this.safeNum(attributes.抗贯穿) + 15;
+          attributes.韧性 =
+            this.safeNum(attributes.韧性) +
+            (1 - this.safeNum(attributes.韧性) / 100) * 20;
+        }
+        if (level > 8) {
+          attributes.冰伤2 = this.safeNum(attributes.冰伤2) + 10;
+          attributes.暴击伤害 = this.safeNum(attributes.暴击伤害) + 500;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  /**
+   * 法宝加成2
+   * 对应原版：法宝加成2()（加成计算.ecode L3053-L3096）
+   * 法宝[含光]按最高防御层放大对应池，并追加全抗/回复/抗贯穿。
+   */
+  calculateHanGuangBonus(attributes: BonusData, sets: SetData): void {
+    if (this.safeNum(sets.sakuraHits) !== 5) return;
+
+    const level = this.safeNum(sets.sleepover);
+    const shield = this.safeNum(attributes.护盾);
+    const armor = this.safeNum(attributes.装甲);
+    const life = this.safeNum(attributes.生命);
+    const defenseType = shield > armor
+      ? (shield > life ? 1 : 3)
+      : (armor > life ? 2 : 3);
+    let increaseValue = 1;
+    if (level > 1) increaseValue += 1.5;
+    if (level > 5) increaseValue += 2.5;
+    if (level > 3) attributes.抗贯穿 = this.safeNum(attributes.抗贯穿) + 30;
+
+    if (defenseType === 1) {
+      if (level > 0) this.addAllResistancePublic(attributes, 0, 50, 0);
+      if (level > 2) attributes.护盾回复2 = this.safeNum(attributes.护盾回复2) + 2;
+      attributes.护盾 = this.safeNum(attributes.护盾) * increaseValue;
+    } else if (defenseType === 2) {
+      if (level > 0) this.addAllResistancePublic(attributes, 0, 0, 50);
+      if (level > 2) attributes.装甲回复2 = this.safeNum(attributes.装甲回复2) + 2;
+      attributes.装甲 = this.safeNum(attributes.装甲) * increaseValue;
+    } else {
+      if (level > 0) this.addAllResistancePublic(attributes, 50, 0, 0);
+      if (level > 2) attributes.生命回复2 = this.safeNum(attributes.生命回复2) + 2;
+      attributes.生命 = this.safeNum(attributes.生命) * increaseValue;
+    }
+  }
+
+  /**
+   * 计算增益
+   * 对应原版：计算增益()（加成计算.ecode L81-L430）
+   * 处理成就铠甲、活跃特殊增益和装备追加；攻击型转轮/sa依赖攻击目标，
+   * 由战斗链路单独处理，不在此处实现。
+   */
+  calculateGameBonus(
+    context: {
+      bonus: BonusData;
+      attributes?: BonusData;
+      markers?: Record<string, number>;
+      buffs?: any[];
+      equipment?: any[];
+      weapons?: any[];
+      currentWeapon?: number;
+      level?: number;
+      skillLevel?: number;
+      affinity?: number;
+      sets?: SetData;
+      currentHp?: number;
+    },
+    nowSec: number,
+  ): void {
+    const bonus = context.bonus;
+    const attrs = context.attributes || bonus;
+    const markers = context.markers || {};
+    const buffs = context.buffs || [];
+    const equips = (context.equipment || []).map((item) => this.normalizeEquip(item));
+    const weapons = (context.weapons || []).map((item) => this.normalizeWeapon(item));
+    const currentWeapon = this.safeNum(context.currentWeapon);
+    const level = this.safeNum(context.level);
+    const skillLevel = this.safeNum(context.skillLevel);
+    const affinity = this.safeNum(context.affinity);
+    const sets = context.sets || {};
+
+    const hasBuff = (name: string): number | undefined => {
+      const item = buffs.find((buff) => String(buff?.name ?? buff?.名称 ?? '') === name);
+      if (!item) return undefined;
+      const rawExpire = Number(item.expireAt ?? item.有效期至 ?? 0);
+      if (!rawExpire || rawExpire <= nowSec) return undefined;
+      return this.safeNum(item.strength ?? item.value ?? item.强度);
+    };
+    const hasEquipBySeq = (seq: number): boolean =>
+      equips.some((item) => this.safeNum(item.specialSeq ?? item.特殊序号) === seq)
+      || (currentWeapon > 0 && this.safeNum(weapons[currentWeapon - 1]?.specialSeq ?? weapons[currentWeapon - 1]?.特殊序号) === seq);
+    const hasEquipByName = (name: string): boolean =>
+      equips.some((item) => String(item.name ?? item.名称 ?? '') === name)
+      || (currentWeapon > 0 && String(weapons[currentWeapon - 1]?.name ?? weapons[currentWeapon - 1]?.名称 ?? '') === name);
+    const hasEquipOnlyBySeq = (seq: number): boolean =>
+      equips.some((item) => this.safeNum(item.specialSeq ?? item.特殊序号) === seq);
+    const addAllResist = (life = 0, shield = 0, armor = 0) => {
+      this.addAllResistancePublic(bonus, life, shield, armor);
+    };
+    const addPenetration = (value: number) => {
+      bonus.生命穿透 = this.safeNum(bonus.生命穿透) + value;
+      bonus.装甲穿透 = this.safeNum(bonus.装甲穿透) + value;
+      bonus.护盾穿透 = this.safeNum(bonus.护盾穿透) + value;
+    };
+    const addAttack = (attack2Percent: number) => {
+      if (!attack2Percent) return;
+      const atkBonus = this.safeNum(bonus.攻击) + this.safeNum(bonus.攻击加成);
+      const factor = attack2Percent / 100;
+      bonus.电伤 = this.safeNum(bonus.电伤) + (atkBonus + this.safeNum(bonus.电伤) + this.safeNum(bonus.电伤2)) * (1 + this.safeNum(bonus.电伤2) / 100)
+        * (1 + this.safeNum(bonus.攻击2) / 100) * factor;
+      bonus.物伤 = this.safeNum(bonus.物伤) + (atkBonus + this.safeNum(bonus.物伤) + this.safeNum(bonus.物伤2)) * (1 + this.safeNum(bonus.物伤2) / 100)
+        * (1 + this.safeNum(bonus.攻击2) / 100) * factor;
+      bonus.冰伤 = this.safeNum(bonus.冰伤) + (atkBonus + this.safeNum(bonus.冰伤) + this.safeNum(bonus.冰伤2)) * (1 + this.safeNum(bonus.冰伤2) / 100)
+        * (1 + this.safeNum(bonus.攻击2) / 100) * factor;
+      bonus.火伤 = this.safeNum(bonus.火伤) + (atkBonus + this.safeNum(bonus.火伤) + this.safeNum(bonus.火伤2)) * (1 + this.safeNum(bonus.火伤2) / 100)
+        * (1 + this.safeNum(bonus.攻击2) / 100) * factor;
+    };
+
+    // L92-L128：成就铠甲。
+    const armorType = this.safeNum(markers['铠甲']);
+    if (armorType === 1) {
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + 10;
+      addPenetration(6);
+    } else if (armorType === 2) {
+      bonus.护盾2 = this.safeNum(bonus.护盾2) + 12;
+      bonus.生命2 = this.safeNum(bonus.生命2) + 12;
+      bonus.装甲2 = this.safeNum(bonus.装甲2) + 12;
+      addAllResist(15, 15, 15);
+    } else if (armorType === 3 && currentWeapon > 0) {
+      const weapon = weapons[currentWeapon - 1];
+      weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 0.85;
+      bonus.贯穿 = this.safeNum(bonus.贯穿) + 5;
+      bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + 33;
+    } else if (armorType === 4) {
+      bonus.物伤 = this.safeNum(bonus.物伤) * 1.15;
+      if (currentWeapon > 0) {
+        const weapon = weapons[currentWeapon - 1];
+        weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 1.2;
+      }
+      bonus.攻击生命 = this.safeNum(bonus.攻击生命) + 20;
+    } else if (armorType === 5) {
+      const previous = this.safeNum(markers.xa) || nowSec;
+      const capped = nowSec - previous > 120 ? nowSec - 120 : Math.max(previous, nowSec);
+      markers.xa = capped;
+    }
+
+    // L130-L138：xyhd2。
+    const xyhdStrength = hasBuff('xyhd2');
+    if (xyhdStrength !== undefined) {
+      addAttack(Math.min(xyhdStrength, 5) * 10);
+      bonus.贯穿 = this.safeNum(bonus.贯穿) + Math.min(xyhdStrength, 5) * 3;
+      addPenetration(10);
+    }
+
+    // L140-L143：麻痹降低三层电抗。
+    const paralyzed = buffs.some((buff) => String(buff?.name ?? buff?.名称 ?? '') === '麻痹'
+      && Number(buff?.expireAt ?? buff?.有效期至 ?? 0) > nowSec);
+    if (paralyzed) {
+      bonus.护盾电抗 = this.safeNum(bonus.护盾电抗) * 0.9;
+      bonus.装甲电抗 = this.safeNum(bonus.装甲电抗) * 0.9;
+      bonus.生命电抗 = this.safeNum(bonus.生命电抗) * 0.9;
+    }
+
+    // L145-L162：天神降、奶酪、蛋糕与冰系增益。
+    if (hasBuff('降') !== undefined) {
+      addAllResist(-10, -10, -10);
+      (bonus as any).特效文本 = [...((bonus as any).特效文本 || []), '天神'];
+    }
+    if (hasBuff('降2') !== undefined) addAllResist(-10, -10, -10);
+    if (hasBuff('奶酪') !== undefined) bonus.经验 = this.safeNum(bonus.经验) + 100;
+    if (hasBuff('蛋糕') !== undefined) bonus.掉落率 = this.safeNum(bonus.掉落率) + 50;
+    if (hasBuff('冰精灵') !== undefined) {
+      bonus.冰伤2 = this.safeNum(bonus.冰伤2) + 30 + skillLevel;
+      addPenetration(10);
+      (bonus as any).特效文本 = [...((bonus as any).特效文本 || []), '冰精灵'];
+    }
+    if (hasBuff('冰凯') !== undefined) {
+      bonus.冰伤 = this.safeNum(bonus.冰伤) + 50 + skillLevel;
+      (bonus as any).特效文本 = [...((bonus as any).特效文本 || []), `冰凯${25 + skillLevel}%`];
+    }
+
+    // L167-L201：火系、猫猫、银龙。
+    if (hasBuff('火精灵') !== undefined) {
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + 30 + skillLevel;
+      (bonus as any).特效文本 = [...((bonus as any).特效文本 || []), '火精灵'];
+    }
+    if (hasBuff('燃烧') !== undefined) addAllResist(-this.safeNum(hasBuff('燃烧')), -this.safeNum(hasBuff('燃烧')), -this.safeNum(hasBuff('燃烧')));
+    if (hasBuff('猫猫加油') !== undefined) {
+      bonus.生命回复2 = this.safeNum(bonus.生命回复2) + 0.3;
+      bonus.护盾回复2 = this.safeNum(bonus.护盾回复2) + 0.3;
+      bonus.装甲回复2 = this.safeNum(bonus.装甲回复2) + 0.3;
+    }
+    const catCrit = hasBuff('猫猫暴击');
+    if (catCrit !== undefined) {
+      bonus.暴击 = this.safeNum(bonus.暴击) + 5 + catCrit / 2;
+      bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + 25 + 2 * catCrit;
+      (bonus as any).特效文本 = [...((bonus as any).特效文本 || []), `暴击+${catCrit}`];
+    }
+    const catBuff = hasBuff('啾啾猫猫');
+    if (catBuff !== undefined) {
+      bonus.护盾回复 = this.safeNum(bonus.护盾回复) * (1 + catBuff / 100);
+      bonus.护盾回复2 = this.safeNum(bonus.护盾回复2) * (1 + catBuff / 100);
+      bonus.装甲回复 = this.safeNum(bonus.装甲回复) * (1 + catBuff / 100);
+      bonus.装甲回复2 = this.safeNum(bonus.装甲回复2) * (1 + catBuff / 100);
+      bonus.生命回复 = this.safeNum(bonus.生命回复) * (1 + catBuff / 100);
+      bonus.生命回复2 = this.safeNum(bonus.生命回复2) * (1 + catBuff / 100);
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + 40;
+      (bonus as any).额外文本 = [...((bonus as any).额外文本 || []), '啾啾猫猫'];
+    }
+    const silverDragon = hasBuff('银龙附体');
+    if (silverDragon !== undefined) {
+      addPenetration(5);
+      bonus.吸护盾2 = this.safeNum(bonus.吸护盾2) + 5;
+      bonus.吸装甲2 = this.safeNum(bonus.吸装甲2) + 5;
+      bonus.吸生命2 = this.safeNum(bonus.吸生命2) + 5;
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + silverDragon * 2 + 30;
+      (bonus as any).额外文本 = [...((bonus as any).额外文本 || []), '银龙附体'];
+    }
+
+    // L202-L223：魔力类与封印解除。
+    const kulo = hasBuff('库洛魔力');
+    if (kulo !== undefined) {
+      const strength = Math.min(kulo, 5 + skillLevel * 0.1);
+      bonus.命中2 = this.safeNum(bonus.命中2) + strength * 10;
+      bonus.暴击 = this.safeNum(bonus.暴击) + strength * 5;
+      bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + strength * 10;
+    }
+    const sakuraMagic = hasBuff('小樱魔力');
+    if (sakuraMagic !== undefined) {
+      const strength = Math.min(sakuraMagic, 5 + skillLevel * 0.1);
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + strength * 10;
+      (bonus as any).特效文本 = [...((bonus as any).特效文本 || []), `小樱魔力${strength}`];
+    }
+    if (hasBuff('封印解除') !== undefined) {
+      bonus.护盾穿透 = this.safeNum(bonus.护盾穿透) + 20;
+      bonus.生命穿透 = this.safeNum(bonus.生命穿透) + 20;
+      bonus.装甲穿透 = this.safeNum(bonus.装甲穿透) + 20;
+    }
+
+    // L224-L236：命中/闪避/幸福。
+    const hitX = hasBuff('鼓舞x');
+    if (hitX !== undefined) bonus.命中 = this.safeNum(bonus.命中) + hitX;
+    const dodgeX = hasBuff('闪避x');
+    if (dodgeX !== undefined) bonus.闪避 = this.safeNum(bonus.闪避) + dodgeX;
+    if (hasBuff('幸福') !== undefined) {
+      bonus.吸护盾2 = this.safeNum(bonus.吸护盾2) + 2;
+      bonus.吸装甲2 = this.safeNum(bonus.吸装甲2) + 2;
+      bonus.吸生命2 = this.safeNum(bonus.吸生命2) + 2;
+    }
+
+    // L237-L255：叹息之墙、回充、修理、速度/装甲模式。
+    if (hasBuff('叹息之墙') !== undefined && !hasEquipBySeq(12)) {
+      bonus.护盾2 = this.safeNum(bonus.护盾2) + 20;
+    }
+    if (hasBuff('回充') !== undefined) bonus.护盾回复 = this.safeNum(bonus.护盾回复) + level;
+    if (hasBuff('修理') !== undefined) bonus.装甲回复 = this.safeNum(bonus.装甲回复) + level;
+    if (hasBuff('速度模式') !== undefined) {
+      bonus.速度2 = this.safeNum(bonus.速度2) + 50;
+      bonus.闪避2 = this.safeNum(bonus.闪避2) + 25;
+    }
+    if (hasBuff('装甲模式') !== undefined) addAllResist(0, 0, 50);
+
+    // L256-L299：龙姬、长萌、灼烂歼鬼、五番、歼灭模式。
+    const dragonDodge = hasBuff('龙姬闪避');
+    if (dragonDodge !== undefined) {
+      const stack = Math.min(dragonDodge, 5);
+      bonus.暴击 = this.safeNum(bonus.暴击) + stack * (5 + skillLevel / 2);
+    }
+    if (hasBuff('长萌技能') !== undefined) {
+      bonus.暴击 = this.safeNum(bonus.暴击) + 5 + skillLevel / 2;
+      bonus.护盾穿透 = this.safeNum(bonus.护盾穿透) + 15;
+      bonus.装甲穿透 = this.safeNum(bonus.装甲穿透) + 15;
+    }
+    const changmengBear = hasBuff('长萌承受');
+    if (changmengBear !== undefined) {
+      const stack = Math.min(changmengBear, 10);
+      bonus.装甲回复 = this.safeNum(bonus.装甲回复) * (1 + stack / 40);
+      bonus.护盾回复 = this.safeNum(bonus.护盾回复) * (1 + stack / 40);
+      addAllResist(0, stack * 2.5, stack * 2.5);
+    }
+    if (hasBuff('灼烂歼鬼') !== undefined) {
+      addPenetration(10 + skillLevel / 2);
+      if (currentWeapon > 0) {
+        const weapon = weapons[currentWeapon - 1];
+        weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) - 3;
+      }
+      if (sets.attackMode === 1) bonus.攻击2 = this.safeNum(bonus.攻击2) + 25 + skillLevel * 2;
+      else {
+        bonus.攻击2 = this.safeNum(bonus.攻击2) + 15 + skillLevel;
+        bonus.命中2 = this.safeNum(bonus.命中2) + skillLevel;
+      }
+    }
+    const fiveTimes = hasBuff('五番');
+    if (fiveTimes !== undefined) {
+      const stack = Math.min(fiveTimes, 5 + skillLevel);
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + 5 * stack;
+      bonus.暴击 = this.safeNum(bonus.暴击) + stack;
+      bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + stack * 5;
+    }
+    if (hasBuff('歼灭模式') !== undefined) bonus.攻击2 = this.safeNum(bonus.攻击2) + 30 + skillLevel;
+
+    // L301-L346：启示录、兴奋、鱼雷b、安宝乖乖。
+    if (hasBuff('启示录') !== undefined) {
+      for (const field of ['护盾电抗', '护盾物抗', '护盾冰抗', '护盾火抗', '生命电抗', '生命物抗', '生命冰抗', '生命火抗', '装甲电抗', '装甲物抗', '装甲冰抗', '装甲火抗'] as const) {
+        (bonus as any)[field] = (1 + Math.floor(Math.random() * 10000)) / 100;
+      }
+    }
+    if (hasBuff('兴奋') !== undefined) {
+      addAllResist(20, 20, 20);
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + 15;
+      bonus.护盾2 = this.safeNum(bonus.护盾2) + 20;
+      bonus.装甲2 = this.safeNum(bonus.装甲2) + 20;
+      bonus.生命2 = this.safeNum(bonus.生命2) + 20;
+      bonus.护盾回复2 = this.safeNum(bonus.护盾回复2) * 1.2 + 0.5;
+      bonus.装甲回复2 = this.safeNum(bonus.装甲回复2) * 1.2 + 0.5;
+      bonus.生命回复2 = this.safeNum(bonus.生命回复2) * 1.2 + 0.5;
+      bonus.护盾回复 = this.safeNum(bonus.护盾回复) * 1.2;
+      bonus.装甲回复 = this.safeNum(bonus.装甲回复) * 1.2;
+      bonus.生命回复 = this.safeNum(bonus.生命回复) * 1.2;
+      bonus.命中2 = this.safeNum(bonus.命中2) + 20;
+      bonus.暴击 = this.safeNum(bonus.暴击) + 20;
+      bonus.闪避2 = this.safeNum(bonus.闪避2) + 20;
+      bonus.经验 = this.safeNum(bonus.经验) + 100;
+      bonus.掉落率 = this.safeNum(bonus.掉落率) + 50;
+      bonus.掉落品质 = this.safeNum(bonus.掉落品质) + 100;
+      sets.legendaryRate = this.safeNum(sets.legendaryRate) + 2;
+    }
+    if (hasBuff('鱼雷b') !== undefined) {
+      addAllResist(-10, -10, -10);
+      bonus.闪避2 = this.safeNum(bonus.闪避2) - 20;
+      bonus.命中2 = this.safeNum(bonus.命中2) - 20;
+    }
+    if (hasBuff('安宝乖乖') !== undefined) {
+      bonus.生命回复2 = this.safeNum(bonus.生命回复2) + 2;
+      addAllResist(20);
+    }
+
+    // L347-L396：xta、真火、苦行、清道夫、空间创造、灼烧、盾逆、甲逆。
+    const xta = hasBuff('xta');
+    if (xta !== undefined) {
+      bonus.护盾回复 = this.safeNum(bonus.护盾回复) * (1 - xta);
+      bonus.护盾回复2 = this.safeNum(bonus.护盾回复2) - xta * 100;
+    }
+    if (hasBuff('真火') !== undefined) {
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + 50;
+      addAllResist(50, 50, 50);
+      addPenetration(25);
+      bonus.贯穿 = this.safeNum(bonus.贯穿) + 50;
+      bonus.抗贯穿 = this.safeNum(bonus.抗贯穿) + 50;
+      bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + 50;
+      bonus.护盾2 = this.safeNum(bonus.护盾2) + 50;
+      bonus.生命2 = this.safeNum(bonus.生命2) + 50;
+      bonus.装甲2 = this.safeNum(bonus.装甲2) + 50;
+      bonus.命中2 = this.safeNum(bonus.命中2) + 50;
+      bonus.闪避2 = this.safeNum(bonus.闪避2) + 50;
+    }
+    const ascetic = hasBuff('苦行');
+    if (ascetic !== undefined) bonus.攻击2 = this.safeNum(bonus.攻击2) + ascetic;
+    const scavenger = hasBuff('清道夫');
+    if (scavenger !== undefined) bonus.攻击2 = this.safeNum(bonus.攻击2) + scavenger / 2;
+    if (hasBuff('空间创造') !== undefined) {
+      const factor = 0.1 + skillLevel / 200;
+      bonus.命中 = this.safeNum(bonus.命中) * (1 + factor);
+      bonus.暴击 = this.safeNum(bonus.暴击) * (1 + factor);
+      bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + factor * 200;
+    }
+    if (hasBuff('灼烧') !== undefined) {
+      for (const field of ['护盾回复', '生命回复', '装甲回复', '护盾回复2', '生命回复2', '装甲回复2'] as const) {
+        bonus[field] = this.safeNum(bonus[field]) / 2;
+      }
+    }
+    if (hasBuff('盾逆') !== undefined) {
+      bonus.护盾回复 = -this.safeNum(bonus.护盾回复);
+      bonus.护盾回复2 = -this.safeNum(bonus.护盾回复2);
+    }
+    if (hasBuff('甲逆') !== undefined) {
+      bonus.装甲回复 = -this.safeNum(bonus.装甲回复);
+      bonus.装甲回复2 = -this.safeNum(bonus.装甲回复2);
+    }
+
+    // L398-L416：守护2与万象。
+    const guard2 = hasBuff('守护2');
+    if (guard2 !== undefined) bonus.攻击2 = this.safeNum(bonus.攻击2) + guard2 * 12;
+    if (hasBuff('万象') !== undefined) {
+      if (affinity >= 60) {
+        bonus.贯穿 = this.safeNum(bonus.贯穿) + 20;
+        addPenetration(15);
+      }
+      const currentType = String(weapons[currentWeapon - 1]?.type ?? weapons[currentWeapon - 1]?.类型 ?? '');
+      if (currentWeapon === 0 || currentType === '近战武器') addAllResist(25);
+    }
+
+    // L427-L436：直接携带加成的增益、增幅器与皇冠。
+    for (const buff of buffs) {
+      if (!buff) continue;
+      const source = buff.bonus ?? buff.加成;
+      if (source) Object.assign(bonus, this.mergeBonus(bonus, source));
+      if (source?.生命全抗 || source?.护盾全抗 || source?.装甲全抗) {
+        addAllResist(
+          this.safeNum(source.生命全抗),
+          this.safeNum(source.护盾全抗),
+          this.safeNum(source.装甲全抗),
+        );
+      }
+    }
+    if (sets.amplifier === 5) bonus.贯穿 = this.safeNum(bonus.贯穿) + 10;
+    if (sets.crown === 3) sets.legendaryRate = this.safeNum(sets.legendaryRate) + 2;
+
+    // L437-L443：叹息之墙装备、纳米注喷器。
+    if (hasEquipBySeq(12)) bonus.护盾 = this.safeNum(bonus.护盾) * 1.2;
+    else if (hasEquipBySeq(13)) bonus.装甲 = this.safeNum(bonus.装甲) * 1.25;
+
+    // L444-L456：心形贴冷却、暴击熟练度。
+    if (hasEquipBySeq(30)) {
+      if (currentWeapon > 0) {
+        const weapon = weapons[currentWeapon - 1];
+        weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 0.85;
+      } else {
+        weapons.forEach((weapon) => {
+          weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 0.85;
+        });
+      }
+    }
+    bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + this.safeNum(markers['暴击']);
+
+    // L457-L464：超载核心（原版默认分支为武器×0.85，按原版保留）。
+    if (hasEquipBySeq(24)) {
+      if (currentWeapon > 0) {
+        const weapon = weapons[currentWeapon - 1];
+        weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 1.25;
+      } else {
+        weapons.forEach((weapon) => {
+          weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 0.85;
+        });
+      }
+    }
+
+    // L467-L473：生命祝福。
+    if (hasEquipByName('生命祝福')) {
+      bonus.生命2 = this.safeNum(bonus.生命2) + 25;
+      bonus.生命回复2 = this.safeNum(bonus.生命回复2)
+        + this.safeNum(bonus.护盾回复2) * 0.99
+        + this.safeNum(bonus.装甲回复2) * 0.99;
+      bonus.生命回复 = this.safeNum(bonus.生命回复)
+        + this.safeNum(bonus.护盾回复) * 0.99
+        + this.safeNum(bonus.装甲回复) * 0.99;
+      bonus.装甲回复 = this.safeNum(bonus.装甲回复) * 0.01;
+      bonus.护盾回复 = this.safeNum(bonus.护盾回复) * 0.01;
+    }
+
+    // L474-L529：丝袜系列。
+    const fourDamage = this.safeNum(bonus.物伤) + this.safeNum(bonus.冰伤)
+      + this.safeNum(bonus.火伤) + this.safeNum(bonus.电伤);
+    if (hasEquipByName('白色裤袜')) {
+      bonus.命中 = this.safeNum(bonus.命中) + fourDamage * 0.0025;
+    } else if (hasEquipOnlyBySeq(129)) {
+      bonus.闪避 = this.safeNum(bonus.闪避) + fourDamage * 0.0025;
+    } else if (hasEquipBySeq(62)) {
+      if (this.safeNum(bonus.闪避) < this.safeNum(bonus.命中)) {
+        attrs.闪避2 = this.safeNum(attrs.闪避2) + (1 - this.safeNum(bonus.闪避) / this.safeNum(bonus.命中)) * 100;
+      }
+    } else if (hasEquipBySeq(60)) {
+      if (this.safeNum(bonus.命中) < this.safeNum(bonus.闪避)) {
+        attrs.命中 = this.safeNum(attrs.命中2) + (1 - this.safeNum(bonus.命中) / this.safeNum(bonus.闪避)) * 100;
+      }
+    } else if (hasEquipBySeq(61)) {
+      if (shieldPool(bonus) > armorPool(bonus)) {
+        if (poolValue(bonus, '生命') < poolValue(bonus, '护盾')) attrs.生命2 = this.safeNum(attrs.生命2) + (1 - poolValue(bonus, '生命') / poolValue(bonus, '护盾')) * 100;
+      } else if (poolValue(bonus, '生命') < poolValue(bonus, '装甲')) attrs.生命2 = this.safeNum(attrs.生命2) + (1 - poolValue(bonus, '生命') / poolValue(bonus, '装甲')) * 100;
+    } else if (hasEquipBySeq(59)) {
+      if (armorPool(bonus) > poolValue(bonus, '生命')) {
+        if (poolValue(bonus, '护盾') < armorPool(bonus)) attrs.护盾2 = this.safeNum(attrs.护盾2) + (1 - poolValue(bonus, '护盾') / armorPool(bonus)) * 100;
+      } else if (poolValue(bonus, '护盾') < poolValue(bonus, '生命')) attrs.护盾2 = this.safeNum(attrs.护盾2) + (1 - poolValue(bonus, '护盾') / poolValue(bonus, '生命')) * 100;
+    } else if (hasEquipBySeq(118)) {
+      if (poolValue(bonus, '护盾') > poolValue(bonus, '生命')) {
+        if (armorPool(bonus) < poolValue(bonus, '护盾')) attrs.装甲2 = this.safeNum(attrs.装甲2) + (1 - armorPool(bonus) / poolValue(bonus, '护盾')) * 100;
+      } else if (armorPool(bonus) < poolValue(bonus, '生命')) attrs.装甲2 = this.safeNum(attrs.装甲2) + (1 - armorPool(bonus) / poolValue(bonus, '生命')) * 100;
+    }
+
+    // L530-L555：神龙保佑/祥瑞。
+    const dragonBless = hasEquipBySeq(36) ? 1 : 0;
+    const dragonLuck = hasEquipBySeq(37) ? 1 : 0;
+    if (dragonBless) attrs.命中2 = this.safeNum(attrs.命中2) + (dragonLuck ? 5 : 2.5);
+    if (dragonLuck) {
+      attrs.护盾2 = this.safeNum(attrs.护盾2) + (dragonBless ? 10 : 5);
+      attrs.装甲2 = this.safeNum(attrs.装甲2) + (dragonBless ? 10 : 5);
+    }
+
+    // L556-L561：生命祝福套装与暴击钳制。
+    if (sets.lifeBless === 5) bonus.攻击 = this.safeNum(bonus.攻击) + this.safeNum(context.currentHp) / 5;
+    if (this.safeNum(bonus.暴击) > 100) bonus.暴击 = 100;
+
+    // L562-L575：肩炮溅射。
+    if (hasEquipBySeq(8)) {
+      const currentSelfSplash = currentWeapon > 0
+        ? this.safeNum((weapons[currentWeapon - 1].baseBonus ?? weapons[currentWeapon - 1].自带 ?? {})['溅射2'])
+        : 0;
+      if ((this.safeNum(bonus.溅射2) < 1 && currentSelfSplash < 1 && currentWeapon > 0)
+        || (currentWeapon === 0 && this.safeNum(bonus.溅射2) < 1)) {
+        bonus.溅射2 = 1;
+      }
+    }
+
+    function shieldPool(source: BonusData) { return Math.max(poolValue(source, '护盾'), poolValue(source, '装甲')); }
+    function armorPool(source: BonusData) { return poolValue(source, '装甲'); }
+    function poolValue(source: BonusData, field: '护盾' | '装甲' | '生命') {
+      return field === '护盾' ? safeNumber(source.护盾)
+        : field === '装甲' ? safeNumber(source.装甲)
+          : safeNumber(source.生命);
+    }
+    function safeNumber(value: unknown) { return typeof value === 'number' && isFinite(value) ? value : 0; }
   }
   /**
    * 载具加成

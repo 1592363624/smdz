@@ -133,6 +133,7 @@ async function main() {
     { name: '领取称号', alias: 'claim-title', description: '领取已获得的称号', handlerKey: 'game', minRole: 'USER', sortOrder: 184 },
     { name: '佩戴称号', alias: 'equip-title', description: '佩戴称号', handlerKey: 'game', minRole: 'USER', sortOrder: 185 },
     { name: '使魔排行', alias: 'familiar-rank', description: '查看使魔排行榜', handlerKey: 'game', minRole: 'USER', sortOrder: 186 },
+    { name: '排行', alias: 'ranking', description: '查看排行榜（排行财富/排行载具）', handlerKey: 'game', minRole: 'USER', sortOrder: 1861 },
     { name: '大召唤术', alias: 'mass-summon', description: '大规模召唤使魔', handlerKey: 'game', minRole: 'USER', sortOrder: 187 },
     { name: '复活使魔', alias: 'revive-familiar', description: '倒地后延时自救', handlerKey: 'game', minRole: 'USER', sortOrder: 188 },
     { name: '使魔挑战', alias: 'familiar-challenge', description: '查看使魔挑战', handlerKey: 'game', minRole: 'USER', sortOrder: 189 },

@@ -137,6 +137,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     const w = await familiarSkills.executeSkill(user.id, '风月入墨');
     expect(w).toContain('风月入墨');
     const map = await refreshMap();
+    if (!map) throw new Error('测试地图不存在');
     // 原版 expReduce=15+技能等级*0.25（skillLevel=10 → 17.5%）
     const mb = findMapBuff(map.mapBuffs, '风月入墨');
     expect(mb).toBeDefined();
@@ -158,6 +159,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
 
     // 验证友方召唤物 buffs 同步获得 mustHitNext
     const map = await refreshMap();
+    if (!map) throw new Error('测试地图不存在');
     const summons = JSON.parse(map.summons || '[]');
     const ally = summons.find((s: any) => s.name === allyName);
     const sb = findSummonBuff(ally.buffs, '下次攻击·标记');
@@ -180,6 +182,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     expect(pb.skillLevelForPen).toBe(10);
 
     const map = await refreshMap();
+    if (!map) throw new Error('测试地图不存在');
     const summons = JSON.parse(map.summons || '[]');
     const ally = summons.find((s: any) => s.name === allyName);
     const sb = findSummonBuff(ally.buffs, '下次攻击·标记');
@@ -196,6 +199,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     expect(w).toContain(allyName);
 
     const map = await refreshMap();
+    if (!map) throw new Error('测试地图不存在');
     const mb = findMapBuff(map.mapBuffs, '风月入墨');
     expect(mb).toBeDefined();
 

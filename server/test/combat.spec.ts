@@ -28,13 +28,22 @@ import { StatsService } from '../src/modules/game/stats.service';
 // 构造 CombatSystemService 实例，注入空 mock（calcDamage 不触碰这些依赖）
 const combat = new CombatSystemService(
   {} as PrismaService,
-  {} as PlayerService,
+  {
+    getMarkerValue: () => 0,
+    safeJsonParse: <T>(value: string, fallback: T): T => {
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        return fallback;
+      }
+    },
+  } as unknown as PlayerService,
   {} as BonusService,
   {} as MapService,
   {} as StaticDataService,
   {} as AchievementService,
   {} as ItemSystemService,
-  {} as any,
+  {} as CombatStateService,
   {} as StatsService,
 );
 
@@ -366,6 +375,60 @@ const plainWeapon = {
 // （原版中防御方始终有生命池；缺少则 distributeDamageToPools 按 Math.min(dmg,0)=0 归零）
 const noResistDef = { 闪避: 100, 生命: 1_000_000, 护盾: 0, 装甲: 0 } as any;
 
+// ==================== 套装判断2 武器自带加成 (加成计算.ecode L3381-L3444) ====================
+describe('套装判断2 - 特定武器等级写入自带与属性', () => {
+  it('高斯步枪每次构建先合并原始自带再套装修改，属性不跨次累积', () => {
+    const weapon = { name: '高斯步枪', baseBonus: { 物伤: 5 } };
+    const makePlayer = () => ({
+      userId: 1,
+      type: '测试使魔',
+      specialSeq: 8,
+      affinity: 0,
+      level: 10,
+      hp: 100, shield: 100, armor: 100,
+      currentWeapon: 1,
+      weapons: JSON.stringify([weapon]),
+      equipment: '[]',
+      sets: '{}',
+      markers: '{}',
+      markers2: '[]',
+    });
+    const playerData = {
+      player: null as any,
+      markers: {},
+      buffs: [],
+      equipment: [],
+      tasks: [],
+      backpack: [],
+      weapons: [weapon],
+      markers2: [],
+      safeBox: [],
+    };
+
+    const first = combat.buildAttackerBonus(makePlayer(), playerData);
+    expect(weapon.baseBonus.物伤).toBe(25);
+    expect(first.物伤).toBeCloseTo(10 + (10 + 0) * 1.1 + 20 + 10); // +攻击10（calculateFinalBonus将攻击加入伤害）
+
+    playerData.player = makePlayer();
+    const second = combat.buildAttackerBonus(makePlayer(), playerData);
+    expect(weapon.baseBonus.物伤).toBe(25);
+    expect(second.物伤).toBeCloseTo(10 + (10 + 0) * 1.1 + 20 + 10); // +攻击10（calculateFinalBonus将攻击加入伤害）
+  });
+
+  it('追风者同步电伤到武器自带字段', () => {
+    const weapon: any = { name: '追风者', baseBonus: {} };
+    const player = {
+      userId: 1, type: '测试使魔', specialSeq: 8, affinity: 0, level: 7,
+      hp: 100, shield: 100, armor: 100,
+      currentWeapon: 1, weapons: [weapon], equipment: [], sets: {}, markers: {}, markers2: [],
+    };
+    const playerData = { player, markers: {}, buffs: [], equipment: [], tasks: [], backpack: [], weapons: [weapon], markers2: [], safeBox: [] };
+    const bonus = combat.buildAttackerBonus(player, playerData);
+    expect(weapon.baseBonus.电伤).toBe(14);
+    expect(bonus.电伤).toBeCloseTo((10 + (7 + 0) * 1.07) * 1.25 + 14 + 10); // +攻击10（calculateFinalBonus将攻击加入伤害）
+  });
+});
+
 // ==================== 增强器 (加成计算.ecode L3453-L3574 / 战斗相关.ecode L3166-L3172) ====================
 describe('增强器 - 防御装备按最高剩余伤害提升抗性', () => {
   const realBonus = new BonusService();
@@ -529,7 +592,7 @@ describe('造成伤害 - 三段暴击评级阈值 (战斗相关.ecode L2309-2379
       { dmgLower: 0.25, dmgUpper: 0, sniperComputer: true },
     );
     // rating 形如 "【擦过】28%"，提取【】之间的评级名
-    const m = res.rating.match(/【(.+?)】/);
+    const m = (res.rating || '').match(/【(.+?)】/);
     const ratingName = m ? m[1] : '';
     expect(['绝杀', '完美', '致命', '强力', '正中', '擦过', '描边']).toContain(ratingName);
   });

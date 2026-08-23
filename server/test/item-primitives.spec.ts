@@ -29,7 +29,7 @@ const service = new ItemSystemService(
   {} as any,
   {} as any,
   {} as any,
-  new ItemService({} as any, staticData, {} as any),
+  new ItemService({} as any, staticData, {} as any, {} as any, {} as any),
   {} as any,
   staticData,
 );

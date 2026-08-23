@@ -41,6 +41,9 @@ function makeBaseService(): any {
     markerRequire: jest.fn(() => false),
     timeIntervalRequire: jest.fn(() => false),
   };
+  service.familiarSystemService = {
+    checkAndUpdateGrowth: jest.fn(() => false),
+  };
   return service;
 }
 
