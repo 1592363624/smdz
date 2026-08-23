@@ -1283,7 +1283,9 @@ export class MapService {
         throw new NotFoundException(`地图 ID=${mapId} 不存在，无法刷新资源`);
       }
 
-      const markers2 = this.safeParseJSON<any[]>(map.markers2, []);
+      // 兼容存量数据：地图标记2容器必须为数组（历史种子曾误写 '{}'）
+      const rawMarkers2 = this.safeParseJSON<any>(map.markers2, []);
+      const markers2 = Array.isArray(rawMarkers2) ? rawMarkers2 : [];
       if (markers2.length === 0) return 0;
 
       const resources = this.safeParseJSON<any[]>(map.resources, []);

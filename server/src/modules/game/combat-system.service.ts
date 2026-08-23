@@ -9393,7 +9393,9 @@ export class CombatSystemService {
     if (mapIndex > maps.length) return '';
 
     const nowMs = Date.now();
-    const mapMarkers2 = this.playerService.safeJsonParse<any[]>(map.markers2, []);
+    // 兼容存量数据：地图标记2容器必须为数组（历史种子曾误写 '{}'）
+    const rawMapMarkers2 = this.playerService.safeJsonParse<any>(map.markers2, []);
+    const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
     const cooldownText = { value: '' };
     if (actualMapIndex > 0 && this.combatState.timeIntervalRequire(
       `gw${actualMapIndex}`,
@@ -9532,7 +9534,8 @@ export class CombatSystemService {
 
     // 原版 L4647-L4660：地图有启示录标记时，25% 概率改为怪物攻击自己，
     // 不再进入玩家/召唤物防御方筛选。启示录技能原文写入“福音书”，两者均兼容。
-    const mapMarkers2 = this.playerService.safeJsonParse<any[]>(map.markers2, []);
+    const rawMapMarkers2 = this.playerService.safeJsonParse<any>(map.markers2, []);
+    const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
     const apocalypseActive = this.hasActiveRuntimeBuff(map.markers2, '启示录')
       || this.hasActiveRuntimeBuff(map.markers2, '福音书');
     const apocalypseConfusion = apocalypseActive && Math.random() * 100 < 25;

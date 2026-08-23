@@ -1304,7 +1304,7 @@ export class GameService {
     }
     // 战力/挑战等级（L807）
     const combatPower = this.bonusService.calcCombatPower(b);
-    const challengeLevel = this.combatState.getAchievementProficiency(player.achievements || {}, '挑战等级');
+    const challengeLevel = this.combatState.getAchievementProficiency(markers, '挑战等级');
     lines.push(`战力: ${combatPower}  挑战: ${challengeLevel}`);
     lines.push('━━━━━━━━━━━━━━━');
     // ========== 详细属性段（L808-976，对应原版 详细=真 分支） ==========
@@ -2587,7 +2587,9 @@ export class GameService {
       };
       // 原版“次数归零”会添加“刷新资源<名称>”地图标记，后台刷新任务按该标记恢复资源。
       if (target.times <= 0 && target.renewable !== false) {
-        const mapMarkers2 = this.playerService.safeJsonParse<any[]>(map.markers2, []);
+        // 兼容存量数据：地图标记2容器必须为数组（历史种子曾误写 '{}'）
+        const rawMapMarkers2 = this.playerService.safeJsonParse<any>(map.markers2, []);
+        const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
         const refreshedMarkers2 = mapMarkers2.filter((entry: any) =>
           (entry?.name ?? entry?.名称) !== `刷新资源${target.name}`,
         );
@@ -12544,7 +12546,9 @@ export class GameService {
     if (map.isInstance) return `${player.name || '冒险者'}副本不可以`;
 
     const battleText = { value: '' };
-    const mapMarkers2 = this.playerService.safeJsonParse<any[]>(map.markers2, []);
+    // 兼容存量数据：地图标记2容器必须为数组
+    const rawMapMarkers2 = this.playerService.safeJsonParse<any>(map.markers2, []);
+    const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
     const now = Date.now();
     if (this.combatState.markerRequire('战斗', mapMarkers2, battleText, now)) {
       return `${player.name || '冒险者'}当前地图处于战斗状态，请离开一段时间后再回来，还有${battleText.value}`;

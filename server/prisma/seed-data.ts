@@ -85,7 +85,8 @@ async function seedMapDynamicFields(): Promise<number> {
           tempMonsters: '[]',
           summons: '[]',
           markers: '{}',
-          markers2: '{}',
+          // 地图标记2容器与原版「标记2」一致为数组元素 {name, expireAt}
+          markers2: '[]',
           // 半动态字段从 JSON 取初始值
           ...semiDynamicFields,
         },

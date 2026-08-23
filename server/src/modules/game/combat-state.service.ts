@@ -90,23 +90,72 @@ export class CombatStateService {
   }
 
   /**
+   * 成就容器归一化（兼容层，非原版逻辑）
+   *
+   * 本框架将玩家成就熟练度统一存于 Player.markers（JSON 对象 {"成就名": 数值}），
+   * 而原版/战斗状态机内部使用「技能」数组 [{名称, 数值}]。
+   * 调用方两种格式都可能传入，先统一识别，避免对对象/字符串做 for...of
+   * 抛出「成就 is not iterable」导致整个指令失败。
+   *
+   * @param 成就 成就数组 / markers 标记对象 / JSON 字符串
+   * @returns 数组形式或对象形式（二者只会有一个）
+   */
+  private normalizeAchievementContainer(
+    成就: AchievementItem[] | Record<string, number> | string | null | undefined,
+  ): { array: AchievementItem[]; record: Record<string, number> } {
+    let container: any = 成就;
+    if (typeof container === 'string') {
+      try {
+        container = JSON.parse(container);
+      } catch {
+        container = null;
+      }
+    }
+    if (Array.isArray(container)) {
+      return { array: container as AchievementItem[], record: {} };
+    }
+    if (container && typeof container === 'object') {
+      return { array: [], record: container as Record<string, number> };
+    }
+    return { array: [], record: {} };
+  }
+
+  /**
    * 添加成就（数据分析.ecode L678）
    * 不保存负数：若遍历到同名项且最终值 ≤0 则删除；未遍历到且值为负直接返回。
    * 同时会扣减任务要求中同名的数值（本复刻暂不接入任务系统，任务参数为可选）。
    *
+   * 支持「技能」数组和 markers 标记对象两种容器（见 normalizeAchievementContainer）。
+   *
    * @param 名称 成就/熟练度名称
    * @param 数值 增减量
-   * @param 成就 成就数组（会被原地修改）
+   * @param 成就 成就数组或标记对象（会被原地修改）
    */
-  addAchievement(名称: string, 数值: number, 成就: AchievementItem[]): void {
+  addAchievement(名称: string, 数值: number, 成就: AchievementItem[] | Record<string, number>): void {
     名称 = (名称 || '').replace(/\s+/g, ''); // 删全部空
-    // 先遍历已有同名项累加
-    for (let i = 成就.length - 1; i >= 0; i--) {
-      if (成就[i].名称 === 名称) {
-        成就[i].数值 = 成就[i].数值 + 数值;
+    const { array, record } = this.normalizeAchievementContainer(成就);
+    // markers 对象形式：键值累加
+    if (!Array.isArray(成就)) {
+      if (record[名称] !== undefined) {
+        record[名称] = (Number(record[名称]) || 0) + 数值;
         // 不保存负数：值 ≤0 删除该项
-        if (成就[i].数值 <= 0) {
-          成就.splice(i, 1);
+        if (record[名称] <= 0) {
+          delete record[名称];
+        }
+        return;
+      }
+      // 未遍历到对应名称，且提供的是负数 → 直接返回（不新增负项）
+      if (数值 <= 0) return;
+      record[名称] = 数值;
+      return;
+    }
+    // 先遍历已有同名项累加
+    for (let i = array.length - 1; i >= 0; i--) {
+      if (array[i].名称 === 名称) {
+        array[i].数值 = array[i].数值 + 数值;
+        // 不保存负数：值 ≤0 删除该项
+        if (array[i].数值 <= 0) {
+          array.splice(i, 1);
         }
         return;
       }
@@ -114,27 +163,46 @@ export class CombatStateService {
     // 未遍历到对应名称，且提供的是负数 → 直接返回（不新增负项）
     if (数值 <= 0) return;
     // 新增成就项
-    成就.push({ 名称, 数值 });
+    array.push({ 名称, 数值 });
   }
 
   /**
    * 取成就熟练度（数据分析.ecode L719）
    * 支持精确匹配 / 模糊匹配（名称包含检索词）/ 取全部匹配之和。
    *
-   * @param 成就 成就数组
+   * 支持「技能」数组和 markers 标记对象两种容器（见 normalizeAchievementContainer）。
+   *
+   * @param 成就 成就数组或 markers 标记对象
    * @param 名称 检索名称
    * @param 模糊匹配 是否模糊匹配
    * @param 取全部匹配 模糊匹配时是否累加全部匹配项
    * @returns 熟练度数值
    */
   getAchievementProficiency(
-    成就: AchievementItem[],
+    成就: AchievementItem[] | Record<string, number> | string | null | undefined,
     名称: string,
     模糊匹配?: boolean,
     取全部匹配?: boolean,
   ): number {
     let a1 = 0;
-    for (const item of 成就) {
+    const { array, record } = this.normalizeAchievementContainer(成就);
+    // markers 对象形式：按键取值
+    if (!Array.isArray(成就)) {
+      if (!模糊匹配) {
+        return Number(record[名称]) || 0;
+      }
+      for (const [key, value] of Object.entries(record)) {
+        if (key.indexOf(名称) !== -1) {
+          if (取全部匹配) {
+            a1 = a1 + (Number(value) || 0);
+          } else {
+            return Number(value) || 0;
+          }
+        }
+      }
+      return a1;
+    }
+    for (const item of array) {
       if (模糊匹配) {
         // 易语言 寻找文本(...) != -1 表示包含
         if (item.名称.indexOf(名称) !== -1) {
@@ -157,24 +225,40 @@ export class CombatStateService {
    * 置成就熟练度（数据分析.ecode L850）
    * 若熟练度 != 0 则设置（已存在则覆盖数值，不存在则新增）；为 0 则删除该项。
    *
+   * 支持「技能」数组和 markers 标记对象两种容器（见 normalizeAchievementContainer）。
+   *
    * @param 名称 名称
-   * @param 成就 成就数组（原地修改）
+   * @param 成就 成就数组或 markers 标记对象（原地修改）
    * @param 熟练度 目标数值
    */
-  setAchievementProficiency(名称: string, 成就: AchievementItem[], 熟练度: number): void {
-    for (let i = 成就.length - 1; i >= 0; i--) {
-      if (成就[i].名称 === 名称) {
+  setAchievementProficiency(
+    名称: string,
+    成就: AchievementItem[] | Record<string, number>,
+    熟练度: number,
+  ): void {
+    const { array, record } = this.normalizeAchievementContainer(成就);
+    // markers 对象形式：键值覆盖/删除
+    if (!Array.isArray(成就)) {
+      if (熟练度 !== 0) {
+        record[名称] = 熟练度;
+      } else {
+        delete record[名称];
+      }
+      return;
+    }
+    for (let i = array.length - 1; i >= 0; i--) {
+      if (array[i].名称 === 名称) {
         if (熟练度 !== 0) {
-          成就[i].数值 = 熟练度;
+          array[i].数值 = 熟练度;
         } else {
-          成就.splice(i, 1);
+          array.splice(i, 1);
         }
         return;
       }
     }
     // 不存在且熟练度非0 → 新增
     if (熟练度 !== 0) {
-      成就.push({ 名称, 数值: 熟练度 });
+      array.push({ 名称, 数值: 熟练度 });
     }
   }
 
