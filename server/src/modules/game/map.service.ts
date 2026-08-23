@@ -625,6 +625,7 @@ export class MapService {
     specialSeq?: number; // 怪物特殊序号（套装判断第二参数）
     xuexin?: boolean;    // 冰雪之心增益（L3002）
     edzhi?: boolean;     // 恶毒之刃增益（L3005）
+    buffs?: any[];       // 活跃增益（计算buff L2877 / 反转童话 L2879 消费端）
   }): Record<string, any> {
     const level = opts.level || 1;
     const awaken = opts.awaken || 0;
@@ -765,6 +766,56 @@ export class MapService {
       b.火伤 = (b.火伤 || 0) / 2;
       b.电伤 = (b.电伤 || 0) / 2;
       b.冰伤 = (b.火伤 || 0) / 2; // 原版 L3029：冰伤=火伤/2（疑似笔误，按原版保留）
+    }
+
+    // ===== 法宝加成（原版 L2863 法宝加成(g)，本体 加成计算.ecode L3143-3232）=====
+    // 法宝类型来自 套装.小樱命中次数，等级来自 套装.陪睡。
+    try {
+      this.bonusService.calculateTreasureBonus(b as any, setData as any);
+    } catch {
+      /* 怪物无法宝时静默跳过 */
+    }
+    // 载具加成（原版 L2864）：常驻怪物刷新路径无载具实例，跳过（载具怪由战斗链路 computeVehicle 处理）。
+    // 计算增益/计算buff（原版 L2865/L2877）：怪物携带活跃增益时按 buffs.json 定义叠加。
+    const monsterBuffs = Array.isArray(opts.buffs) ? opts.buffs : [];
+    if (monsterBuffs.length > 0) {
+      try {
+        const buffDefs: any[] = this.staticData.getAllBuffs().map((d: any) => ({
+          name: d.name,
+          bonus: d.bonus ? (typeof d.bonus === 'string' ? JSON.parse(d.bonus) : d.bonus) : {},
+        }));
+        this.bonusService.calculateBuffs(b as any, monsterBuffs, buffDefs, Date.now() / 1000, {
+          currentAnesthesia: b.麻醉 || 0,
+          bonus: b as any,
+        });
+      } catch {
+        /* 增益解析失败时跳过 */
+      }
+    }
+    // ===== 惊鲵/含光 法宝判定（原版 L2868-2876）=====
+    // 惊鲵(sakuraHits=4)：陪睡>3 → 命中 += 火伤/10；含光(sakuraHits=5) → 法宝加成2
+    if ((setData as any).sakuraHits === 4 && (setData as any).sleepover > 3) {
+      b.命中 = (b.命中 || 0) + (b.火伤 || 0) / 10;
+    }
+    if ((setData as any).sakuraHits === 5) {
+      try {
+        this.bonusService.calculateHanGuangBonus(b as any, setData as any);
+      } catch {
+        /* 静默跳过 */
+      }
+    }
+    // ===== 反转童话 消费端（原版 L2879，本体 使魔技能.ecode L2631-2745）=====
+    this.bonusService.consumeReverseFairytaleBuffs(b, monsterBuffs);
+    // ===== 必中标记（原版 L2881-2883）：基础.必中 → 属性.必中 = 真 =====
+    if (defBonus.必中 || b.必中) {
+      b.必中 = true;
+    }
+    // ===== 战斗力（原版 L3031-3034：g.战斗力 = 计算战斗力(g)；超过成就则记录）=====
+    // 怪物战斗力写入 bonus 供图鉴/排行读取；成就记录仅玩家路径消费，此处不写标记。
+    try {
+      b.战斗力 = this.bonusService.calcCombatPower(b as any);
+    } catch {
+      /* 战斗力计算失败不阻塞刷怪 */
     }
 
     return b as Record<string, any>;

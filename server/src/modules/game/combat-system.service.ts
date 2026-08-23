@@ -448,6 +448,16 @@ export class CombatSystemService {
 
     // 构造攻击者加成数据（合并基础+装备+增益；传入 map 供宠物存活数量加成使用）
     const attackerBonus = this.buildAttackerBonus(player, playerData, map);
+    // 额外文本管道（原版 _主程序 L12033-12034：w = w + 玩家.额外文本 后清空）：
+    // 反转童话被动(护盾/装甲/生命负数已反转) 与 计算增益(啾啾猫猫/银龙附体) 的附带文本并入本次回包。
+    const attackerExtraText = (attackerBonus as any).额外文本;
+    if (Array.isArray(attackerExtraText) && attackerExtraText.length) {
+      resultLines.push(...attackerExtraText.map((t: string) => String(t).replace(/^#?换行/, '')));
+      (attackerBonus as any).额外文本 = [];
+    } else if (typeof attackerExtraText === 'string' && attackerExtraText.trim()) {
+      resultLines.push(...attackerExtraText.split(/#?换行|\n/).filter(Boolean));
+      (attackerBonus as any).额外文本 = '';
+    }
     const comebackNowMs = Date.now();
     const hadComebackState = !isRuntimeActor
       && Array.isArray(playerData.buffs)
@@ -2154,10 +2164,12 @@ export class CombatSystemService {
         }
       }
 
-      // 反转童话：命中后按几率将目标某个属性正负符号反转（持续一定时间）
-      if (nextAttack.reverseResist && Math.random() * 100 < (nextAttack.reverseChance ?? 0)) {
-        this.reverseMonsterResistance(target, nextAttack.reverseDuration || 600);
-        resultLines.push(`【反转童话】${target.name}的某个属性抗性被反转了！`);
+      // 反转童话（战斗相关.ecode L378-440）：兰音蓄势后，无论是否命中按 几率判断(50+技等/2) 触发；
+      // 随机 a=1..10 → 目标已有 fzth<a> 增益则移除，否则获得 600*库洛牌(1.25) 秒 fzth 增益，
+      // a==5/6 时立即反转目标属性装甲/护盾并把当前值同步翻负（计入"攻击者"+QQ 成就）。
+      if (nextAttack.reverseResist) {
+        const fairytaleText = this.applyReverseFairytale(player, target, nextAttack.reverseChance ?? 50);
+        if (fairytaleText) resultLines.push(fairytaleText);
       }
 
       // 原版 L4260-4271：坚韧护盾在护盾被打穿后终止本次后续文本/反伤等处理。
@@ -2542,6 +2554,15 @@ export class CombatSystemService {
       const victimDef = runtimeVictim
         ? this.buildMonsterBonus(victim)
         : this.buildAttackerBonus(victim, victimData, map);
+      // 防御方额外文本（原版 _主程序 L12033）：受害者为兰音且三池负数反转时，文本并入反击回包
+      if (!runtimeVictim) {
+        const victimExtraText = (victimDef as any).额外文本;
+        if (Array.isArray(victimExtraText) && victimExtraText.length) {
+          lines.push(...victimExtraText.map((t: string) => String(t).replace(/^#?换行/, '')));
+        } else if (typeof victimExtraText === 'string' && victimExtraText.trim()) {
+          lines.push(...victimExtraText.split(/#?换行|\n/).filter(Boolean));
+        }
+      }
       const attackWeapon = weaponOverride || {
         name: '怪物攻击',
         damage: 0,
@@ -2719,6 +2740,30 @@ export class CombatSystemService {
       victim.shield = Math.max(0, (victim.shield || 0) - shieldDmg);
       victim.armor = Math.max(0, (victim.armor || 0) - armorDmg);
       victim.hp = Math.max(0, (victim.hp || 0) - hpDmg);
+
+      // 猩红积累（战斗相关.ecode L3854-3859）：玩家作为受害者且带活跃猩红增益时，
+      // 本次总伤害（上限=扣血后三池当前总和）累计入"猩红"熟练度，供真伤释放。
+      // 与释放端互斥（释放要求无活跃增益），复用上面已解析的 victimMarkersVtd。
+      if (playerDamage > 0) {
+        try {
+          const vBuffsScarlet = this.safeParseJson<any[]>(victim.buffs || '[]', []);
+          const nowMsScarlet = Date.now();
+          const hasScarletBuffV = vBuffsScarlet.some((b: any) => {
+            if (!b) return false;
+            if ((b.名称 ?? b.name) !== '猩红') return false;
+            const rawExpire = Number(b.有效期至 ?? b.expireAt ?? 0);
+            const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+            return expireMs > nowMsScarlet;
+          });
+          if (hasScarletBuffV) {
+            const vStateCap = (victim.hp || 0) + (victim.armor || 0) + (victim.shield || 0);
+            victimMarkersVtd['猩红'] = (Number(victimMarkersVtd['猩红'] ?? 0) || 0) + Math.min(playerDamage, vStateCap);
+            victim.markers = JSON.stringify(victimMarkersVtd);
+          }
+        } catch {
+          /* 标记/增益解析失败时跳过积累 */
+        }
+      }
 
       // 贯穿抵抗可能在载具结算中把 dmg.penetrated 清零，必须读取最终值。
       if (dmg.penetrated) queueTaskProgress('被贯穿');
@@ -5611,9 +5656,16 @@ export class CombatSystemService {
         if ((player.affinity || 0) >= 80) {
           const markers2List = Array.isArray(playerData.markers2) ? playerData.markers2 : [];
           const hasCd = (key: string) => markers2List.some((m: any) => m && m.name === key && (Date.now() / 1000) < (m.expireAt || 0));
+          // 原版 L2434-2462 翻转成功时同步写 玩家.额外文本（_主程序 L12033 追加到指令回包）：
+          // "#换行(护盾负数,已反转)" / "(装甲负数,已反转)" / "(生命负数,已反转)"
+          // 统一用数组形态承载（与 计算增益 啾啾猫猫/银龙附体 的写法一致）
+          const extraArr: string[] = Array.isArray((bonus as any).额外文本)
+            ? (bonus as any).额外文本
+            : ((bonus as any).额外文本 ? [String((bonus as any).额外文本)] : []);
           if ((player.shield || 0) < 0) {
             if (!hasCd('fz护盾')) {
               player.shield = -(player.shield || 0);
+              extraArr.push('(护盾负数,已反转)');
             } else {
               player.shield = 0;
             }
@@ -5621,6 +5673,7 @@ export class CombatSystemService {
           if ((player.armor || 0) < 0) {
             if (!hasCd('fz装甲')) {
               player.armor = -(player.armor || 0);
+              extraArr.push('(装甲负数,已反转)');
             } else {
               player.armor = 0;
             }
@@ -5628,10 +5681,12 @@ export class CombatSystemService {
           if ((player.hp || 0) < 0) {
             if (!hasCd('fz生命')) {
               player.hp = -(player.hp || 0);
+              extraArr.push('(生命负数,已反转)');
             } else {
               player.hp = 0;
             }
           }
+          (bonus as any).额外文本 = extraArr;
         } else {
           if ((player.hp || 0) < 0) player.hp = 0;
           if ((player.shield || 0) < 0) player.shield = 0;
@@ -6650,28 +6705,60 @@ export class CombatSystemService {
   }
 
   /**
-   * 反转童话：反转怪物某项抗性的正负号
-   * 对应原版 反转童话 子程序：按 fzth1/fzth2 标记反转目标的护盾/装甲/生命某属性抗性符号。
-   * 这里随机挑选一项大于0的抗性将其变为负值，并写入怪物 buffs 让后续攻击享用反转后的抗性。
-   * @param monster 怪物对象（bonus/抗性将就地反转）
-   * @param duration 反转持续时间（秒）
+   * 反转童话 触发端（战斗相关.ecode L378-440）
+   * 兰音好感≥80 蓄势后：几率判断(50+技等/2) → a=取随机数(1,10)：
+   *   目标已有 fzth<a> 增益 → 获得增益(fzth<a>, -86400, 真) 即移除；
+   *   否则获得 fzth<a> 持续 600*库洛牌(1.25) 秒，并按 a==5/6 立即反转目标属性.装甲/护盾，
+   *   属性翻负且当前值>0 时 添加成就("攻击者"+攻击方QQ, 当前装甲*2, 防御方.标记) 并把当前值翻负。
+   * 文本：a==1 反转:盾抗 / 2 甲抗 / 3 血抗 / 4 闪避(写入文本变量) / 5 装甲 / 6 护盾 /
+   *       7 回复 / 8 暴击 / 9 命中 / 默认 伤害；未过几率 → (反转:失败)。
+   * @returns 特效文本（含括号），无蓄势时返回空
    */
-  private reverseMonsterResistance(monster: any, duration: number): void {
-    const bonus = this.safeParseJson(monster.bonus, {});
-    const resistKeys = [
-      '护盾物抗', '护盾火抗', '护盾冰抗', '护盾电抗',
-      '装甲物抗', '装甲火抗', '装甲冰抗', '装甲电抗',
-      '生命物抗', '生命火抗', '生命冰抗', '生命电抗',
-    ];
-    const positive = resistKeys.filter((k) => (bonus[k] || 0) > 0);
-    if (positive.length === 0) return; // 无正抗性可反转
-    const pick = positive[Math.floor(Math.random() * positive.length)];
-    bonus[pick] = -Math.abs(bonus[pick] || 0); // 正负反转
-    monster.bonus = JSON.stringify(bonus);
-    // 记录反转buff（便于到期恢复，此处简化为持续时间内享受反转效果，超时由其他机制清理）
-    const mbuffs: any[] = this.safeParseJson(monster.buffs, []);
-    mbuffs.push({ name: '反转童话', expireAt: Math.floor(Date.now() / 1000) + duration });
-    monster.buffs = JSON.stringify(mbuffs);
+  private applyReverseFairytale(attacker: any, target: any, reverseChance: number): string {
+    let effectText = '';
+    // 原版 几率判断(50 + 攻击方.技能等级/2)：reverseChance 由技能施放时按同一公式预置
+    if (!(Math.random() * 100 < reverseChance)) {
+      return '（反转:失败）';
+    }
+    // 库洛牌(specialSeq=99)：主动技能持续时间+25%（原版 L383-387）
+    const equipment = this.safeParseJson<any[]>(attacker.equipment || '[]', []);
+    const hasKulo = equipment.some(
+      (e: any) => e && (e.specialSeq === 99 || String(e.name ?? e.名称 ?? '') === '库洛牌'),
+    );
+    const a1 = hasKulo ? 1.25 : 1;
+    const a = Math.floor(Math.random() * 10) + 1;
+    const buffName = `fzth${a}`;
+    const tBuffs = this.safeParseJson<any[]>(target.buffs, []);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const existing = tBuffs.find((b: any) => b && (b.name ?? b.名称) === buffName);
+    if (existing) {
+      // 原版 获得增益(-86400, 真)：重复获得就移除
+      const idx = tBuffs.indexOf(existing);
+      tBuffs.splice(idx, 1);
+      target.buffs = JSON.stringify(tBuffs);
+    } else {
+      tBuffs.push({ name: buffName, expireAt: nowSec + Math.round(600 * a1) });
+      target.buffs = JSON.stringify(tBuffs);
+      if (a === 5 || a === 6) {
+        // 原版 L393-409：反转目标 属性.装甲/护盾，并把正的当前值同步翻负计入成就
+        const attrKey = a === 5 ? '装甲' : '护盾';
+        const curKey = a === 5 ? 'armor' : 'shield';
+        const bonus = this.safeParseJson<Record<string, any>>(target.bonus, {});
+        bonus[attrKey] = -Number(bonus[attrKey] || 0);
+        target.bonus = JSON.stringify(bonus);
+        const currentVal = Number(target[curKey] ?? 0);
+        if (bonus[attrKey] < 0 && currentVal > 0) {
+          const tMarkers = this.safeParseJson<Record<string, number>>(target.markers, {});
+          this.combatState.addAchievement(`攻击者${attacker.qqNumber ?? attacker.userId ?? ''}`, currentVal * 2, tMarkers);
+          target.markers = JSON.stringify(tMarkers);
+          target[curKey] = -currentVal;
+        }
+      }
+    }
+    // 类别文本（原版 L412-432；a==4 写入 文本 变量，此处统一并入特效文本）
+    const label = ['盾抗', '甲抗', '血抗', '闪避', '装甲', '护盾', '回复', '暴击', '命中', '伤害'][a - 1];
+    effectText += `（反转:${label}）`;
+    return effectText;
   }
 
   // ==================== 使魔专属战斗特效 ====================

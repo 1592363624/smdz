@@ -231,6 +231,84 @@ export class StaticDataService {
     return this.findByKey('npcs', name);
   }
 
+  /**
+   * 取对话（1:1 复刻 数据显示.ecode L119-287 取对话(玩家, 对象, 类型)）。
+   * 类型：0敌对聊天 1友好聊天 2跟随 3停下 4拾取 5挤奶 6击杀 7补魔开始 8补魔结束
+   *       9强化 10被捕捉 11躺下 12起床。
+   * 对象类型归一化（L128-136）：npc1g→神之工匠、小樱2→小樱、去"精英/神兽/深蓝"、巨型宇航兔→宇航兔；
+   * 对应条目缺失或该类台词为空 → 回落"通用对话"（L144-213）；仍为空 → "……"（L282-283）。
+   * 台词随机抽取，类型 3/4 及以上带换行前缀（L221-277），并替换【名称】/【目标】（L285-286）。
+   * @param playerName 玩家名称（替换【名称】）
+   * @param object 对象（召唤物/NPC/宠物行，读取 type/类型 与 name/名称）
+   * @param objectName 对象名称（替换【目标】；缺省用对象自身 name）
+   * @param dialogueType 台词类别 0-12
+   */
+  getDialogue(playerName: string, object: any, objectName: string, dialogueType: number): string {
+    let objectType = String(object?.type ?? object?.类型 ?? '');
+    if (String(object?.qq ?? object?.QQ ?? '') === 'npc1g') objectType = '神之工匠';
+    objectType = objectType.split('小樱2').join('小樱');
+    objectType = objectType.split('精英').join('');
+    objectType = objectType.split('神兽').join('');
+    objectType = objectType.split('深蓝').join('');
+    objectType = objectType.split('巨型宇航兔').join('宇航兔');
+
+    const TYPE_TO_KEY: Record<number, string> = {
+      0: 'hostileChat',
+      1: 'friendlyChat',
+      2: 'followText',
+      3: 'stopText',
+      4: 'pickupText',
+      5: 'milkText',
+      6: 'killText',
+      7: 'boostStart',
+      8: 'boostEnd',
+      9: 'strengthenText',
+      10: 'captureText',
+      11: 'lieDownText',
+      12: 'wakeUpText',
+    };
+    const parseLines = (raw: any): string[] => {
+      if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
+      try {
+        const arr = JSON.parse(String(raw ?? '[]'));
+        return Array.isArray(arr) ? arr.filter(Boolean).map(String) : [];
+      } catch {
+        return [];
+      }
+    };
+    // 数据存取.ecode L754：加载时 条目名称 = 节名去掉"对话"后缀（如 [白对话]→名称"白"）。
+    // 本框架 npcs.json 保留了完整节名（"白对话"），此处按两种形态检索对齐原版运行时名称。
+    const findEntry = (name: string): any => {
+      if (!name) return undefined;
+      return this.getNpcByName(name) ?? this.getNpcByName(`${name}对话`) ?? undefined;
+    };
+    let source = findEntry(objectType);
+    const key = TYPE_TO_KEY[dialogueType] ?? '';
+    if (source && key && parseLines((source as any)[key]).length === 0) {
+      source = undefined; // 该项目数组为空 → 回落通用对话
+    }
+    let pool: string[] = [];
+    if (source && key) {
+      pool = parseLines((source as any)[key]);
+    }
+    if (pool.length === 0) {
+      const generic = this.getNpcByName('通用对话');
+      pool = generic && key ? parseLines((generic as any)[key]) : [];
+    }
+    let line = '';
+    if (pool.length > 0) {
+      // L219-227：类型3(停下)/2(跟随) 等带 #换行符 前缀；此处统一返回不带前缀的台词，
+      // 由调用方决定拼接位置（与原版 显示文本 组装等价）。
+      line = pool[Math.floor(Math.random() * pool.length)];
+    }
+    // L282-283：抽不到 → "……"
+    if (!line) line = '……';
+    // L285-286：【名称】=玩家名、【目标】=对象名
+    line = line.split('【名称】').join(playerName || '');
+    line = line.split('【目标】').join(objectName || '');
+    return line;
+  }
+
   // ============ 载具/载具部件定义 ============
   // 说明：vehicles.json 存的是载具/部件模板（type 为 核心/防御/行走/武器/功能 等部件类型），
   // 运行时 GameVehicle 表承载玩家载具实例（动态），此处只提供模板查询。

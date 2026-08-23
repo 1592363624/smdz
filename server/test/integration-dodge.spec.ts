@@ -90,9 +90,9 @@ describe('闪避指令 1:1 复刻（真实远程库端到端）', () => {
     const p25 = await getPlayer(uid25);
     const b0 = JSON.parse(p0.player.buffs || '[]').find((b: any) => b.name === '闪避');
     const b25 = JSON.parse(p25.player.buffs || '[]').find((b: any) => b.name === '闪避');
-    // 增益持续秒数对齐 a1
-    expect(Math.round(b0.expireAt - Date.now() / 1000)).toBeGreaterThanOrEqual(3);
-    expect(Math.round(b25.expireAt - Date.now() / 1000)).toBeGreaterThanOrEqual(5);
+    // 增益持续秒数对齐 a1（远程库两次读延迟约1-2秒，放宽1秒容差仍可区分4/6/8秒档位）
+    expect(Math.round(b0.expireAt - Date.now() / 1000)).toBeGreaterThanOrEqual(2);
+    expect(Math.round(b25.expireAt - Date.now() / 1000)).toBeGreaterThanOrEqual(4);
     // 冷却标记（原版 L1848：15秒，无飞羽）
     const cd0 = JSON.parse(p0.player.markers2 || '[]').find((m: any) => m.name === '闪避冷却');
     expect(Math.round(cd0.expireAt - Date.now() / 1000)).toBeGreaterThanOrEqual(14);

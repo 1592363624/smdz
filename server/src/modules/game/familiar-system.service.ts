@@ -3601,9 +3601,22 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
+    // 取对话（_主程序.ecode L1163-1171）：开始跟随取"跟随"台词(类型2)，停止跟随取"停下"台词(类型3)。
+    let dialogue = '';
+    try {
+      dialogue = this.staticData.getDialogue(
+        player.name || '冒险者',
+        { type: pet.type ?? pet.类型, qq: pet.qq ?? pet.QQ },
+        petName,
+        nextFollow ? 2 : 3,
+      );
+    } catch {
+      /* 对话数据缺失时不拼接 */
+    }
+
     return nextFollow
-      ? `${petName} 开始跟随你`
-      : `${petName} 停止跟随`;
+      ? `${petName} 开始跟随你${dialogue ? `\n${dialogue}` : ''}`
+      : `${petName} 停止跟随${dialogue ? `\n${dialogue}` : ''}`;
   }
 
   /**

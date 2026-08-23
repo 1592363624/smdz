@@ -621,8 +621,17 @@ export class GameService {
 
     this.logger.log(`玩家 ${userId} 移动到达：${fromMapId} → ${targetMap.name}`);
 
+    // ========== 到达触发（对齐原版 来倒目的 _主程序.ecode L6694-6712）==========
+    // 观测地图产出(通用段) / 四圣祭坛刷麒麟 / 普拉娜幼崽剪毛。
+    let triggerText = '';
+    try {
+      triggerText = await this.applyArrivalTriggers(player, targetMap);
+    } catch (e: any) {
+      this.logger.warn(`到达触发失败: ${e.message}`);
+    }
+
     const desc = targetMap.description ? `\n${targetMap.description}` : '';
-    const text = `你来到了【${targetMap.name}】${desc}`;
+    const text = `你来到了【${targetMap.name}】${desc}${triggerText ? `\n${triggerText}` : ''}`;
 
     // 向世界频道广播到达消息（持久化 + 实时推送）
     await this.chatService.broadcastSystem('世界频道', text, userId);
@@ -636,6 +645,229 @@ export class GameService {
     }
 
     return text;
+  }
+
+  /**
+   * 到达地图统一触发（对齐原版 来倒目的 _主程序.ecode L6694-6712 / 传送 L1753-1777）。
+   * 1) 观测地图产出·通用段（地图操作.ecode 观测地图 L53-76）：宠物产蛋/垃圾、具现装置产未知物品；
+   *    开拓地(家园)的完整观测（建筑/作物）由「家园产出」命令的 collectHomeOutput 结算，此处跳过避免双重记账。
+   * 2) 四圣祭坛：其余四祭坛怪物清空后刷出神兽麒麟（L6697-6712）。
+   * 3) 普拉娜幼崽剪毛（使魔技能.ecode L14-70）：带剪刀的普拉娜幼崽召唤物为地图动物剪毛。
+   * @param player 到达玩家
+   * @param targetMap 目标地图行
+   * @returns 附加文本（无则空串）
+   */
+  private async applyArrivalTriggers(player: any, targetMap: any): Promise<string> {
+    const lines: string[] = [];
+    const readNum = (v: any): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    // ===== 1. 观测地图产出·通用段 =====
+    if (!targetMap.isFrontier && !targetMap.isInstance) {
+      const mapMarkers = this.playerService.safeJsonParse<Record<string, any>>(targetMap.markers, {});
+      const nowSec = Date.now() / 1000;
+      const lastObserved = readNum(mapMarkers['观测时间']);
+      const timeDiff = lastObserved > 0 ? Math.max(0, nowSec - lastObserved) : 0;
+      mapMarkers['观测时间'] = nowSec;
+      const summons = this.playerService.safeJsonParse<any[]>(targetMap.summons, []);
+      const buildings = this.playerService.safeJsonParse<any[]>(targetMap.buildings, []);
+      const items = this.playerService.safeJsonParse<any[]>(targetMap.items, []);
+      let changed = false;
+      const mergeItem = (name: string, qty: number): void => {
+        if (!(qty > 0)) return;
+        const found = items.find((it: any) => it && (it.name ?? it.名称) === name);
+        if (found) {
+          found.quantity = readNum(found.quantity ?? found.count ?? found.数量) + qty;
+        } else {
+          items.push({ name, quantity: qty });
+        }
+        changed = true;
+      };
+      if (summons.length > 0) {
+        // 蛋/垃圾：时间差/86400×宠物数（原版 L60-66 两项同率累计入 地图.物品）
+        const rate = (timeDiff / 86400) * summons.length;
+        mergeItem('蛋', rate);
+        mergeItem('垃圾', rate);
+      }
+      // 具现装置：每天产出1个未知物品（原版 L70-75）
+      const hasGadget = buildings.some(
+        (b: any) => b && String(b.name ?? b.名称 ?? '') === '具现装置' && readNum(b.quantity ?? b.count ?? b.数量 ?? 1) > 0,
+      );
+      if (hasGadget) mergeItem('未知物品', timeDiff / 86400);
+      if (changed || lastObserved === 0) {
+        await this.prisma.gameMap.update({
+          where: { id: targetMap.id },
+          data: { items: JSON.stringify(items), markers: JSON.stringify(mapMarkers) },
+        });
+      } else {
+        // 仅刷新观测时间
+        await this.prisma.gameMap.update({
+          where: { id: targetMap.id },
+          data: { markers: JSON.stringify(mapMarkers) },
+        });
+      }
+    }
+
+    // ===== 2. 四圣祭坛刷麒麟（原版 来倒目的 L6697-6712）=====
+    if (targetMap.name === '四圣祭坛') {
+      try {
+        const residentMonsters = (await this.mapService.getMapMonsters(targetMap.id)).filter((m: any) => !m.isTemp);
+        if (residentMonsters.length === 0) {
+          const hasMonsterIn = async (name: string): Promise<boolean> => {
+            const m = await this.mapService.getMapByName(name);
+            if (!m) return false;
+            const list = await this.mapService.getMapMonsters(m.id);
+            return list.length > 0;
+          };
+          const cleared = !(await hasMonsterIn('白虎祭坛'))
+            && !(await hasMonsterIn('青龙祭坛'))
+            && !(await hasMonsterIn('玄武祭坛'))
+            && !(await hasMonsterIn('朱雀祭坛'));
+          if (cleared) {
+            // 神兽麒麟：事件型临时怪物，写入 GameMonster 表 isTemp=true
+            await this.mapService.addTempMonster(targetMap.id, {
+              name: '神兽麒麟',
+              type: '神兽麒麟',
+              specialSeq: 0,
+              level: Math.max(10, player.level || 10),
+              hp: 5000,
+              maxHp: 5000,
+              attack: 200,
+              defense: 50,
+              speed: 120,
+              exp: 500,
+            });
+            lines.push('四座祭坛的怪物都已被清除，一股强大的气息在祭坛中央凝聚……');
+            lines.push('神兽麒麟出现了！');
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`四圣祭坛麒麟生成失败: ${e.message}`);
+      }
+    }
+
+    // ===== 3. 普拉娜幼崽剪毛（使魔技能.ecode L14-70）=====
+    try {
+      const shearText = await this.shearPranaCubsOnArrival(targetMap, player);
+      if (shearText) lines.push(shearText);
+    } catch (e: any) {
+      this.logger.warn(`到达剪毛触发失败: ${e.message}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * 到达时普拉娜幼崽自动剪毛（使魔技能.ecode L14-70）。
+   * 遍历当前地图召唤物：活力==-31(普拉娜幼崽) 且武器含剪刀(特殊序号-40/名称"剪刀")的幼崽，
+   * 为其归属者剪当前地图全部动物的毛发——每类动物每天一次（时间间隔要求("剪毛"+类型, 有效期当天())）。
+   * 毛发进入幼崽 装备预设[2].装备（宠物随身包），并计入归属者 剪毛/采集 成就与任务。
+   * ⚠️偏差：原版还会剪地图上其他玩家使魔的毛发，本框架动物仅遍历召唤物（玩家本体无毛发字段，不剪）。
+   */
+  private async shearPranaCubsOnArrival(map: any, arrivingPlayer: any): Promise<string> {
+    const readNum = (v: any): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    if (!summons.length) return '';
+    const isPranaCub = (s: any): boolean =>
+      !!s && (Number(s.vitality ?? s.活力 ?? 0) === -31 || String(s.type ?? s.类型 ?? '') === '普拉娜幼崽');
+    const cubs = summons.filter(isPranaCub);
+    if (!cubs.length) return '';
+
+    const dayEndMs = (() => {
+      const d = new Date();
+      d.setHours(23, 59, 59, 999);
+      return d.getTime();
+    })();
+    const nowMs = Date.now();
+
+    for (const cub of cubs) {
+      // 剪刀判定（原版 L27-33）：武器列表含 特殊序号==#剪刀(-40)
+      const rawWeapons = cub.weapons ?? cub.武器;
+      const weapons = Array.isArray(rawWeapons)
+        ? rawWeapons
+        : this.playerService.safeJsonParse<any[]>(String(rawWeapons ?? '[]'), []);
+      const hasScissors = weapons.some(
+        (w: any) => w && (String(w.name ?? w.名称 ?? '') === '剪刀' || Number(w.specialSeq ?? w.特殊序号 ?? 0) === -40),
+      );
+      if (!hasScissors) continue;
+
+      // 归属者解析（原版 L36-41）：归属 != 当前玩家 → 取玩家(归属)，否则用当前玩家
+      const ownerKey = String(cub.ownerQQ ?? cub.归属 ?? cub.owner ?? '');
+      let owner = arrivingPlayer;
+      if (ownerKey
+        && ownerKey !== String(arrivingPlayer.qq ?? '')
+        && ownerKey !== String(arrivingPlayer.userId ?? '')
+        && ownerKey !== String(arrivingPlayer.qqNumber ?? '')) {
+        owner = await this.prisma.player.findFirst({
+          where: [
+            { qqNumber: ownerKey },
+            { userId: Number(ownerKey) || -1 },
+          ] as any,
+        }).catch(() => null) as any;
+        if (!owner) continue;
+      }
+
+      // 幼崽需有 装备预设[2]（原版 L35）；毛发写入 装备预设[2].装备（宠物随身包）
+      const rawPresets = cub.equipmentPresets ?? cub.装备预设;
+      const presets = Array.isArray(rawPresets)
+        ? rawPresets
+        : this.playerService.safeJsonParse<any[]>(String(rawPresets ?? '[]'), []);
+      if (presets.length <= 1) continue;
+      if (!presets[1]) presets[1] = { name: '宠物背包', equipment: [] };
+      const rawBag = presets[1].equipment ?? presets[1].装备;
+      const bag = Array.isArray(rawBag)
+        ? rawBag
+        : this.playerService.safeJsonParse<any[]>(String(rawBag ?? '[]'), []);
+
+      const markers2 = this.playerService.safeJsonParse<any[]>(owner.markers2, []);
+      let totalHair = 0;
+      for (const animal of summons) {
+        if (!animal || animal === cub) continue;
+        const typeName = String(animal.type ?? animal.类型 ?? animal.name ?? animal.名称 ?? '').trim();
+        if (!typeName) continue;
+        const key = `剪毛${typeName}`;
+        // 时间间隔要求(name, 有效期当天())：存在且未过期 → 冷却中
+        const cd = markers2.find((m: any) => m && m.name === key);
+        if (cd && Number(cd.expireAt ?? 0) > nowMs) continue;
+        const filtered = markers2.filter((m: any) => !(m && m.name === key));
+        filtered.push({ name: key, expireAt: dayEndMs });
+        markers2.length = 0;
+        markers2.push(...filtered);
+        // 毛发：召唤物自带 毛发 字段为空时按原版默认给"毛发"1个（@Struct L342）
+        const hairRaw = animal.毛发 ?? animal.hair;
+        const hairName = String(hairRaw?.name ?? hairRaw?.名称 ?? '毛发') || '毛发';
+        const hairQty = Math.max(1, Math.round(readNum(hairRaw?.quantity ?? hairRaw?.数量 ?? 1)));
+        const found = bag.find((it: any) => it && (it.name ?? it.名称) === hairName);
+        if (found) {
+          found.quantity = (Number(found.quantity ?? found.count ?? found.数量) || 0) + hairQty;
+        } else {
+          bag.push({ name: hairName, quantity: hairQty });
+        }
+        totalHair += hairQty;
+      }
+
+      if (totalHair > 0) {
+        presets[1].equipment = bag;
+        cub.equipmentPresets = cub.装备预设 = presets;
+        owner.markers2 = JSON.stringify(markers2);
+        await this.prisma.gameMap.update({
+          where: { id: map.id },
+          data: { summons: JSON.stringify(summons) },
+        });
+        if (owner.userId) {
+          await this.playerService.savePlayer(owner);
+          await this.achievementService.addAchievement(owner, '剪毛', totalHair, false);
+          await this.achievementService.addAchievement(owner, '采集', totalHair, false);
+        }
+        return `${cub.name ?? cub.名称 ?? '普拉娜幼崽'} 为地图上的动物剪了毛，获得了毛发x${totalHair}`;
+      }
+    }
+    return '';
   }
 
   /**
@@ -2058,52 +2290,9 @@ export class GameService {
       return `目标地图「${targetName}」不存在`;
     }
 
-    // 统一走普通移动/飞行共用的到达结算，确保地图增益、懒刷新、探索和任务只处理一次。
-    const arriveMarkers = this.playerService.safeJsonParse(player.markers, {});
-    const pending = this.playerService.safeJsonParse<any>(arriveMarkers['移动中'], null);
-    if (player.mapId === targetMap.id && !pending) {
-      return `你已经在【${targetMap.name}】`;
-    }
+    // 统一走普通移动/飞行共用的到达结算（含观测产出/四圣祭坛麒麟/普拉娜剪毛等到达触发），
+    // 确保地图增益、懒刷新、探索和任务只处理一次。
     const arrivalResult = await this.performArrival(userId, targetMap.id, targetMap.name, { skipMapRefresh: true });
-    if (!arrivalResult || /不存在/.test(arrivalResult)) return arrivalResult;
-
-    // 四圣祭坛特殊逻辑：四个祭坛都清理后刷出麒麟
-    if (targetMap.name === '四圣祭坛') {
-      try {
-        const residentMonsters = (await this.mapService.getMapMonsters(targetMap.id)).filter((m: any) => !m.isTemp);
-        if (residentMonsters.length === 0) {
-          const hasMonsterIn = async (name: string): Promise<boolean> => {
-            const m = await this.mapService.getMapByName(name);
-            if (!m) return false;
-            const list = await this.mapService.getMapMonsters(m.id);
-            return list.length > 0;
-          };
-          const cleared = !(await hasMonsterIn('白虎祭坛'))
-            && !(await hasMonsterIn('青龙祭坛'))
-            && !(await hasMonsterIn('玄武祭坛'))
-            && !(await hasMonsterIn('朱雀祭坛'));
-          if (cleared) {
-            // 神兽麒麟：事件型临时怪物，写入 GameMonster 表 isTemp=true
-            await this.mapService.addTempMonster(targetMap.id, {
-              name: '神兽麒麟',
-              type: '神兽麒麟',
-              specialSeq: 0,
-              level: Math.max(10, player.level || 10),
-              hp: 5000,
-              maxHp: 5000,
-              attack: 200,
-              defense: 50,
-              speed: 120,
-              exp: 500,
-            });
-            return `你来到了【四圣祭坛】\n四座祭坛的怪物都已被清除，一股强大的气息在祭坛中央凝聚……\n神兽麒麟出现了！`;
-          }
-        }
-      } catch {
-        // 麒麟生成失败不阻塞移动
-      }
-    }
-
     return arrivalResult;
   }
 

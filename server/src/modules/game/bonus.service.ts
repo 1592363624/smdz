@@ -1655,6 +1655,49 @@ export class BonusService {
   }
 
   /**
+   * 反转童话 消费端（使魔技能.ecode L2631-2745 反转童话(g,s)，由 _初始化怪物尾段 L2879 调用）
+   * 遍历防御方增益中的 fzth1~fzth10，把对应正值属性翻负：
+   *   fzth1 护盾四抗 / fzth2 装甲四抗 / fzth3 生命四抗 / fzth4 闪避 / fzth5 装甲 /
+   *   fzth6 护盾 / fzth7 三回复+三回复2 / fzth8 暴击+暴击伤害 / fzth9 命中 / fzth10 四伤。
+   * @param bonus 防御方加成对象（就地修改）
+   * @param buffs 防御方增益数组（fzthN 名称匹配）
+   */
+  consumeReverseFairytaleBuffs(bonus: Record<string, any>, buffs?: any[]): void {
+    if (!buffs || buffs.length === 0) return;
+    const flipIfPositive = (key: string) => {
+      const v = Number(bonus[key]) || 0;
+      if (v > 0) bonus[key] = -v;
+    };
+    for (const b of buffs) {
+      if (!b) continue;
+      const name = String(b.name ?? b.名称 ?? '');
+      switch (name) {
+        case 'fzth1':
+          flipIfPositive('护盾电抗'); flipIfPositive('护盾火抗'); flipIfPositive('护盾冰抗'); flipIfPositive('护盾物抗');
+          break;
+        case 'fzth2':
+          flipIfPositive('装甲电抗'); flipIfPositive('装甲火抗'); flipIfPositive('装甲冰抗'); flipIfPositive('装甲物抗');
+          break;
+        case 'fzth3':
+          flipIfPositive('生命电抗'); flipIfPositive('生命火抗'); flipIfPositive('生命冰抗'); flipIfPositive('生命物抗');
+          break;
+        case 'fzth4': flipIfPositive('闪避'); break;
+        case 'fzth5': flipIfPositive('装甲'); break;
+        case 'fzth6': flipIfPositive('护盾'); break;
+        case 'fzth7':
+          flipIfPositive('护盾回复'); flipIfPositive('装甲回复'); flipIfPositive('生命回复');
+          flipIfPositive('护盾回复2'); flipIfPositive('装甲回复2'); flipIfPositive('生命回复2');
+          break;
+        case 'fzth8': flipIfPositive('暴击'); flipIfPositive('暴击伤害'); break;
+        case 'fzth9': flipIfPositive('命中'); break;
+        case 'fzth10': flipIfPositive('电伤'); flipIfPositive('火伤'); flipIfPositive('冰伤'); flipIfPositive('物伤'); break;
+        default:
+          break;
+      }
+    }
+  }
+
+  /**
    * 计算增益
    * 对应原版：计算增益()（加成计算.ecode L81-L430）
    * 处理成就铠甲、活跃特殊增益和装备追加；攻击型转轮/sa依赖攻击目标，
