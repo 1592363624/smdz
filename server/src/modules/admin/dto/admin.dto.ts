@@ -59,11 +59,17 @@ export class UpdateConfigDto {
   value: any;
 }
 
-/// 发送系统公告
+/// 发送系统公告（兼容 content / message 两种字段名）
 export class AnnouncementDto {
-  @ApiProperty({ description: '公告内容', example: '服务器将于今晚 22:00 进行维护' })
+  @ApiProperty({ description: '公告内容', example: '服务器将于今晚 22:00 进行维护', required: false })
+  @IsOptional()
   @IsString()
-  content: string;
+  content?: string;
+
+  @ApiProperty({ description: '公告内容(兼容字段)', required: false })
+  @IsOptional()
+  @IsString()
+  message?: string;
 }
 
 /// 设置世界等级
@@ -74,18 +80,62 @@ export class SetWorldLevelDto {
   level: number;
 }
 
-/// GM 给玩家发送物品
+/// GM 给玩家发送物品（兼容 target=用户名/ID 与 userId 两种指定方式，count/quantity 兼容）
 export class GiveItemDto {
-  @ApiProperty({ description: '目标用户ID', example: 1 })
+  @ApiProperty({ description: '目标用户ID', example: 1, required: false })
+  @IsOptional()
   @IsInt()
-  userId: number;
+  @Min(1)
+  userId?: number;
+
+  @ApiProperty({ description: '目标玩家(用户名或ID)', example: 'alice', required: false })
+  @IsOptional()
+  @IsString()
+  target?: string;
 
   @ApiProperty({ description: '物品名称', example: '水晶' })
   @IsString()
   itemName: string;
 
-  @ApiProperty({ description: '数量', example: 10, default: 1 })
+  @ApiProperty({ description: '数量', example: 10, default: 1, required: false })
+  @IsOptional()
   @IsInt()
   @Min(1)
-  count: number;
+  count?: number;
+
+  @ApiProperty({ description: '数量(兼容字段)', example: 10, required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  quantity?: number;
+}
+
+/// GM 修改玩家属性（兼容 target=用户名/昵称/QQ号/ID 与 userId）
+export class ModifyPlayerDto {
+  @ApiProperty({ description: '目标用户ID', example: 1, required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  userId?: number;
+
+  @ApiProperty({ description: '目标玩家(用户名/昵称/QQ号/ID)', example: 'alice', required: false })
+  @IsOptional()
+  @IsString()
+  target?: string;
+
+  @ApiProperty({
+    description: '要修改的属性字段',
+    example: 'level',
+    enum: [
+      'level', 'exp', 'name', 'hp', 'maxHp', 'shield', 'maxShield',
+      'armor', 'maxArmor', 'attack', 'defense', 'speed', 'dodge',
+      'hit', 'crit', 'critDmg', 'affinity', 'mapId', 'location',
+    ],
+  })
+  @IsString()
+  field: string;
+
+  @ApiProperty({ description: '新值(数值或字符串)', example: '10' })
+  @IsString()
+  value: string;
 }

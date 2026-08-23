@@ -378,6 +378,34 @@ export class AdminService {
   }
 
   /**
+   * 解析 GM 操作的目标用户
+   * 兼容三种指定方式：数字用户ID / 用户名 / QQ号
+   * @param target 用户ID(数字或纯数字字符串)、用户名或QQ号
+   * @returns 用户记录
+   */
+  async resolveUserTarget(target: string | number) {
+    if (target === undefined || target === null || `${target}`.trim() === '') {
+      throw new BadRequestException('请指定目标玩家');
+    }
+    const raw = `${target}`.trim();
+    let user: any = null;
+    if (/^\d{1,10}$/.test(raw)) {
+      // 纯数字优先按用户ID查找，其次按QQ号
+      user =
+        (await this.prisma.user.findUnique({ where: { id: Number(raw) } })) ||
+        (await this.prisma.user.findUnique({ where: { qqNumber: raw } }));
+    } else {
+      user = await this.prisma.user.findFirst({
+        where: { OR: [{ username: raw }, { nickname: raw }] },
+      });
+    }
+    if (!user) {
+      throw new NotFoundException(`未找到玩家「${raw}」`);
+    }
+    return user;
+  }
+
+  /**
    * 给玩家发送物品（GM命令）
    * 调用 PlayerService 向玩家背包中添加物品
    * @returns 操作结果文本
@@ -389,6 +417,65 @@ export class AdminService {
     }
     this.logger.log(`GM 给用户 ${userId} 发放了 ${count} 个 ${itemName}`);
     return `已向用户 ${userId} 发放 ${count} 个 ${itemName}`;
+  }
+
+  /**
+   * GM 按目标标识发放物品（后台网页用）
+   * @param target 用户名/昵称/QQ号/用户ID
+   */
+  async gmGiveItemToTarget(target: string | number, itemName: string, count: number): Promise<string> {
+    const user = await this.resolveUserTarget(target);
+    return this.gmGiveItem(user.id, itemName, count);
+  }
+
+  /** GM 可修改的玩家字段白名单 */
+  private static readonly MODIFY_ALLOWED_FIELDS = [
+    'level', 'exp', 'name', 'hp', 'maxHp', 'shield', 'maxShield',
+    'armor', 'maxArmor', 'attack', 'defense', 'speed', 'dodge',
+    'hit', 'crit', 'critDmg', 'affinity', 'mapId', 'location',
+  ];
+
+  /** 数值型可修改字段（其余白名单字段按字符串写入） */
+  private static readonly MODIFY_NUMERIC_FIELDS = [
+    'level', 'exp', 'hp', 'maxHp', 'shield', 'maxShield',
+    'armor', 'maxArmor', 'attack', 'defense', 'speed', 'dodge',
+    'hit', 'crit', 'critDmg', 'affinity', 'mapId',
+  ];
+
+  /**
+   * GM 修改玩家属性（后台网页用，按用户ID定位）
+   * @param operatorId 操作者用户ID（仅日志）
+   * @param userId 目标用户ID
+   * @param field 属性字段（白名单内）
+   * @param value 新值（数值字段自动转换并校验）
+   */
+  async gmModifyPlayer(operatorId: number, userId: number, field: string, value: string): Promise<string> {
+    if (!AdminService.MODIFY_ALLOWED_FIELDS.includes(field)) {
+      throw new BadRequestException(
+        `不允许修改字段「${field}」，可修改字段: ${AdminService.MODIFY_ALLOWED_FIELDS.join(', ')}`,
+      );
+    }
+
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (!player) {
+      throw new NotFoundException('该用户还没有创建游戏角色');
+    }
+
+    let parsedValue: any = value;
+    if (AdminService.MODIFY_NUMERIC_FIELDS.includes(field)) {
+      parsedValue = parseFloat(value);
+      if (isNaN(parsedValue)) {
+        throw new BadRequestException(`字段「${field}」需要数值类型`);
+      }
+    }
+
+    await this.prisma.player.update({
+      where: { id: player.id },
+      data: { [field]: parsedValue },
+    });
+
+    this.logger.log(`管理员 ${operatorId} 修改了用户 ${userId} 的 ${field}=${parsedValue}`);
+    return `✅ 已将用户 ${userId}(${player.name}) 的 ${field} 修改为 ${parsedValue}`;
   }
 
   // ========== 新增管理命令 ==========

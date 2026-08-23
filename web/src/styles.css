@@ -2463,6 +2463,23 @@ vite-plugin-checker-error-overlay,
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* 管理后台：清空玩家游戏数据按钮（琥珀色警示，区别于删除的红色） */
+.reset-btn {
+  padding: 6px 12px;
+  margin-right: 8px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  border-radius: 6px;
+  color: #facc15;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+.reset-btn:hover {
+  background: rgba(234, 179, 8, 0.25);
+  border-color: #facc15;
+}
 .saved-badge {
   color: #4ade80;
   animation: fadeIn 0.3s ease;

@@ -151,6 +151,11 @@
               </td>
               <td>
                 <span v-if="savedUser === u.id" class="saved-badge">✓</span>
+                <button
+                  class="reset-btn"
+                  title="清空该玩家的游戏进度(保留账号，可重新选使魔开局)"
+                  @click="resetUserData(u)"
+                >清空数据</button>
                 <button class="delete-btn" title="删除用户(级联删除其角色数据)" @click="deleteUser(u)" :disabled="u.id === user?.id">删除</button>
               </td>
             </tr>
@@ -189,6 +194,27 @@
             </div>
             <button class="gm-btn success" @click="doGiveItem" :disabled="gmLoading">发放物品</button>
             <p v-if="gmGiveItem.result" class="gm-result">{{ gmGiveItem.result }}</p>
+          </div>
+
+          <!-- 修改玩家属性 -->
+          <div class="gm-tool-card">
+            <h3>🔧 修改玩家属性</h3>
+            <div class="gm-field">
+              <label>目标玩家（用户名/昵称/QQ号/ID）</label>
+              <input v-model="gmModify.target" placeholder="输入玩家用户名、昵称、QQ号或ID" />
+            </div>
+            <div class="gm-field">
+              <label>属性字段</label>
+              <select v-model="gmModify.field">
+                <option v-for="f in modifyFields" :key="f.value" :value="f.value">{{ f.label }}</option>
+              </select>
+            </div>
+            <div class="gm-field">
+              <label>新值{{ modifyFieldValueIsNumber ? '（数字）' : '' }}</label>
+              <input v-model="gmModify.value" :placeholder="modifyFieldValueIsNumber ? '如：10' : '如：新手村'" />
+            </div>
+            <button class="gm-btn" @click="doModifyPlayer" :disabled="gmLoading">修改属性</button>
+            <p v-if="gmModify.result" class="gm-result">{{ gmModify.result }}</p>
           </div>
 
           <!-- 设置世界等级 -->
@@ -484,6 +510,21 @@ async function deleteUser(u) {
   }
 }
 
+/** 清空玩家游戏数据（保留账号，重置为未开始游玩状态） */
+async function resetUserData(u) {
+  const ok = confirm(
+    `确定要清空用户「${u.username}」的游戏数据吗？\n` +
+    `等级、背包、装备、任务等进度将全部重置，账号保留，可重新开局。\n此操作不可恢复！`,
+  );
+  if (!ok) return;
+  try {
+    const res = await adminApi.resetUserData(u.id);
+    alert(res.message || '已清空游戏数据');
+  } catch (e) {
+    alert('清空失败：' + (e.response?.data?.message || e.message));
+  }
+}
+
 // ---- GM 工具 ----
 const gmLoading = ref(false);
 
@@ -493,6 +534,64 @@ const gmGiveItem = ref({
   quantity: 1,
   result: '',
 });
+
+// ---- GM 修改玩家属性 ----
+// 可修改字段（与后端白名单一致）
+const modifyFields = [
+  { value: 'level', label: '等级 (level)' },
+  { value: 'exp', label: '经验 (exp)' },
+  { value: 'name', label: '角色名 (name)' },
+  { value: 'hp', label: '当前HP (hp)' },
+  { value: 'maxHp', label: '最大HP (maxHp)' },
+  { value: 'shield', label: '当前护盾 (shield)' },
+  { value: 'maxShield', label: '最大护盾 (maxShield)' },
+  { value: 'armor', label: '当前护甲 (armor)' },
+  { value: 'maxArmor', label: '最大护甲 (maxArmor)' },
+  { value: 'attack', label: '攻击 (attack)' },
+  { value: 'defense', label: '防御 (defense)' },
+  { value: 'speed', label: '速度 (speed)' },
+  { value: 'dodge', label: '闪避 (dodge)' },
+  { value: 'hit', label: '命中 (hit)' },
+  { value: 'crit', label: '暴击率 (crit)' },
+  { value: 'critDmg', label: '暴击伤害 (critDmg)' },
+  { value: 'affinity', label: '好感度 (affinity)' },
+  { value: 'mapId', label: '地图ID (mapId)' },
+  { value: 'location', label: '所在位置 (location)' },
+];
+const modifyNumericFields = [
+  'level', 'exp', 'hp', 'maxHp', 'shield', 'maxShield',
+  'armor', 'maxArmor', 'attack', 'defense', 'speed', 'dodge',
+  'hit', 'crit', 'critDmg', 'affinity', 'mapId',
+];
+
+const gmModify = ref({
+  target: '',
+  field: 'level',
+  value: '',
+  result: '',
+});
+
+/** 当前选中字段是否为数值型（用于输入提示） */
+const modifyFieldValueIsNumber = computed(() => modifyNumericFields.includes(gmModify.value.field));
+
+async function doModifyPlayer() {
+  if (!gmModify.value.target || !gmModify.value.value) return;
+  gmLoading.value = true;
+  try {
+    // 后端支持按用户名/昵称/QQ号/ID 解析目标玩家
+    const res = await adminApi.modifyPlayer({
+      target: String(gmModify.value.target).trim(),
+      field: gmModify.value.field,
+      value: String(gmModify.value.value),
+    });
+    gmModify.value.result = res.message || res.data || '修改成功！';
+    setTimeout(() => (gmModify.value.result = ''), 3000);
+  } catch (e) {
+    gmModify.value.result = '修改失败：' + (e.response?.data?.message || e.message);
+  } finally {
+    gmLoading.value = false;
+  }
+}
 
 const gmAnnouncement = ref({
   content: '',

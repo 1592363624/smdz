@@ -127,14 +127,18 @@ export const adminApi = {
   listUsers: (params) => http.get('/admin/users', { params }),
   updateUser: (data) => http.post('/admin/users/update', data),
   deleteUser: (id) => http.post('/admin/users/delete', { id }),
+  // 用户管理：清空游戏数据(保留账号，重置为未开始游玩)
+  resetUserData: (id) => http.post('/admin/users/reset-data', { id }),
   // 系统配置
   listConfig: () => http.get('/admin/config'),
   getConfig: (key) => http.get(`/admin/config/${key}`),
   updateConfig: (key, value) => http.post('/admin/config/update', { key, value }),
   // 服务器仪表盘
   dashboard: () => http.get('/admin/dashboard'),
-  // GM 工具：发放物品
+  // GM 工具：发放物品(target 支持用户名/昵称/QQ号/ID)
   giveItem: (data) => http.post('/admin/gm/give-item', data),
+  // GM 工具：修改玩家属性(白名单字段)
+  modifyPlayer: (data) => http.post('/admin/gm/modify-player', data),
   // GM 工具：设置世界等级
   setWorldLevel: (level) => http.post('/admin/gm/world-level', { level }),
   // GM 工具：发送全服公告

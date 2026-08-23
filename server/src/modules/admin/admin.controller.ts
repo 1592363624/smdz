@@ -5,6 +5,7 @@
  */
 
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -26,6 +27,7 @@ import {
   AnnouncementDto,
   DeleteUserDto,
   GiveItemDto,
+  ModifyPlayerDto,
   ResetUserDataDto,
   SetWorldLevelDto,
   UpdateConfigDto,
@@ -123,9 +125,13 @@ export class AdminController {
   }
 
   @Post('announcement')
-  @ApiOperation({ summary: '发送系统公告（广播给所有在线玩家）' })
+  @ApiOperation({ summary: '发送系统公告（广播给所有在线玩家，兼容 content/message 字段）' })
   async sendAnnouncement(@Body() dto: AnnouncementDto) {
-    await this.adminService.sendAnnouncement(dto.content);
+    const content = dto.content ?? dto.message;
+    if (!content || !content.trim()) {
+      throw new BadRequestException('公告内容不能为空');
+    }
+    await this.adminService.sendAnnouncement(content);
     return { success: true, message: '公告已发送' };
   }
 
@@ -133,7 +139,11 @@ export class AdminController {
   @Post('gm/announcement')
   @ApiOperation({ summary: '发送系统公告（GM 兼容路径）' })
   async sendGmAnnouncement(@Body() dto: AnnouncementDto) {
-    await this.adminService.sendAnnouncement(dto.content);
+    const content = dto.content ?? dto.message;
+    if (!content || !content.trim()) {
+      throw new BadRequestException('公告内容不能为空');
+    }
+    await this.adminService.sendAnnouncement(content);
     return { success: true, message: '公告已发送' };
   }
 
@@ -191,10 +201,14 @@ export class AdminController {
     return { success: true, message };
   }
 
+  /**
+   * GM 给玩家发送物品
+   * 兼容两种指定方式：userId 或 target(用户名/昵称/QQ号/ID)；数量兼容 count/quantity
+   */
   @Post('give-item')
-  @ApiOperation({ summary: 'GM 给玩家发送物品' })
+  @ApiOperation({ summary: 'GM 给玩家发送物品(支持用户名/ID定位)' })
   async giveItem(@Body() dto: GiveItemDto) {
-    const message = await this.adminService.gmGiveItem(dto.userId, dto.itemName, dto.count);
+    const message = await this.resolveGiveTarget(dto, dto.itemName);
     return { success: true, message };
   }
 
@@ -202,7 +216,32 @@ export class AdminController {
   @Post('gm/give-item')
   @ApiOperation({ summary: 'GM 给玩家发送物品（兼容路径）' })
   async giveGmItem(@Body() dto: GiveItemDto) {
-    const message = await this.adminService.gmGiveItem(dto.userId, dto.itemName, dto.count);
+    const message = await this.resolveGiveTarget(dto, dto.itemName);
     return { success: true, message };
+  }
+
+  @Post('gm/modify-player')
+  @ApiOperation({ summary: 'GM 修改玩家属性(白名单字段，支持用户名/ID定位)' })
+  async modifyPlayer(@Body() dto: ModifyPlayerDto, @Req() req) {
+    // 优先使用 userId，否则按 target(用户名/昵称/QQ号/ID) 解析
+    const targetUser: any = dto.userId
+      ? { id: dto.userId }
+      : await this.adminService.resolveUserTarget(dto.target ?? '');
+    const message = await this.adminService.gmModifyPlayer(
+      req.user.userId,
+      targetUser.id,
+      dto.field,
+      dto.value,
+    );
+    return { success: true, message };
+  }
+
+  /** 解析发放物品请求的目标与数量，并执行发放 */
+  private resolveGiveTarget(dto: GiveItemDto, itemName: string) {
+    const count = dto.count ?? dto.quantity ?? 1;
+    if (dto.userId) {
+      return this.adminService.gmGiveItem(dto.userId, itemName, count);
+    }
+    return this.adminService.gmGiveItemToTarget(dto.target ?? '', itemName, count);
   }
 }
