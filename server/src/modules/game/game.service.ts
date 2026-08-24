@@ -193,6 +193,12 @@ export class GameService {
       return `地图不存在，请检查名称`;
     }
 
+    // 对齐原版 _主程序.ecode 前往分支：目的地为当前位置时 取最短路径 距离为0，
+    // 按“没有路径”拦截，不允许反复前往脚下地图；副本入口按传送处理不受此限制。
+    if (!isDungeonEntry && Number(targetMap.id) === Number(currentMap.id)) {
+      return `${player.name}所在地"${currentMap.name}"没有前往"${targetMap.name}"的路径`;
+    }
+
     // 检查是否可以前往
     const check = isDungeonEntry
       ? { canTravel: true }
@@ -558,7 +564,7 @@ export class GameService {
     options: { skipMapRefresh?: boolean } = {},
   ): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    let { player } = playerData;
 
     const targetMap = await this.mapService.getMapById(targetMapId);
     if (!targetMap) {
@@ -593,6 +599,11 @@ export class GameService {
     await this.combatSystem.applyMapBuffs(player, targetMap);
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, `前往${targetMap.name}`);
+
+    // 任务结算(advance)基于数据库最新数据改写了 tasks/markers/backpack 等字段；
+    // 这里必须重新加载玩家快照，否则下方探索成就用旧对象整体回写，
+    // 会把刚完成的任务“复活”并回滚奖励。
+    player = (await this.playerService.getPlayerData(userId)).player;
 
     // 懒刷新：若目标地图当前没有已生成的怪物，立即补充刷新，避免到达后无怪可打
     if (!options.skipMapRefresh) {

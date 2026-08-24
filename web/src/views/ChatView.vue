@@ -53,9 +53,6 @@
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'me' }" @click="sidebarTab = 'me'">
           <span class="tab-icon">👤</span>我的
         </button>
-        <button class="sidebar-tab" :class="{ active: sidebarTab === 'map' }" @click="sidebarTab = 'map'">
-          <span class="tab-icon">🗺️</span>地图
-        </button>
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'cmd' }" @click="sidebarTab = 'cmd'">
           <span class="tab-icon">📖</span>指令
         </button>
@@ -119,71 +116,8 @@
             <button class="qa-map" @click="quickAction('地图')">🗺️ 地图</button>
             <button class="qa-attack" @click="quickAction('攻击')">⚔️ 攻击</button>
           </div>
-        </div>
 
-        <!-- 地图 Tab：当前地图 + 子区域 + 全部地图 -->
-        <div v-show="sidebarTab === 'map'" class="tab-pane">
-          <div class="map-connections" v-if="mapOverview">
-            <div class="mc-current">
-              📍 {{ mapOverview.currentMap.name }}
-              <span class="mc-detail" v-if="mapOverview.currentMap.monsters || mapOverview.currentMap.resources || mapOverview.currentMap.npcs">
-                怪{{ mapOverview.currentMap.monsters }} · 资{{ mapOverview.currentMap.resources }} · NPC{{ mapOverview.currentMap.npcs }}
-              </span>
-            </div>
-            <div class="mc-block" v-if="mapOverview.subMaps.length">
-              <div class="mc-block-title">子区域</div>
-              <div class="mc-grid">
-                <span
-                  v-for="mc in mapOverview.subMaps"
-                  :key="'sub-' + mc.name"
-                  class="mc-node"
-                  @click="quickAction('go ' + mc.name)"
-                >{{ mc.name }}</span>
-              </div>
-            </div>
-            <div class="mc-block">
-              <div class="mc-block-title mc-fold" @click="allMapsCollapsed = !allMapsCollapsed">
-                <span class="mc-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
-                全部地图（{{ mapOverview.allMaps.length }}）
-              </div>
-              <div class="mc-grid" v-show="!allMapsCollapsed">
-                <span
-                  v-for="mc in mapOverview.allMaps"
-                  :key="'all-' + mc.name"
-                  class="mc-node"
-                  :class="{ current: mc.isCurrent, reachable: mc.isReachable }"
-                  @click="quickAction('go ' + mc.name)"
-                >{{ mc.name }}</span>
-              </div>
-            </div>
-          </div>
-          <div class="map-connections" v-else>
-            <div class="mc-block-title" style="color: var(--muted); font-weight: 400; text-align: center;">地图信息加载中…</div>
-          </div>
-
-          <!-- 附近玩家（也在地图 Tab 中显示） -->
-          <div class="map-connections" v-if="nearbyPlayers.length || nearbyLoaded">
-            <div class="mc-block">
-              <div class="mc-block-title">👥 附近玩家（{{ nearbyPlayers.length }}）</div>
-              <div class="mc-grid" v-if="nearbyPlayers.length">
-                <span
-                  v-for="p in nearbyPlayers"
-                  :key="'subp-' + p.userId"
-                  class="mc-node nearby-node"
-                  :class="{ online: p.online }"
-                  @click="startNearbyPrivateChat(p)"
-                >
-                  {{ p.nickname || p.username }}<em v-if="!p.online">·离线</em>
-                </span>
-              </div>
-              <div class="mc-block-title" v-else style="color: var(--muted); font-weight: 400;">当前区域暂无其他玩家</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 指令 Tab：搜索 + 指令列表（更大空间） -->
-        <div v-show="sidebarTab === 'cmd'" class="tab-pane tab-pane-cmd">
-          <!-- 我的常用指令：用户自定义置顶区，可编辑、可拖拽排序 -->
+          <!-- 我的常用指令：用户自定义，可编辑、可拖拽排序，点击直接发送 -->
           <div class="fav-cmds">
             <div class="fav-head">
               <span class="fav-title">⭐ 我的常用</span>
@@ -235,7 +169,10 @@
             <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
             <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
           </div>
+        </div>
 
+        <!-- 指令 Tab：搜索 + 指令列表（更大空间） -->
+        <div v-show="sidebarTab === 'cmd'" class="tab-pane tab-pane-cmd">
           <div class="cmd-search-wrapper">
             <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车发送第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
             <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
@@ -392,6 +329,59 @@
             <button class="qa-map" @click="mobileMenuOpen = false; quickAction('地图')">🗺️ 地图</button>
             <button class="qa-attack" @click="mobileMenuOpen = false; quickAction('攻击')">⚔️ 攻击</button>
           </div>
+
+          <!-- 我的常用指令：用户自定义，可编辑、可拖拽排序，点击直接发送 -->
+          <div class="fav-cmds">
+            <div class="fav-head">
+              <span class="fav-title">⭐ 我的常用</span>
+              <button class="fav-edit-btn" @click="toggleFavEdit">{{ favEditing ? '完成' : '编辑' }}</button>
+            </div>
+            <div v-if="favoriteCommands.length || favEditing" class="fav-list">
+              <span
+                v-for="(f, fi) in favoriteCommands"
+                :key="'mfav-' + f.cmd"
+                class="fav-chip"
+                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi }"
+                :draggable="favEditing"
+                @dragstart="onFavDragStart(fi)"
+                @dragover.prevent="onFavDragOver(fi)"
+                @drop="onFavDrop(fi)"
+                @click="mobileMenuOpen = false; onFavoriteClick(f)"
+              >
+                <span v-if="favEditing" class="fav-grip" title="拖拽排序">⋮⋮</span>
+                {{ f.label }}
+                <span v-if="favEditing" class="fav-del">✕</span>
+              </span>
+              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
+            </div>
+            <div v-if="favEditing" class="fav-add">
+              <input
+                class="fav-add-input"
+                v-model="favAddInput"
+                placeholder="发送内容（任意文本，如：攻击 史莱姆）"
+                @click.stop
+                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
+              />
+              <input
+                class="fav-add-label"
+                v-model="favAddLabel"
+                placeholder="显示名（可选，留空用发送内容）"
+                @click.stop
+                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
+              />
+              <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="addFavorite()">+ 添加</button>
+              <div v-if="favAddCandidates.length" class="fav-candidates">
+                <span
+                  v-for="c in favAddCandidates"
+                  :key="'mfavc-' + c.name"
+                  class="fav-cand"
+                  @click="addFavorite(c.name)"
+                >{{ c.name }}</span>
+              </div>
+            </div>
+            <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
+            <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
+          </div>
         </div>
 
         <!-- 地图 Tab -->
@@ -435,59 +425,6 @@
 
         <!-- 指令 Tab -->
         <div v-show="mobileTab === 'cmd'" class="tab-pane tab-pane-cmd">
-          <!-- 我的常用指令：用户自定义置顶区，可编辑、可拖拽排序 -->
-          <div class="fav-cmds">
-            <div class="fav-head">
-              <span class="fav-title">⭐ 我的常用</span>
-              <button class="fav-edit-btn" @click="mobileMenuOpen = false; toggleFavEdit()">{{ favEditing ? '完成' : '编辑' }}</button>
-            </div>
-            <div v-if="favoriteCommands.length || favEditing" class="fav-list">
-              <span
-                v-for="(f, fi) in favoriteCommands"
-                :key="'mfav-' + f.cmd"
-                class="fav-chip"
-                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi }"
-                :draggable="favEditing"
-                @dragstart="onFavDragStart(fi)"
-                @dragover.prevent="onFavDragOver(fi)"
-                @drop="onFavDrop(fi)"
-                @click="mobileMenuOpen = false; onFavoriteClick(f)"
-              >
-                <span v-if="favEditing" class="fav-grip" title="拖拽排序">⋮⋮</span>
-                {{ f.label }}
-                <span v-if="favEditing" class="fav-del">✕</span>
-              </span>
-              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
-            </div>
-            <div v-if="favEditing" class="fav-add">
-              <input
-                class="fav-add-input"
-                v-model="favAddInput"
-                placeholder="发送内容（任意文本，如：攻击 史莱姆）"
-                @click.stop
-                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
-              />
-              <input
-                class="fav-add-label"
-                v-model="favAddLabel"
-                placeholder="显示名（可选，留空用发送内容）"
-                @click.stop
-                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
-              />
-              <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="mobileMenuOpen = false; addFavorite()">+ 添加</button>
-              <div v-if="favAddCandidates.length" class="fav-candidates">
-                <span
-                  v-for="c in favAddCandidates"
-                  :key="'mfavc-' + c.name"
-                  class="fav-cand"
-                  @click="mobileMenuOpen = false; addFavorite(c.name)"
-                >{{ c.name }}</span>
-              </div>
-            </div>
-            <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
-            <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
-          </div>
-
           <div class="cmd-search-wrapper">
             <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车发送第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
             <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
@@ -708,6 +645,23 @@
           >{{ mc.name }}</span>
         </div>
         <div class="ip-empty" v-else>当前地图为孤立区域</div>
+      </div>
+
+      <!-- 全部地图（原左侧地图Tab迁移至此，可折叠、点击快速传送） -->
+      <div class="ip-block" v-if="mapOverview">
+        <h4 class="ip-title ip-fold" @click="allMapsCollapsed = !allMapsCollapsed">
+          <span class="ip-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
+          🗺️ 全部地图 ({{ mapOverview.allMaps.length }})
+        </h4>
+        <div class="ip-links" v-show="!allMapsCollapsed">
+          <span
+            v-for="mc in mapOverview.allMaps"
+            :key="'rip-' + mc.name"
+            class="ip-link"
+            :class="{ current: mc.isCurrent, reachable: mc.isReachable }"
+            @click="quickAction('go ' + mc.name)"
+          >{{ mc.name }}</span>
+        </div>
       </div>
     </aside>
 
@@ -989,7 +943,7 @@ const allMapsCollapsed = ref(true);
 // 手机端菜单状态
 const mobileMenuOpen = ref(false);
 
-// 桌面端左侧栏 Tab 切换（me=个人/map=地图/cmd=指令）
+// 桌面端左侧栏 Tab 切换（me=个人/cmd=指令；地图信息统一在右侧信息面板展示）
 const sidebarTab = ref('me');
 // 手机端抽屉 Tab 切换（与桌面端独立，避免互相干扰）
 const mobileTab = ref('me');

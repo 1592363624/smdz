@@ -7,6 +7,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CommandService } from '../command/command.service';
 import { CommandContext, CommandSource } from '../command/interfaces/command.interface';
+import { ShortcutService } from '../game/shortcut.service';
 
 /// AstrBot 传入指令的请求体结构
 export interface BotCommandPayload {
@@ -25,6 +26,7 @@ export class BotService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commandService: CommandService,
+    private readonly shortcutService: ShortcutService,
   ) {}
 
   /**
@@ -45,17 +47,26 @@ export class BotService {
     // 默认世界频道
     const channel = await this.prisma.channel.findFirst({ where: { name: '世界频道' } });
 
+    this.logger.log(`[AstrBot] 收到指令: ${message} (来自 ${botIdentity})`);
+    // 快捷输入预处理（快捷键/输入替换/临时输入替换，编号菜单"发数字触发指令"依赖此步）。
+    // 与网页公屏入口(chat.gateway)保持一致：未绑定用户时无 userId，跳过直接分发。
+    let finalMessage = message;
+    if (binding?.id) {
+      try {
+        finalMessage = await this.shortcutService.processShortcut(message, binding.id);
+      } catch (e: any) {
+        this.logger.warn(`[AstrBot] 快捷输入预处理失败: ${e.message}`);
+      }
+    }
     const ctx: CommandContext = {
       userId: binding?.id,
       username: binding?.username || botIdentity,
       botIdentity,
       channelId: channel?.id || 1,
       channelName: channel?.name || '世界频道',
-      rawMessage: message,
+      rawMessage: finalMessage,
       source: CommandSource.ASTRBOT,
     };
-
-    this.logger.log(`[AstrBot] 收到指令: ${message} (来自 ${botIdentity})`);
     const result = await this.commandService.dispatch(ctx);
     return result;
   }

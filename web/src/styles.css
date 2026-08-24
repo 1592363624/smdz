@@ -1225,6 +1225,30 @@ vite-plugin-checker-error-overlay,
   background: rgba(6, 182, 212, 0.22);
   color: #fff;
 }
+/* 全部地图折叠标题 */
+.info-panel .ip-fold {
+  cursor: pointer;
+  user-select: none;
+}
+.info-panel .ip-fold:hover {
+  color: var(--accent2);
+}
+.info-panel .ip-caret {
+  font-size: 10px;
+  margin-right: 2px;
+}
+/* 当前所在地图 / 当前可直接到达的地图 高亮（与左侧 mc-node 视觉语义一致） */
+.info-panel .ip-link.current {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.2);
+}
+.info-panel .ip-link.reachable {
+  border-color: rgba(52, 211, 153, 0.4);
+  color: var(--text);
+  background: rgba(52, 211, 153, 0.08);
+}
 
 .chat-header {
   padding: 14px 24px;
