@@ -33,6 +33,10 @@ model User {
   avatar      String   @default("")
   /// 用户自定义的常用指令列表（JSON 数组，如 ["攻击","背包"]），前端指令面板置顶展示
   favoriteCommands String @default(dbgenerated("('[]')")) @db.LongText
+  /// 最后登录时间（QQ 登录成功时更新）
+  lastLoginAt DateTime?
+  /// 累计登录次数
+  loginCount  Int       @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -125,6 +129,8 @@ model Player {
   // 时间相关
   lastOpTime BigInt   @default(0)     // 最后操作时间戳
   readTime   BigInt   @default(0)     // 读取时间戳
+  /// 累计在线时长（秒），由后台任务按活跃玩家每分钟累加
+  playTime   BigInt   @default(0)
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

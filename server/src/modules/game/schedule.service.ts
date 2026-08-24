@@ -172,6 +172,25 @@ export class ScheduleService {
   }
 
   /**
+   * 在线时长统计 - 每分钟执行一次
+   * 把最近5分钟内有更新（视为在线）的玩家累计在线秒数 +60，
+   * 用于 GM 后台用户管理展示"累计在线时长"。
+   */
+  @Cron('30 * * * * *')
+  async accumulatePlayTime() {
+    try {
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const result = await this.prisma.player.updateMany({
+        where: { userId: { gt: 0 }, updatedAt: { gte: fiveMinAgo } },
+        data: { playTime: { increment: 60 } },
+      });
+      if (result.count > 0) this.logger.log(`在线时长统计: ${result.count} 名玩家 +60s`);
+    } catch (err: any) {
+      this.logger.error(`在线时长统计失败: ${err.message}`);
+    }
+  }
+
+  /**
    * 地图资源刷新 - 每分钟检查一次已到期的单项刷新标记
    * 对应原版：后台运作中的“刷新资源<名称>”处理
    */

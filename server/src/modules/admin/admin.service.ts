@@ -17,6 +17,27 @@ export class AdminService {
   /** 服务器启动时间戳，用于计算 uptime */
   private readonly startTime: number = Date.now();
 
+  /** GM 编辑弹窗允许修改的玩家字段白名单（基础属性 + 战斗属性 + 位置） */
+  private static readonly EDIT_ALLOWED_FIELDS = [
+    'name', 'type', 'level', 'exp', 'upgradeExp',
+    'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor',
+    'attack', 'defense', 'speed', 'dodge', 'hit', 'crit', 'critDmg',
+    'regenHp', 'regenShield', 'regenArmor',
+    'mapId', 'location', 'houseName', 'affinity', 'vitality', 'masterQQ',
+  ];
+
+  /** 白名单中的数值型字段 */
+  private static readonly EDIT_NUMERIC_FIELDS = [
+    'level', 'exp', 'upgradeExp',
+    'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor',
+    'attack', 'defense', 'speed', 'dodge', 'hit', 'crit', 'critDmg',
+    'regenHp', 'regenShield', 'regenArmor',
+    'mapId', 'affinity', 'vitality',
+  ];
+
+  /** 白名单中以 JSON 字符串存储的结构化字段（编辑时需传对象/数组） */
+  private static readonly EDIT_JSON_FIELDS: string[] = [];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
@@ -27,6 +48,7 @@ export class AdminService {
 
   /**
    * 分页查询用户列表
+   * 关联玩家档案，附带等级/角色名/位置/在线状态/在线时长/最后登录等扩展信息
    */
   async listUsers(page = 1, pageSize = 20, keyword?: string) {
     const where = keyword
@@ -50,14 +72,153 @@ export class AdminService {
           externalId: true,
           role: true,
           status: true,
+          avatar: true,
           createdAt: true,
+          lastLoginAt: true,
+          loginCount: true,
+          player: {
+            select: {
+              level: true,
+              name: true,
+              type: true,
+              hp: true,
+              maxHp: true,
+              mapId: true,
+              location: true,
+              affinity: true,
+              playTime: true,
+              lastOpTime: true,
+              updatedAt: true,
+            },
+          },
         },
         orderBy: { id: 'asc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
     ]);
-    return { total, list, page, pageSize };
+
+    // 在线判定与前端约定一致：最近5分钟有操作视为在线
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const now = Date.now();
+    const enriched = list.map((u) => {
+      const p = u.player as any;
+      const lastActiveAt = p?.updatedAt || null;
+      return {
+        ...u,
+        online: !!lastActiveAt && new Date(lastActiveAt).getTime() >= fiveMinAgo.getTime(),
+        // BigInt 不能直接 JSON 序列化，统一转数值秒
+        playTimeSeconds: p?.playTime != null ? Number(p.playTime) : 0,
+        lastActiveAt,
+        player: p
+          ? {
+              ...p,
+              playTime: undefined,
+              lastOpTime: p.lastOpTime != null ? Number(p.lastOpTime) : 0,
+            }
+          : null,
+        _now: now,
+      };
+    });
+    return { total, list: enriched, page, pageSize };
+  }
+
+  /**
+   * 获取单个用户的详细信息（含完整玩家档案摘要）
+   * GM 用户管理的"详情/编辑"弹窗使用
+   */
+  async getUserDetail(id: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        username: true,
+        nickname: true,
+        qqNumber: true,
+        externalId: true,
+        role: true,
+        status: true,
+        avatar: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLoginAt: true,
+        loginCount: true,
+        player: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const p = user.player as any;
+    const detail: any = { ...user, online: false };
+    if (p) {
+      detail.online =
+        !!p.updatedAt && new Date(p.updatedAt).getTime() >= fiveMinAgo.getTime();
+      // JSON 字符串字段解析为结构化数据（解析失败保留原样），BigInt 转数值
+      for (const key of ['backpack', 'equipment', 'weapons', 'tasks', 'titles', 'skills', 'buffs']) {
+        try {
+          p[key] = JSON.parse(p[key] ?? 'null');
+        } catch {
+          /* 保持原字符串 */
+        }
+      }
+      p.playTimeSeconds = p.playTime != null ? Number(p.playTime) : 0;
+      p.playTime = undefined;
+      p.lastOpTime = p.lastOpTime != null ? Number(p.lastOpTime) : 0;
+      p.readTime = p.readTime != null ? Number(p.readTime) : 0;
+    }
+    return detail;
+  }
+
+  /**
+   * 批量编辑玩家游戏数据（GM 用户管理"编辑"弹窗）
+   * 仅更新传入的字段；数值字段校验，JSON 结构字段需传对象/数组。
+   * @param operatorId 操作者ID（仅日志）
+   * @param userId 目标用户ID
+   * @param data 待更新字段
+   */
+  async editPlayerData(operatorId: number, userId: number, data: Record<string, any>): Promise<string> {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new BadRequestException('请提供要修改的字段');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('用户不存在');
+
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (!player) throw new NotFoundException('该用户还没有创建游戏角色');
+
+    const updateData: any = {};
+    for (const [field, rawValue] of Object.entries(data)) {
+      if (!AdminService.EDIT_ALLOWED_FIELDS.includes(field)) {
+        throw new BadRequestException(`不允许修改字段「${field}」`);
+      }
+      if (AdminService.EDIT_JSON_FIELDS.includes(field)) {
+        // 结构化字段：序列化存储，非法 JSON 直接拒绝
+        try {
+          updateData[field] = JSON.stringify(rawValue);
+        } catch {
+          throw new BadRequestException(`字段「${field}」不是合法的结构化数据`);
+        }
+      } else if (AdminService.EDIT_NUMERIC_FIELDS.includes(field)) {
+        const num = parseFloat(rawValue);
+        if (isNaN(num)) throw new BadRequestException(`字段「${field}」需要数值类型`);
+        updateData[field] = num;
+      } else {
+        updateData[field] = String(rawValue ?? '');
+      }
+    }
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('没有可更新的字段');
+    }
+
+    await this.prisma.player.update({ where: { id: player.id }, data: updateData });
+    this.logger.log(
+      `管理员 ${operatorId} 编辑了用户 ${userId}(${user.username}) 的玩家数据: ${Object.keys(updateData).join(', ')}`,
+    );
+    return `已保存对玩家 ${player.name || user.username} 的修改（${Object.keys(updateData).length} 个字段）`;
   }
 
   /**
@@ -237,6 +398,7 @@ export class AdminService {
         vitality: 0,
         lastOpTime: BigInt(0),
         readTime: BigInt(0),
+        playTime: BigInt(0),
       },
     });
 
@@ -614,6 +776,7 @@ export class AdminService {
         titles: initialTitles,
         affinity: 0,
         vehicle: '',
+        playTime: BigInt(0),
       },
     });
 

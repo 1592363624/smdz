@@ -41,6 +41,29 @@ export class DeleteUserDto {
   id: number;
 }
 
+/// 获取用户详情（含玩家档案）
+export class UserDetailDto {
+  @ApiProperty({ description: '用户ID', example: 1 })
+  @IsInt()
+  id: number;
+}
+
+/// 批量编辑玩家游戏数据（GM 用户管理"编辑"弹窗）
+export class EditPlayerDataDto {
+  @ApiProperty({ description: '用户ID', example: 1 })
+  @IsInt()
+  id: number;
+
+  @ApiProperty({
+    description: '待修改字段(白名单: name/type/level/exp/hp/maxHp/attack/defense/mapId/location 等)',
+    example: { level: 50, attack: 999 },
+    type: Object,
+    additionalProperties: true,
+  })
+  @Allow() // 任意结构，服务层按字段白名单逐一校验
+  data: Record<string, any>;
+}
+
 /// 清理用户游戏数据（保留账号）
 export class ResetUserDataDto {
   @ApiProperty({ description: '用户ID', example: 1 })

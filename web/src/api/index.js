@@ -127,6 +127,10 @@ export const adminApi = {
   listUsers: (params) => http.get('/admin/users', { params }),
   updateUser: (data) => http.post('/admin/users/update', data),
   deleteUser: (id) => http.post('/admin/users/delete', { id }),
+  // 用户管理：用户详情(含玩家档案、在线状态、在线时长等)
+  userDetail: (id) => http.post('/admin/users/detail', { id }),
+  // 用户管理：批量编辑玩家游戏数据(字段白名单)
+  editPlayerData: (id, data) => http.post('/admin/players/edit', { id, data }),
   // 用户管理：清空游戏数据(保留账号，重置为未开始游玩)
   resetUserData: (id) => http.post('/admin/users/reset-data', { id }),
   // 系统配置

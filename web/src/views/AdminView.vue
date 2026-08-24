@@ -118,39 +118,55 @@
               <th>ID</th>
               <th>用户名</th>
               <th>昵称</th>
-              <th>QQ号</th>
-              <th>角色</th>
-              <th>状态</th>
+              <th>角色 / 状态</th>
+              <th>玩家信息</th>
+              <th>在线</th>
+              <th>在线时长</th>
+              <th>最后活跃 / 最后登录</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="u in users" :key="u.id">
               <td>{{ u.id }}</td>
-              <td>{{ u.username }}</td>
+              <td>
+                <div>{{ u.username }}</div>
+                <div v-if="u.qqNumber" class="qq-ext">QQ: {{ u.qqNumber }}</div>
+              </td>
               <td>
                 <input class="inline-input" :value="u.nickname" @change="updateUser(u, { nickname: $event.target.value })" />
               </td>
               <td>
-                <input class="inline-input qq-input" :value="u.qqNumber || ''" placeholder="QQ号" @change="updateUser(u, { qqNumber: $event.target.value })" />
-                <!-- 展示 QQ 互联 openid，帮助区分"旧版绑定(qqNumber=openid)"与真实QQ号 -->
-                <div v-if="u.externalId" class="qq-ext">互联ID: {{ u.externalId }}</div>
-              </td>
-              <td>
-                <select :value="u.role" @change="updateUser(u, { role: $event.target.value })">
+                <select class="role-select" :value="u.role" @change="updateUser(u, { role: $event.target.value })">
                   <option value="USER">USER</option>
                   <option value="ADMIN">ADMIN</option>
                   <option value="SUPER_ADMIN">SUPER_ADMIN</option>
                 </select>
-              </td>
-              <td>
-                <select :value="u.status" @change="updateUser(u, { status: $event.target.value })">
+                <select class="status-select" :value="u.status" @change="updateUser(u, { status: $event.target.value })">
                   <option value="ACTIVE">正常</option>
                   <option value="BANNED">封禁</option>
                 </select>
               </td>
               <td>
+                <template v-if="u.player">
+                  <span class="player-tag lv">{{ u.player.level }}级</span>
+                  <span v-if="u.player.name" class="player-tag">{{ u.player.name }}</span>
+                  <span v-if="u.player.location" class="player-tag loc">{{ u.player.location }}</span>
+                </template>
+                <span v-else class="muted">未创建角色</span>
+              </td>
+              <td>
+                <span :class="['online-dot', u.online ? 'on' : 'off']"></span>
+                {{ u.online ? '在线' : '离线' }}
+              </td>
+              <td>{{ formatDuration(u.playTimeSeconds) }}</td>
+              <td class="time-cell">
+                <div>{{ formatTime(u.lastActiveAt) || '从未' }}</div>
+                <div class="time-sub">登录: {{ formatTime(u.lastLoginAt) || '从未' }} ({{ u.loginCount ?? 0 }}次)</div>
+              </td>
+              <td>
                 <span v-if="savedUser === u.id" class="saved-badge">✓</span>
+                <button class="detail-btn" title="查看/编辑用户详细数据" @click="openUserDetail(u)">详情</button>
                 <button
                   class="reset-btn"
                   title="清空该玩家的游戏进度(保留账号，可重新选使魔开局)"
@@ -161,6 +177,57 @@
             </tr>
           </tbody>
         </table>
+
+        <!-- 用户详情 / 编辑弹窗 -->
+        <div v-if="detailUser" class="modal-mask" @click.self="closeUserDetail">
+          <div class="modal-box">
+            <div class="modal-head">
+              <h3>
+                用户详情
+                <span :class="['online-dot', detailUser.online ? 'on' : 'off']"></span>
+                <small class="muted">#{{ detailUser.id }} · {{ detailUser.username }}</small>
+              </h3>
+              <button class="modal-close" @click="closeUserDetail">×</button>
+            </div>
+
+            <div v-if="detailLoading" class="fb-empty">加载中...</div>
+            <template v-else>
+              <!-- 账号信息（只读 + 可改的绑定QQ） -->
+              <div class="detail-grid">
+                <div class="detail-item"><label>昵称</label><span>{{ detailUser.nickname || '-' }}</span></div>
+                <div class="detail-item">
+                  <label>QQ号（修改即保存，清空解绑）</label>
+                  <input
+                    class="qq-edit-input"
+                    :value="detailUser.qqNumber || ''"
+                    placeholder="未绑定"
+                    @change="saveUserField({ qqNumber: $event.target.value.trim() })"
+                  />
+                </div>
+                <div class="detail-item"><label>注册时间</label><span>{{ formatTime(detailUser.createdAt) || '-' }}</span></div>
+                <div class="detail-item"><label>最后登录</label><span>{{ formatTime(detailUser.lastLoginAt) || '从未' }}（{{ detailUser.loginCount ?? 0 }} 次）</span></div>
+                <div class="detail-item"><label>累计在线时长</label><span>{{ formatDuration(detailPlayer?.playTimeSeconds) }}</span></div>
+                <div class="detail-item"><label>互联ID</label><span class="mono">{{ detailUser.externalId || '-' }}</span></div>
+              </div>
+
+              <template v-if="editForm">
+                <p class="hint" style="margin: 10px 0 6px;">游戏数据编辑（留空的字段不会被修改，保存后即时生效）：</p>
+                <div class="edit-grid">
+                  <label v-for="f in editableFields" :key="f.field" class="edit-field">
+                    <span>{{ f.label }}</span>
+                    <input v-model="editForm[f.field]" :placeholder="'当前: ' + currentDisplay(f)" />
+                  </label>
+                </div>
+
+                <div class="modal-foot">
+                  <button class="gm-btn success" :disabled="editSaving" @click="savePlayerEdit">{{ editSaving ? '保存中...' : '保存修改' }}</button>
+                  <span v-if="editResult" :class="['edit-result', editError && 'err']">{{ editResult }}</span>
+                </div>
+              </template>
+              <p v-else class="muted" style="margin-top: 10px;">该用户尚未创建游戏角色。</p>
+            </template>
+          </div>
+        </div>
 
         <div class="pagination">
           <button :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
@@ -525,6 +592,142 @@ async function resetUserData(u) {
   }
 }
 
+// ---- 用户详情 / 编辑弹窗 ----
+const detailUser = ref(null);      // 详情弹窗当前用户（含完整档案）
+const detailLoading = ref(false);
+const editForm = ref(null);        // 可编辑字段表单（仅收集有输入的字段提交）
+const editSaving = ref(false);
+const editResult = ref('');
+const editError = ref(false);
+
+// 可编辑的游戏字段（与后端 players/edit 白名单一致）
+const editableFields = [
+  { field: 'name', label: '角色名', numeric: false },
+  { field: 'type', label: '使魔类型', numeric: false },
+  { field: 'level', label: '等级', numeric: true },
+  { field: 'exp', label: '经验', numeric: true },
+  { field: 'upgradeExp', label: '升级所需经验', numeric: true },
+  { field: 'hp', label: '当前HP', numeric: true },
+  { field: 'maxHp', label: '最大HP', numeric: true },
+  { field: 'shield', label: '当前护盾', numeric: true },
+  { field: 'maxShield', label: '最大护盾', numeric: true },
+  { field: 'armor', label: '当前装甲', numeric: true },
+  { field: 'maxArmor', label: '最大装甲', numeric: true },
+  { field: 'attack', label: '攻击', numeric: true },
+  { field: 'defense', label: '防御', numeric: true },
+  { field: 'speed', label: '速度', numeric: true },
+  { field: 'dodge', label: '闪避', numeric: true },
+  { field: 'hit', label: '命中', numeric: true },
+  { field: 'crit', label: '暴击率(%)', numeric: true },
+  { field: 'critDmg', label: '暴击伤害(%)', numeric: true },
+  { field: 'regenHp', label: '生命回复', numeric: true },
+  { field: 'regenShield', label: '护盾回复', numeric: true },
+  { field: 'regenArmor', label: '装甲回复', numeric: true },
+  { field: 'mapId', label: '地图ID', numeric: true },
+  { field: 'location', label: '所在位置', numeric: false },
+  { field: 'houseName', label: '家园名称', numeric: false },
+  { field: 'affinity', label: '好感度', numeric: true },
+  { field: 'vitality', label: '活力', numeric: true },
+];
+
+/** 详情弹窗中的玩家档案（detailUser.player） */
+const detailPlayer = computed(() => detailUser.value?.player ?? null);
+
+/** 字段当前值的展示文案 */
+function currentDisplay(f) {
+  const v = detailPlayer.value?.[f.field];
+  return (v === null || v === undefined || v === '') ? '-' : String(v);
+}
+
+/** 打开用户详情弹窗并拉取完整档案 */
+async function openUserDetail(u) {
+  detailUser.value = u;
+  detailLoading.value = true;
+  editForm.value = null;
+  editResult.value = '';
+  editError.value = false;
+  try {
+    const res = await adminApi.userDetail(u.id);
+    detailUser.value = res.data;
+    // 表单初始为全空：留空 = 不修改该字段
+    if (res.data.player) {
+      editForm.value = Object.fromEntries(editableFields.map((f) => [f.field, '']));
+    }
+  } catch (e) {
+    alert('加载用户详情失败：' + (e.response?.data?.message || e.message));
+    detailUser.value = null;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+function closeUserDetail() {
+  detailUser.value = null;
+  editForm.value = null;
+  editResult.value = '';
+}
+
+/** 弹窗内保存账号字段（如绑定QQ号） */
+async function saveUserField(changes) {
+  const u = detailUser.value;
+  if (!u) return;
+  try {
+    const res = await adminApi.updateUser({ id: u.id, ...changes });
+    Object.assign(u, res.data);
+    savedUser.value = u.id;
+    setTimeout(() => (savedUser.value = 0), 1500);
+    await loadUsers(page.value); // 同步列表中的QQ展示
+  } catch (e) {
+    alert('保存失败：' + (e.response?.data?.message || e.message));
+  }
+}
+
+/** 提交玩家数据编辑：只提交有输入的字段 */
+async function savePlayerEdit() {
+  const form = editForm.value;
+  if (!form || !detailUser.value) return;
+  const changes = {};
+  for (const f of editableFields) {
+    const raw = `${form[f.field] ?? ''}`.trim();
+    if (raw === '') continue; // 留空不修改
+    changes[f.field] = f.numeric ? Number(raw) : raw;
+    if (f.numeric && Number.isNaN(changes[f.field])) {
+      editError.value = true;
+      editResult.value = `「${f.label}」需要数字`;
+      return;
+    }
+  }
+  if (Object.keys(changes).length === 0) {
+    editError.value = true;
+    editResult.value = '请先填写要修改的字段';
+    return;
+  }
+  editSaving.value = true;
+  editError.value = false;
+  try {
+    const res = await adminApi.editPlayerData(detailUser.value.id, changes);
+    editResult.value = res.message || '保存成功';
+    await loadUsers(page.value); // 刷新列表中的等级/位置等展示
+  } catch (e) {
+    editError.value = true;
+    editResult.value = '保存失败：' + (e.response?.data?.message || e.message);
+  } finally {
+    editSaving.value = false;
+  }
+}
+
+/** 秒数 → "X天X小时X分" 展示 */
+function formatDuration(seconds) {
+  const s = Number(seconds ?? 0);
+  if (!s || s <= 0) return '-';
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  if (days > 0) return `${days}天${hours}小时`;
+  if (hours > 0) return `${hours}小时${mins}分`;
+  return `${mins}分钟`;
+}
+
 // ---- GM 工具 ----
 const gmLoading = ref(false);
 
@@ -884,6 +1087,186 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* ===== 用户管理增强：在线状态点 / 玩家信息标签 / 时间列 ===== */
+.online-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.online-dot.on {
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.8);
+}
+.online-dot.off {
+  background: var(--muted-dark, #666);
+}
+.player-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  color: var(--text);
+  margin: 1px 3px 1px 0;
+  white-space: nowrap;
+}
+.player-tag.lv {
+  color: var(--accent2);
+  font-weight: 700;
+}
+.player-tag.loc {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+.role-select,
+.status-select {
+  max-width: 110px;
+}
+.status-select option[value='BANNED'] {
+  color: #f87171;
+}
+.time-cell {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.time-sub {
+  color: var(--muted);
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* ===== 详情 / 编辑弹窗 ===== */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeInUp 0.2s ease-out;
+}
+.modal-box {
+  width: min(760px, calc(100vw - 48px));
+  max-height: 84vh;
+  overflow-y: auto;
+  background: var(--card, rgba(16, 16, 32, 0.96));
+  border: 1px solid var(--glass-border, var(--border));
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: var(--glass-shadow, 0 8px 32px rgba(0, 0, 0, 0.45));
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.modal-head h3 {
+  font-size: 16px;
+  color: var(--text);
+}
+.modal-head small {
+  font-weight: 400;
+  margin-left: 6px;
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+}
+.modal-close:hover {
+  color: var(--text);
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 16px;
+}
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+}
+.detail-item label {
+  font-size: 11px;
+  color: var(--muted);
+}
+.detail-item span {
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+}
+.qq-edit-input {
+  background: rgba(10, 10, 26, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 13px;
+  width: 100%;
+}
+.qq-edit-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.mono {
+  font-family: monospace;
+}
+.muted {
+  color: var(--muted);
+}
+.edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px 12px;
+}
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.edit-field input {
+  background: rgba(10, 10, 26, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 6px 9px;
+  font-size: 13px;
+}
+.edit-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.modal-foot {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.edit-result {
+  font-size: 13px;
+  color: #4ade80;
+}
+.edit-result.err {
+  color: #f87171;
+}
+
 /* 管理后台基础样式已移至全局 styles.css，以下为"反馈管理"标签页专用样式 */
 
 /* ===== 状态过滤按钮 ===== */

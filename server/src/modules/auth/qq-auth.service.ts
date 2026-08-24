@@ -209,6 +209,12 @@ export class QQAuthService {
       }
     }
 
+    // 记录登录信息：最后登录时间 + 累计登录次数（GM 后台用户管理展示用）
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date(), loginCount: { increment: 1 } },
+    });
+
     // 签发 JWT
     const token = this.jwtService.sign({
       userId: user.id,

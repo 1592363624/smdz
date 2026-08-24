@@ -1,0 +1,4 @@
+-- GM 用户管理增强：最后登录时间/登录次数 + 玩家累计在线时长
+ALTER TABLE `User` ADD COLUMN `lastLoginAt` DATETIME(3) NULL;
+ALTER TABLE `User` ADD COLUMN `loginCount` INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE `Player` ADD COLUMN `playTime` BIGINT NOT NULL DEFAULT 0;

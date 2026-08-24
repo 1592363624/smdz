@@ -1719,15 +1719,21 @@ function appendMessage(msg) {
 
 /**
  * 格式化消息时间（精确到秒）
+ * 非当日的消息会附加年月日（如 2025/06/01），避免历史消息日期不明
  * @param ts 时间戳/ISO字符串
- * @returns HH:mm:ss，非法或缺失时返回空字符串
+ * @returns 当日为 HH:mm:ss，非当日为 YYYY/MM/DD HH:mm:ss，非法或缺失时返回空字符串
  */
 function formatTime(ts) {
   if (!ts) return '';
   const d = new Date(ts);
   if (isNaN(d.getTime())) return '';
   const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const now = new Date();
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+    return time;
+  }
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${time}`;
 }
 
 function scrollToBottom() {

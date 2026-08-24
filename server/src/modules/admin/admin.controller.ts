@@ -26,12 +26,14 @@ import { AdminService } from './admin.service';
 import {
   AnnouncementDto,
   DeleteUserDto,
+  EditPlayerDataDto,
   GiveItemDto,
   ModifyPlayerDto,
   ResetUserDataDto,
   SetWorldLevelDto,
   UpdateConfigDto,
   UpdateUserDto,
+  UserDetailDto,
 } from './dto/admin.dto';
 
 @ApiTags('管理员')
@@ -68,6 +70,24 @@ export class AdminController {
       qqNumber: dto.qqNumber,
     });
     return { success: true, data: user };
+  }
+
+  @Post('users/detail')
+  @ApiOperation({ summary: '获取用户详细信息(含玩家档案、在线状态、累计在线时长等)' })
+  async getUserDetail(@Body() dto: UserDetailDto) {
+    const data = await this.adminService.getUserDetail(dto.id);
+    return { success: true, data };
+  }
+
+  @Post('players/edit')
+  @ApiOperation({ summary: '批量编辑玩家游戏数据(字段白名单，数值自动校验)' })
+  async editPlayerData(@Body() dto: EditPlayerDataDto, @Req() req) {
+    const message = await this.adminService.editPlayerData(
+      req.user.userId,
+      dto.id,
+      dto.data,
+    );
+    return { success: true, message };
   }
 
   @Post('users/delete')
