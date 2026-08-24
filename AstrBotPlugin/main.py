@@ -113,7 +113,10 @@ class SmdzBridgePlugin(Star):
         if data.get("success"):
             result = data.get("data") or {}
             content = result.get("content")
-            return content if content else "（游戏无返回内容）"
+            if not content:
+                return "（游戏无返回内容）"
+            # 兜底：旧版后端可能仍返回 "#换行" 标记（原版 #换行符），转为真实换行
+            return str(content).replace("#换行", "\n")
 
         return "游戏指令执行失败，请检查指令是否正确。"
 

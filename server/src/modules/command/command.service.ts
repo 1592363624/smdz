@@ -21,6 +21,7 @@ import {
   CommandSource,
 } from './interfaces/command.interface';
 import { COMMAND_HANDLER_MAP } from './command-handler-map.provider';
+import { normalizeGameText } from '../../common/utils/game-text.util';
 
 @Injectable()
 export class CommandService {
@@ -37,8 +38,18 @@ export class CommandService {
   /**
    * 指令分发总入口
    * 所有来源(网页/机器人/API)的指令都汇聚到这里。
+   * 统一出口：将结果文本中的 "#换行" 标记(原版 #换行符)替换为真实换行，
+   * 避免玩家在网页/QQ 看到字面标记。
    */
   async dispatch(ctx: CommandContext): Promise<CommandResult> {
+    const result = await this.executeDispatch(ctx);
+    if (result?.content) {
+      result.content = normalizeGameText(result.content);
+    }
+    return result;
+  }
+
+  private async executeDispatch(ctx: CommandContext): Promise<CommandResult> {
     const start = Date.now();
     try {
       // 1. 解析指令名：取第一个空格前的单词作为指令名

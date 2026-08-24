@@ -29,6 +29,7 @@ import { ShortcutService } from './shortcut.service';
 import { StatsService } from './stats.service';
 import { CombatStateService } from './combat-state.service';
 import { AutoMineService } from './auto-mine.service';
+import { normalizeGameText } from '../../common/utils/game-text.util';
 
 interface QuestSource {
   npcName: string;
@@ -1126,7 +1127,8 @@ export class GameService {
       currentMap: {
         name: currentMap.name,
         mapId: currentMap.id,
-        description: currentMap.description || '',
+        // 静态数据中的地图描述含 "#换行" 标记，输出前统一转为真实换行
+        description: normalizeGameText(currentMap.description || ''),
         // 怪物实例统一来自 GameMonster；currentMap.monsters 仅是静态模板，不代表当前存活数量。
         monsters: mapMonsters.length,
         resources: resources.length,

@@ -1350,6 +1350,17 @@ function msgAlign(m) {
 }
 
 /**
+ * 将游戏文本中的 "#换行" 标记（原版 #换行符）转换为真实换行符
+ * 兜底处理历史消息：早期入库的消息可能仍带着字面 "#换行" 标记
+ * @param {string} text - 原始文本
+ * @returns {string} 转换后的文本
+ */
+function normalizeLineBreaks(text) {
+  if (typeof text !== 'string' || !text.includes('#换行')) return text;
+  return text.split('#换行').join('\n');
+}
+
+/**
  * 解析消息内容，将可点击的指令名转换为可交互片段
  *
  * 匹配规则（按优先级）：
@@ -1366,6 +1377,8 @@ function msgAlign(m) {
  * @returns {Array} 解析后的片段数组，每项 { type: 'text'|'command', text, displayText?, source? }
  */
 function parseContent(content, cmdList) {
+  // 先把 "#换行" 标记转为真实换行（配合 white-space: pre-line 正常折行显示）
+  content = normalizeLineBreaks(content);
   if (!content) return [{ type: 'text', text: content }];
 
   const segments = [];
@@ -3259,7 +3272,7 @@ onUnmounted(() => {
   padding: 16px;
 }
 .update-modal {
-  width: 440px;
+  width: 600px;
   max-width: 94vw;
   max-height: 82vh;
   display: flex;

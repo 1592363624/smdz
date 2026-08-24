@@ -7,6 +7,7 @@ import { Injectable } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StatsService } from '../game/stats.service';
+import { normalizeGameText } from '../../common/utils/game-text.util';
 
 @Injectable()
 export class ChatService {
@@ -98,6 +99,7 @@ export class ChatService {
 
   /**
    * 持久化一条公屏消息
+   * 内容统一经过 normalizeGameText：把游戏文本中的 "#换行" 标记转为真实换行
    */
   async saveMessage(data: {
     channelId: number;
@@ -110,7 +112,7 @@ export class ChatService {
         channelId: data.channelId,
         senderId: data.senderId,
         type: data.type,
-        content: data.content,
+        content: normalizeGameText(data.content),
       },
       include: { sender: { select: { id: true, username: true, nickname: true } } },
     });
