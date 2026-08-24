@@ -12,7 +12,7 @@
  * - 递减收益：二阶段属性超过阈值后按比例衰减
  */
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData, SetData } from './bonus.service';
@@ -24,6 +24,7 @@ import { AchievementService } from './achievement.service';
 import { CombatStateService } from './combat-state.service';
 import { StatsService } from './stats.service';
 import { TaskService } from './task.service';
+import { GameService } from './game.service';
 
 // ==================== 类型定义 ====================
 
@@ -291,6 +292,8 @@ export class CombatSystemService {
     private readonly statsService: StatsService,
     @Optional() private readonly taskService?: TaskService,
     @Optional() private readonly petItemService?: ItemService,
+    // GameService 与本服务相互依赖，用 forwardRef 打破循环；战斗结算后经它做防抖推送
+    @Inject(forwardRef(() => GameService)) private readonly gameService?: GameService,
   ) {}
 
   // ==================== 公开接口 ====================
@@ -2316,6 +2319,17 @@ export class CombatSystemService {
       await this.playerService.addExp(userId, totalExp);
     }
 
+    // 11.1 战斗结算后推送玩家面板（血量/经验/护甲等即时刷新到网页）
+    //     pushPlayerUpdate/pushMapUpdate 自带防抖，自动战斗/连击高频调用也只会合并为低频推送
+    try {
+      if (!isRuntimeActor && userId) {
+        void this.gameService?.pushPlayerUpdate(userId);
+        void this.gameService?.pushMapUpdate(userId);
+      }
+    } catch (e: any) {
+      this.logger.warn(`战后推送状态失败: ${e.message}`);
+    }
+
     // ========== 简略战斗结果统计（对应原版 战斗相关.ecode L755-771 简略模式） ==========
     // 原版在攻击次数>1 时输出"攻击N次，命中X次，被闪避Y次，命中零伤Z次，有效伤W次"。
     // 此处当发生多次攻击尝试时附加统计行，还原原版战斗结算反馈。
@@ -2647,6 +2661,11 @@ export class CombatSystemService {
           }
         }
         await this.playerService.savePlayer(victim);
+        // 闪避分支同样可能触发含光回血/回盾 → 推送受害者面板刷新（防抖）
+        const dodgeVictimUid = Number((victim as any).userId);
+        if (!runtimeVictim && dodgeVictimUid > 0) {
+          void this.gameService?.pushPlayerUpdate(dodgeVictimUid);
+        }
         if (!taskProgress && this.taskService) {
           for (const progress of localTaskProgress) {
             await this.taskService.advance(progress.userId ?? Number(victim.userId), progress.actionName, progress.count);
@@ -2822,6 +2841,11 @@ export class CombatSystemService {
         await this.persistRuntimeActor(victim, map);
       } else {
         await this.playerService.savePlayer(victim);
+        // 受害玩家血量/护盾/装甲已变化 → 定向推送其面板刷新（防抖，见 pushPlayerUpdate）
+        const victimUid = Number((victim as any).userId);
+        if (victimUid > 0) {
+          void this.gameService?.pushPlayerUpdate(victimUid);
+        }
       }
       if (!taskProgress && this.taskService) {
         for (const progress of localTaskProgress) {

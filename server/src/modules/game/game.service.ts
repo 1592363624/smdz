@@ -45,6 +45,10 @@ export class GameService {
   /** 扶/救助/自救的进程内延时任务；状态本身同时持久化在 markers2。 */
   private readonly rescueTimers = new Map<number, NodeJS.Timeout>();
   private readonly tradeLocks = new Map<string, Promise<void>>();
+  /** 玩家面板推送防抖定时器：同一玩家短时间内的多次状态变化合并为一次推送 */
+  private readonly playerUpdateTimers = new Map<number, NodeJS.Timeout>();
+  /** 地图面板推送防抖定时器：作用同上，避免自动战斗/怪物反击期间的 socket 风暴 */
+  private readonly mapUpdateTimers = new Map<number, NodeJS.Timeout>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -652,6 +656,8 @@ export class GameService {
     try {
       const overview = await this.getMapOverview(userId);
       this.chatService.emitToUser(userId, 'map:update', { overview });
+      // 到达新地图会触发地图增益/懒刷新怪物等，血量护甲可能已变 → 一并刷新玩家面板
+      await this.pushPlayerUpdate(userId);
     } catch (e: any) {
       this.logger.warn(`刷新玩家 ${userId} 地图面板失败: ${e.message}`);
     }
@@ -1039,9 +1045,22 @@ export class GameService {
    * 定向推送玩家状态更新到该用户的前端 socket（触发网页玩家面板实时刷新）
    * 在指令执行成功（攻击/采集/装备/技能/移动等）后调用，
    * 使打怪掉血、加经验、升级等变化实时体现在界面上，无需手动 F5。
+   * 带 300ms 尾沿防抖：自动战斗(每5秒)/连击/延时攻击等高频结算场景下
+   * 同一玩家的多次变化合并为一次推送，避免 socket 风暴拖垮前后端。
    * @param userId 用户ID
    */
   async pushPlayerUpdate(userId: number): Promise<void> {
+    const existing = this.playerUpdateTimers.get(userId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.playerUpdateTimers.delete(userId);
+      void this.doPushPlayerUpdate(userId);
+    }, 300);
+    timer.unref?.();
+    this.playerUpdateTimers.set(userId, timer);
+  }
+
+  private async doPushPlayerUpdate(userId: number): Promise<void> {
     try {
       const data = await this.buildPlayerInfo(userId);
       if (data) {
@@ -1056,9 +1075,21 @@ export class GameService {
    * 定向推送地图总览到该用户的前端 socket（触发网页地图面板 + 附近玩家实时刷新）
    * 在指令执行（攻击/采集/移动等，会让怪物HP、资源数量、所在地图/附近玩家变化）后调用。
    * 前端收到 map:update 后会自动重载附近玩家列表，因此一并覆盖"附近玩家"。
+   * 与 pushPlayerUpdate 相同的 300ms 防抖策略。
    * @param userId 用户ID
    */
   async pushMapUpdate(userId: number): Promise<void> {
+    const existing = this.mapUpdateTimers.get(userId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.mapUpdateTimers.delete(userId);
+      void this.doPushMapUpdate(userId);
+    }, 300);
+    timer.unref?.();
+    this.mapUpdateTimers.set(userId, timer);
+  }
+
+  private async doPushMapUpdate(userId: number): Promise<void> {
     try {
       const overview = await this.getMapOverview(userId);
       if (overview) {

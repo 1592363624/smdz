@@ -492,19 +492,19 @@
 
       <!-- 消息列表 -->
       <div ref="msgList" class="messages" @scroll="onMsgScroll">
-        <div v-for="(m, i) in messages" :key="i" :class="['msg', msgClass(m), msgAlign(m)]">
+        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg)]">
           <div class="msg-body">
-            <span v-if="m.sender" class="sender" :title="'右键 @ ' + (m.sender.nickname || m.sender.username)" @contextmenu.prevent="quickAtUser(m.sender)">{{ m.sender.nickname || m.sender.username }}：</span>
-            <span v-else-if="m.type !== 'system' && m.type !== 'game' && m.type !== 'combat' && m.type !== 'info'" class="sender">系统：</span>
+            <span v-if="v.msg.sender" class="sender" :title="'右键 @ ' + (v.msg.sender.nickname || v.msg.sender.username)" @contextmenu.prevent="quickAtUser(v.msg.sender)">{{ v.msg.sender.nickname || v.msg.sender.username }}：</span>
+            <span v-else-if="v.msg.type !== 'system' && v.msg.type !== 'game' && v.msg.type !== 'combat' && v.msg.type !== 'info'" class="sender">系统：</span>
             <span class="content" style="white-space: pre-line">
-              <template v-for="(seg, si) in parseContent(m.content, commands)" :key="si">
+              <template v-for="(seg, si) in v.segs" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
                 <span v-else-if="seg.type === 'mention'" class="mention-highlight" :title="'右键 @ ' + seg.text.replace('@', '')" @contextmenu.prevent="quickAtText(seg.text)">{{ seg.text }}</span>
                 <span v-else class="cmd-clickable" :title="'左键点击发送 / 右键填入输入框「' + seg.text + '」'" @click="quickSend(seg.text)" @contextmenu.prevent="quickFill(seg.text)">{{ seg.displayText || seg.text }}</span>
               </template>
             </span>
           </div>
-          <span class="msg-time">{{ formatTime(m.createdAt) }}</span>
+          <span class="msg-time">{{ formatTime(v.msg.createdAt) }}</span>
         </div>
         <div v-if="!messages.length" class="empty">暂无消息，发送第一条指令吧！</div>
         <!-- 回到底部按钮 -->
@@ -914,6 +914,16 @@ const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
 const channel = ref(null);
 const messages = ref([]);
+// 预解析后的渲染视图：每条消息 { id, msg, segs }，segs 是 parseContent 的缓存结果。
+// 避免模板里对全部消息重复执行书名号/💡正则（消息越多越卡的主因），新消息只需解析一次。
+const messageViews = computed(() =>
+  messages.value.map((m, i) => ({
+    // 优先用服务端消息 id 作 key；实时推送的系统回包没有 id 时用 内容+序号 兜底
+    key: m.id ?? `rt-${i}-${m.createdAt || ''}`,
+    msg: m,
+    segs: parseContent(m.content, commands.value),
+  })),
+);
 const commands = ref([]);
 const input = ref('');
 const connected = ref(false);
@@ -937,6 +947,8 @@ const nearbyLoaded = ref(false);
 let nearbyTimer = null;
 // 可@玩家列表定时刷新计时器
 let atPlayersTimer = null;
+// 玩家/地图面板兜底轮询计时器：socket 推送万一丢失时定期校准
+let panelTimer = null;
 // 全部地图是否折叠（默认折叠，保持面板简洁）
 const allMapsCollapsed = ref(true);
 
@@ -2391,6 +2403,13 @@ onMounted(async () => {
     loadServerStats();
     // 每 30 秒刷新一次服务器统计
     statsTimer = setInterval(loadServerStats, 30000);
+    // 玩家/地图面板兜底轮询：socket 推送万一丢失（断线瞬间/服务重启）也能在 30 秒内自动校准
+    panelTimer = setInterval(() => {
+      if (!document.hidden) {
+        loadPlayerInfo();
+        loadMapOverview();
+      }
+    }, 30000);
     // 每 30 秒刷新一次附近玩家（感知其他玩家进出当前区域/上下线）
     nearbyTimer = setInterval(loadNearbyPlayers, 30000);
     // 每 60 秒刷新一次可@玩家列表（同步在线状态与新增账号）
@@ -2515,6 +2534,7 @@ onUnmounted(() => {
   if (statsTimer) clearInterval(statsTimer);
   if (nearbyTimer) clearInterval(nearbyTimer);
   if (atPlayersTimer) clearInterval(atPlayersTimer);
+  if (panelTimer) clearInterval(panelTimer);
   if (updateTimer) clearInterval(updateTimer);
   if (updateCountdownTimer) clearInterval(updateCountdownTimer);
 });

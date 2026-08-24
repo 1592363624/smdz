@@ -4,12 +4,13 @@
  * 对应原版易语言：管理操作.ecode
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from '../game/player.service';
 import { ChatService } from '../chat/chat.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from '../game/static-data.service';
+import { GameService } from '../game/game.service';
 
 @Injectable()
 export class AdminService {
@@ -44,6 +45,8 @@ export class AdminService {
     private readonly chatService: ChatService,
     private readonly systemConfigService: SystemConfigService,
     private readonly staticData: StaticDataService,
+    // GameService 也注入了 AdminService，双向依赖需 forwardRef
+    @Inject(forwardRef(() => GameService)) private readonly gameService: GameService,
   ) {}
 
   /**
@@ -218,6 +221,15 @@ export class AdminService {
     this.logger.log(
       `管理员 ${operatorId} 编辑了用户 ${userId}(${user.username}) 的玩家数据: ${Object.keys(updateData).join(', ')}`,
     );
+    // GM 改完立即定向推送该玩家面板（血量/等级/位置等在线即时生效，无需玩家刷新页面）
+    try {
+      await this.gameService.pushPlayerUpdate(userId);
+      if (updateData.mapId !== undefined || updateData.location !== undefined) {
+        await this.gameService.pushMapUpdate(userId);
+      }
+    } catch (e: any) {
+      this.logger.warn(`GM 编辑后推送玩家 ${userId} 状态失败: ${e.message}`);
+    }
     return `已保存对玩家 ${player.name || user.username} 的修改（${Object.keys(updateData).length} 个字段）`;
   }
 
