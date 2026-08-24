@@ -6535,6 +6535,75 @@ export class GameService {
       }
     }
 
+    // 宠物/召唤物信息（对应原版 地图操作.ecode L698-880 观察附近）：
+    // ≤6个逐个列出并可@对话；>6个折叠为一条「宠物(N个)」入口跳转「查看宠物」。
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    if (summons.length > 0) {
+      // 玩家归属标识集合（原版 归属==玩家.QQ 过滤特殊宠物"白"，仅主人可见）
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      const ownerIds = new Set([
+        String(userId),
+        String(player.id),
+        String(user?.qqNumber || ''),
+        String(user?.externalId || ''),
+        String(player.masterQQ || ''),
+      ].filter(Boolean));
+
+      const nameOf = (s: any): string => String(s?.name ?? s?.名称 ?? '') || '未知';
+      const qqOf = (s: any): string => String(s?.qq ?? s?.QQ ?? '');
+      const hpOf = (s: any): number => Number(s?.currentHp ?? s?.当前生命 ?? s?.hp ?? 0);
+      const isMonsterSummon = (s: any): boolean => qqOf(s).startsWith('怪物');
+      const markerVal = (unit: any, markerName: string): number => {
+        const raw = unit?.markers ?? unit?.标记 ?? {};
+        const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+        if (Array.isArray(parsed)) {
+          const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
+          return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+        }
+        return Number(parsed?.[markerName] ?? 0);
+      };
+      // 特殊NPC（原版 L712-720：npc1g神之工匠/npc2小雫、露娜、行商固定[!]；小白狐/花园宝宝首次出现标[!]）
+      const isFixedSpecialNpc = (s: any): boolean =>
+        ['npc1g', 'npc2g', '怪物露娜1g'].includes(qqOf(s)) || ['行商'].includes(nameOf(s));
+      const isDedupableSpecialNpc = (s: any): boolean =>
+        ['小白狐', '花园宝宝'].includes(nameOf(s));
+      // 对齐原版 L703 计算幼崽：观察前先刷新幼崽成长计时
+      for (const s of summons) {
+        try { this.familiarSystemService.checkAndUpdateGrowth(s); } catch { /* 成长解析失败不影响展示 */ }
+      }
+
+      lines.push(`━━━━━━━━━━━━━━━`);
+      if (summons.length > 6) {
+        // 原版 L740-744：>6个时折叠为「宠物(N个)」，发编号进入查看宠物完整列表
+        lines.push(`🐾 宠物(${summons.length}个)`);
+        quickOptions.push({ label: `宠物(${summons.length}个)`, cmd: '查看宠物' });
+      } else {
+        lines.push(`🐾 附近的宠物/NPC:`);
+        const shownSpecialNames = new Set<string>();
+        for (const s of summons) {
+          const name = nameOf(s);
+          // 原版 L781-784："白"只对主人显示
+          if (name === '白' && !ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? ''))) {
+            continue;
+          }
+          let label: string;
+          if (isFixedSpecialNpc(s) || (isDedupableSpecialNpc(s) && !shownSpecialNames.has(name))) {
+            if (isDedupableSpecialNpc(s)) shownSpecialNames.add(name);
+            label = `${name}[!]`;
+          } else if (markerVal(s, '幼崽') !== 0) {
+            label = `${name}(幼崽)`;
+          } else if (isMonsterSummon(s)) {
+            label = hpOf(s) > 0 ? name : `${name}(倒地)`;
+          } else {
+            label = name;
+          }
+          lines.push(`  ${label}`);
+          // 所有召唤物条目均可@对话（原版 w2 += "#" + b + "@对话" + 名称）
+          quickOptions.push({ label: `对话 ${name}`, cmd: `对话 ${name}` });
+        }
+      }
+    }
+
     // 统一生成编号快捷操作菜单（资源采集 + NPC对话合并编号，发数字即可操作，避免编号冲突）
     if (quickOptions.length > 0) {
       lines.push(`━━━━━━━━━━━━━━━`);
