@@ -8,7 +8,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CommandService } from '../command/command.service';
 import { CommandContext, CommandSource } from '../command/interfaces/command.interface';
 import { ShortcutService } from '../game/shortcut.service';
-import { GameService } from '../game/game.service';
 
 /// AstrBot 传入指令的请求体结构
 export interface BotCommandPayload {
@@ -28,7 +27,6 @@ export class BotService {
     private readonly prisma: PrismaService,
     private readonly commandService: CommandService,
     private readonly shortcutService: ShortcutService,
-    private readonly gameService: GameService,
   ) {}
 
   /**
@@ -70,16 +68,8 @@ export class BotService {
       source: CommandSource.ASTRBOT,
     };
     const result = await this.commandService.dispatch(ctx);
-    // 指令执行后定向推送玩家/地图状态到该用户的网页 socket，
-    // 保证从 QQ(AstrBot) 侧打怪/移动/使用物品时网页面板同步刷新
-    if (binding?.id) {
-      try {
-        await this.gameService.pushPlayerUpdate(binding.id);
-        await this.gameService.pushMapUpdate(binding.id);
-      } catch (e: any) {
-        this.logger.warn(`[AstrBot] 指令后推送玩家状态失败: ${e.message}`);
-      }
-    }
+    // UI 同步说明：指令内部落库后由 Prisma 拦截器自动触发网页面板刷新，
+    // 此处无需手动推送（与网页端 chat.gateway 行为一致）。
     return result;
   }
 }

@@ -939,6 +939,24 @@ let socket = null;
 const playerInfo = ref(null);
 // 地图总览（当前区域 + 全部地图）
 const mapOverview = ref(null);
+// 推送版本号守卫：丢弃网络乱序导致的旧包（rev 回退/归零视为新会话，宽容放行）
+let playerRev = 0;
+let mapRev = 0;
+function applyPlayerUpdate(data) {
+  if (!data) return;
+  const rev = Number(data.rev || 0);
+  if (rev > 0 && rev <= playerRev) return; // 旧包丢弃
+  playerRev = rev;
+  playerInfo.value = data;
+}
+function applyMapUpdate(payload) {
+  const overview = payload?.overview ?? payload;
+  if (!overview) return;
+  const rev = Number(payload?.rev || 0);
+  if (rev > 0 && rev <= mapRev) return;
+  mapRev = rev;
+  mapOverview.value = overview;
+}
 // 附近玩家列表（当前区域同一地图内的其他玩家，含在线状态）
 const nearbyPlayers = ref([]);
 // 附近玩家是否已成功加载过（用于移动端空态展示）
@@ -2436,6 +2454,9 @@ onMounted(async () => {
       connected.value = true;
       // 连接建立后再刷新一次统计，确保自己立刻计入在线人数
       loadServerStats();
+      // 断线窗口内的状态变化无法推送 → 重连成功即全量拉取快照校准面板
+      loadPlayerInfo();
+      loadMapOverview();
       // 部署完成后服务重启会导致 socket 断开并自动重连到新进程，
       // "重连成功"即新服务就绪的信号：立即检查一次版本变化，秒级弹出更新提示
       // (轮询仍保留作为兜底，覆盖服务未重启但版本文件更新的场景)
@@ -2448,17 +2469,13 @@ onMounted(async () => {
     socket.on('chat:message', (msg) => {
       appendMessage(msg);
     });
-    // 接收玩家信息更新事件
+    // 接收玩家信息更新事件（经 rev 守卫应用，丢弃乱序旧包）
     socket.on('player:update', (data) => {
-      if (data) {
-        playerInfo.value = data;
-      }
+      applyPlayerUpdate(data);
     });
     // 接收地图总览更新事件（移动到达后由服务端定向推送）
     socket.on('map:update', (data) => {
-      if (data && data.overview) {
-        mapOverview.value = data.overview;
-      }
+      applyMapUpdate(data);
       // 移动到达后同步刷新附近玩家
       loadNearbyPlayers();
     });

@@ -49,6 +49,8 @@ export class GameService {
   private readonly playerUpdateTimers = new Map<number, NodeJS.Timeout>();
   /** 地图面板推送防抖定时器：作用同上，避免自动战斗/怪物反击期间的 socket 风暴 */
   private readonly mapUpdateTimers = new Map<number, NodeJS.Timeout>();
+  /** 推送版本号计数器（player:{uid} / map:{uid} → 单调递增 rev，供前端丢弃乱序旧包） */
+  private readonly revCounters = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -656,8 +658,7 @@ export class GameService {
     try {
       const overview = await this.getMapOverview(userId);
       this.chatService.emitToUser(userId, 'map:update', { overview });
-      // 到达新地图会触发地图增益/懒刷新怪物等，血量护甲可能已变 → 一并刷新玩家面板
-      await this.pushPlayerUpdate(userId);
+      // 玩家面板无需手动刷新：上方 savePlayer 已由 Prisma 拦截器自动触发 player:update
     } catch (e: any) {
       this.logger.warn(`刷新玩家 ${userId} 地图面板失败: ${e.message}`);
     }
@@ -1064,6 +1065,7 @@ export class GameService {
     try {
       const data = await this.buildPlayerInfo(userId);
       if (data) {
+        data.rev = this.nextRev(`player:${userId}`);
         this.chatService.emitToUser(userId, 'player:update', data);
       }
     } catch (e: any) {
@@ -1093,11 +1095,25 @@ export class GameService {
     try {
       const overview = await this.getMapOverview(userId);
       if (overview) {
-        this.chatService.emitToUser(userId, 'map:update', { overview });
+        this.chatService.emitToUser(userId, 'map:update', {
+          overview,
+          rev: this.nextRev(`map:${userId}`),
+        });
       }
     } catch (e: any) {
       this.logger.warn(`推送玩家 ${userId} 地图面板更新失败: ${e.message}`);
     }
+  }
+
+  /**
+   * 推送版本号：每个 (实体,用户) 维度的单调递增计数器。
+   * 前端据此丢弃网络乱序导致的旧包（rev 小于已应用值则忽略）。
+   * 进程重启归零无碍——前端对 rev 回退/归零宽容处理（视为新会话）。
+   */
+  private nextRev(key: string): number {
+    const next = (this.revCounters.get(key) || 0) + 1;
+    this.revCounters.set(key, next);
+    return next;
   }
 
   /**

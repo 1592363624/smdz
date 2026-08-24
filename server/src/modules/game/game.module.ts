@@ -6,6 +6,7 @@
 
 import { Module, Global, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { GameSyncModule } from '../../game-sync/game-sync.module';
 import { AdminModule } from '../admin/admin.module';
 import { FeedbackModule } from '../feedback/feedback.module';
 import { GameController } from './game.controller';
@@ -32,7 +33,7 @@ import { AutoMineService } from './auto-mine.service';
 
 @Global()
 @Module({
-  imports: [PrismaModule, forwardRef(() => AdminModule), FeedbackModule],
+  imports: [PrismaModule, GameSyncModule, forwardRef(() => AdminModule), FeedbackModule],
   controllers: [GameController],
   providers: [
     GameService,

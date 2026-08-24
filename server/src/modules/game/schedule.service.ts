@@ -15,6 +15,7 @@ import { PlayerService } from './player.service';
 import { MapService } from './map.service';
 import { AutoMineService } from './auto-mine.service';
 import { GameService } from './game.service';
+import { runSilent } from '../../game-sync/write-context';
 
 /**
  * 默认副本名称列表（未配置 game.instanceNames 时使用）
@@ -180,13 +181,16 @@ export class ScheduleService {
   async accumulatePlayTime() {
     try {
       const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
-      const result = await this.prisma.player.updateMany({
-        where: { userId: { gt: 0 }, updatedAt: { gte: fiveMinAgo } },
-        data: { playTime: { increment: 60 } },
-      });
+      // 静默上下文：纯统计写入，不触发 UI 同步事件（避免每分钟全体在线玩家的事件风暴）
+      const result = await runSilent('cron:playTime', () =>
+        this.prisma.player.updateMany({
+          where: { userId: { gt: 0 }, updatedAt: { gte: fiveMinAgo } },
+          data: { playTime: { increment: 60 } },
+        }),
+      );
       if (result.count > 0) this.logger.log(`在线时长统计: ${result.count} 名玩家 +60s`);
     } catch (err: any) {
-      this.logger.error(`在线时长统计失败: ${err.message}`);
+      this.logger.error(`在线时长统计失败: ${err?.message || err}`);
     }
   }
 

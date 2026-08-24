@@ -19,6 +19,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StaticDataService } from './static-data.service';
 import { BonusService } from './bonus.service';
 import { CombatStateService } from './combat-state.service';
+import { ChangeBusService } from '../../game-sync/change-bus.service';
 
 /**
  * 可前往地图的连接信息
@@ -168,6 +169,7 @@ export class MapService {
     private readonly staticData: StaticDataService,
     private readonly bonusService: BonusService,
     private readonly combatState: CombatStateService,
+    private readonly changeBus: ChangeBusService,
   ) {}
 
   /**
@@ -1199,6 +1201,8 @@ export class MapService {
       if (data.markers2 !== undefined) update.markers2 = data.markers2;
       if (Object.keys(update).length === 0) return;
       await this.prisma.gameMonster.update({ where: { id: monsterId }, data: update });
+      // 怪物血盾甲等共享视图变化 → 广播给同图在线玩家（拦截器按 where 定位不到 mapId，此处收口补发）
+      this.changeBus.emit({ entity: 'monster', monsterId, mapId, writer: 'updateMonsterFields' });
     });
   }
 
@@ -1208,6 +1212,10 @@ export class MapService {
   async saveGameMonster(monster: MapMonster): Promise<void> {
     const { id, ...rest } = monster as any;
     await this.prisma.gameMonster.update({ where: { id }, data: rest });
+    // 同上：怪物整行写回后广播地图态变更
+    if (monster?.mapId != null) {
+      this.changeBus.emit({ entity: 'monster', monsterId: id, mapId: Number(monster.mapId), writer: 'saveGameMonster' });
+    }
   }
 
   /**

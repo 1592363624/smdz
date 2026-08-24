@@ -12,7 +12,7 @@
  * - 递减收益：二阶段属性超过阈值后按比例衰减
  */
 
-import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData, SetData } from './bonus.service';
@@ -24,7 +24,6 @@ import { AchievementService } from './achievement.service';
 import { CombatStateService } from './combat-state.service';
 import { StatsService } from './stats.service';
 import { TaskService } from './task.service';
-import { GameService } from './game.service';
 
 // ==================== 类型定义 ====================
 
@@ -64,6 +63,11 @@ export interface AttackContext {
   skipAttackSummons?: boolean;
   /** 测试与运行时递归入口可直接指定武器，绕过玩家当前武器索引。 */
   weaponOverride?: WeaponData;
+  /**
+   * 跳过用户级战斗串行锁。仅供已在锁内的递归入口（如花园猫闪避反击）
+   * 复用外层锁使用；外部调用方不应设置此字段。
+   */
+  skipCombatLock?: boolean;
 }
 
 /**
@@ -292,14 +296,54 @@ export class CombatSystemService {
     private readonly statsService: StatsService,
     @Optional() private readonly taskService?: TaskService,
     @Optional() private readonly petItemService?: ItemService,
-    // GameService 与本服务相互依赖，用 forwardRef 打破循环；战斗结算后经它做防抖推送
-    @Inject(forwardRef(() => GameService)) private readonly gameService?: GameService,
   ) {}
+
+  // ==================== 用户级战斗串行锁 ====================
+  // 原版为单线程内存模型，指令天然原子执行；本框架 Web 后端多请求并发
+  // 读改写同一玩家会产生丢失更新（典型表现：怪物反击写入的死亡/卷土重来
+  // 状态被外层攻击流程的旧玩家快照整体覆盖回数据库），因此所有玩家战斗
+  // 入口统一经 weaponAttack 的 per-user 互斥锁串行化。
+  private readonly combatLocks = new Map<number, Promise<unknown>>();
 
   // ==================== 公开接口 ====================
 
   /**
-   * 武器攻击 - 完整版
+   * 对指定用户串行执行一段战斗流程（per-user 互斥，对齐原版单线程语义）。
+   * 同一用户并发进入时按到达顺序排队；不同用户互不阻塞。
+   */
+  private async withCombatLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
+    const previous = this.combatLocks.get(userId) ?? Promise.resolve();
+    const current = previous.then(fn, fn);
+    // 队尾吞掉异常，避免后续排队者继承 rejected promise
+    const tail = current.then(() => undefined, () => undefined);
+    this.combatLocks.set(userId, tail);
+    try {
+      return await current;
+    } finally {
+      if (this.combatLocks.get(userId) === tail) this.combatLocks.delete(userId);
+    }
+  }
+
+  /**
+   * 武器攻击 - 完整版（公开入口）
+   * 除已在锁内的递归入口（skipCombatLock）外，所有玩家战斗统一经
+   * withCombatLock 串行化，防止并发指令的丢失更新。
+   *
+   * @param userId 攻击者用户ID
+   * @param weaponIndex 武器索引（0=拳头）
+   * @param context 攻击上下文参数
+   */
+  async weaponAttack(
+    userId: number,
+    weaponIndex: number,
+    context: AttackContext = {},
+  ): Promise<WeaponAttackResult> {
+    if (context.skipCombatLock) return this.weaponAttackInner(userId, weaponIndex, context);
+    return this.withCombatLock(userId, () => this.weaponAttackInner(userId, weaponIndex, context));
+  }
+
+  /**
+   * 武器攻击内部实现（必须在 withCombatLock 内调用）。
    * 对应原版：武器攻击()
    * 处理武器攻击完整流程：选择目标 → 命中判定 → 伤害计算 → 特效触发 → 击杀处理
    *
@@ -307,7 +351,7 @@ export class CombatSystemService {
    * @param weaponIndex 武器索引（0=拳头）
    * @param context 攻击上下文参数
    */
-  async weaponAttack(
+  private async weaponAttackInner(
     userId: number,
     weaponIndex: number,
     context: AttackContext = {},
@@ -2319,16 +2363,9 @@ export class CombatSystemService {
       await this.playerService.addExp(userId, totalExp);
     }
 
-    // 11.1 战斗结算后推送玩家面板（血量/经验/护甲等即时刷新到网页）
-    //     pushPlayerUpdate/pushMapUpdate 自带防抖，自动战斗/连击高频调用也只会合并为低频推送
-    try {
-      if (!isRuntimeActor && userId) {
-        void this.gameService?.pushPlayerUpdate(userId);
-        void this.gameService?.pushMapUpdate(userId);
-      }
-    } catch (e: any) {
-      this.logger.warn(`战后推送状态失败: ${e.message}`);
-    }
+    // 11.1 UI 同步说明：上方 savePlayer/addExp 落库后由 PrismaService 写拦截器
+    //     自动发射 player 变更事件 → SyncProjector 防抖推送玩家面板；
+    //     怪物血量变化经 MapService 收口广播同图在线玩家。此处无需手动推送。
 
     // ========== 简略战斗结果统计（对应原版 战斗相关.ecode L755-771 简略模式） ==========
     // 原版在攻击次数>1 时输出"攻击N次，命中X次，被闪避Y次，命中零伤Z次，有效伤W次"。
@@ -2494,12 +2531,16 @@ export class CombatSystemService {
       // 候选 uid 集合：同图玩家 + 攻击者本人（攻击者可能不在 DB 玩家列表，如内存 mock 场景）
       const candidateUids = new Set<number>(mapPlayers.map((mp: any) => mp.userId));
       if (attacker?.userId) candidateUids.add(attacker.userId);
+      // 攻击者本人复用外层 weaponAttack 已加载的同一内存对象（attacker/attackerData）：
+      // 反击结算直接写在这份对象上、由外层第10步统一保存，避免二次读库产生旧快照副本，
+      // 否则外层随后 savePlayer 会把反击写入的死亡/卷土重来状态整体覆盖回去（丢失更新）。
+      const isSelfUid = (uid: number): boolean =>
+        attacker?.userId != null && Number(uid) === Number(attacker.userId);
       const victimIds: number[] = [];
       for (const uid of candidateUids) {
         if (!onlineIds.has(uid)) continue; // 不攻击离线（原版 增益要求("活跃")==假 跳过）
         try {
-          const pd = await this.playerService.getPlayerData(uid);
-          const victim = pd.player;
+          const victim = isSelfUid(uid) ? attacker : (await this.playerService.getPlayerData(uid)).player;
           if (this.playerService.isPlayerDead(victim)) continue; // 当前生命<=0 跳过（鞭尸豁免）
           // 隐匿模式 / 炮冠：原版 标记要求("隐匿模式"/"炮冠", 玩家2.增益) → 查增益列表
           const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
@@ -2516,10 +2557,12 @@ export class CombatSystemService {
       // 本版怪物武器简化为拳头，循环受害者数组即可还原"攻击地图上所有符合条件玩家"。
       for (const uid of victimIds) {
         try {
-          const victimData = await this.playerService.getPlayerData(uid);
+          const useShared = isSelfUid(uid);
+          const victimData = useShared ? attackerData : await this.playerService.getPlayerData(uid);
+          const victim = useShared ? attacker : victimData.player;
           const oneLines = await this.monsterCounterAttackOnePlayer(
-            monster, monsterBonus, victimData.player, victimData, map, attacker.userId === uid,
-            undefined, false, taskProgress,
+            monster, monsterBonus, victim, victimData, map, useShared,
+            undefined, false, taskProgress, useShared,
           );
           lines.push(...oneLines);
         } catch (e: any) {
@@ -2541,6 +2584,9 @@ export class CombatSystemService {
    * @param victimData 受害玩家完整数据
    * @param map 当前地图
    * @param isSelf 是否攻击者本人（用于"你"的提示文本）
+   * @param sharedWithAttacker 受害者对象与外层攻击流程共享（同一内存实例）。
+   *        为真时本函数不落库，由外层 weaponAttack 第10步统一保存，
+   *        避免旧快照覆盖外层尚未写入的其他状态。
    * @returns 该玩家的反击结果文本行
    */
   private async monsterCounterAttackOnePlayer(
@@ -2553,6 +2599,7 @@ export class CombatSystemService {
     weaponOverride?: WeaponData,
     runtimeVictim = false,
     taskProgress?: CombatTaskProgress[],
+    sharedWithAttacker = false,
   ): Promise<string[]> {
     const lines: string[] = [];
     const localTaskProgress = taskProgress ?? [];
@@ -2562,6 +2609,10 @@ export class CombatSystemService {
       }
     };
     try {
+      // 死亡门禁（防御性复查）：真正倒下的玩家不再被反击选中。
+      // 正常流程在 monsterCounterAttack 筛选阶段已豁免；此处兜底拦截
+      // 同一轮反击中前序受害者结算刚写入的死亡状态，杜绝鞭尸。
+      if (!runtimeVictim && this.playerService.isPlayerDead(victim)) return lines;
       // 命中判定：怪物命中 vs 玩家闪避；玩家若处于「闪避」状态(固定闪避+100)则几乎必闪避(100%免伤)
       // 启示录混乱分支的防御方就是攻击方怪物自身，仍使用怪物初始化属性，
       // 不能把怪物误当作玩家套用使魔成长公式。
@@ -2632,9 +2683,13 @@ export class CombatSystemService {
       if (!this.checkHit(hitRate, fixedDodge)) {
         lines.push(`${monster.name} 向${youText}发起攻击，但被${youText}闪避了`);
         // ========== 花园猫闪避反击（对应原版 战斗相关.ecode L1429-1560 防御方闪避成功分支） ==========
+        // 仅当花园猫就是外层持锁攻击者本人（sharedWithAttacker）时跳过再次加锁，
+        // 否则正常走 weaponAttack 获取该玩家自己的战斗锁。
         if (victim.type === '花园猫') {
           try {
-            const counterLines = await this.handleGardenCatCounter(victim.userId, 0);
+            const counterLines = await this.handleGardenCatCounter(
+              victim.userId, 0, sharedWithAttacker, sharedWithAttacker ? victimData : undefined,
+            );
             if (counterLines) lines.push(counterLines);
           } catch (e: any) {
             this.logger.warn(`花园猫反击失败: ${e.message}`);
@@ -2660,12 +2715,9 @@ export class CombatSystemService {
             }
           }
         }
-        await this.playerService.savePlayer(victim);
-        // 闪避分支同样可能触发含光回血/回盾 → 推送受害者面板刷新（防抖）
-        const dodgeVictimUid = Number((victim as any).userId);
-        if (!runtimeVictim && dodgeVictimUid > 0) {
-          void this.gameService?.pushPlayerUpdate(dodgeVictimUid);
-        }
+        // 与外层攻击流程共享同一玩家对象时不在此落库，由外层 weaponAttack 第10步统一保存
+        if (!sharedWithAttacker) await this.playerService.savePlayer(victim);
+        // UI 同步：savePlayer 落库后由 Prisma 拦截器自动触发面板刷新，无需手动推送
         if (!taskProgress && this.taskService) {
           for (const progress of localTaskProgress) {
             await this.taskService.advance(progress.userId ?? Number(victim.userId), progress.actionName, progress.count);
@@ -2841,11 +2893,6 @@ export class CombatSystemService {
         await this.persistRuntimeActor(victim, map);
       } else {
         await this.playerService.savePlayer(victim);
-        // 受害玩家血量/护盾/装甲已变化 → 定向推送其面板刷新（防抖，见 pushPlayerUpdate）
-        const victimUid = Number((victim as any).userId);
-        if (victimUid > 0) {
-          void this.gameService?.pushPlayerUpdate(victimUid);
-        }
       }
       if (!taskProgress && this.taskService) {
         for (const progress of localTaskProgress) {
@@ -7868,8 +7915,15 @@ export class CombatSystemService {
    * @param weaponIndex 武器索引
    * @returns 反击结果文本
    */
-  async handleGardenCatCounter(userId: number, weaponIndex: number): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
+  async handleGardenCatCounter(
+    userId: number,
+    weaponIndex: number,
+    reuseOuterLock = false,
+    sharedPlayerData?: PlayerData,
+  ): Promise<string> {
+    // 从怪物反击链路进入且受害者就是外层持锁攻击者本人时，复用外层同一内存对象，
+    // 避免内部武器攻击重新读库产生旧快照副本、随后被外层保存整体覆盖（丢失更新）。
+    const playerData = sharedPlayerData ?? await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
     // 检查使魔类型是否为花园猫
@@ -7878,10 +7932,14 @@ export class CombatSystemService {
     }
 
     // 执行反击（必中）
+    // 从怪物反击链路进入时（reuseOuterLock=true）调用方已持有该用户的战斗锁，
+    // 必须跳过再次加锁，否则与外层 weaponAttack 互相等待造成死锁。
     const result = await this.weaponAttack(userId, weaponIndex, {
       mustHit: true,
       attackText: '【花园猫·闪避反击】',
       noDelay: true,
+      skipCombatLock: reuseOuterLock,
+      ...(sharedPlayerData ? { attackerDataOverride: sharedPlayerData } : {}),
     });
 
     if (result.damageDealt > 0) {
