@@ -475,6 +475,15 @@
         </button>
         <h2>💬 {{ channel?.name || '世界频道' }}</h2>
         <div class="header-right">
+          <!-- 消息过滤切换：选择是否显示其他玩家的聊天与系统回复 -->
+          <button
+            class="header-action-btn filter-toggle"
+            :class="{ on: showOthersMsg }"
+            :title="showOthersMsg ? '当前显示所有人的消息，点击隐藏他人的聊天与系统回复' : '当前仅显示自己的消息，点击恢复显示他人消息'"
+            @click="toggleShowOthers"
+          >
+            {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
+          </button>
           <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
           <!-- 私聊入口按钮（带未读红点） -->
           <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
@@ -515,7 +524,9 @@
           </div>
           <span class="msg-time">{{ formatTime(v.msg.createdAt) }}</span>
         </div>
-        <div v-if="!messages.length" class="empty">暂无消息，发送第一条指令吧！</div>
+        <div v-if="!messageViews.length" class="empty">
+          {{ messages.length ? '🙈 已隐藏其他玩家的消息，点击右上角「仅看自己」可恢复' : '暂无消息，发送第一条指令吧！' }}
+        </div>
         <!-- 回到底部按钮 -->
         <button v-if="showScrollBtn" class="scroll-bottom-btn" @click="scrollToBottom()">↓ 回到底部</button>
       </div>
@@ -846,6 +857,26 @@
       </aside>
     </div>
 
+    <!-- 系统公告弹窗：GM 全服公告强制弹出，阅读 5 秒后才允许点 X 关闭 -->
+    <div v-if="currentAnn" class="announcement-overlay">
+      <div class="announcement-modal">
+        <header class="ann-header">
+          <h3>📢 系统公告</h3>
+          <button
+            class="ann-close"
+            :disabled="!annCanClose"
+            :title="annCanClose ? '关闭' : `请阅读公告，${annCountdown} 秒后可关闭`"
+            @click="closeAnnouncement"
+          >✕</button>
+        </header>
+        <div class="ann-body">{{ currentAnn.content }}</div>
+        <footer class="ann-footer">
+          <span v-if="!annCanClose" class="ann-countdown">⏳ 阅读倒计时 {{ annCountdown }} 秒后可关闭</span>
+          <span v-else class="ann-countdown ok">✅ 已阅读完毕，点击右上角 ✕ 关闭</span>
+        </footer>
+      </div>
+    </div>
+
     <!-- 全局 Toast 提示 -->
     <div class="toast-container">
       <transition-group name="toast-fade">
@@ -923,21 +954,60 @@ const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
 const channel = ref(null);
 const messages = ref([]);
+const commands = ref([]);
+const input = ref('');
+const connected = ref(false);
+const msgList = ref(null);
+const inputEl = ref(null);
+
+// ===== 消息过滤：是否显示其他玩家的聊天与系统回复 =====
+// 偏好持久化到 localStorage，刷新后保持上次选择
+const SHOW_OTHERS_KEY = 'smdz_show_others_msg';
+// true=显示所有人；false=仅显示自己的消息（自己的聊天/指令与自己触发的系统回复）
+const showOthersMsg = ref(localStorage.getItem(SHOW_OTHERS_KEY) !== '0');
+// 切换过滤开关并记忆偏好；恢复显示时自动回到底部
+function toggleShowOthers() {
+  showOthersMsg.value = !showOthersMsg.value;
+  localStorage.setItem(SHOW_OTHERS_KEY, showOthersMsg.value ? '1' : '0');
+  if (showOthersMsg.value) scrollToBottom();
+}
+
 // 预解析后的渲染视图：每条消息 { id, msg, segs }，segs 是 parseContent 的缓存结果。
 // 避免模板里对全部消息重复执行书名号/💡正则（消息越多越卡的主因），新消息只需解析一次。
 const messageViews = computed(() =>
-  messages.value.map((m, i) => ({
+  visibleMessages.value.map((m, i) => ({
     // 优先用服务端消息 id 作 key；实时推送的系统回包没有 id 时用 内容+序号 兜底
     key: m.id ?? `rt-${i}-${m.createdAt || ''}`,
     msg: m,
     segs: parseContent(m.content, commands.value),
   })),
 );
-const commands = ref([]);
-const input = ref('');
-const connected = ref(false);
-const msgList = ref(null);
-const inputEl = ref(null);
+
+/**
+ * 判断一条消息是否为 GM 系统公告
+ * 公告统一改为弹窗展示，不再出现在公屏消息流中（服务端仍持久化留档）
+ */
+function isAnnouncementMsg(m) {
+  return m.type === 'system' && typeof m.content === 'string' && m.content.startsWith('【系统公告】');
+}
+
+/**
+ * 过滤后的可见消息列表：
+ * - 系统公告一律过滤（走弹窗展示）
+ * - 开关开启 → 全部消息
+ * - 开关关闭 → 仅保留「自己的」消息：本人发送的聊天/指令（sender 为自己）
+ *   以及自己触发的系统回复（无 sender 或 sender 无 id 的回包，与 isOwnSystemMessage 判定一致）
+ */
+const visibleMessages = computed(() => {
+  const filtered = messages.value.filter((m) => !isAnnouncementMsg(m));
+  if (showOthersMsg.value) return filtered;
+  const selfId = user.value?.id;
+  return filtered.filter((m) => {
+    if (!m.sender) return true;
+    if (m.sender.id === undefined || m.sender.id === null) return true;
+    return m.sender.id === selfId;
+  });
+});
 
 // 服务器统计（总人数、在线人数）
 const serverStats = ref({ totalPlayers: 0, onlinePlayers: 0 });
@@ -2391,6 +2461,95 @@ function categoryLabel(category) {
   return map[category] || category || '其他';
 }
 
+// ===== 系统公告弹窗（GM 全服公告） =====
+// 已读公告 id 列表持久化：点 X 关闭后才算已读，刷新/重新登录不再弹出
+const ANN_SEEN_KEY = 'smdz_seen_announcement_ids';
+// 强制展示时长（毫秒）：倒计时结束前 X 按钮禁用
+const ANN_FORCE_MS = 5000;
+// 待展示公告队列：多条公告依次弹出，关闭一条再展示下一条
+const annQueue = ref([]);
+// 当前正在展示的公告（队首）
+const currentAnn = computed(() => annQueue.value[0] || null);
+// 是否已过强制展示期（true 后才允许关闭）
+const annCanClose = ref(false);
+// 关闭倒计时（秒），用于按钮提示文案
+const annCountdown = ref(0);
+let annTimer = null;
+
+/** 读取本地已读公告 id 列表 */
+function loadSeenAnnIds() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(ANN_SEEN_KEY) || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 标记公告为已读（最多保留最近 50 条，防止无限增长） */
+function markAnnSeen(id) {
+  if (id == null) return;
+  const seen = loadSeenAnnIds();
+  if (!seen.includes(id)) {
+    seen.push(id);
+    localStorage.setItem(ANN_SEEN_KEY, JSON.stringify(seen.slice(-50)));
+  }
+}
+
+/**
+ * 展示一条系统公告：
+ * - 已读过的直接忽略；未读的进入队列依次弹出
+ * - 队列首条开始 5 秒强制展示倒计时，期间 X 禁用
+ */
+function showAnnouncement(a) {
+  if (!a || a.content == null) return;
+  const id = a.id ?? `rt-${a.content}-${a.createdAt || ''}`;
+  if (loadSeenAnnIds().includes(id)) return;
+  // 去重：同一条公告（实时推送 + 历史扫描可能重复触发）只入队一次
+  if (annQueue.value.some((it) => it.id === id)) return;
+  annQueue.value.push({ id, content: a.content, createdAt: a.createdAt });
+  // 仅在无进行中的倒计时时启动（队列后续公告由 closeAnnouncement 接力启动）
+  if (!annTimer) startAnnForceShow();
+}
+
+/** 启动强制展示倒计时：5 秒内禁止关闭 */
+function startAnnForceShow() {
+  clearInterval(annTimer);
+  annCanClose.value = false;
+  annCountdown.value = Math.ceil(ANN_FORCE_MS / 1000);
+  annTimer = setInterval(() => {
+    annCountdown.value -= 1;
+    if (annCountdown.value <= 0) {
+      clearInterval(annTimer);
+      annTimer = null;
+      annCanClose.value = true;
+    }
+  }, 1000);
+}
+
+/** 关闭当前公告（仅倒计时结束后允许）：标记已读并展示队列中的下一条 */
+function closeAnnouncement() {
+  if (!annCanClose.value) return;
+  const cur = annQueue.value[0];
+  if (cur) markAnnSeen(cur.id);
+  annQueue.value.shift();
+  if (annQueue.value.length) {
+    startAnnForceShow();
+  } else {
+    clearInterval(annTimer);
+    annTimer = null;
+    annCanClose.value = false;
+    annCountdown.value = 0;
+  }
+}
+
+/** 扫描历史消息中未读的系统公告并加入弹窗队列（离线期间错过的公告上线后补弹） */
+function scanHistoryAnnouncements(list) {
+  for (const m of list || []) {
+    if (isAnnouncementMsg(m)) showAnnouncement(m);
+  }
+}
+
 onMounted(async () => {
   try {
     // 移动端视图高度修复：动态计算实际可视高度，避免键盘弹出时布局错乱
@@ -2425,6 +2584,8 @@ onMounted(async () => {
     // 后端按 createdAt 倒序返回（最新在前），需反转成"旧消息在上、新消息在下"，
     // 与实时 push 到末尾的顺序一致，避免新消息出现在历史消息中间/顶部
     messages.value = (msgs.data || []).reverse();
+    // 扫描历史中的未读系统公告 → 弹窗补展示（离线期间错过的公告上线后仍会弹出）
+    scanHistoryAnnouncements(messages.value);
     // 加载指令列表
     const cmds = await commandApi.list();
     commands.value = cmds.data;
@@ -2491,6 +2652,10 @@ onMounted(async () => {
     // 接收公屏消息(聊天、指令结果广播、系统消息)
     socket.on('chat:message', (msg) => {
       appendMessage(msg);
+    });
+    // 接收 GM 系统公告 → 强制弹窗展示（阅读 5 秒后才可关闭）
+    socket.on('announcement:new', (data) => {
+      showAnnouncement(data);
     });
     // 接收玩家信息更新事件（经 rev 守卫应用，丢弃乱序旧包）
     socket.on('player:update', (data) => {
@@ -2577,6 +2742,7 @@ onUnmounted(() => {
   if (panelTimer) clearInterval(panelTimer);
   if (updateTimer) clearInterval(updateTimer);
   if (updateCountdownTimer) clearInterval(updateCountdownTimer);
+  if (annTimer) clearInterval(annTimer);
 });
 </script>
 
@@ -2614,6 +2780,22 @@ onUnmounted(() => {
 }
 .header-action-btn:active {
   transform: scale(0.95);
+}
+
+/* ===== 消息过滤切换按钮（显示他人/仅看自己）===== */
+/* 开启态（显示所有人）：高亮描边提示当前处于全量展示 */
+.filter-toggle.on {
+  color: #fff;
+  border-color: var(--accent);
+  background: rgba(139, 92, 246, 0.18);
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.25);
+}
+/* 小屏下缩短文案留白，避免头部拥挤 */
+@media (max-width: 768px) {
+  .filter-toggle {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
 }
 
 /* ===== 头部「BUG 反馈」按钮：GitHub Issues 跳转入口（比普通操作按钮更醒目） ===== */
@@ -2664,6 +2846,91 @@ onUnmounted(() => {
 @keyframes badgePulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
   50% { box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.5); }
+}
+
+/* ===== 系统公告弹窗（GM 全服公告） ===== */
+.announcement-overlay {
+  position: fixed;
+  inset: 0;
+  /* 高于侧滑面板(100)，保证公告永远置顶 */
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeInUp 0.25s ease-out;
+}
+.announcement-modal {
+  width: min(480px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg2);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 14px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6), 0 0 24px rgba(251, 191, 36, 0.15);
+}
+.ann-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--glass-border);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.14), rgba(245, 158, 11, 0.08));
+}
+.ann-header h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fde68a;
+}
+/* 关闭按钮：强制展示期内禁用（半透明+禁止光标） */
+.ann-close {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+.ann-close:hover:not(:disabled) {
+  color: #fff;
+  border-color: var(--danger);
+}
+.ann-close:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+/* 公告正文：保留换行、超长滚动 */
+.ann-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  white-space: pre-line;
+  word-break: break-word;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.ann-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--glass-border);
+  text-align: right;
+}
+.ann-countdown {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ann-countdown.ok {
+  color: #34d399;
 }
 
 /* ===== @提及高亮 ===== */

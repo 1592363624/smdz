@@ -452,14 +452,21 @@ export class AdminService {
 
   /**
    * 发送系统公告
-   * 向世界频道写入一条系统消息，广播给所有在线玩家
+   * 向世界频道写入一条系统消息（持久化留档），
+   * 并实时推送 announcement:new 事件，所有在线玩家客户端弹出公告弹窗
    */
   async sendAnnouncement(content: string): Promise<void> {
     const channel = await this.chatService.ensureDefaultChannel();
-    await this.chatService.saveMessage({
+    const msg = await this.chatService.saveMessage({
       channelId: channel.id,
       type: 'system',
       content: `【系统公告】${content}`,
+    });
+    // 实时推送公告弹窗事件（前端强制展示 5 秒、手动点 X 关闭后才算已读）
+    this.chatService.emitToChannel(channel.name, 'announcement:new', {
+      id: msg.id,
+      content,
+      createdAt: msg.createdAt,
     });
     this.logger.log(`系统公告已发送: ${content}`);
   }

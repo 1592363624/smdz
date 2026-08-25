@@ -60,6 +60,17 @@ export class ChatService {
   }
 
   /**
+   * 向指定频道房间广播任意事件（不持久化）
+   * 供系统公告弹窗等纯通知类场景使用
+   * @param channelName 频道名（房间名）
+   * @param event 事件名
+   * @param data 推送数据
+   */
+  emitToChannel(channelName: string, event: string, data: any): void {
+    this.server?.to(channelName).emit(event, data);
+  }
+
+  /**
    * 获取或创建默认频道（世界频道 id=1）
    */
   async ensureDefaultChannel() {
