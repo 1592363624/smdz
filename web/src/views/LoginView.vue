@@ -17,6 +17,23 @@
         <span>{{ qqLoading ? '跳转中...' : (qqConfigured ? 'QQ 登录' : 'QQ 登录未配置') }}</span>
       </button>
 
+      <!-- 开发者模拟登录入口（仅服务端开启 DEV_LOGIN_ENABLED=1 时显示） -->
+      <div v-if="devEnabled" class="dev-login">
+        <div class="dev-divider"><span>本地开发</span></div>
+        <div class="dev-row">
+          <input
+            v-model.trim="devUsername"
+            class="dev-input"
+            placeholder="测试用户名"
+            maxlength="20"
+            @keyup.enter="devLogin"
+          />
+          <button class="dev-btn" :disabled="devLoading || !devUsername" @click="devLogin">
+            {{ devLoading ? '登录中...' : '开发者登录' }}
+          </button>
+        </div>
+      </div>
+
       <!-- 错误提示 -->
       <transition name="fade">
         <p v-if="error" class="error">{{ error }}</p>
@@ -42,6 +59,9 @@ const route = useRoute();
 const qqLoading = ref(false);
 const qqConfigured = ref(false);
 const error = ref('');
+const devEnabled = ref(false);
+const devUsername = ref('');
+const devLoading = ref(false);
 
 // 组件挂载时：检查 QQ 登录是否已配置，并处理 QQ 回调参数
 onMounted(async () => {
@@ -52,6 +72,15 @@ onMounted(async () => {
     qqConfigured.value = data.data?.configured === true;
   } catch {
     qqConfigured.value = false;
+  }
+
+  // 检查本地开发模拟登录是否开启（生产环境关闭，入口自动隐藏）
+  try {
+    const res = await fetch(`${API_BASE}/auth/dev/status`);
+    const data = await res.json();
+    devEnabled.value = data.data?.enabled === true;
+  } catch {
+    devEnabled.value = false;
   }
 
   // 处理 QQ 登录回调（从 URL 参数中获取 token 和用户信息）
@@ -87,6 +116,36 @@ function qqLogin() {
   qqLoading.value = true;
   // 跳转到后端 QQ 授权入口
   window.location.href = `${API_BASE}/auth/qq/login`;
+}
+
+/**
+ * 开发者模拟登录：按用户名直接向本地后端换取 JWT（需服务端开启 DEV_LOGIN_ENABLED=1）
+ */
+async function devLogin() {
+  if (!devUsername.value) return;
+  devLoading.value = true;
+  error.value = '';
+  try {
+    const res = await fetch(`${API_BASE}/auth/dev/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: devUsername.value }),
+    });
+    const data = await res.json();
+    const token = data.data?.access_token;
+    const user = data.data?.user;
+    if (res.ok && token && user) {
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      router.push('/chat');
+    } else {
+      error.value = data.message || '开发者登录失败，请检查服务端 DEV_LOGIN_ENABLED 配置';
+    }
+  } catch {
+    error.value = '开发者登录请求失败，请确认本地后端已启动';
+  } finally {
+    devLoading.value = false;
+  }
 }
 </script>
 
@@ -135,6 +194,65 @@ function qqLogin() {
   height: 20px;
   color: #12b7f5;
   filter: drop-shadow(0 0 4px rgba(18, 183, 245, 0.3));
+}
+
+/* 开发者模拟登录 */
+.dev-login {
+  margin-top: 14px;
+}
+.dev-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim, #6b7280);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.dev-divider::before,
+.dev-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.dev-row {
+  display: flex;
+  gap: 8px;
+}
+.dev-input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  background: rgba(10, 10, 26, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.25s ease;
+}
+.dev-input:focus {
+  border-color: rgba(18, 183, 245, 0.4);
+}
+.dev-btn {
+  padding: 9px 16px;
+  background: rgba(18, 183, 245, 0.1);
+  border: 1px solid rgba(18, 183, 245, 0.4);
+  border-radius: 10px;
+  color: #12b7f5;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.25s ease;
+}
+.dev-btn:hover:not(:disabled) {
+  background: rgba(18, 183, 245, 0.18);
+  box-shadow: 0 0 16px rgba(18, 183, 245, 0.2);
+}
+.dev-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* 错误提示淡入淡出动画 */

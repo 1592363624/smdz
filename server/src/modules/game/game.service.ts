@@ -59,12 +59,22 @@ export class GameService {
   private readonly gatherFallbackAt = new Map<number, number>();
   /** 兜底结算连续触发计数：key=userId（超限自愈，终止异常循环）。 */
   private readonly gatherFallbackCount = new Map<number, number>();
+  /** 救援兜底结算上次触发时间：key=userId（防标记残留时兜底任务无限重入刷屏）。 */
+  private rescueFallbackAt = new Map<number, number>();
+  /** 救援兜底连续触发计数：key=userId（超限自愈，终止异常循环）。 */
+  private rescueFallbackCount = new Map<number, number>();
   /** 兜底结算最小间隔：正常采集耗时远大于此值，仅拦截异常残留的重复结算。 */
   private static readonly GATHER_FALLBACK_MIN_INTERVAL_MS = 15_000;
   /** 兜底结算连续触发上限：超过则判定异常循环并清除标记自愈。 */
   private static readonly GATHER_FALLBACK_MAX_CONSECUTIVE = 3;
   /** 异常循环判定时间窗：仅统计 60 秒内的连续兜底，跨窗自动重置计数（防误伤正常采集）。 */
   private static readonly GATHER_FALLBACK_LOOP_WINDOW_MS = 60_000;
+  /** 救援兜底结算最小间隔：正常救助耗时远大于此值，仅拦截异常残留的重复结算。 */
+  private static readonly RESCUE_FALLBACK_MIN_INTERVAL_MS = 15_000;
+  /** 救援兜底连续触发上限：超过则判定异常循环并清除到期标记自愈。 */
+  private static readonly RESCUE_FALLBACK_MAX_CONSECUTIVE = 3;
+  /** 救援异常循环判定时间窗：仅统计 60 秒内的连续兜底，跨窗自动重置计数。 */
+  private static readonly RESCUE_FALLBACK_LOOP_WINDOW_MS = 60_000;
   private readonly tradeLocks = new Map<string, Promise<void>>();
   /** 玩家面板推送防抖定时器：同一玩家短时间内的多次状态变化合并为一次推送 */
   private readonly playerUpdateTimers = new Map<number, NodeJS.Timeout>();
@@ -2422,7 +2432,10 @@ export class GameService {
     const resources2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
     const items = this.playerService.safeJsonParse<any[]>(map.items, []);
     const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
-    const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
+    // 与采集门禁保持一致：过滤已采完(times=0)与当前玩家已领取过(marker)的固定资源
+    const probeMarkers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const resources = this.playerService.safeJsonParse<any[]>(map.resources, [])
+      .filter((r: any) => this.getResourceTimes(r) !== 0 && this.isGatherResourceAvailable(r, probeMarkers));
 
     const lines: string[] = [
       `🔍 【${map.name}】探测报告`,
@@ -2894,16 +2907,34 @@ export class GameService {
     const lockedMarkers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const unlockedMarkers2 = lockedMarkers2.filter((m: any) =>
       (m?.name ?? m?.名称 ?? m?.key) !== '采集');
-    if (unlockedMarkers2.length !== lockedMarkers2.length) {
-      player.markers2 = JSON.stringify(unlockedMarkers2);
-    }
+    const markers2Changed = unlockedMarkers2.length !== lockedMarkers2.length;
 
-    // 立即落库清除「采集中」状态：后续产出/任务/经验结算链较长，
-    // 若等链路走完才保存，中途任一环抛异常都会让标记残留，
-    // 兜底任务 settlePendingGathers 会每5秒把它当成未完成采集无限重入。
-    // （先删状态、马上持久化，再结算，保证兜底任务最多重入一次且不会循环。）
-    player.markers = JSON.stringify(markers);
-    await this.playerService.savePlayer(player);
+    // 原子认领「采集中」状态：进程内定时器与每5秒兜底扫描是并发结算入口，
+    // 结算链路（产出/任务/激怒怪物等）耗时可超过兜底间隔，若仅靠"读-改-写"，
+    // 重入方会在落库前读到同样的「采集中」状态而双结算（产出翻倍+重复广播）。
+    // 这里用条件更新（CAS）：仅当库中 markers 仍等于读取快照时才写入清除结果，
+    // CAS 不命中的调用立即放弃；无 updateMany 的测试环境退化为读-改-写。
+    // 同时保留"先删状态、马上持久化，再结算"的时序：后续链路任一环抛异常
+    // 或变慢，都不会让标记残留被兜底任务反复重入。
+    const prevMarkersRaw = typeof player.markers === 'string' ? player.markers : JSON.stringify({});
+    const nextMarkersRaw = JSON.stringify(markers);
+    const prevMarkers2Raw = typeof player.markers2 === 'string' ? player.markers2 : null;
+    if (this.prisma?.player?.updateMany) {
+      const casWhere: Record<string, any> = { id: player.id, markers: prevMarkersRaw };
+      const casData: Record<string, any> = { markers: nextMarkersRaw };
+      if (markers2Changed && prevMarkers2Raw !== null) {
+        casWhere.markers2 = prevMarkers2Raw;
+        casData.markers2 = JSON.stringify(unlockedMarkers2);
+      }
+      const cas = await this.prisma.player.updateMany({ where: casWhere, data: casData });
+      if ((cas?.count ?? 0) === 0) return '';
+      player.markers = nextMarkersRaw;
+      if (markers2Changed) player.markers2 = JSON.stringify(unlockedMarkers2);
+    } else {
+      player.markers = nextMarkersRaw;
+      if (markers2Changed) player.markers2 = JSON.stringify(unlockedMarkers2);
+      await this.playerService.savePlayer(player);
+    }
 
     const gatherName = String(gatherState.cmd ?? '');
     const resourceName = String(gatherState.target ?? '');
@@ -7058,7 +7089,11 @@ export class GameService {
 
     // 解析地图各字段
     const monsters = await this.mapService.getMapMonsters(map);
-    const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
+    // 资源展示与采集门禁保持一致：过滤已采完(times=0)与当前玩家已领取过(marker)的资源，
+    // 避免"观察附近列表里有、实际打不开"的观感（原版医疗箱/休眠仓为每人一次的常驻资源）。
+    const playerMarkers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const resources = this.playerService.safeJsonParse<any[]>(map.resources, [])
+      .filter((r: any) => this.getResourceTimes(r) !== 0 && this.isGatherResourceAvailable(r, playerMarkers));
     const items = this.playerService.safeJsonParse<any[]>(map.items, []);
     const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
     // 统一收集所有可编号快捷操作的选项（资源采集 + NPC对话，合并编号生成底部菜单）
@@ -11607,17 +11642,39 @@ export class GameService {
     await this.mapService.updateDynamicFields(map.id, data);
   }
 
-  private async removeRescueMarker(userId: number, token: string): Promise<any | null> {
+  /**
+   * 原子认领救援标记：从 markers2 移除指定 token 并持久化，返回是否认领成功。
+   * 进程内延时定时器与每5秒的兜底扫描是两个并发结算入口，且结算链路
+   * （白传送/地图读写/任务推进）耗时可超过兜底间隔；旧实现"先结算最后才删标记"
+   * 会让重入方在窗口内再次通过 token 校验，导致"感觉好一点了吗？"等结算文本
+   * 被重复广播刷屏。改为结算前先按 CAS（条件更新）抢删标记：
+   * 只有认领成功的调用继续结算+广播，失败方立即放弃，保证恰好一次。
+   */
+  private async claimRescueMarker(userId: number, token: string): Promise<boolean> {
+    if (!token) return false;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    const markers2 = this.parseRescueMarkers(player.markers2 ?? playerData.markers2);
-    const before = markers2.length;
+    const raw = typeof player.markers2 === 'string'
+      ? player.markers2
+      : JSON.stringify(Array.isArray(player.markers2) ? player.markers2 : playerData.markers2 ?? []);
+    const markers2 = this.parseRescueMarkers(raw);
     const remaining = markers2.filter((marker: any) => marker?.token !== token);
-    if (remaining.length !== before) {
-      player.markers2 = JSON.stringify(remaining);
-      await this.playerService.savePlayer(player);
+    if (remaining.length === markers2.length) return false;
+    const nextRaw = JSON.stringify(remaining);
+    // CAS：仅当库中 markers2 仍等于读取到的快照时才写入移除结果；
+    // 并发方 CAS 不命中即放弃。无 updateMany 的测试环境退化为读-改-写。
+    if (this.prisma?.player?.updateMany) {
+      const cas = await this.prisma.player.updateMany({
+        where: { id: player.id, markers2: raw },
+        data: { markers2: nextRaw },
+      });
+      if ((cas?.count ?? 0) === 0) return false;
+      player.markers2 = nextRaw;
+      return true;
     }
-    return player;
+    player.markers2 = nextRaw;
+    await this.playerService.savePlayer(player);
+    return true;
   }
 
   private rescueTimerMap(): Map<number, NodeJS.Timeout> {
@@ -11661,16 +11718,54 @@ export class GameService {
     let settled = 0;
     for (const player of players || []) {
       const markers = this.parseRescueMarkers(player.markers2);
-      for (const marker of markers) {
+      const rescueMarkers = markers.filter((marker: any) => {
         const name = marker?.name ?? marker?.名称;
-        if (!marker?.rescueType || (name !== '复活' && name !== '工作')) continue;
+        return Boolean(marker?.rescueType) && (name === '复活' || name === '工作');
+      });
+      if (rescueMarkers.length === 0) continue;
+      const userId = Number(player.userId);
+      const expired: any[] = [];
+      for (const marker of rescueMarkers) {
         if (this.rescueExpireAtSeconds(marker) > now) {
-          if (!this.rescueTimerMap().has(Number(player.userId))) {
-            await this.scheduleRescueCompletion(Number(player.userId), marker);
+          // 未到期：恢复进程内定时器（服务重启后定时器全部丢失）
+          if (!this.rescueTimerMap().has(userId)) {
+            await this.scheduleRescueCompletion(userId, marker);
           }
           continue;
         }
-        await this.completeRescue(Number(player.userId), marker);
+        expired.push(marker);
+      }
+      if (expired.length === 0) continue;
+
+      // 防重入熔断（对齐采集兜底）：若标记因异常残留/被并发旧快照写回，
+      // 兜底扫描每5秒会把同一到期标记当成待结算反复补完并广播。
+      // 两级防护：1) 同一玩家两次兜底结算至少间隔 15 秒；
+      // 2) 60 秒内连续触发超过 3 次判定异常循环，直接清除到期救援标记（自愈）。
+      if (!this.rescueFallbackAt) (this as any).rescueFallbackAt = new Map<number, number>();
+      if (!this.rescueFallbackCount) (this as any).rescueFallbackCount = new Map<number, number>();
+      const nowMs = Date.now();
+      const lastFallback = this.rescueFallbackAt.get(userId) ?? 0;
+      if (nowMs - lastFallback < GameService.RESCUE_FALLBACK_MIN_INTERVAL_MS) continue;
+      this.rescueFallbackAt.set(userId, nowMs);
+      const consecutive = nowMs - lastFallback <= GameService.RESCUE_FALLBACK_LOOP_WINDOW_MS
+        ? (this.rescueFallbackCount.get(userId) ?? 0) + 1
+        : 1;
+      this.rescueFallbackCount.set(userId, consecutive);
+      if (consecutive > GameService.RESCUE_FALLBACK_MAX_CONSECUTIVE) {
+        const expiredTokens = new Set(expired.map((entry: any) => entry?.token));
+        const kept = markers.filter((entry: any) => !expiredTokens.has(entry?.token));
+        await this.prisma.player.updateMany({
+          where: { userId },
+          data: { markers2: JSON.stringify(kept) },
+        });
+        this.logger.warn(
+          `玩家 ${userId} 救援兜底结算 60 秒内连续触发 ${consecutive} 次，判定异常循环，已清除到期救援标记终止`,
+        );
+        settled += expired.length;
+        continue;
+      }
+      for (const marker of expired) {
+        await this.completeRescue(userId, marker);
         settled += 1;
       }
     }
@@ -11679,10 +11774,12 @@ export class GameService {
 
   /** 完成自救、使魔救助、载具维修或玩家扶助。 */
   private async completeRescue(userId: number, marker: any): Promise<string> {
+    // 先原子认领标记再结算：定时器回调与兜底扫描可能并发进入同一到期标记，
+    // 认领失败说明另一调用已在结算，本调用直接放弃（详见 claimRescueMarker）。
+    const claimed = await this.claimRescueMarker(userId, marker?.token);
+    if (!claimed) return '';
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    const markers2 = this.parseRescueMarkers(player.markers2 ?? playerData.markers2);
-    if (!markers2.some((entry: any) => entry?.token === marker?.token)) return '';
 
     if (marker.rescueType === 'self') {
       if (this.playerService.isPlayerDead(player)) {
@@ -11697,7 +11794,6 @@ export class GameService {
       // 会顺带把玩家传送走——同图的白传到附近复活点，其他地图的白传到白身边。
       // 注意顺序：传送内部会重新读库推进状态，之后不得再用旧快照回写玩家。
       const teleportSuffix = await this.applyWhiteAngelRevivalTeleport(userId, player);
-      await this.removeRescueMarker(userId, marker.token);
       // 原版延时端会把结算文本发回群里；移植版统一走世界频道系统消息送达玩家
       //（指令回复通道覆盖不到进程内定时器回调）。
       const result = `${player.name || '冒险者'}感觉好一点了吗？恢复了${Math.floor(Number(player.maxHp || 100) / 2)}生命${teleportSuffix}`;
@@ -11735,7 +11831,6 @@ export class GameService {
         }
         result = `${player.name || '冒险者'}扶起了${rescuedNames.join('、')}`;
       }
-      await this.removeRescueMarker(userId, marker.token);
       if (result.includes('扶起了')) {
         await this.chatService?.broadcastSystem?.('世界频道', result, userId).catch?.(() => undefined);
       }
@@ -11744,7 +11839,6 @@ export class GameService {
 
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) {
-      await this.removeRescueMarker(userId, marker.token);
       return `${player.name || '冒险者'}当前地图不存在，救助失败`;
     }
 
@@ -11767,7 +11861,6 @@ export class GameService {
     }
 
     await this.saveRescueMap(map, summons, vehicles);
-    await this.removeRescueMarker(userId, marker.token);
     const lines: string[] = [];
     if (revivedCount > 0) lines.push(`${player.name || '冒险者'}救起了${revivedCount}只宠物`);
     lines.push(...repairedNames);

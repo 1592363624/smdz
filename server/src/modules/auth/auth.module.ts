@@ -11,6 +11,7 @@ import { GlobalConfig } from '../../config/global.config';
 import { UsersModule } from '../users/users.module';
 import { QQAuthService } from './qq-auth.service';
 import { QQAuthController } from './qq-auth.controller';
+import { DevAuthController } from './dev-auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -29,7 +30,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     }),
   ],
   providers: [QQAuthService, JwtStrategy, JwtAuthGuard],
-  controllers: [QQAuthController],
+  controllers: [QQAuthController, DevAuthController],
   exports: [JwtAuthGuard, QQAuthService],
 })
 export class AuthModule {}

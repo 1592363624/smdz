@@ -466,8 +466,11 @@ export class GameCommandHandler implements CommandHandler {
         case 'myriad-visions':
           return this.wrap(await this.familiarSkills.executeSkill(userId, '万象'));
 
+        // 原版 Saber 特有技能文本就是 "ex"（使魔技能.ecode L1406 消息数据=="ex"），
+        // 因此指令层也要认 "ex"，与自动释放的 normalizeUniqueSkill(ex→誓约胜利之剑) 对齐。
         case '誓约胜利之剑':
         case 'excalibur':
+        case 'ex':
           return this.wrap(await this.familiarSkills.executeSkill(userId, '誓约胜利之剑'));
 
         case '鹰眼':

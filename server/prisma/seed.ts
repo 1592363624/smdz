@@ -314,7 +314,7 @@ async function main() {
     { name: '六道轮回', alias: 'six-paths', description: '使魔技能 - 六道轮回' },
     { name: '怒吼', alias: 'roar', description: '使魔技能 - 怒吼' },
     { name: '万象', alias: 'myriad-visions', description: '使魔技能 - 万象' },
-    { name: '誓约胜利之剑', alias: 'excalibur', description: '使魔技能 - 誓约胜利之剑' },
+    { name: '誓约胜利之剑', alias: 'excalibur,ex', description: '使魔技能 - 誓约胜利之剑（原版特有技能文本为 ex）' },
     { name: '鹰眼', alias: 'hawk-eye', description: '使魔技能 - 鹰眼' },
     { name: '歼灭', alias: 'annihilate', description: '使魔技能 - 歼灭' },
     { name: '歼灭模式', alias: 'annihilation-mode', description: '使魔技能 - 歼灭模式' },
