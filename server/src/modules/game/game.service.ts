@@ -6928,9 +6928,15 @@ export class GameService {
           if (name === '白' && !ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? ''))) {
             continue;
           }
+          // 特殊NPC（固定[!]的神之工匠/小雫/露娜/行商 与 小白狐/花园宝宝类）同类项去重：
+          // 同名只显示第一个并标[!]，后续同类项整行跳过（含快捷对话选项），避免刷屏。
+          const isSpecialNpc = isFixedSpecialNpc(s) || isDedupableSpecialNpc(s);
+          if (isSpecialNpc && shownSpecialNames.has(name)) {
+            continue;
+          }
           let label: string;
-          if (isFixedSpecialNpc(s) || (isDedupableSpecialNpc(s) && !shownSpecialNames.has(name))) {
-            if (isDedupableSpecialNpc(s)) shownSpecialNames.add(name);
+          if (isSpecialNpc) {
+            shownSpecialNames.add(name);
             label = `${name}[!]`;
           } else if (markerVal(s, '幼崽') !== 0) {
             label = `${name}(幼崽)`;

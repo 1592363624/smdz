@@ -44,6 +44,18 @@ export interface AttackContext {
   isDelayed?: boolean;
   /** 是否由自动战斗循环触发的攻击 */
   isAutoCombat?: boolean;
+  /**
+   * 命中后给目标施加的持续伤害标记时长（秒）。
+   * 对应原版 战斗相关.ecode L1930：攻击文本=="誓约胜利之剑a" 时，
+   * 目标获得"sa"增益30秒；由地图战斗节拍每拍按 物攻/10×经过秒数 结算灼烧伤害。
+   */
+  burnSeconds?: number;
+  /**
+   * 本次攻击附加的三层穿透百分比（平铺值，非倍率）。
+   * 对应原版 使魔技能.ecode L1424「增加穿透(玩家.属性, 15)」：誓约胜利之剑施放时注入，
+   * 由 weaponAttackInner 在构建攻击方加成后叠加到护盾/装甲/生命穿透，仅本次攻击生效。
+   */
+  extraPenetrationFlat?: number;
   /** 指定攻击目标名（对应原版 `攻击怪物名` 设置玩家.目标） */
   targetName?: string;
   /** 指定 GameMonster 实例，避免同名怪物被重复选中 */
@@ -497,6 +509,15 @@ export class CombatSystemService {
 
     // 构造攻击者加成数据（合并基础+装备+增益；传入 map 供宠物存活数量加成使用）
     const attackerBonus = this.buildAttackerBonus(player, playerData, map);
+    // 原版 使魔技能.ecode L1424「增加穿透(玩家.属性, 15)」：技能施放时注入的三层穿透，
+    // 加成计算.ecode L3446 定义为 护盾/装甲/生命穿透 同时 += N。仅本次攻击生效。
+    if (context.extraPenetrationFlat && context.extraPenetrationFlat > 0) {
+      const pen = context.extraPenetrationFlat;
+      attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + pen;
+      attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + pen;
+      attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + pen;
+      resultLines.push(`【誓约胜利之剑】三层穿透+${pen}%`);
+    }
     // 额外文本管道（原版 _主程序 L12033-12034：w = w + 玩家.额外文本 后清空）：
     // 反转童话被动(护盾/装甲/生命负数已反转) 与 计算增益(啾啾猫猫/银龙附体) 的附带文本并入本次回包。
     const attackerExtraText = (attackerBonus as any).额外文本;
@@ -827,7 +848,16 @@ export class CombatSystemService {
         }
       } else {
         atkStats.dodged++; // 被闪避计数（对应原版 火伤2 被闪避次数）
-        resultLines.push(`${target.name} 闪避了攻击`);
+        // 对应原版 战斗相关.ecode L1481：显示攻击文本(z1, 0, 攻击文本) 抽取「未命中」分类模板
+        // 并展开占位符（如"【目标】躲开了【名称】的拳头"）；无配置时退回简版提示。
+        const missName = (attackText ?? '').trim() || this.resolveAttackTextName(weapon);
+        const missTemplates = this.getAttackTextTemplates(missName, 0);
+        if (missTemplates.length > 0) {
+          const tpl = missTemplates[Math.floor(Math.random() * missTemplates.length)];
+          resultLines.push(this.expandAttackPlaceholders(tpl, player.name || '', target.name, String(weapon.name || '拳头'), this.getAttackerVehicleName(player, map)));
+        } else {
+          resultLines.push(`${target.name} 闪避了攻击`);
+        }
         // 未命中：防御方获得「闪避熟练度」（对应原版 L1484）
         const tMarkers = this.normalizeMarkerObject(target.markers);
         tMarkers['闪避熟练度'] = (tMarkers['闪避熟练度'] || 0) + 1;
@@ -2228,7 +2258,41 @@ export class CombatSystemService {
       }
 
       // 构建攻击文本（含三段评级显示）
-      const atkText = attackText || this.getAttackText(weapon, weapon.damageType);
+      // 对应原版 战斗相关.ecode L3881 + L4064/4215/4346/4486：显示类型按伤害落点决定——
+      // 击杀(4) > 护盾被打穿且剩余>10%(2) > 装甲被打穿且剩余>10%(3) > 普通命中(1)，
+      // 再从武器攻击文本对应分类抽取模板并展开【名称】【载具】【目标】【武器】占位符。
+      const attackerVehicleName = this.getAttackerVehicleName(player, map);
+      const weaponDisplayName = String(weapon.name || '拳头');
+      const displayType = target.hp <= 0
+        ? 4
+        : (shieldBeforeDamage > 0 && Number(target.shield || 0) <= 0 && shieldBeforeDamage / (defenderBonus.护盾 || shieldBeforeDamage || 1) > 0.1)
+          ? 2
+          : (armorBeforeDamage > 0 && Number(target.armor || 0) <= 0 && armorBeforeDamage / (defenderBonus.装甲 || armorBeforeDamage || 1) > 0.1)
+            ? 3
+            : 1;
+      let atkText = '';
+      // 对应原版 显示攻击文本()：优先按第3参 攻击文本 名称查文本列表，未传则用武器自带 z1.攻击文本；
+      // 命中后按显示类型从对应分类随机抽取模板。查无条目时回落：显式传入保留原文，否则走旧兜底。
+      const atkName = (attackText ?? '').trim() || this.resolveAttackTextName(weapon);
+      const hitTemplates = this.getAttackTextTemplates(atkName, displayType);
+      if (hitTemplates.length > 0) {
+        atkText = hitTemplates[Math.floor(Math.random() * hitTemplates.length)];
+      } else if ((attackText ?? '').trim()) {
+        atkText = (attackText ?? '').trim();
+      } else {
+        atkText = this.getAttackText(weapon, weapon.damageType);
+      }
+      atkText = this.expandAttackPlaceholders(atkText, player.name || '', target.name, weaponDisplayName, attackerVehicleName);
+
+      // 原版 战斗相关.ecode L1930：攻击文本=="誓约胜利之剑a" 命中后，
+      // 给防御方获得增益("sa", 30秒)——灼烧标记，由地图战斗节拍按 物攻/10×经过秒数 结算。
+      if ((attackText ?? '') === '誓约胜利之剑a' && context.burnSeconds && context.burnSeconds > 0) {
+        const tBuffsSa = this.safeParseJson<any[]>(target.buffs, []);
+        this.combatState.gainBuff(tBuffsSa, 'sa', context.burnSeconds, false, Date.now());
+        target.buffs = JSON.stringify(tBuffsSa);
+        resultLines.push(`${target.name} 被圣剑之光灼烧（每秒造成物攻10%伤害）`);
+      }
+
       const critText = isCrit ? '【暴击】' : '';
       const ratingText = damageResult.rating || '';
       const dmgText = captureMode
@@ -4431,13 +4495,17 @@ export class CombatSystemService {
   /**
    * 获取武器攻击文本
    * 对应原版：显示攻击文本()
-   * 根据武器信息和伤害类型返回对应的攻击描述
+   * 根据武器信息和伤害类型返回对应的攻击描述（含【名称】【载具】【目标】【武器】占位符，由调用方展开）
    */
   getAttackText(weapon: WeaponData, damageType: number): string {
     if (!weapon) return '拳头攻击';
 
     // 如果武器有自定义攻击文本，优先使用
-    if (weapon.attackText) return weapon.attackText;
+    // （兼容两种形态：字符串名称或背包装备实例的 {name:"自动步枪"} 对象）
+    if (weapon.attackText) {
+      if (typeof weapon.attackText === 'string') return weapon.attackText;
+      return String((weapon.attackText as any)?.name ?? (weapon.attackText as any)?.名称 ?? '').trim();
+    }
 
     // 如果武器有攻击文本列表
     if (weapon.attackTexts && weapon.attackTexts.length > 0) {
@@ -4445,7 +4513,16 @@ export class CombatSystemService {
       return weapon.attackTexts[idx];
     }
 
-    // 根据伤害类型返回默认文本
+    // 无攻击文本配置时按原版语义回落到 文本列表[1]（拳头模板），而不是拼"武器名+物理攻击"
+    const fistName = typeof weapon.attackText === 'object'
+      ? String((weapon.attackText as any)?.name ?? (weapon.attackText as any)?.名称 ?? '').trim()
+      : String(weapon.attackText ?? '').trim();
+    const fistTexts = this.getAttackTextTemplates(fistName || '拳头', damageType);
+    if (fistTexts.length > 0) {
+      return fistTexts[Math.floor(Math.random() * fistTexts.length)];
+    }
+
+    // 攻击文本表缺失时的最终兜底
     const attackTexts: Record<number, string> = {
       [CombatSystemService.DMG_PHYS]: '物理攻击',
       [CombatSystemService.DMG_FIRE]: '火焰攻击',
@@ -4455,6 +4532,93 @@ export class CombatSystemService {
 
     const weaponName = weapon.name || '武器';
     return `${weaponName}${attackTexts[damageType] || ''}`;
+  }
+
+  /**
+   * 取攻击文本模板（对应原版 显示攻击文本() 的文本列表查找 + 分类抽取）
+   * @param name 攻击文本名称（如 "拳头"、"自动步枪"）
+   * @param type 0未命中 1攻击 2破盾 3破甲 4击杀（5锁定由锁定流程单独处理）
+   * @returns 该分类的模板数组；条目缺失返回 []（原版此时输出「[类型N]数组成员为0」提示）
+   */
+  private getAttackTextTemplates(name: string, type: number): string[] {
+    const list = typeof this.staticData?.getAllAttackTexts === 'function'
+      ? (this.staticData.getAllAttackTexts() || [])
+      : [];
+    const entry = list.find((t: any) => t?.name === name);
+    if (!entry) return [];
+    const fieldByType: Record<number, string> = {
+      0: 'missTexts',
+      1: 'attackTexts',
+      2: 'shieldBreak',
+      3: 'armorBreak',
+      4: 'killTexts',
+      5: 'lockTexts',
+    };
+    const raw = (entry as any)[fieldByType[type] ?? 'attackTexts'];
+    let parsed: any = raw;
+    // attack-texts.json 中各分类是 JSON 字符串（"[\"...\"]"），需二次解析
+    if (typeof parsed === 'string') parsed = this.safeParseJson<any[]>(raw, []);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string' && x.length > 0) : [];
+  }
+
+  /**
+   * 展开攻击文本占位符
+   * 对应原版 战斗相关.ecode L3975-4010：
+   * 【目标】→ 防御方名称、【载具】→ "操纵"+载具名（无载具删除）、【名称】→ 攻击方名称、
+   * 【武器】→ 武器名。移植版玩家对战未开放，【名称】不加"(归属玩家)"后缀。
+   */
+  private expandAttackPlaceholders(
+    template: string,
+    attackerName: string,
+    targetName: string,
+    weaponName: string,
+    vehicleName?: string,
+  ): string {
+    let text = template;
+    text = text.split('【目标】').join(targetName || '');
+    text = text.split('【载具】').join(vehicleName ? `操纵${vehicleName}` : '');
+    text = text.split('【名称】').join(attackerName || '');
+    text = text.split('【武器】').join(weaponName || '');
+    return text;
+  }
+
+  /**
+   * 解析武器的攻击文本名称
+   * 对应原版 z1.攻击文本 即 文本列表 条目：背包装备实例存的是 {name:"自动步枪"} 对象，
+   * 静态定义同形；字符串则原样返回。空值回落 '拳头'（原版 文本列表[1]）。
+   */
+  private resolveAttackTextName(weapon: WeaponData): string {
+    const raw: any = weapon?.attackText;
+    if (raw && typeof raw === 'object') {
+      return String(raw.name ?? raw.名称 ?? '').trim();
+    }
+    const s = String(raw ?? '').trim();
+    // 兼容历史存量：若写入的是整段展示文本（含【占位符】）则无法对应文本列表条目，回落拳头
+    if (s && !s.includes('【')) return s;
+    return '拳头';
+  }
+
+  /**
+   * 取攻击方当前驾驶载具名称（用于展开【载具】占位符）
+   * 对应原版 载具2.列表编号 != 0 → "操纵"+载具名；无载具时占位符整体删除。
+   * 返回 undefined 表示无载具。
+   */
+  private getAttackerVehicleName(player: any, map: any): string | undefined {
+    const vehicleKey = player?.vehicle;
+    if (!vehicleKey) return undefined;
+    try {
+      const vehicles = this.playerService.safeJsonParse<any[]>(map?.vehicles, []);
+      const v = vehicles.find((x: any) => x && (
+        String(x.id) === String(vehicleKey)
+        || String(x.编号) === String(vehicleKey)
+        || String(x.vehicleId) === String(vehicleKey)
+      ));
+      if (!v || Number(v.currentHp ?? v.当前生命 ?? 1) <= 0) return undefined;
+      const name = String(v.name ?? v.名称 ?? '').trim();
+      return name || undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -4941,11 +5105,12 @@ export class CombatSystemService {
    */
   private getWeaponData(attacker: any, weaponIndex: number): WeaponData {
     if (weaponIndex === 0) {
+      // 原版 武器攻击 L54-58：z1.攻击文本 = 文本列表[1]（拳头条目），显示时按命中等级抽取模板并展开占位符
       return {
         name: '拳头',
         damage: 1,
         damageType: CombatSystemService.DMG_PHYS,
-        attackText: '拳头攻击',
+        attackText: '',
         type: '近战武器',
         properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
         cooldown: 5,
@@ -9607,6 +9772,12 @@ export class CombatSystemService {
 
     // 原版 L290-319：最多100次随机选择怪物，首个真正产生攻击文本的怪物结束本轮。
     const taskProgress: CombatTaskProgress[] = [];
+
+    // 原版 加成计算.ecode L421-425：灼烧("sa")持续伤害结算——
+    // 被誓约胜利之剑命中的怪物身上有"sa"标记（30秒），每次地图战斗节拍按
+    // 物攻/10 × 经过秒数 对其造成真实伤害（三层池直扣，可击杀，无掉落）。
+    await this.settleBurnDamage(map, monsters, userId, taskProgress, lines);
+
     for (let i = 0; i < 100 && lines.length === 0; i++) {
       const alive = monsters.filter((item: any) => (item.hp || 0) > 0);
       if (alive.length === 0) break;
@@ -9687,6 +9858,99 @@ export class CombatSystemService {
       });
       const suffix = flyLevel > 0 ? `(冷却+${cooldown * flyLevel * 0.05}秒)` : '';
       lines.push(`${monster.name}尝试闪避攻击。${shock ? `${suffix}(双倍冷却)` : suffix}`);
+    }
+  }
+
+  /**
+   * 灼烧("sa")持续伤害结算（对应原版 加成计算.ecode L421-425）。
+   *
+   * 原版语义：誓约胜利之剑命中后给防御方获得增益("sa", 30, 假, 原始时间戳, 攻击方.属性.物伤/10, 假)，
+   * 强度=攻击方物伤÷10；每次计算玩家时若目标仍带"sa"，则
+   * 「添加特效 EX-伤害 → a1=攻击目标(, 玩家, s, , 玩家.时间差 × a1强度)」——
+   * 即按 自上次结算以来经过的秒数 × 物攻/10 结算真实伤害（三层池直扣、可击杀、无掉落）。
+   *
+   * 本框架把"经过秒数"落在地图战斗节拍（adminAttackMap，原版 战斗() 每2秒节拍）上：
+   * 每拍对带"sa"的存活怪物造成 (物伤/10)×(距上次灼烧结算秒数，封顶30秒标记剩余) 的伤害，
+   * 并在怪物 markers 里记录「sa上次结算」时间戳。
+   */
+  private async settleBurnDamage(
+    map: any,
+    monsters: any[],
+    userId: number,
+    taskProgress: CombatTaskProgress[],
+    lines: string[],
+  ): Promise<void> {
+    // 找到施放者当前物伤（原版 a1 = 攻击方.属性.物伤/10 在挂标记时已定值；
+    // 这里取当前值近似——Saber 物伤在30秒窗口内变化很小）
+    let physPerSec = 0;
+    try {
+      const casterData = await this.playerService.getPlayerData(userId);
+      if (casterData?.player && String(casterData.player.type || '').toLowerCase() === 'saber') {
+        const bonus = this.buildAttackerBonus(casterData.player, casterData, map);
+        physPerSec = Number(bonus.物伤 || 0) / 10;
+      }
+    } catch {
+      return; // 施放者不在线/数据缺失时跳过本次结算（标记仍在，下次再结）
+    }
+    if (physPerSec <= 0) return;
+
+    const nowMs = Date.now();
+    for (const monster of monsters) {
+      if ((monster.hp || 0) <= 0) continue;
+      const buffs = this.playerService.safeJsonParse<any[]>(monster.buffs, []);
+      const saBuff = buffs.find((b: any) => b && (b.name ?? b.名称) === 'sa');
+      if (!saBuff) continue;
+
+      // 归一化有效期至（兼容秒/毫秒存量），过期即清掉并跳过
+      const rawExpire = Number(saBuff.expireAt ?? saBuff.有效期至 ?? 0);
+      const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      if (!expireMs || expireMs <= nowMs) {
+        monster.buffs = JSON.stringify(buffs.filter((b: any) => b !== saBuff));
+        await this.mapService.updateMonsterFields(monster.mapId, monster.id, { buffs: monster.buffs });
+        continue;
+      }
+
+      // 距上次灼烧结算的秒数（首次结算按1秒计，避免挂标记瞬间跳一大段）
+      const markers = this.normalizeMarkerObject(monster.markers);
+      const lastSettleMs = Number(markers['sa上次结算'] || 0);
+      const elapsedSec = lastSettleMs > 0
+        ? Math.min((nowMs - lastSettleMs) / 1000, (expireMs - nowMs) / 1000)
+        : Math.min(2, (expireMs - nowMs) / 1000); // 首次：节拍间隔≈2秒
+      if (elapsedSec <= 0) continue;
+
+      // 剩余三层池（护盾→装甲→生命 顺序扣减）
+      let dmg = physPerSec * elapsedSec;
+      const shield = Number(monster.shield || 0);
+      const armor = Number(monster.armor || 0);
+      const hp = Number(monster.hp || 0);
+      const toShield = Math.min(shield, dmg); dmg -= toShield;
+      const toArmor = Math.min(armor, dmg); dmg -= toArmor;
+      const toHp = Math.min(hp, dmg); dmg -= toHp;
+      const totalDealt = toShield + toArmor + toHp;
+      if (totalDealt <= 0) continue;
+
+      monster.shield = shield - toShield;
+      monster.armor = armor - toArmor;
+      monster.hp = hp - toHp;
+      markers['sa上次结算'] = nowMs;
+      monster.markers = JSON.stringify(markers);
+
+      await this.mapService.updateMonsterFields(monster.mapId, monster.id, {
+        hp: monster.hp,
+        shield: monster.shield,
+        armor: monster.armor,
+        markers: monster.markers,
+        buffs: monster.buffs,
+      });
+
+      lines.push(`【誓约胜利之剑】${monster.name} 受到 ${Math.floor(totalDealt)} 点灼烧伤害（护盾-${Math.floor(toShield)} 装甲-${Math.floor(toArmor)} 生命-${Math.floor(toHp)}）`);
+
+      // 灼烧击杀：走统一死亡处理（经验/掉落归灼烧施加者），但不再触发其反击链
+      if ((monster.hp || 0) <= 0) {
+        lines.push(`${monster.name} 被灼烧殆尽`);
+        const deathResult = await this.handleMonsterDeath(monster, userId, map.id);
+        taskProgress.push(...(deathResult.taskProgress || []));
+      }
     }
   }
 

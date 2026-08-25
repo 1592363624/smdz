@@ -5,7 +5,7 @@ author: Shell
 description: "使魔大战3 网页版游戏机器人桥接。将 QQ 群/私聊中收到的游戏指令通过统一接口转发给游戏后端，并把游戏返回的结果回复给玩家。"
 short_desc: "使魔大战3 游戏指令桥接"
 display_name: "使魔大战3桥接"
-version: "1.0.0"
+version: "1.0.1"
 astrbot_version: ">=4.16,<5"
 support_platforms:
   - aiocqhttp

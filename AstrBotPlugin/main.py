@@ -27,6 +27,9 @@ import aiohttp
 class SmdzBridgePlugin(Star):
     """使魔大战3 游戏桥接插件主类。"""
 
+    # 单条消息最多拆分转发的行数：防止误粘贴超长文本导致连续刷屏或冲击后端接口
+    _MAX_FORWARD_LINES = 5
+
     def __init__(self, context: Context, config: AstrBotConfig):
         """插件初始化：读取配置项，准备桥接所需参数。
 
@@ -200,7 +203,10 @@ class SmdzBridgePlugin(Star):
         text = text.strip()
         if not text:
             return ""
-        first, _, rest = text.partition(" ")
+        # 按任意空白（含换行）切首个 token：兼容 "/smdz" 与指令内容分行发送的输入习惯
+        parts = text.split(None, 1)
+        first = parts[0]
+        rest = parts[1] if len(parts) > 1 else ""
         cleaned = first.lstrip("/.！! ")
         if cleaned in self._trigger_names:
             return rest.strip()
@@ -284,9 +290,11 @@ class SmdzBridgePlugin(Star):
             game_command = self._extract_game_command(text)
             if not game_command:
                 return
-        # 2) 前缀模式：仅匹配配置前缀（含内置别名）的消息才转发
+        # 2) 前缀模式：仅匹配配置前缀（含内置别名）的消息才转发。
+        #    用任意空白（含换行）切首个 token：兼容 "/smdz" 单独占一行、
+        #    游戏指令从第二行开始的输入习惯。
         else:
-            first = text.partition(" ")[0].lstrip("/.！! ")
+            first = text.split(None, 1)[0].lstrip("/.！! ")
             if first not in self._trigger_names:
                 return
             game_command = self._extract_game_command(text)
@@ -318,6 +326,25 @@ class SmdzBridgePlugin(Star):
             return
 
         qq_id = event.get_sender_id()
+
+        # 多行指令拆分：按行逐条转发、分次回复。
+        # 典型场景：QQ 输入框换行发送多个编号数字（如 1/2/3 各占一行），
+        # 后端数字快捷键要求整条消息精确等于编号，多行合发会全部失效；
+        # 拆成单行逐条调用后，每行都能正常触发对应动作，回复也按次分开更清晰。
+        lines = [line.strip() for line in game_command.splitlines() if line.strip()]
+        if len(lines) > 1:
+            if len(lines) > self._MAX_FORWARD_LINES:
+                yield event.plain_result(
+                    f"一次最多执行 {self._MAX_FORWARD_LINES} 条指令（当前 {len(lines)} 条），已截断处理前 {self._MAX_FORWARD_LINES} 条。"
+                )
+                lines = lines[: self._MAX_FORWARD_LINES]
+            for line in lines:
+                content = await self._forward_to_game(qq_id, line)
+                yield event.plain_result(content)
+            # 阻断消息继续广播，防止其它插件对同一条指令再次响应
+            event.stop_event()
+            return
+
         content = await self._forward_to_game(qq_id, game_command)
         yield event.plain_result(content)
         # 阻断消息继续广播，防止其它插件对同一条指令再次响应

@@ -1,0 +1,68 @@
+name: BUG问题反馈表单
+description: 提交程序故障，请务必填写复现步骤与截图
+title: "[BUG] "
+labels: ["bug", "needs‑triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 感谢提交BUG反馈
+        ⚠️ **请完整填写以下信息，缺少复现流程和截图会无法处理问题**
+
+  - type: textarea
+    id: problem_desc
+    attributes:
+      label: 问题描述
+      description: 简单说明遇到了什么异常
+      placeholder: 例如：点击按钮后程序闪退
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce_steps
+    attributes:
+      label: 复现操作流程【必填】
+      description: 请逐条写出完整操作步骤，越详细越好
+      placeholder: |
+        1. 打开软件
+        2. 点击XXX按钮
+        3. 输入xxx内容
+        4. 点击确认，出现异常
+    validations:
+      required: true
+
+  - type: textarea
+    id: expect_behavior
+    attributes:
+      label: 预期行为
+      description: 你期望应该发生什么
+    validations:
+      required: false
+
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: 实际行为
+      description: 实际发生的错误现象
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshot_log
+    attributes:
+      label: 截图 或者 操作流程日志【必填】
+      description: 把操作的对话复制进来方便排查
+      placeholder: 直接拖拽图片到此区域上传
+    validations:
+      required: false
+
+  - type: textarea
+    id: env_info
+    attributes:
+      label: 环境信息
+      description: 系统、版本号等
+      placeholder: |
+        系统：Windows11
+        版本：v1.2.3
+    validations:
+      required: false

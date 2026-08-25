@@ -850,6 +850,8 @@ export class FamiliarSkillsService {
    * @param opts.attackText 攻击文本（对应原版 武器攻击 第9参数，用于切换特效/暴击逻辑）
    * @param opts.allAttack 是否全体攻击
    * @param opts.familiarType 使魔类型（用于记录熟练度）
+   * @param opts.extraPenetrationFlat 本次攻击附加三层穿透百分比（原版 施放时增加穿透(N)），仅本次生效
+   * @param opts.burnSeconds 命中后给目标施加的灼烧标记时长秒（原版"sa"标记30秒），不传则不施加
    * @returns 战斗结果文本（已含伤害/击杀/经验/掉落）
    */
   private async castCombatSkill(
@@ -861,6 +863,8 @@ export class FamiliarSkillsService {
       attackText: string;
       allAttack?: boolean;
       familiarType: string;
+      extraPenetrationFlat?: number;
+      burnSeconds?: number;
     },
   ): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -878,6 +882,8 @@ export class FamiliarSkillsService {
       damageMultiplier: opts.damageMultiplier,
       attackText: opts.attackText,
       allAttack: opts.allAttack ?? false,
+      extraPenetrationFlat: opts.extraPenetrationFlat,
+      burnSeconds: opts.burnSeconds,
       // 急救包等技能效果先写入当前玩家对象；沿用同一份 PlayerData，避免
       // weaponAttack 重新从数据库读取旧血量覆盖技能恢复结果。
       attackerDataOverride: playerData,
@@ -1099,13 +1105,24 @@ export class FamiliarSkillsService {
     const mult = 300 + 3 * skillLevel;
 
     // 真正调用战斗引擎造成伤害（三层穿透 + 击杀 + 经验 + 掉落）
+    // - extraPenetrationFlat: 原版 施放时「增加穿透(玩家.属性, 15)」（加成计算.ecode L3446），仅本次攻击生效；
+    // - burnSeconds: 命中后给目标挂"sa"灼烧标记（战斗相关.ecode L1930），
+    //   由引擎在命中时写入目标、地图战斗节拍按 物攻/10×经过秒数 结算持续伤害。
     const result = await this.castCombatSkill(userId, {
       cooldownName: '誓约胜利之剑',
       baseCooldown: 60,
       damageMultiplier: mult,
-      attackText: '【誓约胜利之剑】',
+      attackText: '誓约胜利之剑a',
       familiarType: 'Saber',
+      extraPenetrationFlat: 15,
+      burnSeconds: 30,
     });
+
+    // 原版：添加标记 ("ex", 15*a3, 玩家.增益) —— a3=装备库洛牌?1.25:1
+    // "ex"标记消费者（均已存在）：好感≥40受击免伤（combat-system L812/L1652）、
+    // 好感≥80 物伤2+50+技能 / ≥100 全属性+15+技能/2（combat-system L5611 saber case）
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    this.addBuff(player, 'ex', Math.floor(15 * a3));
 
     return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒！\n${result}`;
   }

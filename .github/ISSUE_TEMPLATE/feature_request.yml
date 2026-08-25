@@ -1,0 +1,58 @@
+name: ✨ 新功能建议
+description: 提出新功能、优化改进想法
+title: "[FEATURE] "
+labels: ["enhancement", "needs‑triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 感谢你的功能建议
+        ⚠️ 请尽量描述清楚你的使用场景，有草图、截图可以直接拖拽上传。
+        提交前请搜索现有Issue，避免重复建议。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 🎯 想要解决什么问题 / 痛点
+      description: 这个功能是为了解决什么现实问题？当前有什么不方便？
+      placeholder: 例如：现在每次xxx都要手动操作，很繁琐
+    validations:
+      required: true
+
+  - type: textarea
+    id: expect_feature
+    attributes:
+      label: ✨ 期望的功能效果
+      description: 你希望实现什么样的能力，具体表现是什么
+      placeholder: 希望增加xxx按钮，点击后自动完成xxx
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: 📖 使用场景
+      description: 你会在什么情况下使用这个功能？举真实使用例子
+      placeholder: |
+        场景1：当我xxx的时候，需要用到该功能
+        场景2：多人协作时，希望可以xxx
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockup
+    attributes:
+      label: 🖼️ 草图 / 截图 / 参考示例（选填）
+      description: 可以上传手绘截图、其他软件参考截图，帮助我们理解你的想法
+      placeholder: 拖拽图片到此框上传，没有则留空
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 💡 补充想法
+      description: 其他额外想法、约束条件、实现建议等
+      placeholder: 例如：希望该功能不要影响原有逻辑，最好可以开关控制
+    validations:
+      required: false
