@@ -44,6 +44,10 @@ export class GameService {
   private readonly dungeonClearTimers = new Map<string, NodeJS.Timeout>();
   /** 扶/救助/自救的进程内延时任务；状态本身同时持久化在 markers2。 */
   private readonly rescueTimers = new Map<number, NodeJS.Timeout>();
+  /** 采集延时结算定时器：key=userId（进程内；服务重启后由 settlePendingGathers 兜底补结算）。 */
+  private readonly gatherTimers = new Map<number, NodeJS.Timeout>();
+  /** 采集开始阶段的进程内去重时间戳：key=userId（防同刻连发双开任务）。 */
+  private readonly gatherStartInflight = new Map<number, number>();
   private readonly tradeLocks = new Map<string, Promise<void>>();
   /** 玩家面板推送防抖定时器：同一玩家短时间内的多次状态变化合并为一次推送 */
   private readonly playerUpdateTimers = new Map<number, NodeJS.Timeout>();
@@ -1918,6 +1922,12 @@ export class GameService {
       return `${player.name || '冒险者'}正在${this.rescueActionText(active.rescueType)}，还需要${this.remainingRescueSeconds(active)}秒`;
     }
 
+    // 玩家自己已倒地时，「救助」退化为自救（与「复活使魔」同一条30秒延时链路）：
+    // 战斗系统的死亡门禁会引导玩家使用「救助」复活，若这里不处理会导致玩家永久卡死。
+    if (this.playerService.isPlayerDead(player)) {
+      return this.beginSelfRescue(userId, player, markers2);
+    }
+
     const summons = this.parseRescueArray(map.summons);
     const deadSummonIndex = summons.findIndex((summon: any) => {
       const maxHp = this.rescueMaxHp(summon);
@@ -2710,15 +2720,48 @@ export class GameService {
   }
 
   /**
-   * 处理固定资源的采集指令（对应原版 gatherCmd 机制）
-   * 当玩家发送的指令与当前地图固定资源的 gatherCmd 匹配时执行采集，
-   * 例如 医疗室 的 打开箱子/打开休眠仓/捡垃圾、走廊 的 收集物品。
-   * 特殊处理：休眠仓（proxySpeak="召唤1白1"）首次采集触发「召唤白」剧情
-   * （对应原版 _主程序.ecode L9777~L9795），并设置标记「召唤白」。
+   * 开箱锁门禁查询（对应原版 _主程序.ecode L117-118）：
+   * item.service 打开箱子处理期写入的「开箱」标记（markers2）未过期时，
+   * 拦截玩家的一切其他指令：“正在开箱子，或者等待X”。
+   * @returns 拦截文本；无锁时返回空串
+   */
+  async getOpenBoxLockText(userId: number): Promise<string> {
+    try {
+      const player = await this.prisma.player.findUnique({
+        where: { userId },
+        select: { name: true, markers2: true },
+      });
+      if (!player?.markers2) return '';
+      const markers2 = Array.isArray(player.markers2)
+        ? player.markers2
+        : this.playerService.safeJsonParse<any[]>(player.markers2, []);
+      const entry = markers2.find((m: any) => (m?.name ?? m?.名称 ?? m?.key) === '开箱');
+      if (!entry) return '';
+      const rawExpire = Number(entry.expireTime ?? entry.expireAt ?? entry.有效期至 ?? 0);
+      const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      const now = Date.now();
+      if (!Number.isFinite(expireAt) || expireAt <= now) return '';
+      const remainSec = Math.ceil((expireAt - now) / 1000);
+      const timeText = remainSec >= 60
+        ? `${Math.floor(remainSec / 60)}分${remainSec % 60}秒`
+        : `${remainSec}秒`;
+      return `${player.name || '冒险者'}正在开箱子，或者等待${timeText}`;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * 处理固定资源的采集指令【阶段1：开始采集】（对应原版 gatherCmd 机制）
+   * 1:1 对齐原版 _主程序.ecode 默认分支 L11351-11456：
+   * 门禁(副本清怪/死亡/行动限制/自动采集) → 计算随机耗时(3~6秒×时间倍率×额外次数，
+   * 矿炮上限30秒) → 写入「采集中」状态+「采集」锁定标记 → 调度延时任务 →
+   * 回复“{采集文本},大概需要N秒”。
+   * 延时到点后由 settleGatherResource（阶段2）真正结算产出。
    *
    * @param userId 玩家ID
-   * @param cmdName 采集指令名（如 打开箱子/打开休眠仓/收集物品/捡垃圾）
-   * @returns 采集结果文本；未命中任何资源时返回空字符串
+   * @param cmdName 采集指令名（如 打开箱子/打开休眠仓/收集物品/捡垃圾，可带数字后缀表示次数）
+   * @returns 开始文本；未命中任何资源时返回空字符串
    */
   async handleGatherResource(userId: number, cmdName: string, requestedCount?: number): Promise<string> {
     if (!cmdName) return '';
@@ -2730,56 +2773,163 @@ export class GameService {
 
     // 解析地图固定资源列表
     const resources = this.getGatherResources(map);
-    const resourceField = this.getGatherResourceField(map);
     const parsedCommand = this.parseGatherCommand(cmdName);
     const gatherName = parsedCommand.name;
-    const count = Math.max(1, Math.floor(Number.isFinite(requestedCount) ? requestedCount as number : parsedCommand.count));
+    let count = Math.max(1, Math.floor(Number.isFinite(requestedCount) ? requestedCount as number : parsedCommand.count));
     const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
     const target = resources.find((r: any) => r.gatherCmd === gatherName
       && this.getResourceTimes(r) !== 0
       && this.isGatherResourceAvailable(r, markers));
     if (!target) return '';
+    const resourceName = String(target.name ?? '');
 
-    // 次数=-1 是原版的无限资源，不是冷却资源；只有显式的运行时冷却标记才拦截。
-    const cooldownKey = `gather_${map.id}_${target.name}`;
+    // ===== 原版 _主程序.ecode L11374-11381 采集开始门禁 =====
+    // 关卡(副本)有怪物时必须先清怪；死亡/行动受限/自动采集模式下不能手动采集。
+    const hasMonsters = (await this.mapService.getMapMonsters(map)).length > 0;
+    if (map.isInstance && hasMonsters) {
+      return `${player.name}需要清除附近的目标`;
+    }
+    const deathGate = this.playerService.isPlayerDead(player)
+      ? `${player.name}已经死掉了!你可以"复活使魔"或者"删除怪物"`
+      : '';
+    if (deathGate) return deathGate;
+    const restriction = this.combatSystem.actionUnrestricted(player, { cannonOk: false });
+    if (restriction.restricted) return restriction.text;
+    if (this.playerService.getMarkerValue(markers, '自动采集') === 1) {
+      return `${player.name}自动采集模式下无法手动采集\n"设置采集"可切换回手动采集`;
+    }
+    // 进程内防重复提交：同一毫秒内连发两次请求时，第二次在「采集」标记落库前到达，
+    // actionUnrestricted 拦不住；原版单线程事件循环天然无此竞态。
+    if (!this.gatherStartInflight) (this as any).gatherStartInflight = new Map<number, number>();
+    const inflight = this.gatherStartInflight.get(userId);
+    if (inflight && Date.now() - inflight < 3000) {
+      return `${player.name}正在采集中，请稍候`;
+    }
+    this.gatherStartInflight.set(userId, Date.now());
+
+    // ===== 原版 _主程序.ecode L11383-11399 计算采集耗时 =====
+    // 家园院子里输入"指令N"一次执行 N 次（额外次数），其他地图忽略数字。
+    // 原版公式：a1 = 取随机数(3000×倍率, 6000×倍率) × d / 1000（毫秒→秒）
+    const isOwnYard = player.houseName === map.name;
+    const extraMultiplier = isOwnYard ? Math.max(1, Math.floor(count)) : 1;
+    const timeScale = Math.max(0.01, Number(target.timeScale ?? target.时间倍率 ?? 1) || 1);
+    const seconds = Math.round((3000 + Math.random() * 3000) * timeScale / 1000) * extraMultiplier;
+
+    // 矿炮(特殊序号-38)在手的玩家，单次采集耗时上限30秒（原版 L11391-11398）
+    const weapons = Array.isArray(playerData.weapons) ? playerData.weapons : [];
+    const currentWeaponIdx = Math.max(0, Number(player.currentWeapon ?? 1) - 1);
+    const currentWeapon = weapons[currentWeaponIdx];
+    const cappedSeconds = currentWeapon?.specialSeq === -38 ? Math.min(seconds, 30) : seconds;
+
     const now = Date.now();
+
+    // ===== 原版 _主程序.ecode L11428-11435 锁定与延时任务 =====
+    // 添加标记("采集", 次数)：锁定期间 行动无限制 会拦截移动/攻击/再次采集；
+    // 获得增益("采集", 秒数)：同一标记的另一种写法，到期即采集完成。
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const cooldownEntry = markers2.find((m: any) =>
-      (m?.key ?? m?.name ?? m?.名称) === cooldownKey,
-    );
-    if (cooldownEntry) {
-      const rawExpireAt = Number(
-        cooldownEntry.expireTime ?? cooldownEntry.expireAt ?? cooldownEntry.有效期至 ?? 0,
-      );
-      const expireAt = rawExpireAt > 0 && rawExpireAt < 1e12 ? rawExpireAt * 1000 : rawExpireAt;
-      if (expireAt > now) {
-        return `【${target.name}】还需要 ${Math.ceil((expireAt - now) / 1000)} 秒才能再次采集`;
-      }
+    markers['采集中'] = { target: resourceName, cmd: gatherName,
+      count: extraMultiplier, startedAt: now, settleAt: now + cappedSeconds * 1000 };
+    this.combatState.addMarker('采集', cappedSeconds, markers2, now);
+    player.markers = JSON.stringify(markers);
+    player.markers2 = JSON.stringify(markers2);
+    await this.playerService.savePlayer(player);
+
+    // 进程内定时器到点结算；服务重启丢失定时器时由 settlePendingGathers 兜底补结算
+    const timers = this.gatherTimerMap();
+    const previousTimer = timers.get(userId);
+    if (previousTimer) clearTimeout(previousTimer);
+    const timer = setTimeout(() => {
+      timers.delete(userId);
+      void this.settleGatherResource(userId).catch((e: any) => {
+        this.logger.warn(`玩家 ${userId} 采集延时结算失败: ${e?.message || e}`);
+      });
+    }, cappedSeconds * 1000);
+    timer.unref?.();
+    timers.set(userId, timer);
+
+    this.logger.log(`玩家 ${userId} 开始采集 ${resourceName}，预计 ${cappedSeconds} 秒`);
+
+    // ===== 原版 L11400-11416 回复文本：采集文本模板 + 预计耗时 =====
+    // 模板占位符：【名称】=玩家名(+跟随宠物)、【载具】=载具名(此处无载具上下文，移除)、【武器】=当前武器名
+    const rawGatherText = String(target.gatherText ?? target.采集文本 ?? '')
+      || `【名称】正在${gatherName}`;
+    let startText = rawGatherText.replace('【载具】', '');
+    startText = startText.replace('【名称】', String(player.name ?? '冒险者'));
+    startText = startText
+      .replace('【武器】', String(currentWeapon?.name ?? '') || '拳头');
+    return `${startText},大概需要${cappedSeconds}秒`;
+  }
+
+  /**
+   * 采集延时结算（对应原版「采j结s」分支 _主程序.ecode L6790-6806 + 采集资源 地图操作.ecode L1469-1639）。
+   * 由进程内定时器或后台兜底任务调用：校验并移除「采集中」状态 → 结算产出/经验/任务/资源次数。
+   * @returns 结算文本（广播到世界频道）；无进行中采集或已失效时返回空串
+   */
+  async settleGatherResource(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+
+    const pending = this.takePendingGather(player, userId);
+    if (!pending) return '';
+    const { state: gatherState, markers } = pending;
+
+    // 结算即解锁：移除「采集」锁定标记（原版 获得增益 到期语义；定时器回调可能早于毫秒级过期）
+    const lockedMarkers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const unlockedMarkers2 = lockedMarkers2.filter((m: any) =>
+      (m?.name ?? m?.名称 ?? m?.key) !== '采集');
+    if (unlockedMarkers2.length !== lockedMarkers2.length) {
+      player.markers2 = JSON.stringify(unlockedMarkers2);
     }
 
-    const gained: string[] = [];
+    const gatherName = String(gatherState.cmd ?? '');
+    const resourceName = String(gatherState.target ?? '');
+    const extraMultiplier = Math.max(1, Number(gatherState.count ?? 1));
+
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) {
+      player.markers = JSON.stringify(markers);
+      await this.playerService.savePlayer(player);
+      return '';
+    }
+    const resources = this.getGatherResources(map);
+    const resourceField = this.getGatherResourceField(map);
+    const markersRecord = markers;
+    const target = resources.find((r: any) => r.gatherCmd === gatherName
+      && this.getResourceTimes(r) !== 0
+      && this.isGatherResourceAvailable(r, markersRecord));
+
     let specialText = '';
-    const backpack = this.playerService.getBackpackItems(player);
+    // 特殊资源：休眠仓 → 首次打开触发「召唤白」剧情（原版 _主程序.ecode L9777~L9795）
+    if ((resourceName === '休眠仓' || target?.proxySpeak === '召唤1白1') && !markers['召唤白']) {
+      markers['召唤白'] = 1;
+      specialText = '这里是哪里？\n(随着休眠仓被打开，锁着的门似乎也跟着一起解开了)';
+      this.logger.log(`玩家 ${userId} 唤醒了白`);
+      await this.taskService.acceptTask(userId, '主线-身世');
+    }
+    player.markers = JSON.stringify(markers);
 
-    // 特殊资源：休眠仓 → 首次打开触发「召唤白」剧情
-    if (target.name === '休眠仓' || target.proxySpeak === '召唤1白1') {
-      if (!markers['召唤白']) {
-        // 对应原版 _主程序.ecode L9777~L9795：设置标记「召唤白」
-        markers['召唤白'] = 1;
-        player.markers = JSON.stringify(markers);
-        await this.playerService.savePlayer(player);
-        specialText = '这里是哪里？\n(随着休眠仓被打开，锁着的门似乎也跟着一起解开了)';
-        this.logger.log(`玩家 ${userId} 唤醒了白`);
-        // 唤醒白后自动接取主线「身世」任务（对应原版 唤醒白 → 对话白触发主线剧情）
-        await this.taskService.acceptTask(userId, '主线-身世');
-      }
+    if (!target) {
+      // 资源在等待期间被别人采完/刷新掉：本次动作作废（不产出、不计次数）
+      await this.playerService.savePlayer(player);
+      this.logger.log(`玩家 ${userId} 采集结算时资源已消失: ${resourceName}`);
+      return '';
     }
 
-    const actualGatherCount = this.getGatherCount(target, count);
+    // ===== 原版 地图操作.ecode L1537-1561 实际采集次数 =====
+    // e=跟随宠物数+1，再乘以院子里的额外次数；受资源剩余次数上限约束。
+    const followPetCount = await this.countFollowingSummons(map, userId);
+    let actualGatherCount = (followPetCount + 1) * extraMultiplier;
+    const resourceTimes = this.getResourceTimes(target);
+    actualGatherCount = resourceTimes > 0
+      ? Math.min(actualGatherCount, resourceTimes)
+      : Math.min(actualGatherCount, Math.abs(resourceTimes));
+
     const dropRate = this.getGatherDropRate(playerData);
     const outputs = this.parseResourceOutputs(target.outputs);
+    const gained: string[] = [];
     const awarded = new Map<string, number>();
     const awardedEquipment = new Map<string, number>();
+    const backpack = this.playerService.getBackpackItems(player);
     for (const out of outputs) {
       if (!out.name || out.name === '电力') continue;
       const chance = Number(out.chance);
@@ -2823,8 +2973,7 @@ export class GameService {
       player.markers = JSON.stringify(markers);
     }
 
-    // 限次资源：按原版实际采集次数扣减，用尽后刷新或移除。
-    const resourceTimes = this.getResourceTimes(target);
+    let timesSuffix = '';
     if (resourceTimes > 0) {
       target.times = resourceTimes - actualGatherCount;
       if (target.times <= 0) {
@@ -2844,16 +2993,20 @@ export class GameService {
         );
         refreshedMarkers2.push({
           name: `刷新资源${target.name}`,
-          expireAt: now + 1800 * 1000,
+          expireAt: Date.now() + 1800 * 1000,
           resourceField,
         });
         mapData.markers2 = JSON.stringify(refreshedMarkers2);
       }
       await this.prisma.gameMap.update({ where: { id: map.id }, data: mapData });
+      if (target.times > 0) timesSuffix = `\n${map.name}的${resourceName}还可以采集${target.times}次`;
     }
     await this.playerService.savePlayer(player);
 
-    // 任务按原版“实际采集次数”和“实际产出数量”分别推进。
+    // ===== 经验与任务推进（原版 L1613-1616）=====
+    const expBonus = this.getGatherExpBonus(playerData);
+    const expGain = Math.round((Number(player.level ?? 1) / 2 + 1) * actualGatherCount * expBonus);
+    await this.playerService.addExp(userId, expGain);
     if (actualGatherCount > 0) {
       await this.taskService.advance(userId, '采集', actualGatherCount);
       await this.taskService.advance(userId, gatherName, actualGatherCount);
@@ -2868,8 +3021,152 @@ export class GameService {
       await this.taskService.advance(userId, `获得${itemName}`, amount);
     }
 
-    const gatherText = gained.length > 0 ? `采集了 ${target.name}，获得: ${gained.join('、')}` : `采集了 ${target.name}`;
-    return specialText ? `${specialText}\n${gatherText}` : gatherText;
+    // 代发言=触发攻击：采集完成会激怒附近怪物（原版 新建延时("覅攻击pd"+地图)）
+    if (String(target.proxySpeak ?? target.代发言 ?? '') === '触发攻击' && !map.isInstance) {
+      try {
+        await (this.combatSystem as any).adminAttackMap(userId, String(map.mapIndex ?? map.id));
+      } catch (e: any) {
+        this.logger.warn(`采集激怒怪物失败 userId=${userId}: ${e?.message}`);
+      }
+    }
+
+    // ===== 结算文本（原版 L1598-1613：“收集到了…”）=====
+    const lootText = gained.length > 0 ? `收集到了${gained.join('、')}` : '什么都没有收集到';
+    const petPrefix = followPetCount > 0 ? `带着${followPetCount}只宠物一起` : '';
+    let resultText = `${player.name}${petPrefix}${lootText},得到了${expGain}经验`;
+    if (specialText) resultText = `${specialText}\n${resultText}`;
+    if (timesSuffix) resultText += timesSuffix;
+
+    // 延时端结果通过世界频道系统消息送达（指令回复通道覆盖不到定时器回调），
+    // 同时推送玩家/地图面板（背包、资源次数变化）。
+    await this.chatService.broadcastSystem('世界频道', resultText, userId).catch(() => undefined);
+    try {
+      await this.pushPlayerUpdate(userId);
+      await this.pushMapUpdate(userId);
+    } catch { /* 推送失败不影响结算 */ }
+    return resultText;
+  }
+
+  /**
+   * 提取玩家的「采集中」状态（存在且返回；调用方负责写回）。
+   * 无状态时顺带清理孤儿「采集」锁定标记。
+   */
+  private takePendingGather(
+    player: any,
+    userId: number,
+  ): { state: Record<string, any>; markers: Record<string, any> } | null {
+    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const rawState = markers['采集中'];
+    if (!rawState) {
+      this.clearStaleGatherLock(player, userId);
+      return null;
+    }
+    let state: any = rawState;
+    if (typeof rawState === 'string') {
+      try { state = JSON.parse(rawState); } catch { state = null; }
+    }
+    if (!state || typeof state !== 'object' || !state.target) {
+      delete markers['采集中'];
+      player.markers = JSON.stringify(markers);
+      this.clearStaleGatherLock(player, userId);
+      return null;
+    }
+    delete markers['采集中'];
+    return { state, markers };
+  }
+
+  /** 清理孤儿「采集」锁定标记（无对应采集中状态时的兜底，避免玩家被永久锁死）。 */
+  private clearStaleGatherLock(player: any, userId: number): void {
+    try {
+      const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+      const filtered = markers2.filter((m: any) => (m?.name ?? m?.名称 ?? m?.key) !== '采集');
+      if (filtered.length !== markers2.length) {
+        player.markers2 = JSON.stringify(filtered);
+        void this.playerService.savePlayer(player).catch(() => undefined);
+        this.logger.log(`清理玩家 ${userId} 的孤儿采集锁定标记`);
+      }
+    } catch { /* 忽略清理失败 */ }
+  }
+
+  /**
+   * 统计跟随玩家的存活召唤物数量（原版 召唤物跟随显示 数据显示.ecode L326-395：
+   * 归属=玩家QQ 且 标记["跟随"]熟练度<1 视为跟随中）。
+   */
+  private async countFollowingSummons(map: any, userId: number): Promise<number> {
+    try {
+      const raw = map?.summons ?? map?.召唤物 ?? [];
+      const summons = Array.isArray(raw) ? raw : this.playerService.safeJsonParse<any[]>(raw, []);
+      const playerKey = String(userId);
+      return summons.filter((s: any) => {
+        const owner = String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? s?.qq ?? '');
+        if (owner !== playerKey) return false;
+        const hp = Number(s?.hp ?? s?.当前生命 ?? 1);
+        if (hp <= 0) return false;
+        let summonMarkers: any = s?.markers ?? s?.标记 ?? {};
+        if (!Array.isArray(summonMarkers) && typeof summonMarkers === 'string') {
+          summonMarkers = this.playerService.safeJsonParse<any>(summonMarkers, {});
+        }
+        const prof = Array.isArray(summonMarkers)
+          ? Number(summonMarkers.find((m: any) => (m?.name ?? m?.名称) === '跟随')?.value ?? 0)
+          : Number(summonMarkers?.['跟随'] ?? 0);
+        return prof < 1;
+      }).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** 采集经验加成系数（原版 1 + 属性.经验/100） */
+  private getGatherExpBonus(playerData: any): number {
+    try {
+      const bonus = this.combatSystem.buildAttackerBonus(playerData.player, playerData) as any;
+      return 1 + Math.max(0, Number(bonus?.经验 ?? 0)) / 100;
+    } catch {
+      return 1;
+    }
+  }
+
+  /**
+   * 后台兜底：服务重启导致进程内采集定时器丢失后，补结算已到期的「采集中」状态。
+   * 由 ScheduleService 定期调用。@returns 本轮补结算的玩家数
+   */
+  async settlePendingGathers(): Promise<number> {
+    if (!this.prisma?.player?.findMany) return 0;
+    const players = await this.prisma.player.findMany({
+      where: { userId: { gt: 0 } },
+      select: { userId: true, id: true, markers: true },
+    });
+    const now = Date.now();
+    let settled = 0;
+    for (const row of players || []) {
+      if (!row?.markers || !row.userId) continue;
+      let markers: Record<string, any>;
+      try { markers = typeof row.markers === 'string' ? JSON.parse(row.markers) : row.markers; } catch { continue; }
+      const raw = markers?.['采集中'];
+      if (!raw) continue;
+      let state: any = raw;
+      if (typeof raw === 'string') {
+        try { state = JSON.parse(raw); } catch { state = null; }
+      }
+      const settleAt = Number(state?.settleAt ?? 0);
+      if (settleAt > now) {
+        // 未到期：恢复进程内定时器（服务重启后定时器全部丢失）
+        const timers = this.gatherTimerMap();
+        if (!timers.has(Number(row.userId))) {
+          const delay = Math.max(0, settleAt - Date.now());
+          const timer = setTimeout(() => {
+            timers.delete(Number(row.userId));
+            void this.settleGatherResource(Number(row.userId)).catch(() => undefined);
+          }, delay);
+          timer.unref?.();
+          timers.set(Number(row.userId), timer);
+        }
+        continue;
+      }
+      await this.settleGatherResource(Number(row.userId));
+      settled += 1;
+    }
+    return settled;
   }
 
   /** 兼容新格式与早期错误导出的 resources JSON。 */
@@ -2933,13 +3230,6 @@ export class GameService {
   private getResourceTimes(resource: any): number {
     const value = Number(resource?.times ?? resource?.次数 ?? -1);
     return Number.isFinite(value) ? value : -1;
-  }
-
-  private getGatherCount(resource: any, requestedCount: number): number {
-    const base = this.getResourceTimes(resource);
-    const count = Math.max(1, Math.floor(Number.isFinite(requestedCount) ? requestedCount : 1));
-    if (base === 0) return 0;
-    return base > 0 ? Math.min(base, count) : Math.min(Math.abs(base), count);
   }
 
   private parseGatherCommand(value: string): { name: string; count: number } {
@@ -6334,6 +6624,11 @@ export class GameService {
       return `${player.name || '冒险者'}正在${this.rescueActionText(active.rescueType)}，还需要${this.remainingRescueSeconds(active)}秒`;
     }
 
+    return this.beginSelfRescue(userId, player, markers2);
+  }
+
+  /** 开始30秒延时自救：写入复活标记并调度完成结算（「救助」倒地时与「复活使魔」共用）。 */
+  private async beginSelfRescue(userId: number, player: any, markers2: any[]): Promise<string> {
     const marker = this.createRescueMarker('self', 30, { mapId: player.mapId });
     markers2.push(marker);
     player.markers2 = JSON.stringify(markers2);
@@ -11088,6 +11383,13 @@ export class GameService {
     return service.rescueTimers;
   }
 
+  /** 采集延时定时器表（惰性初始化，兼容测试环境的 Object.create 构造方式）。 */
+  private gatherTimerMap(): Map<number, NodeJS.Timeout> {
+    const service = this as any;
+    if (!service.gatherTimers) service.gatherTimers = new Map<number, NodeJS.Timeout>();
+    return service.gatherTimers;
+  }
+
   private async scheduleRescueCompletion(userId: number, marker: any): Promise<void> {
     const timers = this.rescueTimerMap();
     const previous = timers.get(userId);
@@ -11148,8 +11450,16 @@ export class GameService {
         await this.playerService.savePlayer(player);
         await this.taskService.advance(userId, '复活');
       }
+      // 原版 _主程序.ecode L1300-1324：自救结算时若场上存在自己的天使宠「白」，
+      // 会顺带把玩家传送走——同图的白传到附近复活点，其他地图的白传到白身边。
+      // 注意顺序：传送内部会重新读库推进状态，之后不得再用旧快照回写玩家。
+      const teleportSuffix = await this.applyWhiteAngelRevivalTeleport(userId, player);
       await this.removeRescueMarker(userId, marker.token);
-      return `${player.name || '冒险者'}感觉好一点了吗？恢复了${Math.floor(Number(player.maxHp || 100) / 2)}生命`;
+      // 原版延时端会把结算文本发回群里；移植版统一走世界频道系统消息送达玩家
+      //（指令回复通道覆盖不到进程内定时器回调）。
+      const result = `${player.name || '冒险者'}感觉好一点了吗？恢复了${Math.floor(Number(player.maxHp || 100) / 2)}生命${teleportSuffix}`;
+      await this.chatService?.broadcastSystem?.('世界频道', result, userId).catch?.(() => undefined);
+      return result;
     }
 
     if (marker.rescueType === 'player') {
@@ -11223,6 +11533,71 @@ export class GameService {
       await this.chatService?.broadcastSystem?.('世界频道', result, userId).catch?.(() => undefined);
     }
     return result;
+  }
+
+  /**
+   * 自救结算的「白」天使宠传送（原版 _主程序.ecode L1300-1324）：
+   * - 同图有「白」：玩家传送到该地图复活点（respawnPoint 指定的地图）；
+   * - 其他图有「白」：玩家传送到「白」所在地图。
+   * 追加到结算文本的后缀（如 "，复活到了白身边"），没有白时返回空串。
+   * 内部通过 performArrival 完成真实移动（资产迁移/广播/懒刷新），调用后不得再用旧快照回写玩家。
+   */
+  private async applyWhiteAngelRevivalTeleport(userId: number, player: any): Promise<string> {
+    try {
+      const ownerQQ = String(player.qqNumber || player.userId || player.id || '');
+      if (!ownerQQ) return '';
+
+      const allMaps = await this.mapService.getAllMaps();
+      const isOwnWhite = (unit: any) =>
+        (unit?.name ?? unit?.名称) === '白'
+        && String(unit?.ownerQQ ?? unit?.归属 ?? '') === ownerQQ;
+      const parseSummons = (map: any): any[] =>
+        Array.isArray(map?.summons) ? map.summons : this.playerService.safeJsonParse<any[]>(map?.summons, []);
+
+      // 原版优先级：先查当前地图，再全图兜底。
+      const sameMapWhite = parseSummons(player.mapId != null ? allMaps.find((m: any) => Number(m.id) === Number(player.mapId)) : null)
+        .find(isOwnWhite);
+      const targetMapId = sameMapWhite
+        ? await this.resolveRespawnMapId(allMaps, player.mapId)
+        : await this.findWhiteAngelMapId(allMaps, isOwnWhite, parseSummons);
+      if (!targetMapId || Number(targetMapId) === Number(player.mapId)) return '';
+
+      const targetMap = await this.mapService.getMapById(Number(targetMapId));
+      if (!targetMap) return '';
+
+      const result = await this.performArrival(userId, targetMap.id, targetMap.name);
+      if (!result) return '';
+      // performArrival 成功时返回到达欢迎语；失败路径返回错误描述，不追加传送后缀。
+      if (result.includes('不存在') || result.includes('已经在')) return '';
+      return `，${sameMapWhite ? '复活到了附近的复活点' : '复活到了白身边'}`;
+    } catch (error: any) {
+      this.logger.warn(`自救「白」传送失败 userId=${userId}: ${error?.message || error}`);
+      return '';
+    }
+  }
+
+  /** 解析当前地图的复活点地图 id（respawnPoint 存的是地图名）；无有效复活点返回 0。 */
+  private async resolveRespawnMapId(allMaps: any[], fromMapId: number): Promise<number> {
+    const fromMap = allMaps.find((map: any) => Number(map.id) === Number(fromMapId));
+    const respawnName = String(fromMap?.respawnPoint ?? fromMap?.复活点 ?? '').trim();
+    if (!respawnName) return 0;
+
+    if (respawnName === fromMap.name) return fromMap.id;
+    const respawnMap = allMaps.find((map: any) => map.name === respawnName)
+      ?? await this.mapService.getMapByName(respawnName).catch(() => null);
+    return respawnMap ? Number(respawnMap.id) : 0;
+  }
+
+  /** 全图查找自己的「白」所在地图 id；找不到返回 0。 */
+  private findWhiteAngelMapId(
+    allMaps: any[],
+    isOwnWhite: (unit: any) => boolean,
+    parseSummons: (map: any) => any[],
+  ): number {
+    for (const map of allMaps) {
+      if (parseSummons(map).some(isOwnWhite)) return Number(map.id);
+    }
+    return 0;
   }
 
   /**

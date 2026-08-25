@@ -871,7 +871,12 @@ export class ItemService {
     }
 
     if (earlyReturn !== null) {
-      // L2321-2324 / L2357-2361：提前返回不消耗、不移除锁（净零）
+      // L2321-2324 / L2357-2361：提前返回不消耗物品，但要把开箱锁一并移除
+      //（原版 获得增益(标记2,"开箱",-a1) 净零回滚；否则锁会残留到过期，玩家被卡住）
+      this.combatState.gainBuff(markers2, '开箱', -lockSeconds, false, nowMs);
+      player.markers2 = JSON.stringify(markers2);
+      player.buffs = buffs;
+      await this.playerService.savePlayer(player);
       return earlyReturn;
     }
 

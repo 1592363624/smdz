@@ -19,7 +19,7 @@ start "Shimo3-Frontend" cmd /k "cd /d "%ROOT_DIR%web" && npm run dev"
 
 echo.
 echo Done!
-echo Backend:  http://localhost:3000/api/docs
+echo Backend:  http://localhost:3333/api/docs
 echo Frontend: http://localhost:5173/chat
 echo.
 echo Press any key to close this window...

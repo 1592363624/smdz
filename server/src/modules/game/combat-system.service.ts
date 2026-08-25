@@ -386,8 +386,10 @@ export class CombatSystemService {
     // 原版“覅公jj”明确允许对死亡召唤物按 QQ 定位（原版 _主程序 L544 注释），
     // 因此运行时攻击方不做玩家死亡门禁；普通玩家仍按现有规则处理。
     if (!isRuntimeActor && this.playerService.isPlayerDead(player)) {
+      // 原版死亡提示（战斗相关.ecode L5225）：真死后引导用「复活使魔」自救；
+      // 「救助」仅作为兜底也能触发同一条自救链路。
       return {
-        result: '你已经死亡，无法攻击。请先使用"救助"命令复活。',
+        result: `${player.name || '冒险者'} 已经死掉了!你可以"复活使魔"或者"删除怪物"`,
         killed: [],
         damageDealt: 0,
         expGained: 0,

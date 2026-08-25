@@ -89,6 +89,23 @@ export class CommandService {
         };
       }
 
+      // 1.6 开箱锁门禁（对应原版 _主程序.ecode L117-118）：
+      //     打开箱子处理期间「开箱」标记未过期 → 拦截一切其他指令。
+      //     原版语义：开箱是同步动作、锁只是防重复提交，正常情况下玩家感知不到；
+      //     只有处理卡顿/并发连发时才会看到“正在开箱子，或者等待X”。
+      //     防御式调用：部分测试/轻量环境的 GameService 桩未实现该方法。
+      if (ctx.userId && typeof (this.gameService as any).getOpenBoxLockText === 'function') {
+        const openBoxLock = await this.gameService.getOpenBoxLockText(ctx.userId);
+        if (openBoxLock) {
+          return {
+            success: false,
+            content: openBoxLock,
+            broadcast: false,
+            durationMs: Date.now() - start,
+          };
+        }
+      }
+
       if (ctx.userId && this.taskService) {
         await this.taskService.ensureTutorialTasks(ctx.userId);
       }

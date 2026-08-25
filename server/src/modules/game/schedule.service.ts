@@ -47,6 +47,8 @@ export class ScheduleService {
   private autoMineRunning = false;
   /** 救援延时兜底运行锁 */
   private rescueRunning = false;
+  /** 采集延时兜底运行锁 */
+  private gatherRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -89,6 +91,25 @@ export class ScheduleService {
       this.logger.error(`救援延时结算失败: ${err?.message || err}`);
     } finally {
       this.rescueRunning = false;
+    }
+  }
+
+  /**
+   * 采集延时兜底：手动采集把「采集中」状态写入玩家 markers，
+   * 进程内定时器到点结算；重启丢失定时器后由本任务按 settleAt 补完成
+   * （对齐原版全局「待执行延时」队列由单线程驱动、无丢失问题的语义）。
+   */
+  @Cron('*/5 * * * * *')
+  async settlePendingGathers() {
+    if (this.gatherRunning) return;
+    this.gatherRunning = true;
+    try {
+      const settled = await this.gameService.settlePendingGathers();
+      if (settled > 0) this.logger.log(`采集延时兜底结算: ${settled} 名玩家`);
+    } catch (err: any) {
+      this.logger.error(`采集延时兜底失败: ${err?.message || err}`);
+    } finally {
+      this.gatherRunning = false;
     }
   }
 

@@ -481,11 +481,20 @@
             💬 私聊
             <span v-if="unreadPrivateCount > 0" class="unread-badge">{{ unreadPrivateCount > 99 ? '99+' : unreadPrivateCount }}</span>
           </button>
-          <!-- 反馈入口按钮（带未读红点） -->
-          <button class="header-action-btn" title="反馈" @click="toggleFeedbackPanel">
-            📝 反馈
-            <span v-if="unreadFeedbackCount > 0" class="unread-badge">{{ unreadFeedbackCount > 99 ? '99+' : unreadFeedbackCount }}</span>
-          </button>
+          <!-- BUG 反馈入口：醒目样式 + GitHub 图标，点击跳转 GitHub Issues 页 -->
+          <a
+            class="github-issue-btn"
+            :href="GITHUB_ISSUES_URL"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="前往 GitHub 提交 BUG 反馈"
+          >
+            <svg class="github-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <!-- GitHub 官方 Logo 路径（24x24 视窗） -->
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+            </svg>
+            <span>BUG 反馈</span>
+          </a>
           <a class="reborn-link" href="http://xx.52shell.ltd" target="_blank" rel="noopener noreferrer">《重生之凡人修仙》</a>
         </div>
       </header>
@@ -908,7 +917,7 @@ import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
-import { WS_URL, APP_VERSION, UPDATE_SETTINGS } from '../config';
+import { WS_URL, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
 
 const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
@@ -2591,6 +2600,37 @@ onUnmounted(() => {
 }
 .header-action-btn:active {
   transform: scale(0.95);
+}
+
+/* ===== 头部「BUG 反馈」按钮：GitHub Issues 跳转入口（比普通操作按钮更醒目） ===== */
+.github-issue-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  /* 渐变底色 + 高亮描边，使其在头部一排按钮中更突出 */
+  border: 1px solid rgba(167, 139, 250, 0.65);
+  border-radius: 20px;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+.github-issue-btn:hover {
+  box-shadow: 0 0 14px rgba(139, 92, 246, 0.55);
+  transform: translateY(-1px);
+}
+.github-issue-btn:active {
+  transform: scale(0.95);
+}
+/* GitHub 图标：固定尺寸不参与压缩，与文字垂直居中 */
+.github-icon {
+  flex-shrink: 0;
 }
 
 /* 未读红点 */

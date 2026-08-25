@@ -34,6 +34,7 @@ function makeFixture() {
     staticData,
     {} as any,
     {} as any,
+    { emit: jest.fn() } as any,
   );
   return { service, map, prisma };
 }

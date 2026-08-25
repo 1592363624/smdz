@@ -97,7 +97,7 @@ describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () =>
     const buildCombat = () => {
       const staticData = new StaticDataService();
       const playerService = new PlayerService({} as any, staticData, {} as any);
-      const mapService = new MapService({} as any, staticData, {} as any, {} as any);
+      const mapService = new MapService({} as any, staticData, {} as any, {} as any, { emit: jest.fn() } as any);
       const achievementService = new AchievementService({} as any, {} as any, staticData);
       const combatSystem = new (require('../src/modules/game/combat-system.service').CombatSystemService)(
         {} as any, playerService, new BonusService(), mapService, staticData,
