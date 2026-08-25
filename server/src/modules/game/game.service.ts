@@ -50,8 +50,14 @@ export class GameService {
   private readonly gatherStartInflight = new Map<number, number>();
   /** 兜底结算上次触发时间：key=userId（防标记残留时兜底任务无限重入刷屏）。 */
   private readonly gatherFallbackAt = new Map<number, number>();
+  /** 兜底结算连续触发计数：key=userId（超限自愈，终止异常循环）。 */
+  private readonly gatherFallbackCount = new Map<number, number>();
   /** 兜底结算最小间隔：正常采集耗时远大于此值，仅拦截异常残留的重复结算。 */
   private static readonly GATHER_FALLBACK_MIN_INTERVAL_MS = 15_000;
+  /** 兜底结算连续触发上限：超过则判定异常循环并清除标记自愈。 */
+  private static readonly GATHER_FALLBACK_MAX_CONSECUTIVE = 3;
+  /** 异常循环判定时间窗：仅统计 60 秒内的连续兜底，跨窗自动重置计数（防误伤正常采集）。 */
+  private static readonly GATHER_FALLBACK_LOOP_WINDOW_MS = 60_000;
   private readonly tradeLocks = new Map<string, Promise<void>>();
   /** 玩家面板推送防抖定时器：同一玩家短时间内的多次状态变化合并为一次推送 */
   private readonly playerUpdateTimers = new Map<number, NodeJS.Timeout>();
@@ -3174,13 +3180,37 @@ export class GameService {
         }
         continue;
       }
-      // 防重入熔断：若标记因异常残留，没有本熔断时兜底任务会每5秒重复结算一次
-      // （重复发产出/广播/扣资源次数）。同一玩家的兜底结算至少间隔 15 秒。
+      // 防重入熔断：若标记因异常残留/被并发写回，没有本熔断时兜底任务会
+      // 周期性重复结算（重复发产出/广播/扣资源次数）。
+      // 两级防护：
+      //   1) 同一玩家两次兜底结算至少间隔 15 秒；
+      //   2) 60 秒内连续触发 3 次后判定为异常循环，直接清除标记并跳过结算（自愈）。
+      //      计数带时间窗：正常采集两次间隔远大于 60 秒，窗口重置后永不误伤。
       // 惰性初始化：兼容测试环境的 Object.create 构造方式（字段初始化器不执行）。
       if (!this.gatherFallbackAt) (this as any).gatherFallbackAt = new Map<number, number>();
+      if (!this.gatherFallbackCount) (this as any).gatherFallbackCount = new Map<number, number>();
       const lastFallback = this.gatherFallbackAt.get(Number(row.userId)) ?? 0;
       if (now - lastFallback < GameService.GATHER_FALLBACK_MIN_INTERVAL_MS) continue;
       this.gatherFallbackAt.set(Number(row.userId), now);
+      // 距上次兜底超过 60 秒视为新一轮正常流程，计数归零
+      const consecutive = now - lastFallback <= GameService.GATHER_FALLBACK_LOOP_WINDOW_MS
+        ? (this.gatherFallbackCount.get(Number(row.userId)) ?? 0) + 1
+        : 1;
+      this.gatherFallbackCount.set(Number(row.userId), consecutive);
+      if (consecutive > GameService.GATHER_FALLBACK_MAX_CONSECUTIVE) {
+        // 异常循环自愈：60 秒内被兜底连续补结算超过 3 次，只可能是标记被异常复活；
+        // 直接清除「采集中」与孤儿锁定标记，终止风暴；本次不产出不广播。
+        delete markers['采集中'];
+        await this.prisma.player.update({
+          where: { id: row.id },
+          data: { markers: JSON.stringify(markers) },
+        });
+        this.logger.warn(
+          `玩家 ${row.userId} 兜底结算 60 秒内连续触发 ${consecutive} 次，判定异常循环，已清除「采集中」标记终止`,
+        );
+        settled += 1;
+        continue;
+      }
       await this.settleGatherResource(Number(row.userId));
       settled += 1;
     }
