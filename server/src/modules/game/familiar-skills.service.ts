@@ -1091,10 +1091,8 @@ export class FamiliarSkillsService {
       return '需要Saber才能使出誓约胜利之剑';
     }
 
-    // 检查是否装备了圣剑（原版：装备要求(玩家, #圣剑)）
-    if (!this.hasItem(player, '圣剑')) {
-      return '需要装备「圣剑」才能使用誓约胜利之剑';
-    }
+    // 注意：原版 #ex 分支（使魔技能.ecode L1406起）没有圣剑装备检查，
+    // 且游戏中也不存在名为「圣剑」的物品（只有「圣剑艾乐美达克」），不要加回此门禁。
 
     // 原版基础倍率公式：倍率转换(玩家, 300 + 3*技能等级)
     const skillLevel = this.getSkillLevel(markers, 'Saber');

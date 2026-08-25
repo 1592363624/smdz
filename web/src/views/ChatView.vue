@@ -1527,13 +1527,27 @@ function quickFill(name) {
 }
 
 /**
+ * 取适合填入输入框的 @ 名称：优先昵称（对玩家更直观可读），
+ * 但 @ 提及按「中英文/数字/下划线」解析，含空格/表情等符号的昵称会被截断，
+ * 此时退回用户名，保证一定能 @ 到人
+ * @param {object} p { username, nickname }
+ * @returns {string}
+ */
+function atMentionName(p) {
+  if (!p) return '';
+  const nick = String(p.nickname || '').trim();
+  if (nick && /^[\u4e00-\u9fa5A-Za-z0-9_]{1,32}$/.test(nick)) return nick;
+  return p.username || '';
+}
+
+/**
  * 右键点击消息中的玩家名：把 "@昵称 " 填入输入框（@提及该玩家）
- * 后端 @ 匹配优先按 username，故填入 "@username " 最可靠
+ * 后端 @ 匹配支持按昵称精确解析，优先填入 "@昵称 " 更直观（昵称不可用时退回用户名）
  * @param {object} sender 消息发送者 { id, username, nickname }
  */
 function quickAtUser(sender) {
   if (!sender) return;
-  const name = sender.username || sender.nickname;
+  const name = atMentionName(sender);
   if (!name) return;
   input.value = '@' + name + ' ';
   closeAtAutocomplete();
@@ -1602,10 +1616,10 @@ function autoResizeInput() {
   el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 }
 
-// 选中某个玩家：把 "关键词" 替换为 "@username "
+// 选中某个玩家：把 "关键词" 替换为 "@昵称 "（昵称含特殊字符时退回用户名，保证可被解析）
 function selectAtPlayer(p) {
   if (!p) return;
-  const name = p.username || p.nickname;
+  const name = atMentionName(p);
   if (!name) return;
   const pos = atStartPos.value;
   const text = input.value;
