@@ -3,4 +3,4 @@ alwaysApply: true
 scene: git_message
 ---
 
-简洁明了的中文提交信息
+用中文写简洁明了的提交信息

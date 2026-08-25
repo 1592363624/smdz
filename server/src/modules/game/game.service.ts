@@ -48,6 +48,10 @@ export class GameService {
   private readonly gatherTimers = new Map<number, NodeJS.Timeout>();
   /** 采集开始阶段的进程内去重时间戳：key=userId（防同刻连发双开任务）。 */
   private readonly gatherStartInflight = new Map<number, number>();
+  /** 兜底结算上次触发时间：key=userId（防标记残留时兜底任务无限重入刷屏）。 */
+  private readonly gatherFallbackAt = new Map<number, number>();
+  /** 兜底结算最小间隔：正常采集耗时远大于此值，仅拦截异常残留的重复结算。 */
+  private static readonly GATHER_FALLBACK_MIN_INTERVAL_MS = 15_000;
   private readonly tradeLocks = new Map<string, Promise<void>>();
   /** 玩家面板推送防抖定时器：同一玩家短时间内的多次状态变化合并为一次推送 */
   private readonly playerUpdateTimers = new Map<number, NodeJS.Timeout>();
@@ -2881,6 +2885,13 @@ export class GameService {
       player.markers2 = JSON.stringify(unlockedMarkers2);
     }
 
+    // 立即落库清除「采集中」状态：后续产出/任务/经验结算链较长，
+    // 若等链路走完才保存，中途任一环抛异常都会让标记残留，
+    // 兜底任务 settlePendingGathers 会每5秒把它当成未完成采集无限重入。
+    // （先删状态、马上持久化，再结算，保证兜底任务最多重入一次且不会循环。）
+    player.markers = JSON.stringify(markers);
+    await this.playerService.savePlayer(player);
+
     const gatherName = String(gatherState.cmd ?? '');
     const resourceName = String(gatherState.target ?? '');
     const extraMultiplier = Math.max(1, Number(gatherState.count ?? 1));
@@ -3163,6 +3174,13 @@ export class GameService {
         }
         continue;
       }
+      // 防重入熔断：若标记因异常残留，没有本熔断时兜底任务会每5秒重复结算一次
+      // （重复发产出/广播/扣资源次数）。同一玩家的兜底结算至少间隔 15 秒。
+      // 惰性初始化：兼容测试环境的 Object.create 构造方式（字段初始化器不执行）。
+      if (!this.gatherFallbackAt) (this as any).gatherFallbackAt = new Map<number, number>();
+      const lastFallback = this.gatherFallbackAt.get(Number(row.userId)) ?? 0;
+      if (now - lastFallback < GameService.GATHER_FALLBACK_MIN_INTERVAL_MS) continue;
+      this.gatherFallbackAt.set(Number(row.userId), now);
       await this.settleGatherResource(Number(row.userId));
       settled += 1;
     }
