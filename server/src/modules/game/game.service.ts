@@ -37,6 +37,13 @@ interface QuestSource {
   publisher?: string;
 }
 
+/** 图鉴条目：name 必填，brief=列表页简介，detail=详情页逐行文本 */
+interface HandbookEntry {
+  name: string;
+  brief?: string;
+  detail?: string[];
+}
+
 @Injectable()
 export class GameService {
   private readonly logger = new Logger(GameService.name);
@@ -5805,51 +5812,233 @@ export class GameService {
   }
 
   /**
-   * 处理图鉴命令
-   * 查看游戏图鉴，从 GameItem 表查询所有物品，按类型分类显示
+   * 处理图鉴命令（对应原版 数据显示.ecode L2632 子程序 使魔图鉴）
+   * 支持三种用法：
+   *   图鉴            → 分类总览
+   *   图鉴 分类名      → 指定分类的条目列表（如 图鉴 武器 / 图鉴 怪物）
+   *   图鉴 关键词      → 跨分类搜索（如 图鉴 高斯步枪），命中唯一时显示详情
+   * 分类：使魔/武器/装备/物品/资源/地图/怪物/任务/增益/建筑/称号/配方/载具部件
    */
-  async handleHandbook(userId: number, category: string): Promise<string> {
-    // 从静态配置查询所有物品（JSON 单一来源），按类型/名称排序
-    const allItems = this.staticData
-      .getAllItems()
-      .slice()
-      .sort((a, b) => (a.type || '').localeCompare(b.type || '') || (a.name || '').localeCompare(b.name || ''));
+  async handleHandbook(userId: number, arg: string): Promise<string> {
+    const query = String(arg || '').trim();
+    const sections = this.buildHandbookSections();
 
-    if (allItems.length === 0) {
-      return '📖 图鉴中还没有任何物品记录';
+    // 无参数 → 分类总览（原版 L2654 请选择分类）
+    if (!query) {
+      const lines = ['📖 图鉴', `━━━━━━━━━━━━━━━`];
+      let total = 0;
+      for (const section of sections) {
+        lines.push(`【${section.title}】${section.entries.length}条`);
+        total += section.entries.length;
+      }
+      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(`使用「图鉴 ${sections[0].title}」查看分类列表`);
+      lines.push(`使用「图鉴 关键词」跨分类搜索（如：图鉴 高斯步枪）`);
+      lines.push(`共 ${total} 条记录`);
+      return lines.join('\n');
     }
 
-    // 按类型分类
-    const categorized: Record<string, any[]> = {};
-    for (const item of allItems) {
-      const type = item.type || '未分类';
-      if (!categorized[type]) categorized[type] = [];
-      categorized[type].push(item);
+    const category = sections.find((s) => s.title === query);
+    if (category) {
+      return this.formatHandbookCategory(category);
     }
 
-    const lines = ['📖 物品图鉴:', `━━━━━━━━━━━━━━━`];
-    for (const [type, typeItems] of Object.entries(categorized)) {
-      lines.push(`【${type}】(${typeItems.length}种)`);
-      // 如果指定了分类，只显示指定分类的详细列表
-      if (category && type === category) {
-        for (const item of typeItems as any[]) {
-          const desc = item.description ? ` - ${item.description}` : '';
-          lines.push(`  ${item.name}${desc}`);
-        }
+    // 跨分类关键词搜索（对应原版 L2661 "X的图鉴搜索结果"）
+    const keyword = query.replace(/^图鉴/, '').trim();
+    const hits: Array<{ category: string; entry: HandbookEntry }> = [];
+    for (const section of sections) {
+      for (const entry of section.entries) {
+        if (entry.name.includes(keyword)) hits.push({ category: section.title, entry });
       }
     }
-
-    if (category) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`使用「图鉴」查看所有分类总览`);
-    } else {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`使用「图鉴 分类名」查看指定分类的详细物品`);
+    if (hits.length === 0) {
+      return `图鉴中没有找到【${keyword}】\n使用「图鉴」查看所有分类`;
     }
-    lines.push(`共 ${allItems.length} 种物品`);
-
+    if (hits.length === 1) {
+      return this.formatHandbookDetail(hits[0].category, hits[0].entry);
+    }
+    if (hits.length > 30) {
+      const lines = [`📖 【${keyword}】的图鉴搜索结果 (${hits.length}条，仅显示前30):`, `━━━━━━━━━━━━━━━`];
+      for (const hit of hits.slice(0, 30)) lines.push(`【${hit.category}】${hit.entry.name}`);
+      lines.push(`━━━━━━━━━━━━━━━`, `请输入更完整的关键词缩小范围`);
+      return lines.join('\n');
+    }
+    const lines = [`📖 【${keyword}】的图鉴搜索结果 (${hits.length}条):`, `━━━━━━━━━━━━━━━`];
+    for (const hit of hits) lines.push(`【${hit.category}】${hit.entry.name}`);
+    lines.push(`━━━━━━━━━━━━━━━`, `使用「图鉴 完整名称」查看详情`);
     return lines.join('\n');
   }
+
+  /** 单个分类列表页 */
+  private formatHandbookCategory(category: { title: string; entries: HandbookEntry[] }): string {
+    const lines = [`📖 ${category.title}图鉴 (${category.entries.length}条):`, `━━━━━━━━━━━━━━━`];
+    for (const entry of category.entries) {
+      const brief = entry.brief ? ` - ${entry.brief}` : '';
+      lines.push(`${entry.name}${brief}`);
+    }
+    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(`使用「图鉴 名称」查看详情，使用「图鉴」查看所有分类`);
+    return lines.join('\n');
+  }
+
+  /** 单条详情页 */
+  private formatHandbookDetail(category: string, entry: HandbookEntry): string {
+    const lines = [`📖【${entry.name}】(${category})`, `━━━━━━━━━━━━━━━`];
+    if (entry.detail && entry.detail.length > 0) {
+      lines.push(...entry.detail);
+    } else if (entry.brief) {
+      lines.push(entry.brief);
+    } else {
+      lines.push('暂无详细资料');
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 汇总各静态数据的图鉴分区。
+   * brief = 列表页的一句话简介；detail = 详情页逐行文本。
+   */
+  private buildHandbookSections(): Array<{ title: string; entries: HandbookEntry[] }> {
+    const sortByName = (a: { name: string }, b: { name: string }) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN');
+
+    // 物品（items.json）
+    const items: HandbookEntry[] = this.staticData.getAllItems().slice().sort(sortByName).map((it) => ({
+      name: it.name,
+      brief: it.description || '',
+      detail: this.joinDetail(it.description, it.value !== undefined ? `价值: ${it.value}` : ''),
+    }));
+
+    // 武器/装备（equipments.json 按 isWeapon 拆分）
+    const equipmentBrief = (e: any): string => e.description || '';
+    const equipmentDetail = (e: any): string[] => {
+      const parts: string[] = [];
+      if (e.description) parts.push(e.description);
+      if (e.equipType) parts.push(`部位: ${e.equipType}`);
+      if (e.damageType) parts.push(`伤害类型: ${e.damageType}`);
+      if (e.cooldown) parts.push(`冷却: ${e.cooldown}秒`);
+      try {
+        const bonus = JSON.parse(e.bonus || '{}');
+        const bonusText = Object.entries(bonus).map(([k, v]) => `${k}+${v}`).join('、');
+        if (bonusText) parts.push(`加成: ${bonusText}`);
+      } catch {}
+      return parts;
+    };
+    const allEquipments = this.staticData.getAllEquipments().slice().sort(sortByName);
+    const weapons: HandbookEntry[] = allEquipments.filter((e) => this.staticData.isWeapon(e)).map((e) => ({
+      name: e.name, brief: equipmentBrief(e), detail: equipmentDetail(e),
+    }));
+    const armors: HandbookEntry[] = allEquipments.filter((e) => !this.staticData.isWeapon(e)).map((e) => ({
+      name: e.name, brief: equipmentBrief(e), detail: equipmentDetail(e),
+    }));
+
+    // 使魔（familiars.json）
+    const familiars: HandbookEntry[] = this.staticData.getAllFamiliars().slice().sort(sortByName).map((f) => ({
+      name: f.name,
+      brief: (f.description || '').split('#换行')[0],
+      detail: [f.description, f.description2, f.skillDesc]
+        .filter(Boolean)
+        .join('\n')
+        .split('#换行')
+        .filter(Boolean),
+    }));
+
+    // 怪物（monsters.json，显示等级与基础属性）
+    const monsters: HandbookEntry[] = this.staticData.getAllMonsters().slice().sort(sortByName).map((m) => ({
+      name: m.name,
+      brief: m.level ? `等级${m.type === '宠物' ? '(宠物)' : ''} ${m.level}` : '',
+      detail: [
+        m.description || '',
+        `类型: ${m.type || '怪物'}`,
+        `基础等级: ${m.level ?? '?'}`,
+        `生命: ${m.hp ?? '?'} 护盾: ${m.shield ?? 0} 装甲: ${m.armor ?? 0}`,
+        `攻击: ${m.attack ?? '?'} 速度: ${m.speed ?? '?'} 命中: ${m.hit ?? '?'} 闪避: ${m.dodge ?? '?'}`,
+        '提示: 击杀该物种会提升其世界基础等级，「观察附近」可查看当前实际等级',
+      ].filter(Boolean),
+    }));
+
+    // 地图（maps.json）
+    const maps: HandbookEntry[] = this.staticData.loadRaw('maps').slice().sort(sortByName).map((mp) => {
+      let monsterNames: string[] = [];
+      try {
+        monsterNames = JSON.parse(mp.spawnMonsters || mp.monsters || '[]');
+      } catch {}
+      const detail = [mp.description || '', mp.level ? `推荐等级: ${mp.level}` : ''];
+      if (monsterNames.length > 0) detail.push(`出没怪物: ${monsterNames.join('、')}`);
+      if (mp.isFrontier) detail.push('边境地图');
+      return { name: mp.name, brief: mp.description || '', detail: detail.filter(Boolean) };
+    });
+
+    // 资源点（resources.json）
+    const resources: HandbookEntry[] = this.staticData.getAllResources().slice().sort(sortByName).map((r) => {
+      let outputs: Array<{ name: string; count?: number }> = [];
+      try {
+        outputs = JSON.parse(r.outputs || '[]');
+      } catch {}
+      const outputText = outputs.map((o) => o.name).filter(Boolean).join('、');
+      const detail = [r.description || '', r.gatherCmd ? `采集指令: ${r.gatherCmd}` : '', outputText ? `产出: ${outputText}` : ''];
+      return { name: r.name, brief: outputText ? `产出: ${outputText}` : r.description || '', detail: detail.filter(Boolean) };
+    });
+
+    // 增益（buffs.json）
+    const buffs: HandbookEntry[] = this.staticData.getAllBuffs().slice().sort(sortByName).map((b) => ({
+      name: b.name,
+      brief: b.description || '',
+      detail: [b.description || '', b.duration ? `持续时间: ${b.duration}秒` : ''].filter(Boolean),
+    }));
+
+    // 建筑（buildings.json）
+    const buildings: HandbookEntry[] = this.staticData.getAllBuildings().slice().sort(sortByName).map((b) => ({
+      name: b.name,
+      brief: b.description || '',
+      detail: [b.description || '', b.type ? `类型: ${b.type}` : ''].filter(Boolean),
+    }));
+
+    // 称号（titles.json）
+    const titles: HandbookEntry[] = this.staticData.getAllTitles().slice().sort(sortByName).map((t) => ({
+      name: t.name,
+      brief: t.description || '',
+      detail: [t.description || '', t.bonus && t.bonus !== '{}' ? `加成: ${t.bonus}` : ''].filter(Boolean),
+    }));
+
+    // 任务（tasks.json）
+    const tasks: HandbookEntry[] = this.staticData.getAllTasks().slice().sort(sortByName).map((t) => ({
+      name: t.name,
+      brief: t.description || '',
+      detail: [t.description || '', t.publisher ? `发布人: ${t.publisher}` : ''].filter(Boolean),
+    }));
+
+    // 载具部件模板（vehicles.json）
+    const vehicleParts: HandbookEntry[] = this.staticData.getAllVehicleParts()
+      .slice()
+      .sort(sortByName)
+      .map((v) => ({
+        name: v.name,
+        brief: v.type || '',
+        detail: [v.type ? `类型: ${v.type}` : '', v.maxHp ? `耐久上限: ${v.maxHp}` : ''].filter(Boolean),
+      }));
+
+    const sections: Array<{ title: string; entries: HandbookEntry[] }> = [
+      { title: '使魔', entries: familiars },
+      { title: '武器', entries: weapons },
+      { title: '装备', entries: armors },
+      { title: '物品', entries: items },
+      { title: '资源', entries: resources },
+      { title: '地图', entries: maps },
+      { title: '怪物', entries: monsters },
+      { title: '任务', entries: tasks },
+      { title: '增益', entries: buffs },
+      { title: '建筑', entries: buildings },
+      { title: '称号', entries: titles },
+      { title: '载具部件', entries: vehicleParts },
+    ];
+    return sections.filter((s) => s.entries.length > 0);
+  }
+
+  /** 拼接详情页多段文本为逐行数组 */
+  private joinDetail(...parts: Array<string | undefined | false>): string[] {
+    return parts.filter((p): p is string => !!p);
+  }
+
 
   // ========== 物品操作命令 ==========
 
