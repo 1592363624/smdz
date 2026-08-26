@@ -358,8 +358,12 @@ export class CombatSystemService {
     weaponIndex: number,
     context: AttackContext = {},
   ): Promise<WeaponAttackResult> {
-    if (context.skipCombatLock) return this.weaponAttackInner(userId, weaponIndex, context);
-    return this.withCombatLock(userId, () => this.weaponAttackInner(userId, weaponIndex, context));
+    // 战斗会整包读改写玩家（背包扣弹药、掉落入包、增益标记等），
+    // 必须与兑换/召唤/后台结算共用同一把用户级共享锁，否则自动战斗的
+    // 周期回写会用旧快照覆盖并发写入的玩家数据。combatLock 只串行化
+    // 战斗自身（含 skipCombatLock 直通路径），与数据安全无关，保留不动。
+    return this.playerService.withUserLock(userId, () =>
+      this.withCombatLock(userId, () => this.weaponAttackInner(userId, weaponIndex, context)));
   }
 
   /**

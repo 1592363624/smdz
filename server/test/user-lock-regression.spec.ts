@@ -23,10 +23,11 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
     vehicle: 'v1',
     markers: '{}',
     markers2: '[]',
-    backpack: JSON.stringify([
-      { name: '钻石', type: '资源', quantity: 2000 },
-      { name: '召唤券', type: '资源', count: 20 },
-    ]),
+    backpack: '[]',
+    // P1 货币列化：货币真相源在列上（读取时物化回背包）
+    diamonds: 2000,
+    tickets: 20,
+    dataCores: 0,
   };
   const map: any = {
     id: 7,
@@ -133,7 +134,9 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     // 对齐指令处理器调用形态：数字已拆出（兑换召唤券52 → ('召唤券', 52)）
     await expect(familiarSystem.exchange(42, '召唤券', 52)).resolves.toContain('兑换了召唤券x52');
 
-    const afterExchange = JSON.parse(player.backpack);
+    // 兑换内部 savePlayer 落库后 JSON 中已无货币条目，重新读取以获得物化视图
+    const afterView = await familiarSystem['playerService'].getPlayerData(42);
+    const afterExchange = JSON.parse(afterView.player.backpack);
     const diamondAfter = afterExchange.find((item: any) => item.name === '钻石');
     const ticketAfter = afterExchange.find((item: any) => item.name === '召唤券');
     expect(diamondAfter.quantity).toBeCloseTo(960);
@@ -171,7 +174,8 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     await new Promise((resolve) => setImmediate(resolve));
     await new Promise((resolve) => setImmediate(resolve));
 
-    const finalBackpack = JSON.parse(player.backpack);
+    const finalView = await familiarSystem['playerService'].getPlayerData(42);
+    const finalBackpack = JSON.parse(finalView.player.backpack);
     const diamondFinal = finalBackpack.find((item: any) => item.name === '钻石');
     const ticketFinal = finalBackpack.find((item: any) => item.name === '召唤券');
     const ore = finalBackpack.find((item: any) => item.name === '铁矿');
@@ -200,7 +204,9 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     await Promise.all([first, second]);
 
     expect(order).toEqual(['first-done', 'second-done']);
-    const backpack = JSON.parse(player.backpack);
+    // P1 货币列化：从物化视图断言（savePlayer 后 JSON 中无货币条目）
+    const view = await familiarSystem['playerService'].getPlayerData(42);
+    const backpack = JSON.parse(view.player.backpack);
     const diamonds = backpack.find((item: any) => item.name === '钻石');
     const tickets = backpack.find((item: any) => item.name === '召唤券');
     expect(diamonds.quantity).toBe(1960);

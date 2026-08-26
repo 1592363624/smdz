@@ -83,6 +83,7 @@ function buildCombatMocks() {
   const removedMonsters: any[] = [];
 
   const playerService = {
+    withUserLock: jest.fn((userId: any, fn: () => any) => fn()),
     getPlayerData: jest.fn(async (userId: number) => {
       const player = players.get(userId)!;
       const parse = (v: any, d: any) => {

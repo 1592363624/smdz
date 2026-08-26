@@ -25,6 +25,24 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // $use 直接作用于实例（Prisma 5 支持），无需替换 client。
     // 注意：$use 回调内不能引用 this.changeBus 之外的重逻辑；解析交给纯函数。
     this.$use(async (params, next) => {
+      // 乐观锁中央自增：任何绕过 PlayerService.savePlayer 的直接写库
+      // （admin/GM、道具系统定点写、定时清理等）也必须推进 version，
+      // 否则并发中的旧快照 CAS 仍能通过并覆盖这些写入。调用方已显式
+      // 携带 version（如 savePlayer 的 CAS 写法）时不重复注入。
+      try {
+        const p = params as any;
+        if (
+          p.model === 'Player'
+          && (p.operation === 'update' || p.operation === 'updateMany')
+          && p.args?.data
+          && p.args.data.version === undefined
+        ) {
+          p.args.data.version = { increment: 1 };
+        }
+      } catch {
+        // 旁路注入失败不得影响数据操作本身
+      }
+
       const result = await next(params);
       try {
         const { model, operation, args } = params as any;

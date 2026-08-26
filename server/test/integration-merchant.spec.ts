@@ -290,16 +290,17 @@ describe('行商迁移（真实数据库端到端）', () => {
   });
 
   it('兑换按活跃度、钻石、数据核心顺序匹配，并以quantity/count兼容余额', async () => {
+    // P1 货币列化：货币真相源是列（读取时物化回背包）
     await setPlayer({
       markers: JSON.stringify({ 活跃度: 0 }),
-      backpack: JSON.stringify([{ name: '钻石', quantity: 20 }, { name: '数据核心', count: 50 }]),
+      diamonds: 20,
+      dataCores: 50,
     });
 
     const result = await familiarSystem.exchange(userId, '水晶', 1);
     expect(result).toContain('用2钻石兑换了水晶x1');
     const after = await prisma.player.findUnique({ where: { userId } });
-    const backpack = JSON.parse(after!.backpack);
-    expect(backpack.find((item: any) => item.name === '钻石').quantity).toBe(18);
+    expect(after!.diamonds).toBe(18);
 
     const equipmentResult = await familiarSystem.exchange(userId, '纳米头盔', 1);
     expect(equipmentResult).toContain('用50数据核心兑换了纳米头盔');

@@ -272,10 +272,17 @@ export class PlayerService {
           where: { id: player.id },
           data: { mapId: startMap.id, location: startMap.name },
         });
+        // 该定点写会被 $use 拦截器自增 version；同步内存快照版本，
+        // 否则同一快照随后的 savePlayer 会因版本过期被 CAS 误拒。
+        player.version = Number(player.version ?? 0) + 1;
         player.mapId = startMap.id;
         player.location = startMap.name;
       }
     }
+
+    // 货币物化（P1）：钻石/召唤券/数据核心的真相源是独立列，读取时物化回
+    // 背包数组，业务代码照常按背包物品读写（透明兼容）。
+    this.materializeCurrencies(player);
 
     return {
       player,
@@ -289,6 +296,34 @@ export class PlayerService {
       safeBox: this.safeJsonParse<any[]>(player.safeBox, []),
     };
   }
+
+  /** 货币列 → 背包物品（覆盖同名旧条目；无货币条目时创建），供 getPlayerData 物化。 */
+  private materializeCurrencies(player: any): void {
+    if (player.diamonds === undefined && player.tickets === undefined && player.dataCores === undefined) {
+      return; // 测试桩或旧快照：无货币列则不处理
+    }
+    const backpack = this.safeJsonParse<any[]>(player.backpack, []);
+    const upsert = (name: string, qty: number) => {
+      const idx = backpack.findIndex((item: any) => item?.name === name);
+      if (qty > 0) {
+        // 双字段镜像：存量代码读 .count（如召唤）或 .quantity（如兑换）都正确；
+        // 写侧只改其一也没关系——保存时按「与列值的差异」识别被改的字段。
+        if (idx >= 0) {
+          backpack[idx].quantity = qty;
+          backpack[idx].count = qty;
+        } else {
+          backpack.push({ name, type: '资源', quantity: qty, count: qty });
+        }
+      } else if (idx >= 0) {
+        backpack.splice(idx, 1);
+      }
+    };
+    upsert('钻石', Number(player.diamonds ?? 0));
+    upsert('召唤券', Number(player.tickets ?? 0));
+    upsert('数据核心', Number(player.dataCores ?? 0));
+    player.backpack = JSON.stringify(backpack);
+  }
+
 
   /**
    * 保存玩家数据
@@ -331,10 +366,75 @@ export class PlayerService {
       }
     }
 
-    await this.prisma.player.update({
-      where: { id: player.id },
-      data: updateData,
-    });
+    // 货币提取（P1）：背包里的钻石/召唤券/数据核心落库时写入独立列，
+    // 并从 backpack JSON 中移除——列是唯一真相源，读取时由 materializeCurrencies 物化回来。
+    if (updateData.backpack !== undefined) {
+      let items: any[] | null = null;
+      try { items = JSON.parse(updateData.backpack); } catch { items = null; }
+      if (Array.isArray(items)) {
+        // 判别「权威快照」：对象上有货币列字段说明它来自 getPlayerData 的完整读取，
+        // 此时背包对三种货币有最终解释权（条目缺失=已花光=0）；
+        // 手工构造的局部对象（无货币字段）只做「有条目才同步」的保守提取，
+        // 避免把未加载的货币误清为 0。
+        const authoritativeSnapshot = player.diamonds !== undefined
+          || player.tickets !== undefined
+          || player.dataCores !== undefined;
+        const pairs: Array<[string, string]> = [['钻石', 'diamonds'], ['召唤券', 'tickets'], ['数据核心', 'dataCores']];
+        for (const [itemName, column] of pairs) {
+          const idx = items.findIndex((it: any) => it?.name === itemName);
+          if (idx >= 0) {
+            // 双字段镜像下取「与读取时列值的偏差」更大的字段：
+            // 业务只改了其中一个字段，另一个仍是物化时的旧镜像值。
+            const q = Number(items[idx].quantity ?? 0);
+            const c = Number(items[idx].count ?? 0);
+            const colVal = Number((player as any)[column] ?? 0);
+            updateData[column] = Math.abs(q - colVal) >= Math.abs(c - colVal) ? q : c;
+            items.splice(idx, 1);
+          } else if (authoritativeSnapshot) {
+            updateData[column] = 0;
+          }
+        }
+        updateData.backpack = JSON.stringify(items);
+      }
+    }
+
+    // 乐观锁（CAS）：以「读快照时的 version」做条件更新（依赖 (id, version)
+    // 复合唯一键）。版本过期说明期间有其它路径写过该玩家，本写回若落库会用
+    // 旧数据整包覆盖——曾导致兑换扣钻后召唤券被后台结算的旧快照回滚蒸发。
+    // Prisma update 匹配不到复合键时抛 P2025，这里转换为显式并发冲突错误，
+    // 让「忘加锁的新代码」从静默丢数据变成可见失败；调用方重读即可拿到最新状态。
+    const snapshotVersion = Number(player.version ?? 0);
+
+    if (player.version === undefined || player.version === null) {
+      // 部分更新：调用方手工构造的字段子集（如 {id, markers}/{id, markers2}），
+      // 属于单字段定点写、无覆盖面风险，不参与 CAS，按原路径落库。
+      await this.prisma.player.update({
+        where: { id: player.id },
+        data: updateData,
+      });
+      return;
+    }
+
+    try {
+      await this.prisma.player.update({
+        where: { id_version: { id: player.id, version: snapshotVersion } },
+        data: { ...updateData, version: snapshotVersion + 1 },
+      });
+      // 回写新版本到内存对象：同一快照在同一条业务链里可能被多次保存
+      // （如先扣钱保存、再发奖励保存），不回写会让第二次 CAS 因版本+1 而误判冲突。
+      player.version = snapshotVersion + 1;
+    } catch (error: any) {
+      if (error?.code === 'P2025') {
+        // 快照过期：严格拒绝。不做字段合并——若冲突双方修改的是同一个整包字段
+        // （如都写 backpack），合并会把丢失更新 bug 请回来。调用方应重读最新
+        // 状态重试；计数器型写入者用「增量重放」恢复（见 AchievementService）。
+        this.logger.warn(
+          `玩家 ${player.id}(${player.userId ?? '?'}) 数据已被并发修改(version=${snapshotVersion} 过期)，本次保存被拒绝`,
+        );
+        throw new Error('玩家数据并发冲突，请重试');
+      }
+      throw error;
+    }
   }
 
   /**

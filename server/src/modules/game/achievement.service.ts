@@ -30,35 +30,59 @@ export class AchievementService {
    * @param checkTitle 是否检查称号触发，默认true
    */
   async addAchievement(player: any, name: string, value: number, checkTitle = true): Promise<void> {
-    // 1. 解析 player.markers 为对象（兼容字符串或已为对象的场景，避免连续调用时对象/字符串混用丢失成就）
-    const markers = typeof player.markers === 'object' && player.markers !== null
-      ? player.markers
-      : this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
-
-    // 2. 如果成就名存在，累加数值；如果数值<=0，删除成就
-    if (markers[name] !== undefined) {
-      markers[name] = (markers[name] || 0) + value;
-      if (markers[name] <= 0) {
-        delete markers[name];
+    // 增量重放式保存：本方法只改 markers（计数器语义），与调用方的其它字段
+    // 无耦合。若快照过期（并发写入了 hp/backpack 等无关字段），把同一增量
+    // 重放到最新状态上重试，而不是让整条业务链报错。
+    const apply = async (attempt: number): Promise<void> => {
+      if (attempt > 2) {
+        throw new Error('玩家数据并发冲突，请重试');
       }
-    } else {
-      // 3. 如果成就名不存在，添加新成就
-      // 原版“添加成就”声明为“不保存负数”：不存在的成就收到负数/0时直接忽略，
-      // 只有正数才创建初始记录。
-      if (value <= 0) return;
-      markers[name] = value;
-    }
+      // 1. 解析 player.markers 为对象（兼容字符串或已为对象的场景，避免连续调用时对象/字符串混用丢失成就）
+      const markers = typeof player.markers === 'object' && player.markers !== null
+        ? { ...player.markers }
+        : this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
 
-    // 4. 更新 markers 字段到 player 对象
-    player.markers = markers;
+      // 2. 如果成就名存在，累加数值；如果数值<=0，删除成就
+      if (markers[name] !== undefined) {
+        markers[name] = (markers[name] || 0) + value;
+        if (markers[name] <= 0) {
+          delete markers[name];
+        }
+      } else {
+        // 3. 如果成就名不存在，添加新成就
+        // 原版“添加成就”声明为“不保存负数”：不存在的成就收到负数/0时直接忽略，
+        // 只有正数才创建初始记录。
+        if (value <= 0) return;
+        markers[name] = value;
+      }
 
-    // 5. 如果 checkTitle，调用 checkTitles
-    if (checkTitle) {
-      await this.checkTitles(player);
-    }
+      // 4. 更新 markers 字段到 player 对象
+      player.markers = markers;
 
-    // 6. 保存玩家
-    await this.playerService.savePlayer(player);
+      // 5. 如果 checkTitle，调用 checkTitles
+      if (checkTitle) {
+        await this.checkTitles(player);
+      }
+
+      // 6. 保存玩家；快照过期则重读最新行、同步到本快照后重放同一增量
+      try {
+        await this.playerService.savePlayer(player);
+      } catch (error: any) {
+        if (error?.message?.includes('并发冲突') && player.userId) {
+          const latest = await this.prisma.player.findUnique({ where: { userId: player.userId } });
+          if (latest) {
+            for (const key of Object.keys(latest)) {
+              if (key !== 'version') (player as any)[key] = (latest as any)[key];
+            }
+            player.version = latest.version;
+            return apply(attempt + 1);
+          }
+        }
+        throw error;
+      }
+    };
+
+    await apply(1);
   }
 
   /**

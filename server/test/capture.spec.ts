@@ -53,6 +53,7 @@ function makeCaptureFixture(feed: { quantity?: number; count?: number } = { quan
   const monsters = [monster];
   const removedMonsterIds: number[] = [];
   const playerService: any = {
+    withUserLock: jest.fn((userId: any, fn: () => any) => fn()),
     getPlayerData: jest.fn(async () => ({
       player,
       markers: parseJson(player.markers, {}),
@@ -228,6 +229,7 @@ describe('捕捉模式战斗层', () => {
     };
     const map: any = { id: 7, name: '测试地图', vehicles: '[]', summons: '[]' };
     const playerService: any = {
+    withUserLock: jest.fn((userId: any, fn: () => any) => fn()),
       getPlayerData: jest.fn(async () => ({
         player,
         backpack: [],
