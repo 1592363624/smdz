@@ -1,4 +1,5 @@
 import { TaskService } from '../src/modules/game/task.service';
+import { PlayerService } from '../src/modules/game/player.service';
 
 interface FixtureOptions {
   tasks: any[];
@@ -73,7 +74,11 @@ function makeFixture(options: FixtureOptions) {
       data: 'e!bx0',
     })),
   };
+  // 用真实 PlayerService 的共享用户级锁：本套件专门验证并发推进的串行化，
+  // 直通 stub 会把锁语义抹掉（与生产行为不一致）。
+  const lockOwner = new PlayerService({} as any, {} as any, {} as any);
   const playerService: any = {
+    withUserLock: lockOwner.withUserLock.bind(lockOwner),
     calcUpgradeExp: jest.fn((level: number) => level * level + 5),
     recalcLevelStats: jest.fn(),
   };

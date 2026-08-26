@@ -869,12 +869,19 @@
             @click="closeAnnouncement"
           >✕</button>
         </header>
-        <div class="ann-body">{{ currentAnn.content }}</div>
+        <!-- 富文本正文：链接可点击、图片可放大、支持粗体/斜体/代码等 Markdown 子集 -->
+        <AnnRichText class="ann-body" :content="currentAnn.content" @image-click="openAnnImagePreview" />
         <footer class="ann-footer">
           <span v-if="!annCanClose" class="ann-countdown">⏳ 阅读倒计时 {{ annCountdown }} 秒后可关闭</span>
           <span v-else class="ann-countdown ok">✅ 已阅读完毕，点击右上角 ✕ 关闭</span>
         </footer>
       </div>
+    </div>
+
+    <!-- 公告图片放大预览层 -->
+    <div v-if="annImagePreview" class="ann-img-preview-overlay" @click.self="closeAnnImagePreview">
+      <img :src="annImagePreview.src" :alt="annImagePreview.alt || '公告配图'" class="ann-img-preview-img" />
+      <button class="ann-img-preview-close" title="关闭预览" @click="closeAnnImagePreview">✕</button>
     </div>
 
     <!-- 全局 Toast 提示 -->
@@ -949,6 +956,7 @@ import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
 import { WS_URL, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
+import AnnRichText from '../components/AnnRichText';
 
 const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
@@ -2550,6 +2558,17 @@ function scanHistoryAnnouncements(list) {
   }
 }
 
+// 公告图片放大预览：null = 未打开；{ src, alt } = 当前预览的图片
+const annImagePreview = ref(null);
+/** 打开公告配图放大预览 */
+function openAnnImagePreview(img) {
+  annImagePreview.value = { src: img.src, alt: img.alt || '' };
+}
+/** 关闭公告配图放大预览 */
+function closeAnnImagePreview() {
+  annImagePreview.value = null;
+}
+
 onMounted(async () => {
   try {
     // 移动端视图高度修复：动态计算实际可视高度，避免键盘弹出时布局错乱
@@ -2910,15 +2929,80 @@ onUnmounted(() => {
   opacity: 0.35;
   cursor: not-allowed;
 }
-/* 公告正文：保留换行、超长滚动 */
+/* 公告正文：富文本渲染（换行由段落承担）、超长滚动 */
 .ann-body {
   padding: 18px 20px;
   overflow-y: auto;
-  white-space: pre-line;
   word-break: break-word;
   color: var(--text);
   font-size: 14px;
   line-height: 1.7;
+}
+/* 富文本正文内部 */
+.ann-rich p {
+  margin: 0 0 10px;
+}
+.ann-rich p:last-child {
+  margin-bottom: 0;
+}
+/* 公告内链接：金色高亮可点击 */
+.ann-rich .ann-link {
+  color: #fbbf24;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  word-break: break-all;
+}
+.ann-rich .ann-link:hover {
+  color: #fde68a;
+}
+/* 非白名单协议的链接/图片：降级为纯文本并标灰提示 */
+.ann-rich .ann-link-unsafe {
+  color: var(--muted);
+  border-bottom: 1px dashed var(--border);
+}
+/* 公告配图：限宽自适应、圆角、可点击放大 */
+.ann-rich .ann-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  vertical-align: middle;
+  margin: 4px 2px;
+  border: 1px solid var(--glass-border);
+}
+/* ===== 公告图片放大预览层 ===== */
+.ann-img-preview-overlay {
+  position: fixed;
+  inset: 0;
+  /* 高于公告弹窗(200) */
+  z-index: 260;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeInUp 0.2s ease-out;
+}
+.ann-img-preview-img {
+  max-width: min(92vw, 960px);
+  max-height: 88vh;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7);
+}
+.ann-img-preview-close {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+}
+.ann-img-preview-close:hover {
+  background: var(--danger);
 }
 .ann-footer {
   padding: 10px 16px;

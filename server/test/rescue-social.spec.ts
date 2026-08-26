@@ -25,6 +25,7 @@ function makeService(options: {
   const updates: any[] = [];
   const taskService = { advance: jest.fn(async () => '') };
   const playerService: any = {
+  withUserLock: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async (userId: number) => {
       if (Number(userId) === Number(player.userId)) {
         return {

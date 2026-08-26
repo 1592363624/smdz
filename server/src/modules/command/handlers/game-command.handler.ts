@@ -149,7 +149,14 @@ export class GameCommandHandler implements CommandHandler {
           // 若玩家已装备武器(当前武器>0)则用当前武器（触发该武器 cooldown/特殊序号特效），否则退化为拳头。
           const pd = await this.playerService.getPlayerData(userId);
           const weaponIndex = (pd.player.currentWeapon || 0) > 0 ? pd.player.currentWeapon : 0;
-          // 原版 `攻击怪物名` 会设置 玩家.目标 后锁定该怪物，这里把参数作为目标名传入
+          // 原版 `攻击怪物名` 会设置 玩家.目标 后锁定该怪物，这里把参数作为目标名传入；
+          // 同时按原版语义把目标记入标记（使魔技能.ecode L1744），六道轮回靠它实现
+          // 冥鱼腿环的属性锁定——先发「攻击闪避」再洗装即只刷闪避。
+          if (arg) {
+            pd.markers['目标'] = arg;
+            pd.player.markers = JSON.stringify(pd.markers);
+            await this.playerService.savePlayer(pd.player);
+          }
           const result = await this.combatSystem.weaponAttack(userId, weaponIndex, { targetName: arg });
           // 自动推进任务：击杀怪物（对应原版 L9314~L9315）
           // 添加成就("击败怪物", 数量, 成就, 任务) 与 添加成就("击败" + 怪物名, 数量, ...)
@@ -454,9 +461,20 @@ export class GameCommandHandler implements CommandHandler {
           }
 
         // ========== 使魔技能系统 ==========
+        // 原版 使魔技能.ecode L667-L769：六道轮回支持「六道轮回N属性」洗装与「六道轮回选择M」选择，
+        // 无空格输入由 CommandService 前缀路由还原为标准"指令 参数"后进入本分支。
+        // 前缀路由会把「六道轮回选择2」还原成 指令=六道轮回 参数=选择2，
+        // 因此与原版一致在六道轮回分支内先判「选择」前缀。
         case '六道轮回':
         case 'six-paths':
-          return this.wrap(await this.familiarSkills.executeSkill(userId, '六道轮回'));
+          if (arg.startsWith('选择')) {
+            return this.wrap(await this.familiarSkills.sixPathsChoice(userId, arg.slice(2)));
+          }
+          return this.wrap(await this.familiarSkills.executeSkill(userId, '六道轮回', arg));
+
+        // 直接以「六道轮回选择」为指令名输入时的兜底分支（正常都会被上一分支拦截）。
+        case '六道轮回选择':
+          return this.wrap(await this.familiarSkills.sixPathsChoice(userId, arg));
 
         case '怒吼':
         case 'roar':

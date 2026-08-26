@@ -15,12 +15,19 @@ import {
   Put,
   Query,
   Req,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { GlobalConfig } from '../../config/global.config';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { AdminService } from './admin.service';
 import {
@@ -165,6 +172,59 @@ export class AdminController {
     }
     await this.adminService.sendAnnouncement(content);
     return { success: true, message: '公告已发送' };
+  }
+
+  /**
+   * 公告配图上传（仅图片）
+   * 存储到 {uploadDir}/announcement/，返回可嵌入公告正文的相对 URL，
+   * GM 编辑器以 Markdown 图片语法 ![描述](url) 插入正文。
+   */
+  @Post('announcement/upload')
+  @ApiOperation({ summary: '上传公告配图（仅图片），返回可访问 URL 列表' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string', format: 'binary' } } } },
+  })
+  @UseInterceptors(
+    FilesInterceptor('files', 5, {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => {
+          // 上传目录：{uploadDir}/announcement，不存在则创建
+          const dir = join(process.cwd(), GlobalConfig.getInstance().uploadDir, 'announcement');
+          if (!existsSync(dir)) {
+            mkdirSync(dir, { recursive: true });
+          }
+          cb(null, dir);
+        },
+        filename: (_req, file, cb) => {
+          // 文件名：时间戳 + 随机串 + 原始扩展名，避免中文/空格问题与重名
+          const random = Math.random().toString(36).slice(2, 10);
+          const ext = extname(file.originalname || '').toLowerCase();
+          cb(null, `${Date.now()}_${random}${ext}`);
+        },
+      }),
+      limits: {
+        fileSize: GlobalConfig.getInstance().uploadMaxSize,
+        files: 5,
+      },
+      fileFilter: (_req, file, cb) => {
+        // 仅允许图片类型
+        if (file.mimetype && file.mimetype.startsWith('image/')) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('公告配图仅支持图片文件'), false);
+        }
+      },
+    }),
+  )
+  async uploadAnnouncementImages(@UploadedFiles() files: Express.Multer.File[]) {
+    if (!files || files.length === 0) {
+      return { success: false, message: '未收到文件' };
+    }
+    const prefix = GlobalConfig.getInstance().uploadUrlPrefix;
+    // 返回相对访问路径，如 /uploads/announcement/xxx.png
+    const urls = files.map((f) => `${prefix}/announcement/${f.filename}`);
+    return { success: true, data: urls };
   }
 
   @Post('world-level')

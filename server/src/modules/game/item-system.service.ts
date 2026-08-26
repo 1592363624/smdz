@@ -2154,7 +2154,7 @@ export class ItemSystemService {
    * 对齐原版《词条转换》(物品操作.ecode L1849-1992) 的每个 case 写入的 z.加成.xxx 字段。
    * 原版用中文语义字段名(护盾/装甲/生命...)，运行时 BonusData 用英文键，此处做桥接。
    */
-  private static readonly AFFIX_TO_BONUS: Record<string, string> = {
+  static readonly AFFIX_TO_BONUS: Record<string, string> = {
     护盾: '护盾', 装甲: '装甲', 生命: '生命',
     生命全抗: '生命全抗', 装甲全抗: '装甲全抗', 护盾全抗: '护盾全抗',
     物攻: '物伤', 电攻: '电伤', 火攻: '火伤', 冰攻: '冰伤', 攻击: '攻击',
@@ -2194,7 +2194,7 @@ export class ItemSystemService {
    * @param lowerIncPct 下限增加（已×100），默认 10
    * @param upperIncPct 上限增加（已×100），默认 10
    */
-  private rollAffix(
+  rollAffix(
     bonus: Record<string, number>,
     affix: string,
     mult: number,

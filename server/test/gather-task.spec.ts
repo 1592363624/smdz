@@ -54,6 +54,7 @@ function makeGatherFixture(resource: any, options: {
     },
   };
   const playerService = {
+  withUserLock: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async () => ({
       player,
       // 对齐真实 getPlayerData：weapons 从 player.weapons JSON 解析

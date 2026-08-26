@@ -337,12 +337,18 @@ export class FamiliarSystemService {
    * @returns 召唤结果文本
    */
   async summonFamiliar(userId: number, count: number = 1): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
-
     if (count < 1) {
       count = 1;
     }
+    // 读券→扣券→写回必须全程持用户级共享锁，理由同 exchange。
+    return this.playerService.withUserLock(userId, () =>
+      this.applySummonFamiliar(userId, count));
+  }
+
+  /** 召唤的数据库读改写段（调用方需已持有用户级锁）。 */
+  private async applySummonFamiliar(userId: number, count: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
 
     // 检查召唤券数量
     const backpack = this.playerService.getBackpackItems(player);
@@ -890,6 +896,15 @@ export class FamiliarSystemService {
     count = Math.max(1, Math.trunc(Number(count) || 1));
     const normalizedName = rawName.replace(/\d/g, '').replace(/\s+/g, '');
 
+    // 扣货币→加货→整包写回必须全程持用户级共享锁（PlayerService.withUserLock），
+    // 否则与后台自动开采/任务结算并发时，本结果会被其旧快照整包覆盖
+    // （曾导致钻石被扣、召唤券却没到账）。
+    return this.playerService.withUserLock(userId, () =>
+      this.applyExchange(userId, normalizedName, count));
+  }
+
+  /** 兑换的数据库读改写段（调用方需已持有用户级锁）。 */
+  private async applyExchange(userId: number, normalizedName: string, count: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 

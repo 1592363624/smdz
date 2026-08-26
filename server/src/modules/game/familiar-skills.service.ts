@@ -13,7 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
 import { CombatSystemService } from './combat-system.service';
-import { ItemService } from './item.service';
+import { ItemService, QUALITY_PREFIX_MAP } from './item.service';
 import { ItemSystemService } from './item-system.service';
 import { MapService } from './map.service';
 import { FamiliarSystemService } from './familiar-system.service';
@@ -24,6 +24,28 @@ import { TaskService } from './task.service';
 @Injectable()
 export class FamiliarSkillsService {
   private readonly logger = new Logger(FamiliarSkillsService.name);
+
+  /**
+   * 六道轮回 属性显示名 → BonusData 加成键（对应原版 使魔技能.ecode L692-L761 选择写入分支）。
+   * 注意「采集」在原版选择分支写入的是 掉落率 字段（L750-751 原文如此，疑似笔误，按原样保留）。
+   */
+  private static readonly SIX_PATHS_ATTR_TO_KEY: Record<string, string> = {
+    ...ItemSystemService.AFFIX_TO_BONUS,
+    采集: '掉落率',
+  };
+
+  /** 六道轮回 BonusData 加成键 → 属性显示名（对应原版 L1047-L1149 由剩余加成构建去重串 w4）。 */
+  private static readonly SIX_PATHS_KEY_TO_ATTR: Record<string, string> = {
+    护盾: '护盾', 装甲: '装甲', 生命: '生命', 攻击: '攻击',
+    速度: '速度', 闪避: '闪避', 命中: '命中',
+    生命回复: '生命恢复', 装甲回复: '装甲修复', 护盾回复: '护盾回复',
+    电伤: '电攻', 火伤: '火攻', 物伤: '物攻', 冰伤: '冰攻',
+    护盾全抗: '护盾全抗', 装甲全抗: '装甲全抗', 生命全抗: '生命全抗',
+    装甲火抗: '装甲火抗', 装甲物抗: '装甲物抗', 装甲冰抗: '装甲冰抗', 装甲电抗: '装甲电抗',
+    生命火抗: '生命火抗', 生命物抗: '生命物抗', 生命冰抗: '生命冰抗', 生命电抗: '生命电抗',
+    暴击: '暴击', 掉落率: '掉落率', 掉落品质: '掉落数量',
+    采集: '采集', 韧性: '韧性', 魅力: '魅力',
+  };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -59,7 +81,7 @@ export class FamiliarSkillsService {
     const result = await (async (): Promise<string> => {
       switch (skillName) {
       // 使魔专属技能
-      case '六道轮回': return this.sixPaths(userId);
+      case '六道轮回': return this.sixPaths(userId, target);
       case '怒吼': return this.roar(userId);
       case '万象': return this.myriadVisions(userId);
       case '誓约胜利之剑': return this.excalibur(userId);
@@ -941,58 +963,306 @@ export class FamiliarSkillsService {
   // ==================== 使魔专属技能 ====================
 
   /**
-   * 冥鱼 - 六道轮回
-   * 六种不同的攻击效果，随机触发一种
-   * 对应原版：六道轮回()
+   * 冥鱼 - 六道轮回（洗背包装备属性）
+   * 完整对应原版 使魔技能.ecode L667-L1306：
+   * 「六道轮回N属性」清掉背包第N件装备的指定属性并转为"采集=1"待选状态，
+   * 按装备品质随机生成若干条候选属性，「六道轮回选择M」把选中项写回装备。
+   * 冥鱼腿环提升刷出条数（普通6/精良史诗7/传说8/神迹11，无腿环5）；
+   * 先发送「攻击属性名」（如"攻击闪避"）可锁定本次只刷该属性的不同数值。
    * @param userId 用户ID
+   * @param param 指令参数（如 "1攻击"；空参返回帮助文本）
    * @returns 技能效果文本
    */
-  async sixPaths(userId: number): Promise<string> {
+  async sixPaths(userId: number, param = ''): Promise<string> {
+    if (!String(param || '').trim()) {
+      return '“六道轮回1攻击”来指定背包里的第1个物品的“攻击”这个属性让它重新进行随机\n这件装备可能出现的属性可从图鉴中查看（不会出现重复属性）';
+    }
+    // 读快照→改→整包写回必须全程持用户级共享锁，理由同兑换/召唤。
+    return this.playerService.withUserLock(userId, () => this.applySixPaths(userId, param));
+  }
+
+  /** 六道轮回的数据库读改写段（调用方需已持有用户级锁）。 */
+  private async applySixPaths(userId: number, rawParam: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 检查使魔类型（原版 L668 特殊序号 != #冥鱼）
     if (!this.checkFamiliarType(player, '冥鱼')) {
       return '需要冥鱼才能使出六道轮回';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '六道轮回', 120);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    // 原版 L776-777：a=到整数(取数字(参数))；w3=去数字(参数)
+    const param = String(rawParam || '').trim();
+    const numMatch = param.match(/(\d+)/);
+    const index = numMatch ? parseInt(numMatch[1], 10) : 0;
+    const attrName = param.replace(/\d+/g, '').trim();
 
-    // 获取好感度
+    // 免费次数（原版 L778-792）：10+技能等级×2，好感20/40/60/80各+4、100再+8
     const affinity = this.getAffinity(markers, '冥鱼');
-    const effect = this.getSkillEffect(affinity);
+    const skillLevel = this.getSkillLevel(markers, '冥鱼');
+    let freeCount = 10 + skillLevel * 2;
+    if (affinity >= 20) freeCount += 4;
+    if (affinity >= 40) freeCount += 4;
+    if (affinity >= 60) freeCount += 4;
+    if (affinity >= 80) freeCount += 4;
+    if (affinity >= 100) freeCount += 8;
 
-    // 六种轮回效果
-    const sixPathsEffects = [
-      { name: '天道', desc: '神威如狱', multiplier: 1.5 },
-      { name: '人道', desc: '因果轮回', multiplier: 1.2 },
-      { name: '修罗道', desc: '杀意波动', multiplier: 1.8 },
-      { name: '畜生道', desc: '弱肉强食', multiplier: 1.0 },
-      { name: '饿鬼道', desc: '吞噬万物', multiplier: 1.3 },
-      { name: '地狱道', desc: '永堕轮回', multiplier: 2.0 },
-    ];
+    // 今日已用次数（原版 L794 取成就熟练度("冥鱼次数")）
+    const usedCount = this.playerService.getMarkerValue(markers, '冥鱼次数');
 
-    // 随机选择一种轮回
-    const chosen = sixPathsEffects[Math.floor(Math.random() * sixPathsEffects.length)];
-    const baseDamage = 100 + Math.floor(affinity * 0.5);
-    const finalDamage = Math.floor(baseDamage * effect * chosen.multiplier);
+    // 超免费次数需消耗资源（原版 L796-814：木头50/石头40/绳子30/铁矿1 ×(1+超出÷10)）；
+    // 此处仅校验，实际扣除放在洗装成功之后（对齐原版 L1294-1300 的成功路径扣费）。
+    let pendingCosts: Array<{ name: string; quantity: number }> = [];
+    if (usedCount >= freeCount) {
+      const overRatio = 1 + (usedCount - freeCount) / 10;
+      pendingCosts = [
+        { name: '木头', quantity: Math.floor(50 * overRatio) },
+        { name: '石头', quantity: Math.floor(40 * overRatio) },
+        { name: '绳子', quantity: Math.floor(30 * overRatio) },
+        { name: '铁矿', quantity: 1 },
+      ];
+      const backpackForCheck = this.playerService.getBackpackItems(player);
+      const check = this.itemSystem.resourceRequirement(1, pendingCosts, backpackForCheck);
+      if (!check.success) {
+        const costText = pendingCosts.map((c) => `${c.name}x${Math.ceil(c.quantity)}`).join('、');
+        return `${player.name || '冒险者'}今天使用了${usedCount}次（免费${freeCount}次）\n继续使用需要消耗：${costText}`;
+      }
+    }
 
-    // 设置冷却
-    this.setCooldown(player, '六道轮回', 120);
+    // 背包校验（原版 L817-824）
+    const backpack = this.playerService.getBackpackItems(player);
+    if (index < 1 || index > backpack.length) {
+      return `${player.name || '冒险者'}找不到背包里的第${index}个物品`;
+    }
+    const item = backpack[index - 1];
+    if (item.type !== '装备') {
+      return `${player.name || '冒险者'}${item.name}（${item.type}）不能进行此操作。`;
+    }
+    if (String(item.name || '').startsWith('植入体')) {
+      return `${player.name || '冒险者'}植入体不可以这样做。`;
+    }
+    if (String(item.name || '').startsWith('增幅器')) {
+      return `${player.name || '冒险者'}增幅器不可以这样做。`;
+    }
 
-    // 记录技能熟练度
-    const skillKey = '冥鱼技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
+    // 解析装备（原版 L826 z1 = 解析装备(...)）
+    const equipment = this.itemService.parseEquipment(item);
+    const bonus = equipment.bonus;
 
-    // 增加活跃度
+    // 上次洗后未选择的装备处于"只能洗采集"状态（原版 L827-833）
+    if ((Number(bonus['采集']) || 0) === 1 && attrName !== '采集') {
+      return `${player.name || '冒险者'}这件装备现在只能对【采集】这个属性进行随机，其他属性无法指向`;
+    }
+
+    // 清空指定属性（原版 L834-1046：存在才置0）
+    const targetKey = FamiliarSkillsService.SIX_PATHS_ATTR_TO_KEY[attrName];
+    if (!targetKey || !((Number(bonus[targetKey]) || 0) > 0)) {
+      return `${player.name || '冒险者'}这个装备没有${attrName}这个属性`;
+    }
+    bonus[targetKey] = 0;
+
+    // 去重串（原版 w4）：由剩余仍>0的加成键反向映射为属性显示名
+    let usedAttrs = '';
+    for (const [key, value] of Object.entries(bonus)) {
+      if ((Number(value) || 0) > 0) {
+        const display = FamiliarSkillsService.SIX_PATHS_KEY_TO_ATTR[key];
+        if (display) usedAttrs += '1' + display + '1';
+      }
+    }
+
+    // 候选池（原版 L1150-1185）：装备模板词条展开「随机XX」后合并去重
+    const poolExpanstions: Record<string, string> = {
+      随机护盾: '护盾,攻击,物攻,冰攻,火攻,电攻,护盾全抗,护盾物抗,护盾冰抗,护盾火抗,护盾电抗,护盾回复',
+      随机装甲: '装甲,攻击,物攻,冰攻,火攻,电攻,装甲全抗,装甲物抗,装甲冰抗,装甲火抗,装甲电抗,装甲修复',
+      随机生命: '生命,攻击,物攻,冰攻,火攻,电攻,生命全抗,生命物抗,生命冰抗,生命火抗,生命电抗,生命恢复',
+      随机攻击: '护盾,装甲,生命,攻击,物攻,冰攻,火攻,电攻,护盾全抗,装甲全抗,生命全抗,速度,命中,闪避',
+      随机防御: '护盾,装甲,生命,生命全抗,护盾全抗,装甲全抗,生命物抗,生命冰抗,生命火抗,生命电抗,装甲物抗,装甲冰抗,装甲火抗,装甲电抗,护盾物抗,护盾冰抗,护盾火抗,护盾电抗,闪避,护盾回复,装甲修复,生命恢复',
+      随机特殊: '暴击,速度,命中,闪避,掉落率,掉落数量,韧性,魅力',
+    };
+    const seen = new Set<string>();
+    const candidates: string[] = [];
+    for (const rawAffix of equipment.affixes || []) {
+      const expanded = poolExpanstions[rawAffix]
+        ? poolExpanstions[rawAffix].split(',').filter(Boolean)
+        : [rawAffix];
+      for (const affix of expanded) {
+        if (affix && !seen.has(affix)) {
+          seen.add(affix);
+          candidates.push(affix);
+        }
+      }
+    }
+
+    // 锁定目标（原版 L1236-1262）：markers["目标"] 由「攻击属性名」指令写入
+    const attackTargetRaw = markers['目标'];
+    const attackTarget = typeof attackTargetRaw === 'string' ? attackTargetRaw.trim() : '';
+    if (attackTarget && usedAttrs.includes('1' + attackTarget + '1')) {
+      return `${player.name || '冒险者'}这个装备已经有${attackTarget}的属性，无法指向，请使用“攻击闪避”来指定其他属性`;
+    }
+    let pinnedAttr = '';
+    if (attackTarget) {
+      if (candidates.includes(attackTarget)) pinnedAttr = attackTarget;
+      else return `${player.name || '冒险者'}这个装备没有${attackTarget}这个属性`;
+    }
+
+    // 冥鱼腿环：按腿环品质提升刷出条数（原版 L1219-1235），无腿环固定5条
+    const equipped = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const ringIdx = equipped.findIndex((eq: any) => String(eq?.type ?? eq?.类型 ?? '') === '腿环');
+    let rolls = 5;
+    if (ringIdx >= 0) {
+      const ringPrefix = String(equipped[ringIdx]?.data ?? equipped[ringIdx]?.数据 ?? '').charAt(0).toLowerCase();
+      rolls = ringPrefix === 'x' ? 11 : ringPrefix === 's' ? 8 : (ringPrefix === 'a' || ringPrefix === 'b') ? 7 : 6;
+    }
+
+    // 词条倍率按被洗装备品质（原版 L1202-1217）；好感≥100 上限增加=5+技能等级÷2（原版 L1198-1201）
+    const qualityMultByPrefix: Record<string, number> = { x: 12, s: 9, a: 6, b: 4, c: 3, d: 2 };
+    const prefix = String(item.data || '').charAt(0).toLowerCase();
+    const mult = qualityMultByPrefix[prefix] || 1;
+    const lowerIncPct = 10;
+    const upperIncPct = affinity >= 100 ? 5 + skillLevel / 2 : 10;
+
+    // 生成候选（原版 L1263-1279：随机取属性→词条转换，不与装备现有属性重复）
+    const options: Array<{ name: string; value: number }> = [];
+    const randomPick = () => candidates[Math.floor(Math.random() * candidates.length)] || '';
+    for (let i = 0; i < rolls; i++) {
+      let pick = pinnedAttr || randomPick();
+      let guard = 0;
+      while ((!pick || usedAttrs.includes('1' + pick + '1')) && guard < 1000) {
+        pick = pinnedAttr || randomPick();
+        guard++;
+      }
+      if (!pick) {
+        return '【六道轮回】#错误发生了';
+      }
+      usedAttrs += '1' + pick + '1';
+      const rolledBonus: Record<string, number> = {};
+      this.itemSystem.rollAffix(rolledBonus, pick, mult, lowerIncPct, upperIncPct);
+      const rolledKey = ItemSystemService.AFFIX_TO_BONUS[pick];
+      options.push({ name: pick, value: Number(rolledBonus[rolledKey]) || 0 });
+    }
+
+    // 待选状态（原版 L1288-1289）：清掉的属性转成 采集=1 写回数据串，等待选择
+    bonus['采集'] = 1;
+    let data = String(item.data || '').charAt(0) + this.itemService.bonusToDataString(bonus);
+    if (equipment.specialEffect) data += `!bx${equipment.specialEffect}`;
+    if (equipment.maker) data += `!@@${equipment.maker}`;
+    item.data = data;
+    const sets = this.playerService.safeJsonParse<Record<string, any>>(player.sets, {});
+    sets['六道轮回'] = {
+      backpackIndex: index,
+      itemName: String(item.name || ''),
+      options,
+    };
+
+    // 成就计数与活跃度（原版 L1291-1293；「使用技能」任务推进由 executeSkill 收尾统一处理）
+    markers['使用技能'] = (this.playerService.getMarkerValue(markers, '使用技能') || 0) + 1;
+    markers['冥鱼次数'] = (this.playerService.getMarkerValue(markers, '冥鱼次数') || 0) + 1;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
+    // 技能经验（原版 L1290）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
+
+    // 超次扣费（原版 L1294-1300，仅在洗装成功后执行）
+    let consumeText = '';
+    if (pendingCosts.length > 0) {
+      for (const cost of pendingCosts) {
+        const idx = backpack.findIndex((bp: any) => bp?.name === cost.name && bp?.type !== '装备');
+        if (idx >= 0) {
+          const left = Number(backpack[idx].quantity ?? backpack[idx].count ?? 0) - cost.quantity;
+          if (left <= 0) backpack.splice(idx, 1);
+          else {
+            backpack[idx].quantity = left;
+            backpack[idx].count = left;
+          }
+        }
+      }
+      consumeText = `\n消耗了${pendingCosts.map((c) => `${c.name}x${Math.ceil(c.quantity)}`).join('、')}`;
+    }
+
+    player.backpack = JSON.stringify(backpack);
+    player.sets = JSON.stringify(sets);
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
-    return `【六道轮回·${chosen.name}】${chosen.desc}\n对目标造成 ${finalDamage} 点伤害（好感度加成: ${Math.round(effect * 100)}%）`;
+    const qualityName = QUALITY_PREFIX_MAP[prefix] || '神迹';
+    let text = `${player.name || '冒险者'}${item.name}（${qualityName}）的属性被修改了，选择你中意的项目:`;
+    options.forEach((opt, i) => {
+      text += `\n${i + 1}、${opt.name}${this.formatSkillNumber(opt.value)}`;
+    });
+    text += `\n今天使用了${usedCount + 1}次（免费${freeCount}次）`;
+    text += consumeText;
+    text += '\n如果你不小心错过了选择，你可以发送“六道轮回选择”来继续';
+    if (gainedExp) text += `\n(技能经验+${this.formatSkillNumber(gainedExp)})`;
+    return text;
+  }
+
+  /**
+   * 六道轮回选择（对应原版 使魔技能.ecode L670-769）
+   * 把选中的候选项写入待洗装备；「六道轮回选择」不带序号则重新展示选项。
+   * @param userId 用户ID
+   * @param choiceParam 序号参数（如 "2"；空参重显列表）
+   * @returns 结果文本
+   */
+  async sixPathsChoice(userId: number, choiceParam = ''): Promise<string> {
+    // 待洗装备与背包整包写回，同样持用户级共享锁。
+    return this.playerService.withUserLock(userId, () => this.applySixPathsChoice(userId, choiceParam));
+  }
+
+  /** 六道轮回选择的数据库读改写段（调用方需已持有用户级锁）。 */
+  private async applySixPathsChoice(userId: number, choiceParam: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const sets = this.playerService.safeJsonParse<Record<string, any>>(player.sets, {});
+    const pending = sets['六道轮回'];
+
+    const reShow = (): string => {
+      if (!pending || !Array.isArray(pending.options) || pending.options.length === 0 || !pending.itemName) {
+        return `${player.name || '冒险者'}当前没有可以选择的项目`;
+      }
+      let text = `${player.name || '冒险者'}${pending.itemName}的属性被修改了，选择你中意的项目:`;
+      pending.options.forEach((opt: any, i: number) => {
+        text += `\n${i + 1}、${opt.name}${this.formatSkillNumber(Number(opt.value) || 0)}`;
+      });
+      text += '\n如果你不小心错过了选择，你可以发送“六道轮回选择”来继续';
+      return text;
+    };
+
+    const choice = parseInt(String(choiceParam || '').trim(), 10);
+    if (!Number.isFinite(choice) || choice < 1 || choice > (pending?.options?.length ?? 0)) {
+      return reShow();
+    }
+
+    // 校验背包位置与物品未变（原版 L684-687）
+    const backpack = this.playerService.getBackpackItems(player);
+    const idx = Number(pending.backpackIndex);
+    if (!(idx >= 1 && idx <= backpack.length)
+      || String(backpack[idx - 1]?.name || '') !== String(pending.itemName)) {
+      delete sets['六道轮回'];
+      player.sets = JSON.stringify(sets);
+      await this.playerService.savePlayer(player);
+      return `${player.name || '冒险者'}装备在背包的位置已改变，请重新使用六道轮回`;
+    }
+
+    const item = backpack[idx - 1];
+    const equipment = this.itemService.parseEquipment(item);
+    const chosen = pending.options[choice - 1];
+    const key = ItemSystemService.AFFIX_TO_BONUS[chosen.name];
+    if (key) equipment.bonus[key] = Number(chosen.value) || 0;
+    // 清除待洗标记（原版 L765 z1.加成.采集 = 0）
+    equipment.bonus['采集'] = 0;
+
+    const prefix = String(item.data || '').charAt(0);
+    let data = prefix + this.itemService.bonusToDataString(equipment.bonus);
+    if (equipment.specialEffect) data += `!bx${equipment.specialEffect}`;
+    if (equipment.maker) data += `!@@${equipment.maker}`;
+    item.data = data;
+
+    delete sets['六道轮回'];
+    player.backpack = JSON.stringify(backpack);
+    player.sets = JSON.stringify(sets);
+    await this.playerService.savePlayer(player);
+
+    return `${player.name || '冒险者'}${item.name}得到了${chosen.name}${this.formatSkillNumber(Number(chosen.value) || 0)}`;
   }
 
   /**
@@ -3232,6 +3502,12 @@ export class FamiliarSkillsService {
    * @returns 技能效果文本
    */
   async reviveFamiliar(userId: number): Promise<string> {
+    // 读背包→扣钻石/觉醒丹→写回必须全程持用户级共享锁，理由同兑换/召唤。
+    return this.playerService.withUserLock(userId, () => this.applyReviveFamiliar(userId));
+  }
+
+  /** 复活使魔的数据库读改写段（调用方需已持有用户级锁）。 */
+  private async applyReviveFamiliar(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
@@ -3303,6 +3579,12 @@ export class FamiliarSkillsService {
    * @returns 技能效果文本
    */
   async massSummon(userId: number): Promise<string> {
+    // 读券→扣券→写回必须全程持用户级共享锁，理由同兑换/召唤。
+    return this.playerService.withUserLock(userId, () => this.applyMassSummon(userId));
+  }
+
+  /** 大召唤术的数据库读改写段（调用方需已持有用户级锁）。 */
+  private async applyMassSummon(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 

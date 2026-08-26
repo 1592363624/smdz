@@ -2896,6 +2896,13 @@ export class GameService {
    * @returns 结算文本（广播到世界频道）；无进行中采集或已失效时返回空串
    */
   async settleGatherResource(userId: number): Promise<string> {
+    // 采集结算按「读快照→改→整包写回」更新玩家数据，必须持用户级共享锁，
+    // 与兑换/召唤/任务推进互斥；进程内定时器与 cron 兜底两条路径都经过这里。
+    return this.playerService.withUserLock(userId, () => this.applySettleGatherResource(userId));
+  }
+
+  /** 采集结算的数据库读改写段（调用方需已持有用户级锁）。 */
+  private async applySettleGatherResource(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
@@ -11806,6 +11813,13 @@ export class GameService {
     // 认领失败说明另一调用已在结算，本调用直接放弃（详见 claimRescueMarker）。
     const claimed = await this.claimRescueMarker(userId, marker?.token);
     if (!claimed) return '';
+    // 认领成功后的读快照→改→整包写回段必须持用户级共享锁（理由同采集结算），
+    // 否则会被兑换/召唤/后台开采的并发写回覆盖玩家数据。
+    return this.playerService.withUserLock(userId, () => this.applyCompleteRescue(userId, marker));
+  }
+
+  /** 救援结算的数据库读改写段（调用方需已完成标记认领并持有用户级锁）。 */
+  private async applyCompleteRescue(userId: number, marker: any): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 

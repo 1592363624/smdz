@@ -5,6 +5,7 @@
  */
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { AsyncLocalStorage } from 'async_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
@@ -29,12 +30,57 @@ export interface PlayerData {
 @Injectable()
 export class PlayerService {
   private readonly logger = new Logger(PlayerService.name);
+  /** 同一玩家的用户级串行化锁：key=userId，值=锁尾 Promise */
+  private readonly userLocks = new Map<number, Promise<unknown>>();
+  /**
+   * 锁重入上下文：同一异步链内重复进入同一 userId 的锁时直接放行，
+   * 避免服务间嵌套调用（如兑换 → 任务推进）造成自我死锁。
+   */
+  private readonly lockContext = new AsyncLocalStorage<number>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly staticData: StaticDataService,
     private readonly mapService: MapService,
   ) {}
+
+  /**
+   * 玩家数据的读-改-写串行化锁（全服共享，按 userId 区分）。
+   *
+   * 背景：玩家背包/标记等复杂结构以 JSON 字符串整包存取，任何「读取快照→
+   * 修改→savePlayer 整包写回」的路径如果与其它路径并发执行，后写者会用
+   * 旧快照覆盖先写者的改动（曾导致兑换扣钻后召唤券被后台开采结算的旧
+   * 快照回滚）。此前 AutoMineService / TaskService 各持有私有锁互不互斥。
+   * 现统一委托本方法；已在同一把锁内的调用（同 userId）直接放行以支持嵌套。
+   * @param userId 用户ID
+   * @param fn 持锁期间执行的读写逻辑
+   */
+  withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
+    if (!userId || !Number.isFinite(userId)) return fn();
+
+    // 可重入：同一条异步链已持有该用户的锁时不再排队，防止 A→B→A 自死锁。
+    const held = this.lockContext.getStore();
+    if (held === userId) return fn();
+
+    const previous = this.userLocks.get(userId) ?? Promise.resolve();
+    let release!: () => void;
+    // 本持有者的闸门：resolve 即放行下一个排队者；gate 永不 reject。
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    // 只等前一把锁的闸门，绝不能把自己的 gate 算进等待链（否则自我死锁）。
+    const myTurn = previous.then(() => undefined, () => undefined);
+    this.userLocks.set(userId, gate);
+
+    return (async () => {
+      await myTurn;
+      try {
+        // run 的新异步链继承重入标记；await 后仍可读到（ALS 贯穿整个 async 链）。
+        return await this.lockContext.run(userId, fn);
+      } finally {
+        release();
+        if (this.userLocks.get(userId) === gate) this.userLocks.delete(userId);
+      }
+    })();
+  }
 
   /**
    * 安全解析 JSON 字符串，解析失败时返回默认值

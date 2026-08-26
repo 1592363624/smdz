@@ -33,7 +33,6 @@ interface MiningSettlement {
 @Injectable()
 export class AutoMineService {
   private readonly logger = new Logger(AutoMineService.name);
-  private readonly userLocks = new Map<number, Promise<unknown>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -45,16 +44,13 @@ export class AutoMineService {
     private readonly taskService: TaskService,
   ) {}
 
-  private async withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
-    const previous = this.userLocks.get(userId) ?? Promise.resolve();
-    const current = previous.then(fn, fn);
-    const tail = current.then(() => undefined, () => undefined);
-    this.userLocks.set(userId, tail);
-    try {
-      return await current;
-    } finally {
-      if (this.userLocks.get(userId) === tail) this.userLocks.delete(userId);
-    }
+  /**
+   * 自动开采同样按「读快照→改→整包写回」操作玩家数据，必须与玩家指令、
+   * 任务结算共用同一把用户级锁（PlayerService.withUserLock），否则后台
+   * 结算会用兑换/召唤前的旧快照整包覆盖背包（曾导致兑换的召唤券蒸发）。
+   */
+  private withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
+    return this.playerService.withUserLock(userId, fn);
   }
 
   /** 开始自动开采，写入原版使用的两个标记之一。 */

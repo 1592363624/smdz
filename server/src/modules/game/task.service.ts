@@ -37,7 +37,6 @@ interface SettledTask {
 @Injectable()
 export class TaskService {
   private readonly logger = new Logger(TaskService.name);
-  private readonly userLocks = new Map<number, Promise<unknown>>();
   private readonly notifications = new Map<number, string[]>();
 
   constructor(
@@ -47,17 +46,13 @@ export class TaskService {
     private readonly itemSystem: ItemSystemService,
   ) {}
 
-  /** 串行化同一玩家的任务读改写，避免并发指令丢进度或重复发奖。 */
+  /**
+   * 串行化同一玩家的任务读改写，避免并发指令丢进度或重复发奖。
+   * 锁本体在 PlayerService.withUserLock（全服共享，与兑换/召唤/后台结算互斥），
+   * 这里委托以保持调用点不变。
+   */
   private async withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
-    const previous = this.userLocks.get(userId) ?? Promise.resolve();
-    const current = previous.then(fn, fn);
-    const tail = current.then(() => undefined, () => undefined);
-    this.userLocks.set(userId, tail);
-    try {
-      return await current;
-    } finally {
-      if (this.userLocks.get(userId) === tail) this.userLocks.delete(userId);
-    }
+    return this.playerService.withUserLock(userId, fn);
   }
 
   private notify(userId: number, text: string): void {

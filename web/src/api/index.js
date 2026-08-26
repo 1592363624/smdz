@@ -147,6 +147,14 @@ export const adminApi = {
   setWorldLevel: (level) => http.post('/admin/gm/world-level', { level }),
   // GM 工具：发送全服公告
   sendAnnouncement: (message) => http.post('/admin/gm/announcement', { message }),
+  // GM 工具：上传公告配图（仅图片），返回可访问 URL 列表
+  uploadAnnouncementImage: (files) => {
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    return http.post('/admin/announcement/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   // GM 工具：获取世界等级
   worldLevel: () => http.get('/admin/gm/world-level'),
 };

@@ -298,14 +298,26 @@
             <p v-if="worldLevelResult" class="gm-result">{{ worldLevelResult }}</p>
           </div>
 
-          <!-- 发送全服公告 -->
+          <!-- 发送全服公告：支持富文本（链接/图片/粗体等 Markdown 子集），发送前可实时预览 -->
           <div class="gm-tool-card">
             <h3>📢 发送全服公告</h3>
             <div class="gm-field">
               <label>公告内容</label>
-              <textarea v-model="gmAnnouncement.content" placeholder="输入要发送给所有玩家的公告内容..."></textarea>
+              <textarea v-model="gmAnnouncement.content" placeholder="输入要发送给所有玩家的公告内容...&#10;&#10;支持格式：[文字](链接) 超链接、![说明](图片地址) 配图、**粗体**、*斜体*、`代码`"></textarea>
+              <div class="ann-editor-toolbar">
+                <input ref="annImgInput" type="file" accept="image/*" multiple style="display: none" @change="onAnnImagesSelected" />
+                <button class="btn-ghost" :disabled="annUploading" @click="pickAnnImages">
+                  {{ annUploading ? '⏳ 上传中…' : '🖼️ 插入图片' }}
+                </button>
+                <span class="ann-editor-hint">支持 [文字](链接)、**粗体** 等写法，玩家端链接可直接点击</span>
+              </div>
             </div>
-            <button class="gm-btn danger" @click="doSendAnnouncement" :disabled="gmLoading">发送公告</button>
+            <!-- 实时预览：与玩家端公告弹窗同一渲染组件 -->
+            <div v-if="gmAnnouncement.content.trim()" class="ann-preview">
+              <div class="ann-preview-title">👁️ 预览（玩家端效果）</div>
+              <AnnRichText class="ann-preview-body" :content="gmAnnouncement.content" />
+            </div>
+            <button class="gm-btn danger" @click="doSendAnnouncement" :disabled="gmLoading || !gmAnnouncement.content.trim()">发送公告</button>
             <p v-if="gmAnnouncement.result" class="gm-result">{{ gmAnnouncement.result }}</p>
           </div>
         </div>
@@ -465,6 +477,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { adminApi, feedbackApi } from '../api';
+import AnnRichText from '../components/AnnRichText';
 
 const router = useRouter();
 const tab = ref('dashboard');
@@ -800,6 +813,45 @@ const gmAnnouncement = ref({
   content: '',
   result: '',
 });
+
+// ---- 公告配图上传：选图后立即上传，以 Markdown 图片语法插入正文 ----
+const annImgInput = ref(null);
+const annUploading = ref(false);
+
+/** 触发隐藏的图片选择器 */
+function pickAnnImages() {
+  annImgInput.value?.click();
+}
+
+/** 选择图片后上传，成功后把 ![](url) 追加到公告正文光标处（无光标则追加到末尾） */
+async function onAnnImagesSelected(e) {
+  const files = Array.from(e.target.files || []);
+  // 清空 input 值，允许重复选择同一文件
+  e.target.value = '';
+  if (!files.length) return;
+  annUploading.value = true;
+  try {
+    const res = await adminApi.uploadAnnouncementImage(files);
+    const urls = res.data || [];
+    if (!urls.length) throw new Error('未返回图片地址');
+    const ta = gmAnnouncement.value.content;
+    // Markdown 图片语法：括号内不能有空格，否则玩家端解析器不识别
+    const snippet = urls.map((u) => `![](${u})`).join('\n');
+    // 优先插入到 textarea 光标处，保持编辑体验
+    const textareaEl = document.querySelector('.gm-tool-card .gm-field textarea');
+    let pos = textareaEl && textareaEl.selectionStart != null ? textareaEl.selectionStart : -1;
+    if (pos < 0 || pos > ta.length) pos = ta.length;
+    const before = ta.slice(0, pos);
+    const after = ta.slice(pos);
+    const pad1 = before && !before.endsWith('\n') ? '\n' : '';
+    const pad2 = after && !after.startsWith('\n') ? '\n' : '';
+    gmAnnouncement.value.content = before + pad1 + snippet + pad2 + after;
+  } catch (err) {
+    alert('上传公告配图失败：' + (err.response?.data?.message || err.message));
+  } finally {
+    annUploading.value = false;
+  }
+}
 
 async function doGiveItem() {
   if (!gmGiveItem.value.target || !gmGiveItem.value.itemName) return;
@@ -1642,6 +1694,58 @@ onMounted(async () => {
 }
 .fb-reply-msg.error {
   color: #f87171;
+}
+
+/* ===== 公告编辑器：工具栏与实时预览 ===== */
+.ann-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.ann-editor-hint {
+  font-size: 12px;
+  color: var(--muted, #9ca3af);
+}
+.ann-preview {
+  margin-top: 12px;
+  border: 1px dashed var(--border, rgba(255, 255, 255, 0.15));
+  border-radius: 10px;
+  overflow: hidden;
+}
+.ann-preview-title {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--muted, #9ca3af);
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px dashed var(--border, rgba(255, 255, 255, 0.15));
+}
+/* 预览正文复用玩家端公告弹窗的渲染组件 */
+.ann-preview-body {
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ann-preview-body p {
+  margin: 0 0 8px;
+}
+.ann-preview-body p:last-child {
+  margin-bottom: 0;
+}
+.ann-preview-body .ann-link {
+  color: #fbbf24;
+  text-decoration: underline;
+  word-break: break-all;
+}
+.ann-preview-body .ann-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  vertical-align: middle;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
 }
 
 /* ===== 移动端适配 ===== */
