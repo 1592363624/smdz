@@ -307,7 +307,7 @@ export class PlayerService {
       const idx = backpack.findIndex((item: any) => item?.name === name);
       if (qty > 0) {
         // 双字段镜像：存量代码读 .count（如召唤）或 .quantity（如兑换）都正确；
-        // 写侧只改其一也没关系——保存时按「与列值的差异」识别被改的字段。
+        // 写侧只改其一也没关系——保存时按「与物化基准值的偏差」识别被改的字段。
         if (idx >= 0) {
           backpack[idx].quantity = qty;
           backpack[idx].count = qty;
@@ -317,6 +317,8 @@ export class PlayerService {
       } else if (idx >= 0) {
         backpack.splice(idx, 1);
       }
+      // 记录物化基准（不落库）：保存时用于识别业务改的是哪个字段
+      ((player as any)._currencyMirror ||= {})[name] = qty;
     };
     upsert('钻石', Number(player.diamonds ?? 0));
     upsert('召唤券', Number(player.tickets ?? 0));
@@ -379,19 +381,35 @@ export class PlayerService {
         const authoritativeSnapshot = player.diamonds !== undefined
           || player.tickets !== undefined
           || player.dataCores !== undefined;
+        // 物化时记录的基准值：用于双字段镜像下识别「哪个字段被业务改过」
+        const mirrorMap = (player as any)._currencyMirror || {};
         const pairs: Array<[string, string]> = [['钻石', 'diamonds'], ['召唤券', 'tickets'], ['数据核心', 'dataCores']];
         for (const [itemName, column] of pairs) {
           const idx = items.findIndex((it: any) => it?.name === itemName);
           if (idx >= 0) {
-            // 双字段镜像下取「与读取时列值的偏差」更大的字段：
-            // 业务只改了其中一个字段，另一个仍是物化时的旧镜像值。
-            const q = Number(items[idx].quantity ?? 0);
-            const c = Number(items[idx].count ?? 0);
-            const colVal = Number((player as any)[column] ?? 0);
-            updateData[column] = Math.abs(q - colVal) >= Math.abs(c - colVal) ? q : c;
+            const it = items[idx];
+            const hasQ = it.quantity !== undefined;
+            const hasC = it.count !== undefined;
+            let value: number;
+            if (hasQ && hasC && mirrorMap[itemName] !== undefined) {
+              // 双字段都在且已知基准：取偏离基准更大的字段（另一个是未被修改的镜像）
+              const q = Number(it.quantity);
+              const c = Number(it.count);
+              const base = Number(mirrorMap[itemName]);
+              value = Math.abs(q - base) >= Math.abs(c - base) ? q : c;
+            } else if (hasQ) {
+              // 单字段（手工构造或旧数据）：该字段即权威值
+              value = Number(it.quantity);
+            } else {
+              value = Number(it.count ?? 0);
+            }
+            updateData[column] = value;
             items.splice(idx, 1);
+            // 同步回内存快照：调用方（如 mutate 审计）保存后读取列值应与库一致
+            (player as any)[column] = value;
           } else if (authoritativeSnapshot) {
             updateData[column] = 0;
+            (player as any)[column] = 0;
           }
         }
         updateData.backpack = JSON.stringify(items);

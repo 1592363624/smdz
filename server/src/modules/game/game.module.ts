@@ -12,6 +12,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
 import { GameController } from './game.controller';
 import { GameService } from './game.service';
 import { PlayerService } from './player.service';
+import { PlayerMutateService } from './player-mutate.service';
 import { TutorialService } from './tutorial.service';
 import { BonusService } from './bonus.service';
 import { ItemService } from './item.service';
@@ -38,6 +39,7 @@ import { AutoMineService } from './auto-mine.service';
   providers: [
     GameService,
     PlayerService,
+    PlayerMutateService,
     TutorialService,
     BonusService,
     ItemService,
@@ -59,6 +61,7 @@ import { AutoMineService } from './auto-mine.service';
   exports: [
     GameService,
     PlayerService,
+    PlayerMutateService,
     TutorialService,
     BonusService,
     ItemService,

@@ -93,8 +93,10 @@ describe('savePlayer 乐观锁（CAS）', () => {
     const service = makeService(prisma);
 
     const snap = await service.getPlayerData(42);
+    // 第一次保存：货币从背包提取到列（100→1980）
     snap.player.backpack = JSON.stringify([{ name: '钻石', type: '资源', quantity: 1980 }]);
     await service.savePlayer(snap.player);
+    // 第二次保存：同一快照继续改（列值已回写内存，偏差判定以新列值为准）
     snap.player.backpack = JSON.stringify([{ name: '钻石', type: '资源', quantity: 1960 }]);
     await service.savePlayer(snap.player);
 

@@ -64,6 +64,19 @@ model UserBinding {
 // ========== 游戏核心 - 玩家相关 ==========
 
 /// 玩家档案：核心游戏数据用 JSON 字符串存储
+/// 货币审计日志（P4）：每次钻石/召唤券/数据核心变动记录一条，
+/// 用于回答「玩家货币什么时候少了多少」——不再靠玩家截图破案。
+model CurrencyLog {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  currency     String   // diamonds | tickets | dataCores
+  delta        Float    // 本次变动量（正增负减）
+  balanceAfter Float    // 变动后余额
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
 model Player {
   id         Int      @id @default(autoincrement())
   userId     Int      @unique

@@ -129,6 +129,9 @@ export class FamiliarSystemService {
     @Optional() private readonly itemSystem?: ItemSystemService,
     @Inject(forwardRef(() => FamiliarSkillsService))
     @Optional() private readonly familiarSkills?: FamiliarSkillsService,
+    // P2 写入口收口：兑换等读改写路径逐步迁到 mutate 管道（锁+新鲜快照+审计）。
+    // Optional 末位参数，旧测试桩不传也不受影响。
+    @Optional() private readonly mutateService?: any,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -896,16 +899,22 @@ export class FamiliarSystemService {
     count = Math.max(1, Math.trunc(Number(count) || 1));
     const normalizedName = rawName.replace(/\d/g, '').replace(/\s+/g, '');
 
-    // 扣货币→加货→整包写回必须全程持用户级共享锁（PlayerService.withUserLock），
-    // 否则与后台自动开采/任务结算并发时，本结果会被其旧快照整包覆盖
-    // （曾导致钻石被扣、召唤券却没到账）。
+    // 扣货币→加货→整包写回必须全程持用户级共享锁，否则与后台自动开采/
+    // 任务结算并发时，本结果会被其旧快照整包覆盖（曾导致钻石被扣、召唤券
+    // 却没到账）。优先走 P2 mutate 管道（同一把锁 + 新鲜快照 + 货币审计）；
+    // 测试桩未注入管道时回落到裸锁路径。
+    if (this.mutateService?.mutate) {
+      return this.mutateService.mutate(userId, (ctx: any) =>
+        this.doExchange(ctx, normalizedName, count));
+    }
     return this.playerService.withUserLock(userId, () =>
-      this.applyExchange(userId, normalizedName, count));
+      this.playerService.getPlayerData(userId).then((playerData: any) =>
+        this.doExchange(playerData, normalizedName, count)));
   }
 
-  /** 兑换的数据库读改写段（调用方需已持有用户级锁）。 */
-  private async applyExchange(userId: number, normalizedName: string, count: number): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
+  /** 兑换的读改写段：mutate 管道回调或裸锁路径共用（playerData 为锁内新鲜快照）。 */
+  private async doExchange(playerData: any, normalizedName: string, count: number): Promise<string> {
+    const userId = playerData.player.userId;
     const { player, markers } = playerData;
 
     const catalog = this.getShopCatalog();
