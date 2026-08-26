@@ -116,9 +116,9 @@ const hpBarClass = computed(() => {
 // 当前任务快照（服务端已过滤已完成，兼容旧缓存无字段）
 const tasks = computed(() => (Array.isArray(props.info?.tasks) ? props.info.tasks : []));
 
-// 装备栏快照；默认收起避免面板过长
+// 装备栏快照；默认展开，可点击标题收起
 const eqList = computed(() => (Array.isArray(props.info?.equipment) ? props.info.equipment : []));
-const eqOpen = ref(false);
+const eqOpen = ref(true);
 const equippedCount = computed(() => eqList.value.filter((e) => e.name).length);
 // 品质文字 → 配色档位（普通灰/良好绿/优秀蓝/精良紫/史诗橙/传说金/神迹红）
 const QUALITY_KEY = { 普通: 'e', 良好: 'd', 优秀: 'c', 精良: 'b', 史诗: 'a', 传说: 's', 神迹: 'x' };

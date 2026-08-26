@@ -13,6 +13,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from '../game/game.service';
+import { PlayerService } from '../game/player.service';
 import { TaskService } from '../game/task.service';
 import {
   CommandContext,
@@ -32,6 +33,7 @@ export class CommandService {
     @Inject(COMMAND_HANDLER_MAP)
     private readonly handlerMap: Record<string, CommandHandler>,
     private readonly gameService: GameService,
+    private readonly playerService: PlayerService,
     @Optional() private readonly taskService?: TaskService,
   ) {}
 
@@ -295,6 +297,16 @@ export class CommandService {
       // 5.2 若离线有回复，拼在指令结果之前（如 "生命回复 +12\n<指令结果>"）
       if (offlineRegen && result.content) {
         result.content = `${offlineRegen}\n━━━━━━━━━━━━━━━\n${result.content}`;
+      }
+
+      // 5.3 升级通知排水（原版 _主程序.ecode L12038-12046 指令收尾「判断玩家执行
+      // 这次操作后是否升级了」的对位实现）：savePlayer 归一化在任意直写经验路径上
+      // 触发的升级都会进入 PlayerService 通知队列，这里统一取出拼到结果末尾。
+      if (ctx.userId && result.success) {
+        const levelUpText = this.playerService?.takePendingLevelUpText(ctx.userId) || '';
+        if (levelUpText) {
+          result.content = result.content ? `${result.content}\n${levelUpText}` : levelUpText;
+        }
       }
 
       await this.finishCommandTasks(ctx, sentText, result);

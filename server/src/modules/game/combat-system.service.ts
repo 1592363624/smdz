@@ -2501,7 +2501,7 @@ export class CombatSystemService {
       }
     }
 
-    // 11. 添加经验到玩家
+    // 11. 添加经验到玩家（升级文本由指令引擎收尾统一排水追加，此处不重复取）
     if (totalExp > 0) {
       await this.playerService.addExp(userId, totalExp);
     }

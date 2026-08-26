@@ -71,6 +71,7 @@ describe('任务相关制造入口', () => {
       prisma as any,
       { inventory: inventoryHandler } as any,
       gameService as any,
+      { takePendingLevelUpText: () => '' } as any,
       taskService as any,
     );
 
@@ -331,6 +332,7 @@ describe('任务相关移动入口', () => {
       prisma as any,
       { game: handler } as any,
       gameService as any,
+      { takePendingLevelUpText: () => '' } as any,
       taskService as any,
     );
 
@@ -646,6 +648,7 @@ describe('采集命令总路由', () => {
         getFirstFamiliarGate: jest.fn(async () => null),
         hasGatherCmd: jest.fn(async () => true),
       } as any,
+      { takePendingLevelUpText: () => '' } as any,
       taskService as any,
     );
 

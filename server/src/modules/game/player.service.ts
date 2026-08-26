@@ -82,6 +82,9 @@ export class PlayerService {
     })();
   }
 
+  /** 升级通知队列：userId → 待展示文本（applyLevelUps 入队，指令收尾排水）。 */
+  private levelUpTexts = new Map<number, string[]>();
+
   /**
    * 安全解析 JSON 字符串，解析失败时返回默认值
    * @param jsonStr 待解析的 JSON 字符串
@@ -333,6 +336,12 @@ export class PlayerService {
    * @param player 要保存的玩家对象（包含可能已修改的 JSON 字段）
    */
   async savePlayer(player: any): Promise<void> {
+    // 经验归一化门禁：落库前强制保证 exp < 当前等级门槛。任何直写 player.exp
+    // 的路径（挤奶青龙奖励/躺下离线经验/掉落经验/GM 改面板）都在这里被统一结算，
+    // 不依赖调用方记得调用 addExp——这是不变量级别的收口，而非约定级别。
+    // 注意：必须在序列化前执行，升级重算的属性字段才会随本次保存一并写入。
+    this.applyLevelUps(player);
+
     // 提取需要序列化的 JSON 字段，确保它们以字符串形式存储
     const jsonFields = [
       'backpack', 'equipment', 'weapons', 'markers', 'markers2',
@@ -456,8 +465,75 @@ export class PlayerService {
   }
 
   /**
+   * 经验归一化门禁（对应原版 加成计算.ecode L1781-1794 的总经验推导）：
+   * 按「等级²+5」门槛循环扣除并推进等级，保证不变量 exp < 当前等级门槛 在保存前成立。
+   * 升级时同步 upgradeExp 与基础战斗属性（recalcLevelStats），并把
+   * 「⭐ 等级提升！」文本追加到通知队列（takePendingLevelUpText 统一排水）。
+   *
+   * savePlayer 在落库前无条件调用本方法，因此任何直写 player.exp 的路径
+   * （挤奶青龙奖励/躺下离线经验/distributeLoot 经验掉落/GM 改面板）都自动获得
+   * 与 addExp 相同的升级结算，未来新路径无需记得手动调用。
+   * @param player 玩家对象（就地修改 level/exp/upgradeExp 及成长属性）
+   * @returns 是否发生了升级
+   */
+  applyLevelUps(player: any): boolean {
+    // 部分更新对象（如 {id, markers}）不含等级/经验字段，跳过归一化；
+    // 也绝不往这类定点写注入派生字段，避免用错误计算值覆盖真实玩家的数据。
+    if (player.level === undefined && player.exp === undefined) return false;
+
+    let level = Math.max(1, Number(player.level ?? 1));
+    let exp = Number(player.exp || 0);
+    let upgradeExp = this.calcUpgradeExp(level);
+    const startLevel = level;
+
+    while (upgradeExp > 0 && exp >= upgradeExp) {
+      exp -= upgradeExp;
+      level += 1;
+      upgradeExp = this.calcUpgradeExp(level);
+    }
+
+    if (level === startLevel) {
+      // 未升级也顺带修正可能过期的 upgradeExp 存量脏值（仅在对象本就携带该字段时，
+      // 与旧 addExp「实时计算门槛、不信任过期字段」的策略一致）
+      if (player.upgradeExp !== undefined) player.upgradeExp = upgradeExp;
+      return false;
+    }
+
+    player.level = level;
+    player.exp = exp;
+    player.upgradeExp = this.calcUpgradeExp(level);
+    this.recalcLevelStats(player);
+    this.logger.log(`玩家 ${player.userId ?? player.id ?? '?'} 升级到 ${level} 级`);
+    this.enqueueLevelUpText(
+      player.userId,
+      `⭐ 等级提升了！Lv.${startLevel} → Lv.${level}`,
+    );
+    return true;
+  }
+
+  /** 升级通知入队（挂在服务实例上、按 userId 键控，跨内存快照存活）。 */
+  private enqueueLevelUpText(userId: number | undefined, text: string): void {
+    if (!userId || !text) return;
+    const list = this.levelUpTexts.get(userId) || [];
+    list.push(text);
+    this.levelUpTexts.set(userId, list);
+  }
+
+  /**
+   * 排水并清空该玩家的待展示升级通知（原版指令收尾「判断玩家执行这次操作后
+   * 是否升级了」的对位实现，_主程序.ecode L12038-12046）。无待展示内容返回空串。
+   */
+  takePendingLevelUpText(userId: number): string {
+    const list = this.levelUpTexts.get(userId);
+    if (!list || list.length === 0) return '';
+    this.levelUpTexts.delete(userId);
+    return list.join('\n');
+  }
+
+  /**
    * 增加玩家经验
-   * 如果经验超过升级所需，自动升级
+   * 如果经验超过升级所需，自动升级（结算逻辑统一走 applyLevelUps，
+   * 与 savePlayer 归一化门禁共享同一份实现）
    * 升级后同步重算基础战斗属性（maxHp/maxShield/maxArmor/attack 等），
    * 对齐原版 _计算玩家 的等级成长公式（加成计算.ecode L1799-1833）。
    * @param userId 用户ID
@@ -466,41 +542,11 @@ export class PlayerService {
    */
   async addExp(userId: number, exp: number): Promise<{ leveledUp: boolean; newLevel: number }> {
     const player = await this.getOrCreatePlayer(userId);
-    let leveledUp = false;
 
     // 累加经验
     player.exp = (player.exp || 0) + exp;
 
-    // 升级经验门槛按公式实时计算（对齐原版 加成计算.ecode L1781-1794）。
-    // 不信任可能过期的 upgradeExp 字段（存量玩家曾写入错误的 100），确保升级能正常触发。
-    // 升级经验加成/风月入墨减益在升级循环内为常量（不随等级变化），循环前取一次即可。
-    const bonus = this.safeJsonParse<any>(player.bonus, {});
-    const upgradeExpBonus = Number(bonus['升级经验'] || 0); // 玩家.加成.升级经验（百分比）
-    // 风月入墨减益：来自玩家增益列表中"风月入墨"的强度（数据分析.ecode L799 增益要求 返回强度）。
-    // 原版 增益要求("风月入墨", 玩家.增益, a3, s) 把减益百分比写入 a3。
-    let windMoonReduce = 0;
-    const buffs = this.safeJsonParse<any[]>(player.buffs, []);
-    for (const b of buffs) {
-      const name = b['名称'] || b.name;
-      if (name === '风月入墨') {
-        windMoonReduce = Number(b['强度'] || b.strength || 0);
-        break;
-      }
-    }
-    let upgradeExp = this.calcUpgradeExp(player.level, upgradeExpBonus, windMoonReduce);
-    while (player.exp >= upgradeExp) {
-      player.exp -= upgradeExp;
-      player.level += 1;
-      player.upgradeExp = this.calcUpgradeExp(player.level);
-      upgradeExp = player.upgradeExp;
-      leveledUp = true;
-      this.logger.log(`玩家 ${userId} 升级到 ${player.level} 级`);
-    }
-
-    // 升级后重算基础战斗属性（防御方/面板使用的 maxHp/attack 等随等级成长）
-    if (leveledUp) {
-      this.recalcLevelStats(player);
-    }
+    const leveledUp = this.applyLevelUps(player);
 
     // 持久化（含升级后重算的属性字段）
     await this.savePlayer(player);

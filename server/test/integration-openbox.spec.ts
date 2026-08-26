@@ -23,7 +23,7 @@ describe('打开箱子端到端（真实远程库）', () => {
   const createdUserIds: number[] = [];
   const stamp = () => Math.random().toString(36).slice(2, 8);
 
-  async function makePlayer(backpack: any[]) {
+  async function makePlayer(backpack: any[], overrides: any = {}) {
     const username = `e2e_openbox_${stamp()}`;
     const user = await prisma.user.create({ data: { username, password: 'e2e_test', role: 'USER' } });
     createdUserIds.push(user.id);
@@ -44,6 +44,7 @@ describe('打开箱子端到端（真实远程库）', () => {
         markers: '{}',
         markers2: '[]',
         buffs: '[]',
+        ...overrides,
       } as any,
     });
     return user.id;
@@ -83,9 +84,12 @@ describe('打开箱子端到端（真实远程库）', () => {
   });
 
   it('奶恢复三池并附带经验；死亡状态受120秒复活冷却限制', async () => {
+    // 高等级夹具：奶每次附带 +10000 经验，三次共 3 万仍低于 Lv.175 的升级门槛
+    // （175²+5=30630），避免经验归一化在此用例内触发升级/属性重算——
+    // 升级行为已由 test/exp-normalize.spec.ts 单测覆盖，此处聚焦开箱与三池恢复本身。
     const uid = await makePlayer([
       { name: '奶', type: '资源', quantity: 5, count: 5 },
-    ]);
+    ], { level: 175, upgradeExp: 30630 });
     // 存活使用：三池各 + maxShield*0.1 = +150
     const t1 = await game.handleUseItem(uid, '奶', 1);
     console.log('[奶·存活]', t1);
