@@ -75,6 +75,8 @@ export class GameService {
   private static readonly RESCUE_FALLBACK_MAX_CONSECUTIVE = 3;
   /** 救援异常循环判定时间窗：仅统计 60 秒内的连续兜底，跨窗自动重置计数。 */
   private static readonly RESCUE_FALLBACK_LOOP_WINDOW_MS = 60_000;
+  /** 已结算采集指纹保留时长：覆盖「旧快照复活标记」的存活窗口（含 30 分钟资源刷新周期）。 */
+  private static readonly GATHER_SETTLED_FINGERPRINT_TTL_MS = 35 * 60_000;
   private readonly tradeLocks = new Map<string, Promise<void>>();
   /** 玩家面板推送防抖定时器：同一玩家短时间内的多次状态变化合并为一次推送 */
   private readonly playerUpdateTimers = new Map<number, NodeJS.Timeout>();
@@ -3010,31 +3012,31 @@ export class GameService {
     const markers2Changed = unlockedMarkers2.length !== lockedMarkers2.length;
 
     // 原子认领「采集中」状态：进程内定时器与每5秒兜底扫描是并发结算入口，
-    // 结算链路（产出/任务/激怒怪物等）耗时可超过兜底间隔，若仅靠"读-改-写"，
-    // 重入方会在落库前读到同样的「采集中」状态而双结算（产出翻倍+重复广播）。
-    // 这里用条件更新（CAS）：仅当库中 markers 仍等于读取快照时才写入清除结果，
-    // CAS 不命中的调用立即放弃；无 updateMany 的测试环境退化为读-改-写。
-    // 同时保留"先删状态、马上持久化，再结算"的时序：后续链路任一环抛异常
-    // 或变慢，都不会让标记残留被兜底任务反复重入。
-    const prevMarkersRaw = typeof player.markers === 'string' ? player.markers : JSON.stringify({});
-    const nextMarkersRaw = JSON.stringify(markers);
-    const prevMarkers2Raw = typeof player.markers2 === 'string' ? player.markers2 : null;
-    if (this.prisma?.player?.updateMany) {
-      const casWhere: Record<string, any> = { id: player.id, markers: prevMarkersRaw };
-      const casData: Record<string, any> = { markers: nextMarkersRaw };
-      if (markers2Changed && prevMarkers2Raw !== null) {
-        casWhere.markers2 = prevMarkers2Raw;
-        casData.markers2 = JSON.stringify(unlockedMarkers2);
-      }
-      const cas = await this.prisma.player.updateMany({ where: casWhere, data: casData });
-      if ((cas?.count ?? 0) === 0) return '';
-      player.markers = nextMarkersRaw;
-      if (markers2Changed) player.markers2 = JSON.stringify(unlockedMarkers2);
-    } else {
-      player.markers = nextMarkersRaw;
-      if (markers2Changed) player.markers2 = JSON.stringify(unlockedMarkers2);
+    // 结算链路（产出/任务/激怒怪物等）耗时可超过兜底间隔，重入方若读到同样
+    // 的「采集中」状态会双结算（产出翻倍+重复广播）。
+    // 认领必须走整包 savePlayer（中央乐观锁按 (id,version) CAS）：
+    // - 不能用不携带 version 的定点条件写（updateMany）：乐观锁拦截器会给它
+    //   注入 version+1，而内存快照版本没同步，链尾的整包保存必然 P2025 失败，
+    //   整次结算半途而废；
+    // - 定点写也不会使其它旧快照失效，持有旧 markers 的并发写者仍能通过自己
+    //   的 CAS 把「采集中」原样写回复活（2026-08-26 线上重复结算事故根因）。
+    // 整包 CAS 认领成功即推进版本并同步内存快照，链尾保存顺理成章；失败
+    // （P2025 并发冲突）说明另一入口已在结算，本调用立即放弃并还原内存快照，
+    // 标记仍留库中由下一轮兜底重试，不会丢结算。
+    const prevMarkersRaw = player.markers;
+    const prevMarkers2BeforeClaim = player.markers2;
+    player.markers = JSON.stringify(markers);
+    if (markers2Changed) player.markers2 = JSON.stringify(unlockedMarkers2);
+    try {
       await this.playerService.savePlayer(player);
+    } catch (e: any) {
+      player.markers = prevMarkersRaw;
+      if (markers2Changed) player.markers2 = prevMarkers2BeforeClaim;
+      this.logger.warn(`玩家 ${userId} 采集认领失败（并发冲突或写库异常），本次放弃: ${e?.message || e}`);
+      return '';
     }
+    // 记录已结算指纹（startedAt:settleAt）：兜底扫描据此识别被旧快照复活的标记
+    this.recordGatherSettledFingerprint(userId, gatherState);
 
     const gatherName = String(gatherState.cmd ?? '');
     const resourceName = String(gatherState.target ?? '');
@@ -3281,6 +3283,38 @@ export class GameService {
     }
   }
 
+  /** 已结算采集指纹表：key=`${userId}:${startedAt}:${settleAt}`，value=记录时间戳（进程内）。 */
+  private gatherSettledFingerprints?: Map<string, number>;
+
+  private gatherSettledFingerprintMap(): Map<string, number> {
+    const service = this as any;
+    if (!service.gatherSettledFingerprints) service.gatherSettledFingerprints = new Map<string, number>();
+    return service.gatherSettledFingerprints;
+  }
+
+  /** 记录一次已结算的采集指纹；过期条目顺手清理，避免长驻进程下 Map 膨胀。 */
+  private recordGatherSettledFingerprint(userId: number, state: Record<string, any>): void {
+    try {
+      const fingerprints = this.gatherSettledFingerprintMap();
+      const key = `${userId}:${Number(state?.startedAt ?? 0)}:${Number(state?.settleAt ?? 0)}`;
+      const nowMs = Date.now();
+      for (const [existingKey, recordedAt] of fingerprints) {
+        if (nowMs - recordedAt > GameService.GATHER_SETTLED_FINGERPRINT_TTL_MS) fingerprints.delete(existingKey);
+      }
+      fingerprints.set(key, nowMs);
+    } catch { /* 指纹记录失败不影响结算主链路 */ }
+  }
+
+  /** 该「采集中」状态是否已结算过：同指纹标记再现即是被旧快照复活。 */
+  private hasGatherSettledFingerprint(userId: number, state: any): boolean {
+    try {
+      const key = `${userId}:${Number(state?.startedAt ?? 0)}:${Number(state?.settleAt ?? 0)}`;
+      return this.gatherSettledFingerprintMap().has(key);
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * 后台兜底：服务重启导致进程内采集定时器丢失后，补结算已到期的「采集中」状态。
    * 由 ScheduleService 定期调用。@returns 本轮补结算的玩家数
@@ -3302,6 +3336,20 @@ export class GameService {
       let state: any = raw;
       if (typeof raw === 'string') {
         try { state = JSON.parse(raw); } catch { state = null; }
+      }
+      // 指纹去重：同指纹标记再现，说明本次采集已被结算过、标记又被某个持
+      // 旧快照的并发写回复活。直接定点清除并跳过（不产出、不广播、不计熔断），
+      // 防止重复扣资源次数与重复广播；未到期的复活标记同样无意义，一并清除。
+      if (state && this.hasGatherSettledFingerprint(Number(row.userId), state)) {
+        delete markers['采集中'];
+        await this.prisma.player.update({
+          where: { id: row.id },
+          data: { markers: JSON.stringify(markers) },
+        });
+        this.logger.warn(
+          `玩家 ${row.userId} 的「采集中」标记已结算过却又出现（疑似旧快照写回复活），已直接清除`,
+        );
+        continue;
       }
       const settleAt = Number(state?.settleAt ?? 0);
       if (settleAt > now) {
@@ -11789,19 +11837,20 @@ export class GameService {
     const remaining = markers2.filter((marker: any) => marker?.token !== token);
     if (remaining.length === markers2.length) return false;
     const nextRaw = JSON.stringify(remaining);
-    // CAS：仅当库中 markers2 仍等于读取到的快照时才写入移除结果；
-    // 并发方 CAS 不命中即放弃。无 updateMany 的测试环境退化为读-改-写。
-    if (this.prisma?.player?.updateMany) {
-      const cas = await this.prisma.player.updateMany({
-        where: { id: player.id, markers2: raw },
-        data: { markers2: nextRaw },
-      });
-      if ((cas?.count ?? 0) === 0) return false;
-      player.markers2 = nextRaw;
-      return true;
-    }
+    // 认领必须走整包 savePlayer（中央乐观锁按 (id,version) CAS），理由同采集结算：
+    // 不带 version 的定点条件写会被乐观锁拦截器注入 version+1，调用方内存快照
+    // 版本失步，后续整包保存必然并发冲突失败；且定点写不使其它旧快照失效，
+    // 持旧 markers2 的并发写者仍能把已认领的救援标记原样写回复活（重复广播）。
+    // 整包 CAS 失败（P2025 并发冲突）说明另一入口已在结算，本调用立即放弃，
+    // 标记仍留库中由下一轮兜底重试，不会丢结算。
     player.markers2 = nextRaw;
-    await this.playerService.savePlayer(player);
+    try {
+      await this.playerService.savePlayer(player);
+    } catch (e: any) {
+      player.markers2 = raw;
+      this.logger.warn(`玩家 ${userId} 救援标记认领失败（并发冲突或写库异常），本次放弃: ${e?.message || e}`);
+      return false;
+    }
     return true;
   }
 

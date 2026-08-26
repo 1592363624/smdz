@@ -31,6 +31,48 @@ function makeCasUpdateMany(player: any) {
   });
 }
 
+/**
+ * 中央乐观锁语义的持久化桩：以独立维护的 dbVersion 为准做 (id,version) CAS，
+ * 版本过期抛 P2025。getPlayerData/loadSnapshot 每次返回深拷贝快照（对齐真实
+ * Prisma 行为），并发双方各持独立快照，后保存者必然冲突——还原真实并发，
+ * 而非同引用假阳性。save 落库时全字段整包覆盖（对齐 savePlayer 语义）。
+ */
+function makeOptimisticLockPersistence(initialState: Record<string, any>) {
+  const state: any = JSON.parse(JSON.stringify(initialState));
+  let dbVersion = Number(initialState.version ?? 0);
+  const save = jest.fn(async (snapshot: any) => {
+    if (snapshot?.version !== undefined && snapshot?.version !== null) {
+      if (Number(snapshot.version) !== Number(dbVersion)) {
+        const err: any = new Error('玩家数据并发冲突，请重试');
+        err.code = 'P2025';
+        throw err;
+      }
+      dbVersion += 1;
+      snapshot.version = dbVersion;
+    } else {
+      dbVersion += 1;
+    }
+    // 落库：全字段合并进真相状态（模拟整包覆盖）
+    for (const [field, value] of Object.entries(snapshot)) {
+      if (field === 'version') continue;
+      state[field] = typeof value === 'object' && value !== null ? JSON.parse(JSON.stringify(value)) : value;
+    }
+    state.version = dbVersion;
+  });
+  /** 从真相状态读一份独立快照（模拟 prisma.player.findUnique 返回行对象） */
+  const loadSnapshot = (): any => {
+    const snap = JSON.parse(JSON.stringify(state));
+    snap.version = dbVersion;
+    return snap;
+  };
+  return {
+    save,
+    state,
+    bumpVersion: () => { dbVersion += 1; },
+    loadSnapshot,
+  };
+}
+
 function makeRescueFixture(playerOverrides: Record<string, any> = {}) {
   const player: any = {
     id: 1,
@@ -91,7 +133,12 @@ function makeGatherFixture(options: { times?: number } = {}) {
     outputs: [{ name: '木头', count: 2, chance: 100 }],
     gatherCmd: '收集木头',
   };
-  const player: any = {
+  const gatherState = {
+    target: '老树', cmd: '收集木头', count: 1,
+    startedAt: Date.now() - 60_000, settleAt: Date.now() - 1000,
+  };
+  // 中央乐观锁语义持久化桩：getPlayerData 每次返回独立快照，save 按 version CAS
+  const persistence = makeOptimisticLockPersistence({
     id: 42,
     userId: 42,
     name: '测试玩家',
@@ -99,9 +146,10 @@ function makeGatherFixture(options: { times?: number } = {}) {
     mapId: 7,
     backpack: '[]',
     // 采集中状态 + 采集锁定标记（handleGatherResource 阶段1 的落库结果）
-    markers: JSON.stringify({ 采集中: { target: '老树', cmd: '收集木头', count: 1, settleAt: Date.now() - 1000 } }),
+    markers: JSON.stringify({ 采集中: { ...gatherState } }),
     markers2: JSON.stringify([{ 名称: '采集', 有效期至: Date.now() / 1000 + 30 }]),
-  };
+    version: 5,
+  });
   const map: any = {
     id: 7,
     name: '测试地图',
@@ -115,19 +163,24 @@ function makeGatherFixture(options: { times?: number } = {}) {
   const playerService: any = {
     withUserLock: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async () => ({
-      player,
-      markers: parseJson(player.markers, {}),
-      markers2: parseJson(player.markers2, []),
+      player: persistence.loadSnapshot(),
+      markers: parseJson(persistence.state.markers, {}),
+      markers2: parseJson(persistence.state.markers2, []),
     })),
     safeJsonParse: jest.fn(parseJson),
     getBackpackItems: jest.fn((target: any) => parseJson(target.backpack, [])),
-    savePlayer: jest.fn(async () => undefined),
+    savePlayer: persistence.save,
     addExp: jest.fn(async () => ({ leveledUp: false, newLevel: 10 })),
   };
   const prisma: any = {
     player: {
-      findMany: jest.fn(async () => [player]),
-      updateMany: makeCasUpdateMany(player),
+      findMany: jest.fn(async () => [persistence.loadSnapshot()]),
+      update: jest.fn(async ({ where, data }: any) => {
+        // 定点写（指纹清除/自愈路径）：乐观锁拦截器语义——无条件推进版本
+        Object.assign(persistence.state, data);
+        persistence.bumpVersion();
+        return { count: 1 };
+      }),
     },
     gameMap: {
       update: jest.fn(async ({ data }: any) => {
@@ -162,7 +215,7 @@ function makeGatherFixture(options: { times?: number } = {}) {
     pushPlayerUpdate: jest.fn(async () => undefined),
     pushMapUpdate: jest.fn(async () => undefined),
   });
-  return { service, player, map, chatService, taskService };
+  return { service, player: persistence.state, persistence, gatherState, map, chatService, taskService };
 }
 
 describe('延时结算去重（救援/采集恰好一次）', () => {
@@ -230,5 +283,35 @@ describe('延时结算去重（救援/采集恰好一次）', () => {
       (call) => call[1] === '采集',
     );
     expect(advanceCalls).toHaveLength(1);
+  });
+
+  it('旧快照把已结算的「采集中」标记写回复活时，兜底扫描按指纹直接清除不再结算', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const fixture = makeGatherFixture();
+
+    // 第一次正常结算（定时器正点路径）
+    await expect(fixture.service.settleGatherResource(42)).resolves.toContain('收集到了');
+    expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(1);
+
+    // 模拟持旧快照的并发写者：把带同一指纹（startedAt/settleAt 相同）的
+    // 「采集中」标记原样写回库——线上重复结算事故的复活方式
+    fixture.persistence.state.markers = JSON.stringify({ 采集中: { ...fixture.gatherState } });
+
+    // 兜底扫描识别复活标记：定点清除，不广播、不产出、不计入结算数、不消耗熔断计数
+    await expect(fixture.service.settlePendingGathers()).resolves.toBe(0);
+    expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(1); // 无第二次广播
+    const backpack = JSON.parse(fixture.persistence.state.backpack);
+    const wood = backpack.find((item: any) => item.name === '木头');
+    expect(Number(wood?.count ?? 0)).toBe(2); // 没有重复产出
+    expect(JSON.parse(fixture.persistence.state.markers)['采集中']).toBeUndefined(); // 复活标记被清掉
+    expect(JSON.parse(fixture.map.resources)[0].times).toBe(4); // 资源次数没有被重复扣
+
+    // 后续新一次采集（不同指纹）完全不受影响：照常补结算
+    fixture.persistence.state.markers = JSON.stringify({
+      采集中: { ...fixture.gatherState, startedAt: fixture.gatherState.startedAt + 60_000 },
+    });
+    await expect(fixture.service.settlePendingGathers()).resolves.toBe(1);
+    expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fixture.map.resources)[0].times).toBe(3);
   });
 });

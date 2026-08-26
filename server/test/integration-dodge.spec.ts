@@ -74,11 +74,16 @@ describe('闪避指令 1:1 复刻（真实远程库端到端）', () => {
     return playerService.getPlayerData(uid);
   }
 
-  it('测试1 持续秒数公式 a1=(a/(25+a)+1)*4：熟练度0→4秒，熟练度25→8秒', async () => {
+  it('测试1 持续秒数公式 a1=(a/(25+a)+1)*4：熟练度0→4秒，熟练度25→6秒', async () => {
     const uid0 = await makePlayer('p0', { specialSeq: 0, type: '人类', affinity: 0, dodgeProf: 0 });
     const uid25 = await makePlayer('p25', { specialSeq: 0, type: '人类', affinity: 0, dodgeProf: 25 });
 
+    // 以「各次调用前的本地秒」为写入基准：服务端写的到期时间戳 = 内部写入时刻 + 固定时长，
+    // 断言「到期时间 − 调用前基准 ≈ 时长」与远程库读回延迟完全解耦（旧写法用读回时刻反推
+    // 剩余秒数，全量并发时读链路一旦超过容差即假红）。
+    const t0 = Date.now() / 1000;
     const w0 = await game.handleDodge(uid0);
+    const t25 = Date.now() / 1000;
     const w25 = await game.handleDodge(uid25);
 
     // 文本断言（原版 L576：名称+"尝试闪避攻击("+四舍(a1)+"秒)"）
@@ -87,15 +92,20 @@ describe('闪避指令 1:1 复刻（真实远程库端到端）', () => {
     expect(w25).toContain('尝试闪避攻击(6秒)');
 
     const p0 = await getPlayer(uid0);
+    const tRead0 = Date.now() / 1000;
     const p25 = await getPlayer(uid25);
+    const tRead25 = Date.now() / 1000;
     const b0 = JSON.parse(p0.player.buffs || '[]').find((b: any) => b.name === '闪避');
     const b25 = JSON.parse(p25.player.buffs || '[]').find((b: any) => b.name === '闪避');
-    // 增益持续秒数对齐 a1（远程库两次读延迟约1-2秒，放宽1秒容差仍可区分4/6/8秒档位）
-    expect(Math.round(b0.expireAt - Date.now() / 1000)).toBeGreaterThanOrEqual(2);
-    expect(Math.round(b25.expireAt - Date.now() / 1000)).toBeGreaterThanOrEqual(4);
-    // 冷却标记（原版 L1848：15秒，无飞羽）
+    // 到期时间戳 = 服务端内部写入时刻(∈[调用前, 读回前]) + 固定时长，两端夹逼、与远程库延迟解耦
+    expect(b0.expireAt).toBeGreaterThanOrEqual(t0 + 4 - 0.05);
+    expect(b0.expireAt).toBeLessThanOrEqual(tRead0 + 4 + 0.05);
+    expect(b25.expireAt).toBeGreaterThanOrEqual(t25 + 6 - 0.05);
+    expect(b25.expireAt).toBeLessThanOrEqual(tRead25 + 6 + 0.05);
+    // 冷却标记（原版 L1848：15*(1+a2*0.05)，无飞羽=15秒）——同口径按写入基准断言
     const cd0 = JSON.parse(p0.player.markers2 || '[]').find((m: any) => m.name === '闪避冷却');
-    expect(Math.round(cd0.expireAt - Date.now() / 1000)).toBeGreaterThanOrEqual(14);
+    expect(cd0.expireAt).toBeGreaterThanOrEqual(t0 + 15 - 0.05);
+    expect(cd0.expireAt).toBeLessThanOrEqual(tRead0 + 15 + 0.05);
   });
 
   it('测试2 花园猫(aff100)分支：写入"啾啾猫猫"增益 + 闪避击成就', async () => {

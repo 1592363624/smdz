@@ -205,16 +205,23 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     const attackerData = await getPlayer(createdUserIds[0]);
     const map = await mapService.getMapById(mapId);
 
+    // 以「反击调用前的本地秒」为基准断言增益时长：服务端到期时间戳 = 内部写入时刻 +
+    // 固定时长（30+卷土重来属性，本例无加成=30 秒），与远程库读回延迟解耦
+    // （旧写法用读回时刻反推剩余时间，全量并发时读链路一旦变慢即假红）。
+    const tCounter = Date.now() / 1000;
     await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
 
     const afterB = await getPlayer(uidB);
+    const tRead = Date.now() / 1000;
     const bBuffs = JSON.parse(afterB.player.buffs || '[]');
     const comeback = bBuffs.find((b: any) => b.name === '卷土重来');
 
     // 满状态复活：hp 回到上限 100
     expect(afterB.player.hp).toBe(afterB.player.maxHp);
-    // 进入卷土重来状态：增益已写入且未过期
+    // 进入卷土重来状态：到期时间戳 = 内部写入时刻(∈[调用前, 读回前]) + 30 秒，两端夹逼、抗延迟。
+    // 写入侧 nowSecV 是 Math.floor 秒级取整，下界额外放宽 1 秒取整损耗。
     expect(comeback).toBeDefined();
-    expect(comeback.expireAt).toBeGreaterThan(Date.now() / 1000);
+    expect(comeback.expireAt).toBeGreaterThanOrEqual(tCounter + 30 - 1.05);
+    expect(comeback.expireAt).toBeLessThanOrEqual(tRead + 30 + 0.05);
   });
 });
