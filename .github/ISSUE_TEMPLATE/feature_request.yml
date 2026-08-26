@@ -56,3 +56,14 @@ body:
       placeholder: 例如：希望该功能不要影响原有逻辑，最好可以开关控制
     validations:
       required: false
+
+  - type: textarea
+    id: env_info
+    attributes:
+      label: 环境信息
+      description: 系统、版本号等
+      placeholder: |
+        系统：Windows11
+        版本：v1.2.3
+    validations:
+      required: true

@@ -65,4 +65,4 @@ body:
         系统：Windows11
         版本：v1.2.3
     validations:
-      required: false
+      required: true
