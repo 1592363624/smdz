@@ -29,6 +29,8 @@ export class FamiliarSkillsService {
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
     private readonly bonusService: BonusService,
+    // 三方循环依赖（system→combat→skills→system）环上的一条边，必须显式 forwardRef。
+    @Inject(forwardRef(() => CombatSystemService))
     private readonly combatSystem: CombatSystemService,
     private readonly itemService: ItemService,
     private readonly itemSystem: ItemSystemService,
@@ -167,6 +169,38 @@ export class FamiliarSkillsService {
       expireAt: now + duration * 1000,
     });
     player.markers2 = JSON.stringify(newMarkers2);
+  }
+
+  /**
+   * 战斗内自动释放使魔特有技能
+   * 对应原版「释放使魔技能」子程序（使魔技能.ecode L179-208，战斗相关 L451/L1862 调用）：
+   * 兰音按 冷却核心/技能等级 决定公共冷却是否为0——为0时自动释放「形神合一」，
+   * 否则释放玩家特有技能；非兰音直接释放特有技能。
+   * 与 autoCastSkill（纯白之翼，指令后触发）不同：本方法不做纯白之翼装备检查、
+   * 不写 自动训练/纯白cd 标记，由技能自身的类型/冷却/好感门禁兜底。
+   * @param userId 用户ID
+   * @returns 释放结果文本；未配置可自动释放的技能时返回空串
+   */
+  async autoReleaseFamiliarSkill(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+
+    let normalizedSkill = this.familiarSystem.normalizeUniqueSkill(player.uniqueSkill, player.type);
+    if (player.type === '兰音') {
+      const skillLevel = this.getSkillLevel(markers, '兰音');
+      const publicCooldownZero =
+        this.hasItem(player, '冷却核心') ? skillLevel >= 40 : skillLevel >= 60;
+      if (publicCooldownZero) normalizedSkill = '形神合一';
+    }
+    if (!normalizedSkill) return '';
+
+    try {
+      const text = await this.executeSkill(userId, normalizedSkill);
+      return text || '';
+    } catch (error: any) {
+      this.logger.warn(`战斗内自动释放「${normalizedSkill}」失败: ${error?.message ?? error}`);
+      return '';
+    }
   }
 
   /**
@@ -1123,6 +1157,8 @@ export class FamiliarSkillsService {
     // 好感≥80 物伤2+50+技能 / ≥100 全属性+15+技能/2（combat-system L5611 saber case）
     const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
     this.addBuff(player, 'ex', Math.floor(15 * a3));
+    // addBuff 只改内存对象，必须落库否则 15 秒免伤增益不会生效
+    await this.playerService.savePlayer(player);
 
     return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒！\n${result}`;
   }
@@ -1195,20 +1231,23 @@ export class FamiliarSkillsService {
     const mult = 100 + 5 * skillLevel;
 
     // 真正调用战斗引擎造成伤害（三层穿透 + 击杀 + 经验 + 掉落）
+    // 原版攻击文本为「歼灭a」（使魔技能.ecode L1499），按命中档位抽取模板。
     const result = await this.castCombatSkill(userId, {
       cooldownName: '歼灭',
       baseCooldown: 60,
       damageMultiplier: mult,
-      attackText: '【歼灭】',
+      attackText: '歼灭a',
       familiarType: '阿尔缇娜',
     });
 
-    // 好感分层解锁：原版「玩家.好感 >= 20 → 获得增益 a技能2(减伤)」
+    // 好感分层解锁：原版「玩家.好感 >= 20 → 获得增益 a技能2 30秒」（使魔技能.ecode L1483）。
+    // 「a技能2」由战斗引擎格挡判定消费（combat-system 格挡分支：30%完全格挡/20%穿透+/其余减伤75%，
+    // 对应原版 战斗相关.ecode L2565-2572），不要改名也不要写 extra 字段——引擎按增益名匹配。
     const affinity = this.getAffinity(markers, '阿尔缇娜');
     let extra = '';
     if (this.checkAffinity(markers, '阿尔缇娜', 20)) {
-      this.addBuff(player, '歼灭·减伤', 30, { damageReduction: 20 });
-      extra = '\n（好感≥20 解锁：获得20%减伤，持续30秒）';
+      this.addBuff(player, 'a技能2', 30);
+      extra = '\n（好感≥20 解锁：【a技能2】剑刃格挡强化，持续30秒）';
       player.markers = JSON.stringify(markers);
       await this.playerService.savePlayer(player);
     }
@@ -1282,25 +1321,38 @@ export class FamiliarSkillsService {
       return '需要战斗女仆才能使出绝对守护';
     }
 
-    // 检查冷却
+    // 检查冷却（原版：冷却核心→50，否则60；使魔技能.ecode L1544-1550）
     const cooldownCheck = this.checkCooldown(player, '绝对守护', 300);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
+    // 原版流程（使魔技能.ecode L1551-1560）：
+    //   获得增益(玩家.增益, "守护1", a3*(10+技能等级/2))，a3=库洛牌?1.25:1；
+    //   置成就熟练度("沉着", 2)；好感≥100 → 守护3=守护4=1。
+    // 「守护1」由引擎消费：受击时进「守护2」并扣次数（战斗相关 L2521-2531），
+    // 「守护2」按剩余强度加 攻击2+强度×12（加成计算 L396-399），「守护3」是免死标记
+    // （combat-system 免死分支）。全部按增益名匹配，不要写 extra 字段。
+    const skillLevel = this.getSkillLevel(markers, '战斗女仆');
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    const guardDuration = Math.floor(a3 * (10 + skillLevel / 2));
+    this.addBuff(player, '守护1', guardDuration);
+
+    // 原版 置成就熟练度("沉着", 2)：沉着标记存时间锚点，供攻击时消耗减半（战斗相关 L1107-1117）
     const affinity = this.getAffinity(markers, '战斗女仆');
-    const effect = this.getSkillEffect(affinity);
-
-    // 无敌护盾：免疫伤害，持续时间和效果与好感度相关
-    const shieldDuration = Math.floor(10 + 10 * effect); // 10~20秒
-
-    this.addBuff(player, '绝对守护', this.buffDur(player, shieldDuration), { invincible: true });
+    if (this.checkAffinity(markers, '战斗女仆', 100)) {
+      markers['守护3'] = 1;
+      markers['守护4'] = 1;
+      await this.playerService.savePlayer(player); // 提前保存，确保免死标记即时生效
+    }
 
     // 设置冷却
-    this.setCooldown(player, '绝对守护', 300);
+    this.setCooldown(player, '绝对守护', await this.getSkillCooldown(player, 60));
 
-    // 记录技能熟练度
+    // 记录技能熟练度与活跃度（对齐原版 技能经验/活跃度）
     const skillKey = '战斗女仆技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
+
+    // 原版 置成就熟练度("沉着", 2)（使魔技能.ecode L1555）
+    markers['沉着'] = 2;
 
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
@@ -1308,7 +1360,7 @@ export class FamiliarSkillsService {
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
-    return `战斗女仆展开绝对守护！\n获得无敌护盾，免疫所有伤害 ${shieldDuration} 秒\n好感度加成: ${Math.round(effect * 100)}%`;
+    return `战斗女仆展开绝对守护！\n【守护1】${guardDuration}秒内可抵挡伤害并转化为攻击\n好感≥100 时同时激活【守护3】免死与【守护4】追击`;
   }
 
   /**
@@ -1719,29 +1771,45 @@ export class FamiliarSkillsService {
       return '需要绝灭天使才能使出日轮';
     }
 
-    // 原版基础倍率：倍率转换(玩家, 100 + 技能等级)（全体分摊），攻击文本"日轮a"
+    // 原版倍率：倍率转换(玩家, 100+技能等级) 后按地图存活怪物数分摊（使魔技能.ecode L1901）
     const skillLevel = this.getSkillLevel(markers, '绝灭天使');
-    const mult = 100 + skillLevel;
+    const baseMult = 100 + skillLevel;
+    const monsters = await this.mapService.getMapMonsters(player.mapId ?? 0).catch(() => [] as any[]);
+    const aliveCount = (monsters as any[]).filter((m: any) => Number(m?.hp ?? 0) > 0).length;
 
-    // 真正调用战斗引擎（全体攻击）造成日轮爆发伤害
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    if (aliveCount === 0) {
+      // 原版空场分支（L1888-1896）：「附近没有目标，对着空气练习了日轮」——
+      // 不走武器攻击，但仍获得日轮增益、按 -10-技能等级/2 消耗羽毛并计活跃度。
+      this.addBuff(player, '日轮', Math.floor(30 * a3));
+      this.combatSystem.getFeather(player, markers, Date.now(), -10 - skillLevel / 2);
+      const remaining = this.combatSystem.getFeather(player, markers, Date.now());
+      markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+      player.markers = JSON.stringify(markers);
+      await this.playerService.savePlayer(player);
+      return `${player.name || '冒险者'}对着空气练习了日轮\n（羽毛${Math.floor(remaining)}）`;
+    }
+
+    // 真正调用战斗引擎（全体攻击）造成日轮爆发伤害，倍率按存活怪数分摊
     const result = await this.castCombatSkill(userId, {
       cooldownName: '日轮',
       baseCooldown: 60,
-      damageMultiplier: mult,
+      damageMultiplier: Math.floor(baseMult / aliveCount),
       attackText: '日轮a',
       allAttack: true,
       familiarType: '绝灭天使',
+      // 原版施放时好感≥40 → 增加穿透(玩家.属性, 5)（L1903-1905），仅本次攻击生效
+      ...(this.checkAffinity(markers, '绝灭天使', 40) ? { extraPenetrationFlat: 5 } : {}),
     });
 
-    // 好感分层解锁：原版「玩家.好感 >= 40 → 增加穿透 5」
-    let extra = '';
-    if (this.checkAffinity(markers, '绝灭天使', 40)) {
-      this.addBuff(player, '日轮·穿透', 30, { penetrationBonus: 5 });
-      extra = '\n（好感≥40 解锁：穿透+5，持续30秒）';
-      await this.playerService.savePlayer(player);
-    }
+    // 攻击后：消耗10片羽毛 + 获得30×a3秒「日轮」增益（L1907-1912，引擎按增益名消费：
+    // 取羽毛封顶×1.5/恢复间隔减半，见 combat-system getFeather）
+    this.combatSystem.getFeather(player, markers, Date.now(), -10);
+    const remaining = this.combatSystem.getFeather(player, markers, Date.now());
+    this.addBuff(player, '日轮', Math.floor(30 * a3));
+    await this.playerService.savePlayer(player);
 
-    return `绝灭天使展开日轮！\n${result}${extra}`;
+    return `绝灭天使展开日轮！\n${result}${this.checkAffinity(markers, '绝灭天使', 40) ? '\n（好感≥40 解锁：本次攻击穿透+5）' : ''}（羽毛${Math.floor(remaining)}）`;
   }
 
   /**

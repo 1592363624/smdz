@@ -5874,6 +5874,34 @@ export class GameService {
       return this.formatHandbookCategory(category);
     }
 
+    // 「图鉴<地名>附近」：按复活点分组查询该地点附近的全部地图。
+    // 对应原版 数据显示.ecode 使魔图鉴：地图模糊搜索文本3 = “地图”+复活点+“附近”+名称+说明，
+    // 教程原文「结果上显示的“森林出口附近”是多个地图，你可以发送“图鉴森林出口附近”来查询是哪几个地图」。
+    // 新版直接取 respawnPoint 分组精确实现该语义，并生成编号临时输入替换供玩家直达单图详情。
+    if (query.endsWith('附近')) {
+      const placeName = query.slice(0, query.length - '附近'.length).trim();
+      if (!placeName) {
+        return `请在「附近」前输入地点名，如：图鉴医疗室附近`;
+      }
+      const allMaps = this.staticData.loadRaw<any>('maps');
+      const nearby = allMaps.filter((mp: any) => String(mp.respawnPoint || mp.name) === placeName);
+      if (nearby.length === 0) {
+        // 地名不是任何已知复活点 → 与未命中关键词同文案回落
+        return `图鉴中没有找到【${query}】\n使用「图鉴」查看所有分类`;
+      }
+      nearby.sort((a: any, b: any) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
+      const lines = [`📖 【${placeName}】附近的地图 (${nearby.length}张):`, '━━━━━━━━━━━━━━━'];
+      const shortcuts: string[] = [];
+      nearby.forEach((mp: any, index: number) => {
+        const tag = mp.isFrontier ? '（家园）' : mp.isInstance ? '（副本）' : '';
+        lines.push(`${index + 1}、${mp.name}${tag}`);
+        shortcuts.push(`${index + 1}@图鉴${mp.name}`);
+      });
+      lines.push('━━━━━━━━━━━━━━━', '使用「图鉴 地图名」查看地图详情');
+      await this.shortcutService.setTempInput(userId, shortcuts.join('#'));
+      return lines.join('\n');
+    }
+
     // 跨分类关键词搜索（对应原版 L2661 "X的图鉴搜索结果"）
     const keyword = query.replace(/^图鉴/, '').trim();
     const hits: Array<{ category: string; entry: HandbookEntry }> = [];

@@ -12,7 +12,7 @@
  * - 递减收益：二阶段属性超过阈值后按比例衰减
  */
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData, SetData } from './bonus.service';
@@ -24,6 +24,7 @@ import { AchievementService } from './achievement.service';
 import { CombatStateService } from './combat-state.service';
 import { StatsService } from './stats.service';
 import { TaskService } from './task.service';
+import { FamiliarSkillsService } from './familiar-skills.service';
 
 // ==================== 类型定义 ====================
 
@@ -40,6 +41,8 @@ export interface AttackContext {
   originalTimestamp?: number; // 原始时间戳，用于冷却判定
   /** 是否由自动连击触发的攻击 */
   isCombo?: boolean;
+  /** 是否由装备特效「额外攻击次数」（棒棒糖/射爆核心）派生的攻击，防止递归 */
+  isExtraAttack?: boolean;
   /** 是否由延时攻击触发的攻击 */
   isDelayed?: boolean;
   /** 是否由自动战斗循环触发的攻击 */
@@ -308,6 +311,11 @@ export class CombatSystemService {
     private readonly statsService: StatsService,
     @Optional() private readonly taskService?: TaskService,
     @Optional() private readonly petItemService?: ItemService,
+    // 战斗内自动释放使魔技能（棒棒糖/光棱，原版 战斗相关.ecode L451/L1862）需要反向回调
+    // FamiliarSkillsService；forwardRef+Optional+末位参数，兼容按位置 new 的既有测试。
+    @Inject(forwardRef(() => FamiliarSkillsService))
+    @Optional()
+    private readonly familiarSkills?: FamiliarSkillsService,
   ) {}
 
   // ==================== 用户级战斗串行锁 ====================
@@ -490,6 +498,63 @@ export class CombatSystemService {
     const splashCount = familiarEffect.splashCount || 0;
     const splashDamageMultiplier = familiarEffect.splashDamageMultiplier || 1;
     const splashMustHit = familiarEffect.splashMustHit || false;
+
+    // ========== 装备特效（对应原版 战斗相关.ecode L441-467，#目标选择结束 之后） ==========
+    // 棒棒糖(#特殊序号97)：10%几率「类型技能冷却」-60秒并自动释放使魔技能，额外攻击次数+1；
+    // 射爆核心(#29)：60秒间隔 额外攻击次数+1；
+    // 唯我主宰(#84)：60秒间隔 本次攻击必中。
+    let mustHitOverride = mustHit;
+    let extraAttackCount = 0;
+    if (!context.skipCombatLock) {
+      const equipsFx: any[] = Array.isArray(playerData.equipment)
+        ? playerData.equipment
+        : this.safeParseJson<any[]>(player.equipment, []);
+      const hasEquipSeqFx = (seq: number): boolean =>
+        equipsFx.some((e: any) => this.safeNum(e?.specialSeq ?? e?.特殊序号) === seq);
+
+      // 棒棒糖（原版 L448-453）
+      if (hasEquipSeqFx(97) && Math.random() * 100 < 10) {
+        const nowMsFx = Date.now();
+        const mk2Fx = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+        const typeKeyFx = `${player.type || '玩家'}技能冷却`;
+        const skFx = mk2Fx.find((m: any) => m?.name === typeKeyFx);
+        if (skFx) skFx.expireAt = Math.max(nowMsFx, skFx.expireAt - 60 * 1000);
+        else mk2Fx.push({ name: typeKeyFx, expireAt: Math.max(nowMsFx, Math.floor(nowMsFx / 1000 - 60) * 1000) });
+        player.markers2 = JSON.stringify(mk2Fx);
+        resultLines.push('【棒棒糖】');
+        // 原版 释放使魔技能(攻击方, s)：自动释放使魔特有技能（走主动技能完整门禁）
+        if (!isRuntimeActor && this.familiarSkills) {
+          try {
+            const autoText = await this.familiarSkills.autoReleaseFamiliarSkill(userId);
+            if (autoText) resultLines.push(autoText);
+          } catch (e: any) {
+            this.logger.warn(`棒棒糖自动释放使魔技能失败: ${e?.message ?? e}`);
+          }
+        }
+      }
+      // 射爆核心（原版 L455-459）：60s 冷却标记「射爆」→ 额外攻击次数+1
+      if (hasEquipSeqFx(29)) {
+        const nowSecFx = Date.now() / 1000;
+        const pMkFx = this.safeParseJson<Record<string, number>>(player.markers, {});
+        if (!pMkFx['射爆'] || nowSecFx - (pMkFx['射爆'] || 0) > 60) {
+          pMkFx['射爆'] = nowSecFx;
+          player.markers = JSON.stringify(pMkFx);
+          extraAttackCount += 1;
+          resultLines.push('【射爆】');
+        }
+      }
+      // 唯我主宰（原版 L460-466）：60s 冷却标记「wzj」→ 本次必中
+      if (hasEquipSeqFx(84)) {
+        const nowSecFx = Date.now() / 1000;
+        const pMkFx = this.safeParseJson<Record<string, number>>(player.markers, {});
+        if (!pMkFx['wzj'] || nowSecFx - (pMkFx['wzj'] || 0) > 60) {
+          pMkFx['wzj'] = nowSecFx;
+          player.markers = JSON.stringify(pMkFx);
+          mustHitOverride = true;
+          resultLines.push('【唯我主宰】必中');
+        }
+      }
+    }
 
     // 如果使魔特效改变了全体攻击标记，重新选择目标
     // 例如：战斗女仆RPG!/机枪会取消全体攻击，云爆弹会强制全体攻击
@@ -767,8 +832,9 @@ export class CombatSystemService {
       }
 
       // 命中判定（应用使魔特效的命中率修正 + 心无所扰必中标记 + 因果逆转 + 防御方闪避）
+      // mustHitOverride = context.mustHit 或 唯我主宰触发（原版 L462 必中=真）
       let isHit: boolean;
-      if (mustHit) {
+      if (mustHitOverride) {
         isHit = true;
       } else if (nextAttack.mustHitNext && Math.random() * 100 < (nextAttack.mustHitChance ?? 100)) {
         // 心无所扰：按几率无视闪避和闪避状态必中
@@ -1451,10 +1517,17 @@ export class CombatSystemService {
             const sk = atkMk2.find((m: any) => m?.name === typeKey);
             if (sk) sk.expireAt = Math.max(nowMs, sk.expireAt - 60 * 1000); // 获得增益(攻击方.标记2,"类型+技能冷却",-60,真,s)
             else atkMk2.push({ name: typeKey, expireAt: Math.max(nowMs, (nowSec - 60) * 1000) });
-            // 原版 释放使魔技能(攻击方, s)：自动释放攻击方使魔技能。
-            // ⚠️ 该行为依赖 combat-system 反向回调 familiarSkills，当前 weaponAttack 链路未注入，
-            // 为避免循环依赖与递归副作用，此处仅落地增益写入（与原版 L1861 前半一致），
-            // 自动释放使魔技能列为待补（同光荣弹性质，需外部注入 FamiliarSkillsService）。
+            // 原版 释放使魔技能(攻击方, s)（战斗相关.ecode L1862）：自动释放攻击方使魔特有技能。
+            // 经 forwardRef 注入的 FamiliarSkillsService 回调，走主动技能完整门禁
+            // （类型校验/冷却/好感门槛）；未注入（测试按位置 new 的桩）或玩家未设特有技能时静默跳过。
+            if (!isRuntimeActor && this.familiarSkills) {
+              try {
+                const autoText = await this.familiarSkills.autoReleaseFamiliarSkill(userId);
+                if (autoText) resultLines.push(autoText);
+              } catch (e: any) {
+                this.logger.warn(`光棱自动释放使魔技能失败: ${e?.message ?? e}`);
+              }
+            }
           }
         }
 
@@ -2442,6 +2515,25 @@ export class CombatSystemService {
         `攻击${atkStats.total}次，命中${atkStats.hit}次，被闪避${atkStats.dodged}次，` +
         `命中零伤${atkStats.nullDmg}次，有效伤${atkStats.effective}次`,
       );
+    }
+
+    // ========== 额外攻击次数（对应原版 战斗相关.ecode L445/L452/L456「额外攻击次数」累加） ==========
+    // 棒棒糖触发时 +1、射爆核心冷却就绪时 +1；每点额外次数以当前武器再完整攻击一轮
+    // （noDelay+isExtraAttack 防止连击/延时任务重复叠加）。原版由造成伤害外层循环消化该计数。
+    if (!context.isExtraAttack && !isRuntimeActor && extraAttackCount > 0) {
+      for (let i = 0; i < extraAttackCount; i++) {
+        try {
+          const extra = await this.weaponAttack(userId, weaponIndex, {
+            noDelay: true,
+            isCombo: true,
+            isExtraAttack: true,
+            damageMultiplier: 100,
+          });
+          resultLines.push(`【额外攻击】\n${extra.result}`);
+        } catch (e: any) {
+          this.logger.warn(`额外攻击执行失败: ${e?.message ?? e}`);
+        }
+      }
     }
 
     // ========== 自动连击（对应原版 武器攻击 L474-545 连击循环） ==========
@@ -6866,6 +6958,17 @@ export class CombatSystemService {
   }
 
   /**
+   * 安全数值转换（原版 取数值 语义）
+   * 非法/缺失值回落 0，供装备特效等字段兜底。
+   * @param v 待转换值
+   * @returns 数值；NaN/undefined/null 返回 0
+   */
+  private safeNum(v: any): number {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  /**
    * 读取并消费玩家的"下次攻击"型标记 buff（兰音系）
    * 对应原版 心无所扰(必中)/月落寸光(穿透蓄势)/反转童话(反转属性) 的一次性标记。
    * 调用后从玩家 buffs 中移除这些 onceAttack 标记，避免重复生效。
@@ -9792,6 +9895,10 @@ export class CombatSystemService {
     const summonLines = await this.runMapSummonAttacks(map, player, userId);
     if (summonLines.length > 0) lines.push(...summonLines);
 
+    // 原版 L320-350：存活的非被动召唤物（宠物）自动扶起同图倒地（卷土重来）玩家。
+    const helpUpLines = await this.runMapSummonHelpUp(map);
+    if (helpUpLines.length > 0) lines.push(...helpUpLines);
+
     map.markers2 = JSON.stringify(mapMarkers2);
     await this.mapService.updateDynamicFields(map.id, {
       markers2: map.markers2,
@@ -10050,6 +10157,75 @@ export class CombatSystemService {
       });
       if (result.result) lines.push(result.result);
       if (result.killed.length > 0) break;
+    }
+    return lines;
+  }
+
+  /**
+   * 地图战斗节拍：存活的非被动召唤物（宠物）自动扶起同图倒地玩家。
+   * 对应原版 _主程序.ecode L320-350 覅攻击pd 内的「#扶玩家」循环：
+   *   - 召唤物 标记"主动"==1（被动）跳过；当前生命<=0（死亡）跳过；
+   *   - 玩家 标记"不扶"==1 时跳过（设置不扶）；
+   *   - 玩家增益含未过期的"卷土重来"才扶；
+   *   - 扶起 = 缩短卷土重来30秒（原版 获得增益("卷土重来",-30,真)，等效立即移除）+ 恢复一半生命；
+   *   - 文本「{宠物名}扶起了{玩家名}」，宠物武器进入5秒冷却（冷却标记仅影响宠物攻击节奏，此处省略）。
+   * @param map 当前地图（summons 会被就地修改并由调用方持久化）
+   */
+  private async runMapSummonHelpUp(map: any): Promise<string[]> {
+    const lines: string[] = [];
+    try {
+      const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+      if (summons.length === 0) return lines;
+
+      // 同图全部倒地玩家（卷土重来 buff 未过期），含离线玩家——原版按地图玩家数组遍历，不筛在线。
+      let fallenPlayers: any[] = [];
+      if (this.prisma?.player?.findMany) {
+        fallenPlayers = await this.prisma.player.findMany({ where: { mapId: map.id } });
+        fallenPlayers = fallenPlayers.filter((p: any) => this.hasActiveRuntimeBuff(p.buffs, '卷土重来'));
+      }
+      if (fallenPlayers.length === 0) return lines;
+
+      const nowMs = Date.now();
+      let changed = false;
+      for (const summon of summons) {
+        if (fallenPlayers.length === 0) break;
+        // 原版 L322：标记"主动"==1 为被动模式，不参与扶人
+        const active = this.playerService.getMarkerValue(
+          this.normalizeMarkerObject(summon.markers ?? summon.标记 ?? {}),
+          '主动',
+        );
+        if (active === 1) continue;
+        // 原版 L328：死亡召唤物不扶人
+        if ((Number(summon?.hp ?? summon?.当前生命 ?? 0)) <= 0) continue;
+
+        const summonName = summon?.name ?? summon?.名称 ?? '宠物';
+        for (const victim of [...fallenPlayers]) {
+          // 原版 L336：玩家标记"不扶"==1 时跳过（设置不扶）
+          const victimMarkers = this.normalizeMarkerObject(victim.markers);
+          if (this.playerService.getMarkerValue(victimMarkers, '不扶') === 1) continue;
+
+          // 原版 L342-344：缩短卷土重来30秒 + 恢复一半生命
+          const buffs = this.playerService.safeJsonParse<any[]>(victim.buffs, []);
+          const jtIdx = buffs.findIndex((b: any) => b && (b.name ?? b.名称) === '卷土重来');
+          if (jtIdx < 0) continue;
+          buffs.splice(jtIdx, 1);
+          victim.buffs = JSON.stringify(buffs);
+          victim.hp = Math.floor(Number(victim.maxHp || 100) / 2);
+          await this.playerService.savePlayer(victim);
+
+          lines.push(`${summonName}扶起了${victim.name || '冒险者'}`);
+          changed = true;
+          const idx = fallenPlayers.indexOf(victim);
+          if (idx >= 0) fallenPlayers.splice(idx, 1);
+          if (fallenPlayers.length === 0) break;
+        }
+      }
+
+      if (changed && this.mapService.updateDynamicFields) {
+        await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+      }
+    } catch (e: any) {
+      this.logger.warn(`宠物自动扶人失败: ${e.message}`);
     }
     return lines;
   }

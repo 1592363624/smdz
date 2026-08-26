@@ -121,6 +121,9 @@ export class FamiliarSystemService {
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
     private readonly mapService: MapService,
+    // 三方循环依赖（system→combat→skills→system）会破坏 design:paramtypes 元数据，
+    // 环上每条边都必须显式 @Inject(forwardRef())，否则该参数解析为 Object。
+    @Inject(forwardRef(() => CombatSystemService))
     private readonly combatSystem: CombatSystemService,
     @Optional() private readonly homeService?: HomeService,
     @Optional() private readonly itemSystem?: ItemSystemService,
@@ -4255,8 +4258,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
   }
 
-  /** 将存量特有技能文本映射为 FamiliarSkillsService 的规范技能名。 */
-  private normalizeUniqueSkill(raw: any, type: any): string {
+  /** 将存量特有技能文本映射为 FamiliarSkillsService 的规范技能名。（战斗内自动释放等跨服务复用，公开） */
+  normalizeUniqueSkill(raw: any, type: any): string {
     const value = String(raw ?? '').trim().replace(/[！!。]+$/g, '');
     const aliases: Record<string, string> = {
       ex: '誓约胜利之剑',

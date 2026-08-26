@@ -88,7 +88,7 @@ export class ShortcutService {
           // 临时输入替换触发一次后仅移除当前匹配项，保留其他编号选项（如 1/2/3/4）
           data.tempInputs = data.tempInputs.filter(t => t !== temp);
           this.cache.set(userId, data);
-          return result;
+          return ShortcutService.normalizeNewlineMarkers(result);
         }
       }
     }
@@ -98,7 +98,7 @@ export class ShortcutService {
       if (result === shortcut.original) {
         result = shortcut.target;
         this.cache.set(userId, data);
-        return result;
+        return ShortcutService.normalizeNewlineMarkers(result);
       }
     }
 
@@ -107,11 +107,21 @@ export class ShortcutService {
       if (result.startsWith(replacement.original)) {
         result = result.replace(replacement.original, replacement.target);
         this.cache.set(userId, data);
-        return result;
+        return ShortcutService.normalizeNewlineMarkers(result);
       }
     }
 
     return result;
+  }
+
+  /**
+   * 将目标文本中的「【换行】」标记展开为真实换行符。
+   * 对应原版接口1.ecode L367：消息按【换行】分割后逐段送入 Main 从左到右依次执行，
+   * 帮助文案（L263）：你可以用「【换行】」来替代换行符，使用换行符可以一次输入多条指令。
+   * 新版在快捷输入预处理出口统一展开，多渠道（网页/AstrBot）的多行拆分逻辑即可自然逐条执行。
+   */
+  static normalizeNewlineMarkers(text: string): string {
+    return String(text || '').split('【换行】').map(s => s.trim()).filter(Boolean).join('\n');
   }
 
   /**
