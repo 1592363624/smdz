@@ -61,47 +61,8 @@
       <div class="sidebar-content">
         <!-- 我的 Tab：玩家信息 + 快捷操作 -->
         <div v-show="sidebarTab === 'me'" class="tab-pane">
-          <div class="player-info" v-if="playerInfo">
-            <div class="pi-header">
-              <span class="pi-name">{{ playerInfo.name || '冒险者' }}</span>
-              <span class="pi-type" v-if="playerInfo.type">{{ playerInfo.type }}</span>
-            </div>
-            <div class="pi-row pi-row-level">
-              <span class="pi-label">等级</span>
-              <span class="pi-value">Lv.{{ playerInfo.level }}</span>
-            </div>
-            <div class="pi-bar-row">
-              <div class="pi-bar-label"><span>经验</span><span>{{ playerInfo.exp }}/{{ playerInfo.upgradeExp }}</span></div>
-              <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
-            </div>
-            <div class="pi-row">
-              <span class="pi-label">❤️ 生命</span>
-              <span class="pi-value">{{ Math.round(playerInfo.hp) }} / {{ Math.round(playerInfo.maxHp) }}</span>
-            </div>
-            <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
-            <div class="pi-row">
-              <span class="pi-label">🛡️ 护盾</span>
-              <span class="pi-value">{{ Math.round(playerInfo.shield) }} / {{ Math.round(playerInfo.maxShield) }}</span>
-            </div>
-            <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
-            <div class="pi-row">
-              <span class="pi-label">🛡️ 装甲</span>
-              <span class="pi-value">{{ Math.round(playerInfo.armor) }} / {{ Math.round(playerInfo.maxArmor) }}</span>
-            </div>
-            <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
-            <div class="pi-stats">
-              <div class="pi-stat"><span>攻击</span><b>{{ Math.round(playerInfo.attack) }}</b></div>
-              <div class="pi-stat"><span>防御</span><b>{{ Math.round(playerInfo.defense) }}</b></div>
-              <div class="pi-stat"><span>速度</span><b>{{ Math.round(playerInfo.speed) }}</b></div>
-              <div class="pi-stat"><span>闪避</span><b>{{ Math.round(playerInfo.dodge) }}</b></div>
-              <div class="pi-stat"><span>命中</span><b>{{ Math.round(playerInfo.hit) }}</b></div>
-              <div class="pi-stat"><span>暴击</span><b>{{ Math.round(playerInfo.crit) }}%</b></div>
-            </div>
-            <div class="pi-row pi-row-loc">
-              <span class="pi-label">📍 位置</span>
-              <span class="pi-location">{{ playerInfo.location }}</span>
-            </div>
-          </div>
+          <!-- 玩家状态面板：桌面侧栏与手机抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示） -->
+          <PlayerStatusPanel v-if="playerInfo" :info="playerInfo" />
           <div class="player-info" v-else>
             <div class="pi-row">
               <span class="pi-label">状态</span>
@@ -275,47 +236,8 @@
       <div class="sidebar-content">
         <!-- 我的 Tab -->
         <div v-show="mobileTab === 'me'" class="tab-pane">
-          <div class="player-info" v-if="playerInfo">
-            <div class="pi-header">
-              <span class="pi-name">{{ playerInfo.name || '冒险者' }}</span>
-              <span class="pi-type" v-if="playerInfo.type">{{ playerInfo.type }}</span>
-            </div>
-            <div class="pi-row pi-row-level">
-              <span class="pi-label">等级</span>
-              <span class="pi-value">Lv.{{ playerInfo.level }}</span>
-            </div>
-            <div class="pi-bar-row">
-              <div class="pi-bar-label"><span>经验</span><span>{{ playerInfo.exp }}/{{ playerInfo.upgradeExp }}</span></div>
-              <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
-            </div>
-            <div class="pi-row">
-              <span class="pi-label">❤️ 生命</span>
-              <span class="pi-value">{{ Math.round(playerInfo.hp) }} / {{ Math.round(playerInfo.maxHp) }}</span>
-            </div>
-            <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
-            <div class="pi-row">
-              <span class="pi-label">🛡️ 护盾</span>
-              <span class="pi-value">{{ Math.round(playerInfo.shield) }} / {{ Math.round(playerInfo.maxShield) }}</span>
-            </div>
-            <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
-            <div class="pi-row">
-              <span class="pi-label">🛡️ 装甲</span>
-              <span class="pi-value">{{ Math.round(playerInfo.armor) }} / {{ Math.round(playerInfo.maxArmor) }}</span>
-            </div>
-            <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
-            <div class="pi-stats">
-              <div class="pi-stat"><span>攻击</span><b>{{ Math.round(playerInfo.attack) }}</b></div>
-              <div class="pi-stat"><span>防御</span><b>{{ Math.round(playerInfo.defense) }}</b></div>
-              <div class="pi-stat"><span>速度</span><b>{{ Math.round(playerInfo.speed) }}</b></div>
-              <div class="pi-stat"><span>闪避</span><b>{{ Math.round(playerInfo.dodge) }}</b></div>
-              <div class="pi-stat"><span>命中</span><b>{{ Math.round(playerInfo.hit) }}</b></div>
-              <div class="pi-stat"><span>暴击</span><b>{{ Math.round(playerInfo.crit) }}%</b></div>
-            </div>
-            <div class="pi-row pi-row-loc">
-              <span class="pi-label">📍 位置</span>
-              <span class="pi-location">{{ playerInfo.location }}</span>
-            </div>
-          </div>
+          <!-- 玩家状态面板：桌面侧栏与手机抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示） -->
+          <PlayerStatusPanel v-if="playerInfo" :info="playerInfo" />
           <div class="player-info" v-else>
             <div class="pi-row">
               <span class="pi-label">状态</span>
@@ -953,6 +875,8 @@
  */
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { useRouter } from 'vue-router';
+// 玩家状态面板（桌面侧栏 + 手机抽屉复用；战斗力/任务/装备/增益一屏展示）
+import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
 import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
 import { WS_URL, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
@@ -1332,38 +1256,6 @@ function copyOpenId() {
     })
     .catch(() => {});
 }
-
-// 生命值百分比
-const hpPercent = computed(() => {
-  if (!playerInfo.value || !playerInfo.value.maxHp) return 0;
-  return Math.round((playerInfo.value.hp / playerInfo.value.maxHp) * 100);
-});
-
-// 经验百分比
-const expPercent = computed(() => {
-  if (!playerInfo.value || !playerInfo.value.upgradeExp) return 0;
-  return Math.min(100, Math.round((playerInfo.value.exp / playerInfo.value.upgradeExp) * 100));
-});
-
-// 护盾百分比
-const shieldPercent = computed(() => {
-  if (!playerInfo.value || !playerInfo.value.maxShield) return 0;
-  return Math.min(100, Math.round((playerInfo.value.shield / playerInfo.value.maxShield) * 100));
-});
-
-// 装甲百分比
-const armorPercent = computed(() => {
-  if (!playerInfo.value || !playerInfo.value.maxArmor) return 0;
-  return Math.min(100, Math.round((playerInfo.value.armor / playerInfo.value.maxArmor) * 100));
-});
-
-// 血条颜色样式
-const hpBarClass = computed(() => {
-  const pct = hpPercent.value;
-  if (pct <= 25) return 'low';
-  if (pct <= 60) return 'medium';
-  return '';
-});
 
 // 根据输入前缀过滤指令列表，用于自动补全
 const filteredCommands = computed(() => {

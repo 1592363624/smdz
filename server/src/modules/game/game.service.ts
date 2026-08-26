@@ -1043,9 +1043,16 @@ export class GameService {
    */
   async buildPlayerInfo(userId: number): Promise<any | null> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    const { player, markers } = playerData;
     // 计算后属性（对齐原版 _计算玩家，与控制器 getPlayerInfo 保持一致）
     const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
+    // 战斗力（基于"计算后"的成长属性，与文本面板 handleInfo 同口径）
+    const powerBonus: BonusData = {
+      攻击: calcBonus.攻击 || 0,
+      生命: calcBonus.生命 || 0,
+      装甲: calcBonus.装甲 || 0,
+      速度: calcBonus.速度 || 0,
+    };
     return {
       id: player.id,
       userId: player.userId,
@@ -1070,7 +1077,93 @@ export class GameService {
       mapId: player.mapId,
       location: player.location,
       affinity: player.affinity,
+      combatPower: this.bonusService.calcCombatPower(powerBonus),
+      tasks: this.buildActiveTasks(playerData.tasks),
+      equipment: this.buildEquipmentSnapshot(player, markers),
+      buffs: this.buildActiveBuffs(playerData.buffs),
     };
+  }
+
+  /**
+   * 当前任务快照（网页「我的」面板用）：仅保留未完成任务的名字与进度计数，
+   * 结构对齐 handleInfo 文本面板的任务段（字符串条目 / name|title 对象均兼容）。
+   */
+  private buildActiveTasks(rawTasks: any): Array<{ name: string; count?: number }> {
+    const list = Array.isArray(rawTasks) ? rawTasks : [];
+    const result: Array<{ name: string; count?: number }> = [];
+    for (const t of list) {
+      if (typeof t === 'string') {
+        if (t.trim()) result.push({ name: t });
+        continue;
+      }
+      const name = t?.name || t?.title;
+      if (!name) continue;
+      // 已完成标记的不再展示（任务完成结算后会从列表移除，此处兜底）
+      if (t.completed === true || t.status === '已完成' || t.status === '已提交') continue;
+      const count = Number(t.count ?? 0);
+      result.push(count > 0 ? { name, count } : { name });
+    }
+    return result;
+  }
+
+  /**
+   * 装备栏快照（网页「我的」面板用）：按部位遍历 + 武器/植入/增幅，
+   * 与 handleInfo 装备面板（原版 数据显示.ecode 使魔数据 L2032-2210）保持同一取数口径。
+   * name 为 null 表示该栏位为空，前端显示「无(+强化等级)」。
+   */
+  private buildEquipmentSnapshot(player: any, markers: any): Array<{ slot: string; name: string | null; quality: string; effect: number; enhance: number }> {
+    // 品质前缀映射（对齐原版 显示品质 L1591-1639）
+    const qualityPrefix = (data: string): string => {
+      const c = (data || '').charAt(0).toLowerCase();
+      const map: Record<string, string> = { e: '普通', d: '良好', c: '优秀', b: '精良', a: '史诗', s: '传说' };
+      return map[c] || '神迹';
+    };
+    const equipmentList = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const weaponList = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    const currentWeaponIdx = Number(player.currentWeapon ?? 0);
+
+    const entryOf = (slot: string, item: any, enhanceKey: string) => {
+      const enhanceLv = this.combatState.getAchievementProficiency(markers, enhanceKey);
+      if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv };
+      return {
+        slot,
+        name: String(item.name || item.名称 || '未知'),
+        quality: qualityPrefix(item.data || item.数据 || ''),
+        effect: Number(item.effect || item.特效 || 0),
+        enhance: enhanceLv,
+      };
+    };
+
+    const slotNames = ['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部'];
+    const result = slotNames.map((slotName) =>
+      entryOf(
+        slotName,
+        equipmentList.find((e: any) => (e.type || e.类型) === slotName),
+        slotName + '强化',
+      ),
+    );
+    // 武器（currentWeapon 从 1 计数，0/越界回落拳头）
+    result.push(entryOf('武器', currentWeaponIdx > 0 ? weaponList[currentWeaponIdx - 1] : null, '武器强化'));
+    // 植入体 / 增幅器
+    result.push(entryOf('植入', equipmentList.find((e: any) => (e.type || e.类型) === '植入体'), ''));
+    result.push(entryOf('增幅', equipmentList.find((e: any) => (e.type || e.类型) === '增幅器'), ''));
+    return result;
+  }
+
+  /**
+   * 增益快照（网页「我的」面板用）：过滤已过期条目，保留名字与有效期时间戳，
+   * 剩余倒计时由前端按本地时钟实时计算。
+   */
+  private buildActiveBuffs(rawBuffs: any): Array<{ name: string; expireAt: number }> {
+    const list = Array.isArray(rawBuffs) ? rawBuffs : [];
+    const now = Date.now();
+    const result: Array<{ name: string; expireAt: number }> = [];
+    for (const b of list) {
+      const expireAt = Number(b?.expireAt ?? b?.有效期至 ?? 0);
+      if (!(expireAt > now)) continue;
+      result.push({ name: String(b?.name || b?.名称 || '未知'), expireAt });
+    }
+    return result;
   }
 
   /**

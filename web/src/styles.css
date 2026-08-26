@@ -1738,6 +1738,136 @@ vite-plugin-checker-error-overlay,
   font-weight: 600;
 }
 
+/* 战斗力行（金色数字，与文本面板 🔥 对应） */
+.player-info .pi-row-power {
+  margin-top: 2px;
+}
+.player-info .pi-power {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+/* 可折叠小节（当前任务 / 装备栏 / 增益） */
+.player-info .pi-section {
+  padding-top: 6px;
+  border-top: 1px dashed rgba(139, 92, 246, 0.15);
+}
+.player-info .pi-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.player-info .pi-count {
+  font-size: 10px;
+  color: var(--accent2);
+  background: rgba(6, 182, 212, 0.12);
+  border-radius: 8px;
+  padding: 0 6px;
+  line-height: 16px;
+}
+/* 装备栏折叠开关（button 重置为标题样式） */
+.player-info button.pi-section-title {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--muted);
+  text-align: left;
+}
+.player-info button.pi-section-title:hover {
+  color: var(--text);
+}
+.player-info .pi-arrow {
+  margin-left: auto;
+  transition: transform 0.2s ease;
+  font-size: 10px;
+}
+.player-info .pi-arrow.open {
+  transform: rotate(90deg);
+}
+
+/* 当前任务 chips */
+.player-info .pi-task-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.player-info .pi-task {
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(139, 92, 246, 0.12);
+  border-radius: 8px;
+  padding: 1px 7px;
+  line-height: 18px;
+}
+.player-info .pi-task i {
+  font-style: normal;
+  color: var(--accent2);
+  margin-left: 2px;
+}
+
+/* 装备栏两列网格；品质配色对齐原版 显示品质 */
+.player-info .pi-eq-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 10px;
+}
+.player-info .pi-eq {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.player-info .pi-eq-slot {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.player-info .pi-eq-val,
+.player-info .pi-eq-empty {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player-info .pi-eq-val i {
+  font-style: normal;
+  opacity: 0.75;
+}
+.player-info .pi-eq-empty {
+  color: var(--muted);
+}
+.player-info .pi-eq-val.q-d { color: #4ade80; }
+.player-info .pi-eq-val.q-c { color: #60a5fa; }
+.player-info .pi-eq-val.q-b { color: #a78bfa; }
+.player-info .pi-eq-val.q-a { color: #fb923c; }
+.player-info .pi-eq-val.q-s { color: #fbbf24; }
+.player-info .pi-eq-val.q-x { color: #f87171; }
+
+/* 增益 chips（剩余时间青色高亮，每秒本地倒计时） */
+.player-info .pi-buff-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.player-info .pi-buff {
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(6, 182, 212, 0.1);
+  border-radius: 8px;
+  padding: 1px 7px;
+  line-height: 18px;
+}
+.player-info .pi-buff em {
+  font-style: normal;
+  color: var(--accent2);
+}
+
 /* ============================================================
  * 快捷操作按钮
  * ============================================================ */
