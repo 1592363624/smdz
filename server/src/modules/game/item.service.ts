@@ -10,6 +10,19 @@ import { StaticDataService } from './static-data.service';
 import { CombatStateService } from './combat-state.service';
 import { PlayerService } from './player.service';
 import { MapService } from './map.service';
+
+/**
+ * 对齐原版「显示物品」(数据显示.ecode L1887-1929) 的资源数量展示规则：
+ * 文本四舍取整（四舍五入保留 2 位并去尾零）；数量 < 1 时返回空串（不显示）。
+ * 原版使用示例：普通战利品产出「普通武器补给箱0.03334」→ 取整≈0 → 不显示，
+ * 而非把 0.03334 原样拼进结果文本。
+ */
+function formatLootQuantity(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded < 1) return '';
+  // 去尾零：toFixed(2) 后去掉多余 0 与小数点的 .
+  return String(Number(rounded.toFixed(2)));
+}
 import { ItemSystemService } from './item-system.service';
 
 /**
@@ -961,7 +974,8 @@ export class ItemService {
     const resourceSummary: string[] = [];
     for (const o of obtained) {
       if (!this.staticData.getEquipmentByName(o.name)) {
-        resourceSummary.push(`${o.name}x${Math.round(o.count)}`);
+        const qty = formatLootQuantity(o.count);
+        if (qty) resourceSummary.push(`${o.name}x${qty}`); // 数量<1 不显示（普通武器补给箱0.03334 → 不显示）
       }
     }
     const w3 = resourceSummary.join('、');
@@ -985,13 +999,20 @@ export class ItemService {
       return `[${idx + 1}]${eq.name}${qualityLetter}${effectName ? `【${effectName}】` : ''}`;
     }).join('、');
 
-    // 原版默认分支（不显示装备名称=假）：a>50 只显示件数，否则逐件显示
-    let resultText = `\n${player.name}使用了${actualCount}的${itemName},得到了${w3}和`;
-    if (equipmentCount > 50) {
-      resultText += `${equipmentCount}件装备${w4}`;
-    } else {
-      resultText += `${equipmentText}${w4}`;
+    // 原版「打开箱子」(物品操作.ecode L2434-2446) 文本装配：
+    //   无装备(a=0)：得到了${w3}${w4}（不挂悬空的「和」）
+    //   有装备且 a>50：得到了${w3}和${a}件装备${w4}
+    //   有装备且 a<=50：得到了${w3}和${显示物品清单}${w4}
+    let resultText = `\n${player.name}使用了${actualCount}的${itemName},得到了${w3}`;
+    if (equipmentCount > 0) {
+      resultText += '和';
+      if (equipmentCount > 50) {
+        resultText += `${equipmentCount}件装备`;
+      } else {
+        resultText += equipmentText;
+      }
     }
+    resultText += w4;
 
     // ===== 成就与消耗 L2449-2457 =====
     const useMarkers = parseJsonArray<string>(gameItem.useMarkers, []);
@@ -1369,8 +1390,10 @@ export class ItemService {
     if (isWeapon) {
       // 加入武器列表
       weapons.push(item);
-      // 设置当前武器为最新
-      const currentWeapon = weapons.length - 1;
+      // 对齐原版 #装备 L4255-4259：仅当前未持武器时自动拿起新武器（当前武器=1），
+      // 已有武器时只"背到背上"不切换当前武器
+      const tookUp = Number(player.currentWeapon || 0) === 0;
+      const currentWeapon = tookUp ? weapons.length : Number(player.currentWeapon || 0);
       // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
       const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
       await this.prisma.player.update({
@@ -1382,8 +1405,33 @@ export class ItemService {
           sets,
         },
       });
-      return `${player.name}装备了${item.name}`;
+      // 文案对齐原版：拿在手中 / 背到了背上（含品质中括号）
+      const q = this.qualityPrefix(item.data);
+      return tookUp
+        ? `${player.name}把${item.name}${this.qualityBracket(q)}拿在手中`
+        : `${player.name}把${item.name}${this.qualityBracket(q)}背到了背上`;
     } else {
+      // 同部位自动替换：对齐原版 #装备 L4264-4282，按类型查找已穿戴装备，
+      // 旧装备放回背包、新装备顶替；文案对齐"脱下X,换上了Y / 穿上了Y"
+      const newType = String(equip.type || '');
+      let replaced: Item3 | undefined;
+      const equipTypeOf = (it: Item3): string => {
+        const def = typeof (this.staticData as any).getEquipmentByName === 'function'
+          ? (this.staticData as any).getEquipmentByName(it.name)
+          : undefined;
+        return String(def?.equipType ?? def?.type ?? '');
+      };
+      const oldIndex = equipment.findIndex((it) => {
+        const t = equipTypeOf(it);
+        if (!newType) return false;
+        // 植入体/增幅器与其他部位互不冲突，仅在同类之间替换
+        return t === newType;
+      });
+      if (oldIndex !== -1) {
+        replaced = equipment.splice(oldIndex, 1)[0];
+        backpack.push(replaced);
+      }
+
       // 加入装备列表
       equipment.push(item);
       // 重算套装判定
@@ -1396,7 +1444,11 @@ export class ItemService {
           sets,
         },
       });
-      return `${player.name}装备了${item.name}`;
+      const q = this.qualityPrefix(item.data);
+      // 文案对齐原版：有替换"脱下旧,换上新"，无替换"穿上了"
+      return replaced
+        ? `${player.name}脱下${replaced.name}${this.qualityBracket(this.qualityPrefix(replaced.data))},换上了${item.name}${this.qualityBracket(q)}`
+        : `${player.name}穿上了${item.name}${this.qualityBracket(q)}`;
     }
   }
 
@@ -1442,10 +1494,10 @@ export class ItemService {
         backpack.push(weapons[i]);
         weapons.splice(i, 1);
 
-        // 如果卸下的是当前武器，重置当前武器索引
+        // 如果卸下的是当前武器，重置当前武器索引（1-based：有效范围 1..weapons.length，0=拳头）
         let currentWeapon = player.currentWeapon || 0;
-        if (currentWeapon >= weapons.length) {
-          currentWeapon = weapons.length > 0 ? 0 : 0;
+        if (currentWeapon > weapons.length) {
+          currentWeapon = weapons.length;
         }
 
         // 重算套装判定
@@ -1467,6 +1519,27 @@ export class ItemService {
   }
 
   /**
+   * 品质前缀（对齐原版 显示品质 L1591-1639）
+   * 从装备数据串首字符还原品质文本
+   * @param data 装备数据串（首字符为品质前缀 e/d/c/b/a/s）
+   * @returns 品质文本（普通/良好/优秀/精良/史诗/传说/神迹）
+   */
+  private qualityPrefix(data: string): string {
+    const c = (data || '').charAt(0).toLowerCase();
+    const map: Record<string, string> = { e: '普通', d: '良好', c: '优秀', b: '精良', a: '史诗', s: '传说' };
+    return map[c] || '神迹';
+  }
+
+  /**
+   * 品质中括号（对齐原版 加中括号）：品质为"普通"时不加括号，其余返回 [品质]
+   * @param quality 品质文本
+   * @returns 形如 [优秀] 的字符串，普通品质返回空串
+   */
+  private qualityBracket(quality: string): string {
+    return quality === '普通' ? '' : `[${quality}]`;
+  }
+
+  /**
    * 判断是否为武器
    * 根据特殊序号和装备类型判断
    * @param specialSeq 特殊序号
@@ -1474,13 +1547,11 @@ export class ItemService {
    * @returns 是否为武器
    */
   private isWeapon(specialSeq: number, equipType: string): boolean {
-    // 武器类型判断逻辑
-    // 特殊序号 > 0 且类型为"武器" 或包含特定标记
-    const weaponTypes = ['武器', '剑', '刀', '枪', '弓', '法杖', '杖', '盾', '斧', '锤'];
-    for (const wt of weaponTypes) {
-      if (equipType.includes(wt)) return true;
-    }
-    return specialSeq > 0 && specialSeq < 100;
+    // 对齐原版 数据分析.ecode 规则（同 staticData.isWeapon）：
+    // 特殊序号非 0 时，负数是武器、正数是普通装备；只有特殊序号为 0 时才按类型判断
+    if (specialSeq !== 0) return specialSeq < 0;
+    const type = String(equipType || '');
+    return type.endsWith('武器') || type === '工具';
   }
 
   /**

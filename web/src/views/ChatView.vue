@@ -3670,6 +3670,8 @@ onUnmounted(() => {
 .um-log-msg {
   color: var(--text-secondary);
   word-break: break-word;
+  /* 保留提交信息中的换行符，支持多行更新内容展示 */
+  white-space: pre-line;
 }
 .um-log-author {
   flex-shrink: 0;

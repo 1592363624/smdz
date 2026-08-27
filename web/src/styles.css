@@ -354,8 +354,12 @@ vite-plugin-checker-error-overlay,
 }
 
 /* ===== 左侧边栏 ===== */
+/* 桌面宽屏下允许弹性伸展，吃掉中部聊天区让出的空余宽度（上限约束避免过宽） */
 .sidebar {
   width: 290px;
+  flex: 1 1 320px;
+  min-width: 290px;
+  max-width: 520px;
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -1061,25 +1065,27 @@ vite-plugin-checker-error-overlay,
 }
 
 /* ===== 聊天主区域 ===== */
+/* 中部聊天区收窄为固定阅读宽度（不随窗口拉伸），空余宽度优先分给两侧面板 */
 .chat-main {
-  flex: 1;
-  min-width: 0; /* 允许 flex 子项收缩，避免消息溢出 */
+  flex: 0 1 680px;
+  min-width: 440px; /* 允许收缩，但保底可读宽度 */
   display: flex;
   flex-direction: column;
   position: relative;
   z-index: 1;
-  /* 桌面端右栏出现时，让聊天区域不强制贴满，留出合理视觉密度 */
-  max-width: 880px;
+  max-width: 680px;
   margin: 0 auto;
-  width: 100%;
   border-left: 1px solid var(--glass-border);
   border-right: 1px solid var(--glass-border);
 }
 
 /* ===== 桌面端右栏（当前地图详情） ===== */
+/* 宽屏下与左栏一起弹性伸展，充分利用聊天区两侧的空余位置 */
 .info-panel {
-  width: 330px;
-  flex-shrink: 0;
+  width: auto;
+  flex: 1 0 340px;
+  min-width: 330px;
+  max-width: 620px;
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -1118,8 +1124,9 @@ vite-plugin-checker-error-overlay,
   font-style: italic;
 }
 .info-panel .ip-list {
-  display: flex;
-  flex-direction: column;
+  /* 右栏弹性变宽时列表自动多列排布，充分利用空余宽度 */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 4px;
 }
 .info-panel .ip-row {
@@ -1811,10 +1818,10 @@ vite-plugin-checker-error-overlay,
   margin-left: 2px;
 }
 
-/* 装备栏两列网格；品质配色对齐原版 显示品质 */
+/* 装备栏自适应多列网格（侧栏变宽时自动增加列数）；品质配色对齐原版 显示品质 */
 .player-info .pi-eq-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 3px 10px;
 }
 .player-info .pi-eq {
@@ -1829,11 +1836,13 @@ vite-plugin-checker-error-overlay,
   flex-shrink: 0;
   color: var(--muted);
 }
+/* 装备名过长时换行完整展示，不再省略号截断 */
 .player-info .pi-eq-val,
 .player-info .pi-eq-empty {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 .player-info .pi-eq-val i {
   font-style: normal;
@@ -2798,7 +2807,15 @@ vite-plugin-checker-error-overlay,
   .info-panel {
     display: none;
   }
+  /* 右栏消失后聊天区恢复弹性撑满，左栏回到固定宽度 */
+  .sidebar {
+    flex: 0 0 290px;
+    min-width: 290px;
+    max-width: 290px;
+  }
   .chat-main {
+    flex: 1 1 auto;
+    min-width: 0;
     max-width: 920px;
   }
 }
@@ -2806,6 +2823,9 @@ vite-plugin-checker-error-overlay,
 /* 中屏：≤1024px 缩小左栏 */
 @media (max-width: 1024px) {
   .sidebar {
+    flex: 0 0 240px;
+    min-width: 240px;
+    max-width: 240px;
     width: 240px;
   }
   .chat-main {
@@ -2836,6 +2856,8 @@ vite-plugin-checker-error-overlay,
 
   /* 聊天主区域全屏 */
   .chat-main {
+    flex: 1 1 auto;
+    min-width: 0;
     width: 100%;
     min-height: 0; /* 防止 flex 溢出 */
   }

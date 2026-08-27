@@ -288,4 +288,30 @@ describe('打开箱子（使用物品）', () => {
     // 加速后观测时间应比当前时间早约 300 秒
     expect(Date.now() / 1000 - markers['观测时间']).toBeGreaterThanOrEqual(295);
   });
+
+  it('普通战利品：小数数量(0.03334)不显示，且无装备时不挂悬空「和」', async () => {
+    // 复刻 items.json 的普通战利品：合金6.66666 + 普通武器补给箱0.03334
+    const player = buildPlayer({
+      backpack: JSON.stringify([{ name: '普通战利品', type: '资源', quantity: 1, count: 1 }]),
+    });
+    const { service } = buildHarness(
+      player,
+      { '普通战利品': { name: '普通战利品', useEffects: JSON.stringify(['合金6.66666', '普通武器补给箱0.03334']), useMarkers: '[]' } },
+    );
+
+    const text = await service.useItem(42, '普通战利品', 1);
+    console.log('[普通战利品]', text);
+
+    // 合金 6.66666 → 四舍五入保留2位去尾零 = 6.67，应显示
+    expect(text).toContain('合金x6.67');
+    // 普通武器补给箱 0.03334 → 取整≈0.03 <1 → 不显示（对照原版 显示物品「不显示小于1」）
+    expect(text).not.toContain('普通武器补给箱');
+    // 无装备产出：不应有悬空的「和」收尾
+    expect(text).not.toMatch(/得到了[^，。]*和\s*$/);
+    expect(text.endsWith('和')).toBe(false);
+    // 物品被正确消耗
+    const backpack = JSON.parse(player.backpack);
+    expect(backpack.find((it: any) => it.name === '普通战利品')).toBeUndefined();
+    expect(backpack.find((it: any) => it.name === '合金')?.quantity).toBeCloseTo(6.67, 2);
+  });
 });

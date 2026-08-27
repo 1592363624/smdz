@@ -288,6 +288,55 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
     });
   });
 
+  describe('卷土重来死亡冷却', () => {
+    it('第一次被击败进入卷土重来后，冷却未结束时再次被击败应真实死亡', async () => {
+      const player = makePlayer({
+        userId: 2,
+        hp: 1,
+        maxHp: 100,
+        // 存量玩家可能残留过期 jlq；回归其不能遮蔽新写入的冷却。
+        markers2: JSON.stringify([{ name: 'jlq', expireAt: Math.floor(Date.now() / 1000) - 1 }]),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 10000, attack: 500 });
+      registerMonsters(mocks, 1, [monster]);
+
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
+        攻击: 500, 命中: 500, 闪避: 0, 闪避2: 0, 生命: 10000,
+        护盾: 0, 装甲: 0,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+        生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
+      } as any);
+      jest.spyOn(combat as any, 'checkHit').mockReturnValue(true);
+      jest.spyOn(combat as any, 'calcDamage').mockImplementation((attackerBonus: any) => {
+        const isPlayerAttack = Number(attackerBonus?.攻击) === 200;
+        return {
+          damage: isPlayerAttack ? 1 : 999,
+          poolDamage: { shield: 0, armor: 0, hp: isPlayerAttack ? 1 : 999 },
+          rating: '',
+          critMultiplier: 1,
+        } as any;
+      });
+
+      const first = await combat.weaponAttack(2, 0, { mustHit: true, noDelay: true });
+      const firstMarkers2 = JSON.parse(player.markers2);
+      const jlq = firstMarkers2.find((entry: any) => entry.name === 'jlq');
+
+      expect(first.result).toContain('进入了卷土重来状态');
+      expect(player.hp).toBe(100);
+      expect(jlq).toBeDefined();
+
+      const second = await combat.weaponAttack(2, 0, { mustHit: true, noDelay: true });
+
+      expect(second.result).toContain('倒下了');
+      expect(second.result).not.toContain('进入了卷土重来状态');
+      expect(player.hp).toBe(0);
+    });
+  });
+
   // ---------- 轮次2：当前武器攻击 ----------
   describe('轮次2 当前武器攻击（修复2：指令攻击用 player.currentWeapon）', () => {
     it('装备了武器(currentWeapon>0)时，写入「武器名+冷却」标记而非拳头', async () => {

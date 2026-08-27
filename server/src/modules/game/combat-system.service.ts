@@ -18,7 +18,7 @@ import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData, SetData } from './bonus.service';
 import { MapService, MapMonster } from './map.service';
 import { ItemSystemService } from './item-system.service';
-import { ItemService } from './item.service';
+import { ItemService, BONUS_CODE_MAP } from './item.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
 import { CombatStateService } from './combat-state.service';
@@ -3014,10 +3014,17 @@ export class CombatSystemService {
         // ========== 卷土重来（对应原版 造成伤害 L3674：怪物击杀玩家，若 jlq 冷却未过则进入卷土重来状态） ==========
         // 原版：防御方.特殊序号>0(玩家) 且 时间间隔要求("jlq",60,防御方.标记2)==假 →
         // 获得增益("卷土重来", 30+玩家.属性.卷土重来)，立即满状态复活。
-        const vMk2 = this.safeParseJson<any[]>(victim.markers2, []);
-        const jlq = vMk2.find((m: any) => m && m.name === 'jlq');
         const nowSecV = Math.floor(Date.now() / 1000);
-        if (!(jlq && jlq.expireAt > nowSecV)) {
+        const vMk2 = this.safeParseJson<any[]>(victim.markers2, []);
+        // 兼容存量重复标记：不能只用 find() 检查第一条 jlq，
+        // 否则前面的过期记录会遮蔽后面真正有效的冷却，导致重复触发卷土重来。
+        const hasActiveJlq = vMk2.some((marker: any) => {
+          if ((marker?.name ?? marker?.名称) !== 'jlq') return false;
+          const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+          const expireSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
+          return expireSec > nowSecV;
+        });
+        if (!hasActiveJlq) {
           const vBonus = this.safeParseJson<any>(victim.bonus, {});
           const jtlSec = 30 + (vBonus['卷土重来'] || 0);
           const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
@@ -3030,9 +3037,11 @@ export class CombatSystemService {
           victim.hp = Number(victim.maxHp || victimDef.生命 || victim.hp || 0);
           victim.shield = Number(victim.maxShield || victimDef.护盾 || victim.shield || 0);
           victim.armor = Number(victim.maxArmor || victimDef.装甲 || victim.armor || 0);
-          // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）
-          vMk2.push({ name: 'jlq', expireAt: nowSecV + 60 });
-          victim.markers2 = JSON.stringify(vMk2);
+          // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）。
+          // 新写入前清除同名旧项，避免历史重复标记再次遮蔽有效冷却。
+          const markersWithoutJlq = vMk2.filter((marker: any) => (marker?.name ?? marker?.名称) !== 'jlq');
+          markersWithoutJlq.push({ name: 'jlq', expireAt: nowSecV + 60 });
+          victim.markers2 = JSON.stringify(markersWithoutJlq);
           lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}进入了卷土重来状态(${jtlSec}秒)`);
         } else {
           lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}倒下了！`);
@@ -5283,6 +5292,46 @@ export class CombatSystemService {
   }
 
   /**
+   * 解析单件装备/武器的属性加成
+   * 存量物品只存 name/data：附加加成编码在 data 串（如 aa30 → 护盾+30），
+   * 自带加成在静态装备定义 baseBonus；植入体/增幅器强化会直接写 bonus 对象。
+   * 返回的 bonus/baseBonus 供 buildAttackerBonus 并入玩家总属性。
+   * @param item 背包/装备栏中的原始物品对象
+   * @returns bonus（附加加成）与 baseBonus（自带加成）
+   */
+  private resolveItemBonus(item: any): { bonus: Record<string, number>; baseBonus: Record<string, number> } {
+    const parseObj = (value: any): Record<string, number> => {
+      if (!value) return {};
+      if (typeof value === 'object') return { ...value };
+      try { return JSON.parse(String(value)) || {}; } catch { return {}; }
+    };
+    // 静态定义的自带加成（原地覆盖，静态为底、物品对象优先）
+    const def = typeof (this.staticData as any)?.getEquipmentByName === 'function'
+      ? (this.staticData as any).getEquipmentByName(String(item?.name ?? '')) || {}
+      : {};
+    const baseBonus: Record<string, number> = {
+      ...parseObj(def?.baseBonus ?? def?.基础加成),
+      ...parseObj(item?.baseBonus ?? item?.基础加成 ?? item?.self ?? item?.自带),
+    };
+    // 附加加成：先收已解析的对象字段（植入体/增幅器强化路径），再解析 data 编码串
+    const bonus: Record<string, number> = {
+      ...parseObj(item?.bonus ?? item?.加成),
+    };
+    const rawData = String(item?.data ?? item?.数据 ?? '');
+    for (const segment of rawData.split('!')) {
+      if (!segment || segment.length < 3) continue;
+      const code = segment.substring(0, 2);
+      const bonusKey = BONUS_CODE_MAP[code];
+      if (!bonusKey) continue;
+      const val = parseFloat(segment.substring(2));
+      if (Number.isFinite(val) && val !== 0) {
+        bonus[bonusKey] = (bonus[bonusKey] || 0) + val;
+      }
+    }
+    return { bonus, baseBonus };
+  }
+
+  /**
    * 解析伤害类型字符串为数字常量
    */
   private resolveDamageType(type: string | number): number {
@@ -6058,12 +6107,34 @@ export class CombatSystemService {
     }
 
     // 尝试合并装备加成
+    // 存量装备物品通常只有 name/data（加成编码在 data 串中，自带加成在静态装备定义），
+    // 必须先解析出 bonus（附加加成）与 baseBonus（自带加成）再并入总属性，
+    // 否则穿戴装备后面板属性不会变化。
     try {
-      if (playerData.equipment && playerData.equipment.length > 0) {
-        for (const equip of playerData.equipment) {
-          if (equip.bonus) {
-            Object.assign(bonus, this.bonusService.mergeBonus(bonus, equip.bonus));
-          }
+      const equips = playerData.equipment?.length
+        ? playerData.equipment
+        : this.playerService.safeJsonParse<any[]>(player.equipment, []);
+      for (const equip of equips) {
+        const resolved = this.resolveItemBonus(equip);
+        if (resolved.bonus && Object.keys(resolved.bonus).length) {
+          Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.bonus));
+        }
+        if (resolved.baseBonus && Object.keys(resolved.baseBonus).length) {
+          Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.baseBonus));
+        }
+      }
+      // 当前武器的自带/附加加成同样并入（currentWeapon 为 1-based，0=拳头无加成）
+      const cwIdx = Number(player.currentWeapon || 0);
+      const weaponList = playerData.weapons?.length
+        ? playerData.weapons
+        : this.playerService.safeJsonParse<any[]>(player.weapons, []);
+      if (cwIdx > 0 && weaponList[cwIdx - 1]) {
+        const resolved = this.resolveItemBonus(weaponList[cwIdx - 1]);
+        if (resolved.bonus && Object.keys(resolved.bonus).length) {
+          Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.bonus));
+        }
+        if (resolved.baseBonus && Object.keys(resolved.baseBonus).length) {
+          Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.baseBonus));
         }
       }
     } catch {

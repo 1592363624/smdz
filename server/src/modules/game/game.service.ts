@@ -1127,28 +1127,44 @@ export class GameService {
     const entryOf = (slot: string, item: any, enhanceKey: string) => {
       const enhanceLv = this.combatState.getAchievementProficiency(markers, enhanceKey);
       if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv };
+      const rawData = String(item.data || item.数据 || '');
+      let effectNum = Number(item.effect || item.特效 || 0);
+      if (!effectNum && rawData) {
+        const bxMatch = rawData.match(/!bx(\d+)/);
+        if (bxMatch) effectNum = parseInt(bxMatch[1], 10) || 0;
+      }
       return {
         slot,
         name: String(item.name || item.名称 || '未知'),
-        quality: qualityPrefix(item.data || item.数据 || ''),
-        effect: Number(item.effect || item.特效 || 0),
+        quality: qualityPrefix(rawData),
+        effect: effectNum,
         enhance: enhanceLv,
       };
     };
 
+    const getEquipType = (item: any): string => {
+      const def = this.staticData.getEquipmentByName(item.name);
+      return String(def?.equipType ?? def?.type ?? def?.类型 ?? item.type ?? item.类型 ?? '');
+    };
     const slotNames = ['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部'];
     const result = slotNames.map((slotName) =>
       entryOf(
         slotName,
-        equipmentList.find((e: any) => (e.type || e.类型) === slotName),
+        equipmentList.find((e: any) => getEquipType(e) === slotName),
         slotName + '强化',
       ),
     );
     // 武器（currentWeapon 从 1 计数，0/越界回落拳头）
     result.push(entryOf('武器', currentWeaponIdx > 0 ? weaponList[currentWeaponIdx - 1] : null, '武器强化'));
     // 植入体 / 增幅器
-    result.push(entryOf('植入', equipmentList.find((e: any) => (e.type || e.类型) === '植入体'), ''));
-    result.push(entryOf('增幅', equipmentList.find((e: any) => (e.type || e.类型) === '增幅器'), ''));
+    result.push(entryOf('植入', equipmentList.find((e: any) => {
+      const def = this.staticData.getEquipmentByName(e.name);
+      return def?.equipType === '植入体' || def?.type === '植入体';
+    }), ''));
+    result.push(entryOf('增幅', equipmentList.find((e: any) => {
+      const def = this.staticData.getEquipmentByName(e.name);
+      return def?.equipType === '增幅器' || def?.type === '增幅器';
+    }), ''));
     return result;
   }
 
@@ -6116,27 +6132,49 @@ export class GameService {
     }));
 
     // 武器/装备（equipments.json 按 isWeapon 拆分）
-    const equipmentBrief = (e: any): string => e.description || '';
-    const equipmentDetail = (e: any): string[] => {
-      const parts: string[] = [];
-      if (e.description) parts.push(e.description);
-      if (e.equipType) parts.push(`部位: ${e.equipType}`);
-      if (e.damageType) parts.push(`伤害类型: ${e.damageType}`);
-      if (e.cooldown) parts.push(`冷却: ${e.cooldown}秒`);
-      try {
-        const bonus = JSON.parse(e.bonus || '{}');
-        const bonusText = Object.entries(bonus).map(([k, v]) => `${k}+${v}`).join('、');
-        if (bonusText) parts.push(`加成: ${bonusText}`);
-      } catch {}
-      return parts;
-    };
-    const allEquipments = this.staticData.getAllEquipments().slice().sort(sortByName);
-    const weapons: HandbookEntry[] = allEquipments.filter((e) => this.staticData.isWeapon(e)).map((e) => ({
-      name: e.name, brief: equipmentBrief(e), detail: equipmentDetail(e),
-    }));
-    const armors: HandbookEntry[] = allEquipments.filter((e) => !this.staticData.isWeapon(e)).map((e) => ({
-      name: e.name, brief: equipmentBrief(e), detail: equipmentDetail(e),
-    }));
+        const equipmentBrief = (e: any): string => e.description || '';
+        const equipmentDetail = (e: any): string[] => {
+          const parts: string[] = [];
+          if (e.description) parts.push(e.description);
+          if (e.equipType) parts.push(`部位: ${e.equipType}`);
+          if (e.damageType) parts.push(`伤害类型: ${e.damageType}`);
+          if (e.cooldown) parts.push(`冷却: ${e.cooldown}秒`);
+          // 加成属性：priority 1 直接读取装备 JSON 的 bonus
+          try {
+            const bonus = JSON.parse(e.bonus || '{}');
+            const lines: string[] = [];
+            for (const [k, v] of Object.entries(bonus)) {
+              const n = Number(v) || 0;
+              if (n !== 0) lines.push(`${k}: ${Number.isInteger(n) ? String(n) : n.toFixed(1)}`);
+            }
+            if (lines.length > 0) parts.push(`加成: ${lines.join('、')}`);
+          } catch {}
+          // 攻击文本（对应原版 L3029-3031，攻击文本名）
+          if (e.attackText?.name) parts.push(`攻击: ${e.attackText.name}`);
+          // 锁定信息（L3018-3023：原版图鉴装备详情最后有锁定）
+          if (e.lockTime && e.lockTime > 0) parts.push(`锁定: ${e.lockTime}秒`);
+          // 负面效果（L3020-3025：负面类型）
+          if (e.negativeType === 1) parts.push('负面: 割裂');
+          else if (e.negativeType === 2) parts.push('负面: 灼烧');
+          else if (e.negativeType === 3) parts.push('负面: 深寒');
+          else if (e.negativeType === 4) parts.push('负面: 电击');
+          // 随机词条池展开（L1197-1227/3005，原版「出现的属性」其实是词条池展开）
+          if (e.affixes && e.affixes.length > 0) {
+            const prefix = e.specialSeq < 0 || typeof e.specialSeq !== 'number' || e.specialSeq === 0 ?
+              (String(e.equipType || '').endsWith('武器') ? '随机攻击' : '随机防御') : '随机防御';
+            parts.push(`词条池: ${prefix}（${e.affixes.length}条）`);
+          }
+          // 出处（指向装备配置 JSON）
+          if (e.bonus || e.affixes) parts.push(`出处: ${e.name} (装备配置)`);
+          return parts;
+        };
+        const allEquipments = this.staticData.getAllEquipments().slice().sort(sortByName);
+        const weapons: HandbookEntry[] = allEquipments.filter((e) => this.staticData.isWeapon(e)).map((e) => ({
+          name: e.name, brief: equipmentBrief(e), detail: equipmentDetail(e),
+        }));
+        const armors: HandbookEntry[] = allEquipments.filter((e) => !this.staticData.isWeapon(e)).map((e) => ({
+          name: e.name, brief: equipmentBrief(e), detail: equipmentDetail(e),
+        }));
 
     // 使魔（familiars.json）
     const familiars: HandbookEntry[] = this.staticData.getAllFamiliars().slice().sort(sortByName).map((f) => ({

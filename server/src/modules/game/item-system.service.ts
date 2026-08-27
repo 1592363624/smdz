@@ -1161,7 +1161,8 @@ export class ItemSystemService {
       return `武器编号超出范围，当前有${weapons.length}把武器。`;
     }
 
-    const currentWeapon = weaponIndex - 1; // 转为0-based
+    // currentWeapon 全局为 1-based（0=拳头），用户输入的编号本身就是 1-based，直接存储
+    const currentWeapon = weaponIndex;
 
     await this.prisma.player.update({
       where: { userId },
@@ -1256,7 +1257,8 @@ export class ItemSystemService {
           equipment: JSON.stringify(newEquipment),
           weapons: JSON.stringify(newWeapons),
           backpack: JSON.stringify(backpack),
-          currentWeapon: newWeapons.length > 0 ? 0 : 0,
+          // currentWeapon 为 1-based：加载预设后有武器则默认指向第一把，无武器为拳头
+          currentWeapon: newWeapons.length > 0 ? 1 : 0,
           equipmentPresets: JSON.stringify(presets),
           sets,
         },
