@@ -478,6 +478,50 @@ export class ItemService {
     return QUALITY_PREFIX_MAP[prefix] || QualityLevel.MYTHIC;
   }
 
+  /** 返回原版背包列表使用的品质大写代码（E/D/C/B/A/S）。 */
+  getEquipmentQualityCode(equipment: Equipment): string {
+    const prefix = String(equipment?.data || '').charAt(0);
+    return /^[edcbas]$/i.test(prefix) ? prefix.toUpperCase() : '';
+  }
+
+  /** 读取装备实例的特效名称，编号仍按原版武器/装备分别计数。 */
+  getEquipmentEffectName(equipment: Equipment): string {
+    const effectId = Number(equipment?.specialEffect || 0);
+    if (!Number.isInteger(effectId) || effectId <= 0) return '';
+
+    const definition = typeof (this.staticData as any).getEquipmentByName === 'function'
+      ? (this.staticData as any).getEquipmentByName(equipment.name)
+      : undefined;
+    const isWeapon = definition && typeof (this.staticData as any).isWeapon === 'function'
+      ? Boolean((this.staticData as any).isWeapon(definition))
+      : equipment.specialSeq < 0 || String(equipment.type || '').endsWith('武器') || equipment.type === '工具';
+
+    let effect: any;
+    if (typeof (this.staticData as any).getEffectById === 'function') {
+      effect = (this.staticData as any).getEffectById(effectId, isWeapon);
+    }
+    if (!effect && typeof (this.staticData as any).getAllEffects === 'function') {
+      const rows = (this.staticData as any).getAllEffects().filter((row: any) => {
+        const limit = String(row?.limit ?? '').trim();
+        return limit === '' || limit === (isWeapon ? '武器' : '装备');
+      });
+      effect = rows[effectId - 1];
+    }
+    return String(effect?.name || effect?.名称 || '');
+  }
+
+  /**
+   * 原版「显示物品」中的装备列表格式：名称 + 品质大写代码 + 特效名称。
+   * 装备不显示数量，因为背包中的每一条装备都是独立实例。
+   */
+  formatEquipmentInventoryDisplay(item: Item3): string {
+    const equipment = this.parseEquipment(item);
+    const qualityCode = this.getEquipmentQualityCode(equipment);
+    const effectName = this.getEquipmentEffectName(equipment);
+    const name = equipment.name || item.name || '未知装备';
+    return `${name}${qualityCode}${effectName ? `·${effectName}` : ''}`;
+  }
+
   /**
    * 获取装备的显示文本
    * 对应原版：显示品质()

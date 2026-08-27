@@ -1051,14 +1051,19 @@ export class ItemSystemService {
       return `${player.name} 未找到【${itemName}】。`;
     }
 
+    return this.analyzeEquipmentItem(item, source);
+  }
+
+  /** 按已定位的装备实例生成详情，避免同名装备被重新查找成第一件。 */
+  analyzeEquipmentItem(item: Item3, source = '背包'): string {
     const equip = this.parseEquipment(item);
-    const quality = this.getEquipmentQuality(equip);
     const qualityInfo = this.getQuality(equip);
+    const qualityCode = this.itemService.getEquipmentQualityCode(equip);
 
     const lines: string[] = [];
     lines.push(`【${equip.name}】`);
     lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`品质: ${qualityInfo.name}`);
+    lines.push(`品质: ${qualityInfo.name}${qualityCode ? ` (${qualityCode})` : ''}`);
     lines.push(`类型: ${equip.type || '未知'}`);
     lines.push(`来源: ${source}`);
 
@@ -1066,18 +1071,25 @@ export class ItemSystemService {
       lines.push(`特殊序号: ${equip.specialSeq}`);
     }
     if (equip.specialEffect !== 0) {
-      lines.push(`特效编号: ${equip.specialEffect}`);
+      const effectName = this.itemService.getEquipmentEffectName(equip);
+      lines.push(`特效: ${effectName || `编号${equip.specialEffect}`}`);
     }
     if (equip.maker) {
       lines.push(`制造者: ${equip.maker}`);
     }
-    if (item.durability !== 0) {
+    if (equip.durability !== 0) {
       lines.push(`状态: 🔒 已锁定`);
     }
 
     lines.push(`━━━━━━━━━━━━━━━`);
 
-    // 显示加成属性
+    // 原版详情同时显示自带属性与随机词条属性。
+    const baseBonusLines = this.formatBonusStats(equip.baseBonus);
+    if (baseBonusLines.length > 0) {
+      lines.push('自带属性:');
+      lines.push(...baseBonusLines);
+    }
+
     const bonusLines = this.formatBonusStats(equip.bonus);
     if (bonusLines.length > 0) {
       lines.push('加成属性:');
@@ -1092,6 +1104,10 @@ export class ItemSystemService {
 
     if (equip.cooldown && equip.cooldown !== 5) {
       lines.push(`冷却: ${equip.cooldown}秒`);
+    }
+
+    if (equip.description) {
+      lines.push(`说明: ${equip.description}`);
     }
 
     return lines.join('\n');

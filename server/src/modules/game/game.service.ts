@@ -1634,21 +1634,28 @@ export class GameService {
       if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= items.length) {
         item = items[idxNum - 1];
       } else {
-        item = items.find((i: any) => i.name === arg);
+        item = items.find((i: any) => (i.name || i.名称) === arg);
       }
       if (!item) {
         return `背包中没有找到【${arg}】\n使用「背包」查看物品列表`;
       }
-      const count = item.count || item.quantity || 1;
-      const type = item.type ? `\n类型: ${item.type}` : '';
-      const rarity = item.rarity || item.quality ? `\n品质: ${item.rarity || item.quality}` : '';
-      const desc = item.description ? `\n${item.description}` : '';
-      return `🎒【${item.name}】×${count}${type}${rarity}${desc}`;
+      if ((item.type || item.类型) === '装备') {
+        return this.itemSystemService.analyzeEquipmentItem(item, '背包');
+      }
+      const itemName = item.name || item.名称 || '未知物品';
+      const count = Math.round(this.itemQuantity(item) * 100) / 100;
+      const type = item.type || item.类型 ? `\n类型: ${item.type || item.类型}` : '';
+      const desc = item.description || item.说明 ? `\n${item.description || item.说明}` : '';
+      return `🎒【${itemName}】×${count}${type}${desc}`;
     }
 
     const lines = items.map((item: any, index: number) => {
-      const count = item.count || item.quantity || 1;
-      return `${index + 1}. ${item.name} ×${count}`;
+      if ((item.type || item.类型) === '装备') {
+        return `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`;
+      }
+      const itemName = item.name || item.名称 || '未知物品';
+      const count = Math.round(this.itemQuantity(item) * 100) / 100;
+      return `${index + 1}. ${itemName} ×${count}`;
     });
 
     return `🎒 背包 (${items.length}种):\n${lines.join('\n')}`;
