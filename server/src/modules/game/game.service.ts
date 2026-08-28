@@ -11632,10 +11632,25 @@ export class GameService {
         const n = Number(v);
         return Number.isFinite(n) ? n : 0;
       };
-      const lastOpTime = toNum(player.lastOpTime) || toNum(player.readTime) || now;
+      const storedOpTime = toNum(player.lastOpTime) || toNum(player.readTime);
+
+      // ===== 时间基准初始化（原版 加成计算.ecode L1596-1597）=====
+      // 【原文 L1596】玩家.时间差 = (s - 玩家.读取时间) / #转秒
+      // 【原文 L1597】玩家.读取时间 = 原始时间戳
+      // 原版是「先算时间差、再无条件回写读取时间」，没有"时间差过小就不回写"的分支。
+      // 本框架额外加了 10 秒防抖（不足 10 秒不结算、也不推进时间戳，让时间继续累积），
+      // 这就带来一个死锁：新档/旧档/GM 清空数据后 lastOpTime 与 readTime 都是 0，
+      // 若按旧写法 fallback 成 now，则 timeDiff 恒为 0 → 每次都从第 10 秒阈值处 return，
+      // 永远走不到末尾的「写回 lastOpTime」→ 活力恢复/离线回血回盾回甲/躺下经验全部永久失效。
+      // 因此这里必须先落一次基准时间戳（本次不补偿，等价于原版读档后第一次操作）。
+      if (storedOpTime <= 0) {
+        player.lastOpTime = BigInt(now);
+        await this.playerService.savePlayer(player);
+        return '';
+      }
 
       // 计算时间差（秒）
-      const timeDiff = Math.max(0, (now - lastOpTime) / 1000);
+      const timeDiff = Math.max(0, (now - storedOpTime) / 1000);
 
       // 如果时间差小于10秒，不进行补偿（避免频繁操作时的误补偿）
       if (timeDiff < 10) {
@@ -11697,6 +11712,10 @@ export class GameService {
 
       // ===== 活力恢复（原版 _计算玩家 L2625-2643） =====
       // 活力与生命/护盾/装甲回复相互独立，即使三池回复率都为0也必须结算。
+      let vitalityTipText = '';
+      const vitalityMarkers2 = this.playerService.safeJsonParse<any[]>(
+        player.markers2, [],
+      );
       try {
         const markersObj = this.playerService.safeJsonParse<any>(player.markers, {});
         const vitalityMax = this.vitalityService
@@ -11713,6 +11732,20 @@ export class GameService {
         if (Number(this.playerService.getMarkerValue(markersObj, '活力2')) < vitalityMax) {
           markersObj['活力2'] = vitalityMax;
           player.markers = JSON.stringify(markersObj);
+        }
+        // ===== 活力快满提示（原版 加成计算.ecode L2637-2640）=====
+        // 【原文 L2637】.如果真 (玩家.活力 >= a1 * 0.8)
+        // 【原文 L2638】    .如果真 (时间间隔要求 ("活力提示", 600, 玩家.标记2, 原始时间戳, , ) == 假)
+        // 【原文 L2639】        玩家.额外文本 = 玩家.额外文本 + "#换行【活力快满了:" + 加斜杠 (玩家.活力, a1, 真) + "】"
+        // 加斜杠(x, y, 真) 为取整显示，故这里用 Math.round 还原"当前/上限"。
+        if ((player.vitality || 0) >= vitalityMax * 0.8) {
+          const nowSec = now / 1000;
+          const tipMark = vitalityMarkers2.find((m: any) => m && m.name === '活力提示');
+          if (!tipMark || !tipMark.expireAt || tipMark.expireAt <= nowSec) {
+            this.setMarkers2(vitalityMarkers2, '活力提示', nowSec + 600);
+            player.markers2 = JSON.stringify(vitalityMarkers2);
+            vitalityTipText = `【活力快满了:${Math.round(player.vitality || 0)}/${Math.round(vitalityMax)}】`;
+          }
         }
       } catch (e: any) {
         this.logger.warn(`活力恢复结算失败: ${e.message}`);
@@ -11733,6 +11766,8 @@ export class GameService {
       if (actualHpRegen > 0) regenLines.push(`生命回复 +${actualHpRegen}`);
       if (actualShieldRegen > 0) regenLines.push(`护盾回复 +${actualShieldRegen}`);
       if (actualArmorRegen > 0) regenLines.push(`装甲回复 +${actualArmorRegen}`);
+      // 活力提示属于玩家的额外文本，与三池回复同批输出（原版写入 玩家.额外文本）
+      if (vitalityTipText) regenLines.push(vitalityTipText);
 
       if (regenLines.length > 0) {
         // 离线时长展示：≥60秒显示分钟，否则显示秒

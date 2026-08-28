@@ -236,6 +236,8 @@ export interface MonsterDeathResult {
   taskProgress?: Array<{ actionName: string; count: number; userId?: number }>;
   vitalityCost?: number;
   rewardMultiplier?: number;
+  /** 活力消耗提示文本（原版 后台运作.ecode L867） */
+  vitalityText?: string;
 }
 
 interface CombatTaskProgress {
@@ -2301,7 +2303,12 @@ export class CombatSystemService {
             );
             if (sd.expGain > 0) {
               totalExp += sd.expGain;
-              resultLines.push(`${st.name} 被溅射击杀，获得 ${sd.expGain} 点经验`);
+              // 原版活力消耗提示（后台运作 L867）优先于经验行展示
+              resultLines.push(
+                sd.vitalityText
+                  ? `${st.name} 被溅射击杀，${sd.vitalityText}`
+                  : `${st.name} 被溅射击杀，获得 ${sd.expGain} 点经验`,
+              );
             }
             if (sd.dropText) resultLines.push(`掉落：${sd.dropText}`);
             taskProgress.push(...(sd.taskProgress || []));
@@ -2466,7 +2473,12 @@ export class CombatSystemService {
           resultLines.push(`掉落：${deathResult.dropText}`);
         }
         if (deathResult.expGain > 0) {
-          resultLines.push(`获得 ${deathResult.expGain} 点经验`);
+          // 原版活力消耗提示（后台运作 L867）内已带经验数值，此时不再重复输出经验行
+          resultLines.push(
+            deathResult.vitalityText
+              ? deathResult.vitalityText
+              : `获得 ${deathResult.expGain} 点经验`,
+          );
         }
       } else {
         // 怪物还活着，更新地图数据库中的血量
@@ -2691,7 +2703,12 @@ export class CombatSystemService {
             lines.push(`掉落：${deathResult.dropText}`);
           }
           if (deathResult.expGain > 0) {
-            lines.push(`获得 ${deathResult.expGain} 点经验`);
+            // 原版活力消耗提示（后台运作 L867）内已带经验数值，此时不再重复输出经验行
+            lines.push(
+              deathResult.vitalityText
+                ? deathResult.vitalityText
+                : `获得 ${deathResult.expGain} 点经验`,
+            );
           }
         } else {
           await this.updateMonsterHpInMap(map.id, target);
@@ -4909,6 +4926,7 @@ export class CombatSystemService {
 
     let vitalityCost = 0;
     let rewardMultiplier = 1;
+    let vitalityText = '';
 
     // 置掉落（原版 战利品 前序 置掉落 L5245）：记录攻击者对怪物的掉落能力到怪物标记
     // 注意：原版在怪物删除前写怪物.标记，本框架怪物即时删除，此处保留原版调用顺序（行为可见）
@@ -4951,6 +4969,15 @@ export class CombatSystemService {
         }
         if (vitalityCost > 0) {
           taskProgress.push({ actionName: '消耗活力', count: vitalityCost });
+          // ===== 活力消耗提示（原版 后台运作.ecode L864-869）=====
+          // 【原文 L864】.判断开始 (玩家.活力 >= 1 && 取成就熟练度 (玩家.标记, "使用活力") == 0)
+          // 【原文 L865】    玩家.活力 = 玩家.活力 - 1
+          // 【原文 L866】    活力倍率 = 2
+          // 【原文 L867】    w = w + "#换行(" + 玩家.图片 + "活力剩余" + 文本取整 (玩家.活力) + ")得到了"
+          //                      + 文本四舍 (怪物.经验 * 2) + "经验"
+          // 原版在文本里写的是“怪物经验×活力倍率”，本框架取本次实际结算经验 expGain（已含倍率）。
+          const left = Math.max(0, Number(playerData.player.vitality || 0));
+          vitalityText = `(${playerData.player.name || ''}活力剩余${Math.floor(left)})得到了${Math.round(expGain)}经验`;
         }
         playerData.player.markers = JSON.stringify(markers);
       }
@@ -4981,7 +5008,7 @@ export class CombatSystemService {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
 
-    return { expGain, drops, dropText, taskProgress, vitalityCost, rewardMultiplier };
+    return { expGain, drops, dropText, taskProgress, vitalityCost, rewardMultiplier, vitalityText };
   }
 
   /**
