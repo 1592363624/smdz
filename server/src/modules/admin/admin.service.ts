@@ -10,6 +10,7 @@ import { PlayerService } from '../game/player.service';
 import { ChatService } from '../chat/chat.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from '../game/static-data.service';
+import { StatsService } from '../game/stats.service';
 
 @Injectable()
 export class AdminService {
@@ -44,6 +45,7 @@ export class AdminService {
     private readonly chatService: ChatService,
     private readonly systemConfigService: SystemConfigService,
     private readonly staticData: StaticDataService,
+    private readonly statsService: StatsService,
   ) {}
 
   /**
@@ -98,15 +100,15 @@ export class AdminService {
       }),
     ]);
 
-    // 在线判定与前端约定一致：最近5分钟有操作视为在线
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    // 在线判定与聊天页侧栏一致：以 StatsService 的 WebSocket 在线集合为准。
+    // 原按 updatedAt 近5分钟估算会把后台自动保存等写库误判为在线。
     const now = Date.now();
     const enriched = list.map((u) => {
       const p = u.player as any;
       const lastActiveAt = p?.updatedAt || null;
       return {
         ...u,
-        online: !!lastActiveAt && new Date(lastActiveAt).getTime() >= fiveMinAgo.getTime(),
+        online: this.statsService.isOnline(u.id),
         // BigInt 不能直接 JSON 序列化，统一转数值秒
         playTimeSeconds: p?.playTime != null ? Number(p.playTime) : 0,
         lastActiveAt,
@@ -150,12 +152,10 @@ export class AdminService {
       throw new NotFoundException('用户不存在');
     }
 
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    // 在线判定与聊天页侧栏一致：以 StatsService 的 WebSocket 在线集合为准
     const p = user.player as any;
-    const detail: any = { ...user, online: false };
+    const detail: any = { ...user, online: this.statsService.isOnline(user.id) };
     if (p) {
-      detail.online =
-        !!p.updatedAt && new Date(p.updatedAt).getTime() >= fiveMinAgo.getTime();
       // JSON 字符串字段解析为结构化数据（解析失败保留原样），BigInt 转数值
       for (const key of ['backpack', 'equipment', 'weapons', 'tasks', 'titles', 'skills', 'buffs']) {
         try {
@@ -432,11 +432,10 @@ export class AdminService {
     const totalMonsters = this.staticData.getAllMonsters().length;
     const totalItems = this.staticData.getAllItems().length;
 
-    // 在线玩家：取最近 5 分钟内有操作记录的玩家作为"在线"估算
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const onlinePlayers = await this.prisma.player.count({
-      where: { updatedAt: { gte: fiveMinAgo } },
-    });
+    // 在线玩家：与聊天页侧栏统计(/game/stats)共用 StatsService 的 WebSocket 在线集合，
+    // 保证两处数字一致。原实现按 player.updatedAt 近5分钟有更新估算，
+    // 但后台自动保存/活力恢复等任何写库都会刷新 updatedAt，导致离线玩家被误判在线。
+    const onlinePlayers = this.statsService.getOnlineCount();
 
     return {
       totalUsers,

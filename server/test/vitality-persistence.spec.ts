@@ -31,7 +31,7 @@ describe('活力存档兼容', () => {
   }
 
   it('旧玩家首次读取缺少活力上限时补齐100，不能形成0/0', async () => {
-    const { service, prisma } = makeService({
+    const { service, state } = makeService({
       id: 7,
       userId: 42,
       mapId: 1,
@@ -49,11 +49,14 @@ describe('活力存档兼容', () => {
 
     const data = await service.getPlayerData(42);
 
+    // 读取侧兜底：标记缺失也不显示 0/0，且不改动当期活力值
     expect(data.markers['活力2']).toBe(100);
     expect(data.player.vitality).toBe(0);
-    expect(prisma.player.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ markers: expect.stringContaining('活力2') }) }),
-    );
+    // 补齐只落在内存快照，不主动写库（getPlayerData 是无副作用的读取，
+    // 写库+刷版本会破坏 CAS 快照一致性）；随后的一次业务保存自然落库持久化。
+    data.player.markers2 = JSON.stringify([{ name: '探', expireAt: 1 }]);
+    await service.savePlayer(data.player);
+    expect(JSON.parse(state.row.markers)['活力2']).toBe(100);
   });
 
   it('新玩家创建时初始化100点活力和100点历史上限', async () => {

@@ -2,9 +2,15 @@
 import { VitalityService } from '../src/modules/game/vitality.service';
 
 describe('VitalityService', () => {
-  function build(forceVitality = false) {
+  /**
+   * 构造被测服务。
+   * configOverrides 按配置键覆盖返回值，未覆盖的键回退到默认值，
+   * 避免旧的"一个布尔值影响所有配置"式 mock 造成用例间干扰。
+   */
+  function build(configOverrides: Record<string, boolean> = {}) {
     const systemConfig: any = {
-      get: jest.fn(async (_key: string, fallback: boolean) => forceVitality || fallback),
+      get: jest.fn(async (key: string, fallback: any) =>
+        Object.prototype.hasOwnProperty.call(configOverrides, key) ? configOverrides[key] : fallback),
     };
     const playerService: any = {
       getMarkerValue: jest.fn((markers: Record<string, any>, key: string) => Number(markers?.[key] ?? 0)),
@@ -13,7 +19,7 @@ describe('VitalityService', () => {
   }
 
   it('管理员强制开启时覆盖玩家关闭设置，并在普通击杀消耗活力后启用双倍奖励', async () => {
-    const service = build(true);
+    const service = build({ 'game.forceVitality': true });
     const player = { vitality: 3 };
     const decision = await service.applyNormalKillCost(player, { 使用活力: 1 }, 1);
 
@@ -25,7 +31,7 @@ describe('VitalityService', () => {
   });
 
   it('玩家关闭活力且管理员未强制时不扣除活力，也不触发双倍奖励', async () => {
-    const service = build(false);
+    const service = build();
     const player = { vitality: 3 };
     const decision = await service.applyNormalKillCost(player, { 使用活力: 1 }, 1);
 
@@ -36,7 +42,7 @@ describe('VitalityService', () => {
   });
 
   it('活力不足时普通击杀只按实际可消耗数量决定倍率，扫荡永远不走双倍奖励', async () => {
-    const service = build(true);
+    const service = build({ 'game.forceVitality': true });
     const player = { vitality: 2 };
     const normal = await service.applyNormalKillCost(player, { 使用活力: 0 }, 3);
 
@@ -50,6 +56,52 @@ describe('VitalityService', () => {
     expect(sweep.rewardMultiplier).toBe(1);
     expect(service.getSweepCount(10, 4)).toBe(4);
   });
+
+  // ===== GM「活力消耗不奖励双倍」开关边界 =====
+
+  it('消耗不奖励开启且玩家开启活力：照常扣活力但倍率保持1', async () => {
+    const service = build({ 'game.vitalityNoBonus': true });
+    const player = { vitality: 3 };
+    const decision = await service.applyNormalKillCost(player, { 使用活力: 0 }, 1);
+
+    expect(decision.vitalityCost).toBe(1);
+    expect(decision.rewardMultiplier).toBe(1);
+    expect(player.vitality).toBe(2);
+  });
+
+  it('消耗不奖励开启且管理员强制：扣活力照旧但倍率保持1', async () => {
+    const service = build({ 'game.forceVitality': true, 'game.vitalityNoBonus': true });
+    const player = { vitality: 1 };
+    const decision = await service.applyNormalKillCost(player, { 使用活力: 1 }, 1);
+
+    expect(decision.forced).toBe(true);
+    expect(decision.vitalityCost).toBe(1);
+    expect(decision.rewardMultiplier).toBe(1);
+    expect(player.vitality).toBe(0);
+  });
+
+  it('消耗不奖励开启但玩家关闭活力且未强制：不扣活力也不给倍率', async () => {
+    const service = build({ 'game.vitalityNoBonus': true });
+    const player = { vitality: 3 };
+    const decision = await service.applyNormalKillCost(player, { 使用活力: 1 }, 1);
+
+    expect(decision.enabled).toBe(false);
+    expect(decision.vitalityCost).toBe(0);
+    expect(decision.rewardMultiplier).toBe(1);
+    expect(player.vitality).toBe(3);
+  });
+
+  it('消耗不奖励关闭时保持原版双倍行为（回归校验）', async () => {
+    const service = build({ 'game.vitalityNoBonus': false });
+    const player = { vitality: 2 };
+    const decision = await service.applyNormalKillCost(player, { 使用活力: 0 }, 2);
+
+    expect(decision.vitalityCost).toBe(2);
+    expect(decision.rewardMultiplier).toBe(2);
+    expect(player.vitality).toBe(0);
+  });
+
+  // ===== 魅力与恢复 =====
 
   it('记录魅力使用历史最高值，活力恢复按原版20分钟基准并封顶', () => {
     const service = build();

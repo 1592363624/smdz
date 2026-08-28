@@ -24,6 +24,13 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    // 开发调试模式（DEV_LOGIN_ENABLED=1，与开发模拟登录共用同一开关）：
+    // 放行所有角色校验，方便开发环境用任意测试账号进入管理后台调试。
+    // 生产部署不配置该环境变量，权限校验始终生效。
+    if (process.env.DEV_LOGIN_ENABLED === '1') {
+      return true;
+    }
+
     // 读取接口上标注的角色要求
     const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
       context.getHandler(),

@@ -698,7 +698,9 @@ export class FamiliarSystemService {
     lines.push(`魅力: ${Math.round(calc.魅力 || 0)}`);
 
     // 活力（对齐原版 L983-984: 活力/活力2）
-    const vitality2 = this.playerService.getMarkerValue(markers, '活力2');
+    // 旧存档缺失「活力2」标记时按原版基础上限 100 兜底，避免显示成 0/NaN 歧义；
+    // 标记补写由活力恢复结算与最终加成计算统一落盘，这里只负责展示兜底。
+    const vitality2 = Math.max(100, Number(this.playerService.getMarkerValue(markers, '活力2')) || 100);
     lines.push(`活力: ${Math.round(player.vitality || 0)}/${Math.round(vitality2)}`);
 
     // 技能信息

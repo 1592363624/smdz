@@ -168,7 +168,7 @@
           </span>
         </div>
         <div class="sidebar-footer-actions">
-          <button v-if="isAdmin" class="logout admin-entry" @click="router.push('/admin')">⚙️ 管理后台</button>
+          <button v-if="showAdminEntry" class="logout admin-entry" @click="router.push('/admin')">⚙️ 管理后台</button>
           <button class="logout" @click="logout">退出</button>
         </div>
       </div>
@@ -381,7 +381,7 @@
           </span>
         </div>
         <div class="sidebar-footer-actions">
-          <button v-if="isAdmin" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
+          <button v-if="showAdminEntry" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
           <button class="logout" @click="logout">退出</button>
         </div>
       </div>
@@ -879,7 +879,7 @@ import { useRouter } from 'vue-router';
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
 import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
-import { WS_URL, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
+import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
 import AnnRichText from '../components/AnnRichText';
 
 const router = useRouter();
@@ -1171,6 +1171,22 @@ const filteredAtPlayers = computed(() => {
 
 // 是否为管理员(显示管理后台入口)
 const isAdmin = computed(() => ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role));
+
+// 开发登录是否启用(服务端 DEV_LOGIN_ENABLED=1 时 /auth/dev/status 返回 enabled)。
+// 开发环境下无论登录哪个账号都显示管理后台入口，方便本地调试。
+const devLoginEnabled = ref(false);
+const showAdminEntry = computed(() => isAdmin.value || devLoginEnabled.value);
+
+// 查询开发登录开关（失败静默：生产环境该开关恒为关闭）
+async function loadDevLoginStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/dev/status`);
+    const data = await res.json();
+    devLoginEnabled.value = data?.data?.enabled === true;
+  } catch {
+    devLoginEnabled.value = false;
+  }
+}
 
 // 是否为"旧版QQ绑定"：早期版本把 QQ 互联 openid（32位hex）写进了 qqNumber，
 // 导致与 AstrBot 机器人传入的真实QQ号匹配不上。这里判定 qqNumber 是否为
@@ -2514,6 +2530,8 @@ onMounted(async () => {
     ]);
     // 加载服务器统计
     loadServerStats();
+    // 查询开发登录开关：开启时非管理员账号也显示管理后台入口（仅开发环境生效）
+    loadDevLoginStatus();
     // 每 30 秒刷新一次服务器统计
     statsTimer = setInterval(loadServerStats, 30000);
     // 玩家/地图面板兜底轮询：socket 推送万一丢失（断线瞬间/服务重启）也能在 30 秒内自动校准

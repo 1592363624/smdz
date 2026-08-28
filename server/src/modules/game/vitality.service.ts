@@ -26,6 +26,8 @@ export class VitalityService {
   static readonly MARKER_MAX = '活力2';
   static readonly MARKER_USE = '使用活力';
   static readonly FORCE_CONFIG = 'game.forceVitality';
+  /** GM 开关：开启后玩家仍正常消耗活力，但普通击杀不再获得双倍奖励。 */
+  static readonly NO_BONUS_CONFIG = 'game.vitalityNoBonus';
 
   constructor(
     private readonly systemConfig: SystemConfigService,
@@ -67,6 +69,8 @@ export class VitalityService {
   /**
    * 判断一批击杀采用何种活力奖励。
    * 强制开关优先级高于玩家的“使用活力”设置；扫荡永远不进入普通双倍路径。
+   * GM 的“消耗不奖励”开关只取消双倍倍率，不改变活力扣除规则：
+   * 玩家该扣的活力照扣，但经验/资源保持普通值。
    */
   async decide(player: any, markers: Record<string, any>, context: VitalityRewardContext = {}): Promise<VitalityRewardDecision> {
     const mode = context.mode || 'normal';
@@ -74,7 +78,10 @@ export class VitalityService {
       return { vitalityCost: 0, rewardMultiplier: 1, forced: false, enabled: false };
     }
 
-    const forced = await this.systemConfig.get<boolean>(VitalityService.FORCE_CONFIG, false);
+    const [forced, noBonus] = await Promise.all([
+      this.systemConfig.get<boolean>(VitalityService.FORCE_CONFIG, false),
+      this.systemConfig.get<boolean>(VitalityService.NO_BONUS_CONFIG, false),
+    ]);
     const personalValue = this.playerService.getMarkerValue(markers || {}, VitalityService.MARKER_USE);
     const enabled = forced || personalValue === 0;
     const available = Math.max(0, Number(player?.vitality) || 0);
@@ -82,7 +89,8 @@ export class VitalityService {
     const cost = enabled && available >= 1 ? Math.min(Math.floor(available), requested) : 0;
     return {
       vitalityCost: cost,
-      rewardMultiplier: cost > 0 ? 2 : 1,
+      // 消耗不奖励开关只压制倍率；活力扣除与否完全遵循原有强制/个人开关规则。
+      rewardMultiplier: cost > 0 && !noBonus ? 2 : 1,
       forced,
       enabled,
     };

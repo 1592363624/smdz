@@ -477,6 +477,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { adminApi, feedbackApi } from '../api';
+import { API_BASE } from '../config';
 import AnnRichText from '../components/AnnRichText';
 
 const router = useRouter();
@@ -1122,11 +1123,23 @@ function logout() {
 }
 
 onMounted(async () => {
-  // 校验是否为管理员
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role)) {
-    alert('没有管理员权限');
-    router.push('/chat');
-    return;
+  // 校验是否为管理员；开发登录开启时（DEV_LOGIN_ENABLED=1）放行任意账号，方便本地调试
+  const isAdminAccount = ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role);
+  if (!isAdminAccount) {
+    try {
+      const res = await fetch(`${API_BASE}/auth/dev/status`);
+      const data = await res.json();
+      if (data?.data?.enabled !== true) {
+        alert('没有管理员权限');
+        router.push('/chat');
+        return;
+      }
+    } catch {
+      // 状态查询失败视为未开启开发登录
+      alert('没有管理员权限');
+      router.push('/chat');
+      return;
+    }
   }
   // 并行加载所有数据
   await Promise.allSettled([

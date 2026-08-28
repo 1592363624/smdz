@@ -6200,7 +6200,11 @@ export class CombatSystemService {
           Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.baseBonus));
         }
       }
-      // 当前武器的自带/附加加成同样并入（currentWeapon 为 1-based，0=拳头无加成）
+      // 当前武器的附加加成并入总属性（currentWeapon 为 1-based，0=拳头无加成）。
+      // 注意：不合并 weapon.baseBonus（自带加成）。baseBonus 是供套装判断2
+      // 写入等级加成的引用字段（如高斯步枪 baseBonus.物伤 5→25），不应直接累
+      // 进 total bonus——否则套装在 baseBonus 上叠加的等级加成会与已合并的原始值
+      // 双重计数（如高斯步枪物伤多算 5）。baseBonus 的数值仅用于麻醉判定等特定场景。
       const cwIdx = Number(player.currentWeapon || 0);
       const weaponList = playerData.weapons?.length
         ? playerData.weapons
@@ -6209,9 +6213,6 @@ export class CombatSystemService {
         const resolved = this.resolveItemBonus(weaponList[cwIdx - 1]);
         if (resolved.bonus && Object.keys(resolved.bonus).length) {
           Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.bonus));
-        }
-        if (resolved.baseBonus && Object.keys(resolved.baseBonus).length) {
-          Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.baseBonus));
         }
       }
     } catch {

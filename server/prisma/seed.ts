@@ -395,6 +395,7 @@ async function main() {
     { key: 'game.worldLevel', value: '1', label: '世界等级', description: '当前世界等级，影响怪物强度和掉落', type: 'number', group: 'game' },
     { key: 'game.moveTimeEnabled', value: 'true', label: '移动真实耗时', description: '移动是否真实消耗时间(延时到达)。true=移动需等待耗时秒数后才到达，false=即时到达', type: 'boolean', group: 'game' },
     { key: 'game.forceVitality', value: 'false', label: '所有人强制开启活力', description: '开启后所有玩家普通击杀都会消耗1点活力并获得经验、资源双倍奖励，玩家个人关闭设置不再生效', type: 'boolean', group: 'game' },
+    { key: 'game.vitalityNoBonus', value: 'false', label: '活力消耗不奖励双倍', description: '开启后玩家仍按规则正常消耗活力，但普通击杀不再获得活力双倍奖励（经验/资源保持普通值）', type: 'boolean', group: 'game' },
     { key: 'game.adminQQ', value: '', label: '管理员QQ', description: '拥有管理员权限的QQ号（逗号分隔）', type: 'string', group: 'game' },
     { key: 'update.check.enabled', value: 'true', label: '部署更新检测开关', description: '是否开启部署完成检测：前端发现新版本后弹窗提示并自动刷新', type: 'boolean', group: 'update' },
     { key: 'update.check.interval', value: '30', label: '更新检测轮询间隔(秒)', description: '前端每隔多少秒向后端版本接口检查一次是否有新部署', type: 'number', group: 'update' },

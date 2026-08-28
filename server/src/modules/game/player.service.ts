@@ -296,12 +296,13 @@ export class PlayerService {
       markersChanged = true;
     }
     if (markersChanged) {
+      // 仅做内存兜底：把补齐后的活力标记写回内存快照，随本次快照后续的业务保存
+      // 一并落库，不再在这里定点写库 + 手动自增 version。原因：
+      // 1) 定点写库会立刻推进数据库 version，而内存同步只能靠「假设 $use 拦截器
+      //    已自增」来手动 +1，在测试桩或无拦截路径下内存版本超前于库版本，
+      //    导致同一快照随后的 savePlayer 被 CAS 误判为并发冲突；
+      // 2) 活力上限缺失时读取侧（getVitalityMax）本身已兜底为 100，显示不会 0/0。
       player.markers = JSON.stringify(markers);
-      await this.prisma.player.update({
-        where: { id: player.id },
-        data: { markers: player.markers },
-      });
-      player.version = Number(player.version ?? 0) + 1;
     }
 
 
