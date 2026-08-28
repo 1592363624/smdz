@@ -128,7 +128,8 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
           backpack: '[]', equipment: '[]', weapons: '[]', tasks: '[]',
         },
       });
-      (StatsService as any).onlineUsers.add(user.id);
+      // onlineUsers 为「userId → 连接数」引用计数 Map，非 Set
+      (StatsService as any).onlineUsers.set(user.id, 1);
     }
   });
 

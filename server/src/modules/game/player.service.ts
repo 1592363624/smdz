@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
+import { filterActive } from './expire-time.util';
 
 /**
  * 玩家数据完整解析后的结构
@@ -317,7 +318,9 @@ export class PlayerService {
       weapons: this.safeJsonParse<any[]>(player.weapons, []),
       markers,
       markers2: this.safeJsonParse<any[]>(player.markers2, []),
-      buffs: this.safeJsonParse<any[]>(player.buffs, []),
+      // 增益：读取即剔除已过期条目（时间口径秒/毫秒混用由 filterActive 统一归一化），
+      // 使展示层与战斗生效判定都只看到仍然有效的增益；无到期时间的永久增益保留。
+      buffs: filterActive(this.safeJsonParse<any[]>(player.buffs, [])),
       tasks: this.safeJsonParse<any[]>(player.tasks, []),
       safeBox: this.safeJsonParse<any[]>(player.safeBox, []),
     };

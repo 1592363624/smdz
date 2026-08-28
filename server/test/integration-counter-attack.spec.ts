@@ -113,7 +113,8 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
         },
       });
       // 标记为在线（对应原版"活跃"增益=在线，怪物反击筛选条件之一）
-      (StatsService as any).onlineUsers.add(user.id);
+      // onlineUsers 为「userId → 连接数」引用计数 Map，非 Set
+      (StatsService as any).onlineUsers.set(user.id, 1);
     }
   });
 

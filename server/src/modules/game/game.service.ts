@@ -31,6 +31,7 @@ import { CombatStateService } from './combat-state.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { normalizeGameText } from '../../common/utils/game-text.util';
+import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
 
 interface QuestSource {
   npcName: string;
@@ -1176,19 +1177,35 @@ export class GameService {
   }
 
   /**
+   * 文本面板增益行：把增益数组格式化为「名称(剩余m:ss)」列表。
+   *
+   * 统一走过期时间归一化（秒/毫秒两种历史口径都识别），并**剔除已过期条目**：
+   * 原逻辑只把剩余秒数钳到 0，导致过期的增益一直以「(0:00)」常驻在「信息」
+   * 面板里不会消失。
+   * @param rawBuffs 增益数组或 JSON 字符串
+   * @returns 展示文本数组（无有效增益时为空数组，调用方据此省略整行）
+   */
+  private formatBuffList(rawBuffs: any): string[] {
+    const now = Date.now();
+    return filterActive(rawBuffs, now).map((buff: any) => {
+      const name = buff?.name || buff?.名称 || '未知';
+      // 无到期时间 = 永久增益，不带倒计时，避免显示成误导性的 (0:00)
+      return toExpireMs(buff) ? `${name}(${formatRemain(remainSeconds(buff, now))})` : name;
+    });
+  }
+
+  /**
    * 增益快照（网页「我的」面板用）：过滤已过期条目，保留名字与有效期时间戳，
    * 剩余倒计时由前端按本地时钟实时计算。
    */
   private buildActiveBuffs(rawBuffs: any): Array<{ name: string; expireAt: number }> {
-    const list = Array.isArray(rawBuffs) ? rawBuffs : [];
+    // 先按统一时间口径剔除过期条目，再统一输出毫秒时间戳给前端倒计时
+    // （历史数据里 expireAt 有秒/毫秒两种口径，必须归一化后再交给前端）
     const now = Date.now();
-    const result: Array<{ name: string; expireAt: number }> = [];
-    for (const b of list) {
-      const expireAt = Number(b?.expireAt ?? b?.有效期至 ?? 0);
-      if (!(expireAt > now)) continue;
-      result.push({ name: String(b?.name || b?.名称 || '未知'), expireAt });
-    }
-    return result;
+    return filterActive(rawBuffs, now).map((b: any) => ({
+      name: String(b?.name || b?.名称 || '未知'),
+      expireAt: toExpireMs(b),
+    }));
   }
 
   /**
@@ -1601,19 +1618,8 @@ export class GameService {
     }
 
     // 当前增益效果（对齐原版 显示使魔数据 L956-963）
-    const buffList: any[] = Array.isArray(playerData.buffs) && playerData.buffs.length > 0
-      ? playerData.buffs
-      : this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    if (Array.isArray(buffList) && buffList.length > 0) {
-      const now = Date.now();
-      const buffStrs = buffList.map((buff: any) => {
-        const name = buff.name || buff.名称 || '未知';
-        const expireAt = Number(buff.expireAt ?? buff.有效期至 ?? 0);
-        const remainSec = Math.max(0, Math.floor((expireAt - now) / 1000));
-        const mm = Math.floor(remainSec / 60);
-        const ss = remainSec % 60;
-        return `${name}(${mm}:${String(ss).padStart(2, '0')})`;
-      });
+    const buffStrs = this.formatBuffList(playerData.buffs ?? player.buffs);
+    if (buffStrs.length > 0) {
       lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`✨ 增益: ${buffStrs.join('、')}`);
     }
@@ -1870,19 +1876,8 @@ export class GameService {
       (1 + num(b.攻击2) / 100);
     lines.push(`◆攻击加成倍率: ${fmt(atkBonus)}%`);
     // 当前增益效果（L956-963）
-    const buffList: any[] = Array.isArray(buffs) && buffs.length > 0
-      ? buffs
-      : this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    if (Array.isArray(buffList) && buffList.length > 0) {
-      const now = Date.now();
-      const buffStrs = buffList.map((buff: any) => {
-        const name = buff.name || buff.名称 || '未知';
-        const expireAt = Number(buff.expireAt ?? buff.有效期至 ?? 0);
-        const remainSec = Math.max(0, Math.floor((expireAt - now) / 1000));
-        const mm = Math.floor(remainSec / 60);
-        const ss = remainSec % 60;
-        return `${name}(${mm}:${String(ss).padStart(2, '0')})`;
-      });
+    const buffStrs = this.formatBuffList(Array.isArray(buffs) ? buffs : player.buffs);
+    if (buffStrs.length > 0) {
       lines.push(`◆当前增益: ${buffStrs.join('、')}`);
     }
     // 魅力/活力（L977-985）
@@ -6151,10 +6146,12 @@ export class GameService {
     lines.push(`━━━━━━━━━━━━━━━`);
     lines.push(`👾 召唤物:`);
     const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    const summons = buffs.filter((b: any) => b.type === 'summon' || b.name?.includes('召唤'));
+    // 只显示仍在有效期内的召唤物，剩余时间按统一口径计算
+    const summons = filterActive(buffs).filter((b: any) => b.type === 'summon' || b.name?.includes('召唤'));
     if (summons.length > 0) {
+      const nowSummon = Date.now();
       for (const s of summons) {
-        lines.push(`  ${s.name || '未知召唤物'} (剩余: ${s.duration || '?'}秒)`);
+        lines.push(`  ${s.name || '未知召唤物'} (剩余: ${remainSeconds(s, nowSummon)}秒)`);
       }
     } else {
       lines.push(`  无活跃召唤物`);

@@ -16,6 +16,7 @@ import { MapService } from './map.service';
 import { AutoMineService } from './auto-mine.service';
 import { GameService } from './game.service';
 import { runSilent } from '../../game-sync/write-context';
+import { filterActive } from './expire-time.util';
 
 /**
  * 默认副本名称列表（未配置 game.instanceNames 时使用）
@@ -915,7 +916,14 @@ export class ScheduleService {
   @Cron('0 */5 * * * *') // 每5分钟
   async cleanupExpiredBuffs() {
     try {
-      const now = BigInt(Math.floor(Date.now() / 1000));
+      const nowMs = Date.now();
+      // markers2 保留「秒级到期时间」的原清理口径：该容器里有两类语义混存——
+      // ① 到期时刻（武器冷却 now+秒*1000 毫秒 / 技能冷却 nowSec+秒 秒级）；
+      // ② 触发时刻（"被寒风冷却""光棱"等，expireAt 记的是上次触发时刻，
+      //    由 `nowMs - expireAt > 间隔` 判断是否可再次触发）。
+      // 若对 ② 用「到期时刻」口径过滤，会被当成已过期直接删除，冷却记录丢失。
+      // 因此 markers2 只清理秒级到期时刻，buffs 才走统一归一化过滤。
+      const nowSec = Math.floor(nowMs / 1000);
 
       // ----- 清理玩家过期标记和增益 -----
       const players = await this.prisma.player.findMany({
@@ -926,22 +934,21 @@ export class ScheduleService {
       for (const player of players) {
         let changed = false;
 
-        // 清理过期 markers2
+        // 清理过期 markers2（秒级到期时刻口径，见上方说明）
         const markers2 = JSON.parse(player.markers2 || '[]');
         const validMarkers2 = markers2.filter((m: any) => {
-          if (!m.expireAt) return true;
-          return BigInt(m.expireAt) > now;
+          if (!m?.expireAt) return true;
+          const raw = Number(m.expireAt);
+          const expireSec = raw >= 1e12 ? raw / 1000 : raw;
+          return expireSec > nowSec;
         });
         if (validMarkers2.length !== markers2.length) {
           changed = true;
         }
 
-        // 清理过期 buffs
+        // 清理过期 buffs（秒/毫秒两种历史写法都识别）
         const buffs = JSON.parse(player.buffs || '[]');
-        const validBuffs = buffs.filter((b: any) => {
-          if (!b.expireAt) return true;
-          return BigInt(b.expireAt) > now;
-        });
+        const validBuffs = filterActive(buffs, nowMs);
         if (validBuffs.length !== buffs.length) {
           changed = true;
         }
@@ -968,10 +975,13 @@ export class ScheduleService {
 
       let cleanedMaps = 0;
       for (const map of maps) {
+        // 与玩家 markers2 同口径：只清理秒级「到期时刻」，保留触发时刻型标记
         const mapMarkers2 = this.parseJsonArray<any>(map.markers2);
         const validMapMarkers2 = mapMarkers2.filter((m: any) => {
-          if (!m.expireAt) return true;
-          return BigInt(m.expireAt) > now;
+          if (!m?.expireAt) return true;
+          const raw = Number(m.expireAt);
+          const expireSec = raw >= 1e12 ? raw / 1000 : raw;
+          return expireSec > nowSec;
         });
         if (validMapMarkers2.length !== mapMarkers2.length) {
           await this.mapService.updateDynamicFields(map.id, {

@@ -26,6 +26,9 @@ import { StatsService } from './stats.service';
 import { TaskService } from './task.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { VitalityService } from './vitality.service';
+import {
+  expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainSeconds, toExpireMs,
+} from './expire-time.util';
 
 // ==================== 类型定义 ====================
 
@@ -724,8 +727,8 @@ export class CombatSystemService {
     }
     // 1. 力量模式/隐匿模式（增益标记）：近战/拳头伤害×1.5；隐匿模式下远程伤害×1.5且暴击率100%
     const buffs = playerData.buffs || [];
-    const hasPowerMode = buffs.some((b: any) => b && b.name === '力量模式');
-    const hasStealthMode = buffs.some((b: any) => b && b.name === '隐匿模式');
+    const hasPowerMode = hasActive(buffs, '力量模式');
+    const hasStealthMode = hasActive(buffs, '隐匿模式');
     const isMelee = !weapon.type || weapon.type.includes('近战') || weapon.name === '拳头';
     if (hasPowerMode) {
       if (isMelee) {
@@ -771,7 +774,7 @@ export class CombatSystemService {
     }
     // 镰刀1：卷土重来增益时伤害×3
     if (weapon.specialSeq === 37 || weapon.name?.includes('镰刀')) {
-      const hasComeback = buffs.some((b: any) => b && b.name === '卷土重来');
+      const hasComeback = hasActive(buffs, '卷土重来');
       if (hasComeback) {
         effectiveDamageMultiplier *= 3;
         resultLines.push('【镰刀】伤害×3');
@@ -816,26 +819,27 @@ export class CombatSystemService {
       let targetHasDodgeBuff = false;
       const targetType = target.type || '';
       const targetBuffs: any[] = this.safeParseJson(target.buffs, []);
-      const now = Date.now() / 1000;
+      const nowMs = Date.now();
       // 闪避增益（含时长）：闪避状态剩余秒数越多闪避率越高（原版固定闪避+100）
-      const dodgeBuff = targetBuffs.find((b: any) => b && b.name === '闪避');
-      if (dodgeBuff && dodgeBuff.expireAt && dodgeBuff.expireAt > now) {
+      // 到期时间按统一口径归一化后比较（历史数据秒/毫秒混用）
+      const dodgeBuff = findActive(targetBuffs, '闪避');
+      if (dodgeBuff) {
         targetHasDodgeBuff = true;
         targetDodgeModifier += 100;
-        const remain = Math.ceil(dodgeBuff.expireAt - now);
+        const remain = remainSeconds(dodgeBuff, nowMs);
         if (remain > 0) resultLines.push(`${target.name} 处于闪避状态(${remain}秒)`);
       }
       if (targetType.includes('四糸乃')) {
         targetDodgeModifier += 10;
       }
       if (targetType.includes('伊卡洛斯')) {
-        const hasAnnihilation = targetBuffs.some((b: any) => b && b.name === '歼灭模式');
+        const hasAnnihilation = hasActive(targetBuffs, '歼灭模式');
         if (hasAnnihilation && Math.random() < 0.2) {
           targetDodgeModifier += 100; // 歼灭模式闪避
         }
       }
       if (targetType.includes('绝灭天使')) {
-        const hasLightWing = targetBuffs.some((b: any) => b && b.name === '光翼');
+        const hasLightWing = hasActive(targetBuffs, '光翼');
         if (hasLightWing) {
           targetDodgeModifier += 30; // 光翼闪避
         }
@@ -854,7 +858,8 @@ export class CombatSystemService {
         // 因果逆转（武器特效==47）：目标有闪避状态时，按 1÷(闪避剩余×2)×100% 几率无视闪避
         let effectiveDodge = targetDodgeModifier;
         if (weapon.specialEffect === 47 && targetHasDodgeBuff && dodgeBuff?.expireAt) {
-          const dodgeRemain = Math.max(0.1, dodgeBuff.expireAt - now);
+          // 剩余秒数按归一化毫秒计算（dodgeBuff 可能是秒级或毫秒级写入）
+          const dodgeRemain = Math.max(0.1, (toExpireMs(dodgeBuff) - nowMs) / 1000);
           const ignoreChance = 1 / (dodgeRemain * 2) * 100;
           if (Math.random() * 100 < ignoreChance) {
             effectiveDodge = 0;
@@ -909,7 +914,8 @@ export class CombatSystemService {
           // saber好感≥40：有"ex"增益时伤害=0（原版 战斗相关.ecode L2240-2246：防御方.好感>=40 && 增益要求("ex")）
           const defAff2 = target.affinity ?? (target as any).好感 ?? 0;
           const tBuffs2 = this.safeParseJson<any[]>(target.buffs, []);
-          if (defAff2 >= 40 && tBuffs2.some((b: any) => b && b.name === 'ex')) {
+          // 归一化过期判定：ex 是 15 秒窗口增益，过期后不再免伤（原版 增益要求 同样会剔除过期项）
+          if (defAff2 >= 40 && hasActive(tBuffs2, 'ex')) {
             resultLines.push(`${target.name} 的【ex】护盾抵消了本次攻击！`);
             dmgNullified = true;
           }
@@ -917,7 +923,7 @@ export class CombatSystemService {
         if (targetType.includes('四糸乃')) {
           // 四糸乃好感≥80：20秒冷却触发"冰凯"免伤一次
           const tBuffs2 = this.safeParseJson<any[]>(target.buffs, []);
-          if (tBuffs2.some((b: any) => b && b.name === 'bk1')) {
+          if (hasActive(tBuffs2, 'bk1')) {
             resultLines.push(`${target.name} 的【冰凯】挡住了本次攻击！`);
             dmgNullified = true;
             target.buffs = JSON.stringify(tBuffs2.filter((b: any) => !(b && b.name === 'bk1')));
@@ -927,13 +933,15 @@ export class CombatSystemService {
         atkStats.dodged++; // 被闪避计数（对应原版 火伤2 被闪避次数）
         // 对应原版 战斗相关.ecode L1481：显示攻击文本(z1, 0, 攻击文本) 抽取「未命中」分类模板
         // 并展开占位符（如"【目标】躲开了【名称】的拳头"）；无配置时退回简版提示。
+        // 原版 L1561 / L1698：未命中、被闪避两个分支在文本末尾追加 显示伤害倍率(攻击方)。
+        const missMult = this.displayDamageMultiplier(player, attackerBonus);
         const missName = (attackText ?? '').trim() || this.resolveAttackTextName(weapon);
         const missTemplates = this.getAttackTextTemplates(missName, 0);
         if (missTemplates.length > 0) {
           const tpl = missTemplates[Math.floor(Math.random() * missTemplates.length)];
-          resultLines.push(this.expandAttackPlaceholders(tpl, player.name || '', target.name, String(weapon.name || '拳头'), this.getAttackerVehicleName(player, map)));
+          resultLines.push(this.expandAttackPlaceholders(tpl, player.name || '', target.name, String(weapon.name || '拳头'), this.getAttackerVehicleName(player, map)) + missMult);
         } else {
-          resultLines.push(`${target.name} 闪避了攻击`);
+          resultLines.push(`${target.name} 闪避了攻击${missMult}`);
         }
         // 未命中：防御方获得「闪避熟练度」（对应原版 L1484）
         const tMarkers = this.normalizeMarkerObject(target.markers);
@@ -963,10 +971,9 @@ export class CombatSystemService {
       {
         const tBuffs = this.safeParseJson<any[]>(target.buffs, []);
         const tMk = this.safeParseJson<Record<string, number>>(target.markers, {});
-        const nowSec2 = Date.now() / 1000;
 
         // 1. 剑阵增益：伤害=0（对应原版 L2583-2586）
-        if (tBuffs.some((b: any) => b && b.name === '剑阵' && (!b.expireAt || b.expireAt > nowSec2))) {
+        if (hasActive(tBuffs, '剑阵')) {
           resultLines.push(`${target.name} 【剑阵】格挡了本次攻击！`);
           dmgNullified = true;
         }
@@ -980,7 +987,7 @@ export class CombatSystemService {
           if (tName.includes('圆盾')) blockRate += 5;
           if (tName.includes('金刚不坏')) blockRate += 10;
           // 烟雾弹增益（原版 L2596-2599）
-          if (tBuffs.some((b: any) => b && b.name === '烟雾弹' && (!b.expireAt || b.expireAt > nowSec2))) {
+          if (hasActive(tBuffs, '烟雾弹')) {
             blockRate += 20;
             resultLines.push(`${target.name} 【烟雾弹】格挡率+20%`);
           }
@@ -1002,7 +1009,7 @@ export class CombatSystemService {
           // 3. 格挡判定
           if (blockRate > 0 && Math.random() * 100 < blockRate) {
             // 阿尔缇娜格挡分支（a3=-1.02：a技能2增益时）——完整还原30%完全格挡/20%穿透+
-            if (tBuffs.some((b: any) => b && b.name === 'a技能2' && (!b.expireAt || b.expireAt > nowSec2))) {
+            if (hasActive(tBuffs, 'a技能2')) {
               const roll = Math.random() * 100;
               if (roll < 30) {
                 // 30%完全格挡：伤害=0（原版 L2632-2634）
@@ -1064,20 +1071,19 @@ export class CombatSystemService {
       // 由 calcDamage 统一按 剩余伤害×(1+易伤/100) 应用。
       {
         const tBuffs = this.playerService.safeJsonParse<any[]>(target.buffs, []);
-        const nowSec = Date.now() / 1000;
         let vuln = 0;
-        // 割裂：易伤+10
-        if (tBuffs.some((b: any) => b && b.name === '割裂' && (!b.expireAt || b.expireAt > nowSec))) {
+        // 割裂：易伤+10（过期判定统一走归一化口径）
+        if (hasActive(tBuffs, '割裂')) {
           vuln += 10;
         }
         // 影光：易伤 + 增益值×2.5（增益值封顶40）
-        const shadow = tBuffs.find((b: any) => b && b.name === '影光' && (!b.expireAt || b.expireAt > nowSec));
+        const shadow = findActive(tBuffs, '影光');
         if (shadow) {
           const shadowVal = Math.min(40, Number(shadow.value) || 0);
           vuln += shadowVal * 2.5;
         }
         // 重伤：易伤 + 增益值
-        const heavy = tBuffs.find((b: any) => b && b.name === '重伤' && (!b.expireAt || b.expireAt > nowSec));
+        const heavy = findActive(tBuffs, '重伤');
         if (heavy) {
           vuln += Number(heavy.value) || 0;
         }
@@ -1231,8 +1237,9 @@ export class CombatSystemService {
             resultLines.push(`【雪獒】剩余伤害×1.75，闪避+3秒`);
             // 获得增益(攻击方.增益,"闪避",3)（原版 L2839）
             const pBuffs = this.safeParseJson<any[]>(player.buffs, []);
-            if (!pBuffs.some((b: any) => b && b.name === '闪避' && b.expireAt > nowSec)) {
-              pBuffs.push({ name: '闪避', expireAt: nowSec + 3 });
+            const nowMsXa = nowSec * 1000; // 统一毫秒口径（本段仅有秒级 nowSec）
+            if (!pBuffs.some((b: any) => b && b.name === '闪避' && this.isActiveBeyond(b, 3, nowMsXa))) {
+              pBuffs.push({ name: '闪避', expireAt: this.expireAfter(3, nowMsXa) });
             }
             player.buffs = JSON.stringify(pBuffs);
           }
@@ -1480,8 +1487,8 @@ export class CombatSystemService {
         // ---- 火焰飞羽（z1.特殊序号==#火焰飞羽(-30)：给防御方加"飞羽"增益60秒，原版 L1843-1844） ----
         if (weapon.specialSeq === -30 || weapon.name?.includes('火焰飞羽')) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((x: any) => (x.name || x.名称) === '飞羽' && x.expireAt > nowSec + 30)) {
-            tBuffs.push({ name: '飞羽', expireAt: nowSec + 30, 强度: 1 }); // 原版 获得增益(防御方.增益,"飞羽",30,假,s,1,真)
+          if (!tBuffs.some((x: any) => (x.name || x.名称) === '飞羽' && this.isActiveBeyond(x, 30, nowMs))) {
+            tBuffs.push({ name: '飞羽', expireAt: this.expireAfter(30, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"飞羽",30,假,s,1,真)
           }
           target.buffs = JSON.stringify(tBuffs);
         }
@@ -1502,8 +1509,8 @@ export class CombatSystemService {
         //      后续 L2263 读"影光"增益 → 易伤 += a1*2.5 已在 calcDamage 对应段实现） ----
         if (weapon.specialSeq === -23 || weapon.name?.includes('影光')) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((x: any) => (x.name || x.名称) === '影光' && x.expireAt > nowSec + 60)) {
-            tBuffs.push({ name: '影光', expireAt: nowSec + 60, 强度: 1 }); // 原版 获得增益(防御方.增益,"影光",60,假,s,1,真)
+          if (!tBuffs.some((x: any) => (x.name || x.名称) === '影光' && this.isActiveBeyond(x, 60, nowMs))) {
+            tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"影光",60,假,s,1,真)
           }
           target.buffs = JSON.stringify(tBuffs);
         }
@@ -1603,8 +1610,8 @@ export class CombatSystemService {
             // 计数清零，并给防御方加正式增益（原版 获得增益(防御方.增益, formal, 30,...)）
             targetMk[cntKey] = 0;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === formal && b.expireAt > nowSec + 30)) {
-              tBuffs.push({ name: formal, expireAt: nowSec + 30 });
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === formal && this.isActiveBeyond(b, 30, nowMs))) {
+              tBuffs.push({ name: formal, expireAt: this.expireAfter(30, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
             if (effName === '灼烧' || effName === '深寒' || effName === '感电') {
@@ -1627,7 +1634,7 @@ export class CombatSystemService {
         // ---- 感电增益 + 星尘超新星（原版 L2109-2136） ----
         // 负面类型可能刚把"感电"写入防御方增益，此处重新解析以纳入本次生效
         const defBuffs2 = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-        if (defBuffs2.some((b: any) => b && (b.name || b.名称) === '感电')) {
+        if (hasActive(defBuffs2, '感电')) {
           resultLines.push('【感电】');
           // 增加全抗(防御方.属性, -5,-5,-5)：原版火/冰/电三系抗性各-5，本框架以三层全抗各-5 等效表达
           defenderBonus.生命全抗 = (defenderBonus.生命全抗 || 0) - 5;
@@ -1686,8 +1693,8 @@ export class CombatSystemService {
         // 恶毒(#恶毒=6)：防御方增益加"恶毒之刃" 15+技等（L2175-2177）
         if (atkSeq === 6) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '恶毒之刃' && b.expireAt > nowSec + 15 + atkSkill)) {
-            tBuffs.push({ name: '恶毒之刃', expireAt: nowSec + 15 + atkSkill });
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '恶毒之刃' && this.isActiveBeyond(b, 15 + atkSkill, nowMs))) {
+            tBuffs.push({ name: '恶毒之刃', expireAt: this.expireAfter(15 + atkSkill, nowMs) });
           }
           target.buffs = JSON.stringify(tBuffs);
           resultLines.push('【恶毒之刃】');
@@ -1696,8 +1703,8 @@ export class CombatSystemService {
         if (atkSeq === 11 && atkAff >= 80) {
           targetMk['燃烧'] = nowSec; // 简化：冷却标记占位
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '燃烧' && b.expireAt > nowSec + 15)) {
-            tBuffs.push({ name: '燃烧', expireAt: nowSec + 15, strength: 10 + atkSkill / 2 });
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '燃烧' && this.isActiveBeyond(b, 15, nowMs))) {
+            tBuffs.push({ name: '燃烧', expireAt: this.expireAfter(15, nowMs), strength: 10 + atkSkill / 2 });
           }
           target.buffs = JSON.stringify(tBuffs);
           resultLines.push('(燃烧)');
@@ -1705,7 +1712,7 @@ export class CombatSystemService {
         // 绝灭天使(#绝灭天使=3) 增益含"炮冠"：炮冠冷却30 + 取羽毛特效（L2184-2190，简化为置冷却标记+文本）
         if (atkSeq === 3) {
           const atkBuffs = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
-          if (atkBuffs.some((b: any) => b && (b.name || b.名称) === '炮冠')) {
+          if (hasActive(atkBuffs, '炮冠')) {
             playerMk['炮冠冷却'] = nowSec; // 30秒冷却（L2186 时间间隔要求 30）
             resultLines.push('【炮冠】');
           }
@@ -1714,19 +1721,19 @@ export class CombatSystemService {
         if (atkSeq === 16) {
           if (atkAff >= 100) {
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '影光' && b.expireAt > nowSec + 60)) {
-              tBuffs.push({ name: '影光', expireAt: nowSec + 60 });
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '影光' && this.isActiveBeyond(b, 60, nowMs))) {
+              tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
           }
           const atkBuffs2 = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
-          if (atkBuffs2.some((b: any) => b && (b.name || b.名称) === '万象') &&
+          if (hasActive(atkBuffs2, '万象') &&
               (weapon.name === '拳头' || weapon.type === '近战武器')) {
             if (!targetMk['zllq'] || nowSec - (targetMk['zllq'] || 0) > 30) {
               targetMk['zllq'] = nowSec;
               const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-              if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '转轮' && b.expireAt > nowSec + 30)) {
-                tBuffs.push({ name: '转轮', expireAt: nowSec + 30, strength: (attackerBonus.物伤 || 0) / 10 });
+              if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '转轮' && this.isActiveBeyond(b, 30, nowMs))) {
+                tBuffs.push({ name: '转轮', expireAt: this.expireAfter(30, nowMs), strength: (attackerBonus.物伤 || 0) / 10 });
               }
               target.buffs = JSON.stringify(tBuffs);
               resultLines.push(`【剑阵转轮】+${Math.round((attackerBonus.物伤 || 0) / 10)}`);
@@ -1763,23 +1770,23 @@ export class CombatSystemService {
         // 龙姬(#龙姬=12)：防御方增益加"怒吼"（L2233-2234）
         if (defSeq === 12) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '怒吼')) {
-            tBuffs.push({ name: '怒吼', expireAt: nowSec + 30 });
+          if (!hasActive(tBuffs, '怒吼')) {
+            tBuffs.push({ name: '怒吼', expireAt: this.expireAfter(30, nowMs) });
           }
           target.buffs = JSON.stringify(tBuffs);
         }
         // 长萌(#长萌=2) 好感≥40 → 防御方增益加"长萌承受"（L2235-2238）
         if (defSeq === 2 && defAff >= 40) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '长萌承受' && b.expireAt > nowSec + 30)) {
-            tBuffs.push({ name: '长萌承受', expireAt: nowSec + 30 });
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '长萌承受' && this.isActiveBeyond(b, 30, nowMs))) {
+            tBuffs.push({ name: '长萌承受', expireAt: this.expireAfter(30, nowMs) });
           }
           target.buffs = JSON.stringify(tBuffs);
         }
         // saber(#saber=19) 好感≥40 增益含"ex" → 伤害0（L2240-2246）
         if (defSeq === 19 && defAff >= 40) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (tBuffs.some((b: any) => b && (b.name || b.名称) === 'ex')) {
+          if (hasActive(tBuffs, 'ex')) {
             forcedMult = 0;
             dmgImmune = true;
             resultLines.push('【ex】');
@@ -1790,13 +1797,13 @@ export class CombatSystemService {
           if (defAff >= 80 && (!targetMk['冰凯'] || nowSec - (targetMk['冰凯'] || 0) > 20)) {
             targetMk['冰凯'] = nowSec;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === 'bk1')) {
-              tBuffs.push({ name: 'bk1', expireAt: nowSec + 20 });
+            if (!hasActive(tBuffs, 'bk1')) {
+              tBuffs.push({ name: 'bk1', expireAt: this.expireAfter(20, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
           }
           const tBuffs2 = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (tBuffs2.some((b: any) => b && (b.name || b.名称) === 'bk1')) {
+          if (hasActive(tBuffs2, 'bk1')) {
             forcedMult = 0;
             dmgImmune = true;
             resultLines.push('【冰凯】');
@@ -1808,8 +1815,8 @@ export class CombatSystemService {
           if (!playerMk['xhcd'] || nowSec - (playerMk['xhcd'] || 0) > 180) {
             playerMk['xhcd'] = nowSec;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '猩红' && b.expireAt > nowSec + 10)) {
-              tBuffs.push({ name: '猩红', expireAt: nowSec + 10 });
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '猩红' && this.isActiveBeyond(b, 10, nowMs))) {
+              tBuffs.push({ name: '猩红', expireAt: this.expireAfter(10, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
             // 记录猩红添加者：原版 置成就熟练度("x红x"+QQ, 防御方.标记, #吸血姬猩红)
@@ -1822,7 +1829,7 @@ export class CombatSystemService {
         if (atkSeq === 8) {
           // 攻击方守护1 → 进守护2、守护1-1（L2471-2481，回合消耗，本框架简化为文本）
           const atkBuffs = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
-          if (atkBuffs.some((b: any) => b && (b.name || b.名称) === '守护1')) {
+          if (hasActive(atkBuffs, '守护1')) {
             resultLines.push('【守护】');
           }
           // 好感≥60：与防御方交换武器冷却，并 战斗中增加攻击 5+技等/2（L2482-2497）
@@ -1848,7 +1855,7 @@ export class CombatSystemService {
         // 防御方战斗女仆 守护1 → 伤害0（L2521-2531）
         if (defSeq === 8) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (tBuffs.some((b: any) => b && (b.name || b.名称) === '守护1')) {
+          if (hasActive(tBuffs, '守护1')) {
             forcedMult = 0;
             dmgImmune = true;
             resultLines.push('【守护】');
@@ -1859,7 +1866,7 @@ export class CombatSystemService {
         // 绝灭天使(#绝灭天使=3) 增益含"光盾" → 伤害0（L2533-2538）
         if (defSeq === 3) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (tBuffs.some((b: any) => b && (b.name || b.名称) === '光盾')) {
+          if (hasActive(tBuffs, '光盾')) {
             forcedMult = 0;
             dmgImmune = true;
             resultLines.push('【光盾】');
@@ -1870,8 +1877,8 @@ export class CombatSystemService {
           if (!targetMk['jz'] || nowSec - (targetMk['jz'] || 0) > 60) {
             targetMk['jz'] = nowSec;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵' && b.expireAt > nowSec + 12)) {
-              tBuffs.push({ name: '剑阵', expireAt: nowSec + 12 });
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵' && this.isActiveBeyond(b, 12, nowMs))) {
+              tBuffs.push({ name: '剑阵', expireAt: this.expireAfter(12, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
             if (defAff >= 80) {
@@ -1894,7 +1901,7 @@ export class CombatSystemService {
         // 防御方增益含"剑阵" → 伤害0（L2583-2586）
         {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵')) {
+          if (hasActive(tBuffs, '剑阵')) {
             forcedMult = 0;
             dmgImmune = true;
             resultLines.push('【剑阵】');
@@ -1915,8 +1922,8 @@ export class CombatSystemService {
             blockVal = 100;
             targetMk['猫猫闪避'] = 0;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '幻时')) {
-              tBuffs.push({ name: '幻时', expireAt: nowSec + 30 });
+            if (!hasActive(tBuffs, '幻时')) {
+              tBuffs.push({ name: '幻时', expireAt: this.expireAfter(30, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
             targetMk[`${(target.type || (target as any).类型 || '')}技能冷却`] = nowSec;
@@ -1927,7 +1934,7 @@ export class CombatSystemService {
         if (defSeq === 7) {
           if (defAff >= 40) blockVal += 15 + defSkill / 2;
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (tBuffs.some((b: any) => b && (b.name || b.名称) === 'a技能2')) blockVal += 15 + defSkill / 2;
+          if (hasActive(tBuffs, 'a技能2')) blockVal += 15 + defSkill / 2;
         }
         // 防爆盾装备 → 格挡+10（L2587-2589）
         if (defEquip2?.some((e: any) => e.specialSeq === 9 || (e.name || '').includes('防爆盾'))) blockVal += 10;
@@ -1938,7 +1945,7 @@ export class CombatSystemService {
         // 烟雾弹增益 → 格挡+20（L2596-2599）
         {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (tBuffs.some((b: any) => b && (b.name || b.名称) === '烟雾弹')) blockVal += 20;
+          if (hasActive(tBuffs, '烟雾弹')) blockVal += 20;
         }
         // 裸体围裙装备 → 易伤+5 + 格挡修正（L2600-2610）
         if (defEquip2?.some((e: any) => e.specialSeq === 65 || (e.name || '').includes('裸体围裙'))) {
@@ -2402,7 +2409,10 @@ export class CombatSystemService {
         ? this.formatCaptureDamageText(finalDamage, appliedDamage, target, scaledPool.hp > 0)
         : this.formatDamageText(finalDamage, appliedDamage);
       const enhancerText = damageResult.effectText || '';
-      resultLines.push(`${atkText} ${target.name}，造成 ${dmgText}${critText}${ratingText ? ` ${ratingText}` : ''}${enhancerText ? ` ${enhancerText}` : ''}`);
+      // 对应原版 战斗相关.ecode L3881：w2 = 显示攻击文本(z1, 显示类型, 攻击文本) + 显示伤害倍率(攻击方)，
+      // 即倍率紧跟攻击文本之后，位于特效与伤害文本之前。
+      const hitMult = this.displayDamageMultiplier(player, attackerBonus);
+      resultLines.push(`${atkText}${hitMult} ${target.name}，造成 ${dmgText}${critText}${ratingText ? ` ${ratingText}` : ''}${enhancerText ? ` ${enhancerText}` : ''}`);
 
       attackCount++;
 
@@ -2744,8 +2754,8 @@ export class CombatSystemService {
           if (this.playerService.isPlayerDead(victim)) continue; // 当前生命<=0 跳过（鞭尸豁免）
           // 隐匿模式 / 炮冠：原版 标记要求("隐匿模式"/"炮冠", 玩家2.增益) → 查增益列表
           const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
-          if (vBuffs.some((b: any) => b && (b.name || b.名称) === '隐匿模式')) continue;
-          if (vBuffs.some((b: any) => b && (b.name || b.名称) === '炮冠')) continue;
+          if (hasActive(vBuffs, '隐匿模式')) continue;
+          if (hasActive(vBuffs, '炮冠')) continue;
           victimIds.push(uid);
         } catch (e: any) {
           this.logger.warn(`读取反击目标 ${uid} 失败: ${e.message}`);
@@ -2871,12 +2881,13 @@ export class CombatSystemService {
 
       // 读取玩家"闪避"增益 buff（handleDodge 写入），作为固定闪避值。
       const victimBuffs = this.safeParseJson<any[]>(victim.buffs, []);
-      const nowSec = Date.now() / 1000;
-      const dodgeBuff = victimBuffs.find((b: any) => b && b.name === '闪避' && (!b.expireAt || b.expireAt > nowSec));
+      const nowMsDodge = Date.now();
+      // 归一化过期判定（历史数据秒/毫秒混用）
+      const dodgeBuff = findActive(victimBuffs, '闪避', nowMsDodge);
       let fixedDodge = 0;
       if (dodgeBuff) {
         fixedDodge = dodgeBuff.value || 100;
-        const remain = Math.ceil((dodgeBuff.expireAt || 0) - nowSec);
+        const remain = remainSeconds(dodgeBuff, nowMsDodge);
         if (remain > 0) lines.push(`${youText}处于闪避状态（剩余${remain}秒），闪开了攻击`);
       }
 
@@ -4742,6 +4753,104 @@ export class CombatSystemService {
   }
 
   /**
+   * 判定增益是否仍然生效、且剩余时间超过 seconds 秒。
+   * 典型用法：若不存在「还能撑过 N 秒」的同名增益，则重新施加一个持续 N 秒的增益
+   * （等效原版 获得增益 前先做有效期判定的写法）。
+   *
+   * 时间单位：玩家 buffs 数组统一采用**秒级** expireAt（与 L706/L888/L3079/L7335 写法一致），
+   * 这里顺带兼容历史毫秒存量（≥1e12 视为毫秒）。markers2 数组则是毫秒级，不适用本方法。
+   *
+   * @param buff    增益条目（{ name, expireAt } / { 名称, 有效期至 }）
+   * @param seconds 要求剩余存活的秒数
+   * @param nowMs   当前毫秒时间戳
+   */
+  private isActiveBeyond(buff: any, seconds: number, nowMs: number): boolean {
+    if (!buff) return false;
+    const raw = Number(buff.expireAt ?? buff.有效期至 ?? 0);
+    if (!raw) return false;
+    const expireSec = raw >= 1e12 ? raw / 1000 : raw;
+    return expireSec > nowMs / 1000 + (Number(seconds) || 0);
+  }
+
+  /**
+   * 生成 seconds 秒之后的过期时间戳（秒级，写入玩家 buffs 数组）。
+   * 与 isActiveBeyond 成对使用，保证「写入」与「判定」的单位一致。
+   */
+  private expireAfter(seconds: number, nowMs: number): number {
+    return nowMs / 1000 + Math.max(0, Number(seconds) || 0);
+  }
+
+  /**
+   * 原版「文本四舍」：保留两位小数并去掉尾随零（12.50 → 12.5，13 → 13）。
+   * 与 item.service / home.service 中的同名辅助保持一致。
+   */
+  private textRound4(value: number): string {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '0';
+    return String(Number(n.toFixed(2)));
+  }
+
+  /**
+   * 显示伤害倍率（对应原版 数据显示.ecode L996-1006 显示伤害倍率）
+   *
+   * 【原文 L996-1006】
+   *   .子程序 显示伤害倍率, 文本型
+   *   .参数 攻击方, 玩家
+   *   .如果真 (攻击方.特殊序号 > 0)                          ' 仅玩家（使魔序号>0）；怪物为 -1
+   *     .如果真 (取成就熟练度 (攻击方.标记, “bl”, , ) == 1)      ' 设置项「显示倍率」
+   *         攻击方.属性.攻击加成 = (100 + (1 * (1 + 属性.电伤2/100) * (1 + 加成.电伤2/100)
+   *                            + 1 * (1 + 属性.物伤2/100) * (1 + 加成.物伤2/100)
+   *                            + 1 * (1 + 属性.火伤2/100) * (1 + 加成.火伤2/100)
+   *                            + 1 * (1 + 属性.冰伤2/100) * (1 + 加成.冰伤2/100) - 4) * 100)
+   *                            * (1 + 属性.攻击2/100) * (1 + 加成.攻击2/100)
+   *         返回 (加括号 (“倍率” + 文本四舍 (攻击方.属性.攻击加成) + “%”))
+   *
+   * 调用点（原版 战斗相关.ecode）：
+   *   L1561 未命中分支    文本 = 文本 + 特效 + 显示伤害倍率 (攻击方)
+   *   L1698 被闪避分支    文本 = 文本 + 特效 + 显示伤害倍率 (攻击方)
+   *   L3881 命中分支      w2 = 显示攻击文本 (z1, 显示类型, 攻击文本) + 显示伤害倍率 (攻击方)
+   *
+   * 框架差异说明（已逐项核对，不影响显示语义）：
+   *   原版「玩家.属性」与「玩家.加成」是两个独立结构体，"2"字段各乘一次；
+   *   本框架 buildAttackerBonus 已把两者合并为同一 bonus，并在 calculateFinalBonus
+   *   之后把"2"字段清零折算进最终伤害值。因此这里改用合并后的单一"2"值各乘一次
+   *   （取值来自 buildAttackerBonus 写入的 bonus.倍率来源 快照），
+   *   保证「显示的倍率」与「实际生效的伤害加成」同口径——
+   *   否则玩家看到的数字会与实际伤害不符，失去校验配装的意义。
+   *
+   * @param attacker 攻击方快照（需含 specialSeq 与 markers）
+   * @param bonus    攻击方加成（buildAttackerBonus 产物）
+   * @returns “(倍率123.45%)”；攻击方非玩家或开关未开时返回空串
+   */
+  private displayDamageMultiplier(attacker: any, bonus: BonusData): string {
+    // 原版 L999：只有攻击方是玩家（使魔序号>0；怪物为 -1、未选使魔为 0）才显示
+    if (!(Number(attacker?.specialSeq ?? 0) > 0)) return '';
+    // 原版 L1000：设置项「显示倍率」，标记 bl == 1 才显示
+    const markers = this.normalizeMarkerObject(attacker?.markers);
+    if (this.playerService.getMarkerValue(markers, 'bl') !== 1) return '';
+
+    // 合并后的"2"值 = buildAttackerBonus 快照 + 攻击过程中动态追加的部分（如载具攻击2）
+    const src = (bonus as any)?.倍率来源 ?? {};
+    const rate2 = (key: string): number =>
+      Number(src[key] ?? 0) + Number((bonus as any)?.[key] ?? 0);
+
+    const elec = rate2('电伤2');
+    const phys = rate2('物伤2');
+    const fire = rate2('火伤2');
+    const ice = rate2('冰伤2');
+    const atk2 = rate2('攻击2');
+
+    // 原版以"每项基础伤害为1"参与加权：Σ 1*(1+伤2/100) - 4 即四项超出基准的部分
+    const 攻击加成 = (100
+      + ((1 + elec / 100) + (1 + phys / 100) + (1 + fire / 100) + (1 + ice / 100) - 4) * 100)
+      * (1 + atk2 / 100);
+
+    // 原版 L1001 会顺带把结果写回 攻击方.属性.攻击加成；该字段仅供显示，不参与伤害计算，
+    // 本框架不保留该字段，故只返回文本。原版 L1002：加括号("倍率" + 文本四舍(x) + "%")
+    return `(倍率${this.textRound4(攻击加成)}%)`;
+  }
+
+  /**
    * 取攻击方当前驾驶载具名称（用于展开【载具】占位符）
    * 对应原版 载具2.列表编号 != 0 → "操纵"+载具名；无载具时占位符整体删除。
    * 返回 undefined 表示无载具。
@@ -5962,23 +6071,23 @@ export class CombatSystemService {
         const pBuffs: any[] = playerData.buffs || [];
         // a3 倍率：救世魔王×1.5（韧性+50%、穿透+10）；光翼×(1+0.5+技能/100)（原版 L2077-2091）
         let a3 = 1;
-        const hasSavior = pBuffs.some((b: any) => b && b.name === '救世魔王');
+        const hasSavior = hasActive(pBuffs, '救世魔王');
         if (hasSavior) {
           a3 = 1.5;
           bonus.韧性 = (bonus.韧性 || 0) + (1 - (bonus.韧性 || 0) / 100) * 50;
           this.bonusService.addPenetration(bonus, 10);
         }
-        const hasLightWing = pBuffs.some((b: any) => b && b.name === '光翼');
+        const hasLightWing = hasActive(pBuffs, '光翼');
         if (hasLightWing) a3 = a3 * (1 + 0.5 + skillLevel / 100);
         // 炮冠增益：贯穿 + 羽毛/2×a3、穿透+10（原版 L2084-2088）
-        if (pBuffs.some((b: any) => b && b.name === '炮冠')) {
+        if (hasActive(pBuffs, '炮冠')) {
           bonus.贯穿 = (bonus.贯穿 || 0) + Math.round(feather / 2 * a3 * 100) / 100;
           this.bonusService.addPenetration(bonus, 10);
         }
         // 命中2 = 羽毛 × a3（原版 L2092）
         bonus.命中2 = (bonus.命中2 || 0) + feather * a3;
         // 无光盾时：每片羽毛额外+1%暴伤（原版 L2093-2096：光盾存在时羽毛+1并暴伤+羽毛）
-        if (!pBuffs.some((b: any) => b && b.name === '光盾')) {
+        if (!hasActive(pBuffs, '光盾')) {
           bonus.暴击伤害 = (bonus.暴击伤害 || 0) + feather;
         }
         // 攻击2 = 羽毛 × a3（原版 L2097）
@@ -6344,7 +6453,7 @@ export class CombatSystemService {
 
     // ========== 脏弹/核废料（原版 L2362-2382） ==========
     const pBuffs = playerData.buffs || [];
-    if (pBuffs.some((b: any) => b && b.name === '脏弹')) {
+    if (hasActive(pBuffs, '脏弹')) {
       bonus.生命回复 = 0;
       bonus.生命回复2 = 0;
       bonus.装甲回复 = (bonus.装甲回复 || 0) / 2;
@@ -6402,7 +6511,7 @@ export class CombatSystemService {
     // ========== 卷土重来/线圈减伤（原版 L2596-2608） ==========
     // 卷土重来增益 或 套装线圈>0：闪避=1、四伤÷2
     // 注意原版 L2599/L2605 疑似笔误：火伤=冰伤/2、冰伤=火伤/2（交叉赋值），按原版保留
-    if (pBuffs.some((b: any) => b && b.name === '卷土重来')) {
+    if (hasActive(pBuffs, '卷土重来')) {
       bonus.闪避 = 1;
       bonus.物伤 = (bonus.物伤 || 0) / 2;
       bonus.火伤 = (bonus.冰伤 || 0) / 2; // 原版 L2599，疑似笔误（应为火伤/2），按原版保留
@@ -6572,12 +6681,25 @@ export class CombatSystemService {
       bonus.生命回复2 = 0; bonus.护盾回复2 = 0; bonus.装甲回复2 = 0;
       this.bonusService.calculateFinalBonus(bonus, source2);
       // calculateFinalBonus 会把 source.攻击 累加回 target.攻击
-    } catch (err: any) {
-      this.logger.warn(`最终加成计算失败: ${err.message}`);
-    }
 
-    // 应用递减收益
-    this.bonusService.applyAllDiminishingReturns(bonus);
+      // ===== 显示倍率来源快照（供 显示伤害倍率 / 设置项「显示倍率」使用）=====
+      // 原版「玩家.属性」与「玩家.加成」是两个独立结构体，各自带一份"2"字段，
+      // 显示倍率时两者分别相乘：(1+属性.电伤2/100)*(1+加成.电伤2/100)。
+      // 本框架已把两者合并进同一 bonus，且 calculateFinalBonus 后"2"字段被清零，
+      // 故在清零前把合并值留档，否则倍率还原时会全部读成 0。
+      (bonus as any).倍率来源 = {
+        电伤2: source2.电伤2 || 0,
+        火伤2: source2.火伤2 || 0,
+        物伤2: source2.物伤2 || 0,
+        冰伤2: source2.冰伤2 || 0,
+        攻击2: source2.攻击2 || 0,
+      };
+      } catch (err: any) {
+      this.logger.warn(`最终加成计算失败: ${err.message}`);
+      }
+
+      // 应用递减收益
+      this.bonusService.applyAllDiminishingReturns(bonus);
 
     // 魅力影响活力上限和恢复速度，但历史上限只增不减；
     // 这里不直接写库，调用方的同一玩家快照会在后续 savePlayer 时落盘。
@@ -7602,7 +7724,7 @@ export class CombatSystemService {
 
     // 检查玩家是否有"歼灭模式"增益
     const buffs = playerData.buffs || [];
-    const hasAnnihilationMode = buffs.some((b: any) => b.name === '歼灭模式');
+    const hasAnnihilationMode = hasActive(buffs, '歼灭模式');
 
     if (hasAnnihilationMode) {
       // 歼灭模式下，额外攻击次数+3
@@ -10111,7 +10233,7 @@ export class CombatSystemService {
       if (this.hasActiveRuntimeBuff(monster.buffs, '麻醉', nowMs)) continue;
       const cooldown = Number(monster.dodgeCooldown ?? monster.闪避冷却 ?? this.safeJsonObject(monster.bonus).闪避冷却 ?? 0);
       if (cooldown <= 0 || Math.random() * 100 >= 50) continue;
-      const fly = buffs.find((item: any) => (item?.name ?? item?.名称) === '飞羽');
+      const fly = findActive(buffs, '飞羽', nowMs);
       const flyLevel = Math.min(10, Number(fly?.value ?? fly?.强度 ?? 0));
       let actualCooldown = cooldown * (1 + flyLevel * 0.05);
       const shock = this.hasActiveRuntimeBuff(monster.markers2, '空间震', nowMs);
@@ -10262,7 +10384,7 @@ export class CombatSystemService {
         const data = await this.playerService.getPlayerData(row.userId);
         if (this.playerService.isPlayerDead(data.player)) continue;
         const buffs = this.playerService.safeJsonParse<any[]>(data.player.buffs, []);
-        if (buffs.some((item: any) => ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
+        if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
         victims.push({ actor: data.player, data, runtime: false, isSelf: row.userId === userId });
       }
 
@@ -10368,7 +10490,8 @@ export class CombatSystemService {
 
           // 原版 L342-344：缩短卷土重来30秒 + 恢复一半生命
           const buffs = this.playerService.safeJsonParse<any[]>(victim.buffs, []);
-          const jtIdx = buffs.findIndex((b: any) => b && (b.name ?? b.名称) === '卷土重来');
+          // 只消费仍然有效的「卷土重来」（过期条目不参与扶人判定）
+          const jtIdx = buffs.findIndex((b: any) => b && (b.name ?? b.名称) === '卷土重来' && isActive(b));
           if (jtIdx < 0) continue;
           buffs.splice(jtIdx, 1);
           victim.buffs = JSON.stringify(buffs);
@@ -10515,7 +10638,7 @@ export class CombatSystemService {
           const victim = victimData.player;
           if (this.playerService.isPlayerDead(victim)) continue;
           const buffs = this.playerService.safeJsonParse<any[]>(victim.buffs, []);
-          if (buffs.some((item: any) => ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
+          if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
           victims.push({
             actor: victim,
             data: victimData,

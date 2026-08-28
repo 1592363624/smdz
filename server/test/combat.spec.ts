@@ -1257,3 +1257,96 @@ describe('计算增益接入 - buildAttackerBonus 调用 calculateBuffs', () => 
     expect(Math.abs((bonus.闪避 || 0) - base)).toBeLessThan(0.001);
   });
 });
+
+// ==================== 显示伤害倍率 (数据显示.ecode L996-1006) ====================
+/**
+ * 对应原版 数据显示.ecode L996-1006「显示伤害倍率」子程序，
+ * 即设置面板第 7 项「显示倍率」（玩家标记 bl：1=开，0=关）。
+ *
+ * 原版公式：
+ *   攻击加成 = (100 + (1*(1+电伤2/100) + 1*(1+物伤2/100)
+ *                    + 1*(1+火伤2/100) + 1*(1+冰伤2/100) - 4) * 100)
+ *              * (1 + 攻击2/100)
+ *   返回 加括号("倍率" + 文本四舍(攻击加成) + "%")
+ *
+ * 调用点：战斗相关.ecode L1561（未命中）/ L1698（被闪避）/ L3881（命中）
+ */
+describe('显示伤害倍率 - 设置项「显示倍率」标记 bl (数据显示.ecode L996-1006)', () => {
+  const multPlayerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
+  const multCombat = new CombatSystemService(
+    {} as PrismaService,
+    multPlayerService,
+    {} as BonusService,
+    {} as MapService,
+    {} as StaticDataService,
+    {} as AchievementService,
+    {} as ItemSystemService,
+    {} as any,
+    {} as StatsService,
+  );
+
+  /** 构造攻击方快照：specialSeq>0 为玩家，-1 为怪物，0 为未选使魔 */
+  const atker = (specialSeq: number, bl?: number) => ({
+    specialSeq,
+    markers: JSON.stringify(bl === undefined ? {} : { bl }),
+  });
+
+  /** 构造加成对象，模拟 buildAttackerBonus 写入的「倍率来源」快照 */
+  const bonusOf = (v: {
+    电伤2?: number; 物伤2?: number; 火伤2?: number; 冰伤2?: number; 攻击2?: number;
+  }) => ({
+    倍率来源: {
+      电伤2: v.电伤2 || 0,
+      物伤2: v.物伤2 || 0,
+      火伤2: v.火伤2 || 0,
+      冰伤2: v.冰伤2 || 0,
+      攻击2: v.攻击2 || 0,
+    },
+  });
+
+  const show = (a: any, b: any): string => (multCombat as any).displayDamageMultiplier(a, b);
+
+  it('L1000 标记 bl 未设置（默认关）→ 不显示倍率', () => {
+    expect(show(atker(8), bonusOf({}))).toBe('');
+  });
+
+  it('L1000 标记 bl=0（关）→ 不显示倍率', () => {
+    expect(show(atker(8, 0), bonusOf({}))).toBe('');
+  });
+
+  it('L999 攻击方是怪物(特殊序号=-1) → 即使 bl=1 也不显示', () => {
+    expect(show(atker(-1, 1), bonusOf({ 电伤2: 50 }))).toBe('');
+  });
+
+  it('L999 攻击方未选使魔(特殊序号=0) → 即使 bl=1 也不显示', () => {
+    expect(show(atker(0, 1), bonusOf({ 电伤2: 50 }))).toBe('');
+  });
+
+  it('L1001-L1002 bl=1 且四项"2"加成全为0 → 基准倍率100%', () => {
+    // (100 + ((1+0)+(1+0)+(1+0)+(1+0) - 4) * 100) * (1 + 0/100) = 100
+    expect(show(atker(8, 1), bonusOf({}))).toBe('(倍率100%)');
+  });
+
+  it('L1001 单系 电伤2=50 → (100 + 50) * 1 = 150%', () => {
+    // (100 + ((1+0.5)+(1)+(1)+(1) - 4) * 100) * 1 = 100 + 50
+    expect(show(atker(8, 1), bonusOf({ 电伤2: 50 }))).toBe('(倍率150%)');
+  });
+
+  it('L1001 四系各50 且 攻击2=100 → (100 + 200) * 2 = 600%', () => {
+    expect(show(atker(8, 1), bonusOf({ 电伤2: 50, 物伤2: 50, 火伤2: 50, 冰伤2: 50, 攻击2: 100 }))).toBe('(倍率600%)');
+  });
+
+  it('L1001 负的"2"加成按原版公式正常参与计算（电伤2=-50 → 50%）', () => {
+    expect(show(atker(8, 1), bonusOf({ 电伤2: -50 }))).toBe('(倍率50%)');
+  });
+
+  it('L1002 文本四舍：电伤2=100/3 → 133.33%（保留两位并去尾零）', () => {
+    // 电伤2 在公式里是百分比量：100 + ((1 + (100/3)/100) - 1) * 100 = 100 + 33.3333... = 133.33
+    expect(show(atker(8, 1), bonusOf({ 电伤2: 100 / 3 }))).toBe('(倍率133.33%)');
+  });
+
+  it('攻击过程中动态追加的"2"值（如载具 攻击2）叠加进倍率', () => {
+    // 快照全 0，bonus 本体额外 攻击2=100 → 100 * (1 + 100/100) = 200%
+    expect(show(atker(8, 1), { ...bonusOf({}), 攻击2: 100 })).toBe('(倍率200%)');
+  });
+});

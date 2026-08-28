@@ -145,9 +145,17 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (tickTimer) clearInterval(tickTimer);
 });
-const visibleBuffs = computed(() => buffs.value.filter((b) => Number(b?.expireAt || 0) > nowTick.value));
+// 无到期时间（expireAt=0）为永久增益，始终显示且不走倒计时
+const visibleBuffs = computed(() =>
+  buffs.value.filter((b) => {
+    const expire = Number(b?.expireAt || 0);
+    return !expire || expire > nowTick.value;
+  }),
+);
 function buffRemain(expireAt) {
-  const remainSec = Math.max(0, Math.floor((Number(expireAt || 0) - nowTick.value) / 1000));
+  const expire = Number(expireAt || 0);
+  if (!expire) return '永久';
+  const remainSec = Math.max(0, Math.floor((expire - nowTick.value) / 1000));
   const mm = Math.floor(remainSec / 60);
   const ss = remainSec % 60;
   return `${mm}:${String(ss).padStart(2, '0')}`;

@@ -15,6 +15,7 @@ import { CombatSystemService } from './combat-system.service';
 import { HomeService } from './home.service';
 import { ItemSystemService } from './item-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
+import { hasActive } from './expire-time.util';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -4514,9 +4515,9 @@ ${this.getAwakenStageName(d)}(${d})`;
       return 0;
     }
 
-    // 检查是否处于歼灭模式
+    // 检查是否处于歼灭模式（过期判定统一归一化）
     const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    const inAnnihilationMode = buffs.some((b: any) => b.name === '歼灭模式');
+    const inAnnihilationMode = hasActive(buffs, '歼灭模式');
     if (!inAnnihilationMode) {
       return 0;
     }
