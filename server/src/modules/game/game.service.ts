@@ -1552,8 +1552,17 @@ export class GameService {
       return map[c] || '神迹';
     };
 
+    // 槽位判定：原版 寻找装备() 实际比较的是 装备列表[].类型（即静态表的 equipType：
+    // 头部/肩膀/上身/背部/手臂/手掌/腰部/下身/腿环/腿部/脚部/植入体/增幅器）。
+    // 玩家身上 item.type 固定为 '装备'，不能直接当槽位用；这里与 buildEquipmentSnapshot 同口径
+    // 通过 staticData.getEquipmentByName 取 equipType，保持左面板 / 文本面板一致。
+    const getEquipType = (item: any): string => {
+      const def = this.staticData.getEquipmentByName(item.name);
+      return String(def?.equipType ?? def?.type ?? def?.类型 ?? item.type ?? item.类型 ?? '');
+    };
+
     for (const slotName of slotNames) {
-      const eqIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === slotName);
+      const eqIdx = equipmentList.findIndex((e: any) => getEquipType(e) === slotName);
       if (eqIdx >= 0) {
         const eq = equipmentList[eqIdx];
         const qName = qualityPrefix(eq.data || eq.数据 || '');
@@ -1580,8 +1589,8 @@ export class GameService {
       lines.push(`  武器: 普通 拳头(+${enhanceLv})`);
     }
 
-    // 植入体（L2170-2179）
-    const implantIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === '植入体');
+    // 植入体（L2170-2179）：同样走静态表 equipType 取数口径
+    const implantIdx = equipmentList.findIndex((e: any) => getEquipType(e) === '植入体');
     if (implantIdx >= 0) {
       const im = equipmentList[implantIdx];
       const qName = qualityPrefix(im.data || im.数据 || '');
@@ -1590,8 +1599,8 @@ export class GameService {
       lines.push(`  植入: 无`);
     }
 
-    // 增幅器（L2180-2189）
-    const ampIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === '增幅器');
+    // 增幅器（L2180-2189）：同样走静态表 equipType 取数口径
+    const ampIdx = equipmentList.findIndex((e: any) => getEquipType(e) === '增幅器');
     if (ampIdx >= 0) {
       const am = equipmentList[ampIdx];
       const qName = qualityPrefix(am.data || am.数据 || '');
@@ -1652,18 +1661,18 @@ export class GameService {
       if (!item) {
         return `背包中没有找到【${arg}】\n使用「背包」查看物品列表`;
       }
-      if ((item.type || item.类型) === '装备') {
+      if (this.isEquipmentItem(item)) {
         return this.itemSystemService.analyzeEquipmentItem(item, '背包');
       }
       const itemName = item.name || item.名称 || '未知物品';
       const count = Math.round(this.itemQuantity(item) * 100) / 100;
-      const type = item.type || item.类型 ? `\n类型: ${item.type || item.类型}` : '';
+      const type = this.resolveItemTypeName(item) ? `\n类型: ${this.resolveItemTypeName(item)}` : '';
       const desc = item.description || item.说明 ? `\n${item.description || item.说明}` : '';
       return `🎒【${itemName}】×${count}${type}${desc}`;
     }
 
     const lines = items.map((item: any, index: number) => {
-      if ((item.type || item.类型) === '装备') {
+      if (this.isEquipmentItem(item)) {
         return `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`;
       }
       const itemName = item.name || item.名称 || '未知物品';
@@ -13802,7 +13811,7 @@ export class GameService {
   private formatMerchantItem(item: any, includeQuantity = false, includeEffect = true): string {
     const name = item?.name ?? item?.名称 ?? '';
     let effect = '';
-    if ((item?.type ?? item?.类型) === '装备' && item?.data) {
+    if (this.isEquipmentItem(item) && item?.data) {
       const parsed = this.itemService.parseEquipment(item as any);
       if (parsed.specialEffect > 0) {
         const weapon = this.isFusionWeapon(item);
@@ -13814,10 +13823,22 @@ export class GameService {
         effect = effectRow?.name || effectRow?.description || `特效${parsed.specialEffect}`;
       }
     }
-    if ((item?.type ?? item?.类型) === '装备') {
+    if (this.isEquipmentItem(item)) {
       return `${name}${includeEffect && effect ? `【${effect}】` : ''}`;
     }
     return `${name}${includeQuantity ? `x${this.roundText(this.itemQuantity(item))}` : ''}`;
+  }
+
+  /** 统一物品「类型」口径：优先静态表 equipType（原版 装备列表[].类型），缺表再回落运行时 type/类型。 */
+  private resolveItemTypeName(item: any): string {
+    const def = this.staticData.getEquipmentByName(item?.name ?? item?.名称 ?? '');
+    return String(def?.equipType ?? def?.type ?? def?.类型 ?? item?.type ?? item?.类型 ?? '');
+  }
+
+  /** 物品是否为装备：静态表按名称查得到定义即按装备处理，避免运行时 type 缺失或口径不一。 */
+  private isEquipmentItem(item: any): boolean {
+    return !!this.staticData.getEquipmentByName(item?.name ?? item?.名称 ?? '')
+      || (item?.type ?? item?.类型) === '装备';
   }
 
   private formatMerchantItems(items: any[]): string {
