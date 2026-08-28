@@ -20,6 +20,7 @@ import { FamiliarSystemService } from './familiar-system.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
+import { remainMs, SECOND_MS, toExpireMs } from './expire-time.util';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -269,11 +270,12 @@ export class FamiliarSkillsService {
    */
   private addBuff(player: any, buffName: string, duration: number, extraData?: Record<string, any>): void {
     const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    const now = Date.now() / 1000;
+    // 统一毫秒时间戳（全项目口径；duration 仍按秒传入）
+    const nowMs = Date.now();
     const newBuffs = buffs.filter((b: any) => b.name !== buffName);
     newBuffs.push({
       name: buffName,
-      expireAt: now + duration,
+      expireAt: nowMs + duration * SECOND_MS,
       ...(extraData || {}),
     });
     player.buffs = JSON.stringify(newBuffs);
@@ -409,25 +411,26 @@ export class FamiliarSkillsService {
     now = Date.now(),
   ): { isOnCooldown: boolean; text: string } {
     const name = `${player.type}技能冷却`;
+    // 统一毫秒：读用 toExpireMs 归一化，写用 now + duration*1000
     const normalized = markers2
-      .map((marker: any) => {
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-        const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
-        return { ...marker, name: marker?.name ?? marker?.名称 ?? '', expireAt };
-      })
+      .map((marker: any) => ({
+        ...marker,
+        name: marker?.name ?? marker?.名称 ?? '',
+        expireAt: toExpireMs(marker),
+      }))
       .filter((marker: any) => marker.name && marker.expireAt > now);
 
     const active = normalized.find((marker: any) => marker.name === name);
     markers2.splice(0, markers2.length, ...normalized);
     if (active) {
-      const seconds = Math.max(0, Math.floor((active.expireAt - now) / 1000));
+      const seconds = Math.max(0, Math.floor((active.expireAt - now) / SECOND_MS));
       const text = seconds < 60
         ? `${seconds}秒`
         : `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
       return { isOnCooldown: true, text: `${player.name}还需要${text}` };
     }
 
-    normalized.push({ name, expireAt: now + duration * 1000 });
+    normalized.push({ name, expireAt: now + duration * SECOND_MS });
     markers2.splice(0, markers2.length, ...normalized);
     return { isOnCooldown: false, text: '' };
   }
@@ -573,7 +576,7 @@ export class FamiliarSkillsService {
     const found = summons.find((s: any) => s.name === summonName);
     if (!found) return;
     const sbuffs: any[] = this.safeParse(found.buffs, []);
-    sbuffs.push({ name: '下次攻击·标记', expireAt: Math.floor(Date.now() / 1000) + 3600, ...next });
+    sbuffs.push({ name: '下次攻击·标记', expireAt: Date.now() + 3600 * SECOND_MS, ...next });
     found.buffs = JSON.stringify(sbuffs);
     await this.mapService.updateDynamicFields(mapId, { summons: JSON.stringify(summons) });
   }
@@ -588,11 +591,10 @@ export class FamiliarSkillsService {
    */
   private setNextAttackBuff(player: any, name: string, data: Record<string, any>): void {
     const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    const now = Date.now() / 1000;
     const newBuffs = buffs.filter((b: any) => b.name !== name);
     newBuffs.push({
       name,
-      expireAt: now + 3600, // 1小时内若未攻击则过期
+      expireAt: Date.now() + 3600 * SECOND_MS, // 1小时内若未攻击则过期（毫秒时间戳）
       onceAttack: true,
       ...data,
     });
@@ -696,11 +698,12 @@ export class FamiliarSkillsService {
 
     const recordedCharm = Math.max(0, this.playerService.getMarkerValue(markers, '活力2') - 100);
     const cooldown = 600 / (1 + recordedCharm / 200);
-    const nowSeconds = timestamp > 1e12 ? timestamp / 1000 : timestamp;
+    // timestamp 入参可能是秒或毫秒，统一换算为毫秒（<1e12 视为秒）
+    const nowMs = timestamp > 1e12 ? timestamp : timestamp * SECOND_MS;
     const markers2 = this.safeParse<any[]>(player.markers2 ?? player.标记2, []);
     const activeCooldown = markers2.find((marker: any) => {
       if (this.markerName(marker) !== '宠搜') return false;
-      return this.markerExpirySeconds(marker) > nowSeconds;
+      return this.markerExpiryMs(marker) > nowMs;
     });
     if (activeCooldown) return '';
 
@@ -760,7 +763,7 @@ export class FamiliarSkillsService {
     }
 
     const nextMarkers2 = markers2.filter((marker: any) => this.markerName(marker) !== '宠搜');
-    nextMarkers2.push({ name: '宠搜', expireAt: nowSeconds + cooldown });
+    nextMarkers2.push({ name: '宠搜', expireAt: nowMs + cooldown * SECOND_MS });
     player.markers2 = JSON.stringify(nextMarkers2);
     if (player.标记2 !== undefined) player.标记2 = player.markers2;
     player.backpack = JSON.stringify(backpack);
@@ -872,9 +875,9 @@ export class FamiliarSkillsService {
     return String(marker?.name ?? marker?.名称 ?? '').trim();
   }
 
-  private markerExpirySeconds(marker: any): number {
-    const value = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-    return value > 1e12 ? value / 1000 : value;
+  /** 标记到期时间（毫秒；存量秒级数据自动归一化，全项目统一口径） */
+  private markerExpiryMs(marker: any): number {
+    return toExpireMs(marker);
   }
 
   private randomSearchLocation(map: any, random: () => number): string {
@@ -2425,7 +2428,7 @@ export class FamiliarSkillsService {
         name: '风月入墨',
         value: -expReduce,
         duration: a3,
-        expireAt: Math.floor(Date.now() / 1000) + a3,
+        expireAt: Date.now() + a3 * SECOND_MS,
         source: 'familiarSkill',
       });
       lines.push(`当前地图使魔和宠物升级所需经验-${expReduce.toFixed(2)}%（持续${Math.floor(a3 / 60)}分钟，离开地图失效）`);
@@ -2505,7 +2508,7 @@ export class FamiliarSkillsService {
         name: '风月入墨',
         value: -expReduce,
         duration: a3,
-        expireAt: Math.floor(Date.now() / 1000) + a3,
+        expireAt: Date.now() + a3 * SECOND_MS,
         source: 'familiarSkill',
       });
     } catch (e) {
@@ -3432,11 +3435,10 @@ export class FamiliarSkillsService {
 
     // 设置使魔挑战模式标记
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const now = Date.now() / 1000;
     const newMarkers2 = markers2.filter((m: any) => m.name !== '使魔挑战');
     newMarkers2.push({
       name: '使魔挑战',
-      expireAt: now + 3600, // 挑战模式持续1小时
+      expireAt: Date.now() + 3600 * SECOND_MS, // 挑战模式持续1小时（毫秒时间戳）
       wave: 1,
       score: 0,
     });
@@ -3470,9 +3472,7 @@ export class FamiliarSkillsService {
     // 检查是否在挑战模式中
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const challengeMarker = markers2.find((m: any) => m.name === '使魔挑战');
-    const now = Date.now() / 1000;
-
-    if (!challengeMarker || challengeMarker.expireAt <= now) {
+    if (remainMs(challengeMarker) === 0) {
       return '你不在挑战模式中，请先使用「使魔挑战」进入挑战模式';
     }
 

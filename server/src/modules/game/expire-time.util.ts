@@ -78,6 +78,34 @@ export function filterActive(list: any, nowMs: number = Date.now()): any[] {
 }
 
 /**
+ * 「触发时刻」型冷却判定：距上次触发时刻是否已超过 intervalMs 毫秒。
+ *
+ * 与「到期时刻」型的区别：容器里存的是**上次触发的时刻**（过去值），
+ * 判定用 `now - last >= 间隔`；常见于 Player.markers 里的冷却键（袖剑冷却、光棱…）。
+ * 传入 0/undefined 视为「从未触发」→ 返回 true（可以触发）。
+ *
+ * 存量数据可能是秒也可能是毫秒，内部统一归一化，无需数据迁移。
+ *
+ * @param stamp 上次触发时刻（秒或毫秒时间戳，取 markers[key] 的值）
+ * @param intervalMs 间隔（毫秒，建议书写为 N * SECOND_MS）
+ * @param nowMs 当前毫秒时间戳
+ */
+export function isDueSince(stamp: any, intervalMs: number, nowMs: number = Date.now()): boolean {
+  const last = toExpireMs({ expireAt: stamp });
+  if (!last) return true;
+  return nowMs - last >= intervalMs;
+}
+
+/**
+ * 取「上次触发至今」经过的秒数（触发时刻型容器用，最低 0）
+ */
+export function elapsedSecondsSince(stamp: any, nowMs: number = Date.now()): number {
+  const last = toExpireMs({ expireAt: stamp });
+  if (!last) return 0;
+  return Math.max(0, (nowMs - last) / SECOND_MS);
+}
+
+/**
  * 生成「从现在起 seconds 秒后到期」的毫秒时间戳（写入增益时统一使用）
  */
 export function expireAfter(seconds: number, nowMs: number = Date.now()): number {
@@ -95,6 +123,18 @@ export function expireAfter(seconds: number, nowMs: number = Date.now()): number
 export function isActiveBeyond(it: any, seconds: number, nowMs: number = Date.now()): boolean {
   const expire = toExpireMs(it);
   return expire !== 0 && expire > nowMs + seconds * SECOND_MS;
+}
+
+/**
+ * 冷却剩余毫秒：0 表示「无该标记」或「已过期」。
+ *
+ * 与 remainSeconds 的区别：这里把「无到期时间」也当作 0（不在冷却中），
+ * 与历史写法 `marker && marker.expireAt > now` 的短路结果一致；
+ * 而 isActive 把无到期时间视为永久有效（用于增益，不用于冷却）。
+ */
+export function remainMs(it: any, nowMs: number = Date.now()): number {
+  const expire = toExpireMs(it);
+  return expire && expire > nowMs ? expire - nowMs : 0;
 }
 
 /**

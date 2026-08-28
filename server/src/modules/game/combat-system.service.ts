@@ -27,7 +27,8 @@ import { TaskService } from './task.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { VitalityService } from './vitality.service';
 import {
-  expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainSeconds, toExpireMs,
+  SECOND_MS, expireAfter, findActive, hasActive, isActive, isActiveBeyond, isDueSince,
+  remainSeconds, toExpireMs,
 } from './expire-time.util';
 
 // ==================== 类型定义 ====================
@@ -533,8 +534,9 @@ export class CombatSystemService {
         const mk2Fx = this.safeParseJson<any[]>(player.markers2 || '[]', []);
         const typeKeyFx = `${player.type || '玩家'}技能冷却`;
         const skFx = mk2Fx.find((m: any) => m?.name === typeKeyFx);
-        if (skFx) skFx.expireAt = Math.max(nowMsFx, skFx.expireAt - 60 * 1000);
-        else mk2Fx.push({ name: typeKeyFx, expireAt: Math.max(nowMsFx, Math.floor(nowMsFx / 1000 - 60) * 1000) });
+        // 到期时间统一毫秒（存量秒级由 toExpireMs 归一化）；原意为「冷却最多提前 60 秒」
+        if (skFx) skFx.expireAt = Math.max(nowMsFx, toExpireMs(skFx) - 60 * SECOND_MS);
+        else mk2Fx.push({ name: typeKeyFx, expireAt: Math.max(nowMsFx, nowMsFx - 60 * SECOND_MS) });
         player.markers2 = JSON.stringify(mk2Fx);
         resultLines.push('【棒棒糖】');
         // 原版 释放使魔技能(攻击方, s)：自动释放使魔特有技能（走主动技能完整门禁）
@@ -549,10 +551,10 @@ export class CombatSystemService {
       }
       // 射爆核心（原版 L455-459）：60s 冷却标记「射爆」→ 额外攻击次数+1
       if (hasEquipSeqFx(29)) {
-        const nowSecFx = Date.now() / 1000;
+        const nowMsFx = Date.now();
         const pMkFx = this.safeParseJson<Record<string, number>>(player.markers, {});
-        if (!pMkFx['射爆'] || nowSecFx - (pMkFx['射爆'] || 0) > 60) {
-          pMkFx['射爆'] = nowSecFx;
+        if (isDueSince(pMkFx['射爆'], 60 * SECOND_MS, nowMsFx)) {
+          pMkFx['射爆'] = nowMsFx;
           player.markers = JSON.stringify(pMkFx);
           extraAttackCount += 1;
           resultLines.push('【射爆】');
@@ -560,10 +562,10 @@ export class CombatSystemService {
       }
       // 唯我主宰（原版 L460-466）：60s 冷却标记「wzj」→ 本次必中
       if (hasEquipSeqFx(84)) {
-        const nowSecFx = Date.now() / 1000;
+        const nowMsFx = Date.now();
         const pMkFx = this.safeParseJson<Record<string, number>>(player.markers, {});
-        if (!pMkFx['wzj'] || nowSecFx - (pMkFx['wzj'] || 0) > 60) {
-          pMkFx['wzj'] = nowSecFx;
+        if (isDueSince(pMkFx['wzj'], 60 * SECOND_MS, nowMsFx)) {
+          pMkFx['wzj'] = nowMsFx;
           player.markers = JSON.stringify(pMkFx);
           mustHitOverride = true;
           resultLines.push('【唯我主宰】必中');
@@ -707,7 +709,7 @@ export class CombatSystemService {
     if (familiarEffect.attackerBuffs && familiarEffect.attackerBuffs.length > 0) {
       const playerBuffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
       for (const b of familiarEffect.attackerBuffs) {
-        playerBuffs.push({ name: b.name, value: b.value, expireAt: Date.now() / 1000 + b.duration, duration: b.duration });
+        playerBuffs.push({ name: b.name, value: b.value, expireAt: Date.now() + b.duration * SECOND_MS, duration: b.duration });
       }
       player.buffs = JSON.stringify(playerBuffs);
     }
@@ -889,7 +891,7 @@ export class CombatSystemService {
         if (familiarEffect.defenderBuffs && familiarEffect.defenderBuffs.length > 0) {
           const tBuffs = this.playerService.safeJsonParse<any[]>(target.buffs, []);
           for (const b of familiarEffect.defenderBuffs) {
-            tBuffs.push({ name: b.name, value: b.value, expireAt: Date.now() / 1000 + b.duration, duration: b.duration });
+            tBuffs.push({ name: b.name, value: b.value, expireAt: Date.now() + b.duration * SECOND_MS, duration: b.duration });
           }
           target.buffs = JSON.stringify(tBuffs);
           resultLines.push(`${target.name} 受到【${familiarEffect.defenderBuffs.map((b) => b.name).join('、')}】效果`);
@@ -904,11 +906,12 @@ export class CombatSystemService {
         if (targetType.includes('恶毒')) {
           // 恶毒好感≥100：30秒内"色欲"免伤一次（伤害倍率=0）
           const tMarks = this.safeParseJson<Record<string, number>>(target.markers, {});
-          if ((tMarks['恶毒好感'] || 0) >= 100 && tMarks['色欲2'] && Date.now() / 1000 - (tMarks['色欲2时间'] || 0) > 30) {
+          // 色欲2时间 为「触发时刻」型冷却标记（30 秒一次），统一毫秒
+          if ((tMarks['恶毒好感'] || 0) >= 100 && tMarks['色欲2'] && isDueSince(tMarks['色欲2时间'], 30 * SECOND_MS)) {
             resultLines.push(`${target.name} 触发【色欲】，本次攻击被魅惑无效！`);
             dmgNullified = true;
             tMarks['色欲2'] = (tMarks['色欲2'] || 0) + 1;
-            tMarks['色欲2时间'] = Date.now() / 1000;
+            tMarks['色欲2时间'] = Date.now();
             target.markers = JSON.stringify(tMarks);
           }
         }
@@ -1133,7 +1136,8 @@ export class CombatSystemService {
       // dmgImmune：套装免疫（增幅器2敏锐 s敏锐>=5 → 伤害倍率=0），需跳过保底1点伤害并计为命中零伤。
       let dmgImmune = false;
       {
-        const nowSec = Date.now() / 1000;
+        // 统一时间口径：容器内所有时间戳一律毫秒（nowMs），存量秒级数据由工具函数归一化兼容
+        const nowMs = Date.now();
         const targetCurState = (target.hp || 0) + (target.shield || 0) + (target.armor || 0);
         const targetMaxState = (target.maxHp || target.hp || 0) + (target.maxShield || target.shield || 0) + (target.maxArmor || target.armor || 0);
         const lostState = Math.max(0, targetMaxState - targetCurState);
@@ -1207,8 +1211,8 @@ export class CombatSystemService {
           const myState = (player.hp || 0) + (player.shield || 0) + (player.armor || 0);
           const myMaxState = (player.maxHp || player.hp || 0) + (player.maxShield || player.shield || 0) + (player.maxArmor || player.armor || 0);
           const hasSleeveDagger = (playerData.equipment as any[])?.some((e: any) => (e.name || '').includes('袖剑'));
-          if (hasSleeveDagger && myState > myMaxState * 0.9 && (!playerMk['袖剑冷却'] || nowSec - (playerMk['袖剑冷却'] || 0) > 5)) {
-            playerMk['袖剑冷却'] = nowSec;
+          if (hasSleeveDagger && myState > myMaxState * 0.9 && isDueSince(playerMk['袖剑冷却'], 5 * SECOND_MS, nowMs)) {
+            playerMk['袖剑冷却'] = nowMs;
             attackerBonus.物伤 = (attackerBonus.物伤 || 0) + (attackerBonus.攻击 || 0) * 0.1;
             resultLines.push(`【袖剑】物伤+10%`);
           }
@@ -1229,8 +1233,8 @@ export class CombatSystemService {
         const armorMk = playerMk['铠甲'] ?? 0;
         if (armorMk === 5) {
           const lastXa = playerMk['xa'] || 0;
-          if (nowSec - lastXa >= 60) {
-            playerMk['xa'] = nowSec; // 用正数时间戳记录上次触发时间（原版 添加成就 xa=60*转秒 正数）
+          if (isDueSince(lastXa, 60 * SECOND_MS, nowMs)) {
+            playerMk['xa'] = nowMs; // 用正数时间戳记录上次触发时间（原版 添加成就 xa=60*转秒 正数）
             const m = extraDamageMult;
             attackerBonus.火伤 = (attackerBonus.火伤 || 0) + (attackerBonus.火伤 || 0) * 0.75 * m;
             attackerBonus.物伤 = (attackerBonus.物伤 || 0) + (attackerBonus.物伤 || 0) * 0.75 * m;
@@ -1239,9 +1243,8 @@ export class CombatSystemService {
             resultLines.push(`【雪獒】剩余伤害×1.75，闪避+3秒`);
             // 获得增益(攻击方.增益,"闪避",3)（原版 L2839）
             const pBuffs = this.safeParseJson<any[]>(player.buffs, []);
-            const nowMsXa = nowSec * 1000; // 统一毫秒口径（本段仅有秒级 nowSec）
-            if (!pBuffs.some((b: any) => b && b.name === '闪避' && this.isActiveBeyond(b, 3, nowMsXa))) {
-              pBuffs.push({ name: '闪避', expireAt: this.expireAfter(3, nowMsXa) });
+            if (!pBuffs.some((b: any) => b && b.name === '闪避' && isActiveBeyond(b, 3, nowMs))) {
+              pBuffs.push({ name: '闪避', expireAt: expireAfter(3, nowMs) });
             }
             player.buffs = JSON.stringify(pBuffs);
           }
@@ -1299,8 +1302,8 @@ export class CombatSystemService {
         }
         // ---- 火焰披风（原版 L2893-2897：装备要求 #火焰披风，30秒冷却，自身当前状态/10 火伤 + 穿透5） ----
         const hasFlameCloak = (playerData.equipment as any[])?.some((e: any) => (e.name || '').includes('火焰披风'));
-        if (hasFlameCloak && (!playerMk['火焰披风'] || nowSec - (playerMk['火焰披风'] || 0) > 30)) {
-          playerMk['火焰披风'] = nowSec;
+        if (hasFlameCloak && isDueSince(playerMk['火焰披风'], 30 * SECOND_MS, nowMs)) {
+          playerMk['火焰披风'] = nowMs;
           const a2 = ((player.hp || 0) + (player.shield || 0) + (player.armor || 0)) / 10 * extraDamageMult;
           attackerBonus.火伤 = (attackerBonus.火伤 || 0) + a2;
           attackerBonus.贯穿 = (attackerBonus.贯穿 || 0) + 5;
@@ -1314,8 +1317,8 @@ export class CombatSystemService {
         );
         if (hasReverse) {
           const cd = playerMk['两极反转冷却'] || 0;
-          if (!playerMk['两级反转'] || nowSec - (playerMk['两级反转'] || 0) > 25) {
-            playerMk['两级反转'] = nowSec;
+          if (isDueSince(playerMk['两级反转'], 25 * SECOND_MS, nowMs)) {
+            playerMk['两级反转'] = nowMs;
             attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 8;
             attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 8;
             attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 8;
@@ -1463,8 +1466,7 @@ export class CombatSystemService {
 
         // 本地解析 markers2 数组（原版 标记2 容器），与 L295-322 武器冷却读写约定一致
         // 注意：本段 markers2 容器的 expireAt 统一采用「毫秒」单位（与武器冷却 L322 一致），
-        // 与 targetMk/playerMk（markers 对象，秒级 nowSec）不同，操作时需换算。
-        const nowMs = Date.now();
+        // 与 targetMk/playerMk（markers 对象）一致，均使用毫秒时间戳（nowMs 由本块开头统一定义）。
         const atkMk2 = this.safeParseJson<any[]>(player.markers2 || '[]', []);
         const defMk2 = this.safeParseJson<any[]>(target.markers2 || '[]', []);
 
@@ -1489,8 +1491,8 @@ export class CombatSystemService {
         // ---- 火焰飞羽（z1.特殊序号==#火焰飞羽(-30)：给防御方加"飞羽"增益60秒，原版 L1843-1844） ----
         if (weapon.specialSeq === -30 || weapon.name?.includes('火焰飞羽')) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((x: any) => (x.name || x.名称) === '飞羽' && this.isActiveBeyond(x, 30, nowMs))) {
-            tBuffs.push({ name: '飞羽', expireAt: this.expireAfter(30, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"飞羽",30,假,s,1,真)
+          if (!tBuffs.some((x: any) => (x.name || x.名称) === '飞羽' && isActiveBeyond(x, 30, nowMs))) {
+            tBuffs.push({ name: '飞羽', expireAt: expireAfter(30, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"飞羽",30,假,s,1,真)
           }
           target.buffs = JSON.stringify(tBuffs);
         }
@@ -1511,8 +1513,8 @@ export class CombatSystemService {
         //      后续 L2263 读"影光"增益 → 易伤 += a1*2.5 已在 calcDamage 对应段实现） ----
         if (weapon.specialSeq === -23 || weapon.name?.includes('影光')) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((x: any) => (x.name || x.名称) === '影光' && this.isActiveBeyond(x, 60, nowMs))) {
-            tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"影光",60,假,s,1,真)
+          if (!tBuffs.some((x: any) => (x.name || x.名称) === '影光' && isActiveBeyond(x, 60, nowMs))) {
+            tBuffs.push({ name: '影光', expireAt: expireAfter(60, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"影光",60,假,s,1,真)
           }
           target.buffs = JSON.stringify(tBuffs);
         }
@@ -1531,8 +1533,8 @@ export class CombatSystemService {
               const wName = w.name || w.名称;
               const tKey = `${wName}冷却`; // 获得增益(防御方.标记2,"名称+冷却",30,真,s)
               const te = defMk2.find((m: any) => m?.name === tKey);
-              if (te) te.expireAt = Math.max(te.expireAt, (nowSec + 30) * 1000);
-              else defMk2.push({ name: tKey, expireAt: (nowSec + 30) * 1000 });
+              if (te) te.expireAt = Math.max(te.expireAt, expireAfter(30, nowMs));
+              else defMk2.push({ name: tKey, expireAt: expireAfter(30, nowMs) });
             }
             resultLines.push('【寒风】');
           }
@@ -1549,7 +1551,7 @@ export class CombatSystemService {
             const typeKey = `${player.type || (player as any).类型 || '玩家'}技能冷却`;
             const sk = atkMk2.find((m: any) => m?.name === typeKey);
             if (sk) sk.expireAt = Math.max(nowMs, sk.expireAt - 60 * 1000); // 获得增益(攻击方.标记2,"类型+技能冷却",-60,真,s)
-            else atkMk2.push({ name: typeKey, expireAt: Math.max(nowMs, (nowSec - 60) * 1000) });
+            else atkMk2.push({ name: typeKey, expireAt: Math.max(nowMs, nowMs - 60 * SECOND_MS) });
             // 原版 释放使魔技能(攻击方, s)（战斗相关.ecode L1862）：自动释放攻击方使魔特有技能。
             // 经 forwardRef 注入的 FamiliarSkillsService 回调，走主动技能完整门禁
             // （类型校验/冷却/好感门槛）；未注入（测试按位置 new 的桩）或玩家未设特有技能时静默跳过。
@@ -1592,8 +1594,8 @@ export class CombatSystemService {
         // ---- 永恒主宰（防御方装备含#永恒主宰(83)，60s cd → 伤害=0，原版 L1949-1953） ----
         const defEquip = (target as any).equipment as any[];
         const hasEternal = defEquip?.some((e: any) => e.specialSeq === 83 || (e.name || '').includes('永恒主宰'));
-        if (hasEternal && (!targetMk['yzj'] || nowSec - (targetMk['yzj'] || 0) > 60)) {
-          targetMk['yzj'] = nowSec;
+        if (hasEternal && isDueSince(targetMk['yzj'], 60 * SECOND_MS, nowMs)) {
+          targetMk['yzj'] = nowMs;
           forcedMult = 0;
           dmgImmune = true;
           resultLines.push('【永恒主宰】本次伤害被免疫');
@@ -1612,8 +1614,8 @@ export class CombatSystemService {
             // 计数清零，并给防御方加正式增益（原版 获得增益(防御方.增益, formal, 30,...)）
             targetMk[cntKey] = 0;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === formal && this.isActiveBeyond(b, 30, nowMs))) {
-              tBuffs.push({ name: formal, expireAt: this.expireAfter(30, nowMs) });
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === formal && isActiveBeyond(b, 30, nowMs))) {
+              tBuffs.push({ name: formal, expireAt: expireAfter(30, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
             if (effName === '灼烧' || effName === '深寒' || effName === '感电') {
@@ -1625,7 +1627,7 @@ export class CombatSystemService {
             if (effName === '深寒') {
               const tWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
               tWeapons.forEach((w: any) => {
-                targetMk[`${w.name || w.名称}冷却`] = nowSec;
+                targetMk[`${w.name || w.名称}冷却`] = nowMs;
               });
             }
           } else {
@@ -1659,8 +1661,8 @@ export class CombatSystemService {
 
         // ---- 圣诞套装（防御方.套装.圣诞==2，30s cd → 掉落圣诞礼物，原版 L2151-2158） ----
         const defSets = this.safeParseJson<any>(target.sets || '{}', {});
-        if ((defSets['圣诞'] ?? defSets.christmas) === 2 && (!targetMk['圣诞'] || nowSec - (targetMk['圣诞'] || 0) > 30)) {
-          targetMk['圣诞'] = nowSec;
+        if ((defSets['圣诞'] ?? defSets.christmas) === 2 && isDueSince(targetMk['圣诞'], 30 * SECOND_MS, nowMs)) {
+          targetMk['圣诞'] = nowMs;
           resultLines.push('【掉落礼物】圣诞礼物'); // 实际入地图物品池由战利品系统处理，此处记录触发
         }
 
@@ -1689,24 +1691,24 @@ export class CombatSystemService {
         // 古月娜(#古月娜=5) / 银龙：防御方所有武器 +"冷却"标记1秒（L2170-2173）
         if (atkSeq === 5 || player.type === '银龙' || (player as any).类型 === '银龙') {
           defWeapons.forEach((w: any) => {
-            targetMk[`${w.name || w.名称}冷却`] = nowSec;
+            targetMk[`${w.name || w.名称}冷却`] = nowMs;
           });
         }
         // 恶毒(#恶毒=6)：防御方增益加"恶毒之刃" 15+技等（L2175-2177）
         if (atkSeq === 6) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '恶毒之刃' && this.isActiveBeyond(b, 15 + atkSkill, nowMs))) {
-            tBuffs.push({ name: '恶毒之刃', expireAt: this.expireAfter(15 + atkSkill, nowMs) });
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '恶毒之刃' && isActiveBeyond(b, 15 + atkSkill, nowMs))) {
+            tBuffs.push({ name: '恶毒之刃', expireAt: expireAfter(15 + atkSkill, nowMs) });
           }
           target.buffs = JSON.stringify(tBuffs);
           resultLines.push('【恶毒之刃】');
         }
         // 伊芙利特(#伊芙利特=11) 好感≥80：防御方标记2加"燃烧" 15秒 强度10+技等/2（L2178-2182）
         if (atkSeq === 11 && atkAff >= 80) {
-          targetMk['燃烧'] = nowSec; // 简化：冷却标记占位
+          targetMk['燃烧'] = nowMs; // 简化：冷却标记占位
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '燃烧' && this.isActiveBeyond(b, 15, nowMs))) {
-            tBuffs.push({ name: '燃烧', expireAt: this.expireAfter(15, nowMs), strength: 10 + atkSkill / 2 });
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '燃烧' && isActiveBeyond(b, 15, nowMs))) {
+            tBuffs.push({ name: '燃烧', expireAt: expireAfter(15, nowMs), strength: 10 + atkSkill / 2 });
           }
           target.buffs = JSON.stringify(tBuffs);
           resultLines.push('(燃烧)');
@@ -1715,7 +1717,7 @@ export class CombatSystemService {
         if (atkSeq === 3) {
           const atkBuffs = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
           if (hasActive(atkBuffs, '炮冠')) {
-            playerMk['炮冠冷却'] = nowSec; // 30秒冷却（L2186 时间间隔要求 30）
+            playerMk['炮冠冷却'] = nowMs; // 30秒冷却（L2186 时间间隔要求 30）
             resultLines.push('【炮冠】');
           }
         }
@@ -1723,19 +1725,19 @@ export class CombatSystemService {
         if (atkSeq === 16) {
           if (atkAff >= 100) {
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '影光' && this.isActiveBeyond(b, 60, nowMs))) {
-              tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs) });
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '影光' && isActiveBeyond(b, 60, nowMs))) {
+              tBuffs.push({ name: '影光', expireAt: expireAfter(60, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
           }
           const atkBuffs2 = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
           if (hasActive(atkBuffs2, '万象') &&
               (weapon.name === '拳头' || weapon.type === '近战武器')) {
-            if (!targetMk['zllq'] || nowSec - (targetMk['zllq'] || 0) > 30) {
-              targetMk['zllq'] = nowSec;
+            if (isDueSince(targetMk['zllq'], 30 * SECOND_MS, nowMs)) {
+              targetMk['zllq'] = nowMs;
               const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-              if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '转轮' && this.isActiveBeyond(b, 30, nowMs))) {
-                tBuffs.push({ name: '转轮', expireAt: this.expireAfter(30, nowMs), strength: (attackerBonus.物伤 || 0) / 10 });
+              if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '转轮' && isActiveBeyond(b, 30, nowMs))) {
+                tBuffs.push({ name: '转轮', expireAt: expireAfter(30, nowMs), strength: (attackerBonus.物伤 || 0) / 10 });
               }
               target.buffs = JSON.stringify(tBuffs);
               resultLines.push(`【剑阵转轮】+${Math.round((attackerBonus.物伤 || 0) / 10)}`);
@@ -1762,8 +1764,8 @@ export class CombatSystemService {
         // ---- 防御方使魔专属（原版 L2224-2258） ----
         // 恶毒(#恶毒=6) 好感≥100 色欲2冷却30 → 伤害0（L2224-2231）
         if (defSeq === 6 && defAff >= 100) {
-          if (!targetMk['色欲2'] || nowSec - (targetMk['色欲2'] || 0) > 30) {
-            targetMk['色欲2'] = nowSec;
+          if (isDueSince(targetMk['色欲2'], 30 * SECOND_MS, nowMs)) {
+            targetMk['色欲2'] = nowMs;
             forcedMult = 0;
             dmgImmune = true;
             resultLines.push('【色欲】');
@@ -1773,15 +1775,15 @@ export class CombatSystemService {
         if (defSeq === 12) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
           if (!hasActive(tBuffs, '怒吼')) {
-            tBuffs.push({ name: '怒吼', expireAt: this.expireAfter(30, nowMs) });
+            tBuffs.push({ name: '怒吼', expireAt: expireAfter(30, nowMs) });
           }
           target.buffs = JSON.stringify(tBuffs);
         }
         // 长萌(#长萌=2) 好感≥40 → 防御方增益加"长萌承受"（L2235-2238）
         if (defSeq === 2 && defAff >= 40) {
           const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '长萌承受' && this.isActiveBeyond(b, 30, nowMs))) {
-            tBuffs.push({ name: '长萌承受', expireAt: this.expireAfter(30, nowMs) });
+          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '长萌承受' && isActiveBeyond(b, 30, nowMs))) {
+            tBuffs.push({ name: '长萌承受', expireAt: expireAfter(30, nowMs) });
           }
           target.buffs = JSON.stringify(tBuffs);
         }
@@ -1796,11 +1798,11 @@ export class CombatSystemService {
         }
         // 四糸乃(#四糸乃=15) 好感≥80 冰凯冷却20 → 加"bk1"；增益含"bk1" → 伤害0（L2248-2258）
         if (defSeq === 15) {
-          if (defAff >= 80 && (!targetMk['冰凯'] || nowSec - (targetMk['冰凯'] || 0) > 20)) {
-            targetMk['冰凯'] = nowSec;
+          if (defAff >= 80 && isDueSince(targetMk['冰凯'], 20 * SECOND_MS, nowMs)) {
+            targetMk['冰凯'] = nowMs;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
             if (!hasActive(tBuffs, 'bk1')) {
-              tBuffs.push({ name: 'bk1', expireAt: this.expireAfter(20, nowMs) });
+              tBuffs.push({ name: 'bk1', expireAt: expireAfter(20, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
           }
@@ -1814,11 +1816,11 @@ export class CombatSystemService {
 
         // ---- 吸血姬(活力=-15) 命中附加[猩红] 10秒（原版 L2439-2445） ----
         if (atkVit === -15) {
-          if (!playerMk['xhcd'] || nowSec - (playerMk['xhcd'] || 0) > 180) {
-            playerMk['xhcd'] = nowSec;
+          if (isDueSince(playerMk['xhcd'], 180 * SECOND_MS, nowMs)) {
+            playerMk['xhcd'] = nowMs;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '猩红' && this.isActiveBeyond(b, 10, nowMs))) {
-              tBuffs.push({ name: '猩红', expireAt: this.expireAfter(10, nowMs) });
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '猩红' && isActiveBeyond(b, 10, nowMs))) {
+              tBuffs.push({ name: '猩红', expireAt: expireAfter(10, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
             // 记录猩红添加者：原版 置成就熟练度("x红x"+QQ, 防御方.标记, #吸血姬猩红)
@@ -1839,8 +1841,8 @@ export class CombatSystemService {
             for (const w of defWeapons) {
               const wkey = `${w.name || w.名称}冷却`;
               if (!targetMk[wkey]) {
-                if (!playerMk['超频'] || nowSec - (playerMk['超频'] || 0) > 30) {
-                  playerMk['超频'] = nowSec;
+                if (isDueSince(playerMk['超频'], 30 * SECOND_MS, nowMs)) {
+                  playerMk['超频'] = nowMs;
                   const a2 = targetMk[wkey] || 0;
                   targetMk[wkey] = a2; // 交换（简化：防御方武器进入冷却）
                   playerMk[`${weapon.name}冷却`] = (playerMk[`${weapon.name}冷却`] || 0) - a2;
@@ -1876,11 +1878,11 @@ export class CombatSystemService {
         }
         // 军姬(#军姬=16) 好感≥40 jz冷却60 → 加"剑阵"12秒；好感≥80 回满血（L2540-2558）
         if (defSeq === 16 && defAff >= 40) {
-          if (!targetMk['jz'] || nowSec - (targetMk['jz'] || 0) > 60) {
-            targetMk['jz'] = nowSec;
+          if (isDueSince(targetMk['jz'], 60 * SECOND_MS, nowMs)) {
+            targetMk['jz'] = nowMs;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵' && this.isActiveBeyond(b, 12, nowMs))) {
-              tBuffs.push({ name: '剑阵', expireAt: this.expireAfter(12, nowMs) });
+            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵' && isActiveBeyond(b, 12, nowMs))) {
+              tBuffs.push({ name: '剑阵', expireAt: expireAfter(12, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
             if (defAff >= 80) {
@@ -1925,10 +1927,10 @@ export class CombatSystemService {
             targetMk['猫猫闪避'] = 0;
             const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
             if (!hasActive(tBuffs, '幻时')) {
-              tBuffs.push({ name: '幻时', expireAt: this.expireAfter(30, nowMs) });
+              tBuffs.push({ name: '幻时', expireAt: expireAfter(30, nowMs) });
             }
             target.buffs = JSON.stringify(tBuffs);
-            targetMk[`${(target.type || (target as any).类型 || '')}技能冷却`] = nowSec;
+            targetMk[`${(target.type || (target as any).类型 || '')}技能冷却`] = nowMs;
             resultLines.push('【幻时】');
           }
         }
@@ -1979,8 +1981,8 @@ export class CombatSystemService {
           }
           // 铃铛装备：冷却15秒→0.25，否则随机比例（L2660-2668）
           if (defEquip2?.some((e: any) => e.specialSeq === 64 || (e.name || '').includes('铃铛'))) {
-            if (!targetMk['铃铛冷却'] || nowSec - (targetMk['铃铛冷却'] || 0) > 15) {
-              targetMk['铃铛冷却'] = nowSec;
+            if (isDueSince(targetMk['铃铛冷却'], 15 * SECOND_MS, nowMs)) {
+              targetMk['铃铛冷却'] = nowMs;
               blockMult = 0.25;
             } else {
               const a2 = (Math.floor(Math.random() * 1401) + 100) / 10000;
@@ -1990,8 +1992,8 @@ export class CombatSystemService {
           }
           // 圆盾装备 冷却120 → 三池回满 + 伤害0（L2677-2685）
           if (defEquip2?.some((e: any) => e.specialSeq === 51 || (e.name || '').includes('圆盾'))) {
-            if (!targetMk['圆盾冷却'] || nowSec - (targetMk['圆盾冷却'] || 0) > 120) {
-              targetMk['圆盾冷却'] = nowSec;
+            if (isDueSince(targetMk['圆盾冷却'], 120 * SECOND_MS, nowMs)) {
+              targetMk['圆盾冷却'] = nowMs;
               const maxHp = target.maxHp || target.hp || 0;
               const maxSh = target.maxShield || target.shield || 0;
               const maxAr = target.maxArmor || target.armor || 0;
@@ -2217,7 +2219,8 @@ export class CombatSystemService {
         if (!isWoodCat && !isSolar) return;
         const reverseSeconds = 10 * (1 - (defenderBonus.韧性 || 0) / 100);
         const buffs = this.safeParseJson<any[]>(target.buffs, []);
-        this.combatState.gainBuff(buffs, poolName, reverseSeconds, false, Date.now() / 1000);
+        // gainBuff 的时间戳参数为毫秒（原传秒会使增益写入后立即过期）
+        this.combatState.gainBuff(buffs, poolName, reverseSeconds, false, Date.now());
         target.buffs = JSON.stringify(buffs);
         resultLines.push(`【${poolName === '盾逆' ? '盾回逆转' : '甲回逆转'}${Math.round(reverseSeconds)}秒】`);
       };
@@ -2336,8 +2339,8 @@ export class CombatSystemService {
               elec: defCurW.properties?.elec ?? defCurW.属性?.电 ?? 0,
             }
           : { phys: 100, fire: 0, ice: 0, elec: 0 };
-        const nowSec = Math.floor(Date.now() / 1000);
-        const origTs = Date.now();
+        const nowMs = Date.now();
+        const origTs = nowMs;
         // 原版 伤害倍率 参数 = 本次造成伤害的总倍率（攻击命中/防御闪避），对应本框架 dmgMult
         const reflectDmg = this.calcReflectDamage(
           target,
@@ -2351,7 +2354,7 @@ export class CombatSystemService {
           },
           z2Props,
           effectiveDmgMult, // 原版 伤害倍率（本次造成伤害的总倍率，含特效修正）
-          nowSec,
+          nowMs,
           origTs,
         );
         if (reflectDmg > 0) {
@@ -3080,22 +3083,18 @@ export class CombatSystemService {
         // ========== 卷土重来（对应原版 造成伤害 L3674：怪物击杀玩家，若 jlq 冷却未过则进入卷土重来状态） ==========
         // 原版：防御方.特殊序号>0(玩家) 且 时间间隔要求("jlq",60,防御方.标记2)==假 →
         // 获得增益("卷土重来", 30+玩家.属性.卷土重来)，立即满状态复活。
-        const nowSecV = Math.floor(Date.now() / 1000);
+        const nowMsV = Date.now();
         const vMk2 = this.safeParseJson<any[]>(victim.markers2, []);
         // 兼容存量重复标记：不能只用 find() 检查第一条 jlq，
         // 否则前面的过期记录会遮蔽后面真正有效的冷却，导致重复触发卷土重来。
-        const hasActiveJlq = vMk2.some((marker: any) => {
-          if ((marker?.name ?? marker?.名称) !== 'jlq') return false;
-          const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-          const expireSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
-          return expireSec > nowSecV;
-        });
+        const hasActiveJlq = vMk2.some((marker: any) =>
+          (marker?.name ?? marker?.名称) === 'jlq' && isActive(marker, nowMsV));
         if (!hasActiveJlq) {
           const vBonus = this.safeParseJson<any>(victim.bonus, {});
           const jtlSec = 30 + (vBonus['卷土重来'] || 0);
           const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
           // 原版 获得增益("卷土重来", 30+卷土重来属性) 写入玩家增益
-          vBuffs.push({ name: '卷土重来', expireAt: nowSecV + jtlSec });
+          vBuffs.push({ name: '卷土重来', expireAt: expireAfter(jtlSec, nowMsV) });
           victim.buffs = JSON.stringify(vBuffs);
           // 满状态复活（原版 当前生命/护盾/装甲 = 属性.对应上限）
           // 存量玩家可能没有同步 max* 字段；原版使用计算后的属性上限，
@@ -3106,7 +3105,7 @@ export class CombatSystemService {
           // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）。
           // 新写入前清除同名旧项，避免历史重复标记再次遮蔽有效冷却。
           const markersWithoutJlq = vMk2.filter((marker: any) => (marker?.name ?? marker?.名称) !== 'jlq');
-          markersWithoutJlq.push({ name: 'jlq', expireAt: nowSecV + 60 });
+          markersWithoutJlq.push({ name: 'jlq', expireAt: expireAfter(60, nowMsV) });
           victim.markers2 = JSON.stringify(markersWithoutJlq);
           lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}进入了卷土重来状态(${jtlSec}秒)`);
         } else {
@@ -4505,7 +4504,7 @@ export class CombatSystemService {
    * @param z1Props 攻击方武器属性系数 {phys,fire,ice,elec}
    * @param z2Props 防御方当前武器属性系数 {phys,fire,ice,elec}（拳头默认全0仅物=100）
    * @param damageMultPct 本次造成伤害倍率（百分比，对应原版 伤害倍率 参数）
-   * @param nowSec 当前秒级时间戳
+   * @param nowMs 当前毫秒时间戳（原版 s；全项目统一毫秒口径）
    * @param origTimestamp 原始毫秒时间戳
    * @returns 绝对反伤值（已折算，可直接从攻击方 hp 扣除）
    */
@@ -4516,7 +4515,7 @@ export class CombatSystemService {
     z1Props: { phys: number; fire: number; ice: number; elec: number },
     z2Props: { phys: number; fire: number; ice: number; elec: number },
     damageMultPct: number,
-    nowSec: number,
+    nowMs: number,
     origTimestamp: number,
   ): number {
     const defBuffs: any[] = this.safeParseJson(defender.buffs, []);
@@ -4554,7 +4553,8 @@ export class CombatSystemService {
     }
     // L4827 小鱼发饰（#小鱼发饰=35）：小鱼冷却(60s)未过则倍率+2
     if (this.combatState.equipRequire(equipments, weapons, currentWeapon, 35, '小鱼发饰', false)) {
-      if (this.combatState.timeIntervalRequire('小鱼冷却', 60, defMarkers2, nowSec, { value: '' }, origTimestamp) === false) {
+      // 注：combat-state 的时间参数一律毫秒（原传秒会让 60 秒冷却变成 60 毫秒）
+      if (this.combatState.timeIntervalRequire('小鱼冷却', 60, defMarkers2, nowMs, { value: '' }, origTimestamp) === false) {
         mult += 2;
       }
     }
@@ -4781,21 +4781,9 @@ export class CombatSystemService {
    * @param seconds 要求剩余存活的秒数
    * @param nowMs   当前毫秒时间戳
    */
-  private isActiveBeyond(buff: any, seconds: number, nowMs: number): boolean {
-    if (!buff) return false;
-    const raw = Number(buff.expireAt ?? buff.有效期至 ?? 0);
-    if (!raw) return false;
-    const expireSec = raw >= 1e12 ? raw / 1000 : raw;
-    return expireSec > nowMs / 1000 + (Number(seconds) || 0);
-  }
-
-  /**
-   * 生成 seconds 秒之后的过期时间戳（秒级，写入玩家 buffs 数组）。
-   * 与 isActiveBeyond 成对使用，保证「写入」与「判定」的单位一致。
-   */
-  private expireAfter(seconds: number, nowMs: number): number {
-    return nowMs / 1000 + Math.max(0, Number(seconds) || 0);
-  }
+  // 说明：原 isActiveBeyond / expireAfter 两个私有辅助已删除，
+  // 统一改用 expire-time.util 的同名导出（毫秒口径），避免实现分叉造成单位不一致
+  // （旧私有 expireAfter 实际返回的是秒级时间戳，是本次治理发现的关键混用点之一）。
 
   /**
    * 原版「文本四舍」：保留两位小数并去掉尾随零（12.50 → 12.5，13 → 13）。
@@ -5613,7 +5601,8 @@ export class CombatSystemService {
     nowMs = Date.now(),
     deduction?: number,
   ): number {
-    const nowSec = nowMs >= 1e12 ? nowMs / 1000 : nowMs;
+    // 统一毫秒口径：入参若被误传为秒级时间戳则先换算（<1e12 视为秒）
+    const now = nowMs >= 1e12 ? nowMs : nowMs * SECOND_MS;
     const skillLevel = Number(player.skillLevel ?? (
       player.type
         ? this.skillLevelFromMarkers(markers, player.type)
@@ -5622,21 +5611,16 @@ export class CombatSystemService {
     let max = 10 + skillLevel;
     let intervalFactor = 1;
     const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    const nowForBuff = nowSec;
-    const solar = buffs.some((b: any) => {
-      if ((b?.name ?? b?.名称) !== '日轮') return false;
-      const raw = Number(b?.expireAt ?? b?.有效期至 ?? 0);
-      const expireSec = raw >= 1e12 ? raw / 1000 : raw;
-      return !expireSec || expireSec > nowForBuff;
-    });
+    const solar = hasActive(buffs.filter((b: any) => (b?.name ?? b?.名称) === '日轮'), '日轮', now);
     if (solar) {
       max *= 1.5;
       if (Number(player.affinity ?? player.好感 ?? 0) >= 40) intervalFactor = 0.5;
     }
 
+    // 羽毛标记存的是「上次结算时刻」（触发时刻型），统一按毫秒判定（存量秒级自动归一化）
     const rawStamp = Number(markers.羽毛 ?? markers.feather ?? 0);
-    const stampSec = rawStamp >= 1e12 ? rawStamp / 1000 : rawStamp;
-    const elapsed = Math.max(0, (nowSec - stampSec) / (10 * intervalFactor));
+    const stampMs = toExpireMs({ expireAt: rawStamp });
+    const elapsed = Math.max(0, (now - stampMs) / (10 * intervalFactor * SECOND_MS));
     let available = elapsed > max ? max : elapsed;
     if (!rawStamp) available = max;
     available = Math.max(0, Math.min(max, available));
@@ -5652,8 +5636,8 @@ export class CombatSystemService {
     }
 
     markers.羽毛 = available > 0
-      ? (nowSec - available * 10 * intervalFactor)
-      : nowSec;
+      ? (now - available * 10 * intervalFactor * SECOND_MS)
+      : now;
     markers.feather = undefined;
     player.markers = JSON.stringify(markers);
     return beforeDeduction;
@@ -6251,7 +6235,8 @@ export class CombatSystemService {
         // 此处同步实现对当前护盾/装甲/生命就地修正。
         if ((player.affinity || 0) >= 80) {
           const markers2List = Array.isArray(playerData.markers2) ? playerData.markers2 : [];
-          const hasCd = (key: string) => markers2List.some((m: any) => m && m.name === key && (Date.now() / 1000) < (m.expireAt || 0));
+          // 冷却标记有效期统一按毫秒判定（存量秒级由 isActive 归一化）
+          const hasCd = (key: string) => hasActive(markers2List, key);
           // 原版 L2434-2462 翻转成功时同步写 玩家.额外文本（_主程序 L12033 追加到指令回包）：
           // "#换行(护盾负数,已反转)" / "(装甲负数,已反转)" / "(生命负数,已反转)"
           // 统一用数组形态承载（与 计算增益 啾啾猫猫/银龙附体 的写法一致）
@@ -6373,7 +6358,7 @@ export class CombatSystemService {
         markers: playerData.markers || {},
         markers2: playerData.markers2 || [],
         sets,
-      }, Date.now() / 1000);
+      }, Date.now());
     } catch (err: any) {
       this.logger.warn(`套装加成计算失败: ${err.message}`);
     }
@@ -6402,7 +6387,7 @@ export class CombatSystemService {
         affinity: player.affinity,
         sets: this.playerService.safeJsonParse<SetData>(player.sets, {}),
         currentHp: player.hp,
-      }, Date.now() / 1000);
+      }, Date.now());
     } catch (err: any) {
       this.logger.warn(`计算增益处理失败: ${err.message}`);
     }
@@ -6652,7 +6637,7 @@ export class CombatSystemService {
     try {
       const playerBuffs: any[] = playerData.buffs || [];
       if (playerBuffs.length > 0) {
-        const nowSec = Date.now() / 1000;
+        const nowMs = Date.now();
         // buffs.json 的 bonus 字段已是中文 key（与 BonusData 全中文一致），直接解析使用，无需中英文映射。
         const buffDefs: any[] = this.staticData.getAllBuffs().map((d: any) => ({
           name: d.name,
@@ -6662,7 +6647,7 @@ export class CombatSystemService {
           bonus,                 // 属性对象（原版 玩家.属性）
           playerBuffs,          // 玩家活跃增益
           buffDefs,             // 增益列表定义
-          nowSec,               // 当前时间戳（秒）
+          nowMs,                // 当前时间戳（毫秒，统一口径）
           {
             currentAnesthesia: (bonus.麻醉 || 0), // 原版 玩家.套装.当前麻醉；框架未独立建模麻醉量，用属性麻醉上限近似
             bonus,              // 增益模式叠加目标（原版 玩家.属性 与 玩家.加成 分离，本框架合并）
@@ -7381,7 +7366,7 @@ export class CombatSystemService {
     const a = Math.floor(Math.random() * 10) + 1;
     const buffName = `fzth${a}`;
     const tBuffs = this.safeParseJson<any[]>(target.buffs, []);
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowMs = Date.now();
     const existing = tBuffs.find((b: any) => b && (b.name ?? b.名称) === buffName);
     if (existing) {
       // 原版 获得增益(-86400, 真)：重复获得就移除
@@ -7389,7 +7374,7 @@ export class CombatSystemService {
       tBuffs.splice(idx, 1);
       target.buffs = JSON.stringify(tBuffs);
     } else {
-      tBuffs.push({ name: buffName, expireAt: nowSec + Math.round(600 * a1) });
+      tBuffs.push({ name: buffName, expireAt: nowMs + Math.round(600 * a1) * SECOND_MS });
       target.buffs = JSON.stringify(tBuffs);
       if (a === 5 || a === 6) {
         // 原版 L393-409：反转目标 属性.装甲/护盾，并把正的当前值同步翻负计入成就
@@ -7582,9 +7567,10 @@ export class CombatSystemService {
 
     // 库洛魔力：120秒冷却（简化：每20秒最多获得一次），加攻击
     // 原版通过增益持续机制实现，此处简化为每120秒刷新一次攻击加成
-    const lastMagicTime = markers['库洛魔力时间'] || 0;
+    // 「库洛魔力时间」为触发时刻型标记（上次触发时刻），统一毫秒（存量秒级归一化）
+    const lastMagicMs = toExpireMs({ expireAt: markers['库洛魔力时间'] });
     const now = Date.now();
-    if (now - lastMagicTime > 120000) {
+    if (isDueSince(lastMagicMs, 120 * SECOND_MS, now)) {
       result.attackBonus = (result.attackBonus || 0) + (30 + skillLevel) * 0.5;
       result.attackerBuffs = [
         ...(result.attackerBuffs || []),
@@ -8205,7 +8191,8 @@ export class CombatSystemService {
         if (Array.isArray(value)) return value;
         return this.playerService.safeJsonParse<any[]>(value, []);
       };
-      const now = Date.now() / 1000;
+      // 统一毫秒口径（原为秒；bonus.service 与地图标记有效期均已统一为毫秒）
+      const now = Date.now();
 
       // mapBuffs 是原版地图“标记3”的持久化载体；没有有效期的静态增益按配置时长初始化。
       const mapBuffs = parseArray(map.mapBuffs).map((raw: any) => {
@@ -8213,12 +8200,13 @@ export class CombatSystemService {
         if (buff.name === undefined && buff.名称 !== undefined) buff.name = buff.名称;
         if (buff.strength === undefined && buff.强度 !== undefined) buff.strength = buff.强度;
         if (buff.strength === undefined && buff.value !== undefined) buff.strength = buff.value;
-        const rawExpire = Number(buff.expireAt ?? buff.有效期至 ?? 0);
-        if (Number.isFinite(rawExpire) && rawExpire > 0) {
-          buff.expireAt = rawExpire > 1e12 ? rawExpire / 1000 : rawExpire;
+        // 地图标记有效期统一毫秒（存量秒级归一化；无有效期者按配置时长从现在起算）
+        const rawExpireMs = toExpireMs(buff);
+        if (rawExpireMs > 0) {
+          buff.expireAt = rawExpireMs;
         } else {
           const duration = Number(buff.duration ?? buff.持续时间 ?? 86400) || 86400;
-          buff.expireAt = now + duration;
+          buff.expireAt = now + duration * SECOND_MS;
         }
         return buff;
       });
@@ -8556,7 +8544,7 @@ export class CombatSystemService {
     player: any,
     opts?: { cannonOk?: boolean; ignoreReason?: number; blueWhale?: boolean },
   ): { restricted: boolean; text: string } {
-    const nowSec = Date.now() / 1000;
+    const nowMs = Date.now();
     const cannonOk = opts?.cannonOk ?? true;
     const ignoreReason = opts?.ignoreReason ?? 0;
     const blueWhale = opts?.blueWhale ?? false;
@@ -8568,10 +8556,10 @@ export class CombatSystemService {
     const marker2Require = (name: string, reason: number): boolean => {
       if (ignoreReason === reason) return false;
       const entry = markers2.find((m: any) => m && (m.name ?? m.名称) === name);
-      const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
-      const expireAtSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
-      if (entry && expireAtSec > nowSec) {
-        const remain = Math.ceil(expireAtSec - nowSec);
+      // 有效期统一按毫秒判定（存量秒级由 toExpireMs 归一化）
+      const expireAtMs = toExpireMs(entry);
+      if (entry && expireAtMs && expireAtMs > nowMs) {
+        const remain = Math.ceil((expireAtMs - nowMs) / SECOND_MS);
         text = `${player.name} ${name}中，还需要 ${remain} 秒`; // 原版：玩家.名称 + name + "还需要" + 剩余
         return true;
       }
@@ -8704,9 +8692,8 @@ export class CombatSystemService {
     damageTextRef: { value: string },
     defenderGroup?: any[],
   ): boolean {
-    const SEC = 1000;
-    const nowSec = Math.floor(s / SEC);
-    const rawSec = rawTimestamp !== undefined ? rawTimestamp : s;
+    // s 本身就是毫秒时间戳（原版 s 参数），无需再换算为秒
+    const rawMs = rawTimestamp !== undefined ? rawTimestamp : s;
     const specialSeq = defender.specialSeq;
     const 活力 = defender.活力;
     // 取成就熟练度（原版 取成就熟练度(防御方.标记, name)）
@@ -8720,20 +8707,21 @@ export class CombatSystemService {
     for (let i = 0; i < markers2.length; i++) markers2[i] = this.combatState.normalizeBuffItem(markers2[i]);
     // 增益要求（原版 增益要求(name, 防御方.增益, , s, a1)）：存在且未过期，返回剩余毫秒
     const buffRemain = (name: string): number => {
-      const b = buffs.find((x: any) => x && x.名称 === name && (!x.有效期至 || x.有效期至 > nowSec * SEC));
+      // 数组已归一化为「中文key+毫秒」，直接与毫秒时间戳 s 比较
+      const b = buffs.find((x: any) => x && x.名称 === name && (!x.有效期至 || x.有效期至 > s));
       if (!b) return 0;
-      return b.有效期至 ? Math.max(0, b.有效期至 - nowSec * SEC) : 0; // 毫秒剩余
+      return b.有效期至 ? Math.max(0, b.有效期至 - s) : 0; // 毫秒剩余
     };
     const buffActive = (name: string): boolean => buffRemain(name) > 0;
     // 标记要求（原版 标记要求("怒吼", 防御方.增益, , s)）：buff 名存在且未过期
     const markerRequire = (name: string): boolean => buffActive(name);
     // 时间间隔要求（原版 时间间隔要求(name, sec, markers2, s, , raw)）：冷却中返回真，否则加标记返回假
     const intervalActive = (name: string, sec: number): boolean =>
-      this.combatState.timeIntervalRequire(name, sec, markers2, s, { value: '' }, rawSec);
+      this.combatState.timeIntervalRequire(name, sec, markers2, s, { value: '' }, rawMs);
     // 获得增益（原版 获得增益(防御方.增益, name, 时间, , raw, , )）
     const addBuff = (name: string, durSec: number): void => {
       // gainBuff 的 s 参数为毫秒时间戳（内部 有效期至 = s + 时间*SECOND_MS）
-      this.combatState.gainBuff(buffs, name, durSec, false, rawSec, 0);
+      this.combatState.gainBuff(buffs, name, durSec, false, rawMs, 0);
     };
 
     let b = 1;
@@ -8840,29 +8828,25 @@ export class CombatSystemService {
   }
 
   playerDeath(playerData: any): { dead: boolean; extraText: string; deathText: string } {
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowMs = Date.now();
     const player = playerData.player;
     const buffs = Array.isArray(playerData.buffs) ? playerData.buffs : [];
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const equipment = Array.isArray(playerData.equipment) ? playerData.equipment : [];
 
     // 时间间隔要求(name, sec, markers2, s)：存在且未过期 → 冷却中(真)；否则(假)=可触发
-    const intervalActive = (name: string, sec: number): boolean => {
-      const e = markers2.find((m: any) => m && m.name === name);
-      return !!(e && e.expireAt && e.expireAt > nowSec);
-    };
-    // 写入冷却标记
+    const intervalActive = (name: string, sec: number): boolean => hasActive(markers2, name, nowMs);
+    // 写入冷却标记（毫秒时间戳）
     const setInterval = (name: string, sec: number) => {
       const filtered = markers2.filter((m: any) => !(m && m.name === name));
-      filtered.push({ name, expireAt: nowSec + sec });
+      filtered.push({ name, expireAt: expireAfter(sec, nowMs) });
       player.markers2 = JSON.stringify(filtered);
     };
     // 装备要求(玩家, specialSeq)：遍历装备命中 specialSeq
     const hasEquip = (seq: number): boolean =>
       equipment.some((e: any) => e && e.specialSeq === seq);
     // 增益要求(name)：buff 存在且未过期
-    const buffActive = (name: string): boolean =>
-      buffs.some((b: any) => b && b.name === name && (!b.expireAt || b.expireAt > nowSec));
+    const buffActive = (name: string): boolean => hasActive(buffs, name, nowMs);
 
     let extraText = player.额外文本 || '';
     let deathText = '';
@@ -8877,7 +8861,7 @@ export class CombatSystemService {
     const totalDmgRef = { value: Number.MAX_SAFE_INTEGER }; // 致死总伤害
     // 传入 buffs/markers2 的浅拷贝副本：avoidDeath 内部会把元素原地归一化为中文 key（兼容层），
     // 若直接传原引用会破坏本函数后续 buffActive（依赖英文 key）的读取，故隔离副本。
-    if (this.avoidDeath(player, [...buffs], [...markers2], equipment, nowSec * 1000, nowSec * 1000, totalDmgRef, dmgTextRef)) {
+    if (this.avoidDeath(player, [...buffs], [...markers2], equipment, nowMs, nowMs, totalDmgRef, dmgTextRef)) {
       // 免死成功：b==2 已把 当前生命 置 1；b==3/4/5 保留当前生命；吸血姬已互换
       extraText = extraText + dmgTextRef.value;
       return { dead: false, extraText, deathText };

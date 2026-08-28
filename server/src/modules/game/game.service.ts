@@ -31,7 +31,10 @@ import { CombatStateService } from './combat-state.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { normalizeGameText } from '../../common/utils/game-text.util';
-import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
+import {
+  SECOND_MS, filterActive, findActive, formatRemain, hasActive, isActive, isDueSince,
+  remainMs, remainSeconds, toExpireMs,
+} from './expire-time.util';
 
 interface QuestSource {
   npcName: string;
@@ -723,10 +726,11 @@ export class GameService {
     // ===== 1. 观测地图产出·通用段 =====
     if (!targetMap.isFrontier && !targetMap.isInstance) {
       const mapMarkers = this.playerService.safeJsonParse<Record<string, any>>(targetMap.markers, {});
-      const nowSec = Date.now() / 1000;
-      const lastObserved = readNum(mapMarkers['观测时间']);
-      const timeDiff = lastObserved > 0 ? Math.max(0, nowSec - lastObserved) : 0;
-      mapMarkers['观测时间'] = nowSec;
+      // 「观测时间」是触发时刻型标记：存上次观测时刻，统一毫秒（存量秒级由 toExpireMs 归一化）
+      const nowMs = Date.now();
+      const lastObservedMs = toExpireMs({ expireAt: mapMarkers['观测时间'] });
+      const timeDiff = lastObservedMs > 0 ? Math.max(0, (nowMs - lastObservedMs) / 1000) : 0;
+      mapMarkers['观测时间'] = nowMs;
       const summons = this.playerService.safeJsonParse<any[]>(targetMap.summons, []);
       const buildings = this.playerService.safeJsonParse<any[]>(targetMap.buildings, []);
       const items = this.playerService.safeJsonParse<any[]>(targetMap.items, []);
@@ -752,7 +756,7 @@ export class GameService {
         (b: any) => b && String(b.name ?? b.名称 ?? '') === '具现装置' && readNum(b.quantity ?? b.count ?? b.数量 ?? 1) > 0,
       );
       if (hasGadget) mergeItem('未知物品', timeDiff / 86400);
-      if (changed || lastObserved === 0) {
+      if (changed || lastObservedMs === 0) {
         await this.prisma.gameMap.update({
           where: { id: targetMap.id },
           data: { items: JSON.stringify(items), markers: JSON.stringify(mapMarkers) },
@@ -889,7 +893,8 @@ export class GameService {
         const key = `剪毛${typeName}`;
         // 时间间隔要求(name, 有效期当天())：存在且未过期 → 冷却中
         const cd = markers2.find((m: any) => m && m.name === key);
-        if (cd && Number(cd.expireAt ?? 0) > nowMs) continue;
+        // 到期时间统一按毫秒判定（存量秒级由 remainMs 归一化）
+        if (remainMs(cd, nowMs) > 0) continue;
         const filtered = markers2.filter((m: any) => !(m && m.name === key));
         filtered.push({ name: key, expireAt: dayEndMs });
         markers2.length = 0;
@@ -2896,11 +2901,10 @@ export class GameService {
         : this.playerService.safeJsonParse<any[]>(player.markers2, []);
       const entry = markers2.find((m: any) => (m?.name ?? m?.名称 ?? m?.key) === '开箱');
       if (!entry) return '';
-      const rawExpire = Number(entry.expireTime ?? entry.expireAt ?? entry.有效期至 ?? 0);
-      const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
-      const now = Date.now();
-      if (!Number.isFinite(expireAt) || expireAt <= now) return '';
-      const remainSec = Math.ceil((expireAt - now) / 1000);
+      // 开箱标记到期时间统一按毫秒判定（存量秒级由工具函数归一化）
+      const nowMs = Date.now();
+      if (remainMs(entry, nowMs) === 0) return '';
+      const remainSec = remainSeconds(entry, nowMs);
       const timeText = remainSec >= 60
         ? `${Math.floor(remainSec / 60)}分${remainSec % 60}秒`
         : `${remainSec}秒`;
@@ -4148,8 +4152,7 @@ export class GameService {
               return `${position === '标记2' ? '设置标记2' : '设置增益'}需要提供第五个参数：持续时间`;
             }
             if (!summon.markers2) summon.markers2 = {};
-            const now = Date.now() / 1000;
-            summon.markers2[markerName] = { value: markerValue, expireAt: now + duration };
+            summon.markers2[markerName] = { value: markerValue, expireAt: Date.now() + duration * 1000 };
           }
           await this.prisma.gameMap.update({
             where: { id: map.id },
@@ -4179,8 +4182,8 @@ export class GameService {
       if (!duration) {
         return `${position === '标记2' ? '设置标记2' : '设置增益'}需要提供第五个参数：持续时间`;
       }
-      const now = Date.now() / 1000;
-      markers2.push({ name: markerName, value: markerValue, expireAt: now + duration });
+      // 毫秒时间戳（统一口径）
+      markers2.push({ name: markerName, value: markerValue, expireAt: Date.now() + duration * 1000 });
       targetPlayer.markers2 = JSON.stringify(markers2);
     } else if (position === '配方') {
       const recipes = this.playerService.safeJsonParse<Record<string, any>>(targetPlayer.recipes, {});
@@ -5723,12 +5726,13 @@ export class GameService {
 
     // ========== 冷却判定（对应原版 _主程序.ecode L1848） ==========
     // 时间间隔要求("闪避冷却", 15*(1+a2*0.05), 玩家.标记2)
+    // 统一毫秒口径：markers2 / buffs 的到期时间戳一律毫秒
     const nowMs = Date.now();
-    const nowSec = nowMs / 1000;
     const cooldownSec = 15 * (1 + a2 * 0.05);
     const cdMark = markers2.find((m: any) => m && m.name === '闪避冷却');
-    if (cdMark && cdMark.expireAt && cdMark.expireAt > nowSec) {
-      const remaining = Math.ceil(cdMark.expireAt - nowSec);
+    const cdExpireMs = toExpireMs(cdMark);
+    if (cdExpireMs && cdExpireMs > nowMs) {
+      const remaining = Math.ceil((cdExpireMs - nowMs) / 1000);
       // 原版 L1849：玩家.名称 + w + w2（w 来自玩家死亡/状态提示，这里仅回冷却）
       return `${player.name}闪避冷却中，剩余 ${remaining} 秒${w2}`;
     }
@@ -5751,11 +5755,11 @@ export class GameService {
     const hasSpaceMaster = this.hasEquip(player, '空间主宰');
     if (hasSpaceMaster) {
       const kzMark = markers2.find((m: any) => m && m.name === 'kz');
-      if (!kzMark || !kzMark.expireAt || kzMark.expireAt <= nowSec) {
+      if (!isActive(kzMark, nowMs)) {
         a1 = a1 * 2;
         w2 = w2 ? `${w2}(空间主宰)` : '(空间主宰)';
         // 写入 kz 60秒冷却标记（原版 L570 时间间隔要求("kz",60)）
-        this.setMarkers2(markers2, 'kz', nowSec + 60);
+        this.setMarkers2(markers2, 'kz', nowMs + 60 * 1000);
       }
     }
     // 文本（原版 L576：玩家.名称+"尝试闪避攻击("+文本四舍(a1)+"秒)"+w2）
@@ -5766,15 +5770,15 @@ export class GameService {
     await this.achievementService.addAchievement(player, '闪避熟练度', 1);
     // 写入闪避增益（原版 L579：添加标记("闪避", a1, 玩家.增益)）→ 映射 player.buffs 供战斗命中判定读取
     const playerBuffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
-    const existingDodge = playerBuffs.find((b: any) => b && b.name === '闪避' && (!b.expireAt || b.expireAt > nowSec));
+    const existingDodge = findActive(playerBuffs, '闪避', nowMs);
     if (existingDodge) {
-      existingDodge.expireAt = nowSec + a1; // 原版延长至 a1 秒
+      existingDodge.expireAt = nowMs + a1 * 1000; // 原版延长至 a1 秒
     } else {
-      playerBuffs.push({ name: '闪避', value: 100, expireAt: nowSec + a1, duration: a1 });
+      playerBuffs.push({ name: '闪避', value: 100, expireAt: nowMs + a1 * 1000, duration: a1 });
     }
     player.buffs = JSON.stringify(playerBuffs);
     // 写入冷却标记（原版 L1848：时间间隔要求 "闪避冷却" cooldownSec）
-    this.setMarkers2(markers2, '闪避冷却', nowSec + cooldownSec);
+    this.setMarkers2(markers2, '闪避冷却', nowMs + cooldownSec * 1000);
     player.markers2 = JSON.stringify(markers2);
 
     // ========== 使魔专属分支（原版 L580-632） ==========
@@ -5783,7 +5787,7 @@ export class GameService {
     if (seq === 1) {
       // #花园猫（原版 @Constant 花园猫="1"；L580-585）：好感≥100 → 啾啾猫猫增益 + 闪避击熟练度
       if (aff >= 100) {
-        this.setMarkers2(markers2, '啾啾猫猫', nowSec + 3);
+        this.setMarkers2(markers2, '啾啾猫猫', nowMs + 3 * 1000);
         await this.achievementService.addAchievement(player, '闪避击', 1);
         player.markers2 = JSON.stringify(markers2);
         w += '(啾啾猫猫)';
@@ -5817,11 +5821,11 @@ export class GameService {
         // 原版 玩家.技能等级：按熟练度平方阈值计算（数据显示.ecode L1640-L1665）。
         const skillLevel = this.playerService.getSkillLevel(markers, '普拉娜');
         const yzMark = markers2.find((m: any) => m && m.name === '压制');
-        if (!yzMark || !yzMark.expireAt || yzMark.expireAt <= nowSec) {
-          this.setMarkers2(markers2, '压制', nowSec + (18 + skillLevel * 1.2), 16);
+        if (!isActive(yzMark, nowMs)) {
+          this.setMarkers2(markers2, '压制', nowMs + (18 + skillLevel * 1.2) * 1000, 16);
           w += '\n火力压制16%';
         } else {
-          this.setMarkers2(markers2, '压制', nowSec + (4.5 + skillLevel * 0.3), 1.5);
+          this.setMarkers2(markers2, '压制', nowMs + (4.5 + skillLevel * 0.3) * 1000, 1.5);
           w += '\n火力压制1.5%';
         }
         player.markers2 = JSON.stringify(markers2);
@@ -7840,10 +7844,11 @@ export class GameService {
     if (list.length === 0) {
       lines.push('  (暂无标记)');
     } else {
-      const now = Date.now();
+      const nowMs = Date.now();
       for (const m of list) {
         if (!m || !m.name) continue;
-        const remain = m.expireAt ? Math.max(0, Math.ceil((m.expireAt - now) / 1000)) : null;
+        // 剩余秒数按统一毫秒口径计算（存量秒级数据由 remainSeconds 归一化）
+        const remain = toExpireMs(m) ? remainSeconds(m, nowMs) : null;
         lines.push(`  ${m.name}${remain !== null ? ` (剩余${remain}秒)` : ''}`);
       }
     }
@@ -10283,17 +10288,17 @@ export class GameService {
       const targetIdentity = String(targetUser?.qqNumber || targetUser?.externalId || targetUserId);
       const tradeKey = `贸易${targetIdentity}`;
       const nowMs = Date.now();
-      const nowSec = nowMs / 1000;
       const markers2 = this.playerService.safeJsonParse<any[]>(actor.markers2, []);
       let activeCooldown = 0;
       const validMarkers = markers2.filter((marker: any) => {
         const markerName = marker?.name ?? marker?.名称 ?? marker?.key;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-        const expireSec = rawExpire > 1e12 ? rawExpire / 1000 : rawExpire;
-        if (markerName === tradeKey && expireSec > nowSec) activeCooldown = expireSec;
-        return !markerName || markerName !== tradeKey || expireSec <= nowSec;
+        // 到期时间统一按毫秒判定（无到期时间视为已过期，与原逻辑一致）
+        const expireMs = toExpireMs(marker);
+        const expired = !expireMs || expireMs <= nowMs;
+        if (markerName === tradeKey && !expired) activeCooldown = expireMs;
+        return !markerName || markerName !== tradeKey || expired;
       });
-      if (activeCooldown > nowSec) {
+      if (activeCooldown) {
         return `${actor.name || '冒险者'}今天已经和${target.name || '对方'}贸易过了，明天才能再次贸易`;
       }
 
@@ -10335,7 +10340,7 @@ export class GameService {
 
       const tomorrow = new Date(nowMs);
       tomorrow.setHours(24, 0, 0, 0);
-      validMarkers.push({ name: tradeKey, expireAt: tomorrow.getTime() / 1000 });
+      validMarkers.push({ name: tradeKey, expireAt: tomorrow.getTime() });
       actor.vitality = Number(actor.vitality || 0) - 10;
       actor.markers2 = JSON.stringify(validMarkers);
       actor.backpack = actorData.backpack;
@@ -11748,10 +11753,9 @@ export class GameService {
         // 【原文 L2639】        玩家.额外文本 = 玩家.额外文本 + "#换行【活力快满了:" + 加斜杠 (玩家.活力, a1, 真) + "】"
         // 加斜杠(x, y, 真) 为取整显示，故这里用 Math.round 还原"当前/上限"。
         if ((player.vitality || 0) >= vitalityMax * 0.8) {
-          const nowSec = now / 1000;
           const tipMark = vitalityMarkers2.find((m: any) => m && m.name === '活力提示');
-          if (!tipMark || !tipMark.expireAt || tipMark.expireAt <= nowSec) {
-            this.setMarkers2(vitalityMarkers2, '活力提示', nowSec + 600);
+          if (!isActive(tipMark, now)) {
+            this.setMarkers2(vitalityMarkers2, '活力提示', now + 600 * 1000);
             player.markers2 = JSON.stringify(vitalityMarkers2);
             vitalityTipText = `【活力快满了:${Math.round(player.vitality || 0)}/${Math.round(vitalityMax)}】`;
           }
@@ -11880,7 +11884,8 @@ export class GameService {
     seconds: number,
     extra: Record<string, any> = {},
   ): any {
-    const expireAt = Math.ceil(Date.now() / 1000) + Math.max(1, Math.ceil(seconds));
+    // 救助标记到期时间统一毫秒
+    const expireAt = Date.now() + Math.max(1, Math.ceil(seconds)) * 1000;
     return {
       name: rescueType === 'player' ? '工作' : '复活',
       rescueType,
@@ -11891,23 +11896,21 @@ export class GameService {
   }
 
   private getActiveRescueMarker(markers2: any[]): any | null {
-    const now = Date.now() / 1000;
+    const nowMs = Date.now();
     return markers2.find((marker: any) => {
       const name = marker?.name ?? marker?.名称;
       if (name !== '复活' && name !== '工作') return false;
-      const expireAt = this.rescueExpireAtSeconds(marker);
-      return expireAt > now;
+      return isActive(marker, nowMs);
     }) || null;
   }
 
-  private rescueExpireAtSeconds(marker: any): number {
-    const raw = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-    if (!Number.isFinite(raw) || raw <= 0) return 0;
-    return raw >= 1e12 ? raw / 1000 : raw;
+  /** 救助标记的到期时间（毫秒；存量秒级数据自动归一化） */
+  private rescueExpireMs(marker: any): number {
+    return toExpireMs(marker);
   }
 
   private remainingRescueSeconds(marker: any): number {
-    return Math.max(1, Math.ceil(this.rescueExpireAtSeconds(marker) - Date.now() / 1000));
+    return Math.max(1, Math.ceil((this.rescueExpireMs(marker) - Date.now()) / 1000));
   }
 
   private rescueActionText(type: string): string {
@@ -12009,39 +12012,39 @@ export class GameService {
     }
   }
 
+  /** 是否持有未过期的「卷土重来」增益（到期时间统一毫秒判定） */
   private hasActiveRescueBuff(value: any): boolean {
     const buffs = this.parseRescueArray(value);
-    const now = Date.now() / 1000;
+    const nowMs = Date.now();
     return buffs.some((buff: any) => {
       if ((buff?.name ?? buff?.名称) !== '卷土重来') return false;
-      const raw = Number(buff?.expireAt ?? buff?.有效期至 ?? 0);
-      const expireAt = raw >= 1e12 ? raw / 1000 : raw;
-      return !expireAt || expireAt > now;
+      return isActive(buff, nowMs);
     });
   }
 
+  /**
+   * 缩短增益有效期（对应原版「卷土重来」被扶起时削减 30 秒）。
+   * 统一毫秒：读用 toExpireMs 归一化，写回毫秒。
+   */
   private shortenRescueBuff(buffs: any[], name: string, seconds: number): boolean {
     const nowMs = Date.now();
     let changed = false;
     for (let index = buffs.length - 1; index >= 0; index--) {
       const buff = buffs[index];
       if ((buff?.name ?? buff?.名称) !== name) continue;
-      const raw = Number(buff?.expireAt ?? buff?.有效期至 ?? 0);
-      if (!raw) {
+      const expireMs = toExpireMs(buff);
+      if (!expireMs) {
         buffs.splice(index, 1);
         changed = true;
         continue;
       }
-      const isMs = raw >= 1e12 || buff?.有效期至 !== undefined;
-      const expireMs = isMs ? raw : raw * 1000;
       const nextMs = expireMs - seconds * 1000;
       if (nextMs <= nowMs) {
         buffs.splice(index, 1);
-      } else if (isMs) {
-        if (buff?.有效期至 !== undefined) buff.有效期至 = nextMs;
-        else buff.expireAt = nextMs;
+      } else if (buff?.有效期至 !== undefined) {
+        buff.有效期至 = nextMs;
       } else {
-        buff.expireAt = nextMs / 1000;
+        buff.expireAt = nextMs;
       }
       changed = true;
     }
@@ -12109,7 +12112,7 @@ export class GameService {
     const timers = this.rescueTimerMap();
     const previous = timers.get(userId);
     if (previous) clearTimeout(previous);
-    const delay = Math.max(0, this.rescueExpireAtSeconds(marker) * 1000 - Date.now());
+    const delay = Math.max(0, this.rescueExpireMs(marker) - Date.now());
     const timer = setTimeout(async () => {
       timers.delete(userId);
       try {
@@ -12129,7 +12132,7 @@ export class GameService {
       where: { userId: { gt: 0 } },
       select: { userId: true, markers2: true },
     });
-    const now = Date.now() / 1000;
+    const nowMs = Date.now();
     let settled = 0;
     for (const player of players || []) {
       const markers = this.parseRescueMarkers(player.markers2);
@@ -12141,7 +12144,7 @@ export class GameService {
       const userId = Number(player.userId);
       const expired: any[] = [];
       for (const marker of rescueMarkers) {
-        if (this.rescueExpireAtSeconds(marker) > now) {
+        if (isActive(marker, nowMs)) {
           // 未到期：恢复进程内定时器（服务重启后定时器全部丢失）
           if (!this.rescueTimerMap().has(userId)) {
             await this.scheduleRescueCompletion(userId, marker);
@@ -12158,7 +12161,7 @@ export class GameService {
       // 2) 60 秒内连续触发超过 3 次判定异常循环，直接清除到期救援标记（自愈）。
       if (!this.rescueFallbackAt) (this as any).rescueFallbackAt = new Map<number, number>();
       if (!this.rescueFallbackCount) (this as any).rescueFallbackCount = new Map<number, number>();
-      const nowMs = Date.now();
+      // nowMs 已在函数开头统一取一次（毫秒口径），此处直接复用
       const lastFallback = this.rescueFallbackAt.get(userId) ?? 0;
       if (nowMs - lastFallback < GameService.RESCUE_FALLBACK_MIN_INTERVAL_MS) continue;
       this.rescueFallbackAt.set(userId, nowMs);
@@ -12454,7 +12457,6 @@ export class GameService {
       }
 
       const nowMs = Date.now();
-      const nowSec = nowMs / 1000;
       const hour = new Date(nowMs).getHours();
       const slot = hour < 12
         ? { name: '通讯1', message: '12点才能再次使用' }
@@ -12462,18 +12464,15 @@ export class GameService {
           ? { name: '通讯2', message: '0点才能再次使用' }
           : { name: '通讯3', message: '18点才能再次使用' };
       const existingSlotMarkers = jsonArray(player.markers2);
+      // 通讯时段标记有效期统一按毫秒判定（存量秒级由 toExpireMs 归一化）
       const hadFreeCall = existingSlotMarkers.some((marker: any) => {
         const name = marker?.name ?? marker?.名称;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-        const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
-        return name === slot.name && expireSec > nowSec;
+        return name === slot.name && isActive(marker, nowMs);
       });
       const markers2 = existingSlotMarkers.filter((marker: any) => {
         const name = marker?.name ?? marker?.名称;
         if (name !== slot.name) return true;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-        const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
-        return expireSec > nowSec;
+        return isActive(marker, nowMs);
       });
       const backpack = this.playerService.getBackpackItems(player);
       let merchantLevel = 0;
@@ -12490,7 +12489,7 @@ export class GameService {
       } else {
         const endOfDay = new Date(nowMs);
         endOfDay.setHours(24, 0, 0, 0);
-        markers2.push({ name: slot.name, expireAt: endOfDay.getTime() / 1000 });
+        markers2.push({ name: slot.name, expireAt: endOfDay.getTime() });
       }
 
       const affinityChance = (10 + this.achievementService.getAchievement(markers, '购物') / 100) / 2;
@@ -12533,18 +12532,14 @@ export class GameService {
 
     if (target === '神之工匠') {
       const nowMs = Date.now();
-      const nowSec = nowMs / 1000;
+      // 通讯4 冷却标记有效期统一按毫秒判定（存量秒级由 toExpireMs 归一化）
       const markers2 = jsonArray(player.markers2).filter((marker: any) => {
         const name = marker?.name ?? marker?.名称;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-        const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
-        return name !== '通讯4' || expireSec <= nowSec;
+        return name !== '通讯4' || !isActive(marker, nowMs);
       });
       const hasCooldown = jsonArray(player.markers2).some((marker: any) => {
         const name = marker?.name ?? marker?.名称;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-        const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
-        return name === '通讯4' && expireSec > nowSec;
+        return name === '通讯4' && isActive(marker, nowMs);
       });
       const backpack = this.playerService.getBackpackItems(player);
       if (hasCooldown) {
@@ -12554,7 +12549,7 @@ export class GameService {
       } else {
         const endOfDay = new Date(nowMs);
         endOfDay.setHours(24, 0, 0, 0);
-        markers2.push({ name: '通讯4', expireAt: endOfDay.getTime() / 1000 });
+        markers2.push({ name: '通讯4', expireAt: endOfDay.getTime() });
       }
       const summons = jsonArray(currentMap.summons).filter((summon: any) =>
         (summon?.qq ?? summon?.QQ) !== 'npc1g' && (summon?.qq ?? summon?.QQ) !== 'npc2g',

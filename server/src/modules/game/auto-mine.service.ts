@@ -64,11 +64,10 @@ export class AutoMineService {
       const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
       const mode = alphaCore ? '自动开采2' : '自动开采';
       const otherMode = alphaCore ? '自动开采' : '自动开采2';
-      const nowSeconds = this.toSeconds(nowMs);
 
       // 同一玩家只保留当前载具对应的开采模式，避免换车后两条时间线叠加。
       delete markers[otherMode];
-      markers[mode] = nowSeconds;
+      markers[mode] = nowMs; // 毫秒时间戳
       player.markers = JSON.stringify(markers);
       await this.playerService.savePlayer(player);
 
@@ -143,7 +142,7 @@ export class AutoMineService {
       const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
       const mode = alphaCore ? '自动开采2' : '自动开采';
       const startedAt = this.readTimestamp(markers[mode]);
-      if (!startedAt || this.toSeconds(nowMs) - startedAt < 60) return false;
+      if (!startedAt || nowMs - startedAt < 60 * 1000) return false;
 
       await this.settle(userId, context, mode, startedAt, nowMs, false);
       return true;
@@ -225,8 +224,8 @@ export class AutoMineService {
     clearMarker: boolean,
   ): Promise<MiningSettlement> {
     const { player, playerData, map, followerFactor } = context;
-    const nowSeconds = this.toSeconds(nowMs);
-    const elapsedSeconds = Math.max(0, Math.floor(nowSeconds - startedAt));
+    // startedAt 与 nowMs 均为毫秒，差值换算为秒供产出计算使用
+    const elapsedSeconds = Math.max(0, Math.floor((nowMs - startedAt) / 1000));
     const bonus = this.getGatherBonus(context);
     const drops = this.buildDrops(map, elapsedSeconds, bonus, followerFactor);
     const taskProgress: Array<{ actionName: string; count: number }> = [];
@@ -242,7 +241,7 @@ export class AutoMineService {
     if (clearMarker) {
       delete markers[mode];
     } else {
-      markers[mode] = nowSeconds;
+      markers[mode] = nowMs; // 毫秒时间戳
     }
     // 原版：采集熟练度 += 开采秒数 / 6000 * 2 * (附近使魔+1)。
     if (elapsedSeconds > 0) {
@@ -353,16 +352,15 @@ export class AutoMineService {
     return rest > 0 ? `${hours}小时${rest}分钟` : `${hours}小时`;
   }
 
+  /**
+   * 读取开采开始时刻，统一返回毫秒（与全项目时间口径一致）。
+   * markers['自动开采'/'自动开采2'] 是「触发时刻」型标记，
+   * 存量数据可能是秒级，此处归一化，无需数据迁移。
+   */
   private readTimestamp(value: any): number {
     const number = Number(value || 0);
     if (!Number.isFinite(number) || number <= 0) return 0;
-    return number > 1e11 ? number / 1000 : number;
-  }
-
-  private toSeconds(value: number): number {
-    // 本服务的 nowMs 参数统一为毫秒；只有从玩家标记读取的旧值才由
-    // readTimestamp 兼容秒级时间戳。
-    return Math.floor(value / 1000);
+    return number < 1e12 ? number * 1000 : number;
   }
 
   private isInstanceMap(map: any): boolean {
