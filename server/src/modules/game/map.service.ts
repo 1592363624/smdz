@@ -788,8 +788,7 @@ export class MapService {
           name: d.name,
           bonus: d.bonus ? (typeof d.bonus === 'string' ? JSON.parse(d.bonus) : d.bonus) : {},
         }));
-        // calculateBuffs 的时间参数统一为毫秒
-        this.bonusService.calculateBuffs(b as any, monsterBuffs, buffDefs, Date.now(), {
+        this.bonusService.calculateBuffs(b as any, monsterBuffs, buffDefs, Date.now() / 1000, {
           currentAnesthesia: b.麻醉 || 0,
           bonus: b as any,
         });

@@ -10,7 +10,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
-import { toExpireMs } from './expire-time.util';
 
 // ==================== 类型定义 ====================
 
@@ -1254,17 +1253,14 @@ export class HomeService {
       .filter((b: any) => this.getItemName(b) === name)
       .reduce((sum: number, b: any) => sum + this.getItemQuantityValue(b), 0);
 
-    const nowMs = Date.now();
+    const now = Date.now() / 1000;
     const mapMarkers = this.safeParseJSON<any>(map.markers, {});
     // 新版本使用地图标记保存观测时间；兼容此前写入玩家标记的存量家园。
-    // 这些都是「触发时刻」型标记，统一按毫秒判定（存量秒级由 toExpireMs 归一化）
-    const lastOutputMs = toExpireMs({
-      expireAt: this.readMarkerValue(mapMarkers, '观测时间')
-        || this.readMarkerValue(mapMarkers, '读取时间')
-        || this.readMarkerValue(mapMarkers, '家园产出时间')
-        || this.readMarkerValue(markers, '家园产出时间'),
-    });
-    const timeDiff = lastOutputMs > 0 ? Math.max(0, (nowMs - lastOutputMs) / 1000) : 60;
+    const lastOutput = this.readMarkerValue(mapMarkers, '观测时间')
+      || this.readMarkerValue(mapMarkers, '读取时间')
+      || this.readMarkerValue(mapMarkers, '家园产出时间')
+      || this.readMarkerValue(markers, '家园产出时间');
+    const timeDiff = lastOutput > 0 ? Math.max(0, now - lastOutput) : 60;
     const overloaded = this.readMarkerValue(mapMarkers, '生产模式') === 1;
     let buildingOutputRate = overloaded ? 1.25 : 1;
     const cropOutputRateBase = 1;
@@ -1582,11 +1578,10 @@ export class HomeService {
       1,
     );
 
-    // 两个「触发时刻」型标记统一写毫秒时间戳
-    this.writeMarkerValue(mapMarkers, '观测时间', nowMs);
+    this.writeMarkerValue(mapMarkers, '观测时间', now);
     // 原版地图操作会把供电状态写入地图标记，贸易和其他家园功能都依赖该状态。
     this.writeMarkerValue(mapMarkers, '有电', analysis.hasPower ? 1 : 0);
-    markers['家园产出时间'] = nowMs;
+    markers['家园产出时间'] = now;
     player.markers = JSON.stringify(markers);
     const resultLines = [`${player.name || '冒险者'}的家园产出`];
     if (!analysis.hasPower) {

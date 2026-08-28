@@ -10,7 +10,6 @@ import { StaticDataService } from './static-data.service';
 import { CombatStateService } from './combat-state.service';
 import { PlayerService } from './player.service';
 import { MapService } from './map.service';
-import { toExpireMs } from './expire-time.util';
 
 /**
  * 对齐原版「显示物品」(数据显示.ecode L1887-1929) 的资源数量展示规则：
@@ -910,9 +909,8 @@ export class ItemService {
         const mapMarkers = this.playerService.safeJsonParse<Record<string, number>>(homeMap.markers, {});
         const shiftSeconds = actualCount * 60;
         for (const key of ['观测时间', '观测时间2']) {
-          // 「观测时间」系列为触发时刻型标记，统一毫秒；存量秒级由 toExpireMs 归一化
-          const currentMs = toExpireMs({ expireAt: mapMarkers[key] });
-          mapMarkers[key] = (currentMs > 0 ? currentMs : nowMs) - shiftSeconds * 1000;
+          const current = Number(mapMarkers[key] ?? 0);
+          mapMarkers[key] = current > 0 ? current - shiftSeconds : nowMs / 1000 - shiftSeconds;
         }
         for (const key of ['全部拾取', '拾取']) {
           const value = Number(mapMarkers[key] ?? 0);

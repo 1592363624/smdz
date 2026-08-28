@@ -15,7 +15,7 @@ import { CombatSystemService } from './combat-system.service';
 import { HomeService } from './home.service';
 import { ItemSystemService } from './item-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
-import { hasActive, remainMs, SECOND_MS, toExpireMs } from './expire-time.util';
+import { hasActive } from './expire-time.util';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -293,9 +293,9 @@ export class FamiliarSystemService {
     // 检查冷却
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '更换使魔');
-    const nowMs = Date.now();
-    if (cooldownMarker && remainMs(cooldownMarker, nowMs) > 0) {
-      const remaining = Math.ceil(remainMs(cooldownMarker, nowMs) / SECOND_MS);
+    const now = Date.now() / 1000;
+    if (cooldownMarker && cooldownMarker.expireAt > now) {
+      const remaining = Math.ceil(cooldownMarker.expireAt - now);
       return `${player.name || '冒险者'} 更换使魔冷却中，剩余${remaining}秒`;
     }
 
@@ -317,7 +317,7 @@ export class FamiliarSystemService {
     const newMarkers2 = markers2.filter((m: any) => m.name !== '更换使魔');
     newMarkers2.push({
       name: '更换使魔',
-      expireAt: nowMs + cooldown * SECOND_MS,
+      expireAt: now + cooldown,
     });
     player.markers2 = JSON.stringify(newMarkers2);
 
@@ -402,8 +402,8 @@ export class FamiliarSystemService {
     // 检查召唤冷却
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '召唤冷却');
-    const nowMs = Date.now();
-    if (!cooldownMarker || remainMs(cooldownMarker, nowMs) === 0) {
+    const now = Date.now() / 1000;
+    if (!cooldownMarker || cooldownMarker.expireAt <= now) {
       // 活跃度+1
       const activity = this.playerService.getMarkerValue(markers, '活跃度');
       markers['活跃度'] = activity + 1;
@@ -413,7 +413,7 @@ export class FamiliarSystemService {
       const newMarkers2 = markers2.filter((m: any) => m.name !== '召唤冷却');
       newMarkers2.push({
         name: '召唤冷却',
-        expireAt: nowMs + 10 * SECOND_MS,
+        expireAt: now + 10,
       });
       player.markers2 = JSON.stringify(newMarkers2);
     }
@@ -1604,12 +1604,11 @@ export class FamiliarSystemService {
     const backpack = this.playerService.getBackpackItems(player);
 
     // 计算时间差：距离上次产出过去了多少秒
-    // 「家园产出时间」为触发时刻型标记（上次产出时刻），统一毫秒
-    const nowMs = Date.now();
-    const lastOutputMs = toExpireMs({ expireAt: this.playerService.getMarkerValue(markers, '家园产出时间') });
+    const now = Date.now() / 1000;
+    const lastOutput = this.playerService.getMarkerValue(markers, '家园产出时间');
     let timeDiff = 60; // 默认60秒（最少产出间隔）
-    if (lastOutputMs > 0) {
-      timeDiff = Math.min(3600, Math.max(60, (nowMs - lastOutputMs) / SECOND_MS)); // 最多1小时，最少1分钟
+    if (lastOutput > 0) {
+      timeDiff = Math.min(3600, Math.max(60, now - lastOutput)); // 最多1小时，最少1分钟
     }
 
     // 产出倍率（可配置，默认1.0）
@@ -1703,7 +1702,7 @@ export class FamiliarSystemService {
     }
 
     // 更新上次产出时间
-    markers['家园产出时间'] = nowMs;
+    markers['家园产出时间'] = now;
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
@@ -2281,9 +2280,9 @@ export class FamiliarSystemService {
     // 检查冷却
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '宠物嗅探');
-    const nowMs = Date.now();
-    if (cooldownMarker && remainMs(cooldownMarker, nowMs) > 0) {
-      const remaining = Math.ceil(remainMs(cooldownMarker, nowMs) / SECOND_MS);
+    const now = Date.now() / 1000;
+    if (cooldownMarker && cooldownMarker.expireAt > now) {
+      const remaining = Math.ceil(cooldownMarker.expireAt - now);
       return `宠物嗅探冷却中，剩余${remaining}秒`;
     }
 
@@ -2318,7 +2317,7 @@ export class FamiliarSystemService {
     const newMarkers2 = markers2.filter((m: any) => m.name !== '宠物嗅探');
     newMarkers2.push({
       name: '宠物嗅探',
-      expireAt: nowMs + 600 * SECOND_MS,
+      expireAt: now + 600,
     });
     player.markers2 = JSON.stringify(newMarkers2);
 
@@ -2384,7 +2383,7 @@ export class FamiliarSystemService {
       const mapMarkers3 = this.playerService.safeJsonParse<any[]>(map.markers || '[]', []);
       mapMarkers3.push({
         name: `嗅探${monsterName}`,
-        expireAt: nowMs + 120 * SECOND_MS,
+        expireAt: now + 120,
       });
 
       await this.mapService.updateDynamicFields(map.id, {
@@ -2603,12 +2602,11 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 冷却30秒
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const nowMs = Date.now();
+    const now = Date.now() / 1000;
     const cooldownKey = `宠物攻击${map.name}`;
     const cd = markers2.find((m: any) => m.name === cooldownKey);
-    const cdRemain = remainMs(cd, nowMs);
-    if (cdRemain > 0) {
-      return `宠物攻击冷却中，剩余${Math.ceil(cdRemain / SECOND_MS)}秒`;
+    if (cd && cd.expireAt > now) {
+      return `宠物攻击冷却中，剩余${Math.ceil(cd.expireAt - now)}秒`;
     }
 
     // 宠物攻击：逐次真实结算（对齐原版 宠物攻击() 走武器攻击链路）
@@ -2619,7 +2617,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const taskProgress: Array<{ actionName: string; count: number }> = [];
     const petMarkers2 = this.playerService.safeJsonParse<any[]>(qualifiedPet.markers2, []);
     const skyfallCd = petMarkers2.find((m: any) => m.name === '降');
-    const canSkyfall = awaken >= 500 && remainMs(skyfallCd, nowMs) === 0;
+    const canSkyfall = awaken >= 500 && !(skyfallCd && skyfallCd.expireAt > Date.now() / 1000);
 
     if (canSkyfall) {
       // 天神降世：对所有存活怪物逐次结算（必中）
@@ -2632,7 +2630,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       }
       // 写入"降"冷却 180 秒（原版 时间间隔要求("降",180)）
       const newPetM2 = petMarkers2.filter((m: any) => m.name !== '降');
-      newPetM2.push({ name: '降', expireAt: nowMs + 180 * SECOND_MS });
+      newPetM2.push({ name: '降', expireAt: Date.now() / 1000 + 180 });
       qualifiedPet.markers2 = JSON.stringify(newPetM2);
     } else {
       // 普通宠物攻击：只对第一个怪物发起结算
@@ -2650,7 +2648,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 设置冷却和活动标记
     const newMarkers2 = markers2.filter((m: any) => m.name !== cooldownKey);
-    newMarkers2.push({ name: cooldownKey, expireAt: nowMs + 30 * SECOND_MS });
+    newMarkers2.push({ name: cooldownKey, expireAt: now + 30 });
     player.markers2 = JSON.stringify(newMarkers2);
 
     // 更新玩家（地图怪物已通过表操作更新，仅保存玩家与召唤物）
@@ -3145,10 +3143,10 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 检查冷却（全地图数量<10时有冷却）
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === `${target}冷却`);
-    const nowMs = Date.now();
+    const now = Date.now() / 1000;
 
-    if (totalCount < 10 && cooldownMarker && remainMs(cooldownMarker, nowMs) > 0) {
-      const remaining = Math.ceil(remainMs(cooldownMarker, nowMs) / SECOND_MS);
+    if (totalCount < 10 && cooldownMarker && cooldownMarker.expireAt > now) {
+      const remaining = Math.ceil(cooldownMarker.expireAt - now);
       return `你近期已经抓到过${target}了，冷却${remaining}秒`;
     }
 
@@ -3203,7 +3201,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       const newMarkers2 = markers2.filter((m: any) => m.name !== `${target}冷却`);
       newMarkers2.push({
         name: `${target}冷却`,
-        expireAt: nowMs + 1800 * SECOND_MS,
+        expireAt: now + 1800,
       });
       player.markers2 = JSON.stringify(newMarkers2);
 
@@ -3258,6 +3256,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const markers2 = Array.isArray(parsedMarkers2) ? parsedMarkers2 : [];
     const cooldownMarker = markers2.find((m: any) => (m?.name ?? m?.名称) === '安乐');
     const nowMs = Date.now();
+    const now = nowMs / 1000;
     const rawExpire = Number(cooldownMarker?.expireAt ?? cooldownMarker?.有效期至 ?? 0);
     const expireAtMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
     if (cooldownMarker && expireAtMs > nowMs) {
@@ -3276,7 +3275,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const normalizedTarget = this.normalizeSkillTarget(targetName);
     if (!normalizedTarget) {
       // 对自己使用
-      player.buffs = JSON.stringify(this.addSkillBuff(player, '安乐天使', 20, nowMs));
+      player.buffs = JSON.stringify(this.addSkillBuff(player, '安乐天使', 20, now));
       await this.playerService.savePlayer(player);
       return `给自己套上了行星护盾`;
     }
@@ -3291,7 +3290,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       );
 
       if (summonTarget) {
-        summonTarget.buffs = this.addSkillBuff(summonTarget, '安乐天使', 20, nowMs);
+        summonTarget.buffs = this.addSkillBuff(summonTarget, '安乐天使', 20, now);
 
         await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
@@ -3306,12 +3305,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     if (targetPlayer) {
       const targetDisplayName = targetPlayer.name || normalizedTarget;
       if (targetPlayer.id === player.id) {
-        player.buffs = JSON.stringify(this.addSkillBuff(player, '安乐天使', 20, nowMs));
+        player.buffs = JSON.stringify(this.addSkillBuff(player, '安乐天使', 20, now));
         await this.playerService.savePlayer(player);
         return `给${targetDisplayName}套上了行星护盾`;
       }
 
-      const newBuffs = this.addSkillBuff(targetPlayer, '安乐天使', 20, nowMs);
+      const newBuffs = this.addSkillBuff(targetPlayer, '安乐天使', 20, now);
 
       await this.prisma.player.update({
         where: { id: targetPlayer.id },
@@ -3355,12 +3354,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     markers['福音书'] = 1;
     player.markers = JSON.stringify(markers);
 
-    const nowMs = Date.now();
+    const now = Date.now() / 1000;
     const normalizedTarget = this.normalizeSkillTarget(targetName);
 
     if (!normalizedTarget) {
       // 对自己使用
-      player.buffs = JSON.stringify(this.addSkillBuff(player, '福音书', 300, nowMs, { strength: 10 }));
+      player.buffs = JSON.stringify(this.addSkillBuff(player, '福音书', 300, now, { strength: 10 }));
       await this.playerService.savePlayer(player);
       return `给自己使用了福音书`;
     }
@@ -3375,7 +3374,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       );
 
       if (summonTarget) {
-        summonTarget.buffs = this.addSkillBuff(summonTarget, '福音书', 300, nowMs, { strength: 10 });
+        summonTarget.buffs = this.addSkillBuff(summonTarget, '福音书', 300, now, { strength: 10 });
 
         await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
 
@@ -3390,12 +3389,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     if (targetPlayer) {
       const targetDisplayName = targetPlayer.name || normalizedTarget;
       if (targetPlayer.id === player.id) {
-        player.buffs = JSON.stringify(this.addSkillBuff(player, '福音书', 300, nowMs, { strength: 10 }));
+        player.buffs = JSON.stringify(this.addSkillBuff(player, '福音书', 300, now, { strength: 10 }));
         await this.playerService.savePlayer(player);
         return `给${targetDisplayName}使用了福音书`;
       }
 
-      const newBuffs = this.addSkillBuff(targetPlayer, '福音书', 300, nowMs, { strength: 10 });
+      const newBuffs = this.addSkillBuff(targetPlayer, '福音书', 300, now, { strength: 10 });
 
       await this.prisma.player.update({
         where: { id: targetPlayer.id },
@@ -3418,7 +3417,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     target: any,
     buffName: string,
     durationSeconds: number,
-    nowMs: number,
+    nowSeconds: number,
     extra: Record<string, any> = {},
   ): any[] {
     const rawBuffs = typeof target?.buffs === 'string'
@@ -3428,8 +3427,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const next = buffs.filter((buff: any) => (buff?.name ?? buff?.名称) !== buffName);
     next.push({
       name: buffName,
-      // 统一毫秒时间戳（nowMs 为毫秒，durationSeconds 按秒传入）
-      expireAt: nowMs + durationSeconds * SECOND_MS,
+      expireAt: nowSeconds + durationSeconds,
       ...extra,
     });
     return next;
@@ -3481,15 +3479,15 @@ ${this.getAwakenStageName(d)}(${d})`;
     let remaining = Number(markers['幼崽'] ?? 0);
     if (!Number.isFinite(remaining) || remaining <= 0) return false;
 
-    // 「时间2」为触发时刻型标记（上次成长结算时刻），统一毫秒
-    const previousMs = toExpireMs({ expireAt: markers['时间2'] });
-    const nowMs = Date.now();
-    const elapsed = previousMs > 0 ? Math.max(0, (nowMs - previousMs) / SECOND_MS) : 0;
+    const rawTime = Number(markers['时间2'] ?? 0);
+    const previous = rawTime > 1e12 ? rawTime / 1000 : rawTime;
+    const now = Math.floor(Date.now() / 1000);
+    const elapsed = previous > 0 ? Math.max(0, now - previous) : 0;
     remaining -= elapsed;
 
     if (remaining > 0) {
       markers['幼崽'] = remaining;
-      markers['时间2'] = nowMs;
+      markers['时间2'] = now;
       return true;
     }
 
@@ -4189,9 +4187,9 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 检查冷却（每天一次）
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const nowMs = Date.now();
+    const now = Date.now() / 1000;
     const cooldownMarker = markers2.find((m: any) => m.name === '剪毛');
-    if (cooldownMarker && remainMs(cooldownMarker, nowMs) > 0) {
+    if (cooldownMarker && cooldownMarker.expireAt > now) {
       return '剪毛冷却中，每天只能剪一次';
     }
 
@@ -4199,7 +4197,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const newMarkers2 = markers2.filter((m: any) => m.name !== '剪毛');
     newMarkers2.push({
       name: '剪毛',
-      expireAt: this.getEndOfDay(nowMs),
+      expireAt: this.getEndOfDay(now),
     });
     player.markers2 = JSON.stringify(newMarkers2);
     await this.playerService.savePlayer(player);
@@ -4212,13 +4210,13 @@ ${this.getAwakenStageName(d)}(${d})`;
 
   /**
    * 获取当天结束的时间戳
-   * @param nowMs 当前毫秒时间戳
-   * @returns 当天23:59:59的毫秒时间戳（统一口径）
+   * @param now 当前时间戳
+   * @returns 当天23:59:59的时间戳
    */
-  private getEndOfDay(nowMs: number): number {
-    const date = new Date(nowMs);
+  private getEndOfDay(now: number): number {
+    const date = new Date(now * 1000);
     date.setHours(23, 59, 59, 999);
-    return date.getTime();
+    return date.getTime() / 1000;
   }
 
   /**
@@ -4240,21 +4238,21 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 原版 _主程序 L11462 先检查“纯白cd”30秒，再进入纯白之翼子程序。
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const nowMs = Date.now();
+    const now = Date.now() / 1000;
     const pureWhiteCooldown = markers2.find((m: any) => m.name === '纯白cd');
-    if (remainMs(pureWhiteCooldown, nowMs) > 0) {
+    if (pureWhiteCooldown && pureWhiteCooldown.expireAt > now) {
       return '';
     }
 
     // 原版 使魔技能 L169：主动技能公共冷却未结束时不自动释放。
     const skillCooldown = markers2.find((m: any) => m.name === `${player.type}技能冷却`);
-    if (remainMs(skillCooldown, nowMs) > 0) {
+    if (skillCooldown && skillCooldown.expireAt > now) {
       return '';
     }
 
     // 原版 使魔技能 L171：自动训练间隔为5秒。
     const autoTrain = markers2.find((m: any) => m.name === '自动训练');
-    if (remainMs(autoTrain, nowMs) > 0) {
+    if (autoTrain && autoTrain.expireAt > now) {
       return '';
     }
 
@@ -4271,8 +4269,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     const nextMarkers2 = markers2.filter((m: any) => m.name !== '自动训练' && m.name !== '纯白cd');
-    nextMarkers2.push({ name: '自动训练', expireAt: nowMs + 5 * SECOND_MS });
-    nextMarkers2.push({ name: '纯白cd', expireAt: nowMs + 30 * SECOND_MS });
+    nextMarkers2.push({ name: '自动训练', expireAt: now + 5 });
+    nextMarkers2.push({ name: '纯白cd', expireAt: now + 30 });
     player.markers2 = JSON.stringify(nextMarkers2);
     await this.playerService.savePlayer(player);
 
@@ -4379,9 +4377,9 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 自动释放形神合一
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const nowMs = Date.now();
+    const now = Date.now() / 1000;
     const cooldownMarker = markers2.find((m: any) => m.name === '形神合一');
-    if (cooldownMarker && remainMs(cooldownMarker, nowMs) > 0) {
+    if (cooldownMarker && cooldownMarker.expireAt > now) {
       return false; // 形神合一冷却中
     }
 
@@ -4389,7 +4387,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const newMarkers2 = markers2.filter((m: any) => m.name !== '形神合一');
     newMarkers2.push({
       name: '形神合一',
-      expireAt: nowMs + 60 * SECOND_MS,
+      expireAt: now + 60,
     });
     player.markers2 = JSON.stringify(newMarkers2);
 
@@ -4420,10 +4418,10 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 检查冷却
     const cooldownName = `战斗女仆_${weaponType}`;
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const nowMs = Date.now();
+    const now = Date.now() / 1000;
     const cooldownMarker = markers2.find((m: any) => m.name === cooldownName);
-    if (cooldownMarker && remainMs(cooldownMarker, nowMs) > 0) {
-      const remaining = Math.ceil(remainMs(cooldownMarker, nowMs) / SECOND_MS);
+    if (cooldownMarker && cooldownMarker.expireAt > now) {
+      const remaining = Math.ceil(cooldownMarker.expireAt - now);
       return `技能冷却中，剩余${remaining}秒`;
     }
 
@@ -4464,7 +4462,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const newMarkers2 = markers2.filter((m: any) => m.name !== cooldownName);
     newMarkers2.push({
       name: cooldownName,
-      expireAt: nowMs + cooldown * SECOND_MS,
+      expireAt: now + cooldown,
     });
     player.markers2 = JSON.stringify(newMarkers2);
 

@@ -11,7 +11,6 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { SECOND_MS, isActive, toExpireMs } from './expire-time.util';
 
 /**
  * 加成属性接口，对应原版易语言的"加成"数据类型
@@ -158,7 +157,7 @@ export interface SetData {
  */
 export interface BuffData {
   name: string;            // 名称
-  expireAt?: number;       // 有效期至（毫秒时间戳；全项目统一口径，读取时兼容历史秒级数据）
+  expireAt?: number;       // 有效期至（时间戳，本框架使用秒）
   strength?: number;       // 强度
   stackTime?: boolean;     // 是否叠加时间
   bonus?: BonusData;       // 加成（增益列表里定义的效果）
@@ -989,20 +988,20 @@ export class BonusService {
    * @param name 增益名称
    * @param time 持续时间（秒）
    * @param stackTime 是否叠加时间
-   * @param now 当前毫秒时间戳（全项目统一口径）
+   * @param now 当前时间戳（秒）
    * @param strength 强度（可空）
    * @param stackStrength 是否叠加强度（可空，默认取较大值）
    * @returns 最终强度
    */
   applyBuff(buffs: BuffData[], name: string, time: number, stackTime: boolean, now: number, strength?: number, stackStrength?: boolean): number {
-    // 统一口径：now 与 expireAt 均为毫秒；入参 time 仍按原版语义以「秒」传入，此处换算
-    const timeMs = time * SECOND_MS;
+    // 本框架时间戳以秒为单位；原版为 时间 * #转秒(10000000)
+    const timeScale = 1;
     for (let i = 0; i < buffs.length; i++) {
       const b = buffs[i];
       if (b && b.name === name) {
         if (stackTime) {
-          // 叠加时间：在原有效期基础上增加（存量秒级有效期先归一化）
-          b.expireAt = toExpireMs(b) + timeMs;
+          // 叠加时间：在原有效期基础上增加
+          b.expireAt = this.safeNum(b.expireAt) + time * timeScale;
           // 增加后仍已过期则删除并返回0
           if (now - this.safeNum(b.expireAt) >= 0) {
             buffs.splice(i, 1);
@@ -1010,7 +1009,7 @@ export class BonusService {
           }
         } else if (time !== 0) {
           // 不叠加时间：直接覆盖有效期
-          b.expireAt = now + timeMs;
+          b.expireAt = now + time * timeScale;
         }
         b.stackTime = stackTime;
         // 强度：按是否叠加强度累加，否则取较大值
@@ -1025,7 +1024,7 @@ export class BonusService {
     // 不存在同名增益：新增
     buffs.push({
       name,
-      expireAt: now + timeMs,
+      expireAt: now + time * timeScale,
       stackTime,
       strength,
     });
@@ -1098,8 +1097,8 @@ export class BonusService {
    * 说明：神兽蛋孵化涉及召唤物系统，本框架中仅记录日志，由外部召唤系统接管。
    * @param playerBuffs 玩家增益列表（原地修改）
    * @param map 地图上下文（建筑/召唤物/物品/标记3）
-   * @param now 当前毫秒时间戳（全项目统一口径）
-   * @param originalTime 原始毫秒时间戳（用于地图标记有效期计算）
+   * @param now 当前时间戳（秒）
+   * @param originalTime 原始时间戳（用于地图标记有效期计算）
    */
   getMapBonus(playerBuffs: BuffData[], map: MapBonusContext, now: number, originalTime: number): void {
     const markers3 = map.markers3 || (map.markers3 = []);
@@ -1124,9 +1123,9 @@ export class BonusService {
       const marker = markers3[i];
       if (!marker) continue;
       const markerName = String((marker as any).name ?? (marker as any).名称 ?? '');
-      // 地图标记有效期统一按毫秒判定（存量秒级数据由 toExpireMs 归一化）
-      const expireAtMs = toExpireMs(marker);
-      if (now >= expireAtMs) {
+      const rawExpireAt = this.safeNum((marker as any).expireAt ?? (marker as any).有效期至);
+      const expireAt = rawExpireAt > 1e12 ? rawExpireAt / 1000 : rawExpireAt;
+      if (now >= expireAt) {
         // 过期：若为"孵化中"且存在孵蛋鸡，原版会孵化神兽蛋（需召唤系统支持）
         if (markerName === '孵化中' && this.countItem(map.items, '孵蛋鸡') >= 1) {
           const eggs: Array<[string, string]> = [
@@ -1148,8 +1147,8 @@ export class BonusService {
               type: summonType,
               ownerQQ,
               createdAt: now,
-              // 原版：86400*1.5 - (当前时间-有效期至)/#转秒。now/expireAt 已统一为毫秒，故换算回秒
-              growthSeconds: 86400 * 1.5 - (now - expireAtMs) / SECOND_MS,
+              // 原版：86400*1.5 - (当前时间-有效期至)/#转秒。
+              growthSeconds: 86400 * 1.5 - (now - expireAt),
             });
             this.logger.log(`地图增益：孵蛋鸡孵化${summonType}蛋，生成${summonType}幼崽`);
           }
@@ -1160,7 +1159,7 @@ export class BonusService {
         this.applyBuff(
           playerBuffs,
           markerName,
-          (expireAtMs - now) / SECOND_MS, // 剩余秒数（applyBuff 的 time 参数按秒）
+          (expireAt - now) / 1,
           !!((marker as any).stackTime ?? (marker as any).是否叠加时间),
           now,
           this.safeNum((marker as any).strength ?? (marker as any).强度),
@@ -1189,8 +1188,8 @@ export class BonusService {
     const bonus = context && context.bonus ? context.bonus : attributes;
     for (const buff of buffs) {
       if (!buff) continue;
-      // 跳过已过期增益（统一按毫秒判定，兼容历史秒级写入）
-      if (!isActive(buff, now)) continue;
+      // 跳过已过期增益
+      if (this.safeNum(buff.expireAt) < now) continue;
       const name = buff.name || '';
       const strength = this.safeNum(buff.strength);
       switch (name) {
@@ -1414,8 +1413,7 @@ export class BonusService {
     if (!markers2) return true;
     const marker = markers2.find((m) => m && m.name === name);
     if (!marker) return true;
-    // now 为毫秒；标记有效期归一化后比较（兼容存量秒级）
-    return toExpireMs(marker) <= now;
+    return this.safeNum(marker.expireAt) <= now;
   }
 
   /**
@@ -1444,7 +1442,7 @@ export class BonusService {
    * - 暴击熟练度转暴击伤害
    * - 特定武器等级加成（高斯步枪/追风者/琴弦/三叉戟/高斯狙击枪/奥丁/勒克斯之矛）
    * @param player 玩家上下文（属性/加成/套装/武器等，原地修改）
-   * @param now 当前毫秒时间戳（全项目统一口径）
+   * @param now 当前时间戳（秒）
    */
   checkSetBonus(
     player: {
@@ -1720,7 +1718,7 @@ export class BonusService {
       sets?: SetData;
       currentHp?: number;
     },
-    nowMs: number,
+    nowSec: number,
   ): void {
     const bonus = context.bonus;
     const attrs = context.attributes || bonus;
@@ -1737,8 +1735,8 @@ export class BonusService {
     const hasBuff = (name: string): number | undefined => {
       const item = buffs.find((buff) => String(buff?.name ?? buff?.名称 ?? '') === name);
       if (!item) return undefined;
-      // 统一毫秒判定（存量秒级有效期由 toExpireMs 归一化）
-      if (!isActive(item, nowMs)) return undefined;
+      const rawExpire = Number(item.expireAt ?? item.有效期至 ?? 0);
+      if (!rawExpire || rawExpire <= nowSec) return undefined;
       return this.safeNum(item.strength ?? item.value ?? item.强度);
     };
     const hasEquipBySeq = (seq: number): boolean =>
@@ -1794,9 +1792,8 @@ export class BonusService {
       }
       bonus.攻击生命 = this.safeNum(bonus.攻击生命) + 20;
     } else if (armorType === 5) {
-      // markers.xa 是「触发时刻」型冷却标记（距上次触发的间隔上限 120 秒），统一毫秒
-      const previous = toExpireMs({ expireAt: markers.xa }) || nowMs;
-      const capped = nowMs - previous > 120 * SECOND_MS ? nowMs - 120 * SECOND_MS : Math.max(previous, nowMs);
+      const previous = this.safeNum(markers.xa) || nowSec;
+      const capped = nowSec - previous > 120 ? nowSec - 120 : Math.max(previous, nowSec);
       markers.xa = capped;
     }
 
@@ -1810,7 +1807,7 @@ export class BonusService {
 
     // L140-L143：麻痹降低三层电抗。
     const paralyzed = buffs.some((buff) => String(buff?.name ?? buff?.名称 ?? '') === '麻痹'
-      && isActive(buff, nowMs));
+      && Number(buff?.expireAt ?? buff?.有效期至 ?? 0) > nowSec);
     if (paralyzed) {
       bonus.护盾电抗 = this.safeNum(bonus.护盾电抗) * 0.9;
       bonus.装甲电抗 = this.safeNum(bonus.装甲电抗) * 0.9;
