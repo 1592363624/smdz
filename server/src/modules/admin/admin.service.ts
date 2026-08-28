@@ -5,6 +5,7 @@
  */
 
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from '../game/player.service';
 import { ChatService } from '../chat/chat.service';
@@ -51,8 +52,23 @@ export class AdminService {
   /**
    * 分页查询用户列表
    * 关联玩家档案，附带等级/角色名/位置/在线状态/在线时长/最后登录等扩展信息
+   * 支持按指定字段排序与自定义分页大小。
+   *
+   * @param page 当前页码（从1开始）
+   * @param pageSize 每页条数
+   * @param keyword 搜索关键词（用户名/昵称/QQ）
+   * @param sortField 排序字段（白名单内）
+   * @param sortOrder 排序方向：asc 或 desc
    */
-  async listUsers(page = 1, pageSize = 20, keyword?: string) {
+  async listUsers(
+    page = 1,
+    pageSize = 20,
+    keyword?: string,
+    sortField?: string,
+    sortOrder: Prisma.SortOrder = 'asc',
+  ) {
+    // 分页大小限制在合理范围，防止恶意大查询拖慢服务
+    const safePageSize = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
     const where = keyword
       ? {
           OR: [
@@ -62,6 +78,10 @@ export class AdminService {
           ],
         }
       : {};
+
+    // 允许的排序字段白名单，避免 Prisma orderBy 注入
+    const orderBy = this.buildUserListOrderBy(sortField, sortOrder);
+
     const [total, list] = await Promise.all([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
@@ -94,9 +114,9 @@ export class AdminService {
             },
           },
         },
-        orderBy: { id: 'asc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        orderBy,
+        skip: (page - 1) * safePageSize,
+        take: safePageSize,
       }),
     ]);
 
@@ -122,7 +142,38 @@ export class AdminService {
         _now: now,
       };
     });
-    return { total, list: enriched, page, pageSize };
+    return { total, list: enriched, page, pageSize: safePageSize };
+  }
+
+  /**
+   * 构造用户列表的 orderBy 条件
+   * 仅允许白名单内的字段，防止通过 sortField 注入非法 Prisma 查询。
+   * 玩家相关字段通过关联表排序。
+   */
+  private buildUserListOrderBy(
+    sortField?: string,
+    sortOrder: Prisma.SortOrder = 'asc',
+  ): Prisma.UserOrderByWithRelationInput {
+    const order = sortOrder === 'desc' ? 'desc' : 'asc';
+    const field = sortField || 'id';
+
+    const map: Record<string, Prisma.UserOrderByWithRelationInput> = {
+      id: { id: order },
+      username: { username: order },
+      nickname: { nickname: order },
+      role: { role: order },
+      status: { status: order },
+      createdAt: { createdAt: order },
+      lastLoginAt: { lastLoginAt: order },
+      loginCount: { loginCount: order },
+      level: { player: { level: order } },
+      playerName: { player: { name: order } },
+      location: { player: { location: order } },
+      affinity: { player: { affinity: order } },
+      lastActiveAt: { player: { updatedAt: order } },
+    };
+
+    return map[field] ?? { id: 'asc' };
   }
 
   /**

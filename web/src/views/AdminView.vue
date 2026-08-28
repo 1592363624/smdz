@@ -15,7 +15,6 @@
       <button :class="['tab', tab === 'config' && 'active']" @click="tab = 'config'">⚙️ 系统配置</button>
       <button :class="['tab', tab === 'users' && 'active']" @click="tab = 'users'">👥 用户管理</button>
       <button :class="['tab', tab === 'gm' && 'active']" @click="tab = 'gm'">🔧 GM 工具</button>
-      <button :class="['tab', tab === 'feedback' && 'active']" @click="tab = 'feedback'">📋 反馈管理</button>
     </nav>
 
     <main class="admin-content">
@@ -31,11 +30,6 @@
             <div class="stat-number">{{ dashboardStats.totalUsers || '-' }}</div>
             <div class="stat-label">总用户数</div>
             <div class="stat-sub">注册用户总量</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">{{ dashboardStats.onlinePlayers || '-' }}</div>
-            <div class="stat-label">在线玩家</div>
-            <div class="stat-sub">当前在线</div>
           </div>
           <div class="stat-card">
             <div class="stat-number">{{ dashboardStats.totalPlayers || '-' }}</div>
@@ -71,7 +65,7 @@
       </section>
 
       <!-- ===== 系统配置 ===== -->
-      <section v-if="tab === 'config'" class="panel">
+      <section v-if="tab === 'config'" class="panel panel-wide">
         <div class="panel-head">
           <h2>系统配置中心</h2>
           <p class="hint">修改后立即生效，无需重启服务。可按分组管理指令、游戏等各类配置。</p>
@@ -80,22 +74,24 @@
         <div class="config-groups">
           <div v-for="grp in configGroups" :key="grp.name" class="config-group">
             <h3>{{ grp.label }}</h3>
-            <div v-for="cfg in grp.items" :key="cfg.key" class="config-item">
-              <div class="config-info">
-                <span class="config-label">{{ cfg.label }}</span>
-                <span class="config-desc">{{ cfg.description }}</span>
-              </div>
-              <div class="config-editor">
-                <!-- 布尔类型 -->
-                <select v-if="cfg.type === 'boolean'" :value="cfg.value === 'true'" @change="saveConfig(cfg, $event.target.value === 'true')">
-                  <option :value="true">是</option>
-                  <option :value="false">否</option>
-                </select>
-                <!-- 字符串数组 -->
-                <input v-else-if="cfg.type === 'string-array'" :value="arrayValue(cfg.value)" @change="saveConfig(cfg, stringToArray($event.target.value))" placeholder="逗号分隔多个值" />
-                <!-- 数字 / 文本 -->
-                <input v-else :value="cfg.value" @change="saveConfig(cfg, cfg.type === 'number' ? Number($event.target.value) : $event.target.value)" />
-                <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
+            <div class="config-grid">
+              <div v-for="cfg in grp.items" :key="cfg.key" class="config-item">
+                <div class="config-info">
+                  <span class="config-label">{{ cfg.label }}</span>
+                  <span class="config-desc">{{ cfg.description }}</span>
+                </div>
+                <div class="config-editor">
+                  <!-- 布尔类型 -->
+                  <select v-if="cfg.type === 'boolean'" :value="cfg.value === 'true'" @change="saveConfig(cfg, $event.target.value === 'true')">
+                    <option :value="true">是</option>
+                    <option :value="false">否</option>
+                  </select>
+                  <!-- 字符串数组 -->
+                  <input v-else-if="cfg.type === 'string-array'" :value="arrayValue(cfg.value)" @change="saveConfig(cfg, stringToArray($event.target.value))" placeholder="逗号分隔多个值" />
+                  <!-- 数字 / 文本 -->
+                  <input v-else :value="cfg.value" @change="saveConfig(cfg, cfg.type === 'number' ? Number($event.target.value) : $event.target.value)" />
+                  <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
+                </div>
               </div>
             </div>
           </div>
@@ -103,80 +99,149 @@
       </section>
 
       <!-- ===== 用户管理 ===== -->
-      <section v-if="tab === 'users'" class="panel">
+      <section v-if="tab === 'users'" class="panel panel-wide">
         <div class="panel-head">
           <h2>用户管理</h2>
-          <div class="search">
+          <p class="hint">管理平台注册用户：支持关键词搜索、每页条数切换与表头点击排序。</p>
+        </div>
+
+        <div class="user-toolbar">
+          <div class="user-search">
             <input v-model="keyword" placeholder="搜索用户名/昵称/QQ" @keyup.enter="loadUsers(1)" />
-            <button @click="loadUsers(1)">搜索</button>
+            <button class="btn-primary" @click="loadUsers(1)">🔍 搜索</button>
+            <button v-if="keyword" class="btn-ghost" @click="keyword = ''; loadUsers(1)">重置</button>
+          </div>
+          <div class="user-meta">
+            <label class="page-size-label">
+              每页
+              <select v-model="pageSize" class="page-size-select" @change="loadUsers(1)">
+                <option v-for="s in pageSizeOptions" :key="s" :value="s">{{ s }}</option>
+              </select>
+              条
+            </label>
+            <span class="total-count">共 {{ total }} 人</span>
           </div>
         </div>
 
-        <table class="user-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>用户名</th>
-              <th>昵称</th>
-              <th>角色 / 状态</th>
-              <th>玩家信息</th>
-              <th>在线</th>
-              <th>在线时长</th>
-              <th>最后活跃 / 最后登录</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="u in users" :key="u.id">
-              <td>{{ u.id }}</td>
-              <td>
-                <div>{{ u.username }}</div>
-                <div v-if="u.qqNumber" class="qq-ext">QQ: {{ u.qqNumber }}</div>
-              </td>
-              <td>
-                <input class="inline-input" :value="u.nickname" @change="updateUser(u, { nickname: $event.target.value })" />
-              </td>
-              <td>
-                <select class="role-select" :value="u.role" @change="updateUser(u, { role: $event.target.value })">
-                  <option value="USER">USER</option>
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="SUPER_ADMIN">SUPER_ADMIN</option>
-                </select>
-                <select class="status-select" :value="u.status" @change="updateUser(u, { status: $event.target.value })">
-                  <option value="ACTIVE">正常</option>
-                  <option value="BANNED">封禁</option>
-                </select>
-              </td>
-              <td>
-                <template v-if="u.player">
-                  <span class="player-tag lv">{{ u.player.level }}级</span>
-                  <span v-if="u.player.name" class="player-tag">{{ u.player.name }}</span>
-                  <span v-if="u.player.location" class="player-tag loc">{{ u.player.location }}</span>
-                </template>
-                <span v-else class="muted">未创建角色</span>
-              </td>
-              <td>
-                <span :class="['online-dot', u.online ? 'on' : 'off']"></span>
-                {{ u.online ? '在线' : '离线' }}
-              </td>
-              <td>{{ formatDuration(u.playTimeSeconds) }}</td>
-              <td class="time-cell">
-                <div>{{ formatTime(u.lastActiveAt) || '从未' }}</div>
-                <div class="time-sub">登录: {{ formatTime(u.lastLoginAt) || '从未' }} ({{ u.loginCount ?? 0 }}次)</div>
-              </td>
-              <td>
-                <span v-if="savedUser === u.id" class="saved-badge">✓</span>
-                <button class="detail-btn" title="查看/编辑用户详细数据" @click="openUserDetail(u)">详情</button>
-                <button
-                  class="reset-btn"
-                  title="清空该玩家的游戏进度(保留账号，可重新选使魔开局)"
-                  @click="resetUserData(u)"
-                >清空数据</button>
-                <button class="delete-btn" title="删除用户(级联删除其角色数据)" @click="deleteUser(u)" :disabled="u.id === user?.id">删除</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table class="user-table">
+            <thead>
+              <tr>
+                <th class="sortable" :class="sortClass('id')" @click="handleSort('id')">
+                  <span>ID</span><i class="sort-icon"></i>
+                </th>
+                <th class="sortable" :class="sortClass('username')" @click="handleSort('username')">
+                  <span>用户名</span><i class="sort-icon"></i>
+                </th>
+                <th class="sortable" :class="sortClass('nickname')" @click="handleSort('nickname')">
+                  <span>昵称</span><i class="sort-icon"></i>
+                </th>
+                <th class="sortable" :class="sortClass('role')" @click="handleSort('role')">
+                  <span>角色</span><i class="sort-icon"></i>
+                </th>
+                <th class="sortable" :class="sortClass('status')" @click="handleSort('status')">
+                  <span>状态</span><i class="sort-icon"></i>
+                </th>
+                <th>
+                  <span>玩家信息</span>
+                </th>
+                <th>
+                  <span>在线</span>
+                </th>
+                <th class="sortable" :class="sortClass('level')" @click="handleSort('level')">
+                  <span>等级</span><i class="sort-icon"></i>
+                </th>
+                <th class="sortable" :class="sortClass('location')" @click="handleSort('location')">
+                  <span>位置</span><i class="sort-icon"></i>
+                </th>
+                <th class="sortable" :class="sortClass('lastActiveAt')" @click="handleSort('lastActiveAt')">
+                  <span>最后活跃</span><i class="sort-icon"></i>
+                </th>
+                <th class="sortable" :class="sortClass('lastLoginAt')" @click="handleSort('lastLoginAt')">
+                  <span>最后登录</span><i class="sort-icon"></i>
+                </th>
+                <th class="sortable" :class="sortClass('loginCount')" @click="handleSort('loginCount')">
+                  <span>登录次数</span><i class="sort-icon"></i>
+                </th>
+                <th>
+                  <span>操作</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="u in users" :key="u.id">
+                <td class="mono-cell">{{ u.id }}</td>
+                <td>
+                  <div class="user-name">{{ u.username }}</div>
+                  <div v-if="u.qqNumber" class="qq-ext">QQ: {{ u.qqNumber }}</div>
+                </td>
+                <td>
+                  <input class="inline-input" :value="u.nickname" @change="updateUser(u, { nickname: $event.target.value })" />
+                </td>
+                <td>
+                  <select class="role-select" :value="u.role" @change="updateUser(u, { role: $event.target.value })">
+                    <option value="USER">USER</option>
+                    <option value="ADMIN">ADMIN</option>
+                    <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                  </select>
+                </td>
+                <td>
+                  <select class="status-select" :value="u.status" @change="updateUser(u, { status: $event.target.value })">
+                    <option value="ACTIVE">正常</option>
+                    <option value="BANNED">封禁</option>
+                  </select>
+                </td>
+                <td>
+                  <template v-if="u.player">
+                    <span v-if="u.player.name" class="player-tag">{{ u.player.name }}</span>
+                    <span v-else class="muted">冒险者</span>
+                  </template>
+                  <span v-else class="muted">未创建角色</span>
+                </td>
+                <td>
+                  <span :class="['online-dot', u.online ? 'on' : 'off']"></span>
+                  {{ u.online ? '在线' : '离线' }}
+                </td>
+                <td>
+                  <span v-if="u.player" class="player-tag lv">{{ u.player.level }}级</span>
+                  <span v-else class="muted">-</span>
+                </td>
+                <td>
+                  <span v-if="u.player?.location" class="player-tag loc">{{ u.player.location }}</span>
+                  <span v-else class="muted">-</span>
+                </td>
+                <td class="time-cell">{{ formatTime(u.lastActiveAt) || '从未' }}</td>
+                <td class="time-cell">
+                  <div>{{ formatTime(u.lastLoginAt) || '从未' }}</div>
+                  <div class="time-sub">{{ u.loginCount ?? 0 }} 次</div>
+                </td>
+                <td>{{ u.loginCount ?? 0 }}</td>
+                <td>
+                  <div class="action-group">
+                    <span v-if="savedUser === u.id" class="saved-badge">✓</span>
+                    <button class="action-btn info" title="查看/编辑用户详细数据" @click="openUserDetail(u)">详情</button>
+                    <button
+                      class="action-btn warning"
+                      title="清空该玩家的游戏进度(保留账号，可重新选使魔开局)"
+                      @click="resetUserData(u)"
+                    >清空</button>
+                    <button class="action-btn danger" title="删除用户(级联删除其角色数据)" @click="deleteUser(u)" :disabled="u.id === user?.id">删除</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination user-pagination">
+          <div class="pagination-info">
+            第 <strong>{{ page }}</strong> 页 / 共 <strong>{{ Math.ceil(total / pageSize) || 1 }}</strong> 页
+          </div>
+          <div class="pagination-actions">
+            <button :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
+            <button :disabled="page >= Math.ceil(total / pageSize)" @click="loadUsers(page + 1)">下一页</button>
+          </div>
+        </div>
 
         <!-- 用户详情 / 编辑弹窗 -->
         <div v-if="detailUser" class="modal-mask" @click.self="closeUserDetail">
@@ -229,11 +294,6 @@
           </div>
         </div>
 
-        <div class="pagination">
-          <button :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
-          <span>第 {{ page }} 页 / 共 {{ Math.ceil(total / pageSize) }} 页 (共 {{ total }} 人)</span>
-          <button :disabled="page >= Math.ceil(total / pageSize)" @click="loadUsers(page + 1)">下一页</button>
-        </div>
       </section>
 
       <!-- ===== GM 工具 ===== -->
@@ -323,144 +383,6 @@
         </div>
       </section>
 
-      <!-- ===== 反馈管理 ===== -->
-      <section v-if="tab === 'feedback'" class="panel">
-        <div class="panel-head">
-          <h2>反馈管理</h2>
-          <p class="hint">查看玩家反馈工单，回复消息并管理处理状态。</p>
-        </div>
-
-        <!-- 状态过滤 -->
-        <div class="fb-filters">
-          <button
-            v-for="s in feedbackStatusFilters"
-            :key="s.value"
-            :class="['fb-filter-btn', { active: feedbackStatus === s.value }]"
-            @click="setFeedbackStatus(s.value)"
-          >
-            {{ s.label }}
-          </button>
-        </div>
-
-        <!-- 工单列表 -->
-        <div v-if="feedbackLoading" class="fb-empty">加载中...</div>
-        <div v-else-if="feedbackList.length" class="fb-list">
-          <div
-            v-for="f in feedbackList"
-            :key="f.id"
-            :class="['fb-card', { active: currentFeedback?.id === f.id }]"
-            @click="openFeedbackDetail(f)"
-          >
-            <div class="fb-card-main">
-              <span class="fb-ticket-no">#{{ f.id }}</span>
-              <span class="fb-title">{{ f.title }}</span>
-              <span :class="['fb-status', 'st-' + String(f.status).toLowerCase()]">{{ statusLabel(f.status) }}</span>
-            </div>
-            <div class="fb-card-sub">
-              <span class="fb-cat">{{ categoryLabel(f.category) }}</span>
-              <span class="fb-user">👤 {{ f.user?.nickname || f.user?.username || '用户' }}</span>
-              <span class="fb-time">🕐 {{ formatTime(f.updatedAt) }}</span>
-            </div>
-            <div class="fb-preview">
-              <span v-if="f.messages?.length" class="fb-preview-text">
-                {{ (f.messages[0].senderType === 'admin' ? '[管理员] ' : '[用户] ') + (f.messages[0].content || '') }}
-              </span>
-              <span v-else class="fb-preview-text fb-preview-empty">暂无消息</span>
-            </div>
-          </div>
-        </div>
-        <div v-else class="fb-empty">暂无反馈工单</div>
-
-        <!-- 分页 -->
-        <div class="pagination fb-pagination">
-          <button :disabled="feedbackPage <= 1" @click="loadFeedbackList(feedbackPage - 1)">上一页</button>
-          <span>第 {{ feedbackPage }} 页 / 共 {{ Math.ceil(feedbackTotal / feedbackPageSize) }} 页 (共 {{ feedbackTotal }} 条)</span>
-          <button :disabled="feedbackPage >= Math.ceil(feedbackTotal / feedbackPageSize)" @click="loadFeedbackList(feedbackPage + 1)">下一页</button>
-        </div>
-
-        <!-- 工单详情面板 -->
-        <div v-if="currentFeedback" class="fb-detail">
-          <div class="fb-detail-head">
-            <div>
-              <h3>#{{ currentFeedback.id }} {{ currentFeedback.title }}</h3>
-              <div class="fb-detail-meta">
-                <span :class="['fb-status', 'st-' + String(currentFeedback.status).toLowerCase()]">{{ statusLabel(currentFeedback.status) }}</span>
-                <span class="fb-cat">{{ categoryLabel(currentFeedback.category) }}</span>
-                <span class="fb-user">👤 {{ currentFeedback.user?.nickname || currentFeedback.user?.username || '用户' }}</span>
-                <span class="fb-time">创建于 {{ formatTime(currentFeedback.createdAt) }}</span>
-              </div>
-            </div>
-            <button class="btn-ghost" @click="closeFeedbackDetail">✕ 关闭</button>
-          </div>
-
-          <!-- 状态变更 -->
-          <div class="fb-status-bar">
-            <label for="fb-status-select">处理状态：</label>
-            <select id="fb-status-select" :value="currentFeedback.status" @change="changeFeedbackStatus($event.target.value)">
-              <option v-for="s in feedbackStatusOptions" :key="s" :value="s">{{ statusLabel(s) }}</option>
-            </select>
-          </div>
-
-          <!-- 完整消息列表 -->
-          <div class="fb-messages">
-            <div v-for="m in currentFeedback.messages" :key="m.id" :class="['fb-msg', m.senderType === 'admin' ? 'from-admin' : 'from-user']">
-              <div class="fb-msg-head">
-                <span class="fb-msg-sender">{{ m.sender?.nickname || m.sender?.username || (m.senderType === 'admin' ? '管理员' : '用户') }}</span>
-                <span class="fb-msg-time">{{ formatTime(m.createdAt) }}</span>
-              </div>
-              <div class="fb-msg-content">{{ m.content }}</div>
-              <!-- 附件展示：图片显示缩略图，其它文件显示为下载链接 -->
-              <div v-if="attachmentList(m).length" class="fb-msg-attachments">
-                <a
-                  v-for="(u, i) in attachmentList(m)"
-                  :key="i"
-                  class="fb-attach"
-                  :href="resolveUploadUrl(u)"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  <img v-if="isImage(u)" :src="resolveUploadUrl(u)" class="fb-attach-img" :alt="'附件 ' + (i + 1)" />
-                  <span v-else class="fb-attach-file">📄 {{ fileName(u) }}</span>
-                </a>
-              </div>
-            </div>
-          </div>
-
-          <!-- 管理员回复区 -->
-          <div class="fb-reply">
-            <textarea
-              v-model="feedbackReplyText"
-              placeholder="输入回复内容...（可 Ctrl+V 粘贴剪贴板截图）"
-              maxlength="2000"
-              @paste="handleReplyPasteImage"
-            ></textarea>
-            <div class="fb-reply-tools">
-              <!-- 已上传的附件预览 -->
-              <div v-if="feedbackReplyAttachments.length" class="fb-reply-attachments">
-                <div v-for="(u, i) in feedbackReplyAttachments" :key="i" class="fb-reply-attach">
-                  <img v-if="isImage(u)" :src="resolveUploadUrl(u)" class="fb-attach-img" alt="附件预览" />
-                  <span v-else class="fb-attach-file">📄 {{ fileName(u) }}</span>
-                  <button class="fb-remove" type="button" title="移除附件" @click="feedbackReplyAttachments.splice(i, 1)">✕</button>
-                </div>
-              </div>
-              <div class="fb-reply-actions">
-                <!-- 附件上传：隐藏的文件选择器，经 feedbackApi.upload() 上传后取回 URL -->
-                <input
-                  ref="fbFileInput"
-                  type="file"
-                  multiple
-                  accept="image/*,.pdf,.zip,.doc,.docx,.txt"
-                  style="display: none"
-                  @change="onReplyFilesSelected"
-                />
-                <button class="btn-ghost" @click="pickReplyFiles" :disabled="feedbackReplying">📎 上传附件</button>
-                <button class="gm-btn" @click="sendFeedbackReply" :disabled="feedbackReplying || !feedbackReplyText.trim()">发送回复</button>
-              </div>
-            </div>
-            <p v-if="feedbackReplyMsg" class="fb-reply-msg" :class="{ error: feedbackReplyError }">{{ feedbackReplyMsg }}</p>
-          </div>
-        </div>
-      </section>
     </main>
   </div>
 </template>
@@ -472,11 +394,10 @@
  * - 系统配置：在线修改指令前缀、游戏数值等配置项
  * - 用户管理：查看/修改用户角色、封禁状态、昵称
  * - GM 工具：发放物品、设置世界等级、发送全服公告
- * - 反馈管理：查看/回复玩家反馈工单、变更处理状态、上传附件
  */
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { adminApi, feedbackApi } from '../api';
+import { adminApi } from '../api';
 import { API_BASE } from '../config';
 import AnnRichText from '../components/AnnRichText';
 
@@ -557,15 +478,70 @@ async function saveConfig(cfg, value) {
 const users = ref([]);
 const keyword = ref('');
 const page = ref(1);
-const pageSize = 10;
+const pageSize = ref(50);
+const pageSizeOptions = [20, 50, 100];
 const total = ref(0);
 const savedUser = ref(0);
 
+// 排序状态：sortField 为空表示默认按 ID 升序
+const sortField = ref('');
+const sortOrder = ref('asc');
+
+// 可点击排序的列定义
+const sortableColumns = [
+  { field: 'id', label: 'ID' },
+  { field: 'username', label: '用户名' },
+  { field: 'nickname', label: '昵称' },
+  { field: 'role', label: '角色' },
+  { field: 'status', label: '状态' },
+  { field: 'level', label: '等级' },
+  { field: 'playerName', label: '角色名' },
+  { field: 'location', label: '位置' },
+  { field: 'lastActiveAt', label: '最后活跃' },
+  { field: 'lastLoginAt', label: '最后登录' },
+  { field: 'loginCount', label: '登录次数' },
+];
+
 async function loadUsers(p) {
   page.value = p;
-  const res = await adminApi.listUsers({ page: p, pageSize, keyword: keyword.value });
+  const params = {
+    page: p,
+    pageSize: pageSize.value,
+    keyword: keyword.value,
+  };
+  // 仅在指定排序字段时传递，避免后端处理空字符串
+  if (sortField.value) {
+    params.sortField = sortField.value;
+    params.sortOrder = sortOrder.value;
+  }
+  const res = await adminApi.listUsers(params);
   users.value = res.data.list;
   total.value = res.data.total;
+}
+
+/** 处理表头点击排序：升序 → 降序 → 取消 → 升序 */
+function handleSort(field) {
+  if (sortField.value === field) {
+    if (sortOrder.value === 'asc') {
+      sortOrder.value = 'desc';
+    } else {
+      sortField.value = '';
+      sortOrder.value = 'asc';
+    }
+  } else {
+    sortField.value = field;
+    sortOrder.value = 'asc';
+  }
+  loadUsers(1);
+}
+
+/** 返回排序列的动态 class（用于显示高亮与方向图标） */
+function sortClass(field) {
+  return {
+    active: sortField.value === field,
+    asc: sortField.value === field && sortOrder.value === 'asc',
+    desc: sortField.value === field && sortOrder.value === 'desc',
+  };
 }
 
 async function updateUser(u, changes) {
@@ -887,91 +863,6 @@ async function doSendAnnouncement() {
   }
 }
 
-// ---- 反馈管理 ----
-// 状态过滤按钮（数据驱动：value 为空串表示"全部"）
-const feedbackStatusFilters = [
-  { label: '全部', value: '' },
-  { label: 'OPEN', value: 'OPEN' },
-  { label: 'PROCESSING', value: 'PROCESSING' },
-  { label: 'CLOSED', value: 'CLOSED' },
-];
-// 状态变更下拉的可选项
-const feedbackStatusOptions = ['OPEN', 'PROCESSING', 'CLOSED'];
-// 反馈分类的中文展示映射
-const feedbackCategoryLabels = { general: '一般', bug: 'Bug 反馈', suggestion: '建议', other: '其他' };
-
-const feedbackList = ref([]);
-const feedbackTotal = ref(0);
-const feedbackPage = ref(1);
-const feedbackPageSize = 20; // 分页大小（与后端默认值一致）
-const feedbackStatus = ref('');
-const feedbackLoading = ref(false);
-
-// 当前查看详情的工单（含完整消息列表）
-const currentFeedback = ref(null);
-
-// 回复输入与附件（上传后得到的 URL 列表）
-const feedbackReplyText = ref('');
-const feedbackReplyAttachments = ref([]);
-const feedbackReplying = ref(false);
-const feedbackReplyMsg = ref('');
-const feedbackReplyError = ref(false);
-const fbFileInput = ref(null);
-
-/** 状态英文 → 中文展示文案 */
-function statusLabel(s) {
-  return { OPEN: '待处理', PROCESSING: '处理中', CLOSED: '已关闭' }[s] || s || '-';
-}
-
-/** 分类英文 → 中文展示文案 */
-function categoryLabel(c) {
-  return feedbackCategoryLabels[c] || c || '一般';
-}
-
-/**
- * 解析消息附件
- * 后端把附件数组以 JSON 字符串存储（attachments 字段），这里安全解析为数组。
- * @param {object} m 消息对象
- * @returns {string[]} 附件 URL 列表
- */
-function attachmentList(m) {
-  if (Array.isArray(m.attachments)) return m.attachments;
-  try {
-    const arr = JSON.parse(m.attachments || '[]');
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-
-/** 判断附件是否为图片（用于缩略图预览与下载链接分流） */
-function isImage(url) {
-  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test((url || '').split('?')[0]);
-}
-
-/** 从附件 URL 提取文件名（用于非图片附件展示） */
-function fileName(url) {
-  const parts = (url || '').split('/');
-  const name = parts[parts.length - 1] || '附件';
-  try {
-    return decodeURIComponent(name);
-  } catch {
-    return name;
-  }
-}
-
-/**
- * 拼接待访问的附件地址
- * 生产环境前端与后端同源，相对路径(/uploads/...)直接可用；
- * 开发环境(Vite)未代理 /uploads，需补上后端源地址(与 config.js 中 WS_URL 的约定一致)。
- */
-function resolveUploadUrl(url) {
-  if (import.meta.env.DEV && url && url.startsWith('/')) {
-    return 'http://localhost:3333' + url;
-  }
-  return url;
-}
-
 /** 时间格式化：YYYY-MM-DD HH:mm */
 function formatTime(t) {
   if (!t) return '';
@@ -980,139 +871,6 @@ function formatTime(t) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-
-/** 加载反馈工单列表（带分页与状态过滤） */
-async function loadFeedbackList(p) {
-  feedbackLoading.value = true;
-  try {
-    const res = await feedbackApi.adminList({
-      page: p,
-      pageSize: feedbackPageSize,
-      status: feedbackStatus.value || undefined,
-    });
-    feedbackPage.value = p;
-    feedbackList.value = res.data.list;
-    feedbackTotal.value = res.data.total;
-  } catch (e) {
-    alert('加载反馈列表失败：' + (e.response?.data?.message || e.message));
-  } finally {
-    feedbackLoading.value = false;
-  }
-}
-
-/** 点击状态过滤按钮：切换过滤条件并回到第一页 */
-function setFeedbackStatus(s) {
-  feedbackStatus.value = s;
-  loadFeedbackList(1);
-}
-
-/** 打开工单详情：先用列表项占位展示，再拉取完整消息列表 */
-async function openFeedbackDetail(f) {
-  currentFeedback.value = f;
-  try {
-    const res = await feedbackApi.detail(f.id);
-    currentFeedback.value = res.data;
-  } catch (e) {
-    alert('加载反馈详情失败：' + (e.response?.data?.message || e.message));
-  }
-}
-
-/** 关闭详情面板 */
-function closeFeedbackDetail() {
-  currentFeedback.value = null;
-}
-
-/** 管理员变更工单状态：更新详情与列表中的对应项 */
-async function changeFeedbackStatus(s) {
-  const fb = currentFeedback.value;
-  if (!fb || !s || s === fb.status) return;
-  try {
-    const res = await feedbackApi.adminUpdateStatus(fb.id, s);
-    fb.status = res.data.status;
-    const item = feedbackList.value.find((x) => x.id === fb.id);
-    if (item) item.status = res.data.status;
-  } catch (e) {
-    alert('更新状态失败：' + (e.response?.data?.message || e.message));
-  }
-}
-
-/** 触发隐藏的文件选择器 */
-function pickReplyFiles() {
-  fbFileInput.value?.click();
-}
-
-/**
- * 处理从剪贴板粘贴的图片，自动上传并加入回复附件列表
- * 管理员在回复框中直接 Ctrl+V 粘贴截图，无需手动选择文件
- * @param {ClipboardEvent} e 粘贴事件
- */
-async function handleReplyPasteImage(e) {
-  if (!e.clipboardData) return;
-  const items = Array.from(e.clipboardData.items || []);
-  const files = items
-    .filter((it) => it.kind === 'file' && it.type && it.type.startsWith('image/'))
-    .map((it) => it.getAsFile())
-    .filter(Boolean);
-  if (!files.length) return;
-  e.preventDefault();
-  try {
-    const res = await feedbackApi.upload(files);
-    feedbackReplyAttachments.value.push(...(res.data || []));
-  } catch (err) {
-    alert('粘贴图片上传失败：' + (err.response?.data?.message || err.message));
-  }
-}
-
-/** 选择文件后上传附件，取回可访问 URL 加入待发送列表 */
-async function onReplyFilesSelected(e) {
-  const files = Array.from(e.target.files || []);
-  // 清空 input 值，允许重复选择同一文件
-  e.target.value = '';
-  if (!files.length) return;
-  try {
-    const res = await feedbackApi.upload(files);
-    const urls = res.data || [];
-    feedbackReplyAttachments.value.push(...urls);
-  } catch (err) {
-    alert('上传附件失败：' + (err.response?.data?.message || err.message));
-  }
-}
-
-/** 发送管理员回复：追加消息并同步更新列表中的最后消息预览 */
-async function sendFeedbackReply() {
-  const fb = currentFeedback.value;
-  const content = feedbackReplyText.value.trim();
-  if (!fb || !content) return;
-  feedbackReplying.value = true;
-  feedbackReplyError.value = false;
-  try {
-    const res = await feedbackApi.reply(fb.id, {
-      content,
-      attachments: feedbackReplyAttachments.value,
-    });
-    fb.messages.push(res.data);
-    // 同步刷新列表项的"最后一条消息"预览与更新时间
-    const item = feedbackList.value.find((x) => x.id === fb.id);
-    if (item) {
-      item.messages = [res.data];
-      item.updatedAt = new Date().toISOString();
-    }
-    feedbackReplyText.value = '';
-    feedbackReplyAttachments.value = [];
-    feedbackReplyMsg.value = '回复已发送';
-    setTimeout(() => (feedbackReplyMsg.value = ''), 2000);
-  } catch (e) {
-    feedbackReplyError.value = true;
-    feedbackReplyMsg.value = '发送失败：' + (e.response?.data?.message || e.message);
-  } finally {
-    feedbackReplying.value = false;
-  }
-}
-
-// 切换到"反馈管理"标签时自动加载数据
-watch(tab, (v) => {
-  if (v === 'feedback') loadFeedbackList(1);
-});
 
 // ---- 通用 ----
 function goChat() { router.push('/chat'); }
@@ -1332,383 +1090,6 @@ onMounted(async () => {
   color: #f87171;
 }
 
-/* 管理后台基础样式已移至全局 styles.css，以下为"反馈管理"标签页专用样式 */
-
-/* ===== 状态过滤按钮 ===== */
-.fb-filters {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-.fb-filter-btn {
-  padding: 7px 16px;
-  background: rgba(10, 10, 26, 0.6);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 13px;
-  transition: all 0.2s ease;
-}
-.fb-filter-btn:hover {
-  color: var(--text);
-  border-color: var(--accent);
-}
-.fb-filter-btn.active {
-  color: #fff;
-  background: var(--accent-gradient);
-  border-color: transparent;
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.3);
-}
-
-/* ===== 工单列表卡片 ===== */
-.fb-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.fb-card {
-  background: var(--glass-bg);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  cursor: pointer;
-  transition: all 0.25s ease;
-  animation: fadeInUp 0.25s ease-out;
-}
-.fb-card:hover {
-  border-color: rgba(139, 92, 246, 0.4);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), var(--shadow-glow);
-  transform: translateY(-1px);
-}
-.fb-card.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent), var(--shadow-glow);
-}
-.fb-card-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-.fb-ticket-no {
-  color: var(--accent2);
-  font-weight: 700;
-  font-size: 13px;
-  flex-shrink: 0;
-}
-.fb-title {
-  flex: 1;
-  min-width: 0;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fb-card-sub {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 4px;
-  flex-wrap: wrap;
-}
-.fb-preview {
-  font-size: 12px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fb-preview-empty {
-  color: var(--muted-dark);
-  font-style: italic;
-}
-
-/* ===== 状态标签（OPEN 红 / PROCESSING 黄 / CLOSED 绿） ===== */
-.fb-status {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.fb-status.st-open {
-  color: #f87171;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-}
-.fb-status.st-processing {
-  color: #facc15;
-  background: rgba(234, 179, 8, 0.15);
-  border: 1px solid rgba(234, 179, 8, 0.4);
-}
-.fb-status.st-closed {
-  color: #4ade80;
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.4);
-}
-.fb-cat {
-  color: var(--accent);
-  font-size: 12px;
-}
-
-/* ===== 空态与分页 ===== */
-.fb-empty {
-  text-align: center;
-  color: var(--muted-dark);
-  padding: 40px 0;
-  font-size: 13px;
-}
-.fb-pagination {
-  margin-top: 16px;
-}
-
-/* ===== 详情面板（下方滑出） ===== */
-.fb-detail {
-  margin-top: 20px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid var(--glass-border);
-  border-radius: 14px;
-  padding: 18px;
-  animation: fadeInUp 0.3s ease-out;
-  box-shadow: var(--glass-shadow);
-}
-.fb-detail-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.fb-detail-head h3 {
-  font-size: 16px;
-  color: var(--text);
-  margin-bottom: 6px;
-}
-.fb-detail-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--muted);
-  flex-wrap: wrap;
-}
-
-/* 状态变更栏 */
-.fb-status-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 0;
-  border-top: 1px solid var(--glass-border);
-  border-bottom: 1px solid var(--glass-border);
-  margin-bottom: 14px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.fb-status-bar select {
-  padding: 6px 10px;
-  background: rgba(10, 10, 26, 0.6);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-  transition: all 0.2s ease;
-}
-.fb-status-bar select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
-}
-
-/* ===== 消息列表（气泡） ===== */
-.fb-messages {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 420px;
-  overflow-y: auto;
-  padding: 4px;
-  margin-bottom: 14px;
-}
-.fb-msg {
-  max-width: 88%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 13px;
-  line-height: 1.6;
-  animation: fadeInUp 0.25s ease-out;
-}
-.fb-msg.from-user {
-  align-self: flex-start;
-  background: rgba(6, 182, 212, 0.08);
-  border: 1px solid rgba(6, 182, 212, 0.25);
-  border-top-left-radius: 4px;
-}
-.fb-msg.from-admin {
-  align-self: flex-end;
-  background: rgba(139, 92, 246, 0.12);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  border-top-right-radius: 4px;
-}
-.fb-msg-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 4px;
-  font-size: 12px;
-}
-.fb-msg-sender {
-  font-weight: 600;
-  color: var(--accent);
-}
-.fb-msg.from-admin .fb-msg-sender {
-  color: #c084fc;
-}
-.fb-msg-time {
-  color: var(--muted-dark);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.fb-msg-content {
-  color: var(--text);
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-
-/* ===== 附件（图片缩略图 / 文件） ===== */
-.fb-msg-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-.fb-attach {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  text-decoration: none;
-  border-radius: 8px;
-  padding: 4px;
-  border: 1px solid var(--glass-border);
-  background: rgba(10, 10, 26, 0.5);
-  transition: all 0.2s ease;
-  max-width: 140px;
-}
-.fb-attach:hover {
-  border-color: var(--accent);
-  box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
-}
-.fb-attach-img {
-  width: 120px;
-  height: 90px;
-  object-fit: cover;
-  border-radius: 6px;
-  display: block;
-  background: var(--bg2);
-}
-.fb-attach-file {
-  font-size: 11px;
-  color: var(--accent2);
-  max-width: 130px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ===== 回复区 ===== */
-.fb-reply {
-  border-top: 1px solid var(--glass-border);
-  padding-top: 14px;
-}
-.fb-reply textarea {
-  width: 100%;
-  min-height: 80px;
-  padding: 10px 12px;
-  background: rgba(10, 10, 26, 0.6);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--text);
-  font-size: 13px;
-  resize: vertical;
-  outline: none;
-  transition: all 0.2s ease;
-}
-.fb-reply textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
-}
-.fb-reply-tools {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.fb-reply-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.fb-reply-attach {
-  position: relative;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  padding: 4px;
-  background: rgba(10, 10, 26, 0.5);
-}
-.fb-remove {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 18px;
-  height: 18px;
-  line-height: 16px;
-  border-radius: 50%;
-  border: none;
-  background: var(--danger);
-  color: #fff;
-  font-size: 11px;
-  cursor: pointer;
-  opacity: 0.9;
-  transition: all 0.15s ease;
-}
-.fb-remove:hover {
-  opacity: 1;
-  transform: scale(1.1);
-}
-.fb-reply-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.fb-reply-msg {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #4ade80;
-  animation: fadeIn 0.3s ease;
-}
-.fb-reply-msg.error {
-  color: #f87171;
-}
-
 /* ===== 公告编辑器：工具栏与实时预览 ===== */
 .ann-editor-toolbar {
   display: flex;
@@ -1763,24 +1144,5 @@ onMounted(async () => {
 
 /* ===== 移动端适配 ===== */
 @media (max-width: 768px) {
-  .fb-filters {
-    gap: 6px;
-  }
-  .fb-filter-btn {
-    padding: 6px 12px;
-    font-size: 12px;
-  }
-  .fb-card {
-    padding: 12px;
-  }
-  .fb-msg {
-    max-width: 95%;
-  }
-  .fb-detail {
-    padding: 14px;
-  }
-  .fb-detail-head {
-    flex-direction: column;
-  }
 }
 </style>

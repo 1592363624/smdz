@@ -84,12 +84,6 @@ export const feedbackApi = {
   detail: (id) => http.get(`/feedback/${id}`),
   // 回复反馈工单
   reply: (id, data) => http.post(`/feedback/${id}/messages`, data),
-  // 管理员：全部反馈列表
-  adminList: (params) => http.get('/feedback/admin/list', { params }),
-  // 管理员：更新状态
-  adminUpdateStatus: (id, status) => http.post(`/feedback/admin/${id}/status`, { status }),
-  // 管理员：待处理数量
-  adminPendingCount: () => http.get('/feedback/admin/pending-count'),
 };
 
 /// 指令接口
@@ -123,7 +117,7 @@ export const systemApi = {
 
 /// 管理员接口(需ADMIN权限)
 export const adminApi = {
-  // 用户管理
+  // 用户管理（支持分页、关键词搜索、排序字段/方向）
   listUsers: (params) => http.get('/admin/users', { params }),
   updateUser: (data) => http.post('/admin/users/update', data),
   deleteUser: (id) => http.post('/admin/users/delete', { id }),

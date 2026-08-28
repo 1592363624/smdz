@@ -8,6 +8,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  DefaultValuePipe,
   Get,
   Param,
   ParseIntPipe,
@@ -23,7 +24,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -58,12 +59,24 @@ export class AdminController {
 
   @Get('users')
   @ApiOperation({ summary: '分页查询用户列表' })
+  @ApiQuery({ name: 'page', required: false, description: '当前页码，默认 1', type: Number })
+  @ApiQuery({ name: 'pageSize', required: false, description: '每页条数（最大100），默认 20', type: Number })
+  @ApiQuery({ name: 'keyword', required: false, description: '搜索关键词（用户名/昵称/QQ）', type: String })
+  @ApiQuery({
+    name: 'sortField',
+    required: false,
+    description: '排序字段：id/username/nickname/role/status/createdAt/lastLoginAt/loginCount/level/playerName/location/affinity/lastActiveAt',
+    type: String,
+  })
+  @ApiQuery({ name: 'sortOrder', required: false, description: '排序方向：asc 或 desc，默认 asc', type: String })
   async listUsers(
-    @Query('page') page = 1,
-    @Query('pageSize') pageSize = 20,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
     @Query('keyword') keyword?: string,
+    @Query('sortField') sortField?: string,
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
   ) {
-    const data = await this.adminService.listUsers(Number(page), Number(pageSize), keyword);
+    const data = await this.adminService.listUsers(page, pageSize, keyword, sortField, sortOrder);
     return { success: true, data };
   }
 
