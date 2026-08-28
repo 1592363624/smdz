@@ -206,6 +206,12 @@ describe('显示倍率设置项（真实远程库端到端）', () => {
     const uid = await makePlayer(1);
     await setupDummyMonster(100000); // 高闪避 → 真实命中判定必然失败
 
+    // checkHit 含 5% 保底命中率(combat-system.service.ts L4629)，仅靠高闪避无法 100% 保证未命中，
+    // 故显式 mock 为必不命中，使「未命中分支」确定性触发；同时禁用花园猫闪避反击递归
+    // （怪物→玩家→怪物方向，见 handleGardenCatCounter），避免无限递归。
+    jest.spyOn(combat as any, 'checkHit').mockReturnValue(false);
+    jest.spyOn(combat as any, 'handleGardenCatCounter').mockResolvedValue('');
+
     const text = await attack(uid);
     expect(text).toMatch(MULT_PATTERN);
     // 未命中分支不产生伤害文本（原版 L1561/L1698 只追加特效与倍率），

@@ -2,7 +2,7 @@ import { GameService } from '../src/modules/game/game.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import {
   expireAfter, filterActive, findActive, formatRemain, hasActive, isActive,
-  isActiveBeyond, remainSeconds, toExpireMs,
+  isActiveBeyond, isDueSince, remainSeconds, toExpireMs,
 } from '../src/modules/game/expire-time.util';
 
 describe('过期时间统一工具（增益/标记）', () => {
@@ -121,5 +121,52 @@ describe('信息面板增益行（formatBuffList）', () => {
 
   it('永久增益显示名称但不带倒计时（不显示误导性的 0:00）', () => {
     expect(build([{ name: '力量模式' }])).toEqual(['力量模式']);
+  });
+});
+
+describe('触发时刻型标记判断（isDueSince，覆盖寒风/光棱/射爆等冷却）', () => {
+  const nowMs = Date.now();
+  const nowSec = Math.floor(nowMs / 1000);
+
+  it('触发时刻为空或远超间隔 → 可再次触发', () => {
+    expect(isDueSince(null, 180 * 1000, nowMs)).toBe(true);
+    expect(isDueSince(0, 180 * 1000, nowMs)).toBe(true);
+    expect(isDueSince(nowMs - 300 * 1000, 180 * 1000, nowMs)).toBe(true); // 300s 前触发，超出 180s 间隔
+  });
+
+  it('间隔内不可触发', () => {
+    expect(isDueSince(nowMs - 60 * 1000, 180 * 1000, nowMs)).toBe(false); // 60s 前触发，仍在 180s 冷却
+  });
+
+  it('存量秒级触发时刻也被正确归一化（兼容性）', () => {
+    // 原版秒级时间戳作为触发时刻：60s 前（秒级）仍在 180s 间隔内 → 不可触发
+    expect(isDueSince(nowSec - 60, 180 * 1000, nowMs)).toBe(false);
+    // 300s 前（秒级）超出 180s 间隔 → 可触发
+    expect(isDueSince(nowSec - 300, 180 * 1000, nowMs)).toBe(true);
+  });
+});
+
+describe('地图标记有效期归一化（toExpireMs，修复地图增益全部失效）', () => {
+  const nowMs = Date.now();
+  const nowSec = Math.floor(nowMs / 1000);
+
+  it('秒级有效期至被归一成毫秒，毫秒级保持不变', () => {
+    // 原版地图标记"有效期至"写秒级（加成计算.ecode L577-652 初始化）
+    const secBuff = toExpireMs({ name: '湖边祝福', 有效期至: nowSec + 60 });
+    expect(secBuff).toBe((nowSec + 60) * 1000); // 关键：修复前归一成秒会让 getMapBonus 判全部过期
+    const msBuff = toExpireMs({ name: '湖边祝福', 有效期至: nowMs + 60 * 1000 });
+    expect(msBuff).toBe(nowMs + 60 * 1000);
+  });
+
+  it('applyMapBuffs 风格数组：秒级标记归一化后不过期，未过期增益被 filterActive 保留', () => {
+    const mapBuffs = [
+      { name: '湖边祝福', 有效期至: nowSec + 60 }, // 秒级未过期
+      { name: '过期祝福', 有效期至: nowSec - 10 }, // 秒级已过期
+    ];
+    const normalized = mapBuffs.map((b) => ({ ...b, expireAt: toExpireMs(b) }));
+    const active = filterActive(normalized);
+    expect(active.length).toBe(1);
+    expect(active[0].name).toBe('湖边祝福');
+    expect(active[0].expireAt).toBe((nowSec + 60) * 1000); // 毫秒，getMapBonus 据此判定生效
   });
 });

@@ -1552,8 +1552,16 @@ export class GameService {
       return map[c] || '神迹';
     };
 
+    // 装备槽位取数：与 buildEquipmentSnapshot / 网页左面板同口径。
+    // 运行时 item.type 固定为「装备」大分类（见 item.service.equipItem），必须查静态表 equipType，
+    // 对齐原版 物品操作.ecode L1824 寻找装备（z=装备列表[b] 后取 z.类型）。
+    const getEquipType = (item: any): string => {
+      const def = this.staticData.getEquipmentByName(item.name);
+      return String(def?.equipType ?? def?.type ?? def?.类型 ?? item.type ?? item.类型 ?? '');
+    };
+
     for (const slotName of slotNames) {
-      const eqIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === slotName);
+      const eqIdx = equipmentList.findIndex((e: any) => getEquipType(e) === slotName);
       if (eqIdx >= 0) {
         const eq = equipmentList[eqIdx];
         const qName = qualityPrefix(eq.data || eq.数据 || '');
@@ -1581,7 +1589,7 @@ export class GameService {
     }
 
     // 植入体（L2170-2179）
-    const implantIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === '植入体');
+    const implantIdx = equipmentList.findIndex((e: any) => getEquipType(e) === '植入体');
     if (implantIdx >= 0) {
       const im = equipmentList[implantIdx];
       const qName = qualityPrefix(im.data || im.数据 || '');
@@ -1591,7 +1599,7 @@ export class GameService {
     }
 
     // 增幅器（L2180-2189）
-    const ampIdx = equipmentList.findIndex((e: any) => (e.type || e.类型) === '增幅器');
+    const ampIdx = equipmentList.findIndex((e: any) => getEquipType(e) === '增幅器');
     if (ampIdx >= 0) {
       const am = equipmentList[ampIdx];
       const qName = qualityPrefix(am.data || am.数据 || '');
