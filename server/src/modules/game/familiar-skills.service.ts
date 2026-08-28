@@ -1428,9 +1428,36 @@ export class FamiliarSkillsService {
     const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
     this.addBuff(player, 'ex', Math.floor(15 * a3));
     // addBuff 只改内存对象，必须落库否则 15 秒免伤增益不会生效
+
+    // ========== 好感分层被动（对应原版 _decoded_original.txt [saber] 好感2/4/5） ==========
+    // 原版语义是「使用主动技能后15秒内…」——即施放 #ex 时写入 15 秒窗口增益。
+    // 好感1/3/ex全属性层是常驻属性，已在 combat-system _计算玩家 saber case（原版加成计算 L2107-2132）实现，此处不重复。
+    const affinity = this.getAffinity(markers, 'Saber');
+    const buffDur = 15; // 原版固定15秒窗口，不受库洛牌 a3 放大影响
+    let affinityBuffText = '';
+    // 好感2：15秒内抵挡所有伤害（原版「无敌」语义，映射为 invincible 字段，由 combat-system 消费）
+    if (affinity >= 2) {
+      this.addBuff(player, 'saber_无敌', buffDur, { invincible: true });
+      affinityBuffText += `\n（好感≥2 激活：15秒内【无敌】抵挡所有伤害）`;
+    }
+    // 好感4：15秒内物攻+50(+【1技能等级】)%
+    if (affinity >= 4) {
+      const atkPct = 50 + skillLevel; // 50 + 1*技能等级
+      this.addBuff(player, 'saber_物攻', buffDur, { 攻击: atkPct });
+      affinityBuffText += `\n（好感≥4 激活：15秒内物攻+${atkPct}%）`;
+    }
+    // 好感5：15秒内 生命/装甲/护盾/闪避/命中/攻击 +15(+【0.5技能等级】)%
+    if (affinity >= 5) {
+      const allPct = 15 + skillLevel / 2; // 15 + 0.5*技能等级
+      this.addBuff(player, 'saber_全属性', buffDur, {
+        生命: allPct, 装甲: allPct, 护盾: allPct, 闪避: allPct, 命中: allPct, 攻击: allPct,
+      });
+      affinityBuffText += `\n（好感≥5 激活：15秒内全属性+${allPct}%）`;
+    }
+
     await this.playerService.savePlayer(player);
 
-    return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒！\n${result}`;
+    return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒！\n${result}${affinityBuffText}`;
   }
 
   /**

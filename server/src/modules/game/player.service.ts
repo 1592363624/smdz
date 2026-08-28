@@ -185,8 +185,8 @@ export class PlayerService {
         { name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' },
       ];
 
-      // 初始标记："指引"=0 表示新手指引开启
-      const initialMarkers = { '指引': 0 };
+      // 初始标记：基础活力上限100，0表示普通击杀默认使用活力。
+      const initialMarkers = { '指引': 0, '活力2': 100, '使用活力': 0 };
 
       // 初始称号
       const initialTitles = ['新人'];
@@ -229,6 +229,7 @@ export class PlayerService {
           hit: 100,
           crit: 5,
           critDmg: 150,
+          vitality: 100,
           // 位置信息
           mapId: startMap?.id ?? 0,
           location: startMap?.name ?? '新手村',
@@ -283,6 +284,27 @@ export class PlayerService {
       }
     }
 
+    // 存量兼容：旧档可能没有活力上限标记，先补齐原版基础值，避免显示0/0。
+    const markers = this.safeJsonParse<any>(player.markers, {});
+    let markersChanged = false;
+    if (!Number.isFinite(Number(markers['活力2'])) || Number(markers['活力2']) < 100) {
+      markers['活力2'] = 100;
+      markersChanged = true;
+    }
+    if (markers['使用活力'] === undefined) {
+      markers['使用活力'] = 0;
+      markersChanged = true;
+    }
+    if (markersChanged) {
+      player.markers = JSON.stringify(markers);
+      await this.prisma.player.update({
+        where: { id: player.id },
+        data: { markers: player.markers },
+      });
+      player.version = Number(player.version ?? 0) + 1;
+    }
+
+
     // 货币物化（P1）：钻石/召唤券/数据核心的真相源是独立列，读取时物化回
     // 背包数组，业务代码照常按背包物品读写（透明兼容）。
     this.materializeCurrencies(player);
@@ -292,7 +314,7 @@ export class PlayerService {
       backpack: this.safeJsonParse<any[]>(player.backpack, []),
       equipment: this.safeJsonParse<any[]>(player.equipment, []),
       weapons: this.safeJsonParse<any[]>(player.weapons, []),
-      markers: this.safeJsonParse<any>(player.markers, {}),
+      markers,
       markers2: this.safeJsonParse<any[]>(player.markers2, []),
       buffs: this.safeJsonParse<any[]>(player.buffs, []),
       tasks: this.safeJsonParse<any[]>(player.tasks, []),

@@ -126,6 +126,8 @@ export interface MapMonster {
   isPet: boolean;
   /** 是否临时怪物 */
   isTemp: boolean;
+  /** 奖励是否已被一次性认领 */
+  rewardClaimed?: boolean;
 }
 
 /**
@@ -1180,6 +1182,17 @@ export class MapService {
     } catch (e: any) {
       this.logger.warn(`移除怪物 ${monsterId} 失败（可能已不存在）: ${e?.message}`);
     }
+  }
+
+  /** 原子认领已死亡怪物的奖励资格。 */
+  async claimMapMonster(mapId: number, monsterId: number): Promise<boolean> {
+    const result = await this.prisma.gameMonster.updateMany({
+      // 调用方只有在内存中确认怪物已死亡后才会进入此处；数据库里的 hp
+      // 可能还没来得及写回，因此不能把 hp<=0 作为认领条件。
+      where: { id: monsterId, mapId, rewardClaimed: false },
+      data: { rewardClaimed: true },
+    });
+    return Number(result?.count || 0) === 1;
   }
 
   /**

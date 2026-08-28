@@ -206,7 +206,7 @@ export class FamiliarSystemService {
     if (!player.type) {
       // 清空初始化的所有玩家数据（对应原版 重定义数组 清空成就/标记/标记2/背包/装备/武器/任务/增益/装备预设）
       player.achievements = [];
-      player.markers = {};
+      player.markers = { '活力2': 100, '使用活力': 0 };
       player.markers2 = [];
       player.backpack = [];
       player.equipment = [];

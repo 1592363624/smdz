@@ -351,4 +351,118 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
     await (combat as any).adminAttackMap(2, '1');
     expect(clean.hp).toBe(100); // 未扣灼烧伤害
   });
+
+  it('引擎免伤：防御方 buff 含 invincible:true 时本次伤害完全免疫（Saber好感2/安乐天使护盾统一消费点）', async () => {
+    const mocks = buildCombatMocks();
+    const combat = mocks.build();
+    const caster = makePlayer();
+    mocks.players.set(2, caster);
+
+    // 怪物带 invincible 增益（如 saber 好感2 写出的 saber_无敌），引擎应在防御方段免疫
+    const defender = makeMonster({
+      id: 9001, hp: 500, shield: 0, armor: 0,
+      buffs: JSON.stringify([{ name: 'saber_无敌', expireAt: Date.now() / 1000 + 10, invincible: true }]),
+    });
+    mocks.monstersByMap.set(1, [defender]);
+
+    jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+    jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+    jest.spyOn(combat as any, 'calcReflectDamage').mockReturnValue(0);
+    jest.spyOn(combat as any, 'updateMonsterHpInMap').mockResolvedValue(undefined);
+    jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
+
+    const result = await combat.weaponAttack(2, 0, {
+      damageMultiplier: 303, mustHit: true, attackText: '誓约胜利之剑a',
+      extraPenetrationFlat: 15, burnSeconds: 30,
+    });
+    // 免疫文本出现且防御方生命未被扣（hp 仍 500）
+    expect(result.result).toContain('无敌');
+    expect(defender.hp).toBe(500);
+  });
+});
+
+// ============ Saber 好感2/4/5 触发式 15 秒窗口 buff（excalibur 写入）回归 ============
+import { FamiliarSkillsService } from '../src/modules/game/familiar-skills.service';
+
+function makeSaberPlayer(affinity: number, skillLevel: number, overrides: any = {}) {
+  return {
+    id: 1, userId: 1, name: 'saber', type: 'Saber', specialSeq: 19,
+    level: 10, hp: 100, maxHp: 100, shield: 50, maxShield: 50, armor: 30, maxArmor: 30,
+    mapId: 1, affinity, skillLevel, markers2: '[]', weapons: '[]', equipment: '[]',
+    backpack: '[]', tasks: '[]', vehicle: null,
+    markers: JSON.stringify({ Saber好感: affinity, Saber技能熟练度: 0 }),
+    buffs: '[]',
+    ...overrides,
+  };
+}
+
+function makeSaberService(player: any) {
+  const service = Object.create(FamiliarSkillsService.prototype) as any;
+  const saved: any[] = [];
+  service.playerService = {
+    getPlayerData: jest.fn(async () => ({
+      player,
+      markers: JSON.parse(player.markers),
+      markers2: [], buffs: [], backpack: [], equipment: [], weapons: [], tasks: [],
+    })),
+    savePlayer: jest.fn(async (p: any) => { Object.assign(player, p); }),
+    getMarkerValue: (markers: any, key: string) => Number(JSON.parse(player.markers)?.[key] || 0),
+    getSkillLevel: (_markers: any, _familiar: string) => player.skillLevel || 0,
+    safeJsonParse: (v: any, d: any) => { try { return typeof v === 'string' ? JSON.parse(v) : (v ?? d); } catch { return d; } },
+  };
+  service.familiarSystem = { getSkillEffect: jest.fn(() => 1) };
+  // 拦截真正打怪，只验证 buff 写入
+  service.castCombatSkill = jest.fn(async () => '【命中】');
+  service.hasItem = jest.fn(() => false); // 无库洛牌：ex 时长=15
+  // getSkillLevel / getAffinity 为 FamiliarSkillsService 自身方法，需保留真实实现
+  return service;
+}
+
+describe('Saber 好感2/4/5 触发式 buff（誓约胜利之剑施放后）', () => {
+  it('好感≥2：写入 saber_无敌(invincible) 15秒；≥4 追加 saber_物攻；≥5 追加 saber_全属性', async () => {
+    const player = makeSaberPlayer(5, 10); // 好感满级，技能等级10
+    const service = makeSaberService(player);
+    await service.excalibur(1);
+
+    const buffs = JSON.parse(player.buffs);
+    const names = buffs.map((b: any) => b.name);
+    expect(names).toContain('ex'); // 基础 ex 标记仍写入
+    expect(names).toContain('saber_无敌');
+    expect(names).toContain('saber_物攻');
+    expect(names).toContain('saber_全属性');
+
+    const inv = buffs.find((b: any) => b.name === 'saber_无敌');
+    expect(inv.invincible).toBe(true);
+    expect(inv.expireAt).toBeGreaterThan(Date.now() / 1000 + 10); // 约15秒
+
+    const atk = buffs.find((b: any) => b.name === 'saber_物攻');
+    expect(atk.攻击).toBe(50 + 10); // 50 + 1*技能等级
+
+    const all = buffs.find((b: any) => b.name === 'saber_全属性');
+    expect(all.生命).toBeCloseTo(15 + 10 / 2); // 15 + 0.5*技能等级
+    expect(all.装甲).toBeCloseTo(20);
+    expect(all.攻击).toBeCloseTo(20);
+  });
+
+  it('好感1（未满2）：不写入任何触发式 buff，仅 ex 标记', async () => {
+    const player = makeSaberPlayer(1, 0);
+    const service = makeSaberService(player);
+    await service.excalibur(1);
+
+    const buffs = JSON.parse(player.buffs);
+    const names = buffs.map((b: any) => b.name);
+    expect(names).toEqual(['ex']); // 仅基础标记，无好感触发 buff
+  });
+
+  it('好感3（<4）：仅好感2的 saber_无敌，无 saber_物攻/saber_全属性', async () => {
+    const player = makeSaberPlayer(3, 5);
+    const service = makeSaberService(player);
+    await service.excalibur(1);
+
+    const buffs = JSON.parse(player.buffs);
+    const names = buffs.map((b: any) => b.name);
+    expect(names).toContain('saber_无敌');
+    expect(names).not.toContain('saber_物攻');
+    expect(names).not.toContain('saber_全属性');
+  });
 });

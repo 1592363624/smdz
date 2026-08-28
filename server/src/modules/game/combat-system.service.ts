@@ -25,6 +25,7 @@ import { CombatStateService } from './combat-state.service';
 import { StatsService } from './stats.service';
 import { TaskService } from './task.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
+import { VitalityService } from './vitality.service';
 
 // ==================== 类型定义 ====================
 
@@ -83,6 +84,8 @@ export interface AttackContext {
    * 复用外层锁使用；外部调用方不应设置此字段。
    */
   skipCombatLock?: boolean;
+  /** 扫荡使用独立奖励路径：不消耗普通击杀活力，不触发活力双倍。 */
+  vitalityMode?: 'normal' | 'sweep';
 }
 
 /**
@@ -228,6 +231,8 @@ export interface MonsterDeathResult {
   drops: any[];
   dropText?: string;
   taskProgress?: Array<{ actionName: string; count: number; userId?: number }>;
+  vitalityCost?: number;
+  rewardMultiplier?: number;
 }
 
 interface CombatTaskProgress {
@@ -316,6 +321,7 @@ export class CombatSystemService {
     @Inject(forwardRef(() => FamiliarSkillsService))
     @Optional()
     private readonly familiarSkills?: FamiliarSkillsService,
+    @Optional() private readonly vitalityService?: VitalityService,
   ) {}
 
   // ==================== 用户级战斗串行锁 ====================
@@ -900,9 +906,10 @@ export class CombatSystemService {
           }
         }
         if (targetType.includes('saber')) {
-          // saber好感≥40：有"ex"增益时伤害=0
+          // saber好感≥40：有"ex"增益时伤害=0（原版 战斗相关.ecode L2240-2246：防御方.好感>=40 && 增益要求("ex")）
+          const defAff2 = target.affinity ?? (target as any).好感 ?? 0;
           const tBuffs2 = this.safeParseJson<any[]>(target.buffs, []);
-          if (tBuffs2.some((b: any) => b && b.name === 'ex')) {
+          if (defAff2 >= 40 && tBuffs2.some((b: any) => b && b.name === 'ex')) {
             resultLines.push(`${target.name} 的【ex】护盾抵消了本次攻击！`);
             dmgNullified = true;
           }
@@ -1422,6 +1429,19 @@ export class CombatSystemService {
           forcedMult = 0;
           dmgImmune = true; // 与敏锐同：跳过保底1点伤害
           resultLines.push('【安乐天使】本次伤害被免疫');
+        }
+
+        // ---- invincible 字段（防御方任意 buff 含 invincible:true → 本次伤害免疫） ----
+        // 统一在此消费 addBuff 写入的 invincible 字段，对应原版使魔好感「无敌」语义
+        // （如 saber 好感2「15秒内抵挡所有伤害」、安乐天使·护盾）。各技能只需写 invincible:true，
+        // 不必各自造消费分支。已免疫则跳过，避免重复文本。
+        if (!dmgImmune) {
+          const defBuffsInv = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          if (defBuffsInv.some((b: any) => b && b.invincible === true)) {
+            forcedMult = 0;
+            dmgImmune = true;
+            resultLines.push('【无敌】本次伤害被完全抵挡');
+          }
         }
 
         // ========== 武器特殊序号判断（原版 造成伤害 L1827-1867，紧接安乐天使之后） ==========
@@ -2265,7 +2285,13 @@ export class CombatSystemService {
           }
           resultLines.push(`${st.name} 受到溅射伤害 ${splashFinal}`);
           if (st.hp <= 0) {
-            const sd = await this.handleMonsterDeath(st, userId, map.id, playerData);
+            const sd = await this.handleMonsterDeath(
+              st,
+              userId,
+              map.id,
+              playerData,
+              context.vitalityMode || 'normal',
+            );
             if (sd.expGain > 0) {
               totalExp += sd.expGain;
               resultLines.push(`${st.name} 被溅射击杀，获得 ${sd.expGain} 点经验`);
@@ -2415,7 +2441,13 @@ export class CombatSystemService {
         resultLines.push(`${target.name} 已被击杀`);
 
         // 处理怪物死亡（传入 attacker=playerData 触发 置掉落+战利品 发放闭环）
-        const deathResult = await this.handleMonsterDeath(target, userId, map.id, playerData);
+        const deathResult = await this.handleMonsterDeath(
+        target,
+        userId,
+        map.id,
+        playerData,
+        context.vitalityMode || 'normal',
+      );
         totalExp += deathResult.expGain;
         allDrops.push(...deathResult.drops);
         taskProgress.push(...(deathResult.taskProgress || []));
@@ -2634,7 +2666,13 @@ export class CombatSystemService {
 
         // 怪物死亡处理（传入 attacker=playerData 触发 置掉落+战利品 发放闭环）
         if (target.hp <= 0) {
-          const deathResult = await this.handleMonsterDeath(target, player.userId, map.id, playerData);
+          const deathResult = await this.handleMonsterDeath(
+            target,
+            player.userId,
+            map.id,
+            playerData,
+            'normal',
+          );
           // 召唤物击杀经验累计到玩家（由 weaponAttack 末尾 addExp 统一发放）
           if (out?.totalExp !== undefined) out.totalExp += deathResult.expGain;
           out?.taskProgress.push(...(deathResult.taskProgress || []));
@@ -4740,12 +4778,28 @@ export class CombatSystemService {
     userId: number,
     mapId: number,
     attacker?: any,
+    vitalityMode: 'normal' | 'sweep' = 'normal',
   ): Promise<MonsterDeathResult> {
+    // GameMonster 真实实例先抢占奖励资格，避免两个玩家同时击杀同一实例时
+    // 各自扣活力、发经验和发掉落。纯内存测试夹具没有 claim 接口时保持兼容。
+    if (
+      monster?.id !== undefined
+      && typeof (this.mapService as any).claimMapMonster === 'function'
+    ) {
+      const claimed = await (this.mapService as any).claimMapMonster(mapId, Number(monster.id));
+      if (!claimed) {
+        return { expGain: 0, drops: [], dropText: '', taskProgress: [], vitalityCost: 0, rewardMultiplier: 1 };
+      }
+    }
+
     // 计算经验值
-    const expGain = this.calcMonsterExp(monster);
+    let expGain = this.calcMonsterExp(monster);
 
     // 生成掉落物（基础掉落清单，含 name/type/quantity/data）
-    const drops = this.generateDrops(monster, 1);
+    let drops = this.generateDrops(monster, 1);
+
+    let vitalityCost = 0;
+    let rewardMultiplier = 1;
 
     // 置掉落（原版 战利品 前序 置掉落 L5245）：记录攻击者对怪物的掉落能力到怪物标记
     // 注意：原版在怪物删除前写怪物.标记，本框架怪物即时删除，此处保留原版调用顺序（行为可见）
@@ -4755,11 +4809,12 @@ export class CombatSystemService {
       monster.markers = JSON.stringify(this.setDrop(attackerPlayer, monsterMarkers));
     }
 
-    // 战利品发放（原版 战斗相关.ecode L4874）：装备展开/资源经验/成就/背包写入/掉落文本
+    // 战利品发放（原版 战斗相关.ecode L4874）：装备展开/资源经验/成就/背包写入/掉落文本。
+    // 归属玩家必须在“是否有掉落”之前解析：原版即使没有物品掉落，也会结算经验和活力。
     let dropText = '';
     const taskProgress: Array<{ actionName: string; count: number }> = [];
-    if (userId && drops.length > 0) {
-      let playerData: any;
+    let playerData: any;
+    if (userId) {
       try {
         playerData = attacker?.player
           ? attacker
@@ -4769,7 +4824,29 @@ export class CombatSystemService {
       } catch (error: any) {
         this.logger.warn(`读取掉落归属玩家失败: ${error?.message || error}`);
       }
-      if (playerData?.player) {
+    }
+    if (playerData?.player) {
+      if (vitalityMode === 'normal' && this.vitalityService) {
+        const markers = playerData.markers || this.playerService.safeJsonParse(playerData.player.markers, {});
+        const decision = await this.vitalityService.applyNormalKillCost(playerData.player, markers, 1);
+        vitalityCost = decision.vitalityCost;
+        rewardMultiplier = decision.rewardMultiplier;
+        if (rewardMultiplier !== 1) {
+          expGain *= rewardMultiplier;
+          drops = drops.map((drop: any) => {
+            const type = String(drop?.type ?? drop?.类型 ?? '').trim();
+            if (type === '装备' || type === 'equipment') return { ...drop };
+            const quantity = Number(drop?.quantity ?? drop?.count ?? drop?.数量 ?? 0);
+            return { ...drop, quantity: quantity * rewardMultiplier };
+          });
+        }
+        if (vitalityCost > 0) {
+          taskProgress.push({ actionName: '消耗活力', count: vitalityCost });
+        }
+        playerData.player.markers = JSON.stringify(markers);
+      }
+
+      if (drops.length > 0) {
         dropText = await this.itemSystem.distributeLoot(playerData, drops, {
           onTaskProgress: (actionName, count) => taskProgress.push({ actionName, count }),
         });
@@ -4795,7 +4872,7 @@ export class CombatSystemService {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
 
-    return { expGain, drops, dropText, taskProgress };
+    return { expGain, drops, dropText, taskProgress, vitalityCost, rewardMultiplier };
   }
 
   /**
@@ -6500,6 +6577,15 @@ export class CombatSystemService {
 
     // 应用递减收益
     this.bonusService.applyAllDiminishingReturns(bonus);
+
+    // 魅力影响活力上限和恢复速度，但历史上限只增不减；
+    // 这里不直接写库，调用方的同一玩家快照会在后续 savePlayer 时落盘。
+    const currentCharm = Number(bonus.魅力 || 0);
+    const vitalityMarkers = playerData.markers || {};
+    const recordedMax = Number(this.playerService.getMarkerValue(vitalityMarkers, '活力2')) || 0;
+    const nextMax = Math.max(100, 100 + (Number.isFinite(currentCharm) ? currentCharm : 0), recordedMax);
+    vitalityMarkers['活力2'] = nextMax;
+    player.markers = JSON.stringify(vitalityMarkers);
 
     return bonus;
   }

@@ -166,12 +166,7 @@ export class GameCommandHandler implements CommandHandler {
             for (const killedName of killedList) {
               await this.taskService.advance(userId, '击败' + killedName);
             }
-            // 击杀怪物消耗活力（对应原版 后台运作.ecode L864~L869）
-            // 标记「使用活力」：0=击杀怪物消耗活力, 1=不消耗
-            const playerData = await this.playerService.getPlayerData(userId);
-            if (this.playerService.getMarkerValue(playerData.markers, '使用活力') === 0) {
-              await this.taskService.advance(userId, '消耗活力', killedList.length);
-            }
+            // “消耗活力”由战斗奖励结算层按实际扣除量推进，命令层不重复记账。
           }
           // 新手引导：攻击照常执行，引导文本作为附加提示（不拦截，避免"首次攻击被吞"）
           // 对应原版：攻击即攻击，无引导拦截逻辑
@@ -936,7 +931,7 @@ export class GameCommandHandler implements CommandHandler {
         case '扫荡':
         case 'sweep':
           // 快速战斗/扫荡模式
-          return this.wrap(await this.gameService.handleSweep(userId));
+          return this.wrap(await this.gameService.handleSweep(userId, Number(firstArg) || 0));
 
         case '闪避':
         case 'dodge': {

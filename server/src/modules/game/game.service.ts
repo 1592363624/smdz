@@ -29,6 +29,7 @@ import { ShortcutService } from './shortcut.service';
 import { StatsService } from './stats.service';
 import { CombatStateService } from './combat-state.service';
 import { AutoMineService } from './auto-mine.service';
+import { VitalityService } from './vitality.service';
 import { normalizeGameText } from '../../common/utils/game-text.util';
 
 interface QuestSource {
@@ -110,6 +111,8 @@ export class GameService {
     private readonly statsService: StatsService,
     private readonly combatState: CombatStateService,
     @Optional() private readonly autoMineService?: AutoMineService,
+    // 活力上限与恢复公式共用规则服务，确保魅力历史值和旧存档兜底一致。
+    @Optional() private readonly vitalityService?: VitalityService,
   ) {}
 
   /**
@@ -1079,6 +1082,10 @@ export class GameService {
       mapId: player.mapId,
       location: player.location,
       affinity: player.affinity,
+      vitality: Number(player.vitality || 0),
+      maxVitality: this.vitalityService
+        ? this.vitalityService.getVitalityMax(markers)
+        : Math.max(100, Number(this.playerService.getMarkerValue(markers, '活力2')) || 100),
       combatPower: this.bonusService.calcCombatPower(powerBonus),
       tasks: this.buildActiveTasks(playerData.tasks),
       equipment: this.buildEquipmentSnapshot(player, markers),
@@ -1886,7 +1893,7 @@ export class GameService {
       } else {
         lines.push(`魅力: ${fmt(b.魅力)}`);
       }
-      const vitality = this.combatState.getAchievementProficiency(markers, '活力2');
+      const vitality = Math.max(100, this.combatState.getAchievementProficiency(markers, '活力2'));
       lines.push(`活力: ${num(player.vitality ?? player.活力 ?? 0)}/${vitality}`);
     }
     // 驾驶载具（L986-992）
@@ -5476,65 +5483,208 @@ export class GameService {
   }
 
   /**
-   * 处理扫荡命令
-   * 快速战斗：自动攻击当前地图所有怪物，计算总经验和掉落
+   * 处理扫荡命令（对应原版 _主程序.ecode L9226-L9323）。
+   *
+   * 扫荡是独立的批量奖励路径：按次数消耗活力、只结算发起者、
+   * 不调用普通攻击，因此不会触发怪物反击、召唤物协同、普通击杀双倍或重复经验。
    */
-  async handleSweep(userId: number): Promise<string> {
-    // 获取玩家数据
+  async handleSweep(userId: number, requestedCount = 0): Promise<string> {
+    const run = () => this.handleSweepInner(userId, requestedCount);
+    if (typeof this.playerService.withUserLock === 'function') {
+      return this.playerService.withUserLock(userId, run);
+    }
+    return run();
+  }
+
+  private async handleSweepInner(userId: number, requestedCount: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
+    const name = player.name || '冒险者';
 
-    // 检查是否死亡
     if (this.playerService.isPlayerDead(player)) {
       return this.playerService.handlePlayerDeath(userId, player);
     }
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 获取地图上的怪物
-    let monsters = await this.mapService.getMapMonsters(map);
-    if (monsters.length === 0) {
-      return '当前地图没有怪物，等待刷新...';
+    const liveMonsters: any[] = (await this.mapService.getMapMonsters(map))
+      .filter((monster: any) => Number(monster?.hp ?? monster?.当前生命 ?? 0) > 0);
+    const configuredNames = this.parseSweepMonsterNames(map);
+    // 无静态模板的临时/存量地图保留兼容：从当前存活实例取得类型，
+    // 正式地图仍严格以静态地图怪物列表为扫荡池。
+    const monsterNames = configuredNames.length > 0
+      ? configuredNames
+      : liveMonsters.map((monster: any) => String(monster?.type ?? monster?.name ?? '').trim()).filter(Boolean);
+
+    if (requestedCount <= 0) {
+      const requirementText = this.buildSweepRequirementText(playerData, monsterNames);
+      return `${name}\n"扫荡3"来扫荡当前地图3次，每次消耗1活力，不触发活力双倍奖励，只有自己有奖励\n扫荡奖励与你的掉落加成、经验加成有关${requirementText}`;
+    }
+    if (monsterNames.length === 0) {
+      return `${name}${map.name || ''}没有自带的怪物，不能扫荡`;
     }
 
-    // 快速扫荡：对每个存活怪物发起一次完整攻击（复用 weaponAttack 全量战斗模型，
-    // 对齐原版「扫荡」即连续攻击循环；含怪物反击/召唤物协同闭环）。
+    const requirement = this.getSweepRequirement(playerData, monsterNames);
+    if (requirement.unmet && configuredNames.length > 0) {
+      return `${name}你需要亲自击杀(或你的宠物击杀)以下怪物对应次数才可以扫荡${requirement.text}`;
+    }
+
+    const actualCount = this.vitalityService
+      ? this.vitalityService.getSweepCount(requestedCount, player.vitality)
+      : Math.min(Math.max(0, Math.floor(Number(requestedCount) || 0)), Math.max(0, Math.floor(Number(player.vitality) || 0)));
+    if (actualCount <= 0) {
+      return `${name}活力不足，无法扫荡`;
+    }
+
+    // 原版扫荡开始前清空地图怪物实例；奖励对象在内存中逐次构造，不写回怪物表。
+    if (typeof this.mapService.clearMapMonsters === 'function') {
+      await this.mapService.clearMapMonsters(map.id);
+    }
+
+    const attackerBonus = typeof this.combatSystem.buildAttackerBonus === 'function'
+      ? this.combatSystem.buildAttackerBonus(player, playerData, map)
+      : {};
+    const dropRateMultiplier = Math.max(0, 1 + Number(attackerBonus?.掉落率 || 0) / 100);
+    const dropQualityMultiplier = 1 + Number(attackerBonus?.掉落品质 || 0) / 100;
+    const allDrops: any[] = [];
+    const defeatedByName = new Map<string, number>();
     let totalExp = 0;
-    let totalKills = 0;
-    const resultLines: string[] = ['⚔️ 开始扫荡！'];
+    // 原版把一次“扫荡”定义为清空一轮地图，而不是击杀一只怪物：
+    // 请求次数只消耗对应活力，实际奖励数量还要乘地图的怪物数量。
+    const monstersPerSweep = String(map.name || '') === '四圣祭坛'
+      ? 1
+      : Math.max(1, Math.floor(Number(map.monsterCount ?? map.怪物数量 ?? 1) || 1));
+    const totalMonsterCount = actualCount * monstersPerSweep;
 
-    for (const monster of monsters) {
-      if (monster.hp <= 0) continue;
-      try {
-        // 当前武器（无则拳头）走完整伤害/反击模型
-        const weaponIndex = (player.currentWeapon || 0) > 0 ? player.currentWeapon - 1 : 0;
-        const result = await this.combatSystem.weaponAttack(userId, weaponIndex, {
-          noDelay: true,
-          isAutoCombat: true,
-        });
-        totalExp += result.expGained || 0;
-        totalKills += (result.killed || []).length;
-        // 仅摘出与本次目标相关的摘要，避免刷屏
-        const lines = (result.result || '').split('\n').filter(
-          (l: string) => l.includes(monster.name) || l.includes('怪物反击') || l.includes('召唤物'),
-        );
-        if (lines.length > 0) resultLines.push(`  ── ${monster.name} ──`, ...lines);
-      } catch (e: any) {
-        this.logger.warn(`扫荡攻击 ${monster.name} 失败: ${e.message}`);
+    for (let i = 0; i < totalMonsterCount; i++) {
+      const monsterName = monsterNames[Math.floor(Math.random() * monsterNames.length)];
+      const definition = this.staticData.getMonsterByName(monsterName) || {};
+      const liveFallback: any = liveMonsters.find((monster: any) =>
+        String(monster?.type ?? monster?.name ?? '') === monsterName,
+      ) || {};
+      const definitionBonus = this.playerService.safeJsonParse<any>(definition.bonus, {});
+      const sweepMonster = {
+        ...liveFallback,
+        ...definition,
+        name: monsterName,
+        type: monsterName,
+        level: definition.level ?? liveFallback.level ?? map.level ?? 1,
+        exp: definition.exp ?? definition.baseExp ?? definitionBonus.经验 ?? liveFallback.exp ?? 10,
+        bonus: definition.bonus ?? liveFallback.bonus ?? '{}',
+      };
+      const baseExp = typeof this.combatSystem.calcMonsterExp === 'function'
+        ? this.combatSystem.calcMonsterExp(sweepMonster)
+        : Number(sweepMonster.exp) || 10;
+      totalExp += Math.min(10_000_000, Math.max(0, Number(baseExp) || 0));
+
+      const drops = typeof this.combatSystem.generateDrops === 'function'
+        ? this.combatSystem.generateDrops(sweepMonster, dropRateMultiplier)
+        : [];
+      for (const drop of drops || []) {
+        const rawQuantity = Number(drop?.quantity ?? drop?.count ?? drop?.数量 ?? 0);
+        if (!Number.isFinite(rawQuantity)) continue;
+        const type = String(drop?.type ?? drop?.类型 ?? '').trim();
+        const quantity = type === '装备' || type === 'equipment'
+          ? Math.max(1, Math.floor(rawQuantity))
+          : rawQuantity >= 0
+            ? rawQuantity * dropQualityMultiplier
+            : Math.abs(rawQuantity);
+        allDrops.push({ ...drop, quantity });
       }
+      defeatedByName.set(monsterName, (defeatedByName.get(monsterName) || 0) + 1);
     }
 
-    // 发放总经验
+    const consumed = this.vitalityService
+      ? this.vitalityService.applySweepCost(player, actualCount)
+      : actualCount;
+    const taskProgress: Array<{ actionName: string; count: number }> = [];
+    let dropText = '';
+    if (allDrops.length > 0) {
+      dropText = await this.itemSystemService.distributeLoot(playerData, allDrops, {
+        onTaskProgress: (actionName, count) => taskProgress.push({ actionName, count }),
+      });
+    }
+    player.markers = JSON.stringify(playerData.markers || this.playerService.safeJsonParse(player.markers, {}));
+    await this.playerService.savePlayer(player);
+
+    // 经验只在批量奖励结束时写入一次，避免扫荡循环和 addExp 双重结算。
     if (totalExp > 0) {
       await this.playerService.addExp(userId, totalExp);
     }
 
-    resultLines.push(`━━━━━━━━━━━━━━━`);
-    resultLines.push(`扫荡结束！击败 ${totalKills} 只怪物，获得 ${totalExp} 点经验`);
+    if (this.taskService && typeof this.taskService.advance === 'function') {
+      await this.taskService.advance(userId, '击败怪物', totalMonsterCount);
+      for (const [monsterName, count] of defeatedByName) {
+        await this.taskService.advance(userId, `击败${monsterName}`, count);
+      }
+      await this.taskService.advance(userId, '消耗活力', consumed);
+      for (const progress of taskProgress) {
+        await this.taskService.advance(userId, progress.actionName, progress.count);
+      }
+    }
 
-    return resultLines.join('\n');
+    const lines = [
+      `${name}消耗${consumed}点活力扫荡了${map.name || '当前地图'}`,
+      `击败了${totalMonsterCount}只怪物`,
+      `得到了经验x${this.roundText(totalExp)}`,
+    ];
+    if (dropText) lines.push(`获得${dropText}`);
+    return lines.join('\n');
+  }
+
+  /** 读取原版地图怪物池，并合并有效的“嗅探怪物”临时标记。 */
+  private parseSweepMonsterNames(map: any): string[] {
+    const raw = map?.monsters ?? map?.怪物 ?? [];
+    const names = Array.isArray(raw)
+      ? raw
+      : this.playerService.safeJsonParse<any[]>(raw, []);
+    const result = names
+      .map((value: any) => String(value?.name ?? value?.名称 ?? value ?? '').trim())
+      .filter(Boolean);
+    const rawMarkers = map?.markers3 ?? map?.标记3;
+    const markers = Array.isArray(rawMarkers)
+      ? rawMarkers
+      : this.playerService.safeJsonParse<any[]>(rawMarkers, []);
+    for (const marker of markers) {
+      const markerName = String(marker?.name ?? marker?.名称 ?? '').trim();
+      if (markerName.startsWith('嗅探') && markerName.slice(2).trim()) {
+        result.push(markerName.slice(2).trim());
+      }
+    }
+    if (String(map?.name || '') === '四圣祭坛') return ['神兽麒麟'];
+    return result;
+  }
+
+  /**
+   * 生成原版扫荡需求：怪物在地图刷新池中的重复项就是权重，
+   * 需求 = 四舍五入(权重/总权重*25)，并限制在1到5；显示满足和未满足项。
+   */
+  private getSweepRequirement(playerData: any, monsterNames: string[]): { text: string; unmet: boolean } {
+    const markers = playerData?.markers || {};
+    const names = monsterNames.filter(Boolean);
+    const totalWeight = names.length;
+    if (totalWeight <= 0) return { text: '', unmet: true };
+    const weightByName = new Map<string, number>();
+    for (const name of names) weightByName.set(name, (weightByName.get(name) || 0) + 1);
+    let unmet = false;
+    const lines = [...weightByName.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([monsterName, weight]) => {
+        let required = Math.round(weight / totalWeight * 25);
+        required = Math.max(1, Math.min(5, required));
+        const completed = typeof this.playerService.getMarkerValue === 'function'
+          ? Number(this.playerService.getMarkerValue(markers, `击败${monsterName}`)) || 0
+          : Number(markers?.[`击败${monsterName}`] || 0);
+        if (completed < required) unmet = true;
+        return `${monsterName}(${Math.min(completed, required)}/${required})`;
+      });
+    return { text: lines.length > 0 ? `\n${lines.join('\n')}` : '', unmet };
+  }
+
+  /** 兼容测试和旧调用方只需要文本的私有辅助。 */
+  private buildSweepRequirementText(playerData: any, monsterNames: string[]): string {
+    return this.getSweepRequirement(playerData, monsterNames).text;
   }
 
   /**
@@ -11500,14 +11650,6 @@ export class GameService {
       const regenShield = player.regenShield || 0;
       const regenArmor = player.regenArmor || 0;
 
-      // 如果没有任何回复率，则只更新时间戳
-      if (regenHp <= 0 && regenShield <= 0 && regenArmor <= 0) {
-        // 更新最后操作时间（BigInt 字段）
-        player.lastOpTime = BigInt(now);
-        await this.playerService.savePlayer(player);
-        return '';
-      }
-
       // 应用回复公式：回复量 = 回复率 × 时间差（每秒回复"回复率"点）
       // 对齐原版 _计算玩家 L2401-2403：
       //   当前护盾 += 时间差 × 属性.护盾回复 + 时间差 × 属性.护盾回复2/100 × 属性.护盾
@@ -11557,14 +11699,24 @@ export class GameService {
       }
 
       // ===== 活力恢复（原版 _计算玩家 L2625-2643） =====
-      // a1 = max(记录的最高魅力, 100)；活力 += 时间差/1200 × (1+(a1-100)/200)，上限 a1
+      // 活力与生命/护盾/装甲回复相互独立，即使三池回复率都为0也必须结算。
       try {
         const markersObj = this.playerService.safeJsonParse<any>(player.markers, {});
-        const charmBonus = this.playerService.getMarkerValue(markersObj, '活力2');
-        let vitalityMax = 100 + charmBonus;
-        if (vitalityMax < 100) vitalityMax = 100;
-        player.vitality = (player.vitality || 0) + timeDiff / 1200 * (1 + (vitalityMax - 100) / 200);
-        if (player.vitality > vitalityMax) player.vitality = vitalityMax;
+        const vitalityMax = this.vitalityService
+          ? this.vitalityService.getVitalityMax(markersObj)
+          : Math.max(100, Number(this.playerService.getMarkerValue(markersObj, '活力2')) || 100);
+        if (this.vitalityService) {
+          player.vitality = this.vitalityService.recover(player.vitality, timeDiff, vitalityMax);
+        } else {
+          player.vitality = Math.min(
+            vitalityMax,
+            (player.vitality || 0) + timeDiff / 1200 * (1 + (vitalityMax - 100) / 200),
+          );
+        }
+        if (Number(this.playerService.getMarkerValue(markersObj, '活力2')) < vitalityMax) {
+          markersObj['活力2'] = vitalityMax;
+          player.markers = JSON.stringify(markersObj);
+        }
       } catch (e: any) {
         this.logger.warn(`活力恢复结算失败: ${e.message}`);
       }

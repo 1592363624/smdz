@@ -27,6 +27,11 @@
       <span class="pi-value">{{ r(info.armor) }} / {{ r(info.maxArmor) }}</span>
     </div>
     <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
+    <div class="pi-row">
+      <span class="pi-label">⚡ 活力</span>
+      <span class="pi-value">{{ r(info.vitality) }} / {{ r(info.maxVitality) }}</span>
+    </div>
+    <div class="pi-bar"><div class="pi-bar-fill vitality" :style="{ width: vitalityPercent + '%' }"></div></div>
 
     <!-- 战斗力：与「信息」文本面板同口径（计算后属性代入原版战斗力公式） -->
     <div class="pi-row pi-row-power" v-if="info.combatPower !== undefined && info.combatPower !== null">
@@ -105,6 +110,10 @@ const shieldPercent = computed(() =>
 );
 const armorPercent = computed(() =>
   !props.info?.maxArmor ? 0 : Math.min(100, Math.round((props.info.armor / props.info.maxArmor) * 100)),
+);
+// 活力进度：当前活力占历史上限（活力2）的百分比，上限可能高于 100
+const vitalityPercent = computed(() =>
+  !props.info?.maxVitality ? 0 : Math.min(100, Math.round((props.info.vitality / props.info.maxVitality) * 100)),
 );
 const hpBarClass = computed(() => {
   const pct = hpPercent.value;

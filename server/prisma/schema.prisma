@@ -301,8 +301,10 @@ model GameMonster {
   readTime    BigInt   @default(0)
   /// 是否宠物（QQ 以"g"结尾，对应原版 L2644 注释）
   isPet       Boolean  @default(false)
-  /// 是否临时怪物（原版 地图.临时怪物；如事件/召唤怪，清掉重刷时保留策略由业务逻辑定）
-  isTemp      Boolean  @default(false)
+  /// 是否临时怪物（原版 地图.临时怪物；如事件/召唤产物，清掉重刷时保留策略由业务逻辑定）
+  isTemp      Boolean  @default(false)  // 是否临时怪物
+  /// 奖励是否已被一次性认领，避免并发击杀重复发奖
+  rewardClaimed Boolean @default(false)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
