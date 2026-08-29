@@ -1604,7 +1604,8 @@ export class CombatSystemService {
 
         // ---- 神兽之力青龙（原版 L4500-4507：命中后给防御方5秒麻痹，并把每件武器冷却延长5秒） ----
         if (weapon.specialSeq === -31 || weapon.name?.includes('神兽之力青龙')) {
-          defMk2.push({ name: '麻痹', expireAt: nowMs + 5 * 1000, 强度: 0 });
+          // startedAt/totalMs 供前端「进行中操作」进度条算百分比（与采集/抢救同口径）
+          defMk2.push({ name: '麻痹', startedAt: nowMs, totalMs: 5 * 1000, expireAt: nowMs + 5 * 1000, 强度: 0 });
           const targetWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
           for (const targetWeapon of targetWeapons) {
             const targetWeaponName = targetWeapon?.name || targetWeapon?.名称;

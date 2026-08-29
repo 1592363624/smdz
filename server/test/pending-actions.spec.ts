@@ -105,6 +105,39 @@ describe('进行中操作倒计时快照', () => {
     expect(list[0]).toMatchObject({ key: 'paralysis', kind: 'debuff', label: '麻痹中' });
   });
 
+  it('抢救标记带 startedAt/totalMs 时原样透出，供刷新页面后仍显示真实进度', () => {
+    const svc = makeService();
+    const now = Date.now();
+    const list = build(svc, {}, [
+      { name: '复活', rescueType: 'familiar', startedAt: now, totalMs: 30000, expireAt: Math.ceil(now / 1000) + 30 },
+    ]);
+    expect(list[0].startedAt).toBe(now);
+    expect(list[0].totalMs).toBe(30000);
+  });
+
+  it('总时长不可知时置 0：前端以首次观测到的剩余时间自行起算进度条', () => {
+    const svc = makeService();
+    const list = build(svc, {}, [{ name: '麻痹', expireAt: Math.ceil(Date.now() / 1000) + 8 }]);
+    expect(list[0].totalMs).toBe(0);
+    expect(list[0].startedAt).toBe(0);
+  });
+
+  it('起止时间与总时长知其二即可推第三个', () => {
+    const svc = makeService();
+    const now = Date.now();
+
+    // 只给起点：总时长由 endAt - startedAt 推出
+    const fromStart = build(svc, {
+      采集中: { target: '医疗箱', cmd: '打开箱子', startedAt: now, settleAt: now + 11000 },
+    });
+    expect(fromStart[0].totalMs).toBe(11000);
+
+    // 只给总时长：起点由 endAt - totalMs 反推
+    const fromTotal = build(svc, {}, [{ name: '麻痹', totalMs: 5000, expireAt: now + 5000 }]);
+    expect(fromTotal[0].totalMs).toBe(5000);
+    expect(fromTotal[0].startedAt).toBe(now);
+  });
+
   it('已到期的条目不输出，避免界面残留倒计时', () => {
     const svc = makeService();
     const now = Date.now();

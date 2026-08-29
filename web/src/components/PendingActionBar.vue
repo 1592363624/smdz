@@ -9,7 +9,7 @@
       v-for="a in activeActions"
       :key="a.key"
       class="pa-item"
-      :class="['pa-kind-' + a.kind, { 'pa-done': remainOf(a) <= 0 }]"
+      :class="['pa-kind-' + a.kind, { 'pa-done': a.remain <= 0 }]"
     >
       <span class="pa-icon">{{ a.icon || '⏳' }}</span>
       <div class="pa-main">
@@ -17,10 +17,11 @@
           <span class="pa-label">{{ a.label }}</span>
           <span v-if="a.detail" class="pa-detail">{{ a.detail }}</span>
           <span class="pa-spacer"></span>
-          <span class="pa-remain">{{ remainOf(a) > 0 ? remainOf(a) + ' 秒' : '即将完成' }}</span>
+          <span class="pa-remain">{{ a.remain > 0 ? a.remain + ' 秒' : '即将完成' }}</span>
         </div>
         <div class="pa-track">
-          <div class="pa-fill" :style="{ width: percentOf(a) + '%' }"></div>
+          <div v-if="a.known" class="pa-fill" :style="{ width: a.percent + '%' }"></div>
+          <div v-else class="pa-fill pa-indeterminate"></div>
         </div>
       </div>
     </div>
@@ -32,6 +33,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const props = defineProps({
   // 后端 pendingActions 快照：[{ key, kind, label, detail, icon, startedAt, endAt, totalMs }]
+  // 只有 endAt 是必需的；startedAt/totalMs 有则用于刷新页面后仍显示真实进度。
   actions: { type: Array, default: () => [] },
 });
 
@@ -51,25 +53,44 @@ onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
 });
 
-// 过滤已到期的条目：后端延时结算有毫秒级抖动，前端先本地剔除避免残留
-const activeActions = computed(() =>
-  (props.actions || []).filter((a) => Number(a?.endAt || 0) > now.value),
-);
+/**
+ * 每个条目按 key 记住「首次观测到的剩余时间」，它就是进度条的分母。
+ *
+ * 后端只知道结束时间 endAt，不知道玩家是什么时候看到这条倒计时的；
+ * 但对进度条而言，第一次渲染时的剩余时间天然就是"总时长"——
+ * 从那一刻起由 0% 走到 100%，无需后端补 startedAt，历史数据也照样推进。
+ */
+const observed = new Map();
+
+const activeActions = computed(() => {
+  const t = now.value;
+  return (props.actions || [])
+    .filter((a) => Number(a?.endAt || 0) > t)
+    .map((a) => {
+      const endAt = Number(a?.endAt || 0);
+      const remainMs = Math.max(0, endAt - t);
+      const backendTotal = Number(a?.totalMs || 0);
+      const rec = observed.get(a?.key);
+      let total = rec?.totalMs || 0;
+      // 新一轮操作（endAt 变了）、首次出现、或剩余时间被延长 → 重新起算。
+      // 后端带的总时长若不小于当前剩余则优先采信，这样刷新页面后进度条位置仍是真实的。
+      if (!rec || rec.endAt !== endAt || remainMs > total) {
+        total = backendTotal >= remainMs ? backendTotal : remainMs;
+        observed.set(a?.key, { endAt, totalMs: total });
+      }
+      const elapsed = total - remainMs;
+      return {
+        ...a,
+        remain: Math.ceil(remainMs / 1000),
+        known: total > 0,
+        percent: total > 0 ? Math.min(100, Math.max(0, Math.round((elapsed / total) * 100))) : 0,
+      };
+    });
+});
 
 watch(activeActions, (list, prev) => {
   if ((prev?.length || 0) > 0 && list.length < prev.length) emit('expired');
 });
-
-const remainOf = (a) => Math.max(0, Math.ceil((Number(a?.endAt || 0) - now.value) / 1000));
-
-const percentOf = (a) => {
-  const endAt = Number(a?.endAt || 0);
-  const total = Number(a?.totalMs || 0);
-  if (!endAt || total <= 0) return 0;
-  const remain = Math.max(0, endAt - now.value);
-  const done = total - remain;
-  return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
-};
 </script>
 
 <style scoped>
@@ -147,6 +168,18 @@ const percentOf = (a) => {
   background: var(--accent-gradient);
   box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
   transition: width 0.9s linear;
+}
+
+/* 总时长未知：左右扫描的不确定进度，明确表达「进行中」而不是卡住 */
+.pa-indeterminate {
+  width: 35%;
+  animation: pa-scan 1.4s ease-in-out infinite;
+}
+
+@keyframes pa-scan {
+  0% { margin-left: 0; }
+  50% { margin-left: 65%; }
+  100% { margin-left: 0; }
 }
 
 /* 分类配色：让不同性质的等待一眼可辨 */

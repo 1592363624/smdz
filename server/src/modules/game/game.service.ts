@@ -1116,6 +1116,11 @@ export class GameService {
    *   - 麻痹：markers2 中 name=麻痹（负面锁定状态）
    * 只输出仍未到期的条目；已到期的由各自的延时结算/兜底任务清除，前端也会本地剔除。
    *
+   * 关于进度百分比：只有 `endAt` 是必需字段。前端以「首次渲染时的剩余时间」作为分母自行起算
+   * 进度条，因此这里不必强求每条都带 startedAt；`totalMs` 为 0 即表示"总时长未知"。
+   * startedAt/totalMs 仅在写入侧顺手落盘时透出（采集、移动、抢救、麻痹），
+   * 作用是刷新页面/重连后进度条仍落在真实位置，缺失不影响进度条正常推进。
+   *
    * @param player 玩家行（用于兜底取 markers2 原始串）
    * @param markers 已解析的对象标记
    * @param markers2 已解析的时效标记数组
@@ -1142,7 +1147,14 @@ export class GameService {
     }) => {
       const endAt = Math.floor(item.endAt);
       if (!endAt || endAt <= now) return; // 已到期：结算任务会清理，此处不展示
-      const startedAt = Math.floor(item.startedAt ?? 0) || Math.max(0, endAt - Math.floor(item.totalMs ?? 0));
+      const knownStart = Math.floor(item.startedAt ?? 0);
+      const knownTotal = Math.floor(item.totalMs ?? 0);
+      // 起止时间与总时长知其二即可推第三个；两者都拿不到时 totalMs 置 0，
+      // 表示「总时长未知」——前端据此走不确定进度动画，而不是画一条卡在 0% 的空槽。
+      const startedAt = knownStart || (knownTotal > 0 ? Math.max(0, endAt - knownTotal) : 0);
+      const totalMs = knownTotal > 0
+        ? Math.min(knownTotal, endAt - Math.max(0, startedAt) || knownTotal)
+        : (knownStart > 0 ? Math.max(0, endAt - knownStart) : 0);
       list.push({
         key: item.key,
         kind: item.kind,
@@ -1151,7 +1163,7 @@ export class GameService {
         icon: item.icon || '⏳',
         startedAt,
         endAt,
-        totalMs: Math.max(0, endAt - startedAt),
+        totalMs,
       });
     };
 
@@ -1216,26 +1228,33 @@ export class GameService {
       // 带 rescueType 的「复活/工作」= 救助链路（抢救使魔/维修载具/自救/救助玩家）
       const rescueType = String(entry?.rescueType ?? '');
       if (rescueType) {
+        // startedAt/totalMs 由 createRescueMarker 落盘，只用于刷新页面后进度条仍显示真实位置；
+        // 老标记没有这两个字段时 totalMs 为 0，前端会以首次观测到的剩余时间自行起算。
         push({
           key: `rescue:${rescueType}`,
           kind: 'rescue',
           label: rescueText[rescueType] || '抢救',
           icon: rescueIcon[rescueType] || '🩹',
           endAt: endMs,
+          startedAt: Number(entry?.startedAt ?? 0) || 0,
+          totalMs: Number(entry?.totalMs ?? 0) || 0,
         });
         continue;
       }
       // 纯进度型锁定标记：采集/移动的 markers2 镜像（markers 里已有更详细信息时跳过，避免重复条目）
       if (name === '采集' && list.some((a: any) => a.key === 'gather')) continue;
       if (name === '移动' && list.some((a: any) => a.key === 'move')) continue;
+      // 这些标记的 startedAt/totalMs 是可选字段，缺失时前端按「总时长未知」处理
+      const markStart = Number(entry?.startedAt ?? 0);
+      const markTotal = Number(entry?.totalMs ?? 0);
       if (name === '采集') {
-        push({ key: 'gather', kind: 'gather', label: '采集中', icon: '⛏️', endAt: endMs });
+        push({ key: 'gather', kind: 'gather', label: '采集中', icon: '⛏️', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       } else if (name === '移动') {
-        push({ key: 'move', kind: 'move', label: '移动中', icon: '🚶', endAt: endMs });
+        push({ key: 'move', kind: 'move', label: '移动中', icon: '🚶', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       } else if (name === '工作') {
-        push({ key: 'work', kind: 'work', label: '工作中', icon: '🔨', endAt: endMs });
+        push({ key: 'work', kind: 'work', label: '工作中', icon: '🔨', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       } else if (name === '麻痹') {
-        push({ key: 'paralysis', kind: 'debuff', label: '麻痹中', detail: '无法行动', icon: '⚡', endAt: endMs });
+        push({ key: 'paralysis', kind: 'debuff', label: '麻痹中', detail: '无法行动', icon: '⚡', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       }
     }
 
@@ -12269,12 +12288,16 @@ export class GameService {
     seconds: number,
     extra: Record<string, any> = {},
   ): any {
-    const expireAt = Math.ceil(Date.now() / 1000) + Math.max(1, Math.ceil(seconds));
+    const nowMs = Date.now();
+    const totalMs = Math.max(1, Math.ceil(seconds)) * 1000;
     return {
       name: rescueType === 'player' ? '工作' : '复活',
       rescueType,
-      expireAt,
-      token: `rescue-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      // 起点与总时长一并落盘：前端进度条据此算百分比，否则只能干读秒
+      startedAt: nowMs,
+      totalMs,
+      expireAt: Math.ceil(nowMs / 1000) + Math.max(1, Math.ceil(seconds)),
+      token: `rescue-${nowMs}-${Math.random().toString(36).slice(2, 10)}`,
       ...extra,
     };
   }
