@@ -92,6 +92,11 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
       expect.arrayContaining([expect.objectContaining({ name: expect.any(String), distance: 10 })]),
     );
 
+    // 原版圈地：院子资源2 = [土堆, 杂草]，必须先「挖土」「割草」清空才能「开挖地基」
+    const yardResources2 = JSON.parse(yard.resources2);
+    expect(yardResources2.map((r: any) => r.name)).toEqual(['土堆', '杂草']);
+    expect(yardResources2.every((r: any) => r.gatherCmd && r.times > 0)).toBe(true);
+
     const markers = { '家园进度': 4, 前线: 0 };
     await prisma.player.update({
       where: { userId },

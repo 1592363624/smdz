@@ -64,7 +64,7 @@ export class DevAuthController {
         data: {
           username: dto.username,
           password: randomPassword,
-          nickname: dto.username,
+          nickname: await this.usersService.uniquifyNickname(dto.username),
         },
       });
       await this.usersService.ensurePlayer(user.id);

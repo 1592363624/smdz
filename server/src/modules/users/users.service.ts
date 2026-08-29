@@ -139,19 +139,64 @@ export class UsersService {
   }
 
   /**
+   * 校验昵称全局唯一（排除指定用户）
+   * 空昵称视为未设置，不参与唯一性校验（数据库默认 '' 允许多人未设置）
+   */
+  private async assertNicknameUnique(nickname: string, excludeUserId?: number): Promise<void> {
+    const conflict = await this.prisma.user.findFirst({
+      where: {
+        nickname,
+        ...(excludeUserId !== undefined ? { id: { not: excludeUserId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (conflict) {
+      throw new ConflictException('该昵称已被其他玩家使用，请换一个');
+    }
+  }
+
+  /**
+   * 生成全局唯一昵称：基名被占用时追加 #序号 后缀。
+   * 供注册自动去重使用（QQ 昵称天然可重复，注册不能因此被拒绝）。
+   */
+  async uniquifyNickname(base: string): Promise<string> {
+    let candidate = base;
+    let seq = 2;
+    while (
+      await this.prisma.user.findFirst({
+        where: { nickname: candidate },
+        select: { id: true },
+      })
+    ) {
+      candidate = `${base}#${seq}`;
+      seq++;
+    }
+    return candidate;
+  }
+
+  /**
    * 设置/修改游戏昵称
    * 供 QQ 互联首次注册后引导设置昵称，以及用户主动修改昵称使用。
+   * 昵称全局唯一（排除自己）：被他人占用时抛 ConflictException。
    * @param userId 用户ID
-   * @param nickname 游戏昵称（1-20字符）
+   * @param nickname 游戏昵称（1-20字符，前后空白会被清理）
    */
   async updateNickname(userId: number, nickname: string) {
+    const trimmed = (nickname || '').trim();
+    if (!trimmed) {
+      throw new BadRequestException('昵称不能为空');
+    }
+    if (trimmed.length > 20) {
+      throw new BadRequestException('昵称最多20个字符');
+    }
     const exists = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!exists) {
       throw new NotFoundException('用户不存在');
     }
+    await this.assertNicknameUnique(trimmed, userId);
     return this.prisma.user.update({
       where: { id: userId },
-      data: { nickname },
+      data: { nickname: trimmed },
       select: {
         id: true,
         username: true,

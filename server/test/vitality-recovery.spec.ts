@@ -154,3 +154,51 @@ describe('活力恢复：时间基准初始化', () => {
     expect(second).not.toContain('活力快满了');
   });
 });
+
+describe('离线回复的死亡门槛（原版 _计算玩家 L2383：当前生命>0 才结算三池回复）', () => {
+  it('死亡玩家(当前生命=0)离线不回血/盾/甲，保持死亡状态由复活使魔/救助处理', async () => {
+    const player = {
+      vitality: 0, lastOpTime: BigInt(0), readTime: BigInt(0),
+      markers: JSON.stringify({ 活力2: 100, 使用活力: 0 }),
+      markers2: '[]', hp: 0, maxHp: 100, shield: 0, maxShield: 50, armor: 0, maxArmor: 30,
+      regenHp: 1, regenShield: 1, regenArmor: 1,
+    };
+    const { service, player: p } = build(player);
+
+    await service.calculateTimeElapsed(1); // 落基准
+    p.lastOpTime = BigInt(Date.now() - 1200 * 1000); // 离线 20 分钟
+
+    const text = await service.calculateTimeElapsed(1);
+
+    // 死亡不被离线回复拉活，三池保持 0
+    expect(p.hp).toBe(0);
+    expect(p.shield).toBe(0);
+    expect(p.armor).toBe(0);
+    expect(text).not.toContain('生命回复');
+    expect(text).not.toContain('护盾回复');
+    expect(text).not.toContain('装甲回复');
+  });
+
+  it('存活玩家照常离线回复三池', async () => {
+    const player = {
+      vitality: 0, lastOpTime: BigInt(0), readTime: BigInt(0),
+      markers: JSON.stringify({ 活力2: 100, 使用活力: 0 }),
+      markers2: '[]', hp: 50, maxHp: 100, shield: 0, maxShield: 50, armor: 0, maxArmor: 30,
+      regenHp: 1, regenShield: 1, regenArmor: 1,
+    };
+    const { service, player: p } = build(player);
+
+    await service.calculateTimeElapsed(1); // 落基准
+    p.lastOpTime = BigInt(Date.now() - 1200 * 1000); // 离线 20 分钟
+
+    const text = await service.calculateTimeElapsed(1);
+
+    // 打满（回复量 1200 封顶）
+    expect(p.hp).toBe(100);
+    expect(p.shield).toBe(50);
+    expect(p.armor).toBe(30);
+    expect(text).toContain('生命回复');
+    expect(text).toContain('护盾回复');
+    expect(text).toContain('装甲回复');
+  });
+});

@@ -1072,6 +1072,30 @@ export class FamiliarSystemService {
     return currentMap?.name === player.houseName;
   }
 
+  /** 产出2（作物/建筑非空）条目数；土堆/杂草等障碍物在原版里产出2恒为空。 */
+  private countOutputs2(resource: any): number {
+    const raw = resource?.outputs2 ?? resource?.['产出2'];
+    if (Array.isArray(raw)) return raw.length;
+    if (raw == null || raw === '') return 0;
+    const parsed = this.playerService.safeJsonParse<any[]>(raw, []);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  }
+
+  /**
+   * 院子里未清理的障碍物（资源2中产出2为空的项）。
+   * 对应原版开挖/建造地基的计次循环校验（_主程序.ecode L2522-2527、L2546-2551）。
+   */
+  private getYardObstacles(yard: any): any[] {
+    const resources2 = this.playerService.safeJsonParse<any[]>(yard?.resources2, []);
+    return resources2.filter((resource: any) => this.countOutputs2(resource) === 0);
+  }
+
+  /** 从静态资源定义深拷贝（对应原版把资源列表1[n]复制进地图资源2）。 */
+  private copyResourceDef(name: string): any {
+    const def = this.staticData.getAllResources().find((resource: any) => resource.name === name);
+    return def ? JSON.parse(JSON.stringify(def)) : { name, times: 20 };
+  }
+
   /**
    * 获取家园状态
    * 显示家园进度、建筑数量、产出预览等信息
@@ -1248,7 +1272,7 @@ export class FamiliarSystemService {
       where: { houseName: newName },
     });
     if (existingPlayers.length > 0 && existingPlayers.some(p => p.userId !== userId)) {
-      return `与其他家园同名：${newName}`;
+      return `禁止与其他家园同名, 请使用其他名称：${newName}`;
     }
 
     const oldName = player.houseName;
@@ -1308,7 +1332,9 @@ export class FamiliarSystemService {
 
   /**
    * 开挖地基 - 进度1→2
-   * 需要 80木头+120石头+40铁矿+40绳子
+   * 对应原版 _主程序.ecode L2516-2541：不消耗任何材料，但要求院子里
+   * 资源2中产出2为空的障碍物（土堆/杂草）已全部清理干净；
+   * 开挖成功后资源2重置为2个土堆，供「建造地基」前再次清理。
    */
   private async handleHomeDig(userId: number, player: any, markers: any): Promise<string> {
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
@@ -1324,46 +1350,26 @@ export class FamiliarSystemService {
       return `${player.name || '冒险者'}你不在你家园里，不能进行这个操作。`;
     }
 
-    // 检查所需材料
-    const required = [
-      { name: '木头', count: 80 },
-      { name: '石头', count: 120 },
-      { name: '铁矿', count: 40 },
-      { name: '绳子', count: 40 },
-    ];
-
-    // 检查背包
-    const backpack = this.playerService.getBackpackItems(player);
-
-    for (const req of required) {
-      const item = backpack.find((i: any) => i.name === req.name);
-      const hasCount = item ? (item.count || 1) : 0;
-      if (hasCount < req.count) {
-        return `材料不足：需要${req.name}x${req.count}，你只有${Math.round(hasCount)}`;
-      }
+    const obstacles = this.getYardObstacles(yard);
+    if (obstacles.length > 0) {
+      const obstacleNames = [...new Set(obstacles.map((o: any) => String(o.name ?? '未知')))].join('、');
+      return `${player.name || '冒险者'}必须先清空地面。清理掉土堆和杂草后再「开挖地基」\n` +
+        `当前还有：${obstacleNames}，发送「挖土」「割草」清理（观察附近可查看剩余次数）`;
     }
 
-    // 扣除材料
-    for (const req of required) {
-      const item = backpack.find((i: any) => i.name === req.name);
-      const itemCount = item.count || 1;
-      if (itemCount === req.count) {
-        const idx = backpack.findIndex((i: any) => i.name === req.name);
-        if (idx !== -1) backpack.splice(idx, 1);
-      } else {
-        item.count = itemCount - req.count;
-      }
-    }
+    // 原版开挖后资源2重置为2个土堆（资源列表1[3]），进度→2
+    await this.mapService.updateDynamicFields(yard.id, {
+      resources2: JSON.stringify([this.copyResourceDef('土堆'), this.copyResourceDef('土堆')]),
+    });
 
     // 更新进度
     markers['家园进度'] = 2;
     player.markers = JSON.stringify(markers);
-    player.backpack = JSON.stringify(backpack);
 
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '开挖地基');
 
-    return `${player.name || '冒险者'} 消耗了80木头、120石头、40铁矿和40绳子\n地基已经挖好，接下来「建造地基」`;
+    return `${player.name || '冒险者'}开始挖地基。\n院子里又出现了两个土堆，清掉后就可以「建造地基」（需要80木头、120石头、40铁矿和40绳子）`;
   }
 
   /**
@@ -1385,7 +1391,15 @@ export class FamiliarSystemService {
       return `${player.name || '冒险者'}你不在你家园里，不能进行这个操作。`;
     }
 
-    // 检查所需材料
+    // 原版先校验地面：开挖地基后院子里会重新出现2个土堆，必须再清空才能建造
+    const obstacles = this.getYardObstacles(yard);
+    if (obstacles.length > 0) {
+      const obstacleNames = [...new Set(obstacles.map((o: any) => String(o.name ?? '未知')))].join('、');
+      return `${player.name || '冒险者'}必须先挖开土堆。清理掉土堆后再「建造地基」\n` +
+        `当前还有：${obstacleNames}，发送「挖土」清理（观察附近可查看剩余次数）`;
+    }
+
+    // 检查所需材料（对应原版逐项提示：建造地基需要80木头，你只有X）
     const required = [
       { name: '木头', count: 80 },
       { name: '石头', count: 120 },
@@ -1399,7 +1413,7 @@ export class FamiliarSystemService {
       const item = backpack.find((i: any) => i.name === req.name);
       const hasCount = item ? (item.count || 1) : 0;
       if (hasCount < req.count) {
-        return `材料不足：需要${req.name}x${req.count}，你只有${Math.round(hasCount)}`;
+        return `建造地基需要${req.count}${req.name}，你只有${Math.round(hasCount)}`;
       }
     }
 

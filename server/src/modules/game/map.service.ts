@@ -318,6 +318,19 @@ export class MapService {
   }
 
   /**
+   * 家园障碍物资源定义深拷贝。
+   * 对应原版把资源列表1[n]整项复制进地图资源2（_主程序.ecode L2604-2605），
+   * 携带完整的 次数/采集指令/产出 定义，供采集系统直接结算。
+   */
+  private getHomeObstacleResources(names: string[]): any[] {
+    const defs = this.staticData.getAllResources();
+    return names
+      .map((name) => defs.find((resource: any) => resource.name === name))
+      .filter((def: any) => !!def)
+      .map((def: any) => JSON.parse(JSON.stringify(def)));
+  }
+
+  /**
    * 确保一个玩家家园的院子、屋内和前线地图存在，并补齐双向入口。
    *
    * 对应原版 接口1.ecode L1395-1480：读取玩家存档后，把
@@ -336,10 +349,14 @@ export class MapService {
       throw new NotFoundException(`家园所在地图 ID=${baseMapId} 不存在`);
     }
 
+    // 原版圈地：院子资源2 = [土堆, 杂草]（_主程序.ecode L2602-2605，资源列表1[3]/[4]），
+    // 玩家必须先用「挖土」「割草」清空地面才能「开挖地基」。ensureDynamicMap 只在
+    // 新建院子时应用该默认值，已有院子（清理中途/已清空）不会被重置。
     const yard = await this.ensureDynamicMap(houseName, {
       description: `玩家在${baseMap.name}圈定的家园`,
       isFrontier: true,
       connections: JSON.stringify([{ name: baseMap.name, mapId: baseMap.id, distance: 10, isFrontier: false }]),
+      resources2: JSON.stringify(this.getHomeObstacleResources(['土堆', '杂草'])),
     });
     await this.appendMapConnection(baseMap.id, {
       name: houseName,

@@ -3487,6 +3487,15 @@ export class GameService {
     return Number(markers[marker] ?? 0) < 1;
   }
 
+  /** 产出2（作物/建筑的生产产出）是否非空；产出2为空的资源2条目即地上的野生资源。 */
+  private hasOutputs2(resource: any): boolean {
+    const raw = resource?.outputs2 ?? resource?.['产出2'];
+    if (Array.isArray(raw)) return raw.length > 0;
+    if (raw == null || raw === '') return false;
+    const parsed = this.playerService.safeJsonParse<any[]>(raw, []);
+    return Array.isArray(parsed) && parsed.length > 0;
+  }
+
   private parseResourceOutputName(rawName: any, rawCount: number): { name: string; count: number; quality: string } {
     const source = String(rawName ?? '').trim();
     const qualityMatch = source.match(/^(.*?)([edcbasx])$/i);
@@ -7512,6 +7521,26 @@ export class GameService {
       lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`⛏️ 资源:`);
       for (const r of resources) {
+        if (r.gatherCmd) {
+          lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}  -> ${r.gatherCmd}`);
+          quickOptions.push({ label: `${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`, cmd: r.gatherCmd });
+        } else {
+          lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`);
+        }
+      }
+    }
+
+    // 运行时资源2（对应原版 地图操作.ecode L862-893：观察附近列出产出2为空的地上资源——
+    // 掉落货舱、家园院子的土堆/杂草等；作物/建筑产出2非空，走「查看作物」「查看建筑」）。
+    // 教程文案（使魔大战.txt L3975）即要求玩家观察附近来发现院子里的杂草和土堆。
+    const groundResources = this.playerService.safeJsonParse<any[]>(map.resources2, [])
+      .filter((r: any) => !this.hasOutputs2(r)
+        && this.getResourceTimes(r) !== 0
+        && this.isGatherResourceAvailable(r, playerMarkers));
+    if (groundResources.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(`⛏️ 地上资源:`);
+      for (const r of groundResources) {
         if (r.gatherCmd) {
           lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}  -> ${r.gatherCmd}`);
           quickOptions.push({ label: `${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`, cmd: r.gatherCmd });
@@ -11686,29 +11715,34 @@ export class GameService {
       const regenShield = player.regenShield || 0;
       const regenArmor = player.regenArmor || 0;
 
-      // 应用回复公式：回复量 = 回复率 × 时间差（每秒回复"回复率"点）
-      // 对齐原版 _计算玩家 L2401-2403：
-      //   当前护盾 += 时间差 × 属性.护盾回复 + 时间差 × 属性.护盾回复2/100 × 属性.护盾
-      // 本框架 regenHp/regenShield/regenArmor 已含原版 /10 折算后的每秒回复速率。
-      const maxHpVal = player.maxHp || 100;
-      const maxShieldVal = player.maxShield || 0;
-      const maxArmorVal = player.maxArmor || 0;
-      const hpRegen = Math.floor(regenHp * timeDiff + (player.regenHp2 || 0) / 100 * maxHpVal * timeDiff);
-      const shieldRegen = Math.floor(regenShield * timeDiff + (player.regenShield2 || 0) / 100 * maxShieldVal * timeDiff);
-      const armorRegen = Math.floor(regenArmor * timeDiff + (player.regenArmor2 || 0) / 100 * maxArmorVal * timeDiff);
-
-      // 限制回复量不超过最大值
+      // 死亡（当前生命<=0）不结算三池回复——原版 _计算玩家 L2383 用
+      // .如果真(玩家.当前生命 > 0) 包住整段回复：死掉的玩家离线不会回血/盾/甲，
+      // 必须靠 复活使魔/救助 等复活，不会因离线回复自动复活。
       const hpBefore = player.hp || 0;
-      const maxHp = player.maxHp || 100;
-      player.hp = Math.min(maxHp, hpBefore + hpRegen);
-
       const shieldBefore = player.shield || 0;
-      const maxShield = player.maxShield || 0;
-      player.shield = Math.min(maxShield, shieldBefore + shieldRegen);
-
       const armorBefore = player.armor || 0;
-      const maxArmor = player.maxArmor || 0;
-      player.armor = Math.min(maxArmor, armorBefore + armorRegen);
+      if (hpBefore > 0) {
+        // 应用回复公式：回复量 = 回复率 × 时间差（每秒回复"回复率"点）
+        // 对齐原版 _计算玩家 L2401-2403：
+        //   当前护盾 += 时间差 × 属性.护盾回复 + 时间差 × 属性.护盾回复2/100 × 属性.护盾
+        // 本框架 regenHp/regenShield/regenArmor 已含原版 /10 折算后的每秒回复速率。
+        const maxHpVal = player.maxHp || 100;
+        const maxShieldVal = player.maxShield || 0;
+        const maxArmorVal = player.maxArmor || 0;
+        const hpRegen = Math.floor(regenHp * timeDiff + (player.regenHp2 || 0) / 100 * maxHpVal * timeDiff);
+        const shieldRegen = Math.floor(regenShield * timeDiff + (player.regenShield2 || 0) / 100 * maxShieldVal * timeDiff);
+        const armorRegen = Math.floor(regenArmor * timeDiff + (player.regenArmor2 || 0) / 100 * maxArmorVal * timeDiff);
+
+        // 限制回复量不超过最大值
+        const maxHp = player.maxHp || 100;
+        player.hp = Math.min(maxHp, hpBefore + hpRegen);
+
+        const maxShield = player.maxShield || 0;
+        player.shield = Math.min(maxShield, shieldBefore + shieldRegen);
+
+        const maxArmor = player.maxArmor || 0;
+        player.armor = Math.min(maxArmor, armorBefore + armorRegen);
+      }
 
       // ===== 躺下经验结算（原版 _计算玩家 L2478-2491） =====
       // a1 = 等级/100 × 时间差 × (1+属性.经验/100) × (1+|陪睡|×0.5) [若有鹭(陪睡<0)再×1.1]

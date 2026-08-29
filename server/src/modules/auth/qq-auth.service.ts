@@ -180,11 +180,14 @@ export class QQAuthService {
         safeUsername = `qq_${openid}_${Math.random().toString(36).slice(2, 6)}`;
       }
       const randomPassword = Math.random().toString(36).slice(2, 18);
+      // 昵称全局唯一：QQ 昵称天然可重复，注册时占用则自动追加 #序号，避免注册被拒绝
+      const baseNickname = (qqNickname || `QQ用户${openid.slice(0, 6)}`).trim() || 'QQ用户';
+      const nickname = await this.usersService.uniquifyNickname(baseNickname);
       user = await this.prisma.user.create({
         data: {
           username: safeUsername,
           password: randomPassword, // 随机密码，用户只能通过 QQ 登录
-          nickname: qqNickname || `QQ用户${openid.slice(0, 6)}`,
+          nickname,
           externalId: openid,
           avatar: qqAvatar,
         },
@@ -199,7 +202,10 @@ export class QQAuthService {
       // 注意：仅当用户未主动设置过游戏昵称时才回填 QQ 昵称，
       // 避免 QQ 昵称改动把用户自定义的游戏昵称覆盖掉。
       const updateData: any = {};
-      if (qqNickname && !user.nickname) updateData.nickname = qqNickname;
+      if (qqNickname && !user.nickname) {
+        const nn = qqNickname.trim();
+        if (nn) updateData.nickname = await this.usersService.uniquifyNickname(nn);
+      }
       if (qqAvatar) updateData.avatar = qqAvatar;
       if (Object.keys(updateData).length > 0) {
         user = await this.prisma.user.update({

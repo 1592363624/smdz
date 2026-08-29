@@ -291,7 +291,20 @@ export class AdminService {
     const updateData: any = {};
     if (data.role !== undefined) updateData.role = data.role;
     if (data.status !== undefined) updateData.status = data.status;
-    if (data.nickname !== undefined) updateData.nickname = data.nickname;
+    if (data.nickname !== undefined) {
+      const trimmed = String(data.nickname).trim();
+      updateData.nickname = trimmed;
+      // 昵称全局唯一（排除自己）：非空昵称不能与其他玩家重复
+      if (trimmed) {
+        const conflict = await this.prisma.user.findFirst({
+          where: { nickname: trimmed, id: { not: id } },
+          select: { id: true },
+        });
+        if (conflict) {
+          throw new BadRequestException('该昵称已被其他玩家使用');
+        }
+      }
+    }
     if (data.qqNumber !== undefined) {
       // 空字符串表示解绑 QQ
       updateData.qqNumber = data.qqNumber === '' ? null : data.qqNumber;
