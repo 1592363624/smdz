@@ -75,75 +75,86 @@ export class FamiliarSkillsService {
    * @returns 技能执行结果文本
    */
   async executeSkill(userId: number, skillName: string, target?: string): Promise<string> {
-    // 先获取玩家数据，确保玩家存在
-    await this.playerService.getPlayerData(userId);
-
-    const result = await (async (): Promise<string> => {
-      switch (skillName) {
-      // 使魔专属技能
-      case '六道轮回': return this.sixPaths(userId, target);
-      case '怒吼': return this.roar(userId);
-      case '万象': return this.myriadVisions(userId);
-      case '誓约胜利之剑': return this.excalibur(userId);
-      case 'ex': return this.excalibur(userId);
-      case '鹰眼': return this.hawkEye(userId);
-      case '歼灭': return this.annihilate(userId);
-      case '歼灭模式': return this.annihilationMode(userId);
-      case '绝对守护': return this.absoluteGuard(userId);
-      case '斗转星移': return this.stellarShift(userId);
-      case '火力全开': return this.fullFirepower(userId);
-      case '啾啾猫猫': return this.meowAttack(userId);
-      case '银龙附体': return this.silverDragonPossession(userId);
-      case '斩': return this.slash(userId);
-      case '会心一击': return this.criticalHit(userId);
-      case '全弹发射': return this.fullSalvo(userId);
-      case '光翼': return this.lightWings(userId);
-      case '炮冠': return this.cannonCrown(userId);
-      case '日轮': return this.solarWheel(userId);
-      case '安宝加油': return this.anchorBoost(userId);
-      case '灼烂歼鬼': return this.scorchedFinger(userId);
-      case '冻结傀儡': return this.freezePuppet(userId);
-      case '封印解除': return this.sealRelease(userId);
-      case '召唤银龙': return this.summonSilverDragon(userId);
-      case '形神合一': return this.spiritUnity(userId);
-      case '风月入墨': return this.windMoonInk(userId);
-      case '心无所扰': return this.heartUnperturbed(userId);
-      case '梦倾天下': return this.dreamWorld(userId);
-      case '反转童话': return this.reverseFairytale(userId);
-      case '月落寸光': return this.moonlightInch(userId);
-
-      // 通用/装备技能
-      case '洗脑': return this.brainwash(userId, target);
-      case '砸瓦鲁多': return this.zaWarudo(userId);
-      case '训练': return this.train(userId);
-      case '掌控时间': return this.timeControl(userId);
-      case '召唤': return this.summon(userId, target);
-      case '力量模式': return this.nanoMode(userId, 'power');
-      case '速度模式': return this.nanoMode(userId, '速度');
-      case '装甲模式': return this.nanoMode(userId, '装甲');
-      case '隐匿模式': return this.nanoMode(userId, 'stealth');
-
-      // 新增缺失技能
-      case '安乐天使': return this.easeAngel(userId);
-      case '福音书': return this.gospel(userId);
-      case '启示录': return this.apocalypse(userId);
-      case '铠甲合体': return this.armorCombine(userId);
-      case '切换模式': return this.switchMode(userId, target);
-      case '使魔挑战': return this.familiarChallenge(userId);
-      case '开始挑战': return this.startChallenge(userId);
-      case '复活使魔': return this.reviveFamiliar(userId);
-      case '大召唤术': return this.massSummon(userId);
-
-        default:
-          return `未知技能「${skillName}」`;
-      }
-    })();
+    // 技能全程持用户级共享锁串行化：单次技能内部存在「读快照 → 多次 savePlayer
+    // → 再改再写」的多轮读改写（castCombatSkill 会自行重新读档并落库，随后调用
+    // 方还要追加增益再保存）。与采集结算、地图战斗节拍、其它指令等并发写入者
+    // 同时推进时，任意一方被对方推进版本都会让 CAS 失败，玩家侧表现就是
+    // 「指令执行错误: 玩家数据并发冲突，请重试」。串行后同一用户的操作不会互踩；
+    // withUserLock 可重入，六道轮回内部再次加锁不会死锁。
+    const result = await this.playerService.withUserLock(userId, () =>
+      this.routeSkill(userId, skillName, target),
+    );
 
     // 技能真正执行成功后才推进任务，失败、冷却或条件不足不能消耗任务次数。
     if (this.isSuccessfulSkillResult(result)) {
       await this.taskService.advance(userId, '使用技能');
     }
     return result;
+  }
+
+  /** 技能名 → 具体技能实现的分发（调用方需已持有用户级锁）。 */
+  private async routeSkill(userId: number, skillName: string, target?: string): Promise<string> {
+    // 先获取玩家数据，确保玩家存在
+    await this.playerService.getPlayerData(userId);
+
+    switch (skillName) {
+    // 使魔专属技能
+    case '六道轮回': return this.sixPaths(userId, target);
+    case '怒吼': return this.roar(userId);
+    case '万象': return this.myriadVisions(userId);
+    case '誓约胜利之剑': return this.excalibur(userId);
+    case 'ex': return this.excalibur(userId);
+    case '鹰眼': return this.hawkEye(userId);
+    case '歼灭': return this.annihilate(userId);
+    case '歼灭模式': return this.annihilationMode(userId);
+    case '绝对守护': return this.absoluteGuard(userId);
+    case '斗转星移': return this.stellarShift(userId);
+    case '火力全开': return this.fullFirepower(userId);
+    case '啾啾猫猫': return this.meowAttack(userId);
+    case '银龙附体': return this.silverDragonPossession(userId);
+    case '斩': return this.slash(userId);
+    case '会心一击': return this.criticalHit(userId);
+    case '全弹发射': return this.fullSalvo(userId);
+    case '光翼': return this.lightWings(userId);
+    case '炮冠': return this.cannonCrown(userId);
+    case '日轮': return this.solarWheel(userId);
+    case '安宝加油': return this.anchorBoost(userId);
+    case '灼烂歼鬼': return this.scorchedFinger(userId);
+    case '冻结傀儡': return this.freezePuppet(userId);
+    case '封印解除': return this.sealRelease(userId);
+    case '召唤银龙': return this.summonSilverDragon(userId);
+    case '形神合一': return this.spiritUnity(userId);
+    case '风月入墨': return this.windMoonInk(userId);
+    case '心无所扰': return this.heartUnperturbed(userId);
+    case '梦倾天下': return this.dreamWorld(userId);
+    case '反转童话': return this.reverseFairytale(userId);
+    case '月落寸光': return this.moonlightInch(userId);
+
+    // 通用/装备技能
+    case '洗脑': return this.brainwash(userId, target);
+    case '砸瓦鲁多': return this.zaWarudo(userId);
+    case '训练': return this.train(userId);
+    case '掌控时间': return this.timeControl(userId);
+    case '召唤': return this.summon(userId, target);
+    case '力量模式': return this.nanoMode(userId, 'power');
+    case '速度模式': return this.nanoMode(userId, '速度');
+    case '装甲模式': return this.nanoMode(userId, '装甲');
+    case '隐匿模式': return this.nanoMode(userId, 'stealth');
+
+    // 新增缺失技能
+    case '安乐天使': return this.easeAngel(userId);
+    case '福音书': return this.gospel(userId);
+    case '启示录': return this.apocalypse(userId);
+    case '铠甲合体': return this.armorCombine(userId);
+    case '切换模式': return this.switchMode(userId, target);
+    case '使魔挑战': return this.familiarChallenge(userId);
+    case '开始挑战': return this.startChallenge(userId);
+    case '复活使魔': return this.reviveFamiliar(userId);
+    case '大召唤术': return this.massSummon(userId);
+
+    default:
+      return `未知技能「${skillName}」`;
+    }
   }
 
   private isSuccessfulSkillResult(result: string): boolean {
@@ -922,14 +933,20 @@ export class FamiliarSkillsService {
       extraPenetrationFlat?: number;
       burnSeconds?: number;
     },
-  ): Promise<string> {
+  ): Promise<{ result: string; player: any; markers: any }> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
     const resultLines: string[] = [];
 
     // 冷却检查
     const cooldownCheck = this.checkCooldown(player, opts.cooldownName, opts.baseCooldown);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    if (cooldownCheck.isOnCooldown) {
+      return {
+        result: cooldownCheck.text,
+        player,
+        markers: this.playerService.safeJsonParse<any>(player.markers, {}),
+      };
+    }
 
     this.applyFirstAid(player, resultLines);
 
@@ -955,9 +972,19 @@ export class FamiliarSkillsService {
     player.markers = JSON.stringify(markers);
     await this.playerService.savePlayer(player);
 
-    return [...resultLines, result.result, `(技能经验+${this.formatSkillNumber(gainedExp)})`]
-      .filter(Boolean)
-      .join('\n');
+    // 必须把本方法内部持有并已落库的 player/markers 交还调用方：
+    // 本方法自行 getPlayerData 读了一份新快照（与调用方手里的不是同一份），
+    // 且上面的 savePlayer 已把数据库 version 推进。调用方若继续用自己那份
+    // 调用前的旧快照追加增益再 savePlayer，CAS 会因版本过期抛「玩家数据并发
+    // 冲突」；即便侥幸写入，也会用旧数据整包覆盖掉这里落库的冷却/技能经验/
+    // 活跃度（丢失更新）。后续写操作一律以返回的 player/markers 为准。
+    return {
+      result: [...resultLines, result.result, `(技能经验+${this.formatSkillNumber(gainedExp)})`]
+        .filter(Boolean)
+        .join('\n'),
+      player,
+      markers,
+    };
   }
 
   // ==================== 使魔专属技能 ====================
@@ -1335,7 +1362,9 @@ export class FamiliarSkillsService {
       const skillLevel = this.getSkillLevel(markers, '军姬2');
       const isDead = (player.hp || 0) <= 0;
       const mult = isDead ? Math.floor(300 + 7.5 * skillLevel) : 200 + 5 * skillLevel;
-      const result = await this.castCombatSkill(userId, {
+      // 后续回血写在 castCombatSkill 返回的最新快照上：既避免旧快照 version 过期
+      // 导致的并发冲突，也保证回血基准是战斗结算后的最新血量（用旧 hp 会把战损回滚）。
+      const { result, player: livePlayer, markers: liveMarkers } = await this.castCombatSkill(userId, {
         cooldownName: '万象',
         baseCooldown: 60,
         damageMultiplier: mult,
@@ -1345,10 +1374,10 @@ export class FamiliarSkillsService {
       });
       // 好感分层解锁：原版「玩家.好感 >= 60 → 回血50%」
       let extra = '';
-      if (this.checkAffinity(markers, '军姬2', 60)) {
-        const heal = Math.floor((player.maxHp || 100) * 0.5);
-        player.hp = Math.min((player.hp || 0) + heal, player.maxHp || 100);
-        await this.playerService.savePlayer(player);
+      if (this.checkAffinity(liveMarkers, '军姬2', 60)) {
+        const heal = Math.floor((livePlayer.maxHp || 100) * 0.5);
+        livePlayer.hp = Math.min((livePlayer.hp || 0) + heal, livePlayer.maxHp || 100);
+        await this.playerService.savePlayer(livePlayer);
         extra = `\n（好感≥60 解锁：恢复 ${heal} 点生命）`;
       }
       return `【万象】空间割裂，万象之力横扫全场！\n${result}${extra}`;
@@ -1412,7 +1441,7 @@ export class FamiliarSkillsService {
     // - extraPenetrationFlat: 原版 施放时「增加穿透(玩家.属性, 15)」（加成计算.ecode L3446），仅本次攻击生效；
     // - burnSeconds: 命中后给目标挂"sa"灼烧标记（战斗相关.ecode L1930），
     //   由引擎在命中时写入目标、地图战斗节拍按 物攻/10×经过秒数 结算持续伤害。
-    const result = await this.castCombatSkill(userId, {
+    const { result, player: livePlayer, markers: liveMarkers } = await this.castCombatSkill(userId, {
       cooldownName: '誓约胜利之剑',
       baseCooldown: 60,
       damageMultiplier: mult,
@@ -1422,40 +1451,42 @@ export class FamiliarSkillsService {
       burnSeconds: 30,
     });
 
+    // 以下增益一律写在 castCombatSkill 返回的最新快照上：内部已重新读档并落库，
+    // 本方法开头那份 player 的 version 已过期，用它保存必然并发冲突。
     // 原版：添加标记 ("ex", 15*a3, 玩家.增益) —— a3=装备库洛牌?1.25:1
     // "ex"标记消费者（均已存在）：好感≥40受击免伤（combat-system L812/L1652）、
     // 好感≥80 物伤2+50+技能 / ≥100 全属性+15+技能/2（combat-system L5611 saber case）
-    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
-    this.addBuff(player, 'ex', Math.floor(15 * a3));
+    const a3 = this.hasItem(livePlayer, '库洛牌') ? 1.25 : 1;
+    this.addBuff(livePlayer, 'ex', Math.floor(15 * a3));
     // addBuff 只改内存对象，必须落库否则 15 秒免伤增益不会生效
 
     // ========== 好感分层被动（对应原版 _decoded_original.txt [saber] 好感2/4/5） ==========
     // 原版语义是「使用主动技能后15秒内…」——即施放 #ex 时写入 15 秒窗口增益。
     // 好感1/3/ex全属性层是常驻属性，已在 combat-system _计算玩家 saber case（原版加成计算 L2107-2132）实现，此处不重复。
-    const affinity = this.getAffinity(markers, 'Saber');
+    const affinity = this.getAffinity(liveMarkers, 'Saber');
     const buffDur = 15; // 原版固定15秒窗口，不受库洛牌 a3 放大影响
     let affinityBuffText = '';
     // 好感2：15秒内抵挡所有伤害（原版「无敌」语义，映射为 invincible 字段，由 combat-system 消费）
     if (affinity >= 2) {
-      this.addBuff(player, 'saber_无敌', buffDur, { invincible: true });
+      this.addBuff(livePlayer, 'saber_无敌', buffDur, { invincible: true });
       affinityBuffText += `\n（好感≥2 激活：15秒内【无敌】抵挡所有伤害）`;
     }
     // 好感4：15秒内物攻+50(+【1技能等级】)%
     if (affinity >= 4) {
       const atkPct = 50 + skillLevel; // 50 + 1*技能等级
-      this.addBuff(player, 'saber_物攻', buffDur, { 攻击: atkPct });
+      this.addBuff(livePlayer, 'saber_物攻', buffDur, { 攻击: atkPct });
       affinityBuffText += `\n（好感≥4 激活：15秒内物攻+${atkPct}%）`;
     }
     // 好感5：15秒内 生命/装甲/护盾/闪避/命中/攻击 +15(+【0.5技能等级】)%
     if (affinity >= 5) {
       const allPct = 15 + skillLevel / 2; // 15 + 0.5*技能等级
-      this.addBuff(player, 'saber_全属性', buffDur, {
+      this.addBuff(livePlayer, 'saber_全属性', buffDur, {
         生命: allPct, 装甲: allPct, 护盾: allPct, 闪避: allPct, 命中: allPct, 攻击: allPct,
       });
       affinityBuffText += `\n（好感≥5 激活：15秒内全属性+${allPct}%）`;
     }
 
-    await this.playerService.savePlayer(player);
+    await this.playerService.savePlayer(livePlayer);
 
     return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒！\n${result}${affinityBuffText}`;
   }
@@ -1529,7 +1560,9 @@ export class FamiliarSkillsService {
 
     // 真正调用战斗引擎造成伤害（三层穿透 + 击杀 + 经验 + 掉落）
     // 原版攻击文本为「歼灭a」（使魔技能.ecode L1499），按命中档位抽取模板。
-    const result = await this.castCombatSkill(userId, {
+    // 后续增益写在 castCombatSkill 返回的最新快照上（旧快照 version 已过期，
+    // 用它保存会并发冲突，且会把内部的冷却/技能经验/活跃度整包覆盖回滚）。
+    const { result, player: livePlayer, markers: liveMarkers } = await this.castCombatSkill(userId, {
       cooldownName: '歼灭',
       baseCooldown: 60,
       damageMultiplier: mult,
@@ -1540,13 +1573,12 @@ export class FamiliarSkillsService {
     // 好感分层解锁：原版「玩家.好感 >= 20 → 获得增益 a技能2 30秒」（使魔技能.ecode L1483）。
     // 「a技能2」由战斗引擎格挡判定消费（combat-system 格挡分支：30%完全格挡/20%穿透+/其余减伤75%，
     // 对应原版 战斗相关.ecode L2565-2572），不要改名也不要写 extra 字段——引擎按增益名匹配。
-    const affinity = this.getAffinity(markers, '阿尔缇娜');
     let extra = '';
-    if (this.checkAffinity(markers, '阿尔缇娜', 20)) {
-      this.addBuff(player, 'a技能2', 30);
+    if (this.checkAffinity(liveMarkers, '阿尔缇娜', 20)) {
+      this.addBuff(livePlayer, 'a技能2', 30);
       extra = '\n（好感≥20 解锁：【a技能2】剑刃格挡强化，持续30秒）';
-      player.markers = JSON.stringify(markers);
-      await this.playerService.savePlayer(player);
+      livePlayer.markers = JSON.stringify(liveMarkers);
+      await this.playerService.savePlayer(livePlayer);
     }
 
     return `阿尔缇娜释放冰霜之力——歼灭！\n${result}${extra}`;
@@ -1922,7 +1954,7 @@ export class FamiliarSkillsService {
     const mult = 200 + 10 * skillLevel;
 
     // 真正调用战斗引擎造成伤害（高倍率对应原版会心一击的暴击特性）
-    const result = await this.castCombatSkill(userId, {
+    const { result } = await this.castCombatSkill(userId, {
       cooldownName: '会心一击',
       baseCooldown: 60,
       damageMultiplier: mult,
@@ -1954,7 +1986,7 @@ export class FamiliarSkillsService {
     const mult = 100 + 5 * skillLevel;
 
     // 真正调用战斗引擎（全体攻击）造成伤害
-    const result = await this.castCombatSkill(userId, {
+    const { result } = await this.castCombatSkill(userId, {
       cooldownName: '全弹发射',
       baseCooldown: 60,
       damageMultiplier: mult,
@@ -2041,7 +2073,7 @@ export class FamiliarSkillsService {
     const mult = 120 + 5 * skillLevel;
 
     // 真正调用战斗引擎造成伤害
-    const result = await this.castCombatSkill(userId, {
+    const { result } = await this.castCombatSkill(userId, {
       cooldownName: '炮冠',
       baseCooldown: 45, // 原版炮冠基础冷却45s
       damageMultiplier: mult,
@@ -2088,7 +2120,9 @@ export class FamiliarSkillsService {
     }
 
     // 真正调用战斗引擎（全体攻击）造成日轮爆发伤害，倍率按存活怪数分摊
-    const result = await this.castCombatSkill(userId, {
+    // 后续羽毛结算写在 castCombatSkill 返回的最新快照上（旧快照 version 已过期，
+    // 用它保存会并发冲突，且会把内部的冷却/技能经验/活跃度整包覆盖回滚）。
+    const { result, player: livePlayer, markers: liveMarkers } = await this.castCombatSkill(userId, {
       cooldownName: '日轮',
       baseCooldown: 60,
       damageMultiplier: Math.floor(baseMult / aliveCount),
@@ -2101,12 +2135,15 @@ export class FamiliarSkillsService {
 
     // 攻击后：消耗10片羽毛 + 获得30×a3秒「日轮」增益（L1907-1912，引擎按增益名消费：
     // 取羽毛封顶×1.5/恢复间隔减半，见 combat-system getFeather）
-    this.combatSystem.getFeather(player, markers, Date.now(), -10);
-    const remaining = this.combatSystem.getFeather(player, markers, Date.now());
-    this.addBuff(player, '日轮', Math.floor(30 * a3));
-    await this.playerService.savePlayer(player);
+    this.combatSystem.getFeather(livePlayer, liveMarkers, Date.now(), -10);
+    const remaining = this.combatSystem.getFeather(livePlayer, liveMarkers, Date.now());
+    this.addBuff(livePlayer, '日轮', Math.floor(30 * a3));
+    // getFeather 只改 markers 对象，必须 stringify 写回 player.markers 才会随
+    // savePlayer 落库（同 combat-system 远程炮击分支的写法），否则扣的羽毛不生效。
+    livePlayer.markers = JSON.stringify(liveMarkers);
+    await this.playerService.savePlayer(livePlayer);
 
-    return `绝灭天使展开日轮！\n${result}${this.checkAffinity(markers, '绝灭天使', 40) ? '\n（好感≥40 解锁：本次攻击穿透+5）' : ''}（羽毛${Math.floor(remaining)}）`;
+    return `绝灭天使展开日轮！\n${result}${this.checkAffinity(liveMarkers, '绝灭天使', 40) ? '\n（好感≥40 解锁：本次攻击穿透+5）' : ''}（羽毛${Math.floor(remaining)}）`;
   }
 
   /**

@@ -411,8 +411,14 @@ function makeSaberService(player: any) {
     safeJsonParse: (v: any, d: any) => { try { return typeof v === 'string' ? JSON.parse(v) : (v ?? d); } catch { return d; } },
   };
   service.familiarSystem = { getSkillEffect: jest.fn(() => 1) };
-  // 拦截真正打怪，只验证 buff 写入
-  service.castCombatSkill = jest.fn(async () => '【命中】');
+  // 拦截真正打怪，只验证 buff 写入。
+  // castCombatSkill 的契约是返回 { result, player, markers }：它会自行重新读档并
+  // 落库，调用方必须用返回的这份最新快照续写，否则版本过期必然 CAS 失败。
+  service.castCombatSkill = jest.fn(async () => ({
+    result: '【命中】',
+    player,
+    markers: JSON.parse(player.markers),
+  }));
   service.hasItem = jest.fn(() => false); // 无库洛牌：ex 时长=15
   // getSkillLevel / getAffinity 为 FamiliarSkillsService 自身方法，需保留真实实现
   return service;
@@ -464,5 +470,49 @@ describe('Saber 好感2/4/5 触发式 buff（誓约胜利之剑施放后）', ()
     expect(names).toContain('saber_无敌');
     expect(names).not.toContain('saber_物攻');
     expect(names).not.toContain('saber_全属性');
+  });
+});
+
+// ============ 保存链路回归：不得用调用前的旧快照续写（并发冲突/丢失更新）============
+// 事故：excalibur 在 castCombatSkill 之后仍用本方法开头那份快照 addBuff + savePlayer。
+// castCombatSkill 内部已自行重新读档并落库（版本推进），旧快照的 version 必然过期，
+// CAS 直接抛「玩家数据并发冲突，请重试」，玩家看到的就是「技能不能用」。
+describe('誓约胜利之剑 保存链路回归（旧快照不得续写）', () => {
+  it('castCombatSkill 落库推进版本后，用其返回的最新快照续写增益且不回滚其写入', async () => {
+    const player = makeSaberPlayer(5, 10, { version: 5 });
+    const service = makeSaberService(player);
+
+    const savedSnapshots: any[] = [];
+    service.playerService.savePlayer = jest.fn(async (p: any) => {
+      savedSnapshots.push({ ...p });
+      // 与真实 savePlayer 一致：落库成功后同步推进内存快照版本
+      p.version = Number(p.version) + 1;
+      Object.assign(player, p);
+    });
+
+    // 复刻 castCombatSkill 的真实语义：自行重新读档 → 写冷却/技能经验/活跃度 → 落库
+    service.castCombatSkill = jest.fn(async () => {
+      const inner: any = { ...player, version: player.version, buffs: '[]' };
+      const innerMarkers = JSON.parse(inner.markers);
+      innerMarkers['活跃度'] = 1;
+      innerMarkers['Saber技能熟练度'] = 100;
+      inner.markers = JSON.stringify(innerMarkers);
+      await service.playerService.savePlayer(inner); // version 5 → 6
+      return { result: '【命中】', player: inner, markers: innerMarkers };
+    });
+
+    const text = await service.excalibur(1);
+
+    expect(text).toContain('Excalibur');
+    expect(text).not.toContain('并发冲突');
+
+    // 最后一次保存必须建立在版本已推进的最新快照上（version=6），并带上增益
+    const last = savedSnapshots[savedSnapshots.length - 1];
+    expect(last.version).toBe(6);
+    expect(JSON.parse(last.buffs).map((b: any) => b.name)).toContain('ex');
+
+    // 关键回归点：不能把 castCombatSkill 写入的活跃度/技能经验整包覆盖回滚
+    expect(JSON.parse(last.markers)['活跃度']).toBe(1);
+    expect(JSON.parse(last.markers)['Saber技能熟练度']).toBe(100);
   });
 });
