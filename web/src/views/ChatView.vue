@@ -455,6 +455,9 @@
         <button v-if="showScrollBtn" class="scroll-bottom-btn" @click="scrollToBottom()">↓ 回到底部</button>
       </div>
 
+      <!-- 进行中操作倒计时：采集/移动/抢救等延时指令的剩余时间与进度 -->
+      <PendingActionBar :actions="pendingActions" @expired="onPendingExpired" />
+
       <!-- 手机端浮动快捷操作栏 -->
       <div class="mobile-float-actions">
         <button class="mfa-bag" @click="quickAction('背包')">🎒</button>
@@ -879,6 +882,7 @@ import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { useRouter } from 'vue-router';
 // 玩家状态面板（桌面侧栏 + 手机抽屉复用；战斗力/任务/装备/增益一屏展示）
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
+import PendingActionBar from '../components/PendingActionBar.vue';
 import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
 import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
@@ -1898,6 +1902,21 @@ async function loadMapOverview() {
   } catch {
     // 地图总览接口可能不存在，静默忽略
   }
+}
+
+// 进行中操作（采集/移动/抢救…）快照，来自玩家状态面板的同一份数据
+const pendingActions = computed(() => playerInfo.value?.pendingActions || []);
+
+/**
+ * 倒计时归零回调：延时指令已到点，主动拉一次玩家状态与地图，
+ * 把已结算的条目清掉并同步结算产出（后端定时器抖动或兜底扫描时尤其需要）。
+ */
+let pendingRefreshAt = 0;
+async function onPendingExpired() {
+  const nowMs = Date.now();
+  if (nowMs - pendingRefreshAt < 1500) return; // 多条同时到期时合并刷新
+  pendingRefreshAt = nowMs;
+  await Promise.all([loadPlayerInfo(), loadMapOverview()]);
 }
 
 // 加载附近玩家列表（当前区域同一地图内的其他玩家）

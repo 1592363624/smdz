@@ -292,6 +292,7 @@ export class GameService {
     newMarkers['移动中'] = JSON.stringify({
       targetName: targetMap.name,
       targetMapId: targetMap.id,
+      startedAt: Date.now(),
       arriveAt: Date.now() + travelTime * 1000,
       fromMapId: currentMap.id,
     });
@@ -534,6 +535,7 @@ export class GameService {
     nextMarkers['移动中'] = JSON.stringify({
       targetName: arrivalMap.name,
       targetMapId: arrivalMap.id,
+      startedAt: Date.now(),
       arriveAt: Date.now() + seconds * 1000,
       fromMapId: currentMap.id,
       mode: '飞行',
@@ -1096,7 +1098,148 @@ export class GameService {
       tasks: this.buildActiveTasks(playerData.tasks),
       equipment: this.buildEquipmentSnapshot(player, markers),
       buffs: this.buildActiveBuffs(playerData.buffs),
+      // 进行中的延时操作（采集/移动/抢救…）：前端据此渲染统一倒计时进度条
+      pendingActions: this.buildPendingActions(player, markers, playerData.markers2),
     };
+  }
+
+  /**
+   * 进行中的延时操作快照（网页「进行中操作」倒计时条用）。
+   *
+   * 原版里大量指令是"发指令 → 等 N 秒 → 延时结算"，期间玩家会被行动限制锁住，
+   * 但界面上只有聊天区一行文字提示，玩家常常误以为指令没生效而重复发送。
+   * 这里把玩家身上所有"还需要 N 秒"的状态汇总成统一结构，前端一次性渲染：
+   *   - 采集：markers['采集中']（打开箱子 / 打开休眠仓 / 收集木头 / 捡垃圾 等地图资源指令）
+   *   - 移动：markers['移动中']（前往其它地图的路途耗时）
+   *   - 抢救：markers2 中 name=复活（抢救使魔 / 维修载具 / 自救）
+   *   - 工作：markers2 中 name=工作（救助其他玩家）
+   *   - 麻痹：markers2 中 name=麻痹（负面锁定状态）
+   * 只输出仍未到期的条目；已到期的由各自的延时结算/兜底任务清除，前端也会本地剔除。
+   *
+   * @param player 玩家行（用于兜底取 markers2 原始串）
+   * @param markers 已解析的对象标记
+   * @param markers2 已解析的时效标记数组
+   * @returns 进行中操作列表（按结束时间升序，通常只有 1 条）
+   */
+  private buildPendingActions(
+    player: any,
+    markers: any,
+    markers2: any,
+  ): Array<{ key: string; kind: string; label: string; detail: string; icon: string; startedAt: number; endAt: number; totalMs: number }> {
+    const now = Date.now();
+    const list: Array<any> = [];
+
+    /** 历史数据里 expireAt 有秒/毫秒两种口径，统一归一为毫秒时间戳。 */
+    const toEndMs = (raw: any): number => {
+      const v = Number(raw ?? 0);
+      if (!Number.isFinite(v) || v <= 0) return 0;
+      return v >= 1e12 ? v : v * 1000;
+    };
+
+    const push = (item: {
+      key: string; kind: string; label: string; detail?: string; icon?: string;
+      endAt: number; startedAt?: number; totalMs?: number;
+    }) => {
+      const endAt = Math.floor(item.endAt);
+      if (!endAt || endAt <= now) return; // 已到期：结算任务会清理，此处不展示
+      const startedAt = Math.floor(item.startedAt ?? 0) || Math.max(0, endAt - Math.floor(item.totalMs ?? 0));
+      list.push({
+        key: item.key,
+        kind: item.kind,
+        label: item.label,
+        detail: item.detail || '',
+        icon: item.icon || '⏳',
+        startedAt,
+        endAt,
+        totalMs: Math.max(0, endAt - startedAt),
+      });
+    };
+
+    // ===== 1) 采集（打开箱子 / 打开休眠仓 / 收集木头 / 捡垃圾 …）=====
+    // 写入处 handleGatherResource：markers['采集中'] = { target, cmd, count, startedAt, settleAt }
+    const gather = markers?.['采集中'];
+    if (gather && typeof gather === 'object') {
+      const endAt = Number(gather.settleAt ?? 0) || 0;
+      const startedAt = Number(gather.startedAt ?? 0) || 0;
+      const cmd = String(gather.cmd ?? '').trim();
+      const target = String(gather.target ?? '').trim();
+      const count = Number(gather.count ?? 1);
+      push({
+        key: 'gather',
+        kind: 'gather',
+        label: cmd || '采集中',
+        detail: [target, count > 1 ? `×${count}` : ''].filter(Boolean).join(' '),
+        icon: '⛏️',
+        endAt,
+        startedAt,
+        totalMs: startedAt ? endAt - startedAt : undefined,
+      });
+    }
+
+    // ===== 2) 移动（前往其它地图的路途耗时）=====
+    // 写入处 handleMove：markers['移动中'] = JSON 字符串 { targetName, arriveAt, ... }
+    const movingRaw = markers?.['移动中'];
+    const moving = typeof movingRaw === 'string'
+      ? this.playerService.safeJsonParse<any>(movingRaw, null)
+      : movingRaw;
+    if (moving && typeof moving === 'object') {
+      const endAt = Number(moving.arriveAt ?? 0) || 0;
+      const startedAt = Number(moving.startedAt ?? 0) || 0;
+      const mode = String(moving.mode ?? '').trim();
+      push({
+        key: 'move',
+        kind: 'move',
+        label: '移动中',
+        detail: moving.targetName ? `${mode || '前往'}【${moving.targetName}】` : (mode || ''),
+        icon: mode === '飞行' ? '🕊️' : '🚶',
+        endAt,
+        startedAt,
+        totalMs: startedAt ? endAt - startedAt : undefined,
+      });
+    }
+
+    // ===== 3) markers2 时效标记：抢救/维修/救助/麻痹 =====
+    const list2 = Array.isArray(markers2)
+      ? markers2
+      : this.playerService.safeJsonParse<any[]>(player?.markers2, []);
+    const rescueText: Record<string, string> = {
+      self: '自救', familiar: '抢救使魔', vehicle: '维修载具', player: '救助玩家',
+    };
+    const rescueIcon: Record<string, string> = {
+      self: '💊', familiar: '🩹', vehicle: '🔧', player: '🤝',
+    };
+    for (const entry of list2) {
+      if (!entry || typeof entry !== 'object') continue;
+      const name = String(entry?.name ?? entry?.名称 ?? '');
+      const endMs = toEndMs(entry?.expireAt ?? entry?.有效期至);
+      if (!endMs) continue;
+      // 带 rescueType 的「复活/工作」= 救助链路（抢救使魔/维修载具/自救/救助玩家）
+      const rescueType = String(entry?.rescueType ?? '');
+      if (rescueType) {
+        push({
+          key: `rescue:${rescueType}`,
+          kind: 'rescue',
+          label: rescueText[rescueType] || '抢救',
+          icon: rescueIcon[rescueType] || '🩹',
+          endAt: endMs,
+        });
+        continue;
+      }
+      // 纯进度型锁定标记：采集/移动的 markers2 镜像（markers 里已有更详细信息时跳过，避免重复条目）
+      if (name === '采集' && list.some((a: any) => a.key === 'gather')) continue;
+      if (name === '移动' && list.some((a: any) => a.key === 'move')) continue;
+      if (name === '采集') {
+        push({ key: 'gather', kind: 'gather', label: '采集中', icon: '⛏️', endAt: endMs });
+      } else if (name === '移动') {
+        push({ key: 'move', kind: 'move', label: '移动中', icon: '🚶', endAt: endMs });
+      } else if (name === '工作') {
+        push({ key: 'work', kind: 'work', label: '工作中', icon: '🔨', endAt: endMs });
+      } else if (name === '麻痹') {
+        push({ key: 'paralysis', kind: 'debuff', label: '麻痹中', detail: '无法行动', icon: '⚡', endAt: endMs });
+      }
+    }
+
+    return list.sort((a: any, b: any) => a.endAt - b.endAt);
   }
 
   /**
