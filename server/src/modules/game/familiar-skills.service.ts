@@ -2802,18 +2802,16 @@ export class FamiliarSkillsService {
     return Math.max(1, life + shield + armor + attack + speed + hit + dodge);
   }
 
-  /** 原版失败后的新建延时(覅攻击pd地图, 5秒)。 */
+  /** 原版失败后的新建延时(覅攻击pd地图, 5秒)：交由地图怪物攻击循环统一去重调度。 */
   private scheduleMapAttack(userId: number, map: any): void {
-    if (typeof (this.combatSystem as any)?.adminAttackMap !== 'function') return;
-    const mapArg = String(map?.mapIndex ?? map?.列表编号 ?? map?.id ?? '');
-    const timer = setTimeout(() => {
-      void (this.combatSystem as any).adminAttackMap(userId, mapArg).catch((error: any) => {
-        this.logger.warn(`洗脑失败后的延时攻击执行失败: ${error?.message ?? error}`);
-      });
-    }, 5_000);
-    // A delayed game event must not keep a worker alive during shutdown/tests.
-    const unref = (timer as any)?.unref;
-    if (typeof unref === 'function') unref.call(timer);
+    if (typeof (this.combatSystem as any)?.scheduleMapMonsterRound !== 'function') return;
+    const mapId = Number(map?.id ?? map?.列表编号 ?? 0);
+    if (!Number.isFinite(mapId) || mapId <= 0) return;
+    try {
+      (this.combatSystem as any).scheduleMapMonsterRound(mapId, 5);
+    } catch (error: any) {
+      this.logger.warn(`洗脑失败后的延时攻击登记失败: ${error?.message ?? error}`);
+    }
   }
 
   /**

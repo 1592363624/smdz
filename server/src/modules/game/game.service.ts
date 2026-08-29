@@ -688,6 +688,10 @@ export class GameService {
     const desc = targetMap.description ? `\n${targetMap.description}` : '';
     const text = `你来到了【${targetMap.name}】${desc}${triggerText ? `\n${triggerText}` : ''}`;
 
+    // 注：原版到达拉起怪物攻击（_主程序.ecode L1755-1795）仅限地图"代发言=触发攻击"
+    // 且载具损毁/无隐形模块的场景；本框架地图表未配置"代发言"字段，普通到达不惊动怪物，
+    // 怪物回合仍由攻击/采集等动作触发（triggerMapBattleLoop）。
+
     // 向世界频道广播到达消息（持久化 + 实时推送）
     await this.chatService.broadcastSystem('世界频道', text, userId);
 
@@ -3211,10 +3215,14 @@ export class GameService {
       await this.taskService.advance(userId, `获得${itemName}`, amount);
     }
 
-    // 代发言=触发攻击：采集完成会激怒附近怪物（原版 新建延时("覅攻击pd"+地图)）
+    // 代发言=触发攻击：采集完成会激怒附近怪物
+    // （原版 _主程序.ecode L11426：新建延时("覅攻击pd"+地图, "0", 群号, 5)——
+    //   采集后5秒怪物回合开始并自动续回合；等级<15豁免对齐原版）
     if (String(target.proxySpeak ?? target.代发言 ?? '') === '触发攻击' && !map.isInstance) {
       try {
-        await (this.combatSystem as any).adminAttackMap(userId, String(map.mapIndex ?? map.id));
+        if (Number(player.level ?? 0) >= 15) {
+          await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map });
+        }
       } catch (e: any) {
         this.logger.warn(`采集激怒怪物失败 userId=${userId}: ${e?.message}`);
       }
@@ -5480,6 +5488,14 @@ export class GameService {
     markers['battle_mode'] = true;
     player.markers = markers;
     await this.playerService.savePlayer(player);
+
+    // 原版 _主程序.ecode L2167：地精攻势开始后 新建延时("覅攻击pd"+地图, "0", 群号, 3)，
+    // 3秒后怪物回合开始并自动续回合（"活动"120秒标记已在上方写入）。
+    try {
+      (this.combatSystem as any).scheduleMapMonsterRound?.(Number(frontlineMap.id), 3);
+    } catch (e: any) {
+      this.logger.warn(`地精攻势拉起怪物攻击循环失败: ${e?.message}`);
+    }
 
     this.logger.log(`玩家 ${userId} 进入战斗模式`);
     return `${player.name || '冒险者'}\n地精的攻势开始了`;

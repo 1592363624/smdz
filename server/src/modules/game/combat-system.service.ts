@@ -26,6 +26,7 @@ import { StatsService } from './stats.service';
 import { TaskService } from './task.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { VitalityService } from './vitality.service';
+import { MapBattleLoopService } from './map-battle-loop.service';
 import {
   expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainSeconds, toExpireMs,
 } from './expire-time.util';
@@ -327,6 +328,10 @@ export class CombatSystemService {
     @Optional()
     private readonly familiarSkills?: FamiliarSkillsService,
     @Optional() private readonly vitalityService?: VitalityService,
+    // 地图怪物自动攻击循环（原版 覅攻击pd 延时递归驱动）；直接 new 的单测不注入则循环不启用
+    @Inject(forwardRef(() => MapBattleLoopService))
+    @Optional()
+    private readonly mapBattleLoop?: MapBattleLoopService,
   ) {}
 
   // ==================== 用户级战斗串行锁 ====================
@@ -335,6 +340,9 @@ export class CombatSystemService {
   // 状态被外层攻击流程的旧玩家快照整体覆盖回数据库），因此所有玩家战斗
   // 入口统一经 weaponAttack 的 per-user 互斥锁串行化。
   private readonly combatLocks = new Map<number, Promise<unknown>>();
+
+  /** 召唤物主人解析缓存（ownerQQ → userId），地图战斗节拍每轮复用 */
+  private readonly summonOwnerCache = new Map<string, number>();
 
   // ==================== 公开接口 ====================
 
@@ -353,6 +361,36 @@ export class CombatSystemService {
     } finally {
       if (this.combatLocks.get(userId) === tail) this.combatLocks.delete(userId);
     }
+  }
+
+  // ==================== 地图怪物自动攻击循环（原版 覅攻击pd 延时递归） ====================
+
+  /**
+   * 延时拉起一回合地图怪物攻击（原版 _主程序.ecode 新建延时("覅攻击pd"+地图, N秒)）。
+   * 同一地图同时最多一个待执行回合（原版 延时执行 线程按 (命令,qq) 去重）。
+   * 仅登记延时，不刷新地图"活动"窗口；需要玩家活跃语义时用 triggerMapBattleLoop。
+   */
+  scheduleMapMonsterRound(mapId: number, delaySec: number): void {
+    try {
+      this.mapBattleLoop?.scheduleRound(mapId, delaySec);
+    } catch (e: any) {
+      this.logger.warn(`登记地图怪物攻击延时失败 mapId=${mapId}: ${e?.message ?? e}`);
+    }
+  }
+
+  /**
+   * 玩家活跃（后台运作.ecode L399-411）+ 延时拉起怪物攻击回合：
+   * 刷新地图"活动"标记120秒（循环存活窗口）、玩家"战斗"标记15秒，
+   * 然后新建延时("覅攻击pd"+地图, delaySec)。隐匿模式玩家不惊动怪物（原版 L152-165）。
+   * @param context 可选的已加载玩家/地图对象，避免重复读库
+   */
+  async triggerMapBattleLoop(
+    userId: number,
+    delaySec: number,
+    context?: { player?: any; map?: any },
+  ): Promise<void> {
+    if (!this.mapBattleLoop) return;
+    await this.mapBattleLoop.triggerByPlayerAction(userId, delaySec, context);
   }
 
   /**
@@ -2535,6 +2573,16 @@ export class CombatSystemService {
         }
       } catch (e: any) {
         this.logger.warn(`怪物反击失败: ${e.message}`);
+      }
+
+      // 9.1 拉起地图怪物自动攻击循环（原版 _主程序.ecode L130-170 攻击指令分支：
+      //     玩家活跃 → 新建延时("覅攻击pd"+地图, "0", 群号, 3)——3秒后怪物回合开始，
+      //     之后每4秒自动续回合（L504），直到无目标或"活动"窗口过期才停止。
+      //     隐匿模式玩家不惊动怪物（原版 L152-165，豁免在循环服务内判定）。
+      try {
+        await this.triggerMapBattleLoop(player.userId, 3, { player, map });
+      } catch (e: any) {
+        this.logger.warn(`拉起怪物攻击循环失败: ${e.message}`);
       }
     }
 
@@ -10112,32 +10160,39 @@ export class CombatSystemService {
   }
 
   /**
-   * 地图定点管理员攻击 + 载具修复（对应原版 _主程序.ecode L200-535 覅攻击pd）
+   * 地图战斗节拍单回合 + 续回合判定（对应原版 _主程序.ecode L200-535 覅攻击pd）
    *
-   * 原版分支是完整"战斗()"driver 的入口，逐行还原要点：
+   * 原版逐行还原要点：
    *   - L261-291 对地图每个怪物发起攻击（玩家武器 + 召唤物协同），含怪物闪避判定
    *   - L320-499 召唤物协同攻击、闪避、扶人、天神降世、觉醒宠物攻击（战斗循环子系统）
-   *   - L507-530 载具修复：将玩家载具修复至满血，并发放载具材料
-   *   - L202-206 延时递归（每回合约 2 秒）驱动后续怪物攻击
+   *   - L502-505 有目标 → "gwlq" 2秒节流通过后 新建延时("覅攻击pd"+地图, 4) 自动续回合
+   *   - L507-530 无目标（"#没有目标"）/活动结束 → 修复载具并终止循环
+   *   - L202-206 入口 "gw"+地图 2秒节流；无怪物直接返回
    *
    * 本框架现状：weaponAttack 已实现"玩家攻击地图怪物 + 召唤物协同攻击(summonCoAttack)"，
    * 故复用 weaponAttack 对所有地图怪物发起攻击；载具修复分支按原版 L507-530 独立实现。
    * 原版 L320-499 的召唤物攻击循环由 runMapSummonAttacks 接入统一武器攻击；
    * 觉醒宠物与怪物反击分别由 weaponAttack 协同分支和 monsterCounterAttack 结算。
+   * 续回合调度由 MapBattleLoopService 承担（延时去重 + 回合执行 + 世界频道广播），
+   * 未注入循环服务时（存量单测直构）本方法保持单回合语义。
    *
-   * @param userId 用户ID
+   * @param userId 玩家名义ID；0 表示延时回合（原版 QQ="0"，地图维度执行）
    * @param arg 地图参数（可选，原版按地图名定位，此处默认当前地图）
    * @returns 结果文本
    */
   async adminAttackMap(userId: number, arg: string): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    // userId>0：玩家名义（手动指令/玩家触发的立即结算）；userId=0：延时回合（原版 QQ="0"，
+    // 地图维度的怪物攻击，见 MapBattleLoopService.runRound）
+    const playerData = userId > 0 ? await this.playerService.getPlayerData(userId) : null;
+    const player = playerData?.player ?? null;
 
     // 原版 L200-206：参数是地图列表的1-based编号，非法编号直接返回空文本。
     const maps = await this.mapService.getAllMaps();
     const requested = Number((arg || '').trim());
     const mapIndex = Number.isInteger(requested) && requested > 0 ? requested : 0;
-    const map = mapIndex > 0 ? maps[mapIndex - 1] : await this.mapService.getMapById(player.mapId);
+    const map = mapIndex > 0
+      ? maps[mapIndex - 1]
+      : (player ? await this.mapService.getMapById(player.mapId) : null);
     if (!map) return '';
     const actualMapIndex = mapIndex || Number(map.mapIndex || map.id || 0);
     if (mapIndex > maps.length) return '';
@@ -10186,29 +10241,47 @@ export class CombatSystemService {
 
     // 原版 L290-319：最多100次随机选择怪物，首个真正产生攻击文本的怪物结束本轮。
     const taskProgress: CombatTaskProgress[] = [];
+    // 原版 L502 以文本中是否出现"#没有目标"（战斗相关.ecode L47：怪物攻击时防御方为空）
+    // 决定循环是否终止；本框架以 noTarget 标记等价表达。
+    const noTarget = { value: false };
 
     // 原版 加成计算.ecode L421-425：灼烧("sa")持续伤害结算——
     // 被誓约胜利之剑命中的怪物身上有"sa"标记（30秒），每次地图战斗节拍按
     // 物攻/10 × 经过秒数 对其造成真实伤害（三层池直扣，可击杀，无掉落）。
     await this.settleBurnDamage(map, monsters, userId, taskProgress, lines);
 
-    for (let i = 0; i < 100 && lines.length === 0; i++) {
+    for (let i = 0; i < 100 && lines.length === 0 && !noTarget.value; i++) {
       const alive = monsters.filter((item: any) => (item.hp || 0) > 0);
       if (alive.length === 0) break;
       const monster = alive[Math.floor(Math.random() * alive.length)];
       if (this.hasActiveRuntimeBuff(monster.buffs, '麻醉', nowMs)
         || this.hasActiveRuntimeBuff(monster.buffs, '幻时', nowMs)) continue;
-      const attackLines = await this.runMapMonsterAttack(monster, map, userId, taskProgress);
+      const attackLines = await this.runMapMonsterAttack(monster, map, userId, taskProgress, noTarget);
       if (attackLines.length > 0) lines.push(...attackLines);
     }
 
     // 原版 L320-499：召唤物协同、觉醒优先与普通召唤物攻击。
-    const summonLines = await this.runMapSummonAttacks(map, player, userId);
+    const summonLines = await this.runMapSummonAttacks(map, userId);
     if (summonLines.length > 0) lines.push(...summonLines);
 
     // 原版 L320-350：存活的非被动召唤物（宠物）自动扶起同图倒地（卷土重来）玩家。
     const helpUpLines = await this.runMapSummonHelpUp(map);
     if (helpUpLines.length > 0) lines.push(...helpUpLines);
+
+    // 原版 L502-530：续回合判定 —— 出现"#没有目标"则修复载具并终止循环；
+    // 否则在 "gwlq" 2秒节流（L503）通过后 新建延时("覅攻击pd"+地图, 4秒)（L504）自动续回合。
+    // 手动指令与延时回合走同一分支：原版手动 覅攻击pd 同样续回合。
+    let continueLoop = false;
+    if (this.mapBattleLoop) {
+      if (noTarget.value) {
+        await this.repairMapVehicles(map, monsters, lines);
+      } else {
+        const gwlqText = { value: '' };
+        if (!this.combatState.timeIntervalRequire('gwlq', 2, mapMarkers2, Date.now(), gwlqText, nowMs)) {
+          continueLoop = true;
+        }
+      }
+    }
 
     map.markers2 = JSON.stringify(mapMarkers2);
     await this.mapService.updateDynamicFields(map.id, {
@@ -10222,6 +10295,9 @@ export class CombatSystemService {
           await this.taskService.advance(progress.userId, progress.actionName, progress.count);
         }
       }
+    }
+    if (continueLoop) {
+      this.mapBattleLoop!.scheduleRound(map.id, 4);
     }
     return lines.join('\n');
   }
@@ -10378,6 +10454,7 @@ export class CombatSystemService {
     map: any,
     userId: number,
     taskProgress?: CombatTaskProgress[],
+    noTargetOut?: { value: boolean },
   ): Promise<string[]> {
     const lines: string[] = [];
     const monsterBonus = this.buildMonsterBonus(monster);
@@ -10421,6 +10498,9 @@ export class CombatSystemService {
         summon.mapId = map.id;
         victims.push({ actor: summon, data: this.createRuntimeActorData(summon), runtime: true, isSelf: false });
       }
+      // 原版 战斗相关.ecode L45-49：怪物攻击时防御方为空 → 文本"#没有目标"，
+      // 由 覅攻击pd L502 据此终止自动循环（本框架以 noTarget 标记表达）。
+      if (victims.length === 0 && noTargetOut) noTargetOut.value = true;
     }
     for (const rawWeapon of weapons) {
       const weapon = rawWeapon ? this.getWeaponData(monster, weaponList.indexOf(rawWeapon) + 1) : undefined;
@@ -10443,23 +10523,42 @@ export class CombatSystemService {
     return lines;
   }
 
-  /** 原版 L320-499 的召唤物武器循环，使用统一武器攻击结算。 */
-  private async runMapSummonAttacks(map: any, player: any, userId: number): Promise<string[]> {
+  /**
+   * 原版 L320-499 的召唤物武器循环：全图非被动存活召唤物按「觉醒优先 → 普通」顺序，
+   * 每回合只有一只召唤物出手（原版 g2 标记：有召唤物攻击过即停）。
+   * 攻击归属解析为召唤物主人（ownerQQ → userId，原版击败结算跟随主人），解析失败回退名义玩家。
+   */
+  private async runMapSummonAttacks(map: any, userId: number): Promise<string[]> {
     const lines: string[] = [];
     const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
-    for (const summon of summons) {
-      const owner = summon?.ownerQQ ?? summon?.归属;
-      if (String(owner) !== String(player.userId) && String(owner) !== String(player.qqNumber || '')) continue;
-      if ((summon?.hp ?? summon?.当前生命 ?? 0) <= 0) continue;
+    // 原版 L321/326：标记"主动"==1（被动模式）与死亡召唤物不出手
+    const candidates = summons.filter((summon: any) => {
+      if (!summon || (Number(summon?.hp ?? summon?.当前生命 ?? 0)) <= 0) return false;
       const active = this.playerService.getMarkerValue(
         this.normalizeMarkerObject(summon.markers ?? summon.标记 ?? {}),
         '主动',
       );
-      if (active === 1) continue;
+      return active !== 1;
+    });
+    if (candidates.length === 0) return lines;
+
+    // 原版 L421：取成就熟练度("觉醒")>=100 的召唤物优先出手
+    const awakened = candidates.filter((summon: any) =>
+      this.playerService.getMarkerValue(
+        this.normalizeMarkerObject(summon.markers ?? summon.标记 ?? {}),
+        '觉醒',
+      ) >= 100);
+    const ordered = awakened.length > 0
+      ? [...awakened, ...candidates.filter((item: any) => !awakened.includes(item))]
+      : candidates;
+
+    for (const summon of ordered) {
+      const ownerUserId = await this.resolveSummonOwnerUserId(summon, userId);
+      if (ownerUserId <= 0) continue;
       const weaponList = this.getRuntimeWeapons(summon);
       const weaponIndex = weaponList.length > 0 ? 1 : 0;
       summon.mapId = map.id;
-      const result = await this.weaponAttack(userId, weaponIndex, {
+      const result = await this.weaponAttack(ownerUserId, weaponIndex, {
         attackerOverride: summon,
         targetMapId: map.id,
         noDelay: true,
@@ -10467,9 +10566,38 @@ export class CombatSystemService {
         skipBattleDriver: true,
       });
       if (result.result) lines.push(result.result);
-      if (result.killed.length > 0) break;
+      // 原版 g2=1：本回合已有召唤物出手，结束
+      if (lines.length > 0) break;
     }
     return lines;
+  }
+
+  /** 召唤物主人 userId 解析（ownerQQ 存 qqNumber 或 userId，原版击败结算跟随主人）；失败回退 fallback。 */
+  private async resolveSummonOwnerUserId(summon: any, fallback: number): Promise<number> {
+    const owner = String(summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? '').trim();
+    if (owner) {
+      const cached = this.summonOwnerCache.get(owner);
+      if (cached) return cached;
+      try {
+        const numeric = Number(owner);
+        const row = await this.prisma.player.findFirst({
+          where: {
+            OR: [
+              // ownerQQ 存 qqNumber（User.qqNumber）或 player.id（familiar-system L465）
+              { user: { qqNumber: owner } },
+              ...(Number.isFinite(numeric) && numeric > 0 ? [{ id: numeric }] : []),
+            ],
+          },
+          select: { userId: true },
+        });
+        if (row?.userId) {
+          if (this.summonOwnerCache.size > 500) this.summonOwnerCache.clear();
+          this.summonOwnerCache.set(owner, row.userId);
+          return row.userId;
+        }
+      } catch { /* 解析失败回退名义玩家 */ }
+    }
+    return fallback > 0 ? fallback : 0;
   }
 
   /**
