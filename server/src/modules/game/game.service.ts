@@ -32,6 +32,7 @@ import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { normalizeGameText } from '../../common/utils/game-text.util';
 import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
+import { buildFamiliarGateMenu } from './familiar-menu.util';
 
 interface QuestSource {
   npcName: string;
@@ -9923,30 +9924,226 @@ export class GameService {
     // 已选择使魔（type 非空）→ 不拦截
     if (player.type) return null;
 
-    // 列出所有可召唤使魔（不可召唤=假 的才可被选为第一个使魔）
+    // 列出所有可召唤使魔（不可召唤=假 的才可被选为第一个使魔），
+    // 文本格式与 选择使魔 无参列表共用同一构建器（原版 L11467-11480 两列编号菜单）
     const allFamiliars = this.staticData.getAllFamiliars().filter((f: any) => !f.noSummon);
-
-    const lines: string[] = [
-      `选择你的第一个使魔来开始游戏：`,
-      `━━━━━━━━━━━━━━━`,
-      `发送下方编号数字来进行选择：`,
-    ];
-    const options: { label: string; cmd: string }[] = [];
-    for (const familiar of allFamiliars) {
-      const name = familiar.name || '未知';
-      lines.push(`  ${options.length + 1}. ${name}`);
-      options.push({ label: name, cmd: `选择使魔${name}` });
-    }
-    lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`💡 也可以直接发送「选择使魔 <名称>」来直接选择`);
+    const menu = buildFamiliarGateMenu(allFamiliars);
 
     // 生成编号临时输入替换（发数字即触发 选择使魔<名称>）
-    if (options.length > 0) {
-      const tempGroups = options.map((o, i) => `${i + 1}@${o.cmd}`);
-      await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
+    if (menu.tempInput) {
+      await this.shortcutService.setTempInput(userId, menu.tempInput);
     }
 
-    return lines.join('\n');
+    return menu.text;
+  }
+
+  /** 服务器本地日期串（对应原版 是否同天 的"同一天"判定粒度） */
+  private localTodayString(now = new Date()): string {
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
+  /**
+   * 每日登录结算（对应原版 _主程序.ecode L11707-11821 每条消息结算段）：
+   * 玩家当日首次指令时触发一次——
+   * - 重置 冥鱼次数/创世纪/启示录 每日计数标记；
+   * - 「签到」计数+1（即"加入游戏第N天"），并推进同名任务要求；
+   * - 周末（周六传说/周日史诗）强化券x10 + 活力（10×(1+魅力/200)）；
+   * - 使魔挑战层每日奖励：挑战装备箱/挑战物资箱/挑战资源箱各 ⌈层数/5⌉ 个；
+   * - 隔日交替的今日登陆奖励：奇数天史诗/偶数天传说强化券x5 + 活力；
+   * - 挑战 100/200/…/1000 层的里程碑额外奖励。
+   * 未开局玩家不结算；开局确认当次即首触，因此新玩家第一条完整指令
+   * 就会看到"加入游戏第1天"的登陆奖励块（与原版一致）。
+   * @returns 需前插到指令结果之前的文本块；当日已结算或未开局返回 ''
+   */
+  async settleDailyLogin(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    if (!player.type) return '';
+
+    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const today = this.localTodayString();
+    if (markers['签到时间'] === today) return '';
+
+    // 魅力取自完整加成计算（原版 玩家.属性.魅力），失败按 0 处理
+    let charm = 0;
+    try {
+      const bonus = this.combatSystem.buildAttackerBonus(player, playerData) as any;
+      charm = Number(bonus?.魅力) || 0;
+    } catch {
+      /* 加成计算失败不影响登录结算 */
+    }
+
+    markers['签到时间'] = today;
+    // 跨天重置每日计数标记（原版 L11708-11710）
+    markers['冥鱼次数'] = 0;
+    markers['创世纪'] = 0;
+    markers['启示录'] = 0;
+    const signInDays = this.playerService.getMarkerValue(markers, '签到') + 1;
+    markers['签到'] = signInDays;
+
+    const vitalityGain = 10 * (1 + charm / 200);
+    const w2Parts: string[] = [];
+    const w3Parts: string[] = [];
+
+    // 物品统一在内存背包中合并，随本次结算一次性落库（避免 addToBackpack 多次
+    // 落库后再被末尾 savePlayer 的旧快照覆盖）
+    const backpack = this.playerService.getBackpackItems(player);
+    const grant = (itemName: string, count: number): void => {
+      const existing = backpack.find((item: any) => item.name === itemName);
+      if (existing) {
+        const cur = Number(existing.count ?? existing.quantity ?? 0);
+        existing.count = cur + count;
+        delete existing.quantity;
+      } else {
+        backpack.push({ name: itemName, count });
+      }
+    };
+
+    // 周末强化券（星期六=传说、星期日=史诗）+ 活力（原版 L11717-11732）
+    const weekday = new Date().getDay(); // 0=周日 6=周六
+    if (weekday === 6) {
+      w2Parts.push(`(周末)10传说强化券、${Math.round(vitalityGain)}活力`);
+      grant('传说强化券', 10);
+      player.vitality = Number(player.vitality || 0) + vitalityGain;
+    } else if (weekday === 0) {
+      w2Parts.push(`(周末)10史诗强化券${Math.round(vitalityGain)}活力`);
+      grant('史诗强化券', 10);
+      player.vitality = Number(player.vitality || 0) + vitalityGain;
+    }
+
+    // 使魔挑战层每日奖励：挑战等级 0 视为 1，三箱数量 = ⌈层数/5⌉（原版 L11734-11746）
+    let challengeLevel = this.playerService.getMarkerValue(markers, '挑战等级');
+    if (challengeLevel <= 0) {
+      challengeLevel = 1;
+      markers['挑战等级'] = 1;
+    }
+    const boxCount = Math.ceil(challengeLevel / 5);
+    grant('挑战装备箱', boxCount);
+    grant('挑战物资箱', boxCount);
+    grant('挑战资源箱', boxCount);
+    w2Parts.push(`使魔挑战第${challengeLevel}层每日奖励:${boxCount}的挑战装备箱和挑战物资箱、资源箱`);
+
+    // 隔日交替的今日登陆奖励（奇数天=史诗、偶数天=传说，原版 L11750-11774）。
+    // 展示活力加成按「历史最高活力-100」计（原版 活力2 语义），与实际入账值可能不同（原版即如此）。
+    const vitalityMax = Number(markers['活力2'] || 100);
+    const displayCharm = Math.max(0, vitalityMax - 100);
+    if (signInDays % 2 === 1) {
+      w3Parts.push(`加入游戏第${signInDays}天\n今日登陆奖励:\n5史诗强化券、${Math.round(10 * (1 + displayCharm / 200))}活力`);
+      grant('史诗强化券', 5);
+      player.vitality = Number(player.vitality || 0) + vitalityGain;
+    } else {
+      w3Parts.push(`加入游戏第${signInDays}天\n今日登陆奖励:\n5传说强化券、${Math.round(10 * (1 + displayCharm / 200))}活力`);
+      grant('传说强化券', 5);
+      player.vitality = Number(player.vitality || 0) + vitalityGain;
+    }
+
+    // 挑战层里程碑额外奖励（原版 L11775-11816）
+    const milestones: Array<[number, string, number]> = [
+      [100, '饲料', 50],
+      [200, '发带', 1],
+      [300, '特装核心', 0.5],
+      [400, '发带', 1],
+      [500, '工业核心', 0.15],
+      [600, '发带', 1],
+      [700, '特装核心', 0.5],
+      [800, '发带', 1],
+      [900, '特装核心', 0.5],
+      [1000, '工业核心', 0.15],
+    ];
+    for (const [floor, itemName, count] of milestones) {
+      if (challengeLevel >= floor) {
+        w3Parts.push(`使魔挑战${floor}层额外奖励:${itemName}x${count}`);
+        grant(itemName, count);
+      }
+    }
+
+    // 「签到」成就计入任务推进（原版 添加成就("签到",1,玩家.成就,玩家.任务) 的任务联动）
+    try {
+      await this.taskService.advance(userId, '签到');
+    } catch {
+      /* 无同名任务要求时为空操作 */
+    }
+
+    // 背包/标记/活力同一次落库（savePlayer 落库前会做经验归一化与属性重算）
+    player.backpack = JSON.stringify(backpack);
+    player.markers = JSON.stringify(markers);
+    await this.playerService.savePlayer(player);
+
+    // 组装顺序对齐原版 w = w2 + w3 + 换行 + w：
+    // w2 各行以换行开头；w3 无前导换行（与 w2 末行拼接，如“…资源箱加入游戏第1天”），
+    // 有内容时以“————————\n”结尾作为与指令正文的分隔。
+    const w2 = w2Parts.length > 0 ? `\n${w2Parts.join('\n')}` : '';
+    let w3 = w3Parts.join('\n');
+    if (w3) {
+      w3 += '\n————————\n';
+    }
+    return `${w2}${w3}`;
+  }
+
+  /**
+   * 每条指令后的功能提示（对应原版 _主程序.ecode L11546-11564）：
+   * - 训练冷却已过且当前不可训练（当前地图无训练器建筑、背包无训练器）时，
+   *   每 600 秒（zdxlpd 标记）提示一次「你的训练器现在可以使用了」；
+   * - 今日凭证未使用（无有效「凭证」标记）时，每 600 秒（pzpd 标记）提示一次「你现在可以使用凭证了」。
+   * 未开局玩家不提示。
+   * @returns 需追加到指令结果之后的文本（每行以换行开头）；无提示返回 ''
+   */
+  async getActionHints(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    if (!player.type) return '';
+
+    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const now = Date.now();
+    const remainText = { value: '' };
+    let changed = false;
+    let hints = '';
+
+    // 训练器提示（原版 L11546-11557）：无训练冷却才判断；当前不可训练才提示
+    if (!this.combatState.markerRequire('训练冷却', markers2, remainText, now)) {
+      const canTrain = await this.hasTrainerAccess(player);
+      if (!canTrain && !this.combatState.markerRequire('zdxlpd', markers2, remainText, now)) {
+        hints += '\n【你的训练器现在可以使用了】';
+        this.combatState.addMarker('zdxlpd', 600, markers2, now);
+        changed = true;
+      }
+    }
+
+    // 凭证提示（原版 L11559-11564）：今日凭证未使用才提示
+    if (!this.combatState.markerRequire('凭证', markers2, remainText, now)) {
+      if (!this.combatState.markerRequire('pzpd', markers2, remainText, now)) {
+        hints += '\n【你现在可以使用凭证了】';
+        this.combatState.addMarker('pzpd', 600, markers2, now);
+        changed = true;
+      }
+    }
+
+    // markerRequire 会顺带清理过期标记；有变更时定点写回 markers2
+    if (changed) {
+      try {
+        await this.prisma.player.update({
+          where: { id: player.id },
+          data: { markers2: JSON.stringify(markers2) },
+        });
+      } catch {
+        /* 提示冷却写回失败不影响本次回复 */
+      }
+    }
+    return hints;
+  }
+
+  /** 当前是否可训练：当前地图存在「训练器」建筑，或背包持有「训练器」 */
+  private async hasTrainerAccess(player: any): Promise<boolean> {
+    try {
+      const map = await this.mapService.getMapById(player.mapId);
+      const buildings = this.playerService.safeJsonParse<any[]>(map?.buildings, []);
+      if (buildings.some((b: any) => String(b?.name ?? '') === '训练器')) return true;
+      const backpack = this.playerService.getBackpackItems(player);
+      if (backpack.some((item: any) => String(item?.name ?? '') === '训练器')) return true;
+    } catch {
+      /* 读取失败按不可训练处理 */
+    }
+    return false;
   }
 
   /**

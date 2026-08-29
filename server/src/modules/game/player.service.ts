@@ -546,6 +546,15 @@ export class PlayerService {
   }
 
   /**
+   * 供外部流程直接入队一条结算提示（走与升级通知相同的排水通道）。
+   * 用途：新玩家首次选使魔开局时，原版按等级 0→1 判定输出「等级提升了！」
+   * （_主程序.ecode L12038-12046），该文本与升级提示共用指令收尾拼接位。
+   */
+  pushLevelUpText(userId: number, text: string): void {
+    this.enqueueLevelUpText(userId, text);
+  }
+
+  /**
    * 排水并清空该玩家的待展示升级通知（原版指令收尾「判断玩家执行这次操作后
    * 是否升级了」的对位实现，_主程序.ecode L12038-12046）。无待展示内容返回空串。
    */

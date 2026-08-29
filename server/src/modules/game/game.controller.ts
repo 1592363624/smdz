@@ -12,6 +12,7 @@ import { MapService } from './map.service';
 import { GameService } from './game.service';
 import { CombatSystemService } from './combat-system.service';
 import { StatsService } from './stats.service';
+import { AdminService } from '../admin/admin.service';
 
 @ApiTags('游戏')
 @ApiBearerAuth()
@@ -24,6 +25,7 @@ export class GameController {
     private readonly gameService: GameService,
     private readonly combatSystem: CombatSystemService,
     private readonly statsService: StatsService,
+    private readonly adminService: AdminService,
   ) {}
 
   /**
@@ -135,5 +137,17 @@ export class GameController {
     await this.gameService.pushMapUpdate(userId);
 
     return { success: true, data: { result } };
+  }
+
+  /**
+   * 玩家自助清除自己的游戏数据（重置为未开始游玩，保留账号）
+   * 与管理员后台「清空游戏数据」走同一实现（AdminService.resetPlayerData），
+   * 目标固定为当前登录账号（无任何目标参数），普通玩家无法清除他人数据。
+   */
+  @Post('player/reset-data')
+  @ApiOperation({ summary: '清除自己的游戏数据(重置为未开始游玩，保留账号)' })
+  async resetMyData(@Req() req) {
+    const message = await this.adminService.resetPlayerData(req.user.userId);
+    return { success: true, message };
   }
 }

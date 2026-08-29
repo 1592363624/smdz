@@ -23,6 +23,7 @@ import {
 } from './interfaces/command.interface';
 import { COMMAND_HANDLER_MAP } from './command-handler-map.provider';
 import { normalizeGameText } from '../../common/utils/game-text.util';
+import { buildTutorialClaimBlock } from '../game/familiar-menu.util';
 
 @Injectable()
 export class CommandService {
@@ -108,8 +109,17 @@ export class CommandService {
         }
       }
 
+      // 1.7 教程任务领取（原版 _主程序.ecode L11686-11706 每条消息结算段）：
+      //     教程标记不足时补发任务，本次实际领取到的任务名转成“领取了X”提示，
+      //     前插到指令结果之前（原版按领取顺序逐条前插，最终进阶在上、新手在下）。
+      let tutorialClaims = '';
       if (ctx.userId && this.taskService) {
-        await this.taskService.ensureTutorialTasks(ctx.userId);
+        try {
+          const added = await this.taskService.ensureTutorialTasks(ctx.userId);
+          tutorialClaims = buildTutorialClaimBlock(added || []);
+        } catch (e: any) {
+          this.logger.warn(`教程任务领取失败: ${e.message}`);
+        }
       }
 
       // 2. 从数据库指令表查找指令定义
@@ -297,6 +307,37 @@ export class CommandService {
       // 5.2 若离线有回复，拼在指令结果之前（如 "生命回复 +12\n<指令结果>"）
       if (offlineRegen && result.content) {
         result.content = `${offlineRegen}\n━━━━━━━━━━━━━━━\n${result.content}`;
+      }
+
+      // 5.25 每日登录结算 + 教程领取提示（原版 _主程序.ecode L11686-11821 每条消息
+      //      结算段的对位实现）。前插为“后执行者在顶部”，因此执行顺序：
+      //      教程领取提示 → 登录奖励块，最终视觉顺序为 [登录奖励][领取提示][离线回复][指令正文]，
+      //      与原版 w = 登录奖励 + 领取提示 + 指令输出 的拼接顺序一致。
+      if (ctx.userId) {
+        if (tutorialClaims) {
+          result.content = `${tutorialClaims}${result.content || ''}`;
+        }
+        try {
+          const loginBlock = await this.gameService.settleDailyLogin(ctx.userId);
+          if (loginBlock) {
+            result.content = `${loginBlock}${result.content || ''}`;
+          }
+        } catch (e: any) {
+          this.logger.warn(`每日登录结算失败: ${e.message}`);
+        }
+      }
+
+      // 5.28 功能提示（原版 _主程序.ecode L11546-11564：训练器/凭证 每600秒提示），
+      //      追加在指令正文之后、升级通知之前（原版提示段先于升级判定执行）。
+      if (ctx.userId) {
+        try {
+          const hints = await this.gameService.getActionHints(ctx.userId);
+          if (hints) {
+            result.content = result.content ? `${result.content}${hints}` : hints;
+          }
+        } catch (e: any) {
+          this.logger.warn(`功能提示生成失败: ${e.message}`);
+        }
       }
 
       // 5.3 升级通知排水（原版 _主程序.ecode L12038-12046 指令收尾「判断玩家执行

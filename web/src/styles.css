@@ -996,6 +996,12 @@ vite-plugin-checker-error-overlay,
   border-color: rgba(239, 68, 68, 0.5);
   background: rgba(239, 68, 68, 0.05);
 }
+/* 清除数据按钮：琥珀色警示，与"退出"的红色区分 */
+.logout.reset-data:hover {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.05);
+}
 
 /* ===== 底部状态栏（左侧边栏） ===== */
 .sidebar-status {

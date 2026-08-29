@@ -3,7 +3,9 @@
 将易语言 QQ 机器人文字游戏「使魔大战3」迁移为现代化 Web 多人公屏群聊架构。
 
 ### 项目体验地址: [使魔大战3 网页版](https://smdz.52shell.ltd)
+
 ### bug反馈/新增功能玩法: [提交建议/bug](https://github.com/1592363624/smdz/issues)
+
 ### 项目机器人体验群: [使魔大战3 机器人体验群](https://qm.qq.com/q/4ZCzMh5I0U)
 
 ## 功能特性
@@ -19,24 +21,24 @@
 
 ## 技术栈
 
-| 层 | 技术 |
-|----|------|
-| 后端 | NestJS 10 (Node.js + TypeScript) |
-| 前端 | Vue 3 + Vite 6 |
-| 实时通信 | Socket.IO 4 |
-| 数据库 | MySQL 8.0 (Prisma ORM) |
-| 认证 | JWT + Passport |
-| 部署 | PM2 / Nginx / GitHub Actions |
+| 层    | 技术                               |
+| ---- | -------------------------------- |
+| 后端   | NestJS 10 (Node.js + TypeScript) |
+| 前端   | Vue 3 + Vite 6                   |
+| 实时通信 | Socket.IO 4                      |
+| 数据库  | MySQL 8.0 (Prisma ORM)           |
+| 认证   | JWT + Passport                   |
+| 部署   | PM2 / Nginx / GitHub Actions     |
 
 ## 数据分层设计
 
 > 遵循「配置项抽取」原则：一切可能在业务中变化、需调整而无需改代码的常量都抽为配置。
 
-| 层级 | 内容 | 存储位置 |
-|------|------|----------|
-| 固定配置 | 指令/地图/物品/装备/使魔/怪物/buff/配方/任务/称号/建筑/NPC/载具部件/蓝图/增益/商店/资源/特效/攻击文本/套装/风味文本/更新日志 | `server/prisma/data/*.json`（22 个文件，进版本控制），由 `StaticDataService` 懒加载读取 |
-| 动态数据 | 用户/玩家/地图/载具/商店/频道/聊天消息/指令/指令日志 | MySQL 数据库表 |
-| 系统配置中心 | 指令前缀、开关、阈值等可调参数 | `SystemConfig` 表，管理员后台在线修改 |
+| 层级     | 内容                                                                           | 存储位置                                                                  |
+| ------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| 固定配置   | 指令/地图/物品/装备/使魔/怪物/buff/配方/任务/称号/建筑/NPC/载具部件/蓝图/增益/商店/资源/特效/攻击文本/套装/风味文本/更新日志 | `server/prisma/data/*.json`（22 个文件，进版本控制），由 `StaticDataService` 懒加载读取 |
+| 动态数据   | 用户/玩家/地图/载具/商店/频道/聊天消息/指令/指令日志                                               | MySQL 数据库表                                                            |
+| 系统配置中心 | 指令前缀、开关、阈值等可调参数                                                              | `SystemConfig` 表，管理员后台在线修改                                            |
 
 ### 种子数据策略
 
@@ -94,7 +96,7 @@ npm install
 npm run dev                    # Vite 热更新
 ```
 
-浏览器访问 http://localhost:5173，Swagger 文档见 http://localhost:3333/api/docs
+浏览器访问 <http://localhost:5173，Swagger> 文档见 <http://localhost:3333/api/docs>
 
 ## AstrBot 对接
 
@@ -133,25 +135,47 @@ Body: {
 4. 前端 `web/dist` 静态托管到 Nginx，并反向代理 `/api/` 与 `/socket.io/` 到后端（如 `127.0.0.1:3333`）
 
 > 生产环境注意：
+>
 > - 服务器端口固定为 **3333**（避免与 AstrBot 等占用 3000/3001 的服务冲突）
 > - GitHub 仓库 Secret `ENV_FILE` 中的 `PORT` 必须为 `3333`，否则部署后会覆盖 `server/.env` 打错端口
 > - 数据库同步用 `prisma db push --accept-data-loss`（早期手工库无迁移历史，`migrate deploy` 会报 P3005）
+
+### GitHub Actions Secrets 配置
+
+自动部署流程定义在 `.github/workflows/deploy.yml`，推送到 `main` 分支或打 `v*` 标签时触发。需在仓库 **Settings → Secrets and variables → Actions → Repository secrets** 中配置以下 6 个 Secret：
+
+| Secret | 对应文件 / 位置 | 填写内容 |
+|--------|----------------|----------|
+| `ENV_FILE` | `server/.env` | **整个 `.env` 文件的完整内容**（原样粘贴）。部署时上传为 `.env.upload`，由 `deploy/windows/deploy.ps1` 覆盖写入服务器上的 `server/.env`。含 `PORT`、`DATABASE_URL`、`JWT_SECRET`、`CORS_ORIGINS`、`BOT_ACCESS_TOKEN`、`QQ_APP_ID`、`QQ_APP_KEY`、`QQ_CALLBACK_URL` 等 |
+| `WIN_APP_NAME` | `deploy/windows/deploy.ps1` 的 `-AppName` | PM2 进程名，例如 `smdz-server`。仅允许字母、数字、点、下划线、连字符 |
+| `WIN_HOST` | `.github/workflows/deploy.yml` 中 `WIN_USER@WIN_HOST` | Windows 服务器的 IP 或域名 |
+| `WIN_PATH` | 服务器部署根目录 | 项目在服务器上的绝对路径，如 `/c/wwwroot/smdz`、`C:/wwwroot/smdz` 或 `C:\wwwroot\smdz`（三种写法均支持，会自动归一）。`source.tar.gz` 上传并解压到此目录 |
+| `WIN_SSH_KEY` | SSH 免密登录私钥 | GitHub Actions 登录 Windows 服务器用的 **SSH 私钥全文**（含 `-----BEGIN ... PRIVATE KEY-----` 头尾行），需与服务器 `~/.ssh/authorized_keys` 中的公钥配对 |
+| `WIN_USER` | SSH 登录用户名 | Windows 服务器的 SSH 账号，如 `Administrator` |
+
+> 关系速记：
+> - `ENV_FILE` = 生产环境的 `server/.env` 内容
+> - `WIN_HOST` + `WIN_USER` + `WIN_SSH_KEY` = SSH 连接三件套
+> - `WIN_PATH` = 服务器上放项目的目录
+> - `WIN_APP_NAME` = PM2 里进程的名字
+>
+> 缺失 `WIN_HOST`、`WIN_USER`、`WIN_APP_NAME`、`ENV_FILE` 中任意一个，部署步骤会直接报错退出（`require_value` 校验）。
 
 ## 生产配置项
 
 ### 环境变量 (.env)
 
-| 配置 | 说明 | 默认 |
-|------|------|------|
-| PORT | 服务端口 | 3333 |
-| DATABASE_URL | MySQL 8.0 连接串 | `mysql://用户:密码@主机:3306/库名` |
-| JWT_SECRET | JWT密钥(务必修改) | dev_secret_change_me |
-| JWT_EXPIRES_IN | token有效期(秒) | 86400 |
-| CORS_ORIGINS | 允许的前端来源 | localhost:5173,... |
-| BOT_ACCESS_TOKEN | AstrBot访问令牌 | astrbot_web_secret |
-| QQ_APP_ID | QQ 登录应用 ID | - |
-| QQ_APP_KEY | QQ 登录应用密钥 | - |
-| QQ_CALLBACK_URL | QQ 登录回调地址 | `https://域名/api/auth/qq/callback` |
+| 配置                 | 说明            | 默认                                |
+| ------------------ | ------------- | --------------------------------- |
+| PORT               | 服务端口          | 3333                              |
+| DATABASE\_URL      | MySQL 8.0 连接串 | `mysql://用户:密码@主机:3306/库名`        |
+| JWT\_SECRET        | JWT密钥(务必修改)   | dev\_secret\_change\_me           |
+| JWT\_EXPIRES\_IN   | token有效期(秒)   | 86400                             |
+| CORS\_ORIGINS      | 允许的前端来源       | localhost:5173,...                |
+| BOT\_ACCESS\_TOKEN | AstrBot访问令牌   | astrbot\_web\_secret              |
+| QQ\_APP\_ID        | QQ 登录应用 ID    | -                                 |
+| QQ\_APP\_KEY       | QQ 登录应用密钥     | -                                 |
+| QQ\_CALLBACK\_URL  | QQ 登录回调地址     | `https://域名/api/auth/qq/callback` |
 
 ### 系统配置中心 (SystemConfig 表)
 

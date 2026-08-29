@@ -169,6 +169,7 @@
         </div>
         <div class="sidebar-footer-actions">
           <button v-if="showAdminEntry" class="logout admin-entry" @click="router.push('/admin')">⚙️ 管理后台</button>
+          <button class="logout reset-data" @click="resetMyData">清除数据</button>
           <button class="logout" @click="logout">退出</button>
         </div>
       </div>
@@ -382,6 +383,7 @@
         </div>
         <div class="sidebar-footer-actions">
           <button v-if="showAdminEntry" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
+          <button class="logout reset-data" @click="mobileMenuOpen = false; resetMyData()">清除数据</button>
           <button class="logout" @click="logout">退出</button>
         </div>
       </div>
@@ -1134,9 +1136,9 @@ function onFavoriteClick(item) {
   if (favEditing.value) {
     removeFavorite(item.cmd);
   } else {
-    // 直接走 socket 发送（与输入框发送完全一致），cmd 可为任意文本、未必是指令
+    // 直接走 socket 发送（与输入框发送完全一致，含本地回显），cmd 可为任意文本、未必是指令
     if (socket) {
-      socket.emit('chat:message', { content: item.cmd });
+      sendChatMessage(item.cmd);
     } else {
       input.value = item.cmd;
       nextTick(() => inputEl.value?.focus());
@@ -1477,9 +1479,9 @@ function quickSend(name) {
   // argsSchema 为空数组 "[]" 或不存在时，视为无参数指令，直接发送
   const needParams = cmd && cmd.argsSchema && cmd.argsSchema !== '[]';
   if (!needParams) {
-    // 无参数指令 → 直接发送
+    // 无参数指令 → 直接发送（走统一入口：本地回显 + 回到底部）
     if (socket) {
-      socket.emit('chat:message', { content: name });
+      sendChatMessage(name);
     } else {
       // socket 未连接时降级为填入输入框
       input.value = name;
@@ -1493,10 +1495,10 @@ function quickSend(name) {
   }
 }
 
-// 快捷操作按钮 — 直接发送对应指令
+// 快捷操作按钮 — 直接发送对应指令（走统一入口：本地回显 + 回到底部）
 function quickAction(action) {
   if (!socket) return;
-  socket.emit('chat:message', { content: action });
+  sendChatMessage(action);
 }
 
 /**
@@ -1725,6 +1727,42 @@ function selectAutocomplete(cmd) {
   });
 }
 
+// ---------- 发送统一入口：emit + 本地回显 + 回到底部 ----------
+// 本地回显：消息不等服务器广播回来，发送后立即上屏，消除"发出去的文字过好久才显示"的体感卡顿。
+// 多行输入按行拆分暂存，与后端"逐行处理、逐行广播"的行为一一对应；
+// 服务器广播到达后由 appendMessage 按「发送者=自己」去重替换为带 id 的正式消息。
+function sendChatMessage(content) {
+  const text = (content || '').trim();
+  if (!text || !socket) return;
+  socket.emit('chat:message', { content: text });
+  const self = user.value || {};
+  const sender = { id: self.id, username: self.username, nickname: self.nickname };
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  for (const line of lines) {
+    appendMessage({
+      type: guessMessageType(line),
+      content: line,
+      sender,
+      createdAt: new Date().toISOString(),
+      _pending: true, // 本地暂存标记：服务器广播到达后被替换
+    });
+  }
+  // 发送后强制回到底部，确保刚发出的消息立即可见（即使用户之前向上翻阅过历史）
+  scrollToBottom();
+}
+
+// 本地回显的消息类型预估：命中前缀或已知指令名/别名 → command，否则 chat。
+// 只影响上屏瞬间的样式（指令金色/聊天白色），服务器正式消息到达后会整体替换为准确类型。
+function guessMessageType(text) {
+  const t = (text || '').trim();
+  if (/^[\/！!]/.test(t)) return 'command';
+  const name = t.replace(/^[\/！!]+/, '').split(/\s+/)[0] || '';
+  if (!name) return 'chat';
+  return commands.value.some(
+    (c) => c.name === name || (c.alias || '').split(',').map((s) => s.trim()).includes(name)
+  ) ? 'command' : 'chat';
+}
+
 async function sendMessage() {
   // @ 模式下按回车优先选中玩家，而不是直接发送消息
   if (showAtAutocomplete.value && filteredAtPlayers.value.length) {
@@ -1733,8 +1771,8 @@ async function sendMessage() {
   }
   const content = input.value.trim();
   if (!content || !socket) return;
-  // 通过 WebSocket 发送(后端自动判断聊天或指令)
-  socket.emit('chat:message', { content });
+  // 通过 WebSocket 发送(后端自动判断聊天或指令)，同时本地回显立即上屏
+  sendChatMessage(content);
   input.value = '';
   showAutocomplete.value = false;
   closeAtAutocomplete();
@@ -1745,6 +1783,24 @@ function appendMessage(msg) {
   if (!msg) return;
   // 兜底：socket 实时消息若缺少时间戳，则补当前时间，保证每条消息都能显示精确到秒的时间
   if (!msg.createdAt) msg.createdAt = new Date().toISOString();
+  // 本地回显去重：自己发出的聊天/指令广播到达时，用服务端正式消息（带 id/准确类型/时间）
+  // 替换发送瞬间暂存的那条本地回显，避免同一条消息显示两遍。
+  // 优先按内容精确匹配；找不到再按先后顺序配对——后端会做快捷输入替换（如发"1"被替换成
+  // "选择使魔XX"）导致广播内容与原输入不同，此时按 FIFO 配对才不会漏。
+  // 只认 30 秒内的暂存，避免陈旧未确认消息被后来者误替换。
+  if (msg.sender?.id != null && msg.sender.id === user.value?.id && (msg.type === 'chat' || msg.type === 'command')) {
+    const now = Date.now();
+    const fresh = (m) => m._pending && now - new Date(m.createdAt).getTime() < 30000;
+    let idx = messages.value.findIndex((m) => fresh(m) && m.content === msg.content);
+    if (idx < 0) {
+      idx = messages.value.findIndex(fresh);
+    }
+    if (idx >= 0) {
+      messages.value.splice(idx, 1, msg);
+      if (!isUserScrolling) scrollToBottom();
+      return;
+    }
+  }
   messages.value.push(msg);
   // 限制本地消息数量，防止内存增长
   if (messages.value.length > 300) {
@@ -1807,6 +1863,22 @@ function logout() {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
   router.push('/login');
+}
+
+// 清除自己的游戏数据（与管理员GM清除同一后端实现，账号保留、进度重置为未开始游玩）
+async function resetMyData() {
+  const ok = confirm(
+    '确定要清除自己的游戏数据吗？\n' +
+    '等级、背包、装备、任务等进度将全部重置，账号保留，可重新开局。\n此操作不可恢复！',
+  );
+  if (!ok) return;
+  try {
+    const res = await gameApi.resetMyData();
+    alert(res.message || '已清空游戏数据，请重新登录开始新开局');
+    logout();
+  } catch (e) {
+    alert('清除失败：' + (e.response?.data?.message || e.message));
+  }
 }
 
 // 加载玩家信息和地图连接

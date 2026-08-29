@@ -5,11 +5,12 @@
  * 在同一次指令收尾中发奖、接后续任务并删除已完成任务。本服务保留旧的
  * 提交接口只用于清理存量数据，正常任务始终走自动结算。
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { StaticDataService } from './static-data.service';
 import { ItemSystemService } from './item-system.service';
+import { ShortcutService } from './shortcut.service';
 
 interface TaskRequirement {
   name: string;
@@ -44,6 +45,9 @@ export class TaskService {
     private readonly playerService: PlayerService,
     private readonly staticData: StaticDataService,
     private readonly itemSystem: ItemSystemService,
+    // 查看任务的编号直达/放弃入口依赖临时输入替换（对应原版 临时输入替换）。
+    // Optional：旧测试桩未提供时自动跳过。
+    @Optional() private readonly shortcutService?: ShortcutService,
   ) {}
 
   /**
@@ -639,28 +643,42 @@ export class TaskService {
     });
   }
 
-  /** 统一任务列表显示，正常任务不会出现“手动提交”提示。 */
+  /**
+   * 查看任务（对应原版 _主程序.ecode L5573-5593）：
+   * - 无编号：输出“你现在接受了以下任务”+ 编号名单，并设置数字临时输入直达 查看任务N；
+   * - 带编号/名称：输出单条任务详情（原版 显示任务，数据显示.ecode L414-456），
+   *   尾部追加“a、放弃此任务”入口并设置 a@放弃任务N 临时输入。
+   */
   async listTasks(userId: number, selector = ''): Promise<string> {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) return '玩家数据不存在';
     const tasks = this.parsePlayerTasks(player.tasks);
-    if (tasks.length === 0) return '📋 你当前没有任何任务\n前往地图 NPC 处使用「领取任务」接取任务';
 
-    const markers = this.parseObject(player.markers, {});
     if (selector) {
       const index = this.resolveTaskIndex(tasks, selector);
       if (index < 0) return `你只有${tasks.length}个任务。`;
+      const markers = this.parseObject(player.markers, {});
+      // 解码原版 L5589-5591 会在详情尾部追加“a、放弃此任务”并设置 a@放弃任务N
+      // 临时输入，但实际游玩版本（参照玩家提供的原版游玩记录）不含该入口，故不输出；
+      // 放弃任务指令本身（放弃任务 序号/名称）仍按原版可用。
       return this.formatTaskDetails(
         tasks[index],
         this.getTaskDefinition(tasks[index].name),
         markers,
         index + 1,
+        player.name,
       ).join('\n');
     }
 
-    const lines = [`📋 任务列表 (${tasks.length}个)`];
+    if (tasks.length === 0) return '你还没有接受任何任务，去找地图上的NPC看看吧';
+
+    if (this.shortcutService) {
+      const tempGroups = tasks.map((_, i) => `${i + 1}@查看任务${i + 1}`).join('#');
+      await this.shortcutService.setTempInput(userId, tempGroups);
+    }
+    const lines = ['你现在接受了以下任务'];
     tasks.forEach((task, index) => {
-      lines.push(...this.formatTaskDetails(task, this.getTaskDefinition(task.name), markers, index + 1));
+      lines.push(`${index + 1}、${task.name}${this.publisherLabel(task.publisher, true)}`);
     });
     return lines.join('\n');
   }
@@ -676,36 +694,65 @@ export class TaskService {
     return tasks.findIndex((task) => task.name === normalized);
   }
 
+  /**
+   * 任务详情（对应原版 数据显示.ecode L414-456 显示任务）：
+   * {玩家名}/{任务名}/{说明}/◆需要要求/·完成可获得奖励(按任务熟练度与完成任务数加成)/自动发放说明。
+   */
   private formatTaskDetails(
     task: PlayerTask,
     definition: any,
     markers: Record<string, any>,
     index: number,
+    playerName?: string,
   ): string[] {
-    const lines = [`${index}、⏳ 【${task.name}】`];
-    if (definition?.description) lines.push(`  ${definition.description}`);
-    if (task.publisher) lines.push(`  发布人: ${task.publisher}`);
-    const total = this.parseRequirements(definition?.requirements);
+    const lines: string[] = [];
+    lines.push(String(playerName ?? ''));
+    lines.push(`${task.name}`);
+    if (definition?.description) lines.push(`${definition.description}`);
     for (const requirement of task.requirements) {
-      const totalCount = total
-        .filter((item) => item.name === requirement.name)
-        .reduce((sum, item) => sum + item.count, 0) || requirement.count;
-      const remaining = task.requirements
-        .filter((item) => item.name === requirement.name)
-        .reduce((sum, item) => sum + item.count, 0);
-      lines.push(`  ◆需要${requirement.name}${remaining === 1 ? '' : `x${this.formatNumber(remaining)}`} (${this.formatNumber(Math.max(0, totalCount - remaining))}/${this.formatNumber(totalCount)})`);
+      const count = Number(requirement.count);
+      lines.push(count === 1
+        ? `◆需要${requirement.name}`
+        : `◆需要${requirement.name}x${this.formatNumber(count)}`);
     }
+    // 原版取发布人空值返回空串且直接拼接（不加换行），此处仅在非空时输出
+    const publisherLine = this.publisherLabel(task.publisher, false);
+    if (publisherLine) lines.push(publisherLine);
     const rewards = this.parseRewards(definition?.rewards);
-    if (rewards.length > 0) {
-      lines.push(`  完成可获得: ${rewards.map((reward) => `${reward.name}×${this.formatNumber(reward.count * this.getRewardScale(markers))}`).join('、')}`);
-    }
-    lines.push('  完成任务后奖励自动发放。');
+    lines.push(`·完成可获得:${rewards
+      .map((reward) => `${reward.name}x${this.formatNumber(reward.count * this.getRewardScale(markers))}`)
+      .join('、')}`);
+    lines.push('·完成任务后奖励自动发放。');
     // 对齐原版 数据显示.ecode L452-454：任务文本含"采集"时追加说明
     const fullText = lines.join('\n');
     if (fullText.includes('采集')) {
-      lines.push('  ·击杀怪物掉落资源、从地上拾取不是玩家丢弃的资源，也属于[采集]行为');
+      lines.push('·击杀怪物掉落资源、从地上拾取不是玩家丢弃的资源，也属于[采集]行为');
     }
     return lines;
+  }
+
+  /**
+   * 发布人标注（对应原版 数据分析.ecode L229-250 取发布人）：
+   * 发布人为空返回空串；在地图召唤物中按 QQ 找到 NPC 时，nameOnly 返回“(名称)”、
+   * 详情模式返回“·来自:名称(地图名)”；找不到时 nameOnly 返回空串、
+   * 详情模式返回“·来自:{qq}(对象已不存在)”。
+   */
+  private publisherLabel(publisher: string | undefined, nameOnly: boolean): string {
+    const qq = String(publisher ?? '').trim();
+    if (!qq) return '';
+    const maps = this.staticData.getAllMaps() || [];
+    for (const map of maps as any[]) {
+      const summons = typeof map?.summons === 'string'
+        ? this.parseAnyArray(map.summons)
+        : (Array.isArray(map?.summons) ? map.summons : []);
+      for (const summon of summons) {
+        if (String(summon?.qq ?? summon?.QQ ?? '') === qq) {
+          const name = String(summon?.name ?? summon?.名称 ?? '');
+          return nameOnly ? `(${name})` : `\n·来自:${name}(${map?.name ?? ''})`;
+        }
+      }
+    }
+    return nameOnly ? '' : `\n·来自:${qq}(对象已不存在)`;
   }
 
   /** 原版新玩家首次行动按教程标记门槛依次加入新手教程和进阶教程。 */
@@ -713,6 +760,10 @@ export class TaskService {
     return this.withUserLock(userId, async () => {
       const player = await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return [];
+      // 未开局（尚未选择第一个使魔）不领取：原版新玩家指令在开局确认前提前返回，
+      // 教程领取发生在“选择使魔确认”当次结算（_主程序.ecode L11686-11706），
+      // 由 selectFamiliar 确认分支主动触发并展示领取提示。
+      if (!player.type) return [];
       const tasks = this.parsePlayerTasks(player.tasks);
       const markers = this.parseObject(player.markers, {});
       const added: string[] = [];
@@ -799,7 +850,10 @@ export class TaskService {
       const index = this.resolveTaskIndex(tasks, taskName);
       const actualTaskName = index >= 0 ? tasks[index].name : this.cleanName(taskName);
       if (index < 0) return `你没有接取名为「${actualTaskName || taskName}」的任务`;
-      if (/教程|进阶|主线/.test(actualTaskName)) return `${actualTaskName}不是可以放弃的任务。`;
+      // 原版 L11256-11265：名称含 进阶/教程/主线 的任务不可放弃
+      if (/教程|进阶|主线/.test(actualTaskName)) {
+        return `${player.name || ''}${actualTaskName}不是可以放弃的任务。`;
+      }
 
       const markers2 = this.parseArray(player.markers2);
       const now = Date.now();
@@ -815,7 +869,7 @@ export class TaskService {
       player.tasks = JSON.stringify(tasks);
       player.markers2 = JSON.stringify(markers2);
       await this.saveTaskState(player, ['tasks', 'markers2']);
-      return `已放弃任务「${actualTaskName}」`;
+      return `${player.name || ''}放弃了任务${actualTaskName}`;
     });
   }
 

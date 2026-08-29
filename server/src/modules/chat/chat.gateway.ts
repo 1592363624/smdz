@@ -367,10 +367,11 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       rawMessage: content,
       source: CommandSource.WEB,
     };
-    const result = await this.commandService.dispatch(ctx);
 
     // 将指令原文作为一条公屏消息广播，让所有人（含发送者）都能看到"谁发了什么指令"
-    // 对齐原版群聊：玩家发出的指令在公屏可见，其后才是系统回复结果
+    // 对齐原版群聊：玩家发出的指令在公屏可见，其后才是系统回复结果。
+    // 必须在 dispatch 之前广播：攻击/采集/移动等指令内部有大量数据库读写与结算，
+    // 若等执行完再广播，发送者会迟迟看不到自己刚发的文字（体感卡顿的主要来源）。
     const cmdMsg = await this.chatService.saveMessage({
       channelId: user.channelId,
       senderId: user.userId,
@@ -378,6 +379,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       content,
     });
     this.server.to('世界频道').emit('chat:message', cmdMsg);
+
+    const result = await this.commandService.dispatch(ctx);
 
     if (result.broadcast) {
       // 公屏广播指令结果（如移动，所有人都能看到）

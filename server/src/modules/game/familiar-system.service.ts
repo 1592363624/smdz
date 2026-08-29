@@ -15,7 +15,14 @@ import { CombatSystemService } from './combat-system.service';
 import { HomeService } from './home.service';
 import { ItemSystemService } from './item-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
+import { ShortcutService } from './shortcut.service';
 import { hasActive } from './expire-time.util';
+import {
+  buildFamiliarGateMenu,
+  buildFamiliarPreview,
+  buildFamiliarSwitchMenu,
+  buildTutorialClaimBlock,
+} from './familiar-menu.util';
 
 /**
  * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
@@ -133,6 +140,8 @@ export class FamiliarSystemService {
     // P2 写入口收口：兑换等读改写路径逐步迁到 mutate 管道（锁+新鲜快照+审计）。
     // Optional 末位参数，旧测试桩不传也不受影响。
     @Optional() private readonly mutateService?: any,
+    // 选择使魔预览/列表的编号快捷指令依赖临时输入替换（对应原版 临时输入替换）。
+    @Optional() private readonly shortcutService?: ShortcutService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -149,56 +158,55 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // ========== 无参数：列出可选使魔（对应原版 L766-775） ==========
+    // ========== 无参数：列出可选使魔（对应原版 _主程序.ecode L766-775、L11464-11480） ==========
     if (!familiarName || familiarName.trim() === '') {
-      // 新玩家（未开始游戏）：列出所有可召唤使魔供选择
+      // 新玩家（未开始游戏）：原版门禁列表，两列编号菜单 + 数字临时输入替换
       if (!player.type) {
-        const allFamiliars = this.staticData.getAllFamiliars().filter((f: any) => !f.noSummon);
-        const lines: string[] = [
-          `${player.name || '冒险者'} 选择你的第一个使魔来开始游戏：`,
-          `━━━━━━━━━━━━━━━`,
-        ];
-        const options: { label: string; cmd: string }[] = [];
-        for (const f of allFamiliars) {
-          const name = f.name || '未知';
-          lines.push(`  ${options.length + 1}. ${name}`);
-          options.push({ label: name, cmd: `选择使魔${name}` });
+        const summonable = this.staticData.getAllFamiliars().filter((f: any) => !f.noSummon);
+        const menu = buildFamiliarGateMenu(summonable);
+        if (this.shortcutService) {
+          await this.shortcutService.setTempInput(userId, menu.tempInput);
         }
-        lines.push(`━━━━━━━━━━━━━━━`);
-        // 直接返回文本即可（消息入口已有门禁拦截，此处补充指令本身触发的情况）
-        return lines.join('\n');
+        return menu.text;
       }
 
-      // 老玩家：列出已拥有好感>0的使魔（对应原版 L766-775）
-      const lines: string[] = [
-        `${player.name || '冒险者'} 选择你想更换的使魔，背包和等级等数据不会清空`,
-        `━━━━━━━━━━━━━━━`,
-      ];
-      const options: { label: string; cmd: string }[] = [];
-      const allFamiliars = this.staticData.getAllFamiliars();
-      for (const f of allFamiliars) {
-        const name = f.name || '未知';
-        const affinity = this.playerService.getMarkerValue(markers, `${name}好感`);
-        if (affinity >= 1) {
-          lines.push(`  ${options.length + 1}. ${name}`);
-          options.push({ label: name, cmd: `选择使魔${name}` });
-        }
+      // 老玩家：列出已拥有好感>=1的使魔（对应原版 L766-775，编号临时输入指向 更换使魔X）
+      const ownedNames = this.staticData
+        .getAllFamiliars()
+        .map((f: any) => String(f.name || ''))
+        .filter((name) => name !== '' && this.playerService.getMarkerValue(markers, `${name}好感`) >= 1);
+      const menu = buildFamiliarSwitchMenu(player.name || '冒险者', ownedNames);
+      if (this.shortcutService && menu.tempInput) {
+        await this.shortcutService.setTempInput(userId, menu.tempInput);
       }
-      if (options.length === 0) {
-        lines.push(`  (尚未拥有任何使魔)`);
-        lines.push(`━━━━━━━━━━━━━━━`);
-        lines.push(`💡 你可以发送「召唤使魔」来解锁更多可更换的使魔`);
-      } else {
-        lines.push(`━━━━━━━━━━━━━━━`);
-        lines.push(`💡 也可以发送「选择使魔 <名称>」直接选择`);
-      }
-      return lines.join('\n');
+      return menu.text;
+    }
+
+    // ========== 名称参数解析：支持「确认」前缀（对应原版六字命令 选择使魔确认，L676） ==========
+    let name = familiarName.trim();
+    let isConfirm = false;
+    if (name.startsWith('确认')) {
+      isConfirm = true;
+      name = name.slice(2).trim();
     }
 
     // 查找使魔定义（静态配置 JSON 单一来源）
-    const familiar = this.staticData.getFamiliarByName(familiarName);
+    const familiar = this.staticData.getFamiliarByName(name);
     if (!familiar) {
-      return `不存在的使魔：${familiarName}`;
+      return `不存在的使魔：${name}`;
+    }
+
+    // ========== 预览分支（对应原版 L786-792：选择使魔<名称> 不带确认时先展示详情） ==========
+    // 原版此处首行为使魔图片（取图片），文本渠道无图片通道故省略；
+    // 「1、选择」→ 选择使魔确认<名称>，「2、返回」→ 更换使魔（回到列表）。
+    if (!isConfirm) {
+      const affinity = this.playerService.getMarkerValue(markers, `${name}好感`);
+      const skillProficiency = this.playerService.getMarkerValue(markers, `${name}技能熟练度`);
+      const preview = buildFamiliarPreview(familiar, affinity, skillProficiency);
+      if (this.shortcutService) {
+        await this.shortcutService.setTempInput(userId, preview.tempInput);
+      }
+      return preview.text;
     }
 
     // ========== 新玩家首次选择使魔（对应原版 _主程序.ecode L686-722） ==========
@@ -247,22 +255,33 @@ export class FamiliarSystemService {
       player.markers = JSON.stringify(markers);
       await this.playerService.savePlayer(player);
 
-      // 开局立即发放新手教程任务，避免"选完使魔→查看任务→空列表"的引导断裂。
-      // 对应原版 _主程序.ecode L11686-11692：新玩家自动领取"新手教程"任务。
+      // 开局领取新手教程+进阶教程任务（对应原版 _主程序.ecode L11686-11706：
+      // 新玩家首次结算领取两个教程任务，输出「领取了X，可以发送“查看任务”来查看」）。
+      let claimBlock = '';
       try {
-        await this.taskService.initNewPlayerTasks(userId);
+        const added = await this.taskService.ensureTutorialTasks(userId);
+        claimBlock = buildTutorialClaimBlock(added || []);
       } catch (e) {
-        this.logger.warn(`开局发放新手任务失败: ${e.message}`);
+        this.logger.warn(`开局领取教程任务失败: ${e.message}`);
       }
 
-      return `选择为${familiar.name}开始游戏\n💡 使用「查看任务」查看任务`;
+      // 原版开局当次结算按等级 0→1 判定，输出「等级提升了！」（L12038-12046，
+      // 经指令收尾的升级通知排水统一拼到提示链末尾）。
+      this.playerService.pushLevelUpText(userId, '等级提升了！');
+
+      // 「1、查看任务」为原版 临时输入替换(QQ,"1@查看任务") 的返回菜单
+      if (this.shortcutService) {
+        await this.shortcutService.setTempInput(userId, '1@查看任务');
+      }
+
+      return `${claimBlock}选择为${familiar.name}开始游戏\n 1、查看任务`;
     }
 
     // 检查是否已拥有该使魔（好感度>0）
-    const affinityKey = `${familiarName}好感`;
+    const affinityKey = `${name}好感`;
     const currentAffinity = this.playerService.getMarkerValue(markers, affinityKey);
     if (currentAffinity <= 0) {
-      return `${player.name || '冒险者'} 你尚未获得该使魔「${familiarName}」\n请使用「召唤使魔」来获取新使魔`;
+      return `${player.name || '冒险者'} 你尚未获得该使魔「${name}」\n请使用「召唤使魔」来获取新使魔`;
     }
 
     // 检查是否炮击模式
@@ -286,8 +305,8 @@ export class FamiliarSystemService {
     }
 
     // 检查是否为同一使魔
-    if (player.type === familiarName) {
-      return `${player.name || '冒险者'} 你上次换成${familiarName}还是上次`;
+    if (player.type === name) {
+      return `${player.name || '冒险者'} 你上次换成${name}还是上次`;
     }
 
     // 检查冷却
@@ -307,7 +326,7 @@ export class FamiliarSystemService {
     }
 
     // 执行更换
-    player.type = familiarName;
+    player.type = name;
     player.specialSeq = familiar.specialSeq;
     player.uniqueSkill = familiar.uniqueSkill || '';
     // 同步当前好感到 affinity 字段（战斗计算中按好感触发使魔专属效果）
@@ -329,7 +348,7 @@ export class FamiliarSystemService {
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '更换使魔');
 
-    return `${player.name || '冒险者'} 从${player.type}更换为${familiarName}（冷却${Math.ceil(cooldown / 60)}分钟）`;
+    return `${player.name || '冒险者'} 从${player.type}更换为${name}（冷却${Math.ceil(cooldown / 60)}分钟）`;
   }
 
   /**

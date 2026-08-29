@@ -105,6 +105,8 @@ export const gameApi = {
   nearbyPlayers: () => http.get('/game/map/nearby-players'),
   // 执行游戏内快捷操作
   quickAction: (action) => http.post('/game/player/action', { action }),
+  // 玩家自助清除自己的游戏数据(等同管理员GM清除，保留账号，重置为未开始游玩)
+  resetMyData: () => http.post('/game/player/reset-data'),
   // 获取服务器在线统计（总玩家数、在线人数）
   stats: () => http.get('/game/stats'),
 };
