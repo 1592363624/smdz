@@ -56,11 +56,11 @@ export class TaskService {
 
   /**
    * 串行化同一玩家的任务读改写，避免并发指令丢进度或重复发奖。
-   * 锁本体在 PlayerService.withUserLock（全服共享，与兑换/召唤/后台结算互斥），
+   * 锁本体在 PlayerService.enqueueUserWrite（全服共享，与兑换/召唤/后台结算互斥），
    * 这里委托以保持调用点不变。
    */
-  private async withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
-    return this.playerService.withUserLock(userId, fn);
+  private async enqueueUserWrite<T>(userId: number, fn: () => Promise<T>): Promise<T> {
+    return this.playerService.enqueueUserWrite(userId, fn);
   }
 
   private notify(userId: number, text: string): void {
@@ -84,7 +84,7 @@ export class TaskService {
   async advance(userId: number, actionName: string, count = 1): Promise<string> {
     if (!userId || !actionName || !Number.isFinite(count) || count <= 0) return '';
 
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       try {
         // 若已在某玩家的 mutate 上下文内，直接复用那份快照，避免产生第二份快照
         // 把 mutate 的未落库改动覆盖掉（详见 docs/player-state-architecture.md）。
@@ -127,7 +127,7 @@ export class TaskService {
   async completePendingTask(userId: number, taskName: string): Promise<string> {
     if (!taskName) return '请指定任务名称，格式：提交任务 任务名';
 
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       const ctx = this.mutateContext?.currentFor(userId);
       const player = ctx ? ctx.player : await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return '玩家数据不存在';
@@ -547,7 +547,7 @@ export class TaskService {
   async acceptTask(userId: number, taskName: string, publisher?: string): Promise<string> {
     if (!taskName) return '请指定任务名称，格式：领取任务 任务名';
 
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       const gameTask = this.staticData.getTaskByName(taskName);
       if (!gameTask) return `任务「${taskName}」不存在`;
       const player = await this.prisma.player.findUnique({ where: { userId } });
@@ -601,7 +601,7 @@ export class TaskService {
    * 任务完成后由统一结算链把配方写入玩家.recipes。
    */
   async acceptRecipeUnlockTask(userId: number, selector = ''): Promise<string> {
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       const player = await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return '玩家数据不存在';
 
@@ -770,7 +770,7 @@ export class TaskService {
 
   /** 原版新玩家首次行动按教程标记门槛依次加入新手教程和进阶教程。 */
   async ensureTutorialTasks(userId: number): Promise<string[]> {
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       const player = await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return [];
       // 未开局（尚未选择第一个使魔）不领取：原版新玩家指令在开局确认前提前返回，
@@ -830,7 +830,7 @@ export class TaskService {
 
   /** 保留旧调用名，供选择使魔流程使用。 */
   async initNewPlayerTasks(userId: number): Promise<void> {
-    await this.withUserLock(userId, async () => {
+    await this.enqueueUserWrite(userId, async () => {
       const player = await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return;
       const tasks = this.parsePlayerTasks(player.tasks);
@@ -856,7 +856,7 @@ export class TaskService {
   /** 放弃任务：教程/进阶/主线不可放弃，其他任务之间有300秒间隔。 */
   async abandonTask(userId: number, taskName: string): Promise<string> {
     if (!taskName) return '请指定要放弃的任务名称，格式：放弃任务 任务名';
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       const player = await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return '玩家数据不存在';
       const tasks = this.parsePlayerTasks(player.tasks);

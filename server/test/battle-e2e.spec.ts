@@ -111,7 +111,7 @@ function buildMocks() {
   const addExpLog: number[] = [];
 
   const playerService = {
-    withUserLock: jest.fn((userId: any, fn: () => any) => fn()),
+    enqueueUserWrite: jest.fn((userId: any, fn: () => any) => fn()),
     getPlayerData: jest.fn(async (userId: number) => {
       const player = players.get(userId)!;
       // weapons 可能是已解析数组（getWeaponData 直接读 player.weapons），

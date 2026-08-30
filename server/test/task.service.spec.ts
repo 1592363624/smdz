@@ -78,7 +78,7 @@ function makeFixture(options: FixtureOptions) {
   // 直通 stub 会把锁语义抹掉（与生产行为不一致）。
   const lockOwner = new PlayerService({} as any, {} as any, {} as any);
   const playerService: any = {
-    withUserLock: lockOwner.withUserLock.bind(lockOwner),
+    enqueueUserWrite: lockOwner.enqueueUserWrite.bind(lockOwner),
     calcUpgradeExp: jest.fn((level: number) => level * level + 5),
     recalcLevelStats: jest.fn(),
   };

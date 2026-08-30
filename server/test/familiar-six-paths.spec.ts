@@ -51,7 +51,7 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
       getSkillLevel: jest.fn(() => 1),
       savePlayer: jest.fn(async () => undefined),
       getBackpackItems: jest.fn((p: any) => JSON.parse(p.backpack)),
-      withUserLock: jest.fn((userId: number, fn: () => Promise<any>) => fn()),
+      enqueueUserWrite: jest.fn((userId: number, fn: () => Promise<any>) => fn()),
     };
     // 最小化复刻 ItemService 的数据串编解码（直接复用真实 BONUS_CODE_MAP，保证全键覆盖）
     const BONUS_CODE_REVERSE: Record<string, string> = {};

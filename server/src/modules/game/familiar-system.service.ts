@@ -364,7 +364,7 @@ export class FamiliarSystemService {
       count = 1;
     }
     // 读券→扣券→写回必须全程持用户级共享锁，理由同 exchange。
-    return this.playerService.withUserLock(userId, () =>
+    return this.playerService.enqueueUserWrite(userId, () =>
       this.applySummonFamiliar(userId, count));
   }
 
@@ -929,7 +929,7 @@ export class FamiliarSystemService {
       return this.mutateService.mutate(userId, (ctx: any) =>
         this.doExchange(ctx, normalizedName, count));
     }
-    return this.playerService.withUserLock(userId, () =>
+    return this.playerService.enqueueUserWrite(userId, () =>
       this.playerService.getPlayerData(userId).then((playerData: any) =>
         this.doExchange(playerData, normalizedName, count)));
   }

@@ -185,7 +185,7 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     expect(ticketFinal.count).toBeCloseTo(73, 5);
     expect(ore).toBeDefined();
 
-    expect(realPlayerService.withUserLock).toBeTruthy();
+    expect(realPlayerService.enqueueUserWrite).toBeTruthy();
   });
 
   it('同一玩家的并发指令按锁排队串行执行', async () => {
@@ -213,7 +213,7 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     expect(tickets.count).toBeCloseTo(22, 5);
 
     // 可重入：锁内再进同用户锁直接放行，不自我死锁（exchange→advance 嵌套场景）
-    await expect(realPlayerService.withUserLock(42, async () =>
-      realPlayerService.withUserLock(42, async () => 'nested'))).resolves.toBe('nested');
+    await expect(realPlayerService.enqueueUserWrite(42, async () =>
+      realPlayerService.enqueueUserWrite(42, async () => 'nested'))).resolves.toBe('nested');
   });
 });

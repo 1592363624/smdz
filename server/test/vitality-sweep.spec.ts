@@ -34,7 +34,7 @@ describe('扫荡活力批量结算', () => {
       safeBox: [],
     };
     const playerService: any = {
-      withUserLock: jest.fn((_userId: number, fn: () => Promise<any>) => fn()),
+      enqueueUserWrite: jest.fn((_userId: number, fn: () => Promise<any>) => fn()),
       getPlayerData: jest.fn(async () => playerData),
       savePlayer: jest.fn(async () => undefined),
       isPlayerDead: jest.fn(() => false),

@@ -6,7 +6,7 @@
  * 玩家是状态的唯一归属者。所有对玩家数据的修改都必须通过 `mutate(userId, fn)`，
  * 由本服务保证三件事：
  *
- * 1. **串行**：全程持 `PlayerService.withUserLock` 用户级锁，与战斗、后台结算、
+ * 1. **串行**：全程持 `PlayerService.enqueueUserWrite` 用户级锁，与战斗、后台结算、
  *    其它指令天然互斥，不需要调用方记得加锁。
  * 2. **单一快照**：一条业务链只读取一份快照，嵌套调用复用它（见 currentContext）。
  *    这是本项目并发正确性的基石——历史上反复出现的「旧快照整包覆盖」事故，
@@ -89,7 +89,7 @@ export class PlayerMutateService {
       return await fn(active as MutateContext);
     }
 
-    return this.playerService.withUserLock(userId, async () => {
+    return this.playerService.enqueueUserWrite(userId, async () => {
     const ctx = (await this.playerService.getPlayerData(userId)) as MutateContext;
     const before = this.readCurrencies(ctx.player);
     // 记录 player 侧 JSON 字符串初始值，用于判定改动发生在哪一侧
@@ -127,7 +127,7 @@ export class PlayerMutateService {
       return await fn(active as MutateContext);
     }
 
-    return this.playerService.withUserLock(userId, async () => {
+    return this.playerService.enqueueUserWrite(userId, async () => {
       const ctx = (await this.playerService.getPlayerData(userId)) as MutateContext;
       return await this.mutateContext.run(userId, ctx, () => fn(ctx));
     });

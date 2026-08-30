@@ -87,8 +87,8 @@ export class FamiliarSkillsService {
     // 方还要追加增益再保存）。与采集结算、地图战斗节拍、其它指令等并发写入者
     // 同时推进时，任意一方被对方推进版本都会让 CAS 失败，玩家侧表现就是
     // 「指令执行错误: 玩家数据并发冲突，请重试」。串行后同一用户的操作不会互踩；
-    // withUserLock 可重入，六道轮回内部再次加锁不会死锁。
-    const result = await this.playerService.withUserLock(userId, () =>
+    // enqueueUserWrite 可重入，六道轮回内部再次加锁不会死锁。
+    const result = await this.playerService.enqueueUserWrite(userId, () =>
       this.routeSkill(userId, skillName, target),
     );
 
@@ -1012,7 +1012,7 @@ export class FamiliarSkillsService {
       return '“六道轮回1攻击”来指定背包里的第1个物品的“攻击”这个属性让它重新进行随机\n这件装备可能出现的属性可从图鉴中查看（不会出现重复属性）';
     }
     // 读快照→改→整包写回必须全程持用户级共享锁，理由同兑换/召唤。
-    return this.playerService.withUserLock(userId, () => this.applySixPaths(userId, param));
+    return this.playerService.enqueueUserWrite(userId, () => this.applySixPaths(userId, param));
   }
 
   /** 六道轮回的数据库读改写段（调用方需已持有用户级锁）。 */
@@ -1239,7 +1239,7 @@ export class FamiliarSkillsService {
    */
   async sixPathsChoice(userId: number, choiceParam = ''): Promise<string> {
     // 待洗装备与背包整包写回，同样持用户级共享锁。
-    return this.playerService.withUserLock(userId, () => this.applySixPathsChoice(userId, choiceParam));
+    return this.playerService.enqueueUserWrite(userId, () => this.applySixPathsChoice(userId, choiceParam));
   }
 
   /** 六道轮回选择的数据库读改写段（调用方需已持有用户级锁）。 */
@@ -3583,7 +3583,7 @@ export class FamiliarSkillsService {
    */
   async reviveFamiliar(userId: number): Promise<string> {
     // 读背包→扣钻石/觉醒丹→写回必须全程持用户级共享锁，理由同兑换/召唤。
-    return this.playerService.withUserLock(userId, () => this.applyReviveFamiliar(userId));
+    return this.playerService.enqueueUserWrite(userId, () => this.applyReviveFamiliar(userId));
   }
 
   /** 复活使魔的数据库读改写段（调用方需已持有用户级锁）。 */
@@ -3660,7 +3660,7 @@ export class FamiliarSkillsService {
    */
   async massSummon(userId: number): Promise<string> {
     // 读券→扣券→写回必须全程持用户级共享锁，理由同兑换/召唤。
-    return this.playerService.withUserLock(userId, () => this.applyMassSummon(userId));
+    return this.playerService.enqueueUserWrite(userId, () => this.applyMassSummon(userId));
   }
 
   /** 大召唤术的数据库读改写段（调用方需已持有用户级锁）。 */

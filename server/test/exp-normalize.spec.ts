@@ -13,7 +13,7 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
  * 升级文本进入按 userId 键控的通知队列，由指令收尾统一排水。
  */
 
-/** 模拟真实 Prisma：(id, version) 复合唯一键 CAS + 主键定点更新 */
+/** 模拟真实 Prisma：主键定点更新 + $use 中间件自增 version（纯 Actor 单写者，无 CAS） */
 function makePrismaWithCas(rows: any[]) {
   const prisma: any = {
     player: {
@@ -22,25 +22,18 @@ function makePrismaWithCas(rows: any[]) {
         return row ? { ...row } : null;
       }),
       update: jest.fn(async ({ where, data }: any) => {
-        const cv = where?.id_version;
-        if (!cv) {
-          const rowById = rows.find((r) => r.id === where?.id);
-          if (!rowById) {
-            const err0: any = new Error('record not found');
-            err0.code = 'P2025';
-            throw err0;
-          }
-          Object.assign(rowById, data);
-          return rowById;
-        }
-        const row = rows.find((r) => r.id === cv.id);
-        if (!row || row.version !== cv.version) {
-          const err: any = new Error('An operation failed because it depends on one or more records that were required but was not found.');
+        const rowById = rows.find((r) => r.id === where?.id);
+        if (!rowById) {
+          const err: any = new Error('record not found');
           err.code = 'P2025';
           throw err;
         }
-        Object.assign(row, data);
-        return row;
+        // 模拟 $use 中间件：version 未显式携带时自增（与 prisma.service.ts 一致）。
+        // 纯 Actor 单写者下 savePlayer 不再做 (id,version) CAS 冲突判定、不再抛并发冲突；
+        // version 仅用于审计/增量重放，由中间件统一推进。
+        if (data.version === undefined) data.version = (rowById.version ?? 0) + 1;
+        Object.assign(rowById, data);
+        return rowById;
       }),
     },
   };
@@ -122,7 +115,7 @@ describe('savePlayer 经验归一化门禁', () => {
     expect((prisma.player.update.mock.calls[0][0].data).exp).toBeUndefined();
   });
 
-  it('升级时重算成长属性并推进版本号（CAS 正常落库）', async () => {
+  it('升级时重算成长属性并推进版本号（version 由 $use 中间件自增）', async () => {
     const row = makeRow({ level: 1, exp: 30, upgradeExp: 6, version: 7 });
     const prisma = makePrismaWithCas([row]);
     const service = makeService(prisma);

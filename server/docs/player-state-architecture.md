@@ -1,8 +1,11 @@
-# 玩家状态写入口架构（Actor 式单写者）
+# 玩家状态写入口架构（纯 Actor 单写者：无锁、无 CAS）
 
-> 目标：彻底根治「旧快照整包覆盖」与「CAS 并发冲突（玩家数据并发冲突，请重试）」类事故。
+> 目标：彻底根治「旧快照整包覆盖」与「乐观锁 CAS 并发冲突（玩家数据并发冲突，请重试）」类事故。
 > 设计参照：Orleans / Erlang OTP 的 Serialized Single-Writer 思路——玩家状态唯一归属，
-> 所有修改经同一把用户级锁串行化、复用唯一快照、由最外层统一落库。
+> 所有修改只能经同一玩家的「串行邮箱（Actor 收件箱）」发消息、内部单线程顺序执行、天然无竞态。
+> **关键纠正（2026-08-30）**：此前命名为 `withUserLock` 实为误导——它根本不是互斥锁，而是
+> `enqueueUserWrite` 这条 per-user 的 Promise 链；且 `savePlayer` 已移除 `(id,version)` CAS 冲突判定，
+> 不再抛「并发冲突」。version 仅由 Prisma `$use` 中间件自增，供审计/增量重放。
 
 ## 1. 问题根因
 
@@ -21,8 +24,9 @@
 
 位于 `PlayerMutateService`，保证三件事：
 
-1. **串行**：全程持 `PlayerService.withUserLock(userId, …)`（进程内按 userId 的 Promise 闸门锁，
-   ALS 重入标记支持嵌套自调用），与战斗、后台结算、其它指令天然互斥。
+1. **串行**：全程经 `PlayerService.enqueueUserWrite(userId, …)`（进程内按 userId 的 Promise 串行链，
+   **非互斥锁**——即 Actor 收件箱：同用户写操作串到前一个之后顺序执行、单线程天然无竞态；ALS 重入
+   标记支持嵌套自调用，避免 A→B→A 自死锁），与战斗、后台结算、其它指令天然互斥。
 2. **单一快照**：一条业务链只读取一份快照，嵌套调用（同一 userId 的 `mutate` / 直接 `savePlayer`）
    复用它（`currentFor`），不再重读库。
 3. **统一落库**：只有最外层负责 `savePlayer` 落库与货币审计；内层改动自动合并回上下文。
@@ -69,25 +73,30 @@ version，外层保存又以过期版本 CAS → 双写 / 版本分叉 → 并�
 
 ## 4. 覆盖矩阵（彻底根治后的写入口）
 
-| 路径 | 是否持锁 | 状态 |
+| 路径 | 是否串行化（邮箱） | 状态 |
 | --- | --- | --- |
-| 指令 handler（网页 / AstrBot / API） | `mutate` → `withUserLock` | ✅ 统一快照 + 统一落库 |
-| `AutoMineService.checkpoint/settle`（每分钟 cron） | `withUserLock` | ✅ 与指令互斥 |
-| `GameService.settleGatherResource`（进程内定时器 + 每5秒兜底） | `withUserLock` | ✅ 与指令互斥 |
-| `CombatSystemService.weaponAttack`（含自动战斗 tick） | `withUserLock` | ✅ 与指令互斥 |
+| 指令 handler（网页 / AstrBot / API） | `mutate` → `enqueueUserWrite` | ✅ 统一快照 + 统一落库 |
+| `AutoMineService.checkpoint/settle`（每分钟 cron） | `enqueueUserWrite` | ✅ 与指令互斥 |
+| `GameService.settleGatherResource`（进程内定时器 + 每5秒兜底） | `enqueueUserWrite` | ✅ 与指令互斥 |
+| `CombatSystemService.weaponAttack`（含自动战斗 tick） | `enqueueUserWrite` | ✅ 与指令互斥 |
+| `ScheduleService.settlePendingMoves` / `cleanupExpiredBuffs`（定时器） | `enqueueUserWrite` → `savePlayer` | ✅ 已收口，单写者统一 |
 
-注意：`settleGatherResource` 中段依赖 `savePlayer` 的**整包 CAS 认领**「采集中」标记来防止双结算，
-刻意保持真实落库（不并入 merge 安全网），且已持锁——这是有意为之，勿将其也并入 merge。
+注意：`settleGatherResource` 中段依赖 `savePlayer` 的**整包认领**「采集中」标记来防止双结算，
+该认领依托串行邮箱互斥（同用户写顺序执行，不会并发改写同一标记），不再依赖 version CAS；
+刻意保持真实落库（不并入 merge 安全网），且已入邮箱——这是有意为之，勿将其也并入 merge。
 
-`ScheduleService` 中 `settlePendingMoves` / `cleanupExpiredBuffs` 走 `prisma.player.update` 直接定点
-更新（字段级、无 version CAS），属低优先级的既有残留路径：不会造成「整包覆盖」或「并发冲突」，
-仅理论上可能覆盖并发 mutate 刚写过的同一字段。如需完全单写者统一，后续可在锁内重读后再写。
+`ScheduleService` 中 `settlePendingMoves` / `cleanupExpiredBuffs` 已收口：原先走 `prisma.player.update`
+直接定点更新（绕过指令漏斗），现改为 `enqueueUserWrite(userId, async () => { 重读最新快照 → 改 →
+savePlayer })`，与指令、后台结算共享同一串行邮箱，达成全量单写者统一、无整包覆盖、无并发冲突。
 
 ## 5. 测试护栏
 
-- `test/architecture-guard.spec.ts`：`RAW_SAVEPLAYER_BASELINE` / `MUTATE_CALL_BASELINE` 单向度量，
-  把架构约束固化进测试，避免规范随重构丢失。
+- `test/architecture-guard.spec.ts`：`RAW_SAVEPLAYER_BASELINE = 219` / `MUTATE_CALL_BASELINE = 4`
+  单向度量（裸写只增基线、mutate 只增不减；基线 217→219 来自 ScheduleService 两条定时器写经
+  串行邮箱合规收口为 `savePlayer`），把架构约束固化进测试，避免规范随重构丢失。
 - `test/player-mutate.spec.ts`：单一快照复用、货币审计、嵌套 mutate、addExp 复用、以及
   3.1 的「内层 savePlayer 合并而非二次落库」回归。
-- 全量单测（排除 integration）：约 540/541 通过。唯一失败为 `onboarding-flow`（真实远程库 e2e），
-  卡在教程文案内容断言（环境相关），与并发修复无关。
+- 全量单测（排除 integration）：540/541 通过。唯一失败为 `onboarding-flow`（真实远程库 e2e），
+  卡在教程文案内容断言（环境相关），与并发修复无关。注：`exp-normalize` / `save-player-cas` 的
+  Prisma 桩已同步改为模拟 `$use` 中间件自增 version（不再模拟旧 CAS），`architecture-guard`
+  基线 217→219。

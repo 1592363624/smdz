@@ -46,16 +46,16 @@ export class AutoMineService {
 
   /**
    * 自动开采同样按「读快照→改→整包写回」操作玩家数据，必须与玩家指令、
-   * 任务结算共用同一把用户级锁（PlayerService.withUserLock），否则后台
+   * 任务结算共用同一把用户级锁（PlayerService.enqueueUserWrite），否则后台
    * 结算会用兑换/召唤前的旧快照整包覆盖背包（曾导致兑换的召唤券蒸发）。
    */
-  private withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
-    return this.playerService.withUserLock(userId, fn);
+  private enqueueUserWrite<T>(userId: number, fn: () => Promise<T>): Promise<T> {
+    return this.playerService.enqueueUserWrite(userId, fn);
   }
 
   /** 开始自动开采，写入原版使用的两个标记之一。 */
   async start(userId: number, nowMs = Date.now()): Promise<string> {
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       const context = await this.getContext(userId);
       const validation = this.validate(context, true);
       if (validation) return validation;
@@ -85,7 +85,7 @@ export class AutoMineService {
 
   /** 停止当前载具对应的自动开采并结算全部未结算时间。 */
   async stop(userId: number, nowMs = Date.now()): Promise<string> {
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       const context = await this.getContext(userId);
       const validation = this.validate(context, false);
       if (validation) return validation;
@@ -135,7 +135,7 @@ export class AutoMineService {
   }
 
   private async checkpoint(userId: number, nowMs: number): Promise<boolean> {
-    return this.withUserLock(userId, async () => {
+    return this.enqueueUserWrite(userId, async () => {
       const context = await this.getContext(userId);
       if (this.validate(context, false) || context.collector === 0) return false;
 

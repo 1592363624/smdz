@@ -57,15 +57,19 @@ function countPattern(files: string[], pattern: RegExp): [number, Array<[string,
 }
 
 describe('架构门禁：玩家状态写入口收口', () => {
-  // ===== 基线（2026-08-30 记录，收口方式升级为"基础设施层安全网"）=====
+  // ===== 基线（2026-08-30 记录，收口方式升级为"基础设施层安全网 + 串行邮箱"）=====
   // 演进：早期做法是逐个把写入口迁到 mutate（裸写只减不增）。现升级为在
   // getPlayerData / savePlayer 自身加"上下文感知"安全网——任何在 mutate 上下文内
   // 的裸写都自动复用唯一快照 / 合并回上下文 / 由最外层统一落库，旧快照覆盖类事故
-  // 在基础设施层被根除，不必再逐个改写 217 处调用点。
+  // 在基础设施层被根除；指令入口之外、由定时器驱动的写（ScheduleService 的
+  // settlePendingMoves / cleanupExpiredBuffs）则收口到 PlayerService 的 per-user
+  // 串行邮箱（enqueueUserWrite → savePlayer），同样单用户串行、无竞态、无 CAS。
   // - 单点收口：指令总入口 CommandService.executeDispatch 已用 mutate 包住整条指令，
-  //   因此 game/familiar/combat 等全部 217 处裸写都被纳入同一快照。
-  // - 裸写处数维持 217 不变（安全网已保护，无需逐个改写）；mutate 调用数随收口点增加。
-  const RAW_SAVEPLAYER_BASELINE = 217;
+  //   因此 game/familiar/combat 等裸写都被纳入同一快照。
+  // - 基线 217 → 219：ScheduleService 两条定时器裸写（prisma.player.update）已合规
+  //   收口为 enqueueUserWrite → savePlayer，属预期增量（它们本就绕开指令漏斗，现经
+  //   串行邮箱获得同等安全保证）。其余 217 处裸写维持不变（安全网已保护）。
+  const RAW_SAVEPLAYER_BASELINE = 219;
   const MUTATE_CALL_BASELINE = 4;
 
   const targetFiles = walkTs(SRC_DIR).filter(
@@ -111,7 +115,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
       'utf8',
     );
     // 三者任一被删掉，串行 / 单一快照 / 字段同步就会失效
-    expect(mutateSrc).toContain('withUserLock'); // 串行
+    expect(mutateSrc).toContain('enqueueUserWrite'); // 串行
     expect(mutateSrc).toContain('mutateContext.currentFor'); // 嵌套复用同一快照
     expect(mutateSrc).toContain('syncParsedFields'); // 结构化字段双向同步
   });

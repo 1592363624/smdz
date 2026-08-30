@@ -88,7 +88,7 @@ function makeRescueFixture(playerOverrides: Record<string, any> = {}) {
   const map: any = { id: 7, name: '医疗室', summons: '[]', vehicles: '[]' };
   const taskService = { advance: jest.fn(async () => '') };
   const playerService: any = {
-    withUserLock: jest.fn((userId: number, fn: () => any) => fn()),
+    enqueueUserWrite: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async () => ({
       player,
       markers: parseJson(player.markers, {}),
@@ -161,7 +161,7 @@ function makeGatherFixture(options: { times?: number } = {}) {
   };
   const taskService = { advance: jest.fn(async () => ''), acceptTask: jest.fn(async () => '') };
   const playerService: any = {
-    withUserLock: jest.fn((userId: number, fn: () => any) => fn()),
+    enqueueUserWrite: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async () => ({
       player: persistence.loadSnapshot(),
       markers: parseJson(persistence.state.markers, {}),

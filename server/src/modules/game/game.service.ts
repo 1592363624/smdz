@@ -126,12 +126,12 @@ export class GameService {
    *
    * 生产环境由 Nest 注入真实的 PlayerMutateService（Actor 式：锁内单一快照、
    * 统一落库、货币审计、嵌套复用）。测试桩若不提供该依赖，则退化为等价的
-   * 「withUserLock + getPlayerData + fn + savePlayer」路径，保持旧行为不变，
+   * 「enqueueUserWrite + getPlayerData + fn + savePlayer」路径，保持旧行为不变，
    * 避免逐个测试桩补依赖。
    */
   private mutatePlayer<T>(userId: number, fn: (ctx: any) => Promise<T> | T): Promise<T> {
     if (this.playerMutate) return this.playerMutate.mutate(userId, fn);
-    return this.playerService.withUserLock(userId, async () => {
+    return this.playerService.enqueueUserWrite(userId, async () => {
       const ctx = await this.playerService.getPlayerData(userId);
       const result = await fn(ctx);
       await this.playerService.savePlayer(ctx.player);
@@ -3219,7 +3219,7 @@ export class GameService {
   async settleGatherResource(userId: number): Promise<string> {
     // 采集结算按「读快照→改→整包写回」更新玩家数据，必须持用户级共享锁，
     // 与兑换/召唤/任务推进互斥；进程内定时器与 cron 兜底两条路径都经过这里。
-    return this.playerService.withUserLock(userId, () => this.applySettleGatherResource(userId));
+    return this.playerService.enqueueUserWrite(userId, () => this.applySettleGatherResource(userId));
   }
 
   /** 采集结算的数据库读改写段（调用方需已持有用户级锁）。 */
@@ -5707,8 +5707,8 @@ export class GameService {
    */
   async handleSweep(userId: number, requestedCount = 0): Promise<string> {
     const run = () => this.handleSweepInner(userId, requestedCount);
-    if (typeof this.playerService.withUserLock === 'function') {
-      return this.playerService.withUserLock(userId, run);
+    if (typeof this.playerService.enqueueUserWrite === 'function') {
+      return this.playerService.enqueueUserWrite(userId, run);
     }
     return run();
   }
@@ -12633,7 +12633,7 @@ export class GameService {
     if (!claimed) return '';
     // 认领成功后的读快照→改→整包写回段必须持用户级共享锁（理由同采集结算），
     // 否则会被兑换/召唤/后台开采的并发写回覆盖玩家数据。
-    return this.playerService.withUserLock(userId, () => this.applyCompleteRescue(userId, marker));
+    return this.playerService.enqueueUserWrite(userId, () => this.applyCompleteRescue(userId, marker));
   }
 
   /** 救援结算的数据库读改写段（调用方需已完成标记认领并持有用户级锁）。 */

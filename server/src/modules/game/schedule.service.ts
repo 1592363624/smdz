@@ -297,36 +297,34 @@ export class ScheduleService {
         // 未到期则跳过
         if (Date.now() < moving.arriveAt) continue;
 
-        // 已到期：补完成落地
+        // 已到期：补完成落地。玩家写路径统一入队（per-user 串行邮箱），与游戏内
+        // 移动/战斗写路径互斥，避免绕过邮箱的裸写造成 markers 覆盖/版本分叉。
         const targetMap = await this.mapService.getMapById(moving.targetMapId);
-        if (!targetMap) {
-          // 目标地图已不存在，仅清除移动中标记，避免卡死
-          delete markers['移动中'];
-          await this.prisma.player.update({
-            where: { id: p.id },
-            data: { markers: JSON.stringify(markers) },
-          });
-          continue;
-        }
-
-        delete markers['移动中'];
-        await this.prisma.player.update({
-          where: { id: p.id },
-          data: {
-            markers: JSON.stringify(markers),
-            mapId: moving.targetMapId,
-            location: moving.targetName || targetMap.name,
-          },
+        const did = await this.playerService.enqueueUserWrite(Number(p.userId), async () => {
+          const data = await this.playerService.getPlayerData(Number(p.userId));
+          const cur = data.markers || {};
+          if (!cur['移动中']) return false; // 期间已被其它路径处理，跳过
+          delete cur['移动中'];
+          data.player.markers = cur;
+          if (targetMap) {
+            data.player.mapId = moving.targetMapId;
+            data.player.location = (moving as any).targetName || targetMap.name;
+          }
+          await this.playerService.savePlayer(data.player);
+          return true;
         });
+        if (did) settled++;
 
         // 懒刷新：目标地图无怪物时补充刷新，避免到达后无怪可打
-        try {
-          const currentSpawn = await this.mapService.getMapMonsters(targetMap);
-          if (currentSpawn.length === 0) {
-            await this.mapService.refreshMapMonsters(moving.targetMapId);
+        if (targetMap) {
+          try {
+            const currentSpawn = await this.mapService.getMapMonsters(targetMap);
+            if (currentSpawn.length === 0) {
+              await this.mapService.refreshMapMonsters(moving.targetMapId);
+            }
+          } catch (e: any) {
+            this.logger.warn(`兜底落地懒刷新怪物失败: ${e?.message}`);
           }
-        } catch (e: any) {
-          this.logger.warn(`兜底落地懒刷新怪物失败: ${e?.message}`);
         }
 
         settled++;
@@ -954,12 +952,20 @@ export class ScheduleService {
         }
 
         if (changed) {
-          await this.prisma.player.update({
-            where: { userId: player.userId },
-            data: {
-              markers2: JSON.stringify(validMarkers2),
-              buffs: JSON.stringify(validBuffs),
-            },
+          // 玩家写路径统一入队（per-user 串行邮箱），与游戏内写路径互斥，
+          // 避免绕过邮箱的裸写造成 markers2/buffs 覆盖。
+          await this.playerService.enqueueUserWrite(Number(player.userId), async () => {
+            const data = await this.playerService.getPlayerData(Number(player.userId));
+            const freshM2 = (data.markers2 || []).filter((m: any) => {
+              if (!m?.expireAt) return true;
+              const raw = Number(m.expireAt);
+              const expireSec = raw >= 1e12 ? raw / 1000 : raw;
+              return expireSec > nowSec;
+            });
+            const freshBuffs = filterActive(data.buffs || [], nowMs);
+            data.player.markers2 = freshM2;
+            data.player.buffs = freshBuffs;
+            await this.playerService.savePlayer(data.player);
           });
           cleanedCount++;
         }

@@ -39,7 +39,7 @@ export class CommandService {
     @Optional() private readonly taskService?: TaskService,
     // 玩家状态收口入口（Actor 式写入口）：把整条指令（含其下所有服务的读改写）
     // 在锁内复用唯一快照、统一落库。@Optional 兼容手工构造的测试桩（未注入时
-    // 退化为指令直接执行，走各服务自身的 withUserLock 旧路径，行为不变）。
+    // 退化为指令直接执行，走各服务自身的 enqueueUserWrite 旧路径，行为不变）。
     @Optional() private readonly playerMutate?: PlayerMutateService,
   ) {}
 

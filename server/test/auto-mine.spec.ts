@@ -49,7 +49,7 @@ function makeFixture(options: {
     }),
   };
   const playerService = {
-    withUserLock: jest.fn((userId: number, fn: () => any) => fn()),
+    enqueueUserWrite: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async () => ({
       player,
       markers: JSON.parse(player.markers),

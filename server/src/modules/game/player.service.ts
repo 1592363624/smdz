@@ -32,13 +32,15 @@ export interface PlayerData {
 @Injectable()
 export class PlayerService {
   private readonly logger = new Logger(PlayerService.name);
-  /** 同一玩家的用户级串行化锁：key=userId，值=锁尾 Promise */
-  private readonly userLocks = new Map<number, Promise<unknown>>();
+  /** 同一玩家的串行邮箱（Actor 收件箱）：key=userId，值=队列尾 Promise。
+   *  这不是互斥锁，而是一条 Promise 链——同一玩家的所有写操作被串到前一个
+   *  之后顺序执行，单进程内天然单线程、无竞态，无任何 Mutex/信号量阻塞。 */
+  private readonly userMailboxes = new Map<number, Promise<unknown>>();
   /**
    * 锁重入上下文：同一异步链内重复进入同一 userId 的锁时直接放行，
    * 避免服务间嵌套调用（如兑换 → 任务推进）造成自我死锁。
    */
-  private readonly lockContext = new AsyncLocalStorage<number>();
+  private readonly mailboxContext = new AsyncLocalStorage<number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -58,39 +60,43 @@ export class PlayerService {
   ) {}
 
   /**
-   * 玩家数据的读-改-写串行化锁（全服共享，按 userId 区分）。
+   * 每个玩家的串行邮箱（Actor 收件箱，全服共享，按 userId 区分）。
+   *
+   * 这不是互斥锁：它是一条 per-user 的 Promise 链，同一玩家的所有写操作被串到
+   * 前一个之后顺序执行，单进程内天然单线程、无竞态，无任何 Mutex/信号量阻塞。
+   * 即「改状态只能给它发消息 / 内部单线程」的 Actor 模型落地形态。
    *
    * 背景：玩家背包/标记等复杂结构以 JSON 字符串整包存取，任何「读取快照→
    * 修改→savePlayer 整包写回」的路径如果与其它路径并发执行，后写者会用
    * 旧快照覆盖先写者的改动（曾导致兑换扣钻后召唤券被后台开采结算的旧
    * 快照回滚）。此前 AutoMineService / TaskService 各持有私有锁互不互斥。
-   * 现统一委托本方法；已在同一把锁内的调用（同 userId）直接放行以支持嵌套。
+   * 现统一委托本邮箱；已在同一邮箱内的调用（同 userId）直接放行以支持嵌套。
    * @param userId 用户ID
-   * @param fn 持锁期间执行的读写逻辑
+   * @param fn 入队后顺序执行的读写逻辑
    */
-  withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
+  enqueueUserWrite<T>(userId: number, fn: () => Promise<T>): Promise<T> {
     if (!userId || !Number.isFinite(userId)) return fn();
 
-    // 可重入：同一条异步链已持有该用户的锁时不再排队，防止 A→B→A 自死锁。
-    const held = this.lockContext.getStore();
+    // 可重入：同一条异步链已持有该用户的邮箱时不再排队，防止 A→B→A 自死锁。
+    const held = this.mailboxContext.getStore();
     if (held === userId) return fn();
 
-    const previous = this.userLocks.get(userId) ?? Promise.resolve();
+    const previous = this.userMailboxes.get(userId) ?? Promise.resolve();
     let release!: () => void;
     // 本持有者的闸门：resolve 即放行下一个排队者；gate 永不 reject。
     const gate = new Promise<void>((resolve) => { release = resolve; });
     // 只等前一把锁的闸门，绝不能把自己的 gate 算进等待链（否则自我死锁）。
     const myTurn = previous.then(() => undefined, () => undefined);
-    this.userLocks.set(userId, gate);
+    this.userMailboxes.set(userId, gate);
 
     return (async () => {
       await myTurn;
       try {
         // run 的新异步链继承重入标记；await 后仍可读到（ALS 贯穿整个 async 链）。
-        return await this.lockContext.run(userId, fn);
+        return await this.mailboxContext.run(userId, fn);
       } finally {
         release();
-        if (this.userLocks.get(userId) === gate) this.userLocks.delete(userId);
+        if (this.userMailboxes.get(userId) === gate) this.userMailboxes.delete(userId);
       }
     })();
   }
@@ -491,43 +497,20 @@ export class PlayerService {
       }
     }
 
-    // 乐观锁（CAS）：以「读快照时的 version」做条件更新（依赖 (id, version)
-    // 复合唯一键）。版本过期说明期间有其它路径写过该玩家，本写回若落库会用
-    // 旧数据整包覆盖——曾导致兑换扣钻后召唤券被后台结算的旧快照回滚蒸发。
-    // Prisma update 匹配不到复合键时抛 P2025，这里转换为显式并发冲突错误，
-    // 让「忘加锁的新代码」从静默丢数据变成可见失败；调用方重读即可拿到最新状态。
+    // 纯 Actor 单写者：所有同用户写路径都已串行化（PlayerService 的 per-user
+    // 串行邮箱，见 enqueueUserWrite），同用户不存在并发写。version 仅由 Prisma
+    // $use 中间件自增（见 prisma.service.ts），用于审计/增量重放，不再做 CAS
+    // 冲突判定，即不再抛出「玩家数据并发冲突，请重试」。
+    // 若未来出现绕过邮箱的裸写导致版本过期，这里按最新库状态安静覆盖；
+    // 该裸写本身也应入队，故不会造成整包覆盖/丢失更新。
     const snapshotVersion = Number(player.version ?? 0);
 
-    if (player.version === undefined || player.version === null) {
-      // 部分更新：调用方手工构造的字段子集（如 {id, markers}/{id, markers2}），
-      // 属于单字段定点写、无覆盖面风险，不参与 CAS，按原路径落库。
-      await this.prisma.player.update({
-        where: { id: player.id },
-        data: updateData,
-      });
-      return;
-    }
-
-    try {
-      await this.prisma.player.update({
-        where: { id_version: { id: player.id, version: snapshotVersion } },
-        data: { ...updateData, version: snapshotVersion + 1 },
-      });
-      // 回写新版本到内存对象：同一快照在同一条业务链里可能被多次保存
-      // （如先扣钱保存、再发奖励保存），不回写会让第二次 CAS 因版本+1 而误判冲突。
-      player.version = snapshotVersion + 1;
-    } catch (error: any) {
-      if (error?.code === 'P2025') {
-        // 快照过期：严格拒绝。不做字段合并——若冲突双方修改的是同一个整包字段
-        // （如都写 backpack），合并会把丢失更新 bug 请回来。调用方应重读最新
-        // 状态重试；计数器型写入者用「增量重放」恢复（见 AchievementService）。
-        this.logger.warn(
-          `玩家 ${player.id}(${player.userId ?? '?'}) 数据已被并发修改(version=${snapshotVersion} 过期)，本次保存被拒绝`,
-        );
-        throw new Error('玩家数据并发冲突，请重试');
-      }
-      throw error;
-    }
+    await this.prisma.player.update({
+      where: { id: player.id },
+      data: updateData, // $use 中间件自动 version: { increment: 1 }
+    });
+    // 回写内存版本：保持快照与库一致（中间件已 +1）
+    player.version = snapshotVersion + 1;
   }
 
   /**

@@ -26,13 +26,13 @@ function countNonComment(file, re) {
 }
 
 const files = walk(SRC).filter((f) => !EX.some((n) => f.endsWith(n)));
-const agg = { savePlayer: new Map(), getPlayerData: new Map(), withUserLock: new Map(), mutate: new Map(), read: new Map() };
+const agg = { savePlayer: new Map(), getPlayerData: new Map(), enqueueUserWrite: new Map(), mutate: new Map(), read: new Map() };
 for (const f of files) {
   const rel = path.relative(SRC, f);
   for (const [k, re] of [
     ['savePlayer', /savePlayer\s*\(/g],
     ['getPlayerData', /getPlayerData\s*\(/g],
-    ['withUserLock', /withUserLock\s*\(/g],
+    ['enqueueUserWrite', /enqueueUserWrite\s*\(/g],
     ['mutate', /\.mutate\s*\(/g],
     ['read', /\.read\s*\(/g],
   ]) {
@@ -47,4 +47,4 @@ function show(k) {
   console.log('\n=== ' + k + ' : total=' + total + ' across ' + arr.length + ' files ===');
   for (const [f, c] of arr) console.log('  ' + String(c).padStart(4) + '  ' + f);
 }
-['savePlayer', 'getPlayerData', 'withUserLock', 'mutate', 'read'].forEach(show);
+['savePlayer', 'getPlayerData', 'enqueueUserWrite', 'mutate', 'read'].forEach(show);
