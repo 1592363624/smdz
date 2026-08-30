@@ -1,18 +1,39 @@
 /**
- * 玩家写入口收口（P2）+ 货币审计（P4）
+ * 玩家写入口收口（P2 增强）+ 货币审计（P4）
  *
- * mutate(userId, fn) 是玩家数据「读-改-写」的唯一推荐入口：
- *   - 全程持 PlayerService 共享用户级锁（与兑换/召唤/战斗/后台结算互斥）
- *   - 快照来自锁内的一次新鲜读取，杜绝旧快照覆盖
- *   - 保存走 savePlayer 的 CAS，即使未来有路径绕过锁也有版本号兜底
+ * ## 设计定位：Actor 模型的轻量实现
  *
- * 货币审计（P4）：每次保存若货币列发生变化，写入 CurrencyLog 一条
- * （谁、哪种货币、变动量、变动后余额）。审计失败不影响业务主流程。
+ * 玩家是状态的唯一归属者。所有对玩家数据的修改都必须通过 `mutate(userId, fn)`，
+ * 由本服务保证三件事：
+ *
+ * 1. **串行**：全程持 `PlayerService.withUserLock` 用户级锁，与战斗、后台结算、
+ *    其它指令天然互斥，不需要调用方记得加锁。
+ * 2. **单一快照**：一条业务链只读取一份快照，嵌套调用复用它（见 currentContext）。
+ *    这是本项目并发正确性的基石——历史上反复出现的「旧快照整包覆盖」事故，
+ *    根因都是子流程自行重新读档并落库，导致上层快照瞬间过期。
+ * 3. **统一落库**：只有最外层负责保存与审计，内层改动自动被收口。
+ *
+ * ## 为什么嵌套必须复用而不是重读
+ *
+ * 若 `fn` 内部再调 `mutate(同一玩家)` 时重新读档，就会同时存在两份快照：
+ * 内层保存推进版本号后，外层那份随即过期，外层的下一次保存必然被 CAS 拒绝
+ * （表现为玩家看到「玩家数据并发冲突，请重试」）；若侥幸写入，则会用旧数据
+ * 整包覆盖内层刚落库的结果。复用同一份 ctx 后，两类问题同时消失。
+ *
+ * ## 使用约定
+ *
+ * - 业务代码**不要**自己调 `getPlayerData` / `savePlayer`，改用本服务的
+ *   `mutate`（写）或 `read`（只读）。
+ * - 子流程接收 `ctx` 参数透传，不要以 `userId` 重新读档。
+ * - 需要跨玩家写入时（如 A 攻击 B），**不要**在 A 的 mutate 内嵌套 B 的 mutate
+ *   （会形成嵌套锁，A→B 与 B→A 并发时死锁）。应把 B 的变更移到 A 的 mutate 之外，
+ *   或走独立的定向写入通道。
  */
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerData, PlayerService } from './player.service';
+import { PlayerMutateContextService } from './player-mutate-context.service';
 
 /** 参与审计的货币列 → 中文名 */
 const CURRENCY_COLUMNS: Array<{ column: 'diamonds' | 'tickets' | 'dataCores'; label: string }> = [
@@ -20,6 +41,16 @@ const CURRENCY_COLUMNS: Array<{ column: 'diamonds' | 'tickets' | 'dataCores'; la
   { column: 'tickets', label: '召唤券' },
   { column: 'dataCores', label: '数据核心' },
 ];
+
+/**
+ * getPlayerData 解析出的结构化字段（数组/对象）。
+ * 业务代码既可能改 `ctx.backpack`（已解析的数组），也可能直接改
+ * `player.backpack`（JSON 字符串），落库前需要判定改动发生在哪一侧。
+ */
+const PARSED_FIELDS = [
+  'backpack', 'equipment', 'weapons', 'markers', 'markers2',
+  'buffs', 'tasks', 'safeBox',
+] as const;
 
 export interface MutateContext extends PlayerData {
   /** 声明本次修改涉及货币变动的原因（用于审计日志备注位，可选） */
@@ -33,25 +64,93 @@ export class PlayerMutateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
+    /**
+     * 上下文登记处（独立服务，无业务依赖）。
+     *
+     * 抽出去的原因：PlayerService 也需要读「当前链是否在同一玩家的 mutate 内」
+     * （见 PlayerService.addExp），而 PlayerMutateService 又依赖 PlayerService，
+     * 直接互注会成环。两边都只依赖这个无依赖的中立服务即可。
+     */
+    private readonly mutateContext: PlayerMutateContextService,
   ) {}
 
   /**
-   * 在共享用户级锁内读取最新快照并执行变更，结束后统一落库。
+   * 玩家状态变更的唯一推荐入口：在锁内读一次新鲜快照，执行变更，统一落库。
+   *
+   * 嵌套调用（同一 userId）复用外层 ctx，不重复读档、不重复落库、不重复审计，
+   * 全交给最外层收口。
+   *
    * @param userId 用户ID
-   * @param fn 变更逻辑；通过 ctx.player 直接修改字段，返回值作为本方法返回值
+   * @param fn 变更逻辑；通过 ctx.player / ctx.backpack 等直接修改，返回值透传
    */
   async mutate<T>(userId: number, fn: (ctx: MutateContext) => Promise<T> | T): Promise<T> {
+    const active = this.mutateContext.currentFor(userId);
+    if (active) {
+      return await fn(active as MutateContext);
+    }
+
+    return this.playerService.withUserLock(userId, async () => {
+    const ctx = (await this.playerService.getPlayerData(userId)) as MutateContext;
+    const before = this.readCurrencies(ctx.player);
+    // 记录 player 侧 JSON 字符串初始值，用于判定改动发生在哪一侧
+    const baseline = this.snapshotJsonFields(ctx.player);
+    // 记录整份 ctx 字段签名，用于"纯改 ctx 但未显式 savePlayer"场景的落库判定
+    const sig0 = this.fieldSignature(ctx);
+
+    // fn 抛异常时不会走到保存，锁照常释放，业务可安全向上冒泡错误
+    const result = await this.mutateContext.run(userId, ctx, () => fn(ctx));
+
+    // 落库判定（彻底根治只读指令自增 version）：
+    // 1) 任意嵌套 savePlayer 被调用 → __mutateDirty 已被置位（最快路径）；
+    // 2) 否则比对字段签名：只要本链改过 ctx（哪怕没显式 savePlayer，如光翼/采集开始
+    //    这种"纯改 ctx"写法），签名就会变化 → 仍需落库。两者任一命中才写，
+    //    纯只读指令签名不变 → 跳过 CAS，不无故让并发写者被判并发冲突。
+    const needSave = (ctx as any).__mutateDirty || this.fieldSignature(ctx) !== sig0;
+    if (needSave) {
+      this.syncParsedFields(ctx, baseline);
+      await this.playerService.savePlayer(ctx.player);
+
+      const after = this.readCurrencies(ctx.player);
+      this.auditCurrencyChanges(Number(userId), before, after, (ctx as any).auditReason);
+    }
+    return result;
+    });
+  }
+
+  /**
+   * 只读变体：在锁内读快照供查询/判定，不落库、不审计。
+   * 适用于「需要一份一致的玩家视图」但不修改的展示与校验路径。
+   */
+  async read<T>(userId: number, fn: (ctx: MutateContext) => Promise<T> | T): Promise<T> {
+    const active = this.mutateContext.currentFor(userId);
+    if (active) {
+      return await fn(active as MutateContext);
+    }
+
     return this.playerService.withUserLock(userId, async () => {
       const ctx = (await this.playerService.getPlayerData(userId)) as MutateContext;
-
-      const before = this.readCurrencies(ctx.player);
-      const result = await fn(ctx);
-      await this.playerService.savePlayer(ctx.player);
-      const after = this.readCurrencies(ctx.player);
-
-      this.auditCurrencyChanges(Number(userId), before, after, (ctx as any).auditReason);
-      return result;
+      return await this.mutateContext.run(userId, ctx, () => fn(ctx));
     });
+  }
+
+  /** 当前调用链是否已在某玩家的 mutate/read 上下文内。 */
+  isInMutate(userId?: number): boolean {
+    return this.mutateContext.has(userId);
+  }
+
+  /**
+   * 入口在 mutate 内修改了 ctx 但未显式调用 savePlayer 时，声明本次链路需要落库。
+   * 例：绝灭天使·光翼 / 采集开始 这类"改 ctx 但不自己 savePlayer"的读改写段。
+   * 基础设施已保证 mutate 内任意 savePlayer 自动标记，此处只覆盖"纯改 ctx"的写法。
+   */
+  markDirty(userId: number): void {
+    const ctx = this.mutateContext.currentFor(userId);
+    if (ctx) (ctx as any).__mutateDirty = true;
+  }
+
+  /** 当前链上指定玩家的 mutate 上下文；不在 mutate/read 内时返回 null。 */
+  currentFor(userId: number): MutateContext | null {
+    return (this.mutateContext.currentFor(userId) as MutateContext | null) ?? null;
   }
 
   private readCurrencies(player: any): Record<string, number> {
@@ -89,6 +188,61 @@ export class PlayerMutateService {
     } catch (err: any) {
       // 审计是旁路：任何异常不得影响业务结果
       this.logger.warn(`货币审计异常 userId=${userId}: ${err?.message || err}`);
+    }
+  }
+
+  private snapshotJsonFields(player: any): Record<string, string | undefined> {
+    const out: Record<string, string | undefined> = {};
+    for (const field of PARSED_FIELDS) out[field] = player?.[field];
+    return out;
+  }
+
+  /**
+   * 整份 ctx 的字段签名：用于判定"本链是否改过 ctx 但没显式 savePlayer"。
+   * 覆盖 player 上的标量/JSON 字段以及解析后的集合字段（backpack/markers/...），
+   * 任意一侧被改签名都会变化，从而让外层统一落库——无需调用方记得 markDirty。
+   * 排除运行时副作用字段（__mutateDirty / auditReason / 货币物化基准）。
+   */
+  private fieldSignature(ctx: any): string {
+    const skip = new Set(['__mutateDirty', 'auditReason', '_currencyMirror']);
+    const keys = Object.keys(ctx).filter((k) => !skip.has(k)).sort();
+    let sig = '';
+    for (const k of keys) {
+      const v = ctx[k];
+      sig += k + ':' + (v && typeof v === 'object' ? JSON.stringify(v) : v === undefined ? '' : String(v)) + ';';
+    }
+    return sig;
+  }
+
+  /**
+   * 结构化字段同步：业务代码改 `ctx.backpack`（数组）后若忘记写回
+   * `player.backpack`，改动会静默丢失——这里兜住它。
+   *
+   * 判定规则：只有 player 侧字符串**未被直接改写**时，才以 ctx 侧为准回写；
+   * 若业务代码直接改了 `player.backpack`，说明它选择走字符串路径，予以尊重。
+   */
+  private syncParsedFields(
+    ctx: MutateContext,
+    baseline: Record<string, string | undefined>,
+  ): void {
+    const player = ctx.player as any;
+    for (const field of PARSED_FIELDS) {
+      const original = baseline[field];
+      if (original === undefined) continue;
+      if (player[field] !== original) continue; // player 侧被直接改过，以它为准
+
+      const parsed = (ctx as any)[field];
+      if (parsed === undefined || parsed === null) continue;
+
+      let baselineParsed: unknown;
+      try {
+        baselineParsed = JSON.parse(String(original));
+      } catch {
+        continue;
+      }
+      if (JSON.stringify(baselineParsed) !== JSON.stringify(parsed)) {
+        player[field] = JSON.stringify(parsed);
+      }
     }
   }
 }

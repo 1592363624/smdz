@@ -11,6 +11,7 @@ import { PlayerService } from './player.service';
 import { StaticDataService } from './static-data.service';
 import { ItemSystemService } from './item-system.service';
 import { ShortcutService } from './shortcut.service';
+import { PlayerMutateContextService } from './player-mutate-context.service';
 
 interface TaskRequirement {
   name: string;
@@ -48,6 +49,9 @@ export class TaskService {
     // 查看任务的编号直达/放弃入口依赖临时输入替换（对应原版 临时输入替换）。
     // Optional：旧测试桩未提供时自动跳过。
     @Optional() private readonly shortcutService?: ShortcutService,
+    // 用于在 mutate 上下文内复用同一份快照，避免被 mutate 包住时产生第二份快照。
+    // Optional：旧测试桩未提供时退化为「自己读档 → 自己保存」的兼容路径。
+    @Optional() private readonly mutateContext?: PlayerMutateContextService,
   ) {}
 
   /**
@@ -82,7 +86,10 @@ export class TaskService {
 
     return this.withUserLock(userId, async () => {
       try {
-        const player = await this.prisma.player.findUnique({ where: { userId } });
+        // 若已在某玩家的 mutate 上下文内，直接复用那份快照，避免产生第二份快照
+        // 把 mutate 的未落库改动覆盖掉（详见 docs/player-state-architecture.md）。
+        const ctx = this.mutateContext?.currentFor(userId);
+        const player = ctx ? ctx.player : await this.prisma.player.findUnique({ where: { userId } });
         if (!player) return '';
 
         const tasks = this.parsePlayerTasks(player.tasks);
@@ -93,12 +100,15 @@ export class TaskService {
         if (!changed && completed.length === 0) return '';
 
         player.tasks = JSON.stringify(tasks);
-        await this.saveTaskState(player, [
-          'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
-          'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
-          'hit', 'dodge', 'speed', 'crit', 'critDmg', 'regenHp', 'regenShield',
-          'regenArmor', 'vitality', 'affinity',
-        ]);
+        // 复用 ctx 时由最外层 mutate 统一落库；否则单独保存（向后兼容）。
+        if (!ctx) {
+          await this.saveTaskState(player, [
+            'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
+            'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
+            'hit', 'dodge', 'speed', 'crit', 'critDmg', 'regenHp', 'regenShield',
+            'regenArmor', 'vitality', 'affinity',
+          ]);
+        }
 
         const message = this.formatCompletionMessage(completed);
         this.notify(userId, message);
@@ -118,7 +128,8 @@ export class TaskService {
     if (!taskName) return '请指定任务名称，格式：提交任务 任务名';
 
     return this.withUserLock(userId, async () => {
-      const player = await this.prisma.player.findUnique({ where: { userId } });
+      const ctx = this.mutateContext?.currentFor(userId);
+      const player = ctx ? ctx.player : await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return '玩家数据不存在';
 
       const raw = this.parseRawTasks(player.tasks);
@@ -150,12 +161,14 @@ export class TaskService {
       this.applyTaskProgress(tasks, '完成任务', 1);
       const chained = await this.settleCompletedTasks(player, tasks, rewardScale);
       player.tasks = JSON.stringify(tasks);
-      await this.saveTaskState(player, [
-        'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
-        'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
-        'hit', 'dodge', 'speed', 'crit', 'critDmg', 'regenHp', 'regenShield',
-        'regenArmor', 'vitality', 'affinity',
-      ]);
+      if (!ctx) {
+        await this.saveTaskState(player, [
+          'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
+          'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
+          'hit', 'dodge', 'speed', 'crit', 'critDmg', 'regenHp', 'regenShield',
+          'regenArmor', 'vitality', 'affinity',
+        ]);
+      }
 
       const message = this.formatCompletionMessage([
         { name: actualTaskName, rewards },

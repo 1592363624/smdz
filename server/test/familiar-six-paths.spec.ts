@@ -103,6 +103,7 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
       {} as any, // systemConfig
       {} as any, // staticData
       {} as any, // taskService
+      {} as any, // mutateService
     );
     return { service, player, playerService, itemSystem };
   };

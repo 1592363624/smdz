@@ -20,6 +20,7 @@ import { FamiliarSystemService } from './familiar-system.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
+import { MutateContext, PlayerMutateService } from './player-mutate.service';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -62,6 +63,12 @@ export class FamiliarSkillsService {
     private readonly systemConfig: SystemConfigService,
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
+    /**
+     * 玩家状态写入的唯一推荐入口。技能链路的读-改-写应全部包在
+     * `mutateService.mutate(userId, ctx => ...)` 里：它持锁、保证一条链只有一份
+     * 快照、并统一落库。禁止在技能方法里裸调 getPlayerData + savePlayer。
+     */
+    private readonly mutateService: PlayerMutateService,
   ) {}
 
   // ==================== 通用辅助方法 ====================
@@ -2002,12 +2009,21 @@ export class FamiliarSkillsService {
    * 绝灭天使 - 光翼
    * 提升速度和闪避
    * 对应原版：光翼()
+   *
+   * 【玩家状态写入的示范写法】外层只负责包一层 mutate，读-改-写全部下沉到
+   * applyLightWings(ctx)：不自己读档、不自己保存、不手动 stringify markers。
+   * 新写的代码照这个模板来；存量代码按同样形状渐进迁移。
+   *
    * @param userId 用户ID
    * @returns 技能效果文本
    */
   async lightWings(userId: number): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    return this.mutateService.mutate(userId, (ctx) => this.applyLightWings(ctx));
+  }
+
+  /** 光翼的读改写段（由 lightWings 在 mutate 内调用，已持锁且持有本链唯一快照）。 */
+  private applyLightWings(ctx: MutateContext): string {
+    const { player, markers } = ctx;
 
     // 检查使魔类型
     if (!this.checkFamiliarType(player, '绝灭天使')) {
@@ -2041,9 +2057,11 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
-    await this.playerService.savePlayer(player);
+    // 不再手动 JSON.stringify + savePlayer：ctx.markers 的改动由 mutate 在落库前
+    // 统一同步回 player.markers，保存由最外层收口。
 
+    // 纯改 ctx（光翼 buff / 技能熟练度 / 活跃度）：applyLightWings 已被 mutate 包住，
+    // 字段签名自动侦测到 ctx 被改动，外层统一收口落库，无需显式 markDirty。
     return `绝灭天使展开光翼！\n速度提升 ${speedBonus} 点，闪避率提升 ${dodgeBonus}%（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
   }
 

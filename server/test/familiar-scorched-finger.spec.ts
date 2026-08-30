@@ -70,6 +70,7 @@ describe('伊芙利特灼烂歼鬼（使魔技能.ecode L1967-2006）', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any, // mutateService
     );
     return { service, player, markers, markers2, playerService, combatSystem };
   }

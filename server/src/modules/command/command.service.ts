@@ -14,6 +14,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from '../game/game.service';
 import { PlayerService } from '../game/player.service';
+import { PlayerMutateService } from '../game/player-mutate.service';
 import { TaskService } from '../game/task.service';
 import {
   CommandContext,
@@ -36,6 +37,10 @@ export class CommandService {
     private readonly gameService: GameService,
     private readonly playerService: PlayerService,
     @Optional() private readonly taskService?: TaskService,
+    // 玩家状态收口入口（Actor 式写入口）：把整条指令（含其下所有服务的读改写）
+    // 在锁内复用唯一快照、统一落库。@Optional 兼容手工构造的测试桩（未注入时
+    // 退化为指令直接执行，走各服务自身的 withUserLock 旧路径，行为不变）。
+    @Optional() private readonly playerMutate?: PlayerMutateService,
   ) {}
 
   /**
@@ -286,7 +291,16 @@ export class CommandService {
         }
       }
 
-      const result = await handler.handle(ctx, args);
+      // 单玩家写入口收口：整条指令（含 GameService / 战斗 / 使魔 / 兑换等所有
+      // 服务的读改写）在 Actor 式 mutate 内串行执行、复用唯一快照。这从基础设施层
+      // 彻底消除"旧快照整包覆盖 / CAS 并发冲突（玩家数据并发冲突，请重试）"类事故——
+      // 历史上反复的快照覆盖 bug 根因就是子流程自行重读档并落库，令外层快照过期。
+      let result: CommandResult;
+      if (ctx.userId && this.playerMutate) {
+        result = await this.playerMutate.mutate(ctx.userId, async () => handler.handle(ctx, args));
+      } else {
+        result = await handler.handle(ctx, args);
+      }
       result.durationMs = Date.now() - start;
 
       // 原版 _主程序.ecode L11462：玩家指令结束后触发纯白之翼自动技能。

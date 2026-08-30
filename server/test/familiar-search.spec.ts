@@ -66,6 +66,7 @@ describe('宠物搜索物品', () => {
       {} as any,
       staticData,
       {} as any,
+      {} as any, // mutateService
     );
     return { service, playerService, mapService, staticData, itemSystem };
   }

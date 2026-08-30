@@ -28,6 +28,7 @@ import { TaskService } from './task.service';
 import { ShortcutService } from './shortcut.service';
 import { StatsService } from './stats.service';
 import { CombatStateService } from './combat-state.service';
+import { PlayerMutateService } from './player-mutate.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { normalizeGameText } from '../../common/utils/game-text.util';
@@ -115,7 +116,28 @@ export class GameService {
     @Optional() private readonly autoMineService?: AutoMineService,
     // 活力上限与恢复公式共用规则服务，确保魅力历史值和旧存档兜底一致。
     @Optional() private readonly vitalityService?: VitalityService,
+    // 玩家状态收口入口（Actor 式写入口）。放最后且 @Optional：
+    // 既不影响现有测试桩的位置传参，未注入时也走 mutatePlayer 的等价回退路径。
+    @Optional() private readonly playerMutate?: PlayerMutateService,
   ) {}
+
+  /**
+   * 玩家状态变更的收口入口（对 PlayerMutateService.mutate 的薄封装）。
+   *
+   * 生产环境由 Nest 注入真实的 PlayerMutateService（Actor 式：锁内单一快照、
+   * 统一落库、货币审计、嵌套复用）。测试桩若不提供该依赖，则退化为等价的
+   * 「withUserLock + getPlayerData + fn + savePlayer」路径，保持旧行为不变，
+   * 避免逐个测试桩补依赖。
+   */
+  private mutatePlayer<T>(userId: number, fn: (ctx: any) => Promise<T> | T): Promise<T> {
+    if (this.playerMutate) return this.playerMutate.mutate(userId, fn);
+    return this.playerService.withUserLock(userId, async () => {
+      const ctx = await this.playerService.getPlayerData(userId);
+      const result = await fn(ctx);
+      await this.playerService.savePlayer(ctx.player);
+      return result;
+    });
+  }
 
   /**
    * 原版玩家指令收尾钩子：触发纯白之翼自动技能和宠物后台搜索。
@@ -3091,8 +3113,12 @@ export class GameService {
   async handleGatherResource(userId: number, cmdName: string, requestedCount?: number): Promise<string> {
     if (!cmdName) return '';
 
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    // 采集开始是「读快照→改→写回」型操作，必须在用户级锁内完成，
+    // 否则与定时器的采集结算并发会互相覆盖玩家数据（实测会偶发「并发冲突」）。
+    // 走 mutate 收口：锁内单快照、统一落库（详见 docs/player-state-architecture.md）。
+    return this.mutatePlayer(userId, async (ctx) => {
+      const playerData = ctx;
+      const { player } = playerData;
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '';
 
@@ -3157,7 +3183,6 @@ export class GameService {
     this.combatState.addMarker('采集', cappedSeconds, markers2, now);
     player.markers = JSON.stringify(markers);
     player.markers2 = JSON.stringify(markers2);
-    await this.playerService.savePlayer(player);
 
     // 进程内定时器到点结算；服务重启丢失定时器时由 settlePendingGathers 兜底补结算
     const timers = this.gatherTimerMap();
@@ -3183,6 +3208,7 @@ export class GameService {
     startText = startText
       .replace('【武器】', String(currentWeapon?.name ?? '') || '拳头');
     return `${startText},大概需要${cappedSeconds}秒`;
+    });
   }
 
   /**

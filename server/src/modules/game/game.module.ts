@@ -13,6 +13,7 @@ import { GameController } from './game.controller';
 import { GameService } from './game.service';
 import { PlayerService } from './player.service';
 import { PlayerMutateService } from './player-mutate.service';
+import { PlayerMutateContextService } from './player-mutate-context.service';
 import { TutorialService } from './tutorial.service';
 import { BonusService } from './bonus.service';
 import { ItemService } from './item.service';
@@ -41,6 +42,7 @@ import { VitalityService } from './vitality.service';
   providers: [
     GameService,
     PlayerService,
+    PlayerMutateContextService,
     PlayerMutateService,
     TutorialService,
     BonusService,
@@ -65,6 +67,7 @@ import { VitalityService } from './vitality.service';
   exports: [
     GameService,
     PlayerService,
+    PlayerMutateContextService,
     PlayerMutateService,
     TutorialService,
     BonusService,

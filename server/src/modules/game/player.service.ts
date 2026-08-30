@@ -4,13 +4,14 @@
  * 负责玩家的创建、读取、保存、等级管理、背包操作、标记系统等功能
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
 import { filterActive } from './expire-time.util';
+import { PlayerMutateContextService } from './player-mutate-context.service';
 
 /**
  * 玩家数据完整解析后的结构
@@ -43,6 +44,17 @@ export class PlayerService {
     private readonly prisma: PrismaService,
     private readonly staticData: StaticDataService,
     private readonly mapService: MapService,
+    /**
+     * mutate 上下文登记处（可选依赖）。
+     *
+     * 让 `addExp` 这类「自己读档 + 自己保存」的基础方法在被调用方用
+     * `PlayerMutateService.mutate()` 包住时，能自动复用同一份快照、不再读档与保存，
+     * 从而避免产生第二份快照把外层改动整包覆盖。
+     *
+     * 声明为 @Optional 是为了兼容存量测试桩（手工 new PlayerService(三个参数)）——
+     * 拿不到时自动退回原有的独立读档保存路径，行为完全不变。
+     */
+    @Optional() private readonly mutateContext?: PlayerMutateContextService,
   ) {}
 
   /**
@@ -265,6 +277,10 @@ export class PlayerService {
    * @returns 包含解析后各字段的玩家数据
    */
   async getPlayerData(userId: number): Promise<PlayerData> {
+    // 已在某玩家的 mutate 上下文内：直接复用外层那份已解析快照，
+    // 不再重读库、不再重解析（避免拿到过期快照派生第二份数据，进而整包覆盖外层改动）。
+    const ctx = this.mutateContext?.currentFor(userId);
+    if (ctx) return ctx as unknown as PlayerData;
     const player = await this.getOrCreatePlayer(userId);
 
     // 自动修复存量玩家无效地图（mapId=0 或不存在的地图）
@@ -310,6 +326,14 @@ export class PlayerService {
     // 货币物化（P1）：钻石/召唤券/数据核心的真相源是独立列，读取时物化回
     // 背包数组，业务代码照常按背包物品读写（透明兼容）。
     this.materializeCurrencies(player);
+
+    // BigInt 字段（lastOpTime/readTime 为 schema BigInt，远程库个别列亦可能为
+    // BigInt）统一转 Number：避免 player 对象在 pushState / 记录日志等 JSON 序列化
+    // 路径抛出「Do not know how to serialize a BigInt」。Prisma 写 BigInt 列同样接受
+    // number，读侧归一化无副作用（玩家数值字段均远低于 2^53，精度无损）。
+    for (const _k of Object.keys(player)) {
+      if (typeof player[_k] === 'bigint') player[_k] = Number(player[_k]);
+    }
 
     return {
       player,
@@ -362,6 +386,22 @@ export class PlayerService {
    * @param player 要保存的玩家对象（包含可能已修改的 JSON 字段）
    */
   async savePlayer(player: any): Promise<void> {
+    // 已在 mutate 上下文内：把本次要写入的字段"合并"进上下文快照（局部写如
+    // {id, markers} 也不会因内层 savePlayer 被跳过而丢失），真正的落库交给最
+    // 外层 mutate 统一执行一次。这样既消除重复 CAS/版本分叉，又保证调用方
+    // 无需感知自己是否已被包在 mutate 里——旧快照覆盖类事故在基础设施层被根除。
+    // 反查键：优先 userId（玩家号，与 run 登记键一致），回退到玩家主键 id
+    // （局部写对象 {id, markers} 不含 userId 时也能命中）。命中即说明当前异步链
+    // 已在 mutate 内——把改动合并回上下文快照，由最外层统一落库，避免内层整包
+    // 写回制造第二份快照 / 重复 CAS 把外层保存判为并发冲突。
+    const lookupKey = this.resolveMutateKey(player);
+    const ctx = lookupKey !== undefined ? this.mutateContext?.currentFor(lookupKey) : null;
+    if (ctx) {
+      this.applyLevelUps(player);
+      this.mergeIntoMutateContext(ctx, player);
+      (ctx as any).__mutateDirty = true;
+      return;
+    }
     // 经验归一化门禁：落库前强制保证 exp < 当前等级门槛。任何直写 player.exp
     // 的路径（挤奶青龙奖励/躺下离线经验/掉落经验/GM 改面板）都在这里被统一结算，
     // 不依赖调用方记得调用 addExp——这是不变量级别的收口，而非约定级别。
@@ -491,6 +531,40 @@ export class PlayerService {
   }
 
   /**
+   * 从玩家对象解析反查 mutate 上下文的键：优先 userId（与 run 登记键一致），
+   * 回退到玩家主键 id（局部写对象 {id, markers} 不含 userId 时使用）。
+   */
+  private resolveMutateKey(player: any): number | undefined {
+    if (player?.userId !== undefined && player.userId !== null) return Number(player.userId);
+    if (player?.id !== undefined && player.id !== null) return Number(player.id);
+    return undefined;
+  }
+
+  /**
+   * 把一次 savePlayer 携带的字段合并进 mutate 上下文快照。
+   * 仅合并"显式出现在本次保存对象上"的字段，避免用局部对象（如 {id, markers}）
+   * 覆盖整包玩家数据；最外层 mutate 落库时会以完整 ctx.player 统一写回。
+   */
+  private mergeIntoMutateContext(ctx: any, player: any): void {
+    if (!player || typeof player !== 'object') return;
+    const fields = [
+      'level', 'exp', 'upgradeExp', 'name', 'type', 'specialSeq',
+      'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor',
+      'attack', 'defense', 'speed', 'dodge', 'hit', 'crit', 'critDmg',
+      'regenHp', 'regenShield', 'regenArmor',
+      'mapId', 'location', 'houseName', 'currentWeapon', 'affinity',
+      'masterQQ', 'vitality', 'lastOpTime', 'readTime', 'vehicle',
+      'backpack', 'equipment', 'weapons', 'markers', 'markers2',
+      'buffs', 'tasks', 'titles', 'skills', 'sets', 'bonus',
+      'baseBonus', 'safeBox', 'equipmentPresets', 'reverse', 'recipes', 'stats',
+      'diamonds', 'tickets', 'dataCores',
+    ];
+    for (const f of fields) {
+      if (player[f] !== undefined) ctx.player[f] = player[f];
+    }
+  }
+
+  /**
    * 经验归一化门禁（对应原版 加成计算.ecode L1781-1794 的总经验推导）：
    * 按「等级²+5」门槛循环扣除并推进等级，保证不变量 exp < 当前等级门槛 在保存前成立。
    * 升级时同步 upgradeExp 与基础战斗属性（recalcLevelStats），并把
@@ -576,6 +650,22 @@ export class PlayerService {
    * @returns 是否升级及新等级
    */
   async addExp(userId: number, exp: number): Promise<{ leveledUp: boolean; newLevel: number }> {
+    // 复用 mutate 上下文：若本条异步链已在 mutate(同一玩家) 内，直接改它的快照，
+    // 不读档也不保存（由最外层统一落库）。
+    //
+    // 这一步是 mutate 化能「局部渐进推进」的关键：像采集结算这种会调 addExp 的
+    // 复杂函数，若 addExp 仍自己读档保存，就会凭空多出一份快照——外层改动会被它
+    // 覆盖，或它的改动被外层覆盖。改造后调用方无需改签名即可安全地被 mutate 包住。
+    const ctx = this.mutateContext?.currentFor(userId);
+    if (ctx) {
+      const player = ctx.player;
+      player.exp = (player.exp || 0) + exp;
+      const leveledUp = this.applyLevelUps(player);
+      // 改了 ctx 但未走 savePlayer：声明本次链路需要落库，否则外层条件保存会把它丢掉的。
+      (ctx as any).__mutateDirty = true;
+      return { leveledUp, newLevel: player.level };
+    }
+
     const player = await this.getOrCreatePlayer(userId);
 
     // 累加经验

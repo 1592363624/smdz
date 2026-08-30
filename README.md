@@ -44,6 +44,31 @@
 
 种子数据「以代码为准」：`seed-data.ts` 对所有固定配置表执行 `upsert`（`update: data`），并在末尾 `syncDeleted` 同步删除代码中已移除的记录，实现**新增/修改/删除/重命名**全部以代码为准同步到数据库。`SystemConfig` 除外（保留管理员在线修改的生效结果，不被覆盖）。
 
+## 玩家状态写入规范
+
+玩家数据采用「读快照 → 修改 → 整包写回 + version CAS」模型。**整包写回意味着一次保存会覆盖全部 46 个字段**，任何过期快照落库都会把别人刚写入的结果整个回滚。
+
+因此所有玩家状态变更**必须**走 `PlayerMutateService.mutate()`，禁止自己调 `getPlayerData` + `savePlayer`：
+
+```ts
+// 正确
+await this.mutate.mutate(userId, (ctx) => {
+  ctx.player.hp -= 10;
+  return '砍树成功';
+});
+
+// 错误
+const { player } = await this.playerService.getPlayerData(userId);
+player.hp -= 10;
+await this.playerService.savePlayer(player);
+```
+
+`mutate` 提供三件事，裸写全都得不到：**串行**（持用户级锁）、**单一快照**（嵌套调用复用同一份 `ctx`，不重复读档）、**统一落库**（只有最外层保存并审计货币）。其中「单一快照」是根治历史上反复出现的「旧快照整包覆盖」事故的关键——子流程必须接收 `ctx` 参数透传，不得以 `userId` 重新读档。
+
+> 完整规范、迁移范式与陷阱说明见 **[docs/player-state-architecture.md](docs/player-state-architecture.md)**。
+>
+> 该规范由 `server/test/architecture-guard.spec.ts` 自动守门：裸调 `savePlayer` 的处数**只减不增**，mutate 调用数**只增不减**，每次跑测试会打印收口进度。文档会过时，测试不会。
+
 ## 目录结构
 
 ```
