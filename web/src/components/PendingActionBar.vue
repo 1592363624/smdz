@@ -30,6 +30,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { serverNow } from '../utils/serverClock';
 
 const props = defineProps({
   // 后端 pendingActions 快照：[{ key, kind, label, detail, icon, startedAt, endAt, totalMs }]
@@ -41,12 +42,13 @@ const props = defineProps({
 // 前端先本地隐藏，再由父组件拉一次最新状态把已结算的条目彻底清掉。
 const emit = defineEmits(['expired']);
 
-// 每秒触发一次重渲染的本地时钟（对齐增益倒计时的做法）
-const now = ref(Date.now());
+// 每秒触发一次重渲染的对齐时钟（endAt 为服务器时刻，必须用 serverNow 相减，
+// 否则本机时钟漂移几秒会让倒计时整体提前/滞后同样秒数）
+const now = ref(serverNow());
 let timer = null;
 onMounted(() => {
   timer = setInterval(() => {
-    now.value = Date.now();
+    now.value = serverNow();
   }, 1000);
 });
 onBeforeUnmount(() => {

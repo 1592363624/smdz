@@ -887,6 +887,7 @@ import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
 import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
 import AnnRichText from '../components/AnnRichText';
+import { syncServerClock } from '../utils/serverClock';
 
 const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
@@ -2570,6 +2571,9 @@ function closeAnnImagePreview() {
 
 onMounted(async () => {
   try {
+    // 时钟对齐：倒计时进度条/增益剩余时间都拿服务器时刻与本机时钟相减，
+    // 先测一次偏移量（失败静默，倒计时退化为本机时钟）；socket 重连时会再测
+    syncServerClock();
     // 移动端视图高度修复：动态计算实际可视高度，避免键盘弹出时布局错乱
     // 关键：必须用 visualViewport.height（键盘弹出时会实时缩小），而非 window.innerHeight
     // （iOS Safari 键盘弹出时 innerHeight 不变、resize 不触发，导致 --vh 仍为全屏高度，
@@ -2656,6 +2660,8 @@ onMounted(async () => {
 
     socket.on('connect', () => {
       connected.value = true;
+      // 重连后重测时钟偏移：会话期间本机时钟可能被系统 NTP 校准过
+      syncServerClock();
       // 连接建立后再刷新一次统计，确保自己立刻计入在线人数
       loadServerStats();
       // 断线窗口内的状态变化无法推送 → 重连成功即全量拉取快照校准面板

@@ -2,8 +2,10 @@ import { GameService } from '../src/modules/game/game.service';
 
 /**
  * 延时任务（救援/采集）结算去重回归：
- * 进程内定时器与每5秒兜底扫描是两个并发结算入口，若同一到期标记被重入，
- * 会出现"感觉好一点了吗？恢复了N生命"/"收集到了…"重复广播刷屏。
+ * 延时任务由 DelayedTaskService 持久化表分发（认领即删行），但任务可能因
+ * 失败重试/重复排程被再次投递——结算入口自身必须靠「标记认领」保证幂等：
+ * 同一到期标记被重入时不得重复产出、重复广播（"感觉好一点了吗？恢复了N生命"
+ * /"收集到了…"刷屏）。
  * 本套用例锁定：认领失败的调用不得产出、不得广播，恰好一次结算。
  */
 
@@ -119,8 +121,6 @@ function makeRescueFixture(playerOverrides: Record<string, any> = {}) {
       getMapById: jest.fn(async () => map),
       getAllMaps: jest.fn(async () => [map]),
     },
-    rescueTimers: new Map<number, NodeJS.Timeout>(),
-    gatherTimers: new Map<number, NodeJS.Timeout>(),
     logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
     performArrival: jest.fn(async (_userId: number, _mapId: number, name: string) => `你来到了【${name}】`),
   });
@@ -178,7 +178,7 @@ function makeGatherFixture(options: { times?: number } = {}) {
     player: {
       findMany: jest.fn(async () => [persistence.loadSnapshot()]),
       update: jest.fn(async ({ where, data }: any) => {
-        // 定点写（指纹清除/自愈路径）：乐观锁拦截器语义——无条件推进版本
+        // 定点写（迁移/清理路径）：乐观锁拦截器语义——无条件推进版本
         Object.assign(persistence.state, data);
         persistence.bumpVersion();
         return { count: 1 };
@@ -212,7 +212,6 @@ function makeGatherFixture(options: { times?: number } = {}) {
     chatService,
     mapService: { getMapById: jest.fn(async () => map), getMapMonsters: jest.fn(async () => []) },
     staticData: { getEquipmentByName: jest.fn(() => undefined) },
-    gatherTimers: new Map<number, NodeJS.Timeout>(),
     logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
     pushPlayerUpdate: jest.fn(async () => undefined),
     pushMapUpdate: jest.fn(async () => undefined),
@@ -239,7 +238,7 @@ describe('延时结算去重（救援/采集恰好一次）', () => {
     expect(JSON.parse(fixture.player.markers2)).toEqual([]);
   });
 
-  it('兜底扫描在结算完成后再次进入同一标记时不再广播', async () => {
+  it('延时任务重复投递同一救援标记时，认领失败不再广播', async () => {
     const marker = { name: '复活', rescueType: 'self', expireAt: 900, token: 'tok-2' };
     const fixture = makeRescueFixture({ markers2: JSON.stringify([marker]) });
 
@@ -250,22 +249,7 @@ describe('延时结算去重（救援/采集恰好一次）', () => {
     expect(fixture.player.hp).toBe(44);
   });
 
-  it('救援兜底熔断：60秒内连续触发超过3次后自愈清除标记且不广播', async () => {
-    const fixture = makeRescueFixture({
-      markers2: JSON.stringify([{ name: '复活', rescueType: 'self', expireAt: 900, token: 'tok-3' }]),
-    });
-    // 模拟此前已连续触发3次、最近一次在16秒前（超过15秒最小间隔、仍在60秒窗口内）
-    (fixture.service as any).rescueFallbackAt = new Map([[1, Date.now() - 16_000]]);
-    (fixture.service as any).rescueFallbackCount = new Map([[1, 3]]);
-
-    await expect(fixture.service.settlePendingRescues()).resolves.toBe(1);
-
-    expect(fixture.chatService.broadcastSystem).not.toHaveBeenCalled();
-    expect(fixture.player.hp).toBe(0); // 未复活
-    expect(JSON.parse(fixture.player.markers2)).toEqual([]); // 到期标记被清除
-  });
-
-  it('采集定时器与兜底并发进入同一次采集时，只产出并广播一次', async () => {
+  it('采集结算并发进入同一次采集时，只产出并广播一次', async () => {
     jest.spyOn(Math, 'random').mockReturnValue(0);
     const fixture = makeGatherFixture();
 
@@ -277,7 +261,7 @@ describe('延时结算去重（救援/采集恰好一次）', () => {
     const settledTexts = [first, second].filter((text: string) => text.includes('收集到了'));
     expect(settledTexts).toHaveLength(1);
     expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(1);
-    const backpack = JSON.parse(fixture.player.backpack);
+    const backpack = JSON.parse(fixture.persistence.state.backpack);
     expect(backpack).toEqual([expect.objectContaining({ name: '木头', count: 2 })]);
     // 资源次数只扣一次
     expect(JSON.parse(fixture.map.resources)[0].times).toBe(4);
@@ -285,35 +269,5 @@ describe('延时结算去重（救援/采集恰好一次）', () => {
       (call) => call[1] === '采集',
     );
     expect(advanceCalls).toHaveLength(1);
-  });
-
-  it('旧快照把已结算的「采集中」标记写回复活时，兜底扫描按指纹直接清除不再结算', async () => {
-    jest.spyOn(Math, 'random').mockReturnValue(0);
-    const fixture = makeGatherFixture();
-
-    // 第一次正常结算（定时器正点路径）
-    await expect(fixture.service.settleGatherResource(42)).resolves.toContain('收集到了');
-    expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(1);
-
-    // 模拟持旧快照的并发写者：把带同一指纹（startedAt/settleAt 相同）的
-    // 「采集中」标记原样写回库——线上重复结算事故的复活方式
-    fixture.persistence.state.markers = JSON.stringify({ 采集中: { ...fixture.gatherState } });
-
-    // 兜底扫描识别复活标记：定点清除，不广播、不产出、不计入结算数、不消耗熔断计数
-    await expect(fixture.service.settlePendingGathers()).resolves.toBe(0);
-    expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(1); // 无第二次广播
-    const backpack = JSON.parse(fixture.persistence.state.backpack);
-    const wood = backpack.find((item: any) => item.name === '木头');
-    expect(Number(wood?.count ?? 0)).toBe(2); // 没有重复产出
-    expect(JSON.parse(fixture.persistence.state.markers)['采集中']).toBeUndefined(); // 复活标记被清掉
-    expect(JSON.parse(fixture.map.resources)[0].times).toBe(4); // 资源次数没有被重复扣
-
-    // 后续新一次采集（不同指纹）完全不受影响：照常补结算
-    fixture.persistence.state.markers = JSON.stringify({
-      采集中: { ...fixture.gatherState, startedAt: fixture.gatherState.startedAt + 60_000 },
-    });
-    await expect(fixture.service.settlePendingGathers()).resolves.toBe(1);
-    expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fixture.map.resources)[0].times).toBe(3);
   });
 });

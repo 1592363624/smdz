@@ -1,5 +1,6 @@
 import { GatherHandler } from '../src/modules/command/handlers/gather.handler';
 import { GameService } from '../src/modules/game/game.service';
+import { DelayedTaskService } from '../src/modules/game/delayed-task.service';
 
 /**
  * 手动采集两阶段流程自检（1:1 对齐原版）：
@@ -41,7 +42,7 @@ function makeGatherFixture(resource: any, options: {
   };
   const prisma = {
     player: {
-      // settlePendingGathers 兜底扫描用：返回该玩家的实时 markers
+      // 兜底/迁移读取用：返回该玩家的实时 markers
       findMany: jest.fn(async () => [
         { userId: player.userId, id: player.id ?? 1, markers: player.markers },
       ]),
@@ -53,6 +54,39 @@ function makeGatherFixture(resource: any, options: {
       }),
     },
   };
+  // 持久化延时任务的真实服务 + 内存桩库：handleGatherResource 排程、tick 分发结算
+  const delayedTaskRows: any[] = [];
+  let delayedTaskNextId = 1;
+  const delayedTaskPrisma: any = {
+    findMany: jest.fn(async ({ where, take }: any) => delayedTaskRows
+      .filter((r) => r.runAt.getTime() <= where.runAt.lte.getTime())
+      .sort((a, b) => a.runAt.getTime() - b.runAt.getTime())
+      .slice(0, take ?? 30)),
+    deleteMany: jest.fn(async ({ where }: any) => {
+      // 两种形态：认领 {id, runAt<=lte}；排程覆盖 {type, userId, dedupeKey}
+      const match = (r: any) => {
+        if (where.id !== undefined) {
+          if (r.id !== where.id) return false;
+          if (where.runAt && r.runAt.getTime() > where.runAt.lte.getTime()) return false;
+          return true;
+        }
+        if (where.type !== undefined && r.type !== where.type) return false;
+        if (where.userId !== undefined && r.userId !== where.userId) return false;
+        if (where.dedupeKey !== undefined && r.dedupeKey !== where.dedupeKey) return false;
+        return true;
+      };
+      const idx = delayedTaskRows.findIndex(match);
+      if (idx < 0) return { count: 0 };
+      delayedTaskRows.splice(idx, 1);
+      return { count: 1 };
+    }),
+    create: jest.fn(async ({ data }: any) => {
+      const row = { id: delayedTaskNextId++, ...data };
+      delayedTaskRows.push(row);
+      return row;
+    }),
+  };
+  const delayedTaskService = new DelayedTaskService({ delayedTask: delayedTaskPrisma } as any);
   const playerService = {
   enqueueUserWrite: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async () => ({
@@ -104,6 +138,7 @@ function makeGatherFixture(resource: any, options: {
   const service: any = Object.create(GameService.prototype);
   Object.assign(service, {
     prisma,
+    delayedTaskService,
     playerService,
     mapService: {
       getMapById: jest.fn(async () => map),
@@ -127,7 +162,7 @@ function makeGatherFixture(resource: any, options: {
     pushPlayerUpdate: jest.fn(async () => undefined),
     pushMapUpdate: jest.fn(async () => undefined),
   });
-  return { service, player, map, taskService, prisma, itemSystemService, chatService, playerService, combatSystem };
+  return { service, player, map, taskService, prisma, itemSystemService, chatService, playerService, combatSystem, delayedTaskService, delayedTaskRows };
 }
 
 describe('手动采集两阶段流程（对齐原版采集耗时机制）', () => {
@@ -331,37 +366,68 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(seconds).toBe(30);
   });
 
-  it('settlePendingGathers：到期补结算、未到期恢复定时器', async () => {
-    const dueFixture = makeGatherFixture({
-      name: '到期树',
+  it('handleGatherResource 排程持久化延时任务，DelayedTaskService 到点分发结算恰好一次', async () => {
+    const fixture = makeGatherFixture({
+      name: '延时树',
       times: -1,
       outputs: [{ name: '木头', count: 1, chance: 100 }],
       gatherCmd: '收集木头',
     });
     jest.spyOn(Math, 'random').mockReturnValue(0);
-    await dueFixture.service.handleGatherResource(42, '收集木头');
-    // 人为把 settleAt 改到过去，模拟重启丢失定时器后已到期
-    const markers = JSON.parse(dueFixture.player.markers);
-    markers['采集中'].settleAt = Date.now() - 1000;
-    dueFixture.player.markers = JSON.stringify(markers);
+    // 注册采集分发 handler（生产由 GameService.onModuleInit 注册）
+    fixture.delayedTaskService.registerHandler('gather', async (task: any) => {
+      await fixture.service.settleGatherResource(Number(task.userId));
+    });
 
-    const settled = await dueFixture.service.settlePendingGathers();
-    expect(settled).toBe(1);
-    expect(JSON.parse(dueFixture.player.backpack)).toEqual([
+    await fixture.service.handleGatherResource(42, '收集木头');
+    // 阶段1 只排程：任务行已落库（跨重启存活），背包尚无产出
+    expect(fixture.delayedTaskRows).toHaveLength(1);
+    expect(fixture.delayedTaskRows[0].type).toBe('gather');
+    expect(fixture.delayedTaskRows[0].userId).toBe(42);
+    expect(JSON.parse(fixture.player.backpack)).toEqual([]);
+
+    // 人为把 runAt 改到过去，模拟延时到期
+    fixture.delayedTaskRows[0].runAt = new Date(Date.now() - 1000);
+    const dispatched = await fixture.delayedTaskService.tick();
+    expect(dispatched).toBe(1);
+    expect(JSON.parse(fixture.player.backpack)).toEqual([
       expect.objectContaining({ name: '木头' }),
     ]);
+    // 结算后「采集中」标记清除
+    expect(JSON.parse(fixture.player.markers)['采集中']).toBeUndefined();
 
-    // 未到期的采集不应被提前结算
-    const pendingFixture = makeGatherFixture({
-      name: '未到期树',
+    // 任务行认领即删除：再次 tick 不会重复结算
+    const secondTick = await fixture.delayedTaskService.tick();
+    expect(secondTick).toBe(0);
+    expect(JSON.parse(fixture.player.backpack)).toEqual([
+      expect.objectContaining({ name: '木头', count: 1 }),
+    ]);
+  });
+
+  it('服务重启后启动迁移把存量「采集中」标记补建为延时任务', async () => {
+    const fixture = makeGatherFixture({
+      name: '重启树',
       times: -1,
       outputs: [{ name: '木头', count: 1, chance: 100 }],
       gatherCmd: '收集木头',
     });
-    await pendingFixture.service.handleGatherResource(42, '收集木头');
-    const settledPending = await pendingFixture.service.settlePendingGathers();
-    expect(settledPending).toBe(0);
-    expect(JSON.parse(pendingFixture.player.backpack)).toEqual([]);
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    fixture.delayedTaskService.registerHandler('gather', async (task: any) => {
+      await fixture.service.settleGatherResource(Number(task.userId));
+    });
+
+    // 模拟旧实现/重启前遗留：markers 里有未结算的「采集中」，但任务行不存在
+    fixture.player.markers = JSON.stringify({
+      采集中: { target: '重启树', cmd: '收集木头', count: 1, startedAt: Date.now() - 60_000, settleAt: Date.now() - 1000 },
+    });
+    await (fixture.service as any).recoverOrphanDelayedMarkers();
+    expect(fixture.delayedTaskRows).toHaveLength(1);
+
+    // 迁移出的任务到点分发后正常结算
+    await fixture.delayedTaskService.tick();
+    expect(JSON.parse(fixture.player.backpack)).toEqual([
+      expect.objectContaining({ name: '木头' }),
+    ]);
   });
 
   it('采集冷却提示不推进采集任务', async () => {

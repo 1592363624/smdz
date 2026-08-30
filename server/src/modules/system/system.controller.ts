@@ -24,4 +24,16 @@ export class SystemController {
     const data = await this.systemService.getDeployInfo();
     return { success: true, data };
   }
+
+  /**
+   * 获取服务器当前时间（毫秒时间戳）
+   * 前端启动/重连时调用一次，测算本机与服务器的时钟偏移量，
+   * 使所有「服务器时刻 + 本地逐秒倒数」类倒计时（延时操作进度条、增益剩余时间）
+   * 在本机时钟漂移时仍与服务器结算时刻对齐。
+   */
+  @Get('server-time')
+  @ApiOperation({ summary: '获取服务器当前时间(毫秒时间戳)' })
+  getServerTime() {
+    return { success: true, data: { serverNow: Date.now() } };
+  }
 }

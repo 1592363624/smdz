@@ -92,6 +92,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { serverNow } from '../utils/serverClock';
 
 const props = defineProps({
   // buildPlayerInfo 快照（REST 全量 / socket player:update 推送，结构一致）
@@ -133,13 +134,14 @@ const equippedCount = computed(() => eqList.value.filter((e) => e.name).length);
 const QUALITY_KEY = { 普通: 'e', 良好: 'd', 优秀: 'c', 精良: 'b', 史诗: 'a', 传说: 's', 神迹: 'x' };
 const qKey = (q) => QUALITY_KEY[q] || 'e';
 
-// 增益倒计时：每秒跳一次本地时钟驱动重渲染
+// 增益倒计时：每秒跳一次对齐时钟驱动重渲染（expireAt 为服务器时刻，
+// 用 serverNow 相减，避免本机时钟漂移让剩余时间整体偏差）
 const buffs = computed(() => (Array.isArray(props.info?.buffs) ? props.info.buffs : []));
-const nowTick = ref(Date.now());
+const nowTick = ref(serverNow());
 let tickTimer = null;
 onMounted(() => {
   tickTimer = setInterval(() => {
-    nowTick.value = Date.now();
+    nowTick.value = serverNow();
   }, 1000);
 });
 onBeforeUnmount(() => {

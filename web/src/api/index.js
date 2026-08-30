@@ -115,6 +115,8 @@ export const gameApi = {
 export const systemApi = {
   // 获取部署版本信息与更新检测配置（用于检测部署完成、弹窗提示更新日志）
   getVersion: () => http.get('/system/version'),
+  // 获取服务器当前时间(毫秒时间戳)，用于测算本机与服务器的时钟偏移
+  getServerTime: () => http.get('/system/server-time'),
 };
 
 /// 管理员接口(需ADMIN权限)

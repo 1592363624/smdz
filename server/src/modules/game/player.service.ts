@@ -13,6 +13,7 @@ import { MapService } from './map.service';
 import { ITEM_SYSTEM_SERVICE } from './service-tokens';
 import type { ItemSystemService } from './item-system.service';
 import { filterActive } from './expire-time.util';
+import { deriveDisplayName } from './display-name.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { ActorRuntime, actorKey } from '../actor';
 
@@ -266,8 +267,8 @@ export class PlayerService implements OnModuleInit {
       // 初始标记：基础活力上限100，0表示普通击杀默认使用活力。
       const initialMarkers = { '指引': 0, '活力2': 100, '使用活力': 0 };
 
-      // 初始称号
-      const initialTitles = ['新人'];
+      // 初始称号：已拥有但未佩戴（原版开局 称号熟练度=0，显示名不带后缀）
+      const initialTitles = [{ name: '新人', equipped: false }];
 
       // 初始任务：自动领取「新手教程」（对应原版 开局自动接取新手引导任务）
       // 任务要求与奖励从静态数据 tasks.json 读取，避免在代码中硬编码
@@ -291,7 +292,10 @@ export class PlayerService implements OnModuleInit {
           level: 1,
           exp: 0,
           upgradeExp: this.calcUpgradeExp(1),
-          name: '冒险者',
+          // 名字不预置：对应原版开局前无名称，首次「选择使魔」时才赋值为使魔名
+          // （原版 _主程序.ecode L701 玩家.图片 = 玩家.类型），未选使魔无法进入游戏内容。
+          name: '',
+          baseName: '',
           type: '',
           // 战斗属性
           hp: 100,
@@ -414,6 +418,11 @@ export class PlayerService implements OnModuleInit {
       if (typeof player[_k] === 'bigint') player[_k] = Number(player[_k]);
     }
 
+    // 派生显示名：载入即把 name 刷成 baseName+[佩戴称号] 的派生态（对应原版
+    // _计算玩家 每次重算 玩家.名称），佩戴/改名等存量数据无需迁移即可生效。
+    // Actor 活态与 mutate 上下文复用分支返回的是已派生的同一对象，无需重刷。
+    this.refreshDisplayName(player);
+
     const result: any = {
       player,
       backpack: this.safeJsonParse<any[]>(player.backpack, []),
@@ -432,6 +441,18 @@ export class PlayerService implements OnModuleInit {
     // 的就是权威态，不再需要「基线对比 + 按侧猜测」的调和启发式。
     this.installCanonicalAccessors(player, result);
     return result;
+  }
+
+  /**
+   * 把派生显示名刷到 player.name（幂等，只从 baseName 派生、绝不从 name 反推）。
+   * 对应原版 加成计算.ecode L1616-1623：名称 = 图片(baseName) + [佩戴称号]，全空回退 类型。
+   * 读路径（getPlayerData）与写路径（savePlayer）统一调用，保证任何时刻内存中的
+   * name 都是派生态；改名/佩戴称号等写方需更新 baseName/titles 后调用本方法，
+   * 使同一条指令的回复文本立即用上新显示名。
+   */
+  refreshDisplayName(player: any): void {
+    if (!player || typeof player !== 'object' || Array.isArray(player)) return;
+    player.name = deriveDisplayName(player);
   }
 
   /**
@@ -526,6 +547,9 @@ export class PlayerService implements OnModuleInit {
     if (ctx) {
       this.applyLevelUps(player);
       this.mergeIntoMutateContext(ctx, player);
+      // merge 后按完整行重算派生显示名：本快照内改过 baseName/titles（改名/佩戴）
+      // 时，最终落库的 name 才是最新派生值；ctx.player 恒为完整行，重算安全。
+      this.refreshDisplayName(ctx.player);
       (ctx as any).__mutateDirty = true;
       return;
     }
@@ -544,6 +568,7 @@ export class PlayerService implements OnModuleInit {
           | undefined;
         if (live) {
           this.applyLevelUps(live.player);
+          this.refreshDisplayName(live.player);
           this.actorRuntime.markDirty();
           return;
         }
@@ -559,6 +584,11 @@ export class PlayerService implements OnModuleInit {
     // 不依赖调用方记得调用 addExp——这是不变量级别的收口，而非约定级别。
     // 注意：必须在序列化前执行，升级重算的属性字段才会随本次保存一并写入。
     this.applyLevelUps(player);
+    // 派生显示名收口：仅对完整行重算（baseName/titles 齐备）。局部写对象
+    // {id, markers} 不含这些字段，重算会把 name 抹成空串，必须跳过。
+    if (player.baseName !== undefined && player.titles !== undefined) {
+      this.refreshDisplayName(player);
+    }
     await this.persistPlayer(player);
     // 非 Actor 路径落库后，使该玩家 Actor 缓存失效，避免陈旧内存态被后续
     // enqueueUserWrite 复用并覆盖本次落库结果（正确性，见 getPlayerData 注释）。
@@ -611,7 +641,7 @@ export class PlayerService implements OnModuleInit {
 
     // 复制非 JSON 的基础字段
     const scalarFields = [
-      'level', 'exp', 'upgradeExp', 'name', 'type', 'specialSeq',
+      'level', 'exp', 'upgradeExp', 'name', 'baseName', 'type', 'specialSeq',
       'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor',
       'attack', 'defense', 'speed', 'dodge', 'hit', 'crit', 'critDmg',
       'regenHp', 'regenShield', 'regenArmor',
@@ -726,7 +756,7 @@ export class PlayerService implements OnModuleInit {
   private mergeIntoMutateContext(ctx: any, player: any): void {
     if (!player || typeof player !== 'object') return;
     const fields = [
-      'level', 'exp', 'upgradeExp', 'name', 'type', 'specialSeq',
+      'level', 'exp', 'upgradeExp', 'name', 'baseName', 'type', 'specialSeq',
       'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor',
       'attack', 'defense', 'speed', 'dodge', 'hit', 'crit', 'critDmg',
       'regenHp', 'regenShield', 'regenArmor',

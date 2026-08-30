@@ -229,7 +229,10 @@ export class FamiliarSystemService {
       player.equipmentPresets = [];
 
       // 设置角色为所选使魔（对应原版：玩家.类型/特殊序号/图片/特有技能）
+      // 原版 _主程序.ecode L701：玩家.图片 = 玩家.类型 —— 开局名字即所选使魔名
+      // （写入 baseName 改名基础名，显示名由派生逻辑刷新），之后仅可通过「命名使魔」修改。
       player.type = familiar.name;
+      player.baseName = familiar.name;
       player.specialSeq = familiar.specialSeq;
       player.uniqueSkill = familiar.uniqueSkill || '';
       player.currentWeapon = 0;
@@ -537,12 +540,14 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 修改名称
-    player.name = name;
-
+    // 修改名称：写入改名基础名 baseName（原版 玩家.图片 = w2，_主程序.ecode L4007），
+    // 显示名 name 随后按派生逻辑重算。原版回复前缀用改名前的旧显示名（L4005）。
+    const oldDisplayName = player.name;
+    player.baseName = name;
+    this.playerService.refreshDisplayName(player);
     await this.playerService.savePlayer(player);
 
-    return `${player.name || '冒险者'} 把名字修改为${name}`;
+    return `${oldDisplayName || '冒险者'} 把名字修改为${name}`;
   }
 
   /**
@@ -4026,8 +4031,24 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     const titles = this.playerService.safeJsonParse<any[]>(player.titles, []);
 
-    // 查找称号
-    const title = titles.find((t: any) => t.name === titleName);
+    // 取消佩戴（对应原版 佩戴称号0 → 置成就熟练度("称号",标记,0)，L10645-10648）
+    const isUnequip = titleName === '取消' || titleName === '取消佩戴' || titleName === '0';
+    let unequippedName = '';
+    if (isUnequip) {
+      for (const t of titles) {
+        if (t.equipped) unequippedName = t.name;
+        t.equipped = false;
+      }
+      player.titles = JSON.stringify(titles);
+      this.playerService.refreshDisplayName(player);
+      await this.playerService.savePlayer(player);
+      return unequippedName
+        ? `已取消佩戴称号「${unequippedName}」`
+        : '当前没有佩戴中的称号';
+    }
+
+    // 查找称号（历史形状兼容：字符串条目视为未佩戴的已拥有称号）
+    const title = titles.find((t: any) => (typeof t === 'string' ? t : t.name) === titleName);
     if (!title) {
       return `你还没有获得称号「${titleName}」\n请先使用「领取称号」来获取`;
     }
@@ -4037,9 +4058,15 @@ ${this.getAwakenStageName(d)}(${d})`;
       t.equipped = false;
     }
 
-    // 佩戴指定称号
-    title.equipped = true;
+    // 佩戴指定称号（字符串条目归一为对象形状）
+    if (typeof title === 'string') {
+      titles[titles.indexOf(title)] = { name: title, equipped: true };
+    } else {
+      title.equipped = true;
+    }
     player.titles = JSON.stringify(titles);
+    // 立即重算派生显示名（名称 = baseName + [佩戴称号]），保存时随快照落库
+    this.playerService.refreshDisplayName(player);
     await this.playerService.savePlayer(player);
 
     return `已佩戴称号「${titleName}」`;
@@ -4074,7 +4101,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`使用「佩戴称号 称号名」来佩戴称号`);
+    lines.push(`使用「佩戴称号 称号名」来佩戴，发送「佩戴称号取消」可摘下称号`);
 
     return lines.join('\n');
   }

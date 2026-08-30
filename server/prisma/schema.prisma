@@ -101,7 +101,8 @@ model Player {
   level      Int      @default(1)
   exp        Float    @default(0)
   upgradeExp Float    @default(100)   // 升级所需经验
-  name       String   @default("")    // 玩家/使魔名称
+  name       String   @default("")    // 派生显示名（原版 玩家.名称）：baseName+[佩戴称号]，全空回退type
+  baseName   String   @default("")    // 改名基础名（原版 玩家.图片）：选择使魔赋初值，命名使魔可改
   type       String   @default("")    // 使魔类型
   specialSeq Int      @default(0)     // 特殊序号（对应常量表）
 
@@ -488,4 +489,21 @@ model FeedbackMessage {
   createdAt   DateTime @default(now())
 
   @@index([feedbackId, createdAt])
+}
+/// 持久化延时任务表：统一承载「N 秒/分钟后结算一次」的跨重启延时
+/// （采集结算 / 移动到达 / 救援完成 / 装填完成 / 副本关闭等），
+/// 替代「内存 setTimeout + 周期扫描兜底」的双轨制——进程重启任务不丢，
+/// 也不再有"扫描发现残留标记后反复补结算"的复活问题。
+/// 同 (type, userId, dedupeKey) 只保留一条：schedule 先删后插（取消/重排即覆盖）。
+model DelayedTask {
+  id        Int      @id @default(autoincrement())
+  type      String                                     // 任务类型：gather | move | rescue | reload | dungeonClose
+  userId    Int?                                       // 关联玩家（地图级任务为空）
+  dedupeKey String?                                    // 同类型去重键：无则用 userId，救援用标记 token，副本用地图组名
+  payload   String   @default("{}")                    // JSON 载荷（结算所需参数）
+  runAt     DateTime                                   // 到期时间
+  createdAt DateTime @default(now())
+
+  @@index([runAt])
+  @@index([type, userId, dedupeKey])
 }

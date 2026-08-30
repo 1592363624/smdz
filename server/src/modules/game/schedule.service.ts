@@ -46,10 +46,6 @@ export class ScheduleService {
   private instanceRunning = false;
   /** 自动开采增量结算运行锁 */
   private autoMineRunning = false;
-  /** 救援延时兜底运行锁 */
-  private rescueRunning = false;
-  /** 采集延时兜底运行锁 */
-  private gatherRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -78,41 +74,9 @@ export class ScheduleService {
   }
 
   /**
-   * 救援延时兜底：扶/救助/复活使魔把状态写入 markers2，
-   * 进程重启后由 GameService 按过期时间补完成。
+   * 救援/采集的延时兜底扫描已由 DelayedTaskService（持久化延时任务表）取代：
+   * 任务行落库即跨重启存活，不再需要按 markers 反推任务、指纹去重与防重入熔断。
    */
-  @Cron('*/5 * * * * *')
-  async settlePendingRescues() {
-    if (this.rescueRunning) return;
-    this.rescueRunning = true;
-    try {
-      const settled = await this.gameService.settlePendingRescues();
-      if (settled > 0) this.logger.log(`救援延时结算: ${settled} 项`);
-    } catch (err: any) {
-      this.logger.error(`救援延时结算失败: ${err?.message || err}`);
-    } finally {
-      this.rescueRunning = false;
-    }
-  }
-
-  /**
-   * 采集延时兜底：手动采集把「采集中」状态写入玩家 markers，
-   * 进程内定时器到点结算；重启丢失定时器后由本任务按 settleAt 补完成
-   * （对齐原版全局「待执行延时」队列由单线程驱动、无丢失问题的语义）。
-   */
-  @Cron('*/5 * * * * *')
-  async settlePendingGathers() {
-    if (this.gatherRunning) return;
-    this.gatherRunning = true;
-    try {
-      const settled = await this.gameService.settlePendingGathers();
-      if (settled > 0) this.logger.log(`采集延时兜底结算: ${settled} 名玩家`);
-    } catch (err: any) {
-      this.logger.error(`采集延时兜底失败: ${err?.message || err}`);
-    } finally {
-      this.gatherRunning = false;
-    }
-  }
 
   /**
    * 自动保存 - 每3分钟执行一次
@@ -268,83 +232,6 @@ export class ScheduleService {
     }
   }
 
-  /**
-   * 移动延时落地兜底 - 每30秒扫描一次
-   * 对应原版：全局"待执行延时"队列由单线程驱动，无丢失问题；
-   * 后端 handleMove 用内存 setTimeout 触发落地，服务重启/定时器丢失会导致玩家永久卡在"移动中"。
-   * 本任务扫描所有玩家 markers 中的「移动中」记录，凡 arriveAt 已到期的，补完成落地：
-   * 更新玩家位置(mapId/location)、清除"移动中"标记、并懒刷新目标地图怪物。
-   */
-  @Cron('*/30 * * * * *') // 每30秒
-  async settlePendingMoves() {
-    try {
-      const players = await this.prisma.player.findMany({
-        where: { userId: { gt: 0 } },
-        select: { id: true, userId: true, markers: true, mapId: true },
-      });
-
-      let settled = 0;
-      for (const p of players) {
-        if (!p.markers) continue;
-        let markers: Record<string, any>;
-        try {
-          markers = JSON.parse(p.markers);
-        } catch {
-          continue;
-        }
-        const movingStr = markers['移动中'];
-        if (!movingStr) continue;
-
-        let moving: { targetName?: string; targetMapId?: number; arriveAt?: number } | null = null;
-        try {
-          moving = JSON.parse(movingStr);
-        } catch {
-          moving = null;
-        }
-        if (!moving || !moving.arriveAt || !moving.targetMapId) continue;
-
-        // 未到期则跳过
-        if (Date.now() < moving.arriveAt) continue;
-
-        // 已到期：补完成落地。玩家写路径统一入队（per-user 串行邮箱），与游戏内
-        // 移动/战斗写路径互斥，避免绕过邮箱的裸写造成 markers 覆盖/版本分叉。
-        const targetMap = await this.mapService.getMapById(moving.targetMapId);
-        const did = await this.playerService.enqueueUserWrite(Number(p.userId), async () => {
-          const data = await this.playerService.getPlayerData(Number(p.userId));
-          const cur = data.markers || {};
-          if (!cur['移动中']) return false; // 期间已被其它路径处理，跳过
-          delete cur['移动中'];
-          data.player.markers = cur;
-          if (targetMap) {
-            data.player.mapId = moving.targetMapId;
-            data.player.location = (moving as any).targetName || targetMap.name;
-          }
-          await this.playerService.savePlayer(data.player);
-          return true;
-        });
-        if (did) settled++;
-
-        // 懒刷新：目标地图无怪物时补充刷新，避免到达后无怪可打
-        if (targetMap) {
-          try {
-            const currentSpawn = await this.mapService.getMapMonsters(targetMap);
-            if (currentSpawn.length === 0) {
-              await this.mapService.refreshMapMonsters(moving.targetMapId);
-            }
-          } catch (e: any) {
-            this.logger.warn(`兜底落地懒刷新怪物失败: ${e?.message}`);
-          }
-        }
-
-        settled++;
-      }
-      if (settled > 0) {
-        this.logger.log(`移动落地兜底: 补完成 ${settled} 名玩家的移动`);
-      }
-    } catch (err: any) {
-      this.logger.error(`移动落地兜底任务失败: ${err.message}`);
-    }
-  }
 
   /**
    * 行商判断 - 每小时整点执行

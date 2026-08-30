@@ -12,6 +12,7 @@ import { AdminModule } from '../admin/admin.module';
 import { FeedbackModule } from '../feedback/feedback.module';
 import { GameController } from './game.controller';
 import { GameService } from './game.service';
+import { DelayedTaskService } from './delayed-task.service';
 import { PlayerService } from './player.service';
 import { PlayerMutateService } from './player-mutate.service';
 import { PlayerMutateContextService } from './player-mutate-context.service';
@@ -42,6 +43,7 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
   imports: [PrismaModule, ActorModule, GameSyncModule, forwardRef(() => AdminModule), FeedbackModule],
   controllers: [GameController],
   providers: [
+    DelayedTaskService,
     GameService,
     PlayerService,
     PlayerMutateContextService,

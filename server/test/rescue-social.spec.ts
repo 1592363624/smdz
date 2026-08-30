@@ -60,13 +60,33 @@ function makeService(options: {
     },
   };
   const chatService = { broadcastSystem: jest.fn(async () => undefined) };
+  // 持久化延时任务桩：记录 schedule 调用，并按到点时间触发结算
+  // （与生产一致：任务到点由分发器唤醒；伪定时器测试里由 advanceTimersByTimeAsync 驱动）
+  const scheduledTasks: any[] = [];
+  const delayedTaskService: any = {
+    schedule: jest.fn(async (input: any) => {
+      scheduledTasks.push(input);
+      const delay = Math.max(0, new Date(input.runAt).getTime() - Date.now());
+      const timer = setTimeout(async () => {
+        try {
+          if (input.type === 'rescue' && input.payload?.marker) {
+            await service.completeRescue(Number(input.userId), input.payload.marker);
+          } else if (input.type === 'reload') {
+            await service.completeReload(Number(input.userId), String(input.payload?.mode || 'plana'));
+          }
+        } catch { /* 结算失败由重试路径兜底 */ }
+      }, delay);
+      (timer as any).unref?.();
+    }),
+    cancel: jest.fn(async () => undefined),
+  };
   const service: any = Object.create(GameService.prototype);
   Object.assign(service, {
     prisma,
     playerService,
     mapService,
     taskService,
-    rescueTimers: new Map<number, NodeJS.Timeout>(),
+    delayedTaskService,
     chatService,
     logger: { warn: jest.fn(), log: jest.fn(), error: jest.fn() },
   });
@@ -75,7 +95,7 @@ function makeService(options: {
     player.mapId = Number(targetMapId);
     return `你来到了【${targetMapName}】`;
   });
-  return { service, player, map, taskService, playerService, updates, savedPlayers, chatService };
+  return { service, player, map, taskService, playerService, updates, savedPlayers, chatService, delayedTaskService, scheduledTasks };
 }
 
 describe('扶、救助、复活使魔社交救援流程', () => {
@@ -328,7 +348,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
     );
   });
 
-  it('服务重启后，后台扫描会补结算已到期的自救标记', async () => {
+  it('服务重启后，启动迁移补建延时任务、到点分发结算已到期的自救标记', async () => {
     const player = {
       id: 1, userId: 1, name: '甲', mapId: 7, hp: 0, maxHp: 100, markers2: JSON.stringify([
         { name: '复活', rescueType: 'self', expireAt: 900, token: 'pending-self' },
@@ -339,7 +359,13 @@ describe('扶、救助、复活使魔社交救援流程', () => {
       map: { id: 7, name: '医疗室', summons: '[]', vehicles: '[]' },
     });
 
-    await expect(fixture.service.settlePendingRescues()).resolves.toBe(1);
+    // 旧实现遗留的到期救援标记 → 启动迁移补建任务行 → 分发结算
+    await (fixture.service as any).recoverOrphanDelayedMarkers();
+    expect(fixture.scheduledTasks).toEqual([
+      expect.objectContaining({ type: 'rescue', userId: 1, dedupeKey: 'pending-self' }),
+    ]);
+    const marker = { name: '复活', rescueType: 'self', expireAt: 900, token: 'pending-self' };
+    await expect((fixture.service as any).completeRescue(1, marker)).resolves.toContain('感觉好一点了吗');
     expect(player.hp).toBe(50);
     expect(JSON.parse(player.markers2)).toEqual([]);
   });

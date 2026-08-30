@@ -29,6 +29,7 @@ import { ShortcutService } from './shortcut.service';
 import { StatsService } from './stats.service';
 import { CombatStateService } from './combat-state.service';
 import { PlayerMutateService } from './player-mutate.service';
+import { DelayedTaskService } from './delayed-task.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { normalizeGameText } from '../../common/utils/game-text.util';
@@ -51,36 +52,8 @@ interface HandbookEntry {
 @Injectable()
 export class GameService {
   private readonly logger = new Logger(GameService.name);
-  private readonly reloadTimers = new Map<number, NodeJS.Timeout>();
-  private readonly dungeonClearTimers = new Map<string, NodeJS.Timeout>();
-  /** 扶/救助/自救的进程内延时任务；状态本身同时持久化在 markers2。 */
-  private readonly rescueTimers = new Map<number, NodeJS.Timeout>();
-  /** 采集延时结算定时器：key=userId（进程内；服务重启后由 settlePendingGathers 兜底补结算）。 */
-  private readonly gatherTimers = new Map<number, NodeJS.Timeout>();
   /** 采集开始阶段的进程内去重时间戳：key=userId（防同刻连发双开任务）。 */
   private readonly gatherStartInflight = new Map<number, number>();
-  /** 兜底结算上次触发时间：key=userId（防标记残留时兜底任务无限重入刷屏）。 */
-  private readonly gatherFallbackAt = new Map<number, number>();
-  /** 兜底结算连续触发计数：key=userId（超限自愈，终止异常循环）。 */
-  private readonly gatherFallbackCount = new Map<number, number>();
-  /** 救援兜底结算上次触发时间：key=userId（防标记残留时兜底任务无限重入刷屏）。 */
-  private rescueFallbackAt = new Map<number, number>();
-  /** 救援兜底连续触发计数：key=userId（超限自愈，终止异常循环）。 */
-  private rescueFallbackCount = new Map<number, number>();
-  /** 兜底结算最小间隔：正常采集耗时远大于此值，仅拦截异常残留的重复结算。 */
-  private static readonly GATHER_FALLBACK_MIN_INTERVAL_MS = 15_000;
-  /** 兜底结算连续触发上限：超过则判定异常循环并清除标记自愈。 */
-  private static readonly GATHER_FALLBACK_MAX_CONSECUTIVE = 3;
-  /** 异常循环判定时间窗：仅统计 60 秒内的连续兜底，跨窗自动重置计数（防误伤正常采集）。 */
-  private static readonly GATHER_FALLBACK_LOOP_WINDOW_MS = 60_000;
-  /** 救援兜底结算最小间隔：正常救助耗时远大于此值，仅拦截异常残留的重复结算。 */
-  private static readonly RESCUE_FALLBACK_MIN_INTERVAL_MS = 15_000;
-  /** 救援兜底连续触发上限：超过则判定异常循环并清除到期标记自愈。 */
-  private static readonly RESCUE_FALLBACK_MAX_CONSECUTIVE = 3;
-  /** 救援异常循环判定时间窗：仅统计 60 秒内的连续兜底，跨窗自动重置计数。 */
-  private static readonly RESCUE_FALLBACK_LOOP_WINDOW_MS = 60_000;
-  /** 已结算采集指纹保留时长：覆盖「旧快照复活标记」的存活窗口（含 30 分钟资源刷新周期）。 */
-  private static readonly GATHER_SETTLED_FINGERPRINT_TTL_MS = 35 * 60_000;
   private readonly tradeLocks = new Map<string, Promise<void>>();
   /** 玩家面板推送防抖定时器：同一玩家短时间内的多次状态变化合并为一次推送 */
   private readonly playerUpdateTimers = new Map<number, NodeJS.Timeout>();
@@ -119,6 +92,10 @@ export class GameService {
     // 玩家状态收口入口（Actor 式写入口）。放最后且 @Optional：
     // 既不影响现有测试桩的位置传参，未注入时也走 mutatePlayer 的等价回退路径。
     @Optional() private readonly playerMutate?: PlayerMutateService,
+    // 持久化延时任务（采集/移动/救援/装填/副本关闭的跨重启排程）。
+    // @Optional：测试桩以 Object.create 构造或老位置传参时走「无排程」降级，
+    // 由启动迁移（recoverOrphanDelayedMarkers）与既有扫描兜底。
+    @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {}
 
   /**
@@ -137,6 +114,96 @@ export class GameService {
       await this.playerService.savePlayer(ctx.player);
       return result;
     });
+  }
+
+  /** 模块初始化：注册各延时任务的结算 handler，并把存量标记迁移为延时任务。 */
+  onModuleInit(): void {
+    if (!this.delayedTaskService) return;
+    const dts = this.delayedTaskService;
+    dts.registerHandler('gather', async (task) => {
+      await this.settleGatherResource(Number(task.userId));
+    });
+    dts.registerHandler('move', async (task) => {
+      const targetMapId = Number(task.payload?.targetMapId || 0);
+      const targetName = String(task.payload?.targetName || '');
+      if (!targetMapId) return;
+      await this.performArrival(Number(task.userId), targetMapId, targetName);
+    });
+    dts.registerHandler('rescue', async (task) => {
+      if (!task.payload?.marker) return;
+      await this.completeRescue(Number(task.userId), task.payload.marker);
+    });
+    dts.registerHandler('reload', async (task) => {
+      await this.completeReload(Number(task.userId), String(task.payload?.mode || 'plana'));
+    });
+    dts.registerHandler('dungeonClose', async (task) => {
+      const group = String(task.payload?.group || '');
+      if (group) await this.dungeonService.closeDungeon(group);
+    });
+    // 存量迁移：把上一代实现遗留在 markers 里的「采集中/移动中/救援」状态
+    // 补建成延时任务（幂等：schedule 先删后插，标记已结算时结算 handler 自行空转）。
+    void this.recoverOrphanDelayedMarkers().catch((e: any) => {
+      this.logger.warn(`延时任务存量迁移失败（下次重启重试）: ${e?.message || e}`);
+    });
+  }
+
+  /**
+   * 启动迁移：扫一遍玩家 markers，把「采集中」「移动中」以及 markers2 里的救援标记
+   * 补建成延时任务行。正常情况下这些状态在创建时就会同时排程任务，本方法只服务于
+   * （a）首次部署时仍挂着旧实现内存定时器的玩家；（b）异常情况下任务行丢失的兜底。
+   */
+  private async recoverOrphanDelayedMarkers(): Promise<void> {
+    if (!this.delayedTaskService) return;
+    const players = await this.prisma.player.findMany({
+      where: { userId: { gt: 0 } },
+      select: { userId: true, markers: true, markers2: true },
+    });
+    const now = Date.now();
+    let recovered = 0;
+    for (const row of players || []) {
+      const userId = Number(row.userId);
+      if (!userId) continue;
+      const markers = this.playerService.safeJsonParse<Record<string, any>>(row.markers, {});
+      const gathering = markers['采集中'];
+      if (gathering && typeof gathering === 'object' && Number(gathering.settleAt || 0) > 0) {
+        await this.delayedTaskService.schedule({
+          type: 'gather',
+          userId,
+          runAt: Math.max(now, Number(gathering.settleAt)),
+        });
+        recovered += 1;
+      }
+      const movingStr = markers['移动中'];
+      if (movingStr) {
+        try {
+          const moving = typeof movingStr === 'string' ? JSON.parse(movingStr) : movingStr;
+          if (moving?.arriveAt && moving?.targetMapId) {
+            await this.delayedTaskService.schedule({
+              type: 'move',
+              userId,
+              runAt: Math.max(now, Number(moving.arriveAt)),
+              payload: { targetMapId: Number(moving.targetMapId), targetName: String(moving.targetName || '') },
+            });
+            recovered += 1;
+          }
+        } catch { /* 移动中标记损坏：忽略，由原有逻辑兜底 */ }
+      }
+      const markers2 = this.playerService.safeJsonParse<any[]>(row.markers2, []);
+      for (const marker of markers2) {
+        const name = marker?.name ?? marker?.名称;
+        if (marker?.rescueType && (name === '复活' || name === '工作')) {
+          await this.delayedTaskService.schedule({
+            type: 'rescue',
+            userId,
+            dedupeKey: String(marker.token ?? `${name}`),
+            runAt: Math.max(now, this.rescueExpireAtSeconds(marker) * 1000),
+            payload: { marker },
+          });
+          recovered += 1;
+        }
+      }
+    }
+    if (recovered > 0) this.logger.log(`延时任务存量迁移: 已为 ${recovered} 个进行中状态补建任务行`);
   }
 
   /**
@@ -322,7 +389,7 @@ export class GameService {
     await this.playerService.savePlayer(player);
 
     // 3. 启动到达定时器，到点后真正落地（更新位置 + 广播到达）
-    this.scheduleArrival(userId, targetMap.id, targetMap.name, travelTime);
+    await this.scheduleArrival(userId, targetMap.id, targetMap.name, travelTime);
     await this.advanceTask(userId, '移动', movementTaskCount);
 
     return `你开始前往【${targetMap.name}】，预计${travelTime}秒后到达`;
@@ -565,7 +632,7 @@ export class GameService {
     player.markers = JSON.stringify(nextMarkers);
     player.markers2 = JSON.stringify(markers2);
     await this.playerService.savePlayer(player);
-    this.scheduleArrival(userId, arrivalMap.id, arrivalMap.name, seconds);
+    await this.scheduleArrival(userId, arrivalMap.id, arrivalMap.name, seconds);
 
     return confused
       ? `${playerName}飞了起来，但是遇到了混乱气流……`
@@ -606,16 +673,14 @@ export class GameService {
    * @param targetMapName 目标地图名
    * @param travelTime 耗时（秒）
    */
-  private scheduleArrival(userId: number, targetMapId: number, targetMapName: string, travelTime: number): void {
-    const timer = setTimeout(async () => {
-      try {
-        await this.performArrival(userId, targetMapId, targetMapName);
-      } catch (e: any) {
-        this.logger.warn(`玩家 ${userId} 延时到达失败: ${e.message}`);
-      }
-    }, travelTime * 1000);
-    // 定时器不阻止进程退出（对服务生命周期友好）
-    timer.unref?.();
+  private async scheduleArrival(userId: number, targetMapId: number, targetMapName: string, travelTime: number): Promise<void> {
+    if (!this.delayedTaskService) return;
+    await this.delayedTaskService.schedule({
+      type: 'move',
+      userId,
+      runAt: Date.now() + travelTime * 1000,
+      payload: { targetMapId, targetName: targetMapName },
+    });
   }
 
   /**
@@ -3184,18 +3249,16 @@ export class GameService {
     player.markers = JSON.stringify(markers);
     player.markers2 = JSON.stringify(markers2);
 
-    // 进程内定时器到点结算；服务重启丢失定时器时由 settlePendingGathers 兜底补结算
-    const timers = this.gatherTimerMap();
-    const previousTimer = timers.get(userId);
-    if (previousTimer) clearTimeout(previousTimer);
-    const timer = setTimeout(() => {
-      timers.delete(userId);
-      void this.settleGatherResource(userId).catch((e: any) => {
-        this.logger.warn(`玩家 ${userId} 采集延时结算失败: ${e?.message || e}`);
+    // 排程持久化延时任务：到点由 DelayedTaskService 分发结算。
+    // 任务行落库即跨重启存活，不再依赖内存定时器与周期扫描兜底；
+    // 同 (type,userId) 先删后插，重复采集开始天然覆盖上一条排程。
+    if (this.delayedTaskService) {
+      await this.delayedTaskService.schedule({
+        type: 'gather',
+        userId,
+        runAt: now + cappedSeconds * 1000,
       });
-    }, cappedSeconds * 1000);
-    timer.unref?.();
-    timers.set(userId, timer);
+    }
 
     this.logger.log(`玩家 ${userId} 开始采集 ${resourceName}，预计 ${cappedSeconds} 秒`);
 
@@ -3261,8 +3324,6 @@ export class GameService {
       this.logger.warn(`玩家 ${userId} 采集认领失败（并发冲突或写库异常），本次放弃: ${e?.message || e}`);
       return '';
     }
-    // 记录已结算指纹（startedAt:settleAt）：兜底扫描据此识别被旧快照复活的标记
-    this.recordGatherSettledFingerprint(userId, gatherState);
 
     const gatherName = String(gatherState.cmd ?? '');
     const resourceName = String(gatherState.target ?? '');
@@ -3511,132 +3572,6 @@ export class GameService {
     } catch {
       return 1;
     }
-  }
-
-  /** 已结算采集指纹表：key=`${userId}:${startedAt}:${settleAt}`，value=记录时间戳（进程内）。 */
-  private gatherSettledFingerprints?: Map<string, number>;
-
-  private gatherSettledFingerprintMap(): Map<string, number> {
-    const service = this as any;
-    if (!service.gatherSettledFingerprints) service.gatherSettledFingerprints = new Map<string, number>();
-    return service.gatherSettledFingerprints;
-  }
-
-  /** 记录一次已结算的采集指纹；过期条目顺手清理，避免长驻进程下 Map 膨胀。 */
-  private recordGatherSettledFingerprint(userId: number, state: Record<string, any>): void {
-    try {
-      const fingerprints = this.gatherSettledFingerprintMap();
-      const key = `${userId}:${Number(state?.startedAt ?? 0)}:${Number(state?.settleAt ?? 0)}`;
-      const nowMs = Date.now();
-      for (const [existingKey, recordedAt] of fingerprints) {
-        if (nowMs - recordedAt > GameService.GATHER_SETTLED_FINGERPRINT_TTL_MS) fingerprints.delete(existingKey);
-      }
-      fingerprints.set(key, nowMs);
-    } catch { /* 指纹记录失败不影响结算主链路 */ }
-  }
-
-  /** 该「采集中」状态是否已结算过：同指纹标记再现即是被旧快照复活。 */
-  private hasGatherSettledFingerprint(userId: number, state: any): boolean {
-    try {
-      const key = `${userId}:${Number(state?.startedAt ?? 0)}:${Number(state?.settleAt ?? 0)}`;
-      return this.gatherSettledFingerprintMap().has(key);
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * 后台兜底：服务重启导致进程内采集定时器丢失后，补结算已到期的「采集中」状态。
-   * 由 ScheduleService 定期调用。@returns 本轮补结算的玩家数
-   */
-  async settlePendingGathers(): Promise<number> {
-    if (!this.prisma?.player?.findMany) return 0;
-    const players = await this.prisma.player.findMany({
-      where: { userId: { gt: 0 } },
-      select: { userId: true, id: true, markers: true },
-    });
-    const now = Date.now();
-    let settled = 0;
-    for (const row of players || []) {
-      if (!row?.markers || !row.userId) continue;
-      let markers: Record<string, any>;
-      try { markers = typeof row.markers === 'string' ? JSON.parse(row.markers) : row.markers; } catch { continue; }
-      const raw = markers?.['采集中'];
-      if (!raw) continue;
-      let state: any = raw;
-      if (typeof raw === 'string') {
-        try { state = JSON.parse(raw); } catch { state = null; }
-      }
-      // 指纹去重：同指纹标记再现，说明本次采集已被结算过、标记又被某个持
-      // 旧快照的并发写回复活。直接定点清除并跳过（不产出、不广播、不计熔断），
-      // 防止重复扣资源次数与重复广播；未到期的复活标记同样无意义，一并清除。
-      if (state && this.hasGatherSettledFingerprint(Number(row.userId), state)) {
-        await this.playerService.enqueueUserWrite(row.userId, async () => {
-          // 在最新快照（Actor 内即活态）上只删「采集中」键再写回；绝不能用 scan
-          // 读库时的旧 markers 副本整列写回——那会用陈旧数据覆盖掉内存态里更新的
-          // 永久标记（医疗箱/休眠仓等），正是本轮反复复发的覆盖源之一。
-          const _pd = await this.playerService.getPlayerData(row.userId);
-          if (_pd.markers && _pd.markers['采集中'] !== undefined) delete _pd.markers['采集中'];
-          Object.assign(_pd.player, { markers: JSON.stringify(_pd.markers) });
-          await this.playerService.savePlayer(_pd.player);
-        });
-        this.logger.warn(
-          `玩家 ${row.userId} 的「采集中」标记已结算过却又出现（疑似旧快照写回复活），已直接清除`,
-        );
-        continue;
-      }
-      const settleAt = Number(state?.settleAt ?? 0);
-      if (settleAt > now) {
-        // 未到期：恢复进程内定时器（服务重启后定时器全部丢失）
-        const timers = this.gatherTimerMap();
-        if (!timers.has(Number(row.userId))) {
-          const delay = Math.max(0, settleAt - Date.now());
-          const timer = setTimeout(() => {
-            timers.delete(Number(row.userId));
-            void this.settleGatherResource(Number(row.userId)).catch(() => undefined);
-          }, delay);
-          timer.unref?.();
-          timers.set(Number(row.userId), timer);
-        }
-        continue;
-      }
-      // 防重入熔断：若标记因异常残留/被并发写回，没有本熔断时兜底任务会
-      // 周期性重复结算（重复发产出/广播/扣资源次数）。
-      // 两级防护：
-      //   1) 同一玩家两次兜底结算至少间隔 15 秒；
-      //   2) 60 秒内连续触发 3 次后判定为异常循环，直接清除标记并跳过结算（自愈）。
-      //      计数带时间窗：正常采集两次间隔远大于 60 秒，窗口重置后永不误伤。
-      // 惰性初始化：兼容测试环境的 Object.create 构造方式（字段初始化器不执行）。
-      if (!this.gatherFallbackAt) (this as any).gatherFallbackAt = new Map<number, number>();
-      if (!this.gatherFallbackCount) (this as any).gatherFallbackCount = new Map<number, number>();
-      const lastFallback = this.gatherFallbackAt.get(Number(row.userId)) ?? 0;
-      if (now - lastFallback < GameService.GATHER_FALLBACK_MIN_INTERVAL_MS) continue;
-      this.gatherFallbackAt.set(Number(row.userId), now);
-      // 距上次兜底超过 60 秒视为新一轮正常流程，计数归零
-      const consecutive = now - lastFallback <= GameService.GATHER_FALLBACK_LOOP_WINDOW_MS
-        ? (this.gatherFallbackCount.get(Number(row.userId)) ?? 0) + 1
-        : 1;
-      this.gatherFallbackCount.set(Number(row.userId), consecutive);
-      if (consecutive > GameService.GATHER_FALLBACK_MAX_CONSECUTIVE) {
-        // 异常循环自愈：60 秒内被兜底连续补结算超过 3 次，只可能是标记被异常复活；
-        // 直接清除「采集中」与孤儿锁定标记，终止风暴；本次不产出不广播。
-        await this.playerService.enqueueUserWrite(row.userId, async () => {
-          // 在最新快照上只删「采集中」键再写回（同上，禁止用 scan 旧快照整列覆盖）
-          const _pd = await this.playerService.getPlayerData(row.userId);
-          if (_pd.markers && _pd.markers['采集中'] !== undefined) delete _pd.markers['采集中'];
-          Object.assign(_pd.player, { markers: JSON.stringify(_pd.markers) });
-          await this.playerService.savePlayer(_pd.player);
-        });
-        this.logger.warn(
-          `玩家 ${row.userId} 兜底结算 60 秒内连续触发 ${consecutive} 次，判定异常循环，已清除「采集中」标记终止`,
-        );
-        settled += 1;
-        continue;
-      }
-      await this.settleGatherResource(Number(row.userId));
-      settled += 1;
-    }
-    return settled;
   }
 
   /** 兼容新格式与早期错误导出的 resources JSON。 */
@@ -8444,18 +8379,15 @@ export class GameService {
     markers2.push({ 名称: `${group.name}刷新`, 有效期至: now + 120 * 1000 });
     await this.mapService.updateDynamicFields(markerMap.id, { markers2: JSON.stringify(markers2) });
 
-    const previous = this.dungeonClearTimers.get(group.name);
-    if (previous) clearTimeout(previous);
-    const timer = setTimeout(async () => {
-      this.dungeonClearTimers.delete(group.name);
-      try {
-        await this.dungeonService.closeDungeon(group.name);
-      } catch (error: any) {
-        this.logger.warn(`副本 ${group.name} 延时关闭失败: ${error?.message}`);
-      }
-    }, 30 * 1000);
-    timer.unref?.();
-    this.dungeonClearTimers.set(group.name, timer);
+    // 30 秒后关闭副本：持久化延时任务（dedupeKey=地图组名），重启不丢。
+    if (this.delayedTaskService) {
+      await this.delayedTaskService.schedule({
+        type: 'dungeonClose',
+        dedupeKey: group.name,
+        runAt: Date.now() + 30 * 1000,
+        payload: { group: group.name },
+      });
+    }
 
     return `${group.name}副本已通关，副本将在30秒后传送全部玩家离开。`;
   }
@@ -11389,40 +11321,42 @@ export class GameService {
     mode: 'plana' | 'organ',
     seconds: number,
   ): void {
-    const previous = this.reloadTimers.get(userId);
-    if (previous) clearTimeout(previous);
-    const timer = setTimeout(async () => {
-      this.reloadTimers.delete(userId);
-      try {
-        const playerData = await this.playerService.getPlayerData(userId);
-        const { player, markers, weapons } = playerData;
-        let result: string;
-        if (mode === 'organ') {
-          this.achievementService.setAchievement(markers, '管风琴', 4);
-          result = `${player.name}的管风琴装填完毕了。`;
-        } else {
-          const completed: string[] = [];
-          for (const weapon of weapons) {
-            const weaponName = this.itemName(weapon);
-            if (this.achievementService.getAchievement(markers, `${weaponName}t`) < 1) {
-              this.achievementService.setAchievement(markers, `${weaponName}t`, 1);
-              completed.push(weaponName);
-            }
-          }
-          const skillLevel = Math.floor(
-            this.playerService.getSkillLevel(markers, '普拉娜'),
-          ) + 1;
-          result = `${player.name}给${completed.join('、')}进行了超装填，它们下次命中的时候会造成${1.25 + skillLevel / 100}倍的伤害。`;
+    if (!this.delayedTaskService) return;
+    // 任务行落库即跨重启存活：装填进度以任务行为准，不再依赖进程内定时器。
+    // 同 (type,userId) 先删后插，重复装填天然覆盖上一条排程。
+    void this.delayedTaskService.schedule({
+      type: 'reload',
+      userId,
+      runAt: Date.now() + Math.max(0, seconds) * 1000,
+      payload: { mode },
+    });
+  }
+
+  /** 装填延时到期：写装填完成成就并广播。由 DelayedTaskService 分发。 */
+  private async completeReload(userId: number, mode: string): Promise<void> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers, weapons } = playerData;
+    let result: string;
+    if (mode === 'organ') {
+      this.achievementService.setAchievement(markers, '管风琴', 4);
+      result = `${player.name}的管风琴装填完毕了。`;
+    } else {
+      const completed: string[] = [];
+      for (const weapon of weapons) {
+        const weaponName = this.itemName(weapon);
+        if (this.achievementService.getAchievement(markers, `${weaponName}t`) < 1) {
+          this.achievementService.setAchievement(markers, `${weaponName}t`, 1);
+          completed.push(weaponName);
         }
-        player.markers = markers;
-        await this.playerService.savePlayer(player);
-        await this.chatService.broadcastSystem('世界频道', result, userId);
-      } catch (error: any) {
-        this.logger.warn(`玩家 ${userId} 装填延时完成失败: ${error.message}`);
       }
-    }, Math.max(0, seconds * 1000));
-    timer.unref?.();
-    this.reloadTimers.set(userId, timer);
+      const skillLevel = Math.floor(
+        this.playerService.getSkillLevel(markers, '普拉娜'),
+      ) + 1;
+      result = `${player.name}给${completed.join('、')}进行了超装填，它们下次命中的时候会造成${1.25 + skillLevel / 100}倍的伤害。`;
+    }
+    player.markers = markers;
+    await this.playerService.savePlayer(player);
+    await this.chatService.broadcastSystem('世界频道', result, userId);
   }
 
   /**
@@ -11666,7 +11600,11 @@ export class GameService {
     // 解析玩家的背包、装备、称号等数据
     const backpack = this.playerService.safeJsonParse<any[]>(targetPlayer.backpack, []);
     const equipment = this.playerService.safeJsonParse<any[]>(targetPlayer.equipment, []);
-    const titles = this.playerService.safeJsonParse<string[]>(targetPlayer.titles, []);
+    // 称号兼容两种形状：字符串（历史自动发放）/ {name, equipped}（领取/佩戴）
+    const titles = this.playerService.safeJsonParse<any[]>(targetPlayer.titles, [])
+      .filter((t: any) => t)
+      .map((t: any) => (typeof t === 'string' ? t : t.name))
+      .filter(Boolean);
 
     // 获取地图名称
     let mapName = '未知区域';
@@ -12547,100 +12485,16 @@ export class GameService {
     return true;
   }
 
-  private rescueTimerMap(): Map<number, NodeJS.Timeout> {
-    const service = this as any;
-    if (!service.rescueTimers) service.rescueTimers = new Map<number, NodeJS.Timeout>();
-    return service.rescueTimers;
-  }
-
-  /** 采集延时定时器表（惰性初始化，兼容测试环境的 Object.create 构造方式）。 */
-  private gatherTimerMap(): Map<number, NodeJS.Timeout> {
-    const service = this as any;
-    if (!service.gatherTimers) service.gatherTimers = new Map<number, NodeJS.Timeout>();
-    return service.gatherTimers;
-  }
-
   private async scheduleRescueCompletion(userId: number, marker: any): Promise<void> {
-    const timers = this.rescueTimerMap();
-    const previous = timers.get(userId);
-    if (previous) clearTimeout(previous);
-    const delay = Math.max(0, this.rescueExpireAtSeconds(marker) * 1000 - Date.now());
-    const timer = setTimeout(async () => {
-      timers.delete(userId);
-      try {
-        await this.completeRescue(userId, marker);
-      } catch (error: any) {
-        this.logger.warn(`救援延时完成失败 userId=${userId}: ${error?.message || error}`);
-      }
-    }, delay);
-    timer.unref?.();
-    timers.set(userId, timer);
-  }
-
-  /** 后台兜底：服务重启或进程内定时器丢失后，补结算已到期的救援。 */
-  async settlePendingRescues(): Promise<number> {
-    if (!this.prisma?.player?.findMany) return 0;
-    const players = await this.prisma.player.findMany({
-      where: { userId: { gt: 0 } },
-      select: { userId: true, markers2: true },
+    if (!this.delayedTaskService) return;
+    // 任务行落库即跨重启存活；dedupeKey=救援标记 token，同一救援重排即覆盖。
+    await this.delayedTaskService.schedule({
+      type: 'rescue',
+      userId,
+      dedupeKey: String(marker?.token ?? `${marker?.name ?? marker?.名称 ?? ''}`),
+      runAt: Math.max(Date.now(), this.rescueExpireAtSeconds(marker) * 1000),
+      payload: { marker },
     });
-    const now = Date.now() / 1000;
-    let settled = 0;
-    for (const player of players || []) {
-      const markers = this.parseRescueMarkers(player.markers2);
-      const rescueMarkers = markers.filter((marker: any) => {
-        const name = marker?.name ?? marker?.名称;
-        return Boolean(marker?.rescueType) && (name === '复活' || name === '工作');
-      });
-      if (rescueMarkers.length === 0) continue;
-      const userId = Number(player.userId);
-      const expired: any[] = [];
-      for (const marker of rescueMarkers) {
-        if (this.rescueExpireAtSeconds(marker) > now) {
-          // 未到期：恢复进程内定时器（服务重启后定时器全部丢失）
-          if (!this.rescueTimerMap().has(userId)) {
-            await this.scheduleRescueCompletion(userId, marker);
-          }
-          continue;
-        }
-        expired.push(marker);
-      }
-      if (expired.length === 0) continue;
-
-      // 防重入熔断（对齐采集兜底）：若标记因异常残留/被并发旧快照写回，
-      // 兜底扫描每5秒会把同一到期标记当成待结算反复补完并广播。
-      // 两级防护：1) 同一玩家两次兜底结算至少间隔 15 秒；
-      // 2) 60 秒内连续触发超过 3 次判定异常循环，直接清除到期救援标记（自愈）。
-      if (!this.rescueFallbackAt) (this as any).rescueFallbackAt = new Map<number, number>();
-      if (!this.rescueFallbackCount) (this as any).rescueFallbackCount = new Map<number, number>();
-      const nowMs = Date.now();
-      const lastFallback = this.rescueFallbackAt.get(userId) ?? 0;
-      if (nowMs - lastFallback < GameService.RESCUE_FALLBACK_MIN_INTERVAL_MS) continue;
-      this.rescueFallbackAt.set(userId, nowMs);
-      const consecutive = nowMs - lastFallback <= GameService.RESCUE_FALLBACK_LOOP_WINDOW_MS
-        ? (this.rescueFallbackCount.get(userId) ?? 0) + 1
-        : 1;
-      this.rescueFallbackCount.set(userId, consecutive);
-      if (consecutive > GameService.RESCUE_FALLBACK_MAX_CONSECUTIVE) {
-        const expiredTokens = new Set(expired.map((entry: any) => entry?.token));
-        const kept = markers.filter((entry: any) => !expiredTokens.has(entry?.token));
-        await this.playerService.enqueueUserWrite(userId, async () => {
-          const _pd = await this.playerService.getPlayerData(userId);
-          Object.assign(_pd.player, { markers2: JSON.stringify(kept) });
-          await this.playerService.savePlayer(_pd.player);
-        });
-        this.logger.warn(
-          `玩家 ${userId} 救援兜底结算 60 秒内连续触发 ${consecutive} 次，判定异常循环，已清除到期救援标记终止`,
-        );
-        settled += expired.length;
-        continue;
-      }
-      for (const marker of expired) {
-        await this.completeRescue(userId, marker);
-        settled += 1;
-      }
-    }
-    return settled;
   }
 
   /** 完成自救、使魔救助、载具维修或玩家扶助。 */

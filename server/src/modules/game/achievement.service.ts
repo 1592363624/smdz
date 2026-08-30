@@ -3,7 +3,8 @@
  * 对应原版：数据分析.ecode 中的成就相关子程序
  * 负责成就的添加、查询、触发称号等
  * 成就数据存储在 Player.markers 字段（JSON 字符串，格式 {"成就名": 数值}）
- * 称号数据存储在 Player.titles 字段（JSON 字符串数组，格式 ["称号1", "称号2"]）
+ * 称号数据存储在 Player.titles 字段（JSON 数组，格式 [{name, equipped}]，
+ * 字符串条目为历史形状，读取时自动归一为对象）
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -126,8 +127,14 @@ export class AchievementService {
   async checkTitles(player: any): Promise<string[]> {
     const newTitles: string[] = [];
 
-    // 1. 解析玩家称号列表和标记
-    const playerTitles: string[] = this.playerService.safeJsonParse<string[]>(player.titles, []);
+    // 1. 解析玩家称号列表和标记。
+    // 统一为 {name, equipped} 形状（与 领取称号/佩戴称号 一致）：历史上自动发放
+    // 写的是纯字符串数组，会把领取/佩戴写入的对象形状覆盖掉，导致佩戴状态丢失。
+    const rawTitles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const playerTitles: Array<{ name: string; equipped?: boolean }> = Array.isArray(rawTitles)
+      ? rawTitles.filter((t: any) => t)
+        .map((t: any) => (typeof t === 'string' ? { name: t } : t))
+      : [];
     const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
 
     // 2. 从静态配置读取所有称号（JSON 单一来源）
@@ -136,7 +143,7 @@ export class AchievementService {
     // 3. 检查每个称号的触发条件
     for (const title of allTitles) {
       // 跳过已获得的称号
-      if (playerTitles.includes(title.name)) continue;
+      if (playerTitles.some((t) => t.name === title.name)) continue;
 
       // 解析触发条件
       const requirements: Array<{ type?: string; name?: string; value?: number }> =
@@ -172,9 +179,9 @@ export class AchievementService {
         }
       }
 
-      // 4. 如果满足条件且玩家尚未获得，发放称号
+      // 4. 如果满足条件且玩家尚未获得，发放称号（新称号默认未佩戴）
       if (allMet) {
-        playerTitles.push(title.name);
+        playerTitles.push({ name: title.name, equipped: false });
         newTitles.push(title.name);
         this.logger.log(`玩家 ${player.userId || player.id} 获得称号: ${title.name}`);
       }
@@ -182,7 +189,7 @@ export class AchievementService {
 
     // 更新玩家称号列表
     if (newTitles.length > 0) {
-      player.titles = playerTitles;
+      player.titles = JSON.stringify(playerTitles);
     }
 
     // 5. 返回新获得的称号名称列表
@@ -219,7 +226,11 @@ export class AchievementService {
    * @returns 格式化后的称号列表文本
    */
   getTitlesDisplay(player: any): string {
-    const titles: string[] = this.playerService.safeJsonParse<string[]>(player.titles, []);
+    const rawTitles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const titles = Array.isArray(rawTitles)
+      ? rawTitles.filter((t: any) => t)
+        .map((t: any) => (typeof t === 'string' ? t : t.name))
+      : [];
     const lines: string[] = ['🎖️ 称号列表'];
 
     if (titles.length === 0) {

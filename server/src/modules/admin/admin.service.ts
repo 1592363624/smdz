@@ -260,6 +260,12 @@ export class AdminService {
     if (Object.keys(updateData).length === 0) {
       throw new BadRequestException('没有可更新的字段');
     }
+    // GM 改名：写入改名基础名 baseName（原版 玩家.图片）。显示名 name 是
+    // baseName+[佩戴称号] 的派生结果，直接改 name 会在下次保存时被派生覆盖。
+    if (updateData.name !== undefined) {
+      updateData.baseName = updateData.name;
+      delete updateData.name;
+    }
 
     await this.playerService.enqueueUserWrite(player.userId, async () => {
       const _pd = await this.playerService.getPlayerData(player.userId);
@@ -538,7 +544,7 @@ export class AdminService {
         markers2: '[]',
         buffs: '[]',
         tasks: JSON.stringify(initialTasks),
-        titles: JSON.stringify(['新人']),
+        titles: JSON.stringify([{ name: '新人', equipped: false }]),
         skills: '{}',
         sets: '{}',
         bonus: '{}',
@@ -956,7 +962,7 @@ export class AdminService {
       { name: '布衣', type: '装备', quantity: 1, durability: 0, data: 'e' },
     ]);
     const initialMarkers = JSON.stringify({ '指引': 0 });
-    const initialTitles = JSON.stringify(['新人']);
+    const initialTitles = JSON.stringify([{ name: '新人', equipped: false }]);
 
     await this.playerService.enqueueUserWrite(player.userId, async () => {
       const _pd = await this.playerService.getPlayerData(player.userId);
