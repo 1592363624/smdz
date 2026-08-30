@@ -1,22 +1,29 @@
 /**
  * Actor 运行时单元测试
  *
- * 目标：验证「单进程内、每实体一个串行邮箱 + 内存态 + 异步落库」的核心不变量：
+ * 目标：验证「单进程内、每实体一个串行邮箱 + 内存态 + 异步落库」的核心不变量，
+ * 以及 hardening 后的正确性 / 健壮性 / 可观测性：
  *  1. 同实体写操作严格串行（单时刻一条，无 interleaving）—— 无锁无 CAS 的并发正确性基础
- *  2. 内存态单激活（并发 run 只 load 一次；peek 命中同一对象引用）
- *  3. writeThrough 策略：写后立刻落库
- *  4. deferred 策略 + deactivate：仅标脏，停用/周期才落库
- *  5. 跨实体协调者（coordinate）：按稳定键字典序确定性排序，打破 A↔B 死锁环路
- *  6. LRU 驱逐：超过容量上限时按最久未用驱逐（脏 cell 先落库）
+ *  2. 内存态单激活（并发 run 只 load 一次）
+ *  3. peek 返回【深克隆只读快照】，外部改它不会污染内存态（正确性风险 #1 修复）
+ *  4. writeThrough：仅当标脏（markDirty）才落库；纯只读 run 不白吞 DB 写（性能修复）
+ *  5. deferred + deactivate：仅标脏，停用/周期才落库
+ *  6. run fn 抛错 → 内存态被丢弃、不落库（all-or-nothing，正确性风险 #3 修复）
+ *  7. 跨实体协调者（coordinate）：字典序确定性排序，打破 A↔B 死锁环路
+ *  8. LRU 驱逐 + 周期空闲回收（干净空闲 cell 也回收，健壮性缺口修复）
+ *  9. 邮箱背压：积压超限抛 ActorMailboxOverflowError（并发健壮性修复）
+ * 10. deactivate 经邮箱排队，不与在途 run 竞争（正确性风险 #4 修复）
+ * 11. stats() 可观测性计数
  *
  * 不依赖 Nest DI：直接 new ActorRuntime（构造仅接收配置，无需容器）。
  */
 
-import { ActorRuntime } from '../src/modules/actor';
+import { ActorRuntime, ActorMailboxOverflowError } from '../src/modules/actor';
 import { coordinate } from '../src/modules/actor';
 
 function inMemoryType(backing: Record<string, any>) {
   let loadCalls = 0;
+  let saveCalls = 0;
   const cfg = {
     load: async (id: string | number) => {
       loadCalls++;
@@ -25,12 +32,15 @@ function inMemoryType(backing: Record<string, any>) {
       return JSON.parse(JSON.stringify(v));
     },
     save: async (id: string | number, state: any) => {
+      saveCalls++;
       backing[String(id)] = JSON.parse(JSON.stringify(state));
     },
     persist: 'writeThrough' as const,
   };
-  return { cfg, getLoadCalls: () => loadCalls };
+  return { cfg, getLoadCalls: () => loadCalls, getSaveCalls: () => saveCalls };
 }
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('ActorRuntime 核心不变量', () => {
   it('同 key 的 run 严格串行执行，无 interleaving', async () => {
@@ -40,14 +50,16 @@ describe('ActorRuntime 核心不变量', () => {
     const events: string[] = [];
     const p1 = rt.run('k', 'x', async (s: any) => {
       events.push('a-start');
-      await new Promise((r) => setTimeout(r, 20));
+      await delay(20);
       s.n += 1;
+      rt.markDirty();
       events.push('a-end');
       return s.n;
     });
     const p2 = rt.run('k', 'x', async (s: any) => {
       events.push('b-start');
       s.n += 1;
+      rt.markDirty();
       events.push('b-end');
       return s.n;
     });
@@ -57,47 +69,73 @@ describe('ActorRuntime 核心不变量', () => {
     expect(r2).toBe(2);
   });
 
-  it('并发 run 只激活（load）一次，且 peek 命中同一对象引用', async () => {
+  it('并发 run 只激活（load）一次', async () => {
     const rt = new ActorRuntime({ flushIntervalMs: 0 });
     const { cfg, getLoadCalls } = inMemoryType({ x: { v: 1 } });
     rt.registerType('k', cfg);
     await Promise.all([
       rt.run('k', 'x', async () => {
-        await new Promise((r) => setTimeout(r, 10));
+        await delay(10);
       }),
       rt.run('k', 'x', async () => {
-        await new Promise((r) => setTimeout(r, 10));
+        await delay(10);
       }),
     ]);
     expect(getLoadCalls()).toBe(1);
-    const a = rt.peek('k', 'x');
-    const b = rt.peek('k', 'x');
-    expect(a).toBeDefined();
-    expect(a).toBe(b); // 同一内存态引用
-    expect((a as any).v).toBe(1);
   });
 
-  it('writeThrough：写后立刻落库到后端存储', async () => {
-    const backing: Record<string, any> = { x: { v: 5 } };
+  it('peek 返回深克隆只读快照，改它不会污染真实内存态（风险#1 修复）', async () => {
+    const backing: Record<string, any> = { x: { v: 1, list: [1] } };
     const rt = new ActorRuntime({ flushIntervalMs: 0 });
     const { cfg } = inMemoryType(backing);
     rt.registerType('k', cfg);
+    await rt.run('k', 'x', async () => {}); // 激活
+    const snapshot = rt.peek('k', 'x') as any;
+    expect(snapshot).toBeDefined();
+    // 克隆：引用不同
+    expect(rt.peek('k', 'x')).not.toBe(snapshot);
+    // 改克隆不影响真实 state
+    snapshot.v = 999;
+    snapshot.list.push(2);
+    const real = rt.peek('k', 'x') as any;
+    expect(real.v).toBe(1);
+    expect(real.list).toEqual([1]);
+  });
+
+  it('writeThrough：标脏后才落库；纯只读 run 不落库（性能修复）', async () => {
+    const backing: Record<string, any> = { x: { v: 5 } };
+    const rt = new ActorRuntime({ flushIntervalMs: 0 });
+    const { cfg, getSaveCalls } = inMemoryType(backing);
+    rt.registerType('k', cfg);
+
+    // 只读 run：不应落库
+    await rt.run('k', 'x', async (s: any) => {
+      void s.v;
+    });
+    expect(getSaveCalls()).toBe(0);
+
+    // 写后标脏：应落库
     await rt.run('k', 'x', async (s: any) => {
       s.v = 99;
+      rt.markDirty();
     });
+    expect(getSaveCalls()).toBe(1);
     expect(backing.x.v).toBe(99);
   });
 
   it('deferred + deactivate：写后不立即落库，停用才落库并清内存', async () => {
     const backing: Record<string, any> = { x: { v: 1 } };
     const rt = new ActorRuntime({ flushIntervalMs: 0 });
-    const { cfg } = inMemoryType(backing);
+    const { cfg, getSaveCalls } = inMemoryType(backing);
     rt.registerType('k', { ...cfg, persist: 'deferred' });
     await rt.run('k', 'x', async (s: any) => {
       s.v = 42;
+      rt.markDirty();
     });
-    expect(backing.x.v).toBe(1); // 尚未落库
+    expect(getSaveCalls()).toBe(0); // deferred 不立即落库
+    expect(backing.x.v).toBe(1);
     await rt.deactivate('k', 'x');
+    expect(getSaveCalls()).toBe(1);
     expect(backing.x.v).toBe(42); // 停用触发落库
     expect(rt.peek('k', 'x')).toBeUndefined(); // 内存已移除
   });
@@ -109,7 +147,111 @@ describe('ActorRuntime 核心不变量', () => {
     expect(rt.peek('k', 'x')).toBeUndefined();
   });
 
-  it('LRU 驱逐：超过 lruMax 时按最久未用淘汰（非脏 cell 直接移除）', async () => {
+  it('run fn 抛错：内存态被丢弃、不落库、向上抛出（all-or-nothing）', async () => {
+    const backing: Record<string, any> = { x: { v: 1 } };
+    const rt = new ActorRuntime({ flushIntervalMs: 0 });
+    const { cfg, getSaveCalls } = inMemoryType(backing);
+    rt.registerType('k', cfg);
+    let threw = false;
+    try {
+      await rt.run('k', 'x', async (s: any) => {
+        s.v = 777; // 半截改动
+        rt.markDirty();
+        throw new Error('boom');
+      });
+    } catch (e) {
+      threw = (e as Error).message === 'boom';
+    }
+    expect(threw).toBe(true);
+    expect(getSaveCalls()).toBe(0); // 半截改动绝不落库
+    expect(backing.x.v).toBe(1); // 库未变
+    // 下一次 run 重新从库载入干净状态
+    await rt.run('k', 'x', async (s: any) => {
+      expect(s.v).toBe(1);
+    });
+  });
+
+  it('邮箱背压：积压超 mailboxMaxDepth 抛 ActorMailboxOverflowError', async () => {
+    const rt = new ActorRuntime({ flushIntervalMs: 0, mailboxMaxDepth: 1 });
+    const { cfg } = inMemoryType({ x: { v: 1 } });
+    rt.registerType('k', cfg);
+    const slow = rt.run('k', 'x', async () => {
+      await delay(50);
+    });
+    let overflowed = false;
+    try {
+      await rt.run('k', 'x', async () => {});
+    } catch (e) {
+      overflowed = e instanceof ActorMailboxOverflowError;
+    }
+    await slow;
+    expect(overflowed).toBe(true);
+    expect(rt.stats().totalOverflow).toBeGreaterThanOrEqual(1);
+  });
+
+  it('deactivate 经邮箱排队：等在场 run 完成后再卸载（风险#4 修复）', async () => {
+    const backing: Record<string, any> = { x: { v: 1 } };
+    const rt = new ActorRuntime({ flushIntervalMs: 0 });
+    const { cfg, getSaveCalls } = inMemoryType(backing);
+    rt.registerType('k', cfg);
+    let runSaved = false;
+    const runP = rt.run('k', 'x', async (s: any) => {
+      s.v = 10;
+      rt.markDirty();
+      await delay(30);
+      runSaved = true;
+    });
+    const deactP = rt.deactivate('k', 'x');
+    // deactivate 不应在 run 之前完成
+    await Promise.all([runP, deactP]);
+    expect(runSaved).toBe(true);
+    expect(getSaveCalls()).toBe(1);
+    expect(backing.x.v).toBe(10);
+  });
+
+  it('stats() 暴露落库/驱逐/溢出计数', async () => {
+    const rt = new ActorRuntime({ flushIntervalMs: 0 });
+    const { cfg } = inMemoryType({ x: { v: 1 } });
+    rt.registerType('k', cfg);
+    await rt.run('k', 'x', async (s: any) => {
+      s.v = 2;
+      rt.markDirty();
+    });
+    const st = rt.stats();
+    expect(st.cells).toBe(1);
+    expect(st.totalPersists).toBe(1);
+    expect(st.byType.k).toBe(1);
+  });
+});
+
+describe('周期空闲回收（干净 cell 也回收）', () => {
+  it('超过 idleEvictMs 的干净 cell 被驱逐回收', async () => {
+    const rt = new ActorRuntime({ flushIntervalMs: 20, idleEvictMs: 30, lruMax: 100 });
+    const { cfg } = inMemoryType({ x: { v: 1 } });
+    rt.registerType('k', cfg);
+    await rt.run('k', 'x', async () => {}); // 激活一个干净 cell
+    expect(rt.peek('k', 'x')).toBeDefined();
+    await delay(120); // 等周期落库 + 空闲回收
+    expect(rt.peek('k', 'x')).toBeUndefined(); // 干净空闲 cell 已被回收
+  });
+
+  it('超过 idleEvictMs 的脏 cell 先落库再回收', async () => {
+    const backing: Record<string, any> = { x: { v: 1 } };
+    const rt = new ActorRuntime({ flushIntervalMs: 20, idleEvictMs: 30, lruMax: 100 });
+    const { cfg } = inMemoryType(backing);
+    rt.registerType('k', cfg);
+    await rt.run('k', 'x', async (s: any) => {
+      s.v = 7;
+      rt.markDirty();
+    });
+    await delay(120);
+    expect(backing.x.v).toBe(7); // 脏 cell 被周期落库
+    expect(rt.peek('k', 'x')).toBeUndefined(); // 随后回收
+  });
+});
+
+describe('LRU 驱逐', () => {
+  it('超过 lruMax 时按最久未用淘汰（非脏 cell 直接移除）', async () => {
     const rt = new ActorRuntime({ flushIntervalMs: 0, lruMax: 2 });
     const { cfg } = inMemoryType({ '1': { id: 1 }, '2': { id: 2 }, '3': { id: 3 } });
     rt.registerType('k', cfg);
@@ -131,8 +273,6 @@ describe('跨实体协调者 coordinate（防死锁）', () => {
       persist: 'writeThrough',
     });
 
-    // A→B 转 10，B→A 转 10：两笔并发，若各自持锁等对方会死锁。
-    // coordinate 内部始终按字典序（A 先于 B）获取邮箱，环路被打破。
     async function transfer(from: string, to: string) {
       await coordinate(
         rt,
@@ -141,6 +281,7 @@ describe('跨实体协调者 coordinate（防死锁）', () => {
         async (a: any, b: any) => {
           a.bal -= 10;
           b.bal += 10;
+          rt.markDirty();
         },
       );
     }
@@ -149,7 +290,6 @@ describe('跨实体协调者 coordinate（防死锁）', () => {
 
     const pa = rt.peek('k', 'A') as any;
     const pb = rt.peek('k', 'B') as any;
-    // 两笔各转 10：A-10+10、B+10-10，净变化 0
     expect(pa.bal).toBe(100);
     expect(pb.bal).toBe(100);
   });
@@ -167,8 +307,9 @@ describe('跨实体协调者 coordinate（防死锁）', () => {
         { type: 'k', id: 'A' },
         { type: 'k', id: 'B' },
         async (a: any, b: any) => {
-          a.bal += 1; // 第一个参数永远是 A
-          b.bal += 2; // 第二个参数永远是 B
+          a.bal += 1;
+          b.bal += 2;
+          rt.markDirty();
         },
       );
     const runBA = async () =>
@@ -177,13 +318,13 @@ describe('跨实体协调者 coordinate（防死锁）', () => {
         { type: 'k', id: 'B' },
         { type: 'k', id: 'A' },
         async (a: any, b: any) => {
-          a.bal += 1; // 第一个参数永远是传入的 from（B）
-          b.bal += 2; // 第二个参数永远是传入的 to（A）
+          a.bal += 1;
+          b.bal += 2;
+          rt.markDirty();
         },
       );
     await runAB();
     await runBA();
-    // runAB: A+=1,B+=2 ; runBA: B+=1,A+=2 => A=3,B=3
     expect((rt.peek('k', 'A') as any).bal).toBe(3);
     expect((rt.peek('k', 'B') as any).bal).toBe(3);
   });

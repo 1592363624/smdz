@@ -10,7 +10,7 @@
  */
 
 import { Global, Injectable, Module, OnModuleInit } from '@nestjs/common';
-import { ActorRuntime } from './actor-runtime';
+import { ActorRuntime, ACTOR_RUNTIME_OPTIONS } from './actor-runtime';
 import { registerBuiltinActorTypes } from './builtin-types';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -29,7 +29,12 @@ class ActorBootstrap implements OnModuleInit {
 
 @Global()
 @Module({
-  providers: [ActorRuntime, ActorBootstrap],
+  providers: [
+    // 配置令牌：默认空对象；需要调参（lruMax/mailboxMaxDepth/...）时可在此覆盖
+    { provide: ACTOR_RUNTIME_OPTIONS, useValue: {} },
+    ActorRuntime,
+    ActorBootstrap,
+  ],
   exports: [ActorRuntime],
 })
 export class ActorModule {}

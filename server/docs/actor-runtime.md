@@ -43,6 +43,7 @@ interface ActorCell<S = any> {
   dirty: boolean;         // 是否被改、待落库
   activating: Promise<void> | null; // 并发 run 时的 load 去重
   mailbox: Promise<unknown>;        // 串行邮箱链尾
+  pending: number;       // 在途任务数（背压用，见 §9）
   lastUsed: number;                // 用于 LRU
 }
 ```
@@ -153,3 +154,54 @@ await coordinate(rt, {type:'player',id:'A'}, {type:'player',id:'B'},
 
 - `test/actor-runtime.spec.ts`：覆盖串行执行 / 单激活 / peek 缓存命中 / writeThrough 即时落库 /
   deferred + deactivate 落库 / 未激活 peek 返回 undefined / LRU 驱逐 / coordinate 防死锁与确定性。
+
+## 9. 健壮性加固（2026-08-30）
+
+在「理想 Actor 模型」骨架上补齐生产级健壮性，全部在 `actor-runtime.ts` 内实现，无外部依赖。
+
+### 9.1 背压（mailboxMaxDepth → ActorMailboxOverflowError）
+
+单实体邮箱积压超过 `mailboxMaxDepth`（默认 1000）时，后续入队任务直接抛 `ActorMailboxOverflowError`，
+避免 Promise 链无限增长拖垮进程。调用方可捕获后降级（如「操作过于频繁，请稍后再试」）或入分布式队列。
+计数 `totalOverflow` 进 `stats()`。
+
+### 9.2 可观测性（ActorRuntimeStats）
+
+`stats()` 返回运行时快照：`cells / byType / pending / totalPersists / totalEvictions /
+totalErrors / totalOverflow / mailboxDepthMax`。压测与运维可据此判断热点实体、落库压力、错误率。
+
+### 9.3 错误丢弃（all-or-nothing）
+
+`run` 内 `fn` 抛错时，`withActivated` 把 `cell.state = undefined`、`dirty = false`、`activating = null`，
+**丢弃本次（可能半改的）内存态**，并 `totalErrors++` 后向上冒泡错误。下次 run 重新从库 `load` 干净状态，
+避免半截改动被后续写落库污染 DB，也避免陈旧内存态被复用（正确性风险 #5 的兜底）。
+
+### 9.4 懒落库（persist-on-dirty）
+
+`run` 成功返回后按策略落库，**仅当 `cell.dirty` 为真**才写：`writeThrough` 才 `config.save` 并清零
+`dirty`；`deferred` 保留 `dirty` 待后台刷盘。纯只读 run 不再白吞一次 DB 写（性能修复）。
+业务在邮箱内改完状态须显式标脏——`savePlayer`（Actor 内）调 `markDirty()` 或
+`PlayerService.markPlayerDirty(userId)`（架构门禁友好、不新增裸 `savePlayer` 调用点）触发落库。
+
+### 9.5 缓存失效（stale-cache invalidate）
+
+`invalidate(type, id)` 删除内存 cell。供「不走 Actor 邮箱的直接写」（如大量现存 `savePlayer` 调用点）
+落库后调用，避免内存缓存陈旧、被后续 `enqueueUserWrite` 复用并覆盖本次落库结果（正确性，见
+`PlayerService.getPlayerData` 注释：`getPlayerData` 在非 Actor 读取一律走 DB，不返回缓存 cell）。
+
+### 9.6 空闲回收（LRU 兼收脏净）
+
+`flushIdle`（周期 `flushIntervalMs`，默认 5000ms）遍历 cell：空闲超过 `idleEvictMs`（默认 30000ms）
+者，无论脏净都先落库（若脏）再驱逐——干净空闲 cell 不再长期占内存（健壮性缺口修复）。
+`evictIfNeeded` 在容量超 `lruMax`（默认 2000）时按 LRU 驱逐，脏 cell 先落库。
+进程退出 `onModuleDestroy` 先 `clearInterval` 再 `flushAll()`，保证优雅退出不丢脏数据。
+
+### 9.7 玩家写入口的双表示调和（markers 并集合并）
+
+`getPlayerData` 同时暴露「顶层解析对象 `data.markers`」与「行字符串 `player.markers`」两套表示
+（`__actorBase` 记录载入基线）。同一 run 内不同子系统可能分别改两套表示（如 `selectFamiliar` 改顶层
+加「伊卡洛斯好感」、`ensureTutorialTasks` 改行字符串加「教程」），落库时若「选其一」必丢另一侧重的新键。
+`persistPlayerData` 对 `markers`（扁平 key→值对象）做**按 key 并集合并**：仅顶层变的 key 取顶层、
+仅行变的 key 取行、两侧都变的取顶层实时态，任一方的改动都不丢失（见
+`docs/player-state-architecture.md` §3.3）。数组类字段（backpack/buffs/tasks…）保持「顶层解析数组优先」，
+因其改动是累积 push、行字符串改写只是上一次落库的副产物。

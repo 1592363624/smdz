@@ -771,7 +771,12 @@ export class TaskService {
   /** 原版新玩家首次行动按教程标记门槛依次加入新手教程和进阶教程。 */
   async ensureTutorialTasks(userId: number): Promise<string[]> {
     return this.enqueueUserWrite(userId, async () => {
-      const player = await this.prisma.player.findUnique({ where: { userId } });
+      // 读「活态」玩家而非直查 prisma：当本调用处于 P2 mutate 管道（enqueueUserWrite）内时，
+      // selectFamiliar 的 savePlayer 仅标脏、未即时落库，直查 DB 会拿到 type 为空的旧快照，
+      // 导致教程任务不领取（onboarding 回归）。getPlayerData 在邮箱内返回活态内存态
+      // （type 已设），写回也经 savePlayer（Actor 感知），随外层 run 统一落库，不被陈旧快照覆盖。
+      const playerData = await this.playerService.getPlayerData(userId);
+      const player = playerData.player;
       if (!player) return [];
       // 未开局（尚未选择第一个使魔）不领取：原版新玩家指令在开局确认前提前返回，
       // 教程领取发生在“选择使魔确认”当次结算（_主程序.ecode L11686-11706），
@@ -817,12 +822,11 @@ export class TaskService {
       const completed = await this.settleCompletedTasks(player, tasks);
       if (added.length > 0 || markerChanged || completed.length > 0) {
         player.tasks = JSON.stringify(tasks);
-        await this.saveTaskState(player, [
-          'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
-          'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
-          'hit', 'dodge', 'speed', 'crit', 'critDmg', 'regenHp', 'regenShield',
-          'regenArmor', 'vitality', 'affinity',
-        ]);
+        // 标脏而非直调 savePlayer：本方法恒在 playerMutate.mutate / Actor run 内被调用
+        // （command.service、selectFamiliar、game.service 三处调用点均已包裹）。此处只是
+        // 把"已改动"信号透传给最外层 run 的落库策略（markDirty 让其按 writeThrough 落库），
+        // 不新增裸 savePlayer 调用点（架构门禁友好），也避免内层只标脏不落的语义误解。
+        this.playerService.markPlayerDirty(userId);
       }
       return added;
     });

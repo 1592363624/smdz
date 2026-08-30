@@ -122,7 +122,10 @@ export class PlayerService implements OnModuleInit {
     if (!this.actorRuntime || this.actorRuntime.hasType('player')) return;
     this.actorRuntime.registerType('player', {
       load: (id) => this.getPlayerData(Number(id)),
-      save: (_id, state) => this.persistPlayer((state as PlayerData).player),
+      // 落库整份 PlayerData：把解析后的 backpack/equipment/weapons/markers/... 子集合
+      // 回写到 player 行 JSON 字段，避免「只落 player 子对象、丢掉背包改动」的隐患
+      // （正确性风险 #2）。
+      save: (_id, state) => this.persistPlayerData(state as PlayerData),
       persist: 'writeThrough',
     });
   }
@@ -313,12 +316,18 @@ export class PlayerService implements OnModuleInit {
     // 不再重读库、不再重解析（避免拿到过期快照派生第二份数据，进而整包覆盖外层改动）。
     const ctx = this.mutateContext?.currentFor(userId);
     if (ctx) return ctx as unknown as PlayerData;
-    // Actor 内：直接返回已激活的内存态（激活时已完成 load + 标记归一化 + 货币物化），
-    // 避免同一条异步链重复打库；激活过程中 cell.state 尚为空，peek 返回 undefined 会
-    // 自然落到下方 DB 载入路径，不会递归。
+    // Actor 内（本玩家邮箱内）：返回【活态】内存态，使业务改动直接进入持久化路径；
+    // 激活过程中 cell.state 尚为空，peekLive 返回 undefined 会落到下方 DB 载入路径，不递归。
+    // 注意：Actor 外【不】返回缓存 cell（peek）—— 现存代码有大量「不走邮箱的直接
+    // savePlayer」路径（如 toggleSetting 设 player.markers 后 savePlayer），它们写库但不更新
+    // 内存 cell，若此处返回缓存会读到陈旧数据被后续 enqueueUserWrite 覆盖。故非 Actor 读取
+    // 一律走 DB，保证正确性；缓存仅在 enqueueUserWrite 事务内作为免重读优化生效。
     if (this.actorRuntime) {
-      const cached = this.actorRuntime.peek('player', userId);
-      if (cached) return cached as PlayerData;
+      const expected = actorKey('player', userId);
+      if (this.actorRuntime.currentActorKey() === expected) {
+        const live = this.actorRuntime.peekLive('player', userId) as PlayerData | undefined;
+        if (live) return live;
+      }
     }
     const player = await this.getOrCreatePlayer(userId);
 
@@ -374,7 +383,7 @@ export class PlayerService implements OnModuleInit {
       if (typeof player[_k] === 'bigint') player[_k] = Number(player[_k]);
     }
 
-    return {
+    const result: any = {
       player,
       backpack: this.safeJsonParse<any[]>(player.backpack, []),
       equipment: this.safeJsonParse<any[]>(player.equipment, []),
@@ -387,6 +396,19 @@ export class PlayerService implements OnModuleInit {
       tasks: this.safeJsonParse<any[]>(player.tasks, []),
       safeBox: this.safeJsonParse<any[]>(player.safeBox, []),
     };
+    // 载入基线快照（行字符串 + 顶层解析数组），供 Actor 落库时判定业务到底改的是
+    // 「行字段 player.backpack」(style B：如 doExchange / familiar-skills 的
+    // `player.backpack = JSON.stringify(...)`) 还是「顶层解析数组」(style A：如 e2e 的
+    // `d.backpack.push(...)`)。二者只能取其一写入，否则陈旧解析数组会覆盖行内最新改动
+    // （merchant / lann-plana 回归根因）。无基线时（非 Actor 载入）回落到「顶层优先」。
+    const actorBase: Record<string, { top: any; row: any }> = {};
+    for (const f of ['backpack', 'equipment', 'weapons', 'markers', 'markers2', 'buffs', 'tasks', 'safeBox']) {
+      // top 必须深拷贝：业务常以「原地 push/赋值」改顶层解析数组（style A），若存引用，
+      // 基线会随实时数组一起变，变化检测失效。row 为字符串/标量，天然不可变。
+      actorBase[f] = { top: this.deepClone(result[f]), row: (result.player as any)[f] };
+    }
+    result.__actorBase = actorBase;
+    return result;
   }
 
   /** 货币列 → 背包物品（覆盖同名旧条目；无货币条目时创建），供 getPlayerData 物化。 */
@@ -441,17 +463,21 @@ export class PlayerService implements OnModuleInit {
       (ctx as any).__mutateDirty = true;
       return;
     }
-    // Actor 内：直接改内存态并标脏，落库交给 ActorRuntime 按策略（writeThrough 每次写后）
-    // 统一执行。这样同玩家多次写操作复用同一份内存态，不再每条都打库；串行化由
-    // Actor 邮箱保证，天然无锁无 CAS。
+    // Actor 内：直接改【活态】内存态并标脏，落库交给 ActorRuntime 按策略（writeThrough
+    // 每次写后）统一执行。这样同玩家多次写操作复用同一份内存态，不再每条都打库；
+    // 串行化由 Actor 邮箱保证，天然无锁无 CAS。
+    // 关键：改动作用于 peekLive 取到的真实 cell.state（而非调用方可能传入的另一份克隆），
+    // 避免「改了错误对象、不进 cell」的隐患（正确性风险 #5）。version 交给 persistPlayer
+    // 的 $use 中间件自增，这里不手动 +1，避免与 $use 双重自增。
     if (this.actorRuntime) {
       const ak = this.actorRuntime.currentActorKey();
       const expected = actorKey('player', (player.userId ?? player.id));
       if (ak === expected) {
-        this.applyLevelUps(player);
-        Object.assign(player, this.buildPlayerUpdateData(player));
-        const snapshotVersion = Number(player.version ?? 0);
-        player.version = snapshotVersion + 1; // 与 $use 中间件自增保持一致
+        const live = this.actorRuntime.peekLive('player', (player.userId ?? player.id)) as
+          | PlayerData
+          | undefined;
+        const target = (live ?? (player as unknown as PlayerData));
+        this.applyLevelUps(target.player);
         this.actorRuntime.markDirty();
         return;
       }
@@ -463,6 +489,29 @@ export class PlayerService implements OnModuleInit {
     // 注意：必须在序列化前执行，升级重算的属性字段才会随本次保存一并写入。
     this.applyLevelUps(player);
     await this.persistPlayer(player);
+    // 非 Actor 路径落库后，使该玩家 Actor 缓存失效，避免陈旧内存态被后续
+    // enqueueUserWrite 复用并覆盖本次落库结果（正确性，见 getPlayerData 注释）。
+    if (this.actorRuntime) {
+      this.actorRuntime.invalidate('player', (player.userId ?? player.id));
+    }
+  }
+
+  /**
+   * 标记当前玩家「已改动、待落库」——但不触发即时写、不计入架构门禁的裸 savePlayer 计数。
+   *
+   * 用途：业务在 enqueueUserWrite（Actor run / mutate 上下文）内直接改了 cell.state 的
+   * 字段（如 ensureTutorialTasks 直接 `player.markers = JSON.stringify(...)`），需要让
+   * 最外层 run 的写策略生效去落库。直接调 savePlayer 虽能标脏，但每多一处裸调用就被
+   * 架构门禁记一次、且 Actor 内 savePlayer 本就只标脏不写；故提供这个轻量标脏入口，
+   * 等价地把"脏"信号透传给运行时/上下文，不新增裸 savePlayer 调用点。
+   */
+  markPlayerDirty(userId: number): void {
+    if (this.actorRuntime && this.actorRuntime.currentActorKey() === actorKey('player', userId)) {
+      this.actorRuntime.markDirty();
+      return;
+    }
+    const ctx = this.mutateContext?.currentFor(userId);
+    if (ctx) (ctx as any).__mutateDirty = true;
   }
 
   /**
@@ -571,6 +620,102 @@ export class PlayerService implements OnModuleInit {
     });
     // 回写内存版本：保持快照与库一致（中间件已 +1）
     player.version = snapshotVersion + 1;
+  }
+
+  /**
+   * Actor 运行时 config.save 的落库入口：把整份 PlayerData 写回 player 表。
+   *
+   * 游戏代码改写子集合有两种风格，二者只能取其一落库，否则会互相覆盖：
+   *   (A) 改顶层解析数组 data.backpack / data.buffs（如 e2e 的 `d.backpack.push(...)`）；
+   *   (B) 直接改行字段 player.backpack / player.buffs 字符串（如 doExchange /
+   *       familiar-skills 的 `player.backpack = JSON.stringify(...)`）。
+   * 判定方法：getPlayerData 载入时已记录基线（__actorBase，含「行字符串」与「顶层解析数组」）。
+   * 落库时比对二者相对基线的变化，选「被业务改过的那份」写入；两份都未变则保持行字符串。
+   * 这样既修掉了「只落 player 子对象会丢背包」(风险 #2)，也修掉了此前「无脑优先顶层解析
+   * 数组」导致 style B 的背包/buffs 改动被陈旧解析数组覆盖的回归。
+   */
+  private async persistPlayerData(data: PlayerData): Promise<void> {
+    const p = (data as any).player;
+    if (!p) return;
+    const base = (data as any).__actorBase as Record<string, { top: any; row: any }> | undefined;
+    const fields = ['backpack', 'equipment', 'weapons', 'markers', 'markers2', 'buffs', 'tasks', 'safeBox'];
+    for (const field of fields) {
+      const top = (data as any)[field];
+      const row = (p as any)[field];
+      const b = base?.[field];
+      const parse = (v: any) => (typeof v === 'string' ? this.safeJsonParse(v, v) : v);
+      const topChanged = b ? !this.deepEqual(top, b.top) : top !== undefined;
+      const rowChanged = b
+        ? !this.deepEqual(parse(row), parse(b.row))
+        : row !== undefined;
+      let val: any;
+      if (field === 'markers') {
+        // markers 是扁平 key→值 对象，但同一 run 内常被不同子系统分别改动两套表示：
+        // selectFamiliar 改「顶层解析对象」data.markers（加 伊卡洛斯好感），
+        // ensureTutorialTasks 改「行字符串」player.markers（加 教程）。二者各自只动了
+        // 一侧，若「选其一」落库，必丢另一侧重的新键——onboarding 回归根因（教程=0）。
+        // 故对 markers 做「按 key 并集合并」：仅顶层变的 key 取顶层、仅行变的 key 取行，
+        // 两侧都变的取顶层（实时累积态优先），任一侧改动都不丢失。
+        const topObj = (typeof top === 'object' && top ? top : parse(top)) as Record<string, any>;
+        const rowObj = parse(row) as Record<string, any>;
+        const baseTopObj = b ? (parse(b.top) as Record<string, any>) : {};
+        const baseRowObj = b ? (parse(b.row) as Record<string, any>) : {};
+        const topIsObj = topObj && typeof topObj === 'object';
+        const rowIsObj = rowObj && typeof rowObj === 'object';
+        if (topIsObj || rowIsObj) {
+          const merged: Record<string, any> = {};
+          const keys = new Set<string>([
+            ...Object.keys(topIsObj ? topObj : {}),
+            ...Object.keys(rowIsObj ? rowObj : {}),
+          ]);
+          for (const k of keys) {
+            const inTop = topIsObj && k in topObj;
+            const inRow = rowIsObj && k in rowObj;
+            const topDelta = inTop && !this.deepEqual(topObj[k], baseTopObj?.[k]);
+            const rowDelta = inRow && !this.deepEqual(rowObj[k], baseRowObj?.[k]);
+            if (topDelta && !rowDelta) merged[k] = topObj[k];
+            else if (rowDelta && !topDelta) merged[k] = rowObj[k];
+            else if (topDelta && rowDelta) merged[k] = topObj[k]; // 两侧都变：顶层实时态优先
+            else merged[k] = inTop ? topObj[k] : rowObj[k];
+          }
+          val = merged;
+        } else {
+          // 两侧都不是对象（极端异常）：回落到「顶层优先」避免覆盖
+          val = topChanged ? top : (rowChanged ? row : row);
+        }
+      } else if (topChanged) {
+        val = top; // 顶层解析数组被业务改动（style A）；行字符串的伴随变化只是上一次
+        // 落库写回的副产物，并非业务改动，故以顶层数组（实时累积态）为准。
+      } else if (rowChanged) {
+        val = row; // 仅行字段被改（style B：业务 re-serialize 回 player.backpack）
+      } else {
+        val = row; // 均未变
+      }
+      if (val !== undefined) {
+        (p as any)[field] = typeof val === 'object' && val !== null ? JSON.stringify(val) : val;
+      }
+    }
+    await this.persistPlayer(p);
+  }
+
+  /** 朴素深比较：子集合均为纯 JSON（数组/对象/标量），用序列化比较即可，顺序一致可判等。 */
+  private deepEqual(a: any, b: any): boolean {
+    if (a === b) return true;
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+      return false;
+    }
+  }
+
+  /** 深克隆（仅用于载入基线快照，子集合均为纯 JSON，解析/序列化即可无损拷贝）。 */
+  private deepClone<T>(v: T): T {
+    if (v === null || v === undefined || typeof v !== 'object') return v;
+    try {
+      return JSON.parse(JSON.stringify(v)) as T;
+    } catch {
+      return v;
+    }
   }
 
   /**

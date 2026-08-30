@@ -71,6 +71,35 @@ version，外层保存又以过期版本 CAS → 双写 / 版本分叉 → 并�
 `BigInt` 属性转 `Number`（Prisma 写 `BigInt` 列同样接受 `number`，精度无损），避免 `pushState`
 等 JSON 序列化路径抛「Do not know how to serialize a BigInt」。
 
+### 3.3 双表示调和：`__actorBase` 基线 + markers 按 key 并集合并（2026-08-30）
+
+游戏代码改写子集合有**两种风格**，且会**同 run 内被不同子系统分别作用到不同表示**上：
+
+- **风格 A**：改顶层解析数组 `data.backpack.push(...)`（如 `actor-player-e2e`）。
+- **风格 B**：直接改行字符串 `player.backpack = JSON.stringify(...)`（如 `familiar-system` 的
+  `doExchange` / `familiar-skills` 的 `executeSkill` / `task.service` 的 `ensureTutorialTasks`）。
+
+`getPlayerData` 载入时记录基线快照 `__actorBase`：每个字段存 `{ top: 深克隆(顶层解析数组),
+row: 载入时行字符串 }`。落库 `persistPlayerData` 比对二者相对基线的变化选「被业务改过的那份」写入。
+
+**关键坑（onboarding / familiar-select 回归根因）**：`markers` 是扁平 key→值对象，`selectFamiliar`
+在「顶层解析对象 `data.markers`」上加「伊卡洛斯好感」，而 `ensureTutorialTasks` 在「行字符串
+`player.markers`」上 re-serialize 加「教程」。两套表示各自只动了**一侧**——若落库「选顶层」或「选行」
+必丢另一侧重的新键，表现为 `教程` 标记恒为 0（DB 实际写入的是只含好感的旧行）。
+
+修正：对 `markers` 字段做**按 key 并集合并**——`topChanged` 的 key 取顶层、`rowChanged` 的 key 取行、
+两侧都变的 key 取顶层实时态（累积 push 优先），任一侧新增键都不丢失。数组类字段（backpack/buffs/tasks/…）
+保持「顶层解析数组优先」，因其改动是累积 push、行字符串改写只是上一次落库的副产物，合并数组会重复。
+
+### 3.4 轻量标脏 `markPlayerDirty`（架构门禁友好）
+
+`ensureTutorialTasks` 这类「在 `enqueueUserWrite`（Actor run / mutate 上下文）内直接改
+`player.markers` 字符串」的写法，需要让最外层 run 的写策略生效去落库。直接调 `savePlayer` 虽能标脏，
+但每多一处裸调用就被架构门禁记一次、且 Actor 内 `savePlayer` 本就只标脏不写。故新增
+`PlayerService.markPlayerDirty(userId)`：Actor 内调 `actorRuntime.markDirty()`、mutate 内置
+`__mutateDirty`，**不新增裸 `savePlayer` 调用点**，等价透传「脏」信号。架构门禁 `RAW_SAVEPLAYER_BASELINE`
+维持 219 不增。
+
 ## 4. 覆盖矩阵（彻底根治后的写入口）
 
 | 路径 | 是否串行化（邮箱） | 状态 |
@@ -96,10 +125,12 @@ savePlayer })`，与指令、后台结算共享同一串行邮箱，达成全量
   串行邮箱合规收口为 `savePlayer`），把架构约束固化进测试，避免规范随重构丢失。
 - `test/player-mutate.spec.ts`：单一快照复用、货币审计、嵌套 mutate、addExp 复用、以及
   3.1 的「内层 savePlayer 合并而非二次落库」回归。
-- 全量单测（排除 integration）：540/541 通过。唯一失败为 `onboarding-flow`（真实远程库 e2e），
-  卡在教程文案内容断言（环境相关），与并发修复无关。注：`exp-normalize` / `save-player-cas` 的
-  Prisma 桩已同步改为模拟 `$use` 中间件自增 version（不再模拟旧 CAS），`architecture-guard`
-  基线 217→219。
+- 真实远程库 e2e（`onboarding-flow` / `integration-familiar-select` / `integration-merchant` /
+  `integration-lann-plana-skill` / `actor-player-e2e`）：验证「双表示调和 + 轻量标脏」后，教程标记、
+  好感、背包、buff 等跨子系统改动均正确落库不互丢。
+- 全量套件（`npx jest --runInBand`，含真实远程 MySQL）：**614/614 通过、66 套件全绿**。
+  `architecture-guard` 基线 `RAW_SAVEPLAYER_BASELINE = 219` 维持不增。注：`exp-normalize` /
+  `save-player-cas` 的 Prisma 桩已同步改为模拟 `$use` 中间件自增 version（不再模拟旧 CAS）。
 
 ## 6. 通用 Actor 运行时（单进程内、全部有状态实体）
 
