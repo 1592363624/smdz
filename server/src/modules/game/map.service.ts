@@ -297,7 +297,6 @@ export class MapService {
     const staticMap = this.staticData.getMapByName(dbMap.name);
     if (!staticMap) {
       // 容错：静态 JSON 中不存在但 DB 有（家园/载具等动态地图的常态），直接返回 DB 数据
-      this.logger.debug(`地图「${dbMap.name}」在静态 JSON 中未找到，回退到 DB 数据`);
       return dbMap;
     }
 

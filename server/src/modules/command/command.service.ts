@@ -30,6 +30,15 @@ import { buildTutorialClaimBlock } from '../game/familiar-menu.util';
 export class CommandService {
   private readonly logger = new Logger(CommandService.name);
 
+  /**
+   * 指令表内存缓存（5s TTL）。
+   * 指令表极小且几乎不变，但一条消息的链路里 dispatch + matchCommandName（网关指令判定）
+   * 会对它打 3~5 次库；远程库下这些往返直接叠加到玩家回复延迟。TTL 到期自然刷新，
+   * 管理端改动最迟 5 秒生效。
+   */
+  private static readonly CMD_CACHE_TTL_MS = 5000;
+  private cmdCache: { rows: Array<Record<string, any>>; at: number } | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(COMMAND_HANDLER_MAP)
@@ -42,6 +51,29 @@ export class CommandService {
     // 退化为指令直接执行，走各服务自身的 enqueueUserWrite 旧路径，行为不变）。
     @Optional() private readonly playerMutate?: PlayerMutateService,
   ) {}
+
+  /**
+   * 纯展示类只读指令：结果不改变玩家任何状态。
+   * 跳过指令收尾的"仪式段"（纯白之翼自动技能/每日登录结算/状态推送），
+   * 这些段每条都要额外打几次库——远程库下直接叠加到回复延迟。
+   * 副作用（如登录奖励、自动技能充能）顺延到下一条非只读指令结算，游戏语义不变。
+   */
+  private static readonly READ_ONLY_COMMANDS = new Set(['帮助', '查看任务', '我的任务']);
+
+  /**
+   * 已启用指令全量行（带 TTL 缓存）。
+   * dispatch 的 name 精确/alias 精确/前缀回退三级匹配全部改为在内存中完成，
+   * 不再每次打库。
+   */
+  private async getEnabledCommands(): Promise<Array<Record<string, any>>> {
+    const now = Date.now();
+    if (this.cmdCache && now - this.cmdCache.at < CommandService.CMD_CACHE_TTL_MS) {
+      return this.cmdCache.rows;
+    }
+    const rows = await this.prisma.command.findMany({ where: { enabled: true } });
+    this.cmdCache = { rows, at: now };
+    return rows;
+  }
 
   /**
    * 指令分发总入口
@@ -127,22 +159,15 @@ export class CommandService {
         }
       }
 
-      // 2. 从数据库指令表查找指令定义
+      // 2. 从指令表（内存缓存）匹配指令定义
       //    匹配顺序对齐原版"前缀路由"语义（原版无独立指令表，是字符前缀截取）：
       //    a. name 完全相等（最精确）
       //    b. alias 逗号拆分后词精确匹配（禁止子串 contains，避免 `查看` 误命中 alias 含 `查看背包` 的 `背包`）
       //    c. 前缀匹配回退（对应原版"两字/三字/四字命令"前缀路由，如 `选择使魔伊卡洛斯`）
-      let cmdDef = await this.prisma.command.findFirst({
-        where: { enabled: true, name: { equals: commandName } },
-      });
+      const allCmds = await this.getEnabledCommands();
+      let cmdDef = allCmds.find((c) => c.name === commandName) || null;
 
       if (!cmdDef) {
-        // 加载全部指令在内存中做 alias 精确 + 前缀匹配（指令表很小，失败时多一次查询可接受）
-        const allCmds = await this.prisma.command.findMany({
-          where: { enabled: true },
-          select: { name: true, alias: true },
-        });
-
         // 2.1 alias 词精确匹配（逗号拆分后完全相等）
         const exactAlias = allCmds.find((c) =>
           (c.alias || '')
@@ -152,9 +177,7 @@ export class CommandService {
             .includes(commandName),
         );
         if (exactAlias) {
-          cmdDef = await this.prisma.command.findFirst({
-            where: { name: { equals: exactAlias.name }, enabled: true },
-          });
+          cmdDef = allCmds.find((c) => c.name === exactAlias.name) || null;
           // 改写 rawMessage 为标准指令名 + 参数，让 handler 用标准名路由
           // （否则 handler switch 收到的是玩家原词如 `claim-land`，无法命中 `case '圈地'`）
           ctx.rawMessage = args.length ? `${exactAlias.name} ${args.join(' ')}` : exactAlias.name;
@@ -212,9 +235,7 @@ export class CommandService {
             .filter((c) => c.key.length >= 2 && commandName.length > c.key.length && commandName.startsWith(c.key))
             .sort((a, b) => b.key.length - a.key.length)[0];
           if (prefixMatch) {
-            cmdDef = await this.prisma.command.findFirst({
-              where: { name: { equals: prefixMatch.name }, enabled: true },
-            });
+            cmdDef = allCmds.find((c) => c.name === prefixMatch.name) || null;
             // 把剩余部分作为第一个参数（如 `选择使魔伊卡洛斯` → 指令`选择使魔` + 参数`伊卡洛斯`）
             const remain = commandName.substring(prefixMatch.key.length).trim();
             if (remain) {
@@ -271,6 +292,7 @@ export class CommandService {
 
       // 5. 找到对应的处理器并执行
       const handler: CommandHandler | undefined = this.handlerMap[cmdDef.handlerKey];
+      const readOnly = CommandService.READ_ONLY_COMMANDS.has(cmdDef.name);
       if (!handler) {
         return {
           success: false,
@@ -305,7 +327,8 @@ export class CommandService {
 
       // 原版 _主程序.ecode L11462：玩家指令结束后触发纯白之翼自动技能。
       // 自动技能复用 FamiliarSkillsService 的正式入口，结果并入本次指令文本。
-      if (ctx.userId) {
+      // 只读指令不触发（无状态变化，技能顺延到下一条动作指令）。
+      if (ctx.userId && !readOnly) {
         try {
           const autoSkillText = await this.gameService.triggerAutoFamiliarSkill(ctx.userId);
           if (autoSkillText) {
@@ -332,7 +355,7 @@ export class CommandService {
           result.content = `${tutorialClaims}${result.content || ''}`;
         }
         try {
-          const loginBlock = await this.gameService.settleDailyLogin(ctx.userId);
+          const loginBlock = readOnly ? '' : await this.gameService.settleDailyLogin(ctx.userId);
           if (loginBlock) {
             result.content = `${loginBlock}${result.content || ''}`;
           }
@@ -370,7 +393,10 @@ export class CommandService {
       await this.recordLog(ctx, commandName, result);
 
       // 7.1 指令执行后实时推送玩家/地图状态到前端 socket（打怪掉血/加经验/升级/装备/移动采集等变化即时体现在网页面板）
-      await this.pushState(ctx.userId);
+      //     只读指令没有状态变化，跳过推送（省 player+map 两组读写）
+      if (!readOnly) {
+        await this.pushState(ctx.userId);
+      }
 
       return result;
     } catch (err: any) {
@@ -442,11 +468,16 @@ export class CommandService {
    * 获取所有已注册的可执行指令列表（用于"帮助"指令）
    */
   async listCommands() {
-    return this.prisma.command.findMany({
-      where: { enabled: true },
-      orderBy: { sortOrder: 'asc' },
-      select: { name: true, alias: true, description: true, minRole: true },
-    });
+    const rows = await this.getEnabledCommands();
+    return rows
+      .slice()
+      .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      .map((c: any) => ({
+        name: c.name,
+        alias: c.alias,
+        description: c.description,
+        minRole: c.minRole,
+      }));
   }
 
   /**
@@ -459,19 +490,13 @@ export class CommandService {
     // 取第一个单词
     const name = clean.split(/\s+/)[0];
     if (!name) return false;
+    const allCmds = await this.getEnabledCommands();
+
     // 1) name 精确匹配
-    const found = await this.prisma.command.findFirst({
-      where: { enabled: true, name: { equals: name } },
-      select: { id: true },
-    });
-    if (found) return true;
+    if (allCmds.some((c) => c.name === name)) return true;
 
     // 2) alias 词精确匹配（逗号拆分后完全相等，避免子串误匹配）
     //    与 dispatch 保持一致：禁止 contains 子串匹配
-    const allCmds = await this.prisma.command.findMany({
-      where: { enabled: true },
-      select: { name: true, alias: true },
-    });
     const aliasExact = allCmds.some((c: any) =>
       (c.alias || '')
         .split(',')

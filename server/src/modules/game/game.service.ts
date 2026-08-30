@@ -10109,9 +10109,19 @@ export class GameService {
    * @returns 未选使魔时返回门禁菜单文本；已选使魔返回 null
    */
   async getFirstFamiliarGate(userId: number): Promise<string | null> {
+    // 轻量预检：此方法在每条指令的 dispatch 入口都会被调用，而绝大多数玩家
+    // 早已选过使魔。一次 select type 的单列查询即可短路返回，避免每条消息
+    // 都走 getPlayerData 的全量读档（整行 + 集合解析，远程库下是显著开销）。
+    const lite = await this.prisma.player.findUnique({
+      where: { userId },
+      select: { type: true },
+    });
+    if (lite?.type) return null;
+
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    // 已选择使魔（type 非空）→ 不拦截
+    // 已选择使魔（type 非空）→ 不拦截；玩家行不存在时 lite 为 null，
+    // 也会走到这里，交由 getPlayerData 的既有行为兜底处理
     if (player.type) return null;
 
     // 列出所有可召唤使魔（不可召唤=假 的才可被选为第一个使魔），

@@ -14,6 +14,15 @@ export class SystemConfigService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * 配置行内存缓存（key → 行），TTL 内免打库。
+   * SystemConfig 表极小且变更频率极低，但 getCommandPrefixes 等热点读取
+   * 在「每条消息」的指令判定路径上——远程库下每次往返都直接叠加到回复延迟。
+   * set() 写库后主动失效对应 key，保证"管理员改完立即生效"。
+   */
+  private static readonly CACHE_TTL_MS = 5000;
+  private readonly cache = new Map<string, { row: any; at: number }>();
+
+  /**
    * 获取所有配置项
    */
   async findAll() {
@@ -21,10 +30,17 @@ export class SystemConfigService {
   }
 
   /**
-   * 获取单个配置项的原始记录
+   * 获取单个配置项的原始记录（带 TTL 缓存）
    */
   async findByKey(key: string) {
-    return this.prisma.systemConfig.findUnique({ where: { key } });
+    const now = Date.now();
+    const hit = this.cache.get(key);
+    if (hit && now - hit.at < SystemConfigService.CACHE_TTL_MS) {
+      return hit.row;
+    }
+    const row = await this.prisma.systemConfig.findUnique({ where: { key } });
+    this.cache.set(key, { row, at: now });
+    return row;
   }
 
   /**
@@ -78,7 +94,10 @@ export class SystemConfigService {
       default: // string
         serialized = String(value);
     }
-    return this.prisma.systemConfig.update({ where: { key }, data: { value: serialized } });
+    const updated = await this.prisma.systemConfig.update({ where: { key }, data: { value: serialized } });
+    // 写库成功后失效缓存，管理员改完立即生效（不依赖 TTL 到期）
+    this.cache.delete(key);
+    return updated;
   }
 
   /**
