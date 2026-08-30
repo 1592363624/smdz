@@ -265,7 +265,11 @@ export class AdminService {
       throw new BadRequestException('没有可更新的字段');
     }
 
-    await this.prisma.player.update({ where: { id: player.id }, data: updateData });
+    await this.playerService.enqueueUserWrite(player.userId, async () => {
+      const _pd = await this.playerService.getPlayerData(player.userId);
+      Object.assign(_pd.player, updateData);
+      await this.playerService.savePlayer(_pd.player);
+    });
     this.logger.log(
       `管理员 ${operatorId} 编辑了用户 ${userId}(${user.username}) 的玩家数据: ${Object.keys(updateData).join(', ')}`,
     );
@@ -365,6 +369,99 @@ export class AdminService {
   }
 
   /**
+   * 批量删除用户账号（级联删除其玩家档案、绑定关系）
+   * 与 deleteUser 相同的安全规则：跳过操作者自己和超级管理员，单个失败不影响其余。
+   * @param operatorId 操作者用户ID
+   * @param ids 目标用户ID列表
+   * @returns 操作结果文本（含成功/跳过/失败明细）
+   */
+  async batchDeleteUsers(operatorId: number, ids: number[]): Promise<string> {
+    const idList = [...new Set((ids ?? []).map(Number).filter((id) => Number.isFinite(id)))];
+    if (idList.length === 0) {
+      throw new BadRequestException('请至少选择一个用户');
+    }
+
+    const ok: string[] = [];
+    const skipped: string[] = [];
+    const failed: string[] = [];
+    for (const id of idList) {
+      try {
+        ok.push(await this.deleteUser(operatorId, id));
+      } catch (e) {
+        // 自己/超管等保护性拦截与真实失败都要如实反馈
+        const msg = e?.response?.message ?? e?.message ?? String(e);
+        const isProtected = e instanceof BadRequestException;
+        (isProtected ? skipped : failed).push(`用户 ${id}：${msg}`);
+      }
+    }
+
+    const lines = [`批量删除完成：成功 ${ok.length}/${idList.length}`];
+    if (skipped.length) lines.push(`跳过：\n${skipped.join('\n')}`);
+    if (failed.length) lines.push(`失败：\n${failed.join('\n')}`);
+    this.logger.log(`管理员 ${operatorId} 批量删除用户：成功 ${ok.length}，跳过 ${skipped.length}，失败 ${failed.length}`);
+    return lines.join('\n');
+  }
+
+  /**
+   * 批量清空用户游戏数据（保留账号）
+   * 复用 resetPlayerData，单个失败不影响其余。
+   * @param ids 目标用户ID列表
+   * @returns 操作结果文本（含成功/失败明细）
+   */
+  async batchResetPlayerData(ids: number[]): Promise<string> {
+    const idList = [...new Set((ids ?? []).map(Number).filter((id) => Number.isFinite(id)))];
+    if (idList.length === 0) {
+      throw new BadRequestException('请至少选择一个用户');
+    }
+
+    const ok: string[] = [];
+    const failed: string[] = [];
+    for (const id of idList) {
+      try {
+        ok.push(await this.resetPlayerData(id));
+      } catch (e) {
+        const msg = e?.response?.message ?? e?.message ?? String(e);
+        failed.push(`用户 ${id}：${msg}`);
+      }
+    }
+
+    const lines = [`批量清空完成：成功 ${ok.length}/${idList.length}`];
+    if (failed.length) lines.push(`失败：\n${failed.join('\n')}`);
+    this.logger.log(`批量清空玩家数据：成功 ${ok.length}，失败 ${failed.length}`);
+    return lines.join('\n');
+  }
+
+  /**
+   * 一键清空全部玩家的游戏数据（保留所有账号）
+   * 遍历 Player 表全部记录，逐个走 resetPlayerData（含 per-user 串行邮箱写入）。
+   * @returns 操作结果文本
+   */
+  async resetAllPlayerData(): Promise<string> {
+    const players = await this.prisma.player.findMany({ select: { userId: true } });
+    if (players.length === 0) {
+      return '当前没有任何玩家记录，无需清理';
+    }
+
+    const ok: string[] = [];
+    const failed: string[] = [];
+    for (const { userId } of players) {
+      try {
+        ok.push(await this.resetPlayerData(userId));
+      } catch (e) {
+        const msg = e?.response?.message ?? e?.message ?? String(e);
+        failed.push(`用户 ${userId}：${msg}`);
+      }
+    }
+
+    const lines = [
+      `已清空全部玩家数据：成功 ${ok.length}/${players.length}（所有账号均已保留）`,
+    ];
+    if (failed.length) lines.push(`失败：\n${failed.join('\n')}`);
+    this.logger.log(`一键清空全部玩家数据：成功 ${ok.length}/${players.length}，失败 ${failed.length}`);
+    return lines.join('\n');
+  }
+
+  /**
    * 清理（重置）指定用户的游戏数据，但保留账号
    * 将玩家所有游戏进度重置为"未开始游玩"的初始状态（等同新建玩家首次进入），
    * 与 PlayerService.getOrCreatePlayer 的初始化逻辑保持一致。
@@ -382,15 +479,13 @@ export class AdminService {
       return `账号 ${user.username} 尚无玩家记录，无需清理`;
     }
 
-    // 初始背包（与新玩家一致）
+    // 初始背包（与新玩家一致，全部为原版道具：布装备+石制工具）
     const initialBackpack = [
-      { name: '石斧', type: '装备', quantity: 1, durability: 0, data: 'e' },
-      { name: '皮帽', type: '装备', quantity: 1, durability: 0, data: 'e' },
+      { name: '石制工具', type: '装备', quantity: 1, durability: 0, data: 'e' },
+      { name: '布帽', type: '装备', quantity: 1, durability: 0, data: 'e' },
       { name: '布衣', type: '装备', quantity: 1, durability: 0, data: 'e' },
-      { name: '新手补给', type: '消耗品', quantity: 1, durability: 0, data: '' },
-      { name: '面包', type: '消耗品', quantity: 3, durability: 0, data: '' },
     ];
-    const initialWeapons = [{ name: '石斧', type: '武器', slot: 1, quantity: 1, durability: 0, data: 'e' }];
+    const initialWeapons = [{ name: '石制工具', type: '武器', slot: 1, quantity: 1, durability: 0, data: 'e' }];
     const initialEquipment = [{ name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' }];
 
     // 初始任务：新手教程（从静态数据读取，避免硬编码，与 getOrCreatePlayer 一致）
@@ -411,9 +506,9 @@ export class AdminService {
     const startMapName = startMap?.name ?? '';
 
     // 重置所有游戏进度字段（保留 id / userId / 账号）
-    await this.prisma.player.update({
-      where: { id: player.id },
-      data: {
+    await this.playerService.enqueueUserWrite(player.userId, async () => {
+      const _pd = await this.playerService.getPlayerData(player.userId);
+      Object.assign(_pd.player, {
         level: 1,
         exp: 0,
         upgradeExp: 100,
@@ -464,7 +559,8 @@ export class AdminService {
         lastOpTime: BigInt(0),
         readTime: BigInt(0),
         playTime: BigInt(0),
-      },
+      });
+      await this.playerService.savePlayer(_pd.player);
     });
 
     this.logger.log(`管理员清空了用户 ${userId} (${user.username}) 的游戏数据`);
@@ -702,9 +798,10 @@ export class AdminService {
       }
     }
 
-    await this.prisma.player.update({
-      where: { id: player.id },
-      data: { [field]: parsedValue },
+    await this.playerService.enqueueUserWrite(player.userId, async () => {
+      const _pd = await this.playerService.getPlayerData(player.userId);
+      Object.assign(_pd.player, { [field]: parsedValue });
+      await this.playerService.savePlayer(_pd.player);
     });
 
     this.logger.log(`管理员 ${operatorId} 修改了用户 ${userId} 的 ${field}=${parsedValue}`);
@@ -806,20 +903,18 @@ export class AdminService {
       throw new NotFoundException(`玩家 ${targetQQ} 还没有创建角色`);
     }
 
-    // 重置玩家数据到初始状态
+    // 重置玩家数据到初始状态（全部为原版道具：布装备+石制工具）
     const initialBackpack = JSON.stringify([
-      { name: '石斧', type: '装备', quantity: 1, durability: 0, data: 'e' },
-      { name: '皮帽', type: '装备', quantity: 1, durability: 0, data: 'e' },
+      { name: '石制工具', type: '装备', quantity: 1, durability: 0, data: 'e' },
+      { name: '布帽', type: '装备', quantity: 1, durability: 0, data: 'e' },
       { name: '布衣', type: '装备', quantity: 1, durability: 0, data: 'e' },
-      { name: '新手补给', type: '消耗品', quantity: 1, durability: 0, data: '' },
-      { name: '面包', type: '消耗品', quantity: 3, durability: 0, data: '' },
     ]);
     const initialMarkers = JSON.stringify({ '指引': 0 });
     const initialTitles = JSON.stringify(['新人']);
 
-    await this.prisma.player.update({
-      where: { id: player.id },
-      data: {
+    await this.playerService.enqueueUserWrite(player.userId, async () => {
+      const _pd = await this.playerService.getPlayerData(player.userId);
+      Object.assign(_pd.player, {
         level: 1,
         exp: 0,
         upgradeExp: this.playerService.calcUpgradeExp(1),
@@ -842,14 +937,19 @@ export class AdminService {
         mapId: 1,
         location: '新手村',
         backpack: initialBackpack,
-        equipment: '[]',
-        weapons: '[]',
+        equipment: JSON.stringify([
+          { name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' },
+        ]),
+        weapons: JSON.stringify([
+          { name: '石制工具', type: '武器', slot: 1, quantity: 1, durability: 0, data: 'e' },
+        ]),
         markers: initialMarkers,
         titles: initialTitles,
         affinity: 0,
         vehicle: '',
         playTime: BigInt(0),
-      },
+      });
+      await this.playerService.savePlayer(_pd.player);
     });
 
     this.logger.log(`管理员 ${userId} 重置了玩家 ${targetQQ} 的数据`);
@@ -909,9 +1009,10 @@ export class AdminService {
     }
 
     // 执行修改
-    await this.prisma.player.update({
-      where: { id: player.id },
-      data: { [field]: parsedValue },
+    await this.playerService.enqueueUserWrite(player.userId, async () => {
+      const _pd = await this.playerService.getPlayerData(player.userId);
+      Object.assign(_pd.player, { [field]: parsedValue });
+      await this.playerService.savePlayer(_pd.player);
     });
 
     this.logger.log(`管理员 ${userId} 修改了玩家 ${targetQQ} 的 ${field}=${parsedValue}`);

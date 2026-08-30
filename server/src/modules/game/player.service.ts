@@ -4,12 +4,14 @@
  * 负责玩家的创建、读取、保存、等级管理、背包操作、标记系统等功能
  */
 
-import { Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit, Optional, Inject } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
+import { ITEM_SYSTEM_SERVICE } from './service-tokens';
+import type { ItemSystemService } from './item-system.service';
 import { filterActive } from './expire-time.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { ActorRuntime, actorKey } from '../actor';
@@ -62,6 +64,12 @@ export class PlayerService implements OnModuleInit {
      *  单进程 Actor 层（内存态 + 串行 + 无锁无 CAS）；未注入（存量测试桩手工 new）时
      *  退回原有 userMailboxes 实现，行为完全不变。 */
     @Optional() private readonly actorRuntime?: ActorRuntime,
+    /** 物品系统（可选依赖，经 ITEM_SYSTEM_SERVICE 字符串 token 别名注入，
+     *  避免 PlayerService↔ItemSystemService 运行时循环加载）。
+     *  用于创建玩家时按原版"生成装备"路径卷词条生成初始武器；拿不到时（存量测试桩）
+     *  退化为仅名字的静态装备条目。 */
+    @Optional() @Inject(ITEM_SYSTEM_SERVICE)
+    private readonly itemSystem?: ItemSystemService,
   ) {}
 
   /**
@@ -214,23 +222,37 @@ export class PlayerService implements OnModuleInit {
     if (!player) {
       this.logger.log(`为用户 ${userId} 创建新玩家档案`);
 
-      // 初始背包物品：石斧(武器)、皮帽(装备)、布衣(装备)、新手补给、面包×3
+      // 初始装备（全部为原版道具，对应原版「普通装备补给箱」的布装备+石制工具）：
+      // 武器走原版"生成装备"路径卷随机词条（品质e），保证开局有真实武器伤害。
+      // 之前的自创道具「石斧/皮帽」在装备表中无定义（武器伤害恒为0），已移除。
+      const fallbackGear = (name: string): any => ({ name, type: '装备', quantity: 1, durability: 0, data: 'e' });
+      const generateStarterGear = async (name: string): Promise<any> => {
+        if (!this.itemSystem) return fallbackGear(name);
+        try {
+          return await this.itemSystem.generateRewardEquipment(name, 'e');
+        } catch (e) {
+          this.logger.warn(`生成初始装备「${name}」失败，退化为静态条目: ${e?.message ?? e}`);
+          return fallbackGear(name);
+        }
+      };
+      const starterWeapon = await generateStarterGear('石制工具');
+      const starterHat = await generateStarterGear('布帽');
+      const starterBody = await generateStarterGear('布衣');
+
       const initialBackpack = [
-        { name: '石斧', type: '装备', quantity: 1, durability: 0, data: 'e' },
-        { name: '皮帽', type: '装备', quantity: 1, durability: 0, data: 'e' },
-        { name: '布衣', type: '装备', quantity: 1, durability: 0, data: 'e' },
-        { name: '新手补给', type: '消耗品', quantity: 1, durability: 0, data: '' },
-        { name: '面包', type: '消耗品', quantity: 3, durability: 0, data: '' },
+        { ...starterWeapon, type: '装备', quantity: 1 },
+        { ...starterHat, type: '装备', quantity: 1 },
+        { ...starterBody, type: '装备', quantity: 1 },
       ];
 
-      // 初始已装备的武器（石斧直接装备在武器栏）
+      // 初始已装备的武器（石制工具直接装备在武器栏）
       const initialWeapons = [
-        { name: '石斧', type: '武器', slot: 1, quantity: 1, durability: 0, data: 'e' },
+        { ...starterWeapon, type: '武器', slot: 1, quantity: 1 },
       ];
 
       // 初始已装备的防具
       const initialEquipment = [
-        { name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' },
+        { ...starterBody, type: '装备', slot: '身体', quantity: 1 },
       ];
 
       // 初始标记：基础活力上限100，0表示普通击杀默认使用活力。
@@ -337,9 +359,10 @@ export class PlayerService implements OnModuleInit {
       const startMap = await this.resolveStartMap();
       if (startMap && startMap.id !== player.mapId) {
         this.logger.warn(`玩家 ${userId} 地图无效(mapId=${player.mapId})，自动修正为 ${startMap.name}(id=${startMap.id})`);
-        await this.prisma.player.update({
-          where: { id: player.id },
-          data: { mapId: startMap.id, location: startMap.name },
+        await this.enqueueUserWrite(userId, async () => {
+          const _pd = await this.getPlayerData(userId);
+          Object.assign(_pd.player, { mapId: startMap.id, location: startMap.name });
+          await this.savePlayer(_pd.player);
         });
         // 该定点写会被 $use 拦截器自增 version；同步内存快照版本，
         // 否则同一快照随后的 savePlayer 会因版本过期被 CAS 误拒。
@@ -969,13 +992,14 @@ export class PlayerService implements OnModuleInit {
     player.armor = 0;
 
     // 更新数据库
-    await this.prisma.player.update({
-      where: { id: player.id },
-      data: {
+    await this.enqueueUserWrite(userId, async () => {
+      const _pd = await this.getPlayerData(userId);
+      Object.assign(_pd.player, {
         hp: player.hp,
         shield: 0,
         armor: 0,
-      },
+      });
+      await this.savePlayer(_pd.player);
     });
 
     this.logger.log(`玩家 ${userId} 已死亡并复活，HP 恢复至 ${player.hp}`);
@@ -1022,9 +1046,10 @@ export class PlayerService implements OnModuleInit {
       }
 
       // 写回数据库
-      await this.prisma.player.update({
-        where: { id: player.id },
-        data: { backpack: JSON.stringify(backpack) },
+      await this.enqueueUserWrite(userId, async () => {
+        const _pd = await this.getPlayerData(userId);
+        Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+        await this.savePlayer(_pd.player);
       });
 
       return true;
@@ -1071,9 +1096,10 @@ export class PlayerService implements OnModuleInit {
       }
 
       // 写回数据库
-      await this.prisma.player.update({
-        where: { id: player.id },
-        data: { backpack: JSON.stringify(backpack) },
+      await this.enqueueUserWrite(userId, async () => {
+        const _pd = await this.getPlayerData(userId);
+        Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+        await this.savePlayer(_pd.player);
       });
 
       return true;

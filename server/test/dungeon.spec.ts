@@ -23,7 +23,7 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
     };
 
     const players = [
-      { id: 10, name: '副本玩家', mapId: 4, markers: JSON.stringify({ 移动中: 1, 阵列: 1, 保留: 2 }) },
+      { id: 10, userId: 10, name: '副本玩家', mapId: 4, markers: JSON.stringify({ 移动中: 1, 阵列: 1, 保留: 2 }) },
     ];
     const updates: Array<{ id: number; data: any }> = [];
     const mapService: any = {
@@ -45,7 +45,15 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
         }),
       },
     };
-    return { service: new DungeonService(prisma, mapService), maps, players, updates, mapService, prisma };
+    const playerService: any = {
+      enqueueUserWrite: jest.fn(async (_uid: number, fn: () => Promise<any>) => fn()),
+      getPlayerData: jest.fn(async (uid: number) => {
+        const p = players.find((pl) => pl.userId === uid) || players[0];
+        return { player: p };
+      }),
+      savePlayer: jest.fn(async (p: any) => p),
+    };
+    return { service: new DungeonService(prisma, playerService, mapService), maps, players, updates, mapService, prisma };
   }
 
   it('菜单按复活点合并正式副本，并排除新手/家园地图', async () => {

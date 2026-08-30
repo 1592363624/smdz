@@ -204,12 +204,21 @@ export class ScheduleService {
     try {
       const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
       // 静默上下文：纯统计写入，不触发 UI 同步事件（避免每分钟全体在线玩家的事件风暴）
-      const result = await runSilent('cron:playTime', () =>
-        this.prisma.player.updateMany({
+      const result = await runSilent('cron:playTime', async () => {
+        const active = await this.prisma.player.findMany({
           where: { userId: { gt: 0 }, updatedAt: { gte: fiveMinAgo } },
-          data: { playTime: { increment: 60 } },
-        }),
-      );
+          select: { userId: true },
+        });
+        for (const row of active) {
+          const uid = Number(row.userId);
+          await this.playerService.enqueueUserWrite(uid, async () => {
+            const _pd = await this.playerService.getPlayerData(uid);
+            _pd.player.playTime = (Number(_pd.player.playTime ?? 0)) + 60;
+            await this.playerService.savePlayer(_pd.player);
+          });
+        }
+        return { count: active.length };
+      });
       if (result.count > 0) this.logger.log(`在线时长统计: ${result.count} 名玩家 +60s`);
     } catch (err: any) {
       this.logger.error(`在线时长统计失败: ${err?.message || err}`);

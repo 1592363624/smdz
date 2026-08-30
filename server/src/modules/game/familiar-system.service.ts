@@ -3373,9 +3373,10 @@ ${this.getAwakenStageName(d)}(${d})`;
 
       const newBuffs = this.addSkillBuff(targetPlayer, '安乐天使', 20, now);
 
-      await this.prisma.player.update({
-        where: { id: targetPlayer.id },
-        data: { buffs: JSON.stringify(newBuffs) },
+      await this.playerService.enqueueUserWrite(targetPlayer.userId, async () => {
+        const _pd = await this.playerService.getPlayerData(targetPlayer.userId);
+        Object.assign(_pd.player, { buffs: JSON.stringify(newBuffs) });
+        await this.playerService.savePlayer(_pd.player);
       });
 
       await this.playerService.savePlayer(player);
@@ -3457,9 +3458,10 @@ ${this.getAwakenStageName(d)}(${d})`;
 
       const newBuffs = this.addSkillBuff(targetPlayer, '福音书', 300, now, { strength: 10 });
 
-      await this.prisma.player.update({
-        where: { id: targetPlayer.id },
-        data: { buffs: JSON.stringify(newBuffs) },
+      await this.playerService.enqueueUserWrite(targetPlayer.userId, async () => {
+        const _pd = await this.playerService.getPlayerData(targetPlayer.userId);
+        Object.assign(_pd.player, { buffs: JSON.stringify(newBuffs) });
+        await this.playerService.savePlayer(_pd.player);
       });
 
       await this.playerService.savePlayer(player);

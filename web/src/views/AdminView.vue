@@ -123,10 +123,37 @@
           </div>
         </div>
 
+        <!-- 批量操作栏：勾选行后出现 -->
+        <div v-if="selectedIds.length > 0" class="batch-bar">
+          <span class="batch-count">已选 <strong>{{ selectedIds.length }}</strong> 人</span>
+          <button
+            class="batch-btn warning"
+            title="清空所选玩家的游戏进度(保留账号，可重新开局)"
+            :disabled="batchLoading"
+            @click="batchResetSelected"
+          >🧹 清空所选数据</button>
+          <button
+            class="batch-btn danger"
+            title="删除所选账号(级联删除其角色数据；自动跳过自己和超级管理员)"
+            :disabled="batchLoading"
+            @click="batchDeleteSelected"
+          >🗑️ 删除所选账号</button>
+          <button class="batch-btn ghost" :disabled="batchLoading" @click="selectedIds = []">取消选择</button>
+          <span v-if="batchResult" class="batch-result">{{ batchResult }}</span>
+        </div>
+
         <div class="table-wrap">
           <table class="user-table">
             <thead>
               <tr>
+                <th class="check-cell">
+                  <input
+                    type="checkbox"
+                    title="全选/取消全选本页"
+                    :checked="isPageAllSelected"
+                    @change="toggleSelectAll($event.target.checked)"
+                  />
+                </th>
                 <th class="sortable" :class="sortClass('id')" @click="handleSort('id')">
                   <span>ID</span><i class="sort-icon"></i>
                 </th>
@@ -170,6 +197,13 @@
             </thead>
             <tbody>
               <tr v-for="u in users" :key="u.id">
+                <td class="check-cell">
+                  <input
+                    type="checkbox"
+                    :checked="selectedIds.includes(u.id)"
+                    @change="toggleSelect(u, $event.target.checked)"
+                  />
+                </td>
                 <td class="mono-cell">{{ u.id }}</td>
                 <td>
                   <div class="user-name">{{ u.username }}</div>
@@ -240,6 +274,12 @@
           <div class="pagination-actions">
             <button :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
             <button :disabled="page >= Math.ceil(total / pageSize)" @click="loadUsers(page + 1)">下一页</button>
+            <button
+              class="batch-btn danger reset-all-btn"
+              title="清空全服所有玩家的游戏进度(保留所有账号)；人数多时耗时较长"
+              :disabled="batchLoading"
+              @click="resetAllData"
+            >⚠️ 一键清空全部玩家数据</button>
           </div>
         </div>
 
@@ -519,6 +559,91 @@ async function loadUsers(p) {
   total.value = res.data.total;
 }
 
+// ---- 多选批量操作 ----
+// 已勾选的用户ID（跨页保留，直到操作完成或手动取消）
+const selectedIds = ref([]);
+const batchLoading = ref(false);
+const batchResult = ref('');
+
+/** 本页用户是否已全部勾选 */
+const isPageAllSelected = computed(
+  () => users.value.length > 0 && users.value.every((u) => selectedIds.value.includes(u.id)),
+);
+
+/** 勾选/取消单个用户（跨页累积） */
+function toggleSelect(u, checked) {
+  const set = new Set(selectedIds.value);
+  if (checked) set.add(u.id);
+  else set.delete(u.id);
+  selectedIds.value = [...set];
+}
+
+/** 全选/取消全选本页 */
+function toggleSelectAll(checked) {
+  const set = new Set(selectedIds.value);
+  for (const u of users.value) {
+    if (checked) set.add(u.id);
+    else set.delete(u.id);
+  }
+  selectedIds.value = [...set];
+}
+
+/** 通用批量执行：确认 → 调接口 → 展示结果 → 刷新列表 */
+async function runBatch(confirmText, apiCall, successTip) {
+  if (!selectedIds.value.length) return;
+  if (!confirm(confirmText)) return;
+  batchLoading.value = true;
+  batchResult.value = '';
+  try {
+    const res = await apiCall([...selectedIds.value]);
+    batchResult.value = res.message || successTip;
+    selectedIds.value = [];
+    await loadUsers(page.value);
+  } catch (e) {
+    batchResult.value = '操作失败：' + (e.response?.data?.message || e.message);
+  } finally {
+    batchLoading.value = false;
+  }
+}
+
+/** 批量清空所选玩家数据（保留账号） */
+async function batchResetSelected() {
+  await runBatch(
+    `确定要清空所选 ${selectedIds.value.length} 个玩家的游戏数据吗？\n等级、背包、任务等进度将全部重置，账号保留，可重新开局。\n此操作不可恢复！`,
+    (ids) => adminApi.batchResetUserData(ids),
+    '已清空所选玩家数据',
+  );
+}
+
+/** 批量删除所选账号（自动跳过自己和超级管理员） */
+async function batchDeleteSelected() {
+  await runBatch(
+    `确定要删除所选 ${selectedIds.value.length} 个账号吗？\n将同时删除其游戏角色、绑定关系等数据，不可恢复！\n（你自己和超级管理员账号会被自动跳过）`,
+    (ids) => adminApi.batchDeleteUsers(ids),
+    '已删除所选账号',
+  );
+}
+
+/** 一键清空全服所有玩家数据（保留所有账号） */
+async function resetAllData() {
+  const text = prompt(
+    '即将清空全服所有玩家的游戏数据（所有账号保留，可重新开局）。\n此操作不可恢复！\n\n如确认，请输入 YES：',
+  );
+  if (text !== 'YES') return;
+  batchLoading.value = true;
+  batchResult.value = '正在清空全部玩家数据，人数多时可能需要一些时间...';
+  try {
+    const res = await adminApi.resetAllPlayerData();
+    batchResult.value = res.message || '已清空全部玩家数据';
+    selectedIds.value = [];
+    await loadUsers(page.value);
+  } catch (e) {
+    batchResult.value = '操作失败：' + (e.response?.data?.message || e.message);
+  } finally {
+    batchLoading.value = false;
+  }
+}
+
 /** 处理表头点击排序：升序 → 降序 → 取消 → 升序 */
 function handleSort(field) {
   if (sortField.value === field) {
@@ -562,6 +687,8 @@ async function deleteUser(u) {
     // 从当前列表移除，避免整页刷新
     users.value = users.value.filter((x) => x.id !== u.id);
     total.value -= 1;
+    // 同步移除勾选状态
+    selectedIds.value = selectedIds.value.filter((id) => id !== u.id);
   } catch (e) {
     alert('删除失败：' + (e.response?.data?.message || e.message));
   }
@@ -960,6 +1087,76 @@ onMounted(async () => {
   color: var(--muted);
   font-size: 11px;
   opacity: 0.85;
+}
+
+/* ===== 多选批量操作 ===== */
+.check-cell {
+  width: 36px;
+  text-align: center;
+}
+.check-cell input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--accent, #8b5cf6);
+}
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+.batch-count {
+  font-size: 13px;
+  color: var(--text);
+}
+.batch-count strong {
+  color: var(--accent2, #fbbf24);
+}
+.batch-btn {
+  padding: 5px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: filter 0.15s;
+}
+.batch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.batch-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.batch-btn.warning {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fbbf24;
+}
+.batch-btn.danger {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #f87171;
+}
+.batch-btn.ghost {
+  background: transparent;
+  border-color: var(--border, rgba(255, 255, 255, 0.15));
+  color: var(--muted, #9ca3af);
+}
+.batch-result {
+  font-size: 12px;
+  color: #4ade80;
+  white-space: pre-line;
+  max-width: 100%;
+  word-break: break-all;
+}
+.reset-all-btn {
+  margin-left: 12px;
 }
 
 /* ===== 详情 / 编辑弹窗 ===== */

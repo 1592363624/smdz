@@ -8,6 +8,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlayerService } from './player.service';
 import { MapService } from './map.service';
 
 export interface DungeonMapGroup {
@@ -27,6 +28,7 @@ export class DungeonService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly playerService: PlayerService,
     private readonly mapService: MapService,
   ) {}
 
@@ -90,18 +92,19 @@ export class DungeonService {
     if (instanceMapIds.length > 0) {
       const players = await this.prisma.player.findMany({
         where: { mapId: { in: instanceMapIds } },
-        select: { id: true, name: true, markers: true },
+        select: { id: true, userId: true, name: true, markers: true },
       });
       for (const player of players) {
         const markers = this.parseObject(player.markers, {});
         delete markers['移动中'];
-        await this.prisma.player.update({
-          where: { id: player.id },
-          data: {
+        await this.playerService.enqueueUserWrite(player.userId, async () => {
+          const _pd = await this.playerService.getPlayerData(player.userId);
+          Object.assign(_pd.player, {
             mapId: exitMap.id,
             location: exitMap.name,
             markers: JSON.stringify(markers),
-          },
+          });
+          await this.playerService.savePlayer(_pd.player);
         });
         movedPlayers.push(player.name || `玩家${player.id}`);
       }
@@ -143,7 +146,7 @@ export class DungeonService {
     const clearMarkers = String(markerMap?.clearMarkers || '').split(/\s+/).filter(Boolean);
     if (clearMarkers.length > 0) {
       const players = await this.prisma.player.findMany({
-        select: { id: true, markers: true },
+        select: { id: true, userId: true, markers: true },
       });
       for (const player of players) {
         const markers = this.parseObject(player.markers, {});
@@ -155,9 +158,10 @@ export class DungeonService {
           }
         }
         if (changed) {
-          await this.prisma.player.update({
-            where: { id: player.id },
-            data: { markers: JSON.stringify(markers) },
+          await this.playerService.enqueueUserWrite(player.userId, async () => {
+            const _pd = await this.playerService.getPlayerData(player.userId);
+            Object.assign(_pd.player, { markers: JSON.stringify(markers) });
+            await this.playerService.savePlayer(_pd.player);
           });
         }
       }

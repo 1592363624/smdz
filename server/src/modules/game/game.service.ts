@@ -2342,7 +2342,7 @@ export class GameService {
         title: '新手引导员·小薇',
         dialogs: {
           'hello': '你好呀，新人！我是新手引导员小薇，欢迎来到使魔大战的世界！\n\n你从出生点醒来，先打开背包看看身上的物资吧，\n再和我聊聊，了解一下这个世界。',
-          'intro': '这个世界的怪物可不是好惹的，先从背包里拿出你的石斧吧！\n\n💡 使用「装备 石斧」来装备武器\n💡 使用「攻击」来试试身手\n💡 使用「背包」查看你拥有的物品',
+          'intro': '这个世界的怪物可不是好惹的，先从背包里拿出你的石制工具吧！\n\n💡 使用「装备 石制工具」来装备武器\n💡 使用「攻击」来试试身手\n💡 使用「背包」查看你拥有的物品',
           'quest': '等你准备好了，我有个任务要交给你。\n任务我已经帮你接好了，先看看任务列表吧。\n\n使用「查看任务」查看任务详情，完成要求后奖励会自动发放。',
           'done': '你已经学会了基本操作，去探索更广阔的世界吧！\n\n记住：\n  - 使用「移动 地图名」前往新区域\n  - 使用「对话 NPC名」与NPC交谈\n  - 遇到困难可以「求助」其他玩家',
         }
@@ -3572,9 +3572,10 @@ export class GameService {
       // 防止重复扣资源次数与重复广播；未到期的复活标记同样无意义，一并清除。
       if (state && this.hasGatherSettledFingerprint(Number(row.userId), state)) {
         delete markers['采集中'];
-        await this.prisma.player.update({
-          where: { id: row.id },
-          data: { markers: JSON.stringify(markers) },
+        await this.playerService.enqueueUserWrite(row.userId, async () => {
+          const _pd = await this.playerService.getPlayerData(row.userId);
+          Object.assign(_pd.player, { markers: JSON.stringify(markers) });
+          await this.playerService.savePlayer(_pd.player);
         });
         this.logger.warn(
           `玩家 ${row.userId} 的「采集中」标记已结算过却又出现（疑似旧快照写回复活），已直接清除`,
@@ -3617,9 +3618,10 @@ export class GameService {
         // 异常循环自愈：60 秒内被兜底连续补结算超过 3 次，只可能是标记被异常复活；
         // 直接清除「采集中」与孤儿锁定标记，终止风暴；本次不产出不广播。
         delete markers['采集中'];
-        await this.prisma.player.update({
-          where: { id: row.id },
-          data: { markers: JSON.stringify(markers) },
+        await this.playerService.enqueueUserWrite(row.userId, async () => {
+          const _pd = await this.playerService.getPlayerData(row.userId);
+          Object.assign(_pd.player, { markers: JSON.stringify(markers) });
+          await this.playerService.savePlayer(_pd.player);
         });
         this.logger.warn(
           `玩家 ${row.userId} 兜底结算 60 秒内连续触发 ${consecutive} 次，判定异常循环，已清除「采集中」标记终止`,
@@ -10309,9 +10311,10 @@ export class GameService {
     // markerRequire 会顺带清理过期标记；有变更时定点写回 markers2
     if (changed) {
       try {
-        await this.prisma.player.update({
-          where: { id: player.id },
-          data: { markers2: JSON.stringify(markers2) },
+        await this.playerService.enqueueUserWrite(player.userId, async () => {
+          const _pd = await this.playerService.getPlayerData(player.userId);
+          Object.assign(_pd.player, { markers2: JSON.stringify(markers2) });
+          await this.playerService.savePlayer(_pd.player);
         });
       } catch {
         /* 提示冷却写回失败不影响本次回复 */
@@ -12607,9 +12610,10 @@ export class GameService {
       if (consecutive > GameService.RESCUE_FALLBACK_MAX_CONSECUTIVE) {
         const expiredTokens = new Set(expired.map((entry: any) => entry?.token));
         const kept = markers.filter((entry: any) => !expiredTokens.has(entry?.token));
-        await this.prisma.player.updateMany({
-          where: { userId },
-          data: { markers2: JSON.stringify(kept) },
+        await this.playerService.enqueueUserWrite(userId, async () => {
+          const _pd = await this.playerService.getPlayerData(userId);
+          Object.assign(_pd.player, { markers2: JSON.stringify(kept) });
+          await this.playerService.savePlayer(_pd.player);
         });
         this.logger.warn(
           `玩家 ${userId} 救援兜底结算 60 秒内连续触发 ${consecutive} 次，判定异常循环，已清除到期救援标记终止`,

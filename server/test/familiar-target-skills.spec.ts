@@ -19,6 +19,7 @@ function makeService(player: any, map: any = null): any {
       player,
       markers: parseJson(player.markers, {}),
     })),
+    enqueueUserWrite: jest.fn(async (_uid: number, fn: () => Promise<any>) => fn()),
     savePlayer: jest.fn(async () => undefined),
   };
   service.mapService = {
@@ -77,9 +78,15 @@ describe('安乐天使/福音书目标施法', () => {
       buffs: '[]',
       markers: '{}',
     };
-    const target: any = { id: 2, name: '队友', buffs: '[]' };
+    const target: any = { id: 2, userId: 2, name: '队友', buffs: '[]' };
     const service = makeService(player, { id: 1, summons: '[]' });
     service.findSkillTargetPlayer = jest.fn(async () => target);
+    // 迁移后福音书写入走 playerService.enqueueUserWrite→getPlayerData→savePlayer，
+    // getPlayerData 需按 userId 解析到正确的内存玩家（施法者/目标），否则写入落到施法者身上。
+    service.playerService.getPlayerData = jest.fn(async (uid: number) => {
+      const p = uid === target.userId ? target : player;
+      return { player: p, markers: parseJson(p.markers, {}) };
+    });
     service.prisma.player.update.mockImplementation(async ({ where, data }: any) => {
       if (where.id === target.id) Object.assign(target, data);
     });

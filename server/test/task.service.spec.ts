@@ -81,6 +81,8 @@ function makeFixture(options: FixtureOptions) {
     enqueueUserWrite: lockOwner.enqueueUserWrite.bind(lockOwner),
     calcUpgradeExp: jest.fn((level: number) => level * level + 5),
     recalcLevelStats: jest.fn(),
+    getPlayerData: jest.fn(async () => ({ player: players[0] })),
+    savePlayer: jest.fn(async (p: any) => p),
   };
   const prisma: any = {
     player: {

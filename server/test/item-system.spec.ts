@@ -165,6 +165,8 @@ describe('分解装备 (物品操作.ecode L2076-2157)', () => {
     const backpack = [{ name: '高斯步枪', type: '装备', quantity: 1, durability: 0, data: 'd' }];
     const playerService = {
       getPlayerData: jest.fn(async () => ({ player: { userId: 7, name: '测试者', sets: '{}' }, backpack, markers: {} })),
+      enqueueUserWrite: jest.fn(async (_uid: number, fn: () => Promise<any>) => fn()),
+      savePlayer: jest.fn(async (p: any) => p),
       safeJsonParse: (value: any, fallback: any) => {
         try { return typeof value === 'string' ? JSON.parse(value) : (value ?? fallback); } catch { return fallback; }
       },

@@ -11,7 +11,7 @@ import { CommandContext, CommandHandler, CommandResult } from '../interfaces/com
 /**
  * 背包指令
  * 用法：inventory 或 背包
- * 支持带参数查看单项详情（对应原版 `背包1`/`背包 石斧`，背包操作 L815~L818）
+ * 支持带参数查看单项详情（对应原版 `背包1`/`背包 石制工具`，背包操作 L815~L818）
  */
 export class InventoryHandler implements CommandHandler {
   key = 'inventory';

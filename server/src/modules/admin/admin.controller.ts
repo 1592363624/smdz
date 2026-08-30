@@ -33,6 +33,7 @@ import { SystemConfigService } from '../system-config/system-config.service';
 import { AdminService } from './admin.service';
 import {
   AnnouncementDto,
+  BatchUserIdsDto,
   DeleteUserDto,
   EditPlayerDataDto,
   GiveItemDto,
@@ -121,6 +122,27 @@ export class AdminController {
   @ApiOperation({ summary: '清理用户游戏数据(重置为未开始游玩，保留账号)' })
   async resetUserData(@Body() dto: ResetUserDataDto) {
     const message = await this.adminService.resetPlayerData(dto.id);
+    return { success: true, message };
+  }
+
+  @Post('users/batch-delete')
+  @ApiOperation({ summary: '批量删除用户账号(级联删除其玩家档案；自动跳过自己/超级管理员)' })
+  async batchDeleteUsers(@Body() dto: BatchUserIdsDto, @Req() req) {
+    const message = await this.adminService.batchDeleteUsers(req.user.userId, dto.ids);
+    return { success: true, message };
+  }
+
+  @Post('users/batch-reset-data')
+  @ApiOperation({ summary: '批量清理用户游戏数据(重置为未开始游玩，保留账号)' })
+  async batchResetUserData(@Body() dto: BatchUserIdsDto) {
+    const message = await this.adminService.batchResetPlayerData(dto.ids);
+    return { success: true, message };
+  }
+
+  @Post('users/reset-all-data')
+  @ApiOperation({ summary: '一键清空全部玩家游戏数据(保留所有账号)' })
+  async resetAllUserData() {
+    const message = await this.adminService.resetAllPlayerData();
     return { success: true, message };
   }
 

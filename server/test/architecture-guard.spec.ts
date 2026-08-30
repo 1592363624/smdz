@@ -11,8 +11,11 @@ import * as path from 'path';
  * 因此把规范固化成自动化门禁：**文档会丢，测试不会丢。**
  *
  * 两条规则：
- * 1. 裸调 savePlayer 的处数只减不增 —— 新增代码必须走 mutate。
+ * 1. 裸调 savePlayer 的处数只减不增 —— 新增代码必须走 mutate / enqueueUserWrite。
  * 2. mutate 的调用数只增不减 —— 迁移是单向的，不允许回退。
+ * 3. 裸调 prisma.player.update（绕过邮箱的直接写库）必须收敛到只剩「落库 sink」
+ *    （PlayerService.persistPlayerData 内部那唯一一处）；任何业务代码再出现
+ *    prisma.player.update / updateMany 即判违规——全量单写者的硬门禁。
  *
  * 迁移完一处就把基线调低一处，让门禁成为可度量的进度条。
  */
@@ -69,8 +72,19 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // - 基线 217 → 219：ScheduleService 两条定时器裸写（prisma.player.update）已合规
   //   收口为 enqueueUserWrite → savePlayer，属预期增量（它们本就绕开指令漏斗，现经
   //   串行邮箱获得同等安全保证）。其余 217 处裸写维持不变（安全网已保护）。
-  const RAW_SAVEPLAYER_BASELINE = 219;
+  // - 基线 219 → 266（2026-08-30 全局迁移）：将 item-system(24)/item(8)/admin(5)/
+  //   game(3+1 updateMany)/familiar(2)/dungeon(2)/task(1)/schedule(1 updateMany)/
+  //   player.service(4) 共 51 处绕过邮箱的裸 prisma.player.update 全部收口为
+  //   enqueueUserWrite → getPlayerData → 改 → savePlayer（单写者）。这些 savePlayer
+  //   是「邮箱内的落库 sink」，属预期增量；真正的硬门禁见下方 raw prisma.player.update 检查。
+  const RAW_SAVEPLAYER_BASELINE = 266;
   const MUTATE_CALL_BASELINE = 4;
+  // 业务代码（非 excluded 文件）不得再出现任何裸 prisma.player.update——
+  // 唯一允许的落库 sink 在 PlayerService.persistPlayerData（已 excluded，不计入）。
+  // 故非 excluded 文件的裸写必须严格为 0，任何新增即判违规。
+  const RAW_PLAYER_UPDATE_BASELINE = 0;
+  // 批量写也必须走 per-user 邮箱，禁止 updateMany 直接落库。
+  const RAW_PLAYER_UPDATEMANY_BASELINE = 0;
 
   const targetFiles = walkTs(SRC_DIR).filter(
     (f) => !EXCLUDED_FILES.some((name) => f.endsWith(name)),
@@ -94,6 +108,33 @@ describe('架构门禁：玩家状态写入口收口', () => {
   it('mutate 调用数不得减少（迁移是单向的，不允许回退到裸写）', () => {
     const [count] = countPattern(targetFiles, /\.mutate\s*\(/g);
     expect(count).toBeGreaterThanOrEqual(MUTATE_CALL_BASELINE);
+  });
+
+  it('裸调 prisma.player.update 必须为 0（全量单写者，业务代码禁止绕过邮箱）', () => {
+    // 匹配 update( 但排除 updateMany(；唯一允许的落库 sink 在 excluded 的
+    // PlayerService.persistPlayerData 内，不计入本统计，故业务代码须严格为 0。
+    const [count, perFile] = countPattern(targetFiles, /prisma\.player\.update(?!Many)/g);
+    if (count > RAW_PLAYER_UPDATE_BASELINE) {
+      const top = perFile.slice(0, 8).map(([f, c]) => `  ${String(c).padStart(4)}  ${f}`).join('\n');
+      throw new Error(
+        `裸调 prisma.player.update 处数 ${count} 超过基线 ${RAW_PLAYER_UPDATE_BASELINE}。\n` +
+        `业务代码必须走 enqueueUserWrite / PlayerMutateService.mutate，禁止直接 prisma.player.update。\n` +
+        `违规分布 TOP 8：\n${top}`,
+      );
+    }
+    expect(count).toBe(RAW_PLAYER_UPDATE_BASELINE);
+  });
+
+  it('prisma.player.updateMany 必须为 0（批量写也须走 per-user 邮箱）', () => {
+    const [count, perFile] = countPattern(targetFiles, /prisma\.player\.updateMany/g);
+    if (count > RAW_PLAYER_UPDATEMANY_BASELINE) {
+      const top = perFile.slice(0, 8).map(([f, c]) => `  ${String(c).padStart(4)}  ${f}`).join('\n');
+      throw new Error(
+        `prisma.player.updateMany 处数 ${count} 应等于 0（批量写也应走 enqueueUserWrite 逐玩家串行）。\n` +
+        `违规分布 TOP 8：\n${top}`,
+      );
+    }
+    expect(count).toBe(RAW_PLAYER_UPDATEMANY_BASELINE);
   });
 
   it('输出当前收口进度（信息性，每次运行都能看到迁移到哪了）', () => {

@@ -4,7 +4,7 @@
  */
 
 import { ApiProperty } from '@nestjs/swagger';
-import { Allow, IsIn, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
+import { Allow, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
 
 /// 更新用户角色/状态
 export class UpdateUserDto {
@@ -69,6 +69,15 @@ export class ResetUserDataDto {
   @ApiProperty({ description: '用户ID', example: 1 })
   @IsInt()
   id: number;
+}
+
+/// 批量删除账号 / 批量清空游戏数据（多选操作）
+export class BatchUserIdsDto {
+  @ApiProperty({ description: '用户ID列表', example: [1, 2, 3], type: [Number] })
+  @IsArray()
+  @ArrayMinSize(1, { message: '请至少选择一个用户' })
+  @IsInt({ each: true })
+  ids: number[];
 }
 
 /// 更新系统配置项

@@ -676,13 +676,14 @@ export class ItemService {
     markers['强化植入体'] = (markers['强化植入体'] || 0) + upgradedCount;
 
     // 保存到数据库
-    await this.prisma.player.update({
-      where: { userId },
-      data: {
+    await this.playerService.enqueueUserWrite(userId, async () => {
+      const _pd = await this.playerService.getPlayerData(userId);
+      Object.assign(_pd.player, {
         equipment: JSON.stringify(equipmentList),
         backpack: JSON.stringify(backpack),
         markers: JSON.stringify(markers),
-      },
+      });
+      await this.playerService.savePlayer(_pd.player);
     });
 
     // 构建返回文本
@@ -1250,12 +1251,13 @@ export class ItemService {
     }
 
     // 保存到数据库
-    await this.prisma.player.update({
-      where: { userId },
-      data: {
+    await this.playerService.enqueueUserWrite(userId, async () => {
+      const _pd = await this.playerService.getPlayerData(userId);
+      Object.assign(_pd.player, {
         backpack: JSON.stringify(cleanedBackpack),
         markers: JSON.stringify(markers),
-      },
+      });
+      await this.playerService.savePlayer(_pd.player);
     });
 
     const consumedText = consumedItems.map(c => `${c.name}x${c.quantity}`).join('、');
@@ -1337,12 +1339,13 @@ export class ItemService {
       if (!markers['分解']) markers['分解'] = 0;
       markers['分解'] += actualCount;
 
-      await this.prisma.player.update({
-        where: { userId },
-        data: {
+      await this.playerService.enqueueUserWrite(userId, async () => {
+        const _pd = await this.playerService.getPlayerData(userId);
+        Object.assign(_pd.player, {
           backpack: JSON.stringify(backpack),
           markers: JSON.stringify(markers),
-        },
+        });
+        await this.playerService.savePlayer(_pd.player);
       });
 
       return `${player.name}分解了${item.name}，得到了${crystalAmount}水晶和${energyAmount}能量块`;
@@ -1386,9 +1389,10 @@ export class ItemService {
         }
       }
 
-      await this.prisma.player.update({
-        where: { userId },
-        data: { backpack: JSON.stringify(backpack) },
+      await this.playerService.enqueueUserWrite(userId, async () => {
+        const _pd = await this.playerService.getPlayerData(userId);
+        Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+        await this.playerService.savePlayer(_pd.player);
       });
 
       const deconstructText = deconstructItems.map(d => `${d.name}x${d.quantity}`).join('、');
@@ -1440,14 +1444,15 @@ export class ItemService {
       const currentWeapon = tookUp ? weapons.length : Number(player.currentWeapon || 0);
       // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
       const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
-      await this.prisma.player.update({
-        where: { userId },
-        data: {
+      await this.playerService.enqueueUserWrite(userId, async () => {
+        const _pd = await this.playerService.getPlayerData(userId);
+        Object.assign(_pd.player, {
           backpack: JSON.stringify(backpack),
           weapons: JSON.stringify(weapons),
           currentWeapon,
           sets,
-        },
+        });
+        await this.playerService.savePlayer(_pd.player);
       });
       // 文案对齐原版：拿在手中 / 背到了背上（含品质中括号）
       const q = this.qualityPrefix(item.data);
@@ -1480,13 +1485,14 @@ export class ItemService {
       equipment.push(item);
       // 重算套装判定
       const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
-      await this.prisma.player.update({
-        where: { userId },
-        data: {
+      await this.playerService.enqueueUserWrite(userId, async () => {
+        const _pd = await this.playerService.getPlayerData(userId);
+        Object.assign(_pd.player, {
           backpack: JSON.stringify(backpack),
           equipment: JSON.stringify(equipment),
           sets,
-        },
+        });
+        await this.playerService.savePlayer(_pd.player);
       });
       const q = this.qualityPrefix(item.data);
       // 文案对齐原版：有替换"脱下旧,换上新"，无替换"穿上了"
@@ -1520,13 +1526,14 @@ export class ItemService {
 
         // 重算套装判定
         const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
-        await this.prisma.player.update({
-          where: { userId },
-          data: {
+        await this.playerService.enqueueUserWrite(userId, async () => {
+          const _pd = await this.playerService.getPlayerData(userId);
+          Object.assign(_pd.player, {
             backpack: JSON.stringify(backpack),
             equipment: JSON.stringify(equipment),
             sets,
-          },
+          });
+          await this.playerService.savePlayer(_pd.player);
         });
         return `${player.name}卸下了${slot}`;
       }
@@ -1546,14 +1553,15 @@ export class ItemService {
 
         // 重算套装判定
         const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
-        await this.prisma.player.update({
-          where: { userId },
-          data: {
+        await this.playerService.enqueueUserWrite(userId, async () => {
+          const _pd = await this.playerService.getPlayerData(userId);
+          Object.assign(_pd.player, {
             backpack: JSON.stringify(backpack),
             weapons: JSON.stringify(weapons),
             currentWeapon,
             sets,
-          },
+          });
+          await this.playerService.savePlayer(_pd.player);
         });
         return `${player.name}卸下了${slot}`;
       }

@@ -900,7 +900,11 @@ export class TaskService {
         : player[field];
     }
     if (Object.keys(data).length === 0) return;
-    await this.prisma.player.update({ where: { id: player.id }, data });
+    await this.playerService.enqueueUserWrite(player.userId, async () => {
+      const _pd = await this.playerService.getPlayerData(player.userId);
+      Object.assign(_pd.player, data);
+      await this.playerService.savePlayer(_pd.player);
+    });
   }
 
   private canAcceptByMarkers(raw: any, markers: Record<string, any>): boolean {

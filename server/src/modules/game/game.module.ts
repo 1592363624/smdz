@@ -35,6 +35,7 @@ import { TaskService } from './task.service';
 import { StatsService } from './stats.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
+import { ITEM_SYSTEM_SERVICE } from './service-tokens';
 
 @Global()
 @Module({
@@ -64,6 +65,8 @@ import { VitalityService } from './vitality.service';
     StatsService,
     AutoMineService,
     VitalityService,
+    // 字符串 token 别名：让 PlayerService 无需 import ItemSystemService（避免运行时循环加载）
+    { provide: ITEM_SYSTEM_SERVICE, useExisting: ItemSystemService },
   ],
   exports: [
     GameService,
