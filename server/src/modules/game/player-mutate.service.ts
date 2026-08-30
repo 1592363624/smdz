@@ -86,25 +86,33 @@ export class PlayerMutateService {
     const sig0 = this.fieldSignature(ctx);
 
     // fn 抛异常时不会走到保存，锁照常释放，业务可安全向上冒泡错误
-    const result = await this.mutateContext.run(userId, ctx, () => fn(ctx));
+    try {
+      const result = await this.mutateContext.run(userId, ctx, () => fn(ctx));
 
-    // 落库判定（彻底根治只读指令自增 version）：
-    // 1) 任意嵌套 savePlayer 被调用 → __mutateDirty 已被置位（最快路径）；
-    // 2) 否则比对字段签名：只要本链改过 ctx（哪怕没显式 savePlayer，如光翼/采集开始
-    //    这种"纯改 ctx"写法），签名就会变化 → 仍需落库。两者任一命中才写，
-    //    纯只读指令签名不变 → 跳过 CAS，不无故让并发写者被判并发冲突。
-    // 注意：行 JSON 字段（player.backpack 等）是读写都透传到顶层权威表示的
-    // accessor（见 PlayerService.installCanonicalAccessors），顶层与行不再可能
-    // 分叉，落库前无需任何「按侧回写」的同步步骤。
-    const needSave = (ctx as any).__mutateDirty || this.fieldSignature(ctx) !== sig0;
-    if (needSave) {
-      await this.playerService.savePlayer(ctx.player);
+      // 落库判定（彻底根治只读指令自增 version）：
+      // 1) 任意嵌套 savePlayer 被调用 → __mutateDirty 已被置位（最快路径）；
+      // 2) 否则比对字段签名：只要本链改过 ctx（哪怕没显式 savePlayer，如光翼/采集开始
+      //    这种"纯改 ctx"写法），签名就会变化 → 仍需落库。两者任一命中才写，
+      //    纯只读指令签名不变 → 跳过 CAS，不无故让并发写者被判并发冲突。
+      // 注意：行 JSON 字段（player.backpack 等）是读写都透传到顶层权威表示的
+      // accessor（见 PlayerService.installCanonicalAccessors），顶层与行不再可能
+      // 分叉，落库前无需任何「按侧回写」的同步步骤。
+      const needSave = (ctx as any).__mutateDirty || this.fieldSignature(ctx) !== sig0;
+      if (needSave) {
+        await this.playerService.savePlayer(ctx.player);
 
-      const after = this.readCurrencies(ctx.player);
-      this.auditCurrencyChanges(Number(userId), before, after, (ctx as any).auditReason);
+        const after = this.readCurrencies(ctx.player);
+        this.auditCurrencyChanges(Number(userId), before, after, (ctx as any).auditReason);
+      }
+      return result;
+    } finally {
+      // 收口：本上下文自此作废（无论成功/抛错）。fn 内调度的定时器（如采集 10~16s
+      // 延时结算）会带着本 ALS 快照逃逸出去，若不置为已结束，回调里的 savePlayer 会
+      // 误把改动"合并"进这个死上下文并跳过 Actor markDirty，导致结算静默丢失
+      // （医疗箱/休眠仓每人一次永久标记被抹掉、资源可无限重复采集的反复复发根因）。
+      this.mutateContext.finish(ctx);
     }
-    return result;
-    });
+  });
   }
 
   /**
@@ -119,7 +127,12 @@ export class PlayerMutateService {
 
     return this.playerService.enqueueUserWrite(userId, async () => {
       const ctx = (await this.playerService.getPlayerData(userId)) as MutateContext;
-      return await this.mutateContext.run(userId, ctx, () => fn(ctx));
+      try {
+        return await this.mutateContext.run(userId, ctx, () => fn(ctx));
+      } finally {
+        // 只读上下文同样会随 ALS 逃逸进定时器回调，收口后立即作废（见 mutate 内注释）
+        this.mutateContext.finish(ctx);
+      }
     });
   }
 

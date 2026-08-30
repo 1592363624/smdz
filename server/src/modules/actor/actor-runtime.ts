@@ -46,6 +46,14 @@ interface ActorCell<S = any> {
   /** 当前在途任务数（背压用） */
   pending: number;
   lastUsed: number;
+  /**
+   * 是否有 run 正在 withActivated 中执行。重入判定除了 ALS 匹配外还必须看它：
+   * ALS 上下文会随 setTimeout/setInterval 回调逃逸出 run 作用域（如采集开始路径
+   * 在 mutate/邮箱内调度 10~16s 延时结算定时器），回调触发时 ALS 仍是旧 run 的
+   * key，若只比对 ALS 会误判为重入而走「直接执行」旁路——旁路不经过邮箱、
+   * 不触发 run 末尾的 writeThrough 落库，延时结算的改动会静默滞留内存。
+   */
+  running: boolean;
 }
 
 export interface ActorRuntimeOptions {
@@ -188,8 +196,14 @@ export class ActorRuntime implements OnModuleDestroy {
     // 读档、savePlayer 落回普通整包写，正确性由「读写都不假装有内存态」保证。
     if (this.als.getStore() === key) {
       const cell = this.cells.get(key);
-      if (cell) cell.lastUsed = Date.now();
-      return fn(cell?.state as S);
+      // ALS 匹配还必须要求 cell 确实在执行中：ALS 会随定时器回调逃逸出 run 作用域
+      // （见 ActorCell.running 注释），只比对 ALS 会把「已结束旧 run 的残留 ALS」
+      // 误判成重入而走直接执行旁路——旁路不经过邮箱、不触发 run 末尾的 writeThrough，
+      // 延时结算的改动会静默滞留内存不落库。
+      if (cell && cell.running) {
+        cell.lastUsed = Date.now();
+        return fn(cell?.state as S);
+      }
     }
 
     const cell = this.ensureCell(key, type, id);
@@ -311,6 +325,7 @@ export class ActorRuntime implements OnModuleDestroy {
         mailbox: Promise.resolve(),
         pending: 0,
         lastUsed: Date.now(),
+        running: false,
       };
       this.cells.set(key, cell);
     }
@@ -332,6 +347,7 @@ export class ActorRuntime implements OnModuleDestroy {
       cell.activating = null;
     }
     cell.lastUsed = Date.now();
+    cell.running = true;
     try {
       const result = await fn(cell.state as S);
       // run 是「单一写入口」：fn 成功后按策略落库。
@@ -357,6 +373,8 @@ export class ActorRuntime implements OnModuleDestroy {
       cell.activating = null;
       this.totalErrors++;
       throw e;
+    } finally {
+      cell.running = false;
     }
   }
 

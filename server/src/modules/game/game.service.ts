@@ -3571,10 +3571,13 @@ export class GameService {
       // 旧快照的并发写回复活。直接定点清除并跳过（不产出、不广播、不计熔断），
       // 防止重复扣资源次数与重复广播；未到期的复活标记同样无意义，一并清除。
       if (state && this.hasGatherSettledFingerprint(Number(row.userId), state)) {
-        delete markers['采集中'];
         await this.playerService.enqueueUserWrite(row.userId, async () => {
+          // 在最新快照（Actor 内即活态）上只删「采集中」键再写回；绝不能用 scan
+          // 读库时的旧 markers 副本整列写回——那会用陈旧数据覆盖掉内存态里更新的
+          // 永久标记（医疗箱/休眠仓等），正是本轮反复复发的覆盖源之一。
           const _pd = await this.playerService.getPlayerData(row.userId);
-          Object.assign(_pd.player, { markers: JSON.stringify(markers) });
+          if (_pd.markers && _pd.markers['采集中'] !== undefined) delete _pd.markers['采集中'];
+          Object.assign(_pd.player, { markers: JSON.stringify(_pd.markers) });
           await this.playerService.savePlayer(_pd.player);
         });
         this.logger.warn(
@@ -3617,10 +3620,11 @@ export class GameService {
       if (consecutive > GameService.GATHER_FALLBACK_MAX_CONSECUTIVE) {
         // 异常循环自愈：60 秒内被兜底连续补结算超过 3 次，只可能是标记被异常复活；
         // 直接清除「采集中」与孤儿锁定标记，终止风暴；本次不产出不广播。
-        delete markers['采集中'];
         await this.playerService.enqueueUserWrite(row.userId, async () => {
+          // 在最新快照上只删「采集中」键再写回（同上，禁止用 scan 旧快照整列覆盖）
           const _pd = await this.playerService.getPlayerData(row.userId);
-          Object.assign(_pd.player, { markers: JSON.stringify(markers) });
+          if (_pd.markers && _pd.markers['采集中'] !== undefined) delete _pd.markers['采集中'];
+          Object.assign(_pd.player, { markers: JSON.stringify(_pd.markers) });
           await this.playerService.savePlayer(_pd.player);
         });
         this.logger.warn(

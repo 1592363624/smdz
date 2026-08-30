@@ -97,6 +97,7 @@ function makeRescueFixture(playerOverrides: Record<string, any> = {}) {
     safeJsonParse: jest.fn(parseJson),
     isPlayerDead: jest.fn((target: any) => Number(target?.hp || 0) <= 0),
     savePlayer: jest.fn(async () => undefined),
+    markPlayerDirty: jest.fn(() => undefined),
   };
   const prisma: any = {
     player: {
@@ -171,6 +172,7 @@ function makeGatherFixture(options: { times?: number } = {}) {
     getBackpackItems: jest.fn((target: any) => parseJson(target.backpack, [])),
     savePlayer: persistence.save,
     addExp: jest.fn(async () => ({ leveledUp: false, newLevel: 10 })),
+    markPlayerDirty: jest.fn(() => undefined),
   };
   const prisma: any = {
     player: {

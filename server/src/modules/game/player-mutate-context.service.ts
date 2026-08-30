@@ -28,6 +28,28 @@ export class PlayerMutateContextService {
   private readonly storage = new AsyncLocalStorage<Map<number, MutateContextLike>>();
 
   /**
+   * 已结束（收口完成）的 mutate 上下文集合。
+   *
+   * ALS 上下文会跟随 setTimeout/setInterval 回调逃逸出 mutate 作用域：最典型的是
+   * 采集开始路径在 mutate 内调度 10~16 秒的采集定时器，定时器触发时 AsyncLocalStorage
+   * 的 store 仍是开始那条链的快照，`currentFor()` 会误报"仍在 mutate 内"。若不剔除
+   * 已收口的上下文，savePlayer 会把结算改动"合并"进一个早已落库完毕的死上下文并提前
+   * 返回——Actor 的 markDirty 不会被调用，writeThrough 直接跳过，结算（含医疗箱/
+   * 休眠仓等每人一次永久标记）静默丢失，资源可被无限重复采集。
+   */
+  private readonly finished = new WeakSet<MutateContextLike>();
+
+  /** 标记上下文已收口：此后任何异步链（含 ALS 逃逸进定时器的回调）都不得再复用它。 */
+  finish(ctx: MutateContextLike): void {
+    this.finished.add(ctx);
+  }
+
+  /** 上下文是否已收口。 */
+  isFinished(ctx: MutateContextLike): boolean {
+    return this.finished.has(ctx);
+  }
+
+  /**
    * 在本条异步链上登记某玩家的 mutate 上下文，并在该上下文内执行 fn。
    * 用「拷贝一份新 Map」而非就地修改，避免兄弟分支互相污染。
    */
@@ -50,14 +72,23 @@ export class PlayerMutateContextService {
    * 这让 mutate 化可以**局部渐进推进**，而不必一次性改造整条调用链。
    */
   currentFor(userId: number): MutateContextLike | null {
-    return this.storage.getStore()?.get(Number(userId)) ?? null;
+    const ctx = this.storage.getStore()?.get(Number(userId)) ?? null;
+    // 已收口的上下文对后续异步链不可见（见 finished 注释）
+    return ctx && !this.finished.has(ctx) ? ctx : null;
   }
 
-  /** 本条异步链是否已在某玩家的 mutate 上下文内。 */
+  /** 本条异步链是否已在某玩家的（未收口的）mutate 上下文内。 */
   has(userId?: number): boolean {
     const store = this.storage.getStore();
     if (!store) return false;
-    return userId === undefined ? store.size > 0 : store.has(Number(userId));
+    if (userId === undefined) {
+      for (const ctx of store.values()) {
+        if (!this.finished.has(ctx)) return true;
+      }
+      return false;
+    }
+    const ctx = store.get(Number(userId));
+    return !!ctx && !this.finished.has(ctx);
   }
 
   /** 本条异步链上正在 mutate 的所有 userId（诊断用）。 */

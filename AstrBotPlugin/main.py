@@ -12,7 +12,11 @@
 - 触发方式：
   1. 前缀模式：配置 `command_name`（如 smdz）后，仅输入 `/smdz <游戏指令>` 会转发；
   2. 无前缀模式：`command_name` 留空时，收到的所有消息直接转发（等效于开启 forward_all）；
-  3. 全量模式：开启 `forward_all` 后，无论前缀如何，所有消息都会尝试转发。
+  3. 全量模式：开启 `forward_all` 后，无论前缀如何，所有消息都会尝试转发；
+  4. 沉浸模式：玩家发送「使魔大战开」后，其在本会话内发送的所有消息免前缀
+     直接转发；发送「使魔大战关」恢复按上面 1-3 的配置触发。状态按
+     「会话+用户」记录并持久化，只对开启者本人生效，既能沉浸游玩，又不会
+     把同群其他用户的聊天误转成游戏指令。
 """
 
 import asyncio
@@ -29,6 +33,13 @@ class SmdzBridgePlugin(Star):
 
     # 单条消息最多拆分转发的行数：防止误粘贴超长文本导致连续刷屏或冲击后端接口
     _MAX_FORWARD_LINES = 5
+
+    # 沉浸模式开关口令：玩家发送口令后，其在本会话内的消息免前缀直接转发；
+    # 发送关闭口令后恢复按插件配置的前缀方式触发。口令免前缀、整句精确匹配。
+    _IMMERSIVE_ON_PHRASE = "使魔大战开"
+    _IMMERSIVE_OFF_PHRASE = "使魔大战关"
+    # 沉浸模式状态在 KV 存储中的键名（跨重启持久化）
+    _IMMERSIVE_KV_KEY = "immersive_users"
 
     def __init__(self, context: Context, config: AstrBotConfig):
         """插件初始化：读取配置项，准备桥接所需参数。
@@ -57,6 +68,12 @@ class SmdzBridgePlugin(Star):
         # 触发词集合（配置指令名 + 常用别名），用于在原文中剥离指令前缀；空配置会被过滤
         self._trigger_names = {n for n in (self.command_name, "smdz", "使魔", "游戏") if n}
 
+        # 沉浸模式状态：{会话来源(unified_msg_origin): {开启者QQ}}。
+        # 只对显式发送「使魔大战开」的用户免前缀转发，避免把同群其他用户的
+        # 聊天误转成游戏指令；首次使用时从 KV 存储懒加载，机器人重启后不丢。
+        self._immersive_users: dict[str, set[str]] = {}
+        self._immersive_loaded = False
+
         # 触发模式描述（用于初始化日志展示）
         if self.forward_all:
             trigger_desc = "全量转发所有消息"
@@ -68,6 +85,7 @@ class SmdzBridgePlugin(Star):
         logger.info(
             f"[使魔大战3桥接] 插件初始化完成，服务地址={self.server_url}，"
             f"触发模式={trigger_desc}，"
+            f"沉浸口令=「{self._IMMERSIVE_ON_PHRASE}/{self._IMMERSIVE_OFF_PHRASE}」，"
             f"允许群={self.allowed_groups or '不限'}，允许用户={self.allowed_users or '不限'}"
         )
 
@@ -212,6 +230,136 @@ class SmdzBridgePlugin(Star):
             return rest.strip()
         return text
 
+    def _resolve_trigger(self, text: str, immersive: bool) -> tuple[str, str]:
+        """按触发配置判定消息的处理方式。
+
+        Args:
+            text: 用户发送的原始消息（已 strip，非空）。
+            immersive: 发送者在本会话是否处于沉浸模式（免前缀直接转发）。
+
+        Returns:
+            (动作, 游戏指令) 二元组：
+            - ("skip", "")：不满足任何触发条件，静默放行给后续插件处理；
+            - ("usage", "")：前缀模式下只发了前缀没带指令内容，需回复用法提示；
+            - ("forward", cmd)：转发游戏指令 cmd。
+        """
+        # 0) 沉浸模式生效中：开启者本人的消息免前缀直接转发（仍会剥离习惯性前缀）
+        if immersive:
+            cmd = self._extract_game_command(text)
+            return ("forward", cmd) if cmd else ("skip", "")
+        # 1) 全量转发：forward_all 开启，或 command_name 留空（无前缀直接触发）
+        if self.forward_all or not self.command_name:
+            cmd = self._extract_game_command(text)
+            return ("forward", cmd) if cmd else ("skip", "")
+        # 2) 前缀模式：仅匹配配置前缀（含内置别名）的消息才转发。
+        #    用任意空白（含换行）切首个 token：兼容 "/smdz" 单独占一行、
+        #    游戏指令从第二行开始的输入习惯。
+        first = text.split(None, 1)[0].lstrip("/.！! ")
+        if first not in self._trigger_names:
+            return ("skip", "")
+        cmd = self._extract_game_command(text)
+        return ("usage", "") if not cmd else ("forward", cmd)
+
+    # ------------------------------------------------------------------
+    # 沉浸模式：口令开关 + 会话级免前缀转发状态（KV 持久化）
+    # ------------------------------------------------------------------
+    def _match_immersive_toggle(self, text: str) -> str:
+        """精确匹配沉浸模式开关口令。
+
+        口令设计为免前缀生效：去掉开头的常见指令符号后整句精确比较，
+        聊天中包含口令字样的其它句子不会被误判为开关。
+
+        Args:
+            text: 用户发送的原始消息（已 strip，非空）。
+
+        Returns:
+            "on" / "off"；不是口令时返回空字符串。
+        """
+        normalized = text.strip().lstrip("/.！! ").strip()
+        if normalized == self._IMMERSIVE_ON_PHRASE:
+            return "on"
+        if normalized == self._IMMERSIVE_OFF_PHRASE:
+            return "off"
+        return ""
+
+    async def _load_immersive_users(self) -> dict[str, set[str]]:
+        """加载沉浸模式状态：首次访问从 KV 存储读取，之后走内存缓存。
+
+        Returns:
+            {会话来源(unified_msg_origin): {开启沉浸模式的用户QQ}}。
+        """
+        if self._immersive_loaded:
+            return self._immersive_users
+        self._immersive_loaded = True
+        try:
+            data = await self.get_kv_data(self._IMMERSIVE_KV_KEY, None)
+        except Exception as exc:
+            logger.warning(
+                f"[使魔大战3桥接] 读取沉浸模式状态失败，本次运行内状态仅存于内存: {exc}"
+            )
+            return self._immersive_users
+        if not isinstance(data, dict):
+            return self._immersive_users
+        # KV 中以 {会话来源: [用户QQ, ...]} 存储，还原为集合便于判断
+        self._immersive_users = {
+            umo: set(qq_list)
+            for umo, qq_list in data.items()
+            if isinstance(qq_list, (list, tuple, set))
+        }
+        return self._immersive_users
+
+    async def _save_immersive_users(self) -> None:
+        """把沉浸模式状态写入 KV 存储，机器人重启后状态不丢失。"""
+        try:
+            await self.put_kv_data(
+                self._IMMERSIVE_KV_KEY,
+                {umo: sorted(qq_list) for umo, qq_list in self._immersive_users.items()},
+            )
+        except Exception as exc:
+            logger.warning(f"[使魔大战3桥接] 保存沉浸模式状态失败: {exc}")
+
+    async def _is_immersive(self, event: AstrMessageEvent) -> bool:
+        """判断发送者在本会话是否开启了沉浸模式。"""
+        users = await self._load_immersive_users()
+        return event.get_sender_id() in users.get(event.unified_msg_origin, ())
+
+    async def _apply_immersive_toggle(self, event: AstrMessageEvent, toggle: str) -> str:
+        """处理沉浸模式开关口令：更新状态（含持久化）并返回提示文本。
+
+        Args:
+            event: 触发口令的消息事件。
+            toggle: "on" 或 "off"。
+
+        Returns:
+            回复给用户的提示文本。
+        """
+        umo = event.unified_msg_origin
+        qq_id = event.get_sender_id()
+        users = await self._load_immersive_users()
+
+        if toggle == "on":
+            # 重复发送口令时状态幂等，直接再次确认，方便玩家核对
+            users.setdefault(umo, set()).add(qq_id)
+            await self._save_immersive_users()
+            return (
+                "🎮 沉浸模式已开启！\n"
+                "现在直接发送游戏指令即可，无需任何前缀。\n"
+                f"发送「{self._IMMERSIVE_OFF_PHRASE}」可退出沉浸模式。"
+            )
+
+        session_users = users.get(umo)
+        if not session_users or qq_id not in session_users:
+            return f"当前未开启沉浸模式，发送「{self._IMMERSIVE_ON_PHRASE}」可开启。"
+
+        session_users.discard(qq_id)
+        if not session_users:
+            del users[umo]
+        await self._save_immersive_users()
+        if self.forward_all or not self.command_name:
+            # 全量转发模式下退出沉浸模式后行为不变，主动说明避免玩家误解
+            return "✅ 已退出沉浸模式。（当前插件为全量转发模式，消息仍会直接转发到游戏）"
+        return f"✅ 已退出沉浸模式，恢复原有触发方式：/{self.command_name} <游戏指令>"
+
     # ------------------------------------------------------------------
     # 私有工具方法
     # ------------------------------------------------------------------
@@ -262,6 +410,9 @@ class SmdzBridgePlugin(Star):
         """统一消息入口，按配置动态决定是否转发到游戏。
 
         触发规则（按优先级）：
+        - 沉浸模式口令：消息精确为「使魔大战开/使魔大战关」时免前缀生效，
+          开启/关闭发送者在本会话的沉浸模式；
+        - 沉浸模式生效中：开启者本人发送的所有消息免前缀直接转发；
         - forward_all 开启：收到的所有消息都尝试转发，不限制前缀；
         - command_name 留空：同样转发所有消息（无前缀直接触发，等效 forward_all）；
         - command_name 非空：仅当消息以该前缀（或内置别名 smdz/使魔/游戏）
@@ -285,30 +436,32 @@ class SmdzBridgePlugin(Star):
         if not text:
             return
 
-        # 1) 全量转发：forward_all 开启，或 command_name 留空（无前缀直接触发）
-        if self.forward_all or not self.command_name:
-            game_command = self._extract_game_command(text)
-            if not game_command:
-                return
-        # 2) 前缀模式：仅匹配配置前缀（含内置别名）的消息才转发。
-        #    用任意空白（含换行）切首个 token：兼容 "/smdz" 单独占一行、
-        #    游戏指令从第二行开始的输入习惯。
-        else:
-            first = text.split(None, 1)[0].lstrip("/.！! ")
-            if first not in self._trigger_names:
-                return
-            game_command = self._extract_game_command(text)
-            if not game_command:
-                # 只给了前缀没给指令内容时，提示用法并阻断后续插件
-                yield event.plain_result(
-                    f"用法：/{self.command_name} <游戏指令>\n"
-                    "例如：\n"
-                    f"/{self.command_name} 背包\n"
-                    f"/{self.command_name} 信息\n"
-                    f"/{self.command_name} 帮助"
-                )
-                event.stop_event()
-                return
+        # 0) 沉浸模式口令：任何触发模式下都免前缀生效，先于普通触发判断处理
+        toggle = self._match_immersive_toggle(text)
+        if toggle:
+            reply = await self._apply_immersive_toggle(event, toggle)
+            yield event.plain_result(reply)
+            event.stop_event()
+            return
+
+        # 按触发配置判定处理方式（沉浸模式生效中的用户免前缀直接转发）
+        immersive = await self._is_immersive(event)
+        action, game_command = self._resolve_trigger(text, immersive)
+        if action == "skip":
+            return
+        if action == "usage":
+            # 只给了前缀没给指令内容时，提示用法并阻断后续插件
+            yield event.plain_result(
+                f"用法：/{self.command_name} <游戏指令>\n"
+                "例如：\n"
+                f"/{self.command_name} 背包\n"
+                f"/{self.command_name} 信息\n"
+                f"/{self.command_name} 帮助\n\n"
+                f"提示：发送「{self._IMMERSIVE_ON_PHRASE}」可开启沉浸模式，"
+                "之后无需前缀直接发送游戏指令。"
+            )
+            event.stop_event()
+            return
 
         # 优先处理 QQ 号绑定指令：用户在网页端复制 OpenID，在群里发送绑定指令，
         # 插件从消息事件中自动获取发送者 QQ 号，调用后端完成绑定。
