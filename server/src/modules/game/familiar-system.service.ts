@@ -16,6 +16,7 @@ import { HomeService } from './home.service';
 import { ItemSystemService } from './item-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { ShortcutService } from './shortcut.service';
+import { CombatStateService } from './combat-state.service';
 import { hasActive } from './expire-time.util';
 import {
   buildFamiliarGateMenu,
@@ -142,6 +143,9 @@ export class FamiliarSystemService {
     @Optional() private readonly mutateService?: any,
     // 选择使魔预览/列表的编号快捷指令依赖临时输入替换（对应原版 临时输入替换）。
     @Optional() private readonly shortcutService?: ShortcutService,
+    // 建造地基/建造房子写入「工作」计时标记（对应原版 添加标记("工作",秒,玩家.标记2)）。
+    // Optional 末位参数，旧测试桩不传也不受影响。
+    @Optional() private readonly combatState?: CombatStateService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -1393,7 +1397,8 @@ export class FamiliarSystemService {
 
   /**
    * 建造地基 - 进度2→3
-   * 需要 80木头+120石头+40铁矿+40绳子
+   * 对应原版 _主程序.ecode L2537-2585：需要 80木头+120石头+40铁矿+40绳子，
+   * 成功后 +200 经验并添加「工作」标记60秒（行动无限制期间拦截其他操作）。
    */
   private async handleHomeFoundation(userId: number, player: any, markers: any): Promise<string> {
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
@@ -1436,6 +1441,10 @@ export class FamiliarSystemService {
       }
     }
 
+    // 原版在扣材料前最后校验行动限制（_主程序.ecode L2571），忙碌时不能开工
+    const restriction = this.combatSystem.actionUnrestricted(player, { cannonOk: false });
+    if (restriction.restricted) return restriction.text;
+
     // 扣除材料
     for (const req of required) {
       const item = backpack.find((i: any) => i.name === req.name);
@@ -1448,20 +1457,28 @@ export class FamiliarSystemService {
       }
     }
 
+    // 原版添加标记("工作", 60, 玩家.标记2, 原始时间戳)："正在工作"期间行动无限制拦截其他操作
+    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    this.combatState?.addMarker('工作', 60, markers2, Date.now());
+    player.markers2 = JSON.stringify(markers2);
+
     // 更新进度
     markers['家园进度'] = 3;
     player.markers = JSON.stringify(markers);
     player.backpack = JSON.stringify(backpack);
 
     await this.playerService.savePlayer(player);
+    // 原版：玩家.经验 = 玩家.经验 + 200（在自身保存完成后结算，走 addExp 的独立读改写）
+    await this.playerService.addExp(userId, 200);
     await this.taskService.advance(userId, '建造地基');
 
-    return `${player.name || '冒险者'} 消耗了80木头、120石头、40铁矿和40绳子\n地基已经建造好了，接下来「建造房子」`;
+    return `${player.name || '冒险者'}花费1分钟完成了地基的建造，得到了200经验。\n接下来「建造房子」（需要300木头、500石头、160铁矿和120绳子）`;
   }
 
   /**
    * 建造房子 - 进度3→4
-   * 需要 300木头+500石头+160铁矿+120绳子
+   * 对应原版 _主程序.ecode L2447-2520：需要 300木头+500石头+160铁矿+120绳子，
+   * 成功后 +500 经验并添加「工作」标记120秒；建成时追加“屋内”和“前线”地图。
    */
   private async handleHomeConstruct(userId: number, player: any, markers: any): Promise<string> {
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
@@ -1478,7 +1495,7 @@ export class FamiliarSystemService {
       return `${player.name || '冒险者'}你不在你家园里，不能进行这个操作。`;
     }
 
-    // 检查所需材料
+    // 检查所需材料（对应原版逐项提示格式）
     const required = [
       { name: '木头', count: 300 },
       { name: '石头', count: 500 },
@@ -1492,9 +1509,13 @@ export class FamiliarSystemService {
       const item = backpack.find((i: any) => i.name === req.name);
       const hasCount = item ? (item.count || 1) : 0;
       if (hasCount < req.count) {
-        return `材料不足：需要${req.name}x${req.count}，你只有${Math.round(hasCount)}`;
+        return `建造房子需要${req.count}${req.name}，你只有${Math.round(hasCount)}`;
       }
     }
+
+    // 原版在扣材料前最后校验行动限制（_主程序.ecode L2477），忙碌时不能开工
+    const restriction = this.combatSystem.actionUnrestricted(player, { cannonOk: false });
+    if (restriction.restricted) return restriction.text;
 
     // 扣除材料
     for (const req of required) {
@@ -1508,6 +1529,11 @@ export class FamiliarSystemService {
       }
     }
 
+    // 原版添加标记("工作", 120, 玩家.标记2, 原始时间戳)
+    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    this.combatState?.addMarker('工作', 120, markers2, Date.now());
+    player.markers2 = JSON.stringify(markers2);
+
     // 更新进度
     markers['家园进度'] = 4;
     player.markers = JSON.stringify(markers);
@@ -1517,9 +1543,11 @@ export class FamiliarSystemService {
     await this.mapService.ensureHouseMaps(player.houseName, this.getHouseBaseMapId(player), 4);
 
     await this.playerService.savePlayer(player);
+    // 原版：玩家.经验 = 玩家.经验 + 500（在自身保存完成后结算，走 addExp 的独立读改写）
+    await this.playerService.addExp(userId, 500);
     await this.taskService.advance(userId, '建造房子');
 
-    return `${player.name || '冒险者'} 消耗了300木头、500石头、160铁矿和120绳子\n🏠 家园建好了！\n你可以开始在家园里面安装生产设备、放置怪物和NPC了`;
+    return `${player.name || '冒险者'}花费2分钟完成了房子的建造，得到了500经验。\n🏠 家园建好了！\n你可以开始在家园里面安装生产设备、放置怪物和NPC了`;
   }
 
   /**
