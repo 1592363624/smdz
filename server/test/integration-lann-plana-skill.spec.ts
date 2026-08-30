@@ -55,8 +55,9 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     try {
       const map = await prisma.gameMap.findUnique({ where: { id: testMapId } });
       if (map) {
+        // 召唤物 owner 是纯数字 userId，不带 e2e_lann_ 前缀；按写入时的 id 前缀识别测试数据
         const summons = JSON.parse(map.summons || '[]').filter(
-          (s: any) => !String(s.归属 || s.owner || '').startsWith('e2e_lann_'),
+          (s: any) => !String(s.id || '').startsWith('e2e_lann_'),
         );
         await prisma.gameMap.update({ where: { id: testMapId }, data: { summons: JSON.stringify(summons) } });
       }

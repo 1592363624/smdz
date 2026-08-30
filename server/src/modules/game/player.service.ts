@@ -685,6 +685,21 @@ export class PlayerService implements OnModuleInit {
   private async persistPlayer(player: any): Promise<void> {
     const updateData = this.buildPlayerUpdateData(player);
     const snapshotVersion = Number(player.version ?? 0);
+    // [TEMP-TRACE] 临时诊断：记录每次玩家行落库时 markers 关键键的取值与调用来源，定位标记被覆盖的写入方
+    try {
+      const mkRaw = typeof updateData.markers === 'string' ? updateData.markers : '';
+      let mk: any = {};
+      try { mk = mkRaw ? JSON.parse(mkRaw) : {}; } catch { /* ignore */ }
+      const fs = require('fs');
+      const stack = (new Error().stack || '')
+        .split('\n').slice(2, 8).map((s: string) => s.trim().replace(/^at\s+/, '')).join(' <- ');
+      fs.appendFileSync(
+        require('path').join(__dirname, '..', '..', '..', 'persist-trace.log'),
+        `${new Date().toISOString()} id=${player.id} v=${snapshotVersion} ` +
+        `[医疗箱=${mk['医疗箱'] ?? '-'} 休眠仓=${mk['休眠仓'] ?? '-'} 召唤白=${mk['召唤白'] ?? '-'} 采集中=${mk['采集中'] ? 1 : 0}] ` +
+        `keys=${Object.keys(mk).length} << ${stack}\n`,
+      );
+    } catch { /* 诊断失败不影响主链路 */ }
     await this.prisma.player.update({
       where: { id: player.id },
       data: updateData, // $use 中间件自动 version: { increment: 1 }
