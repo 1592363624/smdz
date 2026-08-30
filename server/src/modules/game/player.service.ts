@@ -32,6 +32,16 @@ export interface PlayerData {
   sets?: any;
 }
 
+/**
+ * 双表示收敛的字段清单：这些子集合在 getPlayerData 载入时会同时生成
+ * 「顶层解析表示」(PlayerData.xxx) 与「行字符串」(player.xxx)，行字段由
+ * installCanonicalAccessors 改造为读写都透传到顶层权威表示的 accessor。
+ */
+const CANONICAL_JSON_FIELDS = [
+  'backpack', 'equipment', 'weapons', 'markers', 'markers2',
+  'buffs', 'tasks', 'safeBox',
+] as const;
+
 @Injectable()
 export class PlayerService implements OnModuleInit {
   private readonly logger = new Logger(PlayerService.name);
@@ -124,15 +134,13 @@ export class PlayerService implements OnModuleInit {
   }
 
   /** 模块初始化：把玩家注册为 Actor 类型（仅当运行时被注入时）。
-   *  load = getPlayerData（载入并归一化），save = persistPlayer（落库，非 Actor 感知，
-   *  不会递归回 Actor 分支）；策略 writeThrough 保证每次写后落库，行为与旧 savePlayer 一致。 */
+   *  load = getPlayerData（载入并归一化，行 JSON 字段为 accessor 权威透传），
+   *  save = persistPlayerData（落库整份 PlayerData：行 getter 序列化的即权威态，
+   *  不再需要双表示调和）；策略 writeThrough 保证每次写后落库，行为与旧 savePlayer 一致。 */
   async onModuleInit(): Promise<void> {
     if (!this.actorRuntime || this.actorRuntime.hasType('player')) return;
     this.actorRuntime.registerType('player', {
       load: (id) => this.getPlayerData(Number(id)),
-      // 落库整份 PlayerData：把解析后的 backpack/equipment/weapons/markers/... 子集合
-      // 回写到 player 行 JSON 字段，避免「只落 player 子对象、丢掉背包改动」的隐患
-      // （正确性风险 #2）。
       save: (_id, state) => this.persistPlayerData(state as PlayerData),
       persist: 'writeThrough',
     });
@@ -419,19 +427,54 @@ export class PlayerService implements OnModuleInit {
       tasks: this.safeJsonParse<any[]>(player.tasks, []),
       safeBox: this.safeJsonParse<any[]>(player.safeBox, []),
     };
-    // 载入基线快照（行字符串 + 顶层解析数组），供 Actor 落库时判定业务到底改的是
-    // 「行字段 player.backpack」(style B：如 doExchange / familiar-skills 的
-    // `player.backpack = JSON.stringify(...)`) 还是「顶层解析数组」(style A：如 e2e 的
-    // `d.backpack.push(...)`)。二者只能取其一写入，否则陈旧解析数组会覆盖行内最新改动
-    // （merchant / lann-plana 回归根因）。无基线时（非 Actor 载入）回落到「顶层优先」。
-    const actorBase: Record<string, { top: any; row: any }> = {};
-    for (const f of ['backpack', 'equipment', 'weapons', 'markers', 'markers2', 'buffs', 'tasks', 'safeBox']) {
-      // top 必须深拷贝：业务常以「原地 push/赋值」改顶层解析数组（style A），若存引用，
-      // 基线会随实时数组一起变，变化检测失效。row 为字符串/标量，天然不可变。
-      actorBase[f] = { top: this.deepClone(result[f]), row: (result.player as any)[f] };
-    }
-    result.__actorBase = actorBase;
+    // 双表示收敛：安装 accessor 后，行字段与顶层解析表示共享同一份权威数据，
+    // 业务改哪一侧都等价（详见 installCanonicalAccessors）。落库时行 getter 序列化
+    // 的就是权威态，不再需要「基线对比 + 按侧猜测」的调和启发式。
+    this.installCanonicalAccessors(player, result);
     return result;
+  }
+
+  /**
+   * 双表示收敛（框架级根除 style A/B 分叉）：
+   *
+   * 玩家子集合历史上存在两种等价写法——
+   *   (A) 改顶层解析数组/对象：`ctx.backpack.push(...)` / `ctx.markers['x'] = 1`；
+   *   (B) 改行 JSON 字符串：`player.backpack = JSON.stringify(...)`。
+   * 旧实现里两者是独立的两份数据，落库前必须用「基线对比 + merge 启发式」猜测
+   * 业务改的是哪一侧（persistPlayerData 的 merge + mutate 的 syncParsedFields），
+   * 启发式一旦拿到陈旧表示就会互相覆盖（医疗箱永久标记被抹掉的回归根因）。
+   *
+   * 现在把行字段改为 accessor：getter 序列化权威态（顶层解析表示）、setter 解析
+   * 回写权威态。两种写法物理上写的是同一份对象，「先解析行→改→写回行」的常见
+   * 模式天然经过最新权威态，不再可能丢掉另一侧的改动。落库 = 序列化权威态，
+   * 无任何猜测。
+   *
+   * 仅覆盖「载入时会在顶层生成解析表示」的 8 个子集合；titles/skills/bonus 等
+   * 只有行表示的字段不在此列，保持普通字符串属性。
+   */
+  private installCanonicalAccessors(playerRow: any, state: PlayerData): void {
+    for (const field of CANONICAL_JSON_FIELDS) {
+      Object.defineProperty(playerRow, field, {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          const canonical = (state as any)[field];
+          // 权威态一般恒为解析对象；保留「原始字符串」这一兜底形态，是为了让
+          // setter 收到无法解析的历史脏字符串时原样透传（与旧行为一致，
+          // 读取侧 safeJsonParse 会走各自的 default 兜底）。
+          return typeof canonical === 'string' ? canonical : JSON.stringify(canonical);
+        },
+        set: (value: any) => {
+          if (value === undefined || value === null) {
+            (state as any)[field] = field === 'markers' ? {} : [];
+            return;
+          }
+          (state as any)[field] = typeof value === 'string'
+            ? this.safeJsonParse(value, value)
+            : value;
+        },
+      });
+    }
   }
 
   /** 货币列 → 背包物品（覆盖同名旧条目；无货币条目时创建），供 getPlayerData 物化。 */
@@ -499,10 +542,15 @@ export class PlayerService implements OnModuleInit {
         const live = this.actorRuntime.peekLive('player', (player.userId ?? player.id)) as
           | PlayerData
           | undefined;
-        const target = (live ?? (player as unknown as PlayerData));
-        this.applyLevelUps(target.player);
-        this.actorRuntime.markDirty();
-        return;
+        if (live) {
+          this.applyLevelUps(live.player);
+          this.actorRuntime.markDirty();
+          return;
+        }
+        // 活态缺失（cell 被 invalidate 后同链继续写，或激活窗口内的嵌套写）：
+        // 退回普通整包落库。调用方传来的可能是裸行对象而非 PlayerData，
+        // 不能按 target.player 取值，否则 applyLevelUps(undefined) 直接崩溃
+        // （2026-08-30 全量压测中 familiar-skills 技能链崩溃的根因）。
       }
     }
 
@@ -648,97 +696,16 @@ export class PlayerService implements OnModuleInit {
   /**
    * Actor 运行时 config.save 的落库入口：把整份 PlayerData 写回 player 表。
    *
-   * 游戏代码改写子集合有两种风格，二者只能取其一落库，否则会互相覆盖：
-   *   (A) 改顶层解析数组 data.backpack / data.buffs（如 e2e 的 `d.backpack.push(...)`）；
-   *   (B) 直接改行字段 player.backpack / player.buffs 字符串（如 doExchange /
-   *       familiar-skills 的 `player.backpack = JSON.stringify(...)`）。
-   * 判定方法：getPlayerData 载入时已记录基线（__actorBase，含「行字符串」与「顶层解析数组」）。
-   * 落库时比对二者相对基线的变化，选「被业务改过的那份」写入；两份都未变则保持行字符串。
-   * 这样既修掉了「只落 player 子对象会丢背包」(风险 #2)，也修掉了此前「无脑优先顶层解析
-   * 数组」导致 style B 的背包/buffs 改动被陈旧解析数组覆盖的回归。
+   * 双表示收敛后（见 installCanonicalAccessors），行字段是读写都透传到顶层权威
+   * 表示的 accessor——无论业务用哪种风格改（顶层 `ctx.backpack.push(...)` 还是
+   * 行 `player.backpack = JSON.stringify(...)`），改的都是同一份权威数据，行
+   * getter 序列化的结果必然是最新态。落库因此退化为单纯的整包序列化写入，
+   * 无需任何「基线对比 + 按侧猜测」的调和逻辑（该机制已随双表示一起删除）。
    */
   private async persistPlayerData(data: PlayerData): Promise<void> {
     const p = (data as any).player;
     if (!p) return;
-    const base = (data as any).__actorBase as Record<string, { top: any; row: any }> | undefined;
-    const fields = ['backpack', 'equipment', 'weapons', 'markers', 'markers2', 'buffs', 'tasks', 'safeBox'];
-    for (const field of fields) {
-      const top = (data as any)[field];
-      const row = (p as any)[field];
-      const b = base?.[field];
-      const parse = (v: any) => (typeof v === 'string' ? this.safeJsonParse(v, v) : v);
-      const topChanged = b ? !this.deepEqual(top, b.top) : top !== undefined;
-      const rowChanged = b
-        ? !this.deepEqual(parse(row), parse(b.row))
-        : row !== undefined;
-      let val: any;
-      if (field === 'markers') {
-        // markers 是扁平 key→值 对象，但同一 run 内常被不同子系统分别改动两套表示：
-        // selectFamiliar 改「顶层解析对象」data.markers（加 伊卡洛斯好感），
-        // ensureTutorialTasks 改「行字符串」player.markers（加 教程）。二者各自只动了
-        // 一侧，若「选其一」落库，必丢另一侧重的新键——onboarding 回归根因（教程=0）。
-        // 故对 markers 做「按 key 并集合并」：仅顶层变的 key 取顶层、仅行变的 key 取行，
-        // 两侧都变的取顶层（实时累积态优先），任一侧改动都不丢失。
-        const topObj = (typeof top === 'object' && top ? top : parse(top)) as Record<string, any>;
-        const rowObj = parse(row) as Record<string, any>;
-        const baseTopObj = b ? (parse(b.top) as Record<string, any>) : {};
-        const baseRowObj = b ? (parse(b.row) as Record<string, any>) : {};
-        const topIsObj = topObj && typeof topObj === 'object';
-        const rowIsObj = rowObj && typeof rowObj === 'object';
-        if (topIsObj || rowIsObj) {
-          const merged: Record<string, any> = {};
-          const keys = new Set<string>([
-            ...Object.keys(topIsObj ? topObj : {}),
-            ...Object.keys(rowIsObj ? rowObj : {}),
-          ]);
-          for (const k of keys) {
-            const inTop = topIsObj && k in topObj;
-            const inRow = rowIsObj && k in rowObj;
-            const topDelta = inTop && !this.deepEqual(topObj[k], baseTopObj?.[k]);
-            const rowDelta = inRow && !this.deepEqual(rowObj[k], baseRowObj?.[k]);
-            if (topDelta && !rowDelta) merged[k] = topObj[k];
-            else if (rowDelta && !topDelta) merged[k] = rowObj[k];
-            else if (topDelta && rowDelta) merged[k] = topObj[k]; // 两侧都变：顶层实时态优先
-            else merged[k] = inTop ? topObj[k] : rowObj[k];
-          }
-          val = merged;
-        } else {
-          // 两侧都不是对象（极端异常）：回落到「顶层优先」避免覆盖
-          val = topChanged ? top : (rowChanged ? row : row);
-        }
-      } else if (topChanged) {
-        val = top; // 顶层解析数组被业务改动（style A）；行字符串的伴随变化只是上一次
-        // 落库写回的副产物，并非业务改动，故以顶层数组（实时累积态）为准。
-      } else if (rowChanged) {
-        val = row; // 仅行字段被改（style B：业务 re-serialize 回 player.backpack）
-      } else {
-        val = row; // 均未变
-      }
-      if (val !== undefined) {
-        (p as any)[field] = typeof val === 'object' && val !== null ? JSON.stringify(val) : val;
-      }
-    }
     await this.persistPlayer(p);
-  }
-
-  /** 朴素深比较：子集合均为纯 JSON（数组/对象/标量），用序列化比较即可，顺序一致可判等。 */
-  private deepEqual(a: any, b: any): boolean {
-    if (a === b) return true;
-    try {
-      return JSON.stringify(a) === JSON.stringify(b);
-    } catch {
-      return false;
-    }
-  }
-
-  /** 深克隆（仅用于载入基线快照，子集合均为纯 JSON，解析/序列化即可无损拷贝）。 */
-  private deepClone<T>(v: T): T {
-    if (v === null || v === undefined || typeof v !== 'object') return v;
-    try {
-      return JSON.parse(JSON.stringify(v)) as T;
-    } catch {
-      return v;
-    }
   }
 
   /**

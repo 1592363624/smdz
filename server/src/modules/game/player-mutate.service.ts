@@ -42,16 +42,6 @@ const CURRENCY_COLUMNS: Array<{ column: 'diamonds' | 'tickets' | 'dataCores'; la
   { column: 'dataCores', label: '数据核心' },
 ];
 
-/**
- * getPlayerData 解析出的结构化字段（数组/对象）。
- * 业务代码既可能改 `ctx.backpack`（已解析的数组），也可能直接改
- * `player.backpack`（JSON 字符串），落库前需要判定改动发生在哪一侧。
- */
-const PARSED_FIELDS = [
-  'backpack', 'equipment', 'weapons', 'markers', 'markers2',
-  'buffs', 'tasks', 'safeBox',
-] as const;
-
 export interface MutateContext extends PlayerData {
   /** 声明本次修改涉及货币变动的原因（用于审计日志备注位，可选） */
   auditReason?: string;
@@ -92,8 +82,6 @@ export class PlayerMutateService {
     return this.playerService.enqueueUserWrite(userId, async () => {
     const ctx = (await this.playerService.getPlayerData(userId)) as MutateContext;
     const before = this.readCurrencies(ctx.player);
-    // 记录 player 侧 JSON 字符串初始值，用于判定改动发生在哪一侧
-    const baseline = this.snapshotJsonFields(ctx.player);
     // 记录整份 ctx 字段签名，用于"纯改 ctx 但未显式 savePlayer"场景的落库判定
     const sig0 = this.fieldSignature(ctx);
 
@@ -105,9 +93,11 @@ export class PlayerMutateService {
     // 2) 否则比对字段签名：只要本链改过 ctx（哪怕没显式 savePlayer，如光翼/采集开始
     //    这种"纯改 ctx"写法），签名就会变化 → 仍需落库。两者任一命中才写，
     //    纯只读指令签名不变 → 跳过 CAS，不无故让并发写者被判并发冲突。
+    // 注意：行 JSON 字段（player.backpack 等）是读写都透传到顶层权威表示的
+    // accessor（见 PlayerService.installCanonicalAccessors），顶层与行不再可能
+    // 分叉，落库前无需任何「按侧回写」的同步步骤。
     const needSave = (ctx as any).__mutateDirty || this.fieldSignature(ctx) !== sig0;
     if (needSave) {
-      this.syncParsedFields(ctx, baseline);
       await this.playerService.savePlayer(ctx.player);
 
       const after = this.readCurrencies(ctx.player);
@@ -191,12 +181,6 @@ export class PlayerMutateService {
     }
   }
 
-  private snapshotJsonFields(player: any): Record<string, string | undefined> {
-    const out: Record<string, string | undefined> = {};
-    for (const field of PARSED_FIELDS) out[field] = player?.[field];
-    return out;
-  }
-
   /**
    * 整份 ctx 的字段签名：用于判定"本链是否改过 ctx 但没显式 savePlayer"。
    * 覆盖 player 上的标量/JSON 字段以及解析后的集合字段（backpack/markers/...），
@@ -212,37 +196,5 @@ export class PlayerMutateService {
       sig += k + ':' + (v && typeof v === 'object' ? JSON.stringify(v) : v === undefined ? '' : String(v)) + ';';
     }
     return sig;
-  }
-
-  /**
-   * 结构化字段同步：业务代码改 `ctx.backpack`（数组）后若忘记写回
-   * `player.backpack`，改动会静默丢失——这里兜住它。
-   *
-   * 判定规则：只有 player 侧字符串**未被直接改写**时，才以 ctx 侧为准回写；
-   * 若业务代码直接改了 `player.backpack`，说明它选择走字符串路径，予以尊重。
-   */
-  private syncParsedFields(
-    ctx: MutateContext,
-    baseline: Record<string, string | undefined>,
-  ): void {
-    const player = ctx.player as any;
-    for (const field of PARSED_FIELDS) {
-      const original = baseline[field];
-      if (original === undefined) continue;
-      if (player[field] !== original) continue; // player 侧被直接改过，以它为准
-
-      const parsed = (ctx as any)[field];
-      if (parsed === undefined || parsed === null) continue;
-
-      let baselineParsed: unknown;
-      try {
-        baselineParsed = JSON.parse(String(original));
-      } catch {
-        continue;
-      }
-      if (JSON.stringify(baselineParsed) !== JSON.stringify(parsed)) {
-        player[field] = JSON.stringify(parsed);
-      }
-    }
   }
 }

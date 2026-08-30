@@ -155,10 +155,26 @@ describe('架构门禁：玩家状态写入口收口', () => {
       path.join(SRC_DIR, 'modules/game/player-mutate.service.ts'),
       'utf8',
     );
-    // 三者任一被删掉，串行 / 单一快照 / 字段同步就会失效
+    // 两者任一被删掉，串行 / 单一快照就会失效
     expect(mutateSrc).toContain('enqueueUserWrite'); // 串行
     expect(mutateSrc).toContain('mutateContext.currentFor'); // 嵌套复用同一快照
-    expect(mutateSrc).toContain('syncParsedFields'); // 结构化字段双向同步
+  });
+
+  it('双表示必须保持收敛：行 JSON 字段为权威 accessor，禁止回退到基线调和', () => {
+    const playerSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/player.service.ts'),
+      'utf8',
+    );
+    // 行字段必须是读写都透传到顶层权威表示的 accessor（style A/B 等价的根基）；
+    // 基线调和机制一旦回来（__actorBase / syncParsedFields），说明双表示又分叉了，
+    // 「陈旧表示覆盖新数据」类回归（如医疗箱永久标记被抹掉）就会复发。
+    expect(playerSrc).toContain('installCanonicalAccessors');
+    expect(playerSrc).not.toContain('__actorBase');
+    const mutateSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/player-mutate.service.ts'),
+      'utf8',
+    );
+    expect(mutateSrc).not.toContain('syncParsedFields');
   });
 
   it('mutate 上下文登记处不得依赖业务服务（否则 PlayerService 与它循环依赖）', () => {

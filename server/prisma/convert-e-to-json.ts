@@ -16,8 +16,8 @@
  * 设计要点：
  *  - 映射逻辑（map*To*）产出的对象结构，即 StaticDataService 读取后各 service 消费的数据结构，
  *    与改造前数据库 upsert 的字段保持一致，保证零漂移、平滑迁移。
- *  - seed-data.ts（动态数据 GameMap/GameVehicle）与 seed-import-all.ts（SystemConfig）仍会
- *    读取部分 JSON，但固定配置（怪物/物品/装备/使魔/配方/任务等）不再入库。
+ *  - seed-data.ts（动态数据 GameMap/GameVehicle）仍会读取部分 JSON，但固定配置
+ *    （怪物/物品/装备/使魔/配方/任务等）不再入库。
  *  - 本工具可重复运行：e/ 数据变更后重新执行即可重建 JSON。
  *  - 数据归属：`e/` 易语言源码已被 .gitignore 忽略、不进部署；`prisma/data/` 进版本控制并随部署分发。
  */

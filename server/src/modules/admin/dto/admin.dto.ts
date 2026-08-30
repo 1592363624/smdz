@@ -4,7 +4,8 @@
  */
 
 import { ApiProperty } from '@nestjs/swagger';
-import { Allow, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
+import { Allow, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Matches, Min, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /// 更新用户角色/状态
 export class UpdateUserDto {
@@ -112,6 +113,19 @@ export class SetWorldLevelDto {
   level: number;
 }
 
+/// GM 批量发放物品的单个条目
+export class GiveItemEntryDto {
+  @ApiProperty({ description: '物品名称（须为游戏内物品/装备名，服务端按目录校验）', example: '钻石' })
+  @IsString()
+  itemName: string;
+
+  @ApiProperty({ description: '数量', example: 10, default: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  count?: number;
+}
+
 /// GM 给玩家发送物品（兼容 target=用户名/ID 与 userId 两种指定方式，count/quantity 兼容）
 export class GiveItemDto {
   @ApiProperty({ description: '目标用户ID', example: 1, required: false })
@@ -125,9 +139,23 @@ export class GiveItemDto {
   @IsString()
   target?: string;
 
-  @ApiProperty({ description: '物品名称', example: '水晶' })
+  @ApiProperty({
+    description: '批量发放列表（与 itemName 单发二选一，优先 items）',
+    required: false,
+    type: [GiveItemEntryDto],
+    example: [{ itemName: '钻石', count: 10 }],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1, { message: '请至少选择一个物品' })
+  @ValidateNested({ each: true })
+  @Type(() => GiveItemEntryDto)
+  items?: GiveItemEntryDto[];
+
+  @ApiProperty({ description: '物品名称(单发，兼容字段)', example: '水晶', required: false })
+  @IsOptional()
   @IsString()
-  itemName: string;
+  itemName?: string;
 
   @ApiProperty({ description: '数量', example: 10, default: 1, required: false })
   @IsOptional()

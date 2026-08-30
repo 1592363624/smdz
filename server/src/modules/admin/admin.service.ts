@@ -110,7 +110,6 @@ export class AdminService {
               affinity: true,
               playTime: true,
               lastOpTime: true,
-              updatedAt: true,
             },
           },
         },
@@ -125,13 +124,11 @@ export class AdminService {
     const now = Date.now();
     const enriched = list.map((u) => {
       const p = u.player as any;
-      const lastActiveAt = p?.updatedAt || null;
       return {
         ...u,
         online: this.statsService.isOnline(u.id),
         // BigInt 不能直接 JSON 序列化，统一转数值秒
         playTimeSeconds: p?.playTime != null ? Number(p.playTime) : 0,
-        lastActiveAt,
         player: p
           ? {
               ...p,
@@ -170,7 +167,6 @@ export class AdminService {
       playerName: { player: { name: order } },
       location: { player: { location: order } },
       affinity: { player: { affinity: order } },
-      lastActiveAt: { player: { updatedAt: order } },
     };
 
     return map[field] ?? { id: 'asc' };
@@ -755,6 +751,56 @@ export class AdminService {
   async gmGiveItemToTarget(target: string | number, itemName: string, count: number): Promise<string> {
     const user = await this.resolveUserTarget(target);
     return this.gmGiveItem(user.id, itemName, count);
+  }
+
+  /**
+   * GM 可发放物品目录：items.json(物品) + equipments.json(装备)，按名称去重。
+   * 供后台"发放物品"选择器与名称校验使用，保证发放名称一定存在于游戏物品库。
+   */
+  getGmItemCatalog(): Array<{ name: string; category: string }> {
+    const catalog: Array<{ name: string; category: string }> = [];
+    const seen = new Set<string>();
+    for (const [rows, category] of [
+      [this.staticData.getAllItems(), '物品'],
+      [this.staticData.getAllEquipments(), '装备'],
+    ] as const) {
+      for (const row of rows as any[]) {
+        const name = String(row?.name ?? '').trim();
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        catalog.push({ name, category });
+      }
+    }
+    return catalog;
+  }
+
+  /**
+   * GM 批量给玩家发放多种物品（后台网页用，按用户ID定位）
+   * 名称先按目录校验，防止手输错误名称产生无效物品。
+   * @param userId 目标用户ID
+   * @param items 物品列表 [{ itemName, count }]
+   */
+  async gmGiveItemBatch(userId: number, items: Array<{ itemName: string; count?: number }>): Promise<string> {
+    const validNames = new Set(this.getGmItemCatalog().map((i) => i.name));
+    const invalid = items
+      .map((i) => String(i?.itemName ?? '').trim())
+      .filter((name) => name && !validNames.has(name));
+    if (invalid.length) {
+      throw new BadRequestException(`以下物品不存在，请从列表中选择：${invalid.join('、')}`);
+    }
+
+    const granted: string[] = [];
+    for (const item of items) {
+      const name = String(item.itemName).trim();
+      const count = Math.max(1, Math.floor(Number(item.count) || 1));
+      const ok = await this.playerService.addToBackpack(userId, name, count);
+      if (!ok) {
+        throw new Error(`物品「${name}」发放失败`);
+      }
+      granted.push(`${name}×${count}`);
+    }
+    this.logger.log(`GM 给用户 ${userId} 批量发放：${granted.join(', ')}`);
+    return `已向用户 ${userId} 发放 ${granted.join('、')}`;
   }
 
   /** GM 可修改的玩家字段白名单 */

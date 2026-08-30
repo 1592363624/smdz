@@ -13,8 +13,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:data": "ts-node prisma/seed-data.ts",
-    "seed:import-all": "ts-node prisma/seed-import-all.ts",
-    "seed:all": "ts-node prisma/seed.ts && ts-node prisma/seed-data.ts && ts-node prisma/seed-import-all.ts",
+    "seed:all": "ts-node prisma/seed.ts && ts-node prisma/seed-data.ts",
     "test": "jest --runInBand",
     "test:watch": "jest --watch"
   },
@@ -42,7 +41,7 @@
     "socket.io": "^4.8.1"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts && ts-node prisma/seed-data.ts && ts-node prisma/seed-import-all.ts"
+    "seed": "ts-node prisma/seed.ts && ts-node prisma/seed-data.ts"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",

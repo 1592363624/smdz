@@ -181,9 +181,6 @@
                 <th class="sortable" :class="sortClass('location')" @click="handleSort('location')">
                   <span>位置</span><i class="sort-icon"></i>
                 </th>
-                <th class="sortable" :class="sortClass('lastActiveAt')" @click="handleSort('lastActiveAt')">
-                  <span>最后活跃</span><i class="sort-icon"></i>
-                </th>
                 <th class="sortable" :class="sortClass('lastLoginAt')" @click="handleSort('lastLoginAt')">
                   <span>最后登录</span><i class="sort-icon"></i>
                 </th>
@@ -244,7 +241,6 @@
                   <span v-if="u.player?.location" class="player-tag loc">{{ u.player.location }}</span>
                   <span v-else class="muted">-</span>
                 </td>
-                <td class="time-cell">{{ formatTime(u.lastActiveAt) || '从未' }}</td>
                 <td class="time-cell">
                   <div>{{ formatTime(u.lastLoginAt) || '从未' }}</div>
                   <div class="time-sub">{{ u.loginCount ?? 0 }} 次</div>
@@ -344,22 +340,51 @@
         </div>
 
         <div class="gm-tools">
-          <!-- 发放物品 -->
+          <!-- 发放物品：目标玩家搜索点选 + 物品目录多选（带数量），避免手输名称出错 -->
           <div class="gm-tool-card">
             <h3>🎁 发放物品</h3>
             <div class="gm-field">
-              <label>目标玩家（用户名或ID）</label>
-              <input v-model="gmGiveItem.target" placeholder="输入玩家用户名或ID" />
+              <label>目标玩家（输入关键词搜索后点选）</label>
+              <div v-if="gmGiveItem.player" class="picker-chip">
+                <span class="picker-chip-name">
+                  {{ gmGiveItem.player.nickname || gmGiveItem.player.username }}
+                  <i class="picker-chip-sub">#{{ gmGiveItem.player.id }}<template v-if="gmGiveItem.player.player?.name"> · {{ gmGiveItem.player.player.name }}</template></i>
+                </span>
+                <button class="picker-chip-x" title="重新选择" @click="gmGiveItem.player = null">✕</button>
+              </div>
+              <div v-else class="picker-box">
+                <input v-model="playerQuery" placeholder="输入用户名/昵称/QQ号筛选" @input="searchPlayers" @focus="playerDropdown = true" @blur="playerDropdown = false" />
+                <ul v-if="playerDropdown" class="picker-menu">
+                  <li v-for="p in playerOptions" :key="p.id" @mousedown.prevent="choosePlayer(p)">
+                    <span class="picker-menu-name">{{ p.nickname || p.username }}</span>
+                    <span class="picker-menu-sub">{{ p.username }}<template v-if="p.player?.name"> · {{ p.player.name }}</template> · #{{ p.id }}</span>
+                  </li>
+                  <li v-if="playerSearched && !playerOptions.length" class="picker-empty">未找到匹配玩家</li>
+                  <li v-else-if="!playerSearched" class="picker-empty">输入关键词开始搜索</li>
+                </ul>
+              </div>
             </div>
             <div class="gm-field">
-              <label>物品名称</label>
-              <input v-model="gmGiveItem.itemName" placeholder="如：铁剑、治疗药水" />
+              <label>选择物品（输入关键词筛选，可连续添加多个）</label>
+              <div class="picker-box">
+                <input v-model="itemQuery" placeholder="输入物品或装备名称筛选" @focus="itemMenuOpen = true" @blur="itemMenuOpen = false" />
+                <ul v-if="itemMenuOpen" class="picker-menu">
+                  <li v-for="it in filteredCatalog" :key="it.category + it.name" @mousedown.prevent="addGiveItem(it)">
+                    <span class="picker-menu-name">{{ it.name }}</span>
+                    <span class="picker-menu-sub">{{ it.category }}</span>
+                  </li>
+                  <li v-if="!filteredCatalog.length" class="picker-empty">{{ itemCatalog.length ? '没有匹配的物品' : '物品目录加载中…' }}</li>
+                </ul>
+              </div>
+              <div v-if="gmGiveItem.items.length" class="picked-list">
+                <div v-for="(sel, idx) in gmGiveItem.items" :key="sel.name" class="picked-item">
+                  <span class="picked-name">{{ sel.name }}<i class="picked-cat">{{ sel.category }}</i></span>
+                  <input v-model.number="sel.count" class="picked-qty" type="number" min="1" title="数量" />
+                  <button class="picked-remove" title="移除" @click="gmGiveItem.items.splice(idx, 1)">✕</button>
+                </div>
+              </div>
             </div>
-            <div class="gm-field">
-              <label>数量</label>
-              <input v-model.number="gmGiveItem.quantity" type="number" min="1" value="1" />
-            </div>
-            <button class="gm-btn success" @click="doGiveItem" :disabled="gmLoading">发放物品</button>
+            <button class="gm-btn success" :disabled="gmLoading || !canGiveItems" @click="doGiveItem">发放物品</button>
             <p v-if="gmGiveItem.result" class="gm-result">{{ gmGiveItem.result }}</p>
           </div>
 
@@ -537,7 +562,6 @@ const sortableColumns = [
   { field: 'level', label: '等级' },
   { field: 'playerName', label: '角色名' },
   { field: 'location', label: '位置' },
-  { field: 'lastActiveAt', label: '最后活跃' },
   { field: 'lastLoginAt', label: '最后登录' },
   { field: 'loginCount', label: '登录次数' },
 ];
@@ -848,12 +872,120 @@ function formatDuration(seconds) {
 // ---- GM 工具 ----
 const gmLoading = ref(false);
 
+// ---- GM 发放物品：玩家搜索点选 + 物品目录多选 ----
 const gmGiveItem = ref({
-  target: '',
-  itemName: '',
-  quantity: 1,
+  player: null, // 选中的目标用户 { id, username, nickname, player }
+  items: [], // 已选物品 [{ name, category, count }]
   result: '',
 });
+
+// 目标玩家搜索（复用用户列表接口，输入即搜、点选即定）
+const playerQuery = ref('');
+const playerOptions = ref([]);
+const playerDropdown = ref(false);
+const playerSearched = ref(false);
+let playerSearchTimer = null;
+
+/** 玩家关键词防抖搜索 */
+function searchPlayers() {
+  clearTimeout(playerSearchTimer);
+  const kw = playerQuery.value.trim();
+  if (!kw) {
+    playerOptions.value = [];
+    playerSearched.value = false;
+    return;
+  }
+  playerSearchTimer = setTimeout(async () => {
+    try {
+      const res = await adminApi.listUsers({ page: 1, pageSize: 10, keyword: kw });
+      playerOptions.value = res.data.list || [];
+      playerSearched.value = true;
+      playerDropdown.value = true;
+    } catch {
+      playerOptions.value = [];
+      playerSearched.value = true;
+    }
+  }, 250);
+}
+
+/** 点选目标玩家后收起候选列表 */
+function choosePlayer(p) {
+  gmGiveItem.value.player = p;
+  playerQuery.value = '';
+  playerOptions.value = [];
+  playerSearched.value = false;
+  playerDropdown.value = false;
+}
+
+// 物品目录（进入 GM 页时懒加载一次）：[{ name, category }]
+const itemCatalog = ref([]);
+const itemCatalogLoaded = ref(false);
+const itemQuery = ref('');
+const itemMenuOpen = ref(false);
+
+/** 按关键词筛选目录，最多展示 30 条避免列表过长 */
+const filteredCatalog = computed(() => {
+  const kw = itemQuery.value.trim().toLowerCase();
+  const pool = kw
+    ? itemCatalog.value.filter((i) => i.name.toLowerCase().includes(kw))
+    : itemCatalog.value;
+  return pool.slice(0, 30);
+});
+
+async function loadItemCatalog() {
+  if (itemCatalogLoaded.value) return;
+  try {
+    const res = await adminApi.gmCatalog();
+    itemCatalog.value = res.data.items || [];
+    itemCatalogLoaded.value = true;
+  } catch {
+    // 目录加载失败时保留空列表，下次切到 GM 页会重试
+    itemCatalogLoaded.value = false;
+  }
+}
+
+// 进入 GM 工具页时懒加载物品目录
+watch(tab, (t) => {
+  if (t === 'gm') loadItemCatalog();
+});
+
+/** 点选物品加入已选列表（重复添加只追加数量） */
+function addGiveItem(it) {
+  const existing = gmGiveItem.value.items.find((s) => s.name === it.name);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    gmGiveItem.value.items.push({ name: it.name, category: it.category, count: 1 });
+  }
+  itemQuery.value = '';
+}
+
+/** 是否可提交发放：已选目标玩家且至少一个物品、数量均有效 */
+const canGiveItems = computed(
+  () =>
+    !!gmGiveItem.value.player &&
+    gmGiveItem.value.items.length > 0 &&
+    gmGiveItem.value.items.every((s) => Number(s.count) >= 1),
+);
+
+async function doGiveItem() {
+  const g = gmGiveItem.value;
+  if (!g.player || !g.items.length) return;
+  gmLoading.value = true;
+  try {
+    const res = await adminApi.giveItem({
+      userId: g.player.id,
+      items: g.items.map((s) => ({ itemName: s.name, count: Math.max(1, Math.floor(Number(s.count) || 1)) })),
+    });
+    g.result = res.data?.message || res.message || '发放成功！';
+    g.items = [];
+    setTimeout(() => (g.result = ''), 5000);
+  } catch (e) {
+    g.result = '发放失败：' + (e.response?.data?.message || e.message);
+  } finally {
+    gmLoading.value = false;
+  }
+}
 
 // ---- GM 修改玩家属性 ----
 // 可修改字段（与后端白名单一致）
@@ -954,24 +1086,6 @@ async function onAnnImagesSelected(e) {
     alert('上传公告配图失败：' + (err.response?.data?.message || err.message));
   } finally {
     annUploading.value = false;
-  }
-}
-
-async function doGiveItem() {
-  if (!gmGiveItem.value.target || !gmGiveItem.value.itemName) return;
-  gmLoading.value = true;
-  try {
-    const res = await adminApi.giveItem({
-      target: gmGiveItem.value.target,
-      itemName: gmGiveItem.value.itemName,
-      quantity: gmGiveItem.value.quantity || 1,
-    });
-    gmGiveItem.value.result = res.message || '发放成功！';
-    setTimeout(() => (gmGiveItem.value.result = ''), 3000);
-  } catch (e) {
-    gmGiveItem.value.result = '发放失败：' + (e.response?.data?.message || e.message);
-  } finally {
-    gmLoading.value = false;
   }
 }
 
@@ -1157,6 +1271,131 @@ onMounted(async () => {
 }
 .reset-all-btn {
   margin-left: 12px;
+}
+
+/* ===== GM 发放物品：搜索选择器与已选物品列表 ===== */
+.picker-box {
+  position: relative;
+}
+.picker-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--card, rgba(16, 16, 32, 0.98));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.picker-menu li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text, #e5e7eb);
+}
+.picker-menu li:hover {
+  background: rgba(139, 92, 246, 0.18);
+}
+.picker-menu-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picker-menu-sub {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted, #9ca3af);
+}
+.picker-empty {
+  justify-content: center;
+  color: var(--muted, #9ca3af);
+  cursor: default;
+}
+.picker-empty:hover {
+  background: transparent;
+}
+.picker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 18px;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: var(--text, #e5e7eb);
+  font-size: 13px;
+}
+.picker-chip-sub {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted, #9ca3af);
+}
+.picker-chip-x {
+  border: none;
+  background: transparent;
+  color: var(--muted, #9ca3af);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.picker-chip-x:hover {
+  color: #f87171;
+}
+.picked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.picked-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+}
+.picked-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text, #e5e7eb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picked-cat {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted, #9ca3af);
+  margin-left: 6px;
+}
+.picked-qty {
+  width: 70px;
+  padding: 2px 6px;
+  font-size: 13px;
+}
+.picked-remove {
+  border: none;
+  background: transparent;
+  color: var(--muted, #9ca3af);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.picked-remove:hover {
+  color: #f87171;
 }
 
 /* ===== 详情 / 编辑弹窗 ===== */

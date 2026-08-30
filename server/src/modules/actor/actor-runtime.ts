@@ -182,10 +182,14 @@ export class ActorRuntime implements OnModuleDestroy {
 
     // 可重入：已在该实体 Actor 内（如跨实体协调者嵌套，或业务在 run 内再 enqueueUserWrite
     // 同一玩家），直接执行，避免自死锁。落库由最外层 run 负责。
+    // 注意 cell 可能已被 invalidate 删除（非邮箱路径落库后的缓存失效）：此时不能
+    // ensureCell 重建——重建会造出第二条并行邮箱链破坏串行语义，也可能拿到未激活
+    // 的 cell。这里纯透传（state 为 undefined），由业务内的 getPlayerData 落回 DB
+    // 读档、savePlayer 落回普通整包写，正确性由「读写都不假装有内存态」保证。
     if (this.als.getStore() === key) {
-      const cell = this.cells.get(key)!;
-      cell.lastUsed = Date.now();
-      return fn(cell.state as S);
+      const cell = this.cells.get(key);
+      if (cell) cell.lastUsed = Date.now();
+      return fn(cell?.state as S);
     }
 
     const cell = this.ensureCell(key, type, id);
