@@ -449,9 +449,15 @@ export class PlayerService implements OnModuleInit {
    * 读路径（getPlayerData）与写路径（savePlayer）统一调用，保证任何时刻内存中的
    * name 都是派生态；改名/佩戴称号等写方需更新 baseName/titles 后调用本方法，
    * 使同一条指令的回复文本立即用上新显示名。
+   *
+   * 仅对 baseName 非空的行派生：baseName='' 意味着「未选使魔」或「绕过
+   * 选择/改名流程直接建档的行（测试桩/旧数据）」，这类行保持 name 原值不动，
+   * 既避免把直接建档的显示名抹成空串，也杜绝从 name 反推导致的后缀叠加。
+   * 真实玩家档案的 baseName 由存量回填与选择/改名写路径保证非空。
    */
   refreshDisplayName(player: any): void {
     if (!player || typeof player !== 'object' || Array.isArray(player)) return;
+    if (!player.baseName) return;
     player.name = deriveDisplayName(player);
   }
 
@@ -584,11 +590,9 @@ export class PlayerService implements OnModuleInit {
     // 不依赖调用方记得调用 addExp——这是不变量级别的收口，而非约定级别。
     // 注意：必须在序列化前执行，升级重算的属性字段才会随本次保存一并写入。
     this.applyLevelUps(player);
-    // 派生显示名收口：仅对完整行重算（baseName/titles 齐备）。局部写对象
-    // {id, markers} 不含这些字段，重算会把 name 抹成空串，必须跳过。
-    if (player.baseName !== undefined && player.titles !== undefined) {
-      this.refreshDisplayName(player);
-    }
+    // 派生显示名收口：refreshDisplayName 内部只对 baseName 非空的完整行派生，
+    // 局部写对象 {id, markers} 与未选使魔/直接建档的行自动跳过。
+    this.refreshDisplayName(player);
     await this.persistPlayer(player);
     // 非 Actor 路径落库后，使该玩家 Actor 缓存失效，避免陈旧内存态被后续
     // enqueueUserWrite 复用并覆盖本次落库结果（正确性，见 getPlayerData 注释）。
