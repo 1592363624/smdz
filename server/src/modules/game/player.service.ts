@@ -4,7 +4,7 @@
  * 负责玩家的创建、读取、保存、等级管理、背包操作、标记系统等功能
  */
 
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
@@ -12,6 +12,7 @@ import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
 import { filterActive } from './expire-time.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
+import { ActorRuntime, actorKey } from '../actor';
 
 /**
  * 玩家数据完整解析后的结构
@@ -30,7 +31,7 @@ export interface PlayerData {
 }
 
 @Injectable()
-export class PlayerService {
+export class PlayerService implements OnModuleInit {
   private readonly logger = new Logger(PlayerService.name);
   /** 同一玩家的串行邮箱（Actor 收件箱）：key=userId，值=队列尾 Promise。
    *  这不是互斥锁，而是一条 Promise 链——同一玩家的所有写操作被串到前一个
@@ -57,6 +58,10 @@ export class PlayerService {
      * 拿不到时自动退回原有的独立读档保存路径，行为完全不变。
      */
     @Optional() private readonly mutateContext?: PlayerMutateContextService,
+    /** Actor 运行时（可选依赖）。注入后 enqueueUserWrite/getPlayerData/savePlayer 走
+     *  单进程 Actor 层（内存态 + 串行 + 无锁无 CAS）；未注入（存量测试桩手工 new）时
+     *  退回原有 userMailboxes 实现，行为完全不变。 */
+    @Optional() private readonly actorRuntime?: ActorRuntime,
   ) {}
 
   /**
@@ -77,6 +82,15 @@ export class PlayerService {
   enqueueUserWrite<T>(userId: number, fn: () => Promise<T>): Promise<T> {
     if (!userId || !Number.isFinite(userId)) return fn();
 
+    // 已接入 Actor 运行时：委托给单进程 Actor 层（内存态 + 串行邮箱 + 无锁无 CAS）。
+    // 同玩家写操作经 actorRuntime.run('player', userId) 串到同一邮箱链，内部
+    // getPlayerData/savePlayer 走内存态缓存，写后由运行时统一落库。
+    if (this.actorRuntime) {
+      return this.actorRuntime.run<T, T>('player', userId, async () => fn());
+    }
+
+    // 兼容路径（未注入 ActorRuntime，如存量测试桩手工 new PlayerService）：沿用原
+    // userMailboxes 实现，行为完全不变。
     // 可重入：同一条异步链已持有该用户的邮箱时不再排队，防止 A→B→A 自死锁。
     const held = this.mailboxContext.getStore();
     if (held === userId) return fn();
@@ -99,6 +113,18 @@ export class PlayerService {
         if (this.userMailboxes.get(userId) === gate) this.userMailboxes.delete(userId);
       }
     })();
+  }
+
+  /** 模块初始化：把玩家注册为 Actor 类型（仅当运行时被注入时）。
+   *  load = getPlayerData（载入并归一化），save = persistPlayer（落库，非 Actor 感知，
+   *  不会递归回 Actor 分支）；策略 writeThrough 保证每次写后落库，行为与旧 savePlayer 一致。 */
+  async onModuleInit(): Promise<void> {
+    if (!this.actorRuntime || this.actorRuntime.hasType('player')) return;
+    this.actorRuntime.registerType('player', {
+      load: (id) => this.getPlayerData(Number(id)),
+      save: (_id, state) => this.persistPlayer((state as PlayerData).player),
+      persist: 'writeThrough',
+    });
   }
 
   /** 升级通知队列：userId → 待展示文本（applyLevelUps 入队，指令收尾排水）。 */
@@ -287,6 +313,13 @@ export class PlayerService {
     // 不再重读库、不再重解析（避免拿到过期快照派生第二份数据，进而整包覆盖外层改动）。
     const ctx = this.mutateContext?.currentFor(userId);
     if (ctx) return ctx as unknown as PlayerData;
+    // Actor 内：直接返回已激活的内存态（激活时已完成 load + 标记归一化 + 货币物化），
+    // 避免同一条异步链重复打库；激活过程中 cell.state 尚为空，peek 返回 undefined 会
+    // 自然落到下方 DB 载入路径，不会递归。
+    if (this.actorRuntime) {
+      const cached = this.actorRuntime.peek('player', userId);
+      if (cached) return cached as PlayerData;
+    }
     const player = await this.getOrCreatePlayer(userId);
 
     // 自动修复存量玩家无效地图（mapId=0 或不存在的地图）
@@ -408,12 +441,36 @@ export class PlayerService {
       (ctx as any).__mutateDirty = true;
       return;
     }
+    // Actor 内：直接改内存态并标脏，落库交给 ActorRuntime 按策略（writeThrough 每次写后）
+    // 统一执行。这样同玩家多次写操作复用同一份内存态，不再每条都打库；串行化由
+    // Actor 邮箱保证，天然无锁无 CAS。
+    if (this.actorRuntime) {
+      const ak = this.actorRuntime.currentActorKey();
+      const expected = actorKey('player', (player.userId ?? player.id));
+      if (ak === expected) {
+        this.applyLevelUps(player);
+        Object.assign(player, this.buildPlayerUpdateData(player));
+        const snapshotVersion = Number(player.version ?? 0);
+        player.version = snapshotVersion + 1; // 与 $use 中间件自增保持一致
+        this.actorRuntime.markDirty();
+        return;
+      }
+    }
+
     // 经验归一化门禁：落库前强制保证 exp < 当前等级门槛。任何直写 player.exp
     // 的路径（挤奶青龙奖励/躺下离线经验/掉落经验/GM 改面板）都在这里被统一结算，
     // 不依赖调用方记得调用 addExp——这是不变量级别的收口，而非约定级别。
     // 注意：必须在序列化前执行，升级重算的属性字段才会随本次保存一并写入。
     this.applyLevelUps(player);
+    await this.persistPlayer(player);
+  }
 
+  /**
+   * 计算写入玩家表的字段集合（JSON 字段序列化 + 标量字段拷贝 + 货币列提取）。
+   * 纯函数式：只读 player、返回 updateData，不触发落库、不触碰 Actor 状态。
+   * savePlayer 的非 Actor 路径与 Actor 运行时 config.save 都复用它，避免两套逻辑。
+   */
+  private buildPlayerUpdateData(player: any): any {
     // 提取需要序列化的 JSON 字段，确保它们以字符串形式存储
     const jsonFields = [
       'backpack', 'equipment', 'weapons', 'markers', 'markers2',
@@ -497,14 +554,17 @@ export class PlayerService {
       }
     }
 
-    // 纯 Actor 单写者：所有同用户写路径都已串行化（PlayerService 的 per-user
-    // 串行邮箱，见 enqueueUserWrite），同用户不存在并发写。version 仅由 Prisma
-    // $use 中间件自增（见 prisma.service.ts），用于审计/增量重放，不再做 CAS
-    // 冲突判定，即不再抛出「玩家数据并发冲突，请重试」。
-    // 若未来出现绕过邮箱的裸写导致版本过期，这里按最新库状态安静覆盖；
-    // 该裸写本身也应入队，故不会造成整包覆盖/丢失更新。
-    const snapshotVersion = Number(player.version ?? 0);
+    return updateData;
+  }
 
+  /**
+   * 真正的落库动作（非 Actor 感知，必由「不在 Actor 内」的路径调用）：
+   * 普通 savePlayer 路径、以及 Actor 运行时 config.save 的写后落库都走这里，
+   * 因此不会递归进入 Actor 分支。version 仅由 $use 中间件自增，不再做 CAS 冲突判定。
+   */
+  private async persistPlayer(player: any): Promise<void> {
+    const updateData = this.buildPlayerUpdateData(player);
+    const snapshotVersion = Number(player.version ?? 0);
     await this.prisma.player.update({
       where: { id: player.id },
       data: updateData, // $use 中间件自动 version: { increment: 1 }

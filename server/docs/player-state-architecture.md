@@ -100,3 +100,23 @@ savePlayer })`，与指令、后台结算共享同一串行邮箱，达成全量
   卡在教程文案内容断言（环境相关），与并发修复无关。注：`exp-normalize` / `save-player-cas` 的
   Prisma 桩已同步改为模拟 `$use` 中间件自增 version（不再模拟旧 CAS），`architecture-guard`
   基线 217→219。
+
+## 6. 通用 Actor 运行时（单进程内、全部有状态实体）
+
+玩家的 `enqueueUserWrite` 串行邮箱只是「每实体一个 Actor」在玩家身上的特例。现已将其泛化为
+**通用 Actor 运行时**：玩家 / 怪物 / 地图 / 载具 / 商店物品等一切有独立状态表的实体，都注册成
+`type:id` 唯一键的 Actor，统一享有「私有内存态 + 串行邮箱 + 单激活 + 异步落库」。
+
+- 玩家由 `PlayerService.onModuleInit` 注册 `'player'`（复用 `getPlayerData` / `persistPlayer`），
+  且 `enqueueUserWrite` 直接委托 `actorRuntime.run('player', userId, …)`。
+- 怪物/地图/载具/商店物品由 `registerBuiltinActorTypes(runtime, prisma)` 在
+  `ActorModule.onModuleInit` 时注册（见 `src/modules/actor/actor.module.ts`）。
+- `ActorRuntime` 作为 `@Global` 单例提供，任意服务可直接注入并通过 `run / tell / ask / coordinate`
+  以纯 Actor 语义访问任意实体；`PersistPolicy` 支持 `writeThrough`（每次写后落库）与 `deferred`
+  （仅标脏、周期/停用/驱逐落库）；`coordinate` 用字典序确定性排序打破跨实体死锁环路。
+- 串行化仍靠 **Promise 链（非 Mutex）**，因此**无锁、无 CAS**；version 仅由 `$use` 中间件自增
+  供审计/增量重放，不在 Actor 层做冲突判定。
+
+> 完整设计、模块布局、生命周期、跨实体协调者与边界见 **`docs/actor-runtime.md`**。
+> 单元测试见 `test/actor-runtime.spec.ts`（串行执行 / 单激活 / peek 缓存命中 / 策略落库 /
+> LRU 驱逐 / coordinate 防死锁）。
