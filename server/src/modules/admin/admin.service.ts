@@ -739,24 +739,118 @@ export class AdminService {
   /**
    * 给玩家发送物品（GM命令）
    * 调用 PlayerService 向玩家背包中添加物品
+   * @param operatorId 操作者用户ID（可选；提供时发放成功后向目标玩家私聊推送本次操作与物品明细）
    * @returns 操作结果文本
    */
-  async gmGiveItem(userId: number, itemName: string, count: number): Promise<string> {
+  async gmGiveItem(
+    userId: number,
+    itemName: string,
+    count: number,
+    operatorId?: number,
+  ): Promise<string> {
     const success = await this.playerService.addToBackpack(userId, itemName, count);
     if (!success) {
       throw new Error('物品发送失败，请检查用户ID和物品名称');
     }
     this.logger.log(`GM 给用户 ${userId} 发放了 ${count} 个 ${itemName}`);
+    // 发放成功后给目标玩家私聊推送本次发放信息
+    await this.sendGrantNotice(operatorId, userId, [{ itemName, count }]);
     return `已向用户 ${userId} 发放 ${count} 个 ${itemName}`;
   }
 
   /**
    * GM 按目标标识发放物品（后台网页用）
    * @param target 用户名/昵称/QQ号/用户ID
+   * @param operatorId 操作者用户ID（可选，用于发放后的私聊通知）
    */
-  async gmGiveItemToTarget(target: string | number, itemName: string, count: number): Promise<string> {
+  async gmGiveItemToTarget(
+    target: string | number,
+    itemName: string,
+    count: number,
+    operatorId?: number,
+  ): Promise<string> {
     const user = await this.resolveUserTarget(target);
-    return this.gmGiveItem(user.id, itemName, count);
+    return this.gmGiveItem(user.id, itemName, count, operatorId);
+  }
+
+  /**
+   * 读取指定玩家的背包物品列表（解析 JSON 数组）
+   * 供 GM 后台"背包管理"使用：把背包里所有物品完整解析出来，供前端编辑/增删。
+   * @param userId 目标用户ID
+   * @returns 背包物品数组（每条含 name/count/quantity/type/durability/data 等原始字段）
+   */
+  async gmGetBackpack(userId: number): Promise<any[]> {
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (!player) {
+      throw new NotFoundException('该用户还没有创建游戏角色');
+    }
+    return this.playerService.getBackpackItems(player);
+  }
+
+  /**
+   * 整体保存玩家背包（GM 后台"背包管理"）
+   * 前端把编辑/增/删后的完整物品数组传回，服务端做名称与数量校验后整体写回。
+   * 相同名称条目自动合并数量；数量为 0 的条目视为删除。
+   * 写入走 per-user 串行邮箱，与玩家自身操作无并发冲突。
+   * @param userId 目标用户ID
+   * @param items 背包物品数组（{ name, quantity/count, type?, durability?, data? }）
+   * @returns 操作结果文本
+   */
+  async gmSaveBackpack(
+    userId: number,
+    items: any[],
+  ): Promise<string> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('用户不存在');
+
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (!player) throw new NotFoundException('该用户还没有创建游戏角色');
+
+    if (!Array.isArray(items)) {
+      throw new BadRequestException('背包数据必须是数组');
+    }
+
+    // 归一化：① 同名合并数量 ② 统一写入 count、清理量歧义字段 quantity
+    // ③ 保留首次出现的 type/durability/data 等原字段 ④ 数量<=0 视为删除
+    const merged = new Map<string, any>();
+    for (const raw of items) {
+      if (!raw || typeof raw !== 'object') continue;
+      const name = String(raw.name ?? '').trim();
+      if (!name) continue;
+      // 数量允许小数（掉落经 rewardMultiplier 放大后可能产生小数），不做取整以免改数值
+      const qty = Number(raw.quantity ?? raw.count ?? 1);
+      if (!Number.isFinite(qty) || qty < 0) {
+        throw new BadRequestException(`物品「${name}」的数量必须是非负数字`);
+      }
+      const existed = merged.get(name);
+      if (existed) {
+        existed.count = Number(existed.count ?? 0) + qty;
+      } else {
+        // 构造标准条目：去 quantity 歧义字段，保留其余投影白名单字段与额外字段
+        const item: any = { name, count: qty };
+        for (const k of ['type', 'durability', 'data', 'slot']) {
+          if (raw[k] !== undefined && raw[k] !== null) item[k] = raw[k];
+        }
+        // 保留自定义/未知字段（如装备附魔等前端可能透传的字段）
+        for (const [k, v] of Object.entries(raw)) {
+          if (!(k in item) && k !== 'quantity') item[k] = v;
+        }
+        merged.set(name, item);
+      }
+    }
+    // 删除数量<=0 的条目（即前端删除操作的结果）
+    const backpack = [...merged.values()].filter((i) => (i.count ?? 0) > 0);
+
+    // 写入走用户串行邮箱，避免与玩家其他写操作并发覆盖
+    await this.playerService.enqueueUserWrite(userId, async () => {
+      const _pd = await this.playerService.getPlayerData(userId);
+      Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+      await this.playerService.savePlayer(_pd.player);
+    });
+    this.logger.log(`GM 保存了用户 ${userId} (${user.username}) 的背包：${backpack.length} 种物品`);
+
+    // UI 同步：上方 update 落库后由 Prisma 拦截器自动推送该玩家面板（GM 改动即时生效）
+    return `已保存 ${user.username} 的背包（${backpack.length} 种物品）`;
   }
 
   /**
@@ -785,8 +879,13 @@ export class AdminService {
    * 名称先按目录校验，防止手输错误名称产生无效物品。
    * @param userId 目标用户ID
    * @param items 物品列表 [{ itemName, count }]
+   * @param operatorId 操作者用户ID（可选；提供时发放成功后向目标玩家私聊推送本次操作与物品明细）
    */
-  async gmGiveItemBatch(userId: number, items: Array<{ itemName: string; count?: number }>): Promise<string> {
+  async gmGiveItemBatch(
+    userId: number,
+    items: Array<{ itemName: string; count?: number }>,
+    operatorId?: number,
+  ): Promise<string> {
     const validNames = new Set(this.getGmItemCatalog().map((i) => i.name));
     const invalid = items
       .map((i) => String(i?.itemName ?? '').trim())
@@ -806,7 +905,53 @@ export class AdminService {
       granted.push(`${name}×${count}`);
     }
     this.logger.log(`GM 给用户 ${userId} 批量发放：${granted.join(', ')}`);
+    // 发放成功后给目标玩家私聊推送本次发放信息
+    await this.sendGrantNotice(operatorId, userId, items);
     return `已向用户 ${userId} 发放 ${granted.join('、')}`;
+  }
+
+  /**
+   * GM 发放成功后向目标玩家私聊推送本次操作与详细物品信息
+   * 发送者=操作者(GM)，接收者=目标玩家；仅当有操作者且非发放给自己时发送。
+   * 私聊推送失败不影响发放主链路（发放已成功落库）。
+   * @param operatorId 操作者用户ID（无则跳过）
+   * @param targetUserId 目标玩家用户ID
+   * @param granted 本次发放的物品列表 [{ itemName, count }]
+   */
+  private async sendGrantNotice(
+    operatorId: number | undefined,
+    targetUserId: number,
+    granted: Array<{ itemName: string; count?: number }>,
+  ): Promise<void> {
+    // 非 HTTP 调用（如游戏内指令）没有操作者，或发放给操作者自己时不发私聊
+    if (!operatorId || operatorId === targetUserId || !granted?.length) return;
+    try {
+      const lines: string[] = [];
+      for (const g of granted) {
+        const name = String(g?.itemName ?? '').trim();
+        const count = Math.max(1, Math.floor(Number(g?.count) || 1));
+        if (!name) continue;
+        // 取详细信息（物品/装备），拼装"名称 ×数量（类型）+ 描述"
+        const detail =
+          this.staticData.getItemByName(name) || this.staticData.getEquipmentByName(name);
+        const type = String(detail?.type ?? detail?.equipType ?? '物品');
+        const desc = String(detail?.description ?? '').trim();
+        lines.push(`· ${name} ×${count}（${type}）${desc ? `#换行　${desc}` : ''}`);
+      }
+      if (!lines.length) return;
+      const content = [
+        '📦【GM 发放通知】',
+        `运营团队已向你的背包发放 ${lines.length} 种物品：`,
+        ...lines,
+        '请注意查收！',
+      ].join('#换行');
+      // 发送者为操作者(账号即表现为 GM)，接收者为目标玩家
+      await this.chatService.sendPrivateMessage(operatorId, targetUserId, content);
+      this.logger.log(`GM(${operatorId}) 向用户 ${targetUserId} 私聊推送发放通知`);
+    } catch (e: any) {
+      // 私聊通知失败（如收发方异常）不影响发放主链路，仅记录日志
+      this.logger.warn(`GM 发放私聊通知失败: ${e?.message}`);
+    }
   }
 
   /** GM 可修改的玩家字段白名单 */

@@ -149,6 +149,10 @@ export const adminApi = {
   gmCatalog: () => http.get('/admin/gm/catalog'),
   // GM 工具：修改玩家属性(白名单字段)
   modifyPlayer: (data) => http.post('/admin/gm/modify-player', data),
+  // GM 工具：读取玩家背包(解析全部物品)
+  getBackpack: (userId) => http.get('/admin/gm/backpack', { params: { userId } }),
+  // GM 工具：保存玩家背包(编辑数量/增删)
+  saveBackpack: (data) => http.post('/admin/gm/backpack/save', data),
   // GM 工具：设置世界等级
   setWorldLevel: (level) => http.post('/admin/gm/world-level', { level }),
   // GM 工具：发送全服公告

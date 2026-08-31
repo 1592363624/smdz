@@ -17,15 +17,21 @@
      直接转发；发送「使魔大战关」恢复按上面 1-3 的配置触发。状态按
      「会话+用户」记录并持久化，只对开启者本人生效，既能沉浸游玩，又不会
      把同群其他用户的聊天误转成游戏指令。
+- 延时完成推送（采集完成/移动到达等）：插件用 Socket.IO 长连接（botToken 握手）
+  订阅后端 /ws 的 bot 房间；玩家转发指令时记录 QQ→会话来源 映射，后端延时任务
+  结算广播（broadcastSystem）时会向 bot 房间推 bot:push 事件，插件据此把
+  「伊卡洛斯采集完成，获得铁矿×2」这类消息主动回推到玩家最后使用的会话。
 """
 
 import asyncio
+import contextlib
 
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star
 from astrbot.api import AstrBotConfig, logger
 
 import aiohttp
+import socketio
 
 
 class SmdzBridgePlugin(Star):
@@ -40,6 +46,10 @@ class SmdzBridgePlugin(Star):
     _IMMERSIVE_OFF_PHRASE = "使魔大战关"
     # 沉浸模式状态在 KV 存储中的键名（跨重启持久化）
     _IMMERSIVE_KV_KEY = "immersive_users"
+    # QQ→会话来源 映射的 KV 键名（跨重启持久化，用于延时完成推送回推到正确会话）
+    _ORIGIN_KV_KEY = "qq_command_origins"
+    # 后端 Socket.IO 命名空间（与后端 ChatGateway @WebSocketGateway(namespace) 一致）
+    _WS_NAMESPACE = "/ws"
 
     def __init__(self, context: Context, config: AstrBotConfig):
         """插件初始化：读取配置项，准备桥接所需参数。
@@ -73,6 +83,18 @@ class SmdzBridgePlugin(Star):
         # 聊天误转成游戏指令；首次使用时从 KV 存储懒加载，机器人重启后不丢。
         self._immersive_users: dict[str, set[str]] = {}
         self._immersive_loaded = False
+
+        # QQ→会话来源 映射：记录每个 QQ 最后一次发指令的 unified_msg_origin，
+        # 收到后端 bot:push（采集完成/移动到达等）时按它回推。首次使用时从
+        # KV 懒加载；仅在新 QQ 首次出现时才写 KV，避免每条指令都落盘。
+        self._origin_map: dict[str, str] = {}
+        self._origin_loaded = False
+        self._origin_save_task: asyncio.Task | None = None
+
+        # Socket.IO 长连接（bot 房间订阅）：首次转发指令时懒启动，
+        # 断线由 socketio 客户端自动重连；未启动/启动失败时下一条指令会重试。
+        self._sio: socketio.AsyncClient | None = None
+        self._sio_starting = False
 
         # 触发模式描述（用于初始化日志展示）
         if self.forward_all:
@@ -361,6 +383,92 @@ class SmdzBridgePlugin(Star):
         return f"✅ 已退出沉浸模式，恢复原有触发方式：/{self.command_name} <游戏指令>"
 
     # ------------------------------------------------------------------
+    # 延时完成推送：QQ→会话来源 映射 + bot 房间 Socket.IO 订阅
+    # ------------------------------------------------------------------
+    async def _load_origin_map(self) -> dict[str, str]:
+        """加载 QQ→会话来源 映射：首次访问从 KV 存储读取，之后走内存缓存。"""
+        if self._origin_loaded:
+            return self._origin_map
+        self._origin_loaded = True
+        try:
+            data = await self.get_kv_data(self._ORIGIN_KV_KEY, None)
+        except Exception as exc:
+            logger.warning(f"[使魔大战3桥接] 读取会话来源映射失败，本次运行内仅存于内存: {exc}")
+            return self._origin_map
+        if isinstance(data, dict):
+            self._origin_map = {str(k): str(v) for k, v in data.items() if v}
+        return self._origin_map
+
+    def _record_origin(self, qq_id: str, umo: str) -> None:
+        """记录/刷新 QQ 最后一次发指令的会话来源；新 QQ 出现时异步落盘 KV。"""
+        if not qq_id or not umo:
+            return
+        is_new = qq_id not in self._origin_map
+        self._origin_map[qq_id] = umo
+        if is_new and self._origin_save_task is None:
+            # 防抖：本轮事件循环里只安排一次保存，避免同批多条指令重复写 KV
+            self._origin_save_task = asyncio.create_task(self._flush_origin_map())
+
+    async def _flush_origin_map(self) -> None:
+        """把会话来源映射写入 KV 存储，机器人重启后映射不丢。"""
+        self._origin_save_task = None
+        try:
+            await self.put_kv_data(self._ORIGIN_KV_KEY, dict(self._origin_map))
+        except Exception as exc:
+            logger.warning(f"[使魔大战3桥接] 保存会话来源映射失败: {exc}")
+
+    async def _ensure_bot_socket(self) -> None:
+        """懒启动 bot 房间长连接：成功后由 socketio 自动重连保活。
+
+        后端 ChatGateway 以 auth.botToken 匹配 BOT_ACCESS_TOKEN 认证机器人，
+        认证通过加入 bot 房间，仅接收 bot:push 定向推送（不进世界频道）。
+        """
+        if self._sio and self._sio.connected:
+            return
+        if self._sio_starting or not self.bot_access_token:
+            return
+        self._sio_starting = True
+        try:
+            sio = socketio.AsyncClient(reconnection=True)
+            sio.on("bot:push", self._on_bot_push, namespace=self._WS_NAMESPACE)
+
+            @sio.event(namespace=self._WS_NAMESPACE)
+            async def connect():  # noqa: ANN001 - socketio 回调签名
+                logger.info("[使魔大战3桥接] bot 房间长连接已建立，延时完成推送已订阅")
+
+            @sio.event(namespace=self._WS_NAMESPACE)
+            async def disconnect():  # noqa: ANN001
+                logger.warning("[使魔大战3桥接] bot 房间长连接断开，将由客户端自动重连")
+
+            await sio.connect(
+                self.server_url,
+                auth={"botToken": self.bot_access_token},
+                namespaces=[self._WS_NAMESPACE],
+            )
+            self._sio = sio
+        except Exception as exc:
+            # 启动失败不打断指令链路：下一条消息会再次尝试建连
+            logger.warning(f"[使魔大战3桥接] bot 房间连接失败（稍后重试）: {exc}")
+            self._sio_starting = False
+
+    async def _on_bot_push(self, data: dict) -> None:
+        """收到后端 bot:push（采集完成/移动到达等）→ 回推到该 QQ 最后使用的会话。"""
+        try:
+            qq_id = str((data or {}).get("qqNumber") or "")
+            content = str((data or {}).get("content") or "")
+            if not qq_id or not content:
+                return
+            await self._load_origin_map()
+            umo = self._origin_map.get(qq_id, "")
+            if not umo:
+                # 该 QQ 从未在本机器人会话里发过指令：无回推目标，静默丢弃
+                return
+            import astrbot.api.message_components as Comp
+            await self.context.send_message(umo, MessageChain(chain=[Comp.Plain(content)]))
+        except Exception as exc:
+            logger.error(f"[使魔大战3桥接] 延时完成推送回推 QQ 失败: {exc}")
+
+    # ------------------------------------------------------------------
     # 私有工具方法
     # ------------------------------------------------------------------
     def _is_bot_self(self, event: AstrMessageEvent) -> bool:
@@ -469,6 +577,9 @@ class SmdzBridgePlugin(Star):
         openid = self._extract_bind_openid(game_command)
         if openid:
             qq_id = event.get_sender_id()
+            # 绑定后后端才知道 qqNumber→userId，延时完成推送从此可用，记录回推会话
+            self._record_origin(qq_id, event.unified_msg_origin)
+            await self._ensure_bot_socket()
             if not openid.isalnum() or len(openid) < 16:
                 yield event.plain_result("OpenID 格式不正确，请从网页端复制完整的 OpenID 后重试。")
                 event.stop_event()
@@ -479,6 +590,11 @@ class SmdzBridgePlugin(Star):
             return
 
         qq_id = event.get_sender_id()
+
+        # 记录该 QQ 最后使用的会话来源（供采集完成/移动到达等延时推送回推），
+        # 并确保 bot 房间长连接已建立（懒启动，失败不影响本条指令转发）。
+        self._record_origin(qq_id, event.unified_msg_origin)
+        await self._ensure_bot_socket()
 
         # 多行指令拆分：按行逐条转发、分次回复。
         # 典型场景：QQ 输入框换行发送多个编号数字（如 1/2/3 各占一行），
@@ -502,3 +618,11 @@ class SmdzBridgePlugin(Star):
         yield event.plain_result(content)
         # 阻断消息继续广播，防止其它插件对同一条指令再次响应
         event.stop_event()
+
+    async def terminate(self):
+        """插件卸载/停用时断开 bot 房间长连接，释放后端连接资源。"""
+        if self._sio:
+            with contextlib.suppress(Exception):
+                await self._sio.disconnect()
+            self._sio = None
+            self._sio_starting = False

@@ -705,7 +705,11 @@ export class ItemService {
    * @param count 使用数量，默认1；-1 表示使用全部（原版 使用数量<0 分支）
    * @returns 使用结果文本
    */
-  async useItem(userId: number, itemName: string, count: number = 1): Promise<string> {
+  async useItem(
+    userId: number,
+    itemName: string,
+    count: number = 1,
+  ): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const player = playerData.player as any;
     if (!player) return `玩家不存在`;
@@ -735,9 +739,10 @@ export class ItemService {
     if (!Number.isFinite(requestedCount) || requestedCount === 0) {
       return '使用数量必须是正整数';
     }
-    // L2245-2249：使用数量<0 → 使用全部；否则按指定数量
+    // L2245-2249：使用数量<0 → 使用全部，但必须先 取整(取物品数量(...))（原版 L2246，
+    // 箱子奖励可能带小数如 优秀武器补给箱x1.0353，原版只使用整数部分，余量保留在背包）
     let actualCount = requestedCount < 0
-      ? available
+      ? Math.max(0, Math.floor(available))
       : Math.min(Math.floor(requestedCount), available);
     if (actualCount <= 0) return '使用数量必须是正整数';
 
@@ -1044,13 +1049,13 @@ export class ItemService {
       return `[${idx + 1}]${eq.name}${qualityLetter}${effectName ? `【${effectName}】` : ''}`;
     }).join('、');
 
-    // 原版「打开箱子」(物品操作.ecode L2434-2446) 文本装配：
-    //   无装备(a=0)：得到了${w3}${w4}（不挂悬空的「和」）
-    //   有装备且 a>50：得到了${w3}和${a}件装备${w4}
-    //   有装备且 a<=50：得到了${w3}和${显示物品清单}${w4}
-    let resultText = `\n${player.name}使用了${actualCount}的${itemName},得到了${w3}`;
+    // 原版「打开箱子」(物品操作.ecode L2434-2446) 文本装配，已优化文案：
+    //   量词：原版「使用了{数量}的{物品}」的「的」改为通顺的「个」；
+    //   「和」仅在 w3 非空时挂接，避免 w3 为空时出现病句「得到了和N件装备」；
+    //   装备名称：不超过50件时展开具体清单（含「使用全部」路径），超过才折叠为「N件装备」防刷屏。
+    let resultText = `\n${player.name}使用了${actualCount}个${itemName},得到了${w3}`;
     if (equipmentCount > 0) {
-      resultText += '和';
+      if (w3) resultText += '和'; // 仅当已有非装备产出时用「和」连接，避免孤立
       if (equipmentCount > 50) {
         resultText += `${equipmentCount}件装备`;
       } else {
@@ -1093,6 +1098,88 @@ export class ItemService {
     await this.playerService.savePlayer(player);
 
     return resultText;
+  }
+
+  /**
+   * 使用全部（模糊匹配关键词）
+   * 复刻 _主程序.ecode L4508-4540「使用」指令的「全部」分支语义：
+   * 倒序遍历背包，把名字包含关键词、数量≥1 且不是种子的物品逐一使用全部数量。
+   * 与原文差异：装备数量少时展开具体名称（同「使用」），且各箱结果独立成行展示，
+   * 不采用原版「#错误 覆盖已累计文本」的丢公告写法。
+   * 原版更新日志：「使用全部xx」现在会屏蔽种子（数据分析.ecode 是否种子）。
+   * @param userId 玩家ID
+   * @param keyword 名称包含的关键词，如“箱”“补给箱”“资源箱”
+   * @returns 使用结果文本（每箱类型一行）
+   */
+  async useAllItems(userId: number, keyword: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const player = playerData.player as any;
+    if (!player) return `玩家不存在`;
+
+    const key = String(keyword ?? '').trim();
+    if (!key) {
+      // L4519-4520：使用全部 后无关键词 → 用法提示
+      return `${player.name}“使用全部补给箱”来全部使用名字中包含[补给箱]的物品`;
+    }
+
+    // L4522-4535：原版按索引倒序遍历以避免边开箱边增删背包导致错位；
+    // 这里先对候选名称做快照再倒序逐一处理——开箱新产出的物品（如改良建筑箱）
+    // 不在本轮重复处理，与原版“新物品只会追加在背包末尾、索引不超过初始长度”的语义一致。
+    const backpack: Item3[] = playerData.backpack;
+    const candidates: string[] = [];
+    for (let i = backpack.length - 1; i >= 0; i--) {
+      const entry = backpack[i];
+      const name = String(entry?.name ?? '');
+      const quantity = Number(entry?.quantity ?? entry?.count ?? 0);
+      if (!name || !Number.isFinite(quantity) || quantity < 1) continue; // L4525 数量>=1
+      if (!name.includes(key)) continue; // L4524 寻找文本(名称, 关键词) 模糊包含
+      if (this.isSeedItem(name)) continue; // L4526 是否种子 屏蔽种子
+      candidates.push(name);
+    }
+
+    if (candidates.length === 0) {
+      // L4536-4537
+      return `${player.name}没有匹配的物品`;
+    }
+
+    let lines: string[] = [];
+    for (const name of candidates) {
+      // L4528：打开箱子(名称, -1, …) → 使用该物品全部数量（原版 L2246 取整）
+      const part = await this.useItem(userId, name, -1);
+      if (!part) continue;
+      // 优化：每箱结果独立成行保留。原版「#错误 赋值覆盖」会把之前成功箱的公告覆盖掉，
+      // 改成不覆盖，让所有成功/错误分行展示，操作与消耗结果不变，只是观感更完整。
+      const clean = part.replace(/^\n+/, '').replace(/\n+$/, '');
+      if (clean) lines.push(clean);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 是否种子（1:1 复刻 数据分析.ecode L3-21 是否种子）：
+   * 物品的「使用可得」只有 1 个产出池，且该池去掉数字后能按名称命中资源列表 → 是种子。
+   * 例：苹果树种子的使用可得为 ["苹果树"]，苹果树在资源列表 → 种子；
+   * 种子箱的使用可得是多个候选（椰树种子1，打包的板1，…），去数字后不命中资源 → 不是种子。
+   */
+  private isSeedItem(itemName: string): boolean {
+    const gameItem = this.staticData.getItemByName(itemName);
+    if (!gameItem) return false;
+    const rawUseEffects = (gameItem as any).useEffects;
+    let useEffects: any[] = Array.isArray(rawUseEffects) ? rawUseEffects : [];
+    if (typeof rawUseEffects === 'string' && rawUseEffects.trim()) {
+      try {
+        const parsed = JSON.parse(rawUseEffects);
+        if (Array.isArray(parsed)) useEffects = parsed;
+      } catch {
+        useEffects = [];
+      }
+    }
+    if (useEffects.length !== 1) return false;
+    // 去数字：去掉池文本中的半角/全角数字（原版 去数字(使用可得[1])）
+    const resourceKey = String(useEffects[0] ?? '').replace(/[0-9０-９]/g, '').trim();
+    if (!resourceKey) return false;
+    const resources = (this.staticData as any).getAllResources?.() ?? [];
+    return (resources as any[]).some((r) => String(r?.name ?? '') === resourceKey);
   }
 
   /**

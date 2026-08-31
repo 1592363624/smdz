@@ -467,7 +467,15 @@ export class CombatSystemService {
     // 检查是否死亡
     // 原版“覅公jj”明确允许对死亡召唤物按 QQ 定位（原版 _主程序 L544 注释），
     // 因此运行时攻击方不做玩家死亡门禁；普通玩家仍按现有规则处理。
-    if (!isRuntimeActor && this.playerService.isPlayerDead(player)) {
+    //
+    // 卷土重来豁免（原版 战斗相关.ecode L5182-5184）：玩家生命<=0 但增益"卷土重来"
+    // 未过期时不算真死，仍可继续出手。这一条在移除「卷土重来顺便回满三池」的自造
+    // 行为后变成必需 —— 否则倒地玩家会被这道门禁挡住，永远等不到靠击杀回满
+    // （原版 造成伤害 L3690：处于卷土重来且完成击杀 → 三池回满 + 推进成就）的机会，
+    // 卷土重来就退化成纯等死状态。
+    const comebackAlive = !isRuntimeActor
+      && this.hasActiveRuntimeBuff(player.buffs, '卷土重来', Date.now());
+    if (!isRuntimeActor && !comebackAlive && this.playerService.isPlayerDead(player)) {
       // 原版死亡提示（战斗相关.ecode L5225）：真死后引导用「复活使魔」自救；
       // 「救助」仅作为兜底也能触发同一条自救链路。
       return {
@@ -2517,6 +2525,13 @@ export class CombatSystemService {
         }
       }
 
+      // 先把本次扣血结果写回怪物实例（无论死活）。
+      // 之前只在"未击杀"分支写回：击杀分支完全依赖 handleMonsterDeath 删除记录，
+      // 一旦删除未生效（并发认领失败 / 删除异常），库里仍是扣血前的旧血量，
+      // 怪物就以"幽灵血量"反复复活、每回合被"击杀"一次（表现：同一只怪打不完）。
+      // 先写回 hp<=0 可保证它立刻退出战斗序列；即使删除失败也不会留下活着的残血怪。
+      await this.updateMonsterHpInMap(map.id, target);
+
       // 处理击杀
       if (target.hp <= 0) {
         killed.push(target.name);
@@ -2545,9 +2560,6 @@ export class CombatSystemService {
               : `获得 ${deathResult.expGain} 点经验`,
           );
         }
-      } else {
-        // 怪物还活着，更新地图数据库中的血量
-        await this.updateMonsterHpInMap(map.id, target);
       }
 
       // 生命偷取处理
@@ -2762,6 +2774,9 @@ export class CombatSystemService {
         const applied = this.applyDamageToMonster(target, finalDmg, dmg.poolDamage);
         lines.push(`${summon.name} 攻击 ${target.name}，造成 ${this.formatDamageText(finalDmg, applied)}${isCrit ? '【暴击】' : ''}`);
 
+        // 先写回血量（含击杀场景）：删除未生效时不会残留旧血量形成"打不死的幽灵怪"。
+        await this.updateMonsterHpInMap(map.id, target);
+
         // 怪物死亡处理（传入 attacker=playerData 触发 置掉落+战利品 发放闭环）
         if (target.hp <= 0) {
           const deathResult = await this.handleMonsterDeath(
@@ -2786,8 +2801,6 @@ export class CombatSystemService {
                 : `获得 ${deathResult.expGain} 点经验`,
             );
           }
-        } else {
-          await this.updateMonsterHpInMap(map.id, target);
         }
       }
     } catch (err: any) {
@@ -2892,6 +2905,15 @@ export class CombatSystemService {
    *        避免旧快照覆盖外层尚未写入的其他状态。
    * @returns 该玩家的反击结果文本行
    */
+  /**
+   * 防御方是否已被打倒。玩家与地图召唤物统一按「生命<=0」判定，兼容中文别名
+   * （persistRuntimeActor 会同步 hp 与 当前生命），与 playerService.isPlayerDead
+   * 语义一致，但额外覆盖没有 userId 的召唤物/怪物对象。
+   */
+  private isActorDefeated(actor: any): boolean {
+    return Number(actor?.hp ?? actor?.当前生命 ?? 0) <= 0;
+  }
+
   private async monsterCounterAttackOnePlayer(
     monster: any,
     monsterBonus: BonusData,
@@ -2912,10 +2934,13 @@ export class CombatSystemService {
       }
     };
     try {
-      // 死亡门禁（防御性复查）：真正倒下的玩家不再被反击选中。
+      // 死亡门禁（防御性复查）：真正倒下的玩家与召唤物都不再被反击选中。
       // 正常流程在 monsterCounterAttack 筛选阶段已豁免；此处兜底拦截
       // 同一轮反击中前序受害者结算刚写入的死亡状态，杜绝鞭尸。
-      if (!runtimeVictim && this.playerService.isPlayerDead(victim)) return lines;
+      // 召唤物同样适用：原版 _主程序 L329 / L439 对 HP<=0 的召唤物整段跳过，
+      // 它既不出手也不再作为防御方。之前只拦玩家，阵亡宠物每回合仍被反复攻击，
+      // 表现为「玩家死后怪物和 NPC 还在互殴」。
+      if (this.isActorDefeated(victim)) return lines;
       // 命中判定：怪物命中 vs 玩家闪避；玩家若处于「闪避」状态(固定闪避+100)则几乎必闪避(100%免伤)
       // 启示录混乱分支的防御方就是攻击方怪物自身，仍使用怪物初始化属性，
       // 不能把怪物误当作玩家套用使魔成长公式。
@@ -3153,51 +3178,64 @@ export class CombatSystemService {
       const wasDefeated = this.playerService.isPlayerDead(victim);
       if (wasDefeated) {
         queueTaskProgress('被击败');
-        // ========== 卷土重来（对应原版 造成伤害 L3674：怪物击杀玩家，若 jlq 冷却未过则进入卷土重来状态） ==========
-        // 原版：防御方.特殊序号>0(玩家) 且 时间间隔要求("jlq",60,防御方.标记2)==假 →
-        // 获得增益("卷土重来", 30+玩家.属性.卷土重来)，立即满状态复活。
-        const nowSecV = Math.floor(Date.now() / 1000);
-        const vMk2 = this.safeParseJson<any[]>(victim.markers2, []);
-        // 兼容存量重复标记：不能只用 find() 检查第一条 jlq，
-        // 否则前面的过期记录会遮蔽后面真正有效的冷却，导致重复触发卷土重来。
-        const hasActiveJlq = vMk2.some((marker: any) => {
-          if ((marker?.name ?? marker?.名称) !== 'jlq') return false;
-          const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-          const expireSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
-          return expireSec > nowSecV;
-        });
-        if (!hasActiveJlq) {
-          const vBonus = this.safeParseJson<any>(victim.bonus, {});
-          const jtlSec = 30 + (vBonus['卷土重来'] || 0);
-          const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
-          // 原版 获得增益("卷土重来", 30+卷土重来属性) 写入玩家增益
-          vBuffs.push({ name: '卷土重来', expireAt: nowSecV + jtlSec });
-          victim.buffs = JSON.stringify(vBuffs);
-          // 满状态复活（原版 当前生命/护盾/装甲 = 属性.对应上限）
-          // 存量玩家可能没有同步 max* 字段；原版使用计算后的属性上限，
-          // 因此依次回退到当前防御属性构建结果，最后才保留原值。
-          victim.hp = Number(victim.maxHp || victimDef.生命 || victim.hp || 0);
-          victim.shield = Number(victim.maxShield || victimDef.护盾 || victim.shield || 0);
-          victim.armor = Number(victim.maxArmor || victimDef.装甲 || victim.armor || 0);
-          // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）。
-          // 新写入前清除同名旧项，避免历史重复标记再次遮蔽有效冷却。
-          const markersWithoutJlq = vMk2.filter((marker: any) => (marker?.name ?? marker?.名称) !== 'jlq');
-          markersWithoutJlq.push({ name: 'jlq', expireAt: nowSecV + 60 });
-          victim.markers2 = JSON.stringify(markersWithoutJlq);
-          lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}进入了卷土重来状态(${jtlSec}秒)`);
-        } else {
-          lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}倒下了！`);
-          if (isSelf) lines.push(`你已死亡，可使用「救助」或「复活使魔」来复活`);
-          // 光荣弹（对应原版 战斗相关.ecode L584/591 死亡分支）：玩家死亡且装备 #光荣弹(44)
-          try {
-            const gloryText = await this.gloryGrenade(victim, monster, victimData, map, Date.now());
-            if (gloryText) {
-              lines.push(gloryText);
-              await this.updateMonsterHpInMap(map.id, monster).catch(() => undefined);
+        // 原版死亡/卷土重来后生命保持 0（L3674 只给增益不回血、L3690 击杀复活才回满），
+        // 先把可能的负值夹回 0，避免负值穿透到持久化与展示层。
+        if (Number(victim.hp) < 0) victim.hp = 0;
+        // ========== 原版 造成伤害 L3674 的身份门槛 ==========
+        // 原版只有 防御方.特殊序号>0（玩家）才会获得"卷土重来"；召唤物/怪物
+        // （特殊序号<=0）被打到 HP<=0 即真死 —— 不进卷土重来，也不回血。
+        // 之前此处没有身份判断，宠物被击杀后照样拿增益并回满三池、永不退场，
+        // 于是怪物与宠物每回合互相击倒、互相复活，形成无限战斗循环。
+        if (!runtimeVictim) {
+          // ========== 卷土重来（玩家专属，对应原版 L3674-3678） ==========
+          // 原版只 获得增益("卷土重来", 30+玩家.属性.卷土重来)：给增益，不回血。
+          // 玩家在卷土重来期间生命保持 0，靠该增益的 闪避=1 + 四伤÷2（L2596-2608）
+          // 免于继续受伤，等待宠物扶起（HP=属性.生命/2）或 30 秒后增益过期真死。
+          // 之前此处额外做了"三池回满"，属自造行为，直接导致目标打不死，已移除。
+          const nowSecV = Math.floor(Date.now() / 1000);
+          const vMk2 = this.safeParseJson<any[]>(victim.markers2, []);
+          // 兼容存量重复标记：不能只用 find() 检查第一条 jlq，
+          // 否则前面的过期记录会遮蔽后面真正有效的冷却，导致重复触发卷土重来。
+          const hasActiveJlq = vMk2.some((marker: any) => {
+            if ((marker?.name ?? marker?.名称) !== 'jlq') return false;
+            const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+            const expireSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
+            return expireSec > nowSecV;
+          });
+          if (!hasActiveJlq) {
+            const vBonus = this.safeParseJson<any>(victim.bonus, {});
+            const jtlSec = 30 + (vBonus['卷土重来'] || 0);
+            const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
+            // 原版 获得增益("卷土重来", 30+卷土重来属性) 写入玩家增益
+            vBuffs.push({ name: '卷土重来', expireAt: nowSecV + jtlSec });
+            victim.buffs = JSON.stringify(vBuffs);
+            // 原版不在此处回血：卷土重来只是免死状态（闪避=1），生命保持 0。
+            // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）。
+            // 新写入前清除同名旧项，避免历史重复标记再次遮蔽有效冷却。
+            const markersWithoutJlq = vMk2.filter((marker: any) => (marker?.name ?? marker?.名称) !== 'jlq');
+            markersWithoutJlq.push({ name: 'jlq', expireAt: nowSecV + 60 });
+            victim.markers2 = JSON.stringify(markersWithoutJlq);
+            lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}进入了卷土重来状态(${jtlSec}秒)`);
+          } else {
+            lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}倒下了！`);
+            if (isSelf) lines.push(`你已死亡，可使用「救助」或「复活使魔」来复活`);
+            // 光荣弹（对应原版 战斗相关.ecode L584/591 死亡分支）：玩家死亡且装备 #光荣弹(44)
+            try {
+              const gloryText = await this.gloryGrenade(victim, monster, victimData, map, Date.now());
+              if (gloryText) {
+                lines.push(gloryText);
+                await this.updateMonsterHpInMap(map.id, monster).catch(() => undefined);
+              }
+            } catch (e: any) {
+              this.logger.warn(`光荣弹触发失败: ${e.message}`);
             }
-          } catch (e: any) {
-            this.logger.warn(`光荣弹触发失败: ${e.message}`);
           }
+        } else {
+          // 召唤物阵亡：原版对宠物死亡不追加状态文本（"卷土重来"门槛只对玩家），
+          // 只保留基础伤害播报。这里保持 HP<=0，由下方 persistRuntimeActor 落库；
+          // 下回合起 runMapSummonAttacks（_主程序 L329）跳过它，防御方耗尽后
+          // 回合走 "#没有目标" 分支终止，不再无限续回合。
+          lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}`);
         }
       } else {
         lines.push(`${monster.name} 使用${attackWeapon.name}攻击${youText}，造成 ${dmgText}`);
@@ -8540,6 +8578,9 @@ export class CombatSystemService {
       monster.buffs = JSON.stringify(mBuffs);
     }
 
+    // 先写回血量（含击杀场景）：删除未生效时不会残留旧血量形成"打不死的幽灵怪"。
+    await this.updateMonsterHpInMap(mapId, monster);
+
     // 怪物被击杀 → 发放掉落与经验（传入 attacker=ownerUserId 触发掉落闭环）
     if (monster.hp <= 0) {
       const deathResult = await this.handleMonsterDeath(
@@ -8555,8 +8596,7 @@ export class CombatSystemService {
       return text;
     }
 
-    // 怪物存活 → 写回血量，并按怪物反伤给宠物造成反弹伤害（原版 计算反伤 简化）
-    await this.updateMonsterHpInMap(mapId, monster);
+    // 怪物存活 → 按怪物反伤给宠物造成反弹伤害（原版 计算反伤 简化）
     const monsterAtk = monster.attack || 0;
     if (monsterAtk > 0) {
       const reflect = Math.max(1, Math.round(monsterAtk * 0.3));
@@ -10651,17 +10691,22 @@ export class CombatSystemService {
       if (summons.length === 0) return lines;
 
       // 同图全部倒地玩家（卷土重来 buff 未过期），含离线玩家——原版按地图玩家数组遍历，不筛在线。
-      let fallenPlayers: any[] = [];
+      // 先用一次 findMany 做粗筛拿到候选 userId，真正扶人前再用 getPlayerData 取权威对象，
+      // 避免为同图无关玩家加载完整 PlayerData。
+      let fallenRows: any[] = [];
       if (this.prisma?.player?.findMany) {
-        fallenPlayers = await this.prisma.player.findMany({ where: { mapId: map.id } });
-        fallenPlayers = fallenPlayers.filter((p: any) => this.hasActiveRuntimeBuff(p.buffs, '卷土重来'));
+        fallenRows = await this.prisma.player.findMany({ where: { mapId: map.id } });
       }
-      if (fallenPlayers.length === 0) return lines;
+      const fallenUserIds = fallenRows
+        .filter((p: any) => this.hasActiveRuntimeBuff(p.buffs, '卷土重来'))
+        .map((p: any) => Number(p.userId))
+        .filter((uid: number) => Number.isFinite(uid) && uid > 0);
+      if (fallenUserIds.length === 0) return lines;
 
       const nowMs = Date.now();
       let changed = false;
       for (const summon of summons) {
-        if (fallenPlayers.length === 0) break;
+        if (fallenUserIds.length === 0) break;
         // 原版 L322：标记"主动"==1 为被动模式，不参与扶人
         const active = this.playerService.getMarkerValue(
           this.normalizeMarkerObject(summon.markers ?? summon.标记 ?? {}),
@@ -10672,7 +10717,16 @@ export class CombatSystemService {
         if ((Number(summon?.hp ?? summon?.当前生命 ?? 0)) <= 0) continue;
 
         const summonName = summon?.name ?? summon?.名称 ?? '宠物';
-        for (const victim of [...fallenPlayers]) {
+        for (const victimUserId of [...fallenUserIds]) {
+          // 关键：改动必须落在该玩家的【权威对象】上，不能用 findMany 拿到的裸行。
+          // savePlayer 在 Actor / mutate 上下文内只做 merge 或 markDirty，传入的裸行
+          // 会被静默丢弃，于是 buff 清不掉，同一玩家每回合都被重复扶起，直到增益
+          // 自然过期。getPlayerData 在 Actor 上下文内返回活态 cell.state、上下文外
+          // 返回 DB 行，两种情况改它都能正确落库。
+          if (typeof this.playerService.getPlayerData !== 'function') break;
+          const victimData = await this.playerService.getPlayerData(victimUserId).catch(() => null);
+          const victim = (victimData as any)?.player;
+          if (!victim) continue;
           // 原版 L336：玩家标记"不扶"==1 时跳过（设置不扶）
           const victimMarkers = this.normalizeMarkerObject(victim.markers);
           if (this.playerService.getMarkerValue(victimMarkers, '不扶') === 1) continue;
@@ -10689,9 +10743,9 @@ export class CombatSystemService {
 
           lines.push(`${summonName}扶起了${victim.name || '冒险者'}`);
           changed = true;
-          const idx = fallenPlayers.indexOf(victim);
-          if (idx >= 0) fallenPlayers.splice(idx, 1);
-          if (fallenPlayers.length === 0) break;
+          const idx = fallenUserIds.indexOf(victimUserId);
+          if (idx >= 0) fallenUserIds.splice(idx, 1);
+          if (fallenUserIds.length === 0) break;
         }
       }
 

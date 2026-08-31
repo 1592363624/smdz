@@ -33,6 +33,7 @@ import { SystemConfigService } from '../system-config/system-config.service';
 import { AdminService } from './admin.service';
 import {
   AnnouncementDto,
+  BackpackSaveDto,
   BatchUserIdsDto,
   DeleteUserDto,
   EditPlayerDataDto,
@@ -323,16 +324,16 @@ export class AdminController {
    */
   @Post('give-item')
   @ApiOperation({ summary: 'GM 给玩家发送物品(支持用户名/ID定位，支持批量多物品)' })
-  async giveItem(@Body() dto: GiveItemDto) {
-    const message = await this.resolveGiveTarget(dto);
+  async giveItem(@Body() dto: GiveItemDto, @Req() req) {
+    const message = await this.resolveGiveTarget(dto, req.user?.userId);
     return { success: true, message };
   }
 
   /** 前端兼容：/admin/gm/give-item 映射到 /admin/give-item */
   @Post('gm/give-item')
   @ApiOperation({ summary: 'GM 给玩家发送物品（兼容路径）' })
-  async giveGmItem(@Body() dto: GiveItemDto) {
-    const message = await this.resolveGiveTarget(dto);
+  async giveGmItem(@Body() dto: GiveItemDto, @Req() req) {
+    const message = await this.resolveGiveTarget(dto, req.user?.userId);
     return { success: true, message };
   }
 
@@ -341,6 +342,23 @@ export class AdminController {
   @ApiOperation({ summary: 'GM 物品目录（物品+装备名称列表）' })
   getGmCatalog() {
     return { success: true, items: this.adminService.getGmItemCatalog() };
+  }
+
+  /** GM 背包管理：读取指定玩家背包的所有物品（完整解析） */
+  @Get('gm/backpack')
+  @ApiOperation({ summary: 'GM 读取玩家背包（解析背包全部物品）' })
+  @ApiQuery({ name: 'userId', required: true, description: '目标用户ID', type: Number })
+  async getBackpack(@Query('userId', ParseIntPipe) userId: number) {
+    const data = await this.adminService.gmGetBackpack(userId);
+    return { success: true, data };
+  }
+
+  /** GM 背包管理：整体保存背包（编辑数量 / 新增 / 删除） */
+  @Post('gm/backpack/save')
+  @ApiOperation({ summary: 'GM 保存玩家背包（编辑数量/增删物品，数量为0即删除）' })
+  async saveBackpack(@Body() dto: BackpackSaveDto) {
+    const message = await this.adminService.gmSaveBackpack(dto.userId, dto.items);
+    return { success: true, message };
   }
 
   @Post('gm/modify-player')
@@ -360,15 +378,15 @@ export class AdminController {
   }
 
   /** 解析发放物品请求的目标与物品（批量 items 优先，回落单发 itemName），并执行发放 */
-  private async resolveGiveTarget(dto: GiveItemDto) {
+  private async resolveGiveTarget(dto: GiveItemDto, operatorId?: number) {
     if (dto.items?.length) {
       const userId = dto.userId ?? (await this.adminService.resolveUserTarget(dto.target ?? '')).id;
-      return this.adminService.gmGiveItemBatch(userId, dto.items);
+      return this.adminService.gmGiveItemBatch(userId, dto.items, operatorId);
     }
     const count = dto.count ?? dto.quantity ?? 1;
     if (dto.userId) {
-      return this.adminService.gmGiveItem(dto.userId, dto.itemName ?? '', count);
+      return this.adminService.gmGiveItem(dto.userId, dto.itemName ?? '', count, operatorId);
     }
-    return this.adminService.gmGiveItemToTarget(dto.target ?? '', dto.itemName ?? '', count);
+    return this.adminService.gmGiveItemToTarget(dto.target ?? '', dto.itemName ?? '', count, operatorId);
   }
 }

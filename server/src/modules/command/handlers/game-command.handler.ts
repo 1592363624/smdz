@@ -133,6 +133,28 @@ export class GameCommandHandler implements CommandHandler {
     return { itemName: input, count: 1 };
   }
 
+  /**
+   * “使用全部XX”按结果行汇总任务进度：
+   * 每行形如“使用了N的箱名”，推进“使用物品”N 与“使用箱名”N。
+   * 不走 isSuccessfulAction 门禁——汇总文本里单箱失败不影响其他箱的成功行记账。
+   */
+  private async advanceUseAllTasks(userId: number, result: string): Promise<void> {
+    let total = 0;
+    const perName = new Map<string, number>();
+    for (const m of result.matchAll(/使用了(\d+)的([^,，\n]+)/g)) {
+      const count = Number(m[1]);
+      const name = m[2].trim();
+      if (!Number.isFinite(count) || count <= 0 || !name) continue;
+      total += count;
+      perName.set(name, (perName.get(name) || 0) + count);
+    }
+    if (total <= 0) return;
+    await this.taskService.advance(userId, '使用物品', total);
+    for (const [name, count] of perName) {
+      await this.taskService.advance(userId, '使用' + name, count);
+    }
+  }
+
   private async dispatch(ctx: CommandContext, cmdName: string, args: string[]): Promise<CommandResult> {
     const userId = ctx.userId!;
     const arg = args.join(' ');
@@ -318,6 +340,20 @@ export class GameCommandHandler implements CommandHandler {
 
         case '使用':
         case 'use': {
+          const useInput = args.join(' ').trim();
+          // 原版 _主程序.ecode L4517-4540：“使用全部XX” → 全部使用名字包含[XX]的物品（屏蔽种子）
+          if (useInput.startsWith('全部')) {
+            const keyword = useInput.slice(2).trim();
+            const allResult = await this.gameService.handleUseAllItems(userId, keyword);
+            await this.advanceUseAllTasks(userId, allResult);
+            return this.wrap(allResult);
+          }
+          if (!useInput) {
+            // 原版 L4515-4516：无参数 → 用法提示（顺带展示“使用全部”用法）
+            const pd = await this.playerService.getPlayerData(userId);
+            const pname = (pd.player as any)?.name ?? '';
+            return this.wrap(`${pname}“使用普通装备补给箱1”来使用1个普通装备补给箱\n你可以“使用全部补给箱”来全部使用名字中包含[补给箱]的物品`);
+          }
           const useArgs = this.parseUseArguments(args);
           const result = await this.gameService.handleUseItem(userId, useArgs.itemName, useArgs.count);
           if (this.isSuccessfulAction(result) && useArgs.itemName && !/种下了/.test(result)) {

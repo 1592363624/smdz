@@ -11,7 +11,7 @@
  *  - 测试1 全图反击：A 攻击后怪物反击，断言同图另一在线玩家 B 也被反击扣血
  *    （验证"只反击攻击者"简化已废除，全图筛选生效）。
  *  - 测试2 卷土重来：把 B 血量压到 1，怪物反击必中且高伤 → B 死亡 →
- *    断言 B 进入"卷土重来"状态（hp 回满 + buffs 含"卷土重来"，60 秒内不再真死）。
+ *    断言 B 进入"卷土重来"状态（生命保持 0 不回血 + buffs 含"卷土重来"，靠增益闪避=1 免死，60 秒冷却内不重复触发）。
  *  - afterAll 清理两个测试账号（User 级联删 Player）。
  *
  * 注：真实玩家若与测试账号同地图也会被反击，但本测试只断言测试账号受影响，无害。
@@ -183,7 +183,7 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     expect(afterB.player.hp).toBeGreaterThan(0);
   });
 
-  it('测试2 卷土重来：B 被反击致死 → 满状态复活并进入卷土重来状态', async () => {
+  it('测试2 卷土重来：B 被反击致死 → 进入卷土重来免死状态（生命保持 0，不回血）', async () => {
     const [, uidB] = createdUserIds;
 
     // B 血量压到 1，确保被反击一击致死
@@ -217,8 +217,9 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     const bBuffs = JSON.parse(afterB.player.buffs || '[]');
     const comeback = bBuffs.find((b: any) => b.name === '卷土重来');
 
-    // 满状态复活：hp 回到上限 100
-    expect(afterB.player.hp).toBe(afterB.player.maxHp);
+    // 卷土重来只给增益、不回血（原版 L3674）：生命保持 0，靠增益闪避=1 免死，
+    // 等待宠物扶起（HP=属性.生命/2）或 30 秒后增益过期真死。故 hp 应为 0 而非上限。
+    expect(afterB.player.hp).toBe(0);
     // 进入卷土重来状态：到期时间戳 = 内部写入时刻(∈[调用前, 读回前]) + 30 秒，两端夹逼、抗延迟。
     // 写入侧 nowSecV 是 Math.floor 秒级取整，下界额外放宽 1 秒取整损耗。
     expect(comeback).toBeDefined();

@@ -312,18 +312,64 @@
               </div>
 
               <template v-if="editForm">
-                <p class="hint" style="margin: 10px 0 6px;">游戏数据编辑（留空的字段不会被修改，保存后即时生效）：</p>
-                <div class="edit-grid">
-                  <label v-for="f in editableFields" :key="f.field" class="edit-field">
-                    <span>{{ f.label }}</span>
-                    <input v-model="editForm[f.field]" :placeholder="'当前: ' + currentDisplay(f)" />
-                  </label>
+                <!-- 详情弹窗内页签：游戏数据编辑 / 背包管理 -->
+                <div class="detail-tabs">
+                  <button class="dt-tab" :class="{ on: detailTab === 'data' }" @click="detailTab = 'data'">游戏数据</button>
+                  <button class="dt-tab" :class="{ on: detailTab === 'backpack' }" @click="switchBackpackTab">背包管理</button>
                 </div>
 
-                <div class="modal-foot">
-                  <button class="gm-btn success" :disabled="editSaving" @click="savePlayerEdit">{{ editSaving ? '保存中...' : '保存修改' }}</button>
-                  <span v-if="editResult" :class="['edit-result', editError && 'err']">{{ editResult }}</span>
-                </div>
+                <!-- 页签：游戏数据编辑 -->
+                <template v-if="detailTab === 'data'">
+                  <p class="hint" style="margin: 10px 0 6px;">游戏数据编辑（留空的字段不会被修改，保存后即时生效）：</p>
+                  <div class="edit-grid">
+                    <label v-for="f in editableFields" :key="f.field" class="edit-field">
+                      <span>{{ f.label }}</span>
+                      <input v-model="editForm[f.field]" :placeholder="'当前: ' + currentDisplay(f)" />
+                    </label>
+                  </div>
+
+                  <div class="modal-foot">
+                    <button class="gm-btn success" :disabled="editSaving" @click="savePlayerEdit">{{ editSaving ? '保存中...' : '保存修改' }}</button>
+                    <span v-if="editResult" :class="['edit-result', editError && 'err']">{{ editResult }}</span>
+                  </div>
+                </template>
+
+                <!-- 页签：背包管理（解析当前用户背包，可编辑数量/增删） -->
+                <template v-else>
+                  <p class="hint" style="margin: 10px 0 6px;">
+                    背包管理：编辑 <b>{{ gmBackpack.username }}</b> 背包中的物品数量，可增删。
+                  </p>
+                  <div v-if="gmBackpackLoading" class="fb-empty">背包加载中…</div>
+                  <template v-else>
+                    <div class="gm-field">
+                      <label>添加物品（输入名称筛选，点选加入；同名自动累计数量）</label>
+                      <div class="picker-box">
+                        <input v-model="bkItemQuery" placeholder="输入物品/装备名称筛选" @focus="bkItemMenuOpen = true" @blur="bkItemMenuOpen = false" />
+                        <ul v-if="bkItemMenuOpen" class="picker-menu">
+                          <li v-for="it in bkFilteredCatalog" :key="it.category + it.name" @mousedown.prevent="addBackpackItem(it)">
+                            <span class="picker-menu-name">{{ it.name }}</span>
+                            <span class="picker-menu-sub">{{ it.category }}</span>
+                          </li>
+                          <li v-if="!bkFilteredCatalog.length" class="picker-empty">{{ itemCatalog.length ? '没有匹配的物品' : '物品目录加载中…' }}</li>
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div v-if="gmBackpack.items.length" class="bk-list">
+                      <div v-for="(it, idx) in gmBackpack.items" :key="it.name + idx" class="bk-item">
+                        <span class="bk-item-name" :title="it.type || '物品'">{{ it.name }}<i v-if="it.type" class="bk-item-type">{{ it.type }}</i></span>
+                        <input v-model.number="it.quantity" class="bk-item-qty" type="number" min="0" step="any" title="数量（0 表示删除，支持小数）" />
+                        <button class="picked-remove" title="删除" @click="removeBackpackItem(idx)">✕</button>
+                      </div>
+                    </div>
+                    <p v-else class="muted" style="margin: 6px 0;">背包为空，可通过上方选择物品添加。</p>
+
+                    <div class="modal-foot">
+                      <button class="gm-btn success" :disabled="gmBackpackSaving" @click="saveBackpack">{{ gmBackpackSaving ? '保存中…' : '保存背包' }}</button>
+                      <span v-if="gmBackpack.result" class="gm-result">{{ gmBackpack.result }}</span>
+                    </div>
+                  </template>
+                </template>
               </template>
               <p v-else class="muted" style="margin-top: 10px;">该用户尚未创建游戏角色。</p>
             </template>
@@ -736,6 +782,7 @@ async function resetUserData(u) {
 // ---- 用户详情 / 编辑弹窗 ----
 const detailUser = ref(null);      // 详情弹窗当前用户（含完整档案）
 const detailLoading = ref(false);
+const detailTab = ref('data');     // 详情弹窗内页签：'data' 游戏数据 | 'backpack' 背包管理
 const editForm = ref(null);        // 可编辑字段表单（仅收集有输入的字段提交）
 const editSaving = ref(false);
 const editResult = ref('');
@@ -787,6 +834,10 @@ async function openUserDetail(u) {
   editForm.value = null;
   editResult.value = '';
   editError.value = false;
+  detailTab.value = 'data';                    // 每次打开默认"游戏数据"页签
+  gmBackpack.value.userId = null;              // 重置背包上下文，避免串到上一个用户
+  gmBackpack.value.items = [];
+  gmBackpack.value.result = '';
   try {
     const res = await adminApi.userDetail(u.id);
     detailUser.value = res.data;
@@ -806,6 +857,10 @@ function closeUserDetail() {
   detailUser.value = null;
   editForm.value = null;
   editResult.value = '';
+  detailTab.value = 'data';
+  gmBackpack.value.userId = null;
+  gmBackpack.value.items = [];
+  gmBackpack.value.result = '';
 }
 
 /** 弹窗内保存账号字段（如绑定QQ号） */
@@ -936,9 +991,11 @@ async function loadItemCatalog() {
   if (itemCatalogLoaded.value) return;
   try {
     const res = await adminApi.gmCatalog();
-    itemCatalog.value = res.data.items || [];
+    // 响应拦截器已解包为响应体；兼容 { items } 与 { data: { items } } 两种返回形态
+    itemCatalog.value = res?.items || res?.data?.items || [];
     itemCatalogLoaded.value = true;
-  } catch {
+  } catch (err) {
+    console.warn('[GM] 物品目录加载失败，稍后切回 GM 页会自动重试', err);
     // 目录加载失败时保留空列表，下次切到 GM 页会重试
     itemCatalogLoaded.value = false;
   }
@@ -984,6 +1041,106 @@ async function doGiveItem() {
     g.result = '发放失败：' + (e.response?.data?.message || e.message);
   } finally {
     gmLoading.value = false;
+  }
+}
+
+// ---- GM 背包管理 ----
+// 绑定到"用户详情"弹窗：直接对当前用户(id/username)操作，无需再搜索目标玩家。
+const gmBackpack = ref({
+  userId: null,     // 目标用户ID（当前详情弹窗用户）
+  username: '',     // 目标用户名（展示用）
+  items: [],        // 背包物品 [{ name, quantity, type, ... }]
+  result: '',       // 操作结果
+});
+const gmBackpackLoading = ref(false);
+const gmBackpackSaving = ref(false);
+
+/** 切到详情弹窗的"背包管理"页签时，为当前用户加载背包（同一用户仅加载一次） */
+async function switchBackpackTab() {
+  detailTab.value = 'backpack';
+  if (!detailUser.value) return;
+  const uid = detailUser.value.id;
+  // 换了一个用户才重新拉取，避免反复加载
+  if (gmBackpack.value.userId !== uid) {
+    gmBackpack.value.userId = uid;
+    gmBackpack.value.username = detailUser.value.username || '';
+    await loadBackpack();
+  }
+}
+
+async function loadBackpack() {
+  const uid = gmBackpack.value.userId;
+  if (!uid) return;
+  gmBackpackLoading.value = true;
+  gmBackpack.value.result = '';
+  try {
+    const res = await adminApi.getBackpack(uid);
+    const list = res?.data || [];
+    // 统一数量字段：既有 count 又有 quantity 时优先 count，缺省补 0，便于前端数字输入
+    gmBackpack.value.items = (list || []).map((it) => ({
+      ...it,
+      quantity: Number(it.count ?? it.quantity ?? 0),
+    }));
+  } catch (e) {
+    gmBackpack.value.result = '加载背包失败：' + (e.response?.data?.message || e.message);
+    gmBackpack.value.items = [];
+  } finally {
+    gmBackpackLoading.value = false;
+  }
+}
+
+// 添加物品：下拉目录筛选（复用物品目录数据）
+const bkItemQuery = ref('');
+const bkItemMenuOpen = ref(false);
+
+const bkFilteredCatalog = computed(() => {
+  const kw = bkItemQuery.value.trim().toLowerCase();
+  const pool = kw
+    ? itemCatalog.value.filter((i) => i.name.toLowerCase().includes(kw))
+    : itemCatalog.value;
+  return pool.slice(0, 30);
+});
+
+/** 点选目录物品加入背包；同名已有则累计数量 */
+function addBackpackItem(it) {
+  const existing = gmBackpack.value.items.find((s) => s.name === it.name);
+  if (existing) {
+    existing.quantity = Number(existing.quantity ?? 0) + 1;
+  } else {
+    gmBackpack.value.items.push({ name: it.name, type: it.category, quantity: 1 });
+  }
+  bkItemQuery.value = '';
+}
+
+/** 删除某条物品（直接移出数组） */
+function removeBackpackItem(idx) {
+  gmBackpack.value.items.splice(idx, 1);
+}
+
+/** 保存背包：数量=0 的条目视为删除，其余整体提交 */
+async function saveBackpack() {
+  const uid = gmBackpack.value.userId;
+  if (!uid) return;
+  gmBackpackSaving.value = true;
+  gmBackpack.value.result = '';
+  try {
+    const items = gmBackpack.value.items
+      .filter((it) => Number(it.quantity) > 0)
+      .map((it) => ({
+        name: it.name,
+        quantity: Number(it.quantity),
+        type: it.type,
+        durability: it.durability,
+        data: it.data,
+      }));
+    const res = await adminApi.saveBackpack({ userId: uid, items });
+    gmBackpack.value.result = res?.data?.message || res?.message || '保存成功';
+    await loadBackpack(); // 保存后回读最新数据，与后端合并归一化结果一致
+    setTimeout(() => (gmBackpack.value.result = ''), 5000);
+  } catch (e) {
+    gmBackpack.value.result = '保存失败：' + (e.response?.data?.message || e.message);
+  } finally {
+    gmBackpackSaving.value = false;
   }
 }
 
@@ -1398,6 +1555,45 @@ onMounted(async () => {
   color: #f87171;
 }
 
+/* ===== GM 背包管理 ===== */
+.bk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.bk-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+}
+.bk-item-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text, #e5e7eb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bk-item-type {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted, #9ca3af);
+  margin-left: 6px;
+}
+.bk-item-qty {
+  width: 78px;
+  padding: 2px 6px;
+  font-size: 13px;
+}
+
 /* ===== 详情 / 编辑弹窗 ===== */
 .modal-mask {
   position: fixed;
@@ -1517,6 +1713,26 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+/* 详情弹窗内页签条 */
+.detail-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0 2px;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+}
+.dt-tab {
+  border: none;
+  background: transparent;
+  color: var(--muted, #9ca3af);
+  font-size: 13px;
+  padding: 6px 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.dt-tab.on {
+  color: var(--accent, #7aa2ff);
+  border-bottom-color: var(--accent, #7aa2ff);
 }
 .edit-result {
   font-size: 13px;

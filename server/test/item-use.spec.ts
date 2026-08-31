@@ -147,7 +147,7 @@ describe('打开箱子（使用物品）', () => {
     const text = await service.useItem(42, '普通装备箱', 2);
     const backpack = typeof player.backpack === 'string' ? JSON.parse(player.backpack) : player.backpack;
 
-    expect(text).toContain('测试玩家使用了2的普通装备箱');
+    expect(text).toContain('测试玩家使用了2个普通装备箱');
     expect(text).toContain('[1]铁剑C');
     // 箱子已消耗
     expect(backpack.find((it: any) => it.name === '普通装备箱')).toBeUndefined();
@@ -313,5 +313,108 @@ describe('打开箱子（使用物品）', () => {
     const backpack = JSON.parse(player.backpack);
     expect(backpack.find((it: any) => it.name === '普通战利品')).toBeUndefined();
     expect(backpack.find((it: any) => it.name === '合金')?.quantity).toBeCloseTo(6.67, 2);
+  });
+
+  it('使用全部箱：模糊匹配全部箱类物品倒序逐一开箱，种子被屏蔽，装备只显示件数（_主程序.ecode L4517-4540）', async () => {
+    const player = buildPlayer({
+      backpack: JSON.stringify([
+        { name: '精良装备补给箱', type: '资源', quantity: 2, count: 2 },
+        { name: '资源箱', type: '资源', quantity: 3, count: 3 },
+        { name: '苹果树种子', type: '资源', quantity: 5, count: 5 }, // 种子：使用可得单池命中资源 → 屏蔽
+        { name: '铁剑', type: '装备', quantity: 1, count: 1 },       // 名字含“剑”不含“箱”，不受影响
+      ]),
+    });
+    const { service } = buildHarness(
+      player,
+      {
+        '精良装备补给箱': { name: '精良装备补给箱', useEffects: JSON.stringify(['铁剑', '改良建筑箱0.2']), useMarkers: '[]' },
+        '资源箱': { name: '资源箱', useEffects: JSON.stringify(['木头7', '石头6']), useMarkers: '[]' },
+        '苹果树种子': { name: '苹果树种子', useEffects: JSON.stringify(['苹果树']), useMarkers: '[]' },
+      },
+      ['铁剑', '苹果树'],
+    );
+    // 资源列表：苹果树是资源（因此 苹果树种子 被判为种子）；改良建筑箱不是装备（资源箱）
+    (service as any).staticData.getAllResources = jest.fn(() => [{ name: '苹果树' }, { name: '木头' }, { name: '石头' }]);
+    (service as any).staticData.getEquipmentByName = jest.fn((name: string) => (name === '铁剑' ? { name } : undefined));
+
+    const text = await service.useAllItems(42, '箱');
+    console.log('[使用全部箱]', text);
+
+    // 每箱类型一行，各开全部数量（量词已优化为「个」）
+    expect(text).toContain('测试玩家使用了2个精良装备补给箱');
+    expect(text).toContain('测试玩家使用了3个资源箱');
+    // 装备数量少时展开具体名称（含品质前缀），不再只显示件数
+    expect(text).toContain('[1]铁剑');
+    expect(text).not.toMatch(/,得到了和\d+件装备/);
+    expect(text).not.toMatch(/,得到了和\s*$/);
+    // 资源箱资源列出
+    expect(text).toContain('木头x21');
+    expect(text).toContain('石头x18');
+    // 种子被屏蔽：苹果树种子原样保留
+    const backpack = JSON.parse(player.backpack);
+    expect(backpack.find((it: any) => it.name === '苹果树种子')?.quantity).toBe(5);
+    // 全部箱子已消耗
+    expect(backpack.find((it: any) => it.name === '精良装备补给箱')).toBeUndefined();
+    expect(backpack.find((it: any) => it.name === '资源箱')).toBeUndefined();
+    // 开箱新产出的改良建筑箱不被本轮重复开箱（数量为产物本身）
+    expect(backpack.find((it: any) => it.name === '改良建筑箱')?.quantity).toBeCloseTo(0.4, 2);
+  });
+
+  it('使用全部：无匹配时返回“没有匹配的物品”，无关键词时返回用法提示', async () => {
+    const player = buildPlayer({
+      backpack: JSON.stringify([{ name: '苹果树种子', type: '资源', quantity: 5, count: 5 }]),
+    });
+    const { service } = buildHarness(
+      player,
+      { '苹果树种子': { name: '苹果树种子', useEffects: JSON.stringify(['苹果树']), useMarkers: '[]' } },
+    );
+    (service as any).staticData.getAllResources = jest.fn(() => [{ name: '苹果树' }]);
+
+    const noMatch = await service.useAllItems(42, '补给箱');
+    expect(noMatch).toBe('测试玩家没有匹配的物品');
+
+    const noKeyword = await service.useAllItems(42, '');
+    expect(noKeyword).toContain('“使用全部补给箱”来全部使用名字中包含[补给箱]的物品');
+  });
+
+  it('使用全部：小数数量箱子只使用整数部分（原版 L2246 取整）；未定义物品 #错误 按原版覆盖已累积文本', async () => {
+    const player = buildPlayer({
+      backpack: JSON.stringify([
+        { name: '优秀武器补给箱', type: '资源', quantity: 1.0352999999999999, count: 1.0352999999999999 },
+        { name: '主线补给箱', type: '资源', quantity: 2, count: 2 }, // 原版配置同样未定义该物品 → #错误
+        { name: '挑战资源箱', type: '资源', quantity: 2, count: 2 },
+      ]),
+    });
+    const { service } = buildHarness(
+      player,
+      {
+        '优秀武器补给箱': { name: '优秀武器补给箱', useEffects: JSON.stringify(['特斯拉,纵横,矢量,特斯拉,纵横,矢量,特斯拉,纵横,矢量']), useMarkers: '[]' },
+        '挑战资源箱': { name: '挑战资源箱', useEffects: JSON.stringify(['水晶10', '能量块5', '合金20']), useMarkers: '[]' },
+      },
+      ['特斯拉', '纵横', '矢量'],
+    );
+    (service as any).staticData.getAllResources = jest.fn(() => []);
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const text = await service.useAllItems(42, '箱');
+      console.log('[使用全部-小数+错误]', text);
+
+      // 优秀武器补给箱只使用整数部分 1（原版 L2246 取整），文本不出现小数
+      expect(text).toContain('测试玩家使用了1个优秀武器补给箱');
+      expect(text).not.toContain('1.03');
+      // 余量 0.0353 保留在背包
+      const backpack = JSON.parse(player.backpack);
+      expect(backpack.find((it: any) => it.name === '优秀武器补给箱')?.quantity).toBeCloseTo(0.0353, 4);
+      // 挑战资源箱已消耗
+      expect(backpack.find((it: any) => it.name === '挑战资源箱')).toBeUndefined();
+      // 倒序处理：挑战资源箱(末尾)先成功 → 主线补给箱 #错误 → 优秀武器补给箱(队首)最后成功
+      // 优化后不再互相覆盖，三箱各一行完整保留
+      const splited = text.split('\n');
+      expect(splited[0]).toContain('测试玩家使用了2个挑战资源箱');
+      expect(splited[1]).toBe('#错误：主线补给箱在物品列表不存在(必须先在物品列表里面定义才可以被使用)');
+      expect(splited[2]).toMatch(/^测试玩家使用了1个优秀武器补给箱,得到了/);
+    } finally {
+      jest.restoreAllMocks();
+    }
   });
 });

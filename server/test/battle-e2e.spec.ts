@@ -289,7 +289,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
   });
 
   describe('卷土重来死亡冷却', () => {
-    it('第一次被击败进入卷土重来后，冷却未结束时再次被击败应真实死亡', async () => {
+    it('第一次被击败进入卷土重来后，冷却未结束时再次被击败应免死且不重复进入卷土重来', async () => {
       const player = makePlayer({
         userId: 2,
         hp: 1,
@@ -326,14 +326,21 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const jlq = firstMarkers2.find((entry: any) => entry.name === 'jlq');
 
       expect(first.result).toContain('进入了卷土重来状态');
-      expect(player.hp).toBe(100);
+      // 原版 L3674：卷土重来只给增益、不回血，生命保持 0，靠增益闪避=1 免死。
+      expect(player.hp).toBe(0);
       expect(jlq).toBeDefined();
 
       const second = await combat.weaponAttack(2, 0, { mustHit: true, noDelay: true });
+      const secondMarkers2 = JSON.parse(player.markers2);
+      const jlqList = secondMarkers2.filter((m: any) => m.name === 'jlq');
 
-      expect(second.result).toContain('倒下了');
+      // 原版语义：卷土重来期间玩家 HP=0 但靠增益闪避=1 免死（防鞭尸跳过反击），
+      // 且 jlq 冷却未过 → 不会再次写入卷土重来、也不会真死。核心验证冷却去重。
       expect(second.result).not.toContain('进入了卷土重来状态');
+      expect(second.result).not.toContain('倒下了');
       expect(player.hp).toBe(0);
+      // jlq 冷却标记未被重复写入（去重生效，否则会再次触发卷土重来）。
+      expect(jlqList.length).toBe(1);
     });
   });
 

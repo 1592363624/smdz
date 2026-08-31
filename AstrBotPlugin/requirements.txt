@@ -1,3 +1,5 @@
 # 使魔大战3 桥接插件依赖
 # 使用 aiohttp 进行异步 HTTP 请求（AstrBot 规范禁止使用 requests）
 aiohttp>=3.8.0
+# Socket.IO 异步客户端：长连接订阅后端 bot:push 延时完成推送（采集完成/移动到达等）
+python-socketio>=5.11.0

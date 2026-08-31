@@ -34,6 +34,10 @@ export class ChatService {
    * @param channelName 频道名（默认世界频道）
    * @param content 消息内容
    * @param senderId 发送者ID（可选）
+   *
+   * 机器人转发：senderId 对应的玩家绑定了 QQ 号时，额外向 bot 房间推送
+   * bot:push 事件，AstrBot 插件据此把「采集完成/移动到达」等延时结果
+   * 主动回推到 QQ（指令回复通道覆盖不到定时器回调，见 game.service L3745 注释）。
    */
   async broadcastSystem(channelName: string, content: string, senderId?: number) {
     const channel = await this.ensureDefaultChannel();
@@ -45,6 +49,25 @@ export class ChatService {
     });
     // 实时推送给频道房间内所有在线用户
     this.server?.to(channelName).emit('chat:message', msg);
+    // 机器人定向推送：查该消息关联玩家的 QQ 绑定，绑定了才推，未绑定/无机器人在线时静默跳过
+    if (senderId) {
+      try {
+        const user = await this.prisma.user.findUnique({
+          where: { id: senderId },
+          select: { qqNumber: true },
+        });
+        if (user?.qqNumber) {
+          this.server?.to('bot').emit('bot:push', {
+            qqNumber: user.qqNumber,
+            senderId,
+            content: msg.content,
+            createdAt: msg.createdAt,
+          });
+        }
+      } catch {
+        // 机器人推送失败不影响公屏广播主链路
+      }
+    }
     return msg;
   }
 

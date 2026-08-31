@@ -68,7 +68,7 @@ describe('打开箱子端到端（真实远程库）', () => {
     const uid = await makePlayer([{ name: '普通装备补给箱', type: '资源', quantity: 3, count: 3 }]);
     const text = await game.handleUseItem(uid, '普通装备补给箱', 3);
     console.log('[装备箱]', text);
-    expect(text).toContain('使用了3的普通装备补给箱');
+    expect(text).toContain('使用了3个普通装备补给箱');
     const player = await prisma.player.findUnique({ where: { userId: uid } });
     const pack = JSON.parse(player!.backpack || '[]');
     // 箱子消耗完毕

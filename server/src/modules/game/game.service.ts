@@ -2278,6 +2278,15 @@ export class GameService {
     return this.itemService.useItem(userId, itemName, count);
   }
 
+  /**
+   * 处理“使用全部XX”命令
+   * 1:1 复刻 _主程序.ecode L4517-4540：模糊匹配名字包含[XX]的全部可用箱子，
+   * 屏蔽种子，倒序逐一全部使用（对应原版快捷的“使用全部箱”操作）。
+   */
+  async handleUseAllItems(userId: number, keyword: string): Promise<string> {
+    return this.itemService.useAllItems(userId, keyword);
+  }
+
   /** 原版“使用种子”直接把作物放入当前地图资源2，不经过普通物品掉落。 */
   private getSeedCropName(itemName: string): string {
     const normalizedName = String(itemName || '').trim();
@@ -3080,7 +3089,8 @@ export class GameService {
       lines.push(`👾 怪物 (${monsters.length}只):`);
       for (const m of monsters) {
         const hpPercent = m.maxHp > 0 ? Math.round((m.hp / m.maxHp) * 100) : 0;
-        lines.push(`  ${m.name} Lv.${m.level} HP:${m.hp}/${m.maxHp}(${hpPercent}%)${m.isElite ? ' ⚠️精英' : ''}`);
+        // 伤害计算保留双精度（对齐原版），显示时取整，避免出现 HP:13.13679525036632 这种浮点尾巴
+        lines.push(`  ${m.name} Lv.${m.level} HP:${Math.round(m.hp)}/${Math.round(m.maxHp)}(${hpPercent}%)${m.isElite ? ' ⚠️精英' : ''}`);
       }
     } else {
       lines.push(`👾 怪物: 当前地图没有怪物`);
@@ -8053,7 +8063,8 @@ export class GameService {
       lines.push(`👾 怪物 (${monsters.length}只):`);
       for (const m of monsters) {
         const hpPercent = m.maxHp > 0 ? Math.round((m.hp / m.maxHp) * 100) : 0;
-        lines.push(`  ${m.name} Lv.${m.level} HP:${m.hp}/${m.maxHp}(${hpPercent}%)`);
+        // 显示取整，避免出现 HP:13.13679525036632 这种浮点尾巴
+        lines.push(`  ${m.name} Lv.${m.level} HP:${Math.round(m.hp)}/${Math.round(m.maxHp)}(${hpPercent}%)`);
       }
     } else {
       lines.push(`👾 怪物: 暂无`);

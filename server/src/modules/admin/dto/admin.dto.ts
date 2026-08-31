@@ -199,3 +199,57 @@ export class ModifyPlayerDto {
   @IsString()
   value: string;
 }
+
+/// GM 背包管理：背包中的单个物品
+export class BackpackItemDto {
+  @ApiProperty({ description: '物品名称', example: '水晶' })
+  @IsString()
+  name: string;
+
+  @ApiProperty({ description: '数量(0 表示删除该物品)', example: 10, minimum: 0, required: false })
+  @IsOptional()
+  @Min(0)
+  quantity?: number;
+
+  @ApiProperty({ description: '数量(兼容字段)', example: 10, minimum: 0, required: false })
+  @IsOptional()
+  @Min(0)
+  count?: number;
+
+  @ApiProperty({ description: '类型(物品/装备/资源等)', example: '物品', required: false })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiProperty({ description: '耐久度(仅装备类)', required: false })
+  @IsOptional()
+  @Allow()
+  durability?: any;
+
+  @ApiProperty({ description: '附加数据(原版 data 字段，如装备材料)', required: false })
+  @IsOptional()
+  @Allow()
+  data?: any;
+
+  @ApiProperty({ description: '穿戴部位/槽位(仅装备类)', required: false })
+  @IsOptional()
+  @Allow()
+  slot?: any;
+}
+
+/// GM 背包管理：整体保存背包
+export class BackpackSaveDto {
+  @ApiProperty({ description: '目标用户ID', example: 1 })
+  @IsInt()
+  userId: number;
+
+  @ApiProperty({
+    description: '背包物品完整列表（编辑/增/删后整体提交；数量为0的条目将被删除）',
+    type: [BackpackItemDto],
+    example: [{ name: '水晶', quantity: 10 }],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BackpackItemDto)
+  items: BackpackItemDto[];
+}

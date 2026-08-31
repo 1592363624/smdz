@@ -65,9 +65,27 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   /**
    * 连接建立时：校验 JWT，加入默认世界频道房间
+   * 机器人(AstrBot 插件)使用 botToken 握手认证：匹配 BOT_ACCESS_TOKEN 时
+   * 加入专用 bot 房间，不进世界频道，仅接收 bot:push 定向推送
+   * （延时任务完成/移动到达等系统消息，见 ChatService.broadcastSystem）
    */
   async handleConnection(client: Socket) {
     try {
+      // 机器人通道握手：auth.botToken 与 BOT_ACCESS_TOKEN 一致即视为机器人客户端。
+      // 令牌为空时永不放行，避免空匹配把所有人放进 bot 房间。
+      const botToken = client.handshake.auth?.botToken;
+      if (
+        botToken &&
+        GlobalConfig.getInstance().botAccessToken &&
+        botToken === GlobalConfig.getInstance().botAccessToken
+      ) {
+        client.data.bot = true;
+        await client.join('bot');
+        this.logger.log('机器人客户端已连接并加入 bot 房间');
+        client.emit('chat:connected', { channel: 'bot', bot: true });
+        return;
+      }
+
       // 从连接握手参数中取 token
       const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.replace('Bearer ', '');
       if (!token) {
