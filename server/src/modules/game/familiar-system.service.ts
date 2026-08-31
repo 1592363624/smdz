@@ -561,7 +561,7 @@ export class FamiliarSystemService {
    * @param userId 用户ID
    * @returns 使魔数据文本
    */
-  async viewFamiliarData(userId: number): Promise<string> {
+  async viewFamiliarData(userId: number, detailed = false): Promise<string> {
     // 对齐原版 数据显示.ecode L723-995 显示使魔数据()
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, buffs } = playerData;
@@ -585,11 +585,6 @@ export class FamiliarSystemService {
     // 获取好感度（对齐原版 L750/L792-804）
     const affinityKey = `${player.type}好感`;
     const affinity = this.playerService.getMarkerValue(markers, affinityKey);
-
-    // 获取技能等级
-    const skillKey = `${player.type}技能熟练度`;
-    const skillExp = this.playerService.getMarkerValue(markers, skillKey);
-    const skillLevel = this.playerService.getSkillLevel(markers, player.type);
 
     // 好感度描述
     let affinityDesc = '陌生';
@@ -630,7 +625,7 @@ export class FamiliarSystemService {
     lines.push(`速度: ${Math.round(calc.速度 || 0)}  暴击: ${Math.round(calc.暴击 || 0)}%`);
 
     // 好感度+采集（对齐原版 L791-806）
-    lines.push(`好感: ${Math.round(affinity)}（${affinityDesc}）${affinityBonus}`);
+    lines.push(`好感: ${Math.round(affinity)}（${affinityDesc}）${affinityBonus}\t采集:${Math.round(calc.采集 || 0)}%`);
 
     // 战力（对齐原版 L807）
     const combatPower = this.bonusService.calcCombatPower({
@@ -639,94 +634,99 @@ export class FamiliarSystemService {
       装甲: calc.装甲 || 0,
       速度: calc.速度 || 0,
     });
-    lines.push(`战力: ${combatPower}`);
+    const 挑战 = this.playerService.getMarkerValue(markers, '挑战等级');
+    lines.push(`战力: ${combatPower}\t挑战:${Math.round(Number(挑战) || 0)}`);
 
-    // 详细模式属性（对齐原版 L808-976 详细=真）
-    lines.push('━━━━━━━━━━━━━━━');
+    // ====== 详细模式属性（对齐原版 L808-976 详细=真）======
+    // 仅「查看使魔详细」输出；「查看使魔」只显示基础数据（对齐原版 详细=空）。
+    // 技能说明/好感解锁分层由「使魔技能」单独展示，避免与查看使魔重复。
+    if (detailed) {
+      lines.push('━━━━━━━━━━━━━━━');
 
-    // 三层抗性（对齐原版 L809-823）
-    if (calc.护盾伤害上限) {
-      lines.push(`◆护盾单次最多减少${Math.round(calc.护盾伤害上限)}%`);
-    }
-    lines.push('◆护盾物/火/冰/电抗:');
-    lines.push(`  ${Math.round(calc.护盾物抗 || 0)}%/${Math.round(calc.护盾火抗 || 0)}%/${Math.round(calc.护盾冰抗 || 0)}%/${Math.round(calc.护盾电抗 || 0)}%`);
+      // 三层抗性（对齐原版 L809-823）
+      if (calc.护盾伤害上限) {
+        lines.push(`◆护盾单次最多减少${Math.round(calc.护盾伤害上限)}%`);
+      }
+      lines.push('◆护盾物/火/冰/电抗:');
+      lines.push(`  ${Math.round(calc.护盾物抗 || 0)}%/${Math.round(calc.护盾火抗 || 0)}%/${Math.round(calc.护盾冰抗 || 0)}%/${Math.round(calc.护盾电抗 || 0)}%`);
 
-    if (calc.装甲伤害上限) {
-      lines.push(`◆装甲单次最多减少${Math.round(calc.装甲伤害上限)}%`);
-    }
-    lines.push('◆装甲物/火/冰/电抗:');
-    lines.push(`  ${Math.round(calc.装甲物抗 || 0)}%/${Math.round(calc.装甲火抗 || 0)}%/${Math.round(calc.装甲冰抗 || 0)}%/${Math.round(calc.装甲电抗 || 0)}%`);
+      if (calc.装甲伤害上限) {
+        lines.push(`◆装甲单次最多减少${Math.round(calc.装甲伤害上限)}%`);
+      }
+      lines.push('◆装甲物/火/冰/电抗:');
+      lines.push(`  ${Math.round(calc.装甲物抗 || 0)}%/${Math.round(calc.装甲火抗 || 0)}%/${Math.round(calc.装甲冰抗 || 0)}%/${Math.round(calc.装甲电抗 || 0)}%`);
 
-    if (calc.生命伤害上限) {
-      lines.push(`◆生命单次最多减少${Math.round(calc.生命伤害上限)}%`);
-    }
-    lines.push('◆生命物/火/冰/电抗:');
-    lines.push(`  ${Math.round(calc.生命物抗 || 0)}%/${Math.round(calc.生命火抗 || 0)}%/${Math.round(calc.生命冰抗 || 0)}%/${Math.round(calc.生命电抗 || 0)}%`);
+      if (calc.生命伤害上限) {
+        lines.push(`◆生命单次最多减少${Math.round(calc.生命伤害上限)}%`);
+      }
+      lines.push('◆生命物/火/冰/电抗:');
+      lines.push(`  ${Math.round(calc.生命物抗 || 0)}%/${Math.round(calc.生命火抗 || 0)}%/${Math.round(calc.生命冰抗 || 0)}%/${Math.round(calc.生命电抗 || 0)}%`);
 
-    // 暴击伤害/韧性（对齐原版 L824）
-    lines.push(`◆暴击伤害: ${Math.round(calc.暴击伤害 || 0)}%  韧性: ${Math.round(calc.韧性 || 0)}%`);
+      // 暴击伤害/韧性（对齐原版 L824）
+      lines.push(`◆暴击伤害: ${Math.round(calc.暴击伤害 || 0)}%  韧性: ${Math.round(calc.韧性 || 0)}%`);
 
-    // 穿透（对齐原版 L836-838：仅非0时显示）
-    const totalPen = (calc.护盾穿透 || 0) + (calc.装甲穿透 || 0) + (calc.生命穿透 || 0);
-    if (totalPen) {
-      lines.push(`◆护盾/装甲/生命穿透: ${Math.round(calc.护盾穿透 || 0)}/${Math.round(calc.装甲穿透 || 0)}/${Math.round(calc.生命穿透 || 0)}%`);
+      // 穿透（对齐原版 L836-838：仅非0时显示）
+      const totalPen = (calc.护盾穿透 || 0) + (calc.装甲穿透 || 0) + (calc.生命穿透 || 0);
+      if (totalPen) {
+        lines.push(`◆护盾/装甲/生命穿透: ${Math.round(calc.护盾穿透 || 0)}/${Math.round(calc.装甲穿透 || 0)}/${Math.round(calc.生命穿透 || 0)}%`);
+      }
+
+      // 贯穿/抗贯穿（对齐原版 L854-856）
+      if ((calc.贯穿 || 0) + (calc.抗贯穿 || 0) !== 0) {
+        lines.push(`◆贯穿: ${Math.round(calc.贯穿 || 0)}%  抗贯穿: ${Math.round(calc.抗贯穿 || 0)}%`);
+      }
+
+      // 三层回复（对齐原版 L860-868）
+      if ((calc.护盾回复 || 0) + (calc.护盾回复2 || 0) !== 0) {
+        lines.push(`◆护盾回复: ${Math.round(calc.护盾回复 || 0)}+${Math.round(calc.护盾回复2 || 0)}%`);
+      }
+      if ((calc.装甲回复 || 0) + (calc.装甲回复2 || 0) !== 0) {
+        lines.push(`◆装甲修复: ${Math.round(calc.装甲回复 || 0)}+${Math.round(calc.装甲回复2 || 0)}%`);
+      }
+      if ((calc.生命回复 || 0) + (calc.生命回复2 || 0) !== 0) {
+        lines.push(`◆生命恢复: ${Math.round(calc.生命回复 || 0)}+${Math.round(calc.生命回复2 || 0)}%`);
+      }
+
+      // 三层偷取（对齐原版 L869-877）
+      if ((calc.吸护盾 || 0) + (calc.吸护盾2 || 0) !== 0) {
+        lines.push(`◆护盾偷取: ${Math.round(calc.吸护盾 || 0)}+${Math.round(calc.吸护盾2 || 0)}%`);
+      }
+      if ((calc.吸装甲 || 0) + (calc.吸装甲2 || 0) !== 0) {
+        lines.push(`◆装甲偷取: ${Math.round(calc.吸装甲 || 0)}+${Math.round(calc.吸装甲2 || 0)}%`);
+      }
+      if ((calc.吸生命 || 0) + (calc.吸生命2 || 0) !== 0) {
+        lines.push(`◆生命偷取: ${Math.round(calc.吸生命 || 0)}+${Math.round(calc.吸生命2 || 0)}%`);
+      }
+
+      // 伤害分配（对齐原版 L878）
+      lines.push(`◆护盾/装甲/生命伤害: ${100 + Math.round(calc.攻击护盾 || 0)}/${100 + Math.round(calc.攻击装甲 || 0)}/${100 + Math.round(calc.攻击生命 || 0)}`);
+
+      // 武器列表（对齐原版 L906-920）
+      const weapons = playerData.weapons || [];
+      if (Array.isArray(weapons) && weapons.length > 0) {
+        const weaponNames = weapons.map((w: any, i: number) =>
+          `${w?.name || w?.名称 || '未知'}${w?.data ? `[${this.familiarQualityPrefix(w.data)}]` : ''}`
+        );
+        lines.push(`◆使用的武器: ${weaponNames.join('、')}`);
+      }
+
+      // 装备列表（对齐原版 L922-930）
+      const equipments = playerData.equipment || [];
+      if (Array.isArray(equipments) && equipments.length > 0) {
+        const equipNames = equipments.map((e: any) =>
+          `${e?.name || e?.名称 || '未知'}${e?.data ? `[${this.familiarQualityPrefix(e.data)}]` : ''}`
+        );
+        lines.push(`◆使用的装备: ${equipNames.join('、')}`);
+      }
+
+      // 增益（对齐原版 L956-963）
+      if (buffs && Array.isArray(buffs) && buffs.length > 0) {
+        const buffNames = buffs.map((b: any) => b?.name || b?.名称 || '未知');
+        lines.push(`◆当前增益: ${buffNames.join('、')}`);
+      }
     }
 
-    // 贯穿/抗贯穿（对齐原版 L854-856）
-    if ((calc.贯穿 || 0) + (calc.抗贯穿 || 0) !== 0) {
-      lines.push(`◆贯穿: ${Math.round(calc.贯穿 || 0)}%  抗贯穿: ${Math.round(calc.抗贯穿 || 0)}%`);
-    }
-
-    // 三层回复（对齐原版 L860-868）
-    if ((calc.护盾回复 || 0) + (calc.护盾回复2 || 0) !== 0) {
-      lines.push(`◆护盾回复: ${Math.round(calc.护盾回复 || 0)}+${Math.round(calc.护盾回复2 || 0)}%`);
-    }
-    if ((calc.装甲回复 || 0) + (calc.装甲回复2 || 0) !== 0) {
-      lines.push(`◆装甲修复: ${Math.round(calc.装甲回复 || 0)}+${Math.round(calc.装甲回复2 || 0)}%`);
-    }
-    if ((calc.生命回复 || 0) + (calc.生命回复2 || 0) !== 0) {
-      lines.push(`◆生命恢复: ${Math.round(calc.生命回复 || 0)}+${Math.round(calc.生命回复2 || 0)}%`);
-    }
-
-    // 三层偷取（对齐原版 L869-877）
-    if ((calc.吸护盾 || 0) + (calc.吸护盾2 || 0) !== 0) {
-      lines.push(`◆护盾偷取: ${Math.round(calc.吸护盾 || 0)}+${Math.round(calc.吸护盾2 || 0)}%`);
-    }
-    if ((calc.吸装甲 || 0) + (calc.吸装甲2 || 0) !== 0) {
-      lines.push(`◆装甲偷取: ${Math.round(calc.吸装甲 || 0)}+${Math.round(calc.吸装甲2 || 0)}%`);
-    }
-    if ((calc.吸生命 || 0) + (calc.吸生命2 || 0) !== 0) {
-      lines.push(`◆生命偷取: ${Math.round(calc.吸生命 || 0)}+${Math.round(calc.吸生命2 || 0)}%`);
-    }
-
-    // 伤害分配（对齐原版 L878）
-    lines.push(`◆护盾/装甲/生命伤害: ${100 + Math.round(calc.攻击护盾 || 0)}/${100 + Math.round(calc.攻击装甲 || 0)}/${100 + Math.round(calc.攻击生命 || 0)}`);
-
-    // 武器列表（对齐原版 L906-920）
-    const weapons = playerData.weapons || [];
-    if (Array.isArray(weapons) && weapons.length > 0) {
-      const weaponNames = weapons.map((w: any, i: number) =>
-        `${w?.name || w?.名称 || '未知'}${w?.data ? `[${this.familiarQualityPrefix(w.data)}]` : ''}`
-      );
-      lines.push(`◆使用的武器: ${weaponNames.join('、')}`);
-    }
-
-    // 装备列表（对齐原版 L922-930）
-    const equipments = playerData.equipment || [];
-    if (Array.isArray(equipments) && equipments.length > 0) {
-      const equipNames = equipments.map((e: any) =>
-        `${e?.name || e?.名称 || '未知'}${e?.data ? `[${this.familiarQualityPrefix(e.data)}]` : ''}`
-      );
-      lines.push(`◆使用的装备: ${equipNames.join('、')}`);
-    }
-
-    // 增益（对齐原版 L956-963）
-    if (buffs && Array.isArray(buffs) && buffs.length > 0) {
-      const buffNames = buffs.map((b: any) => b?.name || b?.名称 || '未知');
-      lines.push(`◆当前增益: ${buffNames.join('、')}`);
-    }
-
-    // 魅力/活力（对齐原版 L977-984）
+    // 魅力/活力（对齐原版 L977-984，无条件显示）
     lines.push('━━━━━━━━━━━━━━━');
     lines.push(`魅力: ${Math.round(calc.魅力 || 0)}`);
 
@@ -735,17 +735,6 @@ export class FamiliarSystemService {
     // 标记补写由活力恢复结算与最终加成计算统一落盘，这里只负责展示兜底。
     const vitality2 = Math.max(100, Number(this.playerService.getMarkerValue(markers, '活力2')) || 100);
     lines.push(`活力: ${Math.round(player.vitality || 0)}/${Math.round(vitality2)}`);
-
-    // 技能信息
-    lines.push('━━━━━━━━━━━━━━━');
-    lines.push(`特有技能: ${familiar.uniqueSkill || '无'}`);
-    lines.push(`技能等级: ${skillLevel}（经验: ${Math.round(skillExp)}）`);
-
-    // 描述
-    if (familiar.description) {
-      lines.push('━━━━━━━━━━━━━━━');
-      lines.push(familiar.description);
-    }
 
     return lines.join('\n');
   }

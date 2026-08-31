@@ -53,7 +53,13 @@ async function main() {
     { name: '选择使魔', alias: 'select,familiar,更换使魔', description: '选择或更换使魔', handlerKey: 'game', minRole: 'USER', sortOrder: 40 },
     { name: '召唤使魔', alias: 'summon', description: '召唤使魔到当前地图', handlerKey: 'game', minRole: 'USER', sortOrder: 41 },
     { name: '命名使魔', alias: 'name-familiar', description: '为你的使魔命名', handlerKey: 'game', minRole: 'USER', sortOrder: 42 },
-    { name: '使魔数据', alias: 'familiar-data,查看使魔,查看使魔详细', description: '查看使魔详细数据', handlerKey: 'game', minRole: 'USER', sortOrder: 43 },
+    // NOTE: 「查看使魔」/「查看使魔详细」必须作为独立指令注册，不能作为「使魔数据」别名，
+    // 否则指令分发会把它们归一化为「使魔数据」，永远进不了 game-command.handler 的查看使魔分支
+    // （从而丢失「1、更多」子菜单）；「使魔更多」同理，是查看使魔→更多的专用令牌，避免与全局「更多」帮助冲突。
+    { name: '使魔数据', alias: 'familiar-data', description: '查看使魔基础数据（更多子菜单第1项）', handlerKey: 'game', minRole: 'USER', sortOrder: 43 },
+    { name: '查看使魔', alias: 'view-familiar', description: '查看使魔（含「更多」操作子菜单）', handlerKey: 'game', minRole: 'USER', sortOrder: 432 },
+    { name: '查看使魔详细', alias: 'familiar-detail', description: '查看使魔详细属性', handlerKey: 'game', minRole: 'USER', sortOrder: 433 },
+    { name: '使魔更多', alias: 'familiar-more', description: '查看使魔-更多操作子菜单', handlerKey: 'game', minRole: 'USER', sortOrder: 434 },
     { name: '使魔商店', alias: 'familiar-shop', description: '使魔商店', handlerKey: 'game', minRole: 'USER', sortOrder: 44 },
     { name: '兑换', alias: 'exchange', description: '兑换物品', handlerKey: 'game', minRole: 'USER', sortOrder: 45 },
     // 家园系统（统一 game 处理器）

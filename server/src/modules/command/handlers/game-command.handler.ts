@@ -433,16 +433,30 @@ export class GameCommandHandler implements CommandHandler {
         case 'name-familiar':
           return this.wrap(await this.familiarSystem.nameFamiliar(userId, arg));
 
-        case '使魔数据':
-        case 'familiar-data':
-        case '查看使魔':
-        case '查看使魔详细': {
+        case '查看使魔': {
           // 检查新手指引
           const tutorialText = await this.checkTutorial(userId, 'familiarData');
           if (tutorialText) {
             return this.wrap(tutorialText);
           }
-          return this.wrap(await this.familiarSystem.viewFamiliarData(userId));
+          // 查看使魔 = 基础数据 + 「1、更多」子菜单（原版 _主程序.ecode L5527/L5548）
+          // 「更多」是全局帮助指令，为免冲突此处「查看使魔」的更多子菜单使用专用令牌「使魔更多」。
+          return this.wrap(await this.gameService.handleViewFamiliar(userId));
+        }
+        case '使魔数据':
+        case 'familiar-data': {
+          // 使魔数据 = 基础数据展示（原版 _主程序.ecode L6464 使魔数据 子程序，无「更多」子菜单）
+          return this.wrap(await this.gameService.handleFamiliarData(userId));
+        }
+        case '使魔更多':
+        case 'familiar-more': {
+          // 查看使魔 →「更多」子菜单：使魔数据/查看技能/查看使魔详细/被动效果（原版 _主程序.ecode L4107-4113）
+          return this.wrap(await this.gameService.handleFamiliarMore(userId));
+        }
+        case '查看使魔详细':
+        case 'familiar-detail': {
+          // 查看使魔详细 = 详细属性数据（原版 L5505 显示使魔数据 玩家,真）
+          return this.wrap(await this.familiarSystem.viewFamiliarData(userId, true));
         }
 
         case '使魔商店':
@@ -788,20 +802,15 @@ export class GameCommandHandler implements CommandHandler {
           const dialogueInput = arg.trim();
           // 原版支持“对话 NPC 1”选择第1段对话；任务动作只记录实际NPC名称。
           const dialogueTarget = dialogueInput.replace(/\s+\d+$/, '').trim();
-          // 若目标是"露娜"或命令为"对话露娜未知"，走露娜专属兑换剧情
-          let result: string;
-          if (dialogueTarget.includes('露娜')) {
-            result = await this.gameService.handleDialogueLuna(userId, dialogueInput);
-          } else {
-            result = await this.gameService.handleTalk(userId, dialogueTarget);
+          // 只有“对话露娜未知 N”（未知物品兑换）走露娜专属剧情；普通的「对话 露娜」
+          // 必须与露娜正常对话（原版 L1410 按六字命令“对话露娜未知”判断），
+          // 且原版兑换分支不会推进“对话”成就。
+          if (/露娜.*未知/.test(dialogueTarget)) {
+            return this.wrap(await this.gameService.handleDialogueLuna(userId, dialogueInput));
           }
-          // 原版只有实际找到对话对象后才添加“对话”及“对话+NPC名称”。
-          // 空参数是列表展示，不能把查看列表算作完成一次对话。
-          if (dialogueTarget && this.isSuccessfulAction(result)) {
-            await this.taskService.advance(userId, '对话');
-            await this.taskService.advance(userId, '对话' + dialogueTarget);
-          }
-          return this.wrap(result);
+          // 任务推进由 GameService.handleTalk 在真正找到对话对象后统一处理
+          // （对齐原版 L1566-1567），这里不再按返回文本猜测成败，避免重复计数。
+          return this.wrap(await this.gameService.handleTalk(userId, dialogueTarget));
         }
 
         // 对话露娜未知：用背包中的未知物品与露娜兑换奖励

@@ -253,4 +253,28 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
     expect(tasks.some((t: any) => t.name === '教程-苏醒')).toBe(false);
     expect(tasks.some((t: any) => t.name === '教程-背包')).toBe(true);
   });
+
+  it('森林出口对话史莱姆：无NPC/召唤物时怪物仍可对谈，并推进对话史莱姆任务', async () => {
+    const taskService = {
+      advance: jest.fn(async () => ''),
+      consumeNotifications: jest.fn(() => ''),
+    };
+    const fixture = makeGameService({ taskService });
+    // 用户复现场景：森林出口无 npcs、无 summons，但地图上有史莱姆怪物。
+    // 修复前 handleTalk 会因“npcs+summons 为空”前置门禁返回“当前地图没有可对话的NPC”，
+    // 导致“主线-继续询问”要求的“对话史莱姆3”永远无法推进。
+    fixture.map.npcs = '[]';
+    fixture.map.summons = '[]';
+    fixture.service.mapService.getMapMonsters = jest.fn(async () => [
+      { id: 1, name: '史莱姆', 名称: '史莱姆', type: '史莱姆', level: 1, hp: 52, maxHp: 52, qq: '怪物1', markers: {} },
+    ]);
+
+    const result = await fixture.service.handleTalk(42, '史莱姆');
+
+    expect(result).not.toContain('当前地图没有可对话的NPC');
+    expect(result).toContain('【史莱姆】');
+    // 推进通用「对话」与具体「对话史莱姆」，主线任务才能结算
+    expect(taskService.advance).toHaveBeenCalledWith(42, '对话');
+    expect(taskService.advance).toHaveBeenCalledWith(42, '对话史莱姆');
+  });
 });

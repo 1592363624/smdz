@@ -539,7 +539,8 @@
         <div class="ip-list" v-if="mapOverview.currentMap.resourceList?.length">
           <div v-for="r in mapOverview.currentMap.resourceList" :key="'cur-res-' + r.name" class="ip-row">
             <span class="ip-row-name">📦 {{ r.name }}</span>
-            <span class="ip-row-meta">×{{ r.count }} · {{ r.gatherCmd || '采集' }}</span>
+            <span class="ip-row-meta" v-if="r.count >= 0">×{{ r.count }} · {{ r.gatherCmd || '采集' }}</span>
+            <span class="ip-row-meta" v-else>{{ r.gatherCmd || '采集' }}</span>
           </div>
         </div>
         <div class="ip-empty" v-else>该地图暂无资源</div>

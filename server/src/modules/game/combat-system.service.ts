@@ -541,7 +541,9 @@ export class CombatSystemService {
     }
 
     // 5. 确定攻击目标列表
-    let targets = this.selectTargets(monsters, player, allAttack, weapon, targetName, targetId);
+    // fallbackNotes：收集"指定目标不可攻击→随机回落"的提示，最终置于结果顶部
+    const fallbackNotes: string[] = [];
+    let targets = this.selectTargets(monsters, player, allAttack, weapon, targetName, targetId, fallbackNotes);
 
     if (targets.length === 0) {
       return { result: '没有可以攻击的目标', killed: [], damageDealt: 0, expGained: 0, drops: [] };
@@ -2675,7 +2677,8 @@ export class CombatSystemService {
     }
 
     return {
-      result: resultLines.join('\n'),
+      // 指定目标不可攻击的回落提示置于最顶部，随后才是正常战斗结算文本
+      result: (fallbackNotes.length ? [...fallbackNotes, ...resultLines] : resultLines).join('\n'),
       killed,
       damageDealt: totalDamage,
       expGained: totalExp,
@@ -5644,6 +5647,7 @@ export class CombatSystemService {
     weapon: WeaponData,
     targetName?: string,
     targetId?: number | string,
+    fallbackOut?: string[],
   ): any[] {
     const alive = monsters.filter(m => (m.hp || 0) > 0);
 
@@ -5662,6 +5666,11 @@ export class CombatSystemService {
       if (matched.length > 0) return matched;
       // 未找到指定名称的目标时，回退随机（避免"攻击指定怪物"完全无效）
       const targetIdx = Math.floor(Math.random() * alive.length);
+      // 回退时记录提示，由 weaponAttackInner 置于结果顶部，让玩家知晓"指定的
+      // 目标不可攻击"（对应原版 战斗相关.ecode L301-303 目标==0 随机）。
+      fallbackOut?.push(
+        `⚠ 当前地图没有可攻击的『${targetName}』，随机攻击了『${alive[targetIdx].name}』`,
+      );
       return [alive[targetIdx]];
     }
 

@@ -1645,7 +1645,12 @@ export class GameService {
     }));
 
     // 当前地图的子区域详情（怪物/资源/NPC标题）
-    const resources = this.playerService.safeJsonParse<any[]>(currentMap.resources, []);
+    // 资源面板与指令「探测/观察附近」保持一致：过滤已采完(times=0)与当前玩家已领取过的固定资源，
+    // 避免出现"面板里有、实际打不开/已领过"的不一致观感（原版医疗箱/休眠仓为每人一次的常驻资源）。
+    const playerMarkers = await this.getPlayerMarkers(userId);
+    const resources = this.playerService
+      .safeJsonParse<any[]>(currentMap.resources, [])
+      .filter((r: any) => this.getResourceTimes(r) !== 0 && this.isGatherResourceAvailable(r, playerMarkers));
     const npcs = this.playerService.safeJsonParse<any[]>(currentMap.npcs, []);
 
     // 怪物列表：从 spawnMonsters + tempMonsters 合并，去重后携带等级/HP
@@ -1661,10 +1666,12 @@ export class GameService {
       })
       .map((m) => {
         const def = this.staticData.getMonsterByName(m.name) || {};
+        // 面板属性必须与指令「查看」一致：优先使用 GameMonster 实例实时属性（含等级成长），
+        // 静态模板(level/hp)仅作为兜底，避免出现"面板显示基础生命、查看显示成长后生命"的不一致。
         return {
           name: m.name,
-          level: def.level ?? m.level ?? currentMap.level ?? 1,
-          hp: def.hp ?? def.maxHp ?? m.hp ?? m.maxHp ?? 0,
+          level: m.level ?? def.level ?? currentMap.level ?? 1,
+          hp: m.hp ?? m.maxHp ?? def.hp ?? def.maxHp ?? 0,
         };
       });
 
@@ -1672,6 +1679,8 @@ export class GameService {
     const resourceList = resources.map((r: any) => ({
       name: r.name,
       type: r.type || '',
+      // 剩余可采集次数（原版 times/次数，-1 表示无限），前端据此显示 ×N
+      count: this.getResourceTimes(r),
       times: r.times ?? -1,
       gatherCmd: r.gatherCmd || '采集',
       // 取首个产出物的名称作为可见掉落，便于玩家判断价值
@@ -2370,33 +2379,22 @@ export class GameService {
    * 处理查看技能命令
    */
   async handleSkill(userId: number): Promise<string> {
+    // 对齐原版：技能导航菜单（通用技能/使魔技能/查看成就/查看标记/查看标记2）。
+    // 原版并无独立的“技能”指令直接倾倒技能说明，统一先走导航，
+    // 再由「使魔技能」「通用技能」等具体指令展示内容，避免与它们重复。
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-
-    if (!player.type) {
-      return '你还没有使魔类型，无法查看技能';
-    }
-
-    const familiar = await this.familiarService.getFamiliarByName(player.type);
-    if (!familiar) {
-      return `未知的使魔类型: ${player.type}`;
-    }
-
-    const skillDesc = this.familiarService.getSkillDescription(
-      familiar,
-      player.affinity || 0,
-    );
-
-    return [
-      `【${familiar.name}】技能`,
-      `━━━━━━━━━━━━━━━`,
-      `特有技能: ${familiar.uniqueSkill || '无'}`,
-      `技能说明: ${skillDesc || familiar.skillDesc || '无'}`,
-      `好感度: ${Math.round(player.affinity || 0)}`,
-      player.affinity && player.affinity >= 100 ? '💕 已解锁全部技能效果' : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    const lines: string[] = [`✨ ${player.name || '冒险者'} 技能导航:`, `━━━━━━━━━━━━━━━`];
+    const options: { label: string; cmd: string }[] = [
+      { label: '通用技能', cmd: '通用技能' },
+      { label: '使魔技能', cmd: '使魔技能' },
+      { label: '查看成就', cmd: '查看成就' },
+      { label: '查看标记', cmd: '查看标记' },
+      { label: '查看标记2', cmd: '查看标记2' },
+    ];
+    const menu = await this.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看对应内容');
+    lines.push(...menu);
+    return lines.join('\n');
   }
 
   /**
@@ -2560,24 +2558,54 @@ export class GameService {
       || mapSummons.some((unit: any) => (unit?.name ?? unit?.名称) === '白');
     const isSpecialNpc = isKnownSpecialNpc && (npcName !== '白' || whiteAvailable);
     if (!map && !isSpecialNpc) return '你不在任何地图上！';
-    if ((npcs.length === 0 && mapSummons.length === 0) && !isSpecialNpc) {
-      return '当前地图没有可对话的NPC';
+
+    // 地图怪物（原版 对话 分支 L1469-1478：召唤物没匹配上时继续按名称匹配怪物，
+    // 「主线-继续询问」的“对话史莱姆”正是走这条路径）。
+    // 注意：不能拿「NPC 数 + 召唤物数 == 0」做对话门禁，否则只有怪物的地图
+    // （如森林出口）会连怪物一起挡掉，玩家永远无法完成“对话史莱姆”类任务。
+    let mapMonsters: any[] = [];
+    if (map) {
+      try {
+        mapMonsters = (await this.mapService.getMapMonsters(map.id)) || [];
+      } catch { mapMonsters = []; }
     }
 
-    // 如果没有指定NPC名称，显示可对话的NPC列表（附带编号快捷选项，发数字即可对话）
+    // 如果没有指定NPC名称，显示可对话对象列表（附带编号快捷选项，发数字即可对话）
     if (!npcName) {
-      const lines = [`💬 【${map.name}】可对话NPC:`];
+      const lines = [`💬 【${map.name}】可对话对象:`];
       // 编号快捷对话选项：label=展示文本，cmd=实际触发的「对话 名称」
       const options: { label: string; cmd: string }[] = [];
+      const usedCmds = new Set<string>();
+      const pushOption = (name: string, note?: string) => {
+        const cmd = `对话 ${name}`;
+        if (usedCmds.has(cmd)) return;
+        usedCmds.add(cmd);
+        lines.push(`  ${name}${note ? ` - ${note}` : ''}`);
+        options.push({ label: cmd, cmd });
+      };
       for (const npc of npcs) {
         const name = npc.name || '未知';
-        lines.push(`  ${name}${npc.description ? ` - ${npc.description}` : ''}`);
-        options.push({ label: `对话 ${name}`, cmd: `对话 ${name}` });
+        pushOption(name, npc.description);
       }
-      // 地图无NPC数据时，列出新手固定NPC供玩家选择
+      // 召唤物（白/行商/宠物等运行时单位）也是原版对话对象
+      for (const summon of mapSummons) {
+        const name = String(summon?.name ?? summon?.名称 ?? '');
+        if (!name) continue;
+        if (name === '白' && !whiteAvailable) continue;
+        pushOption(name, '召唤物');
+      }
+      // 怪物（同名只列一次，原版同名单位匹配第一只）
+      for (const monster of mapMonsters) {
+        if ((monster?.hp ?? 0) <= 0) continue;
+        const name = String(monster?.name ?? monster?.名称 ?? '');
+        if (!name) continue;
+        const level = Number(monster?.level ?? monster?.等级 ?? 0);
+        pushOption(name, level > 0 ? `怪物 Lv.${level}` : '怪物');
+      }
+      // 地图无NPC/召唤物/怪物数据时，列出新手固定NPC供玩家选择
       // 注意：快捷对话必须用特殊NPC的 key（如 新手引导员），不能用标题（如 新手引导员·小薇），
       // 因为 handleTalk 通过 specialNpcs[key] 解析特殊NPC。
-      if (npcs.length === 0) {
+      if (options.length === 0) {
         const specialList: { key: string; desc: string }[] = [
           { key: '新手引导员', desc: '新手村的引导员' },
           { key: '老村长', desc: '新手村的村长' },
@@ -2591,6 +2619,7 @@ export class GameService {
           options.push({ label: `对话 ${specialNpcs[sp.key].title}`, cmd: `对话 ${sp.key}` });
         }
       }
+      if (options.length === 0) return '当前地图没有可对话的NPC';
       lines.push(``);
       const menuLines = await this.buildNumberedMenu(userId, options, '💡 发送编号数字(如 1)即可与对应NPC对话');
       if (menuLines.length === 0) {
@@ -2621,16 +2650,16 @@ export class GameService {
         unitKind = 'summon';
       }
     }
-    if (!targetNpc && map) {
-      try {
-        const monsters = await this.mapService.getMapMonsters(map.id);
-        const monster = (monsters || []).find((m: any) =>
-          [m?.name, m?.名称].some((v: any) => String(v ?? '') === npcName));
-        if (monster) {
-          targetNpc = monster;
-          unitKind = 'monster';
-        }
-      } catch { /* 怪物查询失败按无此单位处理 */ }
+    if (!targetNpc && mapMonsters.length > 0) {
+      // 原版 L1469-1478：召唤物没匹配上时按名称找怪物。优先存活个体。
+      const matchByName = (list: any[]) =>
+        list.find((m: any) => [m?.name, m?.名称].some((v: any) => String(v ?? '') === npcName));
+      const monster = matchByName(mapMonsters.filter((m: any) => (m?.hp ?? 0) > 0))
+        || matchByName(mapMonsters);
+      if (monster) {
+        targetNpc = monster;
+        unitKind = 'monster';
+      }
     }
     if (!targetNpc && isSpecialNpc) {
       targetNpc = { name: npcName, title: specialNpcs[npcName].title, type: 'npc', description: '' };
@@ -2639,6 +2668,12 @@ export class GameService {
     if (!targetNpc) {
       return `当前地图没有名为【${npcName}】的NPC`;
     }
+
+    // 原版 _主程序.ecode L1566-1567：找到对话对象后才推进「对话」和「对话+名称」。
+    // “主线-继续询问”的“对话史莱姆3”等要求由此结算。放在服务层统一处理，指令入口
+    // 与编号菜单入口都能生效，也避免按返回文本猜测对话是否成功。
+    await this.taskService.advance(userId, '对话').catch(() => '');
+    await this.taskService.advance(userId, `对话${npcName}`).catch(() => '');
 
     // 地图实体（召唤物/怪物/NPC）走原版对话结构（菜单+编号临时输入）；
     // 特殊NPC（新手引导员等新框架剧情NPC）保留对话阶段推进。
@@ -3836,6 +3871,16 @@ export class GameService {
     const marker = String(resource?.marker ?? resource?.标记 ?? '').trim();
     if (!marker) return true;
     return Number(markers[marker] ?? 0) < 1;
+  }
+
+  /** 获取玩家永久标记(markers)对象，用于资源采集门禁的"每人一次"判断。 */
+  private async getPlayerMarkers(userId: number): Promise<Record<string, any>> {
+    try {
+      const { player } = await this.playerService.getPlayerData(userId);
+      return this.playerService.safeJsonParse<Record<string, any>>(player?.markers, {});
+    } catch {
+      return {};
+    }
   }
 
   /** 产出2（作物/建筑的生产产出）是否非空；产出2为空的资源2条目即地上的野生资源。 */
@@ -6506,7 +6551,8 @@ export class GameService {
     const { player, equipment, weapons, sets } = playerData;
 
     const lines: string[] = [
-      `【${player.name || '冒险者'}】被动效果`,
+      // 原版 _主程序.ecode L11247：「<名称>当前拥有的被动效果」；下按来源分层展示装备/武器被动
+      `【${player.name || '冒险者'}】当前拥有的被动效果`,
       `━━━━━━━━━━━━━━━`,
     ];
 
@@ -6528,22 +6574,29 @@ export class GameService {
       }
     }
     if (equipEffects.length > 0) {
-      lines.push(`📦 装备被动效果:`);
+      lines.push(`◆来自装备的被动效果:`);
       lines.push(...equipEffects);
     } else {
-      lines.push(`📦 装备被动效果: 无`);
+      lines.push(`◆来自装备的被动效果: 无`);
     }
 
     // 显示武器特殊效果
+    // 原版 数据显示.ecode L102-105：玩家只显示当前手持武器的被动效果（当前武器≠0 时才读对应武器序号）；
+    // 非玩家（怪物/召唤物）才遍历全部武器。此处 client 恒为玩家，故只读当前武器。
     lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`⚔️ 武器特殊效果:`);
-    if (weaponList.length > 0) {
-      for (const wp of weaponList) {
-        const spEffect = wp.specialEffect || wp.description || '无特殊效果';
-        lines.push(`  ${wp.name}: ${spEffect}`);
-      }
-    } else {
+    lines.push(`◆来自武器的被动效果:`);
+    const currentWeaponIdx = Number(player.currentWeapon ?? 0) - 1; // 1-based 索引转 0-based
+    const currentWeap = currentWeaponIdx >= 0 ? weaponList[currentWeaponIdx] : undefined;
+    if (!currentWeap) {
+      // 未装备任何武器
       lines.push(`  未装备武器`);
+    } else if (currentWeap.specialSeq) {
+      // 当前武器带特殊被动（特殊序号≠0）才展示其效果
+      const spEffect = currentWeap.specialEffect || currentWeap.description || '无特殊效果';
+      lines.push(`  ${currentWeap.name}: ${spEffect}`);
+    } else {
+      // 已装备武器但本身不带特殊被动
+      lines.push(`  ${currentWeap.name}: 无特殊被动效果`);
     }
 
     // 显示套装效果
@@ -7233,22 +7286,324 @@ export class GameService {
 
   /**
    * 处理使魔技能命令
-   * 显示当前使魔的技能列表和说明
-   * 委托到 FamiliarSystemService.viewFamiliarData 查看当前使魔数据（含技能信息）
+   * 显示当前使魔的技能等级、特性、主动技能说明和好感度解锁效果
+   * 对应原版：_主程序.ecode L4086-L4106 + 数据显示.ecode L1770-L1846 显示使魔技能()
    */
   async handleFamiliarSkills(userId: number): Promise<string> {
-    // 委托到熟悉系统服务查看当前使魔数据，包含技能列表和等级
-    return this.familiarSystemService.viewFamiliarData(userId);
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers, buffs, markers2 } = playerData;
+
+    if (!player.type) {
+      return '你还没有选择使魔，请先发送「选择使魔」来选择';
+    }
+
+    const familiar = this.staticData.getFamiliarByName(player.type);
+    if (!familiar) {
+      return `未知的使魔类型: ${player.type}`;
+    }
+
+    // 获取好感度
+    const affinityKey = `${player.type}好感`;
+    const affinity = this.playerService.getMarkerValue(markers, affinityKey);
+
+    // 获取技能等级（原版：熟练度等级 = 玩家.标记中"使魔名称+技能熟练度"，计算等级）
+    const skillExp = this.playerService.getMarkerValue(markers, `${player.type}技能熟练度`);
+    let skillLevel = this.playerService.getSkillLevel(markers, player.type);
+
+    // 特殊装备加成：千泠 +10，粽子 buff +10（对齐原版 _主程序.ecode L4096-L4100）
+    if (this.hasEquippedSpecial(playerData, '千泠', 0)) {
+      skillLevel += 10;
+    }
+    const dummyStrength = { value: 0 };
+    const dummyRemain = { value: 0 };
+    if (this.combatState.buffRequire('粽子', buffs, dummyStrength, Date.now(), dummyRemain)) {
+      skillLevel += 10;
+    }
+
+    // 计算熟练度文本 "等级(熟练度/等级平方)"
+    const roundedExp = Math.round(skillExp * 100) / 100;
+    const skillLevelText = `${skillLevel}(${roundedExp}/${skillLevel * skillLevel})`;
+
+    // 获取基础说明 + 特性 + 技能描述（对齐原版：w = 使魔列表[a].说明 + #换行符 + 使魔列表[a].技能说明）
+    const lines: string[] = [];
+    lines.push(`${player.name}(好感${Math.round(affinity)})`);
+    lines.push(`技能等级: ${skillLevelText}`);
+
+    // 特性（description字段通常包含特性）
+    if (familiar.description) {
+      lines.push(`${familiar.description.replace(/#换行/g, '\n')}`);
+    }
+
+    // 基础技能描述（skillDesc）
+    if (familiar.skillDesc) {
+      let skillDesc = familiar.skillDesc;
+
+      // 替换技能等级占位符（对齐原版 数据显示.ecode L1801-L1844）
+      const replacements: Record<string, string> = {
+        '【0.25技能等级】': String(Math.round(skillLevel / 4 * 100) / 100),
+        '【0.5技能等级】': String(Math.round(skillLevel / 2 * 100) / 100),
+        '【0.75技能等级】': String(Math.round(skillLevel * 0.75 * 100) / 100),
+        '【1技能等级】': String(skillLevel),
+        '【2技能等级】': String(skillLevel * 2),
+        '【2.5技能等级】': String(Math.round(skillLevel * 2.5 * 100) / 100),
+        '【3技能等级】': String(skillLevel * 3),
+        '【4技能等级】': String(skillLevel * 4),
+        '【5技能等级】': String(skillLevel * 5),
+        '【10技能等级】': String(skillLevel * 10),
+        '【0.005技能等级】': String(Math.round(skillLevel / 200 * 10000) / 10000),
+        '【0.01技能等级】': String(Math.round(skillLevel * 0.01 * 10000) / 10000),
+        '【0.02技能等级】': String(Math.round(skillLevel * 0.02 * 10000) / 10000),
+        '【0.025技能等级】': String(Math.round(skillLevel * 0.025 * 10000) / 10000),
+        '【0.03技能等级】': String(Math.round(skillLevel * 0.03 * 10000) / 10000),
+        '【0.04技能等级】': String(Math.round(skillLevel * 0.04 * 10000) / 10000),
+        '【0.05技能等级】': String(Math.round((skillLevel / 20) * 100) / 100),
+        '【0.1技能等级】': String(Math.round((skillLevel / 10) * 100) / 100),
+        '【0.2技能等级】': String(Math.round((skillLevel / 5) * 100) / 100),
+        '【使魔等级x': `【${player.level}x`,
+      };
+      for (const [key, value] of Object.entries(replacements)) {
+        skillDesc = skillDesc.replace(new RegExp(key.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1'), 'g'), value);
+      }
+      // 当等级=1时处理剩余的占位符（对齐原版 L1823-L1842）
+      if (skillLevel <= 1) {
+        const defaultReplacement: Record<string, string> = {
+          '【1技能等级】': '每级1',
+          '【2技能等级】': '每级2',
+          '【2.5技能等级】': '每级2.5',
+          '【3技能等级】': '每级3',
+          '【4技能等级】': '每级4',
+          '【5技能等级】': '每级5',
+          '【10技能等级】': '每级10',
+          '【0.75技能等级】': '每级0.75',
+          '【0.5技能等级】': '每级0.5',
+          '【0.25技能等级】': '每级0.25',
+          '【0.005技能等级】': '每级0.005',
+          '【0.01技能等级】': '每级0.01',
+          '【0.02技能等级】': '每级0.02',
+          '【0.025技能等级】': '每级0.025',
+          '【0.03技能等级】': '每级0.03',
+          '【0.04技能等级】': '每级0.04',
+          '【0.05技能等级】': '每级0.05',
+          '【0.1技能等级】': '每级0.1',
+          '【0.2技能等级】': '每级0.2',
+          '+每级': '每级+',
+          '-每级': '每级-',
+        };
+        for (const [key, value] of Object.entries(defaultReplacement)) {
+          skillDesc = skillDesc.replace(new RegExp(key.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1'), 'g'), value);
+        }
+      }
+      skillDesc = skillDesc.replace(/#换行/g, '\n');
+      lines.push(skillDesc);
+    }
+
+    // 好感度解锁效果（对齐原版：逐个遍历，显示 "好感N解锁:" + 说明，已解锁显示描述）
+    const affinityDesc = familiar.affinityDesc || [];
+    const affinityList = Array.isArray(affinityDesc) ? affinityDesc : JSON.parse(affinityDesc || '[]');
+
+    for (let i = 0; i < affinityList.length; i++) {
+      const unlockAt = 20 * (i + 1);
+      const desc = affinityList[i];
+      if (affinity >= unlockAt) {
+        lines.push(`${desc}`);
+      } else {
+        lines.push(`好感${unlockAt}解锁:${desc}`);
+      }
+    }
+
+    // 检查冷却状态（如果是主动技能，显示剩余冷却）
+    const skillName = familiar.uniqueSkill;
+    if (skillName && Array.isArray(markers2)) {
+      const cdList = markers2.filter((m: any) => m && m.name === skillName);
+      if (cdList.length > 0) {
+        const now = Date.now();
+        const remain = Math.ceil((cdList[0].expireAt - now) / 1000);
+        if (remain > 0) {
+          lines.push('');
+          lines.push(`${skillName}`);
+          lines.push(`${player.name}还需要${remain}秒`);
+        }
+      }
+    }
+
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
    * 处理通用技能命令
-   * 查看通用技能列表
-   * 委托到 FamiliarSystemService.viewFamiliarData 查看使魔数据（含技能信息）
+   * 显示所有技能熟练度等级和加成（世界等级、战斗等级、防御等级...）
+   * 对应原版：_主程序.ecode L4010-L4085
    */
   async handleCommonSkills(userId: number): Promise<string> {
-    // 委托到熟悉系统服务查看当前使魔数据，包含通用技能信息
-    return this.familiarSystemService.viewFamiliarData(userId);
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+
+    // 获取世界等级（系统配置里 game.worldLevel 直接存等级，对应原版"世界"熟练度换算出的等级）
+    let worldLevel = 1;
+    try {
+      const cfg = await this.prisma.systemConfig.findUnique({ where: { key: 'game.worldLevel' } });
+      worldLevel = Number(cfg?.value ?? 1) || 1;
+    } catch {
+      // 读取失败按 1 兜底
+    }
+
+    const lines: string[] = [];
+    lines.push(`${player.name}`);
+
+    // ---- 世界等级（原版 _主程序 L4012-L4023）----
+    // 新版 worldLevel 直接存等级（无全局熟练度），故不含"(熟练度/需求)"后缀
+    const wLevel = Math.max(1, Math.floor(worldLevel));
+    lines.push(`世界等级:${wLevel}`);
+    lines.push(`  怪物等级+${wLevel}\t经验获取+${wLevel / 2}%`);
+    // 新人加成：玩家等级 < 世界等级 × 10 时获得（原版：差距 = 1 - 等级/(世界等级×10)）
+    if (player.level < wLevel * 10) {
+      const gap = 1 - player.level / (wLevel * 10);
+      lines.push(`新人加成:`);
+      lines.push(`  伤害+${Math.round(10000 / (1 - gap)) / 100}%`);
+      lines.push(`  减伤+${Math.round(gap * 10000) / 100}%`);
+    }
+    // 与最高级玩家的等级差距经验加成（原版 L4018-L4023）
+    try {
+      const maxPlayer = await this.prisma.player.findFirst({
+        orderBy: { level: 'desc' },
+        select: { level: true },
+      });
+      const maxLevel = maxPlayer?.level ?? player.level;
+      if (maxLevel - player.level > 1) {
+        lines.push(`你和最高级玩家等级差距: ${maxLevel - player.level}`);
+        lines.push(`  经验获取+${(maxLevel - player.level) * 2}%`);
+      } else {
+        lines.push(`  经验获取+0%`);
+      }
+    } catch {
+      lines.push(`  经验获取+0%`);
+    }
+
+    // ---- 各属性等级（原版 _主程序 L4024-L4085，标记名 = 名称+"熟练度"）----
+    const scale = 1 + player.level / 100;
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+    const scaleLevel = (a: number) => round2(a * scale);
+
+    // 通用技能配置：key=标记后缀，label=行首文本，attr=属性说明与取值函数
+    const skills: Array<{ key: string; label: string; attrs: Array<{ desc: string; val: (a: number) => string }> }> = [
+      {
+        key: '战斗', label: '战斗等级',
+        attrs: [
+          { desc: '攻击+', val: (a) => String(scaleLevel(a)) },
+          { desc: '命中+', val: (a) => String(round2((a / 2) * scale)) },
+        ],
+      },
+      {
+        key: '防御', label: '防御等级',
+        attrs: [
+          { desc: '生命/装甲/护盾+', val: (a) => String(scaleLevel(a)) },
+          { desc: '闪避+', val: (a) => String(round2((a / 2) * scale)) },
+        ],
+      },
+      {
+        key: '闪避', label: '闪避等级',
+        attrs: [
+          { desc: '闪避时间+', val: (a) => `${round2((a / (25 + a)) * 100)}%` },
+          { desc: '速度+', val: (a) => String(round2((a / 4) * scale)) },
+        ],
+      },
+      {
+        key: '采集', label: '采集等级',
+        attrs: [{ desc: '采集+', val: (a) => `${round2(a * (1 + player.level / 1000))}%` }],
+      },
+      {
+        key: '任务', label: '任务等级',
+        attrs: [{ desc: '任务奖励+', val: (a) => `${a}%` }],
+      },
+      {
+        key: '物理', label: '物理等级',
+        attrs: [{ desc: '物攻+', val: (a) => String(scaleLevel(a)) }],
+      },
+      {
+        key: '火焰', label: '火焰等级',
+        attrs: [{ desc: '火攻+', val: (a) => String(scaleLevel(a)) }],
+      },
+      {
+        key: '冰冻', label: '冰冻等级',
+        attrs: [{ desc: '冰攻+', val: (a) => String(scaleLevel(a)) }],
+      },
+      {
+        key: '雷电', label: '雷电等级',
+        attrs: [{ desc: '电攻+', val: (a) => String(scaleLevel(a)) }],
+      },
+      {
+        key: '暴击', label: '暴击等级',
+        attrs: [{ desc: '暴击伤害+', val: (a) => `${a}%` }],
+      },
+      {
+        key: '致命', label: '致命等级',
+        attrs: [{ desc: '致命一击伤害x', val: (a) => String(round2(1 + a / 500)) }],
+      },
+      {
+        key: '强力', label: '强力等级',
+        attrs: [{ desc: '强力一击伤害x', val: (a) => String(round2(1 + a / 400)) }],
+      },
+      {
+        key: '正中', label: '正中等级',
+        attrs: [{ desc: '正中一击伤害x', val: (a) => String(round2(1 + a / 300)) }],
+      },
+      {
+        key: '擦过', label: '擦过等级',
+        attrs: [{ desc: '擦过一击伤害x', val: (a) => String(round2(1 + a / 200)) }],
+      },
+      {
+        key: '描边', label: '描边等级',
+        attrs: [{ desc: '描边一击伤害x', val: (a) => String(round2(1 + a / 100)) }],
+      },
+      {
+        key: '射弹武器', label: '射弹武器等级',
+        attrs: [{ desc: '射弹武器攻击+', val: (a) => String(scaleLevel(a)) }],
+      },
+      {
+        key: '能量武器', label: '能量武器等级',
+        attrs: [{ desc: '能量武器攻击+', val: (a) => String(scaleLevel(a)) }],
+      },
+      {
+        key: '制导武器', label: '制导武器等级',
+        attrs: [{ desc: '制导武器攻击+', val: (a) => String(scaleLevel(a)) }],
+      },
+      {
+        key: '近战武器', label: '近战武器等级',
+        attrs: [{ desc: '近战武器攻击+', val: (a) => String(scaleLevel(a)) }],
+      },
+      {
+        key: '幽能武器', label: '幽能武器等级',
+        attrs: [{ desc: '幽能武器攻击+', val: (a) => String(scaleLevel(a)) }],
+      },
+    ];
+
+    for (const skill of skills) {
+      const { level, text } = this.skillLevelInfo(markers, skill.key);
+      lines.push(`${skill.label}:${text}`);
+      for (const attr of skill.attrs) {
+        lines.push(`  ${attr.desc}${attr.val(level)}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * 计算某熟练度标记对应的等级与显示文本
+   * 对齐原版 数据显示.ecode L1640-L1665 显示熟练度等级()：
+   * 等级 = 满足 熟练度 < 等级² 的最小整数；文本 = "等级(熟练度/等级²)"。
+   * @param markers 玩家标记
+   * @param name 熟练度名称（读取 markers["名称+熟练度"]）
+   */
+  private skillLevelInfo(
+    markers: Record<string, any>,
+    name: string,
+  ): { level: number; text: string } {
+    const prof = Math.max(0, Number(this.playerService.getMarkerValue(markers, `${name}熟练度`)) || 0);
+    let level = 1;
+    while (prof >= level * level) level += 1;
+    const rounded = Math.round(prof * 100) / 100;
+    return { level, text: `${level}(${rounded}/${level * level})` };
   }
 
   /**
@@ -8026,6 +8381,54 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
     return this.achievementService.getAchievementsDisplay(player);
+  }
+
+  /**
+   * 处理查看使魔命令（基础数据 + 「1、更多」子菜单）
+   * 对齐原版 _主程序.ecode L5527（查看使魔显示基础数据）与 L5548（追加「1、更多」）。
+   * 基础数据只含当前战力与属性，技能说明与好感解锁分层由「使魔技能」独立展示，
+   * 避免与「查看使魔」重复。
+   */
+  async handleViewFamiliar(userId: number): Promise<string> {
+    const base = await this.familiarSystemService.viewFamiliarData(userId, false);
+    // 原版 L5548：查看使魔 末尾仅追加「1、更多」，再进入 更多 子菜单（使魔数据/查看技能/查看使魔详细/被动效果）。
+    // 全局「更多」已被全局帮助占用，故此处映射到专用令牌「使魔更多」。
+    const menu = await this.buildNumberedMenu(
+      userId,
+      [{ label: '更多', cmd: '使魔更多' }],
+      '💡 发送编号数字即可查看对应内容',
+    );
+    return [base, ...menu].filter(Boolean).join('\n');
+  }
+
+  /**
+   * 处理使魔数据命令（基础数据展示，无子菜单）
+   * 对齐原版 _主程序.ecode L6464 使魔数据 子程序：单独展示使魔基础数据，
+   * 作为「更多」子菜单的第 1 项，与「查看使魔」共用同一份基础数据视图（但不带「更多」）。
+   */
+  async handleFamiliarData(userId: number): Promise<string> {
+    return this.familiarSystemService.viewFamiliarData(userId, false);
+  }
+
+  /**
+   * 处理「查看使魔 → 更多」子菜单
+   * 对齐原版 _主程序.ecode L4107-4113：
+   *   1、使魔数据  2、查看技能  3、查看使魔详细  4、被动效果
+   */
+  async handleFamiliarMore(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const menu = await this.buildNumberedMenu(
+      userId,
+      [
+        { label: '使魔数据', cmd: '使魔数据' },
+        { label: '查看技能', cmd: '查看技能' },
+        { label: '查看使魔详细', cmd: '查看使魔详细' },
+        { label: '被动效果', cmd: '被动效果' },
+      ],
+      '💡 发送编号数字即可查看对应内容',
+    );
+    return [`${player.name || '冒险者'}`, ...menu].filter(Boolean).join('\n');
   }
 
   /**

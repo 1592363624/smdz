@@ -205,7 +205,7 @@ describe('任务相关制造入口', () => {
     expect(taskService.advance).toHaveBeenCalledWith(42, '使用种子箱', 2);
   });
 
-  it('对话列表展示不推进对话任务，指定NPC才推进通用和具体任务', async () => {
+  it('对话推进职责内聚到 handleTalk（服务层），handler 只负责转发', async () => {
     const taskService = {
       ensureTutorialTasks: jest.fn(async () => []),
       advance: jest.fn(async () => ''),
@@ -229,12 +229,15 @@ describe('任务相关制造入口', () => {
       taskService as any,
     );
 
+    // 空参数：展示列表，handler 不推进任何对话成就
     await handler.handle({ userId: 42, rawMessage: '对话', source: 'web' } as any, []);
+    expect(gameService.handleTalk).toHaveBeenCalledWith(42, '');
     expect(taskService.advance).not.toHaveBeenCalled();
 
+    // 指定目标：handler 只转发给 handleTalk，由服务层内部推进「对话」「对话史莱姆」
     await handler.handle({ userId: 42, rawMessage: '对话 史莱姆', source: 'web' } as any, ['史莱姆']);
-    expect(taskService.advance).toHaveBeenNthCalledWith(1, 42, '对话');
-    expect(taskService.advance).toHaveBeenNthCalledWith(2, 42, '对话史莱姆');
+    expect(gameService.handleTalk).toHaveBeenCalledWith(42, '史莱姆');
+    expect(taskService.advance).not.toHaveBeenCalled(); // 推进已移入 handleTalk
   });
 
   it('普通求助只展示露娜提示，不直接推进求助任务；确认入口由服务处理', async () => {
