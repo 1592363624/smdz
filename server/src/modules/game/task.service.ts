@@ -34,6 +34,8 @@ interface TaskReward {
 interface SettledTask {
   name: string;
   rewards: string[];
+  /** 本任务完成时自动领取到的后续任务名（原版“并领取了新的任务”）。 */
+  chained?: string[];
 }
 
 @Injectable()
@@ -157,9 +159,9 @@ export class TaskService {
       // 原版一轮任务结算只在进入循环时计算一次奖励倍率，后续任务
       // 即使因“完成任务”级联完成，也继续使用同一个倍率。
       const rewardScale = this.getRewardScale(this.parseObject(player.markers, {}));
-      const rewards = await this.settleOneTask(player, tasks, actualTaskName, publisher, rewardScale);
+      const { rewardLines, chained } = await this.settleOneTask(player, tasks, actualTaskName, publisher, rewardScale);
       this.applyTaskProgress(tasks, '完成任务', 1);
-      const chained = await this.settleCompletedTasks(player, tasks, rewardScale);
+      const chainedSettled = await this.settleCompletedTasks(player, tasks, rewardScale);
       player.tasks = JSON.stringify(tasks);
       if (!ctx) {
         await this.saveTaskState(player, [
@@ -171,8 +173,8 @@ export class TaskService {
       }
 
       const message = this.formatCompletionMessage([
-        { name: actualTaskName, rewards },
-        ...chained,
+        { name: actualTaskName, rewards: rewardLines, chained },
+        ...chainedSettled,
       ]);
       this.notify(userId, message);
       return message;
@@ -211,8 +213,8 @@ export class TaskService {
       if (task.completed || task.requirements.length > 0) continue;
       const publisher = task.publisher;
       tasks.splice(index, 1);
-      const rewards = await this.settleOneTask(player, tasks, taskName, publisher, rewardScale);
-      completed.push({ name: taskName, rewards });
+      const { rewardLines, chained } = await this.settleOneTask(player, tasks, taskName, publisher, rewardScale);
+      completed.push({ name: taskName, rewards: rewardLines, chained });
 
       // 原版在加入后续任务后调用 添加成就("完成任务")，所以新任务也
       // 能收到本次完成计数。奖励内部产生的动作同样可能清空其他任务。
@@ -232,11 +234,11 @@ export class TaskService {
     taskName: string,
     publisher?: string,
     rewardScale = this.getRewardScale(this.parseObject(player.markers, {})),
-  ): Promise<string[]> {
+  ): Promise<{ rewardLines: string[]; chained: string[] }> {
     const gameTask = this.getTaskDefinition(taskName);
     if (!gameTask) {
       this.logger.warn(`任务 ${taskName} 未在静态任务定义中找到`);
-      return [];
+      return { rewardLines: [], chained: [] };
     }
 
     const markers = this.parseObject(player.markers, {});
@@ -249,8 +251,14 @@ export class TaskService {
       const rewardName = this.cleanName(reward.name);
 
       if (rewardName === '好感') {
-        const applied = await this.addPublisherAffinity(player, publisher, amount);
-        if (applied) rewardLines.push(`好感×${this.formatNumber(amount)}`);
+        const affinity = await this.addPublisherAffinity(player, publisher, amount);
+        if (affinity.applied) {
+          // 原版把好感奖励追加为独立行：“白对你的好感+5”。
+          const label = affinity.npcName ? `${affinity.npcName}对你的好感` : '好感';
+          rewardLines.push(`${label}+${this.formatNumber(amount)}`);
+        } else {
+          rewardLines.push('好感未增加');
+        }
       } else if (rewardName === '活力') {
         player.vitality = Number(player.vitality || 0) + amount;
         rewardLines.push(`活力×${this.formatNumber(amount)}`);
@@ -259,12 +267,13 @@ export class TaskService {
         if (Math.random() * 100 >= amount) continue;
         const equipment = await this.itemSystem.generateRewardEquipment(rewardName);
         this.addEquipmentReward(backpack, equipment);
-        rewardLines.push(`${rewardName}×1`);
+        rewardLines.push(`${rewardName}x1`);
         this.applyTaskProgress(tasks, '获得装备', 1);
         this.applyTaskProgress(tasks, `获得${rewardName}`, 1);
       } else {
         this.addBackpackItem(backpack, rewardName, amount, reward.type);
-        rewardLines.push(`${rewardName}×${this.formatNumber(amount)}`);
+        // 原版奖励文案为 名称x数量（小写x，_主程序.ecode L12046 附近 w2 拼接）。
+        rewardLines.push(`${rewardName}x${this.formatNumber(amount)}`);
         // 对齐原版任务结算中的 添加成就("采集资源") / 添加成就("采集" + 物品名)。
         this.applyTaskProgress(tasks, '采集资源', 1);
         this.applyTaskProgress(tasks, `采集${rewardName}`, amount);
@@ -274,6 +283,7 @@ export class TaskService {
     player.backpack = JSON.stringify(backpack);
 
     const nextTaskNames = this.parseStringArray(gameTask.nextTasks);
+    const chainedNames: string[] = [];
     for (const nextName of nextTaskNames) {
       if (!nextName || tasks.some((task) => task.name === nextName)) continue;
       const next = this.staticData.getTaskByName(nextName);
@@ -285,6 +295,7 @@ export class TaskService {
         requirements: this.cloneRequirements(requirements),
         ...(publisher ? { publisher } : {}),
       });
+      chainedNames.push(nextName);
     }
 
     if (taskName.startsWith('解锁配方')) {
@@ -314,16 +325,32 @@ export class TaskService {
       markers[affinityKey] = Number(markers[affinityKey] || 0) + 0.03;
     }
     player.markers = JSON.stringify(markers);
-    return rewardLines;
+    return { rewardLines, chained: chainedNames };
   }
 
+  /**
+   * 完成提示（对齐原版 _主程序.ecode L11960-11972）：
+   * “完成了任务:A、B，得到了:奖励1、奖励2\n并领取了新的任务:X、Y”。
+   * 奖励数量为按任务熟练度加成后的实发数量（如 优秀武器补给箱x1.02）。
+   */
   private formatCompletionMessage(completed: SettledTask[]): string {
     if (completed.length === 0) return '';
-    const text = completed.map((item) => {
-      const rewards = item.rewards.length > 0 ? `，获得${item.rewards.join('、')}` : '';
-      return `${item.name}${rewards}`;
-    }).join('；');
-    return `✅ 完成了任务: ${text}，奖励已自动发放`;
+    const names = completed.map((item) => item.name).join('、');
+    const rewards: string[] = [];
+    const affinityLines: string[] = [];
+    for (const item of completed) {
+      for (const line of item.rewards) {
+        if (line.includes('对你的好感+')) affinityLines.push(line);
+        else rewards.push(line);
+      }
+    }
+    const chainedNames = completed.flatMap((item) => item.chained ?? []);
+    let text = rewards.length > 0
+      ? `完成了任务:${names}，得到了:${rewards.join('、')}`
+      : `完成了任务:${names}，`;
+    for (const line of affinityLines) text += `\n${line}`;
+    if (chainedNames.length > 0) text += `\n并领取了新的任务:${chainedNames.join('、')}`;
+    return text;
   }
 
   /**
@@ -454,8 +481,13 @@ export class TaskService {
   /**
    * 好感奖励优先写入任务发布 NPC/召唤物，并复刻原版达到100好感时的归属切换。
    * 找不到运行时发布人时回退到玩家字段，兼容旧存档中没有发布人信息的任务。
+   * @returns applied 是否写入；npcName 命中的 NPC 名称（用于“白对你的好感+N”文案）。
    */
-  private async addPublisherAffinity(player: any, publisher: string | undefined, amount: number): Promise<boolean> {
+  private async addPublisherAffinity(
+    player: any,
+    publisher: string | undefined,
+    amount: number,
+  ): Promise<{ applied: boolean; npcName?: string }> {
     const mapsApi = (this.prisma as any).gameMap;
     if (publisher && mapsApi?.findMany) {
       const maps = await mapsApi.findMany();
@@ -467,12 +499,13 @@ export class TaskService {
           ) === String(publisher));
           if (!npc) continue;
 
+          const npcName = String(npc?.name ?? npc?.名称 ?? '') || undefined;
           const npcMarkers = this.parseObject(npc.markers ?? npc.标记, {});
           const currentKey = `好感${player.userId}`;
           const otherHasMaxAffinity = Object.entries(npcMarkers).some(([key, value]) =>
             key.startsWith('好感') && key !== currentKey && Number(value) >= 100,
           );
-          if (otherHasMaxAffinity) return false;
+          if (otherHasMaxAffinity) return { applied: false, npcName };
 
           const currentAffinity = Number(npcMarkers[currentKey] || 0);
           const nextAffinity = currentAffinity + amount;
@@ -494,12 +527,12 @@ export class TaskService {
           if (mapsApi.update) {
             await mapsApi.update({ where: { id: map.id }, data: { [field]: JSON.stringify(units) } });
           }
-          return true;
+          return { applied: true, npcName };
         }
       }
     }
     player.affinity = Number(player.affinity || 0) + amount;
-    return true;
+    return { applied: true };
   }
 
   /** 修改所有当前任务的同名要求；不触发数据库写入，供任务奖励级联使用。 */
@@ -543,8 +576,12 @@ export class TaskService {
     });
   }
 
-  /** 领取任务并保存统一格式 {name, requirements, publisher}。 */
-  async acceptTask(userId: number, taskName: string, publisher?: string): Promise<string> {
+  /**
+   * 领取任务并保存统一格式 {name, requirements, publisher}。
+   * @param npcName 从 NPC 对话领取时传 NPC 名，输出原版格式
+   *                （“能帮我个忙吗？…接受了任务X”，_主程序.ecode L7393-7400）。
+   */
+  async acceptTask(userId: number, taskName: string, publisher?: string, npcName?: string): Promise<string> {
     if (!taskName) return '请指定任务名称，格式：领取任务 任务名';
 
     return this.enqueueUserWrite(userId, async () => {
@@ -566,7 +603,9 @@ export class TaskService {
 
       const actualPublisher = publisher || String(gameTask.publisher || '') || undefined;
       if (actualPublisher && tasks.some((task) => task.publisher === actualPublisher)) {
-        return '你已经领取了该发布人的任务，请先完成当前任务';
+        return npcName
+          ? `${player.name || ''}你已经领取了${npcName}的任务了，先去完成吧`
+          : '你已经领取了该发布人的任务，请先完成当前任务';
       }
 
       const requirements = this.parseRequirements(gameTask.requirements);
@@ -592,6 +631,21 @@ export class TaskService {
         'regenArmor', 'vitality', 'affinity',
       ]);
       const completion = this.formatCompletionMessage(completed);
+      if (npcName) {
+        // 原版领取任务文案（_主程序.ecode L7395）：图片+名称+能帮我个忙吗+说明+接受了任务X，
+        // 并设置“1@查看任务”临时输入。
+        if (this.shortcutService) {
+          await this.shortcutService.setTempInput(userId, '1@查看任务').catch(() => undefined);
+        }
+        const lines = [
+          `【${npcName}】`,
+          `${npcName}`,
+          '能帮我个忙吗？',
+          `${gameTask.description || ''}`,
+          `接受了任务${taskName}`,
+        ].filter((line) => line.trim().length > 0);
+        return completion ? `${lines.join('\n')}\n${completion}` : lines.join('\n');
+      }
       return `✅ 已领取任务: ${taskName}\n${gameTask.description || ''}${completion ? `\n${completion}` : ''}`;
     });
   }

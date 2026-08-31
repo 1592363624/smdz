@@ -422,8 +422,10 @@ export class CommandService {
     }
     const taskNotice = this.taskService.consumeNotifications(ctx.userId);
     if (taskNotice) {
+      // 对齐原版 _主程序.ecode L11960-11972：完成块前插到指令输出之前
+      // （w = “完成了任务:…” + “————————” + w）。
       result.content = result.content
-        ? result.content + '\n━━━━━━━━━━━━━━━\n' + taskNotice
+        ? `${taskNotice}\n————————\n${result.content}`
         : taskNotice;
     }
   }

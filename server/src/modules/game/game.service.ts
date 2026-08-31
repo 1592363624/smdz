@@ -235,6 +235,9 @@ export class GameService {
     userId: number,
     options: { label: string; cmd: string }[],
     hint = '💡 发送编号数字(如 1)即可快速操作',
+    // 原版同时映射文字别名（如 “不要跟着我了@设置跟随X”，_主程序.ecode L1546）：
+    // 额外的 临时输入 组（原文@目标指令），随编号组一并写入。
+    extraGroups: string[] = [],
   ): Promise<string[]> {
     const lines: string[] = [];
     const tempGroups: string[] = [];
@@ -243,12 +246,74 @@ export class GameService {
       lines.push(`  ${i + 1}、${opt.label}`);
       if (opt.cmd) tempGroups.push(`${i + 1}@${opt.cmd}`);
     }
+    tempGroups.push(...extraGroups.filter(Boolean));
     if (tempGroups.length > 0) {
       // 设置临时输入替换（2分钟有效，触发一次后清空；同时保留直接输入指令的方式）
       await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
       lines.push(`${hint}`);
     }
     return lines;
+  }
+
+  /**
+   * 查看地图单位详情（原版 对话菜单 1、查看 → 查看X，_主程序.ecode L1519-1520）。
+   * 支持 NPC/召唤物/怪物；找不到返回空串（由调用方回退到查看自己）。
+   */
+  async handleViewUnit(userId: number, unitName: string): Promise<string> {
+    const name = String(unitName || '').trim();
+    if (!name) return '';
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '';
+
+    const parse = (value: any): any[] => this.playerService.safeJsonParse<any[]>(value, []);
+    const markerOf = (unit: any, markerName: string): number => {
+      const raw = unit?.markers ?? unit?.标记 ?? {};
+      const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+      if (Array.isArray(parsed)) {
+        const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
+        return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+      }
+      return Number(parsed?.[markerName] ?? 0);
+    };
+
+    // NPC/召唤物
+    const unit = parse(map.npcs).find((n: any) => (n?.name ?? n?.名称) === name)
+      || parse(map.summons).find((s: any) =>
+        [s?.name, s?.名称, s?.image, s?.图片].some((v: any) => String(v ?? '') === name));
+    if (unit) {
+      const lines = [`【${String(unit?.name ?? unit?.名称 ?? name)}】`];
+      lines.push(`类型:${String(unit?.type ?? unit?.类型 ?? '未知')}`);
+      const hp = Number(unit?.hp ?? unit?.当前生命 ?? 0);
+      const maxHp = Number(unit?.maxHp ?? unit?.最大生命 ?? 0);
+      if (maxHp > 0) lines.push(`生命:${hp}/${maxHp}`);
+      const affinity = markerOf(unit, `好感${userId}`);
+      if (affinity) lines.push(`对你的好感:${this.round2Text(affinity)}`);
+      const owner = String(unit?.ownerQQ ?? unit?.归属 ?? '');
+      if (owner) {
+        const ownerUser = await this.prisma.user.findUnique({ where: { id: Number(owner) } }).catch(() => null);
+        lines.push(`归属:${ownerUser?.nickname || ownerUser?.username || owner}`);
+      }
+      return lines.join('\n');
+    }
+
+    // 怪物（含临时怪）
+    try {
+      const monsters = await this.mapService.getMapMonsters(map.id);
+      const monster = (monsters || []).find((m: any) =>
+        [m?.name, m?.名称].some((v: any) => String(v ?? '') === name));
+      if (monster) {
+        const lines = [`【${String(monster?.name ?? name)}】`];
+        lines.push(`类型:${String((monster as any)?.type ?? (monster as any)?.类型 ?? '怪物')}`);
+        if (monster.level) lines.push(`等级:${monster.level}`);
+        if (monster.maxHp) lines.push(`生命:${monster.hp}/${monster.maxHp}`);
+        if (monster.attack) lines.push(`攻击:${monster.attack}`);
+        if (monster.defense) lines.push(`防御:${monster.defense}`);
+        return lines.join('\n');
+      }
+    } catch { /* 怪物查询失败回退 */ }
+    return '';
   }
 
   /**
@@ -732,6 +797,9 @@ export class GameService {
     await this.combatSystem.applyMapBuffs(player, targetMap);
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, `前往${targetMap.name}`);
+    // 原版到达延时（来倒目的）在同一回复里前插“完成了任务:…”块；
+    // 这里主动取出通知，避免延时路径无指令收尾而丢失提示。
+    const arrivalTaskNotice = this.taskService.consumeNotifications(userId);
 
     // 任务结算(advance)基于数据库最新数据改写了 tasks/markers/backpack 等字段；
     // 这里必须重新加载玩家快照，否则下方探索成就用旧对象整体回写，
@@ -775,8 +843,20 @@ export class GameService {
       this.logger.warn(`到达触发失败: ${e.message}`);
     }
 
-    const desc = targetMap.description ? `\n${targetMap.description}` : '';
-    const text = `你来到了【${targetMap.name}】${desc}${triggerText ? `\n${triggerText}` : ''}`;
+    // 对齐原版 来倒目的（_主程序.ecode L6751-6760）：到达回复 =
+    // “玩家名来到了地图名”（关卡图附说明）+ 观察附近完整列表（含编号临时输入）。
+    let lookText = '';
+    try {
+      lookText = await this.handleLookAround(userId);
+    } catch (e: any) {
+      this.logger.warn(`到达生成观察附近失败: ${e.message}`);
+    }
+    const isGateMap = Boolean((targetMap as any).isInstance || (targetMap as any).关卡);
+    let text = `${player.name || '冒险者'}来到了${targetMap.name}`;
+    if (isGateMap && targetMap.description) text += `\n${targetMap.description}`;
+    if (triggerText) text += `\n${triggerText}`;
+    if (lookText) text += `\n${lookText}`;
+    if (arrivalTaskNotice) text = `${arrivalTaskNotice}\n————————\n${text}`;
 
     // 注：原版到达拉起怪物攻击（_主程序.ecode L1755-1795）仅限地图"代发言=触发攻击"
     // 且载具损毁/无隐形模块的场景；本框架地图表未配置"代发言"字段，普通到达不惊动怪物，
@@ -2476,7 +2556,7 @@ export class GameService {
       || mapSummons.some((unit: any) => (unit?.name ?? unit?.名称) === '白');
     const isSpecialNpc = isKnownSpecialNpc && (npcName !== '白' || whiteAvailable);
     if (!map && !isSpecialNpc) return '你不在任何地图上！';
-    if (npcs.length === 0 && !isSpecialNpc) {
+    if ((npcs.length === 0 && mapSummons.length === 0) && !isSpecialNpc) {
       return '当前地图没有可对话的NPC';
     }
 
@@ -2517,11 +2597,49 @@ export class GameService {
       return lines.join('\n');
     }
 
-    // 查找指定NPC；特殊NPC不存在于地图数据时，用占位对象代替
-    const targetNpc = npcs.find((n: any) => n.name === npcName)
-      || (isSpecialNpc ? { name: npcName, title: specialNpcs[npcName].title, type: 'npc', description: '' } : null);
+    // ===== 对话目标解析（对齐原版 对话 分支 _主程序.ecode L1478-1570）=====
+    // 优先级：地图NPC → 地图召唤物（白/行商/宠物等运行时单位）→ 地图怪物 → 特殊NPC占位。
+    let targetNpc: any = npcs.find((n: any) => (n?.name ?? n?.名称) === npcName) || null;
+    let unitKind: 'npc' | 'summon' | 'monster' | 'special' = targetNpc ? 'npc' : 'special';
+    if (!targetNpc) {
+      const summonIdx = mapSummons.findIndex((s: any) =>
+        [s?.name, s?.名称, s?.image, s?.图片].some((v: any) => String(v ?? '') === npcName));
+      if (summonIdx >= 0) {
+        targetNpc = mapSummons[summonIdx];
+        unitKind = 'summon';
+      }
+    }
+    // 白：优先找地图实体；历史存档（只有 召唤白 标记）按需补建实体。
+    if (!targetNpc && npcName === '白' && map) {
+      const white = await this.ensurePlayerWhite(player, map).catch(() => null);
+      if (white) {
+        targetNpc = white;
+        unitKind = 'summon';
+      }
+    }
+    if (!targetNpc && map) {
+      try {
+        const monsters = await this.mapService.getMapMonsters(map.id);
+        const monster = (monsters || []).find((m: any) =>
+          [m?.name, m?.名称].some((v: any) => String(v ?? '') === npcName));
+        if (monster) {
+          targetNpc = monster;
+          unitKind = 'monster';
+        }
+      } catch { /* 怪物查询失败按无此单位处理 */ }
+    }
+    if (!targetNpc && isSpecialNpc) {
+      targetNpc = { name: npcName, title: specialNpcs[npcName].title, type: 'npc', description: '' };
+      unitKind = 'special';
+    }
     if (!targetNpc) {
       return `当前地图没有名为【${npcName}】的NPC`;
+    }
+
+    // 地图实体（召唤物/怪物/NPC）走原版对话结构（菜单+编号临时输入）；
+    // 特殊NPC（新手引导员等新框架剧情NPC）保留对话阶段推进。
+    if (unitKind !== 'special') {
+      return this.buildUnitDialogue(player, userId, npcName, targetNpc, unitKind);
     }
 
     // 根据NPC类型生成对话文本
@@ -2539,8 +2657,8 @@ export class GameService {
     dialogLines.push(`━━━━━━━━━━━━━━━`);
     dialogLines.push(greetings[Math.floor(Math.random() * greetings.length)]);
 
-    // 新手村特殊NPC对话剧情（特殊NPC在任意地图都可对话，便于新手引导使用）
-    if (player.mapId === 1 || isSpecialNpc) {
+    // 特殊NPC对话剧情（对话阶段推进）
+    {
       // 根据教程进度和与当前NPC的对话历史确定对话阶段
       const tutorialValue = markers['教程'] || 0;
       // 检查与该NPC的独立对话进度（支持每个NPC独立的对话推进）
@@ -2589,54 +2707,7 @@ export class GameService {
         // 跳过后续通用NPC对话逻辑
       } else {
         // 非特殊NPC，使用通用对话逻辑
-        switch (npcType) {
-          case 'merchant':
-          case 'shop':
-            dialogLines.push(`我这里有些好东西，你可以用「购物」来查看。`);
-            break;
-          case 'quest':
-          case 'task':
-            dialogLines.push(`我有个任务需要你的帮助，使用「领取任务」来看看吧。`);
-            break;
-          case 'blacksmith':
-          case 'smith':
-            dialogLines.push(`我可以帮你修理装备，使用「修理」来修复你的物品。`);
-            break;
-          case 'healer':
-            dialogLines.push(`我可以为你治疗伤口，躺下休息能恢复生命。`);
-            break;
-          case 'guide':
-            dialogLines.push(`欢迎来到使魔大战的世界！使用「帮助」查看游戏指南。`);
-            break;
-          default:
-            dialogLines.push(`今天天气不错，适合出门冒险！`);
-            break;
-        }
-      }
-    } else {
-      // 非新手村地图，使用通用对话逻辑
-      switch (npcType) {
-        case 'merchant':
-        case 'shop':
-          dialogLines.push(`我这里有些好东西，你可以用「购物」来查看。`);
-          break;
-        case 'quest':
-        case 'task':
-          dialogLines.push(`我有个任务需要你的帮助，使用「领取任务」来看看吧。`);
-          break;
-        case 'blacksmith':
-        case 'smith':
-          dialogLines.push(`我可以帮你修理装备，使用「修理」来修复你的物品。`);
-          break;
-        case 'healer':
-          dialogLines.push(`我可以为你治疗伤口，躺下休息能恢复生命。`);
-          break;
-        case 'guide':
-          dialogLines.push(`欢迎来到使魔大战的世界！使用「帮助」查看游戏指南。`);
-          break;
-        default:
-          dialogLines.push(`今天天气不错，适合出门冒险！`);
-          break;
+        dialogLines.push(this.genericNpcChatLine(npcType));
       }
     }
 
@@ -2644,20 +2715,6 @@ export class GameService {
     if (targetNpc.description) {
       dialogLines.push(`━━━━━━━━━━━━━━━`);
       dialogLines.push(`${targetNpc.description}`);
-    }
-
-    // 检查是否有可领取的任务（通过当前 NPC/召唤物任务池关联）
-    try {
-      const source = this.getQuestSources([targetNpc])[0];
-      if (source) {
-        const available = await this.taskService.getAvailableTasks(userId, source.taskNames, source.publisher);
-        if (available.length > 0) {
-          dialogLines.push(`━━━━━━━━━━━━━━━`);
-          dialogLines.push(`💡 ${npcName} 似乎有任务要交给你，试试「领取任务」查看任务池`);
-        }
-      }
-    } catch {
-      // NPC 表查询失败时忽略
     }
 
     // 对齐原版（_主程序.ecode L1492-1493）：NPC 对话末尾生成编号快捷菜单，
@@ -2671,6 +2728,155 @@ export class GameService {
     dialogLines.push(...menuLines);
 
     return dialogLines.join('\n');
+  }
+
+  /** 特殊占位 NPC 的通用对话台词（新框架剧情 NPC，非原版对话配置）。 */
+  private genericNpcChatLine(npcType: string): string {
+    switch (npcType) {
+      case 'merchant':
+      case 'shop':
+        return `我这里有些好东西，你可以用「购物」来查看。`;
+      case 'quest':
+      case 'task':
+        return `我有个任务需要你的帮助，使用「领取任务」来看看吧。`;
+      case 'blacksmith':
+      case 'smith':
+        return `我可以帮你修理装备，使用「修理」来修复你的物品。`;
+      case 'healer':
+        return `我可以为你治疗伤口，躺下休息能恢复生命。`;
+      case 'guide':
+        return `欢迎来到使魔大战的世界！使用「帮助」查看游戏指南。`;
+      default:
+        return `今天天气不错，适合出门冒险！`;
+    }
+  }
+
+  /**
+   * 地图单位对话（对齐原版 对话 分支 _主程序.ecode L1489-1570）：
+   * 对话文本取对话配置（怪物=敌对聊天，其余=友好聊天），末尾生成原版编号菜单：
+   * 怪物 = 查看/攻击(+跟我来)；NPC = 查看/领取任务 + 行商购物/花园宝宝捕捉/露娜求助/
+   * 跟随开关(不要跟着我了/跟上我)/救助/挤奶/控制终端(白)。
+   */
+  private async buildUnitDialogue(
+    player: any,
+    userId: number,
+    npcName: string,
+    unit: any,
+    kind: 'npc' | 'summon' | 'monster',
+  ): Promise<string> {
+    const nameOf = String(unit?.name ?? unit?.名称 ?? '') || npcName;
+    const typeOf = String(unit?.type ?? unit?.类型 ?? '') || nameOf;
+    const qqOf = String(unit?.qq ?? unit?.QQ ?? '');
+    const isMonsterUnit = kind === 'monster' || qqOf.startsWith('怪物');
+
+    const markerOf = (markerName: string): number => {
+      const raw = unit?.markers ?? unit?.标记 ?? {};
+      const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+      if (Array.isArray(parsed)) {
+        const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
+        return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+      }
+      return Number(parsed?.[markerName] ?? 0);
+    };
+    const ownerOf = String(unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '');
+    const ownerIds = new Set([String(userId), String(player?.id ?? '')].filter(Boolean));
+    const isOwned = ownerIds.has(ownerOf);
+
+    const dialogLines: string[] = [`【${nameOf}】`, `━━━━━━━━━━━━━━━`];
+    // 对话文本（原版 取对话：怪物取敌对聊天，其余取友好聊天）
+    const chatText = this.staticData.getDialogue(
+      String(player?.name || ''),
+      unit,
+      nameOf,
+      isMonsterUnit ? 0 : 1,
+    );
+    if (chatText && chatText !== '……') dialogLines.push(chatText);
+
+    // 幼崽成长展示（原版 L1531-1538 计算幼崽）
+    try {
+      this.familiarSystemService?.checkAndUpdateGrowth?.(unit);
+    } catch { /* 成长解析失败不影响对话 */ }
+    if (markerOf('幼崽') !== 0) {
+      const babyLabel = typeOf.includes('幼崽') ? typeOf : `${typeOf}宝宝`;
+      dialogLines.push(`${babyLabel},${this.millisecondsToText(markerOf('幼崽'))}后长大`);
+      const ownerUser = ownerOf
+        ? await this.prisma.user.findUnique({ where: { id: Number(ownerOf) } }).catch(() => null)
+        : null;
+      if (ownerUser) dialogLines.push(`主人:${ownerUser.nickname || ownerUser.username || ownerOf}`);
+    }
+
+    // 咏星类跟随单位展示好感（原版 L1496-1498）
+    if (typeOf === '咏星') {
+      dialogLines.push(`对你的好感:${this.round2Text(markerOf(`好感${userId}`))}`);
+    }
+
+    // 菜单（原版 L1512-1560）
+    const options: { label: string; cmd: string }[] = [];
+    const literalAliases: string[] = [];
+    if (isMonsterUnit) {
+      options.push({ label: '查看', cmd: `查看 ${nameOf}` });
+      options.push({ label: '攻击', cmd: `攻击 ${nameOf}` });
+      if (typeOf.includes('小恶魔')) {
+        options.push({ label: '跟我来', cmd: '对话小恶魔跟随' });
+      } else if (typeOf.includes('咏星')) {
+        options.push({ label: '跟我来', cmd: '对话咏星跟随' });
+      }
+    } else {
+      options.push({ label: '查看', cmd: `查看 ${nameOf}` });
+      options.push({ label: '领取任务', cmd: `领取任务 ${nameOf}` });
+      if (nameOf === '行商') {
+        options.push({ label: '购物', cmd: '购物' });
+      } else if (nameOf === '花园宝宝' || nameOf === '小白狐') {
+        options.push({ label: '捕捉', cmd: `捕捉 ${nameOf}` });
+      } else if (qqOf === 'npc1g' || nameOf === '神之工匠') {
+        options.push({ label: '融合', cmd: '融合' });
+      } else if (qqOf === '怪物露娜1g' || nameOf === '露娜') {
+        options.push({ label: '求助', cmd: '求助' });
+        const backpack = this.playerService.getBackpackItems(player);
+        if (backpack.some((item: any) => (item?.name ?? item?.名称 ?? '') === '未知物品')) {
+          options.push({ label: '询问幽能', cmd: '对话露娜未知' });
+        }
+      } else {
+        // 跟随开关（原版 L1540-1547：跟随标记==0 → 不要跟着我了，否则跟上我）
+        if (markerOf('跟随') === 0) {
+          options.push({ label: '不要跟着我了', cmd: `设置跟随 ${nameOf}` });
+          literalAliases.push(`不要跟着我了@设置跟随 ${nameOf}`);
+        } else {
+          options.push({ label: '跟上我', cmd: `设置跟随 ${nameOf}` });
+          literalAliases.push(`跟上我@设置跟随 ${nameOf}`);
+        }
+        if (isOwned) {
+          options.push({ label: '救助', cmd: '救助' });
+          literalAliases.push(`救助@救助`);
+          options.push({ label: '挤奶', cmd: `挤奶 ${nameOf}` });
+          literalAliases.push(`挤奶@挤奶 ${nameOf}`);
+          if (typeOf === '白') {
+            options.push({ label: '控制终端', cmd: '控制终端' });
+          }
+        }
+      }
+    }
+
+    dialogLines.push(`━━━━━━━━━━━━━━━`);
+    const menuLines = await this.buildNumberedMenu(
+      userId,
+      options,
+      '💡 发送编号数字(如 1)快速操作',
+      literalAliases,
+    );
+    dialogLines.push(...menuLines);
+    return dialogLines.join('\n');
+  }
+
+  /** 毫秒 → 可读时间文本（对应原版 数字到时间 的秒/分秒简化）。 */
+  private millisecondsToText(ms: number): string {
+    const totalSec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    if (totalSec < 60) return `${totalSec}秒`;
+    return `${Math.floor(totalSec / 60)}分${totalSec % 60}秒`;
+  }
+
+  private round2Text(value: number): string {
+    return String(Math.round((Number(value) || 0) * 100) / 100);
   }
 
   /**
@@ -3349,6 +3555,13 @@ export class GameService {
       specialText = '这里是哪里？\n(随着休眠仓被打开，锁着的门似乎也跟着一起解开了)';
       this.logger.log(`玩家 ${userId} 唤醒了白`);
       await this.taskService.acceptTask(userId, '主线-身世');
+      // 原版 L9780-9796：白作为真实召唤物加入当前地图（归属=玩家、初始好感30、
+      // 任务池=白对话），随玩家移动而跟随，是对话/领取任务/挤奶/救助/控制终端的实体。
+      try {
+        await this.materializeWhiteSummon(player, map, markers);
+      } catch (e: any) {
+        this.logger.warn(`创建白的召唤物失败 userId=${userId}: ${e?.message}`);
+      }
     }
     player.markers = JSON.stringify(markers);
 
@@ -3484,6 +3697,10 @@ export class GameService {
     let resultText = `${player.name}${petPrefix}${lootText},得到了${expGain}经验`;
     if (specialText) resultText = `${specialText}\n${resultText}`;
     if (timesSuffix) resultText += timesSuffix;
+    // 采集推进导致的任务完成提示（原版 发放奖励 前插“完成了任务:…”块）。
+    // 延时结算不在指令管道内，必须在这里主动取出，否则通知滞留队列丢失。
+    const gatherTaskNotice = this.taskService.consumeNotifications(userId);
+    if (gatherTaskNotice) resultText = `${gatherTaskNotice}\n————————\n${resultText}`;
 
     // 延时端结果通过世界频道系统消息送达（指令回复通道覆盖不到定时器回调），
     // 同时推送玩家/地图面板（背包、资源次数变化）。
@@ -3776,8 +3993,11 @@ export class GameService {
   }
 
   /**
-   * 领取任务
-   * 从当前地图的NPC处领取任务
+   * 领取任务（对齐原版 领取任务 分支 _主程序.ecode L7321-7404）：
+   * - 无参数：列出当前地图各单位（NPC/召唤物/跟随的白）任务池中可领取的任务；
+   * - 参数为 NPC 名：从该 NPC 的任务池随机接取一个（原版 随机文本），
+   *   已有该 NPC 任务时提示“你已经领取了X的任务了，先去完成吧”；
+   * - 参数为任务名：直接领取该任务。
    */
   async handleAcceptQuest(userId: number, questName?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3787,6 +4007,14 @@ export class GameService {
 
     const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
     const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    // 白：历史存档（只有 召唤白 标记）按需补建实体，保证任务池可解析。
+    const wantedName = String(questName || '').trim();
+    if (!wantedName || wantedName === '白') {
+      const white = await this.ensurePlayerWhite(player, map).catch(() => null);
+      if (white && !summons.some((s: any) => String(s?.qq ?? s?.QQ ?? '') === String(white.qq ?? ''))) {
+        summons.push(white);
+      }
+    }
     const units = [...npcs, ...summons];
     const sources = this.getQuestSources(units);
 
@@ -3820,25 +4048,56 @@ export class GameService {
       return lines.join('\n');
     }
 
-    let source = sources.find((item) => item.taskNames.includes(questName));
-    if (!source) {
-      const npc = units.find((item: any) => this.questUnitName(item) === questName || item?.type === questName);
-      if (npc) {
-        const candidate = this.getQuestSources([npc])[0];
-        if (candidate) {
-          const tasks = await this.taskService.getAvailableTasks(userId, candidate.taskNames, candidate.publisher);
-          if (tasks.length > 0) {
-            const selected = tasks[Math.floor(Math.random() * tasks.length)];
-            return this.taskService.acceptTask(userId, selected.name, candidate.publisher);
-          }
-          return `「${questName}」当前没有可领取的任务`;
+    // 参数为 NPC 名：从该单位的任务池随机接取（原版 随机文本 + 领取文案）。
+    const source = sources.find((item) => item.npcName === wantedName);
+    if (source) {
+      // 原版 L7360-7371：已经领取了该 NPC 的任务 → 先去完成。
+      let activeTasks: any[] = [];
+      try {
+        const parsedTasks = JSON.parse(String(player.tasks || '[]'));
+        if (Array.isArray(parsedTasks)) activeTasks = parsedTasks;
+      } catch { /* 任务数据异常按空处理 */ }
+      if (source.publisher && activeTasks.some((t: any) =>
+        String(t?.publisher ?? t?.发布人 ?? '') === String(source.publisher))) {
+        return `${player.name || ''}你已经领取了${source.npcName}的任务了，先去完成吧`;
+      }
+      // 原版 L7346-7358：对其他人好感满100的 NPC 不再发任务。
+      const unit = units.find((u: any) => this.questUnitName(u) === wantedName
+        || String(u?.qq ?? u?.QQ ?? '') === String(source.publisher ?? ''));
+      if (unit) {
+        const npcMarkers = this.parseNpcMarkers(unit);
+        const currentKey = `好感${userId}`;
+        const otherMax = Object.entries(npcMarkers).some(([key, value]) =>
+          key.startsWith('好感') && key !== currentKey && Number(value) >= 100);
+        if (otherMax) {
+          return `【${source.npcName}】不想理你(对其他人好感100)`;
         }
       }
+      const available = await this.taskService.getAvailableTasks(userId, source.taskNames, source.publisher);
+      if (available.length === 0) {
+        return `${player.name || ''},${source.npcName}现在没有可以给你的任务`;
+      }
+      const selected = available[Math.floor(Math.random() * available.length)];
+      return this.taskService.acceptTask(userId, selected.name, source.publisher, source.npcName);
     }
 
-    // 兼容没有 NPC 运行时对象的旧存档：明确输入任务名仍可接取静态任务。
-    const publisher = source?.publisher;
+    // 参数为任务名：在各单位任务池中找到发布人后领取；找不到按静态任务直接领取。
+    const namedSource = sources.find((item) => item.taskNames.includes(questName));
+    const publisher = namedSource?.publisher;
     return this.taskService.acceptTask(userId, questName, publisher);
+  }
+
+  /** 读取地图单位的标记对象（兼容对象/数组/JSON字符串三种存法）。 */
+  private parseNpcMarkers(unit: any): Record<string, any> {
+    const raw = unit?.markers ?? unit?.标记 ?? {};
+    const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+    if (Array.isArray(parsed)) {
+      return Object.fromEntries(parsed.map((item: any) => [
+        item?.name ?? item?.名称,
+        Number(item?.value ?? item?.数值 ?? item?.count ?? 0),
+      ]).filter(([name]) => Boolean(name)));
+    }
+    return parsed && typeof parsed === 'object' ? parsed : {};
   }
 
   /**
@@ -3874,11 +4133,12 @@ export class GameService {
         }
       }
 
-      // 普通召唤物使用“通用对话”任务池；无主的特殊宠物/怪物不作为任务发布人。
-      const owner = String(unit.ownerQQ ?? unit.ownerId ?? unit.归属 ?? '');
-      const isOwnedSummon = owner !== '' && owner !== '1';
-      if ((taskPool === undefined || taskPool === null || taskPool === '') && isOwnedSummon) {
-        const generic = this.staticData.getNpcByName('通用对话');
+      // 对齐原版 领取任务（_主程序.ecode L7372-7384）：单位无专属对话配置或其任务池
+      // 为空时，统一回退“通用对话”任务池（白回退 白对话，其余回退 通用对话），
+      // 因此行商/露娜等地图 NPC 也能发放通用任务。
+      if (taskPool === undefined || taskPool === null || taskPool === '') {
+        const fallbackName = type === '白' || npcName === '白' ? '白对话' : '通用对话';
+        const generic = this.staticData.getNpcByName(fallbackName);
         taskPool = generic?.taskId ?? generic?.taskID ?? generic?.任务池 ?? generic?.任务;
       }
 
@@ -7635,8 +7895,20 @@ export class GameService {
       `━━━━━━━━━━━━━━━`,
     ];
 
+    // 可前往目的地（原版 观察附近 首段：可前往 逐个编号，N@前往名）
+    const connections = this.mapService.getConnections(map) || [];
+    if (connections.length > 0) {
+      lines.push(`🚪 可前往:`);
+      for (const connection of connections) {
+        if (!connection?.name) continue;
+        lines.push(`  ${connection.name}`);
+        quickOptions.push({ label: connection.name, cmd: `前往 ${connection.name}` });
+      }
+    }
+
     // 怪物信息
     if (monsters.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`👾 怪物 (${monsters.length}只):`);
       for (const m of monsters) {
         const hpPercent = m.maxHp > 0 ? Math.round((m.hp / m.maxHp) * 100) : 0;
@@ -7680,10 +7952,11 @@ export class GameService {
       }
     }
 
-    // 地上物品信息
+    // 地上物品信息（原版观察附近折叠为「拾取(N个物品)」单条入口）
     if (items.length > 0) {
       lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`🎒 地上物品:`);
+      lines.push(`🎒 拾取(${items.length}个物品)`);
+      quickOptions.push({ label: `拾取(${items.length}个物品)`, cmd: '拾取' });
       for (const item of items) {
         const count = item.count || item.quantity || 1;
         lines.push(`  ${item.name} ×${count}`);
@@ -7774,6 +8047,12 @@ export class GameService {
         }
       }
     }
+
+    // 地图信息 / 查看地图（原版观察附近尾段固定入口：N@查看说明 / N@查看地图）
+    if (!map.isFrontier && !map.开拓地) {
+      quickOptions.push({ label: '地图信息', cmd: '查看说明' });
+    }
+    quickOptions.push({ label: '查看地图', cmd: '查看地图' });
 
     // 统一生成编号快捷操作菜单（资源采集 + NPC对话合并编号，发数字即可操作，避免编号冲突）
     if (quickOptions.length > 0) {
@@ -9370,16 +9649,27 @@ export class GameService {
   }
 
   /**
-   * 处理控制终端命令
-   * 打开载具控制终端界面，查看载具详细操作选项
-   * 对应原版：控制终端 命令
+   * 处理控制终端命令（对齐原版 _主程序.ecode L10714-10871）：
+   * 原版控制终端是「白」的羁绊终端——当前地图存在自己的白时可查看/设置她的两个
+   * 羁绊技能槽（技能a：武器增伤；技能b：宠物饲养/生存之道/贴心助手），每天可改一次。
+   * 白不在附近时回退到新框架的载具控制终端。
+   * @param arg 子命令：空=总览；技能a[编号]/技能b[编号]=查看或设置
    */
-  async handleControlTerminal(userId: number): Promise<string> {
+  async handleControlTerminal(userId: number, arg = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+
+    // 原版：当前地图存在归属自己的「白」→ 羁绊终端
+    if (map) {
+      const white = await this.ensurePlayerWhite(player, map).catch(() => null);
+      if (white) {
+        return this.handleWhiteBondTerminal(userId, player, markers, String(arg || '').trim());
+      }
+    }
 
     if (!player.vehicle) {
-      return '你当前没有驾驶任何载具，无法访问控制终端';
+      return `${player.name || '冒险者'}白不在附近，无法操作她的控制终端`;
     }
 
     const vehicleId = parseInt(player.vehicle, 10);
@@ -9430,6 +9720,106 @@ export class GameService {
       `  行走: ${typeCounts[2] || 0}/${vehicle.maxMove || 5}`,
       `  功能: ${typeCounts[4] || 0}/${vehicle.maxFunction || 5}`,
     ].join('\n');
+  }
+
+  /** 白的羁绊技能1（原版 控制终端技能a：按当前武器类型 +15 攻击2）。 */
+  private static readonly BOND_SKILL_A: Array<{ id: number; name: string; desc: string }> = [
+    { id: 1, name: '利器管理', desc: '羁绊者使用近战武器时攻击提高0.15倍' },
+    { id: 2, name: '弹道分析', desc: '羁绊者使用射弹武器时攻击提高0.15倍' },
+    { id: 3, name: '能量稳定', desc: '羁绊者使用能量武器时攻击提高0.15倍' },
+    { id: 4, name: '燃料优化', desc: '羁绊者使用制导武器时攻击提高0.15倍' },
+    { id: 5, name: '幽能亲和', desc: '羁绊者使用幽能武器时攻击提高0.15倍' },
+  ];
+
+  /** 白的羁绊技能2（原版 控制终端技能b）。 */
+  private static readonly BOND_SKILL_B: Array<{ id: number; name: string; desc: string }> = [
+    { id: 1, name: '宠物饲养', desc: '羁绊者的宠物搜索得到的物品+20%' },
+    { id: 2, name: '生存之道', desc: '为羁绊者的远程武器安装一个带特殊加速轨道的消音器，羁绊者使用远程武器攻击时附带攻击伤害的15%随机属性伤害，攻击为隐匿攻击，冷却30秒' },
+    { id: 3, name: '贴心助手', desc: '羁绊者使用技能得到的经验+25%' },
+  ];
+
+  private bondSkillLabel(slot: 'a' | 'b', value: number): string {
+    if (!value) return '未指定';
+    const list = slot === 'a' ? GameService.BOND_SKILL_A : GameService.BOND_SKILL_B;
+    return list.find((skill) => skill.id === Number(value))?.name ?? '未指定';
+  }
+
+  /**
+   * 白的羁绊终端（原版 _主程序.ecode L10714-10871）：
+   * 总览展示技能1/技能2 当前设置；技能a/技能b 查看候选并设置，每天（有效期当天）只能改一次。
+   */
+  private async handleWhiteBondTerminal(
+    userId: number,
+    player: any,
+    markers: Record<string, any>,
+    arg: string,
+  ): Promise<string> {
+    const sub = arg.replace(/\d+/g, '');
+    const choice = Number((arg.match(/\d+/) || ['0'])[0]) || 0;
+    const slot: 'a' | 'b' | '' = sub.includes('技能a') ? 'a' : sub.includes('技能b') ? 'b' : '';
+
+    if (!slot) {
+      // 总览（原版 L10840-10869）
+      const lines = [
+        `【白】`,
+        `羁绊者:${player.name || ''}`,
+        `技能1:${this.bondSkillLabel('a', Number(markers['bj1'] || 0))}`,
+        `技能2:${this.bondSkillLabel('b', Number(markers['bj2'] || 0))}`,
+      ];
+      const menu = await this.buildNumberedMenu(userId, [
+        { label: '选择技能1', cmd: '控制终端技能a' },
+        { label: '选择技能2', cmd: '控制终端技能b' },
+      ], '💡 发送编号数字(如 1)快速操作');
+      lines.push(...menu);
+      return lines.join('\n');
+    }
+
+    const skillList = slot === 'a' ? GameService.BOND_SKILL_A : GameService.BOND_SKILL_B;
+    const skillLabel = () => this.bondSkillLabel(slot, Number(markers[slot === 'a' ? 'bj1' : 'bj2'] || 0));
+
+    if (!choice) {
+      // 候选列表（原版 L10739-10762）：当前设置 + 0未指定 + 各技能说明
+      const lines = [`${player.name || '冒险者'}`, `当前:${skillLabel()}`, `0、未指定`, `——————————`];
+      for (const skill of skillList) {
+        lines.push(`${skill.id}、${skill.name}`);
+        lines.push(`  ${skill.desc}`);
+        lines.push(`——————————`);
+      }
+      const options = [
+        { label: '未指定', cmd: `控制终端技能${slot}0` },
+        ...skillList.map((skill) => ({ label: skill.name, cmd: `控制终端技能${slot}${skill.id}` })),
+      ];
+      const menu = await this.buildNumberedMenu(userId, options, '💡 发送编号数字即可设置对应技能');
+      lines.push(...menu);
+      return lines.join('\n');
+    }
+
+    if (choice < 0 || choice > skillList.length) {
+      return `${player.name || '冒险者'}不是被允许选择的项目`;
+    }
+
+    // 每天只能修改一次（原版 时间间隔要求("gbj1/gbj2", 有效期当天(), 标记2)）
+    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const cooldownName = slot === 'a' ? 'gbj1' : 'gbj2';
+    const now = Date.now();
+    const endOfDay = new Date();
+    endOfDay.setHours(24, 0, 0, 0);
+    const active = markers2.find((m: any) => (m?.name ?? m?.名称) === cooldownName);
+    const activeExpire = Number(active?.expireAt ?? active?.有效期至 ?? 0) || 0;
+    if (activeExpire > now) {
+      const remainSec = Math.max(1, Math.ceil((activeExpire - now) / 1000));
+      return `${player.name || '冒险者'}今天已经设置过了，还需${this.millisecondsToText(remainSec * 1000)}后才能再次修改`;
+    }
+    const marker = { name: cooldownName, expireAt: endOfDay.getTime() };
+    const idx = markers2.findIndex((m: any) => (m?.name ?? m?.名称) === cooldownName);
+    if (idx >= 0) markers2[idx] = marker;
+    else markers2.push(marker);
+
+    markers[slot === 'a' ? 'bj1' : 'bj2'] = choice;
+    player.markers = JSON.stringify(markers);
+    player.markers2 = JSON.stringify(markers2);
+    // 指令路径在 PlayerMutateService 快照内，外层统一落库，无需裸 savePlayer。
+    return `${player.name || '冒险者'}\n白的技能${slot === 'a' ? 1 : 2}被设置为${skillLabel()}`;
   }
 
   /**
@@ -12529,8 +12919,11 @@ export class GameService {
       // 原版延时端会把结算文本发回群里；移植版统一走世界频道系统消息送达玩家
       //（指令回复通道覆盖不到进程内定时器回调）。
       const result = `${player.name || '冒险者'}感觉好一点了吗？恢复了${Math.floor(Number(player.maxHp || 100) / 2)}生命${teleportSuffix}`;
-      await this.chatService?.broadcastSystem?.('世界频道', result, userId).catch?.(() => undefined);
-      return result;
+      // 延时端推进的任务（复活等）完成提示前插，避免通知滞留队列丢失。
+      const rescueTaskNotice = this.taskService.consumeNotifications(userId);
+      const rescueText = rescueTaskNotice ? `${rescueTaskNotice}\n————————\n${result}` : result;
+      await this.chatService?.broadcastSystem?.('世界频道', rescueText, userId).catch?.(() => undefined);
+      return rescueText;
     }
 
     if (marker.rescueType === 'player') {
@@ -12641,6 +13034,169 @@ export class GameService {
     } catch (error: any) {
       this.logger.warn(`自救「白」传送失败 userId=${userId}: ${error?.message || error}`);
       return '';
+    }
+  }
+
+  /**
+   * 在当前地图创建「白」的召唤物实体（原版 _主程序.ecode L9777-9796 召唤1白1）：
+   * 归属=玩家、类型=白、初始好感30、跟随状态。幂等：同地图已有自己的白时不重复创建。
+   * 同时建立羁绊标记（原版 套装.白），激活 bj1/bj2 羁绊加成。
+   * 玩家侧字段只改内存快照不落库：延时采集路径由 settleGatherResource 统一保存，
+   * 指令路径由 PlayerMutateService 外层统一落库。
+   */
+  private async materializeWhiteSummon(
+    player: any,
+    map: any,
+    markers: Record<string, any>,
+  ): Promise<void> {
+    const userId = Number(player.userId);
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const ownerIds = new Set([String(userId), String(player.id)]);
+    const exists = summons.some((s: any) =>
+      String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
+    if (exists) return;
+
+    const summon = {
+      name: '白',
+      type: '白',
+      qq: `召唤物${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      ownerQQ: String(userId),
+      归属: String(userId),
+      hp: 100,
+      maxHp: 100,
+      markers: { [`好感${userId}`]: 30, '跟随': 0 },
+    };
+    summons.push(summon);
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: { summons: JSON.stringify(summons) },
+    });
+
+    // 羁绊（原版 套装.白）：bj1/bj2 羁绊技能加成的开关。
+    const sets = this.playerService.safeJsonParse<Record<string, any>>(player.sets, {});
+    if (!sets['白']) {
+      sets['白'] = 1;
+      player.sets = JSON.stringify(sets);
+    }
+    // 初始好感30写入玩家“白好感”标记（双向同步备份，防单位丢失）。
+    // 写入调用方的 markers 局部对象：调用方紧随其后统一 stringify+save。
+    markers['白好感'] = Number(markers['白好感'] ?? 30);
+  }
+
+  /**
+   * 确保玩家的「白」存在于当前地图（返回其单位）。
+   * 兼容历史存档：已触发休眠仓剧情（标记 召唤白=1）但从未落地的玩家，
+   * 在对话/领取任务/控制终端等入口按需补建实体。
+   * 好感采用原版“白好感”双向同步（地图操作.ecode L841-853）：
+   * 单位侧与玩家标记互为备份，单位因地图写竞态丢失重建时不掉好感。
+   */
+  private async ensurePlayerWhite(player: any, map: any): Promise<any | null> {
+    const userId = Number(player.userId);
+    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const ownerIds = new Set([String(userId), String(player.id)]);
+    const parse = (value: any): any[] => this.playerService.safeJsonParse<any[]>(value, []);
+
+    const current = parse(map.summons).find((s: any) =>
+      String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
+    if (current) {
+      await this.syncWhiteAffinity(player, current, markers, Number(map.id));
+      return current;
+    }
+    if (!markers['召唤白']) return null;
+
+    // 全图查找（跟随迁移异常时兜底搬回当前地图）
+    const allMaps = await this.mapService.getAllMaps();
+    for (const other of allMaps || []) {
+      if (Number(other?.id) === Number(map.id)) continue;
+      const units = parse(other.summons);
+      const idx = units.findIndex((s: any) =>
+        String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
+      if (idx < 0) continue;
+      const [white] = units.splice(idx, 1);
+      await this.prisma.gameMap.update({
+        where: { id: other.id },
+        data: { summons: JSON.stringify(units) },
+      }).catch(() => undefined);
+      const currentUnits = parse(map.summons);
+      currentUnits.push(white);
+      await this.prisma.gameMap.update({
+        where: { id: map.id },
+        data: { summons: JSON.stringify(currentUnits) },
+      }).catch(() => undefined);
+      await this.syncWhiteAffinity(player, white, markers, Number(map.id));
+      return white;
+    }
+
+    // 从未创建过（或被地图写竞态清除）：重建，好感从玩家标记恢复。
+    // sets/标记只改内存快照，由指令外层 mutate 统一落库。
+    const created = this.playerService.safeJsonParse<Record<string, any>>(map.summons, []);
+    const summon = {
+      name: '白',
+      type: '白',
+      qq: `召唤物${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      ownerQQ: String(userId),
+      归属: String(userId),
+      hp: 100,
+      maxHp: 100,
+      markers: { [`好感${userId}`]: Number(markers['白好感'] ?? 30), '跟随': 0 },
+    };
+    created.push(summon);
+    await this.prisma.gameMap.update({
+      where: { id: map.id },
+      data: { summons: JSON.stringify(created) },
+    });
+    const sets = this.playerService.safeJsonParse<Record<string, any>>(player.sets, {});
+    if (!sets['白']) {
+      sets['白'] = 1;
+      player.sets = JSON.stringify(sets);
+    }
+    await this.syncWhiteAffinity(player, summon, markers, Number(map.id));
+    return summon;
+  }
+
+  /**
+   * 白好感双向同步（原版 地图操作.ecode L841-853）：
+   * 玩家标记“白好感”与单位标记“好感{userId}”取较大者写回双方。
+   * 玩家侧只改内存快照（指令外层 mutate 统一落库），地图侧按需定点写回。
+   */
+  private async syncWhiteAffinity(
+    player: any,
+    white: any,
+    markers: Record<string, any>,
+    mapId: number,
+  ): Promise<void> {
+    try {
+      const userId = Number(player.userId);
+      const raw = white?.markers ?? white?.标记 ?? {};
+      const unitMarkers = typeof raw === 'string'
+        ? this.playerService.safeJsonParse<Record<string, any>>(raw, {})
+        : (raw && typeof raw === 'object' ? { ...raw } : {});
+      const unitKey = `好感${userId}`;
+      const unitValue = Number(unitMarkers[unitKey] ?? 0);
+      const markerValue = Number(markers['白好感'] ?? 0);
+      const best = Math.max(unitValue, markerValue);
+      if (best > 0 && unitValue !== best) {
+        unitMarkers[unitKey] = best;
+        white.markers = JSON.stringify(unitMarkers);
+        // 单位好感提升：整体写回单位所在地图（调用方传入的 host 地图）
+        const hostUnits = this.playerService.safeJsonParse<any[]>(
+          (await this.mapService.getMapById(mapId))?.summons, []);
+        const idx = hostUnits.findIndex((s: any) =>
+          String(s?.qq ?? s?.QQ ?? '') === String(white?.qq ?? white?.QQ ?? ''));
+        if (idx >= 0) {
+          hostUnits[idx] = white;
+          await this.prisma.gameMap.update({
+            where: { id: mapId },
+            data: { summons: JSON.stringify(hostUnits) },
+          }).catch(() => undefined);
+        }
+      }
+      if (best > 0 && markerValue !== best) {
+        markers['白好感'] = best;
+        player.markers = JSON.stringify(markers);
+      }
+    } catch (e: any) {
+      this.logger.warn(`白好感同步失败: ${e?.message}`);
     }
   }
 

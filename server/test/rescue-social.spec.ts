@@ -23,7 +23,7 @@ function makeService(options: {
   const allMaps = options.allMaps ?? [map];
   const savedPlayers: any[] = [];
   const updates: any[] = [];
-  const taskService = { advance: jest.fn(async () => '') };
+  const taskService = { advance: jest.fn(async () => ''), consumeNotifications: jest.fn(() => '') };
   const playerService: any = {
   enqueueUserWrite: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async (userId: number) => {

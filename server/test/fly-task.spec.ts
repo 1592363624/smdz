@@ -78,7 +78,7 @@ function makeService(options: {
       markerRequire: jest.fn(() => false),
       timeIntervalRequire: jest.fn(options.timeIntervalRequire || (() => false)),
     },
-    taskService: { advance: jest.fn(async () => '') },
+    taskService: { advance: jest.fn(async () => ''), consumeNotifications: jest.fn(() => '') },
     shortcutService: { setTempInput: jest.fn(async () => undefined) },
     systemConfigService: { get: jest.fn(async () => true) },
     combatSystem: { applyMapBuffs: jest.fn(async () => undefined) },

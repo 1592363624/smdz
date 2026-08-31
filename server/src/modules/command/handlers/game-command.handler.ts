@@ -219,6 +219,11 @@ export class GameCommandHandler implements CommandHandler {
         case 'info':
         case '资料':
         case '查看': {
+          // 查看地图单位（原版 对话菜单 1、查看 → 查看NPC/怪物名）；未命中单位时回退查看自己
+          if (arg.trim()) {
+            const unitDetail = await this.gameService.handleViewUnit(userId, arg.trim());
+            if (unitDetail) return this.wrap(unitDetail);
+          }
           // 信息照常展示，引导作为附加提示（不拦截，对齐原版：查看即查看）
           const info = await this.gameService.handleInfo(userId);
           const tutorialText = await this.checkTutorial(userId, 'info');
@@ -1332,7 +1337,8 @@ export class GameCommandHandler implements CommandHandler {
 
         case '控制终端':
         case 'control-terminal':
-          return this.wrap(await this.gameService.handleControlTerminal(userId));
+          // 原版控制终端=白的羁绊终端（技能a/技能b 子命令经前缀路由进入 arg）
+          return this.wrap(await this.gameService.handleControlTerminal(userId, arg));
 
         case '载具操作':
         case 'vehicle-ops':

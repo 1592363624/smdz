@@ -294,6 +294,15 @@ export interface WeaponData {
 export class CombatSystemService {
   private readonly logger = new Logger(CombatSystemService.name);
 
+  /** 白的羁绊技能1候选（bj1 值 → 对应武器类型攻击+15%，原版 控制终端技能a）。 */
+  static readonly BOND_SKILL_A = [
+    { id: 1, name: '利器管理' },
+    { id: 2, name: '弹道分析' },
+    { id: 3, name: '能量稳定' },
+    { id: 4, name: '燃料优化' },
+    { id: 5, name: '幽能亲和' },
+  ];
+
   // 伤害类型常量
   static readonly DMG_PHYS = 1;
   static readonly DMG_FIRE = 2;
@@ -627,6 +636,21 @@ export class CombatSystemService {
 
     // 构造攻击者加成数据（合并基础+装备+增益；传入 map 供宠物存活数量加成使用）
     const attackerBonus = this.buildAttackerBonus(player, playerData, map);
+
+    // 白的羁绊技能1（原版 加成计算.ecode L2245-2287：套装.白 且 bj1 与当前武器类型
+    // 匹配时 属性.攻击2+15，即该武器类型攻击+15%）。
+    try {
+      const bondSets = this.safeParseJson<Record<string, any>>(player.sets, {});
+      if (bondSets['白']) {
+        const bj1 = Number(this.safeParseJson<Record<string, any>>(player.markers, {})['bj1'] || 0);
+        const bondWeaponTypes = ['', '近战武器', '射弹武器', '能量武器', '制导武器', '幽能武器'];
+        const weaponType = String((weapon as any)?.type ?? (weapon as any)?.类型 ?? '');
+        if (bj1 >= 1 && bj1 <= 5 && weaponType && weaponType === bondWeaponTypes[bj1]) {
+          attackerBonus.攻击2 = (attackerBonus.攻击2 || 0) + 15;
+          resultLines.push(`【${CombatSystemService.BOND_SKILL_A[bj1 - 1].name}】${weaponType}攻击+15%`);
+        }
+      }
+    } catch { /* 羁绊数据异常不影响攻击 */ }
     // 原版 使魔技能.ecode L1424「增加穿透(玩家.属性, 15)」：技能施放时注入的三层穿透，
     // 加成计算.ecode L3446 定义为 护盾/装甲/生命穿透 同时 += N。仅本次攻击生效。
     if (context.extraPenetrationFlat && context.extraPenetrationFlat > 0) {

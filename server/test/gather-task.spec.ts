@@ -39,6 +39,7 @@ function makeGatherFixture(resource: any, options: {
   const taskService = {
     advance: jest.fn(async () => ''),
     acceptTask: jest.fn(async () => ''),
+    consumeNotifications: jest.fn(() => ''),
   };
   const prisma = {
     player: {
@@ -534,5 +535,13 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(fixture.taskService.acceptTask).toHaveBeenCalledWith(42, '主线-身世');
     const markers = JSON.parse(fixture.player.markers);
     expect(markers['召唤白']).toBe(1);
+    // 原版 L9780-9796：白作为真实召唤物加入当前地图（归属玩家、初始好感30）
+    const mapUpdate = fixture.prisma.gameMap.update.mock.calls
+      .map((call: any[]) => call[0]?.data ?? {})
+      .find((data: any) => typeof data.summons === 'string' && data.summons.includes('白'));
+    expect(mapUpdate).toBeTruthy();
+    const white = JSON.parse(mapUpdate.summons).find((s: any) => s.name === '白');
+    expect(white.type).toBe('白');
+    expect(white.markers['好感42']).toBe(30);
   });
 });
