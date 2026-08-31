@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>高光时刻动画预览 · 使魔大战3</title>
+<style>
+/* ===== 页面外壳：模拟游戏公屏的暗色底，仅用于预览 ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Noto Sans SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  background: #0a0a1a;
+  color: #f1f1f9;
+  min-height: 100vh;
+  padding: 24px 20px 40px;
+}
+.wrap { max-width: 860px; margin: 0 auto; }
+h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.sub { font-size: 13px; color: #a0a0c0; line-height: 1.7; margin-bottom: 20px; }
+.sub code {
+  background: rgba(139, 92, 246, 0.14);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+.btns { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+button {
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--bc, rgba(139, 92, 246, 0.35));
+  background: rgba(139, 92, 246, 0.1);
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+}
+button:hover { box-shadow: 0 0 14px var(--g, rgba(139, 92, 246, 0.3)); }
+button:active { transform: scale(0.96); }
+.hint { font-size: 12px; color: #6b6b8a; margin-top: 14px; line-height: 1.8; }
+
+/* ===== 模拟公屏背景（纯装饰，让动画有参照物） ===== */
+.mock {
+  margin-top: 22px;
+  border: 1px solid rgba(139, 92, 246, 0.18);
+  border-radius: 12px;
+  background: rgba(20, 16, 42, 0.55);
+  overflow: hidden;
+}
+.mock-bar {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.15);
+  font-size: 14px;
+  font-weight: 600;
+  background: rgba(10, 10, 26, 0.6);
+}
+.mock-body { padding: 14px 16px; font-size: 13px; line-height: 2; color: #8a8aa8; }
+.mock-body .me { color: #fbbf24; }
+
+/* =========================================================
+ * 以下为 GameHighlight.vue 的完整样式拷贝（去掉 scoped 前缀）
+ * 所见即线上效果
+ * ========================================================= */
+:root { --safe-top: 0px; }
+
+.gh-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.gh-flash {
+  position: absolute;
+  inset: 0;
+  animation: gh-flash 0.75s ease-out forwards;
+}
+.gh-flash.gh-t-task-complete {
+  background: radial-gradient(circle at 50% 20%, rgba(251, 191, 36, 0.3) 0%, rgba(251, 191, 36, 0) 62%);
+}
+.gh-flash.gh-t-task-accept {
+  background: radial-gradient(circle at 50% 20%, rgba(34, 211, 238, 0.28) 0%, rgba(34, 211, 238, 0) 62%);
+}
+.gh-flash.gh-t-title {
+  background: radial-gradient(circle at 50% 20%, rgba(236, 72, 153, 0.3) 0%, rgba(139, 92, 246, 0.12) 40%, rgba(139, 92, 246, 0) 66%);
+}
+.gh-flash.gh-t-level-up {
+  background: radial-gradient(circle at 50% 20%, rgba(251, 146, 60, 0.3) 0%, rgba(244, 63, 94, 0) 62%);
+}
+@keyframes gh-flash {
+  0% { opacity: 0; transform: scale(1.06); }
+  18% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+
+.gh-stack {
+  position: absolute;
+  top: calc(58px + var(--safe-top, 0px));
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.gh-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(400px, 92vw);
+  padding: 12px 18px 12px 14px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(30, 22, 62, 0.94) 0%, rgba(18, 14, 40, 0.96) 100%);
+  border: 1px solid var(--gh-line, rgba(251, 191, 36, 0.55));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 12px 34px rgba(0, 0, 0, 0.55),
+    0 0 26px var(--gh-glow, rgba(251, 191, 36, 0.3));
+  backdrop-filter: blur(6px);
+  will-change: transform, opacity;
+  animation: gh-card-in 0.56s cubic-bezier(0.16, 1.24, 0.3, 1) both;
+}
+.gh-card.gh-out { animation: gh-card-out 0.34s ease-in both; }
+
+.gh-card.gh-t-task-complete {
+  --gh-line: rgba(251, 191, 36, 0.6);
+  --gh-glow: rgba(251, 191, 36, 0.34);
+  --gh-a: #fde68a; --gh-b: #f59e0b; --gh-c: #fbbf24;
+}
+.gh-card.gh-t-task-accept {
+  --gh-line: rgba(34, 211, 238, 0.55);
+  --gh-glow: rgba(34, 211, 238, 0.3);
+  --gh-a: #a5f3fc; --gh-b: #06b6d4; --gh-c: #22d3ee;
+}
+.gh-card.gh-t-title {
+  --gh-line: rgba(236, 72, 153, 0.6);
+  --gh-glow: rgba(236, 72, 153, 0.32);
+  --gh-a: #fbcfe8; --gh-b: #c084fc; --gh-c: #ec4899;
+}
+.gh-card.gh-t-level-up {
+  --gh-line: rgba(251, 146, 60, 0.6);
+  --gh-glow: rgba(251, 146, 60, 0.32);
+  --gh-a: #fed7aa; --gh-b: #f43f5e; --gh-c: #fb923c;
+}
+
+.gh-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg,
+    transparent 20%, rgba(255,255,255,0.05) 38%, rgba(255,255,255,0.34) 50%,
+    rgba(255,255,255,0.05) 62%, transparent 80%);
+  transform: translateX(-110%);
+  animation: gh-sheen 1.15s cubic-bezier(0.22, 0.61, 0.36, 1) 0.2s 1 forwards;
+}
+@keyframes gh-sheen { to { transform: translateX(110%); } }
+
+.gh-beam {
+  position: absolute;
+  top: 0; left: 50%;
+  height: 2px; width: 0;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--gh-c), transparent);
+  box-shadow: 0 0 10px var(--gh-c);
+  animation: gh-beam 0.62s cubic-bezier(0.16, 1, 0.3, 1) 0.06s forwards;
+}
+@keyframes gh-beam { to { width: 100%; } }
+
+.gh-emblem { position: relative; flex: 0 0 auto; width: 46px; height: 46px; display: grid; place-items: center; }
+.gh-halo {
+  position: absolute; inset: -6px; border-radius: 50%;
+  background: radial-gradient(circle, var(--gh-glow) 0%, transparent 70%);
+  animation: gh-halo 1.5s ease-in-out infinite;
+}
+@keyframes gh-halo {
+  0%,100% { opacity: 0.55; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+.gh-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg, var(--gh-c) 90deg, transparent 200deg);
+  animation: gh-spin 2.4s linear infinite;
+  mask: radial-gradient(circle, transparent 58%, #000 60%);
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 60%);
+}
+@keyframes gh-spin { to { transform: rotate(360deg); } }
+.gh-icon {
+  position: relative; font-size: 23px; line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
+  animation: gh-icon-in 0.62s cubic-bezier(0.16, 1.5, 0.3, 1) 0.1s both;
+}
+@keyframes gh-icon-in {
+  0% { transform: scale(0.2) rotate(-45deg); opacity: 0; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+.gh-spark {
+  position: absolute; left: 50%; top: 50%;
+  width: 4px; height: 4px; margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--gh-c);
+  box-shadow: 0 0 6px var(--gh-c);
+  opacity: 0;
+  transform: rotate(var(--a)) translateX(6px);
+  animation: gh-spark 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes gh-spark {
+  0% { opacity: 0; transform: rotate(var(--a)) translateX(4px) scale(0.3); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateX(var(--d)) scale(0.2); }
+}
+
+.gh-text { flex: 1 1 auto; min-width: 0; }
+.gh-label {
+  font-size: 16px; font-weight: 800; letter-spacing: 2px;
+  background: linear-gradient(90deg, var(--gh-a), var(--gh-b), var(--gh-a));
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--gh-a);
+  animation: gh-shimmer 2.6s linear infinite;
+}
+@keyframes gh-shimmer { to { background-position: 200% 0; } }
+.gh-names {
+  margin-top: 3px; font-size: 13px; font-weight: 600; color: #f1f1f9;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gh-detail { margin-top: 2px; font-size: 12px; color: var(--gh-c); font-weight: 700; }
+.gh-rewards { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 5px; }
+.gh-reward {
+  font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 999px;
+  color: var(--gh-a);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--gh-line);
+  animation: gh-reward-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes gh-reward-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.85); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes gh-card-in {
+  0% { opacity: 0; transform: translateY(-30px) scale(0.72) rotateX(-28deg); filter: brightness(2.4); }
+  60% { opacity: 1; filter: brightness(1.15); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotateX(0deg); filter: brightness(1); }
+}
+@keyframes gh-card-out {
+  to { opacity: 0; transform: translateY(-16px) scale(0.9); filter: blur(2px); }
+}
+
+@media (max-width: 640px) {
+  .gh-stack { top: calc(50px + var(--safe-top, 0px)); gap: 8px; }
+  .gh-card { width: min(340px, 94vw); padding: 10px 14px 10px 11px; gap: 10px; border-radius: 14px; }
+  .gh-emblem { width: 38px; height: 38px; }
+  .gh-icon { font-size: 19px; }
+  .gh-label { font-size: 14px; letter-spacing: 1.5px; }
+  .gh-names { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gh-flash, .gh-sheen, .gh-beam, .gh-halo, .gh-ring,
+  .gh-icon, .gh-spark, .gh-label, .gh-reward, .gh-card, .gh-card.gh-out {
+    animation: none !important;
+  }
+  .gh-spark { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>高光时刻动画 · 预览</h1>
+  <p class="sub">
+    任务达成 / 领取新任务 / 获得称号 / 等级提升 四类里程碑的屏幕级提示动画。
+    下面是 <code>GameHighlight.vue</code> 的完整样式拷贝，所见即线上效果。
+  </p>
+
+  <div class="btns">
+    <button style="--bc: rgba(251,191,36,.5); --g: rgba(251,191,36,.35);" onclick="demo('task-complete')">🏆 任务达成</button>
+    <button style="--bc: rgba(34,211,238,.5); --g: rgba(34,211,238,.35);" onclick="demo('task-accept')">📜 领取新任务</button>
+    <button style="--bc: rgba(236,72,153,.5); --g: rgba(236,72,153,.35);" onclick="demo('title')">👑 获得称号</button>
+    <button style="--bc: rgba(251,146,60,.5); --g: rgba(251,146,60,.35);" onclick="demo('level-up')">⭐ 等级提升</button>
+    <button onclick="combo()">⚡ 连击演示（一次性触发 4 条）</button>
+  </div>
+  <p class="hint">
+    卡片从顶栏下方弹入，同屏最多 3 条、超出自动淘汰最旧的一条，单条停留 3.6 秒后消散。<br />
+    图层 <code>pointer-events: none</code>，不遮挡聊天与输入框；命中系统「减少动效」偏好时自动降级为淡入淡出。
+  </p>
+
+  <div class="mock">
+    <div class="mock-bar">💬 世界频道（模拟）</div>
+    <div class="mock-body">
+      <span class="me">路人乙</span>：前往 走廊<br />
+      路人乙：完成了任务:教程-移动，得到了:优秀装备补给箱x1.03<br />
+      路人乙：并领取了新的任务:教程-苏醒<br />
+      ————————<br />
+      你开始前往【走廊】，预计28秒后到达
+    </div>
+  </div>
+</div>
+
+<div class="gh-layer" id="layer">
+  <div class="gh-stack" id="stack"></div>
+</div>
+
+<script>
+const META = {
+  'task-complete': { icon: '🏆', label: '任务达成' },
+  'task-accept': { icon: '📜', label: '新任务' },
+  title: { icon: '👑', label: '称号解锁' },
+  'level-up': { icon: '⭐', label: '等级提升' },
+};
+const DEMO = {
+  'task-complete': { type: 'task-complete', title: '任务达成', names: ['教程-移动'], rewards: ['优秀装备补给箱x1.03'] },
+  'task-accept': { type: 'task-accept', title: '新任务', names: ['教程-苏醒'] },
+  title: { type: 'title', title: '称号解锁', names: ['常春藤之友'], detail: '成就达成' },
+  'level-up': { type: 'level-up', title: '等级提升', detail: 'Lv.3 → Lv.4' },
+};
+const SPARK_COUNT = 8;
+const MAX_ITEMS = 3;
+const LIFE_MS = 3600;
+const FLASH_MS = 750;
+const layer = document.getElementById('layer');
+const stack = document.getElementById('stack');
+let seq = 0;
+
+function sparkStyle(n) {
+  const angle = ((n - 1) / SPARK_COUNT) * 360 + 18;
+  const distance = 18 + ((n * 7) % 13);
+  return '--a:' + angle + 'deg;--d:' + distance + 'px;animation-delay:' + (0.16 + (n % 3) * 0.05) + 's';
+}
+
+function push(p) {
+  if (!p || !p.type) return;
+  const id = ++seq;
+  const meta = META[p.type] || { icon: '✨', label: '高光时刻' };
+
+  const card = document.createElement('div');
+  card.className = 'gh-card gh-t-' + p.type;
+  card.dataset.id = id;
+  card.innerHTML =
+    '<span class="gh-sheen"></span>' +
+    '<span class="gh-beam"></span>' +
+    '<div class="gh-emblem">' +
+      '<span class="gh-halo"></span>' +
+      '<span class="gh-ring"></span>' +
+      '<span class="gh-icon">' + meta.icon + '</span>' +
+      Array.from({ length: SPARK_COUNT }, function (_, i) {
+        return '<span class="gh-spark" style="' + sparkStyle(i + 1) + '"></span>';
+      }).join('') +
+    '</div>' +
+    '<div class="gh-text">' +
+      '<div class="gh-label">' + (p.title || meta.label) + '</div>' +
+      (p.names && p.names.length ? '<div class="gh-names">' + p.names.join(' · ') + '</div>' : '') +
+      (p.detail ? '<div class="gh-detail">' + p.detail + '</div>' : '') +
+      (p.rewards && p.rewards.length
+        ? '<div class="gh-rewards">' + p.rewards.map(function (r, ri) {
+            return '<span class="gh-reward" style="animation-delay:' + (0.34 + ri * 0.09) + 's">＋ ' + r + '</span>';
+          }).join('') + '</div>'
+        : '') +
+    '</div>';
+  stack.appendChild(card);
+
+  const cards = Array.from(stack.children);
+  while (cards.length > MAX_ITEMS) cards.shift().remove();
+
+  const flash = document.createElement('div');
+  flash.className = 'gh-flash gh-t-' + p.type;
+  layer.appendChild(flash);
+  setTimeout(function () { flash.remove(); }, FLASH_MS);
+
+  setTimeout(function () {
+    card.classList.add('gh-out');
+    setTimeout(function () { card.remove(); }, 340);
+  }, LIFE_MS);
+}
+
+function demo(type) { push(DEMO[type]); }
+function combo() {
+  const order = ['task-complete', 'task-accept', 'title', 'level-up'];
+  order.forEach(function (t, i) { setTimeout(function () { push(DEMO[t]); }, i * 420); });
+}
+</script>
+</body>
+</html>

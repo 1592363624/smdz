@@ -15,6 +15,7 @@ import type { ItemSystemService } from './item-system.service';
 import { filterActive } from './expire-time.util';
 import { deriveDisplayName } from './display-name.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
+import { GameHighlightService } from './highlight.service';
 import { ActorRuntime, actorKey } from '../actor';
 
 /**
@@ -81,6 +82,9 @@ export class PlayerService implements OnModuleInit {
      *  退化为仅名字的静态装备条目。 */
     @Optional() @Inject(ITEM_SYSTEM_SERVICE)
     private readonly itemSystem?: ItemSystemService,
+    /** 高光时刻推送（可选依赖）。升级时定向推送给该玩家播放屏幕级动画；
+     *  存量测试桩手工 new PlayerService 时不传，升级结算逻辑完全不变。 */
+    @Optional() private readonly highlight?: GameHighlightService,
   ) {}
 
   /**
@@ -820,6 +824,12 @@ export class PlayerService implements OnModuleInit {
       player.userId,
       `⭐ 等级提升了！Lv.${startLevel} → Lv.${level}`,
     );
+    // 升级属里程碑时刻：与公屏文本同源同批次推送，前端播放屏幕级高光动画
+    this.highlight?.emit(player.userId, {
+      type: 'level-up',
+      title: '等级提升',
+      detail: `Lv.${startLevel} → Lv.${level}`,
+    });
     return true;
   }
 

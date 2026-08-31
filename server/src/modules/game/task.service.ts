@@ -12,6 +12,7 @@ import { StaticDataService } from './static-data.service';
 import { ItemSystemService } from './item-system.service';
 import { ShortcutService } from './shortcut.service';
 import { PlayerMutateContextService } from './player-mutate-context.service';
+import { GameHighlightService } from './highlight.service';
 
 interface TaskRequirement {
   name: string;
@@ -54,6 +55,11 @@ export class TaskService {
     // 用于在 mutate 上下文内复用同一份快照，避免被 mutate 包住时产生第二份快照。
     // Optional：旧测试桩未提供时退化为「自己读档 → 自己保存」的兼容路径。
     @Optional() private readonly mutateContext?: PlayerMutateContextService,
+    /**
+     * 高光时刻推送（可选依赖）。存量测试桩手工 new TaskService 时不会传入，
+     * 拿不到则跳过推送，任务结算逻辑完全不变。
+     */
+    @Optional() private readonly highlight?: GameHighlightService,
   ) {}
 
   /**
@@ -63,6 +69,43 @@ export class TaskService {
    */
   private async enqueueUserWrite<T>(userId: number, fn: () => Promise<T>): Promise<T> {
     return this.playerService.enqueueUserWrite(userId, fn);
+  }
+
+  /**
+   * 把一批已结算任务转成前端高光动画事件：
+   * - 完成任务 + 奖励 → task-complete（一次结算可能同时完成多个任务，合并为一条）
+   * - 自动领取的后续任务 → task-accept
+   * 与 formatCompletionMessage 共用同一份 completed 数据，保证公屏文本与
+   * 高光弹窗展示的内容一致。
+   * @param userId 玩家 ID
+   * @param completed 本轮结算出的任务列表
+   */
+  private emitTaskHighlight(userId: number, completed: SettledTask[]): void {
+    if (!this.highlight || completed.length === 0) return;
+
+    const names = completed.map((item) => item.name);
+    // 奖励行中夹杂的“对你的好感+X”不属于物品奖励，高光里单独忽略即可
+    const rewards = completed
+      .flatMap((item) => item.rewards || [])
+      .filter((line) => line && !line.includes('对你的好感+'));
+    const chained = Array.from(
+      new Set(completed.flatMap((item) => (item.chained ?? []).filter(Boolean))),
+    );
+
+    this.highlight.emit(userId, {
+      type: 'task-complete',
+      title: names.length > 1 ? `任务达成 ×${names.length}` : '任务达成',
+      names,
+      rewards,
+    });
+
+    if (chained.length > 0) {
+      this.highlight.emit(userId, {
+        type: 'task-accept',
+        title: '新任务',
+        names: chained,
+      });
+    }
   }
 
   private notify(userId: number, text: string): void {
@@ -114,6 +157,7 @@ export class TaskService {
 
         const message = this.formatCompletionMessage(completed);
         this.notify(userId, message);
+        this.emitTaskHighlight(userId, completed);
         return message;
       } catch (error: any) {
         this.logger.warn(`推进任务失败: ${error?.message || error}`);
@@ -177,6 +221,10 @@ export class TaskService {
         ...chainedSettled,
       ]);
       this.notify(userId, message);
+      this.emitTaskHighlight(userId, [
+        { name: actualTaskName, rewards: rewardLines, chained },
+        ...chainedSettled,
+      ]);
       return message;
     });
   }
@@ -631,6 +679,7 @@ export class TaskService {
         'regenArmor', 'vitality', 'affinity',
       ]);
       const completion = this.formatCompletionMessage(completed);
+      this.emitTaskHighlight(userId, completed);
       if (npcName) {
         // 原版领取任务文案（_主程序.ecode L7395）：图片+名称+能帮我个忙吗+说明+接受了任务X，
         // 并设置“1@查看任务”临时输入。

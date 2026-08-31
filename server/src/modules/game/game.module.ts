@@ -35,6 +35,7 @@ import { AchievementService } from './achievement.service';
 import { HomeService } from './home.service';
 import { ShortcutService } from './shortcut.service';
 import { TaskService } from './task.service';
+import { GameHighlightService } from './highlight.service';
 import { StatsService } from './stats.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
@@ -70,6 +71,8 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
     AutoMineService,
     VitalityService,
     HandbookService,
+    // 高光时刻推送（任务达成/领取任务/获得称号/升级）→ 前端屏幕级动画
+    GameHighlightService,
     // 字符串 token 别名：让 PlayerService 无需 import ItemSystemService（避免运行时循环加载）
     { provide: ITEM_SYSTEM_SERVICE, useExisting: ItemSystemService },
   ],
@@ -98,6 +101,8 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
     AutoMineService,
     VitalityService,
     HandbookService,
+    // 导出给 ChatGateway 注入，用于 afterInit 注入 socket server 实例
+    GameHighlightService,
   ],
 })
 export class GameModule {}

@@ -17,6 +17,7 @@ import { ItemSystemService } from './item-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { ShortcutService } from './shortcut.service';
 import { CombatStateService } from './combat-state.service';
+import { GameHighlightService } from './highlight.service';
 import { hasActive } from './expire-time.util';
 import {
   buildFamiliarGateMenu,
@@ -146,6 +147,9 @@ export class FamiliarSystemService {
     // 建造地基/建造房子写入「工作」计时标记（对应原版 添加标记("工作",秒,玩家.标记2)）。
     // Optional 末位参数，旧测试桩不传也不受影响。
     @Optional() private readonly combatState?: CombatStateService,
+    // 高光时刻推送（领取使魔称号时播放屏幕级动画）。Optional 末位参数，
+    // 旧测试桩不传也不受影响。
+    @Optional() private readonly highlight?: GameHighlightService,
   ) {}
 
   // ==================== 使魔基础操作 ====================
@@ -4014,6 +4018,13 @@ ${this.getAwakenStageName(d)}(${d})`;
     titles.push({ name: titleName, equipped: false });
     player.titles = JSON.stringify(titles);
     await this.playerService.savePlayer(player);
+    // 落库成功后才推送高光：避免"弹了动画但称号没拿到"的错觉
+    this.highlight?.emit(userId, {
+      type: 'title',
+      title: '称号解锁',
+      names: [titleName],
+      detail: titleConfig.bonus ? `效果：${titleConfig.bonus}` : '使魔称号',
+    });
 
     return `恭喜你获得了称号「${titleName}」！\n效果：${titleConfig.bonus}`;
   }

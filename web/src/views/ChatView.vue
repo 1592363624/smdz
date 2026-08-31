@@ -818,6 +818,9 @@
       </transition-group>
     </div>
 
+    <!-- 高光时刻动画层：任务达成 / 领取新任务 / 获得称号 / 等级提升 时播放屏幕级动画 -->
+    <GameHighlight ref="highlightRef" />
+
     <!-- 部署更新提示弹窗：检测到服务器有新版本部署后主动弹出，或点击版本号手动查看 -->
     <div v-if="updateModal.show" class="update-modal-overlay" @click.self="dismissUpdate">
       <div class="update-modal">
@@ -887,7 +890,9 @@ import { io } from 'socket.io-client';
 import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
 import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
 import AnnRichText from '../components/AnnRichText';
+import GameHighlight from '../components/GameHighlight.vue';
 import { syncServerClock } from '../utils/serverClock';
+import { parseHighlights, GAME_HIGHLIGHT_EVENT } from '../utils/gameHighlight';
 
 const router = useRouter();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
@@ -1788,6 +1793,8 @@ function appendMessage(msg) {
   if (!msg) return;
   // 兜底：socket 实时消息若缺少时间戳，则补当前时间，保证每条消息都能显示精确到秒的时间
   if (!msg.createdAt) msg.createdAt = new Date().toISOString();
+  // 里程碑动画：先于下方去重替换逻辑执行，无论消息是新增还是替换本地回显都能触发
+  highlightFromMessage(msg);
   // 本地回显去重：自己发出的聊天/指令广播到达时，用服务端正式消息（带 id/准确类型/时间）
   // 替换发送瞬间暂存的那条本地回显，避免同一条消息显示两遍。
   // 优先按内容精确匹配；找不到再按先后顺序配对——后端会做快捷输入替换（如发"1"被替换成
@@ -1969,6 +1976,51 @@ function showToast(message, type = 'info') {
   setTimeout(() => {
     toasts.value = toasts.value.filter((t) => t.id !== id);
   }, 3000);
+}
+
+// ===== 高光时刻动画（任务达成 / 领取新任务 / 获得称号 / 等级提升）=====
+// 组件实例：由 GameHighlight.vue 暴露 push 方法
+const highlightRef = ref(null);
+
+/**
+ * 播放一条高光动画
+ *
+ * 带 3 秒去重窗口：结构化事件（后端埋点）与文本兜底解析会命中同一次结算，
+ * 不去重就会连着弹两遍一模一样的动画。
+ * @param {object} payload { type, title?, detail?, names?, rewards? }
+ */
+const highlightSeen = new Map();
+function pushHighlight(payload) {
+  if (!payload?.type) return;
+  const now = Date.now();
+  // 顺带清理过期条目，避免 Map 无限增长
+  for (const [k, t] of highlightSeen) {
+    if (now - t > 3000) highlightSeen.delete(k);
+  }
+  const sig = `${payload.type}|${(payload.names || []).join('、')}|${payload.detail || ''}`;
+  const last = highlightSeen.get(sig);
+  if (last && now - last < 3000) return;
+  highlightSeen.set(sig, now);
+  highlightRef.value?.push?.(payload);
+}
+
+/**
+ * 文本兜底：解析公屏文本里的里程碑并播放动画
+ *
+ * 后端已用结构化事件 game:highlight 覆盖主链路，这里解析文本是为了兜住
+ * 尚未埋点的历史路径（以及 AstrBot 等其它渠道回传的内容）。
+ * 关键约束：只认归属自己的消息——别人完成任务时公屏也会广播同款文本，
+ * 绝不能给别人放动画。
+ * @param {object} msg 公屏消息
+ */
+function highlightFromMessage(msg) {
+  if (!msg || typeof msg.content !== 'string') return;
+  // 只处理系统类回执；玩家聊天/指令原文不参与解析
+  if (msg.type !== 'system' && msg.type !== 'game' && msg.type !== 'info') return;
+  if (!isOwnSystemMessage(msg)) return;
+  for (const item of parseHighlights(msg.content)) {
+    pushHighlight(item);
+  }
 }
 
 // ===== 部署更新检测（检测部署完成 → 弹窗展示更新日志 → 自动刷新） =====
@@ -2678,6 +2730,11 @@ onMounted(async () => {
     // 接收公屏消息(聊天、指令结果广播、系统消息)
     socket.on('chat:message', (msg) => {
       appendMessage(msg);
+    });
+    // 接收高光时刻事件（任务达成/领取新任务/获得称号/等级提升）
+    // 后端按 user:{id} 房间定向推送，只可能是自己的，无需再做归属判断
+    socket.on(GAME_HIGHLIGHT_EVENT, (data) => {
+      pushHighlight(data);
     });
     // 接收 GM 系统公告 → 强制弹窗展示（阅读 5 秒后才可关闭）
     socket.on('announcement:new', (data) => {

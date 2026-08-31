@@ -6,10 +6,11 @@
  * 称号数据存储在 Player.titles 字段（JSON 数组，格式 [{name, equipped}]，
  * 字符串条目为历史形状，读取时自动归一为对象）
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { StaticDataService } from './static-data.service';
+import { GameHighlightService } from './highlight.service';
 
 @Injectable()
 export class AchievementService {
@@ -19,6 +20,11 @@ export class AchievementService {
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
     private readonly staticData: StaticDataService,
+    /**
+     * 高光时刻推送（可选依赖）。存量测试桩手工 new AchievementService 时不会传入，
+     * 拿不到则跳过推送，称号判定与发放逻辑完全不变。
+     */
+    @Optional() private readonly highlight?: GameHighlightService,
   ) {}
 
   /**
@@ -190,6 +196,14 @@ export class AchievementService {
     // 更新玩家称号列表
     if (newTitles.length > 0) {
       player.titles = JSON.stringify(playerTitles);
+      // 称号解锁属里程碑时刻：定向推送给该玩家播放屏幕级高光动画。
+      // 推送失败不影响称号发放（emit 内部已静默兜底）。
+      this.highlight?.emit(player.userId, {
+        type: 'title',
+        title: newTitles.length > 1 ? `称号解锁 ×${newTitles.length}` : '称号解锁',
+        names: newTitles,
+        detail: '成就达成',
+      });
     }
 
     // 5. 返回新获得的称号名称列表

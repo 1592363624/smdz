@@ -31,6 +31,7 @@ import { ShortcutService } from '../game/shortcut.service';
 import { StatsService } from '../game/stats.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from '../game/game.service';
+import { GameHighlightService } from '../game/highlight.service';
 
 /// Socket 客户端附加的用户信息
 interface SocketUser {
@@ -59,6 +60,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     private readonly statsService: StatsService,
     private readonly prisma: PrismaService,
     private readonly gameService: GameService,
+    private readonly highlightService: GameHighlightService,
   ) {}
 
   /**
@@ -123,6 +125,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
    */
   afterInit(server: Server) {
     this.chatService.setServer(server);
+    // 高光时刻推送同样需要 server 实例（任务达成/称号/升级的屏幕级动画）
+    this.highlightService.setServer(server);
   }
 
   /**
