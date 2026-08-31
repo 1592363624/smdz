@@ -28,6 +28,8 @@ import { CombatSystemService } from './combat-system.service';
 import { CombatStateService } from './combat-state.service';
 import { MapBattleLoopService } from './map-battle-loop.service';
 
+import { HandbookService } from './handbook.service';
+
 import { DungeonService } from './dungeon.service';
 import { AchievementService } from './achievement.service';
 import { HomeService } from './home.service';
@@ -67,6 +69,7 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
     StatsService,
     AutoMineService,
     VitalityService,
+    HandbookService,
     // 字符串 token 别名：让 PlayerService 无需 import ItemSystemService（避免运行时循环加载）
     { provide: ITEM_SYSTEM_SERVICE, useExisting: ItemSystemService },
   ],
@@ -94,6 +97,7 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
     StatsService,
     AutoMineService,
     VitalityService,
+    HandbookService,
   ],
 })
 export class GameModule {}

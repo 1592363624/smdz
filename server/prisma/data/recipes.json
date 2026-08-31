@@ -1,0 +1,3367 @@
+[
+  {
+    "name": "钻石分解1",
+    "description": "把钻石分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钻石",
+        "count": 50,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集钻石",
+        "count": 10000
+      }
+    ]
+  },
+  {
+    "name": "生肉分解1",
+    "description": "把生肉分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生肉",
+        "count": 2.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集生肉",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "果实分解1",
+    "description": "把果实分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "果实",
+        "count": 2,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集果实",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "饲料分解1",
+    "description": "把饲料分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "饲料",
+        "count": 0.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "制造饲料",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "木头分解1",
+    "description": "把木头分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "木头",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集木头",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "石头分解1",
+    "description": "提取石头中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 10,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "石头",
+        "count": 9,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集石头",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "铁矿分解1",
+    "description": "提取铁矿中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "count": 4.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集铁矿",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "绳子分解1",
+    "description": "把绳子分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "绳子",
+        "count": 4.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集绳子",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "肥料生产2",
+    "description": "把生物质加工成肥料",
+    "level": 2,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "肥料",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "肥料",
+        "count": 1,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集肥料",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "钻石分解3",
+    "description": "把钻石分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钻石",
+        "count": 250,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "生肉分解3",
+    "description": "把生肉分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生肉",
+        "count": 12.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "果实分解3",
+    "description": "把果实分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "果实",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "饲料分解3",
+    "description": "把饲料分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "饲料",
+        "count": 2.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "木头分解3",
+    "description": "把木头分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "木头",
+        "count": 50,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "石头分解3",
+    "description": "提取石头中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 3,
+    "productivity": 10,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "石头",
+        "count": 45,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "铁矿分解3",
+    "description": "提取铁矿中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "count": 22.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "绳子分解3",
+    "description": "把绳子分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 25,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "绳子",
+        "count": 22.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "合成肉3",
+    "description": "把生物质通过特殊手段重新加工为生肉。这种肉一般用来做饲料，最好不要直接食用",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生肉",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "生肉",
+        "count": 1,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 3,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 500000
+      },
+      {
+        "name": "采集生肉",
+        "count": 5000
+      }
+    ]
+  },
+  {
+    "name": "神兽之血分解1",
+    "description": "把神兽的血液分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "神兽之血",
+        "count": 0.05,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集神兽之血",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "导弹生产3",
+    "description": "制造导弹供应导弹垂直发射井使用",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "导弹",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "导弹",
+        "count": 0.01,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "燃料",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 50,
+        "chance": 100
+      },
+      {
+        "name": "木头",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "载具零件",
+        "count": 0.1,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集合金",
+        "count": 1000
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000
+      }
+    ]
+  },
+  {
+    "name": "资源箱加工1",
+    "description": "把资源重新装箱",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "资源箱",
+        "count": 1,
+        "chance": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 24,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集木头",
+        "count": 1000
+      },
+      {
+        "name": "采集石头",
+        "count": 1000
+      },
+      {
+        "name": "采集绳子",
+        "count": 1000
+      },
+      {
+        "name": "采集铁矿",
+        "count": 1000
+      }
+    ]
+  },
+  {
+    "name": "资源箱加工3",
+    "description": "把资源重新装箱",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "资源箱",
+        "count": 1.2,
+        "chance": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 24,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产资源箱",
+        "count": 10000
+      }
+    ]
+  },
+  {
+    "name": "资源箱加工6",
+    "description": "把资源重新装箱",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "资源箱",
+        "count": 1.5,
+        "chance": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 24,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产资源箱",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "经验胶囊2",
+    "description": "把巧克力转化为经验胶囊",
+    "level": 2,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "经验胶囊",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "经验胶囊",
+        "count": 10,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "巧克力",
+        "count": 0.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集巧克力",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "燃料1",
+    "description": "高效的燃料制造，你可以在各种分解配方中得到生物质",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 10,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 8,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集燃料",
+        "count": 100
+      },
+      {
+        "name": "生产生物质",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "燃料2",
+    "description": "高效的燃料制造，你可以在各种分解配方中得到生物质",
+    "level": 2,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 12,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 12,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 8,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产燃料",
+        "count": 10000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000
+      }
+    ]
+  },
+  {
+    "name": "燃料3",
+    "description": "高效的燃料制造，你可以在各种分解配方中得到生物质",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 15,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 15,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 8,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产燃料",
+        "count": 100000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "燃料4",
+    "description": "超高效的燃料制造，但是相比3级燃料加工也只是加快了制造速度而已，你可以在各种分解配方中得到生物质",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 30,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 30,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 16,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产燃料",
+        "count": 1000000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "燃料5",
+    "description": "超高效的燃料制造，但是相比4级燃料加工也只是加快了制造速度而已，你可以在各种分解配方中得到生物质",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 60,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 60,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 32,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产燃料",
+        "count": 5000000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "燃料6",
+    "description": "超高效的燃料制造，但是相比5级燃料加工也只是加快了制造速度而已，你可以在各种分解配方中得到生物质",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 120,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 120,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 64,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产燃料",
+        "count": 50000000
+      },
+      {
+        "name": "生产生物质",
+        "count": 50000000
+      }
+    ]
+  },
+  {
+    "name": "高效燃料1",
+    "description": "使用油瓜这种特殊的植物来高效生产燃料",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 8,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 8,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "油瓜种子",
+        "count": 0.01,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集燃料",
+        "count": 100
+      },
+      {
+        "name": "生产生物质",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "高效燃料2",
+    "description": "使用油瓜这种特殊的植物来高效生产燃料",
+    "level": 2,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 16,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 16,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "改良油瓜种子",
+        "count": 0.01,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集燃料",
+        "count": 5000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000
+      }
+    ]
+  },
+  {
+    "name": "高效燃料3",
+    "description": "使用油瓜这种特殊的植物来高效生产燃料",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "燃料",
+        "count": 32,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 32,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "强壮油瓜种子",
+        "count": 0.01,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集燃料",
+        "count": 10000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "水晶合成3",
+    "description": "合成水晶",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "水晶",
+        "count": 0.2,
+        "chance": 100
+      },
+      {
+        "name": "水晶",
+        "count": 0.2,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 2,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集水晶",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 100000
+      }
+    ]
+  },
+  {
+    "name": "水晶合成5",
+    "description": "合成水晶",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "水晶",
+        "count": 0.4,
+        "chance": 100
+      },
+      {
+        "name": "水晶",
+        "count": 0.4,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 4,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产水晶",
+        "count": 100000
+      }
+    ]
+  },
+  {
+    "name": "水晶合成7",
+    "description": "合成水晶",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "水晶",
+        "count": 0.8,
+        "chance": 100
+      },
+      {
+        "name": "水晶",
+        "count": 0.8,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 40,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 8,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产水晶",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "能量块合成4",
+    "description": "合成能量块",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "能量块",
+        "count": 0.1,
+        "chance": 100
+      },
+      {
+        "name": "能量块",
+        "count": 0.1,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 2,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集能量块",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "能量块合成6",
+    "description": "合成能量块",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "能量块",
+        "count": 0.2,
+        "chance": 100
+      },
+      {
+        "name": "能量块",
+        "count": 0.2,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 4,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产能量块",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "能量块合成8",
+    "description": "合成能量块",
+    "level": 8,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "能量块",
+        "count": 0.4,
+        "chance": 100
+      },
+      {
+        "name": "能量块",
+        "count": 0.4,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 40,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 8,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产能量块",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "生产加速4",
+    "description": "这个配方并不负责生产任何材料，但是当你为载具输入这个配方的时候(提供的生产力不小于0即可)，可以使这个载具的所有配方生产/消耗的速度+5%(不与其他生产加速配方叠加，但是可以与生产调度系统等部件叠加)#换行【当你解锁了这个配方的时候，便可以额外再接取一个配方解锁的任务了】",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [],
+    "inputs": [],
+    "unlockReq": [
+      {
+        "name": "生产",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "生产加速6",
+    "description": "这个配方并不负责生产任何材料，但是当你为载具输入这个配方的时候(提供的生产力不小于0即可)，可以使这个载具的所有配方生产/消耗的速度+15%(不与其他生产加速配方叠加，但是可以与生产调度系统等部件叠加)",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [],
+    "inputs": [],
+    "unlockReq": [
+      {
+        "name": "生产",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "生产加速8",
+    "description": "这个配方并不负责生产任何材料，但是当你为载具输入这个配方的时候(提供的生产力不小于0即可)，可以使这个载具的所有配方生产/消耗的速度+25%(不与其他生产加速配方叠加，但是可以与生产调度系统等部件叠加)",
+    "level": 8,
+    "productivity": 1,
+    "outputs": [],
+    "inputs": [],
+    "unlockReq": [
+      {
+        "name": "生产",
+        "count": 1000000000
+      }
+    ]
+  },
+  {
+    "name": "金属精炼1",
+    "description": "提炼金属",
+    "level": 1,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "合金",
+        "count": 2.5,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 2.5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "木头",
+        "count": 20,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集铁矿",
+        "count": 100
+      },
+      {
+        "name": "采集木头",
+        "count": 100
+      }
+    ]
+  },
+  {
+    "name": "金属精炼2",
+    "description": "提炼金属",
+    "level": 2,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "合金",
+        "count": 3,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 3,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "木头",
+        "count": 20,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集铁矿",
+        "count": 1000
+      },
+      {
+        "name": "采集木头",
+        "count": 1000
+      },
+      {
+        "name": "生产合金",
+        "count": 10000
+      }
+    ]
+  },
+  {
+    "name": "金属精炼3",
+    "description": "提炼金属",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "合金",
+        "count": 3.5,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 3.5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "木头",
+        "count": 20,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集铁矿",
+        "count": 10000
+      },
+      {
+        "name": "采集木头",
+        "count": 10000
+      },
+      {
+        "name": "生产合金",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "金属精炼4",
+    "description": "高效提炼金属，但是相比3级金属精炼也只是提高了生产速度而已",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "合金",
+        "count": 17.5,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 17.5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "count": 50,
+        "chance": 100
+      },
+      {
+        "name": "木头",
+        "count": 100,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集铁矿",
+        "count": 100000
+      },
+      {
+        "name": "采集木头",
+        "count": 100000
+      },
+      {
+        "name": "生产合金",
+        "count": 5000000
+      }
+    ]
+  },
+  {
+    "name": "建筑生产3",
+    "description": "制造改良建筑箱",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "改良建筑箱",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "改良建筑箱",
+        "count": 1,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "载具零件",
+        "count": 0.1,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 2,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集改良建筑箱",
+        "count": 500
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000
+      }
+    ]
+  },
+  {
+    "name": "建筑生产4",
+    "description": "制造改良建筑箱",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "改良建筑箱",
+        "count": 1.2,
+        "chance": 100
+      },
+      {
+        "name": "改良建筑箱",
+        "count": 1.2,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "载具零件",
+        "count": 0.1,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 1,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产改良建筑箱",
+        "count": 1000
+      },
+      {
+        "name": "生产燃料",
+        "count": 100000
+      }
+    ]
+  },
+  {
+    "name": "建筑生产5",
+    "description": "制造改良建筑箱",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "改良建筑箱",
+        "count": 1.5,
+        "chance": 100
+      },
+      {
+        "name": "改良建筑箱",
+        "count": 1.5,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "载具零件",
+        "count": 0.1,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 1,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产改良建筑箱",
+        "count": 10000
+      },
+      {
+        "name": "生产燃料",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "建筑加工3",
+    "description": "制造建筑箱",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "特装建筑箱",
+        "count": 0.4,
+        "chance": 100
+      },
+      {
+        "name": "特装建筑箱",
+        "count": 0.4,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "改良建筑箱",
+        "count": 100,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 200,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集改良建筑箱",
+        "count": 100
+      },
+      {
+        "name": "生产燃料",
+        "count": 100000
+      }
+    ]
+  },
+  {
+    "name": "建筑加工4",
+    "description": "制造建筑箱",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "特装建筑箱",
+        "count": 0.48,
+        "chance": 100
+      },
+      {
+        "name": "特装建筑箱",
+        "count": 0.48,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "改良建筑箱",
+        "count": 100,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 200,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产特装建筑箱",
+        "count": 1000
+      },
+      {
+        "name": "生产燃料",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "建筑加工5",
+    "description": "制造建筑箱",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "特装建筑箱",
+        "count": 0.65,
+        "chance": 100
+      },
+      {
+        "name": "特装建筑箱",
+        "count": 0.65,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "改良建筑箱",
+        "count": 100,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 200,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产特装建筑箱",
+        "count": 100000
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "零件加工3",
+    "description": "制造载具零件",
+    "level": 3,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "载具零件",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "载具零件",
+        "count": 0.01,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "合金",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 2,
+        "chance": 100
+      },
+      {
+        "name": "能量块",
+        "count": 0.5,
+        "chance": 100
+      },
+      {
+        "name": "水晶",
+        "count": 1,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集载具零件",
+        "count": 500
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000
+      }
+    ]
+  },
+  {
+    "name": "零件加工4",
+    "description": "制造载具零件",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "载具零件",
+        "count": 0.012,
+        "chance": 100
+      },
+      {
+        "name": "载具零件",
+        "count": 0.012,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "合金",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 2,
+        "chance": 100
+      },
+      {
+        "name": "能量块",
+        "count": 0.5,
+        "chance": 100
+      },
+      {
+        "name": "水晶",
+        "count": 1,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产载具零件",
+        "count": 10000
+      },
+      {
+        "name": "生产燃料",
+        "count": 100000
+      }
+    ]
+  },
+  {
+    "name": "零件加工5",
+    "description": "高效制造载具零件",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "载具零件",
+        "count": 0.015,
+        "chance": 100
+      },
+      {
+        "name": "载具零件",
+        "count": 0.015,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "合金",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 2,
+        "chance": 100
+      },
+      {
+        "name": "能量块",
+        "count": 0.5,
+        "chance": 100
+      },
+      {
+        "name": "水晶",
+        "count": 1,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产载具零件",
+        "count": 100000
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "零件加工6",
+    "description": "超高效制造载具零件，但是相比零件加工5也只是提高了效率而已",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "载具零件",
+        "count": 0.075,
+        "chance": 100
+      },
+      {
+        "name": "载具零件",
+        "count": 0.075,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "合金",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "能量块",
+        "count": 2.5,
+        "chance": 100
+      },
+      {
+        "name": "水晶",
+        "count": 5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产载具零件",
+        "count": 1000000
+      },
+      {
+        "name": "生产燃料",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "要塞部件加工5",
+    "description": "制造要塞级的载具部件，你可以使用这个[要塞零件]在“制造”中制造为相应的部件",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "要塞零件",
+        "count": 0.001,
+        "chance": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "载具零件",
+        "count": 25,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 150,
+        "chance": 100
+      },
+      {
+        "name": "资源箱",
+        "count": 225,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产资源箱",
+        "count": 100000
+      },
+      {
+        "name": "生产载具零件",
+        "count": 100000
+      },
+      {
+        "name": "生产合金",
+        "count": 100000
+      }
+    ]
+  },
+  {
+    "name": "种子箱加工4",
+    "description": "制造种子",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "种子箱",
+        "count": 0.25,
+        "chance": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "资源箱",
+        "count": 2.5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集资源",
+        "count": 100000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "种子箱加工5",
+    "description": "合成效率500%",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "种子箱",
+        "count": 1.25,
+        "chance": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "资源箱",
+        "count": 12.5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 50,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产种子箱",
+        "count": 10000
+      },
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "种子箱加工6",
+    "description": "合成效率500%",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "种子箱",
+        "count": 6.25,
+        "chance": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "资源箱",
+        "count": 62.5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 300,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产种子箱",
+        "count": 100000
+      },
+      {
+        "name": "生产生物质",
+        "count": 500000000
+      }
+    ]
+  },
+  {
+    "name": "流水线炼丹4",
+    "description": "流水线炼丹技术",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "觉醒丹",
+        "count": 0.001,
+        "chance": 100
+      },
+      {
+        "name": "觉醒丹",
+        "count": 0.001,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "count": 0.1,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 2,
+        "chance": 100
+      },
+      {
+        "name": "神兽之血",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "灵石",
+        "count": 0.0001,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集神兽之血",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "流水线炼丹5",
+    "description": "流水线炼丹技术",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "觉醒丹",
+        "count": 0.0012,
+        "chance": 100
+      },
+      {
+        "name": "觉醒丹",
+        "count": 0.0012,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "count": 0.1,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 2,
+        "chance": 100
+      },
+      {
+        "name": "神兽之血",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "灵石",
+        "count": 0.0001,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产觉醒丹",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "流水线炼丹6",
+    "description": "流水线炼丹技术",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "觉醒丹",
+        "count": 0.0015,
+        "chance": 100
+      },
+      {
+        "name": "觉醒丹",
+        "count": 0.0015,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "count": 0.1,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 2,
+        "chance": 100
+      },
+      {
+        "name": "神兽之血",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "灵石",
+        "count": 0.0001,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产觉醒丹",
+        "count": 10000
+      },
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "核电站组装4",
+    "description": "组装核电站",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "裂变电站",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "核废料",
+        "count": 0.1,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "count": 10,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 2000,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 1000,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产铀",
+        "count": 1000
+      },
+      {
+        "name": "生产合金",
+        "count": 100000
+      }
+    ]
+  },
+  {
+    "name": "核电站组装7",
+    "description": "组装核聚变发电站",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "聚变电站",
+        "count": 0.01,
+        "chance": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "灵石",
+        "count": 5,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 2000,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 5000,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产灵石",
+        "count": 500
+      },
+      {
+        "name": "生产合金",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "核燃料提取4",
+    "description": "消耗大量的能量来提取核燃料",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "铀",
+        "count": 0.1,
+        "chance": 100
+      },
+      {
+        "name": "铀",
+        "count": 0.1,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "燃料",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "石头",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集铀",
+        "count": 20
+      },
+      {
+        "name": "采集石头",
+        "count": 500000
+      }
+    ]
+  },
+  {
+    "name": "核燃料提取5",
+    "description": "消耗大量的能量来提取核燃料",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "铀",
+        "count": 0.12,
+        "chance": 100
+      },
+      {
+        "name": "铀",
+        "count": 0.12,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "燃料",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "石头",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产铀",
+        "count": 1000
+      },
+      {
+        "name": "采集石头",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "核燃料提取6",
+    "description": "消耗大量的能量来提取核燃料",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "铀",
+        "count": 0.15,
+        "chance": 100
+      },
+      {
+        "name": "铀",
+        "count": 0.15,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "燃料",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "石头",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产铀",
+        "count": 100000
+      },
+      {
+        "name": "采集石头",
+        "count": 3000000
+      }
+    ]
+  },
+  {
+    "name": "圣水提纯4",
+    "description": "提纯圣水，建议在载具[九尾狐]上生产",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "圣水",
+        "count": 0.0001,
+        "chance": 100
+      },
+      {
+        "name": "至纯圣水",
+        "count": 0.0001,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "圣水",
+        "count": 0.000107411385607,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 0.1,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集圣水",
+        "count": 20
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "灵石合成4",
+    "description": "合成灵石",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "灵石",
+        "count": 0.001,
+        "chance": 100
+      },
+      {
+        "name": "灵石",
+        "count": 0.001,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "圣水",
+        "count": 0.001,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产铀",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "灵石合成5",
+    "description": "合成灵石",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "灵石",
+        "count": 0.0012,
+        "chance": 100
+      },
+      {
+        "name": "灵石",
+        "count": 0.0012,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 20,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产灵石",
+        "count": 100
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "灵石合成6",
+    "description": "合成灵石",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "灵石",
+        "count": 0.0015,
+        "chance": 100
+      },
+      {
+        "name": "灵石",
+        "count": 0.0015,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 20,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 20,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产灵石",
+        "count": 10000
+      },
+      {
+        "name": "生产铀",
+        "count": 100000
+      }
+    ]
+  },
+  {
+    "name": "奶合成6",
+    "description": "这种合成奶的味道不太好，但是依旧可以当做奶来使用",
+    "level": 6,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "奶",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "奶",
+        "count": 1,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 10000,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 20,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "挤奶",
+        "count": 20
+      },
+      {
+        "name": "生产",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "钻石分解5",
+    "description": "把钻石分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钻石",
+        "count": 1250,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "生肉分解5",
+    "description": "把生肉分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生肉",
+        "count": 62.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "果实分解5",
+    "description": "把果实分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "果实",
+        "count": 50,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "饲料分解5",
+    "description": "把饲料分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "饲料",
+        "count": 12.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "木头分解5",
+    "description": "把木头分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "木头",
+        "count": 250,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "石头分解5",
+    "description": "提取石头中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 5,
+    "productivity": 10,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "石头",
+        "count": 225,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "铁矿分解5",
+    "description": "提取铁矿中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "count": 112.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ]
+  },
+  {
+    "name": "绳子分解5",
+    "description": "把绳子分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 5,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 125,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "绳子",
+        "count": 112.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "钻石分解7",
+    "description": "把钻石分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钻石",
+        "count": 6250,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "生肉分解7",
+    "description": "把生肉分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生肉",
+        "count": 312.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "果实分解7",
+    "description": "把果实分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "果实",
+        "count": 250,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "饲料分解7",
+    "description": "把饲料分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "饲料",
+        "count": 62.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "木头分解7",
+    "description": "把木头分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "木头",
+        "count": 1250,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "石头分解7",
+    "description": "提取石头中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 7,
+    "productivity": 10,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "石头",
+        "count": 1125,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "铁矿分解7",
+    "description": "提取铁矿中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "count": 562.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "绳子分解7",
+    "description": "把绳子分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
+    "level": 7,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 625,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "绳子",
+        "count": 562.5,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  },
+  {
+    "name": "圣水提纯7",
+    "description": "提纯圣水，效率提高了，但是消耗的圣水更多",
+    "level": 4,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "圣水",
+        "count": 0.00015,
+        "chance": 100
+      },
+      {
+        "name": "至纯圣水",
+        "count": 0.00015,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "圣水",
+        "count": 0.0002013963480131,
+        "chance": 100
+      },
+      {
+        "name": "生物质",
+        "count": 0.18,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产至纯圣水",
+        "count": 1440
+      },
+      {
+        "name": "生产圣水",
+        "count": 14400
+      }
+    ]
+  },
+  {
+    "name": "太阳的距离",
+    "description": "把未充分反应的核废料提纯为高纯度的钚-239,可用来制造核聚变武器和戴森球",
+    "level": 8,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "钚",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "钚",
+        "count": 0.01,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "核废料",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "铀",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "燃料",
+        "count": 200,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集核废料",
+        "count": 1000
+      },
+      {
+        "name": "生产铀",
+        "count": 1000000
+      }
+    ]
+  },
+  {
+    "name": "探索未知",
+    "description": "由具现装置产生的这种未知物品的性质令使魔着迷，似乎有无限的可能在它之中等着我们一探究竟",
+    "level": 8,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "未知物品",
+        "count": 0.0001,
+        "chance": 100
+      },
+      {
+        "name": "未知物品",
+        "count": 0.000005,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "未知物品",
+        "count": 0.0001136363636364,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "采集未知物品",
+        "count": 10
+      }
+    ]
+  },
+  {
+    "name": "戴森球框架",
+    "description": "制造戴森球的框架",
+    "level": 9,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "高强度框架",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "高强度框架",
+        "count": 0.01,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钚",
+        "count": 1,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产钚",
+        "count": 1000
+      }
+    ]
+  },
+  {
+    "name": "戴森云",
+    "description": "制造戴森球的壳体",
+    "level": 9,
+    "productivity": 1,
+    "outputs": [
+      {
+        "name": "太阳帆",
+        "count": 0.01,
+        "chance": 100
+      },
+      {
+        "name": "太阳帆",
+        "count": 0.01,
+        "chance": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "count": 100,
+        "chance": 100
+      },
+      {
+        "name": "合金",
+        "count": 10,
+        "chance": 100
+      }
+    ],
+    "unlockReq": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ]
+  }
+]

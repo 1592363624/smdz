@@ -60,6 +60,10 @@ const DATA_FILES = {
   seedItems: 'seed-items.json',
   maps: 'maps.json',
   vehicleRecipes: 'vehicle-recipes.json',
+  // 图鉴专用：原版「配方列表」94 条 /「随机载具」11 条，
+  // 由 scripts/extract-recipes-wrecks.js 从 使魔大战.txt 抽取（此前未迁移）。
+  recipes: 'recipes.json',
+  wrecks: 'wrecks.json',
 } as const;
 
 type DataKey = keyof typeof DATA_FILES;
