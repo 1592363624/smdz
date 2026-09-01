@@ -439,7 +439,7 @@
             <span v-if="v.msg.sender" class="sender" :title="'右键 @ ' + (v.msg.sender.nickname || v.msg.sender.username)" @contextmenu.prevent="quickAtUser(v.msg.sender)">{{ v.msg.sender.nickname || v.msg.sender.username }}：</span>
             <span v-else-if="v.msg.type !== 'system' && v.msg.type !== 'game' && v.msg.type !== 'combat' && v.msg.type !== 'info'" class="sender">系统：</span>
             <!-- 结构化长消息（背包/属性/装备）→ 网格卡片布局；外层 div 显式撑满，避免 center 对齐收缩宽度 -->
-            <div v-if="v.rich" class="rich-wrap"><RichSystemCard :text="v.msg.content" /></div>
+            <div v-if="v.rich" class="rich-wrap"><RichSystemCard :text="v.msg.content" @send="onRichCardSend" /></div>
             <span v-else class="content" style="white-space: pre-line">
               <template v-for="(seg, si) in v.segs" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
@@ -1773,6 +1773,12 @@ function selectAutocomplete(cmd) {
 // 本地回显：消息不等服务器广播回来，发送后立即上屏，消除"发出去的文字过好久才显示"的体感卡顿。
 // 多行输入按行拆分暂存，与后端"逐行处理、逐行广播"的行为一一对应；
 // 服务器广播到达后由 appendMessage 按「发送者=自己」去重替换为带 id 的正式消息。
+
+/** 富文本卡片（RichSystemCard）回传来的一条指令（如背包格子点击→「穿上 XX」），纳入常规发送流程 */
+function onRichCardSend(content) {
+  sendChatMessage(content);
+}
+
 function sendChatMessage(content) {
   const text = (content || '').trim();
   if (!text || !socket) return;

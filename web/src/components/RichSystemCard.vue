@@ -11,15 +11,37 @@
  -->
 <template>
   <div class="rich-card">
-    <!-- 背包 → 物品网格 -->
-    <div v-if="layout && layout.kind === 'bag'" class="rc-bag">
+    <!-- 背包 → 物品网格（容器统一监听离开以延迟关闭图鉴弹层，格子间移动不再触发 hide/show，杜绝闪屏） -->
+    <div v-if="layout && layout.kind === 'bag'" class="rc-bag" @mouseleave="scheduleHide">
       <div class="rc-title">{{ layout.title }}</div>
       <div class="rc-grid">
-        <div v-for="(row, i) in layout.items" :key="i" class="rc-cell">
-          <span class="rc-name" :title="row.name">{{ row.name }}</span>
+        <div
+          v-for="(row, i) in layout.items"
+          :key="i"
+          class="rc-cell rc-cell-item"
+          :title="'点击装备「' + row.name + '」，悬浮查看图鉴'"
+          @click="onEquip(row.name)"
+          @mouseenter="onCellEnter(row.name, $event)"
+        >
+          <span class="rc-name">{{ row.name }}</span>
           <span v-if="row.count != null" class="rc-count">×{{ row.count }}</span>
         </div>
       </div>
+    </div>
+
+    <!-- 悬浮图鉴弹层：pointer-events:none 不参与鼠标事件；
+         位置跟随当前悬浮格，格子间切换时只更新内容、不 hide/show，避免闪烁和安全闪烁 -->
+    <div
+      v-if="active.visible"
+      class="rc-handbook"
+      :style="{ left: active.left + 'px', top: active.top + 'px' }"
+    >
+      <div class="rc-hb-head">
+        <span class="rc-hb-title">📖 图鉴 · {{ active.name }}</span>
+      </div>
+      <div v-if="active.loading" class="rc-hb-body rc-hb-loading">读取图鉴中…</div>
+      <div v-else-if="active.error" class="rc-hb-body rc-hb-error">{{ active.error }}</div>
+      <pre v-else class="rc-hb-body rc-hb-content">{{ active.content }}</pre>
     </div>
 
     <!-- 属性面板 → 两栏：左列属性卡片 + 右列装备网格 -->
@@ -32,6 +54,16 @@
               <span class="rc-icon">{{ s.icon }}</span>
               <span class="rc-label">{{ s.label }}</span>
               <span class="rc-value">{{ s.value }}</span>
+            </div>
+          </div>
+          <!-- 系统横幅展示位（可开关，localStorage 记忆）：显示消息尾部【…】解锁/提示信息 -->
+          <div v-if="bannerOpen && layout.banners.length" class="rc-banner-wrap">
+            <div class="rc-banner-head">
+              <span class="rc-banner-label">📣 系统提示（{{ layout.banners.length }}）</span>
+              <button type="button" class="rc-banner-toggle" title="隐藏系统提示" @click="bannerOpen = false">−</button>
+            </div>
+            <div class="rc-banners">
+              <div v-for="(b, i) in layout.banners" :key="i" class="rc-banner">{{ b }}</div>
             </div>
           </div>
         </div>
@@ -67,7 +99,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+import { commandApi } from '../api';
 
 /**
  * Props：text 为服务端下发的原始消息文本（含换行）
@@ -75,6 +108,109 @@ import { computed } from 'vue';
 const props = defineProps({
   text: { type: String, default: '' },
 });
+
+/** 向父组件（ChatView）发送指令：背包格子点击装备即触发 */
+const emit = defineEmits(['send']);
+
+/**
+ * 系统横幅展示位的显隐开关。
+ * 用户在属性卡片上手动隐藏后，用 localStorage 持久化，下次渲染仍保持选择。
+ */
+const BANNER_KEY = 'richcard.show-banner';
+let bannerOpen = ref(localStorage.getItem(BANNER_KEY) !== '0');
+function toggleBanner(v) {
+  bannerOpen.value = v;
+  localStorage.setItem(BANNER_KEY, v ? '1' : '0');
+}
+watch(bannerOpen, (v) => toggleBanner(v));
+
+/**
+ * 图鉴查询缓存：同一物品只向后端请求一次，之后悬浮直接读缓存，避免重复请求。
+ */
+const handbookCache = new Map();
+
+/**
+ * 悬浮图鉴弹层状态：
+ * - 弹层 pointer-events:none 不参与鼠标事件，只由「格子 enter / 容器 leave」驱动。
+ * - 在格子之间横向移动时只更新当前物品内容，绝不 hide/show，
+ *   配合 enterDelay/hideDelay 延迟，彻底消除闪烁且保证内容稳定展示。
+ */
+const active = reactive({ visible: false, left: 0, top: 0, name: '', loading: false, error: '', content: '' });
+
+// 显示延迟：鼠标掠过时防误触；隐藏延迟：容器内留出阅读时间
+const enterDelay = 100;
+const hideDelay = 600;
+let enterTimer = null;
+let hideTimer = null;
+
+/** 背包格子点击 → 视为发送「穿上 <物品名>」指令 */
+function onEquip(name) {
+  emit('send', `穿上 ${name}`);
+}
+
+/**
+ * 鼠标悬浮背包格子 → 延迟后展示该物品图鉴。
+ * 通过 REST 执行「图鉴」指令，结果仅在本弹层展示，不写入/广播到公屏（execute 只返回不广播）。
+ * 划过相邻格子时：先取消上次延迟显隐，再按新格子定位并更新内容，弹层保持可见。
+ */
+async function onCellEnter(name, e) {
+  clearTimeout(hideTimer); // 容器内移动：不关闭弹层
+  const rect = e?.currentTarget?.getBoundingClientRect();
+  if (rect) {
+    // 弹层宽约 270px/高约 320px：默认向右展开，右侧放不下则左向；超出视口向内收拢，保证完整可见
+    const viewW = window.innerWidth;
+    const viewH = window.innerHeight;
+    let left = Math.round(rect.right + 8);
+    if (left + 270 > viewW) left = Math.round(rect.left - 270);
+    left = Math.max(8, left);
+    let top = Math.round(rect.top - 12);
+    if (top < 4) top = 4;
+    if (top + 320 > viewH) top = Math.max(4, viewH - 330);
+    active.left = left;
+    active.top = top;
+  }
+  clearTimeout(enterTimer);
+  enterTimer = setTimeout(async () => {
+    active.visible = true;
+    // 同一物品已经展示（含加载中/有内容/报错）→ 不重复请求、不闪动
+    if (active.name === name && (active.content || active.error || active.loading)) {
+      return;
+    }
+    active.name = name;
+    active.error = '';
+    active.content = '';
+    // 命中缓存：直接渲染，不重复请求
+    if (handbookCache.has(name)) {
+      active.loading = false;
+      active.content = handbookCache.get(name);
+      return;
+    }
+    active.loading = true;
+    try {
+      const res = await commandApi.execute(`图鉴 ${name}`);
+      const content = String(res?.data?.content ?? '').trim() || '🐾 图鉴中暂无该物品的详细资料';
+      active.content = content;
+      handbookCache.set(name, content);
+    } catch (err) {
+      active.error = '图鉴查询失败，请稍后再试';
+    } finally {
+      active.loading = false;
+    }
+  }, enterDelay);
+}
+
+/** 鼠标离开整个背包网格容器 → 延迟关闭图鉴弹层（留出阅读时间） */
+function scheduleHide() {
+  clearTimeout(enterTimer);
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    active.visible = false;
+    active.name = '';
+    active.content = '';
+    active.error = '';
+    active.loading = false;
+  }, hideDelay);
+}
 
 /** 装备品质集合（与改版 backend qualityPrefix 对齐） */
 const QUALITY_SET = new Set(['普通', '良好', '优秀', '精良', '史诗', '传说', '神迹']);
@@ -133,13 +269,14 @@ function parseLayout(text) {
   if (titleIdx >= 0 && lines.some((l) => l.includes('📋 装备'))) {
     const stats = [];
     let equip = [];
+    const banners = [];
     let equipMode = false;
     const slotSet = new Set(['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部', '武器', '植入', '增幅', '背上']);
 
     for (const raw of lines.slice(titleIdx + 1)) {
       const t = raw.trim();
       if (!t) continue;
-      if (isBannerLine(t)) continue; // 【…】系统横幅通知（训练器/凭证解锁提示），不并入属性或装备
+      if (isBannerLine(t)) { banners.push(t); continue; } // 【…】系统横幅通知收集到展示位
       if (/^━+$/.test(t)) continue; // 分隔线跳过
       if (t.startsWith('📋 当前任务') || t.startsWith('✨ 增益')) { equipMode = false; continue; }
       if (t.startsWith('📋 装备')) { equipMode = true; continue; }
@@ -182,7 +319,7 @@ function parseLayout(text) {
       stats.push({ icon, label: label || head, value });
     }
     if (stats.length) {
-      return { kind: 'profile', title: lines[titleIdx], stats, equip };
+      return { kind: 'profile', title: lines[titleIdx], stats, equip, banners };
     }
   }
 
@@ -242,6 +379,114 @@ function parseLayout(text) {
   font-size: 12px;
   min-width: 0;
 }
+/* 背包格子改为可交互：悬浮高亮 + 点击反馈（发送装备指令） */
+.rc-cell-item {
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.rc-cell-item:hover {
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(139, 92, 246, 0.5);
+}
+.rc-cell-item:active {
+  transform: scale(0.96);
+}
+
+/* ===== 系统横幅展示位（属性左栏底部，可开关） ===== */
+.rc-banner-wrap {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(139, 92, 246, 0.2);
+}
+.rc-banner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.rc-banner-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent2);
+}
+.rc-banner-toggle {
+  border: none;
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--accent);
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+}
+.rc-banner-toggle:hover {
+  background: rgba(139, 92, 246, 0.3);
+}
+.rc-banners {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+.rc-banner {
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(250, 204, 21, 0.06);
+  border: 1px solid rgba(250, 204, 21, 0.14);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+/* ===== 悬浮图鉴弹层 ===== */
+.rc-handbook {
+  position: fixed;
+  z-index: 999;
+  width: 260px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(24, 18, 38, 0.97);
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  /* 关键：鼠标事件穿透，弹层不会抢到焦点，
+     从而避免鼠标在「格子」与「弹层」间移动时反复 enter/leave 导致的闪烁 */
+  pointer-events: none;
+}
+.rc-hb-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(139, 92, 246, 0.14);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+}
+.rc-hb-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-hb-body {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow: auto;
+}
+.rc-hb-content {
+  margin: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+.rc-hb-loading { color: var(--muted); }
+.rc-hb-error { color: #f87171; }
 .rc-name {
   color: var(--muted);
   /* 不换行：单行完整显示（标签宽度随内容自适应） */
