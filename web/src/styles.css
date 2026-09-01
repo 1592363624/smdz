@@ -1523,6 +1523,22 @@ vite-plugin-checker-error-overlay,
   margin-top: 4px;
 }
 
+/* 富卡片消息（背包/属性等网格化长消息）：
+ * 必须放在 .msg.center 之后，以同等特异性覆盖其 align-self:center + align-items:center，
+ * 让消息铺满可用宽度、内部 Grid 能排出多列，避免被收缩成单列长条。
+ * 居中消息改为上下纵向，这里恢复为横向让网格正常铺开。 */
+.msg.msg-rich {
+  align-self: stretch;
+  align-items: flex-start;
+  flex-direction: row;
+  text-align: left;
+  width: 100%;
+  max-width: 100%;
+}
+.msg.msg-rich .rich-wrap {
+  width: 100%;
+}
+
 /* 聊天消息 - 发送者紫色 */
 .msg.chat .sender {
   color: var(--accent);
@@ -1840,6 +1856,18 @@ vite-plugin-checker-error-overlay,
   min-width: 0;
   font-size: 11px;
   line-height: 1.5;
+  /* 装备格：圆角方块容器，已装备项靠 inline style 按品质上色描边 */
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+}
+/* 空装备槽：整体弱化（半透明 + 虚线），与已装备格明显区分 */
+.player-info .pi-eq.pi-empty {
+  opacity: 0.5;
+  background: transparent;
+  border-style: dashed;
+  border-color: rgba(139, 92, 246, 0.2);
 }
 .player-info .pi-eq-slot {
   flex-shrink: 0;

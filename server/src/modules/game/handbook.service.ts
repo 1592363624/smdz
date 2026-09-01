@@ -277,9 +277,12 @@ const CATEGORY_MENU: Array<{ key: CategoryKey; label: string }> = [
  * 原版 L2672-2965 的精确匹配扫描顺序。
  * **与菜单顺序不同**：装备排第 1、使魔第 2，攻击文本/对话文本垫底（且不支持模糊）。
  * 玩家输入完整名称时按此顺序找，命中即进入该分类的详情，不再做模糊搜索。
+ *
+ * 注：原版「装备列表」同时含武器与装备（装备排第 1，武器也在其中）。新版把武器拆成
+ * 独立分类 `weapon`，故精确扫描需在 `equipment` 后紧跟 `weapon`，二者名称互斥，顺序无冲突。
  */
 const EXACT_SCAN_ORDER: CategoryKey[] = [
-  'equipment', 'familiar', 'resource', 'map', 'monster', 'task', 'item', 'buff',
+  'equipment', 'weapon', 'familiar', 'resource', 'map', 'monster', 'task', 'item', 'buff',
   'building', 'part', 'title', 'music', 'equipEffect', 'weaponEffect', 'image',
   'recipe', 'wreck', 'attackText', 'dialogue',
 ];

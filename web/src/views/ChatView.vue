@@ -434,11 +434,13 @@
 
       <!-- 消息列表 -->
       <div ref="msgList" class="messages" @scroll="onMsgScroll">
-        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg)]">
+        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg), { 'msg-rich': v.rich }]">
           <div class="msg-body">
             <span v-if="v.msg.sender" class="sender" :title="'右键 @ ' + (v.msg.sender.nickname || v.msg.sender.username)" @contextmenu.prevent="quickAtUser(v.msg.sender)">{{ v.msg.sender.nickname || v.msg.sender.username }}：</span>
             <span v-else-if="v.msg.type !== 'system' && v.msg.type !== 'game' && v.msg.type !== 'combat' && v.msg.type !== 'info'" class="sender">系统：</span>
-            <span class="content" style="white-space: pre-line">
+            <!-- 结构化长消息（背包/属性/装备）→ 网格卡片布局；外层 div 显式撑满，避免 center 对齐收缩宽度 -->
+            <div v-if="v.rich" class="rich-wrap"><RichSystemCard :text="v.msg.content" /></div>
+            <span v-else class="content" style="white-space: pre-line">
               <template v-for="(seg, si) in v.segs" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
                 <span v-else-if="seg.type === 'mention'" class="mention-highlight" :title="'右键 @ ' + seg.text.replace('@', '')" @contextmenu.prevent="quickAtText(seg.text)">{{ seg.text }}</span>
@@ -892,6 +894,8 @@ import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '.
 import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameHighlight from '../components/GameHighlight.vue';
+// 结构化长消息（背包/属性/装备）在公屏的网格卡片渲染（纯前端展示层优化，不影响后端/AstrBot 文本）
+import RichSystemCard from '../components/RichSystemCard.vue';
 import { syncServerClock } from '../utils/serverClock';
 import { parseHighlights, GAME_HIGHLIGHT_EVENT } from '../utils/gameHighlight';
 
@@ -925,8 +929,35 @@ const messageViews = computed(() =>
     key: m.id ?? `rt-${i}-${m.createdAt || ''}`,
     msg: m,
     segs: parseContent(m.content, commands.value),
+    // 背包/属性面板等结构化长列表 → 用网格卡片渲染；其余保持原样式
+    rich: isRichCardContent(m.content),
   })),
 );
+
+/**
+ * 判断消息内容是否应走富卡片（网格）渲染
+ * - 背包："🎒 背包 (N种):" 头 + "1. xxx ×N" 行
+ * - 属性面板："【名字】Lv.N" 头 + 装备/属性行
+ * 仅为前端展示层判定，不改变/replace 任何原始文本（后端与 AstrBot 兼容不受影响）
+ */
+function isRichCardContent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const lines = text.split('\n').map((l) => l.replace(/\r$/, '').trim()).filter(Boolean);
+  if (!lines.length) return false;
+  // 背包：任意一行匹配 "🎒 背包 (N种):" 头，且其后存在 "序号." 行
+  for (let i = 0; i < lines.length; i++) {
+    if (/^🎒\s*背包\s*\(\d+(?:种)?\)/.test(lines[i])) {
+      return lines.slice(i + 1).some((l) => /^\d+\./.test(l));
+    }
+  }
+  // 属性面板：扫描到 "📋 装备" 区块，且消息中含 "【名字】Lv" 标题与属性行 "图标 标签:值"
+  if (lines.some((l) => l.includes('📋 装备'))) {
+    const hasTitle = lines.some((l) => /^【.+】\s*Lv\.?\d+/i.test(l));
+    const hasProp = lines.some((l) => /^❤️|🛡️|⛓️|⚔️|💨|⭐|📍|🔥/.test(l) && /[:：]/.test(l));
+    return hasTitle && hasProp;
+  }
+  return false;
+}
 
 /**
  * 判断一条消息是否为 GM 系统公告
@@ -2831,6 +2862,12 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 富卡片消息容器：占满消息主体宽度，让内部网格能排多列 */
+.rich-wrap {
+  width: 100%;
+  min-width: 0;
+  display: block;
+}
 /* 个人中心 @username 行：长 username（完整 QQ OpenID 约35字符）超出显示省略号，不换行 */
 .meta {
   overflow: hidden;

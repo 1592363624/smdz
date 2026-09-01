@@ -63,7 +63,15 @@
         <span class="pi-arrow" :class="{ open: eqOpen }">▸</span>
       </button>
       <div v-show="eqOpen" class="pi-eq-grid">
-        <div v-for="e in eqList" :key="'eq-' + e.slot" class="pi-eq" :title="e.effect > 0 ? '特效' + e.effect : ''">
+        <!-- 已装备格：按品质描边着色；空槽：半透明虚线弱化（见 pi-empty） -->
+        <div
+          v-for="e in eqList"
+          :key="'eq-' + e.slot"
+          class="pi-eq"
+          :class="{ 'pi-empty': !e.name }"
+          :style="e.name && eqBorder(e) ? { border: eqBorder(e), boxShadow: eqShadow(e) } : {}"
+          :title="e.effect > 0 ? '特效' + e.effect : ''"
+        >
           <span class="pi-eq-slot">{{ e.slot }}</span>
           <span v-if="e.name" class="pi-eq-val" :class="'q-' + qKey(e.quality)">
             {{ e.quality === '普通' ? '' : e.quality + ' ' }}{{ e.name }}<i v-if="e.effect > 0">[特效{{ e.effect }}]</i>(+{{ e.enhance }})
@@ -133,6 +141,10 @@ const equippedCount = computed(() => eqList.value.filter((e) => e.name).length);
 // 品质文字 → 配色档位（普通灰/良好绿/优秀蓝/精良紫/史诗橙/传说金/神迹红）
 const QUALITY_KEY = { 普通: 'e', 良好: 'd', 优秀: 'c', 精良: 'b', 史诗: 'a', 传说: 's', 神迹: 'x' };
 const qKey = (q) => QUALITY_KEY[q] || 'e';
+// 品质档位 → 边框/光晕颜色（用于装备格按品质描边，与聊天卡片一致）
+const EQ_COLOR = { e: '', d: '#4ade80', c: '#60a5fa', b: '#a78bfa', a: '#fb923c', s: '#fbbf24', x: '#f87171' };
+const eqBorder = (e) => (EQ_COLOR[qKey(e.quality)] ? `1px solid ${EQ_COLOR[qKey(e.quality)]}` : '');
+const eqShadow = (e) => (EQ_COLOR[qKey(e.quality)] ? `0 0 6px ${EQ_COLOR[qKey(e.quality)]}44` : '');
 
 // 增益倒计时：每秒跳一次对齐时钟驱动重渲染（expireAt 为服务器时刻，
 // 用 serverNow 相减，避免本机时钟漂移让剩余时间整体偏差）
