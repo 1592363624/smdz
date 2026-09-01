@@ -29,6 +29,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { decodeJsonStrings, asJsonValue } from '../../common/utils/json-value.util';
 
 /** JSON 数据目录（相对本文件） */
 const DATA_DIR = path.resolve(__dirname, '../../../prisma/data');
@@ -87,6 +88,9 @@ export class StaticDataService {
     if (fs.existsSync(file)) {
       try {
         rows = JSON.parse(fs.readFileSync(file, 'utf-8')) as T[];
+        // 统一归一化：把旧格式文件中双重编码的 JSON 字符串字段解码为真实结构，
+        // 保证下游业务层无论数据文件是新旧格式，拿到的都是对象/数组。
+        rows = decodeJsonStrings(rows);
       } catch (err: any) {
         this.logger.warn(`静态数据 ${DATA_FILES[key]} 解析失败: ${err.message}`);
         rows = [];
@@ -272,13 +276,9 @@ export class StaticDataService {
       12: 'wakeUpText',
     };
     const parseLines = (raw: any): string[] => {
-      if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
-      try {
-        const arr = JSON.parse(String(raw ?? '[]'));
-        return Array.isArray(arr) ? arr.filter(Boolean).map(String) : [];
-      } catch {
-        return [];
-      }
+      // NPC 台词字段现已是真实数组；字符串分支兼容旧格式 JSON 文本
+      const arr = asJsonValue<any[]>(raw, []);
+      return Array.isArray(arr) ? arr.filter(Boolean).map(String) : [];
     };
     // 数据存取.ecode L754：加载时 条目名称 = 节名去掉"对话"后缀（如 [白对话]→名称"白"）。
     // 本框架 npcs.json 保留了完整节名（"白对话"），此处按两种形态检索对齐原版运行时名称。

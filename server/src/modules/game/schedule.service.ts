@@ -17,6 +17,7 @@ import { AutoMineService } from './auto-mine.service';
 import { GameService } from './game.service';
 import { runSilent } from '../../game-sync/write-context';
 import { filterActive } from './expire-time.util';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 /**
  * 默认副本名称列表（未配置 game.instanceNames 时使用）
@@ -333,8 +334,8 @@ export class ScheduleService {
 
         if (changed) {
           await this.mapService.updateDynamicFields(map.id, {
-            npcs: JSON.stringify(keptNpcs),
-            summons: JSON.stringify(keptSummons),
+            npcs: keptNpcs,
+            summons: keptSummons,
           });
           cleaned++;
         }
@@ -361,18 +362,19 @@ export class ScheduleService {
       const inventory = await this.gameService.buildMerchantInventory(1, 0);
 
       // 行商作为召唤物加入地图（对齐原版 L1223-1231：归属="1"，类型=名称）
+      // 库存写入 backpack 键（购物/查看等读取端统一用 backpack，原版"背包"仅作历史兼容迁移）
       summons.push({
         归属: '1',
         name: '行商',
         类型: '行商',
         type: '行商',
-        背包: inventory,
+        backpack: inventory,
         qq: `召唤物${Date.now()}`,
         markers: {},
         标记: {},
       });
       await this.mapService.updateDynamicFields(map.id, {
-        summons: JSON.stringify(summons),
+        summons: summons,
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了行商（含${inventory.length}件物品）`);
     } catch (err: any) {
@@ -418,7 +420,7 @@ export class ScheduleService {
         vehicle: '',
       });
       await this.mapService.updateDynamicFields(map.id, {
-        summons: JSON.stringify(summons),
+        summons: summons,
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了 ${petName}（现有 ${currentCount + 1}/${limit}）`);
     } catch (err: any) {
@@ -467,7 +469,7 @@ export class ScheduleService {
         vehicle: '',
       });
       await this.mapService.updateDynamicFields(map.id, {
-        summons: JSON.stringify(summons),
+        summons: summons,
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了露娜`);
     } catch (err: any) {
@@ -506,7 +508,7 @@ export class ScheduleService {
       }
 
       await this.mapService.updateDynamicFields(map.id, {
-        npcs: JSON.stringify(npcs),
+        npcs: npcs,
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了神之工匠、小雫`);
     } catch (err: any) {
@@ -568,7 +570,7 @@ export class ScheduleService {
         data: 'a',
       });
       await this.mapService.updateDynamicFields(map.id, {
-        items: JSON.stringify(items),
+        items: items,
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了特殊物品小蓝`);
     } catch (err: any) {
@@ -616,7 +618,7 @@ export class ScheduleService {
         bonus: {},
       });
       await this.mapService.updateDynamicFields(map.id, {
-        vehicles: JSON.stringify(vehicles),
+        vehicles: vehicles,
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了无主载具「${name}」`);
     } catch (err: any) {
@@ -696,7 +698,7 @@ export class ScheduleService {
       });
     }
     await this.mapService.updateDynamicFields(mapId, {
-      resources2: JSON.stringify(resources2),
+      resources2: resources2,
     });
   }
 
@@ -730,7 +732,7 @@ export class ScheduleService {
       resources2.push(crop);
 
       await this.mapService.updateDynamicFields(map.id, {
-        resources2: JSON.stringify(resources2),
+        resources2: resources2,
       });
       this.logger.log(`掉落货舱: 在地图 ${map.name} 生成了作物「${crop.name}」`);
     } catch (err: any) {
@@ -792,7 +794,7 @@ export class ScheduleService {
         });
 
         await this.mapService.updateDynamicFields(map.id, {
-          connections: JSON.stringify(keptConnections),
+          connections: keptConnections,
         });
         this.logger.log(`生成副本: 地图 ${map.name} 添加了副本入口「${name}(副本)」`);
       }
@@ -829,7 +831,7 @@ export class ScheduleService {
         let changed = false;
 
         // 清理过期 markers2（秒级到期时刻口径，见上方说明）
-        const markers2 = JSON.parse(player.markers2 || '[]');
+        const markers2 = asJsonValue<any[]>(player.markers2, []);
         const validMarkers2 = markers2.filter((m: any) => {
           if (!m?.expireAt) return true;
           const raw = Number(m.expireAt);
@@ -840,8 +842,8 @@ export class ScheduleService {
           changed = true;
         }
 
-        // 清理过期 buffs（秒/毫秒两种历史写法都识别）
-        const buffs = JSON.parse(player.buffs || '[]');
+        // 清理过期 buffs（秒/毫秒两种历史写法都识别；DB Json 字段容错读取）
+        const buffs = asJsonValue<any[]>(player.buffs, []);
         const validBuffs = filterActive(buffs, nowMs);
         if (validBuffs.length !== buffs.length) {
           changed = true;
@@ -887,7 +889,7 @@ export class ScheduleService {
         });
         if (validMapMarkers2.length !== mapMarkers2.length) {
           await this.mapService.updateDynamicFields(map.id, {
-            markers2: JSON.stringify(validMapMarkers2),
+            markers2: validMapMarkers2,
           });
           cleanedMaps++;
         }
@@ -932,14 +934,12 @@ export class ScheduleService {
    * 兼容 JSON 字符串和已解析的数组（来自 mapService.getAllMaps 返回的合并数据）
    * @param jsonStr JSON 字符串或已解析的数组
    */
-  private parseJsonArray<T>(jsonStr: string | T[]): T[] {
-    if (Array.isArray(jsonStr)) return jsonStr;
-    try {
-      const value = JSON.parse(jsonStr || '[]');
-      return Array.isArray(value) ? value : [];
-    } catch {
-      return [];
-    }
+  private parseJsonArray<T>(jsonStr: unknown): T[] {
+    // 已是数组：直接返回（Prisma Json 列 / 合并数据读取路径）
+    if (Array.isArray(jsonStr)) return jsonStr as T[];
+    // 其余（字符串/对象/null）走容错解析；非数组的合法 JSON（如对象）不算数组，返回空数组
+    const parsed = asJsonValue<unknown>(jsonStr, []);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
   }
 
   /**

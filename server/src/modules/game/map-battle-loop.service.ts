@@ -106,14 +106,16 @@ export class MapBattleLoopService implements OnApplicationShutdown {
         try {
           const playerBuffs = this.safeParseArray(context.player.buffs);
           this.combatState.gainBuff(playerBuffs, '战斗', 15, false, Date.now());
-          context.player.buffs = JSON.stringify(playerBuffs);
+          // Player buffs 为 Json 列，直接写数组（调用方随战斗流程统一保存）
+          context.player.buffs = playerBuffs;
         } catch { /* 战斗标记失败不影响循环拉起 */ }
       }
 
       // 原版 L409：获得增益(地图.标记2, "活动", 120)——活动窗口是循环的存活条件
       const markers2 = this.safeParseArray(map.markers2);
       this.combatState.gainBuff(markers2, '活动', 120, false, Date.now());
-      map.markers2 = JSON.stringify(markers2);
+      // GameMap markers2 为 Json 列，直接写数组（下方 updateDynamicFields 透传）
+      map.markers2 = markers2;
       await this.mapService.updateDynamicFields(map.id, { markers2: map.markers2 });
 
       this.scheduleRound(map.id, delaySec);

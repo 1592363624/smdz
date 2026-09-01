@@ -30,6 +30,7 @@ import { MapBattleLoopService } from './map-battle-loop.service';
 import {
   expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainSeconds, toExpireMs,
 } from './expire-time.util';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 // ==================== 类型定义 ====================
 
@@ -544,7 +545,7 @@ export class CombatSystemService {
       // 写入武器冷却标记（覆盖旧标记）
       const newMarkers2 = markers2.filter((m: any) => m?.name !== cooldownName);
       newMarkers2.push({ name: cooldownName, expireAt: now + cooldownSec * 1000 });
-      player.markers2 = JSON.stringify(newMarkers2);
+      player.markers2 = newMarkers2; // Json 列直接写数组
       if (wepFx.effectText) resultLines.push(wepFx.effectText);
     }
 
@@ -592,7 +593,7 @@ export class CombatSystemService {
         const skFx = mk2Fx.find((m: any) => m?.name === typeKeyFx);
         if (skFx) skFx.expireAt = Math.max(nowMsFx, skFx.expireAt - 60 * 1000);
         else mk2Fx.push({ name: typeKeyFx, expireAt: Math.max(nowMsFx, Math.floor(nowMsFx / 1000 - 60) * 1000) });
-        player.markers2 = JSON.stringify(mk2Fx);
+        player.markers2 = mk2Fx; // Json 列直接写数组
         resultLines.push('【棒棒糖】');
         // 原版 释放使魔技能(攻击方, s)：自动释放使魔特有技能（走主动技能完整门禁）
         if (!isRuntimeActor && this.familiarSkills) {
@@ -610,7 +611,7 @@ export class CombatSystemService {
         const pMkFx = this.safeParseJson<Record<string, number>>(player.markers, {});
         if (!pMkFx['射爆'] || nowSecFx - (pMkFx['射爆'] || 0) > 60) {
           pMkFx['射爆'] = nowSecFx;
-          player.markers = JSON.stringify(pMkFx);
+          player.markers = pMkFx; // Json 列直接写对象
           extraAttackCount += 1;
           resultLines.push('【射爆】');
         }
@@ -621,7 +622,7 @@ export class CombatSystemService {
         const pMkFx = this.safeParseJson<Record<string, number>>(player.markers, {});
         if (!pMkFx['wzj'] || nowSecFx - (pMkFx['wzj'] || 0) > 60) {
           pMkFx['wzj'] = nowSecFx;
-          player.markers = JSON.stringify(pMkFx);
+          player.markers = pMkFx; // Json 列直接写对象
           mustHitOverride = true;
           resultLines.push('【唯我主宰】必中');
         }
@@ -706,7 +707,7 @@ export class CombatSystemService {
       );
       if (jtIdx >= 0) {
         playerData.buffs.splice(jtIdx, 1);
-        player.buffs = JSON.stringify(playerData.buffs);
+        player.buffs = playerData.buffs; // Json 列直接写数组
       }
     }
 
@@ -781,7 +782,7 @@ export class CombatSystemService {
       for (const b of familiarEffect.attackerBuffs) {
         playerBuffs.push({ name: b.name, value: b.value, expireAt: Date.now() / 1000 + b.duration, duration: b.duration });
       }
-      player.buffs = JSON.stringify(playerBuffs);
+      player.buffs = playerBuffs; // Json 列直接写数组
     }
     // 使魔被动特效：消耗/写入攻击方标记（如小樱"空间魔力"、普拉娜无）
     if (familiarEffect.markerOps && familiarEffect.markerOps.length > 0) {
@@ -790,7 +791,7 @@ export class CombatSystemService {
         m[op.key] = (m[op.key] || 0) + op.delta;
       }
       playerData.markers = m;
-      player.markers = JSON.stringify(m);
+      player.markers = m; // Json 列直接写对象
     }
 
     // ========== 通用战斗特判（对应原版 战斗相关.ecode 造成伤害 L1004-1185） ==========
@@ -956,20 +957,20 @@ export class CombatSystemService {
         // 记录攻击者，保证参与战斗的玩家获得奖励
         const targetMarkers = this.normalizeMarkerObject(target.markers);
         targetMarkers[`攻击者${player.userId}`] = (targetMarkers[`攻击者${player.userId}`] || 0) + 0.001;
-        target.markers = JSON.stringify(targetMarkers);
+        target.markers = targetMarkers; // Json 列直接写对象
         // 使魔被动特效：给目标添加增益（如龙姬"点燃"）
         if (familiarEffect.defenderBuffs && familiarEffect.defenderBuffs.length > 0) {
           const tBuffs = this.playerService.safeJsonParse<any[]>(target.buffs, []);
           for (const b of familiarEffect.defenderBuffs) {
             tBuffs.push({ name: b.name, value: b.value, expireAt: Date.now() / 1000 + b.duration, duration: b.duration });
           }
-          target.buffs = JSON.stringify(tBuffs);
+          target.buffs = tBuffs; // Json 列直接写数组
           resultLines.push(`${target.name} 受到【${familiarEffect.defenderBuffs.map((b) => b.name).join('、')}】效果`);
         }
         // 命中后消耗目标的闪避状态（对应原版：命中后闪避状态失效）
         if (targetHasDodgeBuff) {
           const remaining = targetBuffs.filter((b: any) => !(b && b.name === '闪避'));
-          target.buffs = JSON.stringify(remaining);
+          target.buffs = remaining; // Json 列直接写数组
         }
         // ========== 防御方使魔被动特效（对应原版 造成伤害 L2224-2262） ==========
         // 攻击命中防御方使魔时，防御方使魔可能触发减伤/免伤/反击特效
@@ -981,7 +982,7 @@ export class CombatSystemService {
             dmgNullified = true;
             tMarks['色欲2'] = (tMarks['色欲2'] || 0) + 1;
             tMarks['色欲2时间'] = Date.now() / 1000;
-            target.markers = JSON.stringify(tMarks);
+            target.markers = tMarks; // Json 列直接写对象
           }
         }
         if (targetType.includes('saber')) {
@@ -1000,7 +1001,7 @@ export class CombatSystemService {
           if (hasActive(tBuffs2, 'bk1')) {
             resultLines.push(`${target.name} 的【冰凯】挡住了本次攻击！`);
             dmgNullified = true;
-            target.buffs = JSON.stringify(tBuffs2.filter((b: any) => !(b && b.name === 'bk1')));
+            target.buffs = tBuffs2.filter((b: any) => !(b && b.name === 'bk1')); // Json 列直接写数组
           }
         }
       } else {
@@ -1020,7 +1021,7 @@ export class CombatSystemService {
         // 未命中：防御方获得「闪避熟练度」（对应原版 L1484）
         const tMarkers = this.normalizeMarkerObject(target.markers);
         tMarkers['闪避熟练度'] = (tMarkers['闪避熟练度'] || 0) + 1;
-        target.markers = JSON.stringify(tMarkers);
+        target.markers = tMarkers; // Json 列直接写对象
         // 原版“闪避攻击”成就只在玩家作为攻击方的玩家对战分支产生。
         if (player.specialSeq > 0 && target.userId && Number(target.specialSeq ?? 0) > 0) {
           taskProgress.push({ userId: Number(target.userId), actionName: '闪避攻击', count: 1 });
@@ -1109,7 +1110,7 @@ export class CombatSystemService {
             tMk['防御熟练度'] = (tMk['防御熟练度'] || 0) + 3;
           }
         }
-        target.markers = JSON.stringify(tMk);
+        target.markers = tMk; // Json 列直接写对象
       }
 
       // 暴击判定（含被暴击率修正，对应原版 L988-1023/L1200-1202）
@@ -1315,7 +1316,7 @@ export class CombatSystemService {
             if (!pBuffs.some((b: any) => b && b.name === '闪避' && this.isActiveBeyond(b, 3, nowMsXa))) {
               pBuffs.push({ name: '闪避', expireAt: this.expireAfter(3, nowMsXa) });
             }
-            player.buffs = JSON.stringify(pBuffs);
+            player.buffs = pBuffs; // Json 列直接写数组
           }
         }
         // ---- 无双（原版 L2843-2851：取成就熟练度(防御方.标记,"ww"+攻击方QQ)>=4） ----
@@ -1564,7 +1565,7 @@ export class CombatSystemService {
           if (!tBuffs.some((x: any) => (x.name || x.名称) === '飞羽' && this.isActiveBeyond(x, 30, nowMs))) {
             tBuffs.push({ name: '飞羽', expireAt: this.expireAfter(30, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"飞羽",30,假,s,1,真)
           }
-          target.buffs = JSON.stringify(tBuffs);
+          target.buffs = tBuffs; // Json 列直接写数组
         }
 
         // ---- 纵横（z1.特殊序号==#纵横(-13)：额外生命火伤 += 防御方生命*0.05*额外伤害倍率，原版 L1845-1846） ----
@@ -1586,7 +1587,7 @@ export class CombatSystemService {
           if (!tBuffs.some((x: any) => (x.name || x.名称) === '影光' && this.isActiveBeyond(x, 60, nowMs))) {
             tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"影光",60,假,s,1,真)
           }
-          target.buffs = JSON.stringify(tBuffs);
+          target.buffs = tBuffs; // Json 列直接写数组
         }
 
         // ---- 寒风（z1.特殊序号==#寒风(-10)：防御方未处于"被寒风冷却"(180s)时，防御方所有武器CD+30，原版 L1851-1857） ----
@@ -1653,8 +1654,8 @@ export class CombatSystemService {
         }
 
         // 写回 markers2 数组变更（原版 标记2 容器）
-        player.markers2 = JSON.stringify(atkMk2);
-        target.markers2 = JSON.stringify(defMk2);
+        player.markers2 = atkMk2; // Json 列直接写数组
+        target.markers2 = defMk2; // Json 列直接写数组
 
         // ---- 短衬衫2（防御方标记2含"短衬衫2" → 伤害×0.1，不叠加，原版 L1945-1947） ----
         if (targetMk['短衬衫2']) {
@@ -1688,7 +1689,7 @@ export class CombatSystemService {
             if (!tBuffs.some((b: any) => b && (b.name || b.名称) === formal && this.isActiveBeyond(b, 30, nowMs))) {
               tBuffs.push({ name: formal, expireAt: this.expireAfter(30, nowMs) });
             }
-            target.buffs = JSON.stringify(tBuffs);
+            target.buffs = tBuffs; // Json 列直接写数组
             if (effName === '灼烧' || effName === '深寒' || effName === '感电') {
               resultLines.push(`【${effName}】`);
             }
@@ -1771,7 +1772,7 @@ export class CombatSystemService {
           if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '恶毒之刃' && this.isActiveBeyond(b, 15 + atkSkill, nowMs))) {
             tBuffs.push({ name: '恶毒之刃', expireAt: this.expireAfter(15 + atkSkill, nowMs) });
           }
-          target.buffs = JSON.stringify(tBuffs);
+          target.buffs = tBuffs; // Json 列直接写数组
           resultLines.push('【恶毒之刃】');
         }
         // 伊芙利特(#伊芙利特=11) 好感≥80：防御方标记2加"燃烧" 15秒 强度10+技等/2（L2178-2182）
@@ -1781,7 +1782,7 @@ export class CombatSystemService {
           if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '燃烧' && this.isActiveBeyond(b, 15, nowMs))) {
             tBuffs.push({ name: '燃烧', expireAt: this.expireAfter(15, nowMs), strength: 10 + atkSkill / 2 });
           }
-          target.buffs = JSON.stringify(tBuffs);
+          target.buffs = tBuffs; // Json 列直接写数组
           resultLines.push('(燃烧)');
         }
         // 绝灭天使(#绝灭天使=3) 增益含"炮冠"：炮冠冷却30 + 取羽毛特效（L2184-2190，简化为置冷却标记+文本）
@@ -1799,7 +1800,7 @@ export class CombatSystemService {
             if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '影光' && this.isActiveBeyond(b, 60, nowMs))) {
               tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs) });
             }
-            target.buffs = JSON.stringify(tBuffs);
+            target.buffs = tBuffs; // Json 列直接写数组
           }
           const atkBuffs2 = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
           if (hasActive(atkBuffs2, '万象') &&
@@ -1810,7 +1811,7 @@ export class CombatSystemService {
               if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '转轮' && this.isActiveBeyond(b, 30, nowMs))) {
                 tBuffs.push({ name: '转轮', expireAt: this.expireAfter(30, nowMs), strength: (attackerBonus.物伤 || 0) / 10 });
               }
-              target.buffs = JSON.stringify(tBuffs);
+              target.buffs = tBuffs; // Json 列直接写数组
               resultLines.push(`【剑阵转轮】+${Math.round((attackerBonus.物伤 || 0) / 10)}`);
             }
           }
@@ -1848,7 +1849,7 @@ export class CombatSystemService {
           if (!hasActive(tBuffs, '怒吼')) {
             tBuffs.push({ name: '怒吼', expireAt: this.expireAfter(30, nowMs) });
           }
-          target.buffs = JSON.stringify(tBuffs);
+          target.buffs = tBuffs; // Json 列直接写数组
         }
         // 长萌(#长萌=2) 好感≥40 → 防御方增益加"长萌承受"（L2235-2238）
         if (defSeq === 2 && defAff >= 40) {
@@ -1856,7 +1857,7 @@ export class CombatSystemService {
           if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '长萌承受' && this.isActiveBeyond(b, 30, nowMs))) {
             tBuffs.push({ name: '长萌承受', expireAt: this.expireAfter(30, nowMs) });
           }
-          target.buffs = JSON.stringify(tBuffs);
+          target.buffs = tBuffs; // Json 列直接写数组
         }
         // saber(#saber=19) 好感≥40 增益含"ex" → 伤害0（L2240-2246）
         if (defSeq === 19 && defAff >= 40) {
@@ -1875,7 +1876,7 @@ export class CombatSystemService {
             if (!hasActive(tBuffs, 'bk1')) {
               tBuffs.push({ name: 'bk1', expireAt: this.expireAfter(20, nowMs) });
             }
-            target.buffs = JSON.stringify(tBuffs);
+            target.buffs = tBuffs; // Json 列直接写数组
           }
           const tBuffs2 = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
           if (hasActive(tBuffs2, 'bk1')) {
@@ -1893,7 +1894,7 @@ export class CombatSystemService {
             if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '猩红' && this.isActiveBeyond(b, 10, nowMs))) {
               tBuffs.push({ name: '猩红', expireAt: this.expireAfter(10, nowMs) });
             }
-            target.buffs = JSON.stringify(tBuffs);
+            target.buffs = tBuffs; // Json 列直接写数组
             // 记录猩红添加者：原版 置成就熟练度("x红x"+QQ, 防御方.标记, #吸血姬猩红)
             targetMk[`x红x${player.qqNumber ?? player.userId ?? ''}`] = 15.312381;
             resultLines.push('【猩红】');
@@ -1955,7 +1956,7 @@ export class CombatSystemService {
             if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵' && this.isActiveBeyond(b, 12, nowMs))) {
               tBuffs.push({ name: '剑阵', expireAt: this.expireAfter(12, nowMs) });
             }
-            target.buffs = JSON.stringify(tBuffs);
+            target.buffs = tBuffs; // Json 列直接写数组
             if (defAff >= 80) {
               // 恢复 生命上限 生命（原版 当前生命 += 属性.生命 封顶）
               const maxHp = target.maxHp || target.hp || 0;
@@ -2000,7 +2001,7 @@ export class CombatSystemService {
             if (!hasActive(tBuffs, '幻时')) {
               tBuffs.push({ name: '幻时', expireAt: this.expireAfter(30, nowMs) });
             }
-            target.buffs = JSON.stringify(tBuffs);
+            target.buffs = tBuffs; // Json 列直接写数组
             targetMk[`${(target.type || (target as any).类型 || '')}技能冷却`] = nowSec;
             resultLines.push('【幻时】');
           }
@@ -2114,10 +2115,10 @@ export class CombatSystemService {
         }
 
         // 写回攻击方/防御方标记变更
-        player.markers = JSON.stringify(playerMk);
+        player.markers = playerMk; // Json 列直接写对象
         // targetMk 不只承载无双计数，也承载负面效果累计、冷却和装备特效状态。
         // 原先只在无双触发时写回，会丢失割裂/灼烧/深寒/感电的未满4层计数。
-        if (target.userId) target.markers = JSON.stringify(targetMk);
+        if (target.userId) target.markers = targetMk; // Json 列直接写对象
       }
 
       // 三段评级熟练度：从玩家标记读取当前熟练度（对应原版 显示熟练度等级），
@@ -2158,7 +2159,7 @@ export class CombatSystemService {
       );
       // 真伤释放后熟练度被清零 → 写回防御方标记
       if (vtdProfBefore > 0 && Number(vtdDefMarkers['猩红'] ?? 0) === 0) {
-        target.markers = JSON.stringify(vtdDefMarkers);
+        target.markers = vtdDefMarkers; // Json 列直接写对象
       }
       // 写回累加后的熟练度（玩家为真实玩家，非怪物）
       // 注意：playerData.markers 是解析对象，savePlayer 保存的是 player.markers 字符串，
@@ -2174,7 +2175,7 @@ export class CombatSystemService {
         }
         if (masteryChanged) {
           playerData.markers = markers;
-          player.markers = JSON.stringify(markers);
+          player.markers = markers; // Json 列直接写对象
         }
       }
 
@@ -2261,7 +2262,7 @@ export class CombatSystemService {
         && tenaciousShieldMax > 0
         && shieldBeforeDamage / tenaciousShieldMax >= 0.15;
       const appliedDamage = this.applyDamageToMonster(target, finalDamage, appliedPool);
-      if ((defenderSets?.强袭 ?? 0) === 4) target.markers2 = JSON.stringify(assaultMarkers);
+      if ((defenderSets?.强袭 ?? 0) === 4) target.markers2 = assaultMarkers; // Json 列直接写数组
 
       // 原版 L4260-4271：坚韧护盾在护盾被打穿后触发；15秒冷却未过则本次后续特效终止。
       const tenaciousShieldBreak = appliedDamage.shield > 0 && Number(target.shield || 0) <= 0;
@@ -2274,11 +2275,11 @@ export class CombatSystemService {
           { value: '' },
           Date.now(),
         )) {
-          target.markers2 = JSON.stringify(tenaciousShieldMarkers);
+          target.markers2 = tenaciousShieldMarkers; // Json 列直接写数组
           tenaciousShieldTriggered = true;
           resultLines.push(`【坚韧护盾】`);
         }
-        target.markers2 = JSON.stringify(tenaciousShieldMarkers);
+        target.markers2 = tenaciousShieldMarkers; // Json 列直接写数组
       }
 
       // 原版破盾/破甲分支：木天蓼(-26)或好感≥40绝灭天使的“日轮a”命中后，
@@ -2291,7 +2292,7 @@ export class CombatSystemService {
         const reverseSeconds = 10 * (1 - (defenderBonus.韧性 || 0) / 100);
         const buffs = this.safeParseJson<any[]>(target.buffs, []);
         this.combatState.gainBuff(buffs, poolName, reverseSeconds, false, Date.now() / 1000);
-        target.buffs = JSON.stringify(buffs);
+        target.buffs = buffs; // Json 列直接写数组
         resultLines.push(`【${poolName === '盾逆' ? '盾回逆转' : '甲回逆转'}${Math.round(reverseSeconds)}秒】`);
       };
       reversePool(shieldBeforeDamage, defenderBonus.护盾 || 0, '盾逆');
@@ -2350,7 +2351,7 @@ export class CombatSystemService {
             },
           );
           if (stProfBefore > 0 && Number(stMarkersVtd['猩红'] ?? 0) === 0) {
-            st.markers = JSON.stringify(stMarkersVtd);
+            st.markers = stMarkersVtd; // Json 列直接写对象
           }
           const splashFinal = Math.max(1, Math.floor(splashDmg.damage * splashDamageMultiplier));
           const splashShieldBefore = Number(st.shield || 0);
@@ -2479,7 +2480,7 @@ export class CombatSystemService {
       if ((attackText ?? '') === '誓约胜利之剑a' && context.burnSeconds && context.burnSeconds > 0) {
         const tBuffsSa = this.safeParseJson<any[]>(target.buffs, []);
         this.combatState.gainBuff(tBuffsSa, 'sa', context.burnSeconds, false, Date.now());
-        target.buffs = JSON.stringify(tBuffsSa);
+        target.buffs = tBuffsSa; // Json 列直接写数组
         resultLines.push(`${target.name} 被圣剑之光灼烧（每秒造成物攻10%伤害）`);
       }
 
@@ -2982,16 +2983,16 @@ export class CombatSystemService {
           if (!this.combatState.timeIntervalRequire('幻时冷却', 120, monsterMarkers2, Date.now(), cdText, Date.now())) {
             const monsterBuffs = this.safeParseJson<any[]>(monster.buffs, []);
             this.combatState.gainBuff(monsterBuffs, '幻时', 30, false, Date.now(), 0);
-            monster.buffs = JSON.stringify(monsterBuffs);
+            monster.buffs = monsterBuffs; // Json 列直接写数组
             lines.push(`${victim.name} 发动了【幻时】，${monster.name} 被幻时凝固`);
           } else {
             lines.push(`${monster.name} 幻时抵抗${cdText.value}`);
           }
-          monster.markers2 = JSON.stringify(monsterMarkers2);
+          monster.markers2 = monsterMarkers2; // Json 列直接写数组
           if (victim.type === '花园猫' && affinity >= 60) {
             const pMarkers2 = this.safeParseJson<any[]>(victim.markers2, []);
             this.combatState.gainBuff(pMarkers2, `${victim.type}技能冷却`, -10, true, Date.now(), 0);
-            victim.markers2 = JSON.stringify(pMarkers2);
+            victim.markers2 = pMarkers2; // Json 列直接写数组
             this.achievementService.addAchievement(victim, '猫猫闪避', 1);
           }
         }
@@ -3108,7 +3109,7 @@ export class CombatSystemService {
         },
       );
       if (victimProfBefore > 0 && Number(victimMarkersVtd['猩红'] ?? 0) === 0) {
-        victim.markers = JSON.stringify(victimMarkersVtd);
+        victim.markers = victimMarkersVtd; // Json 列直接写对象
       }
       const finalDmg = Math.max(0, Math.floor(dmg.damage));
 
@@ -3158,7 +3159,7 @@ export class CombatSystemService {
           if (hasScarletBuffV) {
             const vStateCap = (victim.hp || 0) + (victim.armor || 0) + (victim.shield || 0);
             victimMarkersVtd['猩红'] = (Number(victimMarkersVtd['猩红'] ?? 0) || 0) + Math.min(playerDamage, vStateCap);
-            victim.markers = JSON.stringify(victimMarkersVtd);
+            victim.markers = victimMarkersVtd; // Json 列直接写对象
           }
         } catch {
           /* 标记/增益解析失败时跳过积累 */
@@ -3208,13 +3209,13 @@ export class CombatSystemService {
             const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
             // 原版 获得增益("卷土重来", 30+卷土重来属性) 写入玩家增益
             vBuffs.push({ name: '卷土重来', expireAt: nowSecV + jtlSec });
-            victim.buffs = JSON.stringify(vBuffs);
+            victim.buffs = vBuffs; // Json 列直接写数组
             // 原版不在此处回血：卷土重来只是免死状态（闪避=1），生命保持 0。
             // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）。
             // 新写入前清除同名旧项，避免历史重复标记再次遮蔽有效冷却。
             const markersWithoutJlq = vMk2.filter((marker: any) => (marker?.name ?? marker?.名称) !== 'jlq');
             markersWithoutJlq.push({ name: 'jlq', expireAt: nowSecV + 60 });
-            victim.markers2 = JSON.stringify(markersWithoutJlq);
+            victim.markers2 = markersWithoutJlq; // Json 列直接写数组
             lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}进入了卷土重来状态(${jtlSec}秒)`);
           } else {
             lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}倒下了！`);
@@ -3437,7 +3438,7 @@ export class CombatSystemService {
 
     const next = entries.filter((entry: any) => (entry?.name ?? entry?.名称) !== name);
     next.push({ name, expireAt: nowMs + Math.max(0, seconds) * 1000 });
-    attacker.markers2 = JSON.stringify(next);
+    attacker.markers2 = next; // Json 列直接写数组
     attackerData.markers2 = next;
     if (attacker.标记2 !== undefined) attacker.标记2 = next;
     return true;
@@ -3451,7 +3452,7 @@ export class CombatSystemService {
   private setForcedLevelMarker(summon: any, level: number): void {
     const markers = this.normalizeMarkerObject(summon?.markers ?? summon?.标记 ?? {});
     markers['强制等级'] = level;
-    summon.markers = JSON.stringify(markers);
+    summon.markers = markers; // Json 列直接写对象
     if (summon.标记 !== undefined) summon.标记 = markers;
   }
 
@@ -3472,7 +3473,7 @@ export class CombatSystemService {
         ? (attacker?.equipmentPresets ?? attacker?.装备预设)
         : [],
     );
-    summon.equipmentPresets = JSON.stringify(presets);
+    summon.equipmentPresets = presets; // Json 列直接写数组
     summon.装备预设 = presets;
 
     const sourceMarkers = this.normalizeMarkerObject(attacker?.markers ?? attacker?.标记 ?? {});
@@ -3486,7 +3487,7 @@ export class CombatSystemService {
     }
     const attackerQQ = String(attacker?.qq ?? attacker?.QQ ?? '');
     if (attackerQQ) markers[attackerQQ] = 14.421425;
-    summon.markers = JSON.stringify(markers);
+    summon.markers = markers; // Json 列直接写对象
     summon.标记 = markers;
   }
 
@@ -3500,8 +3501,8 @@ export class CombatSystemService {
       const qq = String(summon?.qq ?? summon?.QQ ?? '');
       if (summons.some((item: any) => String(item?.qq ?? item?.QQ ?? '') === qq)) return false;
       summons.push(summon);
-      await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
-      map.summons = JSON.stringify(summons);
+      await this.mapService.updateDynamicFields(map.id, { summons }); // Json 列直接传数组
+      map.summons = summons; // Json 列直接写数组
       return true;
     };
     if (typeof (this.mapService as any).withMapLock === 'function') {
@@ -3670,16 +3671,16 @@ export class CombatSystemService {
 
     const persistAttackerMarkers = async (): Promise<void> => {
       if (!attackerMarkersChanged) return;
-      attacker.markers2 = JSON.stringify(attackerMarkers);
+      attacker.markers2 = attackerMarkers; // Json 列直接写数组
       if (typeof attacker.id === 'number') {
         await this.updateMonsterHpInMap(map.id, attacker);
       }
     };
     const persistVehicle = async (): Promise<void> => {
       if (!hasVehicle || vehicleIndex < 0) return;
-      vehicle.markers2 = JSON.stringify(vehicleMarkers);
+      vehicle.markers2 = vehicleMarkers; // Json 列直接写数组
       mapVehicles[vehicleIndex] = vehicle;
-      map.vehicles = JSON.stringify(mapVehicles);
+      map.vehicles = mapVehicles; // Json 列直接写数组
       if (vehicleChanged || vehicleIndex >= 0) {
         try {
           await this.mapService.updateDynamicFields(map.id, { vehicles: map.vehicles });
@@ -3735,7 +3736,7 @@ export class CombatSystemService {
     // 载具部件使用中文标记2作为唯一状态容器；上面的时间接口会原地归一化它。
     if (hasVehicle) {
       vehicleChanged = true;
-      vehicle.markers2 = JSON.stringify(vehicleMarkers);
+      vehicle.markers2 = vehicleMarkers; // Json 列直接写数组
     }
 
     // 原版 L3181-L3188/L3482-L3484：阿尔缇娜先放大四属性，载具伤害结算后再放大一次。
@@ -3768,10 +3769,10 @@ export class CombatSystemService {
         armor: zeroBreakdown(),
         life: zeroBreakdown(),
       };
-      victim.buffs = JSON.stringify(victimBuffs);
+      victim.buffs = victimBuffs; // Json 列直接写数组
       lines.push(`【福音书${gospelStrengthText.value}】`);
     } else if (hasGospel) {
-      victim.buffs = JSON.stringify(victimBuffs);
+      victim.buffs = victimBuffs; // Json 列直接写数组
     }
 
     const terrainValue = this.normalizeMarkerObject(attacker?.markers)['阵地'] || 0;
@@ -3909,7 +3910,7 @@ export class CombatSystemService {
           const gospelCdText = { value: 0 };
           if (!this.combatState.buffRequire('福音cd', victimMarkers, gospelCdText, nowMs, { value: 0 })) {
             const gospelStrength = this.combatState.gainBuff(victimMarkers, '福ys', 600, false, nowMs, 1, true);
-            victim.markers2 = JSON.stringify(victimMarkers);
+            victim.markers2 = victimMarkers; // Json 列直接写数组
             vehicleDamage = 1;
             extraPool = zeroPool();
             if (gospelStrength >= 5) {
@@ -3918,7 +3919,7 @@ export class CombatSystemService {
             } else {
               lines.push(`【福音书${gospelStrength}】`);
             }
-            victim.markers2 = JSON.stringify(victimMarkers);
+            victim.markers2 = victimMarkers; // Json 列直接写数组
           }
         }
 
@@ -4023,16 +4024,7 @@ export class CombatSystemService {
       return `${player.name}“炮击飞龙谷”来使用`;
     }
 
-    const parse = <T>(value: any, fallback: T): T => {
-      if (value === null || value === undefined) return fallback;
-      if (typeof value !== 'string') return value as T;
-      try {
-        const parsed = JSON.parse(value);
-        return (parsed === null ? fallback : parsed) as T;
-      } catch {
-        return fallback;
-      }
-    };
+    const parse = <T>(value: any, fallback: T): T => asJsonValue<T>(value, fallback);
 
     const currentMap = await this.mapService.getMapById(player.mapId);
     if (!currentMap) return '你不在任何地图上！';
@@ -4150,8 +4142,8 @@ export class CombatSystemService {
       this.getFeather(player, markers, now, 10);
       prefix += `（羽毛${featherCount}）`;
     }
-    player.markers = JSON.stringify(markers);
-    player.markers2 = JSON.stringify(markers2);
+    player.markers = markers; // Json 列直接写对象
+    player.markers2 = markers2; // Json 列直接写数组
     // weaponAttack 会重新读取玩家；先持久化炮击前置消耗和冷却，避免新旧 PlayerData 覆盖。
     await this.playerService.savePlayer(player);
 
@@ -4170,7 +4162,7 @@ export class CombatSystemService {
     const activeEntry = targetMarkers2.find((item: any) => item?.name === '活动');
     if (activeEntry) activeEntry.expireAt = now + 60 * 1000;
     else targetMarkers2.push({ name: '活动', expireAt: now + 60 * 1000 });
-    await this.mapService.updateDynamicFields(targetMap.id, { markers2: JSON.stringify(targetMarkers2) });
+    await this.mapService.updateDynamicFields(targetMap.id, { markers2: targetMarkers2 }); // Json 列直接传数组
 
     // 原版 L918-L923：若炮击载具带有脏弹，则消耗一枚并污染目标地图120秒。
     const dirtyBomb = this.findVehiclePart(vehicle, '脏弹', parse);
@@ -4181,7 +4173,7 @@ export class CombatSystemService {
       await this.persistCannonVehicle(vehicleSource, parse);
       const polluted = parse<any[]>(targetMap.markers2, []);
       polluted.push({ name: '脏弹', value: 120, expireAt: now + 120 * 1000 });
-      await this.mapService.updateDynamicFields(targetMap.id, { markers2: JSON.stringify(polluted) });
+      await this.mapService.updateDynamicFields(targetMap.id, { markers2: polluted }); // Json 列直接传数组
       return `${prefix}${attack.result}\n脏弹里面装载的核废料污染了${targetMap.name}`;
     }
 
@@ -4253,7 +4245,7 @@ export class CombatSystemService {
       await (this.prisma as any).gameVehicle.update({
         where: { id: source.db.id },
         data: {
-          parts: JSON.stringify(parse<any[]>(stored.parts ?? stored.零件, [])),
+          parts: parse<any[]>(stored.parts ?? stored.零件, []), // GameVehicle.parts 为 Json 列，直接写数组
         },
       });
       return;
@@ -4261,7 +4253,7 @@ export class CombatSystemService {
     if (source.index === undefined) return;
     const vehicles = parse<any[]>(source.map.vehicles, []);
     vehicles[source.index] = source.vehicle;
-    await this.mapService.updateDynamicFields(source.map.id, { vehicles: JSON.stringify(vehicles) });
+    await this.mapService.updateDynamicFields(source.map.id, { vehicles }); // Json 列直接传数组
   }
 
   /**
@@ -5047,7 +5039,7 @@ export class CombatSystemService {
     const attackerPlayer = attacker?.player ?? attacker;
     if (attacker) {
       const monsterMarkers = this.playerService.safeJsonParse<any[]>(monster.markers, []);
-      monster.markers = JSON.stringify(this.setDrop(attackerPlayer, monsterMarkers));
+      monster.markers = this.setDrop(attackerPlayer, monsterMarkers); // Json 列直接写对象
     }
 
     // 战利品发放（原版 战斗相关.ecode L4874）：装备展开/资源经验/成就/背包写入/掉落文本。
@@ -5068,7 +5060,8 @@ export class CombatSystemService {
     }
     if (playerData?.player) {
       if (vitalityMode === 'normal' && this.vitalityService) {
-        const markers = playerData.markers || this.playerService.safeJsonParse(playerData.player.markers, {});
+        // 行 markers 已是原生 Json 列（对象/数组直出），asJsonValue 兼容对象与历史字符串两种形态
+        const markers = playerData.markers || asJsonValue<Record<string, any>>(playerData.player.markers, {});
         const decision = await this.vitalityService.applyNormalKillCost(playerData.player, markers, 1);
         vitalityCost = decision.vitalityCost;
         rewardMultiplier = decision.rewardMultiplier;
@@ -5093,7 +5086,7 @@ export class CombatSystemService {
           const left = Math.max(0, Number(playerData.player.vitality || 0));
           vitalityText = `(${playerData.player.name || ''}活力剩余${Math.floor(left)})得到了${Math.round(expGain)}经验`;
         }
-        playerData.player.markers = JSON.stringify(markers);
+        playerData.player.markers = markers; // Json 列直接写对象
       }
 
       if (drops.length > 0) {
@@ -5143,7 +5136,7 @@ export class CombatSystemService {
     if (dart && dartCount > 1) {
       if (Object.prototype.hasOwnProperty.call(dart, 'quantity')) dart.quantity = dartCount - 1;
       else dart.count = dartCount - 1;
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Json 列直接写数组
       resultLines.push('【强效麻醉】');
       return 2;
     }
@@ -5209,14 +5202,14 @@ export class CombatSystemService {
     if (added <= 0) return '';
     const next = current + added;
     bonus.当前麻醉 = next;
-    target.bonus = JSON.stringify(bonus);
+    target.bonus = bonus; // Json 列直接写对象
 
     const full = next >= maxAnesthesia;
     if (full) {
       const markers2 = this.safeParseJson<any[]>(target.markers2, []);
       const retained = markers2.filter((entry: any) => (entry?.名称 ?? entry?.name) !== '麻醉');
       retained.push({ 名称: '麻醉', 强度: 0, 有效期至: Date.now() + 3600 * 1000 });
-      target.markers2 = JSON.stringify(retained);
+      target.markers2 = retained; // Json 列直接写数组
     }
 
     const ownerQQ = String(player.qqNumber ?? player.userId ?? '');
@@ -5224,7 +5217,7 @@ export class CombatSystemService {
       const markers = this.normalizeMarkerObject(target.markers);
       const ownerKey = `麻醉者${ownerQQ}`;
       markers[ownerKey] = (Number(markers[ownerKey]) || 0) + 1;
-      target.markers = JSON.stringify(markers);
+      target.markers = markers; // Json 列直接写对象
     }
 
     const text = `麻醉+${Math.round(added)}(${Math.round(next)}/${Math.round(maxAnesthesia)})`;
@@ -5356,7 +5349,7 @@ export class CombatSystemService {
         backpack.push({ name: drop.name, count });
       }
     }
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
   }
 
   /**
@@ -5573,7 +5566,8 @@ export class CombatSystemService {
       : {};
     const parseObject = (value: any): any => {
       if (typeof value !== 'string') return value || {};
-      try { return JSON.parse(value) || {}; } catch { return {}; }
+      // 静态装备的 bonus/properties 等现已是对象；字符串分支兼容存量 JSON 文本
+      return asJsonValue(value, {});
     };
     const rawBonus = parseObject(rawWeapon.bonus || rawWeapon.加成);
     const staticBonus = parseObject(staticWeapon.bonus);
@@ -5630,7 +5624,8 @@ export class CombatSystemService {
     const parseObj = (value: any): Record<string, number> => {
       if (!value) return {};
       if (typeof value === 'object') return { ...value };
-      try { return JSON.parse(String(value)) || {}; } catch { return {}; }
+      // 静态定义 baseBonus 现已是对象；字符串分支兼容存量 data 串/JSON 文本
+      return asJsonValue<Record<string, number>>(value, {});
     };
     // 静态定义的自带加成（原地覆盖，静态为底、物品对象优先）
     const def = typeof (this.staticData as any)?.getEquipmentByName === 'function'
@@ -5775,7 +5770,7 @@ export class CombatSystemService {
       ? (nowSec - available * 10 * intervalFactor)
       : nowSec;
     markers.feather = undefined;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Json 列直接写对象
     return beforeDeduction;
   }
 
@@ -5863,16 +5858,15 @@ export class CombatSystemService {
       if (Array.isArray(weapons) && weapons.length > 0) {
         weapons.forEach((weapon: any, index: number) => {
           if (!weapon || typeof weapon !== 'object') return;
-          if (!weapon.__originalBonus) weapon.__originalBonus = JSON.stringify(weapon.bonus ?? weapon.加成 ?? {});
+          // 武器加成快照用对象浅拷贝保存（Json 列读取后已是对象），避免 JSON 字符串双重编码
+          if (!weapon.__originalBonus) weapon.__originalBonus = { ...(weapon.bonus ?? weapon.加成 ?? {}) };
           if (!weapon.__originalBaseBonus) {
-            weapon.__originalBaseBonus = JSON.stringify(
-              weapon.baseBonus ?? weapon.基础加成 ?? weapon.self ?? weapon.自带 ?? {},
-            );
+            weapon.__originalBaseBonus = {
+              ...(weapon.baseBonus ?? weapon.基础加成 ?? weapon.self ?? weapon.自带 ?? {}),
+            };
           }
 
-          const parseSnapshot = <T>(value: string, fallback: T): T => {
-            try { return JSON.parse(value) as T; } catch { return fallback; }
-          };
+          const parseSnapshot = <T>(value: unknown, fallback: T): T => asJsonValue<T>(value, fallback);
           weapon.bonus = weapon.加成 = parseSnapshot<Record<string, number>>(weapon.__originalBonus, {});
           weapon.baseBonus = weapon.基础加成 = weapon.self = weapon.自带 =
             parseSnapshot<Record<string, number>>(weapon.__originalBaseBonus, {});
@@ -6003,8 +5997,8 @@ export class CombatSystemService {
           if (nextWeapon !== null) player.currentWeapon = nextWeapon;
         }
       }
-      player.markers2 = JSON.stringify(markers2);
-      player.markers = JSON.stringify(markers);
+      player.markers2 = markers2; // Json 列直接写数组
+      player.markers = markers; // Json 列直接写对象
     } catch (error: any) {
       this.logger.warn(`随机未冷却武器处理失败: ${error.message}`);
     }
@@ -6855,7 +6849,7 @@ export class CombatSystemService {
     const recordedMax = Number(this.playerService.getMarkerValue(vitalityMarkers, '活力2')) || 0;
     const nextMax = Math.max(100, 100 + (Number.isFinite(currentCharm) ? currentCharm : 0), recordedMax);
     vitalityMarkers['活力2'] = nextMax;
-    player.markers = JSON.stringify(vitalityMarkers);
+    player.markers = vitalityMarkers; // Json 列直接写对象
 
     return bonus;
   }
@@ -6890,11 +6884,8 @@ export class CombatSystemService {
   private buildMonsterBonus(monster: any): BonusData {
     // 怪物三层抗性存于 bonus JSON（seed 解析进 GameMonster.bonus），需解析后读取
     let mb: any = {};
-    try {
-      mb = typeof monster.bonus === 'string' ? JSON.parse(monster.bonus || '{}') : (monster.bonus || {});
-    } catch {
-      mb = {};
-    }
+    // asJsonValue 容错读取：兼容 Prisma Json 列（对象）与历史字符串列两种来源
+    mb = asJsonValue<Record<string, any>>(monster.bonus, {});
     // 读取辅助：怪物三层抗性存于 bonus JSON（monsters.json 已是中文 key，如"生命物抗"）。
     // 优先顶层字段，回退到 bonus JSON 中文 key（本框架 BonusData 全中文，无需中英文兼容映射）。
     const pick = (k: string) => {
@@ -7197,7 +7188,7 @@ export class CombatSystemService {
     // 本次总伤害（上限=三池当前总和）累计入防御方"猩红"熟练度，供真伤释放。
     if (totalDamage > 0) {
       try {
-        const mBuffs: any[] = typeof monster.buffs === 'string' ? JSON.parse(monster.buffs || '[]') : (monster.buffs || []);
+        const mBuffs: any[] = asJsonValue<any[]>(monster.buffs, []);
         const nowMs = Date.now();
         const hasScarletBuff = mBuffs.some((b: any) => {
           if (!b) return false;
@@ -7207,12 +7198,11 @@ export class CombatSystemService {
           return expireMs > nowMs;
         });
         if (hasScarletBuff) {
-          const mMarkers: Record<string, any> = typeof monster.markers === 'string'
-            ? JSON.parse(monster.markers || '{}')
-            : (monster.markers || {});
+          // asJsonValue 容错读取怪物标记（兼容对象/字符串来源）
+          const mMarkers: Record<string, any> = asJsonValue<Record<string, any>>(monster.markers, {});
           const stateCap = (monster.hp || 0) + (currentArmor || 0) + (currentShield || 0);
           mMarkers['猩红'] = (Number(mMarkers['猩红'] ?? 0) || 0) + Math.min(totalDamage, stateCap);
-          monster.markers = typeof monster.markers === 'string' ? JSON.stringify(mMarkers) : mMarkers;
+          monster.markers = mMarkers; // Json 列直接写对象
         }
       } catch {
         /* 标记/增益解析失败时跳过积累 */
@@ -7299,13 +7289,13 @@ export class CombatSystemService {
     const safeBox = array(actor.safeBox ?? actor.保险柜);
     const markers = this.normalizeMarkerObject(actor.markers ?? actor.标记 ?? {});
 
-    // 后续通用结算代码读取英文存量字段；没有英文字段时补上 JSON 视图。
-    if (actor.equipment === undefined) actor.equipment = JSON.stringify(equipment);
-    if (actor.weapons === undefined) actor.weapons = JSON.stringify(weapons);
-    if (actor.backpack === undefined) actor.backpack = JSON.stringify(backpack);
-    if (actor.markers2 === undefined) actor.markers2 = JSON.stringify(markers2);
-    if (actor.buffs === undefined) actor.buffs = JSON.stringify(buffs);
-    if (actor.markers === undefined) actor.markers = JSON.stringify(markers);
+    // 后续通用结算代码读取英文存量字段；没有英文字段时补上 JSON 视图（Json 列/运行时对象直接写结构体）
+    if (actor.equipment === undefined) actor.equipment = equipment;
+    if (actor.weapons === undefined) actor.weapons = weapons;
+    if (actor.backpack === undefined) actor.backpack = backpack;
+    if (actor.markers2 === undefined) actor.markers2 = markers2;
+    if (actor.buffs === undefined) actor.buffs = buffs;
+    if (actor.markers === undefined) actor.markers = markers;
     if (actor.sets === undefined && actor.set !== undefined) actor.sets = actor.set;
 
     return {
@@ -7355,7 +7345,7 @@ export class CombatSystemService {
     if (actor.增益 !== undefined) actor.增益 = this.playerService.safeJsonParse<any[]>(actor.buffs, []);
     if (actor.标记2 !== undefined) actor.标记2 = this.playerService.safeJsonParse<any[]>(actor.markers2, []);
     summons[index] = actor;
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons }); // Json 列直接传数组
   }
 
   /** 原版捕捉模式生命层文本：生命不扣除，但显示当前生命和“捕捉中”状态。 */
@@ -7380,12 +7370,8 @@ export class CombatSystemService {
    * @returns 解析结果或默认值
    */
   private safeParseJson<T>(v: any, def: T): T {
-    try {
-      if (typeof v !== 'string') return (v as T) ?? def;
-      return JSON.parse(v) as T;
-    } catch {
-      return def;
-    }
+    // 字符串/已解析对象统一容错处理（数据库 String 列与运行时对象两种来源）
+    return asJsonValue<T>(v, def);
   }
 
   /**
@@ -7447,7 +7433,7 @@ export class CombatSystemService {
       }
       remain.push(b);
     }
-    player.buffs = JSON.stringify(remain);
+    player.buffs = remain; // Json 列直接写数组
     return result;
   }
 
@@ -7507,22 +7493,22 @@ export class CombatSystemService {
       // 原版 获得增益(-86400, 真)：重复获得就移除
       const idx = tBuffs.indexOf(existing);
       tBuffs.splice(idx, 1);
-      target.buffs = JSON.stringify(tBuffs);
+      target.buffs = tBuffs; // Json 列直接写数组
     } else {
       tBuffs.push({ name: buffName, expireAt: nowSec + Math.round(600 * a1) });
-      target.buffs = JSON.stringify(tBuffs);
+      target.buffs = tBuffs; // Json 列直接写数组
       if (a === 5 || a === 6) {
         // 原版 L393-409：反转目标 属性.装甲/护盾，并把正的当前值同步翻负计入成就
         const attrKey = a === 5 ? '装甲' : '护盾';
         const curKey = a === 5 ? 'armor' : 'shield';
         const bonus = this.safeParseJson<Record<string, any>>(target.bonus, {});
         bonus[attrKey] = -Number(bonus[attrKey] || 0);
-        target.bonus = JSON.stringify(bonus);
+        target.bonus = bonus; // Json 列直接写对象
         const currentVal = Number(target[curKey] ?? 0);
         if (bonus[attrKey] < 0 && currentVal > 0) {
           const tMarkers = this.safeParseJson<Record<string, number>>(target.markers, {});
           this.combatState.addAchievement(`攻击者${attacker.qqNumber ?? attacker.userId ?? ''}`, currentVal * 2, tMarkers);
-          target.markers = JSON.stringify(tMarkers);
+          target.markers = tMarkers; // Json 列直接写对象
           target[curKey] = -currentVal;
         }
       }
@@ -8443,19 +8429,20 @@ export class CombatSystemService {
         }
       }
 
-      player.buffs = JSON.stringify(playerBuffs);
+      player.buffs = playerBuffs; // Json 列直接写数组
       if (typeof (this.playerService as any).savePlayer === 'function') {
         await (this.playerService as any).savePlayer(player);
       }
 
+      // GameMap 动态字段均为 Json 列，直接传结构体，避免 JSON 字符串双重编码
       await this.mapService.updateDynamicFields(map.id, {
-        mapBuffs: JSON.stringify(mapBuffs),
-        items: JSON.stringify(items),
-        summons: JSON.stringify(summons),
+        mapBuffs,
+        items,
+        summons,
       });
-      map.mapBuffs = JSON.stringify(mapBuffs);
-      map.items = JSON.stringify(items);
-      map.summons = JSON.stringify(summons);
+      map.mapBuffs = mapBuffs; // Json 列直接写数组
+      map.items = items; // Json 列直接写数组
+      map.summons = summons; // Json 列直接写数组
 
       this.logger.log(`应用地图增益 map=${map.name}, buffs=${mapBuffs.map((b: any) => b.name).join(',')}`);
     } catch (error) {
@@ -8575,7 +8562,7 @@ export class CombatSystemService {
     if (attackText === '天神a') {
       const mBuffs = this.safeParseJson<any[]>(monster.buffs, []);
       this.combatState.gainBuff(mBuffs, '降', 30, false, Date.now(), 0);
-      monster.buffs = JSON.stringify(mBuffs);
+      monster.buffs = mBuffs; // Json 列直接写数组
     }
 
     // 先写回血量（含击杀场景）：删除未生效时不会残留旧血量形成"打不死的幽灵怪"。
@@ -8730,7 +8717,7 @@ export class CombatSystemService {
         // 原版 躺下起床显示(玩家, 2) 自动起床：置成就熟练度("躺下",0)
         text = `${player.name} 从躺下状态起身`; // 原版 L5145 躺下起床显示(玩家,2)+"【分段】"，此处内联等价文本
         this.playerService.setMarker(markers, '躺下', 0);
-        player.markers = JSON.stringify(markers);
+        player.markers = markers; // Json 列直接写对象
         return { restricted: false, text };
       }
     }
@@ -8977,7 +8964,7 @@ export class CombatSystemService {
     const setInterval = (name: string, sec: number) => {
       const filtered = markers2.filter((m: any) => !(m && m.name === name));
       filtered.push({ name, expireAt: nowSec + sec });
-      player.markers2 = JSON.stringify(filtered);
+      player.markers2 = filtered; // Json 列直接写数组
     };
     // 装备要求(玩家, specialSeq)：遍历装备命中 specialSeq
     const hasEquip = (seq: number): boolean =>
@@ -10286,7 +10273,7 @@ export class CombatSystemService {
     )) {
       return '';
     }
-    map.markers2 = JSON.stringify(mapMarkers2);
+    map.markers2 = mapMarkers2; // Json 列直接写数组
 
     // 原版 L208-210：定点攻击前先移动临时怪物；GameMonster 已由地图服务独立持久化，
     // 读取最新实例即等价于原版内存中的移动后数组。
@@ -10300,7 +10287,7 @@ export class CombatSystemService {
       // 原版 L212-235、L507-530：活动结束时只修复地图怪物和召唤物所挂载的低等级载具，
       // 不再执行攻击，也不发放额外物品。
       await this.repairMapVehicles(map, monsters, lines);
-      map.markers2 = JSON.stringify(mapMarkers2);
+      map.markers2 = mapMarkers2; // Json 列直接写数组
       await this.mapService.updateDynamicFields(map.id, {
         markers2: map.markers2,
         vehicles: map.vehicles,
@@ -10357,7 +10344,7 @@ export class CombatSystemService {
       }
     }
 
-    map.markers2 = JSON.stringify(mapMarkers2);
+    map.markers2 = mapMarkers2; // Json 列直接写数组
     await this.mapService.updateDynamicFields(map.id, {
       markers2: map.markers2,
       summons: map.summons,
@@ -10398,7 +10385,7 @@ export class CombatSystemService {
         lines.push(`${actor.name ?? actor.名称}修好了${vehicle.name ?? vehicle.名称}`);
       }
     }
-    if (changed) map.vehicles = JSON.stringify(vehicles);
+    if (changed) map.vehicles = vehicles; // Json 列直接写数组
   }
 
   /** 原版 L246-289 的怪物闪避释放。 */
@@ -10418,8 +10405,8 @@ export class CombatSystemService {
       const cdText = { value: '' };
       if (this.combatState.timeIntervalRequire('闪避冷却', actualCooldown, markers2, nowMs, cdText, nowMs)) continue;
       this.combatState.gainBuff(buffs, '闪避', 4, false, nowMs, 0);
-      monster.buffs = JSON.stringify(buffs);
-      monster.markers2 = JSON.stringify(markers2);
+      monster.buffs = buffs; // Json 列直接写数组
+      monster.markers2 = markers2; // Json 列直接写数组
       await this.mapService.updateMonsterFields(monster.mapId, monster.id, {
         buffs: monster.buffs,
         markers2: monster.markers2,
@@ -10473,7 +10460,7 @@ export class CombatSystemService {
       const rawExpire = Number(saBuff.expireAt ?? saBuff.有效期至 ?? 0);
       const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
       if (!expireMs || expireMs <= nowMs) {
-        monster.buffs = JSON.stringify(buffs.filter((b: any) => b !== saBuff));
+        monster.buffs = buffs.filter((b: any) => b !== saBuff); // Json 列直接写数组
         await this.mapService.updateMonsterFields(monster.mapId, monster.id, { buffs: monster.buffs });
         continue;
       }
@@ -10501,7 +10488,7 @@ export class CombatSystemService {
       monster.armor = armor - toArmor;
       monster.hp = hp - toHp;
       markers['sa上次结算'] = nowMs;
-      monster.markers = JSON.stringify(markers);
+      monster.markers = markers; // Json 列直接写对象
 
       await this.mapService.updateMonsterFields(monster.mapId, monster.id, {
         hp: monster.hp,
@@ -10737,7 +10724,7 @@ export class CombatSystemService {
           const jtIdx = buffs.findIndex((b: any) => b && (b.name ?? b.名称) === '卷土重来' && isActive(b));
           if (jtIdx < 0) continue;
           buffs.splice(jtIdx, 1);
-          victim.buffs = JSON.stringify(buffs);
+          victim.buffs = buffs; // Json 列直接写数组
           victim.hp = Math.floor(Number(victim.maxHp || 100) / 2);
           await this.playerService.savePlayer(victim);
 
@@ -10750,7 +10737,7 @@ export class CombatSystemService {
       }
 
       if (changed && this.mapService.updateDynamicFields) {
-        await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+        await this.mapService.updateDynamicFields(map.id, { summons }); // Json 列直接传数组
       }
     } catch (e: any) {
       this.logger.warn(`宠物自动扶人失败: ${e.message}`);

@@ -5,7 +5,7 @@
     "duration": 0,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{}",
+    "bonus": {},
     "triggerText": "【目标】被【名称】【载具】……"
   },
   {
@@ -14,7 +14,9 @@
     "duration": 15,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"闪避2\":-30}",
+    "bonus": {
+      "闪避2": -30
+    },
     "triggerText": "【目标】被【名称】【载具】射出的网缠住了"
   },
   {
@@ -23,7 +25,9 @@
     "duration": 20,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"护盾全抗\":-20}",
+    "bonus": {
+      "护盾全抗": -20
+    },
     "triggerText": "【目标】被【名称】【载具】削弱了护盾"
   },
   {
@@ -32,7 +36,9 @@
     "duration": 20,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"生命全抗\":-20}",
+    "bonus": {
+      "生命全抗": -20
+    },
     "triggerText": "【目标】身体开始长出结晶"
   },
   {
@@ -41,7 +47,9 @@
     "duration": 20,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"装甲全抗\":-20}",
+    "bonus": {
+      "装甲全抗": -20
+    },
     "triggerText": "【目标】的装甲被冲击波影响了结构强度"
   },
   {
@@ -50,7 +58,9 @@
     "duration": 10,
     "chance": 50,
     "stackTime": false,
-    "bonus": "{\"护盾\":-50}",
+    "bonus": {
+      "护盾": -50
+    },
     "triggerText": "【目标】的护盾受到电磁脉冲的冲击"
   },
   {
@@ -59,7 +69,12 @@
     "duration": 10,
     "chance": 50,
     "stackTime": false,
-    "bonus": "{\"火伤2\":-70,\"冰伤2\":-70,\"电伤2\":-70,\"物伤2\":-70}",
+    "bonus": {
+      "火伤2": -70,
+      "冰伤2": -70,
+      "电伤2": -70,
+      "物伤2": -70
+    },
     "triggerText": "【目标】被【名称】【载具】变成了羊"
   },
   {
@@ -68,7 +83,12 @@
     "duration": 10,
     "chance": 33,
     "stackTime": false,
-    "bonus": "{\"火伤2\":-50,\"冰伤2\":-50,\"电伤2\":-50,\"物伤2\":-50}",
+    "bonus": {
+      "火伤2": -50,
+      "冰伤2": -50,
+      "电伤2": -50,
+      "物伤2": -50
+    },
     "triggerText": "【目标】现在感觉自己好虚"
   },
   {
@@ -77,7 +97,9 @@
     "duration": 10,
     "chance": 33,
     "stackTime": false,
-    "bonus": "{\"闪避2\":-50}",
+    "bonus": {
+      "闪避2": -50
+    },
     "triggerText": "【目标】不能动了！"
   },
   {
@@ -86,7 +108,9 @@
     "duration": 10,
     "chance": 33,
     "stackTime": false,
-    "bonus": "{\"命中2\":-50}",
+    "bonus": {
+      "命中2": -50
+    },
     "triggerText": "【目标】啥也看不见了"
   },
   {
@@ -95,7 +119,11 @@
     "duration": 10,
     "chance": 33,
     "stackTime": false,
-    "bonus": "{\"生命回复2\":-70,\"装甲回复2\":-70,\"护盾回复2\":-70}",
+    "bonus": {
+      "生命回复2": -70,
+      "装甲回复2": -70,
+      "护盾回复2": -70
+    },
     "triggerText": "【目标】的回复速度减少了"
   },
   {
@@ -104,7 +132,11 @@
     "duration": 10,
     "chance": 33,
     "stackTime": false,
-    "bonus": "{\"生命回复2\":-50,\"装甲回复2\":-50,\"护盾回复2\":-50}",
+    "bonus": {
+      "生命回复2": -50,
+      "装甲回复2": -50,
+      "护盾回复2": -50
+    },
     "triggerText": "【目标】的回复速度减少了"
   },
   {
@@ -113,7 +145,9 @@
     "duration": 0,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"护盾回复2\":-100}",
+    "bonus": {
+      "护盾回复2": -100
+    },
     "triggerText": "【目标】的护盾回复被暂停了"
   },
   {
@@ -122,7 +156,9 @@
     "duration": 0,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"装甲回复2\":-100}",
+    "bonus": {
+      "装甲回复2": -100
+    },
     "triggerText": "【目标】的装甲修复被暂停了"
   },
   {
@@ -131,7 +167,11 @@
     "duration": 30,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"护盾全抗\":-10,\"装甲全抗\":-10,\"生命全抗\":-10}",
+    "bonus": {
+      "护盾全抗": -10,
+      "装甲全抗": -10,
+      "生命全抗": -10
+    },
     "triggerText": "【目标】被【名称】【载具】削弱了护盾、装甲和生命"
   },
   {
@@ -140,7 +180,11 @@
     "duration": 30,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"护盾全抗\":-10,\"装甲全抗\":-10,\"生命全抗\":-10}",
+    "bonus": {
+      "护盾全抗": -10,
+      "装甲全抗": -10,
+      "生命全抗": -10
+    },
     "triggerText": "【目标】被【名称】【载具】点燃了！"
   },
   {
@@ -149,7 +193,9 @@
     "duration": 0,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"攻击2\":15}",
+    "bonus": {
+      "攻击2": 15
+    },
     "triggerText": ""
   },
   {
@@ -158,7 +204,9 @@
     "duration": 0,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"闪避2\":15}",
+    "bonus": {
+      "闪避2": 15
+    },
     "triggerText": ""
   },
   {
@@ -167,7 +215,9 @@
     "duration": 0,
     "chance": 100,
     "stackTime": false,
-    "bonus": "{\"命中2\":15}",
+    "bonus": {
+      "命中2": 15
+    },
     "triggerText": ""
   }
 ]

@@ -11,6 +11,7 @@ import { ItemService, Item3, Equipment } from './item.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
 import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POOL, AMPLIFIER_RANDOM_POOL } from './item.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 // ========== 类型定义 ==========
 
@@ -91,7 +92,7 @@ export class ItemSystemService {
     };
     const outputs = normalizeRecipeItems(recipe.outputs);
     const requirements = normalizeRecipeItems(recipe.requirements);
-    const gainMarkers: string[] = JSON.parse(recipe.gainMarkers || '[]');
+    const gainMarkers: string[] = asJsonValue<string[]>(recipe.gainMarkers, []);
 
     if (outputs.length === 0) {
       return `警告：制造项目${recipe.name}的制造产出为空，请检查数据。`;
@@ -166,7 +167,8 @@ export class ItemSystemService {
     // 产出物品
     const producedList: Item3[] = [];
     let isEquipment = false;
-    const playerSets = this.playerService.safeJsonParse<any>(player.sets, {});
+    // player.sets 为 Player Json 列（对象/字符串兼容读取）；safeJsonParse 对对象会解析失败丢数据
+    const playerSets = asJsonValue<any>(player.sets, {});
     const legendaryRate = Number(playerSets?.传说率 ?? playerSets?.legendRate ?? player.legendRate ?? 0) || 0;
     const hasMingYu = Number(player.specialSeq ?? 0) === 9 || String(player.type ?? '') === '冥鱼';
     const nextQuality: Record<string, string> = { e: 'd', d: 'c', c: 'b', b: 'a', a: 's' };
@@ -233,8 +235,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(cleanedBackpack),
-        markers: JSON.stringify(markers),
+        backpack: cleanedBackpack,
+        markers: markers, // Player markers 为 Json 列，直接写对象
       });
       await this.playerService.savePlayer(_pd.player);
     });
@@ -329,8 +331,8 @@ export class ItemSystemService {
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
         Object.assign(_pd.player, {
-          backpack: JSON.stringify(backpack),
-          markers: JSON.stringify(markers),
+          backpack: backpack, // Player backpack 为 Json 列，直接写数组
+          markers: markers, // Player markers 为 Json 列，直接写对象
         });
         await this.playerService.savePlayer(_pd.player);
       });
@@ -376,7 +378,7 @@ export class ItemSystemService {
 
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
-        Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+        Object.assign(_pd.player, { backpack }); // Json 列直接写数组
         await this.playerService.savePlayer(_pd.player);
       });
 
@@ -450,8 +452,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        markers: markers, // Player markers 为 Json 列，直接写对象
       });
       await this.playerService.savePlayer(_pd.player);
     });
@@ -460,7 +462,7 @@ export class ItemSystemService {
     try {
       const playerRecord = await this.prisma.player.findUnique({ where: { userId } });
       if (playerRecord) {
-        playerRecord.markers = JSON.stringify(markers);
+        playerRecord.markers = markers; // Json 列直接写对象（仅供 checkTitles 读取）
         await this.achievementService.checkTitles(playerRecord);
       }
     } catch (e) {
@@ -592,9 +594,9 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        equipment: JSON.stringify(equipment),
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        equipment: equipment, // Player equipment 为 Json 列，直接写数组
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        markers: markers, // Player markers 为 Json 列，直接写对象
         sets,
       });
       await this.playerService.savePlayer(_pd.player);
@@ -723,9 +725,9 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        equipment: JSON.stringify(equipment),
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        equipment: equipment, // Player equipment 为 Json 列，直接写数组
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        markers: markers, // Player markers 为 Json 列，直接写对象
         sets,
       });
       await this.playerService.savePlayer(_pd.player);
@@ -779,8 +781,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(backpack),
-        equipment: JSON.stringify(equipment),
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        equipment: equipment, // Player equipment 为 Json 列，直接写数组
         sets,
       });
       await this.playerService.savePlayer(_pd.player);
@@ -827,8 +829,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(backpack),
-        equipment: JSON.stringify(equipment),
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        equipment: equipment, // Player equipment 为 Json 列，直接写数组
         sets,
       });
       await this.playerService.savePlayer(_pd.player);
@@ -865,7 +867,7 @@ export class ItemSystemService {
 
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+      Object.assign(_pd.player, { backpack: backpack }); // Json 列直接写数组
       await this.playerService.savePlayer(_pd.player);
     });
 
@@ -896,7 +898,7 @@ export class ItemSystemService {
 
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+      Object.assign(_pd.player, { backpack: backpack }); // Json 列直接写数组
       await this.playerService.savePlayer(_pd.player);
     });
 
@@ -931,8 +933,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(backpack),
-        safeBox: JSON.stringify(safeBox),
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        safeBox: safeBox, // Player safeBox 为 Json 列，直接写数组
       });
       await this.playerService.savePlayer(_pd.player);
     });
@@ -978,8 +980,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(backpack),
-        safeBox: JSON.stringify(safeBox),
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        safeBox: safeBox, // Player safeBox 为 Json 列，直接写数组
       });
       await this.playerService.savePlayer(_pd.player);
     });
@@ -1021,7 +1023,7 @@ export class ItemSystemService {
 
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+      Object.assign(_pd.player, { backpack: backpack }); // Json 列直接写数组
       await this.playerService.savePlayer(_pd.player);
     });
 
@@ -1212,7 +1214,8 @@ export class ItemSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, equipment, weapons, backpack } = playerData;
 
-    const presets: EquipmentPreset[] = JSON.parse(player.equipmentPresets || '[]');
+    // player.equipmentPresets 为 Player Json 列（对象/字符串兼容读取）
+    const presets: EquipmentPreset[] = asJsonValue<EquipmentPreset[]>(player.equipmentPresets, []);
 
     if (action === 'save') {
       // 保存当前装备方案
@@ -1233,7 +1236,7 @@ export class ItemSystemService {
 
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
-        Object.assign(_pd.player, { equipmentPresets: JSON.stringify(presets) });
+        Object.assign(_pd.player, { equipmentPresets: presets }); // Json 列直接写数组
         await this.playerService.savePlayer(_pd.player);
       });
 
@@ -1285,12 +1288,12 @@ export class ItemSystemService {
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
         Object.assign(_pd.player, {
-          equipment: JSON.stringify(newEquipment),
-          weapons: JSON.stringify(newWeapons),
-          backpack: JSON.stringify(backpack),
+          equipment: newEquipment, // Json 列直接写数组
+          weapons: newWeapons, // Json 列直接写数组
+          backpack: backpack, // Player backpack 为 Json 列，直接写数组
           // currentWeapon 为 1-based：加载预设后有武器则默认指向第一把，无武器为拳头
           currentWeapon: newWeapons.length > 0 ? 1 : 0,
-          equipmentPresets: JSON.stringify(presets),
+          equipmentPresets: presets, // Player equipmentPresets 为 Json 列，直接写数组
           sets,
         });
         await this.playerService.savePlayer(_pd.player);
@@ -1423,8 +1426,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        equipment: JSON.stringify(equipment),
-        backpack: JSON.stringify(backpack),
+        equipment: equipment, // Player equipment 为 Json 列，直接写数组
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
         sets,
       });
       await this.playerService.savePlayer(_pd.player);
@@ -1462,8 +1465,8 @@ export class ItemSystemService {
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
         Object.assign(_pd.player, {
-          backpack: JSON.stringify(backpack),
-          markers: JSON.stringify(markers),
+          backpack: backpack, // Player backpack 为 Json 列，直接写数组
+          markers: markers, // Player markers 为 Json 列，直接写对象
         });
         await this.playerService.savePlayer(_pd.player);
       });
@@ -1474,7 +1477,7 @@ export class ItemSystemService {
       // 强化失败，不升级
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
-        Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+        Object.assign(_pd.player, { backpack }); // Json 列直接写数组
         await this.playerService.savePlayer(_pd.player);
       });
 
@@ -1519,9 +1522,9 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        equipment: JSON.stringify(equipment),
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        equipment: equipment, // Player equipment 为 Json 列，直接写数组
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        markers: markers, // Player markers 为 Json 列，直接写对象
         sets,
       });
       await this.playerService.savePlayer(_pd.player);
@@ -1606,8 +1609,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        equipment: JSON.stringify(equipment),
-        backpack: JSON.stringify(backpack),
+        equipment: equipment, // Player equipment 为 Json 列，直接写数组
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
         sets,
       });
       await this.playerService.savePlayer(_pd.player);
@@ -1654,8 +1657,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        markers: markers, // Player markers 为 Json 列，直接写对象
       });
       await this.playerService.savePlayer(_pd.player);
     });
@@ -1699,9 +1702,9 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        equipment: JSON.stringify(equipment),
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        equipment: equipment, // Player equipment 为 Json 列，直接写数组
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        markers: markers, // Player markers 为 Json 列，直接写对象
         sets,
       });
       await this.playerService.savePlayer(_pd.player);
@@ -1816,7 +1819,8 @@ export class ItemSystemService {
    */
   private extractTreasures(player: any): Item3[] {
     try {
-      const presets: any[] = JSON.parse(player?.equipmentPresets || '[]');
+      // player.equipmentPresets 为 Player Json 列（对象/字符串兼容读取）
+      const presets: any[] = asJsonValue<any[]>(player?.equipmentPresets, []);
       const preset2 = presets[2];
       if (!preset2 || !Array.isArray(preset2.equipment)) return [];
       return (preset2.equipment as Item3[]).filter(
@@ -1918,8 +1922,8 @@ export class ItemSystemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        markers: markers, // Player markers 为 Json 列，直接写对象
         hp: player.hp,
         shield: player.shield,
         armor: player.armor,
@@ -2333,13 +2337,11 @@ export class ItemSystemService {
     // ---- 2) 基础加成：模板 bonus(中文键JSON) → BonusData 中文键（AFFIX_TO_BONUS 仅做词条名→属性字段的语义映射）----
     const bonus: Record<string, number> = {};
     if (gameEquip?.bonus) {
-      try {
-        const parsed = JSON.parse(gameEquip.bonus); // 中文键 JSON
-        for (const [cnKey, val] of Object.entries(parsed)) {
-          const enKey = ItemSystemService.AFFIX_TO_BONUS[cnKey] || cnKey;
-          bonus[enKey] = Number(val) || 0;
-        }
-      } catch { /* ignore */ }
+      const parsed = asJsonValue<Record<string, unknown>>(gameEquip.bonus, {}); // 中文键 JSON（静态数据现已是对象）
+      for (const [cnKey, val] of Object.entries(parsed)) {
+        const enKey = ItemSystemService.AFFIX_TO_BONUS[cnKey] || cnKey;
+        bonus[enKey] = Number(val) || 0;
+      }
     }
 
     // 词条倍率（原版 L1174-1188）
@@ -2347,7 +2349,7 @@ export class ItemSystemService {
     let affixMult = qualityMult[q] || 1;
     const templateAffixes: string[] = [];
     if (gameEquip?.affixes) {
-      try { templateAffixes.push(...JSON.parse(gameEquip.affixes)); } catch { /* ignore */ }
+      templateAffixes.push(...asJsonValue<string[]>(gameEquip.affixes, []));
     }
     if (q === '' ) { // 神迹（默认分支，原版未指定字符时）
       affixMult = 12;
@@ -2579,7 +2581,7 @@ export class ItemSystemService {
       }
     }
 
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     // 显示物品（原版 L4946 返回 显示物品(物品数组2)）：近似为名字列表
     return backpackOut.map((i) => `${i.name}${i.count > 1 ? '×' + i.count : ''}`).join('、');
   }

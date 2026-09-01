@@ -17,6 +17,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StaticDataService } from './static-data.service';
 import { ShortcutService } from './shortcut.service';
 import { LINE_BREAK_MARKER } from '../../common/utils/game-text.util';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 // ---------- 纯函数工具 ----------
 
@@ -58,25 +59,14 @@ function quote(s: string): string {
 
 /** JSON 数组解析，失败返回空 */
 function parseArr(raw: unknown): any[] {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  try {
-    const v = JSON.parse(String(raw));
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
-  }
+  const v = asJsonValue<any>(raw, []);
+  return Array.isArray(v) ? v : [];
 }
 
 /** JSON 对象解析，失败返回默认 */
 function parseObj(raw: unknown, def: any = {}): Record<string, any> {
-  if (!raw) return def;
-  try {
-    const v = JSON.parse(String(raw));
-    return v && typeof v === 'object' && !Array.isArray(v) ? v : def;
-  } catch {
-    return def;
-  }
+  const v = asJsonValue<Record<string, any>>(raw, def);
+  return v && typeof v === 'object' && !Array.isArray(v) ? v : def;
 }
 
 /** 仿原版 显示加成：key=bonus JSON，onlyNonZero=true 时仅输出非零项 */

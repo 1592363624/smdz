@@ -6,6 +6,7 @@
 
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 /// 常用指令列表最大数量（防止用户滥用存储/过长面板）
 const MAX_FAVORITE_COMMANDS = 20;
@@ -213,27 +214,22 @@ export class UsersService {
   /**
    * 解析用户常用指令 JSON 字段为 FavoriteCommand 数组
    * 兼容字段缺失/非法 JSON/字符串元素/对象元素场景，保证返回数组不抛错。
+   * （DB favoriteCommands 已是原生 Json 列：读取时直接返回数组，仅字符串形态需解析）
    * 元素去重（按 cmd 去重），保留顺序。
-   * @param raw favoriteCommands 原始字符串
+   * @param raw favoriteCommands 原始值（数组 / JSON 字符串 / null）
    */
-  private parseFavoriteCommands(raw: string | null | undefined): FavoriteCommand[] {
-    if (!raw) return [];
-    try {
-      const arr = JSON.parse(raw);
-      if (!Array.isArray(arr)) return [];
-      const seen = new Set<string>();
-      const result: FavoriteCommand[] = [];
-      for (const item of arr) {
-        const norm = normalizeFavoriteItem(item);
-        if (!norm) continue;
-        if (seen.has(norm.cmd)) continue;
-        seen.add(norm.cmd);
-        result.push(norm);
-      }
-      return result;
-    } catch {
-      return [];
+  private parseFavoriteCommands(raw: unknown): FavoriteCommand[] {
+    const arr = asJsonValue<unknown[]>(raw, []);
+    const seen = new Set<string>();
+    const result: FavoriteCommand[] = [];
+    for (const item of arr) {
+      const norm = normalizeFavoriteItem(item);
+      if (!norm) continue;
+      if (seen.has(norm.cmd)) continue;
+      seen.add(norm.cmd);
+      result.push(norm);
     }
+    return result;
   }
 
   /**
@@ -273,7 +269,9 @@ export class UsersService {
     }
     await this.prisma.user.update({
       where: { id: userId },
-      data: { favoriteCommands: JSON.stringify(cleaned) },
+      // favoriteCommands 为原生 Json 列，直接传对象数组（stringify 会双重编码）；
+      // 展开为匿名对象类型以匹配 Prisma InputJsonValue 的索引签名要求
+      data: { favoriteCommands: cleaned.map((c) => ({ ...c })) },
     });
     return cleaned;
   }

@@ -20,6 +20,7 @@ import { StaticDataService } from './static-data.service';
 import { BonusService } from './bonus.service';
 import { CombatStateService } from './combat-state.service';
 import { ChangeBusService } from '../../game-sync/change-bus.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 /**
  * 可前往地图的连接信息
@@ -354,8 +355,9 @@ export class MapService {
     const yard = await this.ensureDynamicMap(houseName, {
       description: `玩家在${baseMap.name}圈定的家园`,
       isFrontier: true,
-      connections: JSON.stringify([{ name: baseMap.name, mapId: baseMap.id, distance: 10, isFrontier: false }]),
-      resources2: JSON.stringify(this.getHomeObstacleResources(['土堆', '杂草'])),
+      // GameMap JSON 列已改为原生 Json 类型，写入必须传对象/数组（stringify 会双重编码）
+      connections: [{ name: baseMap.name, mapId: baseMap.id, distance: 10, isFrontier: false }],
+      resources2: this.getHomeObstacleResources(['土堆', '杂草']),
     });
     await this.appendMapConnection(baseMap.id, {
       name: houseName,
@@ -368,21 +370,22 @@ export class MapService {
       return { yard };
     }
 
-    const buildings = yard.buildings || '[]';
-    const items = yard.items || '[]';
+    // 院子为 Prisma 行，buildings/items 为 Json 列（对象/数组）；空值回退也必须是数组
+    const buildings = yard.buildings || [];
+    const items = yard.items || [];
     const interior = await this.ensureDynamicMap(`${houseName}屋内`, {
       description: `${houseName}的屋内`,
       isFrontier: true,
       buildings,
       items,
-      connections: JSON.stringify([{ name: houseName, mapId: yard.id, distance: 10, isFrontier: true }]),
+      connections: [{ name: houseName, mapId: yard.id, distance: 10, isFrontier: true }],
     });
     const frontline = await this.ensureDynamicMap(`${houseName}前线`, {
       description: `${houseName}的前线防御阵地`,
       isInstance: true,
       buildings,
       items,
-      connections: JSON.stringify([{ name: houseName, mapId: yard.id, distance: 10, isFrontier: true }]),
+      connections: [{ name: houseName, mapId: yard.id, distance: 10, isFrontier: true }],
     });
 
     await this.appendMapConnection(yard.id, {
@@ -450,7 +453,7 @@ export class MapService {
       if (changed) {
         await this.prisma.gameMap.update({
           where: { id: map.id },
-          data: { connections: JSON.stringify(connections) },
+          data: { connections }, // Json 列直接写数组
         });
       }
     }
@@ -466,7 +469,7 @@ export class MapService {
       if (filtered.length !== connections.length) {
         await this.prisma.gameMap.update({
           where: { id: mapId },
-          data: { connections: JSON.stringify(filtered) },
+          data: { connections: filtered }, // Json 列直接写数组
         });
       }
     });
@@ -493,21 +496,22 @@ export class MapService {
         noMove: defaults.noMove ?? false,
         isInstance: defaults.isInstance ?? false,
         requiredTravel: defaults.requiredTravel || 0,
-        monsters: defaults.monsters || '[]',
-        spawnMonsters: defaults.spawnMonsters || '[]',
-        tempMonsters: defaults.tempMonsters || '[]',
-        summons: defaults.summons || '[]',
-        resources: defaults.resources || '[]',
-        resources2: defaults.resources2 || '[]',
-        connections: defaults.connections || '[]',
-        npcs: defaults.npcs || '[]',
-        items: defaults.items || '[]',
-        buildings: defaults.buildings || '[]',
-        vehicles: defaults.vehicles || '[]',
-        markers: defaults.markers || '{}',
-        markers2: defaults.markers2 || '[]',
-        mapBuffs: defaults.mapBuffs || '[]',
-        requireMarkers: defaults.requireMarkers || '[]',
+        // 以下均为 GameMap Json 列：空值回退必须传数组/对象，避免字符串双重编码
+        monsters: defaults.monsters || [],
+        spawnMonsters: defaults.spawnMonsters || [],
+        tempMonsters: defaults.tempMonsters || [],
+        summons: defaults.summons || [],
+        resources: defaults.resources || [],
+        resources2: defaults.resources2 || [],
+        connections: defaults.connections || [],
+        npcs: defaults.npcs || [],
+        items: defaults.items || [],
+        buildings: defaults.buildings || [],
+        vehicles: defaults.vehicles || [],
+        markers: defaults.markers || {},
+        markers2: defaults.markers2 || [],
+        mapBuffs: defaults.mapBuffs || [],
+        requireMarkers: defaults.requireMarkers || [],
         failHint: defaults.failHint || '',
         clearMarkers: defaults.clearMarkers || '',
         music: defaults.music || '',
@@ -528,7 +532,7 @@ export class MapService {
       connections.push(connection);
       await this.prisma.gameMap.update({
         where: { id: mapId },
-        data: { connections: JSON.stringify(connections) },
+        data: { connections }, // Json 列直接写数组
       });
     });
   }
@@ -538,12 +542,8 @@ export class MapService {
    * 解析 connections JSON 字段，返回可前往的地图连接信息
    */
   getConnections(map: any): MapConnection[] {
-    try {
-      return JSON.parse(map.connections || '[]') as MapConnection[];
-    } catch {
-      this.logger.warn(`地图 ${map.name} connections 解析失败`);
-      return [];
-    }
+    // connections 兼容静态数据（已解析数组）与 DB 字符串两种来源
+    return asJsonValue<MapConnection[]>(map.connections, []);
   }
 
   /**
@@ -954,25 +954,25 @@ export class MapService {
           dodge: dodgeVal,
           hit: hitVal,
           isElite: def?.type === '精英' || false,
-          // 最终加成（含等级成长/觉醒/套装等，对应原版 玩家.加成）
-          bonus: JSON.stringify(finalBonus),
-          baseBonus: JSON.stringify(finalBonus),
-          extraBonus: '{}',
+          // 最终加成（含等级成长/觉醒/套装等，对应原版 玩家.加成）；Json 列直接写对象/数组
+          bonus: finalBonus,
+          baseBonus: finalBonus,
+          extraBonus: {},
           // 装备列表：用上方已按空格正确拆分的 eqList（原版 bonus.装备 形如"射爆核心 超载核心 袖剑"）
-          equipments: JSON.stringify(eqList.length ? eqList : []),
-          weapons: defBonus.武器 ? JSON.stringify(String(defBonus.武器).split(/\s+/).filter(Boolean)) : '[]',
+          equipments: eqList,
+          weapons: defBonus.武器 ? String(defBonus.武器).split(/\s+/).filter(Boolean) : [],
           currentWeapon: 0,
-          equipmentPresets: '[]',
-          markers: '[]',
-          markers2: '[]',
-          buffs: '[]',
-          achievements: '[]',
+          equipmentPresets: [],
+          markers: [],
+          markers2: [],
+          buffs: [],
+          achievements: [],
           // 套装判定结果来自 buildMonsterBonusFromDef 计算的 finalBonus.套装（对齐原版 g.套装）
-          set: JSON.stringify(finalBonus.套装 || {}),
+          set: finalBonus.套装 || {},
           affinity: 0,
           vitality: 0,
           exp: expVal,
-          backpack: '[]',
+          backpack: [],
           isPet: false,
           isTemp: false,
         });
@@ -1007,22 +1007,23 @@ export class MapService {
           dodge: dodgeVal,
           hit: hitVal,
           isElite: false,
-          bonus: JSON.stringify(wildBonus),
-          baseBonus: JSON.stringify(wildBonus),
-          extraBonus: '{}',
-          equipments: '[]',
-          weapons: '[]',
+          // Json 列直接写对象/数组（stringify 会双重编码）
+          bonus: wildBonus,
+          baseBonus: wildBonus,
+          extraBonus: {},
+          equipments: [],
+          weapons: [],
           currentWeapon: 0,
-          equipmentPresets: '[]',
-          markers: '[]',
-          markers2: '[]',
-          buffs: '[]',
-          achievements: '[]',
-          set: '{}',
+          equipmentPresets: [],
+          markers: [],
+          markers2: [],
+          buffs: [],
+          achievements: [],
+          set: {},
           affinity: 0,
           vitality: 0,
           exp: expVal,
-          backpack: '[]',
+          backpack: [],
           isPet: false,
           isTemp: false,
         });
@@ -1106,22 +1107,23 @@ export class MapService {
       dodge: Math.floor(lvFactor * (def.dodge || finalBonus.闪避 || 5) * awakenFactor),
       hit: Math.floor(lvFactor * (def.hit || finalBonus.命中 || 85) * awakenFactor),
       isElite: def.type === '精英',
-      bonus: JSON.stringify(finalBonus),
-      baseBonus: JSON.stringify(finalBonus),
-      extraBonus: '{}',
-      equipments: JSON.stringify(equipmentList),
-      weapons: defBonus.武器 ? JSON.stringify(String(defBonus.武器).split(/\s+/).filter(Boolean)) : '[]',
+      // GameMonster Json 列直接写对象/数组（该返回值会进入 prisma create data 或地图 summons）
+      bonus: finalBonus,
+      baseBonus: finalBonus,
+      extraBonus: {},
+      equipments: equipmentList,
+      weapons: defBonus.武器 ? String(defBonus.武器).split(/\s+/).filter(Boolean) : [],
       currentWeapon: 0,
-      equipmentPresets: '[]',
-      markers: '{}',
-      markers2: '[]',
-      buffs: '[]',
-      achievements: '[]',
-      set: JSON.stringify(finalBonus.套装 || {}),
+      equipmentPresets: [],
+      markers: [],
+      markers2: [],
+      buffs: [],
+      achievements: [],
+      set: finalBonus.套装 || {},
       affinity: 0,
       vitality: 0,
       exp: Math.floor(lvFactor * (finalBonus.经验 || 10) * awakenFactor),
-      backpack: '[]',
+      backpack: [],
       isPet: false,
       isTemp: options.isTemp ?? true,
     };
@@ -1216,8 +1218,9 @@ export class MapService {
    * 对应原版单线程内存模型下对 地图.怪物2[x].当前生命/护盾/装甲 的直接写回。
    */
   async updateMonsterFields(mapId: number, monsterId: number, data: {
-    hp?: number; shield?: number; armor?: number; buffs?: string; bonus?: string;
-    markers?: string; markers2?: string;
+    hp?: number; shield?: number; armor?: number;
+    // Json 列字段：现在直接传对象/数组，不再是 JSON 字符串
+    buffs?: any; bonus?: any; markers?: any; markers2?: any;
   }): Promise<void> {
     await this.withMapLock(mapId, async () => {
       const update: any = {};
@@ -1274,22 +1277,23 @@ export class MapService {
         dodge: data.dodge ?? 0,
         hit: data.hit ?? 85,
         isElite: data.isElite ?? false,
-        bonus: data.bonus || '{}',
-        baseBonus: data.baseBonus || (data.bonus || '{}'),
-        extraBonus: data.extraBonus || '{}',
-        equipments: data.equipments || '[]',
-        weapons: data.weapons || '[]',
+        // GameMonster Json 列：空值回退传对象/数组；调用方应直接传对象（stringify 会双重编码）
+        bonus: data.bonus || {},
+        baseBonus: data.baseBonus || (data.bonus || {}),
+        extraBonus: data.extraBonus || {},
+        equipments: data.equipments || [],
+        weapons: data.weapons || [],
         currentWeapon: data.currentWeapon ?? 0,
-        equipmentPresets: data.equipmentPresets || '[]',
-        markers: data.markers || '[]',
-        markers2: data.markers2 || '[]',
-        buffs: data.buffs || '[]',
-        achievements: data.achievements || '[]',
-        set: data.set || '{}',
+        equipmentPresets: data.equipmentPresets || [],
+        markers: data.markers || [],
+        markers2: data.markers2 || [],
+        buffs: data.buffs || [],
+        achievements: data.achievements || [],
+        set: data.set || {},
         affinity: data.affinity ?? 0,
         vitality: data.vitality ?? 0,
         exp: data.exp ?? 0,
-        backpack: data.backpack || '[]',
+        backpack: data.backpack || [],
         isPet: data.isPet ?? false,
         isTemp: true,
       },
@@ -1326,7 +1330,7 @@ export class MapService {
     if (configuredResources.length === 0) {
       await this.prisma.gameMap.update({
         where: { id: mapId },
-        data: { resources2: '[]' },
+        data: { resources2: [] }, // Json 列空数组重置
       });
       this.logger.log(`地图 ${map.name} 刷新了 0 个可采集资源`);
       return;
@@ -1352,8 +1356,9 @@ export class MapService {
     await this.prisma.gameMap.update({
       where: { id: mapId },
       data: {
-        resources: JSON.stringify(refreshedResources),
-        resources2: JSON.stringify(refreshedResources),
+        // Json 列直接写数组
+        resources: refreshedResources,
+        resources2: refreshedResources,
       },
     });
 
@@ -1415,11 +1420,12 @@ export class MapService {
         else resourcesChanged = true;
       }
 
-      const data: Record<string, string> = {
-        markers2: JSON.stringify(activeMarkers),
+      // GameMap Json 列：update data 直接传数组/对象
+      const data: Record<string, any> = {
+        markers2: activeMarkers,
       };
-      if (resourcesChanged) data.resources = JSON.stringify(resources);
-      if (resources2Changed) data.resources2 = JSON.stringify(resources2);
+      if (resourcesChanged) data.resources = resources;
+      if (resources2Changed) data.resources2 = resources2;
       await this.prisma.gameMap.update({ where: { id: mapId }, data });
       return restored;
     });
@@ -1476,12 +1482,9 @@ export class MapService {
 
   /**
    * 安全解析 JSON 字符串，解析失败返回默认值
+   * 委托 asJsonValue：兼容静态数据（已解析对象/数组）与 DB 字符串列两种来源
    */
-  private safeParseJSON<T>(jsonStr: string, defaultValue: T): T {
-    try {
-      return JSON.parse(jsonStr) as T;
-    } catch {
-      return defaultValue;
-    }
+  private safeParseJSON<T>(jsonStr: unknown, defaultValue: T): T {
+    return asJsonValue<T>(jsonStr, defaultValue);
   }
 }

@@ -115,14 +115,14 @@ export class TutorialService {
 
     if (action === 'on' || action === '开启') {
       this.enableTutorial(markers);
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
       return '✅ 新手指引已开启，现在进行各种操作时将显示引导提示。';
     }
 
     if (action === 'off' || action === '关闭') {
       this.disableTutorial(markers);
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
       return '✅ 新手指引已关闭。';
     }

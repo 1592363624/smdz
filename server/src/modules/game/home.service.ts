@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 // ==================== 类型定义 ====================
 
@@ -706,8 +707,8 @@ export class HomeService {
       mapBuildings.push({ name: buildingName, quantity: 1, count: 1, type: def.type || '' });
     }
 
-    // 更新地图建筑数据
-    map.buildings = JSON.stringify(mapBuildings);
+    // 更新地图建筑数据（Json 列直接写数组，由调用方透传持久化）
+    map.buildings = mapBuildings;
 
     return { success: true, message: `成功建造了「${buildingName}」` };
   }
@@ -748,7 +749,7 @@ export class HomeService {
         type: def.type || def['类型'] || '建筑',
       });
     }
-    map.buildings = JSON.stringify(buildings);
+    map.buildings = buildings; // Json 列直接写数组
     return {
       success: true,
       message: `把${installed}个${buildingName}放到了${map.name || '当前地图'}`,
@@ -808,8 +809,8 @@ export class HomeService {
       }
     }
 
-    // 更新地图建筑数据
-    map.buildings = JSON.stringify(mapBuildings);
+    // 更新地图建筑数据（Json 列直接写数组）
+    map.buildings = mapBuildings;
 
     return {
       success: true,
@@ -898,7 +899,7 @@ export class HomeService {
       resources2.push(crop);
     }
 
-    map.resources2 = JSON.stringify(resources2);
+    map.resources2 = resources2; // Json 列直接写数组
 
     return { success: true, message: `成功种植了「${cropName}」` };
   }
@@ -936,7 +937,7 @@ export class HomeService {
       const cropCount = this.getResourceQuantityValue(crop);
 
       resources2.splice(resourceIndex, 1);
-      map.resources2 = JSON.stringify(resources2);
+      map.resources2 = resources2; // Json 列直接写数组
 
       const harvested: string[] = [];
       for (const output of outputs) {
@@ -975,9 +976,9 @@ export class HomeService {
     const crop = mapBuildings[cropIndex];
     const cropCount = this.getItemQuantityValue(crop);
 
-    // 移除作物
+    // 移除作物（Json 列直接写数组）
     mapBuildings.splice(cropIndex, 1);
-    map.buildings = JSON.stringify(mapBuildings);
+    map.buildings = mapBuildings;
 
     // 加入背包
     const harvested: string[] = [];
@@ -1171,12 +1172,8 @@ export class HomeService {
    * 安全解析 JSON 字符串
    */
   private safeParseJSON<T>(jsonStr: string | T, defaultValue: T): T {
-    if (typeof jsonStr !== 'string') return jsonStr as T;
-    try {
-      return JSON.parse(jsonStr) as T;
-    } catch {
-      return defaultValue;
-    }
+    // 统一容错：字符串解析失败/空值回退默认值，对象/数组直接返回
+    return asJsonValue<T>(jsonStr, defaultValue);
   }
 
   /** 原版“文本四舍”：保留两位小数后转文本。 */
@@ -1210,7 +1207,8 @@ export class HomeService {
   async collectHomeOutput(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    // player.markers 为 Player Json 列（对象/字符串兼容读取）；safeJsonParse 对对象会解析失败丢数据
+    const markers = asJsonValue<any>(player.markers, {});
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
     if (progress < 4) return '家园尚未建成，无法产出';
     if (!player.houseName && !player.mapId) return '你还没有家园所在地图';
@@ -1582,7 +1580,8 @@ export class HomeService {
     // 原版地图操作会把供电状态写入地图标记，贸易和其他家园功能都依赖该状态。
     this.writeMarkerValue(mapMarkers, '有电', analysis.hasPower ? 1 : 0);
     markers['家园产出时间'] = now;
-    player.markers = JSON.stringify(markers);
+    // Player Json 列直接写对象（savePlayer 会整行写回，stringify 会双重编码）
+    player.markers = markers;
     const resultLines = [`${player.name || '冒险者'}的家园产出`];
     if (!analysis.hasPower) {
       this.removeItemQuantity('肥料', temporaryFertilizer, storage);
@@ -1676,8 +1675,9 @@ export class HomeService {
   }
 
   private async persistHomeMap(map: any, storage: any[], mapMarkers: any): Promise<void> {
-    const items = JSON.stringify(storage);
-    const markers = JSON.stringify(mapMarkers);
+    // GameMap items/markers 为 Json 列，直接写对象/数组（stringify 会双重编码）
+    const items = storage;
+    const markers = mapMarkers;
     map.items = items;
     map.markers = markers;
     const mapService = this.mapService as any;

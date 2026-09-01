@@ -14,12 +14,16 @@ import { ShortcutService } from './shortcut.service';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { GameHighlightService } from './highlight.service';
 
+// 索引签名：Prisma Json 列（Prisma.InputJsonValue）要求对象具备字符串索引签名，
+// 否则赋值 player.tasks 等字段时 TS2322 类型不兼容
 interface TaskRequirement {
+  [key: string]: any;
   name: string;
   count: number;
 }
 
 interface PlayerTask {
+  [key: string]: any;
   name: string;
   requirements: TaskRequirement[];
   publisher?: string;
@@ -144,7 +148,7 @@ export class TaskService {
         const completed = await this.settleCompletedTasks(player, tasks);
         if (!changed && completed.length === 0) return '';
 
-        player.tasks = JSON.stringify(tasks);
+        player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
         // 复用 ctx 时由最外层 mutate 统一落库；否则单独保存（向后兼容）。
         if (!ctx) {
           await this.saveTaskState(player, [
@@ -206,7 +210,7 @@ export class TaskService {
       const { rewardLines, chained } = await this.settleOneTask(player, tasks, actualTaskName, publisher, rewardScale);
       this.applyTaskProgress(tasks, '完成任务', 1);
       const chainedSettled = await this.settleCompletedTasks(player, tasks, rewardScale);
-      player.tasks = JSON.stringify(tasks);
+      player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
       if (!ctx) {
         await this.saveTaskState(player, [
           'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
@@ -328,7 +332,7 @@ export class TaskService {
       }
     }
 
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     const nextTaskNames = this.parseStringArray(gameTask.nextTasks);
     const chainedNames: string[] = [];
@@ -352,7 +356,7 @@ export class TaskService {
         const recipes = this.getUnlockedRecipeNames(player.recipes);
         if (!recipes.includes(recipeName)) {
           recipes.push(recipeName);
-          player.recipes = JSON.stringify(recipes);
+          player.recipes = recipes; // Player recipes 为 Json 列，直接写数组
         }
         markers['解锁配方'] = Number(markers['解锁配方'] || 0) + 1;
         this.applyTaskProgress(tasks, '解锁配方', 1);
@@ -372,7 +376,7 @@ export class TaskService {
       const affinityKey = `${playerType}好感`;
       markers[affinityKey] = Number(markers[affinityKey] || 0) + 0.03;
     }
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     return { rewardLines, chained: chainedNames };
   }
 
@@ -558,8 +562,8 @@ export class TaskService {
           const currentAffinity = Number(npcMarkers[currentKey] || 0);
           const nextAffinity = currentAffinity + amount;
           npcMarkers[currentKey] = nextAffinity;
-          if (npc.markers !== undefined) npc.markers = JSON.stringify(npcMarkers);
-          else npc.标记 = JSON.stringify(npcMarkers);
+          if (npc.markers !== undefined) npc.markers = npcMarkers; // Json 列直接写对象
+          else npc.标记 = npcMarkers;
 
           const owner = String(npc.ownerQQ ?? npc.ownerId ?? npc.归属 ?? '');
           if (nextAffinity >= 100 && owner !== String(player.userId)) {
@@ -568,12 +572,13 @@ export class TaskService {
             }
             npc.ownerQQ = String(player.userId);
             npc.归属 = String(player.userId);
-            if (npc.markers !== undefined) npc.markers = JSON.stringify(npcMarkers);
-            else npc.标记 = JSON.stringify(npcMarkers);
+            if (npc.markers !== undefined) npc.markers = npcMarkers; // Json 列直接写对象
+            else npc.标记 = npcMarkers;
           }
 
           if (mapsApi.update) {
-            await mapsApi.update({ where: { id: map.id }, data: { [field]: JSON.stringify(units) } });
+            // GameMap Json 列（npcs/monsters/summons 等）直接写数组
+            await mapsApi.update({ where: { id: map.id }, data: { [field]: units } });
           }
           return { applied: true, npcName };
         }
@@ -669,9 +674,9 @@ export class TaskService {
       // 任务可以在同一条指令中自动结算并领取后续任务。
       this.applyTaskProgress(tasks, '领取任务', 1);
       markers['领取任务'] = Number(markers['领取任务'] || 0) + 1;
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
       const completed = await this.settleCompletedTasks(player, tasks);
-      player.tasks = JSON.stringify(tasks);
+      player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
       await this.saveTaskState(player, [
         'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
         'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
@@ -753,7 +758,7 @@ export class TaskService {
       const requirements = this.parseRequirements(recipe.unlockRequirements ?? recipe.解锁需求);
       if (requirements.length === 0) return `配方「${recipeName}」没有可用的解锁要求`;
       tasks.push({ name: taskName, requirements });
-      player.tasks = JSON.stringify(tasks);
+      player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
       await this.saveTaskState(player, ['tasks']);
       return `${player.name || '冒险者'}领取了${taskName}的任务\n完成这个任务即可${taskName}`;
     });
@@ -921,10 +926,10 @@ export class TaskService {
 
       // 先把教程标记写入内存对象，再结算可能立即完成的任务，避免结算
       // 在 player.markers 上产生的“完成任务/活跃度”被旧快照覆盖。
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
       const completed = await this.settleCompletedTasks(player, tasks);
       if (added.length > 0 || markerChanged || completed.length > 0) {
-        player.tasks = JSON.stringify(tasks);
+        player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
         // 标脏而非直调 savePlayer：本方法恒在 playerMutate.mutate / Actor run 内被调用
         // （command.service、selectFamiliar、game.service 三处调用点均已包裹）。此处只是
         // 把"已改动"信号透传给最外层 run 的落库策略（markDirty 让其按 writeThrough 落库），
@@ -948,9 +953,9 @@ export class TaskService {
       const markers = this.parseObject(player.markers, {});
       tasks.push({ name: '新手教程', requirements: this.cloneRequirements(requirements) });
       markers['教程'] = Math.max(2, Number(markers['教程'] || 0));
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
       await this.settleCompletedTasks(player, tasks);
-      player.tasks = JSON.stringify(tasks);
+      player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
       await this.saveTaskState(player, [
         'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
         'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
@@ -986,8 +991,8 @@ export class TaskService {
       const oldIndex = markers2.findIndex((item: any) => this.taskName(item) === '放弃任务');
       if (oldIndex >= 0) markers2[oldIndex] = marker;
       else markers2.push(marker);
-      player.tasks = JSON.stringify(tasks);
-      player.markers2 = JSON.stringify(markers2);
+      player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
+      player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
       await this.saveTaskState(player, ['tasks', 'markers2']);
       return `${player.name || ''}放弃了任务${actualTaskName}`;
     });
@@ -998,9 +1003,9 @@ export class TaskService {
     const data: Record<string, any> = {};
     for (const field of fields) {
       if (player[field] === undefined) continue;
-      data[field] = player[field] && typeof player[field] === 'object'
-        ? JSON.stringify(player[field])
-        : player[field];
+      // Json 列字段（tasks/markers/backpack/recipes 等）保持对象/数组原样透传；
+      // 数值字段原样透传。此前对 object 做 stringify 会导致 Json 列双重编码。
+      data[field] = player[field];
     }
     if (Object.keys(data).length === 0) return;
     await this.playerService.enqueueUserWrite(player.userId, async () => {

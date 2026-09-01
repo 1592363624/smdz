@@ -12,6 +12,7 @@ import { ChatService } from '../chat/chat.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from '../game/static-data.service';
 import { StatsService } from '../game/stats.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 @Injectable()
 export class AdminService {
@@ -203,13 +204,9 @@ export class AdminService {
     const p = user.player as any;
     const detail: any = { ...user, online: this.statsService.isOnline(user.id) };
     if (p) {
-      // JSON 字符串字段解析为结构化数据（解析失败保留原样），BigInt 转数值
+      // Json 字段读取已是结构化对象；仅字符串形态（存量行）需容错解析，失败保留原样
       for (const key of ['backpack', 'equipment', 'weapons', 'tasks', 'titles', 'skills', 'buffs']) {
-        try {
-          p[key] = JSON.parse(p[key] ?? 'null');
-        } catch {
-          /* 保持原字符串 */
-        }
+        p[key] = asJsonValue<unknown>(p[key], p[key] ?? null);
       }
       p.playTimeSeconds = p.playTime != null ? Number(p.playTime) : 0;
       p.playTime = undefined;
@@ -243,9 +240,11 @@ export class AdminService {
         throw new BadRequestException(`不允许修改字段「${field}」`);
       }
       if (AdminService.EDIT_JSON_FIELDS.includes(field)) {
-        // 结构化字段：序列化存储，非法 JSON 直接拒绝
+        // 结构化字段：Json 列直接存对象/数组（stringify 会双重编码）；
+        // stringify 仅用于校验可序列化性（循环引用等抛错即拒绝）
         try {
-          updateData[field] = JSON.stringify(rawValue);
+          JSON.stringify(rawValue);
+          updateData[field] = rawValue;
         } catch {
           throw new BadRequestException(`字段「${field}」不是合法的结构化数据`);
         }
@@ -494,7 +493,8 @@ export class AdminService {
     let initialTasks: Array<{ name: string; requirements: Array<{ name: string; count: number }> }> = [];
     const tutorialTask = this.staticData.getTaskByName('新手教程');
     if (tutorialTask) {
-      const reqs = this.playerService.safeJsonParse<Array<{ name: string; count: number }>>(
+      // 静态数据 requirements 已是对象形态，asJsonValue 兼容对象与字符串两种来源
+      const reqs = asJsonValue<Array<{ name: string; count: number }>>(
         tutorialTask.requirements, [],
       );
       if (reqs.length > 0) {
@@ -536,25 +536,25 @@ export class AdminService {
         mapId: startMapId,
         location: startMapName,
         houseName: '',
-        backpack: JSON.stringify(initialBackpack),
-        equipment: JSON.stringify(initialEquipment),
-        weapons: JSON.stringify(initialWeapons),
+        backpack: initialBackpack,
+        equipment: initialEquipment,
+        weapons: initialWeapons,
         currentWeapon: 0,
-        markers: JSON.stringify({ '指引': 0, '活力2': 100, '使用活力': 0 }),
-        markers2: '[]',
-        buffs: '[]',
-        tasks: JSON.stringify(initialTasks),
-        titles: JSON.stringify([{ name: '新人', equipped: false }]),
-        skills: '{}',
-        sets: '{}',
-        bonus: '{}',
-        baseBonus: '{}',
+        markers: { '指引': 0, '活力2': 100, '使用活力': 0 },
+        markers2: [],
+        buffs: [],
+        tasks: initialTasks,
+        titles: [{ name: '新人', equipped: false }],
+        skills: {},
+        sets: {},
+        bonus: {},
+        baseBonus: {},
         vehicle: '',
-        safeBox: '[]',
-        equipmentPresets: '[]',
-        reverse: '[]',
-        recipes: '[]',
-        stats: '{}',
+        safeBox: [],
+        equipmentPresets: [],
+        reverse: [],
+        recipes: [],
+        stats: {},
         affinity: 0,
         masterQQ: '',
         vitality: 0,
@@ -844,7 +844,7 @@ export class AdminService {
     // 写入走用户串行邮箱，避免与玩家其他写操作并发覆盖
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+      Object.assign(_pd.player, { backpack: backpack });
       await this.playerService.savePlayer(_pd.player);
     });
     this.logger.log(`GM 保存了用户 ${userId} (${user.username}) 的背包：${backpack.length} 种物品`);
@@ -1052,12 +1052,22 @@ export class AdminService {
    * @param targetQQ 目标QQ号
    */
   async banPlayer(userId: number, targetQQ: string): Promise<string> {
-    // 查找目标用户
-    const targetUser = await this.prisma.user.findUnique({
+    // 查找目标用户：兼容 QQ号 → 用户名 → 用户ID 三级定位（网页版账号可能没有 QQ 号）
+    let targetUser = await this.prisma.user.findUnique({
       where: { qqNumber: targetQQ },
     });
     if (!targetUser) {
-      throw new NotFoundException(`未找到QQ号为 ${targetQQ} 的用户`);
+      targetUser = await this.prisma.user.findUnique({
+        where: { username: targetQQ },
+      });
+    }
+    if (!targetUser && /^\d+$/.test(targetQQ)) {
+      targetUser = await this.prisma.user.findUnique({
+        where: { id: parseInt(targetQQ, 10) },
+      });
+    }
+    if (!targetUser) {
+      throw new NotFoundException(`未找到目标用户 ${targetQQ}（支持QQ号/用户名/用户ID）`);
     }
 
     // 检查是否已封禁
@@ -1084,12 +1094,22 @@ export class AdminService {
    * @param targetQQ 目标QQ号
    */
   async resetPlayer(userId: number, targetQQ: string): Promise<string> {
-    // 查找目标用户
-    const targetUser = await this.prisma.user.findUnique({
+    // 查找目标用户：兼容 QQ号 → 用户名 → 用户ID 三级定位（网页版账号可能没有 QQ 号）
+    let targetUser = await this.prisma.user.findUnique({
       where: { qqNumber: targetQQ },
     });
     if (!targetUser) {
-      throw new NotFoundException(`未找到QQ号为 ${targetQQ} 的用户`);
+      targetUser = await this.prisma.user.findUnique({
+        where: { username: targetQQ },
+      });
+    }
+    if (!targetUser && /^\d+$/.test(targetQQ)) {
+      targetUser = await this.prisma.user.findUnique({
+        where: { id: parseInt(targetQQ, 10) },
+      });
+    }
+    if (!targetUser) {
+      throw new NotFoundException(`未找到目标用户 ${targetQQ}（支持QQ号/用户名/用户ID）`);
     }
 
     // 查找玩家档案
@@ -1100,14 +1120,14 @@ export class AdminService {
       throw new NotFoundException(`玩家 ${targetQQ} 还没有创建角色`);
     }
 
-    // 重置玩家数据到初始状态（全部为原版道具：布装备+石制工具）
-    const initialBackpack = JSON.stringify([
+    // 重置玩家数据到初始状态（全部为原版道具：布装备+石制工具）；Json 列直接传对象/数组
+    const initialBackpack = [
       { name: '石制工具', type: '装备', quantity: 1, durability: 0, data: 'e' },
       { name: '布帽', type: '装备', quantity: 1, durability: 0, data: 'e' },
       { name: '布衣', type: '装备', quantity: 1, durability: 0, data: 'e' },
-    ]);
-    const initialMarkers = JSON.stringify({ '指引': 0 });
-    const initialTitles = JSON.stringify([{ name: '新人', equipped: false }]);
+    ];
+    const initialMarkers = { '指引': 0 };
+    const initialTitles = [{ name: '新人', equipped: false }];
 
     await this.playerService.enqueueUserWrite(player.userId, async () => {
       const _pd = await this.playerService.getPlayerData(player.userId);
@@ -1134,12 +1154,12 @@ export class AdminService {
         mapId: 1,
         location: '新手村',
         backpack: initialBackpack,
-        equipment: JSON.stringify([
+        equipment: [
           { name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' },
-        ]),
-        weapons: JSON.stringify([
+        ],
+        weapons: [
           { name: '石制工具', type: '武器', slot: 1, quantity: 1, durability: 0, data: 'e' },
-        ]),
+        ],
         markers: initialMarkers,
         titles: initialTitles,
         affinity: 0,
@@ -1175,12 +1195,22 @@ export class AdminService {
       throw new BadRequestException(`不允许修改字段「${field}」，可修改字段: ${allowedFields.join(', ')}`);
     }
 
-    // 查找目标用户
-    const targetUser = await this.prisma.user.findUnique({
+    // 查找目标用户：兼容 QQ号 → 用户名 → 用户ID 三级定位（网页版账号可能没有 QQ 号）
+    let targetUser = await this.prisma.user.findUnique({
       where: { qqNumber: targetQQ },
     });
     if (!targetUser) {
-      throw new NotFoundException(`未找到QQ号为 ${targetQQ} 的用户`);
+      targetUser = await this.prisma.user.findUnique({
+        where: { username: targetQQ },
+      });
+    }
+    if (!targetUser && /^\d+$/.test(targetQQ)) {
+      targetUser = await this.prisma.user.findUnique({
+        where: { id: parseInt(targetQQ, 10) },
+      });
+    }
+    if (!targetUser) {
+      throw new NotFoundException(`未找到目标用户 ${targetQQ}（支持QQ号/用户名/用户ID）`);
     }
 
     // 查找玩家档案

@@ -21,6 +21,7 @@ import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
 import { MutateContext, PlayerMutateService } from './player-mutate.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -177,7 +178,7 @@ export class FamiliarSkillsService {
    * @returns 是否冷却中，以及剩余冷却文本
    */
   private checkCooldown(player: any, cooldownName: string, defaultCooldown: number): { isOnCooldown: boolean; text: string } {
-    const parsedMarkers2 = this.playerService.safeJsonParse<any>(player.markers2, []);
+    const parsedMarkers2 = asJsonValue<any>(player.markers2, []);
     const markers2: any[] = Array.isArray(parsedMarkers2) ? parsedMarkers2 : [];
     const nowMs = Date.now();
     const cooldownMarker = markers2.find((m: any) => (m?.name ?? m?.名称) === cooldownName);
@@ -200,7 +201,7 @@ export class FamiliarSkillsService {
    * @param duration 冷却持续时间（秒）
    */
   private setCooldown(player: any, cooldownName: string, duration: number): void {
-    const parsedMarkers2 = this.playerService.safeJsonParse<any>(player.markers2, []);
+    const parsedMarkers2 = asJsonValue<any>(player.markers2, []);
     const markers2: any[] = Array.isArray(parsedMarkers2) ? parsedMarkers2 : [];
     const now = Date.now();
     const newMarkers2 = markers2.filter((m: any) => (m?.name ?? m?.名称) !== cooldownName);
@@ -208,7 +209,7 @@ export class FamiliarSkillsService {
       name: cooldownName,
       expireAt: now + duration * 1000,
     });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
   }
 
   /**
@@ -286,7 +287,7 @@ export class FamiliarSkillsService {
    * @param extraData 额外数据
    */
   private addBuff(player: any, buffName: string, duration: number, extraData?: Record<string, any>): void {
-    const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const buffs = asJsonValue<any[]>(player.buffs, []);
     const now = Date.now() / 1000;
     const newBuffs = buffs.filter((b: any) => b.name !== buffName);
     newBuffs.push({
@@ -294,7 +295,7 @@ export class FamiliarSkillsService {
       expireAt: now + duration,
       ...(extraData || {}),
     });
-    player.buffs = JSON.stringify(newBuffs);
+    player.buffs = newBuffs; // Player buffs 为 Json 列，直接写数组
   }
 
   /**
@@ -365,13 +366,13 @@ export class FamiliarSkillsService {
     const levelGap = Math.max(0, highestLevel - currentLevel);
     let multiplier = 1;
 
-    const sets = this.playerService.safeJsonParse<any>(player.sets, {});
+    const sets = asJsonValue<any>(player.sets, {});
     const whiteSet = Boolean(sets.白 ?? sets.white ?? sets.whiteSet);
     if (whiteSet && this.playerService.getMarkerValue(markers, 'bj2') === 3) {
       multiplier *= 1.25;
     }
 
-    const equipment = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const equipment = asJsonValue<any[]>(player.equipment, []);
     if (equipment.some((item: any) => String(item?.name ?? item?.名称 ?? '').includes('创可贴'))) {
       multiplier *= 1.25;
     }
@@ -478,7 +479,8 @@ export class FamiliarSkillsService {
     const mapBuffs: any[] = this.safeParse(map.mapBuffs, []);
     const filtered = mapBuffs.filter((b: any) => b.name !== buff.name);
     filtered.push({ ...buff, source: buff.source || 'familiarSkill', mapId });
-    await this.mapService.updateDynamicFields(mapId, { mapBuffs: JSON.stringify(filtered) });
+    // GameMap mapBuffs 为 Json 列，直接写数组
+    await this.mapService.updateDynamicFields(mapId, { mapBuffs: filtered });
   }
 
   /**
@@ -517,11 +519,12 @@ export class FamiliarSkillsService {
       const next = curAnes + add;
       setData.当前麻醉 = next;
       setData.currentAnesthesia = next;
-      m.set = JSON.stringify(setData);
+      // GameMonster Json 列直接写对象（下方 saveGameMonster 整行写回）
+      m.set = setData;
       // 保留旧字段，兼容捕捉/存量代码直接读取 bonus.当前麻醉 的数据。
       bonus.当前麻醉 = next;
       bonus.currentAnesthesia = next;
-      m.bonus = JSON.stringify(bonus);
+      m.bonus = bonus; // GameMonster Json 列直接写对象
 
       // 原版每次成功累加都记录麻醉者与攻击者，不只是在达到上限时记录。
       const monsterMarkers: any[] = Array.isArray(this.safeParse<any>(m.markers, []))
@@ -540,14 +543,14 @@ export class FamiliarSkillsService {
         writeMarker(`麻醉者${anesthetistQQ}`, 1);
         writeMarker(`攻击者${anesthetistQQ}`, 0.001);
       }
-      m.markers = JSON.stringify(monsterMarkers);
+      m.markers = monsterMarkers; // GameMonster Json 列直接写数组
       if (next >= maxAnes) {
         const markers2: any[] = Array.isArray(this.safeParse<any>(m.markers2, []))
           ? this.safeParse<any[]>(m.markers2, [])
           : [];
         const filteredMarkers2 = markers2.filter((entry: any) => (entry?.名称 ?? entry?.name) !== '麻醉');
         filteredMarkers2.push({ 名称: '麻醉', 强度: 0, 有效期至: Date.now() + 3600 * 1000 });
-        m.markers2 = JSON.stringify(filteredMarkers2);
+        m.markers2 = filteredMarkers2; // GameMonster Json 列直接写数组
         lines.push(`${m.name}麻醉+${add}（已满，被麻醉了，一小时内可以捕捉）`);
       } else {
         lines.push(`${m.name}麻醉+${add}（${next}/${maxAnes}）`);
@@ -592,8 +595,9 @@ export class FamiliarSkillsService {
     if (!found) return;
     const sbuffs: any[] = this.safeParse(found.buffs, []);
     sbuffs.push({ name: '下次攻击·标记', expireAt: Math.floor(Date.now() / 1000) + 3600, ...next });
-    found.buffs = JSON.stringify(sbuffs);
-    await this.mapService.updateDynamicFields(mapId, { summons: JSON.stringify(summons) });
+    found.buffs = sbuffs; // summons 嵌套元素字段保持对象形态（读取方均容错）
+    // GameMap summons 为 Json 列，直接写数组
+    await this.mapService.updateDynamicFields(mapId, { summons });
   }
 
   /**
@@ -605,7 +609,7 @@ export class FamiliarSkillsService {
    * @param data 标记数据（mustHitNext / nextPenetration / reverseResist 等）
    */
   private setNextAttackBuff(player: any, name: string, data: Record<string, any>): void {
-    const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const buffs = asJsonValue<any[]>(player.buffs, []);
     const now = Date.now() / 1000;
     const newBuffs = buffs.filter((b: any) => b.name !== name);
     newBuffs.push({
@@ -614,7 +618,7 @@ export class FamiliarSkillsService {
       onceAttack: true,
       ...data,
     });
-    player.buffs = JSON.stringify(newBuffs);
+    player.buffs = newBuffs; // Player buffs 为 Json 列，直接写数组
   }
 
   /**
@@ -779,9 +783,9 @@ export class FamiliarSkillsService {
 
     const nextMarkers2 = markers2.filter((marker: any) => this.markerName(marker) !== '宠搜');
     nextMarkers2.push({ name: '宠搜', expireAt: nowSeconds + cooldown });
-    player.markers2 = JSON.stringify(nextMarkers2);
+    player.markers2 = nextMarkers2; // Player markers2 为 Json 列，直接写数组
     if (player.标记2 !== undefined) player.标记2 = player.markers2;
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     if (player.背包 !== undefined) player.背包 = player.backpack;
     await this.playerService.savePlayer(player);
 
@@ -951,7 +955,7 @@ export class FamiliarSkillsService {
       return {
         result: cooldownCheck.text,
         player,
-        markers: this.playerService.safeJsonParse<any>(player.markers, {}),
+        markers: asJsonValue<any>(player.markers, {}),
       };
     }
 
@@ -973,10 +977,10 @@ export class FamiliarSkillsService {
     this.setCooldown(player, opts.cooldownName, await this.getSkillCooldown(player, opts.baseCooldown));
 
     // 记录技能熟练度与活跃度
-    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    const markers = asJsonValue<any>(player.markers, {});
     const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     // 必须把本方法内部持有并已落库的 player/markers 交还调用方：
@@ -1140,7 +1144,7 @@ export class FamiliarSkillsService {
     }
 
     // 冥鱼腿环：按腿环品质提升刷出条数（原版 L1219-1235），无腿环固定5条
-    const equipped = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const equipped = asJsonValue<any[]>(player.equipment, []);
     const ringIdx = equipped.findIndex((eq: any) => String(eq?.type ?? eq?.类型 ?? '') === '腿环');
     let rolls = 5;
     if (ringIdx >= 0) {
@@ -1181,7 +1185,7 @@ export class FamiliarSkillsService {
     if (equipment.specialEffect) data += `!bx${equipment.specialEffect}`;
     if (equipment.maker) data += `!@@${equipment.maker}`;
     item.data = data;
-    const sets = this.playerService.safeJsonParse<Record<string, any>>(player.sets, {});
+    const sets = asJsonValue<Record<string, any>>(player.sets, {});
     sets['六道轮回'] = {
       backpackIndex: index,
       itemName: String(item.name || ''),
@@ -1213,9 +1217,9 @@ export class FamiliarSkillsService {
       consumeText = `\n消耗了${pendingCosts.map((c) => `${c.name}x${Math.ceil(c.quantity)}`).join('、')}`;
     }
 
-    player.backpack = JSON.stringify(backpack);
-    player.sets = JSON.stringify(sets);
-    player.markers = JSON.stringify(markers);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
+    player.sets = sets; // Player sets 为 Json 列，直接写对象
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     const qualityName = QUALITY_PREFIX_MAP[prefix] || '神迹';
@@ -1246,7 +1250,7 @@ export class FamiliarSkillsService {
   private async applySixPathsChoice(userId: number, choiceParam: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    const sets = this.playerService.safeJsonParse<Record<string, any>>(player.sets, {});
+    const sets = asJsonValue<Record<string, any>>(player.sets, {});
     const pending = sets['六道轮回'];
 
     const reShow = (): string => {
@@ -1272,7 +1276,7 @@ export class FamiliarSkillsService {
     if (!(idx >= 1 && idx <= backpack.length)
       || String(backpack[idx - 1]?.name || '') !== String(pending.itemName)) {
       delete sets['六道轮回'];
-      player.sets = JSON.stringify(sets);
+      player.sets = sets; // Player sets 为 Json 列，直接写对象
       await this.playerService.savePlayer(player);
       return `${player.name || '冒险者'}装备在背包的位置已改变，请重新使用六道轮回`;
     }
@@ -1292,8 +1296,8 @@ export class FamiliarSkillsService {
     item.data = data;
 
     delete sets['六道轮回'];
-    player.backpack = JSON.stringify(backpack);
-    player.sets = JSON.stringify(sets);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
+    player.sets = sets; // Player sets 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `${player.name || '冒险者'}${item.name}得到了${chosen.name}${this.formatSkillNumber(Number(chosen.value) || 0)}`;
@@ -1342,7 +1346,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `龙姬发出震天怒吼！\n攻击力提升 ${attackBonus} 点（持续30秒）\n防御力降低 ${defensePenalty} 点（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -1415,7 +1419,7 @@ export class FamiliarSkillsService {
     const skillKey = `${player.type}技能熟练度`;
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `【万象】${chosenEffect}\n全属性提升 ${statBonus} 点（持续60秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -1539,7 +1543,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `恶毒开启鹰眼模式！\n命中率提升 ${hitBonus}%（持续30秒）\n闪避率降低 ${dodgePenalty}%（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -1584,7 +1588,7 @@ export class FamiliarSkillsService {
     if (this.checkAffinity(liveMarkers, '阿尔缇娜', 20)) {
       this.addBuff(livePlayer, 'a技能2', 30);
       extra = '\n（好感≥20 解锁：【a技能2】剑刃格挡强化，持续30秒）';
-      livePlayer.markers = JSON.stringify(liveMarkers);
+      livePlayer.markers = liveMarkers; // Player markers 为 Json 列，直接写对象
       await this.playerService.savePlayer(livePlayer);
     }
 
@@ -1635,7 +1639,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `伊卡洛斯进入歼灭模式！\n攻击力提升 ${attackBonus} 点，暴击率提升 ${critBonus}%（持续45秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -1693,7 +1697,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `战斗女仆展开绝对守护！\n【守护1】${guardDuration}秒内可抵挡伤害并转化为攻击\n好感≥100 时同时激活【守护3】免死与【守护4】追击`;
@@ -1738,7 +1742,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `星尘发动斗转星移！\n获得 ${reflectPercent}% 伤害反弹（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -1783,7 +1787,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `普拉娜火力全开！\n攻击力提升 ${attackBonus} 点（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -1835,7 +1839,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `花园猫使出啾啾猫猫！喵喵喵~！\n连续攻击 ${hitCount} 次！伤害：${hitTexts.join('、')}\n总伤害 ${totalDamage} 点\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -1888,7 +1892,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `古月娜银龙附体！银色龙鳞覆盖全身！\n全属性提升 ${statBonus} 点，暴击率提升 ${Math.floor(10 * effect)}%（持续60秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -1934,7 +1938,7 @@ export class FamiliarSkillsService {
     const skillKey = '剑圣技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `剑圣拔刀——斩！\n血气回涌，生命与护盾全部恢复（护盾+${shieldVal}）！`;
@@ -2132,7 +2136,7 @@ export class FamiliarSkillsService {
       this.combatSystem.getFeather(player, markers, Date.now(), -10 - skillLevel / 2);
       const remaining = this.combatSystem.getFeather(player, markers, Date.now());
       markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
       await this.playerService.savePlayer(player);
       return `${player.name || '冒险者'}对着空气练习了日轮\n（羽毛${Math.floor(remaining)}）`;
     }
@@ -2158,7 +2162,7 @@ export class FamiliarSkillsService {
     this.addBuff(livePlayer, '日轮', Math.floor(30 * a3));
     // getFeather 只改 markers 对象，必须 stringify 写回 player.markers 才会随
     // savePlayer 落库（同 combat-system 远程炮击分支的写法），否则扣的羽毛不生效。
-    livePlayer.markers = JSON.stringify(liveMarkers);
+    livePlayer.markers = liveMarkers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(livePlayer);
 
     return `绝灭天使展开日轮！\n${result}${this.checkAffinity(liveMarkers, '绝灭天使', 40) ? '\n（好感≥40 解锁：本次攻击穿透+5）' : ''}（羽毛${Math.floor(remaining)}）`;
@@ -2220,7 +2224,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `安克雷奇：安宝加油！加油！\n回复 ${healAmount} 点生命值，防御力提升 ${defenseBonus} 点（持续30秒）${extra}\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -2261,8 +2265,8 @@ export class FamiliarSkillsService {
     const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['使用技能'] = this.playerService.getMarkerValue(markers, '使用技能') + 1;
     markers['活跃度'] = this.playerService.getMarkerValue(markers, '活跃度') + 1;
-    player.markers = JSON.stringify(markers);
-    player.markers2 = JSON.stringify(playerData.markers2);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
+    player.markers2 = playerData.markers2; // Player markers2 为 Json 列，直接写数组
 
     resultLines.push(`${player.type}开始我们的约会吧(战斗)吧！`);
 
@@ -2329,7 +2333,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `四糸乃召唤冻结傀儡！\n极寒的傀儡将目标冻结，造成 ${finalDamage} 点冰系伤害\n目标被冻结 ${freezeDuration} 秒，速度大幅降低\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -2383,7 +2387,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `小樱：封印解除！\n隐藏的力量全部释放！全属性大幅提升 ${statBonus} 点（持续60秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -2433,7 +2437,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `古月娜召唤银龙！\n一条银色的巨龙降临战场！\n银龙属性——攻击: ${dragonAttack}，生命: ${dragonHp}\n银龙将协助战斗 ${dragonDuration} 秒\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -2513,7 +2517,7 @@ export class FamiliarSkillsService {
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     // 设置公共冷却（兰音通用）
     this.setCooldown(player, '兰音通用', baseCd || 1);
@@ -2571,7 +2575,7 @@ export class FamiliarSkillsService {
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     // 设置冷却（兰音通用 + 本技能）
     this.setCooldown(player, '兰音通用', baseCd);
@@ -2631,7 +2635,7 @@ export class FamiliarSkillsService {
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     // 设置冷却
     this.setCooldown(player, '兰音通用', baseCd);
@@ -2686,7 +2690,7 @@ export class FamiliarSkillsService {
     // 原版使用独立的 mqtx 标记记录技能已经成功释放；不是技能熟练度。
     markers.mqtx = 1;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     // 设置双冷却；原版专属冷却为 60+a2，与公共冷却不同。
     this.setCooldown(player, '兰音通用', publicCd);
@@ -2738,7 +2742,7 @@ export class FamiliarSkillsService {
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 15;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     // 设置冷却
     this.setCooldown(player, '兰音通用', baseCd);
@@ -2802,7 +2806,7 @@ export class FamiliarSkillsService {
     const skillKey = '兰音技能熟练度';
     markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 15;
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     // 设置冷却
     this.setCooldown(player, '兰音通用', baseCd);
@@ -2906,7 +2910,7 @@ export class FamiliarSkillsService {
 
     if (Math.random() * 100 >= successRate) {
       this.scheduleMapAttack(userId, map);
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
       await this.playerService.savePlayer(player);
       return `${player.name}尝试洗脑${monsterName}失败了……\n成功率：${roundedRate}%`;
     }
@@ -2929,10 +2933,10 @@ export class FamiliarSkillsService {
     await this.mapService.removeMapMonster(map.id, targetMonster.id);
     const summons: any[] = this.safeParse(map.summons, []);
     summons.push(summon);
-    map.summons = JSON.stringify(summons);
+    map.summons = summons; // GameMap summons 为 Json 列，直接写数组
     await this.mapService.updateDynamicFields(map.id, { summons: map.summons });
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
     return `${player.name}洗脑${monsterName}成功了！\n成功率：${roundedRate}%`;
   }
@@ -2978,7 +2982,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `ザ·ワールド！时停吧！\n速度提升 ${speedBonus} 点，闪避率提升 ${dodgeBonus}%（持续10秒）\n冷却时间5分钟`;
@@ -3019,7 +3023,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `使用训练器进行训练！\n获得 ${expGain} 点经验值（冷却1小时）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -3064,7 +3068,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `时间在你手中流转！\n冷却缩减 ${cooldownReduction}%，全属性提升 ${statBonus} 点（持续30秒）\n冷却时间10分钟`;
@@ -3122,10 +3126,11 @@ export class FamiliarSkillsService {
       hit: 85,
       exp: 10 + level * 2,
       isPlayerSummon: true,
-      buffs: '[]',
-      bonus: '{}',
+      buffs: [],
+      bonus: {},
     });
-    await this.mapService.updateDynamicFields(player.mapId, { summons: JSON.stringify(summons) });
+    // GameMap summons 为 Json 列，直接写数组
+    await this.mapService.updateDynamicFields(player.mapId, { summons });
 
     // 设置冷却
     this.setCooldown(player, '召唤', 120);
@@ -3133,7 +3138,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `使用次元手环召唤「${target}」！\n次元之门打开，召唤物降临当前地图，归属于你（冷却2分钟）`;
@@ -3204,7 +3209,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     const bonusText = Object.entries(buffData)
@@ -3253,7 +3258,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `安乐天使展开光环！\n生命已全部恢复，获得护盾保护（持续20秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -3299,7 +3304,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `福音书绽放出神圣的光芒！\n全属性抗性提升 ${resistBonus} 点，力量提升 ${Math.floor(10 * effect)} 点（持续300秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -3337,11 +3342,11 @@ export class FamiliarSkillsService {
       && (entry?.name ?? entry?.名称) !== '启示录',
     );
     nextMarkers2.push({ name: '福音书', expireAt: Date.now() + 120 * 1000 });
-    map.markers2 = JSON.stringify(nextMarkers2);
+    map.markers2 = nextMarkers2; // GameMap markers2 为 Json 列，直接写数组
     await this.mapService.updateDynamicFields(player.mapId, { markers2: map.markers2 });
 
     markers['启示录'] = 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `${player.name}在${map.name}使用了启示录`;
@@ -3383,7 +3388,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `铠甲合体！装甲覆盖全身！\n防御力提升 ${defenseBonus} 点，攻击力提升 ${attackBonus} 点，装甲强化 ${Math.floor(50 * effect)} 点（持续${duration}秒）\n好感度加成: ${Math.round(effect * 100)}%`;
@@ -3450,7 +3455,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     const bonusText = Object.entries(buffData)
@@ -3484,7 +3489,7 @@ export class FamiliarSkillsService {
     const effect = this.getSkillEffect(affinity);
 
     // 设置使魔挑战模式标记
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const newMarkers2 = markers2.filter((m: any) => m.name !== '使魔挑战');
     newMarkers2.push({
@@ -3493,7 +3498,7 @@ export class FamiliarSkillsService {
       wave: 1,
       score: 0,
     });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
     // 设置冷却
     this.setCooldown(player, '使魔挑战', 600);
@@ -3501,7 +3506,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     const maxWaves = 5 + Math.floor(effect * 5); // 5~10波
@@ -3521,7 +3526,7 @@ export class FamiliarSkillsService {
     const { player, markers } = playerData;
 
     // 检查是否在挑战模式中
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const challengeMarker = markers2.find((m: any) => m.name === '使魔挑战');
     const now = Date.now() / 1000;
 
@@ -3540,14 +3545,14 @@ export class FamiliarSkillsService {
 
       // 清除挑战标记
       const newMarkers2 = markers2.filter((m: any) => m.name !== '使魔挑战');
-      player.markers2 = JSON.stringify(newMarkers2);
+      player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
       // 发放奖励
       await this.playerService.addExp(userId, rewardExp);
 
       // 增加活跃度
       markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
       await this.playerService.savePlayer(player);
 
       return `【挑战完成】你成功击败了全部 ${maxWaves} 波敌人！\n最终得分: ${score}\n获得经验: ${rewardExp}`;
@@ -3564,11 +3569,11 @@ export class FamiliarSkillsService {
     challengeMarker.score = (challengeMarker.score || 0) + currentWave * 10;
     const newMarkers2 = markers2.filter((m: any) => m.name !== '使魔挑战');
     newMarkers2.push(challengeMarker);
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `【第 ${currentWave} 波】挑战开始！\n出现了一只 Lv.${monsterLevel} 的挑战怪物\nHP: ${monsterHp} | 攻击: ${monsterAttack} | 防御: ${monsterDefense}\n击败后进入下一波（剩余 ${maxWaves - currentWave} 波）`;
@@ -3623,7 +3628,7 @@ export class FamiliarSkillsService {
           backpack.splice(idx, 1);
         }
       }
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     } else {
       // 扣除钻石
       if (diamondCount === 50) {
@@ -3632,7 +3637,7 @@ export class FamiliarSkillsService {
       } else {
         diamondItem!.count = diamondCount - 50;
       }
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     }
 
     // 回复使魔生命
@@ -3644,7 +3649,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     const resourceText = hasAwakenPill ? '1个觉醒丹' : '50钻石';
@@ -3710,8 +3715,8 @@ export class FamiliarSkillsService {
       ticketItem!.count = newTicketCount;
     }
 
-    player.markers = JSON.stringify(markers);
-    player.backpack = JSON.stringify(backpack);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     // 设置冷却（1小时）
     this.setCooldown(player, '大召唤术', 3600);
@@ -3719,7 +3724,7 @@ export class FamiliarSkillsService {
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `【大召唤术】消耗了10张召唤券！\n召唤出了 ${summonedItems.join('、')}\n共 ${summonCount} 只使魔（冷却1小时）`;

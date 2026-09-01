@@ -339,15 +339,15 @@ function mapWeaponToEquipment(section: ConfigSection, specialSeq: number) {
     lockTime: parseInt(fields['锁定']) || 0,
     forcedEffect: fields['必中'] === '1',
     vehicleForceDmg: false,
-    bonus: JSON.stringify(bonus),
-    baseBonus: '{}',
-    properties: JSON.stringify(propertiesObj),
+    bonus,
+    baseBonus: {},
+    properties: propertiesObj,
     // 词条(affixes) 直接取自原版"属性"字段（空格分隔），对应原版 数据存取.ecode L513：
     //   z.词条 = 分割文本(读配置项3(p, w[a], "属性", "随机"), " ", )
     // 运行时 generateEquipment 会按词条随机展开(随机攻击→具体属性)并经 词条转换 赋随机值。
-    affixes: JSON.stringify(parseSpaceSeparatedString(fields['属性'] || '')),
-    attackText: JSON.stringify({ name: fields['攻击文本'] || '' }),
-    buffs: JSON.stringify(parseSpaceSeparatedString(fields['增益'] || '')),
+    affixes: parseSpaceSeparatedString(fields['属性'] || ''),
+    attackText: { name: fields['攻击文本'] || '' },
+    buffs: parseSpaceSeparatedString(fields['增益'] || ''),
     negativeType: 0,
   };
 }
@@ -385,14 +385,14 @@ function mapEquipmentToEquipment(section: ConfigSection, specialSeq: number) {
     lockTime: 0,
     forcedEffect: false,
     vehicleForceDmg: false,
-    bonus: JSON.stringify(bonus),
-    baseBonus: '{}',
-    properties: JSON.stringify(propertiesObj),
+    bonus,
+    baseBonus: {},
+    properties: propertiesObj,
     // 词条(affixes) 直接取自原版"属性"字段（空格分隔），对应原版 数据存取.ecode L513：
     //   z.词条 = 分割文本(读配置项3(p, w[a], "属性", "随机"), " ", )
-    affixes: JSON.stringify(parseSpaceSeparatedString(fields['属性'] || '')),
-    attackText: JSON.stringify(attackTextObj),
-    buffs: '[]',
+    affixes: parseSpaceSeparatedString(fields['属性'] || ''),
+    attackText: attackTextObj,
+    buffs: [],
     negativeType: 0,
   };
 }
@@ -440,8 +440,8 @@ function mapMonsterToMonster(section: ConfigSection) {
     maxShield: shield,
     armor,
     maxArmor: armor,
-    hairDrop: JSON.stringify([hairDrop]),
-    bonus: JSON.stringify(bonus),
+    hairDrop: [hairDrop],
+    bonus,
   };
 }
 
@@ -453,8 +453,8 @@ function mapItemToItem(section: ConfigSection) {
     description: fields['说明'] || '',
     value: parseFloat(fields['价值']) || 0,
     type: '物品',
-    useEffects: JSON.stringify(useEffects),
-    useMarkers: JSON.stringify(parseSpaceSeparatedString(fields['使用可得标记'] || '')),
+    useEffects,
+    useMarkers: parseSpaceSeparatedString(fields['使用可得标记'] || ''),
   };
 }
 
@@ -472,8 +472,8 @@ function mapFamiliarToFamiliar(section: ConfigSection, specialSeq: number) {
     skillDesc: fields['技能说明'] || '',
     specialSeq,
     noSummon: fields['不可召唤'] === '1',
-    hairDrop: JSON.stringify([parseHairString(fields['剪毛'] || '毛发1')]),
-    affinityDesc: JSON.stringify(affinityDesc),
+    hairDrop: [parseHairString(fields['剪毛'] || '毛发1')],
+    affinityDesc,
   };
 }
 
@@ -525,21 +525,21 @@ function mapMapToMap(section: ConfigSection, resourceDefs: Map<string, any>) {
     isInstance: fields['关卡'] === '1',
     requiredTravel,
     respawnPoint: fields['复活点'] || section.name,
-    monsters: JSON.stringify(monsters),
-    spawnMonsters: JSON.stringify(spawnMonsters),
-    tempMonsters: '[]',
-    summons: '[]',
-    resources: JSON.stringify(resources),
-    resources2: '[]',
-    connections: JSON.stringify(parseConnectionString(fields['可前往'] || '')),
-    npcs: '[]',
-    items: '[]',
-    buildings: '[]',
-    vehicles: '[]',
-    markers: '{}',
-    markers2: '[]',
-    mapBuffs: '[]',
-    requireMarkers: JSON.stringify(parseSpaceSeparatedString(fields['标记要求'] || fields['复活要求'] || '')),
+    monsters,
+    spawnMonsters,
+    tempMonsters: [],
+    summons: [],
+    resources,
+    resources2: [],
+    connections: parseConnectionString(fields['可前往'] || ''),
+    npcs: [],
+    items: [],
+    buildings: [],
+    vehicles: [],
+    markers: {},
+    markers2: [],
+    mapBuffs: [],
+    requireMarkers: parseSpaceSeparatedString(fields['标记要求'] || fields['复活要求'] || ''),
     failHint: fields['标记提示'] || fields['复活提示'] || '',
     clearMarkers: fields['删除标记'] || '',
     music: '',
@@ -553,12 +553,12 @@ function mapTextToAttackText(section: ConfigSection) {
   return {
     name: section.name,
     forMonster: false,
-    attackTexts: JSON.stringify(parseSemicolonString(fields['攻击'] || '')),
-    shieldBreak: JSON.stringify(parseSemicolonString(fields['破盾'] || '')),
-    armorBreak: JSON.stringify(parseSemicolonString(fields['破甲'] || '')),
-    killTexts: JSON.stringify(parseSemicolonString(fields['击杀'] || '')),
-    missTexts: JSON.stringify(parseSemicolonString(fields['闪避'] || '')),
-    lockTexts: JSON.stringify(parseSemicolonString(fields['锁定'] || '')),
+    attackTexts: parseSemicolonString(fields['攻击'] || ''),
+    shieldBreak: parseSemicolonString(fields['破盾'] || ''),
+    armorBreak: parseSemicolonString(fields['破甲'] || ''),
+    killTexts: parseSemicolonString(fields['击杀'] || ''),
+    missTexts: parseSemicolonString(fields['闪避'] || ''),
+    lockTexts: parseSemicolonString(fields['锁定'] || ''),
   };
 }
 
@@ -575,9 +575,9 @@ function mapCraftingToCrafting(section: ConfigSection) {
     level: 1,
     deconstructMul: parseFloat(fields['分解倍率']) || 5,
     expGain: parseFloat(fields['经验']) || 0,
-    outputs: JSON.stringify(outputs),
-    requirements: JSON.stringify(requirements),
-    gainMarkers: '[]',
+    outputs,
+    requirements,
+    gainMarkers: [],
   };
 }
 
@@ -605,10 +605,10 @@ function mapVehicleRecipeToRecipe(section: ConfigSection) {
     level: parseInt(fields['等级']) || 1,
     production,
     生产力: production,
-    unlockRequirements: JSON.stringify(unlockRequirements),
+    unlockRequirements,
     解锁需求: unlockRequirements,
-    outputs: JSON.stringify(outputs),
-    inputs: JSON.stringify(inputs),
+    outputs,
+    inputs,
     // 保留中文别名，便于直接对照原版字段和兼容手工配置。
     产出: outputs,
     消耗: inputs,
@@ -632,9 +632,9 @@ function mapTitleToTitle(section: ConfigSection) {
   return {
     name: section.name,
     description: fields['升级经验'] || '',
-    bonus: '{}',
-    requirements: JSON.stringify(requirements),
-    rewards: JSON.stringify(rewards),
+    bonus: {},
+    requirements,
+    rewards,
   };
 }
 
@@ -645,7 +645,7 @@ function mapBuildingToBuilding(section: ConfigSection) {
     type: '建筑',
     description: fields['说明'] || '',
     storage: 0,
-    materials: JSON.stringify(parseItemCountString(fields['产出'] || '')),
+    materials: parseItemCountString(fields['产出'] || ''),
   };
 }
 
@@ -673,9 +673,9 @@ function mapVehicleToVehicle(section: ConfigSection) {
     functionSlots: 0,
     maxWeapon: 5, maxDefense: 5, maxMove: 5, maxFunction: 5,
     slotStatus: 0,
-    bonus: JSON.stringify(bonus),
-    parts: '[]', markers: '{}', markers2: '[]',
-    recipes: '[]', builtinParts: '[]', coating: 0, reverseField: false,
+    bonus,
+    parts: [], markers: {}, markers2: [],
+    recipes: [], builtinParts: [], coating: 0, reverseField: false,
   };
 }
 
@@ -738,7 +738,7 @@ function mapBuffToBuff(section: ConfigSection) {
     duration: parseInt(fields['持续时间']) || 0,
     chance: parseFloat(fields['几率']) || 100,
     stackTime: false,
-    bonus: JSON.stringify(bonus),
+    bonus,
     triggerText: fields['文本'] || '',
   };
 }
@@ -748,13 +748,13 @@ function mapDialogueToNpc(section: ConfigSection) {
   return {
     name: section.name,
     taskId: fields['任务'] || '',
-    hostileChat: '[]',
-    friendlyChat: JSON.stringify(parseSemicolonString(fields['聊天'] || '')),
-    followText: JSON.stringify(parseSemicolonString(fields['跟随'] || '')),
-    stopText: JSON.stringify(parseSemicolonString(fields['停下'] || '')),
-    pickupText: '[]', milkText: '[]', killText: '[]',
-    boostStart: '[]', boostEnd: '[]', captureText: '[]',
-    lieDownText: '[]', wakeUpText: '[]', strengthenText: '[]',
+    hostileChat: [],
+    friendlyChat: parseSemicolonString(fields['聊天'] || ''),
+    followText: parseSemicolonString(fields['跟随'] || ''),
+    stopText: parseSemicolonString(fields['停下'] || ''),
+    pickupText: [], milkText: [], killText: [],
+    boostStart: [], boostEnd: [], captureText: [],
+    lieDownText: [], wakeUpText: [], strengthenText: [],
   };
 }
 
@@ -774,9 +774,9 @@ function mapTaskToTask(section: ConfigSection) {
     name: section.name,
     description: fields['说明'] || '',
     chance: 100, level: 1, publisher: '',
-    requirements: JSON.stringify(requirements),
-    rewards: JSON.stringify(rewards),
-    nextTasks: JSON.stringify(nextTasks), restrictMarkers: '[]',
+    requirements,
+    rewards,
+    nextTasks, restrictMarkers: [],
   };
 }
 
@@ -830,7 +830,7 @@ function mapEffectToEffect(section: ConfigSection) {
     name: section.name,
     description: fields['说明'] || '',
     limit: fields['限制'] || '',
-    bonus: JSON.stringify(bonus),
+    bonus,
   };
 }
 
@@ -846,10 +846,10 @@ function mapResourceToResource(section: ConfigSection) {
     gatherText: fields['采集文本'] || '',
     marker: fields['标记'] || '',
     proxySpeak: fields['代发言'] || '',
-    outputs: JSON.stringify(parseResourceOutput(fields['产出'] || '')),
-    outputs2: JSON.stringify(parseResourceOutput(fields['产出2'] || '')),
-    useGet: JSON.stringify(parseItemCountString(fields['使用可得'] || '')),
-    useMarkers: JSON.stringify(parseSpaceSeparatedString(fields['使用可得标记'] || '')),
+    outputs: parseResourceOutput(fields['产出'] || ''),
+    outputs2: parseResourceOutput(fields['产出2'] || ''),
+    useGet: parseItemCountString(fields['使用可得'] || ''),
+    useMarkers: parseSpaceSeparatedString(fields['使用可得标记'] || ''),
   };
 }
 

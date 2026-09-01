@@ -102,7 +102,8 @@ export class DungeonService {
           Object.assign(_pd.player, {
             mapId: exitMap.id,
             location: exitMap.name,
-            markers: JSON.stringify(markers),
+            // Player markers 为 Json 列，直接写对象
+            markers,
           });
           await this.playerService.savePlayer(_pd.player);
         });
@@ -117,13 +118,14 @@ export class DungeonService {
       exitSummons.push(...this.parseArray(map.summons, []));
       exitVehicles.push(...this.parseArray(map.vehicles, []));
       await this.mapService.updateDynamicFields(map.id, {
-        summons: '[]',
-        vehicles: '[]',
+        // GameMap Json 列：空重置也必须传数组（字符串会被双重编码）
+        summons: [],
+        vehicles: [],
       });
     }
     await this.mapService.updateDynamicFields(exitMap.id, {
-      summons: JSON.stringify(exitSummons),
-      vehicles: JSON.stringify(exitVehicles),
+      summons: exitSummons, // Json 列直接写数组
+      vehicles: exitVehicles,
     });
 
     // 原版先删除所有入口，再刷新所有复活点相同的地图。
@@ -160,7 +162,8 @@ export class DungeonService {
         if (changed) {
           await this.playerService.enqueueUserWrite(player.userId, async () => {
             const _pd = await this.playerService.getPlayerData(player.userId);
-            Object.assign(_pd.player, { markers: JSON.stringify(markers) });
+            // Player markers 为 Json 列，直接写对象
+            Object.assign(_pd.player, { markers });
             await this.playerService.savePlayer(_pd.player);
           });
         }

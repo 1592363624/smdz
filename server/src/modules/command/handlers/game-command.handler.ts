@@ -14,6 +14,7 @@ import { TutorialService } from '../../game/tutorial.service';
 import { ShortcutService } from '../../game/shortcut.service';
 import { HomeService } from '../../game/home.service';
 import { TaskService } from '../../game/task.service';
+import { asJsonValue } from '../../../common/utils/json-value.util';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
 
 @Injectable()
@@ -176,7 +177,8 @@ export class GameCommandHandler implements CommandHandler {
           // 冥鱼腿环的属性锁定——先发「攻击闪避」再洗装即只刷闪避。
           if (arg) {
             pd.markers['目标'] = arg;
-            pd.player.markers = JSON.stringify(pd.markers);
+            // markers 为原生 Json 列，直接传对象（stringify 会双重编码）
+            pd.player.markers = pd.markers;
             await this.playerService.savePlayer(pd.player);
           }
           const result = await this.combatSystem.weaponAttack(userId, weaponIndex, { targetName: arg });
@@ -1874,7 +1876,7 @@ export class GameCommandHandler implements CommandHandler {
             if (buildResult.success) {
               // 保存地图和背包变更
               await this.gameService.updateMapBuildings(map.id, map.buildings);
-              player.backpack = JSON.stringify(backpack);
+              player.backpack = backpack;
               await this.playerService.savePlayer(player);
               // 自动推进任务
               await this.taskService.advance(userId, '建造');
@@ -1900,7 +1902,7 @@ export class GameCommandHandler implements CommandHandler {
             }
             if (removed > 0) {
               await this.gameService.updateMapBuildings(map.id, map.buildings);
-              player.backpack = JSON.stringify(backpack);
+              player.backpack = backpack;
               await this.playerService.savePlayer(player);
               await this.taskService.advance(userId, '拆除', removed);
               await this.taskService.advance(userId, `拆除${buildingName}`, removed);
@@ -1927,7 +1929,7 @@ export class GameCommandHandler implements CommandHandler {
             }
             if (planted > 0) {
               await this.gameService.updateMapBuildings(map.id, map.buildings, map.resources2);
-              player.backpack = JSON.stringify(backpack);
+              player.backpack = backpack;
               await this.playerService.savePlayer(player);
               await this.taskService.advance(userId, '种植', planted);
               if (plantedCropName) await this.taskService.advance(userId, `种植${plantedCropName}`, planted);
@@ -1947,7 +1949,7 @@ export class GameCommandHandler implements CommandHandler {
             const harvestResult = await this.homeService.harvestCrop(map, cropName, buildingDefs, backpack);
             if (harvestResult.success) {
               await this.gameService.updateMapBuildings(map.id, map.buildings, map.resources2);
-              player.backpack = JSON.stringify(backpack);
+              player.backpack = backpack;
               await this.playerService.savePlayer(player);
               await this.taskService.advance(userId, '收获');
               await this.taskService.advance(userId, `收获${cropName}`);

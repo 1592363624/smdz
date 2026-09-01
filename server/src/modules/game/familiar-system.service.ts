@@ -19,6 +19,7 @@ import { ShortcutService } from './shortcut.service';
 import { CombatStateService } from './combat-state.service';
 import { GameHighlightService } from './highlight.service';
 import { hasActive } from './expire-time.util';
+import { asJsonValue } from '../../common/utils/json-value.util';
 import {
   buildFamiliarGateMenu,
   buildFamiliarPreview,
@@ -263,7 +264,7 @@ export class FamiliarSystemService {
       player.armor = player.maxArmor;
 
       // 标记已开始游戏（老玩家=真），并保存
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
       await this.playerService.savePlayer(player);
 
       // 开局领取新手教程+进阶教程任务（对应原版 _主程序.ecode L11686-11706：
@@ -301,7 +302,7 @@ export class FamiliarSystemService {
     }
 
     // 计算更换冷却时间（根据称号）
-    const titles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const titles = asJsonValue<any[]>(player.titles, []);
     const multiHandIV = titles.find((t: any) => t.name === '多面手IV');
     let cooldown = 900; // 默认15分钟
     if (multiHandIV) {
@@ -321,7 +322,7 @@ export class FamiliarSystemService {
     }
 
     // 检查冷却
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '更换使魔');
     const now = Date.now() / 1000;
     if (cooldownMarker && cooldownMarker.expireAt > now) {
@@ -349,12 +350,12 @@ export class FamiliarSystemService {
       name: '更换使魔',
       expireAt: now + cooldown,
     });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
     // 增加活跃度
     const activity = this.playerService.getMarkerValue(markers, '活跃度');
     markers['活跃度'] = activity + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '更换使魔');
@@ -426,18 +427,18 @@ export class FamiliarSystemService {
       ticketItem!.count = newTicketCount;
     }
 
-    player.markers = JSON.stringify(markers);
-    player.backpack = JSON.stringify(backpack);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     // 检查召唤冷却
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '召唤冷却');
     const now = Date.now() / 1000;
     if (!cooldownMarker || cooldownMarker.expireAt <= now) {
       // 活跃度+1
       const activity = this.playerService.getMarkerValue(markers, '活跃度');
       markers['活跃度'] = activity + 1;
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
 
       // 设置冷却
       const newMarkers2 = markers2.filter((m: any) => m.name !== '召唤冷却');
@@ -445,7 +446,7 @@ export class FamiliarSystemService {
         name: '召唤冷却',
         expireAt: now + 10,
       });
-      player.markers2 = JSON.stringify(newMarkers2);
+      player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
     }
 
     await this.playerService.savePlayer(player);
@@ -478,7 +479,7 @@ export class FamiliarSystemService {
     if (!map) {
       return `${player.name || '冒险者'} 你不在任何地图上，无法召唤。`;
     }
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
 
     // 原版：重复召唤"白"时，先移除已有的"白"召唤物（避免叠加）
     const existingIdx = summons.findIndex((s: any) => s.name === name);
@@ -511,12 +512,12 @@ export class FamiliarSystemService {
     };
 
     summons.push(whiteUnit);
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
 
     // 记录"召唤白"成就（对应原版 L9795 添加成就("召唤白", 1, 玩家.标记)）
-    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    const markers = asJsonValue<any>(player.markers, {});
     this.playerService.setMarker(markers, '召唤白', 1);
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return `${player.name || '冒险者'} 打开了休眠仓，召唤出了【${name}】\n随着休眠仓被打开，锁着的门似乎也跟着一起解开了`;
@@ -987,8 +988,8 @@ export class FamiliarSystemService {
       }
     }
     markers['兑换'] = this.playerService.getMarkerValue(markers, '兑换') + count;
-    player.backpack = JSON.stringify(backpack);
-    player.markers = JSON.stringify(markers);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '兑换', count);
@@ -1054,7 +1055,7 @@ export class FamiliarSystemService {
 
   /** 读取家园原始所在地图。家园建成后玩家可能已移动到屋内/前线，不能再用 player.mapId 推断。 */
   private getHouseBaseMapId(player: any): number {
-    const stats = this.playerService.safeJsonParse<Record<string, any>>(player.stats, {});
+    const stats = asJsonValue<Record<string, any>>(player.stats, {});
     return Number(stats['家园原地图ID'] || stats.houseBaseMapId || player.mapId || 0);
   }
 
@@ -1098,7 +1099,7 @@ export class FamiliarSystemService {
     const raw = resource?.outputs2 ?? resource?.['产出2'];
     if (Array.isArray(raw)) return raw.length;
     if (raw == null || raw === '') return 0;
-    const parsed = this.playerService.safeJsonParse<any[]>(raw, []);
+    const parsed = asJsonValue<any[]>(raw, []);
     return Array.isArray(parsed) ? parsed.length : 0;
   }
 
@@ -1107,7 +1108,7 @@ export class FamiliarSystemService {
    * 对应原版开挖/建造地基的计次循环校验（_主程序.ecode L2522-2527、L2546-2551）。
    */
   private getYardObstacles(yard: any): any[] {
-    const resources2 = this.playerService.safeJsonParse<any[]>(yard?.resources2, []);
+    const resources2 = asJsonValue<any[]>(yard?.resources2, []);
     return resources2.filter((resource: any) => this.countOutputs2(resource) === 0);
   }
 
@@ -1133,7 +1134,7 @@ export class FamiliarSystemService {
     if (homeMap) {
       try {
         mapName = homeMap.name;
-        mapBuildings = this.playerService.safeJsonParse<any[]>(homeMap.buildings, []);
+        mapBuildings = asJsonValue<any[]>(homeMap.buildings, []);
       } catch {
         // 忽略
       }
@@ -1252,11 +1253,11 @@ export class FamiliarSystemService {
     }
 
     // 原版“搬迁”只改变家园所在的世界地图，不改变家园名称和内部三张地图。
-    const stats = this.playerService.safeJsonParse<Record<string, any>>(player.stats, {});
+    const stats = asJsonValue<Record<string, any>>(player.stats, {});
     const oldBaseMapId = Number(stats['家园原地图ID'] || stats.houseBaseMapId || 0);
     stats['家园原地图ID'] = map.id;
     stats['家园原地图'] = map.name;
-    player.stats = JSON.stringify(stats);
+    player.stats = stats; // Player stats 为 Json 列，直接写对象
     player.mapId = map.id;
     player.location = map.name;
     if (player.houseName) {
@@ -1335,16 +1336,16 @@ export class FamiliarSystemService {
     }
 
     const houseName = await this.generateHouseName(userId);
-    const stats = this.playerService.safeJsonParse<Record<string, any>>(player.stats, {});
+    const stats = asJsonValue<Record<string, any>>(player.stats, {});
     stats['家园原地图ID'] = currentMap.id;
     stats['家园原地图'] = currentMap.name;
     player.houseName = houseName;
-    player.stats = JSON.stringify(stats);
+    player.stats = stats; // Player stats 为 Json 列，直接写对象
     await this.mapService.ensureHouseMaps(houseName, currentMap.id, 1);
 
     // 设置家园进度为1
     markers['家园进度'] = 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     await this.playerService.savePlayer(player);
 
@@ -1380,12 +1381,12 @@ export class FamiliarSystemService {
 
     // 原版开挖后资源2重置为2个土堆（资源列表1[3]），进度→2
     await this.mapService.updateDynamicFields(yard.id, {
-      resources2: JSON.stringify([this.copyResourceDef('土堆'), this.copyResourceDef('土堆')]),
+      resources2: [this.copyResourceDef('土堆'), this.copyResourceDef('土堆')], // Json 列直接写数组
     });
 
     // 更新进度
     markers['家园进度'] = 2;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '开挖地基');
@@ -1456,14 +1457,14 @@ export class FamiliarSystemService {
     }
 
     // 原版添加标记("工作", 60, 玩家.标记2, 原始时间戳)："正在工作"期间行动无限制拦截其他操作
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     this.combatState?.addMarker('工作', 60, markers2, Date.now());
-    player.markers2 = JSON.stringify(markers2);
+    player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
 
     // 更新进度
     markers['家园进度'] = 3;
-    player.markers = JSON.stringify(markers);
-    player.backpack = JSON.stringify(backpack);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     await this.playerService.savePlayer(player);
     // 原版：玩家.经验 = 玩家.经验 + 200（在自身保存完成后结算，走 addExp 的独立读改写）
@@ -1528,14 +1529,14 @@ export class FamiliarSystemService {
     }
 
     // 原版添加标记("工作", 120, 玩家.标记2, 原始时间戳)
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     this.combatState?.addMarker('工作', 120, markers2, Date.now());
-    player.markers2 = JSON.stringify(markers2);
+    player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
 
     // 更新进度
     markers['家园进度'] = 4;
-    player.markers = JSON.stringify(markers);
-    player.backpack = JSON.stringify(backpack);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     // 原版建成房子时追加“屋内”和“前线”地图，并在院子中加入两个入口。
     await this.mapService.ensureHouseMaps(player.houseName, this.getHouseBaseMapId(player), 4);
@@ -1618,7 +1619,7 @@ export class FamiliarSystemService {
     }
 
     // 解析地图上的建筑列表
-    const mapBuildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const mapBuildings = asJsonValue<any[]>(map.buildings, []);
     if (mapBuildings.length === 0) {
       return '家园中没有建筑，无法产出';
     }
@@ -1642,7 +1643,7 @@ export class FamiliarSystemService {
       if (!def) continue;
 
       // 解析建筑定义的产出（materials 字段存储的是产出物品列表）
-      const outputs = this.playerService.safeJsonParse<any[]>(def.materials, []);
+      const outputs = asJsonValue<any[]>(def.materials, []);
       if (outputs.length === 0) continue;
 
       // 构建生产者
@@ -1762,7 +1763,7 @@ export class FamiliarSystemService {
 
     // 更新上次产出时间
     markers['家园产出时间'] = now;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return resultLines.join('\n');
@@ -1811,7 +1812,7 @@ export class FamiliarSystemService {
    * 统计地图上不占建筑数量上限的建筑总数
    */
   private async countBuildings(map: any): Promise<number> {
-    const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const buildings = asJsonValue<any[]>(map.buildings, []);
     const buildingNames = buildings.map((b: any) => b.name);
     // 静态配置 JSON 单一来源，只取 name/type 两个字段
     const buildingDefs = this.staticData
@@ -1858,8 +1859,8 @@ export class FamiliarSystemService {
     if (!map) return `${player.name || '冒险者'}#一个错误发生了:家园前线地图编号为0`;
 
     const qq = String((player as any).qqNumber || (player as any).externalId || player.userId || userId);
-    let summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
-    let vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+    let summons = asJsonValue<any[]>(map.summons, []);
+    let vehicles = asJsonValue<any[]>(map.vehicles, []);
     const frontlineQQ = `怪物前线${qq}sg`;
     const existing = summons.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
     if (!existing) {
@@ -1868,8 +1869,8 @@ export class FamiliarSystemService {
       summons = generated.summons;
       vehicles = generated.vehicles;
       await this.mapService.updateDynamicFields(map.id, {
-        summons: JSON.stringify(summons),
-        vehicles: JSON.stringify(vehicles),
+        summons, // Json 列直接写数组
+        vehicles, // Json 列直接写数组
       });
     }
 
@@ -1886,7 +1887,7 @@ export class FamiliarSystemService {
       .reduce((sum: number, b: any) => sum + Number(b.count ?? b.数量 ?? 1), 0);
 
     // 获取地图上的建筑列表
-    const mapBuildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const mapBuildings = asJsonValue<any[]>(map.buildings, []);
     const frontline = summons.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
     const frontLevel = this.playerService.getMarkerValue(markers, '前线');
 
@@ -2035,7 +2036,7 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
 
     // 查找属于玩家的宠物
     const petIndex = summons.findIndex(
@@ -2050,7 +2051,7 @@ export class FamiliarSystemService {
     summons[petIndex].image = newName;
     summons[petIndex].name = newName;
 
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
 
     return `把${oldName}改名为${newName}`;
   }
@@ -2083,7 +2084,7 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
 
     // 查找属于玩家的宠物
     const petIndex = summons.findIndex(
@@ -2119,7 +2120,7 @@ export class FamiliarSystemService {
     // 清空标记并重置好感
     summons[petIndex].markers = { [`好感${targetQQ}`]: 100 };
 
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
 
     return `把${petName}转让给了${targetQQ}`;
   }
@@ -2147,7 +2148,7 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
 
     // 查找属于玩家的宠物
     const petIndex = summons.findIndex(
@@ -2165,7 +2166,7 @@ export class FamiliarSystemService {
     }
 
     // 查找载具
-    const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+    const vehicles = asJsonValue<any[]>(map.vehicles, []);
 
     if (vehicleName === '原') {
       // 使用宠物自带载具
@@ -2210,7 +2211,7 @@ export class FamiliarSystemService {
     vehicles[vehicleIndex] = vehicle;
 
     // 更新地图数据
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons), vehicles: JSON.stringify(vehicles) });
+    await this.mapService.updateDynamicFields(map.id, { summons, vehicles: vehicles });
 
     return `${petName} 进入了${vehicle.name}的驾驶舱`;
   }
@@ -2248,7 +2249,7 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
 
     // 查找属于玩家的宠物
     const petIndex = summons.findIndex(
@@ -2273,7 +2274,7 @@ export class FamiliarSystemService {
     } else {
       chocolateItem!.count = chocolateCount - count;
     }
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     // 增加好感
     const affinityKey = `好感${player.userId}`;
@@ -2284,7 +2285,7 @@ export class FamiliarSystemService {
     summons[petIndex] = pet;
 
     // 更新地图和玩家数据
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
 
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '宠物喂食', count);
@@ -2317,7 +2318,7 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
 
     // 查找属于玩家的宠物
     const petIndex = summons.findIndex(
@@ -2337,7 +2338,7 @@ export class FamiliarSystemService {
     }
 
     // 检查冷却
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '宠物嗅探');
     const now = Date.now() / 1000;
     if (cooldownMarker && cooldownMarker.expireAt > now) {
@@ -2370,7 +2371,7 @@ export class FamiliarSystemService {
     } else {
       meatItem!.count = meatCount - petLevel;
     }
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     // 设置冷却
     const newMarkers2 = markers2.filter((m: any) => m.name !== '宠物嗅探');
@@ -2378,7 +2379,7 @@ export class FamiliarSystemService {
       name: '宠物嗅探',
       expireAt: now + 600,
     });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
     // 计算成功率：宠物战斗力 ÷ 怪物战斗力 × 2500%
     const petCombatPower = this.bonusService.calcCombatPower({
@@ -2405,7 +2406,7 @@ export class FamiliarSystemService {
 
     if (isSuccess) {
       // 成功找到怪物：写入 GameMonster 表（临时怪物 isTemp=true，嗅探产物）
-      const defBonus = monsterDef?.bonus ? this.playerService.safeJsonParse<any>(monsterDef.bonus, {}) : {};
+      const defBonus = monsterDef?.bonus ? asJsonValue<any>(monsterDef.bonus, {}) : {};
       const newMonster = monsterDef
         ? {
             name: monsterDef.name,
@@ -2432,21 +2433,21 @@ export class FamiliarSystemService {
             maxShield: 0,
             armor: 0,
             maxArmor: 0,
-            bonus: '{}',
+            bonus: {},
             exp: 10,
           };
 
       await this.mapService.addTempMonster(map.id, newMonster);
 
       // 添加嗅探标记到地图标记3（map.markers 仍为 GameMap 字段，保留）
-      const mapMarkers3 = this.playerService.safeJsonParse<any[]>(map.markers || '[]', []);
+      const mapMarkers3 = asJsonValue<any[]>(map.markers || '[]', []);
       mapMarkers3.push({
         name: `嗅探${monsterName}`,
         expireAt: now + 120,
       });
 
       await this.mapService.updateDynamicFields(map.id, {
-        markers: JSON.stringify(mapMarkers3),
+        markers: mapMarkers3, // GameMap markers 为 Json 列，直接写数组
       });
 
       await this.playerService.savePlayer(player);
@@ -2497,7 +2498,7 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     const petIndex = summons.findIndex(
       (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
     );
@@ -2528,7 +2529,7 @@ export class FamiliarSystemService {
       }
       pet.markers['觉醒'] = 0;
       summons[petIndex] = pet;
-      await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+      await this.mapService.updateDynamicFields(map.id, { summons });
 
       // 返还觉醒丹到背包
       const backpack = this.playerService.getBackpackItems(player);
@@ -2538,7 +2539,7 @@ export class FamiliarSystemService {
       } else {
         backpack.push({ name: '觉醒丹', type: '资源', count: totalSpent });
       }
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
       await this.playerService.savePlayer(player);
 
       return `还原了${petName}的${currentAwaken}次觉醒，得到了觉醒丹x${totalSpent}`;
@@ -2574,7 +2575,7 @@ export class FamiliarSystemService {
         pillItem.count -= used;
       }
     }
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     // 记录觉醒次数
     pet.markers['觉醒'] = d;
@@ -2594,7 +2595,7 @@ export class FamiliarSystemService {
     pet.speed = Math.round((pet.baseStats.speed || 100) * bonus);
 
     summons[petIndex] = pet;
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
     await this.playerService.savePlayer(player);
 
     return `消耗${used}颗觉醒丹让${petName}觉醒了${done}次，突破到了
@@ -2638,7 +2639,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 查找该地图上属于玩家、存活、觉醒≥400的宠物
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     const qualifiedPet = summons.find(
       (s: any) =>
         s.ownerQQ === userId.toString() &&
@@ -2660,7 +2661,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const { player } = playerData;
 
     // 冷却30秒
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const cooldownKey = `宠物攻击${map.name}`;
     const cd = markers2.find((m: any) => m.name === cooldownKey);
@@ -2674,7 +2675,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const awaken = (qualifiedPet.markers && qualifiedPet.markers['觉醒']) || 0;
     let resultText = '';
     const taskProgress: Array<{ actionName: string; count: number }> = [];
-    const petMarkers2 = this.playerService.safeJsonParse<any[]>(qualifiedPet.markers2, []);
+    const petMarkers2 = asJsonValue<any[]>(qualifiedPet.markers2, []);
     const skyfallCd = petMarkers2.find((m: any) => m.name === '降');
     const canSkyfall = awaken >= 500 && !(skyfallCd && skyfallCd.expireAt > Date.now() / 1000);
 
@@ -2690,7 +2691,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       // 写入"降"冷却 180 秒（原版 时间间隔要求("降",180)）
       const newPetM2 = petMarkers2.filter((m: any) => m.name !== '降');
       newPetM2.push({ name: '降', expireAt: Date.now() / 1000 + 180 });
-      qualifiedPet.markers2 = JSON.stringify(newPetM2);
+      qualifiedPet.markers2 = newPetM2; // summons 嵌套元素字段保持对象形态（读取方均容错）
     } else {
       // 普通宠物攻击：只对第一个怪物发起结算
       const monster = spawnMonsters[0];
@@ -2708,11 +2709,11 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 设置冷却和活动标记
     const newMarkers2 = markers2.filter((m: any) => m.name !== cooldownKey);
     newMarkers2.push({ name: cooldownKey, expireAt: now + 30 });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
     // 更新玩家（地图怪物已通过表操作更新，仅保存玩家与召唤物）
     await this.mapService.updateDynamicFields(map.id, {
-      summons: JSON.stringify(summons),
+      summons, // Json 列直接写数组
     });
     await this.playerService.savePlayer(player);
     for (const progress of taskProgress) {
@@ -2744,7 +2745,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     const petIndex = summons.findIndex(
       (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
     );
@@ -2766,7 +2767,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     summons.splice(petIndex, 1);
 
     // 处理载具描述
-    const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles || '[]', []);
+    const vehicles = asJsonValue<any[]>(map.vehicles || '[]', []);
     const vehicle = vehicles.find((v: any) => v.id === pet.vehicle || v.driver === pet.qq || v.driver === petName);
     let moveText: string;
     if (vehicle && vehicle.walkMode === 0) {
@@ -2784,10 +2785,10 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 添加到目标地图
-    const targetSummons = this.playerService.safeJsonParse<any[]>(targetMap.summons, []);
+    const targetSummons = asJsonValue<any[]>(targetMap.summons, []);
     targetSummons.push(pet);
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
-    await this.mapService.updateDynamicFields(targetMap.id, { summons: JSON.stringify(targetSummons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
+    await this.mapService.updateDynamicFields(targetMap.id, { summons: targetSummons }); // Json 列直接写数组
 
     return `${pet.name}${moveText}${targetMap.name}`;
   }
@@ -2818,7 +2819,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '你不在任何地图上';
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     const petIndex = summons.findIndex(
       (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
     );
@@ -2889,12 +2890,12 @@ ${this.getAwakenStageName(d)}(${d})`;
       // 装备给宠物并从玩家背包移除
       extraEquip.push(item);
       backpack.splice(idx - 1, 1);
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
       pet.equipmentPresets[2].equipment = extraEquip;
       summons[petIndex] = pet;
 
-      await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+      await this.mapService.updateDynamicFields(map.id, { summons });
       await this.playerService.savePlayer(player);
 
       const typeText = isWeaponType ? '接过了' : isEquipType ? '穿上了' : '佩戴上了';
@@ -2910,12 +2911,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     const returned = extraEquip[equipIdx];
     extraEquip.splice(equipIdx, 1);
     backpack.push(returned);
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     pet.equipmentPresets[2].equipment = extraEquip;
     summons[petIndex] = pet;
 
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
     await this.playerService.savePlayer(player);
 
     return `${petName}把${returned.name}还给了${player.name || '你'}`;
@@ -2946,7 +2947,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const persistentMonsters = typeof (this.mapService as any).getMapMonsters === 'function'
       ? await this.mapService.getMapMonsters(map)
       : [];
-    const legacyMonsters = this.playerService.safeJsonParse<any[]>(map.monsters, []);
+    const legacyMonsters = asJsonValue<any[]>(map.monsters, []);
     const usePersistentMonster = persistentMonsters.length > 0;
     const monsters = usePersistentMonster ? persistentMonsters : legacyMonsters;
     const nowMs = Date.now();
@@ -2954,7 +2955,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerQQ = String(player.qqNumber ?? player.userId ?? userId);
 
     const parseJson = <T>(value: any, fallback: T): T =>
-      this.playerService.safeJsonParse<T>(value, fallback);
+      asJsonValue<T>(value, fallback);
     const readEntryName = (entry: any): string => entry?.名称 ?? entry?.name ?? '';
     const readEntryTimeMs = (entry: any): number => {
       const raw = Number(entry?.有效期至 ?? entry?.expireAt ?? 0);
@@ -2990,12 +2991,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     const getMonsterBuffs = (monster: any): any[] => parseJson<any[]>(monster?.buffs ?? monster?.增益, []);
     const getMonsterMarkers2 = (monster: any): any[] => parseJson<any[]>(monster?.markers2 ?? monster?.标记2, []);
     const saveMonsterState = async (monster: any, fields: { buffs?: any[]; markers2?: any[] }): Promise<void> => {
-      if (fields.buffs) monster.buffs = JSON.stringify(fields.buffs);
-      if (fields.markers2) monster.markers2 = JSON.stringify(fields.markers2);
+      if (fields.buffs) monster.buffs = fields.buffs; // Json 列/嵌套容器直接写数组
+      if (fields.markers2) monster.markers2 = fields.markers2; // 同上
       if (!usePersistentMonster) {
         const legacyIndex = legacyMonsters.indexOf(monster);
         if (legacyIndex >= 0) {
-          await this.mapService.updateDynamicFields(map.id, { monsters: JSON.stringify(legacyMonsters) });
+          await this.mapService.updateDynamicFields(map.id, { monsters: legacyMonsters }); // Json 列直接写数组
         }
         return;
       }
@@ -3131,7 +3132,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       } else {
         this.setItemQuantity(feedItem, feedCount - feedRequired);
       }
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
       // 原版 L6195-6224：将怪物转为 specialSeq=-2 的召唤物，保留原实例属性。
       const sourceName = monsterData.name || target;
@@ -3156,17 +3157,17 @@ ${this.getAwakenStageName(d)}(${d})`;
       delete newPet.mapId;
 
       // 添加到地图召唤物
-      const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+      const summons = asJsonValue<any[]>(map.summons, []);
       summons.push(newPet);
 
       if (usePersistentMonster) {
         await this.mapService.removeMapMonster(map.id, monsterData.id);
-        await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+        await this.mapService.updateDynamicFields(map.id, { summons });
       } else {
         monsters.splice(monsterIndex, 1);
         await this.mapService.updateDynamicFields(map.id, {
-          monsters: JSON.stringify(monsters),
-          summons: JSON.stringify(summons),
+          monsters, // Json 列直接写数组
+          summons, // Json 列直接写数组
         });
       }
 
@@ -3195,12 +3196,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     let totalCount = 0;
 
     for (const m of allMaps) {
-      const summons = this.playerService.safeJsonParse<any[]>(m.summons, []);
+      const summons = asJsonValue<any[]>(m.summons, []);
       totalCount += summons.filter((s: any) => s.name === target).length;
     }
 
     // 检查冷却（全地图数量<10时有冷却）
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === `${target}冷却`);
     const now = Date.now() / 1000;
 
@@ -3210,7 +3211,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 先确认目标仍在当前地图，避免目标不存在时错误扣除饲料。
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     const petIndex = summons.findIndex((s: any) => s.name === target);
     if (petIndex === -1) {
       return `附近没有${target}`;
@@ -3232,7 +3233,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     } else {
       this.setItemQuantity(feedItem, feedCount - 100);
     }
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     // 40%成功率
     const isSuccess = Math.random() < 0.4;
@@ -3262,7 +3263,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         name: `${target}冷却`,
         expireAt: now + 1800,
       });
-      player.markers2 = JSON.stringify(newMarkers2);
+      player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
       // 从地图移除
       summons.splice(petIndex, 1);
@@ -3277,11 +3278,11 @@ ${this.getAwakenStageName(d)}(${d})`;
     const rewardName = rewardItems[Math.floor(Math.random() * rewardItems.length)];
     const rewardCount = Math.floor(Math.random() * 5) + 1;
     addLocalItem(rewardName, rewardCount);
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     result += `\n得到了${rewardName}x${rewardCount}`;
 
     // 更新地图
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
 
     await this.playerService.savePlayer(player);
     await this.advanceTask(userId, '捕捉');
@@ -3310,7 +3311,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     const parsedMarkers2 = typeof player.markers2 === 'string'
-      ? this.playerService.safeJsonParse<any[]>(player.markers2, [])
+      ? asJsonValue<any[]>(player.markers2, [])
       : player.markers2;
     const markers2 = Array.isArray(parsedMarkers2) ? parsedMarkers2 : [];
     const cooldownMarker = markers2.find((m: any) => (m?.name ?? m?.名称) === '安乐');
@@ -3329,12 +3330,12 @@ ${this.getAwakenStageName(d)}(${d})`;
       name: '安乐',
       expireAt: nowMs + 300 * 1000,
     });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
     const normalizedTarget = this.normalizeSkillTarget(targetName);
     if (!normalizedTarget) {
       // 对自己使用
-      player.buffs = JSON.stringify(this.addSkillBuff(player, '安乐天使', 20, now));
+      player.buffs = this.addSkillBuff(player, '安乐天使', 20, now); // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `给自己套上了行星护盾`;
     }
@@ -3343,7 +3344,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const map = await this.mapService.getMapById(player.mapId);
 
     if (map) {
-      const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+      const summons = asJsonValue<any[]>(map.summons, []);
       const summonTarget = summons.find((s: any) =>
         (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
       );
@@ -3351,7 +3352,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       if (summonTarget) {
         summonTarget.buffs = this.addSkillBuff(summonTarget, '安乐天使', 20, now);
 
-        await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+        await this.mapService.updateDynamicFields(map.id, { summons });
 
         await this.playerService.savePlayer(player);
         return `给${summonTarget.name || summonTarget.名称}套上了行星护盾`;
@@ -3364,7 +3365,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     if (targetPlayer) {
       const targetDisplayName = targetPlayer.name || normalizedTarget;
       if (targetPlayer.id === player.id) {
-        player.buffs = JSON.stringify(this.addSkillBuff(player, '安乐天使', 20, now));
+        player.buffs = this.addSkillBuff(player, '安乐天使', 20, now); // Json 列直接写数组
         await this.playerService.savePlayer(player);
         return `给${targetDisplayName}套上了行星护盾`;
       }
@@ -3373,7 +3374,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
       await this.playerService.enqueueUserWrite(targetPlayer.userId, async () => {
         const _pd = await this.playerService.getPlayerData(targetPlayer.userId);
-        Object.assign(_pd.player, { buffs: JSON.stringify(newBuffs) });
+        Object.assign(_pd.player, { buffs: newBuffs }); // Json 列直接写数组
         await this.playerService.savePlayer(_pd.player);
       });
 
@@ -3382,7 +3383,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 原版目标不存在时返回错误，不会把技能悄悄改成对自己使用。
-    player.markers2 = JSON.stringify(markers2.filter((m: any) => (m?.name ?? m?.名称) !== '安乐'));
+    player.markers2 = markers2.filter((m: any) => (m?.name ?? m?.名称) !== '安乐'); // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'},${normalizedTarget}在玩家列表不存在`;
   }
@@ -3412,14 +3413,14 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 记录使用
     markers['福音书'] = 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     const now = Date.now() / 1000;
     const normalizedTarget = this.normalizeSkillTarget(targetName);
 
     if (!normalizedTarget) {
       // 对自己使用
-      player.buffs = JSON.stringify(this.addSkillBuff(player, '福音书', 300, now, { strength: 10 }));
+      player.buffs = this.addSkillBuff(player, '福音书', 300, now, { strength: 10 }); // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `给自己使用了福音书`;
     }
@@ -3428,7 +3429,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const map = await this.mapService.getMapById(player.mapId);
 
     if (map) {
-      const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+      const summons = asJsonValue<any[]>(map.summons, []);
       const summonTarget = summons.find((s: any) =>
         (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
       );
@@ -3436,7 +3437,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       if (summonTarget) {
         summonTarget.buffs = this.addSkillBuff(summonTarget, '福音书', 300, now, { strength: 10 });
 
-        await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+        await this.mapService.updateDynamicFields(map.id, { summons });
 
         await this.playerService.savePlayer(player);
         return `给${summonTarget.name || summonTarget.名称}使用了福音书`;
@@ -3449,7 +3450,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     if (targetPlayer) {
       const targetDisplayName = targetPlayer.name || normalizedTarget;
       if (targetPlayer.id === player.id) {
-        player.buffs = JSON.stringify(this.addSkillBuff(player, '福音书', 300, now, { strength: 10 }));
+        player.buffs = this.addSkillBuff(player, '福音书', 300, now, { strength: 10 }); // Json 列直接写数组
         await this.playerService.savePlayer(player);
         return `给${targetDisplayName}使用了福音书`;
       }
@@ -3458,7 +3459,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
       await this.playerService.enqueueUserWrite(targetPlayer.userId, async () => {
         const _pd = await this.playerService.getPlayerData(targetPlayer.userId);
-        Object.assign(_pd.player, { buffs: JSON.stringify(newBuffs) });
+        Object.assign(_pd.player, { buffs: newBuffs }); // Json 列直接写数组
         await this.playerService.savePlayer(_pd.player);
       });
 
@@ -3468,7 +3469,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 原版目标不存在时不消耗“每日一次”标记，也不回退到自己。
     delete markers['福音书'];
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'},${normalizedTarget}在玩家列表不存在`;
   }
@@ -3482,7 +3483,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     extra: Record<string, any> = {},
   ): any[] {
     const rawBuffs = typeof target?.buffs === 'string'
-      ? this.playerService.safeJsonParse<any[]>(target.buffs, [])
+      ? asJsonValue<any[]>(target.buffs, [])
       : target?.buffs;
     const buffs = Array.isArray(rawBuffs) ? rawBuffs : [];
     const next = buffs.filter((buff: any) => (buff?.name ?? buff?.名称) !== buffName);
@@ -3497,7 +3498,7 @@ ${this.getAwakenStageName(d)}(${d})`;
   /** 技能装备门禁与 FamiliarSkillsService 保持一致，只认当前装备。 */
   private hasEquippedSkillItem(player: any, itemName: string): boolean {
     const rawEquipment = typeof player?.equipment === 'string'
-      ? this.playerService.safeJsonParse<any[]>(player.equipment, [])
+      ? asJsonValue<any[]>(player.equipment, [])
       : player?.equipment;
     return Array.isArray(rawEquipment) && rawEquipment.some((item: any) =>
       String(item?.name ?? item?.名称 ?? '').trim() === itemName,
@@ -3605,7 +3606,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     const rawSummons = typeof map.summons === 'string'
-      ? this.playerService.safeJsonParse<any[]>(map.summons, [])
+      ? asJsonValue<any[]>(map.summons, [])
       : map.summons;
     const summons = Array.isArray(rawSummons) ? rawSummons : [];
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -3635,7 +3636,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const owner = String(pet.ownerQQ ?? pet.归属 ?? pet.owner ?? pet.ownerId ?? '');
     const isOwner = ownerIds.has(owner);
     const rawPetMarkers = typeof pet.markers === 'string'
-      ? this.playerService.safeJsonParse<any>(pet.markers, {})
+      ? asJsonValue<any>(pet.markers, {})
       : (pet.markers ?? pet.标记 ?? {});
     const petMarkers: Record<string, any> = Array.isArray(rawPetMarkers)
       ? Object.fromEntries(rawPetMarkers.map((item: any) => [
@@ -3685,12 +3686,12 @@ ${this.getAwakenStageName(d)}(${d})`;
       pet.mode = 'idle';
       petMarkers['跟随'] = 1;
     }
-    pet.markers = JSON.stringify(petMarkers);
+    pet.markers = petMarkers; // summons 嵌套元素字段保持对象形态（读取方均容错）
     if (pet.标记 !== undefined) pet.标记 = pet.markers;
 
     summons[petIndex] = pet;
 
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
 
     // 取对话（_主程序.ecode L1163-1171）：开始跟随取"跟随"台词(类型2)，停止跟随取"停下"台词(类型3)。
     let dialogue = '';
@@ -3760,7 +3761,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 更新好感度
     markers[affinityKey] = newAffinity;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     // 获取之前的等级和新的等级
@@ -3971,7 +3972,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 检查是否已拥有该称号
-    const titles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const titles = asJsonValue<any[]>(player.titles, []);
     if (titles.some((t: any) => t.name === titleName)) {
       return `你已经拥有称号「${titleName}」了`;
     }
@@ -4005,7 +4006,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 领取称号
     titles.push({ name: titleName, equipped: false });
-    player.titles = JSON.stringify(titles);
+    player.titles = titles; // Player titles 为 Json 列，直接写数组
     await this.playerService.savePlayer(player);
     // 落库成功后才推送高光：避免"弹了动画但称号没拿到"的错觉
     this.highlight?.emit(userId, {
@@ -4029,7 +4030,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    const titles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const titles = asJsonValue<any[]>(player.titles, []);
 
     // 取消佩戴（对应原版 佩戴称号0 → 置成就熟练度("称号",标记,0)，L10645-10648）
     const isUnequip = titleName === '取消' || titleName === '取消佩戴' || titleName === '0';
@@ -4039,7 +4040,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         if (t.equipped) unequippedName = t.name;
         t.equipped = false;
       }
-      player.titles = JSON.stringify(titles);
+      player.titles = titles; // Player titles 为 Json 列，直接写数组
       this.playerService.refreshDisplayName(player);
       await this.playerService.savePlayer(player);
       return unequippedName
@@ -4064,7 +4065,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     } else {
       title.equipped = true;
     }
-    player.titles = JSON.stringify(titles);
+    player.titles = titles; // Player titles 为 Json 列，直接写数组
     // 立即重算派生显示名（名称 = baseName + [佩戴称号]），保存时随快照落库
     this.playerService.refreshDisplayName(player);
     await this.playerService.savePlayer(player);
@@ -4082,7 +4083,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    const titles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const titles = asJsonValue<any[]>(player.titles, []);
 
     if (titles.length === 0) {
       return '你还没有获得任何称号\n使用「查看可领取称号」查看所有可领取的称号';
@@ -4115,7 +4116,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    const ownedTitles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const ownedTitles = asJsonValue<any[]>(player.titles, []);
     const ownedNames = new Set(ownedTitles.map((t: any) => t.name));
 
     // 收集所有使魔好感度（静态配置 JSON 单一来源）
@@ -4177,7 +4178,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     markers[expKey] = newExp;
     const newLevel = this.playerService.getSkillLevel(markers, player.type);
 
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     let result = `${player.type} 获得了 ${familiarExp} 点经验`;
@@ -4213,7 +4214,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const newExp = currentExp + 10;
     markers[skillKey] = newExp;
     const newLevel = this.playerService.getSkillLevel(markers, player.type);
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     let result = `技能「${skillName}」熟练度+10`;
@@ -4276,7 +4277,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 检查冷却（每天一次）
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const cooldownMarker = markers2.find((m: any) => m.name === '剪毛');
     if (cooldownMarker && cooldownMarker.expireAt > now) {
@@ -4289,7 +4290,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       name: '剪毛',
       expireAt: this.getEndOfDay(now),
     });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
     await this.playerService.savePlayer(player);
 
     // 获得毛发物品
@@ -4327,7 +4328,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 原版 _主程序 L11462 先检查“纯白cd”30秒，再进入纯白之翼子程序。
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const pureWhiteCooldown = markers2.find((m: any) => m.name === '纯白cd');
     if (pureWhiteCooldown && pureWhiteCooldown.expireAt > now) {
@@ -4361,7 +4362,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const nextMarkers2 = markers2.filter((m: any) => m.name !== '自动训练' && m.name !== '纯白cd');
     nextMarkers2.push({ name: '自动训练', expireAt: now + 5 });
     nextMarkers2.push({ name: '纯白cd', expireAt: now + 30 });
-    player.markers2 = JSON.stringify(nextMarkers2);
+    player.markers2 = nextMarkers2; // Player markers2 为 Json 列，直接写数组
     await this.playerService.savePlayer(player);
 
     // 原版通过“新建延时”投递技能命令；服务端直接调用同一个技能入口，
@@ -4466,7 +4467,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 自动释放形神合一
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const cooldownMarker = markers2.find((m: any) => m.name === '形神合一');
     if (cooldownMarker && cooldownMarker.expireAt > now) {
@@ -4479,11 +4480,11 @@ ${this.getAwakenStageName(d)}(${d})`;
       name: '形神合一',
       expireAt: now + 60,
     });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return true;
@@ -4507,7 +4508,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 检查冷却
     const cooldownName = `战斗女仆_${weaponType}`;
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const cooldownMarker = markers2.find((m: any) => m.name === cooldownName);
     if (cooldownMarker && cooldownMarker.expireAt > now) {
@@ -4554,11 +4555,11 @@ ${this.getAwakenStageName(d)}(${d})`;
       name: cooldownName,
       expireAt: now + cooldown,
     });
-    player.markers2 = JSON.stringify(newMarkers2);
+    player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
     // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     return result;
@@ -4606,7 +4607,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 检查是否处于歼灭模式（过期判定统一归一化）
-    const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const buffs = asJsonValue<any[]>(player.buffs, []);
     const inAnnihilationMode = hasActive(buffs, '歼灭模式');
     if (!inAnnihilationMode) {
       return 0;

@@ -7,6 +7,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StaticDataService } from './static-data.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 /**
  * 召唤物/宠物实例
@@ -103,14 +104,10 @@ export class FamiliarService {
     const desc = familiar.skillDesc || familiar.description || '';
 
     // 尝试解析好感度描述数组，获取对应等级的描述
-    try {
-      const affinityDescs: string[] = JSON.parse(familiar.affinityDesc || '[]');
-      const idx = Math.max(0, Math.min(affinityLevel, affinityDescs.length - 1));
-      if (affinityDescs[idx]) {
-        return affinityDescs[idx];
-      }
-    } catch {
-      // 解析失败，忽略
+    const affinityDescs = asJsonValue<string[]>(familiar.affinityDesc, []);
+    const idx = Math.max(0, Math.min(affinityLevel, affinityDescs.length - 1));
+    if (affinityDescs[idx]) {
+      return affinityDescs[idx];
     }
 
     return desc;
@@ -137,25 +134,20 @@ export class FamiliarService {
    * @returns 产出物品列表
    */
   getHairDrop(familiar: any): HairDropItem[] {
-    try {
-      const hairDropData = JSON.parse(familiar.hairDrop || '{}');
+    const hairDropData = asJsonValue<Record<string, unknown> | HairDropItem[]>(familiar.hairDrop, {});
 
-      // 支持两种格式：
-      // 1. 数组格式：[{ name: "羊毛", count: 1, chance: 0.8 }]
-      // 2. 对象格式：{ "羊毛": 1, "线": 2 }
-      if (Array.isArray(hairDropData)) {
-        return hairDropData as HairDropItem[];
-      }
-
-      // 对象格式转换为数组
-      return Object.entries(hairDropData).map(([name, count]) => ({
-        name,
-        count: count as number,
-        chance: 1.0,
-      }));
-    } catch {
-      this.logger.warn(`使魔 ${familiar.name} hairDrop 解析失败`);
-      return [];
+    // 支持两种格式：
+    // 1. 数组格式：[{ name: "羊毛", count: 1, chance: 0.8 }]
+    // 2. 对象格式：{ "羊毛": 1, "线": 2 }
+    if (Array.isArray(hairDropData)) {
+      return hairDropData as HairDropItem[];
     }
+
+    // 对象格式转换为数组
+    return Object.entries(hairDropData).map(([name, count]) => ({
+      name,
+      count: count as number,
+      chance: 1.0,
+    }));
   }
 }

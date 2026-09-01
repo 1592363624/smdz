@@ -36,6 +36,7 @@ import { HandbookService } from './handbook.service';
 import { normalizeGameText } from '../../common/utils/game-text.util';
 import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
 import { buildFamiliarGateMenu } from './familiar-menu.util';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 interface QuestSource {
   npcName: string;
@@ -167,7 +168,7 @@ export class GameService {
     for (const row of players || []) {
       const userId = Number(row.userId);
       if (!userId) continue;
-      const markers = this.playerService.safeJsonParse<Record<string, any>>(row.markers, {});
+      const markers = asJsonValue<Record<string, any>>(row.markers, {});
       const gathering = markers['采集中'];
       if (gathering && typeof gathering === 'object' && Number(gathering.settleAt || 0) > 0) {
         await this.delayedTaskService.schedule({
@@ -180,7 +181,7 @@ export class GameService {
       const movingStr = markers['移动中'];
       if (movingStr) {
         try {
-          const moving = typeof movingStr === 'string' ? JSON.parse(movingStr) : movingStr;
+          const moving = asJsonValue<{ targetName?: string; targetMapId?: number; arriveAt?: number } | null>(movingStr, null);
           if (moving?.arriveAt && moving?.targetMapId) {
             await this.delayedTaskService.schedule({
               type: 'move',
@@ -192,7 +193,7 @@ export class GameService {
           }
         } catch { /* 移动中标记损坏：忽略，由原有逻辑兜底 */ }
       }
-      const markers2 = this.playerService.safeJsonParse<any[]>(row.markers2, []);
+      const markers2 = asJsonValue<any[]>(row.markers2, []);
       for (const marker of markers2) {
         const name = marker?.name ?? marker?.名称;
         if (marker?.rescueType && (name === '复活' || name === '工作')) {
@@ -271,10 +272,10 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '';
 
-    const parse = (value: any): any[] => this.playerService.safeJsonParse<any[]>(value, []);
+    const parse = (value: any): any[] => asJsonValue<any[]>(value, []);
     const markerOf = (unit: any, markerName: string): number => {
       const raw = unit?.markers ?? unit?.标记 ?? {};
-      const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+      const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
       if (Array.isArray(parsed)) {
         const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
         return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
@@ -351,12 +352,8 @@ export class GameService {
     const markers = playerData.markers;
     const movingStr = markers['移动中'];
     if (movingStr) {
-      let moving: { targetName?: string; targetMapId?: number; arriveAt?: number } | null = null;
-      try {
-        moving = JSON.parse(movingStr);
-      } catch {
-        moving = null;
-      }
+      // 「移动中」标记兼容对象（新）与 JSON 字符串（旧数据）两种形态
+      const moving = asJsonValue<{ targetName?: string; targetMapId?: number; arriveAt?: number } | null>(movingStr, null);
       if (moving && moving.arriveAt) {
         const now = Date.now();
         if (now < moving.arriveAt) {
@@ -446,7 +443,7 @@ export class GameService {
     }
 
     // 2. 记录"移动中"状态（持久化到 markers，重启后可恢复），并调度延时到达
-    const newMarkers = this.playerService.safeJsonParse(player.markers, {});
+    const newMarkers = asJsonValue(player.markers, {});
     newMarkers['移动中'] = JSON.stringify({
       targetName: targetMap.name,
       targetMapId: targetMap.id,
@@ -454,7 +451,7 @@ export class GameService {
       arriveAt: Date.now() + travelTime * 1000,
       fromMapId: currentMap.id,
     });
-    player.markers = JSON.stringify(newMarkers);
+    player.markers = newMarkers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     // 3. 启动到达定时器，到点后真正落地（更新位置 + 广播到达）
@@ -516,14 +513,14 @@ export class GameService {
       return `${name}当前驾驶的载具${vehicle.名称 || vehicle.name}${moveType === 4 ? '安装了无法移动的组件' : '未安装行走机构或有的部件超过了上限'}`;
     }
 
-    const equipment = playerData.equipment || this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const equipment = playerData.equipment || asJsonValue<any[]>(player.equipment, []);
     const hasPendant = equipment.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '天蓝吊坠');
     const freeByFamiliar = await this.familiarSystemService.canFreeTeleport(userId);
     if (!hasPendant && !freeByFamiliar) return `${name},需要装备“天蓝吊坠”`;
 
     const cooldownText = { value: '' };
     if (this.combatState.timeIntervalRequire('传送冷却', 5, markers2, Date.now(), cooldownText, Date.now())) {
-      player.markers2 = JSON.stringify(markers2);
+      player.markers2 = markers2; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${name}${cooldownText.value}`;
     }
@@ -532,7 +529,7 @@ export class GameService {
 
     player.mapId = targetMap.id;
     player.location = targetMap.name;
-    player.markers2 = JSON.stringify(markers2);
+    player.markers2 = markers2; // Json 列直接写数组
     await this.combatSystem.applyMapBuffs(player, targetMap);
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, `前往${targetMap.name}`);
@@ -551,7 +548,7 @@ export class GameService {
     let playerData = await this.playerService.getPlayerData(userId);
     let { player } = playerData;
     const playerName = player.name || '冒险者';
-    const markers = playerData.markers || this.playerService.safeJsonParse(player.markers, {});
+    const markers = playerData.markers || asJsonValue(player.markers, {});
     const markers2 = Array.isArray(playerData.markers2)
       ? playerData.markers2
       : this.parseJsonArray(player.markers2);
@@ -566,7 +563,7 @@ export class GameService {
     }
 
     // 飞行不能覆盖正在进行的移动/工作；已到期的移动先补结算，兼容服务重启丢失定时器。
-    const moving = this.playerService.safeJsonParse<any>(markers['移动中'], null);
+    const moving = asJsonValue<any>(markers['移动中'], null);
     if (moving?.arriveAt) {
       if (Date.now() < Number(moving.arriveAt)) {
         return `你正在前往【${moving.targetName || '目的地'}】，还需约${Math.max(1, Math.ceil((moving.arriveAt - Date.now()) / 1000))}秒到达，请耐心等待`;
@@ -649,7 +646,7 @@ export class GameService {
 
     const cooldownText = { value: '' };
     if (this.combatState?.timeIntervalRequire?.('飞行冷却', 10, markers2, Date.now(), cooldownText, Date.now())) {
-      player.markers2 = JSON.stringify(markers2);
+      player.markers2 = markers2; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${playerName}${cooldownText.value}`;
     }
@@ -689,7 +686,7 @@ export class GameService {
     }
 
     const seconds = vehicle || hasFox ? 5 : 10;
-    const nextMarkers = this.playerService.safeJsonParse(player.markers, {});
+    const nextMarkers = asJsonValue(player.markers, {});
     nextMarkers['移动中'] = JSON.stringify({
       targetName: arrivalMap.name,
       targetMapId: arrivalMap.id,
@@ -698,8 +695,8 @@ export class GameService {
       fromMapId: currentMap.id,
       mode: '飞行',
     });
-    player.markers = JSON.stringify(nextMarkers);
-    player.markers2 = JSON.stringify(markers2);
+    player.markers = nextMarkers; // Json 列直接写对象
+    player.markers2 = markers2; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     await this.scheduleArrival(userId, arrivalMap.id, arrivalMap.name, seconds);
 
@@ -774,8 +771,8 @@ export class GameService {
     }
 
     // 定时器、服务重启补偿和内部到达命令可能同时触发；同一目标已经落地时不重复推进任务。
-    const currentMarkers = this.playerService.safeJsonParse(player.markers, {});
-    const pending = this.playerService.safeJsonParse<any>(currentMarkers['移动中'], null);
+    const currentMarkers = asJsonValue(player.markers, {});
+    const pending = asJsonValue<any>(currentMarkers['移动中'], null);
     if (Number(player.mapId) === Number(targetMap.id)
       && (!pending || Number(pending.targetMapId) !== Number(targetMap.id))) {
       return `你已经在【${targetMap.name}】`;
@@ -784,7 +781,7 @@ export class GameService {
     // 清除"移动中"状态
     const markers = currentMarkers;
     delete markers['移动中'];
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Json 列直接写对象
 
     const fromMapId = player.mapId;
     player.mapId = targetMap.id;
@@ -825,7 +822,7 @@ export class GameService {
 
     // 探索成就：记录玩家首次到达的地图
     try {
-      const mark = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+      const mark = asJsonValue<Record<string, number>>(player.markers, {});
       const exploreKey = `探索_${targetMap.name}`;
       if (!mark[exploreKey]) {
         await this.achievementService.addAchievement(player, '探索', 1, false);
@@ -900,14 +897,14 @@ export class GameService {
 
     // ===== 1. 观测地图产出·通用段 =====
     if (!targetMap.isFrontier && !targetMap.isInstance) {
-      const mapMarkers = this.playerService.safeJsonParse<Record<string, any>>(targetMap.markers, {});
+      const mapMarkers = asJsonValue<Record<string, any>>(targetMap.markers, {});
       const nowSec = Date.now() / 1000;
       const lastObserved = readNum(mapMarkers['观测时间']);
       const timeDiff = lastObserved > 0 ? Math.max(0, nowSec - lastObserved) : 0;
       mapMarkers['观测时间'] = nowSec;
-      const summons = this.playerService.safeJsonParse<any[]>(targetMap.summons, []);
-      const buildings = this.playerService.safeJsonParse<any[]>(targetMap.buildings, []);
-      const items = this.playerService.safeJsonParse<any[]>(targetMap.items, []);
+      const summons = asJsonValue<any[]>(targetMap.summons, []);
+      const buildings = asJsonValue<any[]>(targetMap.buildings, []);
+      const items = asJsonValue<any[]>(targetMap.items, []);
       let changed = false;
       const mergeItem = (name: string, qty: number): void => {
         if (!(qty > 0)) return;
@@ -933,13 +930,13 @@ export class GameService {
       if (changed || lastObserved === 0) {
         await this.prisma.gameMap.update({
           where: { id: targetMap.id },
-          data: { items: JSON.stringify(items), markers: JSON.stringify(mapMarkers) },
+          data: { items, markers: mapMarkers },
         });
       } else {
         // 仅刷新观测时间
         await this.prisma.gameMap.update({
           where: { id: targetMap.id },
-          data: { markers: JSON.stringify(mapMarkers) },
+          data: { markers: mapMarkers },
         });
       }
     }
@@ -1005,7 +1002,7 @@ export class GameService {
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
     };
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     if (!summons.length) return '';
     const isPranaCub = (s: any): boolean =>
       !!s && (Number(s.vitality ?? s.活力 ?? 0) === -31 || String(s.type ?? s.类型 ?? '') === '普拉娜幼崽');
@@ -1024,7 +1021,7 @@ export class GameService {
       const rawWeapons = cub.weapons ?? cub.武器;
       const weapons = Array.isArray(rawWeapons)
         ? rawWeapons
-        : this.playerService.safeJsonParse<any[]>(String(rawWeapons ?? '[]'), []);
+        : asJsonValue<any[]>(String(rawWeapons ?? '[]'), []);
       const hasScissors = weapons.some(
         (w: any) => w && (String(w.name ?? w.名称 ?? '') === '剪刀' || Number(w.specialSeq ?? w.特殊序号 ?? 0) === -40),
       );
@@ -1050,15 +1047,15 @@ export class GameService {
       const rawPresets = cub.equipmentPresets ?? cub.装备预设;
       const presets = Array.isArray(rawPresets)
         ? rawPresets
-        : this.playerService.safeJsonParse<any[]>(String(rawPresets ?? '[]'), []);
+        : asJsonValue<any[]>(String(rawPresets ?? '[]'), []);
       if (presets.length <= 1) continue;
       if (!presets[1]) presets[1] = { name: '宠物背包', equipment: [] };
       const rawBag = presets[1].equipment ?? presets[1].装备;
       const bag = Array.isArray(rawBag)
         ? rawBag
-        : this.playerService.safeJsonParse<any[]>(String(rawBag ?? '[]'), []);
+        : asJsonValue<any[]>(String(rawBag ?? '[]'), []);
 
-      const markers2 = this.playerService.safeJsonParse<any[]>(owner.markers2, []);
+      const markers2 = asJsonValue<any[]>(owner.markers2, []);
       let totalHair = 0;
       for (const animal of summons) {
         if (!animal || animal === cub) continue;
@@ -1088,10 +1085,10 @@ export class GameService {
       if (totalHair > 0) {
         presets[1].equipment = bag;
         cub.equipmentPresets = cub.装备预设 = presets;
-        owner.markers2 = JSON.stringify(markers2);
+        owner.markers2 = markers2; // Json 列直接写数组
         await this.prisma.gameMap.update({
           where: { id: map.id },
-          data: { summons: JSON.stringify(summons) },
+          data: { summons },
         });
         if (owner.userId) {
           await this.playerService.savePlayer(owner);
@@ -1130,10 +1127,8 @@ export class GameService {
       const toMap = await this.mapService.getMapById(Number(toMapId));
       if (!fromMap || !toMap) return;
 
-      const parse = (v: any): any[] => {
-        if (Array.isArray(v)) return v;
-        try { return JSON.parse(v) || []; } catch { return []; }
-      };
+      // vehicles/summons 为合并地图字段：静态来源已是数组，DB 来源是 JSON 字符串
+      const parse = (v: any): any[] => asJsonValue<any[]>(v, []);
 
       let fromVehicles = parse(fromMap.vehicles);
       let fromSummons = parse(fromMap.summons);
@@ -1201,17 +1196,17 @@ export class GameService {
       const beforeLen = buffs.length;
       buffs = buffs.filter((b: any) => String(b?.name ?? b?.名称 ?? '') !== '风月入墨');
       if (buffs.length !== beforeLen) {
-        player.buffs = JSON.stringify(buffs);
+        player.buffs = buffs; // Json 列直接写数组
       }
 
       // === 写回地图动态字段 ===
       await this.mapService.updateDynamicFields(Number(fromMapId), {
-        vehicles: JSON.stringify(fromVehicles),
-        summons: JSON.stringify(fromSummons),
+        vehicles: fromVehicles,
+        summons: fromSummons,
       });
       await this.mapService.updateDynamicFields(Number(toMapId), {
-        vehicles: JSON.stringify(toVehicles),
-        summons: JSON.stringify(toSummons),
+        vehicles: toVehicles,
+        summons: toSummons,
       });
     } catch (e: any) {
       this.logger.warn(`迁移玩家载具/召唤物失败: ${e?.message}`);
@@ -1363,7 +1358,7 @@ export class GameService {
     // 写入处 handleMove：markers['移动中'] = JSON 字符串 { targetName, arriveAt, ... }
     const movingRaw = markers?.['移动中'];
     const moving = typeof movingRaw === 'string'
-      ? this.playerService.safeJsonParse<any>(movingRaw, null)
+      ? asJsonValue<any>(movingRaw, null)
       : movingRaw;
     if (moving && typeof moving === 'object') {
       const endAt = Number(moving.arriveAt ?? 0) || 0;
@@ -1384,7 +1379,7 @@ export class GameService {
     // ===== 3) markers2 时效标记：抢救/维修/救助/麻痹 =====
     const list2 = Array.isArray(markers2)
       ? markers2
-      : this.playerService.safeJsonParse<any[]>(player?.markers2, []);
+      : asJsonValue<any[]>(player?.markers2, []);
     const rescueText: Record<string, string> = {
       self: '自救', familiar: '抢救使魔', vehicle: '维修载具', player: '救助玩家',
     };
@@ -1466,8 +1461,8 @@ export class GameService {
       const map: Record<string, string> = { e: '普通', d: '良好', c: '优秀', b: '精良', a: '史诗', s: '传说' };
       return map[c] || '神迹';
     };
-    const equipmentList = this.playerService.safeJsonParse<any[]>(player.equipment, []);
-    const weaponList = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    const equipmentList = asJsonValue<any[]>(player.equipment, []);
+    const weaponList = asJsonValue<any[]>(player.weapons, []);
     const currentWeaponIdx = Number(player.currentWeapon ?? 0);
 
     const entryOf = (slot: string, item: any, enhanceKey: string) => {
@@ -1651,7 +1646,7 @@ export class GameService {
     const resources = this.playerService
       .safeJsonParse<any[]>(currentMap.resources, [])
       .filter((r: any) => this.getResourceTimes(r) !== 0 && this.isGatherResourceAvailable(r, playerMarkers));
-    const npcs = this.playerService.safeJsonParse<any[]>(currentMap.npcs, []);
+    const npcs = asJsonValue<any[]>(currentMap.npcs, []);
 
     // 怪物列表：从 spawnMonsters + tempMonsters 合并，去重后携带等级/HP
     // 用 staticData 的怪物 JSON 补全等级/HP，未收录的怪物按基础值兜底
@@ -1885,8 +1880,8 @@ export class GameService {
 
     // ========== 装备栏面板（对齐原版 数据显示.ecode 使魔数据 L2032-2210） ==========
     // 原版按部位遍历：头部/饰品/肩膀/上身/背部/手臂/手掌/腰部/下身/腿环/腿部/脚部/武器/植入体/增幅器/背上备用武器
-    const equipmentList = this.playerService.safeJsonParse<any[]>(player.equipment, []);
-    const weaponList = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    const equipmentList = asJsonValue<any[]>(player.equipment, []);
+    const weaponList = asJsonValue<any[]>(player.weapons, []);
     const currentWeaponIdx = Number(player.currentWeapon ?? 0);
     const slotNames = ['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部'];
     lines.push(`━━━━━━━━━━━━━━━`);
@@ -2146,7 +2141,7 @@ export class GameService {
       lines.push(`◆护盾/装甲/生命穿透: ${fmt(b.护盾穿透)}/${fmt(b.装甲穿透)}/${fmt(b.生命穿透)}%`);
     }
     // 攻击冷却（L839-850）：玩家按武器列举
-    const weaponList = weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    const weaponList = weapons || asJsonValue<any[]>(player.weapons, []);
     if (Array.isArray(weaponList) && weaponList.length > 0) {
       const cdParts: string[] = weaponList.map((w: any, i: number) =>
         `${w.name || w.名称 || `武器${i + 1}`}:${num(w.cooldown ?? w.冷却 ?? 0)}`,
@@ -2249,8 +2244,8 @@ export class GameService {
     // 驾驶载具（L986-992）
     const map = await this.mapService.getMapById(player.mapId);
     if (map?.name) {
-      const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
-      const playerVehicles = this.playerService.safeJsonParse<any[]>(player.vehicles, []);
+      const vehicles = asJsonValue<any[]>(map.vehicles, []);
+      const playerVehicles = asJsonValue<any[]>(player.vehicles, []);
       const allVehicles = [...(vehicles || []), ...(playerVehicles || [])];
       const driven = allVehicles.find((v: any) =>
         v.owner === String(userId) || v.归属 === String(userId) ||
@@ -2292,7 +2287,7 @@ export class GameService {
     const normalizedName = String(itemName || '').trim();
     if (!normalizedName.endsWith('种子')) return '';
     const item = this.staticData.getItemByName(normalizedName);
-    const effects = this.playerService.safeJsonParse<any[]>(item?.useEffects, []);
+    const effects = asJsonValue<any[]>(item?.useEffects, []);
     const candidates = effects
       .flatMap((effect: any) => String(effect ?? '').split(/[，,、]/))
       .map((effect: string) => effect.trim())
@@ -2328,7 +2323,7 @@ export class GameService {
 
     // 原版普通地图最多保留两个作物；自己的院子允许继续种植。
     if (!ownHouse) {
-      const resources2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
+      const resources2 = asJsonValue<any[]>(map.resources2, []);
       const cropCount = resources2
         .filter((resource: any) => this.parseResourceOutputs(resource?.outputs2 ?? resource?.['产出2']).length > 0)
         .reduce((total: number, resource: any) => total + Number(
@@ -2349,7 +2344,7 @@ export class GameService {
     if (planted <= 0) return lastMessage || `背包中没有「${seedName}」`;
 
     await this.mapService.updateDynamicFields(map.id, { resources2: map.resources2 });
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '种植', planted);
     await this.taskService.advance(userId, `种植${cropName}`, planted);
@@ -2448,7 +2443,7 @@ export class GameService {
         summonId: this.rescueUnitId(summon),
       });
       markers2.push(marker);
-      player.markers2 = JSON.stringify(markers2);
+      player.markers2 = markers2; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       await this.taskService.advance(userId, '救助');
       this.scheduleRescueCompletion(userId, marker);
@@ -2473,7 +2468,7 @@ export class GameService {
 
     const marker = this.createRescueMarker('vehicle', 30, { mapId: map.id });
     markers2.push(marker);
-    player.markers2 = JSON.stringify(markers2);
+    player.markers2 = markers2; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '救助');
     this.scheduleRescueCompletion(userId, marker);
@@ -2559,8 +2554,8 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
 
     // 解析地图NPC列表
-    const npcs = this.playerService.safeJsonParse<any[]>(map ? map.npcs : [], []);
-    const parsedSummons = this.playerService.safeJsonParse<any>(map ? map.summons : [], []);
+    const npcs = asJsonValue<any[]>(map ? map.npcs : [], []);
+    const parsedSummons = asJsonValue<any>(map ? map.summons : [], []);
     const mapSummons = Array.isArray(parsedSummons) ? parsedSummons : [];
     const whiteAvailable = Number(markers['召唤白'] || 0) > 0
       || npcs.some((unit: any) => (unit?.name ?? unit?.名称) === '白')
@@ -2731,7 +2726,7 @@ export class GameService {
       const tutorialText = this.tutorialService.getTutorial('talk', markers);
       if (tutorialText) {
         markers['指引_talk'] = 1;
-        player.markers = JSON.stringify(markers);
+        player.markers = markers; // Json 列直接写对象
         await this.playerService.savePlayer(player);
       }
 
@@ -2744,7 +2739,7 @@ export class GameService {
 
         // 更新与该NPC的对话进度
         markers[`对话_${npcName}`] = (talkProgress + 1);
-        player.markers = JSON.stringify(markers);
+        player.markers = markers; // Json 列直接写对象
         await this.playerService.savePlayer(player);
 
         // 对话进度提示
@@ -2819,7 +2814,7 @@ export class GameService {
 
     const markerOf = (markerName: string): number => {
       const raw = unit?.markers ?? unit?.标记 ?? {};
-      const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+      const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
       if (Array.isArray(parsed)) {
         const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
         return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
@@ -2942,7 +2937,7 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     const luna = summons.find((s: any) => s.qq === '怪物露娜1g' || s.name === '露娜');
     if (!luna) {
       return '你环顾四周，露娜并不在这里。\n她偶尔会出现在某些地图上，找到她才能用未知物品兑换奖励。';
@@ -2992,7 +2987,7 @@ export class GameService {
 
     // 增加露娜熟练度
     markers['露娜熟练度'] = (markers['露娜熟练度'] || 0) + unknownCount * 10;
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     this.logger.log(`玩家 ${userId} 与露娜兑换：${unknownCount}个未知物品 → ${rewardName}`);
@@ -3065,12 +3060,12 @@ export class GameService {
 
     // 解析地图各 JSON 字段
     const monsters = await this.mapService.getMapMonsters(map);
-    const resources2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
-    const items = this.playerService.safeJsonParse<any[]>(map.items, []);
-    const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
+    const resources2 = asJsonValue<any[]>(map.resources2, []);
+    const items = asJsonValue<any[]>(map.items, []);
+    const npcs = asJsonValue<any[]>(map.npcs, []);
     // 与采集门禁保持一致：过滤已采完(times=0)与当前玩家已领取过(marker)的固定资源
-    const probeMarkers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
-    const resources = this.playerService.safeJsonParse<any[]>(map.resources, [])
+    const probeMarkers = asJsonValue<Record<string, any>>(player.markers, {});
+    const resources = asJsonValue<any[]>(map.resources, [])
       .filter((r: any) => this.getResourceTimes(r) !== 0 && this.isGatherResourceAvailable(r, probeMarkers));
 
     const lines: string[] = [
@@ -3165,7 +3160,7 @@ export class GameService {
     if (!map) return '你不在任何地图上！';
 
     // 解析地图上的物品
-    const mapItems = this.playerService.safeJsonParse<any[]>(map.items, []);
+    const mapItems = asJsonValue<any[]>(map.items, []);
     if (mapItems.length === 0) {
       return '地上没有可拾取的物品';
     }
@@ -3209,7 +3204,7 @@ export class GameService {
     // 更新地图物品
     await this.prisma.gameMap.update({
       where: { id: map.id },
-      data: { items: JSON.stringify(remainingItems) },
+      data: { items: remainingItems },
     });
 
     this.logger.log(`玩家 ${userId} 拾取了 ${pickedUp.length} 种物品`);
@@ -3253,7 +3248,7 @@ export class GameService {
     if (!map) return '你不在任何地图上！';
 
     // 解析可采集资源
-    const resources2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
+    const resources2 = asJsonValue<any[]>(map.resources2, []);
     const availableResources = resources2.filter((r: any) => Number(r.amount ?? r.数量 ?? 0) > 0);
 
     if (availableResources.length === 0) {
@@ -3306,7 +3301,7 @@ export class GameService {
       ? (playerData as any).backpack
       : this.playerService.getBackpackItems(player);
     this.addItemToCollection(backpack, { name: resourceDisplayName, type: '资源', quantity: amount });
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
 
     // 减少资源数量
     targetResource.amount = 0;
@@ -3332,11 +3327,11 @@ export class GameService {
 
     await this.prisma.gameMap.update({
       where: { id: map.id },
-      data: { resources2: JSON.stringify(updatedResources2) },
+      data: { resources2: updatedResources2 },
     });
 
     // 更新玩家 markers2
-    player.markers2 = JSON.stringify(updatedMarkers2);
+    player.markers2 = updatedMarkers2; // Json 列直接写数组
     await this.playerService.savePlayer(player);
 
     // 手动开采的任务在服务层按真实产量结算，命令层不再重复推进。
@@ -3376,7 +3371,7 @@ export class GameService {
       const map = await this.mapService.getMapById(player.mapId);
       if (!map) return false;
       const resources = this.getGatherResources(map);
-      const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
       const parsed = this.parseGatherCommand(cmdName);
       return resources.some((r) => r.gatherCmd === parsed.name
         && this.getResourceTimes(r) !== 0
@@ -3401,7 +3396,7 @@ export class GameService {
       if (!player?.markers2) return '';
       const markers2 = Array.isArray(player.markers2)
         ? player.markers2
-        : this.playerService.safeJsonParse<any[]>(player.markers2, []);
+        : asJsonValue<any[]>(player.markers2, []);
       const entry = markers2.find((m: any) => (m?.name ?? m?.名称 ?? m?.key) === '开箱');
       if (!entry) return '';
       const rawExpire = Number(entry.expireTime ?? entry.expireAt ?? entry.有效期至 ?? 0);
@@ -3447,7 +3442,7 @@ export class GameService {
     const parsedCommand = this.parseGatherCommand(cmdName);
     const gatherName = parsedCommand.name;
     let count = Math.max(1, Math.floor(Number.isFinite(requestedCount) ? requestedCount as number : parsedCommand.count));
-    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
     const target = resources.find((r: any) => r.gatherCmd === gatherName
       && this.getResourceTimes(r) !== 0
       && this.isGatherResourceAvailable(r, markers));
@@ -3497,12 +3492,12 @@ export class GameService {
     // ===== 原版 _主程序.ecode L11428-11435 锁定与延时任务 =====
     // 添加标记("采集", 次数)：锁定期间 行动无限制 会拦截移动/攻击/再次采集；
     // 获得增益("采集", 秒数)：同一标记的另一种写法，到期即采集完成。
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     markers['采集中'] = { target: resourceName, cmd: gatherName,
       count: extraMultiplier, startedAt: now, settleAt: now + cappedSeconds * 1000 };
     this.combatState.addMarker('采集', cappedSeconds, markers2, now);
-    player.markers = JSON.stringify(markers);
-    player.markers2 = JSON.stringify(markers2);
+    player.markers = markers; // Json 列直接写对象
+    player.markers2 = markers2; // Json 列直接写数组
 
     // 排程持久化延时任务：到点由 DelayedTaskService 分发结算。
     // 任务行落库即跨重启存活，不再依赖内存定时器与周期扫描兜底；
@@ -3550,7 +3545,7 @@ export class GameService {
     const { state: gatherState, markers } = pending;
 
     // 结算即解锁：移除「采集」锁定标记（原版 获得增益 到期语义；定时器回调可能早于毫秒级过期）
-    const lockedMarkers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const lockedMarkers2 = asJsonValue<any[]>(player.markers2, []);
     const unlockedMarkers2 = lockedMarkers2.filter((m: any) =>
       (m?.name ?? m?.名称 ?? m?.key) !== '采集');
     const markers2Changed = unlockedMarkers2.length !== lockedMarkers2.length;
@@ -3569,8 +3564,8 @@ export class GameService {
     // 标记仍留库中由下一轮兜底重试，不会丢结算。
     const prevMarkersRaw = player.markers;
     const prevMarkers2BeforeClaim = player.markers2;
-    player.markers = JSON.stringify(markers);
-    if (markers2Changed) player.markers2 = JSON.stringify(unlockedMarkers2);
+    player.markers = markers; // Json 列直接写对象
+    if (markers2Changed) player.markers2 = unlockedMarkers2; // Json 列直接写数组
     try {
       await this.playerService.savePlayer(player);
     } catch (e: any) {
@@ -3586,7 +3581,7 @@ export class GameService {
 
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) {
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
       return '';
     }
@@ -3612,7 +3607,7 @@ export class GameService {
         this.logger.warn(`创建白的召唤物失败 userId=${userId}: ${e?.message}`);
       }
     }
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Json 列直接写对象
 
     if (!target) {
       // 资源在等待期间被别人采完/刷新掉：本次动作作废（不产出、不计次数）
@@ -3669,14 +3664,14 @@ export class GameService {
       gained.push(`${itemName}×${this.formatGatherNumber(amount)}`);
     }
     for (const [itemName, amount] of awardedEquipment) gained.push(`${itemName}×${amount}`);
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
 
     // 原版采集成功后会把资源自身的“标记”写入玩家永久标记，
     // 例如医疗箱、休眠仓和散落的物品每个玩家只能领取一次。
     const resourceMarker = String(target.marker ?? target.标记 ?? '').trim();
     if (resourceMarker && actualGatherCount > 0) {
       markers[resourceMarker] = Number(markers[resourceMarker] ?? 0) + 1;
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
     }
 
     let timesSuffix = '';
@@ -3686,13 +3681,14 @@ export class GameService {
         const idx = resources.findIndex((r: any) => r.name === target.name);
         if (idx >= 0) resources.splice(idx, 1);
       }
-      const mapData: Record<string, string> = {
-        [resourceField]: JSON.stringify(resources),
+      // GameMap JSON 列为原生 Json 类型，写库直接传对象/数组
+      const mapData: Record<string, any> = {
+        [resourceField]: resources,
       };
       // 原版“次数归零”会添加“刷新资源<名称>”地图标记，后台刷新任务按该标记恢复资源。
       if (target.times <= 0 && target.renewable !== false) {
         // 兼容存量数据：地图标记2容器必须为数组（历史种子曾误写 '{}'）
-        const rawMapMarkers2 = this.playerService.safeJsonParse<any>(map.markers2, []);
+        const rawMapMarkers2 = asJsonValue<any>(map.markers2, []);
         const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
         const refreshedMarkers2 = mapMarkers2.filter((entry: any) =>
           (entry?.name ?? entry?.名称) !== `刷新资源${target.name}`,
@@ -3702,7 +3698,7 @@ export class GameService {
           expireAt: Date.now() + 1800 * 1000,
           resourceField,
         });
-        mapData.markers2 = JSON.stringify(refreshedMarkers2);
+        mapData.markers2 = refreshedMarkers2;
       }
       await this.prisma.gameMap.update({ where: { id: map.id }, data: mapData });
       if (target.times > 0) timesSuffix = `\n${map.name}的${resourceName}还可以采集${target.times}次`;
@@ -3769,7 +3765,7 @@ export class GameService {
     player: any,
     userId: number,
   ): { state: Record<string, any>; markers: Record<string, any> } | null {
-    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
     const rawState = markers['采集中'];
     if (!rawState) {
       this.clearStaleGatherLock(player, userId);
@@ -3777,11 +3773,12 @@ export class GameService {
     }
     let state: any = rawState;
     if (typeof rawState === 'string') {
-      try { state = JSON.parse(rawState); } catch { state = null; }
+      // 「采集中」嵌套值可能是对象或旧存档 JSON 字符串，统一容错解析
+      state = asJsonValue<Record<string, any> | null>(rawState, null);
     }
     if (!state || typeof state !== 'object' || !state.target) {
       delete markers['采集中'];
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
       this.clearStaleGatherLock(player, userId);
       return null;
     }
@@ -3792,10 +3789,10 @@ export class GameService {
   /** 清理孤儿「采集」锁定标记（无对应采集中状态时的兜底，避免玩家被永久锁死）。 */
   private clearStaleGatherLock(player: any, userId: number): void {
     try {
-      const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+      const markers2 = asJsonValue<any[]>(player.markers2, []);
       const filtered = markers2.filter((m: any) => (m?.name ?? m?.名称 ?? m?.key) !== '采集');
       if (filtered.length !== markers2.length) {
-        player.markers2 = JSON.stringify(filtered);
+        player.markers2 = filtered; // Json 列直接写数组
         void this.playerService.savePlayer(player).catch(() => undefined);
         this.logger.log(`清理玩家 ${userId} 的孤儿采集锁定标记`);
       }
@@ -3809,7 +3806,7 @@ export class GameService {
   private async countFollowingSummons(map: any, userId: number): Promise<number> {
     try {
       const raw = map?.summons ?? map?.召唤物 ?? [];
-      const summons = Array.isArray(raw) ? raw : this.playerService.safeJsonParse<any[]>(raw, []);
+      const summons = Array.isArray(raw) ? raw : asJsonValue<any[]>(raw, []);
       const playerKey = String(userId);
       return summons.filter((s: any) => {
         const owner = String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? s?.qq ?? '');
@@ -3818,7 +3815,7 @@ export class GameService {
         if (hp <= 0) return false;
         let summonMarkers: any = s?.markers ?? s?.标记 ?? {};
         if (!Array.isArray(summonMarkers) && typeof summonMarkers === 'string') {
-          summonMarkers = this.playerService.safeJsonParse<any>(summonMarkers, {});
+          summonMarkers = asJsonValue<any>(summonMarkers, {});
         }
         const prof = Array.isArray(summonMarkers)
           ? Number(summonMarkers.find((m: any) => (m?.name ?? m?.名称) === '跟随')?.value ?? 0)
@@ -3844,7 +3841,7 @@ export class GameService {
   private parseResourceOutputs(value: any): any[] {
     const outputs = Array.isArray(value)
       ? value
-      : this.playerService.safeJsonParse<any[]>(value, []);
+      : asJsonValue<any[]>(value, []);
     if (!Array.isArray(outputs)) return [];
     return outputs.map((output: any) => {
       if (!output || typeof output !== 'object') return output;
@@ -3867,13 +3864,13 @@ export class GameService {
   }
 
   private getGatherResources(map: any): any[] {
-    const resources = this.playerService.safeJsonParse<any[]>(map?.resources, []);
+    const resources = asJsonValue<any[]>(map?.resources, []);
     if (resources.length > 0) return resources;
-    return this.playerService.safeJsonParse<any[]>(map?.resources2, []);
+    return asJsonValue<any[]>(map?.resources2, []);
   }
 
   private getGatherResourceField(map: any): 'resources' | 'resources2' {
-    const resources = this.playerService.safeJsonParse<any[]>(map?.resources, []);
+    const resources = asJsonValue<any[]>(map?.resources, []);
     return resources.length > 0 ? 'resources' : 'resources2';
   }
 
@@ -3887,7 +3884,7 @@ export class GameService {
   private async getPlayerMarkers(userId: number): Promise<Record<string, any>> {
     try {
       const { player } = await this.playerService.getPlayerData(userId);
-      return this.playerService.safeJsonParse<Record<string, any>>(player?.markers, {});
+      return asJsonValue<Record<string, any>>(player?.markers, {});
     } catch {
       return {};
     }
@@ -3898,7 +3895,7 @@ export class GameService {
     const raw = resource?.outputs2 ?? resource?.['产出2'];
     if (Array.isArray(raw)) return raw.length > 0;
     if (raw == null || raw === '') return false;
-    const parsed = this.playerService.safeJsonParse<any[]>(raw, []);
+    const parsed = asJsonValue<any[]>(raw, []);
     return Array.isArray(parsed) && parsed.length > 0;
   }
 
@@ -4064,8 +4061,8 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const npcs = asJsonValue<any[]>(map.npcs, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     // 白：历史存档（只有 召唤白 标记）按需补建实体，保证任务池可解析。
     const wantedName = String(questName || '').trim();
     if (!wantedName || wantedName === '白') {
@@ -4113,7 +4110,8 @@ export class GameService {
       // 原版 L7360-7371：已经领取了该 NPC 的任务 → 先去完成。
       let activeTasks: any[] = [];
       try {
-        const parsedTasks = JSON.parse(String(player.tasks || '[]'));
+        // tasks 现为原生 Json 列（可能直接是数组），用 asJsonValue 容错读取
+        const parsedTasks = asJsonValue<any[]>(player.tasks, []);
         if (Array.isArray(parsedTasks)) activeTasks = parsedTasks;
       } catch { /* 任务数据异常按空处理 */ }
       if (source.publisher && activeTasks.some((t: any) =>
@@ -4149,7 +4147,7 @@ export class GameService {
   /** 读取地图单位的标记对象（兼容对象/数组/JSON字符串三种存法）。 */
   private parseNpcMarkers(unit: any): Record<string, any> {
     const raw = unit?.markers ?? unit?.标记 ?? {};
-    const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+    const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
     if (Array.isArray(parsed)) {
       return Object.fromEntries(parsed.map((item: any) => [
         item?.name ?? item?.名称,
@@ -4599,7 +4597,7 @@ export class GameService {
     if (target.startsWith('怪物') || target.startsWith('召唤物')) {
       const maps = await this.mapService.getAllMaps();
       for (const map of maps) {
-        const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+        const summons = asJsonValue<any[]>(map.summons, []);
         const summon = summons.find((s: any) => s.qq === target || s.id === target);
         if (summon) {
           if (position === '成就' || position === '配方') {
@@ -4618,7 +4616,7 @@ export class GameService {
           }
           await this.prisma.gameMap.update({
             where: { id: map.id },
-            data: { summons: JSON.stringify(summons) },
+            data: { summons },
           });
           return `${map.name}的${summon.name}的${markerName}标记被修改为${markerValue}`;
         }
@@ -4635,22 +4633,22 @@ export class GameService {
       return `${targetKey} 在玩家列表不存在`;
     }
 
-    const markers = this.playerService.safeJsonParse<Record<string, any>>(targetPlayer.markers, {});
-    const markers2 = this.playerService.safeJsonParse<any[]>(targetPlayer.markers2, []);
+    const markers = asJsonValue<Record<string, any>>(targetPlayer.markers, {});
+    const markers2 = asJsonValue<any[]>(targetPlayer.markers2, []);
     if (position === '标记' || position === '成就') {
       markers[markerName] = markerValue;
-      targetPlayer.markers = JSON.stringify(markers);
+      targetPlayer.markers = markers; // Json 列直接写对象
     } else if (position === '标记2' || position === '增益') {
       if (!duration) {
         return `${position === '标记2' ? '设置标记2' : '设置增益'}需要提供第五个参数：持续时间`;
       }
       const now = Date.now() / 1000;
       markers2.push({ name: markerName, value: markerValue, expireAt: now + duration });
-      targetPlayer.markers2 = JSON.stringify(markers2);
+      targetPlayer.markers2 = markers2; // Json 列直接写数组
     } else if (position === '配方') {
-      const recipes = this.playerService.safeJsonParse<Record<string, any>>(targetPlayer.recipes, {});
+      const recipes = asJsonValue<Record<string, any>>(targetPlayer.recipes, {});
       recipes[markerName] = markerValue;
-      targetPlayer.recipes = JSON.stringify(recipes);
+      targetPlayer.recipes = recipes; // Json 列直接写对象
     }
     await this.playerService.savePlayer(targetPlayer);
 
@@ -4755,11 +4753,11 @@ export class GameService {
     const now = Date.now();
     this.normalizeDungeonMarkers2(markers2);
     if (this.combatState.timeIntervalRequire('刷新副本冷却', 300, markers2, now, cooldownText, now)) {
-      player.markers2 = JSON.stringify(markers2);
+      player.markers2 = markers2; // Json 列直接写数组
       await this.playerService.savePlayer({ id: player.id, markers2 });
       return `${player.name}${cooldownText.value}`;
     }
-    player.markers2 = JSON.stringify(markers2);
+    player.markers2 = markers2; // Json 列直接写数组
     await this.playerService.savePlayer({ id: player.id, markers2 });
 
     const group = await this.dungeonService.findInstanceGroup(name);
@@ -4799,9 +4797,9 @@ export class GameService {
    */
   private calcVehicleTotalBonus(vehicle: any): any {
     // 解析载具基础加成
-    const baseBonus = this.playerService.safeJsonParse<any>(vehicle.bonus, {});
+    const baseBonus = asJsonValue<any>(vehicle.bonus, {});
     // 解析已安装的部件列表
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
 
     // 合并所有部件的加成
     let totalBonus = { ...baseBonus };
@@ -4825,7 +4823,7 @@ export class GameService {
   private parseVehicleValue<T>(value: any, fallback: T): T {
     if (Array.isArray(value) || (value && typeof value === 'object')) return value as T;
     if (typeof value !== 'string' || !value.trim()) return fallback;
-    return this.playerService.safeJsonParse<T>(value, fallback);
+    return asJsonValue<T>(value, fallback);
   }
 
   /** 将 DB/地图载具转换为原版中文字段运行时结构。 */
@@ -4957,10 +4955,10 @@ export class GameService {
       maxHp: Number(stored.maxHp || 0),
       currentHp: Number(stored.currentHp || 0),
       slotStatus: Number(stored.slotStatus || 0),
-      bonus: JSON.stringify(stored.bonus || {}),
-      parts: JSON.stringify(stored.parts || []),
-      markers2: JSON.stringify(stored.markers2 || []),
-      recipes: JSON.stringify(stored.recipes || []),
+      bonus: stored.bonus || {},
+      parts: stored.parts || [],
+      markers2: stored.markers2 || [],
+      recipes: stored.recipes || [],
     };
   }
 
@@ -4977,7 +4975,7 @@ export class GameService {
     if (source.index == null || source.index < 0 || source.index >= vehicles.length) return;
     vehicles[source.index] = this.toStoredVehicle(runtime);
     await this.mapService.updateDynamicFields(source.map.id, {
-      vehicles: JSON.stringify(vehicles),
+      vehicles,
     });
   }
 
@@ -5413,7 +5411,7 @@ export class GameService {
     const houseName = String(player.houseName || '').trim();
     if (!houseName) return '你还没有家园';
 
-    const materials = this.playerService.safeJsonParse<any[]>(building.materials, []);
+    const materials = asJsonValue<any[]>(building.materials, []);
     const isProductionBuilding = materials.some((item: any) =>
       Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0) !== 0,
     );
@@ -5435,7 +5433,7 @@ export class GameService {
     const result = this.homeService.installBuilding(map, name, backpack, count);
     if (!result.success) return result.message;
     await this.mapService.updateDynamicFields(map.id, { buildings: map.buildings });
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return result.message;
   }
@@ -5458,10 +5456,10 @@ export class GameService {
     if (count <= 0) return `${player.name || '冒险者'}你没有燃料`;
 
     this.deductBackpackItem(backpack, '燃料', count);
-    const items = this.playerService.safeJsonParse<any[]>(map.items, []);
+    const items = asJsonValue<any[]>(map.items, []);
     this.addItemToCollection(items, { name: '燃料', type: '资源', quantity: count });
-    await this.mapService.updateDynamicFields(map.id, { items: JSON.stringify(items) });
-    player.backpack = JSON.stringify(backpack);
+    await this.mapService.updateDynamicFields(map.id, { items });
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'}把${count}个燃料放到了${map.name}里`;
   }
@@ -5484,7 +5482,7 @@ export class GameService {
       return '从背包移除建筑失败';
     }
 
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
     const existing = parts.find((part: any) => part.name === buildingName);
     if (existing) {
       const next = Number(existing.quantity ?? existing.count ?? 0) + assembled;
@@ -5495,7 +5493,7 @@ export class GameService {
     }
     await this.prisma.gameVehicle.update({
       where: { id: vehicle.id },
-      data: { parts: JSON.stringify(parts) },
+      data: { parts },
     });
     return `把${assembled}个${buildingName}组装到了载具【${vehicle.name}】里`;
   }
@@ -5542,7 +5540,7 @@ export class GameService {
     }
 
     // 5. 检查部件类型和插槽限制
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
     const partType = partDef.partType; // 0核心 1防御 2行走 3武器 4功能
 
     // 统计已安装的同类型部件数量，并按背包数量和插槽上限计算实际安装数。
@@ -5573,7 +5571,7 @@ export class GameService {
 
     // 7. 将部件添加到载具的 parts 字段
     // 解析部件加成属性
-    const partBonus = this.playerService.safeJsonParse<any>(partDef.bonus, {});
+    const partBonus = asJsonValue<any>(partDef.bonus, {});
     const newPart = {
       name: partName,
       partType: partType,
@@ -5585,15 +5583,15 @@ export class GameService {
     // 8. 更新载具加成（重新计算总加成）
     const totalBonus = this.calcVehicleTotalBonus({
       ...vehicle,
-      parts: JSON.stringify(parts),
+      parts, // calcVehicleTotalBonus 内部用 asJsonValue 读取，直接传数组
     });
 
     // 9. 保存载具数据
     await this.prisma.gameVehicle.update({
       where: { id: vehicleId },
       data: {
-        parts: JSON.stringify(parts),
-        bonus: JSON.stringify(totalBonus),
+        parts,
+        bonus: totalBonus,
       },
     });
 
@@ -5650,7 +5648,7 @@ export class GameService {
     }
 
     // 3. 从载具的 parts 字段查找部件；普通部件按条目存储，建筑/资源部件可能带数量。
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
     const matching = parts.filter((part: any) => part.name === partName);
     if (matching.length === 0) {
       return `载具【${vehicle.name}】上没有安装【${partName}】`;
@@ -5694,15 +5692,15 @@ export class GameService {
     // 6. 更新载具加成（重新计算总加成）
     const totalBonus = this.calcVehicleTotalBonus({
       ...vehicle,
-      parts: JSON.stringify(remainingParts),
+      parts: remainingParts, // calcVehicleTotalBonus 内部用 asJsonValue 读取，直接传数组
     });
 
     // 更新载具数据
     await this.prisma.gameVehicle.update({
       where: { id: vehicleId },
       data: {
-        parts: JSON.stringify(remainingParts),
-        bonus: JSON.stringify(totalBonus),
+        parts: remainingParts,
+        bonus: totalBonus,
       },
     });
 
@@ -5733,8 +5731,8 @@ export class GameService {
     const name = String(buildingName || '').trim();
     if (!name) return `${player.name || '冒险者'}请指定要拆卸的建筑`;
 
-    const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
-    const items = this.playerService.safeJsonParse<any[]>(map.items, []);
+    const buildings = asJsonValue<any[]>(map.buildings, []);
+    const items = asJsonValue<any[]>(map.items, []);
     let collection = buildings;
     let index = collection.findIndex((item: any) =>
       (item?.name ?? item?.名称) === name,
@@ -5770,10 +5768,10 @@ export class GameService {
       count: removeCount,
     });
     await this.mapService.updateDynamicFields(map.id, {
-      buildings: JSON.stringify(buildings),
-      items: JSON.stringify(items),
+      buildings,
+      items,
     });
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'}把${map.name}的${removeCount}个${name}拆卸装箱了（×${removeCount}）`;
   }
@@ -5806,8 +5804,8 @@ export class GameService {
     }
 
     // 4. 解析部件列表和加成
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
-    const totalBonus = this.playerService.safeJsonParse<any>(vehicle.bonus, {});
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
+    const totalBonus = asJsonValue<any>(vehicle.bonus, {});
 
     // 统计各类型部件数量
     const typeCounts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -5887,7 +5885,7 @@ export class GameService {
       return `${player.name || '冒险者'}需要先完成房子的建造`;
     }
 
-    const stats = this.playerService.safeJsonParse<Record<string, any>>(player.stats, {});
+    const stats = asJsonValue<Record<string, any>>(player.stats, {});
     const baseMapId = Number(stats['家园原地图ID'] || stats.houseBaseMapId || player.mapId || 0);
     const houseMaps = await this.mapService.ensureHouseMaps(player.houseName, baseMapId, 4);
     const frontlineMap = houseMaps.frontline;
@@ -5925,7 +5923,7 @@ export class GameService {
       const dropMarkers = this.combatSystem.setDrop(player, []);
       if (dropMarkers.length > 0) {
         await this.mapService.updateMonsterFields(frontlineMap.id, monster.id, {
-          markers: JSON.stringify(dropMarkers),
+          markers: dropMarkers,
         });
       }
     }
@@ -5937,9 +5935,9 @@ export class GameService {
       frontlineLevel,
     );
     await this.mapService.updateDynamicFields(frontlineMap.id, {
-      summons: JSON.stringify(generated.summons),
-      vehicles: JSON.stringify(generated.vehicles),
-      markers2: JSON.stringify([{ 名称: '活动', 强度: 0, 有效期至: Date.now() + 120000 }]),
+      summons: generated.summons,
+      vehicles: generated.vehicles,
+      markers2: [{ 名称: '活动', 强度: 0, 有效期至: Date.now() + 120000 }],
     });
 
     // 保留现有网页版的战斗模式标记，供自动攻击入口读取；前线波次才是本命令的实际效果。
@@ -6040,7 +6038,7 @@ export class GameService {
       const liveFallback: any = liveMonsters.find((monster: any) =>
         String(monster?.type ?? monster?.name ?? '') === monsterName,
       ) || {};
-      const definitionBonus = this.playerService.safeJsonParse<any>(definition.bonus, {});
+      const definitionBonus = asJsonValue<any>(definition.bonus, {});
       const sweepMonster = {
         ...liveFallback,
         ...definition,
@@ -6082,7 +6080,7 @@ export class GameService {
         onTaskProgress: (actionName, count) => taskProgress.push({ actionName, count }),
       });
     }
-    player.markers = JSON.stringify(playerData.markers || this.playerService.safeJsonParse(player.markers, {}));
+    player.markers = playerData.markers || asJsonValue(player.markers, {}); // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     // 经验只在批量奖励结束时写入一次，避免扫荡循环和 addExp 双重结算。
@@ -6115,14 +6113,14 @@ export class GameService {
     const raw = map?.monsters ?? map?.怪物 ?? [];
     const names = Array.isArray(raw)
       ? raw
-      : this.playerService.safeJsonParse<any[]>(raw, []);
+      : asJsonValue<any[]>(raw, []);
     const result = names
       .map((value: any) => String(value?.name ?? value?.名称 ?? value ?? '').trim())
       .filter(Boolean);
     const rawMarkers = map?.markers3 ?? map?.标记3;
     const markers = Array.isArray(rawMarkers)
       ? rawMarkers
-      : this.playerService.safeJsonParse<any[]>(rawMarkers, []);
+      : asJsonValue<any[]>(rawMarkers, []);
     for (const marker of markers) {
       const markerName = String(marker?.name ?? marker?.名称 ?? '').trim();
       if (markerName.startsWith('嗅探') && markerName.slice(2).trim()) {
@@ -6238,17 +6236,17 @@ export class GameService {
     await this.achievementService.addAchievement(player, '闪避', 1);
     await this.achievementService.addAchievement(player, '闪避熟练度', 1);
     // 写入闪避增益（原版 L579：添加标记("闪避", a1, 玩家.增益)）→ 映射 player.buffs 供战斗命中判定读取
-    const playerBuffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const playerBuffs = asJsonValue<any[]>(player.buffs, []);
     const existingDodge = playerBuffs.find((b: any) => b && b.name === '闪避' && (!b.expireAt || b.expireAt > nowSec));
     if (existingDodge) {
       existingDodge.expireAt = nowSec + a1; // 原版延长至 a1 秒
     } else {
       playerBuffs.push({ name: '闪避', value: 100, expireAt: nowSec + a1, duration: a1 });
     }
-    player.buffs = JSON.stringify(playerBuffs);
+    player.buffs = playerBuffs; // Json 列直接写数组
     // 写入冷却标记（原版 L1848：时间间隔要求 "闪避冷却" cooldownSec）
     this.setMarkers2(markers2, '闪避冷却', nowSec + cooldownSec);
-    player.markers2 = JSON.stringify(markers2);
+    player.markers2 = markers2; // Json 列直接写数组
 
     // ========== 使魔专属分支（原版 L580-632） ==========
     const aff = Number(player.affinity || 0);
@@ -6258,7 +6256,7 @@ export class GameService {
       if (aff >= 100) {
         this.setMarkers2(markers2, '啾啾猫猫', nowSec + 3);
         await this.achievementService.addAchievement(player, '闪避击', 1);
-        player.markers2 = JSON.stringify(markers2);
+        player.markers2 = markers2; // Json 列直接写数组
         w += '(啾啾猫猫)';
       }
     } else if (seq === 8) {
@@ -6269,7 +6267,7 @@ export class GameService {
         const wname = weapons[curIdx]?.name || '拳头';
         const wcdName = wname === '拳头' ? '拳头冷却' : `${wname}冷却`;
         const newM2 = markers2.filter((m: any) => !(m && m.name === wcdName));
-        player.markers2 = JSON.stringify(newM2);
+        player.markers2 = newM2; // Json 列直接写数组
         w += `清空了${wname}的攻击冷却`;
       }
     } else if (seq === 12) {
@@ -6297,7 +6295,7 @@ export class GameService {
           this.setMarkers2(markers2, '压制', nowSec + (4.5 + skillLevel * 0.3), 1.5);
           w += '\n火力压制1.5%';
         }
-        player.markers2 = JSON.stringify(markers2);
+        player.markers2 = markers2; // Json 列直接写数组
       }
     }
 
@@ -6313,7 +6311,7 @@ export class GameService {
    * @param name 装备名称
    */
   private hasEquip(player: any, name: string): boolean {
-    const equips: any[] = this.playerService.safeJsonParse<any[]>(player.equipment, []);
+    const equips: any[] = asJsonValue<any[]>(player.equipment, []);
     return equips.some((e: any) => e && (e.name === name || e.名称 === name));
   }
 
@@ -6467,8 +6465,8 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
     const list = kind === '武器'
-      ? this.playerService.safeJsonParse<any[]>(player.weapons, [])
-      : this.playerService.safeJsonParse<any[]>(player.equipment, []);
+      ? asJsonValue<any[]>(player.weapons, [])
+      : asJsonValue<any[]>(player.equipment, []);
 
     // 无参数：列出已装备清单（原版无参数时提示用法，网页版直接给列表更方便）
     if (!arg) {
@@ -6567,14 +6565,14 @@ export class GameService {
     ];
 
     // 解析装备列表
-    const equipList = equipment.length > 0 ? equipment : this.playerService.safeJsonParse<any[]>(player.equipment, []);
-    const weaponList = weapons.length > 0 ? weapons : this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    const equipList = equipment.length > 0 ? equipment : asJsonValue<any[]>(player.equipment, []);
+    const weaponList = weapons.length > 0 ? weapons : asJsonValue<any[]>(player.weapons, []);
 
     // 显示装备被动效果
     const equipEffects: string[] = [];
     for (const eq of equipList) {
       if (eq.bonus) {
-        const bonus = typeof eq.bonus === 'string' ? this.playerService.safeJsonParse<any>(eq.bonus, {}) : eq.bonus;
+        const bonus = typeof eq.bonus === 'string' ? asJsonValue<any>(eq.bonus, {}) : eq.bonus;
         const effects = Object.entries(bonus)
           .filter(([, v]) => typeof v === 'number' && v > 0)
           .map(([k, v]) => `${k}: +${v}`);
@@ -6610,7 +6608,7 @@ export class GameService {
     }
 
     // 显示套装效果
-    const setData = sets || this.playerService.safeJsonParse<any>(player.sets, {});
+    const setData = sets || asJsonValue<any>(player.sets, {});
     const setEntries = Object.entries(setData).filter(([, v]) => v && (v as number) > 0);
     lines.push(`━━━━━━━━━━━━━━━`);
     lines.push(`🎯 套装效果:`);
@@ -6635,7 +6633,7 @@ export class GameService {
     // 显示召唤物信息
     lines.push(`━━━━━━━━━━━━━━━`);
     lines.push(`👾 召唤物:`);
-    const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const buffs = asJsonValue<any[]>(player.buffs, []);
     // 只显示仍在有效期内的召唤物，剩余时间按统一口径计算
     const summons = filterActive(buffs).filter((b: any) => b.type === 'summon' || b.name?.includes('召唤'));
     if (summons.length > 0) {
@@ -6807,8 +6805,8 @@ export class GameService {
 
       const lines = ['🔥 炼丹配方:', `━━━━━━━━━━━━━━━`];
       for (const recipe of alchemyRecipes) {
-        const reqs = this.playerService.safeJsonParse<any[]>(recipe.requirements, []);
-        const outputs = this.playerService.safeJsonParse<any[]>(recipe.outputs, []);
+        const reqs = asJsonValue<any[]>(recipe.requirements, []);
+        const outputs = asJsonValue<any[]>(recipe.outputs, []);
         const reqText = reqs.map((r: any) => `${r.name}×${r.count || r.quantity || 1}`).join(', ');
         const outText = outputs.map((o: any) => `${o.name}×${o.count || o.quantity || 1}`).join(', ');
         lines.push(`【${recipe.name}】`);
@@ -6921,7 +6919,7 @@ export class GameService {
       if (item.type !== '装备') return `${playerName}，${item.name}不是装备`;
       if (!this.fusionHasEffect(item)) return `${playerName}这个装备没有特效`;
       item.data = this.rewriteFusionData(item, undefined, 0);
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${playerName}移除了${item.name}的特效`;
     }
@@ -6933,7 +6931,7 @@ export class GameService {
       }
       const changed = this.correctFusionAttributes(item);
       if (changed) {
-        player.backpack = JSON.stringify(backpack);
+        player.backpack = backpack; // Json 列直接写数组
         await this.playerService.savePlayer(player);
         return `${playerName}这件装备不太正常，不过不用担心，我已经帮你修好了！`;
       }
@@ -6960,7 +6958,7 @@ export class GameService {
         return `${playerName}你想让神之工匠帮你激活装备特效，可是她早已经离开了此处。`;
       }
       item.data = this.rewriteFusionData(item, undefined, this.randomFusionEffectId(item));
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${playerName}激活了${item.name}的特效`;
     }
@@ -6991,7 +6989,7 @@ export class GameService {
     this.deductBackpackItem(backpack, '灵石', 3);
     if (Math.random() < 0.1) {
       item.data = this.upgradeFusionData(item);
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${playerName}造神成功！${item.name}升级为了【神迹】。`;
     }
@@ -7001,7 +6999,7 @@ export class GameService {
     if (!hadEffect) {
       item.data = this.rewriteFusionData(item, undefined, this.randomFusionEffectId(item));
     }
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return hadEffect
       ? `${playerName}，非常抱歉，好像失败了……`
@@ -7024,7 +7022,7 @@ export class GameService {
     this.deductBackpackItem(backpack, '灵石', 1);
     this.deductBackpackItem(backpack, '凭证', 1);
     item.data = this.rewriteFusionData(item, undefined, this.randomFusionEffectId(item));
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return `${playerName}激活了${item.name}的特效`;
   }
@@ -7049,7 +7047,7 @@ export class GameService {
     source.data = this.setFusionBonus(source, 'bw', wangBonus);
     backpack.splice(wangIndex, 1);
     this.deductBackpackItem(backpack, '凭证', 3);
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return `${playerName},${source.name}获得了${this.roundText(wangBonus)}%暴击伤害`;
   }
@@ -7088,7 +7086,7 @@ export class GameService {
     }
     this.deductBackpackItem(backpack, '灵石', cost);
     item.data = this.rewriteFusionData(item, undefined, selected);
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return `${playerName}激活了${item.name}的特效【${effect.row.name}】`;
   }
@@ -7097,7 +7095,7 @@ export class GameService {
     if (!map) return false;
     const parse = (value: any): any[] => Array.isArray(value)
       ? value
-      : this.playerService.safeJsonParse<any[]>(value, []);
+      : asJsonValue<any[]>(value, []);
     return [...parse(map.summons), ...parse(map.npcs)].some((unit: any) =>
       (unit?.name ?? unit?.名称) === '神之工匠'
       || (unit?.qq ?? unit?.QQ) === 'npc1g'
@@ -7221,8 +7219,8 @@ export class GameService {
 
       const lines = ['🔨 锻造配方:', `━━━━━━━━━━━━━━━`];
       for (const recipe of forgeRecipes) {
-        const reqs = this.playerService.safeJsonParse<any[]>(recipe.requirements, []);
-        const outputs = this.playerService.safeJsonParse<any[]>(recipe.outputs, []);
+        const reqs = asJsonValue<any[]>(recipe.requirements, []);
+        const outputs = asJsonValue<any[]>(recipe.outputs, []);
         const reqText = reqs.map((r: any) => `${r.name}×${r.count || r.quantity || 1}`).join(', ');
         const outText = outputs.map((o: any) => `${o.name}×${o.count || o.quantity || 1}`).join(', ');
         lines.push(`【${recipe.name}】`);
@@ -7409,7 +7407,7 @@ export class GameService {
 
     // 好感度解锁效果（对齐原版：逐个遍历，显示 "好感N解锁:" + 说明，已解锁显示描述）
     const affinityDesc = familiar.affinityDesc || [];
-    const affinityList = Array.isArray(affinityDesc) ? affinityDesc : JSON.parse(affinityDesc || '[]');
+    const affinityList = asJsonValue<any[]>(affinityDesc, []);
 
     for (let i = 0; i < affinityList.length; i++) {
       const unlockAt = 20 * (i + 1);
@@ -7700,13 +7698,13 @@ export class GameService {
         const ownerKey = String((p as any).qq || p.userId);
         // 宠物：归属匹配的召唤物 战斗力/100+100（原版 L9643-9648）
         for (const map of maps) {
-          const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+          const summons = asJsonValue<any[]>(map.summons, []);
           for (const pet of summons) {
             const owner = String(pet.ownerId ?? pet.归属 ?? '');
             if (owner !== ownerKey) continue;
             const petPower = Number(
               pet.combatPower ?? pet.战斗力
-              ?? this.playerService.safeJsonParse<any>(pet.markers, {})?.['战斗力'] ?? 0,
+              ?? asJsonValue<any>(pet.markers, {})?.['战斗力'] ?? 0,
             );
             value += petPower / 100 + 100;
           }
@@ -7721,7 +7719,7 @@ export class GameService {
             || mapName === houseName + '屋内' || mapName === houseName + '前线');
           if (!isHome) {
             // 非家园地图仅统计玩家载具零件
-            const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+            const vehicles = asJsonValue<any[]>(map.vehicles, []);
             for (const v of vehicles) {
               const owner = String(v.ownerId ?? v.归属 ?? '');
               if (owner !== ownerKey) continue;
@@ -7729,9 +7727,9 @@ export class GameService {
             }
             continue;
           }
-          const mapItems = this.playerService.safeJsonParse<any[]>(map.items, []);
-          const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
-          const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+          const mapItems = asJsonValue<any[]>(map.items, []);
+          const buildings = asJsonValue<any[]>(map.buildings, []);
+          const vehicles = asJsonValue<any[]>(map.vehicles, []);
           items.push(...mapItems, ...buildings);
           for (const v of vehicles) {
             const owner = String(v.ownerId ?? v.归属 ?? '');
@@ -7739,8 +7737,8 @@ export class GameService {
             this.pushVehicleParts(items, v);
           }
         }
-        const backpack = this.playerService.safeJsonParse<any[]>(p.backpack, []);
-        const safeBox = this.playerService.safeJsonParse<any[]>(p.safeBox, []);
+        const backpack = asJsonValue<any[]>(p.backpack, []);
+        const safeBox = asJsonValue<any[]>(p.safeBox, []);
         items.push(...backpack, ...safeBox);
         value += await this.itemService.calculateValue(items as any);
       } catch {
@@ -7763,7 +7761,7 @@ export class GameService {
     const maps = await this.prisma.gameMap.findMany();
     const entries: Array<{ name: string; value: number }> = [];
     for (const map of maps) {
-      const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+      const vehicles = asJsonValue<any[]>(map.vehicles, []);
       for (const v of vehicles) {
         const owner = String(v.ownerId ?? v.归属 ?? '');
         // 原版 L9718：去数字(归属)=="" 才计入（排除怪物/NPC载具）
@@ -7781,7 +7779,7 @@ export class GameService {
 
   /** 取制造成本：把载具零件展开为可估值的物品数组（原版 取制造成本） */
   private pushVehicleParts(target: any[], vehicle: any): void {
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts ?? vehicle.零件 ?? [], []);
+    const parts = asJsonValue<any[]>(vehicle.parts ?? vehicle.零件 ?? [], []);
     for (const part of parts) {
       const name = String(part?.name ?? part?.['名称'] ?? '').trim();
       if (!name) continue;
@@ -7841,7 +7839,7 @@ export class GameService {
   private async beginSelfRescue(userId: number, player: any, markers2: any[]): Promise<string> {
     const marker = this.createRescueMarker('self', 30, { mapId: player.mapId });
     markers2.push(marker);
-    player.markers2 = JSON.stringify(markers2);
+    player.markers2 = markers2; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     this.scheduleRescueCompletion(userId, marker);
     return `${player.name || '冒险者'}正在抢救中，需要30秒`;
@@ -7953,7 +7951,7 @@ export class GameService {
     const { player } = playerData;
 
     // 解析标记对象（原版 玩家.标记）
-    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    const markers = asJsonValue<any>(player.markers, {});
 
     // 原版 L6432：重置"挑战a"熟练度
     this.playerService.setMarker(markers, '挑战a', 0);
@@ -8001,12 +7999,12 @@ export class GameService {
     if (!map) {
       return `${player.name} 你不在任何地图上，无法进入下一层。`;
     }
-    const tempMonsters = this.playerService.safeJsonParse<any[]>(map.tempMonsters, []);
+    const tempMonsters = asJsonValue<any[]>(map.tempMonsters, []);
     tempMonsters.push(monster);
-    await this.mapService.updateDynamicFields(map.id, { tempMonsters: JSON.stringify(tempMonsters) });
+    await this.mapService.updateDynamicFields(map.id, { tempMonsters });
 
     // 保存玩家标记（挑战等级/挑战成功/挑战a 写入）
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     // 原版 L6453-6455：观察附近 + 提示文本
@@ -8033,11 +8031,11 @@ export class GameService {
     const monsters = await this.mapService.getMapMonsters(map);
     // 资源展示与采集门禁保持一致：过滤已采完(times=0)与当前玩家已领取过(marker)的资源，
     // 避免"观察附近列表里有、实际打不开"的观感（原版医疗箱/休眠仓为每人一次的常驻资源）。
-    const playerMarkers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
-    const resources = this.playerService.safeJsonParse<any[]>(map.resources, [])
+    const playerMarkers = asJsonValue<Record<string, any>>(player.markers, {});
+    const resources = asJsonValue<any[]>(map.resources, [])
       .filter((r: any) => this.getResourceTimes(r) !== 0 && this.isGatherResourceAvailable(r, playerMarkers));
-    const items = this.playerService.safeJsonParse<any[]>(map.items, []);
-    const npcs = this.playerService.safeJsonParse<any[]>(map.npcs, []);
+    const items = asJsonValue<any[]>(map.items, []);
+    const npcs = asJsonValue<any[]>(map.npcs, []);
     // 统一收集所有可编号快捷操作的选项（资源采集 + NPC对话，合并编号生成底部菜单）
     const quickOptions: { label: string; cmd: string }[] = [];
 
@@ -8087,7 +8085,7 @@ export class GameService {
     // 运行时资源2（对应原版 地图操作.ecode L862-893：观察附近列出产出2为空的地上资源——
     // 掉落货舱、家园院子的土堆/杂草等；作物/建筑产出2非空，走「查看作物」「查看建筑」）。
     // 教程文案（使魔大战.txt L3975）即要求玩家观察附近来发现院子里的杂草和土堆。
-    const groundResources = this.playerService.safeJsonParse<any[]>(map.resources2, [])
+    const groundResources = asJsonValue<any[]>(map.resources2, [])
       .filter((r: any) => !this.hasOutputs2(r)
         && this.getResourceTimes(r) !== 0
         && this.isGatherResourceAvailable(r, playerMarkers));
@@ -8127,7 +8125,7 @@ export class GameService {
 
     // 宠物/召唤物信息（对应原版 地图操作.ecode L698-880 观察附近）：
     // ≤6个逐个列出并可@对话；>6个折叠为一条「宠物(N个)」入口跳转「查看宠物」。
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     if (summons.length > 0) {
       // 玩家归属标识集合（原版 归属==玩家.QQ 过滤特殊宠物"白"，仅主人可见）
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -8145,7 +8143,7 @@ export class GameService {
       const isMonsterSummon = (s: any): boolean => qqOf(s).startsWith('怪物');
       const markerVal = (unit: any, markerName: string): number => {
         const raw = unit?.markers ?? unit?.标记 ?? {};
-        const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+        const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
         if (Array.isArray(parsed)) {
           const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
           return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
@@ -8226,7 +8224,7 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     const lines: string[] = [`🐾 【${map.name}】的宠物/NPC:`, `━━━━━━━━━━━━━━━`];
     const options: { label: string; cmd: string }[] = [];
 
@@ -8259,7 +8257,7 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    const vehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
+    const vehicles = asJsonValue<any[]>(map.vehicles, []);
     const lines: string[] = [`🚗 【${map.name}】的载具:`, `━━━━━━━━━━━━━━━`];
     const options: { label: string; cmd: string }[] = [];
 
@@ -8291,7 +8289,7 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    const resources2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
+    const resources2 = asJsonValue<any[]>(map.resources2, []);
     // 原版只列出有"产出2"的作物（取数组成员数(产出2) != 0）
     const crops = resources2.filter((r: any) => {
       const prod2 = this.parseResourceOutputs(r.outputs2 ?? r.产出2 ?? r.production2 ?? r.output2);
@@ -8330,7 +8328,7 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const buildings = asJsonValue<any[]>(map.buildings, []);
     const lines: string[] = [`🏠 【${map.name}】的建筑:`, `━━━━━━━━━━━━━━━`];
 
     if (buildings.length === 0) {
@@ -8359,7 +8357,7 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    const connections = this.playerService.safeJsonParse<any[]>(map.connections, []);
+    const connections = asJsonValue<any[]>(map.connections, []);
     // 原版只列出"开拓地"类型（isFrontier / 开拓地 标记）
     const frontiers = connections.filter((c: any) => c.isFrontier === true || c.开拓地 === true || c.type === '开拓地');
 
@@ -8557,7 +8555,7 @@ export class GameService {
       hp: monster.hp ?? 0,
       maxHp: monster.maxHp ?? monster.hp ?? 100,
     };
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     summons.push(summon);
     // 从 GameMonster 表移除该临时怪物（已转为召唤物）
     await this.mapService.removeMapMonster(map.id, monster.id);
@@ -8565,7 +8563,7 @@ export class GameService {
     await this.prisma.gameMap.update({
       where: { id: map.id },
       data: {
-        summons: JSON.stringify(summons),
+        summons,
       },
     });
 
@@ -8603,7 +8601,7 @@ export class GameService {
       hp: monster.hp ?? 0,
       maxHp: monster.maxHp ?? monster.hp ?? 100,
     };
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     summons.push(summon);
     // 从 GameMonster 表移除该临时怪物（已转为召唤物）
     await this.mapService.removeMapMonster(map.id, monster.id);
@@ -8611,7 +8609,7 @@ export class GameService {
     await this.prisma.gameMap.update({
       where: { id: map.id },
       data: {
-        summons: JSON.stringify(summons),
+        summons,
       },
     });
 
@@ -8646,11 +8644,11 @@ export class GameService {
     }
 
     // 将比例写入家园地图的标记（对应原版：置成就熟练度("肉食比例", 地图.标记, a1)）
-    const mapMarkers = this.playerService.safeJsonParse<Record<string, number>>(homeMap.markers, {});
+    const mapMarkers = asJsonValue<Record<string, number>>(homeMap.markers, {});
     mapMarkers['肉食比例'] = ratio;
     await this.prisma.gameMap.update({
       where: { id: homeMap.id },
-      data: { markers: JSON.stringify(mapMarkers) },
+      data: { markers: mapMarkers },
     });
 
     return `${player.name} ${player.houseName}的肉食植物现在能享用${ratio}%的生肉产出`;
@@ -8670,7 +8668,7 @@ export class GameService {
     if (!map) return '你不在任何地图上！';
 
     // 检查地图是否已有货舱类型的资源
-    const resources2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
+    const resources2 = asJsonValue<any[]>(map.resources2, []);
     const existingCargo = resources2.find((r: any) => r.type === '货舱' || r.name.includes('货舱'));
 
     if (existingCargo) {
@@ -8689,7 +8687,7 @@ export class GameService {
     resources2.push(cargo);
     await this.prisma.gameMap.update({
       where: { id: map.id },
-      data: { resources2: JSON.stringify(resources2) },
+      data: { resources2 },
     });
 
     this.logger.log(`玩家 ${userId} 在地图 ${map.name} 召唤了货舱`);
@@ -8856,7 +8854,7 @@ export class GameService {
     const refreshMarker = markers2.find((marker: any) => marker?.名称 === `${group.name}刷新`);
     if (refreshMarker && refreshMarker.有效期至 > now) return `${group.name}刷新冷却中`;
     markers2.push({ 名称: `${group.name}刷新`, 有效期至: now + 120 * 1000 });
-    await this.mapService.updateDynamicFields(markerMap.id, { markers2: JSON.stringify(markers2) });
+    await this.mapService.updateDynamicFields(markerMap.id, { markers2 });
 
     // 30 秒后关闭副本：持久化延时任务（dedupeKey=地图组名），重启不丢。
     if (this.delayedTaskService) {
@@ -8872,13 +8870,10 @@ export class GameService {
   }
 
   private parseDungeonArray(value: any): any[] {
-    if (Array.isArray(value)) return [...value];
-    try {
-      const parsed = JSON.parse(value || '[]');
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+    // markers2 为合并地图字段：静态来源已是数组，DB 来源是 JSON 字符串
+    const parsed = asJsonValue<any[]>(value, []);
+    // 保持原语义：返回副本，避免调用方 splice 修改污染上游数据
+    return Array.isArray(parsed) ? [...parsed] : [];
   }
 
   private normalizeDungeonMarkers2(markers2: any[]): void {
@@ -8949,13 +8944,13 @@ export class GameService {
           mapIndex: player.mapId,
           maxHp: 100,
           currentHp: 100,
-          parts: JSON.stringify([{
+          parts: [{
             name: partDef.name,
             partType: 0,
-            bonus: this.playerService.safeJsonParse<any>(partDef.bonus, {}),
+            bonus: asJsonValue<any>(partDef.bonus, {}),
             description: partDef.description || '',
-          }]),
-          bonus: partDef.bonus || '{}',
+          }],
+          bonus: asJsonValue<any>(partDef.bonus, {}),
         },
       });
 
@@ -9127,8 +9122,8 @@ export class GameService {
     }
     if (mapChanged) {
       await this.mapService.updateDynamicFields(map.id, {
-        vehicles: JSON.stringify(mapVehicles),
-        summons: JSON.stringify(summons),
+        vehicles: mapVehicles,
+        summons,
       });
     }
     await Promise.all(dbUpdates);
@@ -9207,7 +9202,7 @@ export class GameService {
     }
 
     const normalizeItems = (value: any): any[] => {
-      const rows = Array.isArray(value) ? value : this.playerService.safeJsonParse<any[]>(value, []);
+      const rows = Array.isArray(value) ? value : asJsonValue<any[]>(value, []);
       return rows.map((row: any) => ({
         ...row,
         name: row?.name ?? row?.名称,
@@ -9220,7 +9215,7 @@ export class GameService {
     };
     const requirements = normalizeItems(recipe.requirements);
     const outputs = normalizeItems(recipe.outputs);
-    const gainMarkers: string[] = this.playerService.safeJsonParse<string[]>(recipe.gainMarkers, []);
+    const gainMarkers: string[] = asJsonValue<string[]>(recipe.gainMarkers, []);
     if (outputs.length === 0) {
       return { success: false, text: `！！警告：制造项目${recipe.name}的制造产出为空，请检查文件` };
     }
@@ -9348,7 +9343,7 @@ export class GameService {
     if (!map) return `${playerName}不在任何地图上`;
     const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
     vehicles.push(this.toStoredVehicle(runtime));
-    await this.mapService.updateDynamicFields(map.id, { vehicles: JSON.stringify(vehicles) });
+    await this.mapService.updateDynamicFields(map.id, { vehicles });
 
     for (const part of requiredParts) {
       let remaining = part.数量;
@@ -9365,8 +9360,8 @@ export class GameService {
         }
       }
     }
-    player.backpack = JSON.stringify(backpack);
-    player.markers = JSON.stringify(markers);
+    player.backpack = backpack; // Json 列直接写数组
+    player.markers = markers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     await this.achievementService.addAchievement(player, '组装载具', 1);
@@ -9443,7 +9438,7 @@ export class GameService {
         return `未找到部件【${targetName}】`;
       }
 
-      const bonus = this.playerService.safeJsonParse<any>(partDef.bonus, {});
+      const bonus = asJsonValue<any>(partDef.bonus, {});
       const bonusLines = Object.entries(bonus)
         .filter(([, v]) => typeof v === 'number' && v > 0)
         .map(([k, v]) => `  ${k}: +${v}`);
@@ -9469,7 +9464,7 @@ export class GameService {
     });
     if (!vehicle) return '载具数据不存在';
 
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
     const totalBonus = this.calcVehicleTotalBonus(vehicle);
 
     const lines = [
@@ -9598,7 +9593,7 @@ export class GameService {
       runtime.驾驶员 = '';
       runtime.driver = '';
       mapVehicles[index] = this.toStoredVehicle(runtime);
-      await this.mapService.updateDynamicFields(map.id, { vehicles: JSON.stringify(mapVehicles) });
+      await this.mapService.updateDynamicFields(map.id, { vehicles: mapVehicles });
       player.vehicle = '';
       await this.playerService.savePlayer(player);
       await this.achievementService.addAchievement(player, '脱出', 1);
@@ -9708,7 +9703,7 @@ export class GameService {
     });
     if (!vehicle) return '载具数据不存在';
 
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
     const weaponParts = parts.filter((p: any) => p.partType === 3);
 
     if (weaponParts.length === 0) {
@@ -9827,7 +9822,7 @@ export class GameService {
     });
     if (!vehicle) return '载具数据不存在';
 
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
     const funcParts = parts.filter((p: any) => p.partType === 4);
 
     if (funcParts.length === 0) {
@@ -9880,7 +9875,7 @@ export class GameService {
     });
     if (!vehicle) return '载具数据不存在';
 
-    const parts = this.playerService.safeJsonParse<any[]>(vehicle.parts, []);
+    const parts = asJsonValue<any[]>(vehicle.parts, []);
     const currentMode = markers['vehicle_mode'] || '战斗';
     const currentForm = markers['vehicle_form'] || '标准';
 
@@ -9999,7 +9994,7 @@ export class GameService {
     }
 
     // 每天只能修改一次（原版 时间间隔要求("gbj1/gbj2", 有效期当天(), 标记2)）
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const cooldownName = slot === 'a' ? 'gbj1' : 'gbj2';
     const now = Date.now();
     const endOfDay = new Date();
@@ -10016,8 +10011,8 @@ export class GameService {
     else markers2.push(marker);
 
     markers[slot === 'a' ? 'bj1' : 'bj2'] = choice;
-    player.markers = JSON.stringify(markers);
-    player.markers2 = JSON.stringify(markers2);
+    player.markers = markers; // Json 列直接写对象
+    player.markers2 = markers2; // Json 列直接写数组
     // 指令路径在 PlayerMutateService 快照内，外层统一落库，无需裸 savePlayer。
     return `${player.name || '冒险者'}\n白的技能${slot === 'a' ? 1 : 2}被设置为${skillLabel()}`;
   }
@@ -10120,7 +10115,7 @@ export class GameService {
     if (!map) return { count: 0 };
 
     const rawSummons = typeof map.summons === 'string'
-      ? this.playerService.safeJsonParse<any[]>(map.summons, [])
+      ? asJsonValue<any[]>(map.summons, [])
       : map.summons;
     const summons = Array.isArray(rawSummons) ? rawSummons : [];
     const ownerIds = new Set([
@@ -10139,7 +10134,7 @@ export class GameService {
       if (!ownerIds.has(owner)) return false;
 
       const rawMarkers = typeof summon?.markers === 'string'
-        ? this.playerService.safeJsonParse<any>(summon.markers, {})
+        ? asJsonValue<any>(summon.markers, {})
         : (summon?.markers ?? summon?.标记 ?? {});
       const markers = rawMarkers && typeof rawMarkers === 'object' ? rawMarkers : {};
       return Number(markers['幼崽'] ?? markers['阵地'] ?? 0) === 0;
@@ -10147,7 +10142,7 @@ export class GameService {
 
     for (const summon of controllable) {
       const rawMarkers = typeof summon?.markers === 'string'
-        ? this.playerService.safeJsonParse<any>(summon.markers, {})
+        ? asJsonValue<any>(summon.markers, {})
         : (summon?.markers ?? summon?.标记 ?? {});
       const markers = rawMarkers && typeof rawMarkers === 'object' ? { ...rawMarkers } : {};
       if (mode === 'follow') {
@@ -10167,12 +10162,12 @@ export class GameService {
         summon.active = false;
         markers['主动'] = 1;
       }
-      summon.markers = JSON.stringify(markers);
+      summon.markers = markers; // Json 列直接写对象
       if (summon.标记 !== undefined) summon.标记 = summon.markers;
     }
 
     if (controllable.length > 0) {
-      await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+      await this.mapService.updateDynamicFields(map.id, { summons });
     }
     return { count: controllable.length, map };
   }
@@ -10220,7 +10215,7 @@ export class GameService {
     const markers = playerData.markers;
     const currentMp = markers['魔力'] || 100;
     markers['魔力'] = Math.min(currentMp + 50, 500); // 最多恢复50点，上限500
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     return `消耗了一瓶${potion.name}，魔力恢复50点（当前魔力: ${markers['魔力']}）`;
@@ -10247,7 +10242,7 @@ export class GameService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return { text: '你不在任何地图上', count: 0, amount: 0 };
 
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons || '[]', []);
+    const summons = asJsonValue<any[]>(map.summons || '[]', []);
     const user = typeof this.prisma?.user?.findUnique === 'function'
       ? await this.prisma.user.findUnique({ where: { id: userId } }).catch(() => null)
       : null;
@@ -10286,7 +10281,7 @@ export class GameService {
 
     const markers2 = Array.isArray((playerData as any).markers2)
       ? (playerData as any).markers2
-      : this.playerService.safeJsonParse<any[]>(player.markers2, []);
+      : asJsonValue<any[]>(player.markers2, []);
     this.normalizeMarkers2(markers2);
     const now = Date.now();
     const endOfDay = new Date(now);
@@ -10342,7 +10337,7 @@ export class GameService {
 
     if (successCount === 0) {
       if (!all && cooldownText) {
-        player.markers2 = JSON.stringify(markers2);
+        player.markers2 = markers2; // Json 列直接写数组
         await this.playerService.savePlayer(player);
         return { text: `${player.name || '冒险者'}${cooldownText}`, count: 0, amount: 0 };
       }
@@ -10355,13 +10350,13 @@ export class GameService {
 
     if (hasRong) totalMilk *= 1.25;
     this.addItemToCollection(backpack, { name: '奶', type: '资源', quantity: totalMilk });
-    player.backpack = JSON.stringify(backpack);
-    player.markers2 = JSON.stringify(markers2);
+    player.backpack = backpack; // Json 列直接写数组
+    player.markers2 = markers2; // Json 列直接写数组
 
     let extraText = '';
     if (blueDragonReward && !this.hasActiveMilkMarker(markers2, 'zq', now)) {
       markers2.push({ 名称: 'zq', 有效期至: dayEndMs });
-      player.markers2 = JSON.stringify(markers2);
+      player.markers2 = markers2; // Json 列直接写数组
       const upgradeExp = Number(player.upgradeExp || 0);
       if (upgradeExp > 0) {
         player.exp = Number(player.exp || 0) + upgradeExp;
@@ -10369,7 +10364,7 @@ export class GameService {
       }
     }
 
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
     await this.playerService.savePlayer(player);
     await this.advanceTask(userId, '挤奶', successCount);
 
@@ -10408,7 +10403,7 @@ export class GameService {
 
     const rawBonus = pet?.bonus ?? pet?.加成;
     const bonus = typeof rawBonus === 'string'
-      ? this.playerService.safeJsonParse<any>(rawBonus, {})
+      ? asJsonValue<any>(rawBonus, {})
       : (rawBonus || {});
     const fromPetBonus = Number(bonus?.产奶量 ?? bonus?.milkAmount ?? bonus?.milkYield);
     if (Number.isFinite(fromPetBonus) && fromPetBonus > 0) return fromPetBonus;
@@ -10416,7 +10411,7 @@ export class GameService {
     const monster = this.staticData?.getMonsterByName?.(name)
       ?? this.staticData?.getMonsterByName?.(String(pet?.type ?? pet?.类型 ?? ''));
     const monsterBonus = typeof monster?.bonus === 'string'
-      ? this.playerService.safeJsonParse<any>(monster.bonus, {})
+      ? asJsonValue<any>(monster.bonus, {})
       : (monster?.bonus || {});
     const fromDefinition = Number(monsterBonus?.产奶量 ?? monsterBonus?.milkAmount ?? monsterBonus?.milkYield);
     if (Number.isFinite(fromDefinition) && fromDefinition > 0) return fromDefinition;
@@ -10449,7 +10444,7 @@ export class GameService {
       return;
     }
     const markers = typeof raw === 'string'
-      ? this.playerService.safeJsonParse<any>(raw, {})
+      ? asJsonValue<any>(raw, {})
       : (raw && typeof raw === 'object' ? raw : {});
     const existingKey = Object.prototype.hasOwnProperty.call(markers, key)
       ? key
@@ -10484,7 +10479,7 @@ export class GameService {
     if (!map) return '你不在任何地图上';
 
     // 解析当前地图上的召唤物
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons || '[]', []);
+    const summons = asJsonValue<any[]>(map.summons || '[]', []);
     const playerIdStr = String(player.userId);
 
     // 查找可剪毛的宠物（羊、绵羊、普拉娜等）
@@ -10520,7 +10515,7 @@ export class GameService {
       ?? this.staticData?.getMonsterByName?.(targetType);
     let hair: any = target.hair ?? target.毛发 ?? target.hairDrop ?? targetDefinition?.hairDrop;
     if (typeof hair === 'string') {
-      const parsed = this.playerService.safeJsonParse<any>(hair, null);
+      const parsed = asJsonValue<any>(hair, null);
       if (parsed !== null) {
         hair = parsed;
       } else {
@@ -10686,7 +10681,7 @@ export class GameService {
     const { player } = playerData;
     if (!player.type) return '';
 
-    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
     const today = this.localTodayString();
     if (markers['签到时间'] === today) return '';
 
@@ -10791,8 +10786,8 @@ export class GameService {
     }
 
     // 背包/标记/活力同一次落库（savePlayer 落库前会做经验归一化与属性重算）
-    player.backpack = JSON.stringify(backpack);
-    player.markers = JSON.stringify(markers);
+    player.backpack = backpack; // Json 列直接写数组
+    player.markers = markers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     // 组装顺序对齐原版 w = w2 + w3 + 换行 + w：
@@ -10819,7 +10814,7 @@ export class GameService {
     const { player } = playerData;
     if (!player.type) return '';
 
-    const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now();
     const remainText = { value: '' };
     let changed = false;
@@ -10849,7 +10844,7 @@ export class GameService {
       try {
         await this.playerService.enqueueUserWrite(player.userId, async () => {
           const _pd = await this.playerService.getPlayerData(player.userId);
-          Object.assign(_pd.player, { markers2: JSON.stringify(markers2) });
+          Object.assign(_pd.player, { markers2 }); // Json 列直接写数组
           await this.playerService.savePlayer(_pd.player);
         });
       } catch {
@@ -10863,7 +10858,7 @@ export class GameService {
   private async hasTrainerAccess(player: any): Promise<boolean> {
     try {
       const map = await this.mapService.getMapById(player.mapId);
-      const buildings = this.playerService.safeJsonParse<any[]>(map?.buildings, []);
+      const buildings = asJsonValue<any[]>(map?.buildings, []);
       if (buildings.some((b: any) => String(b?.name ?? '') === '训练器')) return true;
       const backpack = this.playerService.getBackpackItems(player);
       if (backpack.some((item: any) => String(item?.name ?? '') === '训练器')) return true;
@@ -11235,7 +11230,7 @@ export class GameService {
       const observedMap = await this.mapService.getMapByName(targetMapName).catch(() => null);
       if (!observedMap) return `家园地图「${targetMapName}」不存在`;
 
-      const mapMarkers = this.playerService.safeJsonParse<any>(observedMap.markers, {});
+      const mapMarkers = asJsonValue<any>(observedMap.markers, {});
       const readMarker = (name: string): any => {
         if (Array.isArray(mapMarkers)) {
           const marker = mapMarkers.find((item: any) => (item?.name ?? item?.名称) === name);
@@ -11252,7 +11247,7 @@ export class GameService {
       const tradeKey = `贸易${targetIdentity}`;
       const nowMs = Date.now();
       const nowSec = nowMs / 1000;
-      const markers2 = this.playerService.safeJsonParse<any[]>(actor.markers2, []);
+      const markers2 = asJsonValue<any[]>(actor.markers2, []);
       let activeCooldown = 0;
       const validMarkers = markers2.filter((marker: any) => {
         const markerName = marker?.name ?? marker?.名称 ?? marker?.key;
@@ -11305,7 +11300,7 @@ export class GameService {
       tomorrow.setHours(24, 0, 0, 0);
       validMarkers.push({ name: tradeKey, expireAt: tomorrow.getTime() / 1000 });
       actor.vitality = Number(actor.vitality || 0) - 10;
-      actor.markers2 = JSON.stringify(validMarkers);
+      actor.markers2 = validMarkers; // Json 列直接写数组
       actor.backpack = actorData.backpack;
       targetData.player.backpack = targetData.backpack;
       await Promise.all([
@@ -11369,7 +11364,7 @@ export class GameService {
         return `${player.name}${purchaseGate.message}`;
       }
       if (purchaseGate.markers2Changed) {
-        player.markers2 = JSON.stringify(purchaseGate.markers2);
+        player.markers2 = purchaseGate.markers2; // Json 列直接写数组
         await this.playerService.savePlayer(player);
       }
       return this.purchaseMerchantItem(userId, player, markers, map, summons, merchantIndex, merchantBackpack, itemIndex - 1);
@@ -11460,8 +11455,8 @@ export class GameService {
         return `没有找到名为【${recipeName}】的配方`;
       }
 
-      const reqs = this.playerService.safeJsonParse<any[]>(recipe.requirements, []);
-      const outputs = this.playerService.safeJsonParse<any[]>(recipe.outputs, []);
+      const reqs = asJsonValue<any[]>(recipe.requirements, []);
+      const outputs = asJsonValue<any[]>(recipe.outputs, []);
       const lines = [
         `📜 【${recipe.name}】配方详情`,
         `━━━━━━━━━━━━━━━`,
@@ -11500,7 +11495,7 @@ export class GameService {
     for (const [type, recipes] of Object.entries(categorized)) {
       lines.push(`【${type}】(${recipes.length}个)`);
       for (const recipe of recipes as any[]) {
-        const outputs = this.playerService.safeJsonParse<any[]>(recipe.outputs, []);
+        const outputs = asJsonValue<any[]>(recipe.outputs, []);
         const outText = outputs.map((o: any) => o.name).join(', ');
         lines.push(`  ${recipe.name} → ${outText}`);
       }
@@ -11573,7 +11568,7 @@ export class GameService {
   /** 解析玩家.reverse；条目结构对齐原版 技能={名称,数值}。 */
   private readReverseProficiencies(player: any): Array<{ name: string; value: number }> {
     const raw = typeof player.reverse === 'string'
-      ? this.playerService.safeJsonParse<any[]>(player.reverse, [])
+      ? asJsonValue<any[]>(player.reverse, [])
       : (Array.isArray(player.reverse) ? player.reverse : []);
     return raw
       .filter((entry: any) => entry && (entry.name ?? entry.名称))
@@ -11728,7 +11723,7 @@ export class GameService {
     reverse: Array<{ name: string; value: number }>,
     count: number,
   ): Promise<void> {
-    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+    const markers = asJsonValue<Record<string, number>>(player.markers, {});
     markers['逆向'] = (markers['逆向'] || 0) + count;
     player.markers = markers;
     player.backpack = backpack;
@@ -11964,7 +11959,7 @@ export class GameService {
     if (!map) return '你不在任何地图上';
 
     // 解析当前地图上的NPC列表
-    const npcs = this.playerService.safeJsonParse<any[]>(map.npcs || '[]', []);
+    const npcs = asJsonValue<any[]>(map.npcs || '[]', []);
 
     // 检查是否已经存在神之工匠
     const existingNpc = npcs.find((npc: any) => npc.name === '神之工匠');
@@ -11982,10 +11977,10 @@ export class GameService {
     });
 
     // 更新地图NPC数据
-    map.npcs = JSON.stringify(npcs);
+    map.npcs = npcs;
     await this.prisma.gameMap.update({
       where: { id: map.id },
-      data: { npcs: JSON.stringify(npcs) },
+      data: { npcs },
     });
 
     this.logger.log(`玩家 ${userId} 在地图 ${map.name} 生成了神之工匠NPC`);
@@ -12007,7 +12002,7 @@ export class GameService {
     if (!map) return '你不在任何地图上';
 
     // 解析当前地图上的资源列表
-    const resources = this.playerService.safeJsonParse<any[]>(map.resources || '[]', []);
+    const resources = asJsonValue<any[]>(map.resources || '[]', []);
 
     // 创建废弃载具资源
     resources.push({
@@ -12022,10 +12017,10 @@ export class GameService {
     });
 
     // 更新地图资源数据
-    map.resources = JSON.stringify(resources);
+    map.resources = resources;
     await this.prisma.gameMap.update({
       where: { id: map.id },
-      data: { resources: JSON.stringify(resources) },
+      data: { resources },
     });
 
     this.logger.log(`玩家 ${userId} 在地图 ${map.name} 生成了废弃载具残骸`);
@@ -12140,7 +12135,7 @@ export class GameService {
       // 没有指定模式，显示当前状态并切换
       const newMode = currentMode === 0 ? 1 : 0;
       markers['文本发送模式'] = newMode;
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
 
       const modeText = newMode === 1 ? '文本发送模式' : '普通发送模式';
@@ -12152,7 +12147,7 @@ export class GameService {
     if (currentMode === 0) {
       // 当前是普通模式，切换到文本模式并发送
       markers['文本发送模式'] = 1;
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
     }
 
@@ -12188,10 +12183,10 @@ export class GameService {
     }
 
     // 解析玩家的背包、装备、称号等数据
-    const backpack = this.playerService.safeJsonParse<any[]>(targetPlayer.backpack, []);
-    const equipment = this.playerService.safeJsonParse<any[]>(targetPlayer.equipment, []);
+    const backpack = asJsonValue<any[]>(targetPlayer.backpack, []);
+    const equipment = asJsonValue<any[]>(targetPlayer.equipment, []);
     // 称号兼容两种形状：字符串（历史自动发放）/ {name, equipped}（领取/佩戴）
-    const titles = this.playerService.safeJsonParse<any[]>(targetPlayer.titles, [])
+    const titles = asJsonValue<any[]>(targetPlayer.titles, [])
       .filter((t: any) => t)
       .map((t: any) => (typeof t === 'string' ? t : t.name))
       .filter(Boolean);
@@ -12343,7 +12338,7 @@ export class GameService {
       `gm 解封 用户ID - 解封玩家`,
       `gm 封禁QQ QQ号 - 封禁玩家（按QQ号）`,
       `gm 重置玩家 QQ号 - 重置玩家数据到初始状态`,
-      `gm 修改玩家 QQ号 字段名 值 - 修改玩家数据`,
+      `gm 修改玩家 QQ号/用户名/ID 字段名 值 - 修改玩家数据`,
       `gm 间隔消息 内容 次数 间隔秒 - 设置间隔消息`,
       `gm 更新配置 键 值 - 更新系统配置`,
       `gm 用户列表 [关键词] - 搜索用户列表`,
@@ -12529,7 +12524,7 @@ export class GameService {
    */
   private async handleAdminModifyPlayer(userId: number, args: string[]): Promise<string> {
     if (args.length < 3) {
-      return '请指定QQ号、字段名和值，格式：gm 修改玩家 QQ号 字段名 值';
+      return '请指定目标(QQ号/用户名/ID)、字段名和值，格式：gm 修改玩家 目标 字段名 值';
     }
     const targetQQ = args[0];
     const field = args[1];
@@ -12678,9 +12673,9 @@ export class GameService {
       // a1 = 等级/100 × 时间差 × (1+属性.经验/100) × (1+|陪睡|×0.5) [若有鹭(陪睡<0)再×1.1]
       // 仅当 标记"躺下"==1 时生效；离线≥600秒时显示提示文本
       try {
-        const markersObj = this.playerService.safeJsonParse<any>(player.markers, {});
+        const markersObj = asJsonValue<any>(player.markers, {});
         if (markersObj['躺下'] === 1) {
-          const setsObj = this.playerService.safeJsonParse<any>(player.sets, {});
+          const setsObj = asJsonValue<any>(player.sets, {});
           const sleepover = Math.abs(Number(setsObj.sleepover) || 0);
           const isHaveCrane = (Number(setsObj.sleepover) || 0) < 0; // 负数为有鹭
           let lieExp = (player.level || 1) / 100 * timeDiff
@@ -12701,11 +12696,11 @@ export class GameService {
       // ===== 活力恢复（原版 _计算玩家 L2625-2643） =====
       // 活力与生命/护盾/装甲回复相互独立，即使三池回复率都为0也必须结算。
       let vitalityTipText = '';
-      const vitalityMarkers2 = this.playerService.safeJsonParse<any[]>(
+      const vitalityMarkers2 = asJsonValue<any[]>(
         player.markers2, [],
       );
       try {
-        const markersObj = this.playerService.safeJsonParse<any>(player.markers, {});
+        const markersObj = asJsonValue<any>(player.markers, {});
         const vitalityMax = this.vitalityService
           ? this.vitalityService.getVitalityMax(markersObj)
           : Math.max(100, Number(this.playerService.getMarkerValue(markersObj, '活力2')) || 100);
@@ -12719,7 +12714,7 @@ export class GameService {
         }
         if (Number(this.playerService.getMarkerValue(markersObj, '活力2')) < vitalityMax) {
           markersObj['活力2'] = vitalityMax;
-          player.markers = JSON.stringify(markersObj);
+          player.markers = markersObj; // Json 列直接写对象
         }
         // ===== 活力快满提示（原版 加成计算.ecode L2637-2640）=====
         // 【原文 L2637】.如果真 (玩家.活力 >= a1 * 0.8)
@@ -12731,7 +12726,7 @@ export class GameService {
           const tipMark = vitalityMarkers2.find((m: any) => m && m.name === '活力提示');
           if (!tipMark || !tipMark.expireAt || tipMark.expireAt <= nowSec) {
             this.setMarkers2(vitalityMarkers2, '活力提示', nowSec + 600);
-            player.markers2 = JSON.stringify(vitalityMarkers2);
+            player.markers2 = vitalityMarkers2; // Json 列直接写数组
             vitalityTipText = `【活力快满了:${Math.round(player.vitality || 0)}/${Math.round(vitalityMax)}】`;
           }
         }
@@ -12837,7 +12832,7 @@ export class GameService {
       mapId: player.mapId,
     });
     markers2.push(marker);
-    player.markers2 = JSON.stringify(markers2);
+    player.markers2 = markers2; // Json 列直接写数组
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '救助');
     this.scheduleRescueCompletion(userId, marker);
@@ -12847,7 +12842,7 @@ export class GameService {
   /** 解析救援相关 JSON，兼容对象、数组和旧版中英文字段。 */
   private parseRescueArray(value: any): any[] {
     if (Array.isArray(value)) return value;
-    return this.playerService.safeJsonParse<any[]>(value, []);
+    return asJsonValue<any[]>(value, []);
   }
 
   private parseRescueMarkers(value: any): any[] {
@@ -12929,7 +12924,7 @@ export class GameService {
 
   private parseRescueObject(value: any): any {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-    return this.playerService.safeJsonParse<any>(value, {});
+    return asJsonValue<any>(value, {});
   }
 
   private setRescueHp(unit: any, hp: number): void {
@@ -13032,9 +13027,10 @@ export class GameService {
   }
 
   private async saveRescueMap(map: any, summons: any[], vehicles: any[]): Promise<void> {
-    const data: Record<string, string> = {};
-    if (summons) data.summons = JSON.stringify(summons);
-    if (vehicles) data.vehicles = JSON.stringify(vehicles);
+    // GameMap JSON 列为原生 Json 类型，写库直接传对象/数组
+    const data: Record<string, any> = {};
+    if (summons) data.summons = summons;
+    if (vehicles) data.vehicles = vehicles;
     if (Object.keys(data).length === 0) return;
     await this.mapService.updateDynamicFields(map.id, data);
   }
@@ -13051,24 +13047,22 @@ export class GameService {
     if (!token) return false;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    const raw = typeof player.markers2 === 'string'
-      ? player.markers2
-      : JSON.stringify(Array.isArray(player.markers2) ? player.markers2 : playerData.markers2 ?? []);
-    const markers2 = this.parseRescueMarkers(raw);
+    const markers2 = this.parseRescueMarkers(player.markers2);
     const remaining = markers2.filter((marker: any) => marker?.token !== token);
     if (remaining.length === markers2.length) return false;
-    const nextRaw = JSON.stringify(remaining);
+    // 回滚快照保留原引用（数组或字符串均可，setter/asJsonValue 双态兼容）
+    const prevMarkers2 = player.markers2;
     // 认领必须走整包 savePlayer（中央乐观锁按 (id,version) CAS），理由同采集结算：
     // 不带 version 的定点条件写会被乐观锁拦截器注入 version+1，调用方内存快照
     // 版本失步，后续整包保存必然并发冲突失败；且定点写不使其它旧快照失效，
     // 持旧 markers2 的并发写者仍能把已认领的救援标记原样写回复活（重复广播）。
     // 整包 CAS 失败（P2025 并发冲突）说明另一入口已在结算，本调用立即放弃，
     // 标记仍留库中由下一轮兜底重试，不会丢结算。
-    player.markers2 = nextRaw;
+    player.markers2 = remaining; // Json 列直接写数组
     try {
       await this.playerService.savePlayer(player);
     } catch (e: any) {
-      player.markers2 = raw;
+      player.markers2 = prevMarkers2;
       this.logger.warn(`玩家 ${userId} 救援标记认领失败（并发冲突或写库异常），本次放弃: ${e?.message || e}`);
       return false;
     }
@@ -13149,7 +13143,7 @@ export class GameService {
         for (const rescueTarget of rescueTargets) {
           const buffs = this.parseRescueArray(rescueTarget.buffs);
           this.shortenRescueBuff(buffs, '卷土重来', 30);
-          rescueTarget.buffs = JSON.stringify(buffs);
+          rescueTarget.buffs = buffs; // Json 列直接写数组
           rescueTarget.hp = Math.floor(Number(rescueTarget.maxHp || 100) / 2);
           await this.playerService.savePlayer(rescueTarget);
           rescuedNames.push(rescueTarget.name || '倒地玩家');
@@ -13213,7 +13207,7 @@ export class GameService {
         (unit?.name ?? unit?.名称) === '白'
         && String(unit?.ownerQQ ?? unit?.归属 ?? '') === ownerQQ;
       const parseSummons = (map: any): any[] =>
-        Array.isArray(map?.summons) ? map.summons : this.playerService.safeJsonParse<any[]>(map?.summons, []);
+        Array.isArray(map?.summons) ? map.summons : asJsonValue<any[]>(map?.summons, []);
 
       // 原版优先级：先查当前地图，再全图兜底。
       const sameMapWhite = parseSummons(player.mapId != null ? allMaps.find((m: any) => Number(m.id) === Number(player.mapId)) : null)
@@ -13250,7 +13244,7 @@ export class GameService {
     markers: Record<string, any>,
   ): Promise<void> {
     const userId = Number(player.userId);
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     const ownerIds = new Set([String(userId), String(player.id)]);
     const exists = summons.some((s: any) =>
       String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
@@ -13269,14 +13263,14 @@ export class GameService {
     summons.push(summon);
     await this.prisma.gameMap.update({
       where: { id: map.id },
-      data: { summons: JSON.stringify(summons) },
+      data: { summons },
     });
 
     // 羁绊（原版 套装.白）：bj1/bj2 羁绊技能加成的开关。
-    const sets = this.playerService.safeJsonParse<Record<string, any>>(player.sets, {});
+    const sets = asJsonValue<Record<string, any>>(player.sets, {});
     if (!sets['白']) {
       sets['白'] = 1;
-      player.sets = JSON.stringify(sets);
+      player.sets = sets; // Json 列直接写对象
     }
     // 初始好感30写入玩家“白好感”标记（双向同步备份，防单位丢失）。
     // 写入调用方的 markers 局部对象：调用方紧随其后统一 stringify+save。
@@ -13292,9 +13286,9 @@ export class GameService {
    */
   private async ensurePlayerWhite(player: any, map: any): Promise<any | null> {
     const userId = Number(player.userId);
-    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
     const ownerIds = new Set([String(userId), String(player.id)]);
-    const parse = (value: any): any[] => this.playerService.safeJsonParse<any[]>(value, []);
+    const parse = (value: any): any[] => asJsonValue<any[]>(value, []);
 
     const current = parse(map.summons).find((s: any) =>
       String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
@@ -13315,13 +13309,13 @@ export class GameService {
       const [white] = units.splice(idx, 1);
       await this.prisma.gameMap.update({
         where: { id: other.id },
-        data: { summons: JSON.stringify(units) },
+        data: { summons: units },
       }).catch(() => undefined);
       const currentUnits = parse(map.summons);
       currentUnits.push(white);
       await this.prisma.gameMap.update({
         where: { id: map.id },
-        data: { summons: JSON.stringify(currentUnits) },
+        data: { summons: currentUnits },
       }).catch(() => undefined);
       await this.syncWhiteAffinity(player, white, markers, Number(map.id));
       return white;
@@ -13329,7 +13323,7 @@ export class GameService {
 
     // 从未创建过（或被地图写竞态清除）：重建，好感从玩家标记恢复。
     // sets/标记只改内存快照，由指令外层 mutate 统一落库。
-    const created = this.playerService.safeJsonParse<Record<string, any>>(map.summons, []);
+    const created = asJsonValue<Record<string, any>>(map.summons, []);
     const summon = {
       name: '白',
       type: '白',
@@ -13343,12 +13337,12 @@ export class GameService {
     created.push(summon);
     await this.prisma.gameMap.update({
       where: { id: map.id },
-      data: { summons: JSON.stringify(created) },
+      data: { summons: created },
     });
-    const sets = this.playerService.safeJsonParse<Record<string, any>>(player.sets, {});
+    const sets = asJsonValue<Record<string, any>>(player.sets, {});
     if (!sets['白']) {
       sets['白'] = 1;
-      player.sets = JSON.stringify(sets);
+      player.sets = sets; // Json 列直接写对象
     }
     await this.syncWhiteAffinity(player, summon, markers, Number(map.id));
     return summon;
@@ -13369,7 +13363,7 @@ export class GameService {
       const userId = Number(player.userId);
       const raw = white?.markers ?? white?.标记 ?? {};
       const unitMarkers = typeof raw === 'string'
-        ? this.playerService.safeJsonParse<Record<string, any>>(raw, {})
+        ? asJsonValue<Record<string, any>>(raw, {})
         : (raw && typeof raw === 'object' ? { ...raw } : {});
       const unitKey = `好感${userId}`;
       const unitValue = Number(unitMarkers[unitKey] ?? 0);
@@ -13377,9 +13371,9 @@ export class GameService {
       const best = Math.max(unitValue, markerValue);
       if (best > 0 && unitValue !== best) {
         unitMarkers[unitKey] = best;
-        white.markers = JSON.stringify(unitMarkers);
+        white.markers = unitMarkers; // Json 列直接写对象
         // 单位好感提升：整体写回单位所在地图（调用方传入的 host 地图）
-        const hostUnits = this.playerService.safeJsonParse<any[]>(
+        const hostUnits = asJsonValue<any[]>(
           (await this.mapService.getMapById(mapId))?.summons, []);
         const idx = hostUnits.findIndex((s: any) =>
           String(s?.qq ?? s?.QQ ?? '') === String(white?.qq ?? white?.QQ ?? ''));
@@ -13387,13 +13381,13 @@ export class GameService {
           hostUnits[idx] = white;
           await this.prisma.gameMap.update({
             where: { id: mapId },
-            data: { summons: JSON.stringify(hostUnits) },
+            data: { summons: hostUnits },
           }).catch(() => undefined);
         }
       }
       if (best > 0 && markerValue !== best) {
         markers['白好感'] = best;
-        player.markers = JSON.stringify(markers);
+        player.markers = markers; // Json 列直接写对象
       }
     } catch (e: any) {
       this.logger.warn(`白好感同步失败: ${e?.message}`);
@@ -13435,12 +13429,12 @@ export class GameService {
     if (!currentMap) return `${player.name || '冒险者'}不在服务区`;
 
     // 原版 建筑要求("通讯台") 同时检查地图建筑和当前驾驶载具的部件。
-    const currentBuildings = this.playerService.safeJsonParse<any[]>(currentMap.buildings, []);
-    const currentVehicles = this.playerService.safeJsonParse<any[]>(currentMap.vehicles, []);
+    const currentBuildings = asJsonValue<any[]>(currentMap.buildings, []);
+    const currentVehicles = asJsonValue<any[]>(currentMap.vehicles, []);
     const currentVehicle = currentVehicles.find((vehicle: any) =>
       String(vehicle?.id ?? vehicle?.编号 ?? '') === String(player.vehicle || ''),
     );
-    const currentVehicleParts = this.playerService.safeJsonParse<any[]>(currentVehicle?.parts, []);
+    const currentVehicleParts = asJsonValue<any[]>(currentVehicle?.parts, []);
     const hasCommunication = currentBuildings.some((building: any) =>
       (building?.name ?? building?.名称) === '通讯台',
     ) || currentVehicleParts.some((part: any) =>
@@ -13455,13 +13449,13 @@ export class GameService {
       String(user?.externalId || ''),
       String(player.masterQQ || ''),
     ].filter(Boolean));
-    const jsonArray = (value: any): any[] => this.playerService.safeJsonParse<any[]>(value, []);
+    const jsonArray = (value: any): any[] => asJsonValue<any[]>(value, []);
     const ownerOf = (unit: any): boolean => ownerIds.has(String(
       unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '',
     ));
     const markerValue = (unit: any, markerName: string): number => {
       const raw = unit?.markers ?? unit?.标记 ?? {};
-      const parsed = typeof raw === 'string' ? this.playerService.safeJsonParse<any>(raw, {}) : raw;
+      const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
       if (Array.isArray(parsed)) {
         const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
         return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
@@ -13568,7 +13562,7 @@ export class GameService {
           if (!triggerText) triggerText = `,并带来了更多物品。[行商好感触发,${this.roundText(affinityChance)}%]`;
         }
       }
-      const homeSummons = this.playerService.safeJsonParse<any[]>(homeMap.summons, [])
+      const homeSummons = asJsonValue<any[]>(homeMap.summons, [])
         .filter((summon: any) => (summon?.name ?? summon?.名称) !== '行商');
       const inventory = await this.generateMerchantInventory(merchantLevel, extraCount);
       homeSummons.push({
@@ -13577,17 +13571,17 @@ export class GameService {
         ownerQQ: '',
         qq: `召唤物${nowMs}`,
         level: merchantLevel,
-        backpack: JSON.stringify(inventory),
-        markers: '{}',
-        markers2: '[]',
-        buffs: '[]',
+        backpack: inventory, // GameMap.summons 为 Json 列，直接写结构体
+        markers: {},
+        markers2: [],
+        buffs: [],
       });
       this.achievementService.setAchievement(markers, '呼叫行商', this.achievementService.getAchievement(markers, '呼叫行商') + merchantLevel);
       this.achievementService.setAchievement(markers, '呼叫', this.achievementService.getAchievement(markers, '呼叫') + merchantLevel);
       player.markers = markers;
-      player.backpack = JSON.stringify(backpack);
-      player.markers2 = JSON.stringify(markers2);
-      await this.mapService.updateDynamicFields(homeMap.id, { summons: JSON.stringify(homeSummons) });
+      player.backpack = backpack; // Json 列直接写数组
+      player.markers2 = markers2; // Json 列直接写数组
+      await this.mapService.updateDynamicFields(homeMap.id, { summons: homeSummons });
       await this.playerService.savePlayer(player);
       // 原版 L5971-L5972：免费呼叫等级为0，不推进；发带呼叫按实际行商等级推进。
       if (merchantLevel > 0) {
@@ -13629,9 +13623,9 @@ export class GameService {
         { name: '神之工匠', type: '粉狐狐', qq: 'npc1g', ownerQQ: '1', hp: 100, maxHp: 100, markers: '{}', markers2: '[]', buffs: '[]' },
         { name: '小雫', type: '精英小雫', qq: 'npc2g', ownerQQ: '1', hp: 100, maxHp: 100, markers: '{}', markers2: '[]', buffs: '[]' },
       );
-      player.backpack = JSON.stringify(backpack);
-      player.markers2 = JSON.stringify(markers2);
-      await this.mapService.updateDynamicFields(currentMap.id, { summons: JSON.stringify(summons) });
+      player.backpack = backpack; // Json 列直接写数组
+      player.markers2 = markers2; // Json 列直接写数组
+      await this.mapService.updateDynamicFields(currentMap.id, { summons });
       await this.playerService.savePlayer(player);
       const greetings = ['我闻到了好闻的灵石味道！', '这些灵石都是你的吗？', '看来有人需要帮忙呢！'];
       const greeting = greetings[Math.floor(Math.random() * greetings.length)];
@@ -13691,17 +13685,17 @@ export class GameService {
     }
     if (sameMap) {
       await this.mapService.updateDynamicFields(currentMap.id, {
-        summons: JSON.stringify(targetSummons),
-        vehicles: JSON.stringify(targetVehicles),
+        summons: targetSummons,
+        vehicles: targetVehicles,
       });
     } else {
       await this.mapService.updateDynamicFields(sourceMap.id, {
-        summons: JSON.stringify(sourceSummons),
-        vehicles: JSON.stringify(sourceVehicles),
+        summons: sourceSummons,
+        vehicles: sourceVehicles,
       });
       await this.mapService.updateDynamicFields(currentMap.id, {
-        summons: JSON.stringify(targetSummons),
-        vehicles: JSON.stringify(targetVehicles),
+        summons: targetSummons,
+        vehicles: targetVehicles,
       });
     }
     const label = matched.unit.name ?? matched.unit.名称 ?? '对象';
@@ -13737,7 +13731,7 @@ export class GameService {
     // 统一放在服务层，避免不同入口（网页/机器人/直接调用）重复或漏记。
     const callMarkers = playerData.markers && typeof playerData.markers === 'object'
       ? playerData.markers
-      : this.playerService.safeJsonParse<any>(player.markers, {});
+      : asJsonValue<any>(player.markers, {});
     this.achievementService.setAchievement(
       callMarkers,
       '呼叫',
@@ -13764,7 +13758,7 @@ export class GameService {
     }
 
     const backpack = this.playerService.getBackpackItems(player);
-    const buildings: any[] = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const buildings: any[] = asJsonValue<any[]>(map.buildings, []);
     const installed: any[] = [];
     for (let i = backpack.length - 1; i >= 0; i--) {
       const item = backpack[i];
@@ -13784,8 +13778,8 @@ export class GameService {
       return `${player.name || '冒险者'}你背包里面没有不占位置的建筑了。`;
     }
     for (const item of installed) this.addItemToCollection(buildings, item);
-    player.backpack = JSON.stringify(backpack);
-    await this.mapService.updateDynamicFields(map.id, { buildings: JSON.stringify(buildings) });
+    player.backpack = backpack; // Json 列直接写数组
+    await this.mapService.updateDynamicFields(map.id, { buildings });
     await this.playerService.savePlayer(player);
     // 原版安装全部仍按每个建筑的实际数量写入安装类任务成就；
     // 硅基核心已在上面的筛选中排除，不会被一键安装或推进任务。
@@ -13813,12 +13807,12 @@ export class GameService {
       return `${player.name || '冒险者'}只能拆卸自己家里的东西`;
     }
 
-    const buildings: any[] = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const buildings: any[] = asJsonValue<any[]>(map.buildings, []);
     const backpack = this.playerService.getBackpackItems(player);
     const packed = buildings.map((item: any) => ({ ...item }));
     for (const item of packed) this.addItemToCollection(backpack, item);
-    player.backpack = JSON.stringify(backpack);
-    await this.mapService.updateDynamicFields(map.id, { buildings: JSON.stringify([]) });
+    player.backpack = backpack; // Json 列直接写数组
+    await this.mapService.updateDynamicFields(map.id, { buildings: [] });
     await this.playerService.savePlayer(player);
     for (const item of packed) {
       const count = Math.max(1, Math.floor(this.itemQuantity(item)));
@@ -13894,7 +13888,7 @@ export class GameService {
         auraItem.count = auraCount - cost;
       }
       item.durability = level + 1;
-      player.backpack = JSON.stringify(items);
+      player.backpack = items; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${player.name || '冒险者'}消耗${cost}祥瑞气息强化了${item.name}（+${level + 1}）`;
     }
@@ -13936,8 +13930,8 @@ export class GameService {
       }
     }
     markers[`${part}强化`] = level;
-    player.backpack = JSON.stringify(items);
-    player.markers = JSON.stringify(markers);
+    player.backpack = items; // Json 列直接写数组
+    player.markers = markers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'}用${used}合金强化了${part}${done}次，升到了${level}级`;
   }
@@ -13954,8 +13948,8 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    const equipment = this.playerService.safeJsonParse<any[]>(player.equipment, []);
-    const weapons = this.playerService.safeJsonParse<any[]>(player.weapons, []);
+    const equipment = asJsonValue<any[]>(player.equipment, []);
+    const weapons = asJsonValue<any[]>(player.weapons, []);
 
     // 累加装备的加成/自带属性到总加成
     const total: Record<string, number> = {};
@@ -14018,7 +14012,7 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    const presets = this.playerService.safeJsonParse<any[]>(player.equipmentPresets, []);
+    const presets = asJsonValue<any[]>(player.equipmentPresets, []);
 
     // 删除预设：装备回到背包
     if (action.startsWith('删除')) {
@@ -14030,8 +14024,8 @@ export class GameService {
       presets.splice(idx - 1, 1);
       const backpack = this.playerService.getBackpackItems(player);
       for (const eq of target.equipment || []) backpack.push(eq);
-      player.equipmentPresets = JSON.stringify(presets);
-      player.backpack = JSON.stringify(backpack);
+      player.equipmentPresets = presets; // Json 列直接写数组
+      player.backpack = backpack; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${player.name || '冒险者'}删除了装备预设「${target.name}」，装备回到了背包`;
     }
@@ -14049,7 +14043,7 @@ export class GameService {
         return `已存在名为「${name}」的装备预设`;
       }
       presets.push({ name, equipment: [] });
-      player.equipmentPresets = JSON.stringify(presets);
+      player.equipmentPresets = presets; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${player.name || '冒险者'}新建了一个装备预设：${name}，「切换预设${name}」来切换`;
     }
@@ -14098,7 +14092,7 @@ export class GameService {
    * @param preset 预设
    */
   private async calcPresetBonus(player: any, preset: any): Promise<Record<string, number>> {
-    const markers = this.playerService.safeJsonParse<any>(player.markers, {});
+    const markers = asJsonValue<any>(player.markers, {});
     const mingYu = this.playerService.getMarkerValue(markers, '冥鱼技能');
     const total: Record<string, number> = {};
     const addBonus = (src: any) => {
@@ -14197,7 +14191,7 @@ export class GameService {
     }
 
     // 成就熟练度存于玩家标记中
-    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+    const markers = asJsonValue<Record<string, number>>(player.markers, {});
 
     // 计算探测雷达等级：拥有哪个「探测雷达等级N」标记即为几级（对应原版 L3014-L3036）
     let level = 0;
@@ -14223,7 +14217,7 @@ export class GameService {
     // ◆副本入口：扫描所有地图连接中含"(副本"的可前往目标
     const dungeonEntries: string[] = [];
     for (const map of maps) {
-      const connections = this.playerService.safeJsonParse<any[]>(map.connections, []);
+      const connections = asJsonValue<any[]>(map.connections, []);
       for (const conn of connections) {
         const connName = conn.name || '';
         if (connName.includes('(副本') || connName.includes('（副本')) {
@@ -14244,7 +14238,7 @@ export class GameService {
     const cargoMaps: string[] = [];
     const energyMaps: string[] = [];
     for (const map of maps) {
-      const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
+      const resources = asJsonValue<any[]>(map.resources, []);
       for (const res of resources) {
         const resName = res.name || '';
         if (resName.includes('货舱')) {
@@ -14293,7 +14287,7 @@ export class GameService {
     const maps = await this.mapService.getAllMaps();
     const results: { mapName: string; amount: number }[] = [];
     for (const map of maps) {
-      const resources = this.playerService.safeJsonParse<any[]>(map.resources, []);
+      const resources = asJsonValue<any[]>(map.resources, []);
       for (const res of resources) {
         for (const out of res.outputs || []) {
           if (out.name === keyword) {
@@ -14345,7 +14339,7 @@ export class GameService {
       const lines = [`${player.name}当前可以拾取的全部资源：`];
       let found = false;
       for (const map of maps) {
-        const items = this.playerService.safeJsonParse<any[]>(map.items, []);
+        const items = asJsonValue<any[]>(map.items, []);
         if (items.length > 0) {
           found = true;
           lines.push(`${map.name}: ${items.map((it) => `${it.name}${it.count ? `x${it.count}` : ''}`).join('、')}`);
@@ -14358,7 +14352,7 @@ export class GameService {
     // 定向搜索可拾取物品（对应原版 L2932-L2955）
     const itemMap: Record<string, number> = {};
     for (const map of maps) {
-      const items = this.playerService.safeJsonParse<any[]>(map.items, []);
+      const items = asJsonValue<any[]>(map.items, []);
       for (const it of items) {
         if (it.name === keyword) {
           itemMap[map.name] = (itemMap[map.name] || 0) + (it.count || 1);
@@ -14394,8 +14388,8 @@ export class GameService {
     // 收集地图上的作物：优先 resources2(可采集资源)，其次 resources(带产出2的使魔资源)
     const cropsByMap: { mapName: string; crops: { name: string; times: number }[] }[] = [];
     for (const map of maps) {
-      const res2 = this.playerService.safeJsonParse<any[]>(map.resources2, []);
-      const res = this.playerService.safeJsonParse<any[]>(map.resources, []);
+      const res2 = asJsonValue<any[]>(map.resources2, []);
+      const res = asJsonValue<any[]>(map.resources, []);
       const cropList: { name: string; times: number }[] = [];
       for (const r of res2) {
         if (this.parseResourceOutputs(r.outputs2 ?? r['产出2']).length > 0) {
@@ -14449,7 +14443,7 @@ export class GameService {
     const { player } = playerData;
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return false;
-    const buildings = this.playerService.safeJsonParse<any[]>(map.buildings, []);
+    const buildings = asJsonValue<any[]>(map.buildings, []);
     return buildings.some((b: any) => b.name === buildingName);
   }
 
@@ -14645,7 +14639,7 @@ export class GameService {
     }
 
     const map = await this.getCurrentMap(userId);
-    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    const summons = asJsonValue<any[]>(map.summons, []);
     // 露娜的标识：qq=怪物露娜1g（与 schedule.service 生成露娜时一致）
     const lunaIdx = summons.findIndex((s: any) => s.qq === '怪物露娜1g');
     if (lunaIdx === -1) {
@@ -14661,9 +14655,9 @@ export class GameService {
       summons[lunaIdx] = luna;
       await this.prisma.gameMap.update({
         where: { id: map.id },
-        data: { summons: JSON.stringify(summons) },
+        data: { summons },
       });
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
       await this.taskService.advance(userId, '求助');
       return `${player.name} 好吧，从现在开始到下一个整点之前，我可以帮你解决战斗上的问题。`;
@@ -14763,10 +14757,10 @@ export class GameService {
       this.achievementService.setAchievement(markers, '购物', shopSkill + purchasedCount);
       player.markers = markers;
     }
-    player.backpack = JSON.stringify(backpack);
-    merchant.backpack = JSON.stringify(merchantBackpack);
+    player.backpack = backpack; // Json 列直接写数组
+    merchant.backpack = merchantBackpack; // Json 列直接写数组
     summons[merchantIdx] = merchant;
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    await this.mapService.updateDynamicFields(map.id, { summons });
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '购物', purchasedCount);
 
@@ -14793,7 +14787,7 @@ export class GameService {
 
   private parseJsonArray(value: any): any[] {
     if (Array.isArray(value)) return value;
-    return this.playerService.safeJsonParse<any[]>(value, []);
+    return asJsonValue<any[]>(value, []);
   }
 
   /**
@@ -15016,9 +15010,9 @@ export class GameService {
 
     this.achievementService.setAchievement(markers, '购物', shopSkill + 1);
     player.markers = markers;
-    player.backpack = JSON.stringify(backpack);
-    summons[merchantIndex].backpack = JSON.stringify(merchantBackpack);
-    await this.mapService.updateDynamicFields(map.id, { summons: JSON.stringify(summons) });
+    player.backpack = backpack; // Json 列直接写数组
+    summons[merchantIndex].backpack = merchantBackpack; // Json 列直接写数组
+    await this.mapService.updateDynamicFields(map.id, { summons });
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '购物');
     return result;
@@ -15064,7 +15058,7 @@ export class GameService {
 
     const battleText = { value: '' };
     // 兼容存量数据：地图标记2容器必须为数组
-    const rawMapMarkers2 = this.playerService.safeJsonParse<any>(map.markers2, []);
+    const rawMapMarkers2 = asJsonValue<any>(map.markers2, []);
     const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
     const now = Date.now();
     if (this.combatState.markerRequire('战斗', mapMarkers2, battleText, now)) {
@@ -15074,7 +15068,7 @@ export class GameService {
     // 原版 L6815：成功检查后才写入10分钟刷怪冷却。
     const cooldownText = { value: '' };
     if (this.combatState.timeIntervalRequire('刷怪冷却', 600, markers2, now, cooldownText, now)) {
-      player.markers2 = JSON.stringify(markers2);
+      player.markers2 = markers2; // Json 列直接写数组
       await this.playerService.savePlayer(player);
       return `${player.name || '冒险者'}${cooldownText.value}`;
     }

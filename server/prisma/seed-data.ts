@@ -65,7 +65,9 @@ async function seedMapDynamicFields(): Promise<number> {
     const name = (row as any).name;
     if (!name) continue;
 
-    // 从 JSON 中提取半动态字段的初始值（首次创建时使用）
+    // 从 JSON 中提取半动态字段的初始值（首次创建时使用）。
+    // GameMap 表对应列已是原生 Json 类型，写库 data 直接传对象/数组，
+    // 不能再 JSON.stringify（否则会双重编码成字符串存入）。
     const semiDynamicFields: Record<string, any> = {};
     for (const field of ['npcs', 'buildings', 'vehicles', 'items', 'monsters', 'connections', 'resources', 'resources2']) {
       if (row[field] !== undefined && row[field] !== null) {
@@ -80,13 +82,13 @@ async function seedMapDynamicFields(): Promise<number> {
         create: {
           name,
           mapIndex: (row as any).mapIndex ?? 0,
-          // 完全动态字段初始化为空
-          spawnMonsters: '[]',
-          tempMonsters: '[]',
-          summons: '[]',
-          markers: '{}',
+          // 完全动态字段初始化为空（原生 Json 列，直接传数组/对象字面量）
+          spawnMonsters: [],
+          tempMonsters: [],
+          summons: [],
+          markers: {},
           // 地图标记2容器与原版「标记2」一致为数组元素 {name, expireAt}
-          markers2: '[]',
+          markers2: [],
           // 半动态字段从 JSON 取初始值
           ...semiDynamicFields,
         },
@@ -115,7 +117,9 @@ async function importDynamicData() {
   console.log(`   ✅ 地图: ${mapCount}`);
 
   // 2. 载具（动态实例表：玩家拥有的载具 owner/driver/currentHp 在 DB 持久化）
-  //    vehicles.json 含载具/部件模板，仅导入到 gameVehicle 作初始化模板
+  //    vehicles.json 含载具/部件模板，仅导入到 gameVehicle 作初始化模板。
+  //    GameVehicle 表 JSON 字段（bonus/parts/markers/markers2/recipes/builtinParts）
+  //    已是原生 Json 类型，写库 data 直接透传对象/数组，无需 stringify。
   const vehicles = loadData('vehicles.json');
   const vehicleCount = await upsertMany(prisma.gameVehicle, vehicles);
   console.log(`   ✅ 载具: ${vehicleCount}`);

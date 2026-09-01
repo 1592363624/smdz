@@ -21,6 +21,7 @@
 
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 /** 内置任务类型；新玩法延时请在此扩展并在业务侧 registerHandler。 */
 export type DelayedTaskType =
@@ -46,7 +47,8 @@ export interface DelayedTaskRow {
   type: string;
   userId: number | null;
   dedupeKey: string | null;
-  payload: string;
+  /** DB payload 为原生 Json 列：读取时是对象/数组，字符串形态仅存量兼容 */
+  payload: unknown;
   runAt: Date;
 }
 
@@ -119,7 +121,8 @@ export class DelayedTaskService implements OnModuleInit, OnModuleDestroy {
         type: input.type,
         userId,
         dedupeKey,
-        payload: JSON.stringify(input.payload ?? {}),
+        // payload 为原生 Json 列，直接传对象（stringify 会双重编码）
+        payload: input.payload ?? {},
         runAt,
       },
     });
@@ -180,17 +183,15 @@ export class DelayedTaskService implements OnModuleInit, OnModuleDestroy {
     type: string;
     userId: number | null;
     dedupeKey: string | null;
-    payload: string;
+    payload: unknown;
     runAt: Date;
   }): Promise<void> {
     const handler = this.handlers.get(row.type);
-    let payload: Record<string, any> = {};
-    try {
-      payload = row.payload ? JSON.parse(row.payload) : {};
-    } catch { /* 空载荷兜底 */ }
+    // payload 为 Json 列：读取时直接是对象，字符串形态（存量行）由 asJsonValue 容错解析
+    const payload = asJsonValue<Record<string, any>>(row.payload, {});
 
     if (!handler) {
-      this.logger.error(`延时任务 ${row.type}(id=${row.id}) 无已注册 handler，丢弃。payload=${row.payload}`);
+      this.logger.error(`延时任务 ${row.type}(id=${row.id}) 无已注册 handler，丢弃。payload=${JSON.stringify(row.payload)}`);
       return;
     }
     try {

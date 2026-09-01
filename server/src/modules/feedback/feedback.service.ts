@@ -36,7 +36,8 @@ export class FeedbackService {
             senderId: userId,
             senderType: 'user',
             content: data.content,
-            attachments: JSON.stringify(data.attachments || []),
+            // attachments 为原生 Json 列，直接传数组（stringify 会双重编码）
+            attachments: data.attachments || [],
           },
         },
       },
@@ -181,7 +182,8 @@ export class FeedbackService {
         senderId,
         senderType,
         content: data.content,
-        attachments: JSON.stringify(data.attachments || []),
+        // attachments 为原生 Json 列，直接传数组（stringify 会双重编码）
+        attachments: data.attachments || [],
       },
       include: {
         sender: { select: { id: true, username: true, nickname: true } },

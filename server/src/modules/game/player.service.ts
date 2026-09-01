@@ -14,6 +14,7 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
 import type { ItemSystemService } from './item-system.service';
 import { filterActive } from './expire-time.util';
 import { deriveDisplayName } from './display-name.util';
+import { asJsonValue } from '../../common/utils/json-value.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { GameHighlightService } from './highlight.service';
 import { ActorRuntime, actorKey } from '../actor';
@@ -279,7 +280,8 @@ export class PlayerService implements OnModuleInit {
       let initialTasks: Array<{ name: string; requirements: Array<{ name: string; count: number }> }> = [];
       const tutorialTask = this.staticData.getTaskByName('新手教程');
       if (tutorialTask) {
-        const reqs = this.safeJsonParse<Array<{ name: string; count: number }>>(
+        // asJsonValue 容错读取：静态数据可能已是解析数组（新格式）或 JSON 字符串（旧格式）
+        const reqs = asJsonValue<Array<{ name: string; count: number }>>(
           tutorialTask.requirements, []
         );
         if (reqs.length > 0) {
@@ -319,13 +321,13 @@ export class PlayerService implements OnModuleInit {
           // 位置信息
           mapId: startMap?.id ?? 0,
           location: startMap?.name ?? '新手村',
-          // 复杂数据结构
-          backpack: JSON.stringify(initialBackpack),
-          equipment: JSON.stringify(initialEquipment),
-          weapons: JSON.stringify(initialWeapons),
-          markers: JSON.stringify(initialMarkers),
-          titles: JSON.stringify(initialTitles),
-          tasks: JSON.stringify(initialTasks),
+          // 复杂数据结构（Player 各 JSON 列直接写结构体，禁止双重编码）
+          backpack: initialBackpack,
+          equipment: initialEquipment,
+          weapons: initialWeapons,
+          markers: initialMarkers,
+          titles: initialTitles,
+          tasks: initialTasks,
         },
       });
 
@@ -389,7 +391,8 @@ export class PlayerService implements OnModuleInit {
     }
 
     // 存量兼容：旧档可能没有活力上限标记，先补齐原版基础值，避免显示0/0。
-    const markers = this.safeJsonParse<any>(player.markers, {});
+    // asJsonValue 容错读取：Prisma Json 列读出的是对象，历史字符串列也能兜底
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
     let markersChanged = false;
     if (!Number.isFinite(Number(markers['活力2'])) || Number(markers['活力2']) < 100) {
       markers['活力2'] = 100;
@@ -406,7 +409,7 @@ export class PlayerService implements OnModuleInit {
       //    已自增」来手动 +1，在测试桩或无拦截路径下内存版本超前于库版本，
       //    导致同一快照随后的 savePlayer 被 CAS 误判为并发冲突；
       // 2) 活力上限缺失时读取侧（getVitalityMax）本身已兜底为 100，显示不会 0/0。
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Json 列直接写对象
     }
 
 
@@ -429,16 +432,17 @@ export class PlayerService implements OnModuleInit {
 
     const result: any = {
       player,
-      backpack: this.safeJsonParse<any[]>(player.backpack, []),
-      equipment: this.safeJsonParse<any[]>(player.equipment, []),
-      weapons: this.safeJsonParse<any[]>(player.weapons, []),
+      // Prisma Json 列读出的是对象；asJsonValue 兼容对象/历史字符串两种形态
+      backpack: asJsonValue<any[]>(player.backpack, []),
+      equipment: asJsonValue<any[]>(player.equipment, []),
+      weapons: asJsonValue<any[]>(player.weapons, []),
       markers,
-      markers2: this.safeJsonParse<any[]>(player.markers2, []),
+      markers2: asJsonValue<any[]>(player.markers2, []),
       // 增益：读取即剔除已过期条目（时间口径秒/毫秒混用由 filterActive 统一归一化），
       // 使展示层与战斗生效判定都只看到仍然有效的增益；无到期时间的永久增益保留。
-      buffs: filterActive(this.safeJsonParse<any[]>(player.buffs, [])),
-      tasks: this.safeJsonParse<any[]>(player.tasks, []),
-      safeBox: this.safeJsonParse<any[]>(player.safeBox, []),
+      buffs: filterActive(asJsonValue<any[]>(player.buffs, [])),
+      tasks: asJsonValue<any[]>(player.tasks, []),
+      safeBox: asJsonValue<any[]>(player.safeBox, []),
     };
     // 双表示收敛：安装 accessor 后，行字段与顶层解析表示共享同一份权威数据，
     // 业务改哪一侧都等价（详见 installCanonicalAccessors）。落库时行 getter 序列化
@@ -470,7 +474,7 @@ export class PlayerService implements OnModuleInit {
    *
    * 玩家子集合历史上存在两种等价写法——
    *   (A) 改顶层解析数组/对象：`ctx.backpack.push(...)` / `ctx.markers['x'] = 1`；
-   *   (B) 改行 JSON 字符串：`player.backpack = JSON.stringify(...)`。
+   *   (B) 改行字段（历史上是 JSON 字符串，现 Json 列直赋结构体）：`player.backpack = backpack`。
    * 旧实现里两者是独立的两份数据，落库前必须用「基线对比 + merge 启发式」猜测
    * 业务改的是哪一侧（persistPlayerData 的 merge + mutate 的 syncParsedFields），
    * 启发式一旦拿到陈旧表示就会互相覆盖（医疗箱永久标记被抹掉的回归根因）。
@@ -513,7 +517,8 @@ export class PlayerService implements OnModuleInit {
     if (player.diamonds === undefined && player.tickets === undefined && player.dataCores === undefined) {
       return; // 测试桩或旧快照：无货币列则不处理
     }
-    const backpack = this.safeJsonParse<any[]>(player.backpack, []);
+    // Prisma Json 列读出的是对象；asJsonValue 兼容对象/历史字符串两种形态
+    const backpack = asJsonValue<any[]>(player.backpack, []);
     const upsert = (name: string, qty: number) => {
       const idx = backpack.findIndex((item: any) => item?.name === name);
       if (qty > 0) {
@@ -534,7 +539,7 @@ export class PlayerService implements OnModuleInit {
     upsert('钻石', Number(player.diamonds ?? 0));
     upsert('召唤券', Number(player.tickets ?? 0));
     upsert('数据核心', Number(player.dataCores ?? 0));
-    player.backpack = JSON.stringify(backpack);
+    player.backpack = backpack; // Json 列直接写数组
   }
 
 
@@ -609,7 +614,7 @@ export class PlayerService implements OnModuleInit {
    * 标记当前玩家「已改动、待落库」——但不触发即时写、不计入架构门禁的裸 savePlayer 计数。
    *
    * 用途：业务在 enqueueUserWrite（Actor run / mutate 上下文）内直接改了 cell.state 的
-   * 字段（如 ensureTutorialTasks 直接 `player.markers = JSON.stringify(...)`），需要让
+   * 字段（如 ensureTutorialTasks 直接 `player.markers = markers`），需要让
    * 最外层 run 的写策略生效去落库。直接调 savePlayer 虽能标脏，但每多一处裸调用就被
    * 架构门禁记一次、且 Actor 内 savePlayer 本就只标脏不写；故提供这个轻量标脏入口，
    * 等价地把"脏"信号透传给运行时/上下文，不新增裸 savePlayer 调用点。
@@ -629,7 +634,9 @@ export class PlayerService implements OnModuleInit {
    * savePlayer 的非 Actor 路径与 Actor 运行时 config.save 都复用它，避免两套逻辑。
    */
   private buildPlayerUpdateData(player: any): any {
-    // 提取需要序列化的 JSON 字段，确保它们以字符串形式存储
+    // Prisma Json 列清单：落库时必须传真实对象/数组，禁止 JSON.stringify 字符串
+    // （字符串写入 Json 列会造成双重编码，读取侧拿到的是字符串而非结构体）。
+    const objectJsonFields = new Set(['markers', 'skills', 'sets', 'bonus', 'baseBonus', 'stats']);
     const jsonFields = [
       'backpack', 'equipment', 'weapons', 'markers', 'markers2',
       'buffs', 'tasks', 'titles', 'skills', 'sets', 'bonus',
@@ -640,10 +647,9 @@ export class PlayerService implements OnModuleInit {
     const updateData: any = {};
     for (const field of jsonFields) {
       if (player[field] !== undefined) {
-        // 如果已经是对象则序列化，否则保持原样（可能是已序列化的字符串）
-        updateData[field] = typeof player[field] === 'object'
-          ? JSON.stringify(player[field])
-          : player[field];
+        // asJsonValue 容错转换：accessor getter 返回序列化字符串、业务直赋对象、
+        // 历史脏数据三种形态统一收敛为 Json 列要求的真实对象/数组
+        updateData[field] = asJsonValue(player[field], objectJsonFields.has(field) ? {} : []);
       }
     }
 
@@ -668,7 +674,12 @@ export class PlayerService implements OnModuleInit {
     // 并从 backpack JSON 中移除——列是唯一真相源，读取时由 materializeCurrencies 物化回来。
     if (updateData.backpack !== undefined) {
       let items: any[] | null = null;
-      try { items = JSON.parse(updateData.backpack); } catch { items = null; }
+      // updateData.backpack 经 asJsonValue 收敛后已是数组；保留字符串解析兜底历史脏数据
+      if (Array.isArray(updateData.backpack)) {
+        items = updateData.backpack;
+      } else {
+        try { items = JSON.parse(updateData.backpack); } catch { items = null; }
+      }
       if (Array.isArray(items)) {
         // 判别「权威快照」：对象上有货币列字段说明它来自 getPlayerData 的完整读取，
         // 此时背包对三种货币有最终解释权（条目缺失=已花光=0）；
@@ -708,7 +719,7 @@ export class PlayerService implements OnModuleInit {
             (player as any)[column] = 0;
           }
         }
-        updateData.backpack = JSON.stringify(items);
+        updateData.backpack = items; // Json 列直接写数组
       }
     }
 
@@ -736,9 +747,9 @@ export class PlayerService implements OnModuleInit {
    *
    * 双表示收敛后（见 installCanonicalAccessors），行字段是读写都透传到顶层权威
    * 表示的 accessor——无论业务用哪种风格改（顶层 `ctx.backpack.push(...)` 还是
-   * 行 `player.backpack = JSON.stringify(...)`），改的都是同一份权威数据，行
-   * getter 序列化的结果必然是最新态。落库因此退化为单纯的整包序列化写入，
-   * 无需任何「基线对比 + 按侧猜测」的调和逻辑（该机制已随双表示一起删除）。
+   * 行 `player.backpack = backpack`），改的都是同一份权威数据，落库
+   * 经 asJsonValue 收敛后必然以最新权威态写入 Json 列。落库因此退化为单纯的
+   * 整包写入，无需任何「基线对比 + 按侧猜测」的调和逻辑（该机制已随双表示一起删除）。
    */
   private async persistPlayerData(data: PlayerData): Promise<void> {
     const p = (data as any).player;
@@ -918,7 +929,8 @@ export class PlayerService implements OnModuleInit {
     // 仅对已选使魔（type 非空）的玩家应用等级成长；未选使魔的玩家不成长
     if (!player.type) return;
 
-    const markers = this.safeJsonParse<Record<string, number>>(player.markers, {});
+    // asJsonValue 容错读取：player 可能来自原始行（Json 列对象）或 accessor（字符串）
+    const markers = asJsonValue<Record<string, number>>(player.markers, {});
     const lv = player.level || 1;
     const lvFactor = 1 + lv / 100;
     const prof = (key: string) => markers[key] || 0;
@@ -1059,7 +1071,7 @@ export class PlayerService implements OnModuleInit {
       // 写回数据库
       await this.enqueueUserWrite(userId, async () => {
         const _pd = await this.getPlayerData(userId);
-        Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+        Object.assign(_pd.player, { backpack }); // Json 列直接写数组
         await this.savePlayer(_pd.player);
       });
 
@@ -1109,7 +1121,7 @@ export class PlayerService implements OnModuleInit {
       // 写回数据库
       await this.enqueueUserWrite(userId, async () => {
         const _pd = await this.getPlayerData(userId);
-        Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+        Object.assign(_pd.player, { backpack }); // Json 列直接写数组
         await this.savePlayer(_pd.player);
       });
 

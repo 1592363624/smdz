@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { StaticDataService } from './static-data.service';
 import { GameHighlightService } from './highlight.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 @Injectable()
 export class AchievementService {
@@ -47,7 +48,7 @@ export class AchievementService {
       // 1. 解析 player.markers 为对象（兼容字符串或已为对象的场景，避免连续调用时对象/字符串混用丢失成就）
       const markers = typeof player.markers === 'object' && player.markers !== null
         ? { ...player.markers }
-        : this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+        : asJsonValue<Record<string, number>>(player.markers, {});
 
       // 2. 如果成就名存在，累加数值；如果数值<=0，删除成就
       if (markers[name] !== undefined) {
@@ -101,7 +102,7 @@ export class AchievementService {
    */
   getAchievement(markers: any, name: string): number {
     const parsed = typeof markers === 'string'
-      ? this.playerService.safeJsonParse<Record<string, number>>(markers, {})
+      ? asJsonValue<Record<string, number>>(markers, {})
       : (markers || {});
     return parsed[name] || 0;
   }
@@ -136,12 +137,12 @@ export class AchievementService {
     // 1. 解析玩家称号列表和标记。
     // 统一为 {name, equipped} 形状（与 领取称号/佩戴称号 一致）：历史上自动发放
     // 写的是纯字符串数组，会把领取/佩戴写入的对象形状覆盖掉，导致佩戴状态丢失。
-    const rawTitles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const rawTitles = asJsonValue<any[]>(player.titles, []);
     const playerTitles: Array<{ name: string; equipped?: boolean }> = Array.isArray(rawTitles)
       ? rawTitles.filter((t: any) => t)
         .map((t: any) => (typeof t === 'string' ? { name: t } : t))
       : [];
-    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+    const markers = asJsonValue<Record<string, number>>(player.markers, {});
 
     // 2. 从静态配置读取所有称号（JSON 单一来源）
     const allTitles = this.staticData.getAllTitles();
@@ -153,7 +154,7 @@ export class AchievementService {
 
       // 解析触发条件
       const requirements: Array<{ type?: string; name?: string; value?: number }> =
-        this.playerService.safeJsonParse(title.requirements, []);
+        asJsonValue(title.requirements, []);
       if (requirements.length === 0) continue;
 
       // 检查所有条件是否满足
@@ -195,7 +196,7 @@ export class AchievementService {
 
     // 更新玩家称号列表
     if (newTitles.length > 0) {
-      player.titles = JSON.stringify(playerTitles);
+      player.titles = playerTitles; // Player titles 为 Json 列，直接写数组
       // 称号解锁属里程碑时刻：定向推送给该玩家播放屏幕级高光动画。
       // 推送失败不影响称号发放（emit 内部已静默兜底）。
       this.highlight?.emit(player.userId, {
@@ -216,7 +217,7 @@ export class AchievementService {
    * @returns 格式化后的成就列表文本
    */
   getAchievementsDisplay(player: any): string {
-    const markers = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+    const markers = asJsonValue<Record<string, number>>(player.markers, {});
     const lines: string[] = ['🏆 成就列表'];
 
     // 过滤掉内部标记（以下划线开头或"指引"等系统标记）
@@ -240,7 +241,7 @@ export class AchievementService {
    * @returns 格式化后的称号列表文本
    */
   getTitlesDisplay(player: any): string {
-    const rawTitles = this.playerService.safeJsonParse<any[]>(player.titles, []);
+    const rawTitles = asJsonValue<any[]>(player.titles, []);
     const titles = Array.isArray(rawTitles)
       ? rawTitles.filter((t: any) => t)
         .map((t: any) => (typeof t === 'string' ? t : t.name))

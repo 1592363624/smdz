@@ -6,6 +6,7 @@ import { StaticDataService } from './static-data.service';
 import { CombatSystemService } from './combat-system.service';
 import { ItemSystemService } from './item-system.service';
 import { TaskService } from './task.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 interface MiningContext {
   playerData: PlayerData;
@@ -61,7 +62,7 @@ export class AutoMineService {
       if (validation) return validation;
 
       const { player, map, alphaCore, followerFactor } = context;
-      const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
       const mode = alphaCore ? '自动开采2' : '自动开采';
       const otherMode = alphaCore ? '自动开采' : '自动开采2';
       const nowSeconds = this.toSeconds(nowMs);
@@ -69,7 +70,7 @@ export class AutoMineService {
       // 同一玩家只保留当前载具对应的开采模式，避免换车后两条时间线叠加。
       delete markers[otherMode];
       markers[mode] = nowSeconds;
-      player.markers = JSON.stringify(markers);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
       await this.playerService.savePlayer(player);
 
       const bonus = this.getGatherBonus(context);
@@ -91,7 +92,7 @@ export class AutoMineService {
       if (validation) return validation;
 
       const { player, alphaCore } = context;
-      const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
       const mode = alphaCore ? '自动开采2' : '自动开采';
       const otherMode = alphaCore ? '自动开采' : '自动开采2';
       const startedAt = this.readTimestamp(markers[mode]);
@@ -140,7 +141,7 @@ export class AutoMineService {
       if (this.validate(context, false) || context.collector === 0) return false;
 
       const { player, alphaCore } = context;
-      const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
       const mode = alphaCore ? '自动开采2' : '自动开采';
       const startedAt = this.readTimestamp(markers[mode]);
       if (!startedAt || this.toSeconds(nowMs) - startedAt < 60) return false;
@@ -238,7 +239,7 @@ export class AutoMineService {
       });
     }
 
-    const markers = this.playerService.safeJsonParse<Record<string, any>>(player.markers, {});
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
     if (clearMarker) {
       delete markers[mode];
     } else {
@@ -249,7 +250,7 @@ export class AutoMineService {
       markers['采集熟练度'] = Number(markers['采集熟练度'] || 0)
         + elapsedSeconds / 6000 * 2 * followerFactor;
     }
-    player.markers = JSON.stringify(markers);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
     for (const progress of taskProgress) {
@@ -272,7 +273,7 @@ export class AutoMineService {
       );
       return Number(bonus?.采集 || 0);
     } catch {
-      const rawBonus = this.playerService.safeJsonParse<any>(context.player?.bonus, {});
+      const rawBonus = asJsonValue<any>(context.player?.bonus, {});
       return Number(rawBonus?.采集 || 0);
     }
   }
@@ -371,7 +372,7 @@ export class AutoMineService {
 
   private parseArray(value: any): any[] {
     if (Array.isArray(value)) return value;
-    return this.playerService.safeJsonParse<any[]>(value, []);
+    return asJsonValue<any[]>(value, []);
   }
 
   private getVehiclePartNames(vehicle: any): string[] {

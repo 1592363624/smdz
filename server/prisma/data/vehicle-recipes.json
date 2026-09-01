@@ -5,15 +5,42 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集\",\"count\":1}]",
+    "unlockRequirements": [
+      {
+        "name": "采集",
+        "count": 1
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集",
         "count": 1
       }
     ],
-    "outputs": "[{\"name\":\"1\",\"quantity\":1,\"durability\":50},{\"name\":\"1\",\"quantity\":1,\"durability\":50}]",
-    "inputs": "[{\"name\":\"1\",\"quantity\":1,\"durability\":100},{\"name\":\"1\",\"quantity\":1,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "1",
+        "quantity": 1,
+        "durability": 50
+      },
+      {
+        "name": "1",
+        "quantity": 1,
+        "durability": 50
+      }
+    ],
+    "inputs": [
+      {
+        "name": "1",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "1",
+        "quantity": 1,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "1",
@@ -45,15 +72,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集钻石\",\"count\":10000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集钻石",
+        "count": 10000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集钻石",
         "count": 10000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"钻石\",\"quantity\":50,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钻石",
+        "quantity": 50,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -80,15 +129,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集生肉\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集生肉",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集生肉",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生肉\",\"quantity\":2.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生肉",
+        "quantity": 2.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -115,15 +186,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集果实\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集果实",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集果实",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"果实\",\"quantity\":2,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "果实",
+        "quantity": 2,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -150,15 +243,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"制造饲料\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "制造饲料",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "制造饲料",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"饲料\",\"quantity\":0.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "饲料",
+        "quantity": 0.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -185,15 +300,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集木头\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集木头",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集木头",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"木头\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "木头",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -220,15 +357,37 @@
     "level": 1,
     "production": 10,
     "生产力": 10,
-    "unlockRequirements": "[{\"name\":\"采集石头\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集石头",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集石头",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"石头\",\"quantity\":9,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "石头",
+        "quantity": 9,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -255,15 +414,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集铁矿\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集铁矿",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集铁矿",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铁矿\",\"quantity\":4.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "quantity": 4.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -290,15 +471,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集绳子\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集绳子",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集绳子",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"绳子\",\"quantity\":4.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "绳子",
+        "quantity": 4.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -325,15 +528,37 @@
     "level": 2,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集肥料\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集肥料",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集肥料",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"肥料\",\"quantity\":1,\"durability\":100},{\"name\":\"肥料\",\"quantity\":1,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "肥料",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "肥料",
+        "quantity": 1,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "肥料",
@@ -360,15 +585,37 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":25,\"durability\":100},{\"name\":\"生物质\",\"quantity\":25,\"durability\":10}]",
-    "inputs": "[{\"name\":\"钻石\",\"quantity\":250,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钻石",
+        "quantity": 250,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -395,15 +642,37 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":25,\"durability\":100},{\"name\":\"生物质\",\"quantity\":25,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生肉\",\"quantity\":12.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生肉",
+        "quantity": 12.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -430,15 +699,37 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":25,\"durability\":100},{\"name\":\"生物质\",\"quantity\":25,\"durability\":10}]",
-    "inputs": "[{\"name\":\"果实\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "果实",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -465,15 +756,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":25,\"durability\":100},{\"name\":\"生物质\",\"quantity\":25,\"durability\":10}]",
-    "inputs": "[{\"name\":\"饲料\",\"quantity\":2.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "饲料",
+        "quantity": 2.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -500,15 +813,37 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":25,\"durability\":100},{\"name\":\"生物质\",\"quantity\":25,\"durability\":10}]",
-    "inputs": "[{\"name\":\"木头\",\"quantity\":50,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "木头",
+        "quantity": 50,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -535,15 +870,37 @@
     "level": 3,
     "production": 10,
     "生产力": 10,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":25,\"durability\":100},{\"name\":\"生物质\",\"quantity\":25,\"durability\":10}]",
-    "inputs": "[{\"name\":\"石头\",\"quantity\":45,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "石头",
+        "quantity": 45,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -570,15 +927,37 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":25,\"durability\":100},{\"name\":\"生物质\",\"quantity\":25,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铁矿\",\"quantity\":22.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "quantity": 22.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -605,15 +984,37 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":25,\"durability\":100},{\"name\":\"生物质\",\"quantity\":25,\"durability\":10}]",
-    "inputs": "[{\"name\":\"绳子\",\"quantity\":22.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 25,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "绳子",
+        "quantity": 22.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -640,7 +1041,16 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":500000},{\"name\":\"采集生肉\",\"count\":5000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 500000
+      },
+      {
+        "name": "采集生肉",
+        "count": 5000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
@@ -651,8 +1061,25 @@
         "count": 5000
       }
     ],
-    "outputs": "[{\"name\":\"生肉\",\"quantity\":1,\"durability\":100},{\"name\":\"生肉\",\"quantity\":1,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":3,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生肉",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "生肉",
+        "quantity": 1,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 3,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生肉",
@@ -679,15 +1106,37 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集神兽之血\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集神兽之血",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集神兽之血",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"神兽之血\",\"quantity\":0.05,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "神兽之血",
+        "quantity": 0.05,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -714,7 +1163,16 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集合金\",\"count\":1000},{\"name\":\"生产燃料\",\"count\":10000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集合金",
+        "count": 1000
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集合金",
@@ -725,8 +1183,40 @@
         "count": 10000
       }
     ],
-    "outputs": "[{\"name\":\"导弹\",\"quantity\":0.01,\"durability\":100},{\"name\":\"导弹\",\"quantity\":0.01,\"durability\":10}]",
-    "inputs": "[{\"name\":\"燃料\",\"quantity\":10,\"durability\":100},{\"name\":\"合金\",\"quantity\":50,\"durability\":100},{\"name\":\"木头\",\"quantity\":10,\"durability\":100},{\"name\":\"载具零件\",\"quantity\":0.1,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "导弹",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "导弹",
+        "quantity": 0.01,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "燃料",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 50,
+        "durability": 100
+      },
+      {
+        "name": "木头",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "载具零件",
+        "quantity": 0.1,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "导弹",
@@ -768,7 +1258,24 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集木头\",\"count\":1000},{\"name\":\"采集石头\",\"count\":1000},{\"name\":\"采集绳子\",\"count\":1000},{\"name\":\"采集铁矿\",\"count\":1000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集木头",
+        "count": 1000
+      },
+      {
+        "name": "采集石头",
+        "count": 1000
+      },
+      {
+        "name": "采集绳子",
+        "count": 1000
+      },
+      {
+        "name": "采集铁矿",
+        "count": 1000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集木头",
@@ -787,8 +1294,20 @@
         "count": 1000
       }
     ],
-    "outputs": "[{\"name\":\"资源箱\",\"quantity\":1,\"durability\":100}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":24,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "资源箱",
+        "quantity": 1,
+        "durability": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 24,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "资源箱",
@@ -810,15 +1329,32 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产资源箱\",\"count\":10000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产资源箱",
+        "count": 10000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产资源箱",
         "count": 10000
       }
     ],
-    "outputs": "[{\"name\":\"资源箱\",\"quantity\":1.2,\"durability\":100}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":24,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "资源箱",
+        "quantity": 1.2,
+        "durability": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 24,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "资源箱",
@@ -840,15 +1376,32 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产资源箱\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产资源箱",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产资源箱",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"资源箱\",\"quantity\":1.5,\"durability\":100}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":24,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "资源箱",
+        "quantity": 1.5,
+        "durability": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 24,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "资源箱",
@@ -870,15 +1423,37 @@
     "level": 2,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集巧克力\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集巧克力",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集巧克力",
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"经验胶囊\",\"quantity\":10,\"durability\":100},{\"name\":\"经验胶囊\",\"quantity\":10,\"durability\":10}]",
-    "inputs": "[{\"name\":\"巧克力\",\"quantity\":0.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "经验胶囊",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "经验胶囊",
+        "quantity": 10,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "巧克力",
+        "quantity": 0.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "经验胶囊",
@@ -905,7 +1480,16 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集燃料\",\"count\":100},{\"name\":\"生产生物质\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集燃料",
+        "count": 100
+      },
+      {
+        "name": "生产生物质",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集燃料",
@@ -916,8 +1500,25 @@
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":10,\"durability\":100},{\"name\":\"燃料\",\"quantity\":10,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":8,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 10,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 8,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -944,7 +1545,16 @@
     "level": 2,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产燃料\",\"count\":10000},{\"name\":\"生产生物质\",\"count\":10000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产燃料",
+        "count": 10000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产燃料",
@@ -955,8 +1565,25 @@
         "count": 10000
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":12,\"durability\":100},{\"name\":\"燃料\",\"quantity\":12,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":8,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 12,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 12,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 8,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -983,7 +1610,16 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产燃料\",\"count\":100000},{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产燃料",
+        "count": 100000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产燃料",
@@ -994,8 +1630,25 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":15,\"durability\":100},{\"name\":\"燃料\",\"quantity\":15,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":8,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 15,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 15,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 8,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -1022,7 +1675,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产燃料\",\"count\":1000000},{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产燃料",
+        "count": 1000000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产燃料",
@@ -1033,8 +1695,25 @@
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":30,\"durability\":100},{\"name\":\"燃料\",\"quantity\":30,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":16,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 30,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 30,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 16,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -1061,7 +1740,16 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产燃料\",\"count\":5000000},{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产燃料",
+        "count": 5000000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产燃料",
@@ -1072,8 +1760,25 @@
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":60,\"durability\":100},{\"name\":\"燃料\",\"quantity\":60,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":32,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 60,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 60,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 32,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -1100,7 +1805,16 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产燃料\",\"count\":50000000},{\"name\":\"生产生物质\",\"count\":50000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产燃料",
+        "count": 50000000
+      },
+      {
+        "name": "生产生物质",
+        "count": 50000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产燃料",
@@ -1111,8 +1825,25 @@
         "count": 50000000
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":120,\"durability\":100},{\"name\":\"燃料\",\"quantity\":120,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":64,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 120,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 120,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 64,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -1139,7 +1870,16 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集燃料\",\"count\":100},{\"name\":\"生产生物质\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集燃料",
+        "count": 100
+      },
+      {
+        "name": "生产生物质",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集燃料",
@@ -1150,8 +1890,25 @@
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":8,\"durability\":100},{\"name\":\"燃料\",\"quantity\":8,\"durability\":10}]",
-    "inputs": "[{\"name\":\"油瓜种子\",\"quantity\":0.01,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 8,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 8,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "油瓜种子",
+        "quantity": 0.01,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -1178,7 +1935,16 @@
     "level": 2,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集燃料\",\"count\":5000},{\"name\":\"生产生物质\",\"count\":10000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集燃料",
+        "count": 5000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集燃料",
@@ -1189,8 +1955,25 @@
         "count": 10000
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":16,\"durability\":100},{\"name\":\"燃料\",\"quantity\":16,\"durability\":10}]",
-    "inputs": "[{\"name\":\"改良油瓜种子\",\"quantity\":0.01,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 16,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 16,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "改良油瓜种子",
+        "quantity": 0.01,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -1217,7 +2000,16 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集燃料\",\"count\":10000},{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集燃料",
+        "count": 10000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集燃料",
@@ -1228,8 +2020,25 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"燃料\",\"quantity\":32,\"durability\":100},{\"name\":\"燃料\",\"quantity\":32,\"durability\":10}]",
-    "inputs": "[{\"name\":\"强壮油瓜种子\",\"quantity\":0.01,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "燃料",
+        "quantity": 32,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 32,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "强壮油瓜种子",
+        "quantity": 0.01,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "燃料",
@@ -1256,7 +2065,16 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集水晶\",\"count\":1000},{\"name\":\"生产生物质\",\"count\":100000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集水晶",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 100000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集水晶",
@@ -1267,8 +2085,30 @@
         "count": 100000
       }
     ],
-    "outputs": "[{\"name\":\"水晶\",\"quantity\":0.2,\"durability\":100},{\"name\":\"水晶\",\"quantity\":0.2,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":10,\"durability\":100},{\"name\":\"燃料\",\"quantity\":2,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "水晶",
+        "quantity": 0.2,
+        "durability": 100
+      },
+      {
+        "name": "水晶",
+        "quantity": 0.2,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 2,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "水晶",
@@ -1300,15 +2140,42 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产水晶\",\"count\":100000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产水晶",
+        "count": 100000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产水晶",
         "count": 100000
       }
     ],
-    "outputs": "[{\"name\":\"水晶\",\"quantity\":0.4,\"durability\":100},{\"name\":\"水晶\",\"quantity\":0.4,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":20,\"durability\":100},{\"name\":\"燃料\",\"quantity\":4,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "水晶",
+        "quantity": 0.4,
+        "durability": 100
+      },
+      {
+        "name": "水晶",
+        "quantity": 0.4,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 4,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "水晶",
@@ -1340,15 +2207,42 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产水晶\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产水晶",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产水晶",
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"水晶\",\"quantity\":0.8,\"durability\":100},{\"name\":\"水晶\",\"quantity\":0.8,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":40,\"durability\":100},{\"name\":\"燃料\",\"quantity\":8,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "水晶",
+        "quantity": 0.8,
+        "durability": 100
+      },
+      {
+        "name": "水晶",
+        "quantity": 0.8,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 40,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 8,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "水晶",
@@ -1380,7 +2274,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集能量块\",\"count\":1000},{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集能量块",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集能量块",
@@ -1391,8 +2294,30 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"能量块\",\"quantity\":0.1,\"durability\":100},{\"name\":\"能量块\",\"quantity\":0.1,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":10,\"durability\":100},{\"name\":\"燃料\",\"quantity\":2,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "能量块",
+        "quantity": 0.1,
+        "durability": 100
+      },
+      {
+        "name": "能量块",
+        "quantity": 0.1,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 2,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "能量块",
@@ -1424,15 +2349,42 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产能量块\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产能量块",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产能量块",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"能量块\",\"quantity\":0.2,\"durability\":100},{\"name\":\"能量块\",\"quantity\":0.2,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":20,\"durability\":100},{\"name\":\"燃料\",\"quantity\":4,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "能量块",
+        "quantity": 0.2,
+        "durability": 100
+      },
+      {
+        "name": "能量块",
+        "quantity": 0.2,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 4,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "能量块",
@@ -1464,15 +2416,42 @@
     "level": 8,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产能量块\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产能量块",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产能量块",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"能量块\",\"quantity\":0.4,\"durability\":100},{\"name\":\"能量块\",\"quantity\":0.4,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":40,\"durability\":100},{\"name\":\"燃料\",\"quantity\":8,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "能量块",
+        "quantity": 0.4,
+        "durability": 100
+      },
+      {
+        "name": "能量块",
+        "quantity": 0.4,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 40,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 8,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "能量块",
@@ -1504,15 +2483,20 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产",
         "count": 1000000
       }
     ],
-    "outputs": "[]",
-    "inputs": "[]",
+    "outputs": [],
+    "inputs": [],
     "产出": [],
     "消耗": []
   },
@@ -1522,15 +2506,20 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产",
         "count": 100000000
       }
     ],
-    "outputs": "[]",
-    "inputs": "[]",
+    "outputs": [],
+    "inputs": [],
     "产出": [],
     "消耗": []
   },
@@ -1540,15 +2529,20 @@
     "level": 8,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产\",\"count\":1000000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产",
+        "count": 1000000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产",
         "count": 1000000000
       }
     ],
-    "outputs": "[]",
-    "inputs": "[]",
+    "outputs": [],
+    "inputs": [],
     "产出": [],
     "消耗": []
   },
@@ -1558,7 +2552,16 @@
     "level": 1,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集铁矿\",\"count\":100},{\"name\":\"采集木头\",\"count\":100}]",
+    "unlockRequirements": [
+      {
+        "name": "采集铁矿",
+        "count": 100
+      },
+      {
+        "name": "采集木头",
+        "count": 100
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集铁矿",
@@ -1569,8 +2572,30 @@
         "count": 100
       }
     ],
-    "outputs": "[{\"name\":\"合金\",\"quantity\":2.5,\"durability\":100},{\"name\":\"合金\",\"quantity\":2.5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铁矿\",\"quantity\":10,\"durability\":100},{\"name\":\"木头\",\"quantity\":20,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "合金",
+        "quantity": 2.5,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 2.5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "木头",
+        "quantity": 20,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "合金",
@@ -1602,7 +2627,20 @@
     "level": 2,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集铁矿\",\"count\":1000},{\"name\":\"采集木头\",\"count\":1000},{\"name\":\"生产合金\",\"count\":10000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集铁矿",
+        "count": 1000
+      },
+      {
+        "name": "采集木头",
+        "count": 1000
+      },
+      {
+        "name": "生产合金",
+        "count": 10000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集铁矿",
@@ -1617,8 +2655,30 @@
         "count": 10000
       }
     ],
-    "outputs": "[{\"name\":\"合金\",\"quantity\":3,\"durability\":100},{\"name\":\"合金\",\"quantity\":3,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铁矿\",\"quantity\":10,\"durability\":100},{\"name\":\"木头\",\"quantity\":20,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "合金",
+        "quantity": 3,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 3,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "木头",
+        "quantity": 20,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "合金",
@@ -1650,7 +2710,20 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集铁矿\",\"count\":10000},{\"name\":\"采集木头\",\"count\":10000},{\"name\":\"生产合金\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集铁矿",
+        "count": 10000
+      },
+      {
+        "name": "采集木头",
+        "count": 10000
+      },
+      {
+        "name": "生产合金",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集铁矿",
@@ -1665,8 +2738,30 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"合金\",\"quantity\":3.5,\"durability\":100},{\"name\":\"合金\",\"quantity\":3.5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铁矿\",\"quantity\":10,\"durability\":100},{\"name\":\"木头\",\"quantity\":20,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "合金",
+        "quantity": 3.5,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 3.5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "木头",
+        "quantity": 20,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "合金",
@@ -1698,7 +2793,20 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集铁矿\",\"count\":100000},{\"name\":\"采集木头\",\"count\":100000},{\"name\":\"生产合金\",\"count\":5000000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集铁矿",
+        "count": 100000
+      },
+      {
+        "name": "采集木头",
+        "count": 100000
+      },
+      {
+        "name": "生产合金",
+        "count": 5000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集铁矿",
@@ -1713,8 +2821,30 @@
         "count": 5000000
       }
     ],
-    "outputs": "[{\"name\":\"合金\",\"quantity\":17.5,\"durability\":100},{\"name\":\"合金\",\"quantity\":17.5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铁矿\",\"quantity\":50,\"durability\":100},{\"name\":\"木头\",\"quantity\":100,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "合金",
+        "quantity": 17.5,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 17.5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "quantity": 50,
+        "durability": 100
+      },
+      {
+        "name": "木头",
+        "quantity": 100,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "合金",
@@ -1746,7 +2876,16 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集改良建筑箱\",\"count\":500},{\"name\":\"生产燃料\",\"count\":10000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集改良建筑箱",
+        "count": 500
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集改良建筑箱",
@@ -1757,8 +2896,30 @@
         "count": 10000
       }
     ],
-    "outputs": "[{\"name\":\"改良建筑箱\",\"quantity\":1,\"durability\":100},{\"name\":\"改良建筑箱\",\"quantity\":1,\"durability\":10}]",
-    "inputs": "[{\"name\":\"载具零件\",\"quantity\":0.1,\"durability\":100},{\"name\":\"燃料\",\"quantity\":2,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "改良建筑箱",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "改良建筑箱",
+        "quantity": 1,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "载具零件",
+        "quantity": 0.1,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 2,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "改良建筑箱",
@@ -1790,7 +2951,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产改良建筑箱\",\"count\":1000},{\"name\":\"生产燃料\",\"count\":100000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产改良建筑箱",
+        "count": 1000
+      },
+      {
+        "name": "生产燃料",
+        "count": 100000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产改良建筑箱",
@@ -1801,8 +2971,30 @@
         "count": 100000
       }
     ],
-    "outputs": "[{\"name\":\"改良建筑箱\",\"quantity\":1.2,\"durability\":100},{\"name\":\"改良建筑箱\",\"quantity\":1.2,\"durability\":10}]",
-    "inputs": "[{\"name\":\"载具零件\",\"quantity\":0.1,\"durability\":100},{\"name\":\"燃料\",\"quantity\":1,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "改良建筑箱",
+        "quantity": 1.2,
+        "durability": 100
+      },
+      {
+        "name": "改良建筑箱",
+        "quantity": 1.2,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "载具零件",
+        "quantity": 0.1,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 1,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "改良建筑箱",
@@ -1834,7 +3026,16 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产改良建筑箱\",\"count\":10000},{\"name\":\"生产燃料\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产改良建筑箱",
+        "count": 10000
+      },
+      {
+        "name": "生产燃料",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产改良建筑箱",
@@ -1845,8 +3046,30 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"改良建筑箱\",\"quantity\":1.5,\"durability\":100},{\"name\":\"改良建筑箱\",\"quantity\":1.5,\"durability\":10}]",
-    "inputs": "[{\"name\":\"载具零件\",\"quantity\":0.1,\"durability\":100},{\"name\":\"燃料\",\"quantity\":1,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "改良建筑箱",
+        "quantity": 1.5,
+        "durability": 100
+      },
+      {
+        "name": "改良建筑箱",
+        "quantity": 1.5,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "载具零件",
+        "quantity": 0.1,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 1,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "改良建筑箱",
@@ -1878,7 +3101,16 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集改良建筑箱\",\"count\":100},{\"name\":\"生产燃料\",\"count\":100000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集改良建筑箱",
+        "count": 100
+      },
+      {
+        "name": "生产燃料",
+        "count": 100000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集改良建筑箱",
@@ -1889,8 +3121,30 @@
         "count": 100000
       }
     ],
-    "outputs": "[{\"name\":\"特装建筑箱\",\"quantity\":0.4,\"durability\":100},{\"name\":\"特装建筑箱\",\"quantity\":0.4,\"durability\":10}]",
-    "inputs": "[{\"name\":\"改良建筑箱\",\"quantity\":100,\"durability\":100},{\"name\":\"生物质\",\"quantity\":200,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "特装建筑箱",
+        "quantity": 0.4,
+        "durability": 100
+      },
+      {
+        "name": "特装建筑箱",
+        "quantity": 0.4,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "改良建筑箱",
+        "quantity": 100,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 200,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "特装建筑箱",
@@ -1922,7 +3176,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产特装建筑箱\",\"count\":1000},{\"name\":\"生产燃料\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产特装建筑箱",
+        "count": 1000
+      },
+      {
+        "name": "生产燃料",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产特装建筑箱",
@@ -1933,8 +3196,30 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"特装建筑箱\",\"quantity\":0.48,\"durability\":100},{\"name\":\"特装建筑箱\",\"quantity\":0.48,\"durability\":10}]",
-    "inputs": "[{\"name\":\"改良建筑箱\",\"quantity\":100,\"durability\":100},{\"name\":\"生物质\",\"quantity\":200,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "特装建筑箱",
+        "quantity": 0.48,
+        "durability": 100
+      },
+      {
+        "name": "特装建筑箱",
+        "quantity": 0.48,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "改良建筑箱",
+        "quantity": 100,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 200,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "特装建筑箱",
@@ -1966,7 +3251,16 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产特装建筑箱\",\"count\":100000},{\"name\":\"生产燃料\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产特装建筑箱",
+        "count": 100000
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产特装建筑箱",
@@ -1977,8 +3271,30 @@
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"特装建筑箱\",\"quantity\":0.65,\"durability\":100},{\"name\":\"特装建筑箱\",\"quantity\":0.65,\"durability\":10}]",
-    "inputs": "[{\"name\":\"改良建筑箱\",\"quantity\":100,\"durability\":100},{\"name\":\"生物质\",\"quantity\":200,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "特装建筑箱",
+        "quantity": 0.65,
+        "durability": 100
+      },
+      {
+        "name": "特装建筑箱",
+        "quantity": 0.65,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "改良建筑箱",
+        "quantity": 100,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 200,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "特装建筑箱",
@@ -2010,7 +3326,16 @@
     "level": 3,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集载具零件\",\"count\":500},{\"name\":\"生产燃料\",\"count\":10000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集载具零件",
+        "count": 500
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集载具零件",
@@ -2021,8 +3346,40 @@
         "count": 10000
       }
     ],
-    "outputs": "[{\"name\":\"载具零件\",\"quantity\":0.01,\"durability\":100},{\"name\":\"载具零件\",\"quantity\":0.01,\"durability\":10}]",
-    "inputs": "[{\"name\":\"合金\",\"quantity\":1,\"durability\":100},{\"name\":\"燃料\",\"quantity\":2,\"durability\":100},{\"name\":\"能量块\",\"quantity\":0.5,\"durability\":100},{\"name\":\"水晶\",\"quantity\":1,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "载具零件",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "载具零件",
+        "quantity": 0.01,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "合金",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 2,
+        "durability": 100
+      },
+      {
+        "name": "能量块",
+        "quantity": 0.5,
+        "durability": 100
+      },
+      {
+        "name": "水晶",
+        "quantity": 1,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "载具零件",
@@ -2064,7 +3421,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产载具零件\",\"count\":10000},{\"name\":\"生产燃料\",\"count\":100000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产载具零件",
+        "count": 10000
+      },
+      {
+        "name": "生产燃料",
+        "count": 100000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产载具零件",
@@ -2075,8 +3441,40 @@
         "count": 100000
       }
     ],
-    "outputs": "[{\"name\":\"载具零件\",\"quantity\":0.012,\"durability\":100},{\"name\":\"载具零件\",\"quantity\":0.012,\"durability\":10}]",
-    "inputs": "[{\"name\":\"合金\",\"quantity\":1,\"durability\":100},{\"name\":\"燃料\",\"quantity\":2,\"durability\":100},{\"name\":\"能量块\",\"quantity\":0.5,\"durability\":100},{\"name\":\"水晶\",\"quantity\":1,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "载具零件",
+        "quantity": 0.012,
+        "durability": 100
+      },
+      {
+        "name": "载具零件",
+        "quantity": 0.012,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "合金",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 2,
+        "durability": 100
+      },
+      {
+        "name": "能量块",
+        "quantity": 0.5,
+        "durability": 100
+      },
+      {
+        "name": "水晶",
+        "quantity": 1,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "载具零件",
@@ -2118,7 +3516,16 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产载具零件\",\"count\":100000},{\"name\":\"生产燃料\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产载具零件",
+        "count": 100000
+      },
+      {
+        "name": "生产燃料",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产载具零件",
@@ -2129,8 +3536,40 @@
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"载具零件\",\"quantity\":0.015,\"durability\":100},{\"name\":\"载具零件\",\"quantity\":0.015,\"durability\":10}]",
-    "inputs": "[{\"name\":\"合金\",\"quantity\":1,\"durability\":100},{\"name\":\"燃料\",\"quantity\":2,\"durability\":100},{\"name\":\"能量块\",\"quantity\":0.5,\"durability\":100},{\"name\":\"水晶\",\"quantity\":1,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "载具零件",
+        "quantity": 0.015,
+        "durability": 100
+      },
+      {
+        "name": "载具零件",
+        "quantity": 0.015,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "合金",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 2,
+        "durability": 100
+      },
+      {
+        "name": "能量块",
+        "quantity": 0.5,
+        "durability": 100
+      },
+      {
+        "name": "水晶",
+        "quantity": 1,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "载具零件",
@@ -2172,7 +3611,16 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产载具零件\",\"count\":1000000},{\"name\":\"生产燃料\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产载具零件",
+        "count": 1000000
+      },
+      {
+        "name": "生产燃料",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产载具零件",
@@ -2183,8 +3631,40 @@
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"载具零件\",\"quantity\":0.075,\"durability\":100},{\"name\":\"载具零件\",\"quantity\":0.075,\"durability\":10}]",
-    "inputs": "[{\"name\":\"合金\",\"quantity\":5,\"durability\":100},{\"name\":\"燃料\",\"quantity\":10,\"durability\":100},{\"name\":\"能量块\",\"quantity\":2.5,\"durability\":100},{\"name\":\"水晶\",\"quantity\":5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "载具零件",
+        "quantity": 0.075,
+        "durability": 100
+      },
+      {
+        "name": "载具零件",
+        "quantity": 0.075,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "合金",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "能量块",
+        "quantity": 2.5,
+        "durability": 100
+      },
+      {
+        "name": "水晶",
+        "quantity": 5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "载具零件",
@@ -2226,7 +3706,20 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产资源箱\",\"count\":100000},{\"name\":\"生产载具零件\",\"count\":100000},{\"name\":\"生产合金\",\"count\":100000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产资源箱",
+        "count": 100000
+      },
+      {
+        "name": "生产载具零件",
+        "count": 100000
+      },
+      {
+        "name": "生产合金",
+        "count": 100000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产资源箱",
@@ -2241,8 +3734,30 @@
         "count": 100000
       }
     ],
-    "outputs": "[{\"name\":\"要塞零件\",\"quantity\":0.001,\"durability\":100}]",
-    "inputs": "[{\"name\":\"载具零件\",\"quantity\":25,\"durability\":100},{\"name\":\"合金\",\"quantity\":150,\"durability\":100},{\"name\":\"资源箱\",\"quantity\":225,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "要塞零件",
+        "quantity": 0.001,
+        "durability": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "载具零件",
+        "quantity": 25,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 150,
+        "durability": 100
+      },
+      {
+        "name": "资源箱",
+        "quantity": 225,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "要塞零件",
@@ -2274,7 +3789,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集资源\",\"count\":100000},{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集资源",
+        "count": 100000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集资源",
@@ -2285,8 +3809,25 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"种子箱\",\"quantity\":0.25,\"durability\":100}]",
-    "inputs": "[{\"name\":\"资源箱\",\"quantity\":2.5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "种子箱",
+        "quantity": 0.25,
+        "durability": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "资源箱",
+        "quantity": 2.5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "种子箱",
@@ -2313,7 +3854,16 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产种子箱\",\"count\":10000},{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产种子箱",
+        "count": 10000
+      },
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产种子箱",
@@ -2324,8 +3874,25 @@
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"种子箱\",\"quantity\":1.25,\"durability\":100}]",
-    "inputs": "[{\"name\":\"资源箱\",\"quantity\":12.5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":50,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "种子箱",
+        "quantity": 1.25,
+        "durability": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "资源箱",
+        "quantity": 12.5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 50,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "种子箱",
@@ -2352,7 +3919,16 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产种子箱\",\"count\":100000},{\"name\":\"生产生物质\",\"count\":500000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产种子箱",
+        "count": 100000
+      },
+      {
+        "name": "生产生物质",
+        "count": 500000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产种子箱",
@@ -2363,8 +3939,25 @@
         "count": 500000000
       }
     ],
-    "outputs": "[{\"name\":\"种子箱\",\"quantity\":6.25,\"durability\":100}]",
-    "inputs": "[{\"name\":\"资源箱\",\"quantity\":62.5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":300,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "种子箱",
+        "quantity": 6.25,
+        "durability": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "资源箱",
+        "quantity": 62.5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 300,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "种子箱",
@@ -2391,7 +3984,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集神兽之血\",\"count\":1000},{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集神兽之血",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集神兽之血",
@@ -2402,8 +4004,40 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"觉醒丹\",\"quantity\":0.001,\"durability\":100},{\"name\":\"觉醒丹\",\"quantity\":0.001,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铀\",\"quantity\":0.1,\"durability\":100},{\"name\":\"生物质\",\"quantity\":2,\"durability\":100},{\"name\":\"神兽之血\",\"quantity\":0.01,\"durability\":100},{\"name\":\"灵石\",\"quantity\":0.0001,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "觉醒丹",
+        "quantity": 0.001,
+        "durability": 100
+      },
+      {
+        "name": "觉醒丹",
+        "quantity": 0.001,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "quantity": 0.1,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 2,
+        "durability": 100
+      },
+      {
+        "name": "神兽之血",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "灵石",
+        "quantity": 0.0001,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "觉醒丹",
@@ -2445,7 +4079,16 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产觉醒丹\",\"count\":1000},{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产觉醒丹",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产觉醒丹",
@@ -2456,8 +4099,40 @@
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"觉醒丹\",\"quantity\":0.0012,\"durability\":100},{\"name\":\"觉醒丹\",\"quantity\":0.0012,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铀\",\"quantity\":0.1,\"durability\":100},{\"name\":\"生物质\",\"quantity\":2,\"durability\":100},{\"name\":\"神兽之血\",\"quantity\":0.01,\"durability\":100},{\"name\":\"灵石\",\"quantity\":0.0001,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "觉醒丹",
+        "quantity": 0.0012,
+        "durability": 100
+      },
+      {
+        "name": "觉醒丹",
+        "quantity": 0.0012,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "quantity": 0.1,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 2,
+        "durability": 100
+      },
+      {
+        "name": "神兽之血",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "灵石",
+        "quantity": 0.0001,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "觉醒丹",
@@ -2499,7 +4174,16 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产觉醒丹\",\"count\":10000},{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产觉醒丹",
+        "count": 10000
+      },
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产觉醒丹",
@@ -2510,8 +4194,40 @@
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"觉醒丹\",\"quantity\":0.0015,\"durability\":100},{\"name\":\"觉醒丹\",\"quantity\":0.0015,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铀\",\"quantity\":0.1,\"durability\":100},{\"name\":\"生物质\",\"quantity\":2,\"durability\":100},{\"name\":\"神兽之血\",\"quantity\":0.01,\"durability\":100},{\"name\":\"灵石\",\"quantity\":0.0001,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "觉醒丹",
+        "quantity": 0.0015,
+        "durability": 100
+      },
+      {
+        "name": "觉醒丹",
+        "quantity": 0.0015,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "quantity": 0.1,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 2,
+        "durability": 100
+      },
+      {
+        "name": "神兽之血",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "灵石",
+        "quantity": 0.0001,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "觉醒丹",
@@ -2553,7 +4269,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产铀\",\"count\":1000},{\"name\":\"生产合金\",\"count\":100000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产铀",
+        "count": 1000
+      },
+      {
+        "name": "生产合金",
+        "count": 100000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产铀",
@@ -2564,8 +4289,35 @@
         "count": 100000
       }
     ],
-    "outputs": "[{\"name\":\"裂变电站\",\"quantity\":0.01,\"durability\":100},{\"name\":\"核废料\",\"quantity\":0.1,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铀\",\"quantity\":10,\"durability\":100},{\"name\":\"生物质\",\"quantity\":2000,\"durability\":100},{\"name\":\"合金\",\"quantity\":1000,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "裂变电站",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "核废料",
+        "quantity": 0.1,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "quantity": 10,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 2000,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 1000,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "裂变电站",
@@ -2602,7 +4354,16 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产灵石\",\"count\":500},{\"name\":\"生产合金\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产灵石",
+        "count": 500
+      },
+      {
+        "name": "生产合金",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产灵石",
@@ -2613,8 +4374,30 @@
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"聚变电站\",\"quantity\":0.01,\"durability\":100}]",
-    "inputs": "[{\"name\":\"灵石\",\"quantity\":5,\"durability\":100},{\"name\":\"生物质\",\"quantity\":2000,\"durability\":100},{\"name\":\"合金\",\"quantity\":5000,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "聚变电站",
+        "quantity": 0.01,
+        "durability": 100
+      }
+    ],
+    "inputs": [
+      {
+        "name": "灵石",
+        "quantity": 5,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 2000,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 5000,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "聚变电站",
@@ -2646,7 +4429,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集铀\",\"count\":20},{\"name\":\"采集石头\",\"count\":500000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集铀",
+        "count": 20
+      },
+      {
+        "name": "采集石头",
+        "count": 500000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集铀",
@@ -2657,8 +4449,30 @@
         "count": 500000
       }
     ],
-    "outputs": "[{\"name\":\"铀\",\"quantity\":0.1,\"durability\":100},{\"name\":\"铀\",\"quantity\":0.1,\"durability\":10}]",
-    "inputs": "[{\"name\":\"燃料\",\"quantity\":20,\"durability\":100},{\"name\":\"石头\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "铀",
+        "quantity": 0.1,
+        "durability": 100
+      },
+      {
+        "name": "铀",
+        "quantity": 0.1,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "燃料",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "石头",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "铀",
@@ -2690,7 +4504,16 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产铀\",\"count\":1000},{\"name\":\"采集石头\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产铀",
+        "count": 1000
+      },
+      {
+        "name": "采集石头",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产铀",
@@ -2701,8 +4524,30 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"铀\",\"quantity\":0.12,\"durability\":100},{\"name\":\"铀\",\"quantity\":0.12,\"durability\":10}]",
-    "inputs": "[{\"name\":\"燃料\",\"quantity\":20,\"durability\":100},{\"name\":\"石头\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "铀",
+        "quantity": 0.12,
+        "durability": 100
+      },
+      {
+        "name": "铀",
+        "quantity": 0.12,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "燃料",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "石头",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "铀",
@@ -2734,7 +4579,16 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产铀\",\"count\":100000},{\"name\":\"采集石头\",\"count\":3000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产铀",
+        "count": 100000
+      },
+      {
+        "name": "采集石头",
+        "count": 3000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产铀",
@@ -2745,8 +4599,30 @@
         "count": 3000000
       }
     ],
-    "outputs": "[{\"name\":\"铀\",\"quantity\":0.15,\"durability\":100},{\"name\":\"铀\",\"quantity\":0.15,\"durability\":10}]",
-    "inputs": "[{\"name\":\"燃料\",\"quantity\":20,\"durability\":100},{\"name\":\"石头\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "铀",
+        "quantity": 0.15,
+        "durability": 100
+      },
+      {
+        "name": "铀",
+        "quantity": 0.15,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "燃料",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "石头",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "铀",
@@ -2778,7 +4654,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集圣水\",\"count\":20},{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集圣水",
+        "count": 20
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集圣水",
@@ -2789,8 +4674,30 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"圣水\",\"quantity\":0.0001,\"durability\":100},{\"name\":\"至纯圣水\",\"quantity\":0.0001,\"durability\":10}]",
-    "inputs": "[{\"name\":\"圣水\",\"quantity\":0.000107411385607,\"durability\":100},{\"name\":\"生物质\",\"quantity\":0.1,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "圣水",
+        "quantity": 0.0001,
+        "durability": 100
+      },
+      {
+        "name": "至纯圣水",
+        "quantity": 0.0001,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "圣水",
+        "quantity": 0.000107411385607,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 0.1,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "圣水",
@@ -2822,7 +4729,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产铀\",\"count\":1000},{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产铀",
+        "count": 1000
+      },
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产铀",
@@ -2833,8 +4749,40 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"灵石\",\"quantity\":0.001,\"durability\":100},{\"name\":\"灵石\",\"quantity\":0.001,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铀\",\"quantity\":1,\"durability\":100},{\"name\":\"生物质\",\"quantity\":20,\"durability\":100},{\"name\":\"燃料\",\"quantity\":20,\"durability\":100},{\"name\":\"圣水\",\"quantity\":0.001,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "灵石",
+        "quantity": 0.001,
+        "durability": 100
+      },
+      {
+        "name": "灵石",
+        "quantity": 0.001,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "圣水",
+        "quantity": 0.001,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "灵石",
@@ -2876,7 +4824,16 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产灵石\",\"count\":100},{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产灵石",
+        "count": 100
+      },
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产灵石",
@@ -2887,8 +4844,35 @@
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"灵石\",\"quantity\":0.0012,\"durability\":100},{\"name\":\"灵石\",\"quantity\":0.0012,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铀\",\"quantity\":1,\"durability\":100},{\"name\":\"生物质\",\"quantity\":20,\"durability\":100},{\"name\":\"燃料\",\"quantity\":20,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "灵石",
+        "quantity": 0.0012,
+        "durability": 100
+      },
+      {
+        "name": "灵石",
+        "quantity": 0.0012,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 20,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "灵石",
@@ -2925,7 +4909,16 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产灵石\",\"count\":10000},{\"name\":\"生产铀\",\"count\":100000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产灵石",
+        "count": 10000
+      },
+      {
+        "name": "生产铀",
+        "count": 100000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产灵石",
@@ -2936,8 +4929,35 @@
         "count": 100000
       }
     ],
-    "outputs": "[{\"name\":\"灵石\",\"quantity\":0.0015,\"durability\":100},{\"name\":\"灵石\",\"quantity\":0.0015,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铀\",\"quantity\":1,\"durability\":100},{\"name\":\"生物质\",\"quantity\":20,\"durability\":100},{\"name\":\"燃料\",\"quantity\":20,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "灵石",
+        "quantity": 0.0015,
+        "durability": 100
+      },
+      {
+        "name": "灵石",
+        "quantity": 0.0015,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铀",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 20,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 20,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "灵石",
@@ -2974,7 +4994,16 @@
     "level": 6,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"挤奶\",\"count\":20},{\"name\":\"生产\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "挤奶",
+        "count": 20
+      },
+      {
+        "name": "生产",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "挤奶",
@@ -2985,8 +5014,30 @@
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"奶\",\"quantity\":1,\"durability\":100},{\"name\":\"奶\",\"quantity\":1,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":10000,\"durability\":100},{\"name\":\"燃料\",\"quantity\":20,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "奶",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "奶",
+        "quantity": 1,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 10000,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 20,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "奶",
@@ -3018,15 +5069,37 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":125,\"durability\":100},{\"name\":\"生物质\",\"quantity\":125,\"durability\":10}]",
-    "inputs": "[{\"name\":\"钻石\",\"quantity\":1250,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钻石",
+        "quantity": 1250,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3053,15 +5126,37 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":125,\"durability\":100},{\"name\":\"生物质\",\"quantity\":125,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生肉\",\"quantity\":62.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生肉",
+        "quantity": 62.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3088,15 +5183,37 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":125,\"durability\":100},{\"name\":\"生物质\",\"quantity\":125,\"durability\":10}]",
-    "inputs": "[{\"name\":\"果实\",\"quantity\":50,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "果实",
+        "quantity": 50,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3123,15 +5240,37 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":125,\"durability\":100},{\"name\":\"生物质\",\"quantity\":125,\"durability\":10}]",
-    "inputs": "[{\"name\":\"饲料\",\"quantity\":12.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "饲料",
+        "quantity": 12.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3158,15 +5297,37 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":125,\"durability\":100},{\"name\":\"生物质\",\"quantity\":125,\"durability\":10}]",
-    "inputs": "[{\"name\":\"木头\",\"quantity\":250,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "木头",
+        "quantity": 250,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3193,15 +5354,37 @@
     "level": 5,
     "production": 10,
     "生产力": 10,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":125,\"durability\":100},{\"name\":\"生物质\",\"quantity\":125,\"durability\":10}]",
-    "inputs": "[{\"name\":\"石头\",\"quantity\":225,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "石头",
+        "quantity": 225,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3228,15 +5411,37 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":10000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 10000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 10000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":125,\"durability\":100},{\"name\":\"生物质\",\"quantity\":125,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铁矿\",\"quantity\":112.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "quantity": 112.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3263,15 +5468,37 @@
     "level": 5,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":125,\"durability\":100},{\"name\":\"生物质\",\"quantity\":125,\"durability\":10}]",
-    "inputs": "[{\"name\":\"绳子\",\"quantity\":112.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 125,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "绳子",
+        "quantity": 112.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3298,15 +5525,37 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":625,\"durability\":100},{\"name\":\"生物质\",\"quantity\":625,\"durability\":10}]",
-    "inputs": "[{\"name\":\"钻石\",\"quantity\":6250,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钻石",
+        "quantity": 6250,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3333,15 +5582,37 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":625,\"durability\":100},{\"name\":\"生物质\",\"quantity\":625,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生肉\",\"quantity\":312.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生肉",
+        "quantity": 312.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3368,15 +5639,37 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":625,\"durability\":100},{\"name\":\"生物质\",\"quantity\":625,\"durability\":10}]",
-    "inputs": "[{\"name\":\"果实\",\"quantity\":250,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "果实",
+        "quantity": 250,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3403,15 +5696,37 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":625,\"durability\":100},{\"name\":\"生物质\",\"quantity\":625,\"durability\":10}]",
-    "inputs": "[{\"name\":\"饲料\",\"quantity\":62.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "饲料",
+        "quantity": 62.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3438,15 +5753,37 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":625,\"durability\":100},{\"name\":\"生物质\",\"quantity\":625,\"durability\":10}]",
-    "inputs": "[{\"name\":\"木头\",\"quantity\":1250,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "木头",
+        "quantity": 1250,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3473,15 +5810,37 @@
     "level": 7,
     "production": 10,
     "生产力": 10,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":625,\"durability\":100},{\"name\":\"生物质\",\"quantity\":625,\"durability\":10}]",
-    "inputs": "[{\"name\":\"石头\",\"quantity\":1125,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "石头",
+        "quantity": 1125,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3508,15 +5867,37 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":625,\"durability\":100},{\"name\":\"生物质\",\"quantity\":625,\"durability\":10}]",
-    "inputs": "[{\"name\":\"铁矿\",\"quantity\":562.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "铁矿",
+        "quantity": 562.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3543,15 +5924,37 @@
     "level": 7,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"生物质\",\"quantity\":625,\"durability\":100},{\"name\":\"生物质\",\"quantity\":625,\"durability\":10}]",
-    "inputs": "[{\"name\":\"绳子\",\"quantity\":562.5,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 625,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "绳子",
+        "quantity": 562.5,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "生物质",
@@ -3578,7 +5981,16 @@
     "level": 4,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产至纯圣水\",\"count\":1440},{\"name\":\"生产圣水\",\"count\":14400}]",
+    "unlockRequirements": [
+      {
+        "name": "生产至纯圣水",
+        "count": 1440
+      },
+      {
+        "name": "生产圣水",
+        "count": 14400
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产至纯圣水",
@@ -3589,8 +6001,30 @@
         "count": 14400
       }
     ],
-    "outputs": "[{\"name\":\"圣水\",\"quantity\":0.00015,\"durability\":100},{\"name\":\"至纯圣水\",\"quantity\":0.00015,\"durability\":10}]",
-    "inputs": "[{\"name\":\"圣水\",\"quantity\":0.0002013963480131,\"durability\":100},{\"name\":\"生物质\",\"quantity\":0.18,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "圣水",
+        "quantity": 0.00015,
+        "durability": 100
+      },
+      {
+        "name": "至纯圣水",
+        "quantity": 0.00015,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "圣水",
+        "quantity": 0.0002013963480131,
+        "durability": 100
+      },
+      {
+        "name": "生物质",
+        "quantity": 0.18,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "圣水",
@@ -3622,7 +6056,16 @@
     "level": 8,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集核废料\",\"count\":1000},{\"name\":\"生产铀\",\"count\":1000000}]",
+    "unlockRequirements": [
+      {
+        "name": "采集核废料",
+        "count": 1000
+      },
+      {
+        "name": "生产铀",
+        "count": 1000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集核废料",
@@ -3633,8 +6076,35 @@
         "count": 1000000
       }
     ],
-    "outputs": "[{\"name\":\"钚\",\"quantity\":0.01,\"durability\":100},{\"name\":\"钚\",\"quantity\":0.01,\"durability\":10}]",
-    "inputs": "[{\"name\":\"核废料\",\"quantity\":1,\"durability\":100},{\"name\":\"铀\",\"quantity\":1,\"durability\":100},{\"name\":\"燃料\",\"quantity\":200,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "钚",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "钚",
+        "quantity": 0.01,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "核废料",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "铀",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 200,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "钚",
@@ -3671,15 +6141,42 @@
     "level": 8,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"采集未知物品\",\"count\":10}]",
+    "unlockRequirements": [
+      {
+        "name": "采集未知物品",
+        "count": 10
+      }
+    ],
     "解锁需求": [
       {
         "name": "采集未知物品",
         "count": 10
       }
     ],
-    "outputs": "[{\"name\":\"未知物品\",\"quantity\":0.0001,\"durability\":100},{\"name\":\"未知物品\",\"quantity\":0.000005,\"durability\":10}]",
-    "inputs": "[{\"name\":\"未知物品\",\"quantity\":0.0001136363636364,\"durability\":100},{\"name\":\"燃料\",\"quantity\":0.03472,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "未知物品",
+        "quantity": 0.0001,
+        "durability": 100
+      },
+      {
+        "name": "未知物品",
+        "quantity": 0.000005,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "未知物品",
+        "quantity": 0.0001136363636364,
+        "durability": 100
+      },
+      {
+        "name": "燃料",
+        "quantity": 0.03472,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "未知物品",
@@ -3711,15 +6208,42 @@
     "level": 9,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产钚\",\"count\":1000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产钚",
+        "count": 1000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产钚",
         "count": 1000
       }
     ],
-    "outputs": "[{\"name\":\"高强度框架\",\"quantity\":0.01,\"durability\":100},{\"name\":\"高强度框架\",\"quantity\":0.01,\"durability\":10}]",
-    "inputs": "[{\"name\":\"钚\",\"quantity\":1,\"durability\":100},{\"name\":\"合金\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "高强度框架",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "高强度框架",
+        "quantity": 0.01,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "钚",
+        "quantity": 1,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "高强度框架",
@@ -3751,15 +6275,42 @@
     "level": 9,
     "production": 1,
     "生产力": 1,
-    "unlockRequirements": "[{\"name\":\"生产生物质\",\"count\":100000000}]",
+    "unlockRequirements": [
+      {
+        "name": "生产生物质",
+        "count": 100000000
+      }
+    ],
     "解锁需求": [
       {
         "name": "生产生物质",
         "count": 100000000
       }
     ],
-    "outputs": "[{\"name\":\"太阳帆\",\"quantity\":0.01,\"durability\":100},{\"name\":\"太阳帆\",\"quantity\":0.01,\"durability\":10}]",
-    "inputs": "[{\"name\":\"生物质\",\"quantity\":100,\"durability\":100},{\"name\":\"合金\",\"quantity\":10,\"durability\":100}]",
+    "outputs": [
+      {
+        "name": "太阳帆",
+        "quantity": 0.01,
+        "durability": 100
+      },
+      {
+        "name": "太阳帆",
+        "quantity": 0.01,
+        "durability": 10
+      }
+    ],
+    "inputs": [
+      {
+        "name": "生物质",
+        "quantity": 100,
+        "durability": 100
+      },
+      {
+        "name": "合金",
+        "quantity": 10,
+        "durability": 100
+      }
+    ],
     "产出": [
       {
         "name": "太阳帆",

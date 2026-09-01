@@ -24,6 +24,7 @@ function formatLootQuantity(value: number): string {
   return String(Number(rounded.toFixed(2)));
 }
 import { ItemSystemService } from './item-system.service';
+import { asJsonValue } from '../../common/utils/json-value.util';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -555,8 +556,8 @@ export class ItemService {
     if (!player) return `玩家不存在`;
 
     // 解析玩家装备
-    const equipmentList: Item3[] = JSON.parse(player.equipment || '[]');
-    const backpack: Item3[] = JSON.parse(player.backpack || '[]');
+    const equipmentList: Item3[] = asJsonValue<Item3[]>(player.equipment, []);
+    const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
 
     // 查找植入体装备
     let implantIndex = -1;
@@ -586,8 +587,8 @@ export class ItemService {
       return `${player.name},${target}不是可以强化的植入体属性`;
     }
 
-    // 解析标记数据
-    const markers = JSON.parse(player.markers || '{}');
+    // 解析标记数据（DB Json 字段容错读取）
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
 
     // 获取植入体等级（从成就熟练度）
     let implantLevel = 0;
@@ -679,9 +680,9 @@ export class ItemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        equipment: JSON.stringify(equipmentList),
-        backpack: JSON.stringify(backpack),
-        markers: JSON.stringify(markers),
+        equipment: equipmentList,
+        backpack: backpack,
+        markers: markers,
       });
       await this.playerService.savePlayer(_pd.player);
     });
@@ -781,15 +782,15 @@ export class ItemService {
 
     const nowMs = Date.now();
     // 兼容层：把 markers2/buffs 归一化为中文 key + 毫秒，保证存量数据可读
-    const rawMarkers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const rawBuffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const rawMarkers2 = asJsonValue<any[]>(player.markers2, []);
+    const rawBuffs = asJsonValue<any[]>(player.buffs, []);
     const markers2 = this.combatState.normalizeBuffItem
       ? rawMarkers2.map((it) => this.combatState.normalizeBuffItem(it))
       : rawMarkers2;
     const buffs = this.combatState.normalizeBuffItem
       ? rawBuffs.map((it) => this.combatState.normalizeBuffItem(it))
       : rawBuffs;
-    const markers: Record<string, number> = this.playerService.safeJsonParse<Record<string, number>>(player.markers, {});
+    const markers: Record<string, number> = asJsonValue<Record<string, number>>(player.markers, {});
 
     // L2251-2255：开箱防重入锁 a1=max(120, 数量*180/100000000)，处理完成后 L2458 移除（净零冷却，仅处理期生效）
     const lockSeconds = Math.max(120, Math.abs(actualCount) * 180 / 100000000);
@@ -912,7 +913,7 @@ export class ItemService {
         earlyReturn = `\n你还没有家园，无法使用这个`;
       } else {
         w4 = `\n享用了${actualCount}的至纯圣水，${player.houseName}的时间加速了${actualCount}分钟`;
-        const mapMarkers = this.playerService.safeJsonParse<Record<string, number>>(homeMap.markers, {});
+        const mapMarkers = asJsonValue<Record<string, number>>(homeMap.markers, {});
         const shiftSeconds = actualCount * 60;
         for (const key of ['观测时间', '观测时间2']) {
           const current = Number(mapMarkers[key] ?? 0);
@@ -928,7 +929,7 @@ export class ItemService {
         }
         await this.prisma.gameMap.update({
           where: { id: homeMap.id },
-          data: { markers: JSON.stringify(mapMarkers) },
+          data: { markers: mapMarkers },
         });
       }
     }
@@ -937,7 +938,7 @@ export class ItemService {
       // L2321-2324 / L2357-2361：提前返回不消耗物品，但要把开箱锁一并移除
       //（原版 获得增益(标记2,"开箱",-a1) 净零回滚；否则锁会残留到过期，玩家被卡住）
       this.combatState.gainBuff(markers2, '开箱', -lockSeconds, false, nowMs);
-      player.markers2 = JSON.stringify(markers2);
+      player.markers2 = markers2; // Json 列直接写数组
       player.buffs = buffs;
       await this.playerService.savePlayer(player);
       return earlyReturn;
@@ -1015,7 +1016,7 @@ export class ItemService {
           }
         }
       }
-      player.backpack = JSON.stringify(backpack);
+      player.backpack = backpack;
     }
 
     // ===== 文本段 L2416-2448 =====
@@ -1086,7 +1087,7 @@ export class ItemService {
       }
     }
 
-    player.backpack = JSON.stringify(finalBackpack);
+    player.backpack = finalBackpack;
     player.markers = markers;
     player.markers2 = markers2;
     player.buffs = buffs;
@@ -1195,7 +1196,7 @@ export class ItemService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) return `玩家不存在`;
 
-    const backpack: Item3[] = JSON.parse(player.backpack || '[]');
+    const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
 
     // 从静态配置加载制造配方（JSON 单一来源）
     const recipes = this.staticData.getAllCraftings();
@@ -1219,8 +1220,8 @@ export class ItemService {
       return `你输入了正确的名称，但是【${recipeName}】不是可以制造的项目`;
     }
 
-    const requirements: Item3[] = JSON.parse(recipe.requirements || '[]');
-    const outputs: Item3[] = JSON.parse(recipe.outputs || '[]');
+    const requirements = asJsonValue<Item3[]>(recipe.requirements, []);
+    const outputs = asJsonValue<Item3[]>(recipe.outputs, []);
 
     if (outputs.length === 0) {
       return `警告：制造项目${recipe.name}的制造产出为空`;
@@ -1322,14 +1323,14 @@ export class ItemService {
     }
 
     // 更新成就
-    const markers = JSON.parse(player.markers || '{}');
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
     if (!markers['制造']) markers['制造'] = 0;
     markers['制造'] += maxCount;
     if (!markers['制造' + recipeName]) markers['制造' + recipeName] = 0;
     markers['制造' + recipeName] += maxCount;
 
     // 标记获得
-    const gainMarkers: string[] = JSON.parse(recipe.gainMarkers || '[]');
+    const gainMarkers = asJsonValue<string[]>(recipe.gainMarkers, []);
     for (const gm of gainMarkers) {
       if (gm) {
         if (!markers[gm]) markers[gm] = 0;
@@ -1341,8 +1342,8 @@ export class ItemService {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
       Object.assign(_pd.player, {
-        backpack: JSON.stringify(cleanedBackpack),
-        markers: JSON.stringify(markers),
+        backpack: cleanedBackpack,
+        markers: markers,
       });
       await this.playerService.savePlayer(_pd.player);
     });
@@ -1366,7 +1367,7 @@ export class ItemService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) return `玩家不存在`;
 
-    const backpack: Item3[] = JSON.parse(player.backpack || '[]');
+    const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
 
     // 查找物品
     let itemIndex = -1;
@@ -1422,15 +1423,15 @@ export class ItemService {
       backpack.splice(itemIndex, 1);
 
       // 更新成就
-      const markers = JSON.parse(player.markers || '{}');
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
       if (!markers['分解']) markers['分解'] = 0;
       markers['分解'] += actualCount;
 
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
         Object.assign(_pd.player, {
-          backpack: JSON.stringify(backpack),
-          markers: JSON.stringify(markers),
+          backpack: backpack,
+          markers: markers,
         });
         await this.playerService.savePlayer(_pd.player);
       });
@@ -1453,7 +1454,7 @@ export class ItemService {
       }
 
       const recipe = recipes[recipeIndex];
-      const requirements: Item3[] = JSON.parse(recipe.requirements || '[]');
+      const requirements = asJsonValue<Item3[]>(recipe.requirements, []);
 
       // 返还材料（按比例）
       const deconstructMul = recipe.deconstructMul || 5;
@@ -1478,7 +1479,7 @@ export class ItemService {
 
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
-        Object.assign(_pd.player, { backpack: JSON.stringify(backpack) });
+        Object.assign(_pd.player, { backpack: backpack });
         await this.playerService.savePlayer(_pd.player);
       });
 
@@ -1499,9 +1500,9 @@ export class ItemService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) return `玩家不存在`;
 
-    const backpack: Item3[] = JSON.parse(player.backpack || '[]');
-    const equipment: Item3[] = JSON.parse(player.equipment || '[]');
-    const weapons: Item3[] = JSON.parse(player.weapons || '[]');
+    const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
+    const equipment: Item3[] = asJsonValue<Item3[]>(player.equipment, []);
+    const weapons: Item3[] = asJsonValue<Item3[]>(player.weapons, []);
 
     if (backpackIndex < 1 || backpackIndex > backpack.length) {
       return '物品编号超出范围';
@@ -1534,8 +1535,8 @@ export class ItemService {
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
         Object.assign(_pd.player, {
-          backpack: JSON.stringify(backpack),
-          weapons: JSON.stringify(weapons),
+          backpack: backpack,
+          weapons: weapons,
           currentWeapon,
           sets,
         });
@@ -1575,8 +1576,8 @@ export class ItemService {
       await this.playerService.enqueueUserWrite(userId, async () => {
         const _pd = await this.playerService.getPlayerData(userId);
         Object.assign(_pd.player, {
-          backpack: JSON.stringify(backpack),
-          equipment: JSON.stringify(equipment),
+          backpack: backpack,
+          equipment: equipment,
           sets,
         });
         await this.playerService.savePlayer(_pd.player);
@@ -1600,9 +1601,9 @@ export class ItemService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) return `玩家不存在`;
 
-    const backpack: Item3[] = JSON.parse(player.backpack || '[]');
-    const equipment: Item3[] = JSON.parse(player.equipment || '[]');
-    const weapons: Item3[] = JSON.parse(player.weapons || '[]');
+    const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
+    const equipment: Item3[] = asJsonValue<Item3[]>(player.equipment, []);
+    const weapons: Item3[] = asJsonValue<Item3[]>(player.weapons, []);
 
     // 先在装备中查找
     for (let i = 0; i < equipment.length; i++) {
@@ -1616,8 +1617,8 @@ export class ItemService {
         await this.playerService.enqueueUserWrite(userId, async () => {
           const _pd = await this.playerService.getPlayerData(userId);
           Object.assign(_pd.player, {
-            backpack: JSON.stringify(backpack),
-            equipment: JSON.stringify(equipment),
+            backpack: backpack,
+            equipment: equipment,
             sets,
           });
           await this.playerService.savePlayer(_pd.player);
@@ -1643,8 +1644,8 @@ export class ItemService {
         await this.playerService.enqueueUserWrite(userId, async () => {
           const _pd = await this.playerService.getPlayerData(userId);
           Object.assign(_pd.player, {
-            backpack: JSON.stringify(backpack),
-            weapons: JSON.stringify(weapons),
+            backpack: backpack,
+            weapons: weapons,
             currentWeapon,
             sets,
           });
@@ -1701,9 +1702,9 @@ export class ItemService {
    * @param equipment 已装备列表（Item3[]）
    * @param weapons 已装备武器列表（Item3[]）
    * @param treasures 法宝资源列表（Item3[]，对应原版 装备预设[2] 的"资源"类型装备）
-   * @returns SetData 的 JSON 字符串
+   * @returns SetData 对象（直接作为 Player.sets Json 字段落库，避免双重编码）
    */
-  recomputeSets(equipment: Item3[], weapons: Item3[], treasures?: Item3[]): string {
+  recomputeSets(equipment: Item3[], weapons: Item3[], treasures?: Item3[]): Record<string, any> {
     const setData: Record<string, any> = {};
     const judge = (item: Item3, durability?: number) => {
       if (!item || !item.name) return;
@@ -1718,7 +1719,7 @@ export class ItemService {
     for (const tb of treasures || []) {
       if (tb && (tb.type === '资源' || tb.type === 'resource')) judge(tb, tb.durabilityLevel ?? 0);
     }
-    return JSON.stringify(setData);
+    return setData;
   }
 
   /**
@@ -1729,7 +1730,7 @@ export class ItemService {
    */
   private getTreasuresFromPresets(player: any): Item3[] {
     try {
-      const presets: any[] = JSON.parse(player?.equipmentPresets || '[]');
+      const presets: any[] = asJsonValue<any[]>(player?.equipmentPresets, []);
       const preset2 = presets[2]; // 原版 装备预设[2]
       if (!preset2 || !Array.isArray(preset2.equipment)) return [];
       return (preset2.equipment as Item3[]).filter(
