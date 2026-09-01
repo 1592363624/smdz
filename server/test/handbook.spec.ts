@@ -81,7 +81,7 @@ describe('B. 分类条目数与模板行过滤', () => {
     expect(c['使魔']).toBe(31);
     expect(c['武器']).toBe(122);
     expect(c['装备']).toBe(238);
-    expect(c['物品']).toBe(169); // items.json 170 - 「物品模板」
+    expect(c['物品']).toBe(170); // items.json 171 - 「物品模板」（含新增主线补给箱）
     expect(c['资源']).toBe(119);
     expect(c['怪物']).toBe(145);
     expect(c['任务']).toBe(86); // tasks.json 87 - 「任务模板」

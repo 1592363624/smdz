@@ -136,6 +136,14 @@
     "useMarkers": "[]"
   },
   {
+    "name": "主线补给箱",
+    "description": "可以获得一件武器。",
+    "value": 3,
+    "type": "物品",
+    "useEffects": "[\"特斯拉,纵横,矢量,特斯拉,纵横,矢量,特斯拉,纵横,矢量\"]",
+    "useMarkers": "[]"
+  },
+  {
     "name": "资源箱",
     "description": "可以获得一般资源。",
     "value": 7,

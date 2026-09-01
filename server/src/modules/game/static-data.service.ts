@@ -360,18 +360,8 @@ export class StaticDataService {
   getMerchantConfig(): { equipmentText: string; itemText: string } {
     // 商店配置是 e/使魔大战.txt 的 SSOT；优先读取其解析结果。
     const shop = this.loadRaw<any>('shops')[0];
-    const parse = (value: any): any[] => {
-      if (Array.isArray(value)) return value;
-      if (typeof value !== 'string') return [];
-      try {
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    };
-    const equipment = parse(shop?.travelingEquip);
-    const items = parse(shop?.travelingItem);
+    const equipment = Array.isArray(shop?.travelingEquip) ? shop.travelingEquip : [];
+    const items = Array.isArray(shop?.travelingItem) ? shop.travelingItem : [];
     if (equipment.length || items.length) {
       return {
         equipmentText: equipment.map((item) => item?.name || item?.名称 || '').filter(Boolean).join('，'),
@@ -414,17 +404,7 @@ export class StaticDataService {
     dataCore: Array<{ name: string; count: number }>;
   } {
     const row = this.loadRaw<any>('shops')[0] || {};
-    const parse = (value: any): Array<{ name: string; count: number }> => {
-      if (Array.isArray(value)) return value;
-      if (typeof value !== 'string') return [];
-      try {
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    };
-    const normalize = (value: any): Array<{ name: string; count: number }> => parse(value)
+    const normalize = (value: any): Array<{ name: string; count: number }> => (Array.isArray(value) ? value : [])
       .map((item: any) => ({
         name: String(item?.name ?? item?.名称 ?? '').trim(),
         count: Number(item?.count ?? item?.数量 ?? 0),

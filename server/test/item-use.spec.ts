@@ -381,7 +381,7 @@ describe('打开箱子（使用物品）', () => {
     const player = buildPlayer({
       backpack: JSON.stringify([
         { name: '优秀武器补给箱', type: '资源', quantity: 1.0352999999999999, count: 1.0352999999999999 },
-        { name: '主线补给箱', type: '资源', quantity: 2, count: 2 }, // 原版配置同样未定义该物品 → #错误
+        { name: '主线补给箱', type: '资源', quantity: 2, count: 2 }, // harness 的 mock 目录未定义该物品 → #错误（验证未定义物品分支）
         { name: '挑战资源箱', type: '资源', quantity: 2, count: 2 },
       ]),
     });

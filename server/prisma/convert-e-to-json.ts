@@ -855,6 +855,7 @@ function mapResourceToResource(section: ConfigSection) {
 
 function mapShopToShop(section: ConfigSection) {
   const fields = section.fields;
+  // 直接输出真实对象/数组，不做 JSON.stringify 双重编码（shops.json 不进数据库 String 列）
   const imgObj = (keys: string[]) => {
     const obj: Record<string, number> = {};
     for (const k of keys) {
@@ -865,22 +866,22 @@ function mapShopToShop(section: ConfigSection) {
         if (m) obj[m[1]] = m[2] ? parseInt(m[2]) : 1;
       }
     }
-    return JSON.stringify(obj);
+    return obj;
   };
   return {
-    shopActivity: JSON.stringify(parseShopCostString(fields['活跃度'] || '')),
-    shopDiamond: JSON.stringify(parseShopCostString(fields['钻石'] || '')),
-    shopData: JSON.stringify(parseShopCostString(fields['数据'] || '')),
-    dungeons: JSON.stringify(parseSpaceSeparatedString(fields['副本'] || '')),
-    dungeons2: JSON.stringify(parseSpaceSeparatedString(fields['副本2'] || '')),
+    shopActivity: parseShopCostString(fields['活跃度'] || ''),
+    shopDiamond: parseShopCostString(fields['钻石'] || ''),
+    shopData: parseShopCostString(fields['数据'] || ''),
+    dungeons: parseSpaceSeparatedString(fields['副本'] || ''),
+    dungeons2: parseSpaceSeparatedString(fields['副本2'] || ''),
     robotQQ: fields['机器人'] || '',
     familiarImg: imgObj(['使魔jpg', '使魔png']),
     characterImg: imgObj(['人物jpg', '人物png']),
     monsterImg: imgObj(['怪物jpg', '怪物png']),
     mapImg: imgObj(['地图jpg']),
-    travelingEquip: JSON.stringify(parseTravelingPoolString(fields['行商装备'] || '')),
-    travelingItem: JSON.stringify(parseTravelingPoolString(fields['行商物品'] || '')),
-    bgm: JSON.stringify(fields['bgm'] ? fields['bgm'].split(';').map((s: string) => s.trim()).filter(Boolean) : []),
+    travelingEquip: parseTravelingPoolString(fields['行商装备'] || ''),
+    travelingItem: parseTravelingPoolString(fields['行商物品'] || ''),
+    bgm: fields['bgm'] ? fields['bgm'].split(';').map((s: string) => s.trim()).filter(Boolean) : [],
   };
 }
 
