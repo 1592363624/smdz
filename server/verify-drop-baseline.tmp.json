@@ -1,0 +1,244 @@
+{
+  "id": 2731,
+  "userId": 2437,
+  "version": 297,
+  "diamonds": 72,
+  "tickets": 0,
+  "dataCores": 0,
+  "level": 12,
+  "exp": 83,
+  "upgradeExp": 149,
+  "name": "",
+  "baseName": "",
+  "type": "saber",
+  "specialSeq": 19,
+  "hp": 57,
+  "maxHp": 62,
+  "shield": 46,
+  "maxShield": 46,
+  "armor": 56,
+  "maxArmor": 56,
+  "attack": 10,
+  "defense": 0,
+  "speed": 12,
+  "dodge": 16,
+  "hit": 16,
+  "crit": 8,
+  "critDmg": 301,
+  "regenHp": 0.13,
+  "regenShield": 0.13,
+  "regenArmor": 0.13,
+  "mapId": 12,
+  "location": "城镇出口",
+  "houseName": "桃花源",
+  "backpack": [
+    {
+      "name": "挑战装备箱",
+      "count": 1
+    },
+    {
+      "name": "挑战物资箱",
+      "count": 1
+    },
+    {
+      "name": "挑战资源箱",
+      "count": 1
+    },
+    {
+      "name": "史诗强化券",
+      "count": 5
+    },
+    {
+      "data": "e!aw3.35!ag7.4!ay3.73!aj0.55!bx22",
+      "name": "高斯步枪",
+      "type": "装备",
+      "count": 1,
+      "quantity": 1,
+      "durability": 0
+    },
+    {
+      "name": "普通战利品",
+      "type": "资源",
+      "count": 13,
+      "quantity": 13
+    },
+    {
+      "name": "生肉",
+      "type": "资源",
+      "count": 6,
+      "quantity": 6
+    },
+    {
+      "name": "肥料",
+      "type": "资源",
+      "count": 1,
+      "quantity": 1
+    }
+  ],
+  "equipment": [
+    {
+      "data": "s!ah79.18!af54.56!bd44.77!av22.26!bx0",
+      "name": "动力头盔",
+      "type": "装备",
+      "count": 1,
+      "quantity": 1,
+      "durability": 0
+    },
+    {
+      "data": "c!ag18.3!ad2.83!be1.96!ba8.24!bx0",
+      "name": "动力臂甲",
+      "type": "装备",
+      "count": 1,
+      "quantity": 1,
+      "durability": 0
+    },
+    {
+      "data": "e!am3.67!au2.84!bd2.68!aw5.96!bx0",
+      "name": "动力腰带",
+      "type": "装备",
+      "count": 1,
+      "quantity": 1,
+      "durability": 0
+    },
+    {
+      "data": "c!ah14.59!ax14.26!by1.92!an10.41!bx0",
+      "name": "动力鞋",
+      "type": "装备",
+      "count": 1,
+      "quantity": 1,
+      "durability": 0
+    },
+    {
+      "data": "c!ae25.36!ad1.8900000000000001!bf3.5700000000000003!bc20.81!bx11",
+      "name": "动力上衣",
+      "type": "装备",
+      "count": 1,
+      "quantity": 1,
+      "durability": 0
+    }
+  ],
+  "weapons": [
+    {
+      "data": "x!ah8.61!ae7.82!bf0.99!aw4.11!bx47",
+      "name": "提卡",
+      "self": {},
+      "type": "装备",
+      "bonus": {},
+      "count": 1,
+      "加成": {},
+      "自带": {},
+      "quantity": 1,
+      "baseBonus": {},
+      "durability": 0,
+      "基础加成": {},
+      "__originalBonus": "{}",
+      "__originalBaseBonus": "{}"
+    }
+  ],
+  "currentWeapon": 1,
+  "markers": {
+    "教程": 2,
+    "签到": 1,
+    "活力2": 101.92,
+    "创世纪": 0,
+    "启示录": 0,
+    "使用活力": 0,
+    "冥鱼次数": 0,
+    "挑战等级": 1,
+    "签到时间": "2026-09-01",
+    "获得装备": 1,
+    "采集生肉": 6,
+    "采集肥料": 1,
+    "采集资源": 92,
+    "采集钻石": 72,
+    "指引_attack": 1,
+    "强力熟练度": 5,
+    "战斗熟练度": 16,
+    "描边熟练度": 1,
+    "擦过熟练度": 1,
+    "正中熟练度": 4,
+    "致命熟练度": 5,
+    "获得高斯步枪": 1,
+    "近战武器熟练度": 16,
+    "采集普通战利品": 13
+  },
+  "markers2": [
+    {
+      "名称": "通讯3",
+      "强度": 0,
+      "有效期至": 1788278400000
+    },
+    {
+      "名称": "zdxlpd",
+      "强度": 0,
+      "有效期至": 1788257931359
+    },
+    {
+      "名称": "pzpd",
+      "有效期至": 1788257931359
+    }
+  ],
+  "buffs": [],
+  "tasks": [
+    {
+      "name": "教程-战斗准备",
+      "requirements": [
+        {
+          "name": "使用装备",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "教程-探测雷达",
+      "requirements": [
+        {
+          "name": "发送“探测雷达”",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "新手教程",
+      "requirements": [
+        {
+          "name": "发送“观察附近”",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "进阶教程",
+      "requirements": [
+        {
+          "name": "击败小恶魔",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "titles": [],
+  "skills": {},
+  "sets": {
+    "power": 5
+  },
+  "bonus": {},
+  "baseBonus": {},
+  "vehicle": "",
+  "safeBox": [],
+  "equipmentPresets": [],
+  "reverse": [],
+  "recipes": [],
+  "stats": {
+    "家园原地图": "湖边",
+    "家园原地图ID": 11
+  },
+  "affinity": 1,
+  "masterQQ": "",
+  "vitality": 94.2168757906667,
+  "lastOpTime": 1788257372047,
+  "readTime": 0,
+  "playTime": 588000,
+  "createdAt": "2026-08-25T12:40:03.316Z",
+  "updatedAt": "2026-09-01T10:20:44.036Z"
+}

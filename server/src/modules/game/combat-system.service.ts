@@ -5369,16 +5369,12 @@ export class CombatSystemService {
     const bonusDropTable = Array.isArray(monsterBonus?.drops) ? monsterBonus.drops : [];
     const dropTable = legacyDropTable.length > 0 ? legacyDropTable : bonusDropTable;
 
-    // 如果没有掉落表，使用默认掉落
+    // 没有掉落表 → 不掉任何东西（对齐原版：无「掉落」配置的怪物段，战利品为空）。
+    // 注：此处曾有一版「30% 掉怪物材料×(等级+1)」的自造兜底，但「怪物材料」在
+    // items.json / resources.json / 原版配置（_decoded_original.txt）中均不存在，
+    // 属幽灵物品（不能用、不能卖、图鉴查不到）；原版 [麒麟]/[玄武]/[朱雀]/[心之守望]/
+    // [兰音幼崽]/[普拉娜幼崽] 等段确无「掉落=」行，击杀即不掉。故删除该兜底。
     if (dropTable.length === 0) {
-      // 基础掉落：根据怪物等级给一些基础材料
-      const multiplier = Number.isFinite(Number(dropMultiplier)) ? Math.max(0, Number(dropMultiplier)) : 1;
-      if (Math.random() < 0.3 * multiplier) {
-        drops.push({
-          name: '怪物材料',
-          quantity: Math.floor(monster.level || 1) + 1,
-        });
-      }
       return drops;
     }
 

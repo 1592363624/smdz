@@ -1350,3 +1350,63 @@ describe('显示伤害倍率 - 设置项「显示倍率」标记 bl (数据显�
     expect(show(atker(8, 1), { ...bonusOf({}), 攻击2: 100 })).toBe('(倍率200%)');
   });
 });
+
+// ==================== 生成掉落 (generateDrops) ====================
+describe('生成掉落 - 掉落表判定与兜底移除', () => {
+  const monsterWith = (bonus: any, level = 1) => ({ name: '测试怪', level, bonus: JSON.stringify(bonus) });
+  const withRandom = (value: number, fn: () => void) => {
+    const spy = jest.spyOn(Math, 'random').mockReturnValue(value);
+    try { fn(); } finally { spy.mockRestore(); }
+  };
+
+  it('无掉落表（bonus 无 drops）→ 空数组（原版无「掉落=」的怪不掉，不再发「怪物材料」）', () => {
+    expect(combat.generateDrops(monsterWith({ 生命: 100, 经验: 40 }), 1)).toEqual([]);
+    // 野怪形态：连 bonus 都没有
+    expect(combat.generateDrops({ name: '野怪', level: 3 }, 1)).toEqual([]);
+  });
+
+  it('掉落表为空数组 → 空数组（旧的 30%「怪物材料」兜底已删除）', () => {
+    expect(combat.generateDrops(monsterWith({ drops: [] }), 1)).toEqual([]);
+  });
+
+  it('100% 项必掉；几率项按 Math.random 判定', () => {
+    const m = monsterWith({
+      drops: [
+        { name: '钻石', count: 8, chance: 100 },
+        { name: '生肉', count: 1, chance: 50 },
+      ],
+    });
+    withRandom(0.999, () => {
+      // 99.9 < 100 → 钻石命中；99.9 ≥ 50 → 生肉跳过
+      const drops = combat.generateDrops(m, 1);
+      expect(drops).toHaveLength(1);
+      expect(drops[0]).toMatchObject({ name: '钻石', quantity: 8, type: '资源', chance: 100 });
+    });
+    withRandom(0.4, () => {
+      expect(combat.generateDrops(m, 1)).toHaveLength(2); // 40 < 50 → 生肉命中
+    });
+  });
+
+  it('倍率放大几率并封顶 100', () => {
+    const m = monsterWith({ drops: [{ name: '生肉', count: 1, chance: 30 }] });
+    withRandom(0.55, () => {
+      expect(combat.generateDrops(m, 1)).toHaveLength(0); // 55 ≥ 30
+      expect(combat.generateDrops(m, 2)).toHaveLength(1); // 55 < 60（30×2）
+    });
+  });
+
+  it('负数量保持原值（强化箱-1 的背包扣除语义不被改成 1）', () => {
+    const m = monsterWith({ drops: [{ name: '强化箱', count: -1, chance: 100 }] });
+    expect(combat.generateDrops(m, 1)[0].quantity).toBe(-1);
+  });
+
+  it('兼容早期运行时对象的 dropTable 字段（优先于 bonus.drops）', () => {
+    const m = {
+      name: '旧怪',
+      level: 1,
+      dropTable: JSON.stringify([{ name: '木头', count: 2, chance: 100 }]),
+      bonus: JSON.stringify({ drops: [{ name: '不该用', count: 1, chance: 100 }] }),
+    };
+    expect(combat.generateDrops(m, 1)[0].name).toBe('木头');
+  });
+});

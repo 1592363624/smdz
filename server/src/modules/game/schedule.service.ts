@@ -216,7 +216,17 @@ export class ScheduleService {
   async respawnMonsters() {
     try {
       const allMaps = await this.mapService.getAllMaps();
-      const maps = allMaps.filter((m: any) => m.monsterCount > 0);
+      // 仅处理「有怪物模板」的地图：空模板地图（如城镇出口）原版语义就是无常驻怪，
+      // 提前过滤掉可避免每分钟对它们执行 getMapMonsters 查询与空刷新（delete+insert 0）
+      const maps = allMaps.filter((m: any) => {
+        if (!(m.monsterCount > 0)) return false;
+        const tpl = Array.isArray(m.monsters)
+          ? m.monsters
+          : typeof m.monsters === 'string'
+            ? this.safeParseStringArray(m.monsters)
+            : [];
+        return tpl.length > 0;
+      });
 
       for (const map of maps) {
         // 常驻怪物数量来自 GameMonster 表（isTemp=false）；不足则整批重刷
@@ -230,6 +240,20 @@ export class ScheduleService {
       }
     } catch (err: any) {
       this.logger.error(`怪物重生失败: ${err.message}`);
+    }
+  }
+
+  /**
+   * 解析可能为 JSON 字符串的怪物模板字段（容错历史行数据）
+   * @param raw monsters 字段原始值（字符串形态）
+   * @returns 怪物名数组，解析失败返回空数组
+   */
+  private safeParseStringArray(raw: string): string[] {
+    try {
+      const v = JSON.parse(raw);
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
     }
   }
 

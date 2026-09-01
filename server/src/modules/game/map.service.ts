@@ -874,7 +874,13 @@ export class MapService {
     // 读取地图固定怪物列表作为模板（存的是怪物名数组），结合 monsterCount 生成实际怪物实例
     const monsterNames: string[] = this.safeParseJSON(map.monsters, []);
     // 原版“刷新地图”仅在地图配置了怪物模板时生成怪物；空模板不能退化成野怪。
-    const count = monsterNames.length > 0 ? Math.min(map.monsterCount || 3, 20) : 0;
+    // 空模板直接跳过生成（仅清理历史残留行），避免每分钟 respawnMonsters 扫描时
+    // 对无怪地图空跑「先删后插」（delete+insert 0 的无效写库）
+    if (monsterNames.length === 0) {
+      await this.prisma.gameMonster.deleteMany({ where: { mapId, isTemp: false } });
+      return;
+    }
+    const count = Math.min(map.monsterCount || 3, 20);
 
     // 预加载地图上所有怪物名对应的怪物定义（含三层池 护盾/装甲），来自静态配置 JSON
     const monsterDefs: Record<string, any> = {};

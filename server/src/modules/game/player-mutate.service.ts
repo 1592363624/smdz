@@ -206,7 +206,19 @@ export class PlayerMutateService {
     let sig = '';
     for (const k of keys) {
       const v = ctx[k];
-      sig += k + ':' + (v && typeof v === 'object' ? JSON.stringify(v) : v === undefined ? '' : String(v)) + ';';
+      // JSON.stringify 不识别 BigInt（会抛 "Do not know how to serialize a BigInt"），
+      // 此处统一将 BigInt 转 Number 再序列化。player.lastOpTime/readTime/playTime 等
+      // 字段在 game.service.ts 中会被直接赋值为 BigInt(now)，若不处理会直接炸。
+      const safe = (v: any): any => {
+        if (v == null) return v;
+        if (typeof v === 'bigint') return Number(v);
+        if (typeof v !== 'object') return v;
+        if (Array.isArray(v)) return v.map(safe);
+        const o: any = {};
+        for (const kk of Object.keys(v)) o[kk] = safe((v as any)[kk]);
+        return o;
+      };
+      sig += k + ':' + JSON.stringify(safe(v)) + ';';
     }
     return sig;
   }

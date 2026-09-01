@@ -15181,8 +15181,9 @@ export class GameService {
    */
   private async getPlayerName(userId: number): Promise<string> {
     try {
-      const player = await this.playerService.getOrCreatePlayer(userId);
-      return player.name || '冒险者';
+      // 走 getPlayerData：Actor 邮箱内读内存活态，改名后无需等待落库即可生效
+      const pd = await this.playerService.getPlayerData(userId);
+      return pd.player.name || '冒险者';
     } catch {
       return '冒险者';
     }

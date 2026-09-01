@@ -156,14 +156,26 @@ export class PlayerService implements OnModuleInit {
   private levelUpTexts = new Map<number, string[]>();
 
   /**
-   * 安全解析 JSON 字符串，解析失败时返回默认值
-   * @param jsonStr 待解析的 JSON 字符串
-   * @param defaultVal 解析失败时的默认值
+   * 安全解析 JSON 值，解析失败时返回默认值。
+   * 兼容两种存储形态（与 asJsonValue 语义一致）：
+   *  - Prisma Json 列 / 内存快照：读出已是「解析好的对象/数组」，直接作为权威数据返回，
+   *    绝不能再走 JSON.parse（否则对象被强制转成 "[object Object]" 而误判失败、丢失真实数据）；
+   *  - 历史字符串列 / 双表示 accessor：是 JSON 文本，解析后返回。
+   * @param jsonStr 待解析的值（字符串 / 对象 / 数组 / null / undefined）
+   * @param defaultVal 解析失败或空值时的默认值
    */
-  safeJsonParse<T>(jsonStr: string, defaultVal: T): T {
-    // 守卫：DB 字段为 NULL/undefined 时，JSON.parse(null) 会返回 null 而非抛错，
-    // 若不处理会导致调用方拿到 null 后 .filter 等崩溃（如 map.summons/map.vehicles 为空字段）。
+  safeJsonParse<T>(jsonStr: unknown, defaultVal: T): T {
+    // 守卫：DB 字段为 NULL/undefined 时直接回退默认值，
+    // 避免调用方拿到 null 后 .filter 等崩溃（如 map.summons/map.vehicles 为空字段）。
     if (jsonStr === null || jsonStr === undefined) {
+      return defaultVal;
+    }
+    // 非字符串：已是解析好的对象/数组（Prisma Json 列 / 内存快照 / 权威表示），直接透传
+    if (typeof jsonStr !== 'string') {
+      return jsonStr as T;
+    }
+    // 空字符串：回退默认值
+    if (jsonStr.trim() === '') {
       return defaultVal;
     }
     try {
@@ -355,7 +367,9 @@ export class PlayerService implements OnModuleInit {
     // 已在某玩家的 mutate 上下文内：直接复用外层那份已解析快照，
     // 不再重读库、不再重解析（避免拿到过期快照派生第二份数据，进而整包覆盖外层改动）。
     const ctx = this.mutateContext?.currentFor(userId);
-    if (ctx) return ctx as unknown as PlayerData;
+    if (ctx) {
+      return ctx as unknown as PlayerData;
+    }
     // Actor 内（本玩家邮箱内）：返回【活态】内存态，使业务改动直接进入持久化路径；
     // 激活过程中 cell.state 尚为空，peekLive 返回 undefined 会落到下方 DB 载入路径，不递归。
     // 注意：Actor 外【不】返回缓存 cell（peek）—— 现存代码有大量「不走邮箱的直接
@@ -366,7 +380,9 @@ export class PlayerService implements OnModuleInit {
       const expected = actorKey('player', userId);
       if (this.actorRuntime.currentActorKey() === expected) {
         const live = this.actorRuntime.peekLive('player', userId) as PlayerData | undefined;
-        if (live) return live;
+        if (live) {
+          return live;
+        }
       }
     }
     const player = await this.getOrCreatePlayer(userId);
@@ -568,29 +584,49 @@ export class PlayerService implements OnModuleInit {
       (ctx as any).__mutateDirty = true;
       return;
     }
-    // Actor 内：直接改【活态】内存态并标脏，落库交给 ActorRuntime 按策略（writeThrough
-    // 每次写后）统一执行。这样同玩家多次写操作复用同一份内存态，不再每条都打库；
-    // 串行化由 Actor 邮箱保证，天然无锁无 CAS。
+    // Actor 内（本玩家邮箱内）：外部调用（如怪物回合、战斗循环定时器）不应在此
+    // 短路 —— 它持有的是 DB 旧副本，直接标脏并 return 会让 ActorRuntime 写一份
+    // 过时快照，覆盖同一玩家邮箱内正在排队/刚落库的修改（「旧快照覆盖」事故根因）。
+    // 正确做法：把本次写排队到 enqueueUserWrite，让它基于真实活态重写 cell.state
+    // 并同步落库；若调用方本就在邮箱内（如 addExp 的 writeThrough 分支），enqueue
+    // 会重入执行，同样能按活态写库。活态缺失时退回普通整包落库，并失效缓存（见下文）。
     // 关键：改动作用于 peekLive 取到的真实 cell.state（而非调用方可能传入的另一份克隆），
     // 避免「改了错误对象、不进 cell」的隐患（正确性风险 #5）。version 交给 persistPlayer
     // 的 $use 中间件自增，这里不手动 +1，避免与 $use 双重自增。
     if (this.actorRuntime) {
-      const ak = this.actorRuntime.currentActorKey();
       const expected = actorKey('player', (player.userId ?? player.id));
-      if (ak === expected) {
+      // 只在「当前异步链确实已经在该玩家 Actor 内」时才走内联路径——其他 Actor 链的
+      // run 进来时 currentActorKey 是别的 key，避免跨玩家 Actor 互相排队。
+      if (this.actorRuntime.currentActorKey() === expected) {
         const live = this.actorRuntime.peekLive('player', (player.userId ?? player.id)) as
           | PlayerData
           | undefined;
         if (live) {
+          // 同 Actor 链：把调用方的裸行合并进活态 cell.state，由 Actor 末尾 writeThrough 落库。
+          // 不能直接 return（见上方说明），必须走 run 保证落库。
+          // 注意：live.player 就是 cell.state.player，merge 后标脏即通知 Actor 落库。
+          Object.assign(live.player, player);
           this.applyLevelUps(live.player);
           this.refreshDisplayName(live.player);
           this.actorRuntime.markDirty();
+          // 重入 run：本次写由「外层 run 末尾」统一写库，不再 repeat 打库。
           return;
         }
-        // 活态缺失（cell 被 invalidate 后同链继续写，或激活窗口内的嵌套写）：
-        // 退回普通整包落库。调用方传来的可能是裸行对象而非 PlayerData，
-        // 不能按 target.player 取值，否则 applyLevelUps(undefined) 直接崩溃
-        // （2026-08-30 全量压测中 familiar-skills 技能链崩溃的根因）。
+        // 活态缺失（cell 被 invalidate 后同链继续写）：退回普通整包落库。
+      } else {
+        // 非本玩家 Actor 链（外部调用，如战斗循环定时器、怪物回合 savePlayer）：
+        // 排队到 enqueueUserWrite，基于最新活态写库，杜绝 DB 旧副本整包回滚。
+        const uid = player.userId ?? player.id;
+        await this.enqueueUserWrite(Number(uid), async () => {
+          // enqueueUserWrite 会重新 load 活态，这里的 player 仅用于参考；实际落库
+          // 以 enqueueUserWrite 内的最新活态为准（merge 当前改动）。
+          const pd = await this.getPlayerData(Number(uid));
+          Object.assign(pd.player, player);
+          this.applyLevelUps(pd.player);
+          this.refreshDisplayName(pd.player);
+          await this.persistPlayer(pd.player);
+        });
+        return;
       }
     }
 
@@ -899,6 +935,24 @@ export class PlayerService implements OnModuleInit {
       return { leveledUp, newLevel: player.level };
     }
 
+    // Actor 邮箱内：直接改【活态】内存态并标脏（与 savePlayer 的 Actor 快路径同一语义，
+    // 由 writeThrough 统一落库）。不能走下方 getOrCreatePlayer 的 DB 直读——读到的是
+    // 行副本，随后 savePlayer 命中 Actor 快路径时只标脏、不合并调用方对象，副本上的
+    // 经验/升级改动会被静默丢弃（战斗击杀 +20 经验并提示升级、但等级经验原地不动的根因）。
+    if (this.actorRuntime) {
+      const expected = actorKey('player', userId);
+      if (this.actorRuntime.currentActorKey() === expected) {
+        const live = this.actorRuntime.peekLive('player', userId) as PlayerData | undefined;
+        if (live) {
+          live.player.exp = (live.player.exp || 0) + exp;
+          const leveledUp = this.applyLevelUps(live.player);
+          this.actorRuntime.markDirty();
+          return { leveledUp, newLevel: live.player.level };
+        }
+        // 活态缺失（激活窗口内/失效后）：回退到普通读改写路径
+      }
+    }
+
     const player = await this.getOrCreatePlayer(userId);
 
     // 累加经验
@@ -974,7 +1028,9 @@ export class PlayerService implements OnModuleInit {
    * @returns 地图ID和地图名称
    */
   async getPlayerLocation(userId: number): Promise<{ mapId: number; mapName: string }> {
-    const player = await this.getOrCreatePlayer(userId);
+    // 走 getPlayerData：Actor 邮箱内读内存活态，避免 writeThrough 未落库时读到旧位置
+    const pd = await this.getPlayerData(userId);
+    const player = pd.player;
 
     // 根据 mapId 查询地图名称
     let mapName = player.location || '未知区域';
@@ -1052,29 +1108,28 @@ export class PlayerService implements OnModuleInit {
    */
   async addToBackpack(userId: number, itemName: string, count: number): Promise<boolean> {
     try {
-      const player = await this.getOrCreatePlayer(userId);
-      const backpack = this.getBackpackItems(player);
-
-      // 查找是否已有同名物品，有则叠加数量
-      // 兼容历史字段不一致：既有 quantity（初始装备/消耗品），又有 count（掉落物）
-      const existing = backpack.find((item: any) => item.name === itemName);
-      if (existing) {
-        const cur = existing.quantity ?? existing.count ?? 0;
-        const newVal = cur + count;
-        // 统一写入 count，同时清理 quantity 避免双字段歧义
-        existing.count = newVal;
-        delete existing.quantity;
-      } else {
-        backpack.push({ name: itemName, count });
-      }
-
-      // 写回数据库
+      // 读、改、写全部放入 enqueueUserWrite 内完成：基于 Actor 内存活态修改背包。
+      // 之前是先 getOrCreatePlayer 读 DB 行副本改完再写回，若活态有未落库改动
+      // （如战斗刚掉落的物品），整包覆盖会造成丢失更新（同类 addExp 事故的背包版）。
       await this.enqueueUserWrite(userId, async () => {
         const _pd = await this.getPlayerData(userId);
-        Object.assign(_pd.player, { backpack }); // Json 列直接写数组
+        const backpack = this.getBackpackItems(_pd.player);
+
+        // 查找是否已有同名物品，有则叠加数量
+        // 兼容历史字段不一致：既有 quantity（初始装备/消耗品），又有 count（掉落物）
+        const existing = backpack.find((item: any) => item.name === itemName);
+        if (existing) {
+          const cur = existing.quantity ?? existing.count ?? 0;
+          // 统一写入 count，同时清理 quantity 避免双字段歧义
+          existing.count = cur + count;
+          delete existing.quantity;
+        } else {
+          backpack.push({ name: itemName, count });
+        }
+
+        _pd.player.backpack = backpack; // Json 列直接写数组
         await this.savePlayer(_pd.player);
       });
-
       return true;
     } catch (error) {
       this.logger.error(`添加物品失败 userId=${userId}, item=${itemName}, count=${count}`, error);
@@ -1091,41 +1146,39 @@ export class PlayerService implements OnModuleInit {
    */
   async removeFromBackpack(userId: number, itemName: string, count: number): Promise<boolean> {
     try {
-      const player = await this.getOrCreatePlayer(userId);
-      const backpack = this.getBackpackItems(player);
-
-      const index = backpack.findIndex((item: any) => item.name === itemName);
-      if (index === -1) {
-        this.logger.warn(`移除物品失败：背包中未找到 ${itemName}`);
-        return false;
-      }
-
-      const item = backpack[index];
-      // 兼容 quantity/count 双字段：优先 count，其次 quantity
-      const currentCount = item.count ?? item.quantity ?? 1;
-
-      if (currentCount < count) {
-        this.logger.warn(`移除物品失败：${itemName} 数量不足（需要 ${count}，拥有 ${currentCount}）`);
-        return false;
-      }
-
-      if (currentCount === count) {
-        // 数量刚好用完，移除该物品条目
-        backpack.splice(index, 1);
-      } else {
-        // 减少数量（统一写 count，清理 quantity 避免歧义）
-        item.count = currentCount - count;
-        delete item.quantity;
-      }
-
-      // 写回数据库
-      await this.enqueueUserWrite(userId, async () => {
+      // 读、改、写全部放入 enqueueUserWrite 内完成（基于 Actor 内存活态，理由同 addToBackpack）
+      return await this.enqueueUserWrite(userId, async () => {
         const _pd = await this.getPlayerData(userId);
-        Object.assign(_pd.player, { backpack }); // Json 列直接写数组
-        await this.savePlayer(_pd.player);
-      });
+        const backpack = this.getBackpackItems(_pd.player);
 
-      return true;
+        const index = backpack.findIndex((item: any) => item.name === itemName);
+        if (index === -1) {
+          this.logger.warn(`移除物品失败：背包中未找到 ${itemName}`);
+          return false;
+        }
+
+        const item = backpack[index];
+        // 兼容 quantity/count 双字段：优先 count，其次 quantity
+        const currentCount = item.count ?? item.quantity ?? 1;
+
+        if (currentCount < count) {
+          this.logger.warn(`移除物品失败：${itemName} 数量不足（需要 ${count}，拥有 ${currentCount}）`);
+          return false;
+        }
+
+        if (currentCount === count) {
+          // 数量刚好用完，移除该物品条目
+          backpack.splice(index, 1);
+        } else {
+          // 减少数量（统一写 count，清理 quantity 避免歧义）
+          item.count = currentCount - count;
+          delete item.quantity;
+        }
+
+        _pd.player.backpack = backpack; // Json 列直接写数组
+        await this.savePlayer(_pd.player);
+        return true;
+      });
     } catch (error) {
       this.logger.error(`移除物品失败 userId=${userId}, item=${itemName}, count=${count}`, error);
       return false;
