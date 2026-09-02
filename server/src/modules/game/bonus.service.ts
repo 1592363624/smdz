@@ -1350,6 +1350,8 @@ export class BonusService {
 
     // 关键公式：四种元素伤害 = (累加伤害 + 自身攻击 + 来源攻击) * 各百分比放大
     const atk = safe(target.攻击) + safe(source.攻击);
+    // 将攻击基数写回 target.攻击。攻击已融入各元素伤害，但加回独立字段供面板显示。
+    target.攻击 = atk;
     target.电伤 =
       (safe(target.电伤) + atk) *
       (1 + safe(source.电伤2) / 100) *

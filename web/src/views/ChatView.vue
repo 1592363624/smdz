@@ -70,14 +70,6 @@
             </div>
           </div>
 
-          <!-- 快捷操作按钮 -->
-          <div class="quick-actions">
-            <button class="qa-bag" @click="quickAction('背包')">🎒 背包</button>
-            <button class="qa-info" @click="quickAction('信息')">📋 信息</button>
-            <button class="qa-map" @click="quickAction('地图')">🗺️ 地图</button>
-            <button class="qa-attack" @click="quickAction('攻击')">⚔️ 攻击</button>
-          </div>
-
           <!-- 我的常用指令：用户自定义，可编辑、可拖拽排序，点击直接发送 -->
           <div class="fav-cmds">
             <div class="fav-head">
@@ -246,13 +238,6 @@
             </div>
           </div>
 
-          <div class="quick-actions">
-            <button class="qa-bag" @click="mobileMenuOpen = false; quickAction('背包')">🎒 背包</button>
-            <button class="qa-info" @click="mobileMenuOpen = false; quickAction('信息')">📋 信息</button>
-            <button class="qa-map" @click="mobileMenuOpen = false; quickAction('地图')">🗺️ 地图</button>
-            <button class="qa-attack" @click="mobileMenuOpen = false; quickAction('攻击')">⚔️ 攻击</button>
-          </div>
-
           <!-- 我的常用指令：用户自定义，可编辑、可拖拽排序，点击直接发送 -->
           <div class="fav-cmds">
             <div class="fav-head">
@@ -397,7 +382,6 @@
           <span class="menu-bar"></span>
           <span class="menu-bar"></span>
         </button>
-        <h2>💬 {{ channel?.name || '世界频道' }}</h2>
         <div class="header-right">
           <!-- 消息过滤切换：选择是否显示其他玩家的聊天与系统回复 -->
           <button

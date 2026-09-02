@@ -23,7 +23,7 @@ export const COMMAND_PREFIXES = ['/', '！', '!'];
 
 // 版本号配置
 // 显示在界面右上角，用于标识当前前端版本，发布新版本时在此调整即可，无需改动视图代码。
-export const APP_VERSION = '0.4.0';
+export const APP_VERSION = '0.4.1';
 
 // GitHub Issue 反馈页地址
 // 头部「BUG 反馈」按钮的跳转目标；可通过环境变量 VITE_GITHUB_ISSUES_URL 覆盖，

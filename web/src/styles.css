@@ -1280,6 +1280,11 @@ vite-plugin-checker-error-overlay,
   background-clip: text;
   color: transparent;
   font-weight: 700;
+  flex: 0 1 auto; /* 允许在空间不足时收缩 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 头部跳转链接：《重生之凡人修仙》 */
@@ -1299,12 +1304,15 @@ vite-plugin-checker-error-overlay,
   box-shadow: 0 4px 12px rgba(229, 46, 113, 0.4);
 }
 
-/* 头部右侧：版本号 + 跳转链接 组合容器 */
+/* 头部右侧：版本号 + 跳转链接 组合容器（标题已移除，靠 margin 推到最右并保持单行） */
 .header-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  margin-left: auto; /* 头部无左标题时，将按钮组推到容器右侧 */
+  flex-wrap: nowrap; /* 保持单行，防止按钮溢出换行 */
   gap: 8px;
-  white-space: nowrap;
+  min-width: 0;
 }
 
 /* 版本号标签 */
@@ -1735,9 +1743,10 @@ vite-plugin-checker-error-overlay,
   background: linear-gradient(90deg, #6366f1, #818cf8);
 }
 .player-info .pi-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 4px 8px;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 4px;
   padding: 6px 0;
   margin: 4px 0 6px;
   border-top: 1px dashed rgba(139, 92, 246, 0.15);
@@ -1745,9 +1754,12 @@ vite-plugin-checker-error-overlay,
   font-size: 11px;
 }
 .player-info .pi-stat {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  white-space: nowrap;
   line-height: 1.3;
 }
 .player-info .pi-stat > span {
@@ -1912,66 +1924,6 @@ vite-plugin-checker-error-overlay,
 .player-info .pi-buff em {
   font-style: normal;
   color: var(--accent2);
-}
-
-/* ============================================================
- * 快捷操作按钮
- * ============================================================ */
-.quick-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-.quick-actions button {
-  padding: 10px 6px;
-  background: rgba(10, 10, 26, 0.6);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 13px;
-  transition: all 0.25s ease;
-}
-.quick-actions button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-.quick-actions button:active {
-  transform: translateY(0);
-}
-.quick-actions button.qa-bag {
-  border-color: rgba(234, 179, 8, 0.4);
-  color: #facc15;
-}
-.quick-actions button.qa-bag:hover {
-  background: rgba(234, 179, 8, 0.15);
-  box-shadow: 0 0 16px rgba(234, 179, 8, 0.2);
-}
-.quick-actions button.qa-info {
-  border-color: rgba(139, 92, 246, 0.4);
-  color: var(--accent);
-}
-.quick-actions button.qa-info:hover {
-  background: rgba(139, 92, 246, 0.15);
-  box-shadow: 0 0 16px rgba(139, 92, 246, 0.2);
-}
-.quick-actions button.qa-map {
-  border-color: rgba(6, 182, 212, 0.4);
-  color: #22d3ee;
-}
-.quick-actions button.qa-map:hover {
-  background: rgba(6, 182, 212, 0.15);
-  box-shadow: 0 0 16px rgba(6, 182, 212, 0.2);
-}
-.quick-actions button.qa-attack {
-  border-color: rgba(239, 68, 68, 0.4);
-  color: #f87171;
-}
-.quick-actions button.qa-attack:hover {
-  background: rgba(239, 68, 68, 0.15);
-  box-shadow: 0 0 16px rgba(239, 68, 68, 0.2);
 }
 
 /* ============================================================

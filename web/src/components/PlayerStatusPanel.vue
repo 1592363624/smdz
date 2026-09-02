@@ -40,12 +40,9 @@
     </div>
 
     <div class="pi-stats">
-      <div class="pi-stat"><span>攻击</span><b>{{ r(info.attack) }}</b></div>
-      <div class="pi-stat"><span>防御</span><b>{{ r(info.defense) }}</b></div>
-      <div class="pi-stat"><span>速度</span><b>{{ r(info.speed) }}</b></div>
-      <div class="pi-stat"><span>闪避</span><b>{{ r(info.dodge) }}</b></div>
-      <div class="pi-stat"><span>命中</span><b>{{ r(info.hit) }}</b></div>
-      <div class="pi-stat"><span>暴击</span><b>{{ r(info.crit) }}%</b></div>
+      <div v-for="s in statList" :key="s.label" class="pi-stat">
+        <span>{{ s.label }}</span><b>{{ s.value }}{{ s.suffix || '' }}</b>
+      </div>
     </div>
 
     <!-- 当前任务：与文本面板一致，仅展示进行中的任务 -->
@@ -129,6 +126,32 @@ const hpBarClass = computed(() => {
   if (pct <= 25) return 'low';
   if (pct <= 60) return 'medium';
   return '';
+});
+
+// 动态属性列表：只显示后端返回了且值 > 0 的属性
+// - defense(防御)永远不会被成长赋值，后端返回 undefined 会自动隐藏
+// - 如果某个属性真的是 0（无装备/无加成），也自动隐藏
+const statList = computed(() => {
+  const list = [];
+  if (typeof props.info.attack !== 'undefined' && props.info.attack > 0) {
+    list.push({ label: '攻击', value: r(props.info.attack) });
+  }
+  if (typeof props.info.defense !== 'undefined' && props.info.defense > 0) {
+    list.push({ label: '防御', value: r(props.info.defense) });
+  }
+  if (typeof props.info.speed !== 'undefined' && props.info.speed > 0) {
+    list.push({ label: '速度', value: r(props.info.speed) });
+  }
+  if (typeof props.info.dodge !== 'undefined' && props.info.dodge > 0) {
+    list.push({ label: '闪避', value: r(props.info.dodge) });
+  }
+  if (typeof props.info.hit !== 'undefined' && props.info.hit > 0) {
+    list.push({ label: '命中', value: r(props.info.hit) });
+  }
+  if (typeof props.info.crit !== 'undefined' && props.info.crit > 0) {
+    list.push({ label: '暴击', value: r(props.info.crit), suffix: '%' });
+  }
+  return list;
 });
 
 // 当前任务快照（服务端已过滤已完成，兼容旧缓存无字段）
