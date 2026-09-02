@@ -11,95 +11,108 @@
  -->
 <template>
   <div class="rich-card">
-    <!-- 背包 → 物品网格（容器统一监听离开以延迟关闭图鉴弹层，格子间移动不再触发 hide/show，杜绝闪屏） -->
-    <div v-if="layout && layout.kind === 'bag'" class="rc-bag" @mouseleave="scheduleHide">
-      <div class="rc-title">{{ layout.title }}</div>
-      <div class="rc-grid">
-        <div
-          v-for="(row, i) in layout.items"
-          :key="i"
-          class="rc-cell rc-cell-item"
-          :title="'点击装备「' + row.name + '」，悬浮查看图鉴'"
-          @click="onEquip(row.name)"
-          @mouseenter="onCellEnter(row.name, $event)"
-        >
-          <span class="rc-name">{{ row.name }}</span>
-          <span v-if="row.count != null" class="rc-count">×{{ row.count }}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 悬浮图鉴弹层：pointer-events:none 不参与鼠标事件；
-         位置跟随当前悬浮格，格子间切换时只更新内容、不 hide/show，避免闪烁和安全闪烁 -->
-    <div
-      v-if="active.visible"
-      class="rc-handbook"
-      :style="{ left: active.left + 'px', top: active.top + 'px' }"
-    >
-      <div class="rc-hb-head">
-        <span class="rc-hb-title">📖 图鉴 · {{ active.name }}</span>
-      </div>
-      <div v-if="active.loading" class="rc-hb-body rc-hb-loading">读取图鉴中…</div>
-      <div v-else-if="active.error" class="rc-hb-body rc-hb-error">{{ active.error }}</div>
-      <pre v-else class="rc-hb-body rc-hb-content">{{ active.content }}</pre>
-    </div>
-
-    <!-- 属性面板 → 两栏：左列属性卡片 + 右列装备网格 -->
-    <div v-else-if="layout && layout.kind === 'profile'" class="rc-profile">
-      <div class="rc-title">{{ layout.title }}</div>
-      <div class="rc-cols">
-        <div class="rc-cols-stats">
-          <div class="rc-stats">
-            <div v-for="(s, i) in layout.stats" :key="i" class="rc-stat">
-              <span class="rc-icon">{{ s.icon }}</span>
-              <span class="rc-label">{{ s.label }}</span>
-              <span class="rc-value">{{ s.value }}</span>
-            </div>
-          </div>
-          <!-- 系统横幅展示位（可开关，localStorage 记忆）：显示消息尾部【…】解锁/提示信息 -->
-          <div v-if="bannerOpen && layout.banners.length" class="rc-banner-wrap">
-            <div class="rc-banner-head">
-              <span class="rc-banner-label">📣 系统提示（{{ layout.banners.length }}）</span>
-              <button type="button" class="rc-banner-toggle" title="隐藏系统提示" @click="bannerOpen = false">−</button>
-            </div>
-            <div class="rc-banners">
-              <div v-for="(b, i) in layout.banners" :key="i" class="rc-banner">{{ b }}</div>
-            </div>
+    <!--
+     * 关键修复：用 <template> 把"弹层（独立 v-if）"和"主内容（v-if/v-else-if/v-else 互斥链）"分成两个独立块。
+     * 之前 rc-handbook（v-if）插在 rc-bag（v-if）和 rc-profile（v-else-if）之间，会被 Vue 视为与 rc-profile 同链，
+     * 导致 v-else（rc-raw）实际是与"图鉴弹层"配对，绕过 rc-bag 判断 → 检测到背包也仍会渲染文字版兜底。
+     * 把弹层挪到主内容互斥链之后、用独立 v-if 渲染，彻底断开链依赖。
+     -->
+    <template v-if="layout">
+      <!-- 背包 → 物品网格（容器统一监听离开以延迟关闭图鉴弹层，格子间移动不再触发 hide/show，杜绝闪屏） -->
+      <div v-if="layout.kind === 'bag'" class="rc-bag" @mouseleave="scheduleHide">
+        <div class="rc-title">{{ layout.title }}</div>
+        <div class="rc-grid">
+          <div
+            v-for="(row, i) in layout.items"
+            :key="i"
+            class="rc-cell rc-cell-item"
+            :class="{ 'rc-cell-use': row.kind === 'use' }"
+            @click="onCellClick(row.name, row.kind)"
+            @mouseenter="onCellEnter(row.name, $event)"
+          >
+            <span class="rc-name">{{ row.name }}</span>
+            <span v-if="row.count != null" class="rc-count">×{{ row.count }}</span>
           </div>
         </div>
-        <div v-if="layout.equip.length" class="rc-cols-equip">
-          <div class="rc-equip">
-            <div class="rc-subtitle">📋 装备</div>
-            <div class="rc-equip-grid">
-              <div
-                v-for="(e, i) in layout.equip"
-                :key="i"
-                class="rc-eqcell"
-                :class="{ 'rc-empty': !e.has }"
-                :style="e.has && e.quality ? { borderColor: QUALITY_COLOR[e.quality], boxShadow: `0 0 8px ${QUALITY_COLOR[e.quality]}55` } : {}"
-              >
-                <span class="rc-slot">{{ e.slot }}</span>
-                <span
-                  v-if="e.has"
-                  class="rc-eq-name"
-                  :style="e.quality ? { color: QUALITY_COLOR[e.quality] } : {}"
-                  :title="e.text"
-                >{{ e.text }}</span>
-                <span v-else class="rc-eq-name rc-none">无</span>
+      </div>
+
+      <!-- 属性面板 → 两栏：左列属性卡片 + 右列装备网格 -->
+      <div v-else-if="layout.kind === 'profile'" class="rc-profile">
+        <div class="rc-title">{{ layout.title }}</div>
+        <div class="rc-cols">
+          <div class="rc-cols-stats">
+            <div class="rc-stats">
+              <div v-for="(s, i) in layout.stats" :key="i" class="rc-stat">
+                <span class="rc-icon">{{ s.icon }}</span>
+                <span class="rc-label">{{ s.label }}</span>
+                <span class="rc-value">{{ s.value }}</span>
+              </div>
+            </div>
+            <!-- 系统横幅展示位（可开关，localStorage 记忆）：显示消息尾部【…】解锁/提示信息 -->
+            <div v-if="bannerOpen && layout.banners.length" class="rc-banner-wrap">
+              <div class="rc-banner-head">
+                <span class="rc-banner-label">📣 系统提示（{{ layout.banners.length }}）</span>
+                <button type="button" class="rc-banner-toggle" title="隐藏系统提示" @click="bannerOpen = false">−</button>
+              </div>
+              <div class="rc-banners">
+                <div v-for="(b, i) in layout.banners" :key="i" class="rc-banner">{{ b }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-if="layout.equip.length" class="rc-cols-equip">
+            <div class="rc-equip">
+              <div class="rc-subtitle">📋 装备</div>
+              <div class="rc-equip-grid">
+                <div
+                  v-for="(e, i) in layout.equip"
+                  :key="i"
+                  class="rc-eqcell"
+                  :class="{ 'rc-empty': !e.has }"
+                  :style="e.has && e.quality ? { borderColor: QUALITY_COLOR[e.quality], boxShadow: `0 0 8px ${QUALITY_COLOR[e.quality]}55` } : {}"
+                >
+                  <span class="rc-slot">{{ e.slot }}</span>
+                  <span
+                    v-if="e.has"
+                    class="rc-eq-name"
+                    :style="e.quality ? { color: QUALITY_COLOR[e.quality] } : {}"
+                    :title="e.text"
+                  >{{ e.text }}</span>
+                  <span v-else class="rc-eq-name rc-none">无</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- 识别失败 → 原样直出文本（兜底） -->
-    <div v-else class="rc-raw" style="white-space: pre-line">{{ text }}</div>
+      <!-- 识别失败 → 原样直出文本（兜底，仅：未识别为 bag/profile 时触发；与上面互斥） -->
+      <div v-else class="rc-raw" style="white-space: pre-line">{{ text }}</div>
+    </template>
+
+    <!--
+     * 悬浮图鉴弹层：用 <Teleport to="body"> 挂到 body 下，
+     * 完全脱离 .msg.msg-rich/.rich-card 等父级 stacking context / overflow:hidden 的影响。
+     * 体积自适应内容，但有最小宽度，避免短文本塌缩成不可见。
+     * z-index: 99999 高于绝大多数组件内弹层。
+     * 关键改进：visible 在 mouseenter 同步段就设为 true（不再等 setTimeout），
+     * 这样即使后端慢，也能立刻看到「读取图鉴中…」的占位文本。
+     -->
+    <Teleport to="body">
+      <div
+        v-if="active.visible"
+        class="rc-handbook"
+        :style="{ left: active.left + 'px', top: active.top + 'px' }"
+      >
+        <div v-if="active.loading" class="rc-hb-body rc-hb-loading">读取图鉴中…</div>
+        <div v-else-if="active.error" class="rc-hb-body rc-hb-error">{{ active.error }}</div>
+        <pre v-else class="rc-hb-body rc-hb-content">{{ active.content }}</pre>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch, Teleport } from 'vue';
 import { commandApi } from '../api';
 
 /**
@@ -143,58 +156,98 @@ const hideDelay = 600;
 let enterTimer = null;
 let hideTimer = null;
 
-/** 背包格子点击 → 视为发送「穿上 <物品名>」指令 */
-function onEquip(name) {
+/**
+ * 背包格子点击：只对装备（kind==='equip'）发「穿上 X」；消耗品/资源不响应（鼠标样式 + click return）。
+ * 简化交互：避免「使用能量块→ 后端报不是可直接使用的物品」之类的反馈噪音。
+ */
+function onCellClick(name, itemKind) {
+  if (itemKind !== 'equip') return;
   emit('send', `穿上 ${name}`);
 }
 
 /**
  * 鼠标悬浮背包格子 → 延迟后展示该物品图鉴。
  * 通过 REST 执行「图鉴」指令，结果仅在本弹层展示，不写入/广播到公屏（execute 只返回不广播）。
- * 划过相邻格子时：先取消上次延迟显隐，再按新格子定位并更新内容，弹层保持可见。
+ * 划过相邻格子时只更新位置与内容，绝不 hide/show，避免闪屏与屏幕抖动。
+ *
+ * 关键改进：
+ * 1) visible 在同步段就设为 true + loading=true → 弹层立即可见，避免「100ms 内看不到任何东西」的等待感；
+ * 2) 仅当 name 变化且缓存未命中时才进 setTimeout；
+ * 3) 弹层用 Teleport 到 body，不依赖父级 stacking context。
  */
 async function onCellEnter(name, e) {
-  clearTimeout(hideTimer); // 容器内移动：不关闭弹层
+  // 容器内移动：不关闭弹层，且如果弹层已经为该物品显示了内容/错误/加载中，直接复用，不再重算位置、不重发请求
+  clearTimeout(hideTimer);
+  if (active.visible && active.name === name && (active.content || active.error || active.loading)) {
+    // 同物品已有内容时：直接返回，不再算位置/重发请求，彻底消除抖动。
+    return;
+  }
+
+  // 1) 算位置（始终计算，否则从一个格子移动到另一格时弹层会停在老位置）
   const rect = e?.currentTarget?.getBoundingClientRect();
   if (rect) {
-    // 弹层宽约 270px/高约 320px：默认向右展开，右侧放不下则左向；超出视口向内收拢，保证完整可见
+    // 弹层最大 300px 宽 / 260px 高：默认向右展开，右侧放不下则左向；超出视口向内收拢，保证完整可见
     const viewW = window.innerWidth;
     const viewH = window.innerHeight;
+    const POP_W = 300;
+    const POP_H = 260;
     let left = Math.round(rect.right + 8);
-    if (left + 270 > viewW) left = Math.round(rect.left - 270);
+    if (left + POP_W > viewW) left = Math.round(rect.left - POP_W);
     left = Math.max(8, left);
-    let top = Math.round(rect.top - 12);
+    let top = Math.round(rect.top - 8);
     if (top < 4) top = 4;
-    if (top + 320 > viewH) top = Math.max(4, viewH - 330);
+    if (top + POP_H > viewH) top = Math.max(4, viewH - POP_H - 6);
     active.left = left;
     active.top = top;
   }
-  clearTimeout(enterTimer);
-  enterTimer = setTimeout(async () => {
-    active.visible = true;
-    // 同一物品已经展示（含加载中/有内容/报错）→ 不重复请求、不闪动
-    if (active.name === name && (active.content || active.error || active.loading)) {
-      return;
-    }
+
+  // 2) 命中缓存：直接显示，不再请求；同时让弹层保持可见
+  if (handbookCache.has(name)) {
     active.name = name;
     active.error = '';
-    active.content = '';
-    // 命中缓存：直接渲染，不重复请求
-    if (handbookCache.has(name)) {
-      active.loading = false;
-      active.content = handbookCache.get(name);
-      return;
-    }
-    active.loading = true;
+    active.loading = false;
+    active.content = handbookCache.get(name);
+    active.visible = true;
+    return;
+  }
+
+  // 3) 同步先设 visible + loading：弹层立刻出现（看到「读取图鉴中…」），不再等 100ms
+  active.name = name;
+  active.error = '';
+  active.content = '';
+  active.loading = true;
+  active.visible = true;
+
+  // 4) 延迟后请求（enterDelay 防误触：如果用户快速划过就不必真发请求）
+  clearTimeout(enterTimer);
+  enterTimer = setTimeout(async () => {
+    // 二次确认：防止快速移动时上一格还在转圈
+    if (active.name !== name) return;
     try {
+      // REST 返回的 body 是 { success, data: CommandResult }（axios 拦截器已剥外层）
       const res = await commandApi.execute(`图鉴 ${name}`);
-      const content = String(res?.data?.content ?? '').trim() || '🐾 图鉴中暂无该物品的详细资料';
-      active.content = content;
-      handbookCache.set(name, content);
-    } catch (err) {
-      active.error = '图鉴查询失败，请稍后再试';
-    } finally {
+      // 兼容两层/三层嵌套：取最深一层的 content 字段
+      const content =
+        String(res?.data?.content ?? '') ||
+        String(res?.content ?? '') ||
+        '';
+      const trimmed = content.trim() || '🐾 图鉴中暂无该物品的详细资料';
+      // 二次确认：若用户已移走（name 变了），写到错误态而不是覆盖当前显示
+      if (active.name !== name) {
+        active.error = trimmed;
+        return;
+      }
+      active.content = trimmed;
       active.loading = false;
+      // 仅成功获取时入缓存，错误/空内容不缓存（下次重试仍可重新请求）
+      if (trimmed !== '🐾 图鉴中暂无该物品的详细资料') {
+        handbookCache.set(name, trimmed);
+      }
+    } catch (err) {
+      if (active.name === name) {
+        active.error = '图鉴查询失败，请稍后再试';
+        active.loading = false;
+      }
     }
   }, enterDelay);
 }
@@ -209,8 +262,16 @@ function scheduleHide() {
     active.content = '';
     active.error = '';
     active.loading = false;
+    // 同时取消可能仍在进行的请求（无法真正 abort fetch，但下次重渲不会再被读到）
   }, hideDelay);
 }
+
+/** 组件卸载 → 清掉 timer + 隐藏，避免销毁残留。挂到 body 的 Teleport 节点会被 Vue 自动清理。 */
+onBeforeUnmount(() => {
+  clearTimeout(enterTimer);
+  clearTimeout(hideTimer);
+  active.visible = false;
+});
 
 /** 装备品质集合（与改版 backend qualityPrefix 对齐） */
 const QUALITY_SET = new Set(['普通', '良好', '优秀', '精良', '史诗', '传说', '神迹']);
@@ -237,6 +298,17 @@ const layout = computed(() => parseLayout(props.text));
  */
 const isBannerLine = (s) => /^【.+】\s*$/.test(s || '');
 
+/**
+ * 启发式分类背包物品：装备 vs 消耗品/资源。
+ * 依据：服务端「formatEquipmentInventoryDisplay」生成的装备显示名 = 基础名 + 单字母品质码 + 可选·特效。
+ * 因此名字末尾正好是大写品质码字母（[EDCBASX]）即视为装备，其他视为可使用/资源。
+ * 注意：先剥掉尾部·xxx特效再判断，避免把「防弹上衣D·纯洁无瑕」误判为非装备。
+ */
+function classifyItemKind(name) {
+  const stripped = String(name || '').replace(/·[^·]+$/, '');
+  return /[EDCBASX]$/.test(stripped) ? 'equip' : 'use';
+}
+
 function parseLayout(text) {
   if (!text) return null;
   const lines = String(text)
@@ -253,10 +325,10 @@ function parseLayout(text) {
       if (isBannerLine(t)) continue; // 横幅通知非物品，不显示
       const m = t.match(/^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/);
       if (m) {
-        items.push({ name: m[2].trim(), count: m[3] });
+        items.push({ name: m[2].trim(), count: m[3], kind: classifyItemKind(m[2].trim()) });
       } else {
         const plain = t.replace(/^\d+\.\s*/, '');
-        if (plain) items.push({ name: plain, count: null });
+        if (plain) items.push({ name: plain, count: null, kind: classifyItemKind(plain) });
       }
     }
     if (items.length) {
@@ -380,17 +452,26 @@ function parseLayout(text) {
   min-width: 0;
 }
 /* 背包格子改为可交互：悬浮高亮 + 点击反馈（发送装备指令） */
-.rc-cell-item {
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
-}
-.rc-cell-item:hover {
-  background: rgba(139, 92, 246, 0.16);
-  border-color: rgba(139, 92, 246, 0.5);
-}
-.rc-cell-item:active {
-  transform: scale(0.96);
-}
+  .rc-cell-item {
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  }
+  .rc-cell-item:hover {
+    background: rgba(139, 92, 246, 0.16);
+    border-color: rgba(139, 92, 246, 0.5);
+  }
+  .rc-cell-item:active {
+    transform: scale(0.96);
+  }
+  /* 非装备（资源/消耗品）格子：只显示、不可点。鼠标停留仍可触发图鉴弹层（查看说明），
+     但 cursor 显示默认箭头 + 不再有 hover 高亮，避免误以为可点击。 */
+  .rc-cell-item.rc-cell-use {
+    cursor: default;
+  }
+  .rc-cell-item.rc-cell-use:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(139, 92, 246, 0.12);
+  }
 
 /* ===== 系统横幅展示位（属性左栏底部，可开关） ===== */
 .rc-banner-wrap {
@@ -439,48 +520,35 @@ function parseLayout(text) {
   padding: 4px 8px;
 }
 
-/* ===== 悬浮图鉴弹层 ===== */
+/* ===== 悬浮图鉴弹层：仿浏览器原生 title 的紧凑 tips ===== */
 .rc-handbook {
   position: fixed;
-  z-index: 999;
-  width: 260px;
-  max-height: 320px;
+  z-index: 99999;
+  /* 自适应内容宽度，上限 300px；最小 240px，避免短文本（如「暂无资料」）塌缩成不可见 */
+  width: max-content;
+  min-width: 240px;
+  max-width: 300px;
+  max-height: 260px;
   display: flex;
   flex-direction: column;
-  background: rgba(24, 18, 38, 0.97);
-  border: 1px solid rgba(139, 92, 246, 0.45);
-  border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  background: rgba(24, 18, 38, 0.94);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   overflow: hidden;
-  /* 关键：鼠标事件穿透，弹层不会抢到焦点，
+  /* 鼠标事件穿透：弹层不会抢到焦点，
      从而避免鼠标在「格子」与「弹层」间移动时反复 enter/leave 导致的闪烁 */
   pointer-events: none;
 }
-.rc-hb-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: rgba(139, 92, 246, 0.14);
-  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
-}
-.rc-hb-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .rc-hb-body {
-  padding: 8px 10px;
+  padding: 6px 9px;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.55;
   overflow: auto;
+  color: var(--text);
 }
 .rc-hb-content {
   margin: 0;
-  color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;

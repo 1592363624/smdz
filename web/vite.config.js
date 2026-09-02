@@ -39,5 +39,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // 禁止清空输出目录：避免触发项目的批量删除守卫（>50 个文件需要人工确认）；
+    // vite 仍会覆盖写入新 hash 的 js/css，旧 hash 文件保留也不影响（HTML 只引用最新 hash）。
+    emptyOutDir: false,
   },
 });

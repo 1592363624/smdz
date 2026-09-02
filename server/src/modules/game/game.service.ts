@@ -2353,6 +2353,12 @@ export class GameService {
 
   /**
    * 处理装备命令
+   * 用户可能输入的物品名形态：
+   *   - 「基础名」（如 防弹上衣）
+   *   - 「基础名 + 单字母品质码」（如 防弹上衣D）
+   *   - 「基础名 + 品质码 + 可选·后缀特效」（如 防弹上衣D·纯洁无瑕）
+   * 而背包里 item.name 仅存基础名（品质在 item.data，特效在解析层），
+   * 因此做三层回退匹配保证任意形态都能定位到目标物品。
    */
   async handleEquip(userId: number, itemName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2360,12 +2366,37 @@ export class GameService {
     const items = this.playerService.getBackpackItems(player);
 
     const normalizedName = String(itemName || '').trim();
+    if (!normalizedName) return '请指定要装备的物品名称';
+
     const numericIndex = /^\d+$/.test(normalizedName)
       ? Number(normalizedName) - 1
       : -1;
-    const index = numericIndex >= 0
+    let index = numericIndex >= 0
       ? numericIndex
       : items.findIndex((item: any) => item.name === normalizedName);
+
+    // 回退 1：剥除尾部单字母品质码 + 可选·后缀，再用基础名匹配
+    if (index < 0 || index >= items.length) {
+      const stripped = normalizedName
+        // 去掉末尾·xxx特效（最后一个·之后的内容）
+        .replace(/·[^·]+$/, '')
+        // 去掉末尾单字母品质码（大小写都允许）
+        .replace(/[edcbasxEDCBASX]$/, '')
+        .trim();
+      if (stripped && stripped !== normalizedName) {
+        index = items.findIndex((item: any) => item.name === stripped);
+      }
+    }
+
+    // 回退 2：用背包显示全名（含品质码 + ·特效）整段匹配
+    if (index < 0 || index >= items.length) {
+      index = items.findIndex(
+        (item: any) =>
+          (item.type || item.类型) === '装备' &&
+          this.itemService.formatEquipmentInventoryDisplay(item) === normalizedName,
+      );
+    }
+
     if (index < 0 || index >= items.length) return `背包中没有【${itemName}】`;
 
     // ItemService 使用 1-based 背包编号；这里的数组下标是 0-based。
