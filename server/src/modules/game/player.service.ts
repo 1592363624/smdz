@@ -697,7 +697,7 @@ export class PlayerService implements OnModuleInit {
       'regenHp', 'regenShield', 'regenArmor',
       'mapId', 'location', 'houseName',
       'currentWeapon', 'affinity', 'masterQQ', 'vitality',
-      'lastOpTime', 'readTime', 'vehicle',
+      'lastOpTime', 'readTime', 'playTime', 'vehicle',
     ];
 
     for (const field of scalarFields) {
@@ -816,7 +816,7 @@ export class PlayerService implements OnModuleInit {
       'attack', 'defense', 'speed', 'dodge', 'hit', 'crit', 'critDmg',
       'regenHp', 'regenShield', 'regenArmor',
       'mapId', 'location', 'houseName', 'currentWeapon', 'affinity',
-      'masterQQ', 'vitality', 'lastOpTime', 'readTime', 'vehicle',
+      'masterQQ', 'vitality', 'lastOpTime', 'readTime', 'playTime', 'vehicle',
       'backpack', 'equipment', 'weapons', 'markers', 'markers2',
       'buffs', 'tasks', 'titles', 'skills', 'sets', 'bonus',
       'baseBonus', 'safeBox', 'equipmentPresets', 'reverse', 'recipes', 'stats',

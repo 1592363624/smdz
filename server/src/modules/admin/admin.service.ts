@@ -363,6 +363,12 @@ export class AdminService {
     if (exists.role === 'SUPER_ADMIN') {
       throw new BadRequestException('不能删除超级管理员账号');
     }
+    // 显式清理无外键级联的孤儿表，避免删除用户后残留引用已消失 userId 的行：
+    // DelayedTask 到期会对不存在的玩家结算报错；CurrencyLog/CommandLog 审计与指令日志 orphan。
+    await this.prisma.delayedTask.deleteMany({ where: { userId: targetId } });
+    await this.prisma.currencyLog.deleteMany({ where: { userId: targetId } });
+    await this.prisma.commandLog.deleteMany({ where: { senderId: targetId } });
+
     // 级联删除：Player / UserBinding 为 onDelete: Cascade，ChatMessage 发送人置空
     await this.prisma.user.delete({ where: { id: targetId } });
     this.logger.log(`管理员 ${operatorId} 删除了用户 ${targetId} (${exists.username})`);
@@ -506,6 +512,10 @@ export class AdminService {
     const startMap = await this.prisma.gameMap.findFirst({ orderBy: { mapIndex: 'asc' } });
     const startMapId = startMap?.id ?? 1;
     const startMapName = startMap?.name ?? '';
+
+    // 清理该玩家进行中的延时任务（采集/移动/副本/救援/装填），避免清档后定时结算
+    // 对已重置的新号二次写入、部分复活旧进度（DelayedTask.userId 无外键级联，必须显式清理）
+    await this.prisma.delayedTask.deleteMany({ where: { userId } });
 
     // 重置所有游戏进度字段（保留 id / userId / 账号）
     await this.playerService.enqueueUserWrite(player.userId, async () => {
@@ -1112,62 +1122,9 @@ export class AdminService {
       throw new NotFoundException(`未找到目标用户 ${targetQQ}（支持QQ号/用户名/用户ID）`);
     }
 
-    // 查找玩家档案
-    const player = await this.prisma.player.findUnique({
-      where: { userId: targetUser.id },
-    });
-    if (!player) {
-      throw new NotFoundException(`玩家 ${targetQQ} 还没有创建角色`);
-    }
-
-    // 重置玩家数据到初始状态（全部为原版道具：布装备+石制工具）；Json 列直接传对象/数组
-    const initialBackpack = [
-      { name: '石制工具', type: '装备', quantity: 1, durability: 0, data: 'e' },
-      { name: '布帽', type: '装备', quantity: 1, durability: 0, data: 'e' },
-      { name: '布衣', type: '装备', quantity: 1, durability: 0, data: 'e' },
-    ];
-    const initialMarkers = { '指引': 0 };
-    const initialTitles = [{ name: '新人', equipped: false }];
-
-    await this.playerService.enqueueUserWrite(player.userId, async () => {
-      const _pd = await this.playerService.getPlayerData(player.userId);
-      Object.assign(_pd.player, {
-        level: 1,
-        exp: 0,
-        upgradeExp: this.playerService.calcUpgradeExp(1),
-        name: '冒险者',
-        type: '',
-        hp: 100,
-        maxHp: 100,
-        shield: 0,
-        maxShield: 0,
-        armor: 0,
-        maxArmor: 0,
-        attack: 10,
-        defense: 0,
-        speed: 100,
-        dodge: 0,
-        hit: 100,
-        crit: 5,
-        critDmg: 150,
-        vitality: 100,
-        mapId: 1,
-        location: '新手村',
-        backpack: initialBackpack,
-        equipment: [
-          { name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' },
-        ],
-        weapons: [
-          { name: '石制工具', type: '武器', slot: 1, quantity: 1, durability: 0, data: 'e' },
-        ],
-        markers: initialMarkers,
-        titles: initialTitles,
-        affinity: 0,
-        vehicle: '',
-        playTime: BigInt(0),
-      });
-      await this.playerService.savePlayer(_pd.player);
-    });
+    // 复用 resetPlayerData 的完整重置逻辑：覆盖全部游戏字段 + 货币归零 + 延时任务清理，
+    // 避免"GM 重置玩家"成为部分重置、残留保险柜/任务/技能/套装/加成等进度。
+    await this.resetPlayerData(targetUser.id);
 
     this.logger.log(`管理员 ${userId} 重置了玩家 ${targetQQ} 的数据`);
 
