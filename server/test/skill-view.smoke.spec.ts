@@ -4,7 +4,7 @@
  * 验证「查看使魔」「查看使魔详细」「使魔技能」「通用技能」「技能导航」
  * 输出彼此不同且与原版流程一致，不复刻为重复内容。
  *
- * 依赖：真实 smdz 库 + 账号 路人甲（若不存在则提示跳测试）。
+ * 依赖：真实 smdz 库 + 账号 Shell（若不存在则提示跳测试）。
  */
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
@@ -32,16 +32,16 @@ describe('技能查看功能冒烟（真实库）', () => {
   });
 
   it('输出区分：查看使魔 / 查看使魔详细 / 使魔技能 / 通用技能 / 技能导航', async () => {
-    // 复用 路人甲 账号；不存在则跳过（不影响其他用例）
-    const user = await prisma.user.findFirst({ where: { username: '路人甲' }, select: { id: true } });
+    // 复用 Shell 账号；不存在则跳过（不影响其他用例）
+    const user = await prisma.user.findFirst({ where: { username: 'Shell' }, select: { id: true } });
     if (!user) {
-      console.log('[skip] 未找到 路人甲 账号，跳过冒烟输出校验');
+      console.log('[skip] 未找到 Shell 账号，跳过冒烟输出校验');
       return;
     }
     const uid = user.id;
     const player = await prisma.player.findUnique({ where: { userId: uid }, select: { type: true } });
     if (!player?.type) {
-      console.log('[skip] 路人甲尚无使魔类型，跳过');
+      console.log('[skip] Shell尚无使魔类型，跳过');
       return;
     }
 

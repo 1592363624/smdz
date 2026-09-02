@@ -782,13 +782,13 @@ export class TaskService {
       // 解码原版 L5589-5591 会在详情尾部追加“a、放弃此任务”并设置 a@放弃任务N
       // 临时输入，但实际游玩版本（参照玩家提供的原版游玩记录）不含该入口，故不输出；
       // 放弃任务指令本身（放弃任务 序号/名称）仍按原版可用。
-      return this.formatTaskDetails(
+      return (await this.formatTaskDetails(
         tasks[index],
         this.getTaskDefinition(tasks[index].name),
         markers,
         index + 1,
         player.name,
-      ).join('\n');
+      )).join('\n');
     }
 
     if (tasks.length === 0) return '你还没有接受任何任务，去找地图上的NPC看看吧';
@@ -798,9 +798,12 @@ export class TaskService {
       await this.shortcutService.setTempInput(userId, tempGroups);
     }
     const lines = ['你现在接受了以下任务'];
-    tasks.forEach((task, index) => {
-      lines.push(`${index + 1}、${task.name}${this.publisherLabel(task.publisher, true)}`);
-    });
+    // 发布人标注需查运行时地图：整个列表只查一次 DB，逐条任务复用
+    const publisherMaps = await this.loadPublisherMaps();
+    for (let index = 0; index < tasks.length; index++) {
+      const task = tasks[index];
+      lines.push(`${index + 1}、${task.name}${await this.publisherLabel(task.publisher, true, publisherMaps)}`);
+    }
     return lines.join('\n');
   }
 
@@ -819,13 +822,13 @@ export class TaskService {
    * 任务详情（对应原版 数据显示.ecode L414-456 显示任务）：
    * {玩家名}/{任务名}/{说明}/◆需要要求/·完成可获得奖励(按任务熟练度与完成任务数加成)/自动发放说明。
    */
-  private formatTaskDetails(
+  private async formatTaskDetails(
     task: PlayerTask,
     definition: any,
     markers: Record<string, any>,
     index: number,
     playerName?: string,
-  ): string[] {
+  ): Promise<string[]> {
     const lines: string[] = [];
     lines.push(String(playerName ?? ''));
     lines.push(`${task.name}`);
@@ -837,7 +840,7 @@ export class TaskService {
         : `◆需要${requirement.name}x${this.formatNumber(count)}`);
     }
     // 原版取发布人空值返回空串且直接拼接（不加换行），此处仅在非空时输出
-    const publisherLine = this.publisherLabel(task.publisher, false);
+    const publisherLine = await this.publisherLabel(task.publisher, false);
     if (publisherLine) lines.push(publisherLine);
     const rewards = this.parseRewards(definition?.rewards);
     lines.push(`·完成可获得:${rewards
@@ -854,26 +857,50 @@ export class TaskService {
 
   /**
    * 发布人标注（对应原版 数据分析.ecode L229-250 取发布人）：
-   * 发布人为空返回空串；在地图召唤物中按 QQ 找到 NPC 时，nameOnly 返回“(名称)”、
+   * 发布人为空返回空串；在地图召唤物/NPC 中按 qq 找到发布人时，nameOnly 返回“(名称)”、
    * 详情模式返回“·来自:名称(地图名)”；找不到时 nameOnly 返回空串、
    * 详情模式返回“·来自:{qq}(对象已不存在)”。
+   * 「白」等运行时召唤物存于 DB GameMap（summons/npcs 为动态字段，静态 maps.json
+   * 不含任何带 qq 的单位），因此实时查找以 DB 为准；匹配口径与 addPublisherAffinity
+   * 一致（qq/QQ/id/编号），旧测试桩缺 gameMap 时退回静态定义查找。
    */
-  private publisherLabel(publisher: string | undefined, nameOnly: boolean): string {
+  private async publisherLabel(
+    publisher: string | undefined,
+    nameOnly: boolean,
+    publisherMaps?: any[],
+  ): Promise<string> {
     const qq = String(publisher ?? '').trim();
     if (!qq) return '';
-    const maps = this.staticData.getAllMaps() || [];
+    const maps = publisherMaps ?? await this.loadPublisherMaps();
     for (const map of maps as any[]) {
-      const summons = typeof map?.summons === 'string'
-        ? this.parseAnyArray(map.summons)
-        : (Array.isArray(map?.summons) ? map.summons : []);
-      for (const summon of summons) {
-        if (String(summon?.qq ?? summon?.QQ ?? '') === qq) {
-          const name = String(summon?.name ?? summon?.名称 ?? '');
+      for (const field of ['summons', 'npcs']) {
+        const units = typeof map?.[field] === 'string'
+          ? this.parseAnyArray(map[field])
+          : (Array.isArray(map?.[field]) ? map[field] : []);
+        for (const unit of units || []) {
+          if (String(unit?.qq ?? unit?.QQ ?? unit?.id ?? unit?.编号 ?? '') !== qq) continue;
+          const name = String(unit?.name ?? unit?.名称 ?? '');
           return nameOnly ? `(${name})` : `\n·来自:${name}(${map?.name ?? ''})`;
         }
       }
     }
     return nameOnly ? '' : `\n·来自:${qq}(对象已不存在)`;
+  }
+
+  /**
+   * 发布人查找用的地图列表：优先 DB 实时地图（只取名称与单位两列，避免整行 JSON）；
+   * 旧测试桩无 gameMap 或查询失败时退回静态定义。
+   */
+  private async loadPublisherMaps(): Promise<any[]> {
+    const mapsApi = (this.prisma as any).gameMap;
+    if (typeof mapsApi?.findMany === 'function') {
+      const dbMaps = await mapsApi
+        .findMany({ select: { name: true, summons: true, npcs: true } })
+        .catch(() => undefined);
+      if (Array.isArray(dbMaps)) return dbMaps;
+    }
+    const getAllMaps = (this.staticData as any)?.getAllMaps;
+    return typeof getAllMaps === 'function' ? (getAllMaps.call(this.staticData) || []) : [];
   }
 
   /** 原版新玩家首次行动按教程标记门槛依次加入新手教程和进阶教程。 */

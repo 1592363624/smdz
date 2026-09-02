@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>战斗卡片动画预览 · 使魔大战3</title>
+  <style>
+    /* 页面外壳：模拟游戏公屏的暗色底，仅用于预览 */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Noto Sans SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+      background: #0a0a1a;
+      color: #f1f1f9;
+      min-height: 100vh;
+      padding: 24px 20px 40px;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .sub { font-size: 13px; color: #a0a0c0; line-height: 1.7; margin-bottom: 14px; }
+    .sub code {
+      background: rgba(139, 92, 246, 0.14);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 12px;
+    }
+    #replay {
+      padding: 9px 18px;
+      border-radius: 10px;
+      border: 1px solid rgba(103, 232, 249, 0.45);
+      background: rgba(6, 182, 212, 0.1);
+      color: #a5f3fc;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      transition: transform 0.12s ease, box-shadow 0.15s ease;
+      margin-bottom: 18px;
+    }
+    #replay:hover { box-shadow: 0 0 14px rgba(103, 232, 249, 0.4); transform: translateY(-1px); }
+    /* 公屏消息近似：消息行 = 发送者前缀 + 战斗卡片 */
+    .case-label { font-size: 12px; color: #7b7484; margin: 20px 0 8px; letter-spacing: 1px; }
+    .msg { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 4px; }
+    .msg .msg-body { flex: 1; min-width: 0; font-size: 14px; }
+    .msg .sender { color: #a78bfa; font-weight: 600; margin-right: 4px; }
+  </style>
+</head>
+<body>
+  <!-- 页面骨架为纯静态 HTML（Vue 仅负责挂载 BattleCard，无需运行时模板编译器） -->
+  <div class="wrap">
+    <h1>⚔ 战斗卡片动画预览</h1>
+    <p class="sub">
+      预览 <code>BattleCard.vue</code> 对服务端战斗结算文本的渲染效果（组件真实代码，经 Vite 编译）。
+      点击按钮重新挂载全部样例，重播入场动画；解析规则见 <code>utils/battleText.js</code>。
+    </p>
+    <button id="replay" type="button">▶ 重播动画</button>
+    <div id="cards"></div>
+  </div>
+
+  <script type="module">
+    import { createApp, h } from 'vue';
+    import BattleCard from '/src/components/BattleCard.vue';
+
+    // 样例文本与服务端 combat-system.service.ts 的实际输出格式一致（含反击/统计/光荣弹等分支）
+    const DEMOS = [
+      {
+        label: '样例 1 · 玩家出手 + 击杀 + 掉落 + 召唤物 + 怪物反击',
+        sender: '白上吹雪',
+        viewer: '白上吹雪',
+        text: [
+          '【棒棒糖】',
+          '【誓约胜利之剑】三层穿透+50%',
+          '【普拉娜·火力】攻击+20%',
+          '白上吹雪 一拳打中了 青铜史莱姆，造成 护盾-12 装甲-34 生命-56【暴击】【绝杀】120%',
+          '青铜史莱姆 已被击杀',
+          '掉落：史莱姆凝胶×3、破碎的剑柄',
+          '获得 128 点经验',
+          '━━━ 召唤物攻击 ━━━',
+          '小火苗 攻击 青铜史莱姆，造成 生命-10',
+          '━━━ 怪物反击 ━━━',
+          '烈焰蝠 向你发起攻击，但被你闪避了',
+          '烈焰蝠 使用尖牙攻击你，造成 护盾-8 生命-15，你倒下了！',
+          '你已死亡，可使用「救助」或「复活使魔」来复活',
+        ].join('\n'),
+      },
+      {
+        label: '样例 2 · 炮击 + 格挡 + 闪避 + 偷取 + 战斗统计 + 光荣弹',
+        sender: '艾莉',
+        viewer: '艾莉',
+        text: [
+          '【唯我主宰】必中',
+          '【次元破碎】穿透+20%',
+          '艾莉 炮击中了 岩石傀儡，造成 装甲-289【暴击】【完美】105%',
+          '岩石傀儡 【格挡】本次伤害降低75%',
+          '艾莉 处于闪避状态(3秒)',
+          '李四的攻击命中了岩石傀儡，造成 40【致命】85%',
+          '生命偷取 12 点',
+          '━━━ 战斗统计 ━━━',
+          '攻击3次，命中2次，被闪避1次，命中零伤0次，有效伤2次',
+          '岩石傀儡 引爆【光荣弹】，对 烈焰蝠 造成 生命-30（倍率150%）',
+        ].join('\n'),
+      },
+      {
+        label: '样例 3 · 高额伤害 + 捕捉',
+        sender: '玉藻前',
+        viewer: '玉藻前',
+        text: [
+          '【镇岳】+120',
+          '【法芙娜·撕裂】+96',
+          '玉藻前 操纵飞龙战舰 俯冲攻击 幼年飞龙，造成 护盾-1204 装甲-2380 生命-4821【暴击】【绝杀】156%',
+          '幼年飞龙 已被击杀',
+          '掉落：飞龙鳞片、龙血×2',
+          '获得 2048 点经验',
+          '玉藻前 捕获了 幼年飞龙，造成 生命-0(123)(捕捉中)',
+        ].join('\n'),
+      },
+    ];
+
+    const container = document.getElementById('cards');
+    const apps = [];
+
+    // 挂载全部样例；每条样例 = 标题行 + 消息行（发送者前缀 + BattleCard）
+    function mountAll() {
+      while (apps.length) apps.pop().unmount();
+      container.textContent = '';
+      for (const demo of DEMOS) {
+        const label = document.createElement('div');
+        label.className = 'case-label';
+        label.textContent = demo.label;
+        container.appendChild(label);
+
+        const msg = document.createElement('div');
+        msg.className = 'msg';
+        const body = document.createElement('div');
+        body.className = 'msg-body';
+        const sender = document.createElement('span');
+        sender.className = 'sender';
+        sender.textContent = `${demo.sender}：`;
+        const cardHost = document.createElement('div');
+        body.appendChild(sender);
+        body.appendChild(cardHost);
+        msg.appendChild(body);
+        container.appendChild(msg);
+
+        apps.push(createApp({ render: () => h(BattleCard, { text: demo.text, viewerName: demo.viewer }) }).mount(cardHost));
+      }
+    }
+
+    document.getElementById('replay').addEventListener('click', mountAll);
+    mountAll();
+  </script>
+</body>
+</html>

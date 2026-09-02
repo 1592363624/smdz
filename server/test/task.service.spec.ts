@@ -350,6 +350,45 @@ describe('任务系统兼容入口', () => {
     expect(JSON.parse(fixture.player.tasks).map((task: any) => task.name)).toEqual(['任务二']);
   });
 
+  it('查看任务按运行时召唤物解析发布人（白发布的任务不再显示对象已不存在）', async () => {
+    const fixture = makeFixture({
+      tasks: [
+        {
+          name: '矿工',
+          publisher: '召唤物1788327197207784',
+          requirements: JSON.stringify([{ name: '铁矿', count: 10 }]),
+          rewards: '[]',
+        },
+      ],
+      maps: [
+        { id: 1, name: '干净医疗室', summons: [{ name: '白', qq: '召唤物1788327197207784' }], npcs: [] },
+      ],
+    });
+
+    const detail = await fixture.service.listTasks(42, '1');
+    expect(detail).toContain('·来自:白(干净医疗室)');
+
+    const list = await fixture.service.listTasks(42);
+    expect(list).toContain('1、矿工(白)');
+  });
+
+  it('发布人对应的召唤物不在任何地图时详情仍标注对象已不存在', async () => {
+    const fixture = makeFixture({
+      tasks: [
+        {
+          name: '矿工',
+          publisher: '召唤物999',
+          requirements: JSON.stringify([{ name: '铁矿', count: 10 }]),
+          rewards: '[]',
+        },
+      ],
+      maps: [{ id: 1, name: '干净医疗室', summons: [{ name: '白', qq: '召唤物111' }], npcs: [] }],
+    });
+
+    const detail = await fixture.service.listTasks(42, '1');
+    expect(detail).toContain('·来自:召唤物999(对象已不存在)');
+  });
+
   it('旧的已完成任务支持按序号提交并自动结算', async () => {
     const fixture = makeFixture({
       tasks: [

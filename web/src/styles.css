@@ -1547,6 +1547,32 @@ vite-plugin-checker-error-overlay,
   width: 100%;
 }
 
+/* 战斗卡片消息（攻击/炮击结算）：
+ * 与富卡片同理——居中消息默认收缩宽度，战斗卡片需要铺满可用宽度展示伤害行与徽章。
+ * 战斗卡片自带深色底座，外层气泡去掉自身底色边框，避免双层描边。 */
+.msg.msg-battle {
+  align-self: stretch;
+  align-items: flex-start;
+  flex-direction: row;
+  text-align: left;
+  width: 100%;
+  max-width: 100%;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.msg.msg-battle:hover {
+  border: none;
+}
+.msg.msg-battle .battle-wrap {
+  width: 100%;
+  min-width: 0;
+}
+
 /* 聊天消息 - 发送者紫色 */
 .msg.chat .sender {
   color: var(--accent);

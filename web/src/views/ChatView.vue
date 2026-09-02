@@ -422,12 +422,14 @@
 
       <!-- 消息列表 -->
       <div ref="msgList" class="messages" @scroll="onMsgScroll">
-        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg), { 'msg-rich': v.rich }]">
+        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg), { 'msg-rich': v.rich, 'msg-battle': v.battle }]">
           <div class="msg-body">
             <span v-if="v.msg.sender" class="sender" :title="'右键 @ ' + (v.msg.sender.nickname || v.msg.sender.username)" @contextmenu.prevent="quickAtUser(v.msg.sender)">{{ v.msg.sender.nickname || v.msg.sender.username }}：</span>
             <span v-else-if="v.msg.type !== 'system' && v.msg.type !== 'game' && v.msg.type !== 'combat' && v.msg.type !== 'info'" class="sender">系统：</span>
+            <!-- 战斗结算 → 修真科幻风战斗卡片（伤害重击/暴击迸发/击杀烙印动画） -->
+            <div v-if="v.battle" class="battle-wrap"><BattleCard :text="v.msg.content" :viewer-name="viewerName" /></div>
             <!-- 结构化长消息（背包/属性/装备）→ 网格卡片布局；外层 div 显式撑满，避免 center 对齐收缩宽度 -->
-            <div v-if="v.rich" class="rich-wrap"><RichSystemCard :text="v.msg.content" @send="onRichCardSend" /></div>
+            <div v-else-if="v.rich" class="rich-wrap"><RichSystemCard :text="v.msg.content" @send="onRichCardSend" /></div>
             <span v-else class="content" style="white-space: pre-line">
               <template v-for="(seg, si) in v.segs" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
@@ -887,6 +889,7 @@ import AnnRichText from '../components/AnnRichText';
 import GameHighlight from '../components/GameHighlight.vue';
 // 结构化长消息（背包/属性/装备）在公屏的网格卡片渲染（纯前端展示层优化，不影响后端/AstrBot 文本）
 import RichSystemCard from '../components/RichSystemCard.vue';
+import BattleCard from '../components/BattleCard.vue';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useUiStore } from '../stores/ui';
 import { useCommandStore } from '../stores/command';
@@ -894,6 +897,7 @@ import { useConnectionStore } from '../stores/connection';
 import { usePlayerStore } from '../stores/player';
 import { syncServerClock } from '../utils/serverClock';
 import { parseHighlights, GAME_HIGHLIGHT_EVENT } from '../utils/gameHighlight';
+import { isBattleContent } from '../utils/battleText';
 
 const router = useRouter();
 const ui = useUiStore();
@@ -932,6 +936,8 @@ const messageViews = computed(() =>
     segs: parseContent(m.content, commands.value),
     // 背包/属性面板等结构化长列表 → 用网格卡片渲染；其余保持原样式
     rich: isRichCardContent(m.content),
+    // 战斗结算文本 → 用战斗卡片渲染（修真科幻风伤害动画）
+    battle: isBattleContent(m.content),
   })),
 );
 
@@ -993,6 +999,9 @@ let socket = null;
 
 // 玩家信息
 const playerInfo = computed(() => playerStore.info);
+// 战斗卡片视角名：服务端战斗文本以「玩家面板 name」（含称号后缀）称呼玩家，
+// 用于把命中行区分为「我打出 / 打到我身上 / 其他」三种样式；拿不到面板名时回退登录昵称
+const viewerName = computed(() => playerInfo.value?.name || user.value?.nickname || user.value?.username || '');
 // 地图总览（当前区域 + 全部地图）
 const mapOverview = ref(null);
 // 推送版本号守卫：丢弃网络乱序导致的旧包（rev 回退/归零视为新会话，宽容放行）

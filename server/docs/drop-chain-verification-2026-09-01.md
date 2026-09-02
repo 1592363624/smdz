@@ -2,7 +2,7 @@
 
 验证目标：击杀怪物 → 生成掉落 → 入包/入货币列 全链路。
 分两组对照：**有掉落表的怪**（草原火鸡）与**无掉落表的野怪**。
-环境：本地 dev 服务 `localhost:13443`，真实远程 MySQL，测试账号 `路人甲`。
+环境：本地 dev 服务 `localhost:13443`，真实远程 MySQL，测试账号 `Shell`。
 脚本：`server/verify-drop-turkey.tmp.mjs`（火鸡）、`server/verify-drop-wild.tmp.mjs`（野怪）；
 日志：`server/turkey-drop.log`、`server/wild-drop.log`；战前玩家行备份：`server/verify-drop-baseline.tmp.json`。
 
