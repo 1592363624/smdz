@@ -102,6 +102,7 @@
     <Teleport to="body">
       <div
         v-if="active.visible"
+        ref="popRef"
         class="rc-handbook"
         :style="{ left: active.left + 'px', top: active.top + 'px' }"
       >
@@ -114,7 +115,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, Teleport } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, Teleport } from 'vue';
 import { commandApi, systemApi } from '../api';
 
 /**
@@ -151,6 +152,33 @@ const handbookCache = new Map();
  *   配合 enterDelay/hideDelay 延迟，彻底消除闪烁且保证内容稳定展示。
  */
 const active = reactive({ visible: false, left: 0, top: 0, name: '', loading: false, error: '', content: '' });
+
+/** 弹层 DOM 引用：内容渲染后按实际尺寸回正位置，避免超出视口被截断 */
+const popRef = ref(null);
+
+/**
+ * 弹层内容渲染完成后，用 DOM 实测尺寸把弹层拉回视口内：
+ * - 初始位置按「格子 + 300/260 预算」粗算，但装备信息高度不定（可超 260px），
+ *   这里基于 offsetWidth/offsetHeight 精确 clamp，保证左/右边距 ≥8px 完整可见。
+ */
+function fitPopup() {
+  const el = popRef.value;
+  if (!el) return;
+  const viewW = window.innerWidth;
+  const viewH = window.innerHeight;
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  let { left, top } = active;
+  if (left + w > viewW - 8) left = Math.max(8, viewW - w - 8);
+  if (top + h > viewH - 8) top = Math.max(8, viewH - h - 8);
+  active.left = left;
+  active.top = top;
+}
+// 内容/开关变化（读取中→内容、错误、切换物品、收起后重开）都重算一次位置
+watch(
+  () => [active.visible, active.content, active.error, active.loading],
+  () => { if (active.visible) nextTick(fitPopup); }
+);
 
 // 显示延迟：鼠标掠过时防误触；隐藏延迟：容器内留出阅读时间
 // enterDelay 默认 1000ms，可通过 GM 后台配置 web.handbookTooltipDelayMs 在线调整
@@ -252,9 +280,13 @@ async function onCellEnter(name, e) {
     active.content = '';
     active.loading = true;
     active.visible = true;
-    /** 执行一次「图鉴 X」并取回 content（axios 拦截器已剥外层，兼容两/三层嵌套）；顺带剥顶部横幅 */
-    const runQuery = async (q) => {
-      const res = await commandApi.execute(`图鉴 ${q}`);
+    // 弹层查询并取回 content（axios 拦截器已剥外层，兼容两/三层嵌套）；顺带剥顶部横幅。
+    // 装备（名字带品质码）弹层用「背包 基础名」查实例自身的属性（自带属性 + 随机加成词条），
+    // 而非图鉴的基础介绍——这样玩家在网页上也能像原版「背包 N」那样直接查看每件装备的属性。
+    // 其余资源/消耗品仍走「图鉴」。
+    const isEquipName = classifyItemKind(name) === 'equip';
+    const runQuery = async (q, verb) => {
+      const res = await commandApi.execute(`${verb} ${q}`);
       const raw = (
         String(res?.data?.content ?? '') ||
         String(res?.content ?? '') ||
@@ -263,18 +295,24 @@ async function onCellEnter(name, e) {
       return stripLeadingBanners(raw);
     };
     try {
-      // 两段式回退：
-      // ① 先按显示名原样查（覆盖「妖精之森E」这类名字本身以品质码字母结尾的物品）
-      // ② 显示名查不到、且能剥出更短基础名时（如「纵横C」→「纵横」），回退查基础名
-      //    ——后端图鉴按基础名登记，带品质码的显示名匹配不到
       // 注意：dispatch 会把离线结算横幅（⏰…）前插到 content 开头，
       //       所以「没有找到」检测不能锚定行首，用 includes 判断。
-      let trimmed = await runQuery(name);
-      const isNotFound = (s) => s.includes('图鉴中没有找到');
-      if (isNotFound(trimmed)) {
-        const base = handbookQueryName(name);
-        if (base !== name) {
-          trimmed = await runQuery(base);
+      let trimmed;
+      if (isEquipName) {
+        // 装备：直接按基础名查（后端「背包 基础名」对装备走 analyzeEquipmentItem，含加成属性）
+        trimmed = await runQuery(handbookQueryName(name), '背包');
+      } else {
+        // 两段式回退：
+        // ① 先按显示名原样查（覆盖「妖精之森E」这类名字本身以品质码字母结尾的物品）
+        // ② 显示名查不到、且能剥出更短基础名时（如「纵横C」→「纵横」），回退查基础名
+        //    ——后端图鉴按基础名登记，带品质码的显示名匹配不到
+        trimmed = await runQuery(name, '图鉴');
+        const isNotFound = (s) => s.includes('图鉴中没有找到');
+        if (isNotFound(trimmed)) {
+          const base = handbookQueryName(name);
+          if (base !== name) {
+            trimmed = await runQuery(base, '图鉴');
+          }
         }
       }
       trimmed = trimmed || '🐾 图鉴中暂无该物品的详细资料';
@@ -618,7 +656,9 @@ function parseLayout(text) {
   width: max-content;
   min-width: 240px;
   max-width: 300px;
-  max-height: 260px;
+  /* 高度自适应内容（不再写死 260px）。仅保留「不超过视口」的兜底上限，
+     防极端超长内容溢出页面；位置在内容渲染后由 fitPopup 拉回视口内 */
+  max-height: calc(100vh - 16px);
   display: flex;
   flex-direction: column;
   background: rgba(24, 18, 38, 0.94);
