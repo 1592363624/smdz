@@ -3386,3 +3386,115 @@ vite-plugin-checker-error-overlay,
     padding: 20px 16px;
   }
 }
+
+/* ============================================================
+ * 头部操作按钮（过滤/私聊/指令面板）统一样式
+ * 此前这些按钮为裸 button，这里补齐与整体暗黑二次元风格一致的外观
+ * ============================================================ */
+.header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-secondary, #c8c8e0);
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid var(--glass-border, rgba(139, 92, 246, 0.25));
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  touch-action: manipulation;
+}
+.header-action-btn:hover {
+  color: #fff;
+  background: rgba(139, 92, 246, 0.18);
+  border-color: var(--accent, #8b5cf6);
+}
+.header-action-btn:active {
+  transform: scale(0.96);
+}
+/* 「显示他人」开启态：高亮 */
+.header-action-btn.on {
+  color: #fff;
+  background: var(--accent-gradient, linear-gradient(90deg, #8b5cf6, #06b6d4));
+  border-color: transparent;
+}
+/* 指令面板按钮：青色强调，与「⌨️ 指令」语义呼应 */
+.palette-open-btn {
+  color: var(--accent2, #06b6d4);
+  border-color: rgba(6, 182, 212, 0.35);
+  background: rgba(6, 182, 212, 0.1);
+}
+.palette-open-btn:hover {
+  color: #fff;
+  background: rgba(6, 182, 212, 0.22);
+  border-color: var(--accent2, #06b6d4);
+}
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--danger, #ef4444);
+  border-radius: 999px;
+}
+
+/* ============================================================
+ * 可访问性：键盘焦点可见
+ * 统一焦点描边，方便键盘 / 无障碍用户定位（鼠标点击不显示）
+ * ============================================================ */
+:focus-visible {
+  outline: 2px solid var(--accent, #8b5cf6);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ============================================================
+ * 尊重「减少动态效果」系统偏好
+ *  vestibular（前庭）敏感用户会因持续动画不适，这里对全局重动画做降级
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .login-page::before,
+  .login-page::after,
+  .chat-page::before {
+    animation: none !important;
+  }
+}
+
+/* 小屏（≤480px）：头部按钮精简，避免与标题/版本号争抢空间 */
+@media (max-width: 480px) {
+  .chat-header .reborn-link {
+    display: none;
+  }
+  .github-issue-btn span {
+    display: none;
+  }
+  .header-action-btn {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}
+

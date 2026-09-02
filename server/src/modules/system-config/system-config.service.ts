@@ -6,7 +6,7 @@
  * 遵循"配置项抽取"原则：业务逻辑中所有可能变化的常量都通过这里管理。
  */
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -70,34 +70,58 @@ export class SystemConfigService {
 
   /**
    * 更新配置值(按类型校验/解析)
+   * 行不存在时自动创建（type 按 key 前缀推断分组，值类型默认 string），
+   * 让新增配置项无需先跑 seed 即可在管理界面直接保存生效。
    */
   async set(key: string, value: any) {
     const row = await this.findByKey(key);
-    if (!row) {
-      throw new NotFoundException(`配置项 ${key} 不存在`);
-    }
     // 按类型序列化
     let serialized: string;
-    switch (row.type) {
-      case 'number':
-        serialized = String(Number(value));
-        break;
-      case 'boolean':
-        serialized = value === true || value === 'true' ? 'true' : 'false';
-        break;
-      case 'json':
-        serialized = typeof value === 'string' ? value : JSON.stringify(value);
-        break;
-      case 'string-array':
-        serialized = Array.isArray(value) ? JSON.stringify(value) : JSON.stringify(String(value).split(','));
-        break;
-      default: // string
-        serialized = String(value);
+    let type: string;
+    if (row) {
+      type = row.type;
+      switch (type) {
+        case 'number':
+          serialized = String(Number(value));
+          break;
+        case 'boolean':
+          serialized = value === true || value === 'true' ? 'true' : 'false';
+          break;
+        case 'json':
+          serialized = typeof value === 'string' ? value : JSON.stringify(value);
+          break;
+        case 'string-array':
+          serialized = Array.isArray(value) ? JSON.stringify(value) : JSON.stringify(String(value).split(','));
+          break;
+        default: // string
+          serialized = String(value);
+      }
+      const updated = await this.prisma.systemConfig.update({ where: { key }, data: { value: serialized } });
+      // 写库成功后失效缓存，管理员改完立即生效（不依赖 TTL 到期）
+      this.cache.delete(key);
+      return updated;
     }
-    const updated = await this.prisma.systemConfig.update({ where: { key }, data: { value: serialized } });
-    // 写库成功后失效缓存，管理员改完立即生效（不依赖 TTL 到期）
+    // 行不存在 → 自动创建：type 先按传入值推断（number/boolean 可识别，其余按 string），
+    // group 取 key 第一段（如 web.handbookTooltipDelayMs → web），便于管理界面分组展示。
+    serialized = String(value);
+    type =
+      typeof value === 'number' || (typeof value === 'string' && value !== '' && !Number.isNaN(Number(value)))
+        ? 'number'
+        : typeof value === 'boolean' || value === 'true' || value === 'false'
+          ? 'boolean'
+          : 'string';
+    const created = await this.prisma.systemConfig.create({
+      data: {
+        key,
+        value: serialized,
+        type,
+        label: key,
+        description: '（自动创建）管理界面可修改显示名与描述',
+        group: key.split('.')[0] || 'system',
+      } as any,
+    });
     this.cache.delete(key);
-    return updated;
+    return created;
   }
 
   /**

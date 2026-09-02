@@ -559,7 +559,7 @@ async function setWorldLevel() {
 // ---- 系统配置 ----
 const configs = ref([]);
 const savedKey = ref('');
-const groupLabels = { command: '指令设置', game: '游戏数据', system: '系统', bot: '机器人' };
+const groupLabels = { command: '指令设置', game: '游戏数据', system: '系统', bot: '机器人', web: '网页界面', update: '部署更新' };
 
 const configGroups = computed(() => {
   const groups = {};

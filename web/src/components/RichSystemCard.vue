@@ -112,8 +112,8 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch, Teleport } from 'vue';
-import { commandApi } from '../api';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, Teleport } from 'vue';
+import { commandApi, systemApi } from '../api';
 
 /**
  * Props：text 为服务端下发的原始消息文本（含换行）
@@ -151,10 +151,29 @@ const handbookCache = new Map();
 const active = reactive({ visible: false, left: 0, top: 0, name: '', loading: false, error: '', content: '' });
 
 // 显示延迟：鼠标掠过时防误触；隐藏延迟：容器内留出阅读时间
-const enterDelay = 100;
+// enterDelay 默认 1000ms，可通过 GM 后台配置 web.handbookTooltipDelayMs 在线调整
+// （模块级缓存：多个卡片实例只拉一次配置；拉取失败回退默认值）
+const enterDelayDefault = 1000;
+const enterDelay = { value: enterDelayDefault };
 const hideDelay = 600;
 let enterTimer = null;
 let hideTimer = null;
+/** 悬浮事件序号：每次进入/离开递增，供 setTimeout 回调与在途请求校验是否过期 */
+let hoverSeq = 0;
+let webConfigLoaded = false;
+
+async function loadWebConfigOnce() {
+  if (webConfigLoaded) return;
+  webConfigLoaded = true;
+  try {
+    const res = await systemApi.getWebConfig();
+    const ms = Number(res?.data?.handbookTooltipDelayMs ?? res?.handbookTooltipDelayMs);
+    if (Number.isFinite(ms) && ms >= 0) enterDelay.value = ms;
+  } catch {
+    /* 配置拉取失败：保持默认值，不打扰用户 */
+  }
+}
+onMounted(loadWebConfigOnce);
 
 /**
  * 背包格子点击：只对装备（kind==='equip'）发「穿上 X」；消耗品/资源不响应（鼠标样式 + click return）。
@@ -168,22 +187,24 @@ function onCellClick(name, itemKind) {
 /**
  * 鼠标悬浮背包格子 → 延迟后展示该物品图鉴。
  * 通过 REST 执行「图鉴」指令，结果仅在本弹层展示，不写入/广播到公屏（execute 只返回不广播）。
- * 划过相邻格子时只更新位置与内容，绝不 hide/show，避免闪屏与屏幕抖动。
  *
- * 关键改进：
- * 1) visible 在同步段就设为 true + loading=true → 弹层立即可见，避免「100ms 内看不到任何东西」的等待感；
- * 2) 仅当 name 变化且缓存未命中时才进 setTimeout；
- * 3) 弹层用 Teleport 到 body，不依赖父级 stacking context。
+ * 统一时序：无论首次进入、缓存命中、还是从另一格子切过来，
+ * 一律等 enterDelay（默认 1000ms，GM 后台可配 web.handbookTooltipDelayMs）后才显示弹层——
+ * "悬浮窗何时出现"完全由配置的延迟决定，不因缓存/切换而提前。
+ * - 切换时立即收起旧弹层（等待期不残留上一个物品的内容）；
+ * - 到点后：有缓存 → 直接展示内容；无缓存 → 读取中并请求。
+ *
+ * 防过期：hoverSeq 序号 token——每次进入/离开递增，setTimeout 回调与请求完成时校验 token，
+ * 过期即丢弃（用户已移走/切到别的物品时，迟到的结果不污染当前弹层）。
  */
 async function onCellEnter(name, e) {
-  // 容器内移动：不关闭弹层，且如果弹层已经为该物品显示了内容/错误/加载中，直接复用，不再重算位置、不重发请求
+  // 同物品且弹层已在显示（内容/错误/读取中）→ 直接复用，不重启延迟、不重算位置（防抖）
   clearTimeout(hideTimer);
   if (active.visible && active.name === name && (active.content || active.error || active.loading)) {
-    // 同物品已有内容时：直接返回，不再算位置/重发请求，彻底消除抖动。
     return;
   }
 
-  // 1) 算位置（始终计算，否则从一个格子移动到另一格时弹层会停在老位置）
+  // 1) 算位置（提前算好存着：延迟结束后鼠标事件对象已失效，不能再取 getBoundingClientRect）
   const rect = e?.currentTarget?.getBoundingClientRect();
   if (rect) {
     // 弹层最大 300px 宽 / 260px 高：默认向右展开，右侧放不下则左向；超出视口向内收拢，保证完整可见
@@ -201,28 +222,34 @@ async function onCellEnter(name, e) {
     active.top = top;
   }
 
-  // 2) 命中缓存：直接显示，不再请求；同时让弹层保持可见
-  if (handbookCache.has(name)) {
-    active.name = name;
-    active.error = '';
-    active.loading = false;
-    active.content = handbookCache.get(name);
-    active.visible = true;
-    return;
+  // 2) 弹层正显示【另一个物品】的内容 → 立即收起（不留残留；等待期内旧物品信息不挂在新格子上）
+  if (active.visible && active.name !== name) {
+    hideNow();
   }
 
-  // 3) 同步先设 visible + loading：弹层立刻出现（看到「读取图鉴中…」），不再等 100ms
-  active.name = name;
-  active.error = '';
-  active.content = '';
-  active.loading = true;
-  active.visible = true;
-
-  // 4) 延迟后请求（enterDelay 防误触：如果用户快速划过就不必真发请求）
+  // 3) 统一延迟后弹出：缓存命中直接展示内容（仍然等过延迟）；否则读取中 + 请求
+  const mySeq = ++hoverSeq;
   clearTimeout(enterTimer);
   enterTimer = setTimeout(async () => {
-    // 二次确认：防止快速移动时上一格还在转圈
-    if (active.name !== name) return;
+    // 已被更新的进入/离开事件顶替 → 本回调作废
+    if (mySeq !== hoverSeq) return;
+
+    // 缓存命中 → 直接展示（不再发请求），但同样等过了 enterDelay
+    if (handbookCache.has(name)) {
+      active.name = name;
+      active.error = '';
+      active.loading = false;
+      active.content = handbookCache.get(name);
+      active.visible = true;
+      return;
+    }
+
+    // 无缓存 → 读取中 + 请求
+    active.name = name;
+    active.error = '';
+    active.content = '';
+    active.loading = true;
+    active.visible = true;
     /** 执行一次「图鉴 X」并取回 content（axios 拦截器已剥外层，兼容两/三层嵌套）；顺带剥顶部横幅 */
     const runQuery = async (q) => {
       const res = await commandApi.execute(`图鉴 ${q}`);
@@ -249,38 +276,40 @@ async function onCellEnter(name, e) {
         }
       }
       trimmed = trimmed || '🐾 图鉴中暂无该物品的详细资料';
-      // 二次确认：若用户已移走（name 变了），写到错误态而不是覆盖当前显示
-      if (active.name !== name) {
-        active.error = trimmed;
-        return;
-      }
+      // 请求完成时若用户已移走/切走 → 丢弃结果，不污染当前弹层
+      if (mySeq !== hoverSeq) return;
       active.content = trimmed;
       active.loading = false;
       // 结果入缓存（含「图鉴中没有找到」——它就是该名字的最终结果，避免每次悬浮都重发两段请求；
-      // 页面刷新即清空缓存，后端补录图鉴后刷新即可看到）。
-      // 仅「空内容」占位不入缓存。
+      // 页面刷新即清空缓存，后端补录图鉴后刷新即可看到）。仅「空内容」占位不入缓存。
       if (trimmed !== '🐾 图鉴中暂无该物品的详细资料') {
         handbookCache.set(name, trimmed);
       }
     } catch (err) {
-      if (active.name === name) {
-        active.error = '图鉴查询失败，请稍后再试';
-        active.loading = false;
-      }
+      if (mySeq !== hoverSeq) return;
+      active.error = '图鉴查询失败，请稍后再试';
+      active.loading = false;
     }
-  }, enterDelay);
+  }, enterDelay.value);
+}
+
+/** 立即收起弹层并清空状态（供切换/离开/卸载复用） */
+function hideNow() {
+  active.visible = false;
+  active.name = '';
+  active.content = '';
+  active.error = '';
+  active.loading = false;
 }
 
 /** 鼠标离开整个背包网格容器 → 延迟关闭图鉴弹层（留出阅读时间） */
 function scheduleHide() {
+  // 使所有挂起的进入 timer / 在途请求作废
+  hoverSeq++;
   clearTimeout(enterTimer);
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
-    active.visible = false;
-    active.name = '';
-    active.content = '';
-    active.error = '';
-    active.loading = false;
+    hideNow();
     // 同时取消可能仍在进行的请求（无法真正 abort fetch，但下次重渲不会再被读到）
   }, hideDelay);
 }
@@ -289,7 +318,7 @@ function scheduleHide() {
 onBeforeUnmount(() => {
   clearTimeout(enterTimer);
   clearTimeout(hideTimer);
-  active.visible = false;
+  hideNow();
 });
 
 /** 装备品质集合（与改版 backend qualityPrefix 对齐） */

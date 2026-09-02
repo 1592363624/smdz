@@ -117,6 +117,8 @@ export const systemApi = {
   getVersion: () => http.get('/system/version'),
   // 获取服务器当前时间(毫秒时间戳)，用于测算本机与服务器的时钟偏移
   getServerTime: () => http.get('/system/server-time'),
+  // 获取网页前端可调配置（公开接口；如背包图鉴悬浮延迟 web.handbookTooltipDelayMs）
+  getWebConfig: () => http.get('/system/web-config'),
 };
 
 /// 管理员接口(需ADMIN权限)

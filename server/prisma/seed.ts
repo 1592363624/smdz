@@ -407,6 +407,7 @@ async function main() {
     { key: 'update.check.interval', value: '30', label: '更新检测轮询间隔(秒)', description: '前端每隔多少秒向后端版本接口检查一次是否有新部署', type: 'number', group: 'update' },
     { key: 'update.autoReloadSeconds', value: '15', label: '自动刷新倒计时(秒)', description: '弹窗展示更新日志后多少秒自动刷新页面，0=不自动刷新(需玩家手动点击)', type: 'number', group: 'update' },
     { key: 'update.promptCooldown', value: '300', label: '重复提醒冷却(秒)', description: '玩家点击「稍后」后，多少秒内不再重复弹窗打扰', type: 'number', group: 'update' },
+    { key: 'web.handbookTooltipDelayMs', value: '1000', label: '背包图鉴悬浮延迟(毫秒)', description: '网页背包格子悬浮多少毫秒后弹出图鉴弹层，0=立即弹出', type: 'number', group: 'web' },
   ] as const;
 
   for (const cfg of systemConfigs) {

@@ -409,6 +409,10 @@
             {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
           </button>
           <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
+          <!-- 命令面板入口：桌面端可用 Cmd/Ctrl+K 唤起，移动端点此打开 -->
+          <button class="header-action-btn palette-open-btn" title="指令面板（Cmd/Ctrl+K）" @click="ui.openPalette()">
+            ⌨️ 指令
+          </button>
           <!-- 私聊入口按钮（带未读红点） -->
           <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
             💬 私聊
@@ -870,6 +874,9 @@
         </footer>
       </div>
     </div>
+
+    <!-- 命令面板（Cmd/Ctrl+K 唤起）：复用本页已加载的指令列表 -->
+    <CommandPalette :commands="commands" @select="onPaletteSelect" />
   </div>
 </template>
 
@@ -890,22 +897,32 @@ import { useRouter } from 'vue-router';
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
 import PendingActionBar from '../components/PendingActionBar.vue';
 import { io } from 'socket.io-client';
-import { chatApi, commandApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
+import { chatApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
 import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameHighlight from '../components/GameHighlight.vue';
 // 结构化长消息（背包/属性/装备）在公屏的网格卡片渲染（纯前端展示层优化，不影响后端/AstrBot 文本）
 import RichSystemCard from '../components/RichSystemCard.vue';
+import CommandPalette from '../components/CommandPalette.vue';
+import { useUiStore } from '../stores/ui';
+import { useCommandStore } from '../stores/command';
+import { useConnectionStore } from '../stores/connection';
+import { usePlayerStore } from '../stores/player';
 import { syncServerClock } from '../utils/serverClock';
 import { parseHighlights, GAME_HIGHLIGHT_EVENT } from '../utils/gameHighlight';
 
 const router = useRouter();
+const ui = useUiStore();
+// 集中状态：指令列表 / 连接与服务器统计 / 玩家信息（从本地 ref 下沉到 Pinia store）
+const commandStore = useCommandStore();
+const connectionStore = useConnectionStore();
+const playerStore = usePlayerStore();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
 const channel = ref(null);
 const messages = ref([]);
-const commands = ref([]);
+const commands = computed(() => commandStore.commands);
 const input = ref('');
-const connected = ref(false);
+const connected = computed(() => connectionStore.connected);
 const msgList = ref(null);
 const inputEl = ref(null);
 
@@ -986,12 +1003,12 @@ const visibleMessages = computed(() => {
 });
 
 // 服务器统计（总人数、在线人数）
-const serverStats = ref({ totalPlayers: 0, onlinePlayers: 0 });
+const serverStats = computed(() => connectionStore.stats);
 let statsTimer = null;
 let socket = null;
 
 // 玩家信息
-const playerInfo = ref(null);
+const playerInfo = computed(() => playerStore.info);
 // 地图总览（当前区域 + 全部地图）
 const mapOverview = ref(null);
 // 推送版本号守卫：丢弃网络乱序导致的旧包（rev 回退/归零视为新会话，宽容放行）
@@ -1002,7 +1019,7 @@ function applyPlayerUpdate(data) {
   const rev = Number(data.rev || 0);
   if (rev > 0 && rev <= playerRev) return; // 旧包丢弃
   playerRev = rev;
-  playerInfo.value = data;
+  playerStore.setPlayerInfo(data);
 }
 function applyMapUpdate(payload) {
   const overview = payload?.overview ?? payload;
@@ -1543,6 +1560,13 @@ function quickAction(action) {
   sendChatMessage(action);
 }
 
+// 命令面板（Cmd/Ctrl+K）选中回调：复用 quickSend 的「无参直发 / 有参填入」逻辑
+function onPaletteSelect(name) {
+  if (!name) return;
+  quickSend(name);
+  ui.pushToast({ type: 'info', message: `已发送指令：${name}` });
+}
+
 /**
  * 右键点击提示指令：将指令内容填入输入框（不发送）
  * 便于用户先查看/补充参数，确认后再手动发送
@@ -1935,7 +1959,7 @@ async function resetMyData() {
 async function loadPlayerInfo() {
   try {
     const res = await gameApi.playerInfo();
-    playerInfo.value = res.data;
+    playerStore.setPlayerInfo(res.data);
   } catch {
     // 玩家信息接口可能不存在，静默忽略
   }
@@ -1990,7 +2014,7 @@ async function loadMentionablePlayers() {
 async function loadServerStats() {
   try {
     const res = await gameApi.stats();
-    serverStats.value = res.data;
+    connectionStore.setStats(res.data);
   } catch {
     // 统计接口可能暂不可用，静默忽略
   }
@@ -2698,9 +2722,8 @@ onMounted(async () => {
     messages.value = (msgs.data || []).reverse();
     // 扫描历史中的未读系统公告 → 弹窗补展示（离线期间错过的公告上线后仍会弹出）
     scanHistoryAnnouncements(messages.value);
-    // 加载指令列表
-    const cmds = await commandApi.list();
-    commands.value = cmds.data;
+    // 加载指令列表（集中到 command store）
+    await commandStore.loadCommands();
     // 加载我的常用指令（置顶展示）
     await loadFavorites();
     // 加载玩家信息和地图总览
@@ -2749,7 +2772,7 @@ onMounted(async () => {
     });
 
     socket.on('connect', () => {
-      connected.value = true;
+      connectionStore.setConnected(true);
       // 重连后重测时钟偏移：会话期间本机时钟可能被系统 NTP 校准过
       syncServerClock();
       // 连接建立后再刷新一次统计，确保自己立刻计入在线人数
@@ -2763,7 +2786,7 @@ onMounted(async () => {
       checkForUpdate();
     });
     socket.on('disconnect', () => {
-      connected.value = false;
+      connectionStore.setConnected(false);
     });
     // 接收公屏消息(聊天、指令结果广播、系统消息)
     socket.on('chat:message', (msg) => {
@@ -2791,7 +2814,7 @@ onMounted(async () => {
     // 接收服务器统计更新事件（在线人数/总玩家数变化时实时刷新左下角）
     socket.on('stats:update', (data) => {
       if (data) {
-        serverStats.value = data;
+        connectionStore.setStats(data);
       }
     });
     socket.on('error', (e) => {

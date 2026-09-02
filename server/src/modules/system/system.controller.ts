@@ -7,11 +7,15 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SystemService } from './system.service';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 @ApiTags('系统')
 @Controller('system')
 export class SystemController {
-  constructor(private readonly systemService: SystemService) {}
+  constructor(
+    private readonly systemService: SystemService,
+    private readonly systemConfigService: SystemConfigService,
+  ) {}
 
   /**
    * 获取部署版本信息与更新检测配置
@@ -35,5 +39,19 @@ export class SystemController {
   @ApiOperation({ summary: '获取服务器当前时间(毫秒时间戳)' })
   getServerTime() {
     return { success: true, data: { serverNow: Date.now() } };
+  }
+
+  /**
+   * 获取网页前端可调配置（公开，无需登录）
+   * 玩家侧组件（如背包图鉴弹层）启动时读取一次，GM 在后台修改后玩家刷新页面生效。
+   */
+  @Get('web-config')
+  @ApiOperation({ summary: '获取网页前端可调配置(公开)' })
+  async getWebConfig() {
+    const handbookTooltipDelayMs = await this.systemConfigService.get<number>(
+      'web.handbookTooltipDelayMs',
+      1000,
+    );
+    return { success: true, data: { handbookTooltipDelayMs } };
   }
 }

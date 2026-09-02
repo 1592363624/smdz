@@ -22,6 +22,8 @@
   </div>
 
   <router-view />
+  <!-- 全局轻提示宿主：成功/错误/警告/信息统一反馈 -->
+  <ToastHost />
 </template>
 
 <script setup>
@@ -36,6 +38,7 @@
  * - 不提供任何"继续游玩"入口：QQ 内核下聊天/长连接表现不可控，必须离开
  */
 import { ref, onUnmounted } from 'vue';
+import ToastHost from './components/ToastHost.vue';
 
 /** 是否为手机 QQ 内置浏览器（UA 特征判定） */
 function isMobileQqWebview() {
