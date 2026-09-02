@@ -223,15 +223,32 @@ async function onCellEnter(name, e) {
   enterTimer = setTimeout(async () => {
     // 二次确认：防止快速移动时上一格还在转圈
     if (active.name !== name) return;
-    try {
-      // REST 返回的 body 是 { success, data: CommandResult }（axios 拦截器已剥外层）
-      const res = await commandApi.execute(`图鉴 ${name}`);
-      // 兼容两层/三层嵌套：取最深一层的 content 字段
-      const content =
+    /** 执行一次「图鉴 X」并取回 content（axios 拦截器已剥外层，兼容两/三层嵌套）；顺带剥顶部横幅 */
+    const runQuery = async (q) => {
+      const res = await commandApi.execute(`图鉴 ${q}`);
+      const raw = (
         String(res?.data?.content ?? '') ||
         String(res?.content ?? '') ||
-        '';
-      const trimmed = content.trim() || '🐾 图鉴中暂无该物品的详细资料';
+        ''
+      ).trim();
+      return stripLeadingBanners(raw);
+    };
+    try {
+      // 两段式回退：
+      // ① 先按显示名原样查（覆盖「妖精之森E」这类名字本身以品质码字母结尾的物品）
+      // ② 显示名查不到、且能剥出更短基础名时（如「纵横C」→「纵横」），回退查基础名
+      //    ——后端图鉴按基础名登记，带品质码的显示名匹配不到
+      // 注意：dispatch 会把离线结算横幅（⏰…）前插到 content 开头，
+      //       所以「没有找到」检测不能锚定行首，用 includes 判断。
+      let trimmed = await runQuery(name);
+      const isNotFound = (s) => s.includes('图鉴中没有找到');
+      if (isNotFound(trimmed)) {
+        const base = handbookQueryName(name);
+        if (base !== name) {
+          trimmed = await runQuery(base);
+        }
+      }
+      trimmed = trimmed || '🐾 图鉴中暂无该物品的详细资料';
       // 二次确认：若用户已移走（name 变了），写到错误态而不是覆盖当前显示
       if (active.name !== name) {
         active.error = trimmed;
@@ -239,7 +256,9 @@ async function onCellEnter(name, e) {
       }
       active.content = trimmed;
       active.loading = false;
-      // 仅成功获取时入缓存，错误/空内容不缓存（下次重试仍可重新请求）
+      // 结果入缓存（含「图鉴中没有找到」——它就是该名字的最终结果，避免每次悬浮都重发两段请求；
+      // 页面刷新即清空缓存，后端补录图鉴后刷新即可看到）。
+      // 仅「空内容」占位不入缓存。
       if (trimmed !== '🐾 图鉴中暂无该物品的详细资料') {
         handbookCache.set(name, trimmed);
       }
@@ -307,6 +326,42 @@ const isBannerLine = (s) => /^【.+】\s*$/.test(s || '');
 function classifyItemKind(name) {
   const stripped = String(name || '').replace(/·[^·]+$/, '');
   return /[EDCBASX]$/.test(stripped) ? 'equip' : 'use';
+}
+
+/**
+ * 图鉴查询名：剥掉显示名里的品质码/特效，得到后端图鉴登记用的「基础名」。
+ * 背包显示「纵横C」= 基础名「纵横」+ 品质码 C；图鉴按基础名登记，
+ * 直接发「图鉴 纵横C」会匹配不到，所以发请求前先剥码。
+ * 仅当剥完后名字确实变短才返回新名，否则原样返回（避免误伤名字本身以 E 结尾的物品）。
+ */
+function handbookQueryName(displayName) {
+  const stripped = String(displayName || '').replace(/·[^·]+$/, '');
+  const base = stripped.replace(/[EDCBASX]$/, '');
+  return base && base !== stripped ? base : stripped;
+}
+
+/**
+ * 剥掉 content 顶部连续的系统横幅行。
+ * dispatch 会把离线结算/状态提示前插到指令结果开头：
+ *   ⏰ 你离开了 1 分 47 秒
+ *   【活力快满了:102/102】
+ *   ━━━━━━━━━━━━━━━
+ *   （真正的指令结果…）
+ * 悬浮图鉴弹层只关心指令结果本身，横幅挤占弹层空间且造成困惑。
+ * 只从开头连续剥离，遇到第一行非横幅即停 —— 正文中部的【…】/━━ 不受影响。
+ */
+function stripLeadingBanners(text) {
+  const lines = String(text || '').split('\n');
+  let i = 0;
+  while (i < lines.length) {
+    const t = lines[i].trim();
+    if (t === '' || /^⏰\s/.test(t) || /^【.+】$/.test(t) || /^━+$/.test(t)) {
+      i++;
+    } else {
+      break;
+    }
+  }
+  return lines.slice(i).join('\n');
 }
 
 function parseLayout(text) {
