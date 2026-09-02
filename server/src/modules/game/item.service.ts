@@ -25,6 +25,7 @@ function formatLootQuantity(value: number): string {
 }
 import { ItemSystemService } from './item-system.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -1009,10 +1010,10 @@ export class ItemService {
         } else {
           const existing = backpack.find((entry) => entry.name === o.name && entry.type !== '装备');
           if (existing) {
-            existing.quantity = Number(existing.quantity ?? existing.count ?? 0) + o.count;
+            existing.quantity = roundItemQuantity(Number(existing.quantity ?? existing.count ?? 0) + o.count);
             existing.count = existing.quantity;
           } else {
-            backpack.push({ name: o.name, type: '资源', quantity: o.count, count: o.count, durability: 0, data: '' });
+            backpack.push({ name: o.name, type: '资源', quantity: roundItemQuantity(o.count), count: roundItemQuantity(o.count), durability: 0, data: '' });
           }
         }
       }

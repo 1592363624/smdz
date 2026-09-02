@@ -31,6 +31,7 @@ import {
   expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainSeconds, toExpireMs,
 } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 
 // ==================== 类型定义 ====================
 
@@ -5343,10 +5344,10 @@ export class CombatSystemService {
       const existing = backpack.find((b: any) => b.name === drop.name);
       if (existing) {
         const cur = existing.count ?? existing.quantity ?? 0;
-        existing.count = cur + count;
+        existing.count = roundItemQuantity(cur + count);
         delete existing.quantity; // 统一用 count 字段，避免双字段歧义
       } else {
-        backpack.push({ name: drop.name, count });
+        backpack.push({ name: drop.name, count: roundItemQuantity(count) });
       }
     }
     player.backpack = backpack; // Json 列直接写数组

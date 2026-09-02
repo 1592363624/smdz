@@ -11,6 +11,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 
 /**
  * 加成属性接口，对应原版易语言的"加成"数据类型
@@ -1059,12 +1060,15 @@ export class BonusService {
     if (!Array.isArray(items) || !delta) return;
     const index = items.findIndex((item) => String(item?.name ?? item?.名称 ?? '') === name);
     if (index < 0) {
-      if (delta > 0) items.push({ name, quantity: delta, count: delta, type: '资源' });
+      if (delta > 0) {
+        const qty = roundItemQuantity(delta);
+        items.push({ name, quantity: qty, count: qty, type: '资源' });
+      }
       return;
     }
 
     const item = items[index];
-    const next = this.countItem([item], name) + delta;
+    const next = roundItemQuantity(this.countItem([item], name) + delta);
     if (next <= 0) {
       items.splice(index, 1);
       return;

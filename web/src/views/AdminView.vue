@@ -1058,6 +1058,9 @@ const gmBackpackSaving = ref(false);
 /** 切到详情弹窗的"背包管理"页签时，为当前用户加载背包（同一用户仅加载一次） */
 async function switchBackpackTab() {
   detailTab.value = 'backpack';
+  // 背包管理的"添加物品"选择器复用物品目录，必须确保已加载；
+  // 否则未切过 GM 页签时 itemCatalog 为空，会一直显示"物品目录加载中…"。
+  loadItemCatalog();
   if (!detailUser.value) return;
   const uid = detailUser.value.id;
   // 换了一个用户才重新拉取，避免反复加载

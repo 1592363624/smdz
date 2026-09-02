@@ -15,6 +15,7 @@ import type { ItemSystemService } from './item-system.service';
 import { filterActive } from './expire-time.util';
 import { deriveDisplayName } from './display-name.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { GameHighlightService } from './highlight.service';
 import { ActorRuntime, actorKey } from '../actor';
@@ -1115,16 +1116,43 @@ export class PlayerService implements OnModuleInit {
         const _pd = await this.getPlayerData(userId);
         const backpack = this.getBackpackItems(_pd.player);
 
-        // 查找是否已有同名物品，有则叠加数量
-        // 兼容历史字段不一致：既有 quantity（初始装备/消耗品），又有 count（掉落物）
-        const existing = backpack.find((item: any) => item.name === itemName);
-        if (existing) {
-          const cur = existing.quantity ?? existing.count ?? 0;
-          // 统一写入 count，同时清理 quantity 避免双字段歧义
-          existing.count = cur + count;
-          delete existing.quantity;
+        // 装备/武器（静态装备表有定义，如高斯步枪、麻醉枪）不走普通物品的「堆叠」逻辑：
+        // 按原版"生成装备"路径卷随机词条生成，每个装备占独立一条（type='装备'、quantity=1），
+        // 保证背包能以"装备"身份显示（不显示 ×N）、并能被解析出词条/伤害正常装备。
+        // 否则 addToBackpack 只会写成 { name, count } 占位条目，既无 type='装备'（无法装备），
+        // 也无 data 词条（伤害/属性恒为 0）——GM 发放高斯步枪此前正是如此。
+        const isEquip = !!this.staticData.getEquipmentByName(itemName);
+        if (isEquip) {
+          // 清理历史上以普通物品占位存下的同名条目，避免与真实装备并存。
+          for (let i = backpack.length - 1; i >= 0; i--) {
+            if (backpack[i]?.name === itemName && backpack[i]?.type !== '装备') backpack.splice(i, 1);
+          }
+          // 装备不堆叠：发放 N 个就生成 N 条独立装备（与掉落/采集生成逻辑一致）。
+          const times = Math.max(1, Math.floor(count || 1));
+          for (let i = 0; i < times; i++) {
+            let gear: any = { name: itemName, type: '装备', quantity: 1, durability: 0, data: 'e' };
+            if (this.itemSystem) {
+              try {
+                gear = await this.itemSystem.generateRewardEquipment(itemName);
+              } catch (e) {
+                this.logger.warn(`生成装备「${itemName}」失败，退化为静态条目: ${e?.message ?? e}`);
+              }
+            }
+            backpack.push({ ...gear, name: gear?.name || itemName, type: '装备', quantity: 1, count: 1 });
+          }
         } else {
-          backpack.push({ name: itemName, count });
+          // 普通物品：查找是否已有同名物品，有则叠加数量
+          // 兼容历史字段不一致：既有 quantity（初始装备/消耗品），又有 count（掉落物）
+          const existing = backpack.find((item: any) => item.name === itemName);
+          if (existing) {
+            const cur = existing.quantity ?? existing.count ?? 0;
+            // 统一写入 count，同时清理 quantity 避免双字段歧义
+            existing.count = roundItemQuantity(cur + count);
+            delete existing.quantity;
+          } else {
+            // 新物品数量同样收敛到两位小数，避免长尾入库
+            backpack.push({ name: itemName, count: roundItemQuantity(count) });
+          }
         }
 
         _pd.player.backpack = backpack; // Json 列直接写数组

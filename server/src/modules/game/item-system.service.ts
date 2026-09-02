@@ -12,6 +12,7 @@ import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
 import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POOL, AMPLIFIER_RANDOM_POOL } from './item.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
 
 // ========== 类型定义 ==========
 
@@ -104,11 +105,11 @@ export class ItemSystemService {
       if (recipe.description) info += `${recipe.description}\n`;
       info += '━━━━━━━━━━━━━━━\n制造需求:\n';
       for (const req of requirements) {
-        info += `  ${req.name} ×${req.quantity}\n`;
+        info += `  ${req.name} ×${formatDisplayNumber(req.quantity)}\n`;
       }
       info += '━━━━━━━━━━━━━━━\n产出:\n';
       for (const out of outputs) {
-        info += `  ${out.name} ×${out.quantity}\n`;
+        info += `  ${out.name} ×${formatDisplayNumber(out.quantity)}\n`;
       }
       return info;
     }
@@ -134,7 +135,7 @@ export class ItemSystemService {
       const totalNeeded = req.quantity * maxCount;
       const hasQty = this.getItemQuantity(req.name, backpack);
       if (hasQty < totalNeeded) {
-        insufficient.push(`需要${req.name} ×${totalNeeded}，你只有${hasQty}`);
+        insufficient.push(`需要${req.name} ×${formatDisplayNumber(totalNeeded)}，你只有${formatDisplayNumber(hasQty)}`);
       }
     }
     if (insufficient.length > 0) {
@@ -250,8 +251,8 @@ export class ItemSystemService {
     }
 
     // 构建返回文本
-    const consumedText = consumedList.map(c => `${c.name} ×${c.quantity}`).join('、');
-    const producedText = producedList.map(p => `${p.name} ×${p.quantity}`).join('、');
+    const consumedText = consumedList.map(c => `${c.name} ×${formatDisplayNumber(c.quantity)}`).join('、');
+    const producedText = producedList.map(p => `${p.name} ×${formatDisplayNumber(p.quantity)}`).join('、');
     return `${player.name}用${consumedText}制造了${maxCount}个${recipeName}，得到了${producedText}`;
   }
 
@@ -939,7 +940,7 @@ export class ItemSystemService {
       await this.playerService.savePlayer(_pd.player);
     });
 
-    const displayName = item.type === '装备' ? item.name : `${item.name} ×${item.quantity}`;
+    const displayName = item.type === '装备' ? item.name : `${item.name} ×${formatDisplayNumber(item.quantity)}`;
     return `${player.name}将【${displayName}】保护到了保险柜。`;
   }
 
@@ -986,7 +987,7 @@ export class ItemSystemService {
       await this.playerService.savePlayer(_pd.player);
     });
 
-    const displayName = item.type === '装备' ? item.name : `${item.name} ×${item.quantity || 1}`;
+    const displayName = item.type === '装备' ? item.name : `${item.name} ×${formatDisplayNumber(item.quantity || 1)}`;
     return `${player.name}从次元保险柜中取出了【${displayName}】。`;
   }
 
@@ -1027,7 +1028,7 @@ export class ItemSystemService {
       await this.playerService.savePlayer(_pd.player);
     });
 
-    const displayText = item.type === '装备' ? item.name : `${item.name} ×${actualCount}`;
+    const displayText = item.type === '装备' ? item.name : `${item.name} ×${formatDisplayNumber(actualCount)}`;
     return `${player.name}丢弃了${displayText}。`;
   }
 
@@ -2596,18 +2597,19 @@ export class ItemSystemService {
     const index = backpack.findIndex((item: any) => item?.name === name && item?.type !== '装备');
     if (index < 0) {
       if (quantity <= 0) return false;
+      const qty = roundItemQuantity(quantity);
       backpack.push({
         name,
         type: source?.type || source?.类型 || '资源',
-        count: quantity,
-        quantity,
+        count: qty,
+        quantity: qty,
       });
       return true;
     }
 
     const item = backpack[index];
     const current = Number(item.quantity ?? item.count ?? 0);
-    const next = current + quantity;
+    const next = roundItemQuantity(current + quantity);
     if (next <= 0) backpack.splice(index, 1);
     else {
       item.count = next;

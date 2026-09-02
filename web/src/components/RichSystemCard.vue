@@ -30,6 +30,8 @@
             @click="onCellClick(row.name, row.kind)"
             @mouseenter="onCellEnter(row.name, $event)"
           >
+            <!-- 序号格：与「装备 N」指令的解序号一一对应，方便玩家肉眼对号操作 -->
+            <span v-if="row.idx != null" class="rc-idx">{{ row.idx }}</span>
             <span class="rc-name">{{ row.name }}</span>
             <span v-if="row.count != null" class="rc-count">×{{ row.count }}</span>
           </div>
@@ -407,12 +409,16 @@ function parseLayout(text) {
     for (const line of lines.slice(bagIdx + 1)) {
       const t = line.trim();
       if (isBannerLine(t)) continue; // 横幅通知非物品，不显示
+      // 序号 idx 与后端「背包」列表的 index+1、「装备 N」的解序号一致，必须原样保留供对号
       const m = t.match(/^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/);
       if (m) {
-        items.push({ name: m[2].trim(), count: m[3], kind: classifyItemKind(m[2].trim()) });
+        items.push({ idx: m[1], name: m[2].trim(), count: m[3], kind: classifyItemKind(m[2].trim()) });
       } else {
-        const plain = t.replace(/^\d+\.\s*/, '');
-        if (plain) items.push({ name: plain, count: null, kind: classifyItemKind(plain) });
+        const pm = t.match(/^(\d+)\.\s*(.+)$/);
+        if (pm) {
+          const plain = pm[2].trim();
+          if (plain) items.push({ idx: pm[1], name: plain, count: null, kind: classifyItemKind(plain) });
+        }
       }
     }
     if (items.length) {
@@ -643,6 +649,19 @@ function parseLayout(text) {
   color: var(--muted);
   /* 不换行：单行完整显示（标签宽度随内容自适应） */
   white-space: nowrap;
+}
+/* 背包物品序号格：放在名字左侧、弱化显示，便于肉眼对应「装备 N」指令 */
+.rc-idx {
+  flex-shrink: 0;
+  min-width: 16px;
+  text-align: center;
+  color: var(--muted-dark, #7b7484);
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(139, 92, 246, 0.08);
+  padding: 0 4px;
+  border-radius: 4px;
+  line-height: 1.4;
 }
 .rc-count { color: var(--accent2); font-weight: 600; flex-shrink: 0; }
 

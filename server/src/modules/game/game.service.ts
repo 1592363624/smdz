@@ -33,7 +33,7 @@ import { DelayedTaskService } from './delayed-task.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { HandbookService } from './handbook.service';
-import { normalizeGameText } from '../../common/utils/game-text.util';
+import { normalizeGameText, formatDisplayNumber } from '../../common/utils/game-text.util';
 import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
 import { buildFamiliarGateMenu } from './familiar-menu.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -6397,7 +6397,7 @@ export class GameService {
       lines.push(`【${type}】`);
       for (const item of typeItems as any[]) {
         const count = item.count || item.quantity || 1;
-        lines.push(`  ${item.name} ×${count}`);
+        lines.push(`  ${item.name} ×${formatDisplayNumber(count)}`);
       }
       lines.push('');
     }
@@ -6434,7 +6434,7 @@ export class GameService {
       if (item.type === '装备') {
         lines.push(`  ${item.name} [装备]`);
       } else {
-        lines.push(`  ${item.name} ×${item.quantity} [${item.type || '资源'}]`);
+        lines.push(`  ${item.name} ×${formatDisplayNumber(item.quantity)} [${item.type || '资源'}]`);
       }
     }
     lines.push(`━━━━━━━━━━━━━━━`);
@@ -6471,7 +6471,7 @@ export class GameService {
       if (item.type === '装备') {
         lines.push(`  ${item.name} [装备]`);
       } else {
-        lines.push(`  ${item.name} ×${item.quantity} [${item.type || '资源'}]`);
+        lines.push(`  ${item.name} ×${formatDisplayNumber(item.quantity)} [${item.type || '资源'}]`);
       }
     }
     lines.push(`━━━━━━━━━━━━━━━`);
