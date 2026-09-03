@@ -1633,7 +1633,10 @@ export class ItemService {
         backpack.push(weapons[i]);
         weapons.splice(i, 1);
 
-        // 如果卸下的是当前武器，重置当前武器索引（1-based：有效范围 1..weapons.length，0=拳头）
+        // currentWeapon 收敛（1-based：有效范围 1..weapons.length，0=拳头）。
+        // 有意与原版不同（原版 _主程序.ecode L4487-4489：length < 当前武器 → 归 0 赤手）：
+        // 本实现收敛到当前武器的新索引，保证"卸下一把背上的武器，手上那把不变"。
+        // 原版会连手上的武器一起收回（更保守），复刻时选择了体验更优的口径，勿改回。
         let currentWeapon = player.currentWeapon || 0;
         if (currentWeapon > weapons.length) {
           currentWeapon = weapons.length;
@@ -1664,7 +1667,7 @@ export class ItemService {
    * @param data 装备数据串（首字符为品质前缀 e/d/c/b/a/s）
    * @returns 品质文本（普通/良好/优秀/精良/史诗/传说/神迹）
    */
-  private qualityPrefix(data: string): string {
+  qualityPrefix(data: string): string {
     const c = (data || '').charAt(0).toLowerCase();
     const map: Record<string, string> = { e: '普通', d: '良好', c: '优秀', b: '精良', a: '史诗', s: '传说' };
     return map[c] || '神迹';
@@ -1675,7 +1678,7 @@ export class ItemService {
    * @param quality 品质文本
    * @returns 形如 [优秀] 的字符串，普通品质返回空串
    */
-  private qualityBracket(quality: string): string {
+  qualityBracket(quality: string): string {
     return quality === '普通' ? '' : `[${quality}]`;
   }
 

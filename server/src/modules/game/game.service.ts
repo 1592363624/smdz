@@ -3508,8 +3508,10 @@ export class GameService {
 
     // 矿炮(特殊序号-38)在手的玩家，单次采集耗时上限30秒（原版 L11391-11398）
     const weapons = Array.isArray(playerData.weapons) ? playerData.weapons : [];
-    const currentWeaponIdx = Math.max(0, Number(player.currentWeapon ?? 1) - 1);
-    const currentWeapon = weapons[currentWeaponIdx];
+    // currentWeapon 为 1-based（0=赤手）。赤手时不应取用任何武器，
+    // 否则会把背上第一把武器误判为"在手"，触发矿炮上限/污染【武器】占位符。
+    const currentWeaponIdx = Number(player.currentWeapon ?? 0);
+    const currentWeapon = currentWeaponIdx > 0 ? weapons[currentWeaponIdx - 1] : null;
     const cappedSeconds = currentWeapon?.specialSeq === -38 ? Math.min(seconds, 30) : seconds;
 
     const now = Date.now();
@@ -6745,10 +6747,11 @@ export class GameService {
 
   /**
    * 处理切换武器命令
-   * 切换当前使用的武器
+   * 对应原版 _主程序.ecode L4303-4432 切换武器()：
+   * 无参数/数字越界→列出武器清单；数字→按编号切换；其他→按武器名切换（"拳头"=空手）
    */
   async handleSwitchWeapon(userId: number, weaponName: string): Promise<string> {
-    return this.itemSystemService.switchWeapon(userId, parseInt(weaponName, 10) || 1);
+    return this.itemSystemService.switchWeapon(userId, weaponName || '');
   }
 
   /**

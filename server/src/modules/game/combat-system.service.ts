@@ -1479,7 +1479,8 @@ export class CombatSystemService {
         // 取成就熟练度(攻击方.标记, z1.名称+"t")>=1 → 伤害倍率×1.25（普拉娜好感>=60 → ×(1.25+技等×0.01)）
         if ((playerMk[`${weapon.name}t`] || 0) >= 1) {
           delete playerMk[`${weapon.name}t`];
-          const isPlana = (player.specialSeq ?? 0) === 23 || player.type === '普拉娜'; // #普拉娜=23
+          // #普拉娜=22（@Constant.ecode L225 .常量 普拉娜,"22"），与 L5958/L6330 的判定保持一致
+          const isPlana = (player.specialSeq ?? 0) === 22 || player.type === '普拉娜';
           if (isPlana && (player.affinity ?? player.好感 ?? 0) >= 60) {
             forcedMult *= 1.25 + (player.skillLevel ?? player.技能等级 ?? 0) * 0.01;
           } else {

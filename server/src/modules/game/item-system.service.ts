@@ -1178,32 +1178,243 @@ export class ItemSystemService {
 
   /**
    * 切换武器
-   * 对应原版：切换武器()
-   * 切换当前使用的武器
+   * 对应原版：_主程序.ecode L4303-4432 切换武器()
+   *
+   * 三种交互（与原版一致）：
+   *  1. 无参数 / 数字越界 → 列出「当前武器 + 0、拳头 + 1..n 各武器」，玩家再发数字选择；
+   *  2. 纯数字参数      → 按编号切换（0=拳头，1..n）；
+   *  3. 含非数字参数    → 按武器名匹配并切换（"拳头"=切回空手，同名命中第一把）。
+   *
+   * 口径提醒（改动前必读）：
+   *  - weapons 数组是 0-based，而 currentWeapon 是 1-based（0=拳头）。取用时必须 -1，
+   *    直接用 weapons[currentWeapon] 会整体错位一位（历史 bug 的成因）。
+   *  - 武器攻击冷却以「武器名+冷却」写在 markers2 上，因此**同名武器共用同一份冷却**。
+   *    这是原版行为，不是 bug：两把同名武器切着打并不能规避攻击冷却。
    */
-  async switchWeapon(userId: number, weaponIndex: number): Promise<string> {
+  async switchWeapon(userId: number, arg = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, weapons } = playerData;
+    const list = Array.isArray(weapons) ? weapons : [];
+    const intent = this.resolveWeaponSwitchIntent(String(arg ?? '').trim(), list);
 
-    if (weapons.length === 0) {
-      return `${player.name} 你还没有任何武器。`;
+    if (intent.kind === 'list') {
+      return this.weaponSwitchList(player, list, playerData.markers2 || []);
+    }
+    if (intent.kind === 'notFound') {
+      return `${player.name}你没装备有“${intent.name}”`;
+    }
+    return this.applySwitchWeapon(userId, playerData, intent.target);
+  }
+
+  /**
+   * 解析「切换武器」的参数意图（纯函数，便于回归测试）
+   * 对应原版 _主程序.ecode L4304-4316 / L4372-4394 的参数分流：
+   *  - 无参数、或纯数字但越界 → list（列清单）
+   *  - 纯数字且在 1..n 内    → switch（0=拳头，1..n 按编号）
+   *  - 含非数字              → 按武器名匹配；命中第一把同名；"拳头"=切空手；未命中 → notFound
+   *
+   * @param raw    玩家输入的参数（已 trim）
+   * @param weapons 已装备武器数组（0-based）
+   */
+  private resolveWeaponSwitchIntent(
+    raw: string,
+    weapons: any[],
+  ): { kind: 'list' } | { kind: 'notFound'; name: string } | { kind: 'switch'; target: number } {
+    const list = Array.isArray(weapons) ? weapons : [];
+    // 原版 w3 = 去数字(w2)：去掉所有数字后剩下的部分作为武器名
+    const nameArg = raw.replace(/\d+/g, '').trim();
+    const isPureNumber = /^\d+$/.test(raw);
+
+    // 按名称匹配（原版 L4307-4315）：命中第一个同名武器，返回 1-based 编号。
+    // 先用原始参数全名精确匹配（让 M16 这类含数字的武器名也能切换），
+    // 再回退原版口径的"去数字后的名字"匹配。
+    if (nameArg !== '') {
+      let target = 0;
+      for (const key of [raw, nameArg]) {
+        if (!key) continue;
+        for (let i = 0; i < list.length; i += 1) {
+          if (this.weaponName(list[i]) === key) {
+            target = i + 1;
+            break;
+          }
+        }
+        if (target > 0) break;
+      }
+      // 原版 L4315-4316：没找到且不是"拳头" → 提示未装备
+      if (target === 0 && nameArg !== '拳头') {
+        return { kind: 'notFound', name: raw };
+      }
+      return { kind: 'switch', target };
     }
 
-    if (weaponIndex < 1 || weaponIndex > weapons.length) {
-      return `武器编号超出范围，当前有${weapons.length}把武器。`;
+    // 无参数 / 数字越界 → 列清单（原版 L4372-4393）
+    if (!isPureNumber) return { kind: 'list' };
+    const numArg = Number(raw);
+    if (Number.isNaN(numArg) || numArg > list.length) return { kind: 'list' };
+    return { kind: 'switch', target: numArg };
+  }
+
+  /**
+   * 执行切换（target 为 1-based 编号，0=拳头）
+   * 对应原版 L4318-4369（按名）/ L4398-4429（按编号）：文案、超压装置、甩枪、活跃度
+   */
+  private async applySwitchWeapon(userId: number, playerData: any, target: number): Promise<string> {
+    const { player, weapons, equipment, markers } = playerData;
+    const list = Array.isArray(weapons) ? weapons : [];
+    if (target < 0 || target > list.length) {
+      return this.weaponSwitchList(player, list, playerData.markers2 || []);
+    }
+    if (list.length === 0) {
+      return `${player.name}你还没有任何武器`;
     }
 
-    // currentWeapon 全局为 1-based（0=拳头），用户输入的编号本身就是 1-based，直接存储
-    const currentWeapon = weaponIndex;
+    const markers2: any[] = Array.isArray(playerData.markers2) ? playerData.markers2 : [];
+    const now = Date.now();
+    // 存量数据可能残留越界索引（如卸下武器后未收敛），越界一律按赤手处理
+    let cur = Number(player.currentWeapon ?? 0);
+    if (cur > list.length) cur = 0;
+    const prev = cur > 0 ? list[cur - 1] : null;
+    const next = target > 0 ? list[target - 1] : null;
+    const prevName = prev ? this.weaponName(prev) : '拳头';
+    const nextName = next ? this.weaponName(next) : '拳头';
+
+    // 目标武器仍在攻击冷却：原版只提示、不阻止切换（L4334-4337 / L4406-4409）
+    let cooldownText = '';
+    if (next) {
+      const left = this.weaponCooldownLeft(markers2, nextName, now);
+      if (left > 0) cooldownText = `\n这个武器的攻击冷却还有${this.secondsText(left)}`;
+    }
+
+    let text = '';
+    if (target === 0) {
+      text = cur !== 0
+        ? `${player.name}把${prevName}${this.weaponQualityBracket(prev)}收回了背上`
+        : `${player.name}挥了挥拳头`;
+    } else if (cur !== 0) {
+      text = `${player.name}把${prevName}${this.weaponQualityBracket(prev)}换成了${nextName}${this.weaponQualityBracket(next)}${cooldownText}`;
+    } else {
+      text = `${player.name}把${nextName}${this.weaponQualityBracket(next)}拿在了手中${cooldownText}`;
+    }
+
+    // 超压装置（原版 L4341-4347 / L4413-4421）：真的换了一把武器时，给被换下来的那把上"超压"
+    if (cur !== 0 && cur !== target && this.hasEquipmentName(equipment, '超压装置')) {
+      if (!this.intervalRequire(markers2, 'pll', 15, now)) {
+        markers[`${prevName}t`] = Number(markers[`${prevName}t`] || 0) + 1;
+        text += `\n${prevName}获得了超压效果`;
+      }
+    }
+
+    // 普拉娜好感≥80「甩枪」（原版 L4356-4367）：战斗状态下 1 秒内只触发一次，持续20秒
+    const affinity = Number(player.affinity ?? this.playerService.getMarkerValue(markers, `${player.type}好感`) ?? 0);
+    const isPlana = Number(player.specialSeq ?? 0) === 22 || player.type === '普拉娜';
+    if (affinity >= 80 && isPlana && this.markerActive(markers2, '战斗', now)) {
+      if (!this.intervalRequire(markers2, 'sq冷却', 1, now)) {
+        const skillLevel = player.type ? Number(this.playerService.getSkillLevel(markers, player.type)) || 1 : 1;
+        markers2.push({ name: '甩枪', expireAt: now + 20 * 1000, value: 1 + skillLevel * 0.01 });
+      }
+    }
+
+    // 活跃度+1（原版 活跃度(玩家,1)）
+    markers['活跃度'] = Number(this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, { currentWeapon });
+      Object.assign(_pd.player, {
+        currentWeapon: target,
+        markers, // Player markers 为 Json 列，直接写对象
+        markers2, // Player markers2 为 Json 列，直接写数组
+      });
       await this.playerService.savePlayer(_pd.player);
     });
 
-    const weapon = weapons[currentWeapon];
-    return `${player.name}切换武器为【${weapon.name}】。`;
+    return text;
+  }
+
+  /** 切换武器清单（原版 L4372-4393）：当前武器 + 0、拳头 + 1..n 各武器（含品质或剩余冷却） */
+  private weaponSwitchList(player: any, weapons: any[], markers2: any[]): string {
+    if (!Array.isArray(weapons) || weapons.length === 0) {
+      return `${player.name}你还没有任何武器`;
+    }
+    const now = Date.now();
+    const cur = Number(player.currentWeapon ?? 0) > weapons.length ? 0 : Number(player.currentWeapon ?? 0);
+    const current = cur > 0 ? weapons[cur - 1] : null;
+    const lines: string[] = [];
+    lines.push(`${player.name}选择你要切换的武器`);
+    lines.push(`当前武器:${current ? `${this.weaponName(current)}${this.weaponQualityBracket(current)}` : '拳头'}`);
+    lines.push('0、拳头');
+    const nameCount = new Map<string, number>();
+    for (let i = 0; i < weapons.length; i += 1) {
+      const name = this.weaponName(weapons[i]);
+      nameCount.set(name, (nameCount.get(name) || 0) + 1);
+      const left = this.weaponCooldownLeft(markers2, name, now);
+      const tag = left > 0 ? `[${this.secondsText(left)}]` : this.weaponQualityBracket(weapons[i]);
+      lines.push(`${i + 1}、${name}${tag}`);
+    }
+    lines.push(`你也可以“切换武器${this.weaponName(weapons[0])}”来切换`);
+    // 同名武器按名字切换只命中第一把；且冷却按武器名存储，同名武器共用一份冷却
+    const duplicated = [...nameCount.entries()].filter(([, c]) => c > 1).map(([n]) => n);
+    if (duplicated.length > 0) {
+      lines.push(`注意：${duplicated.join('、')}有重复，按名字切换只会选中第一把，且同名武器共用同一份攻击冷却`);
+    }
+    return lines.join('\n');
+  }
+
+  /** 武器名（兼容中英文 key） */
+  private weaponName(item: any): string {
+    return String(item?.name ?? item?.名称 ?? '');
+  }
+
+  /** 武器品质中括号，对齐原版 加中括号(显示品质())：普通品质不显示 */
+  private weaponQualityBracket(item: any): string {
+    return this.itemService.qualityBracket(this.itemService.qualityPrefix(String(item?.data ?? '')));
+  }
+
+  /**
+   * 武器剩余攻击冷却秒数（0=就绪）
+   * 冷却以「武器名+冷却」写在 markers2 上，故**同名武器共用同一份冷却**（原版行为）。
+   */
+  private weaponCooldownLeft(markers2: any[], weaponName: string, nowMs: number): number {
+    const entry = (markers2 || []).find((m: any) => (m?.name ?? m?.名称) === `${weaponName}冷却`);
+    if (!entry) return 0;
+    const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+    if (!rawExpire) return 0;
+    const expireMs = rawExpire >= 1e12 ? rawExpire : rawExpire * 1000;
+    return expireMs > nowMs ? Math.ceil((expireMs - nowMs) / 1000) : 0;
+  }
+
+  /** 标记是否仍处于有效期内（兼容秒/毫秒两种存量时间戳） */
+  private markerActive(markers2: any[], name: string, nowMs: number): boolean {
+    const entry = (markers2 || []).find((m: any) => (m?.name ?? m?.名称) === name);
+    const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+    if (!rawExpire) return false;
+    const expireMs = rawExpire >= 1e12 ? rawExpire : rawExpire * 1000;
+    return expireMs > nowMs;
+  }
+
+  /**
+   * 时间间隔要求（对应原版 时间间隔要求）：返回 true 表示仍在冷却期内；
+   * 不在冷却期时会顺带写入该标记（原版 时间间隔要求 的副作用）。
+   */
+  private intervalRequire(markers2: any[], name: string, seconds: number, nowMs: number): boolean {
+    const entry = (markers2 || []).find((m: any) => (m?.name ?? m?.名称) === name);
+    const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+    const expireMs = rawExpire ? (rawExpire >= 1e12 ? rawExpire : rawExpire * 1000) : 0;
+    if (entry && expireMs > nowMs) return true;
+    const idx = (markers2 || []).findIndex((m: any) => (m?.name ?? m?.名称) === name);
+    if (idx >= 0) markers2.splice(idx, 1);
+    markers2.push({ name, expireAt: nowMs + seconds * 1000 });
+    return false;
+  }
+
+  /** 按名称检查已穿戴装备（对应原版 装备要求） */
+  private hasEquipmentName(equipment: any[], name: string): boolean {
+    return (equipment || []).some((item: any) => this.weaponName(item) === name);
+  }
+
+  /** 秒数→原版 数字到时间 文本 */
+  private secondsText(seconds: number): string {
+    const total = Math.max(0, Math.floor(Number(seconds) || 0));
+    return total < 60 ? `${total}秒` : `${Math.floor(total / 60)}分${total % 60}秒`;
   }
 
   /**
