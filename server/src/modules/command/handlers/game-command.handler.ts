@@ -385,6 +385,15 @@ export class GameCommandHandler implements CommandHandler {
 
         case '分解':
         case 'deconstruct': {
+          // 原版 分解+全部（_主程序.ecode L3387-3435）：一键分解全部未锁定装备
+          if (arg.trim() === '全部' || arg.trim() === '全部装备') {
+            const result = await this.itemSystem.deconstructAll(userId);
+            const count = Number(result.match(/分解了(\d+)件装备/)?.[1] || 0);
+            if (count > 0) {
+              await this.taskService.advance(userId, '分解', count);
+            }
+            return this.wrap(result);
+          }
           const deconstruct = this.parseCountedAction(arg);
           const result = await this.runTaskAction(
             userId,

@@ -388,6 +388,112 @@ export class ItemSystemService {
     }
   }
 
+  /**
+   * 分解全部装备
+   * 对应原版 分解+全部（_主程序.ecode L3387-3435）：
+   *  - 分解背包内全部未锁定装备（耐久!=1）；
+   *  - 自动跳过植入体/增幅器；
+   *  - 水晶/能量块按品质基础值 × 制造配方分解倍率逐件累加（同 deconstructItem 公式）；
+   *  - 当前地图存在彩虹鸟（野怪或召唤物）时，每件额外 +1~5 水晶 / +0.5~2.5 能量块
+   *    （幸运鸟说明文本：_主程序.ecode 与 使魔大战.txt L12314）。
+   * 注：原版还有机床/工作台的 a3 全局倍率（1.12~1.15/1.1），现有单件分解未实现该倍率，
+   * 此处保持一致，待机床系统补齐后统一接入。
+   */
+  async deconstructAll(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, backpack, markers } = playerData;
+
+    // 可分解装备筛选（原版 L3387-3404：耐久!=1 且非植入体/增幅器）
+    const targets: Item3[] = backpack.filter((bp: Item3) =>
+      bp.type === '装备'
+      && Number(bp.durability ?? 0) === 0
+      && !String(bp.name).startsWith('植入体')
+      && !String(bp.name).startsWith('增幅器'),
+    );
+    if (targets.length === 0) {
+      return `${player.name}没有可以分解的装备了`;
+    }
+
+    // 彩虹鸟在场判定（原版：地图.怪物2 / 地图.召唤物 中有彩虹鸟）
+    const hasRainbowBird = await this.mapHasRainbowBird(Number((player as any).mapId || 0));
+
+    // 与原版 数据分析.ecode 取分解价值 相同的品质基础值（水晶/能量块 × 配方分解倍率）
+    const qualityBase: Record<string, [number, number]> = {
+      e: [0.8, 0.4], d: [1.6, 0.8], c: [2, 1.6], b: [4, 2.4],
+      a: [10, 6], s: [20, 12],
+    };
+    const craftings = this.staticData.getAllCraftings();
+    let crystal = 0;
+    let energy = 0;
+    for (const item of targets) {
+      const prefix = String(item.data ?? '').charAt(0) || 'e';
+      const [crystalUnit, energyUnit] = qualityBase[prefix] || [40, 24];
+      const recipe = craftings.find((r: any) => r.name === item.name);
+      const dismantleMultiplier = Number(recipe?.deconstructMul ?? 5) || 5;
+      crystal += crystalUnit * dismantleMultiplier;
+      energy += energyUnit * dismantleMultiplier;
+      if (hasRainbowBird) {
+        // 每件 +1~5 水晶 / +0.5~2.5 能量块（原版 取随机数(1000,5000)/1000 与 (500,2500)/1000）
+        crystal += Math.floor(Math.random() * 5) + 1;
+        energy += (Math.floor(Math.random() * 21) + 5) / 10;
+      }
+    }
+
+    // 从背包移除（targets 是 backpack 的元素引用，倒序删除避免索引位移）
+    for (let i = backpack.length - 1; i >= 0; i -= 1) {
+      if (targets.includes(backpack[i])) {
+        backpack.splice(i, 1);
+      }
+    }
+
+    // 产物入包 + 成就
+    const crystalQty = roundItemQuantity(crystal);
+    const energyQty = roundItemQuantity(energy);
+    this.addItemToBackpack(backpack, {
+      name: '水晶', type: '资源', quantity: crystalQty, durability: 0, data: '',
+    });
+    this.addItemToBackpack(backpack, {
+      name: '能量块', type: '资源', quantity: energyQty, durability: 0, data: '',
+    });
+    this.achievementService.setAchievement(markers, '分解', (markers['分解'] || 0) + targets.length);
+
+    await this.playerService.enqueueUserWrite(userId, async () => {
+      const _pd = await this.playerService.getPlayerData(userId);
+      Object.assign(_pd.player, {
+        backpack: backpack, // Player backpack 为 Json 列，直接写数组
+        markers: markers, // Player markers 为 Json 列，直接写对象
+      });
+      await this.playerService.savePlayer(_pd.player);
+    });
+
+    const birdText = hasRainbowBird ? '(彩虹鸟)' : '';
+    return `${player.name}分解了${targets.length}件装备，得到了${formatDisplayNumber(crystalQty)}水晶和${formatDisplayNumber(energyQty)}能量块${birdText}。`;
+  }
+
+  /**
+   * 当前地图是否出现彩虹鸟（原版：地图.怪物2 / 地图.召唤物）。
+   * 怪物实例查 GameMonster（mapId + 类型名）；召唤物查 GameMap.summons Json 列。
+   */
+  private async mapHasRainbowBird(mapId: number): Promise<boolean> {
+    if (!mapId || !Number.isFinite(mapId)) return false;
+    try {
+      const monsterCount = await this.prisma.gameMonster.count({
+        where: { mapId, type: '彩虹鸟' },
+      });
+      if (monsterCount > 0) return true;
+      const map = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+      if (!map) return false;
+      const raw = (map as any).summons ?? (map as any).召唤物 ?? [];
+      const summons = Array.isArray(raw) ? raw : [];
+      return summons.some((s: any) =>
+        String(s?.type ?? s?.name ?? s?.名称 ?? '') === '彩虹鸟',
+      );
+    } catch (err) {
+      this.logger.warn(`检查彩虹鸟在场失败(mapId=${mapId}): ${err instanceof Error ? err.message : err}`);
+      return false;
+    }
+  }
+
   // ===================================================================
   //  强化系统
   // ===================================================================
@@ -849,61 +955,161 @@ export class ItemSystemService {
    * 对应原版：锁定装备()
    * 设置装备的耐久标记为1（锁定），防止误分解
    */
-  async lockEquipment(userId: number, itemName: string): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack } = playerData;
+  /** 品质关键词 → 装备数据串前缀（原版 锁定装备/解锁 按品质分支：神迹x/传说s/史诗a/精良b/优秀c） */
+  private static readonly LOCK_QUALITY_PREFIX: Record<string, string> = {
+    '神迹': 'x', '传说': 's', '史诗': 'a', '精良': 'b', '优秀': 'c',
+  };
 
-    const item = backpack.find(
-      (bp: Item3) => bp.name === itemName && bp.type === '装备',
-    );
-    if (!item) {
-      return `${player.name} 你的背包中没有【${itemName}】装备。`;
+  /** 按品质前缀批量设置锁定状态（原版品质分支），返回被处理的物品 */
+  private setLockByQuality(backpack: Item3[], prefix: string, locked: boolean): Item3[] {
+    const touched: Item3[] = [];
+    for (const bp of backpack) {
+      if (bp.type === '装备' && String(bp.data ?? '').charAt(0).toLowerCase() === prefix) {
+        bp.durability = locked ? 1 : 0;
+        touched.push(bp);
+      }
     }
+    return touched;
+  }
 
-    if (item.durability !== 0) {
-      return `${player.name}，【${itemName}】已经被锁定了。`;
+  /** 按名字批量设置锁定状态（原版同名批量分支），返回被处理的物品 */
+  private setLockByName(backpack: Item3[], name: string, locked: boolean): Item3[] {
+    const touched: Item3[] = [];
+    for (const bp of backpack) {
+      if (bp.type === '装备' && bp.name === name) {
+        bp.durability = locked ? 1 : 0;
+        touched.push(bp);
+      }
     }
+    return touched;
+  }
 
-    item.durability = 1; // 锁定
-
+  /** 背包写回（Json 列整组写入） */
+  private async persistBackpack(userId: number, backpack: Item3[]): Promise<void> {
     await this.playerService.enqueueUserWrite(userId, async () => {
       const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, { backpack: backpack }); // Json 列直接写数组
+      Object.assign(_pd.player, { backpack });
       await this.playerService.savePlayer(_pd.player);
     });
+  }
 
-    return `${player.name}锁定了【${itemName}】，该装备现在不会被误分解。`;
+  /** 批量锁定结果文案（对齐原版 显示物品） */
+  private lockListText(items: Item3[]): string {
+    return items
+      .map((it) => `${it.name}${this.itemService.qualityBracket(this.itemService.qualityPrefix(String(it.data ?? '')))}`)
+      .join('、');
+  }
+
+  /**
+   * 锁定装备
+   * 对应原版 锁定装备()（_主程序.ecode L3527-3620），四种参数形态：
+   *  1. 无参数      → 提示用法；
+   *  2. 品质关键词  → 锁定背包全部该品质装备（神迹/传说/史诗/精良/优秀）；
+   *  3. 纯数字      → 按背包编号锁定（1-based）；
+   *  4. 名字        → 锁定背包全部同名装备（原版即为批量）。
+   */
+  async lockEquipment(userId: number, arg: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, backpack } = playerData;
+    const key = String(arg ?? '').trim();
+
+    // 1. 无参数 → 用法提示（原版 L3531）
+    if (!key) {
+      return `${player.name}“锁定装备1”来锁定背包的第1个物品\n“锁定装备信号枪”来锁定背包的全部名称为“信号枪”的物品\n“锁定装备传说”来锁定背包的全部品质为传说的装备`;
+    }
+
+    // 2. 品质关键词 → 批量锁定该品质（原版 L3533-3590）
+    const qualityPrefix = ItemSystemService.LOCK_QUALITY_PREFIX[key];
+    if (qualityPrefix) {
+      const locked = this.setLockByQuality(backpack, qualityPrefix, true);
+      if (locked.length === 0) {
+        return `${player.name}背包中没有品质为${key}的装备。`;
+      }
+      await this.persistBackpack(userId, backpack);
+      return `${player.name}锁定了${this.lockListText(locked)}`;
+    }
+
+    // 3. 纯数字 → 按背包编号锁定（原版 L3592-3605）
+    if (/^\d+$/.test(key)) {
+      const idx = Number(key) - 1;
+      if (idx < 0 || idx >= backpack.length) {
+        return `${player.name}，物品编号${key}超出背包范围。`;
+      }
+      const item = backpack[idx];
+      if (item.type !== '装备') {
+        return `${player.name}${item.name}不是装备`;
+      }
+      if (item.durability !== 0) {
+        return `${player.name}这个装备已经锁定过了\n1、解锁`;
+      }
+      item.durability = 1;
+      await this.persistBackpack(userId, backpack);
+      return `${player.name}给${item.name}上了锁，这个装备将不能分解。`;
+    }
+
+    // 4. 名字 → 批量锁定全部同名装备（原版 L3607-3620）
+    const locked = this.setLockByName(backpack, key, true);
+    if (locked.length === 0) {
+      return `${player.name} 你的背包中没有【${key}】装备。`;
+    }
+    await this.persistBackpack(userId, backpack);
+    return `${player.name}锁定了${this.lockListText(locked)}`;
   }
 
   /**
    * 解锁装备
-   * 对应原版：解锁()
-   * 解除装备的锁定状态
+   * 对应原版：解锁()（_主程序.ecode L3620-3700），与锁定装备对称的四种参数形态：
+   *  1. 无参数      → 提示用法；
+   *  2. 品质关键词  → 解锁背包全部该品质装备（神迹/传说/史诗/精良/优秀）；
+   *  3. 纯数字      → 按背包编号解锁（1-based）；
+   *  4. 名字        → 解锁背包全部同名装备。
    */
-  async unlockEquipment(userId: number, itemName: string): Promise<string> {
+  async unlockEquipment(userId: number, arg: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack } = playerData;
+    const key = String(arg ?? '').trim();
 
-    const item = backpack.find(
-      (bp: Item3) => bp.name === itemName && bp.type === '装备',
-    );
-    if (!item) {
-      return `${player.name} 你的背包中没有【${itemName}】装备。`;
+    // 1. 无参数 → 用法提示
+    if (!key) {
+      return `${player.name}“解锁1”来解锁背包的第1个物品\n“解锁信号枪”来解锁背包的全部名称为“信号枪”的物品\n“解锁传说”来解锁背包的全部品质为传说的装备`;
     }
 
-    if (item.durability === 0) {
-      return `${player.name}，【${itemName}】没有被锁定。`;
+    // 2. 品质关键词 → 批量解锁该品质
+    const qualityPrefix = ItemSystemService.LOCK_QUALITY_PREFIX[key];
+    if (qualityPrefix) {
+      const unlocked = this.setLockByQuality(backpack, qualityPrefix, false);
+      if (unlocked.length === 0) {
+        return `${player.name}背包中没有品质为${key}的装备。`;
+      }
+      await this.persistBackpack(userId, backpack);
+      return `${player.name}解锁了${this.lockListText(unlocked)}`;
     }
 
-    item.durability = 0; // 解锁
+    // 3. 纯数字 → 按背包编号解锁
+    if (/^\d+$/.test(key)) {
+      const idx = Number(key) - 1;
+      if (idx < 0 || idx >= backpack.length) {
+        return `${player.name}，物品编号${key}超出背包范围。`;
+      }
+      const item = backpack[idx];
+      if (item.type !== '装备') {
+        return `${player.name}${item.name}不是装备`;
+      }
+      if (item.durability === 0) {
+        return `${player.name}这个装备已经解锁过了\n1、解锁`;
+      }
+      item.durability = 0;
+      await this.persistBackpack(userId, backpack);
+      return `${player.name}给${item.name}解锁了。`;
+    }
 
-    await this.playerService.enqueueUserWrite(userId, async () => {
-      const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, { backpack: backpack }); // Json 列直接写数组
-      await this.playerService.savePlayer(_pd.player);
-    });
-
-    return `${player.name}解锁了【${itemName}】。`;
+    // 4. 名字 → 批量解锁全部同名装备
+    const unlocked = this.setLockByName(backpack, key, false);
+    if (unlocked.length === 0) {
+      return `${player.name} 你的背包中没有【${key}】装备。`;
+    }
+    await this.persistBackpack(userId, backpack);
+    return `${player.name}解锁了${this.lockListText(unlocked)}`;
   }
 
   /**
@@ -2254,14 +2460,16 @@ export class ItemSystemService {
 
   /**
    * 判断是否为武器
+   * 对齐原版 是否武器()（数据分析.ecode L394-415），直接复用 staticData.isWeapon 同一实现，
+   * 避免多处口径漂移（历史 bug：本地误写「specialSeq∈(0,100) 判武器」，导致皇冠等
+   * 149 件特殊装备被当成武器，任务「教程-战斗准备」的使用装备进度永远无法推进）。
+   * 正确规则：特殊序号≠0 时负数才是武器（如提卡=-7）；=0 时类型以「武器」结尾或为「工具」。
    */
   private isWeapon(equipment: Equipment): boolean {
-    if (equipment.specialSeq < 0) return true;
-    const weaponTypes = ['武器', '剑', '刀', '枪', '弓', '法杖', '杖', '盾', '斧', '锤', '工具'];
-    for (const wt of weaponTypes) {
-      if (equipment.type.includes(wt)) return true;
-    }
-    return equipment.specialSeq > 0 && equipment.specialSeq < 100;
+    return this.staticData.isWeapon({
+      specialSeq: equipment.specialSeq,
+      equipType: equipment.type,
+    });
   }
 
   /** 供指令层在装备成功后判断应推进“使用武器”还是“使用装备”。 */
