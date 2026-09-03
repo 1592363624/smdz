@@ -77,6 +77,20 @@ describe('单目标设置跟随', () => {
     service.mapService = {
       getMapById: jest.fn(async () => map),
       updateDynamicFields: jest.fn(async (_id: number, data: any) => Object.assign(map, data)),
+      // 闭环写入桩：模拟真实 mutateSummons/mutateMapFields 的「传入最新可变结构」语义
+      mutateSummons: jest.fn(async (_id: number, mutator: any) => {
+        const summons = parseJson(map.summons, []);
+        const result = mutator(summons);
+        map.summons = summons;
+        return result;
+      }),
+      mutateMapFields: jest.fn(async (_id: number, fields: string[], mutator: any) => {
+        const f: any = {};
+        for (const field of fields) f[field] = parseJson(map[field], []);
+        const result = mutator(f);
+        for (const field of fields) map[field] = f[field];
+        return result;
+      }),
     };
     service.prisma = {
       user: { findUnique: jest.fn(async () => ({ qqNumber: 'qq-42', externalId: 'ext-42' })) },

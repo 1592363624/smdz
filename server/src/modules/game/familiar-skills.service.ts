@@ -2931,10 +2931,14 @@ export class FamiliarSkillsService {
     summon.mapId = map.id;
 
     await this.mapService.removeMapMonster(map.id, targetMonster.id);
-    const summons: any[] = this.safeParse(map.summons, []);
-    summons.push(summon);
-    map.summons = summons; // GameMap summons 为 Json 列，直接写数组
-    await this.mapService.updateDynamicFields(map.id, { summons: map.summons });
+    // 地图聚合串行化写入口：洗脑产物并入地图 summons（锁内重读最新数组后 push，
+    // 消除基于本地快照整组写回的并发覆盖）；本地 map.summons 同步仅作展示用途。
+    const localSummons: any[] = this.safeParse(map.summons, []);
+    localSummons.push(summon);
+    map.summons = localSummons;
+    await this.mapService.mutateSummons(map.id, (fresh) => {
+      fresh.push(summon);
+    });
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
@@ -3102,35 +3106,35 @@ export class FamiliarSkillsService {
     // 原版次元手环可召唤指定名称的使魔/宠物，此处按名称生成通用召唤物模板
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上';
-    const summons: any[] = this.safeParse(map.summons, []);
     const ownerId = player.qq || String(userId);
     const summonId = `summon_${ownerId}_${Date.now()}`;
     const level = Math.max(1, (player.level || 1));
     const baseHp = 200 + level * 20;
-    summons.push({
-      id: summonId,
-      name: target,
-      type: target,
-      qq: `怪物${target}${ownerId}xg`,
-      owner: ownerId,
-      归属: ownerId,
-      基础: { 生命: baseHp },
-      base: { 生命: baseHp },
-      level,
-      hp: baseHp,
-      maxHp: baseHp,
-      attack: 20 + level * 2,
-      defense: 10 + level,
-      speed: 100,
-      dodge: 5,
-      hit: 85,
-      exp: 10 + level * 2,
-      isPlayerSummon: true,
-      buffs: [],
-      bonus: {},
+    // mutateSummons 锁内闭环：重读最新 summons 后 push，与玩家并发写互不覆盖
+    await this.mapService.mutateSummons(player.mapId, (summons) => {
+      summons.push({
+        id: summonId,
+        name: target,
+        type: target,
+        qq: `怪物${target}${ownerId}xg`,
+        owner: ownerId,
+        归属: ownerId,
+        基础: { 生命: baseHp },
+        base: { 生命: baseHp },
+        level,
+        hp: baseHp,
+        maxHp: baseHp,
+        attack: 20 + level * 2,
+        defense: 10 + level,
+        speed: 100,
+        dodge: 5,
+        hit: 85,
+        exp: 10 + level * 2,
+        isPlayerSummon: true,
+        buffs: [],
+        bonus: {},
+      });
     });
-    // GameMap summons 为 Json 列，直接写数组
-    await this.mapService.updateDynamicFields(player.mapId, { summons });
 
     // 设置冷却
     this.setCooldown(player, '召唤', 120);

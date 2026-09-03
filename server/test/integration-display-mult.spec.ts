@@ -25,6 +25,7 @@ import { MapService } from '../src/modules/game/map.service';
 import { StatsService } from '../src/modules/game/stats.service';
 import { GameService } from '../src/modules/game/game.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { parseJson } from './parse-json.util';
 
 jest.setTimeout(180000);
 
@@ -224,14 +225,14 @@ describe('显示倍率设置项（真实远程库端到端）', () => {
     const uid = await makePlayer();
     // game.service.handleSettingsMultiplier（对应原版「设置倍率」指令）：开→bl=1，关→bl=0
     await gameService.handleSettingsMultiplier(uid);
-    expect(JSON.parse((await playerService.getPlayerData(uid)).player.markers || '{}').bl).toBe(1);
+    expect(parseJson((await playerService.getPlayerData(uid)).player.markers, {}).bl).toBe(1);
 
     await setupDummyMonster();
     jest.spyOn(combat as any, 'checkHit').mockReturnValue(true);
     expect(await attack(uid)).toMatch(MULT_PATTERN);
 
     await gameService.handleSettingsMultiplier(uid);
-    expect(JSON.parse((await playerService.getPlayerData(uid)).player.markers || '{}').bl).toBe(0);
+    expect(parseJson((await playerService.getPlayerData(uid)).player.markers, {}).bl).toBe(0);
     expect(await attack(uid)).not.toMatch(MULT_PATTERN);
   });
 });

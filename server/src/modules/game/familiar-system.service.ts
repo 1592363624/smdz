@@ -479,13 +479,6 @@ export class FamiliarSystemService {
     if (!map) {
       return `${player.name || '冒险者'} 你不在任何地图上，无法召唤。`;
     }
-    const summons = asJsonValue<any[]>(map.summons, []);
-
-    // 原版：重复召唤"白"时，先移除已有的"白"召唤物（避免叠加）
-    const existingIdx = summons.findIndex((s: any) => s.name === name);
-    if (existingIdx !== -1) {
-      summons.splice(existingIdx, 1);
-    }
 
     // 构造"白"召唤物实例（对应原版 玩家2 重定义数组后的全新实例）
     const whiteUnit: SummonUnit = {
@@ -511,8 +504,14 @@ export class FamiliarSystemService {
       装备预设: [],
     };
 
-    summons.push(whiteUnit);
-    await this.mapService.updateDynamicFields(map.id, { summons });
+    // mutateSummons 锁内闭环：重读最新 summons → 移除旧"白" → push 新实例 → 差异写回
+    await this.mapService.mutateSummons(map.id, (summons) => {
+      const existingIdx = summons.findIndex((s: any) => s.name === name);
+      if (existingIdx !== -1) {
+        summons.splice(existingIdx, 1); // 原版：重复召唤"白"时先移除已有（避免叠加）
+      }
+      summons.push(whiteUnit);
+    });
 
     // 记录"召唤白"成就（对应原版 L9795 添加成就("召唤白", 1, 玩家.标记)）
     const markers = asJsonValue<any>(player.markers, {});
@@ -1865,13 +1864,23 @@ export class FamiliarSystemService {
     const existing = summons.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
     if (!existing) {
       // 原版 L2240：首次查看前线时以等级0生成前线，而不是只展示静态状态。
-      const generated = this.combatSystem.generateFrontline(map, qq, Date.now(), 0);
-      summons = generated.summons;
-      vehicles = generated.vehicles;
-      await this.mapService.updateDynamicFields(map.id, {
-        summons, // Json 列直接写数组
-        vehicles, // Json 列直接写数组
+      // mutateMapFields 锁内闭环：重读最新 summons/vehicles → 锁内复查去重 → 在最新数据上生成前线 → 差异写回
+      let generated: any = null;
+      await this.mapService.mutateMapFields(map.id, ['summons', 'vehicles'], (f) => {
+        if (f.summons.some((s: any) => (s.QQ || s.qq) === frontlineQQ)) return;
+        generated = this.combatSystem.generateFrontline(
+          { ...map, summons: f.summons, vehicles: f.vehicles },
+          qq,
+          Date.now(),
+          0,
+        );
+        f.summons = generated.summons;
+        f.vehicles = generated.vehicles;
       });
+      if (generated) {
+        summons = generated.summons;
+        vehicles = generated.vehicles;
+      }
     }
 
     // 检查是否有特殊宠物（特殊序号 > 0 的宠物）
@@ -2047,11 +2056,19 @@ export class FamiliarSystemService {
       return `当前地图没有名为「${oldName}」并且属于你的NPC或宠物`;
     }
 
-    // 执行改名
-    summons[petIndex].image = newName;
-    summons[petIndex].name = newName;
-
-    await this.mapService.updateDynamicFields(map.id, { summons });
+    // mutateSummons 锁内闭环：重读最新 summons → 定位改名 → 差异写回
+    const renamed = await this.mapService.mutateSummons(map.id, (summons) => {
+      const petIndex = summons.findIndex(
+        (s: any) => (s.name === oldName || s.image === oldName) && s.ownerQQ === player.userId.toString(),
+      );
+      if (petIndex === -1) return false;
+      summons[petIndex].image = newName;
+      summons[petIndex].name = newName;
+      return true;
+    });
+    if (!renamed) {
+      return `当前地图没有名为「${oldName}」并且属于你的NPC或宠物`;
+    }
 
     return `把${oldName}改名为${newName}`;
   }
@@ -2084,23 +2101,6 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = asJsonValue<any[]>(map.summons, []);
-
-    // 查找属于玩家的宠物
-    const petIndex = summons.findIndex(
-      (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
-    );
-
-    if (petIndex === -1) {
-      return `当前地图没有名为「${petName}」并且属于你的NPC`;
-    }
-
-    // 检查是否为宝宝
-    const markers = summons[petIndex].markers || {};
-    if (markers['幼崽']) {
-      return '宝宝不能转让';
-    }
-
     // 目标玩家是否存在
     const targetPlayer = await this.prisma.player.findFirst({
       where: { masterQQ: targetQQ },
@@ -2110,17 +2110,23 @@ export class FamiliarSystemService {
       return `QQ ${targetQQ} 在玩家列表不存在`;
     }
 
-    // 检查是否防御阵地
-    if (markers['阵地']) {
-      return '防御阵地不能转让';
-    }
-
-    // 执行转让
-    summons[petIndex].ownerQQ = targetQQ;
-    // 清空标记并重置好感
-    summons[petIndex].markers = { [`好感${targetQQ}`]: 100 };
-
-    await this.mapService.updateDynamicFields(map.id, { summons });
+    // mutateSummons 锁内闭环：重读最新 summons → 定位宠物 → 校验 → 执行转让 →差异写回
+    // （宝宝/阵地校验在锁内用最新数据做，避免快照过期误判）
+    const transferResult = await this.mapService.mutateSummons(map.id, (summons) => {
+      const petIndex = summons.findIndex(
+        (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+      );
+      if (petIndex === -1) return { err: `当前地图没有名为「${petName}」并且属于你的NPC` };
+      const markers = summons[petIndex].markers || {};
+      if (markers['幼崽']) return { err: '宝宝不能转让' };
+      if (markers['阵地']) return { err: '防御阵地不能转让' };
+      // 执行转让
+      summons[petIndex].ownerQQ = targetQQ;
+      // 清空标记并重置好感
+      summons[petIndex].markers = { [`好感${targetQQ}`]: 100 };
+      return { err: null };
+    });
+    if (transferResult.err) return transferResult.err;
 
     return `把${petName}转让给了${targetQQ}`;
   }
@@ -2148,72 +2154,65 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = asJsonValue<any[]>(map.summons, []);
+    // mutateMapFields 锁内闭环：summons + vehicles 一起重读/一起差异写回，
+    // 驾驶分配（踢旧司机、绑定载具）在锁内基于最新数组执行，消除并发覆盖。
+    const driveResult = await this.mapService.mutateMapFields(
+      map.id,
+      ['summons', 'vehicles'],
+      (f) => {
+        const summons = f.summons;
+        const vehicles = f.vehicles;
 
-    // 查找属于玩家的宠物
-    const petIndex = summons.findIndex(
-      (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+        // 查找属于玩家的宠物
+        const petIndex = summons.findIndex(
+          (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+        );
+        if (petIndex === -1) return { err: `当前地图没有名为「${petName}」并且属于你的宠物` };
+        const pet = summons[petIndex];
+
+        if (pet.hp === 0) return { err: `${petName} 没有属性，不能战斗` };
+
+        if (vehicleName === '原') {
+          // 使用宠物自带载具
+          const petVehicle = vehicles.find((v: any) => v.id === petName);
+          if (petVehicle) {
+            petVehicle.driver = petName;
+            return { err: null, msg: `${petName} 进入了${petVehicle.name}的驾驶舱` };
+          }
+          return { err: `${petName} 并不是自带载具的宠物` };
+        }
+
+        // 查找指定载具
+        const vehicleIndex = vehicles.findIndex((v: any) => v.name === vehicleName);
+        if (vehicleIndex === -1) return { err: `附近没有载具「${vehicleName}」` };
+
+        const vehicle = vehicles[vehicleIndex];
+
+        // 检查归属
+        if (vehicle.owner !== player.userId.toString() && vehicle.owner !== petName) {
+          return { err: `这不是你的或者不是${petName}的${vehicle.name}` };
+        }
+
+        // 执行驾驶
+        // 踢出当前驾驶员
+        const currentDriver = vehicle.driver;
+        if (currentDriver) {
+          // 查找驾驶员并清除其载具引用
+          const driverPet = summons.find((s: any) => s.qq === currentDriver);
+          if (driverPet) {
+            driverPet.vehicle = '';
+          }
+        }
+
+        vehicle.driver = pet.qq || petName;
+        pet.vehicle = vehicle.id || vehicleName;
+
+        return { err: null, msg: `${petName} 进入了${vehicle.name}的驾驶舱` };
+      },
     );
+    if (driveResult.err) return driveResult.err;
 
-    if (petIndex === -1) {
-      return `当前地图没有名为「${petName}」并且属于你的宠物`;
-    }
-
-    const pet = summons[petIndex];
-
-    if (pet.hp === 0) {
-      return `${petName} 没有属性，不能战斗`;
-    }
-
-    // 查找载具
-    const vehicles = asJsonValue<any[]>(map.vehicles, []);
-
-    if (vehicleName === '原') {
-      // 使用宠物自带载具
-      const petVehicle = vehicles.find((v: any) => v.id === petName);
-      if (petVehicle) {
-        petVehicle.driver = petName;
-        // 载具找到
-        return `${petName} 进入了${petVehicle.name}的驾驶舱`;
-      } else {
-        return `${petName} 并不是自带载具的宠物`;
-      }
-    }
-
-    // 查找指定载具
-    const vehicleIndex = vehicles.findIndex((v: any) => v.name === vehicleName);
-    if (vehicleIndex === -1) {
-      return `附近没有载具「${vehicleName}」`;
-    }
-
-    const vehicle = vehicles[vehicleIndex];
-
-    // 检查归属
-    if (vehicle.owner !== player.userId.toString() && vehicle.owner !== petName) {
-      return `这不是你的或者不是${petName}的${vehicle.name}`;
-    }
-
-    // 执行驾驶
-    // 踢出当前驾驶员
-    const currentDriver = vehicle.driver;
-    if (currentDriver) {
-      // 查找驾驶员并清除其载具引用
-      const driverPet = summons.find((s: any) => s.qq === currentDriver);
-      if (driverPet) {
-        driverPet.vehicle = '';
-      }
-    }
-
-    vehicle.driver = pet.qq || petName;
-    pet.vehicle = vehicle.id || vehicleName;
-
-    summons[petIndex] = pet;
-    vehicles[vehicleIndex] = vehicle;
-
-    // 更新地图数据
-    await this.mapService.updateDynamicFields(map.id, { summons, vehicles: vehicles });
-
-    return `${petName} 进入了${vehicle.name}的驾驶舱`;
+    return driveResult.msg!;
   }
 
   /**
@@ -2249,24 +2248,6 @@ export class FamiliarSystemService {
       return '你不在任何地图上';
     }
 
-    const summons = asJsonValue<any[]>(map.summons, []);
-
-    // 查找属于玩家的宠物
-    const petIndex = summons.findIndex(
-      (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
-    );
-
-    if (petIndex === -1) {
-      return `当前地图没有名为「${petName}」并且属于你的宠物`;
-    }
-
-    const pet = summons[petIndex];
-
-    // 检查是否为临时宠物
-    if (pet.qq && pet.qq.includes('x')) {
-      return '临时宠物不能喂食';
-    }
-
     // 扣除糖心巧克力
     if (chocolateCount === count) {
       const idx = backpack.findIndex((item: any) => item.name === '糖心巧克力');
@@ -2276,22 +2257,30 @@ export class FamiliarSystemService {
     }
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
-    // 增加好感
-    const affinityKey = `好感${player.userId}`;
-    if (!pet.markers) pet.markers = {};
-    const currentAffinity = pet.markers[affinityKey] || 0;
-    pet.markers[affinityKey] = currentAffinity + count * 10;
+    // mutateSummons 锁内闭环：重读最新 summons → 定位宠物 → 校验 → 加好感 → 差异写回
+    const feedResult = await this.mapService.mutateSummons(map.id, (summons) => {
+      const petIndex = summons.findIndex(
+        (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+      );
+      if (petIndex === -1) return { err: `当前地图没有名为「${petName}」并且属于你的宠物` };
+      const pet = summons[petIndex];
 
-    summons[petIndex] = pet;
+      // 检查是否为临时宠物
+      if (pet.qq && pet.qq.includes('x')) return { err: '临时宠物不能喂食' };
 
-    // 更新地图和玩家数据
-    await this.mapService.updateDynamicFields(map.id, { summons });
+      // 增加好感
+      const affinityKey = `好感${player.userId}`;
+      if (!pet.markers) pet.markers = {};
+      const currentAffinity = pet.markers[affinityKey] || 0;
+      pet.markers[affinityKey] = currentAffinity + count * 10;
+      return { err: null, newAffinity: pet.markers[affinityKey] };
+    });
+    if (feedResult.err) return feedResult.err;
 
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '宠物喂食', count);
 
-    const newAffinity = pet.markers[affinityKey] || 0;
-    return `${petName} 对你的好感提高了${count * 10}（当前${Math.round(newAffinity)}）`;
+    return `${petName} 对你的好感提高了${count * 10}（当前${Math.round(feedResult.newAffinity)}）`;
   }
 
   /**
@@ -2519,6 +2508,33 @@ export class FamiliarSystemService {
     if (!pet.markers) pet.markers = {};
     const currentAwaken = pet.markers['觉醒'] || 0;
 
+    // 在锁内最新数组中重定位宠物并应用觉醒状态（消除基于快照的整组写回覆盖）。
+    // 属性加成/标记均基于快照计算好的数值应用，公式不变，只换落库通道。
+    const applyAwakenState = (fresh: any[], awaken: number) => {
+      const idx = fresh.findIndex(
+        (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+      );
+      if (idx === -1) return false;
+      const fp = fresh[idx];
+      if (!fp.markers) fp.markers = {};
+      fp.markers['觉醒'] = awaken;
+      // 属性加成：每觉醒一次全属性+0.5%（基于初始属性）
+      if (!fp.baseStats) {
+        fp.baseStats = {
+          hp: fp.hp || 0,
+          attack: fp.attack || 0,
+          defense: fp.defense || 0,
+          speed: fp.speed || 100,
+        };
+      }
+      const bonus = 1 + awaken * 0.005;
+      fp.hp = Math.round((fp.baseStats.hp || 0) * bonus);
+      fp.attack = Math.round((fp.baseStats.attack || 0) * bonus);
+      fp.defense = Math.round((fp.baseStats.defense || 0) * bonus);
+      fp.speed = Math.round((fp.baseStats.speed || 100) * bonus);
+      return true;
+    };
+
     // 返回觉醒丹：计算历史消耗并重置
     if (count < 0) {
       let totalSpent = 0;
@@ -2527,9 +2543,10 @@ export class FamiliarSystemService {
         totalSpent += d % 100 === 99 ? (d + 1) / 10 : 1;
         d++;
       }
-      pet.markers['觉醒'] = 0;
-      summons[petIndex] = pet;
-      await this.mapService.updateDynamicFields(map.id, { summons });
+      const resetOk = await this.mapService.mutateSummons(map.id, (fresh) => applyAwakenState(fresh, 0));
+      if (!resetOk) {
+        return `当前地图没有名为「${petName}」并且属于你的宠物`;
+      }
 
       // 返还觉醒丹到背包
       const backpack = this.playerService.getBackpackItems(player);
@@ -2577,25 +2594,12 @@ export class FamiliarSystemService {
     }
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
-    // 记录觉醒次数
+    // 记录觉醒次数（锁内闭环写回：在最新数组中重定位并应用加成）
     pet.markers['觉醒'] = d;
-    // 属性加成：每觉醒一次全属性+0.5%（基于初始属性）
-    if (!pet.baseStats) {
-      pet.baseStats = {
-        hp: pet.hp || 0,
-        attack: pet.attack || 0,
-        defense: pet.defense || 0,
-        speed: pet.speed || 100,
-      };
+    const awakenOk = await this.mapService.mutateSummons(map.id, (fresh) => applyAwakenState(fresh, d));
+    if (!awakenOk) {
+      return `当前地图没有名为「${petName}」并且属于你的宠物`;
     }
-    const bonus = 1 + d * 0.005;
-    pet.hp = Math.round((pet.baseStats.hp || 0) * bonus);
-    pet.attack = Math.round((pet.baseStats.attack || 0) * bonus);
-    pet.defense = Math.round((pet.baseStats.defense || 0) * bonus);
-    pet.speed = Math.round((pet.baseStats.speed || 100) * bonus);
-
-    summons[petIndex] = pet;
-    await this.mapService.updateDynamicFields(map.id, { summons });
     await this.playerService.savePlayer(player);
 
     return `消耗${used}颗觉醒丹让${petName}觉醒了${done}次，突破到了
@@ -2701,20 +2705,31 @@ ${this.getAwakenStageName(d)}(${d})`;
       }
     }
 
-    // resolvePetVsMonster 已通过对象引用直接修改 qualifiedPet.hp（反伤掉血等），
-    // 此处将更新后的宠物实例写回 summons 数组并持久化。
-    const petIdx = summons.findIndex((s: any) => s === qualifiedPet);
-    if (petIdx >= 0) summons[petIdx] = qualifiedPet;
+    // resolvePetVsMonster 已通过对象引用直接修改 qualifiedPet.hp（反伤掉血），
+    // 本流程还写入了"降"冷却 markers2；此处 mutateSummons 锁内闭环重定位宠物，
+    // 仅回写 hp/markers2 两个实际变更字段，避免快照整组写回覆盖并发变更。
+    const petHp = qualifiedPet.hp;
+    const petMarkers2Final = qualifiedPet.markers2;
+    const synced = await this.mapService.mutateSummons(map.id, (fresh) => {
+      const idx = fresh.findIndex((s: any) =>
+        s.ownerQQ === userId.toString() &&
+        s.name === qualifiedPet.name &&
+        (s.qq || '') === (qualifiedPet.qq || ''),
+      );
+      if (idx === -1) return false;
+      fresh[idx].hp = petHp;
+      fresh[idx].markers2 = petMarkers2Final;
+      return true;
+    });
+    if (!synced) {
+      resultText += `\n（${qualifiedPet.name}已不在${map.name}，状态未保存）`;
+    }
 
     // 设置冷却和活动标记
     const newMarkers2 = markers2.filter((m: any) => m.name !== cooldownKey);
     newMarkers2.push({ name: cooldownKey, expireAt: now + 30 });
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
-    // 更新玩家（地图怪物已通过表操作更新，仅保存玩家与召唤物）
-    await this.mapService.updateDynamicFields(map.id, {
-      summons, // Json 列直接写数组
-    });
     await this.playerService.savePlayer(player);
     for (const progress of taskProgress) {
       await this.taskService.advance(userId, progress.actionName, progress.count);
@@ -2763,8 +2778,16 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `${mapName} 在地图列表不存在`;
     }
 
-    const pet = summons[petIndex];
-    summons.splice(petIndex, 1);
+    // 源地图锁内闭环取走宠物（以最新数组定位 splice，避免合并快照整组写回覆盖并发写）
+    const pet = await this.mapService.mutateSummons(map.id, (fresh) => {
+      const idx = fresh.findIndex(
+        (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+      );
+      return idx >= 0 ? fresh.splice(idx, 1)[0] : null;
+    });
+    if (!pet) {
+      return `${map.name} 这里没有属于你的、名为「${petName}」的宠物或NPC`;
+    }
 
     // 处理载具描述
     const vehicles = asJsonValue<any[]>(map.vehicles || '[]', []);
@@ -2784,11 +2807,10 @@ ${this.getAwakenStageName(d)}(${d})`;
       moveText = '跑到了';
     }
 
-    // 添加到目标地图
-    const targetSummons = asJsonValue<any[]>(targetMap.summons, []);
-    targetSummons.push(pet);
-    await this.mapService.updateDynamicFields(map.id, { summons });
-    await this.mapService.updateDynamicFields(targetMap.id, { summons: targetSummons }); // Json 列直接写数组
+    // 添加到目标地图（同样锁内闭环）
+    await this.mapService.mutateSummons(targetMap.id, (fresh) => {
+      fresh.push(pet);
+    }); // Json 列直接写数组
 
     return `${pet.name}${moveText}${targetMap.name}`;
   }
@@ -2893,9 +2915,19 @@ ${this.getAwakenStageName(d)}(${d})`;
       player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
       pet.equipmentPresets[2].equipment = extraEquip;
-      summons[petIndex] = pet;
-
-      await this.mapService.updateDynamicFields(map.id, { summons });
+      // mutateSummons 锁内闭环：在最新数组中重定位宠物 → 写入装备预设 → 差异落库
+      const equipped = await this.mapService.mutateSummons(map.id, (fresh) => {
+        const idx2 = fresh.findIndex(
+          (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+        );
+        if (idx2 === -1) return false;
+        if (!fresh[idx2].equipmentPresets?.[2]) fresh[idx2].equipmentPresets = pet.equipmentPresets;
+        fresh[idx2].equipmentPresets[2].equipment = extraEquip;
+        return true;
+      });
+      if (!equipped) {
+        return `当前地图没有名为「${petName}」并且属于你的宠物`;
+      }
       await this.playerService.savePlayer(player);
 
       const typeText = isWeaponType ? '接过了' : isEquipType ? '穿上了' : '佩戴上了';
@@ -2914,9 +2946,19 @@ ${this.getAwakenStageName(d)}(${d})`;
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     pet.equipmentPresets[2].equipment = extraEquip;
-    summons[petIndex] = pet;
-
-    await this.mapService.updateDynamicFields(map.id, { summons });
+    // mutateSummons 锁内闭环：在最新数组中重定位宠物 → 写回装备预设 → 差异落库
+    const returned2 = await this.mapService.mutateSummons(map.id, (fresh) => {
+      const idx2 = fresh.findIndex(
+        (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
+      );
+      if (idx2 === -1) return false;
+      if (!fresh[idx2].equipmentPresets?.[2]) fresh[idx2].equipmentPresets = pet.equipmentPresets;
+      fresh[idx2].equipmentPresets[2].equipment = extraEquip;
+      return true;
+    });
+    if (!returned2) {
+      return `当前地图没有名为「${petName}」并且属于你的宠物`;
+    }
     await this.playerService.savePlayer(player);
 
     return `${petName}把${returned.name}还给了${player.name || '你'}`;
@@ -3156,18 +3198,18 @@ ${this.getAwakenStageName(d)}(${d})`;
       delete newPet.id;
       delete newPet.mapId;
 
-      // 添加到地图召唤物
-      const summons = asJsonValue<any[]>(map.summons, []);
-      summons.push(newPet);
-
+      // 添加到地图召唤物（锁内闭环：重读最新数组后 push，与玩家并发写互不覆盖）
       if (usePersistentMonster) {
         await this.mapService.removeMapMonster(map.id, monsterData.id);
-        await this.mapService.updateDynamicFields(map.id, { summons });
+        await this.mapService.mutateSummons(map.id, (fresh) => {
+          fresh.push(newPet);
+        });
       } else {
-        monsters.splice(monsterIndex, 1);
-        await this.mapService.updateDynamicFields(map.id, {
-          monsters, // Json 列直接写数组
-          summons, // Json 列直接写数组
+        await this.mapService.mutateMapFields(map.id, ['monsters', 'summons'], (f) => {
+          f.summons.push(newPet);
+          const idx2 = f.monsters.findIndex((m: any) =>
+            m === monsterData || (typeof m === 'string' ? m === target : m.name === target));
+          if (idx2 >= 0) f.monsters.splice(idx2, 1);
         });
       }
 
@@ -3264,13 +3306,9 @@ ${this.getAwakenStageName(d)}(${d})`;
         expireAt: now + 1800,
       });
       player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
-
-      // 从地图移除
-      summons.splice(petIndex, 1);
     } else {
       // 捕捉失败
       result += `\n${target} 吃掉饲料后逃走了……`;
-      summons.splice(petIndex, 1);
     }
 
     // 额外奖励物品
@@ -3281,8 +3319,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     result += `\n得到了${rewardName}x${rewardCount}`;
 
-    // 更新地图
-    await this.mapService.updateDynamicFields(map.id, { summons });
+    // 更新地图（mutateSummons 锁内闭环：重读最新 summons → 按名字移除目标 → 差异写回；
+    // 捕捉成功带走 / 失败逃走，两种情况目标都会离开地图）
+    await this.mapService.mutateSummons(map.id, (fresh) => {
+      const idx = fresh.findIndex((s: any) => s.name === target);
+      if (idx >= 0) fresh.splice(idx, 1);
+    });
 
     await this.playerService.savePlayer(player);
     await this.advanceTask(userId, '捕捉');
@@ -3350,9 +3392,17 @@ ${this.getAwakenStageName(d)}(${d})`;
       );
 
       if (summonTarget) {
-        summonTarget.buffs = this.addSkillBuff(summonTarget, '安乐天使', 20, now);
+        const buffed = this.addSkillBuff(summonTarget, '安乐天使', 20, now);
 
-        await this.mapService.updateDynamicFields(map.id, { summons });
+        // mutateSummons 锁内闭环：重读最新 summons → 按名字/QQ 重定位目标 → 写回 buff → 差异落库
+        await this.mapService.mutateSummons(map.id, (fresh) => {
+          const idx = fresh.findIndex((s: any) =>
+            (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
+          );
+          if (idx === -1) return false;
+          fresh[idx].buffs = buffed;
+          return true;
+        });
 
         await this.playerService.savePlayer(player);
         return `给${summonTarget.name || summonTarget.名称}套上了行星护盾`;
@@ -3435,9 +3485,17 @@ ${this.getAwakenStageName(d)}(${d})`;
       );
 
       if (summonTarget) {
-        summonTarget.buffs = this.addSkillBuff(summonTarget, '福音书', 300, now, { strength: 10 });
+        const buffed = this.addSkillBuff(summonTarget, '福音书', 300, now, { strength: 10 });
 
-        await this.mapService.updateDynamicFields(map.id, { summons });
+        // mutateSummons 锁内闭环：重读最新 summons → 按名字/QQ 重定位目标 → 写回 buff → 差异落库
+        await this.mapService.mutateSummons(map.id, (fresh) => {
+          const idx = fresh.findIndex((s: any) =>
+            (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
+          );
+          if (idx === -1) return false;
+          fresh[idx].buffs = buffed;
+          return true;
+        });
 
         await this.playerService.savePlayer(player);
         return `给${summonTarget.name || summonTarget.名称}使用了福音书`;
@@ -3668,30 +3726,52 @@ ${this.getAwakenStageName(d)}(${d})`;
     const currentFollow = Number(petMarkers['跟随'] ?? (pet.follow ? 0 : 1));
     const nextFollow = isFollow === undefined ? currentFollow === 1 : isFollow;
     const petName = pet.name || pet.名称 || targetName;
-    if (nextFollow) {
-      pet.follow = true;
-      pet.mode = 'follow';
-      petMarkers['跟随'] = 0;
-      // 原版任务/NPC 通过好感获得跟随后会转为当前玩家归属。
-      if (!isOwner) {
-        pet.ownerQQ = playerQQ;
-        if (pet.归属 !== undefined) pet.归属 = playerQQ;
-        if (pet.qq === 'npc2g' || pet.QQ === 'npc2g') {
-          pet.qq = `怪物${Date.now()}g`;
-          if (pet.QQ !== undefined) pet.QQ = pet.qq;
+
+    // mutateSummons 锁内闭环：重读最新 summons → 按名字重定位 → 应用跟随状态 → 差异写回
+    // （生长更新/归属转换/qq 重写在锁内基于最新元素执行，避免快照整组写回覆盖并发变更）
+    const applied = await this.mapService.mutateSummons(map.id, (fresh) => {
+      const idx = fresh.findIndex((s: any) =>
+        [s.name, s.名称, s.image, s.图片, s.qq, s.QQ].some(
+          (value) => String(value ?? '') === String(targetName ?? ''),
+        ),
+      );
+      if (idx === -1) return false;
+      const target = fresh[idx];
+      const freshMarkersRaw = typeof target.markers === 'string'
+        ? asJsonValue<any>(target.markers, {})
+        : (target.markers ?? target.标记 ?? {});
+      const freshMarkers: Record<string, any> = Array.isArray(freshMarkersRaw)
+        ? Object.fromEntries(freshMarkersRaw.map((item: any) => [
+          item?.name ?? item?.名称,
+          item?.value ?? item?.数值 ?? item?.count ?? 0,
+        ]).filter(([name]) => Boolean(name)))
+        : (freshMarkersRaw && typeof freshMarkersRaw === 'object' ? { ...freshMarkersRaw } : {});
+      this.updateSummonGrowth(target, freshMarkers);
+      if (nextFollow) {
+        target.follow = true;
+        target.mode = 'follow';
+        freshMarkers['跟随'] = 0;
+        // 原版任务/NPC 通过好感获得跟随后会转为当前玩家归属。
+        if (!isOwner) {
+          target.ownerQQ = playerQQ;
+          if (target.归属 !== undefined) target.归属 = playerQQ;
+          if (target.qq === 'npc2g' || target.QQ === 'npc2g') {
+            target.qq = `怪物${Date.now()}g`;
+            if (target.QQ !== undefined) target.QQ = target.qq;
+          }
         }
+      } else {
+        target.follow = false;
+        target.mode = 'idle';
+        freshMarkers['跟随'] = 1;
       }
-    } else {
-      pet.follow = false;
-      pet.mode = 'idle';
-      petMarkers['跟随'] = 1;
+      target.markers = freshMarkers; // summons 嵌套元素字段保持对象形态（读取方均容错）
+      if (target.标记 !== undefined) target.标记 = target.markers;
+      return true;
+    });
+    if (!applied) {
+      return `当前地图没有名为「${targetName}」并且属于你的宠物`;
     }
-    pet.markers = petMarkers; // summons 嵌套元素字段保持对象形态（读取方均容错）
-    if (pet.标记 !== undefined) pet.标记 = pet.markers;
-
-    summons[petIndex] = pet;
-
-    await this.mapService.updateDynamicFields(map.id, { summons });
 
     // 取对话（_主程序.ecode L1163-1171）：开始跟随取"跟随"台词(类型2)，停止跟随取"停下"台词(类型3)。
     let dialogue = '';

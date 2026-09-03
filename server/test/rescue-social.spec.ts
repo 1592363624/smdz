@@ -123,15 +123,15 @@ describe('扶、救助、复活使魔社交救援流程', () => {
 
     await expect(fixture.service.handleHelpUp(1)).resolves.toContain('正在救助玩家');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(1, '救助');
-    expect(JSON.parse(helper.markers2)).toEqual([
+    expect(parseJson(helper.markers2, [])).toEqual([
       expect.objectContaining({ name: '工作', rescueType: 'player', expireAt: 1005 }),
     ]);
 
     await jest.advanceTimersByTimeAsync(5_000);
 
     expect(target.hp).toBe(50);
-    expect(JSON.parse(target.buffs)).toEqual([{ name: '卷土重来', expireAt: 1070 }]);
-    expect(JSON.parse(helper.markers2)).toEqual([]);
+    expect(parseJson(target.buffs, [])).toEqual([{ name: '卷土重来', expireAt: 1070 }]);
+    expect(parseJson(helper.markers2, [])).toEqual([]);
   });
 
   it('救助会复活倒地使魔并修复其绑定载具', async () => {
@@ -151,13 +151,14 @@ describe('扶、救助、复活使魔社交救援流程', () => {
 
     await jest.advanceTimersByTimeAsync(30_000);
 
-    const summons = JSON.parse(map.summons);
-    const vehicles = JSON.parse(map.vehicles);
+    const summons = parseJson(map.summons, []);
+    const vehicles = parseJson(map.vehicles, []);
     expect(summons[0].hp).toBe(1);
     expect(vehicles[0].currentHp).toBe(100);
-    expect(JSON.parse(player.markers2)).toEqual([]);
+    expect(parseJson(player.markers2, [])).toEqual([]);
+    // 生产 Json 列已切到「原生对象/数组落库」，写回的是真实数组而非 JSON 字符串
     expect(fixture.updates).toEqual([
-      expect.objectContaining({ summons: expect.any(String), vehicles: expect.any(String) }),
+      expect.objectContaining({ summons: expect.any(Array), vehicles: expect.any(Array) }),
     ]);
   });
 
@@ -176,7 +177,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
     await expect(fixture.service.handleRescue(1)).resolves.toContain('维修载具中');
     await jest.advanceTimersByTimeAsync(30_000);
 
-    expect(JSON.parse(map.vehicles)[0].currentHp).toBe(100);
+    expect(parseJson(map.vehicles, [])[0].currentHp).toBe(100);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(1, '救助');
   });
 
@@ -190,7 +191,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
     });
 
     await expect(fixture.service.handleReviveFamiliar(1)).resolves.toContain('正在抢救中');
-    expect(JSON.parse(player.markers2)).toEqual([
+    expect(parseJson(player.markers2, [])).toEqual([
       expect.objectContaining({ name: '复活', rescueType: 'self', expireAt: 1030 }),
     ]);
 
@@ -199,7 +200,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
     expect(player.hp).toBe(60);
     expect(player.shield).toBe(0);
     expect(player.armor).toBe(0);
-    expect(JSON.parse(player.markers2)).toEqual([]);
+    expect(parseJson(player.markers2, [])).toEqual([]);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(1, '复活');
   });
 
@@ -215,7 +216,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
 
     // 死亡门禁引导玩家使用「救助」复活，必须能真正启动自救而不是提示没有宠物。
     await expect(fixture.service.handleRescue(1)).resolves.toContain('正在抢救中');
-    expect(JSON.parse(player.markers2)).toEqual([
+    expect(parseJson(player.markers2, [])).toEqual([
       expect.objectContaining({ name: '复活', rescueType: 'self', expireAt: 1030 }),
     ]);
 
@@ -224,7 +225,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
     expect(player.hp).toBe(60);
     expect(player.shield).toBe(0);
     expect(player.armor).toBe(0);
-    expect(JSON.parse(player.markers2)).toEqual([]);
+    expect(parseJson(player.markers2, [])).toEqual([]);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(1, '复活');
   });
 
@@ -246,7 +247,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
 
     expect(player.hp).toBe(50);
     // 自救不顺带复活宠物，宠物需再次「救助」或由他人处理。
-    expect(JSON.parse(map.summons)[0].hp).toBe(0);
+    expect(parseJson(map.summons, [])[0].hp).toBe(0);
   });
 
   it('存活状态下没有可抢救目标，救助仍提示没有需要抢救的宠物', async () => {
@@ -338,7 +339,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
     expect(player.hp).toBe(60);
     expect(player.shield).toBe(0);
     expect(player.armor).toBe(0);
-    expect(JSON.parse(player.markers2)).toEqual([]);
+    expect(parseJson(player.markers2, [])).toEqual([]);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(1, '复活');
     // 延时回调拿不到指令回复通道，结算文本必须走世界频道系统消息送达玩家。
     expect(fixture.chatService.broadcastSystem).toHaveBeenCalledWith(
@@ -367,6 +368,6 @@ describe('扶、救助、复活使魔社交救援流程', () => {
     const marker = { name: '复活', rescueType: 'self', expireAt: 900, token: 'pending-self' };
     await expect((fixture.service as any).completeRescue(1, marker)).resolves.toContain('感觉好一点了吗');
     expect(player.hp).toBe(50);
-    expect(JSON.parse(player.markers2)).toEqual([]);
+    expect(parseJson(player.markers2, [])).toEqual([]);
   });
 });

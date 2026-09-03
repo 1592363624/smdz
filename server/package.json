@@ -14,8 +14,11 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:data": "ts-node prisma/seed-data.ts",
     "seed:all": "ts-node prisma/seed.ts && ts-node prisma/seed-data.ts",
-    "test": "jest --runInBand",
-    "test:watch": "jest --watch"
+    "test": "jest --config jest.full.config.js --runInBand",
+    "test:watch": "jest --watch",
+    "test:unit": "jest",
+    "test:db": "jest --config jest.db.config.js --runInBand",
+    "test:all": "jest && jest --config jest.db.config.js --runInBand"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

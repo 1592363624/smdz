@@ -210,7 +210,24 @@ function makeGatherFixture(options: { times?: number } = {}) {
     itemSystemService,
     combatSystem,
     chatService,
-    mapService: { getMapById: jest.fn(async () => map), getMapMonsters: jest.fn(async () => []) },
+    mapService: {
+      getMapById: jest.fn(async () => map),
+      getMapMonsters: jest.fn(async () => []),
+      // 闭环写入桩：模拟锁内「解析字符串容器 → 修改 → 落库」语义
+      mutateMapFields: jest.fn(async (_mapId: number, fields: string[], mutator: any) => {
+        const f: any = {};
+        for (const field of fields) f[field] = parseJson(map[field], []);
+        const result = await mutator(f);
+        for (const field of fields) map[field] = f[field];
+        return result;
+      }),
+      mutateSummons: jest.fn(async (_mapId: number, mutator: any) => {
+        const summons = parseJson(map.summons, []);
+        const result = await mutator(summons);
+        map.summons = summons;
+        return result;
+      }),
+    },
     staticData: { getEquipmentByName: jest.fn(() => undefined) },
     logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
     pushPlayerUpdate: jest.fn(async () => undefined),
@@ -235,7 +252,8 @@ describe('延时结算去重（救援/采集恰好一次）', () => {
     expect(second).toBe('');
     expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(1);
     expect(fixture.player.hp).toBe(44);
-    expect(JSON.parse(fixture.player.markers2)).toEqual([]);
+    // markers2 落库为原生数组对象（生产禁止 JSON.stringify 字符串）
+    expect(parseJson(fixture.player.markers2, [])).toEqual([]);
   });
 
   it('延时任务重复投递同一救援标记时，认领失败不再广播', async () => {
@@ -261,10 +279,10 @@ describe('延时结算去重（救援/采集恰好一次）', () => {
     const settledTexts = [first, second].filter((text: string) => text.includes('收集到了'));
     expect(settledTexts).toHaveLength(1);
     expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(1);
-    const backpack = JSON.parse(fixture.persistence.state.backpack);
+    const backpack = parseJson(fixture.persistence.state.backpack, []);
     expect(backpack).toEqual([expect.objectContaining({ name: '木头', count: 2 })]);
-    // 资源次数只扣一次
-    expect(JSON.parse(fixture.map.resources)[0].times).toBe(4);
+    // 资源次数只扣一次（Json 列落库为原生对象）
+    expect(parseJson(fixture.map.resources, [])[0].times).toBe(4);
     const advanceCalls = (fixture.taskService.advance as jest.Mock).mock.calls.filter(
       (call) => call[1] === '采集',
     );

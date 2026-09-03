@@ -65,9 +65,10 @@ export class GameCommandHandler implements CommandHandler {
     if (text) {
       // 标记该引导已完成，下次不再显示
       this.tutorialService.markTutorialDone(markers, tutorialType);
-      // 保存标记到数据库
       markers['指引_' + tutorialType] = 1;
-      await this.playerService.savePlayer({ id: playerData.player.id, markers });
+      // 命令化写入口：只投递「markers 这一列被改了」的意图，由邮箱内基于最新
+      // 活态应用。不传整行对象，因此不存在「旧快照字段顺带覆盖活态」的可能。
+      await this.playerService.patchPlayer(userId, { markers }, 'tutorial');
     }
     return text;
   }

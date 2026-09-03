@@ -1,6 +1,7 @@
 import { FamiliarSkillsService } from '../src/modules/game/familiar-skills.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { BONUS_CODE_MAP } from '../src/modules/game/item.service';
+import { parseJson } from './parse-json.util';
 
 /**
  * 冥鱼六道轮回（使魔技能.ecode L667-L1306）单元测试
@@ -33,12 +34,12 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
     const playerService: any = {
       getPlayerData: jest.fn(async () => ({
         player,
-        markers: JSON.parse(player.markers),
+        markers: parseJson(player.markers, {}),
         markers2: [],
-        equipment: JSON.parse(player.equipment),
+        equipment: parseJson(player.equipment, []),
         weapons: [],
         buffs: [],
-        backpack: JSON.parse(player.backpack),
+        backpack: parseJson(player.backpack, []),
         tasks: [],
         safeBox: [],
       })),
@@ -50,7 +51,7 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
       getMarkerValue: jest.fn((source: any, key: string) => Number(source?.[key] || 0)),
       getSkillLevel: jest.fn(() => 1),
       savePlayer: jest.fn(async () => undefined),
-      getBackpackItems: jest.fn((p: any) => JSON.parse(p.backpack)),
+      getBackpackItems: jest.fn((p: any) => parseJson(p.backpack, [])),
       enqueueUserWrite: jest.fn((userId: number, fn: () => Promise<any>) => fn()),
     };
     // 最小化复刻 ItemService 的数据串编解码（直接复用真实 BONUS_CODE_MAP，保证全键覆盖）
@@ -127,16 +128,16 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
     expect(result).toMatch(/\n5、/);
     expect(result).not.toMatch(/\n6、/);
     // 待选状态写入 sets
-    const sets = JSON.parse(player.sets);
+    const sets = parseJson(player.sets, {});
     expect(sets['六道轮回'].backpackIndex).toBe(1);
     expect(sets['六道轮回'].options).toHaveLength(5);
     // 装备数据串：攻击被清掉，转为采集=1 待洗标记，特效保留
-    const backpack = JSON.parse(player.backpack);
+    const backpack = parseJson(player.backpack, []);
     expect(backpack[0].data).toContain('!bv1');
     expect(backpack[0].data).not.toContain('!ai');
     expect(backpack[0].data).toContain('!bx5');
     // 计数
-    const markers = JSON.parse(player.markers);
+    const markers = parseJson(player.markers, {});
     expect(markers['冥鱼次数']).toBe(1);
   });
 
@@ -163,7 +164,7 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
     });
     const result = await fx.service.sixPaths(1, '1攻击');
     expect(result).toContain('选择你中意的项目');
-    const pending = JSON.parse(fx.player.sets)['六道轮回'];
+    const pending = parseJson(fx.player.sets, {})['六道轮回'];
     expect(pending.options).toHaveLength(5);
     for (const opt of pending.options) {
       expect(opt.name).toBe('闪避');
@@ -193,12 +194,12 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
   it('六道轮回选择把选中属性写回装备并清除待选标记', async () => {
     const fx = makeFixture();
     await fx.service.sixPaths(1, '1攻击');
-    const pending = JSON.parse(fx.player.sets)['六道轮回'];
+    const pending = parseJson(fx.player.sets, {})['六道轮回'];
     const pick = pending.options[1]; // 选第2项
 
     const result = await fx.service.sixPathsChoice(1, '2');
     expect(result).toContain(`得到了${pick.name}`);
-    const backpack = JSON.parse(fx.player.backpack);
+    const backpack = parseJson(fx.player.backpack, []);
     // 选中值 42 写入对应编码键，待洗标记 bv 已清除
     expect(backpack[0].data).not.toContain('!bv');
     const chosenKey = ItemSystemService.AFFIX_TO_BONUS[pick.name];
@@ -208,7 +209,7 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
     expect(code).toBeTruthy();
     expect(backpack[0].data).toContain(`!${code}42`);
     // 待选状态清空
-    expect(JSON.parse(fx.player.sets)['六道轮回']).toBeUndefined();
+    expect(parseJson(fx.player.sets, {})['六道轮回']).toBeUndefined();
   });
 
   it('无效序号重新展示选项，无待选项时按原版提示', async () => {
@@ -245,7 +246,7 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
     });
     const result = await fx.service.sixPaths(1, '1攻击');
     expect(result).toContain('消耗了');
-    const backpack = JSON.parse(fx.player.backpack);
+    const backpack = parseJson(fx.player.backpack, []);
     const wood = backpack.find((it: any) => it.name === '木头');
     // 原版公式 50×(1+超出÷10)：超出987次 → floor(50×99.7)=4985
     expect(wood.quantity).toBe(99999 - 4985);

@@ -13,6 +13,7 @@ import { FamiliarSystemService } from '../src/modules/game/familiar-system.servi
 import { MapService } from '../src/modules/game/map.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { parseJson } from './parse-json.util';
 
 jest.setTimeout(180000);
 
@@ -128,7 +129,7 @@ describe('行商迁移（真实数据库端到端）', () => {
     const result = await game.handleSettingsShop(userId, '工业=窝');
     expect(result).toContain('工业【等号】窝');
     const player = await prisma.player.findUnique({ where: { userId } });
-    expect(JSON.parse(player!.markers)['自动购物']).toBe('工业【等号】窝');
+    expect(parseJson(player!.markers, {})['自动购物']).toBe('工业【等号】窝');
   });
 
   it('通讯台免费呼叫行商，生成原版默认六件库存并写入当日通讯冷却', async () => {
@@ -141,13 +142,13 @@ describe('行商迁移（真实数据库端到端）', () => {
     expect(result).toContain('行商来到了');
 
     const merchant = await merchantFromMap();
-    const inventory = JSON.parse(merchant.backpack);
+    const inventory = parseJson(merchant.backpack, []);
     expect(inventory).toHaveLength(6);
     expect(inventory.slice(0, 3).every((item: any) => item.type === '装备')).toBe(true);
     expect(inventory.slice(3).every((item: any) => item.type === '资源')).toBe(true);
 
     const player = await prisma.player.findUnique({ where: { userId } });
-    const markers2 = JSON.parse(player!.markers2);
+    const markers2 = parseJson(player!.markers2, []);
     expect(markers2.some((marker: any) => (marker.name ?? marker.名称).startsWith('通讯'))).toBe(true);
   });
 
@@ -172,9 +173,9 @@ describe('行商迁移（真实数据库端到端）', () => {
       const result = await game.handleCallVehicle(userId, '行商');
       expect(result).toContain('消耗发带4');
       const merchant = await merchantFromMap();
-      expect(JSON.parse(merchant.backpack)).toHaveLength(24);
+      expect(parseJson(merchant.backpack, [])).toHaveLength(24);
       const after = await prisma.player.findUnique({ where: { userId } });
-      expect(JSON.parse(after!.backpack)).toEqual([
+      expect(parseJson(after!.backpack, [])).toEqual([
         { name: '发带', type: '资源', quantity: 1 },
       ]);
     } finally {
@@ -198,14 +199,14 @@ describe('行商迁移（真实数据库端到端）', () => {
     const result = await game.handleShop(userId, '1', []);
     expect(result).toContain('从行商处购买了测试资源x2');
     const player = await prisma.player.findUnique({ where: { userId } });
-    const backpack = JSON.parse(player!.backpack);
+    const backpack = parseJson(player!.backpack, []);
     expect(backpack.find((item: any) => item.name === '木头').quantity).toBe(50);
     expect(backpack.find((item: any) => item.name === '石头').quantity).toBe(60);
     expect(backpack.find((item: any) => item.name === '绳子').quantity).toBe(70);
     expect(backpack.find((item: any) => item.name === '铁矿').quantity).toBe(70);
     expect(backpack.find((item: any) => item.name === '测试资源').quantity).toBe(2);
     const merchant = await merchantFromMap();
-    expect(JSON.parse(merchant.backpack)).toEqual([]);
+    expect(parseJson(merchant.backpack, [])).toEqual([]);
   });
 
   it('资源不足时不消耗资源、不移除商品，并保留原版购买失败提示', async () => {
@@ -215,9 +216,9 @@ describe('行商迁移（真实数据库端到端）', () => {
     const result = await game.handleShop(userId, '1', []);
     expect(result).toContain('需要木头x50');
     const merchant = await merchantFromMap();
-    expect(JSON.parse(merchant.backpack)).toHaveLength(1);
+    expect(parseJson(merchant.backpack, [])).toHaveLength(1);
     const player = await prisma.player.findUnique({ where: { userId } });
-    expect(JSON.parse(player!.backpack)).toEqual([]);
+    expect(parseJson(player!.backpack, [])).toEqual([]);
   });
 
   it('自动购物倒序购买匹配商品，第二件资源不足时停止并提示', async () => {
@@ -237,11 +238,11 @@ describe('行商迁移（真实数据库端到端）', () => {
       ]),
     });
     const playerBefore = await prisma.player.findUnique({ where: { userId } });
-    expect(JSON.parse(playerBefore!.markers)['自动购物']).toBe('工业、窝');
-    const merchantBefore = JSON.parse((await mapService.getMapById(mapId)).summons)
+    expect(parseJson(playerBefore!.markers, {})['自动购物']).toBe('工业、窝');
+    const merchantBefore = parseJson((await mapService.getMapById(mapId)).summons, [])
       .find((item: any) => item.name === '行商');
     expect(merchantBefore).toBeDefined();
-    expect((game as any).formatMerchantItem(JSON.parse(merchantBefore.backpack)[1], true)).toContain('狐狸窝');
+    expect((game as any).formatMerchantItem(parseJson(merchantBefore.backpack, [])[1], true)).toContain('狐狸窝');
     const playerDataBefore = await readPlayer();
     expect((game as any).hasEnoughResources(playerDataBefore.backpack, [
       { name: '木头', quantity: 50 },
@@ -260,10 +261,10 @@ describe('行商迁移（真实数据库端到端）', () => {
     }
 
     const merchant = await merchantFromMap();
-    const remaining = JSON.parse(merchant.backpack);
+    const remaining = parseJson(merchant.backpack, []);
     expect(remaining.map((item: any) => item.name)).toEqual(['工业熔炉', '不匹配']);
     const player = await prisma.player.findUnique({ where: { userId } });
-    const backpack = JSON.parse(player!.backpack);
+    const backpack = parseJson(player!.backpack, []);
     expect(backpack.find((item: any) => item.name === '狐狸窝').quantity).toBe(1);
   });
 
@@ -283,8 +284,8 @@ describe('行商迁移（真实数据库端到端）', () => {
     const result = await familiarSystem.exchange(userId, '优秀武器补给箱3', 1);
     expect(result).toContain('用300活跃度兑换了优秀武器补给箱x3');
     const after = await prisma.player.findUnique({ where: { userId } });
-    const markers = JSON.parse(after!.markers);
-    const backpack = JSON.parse(after!.backpack);
+    const markers = parseJson(after!.markers, {});
+    const backpack = parseJson(after!.backpack, []);
     expect(markers['活跃度']).toBe(200);
     expect(backpack.find((item: any) => item.name === '优秀武器补给箱').quantity).toBe(3);
   });
@@ -305,7 +306,7 @@ describe('行商迁移（真实数据库端到端）', () => {
     const equipmentResult = await familiarSystem.exchange(userId, '纳米头盔', 1);
     expect(equipmentResult).toContain('用50数据核心兑换了纳米头盔');
     const final = await prisma.player.findUnique({ where: { userId } });
-    const finalBackpack = JSON.parse(final!.backpack);
+    const finalBackpack = parseJson(final!.backpack, []);
     expect(finalBackpack.some((item: any) => item.name === '纳米头盔' && item.type === '装备')).toBe(true);
     expect(finalBackpack.find((item: any) => item.name === '数据核心')).toBeUndefined();
   });

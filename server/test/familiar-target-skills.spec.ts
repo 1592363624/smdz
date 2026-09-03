@@ -27,6 +27,16 @@ function makeService(player: any, map: any = null): any {
     updateDynamicFields: jest.fn(async (_id: number, data: any) => {
       if (map) Object.assign(map, data);
     }),
+    // 生产 mutateSummons 闭环：重读最新 summons → 跑 mutator → 写回 map（模拟锁内差异落库）
+    mutateSummons: jest.fn(async (_mapId: number, mutator: (f: any) => any) => {
+      const raw = map?.summons;
+      const summons = Array.isArray(raw)
+        ? raw
+        : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : []);
+      const result = mutator(summons);
+      if (map) map.summons = summons;
+      return result ?? false;
+    }),
   };
   service.prisma = {
     player: {
@@ -51,16 +61,17 @@ describe('安乐天使/福音书目标施法', () => {
       buffs: '[]',
       markers: '{}',
     };
-    const service = makeService(player, {
+    const map = {
       id: 1,
       summons: JSON.stringify([{ name: '小白', buffs: JSON.stringify([{ name: '旧增益' }]) }]),
-    });
+    };
+    const service = makeService(player, map);
 
     await expect(service.safetyAngel(1)).resolves.toBe('需要安乐天使');
 
     player.equipment = JSON.stringify([{ name: '安乐天使' }]);
     await expect(service.safetyAngel(1, '[@小白]')).resolves.toContain('给小白套上了行星护盾');
-    const savedSummons = parseJson(service.mapService.updateDynamicFields.mock.calls[0][1].summons, []);
+    const savedSummons = parseJson(map.summons, []);
     expect(savedSummons[0].buffs).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: '旧增益' }),
       expect.objectContaining({ name: '安乐天使' }),

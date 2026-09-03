@@ -1,4 +1,5 @@
 import { DungeonService } from '../src/modules/game/dungeon.service';
+import { parseJson } from './parse-json.util';
 
 describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
   function makeFixture() {
@@ -30,6 +31,21 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
       getAllMaps: jest.fn(async () => maps),
       getMapByName: jest.fn(async (name: string) => maps.find((map) => map.name === name) || null),
       updateDynamicFields: jest.fn(async (id: number, data: any) => updates.push({ id, data })),
+      // 生产 mutateMapFields 闭环：定位地图最新字段 → 跑 mutator → 写回 map（模拟锁内差异落库）
+      mutateMapFields: jest.fn(async (mapId: number, fields: string[], mutator: (f: any) => any) => {
+        const target = maps.find((m: any) => m.id === mapId);
+        if (!target) return {};
+        const f: any = {};
+        for (const field of fields) {
+          const raw = (target as any)[field];
+          f[field] = Array.isArray(raw)
+            ? raw
+            : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : []);
+        }
+        const result = mutator(f);
+        for (const field of fields) (target as any)[field] = f[field];
+        return result ?? {};
+      }),
       removeMapConnection: jest.fn(async () => undefined),
       clearMapMonsters: jest.fn(async () => undefined),
       refreshMapMonsters: jest.fn(async () => undefined),
@@ -78,15 +94,14 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
     expect(result.message).toContain('副本玩家被传送离开了副本');
     expect(fixture.players[0].mapId).toBe(23);
     // 原版置成就熟练度(..., 0) 会删除已存在标记，不会为缺失的“仓库”新增键。
-    expect(JSON.parse(fixture.players[0].markers)).toEqual({ 保留: 2 });
+    expect(parseJson(fixture.players[0].markers, {})).toEqual({ 保留: 2 });
     expect(fixture.mapService.removeMapConnection).toHaveBeenCalledWith(4, 'CELL研究中心(副本)');
     expect(fixture.mapService.clearMapMonsters).toHaveBeenCalledWith(4);
     expect(fixture.mapService.refreshMapMonsters).toHaveBeenCalledWith(4);
     expect(fixture.mapService.refreshMapResources).toHaveBeenCalledWith(4);
 
-    const exitUpdate = fixture.updates.find((entry) => entry.id === 23 && entry.data.summons);
-    expect(exitUpdate).toBeDefined();
-    expect(JSON.parse(exitUpdate!.data.summons)).toEqual(expect.arrayContaining([
+    const exitSummonsField = parseJson(fixture.maps[22].summons, []);
+    expect(exitSummonsField).toEqual(expect.arrayContaining([
       { id: 'existing-summon' },
       { id: 'dungeon-summon' },
     ]));

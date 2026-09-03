@@ -106,7 +106,7 @@ describe('飞行任务动作', () => {
     expect(fixture.scheduled).toEqual([
       { userId: 42, mapId: 8, name: '目标地图', seconds: 10 },
     ]);
-    expect(JSON.parse(fixture.player.markers)['移动中']).toContain('飞行');
+    expect(parseJson(fixture.player.markers, {})['移动中']).toContain('飞行');
     expect(fixture.saved).toHaveLength(1);
   });
 

@@ -100,7 +100,8 @@ describe('mutate ALS 逃逸进定时器：延时结算的改动必须落库', ()
     await new Promise((r) => setTimeout(r, 50));
 
     const row = rows.find((r) => r.userId === 501)!;
-    const markers = JSON.parse(row.markers);
+    // GameMap/Player Json 列落库为原生对象（生产禁止 JSON.stringify 字符串），asJsonValue 读侧兼容两种形态
+    const markers = typeof row.markers === 'string' ? JSON.parse(row.markers) : row.markers;
     // 修复前失败点：医疗箱标记与采集中清理都停留在内存，库里永远是旧值
     expect(markers['医疗箱']).toBe(1);
     expect(markers['采集中']).toBeUndefined();

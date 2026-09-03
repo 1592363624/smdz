@@ -37,14 +37,84 @@ export interface PlayerData {
 }
 
 /**
- * 双表示收敛的字段清单：这些子集合在 getPlayerData 载入时会同时生成
- * 「顶层解析表示」(PlayerData.xxx) 与「行字符串」(player.xxx)，行字段由
- * installCanonicalAccessors 改造为读写都透传到顶层权威表示的 accessor。
+ * 玩家写模型命令。
+ *
+ * 业务层推荐投递命令，而不是把 getPlayerData 返回的整行对象传回保存入口。
+ * PATCH 仅允许更新列白名单中的字段；其余三种高频命令表达业务意图，
+ * 由 PlayerService 在该玩家 Actor 邮箱内基于最新活态执行。
  */
+export type PlayerPatch = Partial<Record<
+  | 'level' | 'exp' | 'upgradeExp' | 'name' | 'baseName' | 'type' | 'specialSeq'
+  | 'hp' | 'maxHp' | 'shield' | 'maxShield' | 'armor' | 'maxArmor'
+  | 'attack' | 'defense' | 'speed' | 'dodge' | 'hit' | 'crit' | 'critDmg'
+  | 'regenHp' | 'regenShield' | 'regenArmor' | 'mapId' | 'location' | 'houseName'
+  | 'currentWeapon' | 'affinity' | 'masterQQ' | 'vitality' | 'lastOpTime' | 'readTime'
+  | 'playTime' | 'vehicle' | 'backpack' | 'equipment' | 'weapons' | 'markers' | 'markers2'
+  | 'buffs' | 'tasks' | 'titles' | 'skills' | 'sets' | 'bonus' | 'baseBonus'
+  | 'safeBox' | 'equipmentPresets' | 'reverse' | 'recipes' | 'stats'
+  | 'diamonds' | 'tickets' | 'dataCores', any>>;
+
+export type PlayerCommand =
+  | { type: 'PATCH'; patch: PlayerPatch; source?: string }
+  | { type: 'UPDATE_MARKERS'; changes: Record<string, any>; source?: string }
+  | { type: 'SET_MARKER'; name: string; value: any; source?: string }
+  | { type: 'SET_ATTRIBUTE'; attr: 'hp' | 'shield' | 'armor' | 'vitality' | 'currentWeapon'; value: number; source?: string }
+  | { type: 'ADJUST_ATTRIBUTE'; attr: 'hp' | 'shield' | 'armor' | 'vitality'; delta: number; source?: string };
+
+/** savePlayer 兼容层附加的写基线（非枚举，不会落库/进入 fieldSignature）。 */
+const PLAYER_WRITE_META = Symbol('player-write-meta');
+const PLAYER_PATCH_FIELDS = [
+  'level', 'exp', 'upgradeExp', 'name', 'baseName', 'type', 'specialSeq',
+  'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor',
+  'attack', 'defense', 'speed', 'dodge', 'hit', 'crit', 'critDmg',
+  'regenHp', 'regenShield', 'regenArmor', 'mapId', 'location', 'houseName',
+  'currentWeapon', 'affinity', 'masterQQ', 'vitality', 'lastOpTime', 'readTime',
+  'playTime', 'vehicle', 'backpack', 'equipment', 'weapons', 'markers', 'markers2',
+  'buffs', 'tasks', 'titles', 'skills', 'sets', 'bonus', 'baseBonus',
+  'safeBox', 'equipmentPresets', 'reverse', 'recipes', 'stats',
+  'diamonds', 'tickets', 'dataCores',
+] as const;
+interface PlayerWriteMeta {
+  baseline: Record<string, any>;
+  userId?: number;
+}
+function cloneJson<T>(value: T): T {
+  if (value === undefined || value === null) return value;
+  // BigInt：lastOpTime/readTime/playTime 等列在 schema 中是 BigInt。
+  // structuredClone 支持它，但 JSON 往返不支持——必须先归一，否则退化为
+  // JSON 序列化时会直接抛 "Do not know how to serialize a BigInt"。
+  if (typeof value === 'bigint') return Number(value) as unknown as T;
+  if (typeof structuredClone === 'function') {
+    try { return structuredClone(value); } catch { /* fallback */ }
+  }
+  try {
+    return JSON.parse(
+      JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? Number(v) : v)),
+    ) as T;
+  } catch {
+    // 含函数/循环引用等不可序列化值：退回原引用。差异比较会退化为引用比较，
+    // 最坏情况是「漏判未改动」，即多合并一次同值字段——安全方向，绝不会丢写。
+    return value;
+  }
+}
 const CANONICAL_JSON_FIELDS = [
   'backpack', 'equipment', 'weapons', 'markers', 'markers2',
   'buffs', 'tasks', 'safeBox',
 ] as const;
+
+/**
+ * 字段级写基线开关（环境变量 PLAYER_WRITE_DIFF，默认 on）：
+ * - on（默认）：savePlayer 收到带写基线的行对象时，只投递「相对基线实际改过的
+ *   字段」。把「调用方把整行旧快照搬回邮箱」这条路从根上掐断。
+ * - off：回退到「合并对象上出现过的全部字段」的旧行为，仅供线上排障时对照。
+ */
+const WRITE_DIFF_MODE: 'on' | 'off' =
+  process.env.PLAYER_WRITE_DIFF === 'off' ? 'off' : 'on';
+
+/** Object.prototype.hasOwnProperty 的短写法（避免对象上被覆写时的原型链陷阱）。 */
+function hasOwn(obj: any, key: PropertyKey): boolean {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
 
 @Injectable()
 export class PlayerService implements OnModuleInit {
@@ -245,9 +315,11 @@ export class PlayerService implements OnModuleInit {
    * @returns 玩家对象
    */
   async getOrCreatePlayer(userId: number): Promise<any> {
-    let player = await this.prisma.player.findUnique({ where: { userId } });
+    const uid = this.requireUserId(userId);
+    await this.assertUserExists(uid);
+    let player = await this.prisma.player.findUnique({ where: { userId: uid } });
     if (!player) {
-      this.logger.log(`为用户 ${userId} 创建新玩家档案`);
+      this.logger.log(`为用户 ${uid} 创建新玩家档案`);
 
       // 初始装备（全部为原版道具，对应原版「普通装备补给箱」的布装备+石制工具）：
       // 武器走原版"生成装备"路径卷随机词条（品质e），保证开局有真实武器伤害。
@@ -306,7 +378,7 @@ export class PlayerService implements OnModuleInit {
 
       player = await this.prisma.player.create({
         data: {
-          userId,
+          userId: uid,
           // 基础属性
           level: 1,
           exp: 0,
@@ -465,6 +537,9 @@ export class PlayerService implements OnModuleInit {
     // 业务改哪一侧都等价（详见 installCanonicalAccessors）。落库时行 getter 序列化
     // 的就是权威态，不再需要「基线对比 + 按侧猜测」的调和启发式。
     this.installCanonicalAccessors(player, result);
+    // 给兼容 savePlayer 层附加不可枚举写基线。后续即使调用方在邮箱外持有该对象，
+    // savePlayer 也只会投递「相对这份基线实际改过的字段」，不会把整行旧快照搬进邮箱。
+    this.attachWriteMeta(player, userId);
     return result;
   }
 
@@ -529,6 +604,116 @@ export class PlayerService implements OnModuleInit {
     }
   }
 
+  /**
+   * 给玩家行附加不可枚举的「写基线」（PLAYER_WRITE_META）。
+   *
+   * ## 解决什么问题
+   *
+   * `savePlayer(player)` 的历史语义是「把调用方给的行对象合并进活态」。现存
+   * 270 处裸调用点里，有大量是「邮箱外读一份 DB 副本 → 改一两个字段 → 整行
+   * 传回 savePlayer」的写法（典型：战斗循环定时器、延时结算回调）。这类调用
+   * 携带的是**整行旧快照**：合并进活态时，副本上那些「没打算改、但已经过期」
+   * 的字段会一并覆盖活态里刚刚发生的新写入——这正是「旧快照覆盖」事故的直接形态。
+   *
+   * ## 怎么解决
+   *
+   * 载入时为行附加一份字段级基线（本次读取时的快照）。savePlayer 收到带基线的
+   * 对象时，只投递「相对该基线**实际改过**的字段」；未改动的字段一个都不进邮箱。
+   * 于是调用方无论持有多少过期字段，都无法把它们搬进活态——它没有改过的东西
+   * 根本不会被提交。
+   *
+   * ## 为什么是安全的
+   *
+   * 差异判定的两种错判方向代价不对等，实现刻意选了安全的一侧：
+   * - 误判「改了」（实际没改）→ 合并一个与活态同值的字段 → 无副作用；
+   * - 误判「没改」（实际改了）→ 丢弃调用方的写入 → **丢数据**。
+   * 因此比较采用「同值优先、可疑即判为已改」：标量用 ===，对象用 JSON 序列化
+   * 比较；JSON.stringify 不可比较时保留原引用，最终退化为「判为已改」。
+   *
+   * 基线不可枚举，因此不会进入 fieldSignature（mutate 的落库判定）、不会被
+   * Object.assign / JSON.stringify 带出去污染落库数据。
+   *
+   * 幂等：活态复用时（Actor 邮箱内 getPlayerData 直接返回 cell.state）只在
+   * 首次载入建立基线，重复附加会把「本链已改但未落库的值」误当成基线。
+   */
+  private attachWriteMeta(player: any, userId: number): void {
+    if (!player || typeof player !== 'object') return;
+    if (hasOwn(player, PLAYER_WRITE_META)) return;
+    const baseline: Record<string, any> = {};
+    for (const field of PLAYER_PATCH_FIELDS) {
+      baseline[field] = cloneJson(this.readComparable(player, field));
+    }
+    Object.defineProperty(player, PLAYER_WRITE_META, {
+      value: { baseline, userId } satisfies PlayerWriteMeta,
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+  }
+
+  /**
+   * 读取字段的「可比较值」：JSON 字段统一解析成结构、BigInt 归一为 number。
+   *
+   * 行上装了 accessor 的 8 个子集合（见 installCanonicalAccessors）读出来是
+   * 序列化字符串，历史字符串列同理；两者都先解析成结构再比较，避免「同一份
+   * 数据两种表示」被判成已改动。数值型字符串（如 location='新手村'）解析失败
+   * 时原样返回，基线与当前值走同一条路径，比较依然自洽。
+   */
+  private readComparable(player: any, field: string): any {
+    const raw = player?.[field];
+    if (typeof raw === 'bigint') return Number(raw);
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch { return raw; }
+    }
+    return raw;
+  }
+
+  /** 字段值是否等价（仅用于写基线差异判定，语义见 attachWriteMeta）。 */
+  private isSameFieldValue(a: any, b: any): boolean {
+    if (a === b) return true;
+    // null vs undefined 视作不同（一个是「有值但空」，一个是「没读到」），保守判为已改
+    if (a === null || b === null || a === undefined || b === undefined) return false;
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== 'object') return false; // 标量不等即已改（NaN 亦然，安全方向）
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+      return false; // 无法序列化（循环引用/BigInt 残留）：判为已改，宁可多写不丢写
+    }
+  }
+
+  /**
+   * 计算「相对写基线实际改过的字段」。
+   * @returns 无写基线（手工构造的局部写对象）时返回 null —— 调用方按原语义全量合并。
+   */
+  private diffAgainstWriteBaseline(incoming: any): Record<string, any> | null {
+    const meta: PlayerWriteMeta | undefined = incoming?.[PLAYER_WRITE_META];
+    if (!meta?.baseline) return null;
+    const changed: Record<string, any> = {};
+    for (const field of PLAYER_PATCH_FIELDS) {
+      if (!hasOwn(incoming, field)) continue;
+      const current = this.readComparable(incoming, field);
+      if (this.isSameFieldValue(current, meta.baseline[field])) continue;
+      changed[field] = current;
+    }
+    return changed;
+  }
+
+  /**
+   * 落库/合并成功后推进写基线：把已提交字段的基线更新为「本次提交的值」。
+   *
+   * 不推进会让同一次读取后的第二次 savePlayer 把同样的旧值再覆盖回活态——
+   * 那段时间里活态可能已被战斗等路径改过，重复提交等于用旧值反压新值。
+   * 推进后基线即「我最后一次推给活态的状态」，语义闭合。
+   */
+  private advanceWriteBaseline(incoming: any, submitted: Record<string, any>): void {
+    const meta: PlayerWriteMeta | undefined = incoming?.[PLAYER_WRITE_META];
+    if (!meta?.baseline) return;
+    for (const [field, value] of Object.entries(submitted)) {
+      meta.baseline[field] = cloneJson(value);
+    }
+  }
+
   /** 货币列 → 背包物品（覆盖同名旧条目；无货币条目时创建），供 getPlayerData 物化。 */
   private materializeCurrencies(player: any): void {
     if (player.diamonds === undefined && player.tickets === undefined && player.dataCores === undefined) {
@@ -585,50 +770,47 @@ export class PlayerService implements OnModuleInit {
       (ctx as any).__mutateDirty = true;
       return;
     }
-    // Actor 内（本玩家邮箱内）：外部调用（如怪物回合、战斗循环定时器）不应在此
-    // 短路 —— 它持有的是 DB 旧副本，直接标脏并 return 会让 ActorRuntime 写一份
-    // 过时快照，覆盖同一玩家邮箱内正在排队/刚落库的修改（「旧快照覆盖」事故根因）。
-    // 正确做法：把本次写排队到 enqueueUserWrite，让它基于真实活态重写 cell.state
-    // 并同步落库；若调用方本就在邮箱内（如 addExp 的 writeThrough 分支），enqueue
-    // 会重入执行，同样能按活态写库。活态缺失时退回普通整包落库，并失效缓存（见下文）。
-    // 关键：改动作用于 peekLive 取到的真实 cell.state（而非调用方可能传入的另一份克隆），
-    // 避免「改了错误对象、不进 cell」的隐患（正确性风险 #5）。version 交给 persistPlayer
-    // 的 $use 中间件自增，这里不手动 +1，避免与 $use 双重自增。
+    // 统一聚合键：邮箱 key 只允许 userId。仅有行 id 的局部对象先反查 userId——
+    // 行 id 直接当 key 会造出 'player:<行id>' 幽灵邮箱（同一行两条互不串行的
+    // 邮箱），且幽灵 cell 激活时 getOrCreatePlayer(<行id>) 会以行 id 建档，
+    // 触发 player 外键冲突（Foreign key constraint violated: userId）。
     if (this.actorRuntime) {
-      const expected = actorKey('player', (player.userId ?? player.id));
-      // 只在「当前异步链确实已经在该玩家 Actor 内」时才走内联路径——其他 Actor 链的
-      // run 进来时 currentActorKey 是别的 key，避免跨玩家 Actor 互相排队。
-      if (this.actorRuntime.currentActorKey() === expected) {
-        const live = this.actorRuntime.peekLive('player', (player.userId ?? player.id)) as
-          | PlayerData
-          | undefined;
+      const uid = await this.resolveActorUserId(player);
+      if (uid === undefined) return;
+      const expected = actorKey('player', uid);
+      // 重入判定必须同时满足：ALS key 匹配 + run 此刻真的在执行中（cell.running）。
+      // ALS 会随定时器回调逃逸出 run 作用域，已结束旧 run 的残留 ALS 同样匹配 key；
+      // 只比 key 会让逃逸回调绕过邮箱，把旧快照直接 merge 进活态再标脏落库
+      // ——「旧快照覆盖」事故根因之一（与 ActorRuntime.run 的重入判定对齐）。
+      if (
+        this.actorRuntime.currentActorKey() === expected
+        && this.actorRuntime.isRunActive('player', uid)
+      ) {
+        const live = this.actorRuntime.peekLive('player', uid) as PlayerData | undefined;
         if (live) {
-          // 同 Actor 链：把调用方的裸行合并进活态 cell.state，由 Actor 末尾 writeThrough 落库。
-          // 不能直接 return（见上方说明），必须走 run 保证落库。
-          // 注意：live.player 就是 cell.state.player，merge 后标脏即通知 Actor 落库。
-          Object.assign(live.player, player);
+          // 同 Actor 链（真实在 run 内）：把调用方的裸行合并进活态 cell.state，
+          // 由 Actor 末尾 writeThrough 落库。合并前做旧快照检测（见 mergeIntoLiveState）。
+          this.mergeIntoLiveState(live.player, player);
           this.applyLevelUps(live.player);
           this.refreshDisplayName(live.player);
           this.actorRuntime.markDirty();
           // 重入 run：本次写由「外层 run 末尾」统一写库，不再 repeat 打库。
           return;
         }
-        // 活态缺失（cell 被 invalidate 后同链继续写）：退回普通整包落库。
-      } else {
-        // 非本玩家 Actor 链（外部调用，如战斗循环定时器、怪物回合 savePlayer）：
-        // 排队到 enqueueUserWrite，基于最新活态写库，杜绝 DB 旧副本整包回滚。
-        const uid = player.userId ?? player.id;
-        await this.enqueueUserWrite(Number(uid), async () => {
-          // enqueueUserWrite 会重新 load 活态，这里的 player 仅用于参考；实际落库
-          // 以 enqueueUserWrite 内的最新活态为准（merge 当前改动）。
-          const pd = await this.getPlayerData(Number(uid));
-          Object.assign(pd.player, player);
-          this.applyLevelUps(pd.player);
-          this.refreshDisplayName(pd.player);
-          await this.persistPlayer(pd.player);
-        });
-        return;
+        // 活态缺失（cell 被 invalidate 后同链继续写）：落入下方邮箱路径按最新活态重写。
       }
+      // 邮箱路径：跨玩家 Actor 链、ALS 逃逸回调、或活态缺失——一律排队到该玩家
+      // 自己的邮箱内，基于最新活态合并后落库，杜绝 DB 旧副本整包回滚。
+      await this.enqueueUserWrite(uid, async () => {
+        // enqueueUserWrite 会重新 load 活态，这里的 player 仅携带调用方的改动；
+        // 实际落库以邮箱内的最新活态为准（merge 当前改动）。
+        const pd = await this.getPlayerData(uid);
+        this.mergeIntoLiveState(pd.player, player);
+        this.applyLevelUps(pd.player);
+        this.refreshDisplayName(pd.player);
+        await this.persistPlayer(pd.player);
+      });
+      return;
     }
 
     // 经验归一化门禁：落库前强制保证 exp < 当前等级门槛。任何直写 player.exp
@@ -640,10 +822,206 @@ export class PlayerService implements OnModuleInit {
     // 局部写对象 {id, markers} 与未选使魔/直接建档的行自动跳过。
     this.refreshDisplayName(player);
     await this.persistPlayer(player);
-    // 非 Actor 路径落库后，使该玩家 Actor 缓存失效，避免陈旧内存态被后续
-    // enqueueUserWrite 复用并覆盖本次落库结果（正确性，见 getPlayerData 注释）。
-    if (this.actorRuntime) {
-      this.actorRuntime.invalidate('player', (player.userId ?? player.id));
+    // 说明：注入了 ActorRuntime 时所有写入路径已在上方 return（邮箱内统一落库），
+    // 走到这里只剩未注入运行时的存量测试桩（手工 new PlayerService），
+    // 因此无需再做 Actor 缓存失效。
+  }
+
+  /**
+   * 解析写入对象的邮箱聚合键（恒为 userId）。
+   *
+   * - 带 userId：直接使用（校验为正整数）。
+   * - 仅带行 id（历史局部写 {id, markers}）：反查一次 userId，并告警提示调用方
+   *   显式携带——行 id 永远不得作为 Actor key（会造出并行幽灵邮箱 + 幽灵建档）。
+   * - 均无法解析（行不存在/查询失败）：返回 undefined，调用方丢弃本次写库，
+   *   绝不带着行 id 进入邮箱。
+   */
+  private async resolveActorUserId(player: any): Promise<number | undefined> {
+    if (player?.userId !== undefined && player?.userId !== null) {
+      const direct = Number(player.userId);
+      if (Number.isFinite(direct) && direct > 0) return direct;
+    }
+    if (player?.id !== undefined && player?.id !== null) {
+      const rowId = Number(player.id);
+      if (Number.isFinite(rowId) && rowId > 0) {
+        try {
+          const row = await this.prisma.player.findUnique({
+            where: { id: rowId },
+            select: { userId: true },
+          });
+          if (row?.userId) {
+            this.logger.warn(
+              `savePlayer 收到仅有行 id(${rowId}) 的写入对象，已反查 userId=${row.userId}。`
+              + `请调用方显式携带 userId：行 id 不得作为 Actor 邮箱键。`,
+            );
+            return row.userId;
+          }
+          this.logger.error(`savePlayer 写入对象无法解析归属玩家（行 id=${rowId} 不存在），本次写库已丢弃`);
+          return undefined;
+        } catch (e: any) {
+          this.logger.error(`savePlayer 反查行 id=${rowId} 的 userId 失败: ${e?.message ?? e}，本次写库已丢弃`);
+          return undefined;
+        }
+      }
+    }
+    this.logger.error('savePlayer 收到既无 userId 也无有效行 id 的写入对象，本次写库已丢弃');
+    return undefined;
+  }
+
+  /**
+   * 把调用方携带的字段合并进活态玩家行，并对「旧快照整包写」做检测。
+   *
+   * 调用方对象带 version 且小于活态 version，说明它是很久之前读出的快照
+   * （活态此后已被其他写者推进）——正是「旧快照整包覆盖」的特征。
+   * - log 模式（默认）：记录冲突与调用方堆栈后照常合并（保持旧行为，先观测）；
+   * - strict 模式：直接丢弃本次合并，保护活态（调用方应基于活态重算后重试）。
+   * version 相同或更大不属于旧快照，正常合并。
+   */
+  private mergeIntoLiveState(liveRow: any, incoming: any): void {
+    if (!incoming || typeof incoming !== 'object') return;
+    const liveVersion = Number(liveRow?.version ?? 0);
+    if (incoming.version !== undefined) {
+      const incomingVersion = Number(incoming.version);
+      if (Number.isFinite(incomingVersion) && incomingVersion < liveVersion) {
+        const stack = (new Error('stale-player-write').stack ?? '')
+          .split('\n')
+          .slice(2, 7)
+          .join('\n');
+        this.logger.error(
+          `拦截到旧快照整包写入: incoming.version=${incomingVersion} < live.version=${liveVersion}`
+          + ` (PLAYER_WRITE_CAS=${PlayerService.CAS_MODE})，调用方堆栈:\n${stack}`,
+        );
+        if (PlayerService.CAS_MODE === 'strict') return;
+      }
+    }
+
+    // 字段级投递：带写基线的行对象只提交「相对基线实际改过的字段」。
+    // 这是掐断「整行旧快照搬运」的那一刀——调用方没改过的字段（哪怕它手上的
+    // 值已经过期 30 秒）一个都不会进活态。无写基线（手工构造的局部写对象）
+    // 时 diff 返回 null，按原语义合并对象上出现过的全部字段。
+    const diff = WRITE_DIFF_MODE === 'on' ? this.diffAgainstWriteBaseline(incoming) : null;
+    if (diff) {
+      // 同源短路：调用方传回的就是活态本身（Actor 邮箱内 getPlayerData 直接返回
+      // cell.state，业务改完 pd.backpack/pd.markers 再 savePlayer(pd.player)）。
+      // 此时改动已经落在权威态上，无需再合并；若硬把 diff 出来的解析副本写回
+      // accessor，权威态会被换成新对象，而业务手里的 pd.backpack / pd.markers
+      // 仍指向旧对象——同一条指令后续再改就改了个寂寞（静默丢写）。
+      if (incoming === liveRow) {
+        this.advanceWriteBaseline(incoming, diff);
+        return;
+      }
+      const submitted: Record<string, any> = {};
+      for (const [field, value] of Object.entries(diff)) {
+        submitted[field] = value;
+        liveRow[field] = value;
+      }
+      this.advanceWriteBaseline(incoming, diff);
+      return;
+    }
+
+    Object.assign(liveRow, incoming);
+    // 活态 version 是权威：调用方快照携带的 version 不得回写拉低/顶替
+    // （否则随后的 CAS 会拿调用方的版本号做条件，必然误报冲突）。
+    if (incoming.version !== undefined) {
+      liveRow.version = liveVersion;
+    }
+  }
+
+  /**
+   * 在玩家 Actor 邮箱内执行一个命令。命令只携带意图/字段 patch，不接收可回写的
+   * Player 行对象；handler 每次都拿到该邮箱的唯一活态。
+   *
+   * 这是「命令化写模型」的入口：调用方描述**要做什么**，而不是把自己手上的
+   * 状态快照交回来。命令在邮箱内基于最新活态应用（见 applyPlayerCommand），
+   * 因此从根上不存在「调用方拿着 30 秒前的整行对象回写」的可能。
+   *
+   * @param userId 玩家 userId（唯一合法聚合键，行 id 不接受）
+   * @param command 写意图
+   * @param handler 可选的后续计算：在命令已应用、尚未落库时基于活态执行，
+   *                返回值透传给调用方（如「扣完券后读最新余额」）
+   */
+  async dispatchCommand<T>(userId: number, command: PlayerCommand, handler?: (player: any) => Promise<T> | T): Promise<T | void> {
+    const uid = this.requireUserId(userId);
+    return this.enqueueUserWrite(uid, async () => {
+      const data = await this.getPlayerData(uid);
+      const player = data.player;
+      this.applyPlayerCommand(player, command);
+      const result = handler ? await handler(player) : undefined;
+      await this.savePlayer(player);
+      return result;
+    });
+  }
+
+  /** 仅投递字段级 patch；所有字段都在邮箱内应用到最新活态。 */
+  async patchPlayer(userId: number, patch: PlayerPatch, source = 'patch'): Promise<void> {
+    await this.dispatchCommand(userId, { type: 'PATCH', patch, source });
+  }
+
+  /**
+   * 命令应用器：在邮箱内基于活态执行，不接受 version/id/userId 等身份/并发元数据
+   * 作为业务字段（它们由邮箱自己管，调用方无权提交）。
+   *
+   * 所有权约定：PATCH 的 JSON 字段**直接挂载到活态而不克隆**。业务拿到的
+   * `ctx.markers` / `ctx.backpack` 本就是活态引用，「改完投递回邮箱」是主流写法，
+   * 克隆反而会让调用方手里的引用与活态脱钩，同一条指令后续再改就改了个寂寞。
+   * 代价是调用方投递后不应再改动该对象——即命令即所有权移交，这是 Actor 消息
+   * 传递的常态（消息体归接收者所有）。
+   */
+  private applyPlayerCommand(player: any, command: PlayerCommand): void {
+    switch (command.type) {
+      case 'PATCH':
+        for (const field of PLAYER_PATCH_FIELDS) {
+          if (!hasOwn(command.patch, field)) continue;
+          player[field] = (command.patch as any)[field];
+        }
+        return;
+      case 'UPDATE_MARKERS': {
+        const markers = asJsonValue<Record<string, any>>(player.markers, {});
+        Object.assign(markers, cloneJson(command.changes));
+        player.markers = markers;
+        return;
+      }
+      case 'SET_MARKER': {
+        const markers = asJsonValue<Record<string, any>>(player.markers, {});
+        markers[command.name] = cloneJson(command.value);
+        player.markers = markers;
+        return;
+      }
+      case 'SET_ATTRIBUTE':
+        player[command.attr] = Number(command.value);
+        return;
+      case 'ADJUST_ATTRIBUTE':
+        player[command.attr] = Number(player[command.attr] ?? 0) + Number(command.delta);
+        return;
+    }
+  }
+
+  private requireUserId(userId: number): number {
+    const uid = Number(userId);
+    if (!Number.isInteger(uid) || uid <= 0) throw new Error(`无效的玩家 userId: ${String(userId)}`);
+    return uid;
+  }
+
+  /**
+   * 建档前校验 User 外键存在。
+   *
+   * 任何调用方误把 Player.id 当 userId 传进来时，在这里给出明确错误，绝不尝试
+   * `player.create({ userId: 行id })`——那会以行 id 造出一条指向不存在 User 的
+   * 孤儿档案，或直接撞外键约束（Foreign key constraint violated: userId），
+   * 报错信息完全指不到真正的调用方。
+   *
+   * 用 `typeof ... === 'function'` 判定而非真值判定：PrismaClient 类型上
+   * `user.findUnique` 恒为已定义，直接把函数引用写进条件会被 TS 判为恒真并报
+   * TS2774（编译失败）。存量测试桩也可能没有 user 模型，两者都需兼容。
+   */
+  private async assertUserExists(uid: number): Promise<void> {
+    const userModel = (this.prisma as any)?.user;
+    if (typeof userModel?.findUnique !== 'function') return; // 测试桩无 user 模型：跳过校验
+    const user = await userModel
+      .findUnique({ where: { id: uid }, select: { id: true } })
+      .catch(() => null);
+    if (!user) {
+      throw new NotFoundException(`用户 ${uid} 不存在，无法创建玩家档案（确认传入的是 userId 而非 Player.id）`);
     }
   }
 
@@ -764,19 +1142,81 @@ export class PlayerService implements OnModuleInit {
   }
 
   /**
+   * 乐观锁模式（环境变量 PLAYER_WRITE_CAS，默认 log）：
+   * - off：完全关闭 CAS，走旧的无条件 update（$use 中间件自增 version）。
+   * - log（默认）：按读取快照的 version 条件更新；count=0（快照已被他人推进）
+   *   时记录冲突与调用方堆栈后强制写库——把「旧快照整包覆盖」从静默变成显式
+   *   可观测，业务行为保持不变（止血阶段的观测模式）。
+   * - strict：冲突直接抛错阻断，宁可让调用方重试也不用旧快照覆盖新写入。
+   * 存量测试桩手工 new PlayerService（无 updateMany mock）时自动退回旧路径。
+   */
+  private static readonly CAS_MODE: 'off' | 'log' | 'strict' =
+    (['off', 'log', 'strict'] as const).includes(process.env.PLAYER_WRITE_CAS as any)
+      ? (process.env.PLAYER_WRITE_CAS as 'off' | 'log' | 'strict')
+      : 'log';
+
+  /**
    * 真正的落库动作（非 Actor 感知，必由「不在 Actor 内」的路径调用）：
    * 普通 savePlayer 路径、以及 Actor 运行时 config.save 的写后落库都走这里，
-   * 因此不会递归进入 Actor 分支。version 仅由 $use 中间件自增，不再做 CAS 冲突判定。
+   * 因此不会递归进入 Actor 分支。
+   *
+   * 串行邮箱是第一道防线（同玩家写操作严格排队），乐观锁是**最后一道**：即便
+   * 有写路径绕过邮箱（旁路裸写、跨进程、未来接入的分布式邮箱），也会在这里被
+   * 版本条件拦下，冲突显式暴露为错误日志/异常，而不是静默覆盖。
    */
   private async persistPlayer(player: any): Promise<void> {
     const updateData = this.buildPlayerUpdateData(player);
     const snapshotVersion = Number(player.version ?? 0);
+    const canCas = PlayerService.CAS_MODE !== 'off'
+      && !!player?.id
+      && Number.isFinite(snapshotVersion)
+      && typeof (this.prisma.player as any)?.updateMany === 'function';
+
+    if (!canCas) {
+      await this.prisma.player.update({
+        where: { id: player.id },
+        data: updateData, // $use 中间件自动 version: { increment: 1 }
+      });
+      // 回写内存版本：保持快照与库一致（中间件已 +1）
+      player.version = snapshotVersion + 1;
+      return;
+    }
+
+    // 乐观锁 CAS：按读取时的 version 条件更新（updateMany 走 where {id, version}，
+    // write-inspect 能从 where.id 提取归属，UI 同步广播不受影响）。
+    const result = await this.prisma.player.updateMany({
+      where: { id: player.id, version: snapshotVersion },
+      data: { ...updateData, version: snapshotVersion + 1 },
+    });
+    if (result.count > 0) {
+      player.version = snapshotVersion + 1;
+      return;
+    }
+    // CAS 未命中：本快照落库前已被其他写者推进版本。
+    const current = await this.prisma.player.findUnique({
+      where: { id: player.id },
+      select: { version: true },
+    }).catch(() => null);
+    const stack = (new Error('player-cas-conflict').stack ?? '')
+      .split('\n')
+      .slice(2, 7)
+      .join('\n');
+    this.logger.error(
+      `玩家乐观锁冲突: id=${player.id} 快照version=${snapshotVersion}`
+      + ` 库内version=${current?.version ?? '未知'}`
+      + ` (PLAYER_WRITE_CAS=${PlayerService.CAS_MODE})，调用方堆栈:\n${stack}`,
+    );
+    if (PlayerService.CAS_MODE === 'strict') {
+      throw new Error(
+        `玩家数据并发冲突(id=${player.id}, 快照version=${snapshotVersion})，本次写入已拒绝，请重试`,
+      );
+    }
+    // log 模式：强制写保持旧行为（业务不中断），version 以库内最新为准推进。
     await this.prisma.player.update({
       where: { id: player.id },
       data: updateData, // $use 中间件自动 version: { increment: 1 }
     });
-    // 回写内存版本：保持快照与库一致（中间件已 +1）
-    player.version = snapshotVersion + 1;
+    player.version = Number(current?.version ?? snapshotVersion) + 1;
   }
 
   /**

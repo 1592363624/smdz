@@ -170,7 +170,7 @@ describe('载具驾驶/脱出复刻', () => {
     });
 
     const result = await service.handleDriveVehicle(10, '无主车');
-    const vehicles = JSON.parse(map.vehicles);
+    const vehicles = parseValue<any[]>(map.vehicles, []);
 
     expect(result).toContain('获取了无主车的权限');
     expect(player.vehicle).toBe('new-vehicle');
@@ -219,7 +219,7 @@ describe('载具驾驶/脱出复刻', () => {
 
     await service.handleDriveVehicle(10, '目标车');
 
-    const vehicles = JSON.parse(map.vehicles);
+    const vehicles = parseValue<any[]>(map.vehicles, []);
     expect(vehicles[0].driver).toBe('qq10');
     expect(player.vehicle).toBe('target-vehicle');
     expect(previousPlayers.get(20).vehicle).toBe('');
@@ -253,7 +253,7 @@ describe('载具驾驶/脱出复刻', () => {
     });
 
     const result = await service.handleExitVehicle(10);
-    const vehicles = JSON.parse(map.vehicles);
+    const vehicles = parseValue<any[]>(map.vehicles, []);
 
     expect(result).toBe('甲离开了测试车(战斗)');
     expect(player.vehicle).toBe('');

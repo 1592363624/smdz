@@ -298,18 +298,19 @@ describe('载具生产复刻 - 特殊状态和字段兼容', () => {
     expect(runtime.配方[0].数值).toBe(2);
 
     await (game as any).persistRuntimeVehicle({ kind: 'db', db: { id: 7 } }, runtime);
+    // gameVehicle.parts/recipes 是 Json 列：生产写回原生数组，不再 JSON.stringify 落库
     expect(prisma.gameVehicle.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 7 },
       data: expect.objectContaining({
-        parts: expect.stringContaining('材料'),
-        recipes: expect.stringContaining('产出'),
+        parts: expect.arrayContaining([expect.objectContaining({ 名称: '材料', 数量: 3 })]),
+        recipes: expect.arrayContaining([expect.objectContaining({ 名称: '产出', 数值: 2 })]),
       }),
     }));
 
     const map = { id: 3, vehicles: '[{}]' };
     await (game as any).persistRuntimeVehicle({ kind: 'map', map, index: 0 }, runtime);
     expect(mapService.updateDynamicFields).toHaveBeenCalledWith(3, expect.objectContaining({
-      vehicles: expect.stringContaining('数据库载具'),
+      vehicles: expect.arrayContaining([expect.objectContaining({ 名称: '数据库载具' })]),
     }));
   });
 });

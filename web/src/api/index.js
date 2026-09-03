@@ -169,6 +169,18 @@ export const adminApi = {
   },
   // GM 工具：获取世界等级
   worldLevel: () => http.get('/admin/gm/world-level'),
+  // 数据管理：静态游戏数据分类列表(含条目数/展示列/新增模板)
+  gameDataCategories: () => http.get('/admin/gamedata'),
+  // 数据管理：某分类全部条目(整包返回，前端本地过滤)
+  gameDataEntries: (key) => http.get(`/admin/gamedata/${key}`),
+  // 数据管理：新增条目
+  createGameData: (key, data) => http.post(`/admin/gamedata/${key}`, { data }),
+  // 数据管理：更新条目(按下标，expectName 乐观校验)
+  updateGameData: (key, index, data, expectName) =>
+    http.put(`/admin/gamedata/${key}/${index}`, { data, expectName }),
+  // 数据管理：删除条目(按下标，expectName 乐观校验)
+  deleteGameData: (key, index, expectName) =>
+    http.delete(`/admin/gamedata/${key}/${index}`, { params: { expectName } }),
 };
 
 export default http;

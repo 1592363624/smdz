@@ -112,20 +112,21 @@ export class DungeonService {
     }
 
     // 把副本内的召唤物和载具带回原版固定出口，再清空副本地图容器。
-    const exitSummons = this.parseArray(exitMap.summons, []);
-    const exitVehicles = this.parseArray(exitMap.vehicles, []);
+    // 逐图 mutateMapFields 锁内闭环：重读最新容器 → 取走全部单位 → 写回空数组，
+    // 出口图再把累计单位并入（此前基于合并快照的读改写在并发下会互相覆盖）。
+    const exitSummons: any[] = [];
+    const exitVehicles: any[] = [];
     for (const map of group.maps) {
-      exitSummons.push(...this.parseArray(map.summons, []));
-      exitVehicles.push(...this.parseArray(map.vehicles, []));
-      await this.mapService.updateDynamicFields(map.id, {
-        // GameMap Json 列：空重置也必须传数组（字符串会被双重编码）
-        summons: [],
-        vehicles: [],
+      await this.mapService.mutateMapFields(map.id, ['summons', 'vehicles'], (f) => {
+        exitSummons.push(...f.summons);
+        exitVehicles.push(...f.vehicles);
+        f.summons = [];
+        f.vehicles = [];
       });
     }
-    await this.mapService.updateDynamicFields(exitMap.id, {
-      summons: exitSummons, // Json 列直接写数组
-      vehicles: exitVehicles,
+    await this.mapService.mutateMapFields(exitMap.id, ['summons', 'vehicles'], (f) => {
+      f.summons.push(...exitSummons);
+      f.vehicles.push(...exitVehicles);
     });
 
     // 原版先删除所有入口，再刷新所有复活点相同的地图。

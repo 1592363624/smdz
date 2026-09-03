@@ -19,6 +19,7 @@ import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { MapBattleLoopService } from '../src/modules/game/map-battle-loop.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import { StatsService } from '../src/modules/game/stats.service';
+import { parseJson } from './parse-json.util';
 
 function makePlayer(overrides: Record<string, any> = {}): any {
   return {
@@ -119,7 +120,7 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
     const map = { id: 1, mapIndex: 1, markers2: '[]' };
     await loop.triggerByPlayerAction(2, 3, { player: makePlayer(), map });
 
-    const markers2 = JSON.parse(map.markers2);
+    const markers2 = parseJson(map.markers2, []);
     const active = markers2.find((item: any) => (item.名称 ?? item.name) === '活动');
     expect(active).toBeTruthy();
     expect(active.有效期至).toBeGreaterThan(Date.now() + 60_000);

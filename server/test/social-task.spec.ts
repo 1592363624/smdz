@@ -132,7 +132,16 @@ describe('贸易、购物、求助任务触发', () => {
       prisma,
       playerService,
       taskService,
-      mapService: { getMapById: jest.fn(async () => map) },
+      mapService: {
+        getMapById: jest.fn(async () => map),
+        // 模拟生产 mutateSummons 闭环：重读最新 summons → 跑 mutator → 写回 map
+        mutateSummons: jest.fn(async (_mapId: number, mutator: (summons: any[]) => any) => {
+          const summons = jsonParse(map.summons, []);
+          const result = mutator(summons);
+          map.summons = summons;
+          return result;
+        }),
+      },
       logger: { log: jest.fn() },
     });
 

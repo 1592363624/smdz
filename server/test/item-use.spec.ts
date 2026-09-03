@@ -4,6 +4,7 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import { MapService } from '../src/modules/game/map.service';
+import { parseJson } from './parse-json.util';
 
 /**
  * 打开箱子 1:1 复刻自检（物品操作.ecode L2220-2458）
@@ -171,7 +172,7 @@ describe('打开箱子（使用物品）', () => {
     jest.spyOn(Math, 'random').mockReturnValue(0);
     try {
       const text = await service.useItem(42, '种子箱', 10);
-      const backpack = JSON.parse(player.backpack);
+      const backpack = parseJson(player.backpack, []);
       expect(text).toContain('椰树种子x10');
       expect(backpack.find((it: any) => it.name === '种子箱')).toBeUndefined();
       expect(backpack.find((it: any) => it.name === '椰树种子')?.quantity).toBe(10);
@@ -202,13 +203,13 @@ describe('打开箱子（使用物品）', () => {
     expect(player.hp).toBeGreaterThan(0);
 
     // 冷却中（死亡状态）：不复活不回复，但仍正常消耗并获得经验掉落（原版 L2286-2287 仅跳过回复）
-    const backpackBefore = JSON.parse(player.backpack).length;
+    const backpackBefore = parseJson(player.backpack, []).length;
     player.hp = 0; // 复活冷却仅对死亡状态生效，需再次处于死亡状态
     const beforeExp = player.exp;
     text = await service.useItem(42, '奶', 1);
     expect(text).toContain('使用奶复活冷却');
     expect(player.exp).toBe(beforeExp + 10000);
-    const afterPack = JSON.parse(player.backpack);
+    const afterPack = parseJson(player.backpack, []);
     expect(afterPack.find((it: any) => it.name === '奶')?.quantity).toBe(2); // 5-1-1-1
   });
 
@@ -224,7 +225,7 @@ describe('打开箱子（使用物品）', () => {
 
     const text = await service.useItem(42, '凭证', 3);
     expect(text).toContain('得到了5的改良建筑箱'); // floor(11/2)=5
-    const backpack = JSON.parse(player.backpack);
+    const backpack = parseJson(player.backpack, []);
     // 实际消耗固定为 1（原版 使用数量=1）
     expect(backpack.find((it: any) => it.name === '凭证')?.quantity).toBe(4);
     expect(backpack.find((it: any) => it.name === '改良建筑箱')?.quantity).toBe(5);
@@ -234,7 +235,7 @@ describe('打开箱子（使用物品）', () => {
     const text2 = await service.useItem(42, '凭证', 1);
     expect(text2).not.toContain('改良建筑箱');
     expect(text2).toMatch(/\d+分|\d+秒|\d+小时/); // 剩余冷却时间文本
-    expect(JSON.parse(player.backpack).find((it: any) => it.name === '凭证')?.quantity).toBe(4);
+    expect(parseJson(player.backpack, []).find((it: any) => it.name === '凭证')?.quantity).toBe(4);
   });
 
   it('蛋糕授予掉落率+50%增益并显示剩余时间', async () => {
@@ -264,7 +265,7 @@ describe('打开箱子（使用物品）', () => {
     );
     const text1 = await noHome.service.useItem(42, '至纯圣水', 1);
     expect(text1).toContain('你还没有家园，无法使用这个');
-    expect(JSON.parse(playerNoHome.backpack).find((it: any) => it.name === '至纯圣水')?.quantity).toBe(3);
+    expect(parseJson(playerNoHome.backpack, []).find((it: any) => it.name === '至纯圣水')?.quantity).toBe(3);
 
     // 有家园
     const homeMap: any = { id: 9, markers: JSON.stringify({ 观测时间: Date.now() / 1000 }) };
@@ -280,11 +281,24 @@ describe('打开箱子（使用物品）', () => {
       '至纯圣水': { name: '至纯圣水', useEffects: JSON.stringify(['经验4000']), useMarkers: '[]' },
     });
     (harness.service as any).mapService.getMapByName = jest.fn(async () => homeMap);
+    // 模拟生产 mutateMapFields 闭环：重读最新字段 → 跑 mutator → 把改动写回 homeMap
+    (harness.service as any).mapService.mutateMapFields = jest.fn(
+      async (_mapId: number, fields: string[], mutator: (f: any) => any) => {
+        const f: any = {};
+        for (const field of fields) {
+          const raw = homeMap[field];
+          f[field] = parseJson(raw, field === 'markers' ? {} : []);
+        }
+        const result = await mutator(f);
+        for (const field of fields) homeMap[field] = f[field];
+        return result ?? {};
+      },
+    );
     (harness.service as any).prisma = prisma;
 
     const text2 = await harness.service.useItem(42, '至纯圣水', 5);
     expect(text2).toContain('测试屋的时间加速了5分钟');
-    const markers = JSON.parse(homeMap.markers);
+    const markers = parseJson(homeMap.markers, {});
     // 加速后观测时间应比当前时间早约 300 秒
     expect(Date.now() / 1000 - markers['观测时间']).toBeGreaterThanOrEqual(295);
   });
@@ -310,7 +324,7 @@ describe('打开箱子（使用物品）', () => {
     expect(text).not.toMatch(/得到了[^，。]*和\s*$/);
     expect(text.endsWith('和')).toBe(false);
     // 物品被正确消耗
-    const backpack = JSON.parse(player.backpack);
+    const backpack = parseJson(player.backpack, []);
     expect(backpack.find((it: any) => it.name === '普通战利品')).toBeUndefined();
     expect(backpack.find((it: any) => it.name === '合金')?.quantity).toBeCloseTo(6.67, 2);
   });
@@ -351,7 +365,7 @@ describe('打开箱子（使用物品）', () => {
     expect(text).toContain('木头x21');
     expect(text).toContain('石头x18');
     // 种子被屏蔽：苹果树种子原样保留
-    const backpack = JSON.parse(player.backpack);
+    const backpack = parseJson(player.backpack, []);
     expect(backpack.find((it: any) => it.name === '苹果树种子')?.quantity).toBe(5);
     // 全部箱子已消耗
     expect(backpack.find((it: any) => it.name === '精良装备补给箱')).toBeUndefined();
@@ -403,7 +417,7 @@ describe('打开箱子（使用物品）', () => {
       expect(text).toContain('测试玩家使用了1个优秀武器补给箱');
       expect(text).not.toContain('1.03');
       // 余量 0.0353 保留在背包
-      const backpack = JSON.parse(player.backpack);
+      const backpack = parseJson(player.backpack, []);
       expect(backpack.find((it: any) => it.name === '优秀武器补给箱')?.quantity).toBeCloseTo(0.0353, 4);
       // 挑战资源箱已消耗
       expect(backpack.find((it: any) => it.name === '挑战资源箱')).toBeUndefined();

@@ -47,3 +47,11 @@ Thumbs.db
 .codebuddy/
 迁移对比文档_完整版.md
 迁移覆盖度审计报告.md
+
+# ===== WorkBuddy 本地工作记忆(仅本机使用,不同步到仓库) =====
+.workbuddy/
+
+# ===== Git 修复过程诊断产物(已恢复,无需入库) =====
+.git-recovery-manifest/
+docs/git-recovery-guide.md
+__diffs.tmp.json

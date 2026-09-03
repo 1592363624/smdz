@@ -914,23 +914,22 @@ export class ItemService {
         earlyReturn = `\n你还没有家园，无法使用这个`;
       } else {
         w4 = `\n享用了${actualCount}的至纯圣水，${player.houseName}的时间加速了${actualCount}分钟`;
-        const mapMarkers = asJsonValue<Record<string, number>>(homeMap.markers, {});
-        const shiftSeconds = actualCount * 60;
-        for (const key of ['观测时间', '观测时间2']) {
-          const current = Number(mapMarkers[key] ?? 0);
-          mapMarkers[key] = current > 0 ? current - shiftSeconds : nowMs / 1000 - shiftSeconds;
-        }
-        for (const key of ['全部拾取', '拾取']) {
-          const value = Number(mapMarkers[key] ?? 0);
-          if (value > 0) {
-            const next = value - shiftSeconds;
-            if (next <= 0) delete mapMarkers[key];
-            else mapMarkers[key] = next;
+        // mutateMapFields 锁内闭环：重读最新 markers → 平移时间键 → 差异落库
+        await this.mapService.mutateMapFields(homeMap.id, ['markers'], (f) => {
+          const fresh = f.markers as Record<string, number>;
+          const shiftSeconds = actualCount * 60;
+          for (const key of ['观测时间', '观测时间2']) {
+            const current = Number(fresh[key] ?? 0);
+            fresh[key] = current > 0 ? current - shiftSeconds : nowMs / 1000 - shiftSeconds;
           }
-        }
-        await this.prisma.gameMap.update({
-          where: { id: homeMap.id },
-          data: { markers: mapMarkers },
+          for (const key of ['全部拾取', '拾取']) {
+            const value = Number(fresh[key] ?? 0);
+            if (value > 0) {
+              const next = value - shiftSeconds;
+              if (next <= 0) delete fresh[key];
+              else fresh[key] = next;
+            }
+          }
         });
       }
     }

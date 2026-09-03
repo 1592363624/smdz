@@ -23,6 +23,7 @@ import { MapService } from '../src/modules/game/map.service';
 import { StatsService } from '../src/modules/game/stats.service';
 import { GameService } from '../src/modules/game/game.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { parseJson } from './parse-json.util';
 
 jest.setTimeout(180000);
 
@@ -48,11 +49,12 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
       data: {
         name,
         description: '载具承伤集成测试专用地图',
-        vehicles: JSON.stringify([]),
-        markers: JSON.stringify({}),
-        markers2: JSON.stringify([]),
-        summons: JSON.stringify([]),
-        items: JSON.stringify([]),
+        // Json 列直接落原生对象/数组（生产已禁止 JSON 字符串落库）
+        vehicles: [],
+        markers: {},
+        markers2: [],
+        summons: [],
+        items: [],
       },
     });
     createdMapIds.push(map.id);
@@ -89,7 +91,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
       currentHp: vehicleHp, 当前生命: vehicleHp, maxHp: 200, 最大生命: 200,
       ...extra,
     }];
-    await mapService.updateDynamicFields(mapId, { vehicles: JSON.stringify(vehicles) });
+    await mapService.updateDynamicFields(mapId, { vehicles });
     const pd = await playerService.getPlayerData(uid);
     pd.player.vehicle = vId;
     await playerService.savePlayer(pd.player);
@@ -202,7 +204,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
-    const vehicles = JSON.parse(mapAfter.vehicles || '[]');
+    const vehicles = parseJson(mapAfter.vehicles, []);
     const v = vehicles.find((x: any) => x && (x.id === vId || x.编号 === vId));
 
     // 原版普通载具承伤固定为1或2，不承受完整的10点三池伤害。
@@ -228,7 +230,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
-    const vehicles = JSON.parse(mapAfter.vehicles || '[]');
+    const vehicles = parseJson(mapAfter.vehicles, []);
     const v = vehicles.find((x: any) => x && (x.id === vId || x.编号 === vId));
 
     // 载具破碎：耐久归零
@@ -295,7 +297,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
-    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    const vehicle = parseJson(mapAfter.vehicles, []).find((x: any) => x.id === vId);
     expect(vehicle.currentHp).toBe(190);
     expect(after.player.hp).toBe(100);
   });
@@ -314,8 +316,8 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
-    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
-    const markers = JSON.parse(vehicle.markers2 || '[]');
+    const vehicle = parseJson(mapAfter.vehicles, []).find((x: any) => x.id === vId);
+    const markers = parseJson(vehicle.markers2, []);
     expect(after.player.hp).toBe(100);
     expect(vehicle.currentHp).toBe(200);
     expect(markers.some((m: any) => (m.name || m.名称) === 'sk1')).toBe(true);
@@ -352,7 +354,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
-    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    const vehicle = parseJson(mapAfter.vehicles, []).find((x: any) => x.id === vId);
     expect(vehicle.currentHp).toBe(199);
     expect(after.player.shield).toBe(100);
     expect(after.player.armor).toBe(80);
@@ -377,8 +379,8 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
-    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
-    const markers = JSON.parse(vehicle.markers2 || '[]');
+    const vehicle = parseJson(mapAfter.vehicles, []).find((x: any) => x.id === vId);
+    const markers = parseJson(vehicle.markers2, []);
     // 同一命中还会经过B系统的sk0损控，故载具本次不掉耐久；贯穿抵抗本身由sk标记记录。
     expect(vehicle.currentHp).toBe(200);
     expect(after.player.hp).toBe(100);
@@ -400,8 +402,8 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
-    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
-    const markers = JSON.parse(after.player.markers2 || '[]');
+    const vehicle = parseJson(mapAfter.vehicles, []).find((x: any) => x.id === vId);
+    const markers = parseJson(after.player.markers2, []);
     expect(vehicle.currentHp).toBe(199);
     expect(after.player.hp).toBe(100);
     expect(markers.some((m: any) => (m.name || m.名称) === '福ys')).toBe(true);
@@ -424,9 +426,9 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     );
 
     let mapAfter = await mapService.getMapById(mapId);
-    let vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    let vehicle = parseJson(mapAfter.vehicles, []).find((x: any) => x.id === vId);
     expect(vehicle.currentHp).toBe(100);
-    const firstMarkers = JSON.parse(monster.markers2 || '[]');
+    const firstMarkers = parseJson(monster.markers2, []);
     expect(firstMarkers.some((m: any) => (m.name || m.名称) === '虹a')).toBe(true);
 
     const victimDataSecond = await getPlayer(uid);
@@ -436,7 +438,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
       monster, secondMonsterBonus, victimDataSecond.player, victimDataSecond, mapAfter, false,
     );
     mapAfter = await mapService.getMapById(mapId);
-    vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    vehicle = parseJson(mapAfter.vehicles, []).find((x: any) => x.id === vId);
     expect(vehicle.currentHp).toBe(99);
   });
 
@@ -459,7 +461,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
-    const vehicle = JSON.parse(mapAfter.vehicles || '[]').find((x: any) => x.id === vId);
+    const vehicle = parseJson(mapAfter.vehicles, []).find((x: any) => x.id === vId);
     expect(vehicle.currentHp).toBe(195);
     expect(after.player.hp).toBe(100);
   });

@@ -10,6 +10,7 @@
 
 import { DelayedTaskService } from '../src/modules/game/delayed-task.service';
 import { GameService } from '../src/modules/game/game.service';
+import { parseJson } from './parse-json.util';
 
 function makeDelayedTaskPrisma() {
   const rows: any[] = [];
@@ -116,7 +117,7 @@ describe('DelayedTaskService：持久化延时任务', () => {
     await service.tick();
     // 第一次失败 → 重排 +30s，attempts=1
     expect(db.rows).toHaveLength(1);
-    expect(JSON.parse(db.rows[0].payload).attempts).toBe(1);
+    expect(parseJson(db.rows[0].payload, {}).attempts).toBe(1);
     expect(db.rows[0].runAt.getTime()).toBeGreaterThan(Date.now() + 20_000);
 
     // 重试仍失败直至耗尽（attempts=1→2→3 丢弃）

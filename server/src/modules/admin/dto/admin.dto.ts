@@ -253,3 +253,20 @@ export class BackpackSaveDto {
   @Type(() => BackpackItemDto)
   items: BackpackItemDto[];
 }
+/// 静态游戏数据管理：新增/更新条目
+export class GameDataSaveDto {
+  @ApiProperty({
+    description: '条目完整 JSON 数据（新增/更新均为整体提交；非单配置分类必须含非空 name）',
+    example: { name: '水晶', type: '物品', value: 5, description: '零号元素结晶' },
+  })
+  @Allow()
+  data: any;
+
+  @ApiProperty({
+    description: '乐观校验：更新时预期条目原名，与当前不符则拒绝（防止索引错位误改）',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  expectName?: string;
+}

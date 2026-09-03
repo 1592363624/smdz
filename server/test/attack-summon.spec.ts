@@ -1,6 +1,7 @@
 import { CombatSystemService, WeaponData } from '../src/modules/game/combat-system.service';
 import { BonusService, BonusData } from '../src/modules/game/bonus.service';
 import { MapService } from '../src/modules/game/map.service';
+import { parseJson } from './parse-json.util';
 
 type SummonMap = {
   id: number;
@@ -50,6 +51,16 @@ function createCombatFixture() {
     getMapById: jest.fn(async () => map),
     updateDynamicFields: jest.fn(async (_mapId: number, fields: any) => {
       if (fields.summons !== undefined) map.summons = JSON.parse(fields.summons);
+    }),
+    // 生产 mutateSummons 闭环：重读最新 summons → 跑 mutator → 写回 map（模拟锁内差异落库）
+    mutateSummons: jest.fn(async (_mapId: number, mutator: (f: any) => any) => {
+      const raw = (map as any).summons;
+      const summons = Array.isArray(raw)
+        ? raw
+        : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : []);
+      const result = mutator(summons);
+      (map as any).summons = summons;
+      return result ?? false;
     }),
     withMapLock: jest.fn(async (_mapId: number, fn: () => Promise<any>) => fn()),
   };
@@ -189,10 +200,10 @@ describe('攻击召唤（使魔技能.ecode L210-373）', () => {
       image: '吸血姬分身',
       ownerQQ: 'owner-1',
       level: 30,
-      equipmentPresets: JSON.stringify([{ name: '预设一' }]),
+      equipmentPresets: [{ name: '预设一' }],
     });
-    expect(JSON.parse(summon.markers)).toMatchObject({ 觉醒: 2, 击杀: 3, 宝宝: 4 });
-    expect(JSON.parse(summon.markers)['pet-1']).toBe(14.421425);
+    expect(parseJson(summon.markers, {})).toMatchObject({ 觉醒: 2, 击杀: 3, 宝宝: 4 });
+    expect(parseJson(summon.markers, {})['pet-1']).toBe(14.421425);
   });
 
   it('敌方装备召唤写入GameMonster；重力井阻止入场但仍写入冷却', async () => {
@@ -301,7 +312,7 @@ describe('全属性调整与召唤物存在', () => {
       mapBuffs: [{ name: '新地图增益', value: -15, expireAt }],
     });
 
-    const buffs = JSON.parse(player.buffs);
+    const buffs = parseJson(player.buffs, []);
     expect(buffs).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: '普通增益', source: 'skill' }),
       expect.objectContaining({ name: '新地图增益', source: 'mapBuff', mapId: 7, strength: -15 }),

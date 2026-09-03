@@ -73,14 +73,37 @@ function makeCaptureFixture(feed: { quantity?: number; count?: number } = { quan
     getAllMaps: jest.fn(async () => [map]),
     updateMonsterFields: jest.fn(async (_mapId: number, monsterId: number, data: any) => {
       const current = monsters.find((item) => item.id === monsterId);
-      if (current) Object.assign(current, data);
+      if (current) {
+        // 模拟 Json 列落库语义：结构化值序列化为字符串
+        for (const [k, v] of Object.entries(data)) {
+          current[k] = typeof v === 'string' ? v : JSON.stringify(v);
+        }
+      }
     }),
     removeMapMonster: jest.fn(async (_mapId: number, monsterId: number) => {
       removedMonsterIds.push(monsterId);
       const index = monsters.findIndex((item) => item.id === monsterId);
       if (index >= 0) monsters.splice(index, 1);
     }),
-    updateDynamicFields: jest.fn(async (_mapId: number, data: any) => Object.assign(map, data)),
+    updateDynamicFields: jest.fn(async (_mapId: number, data: any) => {
+      for (const [k, v] of Object.entries(data)) {
+        (map as any)[k] = typeof v === 'string' ? v : JSON.stringify(v);
+      }
+    }),
+    // 闭环写入桩：模拟「锁内重读最新数据 → 修改 → 序列化落库」语义
+    mutateSummons: jest.fn(async (_mapId: number, mutator: any) => {
+      const summons = parseJson<any[]>(map.summons, []);
+      const result = await mutator(summons);
+      map.summons = JSON.stringify(summons);
+      return result;
+    }),
+    mutateMapFields: jest.fn(async (_mapId: number, fields: string[], mutator: any) => {
+      const f: any = {};
+      for (const field of fields) f[field] = parseJson<any[]>(map[field], []);
+      const result = await mutator(f);
+      for (const field of fields) map[field] = JSON.stringify(f[field]);
+      return result;
+    }),
   };
   const staticData: any = {
     getMonsterByName: jest.fn(() => ({
@@ -123,7 +146,9 @@ describe('GameMonster 捕捉闭环', () => {
     expect(fixture.mapService.updateMonsterFields).toHaveBeenCalledWith(
       7,
       501,
-      expect.objectContaining({ buffs: fixture.monster.buffs }),
+      expect.objectContaining({ buffs: expect.arrayContaining([
+        expect.objectContaining({ 名称: '捕捉模式', 是否叠加时间: false }),
+      ]) }),
     );
   });
 
@@ -161,7 +186,7 @@ describe('GameMonster 捕捉闭环', () => {
       isPet: true,
     }));
     expect(summons[0].qq).toMatch(/g$/);
-    const backpack = JSON.parse(fixture.player.backpack);
+    const backpack = parseJson(fixture.player.backpack, []);
     expect(backpack).toEqual([{ name: '饲料', [field]: 0.5 }]);
     expect(fixture.playerService.savePlayer).toHaveBeenCalled();
     expect(fixture.taskService.advance).toHaveBeenCalledWith(11, '捕捉', 1);
@@ -176,7 +201,7 @@ describe('GameMonster 捕捉闭环', () => {
     const result = await fixture.service.capturePet(11, 'capture', '花园宝宝');
 
     expect(result).toContain('紧紧跟着你');
-    const backpack = JSON.parse(fixture.player.backpack);
+    const backpack = parseJson(fixture.player.backpack, []);
     expect(backpack).toEqual(expect.arrayContaining([
       { name: '花园宝宝', count: 1 },
       { name: '木头', count: 1 },
@@ -251,7 +276,17 @@ describe('捕捉模式战斗层', () => {
     const mapService: any = {
       getMapById: jest.fn(async () => map),
       getMapMonsters: jest.fn(async () => [monster]),
-      updateMonsterFields: jest.fn(async (_mapId: number, _id: number, data: any) => Object.assign(monster, data)),
+      updateMonsterFields: jest.fn(async (_mapId: number, _id: number, data: any) => {
+        // 战斗层结算在内存直接改 monster 字段（保持数值型 hp），
+        // 仅 buffs/bonus 等 JSON 容器按落库语义序列化为字符串
+        for (const [k, v] of Object.entries(data)) {
+          if (['hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'currentWeapon'].includes(k)) {
+            (monster as any)[k] = v;
+          } else {
+            (monster as any)[k] = typeof v === 'string' ? v : JSON.stringify(v);
+          }
+        }
+      }),
       removeMapMonster: jest.fn(),
     };
     const staticData: any = {

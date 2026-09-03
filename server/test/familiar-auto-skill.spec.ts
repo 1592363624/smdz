@@ -49,7 +49,7 @@ describe('纯白之翼自动技能', () => {
 
     await expect(service.autoCastSkill(1)).resolves.toBe('啾啾猫猫已释放');
     expect(familiarSkills.executeSkill).toHaveBeenCalledWith(1, '啾啾猫猫');
-    const markers2 = JSON.parse(player.markers2);
+    const markers2 = parse(player.markers2, []);
     expect(markers2).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: '纯白cd' }),
       expect.objectContaining({ name: '自动训练' }),

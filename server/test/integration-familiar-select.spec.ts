@@ -8,6 +8,8 @@ import { AppModule } from '../src/app.module';
 import { FamiliarSystemService } from '../src/modules/game/familiar-system.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { parseJson } from './parse-json.util';
+import { mutatePlayerState } from './actor-write.util';
 
 jest.setTimeout(120000);
 
@@ -87,7 +89,7 @@ describe('使魔选择 普拉娜/兰音（真实远程库端到端）', () => {
     expect(p.player.name).toBe('兰音');
     // 原版 #兰音 初始好感=20（selectFamiliar 对齐）
     expect(p.player.affinity).toBe(20);
-    const markers = JSON.parse(p.player.markers || '{}');
+    const markers = parseJson(p.player.markers, {});
     expect(markers['兰音好感']).toBe(20);
   });
 
@@ -104,7 +106,7 @@ describe('使魔选择 普拉娜/兰音（真实远程库端到端）', () => {
     const p = await getPlayer(uid);
     expect(p.player.type).toBe('伊卡洛斯');
     expect(p.player.name).toBe('伊卡洛斯');
-    const markers = JSON.parse(p.player.markers || '{}');
+    const markers = parseJson(p.player.markers, {});
     // 教程标记置 3（原版 领取新手+进阶后 置成就熟练度("教程",3)）
     expect(Number(markers['教程'] || 0)).toBe(3);
   });
@@ -125,9 +127,12 @@ describe('使魔选择 普拉娜/兰音（真实远程库端到端）', () => {
     const uid = await newEmptyPlayer('title_wear');
     await familiarSystem.selectFamiliar(uid, '确认兰音');
     // 直接写入档案：改名基础名 + 已拥有未佩戴的称号（模拟领取称号后的状态）
-    await prisma.player.update({
-      where: { userId: uid },
-      data: { baseName: '小兰', titles: JSON.stringify([{ name: '新人', equipped: false }]) },
+    // ⚠️ 必须经 Actor 漏斗改写（见 actor-write.util.ts）：裸 prisma.player.update
+    // 只改 DB、不更新活态 cell，随后 equipTitle 会把陈旧 cell（baseName='兰音'）回写，
+    // 覆盖这里的 baseName='小兰'，导致显示名退化为 '兰音[新人]'。
+    await mutatePlayerState(playerService, uid, (player) => {
+      player.baseName = '小兰';
+      player.titles = [{ name: '新人', equipped: false }];
     });
     // 载入即派生：未佩戴时显示名 = 基础名
     const before = await getPlayer(uid);
@@ -143,12 +148,11 @@ describe('使魔选择 普拉娜/兰音（真实远程库端到端）', () => {
   it('测试6 命名使魔改基础名，佩戴称号的后缀保持派生（原版 命名使魔 分支）', async () => {
     const uid = await newEmptyPlayer('rename');
     await familiarSystem.selectFamiliar(uid, '确认兰音');
-    await prisma.player.update({
-      where: { userId: uid },
-      data: {
-        baseName: '兰音',
-        titles: JSON.stringify([{ name: '新人', equipped: true }]),
-      },
+    // 佩戴称号 + 保留原基础名，随后验证「命名使魔」只改基础名、后缀保持派生。
+    // 经 Actor 漏斗改写，避免陈旧 cell 回写覆盖（见 test5 注释与 actor-write.util.ts）。
+    await mutatePlayerState(playerService, uid, (player) => {
+      player.baseName = '兰音';
+      player.titles = [{ name: '新人', equipped: true }];
     });
     // 回复前缀用改名前的旧显示名（原版 L4005 玩家.名称 + "把名字修改为" + w2）
     const w = await familiarSystem.nameFamiliar(uid, '小兰');

@@ -9,6 +9,7 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -31,12 +32,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { GlobalConfig } from '../../config/global.config';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { AdminService } from './admin.service';
+import { StaticDataAdminService } from './static-data-admin.service';
 import {
   AnnouncementDto,
   BackpackSaveDto,
   BatchUserIdsDto,
   DeleteUserDto,
   EditPlayerDataDto,
+  GameDataSaveDto,
   GiveItemDto,
   ModifyPlayerDto,
   ResetUserDataDto,
@@ -54,6 +57,7 @@ import {
 export class AdminController {
   constructor(
     private readonly adminService: AdminService,
+    private readonly staticDataAdminService: StaticDataAdminService,
     private readonly systemConfigService: SystemConfigService,
   ) {}
 
@@ -375,6 +379,50 @@ export class AdminController {
       dto.value,
     );
     return { success: true, message };
+  }
+
+  /// ===== 静态游戏数据管理（物品/装备/怪物/地图/任务等 JSON 配置） =====
+
+  @Get('gamedata')
+  @ApiOperation({ summary: '静态数据分类列表(含条目数/展示列/新增模板,驱动前端数据管理面板)' })
+  listGameDataCategories() {
+    return { success: true, data: this.staticDataAdminService.listCategories() };
+  }
+
+  @Get('gamedata/:key')
+  @ApiOperation({ summary: '获取某分类全部条目(数据量小整包返回,前端本地过滤)' })
+  async getGameDataEntries(@Param('key') key: string) {
+    const data = await this.staticDataAdminService.getEntries(key);
+    return { success: true, data };
+  }
+
+  @Post('gamedata/:key')
+  @ApiOperation({ summary: '新增静态数据条目(写 JSON 文件+自动备份+热重载生效)' })
+  async createGameDataEntry(@Param('key') key: string, @Body() dto: GameDataSaveDto) {
+    const data = await this.staticDataAdminService.createEntry(key, dto.data);
+    return { success: true, data };
+  }
+
+  @Put('gamedata/:key/:index')
+  @ApiOperation({ summary: '更新静态数据条目(按下标,expectName 乐观校验)' })
+  async updateGameDataEntry(
+    @Param('key') key: string,
+    @Param('index', ParseIntPipe) index: number,
+    @Body() dto: GameDataSaveDto,
+  ) {
+    const data = await this.staticDataAdminService.updateEntry(key, index, dto.data, dto.expectName);
+    return { success: true, data };
+  }
+
+  @Delete('gamedata/:key/:index')
+  @ApiOperation({ summary: '删除静态数据条目(按下标,expectName 乐观校验;单配置分类禁删)' })
+  async deleteGameDataEntry(
+    @Param('key') key: string,
+    @Param('index', ParseIntPipe) index: number,
+    @Query('expectName') expectName?: string,
+  ) {
+    const data = await this.staticDataAdminService.deleteEntry(key, index, expectName);
+    return { success: true, data };
   }
 
   /** 解析发放物品请求的目标与物品（批量 items 优先，回落单发 itemName），并执行发放 */

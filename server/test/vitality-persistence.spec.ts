@@ -1,6 +1,7 @@
 /** 活力存档兼容与怪物一次性认领回归测试。 */
 import { PlayerService } from '../src/modules/game/player.service';
 import { MapService } from '../src/modules/game/map.service';
+import { parseJson } from './parse-json.util';
 
 describe('活力存档兼容', () => {
   function makeService(row: any | null) {
@@ -56,14 +57,14 @@ describe('活力存档兼容', () => {
     // 写库+刷版本会破坏 CAS 快照一致性）；随后的一次业务保存自然落库持久化。
     data.player.markers2 = JSON.stringify([{ name: '探', expireAt: 1 }]);
     await service.savePlayer(data.player);
-    expect(JSON.parse(state.row.markers)['活力2']).toBe(100);
+    expect(parseJson(state.row.markers, {})['活力2']).toBe(100);
   });
 
   it('新玩家创建时初始化100点活力和100点历史上限', async () => {
     const { service } = makeService(null);
 
     const player = await service.getOrCreatePlayer(42);
-    const markers = JSON.parse(player.markers);
+    const markers = parseJson(player.markers, {});
 
     expect(player.vitality).toBe(100);
     expect(markers['活力2']).toBe(100);

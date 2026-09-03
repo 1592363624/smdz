@@ -249,7 +249,7 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
     expect(message).toContain('完成了任务:教程-苏醒，得到了:优秀武器补给箱x1.02');
     expect(message).toContain('并领取了新的任务:教程-背包');
     // 任务已结算删除、后续任务入列
-    const tasks = JSON.parse(player.tasks);
+    const tasks = parseJson(player.tasks, []);
     expect(tasks.some((t: any) => t.name === '教程-苏醒')).toBe(false);
     expect(tasks.some((t: any) => t.name === '教程-背包')).toBe(true);
   });

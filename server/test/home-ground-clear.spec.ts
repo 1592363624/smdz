@@ -12,6 +12,7 @@
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { FamiliarSystemService } from '../src/modules/game/familiar-system.service';
+import { parseJson } from './parse-json.util';
 
 describe('家园地面清理前置', () => {
   const staticData = new StaticDataService();
@@ -29,10 +30,10 @@ describe('家园地面清理前置', () => {
         try { return JSON.parse(value); } catch { return fallback; }
       }),
       getMarkerValue: jest.fn((markers: any, key: string) => Number(markers?.[key] ?? 0)),
-      getBackpackItems: jest.fn((p: any) => JSON.parse(p.backpack || '[]')),
+      getBackpackItems: jest.fn((p: any) => parseJson(p.backpack, [])),
       savePlayer: jest.fn(async () => undefined),
       addExp: jest.fn(async () => ({ leveledUp: false, newLevel: 1 })),
-      getPlayerData: jest.fn(async () => ({ player, markers: JSON.parse(player.markers || '{}') })),
+      getPlayerData: jest.fn(async () => ({ player, markers: parseJson(player.markers, {}) })),
     };
     service.mapService = {
       ensureHouseMaps: jest.fn(async () => ({ yard })),
@@ -77,8 +78,8 @@ describe('家园地面清理前置', () => {
     expect(result).toContain('必须先清空地面');
     expect(result).toContain('挖土');
     expect(result).toContain('割草');
-    expect(JSON.parse(player.markers)['家园进度']).toBe(1);
-    expect(JSON.parse(player.backpack).find((i: any) => i.name === '木头').count).toBe(80);
+    expect(parseJson(player.markers, {})['家园进度']).toBe(1);
+    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').count).toBe(80);
     expect(service.mapService.updateDynamicFields).not.toHaveBeenCalled();
   });
 
@@ -90,17 +91,17 @@ describe('家园地面清理前置', () => {
     const result = await service.handleHome(1, '开挖地基');
 
     expect(result).toContain('开始挖地基');
-    expect(JSON.parse(player.markers)['家园进度']).toBe(2);
-    const backpack = JSON.parse(player.backpack);
+    expect(parseJson(player.markers, {})['家园进度']).toBe(2);
+    const backpack = parseJson(player.backpack, []);
     expect(backpack.find((i: any) => i.name === '木头').count).toBe(80);
 
-    const resources2 = JSON.parse(yard.resources2);
+    const resources2 = parseJson(yard.resources2, []);
     expect(resources2).toHaveLength(2);
     for (const entry of resources2) {
       expect(entry.name).toBe('土堆');
       expect(entry.gatherCmd).toBe('挖土');
       expect(entry.times).toBe(20);
-      expect(JSON.parse(entry.outputs2)).toEqual([]);
+      expect(parseJson(entry.outputs2, [])).toEqual([]);
     }
     expect(service.taskService.advance).toHaveBeenCalledWith(1, '开挖地基');
   });
@@ -117,9 +118,9 @@ describe('家园地面清理前置', () => {
     // 进度2时再发送建造地基：应被新土堆拦截
     const result = await service.handleHome(1, '建造地基');
     expect(result).toContain('必须先挖开土堆');
-    expect(JSON.parse(player.markers)['家园进度']).toBe(2);
-    expect(JSON.parse(player.backpack).find((i: any) => i.name === '木头').count).toBe(80);
-    expect(JSON.parse(yard.resources2)).toHaveLength(2);
+    expect(parseJson(player.markers, {})['家园进度']).toBe(2);
+    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').count).toBe(80);
+    expect(parseJson(yard.resources2, [])).toHaveLength(2);
   });
 
   it('土堆清空后建造地基通过：消耗材料、+200经验、加60秒工作标记', async () => {
@@ -131,14 +132,14 @@ describe('家园地面清理前置', () => {
     const result = await service.handleHome(1, '建造地基');
 
     expect(result).toContain('花费1分钟完成了地基的建造，得到了200经验');
-    expect(JSON.parse(player.markers)['家园进度']).toBe(3);
-    const backpack = JSON.parse(player.backpack);
+    expect(parseJson(player.markers, {})['家园进度']).toBe(3);
+    const backpack = parseJson(player.backpack, []);
     expect(backpack.find((i: any) => i.name === '木头')).toBeUndefined();
     expect(backpack.find((i: any) => i.name === '绳子')).toBeUndefined();
     expect(service.playerService.addExp).toHaveBeenCalledWith(1, 200);
     expect(service.taskService.advance).toHaveBeenCalledWith(1, '建造地基');
 
-    const markers2 = JSON.parse(player.markers2);
+    const markers2 = parseJson(player.markers2, []);
     const work = markers2.find((m: any) => (m.name ?? m.名称) === '工作');
     expect(work).toBeDefined();
     expect(work.有效期至 ?? work.expireAt).toBeGreaterThanOrEqual(before + 60 * 1000);
@@ -154,8 +155,8 @@ describe('家园地面清理前置', () => {
     const result = await service.handleHome(1, '建造地基');
 
     expect(result).toContain('采集中');
-    expect(JSON.parse(player.markers)['家园进度']).toBe(2);
-    expect(JSON.parse(player.backpack).find((i: any) => i.name === '木头').count).toBe(80);
+    expect(parseJson(player.markers, {})['家园进度']).toBe(2);
+    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').count).toBe(80);
   });
 
   it('建造房子成功：消耗材料、+500经验、加120秒工作标记、进度→4', async () => {
@@ -173,12 +174,12 @@ describe('家园地面清理前置', () => {
     const result = await service.handleHome(1, '建造房子');
 
     expect(result).toContain('花费2分钟完成了房子的建造，得到了500经验');
-    expect(JSON.parse(player.markers)['家园进度']).toBe(4);
-    const backpack = JSON.parse(player.backpack);
+    expect(parseJson(player.markers, {})['家园进度']).toBe(4);
+    const backpack = parseJson(player.backpack, []);
     expect(backpack).toEqual([]);
     expect(service.playerService.addExp).toHaveBeenCalledWith(1, 500);
     expect(service.mapService.ensureHouseMaps).toHaveBeenCalledWith('测试家园', 3, 4);
-    const markers2 = JSON.parse(player.markers2);
+    const markers2 = parseJson(player.markers2, []);
     const work = markers2.find((m: any) => (m.name ?? m.名称) === '工作');
     expect(work.有效期至 ?? work.expireAt).toBeGreaterThanOrEqual(before + 120 * 1000);
   });
@@ -192,6 +193,6 @@ describe('家园地面清理前置', () => {
     const result = await service.handleHome(1, '建造地基');
 
     expect(result).toContain('建造地基需要80木头，你只有50');
-    expect(JSON.parse(player.markers)['家园进度']).toBe(2);
+    expect(parseJson(player.markers, {})['家园进度']).toBe(2);
   });
 });

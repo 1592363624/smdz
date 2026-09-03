@@ -28,6 +28,19 @@ function makeBaseService(): any {
     getAllMaps: jest.fn(async () => []),
     updateDynamicFields: jest.fn(async () => undefined),
     clearMapMonsters: jest.fn(async () => undefined),
+    // 模拟生产 mutateMapFields 闭环：重读最新字段 → 跑 mutator → 把改动同步回地图对象
+    mutateMapFields: jest.fn(async (mapId: number, fields: string[], mutator: (f: any) => any) => {
+      const target: any = await service.mapService.getMapById(mapId);
+      const f: any = {};
+      for (const field of fields) {
+        f[field] = parseJson(target?.[field], field === 'markers' ? {} : []);
+      }
+      const result = await mutator(f);
+      if (target) for (const field of fields) target[field] = f[field];
+      return result ?? {};
+    }),
+    mutateSummons: jest.fn(async (mapId: number, mutator: (summons: any[]) => any) =>
+      service.mapService.mutateMapFields(mapId, ['summons'], (f: any) => mutator(f.summons))),
   };
   service.prisma = {
     gameMap: { update: jest.fn(async () => undefined) },
@@ -215,13 +228,13 @@ describe('任务动作服务层闭环', () => {
     service.mapService.getAllMaps.mockResolvedValue([map]);
 
     await expect(service.handleCallVehicle(42, '宠物甲')).resolves.toContain('宠物甲跑到了森林');
-    expect(JSON.parse(map.summons)).toHaveLength(1);
+    expect(parseJson(map.summons, [])).toHaveLength(1);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '呼叫');
     expect(service.achievementService.setAchievement).toHaveBeenCalledWith({}, '呼叫', 1);
 
     service.taskService.advance.mockClear();
     await expect(service.handleCallVehicle(42, '载具vehicle-1')).resolves.toContain('小车挪到了森林');
-    expect(JSON.parse(map.vehicles)).toHaveLength(1);
+    expect(parseJson(map.vehicles, [])).toHaveLength(1);
     expect(service.taskService.advance).toHaveBeenCalledTimes(1);
   });
 
@@ -260,11 +273,11 @@ describe('任务动作服务层闭环', () => {
     const result = await service.handleInstallAll(42);
 
     expect(result).toContain('高速生产器x3');
-    expect(JSON.parse(player.backpack)).toEqual([
+    expect(parseJson(player.backpack, [])).toEqual([
       expect.objectContaining({ name: '普通建筑', quantity: 2 }),
       expect.objectContaining({ name: '硅基核心阿尔法', quantity: 5 }),
     ]);
-    expect(JSON.parse(map.buildings)).toEqual([
+    expect(parseJson(map.buildings, [])).toEqual([
       expect.objectContaining({ name: '高速生产器', quantity: 3 }),
     ]);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '安装', 3);
@@ -317,11 +330,11 @@ describe('任务动作服务层闭环', () => {
     };
 
     await expect(service.handleMilk(42, '斑点牛')).resolves.toContain('奶×2');
-    expect(JSON.parse(player.backpack)).toEqual([
+    expect(parseJson(player.backpack, [])).toEqual([
       expect.objectContaining({ name: '奶', quantity: 2 }),
     ]);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '挤奶');
-    expect(JSON.parse(player.markers2)).toEqual([
+    expect(parseJson(player.markers2, [])).toEqual([
       expect.objectContaining({ 名称: '挤奶怪物斑点牛1g' }),
     ]);
 
@@ -391,12 +404,12 @@ describe('任务动作服务层闭环', () => {
     service.staticData = { getMonsterByName: jest.fn(() => undefined) };
 
     await expect(service.handleAllMilk(42)).resolves.toContain('奶×4.25');
-    expect(JSON.parse(player.backpack)).toEqual([
+    expect(parseJson(player.backpack, [])).toEqual([
       expect.objectContaining({ name: '奶', quantity: 4.25 }),
     ]);
     expect(player.exp).toBe(13);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '挤奶', 3);
-    expect(JSON.parse(player.markers2)).toEqual(expect.arrayContaining([
+    expect(parseJson(player.markers2, [])).toEqual(expect.arrayContaining([
       expect.objectContaining({ 名称: 'zq' }),
     ]));
   });
@@ -429,7 +442,7 @@ describe('任务动作服务层闭环', () => {
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '采集资源', 3);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '采集铁矿', 3);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '奴役', 2);
-    expect(JSON.parse(player.backpack)).toEqual([
+    expect(parseJson(player.backpack, [])).toEqual([
       expect.objectContaining({ name: '铁矿', quantity: 3 }),
     ]);
 

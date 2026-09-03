@@ -1,9 +1,16 @@
 import { HomeService } from '../src/modules/game/home.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
 
-function parseJson<T>(value: string, fallback: T): T {
+/**
+ * 兼容两种存储形态的 Json 列读取：生产已切到「Json 列 = 原生对象/数组」，
+ * 读出即为解析好的结构，直接返回；仅历史字符串 fixture 才走 JSON.parse。
+ */
+function parseJson<T>(value: any, fallback: T): T {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== 'string') return value as T;
   try {
-    return JSON.parse(value) as T;
+    const parsed = JSON.parse(value);
+    return (parsed === null ? fallback : parsed) as T;
   } catch {
     return fallback;
   }
@@ -89,11 +96,14 @@ describe('家园产出复刻', () => {
     expect(mapItems.find((item) => item.name === '垃圾')?.quantity).toBeCloseTo(1 / 1440);
     expect(fixture.backpack).toEqual([{ name: '面包', quantity: 3 }]);
     expect(fixture.playerService.savePlayer).toHaveBeenCalled();
+    // 生产 Json 列已切到「原生对象/数组落库」，写回的是真实结构而非 JSON 字符串
     expect(fixture.mapService.updateDynamicFields).toHaveBeenCalledWith(
       91,
       expect.objectContaining({
-        items: expect.stringContaining('蛋'),
-        markers: expect.stringContaining('观测时间'),
+        items: expect.arrayContaining([
+          expect.objectContaining({ name: '蛋' }),
+        ]),
+        markers: expect.objectContaining({ 观测时间: expect.any(Number) }),
       }),
     );
   });

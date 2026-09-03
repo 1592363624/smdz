@@ -113,11 +113,11 @@ describe('宠物搜索物品', () => {
     expect(result).toContain('触发几率25%');
     expect(result).toContain('行商剑[装备]');
     expect(itemSystem.generateMerchantEquipment).toHaveBeenCalledWith('行商剑', false);
-    expect(JSON.parse(p.backpack)).toEqual(expect.arrayContaining([
+    expect(parse(p.backpack, [])).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: '木头', quantity: 2 }),
       expect.objectContaining({ name: '行商剑', type: '装备' }),
     ]));
-    expect(JSON.parse(p.markers2)).toEqual([
+    expect(parse(p.markers2, [])).toEqual([
       { name: '宠搜', expireAt: 1_000_600 },
     ]);
   });
@@ -191,7 +191,7 @@ describe('宠物搜索物品', () => {
     });
 
     const result = await service.searchPetItems(1, 1_000_000, sequence(0, 0.4, 0, 0.11, 0.21, 0.99));
-    const backpack = JSON.parse(p.backpack);
+    const backpack = parse(p.backpack, []);
 
     expect(result).toContain('地基x1');
     expect(backpack.find((item: any) => item.name === '地基').quantity).toBe(1);
@@ -224,11 +224,11 @@ describe('宠物搜索物品', () => {
 
     await service.searchPetItems(1, 1_000_000, sequence(0, 0, 0));
 
-    const backpack = JSON.parse(p.背包);
+    const backpack = parse(p.背包, []);
     expect(backpack).toEqual([
       { 名称: '木头', 类型: '资源', 数量: 2 },
     ]);
-    expect(JSON.parse(p.标记2)).toEqual([
+    expect(parse(p.标记2, [])).toEqual([
       { name: '宠搜', expireAt: 1_000_600 },
     ]);
   });

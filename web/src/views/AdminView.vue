@@ -12,12 +12,24 @@
     <!-- 标签页 -->
     <nav class="tabs">
       <button :class="['tab', tab === 'dashboard' && 'active']" @click="tab = 'dashboard'">📊 仪表盘</button>
+      <button :class="['tab', tab === 'gamedata' && 'active']" @click="tab = 'gamedata'">🗃️ 数据管理</button>
       <button :class="['tab', tab === 'config' && 'active']" @click="tab = 'config'">⚙️ 系统配置</button>
       <button :class="['tab', tab === 'users' && 'active']" @click="tab = 'users'">👥 用户管理</button>
       <button :class="['tab', tab === 'gm' && 'active']" @click="tab = 'gm'">🔧 GM 工具</button>
     </nav>
 
     <main class="admin-content">
+      <!-- ===== 数据管理（模块化静态数据 CRUD） ===== -->
+      <section v-if="tab === 'gamedata'" class="panel panel-wide">
+        <div class="panel-head">
+          <h2>数据管理</h2>
+          <p class="hint">
+            可视化管理物品、装备、怪物、地图、任务成就等静态游戏配置（JSON）。支持新增/编辑/复制/删除与全文搜索，保存后自动备份原文件并热生效，无需重启服务。
+          </p>
+        </div>
+        <GameDataPanel />
+      </section>
+
       <!-- ===== 仪表盘 ===== -->
       <section v-if="tab === 'dashboard'" class="panel">
         <div class="panel-head">
@@ -511,6 +523,7 @@ import { useRouter } from 'vue-router';
 import { adminApi } from '../api';
 import { API_BASE } from '../config';
 import AnnRichText from '../components/AnnRichText';
+import GameDataPanel from '../components/admin/GameDataPanel.vue';
 
 const router = useRouter();
 const tab = ref('dashboard');

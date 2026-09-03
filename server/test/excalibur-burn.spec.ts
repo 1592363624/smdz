@@ -19,6 +19,7 @@ import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { StatsService } from '../src/modules/game/stats.service';
 import { TaskService } from '../src/modules/game/task.service';
+import { parseJson } from './parse-json.util';
 
 function makePlayer(overrides: any = {}) {
   return {
@@ -232,7 +233,7 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
       id: 9, userId: 9, type: 'saber', specialSeq: 19, affinity: 40,
       buffs: JSON.stringify([{ name: 'ex', expireAt: Date.now() / 1000 + 10 }]),
     });
-    const buffs = JSON.parse(defender.buffs);
+    const buffs = parseJson(defender.buffs, []);
     expect(buffs.some((b: any) => b.name === 'ex')).toBe(true);
     // 引擎 L812/L1652 两处消费按 name==='ex' 精确匹配，锁定字段名防回归
     expect(buffs[0].expireAt).toBeGreaterThan(Date.now() / 1000 - 60);
@@ -253,7 +254,7 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
 
     // 直接调用玩家对战免伤判定所在的内层：用 calcDamage 前置的 forcedMult 分支不易单独触达，
     // 这里通过 L1652 所在函数的行为级入口——玩家对战未开放，改为直接验证 buff 存在性与引擎读取：
-    const buffs = JSON.parse(defender.buffs);
+    const buffs = parseJson(defender.buffs, []);
     expect(buffs.some((b: any) => b.name === 'ex')).toBe(true);
     // 引擎两处消费者存在性由 tsc 与全量测试保障；此处锁定数据契约字段名
     expect(buffs[0].expireAt).toBeGreaterThan(Date.now() / 1000 - 60);
@@ -290,7 +291,7 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
 
     expect(result.result).toContain('三层穿透+15%');
     // 命中后目标挂 sa 标记
-    const buffs = JSON.parse(target.buffs);
+    const buffs = parseJson(target.buffs, []);
     const sa = buffs.find((b: any) => (b.name ?? b.名称) === 'sa');
     expect(sa).toBeTruthy();
     // 30秒有效期（毫秒时间戳）
@@ -402,11 +403,11 @@ function makeSaberService(player: any) {
   service.playerService = {
     getPlayerData: jest.fn(async () => ({
       player,
-      markers: JSON.parse(player.markers),
+      markers: parseJson(player.markers, {}),
       markers2: [], buffs: [], backpack: [], equipment: [], weapons: [], tasks: [],
     })),
     savePlayer: jest.fn(async (p: any) => { Object.assign(player, p); }),
-    getMarkerValue: (markers: any, key: string) => Number(JSON.parse(player.markers)?.[key] || 0),
+    getMarkerValue: (markers: any, key: string) => Number(parseJson(player.markers, {})?.[key] || 0),
     getSkillLevel: (_markers: any, _familiar: string) => player.skillLevel || 0,
     safeJsonParse: (v: any, d: any) => { try { return typeof v === 'string' ? JSON.parse(v) : (v ?? d); } catch { return d; } },
   };
@@ -417,7 +418,7 @@ function makeSaberService(player: any) {
   service.castCombatSkill = jest.fn(async () => ({
     result: '【命中】',
     player,
-    markers: JSON.parse(player.markers),
+    markers: parseJson(player.markers, {}),
   }));
   service.hasItem = jest.fn(() => false); // 无库洛牌：ex 时长=15
   // getSkillLevel / getAffinity 为 FamiliarSkillsService 自身方法，需保留真实实现
@@ -430,7 +431,7 @@ describe('Saber 好感2/4/5 触发式 buff（誓约胜利之剑施放后）', ()
     const service = makeSaberService(player);
     await service.excalibur(1);
 
-    const buffs = JSON.parse(player.buffs);
+    const buffs = parseJson(player.buffs, []);
     const names = buffs.map((b: any) => b.name);
     expect(names).toContain('ex'); // 基础 ex 标记仍写入
     expect(names).toContain('saber_无敌');
@@ -455,7 +456,7 @@ describe('Saber 好感2/4/5 触发式 buff（誓约胜利之剑施放后）', ()
     const service = makeSaberService(player);
     await service.excalibur(1);
 
-    const buffs = JSON.parse(player.buffs);
+    const buffs = parseJson(player.buffs, []);
     const names = buffs.map((b: any) => b.name);
     expect(names).toEqual(['ex']); // 仅基础标记，无好感触发 buff
   });
@@ -465,7 +466,7 @@ describe('Saber 好感2/4/5 触发式 buff（誓约胜利之剑施放后）', ()
     const service = makeSaberService(player);
     await service.excalibur(1);
 
-    const buffs = JSON.parse(player.buffs);
+    const buffs = parseJson(player.buffs, []);
     const names = buffs.map((b: any) => b.name);
     expect(names).toContain('saber_无敌');
     expect(names).not.toContain('saber_物攻');
@@ -493,7 +494,7 @@ describe('誓约胜利之剑 保存链路回归（旧快照不得续写）', () 
     // 复刻 castCombatSkill 的真实语义：自行重新读档 → 写冷却/技能经验/活跃度 → 落库
     service.castCombatSkill = jest.fn(async () => {
       const inner: any = { ...player, version: player.version, buffs: '[]' };
-      const innerMarkers = JSON.parse(inner.markers);
+      const innerMarkers = parseJson(inner.markers, {});
       innerMarkers['活跃度'] = 1;
       innerMarkers['Saber技能熟练度'] = 100;
       inner.markers = JSON.stringify(innerMarkers);
@@ -509,10 +510,10 @@ describe('誓约胜利之剑 保存链路回归（旧快照不得续写）', () 
     // 最后一次保存必须建立在版本已推进的最新快照上（version=6），并带上增益
     const last = savedSnapshots[savedSnapshots.length - 1];
     expect(last.version).toBe(6);
-    expect(JSON.parse(last.buffs).map((b: any) => b.name)).toContain('ex');
+    expect(parseJson(last.buffs, []).map((b: any) => b.name)).toContain('ex');
 
     // 关键回归点：不能把 castCombatSkill 写入的活跃度/技能经验整包覆盖回滚
-    expect(JSON.parse(last.markers)['活跃度']).toBe(1);
-    expect(JSON.parse(last.markers)['Saber技能熟练度']).toBe(100);
+    expect(parseJson(last.markers, {})['活跃度']).toBe(1);
+    expect(parseJson(last.markers, {})['Saber技能熟练度']).toBe(100);
   });
 });

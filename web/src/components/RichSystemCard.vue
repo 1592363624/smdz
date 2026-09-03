@@ -50,12 +50,9 @@
                 <span class="rc-value">{{ s.value }}</span>
               </div>
             </div>
-            <!-- 系统横幅展示位（可开关，localStorage 记忆）：显示消息尾部【…】解锁/提示信息 -->
-            <div v-if="bannerOpen && layout.banners.length" class="rc-banner-wrap">
-              <div class="rc-banner-head">
-                <span class="rc-banner-label">📣 系统提示（{{ layout.banners.length }}）</span>
-                <button type="button" class="rc-banner-toggle" title="隐藏系统提示" @click="bannerOpen = false">−</button>
-              </div>
+            <!-- 系统横幅展示位（始终显示）：显示消息尾部【…】解锁/提示信息 -->
+            <div v-if="layout.banners.length" class="rc-banner-wrap">
+              <div class="rc-banner-label">📣 系统提示（{{ layout.banners.length }}）</div>
               <div class="rc-banners">
                 <div v-for="(b, i) in layout.banners" :key="i" class="rc-banner">{{ b }}</div>
               </div>
@@ -127,18 +124,6 @@ const props = defineProps({
 
 /** 向父组件（ChatView）发送指令：背包格子点击装备即触发 */
 const emit = defineEmits(['send']);
-
-/**
- * 系统横幅展示位的显隐开关。
- * 用户在属性卡片上手动隐藏后，用 localStorage 持久化，下次渲染仍保持选择。
- */
-const BANNER_KEY = 'richcard.show-banner';
-let bannerOpen = ref(localStorage.getItem(BANNER_KEY) !== '0');
-function toggleBanner(v) {
-  bannerOpen.value = v;
-  localStorage.setItem(BANNER_KEY, v ? '1' : '0');
-}
-watch(bannerOpen, (v) => toggleBanner(v));
 
 /**
  * 图鉴查询缓存：同一物品只向后端请求一次，之后悬浮直接读缓存，避免重复请求。
@@ -607,31 +592,12 @@ function parseLayout(text) {
   padding-top: 10px;
   border-top: 1px dashed rgba(139, 92, 246, 0.2);
 }
-.rc-banner-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
 .rc-banner-label {
+  display: block;
+  margin-bottom: 6px;
   font-size: 12px;
   font-weight: 600;
   color: var(--accent2);
-}
-.rc-banner-toggle {
-  border: none;
-  background: rgba(139, 92, 246, 0.15);
-  color: var(--accent);
-  width: 18px;
-  height: 18px;
-  line-height: 1;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 0;
-}
-.rc-banner-toggle:hover {
-  background: rgba(139, 92, 246, 0.3);
 }
 .rc-banners {
   display: flex;

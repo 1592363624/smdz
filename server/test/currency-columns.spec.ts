@@ -1,5 +1,6 @@
 import { PlayerService } from '../src/modules/game/player.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
+import { parseJson } from './parse-json.util';
 
 /**
  * P1 货币列化回归：钻石/召唤券/数据核心的真相源是 Player 独立列，
@@ -81,7 +82,7 @@ describe('货币列化（P1）透明转换', () => {
     const row = rows[0];
     expect(row.diamonds).toBeCloseTo(60, 5);
     expect(row.tickets).toBeCloseTo(22, 5);
-    const stored = JSON.parse(row.backpack);
+    const stored = parseJson(row.backpack, []);
     expect(stored.find((i: any) => i.name === '钻石')).toBeUndefined();
     expect(stored.find((i: any) => i.name === '召唤券')).toBeUndefined();
   });
@@ -119,6 +120,6 @@ describe('货币列化（P1）透明转换', () => {
     const row = rows[0];
     expect(row.diamonds).toBe(50);
     expect(row.tickets).toBe(3);
-    expect(JSON.parse(row.markers)).toEqual({ x: 1 });
+    expect(parseJson(row.markers, {})).toEqual({ x: 1 });
   });
 });

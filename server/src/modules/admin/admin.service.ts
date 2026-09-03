@@ -12,6 +12,7 @@ import { ChatService } from '../chat/chat.service';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from '../game/static-data.service';
 import { StatsService } from '../game/stats.service';
+import { MapService } from '../game/map.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 @Injectable()
@@ -48,6 +49,7 @@ export class AdminService {
     private readonly systemConfigService: SystemConfigService,
     private readonly staticData: StaticDataService,
     private readonly statsService: StatsService,
+    private readonly mapService: MapService,
   ) {}
 
   /**
@@ -369,10 +371,43 @@ export class AdminService {
     await this.prisma.currencyLog.deleteMany({ where: { userId: targetId } });
     await this.prisma.commandLog.deleteMany({ where: { senderId: targetId } });
 
+    // 清理各地图 summons 里的召唤物（白/宠物等 JSON 裸存、无外键级联）：
+    // 残留孤儿单位会被 ensurePlayerWhite/对话等路径当作"别人的白"读取（显示归属为
+    // 已删除的 id），某些主人解析路径还会把它当 userId 去建档触发外键错误。
+    await this.purgeSummonsOwnedBy(targetId);
     // 级联删除：Player / UserBinding 为 onDelete: Cascade，ChatMessage 发送人置空
     await this.prisma.user.delete({ where: { id: targetId } });
     this.logger.log(`管理员 ${operatorId} 删除了用户 ${targetId} (${exists.username})`);
     return `已删除用户 ${exists.username}`;
+  }
+
+  /**
+   * 从所有地图的 summons JSON 数组中移除归属指定用户的召唤物。
+   * 召唤物归属字段多形态（ownerQQ/归属/owner），统一按字符串比对 userId。
+   * 走 MapService.mutateSummons 锁内闭环：与玩家并发的召唤物写互不覆盖。
+   * 单张地图清理失败不阻断删除流程（记 warn 继续）。
+   */
+  private async purgeSummonsOwnedBy(userId: number): Promise<void> {
+    try {
+      const ownerKey = String(userId);
+      const maps = await this.prisma.gameMap.findMany({ select: { id: true } });
+      for (const map of maps) {
+        try {
+          const removed = await this.mapService.mutateSummons(map.id, (units) => {
+            const kept = units.filter((unit: any) =>
+              String(unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '') !== ownerKey);
+            return units.length - kept.length;
+          });
+          if (removed > 0) {
+            this.logger.log(`已从地图 ${map.id} 清理用户 ${userId} 的 ${removed} 个召唤物`);
+          }
+        } catch (e: any) {
+          this.logger.warn(`清理地图 ${map.id} 的召唤物失败（继续下一地图）: ${e?.message ?? e}`);
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`清理用户 ${userId} 的地图召唤物失败（删除流程继续）: ${e?.message ?? e}`);
+    }
   }
 
   /**

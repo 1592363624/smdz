@@ -2,6 +2,13 @@ import { HomeService } from '../src/modules/game/home.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { GameService } from '../src/modules/game/game.service';
 
+/** 兼容两种存储形态：Prisma Json 列/内存快照读出已是对象数组（权威），历史字符串兜底解析。 */
+function parseJson(value: any, fallback: any): any {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 describe('家园作物种植与收获', () => {
   it('按种子useEffects映射资源，并写入resources2而不是buildings', async () => {
     const map: any = { buildings: '[]', resources2: '[]' };
@@ -15,11 +22,11 @@ describe('家园作物种植与收获', () => {
 
     const first = await service.plantSeed(map, '苹果树种子', backpack, []);
     const second = await service.plantSeed(map, '苹果树种子', backpack, []);
-    const crops = JSON.parse(map.resources2);
+    const crops = parseJson(map.resources2, []);
 
     expect(first.success).toBe(true);
     expect(second.success).toBe(true);
-    expect(JSON.parse(map.buildings)).toEqual([]);
+    expect(parseJson(map.buildings, [])).toEqual([]);
     expect(backpack).toEqual([]);
     expect(crops).toHaveLength(1);
     expect(crops[0].name).toBe('苹果树');
@@ -41,7 +48,7 @@ describe('家园作物种植与收获', () => {
     const result = await service.harvestCrop(map, '强壮苹果树', [], backpack);
 
     expect(result.success).toBe(true);
-    expect(JSON.parse(map.resources2)).toEqual([]);
+    expect(parseJson(map.resources2, [])).toEqual([]);
     expect(backpack.find((item) => item.name === '果实')?.quantity).toBe(5);
     expect(backpack.find((item) => item.name === '木头')).toBeUndefined();
   });
@@ -71,7 +78,7 @@ describe('家园作物种植与收获', () => {
     service.taskService = { advance: jest.fn(async () => '') };
 
     const result = await service.handleUseItem(7, '苹果树种子', 1);
-    const crops = JSON.parse(map.resources2);
+    const crops = parseJson(map.resources2, []);
 
     expect(result).toContain('苹果树×1');
     expect(crops[0].name).toBe('苹果树');

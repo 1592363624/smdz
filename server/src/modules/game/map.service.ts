@@ -13,7 +13,7 @@
  * - getMapById / getMapByName 会自动合并静态定义 + 动态状态后返回。
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StaticDataService } from './static-data.service';
@@ -21,6 +21,7 @@ import { BonusService } from './bonus.service';
 import { CombatStateService } from './combat-state.service';
 import { ChangeBusService } from '../../game-sync/change-bus.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { ActorRuntime, actorKey } from '../actor';
 
 /**
  * 可前往地图的连接信息
@@ -173,6 +174,8 @@ export class MapService {
     private readonly bonusService: BonusService,
     private readonly combatState: CombatStateService,
     private readonly changeBus: ChangeBusService,
+    /** Actor 运行时（可选依赖）：地图聚合写入 DB 后失效 map Actor 缓存，防陈旧整行回写 */
+    @Optional() private readonly actorRuntime?: ActorRuntime,
   ) {}
 
   /**
@@ -1484,6 +1487,94 @@ export class MapService {
       where: { id: mapId },
       data: updateData,
     });
+    // 直写 DB 的字段与 map Actor 缓存可能不一致：失效缓存，防止后续 Actor run
+    // 用陈旧整行状态回写覆盖本次落库（缓存一致性防线）。
+    this.invalidateMapActor(mapId);
+  }
+
+  /**
+   * 地图聚合串行化写入口（per-map Actor 邮箱的闭环命令）。
+   *
+   * 背景：GameMap 的 summons/vehicles 等 Json 列是「读出数组 → 内存改 → 整组写回」
+   * 的裸聚合，历史上多处调用点基于 getMapById 合并快照（陈旧）做读改写，
+   * 并发时互相覆盖（白被"地图写竞态"清除即此类事故）。
+   *
+   * 本方法把一次变更收敛为「锁内闭环」：
+   *   withMapLock(mapId) → 重读 DB 最新行 → 归一化指定字段 → mutator 改 →
+   *   逐字段 JSON 比对，只把真正变了的列写回 → 失效 map Actor 缓存。
+   * 同一地图的所有此类变更严格串行（per-map Promise 链），mutator 看到的永远是
+   * 最新值，天然消除丢失更新。
+   *
+   * ⚠️ 死锁警示：withMapLock 是 Promise 链不是可重入锁。mutator 内**禁止**再对
+   * 同一地图调用 withMapLock / mutateSummons / mutateMapFields（嵌套会把内层排到
+   * 外层之后，外层等内层完成 → 互相等待死锁）。mutator 内只做内存操作。
+   *
+   * @param mapId   地图 ID
+   * @param fields  要闭环的 Json 数组列白名单（如 ['summons'] / ['summons','vehicles']）
+   * @param mutator 收到 { 字段名: 数组 }（真实引用，可原地 push/splice），返回值透传给调用方
+   */
+  async mutateMapFields<R>(
+    mapId: number,
+    fields: readonly string[],
+    mutator: (f: Record<string, any>) => Promise<R> | R,
+  ): Promise<R> {
+    return this.withMapLock(mapId, async () => {
+      const row = await this.prisma.gameMap.findUnique({ where: { id: mapId } });
+      if (!row) throw new NotFoundException(`地图不存在: ${mapId}`);
+
+      const before: Record<string, any> = {};
+      const working: Record<string, any> = {};
+      for (const field of fields) {
+        const raw = (row as any)[field];
+        // 归一化：DB 字符串/静态数组/undefined 统一为真实结构（字符串按 JSON 解析）
+        const value = asJsonValue<any[]>(raw, []);
+        // before 必须深拷贝快照：mutator 常做「重定位元素 → 改嵌套属性」（如
+        // fresh[idx].ownerQQ = ...）。若 before/working 共享元素引用，嵌套改动会
+        // 同时写进 before，JSON 比对恒等 → 永不落库（静默丢更新）。
+        // working 则是真实可变的活引用，供 mutator 原地 push/splice/改属性。
+        before[field] = JSON.parse(JSON.stringify(value));
+        working[field] = value;
+      }
+
+      const result = await mutator(working);
+
+      // 逐字段 JSON 比对：只写真正变了的列（写同值也会推进 version + 放大落库）
+      const updateData: Record<string, any> = {};
+      for (const field of fields) {
+        if (JSON.stringify(before[field]) !== JSON.stringify(working[field])) {
+          updateData[field] = working[field];
+        }
+      }
+      if (Object.keys(updateData).length > 0) {
+        await this.prisma.gameMap.update({
+          where: { id: mapId },
+          data: updateData,
+        });
+        this.invalidateMapActor(mapId);
+      }
+      return result;
+    });
+  }
+
+  /**
+   * summons 单列串行化写入口（mutateMapFields 的常用简写）。
+   * mutator 收到最新 summons 数组（真实引用，可原地 push/splice/filter），
+   * 改动自动在锁内闭环写回。返回值透传。
+   */
+  async mutateSummons<R>(
+    mapId: number,
+    mutator: (summons: any[]) => Promise<R> | R,
+  ): Promise<R> {
+    return this.mutateMapFields(mapId, ['summons'], async (f) => mutator(f.summons));
+  }
+
+  /** 失效地图 Actor 缓存（actorRuntime 未注入或类型未注册时静默跳过） */
+  private invalidateMapActor(mapId: number): void {
+    try {
+      this.actorRuntime?.invalidate('map', mapId);
+    } catch {
+      // 失效失败不影响主流程：LRU/周期刷盘最终会收敛
+    }
   }
 
   /**

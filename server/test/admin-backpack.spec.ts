@@ -6,6 +6,7 @@
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AdminService } from '../src/modules/admin/admin.service';
+import { parseJson } from './parse-json.util';
 
 /** 组装 AdminService，仅 Stub 用到的依赖，其余传空桩 */
 function buildService(dbPlayer: any, dbUser: any) {
@@ -54,6 +55,7 @@ function buildService(dbPlayer: any, dbUser: any) {
     systemConfigService,
     staticData,
     statsService,
+    {} as any,
   );
   return { service, dbPlayer };
 }
@@ -88,6 +90,7 @@ function buildGiveNoticeService() {
     chatService,
     { updateSystemConfig: jest.fn() } as any,
     staticData,
+    {} as any,
     {} as any,
   );
   return { service, sendPrivate, addToBackpack: playerService.addToBackpack };
@@ -128,7 +131,7 @@ describe('AdminService 背包管理', () => {
     ]);
 
     expect(msg).toContain('3 种物品');
-    const saved = JSON.parse(dp.backpack);
+    const saved = parseJson(dp.backpack, []);
     expect(saved).toHaveLength(3);
     expect(saved).toContainEqual({ name: '水晶', count: 10 });
     expect(saved).toContainEqual({ name: '木头', count: 3 });

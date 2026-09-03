@@ -151,3 +151,54 @@ savePlayer })`，与指令、后台结算共享同一串行邮箱，达成全量
 > 完整设计、模块布局、生命周期、跨实体协调者与边界见 **`docs/actor-runtime.md`**。
 > 单元测试见 `test/actor-runtime.spec.ts`（串行执行 / 单激活 / peek 缓存命中 / 策略落库 /
 > LRU 驱逐 / coordinate 防死锁）。
+
+## 7. 地图聚合列的串行闭环写（2026-09-03 迁移收口）
+
+玩家状态的「纯 Actor 单写者」是「每实体一个串行邮箱」在地图聚合（GameMap 动态 JSON 列）上的
+**同构延伸**。地图这类"多怪共处一图 / 多人同时操作同一张图"的实体，冲突形态与玩家略有不同——
+不是"同用户并发"，而是"跨实体（不同怪物 / 不同玩家）并发改同一张图的聚合列（summons / items /
+markers / resources…）"，同样会"旧快照整包覆盖"。
+
+### 7.1 核心写原语（`MapService`）
+
+- `withMapLock(mapId, fn)`：按 `type:mapId` 进 map Actor 的**串行邮箱**（复用 `actorRuntime.run`），
+  保证同一张地图的所有聚合写**顺序执行、互不并发**。单激活、无锁、无 CAS。
+- `mutateMapFields(mapId, fieldList, mutator)`：**字段级 diff 闭环写**（推荐主入口）。
+  流程：`withMapLock` → `prisma.gameMap.findUnique`（**重读最新行**）→ 按字段归一化出 working 副本 →
+  执行 `mutator(working)` → 逐字段 `JSON.stringify(before) !== JSON.stringify(working)` **按需只写变化列** →
+  `invalidateMapActor(mapId)`。
+- `mutateSummons(mapId, mutator)`：`mutateMapFields(mapId, ['summons'], …)` 的特化；凡要"定位某
+  summon → 改其属性"的场景（setFollow / petEquip / petFeed / awaken / 白·露娜认领 / 安乐天使·福音书
+  buff / 召唤搬运 / 家园前线重建）都进此闭环，在**最新快照**上定位元素再改，杜绝"定位到旧元素后覆盖"。
+
+### 7.2 关键坑：`before` 必须深拷贝（曾静默丢写）
+
+`before[field]` 与 `working[field]` 早期**共享元素对象引用**——`mutator` 里改嵌套属性
+（如 `fresh[idx].ownerQQ = '9'`）会同时改到 `before`，使 diff 恒等 → `JSON.stringify(before) ===
+JSON.stringify(working)` → **本次写被静默丢弃**。setFollow / petEquip / petFeed / awaken / 认领 /
+安乐·福音等"改 summon 内层字段"的写全都会无声丢失。
+
+修正（`map.service.ts`）：`before[field] = JSON.parse(JSON.stringify(value))`（深拷贝基线），
+仅 `working[field]` 持有可变引用。**这是本次迁移暴露的最隐蔽 bug**，由行为测试
+`test/map-mutate-closed-loop.spec.ts`「mutator 返回 true 且做了改动应落库」锁定。
+
+### 7.3 迁移范围（截至 2026-09-03）
+
+凡在 `game.service.ts` / `familiar-system.service.ts` 等业务文件中**直写 GameMap 动态聚合列**的
+裸 `prisma.gameMap.update` / `updateDynamicFields({summons})` 调用，全部收口为
+`mutateSummons` / `mutateMapFields`。完成点包括：家园前线重建（handleHomeFrontline）、地图触发
+效果（applyArrivalTriggers）、拾取物品、开采资源清零、肉食比例、召唤搬运、刷工匠 / 刷残骸、
+采集延时结算（settleGatherResource）、至纯圣水时间加速（item.service）、家园落库统一
+（home.service `persistHomeMap` → `updateDynamicFields`）等。
+
+> 遗留：`map.service.ts` 内部（闭环原语自身）与 `actor/builtin-types.ts`（Actor 载入/落库）是
+> 允许直写聚合列的**合法收口点**，不计入裸写。
+
+### 7.4 测试护栏
+
+- `test/architecture-guard.spec.ts`：新增两条门禁——「业务代码禁止直写 GameMap 动态聚合列」
+  （统计业务文件里的 `prisma.gameMap.update(Many)?` 必须为 0，排除 map.service.ts / builtin-types.ts
+  收口点）+「地图闭环写入口实现不被误删」（断言 `withMapLock` / `findUnique` / `JSON.stringify(before)`
+  / `mutateMapFields` / `mutateSummons` 关键符号存在）。
+- `test/map-mutate-closed-loop.spec.ts`（新增）：真实 MapService + prisma 桩，验证并发双 push 均保留、
+  未改动不写、**嵌套元素改动持久化（7.2 的 bug 用例）**、多字段闭环、diff 只写变化列。

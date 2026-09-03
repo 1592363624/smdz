@@ -1,4 +1,5 @@
 import { FamiliarSkillsService } from '../src/modules/game/familiar-skills.service';
+import { parseJson } from './parse-json.util';
 
 describe('伊芙利特灼烂歼鬼（使魔技能.ecode L1967-2006）', () => {
   function makeFixture(overrides: any = {}) {
@@ -90,8 +91,8 @@ describe('伊芙利特灼烂歼鬼（使魔技能.ecode L1967-2006）', () => {
   it('冷却核心为50秒，急救包后回满三层，库洛牌增益持续37.5秒', async () => {
     const fixture = makeFixture();
     const result = await fixture.service.scorchedFinger(1);
-    const buffs = JSON.parse(fixture.player.buffs);
-    const cooldown = JSON.parse(fixture.player.markers2).find((item: any) => item.name === '伊芙利特技能冷却');
+    const buffs = parseJson(fixture.player.buffs, []);
+    const cooldown = parseJson(fixture.player.markers2, []).find((item: any) => item.name === '伊芙利特技能冷却');
 
     expect(result).toContain('恢复了5护盾、8装甲、10生命');
     expect(fixture.player.hp).toBe(100);

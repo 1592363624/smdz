@@ -6,6 +6,7 @@ import { PlayerService } from '../src/modules/game/player.service';
 import { MapService } from '../src/modules/game/map.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { AchievementService } from '../src/modules/game/achievement.service';
+import { parseJson } from './parse-json.util';
 
 describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () => {
   describe('取对话（数据显示.ecode L119-287）', () => {
@@ -16,7 +17,7 @@ describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () =>
       // 白 对话条目存在（npcs.json"白对话"），跟随台词池非空 → 命中专属条目
       expect(line).not.toBe('……');
       const entry = staticData.getNpcByName('白对话');
-      const pool = JSON.parse(entry.followText);
+      const pool = parseJson(entry.followText, []);
       expect(pool).toContain(line);
     });
 
@@ -24,14 +25,14 @@ describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () =>
       // npc1g → 类型"神之工匠" → 命中"神之工匠对话"条目（stopText 非空，取专属台词）
       const line = staticData.getDialogue('测试者', { qq: 'npc1g' }, '神之工匠', 3);
       const entry = staticData.getNpcByName('神之工匠对话');
-      const pool = JSON.parse(entry?.stopText || '[]');
+      const pool = parseJson(entry?.stopText, []);
       expect(pool.length).toBeGreaterThan(0);
       expect(pool).toContain(line);
     });
 
     it('对应类别为空时回落通用对话并替换【名称】/【目标】', () => {
       // 通用对话的 followText 含【名称】占位
-      const genericFollow = JSON.parse(staticData.getNpcByName('通用对话').followText) as string[];
+      const genericFollow = parseJson(staticData.getNpcByName('通用对话').followText, []) as string[];
       const hasPlaceholder = genericFollow.some((t) => t.includes('【名称】'));
       if (!hasPlaceholder) return;
       let matched = false;
@@ -113,7 +114,7 @@ describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () =>
         { equipment: '[]', qqNumber: '42' }, target, 100,
       );
       expect(text).toMatch(/（反转:(盾抗|甲抗|血抗|闪避|装甲|护盾|回复|暴击|命中|伤害)）/);
-      const buffs = JSON.parse(target.buffs);
+      const buffs = parseJson(target.buffs, []);
       expect(buffs.length).toBe(1);
       expect(buffs[0].name).toMatch(/^fzth(10|[1-9])$/);
       // 持续 600 秒（无库洛牌）
@@ -125,7 +126,7 @@ describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () =>
       const target: any = { buffs: '[]', markers: '{}', bonus: '{}' };
       const text = (combatSystem as any).applyReverseFairytale({ equipment: '[]' }, target, 0);
       expect(text).toBe('（反转:失败）');
-      expect(JSON.parse(target.buffs)).toEqual([]);
+      expect(parseJson(target.buffs, [])).toEqual([]);
     });
 
     it('已有同名 fzth 增益时重复获得则移除（原版 L389-391）', () => {
@@ -139,7 +140,7 @@ describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () =>
       let removed = false;
       for (let i = 0; i < 200 && !removed; i++) {
         (combatSystem as any).applyReverseFairytale({ equipment: '[]', qqNumber: '42' }, target, 100);
-        const names = JSON.parse(target.buffs).map((b: any) => b.name);
+        const names = parseJson(target.buffs, []).map((b: any) => b.name);
         if (!names.includes('fzth3')) removed = true;
       }
       expect(removed).toBe(true);
@@ -154,10 +155,10 @@ describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () =>
           { equipment: '[]', qqNumber: '42' }, target, 100,
         );
         if (text === '（反转:装甲）') {
-          const bonusObj = JSON.parse(target.bonus);
+          const bonusObj = parseJson(target.bonus, {});
           expect(bonusObj.装甲).toBe(-80);
           expect(target.armor).toBe(-60);
-          const markers = JSON.parse(target.markers);
+          const markers = parseJson(target.markers, {});
           expect(markers['攻击者42']).toBe(120); // 当前装甲60×2
           return;
         }

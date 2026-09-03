@@ -1,4 +1,5 @@
 import { AutoMineService } from '../src/modules/game/auto-mine.service';
+import { parseJson } from './parse-json.util';
 
 function makeFixture(options: {
   parts?: string[];
@@ -52,7 +53,7 @@ function makeFixture(options: {
     enqueueUserWrite: jest.fn((userId: number, fn: () => any) => fn()),
     getPlayerData: jest.fn(async () => ({
       player,
-      markers: JSON.parse(player.markers),
+      markers: parseJson(player.markers, {}),
       markers2: [],
     })),
     safeJsonParse: jest.fn((value: any, fallback: any) => {
@@ -92,7 +93,7 @@ describe('自动开采闭环', () => {
 
     const fixture = makeFixture({ summons: 1 });
     await expect(fixture.service.start(42, 1_000_000)).resolves.toContain('预计每小时产出');
-    expect(JSON.parse(fixture.player.markers)['自动开采']).toBe(1000);
+    expect(parseJson(fixture.player.markers, {})['自动开采']).toBe(1000);
   });
 
   it('按每小时公式结算并推进采集任务', async () => {
@@ -104,7 +105,7 @@ describe('自动开采闭环', () => {
     expect(result).toContain('铁矿×1920');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '采集资源', 1920);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '采集铁矿', 1920);
-    expect(JSON.parse(fixture.player.markers)['自动开采']).toBeUndefined();
+    expect(parseJson(fixture.player.markers, {})['自动开采']).toBeUndefined();
   });
 
   it('后台按分钟增量结算但保留进行中标记', async () => {
@@ -112,14 +113,14 @@ describe('自动开采闭环', () => {
     await fixture.service.start(42, 1_000_000);
     await expect(fixture.service.checkpointAll(1_060_000)).resolves.toBe(1);
 
-    expect(JSON.parse(fixture.player.markers)['自动开采']).toBe(1060);
+    expect(parseJson(fixture.player.markers, {})['自动开采']).toBe(1060);
     expect(fixture.itemSystem.distributeLoot).toHaveBeenCalledTimes(1);
   });
 
   it('硅基核心阿尔法使用自动开采2标记', async () => {
     const fixture = makeFixture({ parts: ['激光采集器', '硅基核心阿尔法'] });
     await fixture.service.start(42, 1_000_000);
-    const markers = JSON.parse(fixture.player.markers);
+    const markers = parseJson(fixture.player.markers, {});
     expect(markers['自动开采2']).toBe(1000);
     expect(markers['自动开采']).toBeUndefined();
   });

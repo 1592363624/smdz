@@ -8,6 +8,7 @@
  */
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { parseJson } from './parse-json.util';
 import { PlayerService } from '../src/modules/game/player.service';
 import { BonusService } from '../src/modules/game/bonus.service';
 import { ItemService } from '../src/modules/game/item.service';
@@ -214,29 +215,29 @@ describe('套装判定重算 (物品操作.ecode 套装判断 L1581 → player.s
   const mk = (name: string) => ({ name, type: '装备', quantity: 1, durability: 0, data: '' });
 
   it('女仆4件套 → maid=4（砸瓦鲁多前置）', () => {
-    const sets = JSON.parse((itemServiceForSet as any).recomputeSets(
-      [mk('女仆头饰'), mk('女仆上衣'), mk('女仆围裙'), mk('女仆长裙')], []));
+    const sets = (itemServiceForSet as any).recomputeSets(
+      [mk('女仆头饰'), mk('女仆上衣'), mk('女仆围裙'), mk('女仆长裙')], []);
     expect(sets.maid).toBe(4);
   });
 
   it('增幅器-侵彻 → amplifier=5（名称段判定）', () => {
-    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('增幅器-侵彻')], []));
+    const sets = (itemServiceForSet as any).recomputeSets([mk('增幅器-侵彻')], []);
     expect(sets.amplifier).toBe(5);
   });
 
   it('生命祝福按原版 L1746 排除，仅生命增强器计数 → lifeBless=1', () => {
-    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('生命祝福'), mk('生命增强器')], []));
+    const sets = (itemServiceForSet as any).recomputeSets([mk('生命祝福'), mk('生命增强器')], []);
     expect(sets.lifeBless).toBe(1);
   });
 
   it('一拳套4件 → onePunch=4（攻击2+25 前置）', () => {
-    const sets = JSON.parse((itemServiceForSet as any).recomputeSets(
-      [mk('一拳手套'), mk('一拳护腕'), mk('一拳腰带'), mk('一拳战靴')], []));
+    const sets = (itemServiceForSet as any).recomputeSets(
+      [mk('一拳手套'), mk('一拳护腕'), mk('一拳腰带'), mk('一拳战靴')], []);
     expect(sets.onePunch).toBe(4);
   });
 
   it('植入体-强攻（specialSeq=76）→ implant=1', () => {
-    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('植入体-强攻')], []));
+    const sets = (itemServiceForSet as any).recomputeSets([mk('植入体-强攻')], []);
     expect(sets.implant).toBe(1);
   });
 
@@ -246,19 +247,19 @@ describe('套装判定重算 (物品操作.ecode 套装判断 L1581 → player.s
   });
 
   it('法宝镇岳(耐久5) → 小樱命中次数=2 且 陪睡=5', () => {
-    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([], [], [mkTreasure('镇岳', 5)]));
+    const sets = (itemServiceForSet as any).recomputeSets([], [], [mkTreasure('镇岳', 5)]);
     expect(sets.sakuraHits).toBe(2);
     expect(sets.sleepover).toBe(5);
   });
 
   it('法宝飞天独龙神女枪(耐久8) → 小樱命中次数=1 且 陪睡=8', () => {
-    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([], [], [mkTreasure('飞天独龙神女枪', 8)]));
+    const sets = (itemServiceForSet as any).recomputeSets([], [], [mkTreasure('飞天独龙神女枪', 8)]);
     expect(sets.sakuraHits).toBe(1);
     expect(sets.sleepover).toBe(8);
   });
 
   it('普通装备不触发法宝字段（无小樱命中次数）', () => {
-    const sets = JSON.parse((itemServiceForSet as any).recomputeSets([mk('女仆头饰')], []));
+    const sets = (itemServiceForSet as any).recomputeSets([mk('女仆头饰')], []);
     expect(sets.sakuraHits).toBeUndefined();
   });
 });
@@ -291,14 +292,14 @@ describe('战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946)',
     const pd = mkPlayer();
     const txt = await itemSystemLoot.distributeLoot(pd, [{ name: '' }, { name: '电力' }]);
     expect(txt).toBe('');
-    expect(JSON.parse(pd.player.backpack).length).toBe(0);
+    expect(parseJson(pd.player.backpack, []).length).toBe(0);
   });
 
   it('L4922 资源类(怪物材料) → 加入背包 + 采集资源成就', async () => {
     const pd = mkPlayer();
     const txt = await itemSystemLoot.distributeLoot(pd, [{ name: '怪物材料', type: '资源', quantity: 2 }]);
     expect(txt).toContain('怪物材料');
-    const bp = JSON.parse(pd.player.backpack);
+    const bp = parseJson(pd.player.backpack, []);
     expect(bp.find((b: any) => b.name === '怪物材料').count).toBe(2);
     // addAchievement 将 markers 直接写为对象（非字符串），按对象读取
     expect((pd.player.markers as any)['采集资源']).toBe(2);
@@ -309,15 +310,15 @@ describe('战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946)',
     pd.player.backpack = JSON.stringify([{ name: '载具零件', type: '资源', count: 3, quantity: 3 }]);
 
     await itemSystemLoot.distributeLoot(pd, [{ name: '载具零件', type: '资源', quantity: -2 }]);
-    expect(JSON.parse(pd.player.backpack)).toEqual([
+    expect(parseJson(pd.player.backpack, [])).toEqual([
       expect.objectContaining({ name: '载具零件', count: 1, quantity: 1 }),
     ]);
 
     await itemSystemLoot.distributeLoot(pd, [{ name: '载具零件', type: '资源', quantity: -2 }]);
-    expect(JSON.parse(pd.player.backpack).some((item: any) => item.name === '载具零件')).toBe(false);
+    expect(parseJson(pd.player.backpack, []).some((item: any) => item.name === '载具零件')).toBe(false);
 
     await itemSystemLoot.distributeLoot(pd, [{ name: '不存在的资源', type: '资源', quantity: -5 }]);
-    expect(JSON.parse(pd.player.backpack).some((item: any) => item.name === '不存在的资源')).toBe(false);
+    expect(parseJson(pd.player.backpack, []).some((item: any) => item.name === '不存在的资源')).toBe(false);
     expect((pd.player.markers as any)['采集资源']).toBeUndefined();
   });
 
@@ -337,7 +338,7 @@ describe('战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946)',
     const pd = mkPlayer();
     const txt = await itemSystemLoot.distributeLoot(pd, [{ name: '测试铠甲', type: '装备', quantity: 1 }]);
     expect(txt).toContain('测试铠甲');
-    const bp = JSON.parse(pd.player.backpack);
+    const bp = parseJson(pd.player.backpack, []);
     expect(bp.find((b: any) => b.name === '测试铠甲')).toBeDefined();
     expect((pd.player.markers as any)['获得装备']).toBe(1);
   });

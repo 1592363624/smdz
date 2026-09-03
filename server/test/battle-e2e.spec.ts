@@ -23,6 +23,7 @@ import { AchievementService } from '../src/modules/game/achievement.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { StatsService } from '../src/modules/game/stats.service';
+import { parseJson } from './parse-json.util';
 
 // ==================== 内存测试夹具 ====================
 
@@ -144,7 +145,7 @@ function buildMocks() {
       if (v === null || v === undefined) return d;
       try { const p = (typeof v === 'string' ? JSON.parse(v) : v) as T; return (p === null ? d : p); } catch { return d; }
     }),
-    getBackpackItems: jest.fn((player: any) => JSON.parse(player.backpack || '[]')),
+    getBackpackItems: jest.fn((player: any) => parseJson(player.backpack, [])),
   } as unknown as jest.Mocked<PlayerService>;
 
   const mapService = {
@@ -271,7 +272,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
       jest.spyOn(combat as any, 'monsterCounterAttack').mockImplementation(async () => {
         // 手动复刻原版闪避判定：玩家有「闪避」buff → checkHit(hitRate,100) 必失败 → 免伤
-        const playerBuffs = JSON.parse(player.buffs);
+        const playerBuffs = parseJson(player.buffs, []);
         const dodgeBuff = playerBuffs.find((b: any) => b.name === '闪避');
         const fixedDodge = dodgeBuff ? (dodgeBuff.value || 100) : 0;
         const hitRate = 50;
@@ -322,7 +323,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
 
       const first = await combat.weaponAttack(2, 0, { mustHit: true, noDelay: true });
-      const firstMarkers2 = JSON.parse(player.markers2);
+      const firstMarkers2 = parseJson(player.markers2, []);
       const jlq = firstMarkers2.find((entry: any) => entry.name === 'jlq');
 
       expect(first.result).toContain('进入了卷土重来状态');
@@ -331,7 +332,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(jlq).toBeDefined();
 
       const second = await combat.weaponAttack(2, 0, { mustHit: true, noDelay: true });
-      const secondMarkers2 = JSON.parse(player.markers2);
+      const secondMarkers2 = parseJson(player.markers2, []);
       const jlqList = secondMarkers2.filter((m: any) => m.name === 'jlq');
 
       // 原版语义：卷土重来期间玩家 HP=0 但靠增益闪避=1 免死（防鞭尸跳过反击），
@@ -361,7 +362,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       await combat.weaponAttack(2, 1, { mustHit: true });
 
       // 修复点：冷却标记使用当前武器名「雷火剑」而非「拳头」
-      const markers2 = JSON.parse(player.markers2);
+      const markers2 = parseJson(player.markers2, []);
       const cooldownEntry = markers2.find((m: any) => m.name === '雷火剑冷却');
       expect(cooldownEntry).toBeDefined();
       // 雷火剑 specialSeq=1001 → 冷却 3/3=1 秒
@@ -379,7 +380,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       await combat.weaponAttack(2, 0, { mustHit: true });
 
-      const markers2 = JSON.parse(player.markers2);
+      const markers2 = parseJson(player.markers2, []);
       expect(markers2.some((m: any) => m.name === '拳头冷却')).toBe(true);
     });
   });
@@ -545,7 +546,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       registerMonsters(mocks, 1, [monster]);
 
       mocks.itemSystem.distributeLoot.mockImplementation(async (playerData: any, drops: any[], opts: any) => {
-        const backpack = JSON.parse(playerData.player.backpack || '[]');
+        const backpack = parseJson(playerData.player.backpack, []);
         for (const drop of drops) {
           if (drop.type === '装备') {
             backpack.push({ name: drop.name, type: '装备', quantity: 1, count: 1, data: 'e' });
@@ -572,7 +573,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
         expect.objectContaining({ name: '测试装备', type: '装备', quantity: 1 }),
       ]));
       const savedPlayer = mocks.saveLog[mocks.saveLog.length - 1];
-      expect(JSON.parse(savedPlayer.backpack)).toEqual(expect.arrayContaining([
+      expect(parseJson(savedPlayer.backpack, [])).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: '铁矿', count: 2 }),
         expect.objectContaining({ name: '测试装备', type: '装备', count: 1 }),
       ]));
@@ -664,7 +665,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       // 怪物被加「幻时」增益（原版 获得增益(攻击方.增益,"幻时",30)）
       // 注意：combatState.gainBuff 写入中文 key {名称,有效期至}（归一化约定）
-      const monsterBuffs = JSON.parse(monster.buffs);
+      const monsterBuffs = parseJson(monster.buffs, []);
       const phantom = monsterBuffs.find((b: any) => b.名称 === '幻时');
       expect(phantom).toBeDefined();
       expect(phantom.有效期至).toBeGreaterThan(Date.now());
@@ -997,7 +998,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       // 原版 L2070-2076：触发时仅添加成就"触发割裂"，不立即附加"割裂"文本；
       // "割裂"文本在后续攻击(防御方已带割裂增益)时才显示（L2139）。此处验证正式增益已写入。
-      const mb = JSON.parse(monster.buffs || '[]');
+      const mb = parseJson(monster.buffs, []);
       expect(mb.some((b: any) => b.name === '割裂')).toBe(true);
     });
 
@@ -1042,7 +1043,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
       expect(result.result).toContain('恶毒之刃');
-      const mb = JSON.parse(monster.buffs || '[]');
+      const mb = parseJson(monster.buffs, []);
       expect(mb.some((b: any) => b.name === '恶毒之刃')).toBe(true);
     });
 
@@ -1057,7 +1058,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
       expect(result.result).toContain('燃烧');
-      const mb = JSON.parse(monster.buffs || '[]');
+      const mb = parseJson(monster.buffs, []);
       expect(mb.some((b: any) => b.name === '燃烧')).toBe(true);
     });
 
@@ -1148,7 +1149,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
       expect(result.result).toContain('猩红');
-      const mb = JSON.parse(monster.buffs || '[]');
+      const mb = parseJson(monster.buffs, []);
       expect(mb.some((b: any) => b.name === '猩红')).toBe(true);
     });
 
@@ -1180,7 +1181,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
       expect(result.result).toContain('剑阵');
-      const mb = JSON.parse(monster.buffs || '[]');
+      const mb = parseJson(monster.buffs, []);
       expect(mb.some((b: any) => b.name === '剑阵')).toBe(true);
       expect(monster.hp).toBe(100); // 好感≥80 回满血
     });
@@ -1241,7 +1242,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
       expect(result.result).toContain('仿真尾巴');
-      const m2 = JSON.parse(player.markers2);
+      const m2 = parseJson(player.markers2, []);
       const cd = m2.find((m: any) => m.name === '雷火剑冷却');
       expect(cd).toBeDefined();
       // 原版 CD-5（30s → 25s 剩余，近似断言 < 30s）
@@ -1260,7 +1261,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       await combat.weaponAttack(2, 0, { mustHit: true });
 
-      const mb = JSON.parse(monster.buffs || '[]');
+      const mb = parseJson(monster.buffs, []);
       expect(mb.some((b: any) => b.name === '飞羽')).toBe(true);
     });
 
@@ -1313,7 +1314,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       await combat.weaponAttack(2, 0, { mustHit: true });
 
-      const mb = JSON.parse(monster.buffs || '[]');
+      const mb = parseJson(monster.buffs, []);
       expect(mb.some((b: any) => b.name === '影光')).toBe(true);
     });
 
@@ -1334,7 +1335,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
       expect(result.result).toContain('寒风');
-      const mk = JSON.parse(monster.markers2 || '[]');
+      const mk = parseJson(monster.markers2, []);
       // markers2.expireAt 为毫秒
       expect(mk.some((m: any) => m.name === '怪物爪冷却' && m.expireAt > Date.now())).toBe(true);
       expect(mk.some((m: any) => m.name === '怪物牙冷却' && m.expireAt > Date.now())).toBe(true);
@@ -1352,7 +1353,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       await combat.weaponAttack(2, 0, { mustHit: true });
 
-      const mk = JSON.parse(player.markers2);
+      const mk = parseJson(player.markers2, []);
       // 原版 获得增益(攻击方.标记2, "普拉娜技能冷却", -60) → 冷却提前60秒（毫秒 expireAt 应早于当前时刻，即就绪）
       const entry = mk.find((m: any) => m.name === '普拉娜技能冷却');
       expect(entry).toBeDefined();

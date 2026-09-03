@@ -132,6 +132,19 @@ export class ActorRuntime implements OnModuleDestroy {
     return this.als.getStore();
   }
 
+  /**
+   * 该实体的 run 是否【此刻真的在执行中】。
+   *
+   * ALS key 会随 setTimeout 等回调逃逸出 run 作用域（见 ActorCell.running 注释），
+   * 所以「currentActorKey() === key」不足以证明当前链在 run 内——已结束旧 run 的
+   * 残留 ALS 同样匹配。savePlayer 等调用方必须用本方法做重入判定，否则逃逸回调
+   * 会绕过邮箱、把旧快照直接 merge 进活态（「旧快照覆盖」事故根因之一）。
+   */
+  isRunActive(type: EntityType, id: EntityId): boolean {
+    const cell = this.cells.get(actorKey(type, id));
+    return !!cell && cell.running;
+  }
+
   private policyOf(type: EntityType): PersistPolicy {
     return this.types.get(type)?.persist ?? 'writeThrough';
   }

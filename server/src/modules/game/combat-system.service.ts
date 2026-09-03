@@ -3493,23 +3493,14 @@ export class CombatSystemService {
   }
 
   private async appendFriendlySummon(map: any, summon: any): Promise<boolean> {
-    const write = async (): Promise<boolean> => {
-      const current = await this.mapService.getMapById(map.id) || map;
-      const raw = current?.summons ?? current?.召唤物 ?? [];
-      const summons = Array.isArray(raw)
-        ? [...raw]
-        : this.playerService.safeJsonParse<any[]>(raw, []);
-      const qq = String(summon?.qq ?? summon?.QQ ?? '');
-      if (summons.some((item: any) => String(item?.qq ?? item?.QQ ?? '') === qq)) return false;
-      summons.push(summon);
-      await this.mapService.updateDynamicFields(map.id, { summons }); // Json 列直接传数组
-      map.summons = summons; // Json 列直接写数组
+    // 地图聚合串行化写入口：锁内重读最新 summons → 查重 → push → 差异写回。
+    const qq = String(summon?.qq ?? summon?.QQ ?? '');
+    return this.mapService.mutateSummons(map.id, (fresh) => {
+      if (fresh.some((item: any) => String(item?.qq ?? item?.QQ ?? '') === qq)) return false;
+      fresh.push(summon);
+      map.summons = fresh; // 调用方本地快照同步（权威值已闭环落库）
       return true;
-    };
-    if (typeof (this.mapService as any).withMapLock === 'function') {
-      return (this.mapService as any).withMapLock(map.id, write);
-    }
-    return write();
+    });
   }
 
   private getAttackSummonText(rawEquipment: any): string {
@@ -5863,10 +5854,20 @@ export class CombatSystemService {
             };
           }
 
-          const parseSnapshot = <T>(value: unknown, fallback: T): T => asJsonValue<T>(value, fallback);
-          weapon.bonus = weapon.加成 = parseSnapshot<Record<string, number>>(weapon.__originalBonus, {});
+          // 从原始快照重建「工作副本」：必须浅拷贝而非直接透传快照本体。
+          // asJsonValue 对已是对象的值会返回其原引用；若把 baseBonus 直接指向
+          // __originalBaseBonus，后续套装叠加（checkSetBonus 高斯步枪等会原地写
+          // weaponSelf.baseBonus.物伤 += level*2）会同步污染快照，导致第二次调用
+          // 从被污染的 25 而非干净 5 重建，造成「套装加成跨次累积」（物伤 5→25→45）。
+          // 每次先展开成独立副本，保证同一武器对象反复构建时总能回到原始自带值。
+          const snapshotBonus = asJsonValue<Record<string, number>>(weapon.__originalBonus, {});
+          const snapshotBaseBonus = asJsonValue<Record<string, number>>(weapon.__originalBaseBonus, {});
+          weapon.bonus = weapon.加成 =
+            snapshotBonus && typeof snapshotBonus === 'object' ? { ...snapshotBonus } : snapshotBonus;
           weapon.baseBonus = weapon.基础加成 = weapon.self = weapon.自带 =
-            parseSnapshot<Record<string, number>>(weapon.__originalBaseBonus, {});
+            snapshotBaseBonus && typeof snapshotBaseBonus === 'object'
+              ? { ...snapshotBaseBonus }
+              : snapshotBaseBonus;
 
           if (typeof weapon.baseBonus?.攻击 === 'number') {
             weapon.baseBonus.攻击 += index * (1 + lv / 100);
@@ -7330,10 +7331,8 @@ export class CombatSystemService {
       return;
     }
 
-    const summons = this.playerService.safeJsonParse<any[]>(map?.summons, []);
+    if (!map?.id) return;
     const actorQQ = String(actor.qq ?? actor.QQ ?? '');
-    const index = summons.findIndex((item: any) => String(item?.qq ?? item?.QQ ?? '') === actorQQ);
-    if (index < 0) return;
 
     // 同步原版中文别名，避免后续战斗循环只看到旧快照。
     if (actor.当前生命 !== undefined || actor.hp !== undefined) actor.当前生命 = actor.hp;
@@ -7341,8 +7340,14 @@ export class CombatSystemService {
     if (actor.当前装甲 !== undefined || actor.armor !== undefined) actor.当前装甲 = actor.armor;
     if (actor.增益 !== undefined) actor.增益 = this.playerService.safeJsonParse<any[]>(actor.buffs, []);
     if (actor.标记2 !== undefined) actor.标记2 = this.playerService.safeJsonParse<any[]>(actor.markers2, []);
-    summons[index] = actor;
-    await this.mapService.updateDynamicFields(map.id, { summons }); // Json 列直接传数组
+
+    // 地图聚合串行化写入口：以 qq 在最新 summons 中定位替换（锁内闭环），
+    // 消除战斗结算整组写回覆盖其他并发写（宠物召回/迁移等）的丢失更新。
+    await this.mapService.mutateSummons(map.id, (fresh) => {
+      const index = fresh.findIndex(
+        (item: any) => String(item?.qq ?? item?.QQ ?? '') === actorQQ);
+      if (index >= 0) fresh[index] = actor;
+    });
   }
 
   /** 原版捕捉模式生命层文本：生命不扣除，但显示当前生命和“捕捉中”状态。 */

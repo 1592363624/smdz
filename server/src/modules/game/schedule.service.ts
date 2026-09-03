@@ -327,26 +327,7 @@ export class ScheduleService {
       for (const map of maps) {
         let changed = false;
 
-        // 清理 npcs 中的 行商/神之工匠/小雫
-        const npcs = this.parseJsonArray<any>(map.npcs);
-        const keptNpcs = npcs.filter(
-          (n: any) => !['行商', '神之工匠', '小雫'].includes(n.name),
-        );
-        if (keptNpcs.length !== npcs.length) changed = true;
-
-        // 清理 summons 中的 露娜 及历史遗留的 npc1*/npc2*/行商
-        const summons = this.parseJsonArray<any>(map.summons);
-        const keptSummons = summons.filter((s: any) => {
-          const name = s.name || '';
-          const qq = s.qq || '';
-          if (['行商', '神之工匠', '小雫', '露娜'].includes(name)) return false;
-          if (qq === '怪物露娜1g') return false;
-          if (qq.startsWith('npc1') || qq.startsWith('npc2')) return false;
-          return true;
-        });
-        if (keptSummons.length !== summons.length) changed = true;
-
-        // 清理 GameMonster 表中的 小恶魔（临时怪物）
+        // 清理 GameMonster 表中的 小恶魔（临时怪物）——先做（独立表，与 Json 列无关）
         const tempMonsters = await this.mapService.getMapMonsters(map.id);
         const demonMonsters = tempMonsters.filter(
           (m: any) => (m.name || '') === '小恶魔' || (m.qq || '') === '怪物小恶魔1',
@@ -356,11 +337,30 @@ export class ScheduleService {
         }
         if (demonMonsters.length > 0) changed = true;
 
-        if (changed) {
-          await this.mapService.updateDynamicFields(map.id, {
-            npcs: keptNpcs,
-            summons: keptSummons,
+        // npcs/summons 走 mutateMapFields 锁内闭环：重读最新数组 → 过滤 → 差异写回，
+        // 消除「定时器整组写回覆盖玩家并发写入」的丢失更新。
+        await this.mapService.mutateMapFields(map.id, ['npcs', 'summons'], (f) => {
+          // 清理 npcs 中的 行商/神之工匠/小雫
+          const keptNpcs = f.npcs.filter(
+            (n: any) => !['行商', '神之工匠', '小雫'].includes(n.name),
+          );
+          // 清理 summons 中的 露娜 及历史遗留的 npc1*/npc2*/行商
+          const keptSummons = f.summons.filter((s: any) => {
+            const name = s.name || '';
+            const qq = s.qq || '';
+            if (['行商', '神之工匠', '小雫', '露娜'].includes(name)) return false;
+            if (qq === '怪物露娜1g') return false;
+            if (qq.startsWith('npc1') || qq.startsWith('npc2')) return false;
+            return true;
           });
+          if (keptNpcs.length !== f.npcs.length || keptSummons.length !== f.summons.length) {
+            changed = true;
+          }
+          f.npcs = keptNpcs;
+          f.summons = keptSummons;
+        });
+
+        if (changed) {
           cleaned++;
         }
       }
@@ -378,29 +378,36 @@ export class ScheduleService {
   private async spawnMerchant(maps: any[]): Promise<void> {
     try {
       const map = this.pickRandomMap(maps);
-      const summons = this.parseJsonArray<any>(map.summons);
-      // 若地图已有行商则跳过，避免重复（原版也按 name 判断）
-      if (summons.some((n: any) => n?.name === '行商' || n?.名称 === '行商')) return;
+      // 快照预检（仅省库存构建开销；权威判定在下方锁内复查）
+      const snapshot = this.parseJsonArray<any>(map.summons);
+      if (snapshot.some((n: any) => n?.name === '行商' || n?.名称 === '行商')) return;
 
       // 生成行商物品库存（对齐原版 L1228 生成行商物品(g.背包)）
       const inventory = await this.gameService.buildMerchantInventory(1, 0);
 
       // 行商作为召唤物加入地图（对齐原版 L1223-1231：归属="1"，类型=名称）
       // 库存写入 backpack 键（购物/查看等读取端统一用 backpack，原版"背包"仅作历史兼容迁移）
-      summons.push({
-        归属: '1',
-        name: '行商',
-        类型: '行商',
-        type: '行商',
-        backpack: inventory,
-        qq: `召唤物${Date.now()}`,
-        markers: {},
-        标记: {},
+      // mutateSummons 锁内闭环：重读最新 summons → 已有行商则跳过 → push 差异写回，
+      // 与玩家并发写（宠物召回等）互不覆盖。
+      const merchantQQ = `召唤物${Date.now()}`;
+      const added = await this.mapService.mutateSummons(map.id, (summons) => {
+        // 若地图已有行商则跳过，避免重复（原版也按 name 判断）
+        if (summons.some((n: any) => n?.name === '行商' || n?.名称 === '行商')) return false;
+        summons.push({
+          归属: '1',
+          name: '行商',
+          类型: '行商',
+          type: '行商',
+          backpack: inventory,
+          qq: merchantQQ,
+          markers: {},
+          标记: {},
+        });
+        return true;
       });
-      await this.mapService.updateDynamicFields(map.id, {
-        summons: summons,
-      });
-      this.logger.log(`行商判断: 在地图 ${map.name} 生成了行商（含${inventory.length}件物品）`);
+      if (added) {
+        this.logger.log(`行商判断: 在地图 ${map.name} 生成了行商（含${inventory.length}件物品）`);
+      }
     } catch (err: any) {
       this.logger.error(`生成行商失败: ${err.message}`);
     }
@@ -427,24 +434,23 @@ export class ScheduleService {
       }
 
       const map = this.pickRandomMap(maps);
-      const summons = this.parseJsonArray<any>(map.summons);
-      summons.push({
-        name: petName,
-        type: petName,
-        specialSeq: -2,
-        ownerQQ: '1',
-        qq: `召唤物${this.genId()}`,
-        hp: 100,
-        maxHp: 100,
-        attack: 10,
-        defense: 5,
-        speed: 100,
-        level: 1,
-        markers: {},
-        vehicle: '',
-      });
-      await this.mapService.updateDynamicFields(map.id, {
-        summons: summons,
+      // mutateSummons 锁内闭环：重读最新 summons 后 push，与玩家并发写互不覆盖
+      await this.mapService.mutateSummons(map.id, (summons) => {
+        summons.push({
+          name: petName,
+          type: petName,
+          specialSeq: -2,
+          ownerQQ: '1',
+          qq: `召唤物${this.genId()}`,
+          hp: 100,
+          maxHp: 100,
+          attack: 10,
+          defense: 5,
+          speed: 100,
+          level: 1,
+          markers: {},
+          vehicle: '',
+        });
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了 ${petName}（现有 ${currentCount + 1}/${limit}）`);
     } catch (err: any) {
@@ -474,26 +480,24 @@ export class ScheduleService {
   private async spawnLuna(maps: any[]): Promise<void> {
     try {
       const map = this.pickRandomMap(maps);
-      const summons = this.parseJsonArray<any>(map.summons);
-      if (summons.some((s: any) => s.qq === '怪物露娜1g')) return;
-
-      summons.push({
-        name: '露娜',
-        type: '露娜',
-        ownerQQ: '1',
-        qq: '怪物露娜1g',
-        specialSeq: -2,
-        hp: 500,
-        maxHp: 500,
-        attack: 50,
-        defense: 20,
-        speed: 120,
-        level: 30,
-        markers: {},
-        vehicle: '',
-      });
-      await this.mapService.updateDynamicFields(map.id, {
-        summons: summons,
+      // mutateSummons 锁内闭环：重读最新 summons → 查重 → push，与玩家并发写互不覆盖
+      await this.mapService.mutateSummons(map.id, (summons) => {
+        if (summons.some((s: any) => s.qq === '怪物露娜1g')) return;
+        summons.push({
+          name: '露娜',
+          type: '露娜',
+          ownerQQ: '1',
+          qq: '怪物露娜1g',
+          specialSeq: -2,
+          hp: 500,
+          maxHp: 500,
+          attack: 50,
+          defense: 20,
+          speed: 120,
+          level: 30,
+          markers: {},
+          vehicle: '',
+        });
       });
       this.logger.log(`行商判断: 在地图 ${map.name} 生成了露娜`);
     } catch (err: any) {

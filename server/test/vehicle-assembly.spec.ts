@@ -152,16 +152,18 @@ describe('多零件组装载具复刻', () => {
     const result = await service.assembleVehicleFromParts(10, ['骑士核心', '轻型足2']);
 
     expect(result).toContain('甲组装了一个载具：甲的骑士');
-    const vehicles = JSON.parse(map.vehicles);
+    const vehicles = parseValue<any[]>(map.vehicles, []);
     expect(vehicles).toHaveLength(1);
     expect(vehicles[0].名称).toBe('甲的骑士');
     expect(vehicles[0].归属).toBe('qq10');
     expect(vehicles[0].当前生命).toBe(5);
     expect(parseValue<any[]>(vehicles[0].零件, []).map((part: any) => part.名称))
       .toEqual(['骑士核心', '轻型足']);
-    expect(updateCalls[0].vehicles).toContain('甲的骑士');
+    // 生产写回的是原生数组（Json 列不再落 JSON 字符串），断言对象而非子串
+    expect(parseValue<any[]>(updateCalls[0].vehicles, []))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ 名称: '甲的骑士' })]));
 
-    const backpack = JSON.parse(player.backpack);
+    const backpack = parseValue<any[]>(player.backpack, []);
     expect(backpack.find((item: any) => item.name === '骑士核心')).toBeUndefined();
     expect(backpack.find((item: any) => item.name === '轻型足')).toBeUndefined();
     expect(savedPlayers).toContain(player);
@@ -182,7 +184,7 @@ describe('多零件组装载具复刻', () => {
     expect(result).toContain('缺少这些物品，并且背包里面的数量不够/背包里面的资源不足以制造缺少的数量：骑士核心x1、不存在零件x2');
     expect(map.vehicles).toBe('[]');
     expect(updateCalls).toHaveLength(0);
-    expect(JSON.parse(player.backpack)).toEqual([{ name: '铁矿', type: '资源', quantity: 3 }]);
+    expect(parseValue<any[]>(player.backpack, [])).toEqual([{ name: '铁矿', type: '资源', quantity: 3 }]);
   });
 
   it('生产类核心受唯一生产载具限制', async () => {

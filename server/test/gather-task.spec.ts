@@ -1,6 +1,7 @@
 import { GatherHandler } from '../src/modules/command/handlers/gather.handler';
 import { GameService } from '../src/modules/game/game.service';
 import { DelayedTaskService } from '../src/modules/game/delayed-task.service';
+import { parseJson } from './parse-json.util';
 
 /**
  * 手动采集两阶段流程自检（1:1 对齐原版）：
@@ -94,7 +95,7 @@ function makeGatherFixture(resource: any, options: {
       player,
       // 对齐真实 getPlayerData：weapons 从 player.weapons JSON 解析
       weapons: (() => {
-        try { return JSON.parse(player.weapons || '[]'); } catch { return []; }
+        try { return parseJson(player.weapons, []); } catch { return []; }
       })(),
     })),
     safeJsonParse: jest.fn((value: any, fallback: any) => {
@@ -109,7 +110,7 @@ function makeGatherFixture(resource: any, options: {
     }),
     getBackpackItems: jest.fn((currentPlayer: any) => {
       try {
-        return JSON.parse(currentPlayer.backpack || '[]');
+        return parseJson(currentPlayer.backpack, []);
       } catch {
         return [];
       }
@@ -144,6 +145,28 @@ function makeGatherFixture(resource: any, options: {
     mapService: {
       getMapById: jest.fn(async () => map),
       getMapMonsters: jest.fn(async () => options.monsters || []),
+      // 模拟生产 mutateMapFields 闭环：重读最新字段 → 跑 mutator → 把改动同步回 map
+      mutateMapFields: jest.fn(async (_mapId: number, fields: string[], mutator: (f: any) => any) => {
+        const f: any = {};
+        for (const field of fields) {
+          const raw = (map as any)[field];
+          f[field] = typeof raw === 'string'
+            ? (() => { try { return JSON.parse(raw); } catch { return field === 'markers' ? {} : []; } })()
+            : raw;
+        }
+        const result = mutator(f);
+        for (const field of fields) (map as any)[field] = f[field];
+        return result ?? {};
+      }),
+      mutateSummons: jest.fn(async (mapId: number, mutator: (f: any) => any) => {
+        const raw = (map as any).summons;
+        const summons = typeof raw === 'string'
+          ? (() => { try { return JSON.parse(raw); } catch { return []; } })()
+          : raw;
+        const result = mutator(summons);
+        (map as any).summons = summons;
+        return result;
+      }),
     },
     combatSystem,
     combatState: {
@@ -191,13 +214,13 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(seconds).toBeLessThanOrEqual(18);
 
     // 不发奖励、不推进任务
-    expect(JSON.parse(fixture.player.backpack)).toEqual([]);
+    expect(parseJson(fixture.player.backpack, [])).toEqual([]);
     expect(fixture.taskService.advance).not.toHaveBeenCalled();
 
     // 写入「采集中」状态与「采集」锁定标记
-    const markers = JSON.parse(fixture.player.markers);
+    const markers = parseJson(fixture.player.markers, {});
     expect(markers['采集中']).toEqual(expect.objectContaining({ target: '医疗箱', cmd: '打开箱子' }));
-    const markers2 = JSON.parse(fixture.player.markers2);
+    const markers2 = parseJson(fixture.player.markers2, []);
     expect(markers2).toEqual([expect.objectContaining({ 名称: '采集' })]);
     expect(fixture.playerService.savePlayer).toHaveBeenCalled();
   });
@@ -219,7 +242,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(result).toContain('经验');
     expect(result).toContain('测试地图的老树还可以采集4次');
 
-    const backpack = JSON.parse(fixture.player.backpack);
+    const backpack = parseJson(fixture.player.backpack, []);
     expect(backpack).toEqual([
       expect.objectContaining({ name: '木头', count: 2, quantity: 2 }),
     ]);
@@ -231,11 +254,11 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     );
 
     // 结算后锁定标记应已移除
-    const markers2 = JSON.parse(fixture.player.markers2);
+    const markers2 = parseJson(fixture.player.markers2, []);
     expect(markers2.find((m: any) => m.名称 === '采集')).toBeUndefined();
 
     // 地图资源剩余次数被扣减
-    const resources = JSON.parse(fixture.map.resources);
+    const resources = parseJson(fixture.map.resources, []);
     expect(resources[0].times).toBe(4);
   });
 
@@ -256,7 +279,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const result = await fixture.service.handleGatherResource(42, '打开箱子');
 
     expect(result).toContain('还需要');
-    expect(JSON.parse(fixture.player.backpack)).toEqual([]);
+    expect(parseJson(fixture.player.backpack, [])).toEqual([]);
     expect(fixture.taskService.advance).not.toHaveBeenCalled();
   });
 
@@ -327,7 +350,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
 
     const result = await fixture.service.settleGatherResource(42);
     expect(result).toContain('果实×3');
-    const resources = JSON.parse(fixture.map.resources);
+    const resources = parseJson(fixture.map.resources, []);
     expect(resources[0].times).toBe(96);
   });
 
@@ -346,7 +369,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
 
     const result = await fixture.service.settleGatherResource(42);
     expect(result).toBe('');
-    expect(JSON.parse(fixture.player.backpack)).toEqual([]);
+    expect(parseJson(fixture.player.backpack, [])).toEqual([]);
     expect(fixture.playerService.addExp).not.toHaveBeenCalled();
     expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '采集', expect.anything());
   });
@@ -385,22 +408,22 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(fixture.delayedTaskRows).toHaveLength(1);
     expect(fixture.delayedTaskRows[0].type).toBe('gather');
     expect(fixture.delayedTaskRows[0].userId).toBe(42);
-    expect(JSON.parse(fixture.player.backpack)).toEqual([]);
+    expect(parseJson(fixture.player.backpack, [])).toEqual([]);
 
     // 人为把 runAt 改到过去，模拟延时到期
     fixture.delayedTaskRows[0].runAt = new Date(Date.now() - 1000);
     const dispatched = await fixture.delayedTaskService.tick();
     expect(dispatched).toBe(1);
-    expect(JSON.parse(fixture.player.backpack)).toEqual([
+    expect(parseJson(fixture.player.backpack, [])).toEqual([
       expect.objectContaining({ name: '木头' }),
     ]);
     // 结算后「采集中」标记清除
-    expect(JSON.parse(fixture.player.markers)['采集中']).toBeUndefined();
+    expect(parseJson(fixture.player.markers, {})['采集中']).toBeUndefined();
 
     // 任务行认领即删除：再次 tick 不会重复结算
     const secondTick = await fixture.delayedTaskService.tick();
     expect(secondTick).toBe(0);
-    expect(JSON.parse(fixture.player.backpack)).toEqual([
+    expect(parseJson(fixture.player.backpack, [])).toEqual([
       expect.objectContaining({ name: '木头', count: 1 }),
     ]);
   });
@@ -426,7 +449,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
 
     // 迁移出的任务到点分发后正常结算
     await fixture.delayedTaskService.tick();
-    expect(JSON.parse(fixture.player.backpack)).toEqual([
+    expect(parseJson(fixture.player.backpack, [])).toEqual([
       expect.objectContaining({ name: '木头' }),
     ]);
   });
@@ -465,13 +488,13 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
 
     await fixture.service.handleGatherResource(42, '打开旧箱子');
     const result = await fixture.service.settleGatherResource(42);
-    const backpack = JSON.parse(fixture.player.backpack);
+    const backpack = parseJson(fixture.player.backpack, []);
 
     expect(result).toContain('木头×3');
     expect(backpack).toEqual([expect.objectContaining({ name: '木头', count: 3, quantity: 3 })]);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '采集', 1);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '打开旧箱子', 1);
-    expect(JSON.parse(fixture.map.markers2)).toEqual([
+    expect(parseJson(fixture.map.markers2, [])).toEqual([
       expect.objectContaining({ name: '刷新资源旧箱子' }),
     ]);
   });
@@ -489,7 +512,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const result = await fixture.service.settleGatherResource(42);
 
     expect(result).toContain('石头×2');
-    expect(JSON.parse(fixture.player.backpack)).toEqual([
+    expect(parseJson(fixture.player.backpack, [])).toEqual([
       expect.objectContaining({ name: '石头', count: 2, quantity: 2 }),
     ]);
   });
@@ -508,7 +531,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
 
     await fixture.service.handleGatherResource(42, '打开集装箱');
     await fixture.service.settleGatherResource(42);
-    const backpack = JSON.parse(fixture.player.backpack);
+    const backpack = parseJson(fixture.player.backpack, []);
 
     expect(fixture.itemSystemService.generateRewardEquipment).toHaveBeenCalledWith('寒风', 's');
     expect(backpack).toEqual(expect.arrayContaining([
@@ -533,14 +556,13 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const result = await fixture.service.settleGatherResource(42);
     expect(result).toContain('这里是哪里？');
     expect(fixture.taskService.acceptTask).toHaveBeenCalledWith(42, '主线-身世');
-    const markers = JSON.parse(fixture.player.markers);
+    const markers = parseJson(fixture.player.markers, {});
     expect(markers['召唤白']).toBe(1);
-    // 原版 L9780-9796：白作为真实召唤物加入当前地图（归属玩家、初始好感30）
-    const mapUpdate = fixture.prisma.gameMap.update.mock.calls
-      .map((call: any[]) => call[0]?.data ?? {})
-      .find((data: any) => typeof data.summons === 'string' && data.summons.includes('白'));
-    expect(mapUpdate).toBeTruthy();
-    const white = JSON.parse(mapUpdate.summons).find((s: any) => s.name === '白');
+    // 原版 L9780-9796：白作为真实召唤物加入当前地图（归属玩家、初始好感30）。
+    // 走 mutateSummons 闭环（stub 会把 summons 同步回 fixture.map），不再直写 gameMap.update。
+    const summons = parseJson(fixture.map.summons, []);
+    const white = summons.find((s: any) => (s.name ?? s.名称) === '白');
+    expect(white).toBeTruthy();
     expect(white.type).toBe('白');
     expect(white.markers['好感42']).toBe(30);
   });

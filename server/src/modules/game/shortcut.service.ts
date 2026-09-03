@@ -172,8 +172,8 @@ export class ShortcutService {
       inputReplacements: data.inputReplacements,
     };
 
-    // 保存到数据库
-    await this.playerService.savePlayer({ id: playerData.player.id, markers });
+    // 命令化写入口：只投递「markers 这一列被改了」的意图，在邮箱内基于最新活态应用
+    await this.playerService.patchPlayer(userId, { markers }, 'shortcut');
     this.logger.log(`玩家 ${userId} 的快捷输入已保存`);
   }
 

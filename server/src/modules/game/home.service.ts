@@ -1680,11 +1680,8 @@ export class HomeService {
     const markers = mapMarkers;
     map.items = items;
     map.markers = markers;
-    const mapService = this.mapService as any;
-    if (typeof mapService.updateDynamicFields === 'function') {
-      await mapService.updateDynamicFields(map.id, { items, markers });
-    } else if (this.prisma?.gameMap?.update) {
-      await this.prisma.gameMap.update({ where: { id: map.id }, data: { items, markers } });
-    }
+    // 统一走地图动态字段收口（updateDynamicFields 会失效 map Actor 缓存，
+    // 避免陈旧整行回写覆盖本次落库）；不再保留裸 prisma 写分支。
+    await this.mapService.updateDynamicFields(map.id, { items, markers });
   }
 }

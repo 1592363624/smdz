@@ -38,6 +38,20 @@ function walkTs(dir: string): string[] {
   return out;
 }
 
+/** 遍历目录下的测试文件（*.spec.ts，含子目录） */
+function walkSpecs(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...walkSpecs(full));
+    } else if (entry.isFile() && entry.name.endsWith('.spec.ts')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 /** 统计非注释行中某个模式的出现次数，返回 [总数, 按文件计数] */
 function countPattern(files: string[], pattern: RegExp): [number, Array<[string, number]>] {
   let total = 0;
@@ -137,6 +151,30 @@ describe('架构门禁：玩家状态写入口收口', () => {
     expect(count).toBe(RAW_PLAYER_UPDATEMANY_BASELINE);
   });
 
+  it('Actor 聚合键必须唯一：禁止行 id 回退，邮箱重入必须校验 run 在执行', () => {
+    // 行 id 作为邮箱键会造出 'player:<行id>' 幽灵邮箱：同一玩家两条互不串行的
+    // 邮箱互相覆盖；幽灵 cell 激活时 getOrCreatePlayer(行id) 还会以行 id 建档，
+    // 触发 player 外键冲突（Foreign key constraint violated: userId）。
+    const playerSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/player.service.ts'),
+      'utf8',
+    );
+    // 行 id 只允许出现在展示/日志里，绝不允许进入邮箱键或查询键
+    expect(playerSrc).not.toMatch(/actorKey\('player',[^)]*\?\?/);
+    expect(playerSrc).not.toMatch(/enqueueUserWrite\([^)]*\?\?/);
+    expect(playerSrc).not.toMatch(/where:\s*\{\s*userId:\s*player\.userId\s*\?\?\s*player\.id/);
+
+    // savePlayer 的邮箱内快捷分支必须校验 run 真的在执行（ALS 会随定时器逃逸出
+    // run 作用域，只比 ALS key 会让逃逸回调把旧快照 merge 进活态再落库）。
+    expect(playerSrc).toContain('isRunActive');
+    expect(playerSrc).toContain('resolveActorUserId');
+    expect(playerSrc).toContain('mergeIntoLiveState');
+
+    // 落库必须默认带乐观锁（旧快照覆盖的最后防线），冲突必须显式可观测
+    expect(playerSrc).toContain('updateMany');
+    expect(playerSrc).toContain('乐观锁冲突');
+  });
+
   it('输出当前收口进度（信息性，每次运行都能看到迁移到哪了）', () => {
     const [raw] = countPattern(targetFiles, /savePlayer\s*\(/g);
     const [mutated] = countPattern(targetFiles, /\.mutate\s*\(/g);
@@ -220,5 +258,87 @@ describe('架构门禁：玩家状态写入口收口', () => {
       'utf8',
     );
     expect(cmdSrc).toContain('this.playerMutate.mutate(ctx.userId');
+  });
+
+  // ===== 地图聚合串行化门禁（per-map 闭环写）=====
+  // 背景：GameMap 的 summons/vehicles/items/markers 等 Json 列是「读出数组 → 内存改 →
+  // 整组写回」的裸聚合。历史上 getMapById 合并快照做读改写会在并发时互相覆盖
+  // （白被地图写竞态清除即此类事故）。正确做法是 mutateMapFields / mutateSummons
+  // 锁内闭环。文档会丢，测试不会丢——以下规则把收口固化为门禁。
+
+  it('业务代码禁止直写 GameMap 动态聚合列（必须走 mutateMapFields/mutateSummons 闭环）', () => {
+    // 允许的落库 sink：map.service.ts 内部（mutateMapFields/updateDynamicFields/
+    // refreshExpiredMapResources 等封装了锁内闭环/缓存失效），以及 actor builtin-types.ts
+    // （map Actor 自身的 load→save 路径）。其余业务文件若再出现裸
+    // prisma.gameMap.update / updateMany 写聚合列即判违规。
+    const MAP_SINK_FILES = ['map.service.ts', 'builtin-types.ts'];
+    const business = targetFiles.filter(
+      (f) => !MAP_SINK_FILES.some((name) => f.endsWith(name)),
+    );
+    const [count, perFile] = countPattern(business, /prisma\.gameMap\.update(Many)?\s*\(/g);
+    if (count > 0) {
+      const top = perFile.slice(0, 8).map(([f, c]) => `  ${String(c).padStart(4)}  ${f}`).join('\n');
+      throw new Error(
+        `裸写 prisma.gameMap.update 处数 ${count} 应等于 0。\n` +
+          `对 summons/items/markers 等动态列的变更必须走 mapService.mutateMapFields / mutateSummons` +
+          `（锁内闭环，禁丢更新）；确需直写请封装进 map.service.ts。\n违规分布 TOP 8：\n${top}`,
+      );
+    }
+    expect(count).toBe(0);
+  });
+
+  it('地图闭环写入口的实现不被误删（锁内重读 + 逐字段 diff 写回是关键防线）', () => {
+    const mapSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/map.service.ts'),
+      'utf8',
+    );
+    // 锁内必须重读 DB 最新行（而非用调用方传入的陈旧快照），否则并发仍会互相覆盖
+    expect(mapSrc).toContain('withMapLock(mapId');
+    expect(mapSrc).toContain('prisma.gameMap.findUnique({ where: { id: mapId } })');
+    // 只写真正变了的列（写同值也会推进 version + 放大落库，故必须 diff）
+    expect(mapSrc).toContain('JSON.stringify(before');
+    expect(mapSrc).toContain('JSON.stringify(working');
+    // mutateSummons 是 mutateMapFields 的 summons 简写，两者都在
+    expect(mapSrc).toContain('async mutateMapFields');
+    expect(mapSrc).toContain('async mutateSummons');
+  });
+
+  // ===== integration 测试写玩家状态：须经 Actor 漏斗，禁裸 prisma.player.update =====
+  // 背景：真实远程库套件曾用裸 prisma.player.update 直写玩家行（baseName/hp/markers），
+  // 但玩家权威状态存于 PlayerService 的 Actor cell——裸直写只改 DB 不更新活态，随后任一
+  // 游戏指令经 savePlayer 邮箱路径把陈旧 cell 回写 DB，覆盖裸直写（「旧快照覆盖」型事故，
+  // 曾致 familiar-select/openbox/home-frontline 三套件失败）。正确写法是 test/actor-write.util.ts
+  // 的 mutatePlayerState（包进 enqueueUserWrite，使 DB 与活态一致）。
+  it('integration 测试禁止裸直写玩家行（必须经 mutatePlayerState / Actor 漏斗）', () => {
+    const testDir = path.resolve(__dirname, '../test');
+    const realDbSpecs = walkSpecs(testDir).filter((f) => f.includes('integration-'));
+    // 只识别「真实调用」行：排除注释、mock 断言（expect(...)/.mock/toHaveBeen 等）与
+    // .mock* 桩注入。真实 prisma.player.update( / updateMany( 即判违规。
+    const raw = /prisma\.player\.update(?:Many)?\s*\(/g;
+    const offenders: Array<[string, number]> = [];
+    for (const file of realDbSpecs) {
+      const lines = fs.readFileSync(file, 'utf8').split('\n');
+      let hits = 0;
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (line.startsWith('//') || line.startsWith('*') || line.startsWith('/*')) continue;
+        // mock 断言 / 桩注入行不是对真实库的裸写
+        if (/expect\s*\(/.test(line) || /\.mock\w*/.test(line) || /mockImplementation|mockResolved|mockRejected/.test(line)) continue;
+        const m = line.match(raw);
+        if (m) hits += m.length;
+      }
+      if (hits > 0) offenders.push([path.relative(testDir, file), hits]);
+    }
+    if (offenders.length > 0) {
+      const top = offenders.map(([f, c]) => `  ${String(c).padStart(4)}  ${f}`).join('\n');
+      throw new Error(
+        `integration 测试裸直写玩家行 ${offenders.reduce((s, [, c]) => s + c, 0)} 处，应为 0。\n` +
+          `玩家状态改写在真实库套件里必须经 mutatePlayerState(ps, uid, mutate)` +
+          `（test/actor-write.util.ts，读活态→改→savePlayer 包进 enqueueUserWrite），\n` +
+          `否则陈旧 Actor cell 会覆盖裸直写（旧快照覆盖）。裸 prisma.player.update 仅允许在\n` +
+          `player 行尚未激活任何命令的「建档」场景用 prisma.player.create。\n违规分布：\n${top}`,
+      );
+    }
+    expect(offenders.length).toBe(0);
   });
 });

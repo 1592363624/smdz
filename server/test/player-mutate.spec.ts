@@ -2,6 +2,7 @@ import { PlayerMutateService } from '../src/modules/game/player-mutate.service';
 import { PlayerMutateContextService } from '../src/modules/game/player-mutate-context.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
+import { parseJson } from './parse-json.util';
 
 /**
  * P2 mutate 管道 + P4 货币审计回归：
@@ -156,7 +157,7 @@ describe('mutate 单一快照语义（嵌套复用，不重读不重存）', () 
       await mutateService.mutate(42, async (l2) => {
         l2.player.hp = 80;
         await mutateService.mutate(42, async (l3) => {
-          const m = JSON.parse(l3.player.markers);
+          const m = parseJson(l3.player.markers, {});
           m['活跃度'] += 1;
           l3.player.markers = JSON.stringify(m);
         });
@@ -165,7 +166,7 @@ describe('mutate 单一快照语义（嵌套复用，不重读不重存）', () 
 
     expect(spySave.mock.calls).toHaveLength(1);
     expect(row.hp).toBe(80);
-    expect(JSON.parse(row.markers)['活跃度']).toBe(1);
+    expect(parseJson(row.markers, {})['活跃度']).toBe(1);
   });
 
   it('mutate 内业务方直接调用 savePlayer 应合并回上下文而非二次落库', async () => {
@@ -187,7 +188,7 @@ describe('mutate 单一快照语义（嵌套复用，不重读不重存）', () 
 
     expect(spyUpdate.mock.calls).toHaveLength(1); // 内层合并、只落库一次
     expect(row.hp).toBe(60);
-    expect(JSON.parse(row.backpack).some((i: any) => i.name === '石头')).toBe(true);
+    expect(parseJson(row.backpack, []).some((i: any) => i.name === '石头')).toBe(true);
   });
 
   it('并发 mutate 串行执行，两次累加不丢失更新', async () => {
@@ -197,7 +198,7 @@ describe('mutate 单一快照语义（嵌套复用，不重读不重存）', () 
 
     const bump = () =>
       mutateService.mutate(42, async (ctx) => {
-        const m = JSON.parse(ctx.player.markers);
+        const m = parseJson(ctx.player.markers, {});
         await sleep(10); // 拉长读改写窗口，确保若无串行化必然丢更新
         m['活跃度'] = Number(m['活跃度'] || 0) + 1;
         ctx.player.markers = JSON.stringify(m);
@@ -205,7 +206,7 @@ describe('mutate 单一快照语义（嵌套复用，不重读不重存）', () 
 
     await Promise.all([bump(), bump()]);
 
-    expect(JSON.parse(row.markers)['活跃度']).toBe(2);
+    expect(parseJson(row.markers, {})['活跃度']).toBe(2);
   });
 
   it('fn 抛异常时不落库，异常向上冒泡', async () => {
@@ -235,7 +236,7 @@ describe('mutate 结构化字段双向同步', () => {
     });
 
     // 货币物化会往背包追加条目，这里只校验目标物品被正确改到
-    const wood = JSON.parse(row.backpack).find((i: any) => i.name === '木头');
+    const wood = parseJson(row.backpack, []).find((i: any) => i.name === '木头');
     expect(wood.quantity).toBe(3);
   });
 
@@ -248,7 +249,7 @@ describe('mutate 结构化字段双向同步', () => {
       ctx.player.backpack = '[{"name":"石头","quantity":5}]'; // 走字符串路径
     });
 
-    expect(JSON.parse(row.backpack)[0].name).toBe('石头');
+    expect(parseJson(row.backpack, [])[0].name).toBe('石头');
   });
 
   it('未触碰的字段不会被回写成解析后的等价字符串', async () => {
@@ -261,7 +262,7 @@ describe('mutate 结构化字段双向同步', () => {
     });
 
     expect(row.hp).toBe(42);
-    expect(JSON.parse(row.backpack)[0].quantity).toBe(10);
+    expect(parseJson(row.backpack, [])[0].quantity).toBe(10);
   });
 });
 

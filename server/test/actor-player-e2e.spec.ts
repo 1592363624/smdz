@@ -17,6 +17,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { PlayerService } from '../src/modules/game/player.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { parseJson } from './parse-json.util';
 
 jest.setTimeout(180000);
 
@@ -49,7 +50,7 @@ describe('玩家 Actor 运行时（真实远程库端到端）', () => {
   it('经 Actor 改背包会落库到 player 表（风险#2 修复）', async () => {
     const before = (await prisma.player.findUnique({ where: { userId: TEST_USER_ID } })) as any;
     expect(before).toBeTruthy();
-    const beforeBp = JSON.parse(before.backpack || '[]');
+    const beforeBp = parseJson(before.backpack, []);
 
     await playerService.enqueueUserWrite(TEST_USER_ID, async () => {
       const d = await playerService.getPlayerData(TEST_USER_ID);
@@ -58,7 +59,7 @@ describe('玩家 Actor 运行时（真实远程库端到端）', () => {
     });
 
     const after = (await prisma.player.findUnique({ where: { userId: TEST_USER_ID } })) as any;
-    const afterBp = JSON.parse(after.backpack || '[]');
+    const afterBp = parseJson(after.backpack, []);
     const hit = afterBp.find((i: any) => i?.name === MARK);
     expect(hit).toBeTruthy();
     expect(afterBp.length).toBe(beforeBp.length + 1);
@@ -66,7 +67,7 @@ describe('玩家 Actor 运行时（真实远程库端到端）', () => {
 
   it('50 个并发 enqueueUserWrite 各自 push，背包恰好 +50（串行不变量）', async () => {
     const before = (await prisma.player.findUnique({ where: { userId: TEST_USER_ID } })) as any;
-    const startLen = JSON.parse(before.backpack || '[]').length;
+    const startLen = parseJson(before.backpack, []).length;
 
     await Promise.all(
       Array.from({ length: 50 }, (_, i) =>
@@ -79,7 +80,7 @@ describe('玩家 Actor 运行时（真实远程库端到端）', () => {
     );
 
     const after = (await prisma.player.findUnique({ where: { userId: TEST_USER_ID } })) as any;
-    const afterBp = JSON.parse(after.backpack || '[]');
+    const afterBp = parseJson(after.backpack, []);
     const added = afterBp.filter((i: any) => typeof i?.name === 'string' && i.name.startsWith(MARK + '_'));
     expect(added.length).toBe(50);
     expect(afterBp.length).toBe(startLen + 50);
@@ -87,7 +88,7 @@ describe('玩家 Actor 运行时（真实远程库端到端）', () => {
 
   it('fn 中途抛错不落库（all-or-nothing，风险#3）', async () => {
     const before = (await prisma.player.findUnique({ where: { userId: TEST_USER_ID } })) as any;
-    const beforeLen = JSON.parse(before.backpack || '[]').length;
+    const beforeLen = parseJson(before.backpack, []).length;
 
     await expect(
       playerService.enqueueUserWrite(TEST_USER_ID, async () => {
@@ -99,7 +100,7 @@ describe('玩家 Actor 运行时（真实远程库端到端）', () => {
     ).rejects.toThrow('boom');
 
     const after = (await prisma.player.findUnique({ where: { userId: TEST_USER_ID } })) as any;
-    const afterBp = JSON.parse(after.backpack || '[]');
+    const afterBp = parseJson(after.backpack, []);
     expect(afterBp.find((i: any) => i?.name === `${MARK}_err`)).toBeFalsy();
     expect(afterBp.length).toBe(beforeLen);
   });
@@ -113,6 +114,6 @@ describe('玩家 Actor 运行时（真实远程库端到端）', () => {
     expect(d2.backpack.length).toBe(len1); // d2 不受 d1 篡改影响
     // 且不触发落库：直接读库，背包长度 == len1
     const dbNow = (await prisma.player.findUnique({ where: { userId: TEST_USER_ID } })) as any;
-    expect(JSON.parse(dbNow.backpack || '[]').length).toBe(len1);
+    expect(parseJson(dbNow.backpack, []).length).toBe(len1);
   });
 });

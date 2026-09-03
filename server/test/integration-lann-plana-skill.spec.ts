@@ -25,6 +25,7 @@ import { FamiliarSkillsService } from '../src/modules/game/familiar-skills.servi
 import { PlayerService } from '../src/modules/game/player.service';
 import { MapService } from '../src/modules/game/map.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { parseJson } from './parse-json.util';
 
 jest.setTimeout(180000);
 
@@ -56,10 +57,10 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
       const map = await prisma.gameMap.findUnique({ where: { id: testMapId } });
       if (map) {
         // 召唤物 owner 是纯数字 userId，不带 e2e_lann_ 前缀；按写入时的 id 前缀识别测试数据
-        const summons = JSON.parse(map.summons || '[]').filter(
+        const summons = parseJson(map.summons, []).filter(
           (s: any) => !String(s.id || '').startsWith('e2e_lann_'),
         );
-        await prisma.gameMap.update({ where: { id: testMapId }, data: { summons: JSON.stringify(summons) } });
+        await prisma.gameMap.update({ where: { id: testMapId }, data: { summons } });
       }
     } catch { /* ignore */ }
     if (app) await app.close();
@@ -87,8 +88,9 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
         affinity: 100,
         hp: 10000, maxHp: 10000, shield: 0, maxShield: 0, armor: 0, maxArmor: 0,
         level: 50, dodge: 10,
-        markers: JSON.stringify(markers), markers2: '[]', buffs: '[]',
-        backpack: '[]', equipment: '[]', weapons: '[]', tasks: '[]',
+        // Json 列直接落原生对象/数组（生产已禁止 JSON 字符串落库）
+        markers, markers2: [], buffs: [],
+        backpack: [], equipment: [], weapons: [], tasks: [],
       },
     });
     return user;
@@ -97,7 +99,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
   // 在同图放入一个归属=玩家(=userId字符串)的友方召唤物
   async function addAllySummon(userId: number, name: string) {
     const map = await prisma.gameMap.findUnique({ where: { id: testMapId } });
-    const summons = JSON.parse(map?.summons || '[]');
+    const summons = parseJson(map?.summons, []);
     const ownerId = String(userId);
     const baseHp = 500;
     summons.push({
@@ -110,23 +112,22 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
       base: { hp: baseHp },
       hp: baseHp, maxHp: baseHp,
       attack: 50, defense: 10, speed: 100, dodge: 5, hit: 85,
-      buffs: '[]', bonus: '{}',
+      buffs: [], bonus: {},
     });
-    await prisma.gameMap.update({ where: { id: testMapId }, data: { summons: JSON.stringify(summons) } });
+    await prisma.gameMap.update({ where: { id: testMapId }, data: { summons } });
     return name;
   }
 
-  function findBuff(json: string, name: string) {
-    try { return JSON.parse(json || '[]').find((b: any) => b.name === name); } catch { return undefined; }
+  // Json 列已是原生数组：用 parseJson 兼容对象/字符串，避免裸 JSON.parse 抛错后
+  // 被 catch 吞掉、静默返回 undefined 导致断言假失败。
+  function findBuff(value: any, name: string) {
+    return parseJson(value, []).find((b: any) => b.name === name);
   }
-  function findMapBuff(json: string, name: string) {
-    try { return JSON.parse(json || '[]').find((b: any) => b.name === name); } catch { return undefined; }
+  function findMapBuff(value: any, name: string) {
+    return parseJson(value, []).find((b: any) => b.name === name);
   }
-  function findSummonBuff(json: string, name: string) {
-    try {
-      const b = JSON.parse(json || '[]').find((x: any) => x.name === name);
-      return b;
-    } catch { return undefined; }
+  function findSummonBuff(value: any, name: string) {
+    return parseJson(value, []).find((x: any) => x.name === name);
   }
 
   async function refreshMap() {
@@ -161,7 +162,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     // 验证友方召唤物 buffs 同步获得 mustHitNext
     const map = await refreshMap();
     if (!map) throw new Error('测试地图不存在');
-    const summons = JSON.parse(map.summons || '[]');
+    const summons = parseJson(map.summons, []);
     const ally = summons.find((s: any) => s.name === allyName);
     const sb = findSummonBuff(ally.buffs, '下次攻击·标记');
     expect(sb).toBeDefined();
@@ -184,7 +185,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
 
     const map = await refreshMap();
     if (!map) throw new Error('测试地图不存在');
-    const summons = JSON.parse(map.summons || '[]');
+    const summons = parseJson(map.summons, []);
     const ally = summons.find((s: any) => s.name === allyName);
     const sb = findSummonBuff(ally.buffs, '下次攻击·标记');
     expect(sb).toBeDefined();
@@ -205,7 +206,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     expect(mb).toBeDefined();
 
     const p2 = await playerService.getPlayerData(user.id);
-    const markers = JSON.parse(p2.player.markers || '{}');
+    const markers = parseJson(p2.player.markers, {});
     expect(markers['兰音技能熟练度']).toBeGreaterThanOrEqual(91);
   });
 
@@ -233,9 +234,9 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
         type: '兰音', specialSeq: 23, affinity: 10,
         hp: 100, maxHp: 100, shield: 0, maxShield: 0, armor: 0, maxArmor: 0,
         level: 1, dodge: 10,
-        markers: JSON.stringify({ '兰音好感': 10, '兰音技能熟练度': 0 }),
-        markers2: '[]', buffs: '[]',
-        backpack: '[]', equipment: '[]', weapons: '[]', tasks: '[]',
+        markers: { '兰音好感': 10, '兰音技能熟练度': 0 },
+        markers2: [], buffs: [],
+        backpack: [], equipment: [], weapons: [], tasks: [],
       },
     });
     const w = await familiarSkills.executeSkill(user.id, '心无所扰');
@@ -253,9 +254,9 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
         type: '普拉娜', specialSeq: 22, affinity,
         hp: 100, maxHp: 100, shield: 0, maxShield: 0, armor: 0, maxArmor: 0,
         level: 1, dodge: 10,
-        markers: JSON.stringify({ '普拉娜好感': affinity, '普拉娜技能熟练度': 0 }),
-        markers2: '[]', buffs: '[]',
-        backpack: '[]', equipment: '[]', weapons: '[]', tasks: '[]',
+        markers: { '普拉娜好感': affinity, '普拉娜技能熟练度': 0 },
+        markers2: [], buffs: [],
+        backpack: [], equipment: [], weapons: [], tasks: [],
       },
     });
     const w = await familiarSkills.executeSkill(user.id, '火力全开');

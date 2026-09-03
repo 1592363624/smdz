@@ -897,48 +897,36 @@ export class GameService {
 
     // ===== 1. 观测地图产出·通用段 =====
     if (!targetMap.isFrontier && !targetMap.isInstance) {
-      const mapMarkers = asJsonValue<Record<string, any>>(targetMap.markers, {});
       const nowSec = Date.now() / 1000;
-      const lastObserved = readNum(mapMarkers['观测时间']);
-      const timeDiff = lastObserved > 0 ? Math.max(0, nowSec - lastObserved) : 0;
-      mapMarkers['观测时间'] = nowSec;
-      const summons = asJsonValue<any[]>(targetMap.summons, []);
-      const buildings = asJsonValue<any[]>(targetMap.buildings, []);
-      const items = asJsonValue<any[]>(targetMap.items, []);
-      let changed = false;
-      const mergeItem = (name: string, qty: number): void => {
-        if (!(qty > 0)) return;
-        const found = items.find((it: any) => it && (it.name ?? it.名称) === name);
-        if (found) {
-          found.quantity = readNum(found.quantity ?? found.count ?? found.数量) + qty;
-        } else {
-          items.push({ name, quantity: qty });
+      // mutateMapFields 锁内闭环：重读最新 items/markers/summons/buildings → 计算产出 → 差异写回
+      // （markers 记录观测时间必然变化；items 仅在真正产出时变化，由逐字段 JSON 比对决定是否落库）
+      await this.mapService.mutateMapFields(targetMap.id, ['items', 'markers', 'summons', 'buildings'], (f) => {
+        const mapMarkers = f.markers as Record<string, any>;
+        const lastObserved = readNum(mapMarkers['观测时间']);
+        const timeDiff = lastObserved > 0 ? Math.max(0, nowSec - lastObserved) : 0;
+        mapMarkers['观测时间'] = nowSec;
+        const items = f.items as any[];
+        const mergeItem = (name: string, qty: number): void => {
+          if (!(qty > 0)) return;
+          const found = items.find((it: any) => it && (it.name ?? it.名称) === name);
+          if (found) {
+            found.quantity = readNum(found.quantity ?? found.count ?? found.数量) + qty;
+          } else {
+            items.push({ name, quantity: qty });
+          }
+        };
+        if (f.summons.length > 0) {
+          // 蛋/垃圾：时间差/86400×宠物数（原版 L60-66 两项同率累计入 地图.物品）
+          const rate = (timeDiff / 86400) * f.summons.length;
+          mergeItem('蛋', rate);
+          mergeItem('垃圾', rate);
         }
-        changed = true;
-      };
-      if (summons.length > 0) {
-        // 蛋/垃圾：时间差/86400×宠物数（原版 L60-66 两项同率累计入 地图.物品）
-        const rate = (timeDiff / 86400) * summons.length;
-        mergeItem('蛋', rate);
-        mergeItem('垃圾', rate);
-      }
-      // 具现装置：每天产出1个未知物品（原版 L70-75）
-      const hasGadget = buildings.some(
-        (b: any) => b && String(b.name ?? b.名称 ?? '') === '具现装置' && readNum(b.quantity ?? b.count ?? b.数量 ?? 1) > 0,
-      );
-      if (hasGadget) mergeItem('未知物品', timeDiff / 86400);
-      if (changed || lastObserved === 0) {
-        await this.prisma.gameMap.update({
-          where: { id: targetMap.id },
-          data: { items, markers: mapMarkers },
-        });
-      } else {
-        // 仅刷新观测时间
-        await this.prisma.gameMap.update({
-          where: { id: targetMap.id },
-          data: { markers: mapMarkers },
-        });
-      }
+        // 具现装置：每天产出1个未知物品（原版 L70-75）
+        const hasGadget = (f.buildings as any[]).some(
+          (b: any) => b && String(b.name ?? b.名称 ?? '') === '具现装置' && readNum(b.quantity ?? b.count ?? b.数量 ?? 1) > 0,
+        );
+        if (hasGadget) mergeItem('未知物品', timeDiff / 86400);
+      });
     }
 
     // ===== 2. 四圣祭坛刷麒麟（原版 来倒目的 L6697-6712）=====
@@ -1086,9 +1074,16 @@ export class GameService {
         presets[1].equipment = bag;
         cub.equipmentPresets = cub.装备预设 = presets;
         owner.markers2 = markers2; // Json 列直接写数组
-        await this.prisma.gameMap.update({
-          where: { id: map.id },
-          data: { summons },
+        // 地图聚合串行化写入口：锁内重读最新 summons，把「装备预设」写回其中的幼崽
+        // （幼崽可能被并发路径迁移/移除，找不到时跳过，绝不复活已删除单位）。
+        const cubQQ = String(cub?.qq ?? cub?.QQ ?? '');
+        const cubName = String(cub?.name ?? cub?.名称 ?? '');
+        const isSameCub = (s: any): boolean =>
+          !!s && String(s?.qq ?? s?.QQ ?? '') === cubQQ
+            && (cubQQ ? true : String(s?.name ?? s?.名称 ?? '') === cubName);
+        await this.mapService.mutateSummons(map.id, (fresh) => {
+          const freshCub = fresh.find(isSameCub);
+          if (freshCub) freshCub.equipmentPresets = freshCub.装备预设 = presets;
         });
         if (owner.userId) {
           await this.playerService.savePlayer(owner);
@@ -1122,92 +1117,89 @@ export class GameService {
     if (!playerQQ) return;
 
     try {
-      // 同时加载原地图和目标地图的动态状态
-      const fromMap = await this.mapService.getMapById(Number(fromMapId));
-      const toMap = await this.mapService.getMapById(Number(toMapId));
-      if (!fromMap || !toMap) return;
-
-      // vehicles/summons 为合并地图字段：静态来源已是数组，DB 来源是 JSON 字符串
-      const parse = (v: any): any[] => asJsonValue<any[]>(v, []);
-
-      let fromVehicles = parse(fromMap.vehicles);
-      let fromSummons = parse(fromMap.summons);
-      let toVehicles = parse(toMap.vehicles);
-      let toSummons = parse(toMap.summons);
-
       const vehicleKey = (v: any) => String(v?.id ?? v?.编号 ?? v?.vehicleId ?? '');
       const summonOwner = (s: any) => String(s?.归属 ?? s?.owner ?? s?.qq ?? '');
 
-      // === 1. 玩家载具迁移（原版 L1125-1142）===
-      if (player.vehicle) {
-        const pVehicleKey = String(player.vehicle);
-        const idx = fromVehicles.findIndex((v: any) => vehicleKey(v) === pVehicleKey);
-        if (idx >= 0) {
-          // 从原地图移除载具，添加到目标地图
-          toVehicles.push(fromVehicles[idx]);
-          fromVehicles.splice(idx, 1);
-        }
-      }
+      // 地图聚合串行化写入口：迁出/迁入各自在 per-map 锁内「重读最新容器 → 改 → 写回」
+      // 闭环执行，消除基于合并快照的旧数据覆盖（跟随单位被地图写竞态清除的根因）。
+      // === 1~3. 载具与跟随召唤物迁出（原版 L1125-1256）===
+      const movers = await this.mapService.mutateMapFields(
+        Number(fromMapId),
+        ['summons', 'vehicles'],
+        (f) => {
+          const fromVehicles = f.vehicles;
+          const fromSummons = f.summons;
+          const moved = { vehicles: [] as any[], summons: [] as any[] };
 
-      // === 2. 召唤物驾驶的载具迁移（原版 L1201-1243）===
-      // 只迁移跟随玩家的召唤物的载具（行走方式≠0且≠4）
-      const followSummons = fromSummons.filter((s: any) => summonOwner(s) === playerQQ);
-      for (const summon of followSummons) {
-        const sVehicle = String(summon?.载具 ?? summon?.vehicle ?? '');
-        if (!sVehicle) continue;
+          // === 1. 玩家载具迁移（原版 L1125-1142）===
+          if (player.vehicle) {
+            const pVehicleKey = String(player.vehicle);
+            const idx = fromVehicles.findIndex((v: any) => vehicleKey(v) === pVehicleKey);
+            if (idx >= 0) {
+              // 从原地图移除载具，添加到目标地图
+              moved.vehicles.push(fromVehicles[idx]);
+              fromVehicles.splice(idx, 1);
+            }
+          }
 
-        // 检查"跟随"熟练度<1（原版 取成就熟练度(标记,"跟随")<1）
-        const summonMarkers = parse(summon?.标记 ?? summon?.markers);
-        const followSkill = summonMarkers['跟随'] ?? 0;
-        if (Number(followSkill) >= 1) continue; // 熟练度>=1 不迁移（非跟随状态）
+          // === 2. 召唤物驾驶的载具迁移（原版 L1201-1243）===
+          // 只迁移跟随玩家的召唤物的载具（行走方式≠0且≠4）
+          const followSummons = fromSummons.filter((s: any) => summonOwner(s) === playerQQ);
+          for (const summon of followSummons) {
+            const sVehicle = String(summon?.载具 ?? summon?.vehicle ?? '');
+            if (!sVehicle) continue;
 
-        const vIdx = fromVehicles.findIndex((v: any) => vehicleKey(v) === sVehicle);
-        if (vIdx < 0) continue;
+            // 检查"跟随"熟练度<1（原版 取成就熟练度(标记,"跟随")<1）
+            const summonMarkers = asJsonValue<any[]>(summon?.标记 ?? summon?.markers, []);
+            const followSkill = summonMarkers['跟随'] ?? 0;
+            if (Number(followSkill) >= 1) continue; // 熟练度>=1 不迁移（非跟随状态）
 
-        const sv = fromVehicles[vIdx];
-        const walkMode = Number(sv?.行走方式 ?? sv?.walkMode ?? 0);
-        // 行走方式 0=无行走机构（不能动），4=坐地（不能动）
-        if (walkMode === 0 || walkMode === 4) continue;
+            const vIdx = fromVehicles.findIndex((v: any) => vehicleKey(v) === sVehicle);
+            if (vIdx < 0) continue;
 
-        toVehicles.push(sv);
-        fromVehicles.splice(vIdx, 1);
-      }
+            const sv = fromVehicles[vIdx];
+            const walkMode = Number(sv?.行走方式 ?? sv?.walkMode ?? 0);
+            // 行走方式 0=无行走机构（不能动），4=坐地（不能动）
+            if (walkMode === 0 || walkMode === 4) continue;
 
-      // === 3. 跟随召唤物迁移（原版 L1244-1256）===
-      for (let i = fromSummons.length - 1; i >= 0; i--) {
-        const s = fromSummons[i];
-        if (summonOwner(s) !== playerQQ) continue;
+            moved.vehicles.push(sv);
+            fromVehicles.splice(vIdx, 1);
+          }
 
-        // 跟随熟练度<1 才迁移
-        const sMarkers = parse(s?.标记 ?? s?.markers);
-        const fSkill = sMarkers['跟随'] ?? 0;
-        if (Number(fSkill) >= 1) continue;
+          // === 3. 跟随召唤物迁移（原版 L1244-1256）===
+          for (let i = fromSummons.length - 1; i >= 0; i--) {
+            const s = fromSummons[i];
+            if (summonOwner(s) !== playerQQ) continue;
 
-        // 更新召唤物地图字段并迁移
-        (s as any).地图 = toMap.id;
-        (s as any).mapId = toMap.id;
-        toSummons.push(s);
-        fromSummons.splice(i, 1);
-      }
+            // 跟随熟练度<1 才迁移
+            const sMarkers = asJsonValue<any[]>(s?.标记 ?? s?.markers, []);
+            const fSkill = sMarkers['跟随'] ?? 0;
+            if (Number(fSkill) >= 1) continue;
+
+            // 更新召唤物地图字段并迁移
+            (s as any).地图 = Number(toMapId);
+            (s as any).mapId = Number(toMapId);
+            moved.summons.push(s);
+            fromSummons.splice(i, 1);
+          }
+          return moved;
+        },
+      );
+
+      // === 迁入：把迁出单位并入目标地图（同样锁内闭环）===
+      await this.mapService.mutateMapFields(Number(toMapId), ['summons', 'vehicles'], (f) => {
+        f.vehicles.push(...movers.vehicles);
+        f.summons.push(...movers.summons);
+      });
 
       // === 4. 移除"风月入墨"增益（原版 L1146-1154）===
       // 原版在移动时从 player.增益 中删除"风月入墨"（离开地图失效）
-      let buffs = parse(player.buffs);
+      const buffs = asJsonValue<any[]>(player.buffs, []);
       const beforeLen = buffs.length;
-      buffs = buffs.filter((b: any) => String(b?.name ?? b?.名称 ?? '') !== '风月入墨');
-      if (buffs.length !== beforeLen) {
-        player.buffs = buffs; // Json 列直接写数组
+      const keptBuffs = buffs.filter((b: any) => String(b?.name ?? b?.名称 ?? '') !== '风月入墨');
+      if (keptBuffs.length !== beforeLen) {
+        player.buffs = keptBuffs; // Json 列直接写数组
       }
-
-      // === 写回地图动态字段 ===
-      await this.mapService.updateDynamicFields(Number(fromMapId), {
-        vehicles: fromVehicles,
-        summons: fromSummons,
-      });
-      await this.mapService.updateDynamicFields(Number(toMapId), {
-        vehicles: toVehicles,
-        summons: toSummons,
-      });
     } catch (e: any) {
       this.logger.warn(`迁移玩家载具/召唤物失败: ${e?.message}`);
     }
@@ -3208,34 +3200,36 @@ export class GameService {
 
     const pickAll = requestedName === '全部' || requestedName === '全部拾取';
     let pickedUp: any[];
-    let remainingItems: any[];
 
     if (pickAll) {
-      pickedUp = [...mapItems];
-      remainingItems = [];
+      // mutateMapFields 锁内闭环：重读最新 items → 全部取走 → 以实际取走内容发放
+      // （避免两名玩家并发拾取同一批物品时按各自快照重复发放）
+      pickedUp = await this.mapService.mutateMapFields(map.id, ['items'], (f) => {
+        const taken = [...(f.items as any[])];
+        f.items = [];
+        return taken;
+      });
     } else {
-      // 原版同时支持“拾取物品名”和“拾取序号”。
-      const numericIndex = /^\d+$/.test(requestedName) ? Number(requestedName) - 1 : -1;
-      const targetIndex = numericIndex >= 0
-        ? numericIndex
-        : mapItems.findIndex((item: any) => (item.name || item.名称) === requestedName);
-      if (targetIndex < 0 || targetIndex >= mapItems.length) {
+      // 原版同时支持“拾取物品名”和“拾取序号”；锁内重定位，确保只取走一份
+      const taken = await this.mapService.mutateMapFields(map.id, ['items'], (f) => {
+        const fresh = f.items as any[];
+        const numericIndex = /^\d+$/.test(requestedName) ? Number(requestedName) - 1 : -1;
+        const idx = numericIndex >= 0
+          ? numericIndex
+          : fresh.findIndex((item: any) => (item.name || item.名称) === requestedName);
+        if (idx < 0 || idx >= fresh.length) return null;
+        return fresh.splice(idx, 1)[0];
+      });
+      if (!taken) {
         return `地上没有【${requestedName}】`;
       }
-      pickedUp = [mapItems[targetIndex]];
-      remainingItems = mapItems.filter((_item: any, index: number) => index !== targetIndex);
+      pickedUp = [taken];
     }
 
     for (const item of pickedUp) {
       const count = Number(item.count ?? item.quantity ?? 1);
       await this.playerService.addToBackpack(userId, item.name || item.名称, count);
     }
-
-    // 更新地图物品
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { items: remainingItems },
-    });
 
     this.logger.log(`玩家 ${userId} 拾取了 ${pickedUp.length} 种物品`);
 
@@ -3333,10 +3327,6 @@ export class GameService {
     this.addItemToCollection(backpack, { name: resourceDisplayName, type: '资源', quantity: amount });
     player.backpack = backpack; // Json 列直接写数组
 
-    // 减少资源数量
-    targetResource.amount = 0;
-    if (targetResource.数量 !== undefined) targetResource.数量 = 0;
-
     // 设置冷却时间（默认5分钟）
     const respawnTime = (targetResource.respawnTime || 300) * 1000;
     const newCooldown = {
@@ -3350,15 +3340,20 @@ export class GameService {
     );
     updatedMarkers2.push(newCooldown);
 
-    // 更新地图资源和 markers2
-    const updatedResources2 = resources2.map((r: any) =>
-      (r.name ?? r.名称) === resourceName ? targetResource : r,
-    );
-
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { resources2: updatedResources2 },
+    // 更新地图资源（mutateMapFields 锁内闭环：重读最新 resources2 → 按名重定位归零 → 差异写回；
+    // 避免两名玩家并发开采同一资源时按各自快照重复结算/整组覆盖）
+    const mined = await this.mapService.mutateMapFields(map.id, ['resources2'], (f) => {
+      const fresh = f.resources2 as any[];
+      const idx = fresh.findIndex((r: any) => (r.name ?? r.名称) === resourceName);
+      if (idx === -1) return false;
+      const r = fresh[idx];
+      r.amount = 0;
+      if (r.数量 !== undefined) r.数量 = 0;
+      return true;
     });
+    if (!mined) {
+      return `这里没有${resourceDisplayName}可以开采`;
+    }
 
     // 更新玩家 markers2
     player.markers2 = updatedMarkers2; // Json 列直接写数组
@@ -3706,32 +3701,40 @@ export class GameService {
 
     let timesSuffix = '';
     if (resourceTimes > 0) {
-      target.times = resourceTimes - actualGatherCount;
-      if (target.times <= 0) {
-        const idx = resources.findIndex((r: any) => r.name === target.name);
-        if (idx >= 0) resources.splice(idx, 1);
+      // mutateMapFields 锁内闭环：重读最新资源数组与 markers2 → 按名重定位目标 →
+      // 用最新剩余次数夹取实际采集数 → 扣减次数/耗尽移除/登记刷新标记 → 差异写回
+      // （避免并发采集把次数扣成负数、或按各自快照整组覆盖刷新标记）
+      const gatherResult = await this.mapService.mutateMapFields(map.id, [resourceField, 'markers2'], (f) => {
+        const fresh = f[resourceField] as any[];
+        const idx = fresh.findIndex((r: any) => r.name === target.name);
+        if (idx === -1) return { removed: true, remaining: 0 };
+        const freshTarget = fresh[idx];
+        const freshTimes = this.getResourceTimes(freshTarget);
+        const count = freshTimes > 0 ? Math.min(actualGatherCount, freshTimes) : actualGatherCount;
+        const remaining = freshTimes - count;
+        if (remaining <= 0) {
+          fresh.splice(idx, 1);
+          // 原版"次数归零"会添加"刷新资源<名称>"地图标记，后台刷新任务按该标记恢复资源。
+          if (freshTarget.renewable !== false) {
+            const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
+            const refreshedMarkers2 = mapMarkers2.filter((entry: any) =>
+              (entry?.name ?? entry?.名称) !== `刷新资源${freshTarget.name}`,
+            );
+            refreshedMarkers2.push({
+              name: `刷新资源${freshTarget.name}`,
+              expireAt: Date.now() + 1800 * 1000,
+              resourceField,
+            });
+            f.markers2 = refreshedMarkers2;
+          }
+          return { removed: true, remaining: 0 };
+        }
+        freshTarget.times = remaining;
+        return { removed: false, remaining };
+      });
+      if (gatherResult.remaining > 0) {
+        timesSuffix = `\n${map.name}的${resourceName}还可以采集${gatherResult.remaining}次`;
       }
-      // GameMap JSON 列为原生 Json 类型，写库直接传对象/数组
-      const mapData: Record<string, any> = {
-        [resourceField]: resources,
-      };
-      // 原版“次数归零”会添加“刷新资源<名称>”地图标记，后台刷新任务按该标记恢复资源。
-      if (target.times <= 0 && target.renewable !== false) {
-        // 兼容存量数据：地图标记2容器必须为数组（历史种子曾误写 '{}'）
-        const rawMapMarkers2 = asJsonValue<any>(map.markers2, []);
-        const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
-        const refreshedMarkers2 = mapMarkers2.filter((entry: any) =>
-          (entry?.name ?? entry?.名称) !== `刷新资源${target.name}`,
-        );
-        refreshedMarkers2.push({
-          name: `刷新资源${target.name}`,
-          expireAt: Date.now() + 1800 * 1000,
-          resourceField,
-        });
-        mapData.markers2 = refreshedMarkers2;
-      }
-      await this.prisma.gameMap.update({ where: { id: map.id }, data: mapData });
-      if (target.times > 0) timesSuffix = `\n${map.name}的${resourceName}还可以采集${target.times}次`;
     }
     await this.playerService.savePlayer(player);
 
@@ -4633,20 +4636,21 @@ export class GameService {
           if (position === '成就' || position === '配方') {
             return `召唤物/宠物的${position}不可以修改(因为没效果)`;
           }
-          if (!summon.markers) summon.markers = {};
-          if (position === '标记') {
-            summon.markers[markerName] = markerValue;
-          } else if (position === '标记2' || position === '增益') {
-            if (!duration) {
-              return `${position === '标记2' ? '设置标记2' : '设置增益'}需要提供第五个参数：持续时间`;
-            }
-            if (!summon.markers2) summon.markers2 = {};
-            const now = Date.now() / 1000;
-            summon.markers2[markerName] = { value: markerValue, expireAt: now + duration };
+          if ((position === '标记2' || position === '增益') && !duration) {
+            return `${position === '标记2' ? '设置标记2' : '设置增益'}需要提供第五个参数：持续时间`;
           }
-          await this.prisma.gameMap.update({
-            where: { id: map.id },
-            data: { summons },
+          // mutateSummons 锁内闭环：重读最新 summons → 按 qq/id 重定位 → 写标记 → 差异落库
+          await this.mapService.mutateSummons(map.id, (fresh) => {
+            const idx = fresh.findIndex((s: any) => s.qq === target || s.id === target);
+            if (idx === -1) return;
+            const t = fresh[idx];
+            if (!t.markers) t.markers = {};
+            if (position === '标记') {
+              t.markers[markerName] = markerValue;
+            } else if (position === '标记2' || position === '增益') {
+              if (!t.markers2) t.markers2 = {};
+              t.markers2[markerName] = { value: markerValue, expireAt: Date.now() / 1000 + duration };
+            }
           });
           return `${map.name}的${summon.name}的${markerName}标记被修改为${markerValue}`;
         }
@@ -4740,7 +4744,7 @@ export class GameService {
     playerData.markers['活跃度'] = this.playerService.getMarkerValue(playerData.markers, '活跃度') + 5;
     const removed = await this.playerService.removeFromBackpack(userId, '副本券', 1);
     if (!removed) return `${player.name}需要副本券，去活跃度商店看看吧`;
-    await this.playerService.savePlayer({ id: player.id, markers: playerData.markers });
+    await this.playerService.patchPlayer(userId, { markers: playerData.markers }, 'dungeon-open');
 
     const target = anchor;
     await this.mapService.appendMapConnection(currentMap.id, {
@@ -4783,12 +4787,10 @@ export class GameService {
     const now = Date.now();
     this.normalizeDungeonMarkers2(markers2);
     if (this.combatState.timeIntervalRequire('刷新副本冷却', 300, markers2, now, cooldownText, now)) {
-      player.markers2 = markers2; // Json 列直接写数组
-      await this.playerService.savePlayer({ id: player.id, markers2 });
+      await this.playerService.patchPlayer(userId, { markers2 }, 'dungeon-refresh-cooldown');
       return `${player.name}${cooldownText.value}`;
     }
-    player.markers2 = markers2; // Json 列直接写数组
-    await this.playerService.savePlayer({ id: player.id, markers2 });
+    await this.playerService.patchPlayer(userId, { markers2 }, 'dungeon-refresh');
 
     const group = await this.dungeonService.findInstanceGroup(name);
     if (!group) return `${player.name},${name}不是副本`;
@@ -8585,16 +8587,13 @@ export class GameService {
       hp: monster.hp ?? 0,
       maxHp: monster.maxHp ?? monster.hp ?? 100,
     };
-    const summons = asJsonValue<any[]>(map.summons, []);
-    summons.push(summon);
     // 从 GameMonster 表移除该临时怪物（已转为召唤物）
     await this.mapService.removeMapMonster(map.id, monster.id);
 
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: {
-        summons,
-      },
+    // mutateSummons 锁内闭环：重读最新 summons → 复查幂等 → push 新召唤物 → 差异落库
+    await this.mapService.mutateSummons(map.id, (fresh) => {
+      if (fresh.some((s: any) => s.qq === summon.qq)) return;
+      fresh.push(summon);
     });
 
     // 记录成就「拐妹子」
@@ -8631,16 +8630,13 @@ export class GameService {
       hp: monster.hp ?? 0,
       maxHp: monster.maxHp ?? monster.hp ?? 100,
     };
-    const summons = asJsonValue<any[]>(map.summons, []);
-    summons.push(summon);
     // 从 GameMonster 表移除该临时怪物（已转为召唤物）
     await this.mapService.removeMapMonster(map.id, monster.id);
 
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: {
-        summons,
-      },
+    // mutateSummons 锁内闭环：重读最新 summons → 复查幂等 → push 新召唤物 → 差异落库
+    await this.mapService.mutateSummons(map.id, (fresh) => {
+      if (fresh.some((s: any) => s.qq === summon.qq)) return;
+      fresh.push(summon);
     });
 
     return `那就让我看看你的本事吧！小恶魔开始跟随你。`;
@@ -8674,11 +8670,9 @@ export class GameService {
     }
 
     // 将比例写入家园地图的标记（对应原版：置成就熟练度("肉食比例", 地图.标记, a1)）
-    const mapMarkers = asJsonValue<Record<string, number>>(homeMap.markers, {});
-    mapMarkers['肉食比例'] = ratio;
-    await this.prisma.gameMap.update({
-      where: { id: homeMap.id },
-      data: { markers: mapMarkers },
+    // mutateMapFields 锁内闭环：重读最新 markers → 写入 → 差异落库
+    await this.mapService.mutateMapFields(homeMap.id, ['markers'], (f) => {
+      (f.markers as Record<string, number>)['肉食比例'] = ratio;
     });
 
     return `${player.name} ${player.houseName}的肉食植物现在能享用${ratio}%的生肉产出`;
@@ -8714,10 +8708,11 @@ export class GameService {
       respawnTime: 600, // 10分钟刷新
     };
 
-    resources2.push(cargo);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { resources2 },
+    // mutateMapFields 锁内闭环：重读最新 resources2 → 锁内复查去重 → push → 差异落库
+    await this.mapService.mutateMapFields(map.id, ['resources2'], (f) => {
+      const fresh = f.resources2 as any[];
+      if (fresh.some((r: any) => r.type === '货舱' || (r.name || '').includes('货舱'))) return;
+      fresh.push(cargo);
     });
 
     this.logger.log(`玩家 ${userId} 在地图 ${map.name} 召唤了货舱`);
@@ -11998,19 +11993,17 @@ export class GameService {
     }
 
     // 创建神之工匠NPC
-    npcs.push({
-      name: '神之工匠',
-      type: 'npc',
-      title: '锻造大师',
-      description: '能够打造传说级装备的工匠大师',
-      dialog: '需要打造什么？我可以用最好的材料打造最强的装备！',
-    });
-
-    // 更新地图NPC数据
-    map.npcs = npcs;
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { npcs },
+    // mutateMapFields 锁内闭环：重读最新 npcs → 锁内复查去重 → push → 差异落库
+    await this.mapService.mutateMapFields(map.id, ['npcs'], (f) => {
+      const fresh = f.npcs as any[];
+      if (fresh.some((npc: any) => npc.name === '神之工匠')) return;
+      fresh.push({
+        name: '神之工匠',
+        type: 'npc',
+        title: '锻造大师',
+        description: '能够打造传说级装备的工匠大师',
+        dialog: '需要打造什么？我可以用最好的材料打造最强的装备！',
+      });
     });
 
     this.logger.log(`玩家 ${userId} 在地图 ${map.name} 生成了神之工匠NPC`);
@@ -12035,22 +12028,18 @@ export class GameService {
     const resources = asJsonValue<any[]>(map.resources || '[]', []);
 
     // 创建废弃载具资源
-    resources.push({
-      name: '废弃载具残骸',
-      type: '资源',
-      description: '一辆废弃的载具残骸，可以从中回收零件和材料',
-      outputs: [
-        { name: '废铁', quantity: 5, chance: 80 },
-        { name: '零件', quantity: 1, chance: 40 },
-        { name: '燃料', quantity: 2, chance: 30 },
-      ],
-    });
-
-    // 更新地图资源数据
-    map.resources = resources;
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { resources },
+    // mutateMapFields 锁内闭环：重读最新 resources → push → 差异落库
+    await this.mapService.mutateMapFields(map.id, ['resources'], (f) => {
+      (f.resources as any[]).push({
+        name: '废弃载具残骸',
+        type: '资源',
+        description: '一辆废弃的载具残骸，可以从中回收零件和材料',
+        outputs: [
+          { name: '废铁', quantity: 5, chance: 80 },
+          { name: '零件', quantity: 1, chance: 40 },
+          { name: '燃料', quantity: 2, chance: 30 },
+        ],
+      });
     });
 
     this.logger.log(`玩家 ${userId} 在地图 ${map.name} 生成了废弃载具残骸`);
@@ -13273,11 +13262,7 @@ export class GameService {
     markers: Record<string, any>,
   ): Promise<void> {
     const userId = Number(player.userId);
-    const summons = asJsonValue<any[]>(map.summons, []);
     const ownerIds = new Set([String(userId), String(player.id)]);
-    const exists = summons.some((s: any) =>
-      String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
-    if (exists) return;
 
     const summon = {
       name: '白',
@@ -13289,10 +13274,12 @@ export class GameService {
       maxHp: 100,
       markers: { [`好感${userId}`]: 30, '跟随': 0 },
     };
-    summons.push(summon);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons },
+    // mutateSummons 锁内闭环：重读最新 summons → 锁内复查幂等（同地图已有自己的白则跳过）→ push → 差异落库
+    await this.mapService.mutateSummons(map.id, (fresh) => {
+      const exists = fresh.some((s: any) =>
+        String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
+      if (exists) return;
+      fresh.push(summon);
     });
 
     // 羁绊（原版 套装.白）：bj1/bj2 羁绊技能加成的开关。
@@ -13328,31 +13315,26 @@ export class GameService {
     if (!markers['召唤白']) return null;
 
     // 全图查找（跟随迁移异常时兜底搬回当前地图）
+    // 迁移走 mutateSummons 锁内闭环：先从来源图取走（拿到的单位是最新数组中的引用，
+    // 而非旧合并快照里的陈旧对象），再并入当前地图，杜绝「地图写竞态」互相覆盖。
     const allMaps = await this.mapService.getAllMaps();
     for (const other of allMaps || []) {
       if (Number(other?.id) === Number(map.id)) continue;
-      const units = parse(other.summons);
-      const idx = units.findIndex((s: any) =>
-        String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
-      if (idx < 0) continue;
-      const [white] = units.splice(idx, 1);
-      await this.prisma.gameMap.update({
-        where: { id: other.id },
-        data: { summons: units },
-      }).catch(() => undefined);
-      const currentUnits = parse(map.summons);
-      currentUnits.push(white);
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { summons: currentUnits },
-      }).catch(() => undefined);
+      const white = await this.mapService.mutateSummons(Number(other.id), (units) => {
+        const idx = units.findIndex((s: any) =>
+          String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
+        return idx >= 0 ? units.splice(idx, 1)[0] : null;
+      });
+      if (!white) continue;
+      await this.mapService.mutateSummons(Number(map.id), (units) => {
+        units.push(white);
+      });
       await this.syncWhiteAffinity(player, white, markers, Number(map.id));
       return white;
     }
 
     // 从未创建过（或被地图写竞态清除）：重建，好感从玩家标记恢复。
     // sets/标记只改内存快照，由指令外层 mutate 统一落库。
-    const created = asJsonValue<Record<string, any>>(map.summons, []);
     const summon = {
       name: '白',
       type: '白',
@@ -13363,10 +13345,8 @@ export class GameService {
       maxHp: 100,
       markers: { [`好感${userId}`]: Number(markers['白好感'] ?? 30), '跟随': 0 },
     };
-    created.push(summon);
-    await this.prisma.gameMap.update({
-      where: { id: map.id },
-      data: { summons: created },
+    await this.mapService.mutateSummons(Number(map.id), (units) => {
+      units.push(summon);
     });
     const sets = asJsonValue<Record<string, any>>(player.sets, {});
     if (!sets['白']) {
@@ -13401,18 +13381,14 @@ export class GameService {
       if (best > 0 && unitValue !== best) {
         unitMarkers[unitKey] = best;
         white.markers = unitMarkers; // Json 列直接写对象
-        // 单位好感提升：整体写回单位所在地图（调用方传入的 host 地图）
-        const hostUnits = asJsonValue<any[]>(
-          (await this.mapService.getMapById(mapId))?.summons, []);
-        const idx = hostUnits.findIndex((s: any) =>
-          String(s?.qq ?? s?.QQ ?? '') === String(white?.qq ?? white?.QQ ?? ''));
-        if (idx >= 0) {
-          hostUnits[idx] = white;
-          await this.prisma.gameMap.update({
-            where: { id: mapId },
-            data: { summons: hostUnits },
-          }).catch(() => undefined);
-        }
+        // 单位好感提升：写回单位所在地图（调用方传入的 host 地图）。
+        // mutateSummons 锁内闭环：以 qq 在最新数组中定位替换；找不到（单位已被
+        // 并发路径移除）则静默跳过，绝不复活已删除单位。
+        await this.mapService.mutateSummons(mapId, (hostUnits) => {
+          const idx = hostUnits.findIndex((s: any) =>
+            String(s?.qq ?? s?.QQ ?? '') === String(white?.qq ?? white?.QQ ?? ''));
+          if (idx >= 0) hostUnits[idx] = white;
+        }).catch(() => undefined);
       }
       if (best > 0 && markerValue !== best) {
         markers['白好感'] = best;
@@ -14680,12 +14656,18 @@ export class GameService {
       // 露娜尚无人认领：玩家请求成功，好感置满、归属改玩家
       // 原版：置成就熟练度("好感"+QQ, 露娜.标记, 100) —— 这里以玩家标记记录对露娜的好感
       this.playerService.setMarker(markers, `好感怪物露娜1g`, 100);
-      luna.ownerQQ = player.userId.toString();
-      summons[lunaIdx] = luna;
-      await this.prisma.gameMap.update({
-        where: { id: map.id },
-        data: { summons },
+      // mutateSummons 锁内闭环：重读最新 summons → 按 qq 重定位 → 锁内复查归属 → 写回 → 差异落库
+      const claimed = await this.mapService.mutateSummons(map.id, (fresh) => {
+        const idx = fresh.findIndex((s: any) => s.qq === '怪物露娜1g');
+        if (idx === -1) return false;
+        const owner = fresh[idx].ownerQQ;
+        if (!(owner === '1' || owner === undefined || owner === null)) return false;
+        fresh[idx].ownerQQ = player.userId.toString();
+        return true;
       });
+      if (!claimed) {
+        return `${player.name} 露娜刚被别人认领了`;
+      }
       player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
       await this.taskService.advance(userId, '求助');

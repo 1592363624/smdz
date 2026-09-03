@@ -13,6 +13,8 @@ import { GameService } from '../src/modules/game/game.service';
 import { MapService } from '../src/modules/game/map.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { parseJson } from './parse-json.util';
+import { mutatePlayerState } from './actor-write.util';
 
 jest.setTimeout(180000);
 
@@ -84,24 +86,25 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
     const player = await prisma.player.findUnique({ where: { userId } });
     houseName = player?.houseName || '';
     expect(houseName).toBeTruthy();
-    expect(JSON.parse(player!.stats)).toHaveProperty('家园原地图ID');
+    expect(player?.stats).toHaveProperty('家园原地图ID');
 
     const yard = await mapService.getMapByName(houseName);
     expect(yard.isFrontier).toBe(true);
-    expect(JSON.parse(yard.connections)).toEqual(
+    expect(parseJson(yard.connections, [])).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: expect.any(String), distance: 10 })]),
     );
 
     // 原版圈地：院子资源2 = [土堆, 杂草]，必须先「挖土」「割草」清空才能「开挖地基」
-    const yardResources2 = JSON.parse(yard.resources2);
+    const yardResources2 = parseJson(yard.resources2, []);
     expect(yardResources2.map((r: any) => r.name)).toEqual(['土堆', '杂草']);
     expect(yardResources2.every((r: any) => r.gatherCmd && r.times > 0)).toBe(true);
 
+    // 家园进度置 4（可挖地基建屋内/前线）。经 Actor 漏斗改写，避免陈旧 cell
+    // 回写覆盖（见 actor-write.util.ts）——裸 prisma.player.update 只改 DB 不改活态，
+    // 后续 handleHome('家园前线') 复用陈旧 cell（家园进度=1）会把它回写，导致
+    // handleStartBattle 误判「房屋未建成」（此前 前线等级0 用失败根因）。
     const markers = { '家园进度': 4, 前线: 0 };
-    await prisma.player.update({
-      where: { userId },
-      data: { markers: JSON.stringify(markers) },
-    });
+    await mutatePlayerState(playerService, userId, (player) => { player.markers = markers; });
     const homePlayer = await prisma.player.findUnique({ where: { userId } });
     await mapService.ensureHouseMaps(houseName, homePlayer!.mapId, 4);
     const interior = await mapService.getMapByName(`${houseName}屋内`);
@@ -115,15 +118,16 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
     expect(first).toContain('前线防御阵地');
 
     let frontline = await mapService.getMapByName(`${houseName}前线`);
-    let summons = JSON.parse(frontline.summons);
+    let summons = parseJson(frontline.summons, []);
     const frontlineSummon = summons.find((item: any) => item.QQ?.startsWith('怪物前线'));
     expect(frontlineSummon).toBeDefined();
     frontlineSummon.当前生命 = 0.5;
-    await mapService.updateDynamicFields(frontline.id, { summons: JSON.stringify(summons) });
+    // Json 列写回原生数组（生产已禁止 JSON.stringify 字符串落库）
+    await mapService.updateDynamicFields(frontline.id, { summons });
 
     await familiar.handleHome(userId, '家园前线');
     frontline = await mapService.getMapByName(`${houseName}前线`);
-    summons = JSON.parse(frontline.summons);
+    summons = parseJson(frontline.summons, []);
     const retained = summons.find((item: any) => item.QQ?.startsWith('怪物前线'));
     expect(retained.当前生命).toBe(0.5);
   });

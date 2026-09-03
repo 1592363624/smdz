@@ -44,8 +44,9 @@ describe('地图资源按过期标记刷新', () => {
     const fixture = makeFixture();
 
     const restored = await fixture.service.refreshExpiredMapResources(7);
-    const resources = JSON.parse(fixture.map.resources);
-    const markers2 = JSON.parse(fixture.map.markers2);
+    // GameMap Json 列在 Prisma 中为原生对象/数组（非字符串），refreshExpiredMapResources 锁内闭环重读后直接写对象
+    const resources = fixture.map.resources;
+    const markers2 = fixture.map.markers2;
 
     expect(restored).toBe(1);
     expect(resources.map((resource: any) => resource.name)).toEqual([
@@ -57,7 +58,9 @@ describe('地图资源按过期标记刷新', () => {
     ]);
     expect(fixture.prisma.gameMap.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 7 },
-      data: expect.objectContaining({ resources: expect.any(String), markers2: expect.any(String) }),
+      data: expect.objectContaining({
+        markers2: expect.arrayContaining([expect.objectContaining({ name: '其他状态' })]),
+      }),
     }));
   });
 });
