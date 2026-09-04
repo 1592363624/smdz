@@ -14,6 +14,17 @@ import { ShortcutService } from './shortcut.service';
 import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POOL, AMPLIFIER_RANDOM_POOL } from './item.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
+import {
+  CraftCategory,
+  CraftClassifyLookups,
+  VEHICLE_SUBCATEGORY_ARGS,
+  buildCategoryListText,
+  buildCategoryMenuTempInput,
+  buildCategoryMenuText,
+  buildNumberTempInput,
+  buildVehicleSubCategoryMenu,
+  listCraftingNamesByCategory,
+} from './craft-menu.util';
 
 // ========== 类型定义 ==========
 
@@ -103,7 +114,8 @@ export class ItemSystemService {
       return `警告：制造项目${recipe.name}的制造产出为空，请检查数据。`;
     }
 
-    // 显示配方信息
+    // 显示配方信息（原版 物品操作.ecode L399-403：数量<1 显示制造需求，
+    // 并提供「1、制造1个 2、查看产物详情」编号菜单）
     if (actualCount <= 0) {
       let info = `${player.name}，${recipeName}（等级需求${recipe.level}）\n`;
       if (recipe.description) info += `${recipe.description}\n`;
@@ -114,6 +126,18 @@ export class ItemSystemService {
       info += '━━━━━━━━━━━━━━━\n产出:\n';
       for (const out of outputs) {
         info += `  ${out.name} ×${formatDisplayNumber(out.quantity)}\n`;
+      }
+      info += '\n1、制造1个\n2、查看产物详情';
+      // 原版 L403：注册编号/文字临时输入替换，发数字即可继续
+      if (this.shortcutService) {
+        try {
+          await this.shortcutService.setTempInput(
+            userId,
+            `1@制造${recipe.name}1#制造1个@制造${recipe.name}1#2@图鉴${outputs[0].name}#查看产物详情@图鉴${outputs[0].name}`,
+          );
+        } catch (e) {
+          this.logger.warn(`制造需求菜单临时输入替换失败: ${e.message}`);
+        }
       }
       return info;
     }
@@ -258,6 +282,67 @@ export class ItemSystemService {
     const consumedText = consumedList.map(c => `${c.name} ×${formatDisplayNumber(c.quantity)}`).join('、');
     const producedText = producedList.map(p => `${p.name} ×${formatDisplayNumber(p.quantity)}`).join('、');
     return `${player.name}用${consumedText}制造了${maxCount}个${recipeName}，得到了${producedText}`;
+  }
+
+  /**
+   * 制造分类菜单（Issue #7 修复）
+   * 对应原版：_主程序.ecode L3280-3308 制造 指令入口
+   *  - 无参 → 一级分类菜单（1资源 2装备 3建筑 4载具）+ 编号临时输入替换
+   *  - 制造资源/装备/建筑 → 该分类配方清单 + 编号临时输入替换
+   *  - 制造载具 → 五个子分类菜单；制造载具XX部件 → 对应子分类配方清单
+   */
+  async craftCategoryMenu(userId: number, categoryArg: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const arg = String(categoryArg || '').trim();
+
+    const registerTemp = async (raw: string): Promise<void> => {
+      if (!this.shortcutService) return;
+      try {
+        await this.shortcutService.setTempInput(userId, raw);
+      } catch (e) {
+        this.logger.warn(`制造分类菜单临时输入替换失败: ${e.message}`);
+      }
+    };
+
+    // 无参 → 一级分类菜单（原版 L3284-3286）
+    if (!arg) {
+      await registerTemp(buildCategoryMenuTempInput());
+      return buildCategoryMenuText(player.name);
+    }
+
+    // 制造载具 → 子分类菜单（原版 L3299-3300）
+    if (arg === '载具') {
+      const menu = buildVehicleSubCategoryMenu(player.name);
+      await registerTemp(menu.tempInput);
+      return menu.text;
+    }
+
+    // 一级分类 / 载具子分类 → 配方清单（原版 L3287-3304 载具列表分类）
+    let category: CraftCategory | null = null;
+    let subCategory: string | undefined;
+    if (arg === '资源' || arg === '装备' || arg === '建筑') {
+      category = arg;
+    } else if ((VEHICLE_SUBCATEGORY_ARGS as readonly string[]).includes(arg)) {
+      category = '载具';
+      subCategory = arg.replace(/^载具/, '');
+    }
+    if (!category) return '';
+
+    const lookups: CraftClassifyLookups = {
+      isEquipment: (n: string) => !!this.staticData.getEquipmentByName(n),
+      isBuilding: (n: string) => !!this.staticData.getBuildingByName(n),
+      vehiclePartType: (n: string) => {
+        const p = this.staticData.getVehiclePartSpecByName(n);
+        return p == null ? undefined : Number(p.partType);
+      },
+    };
+    const names = listCraftingNamesByCategory(this.staticData.getAllCraftings(), category, lookups, subCategory);
+    if (names.length === 0) {
+      return `${player.name}，${arg}分类下暂无可制造配方。`;
+    }
+    await registerTemp(buildNumberTempInput(names));
+    return buildCategoryListText(player.name, category, names);
   }
 
   /**

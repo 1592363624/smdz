@@ -15,6 +15,7 @@ import { ShortcutService } from '../../game/shortcut.service';
 import { HomeService } from '../../game/home.service';
 import { TaskService } from '../../game/task.service';
 import { asJsonValue } from '../../../common/utils/json-value.util';
+import { CRAFT_MENU_ARGS } from '../../game/craft-menu.util';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
 
 @Injectable()
@@ -113,14 +114,19 @@ export class GameCommandHandler implements CommandHandler {
     return Number.isFinite(count) && count > 0 ? count : 1;
   }
 
-  private parseCraftArguments(args: string[]): { recipeName: string; count: number } {
+  /**
+   * 解析“制造XX[数量]”参数。数量缺省时返回 defaultCount：
+   * 普通制造传 0（原版 物品操作.ecode L399：数量<1 显示制造需求菜单），
+   * 炼丹/锻造等子用法保持旧行为传 1。
+   */
+  private parseCraftArguments(args: string[], defaultCount = 1): { recipeName: string; count: number } {
     const input = args.join(' ').trim();
-    if (!input) return { recipeName: '', count: 1 };
+    if (!input) return { recipeName: '', count: defaultCount };
     const spaced = input.match(/^(.+?)\s+(\d+)$/);
     if (spaced) return { recipeName: spaced[1].trim(), count: Math.max(1, Number(spaced[2])) };
     const compact = input.match(/^(.+?)(\d+)$/);
     if (compact) return { recipeName: compact[1].trim(), count: Math.max(1, Number(compact[2])) };
-    return { recipeName: input, count: 1 };
+    return { recipeName: input, count: defaultCount };
   }
 
   private parseUseArguments(args: string[]): { itemName: string; count: number } {
@@ -378,14 +384,26 @@ export class GameCommandHandler implements CommandHandler {
         case '制造':
         case 'craft':
         case '制作': {
-          const craft = this.parseCraftArguments(args);
+          // 原版 _主程序.ecode L3280-3308：无参 → 一级分类菜单；
+          // 制造资源/装备/建筑 → 配方清单；制造载具 → 五个子分类菜单
+          // （无空格输入已由 CommandService 前缀路由还原为 “制造 参数”）。
+          const menuArg = args.join('').trim();
+          if (!menuArg || CRAFT_MENU_ARGS.includes(menuArg)) {
+            return this.wrap(await this.itemSystem.craftCategoryMenu(userId, menuArg));
+          }
+          const craft = this.parseCraftArguments(args, 0);
+          const craftActions = [
+            ...(craft.count > 0
+              ? [
+                  { name: '制造', count: craft.count },
+                  { name: '制造' + craft.recipeName, count: craft.count },
+                ]
+              : []),
+          ];
           const result = await this.runTaskAction(
             userId,
             () => this.itemSystem.craftItem(userId, craft.recipeName, craft.count),
-            [
-              { name: '制造', count: craft.count },
-              ...(craft.recipeName ? [{ name: '制造' + craft.recipeName, count: craft.count }] : []),
-            ],
+            craftActions,
           );
           return this.wrap(result);
         }
