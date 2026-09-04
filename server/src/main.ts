@@ -5,11 +5,14 @@
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { ExpressAdapter } from '@nestjs/platform-express';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import * as express from 'express';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { GlobalConfig } from './config/global.config';
+import { maintenanceMiddleware } from './maintenance/maintenance.middleware';
 
 async function bootstrap() {
   // 读取启动配置（端口、CORS 白名单等），来自配置文件/环境变量
@@ -23,7 +26,14 @@ async function bootstrap() {
     console.log(`📁 已创建上传目录: ${uploadDir}`);
   }
 
-  const app = await NestFactory.create(AppModule);
+  // 预创建 Express 实例并最先挂载维护模式中间件：
+  // NestFactory.create 之后再用 app.use() 注册的中间件会排在 Nest 路由与
+  // serve-static 之后（只在所有路由 fallthrough 后才执行），无法拦截静态
+  // 页面请求；因此必须通过 ExpressAdapter 在应用初始化前预先注册。
+  const server = express();
+  server.use(maintenanceMiddleware);
+
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));
 
   // 全局接口前缀，便于统一路由，如 /api/auth/qq/login
   app.setGlobalPrefix('api');

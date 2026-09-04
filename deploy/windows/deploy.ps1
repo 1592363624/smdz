@@ -69,99 +69,55 @@ function Remove-TreeBestEffort {
     return ($roboOk -and -not (Test-Path -LiteralPath $Path))
 }
 
+# ---------- Maintenance flag helpers ----------
+# The running app polls for server/maintenance.flag (see
+# server/src/maintenance/maintenance.middleware.ts). While the flag exists the
+# app serves a maintenance page to browsers and returns 503 (code=MAINTENANCE)
+# for API requests, instead of serving the game. This keeps players informed
+# during the whole deployment instead of facing a dead port.
+function Enable-Maintenance {
+    param([Parameter(Mandatory = $true)][string]$ServerDir)
+    $flagPath = Join-Path $ServerDir 'maintenance.flag'
+    Set-Content -LiteralPath $flagPath -Value (Get-Date -Format o) -Force
+    Write-Host "==> Maintenance mode ENABLED ($flagPath)"
+}
+
+function Disable-Maintenance {
+    param([Parameter(Mandatory = $true)][string]$ServerDir)
+    $flagPath = Join-Path $ServerDir 'maintenance.flag'
+    if (Test-Path -LiteralPath $flagPath -PathType Leaf) {
+        # Best-effort by design: at cutover-success time the deployment is already
+        # healthy. A failed flag removal (ACL/AV hiccup) must NEVER throw here,
+        # otherwise the catch block would roll back a perfectly good build. Worst
+        # case the maintenance page lingers and players must refresh manually.
+        Remove-Item -LiteralPath $flagPath -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $flagPath -PathType Leaf) {
+            Write-Warning "Could not remove maintenance.flag (file locked?). Players may need a manual refresh."
+        } else {
+            Write-Host "==> Maintenance mode DISABLED ($flagPath)"
+        }
+    }
+}
+
 # ---------- Global paths ----------
 $DeploymentRoot = [System.IO.Path]::GetFullPath($DeploymentRoot)
 $SourceArchive = Join-Path $DeploymentRoot 'source.tar.gz'
 $ServerDirectory = Join-Path $DeploymentRoot 'server'
 $WebDirectory = Join-Path $DeploymentRoot 'web'
-$PidFile = Join-Path $ServerDirectory 'app.pid'
+$StagingDirectory = Join-Path $DeploymentRoot '.staging'
+$StagingServerDirectory = Join-Path $StagingDirectory 'server'
+$StagingWebDirectory = Join-Path $StagingDirectory 'web'
 $BackupDir = Join-Path $DeploymentRoot '.rollback-backup'
 $ServerBackup = Join-Path $BackupDir 'server'
 $WebBackup = Join-Path $BackupDir 'web'
-
-# ---------- Rollback function ----------
-function Invoke-Rollback {
-    Write-Host "===== ROLLBACK: Rolling back to previous version ====="
-
-    Write-Host "==> Stopping new process (if any)"
-    try {
-        pm2 delete $AppName 2>$null | Out-Null
-    } catch {
-        Write-Host "pm2 delete error (ignored, app may not be running): $($_.Exception.Message)"
-    }
-
-    Write-Host "==> Removing failed deployment files"
-    if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
-        Remove-TreeBestEffort $ServerDirectory | Out-Null
-    }
-    if (Test-Path -LiteralPath $WebDirectory -PathType Container) {
-        Remove-TreeBestEffort $WebDirectory | Out-Null
-    }
-
-    # DB is remote MySQL: no local database file to restore.
-    $restoredSomething = $false
-    if (Test-Path -LiteralPath $ServerBackup -PathType Container) {
-        Write-Host "==> Restoring server/ from backup"
-        Move-Item -LiteralPath $ServerBackup -Destination $ServerDirectory -Force
-        $restoredSomething = $true
-    }
-    if (Test-Path -LiteralPath $WebBackup -PathType Container) {
-        Write-Host "==> Restoring web/ from backup"
-        Move-Item -LiteralPath $WebBackup -Destination $WebDirectory -Force
-        $restoredSomething = $true
-    }
-
-    if ($restoredSomething -and (Test-Path -LiteralPath $ServerDirectory -PathType Container)) {
-        $ecosystemFile = Join-Path $ServerDirectory 'ecosystem.config.js'
-        if (Test-Path -LiteralPath $ecosystemFile -PathType Leaf) {
-            # The backup may lack dist/main.js (e.g. an incomplete previous backup).
-            # Rebuild from the restored source (node_modules ships with the backup)
-            # so PM2 has an entry script to run instead of failing with
-            # "Script not found".
-            $entryScript = Join-Path $ServerDirectory 'dist\main.js'
-            if (-not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
-                Write-Host "==> dist\main.js missing in restored backup, rebuilding from source..."
-                Set-Location -LiteralPath $ServerDirectory
-                & npm run build
-                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
-                    Write-Host "ROLLBACK INCOMPLETE: entry script $entryScript still missing after rebuild. Please check manually."
-                    return
-                }
-            }
-
-            Set-Location -LiteralPath $ServerDirectory
-            Write-Host "==> Restarting previous version via PM2"
-            pm2 start ecosystem.config.js --name $AppName
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "ROLLBACK WARNING: pm2 start exited with code $LASTEXITCODE. Please check manually."
-            }
-            pm2 save
-
-            # Verify the rolled-back version actually serves traffic; do not claim
-            # success otherwise.
-            $servicePort = Get-ServicePort
-            if (Test-AppHealth -Port $servicePort) {
-                Write-Host "===== Rollback completed, service healthy ====="
-            } else {
-                Write-Host "Rollback restore finished but health check failed. Please check manually."
-            }
-        } else {
-            Write-Warning "ecosystem.config.js not found in backup, cannot auto-restart. Please check manually."
-        }
-    } else {
-        Write-Warning "No backup available to rollback. Please fix manually."
-    }
-
-    if (Test-Path -LiteralPath $BackupDir -PathType Container) {
-        Remove-TreeBestEffort $BackupDir | Out-Null
-    }
-}
 
 # ---------- Health check function ----------
 # NOTE: Use 127.0.0.1 (IPv4) instead of 'localhost' — on Windows 'localhost' may
 # resolve to the IPv6 loopback (::1) while the service binds IPv4, which would make
 # TCP probing falsely fail even though the service is up. On success we also do an
 # HTTP GET to confirm the service actually answers requests (not just the port).
+# /api/docs is exempt from maintenance mode inside the app, so the health check
+# works even while the maintenance flag is present.
 function Test-AppHealth {
     param([int]$Port)
 
@@ -222,8 +178,9 @@ function Test-AppHealth {
 
 # ---------- Get service port ----------
 function Get-ServicePort {
+    param([Parameter(Mandatory = $true)][string]$ServerDir)
     $defaultPort = 3333
-    $envFile = Join-Path $ServerDirectory '.env'
+    $envFile = Join-Path $ServerDir '.env'
 
     if (Test-Path -LiteralPath $envFile -PathType Leaf) {
         $envContent = Get-Content -LiteralPath $envFile -Raw
@@ -235,8 +192,107 @@ function Get-ServicePort {
     return $defaultPort
 }
 
+# ---------- Rollback function ----------
+# Restores the pristine pre-deployment backup (taken BEFORE maintenance mode was
+# enabled, so it never contains the flag), clears the maintenance flag, and
+# restarts the previous version via PM2.
+function Invoke-Rollback {
+    Write-Host "===== ROLLBACK: Rolling back to previous version ====="
+
+    Write-Host "==> Stopping new process (if any)"
+    try {
+        pm2 delete $AppName 2>$null | Out-Null
+    } catch {
+        Write-Host "pm2 delete error (ignored, app may not be running): $($_.Exception.Message)"
+    }
+
+    Write-Host "==> Removing failed deployment files"
+    if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
+        Remove-TreeBestEffort $ServerDirectory | Out-Null
+    }
+    if (Test-Path -LiteralPath $WebDirectory -PathType Container) {
+        Remove-TreeBestEffort $WebDirectory | Out-Null
+    }
+
+    # DB is remote MySQL: no local database file to restore.
+    $restoredSomething = $false
+    if (Test-Path -LiteralPath $ServerBackup -PathType Container) {
+        Write-Host "==> Restoring server/ from backup"
+        Move-Item -LiteralPath $ServerBackup -Destination $ServerDirectory -Force
+        $restoredSomething = $true
+    }
+    if (Test-Path -LiteralPath $WebBackup -PathType Container) {
+        Write-Host "==> Restoring web/ from backup"
+        Move-Item -LiteralPath $WebBackup -Destination $WebDirectory -Force
+        $restoredSomething = $true
+    }
+
+    # The backup is pristine (taken before the flag was written), but remove the
+    # flag defensively so the restored app always serves the game again.
+    if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
+        Disable-Maintenance -ServerDir $ServerDirectory
+    }
+
+    if ($restoredSomething -and (Test-Path -LiteralPath $ServerDirectory -PathType Container)) {
+        $ecosystemFile = Join-Path $ServerDirectory 'ecosystem.config.js'
+        if (Test-Path -LiteralPath $ecosystemFile -PathType Leaf) {
+            # The backup may lack dist/main.js (e.g. an incomplete previous backup).
+            # Rebuild from the restored source (node_modules ships with the backup)
+            # so PM2 has an entry script to run instead of failing with
+            # "Script not found".
+            $entryScript = Join-Path $ServerDirectory 'dist\main.js'
+            if (-not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
+                Write-Host "==> dist\main.js missing in restored backup, rebuilding from source..."
+                Set-Location -LiteralPath $ServerDirectory
+                & npm run build
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
+                    Write-Host "ROLLBACK INCOMPLETE: entry script $entryScript still missing after rebuild. Please check manually."
+                    return
+                }
+            }
+
+            Set-Location -LiteralPath $ServerDirectory
+            Write-Host "==> Restarting previous version via PM2"
+            pm2 start ecosystem.config.js --name $AppName
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "ROLLBACK WARNING: pm2 start exited with code $LASTEXITCODE. Please check manually."
+            }
+            pm2 save
+
+            # Verify the rolled-back version actually serves traffic; do not claim
+            # success otherwise.
+            $servicePort = Get-ServicePort -ServerDir $ServerDirectory
+            if (Test-AppHealth -Port $servicePort) {
+                Write-Host "===== Rollback completed, service healthy ====="
+            } else {
+                Write-Host "Rollback restore finished but health check failed. Please check manually."
+            }
+        } else {
+            Write-Warning "ecosystem.config.js not found in backup, cannot auto-restart. Please check manually."
+        }
+    } else {
+        Write-Warning "No backup available to rollback. Please check manually."
+    }
+
+    if (Test-Path -LiteralPath $BackupDir -PathType Container) {
+        Remove-TreeBestEffort $BackupDir | Out-Null
+    }
+}
+
 # ============================================================
 #  Main flow
+# ============================================================
+# Staging-build deployment with a player-facing maintenance page:
+#   1. Backup the current version (pristine, before any modification).
+#   2. Enable maintenance mode on the RUNNING app: players now see the
+#      maintenance page and APIs return 503, but the app stays alive.
+#   3. Extract the uploaded archive into .staging/ and build there COMPLETELY
+#      (npm ci, prisma generate, server build, web build, db push, seed).
+#   4. Cutover: stop the old process, swap the staged directories in, start
+#      the new version (a seconds-long window instead of minutes).
+#   5. Health check, then remove the maintenance flag so every open
+#      maintenance page auto-reloads into the new game.
+# Any failure from step 2 onwards rolls back to the pristine backup.
 # ============================================================
 try {
     if (-not (Test-Path -LiteralPath $DeploymentRoot -PathType Container)) {
@@ -249,29 +305,7 @@ try {
     Write-Host "Deployment root: $DeploymentRoot"
     Write-Host "App name: $AppName"
 
-    # ---------- Step 1: Stop old process ----------
-    Write-Host "==> Stopping old PM2 process (if exists)"
-    try {
-        pm2 delete $AppName 2>$null | Out-Null
-    } catch {
-        Write-Host "pm2 delete error (ignored, app may not be running): $($_.Exception.Message)"
-    }
-
-    if (Test-Path -LiteralPath $PidFile -PathType Leaf) {
-        $oldPid = (Get-Content -LiteralPath $PidFile -Raw).Trim()
-        if ($oldPid -and $oldPid -match '^\d+$') {
-            $process = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-            if ($process) {
-                Write-Host "==> Stopping old process (PID: $oldPid)"
-                Stop-Process -Id $oldPid -Force
-                Start-Sleep -Seconds 1
-            }
-        }
-        Remove-Item -LiteralPath $PidFile -Force
-    }
-
-    # ---------- Step 2: Backup current version ----------
-    $hasBackup = $false
+    # ---------- Step 1: Backup current version (pristine, BEFORE any change) ----------
     if (Test-Path -LiteralPath $BackupDir -PathType Container) {
         # Best-effort: a leftover backup with locked files must not abort the new
         # deployment; robocopy below overwrites the copy destinations anyway.
@@ -285,7 +319,6 @@ try {
         if (-not (Invoke-RoboCopyTree $ServerDirectory $ServerBackup)) {
             throw "Backing up server/ failed (robocopy exit code >= 8)."
         }
-        $hasBackup = $true
         Write-Host "server/ backed up"
     } else {
         Write-Host "server/ does not exist, skipping backup"
@@ -303,78 +336,66 @@ try {
         Write-Host "web/ does not exist, skipping backup"
     }
 
-    # ---------- Step 3: Database backup ----------
-    # NOTE: The application uses a remote MySQL 8.0 database (see server/.env
-    # DATABASE_URL). The database lives on the remote server, not in a local file,
-    # so no local file backup/restore is needed here. Delete server/ freely.
-    $dbRestored = $false
-    Write-Host "DB is remote MySQL: skipping local database file backup."
-
-    # ---------- Step 4: Remove old directories ----------
-    # Extraction must happen into a clean tree; if removal fails (locked files)
-    # abort before mixing old and new sources.
+    # ---------- Step 2: Enable maintenance mode on the running app ----------
+    # From this point players see the maintenance page instead of the game.
     if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
-        if (-not (Remove-TreeBestEffort $ServerDirectory)) {
-            throw "Could not remove old server/ (files locked); aborting before extraction."
-        }
-        Write-Host "Removed old server/"
-    }
-    if (Test-Path -LiteralPath $WebDirectory -PathType Container) {
-        if (-not (Remove-TreeBestEffort $WebDirectory)) {
-            throw "Could not remove old web/ (files locked); aborting before extraction."
-        }
-        Write-Host "Removed old web/"
+        Enable-Maintenance -ServerDir $ServerDirectory
+    } else {
+        Write-Host "==> No live server/ directory, skipping maintenance mode (first deployment)"
     }
 
-    # ---------- Step 4: Extract source ----------
+    # ---------- Step 3: Extract source into staging ----------
+    if (Test-Path -LiteralPath $StagingDirectory -PathType Container) {
+        if (-not (Remove-TreeBestEffort $StagingDirectory)) {
+            throw "Could not remove leftover staging directory: $StagingDirectory"
+        }
+    }
+    New-Item -ItemType Directory -Path $StagingDirectory -Force | Out-Null
     Set-Location -LiteralPath $DeploymentRoot
-    Invoke-CheckedCommand tar.exe 'Extracting source archive' '-xzf' $SourceArchive
-    Remove-Item -LiteralPath $SourceArchive -Force
+    Invoke-CheckedCommand tar.exe 'Extracting source archive into staging' '-xzf' $SourceArchive '-C' $StagingDirectory
 
-    if (-not (Test-Path -LiteralPath $ServerDirectory -PathType Container)) {
-        throw "Source archive does not contain server/ directory: $ServerDirectory"
+    if (-not (Test-Path -LiteralPath $StagingServerDirectory -PathType Container)) {
+        throw "Source archive does not contain server/ directory: $StagingServerDirectory"
     }
-    if (-not (Test-Path -LiteralPath $WebDirectory -PathType Container)) {
-        throw "Source archive does not contain web/ directory: $WebDirectory"
+    if (-not (Test-Path -LiteralPath $StagingWebDirectory -PathType Container)) {
+        throw "Source archive does not contain web/ directory: $StagingWebDirectory"
     }
 
-    # ---------- Step 5: Overwrite .env ----------
+    # ---------- Step 4: Write .env into staging server ----------
+    # The remote MySQL connection string in server/.env is used as-is; it is not
+    # rewritten to a local path (the database lives on the remote server).
     if ($EnvSource) {
         if (-not (Test-Path -LiteralPath $EnvSource -PathType Leaf)) {
             throw "Environment file not found: $EnvSource"
         }
-        $EnvTarget = Join-Path $ServerDirectory '.env'
+        $EnvTarget = Join-Path $StagingServerDirectory '.env'
         Copy-Item -LiteralPath $EnvSource -Destination $EnvTarget -Force
-        Write-Host "==> Written server/.env"
+        Write-Host "==> Written staging server/.env"
         Remove-Item -LiteralPath $EnvSource -Force
     }
-
-    # ---------- Step 5b: Verify server/.env exists ----------
-    # The remote MySQL connection string in server/.env is used as-is; it is not
-    # rewritten to a local path (the database lives on the remote server).
-    $EnvTarget = Join-Path $ServerDirectory '.env'
+    $EnvTarget = Join-Path $StagingServerDirectory '.env'
     if (-not (Test-Path -LiteralPath $EnvTarget -PathType Leaf)) {
         throw "server/.env not found, cannot run the service"
     }
-    Write-Host "==> server/.env found; keeping remote MySQL DATABASE_URL as-is."
+    Write-Host "==> staging server/.env found; keeping remote MySQL DATABASE_URL as-is."
 
-    # ---------- Step 6: Build server ----------
-    Set-Location -LiteralPath $ServerDirectory
+    # ---------- Step 5: Build server in staging ----------
+    Set-Location -LiteralPath $StagingServerDirectory
     Invoke-CheckedCommand npm 'Installing server dependencies' 'ci'
     Invoke-CheckedCommand npx 'Generating Prisma client' 'prisma' 'generate'
 
-    $tsConfigPath = Join-Path $ServerDirectory 'tsconfig.build.json'
+    $tsConfigPath = Join-Path $StagingServerDirectory 'tsconfig.build.json'
     if (-not (Test-Path -LiteralPath $tsConfigPath -PathType Leaf)) {
-        $tsConfigPath = Join-Path $ServerDirectory 'tsconfig.json'
+        $tsConfigPath = Join-Path $StagingServerDirectory 'tsconfig.json'
     }
     if (-not (Test-Path -LiteralPath $tsConfigPath -PathType Leaf)) {
-        throw "tsconfig.build.json or tsconfig.json not found in $ServerDirectory"
+        throw "tsconfig.build.json or tsconfig.json not found in $StagingServerDirectory"
     }
 
     $tsConfig = Get-Content -LiteralPath $tsConfigPath -Raw | ConvertFrom-Json
     $outDir = $tsConfig.compilerOptions.outDir
     if (-not $outDir) {
-        $tsConfigJson = Join-Path $ServerDirectory 'tsconfig.json'
+        $tsConfigJson = Join-Path $StagingServerDirectory 'tsconfig.json'
         if (Test-Path -LiteralPath $tsConfigJson -PathType Leaf) {
             $tsConfigBase = Get-Content -LiteralPath $tsConfigJson -Raw | ConvertFrom-Json
             $outDir = $tsConfigBase.compilerOptions.outDir
@@ -383,7 +404,7 @@ try {
     }
 
     if (-not [System.IO.Path]::IsPathRooted($outDir)) {
-        $outDirFull = Join-Path $ServerDirectory $outDir
+        $outDirFull = Join-Path $StagingServerDirectory $outDir
     } else {
         $outDirFull = $outDir
     }
@@ -419,12 +440,12 @@ try {
     }
     Write-Host "[DIAG] Entry script: $builtMainScript"
 
-    # ---------- Step 7: Build web ----------
-    Set-Location -LiteralPath $WebDirectory
+    # ---------- Step 6: Build web in staging ----------
+    Set-Location -LiteralPath $StagingWebDirectory
     Invoke-CheckedCommand npm 'Installing frontend dependencies' 'ci'
     Invoke-CheckedCommand npm 'Building frontend' 'run' 'build'
 
-    # ---------- Step 1b: Sync database schema ----------
+    # ---------- Step 7: Sync database schema ----------
     # NOTE: This project initializes the DB via hand-built early tables and
     # does NOT rely on a linear migration history. `prisma db push`
     # synchronizes the schema to schema.prisma without requiring migration
@@ -435,18 +456,50 @@ try {
     # drop (all data is preserved in prisma/data/*.json), so we pass
     # --accept-data-loss to drop them; dynamic tables (Player/GameMap/GameVehicle/
     # GameShopItem/Channel/ChatMessage/CommandLog/Command/SystemConfig) keep data.
-    Set-Location -LiteralPath $ServerDirectory
+    # The old app is in maintenance mode (game APIs return 503 before reaching
+    # any service), so concurrent DB access during schema sync is minimal.
+    Set-Location -LiteralPath $StagingServerDirectory
     Invoke-CheckedCommand npx 'Synchronizing database schema (dropping legacy fixed-config tables)' 'prisma' 'db' 'push' '--skip-generate' '--accept-data-loss'
 
-    # ---------- Step 9: Seed data
-    Write-Host "==> Seeding data (full import: seed.ts + seed-data.ts + seed-import-all.ts)"
+    # ---------- Step 8: Seed data ----------
+    Write-Host "==> Seeding data (full import: seed.ts + seed-data.ts)"
     Invoke-CheckedCommand npm 'Seeding full data' 'run' 'seed:all'
 
-    # ---------- Step 10: Create logs directory ----------
-    $logDir = Join-Path $ServerDirectory 'logs'
-    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    # ---------- Step 9: Cutover (the ONLY stop-the-world window) ----------
+    Write-Host "==> Stopping old PM2 process (cutover begins)"
+    try {
+        pm2 delete $AppName 2>$null | Out-Null
+    } catch {
+        Write-Host "pm2 delete error (ignored, app may not be running): $($_.Exception.Message)"
+    }
+    # Give Windows a moment to release the dying process's file handles
+    # (log streams, memory-mapped files) before deleting its directory;
+    # a transient lock here would abort cutover and force a rollback.
+    Start-Sleep -Seconds 3
 
-    # ---------- Step 11: Start new process via PM2 ----------
+    if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
+        if (-not (Remove-TreeBestEffort $ServerDirectory)) {
+            throw "Could not remove old server/ (files locked); aborting before cutover."
+        }
+        Write-Host "Removed old server/"
+    }
+    if (Test-Path -LiteralPath $WebDirectory -PathType Container) {
+        if (-not (Remove-TreeBestEffort $WebDirectory)) {
+            throw "Could not remove old web/ (files locked); aborting before cutover."
+        }
+        Write-Host "Removed old web/"
+    }
+
+    Move-Item -LiteralPath $StagingServerDirectory -Destination $ServerDirectory -Force
+    Move-Item -LiteralPath $StagingWebDirectory -Destination $WebDirectory -Force
+    Write-Host "==> Staged build moved into place (server/, web/)"
+
+    # Keep maintenance mode through the new app's boot so players never see a
+    # half-started app. /api/docs is exempt inside the app, so the health check
+    # below still works.
+    Enable-Maintenance -ServerDir $ServerDirectory
+
+    # ---------- Step 10: Start new process via PM2 ----------
     Set-Location -LiteralPath $ServerDirectory
 
     if (-not (Test-Path -LiteralPath $builtMainScript -PathType Leaf)) {
@@ -462,18 +515,28 @@ try {
     pm2 save
     Write-Host "==> PM2 started application: $AppName"
 
-    # ---------- Step 12: Health check ----------
-    $servicePort = Get-ServicePort
+    # ---------- Step 11: Health check ----------
+    $servicePort = Get-ServicePort -ServerDir $ServerDirectory
     $healthOk = Test-AppHealth -Port $servicePort
     if (-not $healthOk) {
         throw "Health check failed, service did not start properly"
     }
 
-    # ---------- Step 13: Cleanup backup (best-effort) ----------
+    # ---------- Step 12: Disable maintenance (players auto-reload into game) ----------
+    Disable-Maintenance -ServerDir $ServerDirectory
+
+    # ---------- Step 13: Cleanup (best-effort) ----------
     # The new version is already healthy and serving traffic at this point.
-    # Backup cleanup is pure housekeeping: a locked file (AV/indexer/PM2 daemon)
+    # Cleanup is pure housekeeping: a locked file (AV/indexer/PM2 daemon)
     # must NEVER fail the deployment and trigger a pointless rollback of a
     # healthy build. Any leftover is purged by the next deployment.
+    if (Test-Path -LiteralPath $StagingDirectory -PathType Container) {
+        Write-Host "==> Cleaning staging leftovers (best-effort)"
+        Remove-TreeBestEffort $StagingDirectory | Out-Null
+    }
+    if (Test-Path -LiteralPath $SourceArchive -PathType Leaf) {
+        Remove-Item -LiteralPath $SourceArchive -Force -ErrorAction SilentlyContinue
+    }
     if (Test-Path -LiteralPath $BackupDir -PathType Container) {
         Write-Host "==> Deployment successful, cleaning backup (best-effort)"
         if (-not (Remove-TreeBestEffort $BackupDir)) {

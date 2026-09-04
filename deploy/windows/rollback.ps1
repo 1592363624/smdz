@@ -90,6 +90,9 @@ try {
 } catch {
     Write-Host "[CI Rollback] pm2 delete error (ignored): $($_.Exception.Message)"
 }
+# Wait for the dying process's file handles (logs, mapped files) to be released
+# so the directory removal and backup restore below do not hit transient locks.
+Start-Sleep -Seconds 3
 
 # Remove the failed extraction
 if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
@@ -109,6 +112,15 @@ if (Test-Path -LiteralPath $ServerBackup -PathType Container) {
 if (Test-Path -LiteralPath $WebBackup -PathType Container) {
     Move-Item -LiteralPath $WebBackup -Destination $WebDirectory -Force
     Write-Host "[CI Rollback] Restored web/"
+}
+
+# The maintenance flag must never survive a rollback, otherwise the restored
+# app would keep serving the maintenance page instead of the game (the backup
+# is taken before the flag is written, but remove it defensively).
+$staleFlag = Join-Path $ServerDirectory 'maintenance.flag'
+if (Test-Path -LiteralPath $staleFlag -PathType Leaf) {
+    Remove-Item -LiteralPath $staleFlag -Force
+    Write-Host "[CI Rollback] Removed stale maintenance.flag"
 }
 
 # Restart the previous version

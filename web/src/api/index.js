@@ -19,7 +19,7 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-// 响应拦截：401 时跳转登录
+// 响应拦截：401 时跳转登录；503 维护模式时跳转到维护页
 http.interceptors.response.use(
   (res) => res.data,
   (err) => {
@@ -28,6 +28,15 @@ http.interceptors.response.use(
       localStorage.removeItem('user');
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
+      }
+    }
+    // 服务器处于部署维护状态（后端返回 503 + code=MAINTENANCE）：
+    // 整页跳转到根路径，由后端维护中间件返回维护页面；
+    // 维护结束后该页面会自动轮询并刷新回游戏。
+    if (err.response?.status === 503 && err.response?.data?.code === 'MAINTENANCE') {
+      if (!window.__maintenanceRedirecting) {
+        window.__maintenanceRedirecting = true;
+        window.location.href = '/';
       }
     }
     return Promise.reject(err);
