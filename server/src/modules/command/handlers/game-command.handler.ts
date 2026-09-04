@@ -309,8 +309,15 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.gameService.handleSkill(userId));
 
         case '使魔技能':
-        case 'familiar-skills':
-          return this.wrap(await this.gameService.handleFamiliarSkills(userId));
+        case 'familiar-skills': {
+          // 技能面板是纯查看指令，正文合法包含技能冷却状态行「xx还需要N秒」，
+          // 会被 isSuccessfulResponse 的失败关键词（"还需要"）误判为指令失败，
+          // 导致 finishCommandTasks 跳过任务要求「发送“使魔技能”」的推进，
+          // 表现为「教程-技能」永远停留在 ◆需要发送“使魔技能” 无法完成。
+          // 查看类指令不适用失败关键词启发式：有正文即视为成功。
+          const skillsText = await this.gameService.handleFamiliarSkills(userId);
+          return { success: !!skillsText?.trim(), content: skillsText, broadcast: true, durationMs: 0 };
+        }
 
         case '装备':
         case 'equip':
