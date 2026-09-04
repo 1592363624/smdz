@@ -99,6 +99,27 @@ function Disable-Maintenance {
     }
 }
 
+# ---------- Move with retry ----------
+# Rename/move on Windows fails while ANY process holds a handle on the tree
+# (the moving shell's own working directory, AV/indexer scans, lingering npm
+# children). Retry a few times to ride out transient locks.
+function Invoke-MoveWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            Move-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+            return $true
+        } catch {
+            Write-Host "Move attempt $attempt/5 failed: $($_.Exception.Message)"
+            Start-Sleep -Seconds 3
+        }
+    }
+    return $false
+}
+
 # ---------- Global paths ----------
 $DeploymentRoot = [System.IO.Path]::GetFullPath($DeploymentRoot)
 $SourceArchive = Join-Path $DeploymentRoot 'source.tar.gz'
@@ -490,8 +511,18 @@ try {
         Write-Host "Removed old web/"
     }
 
-    Move-Item -LiteralPath $StagingServerDirectory -Destination $ServerDirectory -Force
-    Move-Item -LiteralPath $StagingWebDirectory -Destination $WebDirectory -Force
+    # Leave the staging tree BEFORE moving it: Windows refuses to move/rename a
+    # directory that is any process's current working directory — including
+    # this very shell, which was cd'd into .staging\server for the build/seed
+    # steps (this exact failure occurred on 2026-09-04: "item in use").
+    Set-Location -LiteralPath $DeploymentRoot
+
+    if (-not (Invoke-MoveWithRetry -Source $StagingServerDirectory -Destination $ServerDirectory)) {
+        throw "Could not move staged server/ into place (source locked)."
+    }
+    if (-not (Invoke-MoveWithRetry -Source $StagingWebDirectory -Destination $WebDirectory)) {
+        throw "Could not move staged web/ into place (source locked)."
+    }
     Write-Host "==> Staged build moved into place (server/, web/)"
 
     # Keep maintenance mode through the new app's boot so players never see a
