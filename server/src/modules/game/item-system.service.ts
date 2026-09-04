@@ -3,13 +3,14 @@
  * 对应原版：物品操作.ecode + 加成计算.ecode(部分) + 数据分析.ecode(部分)
  * 完整实现：物品管理、装备系统、制造、强化、植入体、增幅器、锁定、保护等
  */
-import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService } from './bonus.service';
 import { ItemService, Item3, Equipment } from './item.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
+import { ShortcutService } from './shortcut.service';
 import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POOL, AMPLIFIER_RANDOM_POOL } from './item.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
@@ -41,6 +42,9 @@ export class ItemSystemService {
     private readonly itemService: ItemService,
     private readonly achievementService: AchievementService,
     private readonly staticData: StaticDataService,
+    // 列清单时注册「发数字直接切换」的临时输入替换（原版 临时输入替换）。
+    // @Optional 兼容手工构造的测试桩（未注入时仅退化为不发数字快捷，清单照常输出）。
+    @Optional() private readonly shortcutService?: ShortcutService,
   ) {}
 
   // ===================================================================
@@ -1404,7 +1408,19 @@ export class ItemSystemService {
     const intent = this.resolveWeaponSwitchIntent(String(arg ?? '').trim(), list);
 
     if (intent.kind === 'list') {
-      return this.weaponSwitchList(player, list, playerData.markers2 || []);
+      const text = this.weaponSwitchList(player, list, playerData.markers2 || []);
+      // 原版 L4380-4391：列清单的同时注册编号临时输入替换（0@切换武器0#1@切换武器1#...），
+      // 玩家随后发数字（如 4）即被快捷输入系统替换成 切换武器4 直接切换，2 分钟内有效。
+      if (list.length > 0 && this.shortcutService) {
+        const groups = ['0@切换武器0'];
+        for (let i = 1; i <= list.length; i += 1) groups.push(`${i}@切换武器${i}`);
+        try {
+          await this.shortcutService.setTempInput(userId, groups.join('#'));
+        } catch (e: any) {
+          this.logger.warn(`切换武器清单注册临时输入失败: ${e?.message}`);
+        }
+      }
+      return text;
     }
     if (intent.kind === 'notFound') {
       return `${player.name}你没装备有“${intent.name}”`;
@@ -1557,6 +1573,8 @@ export class ItemSystemService {
       lines.push(`${i + 1}、${name}${tag}`);
     }
     lines.push(`你也可以“切换武器${this.weaponName(weapons[0])}”来切换`);
+    // 编号临时输入替换已注册（见 switchWeapon list 分支），提示发数字即可切换
+    lines.push('💡 直接发送编号数字（如 1）即可切换');
     // 同名武器按名字切换只命中第一把；且冷却按武器名存储，同名武器共用一份冷却
     const duplicated = [...nameCount.entries()].filter(([, c]) => c > 1).map(([n]) => n);
     if (duplicated.length > 0) {
@@ -2601,7 +2619,9 @@ export class ItemSystemService {
     for (const [key, value] of Object.entries(bonus)) {
       if (value !== 0) {
         const displayName = displayMap[key] || key;
-        lines.push(`  ${displayName}: ${value}`);
+        // 全局数值口径：显示最多两位小数，消除浮点尾巴（如 103.32000000000001）
+        const fmtValue = Math.round(Number(value) * 100) / 100;
+        lines.push(`  ${displayName}: ${fmtValue}`);
       }
     }
     return lines;
@@ -2680,7 +2700,8 @@ export class ItemSystemService {
       const lo = (baseLo + baseLo * lowerInc) * mult;
       const hi = (baseHi + baseHi * upperInc) * mult;
       // 取随机整数 [lo, hi] 并 /100（原版 0.01*取随机数）
-      return (0.01 * Math.floor(lo + Math.random() * (hi - lo + 1)));
+      // 用除法而非 *0.01：0.01*10332=103.32000000000001（IEEE754 乘法尾巴），10332/100=103.32 干净
+      return Math.floor(lo + Math.random() * (hi - lo + 1)) / 100;
     };
     // 各词条区间严格对齐原版 L1849-1992
     switch (affix) {
