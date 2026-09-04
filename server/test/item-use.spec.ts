@@ -161,6 +161,29 @@ describe('打开箱子（使用物品）', () => {
     expect(player.markers['使用普通装备箱']).toBe(2);
   });
 
+  it('碎数量（<1）不可使用：拒绝并保留原数量，不产生任何产出（2026-09-04 收紧）', async () => {
+    const player = buildPlayer({
+      backpack: JSON.stringify([{ name: '优秀装备补给箱', type: '资源', quantity: 0.10624999999999996, count: 0.10624999999999996 }]),
+    });
+    const { service } = buildHarness(
+      player,
+      { '优秀装备补给箱': { name: '优秀装备补给箱', useEffects: JSON.stringify(['动力臂甲D1']), useMarkers: '[]' } },
+      ['动力臂甲D'],
+    );
+
+    // 指定数量（默认1）与 使用全部 两条路径都必须拒绝
+    const text1 = await service.useItem(42, '优秀装备补给箱', 1);
+    expect(text1).toContain('剩余不足1个，无法使用');
+    const text2 = await service.useItem(42, '优秀装备补给箱', -1);
+    expect(text2).toContain('剩余不足1个，无法使用');
+
+    const backpack = typeof player.backpack === 'string' ? JSON.parse(player.backpack) : player.backpack;
+    // 碎数量原样保留，未被吞掉；也没有装备产出
+    expect(backpack.find((it: any) => it.name === '优秀装备补给箱')?.quantity).toBeCloseTo(0.10624999999999996, 12);
+    expect(backpack.filter((it: any) => it.name === '动力臂甲D').length).toBe(0);
+    expect(player.markers['使用物品']).toBeUndefined();
+  });
+
   it('种子箱多候选池随机发放资源并消耗箱子（原 L2407-2410）', async () => {
     const player = buildPlayer({
       backpack: JSON.stringify([{ name: '种子箱', type: '资源', quantity: 10, count: 10 }]),

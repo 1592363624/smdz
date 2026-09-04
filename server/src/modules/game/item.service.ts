@@ -743,10 +743,16 @@ export class ItemService {
     }
     // L2245-2249：使用数量<0 → 使用全部，但必须先 取整(取物品数量(...))（原版 L2246，
     // 箱子奖励可能带小数如 优秀武器补给箱x1.0353，原版只使用整数部分，余量保留在背包）
+    // 两侧都取整：使用量恒为整数（原版 物品.数量 是整数型），余量 0.106 这类不足 1 的
+    // 碎数量不可使用（原版会连碎量一起吞掉并删除条目，属可利用偏差，此处有意收紧）。
     let actualCount = requestedCount < 0
       ? Math.max(0, Math.floor(available))
-      : Math.min(Math.floor(requestedCount), available);
-    if (actualCount <= 0) return '使用数量必须是正整数';
+      : Math.min(Math.floor(requestedCount), Math.floor(available));
+    if (actualCount <= 0) {
+      return Math.floor(requestedCount) >= 1 || requestedCount < 0
+        ? `${player.name}，${itemName}剩余不足1个，无法使用`
+        : '使用数量必须是正整数';
+    }
 
     // 从静态配置加载物品定义（JSON 单一来源）
     const gameItem = this.staticData.getItemByName(itemName);
