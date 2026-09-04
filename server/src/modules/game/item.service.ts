@@ -25,7 +25,7 @@ function formatLootQuantity(value: number): string {
 }
 import { ItemSystemService } from './item-system.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
-import { roundItemQuantity } from '../../common/utils/game-text.util';
+import { roundItemQuantity, formatDisplayNumber } from '../../common/utils/game-text.util';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -780,7 +780,7 @@ export class ItemService {
       let notUsableText = `${player.name},${itemName}不是可以直接使用的物品，或者暂时还无法使用`;
       for (const entry of backpack) {
         if (entry.name === itemName) {
-          notUsableText += `\n${entry.name}x${Number(entry.quantity ?? entry.count ?? 0)}`;
+          notUsableText += `\n${entry.name}x${formatDisplayNumber(Number(entry.quantity ?? entry.count ?? 0))}`;
           break;
         }
       }
@@ -1237,11 +1237,11 @@ export class ItemService {
       // 显示制造公式
       let info = `${player.name},${recipeName}(等级需求${recipe.level})\n制造需求:\n`;
       for (const req of requirements) {
-        info += `${req.name}x${req.quantity} `;
+        info += `${req.name}x${formatDisplayNumber(req.quantity)} `;
       }
       info += `\n产出:\n`;
       for (const out of outputs) {
-        info += `${out.name}x${out.quantity} `;
+        info += `${out.name}x${formatDisplayNumber(out.quantity)} `;
       }
       return info;
     }
@@ -1266,7 +1266,7 @@ export class ItemService {
       }
       if (hasQuantity < req.quantity * maxCount) {
         insufficientMaterials.push(
-          `需要${req.name}x${req.quantity * maxCount}，你只有${hasQuantity}`,
+          `需要${req.name}x${formatDisplayNumber(req.quantity * maxCount)}，你只有${formatDisplayNumber(hasQuantity)}`,
         );
       }
     }
@@ -1283,7 +1283,7 @@ export class ItemService {
       for (const bp of backpack) {
         if (bp.name === req.name && remaining > 0) {
           const consume = Math.min(bp.quantity, remaining);
-          bp.quantity -= consume;
+          bp.quantity = roundItemQuantity(bp.quantity - consume);
           remaining -= consume;
           consumedItems.push({ ...req, quantity: consume });
           if (bp.quantity <= 0) {
@@ -1354,8 +1354,8 @@ export class ItemService {
       await this.playerService.savePlayer(_pd.player);
     });
 
-    const consumedText = consumedItems.map(c => `${c.name}x${c.quantity}`).join('、');
-    const producedText = producedItems.map(p => `${p.name}x${p.quantity}`).join('、');
+    const consumedText = consumedItems.map(c => `${c.name}x${formatDisplayNumber(c.quantity)}`).join('、');
+    const producedText = producedItems.map(p => `${p.name}x${formatDisplayNumber(p.quantity)}`).join('、');
 
     return `${player.name}用${consumedText}制造了${maxCount}个${recipeName}，得到了${producedText}`;
   }

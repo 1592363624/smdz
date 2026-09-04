@@ -372,7 +372,8 @@ export class ItemSystemService {
       const returnItems: Item3[] = [];
       for (const req of requirements) {
         // 原版 分解装备 L2090-2101：需求数量 × 数量 × 分解倍率（工作台加成为1时）。
-        const returnQty = Number(req.quantity) * actualCount * deconstructMul;
+        // 倍率乘法会出浮点尾巴，落库与展示前统一收敛两位小数
+        const returnQty = roundItemQuantity(Number(req.quantity) * actualCount * deconstructMul);
         if (returnQty > 0) {
           this.addItemToBackpack(backpack, {
             name: req.name, type: '资源', quantity: returnQty, durability: 0, data: '',
@@ -387,7 +388,7 @@ export class ItemSystemService {
         await this.playerService.savePlayer(_pd.player);
       });
 
-      const returnText = returnItems.map(r => `${r.name} ×${r.quantity}`).join('、');
+      const returnText = returnItems.map(r => `${r.name} ×${formatDisplayNumber(r.quantity)}`).join('、');
       return `分解了${actualCount}个${item.name}，得到了${returnText}。`;
     }
   }
