@@ -1940,6 +1940,7 @@ vite-plugin-checker-error-overlay,
 }
 
 /* 装备栏自适应多列网格（侧栏变宽时自动增加列数）；品质配色对齐原版 显示品质 */
+/* 常态单行：槽位 + 装备名截断展示，详情收进悬浮卡片（见 .pi-eq-tooltip） */
 .player-info .pi-eq-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -1947,9 +1948,9 @@ vite-plugin-checker-error-overlay,
 }
 .player-info .pi-eq {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 5px;
-  align-items: baseline;
+  align-items: center;
   min-width: 0;
   font-size: 11px;
   line-height: 1.5;
@@ -1958,6 +1959,11 @@ vite-plugin-checker-error-overlay,
   border-radius: 6px;
   border: 1px solid rgba(139, 92, 246, 0.15);
   background: rgba(255, 255, 255, 0.03);
+  cursor: default;
+  transition: background 0.15s ease;
+}
+.player-info .pi-eq.pi-eq-hover {
+  background: rgba(139, 92, 246, 0.14);
 }
 /* 空装备槽：整体弱化（半透明 + 虚线），与已装备格明显区分 */
 .player-info .pi-eq.pi-empty {
@@ -1970,13 +1976,14 @@ vite-plugin-checker-error-overlay,
   flex-shrink: 0;
   color: var(--muted);
 }
-/* 装备名过长时换行完整展示，不再省略号截断 */
+/* 装备名/空槽文案：单行截断，超长部分悬浮卡片里看全 */
 .player-info .pi-eq-val,
 .player-info .pi-eq-empty {
+  flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .player-info .pi-eq-val i {
   font-style: normal;
@@ -1991,17 +1998,56 @@ vite-plugin-checker-error-overlay,
 .player-info .pi-eq-val.q-a { color: #fb923c; }
 .player-info .pi-eq-val.q-s { color: #fbbf24; }
 .player-info .pi-eq-val.q-x { color: #f87171; }
-/* 已装备格属性小字：自带属性 + 随机词条，独立占一行（flex-basis:100% 换行），与名字对齐 */
-.player-info .pi-eq-attrs {
-  flex-basis: 100%;
-  margin: 1px 0 0 16px;
-  font-size: 10px;
-  line-height: 1.45;
+
+/* 装备详情悬浮卡片：Teleport 到 body，fixed 定位跟随装备格；品质色左边条 */
+.pi-eq-tooltip {
+  position: fixed;
+  z-index: 1200;
+  width: 250px;
+  max-width: calc(100vw - 16px);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid #60a5fa;
+  background: rgba(10, 10, 26, 0.96);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: auto;
+}
+.pi-eq-tooltip .pi-tip-head {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.pi-eq-tooltip .pi-tip-head i {
+  font-style: normal;
+  opacity: 0.75;
+  margin-left: 4px;
+  font-weight: 400;
+}
+.pi-eq-tooltip .pi-tip-meta {
+  margin-top: 2px;
+  font-size: 11px;
   color: var(--muted);
+}
+.pi-eq-tooltip .pi-tip-attrs {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary, #b4b2a9);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
 }
+.pi-eq-tooltip .pi-tip-head.q-d { color: #4ade80; }
+.pi-eq-tooltip .pi-tip-head.q-c { color: #60a5fa; }
+.pi-eq-tooltip .pi-tip-head.q-b { color: #a78bfa; }
+.pi-eq-tooltip .pi-tip-head.q-a { color: #fb923c; }
+.pi-eq-tooltip .pi-tip-head.q-s { color: #fbbf24; }
+.pi-eq-tooltip .pi-tip-head.q-x { color: #f87171; }
 
 /* 增益 chips（剩余时间青色高亮，每秒本地倒计时） */
 .player-info .pi-buff-list {

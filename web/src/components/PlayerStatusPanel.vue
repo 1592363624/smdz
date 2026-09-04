@@ -52,7 +52,7 @@
       </div>
     </div>
 
-    <!-- 装备栏：15 个栏位一览，默认收起可展开；空栏显示 无(+强化等级) -->
+    <!-- 装备栏：15 个栏位一览；常态单行（槽位+装备名），详情悬浮展示（移动端点击切换） -->
     <div class="pi-section">
       <button type="button" class="pi-section-title pi-toggle" @click="eqOpen = !eqOpen">
         📋 装备<span class="pi-count">{{ equippedCount }}/{{ eqList.length }}</span>
@@ -64,17 +64,17 @@
           v-for="e in eqList"
           :key="'eq-' + e.slot"
           class="pi-eq"
-          :class="{ 'pi-empty': !e.name }"
+          :class="{ 'pi-empty': !e.name, 'pi-eq-hover': hoveredSlot === e.slot }"
           :style="e.name && eqBorder(e) ? { border: eqBorder(e), boxShadow: eqShadow(e) } : {}"
-          :title="e.effect > 0 ? '特效' + e.effect : ''"
+          @mouseenter="onEqEnter($event, e)"
+          @mouseleave="onEqLeave"
+          @click="onEqClick($event, e)"
         >
           <span class="pi-eq-slot">{{ e.slot }}</span>
           <span v-if="e.name" class="pi-eq-val" :class="'q-' + qKey(e.quality)">
             {{ e.quality === '普通' ? '' : e.quality + ' ' }}{{ e.name }}<i v-if="e.effect > 0">[特效{{ e.effect }}]</i>(+{{ e.enhance }})
           </span>
           <span v-else class="pi-eq-empty">无(+{{ e.enhance }})</span>
-          <!-- 已装备格属性：自带属性 + 随机词条，多行小字展示（来自后端 equipment[].attrs） -->
-          <pre v-if="e.name && e.attrs" class="pi-eq-attrs">{{ e.attrs }}</pre>
         </div>
       </div>
     </div>
@@ -93,11 +93,31 @@
       <span class="pi-label">📍 位置</span>
       <span class="pi-location">{{ info.location }}</span>
     </div>
+
+    <!-- 装备详情悬浮卡片：Teleport 到 body 用 fixed 定位，避免被侧栏 overflow 裁切 -->
+    <Teleport to="body">
+      <div
+        v-show="hoveredEq"
+        ref="tooltipEl"
+        class="pi-eq-tooltip"
+        :style="{ top: hoverPos.top + 'px', left: hoverPos.left + 'px', borderLeftColor: hoverBorder }"
+        @mouseenter="cancelHide"
+        @mouseleave="onTooltipLeave"
+      >
+        <template v-if="hoveredEq">
+          <div class="pi-tip-head" :class="'q-' + qKey(hoveredEq.quality)">
+            {{ hoveredEq.quality === '普通' ? '' : hoveredEq.quality + ' ' }}{{ hoveredEq.name }}<i v-if="hoveredEq.effect > 0">[特效{{ hoveredEq.effect }}]</i>
+          </div>
+          <div class="pi-tip-meta">{{ hoveredEq.slot }} · 强化 +{{ hoveredEq.enhance }}</div>
+          <pre v-if="hoveredEq.attrs" class="pi-tip-attrs">{{ hoveredEq.attrs }}</pre>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { serverNow } from '../utils/serverClock';
 
 const props = defineProps({
@@ -169,6 +189,88 @@ const qKey = (q) => QUALITY_KEY[q] || 'e';
 const EQ_COLOR = { e: '', d: '#4ade80', c: '#60a5fa', b: '#a78bfa', a: '#fb923c', s: '#fbbf24', x: '#f87171' };
 const eqBorder = (e) => (EQ_COLOR[qKey(e.quality)] ? `1px solid ${EQ_COLOR[qKey(e.quality)]}` : '');
 const eqShadow = (e) => (EQ_COLOR[qKey(e.quality)] ? `0 0 6px ${EQ_COLOR[qKey(e.quality)]}44` : '');
+
+// ---------- 装备详情悬浮卡片 ----------
+// 常态只显示一行（槽位 + 装备名），属性全部收进 hover 弹层；
+// 桌面靠 mouseenter/leave，移动端无 hover 时点击切换（toggle 同一格收起）。
+const hoveredSlot = ref('');
+const hoverPos = ref({ top: 0, left: 0, placement: 'right' });
+const tooltipEl = ref(null);
+const hoveredEq = computed(() => eqList.value.find((e) => e.slot === hoveredSlot.value) || null);
+const hoverBorder = computed(() => (hoveredEq.value ? EQ_COLOR[qKey(hoveredEq.value.quality)] || '#60a5fa' : '#60a5fa'));
+
+// 依据格子位置放置弹层：优先右侧，空间不足换左侧；垂直方向夹在视口内
+function positionTooltip(target) {
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const tipW = 250;
+  const tipH = tooltipEl.value?.offsetHeight || 160;
+  const gap = 8;
+  let placement = 'right';
+  let left = rect.right + gap;
+  if (left + tipW > window.innerWidth - 4) {
+    placement = 'left';
+    left = rect.left - tipW - gap;
+  }
+  if (left < 4) {
+    left = 4;
+    placement = 'right';
+  }
+  let top = rect.top;
+  if (top + tipH > window.innerHeight - 4) top = window.innerHeight - tipH - 4;
+  if (top < 4) top = 4;
+  hoverPos.value = { top, left, placement };
+}
+
+function showEq(e, target) {
+  hoveredSlot.value = e.slot;
+  nextTick(() => positionTooltip(target));
+}
+// 延迟收起：给鼠标挪进弹层的间隙，避免路过装备格时闪烁
+let hideTimer = null;
+function armHide() {
+  if (hideTimer) clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    if (!tooltipEl.value?.matches(':hover')) hoveredSlot.value = '';
+  }, 150);
+}
+function cancelHide() {
+  if (hideTimer) clearTimeout(hideTimer);
+}
+function onEqEnter(e, item) {
+  if (!item.name) return;
+  cancelHide();
+  showEq(item, e.currentTarget);
+}
+function onEqLeave() {
+  armHide();
+}
+// 点击：移动端无 hover 的替代路径；桌面再点同一格也可收起
+function onEqClick(e, item) {
+  if (!item.name) return;
+  if (hoveredSlot.value === item.slot) {
+    hoveredSlot.value = '';
+    return;
+  }
+  cancelHide();
+  showEq(item, e.currentTarget);
+}
+function onTooltipLeave() {
+  armHide();
+}
+// 侧栏滚动 / 窗口尺寸变化时直接收起，避免弹层与格子错位
+function dismissOnScroll() {
+  hoveredSlot.value = '';
+}
+onMounted(() => {
+  window.addEventListener('scroll', dismissOnScroll, true);
+  window.addEventListener('resize', dismissOnScroll);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', dismissOnScroll, true);
+  window.removeEventListener('resize', dismissOnScroll);
+  if (hideTimer) clearTimeout(hideTimer);
+});
 
 // 增益倒计时：每秒跳一次对齐时钟驱动重渲染（expireAt 为服务器时刻，
 // 用 serverNow 相减，避免本机时钟漂移让剩余时间整体偏差）
