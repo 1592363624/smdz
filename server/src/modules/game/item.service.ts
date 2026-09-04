@@ -1614,6 +1614,11 @@ export class ItemService {
     // 先在装备中查找
     for (let i = 0; i < equipment.length; i++) {
       if (equipment[i].name === slot || equipment[i].name.includes(slot)) {
+        // 对齐原版 _主程序.ecode L4450-4451：植入体（含变体）无法被卸下，
+        // 且即使移除也会被属性重算自动补回。
+        if (equipment[i].name.startsWith('植入体')) {
+          return `植入体无法被卸下`;
+        }
         // 将装备放回背包
         backpack.push(equipment[i]);
         equipment.splice(i, 1);

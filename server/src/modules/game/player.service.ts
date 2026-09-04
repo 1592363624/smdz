@@ -519,11 +519,18 @@ export class PlayerService implements OnModuleInit {
     // Actor 活态与 mutate 上下文复用分支返回的是已派生的同一对象，无需重刷。
     this.refreshDisplayName(player);
 
+    // 植入体保底：对齐原版 加成计算.ecode L1644-1649（_计算玩家 每次重算必跑）——
+    // 装备栏没有植入体时现场补一件白板（data='x'）植入体，等效"创号自带"。
+    // 原版植入体不走任何获取渠道，全靠这条隐式保底；仅内存兜底，随本次快照
+    // 后续的业务保存一并落库（与上方活力标记兜底同一策略，只读指令不落库）。
+    const equipment = asJsonValue<any[]>(player.equipment, []);
+    this.ensureImplantEquipment(equipment);
+
     const result: any = {
       player,
       // Prisma Json 列读出的是对象；asJsonValue 兼容对象/历史字符串两种形态
       backpack: asJsonValue<any[]>(player.backpack, []),
-      equipment: asJsonValue<any[]>(player.equipment, []),
+      equipment,
       weapons: asJsonValue<any[]>(player.weapons, []),
       markers,
       markers2: asJsonValue<any[]>(player.markers2, []),
@@ -559,6 +566,29 @@ export class PlayerService implements OnModuleInit {
     if (!player || typeof player !== 'object' || Array.isArray(player)) return;
     if (!player.baseName) return;
     player.name = deriveDisplayName(player);
+  }
+
+  /**
+   * 植入体保底（对齐原版 加成计算.ecode L1644-1649，_计算玩家 每次重算必跑）：
+   * 装备栏没有任何植入体（含 植入体-强攻 等变体）时，现场补一件白板植入体
+   * {name:'植入体', type:'装备', data:'x'}。原版语义为"创号自带 + 无法卸下"——
+   * 数据层不需要任何获取渠道，卸下拦截见 item.service.unequipItem。
+   * 就地修改传入数组；幂等，已有任意植入体时不重复添加。
+   */
+  private ensureImplantEquipment(equipment: any[]): void {
+    if (!Array.isArray(equipment)) return;
+    const hasImplant = equipment.some((item: any) =>
+      String(item?.name ?? '').startsWith('植入体'),
+    );
+    if (hasImplant) return;
+    equipment.push({
+      name: '植入体',
+      type: '装备',
+      quantity: 1,
+      count: 1,
+      durability: 0,
+      data: 'x', // 白板品质码：无词条、无强化
+    });
   }
 
   /**

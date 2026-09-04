@@ -502,9 +502,10 @@ export class TaskService {
   }
 
   private isEquipmentReward(name: string, type?: string): boolean {
-    // 任务奖励中的“数量”对装备表示掉落概率；未标记类型的装备名仍按
-    // 堆叠物品处理，例如“麻醉枪×100”和“隐形披风×100”。
-    return type === '装备' || type === 'equipment';
+    if (type === '装备' || type === 'equipment') return true;
+    // 对齐原版「判断物品2」（物品操作.ecode L1812）：奖励名命中装备表即视为装备，
+    // 数量按百分比概率生成 1 件真装备（如 麻醉枪/隐形披风×100 = 100% 出 1 件）。
+    return !!this.staticData.getEquipmentByName(name);
   }
 
   private addEquipmentReward(backpack: any[], equipment: any): void {

@@ -181,26 +181,26 @@ describe('任务系统闭环', () => {
     expect(fixture.itemSystem.generateRewardEquipment).not.toHaveBeenCalled();
   });
 
-  it('未标记装备类型的奖励按堆叠物品发放，不把数量当概率', async () => {
+  it('未标记装备类型的奖励命中装备表时按概率生成真装备（对齐原版判断物品2）', async () => {
     const fixture = makeFixture({
       tasks: [{
-        name: '堆叠奖励',
+        name: '装备奖励',
         requirements: JSON.stringify([{ name: '行动', count: 1 }]),
         rewards: JSON.stringify([{ name: '隐形披风', count: 100 }]),
       }],
     });
     fixture.equipmentNames.add('隐形披风');
+    // 0.99*100=99 < 100 → 概率命中，生成 1 件真装备
     jest.spyOn(Math, 'random').mockReturnValue(0.99);
 
     await fixture.service.advance(42, '行动');
     const reward = parseJson(fixture.player.backpack, []).find((item: any) => item.name === '隐形披风');
     expect(reward).toEqual(expect.objectContaining({
-      type: '资源',
-      count: expect.any(Number),
-      quantity: expect.any(Number),
+      type: '装备',
+      count: 1,
+      quantity: 1,
     }));
-    expect(reward.count).toBeGreaterThan(100);
-    expect(fixture.itemSystem.generateRewardEquipment).not.toHaveBeenCalled();
+    expect(fixture.itemSystem.generateRewardEquipment).toHaveBeenCalledWith('隐形披风');
   });
 
   it('发布人好感写入召唤物，达到100时清空其他玩家好感并更新归属', async () => {
