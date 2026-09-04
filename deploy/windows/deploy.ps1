@@ -38,6 +38,37 @@ function Invoke-CheckedCommand {
     }
 }
 
+# ---------- Robocopy helpers ----------
+# Windows PowerShell Copy-Item/Remove-Item are unreliable on large node_modules
+# trees (MAX_PATH limits, files locked by AV/indexer), which caused both the
+# "access denied" cleanup failure and an incomplete rollback backup. Robocopy
+# handles long paths and locked files far better, so all recursive directory
+# copy/delete operations go through robocopy instead.
+# Robocopy exit codes 0-7 are success (bit flags); >= 8 means failure.
+function Invoke-RoboCopyTree {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    robocopy $Source $Destination /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NP | Out-Null
+    return ($LASTEXITCODE -lt 8)
+}
+
+function Remove-TreeBestEffort {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    # /MIR against an empty dir is the most reliable recursive delete on Windows
+    $emptyDir = Join-Path ([System.IO.Path]::GetTempPath()) ("robocopy_empty_" + [System.Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
+    robocopy $emptyDir $Path /MIR /R:1 /W:1 /NFL /NDL /NJH /NP | Out-Null
+    $roboOk = ($LASTEXITCODE -lt 8)
+    Remove-Item -LiteralPath $emptyDir -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    return ($roboOk -and -not (Test-Path -LiteralPath $Path))
+}
+
 # ---------- Global paths ----------
 $DeploymentRoot = [System.IO.Path]::GetFullPath($DeploymentRoot)
 $SourceArchive = Join-Path $DeploymentRoot 'source.tar.gz'
@@ -61,10 +92,10 @@ function Invoke-Rollback {
 
     Write-Host "==> Removing failed deployment files"
     if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
-        Remove-Item -LiteralPath $ServerDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-TreeBestEffort $ServerDirectory | Out-Null
     }
     if (Test-Path -LiteralPath $WebDirectory -PathType Container) {
-        Remove-Item -LiteralPath $WebDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-TreeBestEffort $WebDirectory | Out-Null
     }
 
     # DB is remote MySQL: no local database file to restore.
@@ -83,11 +114,37 @@ function Invoke-Rollback {
     if ($restoredSomething -and (Test-Path -LiteralPath $ServerDirectory -PathType Container)) {
         $ecosystemFile = Join-Path $ServerDirectory 'ecosystem.config.js'
         if (Test-Path -LiteralPath $ecosystemFile -PathType Leaf) {
+            # The backup may lack dist/main.js (e.g. an incomplete previous backup).
+            # Rebuild from the restored source (node_modules ships with the backup)
+            # so PM2 has an entry script to run instead of failing with
+            # "Script not found".
+            $entryScript = Join-Path $ServerDirectory 'dist\main.js'
+            if (-not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
+                Write-Host "==> dist\main.js missing in restored backup, rebuilding from source..."
+                Set-Location -LiteralPath $ServerDirectory
+                & npm run build
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
+                    Write-Host "ROLLBACK INCOMPLETE: entry script $entryScript still missing after rebuild. Please check manually."
+                    return
+                }
+            }
+
             Set-Location -LiteralPath $ServerDirectory
             Write-Host "==> Restarting previous version via PM2"
             pm2 start ecosystem.config.js --name $AppName
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "ROLLBACK WARNING: pm2 start exited with code $LASTEXITCODE. Please check manually."
+            }
             pm2 save
-            Write-Host "===== Rollback completed ====="
+
+            # Verify the rolled-back version actually serves traffic; do not claim
+            # success otherwise.
+            $servicePort = Get-ServicePort
+            if (Test-AppHealth -Port $servicePort) {
+                Write-Host "===== Rollback completed, service healthy ====="
+            } else {
+                Write-Host "Rollback restore finished but health check failed. Please check manually."
+            }
         } else {
             Write-Warning "ecosystem.config.js not found in backup, cannot auto-restart. Please check manually."
         }
@@ -96,7 +153,7 @@ function Invoke-Rollback {
     }
 
     if (Test-Path -LiteralPath $BackupDir -PathType Container) {
-        Remove-Item -LiteralPath $BackupDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-TreeBestEffort $BackupDir | Out-Null
     }
 }
 
@@ -156,7 +213,10 @@ function Test-AppHealth {
         Write-Host "(no out.log found)"
     }
 
-    Write-Error "Health check failed: service did not start within 120 seconds"
+    # NOTE: Do NOT use Write-Error here. With $ErrorActionPreference='Stop' it
+    # raises a new terminating error that bypasses the remaining catch-block
+    # logic in the caller (historically this skipped Invoke-Rollback entirely).
+    Write-Host "Health check failed: service did not start within 120 seconds"
     return $false
 }
 
@@ -213,12 +273,18 @@ try {
     # ---------- Step 2: Backup current version ----------
     $hasBackup = $false
     if (Test-Path -LiteralPath $BackupDir -PathType Container) {
-        Remove-Item -LiteralPath $BackupDir -Recurse -Force
+        # Best-effort: a leftover backup with locked files must not abort the new
+        # deployment; robocopy below overwrites the copy destinations anyway.
+        if (-not (Remove-TreeBestEffort $BackupDir)) {
+            Write-Warning "Stale .rollback-backup could not be fully removed; continuing."
+        }
     }
     if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
         Write-Host "==> Backing up current server/ to $BackupDir"
         New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
-        Copy-Item -LiteralPath $ServerDirectory -Destination $ServerBackup -Recurse -Force
+        if (-not (Invoke-RoboCopyTree $ServerDirectory $ServerBackup)) {
+            throw "Backing up server/ failed (robocopy exit code >= 8)."
+        }
         $hasBackup = $true
         Write-Host "server/ backed up"
     } else {
@@ -229,7 +295,9 @@ try {
         if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) {
             New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
         }
-        Copy-Item -LiteralPath $WebDirectory -Destination $WebBackup -Recurse -Force
+        if (-not (Invoke-RoboCopyTree $WebDirectory $WebBackup)) {
+            throw "Backing up web/ failed (robocopy exit code >= 8)."
+        }
         Write-Host "web/ backed up"
     } else {
         Write-Host "web/ does not exist, skipping backup"
@@ -243,12 +311,18 @@ try {
     Write-Host "DB is remote MySQL: skipping local database file backup."
 
     # ---------- Step 4: Remove old directories ----------
+    # Extraction must happen into a clean tree; if removal fails (locked files)
+    # abort before mixing old and new sources.
     if (Test-Path -LiteralPath $ServerDirectory -PathType Container) {
-        Remove-Item -LiteralPath $ServerDirectory -Recurse -Force
+        if (-not (Remove-TreeBestEffort $ServerDirectory)) {
+            throw "Could not remove old server/ (files locked); aborting before extraction."
+        }
         Write-Host "Removed old server/"
     }
     if (Test-Path -LiteralPath $WebDirectory -PathType Container) {
-        Remove-Item -LiteralPath $WebDirectory -Recurse -Force
+        if (-not (Remove-TreeBestEffort $WebDirectory)) {
+            throw "Could not remove old web/ (files locked); aborting before extraction."
+        }
         Write-Host "Removed old web/"
     }
 
@@ -395,17 +469,28 @@ try {
         throw "Health check failed, service did not start properly"
     }
 
-    # ---------- Step 13: Cleanup backup ----------
+    # ---------- Step 13: Cleanup backup (best-effort) ----------
+    # The new version is already healthy and serving traffic at this point.
+    # Backup cleanup is pure housekeeping: a locked file (AV/indexer/PM2 daemon)
+    # must NEVER fail the deployment and trigger a pointless rollback of a
+    # healthy build. Any leftover is purged by the next deployment.
     if (Test-Path -LiteralPath $BackupDir -PathType Container) {
-        Write-Host "==> Deployment successful, cleaning backup"
-        Remove-Item -LiteralPath $BackupDir -Recurse -Force
+        Write-Host "==> Deployment successful, cleaning backup (best-effort)"
+        if (-not (Remove-TreeBestEffort $BackupDir)) {
+            Write-Warning "Backup cleanup incomplete (some files are locked); leftover .rollback-backup will be purged on next deployment."
+        }
     }
 
     Write-Host '===== Deployment completed successfully ====='
 }
 catch {
-    Write-Error "Deployment failed: $($_.Exception.Message)"
-    Write-Error $_.ScriptStackTrace
+    # NOTE: Do NOT use Write-Error here. With $ErrorActionPreference='Stop' it
+    # raises a NEW terminating error inside the catch block, which skips
+    # Invoke-Rollback entirely (this exact bug turned a healthy deployment into
+    # a rollback on 2026-09-04). Print diagnostics via Write-Host, roll back,
+    # then exit non-zero.
+    Write-Host "Deployment failed: $($_.Exception.Message)"
+    Write-Host $_.ScriptStackTrace
 
     Invoke-Rollback
 
