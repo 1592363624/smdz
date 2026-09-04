@@ -213,12 +213,45 @@ function Get-ServicePort {
     return $defaultPort
 }
 
+# ---------- Backup restore ----------
+# robocopy /E /MOVE merges the backup INTO any leftover partial directory and
+# removes the backup source as it goes. This is deliberately NOT Move-Item:
+# if the delete of the failed deployment left a partial tree behind,
+# Move-Item would move the backup INSIDE it (creating server\server\...)
+# instead of replacing it, and the restored layout would be wrong.
+function Restore-FromBackup {
+    param(
+        [Parameter(Mandatory = $true)][string]$BackupPath,
+        [Parameter(Mandatory = $true)][string]$DestPath,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    if (-not (Test-Path -LiteralPath $BackupPath -PathType Container)) { return $false }
+    Write-Host "==> Restoring $Label from backup"
+    robocopy $BackupPath $DestPath /E /MOVE /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+        Write-Warning "Robocopy restore of $Label failed (exit code $LASTEXITCODE)."
+        return $false
+    }
+    # /MOVE empties the backup; clear any residual empty directories.
+    Remove-Item -LiteralPath $BackupPath -Recurse -Force -ErrorAction SilentlyContinue
+    return (Test-Path -LiteralPath $DestPath -PathType Container)
+}
+
 # ---------- Rollback function ----------
 # Restores the pristine pre-deployment backup (taken BEFORE maintenance mode was
 # enabled, so it never contains the flag), clears the maintenance flag, and
 # restarts the previous version via PM2.
 function Invoke-Rollback {
     Write-Host "===== ROLLBACK: Rolling back to previous version ====="
+
+    # MANDATORY FIRST STEP: the failure may have left this shell cd'd INSIDE a
+    # directory we are about to delete or move below (Step 10 does
+    # Set-Location $ServerDirectory right before its entry-script validation).
+    # Windows refuses to delete/rename any process's working directory, so a
+    # leftover cwd makes Remove-TreeBestEffort leave a partial tree behind and
+    # Move-Item then nest the backup INSIDE it (server\server\...) — exactly
+    # how the 2026-09-04 second rollback lost its PM2 restart.
+    Set-Location -LiteralPath $DeploymentRoot
 
     Write-Host "==> Stopping new process (if any)"
     try {
@@ -237,14 +270,10 @@ function Invoke-Rollback {
 
     # DB is remote MySQL: no local database file to restore.
     $restoredSomething = $false
-    if (Test-Path -LiteralPath $ServerBackup -PathType Container) {
-        Write-Host "==> Restoring server/ from backup"
-        Move-Item -LiteralPath $ServerBackup -Destination $ServerDirectory -Force
+    if (Restore-FromBackup -BackupPath $ServerBackup -DestPath $ServerDirectory -Label 'server/') {
         $restoredSomething = $true
     }
-    if (Test-Path -LiteralPath $WebBackup -PathType Container) {
-        Write-Host "==> Restoring web/ from backup"
-        Move-Item -LiteralPath $WebBackup -Destination $WebDirectory -Force
+    if (Restore-FromBackup -BackupPath $WebBackup -DestPath $WebDirectory -Label 'web/') {
         $restoredSomething = $true
     }
 
@@ -256,40 +285,53 @@ function Invoke-Rollback {
 
     if ($restoredSomething -and (Test-Path -LiteralPath $ServerDirectory -PathType Container)) {
         $ecosystemFile = Join-Path $ServerDirectory 'ecosystem.config.js'
-        if (Test-Path -LiteralPath $ecosystemFile -PathType Leaf) {
-            # The backup may lack dist/main.js (e.g. an incomplete previous backup).
-            # Rebuild from the restored source (node_modules ships with the backup)
-            # so PM2 has an entry script to run instead of failing with
-            # "Script not found".
-            $entryScript = Join-Path $ServerDirectory 'dist\main.js'
-            if (-not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
-                Write-Host "==> dist\main.js missing in restored backup, rebuilding from source..."
-                Set-Location -LiteralPath $ServerDirectory
-                & npm run build
-                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
-                    Write-Host "ROLLBACK INCOMPLETE: entry script $entryScript still missing after rebuild. Please check manually."
-                    return
-                }
-            }
+        if (-not (Test-Path -LiteralPath $ecosystemFile -PathType Leaf)) {
+            # Diagnostic: show what the restore actually produced so a wrong
+            # layout is visible in the CI log instead of a silent dead end.
+            Write-Warning "ecosystem.config.js not found after restore; restored server/ root contains:"
+            Get-ChildItem -LiteralPath $ServerDirectory -ErrorAction SilentlyContinue |
+                Select-Object -First 20 | ForEach-Object { Write-Host "  - $($_.Name)" }
+        }
 
+        # The backup may lack dist/main.js (e.g. an incomplete previous backup).
+        # Rebuild from the restored source (node_modules ships with the backup)
+        # so PM2 has an entry script to run instead of failing with
+        # "Script not found". This must be checked INDEPENDENTLY of
+        # ecosystem.config.js: skipping the restart because one file is
+        # missing leaves production fully down (2026-09-04, second failure).
+        $entryScript = Join-Path $ServerDirectory 'dist\main.js'
+        if (-not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
+            Write-Host "==> dist\main.js missing in restored backup, rebuilding from source..."
             Set-Location -LiteralPath $ServerDirectory
-            Write-Host "==> Restarting previous version via PM2"
-            pm2 start ecosystem.config.js --name $AppName
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "ROLLBACK WARNING: pm2 start exited with code $LASTEXITCODE. Please check manually."
+            & npm run build
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $entryScript -PathType Leaf)) {
+                Write-Host "ROLLBACK INCOMPLETE: entry script $entryScript still missing after rebuild. Please check manually."
+                return
             }
-            pm2 save
+        }
 
-            # Verify the rolled-back version actually serves traffic; do not claim
-            # success otherwise.
-            $servicePort = Get-ServicePort -ServerDir $ServerDirectory
-            if (Test-AppHealth -Port $servicePort) {
-                Write-Host "===== Rollback completed, service healthy ====="
-            } else {
-                Write-Host "Rollback restore finished but health check failed. Please check manually."
-            }
+        Set-Location -LiteralPath $ServerDirectory
+        Write-Host "==> Restarting previous version via PM2"
+        if (Test-Path -LiteralPath $ecosystemFile -PathType Leaf) {
+            pm2 start ecosystem.config.js --name $AppName
         } else {
-            Write-Warning "ecosystem.config.js not found in backup, cannot auto-restart. Please check manually."
+            # Emergency fallback: even without ecosystem.config.js, starting
+            # the entry script directly is better than leaving the game down.
+            Write-Warning "Starting dist\main.js directly (ecosystem.config.js unavailable)"
+            pm2 start dist\main.js --name $AppName
+        }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ROLLBACK WARNING: pm2 start exited with code $LASTEXITCODE. Please check manually."
+        }
+        pm2 save
+
+        # Verify the rolled-back version actually serves traffic; do not claim
+        # success otherwise.
+        $servicePort = Get-ServicePort -ServerDir $ServerDirectory
+        if (Test-AppHealth -Port $servicePort) {
+            Write-Host "===== Rollback completed, service healthy ====="
+        } else {
+            Write-Host "Rollback restore finished but health check failed. Please check manually."
         }
     } else {
         Write-Warning "No backup available to rollback. Please check manually."
@@ -533,8 +575,27 @@ try {
     # ---------- Step 10: Start new process via PM2 ----------
     Set-Location -LiteralPath $ServerDirectory
 
+    # The entry script was located under .staging\server during the build;
+    # after the cutover move that path no longer exists (the tree now lives at
+    # server\). Remap it to the live tree — the stale path here is what failed
+    # the 2026-09-04 second deployment ("Entry script does not exist").
+    $stagingPrefix = [regex]::Escape($StagingServerDirectory)
+    $builtMainScript = $builtMainScript -replace $stagingPrefix, $ServerDirectory
     if (-not (Test-Path -LiteralPath $builtMainScript -PathType Leaf)) {
-        throw "Entry script does not exist: $builtMainScript"
+        # Fallback probe of the standard output locations in the live tree.
+        $builtMainScript = $null
+        foreach ($candidate in @(
+            (Join-Path $ServerDirectory 'dist\main.js'),
+            (Join-Path $ServerDirectory 'dist\src\main.js')
+        )) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $builtMainScript = $candidate
+                break
+            }
+        }
+    }
+    if (-not $builtMainScript) {
+        throw "Entry script not found in live server/ after cutover"
     }
 
     Write-Host "==> PM2 starting $AppName (node $builtMainScript)"
