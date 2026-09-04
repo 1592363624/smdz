@@ -358,7 +358,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   /**
    * 处理指令：调用指令引擎，结果按需广播或仅回传给发送者
    */
-  private async handleCommand(client: Socket, user: SocketUser, content: string) {
+  private async handleCommand(_client: Socket, user: SocketUser, content: string) {
     const ctx: CommandContext = {
       userId: user.userId,
       username: user.username,
@@ -382,23 +382,17 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
     const result = await this.commandService.dispatch(ctx);
 
-    if (result.broadcast) {
-      // 公屏广播指令结果（如移动，所有人都能看到）
-      const msg = await this.chatService.saveMessage({
-        channelId: user.channelId,
-        senderId: user.userId,
-        type: 'system',
-        content: result.content,
-      });
-      this.server.to('世界频道').emit('chat:message', msg);
-    } else {
-      // 仅回传给发送者（如查看背包）
-      client.emit('chat:message', {
-        type: 'system',
-        content: result.content,
-        sender: { username: '系统' },
-        createdAt: new Date().toISOString(),
-      });
-    }
+    // 指令结果统一落库 + 广播到世界频道（2026-09-04）：
+    // 本游戏定位"公屏聊天"，背包/属性等查询结果不属于私密信息，一律公开展示。
+    // 此前 broadcast=false 的回包只 client.emit 给发送者、不落库，导致刷新后
+    // 历史接口（getMessages 走 ChatMessage 表）查不到该回包 → RichSystemCard 消失。
+    // 统一落库后实时与历史行为一致：实时看到的，刷新后仍能看到。
+    const msg = await this.chatService.saveMessage({
+      channelId: user.channelId,
+      senderId: user.userId,
+      type: 'system',
+      content: result.content,
+    });
+    this.server.to('世界频道').emit('chat:message', msg);
   }
 }

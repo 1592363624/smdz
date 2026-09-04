@@ -544,6 +544,25 @@ export class ItemService {
   }
 
   /**
+   * 在用户邮箱内基于【活态】执行读改写（2026-09-04「捡垃圾钻石消失」事故的根治封装）。
+   * 旧反模式：锁外 prisma 裸读 → 邮箱内把旧背包/装备整包 Object.assign 回活态——
+   * 并发写者（如采集结算）落在裸读之后、邮箱提交之前的产出会被旧快照整包抹掉
+   * （无任何报错、难以复现）。本封装保证读取、计算、写回全部在同一邮箱 run 内
+   * 基于活态完成，从根上消除「锁外裸读→整包覆盖」这一丢失更新类别。
+   */
+  private withLivePlayer<T>(userId: number, fn: (player: any) => Promise<T>): Promise<T> {
+    // 测试桩（手工 new PlayerService 的 mock）可能未实现邮箱方法：退化为直接读改写，
+    // 语义与旧实现等价（生产路径永远走邮箱分支）。
+    if (typeof (this.playerService as any).enqueueUserWrite !== 'function') {
+      return this.playerService.getPlayerData(userId).then((pd) => fn(pd.player));
+    }
+    return this.playerService.enqueueUserWrite(userId, async () => {
+      const pd = await this.playerService.getPlayerData(userId);
+      return fn(pd.player);
+    });
+  }
+
+  /**
    * 强化植入体
    * 对应原版：强化植入体()
    * 消耗材料强化植入体属性，支持随机强化和指定属性强化
@@ -553,7 +572,8 @@ export class ItemService {
    * @returns 操作结果文本
    */
   async upgradeImplant(userId: number, target: string, count: number): Promise<string> {
-    const player = await this.prisma.player.findUnique({ where: { userId } });
+    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）
+    return this.withLivePlayer(userId, async (player) => {
     if (!player) return `玩家不存在`;
 
     // 解析玩家装备
@@ -695,6 +715,7 @@ export class ItemService {
     } else {
       return `${player.name}使用${usedMaterial}块水晶和${upgradedCount}张史诗强化券强化了${upgradedCount}次植入体：\n${resultText}`;
     }
+    });
   }
 
   /**
@@ -712,12 +733,13 @@ export class ItemService {
     itemName: string,
     count: number = 1,
   ): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const player = playerData.player as any;
+    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）
+    return this.withLivePlayer(userId, async (player) => {
     if (!player) return `玩家不存在`;
+    const playerData = { player } as any;
 
-    // 原版以 玩家.背包 为准；getPlayerData.backpack 是同一份解析数组
-    const backpack: Item3[] = playerData.backpack;
+    // 原版以 玩家.背包 为准；活态 player.backpack 即权威数组（getBackpackItems 返回其引用）
+    const backpack: Item3[] = this.playerService.getBackpackItems(player);
 
     // 检查物品是否存在（L2258-2266 由背包定位物品列表编号的语义在本框架为直接查找）
     let itemIndex = -1;
@@ -1105,6 +1127,7 @@ export class ItemService {
     await this.playerService.savePlayer(player);
 
     return resultText;
+    });
   }
 
   /**
@@ -1199,7 +1222,8 @@ export class ItemService {
    * @returns 制造结果文本
    */
   async craftItem(userId: number, recipeName: string, count: number = 1): Promise<string> {
-    const player = await this.prisma.player.findUnique({ where: { userId } });
+    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）
+    return this.withLivePlayer(userId, async (player) => {
     if (!player) return `玩家不存在`;
 
     const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
@@ -1358,6 +1382,7 @@ export class ItemService {
     const producedText = producedItems.map(p => `${p.name}x${formatDisplayNumber(p.quantity)}`).join('、');
 
     return `${player.name}用${consumedText}制造了${maxCount}个${recipeName}，得到了${producedText}`;
+    });
   }
 
   /**
@@ -1370,7 +1395,8 @@ export class ItemService {
    * @returns 分解结果文本
    */
   async deconstructItem(userId: number, itemName: string, count?: number): Promise<string> {
-    const player = await this.prisma.player.findUnique({ where: { userId } });
+    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）
+    return this.withLivePlayer(userId, async (player) => {
     if (!player) return `玩家不存在`;
 
     const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
@@ -1492,6 +1518,7 @@ export class ItemService {
       const deconstructText = deconstructItems.map(d => `${d.name}x${d.quantity}`).join('、');
       return `分解了${actualCount}个${item.name}，得到了${deconstructText}`;
     }
+    });
   }
 
   /**
@@ -1503,7 +1530,9 @@ export class ItemService {
    * @returns 操作结果文本
    */
   async equipItem(userId: number, backpackIndex: number): Promise<string> {
-    const player = await this.prisma.player.findUnique({ where: { userId } });
+    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）。
+    // 2026-09-04 实测：锁外裸读 → 邮箱内整包覆盖，采集刚写入的钻石被「穿上」旧快照抹掉。
+    return this.withLivePlayer(userId, async (player) => {
     if (!player) return `玩家不存在`;
 
     const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
@@ -1594,6 +1623,7 @@ export class ItemService {
         ? `${player.name}脱下${replaced.name}${this.qualityBracket(this.qualityPrefix(replaced.data))},换上了${item.name}${this.qualityBracket(q)}`
         : `${player.name}穿上了${item.name}${this.qualityBracket(q)}`;
     }
+    });
   }
 
   /**
@@ -1604,7 +1634,8 @@ export class ItemService {
    * @returns 操作结果文本
    */
   async unequipItem(userId: number, slot: string): Promise<string> {
-    const player = await this.prisma.player.findUnique({ where: { userId } });
+    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）
+    return this.withLivePlayer(userId, async (player) => {
     if (!player) return `玩家不存在`;
 
     const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
@@ -1670,6 +1701,7 @@ export class ItemService {
     }
 
     return `${player.name} 未找到名为${slot}的已装备物品`;
+    });
   }
 
   /**
