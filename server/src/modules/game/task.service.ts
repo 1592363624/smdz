@@ -48,6 +48,17 @@ export class TaskService {
   private readonly logger = new Logger(TaskService.name);
   private readonly notifications = new Map<number, string[]>();
 
+  /**
+   * 任务结算可能改动的字段（saveTaskState 的提交白名单）。
+   * 仅覆盖发奖/接取链路真正会写的列；未列出的字段不在白名单内，永不被本服务回写。
+   */
+  private static readonly TASK_STATE_FIELDS = [
+    'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
+    'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
+    'hit', 'dodge', 'speed', 'crit', 'critDmg', 'regenHp', 'regenShield',
+    'regenArmor', 'vitality', 'affinity',
+  ];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly playerService: PlayerService,
@@ -140,6 +151,9 @@ export class TaskService {
         const ctx = this.mutateContext?.currentFor(userId);
         const player = ctx ? ctx.player : await this.prisma.player.findUnique({ where: { userId } });
         if (!player) return '';
+        // 非 ctx 路径（自己读档 → 自己保存）必须先留快照：发奖后据此只提交真正改过的
+        // 字段，避免把同一条指令内其它系统写入权威态、尚落库的背包改动整列覆盖回旧值。
+        const snapshot = ctx ? undefined : this.snapshotFields(player, TaskService.TASK_STATE_FIELDS);
 
         const tasks = this.parsePlayerTasks(player.tasks);
         if (tasks.length === 0) return '';
@@ -151,12 +165,7 @@ export class TaskService {
         player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
         // 复用 ctx 时由最外层 mutate 统一落库；否则单独保存（向后兼容）。
         if (!ctx) {
-          await this.saveTaskState(player, [
-            'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
-            'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
-            'hit', 'dodge', 'speed', 'crit', 'critDmg', 'regenHp', 'regenShield',
-            'regenArmor', 'vitality', 'affinity',
-          ]);
+          await this.saveTaskState(player, TaskService.TASK_STATE_FIELDS, snapshot);
         }
 
         const message = this.formatCompletionMessage(completed);
@@ -181,6 +190,8 @@ export class TaskService {
       const ctx = this.mutateContext?.currentFor(userId);
       const player = ctx ? ctx.player : await this.prisma.player.findUnique({ where: { userId } });
       if (!player) return '玩家数据不存在';
+      // 同 advance：非 ctx 路径先留快照，发奖后只提交真正改过的字段
+      const snapshot = ctx ? undefined : this.snapshotFields(player, TaskService.TASK_STATE_FIELDS);
 
       const raw = this.parseRawTasks(player.tasks);
       const parsedTasks = this.parsePlayerTasks(raw);
@@ -212,12 +223,7 @@ export class TaskService {
       const chainedSettled = await this.settleCompletedTasks(player, tasks, rewardScale);
       player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
       if (!ctx) {
-        await this.saveTaskState(player, [
-          'tasks', 'markers', 'backpack', 'recipes', 'exp', 'level', 'upgradeExp',
-          'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor', 'attack',
-          'hit', 'dodge', 'speed', 'crit', 'critDmg', 'regenHp', 'regenShield',
-          'regenArmor', 'vitality', 'affinity',
-        ]);
+        await this.saveTaskState(player, TaskService.TASK_STATE_FIELDS, snapshot);
       }
 
       const message = this.formatCompletionMessage([
@@ -1025,11 +1031,28 @@ export class TaskService {
     });
   }
 
-  /** 只写任务结算实际改动的字段，避免覆盖同一指令期间其他系统保存的数据。 */
-  private async saveTaskState(player: any, fields: string[]): Promise<void> {
+  /**
+   * 只写任务结算实际改动的字段（按读档快照逐字段比对），避免覆盖同一指令期间
+   * 其他系统保存的数据。
+   *
+   * 白名单里的整列字段（backpack / markers …）一旦「本次并没改却照样回写」，就会把
+   * 同一条指令内其它系统先写进权威态、但尚落库的改动（典型：开箱链路 distributeLoot
+   * 入包的装备、数量扣减、使用计数）用本方法读档时的旧值整体覆盖，表现为「回复说得到
+   * 了装备，背包里却没有、数量也没扣」。快照比对把这类顺带回写掐断在写入之前。
+   *
+   * @param snapshot 读档时（发奖之前）建立的字段快照；未传时退化为原语义（白名单全提交）
+   */
+  private async saveTaskState(
+    player: any,
+    fields: string[],
+    snapshot?: Record<string, string>,
+  ): Promise<void> {
     const data: Record<string, any> = {};
     for (const field of fields) {
       if (player[field] === undefined) continue;
+      // 快照里没有该字段（读档时未取到）时保守提交，宁可多写也不丢写
+      if (snapshot && snapshot[field] !== undefined
+        && snapshot[field] === this.stableStringify(player[field])) continue;
       // Json 列字段（tasks/markers/backpack/recipes 等）保持对象/数组原样透传；
       // 数值字段原样透传。此前对 object 做 stringify 会导致 Json 列双重编码。
       data[field] = player[field];
@@ -1040,6 +1063,28 @@ export class TaskService {
       Object.assign(_pd.player, data);
       await this.playerService.savePlayer(_pd.player);
     });
+  }
+
+  /** 记录字段快照，供 saveTaskState 判定「本次是否真的改过」。必须在发奖之前调用。 */
+  private snapshotFields(player: any, fields: string[]): Record<string, string> {
+    const snap: Record<string, string> = {};
+    for (const field of fields) {
+      if (player[field] === undefined) continue;
+      snap[field] = this.stableStringify(player[field]);
+    }
+    return snap;
+  }
+
+  /** 字段值的稳定字符串化：Json 列结构按内容比较，与表示形态（对象/字符串）无关。 */
+  private stableStringify(value: any): string {
+    if (value === null || value === undefined) return ' null';
+    if (typeof value !== 'object') return String(value);
+    try {
+      const text = JSON.stringify(value);
+      return text === undefined ? ' unserializable' : text;
+    } catch {
+      return ' unserializable';
+    }
   }
 
   private canAcceptByMarkers(raw: any, markers: Record<string, any>): boolean {

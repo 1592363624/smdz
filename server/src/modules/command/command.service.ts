@@ -387,7 +387,25 @@ export class CommandService {
         }
       }
 
-      await this.finishCommandTasks(ctx, sentText, result);
+      // 任务结算必须与指令主链路共用同一份权威态。
+      //
+      // 此前 finishCommandTasks 在 mutate 之外执行，taskService.advance 会走
+      // prisma.findUnique 重新读档：一旦本条指令内已有其它落库点（典型如开箱链路上
+      // distributeLoot → addAchievement 触发的成就写入），库内就会先出现一个「加锁后、
+      // 装备入包前」的中间态，advance 随后用这份旧档发奖，再经 saveTaskState 把
+      // backpack 整列回写（白名单含 'backpack'），把指令后半段的产出（装备入包、
+      // 数量扣减、使用计数、开箱锁解除）整体抹掉——表现为「回复说得到了装备，背包里
+      // 却没有、数量也没扣」。该故障只在「同一条指令同时完成任务」时出现，故间歇复发。
+      //
+      // 包进同一个 mutate 后：advance 直接复用 ctx.player（权威态）读改写，且因
+      // ctx 存在而跳过 saveTaskState 的整列回写，最终由 mutate 统一落库最终态。
+      if (ctx.userId && this.playerMutate) {
+        await this.playerMutate.mutate(ctx.userId, async () => {
+          await this.finishCommandTasks(ctx, sentText, result);
+        });
+      } else {
+        await this.finishCommandTasks(ctx, sentText, result);
+      }
 
       // 7. 记录指令执行日志
       await this.recordLog(ctx, commandName, result);
