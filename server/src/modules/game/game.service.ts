@@ -1653,6 +1653,8 @@ export class GameService {
       .safeJsonParse<any[]>(currentMap.resources, [])
       .filter((r: any) => this.getResourceTimes(r) !== 0 && this.isGatherResourceAvailable(r, playerMarkers));
     const npcs = asJsonValue<any[]>(currentMap.npcs, []);
+    // 召唤物与 NPC 同属「可对话单位」，与观察附近口径一致（见下方 npcList 合并逻辑）
+    const summons = asJsonValue<any[]>(currentMap.summons, []);
 
     // 怪物列表：从 spawnMonsters + tempMonsters 合并，去重后携带等级/HP
     // 用 staticData 的怪物 JSON 补全等级/HP，未收录的怪物按基础值兜底
@@ -1688,12 +1690,78 @@ export class GameService {
       firstDrop: Array.isArray(r.outputs) && r.outputs.length ? r.outputs[0]?.name : '',
     }));
 
-    // NPC 列表：保留 title 便于展示
-    const npcList = npcs.map((n: any) => ({
-      name: n.name,
-      title: n.title || '',
-      type: n.type || 'npc',
-    }));
+    // NPC 列表：静态 NPC + 地图召唤物（对齐指令「观察附近」的 宠物/NPC 口径，
+    // game.service L8176-8248：白仅主人可见；神之工匠/小雫/露娜/行商/小白狐/花园宝宝
+    // 等特殊 NPC 同名去重标[!]；幼崽/倒地召唤物带后缀标注）。网页面板与指令侧
+    // 显示口径保持一致，避免"观察附近有小白狐、面板 NPC(0)"的不一致观感。
+    const summonEntries: Array<{ name: string; title: string; type: string }> = [];
+    if (summons.length > 0) {
+      const ownerRow = await this.prisma.player
+        .findUnique({
+          where: { userId },
+          select: {
+            id: true,
+            masterQQ: true,
+            user: { select: { qqNumber: true, externalId: true } },
+          },
+        })
+        .catch(() => null);
+      const ownerIds = new Set(
+        [
+          String(userId),
+          String(ownerRow?.id ?? ''),
+          String(ownerRow?.masterQQ ?? ''),
+          String(ownerRow?.user?.qqNumber ?? ''),
+          String(ownerRow?.user?.externalId ?? ''),
+        ].filter(Boolean),
+      );
+      const nameOf = (s: any): string => String(s?.name ?? s?.名称 ?? '') || '未知';
+      const qqOf = (s: any): string => String(s?.qq ?? s?.QQ ?? '');
+      const isMonsterSummon = (s: any): boolean => qqOf(s).startsWith('怪物');
+      const markerVal = (unit: any, markerName: string): number => {
+        const raw = unit?.markers ?? unit?.标记 ?? {};
+        const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
+        if (Array.isArray(parsed)) {
+          const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
+          return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+        }
+        return Number(parsed?.[markerName] ?? 0);
+      };
+      const isFixedSpecialNpc = (s: any): boolean =>
+        ['npc1g', 'npc2g', '怪物露娜1g'].includes(qqOf(s)) || ['行商'].includes(nameOf(s));
+      const isDedupableSpecialNpc = (s: any): boolean =>
+        ['小白狐', '花园宝宝'].includes(nameOf(s));
+
+      const shownSpecialNames = new Set<string>();
+      for (const s of summons) {
+        const name = nameOf(s);
+        // 白只对主人显示（原版 L781-784）
+        if (name === '白' && !ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? ''))) {
+          continue;
+        }
+        const isSpecialNpc = isFixedSpecialNpc(s) || isDedupableSpecialNpc(s);
+        if (isSpecialNpc && shownSpecialNames.has(name)) continue;
+        let title = '召唤物';
+        if (isSpecialNpc) {
+          shownSpecialNames.add(name);
+          title = '[!]';
+        } else if (markerVal(s, '幼崽') !== 0) {
+          title = '(幼崽)';
+        } else if (isMonsterSummon(s)) {
+          title = Number(s?.currentHp ?? s?.当前生命 ?? s?.hp ?? 0) > 0 ? '召唤物' : '(倒地)';
+        }
+        summonEntries.push({ name, title, type: 'summon' });
+      }
+    }
+
+    const npcList = [
+      ...npcs.map((n: any) => ({
+        name: n.name,
+        title: n.title || '',
+        type: n.type || 'npc',
+      })),
+      ...summonEntries,
+    ];
 
     return {
       currentMap: {
@@ -1704,7 +1772,8 @@ export class GameService {
         // 怪物实例统一来自 GameMonster；currentMap.monsters 仅是静态模板，不代表当前存活数量。
         monsters: mapMonsters.length,
         resources: resources.length,
-        npcs: npcs.length,
+        // NPC 计数与 npcList 同口径：静态 NPC + 召唤物（观察附近口径）
+        npcs: npcList.length,
         monsterList,
         resourceList,
         npcList,

@@ -12,26 +12,25 @@
       <div class="pi-bar-label"><span>经验</span><span>{{ info.exp }}/{{ info.upgradeExp }}</span></div>
       <div class="pi-bar"><div class="pi-bar-fill exp" :style="{ width: expPercent + '%' }"></div></div>
     </div>
-    <div class="pi-row">
-      <span class="pi-label">❤️ 生命</span>
-      <span class="pi-value">{{ r(info.hp) }} / {{ r(info.maxHp) }}</span>
+    <!-- 四条主资源：2×2 网格（左上生命／右上护盾／左下护甲／右下活力），原竖排 4 行高度压缩为 2 行 -->
+    <div class="pi-bars">
+      <div class="pi-bar-cell">
+        <div class="pi-bar-label"><span>❤️ 生命</span><span>{{ r(info.hp) }}/{{ r(info.maxHp) }}</span></div>
+        <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
+      </div>
+      <div class="pi-bar-cell">
+        <div class="pi-bar-label"><span>🛡️ 护盾</span><span>{{ r(info.shield) }}/{{ r(info.maxShield) }}</span></div>
+        <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
+      </div>
+      <div class="pi-bar-cell">
+        <div class="pi-bar-label"><span>🛡️ 装甲</span><span>{{ r(info.armor) }}/{{ r(info.maxArmor) }}</span></div>
+        <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
+      </div>
+      <div class="pi-bar-cell">
+        <div class="pi-bar-label"><span>⚡ 活力</span><span>{{ r(info.vitality) }}/{{ r(info.maxVitality) }}</span></div>
+        <div class="pi-bar"><div class="pi-bar-fill vitality" :style="{ width: vitalityPercent + '%' }"></div></div>
+      </div>
     </div>
-    <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
-    <div class="pi-row">
-      <span class="pi-label">🛡️ 护盾</span>
-      <span class="pi-value">{{ r(info.shield) }} / {{ r(info.maxShield) }}</span>
-    </div>
-    <div class="pi-bar"><div class="pi-bar-fill shield" :style="{ width: shieldPercent + '%' }"></div></div>
-    <div class="pi-row">
-      <span class="pi-label">🛡️ 装甲</span>
-      <span class="pi-value">{{ r(info.armor) }} / {{ r(info.maxArmor) }}</span>
-    </div>
-    <div class="pi-bar"><div class="pi-bar-fill armor" :style="{ width: armorPercent + '%' }"></div></div>
-    <div class="pi-row">
-      <span class="pi-label">⚡ 活力</span>
-      <span class="pi-value">{{ r(info.vitality) }} / {{ r(info.maxVitality) }}</span>
-    </div>
-    <div class="pi-bar"><div class="pi-bar-fill vitality" :style="{ width: vitalityPercent + '%' }"></div></div>
 
     <!-- 战斗力：与「信息」文本面板同口径（计算后属性代入原版战斗力公式） -->
     <div class="pi-row pi-row-power" v-if="info.combatPower !== undefined && info.combatPower !== null">

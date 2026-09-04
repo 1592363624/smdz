@@ -2,7 +2,7 @@
   <div class="chat-page">
     <!-- 左侧：用户信息 + Tab 切换面板 -->
     <aside class="sidebar">
-      <!-- 顶部固定：用户卡片 + QQ 绑定 -->
+      <!-- 顶部固定：用户卡片（次要信息折叠进昵称下方小字）+ 绑定提示（按需展开） -->
       <div class="sidebar-header">
         <div class="user-card" :class="{ 'is-admin': isAdmin }" @click="onAvatarClick" :title="avatarTitle">
           <div class="avatar">
@@ -22,29 +22,26 @@
               <button class="qq-btn" @click.stop="nicknameEditing = false">取消</button>
             </div>
             <div v-if="nicknameError" class="nickname-error">{{ nicknameError }}</div>
-            <div class="meta">@{{ user?.username }}</div>
+            <!-- 次要信息单行：OpenID（点击复制）+ QQ 绑定状态，小字号贴着昵称下方 -->
+            <div v-if="!nicknameEditing" class="sub-row">
+              <span
+                class="sub-id"
+                :title="'点击复制 OpenID：' + (user?.externalId || '未登录')"
+                @click.stop="copyOpenId"
+              >ID {{ maskedOpenId }}</span>
+              <span v-if="user?.qqNumber && !isLegacyQqBind" class="sub-qq" title="已绑定真实 QQ 号">✅ QQ {{ user.qqNumber }}</span>
+              <button v-else class="sub-qq unbound" :title="bindHintTitle" @click.stop="bindHintOpen = !bindHintOpen">⚠️ 未绑定</button>
+              <span v-if="copyTip" class="sub-copy">{{ copyTip }}</span>
+            </div>
           </div>
           <span v-if="isAdmin" class="admin-badge">ADMIN</span>
         </div>
 
-        <!-- QQ 绑定区域：仅展示 OpenID 与绑定状态，手动输入已取消 -->
-        <div class="qq-bind">
-          <!-- OpenID 展示与复制 -->
-          <div class="openid-row" @click="copyOpenId">
-            <span class="openid-label">OpenID</span>
-            <span class="openid-value" :title="user?.externalId || '未登录'">{{ maskedOpenId }}</span>
-            <button class="qq-btn" :disabled="!user?.externalId" title="点击复制 OpenID">📋</button>
-          </div>
-          <!-- 已绑定真实QQ号 -->
-          <div v-if="user?.qqNumber && !isLegacyQqBind" class="qq-bound-row">
-            <span class="qq-bound">✅ 已绑定 QQ {{ user.qqNumber }}</span>
-          </div>
-          <!-- 未绑定 -->
-          <div v-else class="qq-tip">
-            请在 QQ 群中发送：<br/>
-            <code class="bind-cmd">使魔大战绑定QQ {{ user?.externalId || '你的OpenID' }}</code>
-          </div>
-          <div v-if="copyTip" class="copy-tip">{{ copyTip }}</div>
+        <!-- 绑定引导：默认收起，点「未绑定」才展开，避免常驻占高 -->
+        <div v-if="bindHintOpen" class="bind-hint">
+          <span class="bind-hint-text">在 QQ 群发送：</span>
+          <code class="bind-cmd">使魔大战绑定QQ {{ user?.externalId || '你的OpenID' }}</code>
+          <button class="qq-btn" :disabled="!user?.externalId" @click.stop="copyOpenId">📋 复制</button>
         </div>
       </div>
 
@@ -191,25 +188,26 @@
               <button class="qq-btn" @click.stop="nicknameEditing = false">取消</button>
             </div>
             <div v-if="nicknameError" class="nickname-error">{{ nicknameError }}</div>
-            <div class="meta">@{{ user?.username }}</div>
+            <!-- 次要信息单行：OpenID（点击复制）+ QQ 绑定状态，小字号贴着昵称下方 -->
+            <div v-if="!nicknameEditing" class="sub-row">
+              <span
+                class="sub-id"
+                :title="'点击复制 OpenID：' + (user?.externalId || '未登录')"
+                @click.stop="copyOpenId"
+              >ID {{ maskedOpenId }}</span>
+              <span v-if="user?.qqNumber && !isLegacyQqBind" class="sub-qq" title="已绑定真实 QQ 号">✅ QQ {{ user.qqNumber }}</span>
+              <button v-else class="sub-qq unbound" :title="bindHintTitle" @click.stop="bindHintOpen = !bindHintOpen">⚠️ 未绑定</button>
+              <span v-if="copyTip" class="sub-copy">{{ copyTip }}</span>
+            </div>
           </div>
           <span v-if="isAdmin" class="admin-badge">ADMIN</span>
         </div>
 
-        <div class="qq-bind">
-          <div class="openid-row" @click="copyOpenId">
-            <span class="openid-label">OpenID</span>
-            <span class="openid-value" :title="user?.externalId || '未登录'">{{ maskedOpenId }}</span>
-            <button class="qq-btn" :disabled="!user?.externalId" title="点击复制 OpenID">📋</button>
-          </div>
-          <div v-if="user?.qqNumber && !isLegacyQqBind" class="qq-bound-row">
-            <span class="qq-bound">✅ 已绑定 QQ {{ user.qqNumber }}</span>
-          </div>
-          <div v-else class="qq-tip">
-            请在 QQ 群中发送：<br/>
-            <code class="bind-cmd">使魔大战绑定QQ {{ user?.externalId || '你的OpenID' }}</code>
-          </div>
-          <div v-if="copyTip" class="copy-tip">{{ copyTip }}</div>
+        <!-- 绑定引导：默认收起，点「未绑定」才展开，避免常驻占高 -->
+        <div v-if="bindHintOpen" class="bind-hint">
+          <span class="bind-hint-text">在 QQ 群发送：</span>
+          <code class="bind-cmd">使魔大战绑定QQ {{ user?.externalId || '你的OpenID' }}</code>
+          <button class="qq-btn" :disabled="!user?.externalId" @click.stop="copyOpenId">📋 复制</button>
         </div>
       </div>
 
@@ -541,7 +539,7 @@
       <div class="ip-block" v-if="mapOverview?.currentMap">
         <h4 class="ip-title">💬 NPC ({{ mapOverview.currentMap.npcs || 0 }})</h4>
         <div class="ip-list" v-if="mapOverview.currentMap.npcList?.length">
-          <div v-for="n in mapOverview.currentMap.npcList" :key="'cur-npc-' + n.name" class="ip-row npc-row" @click="quickAction('对话 ' + n.name)">
+          <div v-for="(n, ni) in mapOverview.currentMap.npcList" :key="'cur-npc-' + ni + '-' + n.name" class="ip-row npc-row" @click="quickAction('对话 ' + n.name)">
             <span class="ip-row-name">🗨️ {{ n.name }}</span>
             <span class="ip-row-meta" v-if="n.title">{{ n.title }}</span>
           </div>
@@ -1310,6 +1308,15 @@ const maskedOpenId = computed(() => {
   return `${id.slice(0, 6)}...${id.slice(-4)}`;
 });
 
+// 绑定引导展开开关：默认收起，点「⚠️ 未绑定」才展开，避免常驻占高
+const bindHintOpen = ref(false);
+// 未绑定时的 hover 提示：给出完整绑定指令（展开区也显示同样内容，兼容移动端无 hover）
+const bindHintTitle = computed(() =>
+  user.value?.externalId
+    ? `未绑定 QQ：在 QQ 群发送「使魔大战绑定QQ ${user.value.externalId}」`
+    : '未绑定 QQ',
+);
+
 // 复制提示文本（2 秒后自动清空）
 const copyTip = ref('');
 let copyTipTimer = null;
@@ -1320,7 +1327,7 @@ function copyOpenId() {
   if (!id) return;
   navigator.clipboard.writeText(id)
     .then(() => {
-      copyTip.value = 'OpenID 已复制，请到 QQ 群发送绑定指令';
+      copyTip.value = '已复制';
       if (copyTipTimer) clearTimeout(copyTipTimer);
       copyTipTimer = setTimeout(() => { copyTip.value = ''; }, 2000);
     })

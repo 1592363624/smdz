@@ -375,22 +375,22 @@ vite-plugin-checker-error-overlay,
 /* ===== 侧边栏顶部（用户卡片 + QQ 绑定，固定） ===== */
 .sidebar-header {
   flex-shrink: 0;
-  padding: 18px 16px 12px;
+  padding: 10px 12px 6px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--glass-border);
 }
 
-/* ===== 侧边栏中间 Tab 栏（固定） ===== */
+/* ===== 侧边栏中间 Tab 栏（固定，扁平化：填充块选中态，整体高度较原下划线式减半） ===== */
 .sidebar-tabs {
   flex-shrink: 0;
   display: flex;
-  gap: 0;
-  padding: 6px 10px 0;
+  gap: 4px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--glass-border);
   background: rgba(10, 10, 26, 0.4);
 }
@@ -400,26 +400,28 @@ vite-plugin-checker-error-overlay,
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 9px 4px;
+  padding: 3px 4px;
   background: transparent;
   border: none;
+  border-radius: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 16px;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
   transition: all 0.2s ease;
   white-space: nowrap;
 }
 .sidebar-tab:hover {
   color: var(--text-secondary);
+  background: rgba(139, 92, 246, 0.07);
 }
 .sidebar-tab.active {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  background: rgba(139, 92, 246, 0.18);
 }
 .sidebar-tab .tab-icon {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 /* ===== 侧边栏内容区（唯一滚动区） ===== */
@@ -541,53 +543,91 @@ vite-plugin-checker-error-overlay,
   background: rgba(139, 92, 246, 0.1);
 }
 
-/* QQ 绑定区域：展示 OpenID 与绑定状态，QQ 号通过群机器人指令绑定 */
-.qq-bind {
-  padding: 4px 2px 0;
-}
-.qq-bind .qq-bound-row {
-  margin-top: 4px;
-}
-.qq-bind .qq-bound {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.qq-bind .openid-row {
+/* 用户卡片次要信息行：OpenID + QQ 绑定状态单行小字，紧贴昵称下方（原 QQ 绑定区已内联进卡片） */
+.sub-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-top: 1px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+  min-width: 0;
+}
+.sub-row .sub-id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.sub-row .sub-id:hover {
+  color: var(--text);
+}
+.sub-row .sub-qq {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* 未绑定：弱化为可点击徽标，hover 出完整指令，点击展开引导行 */
+.sub-row .sub-qq.unbound {
+  padding: 0 5px;
+  border: 1px dashed var(--glass-border);
+  border-radius: 8px;
+  background: transparent;
+  color: #f59e0b;
+  font: inherit;
+  font-size: 10px;
+  line-height: 15px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.sub-row .sub-qq.unbound:hover {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
+}
+.sub-row .sub-copy {
+  flex-shrink: 0;
+  color: #10b981;
+}
+
+/* 绑定引导行：默认收起，点「未绑定」展开 */
+.bind-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
   padding: 5px 8px;
   border-radius: 6px;
   border: 1px dashed var(--glass-border);
   background: rgba(255, 255, 255, 0.03);
-  cursor: pointer;
-  transition: all 0.2s ease;
 }
-.qq-bind .openid-row:hover {
-  border-color: var(--accent);
-  background: rgba(139, 92, 246, 0.06);
-}
-.qq-bind .openid-label {
-  font-size: 10px;
+.bind-hint-text {
+  font-size: 11px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
-.qq-bind .openid-value {
+.bind-hint .bind-cmd {
   flex: 1;
-  min-width: 0;
-  font-size: 12px;
+  min-width: 120px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(18, 183, 245, 0.1);
+  color: #12b7f5;
+  font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-all;
 }
-.qq-bind .qq-btn {
-  margin-left: 0;
+.bind-hint .qq-btn {
+  flex-shrink: 0;
+}
+
+/* 通用小按钮（昵称编辑、复制 OpenID 等复用） */
+.qq-btn {
   padding: 2px 8px;
   font-size: 11px;
   border-radius: 6px;
@@ -597,38 +637,18 @@ vite-plugin-checker-error-overlay,
   cursor: pointer;
   transition: all 0.2s ease;
 }
-.qq-bind .qq-btn:hover {
+.qq-btn:hover {
   background: rgba(139, 92, 246, 0.1);
   color: var(--text);
 }
-.qq-bind .qq-btn:disabled {
+.qq-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.qq-bind .bind-cmd {
-  display: inline-block;
-  margin-top: 4px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: rgba(18, 183, 245, 0.1);
-  color: #12b7f5;
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  word-break: break-all;
-}
-.qq-bind .copy-tip {
-  margin-top: 4px;
-  font-size: 11px;
-  color: #10b981;
-}
-.qq-bind .qq-tip {
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.5;
-}
-.qq-bind .qq-tip.warn {
-  color: #f59e0b;
+.qq-btn.primary {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(139, 92, 246, 0.16);
 }
 
 .avatar {
@@ -1768,6 +1788,44 @@ vite-plugin-checker-error-overlay,
 .player-info .pi-bar-fill.vitality {
   background: linear-gradient(90deg, #6366f1, #818cf8);
 }
+
+/* 主资源 2×2 网格：生命/护盾/装甲/活力，两行两列，行内自带数值 */
+.player-info .pi-bars {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+.player-info .pi-bar-cell {
+  min-width: 0;
+}
+.player-info .pi-bar-cell .pi-bar-label {
+  gap: 4px;
+  margin-bottom: 2px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.player-info .pi-bar-cell .pi-bar-label > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.player-info .pi-bar-cell .pi-bar-label > span:last-child {
+  flex-shrink: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+.player-info .pi-bars .pi-bar {
+  height: 5px;
+  margin-bottom: 0;
+}
+/* 极窄侧栏（≤340px）退回单列，避免两列数值互相挤压换行 */
+@media (max-width: 340px) {
+  .player-info .pi-bars {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+}
+
 .player-info .pi-stats {
   display: flex;
   flex-wrap: nowrap;
