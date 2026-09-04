@@ -89,6 +89,21 @@ async function seedMapDynamicFields(): Promise<number> {
           markers: {},
           // 地图标记2容器与原版「标记2」一致为数组元素 {name, expireAt}
           markers2: [],
+          // 其余必填列（schema 使用 dbgenerated 默认，Prisma Client 仍视为必填）显式给初值，
+          // 避免创建时报 Null constraint violation；若 maps.json 带实际值则由 ...semiDynamicFields 覆盖。
+          mapBuffs: [],
+          requireMarkers: [],
+          npcs: [],
+          buildings: [],
+          vehicles: [],
+          items: [],
+          monsters: [],
+          connections: [],
+          resources: [],
+          resources2: [],
+          description: (row as any).description ?? '',
+          failHint: (row as any).failHint ?? '',
+          clearMarkers: (row as any).clearMarkers ?? '',
           // 半动态字段从 JSON 取初始值
           ...semiDynamicFields,
         },

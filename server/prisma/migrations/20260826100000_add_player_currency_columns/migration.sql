@@ -1,4 +1,0 @@
--- 货币列化 P1：硬通货脱离背包 JSON（幂等守卫式，正式迁移文档）
-ALTER TABLE `Player` ADD COLUMN `diamonds` FLOAT NOT NULL DEFAULT 0;
-ALTER TABLE `Player` ADD COLUMN `tickets` FLOAT NOT NULL DEFAULT 0;
-ALTER TABLE `Player` ADD COLUMN `dataCores` FLOAT NOT NULL DEFAULT 0;

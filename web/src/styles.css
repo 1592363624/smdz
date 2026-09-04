@@ -1889,6 +1889,7 @@ vite-plugin-checker-error-overlay,
 }
 .player-info .pi-eq {
   display: flex;
+  flex-wrap: wrap;
   gap: 5px;
   align-items: baseline;
   min-width: 0;
@@ -1932,6 +1933,17 @@ vite-plugin-checker-error-overlay,
 .player-info .pi-eq-val.q-a { color: #fb923c; }
 .player-info .pi-eq-val.q-s { color: #fbbf24; }
 .player-info .pi-eq-val.q-x { color: #f87171; }
+/* 已装备格属性小字：自带属性 + 随机词条，独立占一行（flex-basis:100% 换行），与名字对齐 */
+.player-info .pi-eq-attrs {
+  flex-basis: 100%;
+  margin: 1px 0 0 16px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
 
 /* 增益 chips（剩余时间青色高亮，每秒本地倒计时） */
 .player-info .pi-buff-list {

@@ -1445,7 +1445,7 @@ export class GameService {
    * 与 handleInfo 装备面板（原版 数据显示.ecode 使魔数据 L2032-2210）保持同一取数口径。
    * name 为 null 表示该栏位为空，前端显示「无(+强化等级)」。
    */
-  private buildEquipmentSnapshot(player: any, markers: any): Array<{ slot: string; name: string | null; quality: string; effect: number; enhance: number }> {
+  private buildEquipmentSnapshot(player: any, markers: any): Array<{ slot: string; name: string | null; quality: string; effect: number; enhance: number; attrs: string }> {
     // 品质前缀映射（对齐原版 显示品质 L1591-1639）
     const qualityPrefix = (data: string): string => {
       const c = (data || '').charAt(0).toLowerCase();
@@ -1458,12 +1458,26 @@ export class GameService {
 
     const entryOf = (slot: string, item: any, enhanceKey: string) => {
       const enhanceLv = this.combatState.getAchievementProficiency(markers, enhanceKey);
-      if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv };
+      if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv, attrs: '' };
       const rawData = String(item.data || item.数据 || '');
       let effectNum = Number(item.effect || item.特效 || 0);
       if (!effectNum && rawData) {
         const bxMatch = rawData.match(/!bx(\d+)/);
         if (bxMatch) effectNum = parseInt(bxMatch[1], 10) || 0;
+      }
+      // 解析装备属性（自带属性 + 随机词条），供网页左侧信息栏「已装备格」直接展示
+      let attrs = '';
+      if (rawData) {
+        try {
+          const parsed = this.itemService.parseEquipment(item);
+          const attrLines = [
+            ...this.itemSystemService.formatBonusStats(parsed?.baseBonus || {}),
+            ...this.itemSystemService.formatBonusStats(parsed?.bonus || {}),
+          ];
+          attrs = attrLines.join('\n');
+        } catch {
+          attrs = '';
+        }
       }
       return {
         slot,
@@ -1471,6 +1485,7 @@ export class GameService {
         quality: qualityPrefix(rawData),
         effect: effectNum,
         enhance: enhanceLv,
+        attrs,
       };
     };
 

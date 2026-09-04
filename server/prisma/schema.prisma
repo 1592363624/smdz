@@ -20,33 +20,34 @@ datasource db {
 
 /// 用户表：网页注册/登录账号，可绑定 QQ 号
 model User {
-  id          Int      @id @default(autoincrement())
-  username    String   @unique
-  password    String
-  nickname    String   @default("")
-  qqNumber    String?  @unique
+  id               Int       @id @default(autoincrement())
+  username         String    @unique
+  password         String
+  nickname         String    @default("")
+  qqNumber         String?   @unique
   /// QQ 互联 OAuth2 openid（32位十六进制），用于识别 QQ 互联登录身份；
   /// 与 qqNumber（玩家真实QQ号，供群机器人识别）分离。
-  externalId  String?  @unique
-  role        String   @default("USER")
-  status      String   @default("ACTIVE")
-  avatar      String   @default("")
+  externalId       String?   @unique
+  role             String    @default("USER")
+  status           String    @default("ACTIVE")
+  avatar           String    @default("")
   /// 用户自定义的常用指令列表（JSON 数组，如 ["攻击","背包"]），前端指令面板置顶展示
-  favoriteCommands Json @default(dbgenerated("('[]')"))
+  favoriteCommands Json?
   /// 最后登录时间（QQ 登录成功时更新）
-  lastLoginAt DateTime?
+  lastLoginAt      DateTime?
   /// 累计登录次数
-  loginCount  Int       @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  loginCount       Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  player      Player?
-  messages    ChatMessage[]
-  bindings    UserBinding[]
-  privateSent     PrivateMessage[]   @relation("PrivateSent")
-  privateReceived PrivateMessage[]   @relation("PrivateReceived")
-  feedbacks       Feedback[]
+  player           Player?
+  messages         ChatMessage[]
+  bindings         UserBinding[]
+  privateSent      PrivateMessage[]  @relation("PrivateSent")
+  privateReceived  PrivateMessage[]  @relation("PrivateReceived")
+  feedbacks        Feedback[]
   feedbackMessages FeedbackMessage[]
+
   @@index([qqNumber])
 }
 
@@ -58,6 +59,7 @@ model UserBinding {
   botType   String   @default("qq")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+
   @@unique([userId, botKey])
 }
 
@@ -69,141 +71,141 @@ model UserBinding {
 model CurrencyLog {
   id           Int      @id @default(autoincrement())
   userId       Int
-  currency     String   // diamonds | tickets | dataCores
-  delta        Float    // 本次变动量（正增负减）
-  balanceAfter Float    // 变动后余额
+  currency     String // diamonds | tickets | dataCores
+  delta        Float // 本次变动量（正增负减）
+  balanceAfter Float // 变动后余额
   createdAt    DateTime @default(now())
 
   @@index([userId, createdAt])
 }
 
 model Player {
-  id         Int      @id @default(autoincrement())
-  userId     Int      @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // 乐观锁版本号：savePlayer 以读快照时的 version 做条件更新（CAS），
   // 防止并发路径用旧快照整包覆盖他人写入（兑换/召唤/后台结算竞态）。
   // 复合唯一键 (id, version) 让 Prisma update 支持「按版本条件写」，
   // 冲突时抛 P2025，由 savePlayer 转换为显式的并发冲突错误。
-  version    Int      @default(0)
-
-  @@unique([id, version])
+  version Int @default(0)
 
   // 货币列化（P1）：硬通货脱离背包 JSON blob，成为独立标量列——单一真相源、
   // 可审计。存取经 PlayerService 透明转换（savePlayer 提取、getPlayerData 物化），
   // 业务代码仍按背包物品读写，零改动。
-  diamonds   Float    @default(0)   // 钻石
-  tickets    Float    @default(0)   // 召唤券
-  dataCores  Float    @default(0)   // 数据核心
+  diamonds  Float @default(0) // 钻石
+  tickets   Float @default(0) // 召唤券
+  dataCores Float @default(0) // 数据核心
 
   // 基础属性
-  level      Int      @default(1)
-  exp        Float    @default(0)
-  upgradeExp Float    @default(100)   // 升级所需经验
-  name       String   @default("")    // 派生显示名（原版 玩家.名称）：baseName+[佩戴称号]，全空回退type
-  baseName   String   @default("")    // 改名基础名（原版 玩家.图片）：选择使魔赋初值，命名使魔可改
-  type       String   @default("")    // 使魔类型
-  specialSeq Int      @default(0)     // 特殊序号（对应常量表）
+  level      Int    @default(1)
+  exp        Float  @default(0)
+  upgradeExp Float  @default(100) // 升级所需经验
+  name       String @default("") // 派生显示名（原版 玩家.名称）：baseName+[佩戴称号]，全空回退type
+  baseName   String @default("") // 改名基础名（原版 玩家.图片）：选择使魔赋初值，命名使魔可改
+  type       String @default("") // 使魔类型
+  specialSeq Int    @default(0) // 特殊序号（对应常量表）
 
   // 战斗属性
-  hp         Float    @default(100)
-  maxHp      Float    @default(100)
-  shield     Float    @default(0)     // 当前护盾
-  maxShield  Float    @default(0)
-  armor      Float    @default(0)     // 当前装甲
-  maxArmor   Float    @default(0)
-  attack     Float    @default(10)
-  defense    Float    @default(0)
-  speed      Float    @default(100)
-  dodge      Float    @default(0)
-  hit        Float    @default(100)
-  crit       Float    @default(5)
-  critDmg    Float    @default(150)
-  regenHp    Float    @default(0)     // 生命回复
-  regenShield Float   @default(0)     // 护盾回复
-  regenArmor Float    @default(0)     // 装甲回复
+  hp          Float @default(100)
+  maxHp       Float @default(100)
+  shield      Float @default(0) // 当前护盾
+  maxShield   Float @default(0)
+  armor       Float @default(0) // 当前装甲
+  maxArmor    Float @default(0)
+  attack      Float @default(10)
+  defense     Float @default(0)
+  speed       Float @default(100)
+  dodge       Float @default(0)
+  hit         Float @default(100)
+  crit        Float @default(5)
+  critDmg     Float @default(150)
+  regenHp     Float @default(0) // 生命回复
+  regenShield Float @default(0) // 护盾回复
+  regenArmor  Float @default(0) // 装甲回复
 
   // 位置信息
-  mapId      Int      @default(1)     // 当前地图ID
-  location   String   @default("")    // 当前地点
-  houseName  String   @default("")    // 家园名称
+  mapId     Int    @default(1) // 当前地图ID
+  location  String @default("") // 当前地点
+  houseName String @default("") // 家园名称
 
   // 复杂数据结构（原生 JSON 列：读取直接返回对象/数组，写入直接传对象，无字符串编解码）
-  backpack   Json     @default(dbgenerated("('[]')"))  // 背包物品 [物品3]
-  equipment  Json     @default(dbgenerated("('[]')"))  // 装备 [装备]
-  weapons    Json     @default(dbgenerated("('[]')"))  // 武器 [装备]
-  currentWeapon Int   @default(0)     // 当前武器索引
-  markers    Json     @default(dbgenerated("('{}')"))  // 标记/成就 [技能]
-  markers2   Json     @default(dbgenerated("('[]')"))  // 有时限标记 [增益]
-  buffs      Json     @default(dbgenerated("('[]')"))  // 增益状态 [增益]
-  tasks      Json     @default(dbgenerated("('[]')"))  // 任务 [任务]
-  titles     Json     @default(dbgenerated("('[]')"))  // 称号 [技能]
-  skills     Json     @default(dbgenerated("('{}')"))  // 技能熟练度
-  sets       Json     @default(dbgenerated("('{}')"))  // 套装信息 [套装]
-  bonus      Json     @default(dbgenerated("('{}')"))  // 加成属性 [加成]
-  baseBonus  Json     @default(dbgenerated("('{}')"))  // 基础加成
-  vehicle    String   @default("")                 // 驾驶的载具ID
-  safeBox    Json     @default(dbgenerated("('[]')"))  // 保险柜 [物品3]
-  equipmentPresets Json @default(dbgenerated("('[]')")) // 装备预设
-  reverse    Json     @default(dbgenerated("('[]')"))  // 逆向标记
-  recipes    Json     @default(dbgenerated("('[]')"))  // 已解锁配方
-  stats      Json     @default(dbgenerated("('{}')"))  // 额外统计
+  backpack         Json? // 背包物品 [物品3]
+  equipment        Json? // 装备 [装备]
+  weapons          Json? // 武器 [装备]
+  currentWeapon    Int    @default(0) // 当前武器索引
+  markers          Json? // 标记/成就 [技能]
+  markers2         Json? // 有时限标记 [增益]
+  buffs            Json? // 增益状态 [增益]
+  tasks            Json? // 任务 [任务]
+  titles           Json? // 称号 [技能]
+  skills           Json? // 技能熟练度
+  sets             Json? // 套装信息 [套装]
+  bonus            Json? // 加成属性 [加成]
+  baseBonus        Json? // 基础加成
+  vehicle          String @default("") // 驾驶的载具ID
+  safeBox          Json? // 保险柜 [物品3]
+  equipmentPresets Json? // 装备预设
+  reverse          Json? // 逆向标记
+  recipes          Json? // 已解锁配方
+  stats            Json? // 额外统计
 
   // 好感度/宠物相关
-  affinity   Float    @default(0)     // 好感度
-  masterQQ   String   @default("")    // 主人QQ
-  vitality   Float    @default(0)     // 活力/特殊序号
+  affinity Float  @default(0) // 好感度
+  masterQQ String @default("") // 主人QQ
+  vitality Float  @default(0) // 活力/特殊序号
 
   // 时间相关
-  lastOpTime BigInt   @default(0)     // 最后操作时间戳
-  readTime   BigInt   @default(0)     // 读取时间戳
+  lastOpTime BigInt @default(0) // 最后操作时间戳
+  readTime   BigInt @default(0) // 读取时间戳
   /// 累计在线时长（秒），由后台任务按活跃玩家每分钟累加
-  playTime   BigInt   @default(0)
+  playTime   BigInt @default(0)
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([id, version])
 }
 
 // ========== 游戏地图 ==========
 
 /// 地图/区域表
 model GameMap {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String   @default(dbgenerated("('')")) @db.Text
-  mapIndex    Int      @default(0)     // 地图列表编号
-  level       Int      @default(1)     // 额外升级等级
-  isFrontier  Boolean  @default(false) // 是否开拓地
-  noTeleport  Boolean  @default(false) // 不能传送
-  noMove      Boolean  @default(false) // 不能搬迁
-  isInstance  Boolean  @default(false) // 是否关卡地图
-  requiredTravel Int   @default(0)     // 前往需求：0无 1飞行 2传送 3跃迁
+  id             Int     @id @default(autoincrement())
+  name           String  @unique
+  description    String  @default(dbgenerated("('')")) @db.Text
+  mapIndex       Int     @default(0) // 地图列表编号
+  level          Int     @default(1) // 额外升级等级
+  isFrontier     Boolean @default(false) // 是否开拓地
+  noTeleport     Boolean @default(false) // 不能传送
+  noMove         Boolean @default(false) // 不能搬迁
+  isInstance     Boolean @default(false) // 是否关卡地图
+  requiredTravel Int     @default(0) // 前往需求：0无 1飞行 2传送 3跃迁
 
   // 复杂数据结构（原生 JSON 列：读取直接返回对象/数组，写入直接传对象）
-  monsters    Json     @default(dbgenerated("('[]')"))  // 固定怪物列表
-  spawnMonsters Json   @default(dbgenerated("('[]')"))  // 刷出来的怪物
-  tempMonsters Json    @default(dbgenerated("('[]')"))  // 临时怪物
-  summons     Json     @default(dbgenerated("('[]')"))  // 召唤物
-  resources   Json     @default(dbgenerated("('[]')"))  // 资源
-  resources2  Json     @default(dbgenerated("('[]')"))  // 可采集资源
-  connections Json     @default(dbgenerated("('[]')"))  // 可前往地图 [可前往]
-  npcs        Json     @default(dbgenerated("('[]')"))  // NPC列表
-  items       Json     @default(dbgenerated("('[]')"))  // 可拾取物品
-  buildings   Json     @default(dbgenerated("('[]')"))  // 建筑
-  vehicles    Json     @default(dbgenerated("('[]')"))  // 载具
-  markers     Json     @default(dbgenerated("('{}')"))  // 永久标记
-  markers2    Json     @default(dbgenerated("('[]')"))  // 有时间限制标记
-  mapBuffs    Json     @default(dbgenerated("('[]')"))  // 地图增益
-  requireMarkers Json  @default(dbgenerated("('[]')"))  // 进入要求标记
-  failHint    String   @default(dbgenerated("('')")) @db.Text     // 未满足要求的提示
-  clearMarkers String  @default(dbgenerated("('')")) @db.Text     // 进入时清除的标记
-  music       String   @default("")                 // 背景音乐
-  monsterCount Int     @default(3)     // 刷怪数量
-  noSpecial   Boolean  @default(false) // 不刷特殊事件
+  monsters       Json? // 固定怪物列表
+  spawnMonsters  Json? // 刷出来的怪物
+  tempMonsters   Json? // 临时怪物
+  summons        Json? // 召唤物
+  resources      Json? // 资源
+  resources2     Json? // 可采集资源
+  connections    Json? // 可前往地图 [可前往]
+  npcs           Json? // NPC列表
+  items          Json? // 可拾取物品
+  buildings      Json? // 建筑
+  vehicles       Json? // 载具
+  markers        Json? // 永久标记
+  markers2       Json? // 有时间限制标记
+  mapBuffs       Json? // 地图增益
+  requireMarkers Json? // 进入要求标记
+  failHint       String  @default(dbgenerated("('')")) @db.Text // 未满足要求的提示
+  clearMarkers   String  @default(dbgenerated("('')")) @db.Text // 进入时清除的标记
+  music          String  @default("") // 背景音乐
+  monsterCount   Int     @default(3) // 刷怪数量
+  noSpecial      Boolean @default(false) // 不刷特殊事件
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ========== 怪物运行时实例 ==========
@@ -219,96 +221,96 @@ model GameMap {
 //    特殊序号存于 vitality 字段（原版 L288 注释）。
 
 model GameMonster {
-  id          Int      @id @default(autoincrement())
+  id         Int    @id @default(autoincrement())
   /// 所属地图（对应原版 地图.编号；本表每条记录是一个地图上的怪物实例）
-  mapId       Int      @default(1)
+  mapId      Int    @default(1)
   /// 怪物类型名（对应原版 玩家.类型，查 monsters.json 模板的 key）
-  type        String   @default("")
+  type       String @default("")
   /// 显示名称（对应原版 玩家.名称）
-  name        String   @default("")
+  name       String @default("")
   /// 唯一标识（对应原版 玩家.QQ，原版为"怪物"+生成编号()）
-  qq          String   @default("")
+  qq         String @default("")
   /// 特殊序号（对应原版 玩家.特殊序号：-1敌对怪物 -2宠物 0未初始化；宠物真序号在 vitality）
-  specialSeq  Int      @default(-1)
+  specialSeq Int    @default(-1)
   /// 归属（对应原版 玩家.归属，宠物主人 QQ）
-  ownerQQ     String   @default("")
+  ownerQQ    String @default("")
   /// 等级（对应原版 玩家.等级；运行时可能由 强制等级/世界等级 覆盖）
-  level       Int      @default(1)
+  level      Int    @default(1)
   /// 图片（对应原版 玩家.图片，觉醒/图片名作为显示名前缀）
-  image       String   @default("")
+  image      String @default("")
 
   // ===== 基础战斗属性（对应 monsters.json 顶层的 攻击/防御/速度，原版 _初始化怪物 写入 g.属性）=====
   /// 攻击力（怪物定义 attack，原版 玩家.攻击）
-  attack      Float    @default(0)
+  attack  Float   @default(0)
   /// 防御力（怪物定义 defense，原版 玩家.防御）
-  defense     Float    @default(0)
+  defense Float   @default(0)
   /// 速度（怪物定义 speed，原版 玩家.速度）
-  speed       Float    @default(0)
+  speed   Float   @default(0)
   /// 闪避率（怪物定义 dodge，原版 玩家.闪避，百分比）
-  dodge       Float    @default(0)
+  dodge   Float   @default(0)
   /// 命中率（怪物定义 hit，原版 玩家.命中，百分比）
-  hit         Float    @default(0)
+  hit     Float   @default(0)
   /// 是否精英（怪物定义 type=精英，原版标记）
-  isElite     Boolean  @default(false)
+  isElite Boolean @default(false)
 
   // ===== 三层池：当前值（战斗中实时变化）=====
-  hp          Float    @default(0)    // 当前生命（玩家.当前生命）
-  maxHp       Float    @default(0)    // 生命上限（=属性.生命，用于回血封顶）
-  shield      Float    @default(0)    // 当前护盾（玩家.当前护盾）
-  maxShield   Float    @default(0)    // 护盾上限（=属性.护盾）
-  armor       Float    @default(0)    // 当前装甲（玩家.当前装甲）
-  maxArmor    Float    @default(0)    // 装甲上限（=属性.装甲）
+  hp        Float @default(0) // 当前生命（玩家.当前生命）
+  maxHp     Float @default(0) // 生命上限（=属性.生命，用于回血封顶）
+  shield    Float @default(0) // 当前护盾（玩家.当前护盾）
+  maxShield Float @default(0) // 护盾上限（=属性.护盾）
+  armor     Float @default(0) // 当前装甲（玩家.当前装甲）
+  maxArmor  Float @default(0) // 装甲上限（=属性.装甲）
 
   // ===== 运算后属性（对应原版 玩家.属性 / 玩家.加成 / 玩家.基础，原生 JSON 列）=====
   /// 受加成后的最终属性（BonusData）
-  bonus       Json     @default(dbgenerated("('{}')"))
+  bonus      Json?
   /// 基础加成（怪物基础属性，等级成长前的）
-  baseBonus   Json     @default(dbgenerated("('{}')"))
+  baseBonus  Json?
   /// 额外加成（对应原版 玩家.加成）
-  extraBonus  Json     @default(dbgenerated("('{}')"))
+  extraBonus Json?
 
   // ===== 装备/武器（对应原版 玩家.装备 / 玩家.武器，含词条；原生 JSON 列）=====
-  equipments  Json     @default(dbgenerated("('[]')"))  // 装备数组 [装备]
-  weapons     Json     @default(dbgenerated("('[]')"))  // 武器数组 [装备]
-  currentWeapon Int     @default(0)    // 当前武器索引（玩家.当前武器）
-  equipmentPresets Json @default(dbgenerated("('[]')")) // 装备预设 [装备预设]
+  equipments       Json? // 装备数组 [装备]
+  weapons          Json? // 武器数组 [装备]
+  currentWeapon    Int   @default(0) // 当前武器索引（玩家.当前武器）
+  equipmentPresets Json? // 装备预设 [装备预设]
 
   // ===== 状态机（对应原版 玩家.标记 / 标记2 / 增益 / 成就）=====
   /// 永久标记/熟练度（玩家.标记：觉醒/强制等级/好感/宝宝/击杀 等）
-  markers     Json     @default(dbgenerated("('[]')"))
+  markers      Json?
   /// 限时标记/增益数组（玩家.标记2：激变星/强袭冷却/玄武光环 等）
-  markers2    Json     @default(dbgenerated("('[]')"))
+  markers2     Json?
   /// 增益（玩家.增益）
-  buffs       Json     @default(dbgenerated("('[]')"))
+  buffs        Json?
   /// 成就熟练度（玩家.成就：击杀数/猩红 等）
-  achievements Json    @default(dbgenerated("('[]')"))
+  achievements Json?
   /// 套装对象（玩家.套装：陪睡/接管载具/攻击模式/六道轮回/线圈/强袭/小樱命中次数/一拳/当前麻醉 等）
-  set         Json     @default(dbgenerated("('{}')"))
+  set          Json?
 
   // ===== 关系/宠物相关 =====
   /// 好感（玩家.好感；宠物为奶量；影响伤害系数）
-  affinity    Float    @default(0)
+  affinity Float @default(0)
   /// 活力（玩家.活力；宠物存特殊序号；决定免死逻辑如 #吸血姬）
-  vitality    Int      @default(0)
+  vitality Int   @default(0)
   /// 经验（玩家.经验，击杀奖励；怪物被击杀时给攻击者）
-  exp         Float    @default(0)
+  exp      Float @default(0)
   /// 背包（玩家.背包，掉落物）
-  backpack    Json     @default(dbgenerated("('[]')"))
+  backpack Json?
 
   // ===== 时间/标识 =====
   /// 时间差（玩家.时间差，分钟；用于回血计算）
-  timeDiff    Float    @default(0)
+  timeDiff      Float   @default(0)
   /// 读取时间（玩家.读取时间，长整数时间戳）
-  readTime    BigInt   @default(0)
+  readTime      BigInt  @default(0)
   /// 是否宠物（QQ 以"g"结尾，对应原版 L2644 注释）
-  isPet       Boolean  @default(false)
+  isPet         Boolean @default(false)
   /// 是否临时怪物（原版 地图.临时怪物；如事件/召唤产物，清掉重刷时保留策略由业务逻辑定）
-  isTemp      Boolean  @default(false)  // 是否临时怪物
+  isTemp        Boolean @default(false) // 是否临时怪物
   /// 奖励是否已被一次性认领，避免并发击杀重复发奖
   rewardClaimed Boolean @default(false)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([mapId])
   @@index([type])
@@ -322,55 +324,55 @@ model GameMonster {
 
 /// 载具定义表
 model GameVehicle {
-  id            Int      @id @default(autoincrement())
-  name          String   @unique
-  vehicleId     String   @default("")    // 8位文本ID
-  type          String   @default("")    // 类型
-  owner         String   @default("")    // 归属者QQ
-  driver        String   @default("")    // 驾驶员QQ
-  moveType      Int      @default(0)     // 行走方式：0坐地 1陆地 2飞行 3跃迁
-  maxHp         Float    @default(100)
-  currentHp     Float    @default(100)
-  mapIndex      Int      @default(0)     // 所在地图编号
+  id        Int    @id @default(autoincrement())
+  name      String @unique
+  vehicleId String @default("") // 8位文本ID
+  type      String @default("") // 类型
+  owner     String @default("") // 归属者QQ
+  driver    String @default("") // 驾驶员QQ
+  moveType  Int    @default(0) // 行走方式：0坐地 1陆地 2飞行 3跃迁
+  maxHp     Float  @default(100)
+  currentHp Float  @default(100)
+  mapIndex  Int    @default(0) // 所在地图编号
 
   // 部件系统
-  weaponSlots   Int      @default(0)
-  defenseSlots  Int      @default(0)
-  moveSlots     Int      @default(0)
-  functionSlots Int      @default(0)
-  maxWeapon     Int      @default(5)
-  maxDefense    Int      @default(5)
-  maxMove       Int      @default(5)
-  maxFunction   Int      @default(5)
-  slotStatus    Int      @default(0)     // 0正常 1超建议 2超上限 3两者
+  weaponSlots   Int @default(0)
+  defenseSlots  Int @default(0)
+  moveSlots     Int @default(0)
+  functionSlots Int @default(0)
+  maxWeapon     Int @default(5)
+  maxDefense    Int @default(5)
+  maxMove       Int @default(5)
+  maxFunction   Int @default(5)
+  slotStatus    Int @default(0) // 0正常 1超建议 2超上限 3两者
 
   // JSON 复杂数据（原生 JSON 列）
-  bonus         Json     @default(dbgenerated("('{}')"))  // 加成 [加成]
-  parts         Json     @default(dbgenerated("('[]')"))  // 零件 [物品3]
-  markers       Json     @default(dbgenerated("('{}')"))  // 标记 [技能]
-  markers2      Json     @default(dbgenerated("('[]')"))  // 有时限标记 [增益]
-  recipes       Json     @default(dbgenerated("('[]')"))  // 配方 [技能]
-  builtinParts  Json     @default(dbgenerated("('[]')"))  // 内置零件 [物品3]
-  coating       Int      @default(0)     // 涂层
-  reverseField  Boolean  @default(false) // 逆转力场
+  bonus        Json? // 加成 [加成]
+  parts        Json? // 零件 [物品3]
+  markers      Json? // 标记 [技能]
+  markers2     Json? // 有时限标记 [增益]
+  recipes      Json? // 配方 [技能]
+  builtinParts Json? // 内置零件 [物品3]
+  coating      Int     @default(0) // 涂层
+  reverseField Boolean @default(false) // 逆转力场
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ========== 商店/交易 ==========
 
 /// 商品表
 model GameShopItem {
-  id            Int      @id @default(autoincrement())
-  itemName      String   @default("")
-  itemType      String   @default("")
-  itemCount     Float    @default(1)
-  sellerQQ      String   @default("")    // 出售人QQ
-  price         Float    @default(0)
-  expireAt      DateTime                   // 到期时间
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  itemName  String   @default("")
+  itemType  String   @default("")
+  itemCount Float    @default(1)
+  sellerQQ  String   @default("") // 出售人QQ
+  price     Float    @default(0)
+  expireAt  DateTime // 到期时间
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ========== 公屏聊天 / 频道 ==========
@@ -395,33 +397,35 @@ model ChatMessage {
   content   String   @db.Text
   commandId Int?
   createdAt DateTime @default(now())
+
   @@index([channelId, createdAt])
 }
 
 model CommandLog {
-  id          Int      @id @default(autoincrement())
-  channelId   Int
-  senderId    Int
-  command     String
-  result      String   @db.Text
-  durationMs  Int      @default(0)
-  source      String   @default("web")
-  createdAt   DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  channelId  Int
+  senderId   Int
+  command    String
+  result     String   @db.Text
+  durationMs Int      @default(0)
+  source     String   @default("web")
+  createdAt  DateTime @default(now())
+
   @@index([channelId, createdAt])
 }
 
 // ========== 指令注册表 ==========
 
 model Command {
-  id          Int     @id @default(autoincrement())
-  name        String  @unique
-  alias       String  @default(dbgenerated("('')")) @db.Text
-  description String  @default(dbgenerated("('')")) @db.Text
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  alias       String   @default(dbgenerated("('')")) @db.Text
+  description String   @default(dbgenerated("('')")) @db.Text
   handlerKey  String
-  argsSchema  String  @default(dbgenerated("('[]')")) @db.Text
-  minRole     String  @default("USER")
-  enabled     Boolean @default(true)
-  sortOrder   Int     @default(0)
+  argsSchema  String   @default(dbgenerated("('[]')")) @db.Text
+  minRole     String   @default("USER")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -453,6 +457,7 @@ model PrivateMessage {
   content    String   @db.LongText
   read       Boolean  @default(false) // 接收方是否已读
   createdAt  DateTime @default(now())
+
   @@index([senderId, createdAt])
   @@index([receiverId, createdAt])
 }
@@ -461,16 +466,16 @@ model PrivateMessage {
 
 /// 反馈工单表：一个用户可提交多条反馈，管理员可查看与回复
 model Feedback {
-  id            Int      @id @default(autoincrement())
-  userId        Int
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title         String   @db.Text                          // 反馈标题
-  category      String   @default("general")    // 分类：bug/suggestion/general/other
-  status        String   @default("OPEN")       // 状态：OPEN/PROCESSING/RESOLVED/CLOSED
-  userLastReadAt DateTime @default(dbgenerated("('1970-01-01 00:00:00')"))  // 用户最后一次查看工单详情时间，用于计算未读管理员消息数
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  messages      FeedbackMessage[]
+  id             Int               @id @default(autoincrement())
+  userId         Int
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String            @db.Text // 反馈标题
+  category       String            @default("general") // 分类：bug/suggestion/general/other
+  status         String            @default("OPEN") // 状态：OPEN/PROCESSING/RESOLVED/CLOSED
+  userLastReadAt DateTime          @default(dbgenerated("('1970-01-01 00:00:00')")) // 用户最后一次查看工单详情时间，用于计算未读管理员消息数
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  messages       FeedbackMessage[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -481,15 +486,16 @@ model FeedbackMessage {
   id          Int      @id @default(autoincrement())
   feedbackId  Int
   feedback    Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  senderId    Int?                          // 发送者用户ID（系统消息可为空）
+  senderId    Int? // 发送者用户ID（系统消息可为空）
   sender      User?    @relation(fields: [senderId], references: [id], onDelete: SetNull)
-  senderType  String   @default("user")     // user/admin/system
+  senderType  String   @default("user") // user/admin/system
   content     String   @db.Text
-  attachments Json     @default(dbgenerated("('[]')"))       // 附件数组
+  attachments Json? // 附件数组
   createdAt   DateTime @default(now())
 
   @@index([feedbackId, createdAt])
 }
+
 /// 持久化延时任务表：统一承载「N 秒/分钟后结算一次」的跨重启延时
 /// （采集结算 / 移动到达 / 救援完成 / 装填完成 / 副本关闭等），
 /// 替代「内存 setTimeout + 周期扫描兜底」的双轨制——进程重启任务不丢，
@@ -497,11 +503,11 @@ model FeedbackMessage {
 /// 同 (type, userId, dedupeKey) 只保留一条：schedule 先删后插（取消/重排即覆盖）。
 model DelayedTask {
   id        Int      @id @default(autoincrement())
-  type      String                                     // 任务类型：gather | move | rescue | reload | dungeonClose
-  userId    Int?                                       // 关联玩家（地图级任务为空）
-  dedupeKey String?                                    // 同类型去重键：无则用 userId，救援用标记 token，副本用地图组名
-  payload   Json     @default(dbgenerated("('{}')"))   // JSON 载荷（结算所需参数）
-  runAt     DateTime                                   // 到期时间
+  type      String // 任务类型：gather | move | rescue | reload | dungeonClose
+  userId    Int? // 关联玩家（地图级任务为空）
+  dedupeKey String? // 同类型去重键：无则用 userId，救援用标记 token，副本用地图组名
+  payload   Json? // JSON 载荷（结算所需参数）
+  runAt     DateTime // 到期时间
   createdAt DateTime @default(now())
 
   @@index([runAt])

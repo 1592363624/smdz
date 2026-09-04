@@ -423,25 +423,7 @@ async function main() {
   //       由 seed-data.ts + StaticDataService 处理，此处不再内联示例占位数据。
   //       地图/载具动态数据由 seed-data.ts 从 prisma/data/*.json 导入。
 
-  // 11. 默认管理员账号
-  const existingAdmin = await prisma.user.findUnique({ where: { username: 'admin' } });
-  if (!existingAdmin) {
-    const bcrypt = await import('bcrypt');
-    const hashed = await bcrypt.hash('admin123', 10);
-    await prisma.user.create({
-      data: {
-        username: 'admin',
-        password: hashed,
-        nickname: '管理员',
-        role: 'SUPER_ADMIN',
-      },
-    });
-    console.log('✅ 默认管理员已创建: admin / admin123');
-  } else {
-    console.log('ℹ️ 管理员账号已存在，跳过');
-  }
-
-  // 12. 同步删除：以代码为准，删除 seed 中已不存在的记录(处理"删除/重命名"场景)
+  // 11. 同步删除：以代码为准，删除 seed 中已不存在的记录(处理"删除/重命名"场景)
   // 仅对 seed.ts 自身为权威数据源的表(指令/系统配置)做同步删除。
   // 地图/载具等动态数据由 seed-data.ts 从 JSON 导入，不在本脚本做同步删除，
   // 以免误删 JSON 已更新但 DB 尚未同步的记录。

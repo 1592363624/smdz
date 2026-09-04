@@ -2578,7 +2578,7 @@ export class ItemSystemService {
   /**
    * 格式化加成属性为显示文本
    */
-  private formatBonusStats(bonus: Record<string, number>): string[] {
+  formatBonusStats(bonus: Record<string, number>): string[] {
     const lines: string[] = [];
     const displayMap: Record<string, string> = {
       shield: '护盾', 装甲: '装甲', 生命: '生命', 攻击: '攻击',

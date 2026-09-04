@@ -74,6 +74,8 @@
             {{ e.quality === '普通' ? '' : e.quality + ' ' }}{{ e.name }}<i v-if="e.effect > 0">[特效{{ e.effect }}]</i>(+{{ e.enhance }})
           </span>
           <span v-else class="pi-eq-empty">无(+{{ e.enhance }})</span>
+          <!-- 已装备格属性：自带属性 + 随机词条，多行小字展示（来自后端 equipment[].attrs） -->
+          <pre v-if="e.name && e.attrs" class="pi-eq-attrs">{{ e.attrs }}</pre>
         </div>
       </div>
     </div>
