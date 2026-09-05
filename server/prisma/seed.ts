@@ -7,8 +7,10 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { attachBeijingTimeMiddleware } from '../src/common/utils/beijing-time.middleware';
 
 const prisma = new PrismaClient();
+attachBeijingTimeMiddleware(prisma);
 
 async function main() {
   console.log('🌱 开始写入种子数据...');

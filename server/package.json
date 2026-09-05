@@ -14,6 +14,7 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:data": "ts-node prisma/seed-data.ts",
     "seed:all": "ts-node prisma/seed.ts && ts-node prisma/seed-data.ts",
+    "migrate:beijing-time": "ts-node prisma/migrate-beijing-time.ts",
     "test": "jest --config jest.full.config.js --runInBand",
     "test:watch": "jest --watch",
     "test:unit": "jest",

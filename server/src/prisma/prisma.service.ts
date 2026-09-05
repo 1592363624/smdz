@@ -12,6 +12,7 @@ import { PrismaClient } from '@prisma/client';
 import { ChangeBusService } from '../game-sync/change-bus.service';
 import { inspectWriteParams } from '../game-sync/write-inspect';
 import { writeContext } from '../game-sync/write-context';
+import { attachBeijingTimeMiddleware } from '../common/utils/beijing-time.middleware';
 
 /** 需要触发 UI 同步的游戏实体模型（白名单，避免系统表/日志表误伤） */
 const SYNC_MODELS = new Set(['Player', 'GameMonster']);
@@ -22,6 +23,8 @@ const WRITE_OPERATIONS = new Set(['create', 'update', 'updateMany', 'upsert', 'd
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor(@Optional() private readonly changeBus?: ChangeBusService) {
     super();
+    // 时间校正（北京时区）中间件置顶：包裹后续全部中间件与引擎调用。
+    attachBeijingTimeMiddleware(this);
     // $use 直接作用于实例（Prisma 5 支持），无需替换 client。
     // 注意：$use 回调内不能引用 this.changeBus 之外的重逻辑；解析交给纯函数。
     this.$use(async (params, next) => {

@@ -533,7 +533,9 @@ export class StaticDataAdminService {
       if (!fs.existsSync(backupDir)) {
         fs.mkdirSync(backupDir, { recursive: true });
       }
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
       fs.copyFileSync(sourceFile, path.join(backupDir, `${fileName}.${stamp}.bak`));
       // 清理旧备份：同前缀按修改时间倒序保留 BACKUP_KEEP 份
       const olds = fs

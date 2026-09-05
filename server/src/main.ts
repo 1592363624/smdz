@@ -3,6 +3,8 @@
  * 负责：创建 Nest 应用实例、加载全局配置、启用 CORS、挂载全局前缀与 Swagger(OpenAPI) 文档。
  */
 
+import './time-zone';
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';

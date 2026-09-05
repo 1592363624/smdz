@@ -36,6 +36,10 @@
             <span v-if="row.count != null" class="rc-count">×{{ row.count }}</span>
           </div>
         </div>
+        <!-- 末尾非物品行（宠物搜索「白发现了…」/功能提示等）集中展示，不再丢弃 -->
+        <div v-if="layout.notes && layout.notes.length" class="rc-bag-notes">
+          <div v-for="(n, i) in layout.notes" :key="i" class="rc-bag-note">{{ n }}</div>
+        </div>
       </div>
 
       <!-- 属性面板 → 两栏：左列属性卡片 + 右列装备网格 -->
@@ -429,23 +433,29 @@ function parseLayout(text) {
   const bagIdx = lines.findIndex((l) => /^🎒\s*背包\s*\(\d+(?:种)?\)/.test(l));
   if (bagIdx >= 0) {
     const items = [];
+    const notes = [];
     for (const line of lines.slice(bagIdx + 1)) {
       const t = line.trim();
-      if (isBannerLine(t)) continue; // 横幅通知非物品，不显示
+      if (/^━+$/.test(t)) continue; // 分隔线跳过
+      if (isBannerLine(t)) { notes.push(t); continue; } // 【…】横幅归入备注区展示，不混入物品格
       // 序号 idx 与后端「背包」列表的 index+1、「装备 N」的解序号一致，必须原样保留供对号
       const m = t.match(/^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/);
       if (m) {
         items.push({ idx: m[1], name: m[2].trim(), count: m[3], kind: classifyItemKind(m[2].trim()) });
-      } else {
-        const pm = t.match(/^(\d+)\.\s*(.+)$/);
-        if (pm) {
-          const plain = pm[2].trim();
-          if (plain) items.push({ idx: pm[1], name: plain, count: null, kind: classifyItemKind(plain) });
-        }
+        continue;
       }
+      const pm = t.match(/^(\d+)\.\s*(.+)$/);
+      if (pm) {
+        const plain = pm[2].trim();
+        if (plain) items.push({ idx: pm[1], name: plain, count: null, kind: classifyItemKind(plain) });
+        continue;
+      }
+      // 其余非物品行（如宠物搜索「白发现了…」、功能提示、升级通知等）保留展示，
+      // 避免卡片把末尾的重要说明静默丢弃（组件约定：展示层绝不改写原文内容）。
+      if (t) notes.push(t);
     }
     if (items.length) {
-      return { kind: 'bag', title: `🎒 背包 (${items.length}种)`, items };
+      return { kind: 'bag', title: `🎒 背包 (${items.length}种)`, items, notes };
     }
   }
 
@@ -670,6 +680,24 @@ function parseLayout(text) {
   line-height: 1.4;
 }
 .rc-count { color: var(--accent2); font-weight: 600; flex-shrink: 0; }
+
+/* ===== 背包卡片末尾备注区（宠物搜索「白发现了…」/功能提示等，绝不丢弃原文） ===== */
+.rc-bag-notes {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(139, 92, 246, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+.rc-bag-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* ===== 装备区（右栏「一竖条」：每格一行，逐行向下，按品质描边） ===== */
 .rc-equip-grid {

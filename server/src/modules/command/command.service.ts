@@ -313,6 +313,24 @@ export class CommandService {
         }
       }
 
+      // 展示类指令（背包/资源背包/背包搜索/保险柜搜索）会把玩家背包渲染成列表。
+      // 若宠物搜索在列表生成【之后】才结算，会出现「列表里没有该物品、末尾却提示
+      // 白发现了小粉x1」的错位观感（玩家以为道具凭空消失/神秘变多）。
+      // 因此对这些指令把纯白之翼自动技能提前到 handler 渲染列表【之前】执行，
+      // 让列表与本次新入库的物品保持一致；提示文本仍按原语义拼接在指令输出之后。
+      // 其余指令保持原版"操作结束后结算"的顺序不变。
+      const isInventoryDisplay =
+        !!ctx.userId &&
+        ['背包', '资源背包', '背包搜索', '保险柜搜索'].includes(cmdDef.name);
+      let preSearchText = '';
+      if (ctx.userId && !readOnly && isInventoryDisplay) {
+        try {
+          preSearchText = await this.gameService.triggerAutoFamiliarSkill(ctx.userId);
+        } catch (e: any) {
+          this.logger.warn(`纯白之翼自动技能失败: ${e.message}`);
+        }
+      }
+
       // 单玩家写入口收口：整条指令（含 GameService / 战斗 / 使魔 / 兑换等所有
       // 服务的读改写）在 Actor 式 mutate 内串行执行、复用唯一快照。这从基础设施层
       // 彻底消除"旧快照整包覆盖 / CAS 并发冲突（玩家数据并发冲突，请重试）"类事故——
@@ -328,7 +346,14 @@ export class CommandService {
       // 原版 _主程序.ecode L11462：玩家指令结束后触发纯白之翼自动技能。
       // 自动技能复用 FamiliarSkillsService 的正式入口，结果并入本次指令文本。
       // 只读指令不触发（无状态变化，技能顺延到下一条动作指令）。
-      if (ctx.userId && !readOnly) {
+      // 展示类指令已在渲染列表前结算，这里跳过二次触发。
+      if (ctx.userId && !readOnly && isInventoryDisplay) {
+        if (preSearchText) {
+          result.content = result.content
+            ? `${result.content}\n${preSearchText}`
+            : preSearchText;
+        }
+      } else if (ctx.userId && !readOnly) {
         try {
           const autoSkillText = await this.gameService.triggerAutoFamiliarSkill(ctx.userId);
           if (autoSkillText) {

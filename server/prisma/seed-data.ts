@@ -13,10 +13,12 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { attachBeijingTimeMiddleware } from '../src/common/utils/beijing-time.middleware';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const prisma = new PrismaClient();
+attachBeijingTimeMiddleware(prisma);
 
 /** 从 prisma/data/ 读取 JSON 配置 */
 function loadData<T = any>(name: string): T[] {
