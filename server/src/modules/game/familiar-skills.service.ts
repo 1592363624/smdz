@@ -208,6 +208,9 @@ export class FamiliarSkillsService {
     newMarkers2.push({
       name: cooldownName,
       expireAt: now + duration * 1000,
+      // 技能 CD 标签：掌控时间（清空技能冷却）据此识别可递减的标记，
+      // 不会误伤 markers2 里的状态类条目（救援/采集/召唤冷却等）
+      kind: 'skill-cd',
     });
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
   }
@@ -446,7 +449,7 @@ export class FamiliarSkillsService {
       return { isOnCooldown: true, text: `${player.name}还需要${text}` };
     }
 
-    normalized.push({ name, expireAt: now + duration * 1000 });
+    normalized.push({ name, expireAt: now + duration * 1000, kind: 'skill-cd' });
     markers2.splice(0, markers2.length, ...normalized);
     return { isOnCooldown: false, text: '' };
   }
@@ -3035,47 +3038,56 @@ export class FamiliarSkillsService {
 
   /**
    * 掌控时间 - 需要时间主宰装备
-   * 对应原版：掌控时间()
+   * 对应原版：掌控时间()（使魔技能.ecode L2090-2099）
+   *   .判断 (装备要求 (玩家, #时间主宰) == 假) → 需要时间主宰
+   *   .判断 (时间间隔要求 ("sjz", 360, 玩家.标记2)) → 自身冷却6分钟
+   *   .默认 获得增益 (玩家.标记2, 玩家.类型+"技能冷却", -60, 真, s)
+   *        w = 玩家.名称 + "清空了技能冷却"
+   * 原版获得增益(叠加时间=真)语义：把该标记的有效期至直接 -60 秒，减到当前
+   * 时间以内即删除（= CD 清空）。本项目技能 CD 拆为每技能一个标记（setCooldown
+   * 统一打 kind:'skill-cd' 标签），故同时按原版机制递减「类型+技能冷却」与全部
+   * 在冷却中的技能标记，效果等价于原版"清空当前使魔技能冷却"。
    * @param userId 用户ID
    * @returns 技能效果文本
    */
   async timeControl(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    const { player } = playerData;
 
-    // 检查是否有时间主宰装备
+    // 原版只查当前装备（装备要求）：背包中的同名物品不算
     if (!this.hasItem(player, '时间主宰')) {
       return '需要「时间主宰」装备才能掌控时间';
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '掌控时间', 600);
+    // 自身冷却6分钟（原版 360 秒，键名沿用「掌控时间」）
+    const cooldownCheck = this.checkCooldown(player, '掌控时间', 360);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
-    const effect = this.getSkillEffect(affinity);
+    // 获得增益(标记2, 类型+"技能冷却", -60, 叠加时间=真)：剩余 CD 直接 -60 秒
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
+    const nowMs = Date.now();
+    const reduce = (name: string): void => {
+      const idx = markers2.findIndex((m: any) => (m?.name ?? m?.名称) === name);
+      if (idx < 0) return;
+      const rawExpire = Number(markers2[idx]?.expireAt ?? markers2[idx]?.有效期至 ?? 0);
+      const expireAtMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      // 与 combat-system 棒棒糖/光棱同一约定：减到当前时刻以下即视为清空
+      const reduced = Math.max(nowMs, expireAtMs - 60 * 1000);
+      if (reduced <= nowMs) markers2.splice(idx, 1);
+      else markers2[idx] = { ...markers2[idx], expireAt: reduced };
+    };
+    reduce(`${player.type || '玩家'}技能冷却`);
+    for (const m of [...markers2]) {
+      if (m?.kind === 'skill-cd') reduce(m?.name ?? m?.名称);
+    }
+    // 写回权威态（解析克隆→改→写回约定）：否则 setCooldown 重读旧串会丢掉本次递减
+    player.markers2 = markers2;
 
-    // 时间掌控效果：缩短冷却，提升属性
-    const cooldownReduction = Math.floor(20 * effect); // 冷却缩减百分比
-    const statBonus = Math.floor(30 * effect);
+    // 原版时间间隔要求("sjz",360) 通过后写入自身冷却
+    this.setCooldown(player, '掌控时间', 360);
 
-    this.addBuff(player, '时间主宰', 30, {
-      attack: statBonus,
-      speed: statBonus,
-      cooldown: cooldownReduction,
-    });
-
-    // 设置冷却
-    this.setCooldown(player, '掌控时间', 600);
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
-
-    return `时间在你手中流转！\n冷却缩减 ${cooldownReduction}%，全属性提升 ${statBonus} 点（持续30秒）\n冷却时间10分钟`;
+    return `${player.name || '冒险者'}清空了技能冷却`;
   }
 
   /**
