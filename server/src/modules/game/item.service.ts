@@ -95,6 +95,7 @@ export const QUALITY_PREFIX_MAP: Record<string, string> = {
   b: QualityLevel.SUPERB,
   a: QualityLevel.EPIC,
   s: QualityLevel.LEGENDARY,
+  x: QualityLevel.MYTHIC,
 };
 
 /**
@@ -480,10 +481,10 @@ export class ItemService {
     return QUALITY_PREFIX_MAP[prefix] || QualityLevel.MYTHIC;
   }
 
-  /** 返回原版背包列表使用的品质大写代码（E/D/C/B/A/S）。 */
+  /** 返回原版背包列表使用的品质大写代码（E/D/C/B/A/S/X，X=神迹）。 */
   getEquipmentQualityCode(equipment: Equipment): string {
     const prefix = String(equipment?.data || '').charAt(0);
-    return /^[edcbas]$/i.test(prefix) ? prefix.toUpperCase() : '';
+    return /^[edcbasx]$/i.test(prefix) ? prefix.toUpperCase() : '';
   }
 
   /** 读取装备实例的特效名称，编号仍按原版武器/装备分别计数。 */

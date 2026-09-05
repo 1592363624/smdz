@@ -1061,9 +1061,146 @@ export class TaskService {
     if (Object.keys(data).length === 0) return;
     await this.playerService.enqueueUserWrite(player.userId, async () => {
       const _pd = await this.playerService.getPlayerData(player.userId);
-      Object.assign(_pd.player, data);
+      this.applyTaskStateToLive(_pd.player, data, snapshot?.backpack);
       await this.playerService.savePlayer(_pd.player);
     });
+  }
+
+  /**
+   * 把任务流程的改动叠加到「活态」玩家上，而不是整列覆盖。
+   *
+   * 关键点：非 mutate 上下文里任务服务用 prisma.findUnique 读原始行，其 backpack 是
+   * 未物化货币条目的落库态。若直接把这份背包整列写回活态，会冲掉活态由
+   * getPlayerData 物化出来的 钻石/召唤券/数据核心 条目；savePlayer 提取货币时因
+   * 「权威快照（货币列存在）但背包条目缺失」把对应货币列误判为 0——
+   * 「主线-继续询问」任务结算把玩家钻石/召唤券清空（正式库 使魔大王 事故）的
+   * 根因路径。backpack 改按「保留未触及条目 + 叠加流程增量」合并，货币与并发产出
+   * 都不会再被旧读档背包顶掉。
+   */
+  private applyTaskStateToLive(livePlayer: any, data: Record<string, any>, snapshotBackpack?: string): void {
+    for (const field of Object.keys(data)) {
+      if (field === 'backpack') {
+        this.mergeBackpackOntoLive(livePlayer, data.backpack, snapshotBackpack);
+      } else {
+        livePlayer[field] = data[field];
+      }
+    }
+  }
+
+  /**
+   * 把流程内的背包变更合并进活态背包（按物品名对齐），保留活态独有条目。
+   *
+   * 规则：
+   * - 流程见过且新增/改量的物品：叠加「相对读档快照的增量」到活态同名条目
+   *   （快照缺失时按流入值覆盖，兼容 领取任务/开荒 等无快照调用）；
+   * - 流程新增的物品（读档快照里没有）：整体复制进活态；
+   * - 流程删掉的物品（读档快照有、流入彻底没有）：从活态删除（对齐整列回写语义）；
+   * - 流程没碰过的物品（读档快照与流入都没有，但活态有——物化货币条目/并发产出）：
+   *   原样保留，绝不删除。
+   */
+  private mergeBackpackOntoLive(livePlayer: any, incoming: any, snapshotBackpack?: string): void {
+    const live = this.parseArray(livePlayer.backpack);
+    const inItems = this.parseArray(incoming);
+    const baseItems = snapshotBackpack !== undefined ? this.parseArray(snapshotBackpack) : null;
+
+    const groupByName = (items: any[]) => {
+      const map = new Map<string, any[]>();
+      for (const item of items || []) {
+        const name = String(item?.name ?? '');
+        if (!name) continue;
+        const list = map.get(name) ?? [];
+        list.push(item);
+        map.set(name, list);
+      }
+      return map;
+    };
+    const incomingMap = groupByName(inItems);
+    const baseMap = baseItems ? groupByName(baseItems) : null;
+    const liveMap = groupByName(live);
+
+    // 物品名 -> 活态里同名条目数（区分「流程新增」与「并发/物的并发产出不同名条目」）
+    const liveCountByName = new Map<string, number>();
+    for (const [name, list] of liveMap) liveCountByName.set(name, list.length);
+
+    // 流程删掉的物品：读档快照有、流入彻底没有。活态同名条目按对齐序删掉
+    // 「快照里出现过的」数量，涌出的多余条目（并发新增）保留。
+    const droppedNames = new Set<string>();
+    const droppedKeepByName = new Map<string, number>();
+    if (baseMap) {
+      for (const [name, baseList] of baseMap) {
+        if (incomingMap.has(name)) continue;
+        droppedNames.add(name);
+        const keep = Math.max(0, (liveCountByName.get(name) ?? 0) - baseList.length);
+        if (keep > 0) droppedKeepByName.set(name, keep);
+      }
+    }
+
+    // 1) 活态条目按原始顺序逐个处理：同名对齐的流入/快照 → 叠加增量；
+    //    未触及（读档和流入都没有，但活态有——物化货币条目/并发产出）→ 原样保留。
+    const cursor = new Map<string, number>();
+    const result: any[] = [];
+    for (const item of live) {
+      const name = String(item?.name ?? '');
+      if (droppedNames.has(name)) {
+        const keep = (droppedKeepByName.get(name) ?? 0);
+        if (keep > 0) {
+          droppedKeepByName.set(name, keep - 1);
+          result.push(item);
+        }
+        continue;
+      }
+      const incList = incomingMap.get(name);
+      if (!incList) {
+        result.push(item);
+        continue;
+      }
+      const idx = cursor.get(name) ?? 0;
+      cursor.set(name, idx + 1);
+      if (idx >= incList.length) {
+        result.push(item); // 活态同名条目多于流入：多余部分保留
+        continue;
+      }
+      this.overlayBackpackItem(item, incList[idx], baseMap?.get(name)?.[idx]);
+      result.push(item);
+    }
+
+    // 2) 流程真正新增的物品（流入有、活态同名条目不足），按流入顺序追加。
+    for (const [name, incList] of incomingMap) {
+      const liveCount = liveCountByName.get(name) ?? 0;
+      for (let i = liveCount; i < incList.length; i++) {
+        result.push(this.cloneBackpackItem(incList[i]));
+      }
+    }
+
+    livePlayer.backpack = result; // Player backpack 为 Json 列，直接写数组
+  }
+
+  /** 把流入物品的数量增量叠加到活态条目上，并覆盖其它业务字段。 */
+  private overlayBackpackItem(liveItem: any, incoming: any, base?: any): void {
+    for (const key of ['count', 'quantity']) {
+      if (incoming[key] === undefined) continue;
+      const inVal = Number(incoming[key]);
+      if (base && base[key] !== undefined && liveItem[key] !== undefined) {
+        // 有读档基准：活态值 = 活态原值 + (流入值 - 基准值)，保留并发增量
+        liveItem[key] = Number(liveItem[key]) + (inVal - Number(base[key]));
+      } else {
+        // 无基准 / 活态缺该字段：以流入值为准（覆盖语义，兼容无快照调用）
+        liveItem[key] = inVal;
+      }
+    }
+    for (const key of Object.keys(incoming)) {
+      if (key === 'count' || key === 'quantity') continue;
+      liveItem[key] = incoming[key];
+    }
+  }
+
+  private cloneBackpackItem(item: any): any {
+    if (!item || typeof item !== 'object') return item;
+    try {
+      return JSON.parse(JSON.stringify(item));
+    } catch {
+      return Array.isArray(item) ? [...item] : { ...item };
+    }
   }
 
   /** 记录字段快照，供 saveTaskState 判定「本次是否真的改过」。必须在发奖之前调用。 */

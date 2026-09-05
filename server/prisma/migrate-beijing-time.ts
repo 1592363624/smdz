@@ -5,16 +5,28 @@
  * 用法：本脚本只做「普通 +8h」，并未附带任何业务过滤条件，运行前请先备份数据库。
  *   npm run migrate:beijing-time
  *
+ * 增量场景（新代码已上线、库内已有北京时间新行时）：设置环境变量 MIGRATE_BEFORE，
+ * 只偏移该时刻之前的历史行，避免把新代码写入的北京时间行重复 +8h。
+ *   MIGRATE_BEFORE="2026-09-05 08:30:00" npm run migrate:beijing-time
+ *
  * 说明：
  *  - DateTime 为 NULL 的行自动跳过（SQL 语义：NULL + INTERVAL 仍为 NULL）。
  *  - 表名/列名来自 server/prisma/schema.prisma（MySQL 映射：User→User ...）。
  *  - JSON 列内嵌的 epoch 毫秒（lastOpTime/readTime/playTime 等 BigInt）是绝对时刻，
  *    不属于 DateTime，不做偏移。
+ *
+ * ⚠️ 切勿对已迁移（北京时间）的库再次直接运行本脚本，否则会把北京行重复 +8h。
+ *    已上线新代码后如需补迁移，必须使用增量模式（MIGRATE_BEFORE）。
  */
 
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+const BEFORE = process.env.MIGRATE_BEFORE ?? null;
+if (BEFORE) {
+  console.log(`⚠️ 增量模式：仅偏移早于 ${BEFORE} 的历史行（MIGRATE_BEFORE）`);
+}
 
 const TABLES: Array<[string, string[]]> = [
   ['User', ['lastLoginAt', 'createdAt', 'updatedAt']],
@@ -44,7 +56,8 @@ async function main() {
   try {
     const sentinel = await prisma.$executeRawUnsafe(
       `UPDATE \`Feedback\` SET \`userLastReadAt\` = \`userLastReadAt\` + INTERVAL 8 HOUR
-       WHERE \`userLastReadAt\` IS NOT NULL AND \`userLastReadAt\` > '1970-01-01 02:00:00'`,
+       WHERE \`userLastReadAt\` IS NOT NULL AND \`userLastReadAt\` > '1970-01-01 02:00:00'
+       ${BEFORE ? `AND \`userLastReadAt\` < '${BEFORE}'` : ''}`,
     );
     console.log(`✅ Feedback.userLastReadAt: 偏移 ${sentinel} 行`);
   } catch (e) {
@@ -56,7 +69,9 @@ async function main() {
     for (const col of columns) {
       try {
         const result = await prisma.$executeRawUnsafe(
-          `UPDATE \`${table}\` SET \`${col}\` = \`${col}\` + INTERVAL 8 HOUR WHERE \`${col}\` IS NOT NULL`,
+          `UPDATE \`${table}\` SET \`${col}\` = \`${col}\` + INTERVAL 8 HOUR
+           WHERE \`${col}\` IS NOT NULL
+           ${BEFORE ? `AND \`${col}\` < '${BEFORE}'` : ''}`,
         );
         console.log(`✅ ${table}.${col}: 偏移 ${result} 行`);
       } catch (e) {

@@ -25,11 +25,12 @@ jest.mock('../src/modules/game/static-data.service', () => {
 });
 
 const staticData = new StaticDataService();
+const itemService = new ItemService({} as any, staticData, {} as any, {} as any, {} as any);
 const service = new ItemSystemService(
   {} as any,
   {} as any,
   {} as any,
-  new ItemService({} as any, staticData, {} as any, {} as any, {} as any),
+  itemService,
   {} as any,
   staticData,
 );
@@ -75,5 +76,14 @@ describe('物品基础判定复刻', () => {
     const equipped = [{ name: '测试铠甲', type: '装备', data: 'e!bx2' }];
     expect(service.hasEquipmentEffect(equipped, '花园猫猫')).toBe(true);
     expect(service.hasEquipmentEffect(equipped, '倾国倾城')).toBe(false);
+  });
+
+  it('神迹(品质码x)显示为X：web端据此判定为装备', () => {
+    const item = { name: '提卡', type: '装备', data: 'x!ah7.09!af4.73!ax5.56!aj0.56!bx0', specialSeq: -7, specialEffect: 0 } as any;
+    expect(itemService.getEquipmentQualityCode(item)).toBe('X');
+    const display = itemService.formatEquipmentInventoryDisplay(item);
+    expect(display).toBe('提卡X');
+    // web 端 W(G) 判定装备的正则（[EDCBASX]$），显示名必须能命中才会渲染"穿上"按钮
+    expect(/[EDCBASX]$/.test(display)).toBe(true);
   });
 });

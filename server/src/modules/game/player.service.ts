@@ -1159,7 +1159,12 @@ export class PlayerService implements OnModuleInit {
             items.splice(idx, 1);
             // 同步回内存快照：调用方（如 mutate 审计）保存后读取列值应与库一致
             (player as any)[column] = value;
-          } else if (authoritativeSnapshot) {
+          } else if (authoritativeSnapshot && (player as any)._currencyMirror) {
+            // 仅当对象经 getPlayerData 物化过货币（_currencyMirror 存在）时，
+            // 背包条目缺失才算「已花光=0」；findUnique 原始行没有 mirror，
+            // 其背包本就不含物化条目——缺失只代表落库态未物化，绝不能据此清零，
+            // 否则旧读档把整列背包回写会顺带把货币误清为 0
+            // （「主线-继续询问」任务结算清空玩家钻石/召唤券的正式库事故根因防护）。
             updateData[column] = 0;
             (player as any)[column] = 0;
           }
