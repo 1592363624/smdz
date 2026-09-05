@@ -208,6 +208,14 @@ async function main() {
     // 新手教程（统一 game 处理器）
     { name: '新手教程', alias: 'tutorial', description: '新手指引设置', handlerKey: 'game', minRole: 'USER', sortOrder: 270 },
     { name: '查看指定玩家', alias: 'view-player', description: '查看指定玩家信息', handlerKey: 'game', minRole: 'USER', sortOrder: 271 },
+    // 菜单体系（原版 接口1.ecode L325-338：三层编号临时输入替换菜单）
+    { name: '菜单', alias: 'menu', description: '游戏菜单入口', handlerKey: 'game', minRole: 'USER', sortOrder: 272 },
+    { name: '功能菜单', alias: 'function-menu', description: '功能菜单(分赃/计算/配平等)', handlerKey: 'game', minRole: 'USER', sortOrder: 273 },
+    { name: '游戏菜单', alias: 'game-menu', description: '游戏菜单', handlerKey: 'game', minRole: 'USER', sortOrder: 274 },
+    { name: '计算', alias: 'calc', description: '表达式计算(+ - * / ^ 三角函数)', handlerKey: 'game', minRole: 'USER', sortOrder: 275 },
+    { name: '数据刷新', alias: 'refresh-data', description: '刷新玩家数据', handlerKey: 'game', minRole: 'USER', sortOrder: 276 },
+    { name: '重新读取数据', alias: 'reload-data', description: '重新读取存档数据', handlerKey: 'game', minRole: 'USER', sortOrder: 277 },
+    { name: '确认重新读取数据', alias: 'confirm-reload', description: '确认重新读取存档数据', handlerKey: 'game', minRole: 'USER', sortOrder: 278 },
     // 其他扩展（统一 game 处理器）
     { name: '使魔大战', alias: 'game-intro', description: '游戏介绍', handlerKey: 'game', minRole: 'USER', sortOrder: 280 },
     { name: '游戏解释', alias: 'game-terms,名词解释', description: '游戏名词解释', handlerKey: 'game', minRole: 'USER', sortOrder: 281 },

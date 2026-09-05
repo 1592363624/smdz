@@ -11787,6 +11787,117 @@ export class GameService {
     return this.taskService.abandonTask(userId, questName);
   }
 
+  /**
+   * 菜单（原版 接口1.ecode L325-330）。
+   * 原版按“是否开启游戏”分流：游戏开启 → 游戏菜单/功能菜单；关闭 → 计算/快捷输入。
+   * Web 端游戏常开，固定输出游戏菜单/功能菜单两层入口。
+   */
+  async handleMenu(userId: number): Promise<string> {
+    if (this.shortcutService?.setTempInput) {
+      await this.shortcutService.setTempInput(userId, '1@游戏菜单#2@功能菜单');
+    }
+    return ['1、游戏菜单', '2、功能菜单'].join('\n');
+  }
+
+  /**
+   * 功能菜单（原版 接口1.ecode L332-334）：7 项编号临时输入替换。
+   * 子项映射：3@配平 → 生产配平、5@快捷输入 → 快捷 查看、7@管理菜单 → 管理；
+   * 1@分赃/4@分赃2/6@制造助手 在原版即为无实现的菜单占位项，保持一致。
+   * 原版回显漏列第 7 项，新版补全。
+   */
+  async handleFunctionMenu(userId: number): Promise<string> {
+    if (this.shortcutService?.setTempInput) {
+      await this.shortcutService.setTempInput(userId, '1@分赃#2@计算#3@生产配平#4@分赃2#5@快捷 查看#6@制造助手#7@管理');
+    }
+    return ['菜单', '1、分赃', '2、计算', '3、配平', '4、分赃2', '5、快捷输入', '6、制造助手', '7、管理菜单'].join('\n');
+  }
+
+  /**
+   * 游戏菜单（原版 接口1.ecode L335-338）。
+   * Web 端游戏常开（无群开关概念），直接输出；几率测试在原版即为无实现的占位项。
+   */
+  async handleGameMenu(userId: number): Promise<string> {
+    if (this.shortcutService?.setTempInput) {
+      await this.shortcutService.setTempInput(userId, '1@使魔大战#2@几率测试#3@数据刷新#4@重新读取数据#5@快捷 查看');
+    }
+    return ['游戏菜单', '1、使魔大战', '2、几率测试', '3、数据刷新', '4、重新读取数据', '5、快捷输入'].join('\n');
+  }
+
+  /**
+   * 计算（原版 接口1.ecode L338-355）。
+   * 表达式归一（x→*、全角括号→半角、。→.、、→/、去空格）→ 三角函数 sin/cos/tan
+   * （需括号）→ 白名单字符校验后求值，支持 + - * / ^（乘方）。
+   */
+  async handleCalculate(userId: number, expression: string): Promise<string> {
+    const raw = String(expression ?? '').trim();
+    if (!raw) {
+      return '输入算式进行计算，如“计算1+1”，运算符号：+-*/(加减乘除)、^(乘方)、sin/tan/cos(三角函数)';
+    }
+    let expr = raw
+      .replace(/\s+/g, '')
+      .replace(/[x×]/gi, '*')
+      .replace(/（/g, '(')
+      .replace(/）/g, ')')
+      .replace(/。/g, '.')
+      .replace(/、/g, '/');
+    // 三角函数先归一为单字符记号，便于白名单校验
+    expr = expr.replace(/sin/gi, 'S').replace(/cos/gi, 'C').replace(/tan/gi, 'T');
+    if (!/^[0-9+\-*/().^SCT]+$/.test(expr)) {
+      return `计算${raw}:\n错误：表达式包含不支持的字符`;
+    }
+    // 记号还原为 Math.sin( 等；无括号的三角函数（如 sin30）不予支持
+    const mathExpr = expr
+      .split('S(').join('Math.sin(')
+      .split('C(').join('Math.cos(')
+      .split('T(').join('Math.tan(')
+      .split('^').join('**');
+    if (/[SCT]/.test(mathExpr)) {
+      return `计算${raw}:\n错误：三角函数需要括号，如 sin(30)`;
+    }
+    let value: number;
+    try {
+      // 白名单仅剩数字/运算符/括号与本次注入的 Math.* 调用，无标识符注入面
+      value = Function('"use strict"; return (' + mathExpr + ')')();
+    } catch (e: any) {
+      return `计算${raw}:\n错误：${e?.message || '表达式无效'}`;
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return `计算${raw}:\n错误：结果无效`;
+    }
+    const display = expr.replace(/S/g, 'sin').replace(/C/g, 'cos').replace(/T/g, 'tan');
+    return `计算${display}:\n${Math.round(value * 1e10) / 1e10}`;
+  }
+
+  /**
+   * 数据刷新（原版 接口1.ecode L294-304）。
+   * 原版把玩家在内存列表中重排到首位；Web 端等价动作是重读玩家最新数据。
+   */
+  async handleRefreshData(userId: number): Promise<string> {
+    await this.playerService.getPlayerData(userId);
+    return '已刷新。';
+  }
+
+  /**
+   * 重新读取数据（原版 接口1.ecode L305-323）。
+   * 原版展示本地存档文件时间并提供 a@确认重新读取数据 / b@备份数据 确认菜单；
+   * Web 端数据实时落库（无 3 分钟存档延迟），保留确认入口，备份数据依赖本地文件未迁移。
+   */
+  async handleReloadData(userId: number): Promise<string> {
+    if (this.shortcutService?.setTempInput) {
+      await this.shortcutService.setTempInput(userId, 'a@确认重新读取数据');
+    }
+    return '确定要重新读取数据吗？这可能能解决指令不回复的问题\n（Web 端数据实时落库，无 3 分钟存档延迟）';
+  }
+
+  /**
+   * 确认重新读取数据（原版 接口1.ecode L309-323）：强制重读玩家最新数据。
+   * 原版有“距上次回复超5分钟”的活跃门禁，Web 端实时落库无丢失风险，直接执行。
+   */
+  async handleConfirmReloadData(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    return `${playerData.player.name || '冒险者'}已经重新读取了你的存档数据`;
+  }
+
   // ========== 其他命令 ==========
 
   /**

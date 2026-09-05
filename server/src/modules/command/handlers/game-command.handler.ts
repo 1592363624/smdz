@@ -1458,6 +1458,35 @@ export class GameCommandHandler implements CommandHandler {
         case 'game-intro':
           return this.wrap(await this.gameService.handleGameIntro(userId));
 
+        // 菜单体系（原版 接口1.ecode L325-355）：三层编号临时输入替换菜单
+        case '菜单':
+        case 'menu':
+          return this.wrap(await this.gameService.handleMenu(userId));
+
+        case '功能菜单':
+        case 'function-menu':
+          return this.wrap(await this.gameService.handleFunctionMenu(userId));
+
+        case '游戏菜单':
+        case 'game-menu':
+          return this.wrap(await this.gameService.handleGameMenu(userId));
+
+        case '计算':
+        case 'calc':
+          return this.wrap(await this.gameService.handleCalculate(userId, arg));
+
+        case '数据刷新':
+        case 'refresh-data':
+          return this.wrap(await this.gameService.handleRefreshData(userId));
+
+        case '重新读取数据':
+        case 'reload-data':
+          return this.wrap(await this.gameService.handleReloadData(userId));
+
+        case '确认重新读取数据':
+        case 'confirm-reload':
+          return this.wrap(await this.gameService.handleConfirmReloadData(userId));
+
         case '游戏解释':
         case 'game-terms':
         case '名词解释':
