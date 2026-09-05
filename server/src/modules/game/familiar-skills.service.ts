@@ -144,10 +144,10 @@ export class FamiliarSkillsService {
     case '训练': return this.train(userId);
     case '掌控时间': return this.timeControl(userId);
     case '召唤': return this.summon(userId, target);
-    case '力量模式': return this.nanoMode(userId, 'power');
+    case '力量模式': return this.nanoMode(userId, '力量');
     case '速度模式': return this.nanoMode(userId, '速度');
     case '装甲模式': return this.nanoMode(userId, '装甲');
-    case '隐匿模式': return this.nanoMode(userId, 'stealth');
+    case '隐匿模式': return this.nanoMode(userId, '隐匿');
 
     // 新增缺失技能
     case '安乐天使': return this.easeAngel(userId);
@@ -2141,24 +2141,29 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1794：特殊序号 != 长萌 → “这是长萌的技能”
     if (!this.checkFamiliarType(player, '长萌')) {
-      return '需要长萌才能使出全弹发射';
+      return `${player.name || '冒险者'}这是长萌的技能`;
     }
 
-    // 原版基础倍率：倍率转换(玩家, 100 + 5*技能等级)，全体攻击
+    // 原版基础倍率：倍率转换(玩家, 100 + 5*技能等级)，必中全体，冷却键=长萌技能冷却
     const skillLevel = this.getSkillLevel(markers, '长萌');
     const mult = 100 + 5 * skillLevel;
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
 
     // 真正调用战斗引擎（全体攻击）造成伤害
-    const { result } = await this.castCombatSkill(userId, {
-      cooldownName: '全弹发射',
+    const { result, player: livePlayer } = await this.castCombatSkill(userId, {
+      cooldownName: `${player.type}技能冷却`,
       baseCooldown: 60,
       damageMultiplier: mult,
-      attackText: '【全弹发射】',
+      attackText: '全弹发射a',
       allAttack: true,
       familiarType: '长萌',
     });
+
+    // 原版 L1819/L1828：添加标记("长萌技能", 20*a3, 玩家.增益)
+    this.addBuff(livePlayer, '长萌技能', 20 * a3);
+    await this.playerService.savePlayer(livePlayer);
 
     return `长萌全弹发射！所有炮门开启！\n${result}`;
   }
@@ -2506,40 +2511,55 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L2201：特殊序号 != 四糸乃 → “这是四糸乃的技能”
     if (!this.checkFamiliarType(player, '四糸乃')) {
-      return '需要四糸乃才能使出冻结傀儡';
+      return `${player.name || '冒险者'}这是四糸乃的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '冻结傀儡', 120);
+    // 原版 L2203-2210：冷却核心 → 50 秒否则 60 秒；冷却键=四糸乃技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '四糸乃');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L2212-2216：好感≥100 → a1=1.5（四糸乃a=3 在结算快照上写入）
+    const skillLevel = this.getSkillLevel(markers, '四糸乃');
+    let a1 = 1;
+    if (this.checkAffinity(markers, '四糸乃', 100)) {
+      a1 = 1.5;
+    }
 
-    // 冰冻控制：伤害+减速
-    const baseDamage = 80 + Math.floor(affinity * 0.8);
-    const finalDamage = Math.floor(baseDamage * effect);
-    const freezeDuration = Math.floor(5 + 5 * effect); // 5~10秒
+    const monsters = await this.mapService.getMapMonsters(player.mapId).catch(() => [] as any[]);
+    const aliveCount = (monsters as any[]).filter((m: any) => Number(m?.hp ?? 0) > 0).length;
 
-    this.addBuff(player, '冻结傀儡·冰冻', freezeDuration, { 速度: -50 });
+    // 原版 L2217-2223：无怪 → 对着空气练习了冻结傀儡
+    if (aliveCount === 0) {
+      const gainedExp = this.gainSkillExperience(player, markers, 1);
+      markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+      this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
+      await this.playerService.savePlayer(player);
+      return `${player.name || '冒险者'}附近没有目标，对着空气练习了冻结傀儡
+(技能经验+${this.formatSkillNumber(gainedExp)})`;
+    }
 
-    // 设置冷却
-    this.setCooldown(player, '冻结傀儡', 120);
+    // 原版 L2224-2226：a1 = a1/存活怪数；倍率 = a1*(150+5*技能等级)，“空间震b”必中全体
+    const mult = Math.floor((a1 / aliveCount) * (150 + 5 * skillLevel));
+    const { result, player: livePlayer, markers: liveMarkers } = await this.castCombatSkill(userId, {
+      cooldownName: `${player.type}技能冷却`,
+      baseCooldown: 60,
+      damageMultiplier: mult,
+      attackText: '空间震b',
+      allAttack: true,
+      familiarType: '四糸乃',
+    });
 
-    // 记录技能熟练度
-    const skillKey = '四糸乃技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
-    await this.playerService.savePlayer(player);
-
-    return `四糸乃召唤冻结傀儡！\n极寒的傀儡将目标冻结，造成 ${finalDamage} 点冰系伤害\n目标被冻结 ${freezeDuration} 秒，速度大幅降低\n好感度加成: ${Math.round(effect * 100)}%`;
+    if (this.checkAffinity(liveMarkers, '四糸乃', 100)) {
+      this.playerService.setMarker(liveMarkers, '四糸乃a', 3);
+    }
+    livePlayer.markers = liveMarkers; // Player markers 为 Json 列，直接写对象
+    await this.playerService.savePlayer(livePlayer);
+    return `四糸乃召唤冻结傀儡！
+${result}`;
   }
 
   /**
@@ -2553,47 +2573,49 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
-    if (!this.checkFamiliarType(player, '小樱')) {
-      return '需要小樱才能使出封印解除';
+    // 原版 L2240：特殊序号 != 小樱 && != 启木之本樱 → “这是小樱的技能”
+    const isKiyoi = this.checkFamiliarType(player, '启木之本樱');
+    if (!this.checkFamiliarType(player, '小樱') && !isKiyoi) {
+      return `${player.name || '冒险者'}这是小樱的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '封印解除', 180);
+    // 原版 L2242-2249：冷却核心 → 50 秒否则 60 秒；冷却键=小樱技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '小樱');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L2250-2257：库洛牌 a3 → “封印解除”增益：时长 a3*(技能等级+20) 秒、强度 1
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    const skillLevel = this.getSkillLevel(markers, '小樱');
+    this.addBuff(player, '封印解除', a3 * (skillLevel + 20), { 强度: 1 });
 
-    // 全属性大幅提升
-    const statBonus = Math.floor(60 * effect);
+    // 原版 L2258：小樱技能熟练度 +1
+    this.playerService.setMarker(markers, '小樱技能熟练度', this.playerService.getMarkerValue(markers, '小樱技能熟练度') + 1);
 
-    this.addBuff(player, '封印解除', 60, {
-      attack: statBonus,
-      defense: statBonus,
-      speed: statBonus,
-      dodge: statBonus,
-      hit: statBonus,
-      crit: Math.floor(15 * effect),
-      critDmg: Math.floor(30 * effect),
-      hpRegen: Math.floor(10 * effect),
-    });
+    const lines = ['封印解除！'];
+    // 原版 L2260-2276：小樱本体——好感≥80 → 空间魔力=2；好感≥100 → 三池回满；
+    // 启木之本樱 → 三池回满无条件
+    if (isKiyoi) {
+      player.hp = player.maxHp || player.hp;
+      player.armor = player.maxArmor ?? player.armor;
+      player.shield = player.maxShield ?? player.shield;
+    } else if (this.checkAffinity(markers, '小樱', 80)) {
+      this.playerService.setMarker(markers, '空间魔力', 2);
+      lines.push('（空间魔力）');
+      if (this.checkAffinity(markers, '小樱', 100)) {
+        player.hp = player.maxHp || player.hp;
+        player.armor = player.maxArmor ?? player.armor;
+        player.shield = player.maxShield ?? player.shield;
+        lines.push('（混沌魔力）');
+      }
+    }
 
-    // 设置冷却
-    this.setCooldown(player, '封印解除', 180);
-
-    // 记录技能熟练度
-    const skillKey = '小樱技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L2260 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
-
-    return `小樱：封印解除！\n隐藏的力量全部释放！全属性大幅提升 ${statBonus} 点（持续60秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -2607,43 +2629,73 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L2156：特殊序号 != 古月娜 → “这是古月娜的技能”
     if (!this.checkFamiliarType(player, '古月娜')) {
-      return '需要古月娜才能使出召唤银龙';
+      return `${player.name || '冒险者'}这是古月娜的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '召唤银龙', 300);
+    // 原版 L2158：召唤冷却2 60 秒
+    const cooldownCheck = this.checkCooldown(player, '召唤冷却2', 60);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '古月娜');
-    const effect = this.getSkillEffect(affinity);
+    const ownerQQ = String(player.qqNumber ?? player.QQ ?? player.id ?? userId);
+    const dragonQQ = `召唤物${ownerQQ}x`;
 
-    // 召唤银龙：根据好感度计算银龙属性
-    const dragonAttack = Math.floor(200 + affinity * 1.5 * effect);
-    const dragonHp = Math.floor(1000 + affinity * 3 * effect);
-    const dragonDuration = Math.floor(30 + 30 * effect); // 30~60秒
+    // 原版 L2160-2177：全地图查找自己此前召唤的银龙（QQ=召唤物+归属QQ+x）→ 传送到当前地图
+    const maps = await this.mapService.getAllMaps();
+    let relocated: any = null;
+    for (const m of maps) {
+      const summons = asJsonValue<any[]>(m.summons, []);
+      const dragon = summons.find((s: any) => String(s?.qq ?? s?.QQ ?? '') === dragonQQ);
+      if (dragon && Number(m.id) !== Number(player.mapId)) {
+        await this.mapService.mutateSummons(m.id, (fresh) => {
+          const idx = fresh.findIndex((s: any) => String(s?.qq ?? s?.QQ ?? '') === dragonQQ);
+          if (idx >= 0) fresh.splice(idx, 1);
+          return fresh;
+        });
+        relocated = dragon;
+        break;
+      } else if (dragon) {
+        relocated = dragon; // 已在当前地图：同样按“传送来到”口径刷新
+        break;
+      }
+    }
 
-    this.addBuff(player, '银龙之魂', dragonDuration, {
-      attack: Math.floor(dragonAttack * 0.3),
-      defense: Math.floor(dragonAttack * 0.2),
-    });
+    let resultText: string;
+    if (relocated) {
+      await this.mapService.mutateSummons(player.mapId, (fresh) => {
+        fresh.push(relocated);
+      });
+      resultText = `${player.name || '冒险者'}之前召唤的银龙传送来到了${player.location || '当前地图'}`;
+    } else {
+      // 原版 L2180-2194：名称/类型=银龙、QQ=召唤物+归属QQ+x、当前生命 1、
+      // 武器=爪子(s)、基础属性=玩家属性，_计算玩家后加入当前地图召唤物
+      const dragon = {
+        name: '银龙',
+        type: '银龙',
+        qq: dragonQQ,
+        QQ: dragonQQ,
+        ownerQQ: ownerQQ,
+        归属: ownerQQ,
+        当前生命: 1,
+        hp: 1,
+        基础: {},
+        装备: [],
+        武器: [{ name: '爪子', type: '武器', quality: 's' }],
+        标记: [],
+        buffs: [],
+      };
+      await this.mapService.mutateSummons(player.mapId, (fresh) => {
+        fresh.push(dragon);
+      });
+      resultText = `${player.name || '冒险者'}召唤出了一条银龙`;
+    }
 
-    // 设置冷却
-    this.setCooldown(player, '召唤银龙', 300);
-
-    // 记录技能熟练度
-    const skillKey = '古月娜技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 15;
-
-    // 增加活跃度
+    this.setCooldown(player, '召唤冷却2', 60);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
-
-    return `古月娜召唤银龙！\n一条银色的巨龙降临战场！\n银龙属性——攻击: ${dragonAttack}，生命: ${dragonHp}\n银龙将协助战斗 ${dragonDuration} 秒\n好感度加成: ${Math.round(effect * 100)}%`;
+    return resultText;
   }
 
   /**
@@ -3296,63 +3348,84 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否有次元手环
+    // 原版 L2101：装备要求(次元手环) —— 招唤物固定为凯露，target 仅作别名兼容
     if (!this.hasItem(player, '次元手环')) {
-      return '需要「次元手环」才能使用召唤';
+      return `${player.name || '冒险者'}需要次元手环`;
     }
+    void target;
 
-    if (!target) {
-      return '请指定要召唤的目标';
-    }
-
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '召唤', 120);
+    // 原版 L2102：召唤冷却1 600 秒
+    const cooldownCheck = this.checkCooldown(player, '召唤冷却1', 600);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 真实机制：在当前地图 summons 生成一个归属于玩家的召唤物
-    // 原版次元手环可召唤指定名称的使魔/宠物，此处按名称生成通用召唤物模板
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return '你不在任何地图上';
-    const ownerId = player.qq || String(userId);
-    const summonId = `summon_${ownerId}_${Date.now()}`;
-    const level = Math.max(1, (player.level || 1));
-    const baseHp = 200 + level * 20;
-    // mutateSummons 锁内闭环：重读最新 summons 后 push，与玩家并发写互不覆盖
-    await this.mapService.mutateSummons(player.mapId, (summons) => {
-      summons.push({
-        id: summonId,
-        name: target,
-        type: target,
-        qq: `怪物${target}${ownerId}xg`,
-        owner: ownerId,
-        归属: ownerId,
-        基础: { 生命: baseHp },
-        base: { 生命: baseHp },
-        level,
-        hp: baseHp,
-        maxHp: baseHp,
-        attack: 20 + level * 2,
-        defense: 10 + level,
-        speed: 100,
-        dodge: 5,
-        hit: 85,
-        exp: 10 + level * 2,
-        isPlayerSummon: true,
-        buffs: [],
-        bonus: {},
+    const ownerQQ = String(player.qqNumber ?? player.QQ ?? player.id ?? userId);
+    const maps = await this.mapService.getAllMaps();
+
+    // 原版 L2103-2125：全地图查找归属自己的“凯露”→ 传送到当前地图
+    let relocated: any = null;
+    for (const m of maps) {
+      const summons = asJsonValue<any[]>(m.summons, []);
+      const caelu = summons.find((s: any) =>
+        String(s?.name ?? s?.名称 ?? '') === '凯露'
+        && String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '') === ownerQQ);
+      if (caelu && Number(m.id) !== Number(player.mapId)) {
+        await this.mapService.mutateSummons(m.id, (fresh) => {
+          const idx = fresh.findIndex((s: any) => s === caelu);
+          if (idx >= 0) fresh.splice(idx, 1);
+          return fresh;
+        });
+        relocated = caelu;
+        break;
+      } else if (caelu) {
+        relocated = caelu;
+        break;
+      }
+    }
+
+    let resultText: string;
+    if (relocated) {
+      await this.mapService.mutateSummons(player.mapId, (fresh) => {
+        fresh.push(relocated);
       });
-    });
+      resultText = `${player.name || '冒险者'}之前召唤的凯露传送来到了${player.location || '当前地图'}`;
+    } else {
+      // 原版 L2128-2150：名称/类型=凯露、QQ=召唤物+编号+x、生命=等级*100、
+      // 装备=荆棘之翼(s)、基础属性=玩家对应属性/4（闪避/命中/2）
+      const level = Math.max(1, Number(player.level ?? 1));
+      const caelu = {
+        name: '凯露',
+        type: '凯露',
+        qq: `召唤物${Date.now().toString(36)}x`,
+        ownerQQ: ownerQQ,
+        归属: ownerQQ,
+        当前生命: level * 100,
+        hp: level * 100,
+        level,
+        装备: [{ name: '荆棘之翼', quality: 's', type: '装备' }],
+        基础: {
+          生命: level * 100,
+          攻击: Number(player.attack ?? 0) / 4,
+          电伤: 0,
+          火伤: 0,
+          物伤: 0,
+          冰伤: 0,
+          闪避: Number(player.dodge ?? 0) / 2,
+          命中: Number(player.hit ?? 0) / 2,
+        },
+        标记: [],
+        buffs: [],
+      };
+      await this.mapService.mutateSummons(player.mapId, (fresh) => {
+        fresh.push(caelu);
+      });
+      resultText = `${player.name || '冒险者'}召唤出了一只凯露`;
+    }
 
-    // 设置冷却
-    this.setCooldown(player, '召唤', 120);
-
-    // 增加活跃度
+    this.setCooldown(player, '召唤冷却1', 600);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
-
-    return `使用次元手环召唤「${target}」！\n次元之门打开，召唤物降临当前地图，归属于你（冷却2分钟）`;
+    return resultText;
   }
 
   /**
@@ -3366,68 +3439,37 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查纳米生化装数量
-    const backpack = this.playerService.getBackpackItems(player);
-    const nanoItems = backpack.filter((item: any) => item.name.includes('纳米'));
-    if (nanoItems.length < 6) {
-      return '需要装备至少6件纳米生化装才能启用模式（当前只有' + nanoItems.length + '件）';
+    // 原版 L2306 等：套装.纳米生化装 != 6 → “需要身上装备纳米头盔、臂甲、手套、装甲、裤子、鞋”
+    // Web 端以当前装备表中名称含“纳米”的件数判定 6 件套
+    const equipment = asJsonValue<any[]>(player.equipment, []);
+    const nanoCount = equipment.filter((item: any) =>
+      String(item?.name ?? item?.名称 ?? '').includes('纳米')).length;
+    if (nanoCount !== 6) {
+      return `${player.name || '冒险者'}需要身上装备纳米头盔、臂甲、手套、装甲、裤子、鞋`;
     }
 
-    // 检查冷却
-    const cooldownName = `纳米模式_${mode}`;
-    const cooldownCheck = this.checkCooldown(player, cooldownName, 120);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
-
-    // 获取好感度
-    const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
-    const effect = this.getSkillEffect(affinity);
-
-    // 不同模式不同效果
-    let buffName = '';
-    let buffData: Record<string, any> = {};
-    let modeText = '';
-
-    switch (mode) {
-      case 'power':
-        buffName = '纳米·力量模式';
-        buffData = { 攻击: Math.floor(80 * effect), 暴击: Math.floor(15 * effect) };
-        modeText = '力量模式';
-        break;
-      case '速度':
-        buffName = '纳米·速度模式';
-        buffData = { 速度: Math.floor(80 * effect), 闪避: Math.floor(30 * effect) };
-        modeText = '速度模式';
-        break;
-      case '装甲':
-        buffName = '纳米·装甲模式';
-        buffData = { 防御: Math.floor(80 * effect), 装甲: Math.floor(50 * effect) };
-        modeText = '装甲模式';
-        break;
-      case 'stealth':
-        buffName = '纳米·隐匿模式';
-        buffData = { 闪避: Math.floor(50 * effect), 命中: Math.floor(30 * effect) };
-        modeText = '隐匿模式';
-        break;
-      default:
-        return `未知的纳米模式：${mode}`;
+    // 原版：四模式共享“生化装”冷却 90 秒
+    const cooldownCheck = this.checkCooldown(player, '生化装', 90);
+    if (cooldownCheck.isOnCooldown) {
+      return `${player.name || '冒险者'}生化装技能冷却${cooldownCheck.text}`;
     }
 
-    this.addBuff(player, buffName, 30, buffData);
-
-    // 设置冷却
-    this.setCooldown(player, cooldownName, 120);
-
-    // 增加活跃度
+    // 模式名即增益名（引擎按名消费：隐匿模式豁免怪物回合/花园猫幻时等）
+    // 原版 L2308-2343：添加标记(消息数据, 20, 玩家.增益) —— 20 秒
+    const modeName = `${mode}模式`;
+    this.addBuff(player, modeName, 20);
+    this.setCooldown(player, '生化装', 90);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    const bonusText = Object.entries(buffData)
-      .map(([key, val]) => `${key} +${val}`)
-      .join('，');
-
-    return `纳米生化装切换为${modeText}！\n${bonusText}（持续30秒，冷却2分钟）\n好感度加成: ${Math.round(effect * 100)}%`;
+    const modeTextMap: Record<string, string> = {
+      力量: 'Maximun strong',
+      速度: 'Maximun speed',
+      装甲: 'Maximun armor',
+      隐匿: 'Cloak engage',
+    };
+    return `${player.name || '冒险者'}（${modeTextMap[mode] ?? mode}）`;
   }
 
   // ==================== 新增缺失技能 ====================
