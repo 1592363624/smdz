@@ -555,13 +555,15 @@ export class GameService {
     const travelDistance = isDungeonEntry
       ? Number(dungeonEntry?.distance || 100)
       : this.getDistance(currentMap, targetMap);
-    const travelTime = this.mapService.calcTravelTime(
-      travelDistance,
-      player.speed || 100,
-    );
     // 原版 _主程序.ecode L6574/L6601/L6664：移动任务按最短路径节点数推进，
     // 不是按耗时或距离推进；路径长度至少按一次移动处理。
     const movementTaskCount = await this.getMovementPathLength(currentMap, targetMap);
+    // 原版 L6638-6644：b = 距离/速度（整数截断）；b < 路径节点数 → b=路径节点数；b < 1 → b=1
+    const travelTime = this.mapService.calcTravelTime(
+      travelDistance,
+      player.speed || 100,
+      movementTaskCount,
+    );
 
     // 若关闭了移动耗时开关，则即时到达
     if (!moveTimeEnabled) {
@@ -13337,39 +13339,50 @@ export class GameService {
    * 对应原版：神之工匠 命令
    */
   async handleSpawnArtisan(userId: number): Promise<string> {
-    // 获取玩家数据
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      return '权限不足，需要管理员权限';
+    }
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上';
 
-    // 解析当前地图上的NPC列表
-    const npcs = asJsonValue<any[]>(map.npcs || '[]', []);
-
-    // 检查是否已经存在神之工匠
-    const existingNpc = npcs.find((npc: any) => npc.name === '神之工匠');
-    if (existingNpc) {
-      return '当前地图已经有神之工匠了';
+    // 原版 _主程序.ecode L7133-7150：生成两个怪物型召唤物加入当前地图召唤物——
+    //   神之工匠（类型=粉狐狐、QQ=npc1g、特殊序号=-2）
+    //   小雫（类型=精英小雫、QQ=npc2g、特殊序号=-2）
+    const artisanSpecs = [
+      { name: '神之工匠', type: '粉狐狐', qq: 'npc1g' },
+      { name: '小雫', type: '精英小雫', qq: 'npc2g' },
+    ];
+    for (const spec of artisanSpecs) {
+      let summon: any;
+      try {
+        const data = await this.mapService.createMapSummonByName(player.mapId, spec.type, {
+          ownerQQ: '1',
+          qq: spec.qq,
+        });
+        summon = { ...data, name: spec.name };
+        summon.qq = spec.qq;
+        summon.QQ = spec.qq;
+      } catch (e: any) {
+        this.logger.warn(`生成神之工匠 ${spec.type} 无怪物定义，按基础实体生成: ${e?.message}`);
+        summon = {
+          specialSeq: -2, name: spec.name, type: spec.type, qq: spec.qq,
+          ownerQQ: '1', hp: 100, maxHp: 100, 标记: [], buffs: [],
+        };
+      }
+      summon.specialSeq = -2;
+      summon.特殊序号 = -2;
+      summon.归属 = '1';
+      await this.mapService.mutateSummons(player.mapId, (fresh) => {
+        fresh.push(summon);
+      });
     }
 
-    // 创建神之工匠NPC
-    // mutateMapFields 锁内闭环：重读最新 npcs → 锁内复查去重 → push → 差异落库
-    await this.mapService.mutateMapFields(map.id, ['npcs'], (f) => {
-      const fresh = f.npcs as any[];
-      if (fresh.some((npc: any) => npc.name === '神之工匠')) return;
-      fresh.push({
-        name: '神之工匠',
-        type: 'npc',
-        title: '锻造大师',
-        description: '能够打造传说级装备的工匠大师',
-        dialog: '需要打造什么？我可以用最好的材料打造最强的装备！',
-      });
-    });
-
-    this.logger.log(`玩家 ${userId} 在地图 ${map.name} 生成了神之工匠NPC`);
-    return '神之工匠已出现在当前地图！他可以帮你打造传说级装备。';
+    this.logger.log(`管理员 ${userId} 在地图 ${map.name} 生成神之工匠`);
+    return `${player.name || '冒险者'}
+神之工匠来到了${map.name}`;
   }
 
   /**
@@ -13378,34 +13391,71 @@ export class GameService {
    * 对应原版：废弃载具 命令
    */
   async handleSpawnWreck(userId: number): Promise<string> {
-    // 获取玩家数据
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      return '权限不足，需要管理员权限';
+    }
 
-    // 获取当前地图
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return '你不在任何地图上';
+    // 原版 _主程序.ecode L7152-7156 + 后台运作.ecode 生成随机载具(真,a)：
+    // 按几率加权抽取随机载具定义（wrecks.json，含零件清单），归属=无主，
+    // 随机生成地点=编号3起、排除开拓地/关卡/副本/不刷特殊地图，加入该地图载具列表。
+    const wrecks = this.staticData.loadRaw('wrecks') as any[];
+    if (!Array.isArray(wrecks) || wrecks.length === 0) {
+      return '随机载具列表为空，无法生成废弃载具';
+    }
+    // 按几率加权抽取（原版几率判断循环的等价实现）
+    const totalChance = wrecks.reduce((sum, w) => sum + Math.max(0, Number(w?.chance ?? 0)), 0);
+    let roll = Math.random() * totalChance;
+    let wreck = wrecks[0];
+    for (const candidate of wrecks) {
+      roll -= Math.max(0, Number(candidate?.chance ?? 0));
+      if (roll <= 0) {
+        wreck = candidate;
+        break;
+      }
+    }
 
-    // 解析当前地图上的资源列表
-    const resources = asJsonValue<any[]>(map.resources || '[]', []);
+    const maps = await this.mapService.getAllMaps();
+    const candidates = (maps as any[]).filter((m: any) =>
+      Number(m?.id ?? 0) >= 3 && !m.开拓地 && !m.isFrontier && !m.关卡 && !m.isInstance && !m.noSpecial);
+    if (candidates.length === 0) return '没有可生成废弃载具的地图';
+    const targetMap = candidates[Math.floor(Math.random() * candidates.length)];
 
-    // 创建废弃载具资源
-    // mutateMapFields 锁内闭环：重读最新 resources → push → 差异落库
-    await this.mapService.mutateMapFields(map.id, ['resources'], (f) => {
-      (f.resources as any[]).push({
-        name: '废弃载具残骸',
-        type: '资源',
-        description: '一辆废弃的载具残骸，可以从中回收零件和材料',
-        outputs: [
-          { name: '废铁', quantity: 5, chance: 80 },
-          { name: '零件', quantity: 1, chance: 40 },
-          { name: '燃料', quantity: 2, chance: 30 },
-        ],
-      });
+    const seq = `${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const runtime = this.toRuntimeVehicle({});
+    runtime.名称 = String(wreck.name ?? '废弃载具').replace(/[0-9]/g, '');
+    runtime.name = runtime.名称;
+    runtime.编号 = `V${seq}`;
+    runtime.vehicleId = runtime.编号;
+    runtime.归属 = '无主';
+    runtime.owner = '';
+    runtime.驾驶员 = '';
+    runtime.driver = '';
+    // 随机载具零件清单（原版 零件=名称数量，装备类由生成装备生成——此处保留清单原样）
+    runtime.零件 = (wreck.parts ?? []).map((part: any) => ({
+      名称: String(part?.name ?? ''),
+      name: String(part?.name ?? ''),
+      类型: '资源',
+      type: '资源',
+      数量: Number(part?.count ?? 1) || 1,
+      quantity: Number(part?.count ?? 1) || 1,
+    }));
+    this.combatSystem.recalculateVehicle(runtime, Date.now());
+    const calculatedHp = Number(runtime.加成?.生命 || 0);
+    runtime.当前生命 = calculatedHp;
+    runtime.currentHp = calculatedHp;
+    runtime.生命 = calculatedHp;
+    runtime.maxHp = calculatedHp;
+
+    await this.mapService.mutateMapFields(targetMap.id, ['vehicles'], (f) => {
+      const vehicles = Array.isArray(f.vehicles) ? f.vehicles : [];
+      vehicles.push(this.toStoredVehicle(runtime));
+      f.vehicles = vehicles;
+      return true;
     });
 
-    this.logger.log(`玩家 ${userId} 在地图 ${map.name} 生成了废弃载具残骸`);
-    return '废弃载具残骸已出现在当前地图！可以从中回收废铁、零件和燃料。';
+    this.logger.log(`管理员 ${userId} 在地图 ${targetMap.name} 生成废弃载具 ${runtime.名称}`);
+    return `在${targetMap.name}生成了一个废弃载具`;
   }
 
   /**

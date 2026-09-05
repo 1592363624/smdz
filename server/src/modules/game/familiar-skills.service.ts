@@ -3323,9 +3323,14 @@ ${result}`;
       if (reduced <= nowMs) markers2.splice(idx, 1);
       else markers2[idx] = { ...markers2[idx], expireAt: reduced };
     };
+    // 原版 获得增益(标记2, 类型+"技能冷却", -60) —— 当前使魔的技能冷却递减 60 秒
     reduce(`${player.type || '玩家'}技能冷却`);
+    // setCooldown 打标（kind:'skill-cd'）的其余技能 CD 条目整段清空（跳过已递减的类型键）
     for (const m of [...markers2]) {
-      if (m?.kind === 'skill-cd') reduce(m?.name ?? m?.名称);
+      const entryName = m?.name ?? m?.名称;
+      if (m?.kind === 'skill-cd' && entryName !== `${player.type || '玩家'}技能冷却`) {
+        reduce(entryName);
+      }
     }
     // 写回权威态（解析克隆→改→写回约定）：否则 setCooldown 重读旧串会丢掉本次递减
     player.markers2 = markers2;

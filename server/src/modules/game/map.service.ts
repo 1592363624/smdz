@@ -619,9 +619,13 @@ export class MapService {
    * @param distance 距离（来自连接信息）
    * @param playerSpeed 玩家速度
    */
-  calcTravelTime(distance: number, playerSpeed: number): number {
-    const baseTime = distance > 0 && playerSpeed > 0 ? (distance / playerSpeed) * 10 : 5;
-    return Math.max(1, Math.ceil(baseTime));
+  calcTravelTime(distance: number, playerSpeed: number, minSeconds = 1): number {
+    // 原版 _主程序.ecode L6638-6644：b = 距离/速度（整数截断）；
+    // b < 路径节点数 → b=路径节点数；b < 1 → b=1。
+    // 数据侧距离单位与原版一致（使魔大战.txt 可前往=走廊，30 等），×10 系数已复核移除。
+    const safeSpeed = Math.max(1, Number(playerSpeed) || 1);
+    const raw = distance > 0 ? Math.floor(Number(distance) / safeSpeed) : 0;
+    return Math.max(1, raw, minSeconds);
   }
 
   /**
