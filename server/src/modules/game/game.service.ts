@@ -8155,50 +8155,38 @@ export class GameService {
       .filter((r: any) => this.getResourceTimes(r) !== 0 && this.isGatherResourceAvailable(r, playerMarkers));
     const items = asJsonValue<any[]>(map.items, []);
     const npcs = asJsonValue<any[]>(map.npcs, []);
-    // 统一收集所有可编号快捷操作的选项（资源采集 + NPC对话，合并编号生成底部菜单）
+    // 对齐原版 地图操作.ecode 观察附近（L628-971）：全文只有一张统一编号列表
+    // （"b、名称" 逐项叠加 + w2 输入替换），可前往/资源/拾取/NPC 不再单独分段重复展示，
+    // 编号列表即显示本体；仅编号列表覆盖不了的信息（怪物 HP 详情）保留为附加信息块。
     const quickOptions: { label: string; cmd: string }[] = [];
+    const SEP = `━━━━━━━━━━━━━━━`;
 
     const lines: string[] = [
       `👀 【${map.name}】附近情况`,
-      `━━━━━━━━━━━━━━━`,
+      SEP,
     ];
 
-    // 可前往目的地（原版 观察附近 首段：可前往 逐个编号，N@前往名）
-    const connections = this.mapService.getConnections(map) || [];
-    if (connections.length > 0) {
-      lines.push(`🚪 可前往:`);
-      for (const connection of connections) {
-        if (!connection?.name) continue;
-        lines.push(`  ${connection.name}`);
-        quickOptions.push({ label: connection.name, cmd: `前往 ${connection.name}` });
-      }
-    }
-
-    // 怪物信息
+    // 怪物信息（原版观察附近不展示普通野怪，HP 详情作为编号列表之外的附加信息块保留）
     if (monsters.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`👾 怪物 (${monsters.length}只):`);
       for (const m of monsters) {
         const hpPercent = m.maxHp > 0 ? Math.round((m.hp / m.maxHp) * 100) : 0;
         // 显示取整，避免出现 HP:13.13679525036632 这种浮点尾巴
         lines.push(`  ${m.name} Lv.${m.level} HP:${Math.round(m.hp)}/${Math.round(m.maxHp)}(${hpPercent}%)`);
       }
-    } else {
-      lines.push(`👾 怪物: 暂无`);
     }
 
-    // 资源信息（可采集资源计入编号快捷选项，统一在底部生成编号菜单）
-    if (resources.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`⛏️ 资源:`);
-      for (const r of resources) {
-        if (r.gatherCmd) {
-          lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}  -> ${r.gatherCmd}`);
-          quickOptions.push({ label: `${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`, cmd: r.gatherCmd });
-        } else {
-          lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`);
-        }
-      }
+    // 可前往（原版 L656-684：直接编入编号列表，N@前往名）
+    const connections = this.mapService.getConnections(map) || [];
+    for (const connection of connections) {
+      if (!connection?.name) continue;
+      quickOptions.push({ label: connection.name, cmd: `前往 ${connection.name}` });
+    }
+
+    // 资源（编入编号列表；无采集指令的仅展示，不生成快捷编号）
+    for (const r of resources) {
+      const amount = r.amount ? ` ×${formatDisplayNumber(r.amount)}` : '';
+      quickOptions.push({ label: `${r.name || '未知'}${amount}`, cmd: r.gatherCmd || '' });
     }
 
     // 运行时资源2（对应原版 地图操作.ecode L862-893：观察附近列出产出2为空的地上资源——
@@ -8208,42 +8196,24 @@ export class GameService {
       .filter((r: any) => !this.hasOutputs2(r)
         && this.getResourceTimes(r) !== 0
         && this.isGatherResourceAvailable(r, playerMarkers));
-    if (groundResources.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`⛏️ 地上资源:`);
-      for (const r of groundResources) {
-        if (r.gatherCmd) {
-          lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}  -> ${r.gatherCmd}`);
-          quickOptions.push({ label: `${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`, cmd: r.gatherCmd });
-        } else {
-          lines.push(`  ${r.name || '未知'}${r.amount ? ` ×${r.amount}` : ''}`);
-        }
-      }
+    for (const r of groundResources) {
+      const amount = r.amount ? ` ×${formatDisplayNumber(r.amount)}` : '';
+      quickOptions.push({ label: `${r.name || '未知'}${amount}`, cmd: r.gatherCmd || '' });
     }
 
-    // 地上物品信息（原版观察附近折叠为「拾取(N个物品)」单条入口）
+    // 地上物品（原版 L838-842：折叠为「拾取(N个物品)」单条入口，拾取前不展示明细）
     if (items.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`🎒 拾取(${items.length}个物品)`);
       quickOptions.push({ label: `拾取(${items.length}个物品)`, cmd: '拾取' });
-      for (const item of items) {
-        const count = item.count || item.quantity || 1;
-        lines.push(`  ${item.name} ×${count}`);
-      }
     }
 
-    // NPC信息（可对话NPC计入编号快捷选项）
-    if (npcs.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`💬 NPC:`);
-      for (const npc of npcs) {
-        lines.push(`  ${npc.name || '未知'}${npc.description ? ` - ${npc.description}` : ''}`);
-        quickOptions.push({ label: `对话 ${npc.name || '未知'}`, cmd: `对话 ${npc.name || '未知'}` });
-      }
+    // NPC（静态 NPC 直接编入编号列表）
+    for (const npc of npcs) {
+      if (!npc?.name) continue;
+      quickOptions.push({ label: String(npc.name), cmd: `对话 ${npc.name}` });
     }
 
-    // 宠物/召唤物信息（对应原版 地图操作.ecode L698-880 观察附近）：
-    // ≤6个逐个列出并可@对话；>6个折叠为一条「宠物(N个)」入口跳转「查看宠物」。
+    // 宠物/召唤物信息（对应原版 地图操作.ecode L685-805 观察附近）：
+    // ≤6个逐个编入列表并可@对话；>6个折叠为一条「宠物(N个)」入口跳转「查看宠物」。
     const summons = asJsonValue<any[]>(map.summons, []);
     if (summons.length > 0) {
       // 玩家归属标识集合（原版 归属==玩家.QQ 过滤特殊宠物"白"，仅主人可见）
@@ -8279,13 +8249,10 @@ export class GameService {
         try { this.familiarSystemService.checkAndUpdateGrowth(s); } catch { /* 成长解析失败不影响展示 */ }
       }
 
-      lines.push(`━━━━━━━━━━━━━━━`);
       if (summons.length > 6) {
         // 原版 L740-744：>6个时折叠为「宠物(N个)」，发编号进入查看宠物完整列表
-        lines.push(`🐾 宠物(${summons.length}个)`);
         quickOptions.push({ label: `宠物(${summons.length}个)`, cmd: '查看宠物' });
       } else {
-        lines.push(`🐾 附近的宠物/NPC:`);
         const shownSpecialNames = new Set<string>();
         for (const s of summons) {
           const name = nameOf(s);
@@ -8310,9 +8277,9 @@ export class GameService {
           } else {
             label = name;
           }
-          lines.push(`  ${label}`);
-          // 所有召唤物条目均可@对话（原版 w2 += "#" + b + "@对话" + 名称）
-          quickOptions.push({ label: `对话 ${name}`, cmd: `对话 ${name}` });
+          // 所有召唤物条目均可@对话（原版 w2 += "#" + b + "@对话" + 名称），
+          // 状态标记（[!]/(幼崽)/(倒地)）随编号列表 label 一并展示。
+          quickOptions.push({ label, cmd: `对话 ${name}` });
         }
       }
     }
@@ -8323,10 +8290,10 @@ export class GameService {
     }
     quickOptions.push({ label: '查看地图', cmd: '查看地图' });
 
-    // 统一生成编号快捷操作菜单（资源采集 + NPC对话合并编号，发数字即可操作，避免编号冲突）
+    // 统一生成编号快捷操作菜单（原版观察附近输出即编号列表本体：编号同时注册临时输入替换）
     if (quickOptions.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      const menuLines = await this.buildNumberedMenu(userId, quickOptions, '💡 发送编号数字(如 1)即可采集资源或与NPC对话');
+      if (lines[lines.length - 1] !== SEP) lines.push(SEP);
+      const menuLines = await this.buildNumberedMenu(userId, quickOptions, '💡 发送编号数字(如 1)即可前往/采集/对话');
       lines.push(...menuLines);
     }
 

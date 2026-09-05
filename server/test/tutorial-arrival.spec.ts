@@ -219,6 +219,9 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
         },
       }[name]),
       getAllTasks: () => [],
+      // isEquipmentReward（task.service isEquipmentReward）依赖装备表判定奖励类型；
+      // 返回 null 表示「优秀武器补给箱」按普通物品入包，与原断言数量格式一致
+      getEquipmentByName: () => null,
     };
     const itemSystem: any = { generateRewardEquipment: jest.fn() };
     const taskService: any = new TaskService(
