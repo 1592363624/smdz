@@ -1871,45 +1871,71 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1650：特殊序号 != 花园猫 → “这是花园猫的技能”
     if (!this.checkFamiliarType(player, '花园猫')) {
-      return '需要花园猫才能使出啾啾猫猫';
+      return `${player.name || '冒险者'}这是花园猫的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '啾啾猫猫', 60);
+    // 原版 L1652-1659：冷却核心 → 50 秒否则 60 秒；冷却键=花园猫技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '花园猫');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L1661：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    // 多段伤害：3~5次攻击
-    const hitCount = 3 + Math.floor(effect * 2); // 3~5次
-    const baseDamage = 30 + Math.floor(affinity * 0.3);
-    let totalDamage = 0;
-    const hitTexts: string[] = [];
+    // 原版 L1663：当前生命 +0.001
+    player.hp = Number(player.hp ?? 0) + 0.001;
 
-    for (let i = 0; i < hitCount; i++) {
-      const damage = Math.floor(baseDamage * effect * (0.8 + Math.random() * 0.4));
-      totalDamage += damage;
-      hitTexts.push(`${damage}`);
+    // 原版 L1666-1670：库洛牌 a3 → 地图标记3“啾啾猫猫”增益：时长 a3*30 秒、强度 50+技能等级*5
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    const skillLevel = this.getSkillLevel(markers, '花园猫');
+    const map = await this.mapService.getMapById(player.mapId);
+    if (map) {
+      await this.mapService.mutateMapFields(map.id, ['markers2'], (f) => {
+        const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
+        mapMarkers2.push({
+          名称: '啾啾猫猫',
+          有效期至: Date.now() + a3 * 30 * 1000,
+          强度: 50 + skillLevel * 5,
+        });
+        f.markers2 = mapMarkers2;
+        return true;
+      });
     }
 
-    // 设置冷却
-    this.setCooldown(player, '啾啾猫猫', await this.getSkillCooldown(player, 60));
+    // 原版 L1672-1678：所有 QQ 以 g 结尾的怪物型召唤物 当前生命 +1
+    const summons = asJsonValue<any[]>(map?.summons, []);
+    const boosted: any[] = [];
+    for (const s of summons) {
+      const qq = String(s?.qq ?? s?.QQ ?? '');
+      if (qq.endsWith('g')) {
+        s.当前生命 = Number(s?.当前生命 ?? s?.currentHp ?? 0) + 1;
+        boosted.push(s);
+      }
+    }
+    if (boosted.length > 0) {
+      await this.mapService.mutateSummons(player.mapId, (fresh) => {
+        for (const boostedSummon of boosted) {
+          const idx = fresh.findIndex((s: any) => (s?.qq ?? s?.QQ ?? '') === (boostedSummon.qq ?? boostedSummon.QQ));
+          if (idx >= 0) fresh[idx] = boostedSummon;
+        }
+        return fresh;
+      });
+    }
 
-    // 记录技能熟练度
-    const skillKey = '花园猫技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L1670 技能经验 / L1672 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `花园猫使出啾啾猫猫！喵喵喵~！\n连续攻击 ${hitCount} 次！伤害：${hitTexts.join('、')}\n总伤害 ${totalDamage} 点\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [`${player.name || '冒险者'}猫猫，想让大家变得幸福`];
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    lines.push(...firstAidLines);
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -1923,46 +1949,58 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1683：特殊序号 != 古月娜 → “这是古月娜的技能”
     if (!this.checkFamiliarType(player, '古月娜')) {
-      return '需要古月娜才能使出银龙附体';
+      return `${player.name || '冒险者'}这是古月娜的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '银龙附体', 150);
+    // 原版 L1685-1692：冷却核心 → 50 秒否则 60 秒；冷却键=古月娜技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '古月娜');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L1694：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    // 全属性提升
-    const statBonus = Math.floor(40 * effect);
+    // 原版 L1696：当前生命 += 属性.生命 × 0.3（最大生命的 30%）
+    player.hp = Number(player.hp ?? 0) + Number(player.maxHp ?? 0) * 0.3;
 
-    this.addBuff(player, '银龙附体', this.buffDur(player, 60), {
-      attack: statBonus,
-      defense: statBonus,
-      speed: statBonus,
-      dodge: statBonus,
-      hit: statBonus,
-      crit: Math.floor(10 * effect),
-      critDmg: Math.floor(20 * effect),
-    });
+    // 原版 L1698-1701：库洛牌 a3 → 玩家“银龙附体”增益：时长 a3*30 秒、强度=技能等级
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    const skillLevel = this.getSkillLevel(markers, '古月娜');
+    this.addBuff(player, '银龙附体', a3 * 30, { 强度: skillLevel });
 
-    // 设置冷却
-    this.setCooldown(player, '银龙附体', await this.getSkillCooldown(player, 60));
+    // 原版 L1705-1712：同图第一个 类型==“银龙” 的召唤物：hp += 其最大生命×0.3 + 同名增益
+    const map = await this.mapService.getMapById(player.mapId);
+    let silverDragonText = '';
+    if (map) {
+      const summons = asJsonValue<any[]>(map.summons, []);
+      const dragon = summons.find((s: any) => String(s?.type ?? s?.类型 ?? '') === '银龙');
+      if (dragon) {
+        const dragonMaxHp = Number(dragon?.maxHp ?? dragon?.属性?.生命 ?? 0);
+        dragon.当前生命 = Number(dragon?.当前生命 ?? dragon?.currentHp ?? 0) + dragonMaxHp * 0.3;
+        await this.mapService.mutateSummons(player.mapId, (fresh) => {
+          const idx = fresh.findIndex((s: any) => (s?.qq ?? s?.QQ ?? '') === (dragon.qq ?? dragon.QQ ?? ''));
+          if (idx >= 0) fresh[idx] = dragon;
+          return fresh;
+        });
+        silverDragonText = `\n银龙获得了同样的力量`;
+      }
+    }
 
-    // 记录技能熟练度
-    const skillKey = '古月娜技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L1702 技能经验 / L1704 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `古月娜银龙附体！银色龙鳞覆盖全身！\n全属性提升 ${statBonus} 点，暴击率提升 ${Math.floor(10 * effect)}%（持续60秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [`${player.name || '冒险者'}银龙附体！`];
+    if (silverDragonText) lines.push(silverDragonText.trim());
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    lines.push(...firstAidLines);
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -2138,51 +2176,41 @@ export class FamiliarSkillsService {
    * @returns 技能效果文本
    */
   async lightWings(userId: number): Promise<string> {
-    return this.mutateService.mutate(userId, (ctx) => this.applyLightWings(ctx));
+    return this.mutateService.mutate(userId, async (ctx) => this.applyLightWings(ctx));
   }
 
   /** 光翼的读改写段（由 lightWings 在 mutate 内调用，已持锁且持有本链唯一快照）。 */
-  private applyLightWings(ctx: MutateContext): string {
+  private async applyLightWings(ctx: MutateContext): Promise<string> {
     const { player, markers } = ctx;
 
-    // 检查使魔类型
+    // 原版 L1836：特殊序号 != 绝灭天使 → “这是绝灭天使的技能”
     if (!this.checkFamiliarType(player, '绝灭天使')) {
-      return '需要绝灭天使才能使出光翼';
+      return `${player.name || '冒险者'}这是绝灭天使的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '光翼', 60);
+    // 原版 L1838-1839：玩家死亡 → 死亡处理
+    if (this.playerService.isPlayerDead(player)) {
+      return this.playerService.handlePlayerDeath(player.userId, player);
+    }
+
+    // 原版 L1840-1842：光翼冷却固定 15 秒（不与其他技能共享、不受冷却核心影响）
+    const cooldownCheck = this.checkCooldown(player, '光翼冷却', 15);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '绝灭天使');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L1844：取羽毛(玩家, s, 10)——消耗 10 片羽毛；不足 → “羽毛只有N”
+    const featherNow = this.combatSystem.getFeather(player, markers, Date.now());
+    if (featherNow < 10) {
+      return `${player.name || '冒险者'}羽毛只有${Math.round(featherNow * 100) / 100}`;
+    }
+    this.combatSystem.getFeather(player, markers, Date.now(), -10);
+    const remaining = this.combatSystem.getFeather(player, markers, Date.now());
 
-    // 提升速度和闪避
-    const speedBonus = Math.floor(50 * effect);
-    const dodgeBonus = Math.floor(25 * effect);
+    // 原版 L1848：添加标记("光翼", 15, 玩家.增益)——15 秒光翼增益
+    this.addBuff(player, '光翼', 15);
+    this.setCooldown(player, '光翼冷却', 15);
 
-    this.addBuff(player, '光翼', this.buffDur(player, 30), {
-      speed: speedBonus,
-      dodge: dodgeBonus,
-    });
-
-    // 设置冷却
-    this.setCooldown(player, '光翼', 60);
-
-    // 记录技能熟练度
-    const skillKey = '绝灭天使技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    // 不再手动 JSON.stringify + savePlayer：ctx.markers 的改动由 mutate 在落库前
-    // 统一同步回 player.markers，保存由最外层收口。
-
-    // 纯改 ctx（光翼 buff / 技能熟练度 / 活跃度）：applyLightWings 已被 mutate 包住，
-    // 字段签名自动侦测到 ctx 被改动，外层统一收口落库，无需显式 markDirty。
-    return `绝灭天使展开光翼！\n速度提升 ${speedBonus} 点，闪避率提升 ${dodgeBonus}%（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    // ctx.markers 的改动由 mutate 在落库前统一同步回 player.markers。
+    return `${player.name || '冒险者'}释放了光翼（羽毛${Math.floor(remaining)}）`;
   }
 
   /**
@@ -2196,30 +2224,41 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1854：特殊序号 != 绝灭天使 → “这是绝灭天使的技能”
     if (!this.checkFamiliarType(player, '绝灭天使')) {
-      return '需要绝灭天使才能使出炮冠';
+      return `${player.name || '冒险者'}这是绝灭天使的技能`;
     }
-
-    // 好感门槛：原版「玩家.好感 < 80 → 需要好感达到80」
+    // 原版 L1855-1857：好感 < 80 → “需要好感达到80”
     if (!this.checkAffinity(markers, '绝灭天使', 80)) {
-      return '炮冠需要绝灭天使好感达到80才能使用';
+      return `${player.name || '冒险者'}需要好感达到80`;
     }
 
-    // 原版炮冠为远程攻击，基础倍率约 120 + 5*技能等级
-    const skillLevel = this.getSkillLevel(markers, '绝灭天使');
-    const mult = 120 + 5 * skillLevel;
+    // 原版 L1858-1862：炮冠冷却中 → “还需要N”（增益要求读取剩余）
+    const markers2 = Array.isArray(playerData.markers2)
+      ? playerData.markers2
+      : asJsonValue<any[]>(player.markers2, []);
+    const now = Date.now();
+    const crownCd = markers2.find((m: any) => (m?.name ?? m?.名称) === '炮冠冷却');
+    const crownCdRemain = Number(crownCd?.expireAt ?? crownCd?.有效期至 ?? 0) - now;
+    if (crownCdRemain > 0) {
+      return `${player.name || '冒险者'}还需要${Math.ceil(crownCdRemain / 1000)}秒`;
+    }
 
-    // 真正调用战斗引擎造成伤害
-    const { result } = await this.castCombatSkill(userId, {
-      cooldownName: '炮冠',
-      baseCooldown: 45, // 原版炮冠基础冷却45s
-      damageMultiplier: mult,
-      attackText: '【炮冠】',
-      familiarType: '绝灭天使',
-    });
+    // 原版 L1863-1868：炮冠增益 5 秒（准备状态）→ 光盾增益 -30 秒（叠加时间负值前移）→
+    // hd 标记 60 秒 → 文本“N个羽毛进入了准备状态”
+    this.addBuff(player, '炮冠', 5);
+    const lightShield = markers2.find((m: any) => (m?.name ?? m?.名称) === '光盾');
+    if (lightShield) {
+      const key = lightShield.有效期至 !== undefined ? '有效期至' : 'expireAt';
+      lightShield[key] = Number(lightShield[key] ?? 0) - 30 * 1000;
+    }
+    markers2.push({ 名称: 'hd', 有效期至: now + 60 * 1000 });
+    player.markers2 = markers2; // Json 列直接写数组
 
-    return `绝灭天使炮冠发射！\n${result}`;
+    const featherCount = this.combatSystem.getFeather(player, markers, Date.now());
+    const featherText = `${player.name || '冒险者'}的${Math.floor(featherCount)}个羽毛进入了准备状态`;
+    await this.playerService.savePlayer(player);
+    return featherText;
   }
 
   /**
@@ -2233,9 +2272,14 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1871：特殊序号 != 绝灭天使 → “这是绝灭天使的技能”
     if (!this.checkFamiliarType(player, '绝灭天使')) {
-      return '需要绝灭天使才能使出日轮';
+      return `${player.name || '冒险者'}这是绝灭天使的技能`;
+    }
+    // 原版 L1872：死亡且未装备急救包 → 死亡处理（急救包豁免）
+    if (this.playerService.isPlayerDead(player)
+      && !this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
+      return this.playerService.handlePlayerDeath(player.userId, player);
     }
 
     // 原版倍率：倍率转换(玩家, 100+技能等级) 后按地图存活怪物数分摊（使魔技能.ecode L1901）
@@ -2245,6 +2289,10 @@ export class FamiliarSkillsService {
     const aliveCount = (monsters as any[]).filter((m: any) => Number(m?.hp ?? 0) > 0).length;
 
     const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    // 原版 L1875-1879：冷却键=绝灭天使技能冷却（冷却核心 50/60）
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const solarCooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
+    if (solarCooldownCheck.isOnCooldown) return solarCooldownCheck.text;
     if (aliveCount === 0) {
       // 原版空场分支（L1888-1896）：「附近没有目标，对着空气练习了日轮」——
       // 不走武器攻击，但仍获得日轮增益、按 -10-技能等级/2 消耗羽毛并计活跃度。
@@ -2252,6 +2300,7 @@ export class FamiliarSkillsService {
       this.combatSystem.getFeather(player, markers, Date.now(), -10 - skillLevel / 2);
       const remaining = this.combatSystem.getFeather(player, markers, Date.now());
       markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+      this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
       player.markers = markers; // Player markers 为 Json 列，直接写对象
       await this.playerService.savePlayer(player);
       return `${player.name || '冒险者'}对着空气练习了日轮\n（羽毛${Math.floor(remaining)}）`;
@@ -2261,7 +2310,7 @@ export class FamiliarSkillsService {
     // 后续羽毛结算写在 castCombatSkill 返回的最新快照上（旧快照 version 已过期，
     // 用它保存会并发冲突，且会把内部的冷却/技能经验/活跃度整包覆盖回滚）。
     const { result, player: livePlayer, markers: liveMarkers } = await this.castCombatSkill(userId, {
-      cooldownName: '日轮',
+      cooldownName: `${player.type}技能冷却`,
       baseCooldown: 60,
       damageMultiplier: Math.floor(baseMult / aliveCount),
       attackText: '日轮a',
@@ -2295,55 +2344,93 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1918：特殊序号 != 安克雷奇 → “这是安克雷奇的技能”
     if (!this.checkFamiliarType(player, '安克雷奇')) {
-      return '需要安克雷奇才能使出安宝加油';
+      return `${player.name || '冒险者'}这是安克雷奇的技能`;
+    }
+    // 原版 L1919：死亡且未装备急救包 → 死亡处理（急救包豁免）
+    if (this.playerService.isPlayerDead(player)
+      && !this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
+      return this.playerService.handlePlayerDeath(player.userId, player);
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '安宝加油', 90);
+    // 原版 L1921-1928：冷却核心 → 50 秒否则 60 秒；冷却键=安克雷奇技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '安克雷奇');
-    const effect = this.getSkillEffect(affinity);
+    const skillLevel = this.getSkillLevel(markers, '安克雷奇');
+    const map = await this.mapService.getMapById(player.mapId);
+    let monsters: any[] = [];
+    try {
+      monsters = map ? await this.mapService.getMapMonsters(map) : [];
+    } catch {
+      monsters = [];
+    }
 
-    // 辅助增益：回复生命+提升防御
-    const healAmount = Math.floor(100 + affinity * 0.5 * effect);
-    const defenseBonus = Math.floor(30 * effect);
+    // 原版 L1930-1941：有怪 → 全体攻击“鱼雷b”，倍率=生命×(0.2+技能等级/100)/伤害系数×100
+    let attackText = '';
+    if (monsters.length > 0) {
+      const bonus = this.combatSystem.buildAttackerBonus(player, playerData, map) as any;
+      const life = Number(bonus?.生命 ?? player.maxHp ?? 100);
+      const phys = Number(bonus?.物伤 ?? 0);
+      const ice = Number(bonus?.冰伤 ?? 0);
+      const fire = Number(bonus?.火伤 ?? 0);
+      const electric = Number(bonus?.电伤 ?? 0);
+      const weapons = asJsonValue<any[]>(player.weapons, []);
+      const currentWeapon = Number(player.currentWeapon ?? 0);
+      let multiplier = 0;
+      if (currentWeapon === 0) {
+        multiplier = life * (0.2 + skillLevel / 100) / (phys || 1) * 100;
+      } else {
+        const weapon = weapons[currentWeapon - 1] || {};
+        const wAttr = asJsonValue<any>(weapon?.属性 ?? weapon?.attr ?? {}, {});
+        const denominator = phys * Number(wAttr.物 ?? 0) / 100
+          + ice * Number(wAttr.冰 ?? 0) / 100
+          + fire * Number(wAttr.火 ?? 0) / 100
+          + electric * Number(wAttr.电 ?? 0) / 100;
+        multiplier = life * (0.2 + skillLevel / 100) / (denominator || 1) * 100;
+      }
+      const attack = await this.combatSystem.weaponAttack(userId, currentWeapon, {
+        damageMultiplier: multiplier,
+        mustHit: true,
+        allAttack: true,
+        attackText: '鱼雷b',
+      });
+      attackText = attack?.result || '';
+      await this.combatSystem.triggerMapBattleLoop(player.userId, 5, { player, map });
+    }
 
-    // 回复生命
-    player.hp = Math.min((player.hp || 0) + healAmount, player.maxHp || 100);
+    // 原版 L1942：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    // 防御提升
-    this.addBuff(player, '安宝加油', 30, { 防御: defenseBonus });
-
-    // 好感分层解锁：原版「好感>=40 → 添加标记 安宝乖乖(增益)」「好感>=60 → 烟雾弹增益」
+    // 原版 L1944-1949：好感≥40 → “安宝乖乖”增益 30 秒；好感≥60 → 地图“烟雾弹”增益 15*a3 秒
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
     let extra = '';
-    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1; // 库洛牌+25% 放大增益时长
     if (this.checkAffinity(markers, '安克雷奇', 40)) {
-      this.addBuff(player, '安宝乖乖', Math.floor(30 * a3), { 攻击: Math.floor(20 * effect) });
-      extra += '\n（好感≥40 解锁：攻击力提升）';
+      this.addBuff(player, '安宝乖乖', 30);
+      extra += '（安宝乖乖）';
     }
-    if (this.checkAffinity(markers, '安克雷奇', 60)) {
-      this.addBuff(player, '烟雾弹', Math.floor(15 * a3), { 闪避: Math.floor(30 * effect) });
-      extra += '\n（好感≥60 解锁：烟雾弹，闪避大幅提升）';
+    if (this.checkAffinity(markers, '安克雷奇', 60) && map) {
+      await this.mapService.mutateMapFields(map.id, ['markers2'], (f) => {
+        const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
+        mapMarkers2.push({ 名称: '烟雾弹', 有效期至: Date.now() + 15 * a3 * 1000 });
+        f.markers2 = mapMarkers2;
+        return true;
+      });
+      extra += '（烟雾弹）';
     }
 
-    // 设置冷却
-    this.setCooldown(player, '安宝加油', 90);
-
-    // 记录技能熟练度
-    const skillKey = '安克雷奇技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L1945 技能经验 / L1947 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `安克雷奇：安宝加油！加油！\n回复 ${healAmount} 点生命值，防御力提升 ${defenseBonus} 点（持续30秒）${extra}\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [`${player.name || '冒险者'}加油！${extra}`, attackText, `(技能经验+${this.formatSkillNumber(gainedExp)})`, ...firstAidLines];
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -3071,41 +3158,36 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查女仆套装数量
-    const backpack = this.playerService.getBackpackItems(player);
-    const maidItems = backpack.filter((item: any) => item.name.includes('女仆'));
-    if (maidItems.length < 4) {
-      return '需要装备至少4件女仆套装才能使用砸瓦鲁多（当前只有' + maidItems.length + '件）';
+    // 原版 L2056：套装.女仆 != 4 → “需要女仆套装”（女仆套装 4 件）
+    const sets = asJsonValue<any>(player.sets, {});
+    if (Number(sets['女仆'] ?? sets['maid'] ?? 0) !== 4) {
+      return `${player.name || '冒险者'}需要女仆套装`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '砸瓦鲁多', 300);
+    // 原版 L2058：女仆技能冷却 150 秒
+    const cooldownCheck = this.checkCooldown(player, '女仆技能冷却', 150);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度（使用当前使魔的好感度）
-    const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L2061-2062：当前生命 +0.001
+    player.hp = Number(player.hp ?? 0) + 0.001;
 
-    // 时停效果：大幅提升速度和闪避
-    const speedBonus = Math.floor(100 * effect);
-    const dodgeBonus = Math.floor(50 * effect);
+    // 原版 L2063：获得增益(地图.标记3, “幻时”, 20)——地图级时停 20 秒
+    const map = await this.mapService.getMapById(player.mapId);
+    if (map) {
+      await this.mapService.mutateMapFields(map.id, ['markers2'], (f) => {
+        const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
+        mapMarkers2.push({ 名称: '幻时', 有效期至: Date.now() + 20 * 1000 });
+        f.markers2 = mapMarkers2;
+        return true;
+      });
+    }
 
-    this.addBuff(player, '砸瓦鲁多', 10, {
-      speed: speedBonus,
-      dodge: dodgeBonus,
-      mustHit: true,
-    });
-
-    // 设置冷却
-    this.setCooldown(player, '砸瓦鲁多', 300);
-
-    // 增加活跃度
+    this.setCooldown(player, '女仆技能冷却', 150);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `ザ·ワールド！时停吧！\n速度提升 ${speedBonus} 点，闪避率提升 ${dodgeBonus}%（持续10秒）\n冷却时间5分钟`;
+    return '砸瓦鲁多！';
   }
 
   /**

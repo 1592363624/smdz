@@ -91,6 +91,8 @@ describe('架构门禁：玩家状态写入口收口', () => {
   //   player.service(4) 共 51 处绕过邮箱的裸 prisma.player.update 全部收口为
   //   enqueueUserWrite → getPlayerData → 改 → savePlayer（单写者）。这些 savePlayer
   //   是「邮箱内的落库 sink」，属预期增量；真正的硬门禁见下方 raw prisma.player.update 检查。
+  // - 基线 272 → 273（2026-09-06 逐技能第三批复刻）：啾啾猫猫/银龙附体/光翼/炮冠/
+  //   安宝加油/砸瓦鲁多按原版重写，指令路径内的落库 sink 净增 1 处（同 266 批次口径）。
   // - 基线 270 → 272（2026-09-06 保存图片链复刻）：保存图片开始（写“tk”增益 120 秒）
   //   与保存图片停止（移除 tk）各 +1 落库 sink，属预期增量（同 266 批次口径）。
   // - 基线 269 → 270（2026-09-06 狐自动攻击复刻）：到达触发狐攻击（原版 L6762-6776）
@@ -102,7 +104,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
   //   原「召h货1藏」）与维修延时结算（applyCompleteVehicleRepair，原「维修wcc1」）
   //   两个 dts tick 直调入口按支柱二收口为 enqueueUserWrite → savePlayer，
   //   各新增 1 处邮箱内落库 sink，属预期增量（同 266 批次口径）。
-  const RAW_SAVEPLAYER_BASELINE = 272;
+  const RAW_SAVEPLAYER_BASELINE = 273;
   const MUTATE_CALL_BASELINE = 4;
   // 业务代码（非 excluded 文件）不得再出现任何裸 prisma.player.update——
   // 唯一允许的落库 sink 在 PlayerService.persistPlayerData（已 excluded，不计入）。
