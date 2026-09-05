@@ -1615,43 +1615,38 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1506：特殊序号 != 伊卡洛斯 → “这是伊卡洛斯的技能”
     if (!this.checkFamiliarType(player, '伊卡洛斯')) {
-      return '需要伊卡洛斯才能使出歼灭模式';
+      return `${player.name || '冒险者'}这是伊卡洛斯的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '歼灭模式', 180);
+    // 原版 L1508-1515：冷却核心 → 50 秒否则 60 秒；冷却键=伊卡洛斯技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '伊卡洛斯');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L1516：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    // 高伤害模式：大幅提升攻击力和暴击
-    const attackBonus = Math.floor(80 * effect);
-    const critBonus = Math.floor(20 * effect);
+    // 原版 L1519-1523：库洛牌 → a3=1.25；获得增益("歼灭模式", 30*a3)
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    this.addBuff(player, '歼灭模式', 30 * a3);
 
-    this.addBuff(player, '歼灭模式', this.buffDur(player, 45), {
-      attack: attackBonus,
-      crit: critBonus,
-      critDmg: Math.floor(30 * effect),
-    });
+    // 原版 L1526：置成就熟练度("歼灭模式", 1)
+    this.playerService.setMarker(markers, '歼灭模式', 1);
 
-    // 设置冷却
-    this.setCooldown(player, '歼灭模式', await this.getSkillCooldown(player, 60));
-
-    // 记录技能熟练度
-    const skillKey = '伊卡洛斯技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L1524 技能经验 / L1527 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `伊卡洛斯进入歼灭模式！\n攻击力提升 ${attackBonus} 点，暴击率提升 ${critBonus}%（持续45秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [`${player.name || '冒险者'}原谅你们是上帝的事情，而我的工作是送你们去见他`];
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    lines.push(...firstAidLines);
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -1665,14 +1660,19 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1534：特殊序号 != 战斗女仆 → “这是战斗女仆的技能”
     if (!this.checkFamiliarType(player, '战斗女仆')) {
-      return '需要战斗女仆才能使出绝对守护';
+      return `${player.name || '冒险者'}这是战斗女仆的技能`;
     }
 
-    // 检查冷却（原版：冷却核心→50，否则60；使魔技能.ecode L1544-1550）
-    const cooldownCheck = this.checkCooldown(player, '绝对守护', 300);
+    // 原版 L1536-1543：冷却核心 → 50 秒否则 60 秒；冷却键=战斗女仆技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 原版 L1545：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
     // 原版流程（使魔技能.ecode L1551-1560）：
     //   获得增益(玩家.增益, "守护1", a3*(10+技能等级/2))，a3=库洛牌?1.25:1；
@@ -1682,34 +1682,28 @@ export class FamiliarSkillsService {
     // （combat-system 免死分支）。全部按增益名匹配，不要写 extra 字段。
     const skillLevel = this.getSkillLevel(markers, '战斗女仆');
     const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
-    const guardDuration = Math.floor(a3 * (10 + skillLevel / 2));
+    const guardDuration = a3 * (10 + skillLevel / 2);
     this.addBuff(player, '守护1', guardDuration);
 
     // 原版 置成就熟练度("沉着", 2)：沉着标记存时间锚点，供攻击时消耗减半（战斗相关 L1107-1117）
-    const affinity = this.getAffinity(markers, '战斗女仆');
     if (this.checkAffinity(markers, '战斗女仆', 100)) {
       markers['守护3'] = 1;
       markers['守护4'] = 1;
-      await this.playerService.savePlayer(player); // 提前保存，确保免死标记即时生效
     }
 
-    // 设置冷却
-    this.setCooldown(player, '绝对守护', await this.getSkillCooldown(player, 60));
-
-    // 记录技能熟练度与活跃度（对齐原版 技能经验/活跃度）
-    const skillKey = '战斗女仆技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
+    // 原版 L1551 技能经验 / L1554 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     // 原版 置成就熟练度("沉着", 2)（使魔技能.ecode L1555）
-    markers['沉着'] = 2;
-
-    // 增加活跃度
+    this.playerService.setMarker(markers, '沉着', 2);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `战斗女仆展开绝对守护！\n【守护1】${guardDuration}秒内可抵挡伤害并转化为攻击\n好感≥100 时同时激活【守护3】免死与【守护4】追击`;
+    const lines = [`${player.name || '冒险者'}撒，细数你的罪恶吧`];
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    lines.push(...firstAidLines);
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -1723,38 +1717,68 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1566：特殊序号 != 星尘 → “这是星尘的技能”
     if (!this.checkFamiliarType(player, '星尘')) {
-      return '需要星尘才能使出斗转星移';
+      return `${player.name || '冒险者'}这是星尘的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '斗转星移', 120);
+    // 原版 L1568-1575：冷却核心 → 50 秒否则 60 秒；冷却键=星尘技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '星尘');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L1576：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    // 反弹伤害：获得反弹增益
-    const reflectPercent = Math.floor(30 + 20 * effect); // 30%~70%反弹
+    // 原版 L1578：当前生命 +1
+    player.hp = Number(player.hp ?? 0) + 1;
 
-    this.addBuff(player, '斗转星移', this.buffDur(player, 30), { 反伤: reflectPercent });
+    // 原版 L1583-1604：护盾回复——自身护盾上限的 25%，再依次累加同图召唤物/其他玩家
+    // 的护盾属性（累加后超过自身护盾上限即停），回复后不超上限。
+    const maxShield = Number(player.maxShield ?? player.属性?.护盾 ?? 0);
+    let shieldGain = maxShield * 0.25;
+    if (maxShield > 0) {
+      const map = await this.mapService.getMapById(player.mapId);
+      const summons = asJsonValue<any[]>(map?.summons, []);
+      for (const s of summons) {
+        const shield = Number(s?.护盾 ?? s?.maxShield ?? s?.shield ?? 0);
+        if (shield > 0) {
+          shieldGain += shield;
+          if (shieldGain > maxShield) break;
+        }
+      }
+      if (shieldGain <= maxShield && this.prisma?.player?.findMany) {
+        const others = await this.prisma.player.findMany({
+          where: { mapId: player.mapId, userId: { not: userId } },
+          select: { maxShield: true },
+        });
+        for (const other of others) {
+          shieldGain += Number(other?.maxShield ?? 0);
+          if (shieldGain > maxShield) break;
+        }
+      }
+      // 原版 L1605-1608：回复护盾并封顶
+      player.shield = Math.min(Number(player.shield ?? 0) + shieldGain, maxShield);
+      // 原版 L1609：置成就熟练度("dz", a1)
+      this.playerService.setMarker(markers, 'dz', shieldGain);
+    }
 
-    // 设置冷却
-    this.setCooldown(player, '斗转星移', await this.getSkillCooldown(player, 60));
-
-    // 记录技能熟练度
-    const skillKey = '星尘技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L1578 技能经验 / L1580 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `星尘发动斗转星移！\n获得 ${reflectPercent}% 伤害反弹（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [`${player.name || '冒险者'}星辰之力！`];
+    if (maxShield > 0) {
+      const pct = Math.round((shieldGain / maxShield) * 100 * 100) / 100;
+      lines.push(`回复了${Math.floor(shieldGain)}护盾（${pct}%）`);
+    }
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    lines.push(...firstAidLines);
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -1768,38 +1792,72 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1617：特殊序号 != 普拉娜 → “这是普拉娜的技能”
     if (!this.checkFamiliarType(player, '普拉娜')) {
-      return '需要普拉娜才能使出火力全开';
+      return `${player.name || '冒险者'}这是普拉娜的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '火力全开', 60);
+    // 原版 L1619-1626：冷却核心 → 50 秒否则 60 秒；冷却键=普拉娜技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '普拉娜');
-    const effect = this.getSkillEffect(affinity);
+    const skillLevel = this.getSkillLevel(markers, '普拉娜');
+    // 原版 L1628：a1 = 25 + 技能等级（武器冷却削减秒数）
+    const reduction = 25 + skillLevel;
 
-    // 提升攻击力
-    const attackBonus = Math.floor(60 * effect);
+    // 原版 L1629：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    this.addBuff(player, '火力全开', this.buffDur(player, 30), { 攻击: attackBonus });
+    // 原版 L1631-1638：压制增益（标记2）——无活动压制时新写（时长 19.5 秒、
+    // 强度 28.5+1.9×技能等级）；已活动则叠加（+5 秒 / 强度 +15+技能等级）。
+    const now = Date.now();
+    const markers2List = asJsonValue<any[]>(player.markers2, []);
+    // 原版 L1631-1638 获得增益（叠加时间/叠加强度均为真）：无活动压制 → 时长 19.5 秒、
+    // 强度 28.5+1.9×技能等级；已活动 → 时长 +5 秒、强度 +15+技能等级。
+    let suppression = markers2List.find((m: any) => (m?.name ?? m?.名称) === '压制');
+    if (!suppression || Number(suppression?.有效期至 ?? suppression?.expireAt ?? 0) <= now) {
+      suppression = { 名称: '压制', 有效期至: now + 19.5 * 1000, 强度: 28.5 + skillLevel * 1.9 };
+      const idx = markers2List.findIndex((m: any) => (m?.name ?? m?.名称) === '压制');
+      if (idx >= 0) markers2List[idx] = suppression;
+      else markers2List.push(suppression);
+    } else {
+      suppression.有效期至 = Number(suppression.有效期至 ?? suppression.expireAt ?? 0) + 5 * 1000;
+      suppression.强度 = (Number(suppression.强度 ?? 0) || 0) + 15 + skillLevel;
+    }
+    // 原版 L1639：读取压制强度（%）与剩余时间
+    const suppressionPct = Number(suppression.强度 ?? 0);
+    const remainSec = Math.max(0, Math.ceil((Number(suppression.有效期至 ?? 0) - now) / 1000));
 
-    // 设置冷却
-    this.setCooldown(player, '火力全开', 60);
+    // 原版 L1641-1643：每把武器“名称+冷却”标记 -= a1 秒（负时长 = 有效期前移）
+    const weapons = asJsonValue<any[]>(player.weapons, []);
+    for (const w of weapons) {
+      const weaponName = String(w?.name ?? w?.名称 ?? '');
+      if (!weaponName) continue;
+      const cdEntry = markers2List.find((m: any) => (m?.name ?? m?.名称) === `${weaponName}冷却`);
+      if (cdEntry) {
+        const key = cdEntry.有效期至 !== undefined ? '有效期至' : 'expireAt';
+        cdEntry[key] = Number(cdEntry[key] ?? 0) - reduction * 1000;
+      }
+    }
 
-    // 记录技能熟练度
-    const skillKey = '普拉娜技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L1644-1648：火力全开熟练度 / 技能经验 / 活跃度（“使用技能”由 executeSkill 统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
+    this.playerService.setMarker(markers, '火力全开', 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
+    player.markers2 = markers2List; // Json 列直接写数组
     await this.playerService.savePlayer(player);
 
-    return `普拉娜火力全开！\n攻击力提升 ${attackBonus} 点（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [
+      `${player.name || '冒险者'}恐惧一般来源于火力不足\n所有武器冷却时间减少了${reduction}秒`,
+      `火力压制${suppressionPct}%,剩余${remainSec}秒`,
+      `(技能经验+${this.formatSkillNumber(gainedExp)})`,
+      ...firstAidLines,
+    ];
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -1918,39 +1976,36 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1718：好感 < 60 → “需要60好感”（先于类型门禁判定）
+    const slashAffinity = Number((player as any).affinity ?? 0) || this.getAffinity(markers, '剑圣');
+    if (slashAffinity < 60) {
+      return `${player.name || '冒险者'}需要60好感`;
+    }
+    // 原版 L1720：特殊序号 != 剑圣 → “这是剑圣的技能”
     if (!this.checkFamiliarType(player, '剑圣')) {
-      return '需要剑圣才能使出斩';
+      return `${player.name || '冒险者'}这是剑圣的技能`;
     }
 
-    // 好感门槛：原版「玩家.好感 < 60 → 需要60好感」
-    if (!this.checkAffinity(markers, '剑圣', 60)) {
-      return '斩需要剑圣好感达到60才能使用';
-    }
-
-    // 检查冷却（原版：斩！冷却核心时 a=60、否则 a=50，与其他技能相反）
-    const cooldownCheck = this.checkCooldown(player, '斩', 50);
+    // 原版 L1725-1728：冷却键“斩冷却”——冷却核心时反而更长（a=60，否则 50）
+    const cooldownSeconds = this.hasItem(player, '冷却核心') ? 60 : 50;
+    const cooldownCheck = this.checkCooldown(player, '斩冷却', cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 原版斩！：回满生命与护盾装甲（治疗/强化类，非直接伤害）
-    const healHp = player.maxHp || 100;
-    const shieldVal = Math.floor((player.maxShield || 0) + 50);
-    player.hp = healHp;
-    player.shield = shieldVal;
-    player.maxShield = Math.max(player.maxShield || 0, shieldVal);
+    // 原版 L1731-1733：三池回满（生命/装甲/护盾 全部恢复至上限）
+    player.hp = player.maxHp || player.hp;
+    player.armor = player.maxArmor ?? player.armor;
+    player.shield = player.maxShield ?? player.shield;
 
-    // 设置冷却（原版斩！冷却核心时反而更长 60s）
-    const baseCd = this.hasItem(player, '冷却核心') ? 60 : 50;
-    this.setCooldown(player, '斩', baseCd);
-
-    // 记录技能熟练度
-    const skillKey = '剑圣技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
+    // 原版 L1734 技能经验 / L1736-1737 玩家活跃+活跃度（“使用技能”由 executeSkill 统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
+    this.setCooldown(player, '斩冷却', cooldownSeconds);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `剑圣拔刀——斩！\n血气回涌，生命与护盾全部恢复（护盾+${shieldVal}）！`;
+    const lines = ['吾心吾行澄如明镜，所行所为皆是正义！'];
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    return lines.join('\n');
   }
 
   /**
@@ -1964,25 +2019,77 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1745：特殊序号 != 剑圣 → “这是剑圣的技能”
     if (!this.checkFamiliarType(player, '剑圣')) {
-      return '需要剑圣才能使出会心一击';
+      return `${player.name || '冒险者'}这是剑圣的技能`;
+    }
+    // 原版 L1746：死亡且未装备急救包 → 走死亡处理（急救包豁免）
+    if (this.playerService.isPlayerDead(player) && !this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
+      return this.playerService.handlePlayerDeath(player.userId, player);
     }
 
-    // 原版基础倍率：倍率转换(玩家, 200 + 10*技能等级)（攻击文本"会心一击b"在原版触发被暴击率加成）
+    // 原版 L1748-1755：冷却核心 → 50 秒否则 60 秒；冷却键=剑圣技能冷却
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
+    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 原版 L1756：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
+
+    // 原版基础倍率：倍率转换(玩家, 200 + 10*技能等级)（攻击文本"会心一击b"）
     const skillLevel = this.getSkillLevel(markers, '剑圣');
     const mult = 200 + 10 * skillLevel;
 
-    // 真正调用战斗引擎造成伤害（高倍率对应原版会心一击的暴击特性）
-    const { result } = await this.castCombatSkill(userId, {
-      cooldownName: '会心一击',
+    // 原版 L1760-1774：无怪 → “对着空气练习了会心一击”；有怪 →
+    //   三池满 → “九头龙闪！”；否则三穿透+15 → “天翔龙闪！”
+    let monsters: any[] = [];
+    try {
+      monsters = await this.mapService.getMapMonsters(player.mapId);
+    } catch {
+      monsters = [];
+    }
+    const prefixLines: string[] = [];
+    if (monsters.length === 0) {
+      prefixLines.push(`附近没有目标，${player.name || '冒险者'}对着空气练习了会心一击`);
+      const gainedExp = this.gainSkillExperience(player, markers, 1);
+      markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+      this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
+      await this.playerService.savePlayer(player);
+      const lines = [...prefixLines, `(技能经验+${this.formatSkillNumber(gainedExp)})`, ...firstAidLines];
+      return lines.filter(Boolean).join('\n');
+    }
+
+    let prefix = '';
+    if (Number(player.hp ?? 0) + Number(player.armor ?? 0) + Number(player.shield ?? 0)
+      >= Number(player.maxHp ?? 0) + Number(player.maxArmor ?? 0) + Number(player.maxShield ?? 0)) {
+      prefix = '九头龙闪！';
+    } else {
+      prefix = '天翔龙闪！';
+    }
+    // 原版 L1771-1773 / L1768：非满池时附加三层穿透 15；满池走九头龙闪（无穿透）
+    const extraPenetrationFlat = prefix === '天翔龙闪！' ? 15 : undefined;
+
+    // 真正调用战斗引擎造成伤害（必中；隐匿模式下原版不拉起怪物回合）
+    const { result, player: livePlayer } = await this.castCombatSkill(userId, {
+      cooldownName: `${player.type}技能冷却`,
       baseCooldown: 60,
       damageMultiplier: mult,
-      attackText: '【会心一击】',
+      attackText: '会心一击b',
       familiarType: '剑圣',
+      extraPenetrationFlat,
     });
 
-    return `剑圣凝聚全身力量——会心一击！！\n${result}`;
+    // 原版 L1775-1778：隐匿模式豁免，否则 覅攻击pd 3 秒
+    const buffs = asJsonValue<any[]>(livePlayer.buffs, []);
+    const inStealth = buffs.some((b: any) =>
+      (b?.name ?? b?.名称) === '隐匿模式' && Number(b?.expireAt ?? b?.有效期至 ?? 0) > Date.now() / 1000);
+    if (!inStealth) {
+      await (this.combatSystem as any).triggerMapBattleLoop(player.userId, 3, { player: livePlayer });
+    }
+
+    return [prefix, result, ...firstAidLines].filter(Boolean).join('\n');
   }
 
   /**

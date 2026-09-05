@@ -16589,27 +16589,54 @@ export class GameService {
   }
 
   /**
-   * 保存图片
-   * 对应原版：保存图片 命令
+   * 保存图片（管理员/作者）（原版 _主程序.ecode L10666-10680）。
+   * 仅作者权限可用；Web 架构下图片由前端 URL 承载，“保存图片 <名称>”无独立行为。
    */
   async handleSaveImage(userId: number, imageName: string): Promise<string> {
-    return `🖼️ 保存图片功能开发中...`;
+    void imageName;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== 'SUPER_ADMIN') {
+      return '权限不足，需要作者权限';
+    }
+    return '保存图片开始/保存图片停止用于开启/停止两分钟的图片接收窗口';
   }
 
   /**
-   * 开始自动保存图片
-   * 对应原版：保存图片开始 命令
+   * 保存图片开始（原版 _主程序.ecode L10669-10672）。
+   * 作者权限 → 获得“tk”增益 120 秒（标记2）→
+   * “你在接下来两分钟内发送的图片都会被保存,”保存图片停止“来停止”。
+   * Web 等价：tk 窗口内前端推送的图片消息按保存路径处理（图片本体由前端 URL 承载）。
    */
   async handleStartSaveImage(userId: number): Promise<string> {
-    return `🖼️ 已开启自动保存图片模式。`;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== 'SUPER_ADMIN') {
+      return '权限不足，需要作者权限';
+    }
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers2 } = playerData;
+    this.combatState.gainBuff(markers2, 'tk', 120, false, Date.now());
+    player.markers2 = markers2; // Json 列直接写数组
+    await this.playerService.savePlayer(player);
+    return '你在接下来两分钟内发送的图片都会被保存,“保存图片停止”来停止';
   }
 
   /**
-   * 停止自动保存图片
-   * 对应原版：保存图片停止 命令
+   * 保存图片停止（原版 _主程序.ecode L10674-10675）。
+   * 获得增益(标记2,"tk",-120) 的负值语义 = 移除 tk 增益 → “已停止。”
    */
   async handleStopSaveImage(userId: number): Promise<string> {
-    return `🖼️ 已停止自动保存图片。`;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== 'SUPER_ADMIN') {
+      return '权限不足，需要作者权限';
+    }
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers2 } = playerData;
+    const filtered = (Array.isArray(markers2) ? markers2 : []).filter(
+      (entry: any) => (entry?.name ?? entry?.名称) !== 'tk',
+    );
+    player.markers2 = filtered; // Json 列直接写数组
+    await this.playerService.savePlayer(player);
+    return '已停止。';
   }
 
   /**
