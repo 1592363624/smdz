@@ -50,7 +50,13 @@ export class CommandService {
     // 在锁内复用唯一快照、统一落库。@Optional 兼容手工构造的测试桩（未注入时
     // 退化为指令直接执行，走各服务自身的 enqueueUserWrite 旧路径，行为不变）。
     @Optional() private readonly playerMutate?: PlayerMutateService,
-  ) {}
+  ) {
+    // P2 管道注入自检：@Optional 注入失效（模块装配遗漏/循环依赖截断）会静默
+    // 回落旧路径，生产极难察觉——正式库 CurrencyLog 空表事故的直接教训。
+    this.logger.log(
+      `指令层 mutate 管道注入自检: ${this.playerMutate?.mutate ? '已激活' : '未注入（写入口收口失效，回落旧路径！）'}`,
+    );
+  }
 
   /**
    * 纯展示类只读指令：结果不改变玩家任何状态。
@@ -306,8 +312,14 @@ export class CommandService {
       //     玩家距上次操作超过10秒时，按回复率自动回血/回盾/回甲；结果拼入回复文本。
       let offlineRegen = '';
       if (ctx.userId) {
+        const uid = ctx.userId;
         try {
-          offlineRegen = await this.gameService.calculateTimeElapsed(ctx.userId);
+          // 写入口收口：离线补偿是完整读改写（回血/回盾/回甲/躺下经验/lastOpTime
+          // 回写），必须与主指令共用同一 mutate 管道——管道外自建快照正是
+          // 「旧快照整包覆盖」事故家族的温床。
+          offlineRegen = this.playerMutate
+            ? await this.playerMutate.mutate(uid, () => this.gameService.calculateTimeElapsed(uid))
+            : await this.gameService.calculateTimeElapsed(ctx.userId);
         } catch (e: any) {
           this.logger.warn(`离线补偿失败: ${e.message}`);
         }
@@ -324,8 +336,12 @@ export class CommandService {
         ['背包', '资源背包', '背包搜索', '保险柜搜索'].includes(cmdDef.name);
       let preSearchText = '';
       if (ctx.userId && !readOnly && isInventoryDisplay) {
+        const uid = ctx.userId;
         try {
-          preSearchText = await this.gameService.triggerAutoFamiliarSkill(ctx.userId);
+          // 写入口收口：自动技能含宠物搜索落包等读改写，统一并入 mutate 管道。
+          preSearchText = this.playerMutate
+            ? await this.playerMutate.mutate(uid, () => this.gameService.triggerAutoFamiliarSkill(uid))
+            : await this.gameService.triggerAutoFamiliarSkill(uid);
         } catch (e: any) {
           this.logger.warn(`纯白之翼自动技能失败: ${e.message}`);
         }
@@ -354,8 +370,13 @@ export class CommandService {
             : preSearchText;
         }
       } else if (ctx.userId && !readOnly) {
+        const uid = ctx.userId;
         try {
-          const autoSkillText = await this.gameService.triggerAutoFamiliarSkill(ctx.userId);
+          // 写入口收口：指令收尾的自动技能与主指令共用同一 mutate 管道
+          // （此段运行在主 mutate 之外，历史上是管道外写入点之一）。
+          const autoSkillText = this.playerMutate
+            ? await this.playerMutate.mutate(uid, () => this.gameService.triggerAutoFamiliarSkill(uid))
+            : await this.gameService.triggerAutoFamiliarSkill(uid);
           if (autoSkillText) {
             result.content = result.content
               ? `${result.content}\n${autoSkillText}`

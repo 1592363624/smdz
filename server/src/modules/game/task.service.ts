@@ -13,6 +13,7 @@ import { ItemSystemService } from './item-system.service';
 import { ShortcutService } from './shortcut.service';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { GameHighlightService } from './highlight.service';
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 
 // 索引签名：Prisma Json 列（Prisma.InputJsonValue）要求对象具备字符串索引签名，
 // 否则赋值 player.tasks 等字段时 TS2322 类型不兼容
@@ -305,7 +306,9 @@ export class TaskService {
 
     for (const reward of this.parseRewards(gameTask.rewards)) {
       if (!reward.name || reward.count <= 0) continue;
-      const amount = reward.count * rewardScale;
+      // 奖励金额 = 基数 × 加成系数（rewardScale 含 (1+等级/100) 等小数因子），
+      // 乘法浮点尾巴过 roundItemQuantity 闸，不进背包/不进文案
+      const amount = roundItemQuantity(reward.count * rewardScale);
       const rewardName = this.cleanName(reward.name);
 
       if (rewardName === '好感') {
@@ -318,7 +321,7 @@ export class TaskService {
           rewardLines.push('好感未增加');
         }
       } else if (rewardName === '活力') {
-        player.vitality = Number(player.vitality || 0) + amount;
+        player.vitality = roundItemQuantity(Number(player.vitality || 0) + amount);
         rewardLines.push(`活力×${this.formatNumber(amount)}`);
       } else if (this.isEquipmentReward(rewardName, reward.type)) {
         // 原版任务奖励中的装备数量不是堆叠数量，而是百分比概率；命中后只生成一件。
@@ -519,10 +522,14 @@ export class TaskService {
   }
 
   private addBackpackItem(backpack: any[], name: string, count: number, type?: string): void {
+    const qty = roundItemQuantity(count);
     const existing = backpack.find((item: any) => this.taskName(item) === name);
     if (existing) {
       const current = Number(existing.count ?? existing.quantity ?? 0);
-      const next = current + count;
+      // ADD 语义：命中同名条目（含物化货币条目「钻石/召唤券」）一律累加，绝不
+      // 整条替换——吞掉存量余额（4.02+1050.6≠1050.6）就是 SET 语义的历史事故。
+      // 累加结果过 roundItemQuantity 闸（数值三道闸），防浮点尾巴入库。
+      const next = roundItemQuantity(current + qty);
       // 新版物品系统读取 quantity，旧存档/旧展示读取 count；任务奖励
       // 同时保留两者，避免奖励入包后无法制造、使用或显示。
       existing.count = next;
@@ -531,8 +538,8 @@ export class TaskService {
     }
     backpack.push({
       name,
-      count,
-      quantity: count,
+      count: qty,
+      quantity: qty,
       type: type || '资源',
     });
   }

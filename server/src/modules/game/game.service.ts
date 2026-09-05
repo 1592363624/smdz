@@ -145,6 +145,14 @@ export class GameService {
       const group = String(task.payload?.group || '');
       if (group) await this.dungeonService.closeDungeon(group);
     });
+    // 手动载具开采结算（原版 _主程序.ecode L7534「开采1c2c」60秒延时）
+    dts.registerHandler('mine', async (task) => {
+      await this.settleManualMine(Number(task.userId));
+    });
+    // 补魔结算（原版 _主程序.ecode L7158「覅b魔w成」30秒延时）
+    dts.registerHandler('refill', async (task) => {
+      await this.completeRefill(Number(task.userId));
+    });
     // 存量迁移：把上一代实现遗留在 markers 里的「采集中/移动中/救援」状态
     // 补建成延时任务（幂等：schedule 先删后插，标记已结算时结算 handler 自行空转）。
     void this.recoverOrphanDelayedMarkers().catch((e: any) => {
@@ -3343,6 +3351,111 @@ export class GameService {
    * 开采当前地图的资源点
    */
   async handleMine(userId: number, resourceName?: string): Promise<string> {
+    // 对齐原版 _主程序.ecode L7491「开采」：无参=载具开采（60秒延时结算）。
+    // 原版「开采 资源名」带参无行为（L7512 判断 w2=="" 才进入开采链）；资源点采集
+    // 原版由各资源自带的采集指令（打开箱子/捡垃圾等）承担。新版保留带参入口，
+    // 避免破坏既有玩法，属有意保留的兼容扩展。
+    if (resourceName) return this.mineResourcePoint(userId, resourceName);
+    return this.mineByVehicle(userId);
+  }
+
+  /**
+   * 手动载具开采（原版 _主程序.ecode L7491-7531「开采」）。
+   * 门禁链：需驾驶载具 → 载具 HP>0 → 采集器部件（引力调频器/行星解裂器/激光采集器）
+   * → 不能在副本 → 行动无限制（理由5=躺下豁免）。
+   * 通过后：添加「工作」60秒标记 → 无隐形模块时延时5秒引怪（覅攻击pd）→ 玩家活跃
+   * → 排程 60 秒延时结算（settleManualMine，原版「开采1c2c」）。
+   */
+  private async mineByVehicle(userId: number): Promise<string> {
+    return this.mutatePlayer(userId, async (ctx) => {
+      const { player } = ctx;
+      if (this.playerService.isPlayerDead(player)) {
+        return this.playerService.handlePlayerDeath(userId, player);
+      }
+      const map = await this.mapService.getMapById(player.mapId);
+      if (!map) return '你不在任何地图上！';
+
+      // 取载具（原版 L7494-7499）
+      const vehicle = await this.findTravelVehicle(player, map);
+      if (!vehicle) return `${player.name ?? '冒险者'}需要驾驶载具`;
+      const vehicleName = String(vehicle.name ?? vehicle.名称 ?? '载具');
+      if (Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0) <= 0) {
+        return `${player.name ?? '冒险者'}载具需要“维修”`;
+      }
+
+      // 采集器部件档位（原版 L7501-7509）：引力调频器=3 / 行星解裂器=2 / 激光采集器=1
+      const partNames = this.collectVehiclePartNames(vehicle);
+      const collector = partNames.includes('引力调频器')
+        ? 3
+        : partNames.includes('行星解裂器')
+          ? 2
+          : partNames.includes('激光采集器')
+            ? 1
+            : 0;
+      if (collector === 0) {
+        // 原版 L7511：提示 + 临时输入替换「1@制造部件」（输入 1 直接前往制造部件）
+        if (this.shortcutService?.setTempInput) {
+          await this.shortcutService.setTempInput(userId, '1@制造部件');
+        }
+        return `${player.name ?? '冒险者'}${vehicleName}需要安装激光采集器、行星解裂器或者引力调频器\n(输入 1 前往制造部件)`;
+      }
+      const collectorText = collector === 3
+        ? '引力调频器分解'
+        : collector === 2
+          ? '行星解裂器轰炸'
+          : '激光采集器轰炸';
+
+      // 副本拦截（原版 L7513-7514）
+      if (map.isInstance || Number(map.关卡 ?? 0) !== 0) {
+        return `${player.name ?? '冒险者'}不能在副本里干这个`;
+      }
+      // 行动无限制，理由5=躺下豁免（原版 L7515）
+      const restrict = this.combatSystem.actionUnrestricted(player, { ignoreReason: 5 });
+      if (restrict.restricted) return restrict.text;
+
+      // 工作 60 秒标记（原版 L7518 添加标记("工作",60,玩家.标记2)）
+      const markers2 = asJsonValue<any[]>(player.markers2, []);
+      this.normalizeMarkers2(markers2);
+      this.combatState.addMarker('工作', 60, markers2, Date.now());
+
+      // 玩家活跃（原版 L7530 玩家活跃：地图活动窗口120秒 + 玩家战斗标记15秒）
+      // 无隐形模块时先延时5秒引怪（原版 L7527-7529 新建延时"覅攻击pd"+地图, 5秒）。
+      const hasStealthModule = partNames.includes('隐形模块');
+      if (!hasStealthModule) {
+        await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map });
+      } else {
+        const mapMarkers2 = asJsonValue<any[]>(map.markers2, []);
+        this.combatState.gainBuff(mapMarkers2, '活动', 120, false, Date.now());
+        map.markers2 = mapMarkers2;
+        await this.mapService.updateDynamicFields(map.id, { markers2: map.markers2 });
+        this.combatState.gainBuff(markers2, '战斗', 15, false, Date.now());
+      }
+      player.markers2 = markers2; // Json 列直接写数组
+
+      // 排程 60 秒延时结算（原版 L7531 新建延时「开采1c2c」）
+      if (this.delayedTaskService) {
+        await this.delayedTaskService.schedule({
+          type: 'mine',
+          userId,
+          dedupeKey: String(userId),
+          runAt: Date.now() + 60 * 1000,
+        });
+      }
+
+      // 文本（原版 L7519-7526：玩家名+召唤物跟随显示+用+采集器名+地图名）
+      const display = await this.summonFollowDisplay(map, userId, { requireFollow: false, countLimit: 3 });
+      const followText = display.count > 0 ? `带着${display.names.join('、')}一起` : '';
+      return `${player.name ?? '冒险者'}${followText}用${collectorText}${map.name}`;
+    });
+  }
+
+  /**
+   * 资源点采集（带参「开采 资源名」兼容分支）。
+   * 直接采当前地图剩余数量>0 的资源点并挂 respawnTime 冷却。
+   * 注：原版无此用法（载具开采见 mineByVehicle、资源点采集指令见 handleGatherResource），
+   * 此处为保留既有玩法的复刻扩展。
+   */
+  private async mineResourcePoint(userId: number, resourceName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, markers2 } = playerData;
 
@@ -3462,6 +3575,230 @@ export class GameService {
 
     const respawnMin = Math.ceil(respawnTime / 60000);
     return `开采了 ${resourceDisplayName} ×${amount}\n该资源将在 ${respawnMin} 分钟后刷新`;
+  }
+
+  /**
+   * 手动载具开采的 60 秒延时结算（原版 _主程序.ecode L7534-7608「开采1c2c」）。
+   * 遍历当前地图野生资源（可再生、标记空、产出2空）：
+   *   - 每个产出按身边召唤物因子独立 roll 几率（原版 几率判断）；
+   *   - 数量 = 产出数量×16×(1+采集/100)，行星解裂器额外 ×(1+rand(2500,5000)/10000)；
+   *   - 每个资源「次数-6」，次数归零后移除资源并挂 1800 秒「刷新资源X」重生标记；
+   *   - 成就：开采+1 / 采集资源 / 采集X / 采集熟练度+2×因子；
+   *   - 无隐形模块时结算后再次引怪。
+   */
+  private async settleManualMine(userId: number): Promise<void> {
+    const text = await this.playerService.enqueueUserWrite(userId, async () => {
+      const playerData = await this.playerService.getPlayerData(userId);
+      const { player } = playerData;
+      const map = await this.mapService.getMapById(player.mapId);
+      if (!map) return '';
+
+      // 载具/采集器重取（结算文本用；中途换载具时以当前载具为准）
+      const vehicle = await this.findTravelVehicle(player, map);
+      const partNames = vehicle ? this.collectVehiclePartNames(vehicle) : [];
+      const collector = partNames.includes('引力调频器')
+        ? 3
+        : partNames.includes('行星解裂器')
+          ? 2
+          : partNames.includes('激光采集器')
+            ? 1
+            : 0;
+      const collectorText = collector === 3
+        ? '引力调频器开采出了'
+        : collector === 2
+          ? '行星解裂器开采出了'
+          : '激光采集器开采出了';
+
+      // 跟随因子（原版 L7535/L7543-7546：归属召唤物数上限2，+1）
+      const display = await this.summonFollowDisplay(map, userId, { requireFollow: false, countLimit: 3 });
+      const followerFactor = Math.min(2, display.count) + 1;
+
+      // 采集加成（原版 玩家.属性.采集，实时加成口径）
+      let gatherBonus = 0;
+      try {
+        const bonus = this.combatSystem.buildAttackerBonus(player, playerData, map) as any;
+        gatherBonus = Number(bonus?.采集 ?? 0);
+      } catch { /* 加成缺失按0处理 */ }
+      const multiplier = 1 + gatherBonus / 100;
+
+      // 遍历野生资源产出（原版 L7550-7585；数据侧资源/资源2已合并进 resources 字段）
+      const resources = asJsonValue<any[]>(map.resources, []);
+      const emptied: string[] = [];
+      const awarded = new Map<string, number>();
+      const backpack = this.playerService.getBackpackItems(player);
+      for (const resource of resources) {
+        if (resource?.renewable === false || resource?.不可再生 === true) continue; // 不可再生
+        if (String(resource?.marker ?? resource?.标记 ?? '').trim()) continue;      // 一次性特殊资源
+        const outputs2 = resource?.outputs2 ?? resource?.['产出2'];
+        if (Array.isArray(outputs2) ? outputs2.length > 0 : asJsonValue<any[]>(outputs2, []).length > 0) continue; // 建筑/作物产出
+        for (const out of this.parseResourceOutputs(resource?.outputs)) {
+          if (!out.name || out.name === '电力') continue;
+          for (let i = 0; i < followerFactor; i++) {
+            if (Math.random() * 100 >= Number(out.chance ?? 100)) continue; // 几率判断
+            let amount = Number(out.count ?? 0) * 16 * multiplier;
+            if (collector === 2) {
+              amount *= 1 + this.randomInt(2500, 5000) / 10000; // 原版 L7562 行星解裂器随机增幅
+            }
+            if (amount <= 0) continue;
+            const itemType = this.staticData.getEquipmentByName(out.name) ? '装备' : '资源';
+            if (itemType === '装备') {
+              const equipment = await this.itemSystemService.generateRewardEquipment(out.name, out.quality || '');
+              backpack.push({ ...equipment, type: '装备', quantity: 1, count: 1 });
+              awarded.set(out.name, (awarded.get(out.name) || 0) + 1);
+            } else {
+              awarded.set(out.name, (awarded.get(out.name) || 0) + amount);
+            }
+          }
+        }
+        // 次数-6（原版 L7571-7575；次数 -1 = 无限）
+        const times = Number(resource?.times ?? resource?.次数 ?? -1);
+        if (times !== -1 && times > 0) emptied.push(resource.name ?? resource.名称);
+      }
+
+      // 背包写回（数值过 roundItemQuantity 三道闸）
+      for (const [itemName, amount] of awarded) {
+        this.addItemToCollection(backpack, { name: itemName, type: this.staticData.getEquipmentByName(itemName) ? '装备' : '资源', quantity: amount });
+      }
+      player.backpack = backpack; // Json 列直接写数组
+
+      // 地图写回：次数-6、枯竭移除并挂 1800 秒刷新标记（原版 L7571-7591+后台运作 L1035）
+      let exhaustedText = '';
+      await this.mapService.mutateMapFields(map.id, ['resources', 'markers2'], (f) => {
+        const fresh = f.resources as any[];
+        if (!Array.isArray(fresh)) return false;
+        let changed = false;
+        for (let i = fresh.length - 1; i >= 0; i--) {
+          const resource = fresh[i];
+          if (resource?.renewable === false || resource?.不可再生 === true) continue;
+          if (String(resource?.marker ?? resource?.标记 ?? '').trim()) continue;
+          const outputs2 = resource?.outputs2 ?? resource?.['产出2'];
+          if (Array.isArray(outputs2) ? outputs2.length > 0 : asJsonValue<any[]>(outputs2, []).length > 0) continue;
+          const times = Number(resource?.times ?? resource?.次数 ?? -1);
+          if (times === -1) continue;
+          const remaining = Math.max(0, times - 6);
+          resource.times = remaining;
+          if (resource.次数 !== undefined) resource.次数 = remaining;
+          changed = true;
+          if (remaining <= 0) {
+            fresh.splice(i, 1); // 枯竭移除
+            const name = String(resource.name ?? resource.名称 ?? '');
+            const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
+            const filtered = mapMarkers2.filter((entry: any) => (entry?.name ?? entry?.名称) !== `刷新资源${name}`);
+            filtered.push({ name: `刷新资源${name}`, expireAt: Date.now() + 1800 * 1000, resourceField: 'resources' });
+            f.markers2 = filtered;
+          }
+        }
+        return changed;
+      }).catch(() => false);
+
+      // 成就与任务（原版 L7549/L7602-7605）
+      const totalAmount = [...awarded.values()].reduce((sum, value) => sum + value, 0);
+      await this.advanceTask(userId, '开采');
+      await this.advanceTask(userId, '采集资源', totalAmount);
+      for (const [itemName, amount] of awarded) {
+        await this.advanceTask(userId, `采集${itemName}`, amount);
+      }
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
+      markers['采集熟练度'] = Number(markers['采集熟练度'] ?? 0) + 2 * followerFactor;
+      player.markers = markers; // Json 列直接写对象
+      await this.playerService.savePlayer(player);
+
+      // 结算文本（原版 L7535-7542/L7595-7599）
+      const gainedText = [...awarded.entries()]
+        .map(([name, amount]) => `${name}×${Math.round(amount * 100) / 100}`)
+        .join('、');
+      const followText = display.count > 0 ? `带着${display.names.join('、')}一起` : '';
+      let resultText = `${player.name ?? '冒险者'}${followText}用${collectorText}${gainedText || ''}`;
+      if (!gainedText) resultText = `${player.name ?? '冒险者'}${map.name}的资源已经枯竭了`;
+      // 无隐形模块时结算后再次引怪（原版 L7606-7608）
+      if (!partNames.includes('隐形模块')) {
+        try {
+          await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map });
+        } catch (e: any) {
+          this.logger.warn(`开采结算引怪失败 userId=${userId}: ${e?.message || e}`);
+        }
+      }
+      void exhaustedText;
+      const taskNotice = this.taskService.consumeNotifications(userId);
+      if (taskNotice) resultText = `${taskNotice}\n————————\n${resultText}`;
+      return resultText;
+    });
+
+    if (text) {
+      await this.chatService.broadcastSystem('世界频道', text, userId).catch(() => undefined);
+      try {
+        await this.pushPlayerUpdate(userId);
+        await this.pushMapUpdate(userId);
+      } catch { /* 推送失败不影响结算 */ }
+    }
+  }
+
+  /** 载具部件名收集（含内置零件递归；与 AutoMineService.getVehiclePartNames 同口径）。 */
+  private collectVehiclePartNames(vehicle: any): string[] {
+    const names: string[] = [];
+    const visit = (part: any): void => {
+      if (!part) return;
+      const name = String(part?.name ?? part?.名称 ?? '').trim();
+      if (name) names.push(name);
+      for (const inner of (Array.isArray(part?.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置)
+        ? (part.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置)
+        : asJsonValue<any[]>(part?.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置, []))) {
+        visit(inner);
+      }
+    };
+    const parts = Array.isArray(vehicle?.parts ?? vehicle?.零件)
+      ? (vehicle.parts ?? vehicle.零件)
+      : asJsonValue<any[]>(vehicle?.parts ?? vehicle?.零件, []);
+    for (const part of parts) visit(part);
+    for (const part of (Array.isArray(vehicle?.builtinParts ?? vehicle?.内置零件)
+      ? (vehicle.builtinParts ?? vehicle.内置零件)
+      : asJsonValue<any[]>(vehicle?.builtinParts ?? vehicle?.内置零件, []))) {
+      visit(part);
+    }
+    return names;
+  }
+
+  /**
+   * 召唤物跟随显示（原版 数据显示.ecode L326-401 召唤物跟随显示）。
+   * 归属=玩家（ownerQQ/userId 任意键命中）、requireFollow=true 时还要求「跟随」熟练度<1；
+   * countLimit 为显示数量上限（原版第2参）。返回名单文本与数量。
+   */
+  private async summonFollowDisplay(
+    map: any,
+    userId: number,
+    options: { requireFollow?: boolean; countLimit?: number } = {},
+  ): Promise<{ names: string[]; count: number; indexes: number[] }> {
+    const requireFollow = options.requireFollow ?? true;
+    const countLimit = options.countLimit ?? 0;
+    const raw = map?.summons ?? map?.召唤物 ?? [];
+    const summons = Array.isArray(raw) ? raw : asJsonValue<any[]>(raw, []);
+    const ownerKeys = new Set([String(userId)].filter(Boolean));
+    const names: string[] = [];
+    const indexes: number[] = [];
+    for (let i = 0; i < summons.length; i++) {
+      const summon = summons[i];
+      const owner = String(summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? summon?.qq ?? '');
+      if (!ownerKeys.has(owner)) continue;
+      if (requireFollow) {
+        let summonMarkers: any = summon?.markers ?? summon?.标记 ?? {};
+        if (!Array.isArray(summonMarkers) && typeof summonMarkers === 'string') {
+          summonMarkers = asJsonValue<any>(summonMarkers, {});
+        }
+        const prof = Array.isArray(summonMarkers)
+          ? Number(summonMarkers.find((m: any) => (m?.name ?? m?.名称) === '跟随')?.value ?? 0)
+          : Number(summonMarkers?.['跟随'] ?? 0);
+        if (prof >= 1) continue; // 熟练度>=1 为不跟随
+      }
+      names.push(String(summon?.name ?? summon?.名称 ?? summon?.type ?? summon?.类型 ?? '宠物'));
+      indexes.push(i);
+      if (countLimit > 0 && names.length >= countLimit) break;
+    }
+    return { names, count: names.length, indexes };
+  }
+
+  /** 原版 取随机数(最小,最大)（含两端）。 */
+  private randomInt(min: number, max: number): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
   /**
@@ -10271,33 +10608,170 @@ export class GameService {
    * 对应原版：补魔 命令
    */
   async handleRefill(userId: number): Promise<string> {
-    // 获取玩家数据
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    // 对齐原版 _主程序.ecode L7110-7129「补魔」：与跟随中的召唤物补魔（涩涩玩法），
+    // 非喝药回蓝。门禁链：躺下中 → 自家房子屋内 → 有跟随召唤物 → 补魔间隔21600秒。
+    // 通过后：随机取对话(类型7 补魔开始) + 「工作」35秒 + 排程30秒延时结算
+    // （completeRefill，原版「覅b魔w成」）。
+    return this.mutatePlayer(userId, async (ctx) => {
+      const { player, markers, markers2 } = ctx;
 
-    // 检查背包中是否有魔力药剂
-    const backpack = this.playerService.getBackpackItems(player);
-    const potion = backpack.find((item: any) => item.name === '魔力药剂' || item.name === '魔力药水');
+      // 门禁1：需「躺下」成就状态（原版 L7111 取成就熟练度(玩家.标记,"躺下")==0 → 需要躺下；
+      // 新版 handleLieDown 写 markers['躺下']=1、handleWakeUp 清除，语义等价）
+      if (this.playerService.getMarkerValue(asJsonValue<Record<string, any>>(player.markers, {}), '躺下') !== 1) {
+        return `${player.name ?? '冒险者'}需要“躺下”`;
+      }
 
-    if (!potion) {
-      return '背包中没有魔力药剂，无法补充魔力';
+      // 门禁2：地图必须是自家房子「屋内」（原版 L7113 地图.名称 != 玩家.房子名称+"屋内"）
+      const map = await this.mapService.getMapById(player.mapId);
+      if (!map) return `${player.name ?? '冒险者'}不能野战`;
+      const houseName = String((player as any).houseName ?? '');
+      if (!houseName || String(map.name ?? '') !== `${houseName}屋内`) {
+        return `${player.name ?? '冒险者'}不能野战`;
+      }
+
+      // 门禁3：有跟随中的召唤物（原版 L7116 召唤物跟随显示(玩家,2,...)，b==0 → 不能自己发电）
+      const display = await this.summonFollowDisplay(map, userId, { requireFollow: true, countLimit: 2 });
+      if (display.count === 0) return `${player.name ?? '冒险者'}不能自己发电`;
+      const displayText = `正在和${display.names.join('、')}一起`;
+
+      // 门禁4：补魔间隔 21600 秒冷却（原版 L7119 时间间隔要求("补魔间隔",21600,玩家.标记2)）
+      const remaining = { value: '' };
+      const now = Date.now();
+      if (this.combatState.timeIntervalRequire('补魔间隔', 21600, markers2, now, remaining, now)) {
+        return `${player.name ?? '冒险者'}太频繁了,${remaining.value}`;
+      }
+
+      // 随机取一个跟随对象说补魔开始台词（原版 L7122-7125 随机文本(w3) + 取对话(…,7)）
+      const summons = Array.isArray(map.summons) ? map.summons : asJsonValue<any[]>(map.summons, []);
+      const target = summons[display.indexes[this.randomInt(0, display.indexes.length - 1)]];
+      const dialogue = target
+        ? this.staticData.getDialogue(String(player.name ?? ''), target, String(target.name ?? target.名称 ?? ''), 7)
+        : '';
+
+      // 执行：工作 35 秒标记（原版 L7127 添加标记("工作",35,玩家.标记2)）+ 排程 30 秒延时
+      this.normalizeMarkers2(markers2);
+      this.combatState.addMarker('工作', 35, markers2, now);
+      player.markers2 = markers2; // Json 列直接写数组
+      if (this.delayedTaskService) {
+        await this.delayedTaskService.schedule({
+          type: 'refill',
+          userId,
+          dedupeKey: String(userId),
+          runAt: now + 30 * 1000,
+        });
+      }
+      // 文本（原版 L7126 w = w3 + 玩家.名称 + w2 + "补魔"）
+      return `${dialogue}${player.name ?? '冒险者'}${displayText}补魔`;
+    });
+  }
+
+  /**
+   * 补魔的 30 秒延时结算（原版 _主程序.ecode L7158-7319「覅b魔w成」）。
+   * 结算：校验补魔对象仍在 → 取对话(类型8 补魔结束) → 玩家与跟随召唤物获得
+   * 「兴奋」增益（小恶魔在场 3600 秒、默认 600 秒）→ 召唤物好感+3 →
+   * 成就/任务「补魔」推进。
+   * 幼崽诞生分支（原版 L7226-7317）依赖活力常量表与怪物模板初始化，尚未迁移，
+   * 待对应子系统落地后补齐。
+   */
+  private async completeRefill(userId: number): Promise<void> {
+    const text = await this.playerService.enqueueUserWrite(userId, async () => {
+      const playerData = await this.playerService.getPlayerData(userId);
+      const { player } = playerData;
+      const map = await this.mapService.getMapById(player.mapId);
+      if (!map) return '';
+
+      // 补魔对象校验（原版 L7159-7161：跟随显示 b==0 → 补魔失败）
+      const display = await this.summonFollowDisplay(map, userId, { requireFollow: true, countLimit: 2 });
+      if (display.count === 0) return `${player.name ?? '冒险者'}补魔对象丢失，补魔失败`;
+      const displayText = `与${display.names.join('、')}一起`;
+
+      // 随机取一个对象说补魔结束台词（原版 L7163-7166 取对话(…,8)）
+      const mapSummons: any[] = Array.isArray(map.summons) ? map.summons : asJsonValue<any[]>(map.summons, []);
+      const target = mapSummons[display.indexes[this.randomInt(0, display.indexes.length - 1)]];
+      const dialogue = target
+        ? this.staticData.getDialogue(String(player.name ?? ''), target, String(target.name ?? target.名称 ?? ''), 8)
+        : '';
+
+      // 兴奋增益时长（原版 L7169-7183：有特殊宠物小恶魔(-20) → 3600 秒，否则 600 秒；
+      // 套装「小樱命中+陪睡>3 → 7200」依赖召唤物套装字段，尚未迁移，暂按默认两档）
+      let buffSeconds = 600;
+      if (this.homeService.hasSpecialPet(-20, mapSummons) !== -1) buffSeconds = 3600;
+
+      // 玩家获得「兴奋」（原版 L7184 获得增益(玩家.增益,"兴奋",a2)；
+      // bonus.service 已按兴奋口径折算攻击+15%/双抗命中闪避暴击+20%/掉落率+50%等）
+      const buffs = asJsonValue<any[]>(player.buffs, []);
+      this.combatState.gainBuff(buffs, '兴奋', buffSeconds, false, Date.now());
+      player.buffs = buffs; // Json 列直接写数组
+
+      // 给跟随中的召唤物加「兴奋」+好感3（原版 L7185-7224：
+      // 归属=玩家、跟随标记==0、非露娜、非临时召唤物（QQ含x）、
+      // hp==0 的 NPC 不算（「白」例外））
+      const ownerKey = String(userId);
+      const boostedNames: string[] = [];
+      const boostedIndexes: number[] = [];
+      for (let i = 0; i < mapSummons.length; i++) {
+        const summon = mapSummons[i];
+        const owner = String(summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? summon?.qq ?? '');
+        if (owner !== ownerKey) continue;
+        let summonMarkers: any = summon?.markers ?? summon?.标记 ?? {};
+        if (!Array.isArray(summonMarkers) && typeof summonMarkers === 'string') {
+          summonMarkers = asJsonValue<any>(summonMarkers, {});
+        }
+        const followProf = Array.isArray(summonMarkers)
+          ? Number(summonMarkers.find((m: any) => (m?.name ?? m?.名称) === '跟随')?.value ?? 0)
+          : Number(summonMarkers?.['跟随'] ?? 0);
+        if (followProf >= 1) continue; // 只有设置为跟随的才跟玩家补魔
+        const qq = String(summon?.qq ?? summon?.QQ ?? '');
+        if (qq === '怪物露娜1g') continue; // 露娜是来帮忙的不是来上床的
+        if (qq.includes('x')) continue;   // 临时召唤物不能补魔
+        const hp = Number(summon?.hp ?? summon?.当前生命 ?? 1);
+        const name = String(summon?.name ?? summon?.名称 ?? summon?.type ?? summon?.类型 ?? '宠物');
+        if (hp <= 0 && name !== '白') continue; // 生命0的是npc不是宠物
+        boostedNames.push(name);
+        boostedIndexes.push(i);
+      }
+      if (boostedIndexes.length > 0) {
+        await this.mapService.mutateSummons(map.id, (fresh: any[]) => {
+          for (const i of boostedIndexes) {
+            const summon = fresh[i];
+            if (!summon) continue;
+            const summonBuffs = asJsonValue<any[]>(summon.buffs ?? summon.增益, []);
+            this.combatState.gainBuff(summonBuffs, '兴奋', buffSeconds, false, Date.now());
+            summon.buffs = summonBuffs;
+            const summonMarkers = asJsonValue<Record<string, any>>(summon.markers ?? summon.标记 ?? {}, {});
+            const affinityKey = `好感${ownerKey}`;
+            summonMarkers[affinityKey] = Number(summonMarkers[affinityKey] ?? 0) + 3;
+            summon.markers = summonMarkers;
+          }
+          return true;
+        }).catch(() => false);
+      }
+
+      // 任务推进（原版 L7318 添加成就("补魔", c, 玩家.成就, 玩家.任务)；
+      // c 在原版循环中恒为 2）
+      await this.advanceTask(userId, '补魔', 2);
+      await this.playerService.savePlayer(player);
+
+      // 文本（原版 L7167/L7225）
+      const durationText = buffSeconds >= 3600
+        ? `${buffSeconds / 3600}小时`
+        : `${buffSeconds / 60}分钟`;
+      let resultText = `${dialogue}${player.name ?? '冒险者'}${displayText}补魔结束，`
+        + `${player.name ?? '冒险者'}、${boostedNames.join('、')}${durationText}内`
+        + `攻击+15%、状态/回复/百分比回复/命中/闪避/暴击/抗性+20%、传说几率+25%、掉落率+50%、掉落数量/经验获取+100%`
+        + `\n${boostedNames.join('、')}对${player.name ?? '冒险者'}好感+3`;
+      const taskNotice = this.taskService.consumeNotifications(userId);
+      if (taskNotice) resultText = `${taskNotice}\n————————\n${resultText}`;
+      return resultText;
+    });
+
+    if (text) {
+      await this.chatService.broadcastSystem('世界频道', text, userId).catch(() => undefined);
+      try {
+        await this.pushPlayerUpdate(userId);
+        await this.pushMapUpdate(userId);
+      } catch { /* 推送失败不影响结算 */ }
     }
-
-    // 消耗一瓶魔力药剂，恢复魔力
-    const removed = await this.playerService.removeFromBackpack(userId, potion.name, 1);
-    if (!removed) {
-      return '消耗魔力药剂失败';
-    }
-
-    // 恢复魔力（假设玩家有魔力字段，或使用 markers 记录）
-    // 在 markers 中设置一个魔力恢复标记
-    const markers = playerData.markers;
-    const currentMp = markers['魔力'] || 100;
-    markers['魔力'] = Math.min(currentMp + 50, 500); // 最多恢复50点，上限500
-    player.markers = markers; // Json 列直接写对象
-    await this.playerService.savePlayer(player);
-
-    return `消耗了一瓶${potion.name}，魔力恢复50点（当前魔力: ${markers['魔力']}）`;
   }
 
   /**

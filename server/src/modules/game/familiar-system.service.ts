@@ -20,6 +20,7 @@ import { CombatStateService } from './combat-state.service';
 import { GameHighlightService } from './highlight.service';
 import { hasActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 import {
   buildFamiliarGateMenu,
   buildFamiliarPreview,
@@ -151,7 +152,13 @@ export class FamiliarSystemService {
     // 高光时刻推送（领取使魔称号时播放屏幕级动画）。Optional 末位参数，
     // 旧测试桩不传也不受影响。
     @Optional() private readonly highlight?: GameHighlightService,
-  ) {}
+  ) {
+    // P2 管道注入自检：@Optional 注入失效会静默回落裸锁路径（生产极难察觉，
+    // 见正式库 CurrencyLog 空表事故）。
+    this.logger.log(
+      `使魔系统 mutate 管道注入自检: ${this.mutateService?.mutate ? '已激活' : '未注入（兑换走裸锁路径）'}`,
+    );
+  }
 
   // ==================== 使魔基础操作 ====================
 
@@ -391,7 +398,7 @@ export class FamiliarSystemService {
     const ticketCount = ticketItem ? (ticketItem.count || 1) : 0;
 
     if (ticketCount < count) {
-      return `${player.name || '冒险者'} 你的召唤券只有${ticketCount}，无法召唤${count}次\n你可以在商店兑换召唤券`;
+      return `${player.name || '冒险者'} 你的召唤券只有${roundItemQuantity(ticketCount)}，无法召唤${count}次\n你可以在商店兑换召唤券`;
     }
 
     // 获取所有可召唤的使魔（静态配置 JSON 单一来源）
@@ -417,14 +424,16 @@ export class FamiliarSystemService {
       summonedItems.push(chosenFamiliar.name);
     }
 
-    // 扣除召唤券
-    const newTicketCount = ticketCount - count;
+    // 扣除召唤券（数值过 roundItemQuantity 闸：73.012 - 73 的 IEEE754 长尾
+    // 0.012000000000000455 会原样入库并泄漏到 UI，正式库事故实锤）。
+    const newTicketCount = roundItemQuantity(ticketCount - count);
     if (newTicketCount <= 0) {
       // 移除召唤券
       const idx = backpack.findIndex((item: any) => item.name === '召唤券');
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
       ticketItem!.count = newTicketCount;
+      if (ticketItem!.quantity !== undefined) ticketItem!.quantity = newTicketCount;
     }
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
@@ -960,7 +969,7 @@ export class FamiliarSystemService {
       if (activity < totalCost) {
         return `需要${totalCost}活跃度，你只有${Math.round(activity)}`;
       }
-      markers['活跃度'] = activity - totalCost;
+      markers['活跃度'] = roundItemQuantity(activity - totalCost);
     } else {
       const currencyItem = backpack.find((item: any) => item.name === currencyName);
       const current = this.getItemQuantity(currencyItem);
@@ -971,8 +980,9 @@ export class FamiliarSystemService {
         const index = currencyItem ? backpack.indexOf(currencyItem) : -1;
         if (index >= 0) backpack.splice(index, 1);
       } else if (currencyItem) {
-        if (currencyItem.quantity !== undefined) currencyItem.quantity = current - totalCost;
-        else currencyItem.count = current - totalCost;
+        // 扣减结果过 roundItemQuantity 闸，防止 0.012000000000000455 型长尾入库
+        if (currencyItem.quantity !== undefined) currencyItem.quantity = roundItemQuantity(current - totalCost);
+        else currencyItem.count = roundItemQuantity(current - totalCost);
       }
     }
 
@@ -983,7 +993,7 @@ export class FamiliarSystemService {
       markers['历史活跃度'] = this.playerService.getMarkerValue(markers, '历史活跃度') + count;
       if (player.type) {
         const affinityKey = `${player.type}好感`;
-        markers[affinityKey] = this.playerService.getMarkerValue(markers, affinityKey) + count / 100;
+        markers[affinityKey] = roundItemQuantity(this.playerService.getMarkerValue(markers, affinityKey) + count / 100);
       }
     }
     markers['兑换'] = this.playerService.getMarkerValue(markers, '兑换') + count;

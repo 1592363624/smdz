@@ -29,7 +29,9 @@ export type DelayedTaskType =
   | 'move'          // 移动延时到达（payload: targetMapId/targetName）
   | 'rescue'        // 救援完成（payload: markers2 里的救援标记，含 token）
   | 'reload'        // 装填完成（payload: mode = plana | organ）
-  | 'dungeonClose'; // 副本通关关闭（payload: group，dedupeKey=地图组名）
+  | 'dungeonClose'  // 副本通关关闭（payload: group，dedupeKey=地图组名）
+  | 'mine'          // 手动载具开采结算（原版「开采1c2c」60秒，结算时重读玩家/地图）
+  | 'refill';       // 补魔结算（原版「覅b魔w成」30秒，结算时重读跟随召唤物）
 
 export interface DelayedTaskScheduleInput {
   type: DelayedTaskType;

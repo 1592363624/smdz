@@ -1142,23 +1142,36 @@ export class PlayerService implements OnModuleInit {
             const it = items[idx];
             const hasQ = it.quantity !== undefined;
             const hasC = it.count !== undefined;
-            let value: number;
-            if (hasQ && hasC && mirrorMap[itemName] !== undefined) {
-              // 双字段都在且已知基准：取偏离基准更大的字段（另一个是未被修改的镜像）
-              const q = Number(it.quantity);
-              const c = Number(it.count);
-              const base = Number(mirrorMap[itemName]);
-              value = Math.abs(q - base) >= Math.abs(c - base) ? q : c;
-            } else if (hasQ) {
-              // 单字段（手工构造或旧数据）：该字段即权威值
-              value = Number(it.quantity);
+            // 列同步只信任经 materializeCurrencies 物化的对象（_currencyMirror
+            // 存在）：双字段镜像仲裁必须已知基准才可靠。无 mirror 的对象（手工
+            // 构造的局部写、findUnique 原始行的历史遗留 JSON 条目）其条目新鲜度
+            // 不可知——正式库事故即「陈旧钻石条目」经保守提取复活成权威余额
+            // （旧余额覆盖新余额的混合态）。此类对象一律：条目从背包 JSON 剥离
+            // （维持背包不含货币条目的不变量）、货币列保持原值不动、告警暴露。
+            if (mirrorMap[itemName] !== undefined) {
+              let value: number;
+              if (hasQ && hasC) {
+                // 双字段都在且已知基准：取偏离基准更大的字段（另一个是未被修改的镜像）
+                const q = Number(it.quantity);
+                const c = Number(it.count);
+                const base = Number(mirrorMap[itemName]);
+                value = Math.abs(q - base) >= Math.abs(c - base) ? q : c;
+              } else if (hasQ) {
+                // 单字段：该字段即权威值
+                value = Number(it.quantity);
+              } else {
+                value = Number(it.count ?? 0);
+              }
+              updateData[column] = value;
+              // 同步回内存快照：调用方（如 mutate 审计）保存后读取列值应与库一致
+              (player as any)[column] = value;
             } else {
-              value = Number(it.count ?? 0);
+              this.logger.warn(
+                `货币条目来自未物化对象(无_currencyMirror)，已剥离条目并保留列原值`
+                + ` id=${player?.id ?? '未知'} column=${column} 条目值=${hasQ ? it.quantity : it.count}`,
+              );
             }
-            updateData[column] = value;
             items.splice(idx, 1);
-            // 同步回内存快照：调用方（如 mutate 审计）保存后读取列值应与库一致
-            (player as any)[column] = value;
           } else if (authoritativeSnapshot && (player as any)._currencyMirror) {
             // 仅当对象经 getPlayerData 物化过货币（_currencyMirror 存在）时，
             // 背包条目缺失才算「已花光=0」；findUnique 原始行没有 mirror，
@@ -1201,6 +1214,9 @@ export class PlayerService implements OnModuleInit {
    */
   private async persistPlayer(player: any): Promise<void> {
     const updateData = this.buildPlayerUpdateData(player);
+    // 全路径货币审计（P4 兜底）：mutate 管道内的审计只覆盖 mutate 链，这里在
+    // 真正落库层兜底——Actor writeThrough / 邮箱路径 / 裸保存的货币变动同样入账。
+    this.auditCurrencyWrite(player, updateData);
     const snapshotVersion = Number(player.version ?? 0);
     const canCas = PlayerService.CAS_MODE !== 'off'
       && !!player?.id
@@ -1252,6 +1268,57 @@ export class PlayerService implements OnModuleInit {
       data: updateData, // $use 中间件自动 version: { increment: 1 }
     });
     player.version = Number(current?.version ?? snapshotVersion) + 1;
+  }
+
+  /**
+   * 全路径货币审计（P4 兜底层）：本次落库若携带货币列且相对写基线（attachWriteMeta
+   * 在载入时建立的快照，PLAYER_PATCH_FIELDS 含 diamonds/tickets/dataCores）发生
+   * 变化，即写一条 CurrencyLog。before 取自内存基线，零额外查询；无基线的手工
+   * 对象无从对比 before，跳过（mutate 链自有 ctx 前后审计覆盖）。
+   *
+   * 说明：mutate 链末端的统一落库也会经过这里，与 mutate.auditCurrencyChanges
+   * 理论上可能各记一条——审计定位是异常侦测（正式库曾因管道未生效导致整表为空、
+   * 事故零痕迹），允许少量重复，绝不接受漏记。写入失败仅告警，不影响落库主链路。
+   */
+  private auditCurrencyWrite(player: any, updateData: any): void {
+    try {
+      const meta: PlayerWriteMeta | undefined = player?.[PLAYER_WRITE_META];
+      if (!meta?.baseline) return; // 手工对象无基线：无 before 可比，交给上层审计
+      const model = (this.prisma as any)?.currencyLog;
+      if (typeof model?.create !== 'function') return; // 测试桩无 currencyLog 模型
+      const pairs: Array<[string, string]> = [
+        ['diamonds', '钻石'], ['tickets', '召唤券'], ['dataCores', '数据核心'],
+      ];
+      for (const [column, label] of pairs) {
+        if (updateData[column] === undefined) continue;
+        const before = Number(meta.baseline[column] ?? 0);
+        const after = Number(updateData[column]);
+        const delta = Number((after - before).toFixed(6));
+        if (!Number.isFinite(delta) || delta === 0) continue;
+        // 基线推进到本次落库值：同一对象重复落库不重复记同一笔 delta
+        meta.baseline[column] = after;
+        const stack = (new Error('currency-audit').stack ?? '')
+          .split('\n')
+          .slice(2, 5)
+          .join(' <- ');
+        void model
+          .create({
+            data: {
+              userId: Number(player.userId ?? meta.userId ?? 0),
+              currency: label,
+              delta,
+              balanceAfter: after,
+            },
+          })
+          .catch((err: any) =>
+            this.logger.warn(`货币审计写入失败 id=${player?.id} ${label}: ${err?.message || err}`),
+          );
+        this.logger.log(`货币变动审计 id=${player?.id} ${label} ${before} -> ${after} (Δ${delta}) 调用: ${stack}`);
+      }
+    } catch (err: any) {
+      // 审计是旁路：任何异常不得影响业务结果
+      this.logger.warn(`货币审计异常 id=${player?.id}: ${err?.message || err}`);
+    }
   }
 
   /**

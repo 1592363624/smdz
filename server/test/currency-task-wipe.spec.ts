@@ -146,7 +146,8 @@ describe('任务结算不误清货币（正式库「主线-继续询问」事故
     const reward = bp.find((i: any) => i.name === '主线补给箱');
     expect(reward).toBeDefined();
     // getRewardScale：任务熟练度0 → 等级1 → (1+1/100)=1.01 倍奖励
-    expect(Number(reward.count)).toBeCloseTo(10.61 * 1.01, 5);
+    // 乘积过 roundItemQuantity 闸：10.61*1.01=10.716099999999999（浮点尾巴）收敛为 10.72
+    expect(Number(reward.count)).toBeCloseTo(10.72, 5);
     expect(bp.some((i: any) => i.name === '钻石')).toBe(false);
     expect(bp.some((i: any) => i.name === '召唤券')).toBe(false);
 
@@ -169,6 +170,29 @@ describe('任务结算不误清货币（正式库「主线-继续询问」事故
 
     expect(rows[0].diamonds).toBeCloseTo(1055.75, 5); // 修复前被清 0
     expect(rows[0].tickets).toBeCloseTo(21.11, 5);
+  });
+
+  it('无 mirror 的陈旧货币条目不同步进列：列保持库值、条目从背包剥离（混合态复活防线）', async () => {
+    // 正式库事故形态：某写者携带陈旧背包钻石条目（无 _currencyMirror）整包保存，
+    // 旧「保守提取」把列同步成条目的陈旧值——已扣掉的钻石凭条目复活。
+    const rows = [makePlayerRow()];
+    const prisma = makePrisma(rows);
+    const service = makePlayerService(prisma);
+
+    const raw = await prisma.player.findUnique({ where: { userId: 42 } });
+    const bp = parseJson(raw.backpack, []);
+    // 陈旧条目：余额早已是 1055.75，条目却还是旧值 500
+    bp.push({ name: '钻石', type: '资源', count: 500, quantity: 500 });
+    raw.backpack = JSON.stringify(bp);
+    await service.savePlayer(raw);
+
+    // 列不被陈旧条目覆盖（修复前会被同步成 500）
+    expect(rows[0].diamonds).toBeCloseTo(1055.75, 5);
+    expect(rows[0].tickets).toBeCloseTo(21.11, 5);
+    // 条目被剥离：落库背包不含货币条目（列是唯一真相源的不变量）
+    const savedBp = parseJson(rows[0].backpack, []);
+    expect(savedBp.some((i: any) => i.name === '钻石')).toBe(false);
+    expect(savedBp.some((i: any) => i.name === '优秀武器补给箱')).toBe(true);
   });
 
   it('经 getPlayerData 物化后「背包条目被删=花光」仍正确落 0', async () => {

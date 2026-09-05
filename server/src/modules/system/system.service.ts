@@ -34,7 +34,15 @@ export class SystemService {
   async getDeployInfo() {
     const manifest = this.readVersionManifest();
     const settings = await this.getUpdateSettings();
-    return { ...manifest, settings };
+    // 进程身份信息：version.json 是磁盘文件，旧进程会汇报磁盘上新版本的 sha
+    // （"磁盘版本 ≠ 运行版本"），运维据此辨别进程是否真的跑在新代码上。
+    const uptimeSec = Math.round(process.uptime());
+    return {
+      ...manifest,
+      settings,
+      processStartedAt: new Date(Date.now() - uptimeSec * 1000).toISOString(),
+      processUptimeSec: uptimeSec,
+    };
   }
 
   /**

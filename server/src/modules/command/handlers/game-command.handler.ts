@@ -1445,8 +1445,9 @@ export class GameCommandHandler implements CommandHandler {
 
         case '补魔':
         case 'refill': {
+          // 原版任务推进在 30 秒延时结算（completeRefill）内完成，
+          // 指令层不再重复推进以免双计。
           const result = await this.gameService.handleRefill(userId);
-          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '补魔');
           return this.wrap(result);
         }
 
