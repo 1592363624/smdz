@@ -449,6 +449,42 @@ export class GameService {
       }
     }
 
+    // 对齐原版 L6549-6576：「出口」分支——副本退出（空间乱流）。
+    // 当前地图可前往含“出口”时：随机目的地（编号3起、排除关卡/不刷特殊），
+    // 路径=当前图→空间乱流→目的地（成就“移动”按路径节点数=3推进），
+    // 耗时=50/速度（整数截断、下限3），写“移动”标记并延时到达。
+    if (requestedName === '出口'
+      && this.mapService.getConnections(currentMap).some((connection: any) => connection?.name === '出口')) {
+      const maps = await this.mapService.getAllMaps();
+      const candidates = maps.filter((m: any) =>
+        Number(m?.id ?? 0) >= 3 && !m.关卡 && !m.isInstance && !m.noSpecial && !m.不刷特殊);
+      if (candidates.length > 0) {
+        const dest = candidates[Math.floor(Math.random() * candidates.length)];
+        let exitSeconds = Math.floor(50 / Math.max(1, Number(player.speed || 100)));
+        if (exitSeconds < 3) exitSeconds = 3;
+
+        if (!moveTimeEnabled) {
+          const arrival = await this.performArrival(userId, dest.id, dest.name);
+          await this.advanceTask(userId, '移动', 3);
+          return arrival;
+        }
+
+        await this.scheduleArrival(userId, dest.id, dest.name, exitSeconds);
+        // 原版 L6574 添加标记("移动", b, 玩家.标记2)——行动无限制的移动锁数据源
+        const exitMarkers2 = asJsonValue<any[]>(player.markers2, []);
+        this.normalizeMarkers2(exitMarkers2);
+        this.combatState.addMarker('移动', exitSeconds, exitMarkers2, Date.now());
+        player.markers2 = exitMarkers2; // Json 列直接写数组
+        await this.playerService.savePlayer(player);
+        // 原版 L6573：路径节点数 = 当前图/空间乱流/目的地 共 3 个
+        await this.advanceTask(userId, '移动', 3);
+        const exitFollow = await this.summonFollowDisplay(currentMap, userId, { requireFollow: true });
+        const exitFollowText = exitFollow.count > 0 ? `带着${exitFollow.names.join('、')}一起` : '';
+        return `${player.name || '冒险者'}${exitFollowText}开始前往${dest.name},大概需要${exitSeconds}秒`;
+      }
+      // 地图无“出口”连接或无候选目的地：原版静默落空，继续按普通前往解析
+    }
+
     const dungeonEntry = this.mapService.getConnections(currentMap)
       .find((connection: any) => connection?.name === requestedName);
     const isDungeonEntry = requestedName.endsWith('(副本)');
@@ -527,6 +563,11 @@ export class GameService {
       fromMapId: currentMap.id,
     });
     player.markers = newMarkers; // Json 列直接写对象
+    // 原版 L6668 添加标记("移动", b, 玩家.标记2)——行动无限制移动锁的数据源
+    const moveMarkers2 = asJsonValue<any[]>(player.markers2, []);
+    this.normalizeMarkers2(moveMarkers2);
+    this.combatState.addMarker('移动', travelTime, moveMarkers2, Date.now());
+    player.markers2 = moveMarkers2; // Json 列直接写数组
     await this.playerService.savePlayer(player);
 
     // 3. 启动到达定时器，到点后真正落地（更新位置 + 广播到达）

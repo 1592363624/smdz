@@ -80,6 +80,10 @@ function makeService(options: {
     combatState: {
       markerRequire: jest.fn(() => false),
       timeIntervalRequire: jest.fn(options.timeIntervalRequire || (() => false)),
+      // 添加标记（原版 L6668/L6574 "移动" 移动锁数据源）
+      addMarker: jest.fn((name: string, seconds: number, markers: any[]) => {
+        markers.push({ name, expireAt: Date.now() + seconds * 1000 });
+      }),
     },
     taskService: { advance: jest.fn(async () => ''), consumeNotifications: jest.fn(() => '') },
     shortcutService: { setTempInput: jest.fn(async () => undefined) },
@@ -176,6 +180,49 @@ describe('前往门禁（原版 _主程序.ecode L6514-6548 复刻）', () => {
     expect(tempArg).toContain('1@前往我的房子');
     expect(tempArg).toContain('3@前往目标地图');
     expect(fixture.scheduled).toHaveLength(0);
+  });
+
+  it('出口分支：随机空间乱流目的地、移动成就按3节点推进并写移动标记', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0); // 取第一个候选目的地
+    const fixture = makeService({
+      currentMap: {
+        id: 7, name: '副本入口图', noTeleport: false, isFrontier: false,
+        connections: JSON.stringify([{ name: '出口', distance: 100 }]),
+        vehicles: '[]', summons: '[]',
+      },
+    });
+    fixture.service.mapService.getAllMaps.mockResolvedValue([
+      { id: 1, name: '新手村A' },
+      { id: 2, name: '新手村B' },
+      { id: 3, name: '关卡要塞', 关卡: 1 },   // 原版排除 关卡
+      { id: 4, name: '不刷特殊之地', noSpecial: true }, // 原版排除 不刷特殊
+      { id: 5, name: '乱流对岸' },
+    ]);
+    fixture.service.summonFollowDisplay = jest.fn(async () => ({ names: [], count: 0, indexes: [] }));
+
+    const result = await fixture.service.handleMove(42, '出口');
+
+    // 文本对齐原版 L6572「开始前往X,大概需要N秒」
+    expect(result).toContain('开始前往乱流对岸,大概需要');
+    // 成就“移动”按路径节点数=3（当前图→空间乱流→目的地）
+    expect(fixture.service.taskService.advance).toHaveBeenCalledWith(42, '移动', 3);
+    // 原版 L6574 添加标记("移动", b, 玩家.标记2)
+    const markers2 = parseJson(fixture.player.markers2, []);
+    expect(markers2.some((m: any) => m.name === '移动')).toBe(true);
+    // 调度延时到达目的地
+    expect(fixture.scheduled[0]).toMatchObject({ mapId: 5, name: '乱流对岸' });
+  });
+
+  it('主前往路径写入 markers2「移动」标记（原版 L6668）', async () => {
+    const fixture = makeService({});
+
+    await fixture.service.handleMove(42, '目标地图');
+
+    const markers2 = parseJson(fixture.player.markers2, []);
+    const moveMarker = markers2.find((m: any) => m.name === '移动');
+    expect(moveMarker).toBeTruthy();
+    // 耗时10秒（calcTravelTime 桩返回10）
+    expect(Number(moveMarker.expireAt) - Date.now()).toBeLessThanOrEqual(10 * 1000);
   });
 
   it('战斗标记中且本图有怪时拦截前往', async () => {
