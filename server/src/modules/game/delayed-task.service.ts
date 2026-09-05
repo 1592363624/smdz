@@ -33,7 +33,8 @@ export type DelayedTaskType =
   | 'mine'          // 手动载具开采结算（原版「开采1c2c」60秒，结算时重读玩家/地图）
   | 'refill'       // 补魔结算（原版「覅b魔w成」30秒，结算时重读跟随召唤物）
   | 'cargo'         // 召唤货舱结算（原版「召h货1藏」6秒，扣信号枪生成货舱资源）
-  | 'repair';      // 维修载具结算（原版「维修wcc1」a秒，延时到期修好载具）
+  | 'repair'        // 维修载具结算（原版「维修wcc1」a秒，延时到期修好载具）
+  | 'proxySpeak';  // 采集代发言播报（原版「新建延时(代发言+复活点,2秒)」，执行资源配置的内部指令）
 
 export interface DelayedTaskScheduleInput {
   type: DelayedTaskType;

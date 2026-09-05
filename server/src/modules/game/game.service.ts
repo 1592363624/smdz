@@ -163,6 +163,25 @@ export class GameService {
       const text = await this.completeVehicleRepair(Number(task.userId));
       if (text) await this.chatService.broadcastSystem('世界频道', text, Number(task.userId)).catch(() => undefined);
     });
+    // 采集代发言播报（原版 地图操作.ecode L1620-1621：新建延时(代发言+复活点, 2秒)）。
+    // 代发言是资源配置的内部延时指令名，数据中现存：覅本清（副本通关链）、
+    // 覅下一层（使魔挑战下一层）、召唤1白1（已在采集入口内联召唤，不走此排程）。
+    dts.registerHandler('proxySpeak', async (task) => {
+      const command = String(task.payload?.command || '');
+      const uid = Number(task.userId);
+      if (!command || !Number.isFinite(uid) || uid <= 0) return;
+      let text = '';
+      await this.playerService.enqueueUserWrite(uid, async () => {
+        if (command === '覅本清') {
+          text = await this.handleClearDungeon(uid);
+        } else if (command === '覅下一层') {
+          text = await this.familiarChallengeNextLayer(uid);
+        }
+      });
+      if (text) {
+        await this.chatService.broadcastSystem('世界频道', text, uid).catch(() => undefined);
+      }
+    });
     // 存量迁移：把上一代实现遗留在 markers 里的「采集中/移动中/救援」状态
     // 补建成延时任务（幂等：schedule 先删后插，标记已结算时结算 handler 自行空转）。
     void this.recoverOrphanDelayedMarkers().catch((e: any) => {
@@ -4584,6 +4603,24 @@ export class GameService {
         }
       } catch (e: any) {
         this.logger.warn(`采集激怒怪物失败 userId=${userId}: ${e?.message}`);
+      }
+    }
+
+    // 代发言播报（原版 地图操作.ecode L1620-1621：代发言非空 → 新建延时(代发言+复活点, 2秒)）。
+    // 代发言是资源配置的内部延时指令名：触发攻击已在上方激怒怪物路径处理，
+    // 召唤1白1 已在采集入口内联召唤，其余（覅本清/覅下一层）按 2 秒延时排程执行并广播。
+    {
+      const proxySpeak = String(target.proxySpeak ?? target.代发言 ?? '');
+      if (proxySpeak && proxySpeak !== '触发攻击' && proxySpeak !== '召唤1白1') {
+        if (this.delayedTaskService) {
+          await this.delayedTaskService.schedule({
+            type: 'proxySpeak',
+            userId,
+            dedupeKey: `${userId}:${proxySpeak}`,
+            runAt: Date.now() + 2 * 1000,
+            payload: { command: proxySpeak },
+          });
+        }
       }
     }
 

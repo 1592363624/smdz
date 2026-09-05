@@ -262,6 +262,27 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(resources[0].times).toBe(4);
   });
 
+  it('阶段2：代发言非空时按原版排程 2 秒延时播报（原版 L1620-1621）', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0); // 概率判定必成功
+    const fixture = makeGatherFixture({
+      name: 'CELL数据中心',
+      times: 5,
+      outputs: [{ name: '能量块', count: 2, chance: 100 }],
+      gatherCmd: '打开箱子',
+      proxySpeak: '覅本清',
+    });
+
+    await fixture.service.handleGatherResource(42, '打开箱子');
+    await fixture.service.settleGatherResource(42);
+
+    // 排程 2 秒后的代发言内部指令（副本通关链入口）
+    const row = fixture.delayedTaskRows.find((r: any) => r.type === 'proxySpeak');
+    expect(row).toBeTruthy();
+    expect(row.payload).toEqual({ command: '覅本清' });
+    expect(row.runAt.getTime()).toBeLessThanOrEqual(Date.now() + 2 * 1000);
+    expect(row.runAt.getTime()).toBeGreaterThan(Date.now() + 1000);
+  });
+
   it('阶段1：采集中再次采集被「行动无限制」拦截（原版 正在采集，还需要N）', async () => {
     const fixture = makeGatherFixture({
       name: '医疗箱',
