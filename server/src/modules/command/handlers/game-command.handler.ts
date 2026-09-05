@@ -1750,15 +1750,16 @@ export class GameCommandHandler implements CommandHandler {
         // ========== 管理/调试 ==========
         case '刷新怪物':
         case 'refresh-monster':
-          return this.wrap(await this.gameService.handleRefreshMonster(userId));
+          return this.wrap(await this.gameService.handleRefreshMonster(userId, arg));
 
         case '删除怪物':
         case 'delete-monster':
           return this.wrap(await this.gameService.handleDeleteMonster(userId));
 
+        // 原版 L6853：6 个空格分隔参数（@归属 名称 类型 类型2 好感 宝宝），传完整参数串
         case '生成人物':
         case 'spawn-npc':
-          return this.wrap(await this.gameService.handleSpawnNpc(userId, firstArg));
+          return this.wrap(await this.gameService.handleSpawnNpc(userId, arg));
 
         // ========== 生产模式 ==========
         case '生产0':

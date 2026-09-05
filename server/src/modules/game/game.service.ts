@@ -391,7 +391,64 @@ export class GameService {
       return `地图不存在，请检查名称`;
     }
 
+    // 对齐原版 _主程序.ecode L6514：行动无限制（八项门禁：移动/复活/采集/工作/麻痹/
+    // 躺下/自动开采/炮击，无豁免——移动中自然被拦）
+    const moveRestriction = this.combatSystem.actionUnrestricted(player);
+    if (moveRestriction.restricted) return moveRestriction.text;
+
     const requestedName = String(targetMapName || '').trim();
+
+    // 对齐原版 L6516-6517：关卡图有怪且目标不是“出口”时，必须先清除附近的目标
+    if (Number(currentMap.关卡 ?? 0) !== 0 && requestedName !== '出口') {
+      let gateMonsters: any[] = [];
+      try {
+        gateMonsters = await this.mapService.getMapMonsters(currentMap);
+      } catch {
+        gateMonsters = [];
+      }
+      if (gateMonsters.length !== 0) {
+        return `${player.name}需要清除附近的目标`;
+      }
+    }
+
+    // 对齐原版 L6519-6536：空参返回编号菜单——家园进度≠0 时首位是自家房子，
+    // 其余为非开拓地地图，全部写入临时输入替换（N@前往地图名）。
+    if (!requestedName) {
+      const maps = await this.mapService.getAllMaps();
+      const options: string[] = [];
+      const tempInputParts: string[] = [];
+      if (player.houseName && this.playerService.getMarkerValue(asJsonValue(player.markers, {}), '家园进度') !== 0) {
+        options.push(String(player.houseName));
+        tempInputParts.push(`1@前往${player.houseName}`);
+      }
+      for (const m of maps) {
+        if (!m || m.开拓地 || m.isFrontier) continue;
+        options.push(String(m.name));
+        tempInputParts.push(`${options.length}@前往${m.name}`);
+      }
+      if (this.shortcutService?.setTempInput && tempInputParts.length > 0) {
+        await this.shortcutService.setTempInput(userId, tempInputParts.join('#'));
+      }
+      return `${player.name || '冒险者'}请选择地点:\n${options.map((n, i) => `${i + 1}、${n}`).join('\n')}`;
+    }
+
+    // 对齐原版 L6547-6548：处于战斗标记且本图有怪时不能前往
+    {
+      const moveMarkers2 = Array.isArray(playerData.markers2)
+        ? playerData.markers2
+        : this.parseJsonArray(player.markers2);
+      let fightMonsters: any[] = [];
+      try {
+        fightMonsters = await this.mapService.getMapMonsters(currentMap);
+      } catch {
+        fightMonsters = [];
+      }
+      const combatText = { value: '' };
+      if (fightMonsters.length !== 0 && this.combatState.markerRequire?.('战斗', moveMarkers2, combatText, Date.now())) {
+        return `${player.name}战斗状态，`;
+      }
+    }
+
     const dungeonEntry = this.mapService.getConnections(currentMap)
       .find((connection: any) => connection?.name === requestedName);
     const isDungeonEntry = requestedName.endsWith('(副本)');
@@ -15994,11 +16051,123 @@ export class GameService {
   }
 
   /**
-   * 刷新怪物（管理员）
-   * 对应原版：刷新怪物 命令
+   * 刷新怪物（管理员）（原版 _主程序.ecode L6829-6851）。
+   * 管理权限 → 怪物列表按名称查找（未找到→“怪物列表未找到X”）→ _初始化怪物
+   * （等级成长/三层池公式，复用 map.service.buildMonsterSpawnData）→ 加入当前地图怪物2
+   * → “在X刷新了一只Y”。非管理员原版静默无输出，新版明确提示权限（与设置位置同口径）。
    */
-  async handleRefreshMonster(userId: number): Promise<string> {
-    return `🔄 正在刷新当前地图的怪物...`;
+  async handleRefreshMonster(userId: number, monsterName = ''): Promise<string> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      return '权限不足，需要管理员权限';
+    }
+    const name = String(monsterName ?? '').trim();
+    if (!name) return '用法：「刷新怪物 怪物名」';
+
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name || '冒险者'}不在任何地图上`;
+
+    try {
+      // 原版 _初始化怪物 + 加入 地图.怪物2：常驻怪物（isTemp=false，可被删除怪物/刷怪循环管理）
+      await this.mapService.spawnMonsterByName(Number(player.mapId), name, { isTemp: false });
+    } catch (e: any) {
+      this.logger.warn(`刷新怪物 ${name} 失败: ${e?.message}`);
+      return `怪物列表未找到"${name}"`;
+    }
+    this.logger.log(`管理员 ${userId} 在地图 ${map.name} 刷新了怪物 ${name}`);
+    return `在${map.name}刷新了一只${name}`;
+  }
+
+  /**
+   * 生成人物（管理员）（原版 _主程序.ecode L6853-6881）。
+   * 用法：生成人物@人 名称 类型 类型2(npc或宠物) 好感 宝宝(1或者0)。
+   * 归属=取数字(@参数)；好感写入召唤物标记「好感+归属QQ」；宝宝=1 追加「宝宝」标记。
+   * 类型2=npc → QQ=“召唤物”+编号（纯剧情实体）；宠物 → QQ=“怪物”+编号+“g”
+   * + _初始化怪物（createMapSummonByName，完整怪物初始化）。
+   * 加入 地图列表[3].召唤物（原版固定地图3）。原版取图片(类型)前缀为 QQ 图片承载，新版省略。
+   */
+  async handleSpawnNpc(userId: number, argsString = ''): Promise<string> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      return '权限不足，需要管理员权限';
+    }
+    const parts = String(argsString ?? '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length !== 6) {
+      return '生成人物@人 名称 类型 类型2(npc或宠物) 好感 宝宝(1或者0)';
+    }
+    const [ownerArg, summonName, type, kind, affinityRaw, babyRaw] = parts;
+    // 原版 取数字()：从“@123”中提取纯数字归属
+    const ownerQQ = String(ownerArg).replace(/[^0-9]/g, '');
+    const affinity = Math.trunc(Number(affinityRaw)) || 0;
+
+    const owner = await this.prisma.player.findFirst({
+      where: { masterQQ: ownerQQ },
+    });
+    if (!owner) return `归属玩家不存在：${ownerQQ}`;
+
+    // 生成编号()：时间戳36进制+随机串，保证唯一且可读
+    const seq = `${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    // 好感/宝宝写入召唤物标记（原版 添加成就("好感"+归属,…)/(“宝宝”,1, 玩家2.标记)）
+    const summonMarkers: any[] = [{ 名称: `好感${ownerQQ}`, 数值: affinity }];
+    if (String(babyRaw) === '1') summonMarkers.push({ 名称: '宝宝', 数值: 1 });
+
+    let summon: any;
+    if (kind !== 'npc') {
+      // 宠物：QQ=“怪物”+编号+“g” + _初始化怪物（原版 L6870-6871，固定地图3 的等级成长）
+      try {
+        const data = await this.mapService.createMapSummonByName(3, type, {
+          ownerQQ,
+          qq: `怪物${seq}g`,
+        });
+        summon = {
+          ...data,
+          name: summonName,
+          markers: [...(Array.isArray(data.markers) ? data.markers : []), ...summonMarkers],
+          标记: [...(Array.isArray(data.标记) ? data.标记 : []), ...summonMarkers],
+        };
+      } catch (e: any) {
+        this.logger.warn(`生成人物 宠物类型 ${type} 无怪物定义，按 npc 实体生成: ${e?.message}`);
+      }
+    }
+    if (!summon) {
+      // npc（或宠物无定义时的兜底）：纯剧情实体，结构与“白”一致（原版不做怪物初始化）
+      summon = {
+        specialSeq: 0,
+        name: summonName,
+        type,
+        image: type,
+        qq: `召唤物${seq}`,
+        ownerQQ,
+        affinity,
+        好感: affinity,
+        level: 1,
+        hp: 100,
+        maxHp: 100,
+        combatPower: 0,
+        成就: [],
+        背包: [],
+        增益: [],
+        武器: [],
+        装备: [],
+        标记2: [],
+        标记: summonMarkers,
+        任务: [],
+        装备预设: [],
+      };
+    }
+
+    // 加入 地图列表[3].召唤物（原版 L6877 固定地图3）
+    const map3 = await this.mapService.getMapById(3);
+    if (!map3) return '地图3不存在，无法生成人物';
+    await this.mapService.mutateSummons(3, (summons) => {
+      summons.push(summon);
+    });
+
+    this.logger.log(`管理员 ${userId} 在地图3 生成了 ${summonName}（${type}/${kind}，归属 ${ownerQQ}）`);
+    // 原版 L6878-6880：取图片(类型) + “在X生成了Y” + 加括号(“属于”+名称+","+QQ)
+    return `在${map3.name}生成了${summonName}（属于${owner.name || '未知'},${ownerQQ}）`;
   }
 
   /**
@@ -16043,14 +16212,6 @@ export class GameService {
     await this.advanceTask(userId, '删除怪物');
 
     return `${player.name || '冒险者'}，${map.name}附近的怪物被清除了。一般它们会被立即刷新出来。`;
-  }
-
-  /**
-   * 生成NPC（管理员）
-   * 对应原版：生成人物 命令
-   */
-  async handleSpawnNpc(userId: number, npcName: string): Promise<string> {
-    return `👤 生成NPC功能开发中...`;
   }
 
   /**
