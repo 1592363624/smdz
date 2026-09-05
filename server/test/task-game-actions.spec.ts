@@ -53,6 +53,13 @@ function makeBaseService(): any {
   service.combatState = {
     markerRequire: jest.fn(() => false),
     timeIntervalRequire: jest.fn(() => false),
+    // 装备要求（原版 L1519-1579）：isWeapon=true 时检索当前持握武器的特殊序号
+    equipRequire: jest.fn((_eq: any, weapons: any[], currentWeapon: number, seq: number, _name: string, isWeapon: boolean) => {
+      if (!isWeapon) return false;
+      if (currentWeapon === 0) return false;
+      const cur = weapons[currentWeapon - 1] || weapons[currentWeapon];
+      return !!cur && cur.特殊序号 === seq;
+    }),
   };
   service.familiarSystemService = {
     checkAndUpdateGrowth: jest.fn(() => false),
@@ -90,9 +97,55 @@ describe('任务动作服务层闭环', () => {
     expect(service.taskService.advance).not.toHaveBeenCalledWith(42, '拾取', 3);
   });
 
+  it('拾取：花园猫+33%、别人家园保护与地图拾取时间戳', async () => {
+    const service = makeBaseService();
+    // 花园猫（特殊序号1）玩家：资源数量×1.33 且标记 data="a"
+    const catPlayer = { userId: 42, name: '冒险者', mapId: 1, specialSeq: 1, equipment: '[]', weapons: '[]' };
+    const map: any = {
+      id: 1,
+      name: '森林',
+      items: JSON.stringify([{ name: '木头', type: '资源', quantity: 3 }]),
+      markers: '{}',
+    };
+    service.playerService.getPlayerData = jest.fn(async () => ({ player: catPlayer }));
+    service.mapService.getMapById.mockResolvedValue(map);
+    service.combatState.equipRequire = jest.fn(() => false);
+
+    const result = await service.handlePickup(42, '全部');
+    expect(result).toContain('(+33%)');
+    expect(service.playerService.addToBackpack).toHaveBeenCalledWith(42, '木头', 3 * 1.33);
+    // 首次拾取无“上次”提示，时间戳写入地图 markers
+    expect(map.markers['全部拾取']).toBeGreaterThan(0);
+
+    // 二次全部拾取提示上次时间
+    map.items = JSON.stringify([{ name: '石头', type: '资源', quantity: 2 }]);
+    const again = await service.handlePickup(42, '全部');
+    expect(again).toContain('上次被全部拾取是在');
+
+    // 别人家园（开拓地且非自己房子）拾取被拦
+    service.playerService.getPlayerData = jest.fn(async () => ({
+      player: { userId: 42, name: '冒险者', mapId: 1, houseName: '我家', equipment: '[]', weapons: '[]' },
+    }));
+    service.mapService.getMapById.mockResolvedValue({
+      id: 2, name: '别人家', 开拓地: true, items: JSON.stringify([{ name: '木头', type: '资源', quantity: 1 }]),
+    });
+    await expect(service.handlePickup(42, '全部')).resolves.toContain('不能拿别人家里的东西');
+
+    // 自己家园/屋内/前线可拾取
+    service.mapService.getMapById.mockResolvedValue({
+      id: 2, name: '我家', 开拓地: true, items: JSON.stringify([{ name: '木头', type: '资源', quantity: 1 }]),
+    });
+    await expect(service.handlePickup(42, '全部')).resolves.not.toContain('不能拿别人家里的东西');
+  });
+
   it('剪毛成功按物种、剪毛、采集和产物数量推进，失败不推进', async () => {
     const service = makeBaseService();
-    const player = { userId: 42, name: '冒险者', mapId: 1 };
+    // 原版 L11270：装备要求(#剪刀=-40，持握)，当前武器必须是剪刀
+    const player = {
+      userId: 42, name: '冒险者', mapId: 1, currentWeapon: 1,
+      equipment: '[]',
+      weapons: JSON.stringify([{ name: '剪刀', 特殊序号: -40 }]),
+    };
     const map = {
       id: 1,
       summons: JSON.stringify([{
@@ -103,10 +156,23 @@ describe('任务动作服务层闭环', () => {
         hair: { name: '羊毛', quantity: 2 },
       }]),
     };
-    service.playerService.getPlayerData = jest.fn(async () => ({ player }));
+    service.playerService.getPlayerData = jest.fn(async () => ({
+      player, equipment: [], weapons: JSON.parse(player.weapons), markers2: [],
+    }));
     service.mapService.getMapById.mockResolvedValue(map);
 
-    await expect(service.handleShear(42, '绵羊宝宝')).resolves.toContain('羊毛×2');
+    // 未持剪刀时拒绝（原版 L11271）
+    const barePlayer = { userId: 42, name: '冒险者', mapId: 1, currentWeapon: 0, equipment: '[]', weapons: '[]' };
+    service.playerService.getPlayerData = jest.fn(async () => ({
+      player: barePlayer, equipment: [], weapons: [], markers2: [],
+    }));
+    await expect(service.handleShear(42, '绵羊宝宝')).resolves.toContain('需要装备剪刀并且拿在手上');
+
+    // 持剪刀后正常剪毛（原版 L11325 文本）
+    service.playerService.getPlayerData = jest.fn(async () => ({
+      player, equipment: [], weapons: JSON.parse(player.weapons), markers2: [],
+    }));
+    await expect(service.handleShear(42, '绵羊宝宝')).resolves.toContain('得到了羊毛x2');
     expect(service.playerService.addToBackpack).toHaveBeenCalledWith(42, '羊毛', 2);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '剪毛绵羊', 2);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '剪毛', 2);

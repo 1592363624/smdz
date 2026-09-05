@@ -776,24 +776,15 @@ export class GameCommandHandler implements CommandHandler {
         }
 
         // ========== 地图/探索 ==========
+        // 传送/跃迁走 handleTeleport（原版 L1676 同一分支：立即落地、天蓝吊坠/军姬门禁、
+        // 5 秒冷却、分子重组/跃迁文本）；成就“前往X/传送/跃迁”由 handleTeleport 内部推进，
+        // 这里不再包 runTaskAction 以免重复计数。
         case '传送':
-        case 'teleport': {
-          const result = await this.runTaskAction(
-            userId,
-            () => this.gameService.handleMove(userId, arg),
-            [{ name: '传送' }],
-          );
-          return this.wrap(result);
-        }
+        case 'teleport':
+          return this.wrap(await this.gameService.handleTeleport(userId, arg));
 
-        case '跃迁': {
-          const result = await this.runTaskAction(
-            userId,
-            () => this.gameService.handleMove(userId, arg),
-            [{ name: '跃迁' }],
-          );
-          return this.wrap(result);
-        }
+        case '跃迁':
+          return this.wrap(await this.gameService.handleTeleport(userId, arg));
 
         case '探测':
         case 'probe':
@@ -1327,17 +1318,11 @@ export class GameCommandHandler implements CommandHandler {
         case 'set-meat-ratio':
           return this.wrap(await this.gameService.handleSetMeatRatio(userId, arg));
 
-        case '召唤货舱':
-        case 'summon-cargo': {
-          const result = await this.gameService.handleSummonCargo(userId);
-          // 原版 _主程序.ecode L6293：成功召唤货舱才推进任务。
-          if (result.includes('召唤货舱成功')) await this.taskService.advance(userId, '召唤货舱');
-          return this.wrap(result);
-        }
-
+        // 原版无「召唤货舱」直发指令（_主程序.ecode L6298 召h货1藏 为发射信号枪的
+        // 6 秒内部延时结算）；货舱唯一入口是发射信号枪，成就在 handleSignalGun 内推进。
         case '发射信号枪':
         case 'signal-gun':
-          return this.wrap(await this.gameService.handleSignalGun(userId));
+          return this.wrap(await this.gameService.handleSignalGun(userId, arg));
 
         // ========== 副本命令 ==========
         case '副本清空':
@@ -1383,12 +1368,12 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
+        // 维修（原版 L10397）：成就“维修载具”在 GameService 内推进——
+        // 即时修好（a<1）与延时结算（维修wcc1）两条路径共用，handler 不再重复计数。
+        // 「维修 wcc1」为原版延时结算分支；其他参数原版静默。
         case '维修':
-        case 'repair': {
-          const result = await this.gameService.handleRepairVehicle(userId, firstArg);
-          if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '维修载具');
-          return this.wrap(result);
-        }
+        case 'repair':
+          return this.wrap(await this.gameService.handleRepairVehicle(userId, firstArg));
 
         case '脱出':
         case 'exit': {

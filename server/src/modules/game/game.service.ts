@@ -153,6 +153,16 @@ export class GameService {
     dts.registerHandler('refill', async (task) => {
       await this.completeRefill(Number(task.userId));
     });
+    // 召唤货舱结算（原版 _主程序.ecode L6298「召h货1藏」6秒延时：扣信号枪生成货舱资源）
+    dts.registerHandler('cargo', async (task) => {
+      await this.completeCargoSummon(Number(task.userId), Number(task.payload?.count || 0));
+    });
+    // 维修载具结算（原版 _主程序.ecode L10449 新建延时「维修wcc1」a 秒）：
+    // 延时到期后真正修好载具，并把结算文本广播给玩家（延时路径无指令收尾）。
+    dts.registerHandler('repair', async (task) => {
+      const text = await this.completeVehicleRepair(Number(task.userId));
+      if (text) await this.chatService.broadcastSystem('世界频道', text, Number(task.userId)).catch(() => undefined);
+    });
     // 存量迁移：把上一代实现遗留在 markers 里的「采集中/移动中/救援」状态
     // 补建成延时任务（幂等：schedule 先删后插，标记已结算时结算 handler 自行空转）。
     void this.recoverOrphanDelayedMarkers().catch((e: any) => {
@@ -470,12 +480,17 @@ export class GameService {
   }
 
   /**
-   * 处理“传送”命令（对应 _主程序.ecode L1676-1789）。
-   * 与“前往/移动”不同：传送要求天蓝吊坠或军姬2免费传送，5 秒冷却，成功后立即落地。
+   * 处理“传送/跃迁”命令（对应 _主程序.ecode L1676-1808）。
+   * 与“前往/移动”不同：传送立即落地。门禁链：死亡→行动无限制→载具行走方式四态
+   * （无载具才检查天蓝吊坠/军姬免费传送）→空参菜单（家园房子+编号临时输入替换）→
+   * 原地/不存在/不可传送→战斗状态（本图有怪）→5秒冷却→前往需求。
+   * 执行：观测地图+剪毛→玩家移动(资产迁移)→成就→活跃度+1→代发言触发→
+   * 观察附近(临时输入)→文本分支（无载具=分子重组+成就传送；有载具=跃迁到了+
+   * 成就跃迁+旗舰跃迁引擎 30 秒冷却 200% 倍率攻击+覅攻击pd）。
    */
   async handleTeleport(userId: number, targetMapName: string): Promise<string> {
     let playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+    let player = playerData.player;
     const name = player.name || '冒险者';
     if (this.playerService.isPlayerDead(player)) return this.playerService.handlePlayerDeath(userId, player);
 
@@ -487,14 +502,48 @@ export class GameService {
 
     const currentMap = await this.mapService.getMapById(player.mapId);
     if (!currentMap) return '地图不存在，请检查名称';
+
+    // 载具行走方式四态门禁（原版 L1684-1695）：有载具按行走方式拦截，
+    // 无载具才检查天蓝吊坠/军姬免费传送。
+    const vehicle = await this.findTravelVehicle(player, currentMap);
+    if (vehicle) {
+      const walkMode = Number(vehicle?.行走方式 ?? vehicle?.walkMode ?? vehicle?.moveType ?? 0);
+      const vehicleName = vehicle?.名称 || vehicle?.name || '';
+      if (walkMode === 1) return `${name}当前驾驶的载具${vehicleName}只能使用“前往”来移动`;
+      if (walkMode === 2) return `${name}当前驾驶的载具${vehicleName}只能使用“前往”或者“飞到”来移动`;
+      if (walkMode === 4) return `${name}当前驾驶的载具${vehicleName}安装了无法移动的组件`;
+      if (walkMode === 0) return `${name}当前驾驶的载具${vehicleName}未安装行走机构或有的部件超过了上限`;
+    } else {
+      const equipment = playerData.equipment || asJsonValue<any[]>(player.equipment, []);
+      const hasPendant = equipment.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '天蓝吊坠');
+      const freeByFamiliar = await this.familiarSystemService.canFreeTeleport(userId);
+      if (!hasPendant && !freeByFamiliar) return `${name},需要装备“天蓝吊坠”`;
+    }
+
     const requested = String(targetMapName || '').trim();
     if (!requested) {
+      // 空参菜单（原版 L1706-1724）：家园进度≠0 时首位是自家房子，其余为可传送地图；
+      // 全部编号写入临时输入替换（N@传送地图名）。
       const maps = await this.mapService.getAllMaps();
-      const available = maps.filter((m: any) => m && !m.noTeleport && !m.不可传送 && !m.isFrontier && !m.开拓地);
-      return `${name}请选择地点:\n${available.map((m: any, i: number) => `${i + 1}、${m.name}`).join('\n')}\n你也可以发送“传送@人”来传送到其他玩家身边`;
+      const options: string[] = [];
+      const tempInputParts: string[] = [];
+      if (player.houseName && this.playerService.getMarkerValue(asJsonValue(player.markers, {}), '家园进度') !== 0) {
+        options.push(String(player.houseName));
+        tempInputParts.push(`1@传送${player.houseName}`);
+      }
+      for (const m of maps) {
+        if (!m || m.不可传送 || m.noTeleport || m.开拓地 || m.isFrontier) continue;
+        options.push(String(m.name));
+        tempInputParts.push(`${options.length}@传送${m.name}`);
+      }
+      if (this.shortcutService?.setTempInput && tempInputParts.length > 0) {
+        await this.shortcutService.setTempInput(userId, tempInputParts.join('#'));
+      }
+      return `${name}请选择地点:\n${options.map((n, i) => `${i + 1}、${n}`).join('\n')}\n你也可以发送“传送@人”来传送到其他玩家身边`;
     }
 
     let targetMap: any = null;
+    let targetName = requested;
     const playerTarget = requested.match(/^\[@([^\]]+)\]$/);
     if (playerTarget) {
       const identity = playerTarget[1];
@@ -504,27 +553,28 @@ export class GameService {
       if (!targetUser) return `${name}对方未加入游戏：${requested}`;
       const targetPlayer = await (this.prisma as any).player?.findUnique?.({ where: { userId: targetUser.id } });
       if (!targetPlayer) return `${name}对方未加入游戏：${requested}`;
+      targetName = String(targetPlayer.location || targetPlayer.mapId || '');
       targetMap = await this.mapService.getMapById(targetPlayer.mapId);
     } else {
       targetMap = await this.mapService.getMapByName(requested).catch(() => null);
     }
-    if (!targetMap) return `${name},${requested}在地图列表不存在。`;
-    if (targetMap.id === currentMap.id) return `${name}不能原地重组。`;
-    if (targetMap.noTeleport || targetMap.不可传送 || targetMap.isFrontier || targetMap.开拓地) {
-      return `${name}目的地${requested}存在严重干扰，贸然前往后果不可预料。`;
+    // 原版 L1734-1741 拦截顺序：原地 → 不存在 → 不可传送 → 战斗状态 → 冷却 → 前往需求
+    if (targetMap && Number(targetMap.id) === Number(currentMap.id)) return `${name}不能原地重组。`;
+    if (!targetMap) return `${name},${targetName}在地图列表不存在。`;
+    if (targetMap.不可传送 || targetMap.noTeleport) {
+      return `${name}目的地${targetName}存在严重干扰，贸然前往后果不可预料。`;
     }
 
-    const vehicle = await this.findTravelVehicle(player, currentMap);
-    const moveType = Number(vehicle?.行走方式 ?? vehicle?.moveType ?? 0);
-    if (vehicle && moveType === 1) return `${name}当前驾驶的载具${vehicle.名称 || vehicle.name}只能使用“前往”来移动`;
-    if (vehicle && (moveType === 0 || moveType === 4)) {
-      return `${name}当前驾驶的载具${vehicle.名称 || vehicle.name}${moveType === 4 ? '安装了无法移动的组件' : '未安装行走机构或有的部件超过了上限'}`;
+    let mapMonsters: any[] = [];
+    try {
+      mapMonsters = await this.mapService.getMapMonsters(currentMap);
+    } catch {
+      mapMonsters = [];
     }
-
-    const equipment = playerData.equipment || asJsonValue<any[]>(player.equipment, []);
-    const hasPendant = equipment.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '天蓝吊坠');
-    const freeByFamiliar = await this.familiarSystemService.canFreeTeleport(userId);
-    if (!hasPendant && !freeByFamiliar) return `${name},需要装备“天蓝吊坠”`;
+    const combatText = { value: '' };
+    if (mapMonsters.length !== 0 && this.combatState.markerRequire?.('战斗', markers2, combatText, Date.now())) {
+      return `${name}战斗状态`;
+    }
 
     const cooldownText = { value: '' };
     if (this.combatState.timeIntervalRequire('传送冷却', 5, markers2, Date.now(), cooldownText, Date.now())) {
@@ -535,17 +585,106 @@ export class GameService {
     const travelCheck = this.mapService.checkCanTravel(currentMap, targetMap, player);
     if (!travelCheck.canTravel) return `${name}${travelCheck.reason || '无法前往该地图'}`;
 
+    // ===== 执行（原版 L1747-1808）=====
+    const fromMapId = player.mapId;
     player.mapId = targetMap.id;
     player.location = targetMap.name;
-    player.markers2 = markers2; // Json 列直接写数组
-    await this.combatSystem.applyMapBuffs(player, targetMap);
-    await this.playerService.savePlayer(player);
-    await this.taskService.advance(userId, `前往${targetMap.name}`);
-    await this.taskService.advance(userId, '传送');
+
+    // 观测地图产出 + 四圣祭坛麒麟 + 普拉娜幼崽剪毛（与来倒目的共用统一入口）
+    let triggerText = '';
     try {
-      if ((await this.mapService.getMapMonsters(targetMap)).length === 0) await this.mapService.refreshMapMonsters(targetMap.id);
-    } catch { /* 原版到达后刷新失败不阻断传送 */ }
-    return `${name}在${targetMap.name}完成了分子重组。`;
+      triggerText = await this.applyArrivalTriggers(player, targetMap);
+    } catch (e: any) {
+      this.logger.warn(`传送到达触发失败: ${e.message}`);
+    }
+
+    // 玩家移动（原版 L1755）：载具/跟随召唤物资产迁移 + 移除“风月入墨”增益
+    await this.migratePlayerAssetsOnMove(fromMapId, targetMap.id, player);
+
+    await this.combatSystem.applyMapBuffs(player, targetMap);
+    player.markers2 = markers2; // Json 列直接写数组
+    await this.playerService.savePlayer(player);
+
+    await this.taskService.advance(userId, `前往${targetName}`);
+    // 任务结算(advance)基于最新库数据改写过字段，重载快照再写活跃度，避免旧对象回写。
+    player = (await this.playerService.getPlayerData(userId)).player;
+
+    // 活跃度+1（原版 L1759）
+    const activeMarkers = asJsonValue(player.markers, {});
+    this.incrementMarker(activeMarkers, '活跃度', 1);
+    player.markers = activeMarkers;
+    await this.playerService.savePlayer(player);
+
+    // 代发言触发（原版 L1761-1777）：地图“代发言”字段当前数据未配置（已知遗留），
+    // 字段存在时按原版语义执行——载具损毁看隐形披风，其余看载具隐形模块。
+    const autoBroadcast = String((targetMap as any).代发言 ?? (targetMap as any).autoBroadcast ?? '');
+    if (autoBroadcast) {
+      if (autoBroadcast === '触发攻击') {
+        const vehicleHp = Number(vehicle?.当前生命 ?? vehicle?.currentHp ?? vehicle?.hp ?? 0);
+        let shouldTrigger = false;
+        if (vehicle && vehicleHp < 0) {
+          const freshEquip = asJsonValue<any[]>((await this.playerService.getPlayerData(userId)).player.equipment, []);
+          const hasCloak = freshEquip.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '隐形披风');
+          shouldTrigger = !hasCloak;
+        } else {
+          const partNames = vehicle ? this.collectVehiclePartNames(vehicle) : [];
+          shouldTrigger = !partNames.includes('隐形模块');
+        }
+        if (shouldTrigger) {
+          await this.combatSystem.triggerMapBattleLoop(userId, 5, { player, map: targetMap });
+        }
+      }
+      // 其余代发言文本为原版内部延时指令（0 秒新建延时），当前无对应映射，暂略。
+    }
+
+    // 观察附近 + 编号临时输入替换（原版 L1758 w4=观察附近 + 临时输入替换）
+    let lookText = '';
+    try {
+      lookText = await this.handleLookAround(userId);
+    } catch (e: any) {
+      this.logger.warn(`传送生成观察附近失败: ${e.message}`);
+    }
+
+    const follow = await this.summonFollowDisplay(targetMap, userId, { requireFollow: true });
+    const followText = follow.count > 0 ? `带着${follow.names.join('、')}一起` : '';
+    let lines: string[];
+    if (!vehicle) {
+      lines = [`${name}${followText}在${targetName}完成了分子重组。`];
+      await this.taskService.advance(userId, '传送');
+    } else {
+      lines = [`${name}${followText}跃迁到了${targetName}`];
+      await this.taskService.advance(userId, '跃迁');
+      // 旗舰跃迁引擎（原版 L1786-1800）：目的地有怪且载具装引擎，30 秒冷却通过时
+      // 立即以 200% 倍率必中全体攻击 + 5 秒后怪物回合 + 活跃度+1。
+      try {
+        mapMonsters = await this.mapService.getMapMonsters(targetMap);
+      } catch {
+        mapMonsters = [];
+      }
+      const partNames = this.collectVehiclePartNames(vehicle);
+      const jumpText = { value: '' };
+      if (mapMonsters.length > 0
+        && partNames.includes('旗舰跃迁引擎')
+        && !this.combatState.timeIntervalRequire('旗舰跃迁', 30, markers2, Date.now(), jumpText, Date.now())) {
+        const attack = await this.combatSystem.weaponAttack(userId, Number(player.currentWeapon ?? 0), {
+          damageMultiplier: 200,
+          mustHit: true,
+          allAttack: true,
+          attackText: '旗舰跃迁a',
+        });
+        if (attack?.result) lines.push(attack.result);
+        player = (await this.playerService.getPlayerData(userId)).player;
+        const jumpMarkers = asJsonValue(player.markers, {});
+        this.incrementMarker(jumpMarkers, '活跃度', 1);
+        player.markers = jumpMarkers;
+        player.markers2 = markers2; // Json 列直接写数组
+        await this.playerService.savePlayer(player);
+        await this.combatSystem.triggerMapBattleLoop(userId, 5, { player, map: targetMap });
+      }
+    }
+    if (triggerText) lines.push(triggerText);
+    if (lookText) lines.push(lookText);
+    return lines.join('\n');
   }
 
   /**
@@ -3304,14 +3443,40 @@ export class GameService {
       return lines.join('\n');
     }
 
+    // 开拓地（玩家家园）保护（原版 L3721-3736）：只有主人可以在自己家园/屋内/前线拾取
+    if (map.开拓地 || map.isFrontier) {
+      const house = String(player.houseName ?? '');
+      const mapName = String(map.name ?? '');
+      const ownHome = !!house
+        && (mapName === house || mapName === `${house}屋内` || mapName === `${house}前线`);
+      if (!ownHome) return `${player.name || '冒险者'}不能拿别人家里的东西`;
+    }
+
+    // 花园猫/铃铛 +33%（原版 L3743：玩家特殊序号==花园猫(1) 或 装备铃铛(特殊序号64)）
+    const equipments = playerData.equipment || asJsonValue<any[]>(player.equipment, []);
+    const weapons = playerData.weapons || asJsonValue<any[]>(player.weapons, []);
+    const hasPickBonus = Number(player.specialSeq ?? player.特殊序号 ?? 0) === 1
+      || this.combatState.equipRequire(equipments, weapons, Number(player.currentWeapon ?? 0), 64, '铃铛', false);
+
     const pickAll = requestedName === '全部' || requestedName === '全部拾取';
     let pickedUp: any[];
+    let bonusApplied = false;
 
     if (pickAll) {
       // mutateMapFields 锁内闭环：重读最新 items → 全部取走 → 以实际取走内容发放
       // （避免两名玩家并发拾取同一批物品时按各自快照重复发放）
       pickedUp = await this.mapService.mutateMapFields(map.id, ['items'], (f) => {
         const taken = [...(f.items as any[])];
+        for (const item of taken) {
+          const type = item.type ?? item.类型 ?? '资源';
+          if (type === '装备' || String(item.data ?? '') === 'a') continue;
+          if (hasPickBonus) {
+            // 原版 L3744-3746：数量×1.33 并标记 data="a" 防止重复加成
+            item.quantity = Number(item.quantity ?? item.count ?? 1) * 1.33;
+            item.data = 'a';
+            bonusApplied = true;
+          }
+        }
         f.items = [];
         return taken;
       });
@@ -3324,6 +3489,14 @@ export class GameService {
           ? numericIndex
           : fresh.findIndex((item: any) => (item.name || item.名称) === requestedName);
         if (idx < 0 || idx >= fresh.length) return null;
+        const item = fresh[idx];
+        const type = item.type ?? item.类型 ?? '资源';
+        if (type === '装备' || String(item.data ?? '') === 'a') return fresh.splice(idx, 1)[0];
+        if (hasPickBonus) {
+          item.quantity = Number(item.quantity ?? item.count ?? 1) * 1.33;
+          item.data = 'a';
+          bonusApplied = true;
+        }
         return fresh.splice(idx, 1)[0];
       });
       if (!taken) {
@@ -3357,7 +3530,31 @@ export class GameService {
     }
     await this.advanceTask(userId, '拾取', pickedUp.length);
 
-    return `拾取了: ${pickedText}`;
+    // 活跃度+1（原版 L3766/L3810）
+    const freshPlayer = (await this.playerService.getPlayerData(userId)).player;
+    const freshMarkers = asJsonValue<Record<string, any>>(freshPlayer.markers, {});
+    this.incrementMarker(freshMarkers, '活跃度', 1);
+    freshPlayer.markers = freshMarkers;
+    await this.playerService.savePlayer(freshPlayer);
+
+    // 地图标记“全部拾取/拾取”时间戳（原版 L3767-3771/L3811-3815：取成就熟练度(地图.标记)）
+    const stampKey = pickAll ? '全部拾取' : '拾取';
+    let lastStampText = '';
+    await this.mapService.mutateMapFields(map.id, ['markers'], (f) => {
+      const mapMarkers = f.markers as Record<string, any>;
+      const last = Number(mapMarkers[stampKey] ?? 0);
+      if (last > 0) {
+        lastStampText = `${map.name}上次被${pickAll ? '全部拾取' : '单项拾取'}是在${this.millisecondsToText(Date.now() - last)}之前`;
+      }
+      mapMarkers[stampKey] = Date.now();
+      return true;
+    }).catch(() => undefined);
+
+    const bonusText = bonusApplied ? '(+33%)' : '';
+    const text = pickAll
+      ? `${player.name || '冒险者'}卷走了地上的${pickedUp.length}样东西${bonusText}\n${pickedText}`
+      : `${player.name || '冒险者'}卷走了地上的${pickedText}${bonusText}`;
+    return lastStampText ? `${text}\n${lastStampText}` : text;
   }
 
   /**
@@ -4192,14 +4389,31 @@ export class GameService {
       await this.taskService.advance(userId, '获得装备', amount);
       await this.taskService.advance(userId, `获得${itemName}`, amount);
     }
+    // 原版 地图操作.ecode L1619：添加成就("采集熟练度", e, 玩家.标记)——
+    // 熟练度按实际采集次数推进。advance 会改写库内任务/标记字段，
+    // 先重载快照再写熟练度，避免旧对象回写覆盖任务结算。
+    if (actualGatherCount > 0) {
+      const freshPlayer = (await this.playerService.getPlayerData(userId)).player;
+      const proficiencyMarkers = asJsonValue<Record<string, any>>(freshPlayer.markers, {});
+      proficiencyMarkers['采集熟练度'] = Number(proficiencyMarkers['采集熟练度'] ?? 0) + actualGatherCount;
+      freshPlayer.markers = proficiencyMarkers;
+      await this.playerService.savePlayer(freshPlayer);
+    }
 
     // 代发言=触发攻击：采集完成会激怒附近怪物
     // （原版 _主程序.ecode L11426：新建延时("覅攻击pd"+地图, "0", 群号, 5)——
-    //   采集后5秒怪物回合开始并自动续回合；等级<15豁免对齐原版）
+    //   采集后5秒怪物回合开始并自动续回合。
+    //   四豁免对齐原版 L11417-11426：隐形披风装备 / 隐匿模式增益（triggerMapBattleLoop
+    //   内部处理） / 特殊序号15=四糸乃 / 等级<15）
     if (String(target.proxySpeak ?? target.代发言 ?? '') === '触发攻击' && !map.isInstance) {
       try {
-        if (Number(player.level ?? 0) >= 15) {
-          await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map });
+        const fresh = await this.playerService.getPlayerData(userId);
+        const freshEquipments = fresh.equipment || asJsonValue<any[]>(fresh.player.equipment, []);
+        const freshWeapons = fresh.weapons || asJsonValue<any[]>(fresh.player.weapons, []);
+        const hasCloak = this.combatState.equipRequire(freshEquipments, freshWeapons, Number(fresh.player.currentWeapon ?? 0), 26, '隐形披风', false);
+        const isYoshino = Number(fresh.player.specialSeq ?? fresh.player.特殊序号 ?? 0) === 15;
+        if (Number(fresh.player.level ?? 0) >= 15 && !hasCloak && !isYoshino) {
+          await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player: fresh.player, map });
         }
       } catch (e: any) {
         this.logger.warn(`采集激怒怪物失败 userId=${userId}: ${e?.message}`);
@@ -4723,49 +4937,82 @@ export class GameService {
   }
 
   /**
-   * 躺下（休息）
-   * 设置躺下状态，可以缓慢恢复生命
+   * 躺下（原版 _主程序.ecode L7086-7096）。
+   * 门禁：死亡 → 行动无限制（理由6=自动开采中也可躺下）→ 建筑要求（床）→“需要床”。
+   * 成功：置“躺下”标记 + 陪睡宠物数写入 sets.sleepover（有洛写负数，离线经验再×1.1）
+   * + 躺下起床显示(1)（每秒经验/经验加成/陪睡加成/最终每秒获得，原版 数据显示.ecode L288-325）。
+   * 注：躺下只结算经验，不回复 HP。
    */
   async handleLieDown(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    const { player } = playerData;
+    const name = player.name || '冒险者';
 
     // 检查是否死亡
     if (this.playerService.isPlayerDead(player)) {
       return this.playerService.handlePlayerDeath(userId, player);
     }
 
-    // 检查是否已经在躺下
-    if (markers['躺下'] === 1) {
-      return '你已经躺下了，好好休息吧~';
+    // 行动无限制（原版 L7089 理由6：自动开采中可以躺下）
+    const restriction = this.combatSystem.actionUnrestricted(player, { ignoreReason: 6 });
+    if (restriction.restricted) return restriction.text;
+
+    // 建筑要求（床）（原版 L7092-7093）
+    if (!(await this.hasBuildingOnMap(userId, '床'))) {
+      return `${name}需要床`;
     }
 
-    // 设置躺下标记
-    markers['躺下'] = 1;
+    // 陪睡宠物（原版 躺下起床显示：跟随显示数量上限2）
+    const map = await this.mapService.getMapById(player.mapId);
+    const display = await this.summonFollowDisplay(map, userId, { requireFollow: false, countLimit: 2 });
+    const sleepover = display.count;
+    const summons = Array.isArray(map?.summons) ? map.summons : asJsonValue<any[]>(map?.summons, []);
+    const hasLuo = this.familiarService.checkHasSpecialPet(-4, summons);
+    const luoPet = hasLuo
+      ? summons.find((s: any) => (s?.specialSeq ?? s?.special_seq ?? s?.seq) === -4)
+      : null;
 
-    // 保存标记到玩家数据
+    // 写入 陪睡 数（原版 L305-310：有洛为负数=有鹭）
+    const sets = asJsonValue<any>(player.sets, {});
+    sets.sleepover = hasLuo ? -sleepover : sleepover;
+    player.sets = sets;
+
+    // 置“躺下”标记（原版 L7093 置成就熟练度("躺下",1)）
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
+    markers['躺下'] = 1;
     player.markers = markers;
     await this.playerService.savePlayer(player);
 
-    this.logger.log(`玩家 ${userId} 躺下了`);
+    this.logger.log(`玩家 ${userId} 躺下了（陪睡${sleepover}${hasLuo ? '，有洛' : ''}）`);
 
-    return '你躺了下来，开始缓慢恢复生命...\n（躺下状态会持续恢复HP，输入「起床」可以站起来）';
+    // 躺下起床显示(1)（原版 数据显示.ecode L299-311）
+    const expBonus = Number(player.expBonus ?? 0);
+    const level = Number(player.level ?? 1);
+    let text = `${name}${display.count > 0 ? `和${display.names.join('和')}` : ''}躺到了床上`;
+    text += `\n每秒获得经验:${this.roundText(level / 100)}`;
+    text += `\n你的经验加成:${this.roundText(expBonus)}%`;
+    text += `\n陪睡NPC/宠物:${sleepover}/2（+${sleepover * 50}%）`;
+    if (luoPet) text += `\n${luoPet.name ?? luoPet.名称 ?? '洛'}:+10%`;
+    const finalPerSec = (1 + sleepover * 0.5) * level * (1 + expBonus / 100) / 100 * (1 + (hasLuo ? 1 : 0) / 10);
+    text += `\n最终每秒获得:${Math.round(finalPerSec)}`;
+    return text;
   }
 
   /**
-   * 起床
-   * 结束躺下状态
+   * 起床（原版 _主程序.ecode L7102-7108）。
+   * “躺下”标记==0 →“需要「躺下」”；清标记后回复 躺下起床显示(2)。
    */
   async handleGetUp(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
+    const name = player.name || '冒险者';
 
-    // 检查是否在躺下
+    // 检查是否在躺下（原版 L7103 取成就熟练度("躺下")==0 →“需要”躺下”“）
     if (markers['躺下'] !== 1) {
-      return '你本来就没有躺下呀';
+      return `${name}需要“躺下”`;
     }
 
-    // 移除躺下标记
+    // 移除躺下标记（原版 L7105 置成就熟练度("躺下",0)）
     delete markers['躺下'];
 
     // 保存标记到玩家数据
@@ -4774,7 +5021,10 @@ export class GameService {
 
     this.logger.log(`玩家 ${userId} 起床了`);
 
-    return '你站了起来，精神焕发！';
+    // 躺下起床显示(2)（原版 数据显示.ecode L293：跟随显示(2) +“从床上爬了起来”）
+    const map = await this.mapService.getMapById(player.mapId);
+    const display = await this.summonFollowDisplay(map, userId, { requireFollow: false, countLimit: 2 });
+    return `${name}${display.count > 0 ? `和${display.names.join('和')}` : ''}从床上爬了起来`;
   }
 
   /**
@@ -9087,112 +9337,108 @@ export class GameService {
    * 处理召唤货舱命令
    * 在当前地图召唤货舱（可采集资源），如果没有则生成一个临时货舱
    */
-  async handleSummonCargo(userId: number): Promise<string> {
-    // 获取玩家数据
+  /**
+   * 发射信号枪（原版 _主程序.ecode L6281-6296）。
+   * 门禁：数量<=0 用法提示 → 背包需有信号枪 → 10 秒冷却。
+   * 成功：成就"召唤货舱"+1 → 活跃度+1 → 6 秒延时「召h货1藏」结算（completeCargoSummon）。
+   * 注意：原版信号枪只用于召唤货舱（资源补给），引怪由覅攻击pd（采集/传送触发）承担。
+   */
+  async handleSignalGun(userId: number, countArg = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-
-    // 获取当前地图
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return '你不在任何地图上！';
-
-    // 检查地图是否已有货舱类型的资源
-    const resources2 = asJsonValue<any[]>(map.resources2, []);
-    const existingCargo = resources2.find((r: any) => r.type === '货舱' || r.name.includes('货舱'));
-
-    if (existingCargo) {
-      return `当前地图已有货舱【${existingCargo.name}】，剩余资源 ×${existingCargo.amount}`;
+    const name = player.name || '冒险者';
+    const count = Math.trunc(Number(String(countArg).trim() || 0)) || 0;
+    if (count <= 0) {
+      return `${name}“发射信号枪2”来使用2把信号枪`;
     }
 
-    // 生成临时货舱
-    const cargo = {
-      id: `cargo_${map.id}_${Date.now()}`,
-      name: '临时货舱',
-      type: '货舱',
-      amount: 10,
-      respawnTime: 600, // 10分钟刷新
-    };
+    const backpack = asJsonValue<any[]>(player.backpack, []);
+    const hasSignalGun = backpack.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '信号枪' && this.itemQuantity(item) > 0);
+    if (!hasSignalGun) return `${name}背包中需要有信号枪`;
 
-    // mutateMapFields 锁内闭环：重读最新 resources2 → 锁内复查去重 → push → 差异落库
-    await this.mapService.mutateMapFields(map.id, ['resources2'], (f) => {
-      const fresh = f.resources2 as any[];
-      if (fresh.some((r: any) => r.type === '货舱' || (r.name || '').includes('货舱'))) return;
-      fresh.push(cargo);
+    const markers2 = Array.isArray(playerData.markers2)
+      ? playerData.markers2
+      : this.parseJsonArray(player.markers2);
+    const cooldownText = { value: '' };
+    const now = Date.now();
+    if (this.combatState.timeIntervalRequire('信号枪', 10, markers2, now, cooldownText, now)) {
+      player.markers2 = markers2; // Json 列直接写数组
+      await this.playerService.savePlayer(player);
+      return `${name}${cooldownText.value}`;
+    }
+
+    // 成就"召唤货舱"+1（原版 L6293）+ 活跃度+1（L6294）
+    await this.taskService.advance(userId, '召唤货舱');
+    const freshPlayer = (await this.playerService.getPlayerData(userId)).player;
+    const markers = asJsonValue<Record<string, any>>(freshPlayer.markers, {});
+    this.incrementMarker(markers, '活跃度', 1);
+    freshPlayer.markers = markers;
+    await this.playerService.savePlayer(freshPlayer);
+
+    // 6 秒延时结算「召h货1藏」（原版 L6295）
+    if (!this.delayedTaskService) return `${name}发射了信号枪……（延时服务不可用，货舱未排程）`;
+    await this.delayedTaskService.schedule({
+      type: 'cargo',
+      userId,
+      runAt: Date.now() + 6 * 1000,
+      payload: { count },
     });
-
-    this.logger.log(`玩家 ${userId} 在地图 ${map.name} 召唤了货舱`);
-    return '📦 召唤货舱成功！\n货舱内有 10 份物资，使用「开采 临时货舱」获取\n货舱将在 10 分钟后消失';
+    return `${name}发射了信号枪……`;
   }
 
   /**
-   * 处理发射信号枪命令
-   * 消耗信号枪物品，在当前地图发出信号吸引怪物或玩家
+   * 召唤货舱延时结算（原版 _主程序.ecode L6298-6333「召h货1藏」）。
+   * 从背包扣除至多 count 把信号枪（c=实际扣除数）；c==0 →“你没有信号枪了”；
+   * 否则当前地图货舱资源 次数 += 3×c（无货舱则按静态资源模板新增）。
+   * 支柱二：dts tick 直调无外层锁，入口自串行（指令路径重入放行）。
    */
-  async handleSignalGun(userId: number): Promise<string> {
-    // 获取玩家数据
+  private async completeCargoSummon(userId: number, count: number): Promise<void> {
+    await this.playerService.enqueueUserWrite(userId, () =>
+      this.applyCargoSummon(userId, count));
+  }
+
+  private async applyCargoSummon(userId: number, count: number): Promise<void> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack } = playerData;
+    const { player } = playerData;
+    const name = player.name || '冒险者';
 
-    // 检查背包是否有信号枪
-    const signalGun = backpack.find((item: any) => item.name === '信号枪' || item.name.includes('信号'));
-    if (!signalGun) {
-      return '你的背包中没有信号枪，无法发射信号';
-    }
-
-    // 消耗信号枪
-    const count = signalGun.count || 1;
-    if (count <= 1) {
-      // 移除信号枪
-      const idx = backpack.indexOf(signalGun);
-      if (idx !== -1) backpack.splice(idx, 1);
-    } else {
-      signalGun.count = count - 1;
-    }
-
-    // 获取当前地图
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return '你不在任何地图上！';
-
-    // 在地图上刷新怪物（信号吸引怪物）
-    const monsters = await this.mapService.getMapMonsters(map);
-    const newMonster = {
-      id: `signal_${Date.now()}`,
-      name: '被吸引的怪物',
-      level: Math.max(1, (player.level || 1)),
-      specialSeq: 0,
-      hp: 80,
-      maxHp: 80,
-      attack: 15,
-      defense: 3,
-      speed: 100,
-      dodge: 5,
-      hit: 85,
-      exp: 20,
-      isElite: false,
-    };
-
-    // 信号吸引的怪物作为临时怪物写入 GameMonster 表
-    await this.mapService.addTempMonster(map.id, {
-      name: '被吸引的怪物',
-      type: '怪物',
-      specialSeq: 0,
-      level: Math.max(1, (player.level || 1)),
-      hp: 80,
-      maxHp: 80,
-      attack: 15,
-      defense: 3,
-      speed: 100,
-      dodge: 5,
-      hit: 85,
-      exp: 20,
-    });
-
-    // 保存背包变化
-    player.backpack = backpack;
+    // 扣除至多 count 把信号枪（原版 L6301-6312 逐个删除成员）
+    const backpack = asJsonValue<any[]>(player.backpack, []);
+    const owned = backpack
+      .filter((item: any) => String(item?.name ?? item?.名称 ?? '') === '信号枪')
+      .reduce((sum, item: any) => sum + this.itemQuantity(item), 0);
+    const removed = Math.min(owned, count);
+    if (removed > 0) this.deductBackpackItem(backpack, '信号枪', removed);
+    player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
+    if (removed === 0) {
+      this.logger.log(`玩家 ${userId} 货舱延时结算：没有信号枪了`);
+      return;
+    }
 
-    this.logger.log(`玩家 ${userId} 发射了信号枪，吸引了怪物`);
-    return '🔫 发射信号枪！\n枪声吸引了附近的怪物，一只【被吸引的怪物】出现了！';
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return;
+    // 货舱落入地图资源（原版写 资源2；新版数据已合并进 resources 字段）
+    await this.mapService.mutateMapFields(map.id, ['resources'], (f) => {
+      const resources = f.resources as any[];
+      if (!Array.isArray(resources)) return false;
+      const existing = resources.find((r: any) => String(r?.name ?? r?.名称 ?? '') === '货舱');
+      if (existing) {
+        const times = Number(existing.times ?? existing.次数 ?? 0) + 3 * removed;
+        existing.times = times;
+        if (existing.次数 !== undefined) existing.次数 = times;
+        return true;
+      }
+      const template = this.staticData.getAllResources().find((r: any) => String(r?.name ?? '') === '货舱');
+      const cargo = template
+        ? JSON.parse(JSON.stringify(template))
+        : { name: '货舱', type: '资源', times: 0, outputs: [] };
+      cargo.times = 3 * removed;
+      if (cargo.次数 !== undefined) cargo.次数 = 3 * removed;
+      resources.push(cargo);
+      return true;
+    });
+    this.logger.log(`玩家 ${userId} 货舱延时结算：投下 ${3 * removed} 个货舱（${name}）`);
   }
 
   // ========== 家园命令 ==========
@@ -9932,69 +10178,184 @@ export class GameService {
   }
 
   /**
-   * 处理维修载具命令
-   * 消耗资源维修载具耐久度
-   * 对应原版：维修 命令
+   * 维修载具（原版 _主程序.ecode L10397-10495「维修」）。
+   * 无参入口：行动无限制（理由6=自动开采豁免）→ 需驾驶载具 → 地图战斗增益+有怪拦截 →
+   * 死亡 → 取载具（图上无此载具则弹射清空驾驶）→ 部件超上限四类拦截 → 满血「还不需要修」
+   * → 耗时 = 20 秒，小雫/小凰/小蓝/小粉 各 -5 秒；
+   *   耗时 <1 → 立即用0载具零件修好（计算载具+满血+成就维修载具）；
+   *   否则「正在维修…」+ 工作 a 秒标记 + 延时 a 秒结算（completeVehicleRepair）。
+   * 「维修 wcc1」是原版延时结算分支（延时任务以玩家身份重发命令）；
+   * 「维修 其他参数」原版静默无输出。
    */
-  async handleRepairVehicle(userId: number, targetName: string): Promise<string> {
+  async handleRepairVehicle(userId: number, targetName: string = ''): Promise<string> {
+    const keyword = String(targetName ?? '').trim();
+    if (keyword && keyword !== 'wcc1') return '';
+    if (keyword === 'wcc1') return this.completeVehicleRepair(userId);
+
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
+    const name = player.name || '冒险者';
 
-    if (!player.vehicle) {
-      return '你当前没有驾驶任何载具';
+    // 行动无限制（原版 L10400 理由6：自动开采中也可以维修）
+    const restriction = this.combatSystem.actionUnrestricted(player, { ignoreReason: 6 });
+    if (restriction.restricted) return restriction.text;
+    if (!player.vehicle) return `${name}你现在没有在驾驶载具`;
+
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${name}不在任何地图上`;
+
+    // 地图战斗增益 + 有怪拦截（原版 L10407-10408）
+    const mapMarkers2 = asJsonValue<any[]>(map.markers2, []);
+    const strength = { value: 0 };
+    const remain = { value: 0 };
+    let monsters: any[] = [];
+    try {
+      monsters = await this.mapService.getMapMonsters(map);
+    } catch {
+      monsters = [];
+    }
+    if (this.combatState.buffRequire('战斗', mapMarkers2, strength, Date.now(), remain) && monsters.length !== 0) {
+      const remainSec = Math.max(0, Math.ceil(Number(remain.value) || 0));
+      const remainText = remainSec >= 60
+        ? `${Math.floor(remainSec / 60)}分${remainSec % 60}秒`
+        : `${remainSec}秒`;
+      return `${name}当前地图正在战斗中，请消灭全部怪物、离开，或者等待${remainText}`;
     }
 
-    const vehicleId = parseInt(player.vehicle, 10);
-    if (isNaN(vehicleId)) return '载具数据异常';
+    if (this.playerService.isPlayerDead(player)) return this.playerService.handlePlayerDeath(userId, player);
 
-    const vehicle = await this.prisma.gameVehicle.findUnique({
-      where: { id: vehicleId },
-    });
-    if (!vehicle) return '载具数据不存在';
+    // 取载具 + 计算载具（原版 L10412-10415）
+    const vehicle = await this.findTravelVehicle(player, map);
+    if (!vehicle) {
+      // 原版 L10416-10418：附近没有该载具则弹射（清空驾驶状态）
+      const vehicleKey = String(player.vehicle);
+      player.vehicle = '';
+      await this.playerService.savePlayer(player);
+      return `#错误：附近没有载具${vehicleKey},已弹射`;
+    }
+    this.combatSystem.recalculateVehicle(vehicle, Date.now());
 
-    // 检查是否需要维修
-    if (vehicle.currentHp >= vehicle.maxHp) {
-      return `载具【${vehicle.name}】耐久度已满 (${vehicle.currentHp}/${vehicle.maxHp})`;
+    // 部件超上限四类拦截（原版 L10419-10427）
+    const overLimit = this.findVehicleOverLimitPart(vehicle);
+    if (overLimit) {
+      return `${name}，${vehicle.名称 || vehicle.name}安装的${overLimit}超过了上限，无法维修`;
     }
 
-    // 检查背包中的维修工具
-    const backpack = this.playerService.getBackpackItems(player);
-    const repairTool = backpack.find((item: any) => item.name === '维修工具');
+    const fullHp = Number(vehicle.加成?.生命 || 0) || this.rescueVehicleMaxHp(vehicle);
+    if (fullHp > 0 && Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0) === fullHp) {
+      return `${name}还不需要修`;
+    }
 
-    if (repairTool) {
-      // 消耗维修工具，恢复50%耐久度
-      const removed = await this.playerService.removeFromBackpack(userId, '维修工具', 1);
-      if (removed) {
-        const healAmount = Math.floor(vehicle.maxHp * 0.5);
-        const newHp = Math.min(vehicle.currentHp + healAmount, vehicle.maxHp);
+    // 耗时：基础 20 秒；小雫/小凰/小蓝/小粉 各 -5 秒（原版 L10431-10443）
+    const partNames = this.collectVehiclePartNames(vehicle);
+    let seconds = 20;
+    for (const part of ['小雫', '小凰', '小蓝', '小粉']) {
+      if (partNames.includes(part)) seconds -= 5;
+    }
+    if (seconds < 1) {
+      return this.applyVehicleRepair(userId, player, map, vehicle);
+    }
 
-        await this.prisma.gameVehicle.update({
-          where: { id: vehicleId },
-          data: { currentHp: newHp },
-        });
+    // 工作 a 秒标记 + 延时结算（原版 L10447-10449）
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
+    this.combatState.addMarker('工作', seconds, markers2, Date.now());
+    player.markers2 = markers2; // Json 列直接写数组
+    await this.playerService.savePlayer(player);
+    if (this.delayedTaskService) {
+      await this.delayedTaskService.schedule({
+        type: 'repair',
+        userId,
+        dedupeKey: String(userId),
+        runAt: Date.now() + seconds * 1000,
+      });
+    }
+    return `${name}正在维修${vehicle.名称 || vehicle.name},大概需要${seconds}秒`;
+  }
 
-        this.logger.log(`玩家 ${userId} 维修了载具 ${vehicle.name}：${vehicle.currentHp} → ${newHp}`);
-        return `✅ 维修成功！\n载具【${vehicle.name}】耐久度恢复 ${healAmount} 点\n当前耐久: ${newHp}/${vehicle.maxHp}`;
+  /**
+   * 维修延时结算（原版「维修wcc1」L10462-10489）：
+   * 延时到期后重发「维修 wcc1」——仍需驾驶载具（弹射/超上限拦截同入口），
+   * 通过后用0载具零件把载具修好（计算载具重算加成 → 满血 → 成就维修载具）。
+   * 结算文本经世界频道广播（延时路径无指令收尾）。
+   * 支柱二：dts tick 直调无外层锁，入口自串行（指令路径重入放行）。
+   */
+  private async completeVehicleRepair(userId: number): Promise<string> {
+    return this.playerService.enqueueUserWrite(userId, () =>
+      this.applyCompleteVehicleRepair(userId));
+  }
+
+  private async applyCompleteVehicleRepair(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const name = player.name || '冒险者';
+    if (!player.vehicle) return `${name}你现在没有在驾驶载具`;
+
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${name}不在任何地图上`;
+    const vehicle = await this.findTravelVehicle(player, map);
+    if (!vehicle) {
+      const vehicleKey = String(player.vehicle);
+      player.vehicle = '';
+      await this.playerService.savePlayer(player);
+      return `#错误：附近没有载具${vehicleKey},已弹射`;
+    }
+    const overLimit = this.findVehicleOverLimitPart(vehicle);
+    if (overLimit) {
+      return `${name}，${vehicle.名称 || vehicle.name}安装的${overLimit}超过了上限，无法维修`;
+    }
+    return this.applyVehicleRepair(userId, player, map, vehicle);
+  }
+
+  /**
+   * 维修生效（原版 L10444-10445 / L10484-10488）：计算载具重算加成 → 当前生命=加成.生命
+   * → 成就维修载具+1 → 回复“用0载具零件修好了X（类型）”。
+   * 载具优先写回地图 vehicles JSON，DB 载具兜底直更 currentHp/maxHp。
+   */
+  private async applyVehicleRepair(userId: number, player: any, map: any, vehicle: any): Promise<string> {
+    this.combatSystem.recalculateVehicle(vehicle, Date.now());
+    const fullHp = Number(vehicle.加成?.生命 || 0) || this.rescueVehicleMaxHp(vehicle);
+    vehicle.当前生命 = fullHp;
+    vehicle.currentHp = fullHp;
+    if (fullHp > 0) {
+      vehicle.生命 = fullHp;
+      vehicle.maxHp = fullHp;
+    }
+
+    const vehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
+    const key = String(vehicle.编号 ?? vehicle.vehicleId ?? vehicle.id ?? vehicle.名称 ?? vehicle.name ?? '');
+    const matches = (value: any): boolean => [
+      value?.编号, value?.vehicleId, value?.id, value?.名称, value?.name,
+    ].some((candidate) => candidate !== undefined && candidate !== null && String(candidate) === key);
+    const index = key ? vehicles.findIndex(matches) : -1;
+    if (index >= 0) {
+      vehicles[index] = this.toStoredVehicle(vehicle);
+      await this.mapService.updateDynamicFields(map.id, { vehicles });
+    } else {
+      const dbId = Number(vehicle.id);
+      const gameVehicle = (this.prisma as any).gameVehicle;
+      if (Number.isInteger(dbId) && dbId > 0 && gameVehicle?.update) {
+        await gameVehicle.update({ where: { id: dbId }, data: { currentHp: fullHp, ...(fullHp > 0 ? { maxHp: fullHp } : {}) } });
       }
     }
 
-    // 没有维修工具，使用基本修复（消耗100经验）
-    if (player.exp >= 100) {
-      player.exp -= 100;
-      const healAmount = Math.floor(vehicle.maxHp * 0.3);
-      const newHp = Math.min(vehicle.currentHp + healAmount, vehicle.maxHp);
+    await this.advanceTask(userId, '维修载具');
+    const vehicleType = String(vehicle.类型 ?? vehicle.type ?? '');
+    const typeText = vehicleType ? `（${vehicleType}）` : '';
+    return `${player.name || '冒险者'}用0载具零件修好了${vehicle.名称 || vehicle.name}${typeText}`;
+  }
 
-      await this.prisma.gameVehicle.update({
-        where: { id: vehicleId },
-        data: { currentHp: newHp },
-      });
-      await this.playerService.savePlayer(player);
-
-      this.logger.log(`玩家 ${userId} 消耗经验维修了载具 ${vehicle.name}：${vehicle.currentHp} → ${newHp}`);
-      return `✅ 消耗100经验维修成功！\n载具【${vehicle.name}】耐久度恢复 ${healAmount} 点\n当前耐久: ${newHp}/${vehicle.maxHp}\n\n提示：使用「维修工具」可以更高效地维修载具`;
-    }
-
-    return `维修需要消耗「维修工具」或100经验\n当前经验: ${player.exp}，不足100`;
+  /** 原版 L10419-10427 四类部件超上限拦截：按 功能→武器→行走→防御 顺序返回超限类别名。 */
+  private findVehicleOverLimitPart(vehicle: any): string {
+    const parts = Array.isArray(vehicle?.parts ?? vehicle?.零件)
+      ? (vehicle.parts ?? vehicle.零件)
+      : asJsonValue<any[]>(vehicle?.parts ?? vehicle?.零件, []);
+    const count = (type: number): number =>
+      parts.filter((part: any) => Number(part?.type ?? part?.类型 ?? -1) === type).length;
+    if (count(4) > Number(vehicle?.maxFunction ?? 5)) return '功能部件';
+    if (count(3) > Number(vehicle?.maxWeapon ?? 5)) return '武器部件';
+    if (count(2) > Number(vehicle?.maxMove ?? 5)) return '行走机构';
+    if (count(1) > Number(vehicle?.maxDefense ?? 5)) return '防御部件';
+    return '';
   }
 
   /**
@@ -11021,13 +11382,31 @@ export class GameService {
   }
 
   /**
-   * 处理剪毛命令
-   * 从饲养的动物中获取羊毛/羽毛，委托到 FamiliarSystemService 的剪毛操作
-   * 对应原版：剪毛 命令
+   * 处理剪毛命令（原版 _主程序.ecode L11267-11331）。
+   * 门禁：装备要求（#剪刀=-40，持握）→ 无参用法提示 → 目标查找（归属召唤物按图片名 /
+   * @玩家）→ 精英前缀替换 → 按物种当天冷却（"剪毛"+类型，有效期当天）→ 产物入包
+   * → 成就四连（剪毛<类型>/剪毛/采集/采集<毛名>）。
+   * 普拉娜幼崽关键词委托 FamiliarSystemService.shearPlana（独立冷却流程）。
    */
   async handleShear(userId: number, targetName: string): Promise<string> {
-    // 如果目标未指定或匹配普拉娜，委托到 FamiliarSystemService 的普拉娜幼崽剪毛操作
-    if (!targetName || /普拉娜|plana/i.test(targetName)) {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const name = player.name || '冒险者';
+
+    // 装备要求（#剪刀，持握）（原版 L11270-11271：特殊序号-40，需拿在手上）
+    const equipments = playerData.equipment || asJsonValue<any[]>(player.equipment, []);
+    const weapons = playerData.weapons || asJsonValue<any[]>(player.weapons, []);
+    if (!this.combatState.equipRequire(equipments, weapons, Number(player.currentWeapon ?? 0), -40, '剪刀', true)) {
+      return `${name},需要装备剪刀并且拿在手上`;
+    }
+
+    // 无参 → 用法提示（原版 L11272-11273）
+    if (!targetName) {
+      return `${name},"剪毛@人/宠物名称"来剪毛，根据对象不同得到的毛发也不同`;
+    }
+
+    // 如果目标匹配普拉娜，委托到 FamiliarSystemService 的普拉娜幼崽剪毛操作
+    if (/普拉娜|plana/i.test(targetName)) {
       const result = await this.familiarSystemService.shearPlana(userId);
       if (/获得了?毛发|获得毛发/.test(result) && !/冷却|需要|失败/.test(result)) {
         await this.advanceTask(userId, '剪毛');
@@ -11037,10 +11416,6 @@ export class GameService {
       }
       return result;
     }
-
-    // 通用剪毛逻辑：查找地图上可剪毛的宠物
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
 
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上';
@@ -11073,11 +11448,35 @@ export class GameService {
       : shearablePets[0];
 
     if (!target) {
+      // 原版 L11285-11287：召唤物未命中则按 @玩家 解析（玩家物种字段未迁移，
+      // 玩家对象无毛发可剪，按“附近没有”口径提示）
+      if (/^@/.test(targetName) || /^\[@.*\]$/.test(targetName)) {
+        return `${name},附近没有${targetName.replace(/^@/, '').replace(/^\[/, '').replace(/\]$/, '')}`;
+      }
       return `当前地图上没有名为「${targetName}」的可剪毛宠物`;
     }
 
     const targetType = String(target.type ?? target.类型 ?? target.name ?? target.名称 ?? '宠物')
       .replace(/^精英/, '');
+
+    // 按物种当天冷却（原版 L11320-11322：时间间隔要求("剪毛"+类型, 有效期当天())）
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
+    this.normalizeMarkers2(markers2);
+    const now = Date.now();
+    const endOfDay = new Date(now);
+    endOfDay.setHours(24, 0, 0, 0);
+    const cooldownKey = `剪毛${targetType}`;
+    const active = markers2.find((m: any) => (m?.name ?? m?.名称) === cooldownKey);
+    const activeExpire = Number(active?.expireAt ?? active?.有效期至 ?? 0) || 0;
+    if (activeExpire > now) {
+      return `${name}给${targetType}这种动物剪毛冷却${this.millisecondsToText(activeExpire - now)}`;
+    }
+    const marker = { name: cooldownKey, expireAt: endOfDay.getTime() };
+    const markerIdx = markers2.findIndex((m: any) => (m?.name ?? m?.名称) === cooldownKey);
+    if (markerIdx >= 0) markers2[markerIdx] = marker;
+    else markers2.push(marker);
+    player.markers2 = markers2; // Json 列直接写数组
+
     const targetDefinition = this.staticData?.getFamiliarByName?.(targetType)
       ?? this.staticData?.getMonsterByName?.(targetType);
     let hair: any = target.hair ?? target.毛发 ?? target.hairDrop ?? targetDefinition?.hairDrop;
@@ -11097,7 +11496,8 @@ export class GameService {
     const hairName = String(hair?.name ?? hair?.名称 ?? target.hairName ?? target.毛发名称 ?? '毛发');
     const hairCount = Math.max(1, Number(hair?.count ?? hair?.quantity ?? hair?.数量 ?? 1) || 1);
 
-    // 原版 L11320-L11330：按物种冷却；成功后任务同时记录物种、剪毛、采集和产物。
+    // 原版 L11324-L11330：成功后任务同时记录物种、剪毛、采集和产物。
+    await this.playerService.savePlayer(player);
     await this.playerService.addToBackpack(userId, hairName, hairCount);
     await this.advanceTask(userId, `剪毛${targetType}`, hairCount);
     await this.advanceTask(userId, '剪毛', hairCount);
@@ -11106,7 +11506,7 @@ export class GameService {
 
     const targetDisplayName = target.name ?? target.名称 ?? target.type ?? target.类型 ?? '宠物';
     this.logger.log(`玩家 ${userId} 从 ${targetDisplayName} 剪毛成功`);
-    return `从 ${targetDisplayName} 剪下了${hairName}，获得了${hairName}×${hairCount}`;
+    return `${name}给${targetDisplayName}剪了毛，得到了${hairName}x${hairCount}`;
   }
 
   // ========== 任务/设置命令 ==========

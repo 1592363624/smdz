@@ -193,8 +193,8 @@ async function main() {
     { name: '对话咏星跟随', alias: 'dialogue-yongxing', description: '与咏星对话并使其跟随(需100好感)', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
     { name: '对话小恶魔跟随', alias: 'dialogue-little-demon', description: '与小恶魔对话并使其跟随', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
     { name: '设置肉食比例', alias: 'set-meat-ratio', description: '设置家园肉食植物享用生肉产出比例', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
-    { name: '召唤货舱', alias: 'summon-cargo', description: '召唤货舱', handlerKey: 'game', minRole: 'USER', sortOrder: 241 },
-    { name: '发射信号枪', alias: 'signal-gun', description: '发射信号枪', handlerKey: 'game', minRole: 'USER', sortOrder: 242 },
+    // 原版无「召唤货舱」直发指令：货舱唯一入口是发射信号枪（召h货1藏为其 6 秒延时结算）。
+    { name: '发射信号枪', alias: 'signal-gun', description: '发射信号枪召唤货舱', handlerKey: 'game', minRole: 'USER', sortOrder: 242 },
     { name: '副本清空', alias: 'clear-dungeon', description: '清空副本', handlerKey: 'game', minRole: 'USER', sortOrder: 243 },
     // 宠物系统扩展（统一 game 处理器）
     { name: '开始捕捉', alias: 'start-capture', description: '开始捕捉宠物', handlerKey: 'game', minRole: 'USER', sortOrder: 250 },

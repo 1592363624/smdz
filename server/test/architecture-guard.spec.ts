@@ -91,7 +91,11 @@ describe('架构门禁：玩家状态写入口收口', () => {
   //   player.service(4) 共 51 处绕过邮箱的裸 prisma.player.update 全部收口为
   //   enqueueUserWrite → getPlayerData → 改 → savePlayer（单写者）。这些 savePlayer
   //   是「邮箱内的落库 sink」，属预期增量；真正的硬门禁见下方 raw prisma.player.update 检查。
-  const RAW_SAVEPLAYER_BASELINE = 266;
+  // - 基线 266 → 268（2026-09-05 复刻批次）：召唤货舱延时结算（applyCargoSummon，
+  //   原「召h货1藏」）与维修延时结算（applyCompleteVehicleRepair，原「维修wcc1」）
+  //   两个 dts tick 直调入口按支柱二收口为 enqueueUserWrite → savePlayer，
+  //   各新增 1 处邮箱内落库 sink，属预期增量（同 266 批次口径）。
+  const RAW_SAVEPLAYER_BASELINE = 268;
   const MUTATE_CALL_BASELINE = 4;
   // 业务代码（非 excluded 文件）不得再出现任何裸 prisma.player.update——
   // 唯一允许的落库 sink 在 PlayerService.persistPlayerData（已 excluded，不计入）。
@@ -320,6 +324,8 @@ describe('架构门禁：玩家状态写入口收口', () => {
       'completeReload',       // reload
       'settleManualMine',     // mine
       'completeRefill',       // refill
+      'completeCargoSummon',  // cargo（原「召h货1藏」，2026-09-05 补）
+      'completeVehicleRepair', // repair（原「维修wcc1」，2026-09-05 补）
     ];
     for (const fn of settleEntries) {
       const start = gameSrc.indexOf(`async ${fn}(`);

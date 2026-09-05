@@ -445,9 +445,13 @@ describe('原版任务动作收尾', () => {
       handleAlchemy: jest.fn(async () => '冒险者炼制出了2个觉醒丹'),
       handleMerge: jest.fn(async () => '融合成功'),
       handleDialogueYongxing: jest.fn(async () => '咏星愿意跟随你了！'),
-      handleSummonCargo: jest.fn(async () => '召唤货舱成功！'),
+      handleSignalGun: jest.fn(async () => '冒险者发射了信号枪……'),
       handleSimulateVehicle: jest.fn(async () => '载具模拟完成'),
-      handleRepairVehicle: jest.fn(async () => '维修成功'),
+      // 维修成就已并入 GameService（原版 L10445：即时修好与延时结算都推进），handler 不再推进。
+      handleRepairVehicle: jest.fn(async () => {
+        await taskService.advance(42, '维修载具');
+        return '冒险者用0载具零件修好了越野车（载具）';
+      }),
       handleExitVehicle: jest.fn(async () => '冒险者离开了载具'),
       handleCallVehicle: jest.fn(async (_userId: number, name: string) =>
         name === '行商' ? '行商来到了院子里' : '宠物来到了当前地图'),
@@ -489,7 +493,7 @@ describe('原版任务动作收尾', () => {
     await fixture.handler.handle(ctx('炼丹 觉醒丹 2'), ['觉醒丹', '2']);
     await fixture.handler.handle(ctx('融合 装备'), ['装备']);
     await fixture.handler.handle(ctx('对话咏星跟随'), []);
-    await fixture.handler.handle(ctx('召唤货舱'), []);
+    await fixture.handler.handle(ctx('发射信号枪 2'), ['2']);
     await fixture.handler.handle(ctx('载具模拟 部件'), ['部件']);
     await fixture.handler.handle(ctx('维修'), []);
     await fixture.handler.handle(ctx('脱出'), []);
@@ -506,7 +510,8 @@ describe('原版任务动作收尾', () => {
     expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '制造', 2);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '融合');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '拐妹子');
-    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '召唤货舱');
+    // 信号枪的成就推进已并入 GameService.handleSignalGun（原版 L6293），handler 只分发。
+    expect(fixture.gameService.handleSignalGun).toHaveBeenCalledWith(42, '2');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '载具模拟');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '维修载具');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '脱出');
