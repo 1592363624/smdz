@@ -9073,6 +9073,98 @@ export class GameService {
       lines.push(...menuLines);
     }
 
+
+    // ===== 对齐原版 地图操作.ecode L867-968：编号项之后的四个信息段 =====
+
+    // 自动采集资源文本（原版 L867-919 自动采集分支：附近资源 + 每分钟自动产出预估）
+    if (Number(playerMarkers['自动采集'] ?? 0) !== 0) {
+      const autoTargets = asJsonValue<any[]>(map.resources, []).filter((r: any) =>
+        this.getResourceTimes(r) > 0
+        && (String(r?.marker ?? r?.标记 ?? '') === ''
+          || Number(playerMarkers[String(r?.marker ?? r?.标记 ?? '')] ?? 0) < 1));
+      if (autoTargets.length > 0) {
+        let gatherBonus = 0;
+        try {
+          const bonus = this.combatSystem.buildAttackerBonus(player, playerData, map) as any;
+          gatherBonus = Number(bonus?.采集 ?? 0);
+        } catch { /* 加成缺失按0处理 */ }
+        const perMinute = new Map<string, number>();
+        for (const r of autoTargets) {
+          for (const out of asJsonValue<any[]>(r?.outputs ?? r?.产出, [])) {
+            const outName = String(out?.name ?? out?.名称 ?? '');
+            const qty = Number(out?.count ?? out?.数量 ?? 0);
+            const chance = Number(out?.chance ?? out?.几率 ?? 100);
+            if (!outName || !(qty > 0)) continue;
+            // 原版 L876-878：产出数量 × 属性.采集/2000 × 几率/100
+            perMinute.set(outName, (perMinute.get(outName) || 0) + qty * gatherBonus / 2000 * chance / 100);
+          }
+        }
+        const yieldText = [...perMinute.entries()]
+          .map(([itemName, qty]) => `${itemName}x${formatDisplayNumber(qty)}`)
+          .join('、');
+        lines.push(`附近资源:${autoTargets.map((r: any) => String(r.name ?? r.名称 ?? '')).join('、')},自动采集每分钟:${yieldText}`);
+      }
+    }
+
+    // 附近玩家（原版 L929-941：地图玩家列表 → “附近的玩家:”名称列表）
+    try {
+      const nearbyRows = await this.prisma.player.findMany({
+        where: { mapId: player.mapId },
+        select: { name: true, user: { select: { username: true, nickname: true } } },
+      });
+      const nearbyNames = nearbyRows
+        .map((row: any) => String(row?.name || row?.user?.nickname || row?.user?.username || ''))
+        .filter(Boolean);
+      if (nearbyNames.length > 0) {
+        lines.push(`附近的玩家:${nearbyNames.join('、')}`);
+      }
+    } catch { /* 玩家列表查询失败不影响观察附近 */ }
+
+    // 当前地图增益（原版 L942-949：地图标记3 → “当前地图增益:名称(剩余时间)”）
+    {
+      const lookMarkers2 = asJsonValue<any[]>(map.markers2, []);
+      const lookNow = Date.now();
+      const buffTexts = lookMarkers2
+        .map((entry: any) => ({
+          name: String(entry?.name ?? entry?.名称 ?? ''),
+          expireAt: Number(entry?.expireAt ?? entry?.有效期至 ?? 0),
+        }))
+        .filter((entry) => entry.name && !entry.name.startsWith('刷新资源') && entry.expireAt > lookNow)
+        .map((entry) => `${entry.name}（${this.millisecondsToText(entry.expireAt - lookNow)}）`);
+      if (buffTexts.length > 0) {
+        lines.push(`当前地图增益:${buffTexts.join('、')}`);
+      }
+    }
+
+    // 躺下经验（原版 L950-960：躺下中显示每秒经验明细，与躺下起床显示同口径）
+    if (Number(playerMarkers['躺下'] ?? 0) === 1) {
+      const lieDisplay = await this.summonFollowDisplay(map, userId, { requireFollow: false, countLimit: 2 });
+      const lieCount = lieDisplay.count;
+      const lieSummons = asJsonValue<any[]>(map.summons, []);
+      const luo = lieSummons.find((s: any) => (s?.specialSeq ?? s?.special_seq ?? s?.seq) === -4);
+      const expBonus = Number(player.expBonus ?? 0);
+      const level = Number(player.level ?? 1);
+      const lieLines = [
+        `${lieCount > 0 ? `正在和${lieDisplay.names.join('、')}` : '正'}躺在床上`,
+        `每秒获得经验:${this.roundText(level / 100)}`,
+        `你的经验加成:${this.roundText(expBonus)}%`,
+        `陪睡NPC/宠物:${lieCount}/2（+${lieCount * 50}%）`,
+      ];
+      if (luo) lieLines.push(`${luo.name ?? luo.名称 ?? '洛'}:+10%`);
+      const finalPerSec = (1 + lieCount * 0.5) * level * (1 + expBonus / 100) / 100 * (1 + (luo ? 1 : 0) / 10);
+      lieLines.push(`最终每秒获得:${this.roundText(finalPerSec)}`);
+      lines.push(...lieLines);
+    }
+
+    // 自动开采显示（原版 L961-968：自动开采/自动开采2 开始时间戳 → “已自动开采:时长”）
+    for (const mineMode of ['自动开采', '自动开采2']) {
+      const startedAt = Number(playerMarkers[mineMode] ?? 0);
+      if (startedAt > 0) {
+        const elapsedMs = Date.now() - startedAt * 1000;
+        if (elapsedMs > 0) lines.push(`已自动开采:${this.millisecondsToText(elapsedMs)}`);
+      }
+    }
+
     return lines.join('\n');
   }
 
