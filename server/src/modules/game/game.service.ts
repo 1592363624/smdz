@@ -1111,11 +1111,22 @@ export class GameService {
     } catch (e: any) {
       this.logger.warn(`到达生成观察附近失败: ${e.message}`);
     }
+
+    // 对齐原版 来倒目的 L6762-6776：狐自动攻击——装备#狐 且“狐”60秒冷却通过
+    // 且本图有怪时，立即以 50% 倍率必中全体攻击并拉起怪物回合。
+    let foxText = '';
+    try {
+      foxText = await this.applyFoxAutoAttack(userId, targetMap);
+    } catch (e: any) {
+      this.logger.warn(`到达狐自动攻击失败: ${e.message}`);
+    }
+
     const isGateMap = Boolean((targetMap as any).isInstance || (targetMap as any).关卡);
     let text = `${player.name || '冒险者'}来到了${targetMap.name}`;
     if (isGateMap && targetMap.description) text += `\n${targetMap.description}`;
     if (triggerText) text += `\n${triggerText}`;
     if (lookText) text += `\n${lookText}`;
+    if (foxText) text += `\n${foxText}`;
     if (arrivalTaskNotice) text = `${arrivalTaskNotice}\n————————\n${text}`;
 
     // 注：原版到达拉起怪物攻击（_主程序.ecode L1755-1795）仅限地图"代发言=触发攻击"
@@ -1135,6 +1146,64 @@ export class GameService {
     }
 
     return text;
+  }
+
+  /**
+   * 到达触发狐自动攻击（原版 _主程序.ecode L6762-6776 来倒目的）。
+   * 装备#狐（特殊序号27，非持握）且“狐”60秒冷却通过且本图有怪时：
+   * 以当前武器对全体怪物 50% 倍率必中攻击（attackText “狐a”），随后
+   * 新建延时“覅攻击pd”5秒（triggerMapBattleLoop，含玩家活跃）+ 活跃度+1。
+   * 击杀奖励由 weaponAttack 内部结算（对应原版 发放奖励）。
+   * @returns 攻击结果文本（未触发时为空串）
+   */
+  private async applyFoxAutoAttack(userId: number, map: any): Promise<string> {
+    const fresh = await this.playerService.getPlayerData(userId);
+    const freshPlayer = fresh.player;
+    const equipments = fresh.equipment || asJsonValue<any[]>(freshPlayer.equipment, []);
+    const weapons = fresh.weapons || asJsonValue<any[]>(freshPlayer.weapons, []);
+    if (!this.combatState.equipRequire(equipments, weapons, Number(freshPlayer.currentWeapon ?? 0), 27, '狐', false)) {
+      return '';
+    }
+
+    const markers2 = Array.isArray(fresh.markers2)
+      ? fresh.markers2
+      : this.parseJsonArray(freshPlayer.markers2);
+    const foxText = { value: '' };
+    const foxBlocked = this.combatState.timeIntervalRequire('狐', 60, markers2, Date.now(), foxText, Date.now());
+
+    let monsters: any[] = [];
+    if (!foxBlocked) {
+      try {
+        monsters = await this.mapService.getMapMonsters(map);
+      } catch {
+        monsters = [];
+      }
+    }
+
+    let attackResult = '';
+    if (!foxBlocked && monsters.length > 0) {
+      const attack = await this.combatSystem.weaponAttack(userId, Number(freshPlayer.currentWeapon ?? 0), {
+        damageMultiplier: 50,
+        mustHit: true,
+        allAttack: true,
+        attackText: '狐a',
+      });
+      attackResult = attack?.result || '';
+    }
+
+    // 落库：狐冷却标记 + 活跃度+1（攻击后重载快照，避免覆盖 weaponAttack 的击杀/掉落写入）
+    const afterPlayer = (await this.playerService.getPlayerData(userId)).player;
+    const afterMarkers = asJsonValue<Record<string, any>>(afterPlayer.markers, {});
+    if (attackResult) this.incrementMarker(afterMarkers, '活跃度', 1);
+    afterPlayer.markers = afterMarkers;
+    afterPlayer.markers2 = markers2; // Json 列直接写数组
+    await this.playerService.savePlayer(afterPlayer);
+
+    if (attackResult) {
+      // 原版 L6769-6771：覅攻击pd 5秒 + 玩家活跃（triggerMapBattleLoop 内处理）
+      await this.combatSystem.triggerMapBattleLoop(userId, 5, { player: afterPlayer, map });
+    }
+    return attackResult;
   }
 
   /**

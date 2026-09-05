@@ -103,6 +103,55 @@ function makeService(options: {
   return { service, player, currentMap, targetMap, saved, scheduled, playerService, mapService: service.mapService };
 }
 
+describe('到达狐自动攻击（原版 _主程序.ecode L6762-6776 复刻）', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('装备狐+冷却通过+到达图有怪：50%倍率必中全体攻击+覅攻击pd+活跃度+1', async () => {
+    const fixture = makeService({});
+    fixture.service.combatState.equipRequire = jest.fn(() => true);
+    fixture.service.combatSystem.weaponAttack = jest.fn(async () => ({ result: '【狐a】命中全体目标' }));
+    fixture.service.combatSystem.triggerMapBattleLoop = jest.fn(async () => undefined);
+    fixture.service.mapService.getMapMonsters = jest.fn(async () => [{ id: 1, name: '野怪' }]);
+
+    const result = await fixture.service.performArrival(42, 8, '目标地图');
+
+    expect(fixture.service.combatSystem.weaponAttack).toHaveBeenCalledWith(42, 0, expect.objectContaining({
+      damageMultiplier: 50,
+      mustHit: true,
+      allAttack: true,
+      attackText: '狐a',
+    }));
+    expect(fixture.service.combatSystem.triggerMapBattleLoop).toHaveBeenCalledWith(42, 5, expect.anything());
+    expect(result).toContain('【狐a】命中全体目标');
+    expect(Number(parseJson(fixture.player.markers, {})['活跃度'])).toBe(1);
+  });
+
+  it('未装备狐时不触发自动攻击', async () => {
+    const fixture = makeService({});
+    fixture.service.combatState.equipRequire = jest.fn(() => false);
+    fixture.service.combatSystem.weaponAttack = jest.fn(async () => ({ result: '不应调用' }));
+    fixture.service.mapService.getMapMonsters = jest.fn(async () => [{ id: 1, name: '野怪' }]);
+
+    const result = await fixture.service.performArrival(42, 8, '目标地图');
+
+    expect(fixture.service.combatSystem.weaponAttack).not.toHaveBeenCalled();
+    expect(result).not.toContain('不应调用');
+  });
+
+  it('“狐”60秒冷却中不触发自动攻击', async () => {
+    const fixture = makeService({});
+    fixture.service.combatState.equipRequire = jest.fn(() => true);
+    fixture.service.combatState.timeIntervalRequire.mockReturnValue(true);
+    fixture.service.combatSystem.weaponAttack = jest.fn(async () => ({ result: '不应调用' }));
+    fixture.service.mapService.getMapMonsters = jest.fn(async () => [{ id: 1, name: '野怪' }]);
+
+    const result = await fixture.service.performArrival(42, 8, '目标地图');
+
+    expect(fixture.service.combatSystem.weaponAttack).not.toHaveBeenCalled();
+    expect(result).not.toContain('不应调用');
+  });
+});
+
 describe('前往门禁（原版 _主程序.ecode L6514-6548 复刻）', () => {
   afterEach(() => jest.restoreAllMocks());
 
