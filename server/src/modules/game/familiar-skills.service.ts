@@ -167,7 +167,7 @@ export class FamiliarSkillsService {
 
   private isSuccessfulSkillResult(result: string): boolean {
     if (!result?.trim()) return false;
-    return !/(失败|错误|未知技能|需要|无法|不能|不可|未找到|冷却中|请先|请指定|还需要|不足|不是)/.test(result);
+    return !/(失败|错误|未知技能|需要|无法|不能|不可|未找到|冷却中|请先|请指定|还需要|不足|不是|这是.{0,6}的技能)/.test(result);
   }
 
   /**
@@ -1317,42 +1317,39 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1313：特殊序号 != 龙姬 → “这是龙姬的技能”
     if (!this.checkFamiliarType(player, '龙姬')) {
-      return '需要龙姬才能使出怒吼';
+      return `${player.name || '冒险者'}这是龙姬的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '怒吼', 60);
+    // 原版 L1315-1322：冷却核心 → 50 秒否则 60 秒；冷却键=“龙姬技能冷却”（同使魔各技能共享）
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '龙姬');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L1325：急救包（装备急救包时恢复三层上限 10%）
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    // 计算效果：攻击力提升，防御力降低
-    const attackBonus = Math.floor(50 * effect);
-    const defensePenalty = Math.floor(30 * effect);
+    // 原版 L1326：当前生命 +0.1
+    player.hp = Number(player.hp ?? 0) + 0.1;
 
-    // 添加增益（攻击提升，库洛牌+25%时长）
-    this.addBuff(player, '怒吼·攻', this.buffDur(player, 30), { 攻击: attackBonus });
-    // 添加减益（防御降低，用负值增益表示）
-    this.addBuff(player, '怒吼·防', this.buffDur(player, 30), { 防御: -defensePenalty });
+    // 原版 L1333-1335：库洛牌 → a3=1.25；添加标记("怒吼", a3*(10+技能等级/2), 玩家.增益)
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    const skillLevel = this.getSkillLevel(markers, '龙姬');
+    this.addBuff(player, '怒吼', a3 * (10 + skillLevel / 2));
 
-    // 设置冷却
-    this.setCooldown(player, '怒吼', await this.getSkillCooldown(player, 60));
-
-    // 记录技能熟练度
-    const skillKey = '龙姬技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L1318 技能经验 / L1321 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `龙姬发出震天怒吼！\n攻击力提升 ${attackBonus} 点（持续30秒）\n防御力降低 ${defensePenalty} 点（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [`${player.name || '冒险者'}大地为之颤抖`];
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    lines.push(...firstAidLines);
+    return lines.join('\n');
   }
 
   /**
@@ -1368,7 +1365,7 @@ export class FamiliarSkillsService {
 
     // 检查使魔类型
     if (!this.checkFamiliarType(player, '军姬') && !this.checkFamiliarType(player, '军姬2')) {
-      return '需要军姬才能使出万象';
+      return `${player.name || '冒险者'}这是军姬的技能`; // 原版 L1342
     }
 
     // 军姬2：原版万象造成真实全体伤害（攻击文本"万象a"，基础倍率 200+5*等级 或 死亡时 300+7.5*等级）
@@ -1376,56 +1373,67 @@ export class FamiliarSkillsService {
       const skillLevel = this.getSkillLevel(markers, '军姬2');
       const isDead = (player.hp || 0) <= 0;
       const mult = isDead ? Math.floor(300 + 7.5 * skillLevel) : 200 + 5 * skillLevel;
-      // 后续回血写在 castCombatSkill 返回的最新快照上：既避免旧快照 version 过期
-      // 导致的并发冲突，也保证回血基准是战斗结算后的最新血量（用旧 hp 会把战损回滚）。
+      // 冷却键对齐原版 L1350：类型+“技能冷却”（军姬2技能冷却，50/60 按冷却核心）
       const { result, player: livePlayer, markers: liveMarkers } = await this.castCombatSkill(userId, {
-        cooldownName: '万象',
+        cooldownName: '军姬2技能冷却',
         baseCooldown: 60,
         damageMultiplier: mult,
         attackText: '【万象】',
         allAttack: true,
         familiarType: '军姬2',
       });
-      // 好感分层解锁：原版「玩家.好感 >= 60 → 回血50%」
+      // 原版 L1381：置成就熟练度("jj2", 1)；L1383-1387 死亡使用置 jj3=1（击杀刷新冷却）、
+      // 存活置 jj3=0；L1378-1377 好感≥20 → jj2hg1=取整(3+技能等级*0.05)（抵挡N次伤害）。
+      // （好感≥60 回血 50% 属军姬本体分支，误挂在此处已移除。）
+      this.playerService.setMarker(liveMarkers, 'jj2', 1);
       let extra = '';
-      if (this.checkAffinity(liveMarkers, '军姬2', 60)) {
-        const heal = Math.floor((livePlayer.maxHp || 100) * 0.5);
-        livePlayer.hp = Math.min((livePlayer.hp || 0) + heal, livePlayer.maxHp || 100);
-        await this.playerService.savePlayer(livePlayer);
-        extra = `\n（好感≥60 解锁：恢复 ${heal} 点生命）`;
+      if (isDead) {
+        this.playerService.setMarker(liveMarkers, 'jj3', 1);
+        extra = '(死亡情况下使用)';
+      } else {
+        this.playerService.setMarker(liveMarkers, 'jj3', 0);
       }
-      return `【万象】空间割裂，万象之力横扫全场！\n${result}${extra}`;
+      if (this.checkAffinity(liveMarkers, '军姬2', 20)) {
+        const blocks = Math.floor(3 + skillLevel * 0.05);
+        this.playerService.setMarker(liveMarkers, 'jj2hg1', blocks);
+        extra += `\n（好感≥20 解锁：抵挡${blocks}次伤害）`;
+      }
+      livePlayer.markers = liveMarkers; // Player markers 为 Json 列，直接写对象
+      await this.playerService.savePlayer(livePlayer);
+      return `【万象】空间割裂，万象之力横扫全场！${extra ? '\n' + extra : ''}\n${result}`;
     }
 
-    // 军姬（本体）：保留原版全属性增益语义
-    const cooldownCheck = this.checkCooldown(player, '万象', 180);
+    // 军姬（本体）：原版 L1352-1368 森罗万象！——万象增益 30*a3 秒（库洛牌 ×1.25）、
+    // 好感≥60 回血 50% 并置"万象2"熟练度、冷却键=军姬技能冷却（50/60 按冷却核心）。
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    const affinity = this.getAffinity(markers, player.type);
-    const effect = this.getSkillEffect(affinity);
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    const effects = [
-      '空间扭曲，周围的一切变得模糊不清',
-      '万象之力涌出，将敌人拉入异次元',
-      '万象轮回，短暂提升全属性',
-      '空间割裂，对周围造成伤害',
-    ];
-    const chosenEffect = effects[Math.floor(Math.random() * effects.length)];
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    this.addBuff(player, '万象', 30 * a3);
 
-    const statBonus = Math.floor(20 * effect);
-    this.addBuff(player, '万象·全属性', 60, {
-      attack: statBonus, 防御: statBonus, 速度: statBonus, 闪避: statBonus, 命中: statBonus,
-    });
+    let extra = '';
+    const affinityValue = Number((player as any).affinity ?? 0) || this.getAffinity(markers, '军姬');
+    if (affinityValue >= 60) {
+      const heal = Math.floor((player.maxHp || 100) * 0.5);
+      player.hp = Math.min(Number(player.hp ?? 0) + heal, player.maxHp || 100);
+      this.playerService.setMarker(markers, '万象2', 1);
+      extra = `（生命+${heal}）`;
+    }
 
-    this.setCooldown(player, '万象', await this.getSkillCooldown(player, 60));
-
-    const skillKey = `${player.type}技能熟练度`;
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `【万象】${chosenEffect}\n全属性提升 ${statBonus} 点（持续60秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [`【万象】森罗万象！${extra}`];
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    lines.push(...firstAidLines);
+    return lines.filter(Boolean).join('\n');
   }
 
   /**
@@ -1516,40 +1524,35 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 原版 L1444：特殊序号 != 恶毒 → “这是恶毒的技能”
     if (!this.checkFamiliarType(player, '恶毒')) {
-      return '需要恶毒才能使出鹰眼';
+      return `${player.name || '冒险者'}这是恶毒的技能`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '鹰眼', 45);
+    // 原版 L1447-1454：冷却核心 → 50 秒否则 60 秒；冷却键=“恶毒技能冷却”
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = this.getAffinity(markers, '恶毒');
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L1456：急救包
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines);
 
-    // 提升命中，降低闪避
-    const hitBonus = Math.floor(40 * effect);
-    const dodgePenalty = Math.floor(20 * effect);
+    // 原版 L1459-1461：库洛牌 → a3=1.25；获得增益("鹰眼", 30*a3)（时长型增益）
+    const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
+    this.addBuff(player, '鹰眼', 30 * a3);
 
-    this.addBuff(player, '鹰眼·命中', this.buffDur(player, 30), { 命中: hitBonus });
-    this.addBuff(player, '鹰眼·闪避', this.buffDur(player, 30), { 闪避: -dodgePenalty });
-
-    // 设置冷却
-    this.setCooldown(player, '鹰眼', 45);
-
-    // 记录技能熟练度
-    const skillKey = '恶毒技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-
-    // 增加活跃度
+    // 原版 L1462 技能经验 / L1465 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `恶毒开启鹰眼模式！\n命中率提升 ${hitBonus}%（持续30秒）\n闪避率降低 ${dodgePenalty}%（持续30秒）\n好感度加成: ${Math.round(effect * 100)}%`;
+    const lines = [`${player.name || '冒险者'}我看到你了`];
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    lines.push(...firstAidLines);
+    return lines.join('\n');
   }
 
   /**
@@ -1565,7 +1568,7 @@ export class FamiliarSkillsService {
 
     // 检查使魔类型
     if (!this.checkFamiliarType(player, '阿尔缇娜')) {
-      return '需要阿尔缇娜才能使出歼灭';
+      return `${player.name || '冒险者'}这是阿尔缇娜的技能`; // 原版 L1472
     }
 
     // 原版基础倍率：倍率转换(玩家, 100 + 5*技能等级)
@@ -1577,7 +1580,7 @@ export class FamiliarSkillsService {
     // 后续增益写在 castCombatSkill 返回的最新快照上（旧快照 version 已过期，
     // 用它保存会并发冲突，且会把内部的冷却/技能经验/活跃度整包覆盖回滚）。
     const { result, player: livePlayer, markers: liveMarkers } = await this.castCombatSkill(userId, {
-      cooldownName: '歼灭',
+      cooldownName: '阿尔缇娜技能冷却', // 原版 L1480：类型+技能冷却
       baseCooldown: 60,
       damageMultiplier: mult,
       attackText: '歼灭a',
@@ -1595,7 +1598,10 @@ export class FamiliarSkillsService {
       await this.playerService.savePlayer(livePlayer);
     }
 
-    return `阿尔缇娜释放冰霜之力——歼灭！\n${result}${extra}`;
+    // 原版 L1493：随机文本（三选一施法台词）
+    const annihilationLines = ['剑光指引前进的道路', '剑刃所向即是帝国边疆', '正义从不缺席'];
+    const annihilationLine = annihilationLines[Math.floor(Math.random() * annihilationLines.length)];
+    return `${player.name || '冒险者'}${annihilationLine}\n${result}${extra}`;
   }
 
   /**
