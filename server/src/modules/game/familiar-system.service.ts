@@ -392,10 +392,10 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查召唤券数量
+    // 检查召唤券数量（统一货币读入口：与落库仲裁同口径，绝不读到双字段镜像的旧值——
+    // 正式库 7516「兑换后立刻召唤只看到 21.012」事故根因即读侧只取 .count）
     const backpack = this.playerService.getBackpackItems(player);
-    const ticketItem = backpack.find((item: any) => item.name === '召唤券');
-    const ticketCount = ticketItem ? (ticketItem.count || 1) : 0;
+    const ticketCount = this.playerService.getCurrencyAmount(player, '召唤券', backpack);
 
     if (ticketCount < count) {
       return `${player.name || '冒险者'} 你的召唤券只有${roundItemQuantity(ticketCount)}，无法召唤${count}次\n你可以在商店兑换召唤券`;
@@ -424,17 +424,11 @@ export class FamiliarSystemService {
       summonedItems.push(chosenFamiliar.name);
     }
 
-    // 扣除召唤券（数值过 roundItemQuantity 闸：73.012 - 73 的 IEEE754 长尾
-    // 0.012000000000000455 会原样入库并泄漏到 UI，正式库事故实锤）。
-    const newTicketCount = roundItemQuantity(ticketCount - count);
-    if (newTicketCount <= 0) {
-      // 移除召唤券
-      const idx = backpack.findIndex((item: any) => item.name === '召唤券');
-      if (idx !== -1) backpack.splice(idx, 1);
-    } else {
-      ticketItem!.count = newTicketCount;
-      if (ticketItem!.quantity !== undefined) ticketItem!.quantity = newTicketCount;
-    }
+    // 扣除召唤券（统一货币写入口：count/quantity 双字段同步 + 刷新物化基准；
+    // 数值过 roundItemQuantity 闸：73.012 - 73 的 IEEE754 长尾 0.012000000000000455
+    // 会原样入库并泄漏到 UI，正式库事故实锤）。携带工作数组：提交由下方
+    // player.backpack = backpack 统一完成（全库「解析克隆→改→写回」约定）。
+    this.playerService.setCurrencyAmount(player, '召唤券', ticketCount - count, backpack);
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
@@ -843,12 +837,14 @@ export class FamiliarSystemService {
       (item?.name ?? item?.名称) === name && (item?.type ?? item?.类型 ?? '资源') !== '装备',
     );
     if (existing) {
-      const next = this.getItemQuantity(existing) + count;
-      if (existing.quantity !== undefined || existing.数量 !== undefined) existing.quantity = next;
-      else existing.count = next;
+      const next = roundItemQuantity(this.getItemQuantity(existing) + count);
+      // 双字段同步写（P1 货币统一写入口纪律）：只写单字段会让另一字段滞留旧值，
+      // 后续按旧字段读取的路径（如召唤读 .count）就会吞掉本次到账（7516 事故根因）
+      existing.quantity = next;
+      existing.count = next;
       return;
     }
-    backpack.push({ name, type, quantity: count });
+    backpack.push({ name, type, quantity: count, count });
   }
 
   private async addExchangeReward(backpack: any[], itemName: string, count: number): Promise<void> {
@@ -891,11 +887,9 @@ export class FamiliarSystemService {
       return `${player.name || '冒险者'}#换行1、活跃度商店#2、钻石商店#3、数据商店`;
     }
 
-    const backpack = this.playerService.getBackpackItems(player);
-    const diamondItem = backpack.find((item: any) => item.name === '钻石');
-    const dataCoreItem = backpack.find((item: any) => item.name === '数据核心');
-    const diamondCount = this.getItemQuantity(diamondItem);
-    const dataCoreCount = this.getItemQuantity(dataCoreItem);
+    // 展示走统一货币读入口：分裂条目（历史上单字段写遗留）不得显示旧值
+    const diamondCount = this.playerService.getCurrencyAmount(player, '钻石');
+    const dataCoreCount = this.playerService.getCurrencyAmount(player, '数据核心');
     const activity = this.playerService.getMarkerValue(markers, '活跃度');
     const shop = catalog[normalizedType as keyof typeof catalog];
     const currencyName = normalizedType === 'activity' ? '活跃度'
@@ -971,19 +965,15 @@ export class FamiliarSystemService {
       }
       markers['活跃度'] = roundItemQuantity(activity - totalCost);
     } else {
-      const currencyItem = backpack.find((item: any) => item.name === currencyName);
-      const current = this.getItemQuantity(currencyItem);
+      // 统一货币读写入口：读侧与落库仲裁同口径（不读双字段镜像旧值），
+      // 写侧 count/quantity 双字段同步 + 刷新物化基准（value<=0 自动移除条目）。
+      // 携带工作数组：改动并入调用方待提交背包，由下方 player.backpack 统一写回。
+      const current = this.playerService.getCurrencyAmount(player, currencyName, backpack);
       if (current < totalCost) {
         return `需要${totalCost}${currencyName}，你只有${Math.round(current)}`;
       }
-      if (current === totalCost) {
-        const index = currencyItem ? backpack.indexOf(currencyItem) : -1;
-        if (index >= 0) backpack.splice(index, 1);
-      } else if (currencyItem) {
-        // 扣减结果过 roundItemQuantity 闸，防止 0.012000000000000455 型长尾入库
-        if (currencyItem.quantity !== undefined) currencyItem.quantity = roundItemQuantity(current - totalCost);
-        else currencyItem.count = roundItemQuantity(current - totalCost);
-      }
+      // 扣减结果过 roundItemQuantity 闸（setCurrencyAmount 内），防止 0.012000000000000455 型长尾入库
+      this.playerService.setCurrencyAmount(player, currencyName, current - totalCost, backpack);
     }
 
     await this.addExchangeReward(backpack, normalizedName, count);

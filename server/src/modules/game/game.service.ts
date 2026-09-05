@@ -770,6 +770,20 @@ export class GameService {
     targetMapName: string,
     options: { skipMapRefresh?: boolean } = {},
   ): Promise<string> {
+    // 支柱二·自串行：延时任务 tick 直调本方法时无任何外层锁；指令路径已在
+    // mutate/邮箱内（enqueueUserWrite 重入放行）。统一过用户级串行邮箱，
+    // 保证「读档→到达结算→写回」全程独占该玩家状态，不依赖调用方记得持锁。
+    return this.playerService.enqueueUserWrite(userId, () =>
+      this.applyPerformArrival(userId, targetMapId, targetMapName, options));
+  }
+
+  /** 移动到达结算的数据库读改写段（performArrival 已持用户级串行邮箱）。 */
+  private async applyPerformArrival(
+    userId: number,
+    targetMapId: number,
+    targetMapName: string,
+    options: { skipMapRefresh?: boolean } = {},
+  ): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     let { player } = playerData;
 
@@ -12472,6 +12486,9 @@ export class GameService {
 
   /** 装填延时到期：写装填完成成就并广播。由 DelayedTaskService 分发。 */
   private async completeReload(userId: number, mode: string): Promise<void> {
+    // 支柱二·自串行：本方法由延时任务 tick 直调（无外层锁），读改写段必须
+    // 在用户级串行邮箱内基于新鲜快照执行；指令路径调用时邮箱重入放行。
+    await this.playerService.enqueueUserWrite(userId, async () => {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, weapons } = playerData;
     let result: string;
@@ -12494,7 +12511,9 @@ export class GameService {
     }
     player.markers = markers;
     await this.playerService.savePlayer(player);
+    // 支柱三：先落库后广播——回执/广播只在状态已持久化后发出
     await this.chatService.broadcastSystem('世界频道', result, userId);
+    });
   }
 
   /**

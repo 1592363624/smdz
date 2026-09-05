@@ -303,6 +303,62 @@ describe('架构门禁：玩家状态写入口收口', () => {
     expect(mapSrc).toContain('async mutateSummons');
   });
 
+  // ===== 支柱二门禁：延时任务结算入口必须自串行 =====
+  // 背景：dts tick 直调结算 handler（无任何外层锁），若结算入口不自串行，
+  // 「读档→改→写回」窗口与邮箱内操作并发就会互相覆盖（旧快照覆盖族事故）。
+  // 规则：game.service 里注册给 DelayedTaskService 的每个玩家级结算入口，
+  // 函数体内必须出现 enqueueUserWrite（指令路径调用时邮箱重入放行，无双锁）。
+  it('延时任务结算入口必须自串行（dts tick 直调，不得依赖调用方持锁）', () => {
+    const gameSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game.service.ts'),
+      'utf8',
+    );
+    const settleEntries = [
+      'settleGatherResource', // gather
+      'performArrival',       // move
+      'completeRescue',       // rescue
+      'completeReload',       // reload
+      'settleManualMine',     // mine
+      'completeRefill',       // refill
+    ];
+    for (const fn of settleEntries) {
+      const start = gameSrc.indexOf(`async ${fn}(`);
+      if (start < 0) throw new Error(`延时结算入口 ${fn} 不存在（被改名/删除？）`);
+      // 函数体切片：到下一个同级方法声明为止
+      const rest = gameSrc.slice(start + 1);
+      const next = rest.search(/\r?\n  (private )?async /);
+      const body = rest.slice(0, next < 0 ? undefined : next);
+      if (!body.includes('enqueueUserWrite')) {
+        throw new Error(
+          `延时结算入口 ${fn} 未自串行（函数体内无 enqueueUserWrite）。\n` +
+            `它会被 DelayedTaskService.tick 在无锁上下文直调，必须像 settleGatherResource 一样\r\n` +
+            `在入口处包 enqueueUserWrite（指令路径重入放行），否则读改写窗口会与邮箱内操作并发覆盖。`,
+        );
+      }
+    }
+  });
+
+  // ===== 支柱一门禁：货币读写必须走统一入口（双字段镜像分裂的构造级封堵）=====
+  // 背景（正式库 7516）：兑换加券只写 quantity、召唤只读 count——同一份 Actor 活态
+  // 双字段分裂，读侧拿到陈旧值；召唤数量≤旧值时按旧值扣减写回，刚到账的券被整段
+  // 吞掉。统一入口 PlayerService.getEntryQuantity/getCurrencyAmount/setCurrencyAmount
+  // 让「读到旧字段」在构造上不再可能。文档会丢，测试不会丢。
+  it('召唤/兑换必须走统一货币读写入口（禁止单字段读写回归）', () => {
+    const familiarSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/familiar-system.service.ts'),
+      'utf8',
+    );
+    // 召唤读券：统一读入口（携带工作数组，提交与全库「解析克隆→改→写回」约定一致）
+    expect(familiarSrc).toContain("getCurrencyAmount(player, '召唤券'");
+    // 召唤扣券 / 兑换扣货币：统一写入口（双字段同步 + 刷新物化基准）
+    expect(familiarSrc).toContain("setCurrencyAmount(player, '召唤券'");
+    expect(familiarSrc).toContain("setCurrencyAmount(player, currencyName");
+    // 旧的单字段读不得回归：applySummonFamiliar 曾用 ticketItem.count || 1 当余额
+    expect(familiarSrc).not.toMatch(/ticketItem\s*\?\s*\(ticketItem\.count\s*\|\|/);
+    // 商店余额展示同样走统一读入口
+    expect(familiarSrc).toContain("getCurrencyAmount(player, '钻石')");
+  });
+
   // ===== integration 测试写玩家状态：须经 Actor 漏斗，禁裸 prisma.player.update =====
   // 背景：真实远程库套件曾用裸 prisma.player.update 直写玩家行（baseName/hp/markers），
   // 但玩家权威状态存于 PlayerService 的 Actor cell——裸直写只改 DB 不更新活态，随后任一

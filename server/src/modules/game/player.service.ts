@@ -62,7 +62,8 @@ export type PlayerCommand =
   | { type: 'ADJUST_ATTRIBUTE'; attr: 'hp' | 'shield' | 'armor' | 'vitality'; delta: number; source?: string };
 
 /** savePlayer 兼容层附加的写基线（非枚举，不会落库/进入 fieldSignature）。 */
-const PLAYER_WRITE_META = Symbol('player-write-meta');
+/** 写基线元数据键；PlayerMutateService 需读写其货币审计去重标志，故导出 */
+export const PLAYER_WRITE_META = Symbol('player-write-meta');
 const PLAYER_PATCH_FIELDS = [
   'level', 'exp', 'upgradeExp', 'name', 'baseName', 'type', 'specialSeq',
   'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor',
@@ -77,6 +78,8 @@ const PLAYER_PATCH_FIELDS = [
 interface PlayerWriteMeta {
   baseline: Record<string, any>;
   userId?: number;
+  /** 本次落库的货币变动已由兜底审计（auditCurrencyWrite）记账；mutate 链据此去重 */
+  currencyAuditDone?: boolean;
 }
 function cloneJson<T>(value: T): T {
   if (value === undefined || value === null) return value;
@@ -744,6 +747,74 @@ export class PlayerService implements OnModuleInit {
     }
   }
 
+  /**
+   * 统一货币读写入口（三支柱·支柱一：单写者下的构造级新鲜度）
+   *
+   * 背景（正式库 7516「兑换后立刻召唤只看到兑换前 21.012」事故）：货币条目是
+   * count/quantity 双字段镜像，兑换加券只写 quantity、召唤只读 count——同一次
+   * 兑换后，同一份权威活态里 count 仍是旧值，召唤在 Actor 内读到它并按旧值扣减，
+   * 把刚兑换的券整段吞掉。savePlayer 的「重读+合并」安全网救不了这种分裂：
+   * 两个字段都属于同一权威态， quantity 的修改是真实变更，count 的陈旧是合法字段值。
+   *
+   * 根治方式：所有货币数量读写必须经过本入口——
+   * - 读（getEntryQuantity/getCurrencyAmount）：与落库仲裁完全同口径（已知物化基准时
+   *   取「偏离基准更大」的字段），对历史分裂条目也读到最新值；
+   * - 写（setCurrencyAmount）：count/quantity 双字段同步 + 刷新物化基准，
+   *   「读到旧字段」在构造上不再可能。
+   */
+
+  /** 背包条目数量的权威读：镜像基准可知时取偏离基准更大的字段（与落库仲裁同口径）。 */
+  getEntryQuantity(player: any, item: any): number {
+    if (!item) return 0;
+    const q = item.quantity !== undefined ? Number(item.quantity) : undefined;
+    const c = item.count !== undefined ? Number(item.count) : undefined;
+    const base = (player as any)?._currencyMirror?.[item?.name];
+    if (base !== undefined && q !== undefined && c !== undefined) {
+      return Math.abs(q - Number(base)) >= Math.abs(c - Number(base)) ? q : c;
+    }
+    const v = q ?? c ?? 0;
+    return Number.isFinite(Number(v)) ? Number(v) : 0;
+  }
+
+  /**
+   * 按名称读货币数量（背包条目缺失 = 0）。
+   * @param backpack 调用方持有的工作背包数组（getBackpackItems 解析产物）。传入时
+   * 以它为准——工作数组可能已含未提交的改动，绝不能绕开它重读 player.backpack 旧串。
+   */
+  getCurrencyAmount(player: any, name: string, backpack?: any[]): number {
+    const items = backpack ?? asJsonValue<any[]>(player?.backpack, []);
+    const item = items.find((it: any) => it?.name === name);
+    return this.getEntryQuantity(player, item);
+  }
+
+  /**
+   * 按名称写货币数量：双字段同步 + 刷新 _currencyMirror 物化基准；
+   * value<=0 视为花光——移除条目并把基准清 0（对齐「背包条目缺失=已花光」不变量，
+   * 落库侧据此把列同步为 0）。无 _currencyMirror 的对象（原始行/测试桩）只做双字段写。
+   * @param backpack 调用方持有的工作背包数组。传入时只改该数组（提交由调用方
+   * `player.backpack = backpack` 统一完成，与全库「解析克隆→改→写回」约定一致）；
+   * 不传时自行解析并写回权威态。
+   */
+  setCurrencyAmount(player: any, name: string, value: number, backpack?: any[]): void {
+    const items = backpack ?? asJsonValue<any[]>(player?.backpack, []);
+    const idx = items.findIndex((it: any) => it?.name === name);
+    const qty = roundItemQuantity(value);
+    const mirror: Record<string, number> | undefined = (player as any)._currencyMirror;
+    if (!Number.isFinite(qty) || qty <= 0) {
+      if (idx >= 0) items.splice(idx, 1);
+      if (mirror) mirror[name] = 0;
+    } else {
+      if (idx >= 0) {
+        items[idx].quantity = qty;
+        items[idx].count = qty;
+      } else {
+        items.push({ name, type: '资源', quantity: qty, count: qty });
+      }
+      if (mirror) mirror[name] = qty;
+    }
+    if (!backpack) player.backpack = items;
+  }
+
   /** 货币列 → 背包物品（覆盖同名旧条目；无货币条目时创建），供 getPlayerData 物化。 */
   private materializeCurrencies(player: any): void {
     if (player.diamonds === undefined && player.tickets === undefined && player.dataCores === undefined) {
@@ -1284,6 +1355,11 @@ export class PlayerService implements OnModuleInit {
     try {
       const meta: PlayerWriteMeta | undefined = player?.[PLAYER_WRITE_META];
       if (!meta?.baseline) return; // 手工对象无基线：无 before 可比，交给上层审计
+      // mutate 链活跃时跳过：mutate 管道末尾的 auditCurrencyChanges 已按同一笔变动
+      // 记账（before 取自 mutate 进入时的快照，更完整），这里再记会双份污染审计表。
+      // 本兜底只覆盖「不经 mutate 管道」的落库（Actor writeThrough / 邮箱路径 / 裸保存）。
+      const mutateUid = Number(player.userId ?? meta.userId ?? 0);
+      if (mutateUid && this.mutateContext?.has(mutateUid)) return;
       const model = (this.prisma as any)?.currencyLog;
       if (typeof model?.create !== 'function') return; // 测试桩无 currencyLog 模型
       const pairs: Array<[string, string]> = [
@@ -1314,10 +1390,24 @@ export class PlayerService implements OnModuleInit {
             this.logger.warn(`货币审计写入失败 id=${player?.id} ${label}: ${err?.message || err}`),
           );
         this.logger.log(`货币变动审计 id=${player?.id} ${label} ${before} -> ${after} (Δ${delta}) 调用: ${stack}`);
+        meta.currencyAuditDone = true;
       }
     } catch (err: any) {
       // 审计是旁路：任何异常不得影响业务结果
       this.logger.warn(`货币审计异常 id=${player?.id}: ${err?.message || err}`);
+    }
+  }
+
+  /**
+   * mutate 链完成自有货币审计后调用：把写基线推进到本次落库值。
+   * 否则 Actor writeThrough 稍后的兜底审计仍以载入基线为 before，
+   * 会把同一笔变动重复记账（mutate 一条 + writeThrough 一条）。
+   */
+  syncCurrencyBaseline(player: any): void {
+    const meta: PlayerWriteMeta | undefined = player?.[PLAYER_WRITE_META];
+    if (!meta?.baseline) return;
+    for (const column of ['diamonds', 'tickets', 'dataCores'] as const) {
+      if (player[column] !== undefined) meta.baseline[column] = Number(player[column]);
     }
   }
 

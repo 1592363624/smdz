@@ -32,7 +32,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PlayerData, PlayerService } from './player.service';
+import { PLAYER_WRITE_META, PlayerData, PlayerService } from './player.service';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 
 /** 参与审计的货币列 → 中文名 */
@@ -99,10 +99,23 @@ export class PlayerMutateService {
       // 分叉，落库前无需任何「按侧回写」的同步步骤。
       const needSave = (ctx as any).__mutateDirty || this.fieldSignature(ctx) !== sig0;
       if (needSave) {
+        // 复位兜底审计去重标志：同一 Actor 活态对象跨多次 mutate 复用（attachWriteMeta
+        // 不会重挂），残留标志会误吞下一次的审计
+        const meta = (ctx.player as any)?.[PLAYER_WRITE_META];
+        if (meta) meta.currencyAuditDone = false;
         await this.playerService.savePlayer(ctx.player);
 
         const after = this.readCurrencies(ctx.player);
-        this.auditCurrencyChanges(Number(userId), before, after, (ctx as any).auditReason);
+        // 审计去重（P4 双层记账收敛）：persistPlayer 的兜底审计在本次落库已记账
+        // （no-Actor / 邮箱路径，meta.currencyAuditDone 置位）→ 本链不再重复记；
+        // 未记账（改动并入 Actor 活态、writeThrough 稍后落库）→ 本链先记，
+        // 并把写基线推进到本次值，让 writeThrough 的兜底审计看到零增量、不再记账。
+        if (meta?.currencyAuditDone) {
+          meta.currencyAuditDone = false;
+        } else {
+          this.auditCurrencyChanges(Number(userId), before, after, (ctx as any).auditReason);
+          this.playerService.syncCurrencyBaseline(ctx.player);
+        }
       }
       return result;
     } finally {

@@ -116,7 +116,10 @@ describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）',
   });
 
   it('同一快照连续保存两次都成功（内存版本回写生效）', async () => {
-    const row = makeRow();
+    // 行必须携带货币列：货币提取只信任经 materializeCurrencies 物化的对象
+    // （_currencyMirror 存在）——无列的手工快照按「剥离条目+保留列原值」处理，
+    // 这是「陈旧条目复活成权威余额」事故（正式库实锤）后的收紧不变量。
+    const row = makeRow({ diamonds: 2000 });
     const prisma = makePrismaWithCas([row]);
     const service = makeService(prisma);
 

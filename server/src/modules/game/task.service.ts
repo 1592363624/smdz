@@ -332,7 +332,7 @@ export class TaskService {
         this.applyTaskProgress(tasks, '获得装备', 1);
         this.applyTaskProgress(tasks, `获得${rewardName}`, 1);
       } else {
-        this.addBackpackItem(backpack, rewardName, amount, reward.type);
+        this.addBackpackItem(backpack, rewardName, amount, reward.type, player);
         // 原版奖励文案为 名称x数量（小写x，_主程序.ecode L12046 附近 w2 拼接）。
         rewardLines.push(`${rewardName}x${this.formatNumber(amount)}`);
         // 对齐原版任务结算中的 添加成就("采集资源") / 添加成就("采集" + 物品名)。
@@ -521,11 +521,15 @@ export class TaskService {
     });
   }
 
-  private addBackpackItem(backpack: any[], name: string, count: number, type?: string): void {
+  private addBackpackItem(backpack: any[], name: string, count: number, type?: string, player?: any): void {
     const qty = roundItemQuantity(count);
     const existing = backpack.find((item: any) => this.taskName(item) === name);
     if (existing) {
-      const current = Number(existing.count ?? existing.quantity ?? 0);
+      // 统一货币读入口（P1 支柱一）：有物化基准时取「偏离基准更大」的字段，
+      // 绝不把双字段镜像里的旧值当存量（正式库 7516「4.02+1050.6≠1050.6」吞余额同源）
+      const current = player !== undefined
+        ? this.playerService.getEntryQuantity(player, existing)
+        : Number(existing.count ?? existing.quantity ?? 0);
       // ADD 语义：命中同名条目（含物化货币条目「钻石/召唤券」）一律累加，绝不
       // 整条替换——吞掉存量余额（4.02+1050.6≠1050.6）就是 SET 语义的历史事故。
       // 累加结果过 roundItemQuantity 闸（数值三道闸），防浮点尾巴入库。
