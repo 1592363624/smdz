@@ -5113,6 +5113,14 @@ export class GameService {
         `7、显示倍率：${this.playerService.getMarkerValue(markers, 'bl') === 1 ? '开' : '关'}`,
         `8、自动购物：${autoShopping || '未设置'}`,
       ];
+      // 原版 _主程序.ecode L5199：无参查看时生成 1@设置指引…8@设置购物 编号
+      // 临时输入替换，玩家直接发数字即可切换对应设置（菜单链闭环）。
+      if (this.shortcutService?.setTempInput) {
+        await this.shortcutService.setTempInput(
+          userId,
+          '1@设置指引#2@设置随机#3@设置采集#4@设置活力#5@设置不扶#6@设置音乐#7@设置倍率#8@设置购物',
+        );
+      }
       return lines.join('\n');
     }
 
