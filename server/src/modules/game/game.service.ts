@@ -33,7 +33,7 @@ import { DelayedTaskService } from './delayed-task.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { HandbookService } from './handbook.service';
-import { normalizeGameText, formatDisplayNumber } from '../../common/utils/game-text.util';
+import { normalizeGameText, formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
 import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
 import { buildFamiliarGateMenu } from './familiar-menu.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -1259,9 +1259,10 @@ export class GameService {
           if (!(qty > 0)) return;
           const found = items.find((it: any) => it && (it.name ?? it.名称) === name);
           if (found) {
-            found.quantity = readNum(found.quantity ?? found.count ?? found.数量) + qty;
+            // 数量累加统一过 roundItemQuantity 三道闸（比例产出会累出浮点长尾）
+            found.quantity = roundItemQuantity(readNum(found.quantity ?? found.count ?? found.数量) + qty);
           } else {
-            items.push({ name, quantity: qty });
+            items.push({ name, quantity: roundItemQuantity(qty) });
           }
         };
         if (f.summons.length > 0) {
@@ -3584,7 +3585,7 @@ export class GameService {
       lines.push(`🎒 地上物品 (${items.length}种):`);
       for (const item of items) {
         const count = item.count || item.quantity || 1;
-        lines.push(`  ${item.name} ×${count}`);
+        lines.push(`  ${item.name} ×${formatDisplayNumber(count)}`);
       }
     }
 
@@ -3639,7 +3640,7 @@ export class GameService {
       const lines = [`${player.name || '冒险者'}附近的地上有:`];
       lines.push(...mapItems.map((item: any) => {
         const count = Number(item.count ?? item.quantity ?? 1);
-        return `  ${item.name || '未知'}${count === 1 ? '' : ` ×${count}`}`;
+        return `  ${item.name || '未知'}${count === 1 ? '' : ` ×${formatDisplayNumber(count)}`}`;
       }));
       return lines.join('\n');
     }
@@ -3715,7 +3716,7 @@ export class GameService {
 
     const pickedText = pickedUp.map((item: any) => {
       const count = Number(item.count ?? item.quantity ?? 1);
-      return `${item.name || item.名称} ×${count}`;
+      return `${item.name || item.名称} ×${formatDisplayNumber(count)}`;
     }).join('、');
 
     // 原版拾取顺序：先记录资源产出，再记录拾取条目数。
@@ -14062,10 +14063,20 @@ export class GameService {
    * 回复公式：回复量 = 回复率 × 时间差 / 60
    * 在玩家每次操作时自动调用，确保离线时间得到补偿
    *
+   * 2026-09-06 Web 在线语义：离开计时以 WS 断开为起点、重连为终点
+   * （ChatGateway 断开/重连钩子会强制结算，把 lastOpTime 精确推进到断开/回连时刻）：
+   * - WS 在线时的指令结算照常补偿数值，但不输出「你离开了」横幅（活力提示保留）；
+   * - force=true 跳过 10 秒防抖（断开/重连时刻的强制结算用）；
+   * - showBanner=true 强制输出横幅（重连结算用，此刻 WS 已在线）。
+   *
    * @param userId 用户ID
+   * @param opts force: 跳过防抖强制结算；showBanner: 无视在线状态输出离开横幅
    * @returns 回复结果文本（无回复时返回空字符串）
    */
-  async calculateTimeElapsed(userId: number): Promise<string> {
+  async calculateTimeElapsed(
+    userId: number,
+    opts?: { force?: boolean; showBanner?: boolean },
+  ): Promise<string> {
     try {
       const playerData = await this.playerService.getPlayerData(userId);
       const { player } = playerData;
@@ -14097,8 +14108,9 @@ export class GameService {
       // 计算时间差（秒）
       const timeDiff = Math.max(0, (now - storedOpTime) / 1000);
 
-      // 如果时间差小于10秒，不进行补偿（避免频繁操作时的误补偿）
-      if (timeDiff < 10) {
+      // 如果时间差小于10秒，不进行补偿（避免频繁操作时的误补偿）；
+      // force=true（WS 断开/重连的强制结算）跳过防抖，把时间基准精确推进到该时刻
+      if (timeDiff < 10 && !opts?.force) {
         return '';
       }
 
@@ -14225,6 +14237,15 @@ export class GameService {
         const seconds = Math.floor(timeDiff % 60);
         const durationText = minutes > 0 ? `${minutes} 分 ${seconds} 秒` : `${seconds} 秒`;
         this.logger.log(`时间补偿 userId=${userId}, 离线${durationText}, ${regenLines.join(', ')}`);
+        // Web 在线语义：WS 仍连接（在线）时不输出「你离开了」横幅——离开计时以
+        // WS 断开为起点（断开钩子强制结算推进 lastOpTime），重连时统一结算推送。
+        // 活力快满提示与离开无关，在线时保留输出。测试桩 statsService 可能为空对象，需守卫。
+        const wsOnline =
+          typeof (this.statsService as any)?.isOnline === 'function' &&
+          this.statsService.isOnline(userId);
+        if (wsOnline && !opts?.showBanner) {
+          return vitalityTipText;
+        }
         return `⏰ 你离开了 ${durationText}\n${regenLines.join('\n')}`;
       }
 
@@ -14233,6 +14254,50 @@ export class GameService {
       this.logger.error(`时间流逝计算失败 userId=${userId}: ${error.message}`);
       return '';
     }
+  }
+
+  /**
+   * WS 断开（该用户最后一个连接关闭）时由 ChatGateway 调用：
+   * 强制结算一次并把 lastOpTime 推进到断开时刻——「离开计时」由此精确起算。
+   * 回复文本丢弃（此刻无人接收）。
+   */
+  async settleTimeElapsedOnDisconnect(userId: number): Promise<void> {
+    try {
+      await this.mutateForTimeElapsed(userId, { force: true });
+    } catch (e: any) {
+      this.logger.warn(`WS断开结算失败 userId=${userId}: ${e.message}`);
+    }
+  }
+
+  /**
+   * WS 重连（该用户首个连接建立）时由 ChatGateway 调用：
+   * 结算断开期间的补偿并返回「你离开了 N 秒」文本
+   * （离开时长 = 断开时刻 → 此刻，由断开时的强制结算保证精度）。
+   * 重连本身即「回来」，离开计时到此为止。
+   */
+  async settleTimeElapsedOnReconnect(userId: number): Promise<string> {
+    try {
+      return await this.mutateForTimeElapsed(userId, { force: true, showBanner: true });
+    } catch (e: any) {
+      this.logger.warn(`WS重连结算失败 userId=${userId}: ${e.message}`);
+      return '';
+    }
+  }
+
+  /**
+   * 时间补偿结算的写入口收口：与 command.service 指令链路共用同一 mutate 管道
+   * （管道外自建读改写正是「旧快照整包覆盖」事故家族的温床）。
+   */
+  private mutateForTimeElapsed(
+    userId: number,
+    opts: { force?: boolean; showBanner?: boolean },
+  ): Promise<string> {
+    if (this.playerMutate) {
+      return this.playerMutate.mutate(userId, () => this.calculateTimeElapsed(userId, opts));
+    }
+    return this.playerService.enqueueUserWrite(userId, () =>
+      this.calculateTimeElapsed(userId, opts),
+    );
   }
 
   /**

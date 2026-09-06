@@ -122,14 +122,36 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       if (['ADMIN', 'SUPER_ADMIN'].includes(dbUser.role)) {
         await client.join('admin');
       }
-      // 记录在线状态
-      this.statsService.userOnline(payload.userId);
+      // 记录在线状态。重连检测需在计数前采样：此前无任何连接（0→1）即「回来」，
+      // 断开期间的离开计时以此刻为终点（见下方 settleTimeElapsedOnReconnect）
+      const wasOffline = !this.statsService.isOnline(user.userId);
+      this.statsService.userOnline(user.userId);
       // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新
       this.refreshStatsBroadcast();
       this.logger.log(`用户 ${payload.username}(id=${payload.userId}) 已连接并加入频道「${channel.name}」`);
 
       // 通知客户端连接成功
       client.emit('chat:connected', { channel: channel.name, channelId: channel.id });
+
+      // 「WS 连上 = 回来」：结算断开期间的离线补偿（离开时长 = 上次断开时刻 → 此刻，
+      // 由 handleDisconnect 的强制结算保证计时起点精度），提示定向推送给本人。
+      // 只发个人房间不广播世界频道：刷新页面即重连，广播会刷屏。
+      if (wasOffline) {
+        try {
+          const awayText = await this.gameService.settleTimeElapsedOnReconnect(user.userId);
+          if (awayText) {
+            const msg = await this.chatService.saveMessage({
+              channelId: user.channelId,
+              senderId: user.userId,
+              type: 'system',
+              content: awayText,
+            });
+            this.server.to(`user:${user.userId}`).emit('chat:message', msg);
+          }
+        } catch (e: any) {
+          this.logger.warn(`重连离线结算失败: ${e.message}`);
+        }
+      }
     } catch (err: any) {
       this.logger.warn(`连接认证失败: ${err.message}`);
       client.emit('error', { message: '连接认证失败' });
@@ -157,6 +179,13 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新
       this.refreshStatsBroadcast();
       this.logger.log(`用户 ${user.username}(id=${user.userId}) 断开连接`);
+      // 「WS 断开 = 离开」：仅当最后一个连接关闭（多标签页引用计数归零）时
+      // 强制结算一次，把 lastOpTime 推进到断开时刻，使离开时长从断开这一刻
+      // 精确起算（重连时由 handleConnection 结算并定向推送提示）。
+      // 内部自捕获，fire-and-forget。
+      if (!this.statsService.isOnline(user.userId)) {
+        void this.gameService.settleTimeElapsedOnDisconnect(user.userId);
+      }
     } else {
       this.logger.log(`客户端断开: ${client.id}`);
     }
