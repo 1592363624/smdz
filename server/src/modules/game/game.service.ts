@@ -2799,16 +2799,29 @@ export class GameService {
       ? numericIndex
       : items.findIndex((item: any) => item.name === normalizedName);
 
-    // 回退 1：剥除尾部单字母品质码 + 可选·后缀，再用基础名匹配
+    // 回退 1：解析「基础名 + 可选单字母品质码 + 可选·后缀」形态（如 矢量S / 矢量B·绝对零度）。
+    // 2026-09-06 修复（品质错配）：此前一律剥掉品质码后按基础名取第一件同名装备，
+    // 导致「穿上 矢量S」实际穿成背包数组里第一件任意品质的矢量（S 原件仍留在包内，
+    // 玩家可见品质与预期不符）。现当输入带品质码时，必须同时满足
+    // 「item.name == 基础名 且 item.data 首字符品质前缀 == 该品质码（不分大小写）」；
+    // 带品质码但无对应品质时不降级为任意品质，按未找到处理。
     if (index < 0 || index >= items.length) {
-      const stripped = normalizedName
+      const withoutSuffix = normalizedName
         // 去掉末尾·xxx特效（最后一个·之后的内容）
         .replace(/·[^·]+$/, '')
-        // 去掉末尾单字母品质码（大小写都允许）
-        .replace(/[edcbasxEDCBASX]$/, '')
         .trim();
-      if (stripped && stripped !== normalizedName) {
-        index = items.findIndex((item: any) => item.name === stripped);
+      const qualityLetter = withoutSuffix.match(/[edcbasxEDCBASX]$/)?.[0]?.toLowerCase();
+      if (qualityLetter) {
+        const baseName = withoutSuffix.slice(0, -1).trim();
+        if (baseName) {
+          index = items.findIndex((item: any) =>
+            item.name === baseName &&
+            String(item.data || '').charAt(0).toLowerCase() === qualityLetter,
+          );
+        }
+      } else if (withoutSuffix && withoutSuffix !== normalizedName) {
+        // 输入仅含「基础名·特效」或纯基础名形态：维持原 lenient 行为，取第一件同名装备
+        index = items.findIndex((item: any) => item.name === withoutSuffix);
       }
     }
 
