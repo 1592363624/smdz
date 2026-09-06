@@ -19,7 +19,7 @@ def req(path, payload=None, token=None):
         return json.loads(resp.read().decode("utf-8"))
 
 
-login = req("/api/auth/dev/login", {"username": "路人乙"})
+login = req("/api/auth/dev/login", {"username": "路人甲"})
 token = login["data"]["access_token"]
 
 

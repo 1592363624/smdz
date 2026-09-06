@@ -8,7 +8,7 @@ const puppeteer = require('puppeteer-core');
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const BASE = 'http://localhost:5173';
 const API = 'http://localhost:3333';
-const USERNAME = '路人乙';
+const USERNAME = '路人甲';
 const TARGET_CELL = '纵横C'; // 期望回退到基础名「纵横」
 const EXPECTED = '纵横（能量武器）';
 

@@ -36,7 +36,7 @@ node e2e_regression.js # 综合回归：文字版/分类/回退/缓存秒出/多
 
 ## 已踩过的坑（写脚本时注意）
 
-- **中文 JSON 别走 shell**：`execSync curl -d '{"username":"路人乙"}'` 引号会被剥坏 → 400。
+- **中文 JSON 别走 shell**：`execSync curl -d '{"username":"路人甲"}'` 引号会被剥坏 → 400。
   用 Node 原生 `http` 模块发请求（各脚本的 `httpReq` 函数即模板）。
 - **puppeteer `page.hover` 前必须** `scrollIntoView({block:'center'})` + ~250ms 稳定等待。
 - **移开鼠标要 hover 到网格外**（如 `page.mouse.move(30, 300)`）；hover 卡片标题 `.rc-title` 在 rc-bag
@@ -48,5 +48,5 @@ node e2e_regression.js # 综合回归：文字版/分类/回退/缓存秒出/多
 ## 登录态注入
 
 路由守卫只查 `localStorage.token`，因此直接：
-`POST /api/auth/dev/login {username:'路人乙'}`（或 admin）→ 把 `access_token` 与 `user` JSON
+`POST /api/auth/dev/login {username:'路人甲'}`（或 admin）→ 把 `access_token` 与 `user` JSON
 塞进 localStorage → `goto /chat`，比走 QQ 互联 UI 登录可靠得多。

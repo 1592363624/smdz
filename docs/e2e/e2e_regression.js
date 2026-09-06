@@ -11,7 +11,7 @@ const http = require('http');
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const BASE = 'http://localhost:5173';
 const API = 'http://localhost:3333';
-const USERNAME = '路人乙';
+const USERNAME = '路人甲';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function httpReq(method, path, body, token) {

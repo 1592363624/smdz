@@ -22,7 +22,7 @@ const shortcutService = {} as ShortcutService;
 shortcutService.setTempInput = async () => '';
 const handbook = new HandbookService(staticData, shortcutService as any);
 
-const baseCtx = { userId: 1, playerName: '路人乙', skillLevel: 1 };
+const baseCtx = { userId: 1, playerName: '路人甲', skillLevel: 1 };
 /** 当前使魔为花园猫、好感 0 */
 const catCtx = { ...baseCtx, familiarName: '花园猫', affinity: 0 };
 
@@ -30,7 +30,7 @@ const catCtx = { ...baseCtx, familiarName: '花园猫', affinity: 0 };
 describe('A. 总览（原版 L2654 两列菜单 + 统计串）', () => {
   it('输出 玩家名+请选择分类 / 两列编号菜单 / 搜索提示 / 当前统计', async () => {
     const out = await handbook.handle('', baseCtx);
-    expect(out).toContain('路人乙请选择分类');
+    expect(out).toContain('路人甲请选择分类');
     expect(out).toContain(`或者你可以${'“'}图鉴腰部${'”'}来搜索`);
     expect(out).toMatch(/^当前:/m);
   });

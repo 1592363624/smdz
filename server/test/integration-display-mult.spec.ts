@@ -50,6 +50,9 @@ describe('显示倍率设置项（真实远程库端到端）', () => {
       data: {
         name: `mult_e2e_${Date.now()}_${stamp()}`,
         description: '显示倍率集成测试专用地图',
+        // noSpecial：定时任务（掉落货舱/生成副本/行商判断）按该标志跳过本地图，
+        // 避免 afterAll 未执行（进程中断）时泄漏的地图被当成普通地图吸走每小时投放的货舱/能量元素
+        noSpecial: true,
         vehicles: JSON.stringify([]),
         markers: JSON.stringify({}),
         markers2: JSON.stringify([]),
@@ -126,6 +129,18 @@ describe('显示倍率设置项（真实远程库端到端）', () => {
     playerService = app.get(PlayerService);
     mapService = app.get(MapService);
     gameService = app.get(GameService);
+
+    // 防复发清理（2026-09-06 事故）：进程中断导致 afterAll 未执行时，e2e 测试地图会
+    // 泄漏进真实库并被定时任务当成普通地图（累计吸走货舱/能量元素、挂副本入口）。
+    // 每次测试启动先按命名标记清一次历史残留，保证幂等。
+    try {
+      const staleMaps = await prisma.gameMap.findMany({ where: { name: { contains: '_e2e_' } }, select: { id: true } });
+      for (const stale of staleMaps) {
+        await prisma.gameMonster.deleteMany({ where: { mapId: stale.id } });
+        await prisma.gameMap.delete({ where: { id: stale.id } });
+      }
+    } catch { /* 清理失败不阻塞测试 */ }
+
     await (playerService as any).resolveStartMap();
   });
 

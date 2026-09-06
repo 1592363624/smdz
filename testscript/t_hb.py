@@ -30,7 +30,7 @@ def req(path, payload=None, token=None, method="POST"):
 
 def main():
     # 1. dev 登录拿 token
-    login = req("/api/auth/dev/login", {"username": "路人乙"})
+    login = req("/api/auth/dev/login", {"username": "路人甲"})
     d1 = login.get("data") if isinstance(login.get("data"), dict) else login
     token = d1.get("access_token") or d1.get("token")
     print("[login] success=%s  token_len=%s" % (login.get("success"), len(token or "")))
