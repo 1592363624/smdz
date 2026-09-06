@@ -28,7 +28,7 @@
             class="rc-cell rc-cell-item"
             :class="{ 'rc-cell-use': row.kind === 'use' }"
             @click="onCellClick(row.name, row.kind)"
-            @mouseenter="onCellEnter(row.name, $event)"
+            @mouseenter="onCellEnter(row.name, $event, row.kind)"
           >
             <!-- 序号格：与「装备 N」指令的解序号一一对应，方便玩家肉眼对号操作 -->
             <span v-if="row.idx != null" class="rc-idx">{{ row.idx }}</span>
@@ -216,7 +216,7 @@ function onCellClick(name, itemKind) {
  * 防过期：hoverSeq 序号 token——每次进入/离开递增，setTimeout 回调与请求完成时校验 token，
  * 过期即丢弃（用户已移走/切到别的物品时，迟到的结果不污染当前弹层）。
  */
-async function onCellEnter(name, e) {
+async function onCellEnter(name, e, itemKind) {
   // 同物品且弹层已在显示（内容/错误/读取中）→ 直接复用，不重启延迟、不重算位置（防抖）
   clearTimeout(hideTimer);
   if (active.visible && active.name === name && (active.content || active.error || active.loading)) {
@@ -273,7 +273,9 @@ async function onCellEnter(name, e) {
     // 装备（名字带品质码）弹层用「背包 基础名」查实例自身的属性（自带属性 + 随机加成词条），
     // 而非图鉴的基础介绍——这样玩家在网页上也能像原版「背包 N」那样直接查看每件装备的属性。
     // 其余资源/消耗品仍走「图鉴」。
-    const isEquipName = classifyItemKind(name) === 'equip';
+    // 行判定优先（parseLayout 已按「×数量有无」确定性区分装备/物品）；
+    // 无行判定时退回名字尾字母启发式（兼容历史调用形态）。
+    const isEquipName = itemKind ? itemKind === 'equip' : classifyItemKind(name) === 'equip';
     const runQuery = async (q, verb) => {
       const res = await commandApi.execute(`${verb} ${q}`);
       const raw = (
@@ -376,10 +378,15 @@ const layout = computed(() => parseLayout(props.text));
 const isBannerLine = (s) => /^【.+】\s*$/.test(s || '');
 
 /**
- * 启发式分类背包物品：装备 vs 消耗品/资源。
+ * 启发式分类背包物品（仅作兜底）：装备 vs 消耗品/资源。
  * 依据：服务端「formatEquipmentInventoryDisplay」生成的装备显示名 = 基础名 + 单字母品质码 + 可选·特效。
  * 因此名字末尾正好是大写品质码字母（[EDCBASX]）即视为装备，其他视为可使用/资源。
  * 注意：先剥掉尾部·xxx特效再判断，避免把「防弹上衣D·纯洁无瑕」误判为非装备。
+ *
+ * ⚠️ 2026-09-06 起主判定不再依赖本函数（详见 parseLayout 背包分支）：
+ * 裸条目装备（如 GM 背包管理发放、未卷品质码的「时间主宰」）显示名无品质码尾字母，
+ * 该启发式会误判为消耗品导致点击无法装备。主判定改用服务端文本格式的确定性信号：
+ * 普通物品行必带「×数量」，装备行必不带（game.service handleInventory 的输出约定）。
  */
 function classifyItemKind(name) {
   const stripped = String(name || '').replace(/·[^·]+$/, '');
@@ -439,15 +446,19 @@ function parseLayout(text) {
       if (/^━+$/.test(t)) continue; // 分隔线跳过
       if (isBannerLine(t)) { notes.push(t); continue; } // 【…】横幅归入备注区展示，不混入物品格
       // 序号 idx 与后端「背包」列表的 index+1、「装备 N」的解序号一致，必须原样保留供对号
+      // 装备/物品判定用服务端文本格式的确定性信号（handleInventory 输出约定）：
+      //   普通物品行恒为「N. 名字 ×数量」，装备行恒无「×数量」（formatEquipmentInventoryDisplay 不带数量）。
+      // 旧的名字尾字母启发式会把无品质码的裸条目装备（GM 背包管理发放的「时间主宰」等）
+      // 误判为消耗品，导致点击无法装备（2026-09-06 修复）。
       const m = t.match(/^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/);
       if (m) {
-        items.push({ idx: m[1], name: m[2].trim(), count: m[3], kind: classifyItemKind(m[2].trim()) });
+        items.push({ idx: m[1], name: m[2].trim(), count: m[3], kind: 'use' });
         continue;
       }
       const pm = t.match(/^(\d+)\.\s*(.+)$/);
       if (pm) {
         const plain = pm[2].trim();
-        if (plain) items.push({ idx: pm[1], name: plain, count: null, kind: classifyItemKind(plain) });
+        if (plain) items.push({ idx: pm[1], name: plain, count: null, kind: 'equip' });
         continue;
       }
       // 其余非物品行（如宠物搜索「白发现了…」、功能提示、升级通知等）保留展示，

@@ -345,12 +345,12 @@ export class ItemService {
       data: item.data || '',
     };
 
-    if (!item.data) {
-      return equipment;
-    }
-
     // 先从静态装备表恢复原版“装备”结构；数据串只覆盖动态词条/特效/制造者。
     // 原版 解析装备() L1262-1511：先复制装备列表项，再解析数据串覆盖加成。
+    // ⚠️ 静态表 hydrate 不以 data 非空为前提（2026-09-06「时间主宰」事件根因）：
+    // 裸条目（无品质码 data 串，GM 背包管理发放/历史数据）此前在此被提前 return，
+    // type 恒为 '' —— 穿上时同槽位替换匹配不到旧装备（装备栏无限堆叠同槽装备、
+    // buildAttackerBonus 逐条累加导致重复计属性）、左侧装备面板也无法正确显示新装备。
     const definition = typeof (this.staticData as any).getEquipmentByName === 'function'
       ? (this.staticData as any).getEquipmentByName(item.name)
       : undefined;
@@ -388,6 +388,11 @@ export class ItemService {
         ice: Number(damage?.ice ?? damage?.冰冻 ?? damage?.冰霜 ?? damage?.冰 ?? 0) || 0,
       };
       equipment.bonus = {};
+    }
+
+    // 裸条目（无 data 品质码串）：静态定义已 hydrate（部位/序号/自带加成），到此为止
+    if (!item.data) {
+      return equipment;
     }
 
     // 解析数据编码：格式为 "品质前缀!aa值!ab值!...!bx特效编号!@@制造者"

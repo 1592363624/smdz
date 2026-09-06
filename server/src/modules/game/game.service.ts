@@ -4038,6 +4038,9 @@ export class GameService {
       const resources = asJsonValue<any[]>(map.resources, []);
       const emptied: string[] = [];
       const awarded = new Map<string, number>();
+      // 装备单独记账：装备在上方循环里已按 generateRewardEquipment 生成入包（带词条），
+      // 不得再进 awarded 走 addItemToCollection——那会再推一份无 data 的裸条目（重复发放）。
+      const awardedEquipment = new Map<string, number>();
       const backpack = this.playerService.getBackpackItems(player);
       for (const resource of resources) {
         if (resource?.renewable === false || resource?.不可再生 === true) continue; // 不可再生
@@ -4057,7 +4060,7 @@ export class GameService {
             if (itemType === '装备') {
               const equipment = await this.itemSystemService.generateRewardEquipment(out.name, out.quality || '');
               backpack.push({ ...equipment, type: '装备', quantity: 1, count: 1 });
-              awarded.set(out.name, (awarded.get(out.name) || 0) + 1);
+              awardedEquipment.set(out.name, (awardedEquipment.get(out.name) || 0) + 1);
             } else {
               awarded.set(out.name, (awarded.get(out.name) || 0) + amount);
             }
@@ -4068,9 +4071,9 @@ export class GameService {
         if (times !== -1 && times > 0) emptied.push(resource.name ?? resource.名称);
       }
 
-      // 背包写回（数值过 roundItemQuantity 三道闸）
+      // 背包写回（数值过 roundItemQuantity 三道闸）；awarded 现只含资源，装备已在生成时入包
       for (const [itemName, amount] of awarded) {
-        this.addItemToCollection(backpack, { name: itemName, type: this.staticData.getEquipmentByName(itemName) ? '装备' : '资源', quantity: amount });
+        this.addItemToCollection(backpack, { name: itemName, type: '资源', quantity: amount });
       }
       player.backpack = backpack; // Json 列直接写数组
 
@@ -4104,11 +4107,14 @@ export class GameService {
         return changed;
       }).catch(() => false);
 
-      // 成就与任务（原版 L7549/L7602-7605）
-      const totalAmount = [...awarded.values()].reduce((sum, value) => sum + value, 0);
+      // 成就与任务（原版 L7549/L7602-7605）；装备沿用历史口径计入采集任务
+      const totalAmount = [...awarded.values(), ...awardedEquipment.values()].reduce((sum, value) => sum + value, 0);
       await this.advanceTask(userId, '开采');
       await this.advanceTask(userId, '采集资源', totalAmount);
       for (const [itemName, amount] of awarded) {
+        await this.advanceTask(userId, `采集${itemName}`, amount);
+      }
+      for (const [itemName, amount] of awardedEquipment) {
         await this.advanceTask(userId, `采集${itemName}`, amount);
       }
       const markers = asJsonValue<Record<string, any>>(player.markers, {});
@@ -4117,9 +4123,11 @@ export class GameService {
       await this.playerService.savePlayer(player);
 
       // 结算文本（原版 L7535-7542/L7595-7599）
-      const gainedText = [...awarded.entries()]
-        .map(([name, amount]) => `${name}×${Math.round(amount * 100) / 100}`)
-        .join('、');
+      // 结算文本（原版 L7535-7542/L7595-7599）；装备按 件 计入（与手动采集块一致）
+      const gainedText = [
+        ...[...awarded.entries()].map(([name, amount]) => `${name}×${Math.round(amount * 100) / 100}`),
+        ...[...awardedEquipment.entries()].map(([name, amount]) => `${name}×${amount}`),
+      ].join('、');
       const followText = display.count > 0 ? `带着${display.names.join('、')}一起` : '';
       let resultText = `${player.name ?? '冒险者'}${followText}用${collectorText}${gainedText || ''}`;
       if (!gainedText) resultText = `${player.name ?? '冒险者'}${map.name}的资源已经枯竭了`;
@@ -7826,6 +7834,11 @@ export class GameService {
     const targetItem = backpack.find((item: any) => item.name === targetName);
     if (!targetItem) {
       return `背包中没有【${targetName}】`;
+    }
+    // 装备不可融合：候选清单已按 type!=='装备' 过滤，执行入口同样拦截，
+    // 避免装备被融成 data 为空的「名称+」裸条目（无法解析词条/部位）。
+    if ((targetItem.type ?? targetItem.类型) === '装备') {
+      return `【${targetName}】是装备，无法融合`;
     }
 
     const currentCount = this.itemQuantity(targetItem);

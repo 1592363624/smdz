@@ -4,7 +4,14 @@
  * 对应原版易语言：管理操作.ecode
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  Optional,
+  Inject,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from '../game/player.service';
@@ -13,6 +20,8 @@ import { SystemConfigService } from '../system-config/system-config.service';
 import { StaticDataService } from '../game/static-data.service';
 import { StatsService } from '../game/stats.service';
 import { MapService } from '../game/map.service';
+import { ITEM_SYSTEM_SERVICE } from '../game/service-tokens';
+import type { ItemSystemService } from '../game/item-system.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 @Injectable()
@@ -50,6 +59,10 @@ export class AdminService {
     private readonly staticData: StaticDataService,
     private readonly statsService: StatsService,
     private readonly mapService: MapService,
+    /** 物品系统（可选依赖，经 ITEM_SYSTEM_SERVICE 字符串 token 别名注入，同 player.service 模式）。
+     *  用于 GM 背包管理保存时给裸装备条目补齐品质码/随机词条。 */
+    @Optional() @Inject(ITEM_SYSTEM_SERVICE)
+    private readonly itemSystem?: ItemSystemService,
   ) {}
 
   /**
@@ -885,6 +898,28 @@ export class AdminService {
     }
     // 删除数量<=0 的条目（即前端删除操作的结果）
     const backpack = [...merged.values()].filter((i) => (i.count ?? 0) > 0);
+
+    // 裸装备条目规范化（2026-09-06「时间主宰点不了」修复）：
+    // GM 背包管理此前把装备落成 { name, type:'装备', count } ——无 data 品质码、无词条，
+    // 穿上后属性恒 0，背包显示名也无品质码，前端还会因名字无品质码尾字母误判为消耗品。
+    // 这里与 addToBackpack 的装备发放路径对齐：type='装备' 且缺 data 的条目
+    // 走「生成装备」补齐随机品质与词条；生成失败则保留原条目（不影响其余物品保存）。
+    for (const item of backpack) {
+      if (item.type !== '装备' || item.data) continue;
+      if (!this.itemSystem) continue;
+      try {
+        const gear = await this.itemSystem.generateRewardEquipment(item.name);
+        if (gear?.data) {
+          item.data = gear.data;
+          item.durability = gear.durability ?? 0;
+          if (item.quantity === undefined) item.quantity = 1;
+        }
+      } catch (e) {
+        this.logger.warn(
+          `GM 背包管理：装备「${item.name}」补生成词条失败，按裸条目保存: ${e?.message ?? e}`,
+        );
+      }
+    }
 
     // 写入走用户串行邮箱，避免与玩家其他写操作并发覆盖
     await this.playerService.enqueueUserWrite(userId, async () => {
