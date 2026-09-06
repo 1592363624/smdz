@@ -821,6 +821,9 @@ export class ItemService {
       ? rawBuffs.map((it) => this.combatState.normalizeBuffItem(it))
       : rawBuffs;
     const markers: Record<string, number> = asJsonValue<Record<string, number>>(player.markers, {});
+    // 快照键集：distributeLoot → addAchievement 会增量改写 player.markers（好感/采集等成就计数），
+    // 这些键以最新值为准合并回本地快照（Issue #10：巧克力好感被旧快照回写覆盖）；本地后续新增的键不受影响
+    const markerSnapshotKeys = Object.keys(markers);
 
     // L2251-2255：开箱防重入锁 a1=max(120, 数量*180/100000000)，处理完成后 L2458 移除（净零冷却，仅处理期生效）
     const lockSeconds = Math.max(120, Math.abs(actualCount) * 180 / 100000000);
@@ -1027,6 +1030,17 @@ export class ItemService {
       const afterBackpack = this.playerService.getBackpackItems(player);
       newEquipmentItems = afterBackpack.slice(backpackLenBefore).filter((it: any) => it.type === '装备');
       equipmentCount = newEquipmentItems.length;
+
+      // distributeLoot 内部的 addAchievement 已把好感/采集等成就计数增量写入 player.markers，
+      // 本地 markers 还是使用开始时的旧快照：直接回写会把这些增量覆盖掉
+      // （生产实证：使用巧克力×20 后 使用巧克力=20 但 花园猫好感 不变）。
+      // 合并规则：快照中已存在的键以最新值为准（含被删除的键同步删除），
+      // 本地在出货段之后新增的键（凭证/使用计数/useMarkers）保留不动。
+      const freshMarkers = asJsonValue<Record<string, number>>(player.markers, {});
+      for (const key of markerSnapshotKeys) {
+        if (key in freshMarkers) markers[key] = freshMarkers[key];
+        else delete markers[key];
+      }
     } else if (obtained.length > 0) {
       // 无 itemSystem（测试/轻量环境）兜底：直接入包，不入品质链路
       for (const o of obtained) {

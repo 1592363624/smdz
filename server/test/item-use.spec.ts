@@ -454,4 +454,44 @@ describe('打开箱子（使用物品）', () => {
       jest.restoreAllMocks();
     }
   });
+
+  it('使用巧克力加好感不丢增量（Issue #10）：distributeLoot 内 addAchievement 写入的 markers 增量不被旧快照回写覆盖', async () => {
+    const player = buildPlayer({
+      type: '花园猫',
+      markers: { '花园猫好感': 6 },
+      backpack: JSON.stringify([{ name: '巧克力', type: '资源', quantity: 20, count: 20 }]),
+    });
+    const { service, playerService } = buildHarness(
+      player,
+      { '巧克力': { name: '巧克力', useEffects: JSON.stringify(['好感1']), useMarkers: '[]' } },
+    );
+    // 模拟真实 distributeLoot 的「好感」分支：addAchievement 增量改写 player.markers 并立即 savePlayer
+    (service as any).itemSystem = {
+      distributeLoot: async (_playerData: any, drops: any[]) => {
+        for (const drop of drops) {
+          if (drop.name === '好感') {
+            const qty = Number(drop.quantity) || 0;
+            for (const key of ['花园猫好感', '好感']) {
+              const next = (Number(player.markers[key]) || 0) + qty;
+              if (next > 0) player.markers[key] = next;
+              else delete player.markers[key];
+            }
+          }
+        }
+        await playerService.savePlayer(player);
+        return '好感';
+      },
+    };
+
+    const text = await service.useItem(42, '巧克力', 20);
+
+    expect(text).toContain('测试玩家使用了20个巧克力');
+    // 好感增量存活：6 + 20×1 = 26（修复前被 1120 行旧快照回写覆盖回 6）
+    expect(player.markers['花园猫好感']).toBe(26);
+    expect(player.markers['好感']).toBe(20);
+    // 使用计数照常累加（旧快照上新增的键不受合并影响）
+    expect(player.markers['使用巧克力']).toBe(20);
+    // 巧克力已消耗
+    expect(parseJson(player.backpack, []).find((it: any) => it.name === '巧克力')).toBeUndefined();
+  });
 });
