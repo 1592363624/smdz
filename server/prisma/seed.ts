@@ -310,13 +310,10 @@ async function main() {
     { name: '文本发送', alias: 'text-send', description: '文本发送', handlerKey: 'game', minRole: 'USER', sortOrder: 349 },
     // 设置子指令（统一 game 处理器）
     { name: '设置指引', alias: 'setting-guide', description: '设置新手指引开关', handlerKey: 'game', minRole: 'USER', sortOrder: 350 },
-    { name: '设置随机', alias: 'setting-random', description: '设置随机移动模式', handlerKey: 'game', minRole: 'USER', sortOrder: 351 },
     { name: '设置采集', alias: 'setting-gather', description: '设置自动采集模式', handlerKey: 'game', minRole: 'USER', sortOrder: 352 },
     { name: '设置活力', alias: 'setting-vitality', description: '设置活力管理', handlerKey: 'game', minRole: 'USER', sortOrder: 353 },
     { name: '设置不扶', alias: 'setting-no-help', description: '设置是否自动扶起', handlerKey: 'game', minRole: 'USER', sortOrder: 354 },
-    { name: '设置音乐', alias: 'setting-music', description: '设置音乐播放', handlerKey: 'game', minRole: 'USER', sortOrder: 355 },
     { name: '设置倍率', alias: 'setting-multiplier', description: '设置显示倍率', handlerKey: 'game', minRole: 'USER', sortOrder: 356 },
-    { name: '设置购物', alias: 'setting-shop', description: '设置自动购物', handlerKey: 'game', minRole: 'USER', sortOrder: 357 },
     { name: '设置位置', alias: 'setting-location', description: '设置位置显示', handlerKey: 'game', minRole: 'USER', sortOrder: 358 },
     { name: '设置标记', alias: 'setting-marker', description: '设置自定义标记', handlerKey: 'game', minRole: 'USER', sortOrder: 359 },
     // 管理（统一 game 处理器）

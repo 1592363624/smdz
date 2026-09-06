@@ -948,10 +948,6 @@ export class GameCommandHandler implements CommandHandler {
         case 'setting-guide':
           return this.wrap(await this.gameService.handleSettingsGuide(userId));
 
-        case '设置随机':
-        case 'setting-random':
-          return this.wrap(await this.gameService.handleSettingsRandom(userId));
-
         case '设置采集':
         case 'setting-gather':
           return this.wrap(await this.gameService.handleSettingsGather(userId));
@@ -964,17 +960,9 @@ export class GameCommandHandler implements CommandHandler {
         case 'setting-no-help':
           return this.wrap(await this.gameService.handleSettingsNoHelp(userId));
 
-        case '设置音乐':
-        case 'setting-music':
-          return this.wrap(await this.gameService.handleSettingsMusic(userId));
-
         case '设置倍率':
         case 'setting-multiplier':
           return this.wrap(await this.gameService.handleSettingsMultiplier(userId));
-
-        case '设置购物':
-        case 'setting-shop':
-          return this.wrap(await this.gameService.handleSettingsShop(userId, firstArg));
 
         case '设置位置':
         case 'setting-location':

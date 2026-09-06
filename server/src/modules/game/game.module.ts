@@ -1,22 +1,12 @@
-/**
- * 游戏引擎模块
- * 整合所有游戏核心逻辑：战斗、物品、地图、玩家、加成计算等
- * 对应原版易语言：战斗相关.ecode, 物品操作.ecode, 地图操作.ecode, 加成计算.ecode, 数据存取.ecode
+/** 游戏服务模块
+ * 组织游戏引擎所需服务的依赖注入，供 CommandModule / WebSocket gateway 消费。
  */
-
-import { Module, Global, forwardRef } from '@nestjs/common';
-import { PrismaModule } from '../../prisma/prisma.module';
-import { ActorModule } from '../actor/actor.module';
-import { GameSyncModule } from '../../game-sync/game-sync.module';
-import { AdminModule } from '../admin/admin.module';
-import { FeedbackModule } from '../feedback/feedback.module';
-import { GameController } from './game.controller';
+import { Module, Optional, Inject } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from './game.service';
-import { DelayedTaskService } from './delayed-task.service';
 import { PlayerService } from './player.service';
-import { PlayerMutateService } from './player-mutate.service';
 import { PlayerMutateContextService } from './player-mutate-context.service';
-import { TutorialService } from './tutorial.service';
+import { PlayerMutateService } from './player-mutate.service';
 import { BonusService } from './bonus.service';
 import { ItemService } from './item.service';
 import { MapService } from './map.service';
@@ -27,31 +17,27 @@ import { ItemSystemService } from './item-system.service';
 import { CombatSystemService } from './combat-system.service';
 import { CombatStateService } from './combat-state.service';
 import { MapBattleLoopService } from './map-battle-loop.service';
-
-import { HandbookService } from './handbook.service';
-
 import { DungeonService } from './dungeon.service';
 import { AchievementService } from './achievement.service';
 import { HomeService } from './home.service';
 import { ShortcutService } from './shortcut.service';
 import { TaskService } from './task.service';
-import { GameHighlightService } from './highlight.service';
 import { StatsService } from './stats.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
+import { HandbookService } from './handbook.service';
+import { GameGlobalSettingService } from './game-global-setting.service';
+import { TutorialService } from './tutorial.service';
+import { StaticDataService } from './static-data.service';
+import { GameHighlightService } from './game-highlight.service';
 import { ITEM_SYSTEM_SERVICE } from './service-tokens';
 
-@Global()
 @Module({
-  imports: [PrismaModule, ActorModule, GameSyncModule, forwardRef(() => AdminModule), FeedbackModule],
-  controllers: [GameController],
   providers: [
-    DelayedTaskService,
     GameService,
     PlayerService,
     PlayerMutateContextService,
     PlayerMutateService,
-    TutorialService,
     BonusService,
     ItemService,
     MapService,
@@ -71,7 +57,9 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
     AutoMineService,
     VitalityService,
     HandbookService,
-    // 高光时刻推送（任务达成/领取任务/获得称号/升级）→ 前端屏幕级动画
+    GameGlobalSettingService,
+    TutorialService,
+    StaticDataService,
     GameHighlightService,
     // 字符串 token 别名：让 PlayerService 无需 import ItemSystemService（避免运行时循环加载）
     { provide: ITEM_SYSTEM_SERVICE, useExisting: ItemSystemService },
@@ -81,7 +69,6 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
     PlayerService,
     PlayerMutateContextService,
     PlayerMutateService,
-    TutorialService,
     BonusService,
     ItemService,
     MapService,
@@ -101,7 +88,7 @@ import { ITEM_SYSTEM_SERVICE } from './service-tokens';
     AutoMineService,
     VitalityService,
     HandbookService,
-    // 导出给 ChatGateway 注入，用于 afterInit 注入 socket server 实例
+    GameGlobalSettingService,
     GameHighlightService,
   ],
 })

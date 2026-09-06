@@ -5277,44 +5277,74 @@ export class GameService {
    * 玩家设置
    * 查看/修改个人设置，设置存储在 markers 中
    * 对应原版：_主程序.ecode 中「设置」指令
+   *
+   * 改造：
+   * - 移除随机数、背景音乐、自动购物（已脱离用户可设置范围）
+   * - 使用活力、自动采集改为管理员全局设置，用户侧只读展示
+   * - 新手指引永远开启（用户侧不允许关闭）
    */
   async handleSettings(userId: number, settingName?: string, settingValue?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    const { player } = playerData;
 
     // 未指定设置项：显示当前设置状态
     if (!settingName) {
-      const autoShopping = markers['自动购物'];
+      const globalVitality = await this.systemConfigService.get<boolean>('game.vitality.enabled', true);
+      const globalGather = await this.systemConfigService.get<boolean>('game.gather.enabled', false);
       const lines = [
         `${player.name || '冒险者'}选择你需要修改的设置`,
         `在线状态：触发本游戏任意回复后10分钟内`,
-        `新手指引：新手操作提示`,
-        `随机数：触发的回复附带随机数防止裂图`,
+        `新手指引：新手操作提示（默认开启，无法关闭）`,
         `采集：自动采集：在非战斗状态时静默采集资源且不会消耗地图上的资源，但是速度很慢，非在线状态也能采集；手动采集：手动采集资源`,
         `显示倍率:显示本次攻击时你的最终攻击加成倍率`,
         ``,
-        `1、新手指引：${this.playerService.getMarkerValue(markers, '指引') === 0 ? '开' : '关'}`,
-        `2、随机数：${this.playerService.getMarkerValue(markers, '自动战斗') === 1 ? '开' : '关'}`,
-        `3、自动采集：${this.playerService.getMarkerValue(markers, '自动采集') === 1 ? '开' : '关'}`,
-        `4、使用活力：${this.playerService.getMarkerValue(markers, '使用活力') === 0 ? '开' : '关'}`,
-        `5、宠物不扶：${this.playerService.getMarkerValue(markers, '不扶') === 1 ? '开' : '关'}`,
-        `6、背景音乐：${this.playerService.getMarkerValue(markers, 'bgm') === 0 ? '开' : '关'}`,
-        `7、显示倍率：${this.playerService.getMarkerValue(markers, 'bl') === 1 ? '开' : '关'}`,
-        `8、自动购物：${autoShopping || '未设置'}`,
+        `1、新手指引：${this.playerService.getMarkerValue(player.markers, '指引') === 0 ? '开' : '关'}`,
+        `2、自动采集：${globalGather ? '开' : '关'}（管理员全局设置）`,
+        `3、使用活力：${globalVitality ? '开' : '关'}（管理员全局设置）`,
+        `4、宠物不扶：${this.playerService.getMarkerValue(player.markers, '不扶') === 1 ? '开' : '关'}`,
+        `5、显示倍率：${this.playerService.getMarkerValue(player.markers, 'bl') === 1 ? '开' : '关'}`,
       ];
       // 原版 _主程序.ecode L5199：无参查看时生成 1@设置指引…8@设置购物 编号
       // 临时输入替换，玩家直接发数字即可切换对应设置（菜单链闭环）。
       if (this.shortcutService?.setTempInput) {
         await this.shortcutService.setTempInput(
           userId,
-          '1@设置指引#2@设置随机#3@设置采集#4@设置活力#5@设置不扶#6@设置音乐#7@设置倍率#8@设置购物',
+          '1@设置指引#2@设置采集#3@设置活力#4@设置不扶#5@设置倍率',
         );
       }
       return lines.join('\n');
     }
 
     // 指定设置项：按「开/关/数字」解析并写入 markers
+    // 已知将被移除/锁定的设置项：随机数、背景音乐、自动购物已不再出现在菜单中；
+    // 使用活力、自动采集由管理员全局控制；新手指引永远开启。
     const settingKey = settingName;
+
+    if (settingKey === '随机数' || settingKey === '设置随机' || settingKey === 'setting-random') {
+      return `随机数功能已移除，无法设置`;
+    }
+    if (settingKey === '背景音乐' || settingKey === '设置音乐' || settingKey === 'setting-music') {
+      return `背景音乐功能已移除，无法设置`;
+    }
+    if (settingKey === '自动购物' || settingKey === '设置购物' || settingKey === 'setting-shop') {
+      return `自动购物功能已移除，无法设置`;
+    }
+
+    if (settingKey === '使用活力' || settingKey === '设置活力' || settingKey === 'setting-vitality') {
+      const enabled = await this.systemConfigService.get<boolean>('game.vitality.enabled', true);
+      const statusText = enabled ? '开启' : '关闭';
+      return `使用活力由管理员全局设置，当前为${statusText}，用户无法自行修改`;
+    }
+    if (settingKey === '自动采集' || settingKey === '设置采集' || settingKey === 'setting-gather') {
+      const enabled = await this.systemConfigService.get<boolean>('game.gather.enabled', false);
+      const statusText = enabled ? '开启' : '关闭';
+      return `自动采集由管理员全局设置，当前为${statusText}，用户无法自行修改`;
+    }
+
+    if (settingKey === '新手指引' || settingKey === '设置指引' || settingKey === 'setting-guide') {
+      return `新手指引默认开启，无法关闭`;
+    }
+
     const settingVal = settingValue;
     let newValue: number;
 
@@ -5333,16 +5363,24 @@ export class GameService {
       }
     }
 
-    // 新手指引使用 markers['指引'] 存储，且取值相反：0=开启, 1=关闭
+    // 新手指引已不再允许修改（永远开启）
+    if (settingKey === '指引') {
+      return `新手指引默认开启，无法关闭`;
+    }
+
+    // 宠物不扶、显示倍率仍为用户可设置项（markers）
     const actualKey = settingKey === '新手指引' ? '指引' : settingKey;
-    markers[actualKey] = newValue;
-    player.markers = markers;
+    if (actualKey !== settingKey) {
+      // 防坑：老旧 경로로 '指引' 直接传入也禁止修改
+      return `新手指引默认开启，无法关闭`;
+    }
+    player.markers[actualKey] = newValue;
     await this.playerService.savePlayer(player);
 
     this.logger.log(`玩家 ${userId} 设置 ${settingKey} = ${newValue}`);
 
     const statusText = newValue === 1 ? '关闭' : '开启';
-    const displayText = settingKey === '新手指引' ? `新手指引已${statusText}` : `设置「${settingKey}」已${statusText}`;
+    const displayText = `设置「${settingKey}」已${statusText}`;
     return displayText;
   }
 
