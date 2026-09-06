@@ -8,9 +8,6 @@ import { Injectable, ConflictException, NotFoundException, BadRequestException }
 import { PrismaService } from '../../prisma/prisma.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
-/// 常用指令列表最大数量（防止用户滥用存储/过长面板）
-const MAX_FAVORITE_COMMANDS = 20;
-
 /// 常用指令项：cmd 为实际发送内容（可为任意文本，不一定是指令），label 为面板展示文字（缺省等于 cmd）
 export interface FavoriteCommand {
   cmd: string;
@@ -249,7 +246,7 @@ export class UsersService {
   /**
    * 设置（全量覆盖）当前用户的常用指令列表
    * - 元素可为字符串（视为 cmd=label）或 {cmd,label} 对象（兼容前端两种传法）
-   * - 去重（按 cmd）、去空白、限制最大数量（超出部分截断）
+   * - 去重（按 cmd）、去空白（不限制数量）
    * @param userId 用户ID
    * @param commands 常用指令数组（字符串或对象混合）
    */
@@ -265,7 +262,6 @@ export class UsersService {
       if (seen.has(norm.cmd)) continue;
       seen.add(norm.cmd);
       cleaned.push(norm);
-      if (cleaned.length >= MAX_FAVORITE_COMMANDS) break;
     }
     await this.prisma.user.update({
       where: { id: userId },

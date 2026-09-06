@@ -1079,8 +1079,6 @@ const favAddCandidates = computed(() => {
 const favBusy = ref(false);
 const favMsg = ref('');
 let favMsgTimer = null;
-// 常用指令数量上限（与后端 MAX_FAVORITE_COMMANDS 保持一致）
-const MAX_FAVORITES = 20;
 // 拖拽排序状态：当前拖拽项索引、拖拽经过项索引
 const dragIndex = ref(-1);
 const dragOverIndex = ref(-1);
@@ -1121,17 +1119,13 @@ async function saveFavorites(next) {
   }
 }
 
-// 添加一条常用指令（去重按 cmd + 上限校验）
+// 添加一条常用指令（去重按 cmd，无数量上限）
 async function addFavorite(cmdText) {
   const cmd = (cmdText != null ? cmdText : favAddInput.value).trim();
   if (!cmd) return;
   const label = (favAddLabel.value || cmd).trim() || cmd;
   if (favoriteCommands.value.some((f) => f.cmd === cmd)) {
     showFavMsg('已在常用列表中');
-    return;
-  }
-  if (favoriteCommands.value.length >= MAX_FAVORITES) {
-    showFavMsg(`最多 ${MAX_FAVORITES} 条`);
     return;
   }
   const next = [...favoriteCommands.value, { cmd, label }];
