@@ -4753,6 +4753,24 @@ export class GameService {
     });
   }
 
+  /**
+   * 解析资源的采集指令：条目自带 gatherCmd 优先，缺失时回退到全局资源列表的同名定义。
+   *
+   * 事故背景（2026-09-06）：定时任务掉落货舱/能量元素时只写入了 {name,type,amount}
+   * 字面量，缺 gatherCmd；观察附近照样给它编了号，但 cmd 为空 → 编号不注册 →
+   * 玩家发送编号后完全没有反应（连"未知指令"提示都没有）。
+   * 这里做兜底：只要资源名能在全局资源表里找到，编号就一定点得动。
+   */
+  private resolveGatherCmd(resource: any): string {
+    const own = String(resource?.gatherCmd ?? resource?.采集指令 ?? '').trim();
+    if (own) return own;
+    const name = String(resource?.name ?? resource?.名称 ?? '').trim();
+    if (!name) return '';
+    const definition = this.staticData.getAllResources()
+      .find((r: any) => String(r?.name ?? '').trim() === name);
+    return String(definition?.gatherCmd ?? definition?.采集指令 ?? '').trim();
+  }
+
   private getGatherResources(map: any): any[] {
     const resources = asJsonValue<any[]>(map?.resources, []);
     if (resources.length > 0) return resources;
@@ -9001,19 +9019,25 @@ export class GameService {
     // 资源（编入编号列表；无采集指令的仅展示，不生成快捷编号）
     for (const r of resources) {
       const amount = r.amount ? ` ×${formatDisplayNumber(r.amount)}` : '';
-      quickOptions.push({ label: `${r.name || '未知'}${amount}`, cmd: r.gatherCmd || '' });
+      quickOptions.push({ label: `${r.name || '未知'}${amount}`, cmd: this.resolveGatherCmd(r) });
     }
 
     // 运行时资源2（对应原版 地图操作.ecode L862-893：观察附近列出产出2为空的地上资源——
     // 掉落货舱、家园院子的土堆/杂草等；作物/建筑产出2非空，走「查看作物」「查看建筑」）。
     // 教程文案（使魔大战.txt L3975）即要求玩家观察附近来发现院子里的杂草和土堆。
+    const gatherPool = this.getGatherResources(map);
     const groundResources = asJsonValue<any[]>(map.resources2, [])
       .filter((r: any) => !this.hasOutputs2(r)
         && this.getResourceTimes(r) !== 0
-        && this.isGatherResourceAvailable(r, playerMarkers));
+        && this.isGatherResourceAvailable(r, playerMarkers))
+      // 采集链路（getGatherResources）在 resources 非空时只读 resources。
+      // resources2 中与采集可见集同名的条目不再重复编号，避免出现
+      //「列表里有、点下去采不到」的僵尸条目（2026-09-06 货舱/能量元素事故）。
+      .filter((r: any) => !gatherPool.some((g: any) =>
+        String(g?.name ?? g?.名称 ?? '').trim() === String(r?.name ?? r?.名称 ?? '').trim()));
     for (const r of groundResources) {
       const amount = r.amount ? ` ×${formatDisplayNumber(r.amount)}` : '';
-      quickOptions.push({ label: `${r.name || '未知'}${amount}`, cmd: r.gatherCmd || '' });
+      quickOptions.push({ label: `${r.name || '未知'}${amount}`, cmd: this.resolveGatherCmd(r) });
     }
 
     // 地上物品（原版 L838-842：折叠为「拾取(N个物品)」单条入口，拾取前不展示明细）

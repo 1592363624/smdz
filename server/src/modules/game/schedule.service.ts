@@ -15,6 +15,7 @@ import { PlayerService } from './player.service';
 import { MapService } from './map.service';
 import { AutoMineService } from './auto-mine.service';
 import { GameService } from './game.service';
+import { StaticDataService } from './static-data.service';
 import { runSilent } from '../../game-sync/write-context';
 import { filterActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -28,11 +29,6 @@ const DEFAULT_INSTANCE_NAMES = ['扭曲深渊', '遗忘之地', '虚空裂谷', 
  * 默认随机无主载具名称列表（未配置 game.randomVehicles 时使用）
  */
 const DEFAULT_VEHICLES = ['流浪者', '勘探者', '游骑兵', '探险家', '开拓者'];
-
-/**
- * 默认作物关键词列表（未配置 game.cropKeywords 时使用，用于识别资源2中的作物）
- */
-const DEFAULT_CROP_KEYWORDS = ['小麦', '水稻', '番茄', '玉米', '土豆', '萝卜', '苹果', '葡萄'];
 
 @Injectable()
 export class ScheduleService {
@@ -54,6 +50,7 @@ export class ScheduleService {
     private readonly mapService: MapService,
     private readonly autoMineService: AutoMineService,
     private readonly gameService: GameService,
+    private readonly staticData: StaticDataService,
   ) {}
 
   /**
@@ -674,25 +671,16 @@ export class ScheduleService {
         return;
       }
 
-      // 1. 生成3个货舱（若地图已有货舱则累加数量）
+      // 1. 生成3个货舱（原版 L324-348：随机地图；已存在则 次数+1，不存在则追加完整资源定义）
       for (let i = 0; i < 3; i++) {
         const map = this.pickRandomMap(maps);
-        await this.addOrIncrementResource(map.id, {
-          name: '货舱',
-          type: '货舱',
-          amount: 10,
-          respawnTime: 600,
-        });
+        await this.mapService.dropResourceToMap(map.id, '货舱', 1);
       }
 
-      // 2. 生成5个能量元素
+      // 2. 生成5个能量元素（原版 L349-373，同上）
       for (let i = 0; i < 5; i++) {
         const map = this.pickRandomMap(maps);
-        await this.addOrIncrementResource(map.id, {
-          name: '能量元素',
-          type: '资源',
-          amount: 3,
-        });
+        await this.mapService.dropResourceToMap(map.id, '能量元素', 1);
       }
 
       // 3. 随机几率生成作物（在已有作物的地图上添加一个作物）
@@ -707,32 +695,14 @@ export class ScheduleService {
   }
 
   /**
-   * 在地图可采集资源(resources2)中添加资源；若已存在同名资源则累加数量
-   * @param mapId 地图ID
-   * @param resource 资源对象 { name, type, amount, respawnTime? }
-   */
-  private async addOrIncrementResource(mapId: number, resource: any): Promise<void> {
-    const map = await this.mapService.getMapById(mapId);
-    if (!map) return;
-
-    const resources2 = this.parseJsonArray<any>(map.resources2);
-    const existing = resources2.find((r: any) => r.name === resource.name);
-    if (existing) {
-      existing.amount = (existing.amount || 1) + (resource.amount || 1);
-    } else {
-      resources2.push({
-        id: `${resource.name}_${mapId}_${this.genId()}`,
-        ...resource,
-      });
-    }
-    await this.mapService.updateDynamicFields(mapId, {
-      resources2: resources2,
-    });
-  }
-
-  /**
    * 随机几率生成作物（默认5%）
-   * 在已有作物的地图上，随机选取一个作物并添加一个副本
+   *
+   * 对齐原版 后台运作.ecode L374-393：随机一张可刷特殊地图，从**全局资源列表**里
+   * 挑一个「产出2 非空」的作物（原版判定：只有配置里产出2 非空且首个产出名称非空的
+   * 才算作物），投放完整定义到该地图。
+   * 注意：不是"复制地图上已有的作物"——那样在没有作物的地图上永远刷不出作物，
+   * 而且复制的运行时副本同样落在采集链路读不到的字段里。
+   *
    * @param maps 可刷特殊的地图列表
    */
   private async spawnCrop(maps: any[]): Promise<void> {
@@ -740,44 +710,22 @@ export class ScheduleService {
       const cropChance = await this.getConfigValue<number>('game.cropChance', 5);
       if (Math.random() * 100 >= cropChance) return;
 
-      const cropKeywords = await this.getConfigValue<string[]>('game.cropKeywords', DEFAULT_CROP_KEYWORDS);
-
-      // 找出已有作物的地图（资源2中存在作物类型/作物关键词的资源）
-      const mapsWithCrops = maps.filter((m: any) => {
-        const resources2 = this.parseJsonArray<any>(m.resources2);
-        return resources2.some((r: any) => this.isCrop(r, cropKeywords));
+      const allResources = asJsonValue<any[]>(this.staticData.getAllResources(), []);
+      // 原版 L380-388：产出2 非空且第一个产出名称不为空 = 作物
+      const cropTemplates = allResources.filter((r: any) => {
+        const outputs2 = r?.outputs2 ?? r?.['产出2'] ?? [];
+        if (!Array.isArray(outputs2) || outputs2.length === 0) return false;
+        return String(outputs2[0]?.name ?? '').trim() !== '';
       });
-      if (mapsWithCrops.length === 0) return;
+      if (cropTemplates.length === 0) return;
 
-      const map = this.pickRandomMap(mapsWithCrops);
-      const resources2 = this.parseJsonArray<any>(map.resources2);
-      const crops = resources2.filter((r: any) => this.isCrop(r, cropKeywords));
-      if (crops.length === 0) return;
-
-      // 复制一个随机作物（重新生成id避免冲突）
-      const crop = { ...crops[Math.floor(Math.random() * crops.length)] };
-      crop.id = `crop_${map.id}_${this.genId()}`;
-      resources2.push(crop);
-
-      await this.mapService.updateDynamicFields(map.id, {
-        resources2: resources2,
-      });
+      const crop = cropTemplates[Math.floor(Math.random() * cropTemplates.length)];
+      const map = this.pickRandomMap(maps);
+      await this.mapService.dropResourceToMap(map.id, String(crop?.name ?? ''), 1);
       this.logger.log(`掉落货舱: 在地图 ${map.name} 生成了作物「${crop.name}」`);
     } catch (err: any) {
       this.logger.error(`生成作物失败: ${err.message}`);
     }
-  }
-
-  /**
-   * 判断资源是否属于作物
-   * @param resource 资源对象
-   * @param cropKeywords 作物关键词列表
-   */
-  private isCrop(resource: any, cropKeywords: string[]): boolean {
-    const type = resource.type || '';
-    const name = resource.name || '';
-    if (type.includes('作物')) return true;
-    return cropKeywords.some((k) => name.includes(k));
   }
 
   /**

@@ -1413,11 +1413,15 @@ export class MapService {
         const resourceName = markerName.slice('刷新资源'.length).trim();
         if (!resourceName) continue;
 
-        const field = marker?.resourceField === 'resources2'
+        // 采集链路（GameService.getGatherResources）在 resources 非空时只读 resources。
+        // 恢复位置必须与之保持一致：resources 非空时一律写回 resources，否则会把资源
+        // 恢复到采集读不到的数组里，重新制造「观察附近看得到、点编号采不到」的僵尸资源
+        // （2026-09-06 货舱 / 能量元素事故）。resources 为空的地图（部分家园/开拓地）
+        // 才按标记落到 resources2。
+        const preferred = marker?.resourceField === 'resources2' ? 'resources2' : 'resources';
+        const field = (preferred === 'resources2' && resources.length === 0)
           ? 'resources2'
-          : marker?.resourceField === 'resources'
-            ? 'resources'
-            : (resources.length > 0 || resources2.length === 0 ? 'resources' : 'resources2');
+          : 'resources';
         const targetResources = field === 'resources2' ? resources2 : resources;
         if (targetResources.some((resource: any) =>
           String(resource?.name ?? resource?.名称 ?? '').trim() === resourceName,
@@ -1472,6 +1476,58 @@ export class MapService {
       gatherCmd: configured?.gatherCmd ?? configured?.采集指令 ?? definition?.gatherCmd ?? definition?.采集指令 ?? '',
     };
     return JSON.parse(JSON.stringify(template));
+  }
+
+  /**
+   * 投放一次性掉落资源（货舱 / 能量元素 / 作物）到地图资源列表。
+   *
+   * 对齐原版 后台运作.ecode L342-346（货舱）、L367-371（能量元素）、L374-393（作物）：
+   *   不存在同名资源 → 追加**全局资源列表中的完整定义**（原版 资源列表1[1]=货舱、[2]=能量元素）；
+   *   已存在         → 次数 += deltaTimes（累加的是「次数」，不是 amount）。
+   *
+   * ⚠️ 必须写入 resources 字段：新版已把原版「资源 / 资源2」合并进 resources，
+   * 而采集链路（GameService.getGatherResources）在 resources 非空时只读 resources。
+   * 往 resources2 里塞残缺字面量会造成「观察附近看得到、点编号采不到」的僵尸资源
+   * （2026-09-06 线上问题：森林出口 能量元素×9 / 货舱×10 编号点了无任何反应）。
+   *
+   * @param mapId        地图 ID
+   * @param resourceName 资源名（必须能在全局 resources.json 中找到）
+   * @param deltaTimes   追加的可采集次数（默认 1）
+   * @returns 是否发生变更
+   */
+  async dropResourceToMap(mapId: number, resourceName: string, deltaTimes = 1): Promise<boolean> {
+    const name = String(resourceName ?? '').trim();
+    if (!name) return false;
+    const add = Math.max(1, Math.floor(Number(deltaTimes) || 1));
+
+    const map = await this.getMapById(mapId);
+    if (!map) return false;
+    const template = this.getMapResourceTemplate(map, name);
+    if (!template) {
+      this.logger.warn(`投放资源失败：全局资源列表中不存在「${name}」`);
+      return false;
+    }
+
+    return this.mutateMapFields(mapId, ['resources'], (f) => {
+      const resources = Array.isArray(f.resources) ? f.resources : [];
+      const idx = resources.findIndex((r: any) =>
+        String(r?.name ?? r?.名称 ?? '').trim() === name);
+      if (idx >= 0) {
+        // 已在地上：次数累加（对应原版 `资源2[c].次数 = 资源2[c].次数 + 1`）
+        const target = resources[idx];
+        const times = Number(target?.times ?? target?.次数 ?? 0) + add;
+        target.times = times;
+        if (target.次数 !== undefined) target.次数 = times;
+        return true;
+      }
+      const dropped = JSON.parse(JSON.stringify(template));
+      // 首次落地：以本次投放量作为可采集次数（模板自带的 times 是配置默认值）
+      dropped.times = add;
+      if (dropped.次数 !== undefined) dropped.次数 = add;
+      resources.push(dropped);
+      f.resources = resources;
+      return true;
+    });
   }
 
   /**

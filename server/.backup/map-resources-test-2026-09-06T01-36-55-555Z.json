@@ -1,0 +1,3443 @@
+[
+  {
+    "id": 1,
+    "name": "医疗室",
+    "resources": [
+      {
+        "name": "医疗箱",
+        "type": "资源",
+        "times": -1,
+        "marker": "医疗箱",
+        "outputs": [
+          {
+            "name": "提卡x",
+            "count": 0,
+            "chance": 100
+          },
+          {
+            "name": "奶",
+            "count": 2,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "打开箱子",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在打开医疗箱",
+        "proxySpeak": ""
+      },
+      {
+        "name": "休眠仓",
+        "type": "资源",
+        "times": -1,
+        "marker": "休眠仓",
+        "outputs": [
+          {
+            "name": "增幅器s",
+            "count": 0,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "打开休眠仓",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在打开休眠仓",
+        "proxySpeak": "召唤1白1"
+      },
+      {
+        "name": "杂物",
+        "type": "资源",
+        "times": 1,
+        "marker": "",
+        "useGet": [],
+        "outputs": [
+          {
+            "name": "钻石",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "传说强化券",
+            "count": 1,
+            "chance": 10
+          },
+          {
+            "name": "巧克力",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "捡垃圾",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】开始捡垃圾",
+        "proxySpeak": "",
+        "useMarkers": [],
+        "description": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 2,
+    "name": "走廊",
+    "resources": [
+      {
+        "name": "散落的物品",
+        "type": "资源",
+        "times": -1,
+        "marker": "散落的物品",
+        "outputs": [
+          {
+            "name": "钻石",
+            "count": 3,
+            "chance": 100
+          },
+          {
+            "name": "优秀装备补给箱",
+            "count": 1,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集物品",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集散落在地上的物品物品",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 3,
+    "name": "森林出口",
+    "resources": [
+      {
+        "name": "新手礼包",
+        "type": "资源",
+        "times": -1,
+        "marker": "补xs1",
+        "outputs": [
+          {
+            "name": "经验胶囊",
+            "count": -100,
+            "chance": 100
+          },
+          {
+            "name": "奶",
+            "count": -10,
+            "chance": 100
+          },
+          {
+            "name": "巧克力",
+            "count": -20,
+            "chance": 100
+          },
+          {
+            "name": "果实",
+            "count": -100,
+            "chance": 100
+          },
+          {
+            "name": "生肉",
+            "count": -300,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "打开礼包",
+        "renewable": true,
+        "timeScale": 5,
+        "gatherText": "【名称】【载具】正在打开礼包",
+        "proxySpeak": ""
+      },
+      {
+        "name": "大树",
+        "type": "资源",
+        "times": 60,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 3,
+            "chance": 100
+          },
+          {
+            "name": "绳子",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "巧克力",
+            "count": 0.1,
+            "chance": 4
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      },
+      {
+        "name": "小石头",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 15
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸石头",
+        "proxySpeak": ""
+      },
+      {
+        "name": "碎石",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】捞石头",
+        "proxySpeak": ""
+      },
+      {
+        "name": "小树",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "巧克力",
+            "count": 0.1,
+            "chance": 2
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_3_17885124059995532",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      },
+      {
+        "id": "货舱_3_17885844050798288",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "name": "森林深处",
+    "resources": [
+      {
+        "name": "巨树",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 4,
+            "chance": 100
+          },
+          {
+            "name": "绳子",
+            "count": 2,
+            "chance": 50
+          },
+          {
+            "name": "巧克力",
+            "count": 0.1,
+            "chance": 6
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      },
+      {
+        "name": "大石头",
+        "type": "资源",
+        "times": 60,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 3,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 25
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸石头",
+        "proxySpeak": ""
+      },
+      {
+        "name": "小铁矿",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "铁矿",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 2,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集铁矿",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸铁矿",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_4_17885160052702396",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_4_17885160060333886",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "name": "雪原",
+    "resources": [],
+    "resources2": [
+      {
+        "id": "能量元素_5_17884944058194686",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      },
+      {
+        "id": "货舱_5_17885304050931337",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 20,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "name": "远峰",
+    "resources": [
+      {
+        "name": "稀石油",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "燃料",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "燃料",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "燃料",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "燃料",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集燃料",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸凝固的石油",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_6_17884908061394958",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 12
+      },
+      {
+        "id": "货舱_6_17885160050935350",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 20,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "name": "城镇出口",
+    "resources": [
+      {
+        "name": "杂物",
+        "type": "资源",
+        "times": 1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "钻石",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "传说强化券",
+            "count": 1,
+            "chance": 10
+          },
+          {
+            "name": "巧克力",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "捡垃圾",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】开始捡垃圾",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_7_17884980060115368",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      },
+      {
+        "id": "货舱_7_17885340050739682",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 20,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "name": "城镇中心",
+    "resources": [
+      {
+        "name": "杂物",
+        "type": "资源",
+        "times": 1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "钻石",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "传说强化券",
+            "count": 1,
+            "chance": 10
+          },
+          {
+            "name": "巧克力",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "捡垃圾",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】开始捡垃圾",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_8_17884980051362545",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_8_17885844060677626",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 6
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "name": "城镇老区",
+    "resources": [
+      {
+        "name": "旺财的宝藏",
+        "type": "资源",
+        "times": -1,
+        "marker": "补wc1",
+        "outputs": [
+          {
+            "name": "毁灭之爪s",
+            "count": 0,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "偷窃宝藏",
+        "renewable": true,
+        "timeScale": 10,
+        "gatherText": "【名称】【载具】正在尝试窃取宝藏",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_9_17885340056795858",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "name": "草原",
+    "resources": [
+      {
+        "name": "灌木",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "绳子",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集草丛",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】翻草",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_10_17885016061743318",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 12
+      },
+      {
+        "id": "货舱_10_17885376054326521",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "name": "湖边",
+    "resources": [
+      {
+        "name": "巨石",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 6,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸石头",
+        "proxySpeak": ""
+      },
+      {
+        "name": "草丛",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "绳子",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "果实",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集草丛",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】翻草",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_11_17885016058139614",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      },
+      {
+        "id": "货舱_11_17885340053925710",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "name": "居民区",
+    "resources": [
+      {
+        "name": "杂物",
+        "type": "资源",
+        "times": 1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "钻石",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "传说强化券",
+            "count": 1,
+            "chance": 10
+          },
+          {
+            "name": "巧克力",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "捡垃圾",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】开始捡垃圾",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_12_17884944056764167",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "name": "火山",
+    "resources": [
+      {
+        "name": "树桩",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "绳子",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_13_17885016056611382",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "name": "沙滩",
+    "resources": [
+      {
+        "name": "碎铁",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集铁矿",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】捞碎铁",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_14_17884908050712295",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 30,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "name": "地堡",
+    "resources": [
+      {
+        "name": "废弃物",
+        "type": "资源",
+        "times": 1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "高斯狙击枪",
+            "count": 0,
+            "chance": 10
+          },
+          {
+            "name": "史诗强化券",
+            "count": 1,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "捡垃圾",
+        "renewable": true,
+        "timeScale": 5,
+        "gatherText": "【名称】【载具】开始捡垃圾",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 16,
+    "name": "飞龙谷",
+    "resources": [
+      {
+        "name": "黑曜石",
+        "type": "资源",
+        "times": 1,
+        "outputs": [],
+        "outputs2": [],
+        "gatherCmd": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_16_17884980067048742",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "name": "虚数空间",
+    "resources": [
+      {
+        "name": "结晶的树",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "水晶",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "木头",
+            "count": 1,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】凿零号元素结晶",
+        "proxySpeak": ""
+      },
+      {
+        "name": "小块水晶",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "水晶",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集水晶",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】凿零号元素结晶",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 18,
+    "name": "金属废墟",
+    "resources": [
+      {
+        "name": "大块水晶",
+        "type": "资源",
+        "times": 60,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "水晶",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "水晶",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "水晶",
+            "count": 1,
+            "chance": 50
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集水晶",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】凿零号元素结晶",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 19,
+    "name": "虚数通道",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 20,
+    "name": "树洞",
+    "resources": [
+      {
+        "name": "小黑曜石",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "能量块",
+            "count": 0.25,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集黑曜石",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】凿能量元素结晶",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 21,
+    "name": "小溪",
+    "resources": [
+      {
+        "name": "碎石",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】捞石头",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_21_17885016059713262",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      },
+      {
+        "id": "货舱_21_17885376050818898",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 22,
+    "name": "城镇广场",
+    "resources": [
+      {
+        "name": "杂物",
+        "type": "资源",
+        "times": 1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "钻石",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "传说强化券",
+            "count": 1,
+            "chance": 10
+          },
+          {
+            "name": "巧克力",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "捡垃圾",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】开始捡垃圾",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_22_17884944055398121",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      },
+      {
+        "id": "货舱_22_17885304054171744",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 23,
+    "name": "靶场",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 24,
+    "name": "浅海",
+    "resources": [],
+    "resources2": [
+      {
+        "id": "能量元素_24_17884908058365956",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 18
+      },
+      {
+        "id": "货舱_24_17884980058165953",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 40,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 25,
+    "name": "仓库废墟",
+    "resources": [
+      {
+        "name": "小黑曜石",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "能量块",
+            "count": 0.25,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集黑曜石",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】凿能量元素结晶",
+        "proxySpeak": ""
+      },
+      {
+        "name": "破旧的集装箱",
+        "type": "资源",
+        "times": -1,
+        "marker": "补jx1",
+        "outputs": [
+          {
+            "name": "寒风s",
+            "count": 0,
+            "chance": 100
+          },
+          {
+            "name": "工业建筑箱",
+            "count": -3,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "打开集装箱",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】正在打开集装箱",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 26,
+    "name": "基地废墟",
+    "resources": [
+      {
+        "name": "未知残骸",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 25
+          },
+          {
+            "name": "残骸",
+            "count": 0.006,
+            "chance": 100
+          },
+          {
+            "name": "载具零件",
+            "count": 0.01,
+            "chance": 20
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集残骸",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】开始用【武器】分解残骸",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 27,
+    "name": "CELL研究中心",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 28,
+    "name": "研究中心大厅",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 29,
+    "name": "实验室",
+    "resources": [
+      {
+        "name": "CELL阵列",
+        "type": "资源",
+        "times": -1,
+        "marker": "阵列",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 10,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      },
+      {
+        "name": "CELL仓库",
+        "type": "资源",
+        "times": -1,
+        "marker": "仓库",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 8,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 8
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      },
+      {
+        "name": "CELL硬盘",
+        "type": "资源",
+        "times": -1,
+        "marker": "硬盘",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 6,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 30,
+    "name": "CELL总部",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 31,
+    "name": "总部大厅",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 32,
+    "name": "CELL指挥中心",
+    "resources": [
+      {
+        "name": "CELL服务器",
+        "type": "资源",
+        "times": -1,
+        "marker": "服务器",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 8,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 8
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      },
+      {
+        "name": "CELL节点",
+        "type": "资源",
+        "times": -1,
+        "marker": "节点",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 6,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      },
+      {
+        "name": "CELL数据中心",
+        "type": "资源",
+        "times": -1,
+        "marker": "数据中心",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 10,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 33,
+    "name": "CELL后勤部",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 34,
+    "name": "后勤大厅",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 35,
+    "name": "后勤仓库",
+    "resources": [
+      {
+        "name": "CELL服务器",
+        "type": "资源",
+        "times": -1,
+        "marker": "服务器",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 8,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 8
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      },
+      {
+        "name": "CELL节点",
+        "type": "资源",
+        "times": -1,
+        "marker": "节点",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 6,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      },
+      {
+        "name": "CELL数据中心",
+        "type": "资源",
+        "times": -1,
+        "marker": "数据中心",
+        "outputs": [
+          {
+            "name": "数据核心",
+            "count": 10,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集数据",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在收集数据",
+        "proxySpeak": "覅本清"
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 36,
+    "name": "灭绝之地",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 37,
+    "name": "城市废墟",
+    "resources": [
+      {
+        "name": "能量立方",
+        "type": "资源",
+        "times": -1,
+        "marker": "能量块a",
+        "outputs": [
+          {
+            "name": "能量块",
+            "count": 80,
+            "chance": 100
+          },
+          {
+            "name": "经验胶囊",
+            "count": 40,
+            "chance": 100
+          },
+          {
+            "name": "灭绝装备补给箱",
+            "count": 1,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集能量",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在汇聚能量",
+        "proxySpeak": "覅本清"
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 38,
+    "name": "誓约之地",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 39,
+    "name": "巧克力仓库",
+    "resources": [
+      {
+        "name": "打包的巧克力",
+        "type": "资源",
+        "times": -1,
+        "marker": "誓约a",
+        "outputs": [
+          {
+            "name": "巧克力",
+            "count": 10,
+            "chance": 100
+          },
+          {
+            "name": "誓约装备补给箱",
+            "count": 1,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "打开包装",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在拆包装",
+        "proxySpeak": "覅本清"
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 40,
+    "name": "飞龙巢穴",
+    "resources": [
+      {
+        "name": "黑曜石",
+        "type": "资源",
+        "times": 1,
+        "outputs": [],
+        "outputs2": [],
+        "gatherCmd": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_40_1788584405341816",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 20,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 41,
+    "name": "哥布林巢穴",
+    "resources": [
+      {
+        "name": "合金矿",
+        "type": "资源",
+        "times": 60,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "合金",
+            "count": 3,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集合金",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】敲合金",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 42,
+    "name": "浮空岛",
+    "resources": [
+      {
+        "name": "世界树",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 6,
+            "chance": 100
+          },
+          {
+            "name": "绳子",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "巧克力",
+            "count": 0.1,
+            "chance": 15
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 12,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      },
+      {
+        "name": "钻石矿",
+        "type": "资源",
+        "times": 60,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "钻石",
+            "count": 3,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 25
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 15
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集钻石",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸钻石",
+        "proxySpeak": ""
+      },
+      {
+        "name": "超巨石",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 6,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "石头",
+            "count": 2,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸石头",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_42_17885196054721814",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 30,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_42_17885772059574",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      }
+    ]
+  },
+  {
+    "id": 43,
+    "name": "世界树冠",
+    "resources": [
+      {
+        "name": "世界树",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 6,
+            "chance": 100
+          },
+          {
+            "name": "绳子",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "巧克力",
+            "count": 0.1,
+            "chance": 15
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 12,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_43_17885124050957138",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_43_17885772055342261",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      }
+    ]
+  },
+  {
+    "id": 44,
+    "name": "核战废墟",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 45,
+    "name": "哨站",
+    "resources": [
+      {
+        "name": "生存物资",
+        "type": "资源",
+        "times": -1,
+        "marker": "物资d",
+        "outputs": [
+          {
+            "name": "能量块",
+            "count": 40,
+            "chance": 100
+          },
+          {
+            "name": "水晶",
+            "count": 40,
+            "chance": 100
+          },
+          {
+            "name": "经验胶囊",
+            "count": 1000,
+            "chance": 100
+          },
+          {
+            "name": "核战废墟补给箱",
+            "count": 1,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集物资",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在偷取物资",
+        "proxySpeak": "覅本清"
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 46,
+    "name": "荒地",
+    "resources": [
+      {
+        "name": "草丛",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "绳子",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "果实",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集草丛",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】翻草",
+        "proxySpeak": ""
+      },
+      {
+        "name": "小合金矿",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "合金",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 15
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集合金",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】敲合金",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_46_17884944050666678",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 20,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_46_17885952059621712",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      }
+    ]
+  },
+  {
+    "id": 47,
+    "name": "大矿坑",
+    "resources": [
+      {
+        "name": "小钻石矿",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "钻石",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 15
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集钻石",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸钻石",
+        "proxySpeak": ""
+      },
+      {
+        "name": "巨铁矿",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "铁矿",
+            "count": 4,
+            "chance": 100
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集铁矿",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸铁矿",
+        "proxySpeak": ""
+      },
+      {
+        "name": "富合金矿",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "合金",
+            "count": 4,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集合金",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】敲合金",
+        "proxySpeak": ""
+      },
+      {
+        "name": "铀矿",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 6,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "石头",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "铀",
+            "count": 0.01,
+            "chance": 10
+          },
+          {
+            "name": "电力",
+            "count": 10,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集铀",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸铀",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_47_17884908059927282",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 6
+      },
+      {
+        "id": "货舱_47_17885880055808470",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 20,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 48,
+    "name": "熔岩裂谷",
+    "resources": [
+      {
+        "name": "浓缩合金",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "合金",
+            "count": 5,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 50
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集合金",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】敲合金",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_48_1788490805695354",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      },
+      {
+        "id": "货舱_48_17885160054264450",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 49,
+    "name": "灵山岛",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 50,
+    "name": "挖掘场",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 51,
+    "name": "外星基地",
+    "resources": [
+      {
+        "name": "Ceph仓库",
+        "type": "资源",
+        "times": -1,
+        "marker": "灵山岛a",
+        "outputs": [
+          {
+            "name": "合金",
+            "count": 350,
+            "chance": 100
+          },
+          {
+            "name": "纳米装备补给箱",
+            "count": 1,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "打开仓库",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在打开仓库",
+        "proxySpeak": "覅本清"
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 52,
+    "name": "礁石岛",
+    "resources": [],
+    "resources2": [
+      {
+        "id": "货舱_52_17884908054144957",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 20,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_52_17885916061912000",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      }
+    ]
+  },
+  {
+    "id": 53,
+    "name": "古堡",
+    "resources": [
+      {
+        "name": "神秘的箱子",
+        "type": "资源",
+        "times": -1,
+        "marker": "补sm2",
+        "outputs": [
+          {
+            "name": "灵石种子",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "小白狐",
+            "count": -5,
+            "chance": 100
+          },
+          {
+            "name": "花园宝宝",
+            "count": -5,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "打开箱子",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】正在打开箱子",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 54,
+    "name": "迷雾森林",
+    "resources": [
+      {
+        "name": "发光树",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 4,
+            "chance": 100
+          },
+          {
+            "name": "绳子",
+            "count": 2,
+            "chance": 50
+          },
+          {
+            "name": "巧克力",
+            "count": 0.1,
+            "chance": 6
+          },
+          {
+            "name": "电力",
+            "count": 60,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】开始用【武器】砍发光树",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_54_17885160061821133",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      },
+      {
+        "id": "货舱_54_1788534005238602",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 55,
+    "name": "祭坛",
+    "resources": [
+      {
+        "name": "远古触手",
+        "type": "资源",
+        "times": 120,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "绳子",
+            "count": 4.5,
+            "chance": 100
+          },
+          {
+            "name": "生肉",
+            "count": 0.5,
+            "chance": 50
+          },
+          {
+            "name": "果实",
+            "count": 0.1,
+            "chance": 30
+          },
+          {
+            "name": "生物质",
+            "count": 0.02,
+            "chance": 15
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集绳子",
+        "renewable": true,
+        "timeScale": 12,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_55_17884908052605055",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_55_17886564055205562",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      }
+    ]
+  },
+  {
+    "id": 56,
+    "name": "阁楼",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 57,
+    "name": "大道",
+    "resources": [
+      {
+        "name": "草丛",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "绳子",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "果实",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集草丛",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】翻草",
+        "proxySpeak": ""
+      },
+      {
+        "name": "碎石",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 5
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】捞石头",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_57_17885160057272164",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      },
+      {
+        "id": "货舱_57_17885232050992812",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 58,
+    "name": "巢都",
+    "resources": [
+      {
+        "name": "草丛",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "绳子",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "果实",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集草丛",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】翻草",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_58_17885196057098996",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_58_17885232058098306",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 6
+      }
+    ]
+  },
+  {
+    "id": 59,
+    "name": "太空",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 60,
+    "name": "深海",
+    "resources": [],
+    "resources2": [
+      {
+        "id": "货舱_60_1788591605461739",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_60_17885952056363755",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 6
+      }
+    ]
+  },
+  {
+    "id": 61,
+    "name": "人工岛",
+    "resources": [],
+    "resources2": [
+      {
+        "id": "货舱_61_17884980055063049",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 40,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_61_1788516005879896",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 12
+      }
+    ]
+  },
+  {
+    "id": 62,
+    "name": "组装车间",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 63,
+    "name": "流水线",
+    "resources": [
+      {
+        "name": "打包的建筑",
+        "type": "资源",
+        "times": -1,
+        "marker": "工地a",
+        "outputs": [
+          {
+            "name": "改良建筑箱",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "标准建筑箱",
+            "count": 0.5,
+            "chance": 20
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "打开包装",
+        "renewable": true,
+        "timeScale": 3,
+        "gatherText": "【名称】【载具】正在拆包装",
+        "proxySpeak": "覅本清"
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 64,
+    "name": "庄园",
+    "resources": [
+      {
+        "name": "草丛",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "绳子",
+            "count": 1,
+            "chance": 100
+          },
+          {
+            "name": "果实",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集草丛",
+        "renewable": true,
+        "timeScale": 9,
+        "gatherText": "【名称】【载具】开始用【武器】翻草",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_64_17884908055539448",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 6
+      },
+      {
+        "id": "货舱_64_17885016053364298",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 30,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 65,
+    "name": "基地深处",
+    "resources": [],
+    "resources2": [
+      {
+        "id": "能量元素_65_17885124058547016",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      },
+      {
+        "id": "货舱_65_17886564050647861",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 66,
+    "name": "战场边缘",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 67,
+    "name": "战场中部",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 68,
+    "name": "战场中心",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 69,
+    "name": "地下城",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 70,
+    "name": "魔女之森",
+    "resources": [
+      {
+        "name": "巨树",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 4,
+            "chance": 100
+          },
+          {
+            "name": "绳子",
+            "count": 2,
+            "chance": 50
+          },
+          {
+            "name": "巧克力",
+            "count": 0.1,
+            "chance": 6
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      },
+      {
+        "name": "大石头",
+        "type": "资源",
+        "times": 60,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 3,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 25
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸石头",
+        "proxySpeak": ""
+      },
+      {
+        "name": "小铁矿",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "铁矿",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 2,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集铁矿",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸铁矿",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_70_17885340058369698",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 12
+      },
+      {
+        "id": "货舱_70_17885916050966081",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 71,
+    "name": "暗影岛",
+    "resources": [
+      {
+        "name": "大石头",
+        "type": "资源",
+        "times": 60,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 3,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 25
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸石头",
+        "proxySpeak": ""
+      },
+      {
+        "name": "小铁矿",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "铁矿",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 2,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集铁矿",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸铁矿",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_71_1788498006431434",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 12
+      },
+      {
+        "id": "货舱_71_17885232055049805",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 72,
+    "name": "古堡中层",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 73,
+    "name": "基地地下",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 74,
+    "name": "战场上层",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 75,
+    "name": "玄武之地",
+    "resources": [
+      {
+        "name": "玄武的宝藏",
+        "type": "资源",
+        "times": -1,
+        "marker": "补xw1",
+        "outputs": [
+          {
+            "name": "专属装备补给箱",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "强化箱",
+            "count": -3,
+            "chance": 100
+          },
+          {
+            "name": "凭证",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "灵石",
+            "count": -3,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "偷窃宝藏",
+        "renewable": true,
+        "timeScale": 10,
+        "gatherText": "【名称】【载具】正在尝试窃取宝藏",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 76,
+    "name": "昆仑山外围",
+    "resources": [],
+    "resources2": [
+      {
+        "id": "货舱_76_17885772053919859",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_76_1788584406449195",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      }
+    ]
+  },
+  {
+    "id": 77,
+    "name": "昆仑山",
+    "resources": [],
+    "resources2": [
+      {
+        "id": "能量元素_77_17884944061005511",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 9
+      },
+      {
+        "id": "货舱_77_17885952054424999",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      }
+    ]
+  },
+  {
+    "id": 78,
+    "name": "朱雀之地",
+    "resources": [
+      {
+        "name": "朱雀的宝藏",
+        "type": "资源",
+        "times": -1,
+        "marker": "补zq1",
+        "outputs": [
+          {
+            "name": "专属装备补给箱",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "强化箱",
+            "count": -3,
+            "chance": 100
+          },
+          {
+            "name": "凭证",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "灵石",
+            "count": -3,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "偷窃宝藏",
+        "renewable": true,
+        "timeScale": 10,
+        "gatherText": "【名称】【载具】正在尝试窃取宝藏",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 79,
+    "name": "白虎之地",
+    "resources": [
+      {
+        "name": "白虎的宝藏",
+        "type": "资源",
+        "times": -1,
+        "marker": "补bh1",
+        "outputs": [
+          {
+            "name": "专属装备补给箱",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "强化箱",
+            "count": -3,
+            "chance": 100
+          },
+          {
+            "name": "凭证",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "灵石",
+            "count": -3,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "偷窃宝藏",
+        "renewable": true,
+        "timeScale": 10,
+        "gatherText": "【名称】【载具】正在尝试窃取宝藏",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 80,
+    "name": "青龙之地",
+    "resources": [
+      {
+        "name": "青龙的宝藏",
+        "type": "资源",
+        "times": -1,
+        "marker": "补ql1",
+        "outputs": [
+          {
+            "name": "专属装备补给箱",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "强化箱",
+            "count": -3,
+            "chance": 100
+          },
+          {
+            "name": "凭证",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "灵石",
+            "count": -3,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "偷窃宝藏",
+        "renewable": true,
+        "timeScale": 10,
+        "gatherText": "【名称】【载具】正在尝试窃取宝藏",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 81,
+    "name": "守望之地",
+    "resources": [
+      {
+        "name": "心之守望的宝藏",
+        "type": "资源",
+        "times": -1,
+        "marker": "补sw1",
+        "outputs": [
+          {
+            "name": "向量a",
+            "count": 0,
+            "chance": 100
+          },
+          {
+            "name": "驱逐舰核心",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "圣水",
+            "count": -20,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "偷窃宝藏",
+        "renewable": true,
+        "timeScale": 10,
+        "gatherText": "【名称】【载具】正在尝试窃取宝藏",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 82,
+    "name": "四圣祭坛",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 83,
+    "name": "白虎祭坛",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 84,
+    "name": "朱雀祭坛",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 85,
+    "name": "玄武祭坛",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 86,
+    "name": "青龙祭坛",
+    "resources": [],
+    "resources2": []
+  },
+  {
+    "id": 87,
+    "name": "战舰坟场",
+    "resources": [
+      {
+        "name": "战舰残骸",
+        "type": "资源",
+        "times": 120,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "合金",
+            "count": 5,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 5,
+            "chance": 25
+          },
+          {
+            "name": "残骸",
+            "count": 0.03,
+            "chance": 100
+          },
+          {
+            "name": "载具零件",
+            "count": 0.05,
+            "chance": 20
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】开始用【武器】分解残骸",
+        "proxySpeak": ""
+      },
+      {
+        "name": "六分之一的君临者级",
+        "type": "资源",
+        "times": -1,
+        "marker": "补jl2",
+        "outputs": [
+          {
+            "name": "福音书系统",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "具现装置",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "水晶",
+            "count": -50000,
+            "chance": 100
+          },
+          {
+            "name": "未知物品",
+            "count": -5,
+            "chance": 100
+          },
+          {
+            "name": "线圈补给箱",
+            "count": -3,
+            "chance": 100
+          },
+          {
+            "name": "要塞零件",
+            "count": -1,
+            "chance": 100
+          },
+          {
+            "name": "灵石种子",
+            "count": -3,
+            "chance": 100
+          },
+          {
+            "name": "星屑",
+            "count": -10,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "搜索残骸",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】正在搜索君临者级残骸",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 88,
+    "name": "血族城堡",
+    "resources": [
+      {
+        "name": "血姬的宝藏",
+        "type": "资源",
+        "times": -1,
+        "marker": "补xj1",
+        "outputs": [
+          {
+            "name": "糖心巧克力",
+            "count": -20,
+            "chance": 100
+          },
+          {
+            "name": "神兽之血",
+            "count": -100,
+            "chance": 100
+          },
+          {
+            "name": "灵石",
+            "count": -3,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "偷窃宝藏",
+        "renewable": true,
+        "timeScale": 10,
+        "gatherText": "【名称】【载具】正在尝试窃取宝藏",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": []
+  },
+  {
+    "id": 89,
+    "name": "布披风",
+    "resources": [
+      {
+        "name": "巨树",
+        "type": "资源",
+        "times": 90,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "木头",
+            "count": 4,
+            "chance": 100
+          },
+          {
+            "name": "绳子",
+            "count": 2,
+            "chance": 50
+          },
+          {
+            "name": "巧克力",
+            "count": 0.1,
+            "chance": 6
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集木头",
+        "renewable": true,
+        "timeScale": 15,
+        "gatherText": "【名称】【载具】开始用【武器】砍树",
+        "proxySpeak": ""
+      },
+      {
+        "name": "大石头",
+        "type": "资源",
+        "times": 60,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "石头",
+            "count": 3,
+            "chance": 100
+          },
+          {
+            "name": "铁矿",
+            "count": 1,
+            "chance": 25
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 10
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集石头",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸石头",
+        "proxySpeak": ""
+      },
+      {
+        "name": "小铁矿",
+        "type": "资源",
+        "times": 30,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "铁矿",
+            "count": 2,
+            "chance": 100
+          },
+          {
+            "name": "石头",
+            "count": 2,
+            "chance": 50
+          },
+          {
+            "name": "合金",
+            "count": 1,
+            "chance": 25
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "收集铁矿",
+        "renewable": true,
+        "timeScale": 18,
+        "gatherText": "【名称】【载具】开始用【武器】砸铁矿",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "货舱_89_17885016054885703",
+        "name": "货舱",
+        "type": "货舱",
+        "amount": 10,
+        "respawnTime": 600
+      },
+      {
+        "id": "能量元素_89_1788530405885592",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 3
+      }
+    ]
+  },
+  {
+    "id": 90,
+    "name": "光伏电站",
+    "resources": [
+      {
+        "name": "光伏阵列",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "残骸",
+            "count": 0.005,
+            "chance": 20
+          },
+          {
+            "name": "电力",
+            "count": 100,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "除锈",
+        "renewable": true,
+        "timeScale": 5,
+        "gatherText": "【名称】【载具】开始用【武器】给太阳能电池板除锈",
+        "proxySpeak": ""
+      },
+      {
+        "name": "巨型飞轮",
+        "type": "资源",
+        "times": -1,
+        "marker": "",
+        "outputs": [
+          {
+            "name": "电力",
+            "count": 100,
+            "chance": 100
+          }
+        ],
+        "outputs2": [],
+        "gatherCmd": "",
+        "renewable": true,
+        "timeScale": 5,
+        "gatherText": "【名称】【载具】开始用【武器】给飞轮除锈",
+        "proxySpeak": ""
+      }
+    ],
+    "resources2": [
+      {
+        "id": "能量元素_90_17885160055752885",
+        "name": "能量元素",
+        "type": "资源",
+        "amount": 6
+      }
+    ]
+  }
+]
