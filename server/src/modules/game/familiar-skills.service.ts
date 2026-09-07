@@ -185,7 +185,8 @@ export class FamiliarSkillsService {
     const cooldownMarker = markers2.find((m: any) => (m?.name ?? m?.名称) === cooldownName);
     const rawExpire = Number(cooldownMarker?.expireAt ?? cooldownMarker?.有效期至 ?? 0);
     const expireAtMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
-    if (cooldownMarker && expireAtMs > nowMs) {
+    // 判断粒度=秒：两侧取整到秒再比较（用户约定，禁毫秒差判定）
+    if (cooldownMarker && Math.floor(expireAtMs / 1000) > Math.floor(nowMs / 1000)) {
       const remaining = Math.ceil((expireAtMs - nowMs) / 1000);
       return { isOnCooldown: true, text: `技能冷却中，剩余${remaining}秒` };
     }
@@ -438,7 +439,7 @@ export class FamiliarSkillsService {
         const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
         return { ...marker, name: marker?.name ?? marker?.名称 ?? '', expireAt };
       })
-      .filter((marker: any) => marker.name && marker.expireAt > now);
+      .filter((marker: any) => marker.name && Math.floor(marker.expireAt / 1000) > Math.floor(now / 1000));
 
     const active = normalized.find((marker: any) => marker.name === name);
     markers2.splice(0, markers2.length, ...normalized);
@@ -2109,13 +2110,9 @@ export class FamiliarSkillsService {
       extraPenetrationFlat,
     });
 
-    // 原版 L1775-1778：隐匿模式豁免，否则 覅攻击pd 3 秒
-    const buffs = asJsonValue<any[]>(livePlayer.buffs, []);
-    const inStealth = buffs.some((b: any) =>
-      (b?.name ?? b?.名称) === '隐匿模式' && Number(b?.expireAt ?? b?.有效期至 ?? 0) > Date.now() / 1000);
-    if (!inStealth) {
-      await (this.combatSystem as any).triggerMapBattleLoop(player.userId, 3, { player: livePlayer });
-    }
+    // 原版 L1775-1781：隐匿模式豁免（标记要求("隐匿模式") → 不拉怪物回合）。
+    // 豁免由 triggerMapBattleLoop 内部统一判定（hasActive，毫秒口径），此处不再手工比较。
+    await (this.combatSystem as any).triggerMapBattleLoop(player.userId, 3, { player: livePlayer });
 
     return [prefix, result, ...firstAidLines].filter(Boolean).join('\n');
   }
@@ -2393,7 +2390,8 @@ export class FamiliarSkillsService {
         attackText: '鱼雷b',
       });
       attackText = attack?.result || '';
-      await this.combatSystem.triggerMapBattleLoop(player.userId, 5, { player, map });
+      // 原版 L1941：鱼雷分支无隐匿豁免，隐匿模式下也引怪（ignoreStealth）
+      await this.combatSystem.triggerMapBattleLoop(player.userId, 5, { player, map }, { ignoreStealth: true });
     }
 
     // 原版 L1942：急救包

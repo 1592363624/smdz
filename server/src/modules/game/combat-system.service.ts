@@ -397,16 +397,19 @@ export class CombatSystemService {
   /**
    * 玩家活跃（后台运作.ecode L399-411）+ 延时拉起怪物攻击回合：
    * 刷新地图"活动"标记120秒（循环存活窗口）、玩家"战斗"标记15秒，
-   * 然后新建延时("覅攻击pd"+地图, delaySec)。隐匿模式玩家不惊动怪物（原版 L152-165）。
+   * 然后新建延时("覅攻击pd"+地图, delaySec)。隐匿模式豁免按原版分支差异执行
+   * （攻击/采集/会心一击豁免；鱼雷/狐/旗舰跃迁/工作·开采/传送代发言不豁免）。
    * @param context 可选的已加载玩家/地图对象，避免重复读库
+   * @param options.ignoreStealth 原版该分支不豁免隐匿模式时传 true
    */
   async triggerMapBattleLoop(
     userId: number,
     delaySec: number,
     context?: { player?: any; map?: any },
+    options?: { ignoreStealth?: boolean },
   ): Promise<void> {
     if (!this.mapBattleLoop) return;
-    await this.mapBattleLoop.triggerByPlayerAction(userId, delaySec, context);
+    await this.mapBattleLoop.triggerByPlayerAction(userId, delaySec, context, options);
   }
 
   /**
@@ -2628,24 +2631,14 @@ export class CombatSystemService {
       taskProgress.push(...summonOut.taskProgress);
     }
 
-    // 9. 怪物反击（对应原版 覅攻击pd L290-319：怪物攻击地图上的玩家）
-    //    玩家攻击/召唤物攻击后，地图上仍存活的怪物随机一只发起反击，
-    //    形成"你来我往"的完整战斗闭环。玩家被打死时进入死亡状态。
+    // 9. 拉起地图怪物自动攻击循环（原版 _主程序.ecode L131-167 攻击指令分支：
+    //     玩家攻击只结算玩家出手，怪物不出手；攻击完成后 新建延时("覅攻击pd"+地图,
+    //     "0", 群号, 3)——3秒后怪物回合开始（L200+ 覅攻击pd 处理器），之后每4秒自动
+    //     续回合（L504），直到无目标或"活动"窗口过期才停止。
+    //     隐匿模式玩家不惊动怪物（原版 L152-165，豁免在循环服务内判定）。
+    //     注意：本版曾在此处同步内联一次"怪物反击"，导致玩家每次攻击额外多挨
+    //     一次即时反击（原版无此行为），已按原版语义移除，怪物攻击统一由延时回合结算。
     if (!context.skipBattleDriver && !isRuntimeActor) {
-      try {
-        const counterLines = await this.monsterCounterAttack(player, playerData, map, taskProgress);
-        if (counterLines.length > 0) {
-          resultLines.push(`━━━ 怪物反击 ━━━`);
-          resultLines.push(...counterLines);
-        }
-      } catch (e: any) {
-        this.logger.warn(`怪物反击失败: ${e.message}`);
-      }
-
-      // 9.1 拉起地图怪物自动攻击循环（原版 _主程序.ecode L130-170 攻击指令分支：
-      //     玩家活跃 → 新建延时("覅攻击pd"+地图, "0", 群号, 3)——3秒后怪物回合开始，
-      //     之后每4秒自动续回合（L504），直到无目标或"活动"窗口过期才停止。
-      //     隐匿模式玩家不惊动怪物（原版 L152-165，豁免在循环服务内判定）。
       try {
         await this.triggerMapBattleLoop(player.userId, 3, { player, map });
       } catch (e: any) {
@@ -2833,88 +2826,6 @@ export class CombatSystemService {
       }
     } catch (err: any) {
       this.logger.warn(`召唤物协同攻击失败: ${err.message}`);
-    }
-    return lines;
-  }
-
-  /**
-   * 怪物反击（扩至全图玩家）
-   * 对应原版 战斗相关.ecode L4647-4713：怪物作为攻击方时，遍历地图上所有玩家，
-   * 将「在线(活跃增益) + 当前生命>0 + 无隐匿模式 + 无炮冠」的玩家加入防御方数组，
-   * 怪物对每个武器依次攻击数组内全部防御方（每位防御方独立做命中/闪避/伤害判定）。
-   * 原版注释 L290-319 是每分钟定时器入口，本函数复刻的是「怪物攻击玩家」这一闭环本体。
-   * @param attacker 发起攻击的玩家（原攻击方，用于区分"你"的提示文本）
-   * @param attackerData 攻击者完整数据
-   * @param map 当前地图
-   * @returns 反击结果文本行
-   */
-  private async monsterCounterAttack(
-    attacker: any,
-    attackerData: PlayerData,
-    map: any,
-    taskProgress?: CombatTaskProgress[],
-  ): Promise<string[]> {
-    const lines: string[] = [];
-    try {
-      // 随机选一只存活怪物（对应原版 L291：b = 取随机数(1, 取数组成员数(地图.怪物2))）
-      const aliveMonsters = (await this.mapService.getMapMonsters(map)).filter((m: any) => (m.hp || 0) > 0);
-      if (aliveMonsters.length === 0) return lines;
-
-      const monster = aliveMonsters[Math.floor(Math.random() * aliveMonsters.length)];
-      const monsterBonus = this.buildMonsterBonus(monster);
-
-      // ========== 收集全图可反击玩家（对应原版 L4663-4685 防御方筛选） ==========
-      // 原版筛选：有"活跃"增益(在线) + 当前生命>0 + 无"隐匿模式" + 无"炮冠" 的玩家。
-      // 原版 地图.玩家 数组含发起攻击的玩家本人（玩家在地图玩家列表中），故攻击者也会被反击。
-      const onlineIds = this.statsService.getOnlineUserIds();
-      // 同一地图的所有玩家档案（DB）
-      const mapPlayers = await this.prisma.player.findMany({
-        where: { mapId: map.id, userId: { not: undefined } },
-        select: { userId: true },
-      });
-      // 候选 uid 集合：同图玩家 + 攻击者本人（攻击者可能不在 DB 玩家列表，如内存 mock 场景）
-      const candidateUids = new Set<number>(mapPlayers.map((mp: any) => mp.userId));
-      if (attacker?.userId) candidateUids.add(attacker.userId);
-      // 攻击者本人复用外层 weaponAttack 已加载的同一内存对象（attacker/attackerData）：
-      // 反击结算直接写在这份对象上、由外层第10步统一保存，避免二次读库产生旧快照副本，
-      // 否则外层随后 savePlayer 会把反击写入的死亡/卷土重来状态整体覆盖回去（丢失更新）。
-      const isSelfUid = (uid: number): boolean =>
-        attacker?.userId != null && Number(uid) === Number(attacker.userId);
-      const victimIds: number[] = [];
-      for (const uid of candidateUids) {
-        if (!onlineIds.has(uid)) continue; // 不攻击离线（原版 增益要求("活跃")==假 跳过）
-        try {
-          const victim = isSelfUid(uid) ? attacker : (await this.playerService.getPlayerData(uid)).player;
-          if (this.playerService.isPlayerDead(victim)) continue; // 当前生命<=0 跳过（鞭尸豁免）
-          // 隐匿模式 / 炮冠：原版 标记要求("隐匿模式"/"炮冠", 玩家2.增益) → 查增益列表
-          const vBuffs = this.safeParseJson<any[]>(victim.buffs, []);
-          if (hasActive(vBuffs, '隐匿模式')) continue;
-          if (hasActive(vBuffs, '炮冠')) continue;
-          victimIds.push(uid);
-        } catch (e: any) {
-          this.logger.warn(`读取反击目标 ${uid} 失败: ${e.message}`);
-        }
-      }
-      if (victimIds.length === 0) return lines;
-
-      // 怪物对每个武器依次攻击全部防御方（原版 L4686-4695：循环 攻击方.武器 × 防御方）
-      // 本版怪物武器简化为拳头，循环受害者数组即可还原"攻击地图上所有符合条件玩家"。
-      for (const uid of victimIds) {
-        try {
-          const useShared = isSelfUid(uid);
-          const victimData = useShared ? attackerData : await this.playerService.getPlayerData(uid);
-          const victim = useShared ? attacker : victimData.player;
-          const oneLines = await this.monsterCounterAttackOnePlayer(
-            monster, monsterBonus, victim, victimData, map, useShared,
-            undefined, false, taskProgress, useShared,
-          );
-          lines.push(...oneLines);
-        } catch (e: any) {
-          this.logger.warn(`怪物反击玩家 ${uid} 失败: ${e.message}`);
-        }
-      }
-    } catch (err: any) {
-      this.logger.warn(`怪物反击失败: ${err.message}`);
     }
     return lines;
   }
@@ -10540,7 +10451,7 @@ export class CombatSystemService {
    * 本框架现状：weaponAttack 已实现"玩家攻击地图怪物 + 召唤物协同攻击(summonCoAttack)"，
    * 故复用 weaponAttack 对所有地图怪物发起攻击；载具修复分支按原版 L507-530 独立实现。
    * 原版 L320-499 的召唤物攻击循环由 runMapSummonAttacks 接入统一武器攻击；
-   * 觉醒宠物与怪物反击分别由 weaponAttack 协同分支和 monsterCounterAttack 结算。
+   * 觉醒宠物与怪物攻击分别由 weaponAttack 协同分支和 monsterCounterAttackOnePlayer 结算。
    * 续回合调度由 MapBattleLoopService 承担（延时去重 + 回合执行 + 世界频道广播），
    * 未注入循环服务时（存量单测直构）本方法保持单回合语义。
    *
@@ -11059,11 +10970,13 @@ export class CombatSystemService {
 
   private hasActiveRuntimeBuff(value: any, name: string, nowMs = Date.now()): boolean {
     const list = this.playerService.safeJsonParse<any[]>(value, Array.isArray(value) ? value : []);
+    const nowSec = Math.floor(nowMs / 1000);
     return list.some((item: any) => {
       if ((item?.name ?? item?.名称) !== name) return false;
       const raw = Number(item?.expireAt ?? item?.有效期至 ?? 0);
       if (!raw) return true;
-      return (raw < 1e12 ? raw * 1000 : raw) > nowMs;
+      const expireMs = raw < 1e12 ? raw * 1000 : raw;
+      return Math.floor(expireMs / 1000) > nowSec;
     });
   }
 

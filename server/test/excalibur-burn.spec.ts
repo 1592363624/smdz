@@ -279,7 +279,6 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
     });
     jest.spyOn(combat as any, 'calcReflectDamage').mockReturnValue(0);
     jest.spyOn(combat as any, 'updateMonsterHpInMap').mockResolvedValue(undefined);
-    jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
     const result = await combat.weaponAttack(2, 0, {
       damageMultiplier: 303,
@@ -317,7 +316,6 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
 
     jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
     jest.spyOn(combat as any, 'runAdminMonsterDodge').mockResolvedValue(undefined);
-    jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
     // 地图节拍的 gw 冷却标记需要真实 combatState —— 用真实实例即可
 
     const out = await (combat as any).adminAttackMap(2, '1');
@@ -370,7 +368,6 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
     jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
     jest.spyOn(combat as any, 'calcReflectDamage').mockReturnValue(0);
     jest.spyOn(combat as any, 'updateMonsterHpInMap').mockResolvedValue(undefined);
-    jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
     const result = await combat.weaponAttack(2, 0, {
       damageMultiplier: 303, mustHit: true, attackText: '誓约胜利之剑a',

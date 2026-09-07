@@ -239,6 +239,6 @@ describe('传送/跃迁（原版 L1676-1808 复刻）', () => {
       attackText: '旗舰跃迁a',
     }));
     expect(result).toContain('【旗舰跃迁】命中全体目标');
-    expect(fixture.service.combatSystem.triggerMapBattleLoop).toHaveBeenCalledWith(42, 5, expect.anything());
+    expect(fixture.service.combatSystem.triggerMapBattleLoop).toHaveBeenCalledWith(42, 5, expect.anything(), { ignoreStealth: true });
   });
 });

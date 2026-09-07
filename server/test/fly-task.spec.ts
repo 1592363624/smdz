@@ -121,7 +121,7 @@ describe('到达狐自动攻击（原版 _主程序.ecode L6762-6776 复刻）',
       allAttack: true,
       attackText: '狐a',
     }));
-    expect(fixture.service.combatSystem.triggerMapBattleLoop).toHaveBeenCalledWith(42, 5, expect.anything());
+    expect(fixture.service.combatSystem.triggerMapBattleLoop).toHaveBeenCalledWith(42, 5, expect.anything(), { ignoreStealth: true });
     expect(result).toContain('【狐a】命中全体目标');
     expect(Number(parseJson(fixture.player.markers, {})['活跃度'])).toBe(1);
   });

@@ -343,7 +343,6 @@ describe('捕捉模式战斗层', () => {
       critMultiplier: 1,
       rating: '',
     });
-    jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
     const result = await combat.weaponAttack(1, 0, { mustHit: true, noDelay: true });
 

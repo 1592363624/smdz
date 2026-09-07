@@ -42,7 +42,9 @@ describe('过期时间统一工具（增益/标记）', () => {
     const expire = expireAfter(30, nowMs);
     expect(expire).toBe(nowMs + 30 * 1000);
     expect(isActiveBeyond({ expireAt: expire }, 30, nowMs)).toBe(false); // 刚好等于阈值 → 需重写
-    expect(isActiveBeyond({ expireAt: expire + 1 }, 30, nowMs)).toBe(true);
+    // 判断粒度=秒：+1ms 与原值同秒 → 仍视为需重写；多 1 整秒才视为足够
+    expect(isActiveBeyond({ expireAt: expire + 1 }, 30, nowMs)).toBe(false);
+    expect(isActiveBeyond({ expireAt: expire + 1000 }, 30, nowMs)).toBe(true);
     expect(isActiveBeyond({ name: '无期限' }, 30, nowMs)).toBe(false);
   });
 

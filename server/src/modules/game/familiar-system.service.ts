@@ -3375,7 +3375,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     const now = nowMs / 1000;
     const rawExpire = Number(cooldownMarker?.expireAt ?? cooldownMarker?.有效期至 ?? 0);
     const expireAtMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
-    if (cooldownMarker && expireAtMs > nowMs) {
+    // 判断粒度=秒：两侧取整到秒再比较（用户约定，禁毫秒差判定）
+    if (cooldownMarker && Math.floor(expireAtMs / 1000) > Math.floor(nowMs / 1000)) {
       const remaining = Math.ceil((expireAtMs - nowMs) / 1000);
       return `冷却中，剩余${remaining}秒`;
     }

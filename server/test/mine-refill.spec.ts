@@ -237,8 +237,8 @@ describe('手动载具开采（原版 L7491「开采」）', () => {
       expect(row.runAt.getTime()).toBeGreaterThanOrEqual(1_700_000_000_000 + 59 * SECOND_MS);
       expect(row.runAt.getTime()).toBeLessThanOrEqual(1_700_000_000_000 + 61 * SECOND_MS);
 
-      // 无隐形模块 → 引怪（原版 L7527-7529 覅攻击pd 5秒）
-      expect(fixture.combatSystem.triggerMapBattleLoop).toHaveBeenCalledWith(42, 5, expect.anything());
+      // 无隐形模块 → 引怪（原版 L7527-7529 覅攻击pd 5秒，仅隐形模块豁免、不豁免隐匿模式）
+      expect(fixture.combatSystem.triggerMapBattleLoop).toHaveBeenCalledWith(42, 5, expect.anything(), { ignoreStealth: true });
     } finally {
       jest.useRealTimers();
     }

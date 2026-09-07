@@ -12,6 +12,10 @@
  *
  * 判断标准与 combat-state.normalizeBuffItem 保持一致：数值 < 1e12 视为秒。
  * （1e12 毫秒 ≈ 2001-09-09，秒级时间戳 1.7e9 远小于它，毫秒级 1.7e12 大于它）
+ *
+ * 【判断粒度=秒（用户硬性约定）】存储可以保留毫秒，但**一切有效性判断
+ * 必须先把两侧时间戳取整到秒再比较**（floorSec），即同一秒内视为同一时刻。
+ * 子秒精度对游戏无意义，禁止依赖毫秒差的判定行为。
  */
 
 /** 1 秒 = 1000 毫秒（原版易语言 #转秒） */
@@ -19,6 +23,13 @@ export const SECOND_MS = 1000;
 
 /** 秒/毫秒分界阈值：小于它按秒处理 */
 const MS_THRESHOLD = 1e12;
+
+/**
+ * 毫秒时间戳取整到秒（判断粒度=秒的统一入口）
+ */
+function floorSec(ms: number): number {
+  return Math.floor(ms / SECOND_MS);
+}
 
 /**
  * 取出条目到期时间并归一化为毫秒时间戳
@@ -36,10 +47,13 @@ export function toExpireMs(it: any): number {
  * 判断条目是否仍在有效期内
  * @param it 增益/标记条目（无到期时间视为永久有效，与原版无期限增益语义一致）
  * @param nowMs 当前毫秒时间戳（默认取系统时间）
+ *
+ * 判断粒度为秒：两侧均取整到秒后比较（同一秒内视为同一时刻）。
  */
 export function isActive(it: any, nowMs: number = Date.now()): boolean {
   const expire = toExpireMs(it);
-  return expire === 0 || expire > nowMs;
+  if (expire === 0) return true;
+  return floorSec(expire) > floorSec(nowMs);
 }
 
 /**
@@ -93,7 +107,7 @@ export function filterActive(list: any, nowMs: number = Date.now()): any[] {
 export function isDueSince(stamp: any, intervalMs: number, nowMs: number = Date.now()): boolean {
   const last = toExpireMs({ expireAt: stamp });
   if (!last) return true;
-  return nowMs - last >= intervalMs;
+  return floorSec(nowMs) - floorSec(last) >= intervalMs / SECOND_MS;
 }
 
 /**
@@ -122,7 +136,7 @@ export function expireAfter(seconds: number, nowMs: number = Date.now()): number
  */
 export function isActiveBeyond(it: any, seconds: number, nowMs: number = Date.now()): boolean {
   const expire = toExpireMs(it);
-  return expire !== 0 && expire > nowMs + seconds * SECOND_MS;
+  return expire !== 0 && floorSec(expire) > floorSec(nowMs) + seconds;
 }
 
 /**
@@ -131,10 +145,12 @@ export function isActiveBeyond(it: any, seconds: number, nowMs: number = Date.no
  * 与 remainSeconds 的区别：这里把「无到期时间」也当作 0（不在冷却中），
  * 与历史写法 `marker && marker.expireAt > now` 的短路结果一致；
  * 而 isActive 把无到期时间视为永久有效（用于增益，不用于冷却）。
+ * 判断/取值粒度=秒：剩余值向下取整到整秒（毫秒尾巴抹掉）。
  */
 export function remainMs(it: any, nowMs: number = Date.now()): number {
   const expire = toExpireMs(it);
-  return expire && expire > nowMs ? expire - nowMs : 0;
+  if (!expire || floorSec(expire) <= floorSec(nowMs)) return 0;
+  return Math.floor((expire - nowMs) / SECOND_MS) * SECOND_MS;
 }
 
 /**

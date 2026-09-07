@@ -165,6 +165,26 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     return playerService.getPlayerData(uid);
   }
 
+  // 复刻原 weaponAttack 内联怪物反击的收集逻辑（该内联反击已按原版语义移除，
+  // 怪物攻击全图现由地图延时回合 runMapMonsterAttack 承担）：受控怪物对全图
+  // 在线、存活、非隐匿模式/炮冠玩家逐个调用 monsterCounterAttackOnePlayer。
+  async function monsterCounterAttackAll(attacker: any, map: any): Promise<void> {
+    const list = await mapService.getAliveMapMonsters(mapId);
+    const monster = list[0];
+    const monsterBonus = (combat as any).buildMonsterBonus(monster);
+    const rows = await prisma.player.findMany({ where: { mapId }, select: { userId: true } });
+    for (const row of rows) {
+      const victimData = await getPlayer(row.userId);
+      const victim = victimData.player;
+      if (playerService.isPlayerDead(victim)) continue;
+      const buffs = JSON.parse(victim.buffs || '[]');
+      if (buffs.some((b: any) => ['隐匿模式', '炮冠'].includes(b?.name))) continue;
+      await (combat as any).monsterCounterAttackOnePlayer(
+        monster, monsterBonus, victim, victimData, map, row.userId === Number(attacker.userId),
+      );
+    }
+  }
+
   /** 固定伤害，命中必中，便于断言载具承伤行为。 */
   function mockFixedDamage(damage: number, options: Record<string, any> = {}) {
     const breakdown = options.damageBreakdown || { physical: damage, fire: 0, ice: 0, elec: 0 };
@@ -213,8 +233,8 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     const attackerData = await getPlayer(createdUserIds[1]);
     const map = await mapService.getMapById(mapId);
 
-    // monsterCounterAttack 反击全图，这里直接驱动并断言受害者数据
-    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+    // 怪物攻击全图，这里直接驱动并断言受害者数据
+    await monsterCounterAttackAll(attackerData.player, map);
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
@@ -240,7 +260,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     const attackerData = await getPlayer(createdUserIds[0]);
     const map = await mapService.getMapById(mapId);
 
-    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+    await monsterCounterAttackAll(attackerData.player, map);
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
@@ -264,7 +284,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     const attackerData = await getPlayer(createdUserIds[0]);
     const map = await mapService.getMapById(mapId);
 
-    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+    await monsterCounterAttackAll(attackerData.player, map);
 
     const after = await getPlayer(uid);
     // 无载具 → 直接扣 hp（本测试只驱动一次反击、mock 固定 damage=10，正常扣 10；
@@ -326,7 +346,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const attackerData = await getPlayer(createdUserIds[0]);
     const map = await mapService.getMapById(mapId);
-    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+    await monsterCounterAttackAll(attackerData.player, map);
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
@@ -389,7 +409,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const attackerData = await getPlayer(createdUserIds[1]);
     const map = await mapService.getMapById(mapId);
-    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+    await monsterCounterAttackAll(attackerData.player, map);
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);
@@ -412,7 +432,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     const attackerData = await getPlayer(createdUserIds[0]);
     const map = await mapService.getMapById(mapId);
-    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+    await monsterCounterAttackAll(attackerData.player, map);
 
     const after = await getPlayer(uid);
     const mapAfter = await mapService.getMapById(mapId);

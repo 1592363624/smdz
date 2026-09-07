@@ -77,13 +77,18 @@ export class MapBattleLoopService implements OnApplicationShutdown {
    *   - 地图"活动"标记刷新 120 秒（L409，循环的存活窗口）；
    *   - 玩家"战斗"标记 15 秒（L410，随调用方的玩家保存流程落库）；
    *   - 新建延时("覅攻击pd"+地图, delaySec)。
-   * 隐匿豁免（_主程序.ecode L152-165）：隐匿模式玩家不惊动怪物。
+   * 隐匿豁免按原版分支差异执行（_主程序.ecode）：攻击 L161-167 / 采集 L11419 /
+   * 会心一击（使魔技能 L1777）有隐匿模式豁免；鱼雷（L1941）/ 狐（L6767）/ 旗舰跃迁
+   * （L1789）/ 工作·开采（L7527-7529，仅隐形模块）/ 传送代发言（L1757-1771，仅隐形
+   * 披风·隐形模块）原版不豁免隐匿——这些调用方传 options.ignoreStealth=true 关闭。
    * @param context 可选的已加载玩家/地图对象（避免重复读库）；player 需为可写对象
+   * @param options.ignoreStealth 原版该分支不豁免隐匿模式时传 true
    */
   async triggerByPlayerAction(
     userId: number,
     delaySec: number,
     context?: { player?: any; map?: any },
+    options?: { ignoreStealth?: boolean },
   ): Promise<void> {
     try {
       const uid = Number(userId);
@@ -93,9 +98,9 @@ export class MapBattleLoopService implements OnApplicationShutdown {
         ?? await this.prisma.player.findUnique({ where: { userId: uid } });
       if (!player) return;
 
-      // 原版 L160：标记要求("隐匿模式", 玩家.增益) → 隐匿攻击，不拉起怪物回合
+      // 原版各分支隐匿豁免差异见方法注释；默认按 L160/11419 语义豁免
       const buffs = this.safeParseArray(player.buffs);
-      if (hasActive(buffs, '隐匿模式')) return;
+      if (!options?.ignoreStealth && hasActive(buffs, '隐匿模式')) return;
 
       const map = context?.map ?? await this.mapService.getMapById(Number(player.mapId));
       if (!map) return;

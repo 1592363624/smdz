@@ -9,7 +9,7 @@
  *  轮次5 连击/溅射     → processWeaponSpecialEffects 触发 combo 标记；splashCount 对额外目标造成伤害
  *
  * 测试策略：用纯 mock 注入 CombatSystemService 的 8 个构造依赖，内存玩家对象 + 内存怪物列表。
- * 对内部复杂子程序（buildAttackerBonus / monsterCounterAttack）用 jest.spyOn 注入受控返回值，
+ * 对内部复杂子程序（buildAttackerBonus / monsterCounterAttackOnePlayer）用 jest.spyOn 注入受控返回值，
  * 以稳定验证"接线点"是否正确（冷却标记、统计行、溅射调用等），而非重测伤害公式本身
  * （伤害公式由 combat.spec.ts 单独覆盖）。
  */
@@ -193,7 +193,7 @@ function buildMocks() {
     distributeLoot: jest.fn(async () => ''),
   } as unknown as jest.Mocked<ItemSystemService>;
 
-  // statsService：monsterCounterAttack 用 getOnlineUserIds 判定"活跃"(在线) 才算反击目标。
+  // statsService：地图回合怪物攻击用 getOnlineUserIds 判定"活跃"(在线) 才算反击目标。
   // 测试玩家 userId=2 视为在线（原版攻击者必然在线）。
   const statsService = {
     getOnlineUserIds: jest.fn(() => new Set<number>([2])),
@@ -207,7 +207,7 @@ function buildMocks() {
     systemConfig: {
       findUnique: jest.fn(async () => ({ value: '1' })),
     },
-    // monsterCounterAttack 查同图真实玩家；测试为内存隔离，返回空，仅反击内存 attacker
+    // 地图回合怪物攻击查同图真实玩家；测试为内存隔离，返回空
     player: {
       findMany: jest.fn(async () => []),
     },
@@ -261,31 +261,39 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
   });
 
   // ---------- 轮次1：闪避生效 ----------
-  describe('轮次1 闪避生效（修复1：handleDodge 写入「闪避」buff 被怪物反击消费）', () => {
-    it('玩家有「闪避」buff 时，怪物反击被 100% 免伤，玩家 hp 不变', async () => {
+  describe('轮次1 闪避生效（修复1：handleDodge 写入「闪避」buff 被怪物攻击消费）', () => {
+    it('玩家有「闪避」buff 时，怪物攻击被 100% 免伤，玩家 hp 不变', async () => {
       const player = makePlayer({ userId: 2, buffs: JSON.stringify([{ name: '闪避', value: 100, expireAt: Date.now() / 1000 + 30 }]) });
       mocks.players.set(2, player);
       const monster = makeMonster({ id: 1001, hp: 50, attack: 80 });
       registerMonsters(mocks, 1, [monster]);
 
-      // 受控 attackerBonus：命中极高，确保玩家反击命中怪物（验证链路通畅）
+      // 受控防御方加成（buildAttackerBonus 同时充当受害者防御面板）
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockImplementation(async () => {
-        // 手动复刻原版闪避判定：玩家有「闪避」buff → checkHit(hitRate,100) 必失败 → 免伤
-        const playerBuffs = parseJson(player.buffs, []);
-        const dodgeBuff = playerBuffs.find((b: any) => b.name === '闪避');
-        const fixedDodge = dodgeBuff ? (dodgeBuff.value || 100) : 0;
-        const hitRate = 50;
-        const hit = hitRate - fixedDodge > 0;
-        if (!hit) return ['史莱姆 向你发起攻击，但被你闪避了'];
-        return ['史莱姆 攻击你，造成伤害 10'];
-      });
+      // 受控怪物加成：命中极高（配合真实 checkHit 验证「闪避」buff 的固定闪避消费链路）
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
+        攻击: 200, 命中: 200, 闪避: 0, 闪避2: 0, 生命: 50, 护盾: 0, 装甲: 0,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+        生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
+      } as any);
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: 10, poolDamage: { shield: 0, armor: 0, hp: 10 }, rating: '', critMultiplier: 1 });
 
-      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+      // 怪物攻击已迁入地图延时回合（原版 3 秒后 覅攻击pd），此处直接驱动回合内
+      // 怪物攻击单名玩家的本体 monsterCounterAttackOnePlayer（isSelf=true → "你"）
+      const lines = await (combat as any).monsterCounterAttackOnePlayer(
+        monster,
+        (combat as any).buildMonsterBonus(monster),
+        player,
+        await mocks.playerService.getPlayerData(2),
+        { id: 1, name: '医疗室', vehicles: '[]' },
+        true,
+      );
 
-      // 怪物反击被闪避 → 玩家 hp 保持 100 不变
+      // 怪物攻击被闪避 → 玩家 hp 保持 100 不变
       expect(player.hp).toBe(100);
-      expect(result.result).toContain('被你闪避了');
+      expect(lines.join('\n')).toContain('被你闪避了');
     });
   });
 
@@ -322,23 +330,35 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
         } as any;
       });
 
-      const first = await combat.weaponAttack(2, 0, { mustHit: true, noDelay: true });
+      // 怪物攻击已迁入地图延时回合（原版 3 秒后 覅攻击pd），直接驱动回合内
+      // 怪物攻击单名玩家的本体 monsterCounterAttackOnePlayer（isSelf=true → "你"）
+      const mapArg = { id: 1, name: '医疗室', vehicles: '[]' };
+      const victimData = await mocks.playerService.getPlayerData(2);
+      const first = await (combat as any).monsterCounterAttackOnePlayer(
+        monster,
+        (combat as any).buildMonsterBonus(monster),
+        player, victimData, mapArg, true,
+      );
       const firstMarkers2 = parseJson(player.markers2, []);
       const jlq = firstMarkers2.find((entry: any) => entry.name === 'jlq');
 
-      expect(first.result).toContain('进入了卷土重来状态');
+      expect(first.join('\n')).toContain('进入了卷土重来状态');
       // 原版 L3674：卷土重来只给增益、不回血，生命保持 0，靠增益闪避=1 免死。
       expect(player.hp).toBe(0);
       expect(jlq).toBeDefined();
 
-      const second = await combat.weaponAttack(2, 0, { mustHit: true, noDelay: true });
+      const second = await (combat as any).monsterCounterAttackOnePlayer(
+        monster,
+        (combat as any).buildMonsterBonus(monster),
+        player, victimData, mapArg, true,
+      );
       const secondMarkers2 = parseJson(player.markers2, []);
       const jlqList = secondMarkers2.filter((m: any) => m.name === 'jlq');
 
-      // 原版语义：卷土重来期间玩家 HP=0 但靠增益闪避=1 免死（防鞭尸跳过反击），
-      // 且 jlq 冷却未过 → 不会再次写入卷土重来、也不会真死。核心验证冷却去重。
-      expect(second.result).not.toContain('进入了卷土重来状态');
-      expect(second.result).not.toContain('倒下了');
+      // 原版语义：卷土重来期间玩家 HP=0，死亡门禁跳过（防鞭尸），
+      // 不会再次写入卷土重来、也不会真死。核心验证冷却标记只写一次。
+      expect(second.join('\n')).not.toContain('进入了卷土重来状态');
+      expect(second.join('\n')).not.toContain('倒下了');
       expect(player.hp).toBe(0);
       // jlq 冷却标记未被重复写入（去重生效，否则会再次触发卷土重来）。
       expect(jlqList.length).toBe(1);
@@ -357,7 +377,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       registerMonsters(mocks, 1, [monster]);
 
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       await combat.weaponAttack(2, 1, { mustHit: true });
 
@@ -376,7 +395,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       registerMonsters(mocks, 1, [monster]);
 
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -395,7 +413,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       registerMonsters(mocks, 1, [m1, m2]);
 
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true, allAttack: true });
 
@@ -410,7 +427,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       registerMonsters(mocks, 1, [m1]);
 
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -514,7 +530,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       // 且 splashTargets 来自 targets 过滤主目标后剩余 → 需 targets 含 ≥2 个。
       // 故 mock selectTargets 返回 [主目标, 额外目标1]，模拟"非全体但多目标"场景。
       jest.spyOn(combat as any, 'selectTargets').mockReturnValue([main, extra1]);
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -563,7 +578,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
 
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -612,7 +626,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       registerMonsters(mocks, 1, [monster]);
 
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -626,8 +639,8 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
   });
 
   // ---------- 防御方被动：幻时凝固 / 含光回防（玩家被怪物攻击） ----------
-  describe('防御方被动 幻时凝固/含光回防（monsterCounterAttack 复刻 战斗相关.ecode L1429-1547）', () => {
-    // 直接驱动 monsterCounterAttack：构造存活怪物 + 玩家，让怪物命中玩家
+  describe('防御方被动 幻时凝固/含光回防（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L1429-1547）', () => {
+    // 直接驱动 monsterCounterAttackOnePlayer：构造存活怪物 + 玩家，让怪物命中玩家
     async function runCounter(player: any, monster: any) {
       mocks.players.set(player.userId, player);
       registerMonsters(mocks, 1, [monster]);
@@ -642,7 +655,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       } as any);
       // 伤害固定为 10，便于含光回复断言
       jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: 10, poolDamage: { shield: 0, armor: 0, hp: 10 }, rating: '', critMultiplier: 1 });
-      return combat.weaponAttack; // 占位（实际用 monsterCounterAttack 私有）
+      return combat.weaponAttack; // 占位（实际用 monsterCounterAttackOnePlayer 私有）
     }
 
     it('幻时凝固：花园猫(好感≥60)被攻击 → 怪物获得「幻时」增益，result 含"被幻时凝固"', async () => {
@@ -660,8 +673,15 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       } as any);
       jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: 10, poolDamage: { shield: 0, armor: 0, hp: 10 }, rating: '', critMultiplier: 1 });
 
-      // 调用私有 monsterCounterAttack（玩家被怪物攻击）
-      const lines = await (combat as any).monsterCounterAttack(player, await mocks.playerService.getPlayerData(2), { id: 1, name: '医疗室', vehicles: '[]' });
+      // 直接调用私有 monsterCounterAttackOnePlayer（玩家被怪物攻击）
+      const lines = await (combat as any).monsterCounterAttackOnePlayer(
+        monster,
+        (combat as any).buildMonsterBonus(monster),
+        player,
+        await mocks.playerService.getPlayerData(2),
+        { id: 1, name: '医疗室', vehicles: '[]' },
+        false,
+      );
 
       // 怪物被加「幻时」增益（原版 获得增益(攻击方.增益,"幻时",30)）
       // 注意：combatState.gainBuff 写入中文 key {名称,有效期至}（归一化约定）
@@ -694,7 +714,14 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       } as any);
       jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: 10, poolDamage: { shield: 0, armor: 0, hp: 10 }, rating: '', critMultiplier: 1 });
 
-      await (combat as any).monsterCounterAttack(player, await mocks.playerService.getPlayerData(2), { id: 1, name: '医疗室', vehicles: '[]' });
+      await (combat as any).monsterCounterAttackOnePlayer(
+        monster,
+        (combat as any).buildMonsterBonus(monster),
+        player,
+        await mocks.playerService.getPlayerData(2),
+        { id: 1, name: '医疗室', vehicles: '[]' },
+        false,
+      );
 
       // 闪避成功 → 含光回复生命上限10% = 10，从90回到100
       expect(player.hp).toBe(100);
@@ -703,7 +730,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
   // ---------- 载具承伤（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L3175-3288） ----------
   describe('载具承伤（玩家驾驶载具时怪物攻击先打载具）', () => {
-    // 直接驱动 monsterCounterAttack：构造驾驶载具的玩家 + 高伤怪物，
+    // 直接驱动 monsterCounterAttackOnePlayer：构造驾驶载具的玩家 + 高伤怪物，
     // calcDamage mock 固定伤害，验证普通伤害先由载具承受；原版普通载具分支
     // 结算后会清零剩余三池，不把溢出伤害继续转给玩家。
     async function runVehicleCounter(vehicle: any | null, dmg: number) {
@@ -722,7 +749,14 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       jest.spyOn(combat as any, 'checkHit').mockReturnValue(true);
       jest.spyOn(combat as any, 'calcDamage').mockReturnValue({ damage: dmg, poolDamage: { shield: 0, armor: 0, hp: dmg }, rating: '', critMultiplier: 1 });
       const vehicles = vehicle ? JSON.stringify([vehicle]) : '[]';
-      await (combat as any).monsterCounterAttack(player, await mocks.playerService.getPlayerData(2), { id: 1, name: '医疗室', vehicles });
+      await (combat as any).monsterCounterAttackOnePlayer(
+        monster,
+        (combat as any).buildMonsterBonus(monster),
+        player,
+        await mocks.playerService.getPlayerData(2),
+        { id: 1, name: '医疗室', vehicles },
+        false,
+      );
       return { player, monster };
     }
 
@@ -833,7 +867,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
         vehicleBreakdown: { physical: 5000, fire: 0, ice: 0, elec: 0 },
         rating: '', critMultiplier: 1, penetrated: false,
       } as any);
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const first = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
       expect(first.result).toContain('坚韧护盾');
@@ -855,7 +888,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
       jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
 
       await combat.weaponAttack(2, 0, {
@@ -881,7 +913,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 50 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -899,7 +930,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100, markers: JSON.stringify({ s敏锐: 5 }) });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -917,7 +947,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 50 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -934,7 +963,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       // 强制当前武器为创世纪
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '创世纪', specialSeq: -18, type: '近战武器', negativeType: 0 } as any);
@@ -957,7 +985,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -973,7 +1000,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -990,7 +1016,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '裂创', specialSeq: 0, type: '近战武器', negativeType: 1 } as any);
 
@@ -1011,7 +1036,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1025,7 +1049,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1038,7 +1061,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1053,7 +1075,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1068,7 +1089,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1083,7 +1103,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1096,7 +1115,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100, specialSeq: 6, affinity: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1113,7 +1131,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1130,7 +1147,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1144,7 +1160,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1162,7 +1177,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1176,7 +1190,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 30, maxHp: 100, specialSeq: 16, affinity: 80 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1195,7 +1208,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1212,7 +1224,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1235,7 +1246,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '仿真尾巴', specialSeq: -36, type: '近战武器' } as any);
 
@@ -1255,7 +1265,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '火焰飞羽', specialSeq: -30, type: '近战武器' } as any);
 
@@ -1272,7 +1281,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 1000, maxHp: 1000 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '纵横', specialSeq: -13, type: '近战武器' } as any);
 
@@ -1291,7 +1299,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 1000, maxHp: 1000, armor: 800, maxArmor: 800 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '矢量', specialSeq: -12, type: '近战武器' } as any);
 
@@ -1308,7 +1315,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '影光', specialSeq: -23, type: '近战武器' } as any);
 
@@ -1328,7 +1334,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '寒风', specialSeq: -10, type: '近战武器' } as any);
 
@@ -1347,7 +1352,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const pw = combat as any;
       jest.spyOn(pw, 'getWeaponData').mockReturnValue({ name: '光棱', specialSeq: -29, type: '近战武器' } as any);
 
@@ -1368,7 +1372,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0); // 格挡必触发
       try {
         const result = await combat.weaponAttack(2, 0, { mustHit: true });
@@ -1388,7 +1391,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
       const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0); // 格挡必触发
       try {
         const result = await combat.weaponAttack(2, 0, { mustHit: true });
@@ -1407,7 +1409,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
@@ -1424,7 +1425,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
-      jest.spyOn(combat as any, 'monsterCounterAttack').mockResolvedValue([]);
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 

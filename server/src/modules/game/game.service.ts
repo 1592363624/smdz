@@ -751,7 +751,8 @@ export class GameService {
           shouldTrigger = !partNames.includes('隐形模块');
         }
         if (shouldTrigger) {
-          await this.combatSystem.triggerMapBattleLoop(userId, 5, { player, map: targetMap });
+          // 原版 L1757-1771：此分支仅豁免隐形披风/隐形模块，不豁免隐匿模式
+          await this.combatSystem.triggerMapBattleLoop(userId, 5, { player, map: targetMap }, { ignoreStealth: true });
         }
       }
       // 其余代发言文本为原版内部延时指令（0 秒新建延时），当前无对应映射，暂略。
@@ -799,7 +800,8 @@ export class GameService {
         player.markers = jumpMarkers;
         player.markers2 = markers2; // Json 列直接写数组
         await this.playerService.savePlayer(player);
-        await this.combatSystem.triggerMapBattleLoop(userId, 5, { player, map: targetMap });
+        // 原版 L1789：旗舰跃迁引怪无隐匿豁免
+        await this.combatSystem.triggerMapBattleLoop(userId, 5, { player, map: targetMap }, { ignoreStealth: true });
       }
     }
     if (triggerText) lines.push(triggerText);
@@ -1222,8 +1224,9 @@ export class GameService {
     await this.playerService.savePlayer(afterPlayer);
 
     if (attackResult) {
-      // 原版 L6769-6771：覅攻击pd 5秒 + 玩家活跃（triggerMapBattleLoop 内处理）
-      await this.combatSystem.triggerMapBattleLoop(userId, 5, { player: afterPlayer, map });
+      // 原版 L6767-6771：覅攻击pd 5秒 + 玩家活跃（triggerMapBattleLoop 内处理）；
+      // 狐分支无隐匿豁免（ignoreStealth）
+      await this.combatSystem.triggerMapBattleLoop(userId, 5, { player: afterPlayer, map }, { ignoreStealth: true });
     }
     return attackResult;
   }
@@ -3836,7 +3839,8 @@ export class GameService {
       // 无隐形模块时先延时5秒引怪（原版 L7527-7529 新建延时"覅攻击pd"+地图, 5秒）。
       const hasStealthModule = partNames.includes('隐形模块');
       if (!hasStealthModule) {
-        await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map });
+        // 原版 L7527-7529：工作分支仅豁免隐形模块，不豁免隐匿模式
+        await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map }, { ignoreStealth: true });
       } else {
         const mapMarkers2 = asJsonValue<any[]>(map.markers2, []);
         this.combatState.gainBuff(mapMarkers2, '活动', 120, false, Date.now());
@@ -4132,10 +4136,10 @@ export class GameService {
       const followText = display.count > 0 ? `带着${display.names.join('、')}一起` : '';
       let resultText = `${player.name ?? '冒险者'}${followText}用${collectorText}${gainedText || ''}`;
       if (!gainedText) resultText = `${player.name ?? '冒险者'}${map.name}的资源已经枯竭了`;
-      // 无隐形模块时结算后再次引怪（原版 L7606-7608）
+      // 无隐形模块时结算后再次引怪（原版 L7606-7608，仅隐形模块豁免，不豁免隐匿模式）
       if (!partNames.includes('隐形模块')) {
         try {
-          await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map });
+          await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map }, { ignoreStealth: true });
         } catch (e: any) {
           this.logger.warn(`开采结算引怪失败 userId=${userId}: ${e?.message || e}`);
         }

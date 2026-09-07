@@ -156,6 +156,27 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     return playerService.getPlayerData(uid);
   }
 
+  // 复刻怪物攻击全图防御方的收集逻辑（原内联于 weaponAttack 步骤9，现已迁入
+  // 地图延时回合 runMapMonsterAttack；此处保留同等筛选：在线由 onlineUsers、
+  // 存活、非隐匿模式/炮冠），逐个调用 monsterCounterAttackOnePlayer。
+  async function monsterCounterAttackAll(attacker: any, map: any): Promise<string[]> {
+    const monster = await getMonster();
+    const monsterBonus = (combat as any).buildMonsterBonus(monster);
+    const lines: string[] = [];
+    const rows = await prisma.player.findMany({ where: { mapId }, select: { userId: true } });
+    for (const row of rows) {
+      const victimData = await playerService.getPlayerData(row.userId);
+      const victim = victimData.player;
+      if (playerService.isPlayerDead(victim)) continue;
+      const buffs = JSON.parse(victim.buffs || '[]');
+      if (buffs.some((b: any) => ['隐匿模式', '炮冠'].includes(b?.name))) continue;
+      lines.push(...await (combat as any).monsterCounterAttackOnePlayer(
+        monster, monsterBonus, victim, victimData, map, row.userId === Number(attacker.userId),
+      ));
+    }
+    return lines;
+  }
+
   it('测试1 全图反击：A 攻击后，同图在线玩家 B 也被怪物反击扣血', async () => {
     const [uidA, uidB] = createdUserIds;
     const beforeB = await getPlayer(uidB);
@@ -178,10 +199,8 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     const attackerData = await getPlayer(uidA);
     const map = await mapService.getMapById(mapId);
 
-    // 直接驱动私有 monsterCounterAttack（复刻原版 战斗() 怪物攻击分支）
-    const lines = await (combat as any).monsterCounterAttack(
-      attackerData.player, attackerData, map,
-    );
+    // 直接驱动怪物攻击全图防御方（复刻原版 战斗() 怪物攻击分支）
+    const lines = await monsterCounterAttackAll(attackerData.player, map);
 
     const afterB = await getPlayer(uidB);
 
@@ -224,7 +243,7 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     // 固定时长（30+卷土重来属性，本例无加成=30 秒），与远程库读回延迟解耦
     // （旧写法用读回时刻反推剩余时间，全量并发时读链路一旦变慢即假红）。
     const tCounter = Date.now() / 1000;
-    await (combat as any).monsterCounterAttack(attackerData.player, attackerData, map);
+    await monsterCounterAttackAll(attackerData.player, map);
 
     const afterB = await getPlayer(uidB);
     const tRead = Date.now() / 1000;
