@@ -7,9 +7,21 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
-const FLAG_PATH = path.join(process.cwd(), 'maintenance.flag');
+/**
+ * 每个用例使用临时目录下的独立 flag 文件：
+ * - 中间件通过 MAINTENANCE_FLAG_PATH 环境变量指向它，生产默认仍为 cwd/maintenance.flag；
+ * - 文件名带随机后缀，用例之间不会互相污染，「flag 不存在」的初始态天然成立，
+ *   不再依赖删除文件来复位（删除操作在受限环境下可能被安全策略拦截）。
+ */
+const newFlagPath = () => path.join(
+  os.tmpdir(),
+  `maintenance-flag-${process.pid}-${Math.random().toString(36).slice(2)}.flag`,
+);
+
+let FLAG_PATH = newFlagPath();
 
 type MockRes = {
   statusCode: number;
@@ -61,11 +73,22 @@ function createFlag(): void {
 }
 
 function removeFlag(): void {
-  if (fs.existsSync(FLAG_PATH)) fs.unlinkSync(FLAG_PATH);
+  // 尽力清理：受限环境下删除可能被拦截，残留仅落在系统临时目录，不影响任何用例
+  try {
+    if (fs.existsSync(FLAG_PATH)) fs.unlinkSync(FLAG_PATH);
+  } catch {
+    /* 忽略清理失败 */
+  }
 }
+
+beforeEach(() => {
+  FLAG_PATH = newFlagPath();
+  process.env.MAINTENANCE_FLAG_PATH = FLAG_PATH;
+});
 
 afterEach(() => {
   removeFlag();
+  delete process.env.MAINTENANCE_FLAG_PATH;
 });
 
 describe('maintenance.middleware', () => {

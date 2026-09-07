@@ -21,8 +21,15 @@ import { NextFunction, Request, Response } from 'express';
 import { readFileSync, statSync } from 'fs';
 import { join } from 'path';
 
-/** 维护开关文件路径（PM2 cwd = server/ 目录） */
-const MAINTENANCE_FLAG_PATH = join(process.cwd(), 'maintenance.flag');
+/**
+ * 维护开关文件路径（PM2 cwd = server/ 目录）
+ *
+ * 解析放在函数内而非模块常量：除支持部署期通过环境变量改路径外，也让单测可以
+ * 指向临时目录的独立 flag，避免用例之间互相污染（无需依赖删除文件来复位状态）。
+ */
+function getFlagPath(): string {
+  return process.env.MAINTENANCE_FLAG_PATH || join(process.cwd(), 'maintenance.flag');
+}
 
 /** flag 存在性检测结果缓存时长（毫秒），避免每个请求都 statSync */
 const FLAG_CHECK_TTL_MS = 2000;
@@ -40,7 +47,7 @@ function isMaintenanceActive(): boolean {
   }
   let active = false;
   try {
-    statSync(MAINTENANCE_FLAG_PATH);
+    statSync(getFlagPath());
     active = true;
   } catch {
     active = false;
@@ -52,7 +59,7 @@ function isMaintenanceActive(): boolean {
 /** 读取维护开始时间（flag 文件内容），读取失败返回空字符串 */
 function readMaintenanceSince(): string {
   try {
-    return readFileSync(MAINTENANCE_FLAG_PATH, 'utf8').trim();
+    return readFileSync(getFlagPath(), 'utf8').trim();
   } catch {
     return '';
   }

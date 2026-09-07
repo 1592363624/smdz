@@ -15533,17 +15533,27 @@ export class GameService {
       }
     };
 
+    // 原始数据串（name/data）不含加成结构，必须经 parseEquipment 解析：
+    // 附加加成编码在 data 串、自带加成来自静态定义、特效加成由 data 串 bx 段叠加。
+    const addParsed = (raw: any) => {
+      addBonus(raw?.bonus);
+      addBonus(raw?.baseBonus);
+      addBonus(raw?.self);
+      try {
+        const parsed = this.itemService.parseEquipment(raw);
+        addBonus(parsed.bonus);
+        addBonus(parsed.baseBonus);
+      } catch {
+        // 解析失败（非装备物品）时仅按原始字段累加
+      }
+    };
+
     for (const eq of equipment) {
-      addBonus(eq.bonus);
-      addBonus(eq.baseBonus);
-      addBonus(eq.self);
+      addParsed(eq);
     }
     const currentWeapon = player.currentWeapon || 0;
     if (currentWeapon > 0 && weapons[currentWeapon - 1]) {
-      const wp = weapons[currentWeapon - 1];
-      addBonus(wp.bonus);
-      addBonus(wp.baseBonus);
-      addBonus(wp.self);
+      addParsed(weapons[currentWeapon - 1]);
     }
 
     // 展示常用加成字段

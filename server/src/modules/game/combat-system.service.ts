@@ -20,6 +20,7 @@ import { MapService, MapMonster } from './map.service';
 import { ItemSystemService } from './item-system.service';
 import { ItemService, BONUS_CODE_MAP } from './item.service';
 import { StaticDataService } from './static-data.service';
+import { applyEquipmentEffect, createEffectTarget, parseEffectIdFromData } from './equipment-effect.util';
 import { AchievementService } from './achievement.service';
 import { CombatStateService } from './combat-state.service';
 import { StatsService } from './stats.service';
@@ -290,6 +291,10 @@ export interface WeaponData {
   specialEffect?: number; // 特效序号（47因果逆转/45斩首/44尖兵等）
   self?: any;             // 武器自带属性（原版 z1.自带，含 anesthesia 麻醉字段）
   anesthesia?: number;    // 武器自带麻醉值（中文静态配置 bonus.麻醉）
+  /** 装备特效加成（data 串 bx 段结算结果，原版随自带加成并进总属性） */
+  effectBonus?: Record<string, number>;
+  /** 装备特效语义标记：aoe=全体攻击、mustHit=必中 */
+  effectFlags?: { aoe: boolean; mustHit: boolean };
 }
 
 @Injectable()
@@ -564,7 +569,7 @@ export class CombatSystemService {
       const familiarEffect = this.processFamiliarEffects(player, playerData, weapon, context);
     // 应用使魔特效修改后的参数
     let effectiveDamageMultiplier = familiarEffect.damageMultiplier; // 修改后的伤害倍率
-    const effectiveAllAttack = familiarEffect.forceAllAttack || familiarEffect.allAttack; // 实际全体攻击波标记
+    const effectiveAllAttack = familiarEffect.forceAllAttack || familiarEffect.allAttack || !!weapon?.effectFlags?.aoe; // 实际全体攻击波标记（含武器特效 aoe）
     let hitRateModifier = familiarEffect.hitRateModifier; // 命中率修正
     let extraPenetration = familiarEffect.extraPenetration; // 额外穿透
     const effectText = familiarEffect.effectText; // 特效文本
@@ -577,7 +582,8 @@ export class CombatSystemService {
     // 棒棒糖(#特殊序号97)：10%几率「类型技能冷却」-60秒并自动释放使魔技能，额外攻击次数+1；
     // 射爆核心(#29)：60秒间隔 额外攻击次数+1；
     // 唯我主宰(#84)：60秒间隔 本次攻击必中。
-    let mustHitOverride = mustHit;
+    // 武器特效「必中」（如核装药，effects.json bonus.必中）：本次攻击直接命中。
+    let mustHitOverride = mustHit || !!weapon?.effectFlags?.mustHit;
     let extraAttackCount = 0;
     if (!context.skipCombatLock) {
       const equipsFx: any[] = Array.isArray(playerData.equipment)
@@ -5532,7 +5538,12 @@ export class CombatSystemService {
     }
 
     // 从攻击者装备或背包中获取武器
-    const weapons = attacker.weapons || attacker.equipment || [];
+    // 注意：attacker.weapons 可能是双表示行访问器（installCanonicalAccessors 的
+    // getter 返回 JSON 文本）或历史字符串列，必须经 asJsonValue 归一化后再按索引取，
+    // 否则字符串按字符索引会取到乱码字符（如 't'）导致攻击文本/伤害整体错乱（着装武器仍显示拳头）。
+    const weaponList = asJsonValue<any[]>(attacker.weapons, []);
+    const fallbackEquip = asJsonValue<any[]>(attacker.equipment, []);
+    const weapons = weaponList.length > 0 ? weaponList : fallbackEquip;
     const rawWeaponValue = weapons[weaponIndex - 1];
     // 怪物静态配置的“武器”是名称字符串，玩家/召唤物存量通常是装备对象；
     // 两种结构都对应原版 武器 数组成员。
@@ -5560,15 +5571,58 @@ export class CombatSystemService {
     };
     const rawBonus = parseObject(rawWeapon.bonus || rawWeapon.加成);
     const staticBonus = parseObject(staticWeapon.bonus);
-    const properties = parseObject(
+    // 注意：staticWeapon.properties 是 StaticDataService 缓存对象，必须复制到新对象后再缩放，
+    // 否则 37-41 号特效的伤害缩放会永久写回静态表。
+    const propsSrc = parseObject(
       rawWeapon.properties || rawWeapon.属性 || staticWeapon.properties || staticWeapon.属性,
-    );
+    ) || {};
+    const numOr = (value: any, fallback: number): number => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const properties = {
+      phys: numOr(propsSrc.phys ?? propsSrc.物, 100),
+      fire: numOr(propsSrc.fire ?? propsSrc.火, 0),
+      ice: numOr(propsSrc.ice ?? propsSrc.冰, 0),
+      elec: numOr(propsSrc.elec ?? propsSrc.电, 0),
+    };
     const anesthesia = Number(
       rawWeapon.anesthesia ?? rawWeapon.麻醉 ?? rawBonus.麻醉 ?? staticBonus.麻醉 ?? 0,
     );
 
-    // 普拉娜武器冷却×10（原版 _计算玩家 L1761-1763：玩家.特殊序号==#普拉娜 时 武器.冷却=武器.冷却*10）
+    // ========== 装备特效（原版 物品操作.ecode L1438-1475） ==========
+    // bx 段特效在此结算：缩放伤害属性、追加冷却、覆盖攻击文本、给出特效加成与语义标记。
+    // 与展示路径共用 equipment-effect.util，杜绝“面板看得到、实战打不出”。
+    const effectId = parseEffectIdFromData(rawWeapon.data ?? rawWeapon.数据)
+      || Number(rawWeapon.specialEffect ?? rawWeapon.特效 ?? staticWeapon.specialEffect ?? 0) || 0;
+    let effectCooldown = 0;
+    let effectProps = properties;
+    let effectAttackText: any = rawWeapon.attackText || rawWeapon.攻击文本 || staticWeapon.attackText || staticWeapon.攻击文本 || '';
+    let effectBonus: Record<string, number> = {};
+    let effectAttackBonus: Record<string, number> = {};
+    let effectSpecial = 0;
+    const effectFlags = { aoe: false, mustHit: false };
     let rawCooldown = rawWeapon.cooldown ?? rawWeapon.冷却 ?? staticWeapon.cooldown ?? 5;
+    if (effectId > 0) {
+      const isWeapon = this.isWeaponItem(staticWeapon, rawWeapon);
+      const effect = typeof (this.staticData as any)?.getEffectById === 'function'
+        ? (this.staticData as any).getEffectById(effectId, isWeapon)
+        : undefined;
+      const target = createEffectTarget(properties, rawCooldown);
+      target.attackText = effectAttackText;
+      applyEquipmentEffect(target, effect, isWeapon, effectId);
+      effectProps = target.properties;
+      effectCooldown = target.cooldown;
+      effectAttackText = target.attackText ?? effectAttackText;
+      effectBonus = target.selfBonus;
+      effectAttackBonus = target.attackBonus;
+      effectSpecial = target.specialEffect;
+      effectFlags.aoe = target.flags.aoe;
+      effectFlags.mustHit = target.flags.mustHit;
+      rawCooldown = effectCooldown;
+    }
+
+    // 普拉娜武器冷却×10（原版 _计算玩家 L1761-1763：玩家.特殊序号==#普拉娜 时 武器.冷却=武器.冷却*10）
     if (Number(attacker.specialSeq) === 22) {
       rawCooldown = rawCooldown * 10;
     }
@@ -5577,7 +5631,7 @@ export class CombatSystemService {
       name: rawWeapon.name || '未知武器',
       damage: rawWeapon.damage ?? rawWeapon.伤害 ?? staticWeapon.damage ?? staticWeapon.伤害 ?? 0,
       damageType: this.resolveDamageType(rawWeapon.damageType || rawWeapon.伤害类型 || staticWeapon.damageType || staticWeapon.伤害类型 || '物理'),
-      attackText: rawWeapon.attackText || rawWeapon.攻击文本 || staticWeapon.attackText || staticWeapon.攻击文本 || '',
+      attackText: effectAttackText,
       type: rawWeapon.type || rawWeapon.类型 || staticWeapon.equipType || staticWeapon.type || '近战武器',
       specialSeq: rawWeapon.specialSeq ?? rawWeapon.特殊序号 ?? staticWeapon.specialSeq ?? 0,
       cooldown: rawCooldown || staticWeapon.cooldown || 5,
@@ -5585,17 +5639,20 @@ export class CombatSystemService {
       forcedEffect: rawWeapon.forcedEffect ?? rawWeapon.必出特效 ?? staticWeapon.forcedEffect ?? false,
       vehicleForceDmg: rawWeapon.vehicleForceDmg ?? rawWeapon.无视载具 ?? staticWeapon.vehicleForceDmg ?? false,
       properties: {
-        phys: properties.phys ?? properties.物 ?? 100,
-        fire: properties.fire ?? properties.火 ?? 0,
-        ice: properties.ice ?? properties.冰 ?? 0,
-        elec: properties.elec ?? properties.电 ?? 0,
+        phys: effectProps.phys,
+        fire: effectProps.fire,
+        ice: effectProps.ice,
+        elec: effectProps.elec,
       },
-      bonus: { ...staticBonus, ...rawBonus },
+      bonus: { ...staticBonus, ...rawBonus, ...effectAttackBonus },
       baseBonus: parseObject(rawWeapon.baseBonus || rawWeapon.基础加成 || staticWeapon.baseBonus || staticWeapon.基础加成),
+      // 特效加成单独暴露：buildAttackerBonus 并入总属性，不与 baseBonus 混叠
+      effectBonus,
+      effectFlags,
       attackTexts: parseObject(rawWeapon.attackTexts || rawWeapon.攻击文本列表 || staticWeapon.attackTexts || staticWeapon.攻击文本列表) || [],
       buffs: parseObject(rawWeapon.buffs || rawWeapon.增益 || staticWeapon.buffs || staticWeapon.增益) || [],
       negativeType: rawWeapon.negativeType ?? rawWeapon.负面类型 ?? staticWeapon.negativeType ?? 0,
-      specialEffect: rawWeapon.specialEffect ?? rawWeapon.特效 ?? staticWeapon.specialEffect ?? 0,
+      specialEffect: effectSpecial || Number(rawWeapon.specialEffect ?? rawWeapon.特效 ?? staticWeapon.specialEffect ?? 0) || 0,
       self: { ...(rawWeapon.self || rawWeapon.自带 || {}), anesthesia },
       anesthesia,
     };
@@ -5609,7 +5666,7 @@ export class CombatSystemService {
    * @param item 背包/装备栏中的原始物品对象
    * @returns bonus（附加加成）与 baseBonus（自带加成）
    */
-  private resolveItemBonus(item: any): { bonus: Record<string, number>; baseBonus: Record<string, number> } {
+  private resolveItemBonus(item: any): { bonus: Record<string, number>; baseBonus: Record<string, number>; effectBonus: Record<string, number> } {
     const parseObj = (value: any): Record<string, number> => {
       if (!value) return {};
       if (typeof value === 'object') return { ...value };
@@ -5639,7 +5696,41 @@ export class CombatSystemService {
         bonus[bonusKey] = (bonus[bonusKey] || 0) + val;
       }
     }
-    return { bonus, baseBonus };
+
+    // 装备特效（原版 物品操作.ecode L1438-1475）：data 串 bx 段的特效加成叠加进“自带加成”，
+    // 与展示路径（ItemService.parseEquipment）共用 equipment-effect.util 的同一实现。
+    // 单独以 effectBonus 返回，由 buildAttackerBonus 并入总属性——不写回 baseBonus，
+    // 以免与静态自带加成、套装在 baseBonus 上叠加的等级加成互相污染（见 6458 注释）。
+    const effectBonus: Record<string, number> = {};
+    const effectId = parseEffectIdFromData(rawData)
+      || Number(item?.specialEffect ?? item?.特效 ?? def?.specialEffect ?? def?.特效 ?? 0) || 0;
+    if (effectId > 0) {
+      const isWeapon = this.isWeaponItem(def, item);
+      const effect = typeof (this.staticData as any)?.getEffectById === 'function'
+        ? (this.staticData as any).getEffectById(effectId, isWeapon)
+        : undefined;
+      const target = createEffectTarget();
+      applyEquipmentEffect(target, effect, isWeapon, effectId);
+      for (const [key, value] of Object.entries(target.selfBonus)) {
+        effectBonus[key] = (effectBonus[key] || 0) + value;
+      }
+      // 攻击次数属附加加成（原版 z.加成.攻击次数）
+      for (const [key, value] of Object.entries(target.attackBonus)) {
+        bonus[key] = (bonus[key] || 0) + value;
+      }
+    }
+    return { bonus, baseBonus, effectBonus };
+  }
+
+  /** 判定物品是否武器：优先用静态定义，缺失时回退到类型名/特殊序号。 */
+  private isWeaponItem(def: any, item: any): boolean {
+    if (def && Object.keys(def).length && typeof (this.staticData as any)?.isWeapon === 'function') {
+      return Boolean((this.staticData as any).isWeapon(def));
+    }
+    const seq = Number(item?.specialSeq ?? item?.特殊序号 ?? def?.specialSeq ?? def?.特殊序号 ?? 0) || 0;
+    if (seq !== 0) return seq < 0;
+    const type = String(item?.type ?? item?.类型 ?? def?.equipType ?? def?.type ?? '');
+    return type.endsWith('武器') || type === '工具';
   }
 
   /**
@@ -6448,12 +6539,17 @@ export class CombatSystemService {
         if (resolved.baseBonus && Object.keys(resolved.baseBonus).length) {
           Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.baseBonus));
         }
+        // 装备特效加成（data 串 bx 段）：原版随自带加成一起并进总属性，此处与展示路径同源
+        if (resolved.effectBonus && Object.keys(resolved.effectBonus).length) {
+          Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.effectBonus));
+        }
       }
       // 当前武器的附加加成并入总属性（currentWeapon 为 1-based，0=拳头无加成）。
       // 注意：不合并 weapon.baseBonus（自带加成）。baseBonus 是供套装判断2
       // 写入等级加成的引用字段（如高斯步枪 baseBonus.物伤 5→25），不应直接累
       // 进 total bonus——否则套装在 baseBonus 上叠加的等级加成会与已合并的原始值
       // 双重计数（如高斯步枪物伤多算 5）。baseBonus 的数值仅用于麻醉判定等特定场景。
+      // 武器特效加成走独立的 effectBonus（非 baseBonus），必须并入，否则武器特效形同虚设。
       const cwIdx = Number(player.currentWeapon || 0);
       const weaponList = playerData.weapons?.length
         ? playerData.weapons
@@ -6462,6 +6558,9 @@ export class CombatSystemService {
         const resolved = this.resolveItemBonus(weaponList[cwIdx - 1]);
         if (resolved.bonus && Object.keys(resolved.bonus).length) {
           Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.bonus));
+        }
+        if (resolved.effectBonus && Object.keys(resolved.effectBonus).length) {
+          Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.effectBonus));
         }
       }
     } catch {

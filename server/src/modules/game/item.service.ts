@@ -26,6 +26,7 @@ function formatLootQuantity(value: number): string {
 import { ItemSystemService } from './item-system.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity, formatDisplayNumber } from '../../common/utils/game-text.util';
+import { applyEquipmentEffect, createEffectTarget } from './equipment-effect.util';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -359,6 +360,15 @@ export class ItemService {
       if (typeof value === 'object') return value as T;
       try { return JSON.parse(String(value)) as T; } catch { return fallback; }
     };
+    // 静态装备定义来自 StaticDataService 的进程级缓存：可变结构（自带加成/词条/攻击文本/增益）
+    // 必须深拷贝后再交给调用方，否则任何原地写回都会污染缓存并被全服共享、随解析次数累加。
+    const cloneJson = <T>(value: any, fallback: T): T => {
+      if (value === undefined || value === null || value === '') return fallback;
+      if (typeof value === 'object') {
+        try { return JSON.parse(JSON.stringify(value)) as T; } catch { return { ...(value as any) } as T; }
+      }
+      try { return JSON.parse(String(value)) as T; } catch { return fallback; }
+    };
     const addBonus = (target: Record<string, number>, source: any) => {
       if (!source || typeof source !== 'object') return;
       for (const [key, raw] of Object.entries(source)) {
@@ -375,10 +385,10 @@ export class ItemService {
       equipment.vehicleForceDmg = definition.vehicleForceDmg === true || definition.vehicleForceDmg === 'true' || definition.无视载具伤害上限 === true;
       equipment.lockTime = Number(definition.lockTime ?? definition.锁定 ?? 0) || 0;
       equipment.description = String(definition.description ?? definition.说明 ?? '');
-      equipment.baseBonus = parseJson<Record<string, number>>(definition.baseBonus ?? definition.自带加成, {});
-      equipment.affixes = parseJson<string[]>(definition.affixes ?? definition.词条, []);
-      equipment.attackText = parseJson<any>(definition.attackText ?? definition.攻击文本, null);
-      equipment.buffs = parseJson<any[]>(definition.buffs ?? definition.增益, []);
+      equipment.baseBonus = cloneJson<Record<string, number>>(definition.baseBonus ?? definition.自带加成, {});
+      equipment.affixes = cloneJson<string[]>(definition.affixes ?? definition.词条, []);
+      equipment.attackText = cloneJson<any>(definition.attackText ?? definition.攻击文本, null);
+      equipment.buffs = cloneJson<any[]>(definition.buffs ?? definition.增益, []);
       const props = parseJson<any>(definition.properties ?? definition.属性, {});
       const damage = props?.damage ?? props?.伤害 ?? props;
       equipment.properties = {
@@ -440,17 +450,9 @@ export class ItemService {
       else equipment.negativeType = 4;
     }
 
-    // bx 特效覆盖武器伤害属性，并把特效加成叠入“自带加成”（原版 L1430-1480）。
+    // bx 特效：伤害属性缩放 + 特效加成叠入“自带加成”（原版 物品操作.ecode L1438-1475）。
+    // 与战斗链路共用 equipment-effect.util 的同一实现，杜绝“面板看得到、打架打不出”。
     if (equipment.specialEffect > 0) {
-      if (isWeapon) {
-        if (equipment.specialEffect === 37) {
-          equipment.properties.phys *= 1.15; equipment.properties.fire *= 1.15;
-          equipment.properties.ice *= 1.15; equipment.properties.elec *= 1.15;
-        } else if (equipment.specialEffect === 38) equipment.properties.phys *= 1.25;
-        else if (equipment.specialEffect === 39) equipment.properties.phys = equipment.properties.fire * 1.25; // 原版疑似笔误，按原版保留
-        else if (equipment.specialEffect === 40) equipment.properties.phys = equipment.properties.ice * 1.25;
-        else if (equipment.specialEffect === 41) equipment.properties.phys = equipment.properties.elec * 1.25;
-      }
       const effect = typeof (this.staticData as any).getEffectById === 'function'
         ? (this.staticData as any).getEffectById(equipment.specialEffect, isWeapon)
         : (() => {
@@ -459,10 +461,16 @@ export class ItemService {
             : [];
           return rows[equipment.specialEffect - 1];
         })();
-      if (effect) {
-        addBonus(equipment.baseBonus, parseJson<Record<string, number>>(effect.bonus ?? effect.加成, {}));
-        if (effect.attackText || effect.攻击文本) equipment.attackText = parseJson<any>(effect.attackText ?? effect.攻击文本, equipment.attackText);
-        if (effect.buffs || effect.增益) equipment.buffs = parseJson<any[]>(effect.buffs ?? effect.增益, equipment.buffs);
+      const effectTarget = createEffectTarget(equipment.properties, equipment.cooldown);
+      applyEquipmentEffect(effectTarget, effect, isWeapon, equipment.specialEffect);
+      equipment.properties = effectTarget.properties;
+      equipment.cooldown = effectTarget.cooldown;
+      // 原版 L1458/L1472：编号必须落在池内才写入 z.特效，越界时保持原值语义（此处归 0）
+      equipment.specialEffect = effectTarget.specialEffect;
+      addBonus(equipment.baseBonus, effectTarget.selfBonus);
+      addBonus(equipment.bonus, effectTarget.attackBonus);
+      if (effectTarget.attackText) {
+        equipment.attackText = { name: effectTarget.attackText };
       }
     }
 

@@ -50,6 +50,8 @@ function makeService(options: { markers?: Record<string, any>; map?: any } = {})
     },
     familiarSystemService: { checkAndUpdateGrowth: jest.fn(() => false) },
     shortcutService: { setTempInput: jest.fn(async () => undefined) },
+    // 自动采集段通过资源静态定义补全采集指令名（resolveGatherCmd）
+    staticData: { getAllResources: () => require('../prisma/data/resources.json') },
     logger: { log: jest.fn(), warn: jest.fn() },
   });
   service.summonFollowDisplay = jest.fn(async () => ({ names: [], count: 0, indexes: [] }));
