@@ -73,14 +73,15 @@ describe('Issue #11：制造升级探测雷达写入等级标记', () => {
 });
 
 describe('Issue #11：背包同名物品合并不再要求 type 一致', () => {
-  it('同名不同 type 合并为一条：新增 资源 并入已有 物品 条目，保留原 type', () => {
+  it('同名不同 type 合并为一条：统一收敛到静态定义规范 type（物品）', () => {
     const { service } = makeItemSystem();
     const backpack: any[] = [
-      { name: '经验胶囊', type: '物品', quantity: 400000, count: 400000 },
+      { name: '经验胶囊', type: '资源', quantity: 400100, count: 400100 },
     ];
-    (service as any).addItemToBackpack(backpack, { name: '经验胶囊', type: '资源', quantity: 400100 });
+    (service as any).addItemToBackpack(backpack, { name: '经验胶囊', type: '物品', quantity: 400000 });
     expect(backpack).toHaveLength(1);
     expect(backpack[0].quantity).toBe(800100);
+    // 规范化：type 由静态定义唯一决定（items.json 经验胶囊=物品），历史脏 type 被自愈
     expect(backpack[0].type).toBe('物品');
   });
 

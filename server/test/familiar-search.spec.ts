@@ -225,8 +225,10 @@ describe('宠物搜索物品', () => {
     await service.searchPetItems(1, 1_000_000, sequence(0, 0, 0));
 
     const backpack = parse(p.背包, []);
+    // 规范化合并后：数量镜像字段（quantity/count/数量）全量同步为 2，
+    // type 补齐规范值（静态定义缺失时兜底 资源，与原值一致）
     expect(backpack).toEqual([
-      { 名称: '木头', 类型: '资源', 数量: 2 },
+      { 名称: '木头', 类型: '资源', 数量: 2, type: '资源', quantity: 2, count: 2 },
     ]);
     expect(parse(p.标记2, [])).toEqual([
       { name: '宠搜', expireAt: 1_000_600 },

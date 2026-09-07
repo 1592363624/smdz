@@ -14,6 +14,7 @@ import { ShortcutService } from './shortcut.service';
 import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POOL, AMPLIFIER_RANDOM_POOL } from './item.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
+import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import {
   CraftCategory,
   CraftClassifyLookups,
@@ -2643,26 +2644,11 @@ export class ItemSystemService {
 
   /**
    * 添加物品到背包（自动合并同类物品）
-   * 对齐原版 获得物品()：非装备按名称合并，不再要求 type 一致——
-   * 历史脏数据存在同名不同 type（如 经验胶囊 资源/物品 并存，Issue #11），
-   * 按 name+type 合并会让它们永久分条。合并时保留已存在条目的 type。
+   * 统一走 item-normalize 的规范化合并：type 以静态定义为唯一真源，
+   * 非装备按名称合并（历史同名不同 type 脏数据自愈，Issue #11）。
    */
   private addItemToBackpack(backpack: Item3[], item: Item3): void {
-    if (item.type === '装备') {
-      backpack.push({ ...item });
-      return;
-    }
-    const existing = backpack.find(
-      (bp: Item3) => bp.name === item.name && bp.type !== '装备',
-    );
-    if (existing) {
-      const next = Number(existing.quantity ?? existing.count ?? 0) + Number(item.quantity ?? item.count ?? 0);
-      existing.quantity = next;
-      existing.count = next;
-    } else {
-      const quantity = Number(item.quantity ?? item.count ?? 0);
-      backpack.push({ ...item, quantity, count: quantity });
-    }
+    mergeBackpackItem(backpack, item, lookupFromStaticData(this.staticData));
   }
 
   /**

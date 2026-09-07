@@ -21,6 +21,7 @@ import { GameHighlightService } from './highlight.service';
 import { hasActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
+import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import {
   buildFamiliarGateMenu,
   buildFamiliarPreview,
@@ -2565,14 +2566,10 @@ export class FamiliarSystemService {
         return `当前地图没有名为「${petName}」并且属于你的宠物`;
       }
 
-      // 返还觉醒丹到背包
+      // 返还觉醒丹到背包（统一规范化合并，type 以静态定义为准）
       const backpack = this.playerService.getBackpackItems(player);
-      const pillItem = backpack.find((item: any) => item.name === '觉醒丹');
-      if (pillItem) {
-        pillItem.count = (pillItem.count || 0) + totalSpent;
-      } else {
-        backpack.push({ name: '觉醒丹', type: '资源', count: totalSpent });
-      }
+      mergeBackpackItem(backpack, { name: '觉醒丹', type: '资源', quantity: totalSpent, count: totalSpent },
+        lookupFromStaticData(this.staticData));
       player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
       await this.playerService.savePlayer(player);
 

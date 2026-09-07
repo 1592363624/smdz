@@ -34,6 +34,7 @@ import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { HandbookService } from './handbook.service';
 import { normalizeGameText, formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
+import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
 import { buildFamiliarGateMenu } from './familiar-menu.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -4522,14 +4523,9 @@ export class GameService {
       }
     }
     for (const [itemName, amount] of awarded) {
-      const existing = backpack.find((item: any) => item?.name === itemName && item?.type !== '装备');
-      if (existing) {
-        const next = Number(existing.count ?? existing.quantity ?? 0) + amount;
-        existing.count = next;
-        existing.quantity = next;
-      } else {
-        backpack.push({ name: itemName, type: '资源', count: amount, quantity: amount });
-      }
+      // 统一规范化合并（type 以静态定义为准，非装备按名合并，Issue #11）
+      mergeBackpackItem(backpack, { name: itemName, type: '资源', count: amount, quantity: amount },
+        lookupFromStaticData(this.staticData));
       gained.push(`${itemName}×${this.formatGatherNumber(amount)}`);
     }
     for (const [itemName, amount] of awardedEquipment) gained.push(`${itemName}×${amount}`);
@@ -7362,10 +7358,11 @@ export class GameService {
     const { player } = playerData;
     const items = this.playerService.getBackpackItems(player);
 
-    // 筛选非装备类的物品（资源、材料、消耗品等）
+    // 筛选非装备类的物品（资源、物品、材料、消耗品等——type 已由静态定义规范化，
+    // 材料类在 items.json 中的规范 type 为「物品」，Issue #11）
     const resourceItems = items.filter((item: any) => {
       const type = (item.type || '').toLowerCase();
-      return type === '资源' || type === '材料' || type === '消耗品' || type === '弹药' || type === '素材';
+      return type === '资源' || type === '物品' || type === '材料' || type === '消耗品' || type === '弹药' || type === '素材';
     });
 
     if (resourceItems.length === 0) {
@@ -10251,17 +10248,9 @@ export class GameService {
     return total;
   }
 
-  private async addBackpackItem(backpack: any[], item: any): Promise<void> {
-    const existing = backpack.find((entry: any) =>
-      (entry?.name ?? entry?.名称) === (item?.name ?? item?.名称)
-      && (entry?.type ?? entry?.类型 ?? '资源') !== '装备');
-    if (existing) {
-      const next = Number(existing.quantity ?? existing.count ?? 0) + Number(item.quantity ?? item.count ?? 0);
-      existing.quantity = next;
-      existing.count = next;
-      return;
-    }
-    backpack.push({ ...item });
+  private addBackpackItem(backpack: any[], item: any): void {
+    // 统一走 item-normalize 规范化合并：type 以静态定义为唯一真源（Issue #11）
+    mergeBackpackItem(backpack, item, lookupFromStaticData(this.staticData));
   }
 
   /** 对应原版 制造()：dryRun 只校验，正式执行才消耗资源并产出物品。 */
@@ -16598,22 +16587,9 @@ export class GameService {
   }
 
   private addItemToCollection(collection: any[], item: any): void {
-    const type = item?.type ?? item?.类型 ?? '资源';
-    const amount = this.itemQuantity(item);
-    if (type === '装备') {
-      collection.push({ ...item, type: '装备', quantity: amount || 1 });
-      return;
-    }
-    const existing = collection.find((entry: any) =>
-      (entry?.name ?? entry?.名称) === (item?.name ?? item?.名称) &&
-      (entry?.type ?? entry?.类型 ?? '资源') !== '装备',
-    );
-    if (existing) {
-      if (existing.quantity !== undefined) existing.quantity = this.itemQuantity(existing) + amount;
-      else existing.count = this.itemQuantity(existing) + amount;
-    } else {
-      collection.push({ ...item, type, quantity: amount || 1 });
-    }
+    // 统一走 item-normalize 规范化合并（Issue #11）：type 以静态定义为唯一真源。
+    // 注意红线：装备在此只追加不合并，调用方不得把装备当资源记账条目传入。
+    mergeBackpackItem(collection, item, lookupFromStaticData(this.staticData));
   }
 
   private hasEnoughResources(backpack: any[], costs: any[]): boolean {

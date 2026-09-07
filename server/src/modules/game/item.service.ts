@@ -27,6 +27,7 @@ import { ItemSystemService } from './item-system.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity, formatDisplayNumber } from '../../common/utils/game-text.util';
 import { applyEquipmentEffect, createEffectTarget } from './equipment-effect.util';
+import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -259,6 +260,14 @@ export class ItemService {
     @Inject(forwardRef(() => ItemSystemService))
     private readonly itemSystem?: ItemSystemService,
   ) {}
+
+  /**
+   * 背包写入统一入口：走 item-normalize 规范化合并（type 以静态定义为唯一真源，
+   * 非装备按名合并并自愈历史脏 type，Issue #11）。
+   */
+  private addItemToBackpack(backpack: any[], item: any): void {
+    mergeBackpackItem(backpack, item, lookupFromStaticData(this.staticData));
+  }
 
   /**
    * 计算物品价值
@@ -1063,13 +1072,7 @@ export class ItemService {
             equipmentCount++;
           }
         } else {
-          const existing = backpack.find((entry) => entry.name === o.name && entry.type !== '装备');
-          if (existing) {
-            existing.quantity = roundItemQuantity(Number(existing.quantity ?? existing.count ?? 0) + o.count);
-            existing.count = existing.quantity;
-          } else {
-            backpack.push({ name: o.name, type: '资源', quantity: roundItemQuantity(o.count), count: roundItemQuantity(o.count), durability: 0, data: '' });
-          }
+          this.addItemToBackpack(backpack, { name: o.name, type: '资源', quantity: roundItemQuantity(o.count), count: roundItemQuantity(o.count), durability: 0, data: '' });
         }
       }
       player.backpack = backpack;
@@ -1464,20 +1467,9 @@ export class ItemService {
       const crystalAmount = Math.floor(qualityValue * 0.5 * actualCount);
       const energyAmount = Math.floor(qualityValue * 0.3 * actualCount);
 
-      // 添加产物到背包
-      const crystalExists = backpack.find(bp => bp.name === '水晶');
-      if (crystalExists) {
-        crystalExists.quantity += crystalAmount;
-      } else {
-        backpack.push({ name: '水晶', type: '资源', quantity: crystalAmount, durability: 0, data: '' });
-      }
-
-      const energyExists = backpack.find(bp => bp.name === '能量块');
-      if (energyExists) {
-        energyExists.quantity += energyAmount;
-      } else {
-        backpack.push({ name: '能量块', type: '资源', quantity: energyAmount, durability: 0, data: '' });
-      }
+      // 添加产物到背包（统一规范化合并，type 以静态定义为准）
+      this.addItemToBackpack(backpack, { name: '水晶', type: '资源', quantity: crystalAmount, durability: 0, data: '' });
+      this.addItemToBackpack(backpack, { name: '能量块', type: '资源', quantity: energyAmount, durability: 0, data: '' });
 
       // 移除原物品
       backpack.splice(itemIndex, 1);
@@ -1522,17 +1514,12 @@ export class ItemService {
       // 移除原物品
       backpack.splice(itemIndex, 1);
 
-      // 加入分解产物
+      // 加入分解产物（统一规范化合并）
       const deconstructItems: Item3[] = [];
       for (const req of requirements) {
         const returnQty = Math.floor(req.quantity * actualCount * (1 / deconstructMul));
         if (returnQty > 0) {
-          const existing = backpack.find(bp => bp.name === req.name);
-          if (existing) {
-            existing.quantity += returnQty;
-          } else {
-            backpack.push({ name: req.name, type: '资源', quantity: returnQty, durability: 0, data: '' });
-          }
+          this.addItemToBackpack(backpack, { name: req.name, type: '资源', quantity: returnQty, durability: 0, data: '' });
           deconstructItems.push({ name: req.name, type: '资源', quantity: returnQty, durability: 0, data: '' });
         }
       }

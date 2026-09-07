@@ -16,6 +16,7 @@ import { filterActive } from './expire-time.util';
 import { deriveDisplayName } from './display-name.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
+import { canonicalizeBackpack, lookupFromStaticData } from './item-normalize.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { GameHighlightService } from './highlight.service';
 import { ActorRuntime, actorKey } from '../actor';
@@ -508,6 +509,14 @@ export class PlayerService implements OnModuleInit {
     // 货币物化（P1）：钻石/召唤券/数据核心的真相源是独立列，读取时物化回
     // 背包数组，业务代码照常按背包物品读写（透明兼容）。
     this.materializeCurrencies(player);
+
+    // 物品身份自愈（Issue #11 架构收敛）：背包内同名非装备合并、type 收敛到
+    // 静态定义（equipments.json/items.json 为唯一真源），保证同一物品无论从
+    // 什么渠道获得身份一致。详见 item-normalize.util.ts。
+    player.backpack = canonicalizeBackpack(
+      asJsonValue<any[]>(player.backpack, []),
+      lookupFromStaticData(this.staticData),
+    );
 
     // BigInt 字段（lastOpTime/readTime 为 schema BigInt，远程库个别列亦可能为
     // BigInt）统一转 Number：避免 player 对象在 pushState / 记录日志等 JSON 序列化

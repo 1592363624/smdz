@@ -22,6 +22,7 @@ import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
 import { MutateContext, PlayerMutateService } from './player-mutate.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -830,19 +831,8 @@ export class FamiliarSkillsService {
   }
 
   private addPetSearchItem(backpack: any[], item: any): void {
-    const existing = backpack.find((entry: any) =>
-      (entry?.name ?? entry?.名称) === item.name && (entry?.type ?? entry?.类型 ?? '资源') !== '装备',
-    );
-    if (!existing) {
-      backpack.push({ ...item });
-      return;
-    }
-
-    const current = Number(existing.quantity ?? existing.数量 ?? existing.count ?? 0);
-    if (existing.quantity !== undefined) existing.quantity = current + item.quantity;
-    else if (existing.数量 !== undefined) existing.数量 = current + item.quantity;
-    else if (existing.count !== undefined) existing.count = current + item.quantity;
-    else existing.quantity = current + item.quantity;
+    // 统一规范化合并（type 以静态定义为准，非装备按名合并，Issue #11）
+    mergeBackpackItem(backpack, item, lookupFromStaticData(this.staticData));
   }
 
   private getPlayerOwnerIds(player: any, userId: number): Set<string> {
