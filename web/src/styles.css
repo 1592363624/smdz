@@ -922,6 +922,14 @@ vite-plugin-checker-error-overlay,
   border-color: var(--accent2);
   outline: none;
 }
+/* 多行指令集输入框：回车换行组指令集，Ctrl+Enter 添加 */
+.fav-add-textarea {
+  resize: vertical;
+  min-height: 64px;
+  max-height: 200px;
+  font-family: inherit;
+  line-height: 1.5;
+}
 .fav-candidates {
   display: flex;
   flex-wrap: wrap;

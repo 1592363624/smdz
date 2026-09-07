@@ -92,13 +92,14 @@
               <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
             </div>
             <div v-if="favEditing" class="fav-add">
-              <input
-                class="fav-add-input"
+              <textarea
+                class="fav-add-input fav-add-textarea"
                 v-model="favAddInput"
-                placeholder="发送内容（任意文本，如：攻击 史莱姆）"
+                rows="3"
+                placeholder="发送内容（每行一条，可组成指令集，点击后从上到下顺序执行；Ctrl+Enter 添加）"
                 @click.stop
-                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
-              />
+                @keydown.enter.ctrl.prevent="favAddInput.trim() ? addFavorite() : null"
+              ></textarea>
               <input
                 class="fav-add-label"
                 v-model="favAddLabel"
@@ -261,13 +262,14 @@
               <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
             </div>
             <div v-if="favEditing" class="fav-add">
-              <input
-                class="fav-add-input"
+              <textarea
+                class="fav-add-input fav-add-textarea"
                 v-model="favAddInput"
-                placeholder="发送内容（任意文本，如：攻击 史莱姆）"
+                rows="3"
+                placeholder="发送内容（每行一条，可组成指令集，点击后从上到下顺序执行；Ctrl+Enter 添加）"
                 @click.stop
-                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
-              />
+                @keydown.enter.ctrl.prevent="favAddInput.trim() ? addFavorite() : null"
+              ></textarea>
               <input
                 class="fav-add-label"
                 v-model="favAddLabel"
@@ -1068,7 +1070,8 @@ const favAddInput = ref('');
 const favAddLabel = ref('');
 // 添加时的候选指令（基于 cmd 文本从全量指令过滤，仅作快速选择辅助；也可直接输入任意文本）
 const favAddCandidates = computed(() => {
-  const q = favAddInput.value.trim().toLowerCase();
+  // 多行输入时仅用第一行做候选匹配（候选只是快速选择辅助）
+  const q = (favAddInput.value.split(/\r?\n/)[0] || '').trim().toLowerCase();
   if (!q) return [];
   return commands.value
     .filter(c => c.name.toLowerCase().includes(q))
@@ -1120,10 +1123,18 @@ async function saveFavorites(next) {
 }
 
 // 添加一条常用指令（去重按 cmd，无数量上限）
+// 支持多行指令集：每行一条指令，点击按钮时由后端按行拆分、从上到下顺序执行（与发送窗口多行行为一致）
 async function addFavorite(cmdText) {
-  const cmd = (cmdText != null ? cmdText : favAddInput.value).trim();
+  const raw = cmdText != null ? cmdText : favAddInput.value;
+  // 归一化：按行拆分、去首尾空白、过滤空行后重新拼接（单行文本行为不变）
+  const lines = String(raw).split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const cmd = lines.join('\n');
   if (!cmd) return;
-  const label = (favAddLabel.value || cmd).trim() || cmd;
+  let label = (favAddLabel.value || '').trim();
+  if (!label) {
+    // 多行指令集默认显示名：首行 + 条数，避免按钮上挤进整段多行文本
+    label = lines.length > 1 ? `${lines[0]}（${lines.length}条）` : cmd;
+  }
   if (favoriteCommands.value.some((f) => f.cmd === cmd)) {
     showFavMsg('已在常用列表中');
     return;
