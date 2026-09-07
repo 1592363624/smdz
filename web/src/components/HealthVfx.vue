@@ -191,18 +191,18 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-/* ===== 档位变量：mult=强度倍率，w=边缘光宽度 ===== */
+/* ===== 档位变量：mult=强度倍率，w=边缘光宽度（两轮减半：90/110/160 → 45/55/80 → 22/28/40） ===== */
 .hv-lv-standard {
   --hv-mult: 1;
-  --hv-w: 110px;
+  --hv-w: 28px;
 }
 .hv-lv-strong {
   --hv-mult: 1.6;
-  --hv-w: 160px;
+  --hv-w: 40px;
 }
 .hv-lv-simple {
   --hv-mult: 0;
-  --hv-w: 90px;
+  --hv-w: 22px;
 }
 
 /* ===== 分层配色与节奏：t1 暗红慢呼吸 / t2 正红中速 / t3 深血色频闪 ===== */
@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 190px;
+  width: 60px;
 }
 .hv-band-left {
   left: 0;

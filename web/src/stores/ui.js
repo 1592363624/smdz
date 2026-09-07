@@ -61,5 +61,11 @@ export const useUiStore = defineStore('ui', {
       this.hpVfxLevel = HP_VFX_LEVELS[(i + 1) % HP_VFX_LEVELS.length];
       localStorage.setItem(HP_VFX_LEVEL_KEY, this.hpVfxLevel);
     },
+    /** 直接设置血量预警特效档位（设置弹窗单选用），非法值忽略 */
+    setHpVfxLevel(level) {
+      if (!HP_VFX_LEVELS.includes(level)) return;
+      this.hpVfxLevel = level;
+      localStorage.setItem(HP_VFX_LEVEL_KEY, level);
+    },
   },
 });

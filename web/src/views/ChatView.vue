@@ -158,6 +158,7 @@
           </span>
         </div>
         <div class="sidebar-footer-actions">
+          <button class="logout" title="个人设置" @click="settingsOpen = true">🔧 设置</button>
           <button v-if="showAdminEntry" class="logout admin-entry" @click="router.push('/admin')">⚙️ 管理后台</button>
           <button class="logout reset-data" @click="resetMyData">清除数据</button>
           <button class="logout" @click="logout">退出</button>
@@ -367,6 +368,7 @@
           </span>
         </div>
         <div class="sidebar-footer-actions">
+          <button class="logout" title="个人设置" @click="settingsOpen = true">🔧 设置</button>
           <button v-if="showAdminEntry" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
           <button class="logout reset-data" @click="mobileMenuOpen = false; resetMyData()">清除数据</button>
           <button class="logout" @click="logout">退出</button>
@@ -391,15 +393,6 @@
             @click="toggleShowOthers"
           >
             {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
-          </button>
-          <!-- 血量预警特效档位：简约（仅血条闪烁）/ 标准（分级呼吸光效）/ 强烈（亮度+频闪强化） -->
-          <button
-            class="header-action-btn vfx-toggle"
-            :class="['vfx-' + ui.hpVfxLevel]"
-            :title="hpVfxTitle"
-            @click="ui.cycleHpVfxLevel()"
-          >
-            {{ hpVfxLabel }}
           </button>
           <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
           <!-- 命令面板入口：桌面端可用 Cmd/Ctrl+K 唤起，移动端点此打开 -->
@@ -666,6 +659,34 @@
           </div>
         </div>
       </aside>
+    </div>
+
+    <!-- 个人设置弹窗：用户级设置功能统一收纳（当前：血量预警特效档位） -->
+    <div v-if="settingsOpen" class="settings-overlay" @click.self="settingsOpen = false">
+      <div class="settings-modal">
+        <header class="set-header">
+          <h3>🔧 个人设置</h3>
+          <button class="panel-close" title="关闭" @click="settingsOpen = false">✕</button>
+        </header>
+        <div class="set-body">
+          <section class="set-section">
+            <div class="set-section-title">🩸 血量预警特效</div>
+            <div class="set-section-desc">低血量 / 死亡时屏幕边缘光效的强度档位，立即生效</div>
+            <div class="set-options">
+              <button
+                v-for="opt in HP_VFX_OPTIONS"
+                :key="opt.value"
+                class="set-option"
+                :class="{ active: ui.hpVfxLevel === opt.value }"
+                @click="ui.setHpVfxLevel(opt.value)"
+              >
+                <span class="set-option-name">{{ opt.label }}<i v-if="ui.hpVfxLevel === opt.value" class="set-option-check">✓ 当前</i></span>
+                <span class="set-option-desc">{{ opt.desc }}</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
 
     <!-- 反馈面板（右侧滑出覆盖层） -->
@@ -1014,15 +1035,14 @@ let socket = null;
 // 玩家信息
 const playerInfo = computed(() => playerStore.info);
 
-// ===== 血量预警特效档位开关（顶栏按钮，ui store 持久化到 localStorage） =====
-const HP_VFX_LABEL = { simple: '🩸 预警:简约', standard: '🩸 预警:标准', strong: '🩸 预警:强烈' };
-const HP_VFX_DESC = {
-  simple: '简约档：仅血条闪烁，无屏幕边缘光效（适合挂机）',
-  standard: '标准档：三边分级呼吸光效（日常默认）',
-  strong: '强烈档：光效亮度提升 + 频闪强化（适合高强度战斗）',
-};
-const hpVfxLabel = computed(() => HP_VFX_LABEL[ui.hpVfxLevel] || HP_VFX_LABEL.standard);
-const hpVfxTitle = computed(() => `血量预警特效：${HP_VFX_DESC[ui.hpVfxLevel] || HP_VFX_DESC.standard}（点击切换）`);
+// ===== 个人设置弹窗（左下角「设置」入口，后续用户设置功能统一收纳于此） =====
+const settingsOpen = ref(false);
+// 血量预警特效档位选项（写入 ui store，localStorage 持久化）
+const HP_VFX_OPTIONS = [
+  { value: 'simple', label: '简约', desc: '仅血条闪烁，无屏幕边缘光效，适合挂机' },
+  { value: 'standard', label: '标准', desc: '三边分级呼吸光效，日常默认' },
+  { value: 'strong', label: '强烈', desc: '光效亮度提升 + 频闪强化，适合高强度战斗' },
+];
 
 // 战斗卡片视角名：服务端战斗文本以「玩家面板 name」（含称号后缀）称呼玩家，
 // 用于把命中行区分为「我打出 / 打到我身上 / 其他」三种样式；拿不到面板名时回退登录昵称
@@ -4021,5 +4041,114 @@ onUnmounted(() => {
   .update-modal {
     max-height: 90vh;
   }
+}
+/* ===== 个人设置弹窗 ===== */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.settings-modal {
+  width: 420px;
+  max-width: 94vw;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg2);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 32px rgba(139, 92, 246, 0.15);
+  animation: umPopIn 0.25s ease-out;
+  overflow: hidden;
+}
+.set-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(10, 10, 26, 0.6);
+}
+.set-header h3 {
+  font-size: 15px;
+  color: var(--text);
+  margin: 0;
+}
+.set-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.set-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.set-section-desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.set-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.set-option {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(139, 92, 246, 0.04);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.set-option:hover {
+  border-color: rgba(139, 92, 246, 0.5);
+}
+.set-option.active {
+  border-color: rgba(139, 92, 246, 0.8);
+  background: rgba(139, 92, 246, 0.14);
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.18);
+}
+.set-option-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.set-option.active .set-option-name {
+  color: #c4b5fd;
+}
+.set-option-check {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+}
+.set-option-desc {
+  font-size: 11px;
+  color: var(--muted);
 }
 </style>
