@@ -2685,18 +2685,32 @@ export class ItemSystemService {
       hpPhysRes: '生命物抗', 生命火抗: '生命火抗', 生命冰抗: '生命冰抗', 生命电抗: '生命电抗',
       shieldPhysRes: '护盾物抗', 护盾火抗: '护盾火抗', 护盾冰抗: '护盾冰抗', 护盾电抗: '护盾电抗',
       armorPhysRes: '装甲物抗', 装甲火抗: '装甲火抗', 装甲冰抗: '装甲冰抗', 装甲电抗: '装甲电抗',
-      shield2: '护盾II', 装甲2: '装甲II', 生命2: '生命II', 攻击2: '攻击II',
-      speed2: '速度II', 闪避2: '闪避II', 命中2: '命中II',
-      hpRegen2: '生命恢复II', 护盾回复2: '护盾回复II', 装甲回复2: '装甲修复II',
-      physDmg2: '物伤II', 电伤2: '电伤II', 火伤2: '火伤II', 冰伤2: '冰伤II',
+      shield2: '护盾加成II', 护盾2: '护盾加成II',
+      装甲2: '装甲加成II', 生命2: '生命加成II', 攻击2: '攻击加成II',
+      speed2: '速度加成II', 速度2: '速度加成II',
+      闪避2: '闪避加成II', 命中2: '命中加成II',
+      hpRegen2: '生命恢复加成II', 生命回复2: '生命恢复加成II',
+      护盾回复2: '护盾回复加成II', 装甲回复2: '装甲修复加成II',
+      physDmg2: '物攻加成II', 物伤2: '物攻加成II',
+      电伤2: '电攻加成II', 火伤2: '火攻加成II', 冰伤2: '冰攻加成II',
     };
+    // II 族属性均为百分比口径（原版 数据显示.ecode L579-618：护盾2→"护盾+X%"、
+    // 攻击2→"攻击+X%" 等；战斗侧以 /100 倍率消费）。展示补 % 消除"攻击II: 47"歧义
+    // （Issue #12-4），与加成/生命2 等同族保持一致。
+    const percentKeys = new Set([
+      'shield2', '护盾2', '装甲2', '生命2', '攻击2', 'speed2', '速度2',
+      '闪避2', '命中2',
+      'hpRegen2', '生命回复2', '护盾回复2', '装甲回复2',
+      'physDmg2', '物伤2', '电伤2', '火伤2', '冰伤2',
+    ]);
 
     for (const [key, value] of Object.entries(bonus)) {
       if (value !== 0) {
         const displayName = displayMap[key] || key;
         // 全局数值口径：显示最多两位小数，消除浮点尾巴（如 103.32000000000001）
         const fmtValue = Math.round(Number(value) * 100) / 100;
-        lines.push(`  ${displayName}: ${fmtValue}`);
+        const suffix = percentKeys.has(key) ? '%' : '';
+        lines.push(`  ${displayName}: ${fmtValue}${suffix}`);
       }
     }
     return lines;

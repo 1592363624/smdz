@@ -4508,7 +4508,21 @@ export class GameService {
         if (Number.isFinite(chance) && chance >= 0 && Math.random() * 100 >= chance * dropRate) continue;
         const parsed = this.parseResourceOutputName(out.name, Number(out.count));
         if (!parsed.name) continue;
-        const itemType = this.staticData.getEquipmentByName(parsed.name) ? '装备' : '资源';
+        // 类型三分类（原版 地图操作.ecode L1583-1590）：装备生成词条；资源乘采集加成；
+        // 其余（箱子等可使用功能物品，items.json 中带 useEffects 的条目）不乘加成——
+        // 否则"良好装备补给箱×1.47"这类小数数量会入库（Issue #12-3）。
+        const staticItem = typeof (this.staticData as any)?.getItemByName === 'function'
+          ? (this.staticData as any).getItemByName(parsed.name)
+          : undefined;
+        const itemUseEffects = staticItem?.useEffects;
+        const isUsableItem = Array.isArray(itemUseEffects)
+          ? itemUseEffects.length > 0
+          : Boolean(itemUseEffects);
+        const itemType = this.staticData.getEquipmentByName(parsed.name)
+          ? '装备'
+          : isUsableItem
+            ? '物品'
+            : '资源';
         if (itemType === '装备') {
           const quality = parsed.quality || '';
           const equipment = await this.itemSystemService.generateRewardEquipment(parsed.name, quality);
@@ -4516,7 +4530,7 @@ export class GameService {
           awardedEquipment.set(parsed.name, (awardedEquipment.get(parsed.name) || 0) + 1);
         } else {
           const amount = parsed.count > 0
-            ? parsed.count * this.getGatherMultiplier(playerData)
+            ? (itemType === '资源' ? parsed.count * this.getGatherMultiplier(playerData) : parsed.count)
             : Math.abs(parsed.count);
           if (amount > 0) awarded.set(parsed.name, (awarded.get(parsed.name) || 0) + amount);
         }
@@ -14187,26 +14201,48 @@ export class GameService {
       const shieldBefore = player.shield || 0;
       const armorBefore = player.armor || 0;
       if (hpBefore > 0) {
+        // 三池口径红线（Issue #12-6 装甲实际回复对不上）：回复基数与封顶一律用
+        // 「计算上限」（buildAttackerBonus 的 生命/护盾/装甲，含装备加成 = 面板分母），
+        // 禁用基础 maxHp/maxShield/maxArmor——否则装备加成下回复永远够不到面板上限。
+        // 回复速率同样取计算值（bonus.三回复已按原版 L2343-2345 /10 折算，
+        // 含装备词条 生命恢复/装甲修复/护盾回复 贡献），与属性面板"每秒回复"口径一致。
+        let capHp = player.maxHp || 100;
+        let capShield = player.maxShield || 0;
+        let capArmor = player.maxArmor || 0;
+        let rateHp = regenHp;
+        let rateShield = regenShield;
+        let rateArmor = regenArmor;
+        let rateHp2 = player.regenHp2 || 0;
+        let rateShield2 = player.regenShield2 || 0;
+        let rateArmor2 = player.regenArmor2 || 0;
+        try {
+          const regenBonus = this.combatSystem.buildAttackerBonus(player, playerData) as any;
+          if (Number(regenBonus.生命) > 0) capHp = Number(regenBonus.生命);
+          if (Number(regenBonus.护盾) > 0) capShield = Number(regenBonus.护盾);
+          if (Number(regenBonus.装甲) > 0) capArmor = Number(regenBonus.装甲);
+          // 回复速率取计算值（为 0 也是合法口径，如脏弹禁止回复），仅 NaN/缺失时兜底
+          const pickRate = (v: any, fallback: number) =>
+            Number.isFinite(Number(v)) && v !== undefined && v !== null ? Number(v) : fallback;
+          rateHp = pickRate(regenBonus.生命回复, rateHp);
+          rateShield = pickRate(regenBonus.护盾回复, rateShield);
+          rateArmor = pickRate(regenBonus.装甲回复, rateArmor);
+          // 回复2 为百分比词条（原版 时间差×回复2/100×属性.三池），取计算口径的百分比项
+          rateHp2 = Number(regenBonus.生命回复2 ?? rateHp2) || 0;
+          rateShield2 = Number(regenBonus.护盾回复2 ?? rateShield2) || 0;
+          rateArmor2 = Number(regenBonus.装甲回复2 ?? rateArmor2) || 0;
+        } catch { /* 加成缺失按基础值兜底 */ }
+
         // 应用回复公式：回复量 = 回复率 × 时间差（每秒回复"回复率"点）
         // 对齐原版 _计算玩家 L2401-2403：
         //   当前护盾 += 时间差 × 属性.护盾回复 + 时间差 × 属性.护盾回复2/100 × 属性.护盾
-        // 本框架 regenHp/regenShield/regenArmor 已含原版 /10 折算后的每秒回复速率。
-        const maxHpVal = player.maxHp || 100;
-        const maxShieldVal = player.maxShield || 0;
-        const maxArmorVal = player.maxArmor || 0;
-        const hpRegen = Math.floor(regenHp * timeDiff + (player.regenHp2 || 0) / 100 * maxHpVal * timeDiff);
-        const shieldRegen = Math.floor(regenShield * timeDiff + (player.regenShield2 || 0) / 100 * maxShieldVal * timeDiff);
-        const armorRegen = Math.floor(regenArmor * timeDiff + (player.regenArmor2 || 0) / 100 * maxArmorVal * timeDiff);
+        const hpRegen = Math.floor(rateHp * timeDiff + rateHp2 / 100 * capHp * timeDiff);
+        const shieldRegen = Math.floor(rateShield * timeDiff + rateShield2 / 100 * capShield * timeDiff);
+        const armorRegen = Math.floor(rateArmor * timeDiff + rateArmor2 / 100 * capArmor * timeDiff);
 
-        // 限制回复量不超过最大值
-        const maxHp = player.maxHp || 100;
-        player.hp = Math.min(maxHp, hpBefore + hpRegen);
-
-        const maxShield = player.maxShield || 0;
-        player.shield = Math.min(maxShield, shieldBefore + shieldRegen);
-
-        const maxArmor = player.maxArmor || 0;
-        player.armor = Math.min(maxArmor, armorBefore + armorRegen);
+        // 限制回复量不超过计算上限（含装备加成的面板分母）
+        player.hp = Math.min(capHp, hpBefore + hpRegen);
+        player.shield = Math.min(capShield, shieldBefore + shieldRegen);
+        player.armor = Math.min(capArmor, armorBefore + armorRegen);
       }
 
       // ===== 躺下经验结算（原版 _计算玩家 L2478-2491） =====
@@ -14280,15 +14316,16 @@ export class GameService {
       // 保存玩家数据
       await this.playerService.savePlayer(player);
 
-      // 构建回复结果文本
+      // 构建回复结果文本（显示走两位小数闸，消除 126.39999999999998 型浮点尾巴）
+      const fmtDelta = (v: number) => String(Math.round(v * 100) / 100);
       const regenLines: string[] = [];
       const actualHpRegen = (player.hp || 0) - hpBefore;
       const actualShieldRegen = (player.shield || 0) - shieldBefore;
       const actualArmorRegen = (player.armor || 0) - armorBefore;
 
-      if (actualHpRegen > 0) regenLines.push(`生命回复 +${actualHpRegen}`);
-      if (actualShieldRegen > 0) regenLines.push(`护盾回复 +${actualShieldRegen}`);
-      if (actualArmorRegen > 0) regenLines.push(`装甲回复 +${actualArmorRegen}`);
+      if (actualHpRegen > 0) regenLines.push(`生命回复 +${fmtDelta(actualHpRegen)}`);
+      if (actualShieldRegen > 0) regenLines.push(`护盾回复 +${fmtDelta(actualShieldRegen)}`);
+      if (actualArmorRegen > 0) regenLines.push(`装甲回复 +${fmtDelta(actualArmorRegen)}`);
       // 活力提示属于玩家的额外文本，与三池回复同批输出（原版写入 玩家.额外文本）
       if (vitalityTipText) regenLines.push(vitalityTipText);
 
