@@ -6,8 +6,13 @@
  * 当前纳入：
  * - toasts：全局轻提示队列（成功/错误/警告/信息）
  * - paletteOpen：命令面板（Cmd/Ctrl+K）开关
+ * - hpVfxLevel：血量预警特效强度档位（simple/standard/strong，localStorage 持久化）
  */
 import { defineStore } from 'pinia';
+
+/** 血量预警特效档位（循环切换顺序） */
+const HP_VFX_LEVELS = ['simple', 'standard', 'strong'];
+const HP_VFX_LEVEL_KEY = 'smdz_hp_vfx_level';
 
 export const useUiStore = defineStore('ui', {
   state: () => ({
@@ -49,6 +54,12 @@ export const useUiStore = defineStore('ui', {
     /** 切换命令面板 */
     togglePalette() {
       this.paletteOpen = !this.paletteOpen;
+    },
+    /** 循环切换血量预警特效档位（简约 → 标准 → 强烈）并持久化 */
+    cycleHpVfxLevel() {
+      const i = HP_VFX_LEVELS.indexOf(this.hpVfxLevel);
+      this.hpVfxLevel = HP_VFX_LEVELS[(i + 1) % HP_VFX_LEVELS.length];
+      localStorage.setItem(HP_VFX_LEVEL_KEY, this.hpVfxLevel);
     },
   },
 });

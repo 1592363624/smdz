@@ -392,6 +392,15 @@
           >
             {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
           </button>
+          <!-- 血量预警特效档位：简约（仅血条闪烁）/ 标准（分级呼吸光效）/ 强烈（亮度+频闪强化） -->
+          <button
+            class="header-action-btn vfx-toggle"
+            :class="['vfx-' + ui.hpVfxLevel]"
+            :title="hpVfxTitle"
+            @click="ui.cycleHpVfxLevel()"
+          >
+            {{ hpVfxLabel }}
+          </button>
           <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
           <!-- 命令面板入口：桌面端可用 Cmd/Ctrl+K 唤起，移动端点此打开 -->
           <button class="header-action-btn palette-open-btn" title="指令面板（Cmd/Ctrl+K）" @click="ui.openPalette()">
@@ -814,6 +823,9 @@
     <!-- 高光时刻动画层：任务达成 / 领取新任务 / 获得称号 / 等级提升 时播放屏幕级动画 -->
     <GameHighlight ref="highlightRef" />
 
+    <!-- 血量预警 / 死亡状态全屏特效层：三边呼吸光效分层预警 + 死亡三段式反馈（档位见顶栏开关） -->
+    <HealthVfx :info="playerInfo" />
+
     <!-- 部署更新提示弹窗：检测到服务器有新版本部署后主动弹出，或点击版本号手动查看 -->
     <div v-if="updateModal.show" class="update-modal-overlay" @click.self="dismissUpdate">
       <div class="update-modal">
@@ -887,6 +899,8 @@ import { chatApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
 import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameHighlight from '../components/GameHighlight.vue';
+// 血量预警/死亡状态全屏特效层（三边呼吸光效、受击快闪、死亡三段式反馈）
+import HealthVfx from '../components/HealthVfx.vue';
 // 结构化长消息（背包/属性/装备）在公屏的网格卡片渲染（纯前端展示层优化，不影响后端/AstrBot 文本）
 import RichSystemCard from '../components/RichSystemCard.vue';
 import BattleCard from '../components/BattleCard.vue';
@@ -999,6 +1013,17 @@ let socket = null;
 
 // 玩家信息
 const playerInfo = computed(() => playerStore.info);
+
+// ===== 血量预警特效档位开关（顶栏按钮，ui store 持久化到 localStorage） =====
+const HP_VFX_LABEL = { simple: '🩸 预警:简约', standard: '🩸 预警:标准', strong: '🩸 预警:强烈' };
+const HP_VFX_DESC = {
+  simple: '简约档：仅血条闪烁，无屏幕边缘光效（适合挂机）',
+  standard: '标准档：三边分级呼吸光效（日常默认）',
+  strong: '强烈档：光效亮度提升 + 频闪强化（适合高强度战斗）',
+};
+const hpVfxLabel = computed(() => HP_VFX_LABEL[ui.hpVfxLevel] || HP_VFX_LABEL.standard);
+const hpVfxTitle = computed(() => `血量预警特效：${HP_VFX_DESC[ui.hpVfxLevel] || HP_VFX_DESC.standard}（点击切换）`);
+
 // 战斗卡片视角名：服务端战斗文本以「玩家面板 name」（含称号后缀）称呼玩家，
 // 用于把命中行区分为「我打出 / 打到我身上 / 其他」三种样式；拿不到面板名时回退登录昵称
 const viewerName = computed(() => playerInfo.value?.name || user.value?.nickname || user.value?.username || '');

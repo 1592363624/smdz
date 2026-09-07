@@ -14,9 +14,9 @@
     </div>
     <!-- 四条主资源：2×2 网格（左上生命／右上护盾／左下护甲／右下活力），原竖排 4 行高度压缩为 2 行 -->
     <div class="pi-bars">
-      <div class="pi-bar-cell">
-        <div class="pi-bar-label"><span>❤️ 生命</span><span>{{ r(info.hp) }}/{{ r(info.maxHp) }}</span></div>
-        <div class="pi-bar"><div class="pi-bar-fill hp" :class="hpBarClass" :style="{ width: hpPercent + '%' }"></div></div>
+      <div class="pi-bar-cell" :class="hpTierClass ? 'pit-' + hpTierClass : ''">
+        <div class="pi-bar-label"><span :class="{ 'hp-label-dead': hpDead }">❤️ 生命</span><span>{{ r(info.hp) }}/{{ r(info.maxHp) }}</span></div>
+        <div class="pi-bar"><div class="pi-bar-fill hp" :class="[hpBarClass, hpTierClass]" :style="{ width: hpPercent + '%' }"></div></div>
       </div>
       <div class="pi-bar-cell">
         <div class="pi-bar-label"><span>🛡️ 护盾</span><span>{{ r(info.shield) }}/{{ r(info.maxShield) }}</span></div>
@@ -146,6 +146,29 @@ const hpBarClass = computed(() => {
   const pct = hpPercent.value;
   if (pct <= 25) return 'low';
   if (pct <= 60) return 'medium';
+  return '';
+});
+
+// ===== 血量分层预警 / 死亡状态（与 HealthVfx 特效层同口径联动） =====
+// 死亡判定与战斗系统一致：hp<=0 且增益「卷土重来」未过期不算真死（原版 战斗相关.ecode L5182）
+const hpDead = computed(() => {
+  const max = Number(props.info?.maxHp) || 0;
+  if (max <= 0) return false;
+  if ((Number(props.info?.hp) || 0) > 0) return false;
+  const buffs = Array.isArray(props.info?.buffs) ? props.info.buffs : [];
+  const now = serverNow();
+  const hasComeback = buffs.some(
+    (b) => b && (b.name ?? b.名称) === '卷土重来' && (!Number(b.expireAt) || Number(b.expireAt) > now),
+  );
+  return !hasComeback;
+});
+// 分层档位：t1=30~20%（暗红慢呼吸）/ t2=20~10%（正红中速）/ t3=<10%（濒死频闪）/ dead=死亡
+const hpTierClass = computed(() => {
+  if (hpDead.value) return 'dead';
+  const pct = hpPercent.value;
+  if (pct <= 10) return 't3';
+  if (pct <= 20) return 't2';
+  if (pct <= 30) return 't1';
   return '';
 });
 

@@ -156,9 +156,21 @@ export class CommandService {
       //     教程标记不足时补发任务，本次实际领取到的任务名转成“领取了X”提示，
       //     前插到指令结果之前（原版按领取顺序逐条前插，最终进阶在上、新手在下）。
       let tutorialClaims = '';
-      if (ctx.userId && this.taskService) {
+      const uid = ctx.userId;
+      if (uid && this.taskService) {
         try {
-          const added = await this.taskService.ensureTutorialTasks(ctx.userId);
+          // 写入口收口：ensureTutorialTasks 只经 markPlayerDirty 透传脏信号，自身不落库。
+          // 本调用点位于 mutate 管道之外（下方 5 段才把 handler 包进 mutate），若不包
+          // mutate，脏信号两路（ActorRuntime / mutateContext）均无人消费 → 领取永远
+          // 不落库 → 每条指令重复输出「领取了新手教程」（测试库实证：剑圣 markers
+          // 无“教程”键、tasks 无新手教程，其余标记全部正常持久化）。
+          // 另两处调用点（selectFamiliar / handleInfo）本就运行在 handler 的 mutate
+          // 内，markPlayerDirty 能命中 mutateContext，无此问题。
+          const taskService = this.taskService;
+          const claim = () => taskService.ensureTutorialTasks(uid);
+          const added = this.playerMutate
+            ? await this.playerMutate.mutate(uid, claim)
+            : await claim();
           tutorialClaims = buildTutorialClaimBlock(added || []);
         } catch (e: any) {
           this.logger.warn(`教程任务领取失败: ${e.message}`);

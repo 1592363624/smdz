@@ -1797,6 +1797,51 @@ vite-plugin-checker-error-overlay,
   background: linear-gradient(90deg, #6366f1, #818cf8);
 }
 
+/* ==================== 血量分层预警 / 死亡状态联动（与 HealthVfx 特效层同口径） ==================== */
+/* 分层发光溢出：挂在 .pi-bar 容器上（fill 被父级 overflow:hidden 裁切，光晕出不来）
+   t1=30~20% 暗红慢呼吸(2s) / t2=20~10% 正红中速(1.2s) / t3=<10% 濒死快频闪(0.5s) */
+.player-info .pi-bar-cell.pit-t1 .pi-bar { animation: pi-hp-glow-1 2s ease-in-out infinite; }
+.player-info .pi-bar-cell.pit-t2 .pi-bar { animation: pi-hp-glow-2 1.2s ease-in-out infinite; }
+.player-info .pi-bar-cell.pit-t3 .pi-bar { animation: pi-hp-glow-3 0.5s linear infinite; }
+@keyframes pi-hp-glow-1 {
+  0%, 100% { box-shadow: 0 0 3px rgba(220, 38, 38, 0.25); }
+  50% { box-shadow: 0 0 10px rgba(220, 38, 38, 0.7); }
+}
+@keyframes pi-hp-glow-2 {
+  0%, 100% { box-shadow: 0 0 4px rgba(239, 68, 68, 0.35); }
+  50% { box-shadow: 0 0 13px rgba(239, 68, 68, 0.85); }
+}
+@keyframes pi-hp-glow-3 {
+  0% { box-shadow: 0 0 4px rgba(190, 18, 18, 0.4); }
+  50% { box-shadow: 0 0 16px rgba(220, 38, 38, 1); }
+  100% { box-shadow: 0 0 4px rgba(190, 18, 18, 0.4); }
+}
+/* 死亡：血条变灰失去血色 */
+.player-info .pi-bar-fill.hp.dead {
+  background: linear-gradient(90deg, #4b5563, #6b7280);
+  filter: grayscale(1);
+}
+/* 死亡：「生命」文字变红并缓慢闪烁 */
+.player-info .hp-label-dead {
+  color: var(--danger, #ef4444);
+  font-weight: 700;
+  animation: pi-hp-label-blink 1.6s ease-in-out infinite;
+}
+@keyframes pi-hp-label-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+/* 死亡时右侧信息面板（地图区）与聊天区弱红染色：body 类由 HealthVfx 切换 */
+body.smdz-hp-dead .info-panel { box-shadow: inset 0 0 70px rgba(140, 10, 10, 0.22); }
+body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12); }
+/* 无障碍：减少动效时只保留静态状态色，去掉闪烁 */
+@media (prefers-reduced-motion: reduce) {
+  .player-info .pi-bar-cell.pit-t1 .pi-bar,
+  .player-info .pi-bar-cell.pit-t2 .pi-bar,
+  .player-info .pi-bar-cell.pit-t3 .pi-bar { animation: none; box-shadow: 0 0 8px rgba(220, 38, 38, 0.4); }
+  .player-info .hp-label-dead { animation: none; }
+}
+
 /* 主资源 2×2 网格：生命/护盾/装甲/活力，两行两列，行内自带数值 */
 .player-info .pi-bars {
   display: grid;

@@ -975,10 +975,14 @@ export class TaskService {
       const completed = await this.settleCompletedTasks(player, tasks);
       if (added.length > 0 || markerChanged || completed.length > 0) {
         player.tasks = tasks; // Player tasks 为 Json 列，直接写数组
-        // 标脏而非直调 savePlayer：本方法恒在 playerMutate.mutate / Actor run 内被调用
-        // （command.service、selectFamiliar、game.service 三处调用点均已包裹）。此处只是
-        // 把"已改动"信号透传给最外层 run 的落库策略（markDirty 让其按 writeThrough 落库），
-        // 不新增裸 savePlayer 调用点（架构门禁友好），也避免内层只标脏不落的语义误解。
+        // 标脏而非直调 savePlayer：本方法自身不落库，落库完全依赖调用方上下文。
+        // 【调用契约】必须在 playerMutate.mutate / Actor run 内调用，否则 markPlayerDirty
+        // 两路（ActorRuntime / mutateContext）都拿不到上下文、成为静默 no-op，
+        // 领取结果丢失且每条指令重复领取（历史事故：command.service 在 mutate 外
+        // 裸调用，导致“领取了新手教程”每条回复重复输出）。现有三处调用点：
+        // command.service（已包 mutate）、selectFamiliar、handleInfo（均在 handler
+        // 的 mutate 内）。此处只是把"已改动"信号透传给最外层 run 的落库策略
+        // （markDirty 让其按 writeThrough 落库），不新增裸 savePlayer 调用点。
         this.playerService.markPlayerDirty(userId);
       }
       return added;
