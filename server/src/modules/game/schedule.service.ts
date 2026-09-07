@@ -611,7 +611,18 @@ export class ScheduleService {
   private async spawnRandomVehicle(maps: any[]): Promise<void> {
     try {
       const hour = new Date().getHours();
-      const mustSpawn = hour === 10 || hour === 22;
+      let mustSpawn = hour === 10 || hour === 22;
+
+      // 原版 后台运作.ecode L1393-L1405：全图已存在无主载具时，
+      // 10/22 点的必刷失效，退化为普通随机几率（每小时最多一个）。
+      if (mustSpawn) {
+        const hasOwnerless = maps.some((map: any) =>
+          this.parseJsonArray<any>(map.vehicles).some(
+            (v: any) => String(v?.owner ?? v?.归属 ?? '') === '无主',
+          ),
+        );
+        if (hasOwnerless) mustSpawn = false;
+      }
 
       // 非必刷时间，按随机几率判断（默认50%）
       if (!mustSpawn) {

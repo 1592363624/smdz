@@ -8420,6 +8420,12 @@ export class CombatSystemService {
           isAutoCombat: true,
         });
 
+        // 自动战斗击杀同样计入击杀成就/任务（原版 添加成就 L9314-L9315），
+        // 否则挂机杀怪不累计「击败X」，扫荡需求永远无法满足（Issue #11）。
+        if (result.killed.length > 0) {
+          await this.recordKills(userId, result.killed);
+        }
+
         this.logger.log(`自动战斗 userId=${userId}, 伤害=${result.damageDealt}, 击杀=${result.killed.join(',')}`);
       } catch (error) {
         this.logger.error(`自动战斗执行失败 userId=${userId}: ${error.message}`);
@@ -8454,6 +8460,46 @@ export class CombatSystemService {
    */
   isAutoCombatActive(userId: number): boolean {
     return this.autoCombatTimers.has(userId);
+  }
+
+  /**
+   * 击杀结算：对应原版 _主程序.ecode L9314-L9315
+   * 添加成就("击败怪物", 数量, 成就, 任务) 与 添加成就("击败" + 怪物名, 数量, ...)。
+   * 成就侧写入玩家标记（扫荡需求/称号判定读取，原版 数据显示.ecode L3792），
+   * 任务侧推进任务进度。手动攻击与自动战斗统一走此入口。
+   */
+  async recordKills(userId: number, killedNames: string[]): Promise<void> {
+    const byName = new Map<string, number>();
+    for (const rawName of killedNames || []) {
+      const key = String(rawName || '').trim();
+      if (!key) continue;
+      byName.set(key, (byName.get(key) || 0) + 1);
+    }
+    if (byName.size === 0) return;
+    const total = [...byName.values()].reduce((s, c) => s + c, 0);
+
+    if (this.taskService && typeof this.taskService.advance === 'function') {
+      try {
+        await this.taskService.advance(userId, '击败怪物', total);
+        for (const [name, count] of byName) {
+          await this.taskService.advance(userId, `击败${name}`, count);
+        }
+      } catch (error: any) {
+        this.logger.warn(`击杀任务推进失败 userId=${userId}: ${error?.message}`);
+      }
+    }
+
+    try {
+      const playerData = await this.playerService.getPlayerData(userId);
+      const player = playerData?.player;
+      if (!player) return;
+      await this.achievementService.addAchievement(player, '击败怪物', total);
+      for (const [name, count] of byName) {
+        await this.achievementService.addAchievement(player, `击败${name}`, count);
+      }
+    } catch (error: any) {
+      this.logger.warn(`击杀成就写入失败 userId=${userId}: ${error?.message}`);
+    }
   }
 
   // ==================== 自动连击机制 ====================

@@ -189,16 +189,9 @@ export class GameCommandHandler implements CommandHandler {
             await this.playerService.savePlayer(pd.player);
           }
           const result = await this.combatSystem.weaponAttack(userId, weaponIndex, { targetName: arg });
-          // 自动推进任务：击杀怪物（对应原版 L9314~L9315）
-          // 添加成就("击败怪物", 数量, 成就, 任务) 与 添加成就("击败" + 怪物名, 数量, ...)
-          const killedList = result.killed || [];
-          if (killedList.length > 0) {
-            await this.taskService.advance(userId, '击败怪物', killedList.length);
-            for (const killedName of killedList) {
-              await this.taskService.advance(userId, '击败' + killedName);
-            }
-            // “消耗活力”由战斗奖励结算层按实际扣除量推进，命令层不重复记账。
-          }
+          // 击杀结算（对应原版 L9314~L9315）：同时推进任务（击败怪物/击败X）
+          // 与玩家标记（击败X 计数，扫荡需求读取）——由战斗系统统一入口处理。
+          await this.combatSystem.recordKills(userId, result.killed || []);
           // 新手引导：攻击照常执行，引导文本作为附加提示（不拦截，避免"首次攻击被吞"）
           // 对应原版：攻击即攻击，无引导拦截逻辑
           const tutorialText = await this.checkTutorial(userId, 'attack');

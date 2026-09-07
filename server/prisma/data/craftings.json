@@ -2234,7 +2234,9 @@
         "count": 3
       }
     ],
-    "gainMarkers": []
+    "gainMarkers": [
+      "探测雷达等级1"
+    ]
   },
   {
     "name": "升级探测雷达二",
@@ -2271,7 +2273,9 @@
         "count": 10
       }
     ],
-    "gainMarkers": []
+    "gainMarkers": [
+      "探测雷达等级2"
+    ]
   },
   {
     "name": "升级探测雷达三",
@@ -2308,7 +2312,9 @@
         "count": 33
       }
     ],
-    "gainMarkers": []
+    "gainMarkers": [
+      "探测雷达等级3"
+    ]
   },
   {
     "name": "升级探测雷达四",
@@ -2345,7 +2351,9 @@
         "count": 100
       }
     ],
-    "gainMarkers": []
+    "gainMarkers": [
+      "探测雷达等级4"
+    ]
   },
   {
     "name": "升级探测雷达五",
@@ -2382,7 +2390,9 @@
         "count": 500
       }
     ],
-    "gainMarkers": []
+    "gainMarkers": [
+      "探测雷达等级5"
+    ]
   },
   {
     "name": "升级探测雷达六",
@@ -2419,7 +2429,9 @@
         "count": 2500
       }
     ],
-    "gainMarkers": []
+    "gainMarkers": [
+      "探测雷达等级6"
+    ]
   },
   {
     "name": "天蓝吊坠",

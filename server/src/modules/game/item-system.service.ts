@@ -2643,6 +2643,9 @@ export class ItemSystemService {
 
   /**
    * 添加物品到背包（自动合并同类物品）
+   * 对齐原版 获得物品()：非装备按名称合并，不再要求 type 一致——
+   * 历史脏数据存在同名不同 type（如 经验胶囊 资源/物品 并存，Issue #11），
+   * 按 name+type 合并会让它们永久分条。合并时保留已存在条目的 type。
    */
   private addItemToBackpack(backpack: Item3[], item: Item3): void {
     if (item.type === '装备') {
@@ -2650,7 +2653,7 @@ export class ItemSystemService {
       return;
     }
     const existing = backpack.find(
-      (bp: Item3) => bp.name === item.name && bp.type === item.type,
+      (bp: Item3) => bp.name === item.name && bp.type !== '装备',
     );
     if (existing) {
       const next = Number(existing.quantity ?? existing.count ?? 0) + Number(item.quantity ?? item.count ?? 0);

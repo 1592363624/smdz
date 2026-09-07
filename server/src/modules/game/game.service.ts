@@ -7091,7 +7091,14 @@ export class GameService {
         onTaskProgress: (actionName, count) => taskProgress.push({ actionName, count }),
       });
     }
-    player.markers = playerData.markers || asJsonValue(player.markers, {}); // Json 列直接写对象
+    // 原版扫荡同样添加击败成就（L9314-L9315）：写入玩家标记，
+    // 否则扫荡产出的击杀不累计「击败X」，扫荡需求无法推进（Issue #11）。
+    const sweepMarkers = playerData.markers || asJsonValue<Record<string, number>>(player.markers, {});
+    sweepMarkers['击败怪物'] = (Number(sweepMarkers['击败怪物']) || 0) + totalMonsterCount;
+    for (const [monsterName, count] of defeatedByName) {
+      sweepMarkers[`击败${monsterName}`] = (Number(sweepMarkers[`击败${monsterName}`]) || 0) + count;
+    }
+    player.markers = sweepMarkers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     // 经验只在批量奖励结束时写入一次，避免扫荡循环和 addExp 双重结算。
@@ -10274,15 +10281,25 @@ export class GameService {
 
     const normalizeItems = (value: any): any[] => {
       const rows = Array.isArray(value) ? value : asJsonValue<any[]>(value, []);
-      return rows.map((row: any) => ({
-        ...row,
-        name: row?.name ?? row?.名称,
-        名称: row?.名称 ?? row?.name,
-        type: row?.type ?? row?.类型 ?? '资源',
-        类型: row?.类型 ?? row?.type ?? '资源',
-        quantity: Number(row?.quantity ?? row?.count ?? row?.数量 ?? 0),
-        数量: Number(row?.quantity ?? row?.count ?? row?.数量 ?? 0),
-      })).filter((row: any) => row.name && Number.isFinite(row.quantity));
+      return rows.map((row: any) => {
+        const name = row?.name ?? row?.名称;
+        // Issue #11：产出/需求缺 type 时对齐静态物品定义（经验胶囊=物品），
+        // 防止默认“资源”与 item-system 路径（determineItemType=物品）分叉，
+        // 造成同名不同 type 的背包条目永不合并。
+        const staticType = name
+          ? (this.staticData.getEquipmentByName(name) ? '装备' : this.staticData.getItemByName(name)?.type)
+          : undefined;
+        const type = row?.type ?? row?.类型 ?? staticType ?? '资源';
+        return {
+          ...row,
+          name,
+          名称: row?.名称 ?? row?.name,
+          type,
+          类型: row?.类型 ?? type,
+          quantity: Number(row?.quantity ?? row?.count ?? row?.数量 ?? 0),
+          数量: Number(row?.quantity ?? row?.count ?? row?.数量 ?? 0),
+        };
+      }).filter((row: any) => row.name && Number.isFinite(row.quantity));
     };
     const requirements = normalizeItems(recipe.requirements);
     const outputs = normalizeItems(recipe.outputs);
@@ -15814,26 +15831,127 @@ export class GameService {
       w += `\n◆副本入口: ${dungeonEntries.join('、')}`;
     }
 
-    // ◆货舱 / ◆能量元素：扫描所有地图资源中名称匹配的资源（对应原版 L3207-L3230）
-    const cargoMaps: string[] = [];
-    const energyMaps: string[] = [];
+    // 原版 雷达扫描共十类目标（_主程序.ecode L3044-L3273）：
+    // 副本入口/行商/神之工匠/露娜/小恶魔/废弃载具/花园宝宝/小白狐/货舱/能量元素。
+    // 显示精度随雷达等级变化；获得物品() 按显示名合并数量，
+    // 花园宝宝/小白狐/货舱/能量元素超过3条时只显示前三名+总数。
+    const near = (map: any) => `${map.respawnPoint || map.name}附近`;
+    const mergeEntries = (list: Array<{ name: string; count: number }>): [string, number][] => {
+      const merged = new Map<string, number>();
+      for (const e of list) merged.set(e.name, (merged.get(e.name) || 0) + e.count);
+      return [...merged.entries()];
+    };
+    const formatEntries = (entries: [string, number][], topN = 0): string => {
+      const sorted = [...entries].sort((a, b) => b[1] - a[1]);
+      const shown = topN > 0 && sorted.length > topN ? sorted.slice(0, topN) : sorted;
+      const body = shown.map(([n, c]) => `${n}x${c}`).join('、');
+      if (topN > 0 && sorted.length > topN) {
+        const total = sorted.reduce((s, [, c]) => s + c, 0);
+        return `${body}…等共${total}`;
+      }
+      return body;
+    };
+
+    // ◆行商/花园宝宝/小白狐/露娜：召唤物（原版 L3065-L3079、L3136-L3203）
+    const merchantEntries: Array<{ name: string; count: number }> = [];
+    const gardenBabyEntries: Array<{ name: string; count: number }> = [];
+    const whiteFoxEntries: Array<{ name: string; count: number }> = [];
+    const lunaEntries: Array<{ name: string; count: number }> = [];
+    // ◆神之工匠：NPC（原版 L3083-L3093，QQ=npc1g）
+    const artisanEntries: Array<{ name: string; count: number }> = [];
     for (const map of maps) {
-      const resources = asJsonValue<any[]>(map.resources, []);
-      for (const res of resources) {
-        const resName = res.name || '';
-        if (resName.includes('货舱')) {
-          const times = res.times || 1;
-          cargoMaps.push(`${level === 0 ? (map.respawnPoint || map.name) + '附近' : map.name}${times > 1 ? `x${times}` : ''}`);
-        } else if (resName.includes('能量元素')) {
-          energyMaps.push(`${level <= 1 ? (map.respawnPoint || map.name) + '附近' : map.name}`);
+      const summons = asJsonValue<any[]>(map.summons, []);
+      for (const s of summons) {
+        const sName = String(s?.name ?? s?.名称 ?? '');
+        if (sName === '行商') {
+          merchantEntries.push({ name: level >= 5 ? map.name : near(map), count: 1 });
+        } else if (sName === '花园宝宝') {
+          gardenBabyEntries.push({ name: level >= 6 ? map.name : near(map), count: 1 });
+        } else if (sName === '小白狐') {
+          whiteFoxEntries.push({ name: level >= 6 ? map.name : near(map), count: 1 });
+        } else if (sName === '露娜' || s?.qq === '怪物露娜1g') {
+          lunaEntries.push({ name: near(map), count: 1 });
+        }
+      }
+      const npcs = asJsonValue<any[]>(map.npcs, []);
+      for (const n of npcs) {
+        if (String(n?.name ?? n?.名称 ?? '') === '神之工匠' || n?.qq === 'npc1g') {
+          artisanEntries.push({ name: near(map), count: 1 });
         }
       }
     }
-    if (cargoMaps.length > 0) {
-      w += `\n◆货舱: ${cargoMaps.join('、')}`;
+    if (merchantEntries.length > 0) {
+      w += `\n◆行商: ${formatEntries(mergeEntries(merchantEntries))}`;
     }
-    if (energyMaps.length > 0) {
-      w += `\n◆能量元素: ${energyMaps.join('、')}`;
+    if (artisanEntries.length > 0) {
+      w += `\n◆神之工匠: ${formatEntries(mergeEntries(artisanEntries))}`;
+    }
+    if (lunaEntries.length > 0) {
+      w += `\n◆露娜: ${formatEntries(mergeEntries(lunaEntries))}`;
+    }
+
+    // ◆小恶魔：临时怪物表（原版 怪物2，QQ=怪物小恶魔1，恒显示复活点附近）
+    const demonEntries: Array<{ name: string; count: number }> = [];
+    try {
+      const demons = await this.prisma.gameMonster.findMany({
+        where: { qq: '怪物小恶魔1', hp: { gt: 0 } },
+        select: { mapId: true },
+      });
+      const mapById = new Map<number, any>((maps as any[]).map((m: any) => [Number(m.id), m]));
+      const demonCountByMap = new Map<number, number>();
+      for (const d of demons) {
+        demonCountByMap.set(d.mapId, (demonCountByMap.get(d.mapId) || 0) + 1);
+      }
+      for (const [mapId, count] of demonCountByMap) {
+        const map = mapById.get(mapId);
+        if (map) demonEntries.push({ name: near(map), count });
+      }
+    } catch {
+      // 临时怪物表不可用时跳过小恶魔扫描，不影响其他雷达目标
+    }
+    if (demonEntries.length > 0) {
+      w += `\n◆小恶魔: ${formatEntries(mergeEntries(demonEntries))}`;
+    }
+
+    // ◆废弃载具：无主载具（原版 L3122-L3133，恒显示复活点附近）
+    const wreckEntries: Array<{ name: string; count: number }> = [];
+    for (const map of maps) {
+      const vehicles = asJsonValue<any[]>(map.vehicles, []);
+      const wreckCount = vehicles.filter(
+        (v: any) => String(v?.owner ?? v?.归属 ?? '') === '无主',
+      ).length;
+      if (wreckCount > 0) wreckEntries.push({ name: near(map), count: wreckCount });
+    }
+    if (wreckEntries.length > 0) {
+      w += `\n◆废弃载具: ${formatEntries(mergeEntries(wreckEntries))}`;
+    }
+
+    if (gardenBabyEntries.length > 0) {
+      w += `\n◆花园宝宝: ${formatEntries(mergeEntries(gardenBabyEntries), 3)}`;
+    }
+    if (whiteFoxEntries.length > 0) {
+      w += `\n◆小白狐: ${formatEntries(mergeEntries(whiteFoxEntries), 3)}`;
+    }
+
+    // ◆货舱 / ◆能量元素：扫描所有地图资源中名称匹配的资源（对应原版 L3205-L3251）
+    const cargoEntries: Array<{ name: string; count: number }> = [];
+    const energyEntries: Array<{ name: string; count: number }> = [];
+    for (const map of maps) {
+      const resources = asJsonValue<any[]>(map.resources, []);
+      for (const res of resources) {
+        const resName = res?.name || '';
+        if (resName.includes('货舱')) {
+          cargoEntries.push({ name: level === 0 ? near(map) : map.name, count: Number(res.times) || 1 });
+        } else if (resName.includes('能量元素')) {
+          energyEntries.push({ name: level <= 1 ? near(map) : map.name, count: Number(res.times) || 1 });
+        }
+      }
+    }
+    if (cargoEntries.length > 0) {
+      w += `\n◆货舱: ${formatEntries(mergeEntries(cargoEntries), 3)}`;
+    }
+    if (energyEntries.length > 0) {
+      w += `\n◆能量元素: ${formatEntries(mergeEntries(energyEntries), 3)}`;
     }
 
     // 添加成就「探测雷达」（对应原版 添加成就 L3274）
