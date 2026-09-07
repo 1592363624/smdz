@@ -152,7 +152,9 @@ function parseDamagePart(part) {
  */
 function matchHitLine(line, viewerName) {
   let m = line.match(HIT_LINE_RE);
-  if (m) return { attacker: m[1].trim(), target: m[2], rest: m[3] };
+  // flavor 同时承载出手文本：渲染端命中行只读 flavor（attacker 仅反击/光荣弹段使用），
+  // 缺失会导致「玩家攻击描述整个不显示、只剩目标名与伤害」
+  if (m) return { attacker: m[1].trim(), flavor: m[1].trim(), target: m[2], rest: m[3] };
   m = line.match(GLORY_RE);
   if (m) return { attacker: m[1].trim(), target: m[2], rest: m[3], glory: true };
   // 反击行型只在「目标 = 你 / 视角玩家名」时采信：

@@ -1028,6 +1028,9 @@ export class CombatSystemService {
         // 未命中：防御方获得「闪避熟练度」（对应原版 L1484）
         const tMarkers = this.normalizeMarkerObject(target.markers);
         tMarkers['闪避熟练度'] = (tMarkers['闪避熟练度'] || 0) + 1;
+        // 原版 L1490：即使未命中也记录参与标记，否则参战的玩家得不到奖励/不进结算名单
+        tMarkers[`攻击者${this.getCombatSourceKey(player, isRuntimeActor)}`]
+          = (tMarkers[`攻击者${this.getCombatSourceKey(player, isRuntimeActor)}`] || 0) + 0.001;
         target.markers = tMarkers; // Json 列直接写对象
         // 原版“闪避攻击”成就只在玩家作为攻击方的玩家对战分支产生。
         if (player.specialSeq > 0 && target.userId && Number(target.specialSeq ?? 0) > 0) {
@@ -2254,6 +2257,16 @@ export class CombatSystemService {
       atkStats.effective++; // 有效伤（对应原版 物伤2 实际造成伤害次数）
       totalDamage += finalDamage;
 
+      // 原版 L3879：把本次伤害累计到防御方(怪物)标记「攻击者+来源」，作为击杀结算
+      // 「参与者」名单的输出数据。来源键：玩家=userId，召唤物(运行时攻击方)=名称。
+      {
+        const sourceKey = this.getCombatSourceKey(player, isRuntimeActor);
+        const targetMarkersDmg = this.normalizeMarkerObject(target.markers);
+        targetMarkersDmg[`攻击者${sourceKey}`]
+          = (targetMarkersDmg[`攻击者${sourceKey}`] || 0) + Math.max(0, finalDamage);
+        target.markers = targetMarkersDmg; // Json 列直接写对象
+      }
+
       // 扣除怪物血量（三池分伤）
       const shieldBeforeDamage = target.shield === undefined ? 0 : Number(target.shield || 0);
       const armorBeforeDamage = target.armor === undefined ? 0 : Number(target.armor || 0);
@@ -2544,7 +2557,13 @@ export class CombatSystemService {
       // 处理击杀
       if (target.hp <= 0) {
         killed.push(target.name);
-        resultLines.push(`${target.name} 已被击杀`);
+        // 击杀者标记（原版 发放奖励2 L544：怪物.标记 名称以「击杀者」开头 → 击杀者=来源）
+        const killSourceKey = this.getCombatSourceKey(player, isRuntimeActor);
+        const killMarkers = this.normalizeMarkerObject(target.markers);
+        killMarkers[`击杀者${killSourceKey}`] = 1;
+        target.markers = killMarkers; // Json 列直接写对象
+        // 原版 后台运作.ecode L558-680：击杀结算输出「参与者」名单
+        resultLines.push(...await this.buildKillParticipantLines(target, killSourceKey));
 
         // 处理怪物死亡（传入 attacker=playerData 触发 置掉落+战利品 发放闭环）
         const deathResult = await this.handleMonsterDeath(
@@ -3019,7 +3038,19 @@ export class CombatSystemService {
       }
 
       if (!this.checkHit(hitRate, fixedDodge)) {
-        lines.push(`${monster.name} 向${youText}发起攻击，但被${youText}闪避了`);
+        // 原版 L1561/L1698 未命中分支：显示攻击文本(怪物武器, 0) + (命中率N%)，非简版固定句
+        const rawAtkText = (attackWeapon as any).attackText;
+        const missAtkName = String(
+          (rawAtkText && typeof rawAtkText === 'object' ? rawAtkText.name : rawAtkText) ?? '',
+        ) || String(attackWeapon.name || '');
+        const missTemplates = this.getAttackTextTemplates(missAtkName, 0);
+        const missLine = missTemplates.length > 0
+          ? this.expandAttackPlaceholders(
+            missTemplates[Math.floor(Math.random() * missTemplates.length)],
+            monster.name || '', youText, missAtkName,
+          )
+          : `${monster.name} 向${youText}发起攻击，但被${youText}闪避了`;
+        lines.push(`${missLine}(命中率${Math.round(hitRate * 100) / 100}%)`);
         // ========== 花园猫闪避反击（对应原版 战斗相关.ecode L1429-1560 防御方闪避成功分支） ==========
         // 仅当花园猫就是外层持锁攻击者本人（sharedWithAttacker）时跳过再次加锁，
         // 否则正常走 weaponAttack 获取该玩家自己的战斗锁。
@@ -3149,6 +3180,19 @@ export class CombatSystemService {
       victim.shield = Math.max(0, (victim.shield || 0) - shieldDmg);
       victim.armor = Math.max(0, (victim.armor || 0) - armorDmg);
       victim.hp = Math.max(0, (victim.hp || 0) - hpDmg);
+
+      // 原版 L3877/L541-543：把玩家本次承受伤害累计进怪物标记「承受者+玩家」，
+      // 作为击杀结算「参与者」名单中怪物行「总承受」与玩家行「承受:x(%)」的数据源。
+      if (playerDamage > 0 && !runtimeVictim) {
+        try {
+          const mMarkersSuffer = this.normalizeMarkerObject(monster.markers);
+          mMarkersSuffer[`承受者${victim.userId}`]
+            = (mMarkersSuffer[`承受者${victim.userId}`] || 0) + playerDamage;
+          monster.markers = mMarkersSuffer; // Json 列直接写对象
+        } catch {
+          /* 标记写入失败不影响承伤结算 */
+        }
+      }
 
       // 猩红积累（战斗相关.ecode L3854-3859）：玩家作为受害者且带活跃猩红增益时，
       // 本次总伤害（上限=扣血后三池当前总和）累计入"猩红"熟练度，供真伤释放。
@@ -4396,19 +4440,23 @@ export class CombatSystemService {
     }
 
     // 9. 等级差距修正（原版 L3290-3297：剩余伤害 /(1-攻击差距) ×(1-防御差距)）
-    //    此处攻击方差距 gap 为正表示"攻击方等级低于目标"，应降低伤害 → 用 1/(1-gap) 放大分母实现降伤
+    //    攻击方差距：新人打高世界等级目标命中/伤害放大（新人加成）；
+    //    防御方差距：低等级玩家被打时按 (1-差距) 减伤（原版新人保护的另一半），
+    //    此前缺失该项导致怪物对低等级玩家打出全额伤害。怪物防御方差距为 0。
     const levelGap = (atkBonus.世界等级差距 || 0);
     const levelFactor = levelGap >= 1 ? 0.1 : Math.max(0.1, 1 / (1 - levelGap));
+    const defLevelGap = Number(defBonus.世界等级差距 ?? 0);
+    const defGapFactor = defLevelGap >= 1 ? 0.05 : Math.max(0.05, 1 - defLevelGap);
 
     // 10. 易伤加成（原版 L3162-3165：剩余X伤 ×(1+易伤/100)）
     const vulnerability = (defBonus.减益 || 0) / 100 + 1;
 
     // 11. 应用所有修正，计算各属性最终伤害
     const finalBreakdown: DamageBreakdown = {
-      physical: rawBreakdown.physical * dmgMult * levelFactor * vulnerability,
-      fire: rawBreakdown.fire * dmgMult * levelFactor * vulnerability,
-      ice: rawBreakdown.ice * dmgMult * levelFactor * vulnerability,
-      elec: rawBreakdown.elec * dmgMult * levelFactor * vulnerability,
+      physical: rawBreakdown.physical * dmgMult * levelFactor * defGapFactor * vulnerability,
+      fire: rawBreakdown.fire * dmgMult * levelFactor * defGapFactor * vulnerability,
+      ice: rawBreakdown.ice * dmgMult * levelFactor * defGapFactor * vulnerability,
+      elec: rawBreakdown.elec * dmgMult * levelFactor * defGapFactor * vulnerability,
     };
 
     // 11.5 防御方增强器：先改写防御方抗性，再进入三层抗穿流程。
@@ -4729,9 +4777,12 @@ export class CombatSystemService {
    * 钳制 [5,95] 后做随机判定。
    */
   checkHit(hitRate: number, dodgeRate: number = 0): boolean {
-    // “闪避”技能写入100代表本次攻击必闪；不能被普通命中保底5%覆盖。
+    // “闪避”技能写入100代表本次攻击必闪。
+    // 原版判定 = 几率判断(a1×100 - 固定闪避 + 最终命中)，无 [5,95] 保底钳制；
+    // 此前自造的 5% 命中保底会让注定打不中的攻击强行命中、也会掩盖真实命中差距，
+    // 已按原版口径移除（2026-09-07 玩家反馈“战斗手感与原版不同”的成因之一）。
     if (dodgeRate >= 100) return false;
-    const effectiveHitRate = Math.max(5, Math.min(95, hitRate - (dodgeRate || 0)));
+    const effectiveHitRate = Math.max(0, Math.min(100, hitRate - (dodgeRate || 0)));
     return Math.random() * 100 < effectiveHitRate;
   }
 
@@ -4743,7 +4794,13 @@ export class CombatSystemService {
   calcHitRate(attacker: BonusData, defender: any, mustHit: boolean = false): number {
     if (mustHit) return 100;
     const atkHit = (attacker.命中 || 0) + (attacker.命中2 || 0) || 100;
-    const defDodge = (defender.dodge || 0) + (defender.dodge2 || 0) || 1;
+    // 防御方闪避：兼容 BonusData 中文键（闪避/闪避2 —— buildAttackerBonus/buildMonsterBonus
+    // 产物，怪物反击玩家链路传入的 {闪避,闪避2} 包装）与历史英文键（dodge/dodge2，
+    // GameMonster 行字段）。此前只读英文键，怪物攻击玩家时玩家闪避完全失效
+    // （defDodge 恒为 1 → 命中率 95% 封顶近乎必中），是"很难打得过"的直接根因之一。
+    const defDodgeRaw = Number(defender.闪避 ?? defender.dodge ?? 0)
+      + Number(defender.闪避2 ?? defender.dodge2 ?? 0);
+    const defDodge = defDodgeRaw > 0 ? defDodgeRaw : 1;
 
     // 等级差距修正（原版 L1607-1611）：a1 = 命中/(1-差距)/闪避
     // 新人差距 gap 越大，命中越被放大（新人加成）
@@ -4751,9 +4808,11 @@ export class CombatSystemService {
     const hitAfterGap = gap >= 1 ? atkHit : atkHit / (1 - gap);
 
     if (defDodge < 1) {
-      return Math.min(95, hitAfterGap);
+      // 原版此处 a1 = 命中/(1-差距)/1，判定用 a1*100 —— 必须同样放大 100 倍
+      return Math.min(100, hitAfterGap * 100);
     }
-    return Math.min(95, Math.max(5, hitAfterGap / defDodge * 100));
+    // 原版无 5%/95% 保底钳制，命中/闪避比例即真实命中率
+    return Math.min(100, Math.max(0, hitAfterGap / defDodge * 100));
   }
 
   /**
@@ -4993,6 +5052,89 @@ export class CombatSystemService {
     } catch {
       return undefined;
     }
+  }
+
+  /** 战斗来源标识：玩家=userId，召唤物/运行时攻击方=名称（对应原版 怪物.标记「攻击者+QQ」键）。 */
+  private getCombatSourceKey(player: any, isRuntimeActor: boolean): string {
+    if (isRuntimeActor) {
+      return String(player?.name ?? player?.名称 ?? player?.userId ?? '未知召唤物');
+    }
+    return String(player?.userId ?? '');
+  }
+
+  /**
+   * 击杀结算「参与者」名单（原版 后台运作.ecode L488-680 发放奖励2 的显示部分）。
+   * 数据来源为怪物标记：攻击者+来源=累计输出、承受者+来源=该来源承受量、击杀者+来源=击杀者。
+   * 显示口径与原版一致：
+   *   【分段】{怪}被击败了,参与者:
+   *   {怪}[等级N]:{玩家承受总量},承受{怪承受总量}({怪承受/三池*100}%)
+   *   {参与者}({击杀}):{输出}({输出/三池*100}%){,承受:x(占比%)}
+   */
+  private async buildKillParticipantLines(monster: any, killerKey: string): Promise<string[]> {
+    const lines: string[] = [];
+    const markers = this.normalizeMarkerObject(monster.markers);
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+
+    const maxHp = Number(monster.maxHp ?? monster.hp ?? 0) || 0;
+    const maxShield = Number(monster.maxShield ?? monster.shield ?? 0) || 0;
+    const maxArmor = Number(monster.maxArmor ?? monster.armor ?? 0) || 0;
+    const totalPool = Math.max(1, maxHp + maxShield + maxArmor);
+
+    let monsterTaken = 0;   // 怪物承受总量（攻击者条目之和）
+    let totalSuffered = 0;  // 玩家承受总量（承受者条目之和）
+    const attackers: Array<{ key: string; value: number }> = [];
+    for (const [name, raw] of Object.entries(markers)) {
+      const value = Number(raw) || 0;
+      if (name.startsWith('攻击者')) {
+        const key = name.slice(3);
+        if (key) attackers.push({ key, value });
+        monsterTaken += value;
+      } else if (name.startsWith('承受者')) {
+        totalSuffered += value;
+      }
+    }
+
+    // 玩家名批量解析（标记键为 userId；一次查询，失败回退「玩家{id}」）
+    const playerIds = attackers
+      .map(({ key }) => Number(key))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    const nameById = new Map<number, string>();
+    if (playerIds.length > 0) {
+      try {
+        const rows = await this.prisma.player.findMany({
+          where: { userId: { in: playerIds } },
+          select: { userId: true, name: true },
+        });
+        for (const row of rows) nameById.set(Number(row.userId), String(row.name || ''));
+      } catch (e: any) {
+        this.logger.warn(`参与者玩家名解析失败: ${e?.message || e}`);
+      }
+    }
+
+    const level = Number(monster.level ?? 0);
+    lines.push(`【分段】${monster.name}被击败了,参与者:`);
+    lines.push(
+      `${monster.name}[等级${level}]:${round2(totalSuffered)}`
+      + `,承受${round2(monsterTaken)}(${round2(monsterTaken / totalPool * 100)}%)`,
+    );
+
+    for (const { key, value } of attackers) {
+      const numericId = Number(key);
+      const isSummon = Number.isNaN(numericId);
+      const killerMark = key === killerKey ? '(击杀)' : '';
+      const suffered = Number(markers[`承受者${key}`] ?? 0);
+      const sufferText = suffered > 0
+        ? `,承受:${round2(suffered)}(${round2(suffered / Math.max(totalSuffered, 1) * 100)}%)`
+        : '';
+      const main = `${round2(value)}(${round2(value / totalPool * 100)}%)`;
+      if (isSummon) {
+        // 召唤物行：{名}({主人名}) —— 主人名解析需要 QQ→玩家 查询，原版同样常为空括号
+        lines.push(`${key}()${killerMark}:${main}${sufferText}`);
+      } else {
+        lines.push(`${nameById.get(numericId) || `玩家${key}`}${killerMark}:${main}${sufferText}`);
+      }
+    }
+    return lines;
   }
 
   /**
