@@ -32,7 +32,7 @@ import { TutorialService } from './tutorial.service';
 import { StaticDataService } from './static-data.service';
 import { GameHighlightService } from './highlight.service';
 import { DelayedTaskService } from './delayed-task.service';
-import { ITEM_SYSTEM_SERVICE } from './service-tokens';
+import { ITEM_SYSTEM_SERVICE, COMBAT_SYSTEM_SERVICE } from './service-tokens';
 import { GameSyncModule } from '../../game-sync/game-sync.module';
 import { AdminModule } from '../admin/admin.module';
 import { FeedbackModule } from '../feedback/feedback.module';
@@ -81,6 +81,9 @@ import { FeedbackModule } from '../feedback/feedback.module';
     GameHighlightService,
     // 字符串 token 别名：让 PlayerService 无需 import ItemSystemService（避免运行时循环加载）
     { provide: ITEM_SYSTEM_SERVICE, useExisting: ItemSystemService },
+    // 同上：ItemService 三池回复基数需要 CombatSystemService（计算后属性），
+    // 直接 import 会翻转 familiar-skills 的模块初始化顺序（AFFIX_TO_BONUS 半初始化崩溃）
+    { provide: COMBAT_SYSTEM_SERVICE, useExisting: CombatSystemService },
   ],
   exports: [
     GameService,
@@ -111,6 +114,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     GameHighlightService,
     // token 别名同样导出，供全局的 AdminService 等注入
     ITEM_SYSTEM_SERVICE,
+    COMBAT_SYSTEM_SERVICE,
   ],
   controllers: [GameController],
 })

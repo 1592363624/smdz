@@ -1656,11 +1656,10 @@ export class PlayerService implements OnModuleInit {
     player.regenShield = (0.1 + lv / 10) / 10;
     player.regenArmor = (0.1 + lv / 10) / 10;
 
-    // 当前血量不得超过新上限（原版 L2465：当前生命>属性.生命 时封顶）
-    if ((player.hp || 0) > player.maxHp) player.hp = player.maxHp;
-    if ((player.shield || 0) > player.maxShield) player.shield = player.maxShield;
-    if ((player.armor || 0) > player.maxArmor) player.armor = player.maxArmor;
-
+    // 三池封顶不在此处做：本方法拿不到装备/增益加成，按基础字段封顶会把
+    // 计算上限（面板分母，含装备加成）的余量削掉——升级后当前值被砍回基础上限、
+    // 奶回复按基础上限算，出现「生命 691/818 恒不满」。封顶统一收敛到
+    // buildAttackerBonus 末尾（原版 _计算玩家 L2465 当前>属性.上限 时封顶的对应物）。
     this.logger.log(`玩家 ${player.userId} 等级 ${lv}，重算属性: 攻击=${player.attack} HP上限=${player.maxHp}`);
   }
 

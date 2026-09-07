@@ -10,6 +10,7 @@ import { StaticDataService } from './static-data.service';
 import { CombatStateService } from './combat-state.service';
 import { PlayerService } from './player.service';
 import { MapService } from './map.service';
+import { COMBAT_SYSTEM_SERVICE } from './service-tokens';
 
 /**
  * 对齐原版「显示物品」(数据显示.ecode L1887-1929) 的资源数量展示规则：
@@ -259,6 +260,14 @@ export class ItemService {
     @Optional()
     @Inject(forwardRef(() => ItemSystemService))
     private readonly itemSystem?: ItemSystemService,
+    // 三池回复基数需「计算后属性」（原版 属性.护盾 含装备加成，物品操作.ecode L2289）。
+    // CombatSystemService 已 @Optional 反向注入本服务（petItemService），直接 import 会
+    // 翻转模块初始化顺序（familiar-skills 的 AFFIX_TO_BONUS 静态初始化崩溃），
+    // 故走 service-tokens 字符串别名（见 COMBAT_SYSTEM_SERVICE 注释）；
+    // 手工 new 的测试桩不传则退回基础字段兜底。
+    @Optional()
+    @Inject(COMBAT_SYSTEM_SERVICE)
+    private readonly combatSystem?: { buildAttackerBonus: (player: any, playerData: any, map?: any) => any },
   ) {}
 
   /**
@@ -855,12 +864,35 @@ export class ItemService {
     const remainRef = { value: 0 };
     const strengthRef = { value: 0 };
 
-    /** 三池回复：按 属性.护盾(上限值)×比例×数量 加到当前生命/护盾/装甲（原版 L2289-2298 字面） */
+    /** 三池回复：按 属性.护盾(上限值)×比例×数量 加到当前生命/护盾/装甲（原版 L2289-2298 字面）。
+     * 基数必须是「计算后属性.护盾」（含装备/增益加成，即面板分母）：
+     * 原版 属性.护盾 由 _计算玩家 现场算出；复刻版对应 buildAttackerBonus。
+     * 此前误用基础字段 maxShield（纯等级成长、不含装备），有装备加成时
+     * 回复量远低于面板上限，喝再多奶也"回不满"（实证：剑圣 22 奶后 生命 691/818）。
+     * 回复后按计算上限封顶（对齐原版 _计算玩家 L2465 当前>上限 收敛语义）。 */
     const restorePools = (ratio: number): void => {
-      const base = Number(player.maxShield ?? player.shield ?? 0);
+      let base = Number(player.maxShield ?? player.shield ?? 0);
+      let capHp = 0;
+      let capShield = 0;
+      let capArmor = 0;
+      try {
+        if (this.combatSystem) {
+          const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData) as any;
+          if (Number(calcBonus?.护盾) > 0) base = Number(calcBonus.护盾);
+          capHp = Number(calcBonus?.生命 ?? 0);
+          capShield = Number(calcBonus?.护盾 ?? 0);
+          capArmor = Number(calcBonus?.装甲 ?? 0);
+        }
+      } catch {
+        // 属性计算不可用（测试桩/部分 new 出来的实例）时退回基础字段，不影响主流程
+      }
       player.hp = Number(player.hp ?? player.currentHp ?? 0) + base * ratio * actualCount;
       player.shield = Number(player.shield ?? 0) + base * ratio * actualCount;
       player.armor = Number(player.armor ?? 0) + base * ratio * actualCount;
+      // 封顶口径与面板一致：当前值不得超过计算后上限（cap 为 0 视为该池未启用，不封）
+      if (capHp > 0 && Number(player.hp) > capHp) player.hp = capHp;
+      if (capShield > 0 && Number(player.shield) > capShield) player.shield = capShield;
+      if (capArmor > 0 && Number(player.armor) > capArmor) player.armor = capArmor;
     };
 
     /** 数字到时间（秒→分秒文本），格式沿用本框架 msToTimeText 约定 */

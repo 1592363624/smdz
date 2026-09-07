@@ -7419,7 +7419,10 @@ export class GameService {
       if (item.type === '装备') {
         lines.push(`  ${item.name} [装备]`);
       } else {
-        lines.push(`  ${item.name} ×${formatDisplayNumber(item.quantity)} [${item.type || '资源'}]`);
+        // 数量读取必须走 quantity/count 双字段兜底（与 背包 列表的 itemQuantity 同口径）：
+        // addToBackpack 历史路径只写 count 并 delete quantity，直接读 item.quantity 会
+        // 得到 undefined → 显示 ×0（实证：能量块 ×486.55 搜索显示 ×0）
+        lines.push(`  ${item.name} ×${formatDisplayNumber(this.itemQuantity(item))} [${item.type || '资源'}]`);
       }
     }
     lines.push(`━━━━━━━━━━━━━━━`);
@@ -7456,7 +7459,8 @@ export class GameService {
       if (item.type === '装备') {
         lines.push(`  ${item.name} [装备]`);
       } else {
-        lines.push(`  ${item.name} ×${formatDisplayNumber(item.quantity)} [${item.type || '资源'}]`);
+        // 同 背包搜索：quantity/count 双字段兜底，防 addToBackpack 单 count 存量显示 ×0
+        lines.push(`  ${item.name} ×${formatDisplayNumber(this.itemQuantity(item))} [${item.type || '资源'}]`);
       }
     }
     lines.push(`━━━━━━━━━━━━━━━`);

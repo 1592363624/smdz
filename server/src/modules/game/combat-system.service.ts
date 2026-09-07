@@ -7091,6 +7091,23 @@ export class CombatSystemService {
     vitalityMarkers['活力2'] = nextMax;
     player.markers = vitalityMarkers; // Json 列直接写对象
 
+    // ========== 三池封顶（对应原版 _计算玩家 L2465：当前>属性.上限 时封顶） ==========
+    // 上限口径统一为「计算后属性」（含装备/增益加成，即面板分母）。此前唯一封顶点在
+    // recalcLevelStats 按基础字段 maxHp/maxShield/maxArmor 收敛，装备加成的余量被削掉，
+    // 当前值永远低于面板上限（实证：剑圣 生命 691/818 恒不满、奶回不满）。
+    // _计算玩家 每次运行都封顶，本函数即其对应物；当前>上限 的非法态在此统一收敛，
+    // 写库由调用方既有 savePlayer 链路承载。
+    try {
+      const capHp = Number(bonus.生命 || 0);
+      const capShield = Number(bonus.护盾 || 0);
+      const capArmor = Number(bonus.装甲 || 0);
+      if (capHp > 0 && Number(player.hp || 0) > capHp) player.hp = capHp;
+      if (capShield > 0 && Number(player.shield || 0) > capShield) player.shield = capShield;
+      if (capArmor > 0 && Number(player.armor || 0) > capArmor) player.armor = capArmor;
+    } catch {
+      // 封顶失败不影响属性计算主流程
+    }
+
     return bonus;
   }
 
