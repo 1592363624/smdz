@@ -294,6 +294,19 @@ describe('架构门禁：玩家状态写入口收口', () => {
     expect(playerSrc).toContain("persist: 'writeThrough'");
   });
 
+  it('PlayerService 必须是 Actor 单路径（legacy 邮箱 fallback 已删除，禁止回归）', () => {
+    // 2026-09-08 起 enqueueUserWrite 只有一条实现：actorRuntime.run。构造器对未注入
+    // runtime 的测试桩自动内置实例——「测试验证的路径 = 生产运行的路径」。曾因
+    // 双轨并存（生产 legacy、Actor 悬空）出现 markPlayerDirty 静默 no-op 事故。
+    const playerSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/player.service.ts'),
+      'utf8',
+    );
+    expect(playerSrc).not.toContain('userMailboxes');
+    expect(playerSrc).not.toContain('mailboxContext');
+    expect(playerSrc).toContain('injectedRuntime ?? new ActorRuntime()');
+  });
+
   it('玩家建档口径必须唯一：users.service 禁止自建玩家行（统一走 getOrCreatePlayer）', () => {
     // ensurePlayer 曾自建只有 userId 的裸档，抢占 getOrCreatePlayer 的完整初始化
     // （新手装备/初始任务/出生地图永不执行）。建档入口只允许 player.service 一个。

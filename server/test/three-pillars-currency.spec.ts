@@ -93,7 +93,6 @@ function makeFixture(): { row: any; prisma: any; playerService: PlayerService; f
     undefined as any,
     actorRuntime,
   );
-  playerService.onModuleInit();
   const taskService: any = { advance: jest.fn(async () => '') };
   const familiarSystem = new FamiliarSystemService(
     prisma,

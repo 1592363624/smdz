@@ -63,7 +63,6 @@ function makeServices(rows: any[]) {
     runtime,
   );
   (playerService as any).logger = { warn: jest.fn(), log: jest.fn(), error: jest.fn() };
-  void playerService.onModuleInit();
   return { prisma, runtime, playerService };
 }
 

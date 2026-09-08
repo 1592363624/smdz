@@ -61,7 +61,6 @@ function makeServices(rows: any[]) {
   );
   (playerService as any).logger = { warn: jest.fn(), log: jest.fn(), error: jest.fn() };
   const mutateContext = new PlayerMutateContextService();
-  void playerService.onModuleInit();
   const mutate = new PlayerMutateService(prisma, playerService, mutateContext);
   (mutate as any).logger = { warn: jest.fn(), log: jest.fn(), error: jest.fn() };
   return { prisma, runtime, playerService, mutate };

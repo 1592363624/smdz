@@ -171,25 +171,26 @@ describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）',
     expect(readJson<Record<string, any>>(final.player.markers, {})).toMatchObject({ 活跃度: 9 });
   });
 
-  it('绕过邮箱的裸写撞上版本推进：log 模式记录冲突后强制写库，业务不中断', async () => {
+  it('绕过邮箱的裸写撞上版本推进：merge 层拦截留痕，业务不中断', async () => {
     const row = makeRow({ version: 3 });
     const prisma = makePrismaWithCas([row]);
     const service = makeService(prisma);
 
-    // 局部写对象不带 version → 快照版本按 0 参与 CAS，与库内 3 必然冲突
-    await service.savePlayer({ id: 1, markers: JSON.stringify({ 清理: true }) } as any);
+    // 局部写对象显式携带 version=0 → 与活态 version 必然冲突。
+    // 2026-09-08 起 savePlayer 基于 Actor 活态合并，旧快照防线前移到
+    // mergeIntoLiveState（比 CAS 更早、发生在污染活态之前）。
+    await service.savePlayer({ id: 1, version: 0, markers: JSON.stringify({ 清理: true }) } as any);
 
     expect(readJson<Record<string, any>>(row.markers, {})).toEqual({ 清理: true });
     // 冲突必须留痕（静默覆盖 → 显式可观测）
     expect((service as any).logger.error).toHaveBeenCalledWith(
-      expect.stringContaining('玩家乐观锁冲突'),
+      expect.stringContaining('拦截到旧快照整包写入'),
     );
-    // log 模式：强制写，version 以库内最新为基准推进
-    expect(prisma.player.update).toHaveBeenCalled();
+    // log 模式：照常合并落库，version 以活态为准推进
     expect(row.version).toBe(4);
   });
 
-  it('log 模式：旧快照写回不抛错（记录冲突后按库内最新版本强制写）', async () => {
+  it('log 模式：旧快照写回不抛错（拦截留痕后按活态继续）', async () => {
     const row = makeRow();
     const prisma = makePrismaWithCas([row]);
     const service = makeService(prisma);
@@ -199,14 +200,15 @@ describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）',
     fresh.player.hp = 88;
     await service.savePlayer(fresh.player); // 别人先写，版本推进
 
-    // 旧快照再写：log 模式不阻断业务
+    // 旧快照再写：log 模式不阻断业务，旧快照字段不覆盖活态
     await expect(service.savePlayer(stale.player)).resolves.toBeUndefined();
     expect((service as any).logger.error).toHaveBeenCalledWith(
-      expect.stringContaining('玩家乐观锁冲突'),
+      expect.stringContaining('拦截到旧快照整包写入'),
     );
+    expect(row.hp).toBe(88);
   });
 
-  it('strict 模式：旧快照写回直接抛错拒绝，绝不用旧快照覆盖', async () => {
+  it('strict 模式：旧快照写回被丢弃，绝不用旧快照覆盖活态', async () => {
     (PlayerService as any).CAS_MODE = 'strict';
     const row = makeRow();
     const prisma = makePrismaWithCas([row]);
@@ -217,8 +219,28 @@ describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）',
     fresh.player.hp = 88;
     await service.savePlayer(fresh.player); // 别人先写，版本推进
 
-    // 旧快照再写：strict 模式必须拒绝，而不是静默覆盖
-    await expect(service.savePlayer(stale.player)).rejects.toThrow('并发冲突');
+    // 旧快照再写：strict 模式丢弃合并（保护活态），不再抛错阻断——活态本身
+    // 就是权威态，丢弃即保护；库内值不被旧快照覆盖。
+    await expect(service.savePlayer(stale.player)).resolves.toBeUndefined();
     expect(row.hp).toBe(88); // 库内值未被旧快照覆盖
+  });
+
+  it('CAS 兜底仍可观测：绕过 savePlayer 的旁路快照直撞版本推进（log 模式强制写）', async () => {
+    // savePlayer 路径的冲突已在 merge 层拦截；persistPlayer 的 CAS 是给
+    // 「未来绕过邮箱的写路径/跨进程写」留的最后防线，这里直击它本身。
+    const row = makeRow({ version: 3, hp: 77 });
+    const prisma = makePrismaWithCas([row]);
+    const service = makeService(prisma);
+
+    // 旁路写入者的快照停留在 version=0（读取后库内已被推进到 3）
+    const stale = { ...row, version: 0, markers: JSON.stringify({ 旁路: true }) };
+    await (service as any).persistPlayer(stale);
+
+    expect((service as any).logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('玩家乐观锁冲突'),
+    );
+    // log 模式：强制写，version 以库内最新为基准推进
+    expect(row.version).toBe(4);
+    expect(readJson<Record<string, any>>(row.markers, {})).toEqual({ 旁路: true });
   });
 });

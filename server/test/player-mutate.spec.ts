@@ -128,7 +128,7 @@ describe('mutate 单一快照语义（嵌套复用，不重读不重存）', () 
     const row = makeRow({ hp: 100 });
     const { prisma } = makePrisma([row]);
     const { playerService, mutateService } = makeServices(prisma);
-    const spyRead = jest.spyOn(playerService, 'getPlayerData');
+    const spyRead = jest.spyOn(prisma.player, 'findUnique');
     const spySave = jest.spyOn(playerService, 'savePlayer');
 
     await mutateService.mutate(42, async (outer) => {

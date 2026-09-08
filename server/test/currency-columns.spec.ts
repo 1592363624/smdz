@@ -11,7 +11,10 @@ function makePrisma(rows: any[]) {
   const prisma: any = {
     player: {
       findUnique: jest.fn(async ({ where }: any) => {
-        const row = rows.find((r) => r.userId === where?.userId);
+        // 同时支持 userId 与 id 定位：savePlayer 的 Actor 邮箱路径会按行 id 反查归属
+        const row = rows.find((r) =>
+          (where?.userId !== undefined && r.userId === where.userId)
+          || (where?.id !== undefined && r.id === where.id));
         return row ? { ...row } : null;
       }),
       update: jest.fn(async ({ where, data }: any) => {

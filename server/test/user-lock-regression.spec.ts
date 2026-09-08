@@ -49,7 +49,12 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
 
   const prisma: any = {
     player: {
-      findUnique: jest.fn(async ({ where }: any) => (where?.userId === player.userId ? player : undefined)),
+      // 模拟真实 Prisma：每次 findUnique 反序列化出全新对象（浅拷贝即可，Json 字段
+      // 落库态是字符串）。直接返回共享对象会把 Actor 活态（带 accessor）与 DB 模拟
+      // 行混为同一引用——update 的 Object.assign 会把「剥离货币条目后的落库背包」
+      // 经 accessor 塞回活态，造成「兑换读到 0 钻」的假象（生产 Prisma 不会回写
+      // 调用方对象）。
+      findUnique: jest.fn(async ({ where }: any) => (where?.userId === player.userId ? { ...player } : undefined)),
       update: jest.fn(async ({ where, data }: any) => {
         if (where?.id !== player.id) throw new Error(`player id 不匹配: ${where?.id}`);
         Object.assign(player, data);
