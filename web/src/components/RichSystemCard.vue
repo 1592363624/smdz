@@ -28,7 +28,7 @@
             class="rc-cell rc-cell-item"
             :class="{ 'rc-cell-use': row.kind === 'use' }"
             @click="onCellClick(row.name, row.kind)"
-            @mouseenter="onCellEnter(row.name, $event, row.kind)"
+            @mouseenter="onCellEnter(row.name, $event, row.kind, row.idx)"
           >
             <!-- 序号格：与「装备 N」指令的解序号一一对应，方便玩家肉眼对号操作 -->
             <span v-if="row.idx != null" class="rc-idx">{{ row.idx }}</span>
@@ -216,10 +216,15 @@ function onCellClick(name, itemKind) {
  * 防过期：hoverSeq 序号 token——每次进入/离开递增，setTimeout 回调与请求完成时校验 token，
  * 过期即丢弃（用户已移走/切到别的物品时，迟到的结果不污染当前弹层）。
  */
-async function onCellEnter(name, e, itemKind) {
+async function onCellEnter(name, e, itemKind, itemIdx) {
+  // 格子身份键：装备带背包行序号（同一基础名可能有多件不同品质的实例，
+  // 「5级纵横S」和「5级纵横E」的详情完全不同，必须按实例区分）；
+  // 消耗品/资源仍按名字去重。
+  const isEquip = itemKind === 'equip';
+  const cellKey = isEquip && itemIdx != null ? `#${itemIdx} ${name}` : name;
   // 同物品且弹层已在显示（内容/错误/读取中）→ 直接复用，不重启延迟、不重算位置（防抖）
   clearTimeout(hideTimer);
-  if (active.visible && active.name === name && (active.content || active.error || active.loading)) {
+  if (active.visible && active.name === cellKey && (active.content || active.error || active.loading)) {
     return;
   }
 
@@ -242,7 +247,7 @@ async function onCellEnter(name, e, itemKind) {
   }
 
   // 2) 弹层正显示【另一个物品】的内容 → 立即收起（不留残留；等待期内旧物品信息不挂在新格子上）
-  if (active.visible && active.name !== name) {
+  if (active.visible && active.name !== cellKey) {
     hideNow();
   }
 
@@ -254,25 +259,27 @@ async function onCellEnter(name, e, itemKind) {
     if (mySeq !== hoverSeq) return;
 
     // 缓存命中 → 直接展示（不再发请求），但同样等过了 enterDelay
-    if (handbookCache.has(name)) {
-      active.name = name;
+    if (handbookCache.has(cellKey)) {
+      active.name = cellKey;
       active.error = '';
       active.loading = false;
-      active.content = handbookCache.get(name);
+      active.content = handbookCache.get(cellKey);
       active.visible = true;
       return;
     }
 
     // 无缓存 → 读取中 + 请求
-    active.name = name;
+    active.name = cellKey;
     active.error = '';
     active.content = '';
     active.loading = true;
     active.visible = true;
     // 弹层查询并取回 content（axios 拦截器已剥外层，兼容两/三层嵌套）；顺带剥顶部横幅。
-    // 装备（名字带品质码）弹层用「背包 基础名」查实例自身的属性（自带属性 + 随机加成词条），
-    // 而非图鉴的基础介绍——这样玩家在网页上也能像原版「背包 N」那样直接查看每件装备的属性。
-    // 其余资源/消耗品仍走「图鉴」。
+    // 装备弹层用「背包 行序号」查实例自身的属性（自带属性 + 随机加成词条）——
+    // 同名装备可能有多件不同品质（品质码在服务端 Item3.data 里，显示名不带），
+    // 按基础名查只会命中背包里第一件，悬浮 S 件却显示 E 详情（2026-09-08 修复）；
+    // 行序号与后端背包列表 index+1 一致，可唯一定位实例。序号过期（背包已变动）时
+    // 回退按基础名查。其余资源/消耗品仍走「图鉴」。
     // 行判定优先（parseLayout 已按「×数量有无」确定性区分装备/物品）；
     // 无行判定时退回名字尾字母启发式（兼容历史调用形态）。
     const isEquipName = itemKind ? itemKind === 'equip' : classifyItemKind(name) === 'equip';
@@ -290,8 +297,18 @@ async function onCellEnter(name, e, itemKind) {
       //       所以「没有找到」检测不能锚定行首，用 includes 判断。
       let trimmed;
       if (isEquipName) {
-        // 装备：直接按基础名查（后端「背包 基础名」对装备走 analyzeEquipmentItem，含加成属性）
-        trimmed = await runQuery(handbookQueryName(name), '背包');
+        if (isEquip && itemIdx != null) {
+          // 装备 + 行序号：精确定位实例（后端「背包 N」按列表序号取件）
+          trimmed = await runQuery(String(itemIdx), '背包');
+          const isNotFound = (s) => s.includes('背包中没有找到') || s.includes('未找到');
+          if (isNotFound(trimmed)) {
+            // 序号过期（悬浮文本是旧快照，背包已变动）→ 回退基础名（命中第一件同名装备）
+            trimmed = await runQuery(handbookQueryName(name), '背包');
+          }
+        } else {
+          // 无序号的历史调用形态：按基础名查
+          trimmed = await runQuery(handbookQueryName(name), '背包');
+        }
       } else {
         // 两段式回退：
         // ① 先按显示名原样查（覆盖「妖精之森E」这类名字本身以品质码字母结尾的物品）
@@ -314,7 +331,7 @@ async function onCellEnter(name, e, itemKind) {
       // 结果入缓存（含「图鉴中没有找到」——它就是该名字的最终结果，避免每次悬浮都重发两段请求；
       // 页面刷新即清空缓存，后端补录图鉴后刷新即可看到）。仅「空内容」占位不入缓存。
       if (trimmed !== '🐾 图鉴中暂无该物品的详细资料') {
-        handbookCache.set(name, trimmed);
+        handbookCache.set(cellKey, trimmed);
       }
     } catch (err) {
       if (mySeq !== hoverSeq) return;

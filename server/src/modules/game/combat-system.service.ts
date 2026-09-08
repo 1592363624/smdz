@@ -672,6 +672,10 @@ export class CombatSystemService {
         }
       }
     } catch { /* 羁绊数据异常不影响攻击 */ }
+
+    // 原版 加成计算.ecode L2474-2477（玩家）/L3032-3034（使魔）：
+    // 战斗力取历史最高写入成就/标记，供 使魔排行 战斗力/宠物战斗力 子榜读取。
+    this.recordCombatPowerSnapshot(player, playerData, attackerBonus, isRuntimeActor);
     // 原版 使魔技能.ecode L1424「增加穿透(玩家.属性, 15)」：技能施放时注入的三层穿透，
     // 加成计算.ecode L3446 定义为 护盾/装甲/生命穿透 同时 += N。仅本次攻击生效。
     if (context.extraPenetrationFlat && context.extraPenetrationFlat > 0) {
@@ -2260,6 +2264,10 @@ export class CombatSystemService {
       atkStats.effective++; // 有效伤（对应原版 物伤2 实际造成伤害次数）
       totalDamage += finalDamage;
 
+      // 原版 战斗相关.ecode L3652-3663：曾经造成的最高伤害
+      // 玩家(特殊序号>0)写成就 markers；使魔(特殊序号<0 且 !=-1 敌对怪物)写自身标记
+      this.recordMaxDamageDealt(player, playerData, finalDamage, isRuntimeActor);
+
       // 原版 L3879：把本次伤害累计到防御方(怪物)标记「攻击者+来源」，作为击杀结算
       // 「参与者」名单的输出数据。来源键：玩家=userId，召唤物(运行时攻击方)=名称。
       {
@@ -2773,6 +2781,8 @@ export class CombatSystemService {
           护盾: summon.shield ?? 0,
           装甲: summon.armor ?? 0,
         };
+        // 原版 加成计算.ecode L3032-3034：使魔战斗力取历史最高写入标记
+        this.recordCombatPowerSnapshot(summon, null, summonBonus, true);
 
         // 拳头攻击
         const target = monsters[Math.floor(Math.random() * monsters.length)];
@@ -2792,6 +2802,8 @@ export class CombatSystemService {
           isCrit,
         );
         const finalDmg = Math.max(1, Math.floor(dmg.damage));
+        // 原版 战斗相关.ecode L3660-3663：宠物造成的最高伤害写自身标记
+        this.recordMaxDamageDealt(summon, null, finalDmg, true);
         const applied = this.applyDamageToMonster(target, finalDmg, dmg.poolDamage);
         lines.push(`${summon.name} 攻击 ${target.name}，造成 ${this.formatDamageText(finalDmg, applied)}${isCrit ? '【暴击】' : ''}`);
 
@@ -7437,6 +7449,75 @@ export class CombatSystemService {
    * 原版所有攻击方都使用同一个“玩家”结构体；当前数据库把怪物字段拆开，
    * 这里仅做字段别名与 JSON 解析，不改变结算顺序或数值。
    */
+  /**
+   * 战斗力历史最高记录（原版 加成计算.ecode L2474-2477 玩家 / L3032-3034 使魔）：
+   * 当前计算战斗力超过历史记录时写入。玩家写成就 markers（随 savePlayer 落库）；
+   * 运行时攻击方（使魔）写自身标记（随 persistRuntimeActor 落库）。
+   * 敌对怪物（特殊序号=-1）不记录。
+   */
+  private recordCombatPowerSnapshot(
+    attacker: any,
+    attackerData: PlayerData | null,
+    bonus: BonusData,
+    isRuntimeActor: boolean,
+  ): void {
+    const seq = Number(attacker?.specialSeq ?? 0);
+    if (seq === -1) return; // 敌对怪物（原版 特殊序号=-1）
+    // 防御式计算：测试桩/异常数据下 bonusService 缺方法或 bonus 残缺时跳过记录
+    let power = 0;
+    try {
+      power = Math.round((Number(this.bonusService?.calcCombatPower?.(bonus)) || 0) * 100) / 100;
+    } catch {
+      return;
+    }
+    if (power <= 0) return;
+    if (!isRuntimeActor) {
+      const markers = (attackerData?.markers || {}) as Record<string, number>;
+      if (power > (Number(markers['战斗力']) || 0)) {
+        markers['战斗力'] = power;
+        if (attackerData) attackerData.markers = markers;
+        attacker.markers = markers;
+      }
+      return;
+    }
+    const petMarkers = this.normalizeMarkerObject(attacker.markers ?? {});
+    if (power > (Number(petMarkers['战斗力']) || 0)) {
+      petMarkers['战斗力'] = power;
+      attacker.markers = petMarkers;
+    }
+  }
+
+  /**
+   * 曾经造成的最高伤害记录（原版 战斗相关.ecode L3652-3663）：
+   * 玩家(特殊序号>0)写成就 markers；使魔(运行时攻击方，特殊序号!=-1)写自身标记。
+   * 数值四舍五入两位（原版 四舍五入(总伤害,2)）。
+   */
+  private recordMaxDamageDealt(
+    attacker: any,
+    attackerData: PlayerData | null,
+    damage: number,
+    isRuntimeActor: boolean,
+  ): void {
+    const seq = Number(attacker?.specialSeq ?? 0);
+    if (seq === -1) return; // 敌对怪物（原版 外层门禁 特殊序号!=-1）
+    const value = Math.round((Number(damage) || 0) * 100) / 100;
+    if (value <= 0) return;
+    if (!isRuntimeActor) {
+      const markers = (attackerData?.markers || {}) as Record<string, number>;
+      if (value > (Number(markers['最高伤害']) || 0)) {
+        markers['最高伤害'] = value;
+        if (attackerData) attackerData.markers = markers;
+        attacker.markers = markers;
+      }
+      return;
+    }
+    const petMarkers = this.normalizeMarkerObject(attacker.markers ?? {});
+    if (value > (Number(petMarkers['最高伤害']) || 0)) {
+      petMarkers['最高伤害'] = value;
+      attacker.markers = petMarkers;
+    }
+  }
+
   private createRuntimeActorData(actor: any): PlayerData {
     const parse = <T>(value: any, fallback: T): T => {
       if (value === undefined || value === null) return fallback;

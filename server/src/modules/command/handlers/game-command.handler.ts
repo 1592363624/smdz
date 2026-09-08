@@ -1154,7 +1154,9 @@ export class GameCommandHandler implements CommandHandler {
 
         case '使魔排行':
         case 'familiar-rank':
-          return this.wrap(await this.gameService.handleFamiliarRank(userId));
+          // 原版 _主程序.ecode L9562：四字命令后取关键词为子榜名（使魔排行战斗力 等），
+          // 无关键词时输出十项编号菜单；前缀匹配已在 command.service 把剩余部分并入 firstArg
+          return this.wrap(await this.gameService.handleFamiliarRank(userId, firstArg));
 
         case '排行':
         case 'ranking':

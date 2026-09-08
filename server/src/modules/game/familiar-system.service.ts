@@ -3963,75 +3963,9 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   // ==================== 使魔排行 ====================
-
-  /**
-   * 获取使魔排行
-   * 按使魔战力/等级排序，显示前10名
-   * @param userId 用户ID
-   * @returns 排行文本
-   */
-  async getFamiliarRanking(userId: number): Promise<string> {
-    // 获取所有玩家数据，按使魔等级和战力排序
-    const allPlayers = await this.prisma.player.findMany({
-      where: {
-        type: { not: '' },
-        level: { gt: 0 },
-      },
-      orderBy: [
-        { level: 'desc' },
-      ],
-      take: 10,
-    });
-
-    if (allPlayers.length === 0) {
-      return '目前还没有使魔排行数据';
-    }
-
-    const lines = [
-      '🏆【使魔战力排行】🏆',
-      '━━━━━━━━━━━━━━━',
-    ];
-
-    // 排行称号
-    const rankTitles = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-
-    for (let i = 0; i < allPlayers.length; i++) {
-      const p = allPlayers[i];
-      const rank = rankTitles[i] || `${i + 1}.`;
-      const name = p.name || '未知冒险者';
-      const level = p.level || 0;
-      const type = p.type || '未知';
-      lines.push(`${rank} ${name} | Lv.${level} | ${type}`);
-    }
-
-    // 获取当前玩家的排名
-    const currentPlayer = allPlayers.find(p => p.userId === userId);
-    if (currentPlayer) {
-      const currentRank = allPlayers.indexOf(currentPlayer) + 1;
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`你的排名: 第${currentRank}名`);
-    } else {
-      // 获取当前玩家信息
-      const playerData = await this.playerService.getPlayerData(userId);
-      const { player } = playerData;
-      if (player.type) {
-        // 计算当前玩家在所有玩家中的排名
-        const allCount = await this.prisma.player.count({
-          where: { type: { not: '' } },
-        });
-        const betterCount = await this.prisma.player.count({
-          where: {
-            type: { not: '' },
-            level: { gt: player.level || 0 },
-          },
-        });
-        lines.push(`━━━━━━━━━━━━━━━`);
-        lines.push(`你的排名: 第${betterCount + 1}/${allCount}名`);
-      }
-    }
-
-    return lines.join('\n');
-  }
+  // 使魔排行十子榜已统一收敛到 game.service.handleFamiliarRank
+  // （原版 _主程序.ecode L9562-9745，数据写入点见 MEMORY.md 排行数据源红线）。
+  // 本服务不再持有排行实现——旧版按 Player.level 排玩家的占位口径已删除。
 
   // ==================== 使魔称号 ====================
 

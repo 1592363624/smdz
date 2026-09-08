@@ -98,6 +98,16 @@ export class CommandService {
     if (ctx.userId && this.sourceRegistry) {
       this.sourceRegistry.mark(ctx.userId, ctx.source);
     }
+    // 原版每条指令都经过 _计算玩家：累计「在线时间」成就（加成计算.ecode L1588-1605）
+    // 并记录曾经最高战斗力（L2474-2477），供 使魔排行 各子榜读取。
+    // 防御式调用 + 静默失败：排行统计异常/测试桩缺方法时不影响指令本身。
+    if (ctx.userId && typeof (this.gameService as any).recordRankingStats === 'function') {
+      try {
+        await (this.gameService as any).recordRankingStats(ctx.userId);
+      } catch (e: any) {
+        this.logger.warn(`排行数据源结算失败: ${e?.message ?? e}`);
+      }
+    }
     const result = await this.executeDispatch(ctx);
     if (result?.content) {
       result.content = normalizeGameText(result.content);
