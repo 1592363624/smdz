@@ -243,7 +243,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     expect(w).toContain('需要兰音好感达到40');
   });
 
-  it('测试7 普拉娜火力全开：player.buffs 含「火力全开」攻击加成', async () => {
+  it('测试7 普拉娜火力全开：markers2 写入「压制」增益并输出原版文案', async () => {
     const username = `e2e_plana_${stamp()}`;
     const user = await prisma.user.create({ data: { username, password: 'e2e_test', role: 'USER' } });
     createdUserIds.push(user.id);
@@ -260,12 +260,20 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
       },
     });
     const w = await familiarSkills.executeSkill(user.id, '火力全开');
-    expect(w).toContain('火力全开');
+    // 原版 L1641-1648 文案：首行=名称+恐惧一般来源于火力不足+武器冷却削减，
+    // 次行=火力压制强度/剩余时间（技能名本身不出现在文案里）
+    expect(w).toContain('恐惧一般来源于火力不足');
+    expect(w).toContain('火力压制');
+    // 原版 L1631-1638：压制增益写 markers2（名称=压制），不再写 buffs「火力全开」
     const p = await playerService.getPlayerData(user.id);
-    const fb = findBuff(p.player.buffs, '火力全开');
-    expect(fb).toBeDefined();
-    // 好感100 → effect = getSkillEffect(100)；攻击加成 = floor(60*effect)
-    expect(fb['攻击']).toBeGreaterThan(0);
+    const now = Date.now();
+    // 用 PlayerData 顶层已解析的 markers2（player.markers2 在该读取路径可能是 JSON 字符串）
+    const suppression = (p.markers2 as any[]).find(
+      (m: any) => (m?.name ?? m?.名称) === '压制',
+    );
+    expect(suppression).toBeDefined();
+    expect(Number(suppression.强度 ?? 0)).toBeGreaterThan(0);
+    expect(Number(suppression.有效期至 ?? 0)).toBeGreaterThan(now);
   });
 
   it('测试8 普拉娜火力全开 类型不匹配拦截（非普拉娜使魔）', async () => {
@@ -283,6 +291,7 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
       },
     });
     const w = await familiarSkills.executeSkill(user.id, '火力全开');
-    expect(w).toContain('需要普拉娜');
+    // 原版 L1617：特殊序号 != 普拉娜 → 名称 + “这是普拉娜的技能”
+    expect(w).toContain('这是普拉娜的技能');
   });
 });

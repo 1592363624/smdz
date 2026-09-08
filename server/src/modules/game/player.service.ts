@@ -470,16 +470,20 @@ export class PlayerService implements OnModuleInit {
       const startMap = await this.resolveStartMap();
       if (startMap && startMap.id !== player.mapId) {
         this.logger.warn(`玩家 ${userId} 地图无效(mapId=${player.mapId})，自动修正为 ${startMap.name}(id=${startMap.id})`);
-        await this.enqueueUserWrite(userId, async () => {
-          const _pd = await this.getPlayerData(userId);
-          Object.assign(_pd.player, { mapId: startMap.id, location: startMap.name });
-          await this.savePlayer(_pd.player);
-        });
-        // 该定点写会被 $use 拦截器自增 version；同步内存快照版本，
-        // 否则同一快照随后的 savePlayer 会因版本过期被 CAS 误拒。
-        player.version = Number(player.version ?? 0) + 1;
+        // 就地修复 + 定点落库，禁止两个嵌套：
+        // 1) 嵌套 enqueueUserWrite——本方法可能正被 Actor load 激活中，激活窗口
+        //    cell.running=false，嵌套排队会等当前 run 的 gate → 永久死锁；
+        // 2) 嵌套 getPlayerData——重读 DB 后 mapId 仍为 0，修复分支会自我递归。
+        // 内存就地改（Actor 激活时该对象正是即将成为 cell.state 的活态），
+        // 库内只定点更新 mapId/location 两列；$use 中间件自增 version 后手动
+        // 同步内存版本，避免同一快照随后的 savePlayer 被 CAS 误拒。
         player.mapId = startMap.id;
         player.location = startMap.name;
+        await this.prisma.player.update({
+          where: { id: player.id },
+          data: { mapId: startMap.id, location: startMap.name },
+        });
+        player.version = Number(player.version ?? 0) + 1;
       }
     }
 

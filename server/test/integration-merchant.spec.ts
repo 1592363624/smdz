@@ -175,8 +175,10 @@ describe('行商迁移（真实数据库端到端）', () => {
       const merchant = await merchantFromMap();
       expect(parseJson(merchant.backpack, [])).toHaveLength(24);
       const after = await prisma.player.findUnique({ where: { userId } });
+      // Issue#11 物品身份规范化：发带为 items.json 材料类，读档自愈把历史脏 type
+      // 资源 收敛为规范 type=物品（继承原版物品表）
       expect(parseJson(after!.backpack, [])).toEqual([
-        { name: '发带', type: '资源', quantity: 1 },
+        { name: '发带', type: '物品', quantity: 1 },
       ]);
     } finally {
       randomSpy.mockRestore();

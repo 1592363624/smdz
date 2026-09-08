@@ -6,6 +6,7 @@
 
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlayerService } from '../game/player.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 /// 常用指令项：cmd 为实际发送内容（可为任意文本，不一定是指令），label 为面板展示文字（缺省等于 cmd）
@@ -32,7 +33,11 @@ function normalizeFavoriteItem(item: unknown): FavoriteCommand | null {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // 玩家建档唯一入口（GameModule 为 @Global，可直接注入）。
+    private readonly playerService: PlayerService,
+  ) {}
 
   /**
    * 按ID查询公开信息
@@ -129,11 +134,15 @@ export class UsersService {
 
   /**
    * 获取或创建玩家档案（登录/首次进入游戏时调用）
+   *
+   * 统一建档口径：委托 PlayerService.getOrCreatePlayer（完整初始化：新手装备
+   * 走生成装备路径卷词条、初始「新手教程」任务、出生地图与刷怪、基础标记/称号）。
+   * 此前这里自建只有 userId 的裸档（其余字段全靠 DB 默认值），会抢占
+   * getOrCreatePlayer 的完整初始化——裸档先存在，后续 getOrCreatePlayer 检测到
+   * 行已存在直接返回，新玩家永远拿不到新手装备与初始任务（双创建路径事故）。
    */
   async ensurePlayer(userId: number) {
-    const player = await this.prisma.player.findUnique({ where: { userId } });
-    if (player) return player;
-    return this.prisma.player.create({ data: { userId } });
+    return this.playerService.getOrCreatePlayer(userId);
   }
 
   /**
