@@ -1858,14 +1858,15 @@ export class GameService {
     // 武器（currentWeapon 从 1 计数，0/越界回落拳头）
     result.push(entryOf('武器', currentWeaponIdx > 0 ? weaponList[currentWeaponIdx - 1] : null, '武器强化'));
     // 植入体 / 增幅器
+    // 强化等级存放于 markers['植入体等级'] / markers['增幅器等级']（写入侧：item-system.service.ts upgradeImplant/upgradeAmplifier）
     result.push(entryOf('植入', equipmentList.find((e: any) => {
       const def = this.staticData.getEquipmentByName(e.name);
       return def?.equipType === '植入体' || def?.type === '植入体';
-    }), ''));
+    }), '植入体等级'));
     result.push(entryOf('增幅', equipmentList.find((e: any) => {
       const def = this.staticData.getEquipmentByName(e.name);
       return def?.equipType === '增幅器' || def?.type === '增幅器';
-    }), ''));
+    }), '增幅器等级'));
     return result;
   }
 
@@ -2360,23 +2361,28 @@ export class GameService {
     }
 
     // 植入体（L2170-2179）
+    // 强化等级：markers['植入体等级']（写入侧 item-system.service.ts upgradeImplant）。
+    // 原版此处不显示等级，为与网页左面板 buildEquipmentSnapshot 同口径，统一补上 (+N)。
     const implantIdx = equipmentList.findIndex((e: any) => getEquipType(e) === '植入体');
+    const implantLv = this.combatState.getAchievementProficiency(markers, '植入体等级');
     if (implantIdx >= 0) {
       const im = equipmentList[implantIdx];
       const qName = qualityPrefix(im.data || im.数据 || '');
-      lines.push(`  植入: ${qName} ${im.name || im.名称 || '未知'}`);
+      lines.push(`  植入: ${qName} ${im.name || im.名称 || '未知'}(+${implantLv})`);
     } else {
-      lines.push(`  植入: 无`);
+      lines.push(`  植入: 无(+${implantLv})`);
     }
 
     // 增幅器（L2180-2189）
+    // 强化等级：markers['增幅器等级']（写入侧 item-system.service.ts upgradeAmplifier），同上统一口径。
     const ampIdx = equipmentList.findIndex((e: any) => getEquipType(e) === '增幅器');
+    const ampLv = this.combatState.getAchievementProficiency(markers, '增幅器等级');
     if (ampIdx >= 0) {
       const am = equipmentList[ampIdx];
       const qName = qualityPrefix(am.data || am.数据 || '');
-      lines.push(`  增幅: ${qName} ${am.name || am.名称 || '未知'}`);
+      lines.push(`  增幅: ${qName} ${am.name || am.名称 || '未知'}(+${ampLv})`);
     } else {
-      lines.push(`  增幅: 无`);
+      lines.push(`  增幅: 无(+${ampLv})`);
     }
 
     // 背上备用武器（L2190-2209）
