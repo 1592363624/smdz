@@ -3,10 +3,11 @@
  * 负责消息的持久化、频道的查询，以及生成统一的"公屏消息"结构。
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StatsService } from '../game/stats.service';
+import { CommandSourceRegistry } from '../command/command-source.registry';
 import { normalizeGameText } from '../../common/utils/game-text.util';
 
 @Injectable()
@@ -14,6 +15,9 @@ export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly statsService: StatsService,
+    // 指令来源登记器：延时系统消息回推 QQ 前据此判定「用户最后指令渠道」。
+    // @Optional 兼容手工构造的测试桩（未注入时视为非 QQ 来源，不回推——宁可漏推不错推）。
+    @Optional() private readonly sourceRegistry?: CommandSourceRegistry,
   ) {}
 
   /** Socket.IO 服务端实例引用，由 ChatGateway 在初始化后注入，用于实时广播 */
@@ -35,9 +39,11 @@ export class ChatService {
    * @param content 消息内容
    * @param senderId 发送者ID（可选）
    *
-   * 机器人转发：senderId 对应的玩家绑定了 QQ 号时，额外向 bot 房间推送
-   * bot:push 事件，AstrBot 插件据此把「采集完成/移动到达」等延时结果
-   * 主动回推到 QQ（指令回复通道覆盖不到定时器回调，见 game.service L3745 注释）。
+   * 机器人转发（2026-09-08 修订）：仅当该玩家「最后一次发指令的渠道是 QQ」时
+   * 才向 bot 房间推 bot:push（按来源归属判定，无时间窗口——QQ 发的指令其延时
+   * 结果无论多久都推；玩家切回网页端发指令后立即停止回推）。判定依据来自
+   * CommandSourceRegistry（CommandService.dispatch 入口统一登记）。
+   * 此前仅凭「绑定了 QQ 号」就推，导致网页端操作的延时结果被错推到 QQ 群。
    */
   async broadcastSystem(channelName: string, content: string, senderId?: number) {
     const channel = await this.ensureDefaultChannel();
@@ -49,9 +55,13 @@ export class ChatService {
     });
     // 实时推送给频道房间内所有在线用户
     this.server?.to(channelName).emit('chat:message', msg);
-    // 机器人定向推送：查该消息关联玩家的 QQ 绑定，绑定了才推，未绑定/无机器人在线时静默跳过
+    // 机器人定向推送：先查该玩家最后指令渠道是否为 QQ，再查 QQ 绑定；
+    // 任一不满足（网页玩/未绑定/无登记）都静默跳过
     if (senderId) {
       try {
+        if (!this.sourceRegistry?.isFromBot(senderId)) {
+          return msg;
+        }
         const user = await this.prisma.user.findUnique({
           where: { id: senderId },
           select: { qqNumber: true },

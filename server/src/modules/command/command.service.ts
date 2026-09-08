@@ -23,6 +23,7 @@ import {
   CommandSource,
 } from './interfaces/command.interface';
 import { COMMAND_HANDLER_MAP } from './command-handler-map.provider';
+import { CommandSourceRegistry } from './command-source.registry';
 import { normalizeGameText } from '../../common/utils/game-text.util';
 import { buildTutorialClaimBlock } from '../game/familiar-menu.util';
 
@@ -50,6 +51,10 @@ export class CommandService {
     // 在锁内复用唯一快照、统一落库。@Optional 兼容手工构造的测试桩（未注入时
     // 退化为指令直接执行，走各服务自身的 enqueueUserWrite 旧路径，行为不变）。
     @Optional() private readonly playerMutate?: PlayerMutateService,
+    // 指令来源登记器：dispatch 入口统一记录「用户最后指令渠道」，供
+    // ChatService.broadcastSystem 判定延时结果是否回推 QQ。@Optional 兼容测试桩
+    // （未注入时不登记，bot:push 过滤端随之回落为不推，宁可漏推不错推）。
+    @Optional() private readonly sourceRegistry?: CommandSourceRegistry,
   ) {
     // P2 管道注入自检：@Optional 注入失效（模块装配遗漏/循环依赖截断）会静默
     // 回落旧路径，生产极难察觉——正式库 CurrencyLog 空表事故的直接教训。
@@ -88,6 +93,11 @@ export class CommandService {
    * 避免玩家在网页/QQ 看到字面标记。
    */
   async dispatch(ctx: CommandContext): Promise<CommandResult> {
+    // 登记该用户最后指令渠道（QQ/网页/API 覆盖写）：延时结算消息是否回推 QQ
+    // 以此为准——用户最后用哪个渠道玩，延时结果就回推到哪个渠道（2026-09-08 约定）。
+    if (ctx.userId && this.sourceRegistry) {
+      this.sourceRegistry.mark(ctx.userId, ctx.source);
+    }
     const result = await this.executeDispatch(ctx);
     if (result?.content) {
       result.content = normalizeGameText(result.content);
