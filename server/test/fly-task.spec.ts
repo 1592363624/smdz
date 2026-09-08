@@ -22,7 +22,8 @@ function makeService(options: {
     userId: 42,
     name: '冒险者',
     mapId: 7,
-    markers: '{}',
+    // 默认视为已通过新手剧情（召唤白）的老玩家；新手自动导航锁单独用例覆盖
+    markers: '{"召唤白":1}',
     markers2: '[]',
     equipment: '[]',
     weapons: '[]',
@@ -262,6 +263,23 @@ describe('前往门禁（原版 _主程序.ecode L6514-6548 复刻）', () => {
     expect(fixture.scheduled[0]).toMatchObject({ mapId: 5, name: '乱流对岸' });
   });
 
+  it('新手（无召唤白标记）前往编号>2地图时拦截自动导航并预置临时输入（原版 L6610-6618）', async () => {
+    const fixture = makeMoveService({
+      player: {
+        id: 1, userId: 42, name: '冒险者', mapId: 7, markers: '{}',
+        markers2: '[]', equipment: '[]', weapons: '[]', sets: '{}', vehicle: '',
+        hp: 100,
+      },
+    });
+
+    const result = await fixture.service.handleMove(42, '目标地图');
+
+    expect(result).toContain('你现在还不能使用自动导航');
+    const tempArg = fixture.service.shortcutService.setTempInput.mock.calls[0][1];
+    expect(tempArg).toContain('1@观察附近');
+    expect(fixture.scheduled).toHaveLength(0);
+  });
+
   it('主前往路径写入 markers2「移动」标记（原版 L6668）', async () => {
     const fixture = makeService({});
 
@@ -323,7 +341,8 @@ describe('飞行任务动作', () => {
 
     expect(result).toContain('还需要9秒');
     expect(fixture.scheduled).toHaveLength(0);
-    expect(fixture.player.markers).toBe('{}');
+    // 飞行冷却拦截时不写入任何新标记（夹具默认携带 召唤白:1 剧情标记）
+    expect(parseJson(fixture.player.markers, {})['移动中']).toBeUndefined();
   });
 
   it('驾驶只能前往的载具时拒绝飞行', async () => {

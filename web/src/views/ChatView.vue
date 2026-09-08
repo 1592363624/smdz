@@ -435,7 +435,7 @@
             <span v-else class="content" style="white-space: pre-line">
               <template v-for="(seg, si) in v.segs" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
-                <span v-else-if="seg.type === 'mention'" class="mention-highlight" :title="'右键 @ ' + seg.text.replace('@', '')" @contextmenu.prevent="quickAtText(seg.text)">{{ seg.text }}</span>
+                <span v-else-if="seg.type === 'mention'" class="mention-highlight" :title="'右键 @ ' + (seg.displayText || seg.text).replace('@', '')" @contextmenu.prevent="quickAtText(seg.displayText || seg.text)">{{ seg.displayText || seg.text }}</span>
                 <span v-else class="cmd-clickable" :title="'左键点击发送 / 右键填入输入框「' + seg.text + '」'" @click="quickSend(seg.text)" @contextmenu.prevent="quickFill(seg.text)">{{ seg.displayText || seg.text }}</span>
               </template>
             </span>
@@ -1271,6 +1271,32 @@ const filteredAtPlayers = computed(() => {
   );
 });
 
+// 用户名/昵称 → 玩家 映射：把消息里的 @用户名（如 qq_<32位openid>）解析成昵称展示
+// 依赖 mentionablePlayers（60s 轮询刷新），列表加载/更新后历史消息的高亮名会自动换算成昵称
+const mentionableByName = computed(() => {
+  const map = new Map();
+  for (const p of mentionablePlayers.value) {
+    if (p.username) map.set(p.username, p);
+    if (p.nickname) map.set(p.nickname, p);
+  }
+  return map;
+});
+
+/**
+ * 解析 @提及 的展示名：能匹配到玩家且昵称「@安全」（中英文/数字/下划线，可被后端解析）时
+ * 显示 @昵称；否则保持原文（用户名或原昵称），保证右键回填后仍能 @ 到人
+ * @param {string} name @ 后面的名字（用户名或昵称）
+ * @returns {string} 带 @ 前缀的展示文本
+ */
+function mentionDisplayText(name) {
+  const p = mentionableByName.value.get(name);
+  const nick = String(p?.nickname || '').trim();
+  if (nick && nick !== name && /^[\u4e00-\u9fa5A-Za-z0-9_]{1,32}$/.test(nick)) {
+    return '@' + nick;
+  }
+  return '@' + name;
+}
+
 // 是否为管理员(显示管理后台入口)
 const isAdmin = computed(() => ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role));
 
@@ -1551,7 +1577,8 @@ function parseContent(content, cmdList) {
   }
 
   // 处理文本片段中的 @提及 高亮（在已有 segment 基础上拆解 text 片段）
-  const mentionRegex = /@([\u4e00-\u9fa5A-Za-z0-9_]{1,32})/g;
+  // 上限 64：QQ 互联用户名形如 qq_<32位openid>（共 35 字符），32 会截断导致尾部字符漏出高亮
+  const mentionRegex = /@([\u4e00-\u9fa5A-Za-z0-9_]{1,64})/g;
   const finalSegments = [];
   for (const seg of segments) {
     if (seg.type === 'text' && seg.text) {
@@ -1562,7 +1589,8 @@ function parseContent(content, cmdList) {
         if (m.index > lastTextIdx) {
           finalSegments.push({ type: 'text', text: seg.text.slice(lastTextIdx, m.index) });
         }
-        finalSegments.push({ type: 'mention', text: m[0] });
+        // @提及：text 保留原文（用于右键回填兜底），displayText 优先显示昵称
+        finalSegments.push({ type: 'mention', text: m[0], displayText: mentionDisplayText(m[1]) });
         lastTextIdx = mentionRegex.lastIndex;
       }
       if (lastTextIdx < seg.text.length) {

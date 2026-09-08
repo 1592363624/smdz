@@ -523,33 +523,42 @@ export class GameService {
       return `地图不存在，请检查名称`;
     }
 
+    // 对齐原版 _主程序.ecode L6610-6618：新手（未触发「召唤白」剧情）自动导航锁——
+    // 目的地图编号 >2（医疗室/走廊之外）时拦截，并预置临时输入 1→观察附近。
+    // 副本入口在原版分支中早于该锁，不受限。
+    if (!isDungeonEntry
+      && (Number(this.playerService.getMarkerValue(asJsonValue(player.markers, {}), '召唤白')) || 0) < 1
+      && Number(targetMap.id) > 2) {
+      if (this.shortcutService?.setTempInput) {
+        await this.shortcutService.setTempInput(userId, '1@观察附近');
+      }
+      return `${player.name || '冒险者'}你现在还不能使用自动导航\n1、观察附近`;
+    }
+
+    // 对齐原版 _主程序.ecode L6626-6630：载具行走方式 0(未安装行走机构)/4(无法移动) 时不能"前往"
+    const travelVehicle = await this.findTravelVehicle(player, currentMap);
+    if (travelVehicle) {
+      const walkMode = Number(travelVehicle?.行走方式 ?? travelVehicle?.walkMode ?? travelVehicle?.moveType ?? 0);
+      if (walkMode === 0) {
+        return `${player.name}当前驾驶的载具${travelVehicle?.名称 || travelVehicle?.name || ''}未安装行走机构或有的部件超过了上限`;
+      }
+      if (walkMode === 4) {
+        return `${player.name}当前驾驶的载具${travelVehicle?.名称 || travelVehicle?.name || ''}安装了无法移动的组件`;
+      }
+    }
+
     // 对齐原版 _主程序.ecode 前往分支：目的地为当前位置时 取最短路径 距离为0，
     // 按“没有路径”拦截，不允许反复前往脚下地图；副本入口按传送处理不受此限制。
     if (!isDungeonEntry && Number(targetMap.id) === Number(currentMap.id)) {
       return `${player.name}所在地"${currentMap.name}"没有前往"${targetMap.name}"的路径`;
     }
 
-    // 检查是否可以前往
+    // 检查是否可以前往（原版 L6634：前往需求查出发地图；L6648：标记要求查目的地图）
     const check = isDungeonEntry
       ? { canTravel: true }
-      : this.mapService.checkCanTravel(currentMap, targetMap, player);
+      : this.mapService.checkCanTravel(currentMap, targetMap, player, { mode: 'move', vehicle: travelVehicle });
     if (!check.canTravel) {
       return `无法前往：${check.reason}`;
-    }
-
-    // 对齐原版 _主程序.ecode L6555：载具行走方式 0(未安装行走机构)/4(坐地) 时不能"前往"
-    // 仅在玩家有载具时检查，无载具则步行不受限
-    if (player.vehicle) {
-      const travelVehicle = await this.findTravelVehicle(player, currentMap);
-      if (travelVehicle) {
-        const walkMode = Number(travelVehicle?.行走方式 ?? travelVehicle?.walkMode ?? 0);
-        if (walkMode === 0) {
-          return `${player.name}的载具${travelVehicle?.name || travelVehicle?.名称 || ''}没有安装行走机构，无法行走`;
-        }
-        if (walkMode === 4) {
-          return `${player.name}的载具${travelVehicle?.name || travelVehicle?.名称 || ''}处于坐地模式，无法行走`;
-        }
-      }
     }
 
     // 计算移动所需耗时（秒）
@@ -702,7 +711,8 @@ export class GameService {
       await this.playerService.savePlayer(player);
       return `${name}${cooldownText.value}`;
     }
-    const travelCheck = this.mapService.checkCanTravel(currentMap, targetMap, player);
+    // 原版 L1744：传送查目的地图的前往需求（动态能力判定：vehicle 为 null=徒步持天蓝吊坠）
+    const travelCheck = this.mapService.checkCanTravel(currentMap, targetMap, player, { mode: 'teleport', vehicle });
     if (!travelCheck.canTravel) return `${name}${travelCheck.reason || '无法前往该地图'}`;
 
     // ===== 执行（原版 L1747-1808）=====
@@ -920,13 +930,14 @@ export class GameService {
       return `${playerName}${cooldownText.value}`;
     }
 
+    // 原版 L1620：飞到查目的地图的前往需求（动态能力判定）
+    const vehicle = await this.findTravelVehicle(player, currentMap);
     if (typeof this.mapService.checkCanTravel === 'function') {
-      const check = this.mapService.checkCanTravel(currentMap, targetMap, player);
+      const check = this.mapService.checkCanTravel(currentMap, targetMap, player, { mode: 'fly', vehicle });
       if (!check.canTravel) return `${playerName}${check.reason || '无法前往该地图'}`;
     }
 
-    const vehicle = await this.findTravelVehicle(player, currentMap);
-    const moveType = Number(vehicle?.行走方式 ?? vehicle?.moveType ?? 0);
+    const moveType = Number(vehicle?.行走方式 ?? vehicle?.walkMode ?? vehicle?.moveType ?? 0);
     if (vehicle && moveType === 0) {
       return `${playerName}当前驾驶的载具${vehicle.名称 || vehicle.name}未安装行走机构或有的部件超过了上限`;
     }

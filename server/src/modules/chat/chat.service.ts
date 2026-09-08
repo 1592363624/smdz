@@ -275,11 +275,13 @@ export class ChatService {
 
   /**
    * 解析普通聊天文本中的 @提及（@用户名），返回被提及的用户名列表
+   * 注意：QQ 互联注册的用户名形如 qq_<32位openid>（共 35 字符），
+   * 上限必须 ≥ 35，否则用户名被截断导致 @通知匹配不到人
    * @param content 消息内容
    */
   parseMentions(content: string): string[] {
     const mentions: string[] = [];
-    const regex = /@([\u4e00-\u9fa5A-Za-z0-9_]{1,32})/g;
+    const regex = /@([\u4e00-\u9fa5A-Za-z0-9_]{1,64})/g;
     let m: RegExpExecArray | null;
     while ((m = regex.exec(content)) !== null) {
       mentions.push(m[1]);

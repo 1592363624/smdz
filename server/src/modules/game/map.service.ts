@@ -141,6 +141,18 @@ export interface TravelCheckResult {
 }
 
 /**
+ * 通行检查选项（对应原版移动方式差异）
+ * - mode='move'     前往：原版 _主程序 L6634 查【出发地图】的前往需求
+ * - mode='fly'      飞到：原版 _主程序 L1620 查【目的地图】的前往需求
+ * - mode='teleport' 传送：原版 _主程序 L1744 查【目的地图】的前往需求
+ * - vehicle 当前驾驶的载具（null/缺省=徒步），用于前往需求的动态能力判定
+ */
+export interface TravelCheckOptions {
+  mode?: 'move' | 'fly' | 'teleport';
+  vehicle?: any;
+}
+
+/**
  * 动态地图状态字段（仅存储在 DB 中，运行时可变）
  * - 完全动态：summons, markers, markers2
  * - 半动态（JSON 提供初始值，DB 存储运行时修改）：
@@ -551,66 +563,105 @@ export class MapService {
 
   /**
    * 检查是否可前往目标地图
-   * 检查距离、需求条件、标记要求等
+   * 完整对齐原版门槛链（按移动方式区分）：
+   * - 不可传送：原版仅拦截「飞到」（L1614）/「传送」（L1738-1739）；「前往」走陆路路径，不查此字段
+   * - 前往需求：原版 前往需求判断（地图操作.ecode L992-1046）——前往查出发图（L6634），
+   *   飞到/传送查目的地图（L1620/L1744）；能力判定是动态的：徒步看天蓝吊坠，
+   *   驾驶载具看行走方式（2=飞行、3=跃迁）
+   * - 标记要求：原版 _主程序 L6648-6660，玩家标记数值 <1 视为不满足，
+   *   命中后返回「前往X的门似乎锁上了」+ 标记提示
    * @param currentMap 当前所在地图
    * @param targetMap 目标地图
-   * @param player 玩家对象（含 markers 等数据）
+   * @param player 玩家对象（含 markers/equipment 等数据）
+   * @param opts mode=移动方式（默认 move）；vehicle=当前驾驶的载具（null=徒步）
    */
-  checkCanTravel(currentMap: any, targetMap: any, player: any): TravelCheckResult {
-    // 0. 新手剧情区放行：医疗室/走廊设为不可传送，但玩家触发「召唤白」剧情后
-    //    （打开休眠仓，"锁着的门解开了"）应能沿连接前往走廊/森林出口，推进主线任务。
-    //    因此先判断是否命中"召唤白解锁的新手区路径"，命中则直接放行 noTeleport。
-    const playerMarkers: Record<string, any> = this.safeParseJSON(player?.markers, {});
-    const summonBai = '召唤白' in playerMarkers;
-    const isStoryNewbieRoute =
-      summonBai &&
-      (currentMap.name === '医疗室' && targetMap.name === '走廊') ||
-      (currentMap.name === '走廊' && targetMap.name === '森林出口');
-    // 解锁后仍可原路返回（双向都放开新手区内部路径）
-    const isNewbieInternal =
-      (currentMap.name === '走廊' && targetMap.name === '医疗室');
-    if ((isStoryNewbieRoute || isNewbieInternal) && summonBai) {
-      // 属于新手剧情解锁路径，跳过 noTeleport 限制，进入后续连接判定
-    } else {
-      // 1. 检查目标地图是否禁止前往（非新手剧情解锁路径）
-      if (targetMap.noTeleport) {
-        return { canTravel: false, reason: '该地图无法直接前往' };
-      }
+  checkCanTravel(currentMap: any, targetMap: any, player: any, opts: TravelCheckOptions = {}): TravelCheckResult {
+    const mode = opts.mode ?? 'move';
+    const destName = String(targetMap?.name ?? '');
+
+    // 1. 不可传送（仅飞到/传送）
+    if (mode !== 'move' && (targetMap.noTeleport || targetMap.不可传送)) {
+      return { canTravel: false, reason: `目的地${destName}存在严重干扰，贸然前往后果不可预料。` };
     }
 
-    // 2. 检查目标地图的进入要求标记
-    const requireMarkers: string[] = this.safeParseJSON(targetMap.requireMarkers, []);
+    // 2. 前往需求（前往查出发地图，飞到/传送查目的地图）
+    const gateMap = mode === 'move' ? currentMap : targetMap;
+    const requirement = Number(gateMap?.requiredTravel ?? 0) || 0;
+    if (requirement > 0) {
+      const failReason = this.checkTravelCapability(player, opts.vehicle, requirement, destName);
+      if (failReason) return { canTravel: false, reason: failReason };
+    }
+
+    // 3. 标记要求（目的地图；原版 L6648-6660，仅「前往」路径检查，此处对飞到/传送同样兜底）
+    const requireMarkers: string[] = asJsonValue<string[]>(targetMap.requireMarkers, []);
     if (requireMarkers.length > 0) {
-      const playerMarkers: Record<string, any> = this.safeParseJSON(player.markers, {});
+      const playerMarkers: Record<string, any> = asJsonValue<Record<string, any>>(player?.markers, {});
       for (const marker of requireMarkers) {
-        if (!(marker in playerMarkers)) {
-          const hint = targetMap.failHint || `需要标记「${marker}」`;
-          return { canTravel: false, reason: hint };
+        // 原版 取成就熟练度(玩家.标记, 标记要求[c]) < 1：键缺失或数值不足均不满足
+        if ((Number(playerMarkers?.[marker]) || 0) < 1) {
+          const hint = String(targetMap.failHint || '').trim();
+          const reason = hint
+            ? `前往${destName}的门似乎锁上了，\n${hint}`
+            : `需要标记「${marker}」`;
+          return { canTravel: false, reason };
         }
       }
     }
 
-    // 3. 检查连接是否可达
+    // 4. 检查连接是否可达（无连接定义时放行，路径/距离由调用方按原版取最短路径处理）
     const connections = this.getConnections(currentMap);
     const targetConn = connections.find((c) => c.mapId === targetMap.id || c.name === targetMap.name);
     if (!targetConn) {
       return { canTravel: true };
     }
 
-    // 4. 检查目标地图的 requiredTravel 需求
-    if (targetMap.requiredTravel > 0) {
-      const playerMarkers: Record<string, any> = this.safeParseJSON(player.markers, {});
-      const travelMarkerKey = `travel_${targetMap.requiredTravel}`;
-      if (!(travelMarkerKey in playerMarkers)) {
-        const travelTypeMap: Record<number, string> = { 1: '飞行', 2: '传送', 3: '跃迁' };
-        return {
-          canTravel: false,
-          reason: `需要${travelTypeMap[targetMap.requiredTravel] || '特殊'}能力才能前往`,
-        };
-      }
+    return { canTravel: true };
+  }
+
+  /**
+   * 前往需求能力判定（原版 地图操作.ecode L992-1046「前往需求判断」逐分支复刻）。
+   * 返回 null=满足；否则返回原版失败文案（玩家名称由调用方拼接）。
+   * @param player 玩家对象（徒步 + 传送级需求时检查天蓝吊坠）
+   * @param vehicle 当前驾驶的载具（null=徒步）
+   * @param requirement 需求等级：1=飞行 2=传送 3=跃迁
+   * @param destName 目的地名称（原版文案前缀）
+   */
+  private checkTravelCapability(player: any, vehicle: any, requirement: number, destName: string): string | null {
+    const onFoot = !vehicle || Number(vehicle?.列表编号 ?? vehicle?.listId ?? 0) === 0;
+    const walkMode = onFoot ? 0 : Number(vehicle?.行走方式 ?? vehicle?.walkMode ?? vehicle?.moveType ?? 0);
+    const vehicleName = String(vehicle?.名称 ?? vehicle?.name ?? '');
+
+    if (requirement === 1) {
+      // 需求=飞行（原版 L1006-1014）：徒步（玩家本身能飞）放行；
+      // 载具行走方式 2(飞行)/3(跃迁) 放行，其余拦截
+      if (onFoot || walkMode === 2 || walkMode === 3) return null;
+      return `${destName}限制了需要飞行才能到达，当前驾驶的载具${vehicleName}的移动方式未满足条件(需要安装任意型号的推进器或者跃迁引擎)`;
     }
 
-    return { canTravel: true };
+    if (requirement === 2) {
+      // 需求=传送（原版 L1016-1030）：徒步需装备天蓝吊坠；
+      // 载具需行走方式 3(跃迁)，其余拦截
+      if (onFoot) {
+        const equipment = asJsonValue<any[]>(player?.equipment, []);
+        const hasPendant = equipment.some((item: any) =>
+          String(item?.name ?? item?.名称 ?? '') === '天蓝吊坠');
+        if (hasPendant) return null;
+        return `${destName}限制了需要传送或者跃迁才能到达，你可以装备[天蓝吊坠]或者给载具安装任意型号的“跃迁引擎”`;
+      }
+      if (walkMode === 3) return null;
+      return `${destName}限制了需要传送才能到达，当前驾驶的载具${vehicleName}的移动方式未满足条件(需要安装任意型号的跃迁引擎)`;
+    }
+
+    if (requirement === 3) {
+      // 需求=跃迁（原版 L1032-1041）：仅驾驶行走方式 3(跃迁) 的载具可通过
+      if (!onFoot && walkMode === 3) return null;
+      if (onFoot) {
+        return `${destName}限制了需要跃迁才能到达，只有驾驶安装了任意型号跃迁引擎的载具才能跃迁`;
+      }
+      return `${destName}限制了需要跃迁才能到达，当前驾驶的载具${vehicleName}的移动方式未满足条件(需要安装任意型号的跃迁引擎)`;
+    }
+
+    return null;
   }
 
   /**
