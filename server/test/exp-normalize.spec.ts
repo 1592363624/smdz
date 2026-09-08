@@ -18,7 +18,10 @@ function makePrismaWithCas(rows: any[]) {
   const prisma: any = {
     player: {
       findUnique: jest.fn(async ({ where }: any) => {
-        const row = rows.find((r) => r.userId === where?.userId);
+        // 同时支持 userId 与 id 定位：savePlayer 的 Actor 邮箱路径会按行 id 反查归属
+        const row = rows.find((r) =>
+          (where?.userId !== undefined && r.userId === where.userId)
+          || (where?.id !== undefined && r.id === where.id));
         return row ? { ...row } : null;
       }),
       update: jest.fn(async ({ where, data }: any) => {
@@ -107,12 +110,19 @@ describe('savePlayer 经验归一化门禁', () => {
     const prisma = makePrismaWithCas([row]);
     const service = makeService(prisma);
 
-    // 模拟 task.service 等路径手工构造的定点更新快照
+    // 模拟 task.service 等路径手工构造的定点更新快照。
+    // 2026-09-08 起 savePlayer 走 Actor：定点对象先合并进活态再整行落库，
+    // 「不注入派生字段」的不变量体现为——未携带的 level/exp 以活态原值落库，
+    // 归一化/升级重算不触发（exp=10 远低于 Lv.5 门槛 30）。
     await service.savePlayer({ id: 1, version: 0, markers: '{"采集":1}' } as any);
 
     expect(row.level).toBe(5);
-    expect((prisma.player.update.mock.calls[0][0].data).upgradeExp).toBeUndefined();
-    expect((prisma.player.update.mock.calls[0][0].data).exp).toBeUndefined();
+    expect(row.exp).toBe(10);
+    // 归一化未触发：无升级 → 不得向未携带 upgradeExp 的定点写注入派生字段
+    expect(row.upgradeExp).toBeUndefined();
+    // mock 落库后 markers 可能是对象（Json 列直写）或字符串（历史形态），两种都接受
+    const savedMarkers = typeof row.markers === 'string' ? JSON.parse(row.markers) : row.markers;
+    expect(savedMarkers).toEqual({ 采集: 1 });
   });
 
   it('升级时重算成长属性并推进版本号（version 由 $use 中间件自增）', async () => {

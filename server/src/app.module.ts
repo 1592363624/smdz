@@ -18,6 +18,7 @@ import { BotModule } from './modules/bot/bot.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SystemConfigModule } from './modules/system-config/system-config.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ActorModule } from './modules/actor/actor.module';
 import { GameModule } from './modules/game/game.module';
 import { GameTasksModule } from './modules/game/game-tasks.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
@@ -30,6 +31,12 @@ import { GlobalConfig } from './config/global.config';
     ConfigModule.forRoot({ isGlobal: true }),
     // 数据访问层
     PrismaModule,
+    // Actor 运行时（全局单例）：玩家域写入口的单写者内核。
+    // 必须导入——PlayerService.enqueueUserWrite/getPlayerData/savePlayer 注入
+    // ActorRuntime 后切换到「内存活态 + 串行邮箱 + writeThrough 落库」路径；
+    // 不导入则这些 @Optional 依赖恒为 undefined，markPlayerDirty 两路失效
+    // （历史事故：教程领取在管道外裸调，领取结果静默丢失、每条指令重复输出）。
+    ActorModule,
     // 系统配置中心（全局提供）
     SystemConfigModule,
     /**

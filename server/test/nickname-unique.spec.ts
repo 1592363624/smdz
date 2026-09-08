@@ -54,7 +54,7 @@ describe('updateNickname - 昵称禁止重复', () => {
       { id: 1, nickname: 'Alice', username: 'u1' },
       { id: 2, nickname: 'Bob', username: 'u2' },
     ];
-    const service = new UsersService(buildPrisma(users) as any);
+    const service = new UsersService(buildPrisma(users) as any, { getOrCreatePlayer: async () => ({}) } as any);
 
     await expect(service.updateNickname(2, 'Alice')).rejects.toThrow(ConflictException);
   });
@@ -64,7 +64,7 @@ describe('updateNickname - 昵称禁止重复', () => {
       { id: 1, nickname: 'Alice', username: 'u1' },
       { id: 2, nickname: 'Ali', username: 'u2' },
     ];
-    const service = new UsersService(buildPrisma(users) as any);
+    const service = new UsersService(buildPrisma(users) as any, { getOrCreatePlayer: async () => ({}) } as any);
 
     const result = await service.updateNickname(1, 'Alice');
     expect(result.nickname).toBe('Alice');
@@ -72,7 +72,7 @@ describe('updateNickname - 昵称禁止重复', () => {
 
   it('昵称前后空白会被清理后落库', async () => {
     const users: any[] = [{ id: 1, nickname: 'Alice', username: 'u1' }];
-    const service = new UsersService(buildPrisma(users) as any);
+    const service = new UsersService(buildPrisma(users) as any, { getOrCreatePlayer: async () => ({}) } as any);
 
     const result = await service.updateNickname(1, '  新名字  ');
     expect(result.nickname).toBe('新名字');
@@ -81,14 +81,14 @@ describe('updateNickname - 昵称禁止重复', () => {
 
   it('空白昵称抛 BadRequestException', async () => {
     const users: any[] = [{ id: 1, nickname: 'Alice', username: 'u1' }];
-    const service = new UsersService(buildPrisma(users) as any);
+    const service = new UsersService(buildPrisma(users) as any, { getOrCreatePlayer: async () => ({}) } as any);
 
     await expect(service.updateNickname(1, '   ')).rejects.toThrow(BadRequestException);
   });
 
   it('超长昵称抛 BadRequestException', async () => {
     const users: any[] = [{ id: 1, nickname: 'Alice', username: 'u1' }];
-    const service = new UsersService(buildPrisma(users) as any);
+    const service = new UsersService(buildPrisma(users) as any, { getOrCreatePlayer: async () => ({}) } as any);
 
     await expect(service.updateNickname(1, 'x'.repeat(21))).rejects.toThrow(BadRequestException);
   });
@@ -97,7 +97,7 @@ describe('updateNickname - 昵称禁止重复', () => {
 describe('uniquifyNickname - 注册自动去重', () => {
   it('基名空闲时原样返回', async () => {
     const users: any[] = [{ id: 1, nickname: 'Alice', username: 'u1' }];
-    const service = new UsersService(buildPrisma(users) as any);
+    const service = new UsersService(buildPrisma(users) as any, { getOrCreatePlayer: async () => ({}) } as any);
 
     await expect(service.uniquifyNickname('Charlie')).resolves.toBe('Charlie');
   });
@@ -107,7 +107,7 @@ describe('uniquifyNickname - 注册自动去重', () => {
       { id: 1, nickname: 'Alice', username: 'u1' },
       { id: 2, nickname: 'Alice#2', username: 'u2' },
     ];
-    const service = new UsersService(buildPrisma(users) as any);
+    const service = new UsersService(buildPrisma(users) as any, { getOrCreatePlayer: async () => ({}) } as any);
 
     await expect(service.uniquifyNickname('Alice')).resolves.toBe('Alice#3');
   });
@@ -115,7 +115,7 @@ describe('uniquifyNickname - 注册自动去重', () => {
   it('注册自动去重：重复 QQ 昵称也能成功创建（昵称不冲突）', async () => {
     const users: any[] = [{ id: 1, nickname: '小白', username: 'qq_a' }];
     const prisma = buildPrisma(users);
-    const service = new UsersService(prisma as any);
+    const service = new UsersService(prisma as any, { getOrCreatePlayer: async () => ({}) } as any);
 
     const unique = await service.uniquifyNickname('小白');
     expect(unique).toBe('小白#2');

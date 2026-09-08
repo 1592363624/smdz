@@ -4,8 +4,7 @@
  * 负责玩家的创建、读取、保存、等级管理、背包操作、标记系统等功能
  */
 
-import { Injectable, Logger, NotFoundException, OnModuleInit, Optional, Inject } from '@nestjs/common';
-import { AsyncLocalStorage } from 'async_hooks';
+import { Injectable, Logger, NotFoundException, Optional, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
@@ -121,17 +120,8 @@ function hasOwn(obj: any, key: PropertyKey): boolean {
 }
 
 @Injectable()
-export class PlayerService implements OnModuleInit {
+export class PlayerService {
   private readonly logger = new Logger(PlayerService.name);
-  /** 同一玩家的串行邮箱（Actor 收件箱）：key=userId，值=队列尾 Promise。
-   *  这不是互斥锁，而是一条 Promise 链——同一玩家的所有写操作被串到前一个
-   *  之后顺序执行，单进程内天然单线程、无竞态，无任何 Mutex/信号量阻塞。 */
-  private readonly userMailboxes = new Map<number, Promise<unknown>>();
-  /**
-   * 锁重入上下文：同一异步链内重复进入同一 userId 的锁时直接放行，
-   * 避免服务间嵌套调用（如兑换 → 任务推进）造成自我死锁。
-   */
-  private readonly mailboxContext = new AsyncLocalStorage<number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -148,10 +138,10 @@ export class PlayerService implements OnModuleInit {
      * 拿不到时自动退回原有的独立读档保存路径，行为完全不变。
      */
     @Optional() private readonly mutateContext?: PlayerMutateContextService,
-    /** Actor 运行时（可选依赖）。注入后 enqueueUserWrite/getPlayerData/savePlayer 走
-     *  单进程 Actor 层（内存态 + 串行 + 无锁无 CAS）；未注入（存量测试桩手工 new）时
-     *  退回原有 userMailboxes 实现，行为完全不变。 */
-    @Optional() private readonly actorRuntime?: ActorRuntime,
+    /** Actor 运行时注入入口：唯一写路径内核（生产由 ActorModule 注入全局单例）。
+     *  未注入（存量测试桩手工 new）时构造器自动内置独立实例并注册 player 类型，
+     *  桩测试与生产走同一条 Actor 路径（legacy 邮箱 fallback 已于 2026-09-08 删除）。 */
+    @Optional() injectedRuntime?: ActorRuntime,
     /** 物品系统（可选依赖，经 ITEM_SYSTEM_SERVICE 字符串 token 别名注入，
      *  避免 PlayerService↔ItemSystemService 运行时循环加载）。
      *  用于创建玩家时按原版"生成装备"路径卷词条生成初始武器；拿不到时（存量测试桩）
@@ -161,7 +151,37 @@ export class PlayerService implements OnModuleInit {
     /** 高光时刻推送（可选依赖）。升级时定向推送给该玩家播放屏幕级动画；
      *  存量测试桩手工 new PlayerService 时不传，升级结算逻辑完全不变。 */
     @Optional() private readonly highlight?: GameHighlightService,
-  ) {}
+  ) {
+    // Actor 运行时恒有实例：生产用注入的全局单例；测试桩自动内置独立实例。
+    this.actorRuntime = injectedRuntime ?? new ActorRuntime();
+    if (!injectedRuntime) {
+      // 自动内置的 runtime 由本服务全权持有（仅测试桩场景；无需 Nest 生命周期托管）
+      this.ownsRuntime = true;
+    }
+    if (!this.actorRuntime.hasType('player')) {
+      this.registerPlayerActorType();
+    }
+  }
+
+  /** Actor 运行时（唯一写路径内核，恒有实例——见构造器）。 */
+  private readonly actorRuntime: ActorRuntime;
+
+  /** 是否为构造时自动内置的 runtime（仅测试桩场景；DI 注入的全局单例归 ActorModule 管）。 */
+  private ownsRuntime = false;
+
+  /**
+   * 把 player 注册为本 runtime 的 Actor 类型（幂等）。
+   * load = getPlayerData（载入并归一化，行 JSON 字段为 accessor 权威透传），
+   * save = persistPlayerData（落库整份 PlayerData：行 getter 序列化的即权威态），
+   * 策略 writeThrough 保证每次写后立即落库。
+   */
+  private registerPlayerActorType(): void {
+    this.actorRuntime!.registerType('player', {
+      load: (id) => this.getPlayerData(Number(id)),
+      save: (_id, state) => this.persistPlayerData(state as PlayerData),
+      persist: 'writeThrough',
+    });
+  }
 
   /**
    * 每个玩家的串行邮箱（Actor 收件箱，全服共享，按 userId 区分）。
@@ -181,50 +201,14 @@ export class PlayerService implements OnModuleInit {
   enqueueUserWrite<T>(userId: number, fn: () => Promise<T>): Promise<T> {
     if (!userId || !Number.isFinite(userId)) return fn();
 
-    // 已接入 Actor 运行时：委托给单进程 Actor 层（内存态 + 串行邮箱 + 无锁无 CAS）。
+    // 唯一写路径：委托单进程 Actor 层（内存活态 + 串行邮箱 + writeThrough 落库）。
     // 同玩家写操作经 actorRuntime.run('player', userId) 串到同一邮箱链，内部
     // getPlayerData/savePlayer 走内存态缓存，写后由运行时统一落库。
-    if (this.actorRuntime) {
-      return this.actorRuntime.run<T, T>('player', userId, async () => fn());
-    }
-
-    // 兼容路径（未注入 ActorRuntime，如存量测试桩手工 new PlayerService）：沿用原
-    // userMailboxes 实现，行为完全不变。
-    // 可重入：同一条异步链已持有该用户的邮箱时不再排队，防止 A→B→A 自死锁。
-    const held = this.mailboxContext.getStore();
-    if (held === userId) return fn();
-
-    const previous = this.userMailboxes.get(userId) ?? Promise.resolve();
-    let release!: () => void;
-    // 本持有者的闸门：resolve 即放行下一个排队者；gate 永不 reject。
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    // 只等前一把锁的闸门，绝不能把自己的 gate 算进等待链（否则自我死锁）。
-    const myTurn = previous.then(() => undefined, () => undefined);
-    this.userMailboxes.set(userId, gate);
-
-    return (async () => {
-      await myTurn;
-      try {
-        // run 的新异步链继承重入标记；await 后仍可读到（ALS 贯穿整个 async 链）。
-        return await this.mailboxContext.run(userId, fn);
-      } finally {
-        release();
-        if (this.userMailboxes.get(userId) === gate) this.userMailboxes.delete(userId);
-      }
-    })();
-  }
-
-  /** 模块初始化：把玩家注册为 Actor 类型（仅当运行时被注入时）。
-   *  load = getPlayerData（载入并归一化，行 JSON 字段为 accessor 权威透传），
-   *  save = persistPlayerData（落库整份 PlayerData：行 getter 序列化的即权威态，
-   *  不再需要双表示调和）；策略 writeThrough 保证每次写后落库，行为与旧 savePlayer 一致。 */
-  async onModuleInit(): Promise<void> {
-    if (!this.actorRuntime || this.actorRuntime.hasType('player')) return;
-    this.actorRuntime.registerType('player', {
-      load: (id) => this.getPlayerData(Number(id)),
-      save: (_id, state) => this.persistPlayerData(state as PlayerData),
-      persist: 'writeThrough',
-    });
+    // 可重入：同一条异步链已在 run 内时直接执行（防自死锁），落库交给最外层 run。
+    // 【历史】此处曾有手工 Promise 链实现的同用户串行 fallback（供无 DI 测试桩），
+    // 2026-09-08 删除：构造器自动内置 ActorRuntime，测试桩与生产走同一条 Actor
+    // 路径——「测试验证的路径 = 生产运行的路径」，双轨回退已被架构门禁禁止。
+    return this.actorRuntime!.run<T, T>('player', userId, async () => fn());
   }
 
   /** 升级通知队列：userId → 待展示文本（applyLevelUps 入队，指令收尾排水）。 */
@@ -470,16 +454,20 @@ export class PlayerService implements OnModuleInit {
       const startMap = await this.resolveStartMap();
       if (startMap && startMap.id !== player.mapId) {
         this.logger.warn(`玩家 ${userId} 地图无效(mapId=${player.mapId})，自动修正为 ${startMap.name}(id=${startMap.id})`);
-        await this.enqueueUserWrite(userId, async () => {
-          const _pd = await this.getPlayerData(userId);
-          Object.assign(_pd.player, { mapId: startMap.id, location: startMap.name });
-          await this.savePlayer(_pd.player);
-        });
-        // 该定点写会被 $use 拦截器自增 version；同步内存快照版本，
-        // 否则同一快照随后的 savePlayer 会因版本过期被 CAS 误拒。
-        player.version = Number(player.version ?? 0) + 1;
+        // 就地修复 + 定点落库，禁止两个嵌套：
+        // 1) 嵌套 enqueueUserWrite——本方法可能正被 Actor load 激活中，激活窗口
+        //    cell.running=false，嵌套排队会等当前 run 的 gate → 永久死锁；
+        // 2) 嵌套 getPlayerData——重读 DB 后 mapId 仍为 0，修复分支会自我递归。
+        // 内存就地改（Actor 激活时该对象正是即将成为 cell.state 的活态），
+        // 库内只定点更新 mapId/location 两列；$use 中间件自增 version 后手动
+        // 同步内存版本，避免同一快照随后的 savePlayer 被 CAS 误拒。
         player.mapId = startMap.id;
         player.location = startMap.name;
+        await this.prisma.player.update({
+          where: { id: player.id },
+          data: { mapId: startMap.id, location: startMap.name },
+        });
+        player.version = Number(player.version ?? 0) + 1;
       }
     }
 
@@ -884,7 +872,7 @@ export class PlayerService implements OnModuleInit {
     // 行 id 直接当 key 会造出 'player:<行id>' 幽灵邮箱（同一行两条互不串行的
     // 邮箱），且幽灵 cell 激活时 getOrCreatePlayer(<行id>) 会以行 id 建档，
     // 触发 player 外键冲突（Foreign key constraint violated: userId）。
-    if (this.actorRuntime) {
+    {
       const uid = await this.resolveActorUserId(player);
       if (uid === undefined) return;
       const expected = actorKey('player', uid);
@@ -913,7 +901,8 @@ export class PlayerService implements OnModuleInit {
       // 自己的邮箱内，基于最新活态合并后落库，杜绝 DB 旧副本整包回滚。
       await this.enqueueUserWrite(uid, async () => {
         // enqueueUserWrite 会重新 load 活态，这里的 player 仅携带调用方的改动；
-        // 实际落库以邮箱内的最新活态为准（merge 当前改动）。
+        // 实际落库以邮箱内的最新活态为准（merge 当前改动）。merge 的目标就是
+        // 活态本身，run 收尾 writeThrough 不会重复落库（本 run 未标脏）。
         const pd = await this.getPlayerData(uid);
         this.mergeIntoLiveState(pd.player, player);
         this.applyLevelUps(pd.player);
@@ -922,19 +911,6 @@ export class PlayerService implements OnModuleInit {
       });
       return;
     }
-
-    // 经验归一化门禁：落库前强制保证 exp < 当前等级门槛。任何直写 player.exp
-    // 的路径（挤奶青龙奖励/躺下离线经验/掉落经验/GM 改面板）都在这里被统一结算，
-    // 不依赖调用方记得调用 addExp——这是不变量级别的收口，而非约定级别。
-    // 注意：必须在序列化前执行，升级重算的属性字段才会随本次保存一并写入。
-    this.applyLevelUps(player);
-    // 派生显示名收口：refreshDisplayName 内部只对 baseName 非空的完整行派生，
-    // 局部写对象 {id, markers} 与未选使魔/直接建档的行自动跳过。
-    this.refreshDisplayName(player);
-    await this.persistPlayer(player);
-    // 说明：注入了 ActorRuntime 时所有写入路径已在上方 return（邮箱内统一落库），
-    // 走到这里只剩未注入运行时的存量测试桩（手工 new PlayerService），
-    // 因此无需再做 Actor 缓存失效。
   }
 
   /**
@@ -1027,6 +1003,25 @@ export class PlayerService implements OnModuleInit {
       }
       this.advanceWriteBaseline(incoming, diff);
       return;
+    }
+
+    // 混合态复活防线（Actor 合并路径）：incoming 携带未物化的原始背包（字符串形态，
+    // 直读 prisma 行的特征）而活态已有货币镜像时，incoming 的货币条目新鲜度不可知
+    // ——正式库「陈旧钻石条目复活」事故形态。货币以活态列+物化条目为唯一权威：
+    // 丢弃 incoming 的货币条目、保留活态物化条目，非货币改动照常合并。
+    // （经 getPlayerData 物化的 incoming 走上方 diff 路径，不受本分支影响。）
+    if (typeof incoming.backpack === 'string' && (liveRow as any)._currencyMirror) {
+      const incomingBp = this.safeJsonParse<any[]>(incoming.backpack, []);
+      const liveBp = this.safeJsonParse<any[]>(liveRow.backpack, []);
+      if (Array.isArray(incomingBp) && Array.isArray(liveBp)) {
+        const currencies = new Set(['钻石', '召唤券', '数据核心']);
+        const trusted = liveBp.filter((it: any) => it && currencies.has(it.name));
+        const merged = [
+          ...incomingBp.filter((it: any) => it && !currencies.has(it.name)),
+          ...trusted,
+        ];
+        incoming = { ...incoming, backpack: JSON.stringify(merged) };
+      }
     }
 
     Object.assign(liveRow, incoming);

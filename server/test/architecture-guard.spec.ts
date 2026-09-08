@@ -276,6 +276,48 @@ describe('架构门禁：玩家状态写入口收口', () => {
     expect(cmdSrc).toContain('this.playerMutate.mutate(ctx.userId');
   });
 
+  // ===== Actor 运行时激活门禁 =====
+  // 背景：ActorModule（玩家域单写者内核：内存活态 + 串行邮箱 + writeThrough 落库）
+  // 曾长期未被 AppModule 导入——PlayerService 的 @Optional actorRuntime 恒为
+  // undefined，markPlayerDirty 两路（Actor ALS / mutateContext）在管道外全部静默
+  // 失效，「领取了新手教程」每条指令重复输出即此根因。生产只跑 legacy 邮箱路径、
+  // Actor 代码悬空的「两套并存」状态自此禁止回退。
+  it('AppModule 必须导入 ActorModule（Actor 运行时激活，禁止悬空双轨回退）', () => {
+    const appSrc = fs.readFileSync(path.join(SRC_DIR, 'app.module.ts'), 'utf8');
+    expect(appSrc).toContain('ActorModule');
+    // PlayerService 必须保留 Actor 类型注册（激活后 enqueueUserWrite 走 run 路径的前提）
+    const playerSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/player.service.ts'),
+      'utf8',
+    );
+    expect(playerSrc).toContain("registerType('player'");
+    expect(playerSrc).toContain("persist: 'writeThrough'");
+  });
+
+  it('PlayerService 必须是 Actor 单路径（legacy 邮箱 fallback 已删除，禁止回归）', () => {
+    // 2026-09-08 起 enqueueUserWrite 只有一条实现：actorRuntime.run。构造器对未注入
+    // runtime 的测试桩自动内置实例——「测试验证的路径 = 生产运行的路径」。曾因
+    // 双轨并存（生产 legacy、Actor 悬空）出现 markPlayerDirty 静默 no-op 事故。
+    const playerSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/player.service.ts'),
+      'utf8',
+    );
+    expect(playerSrc).not.toContain('userMailboxes');
+    expect(playerSrc).not.toContain('mailboxContext');
+    expect(playerSrc).toContain('injectedRuntime ?? new ActorRuntime()');
+  });
+
+  it('玩家建档口径必须唯一：users.service 禁止自建玩家行（统一走 getOrCreatePlayer）', () => {
+    // ensurePlayer 曾自建只有 userId 的裸档，抢占 getOrCreatePlayer 的完整初始化
+    // （新手装备/初始任务/出生地图永不执行）。建档入口只允许 player.service 一个。
+    const usersSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/users/users.service.ts'),
+      'utf8',
+    );
+    expect(usersSrc).not.toMatch(/prisma\.player\.create/);
+    expect(usersSrc).toContain('getOrCreatePlayer');
+  });
+
   // ===== 地图聚合串行化门禁（per-map 闭环写）=====
   // 背景：GameMap 的 summons/vehicles/items/markers 等 Json 列是「读出数组 → 内存改 →
   // 整组写回」的裸聚合。历史上 getMapById 合并快照做读改写会在并发时互相覆盖

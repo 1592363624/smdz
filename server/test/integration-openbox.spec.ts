@@ -13,6 +13,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { GameService } from '../src/modules/game/game.service';
 import { PlayerService } from '../src/modules/game/player.service';
+import { CombatSystemService } from '../src/modules/game/combat-system.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { parseJson } from './parse-json.util';
 import { mutatePlayerState } from './actor-write.util';
@@ -95,13 +96,18 @@ describe('打开箱子端到端（真实远程库）', () => {
     const uid = await makePlayer([
       { name: '奶', type: '资源', quantity: 5, count: 5 },
     ], { level: 175, upgradeExp: 30630 });
-    // 存活使用：三池各 + maxShield*0.1 = +150
+    // 三池口径（2026-09-07 修正，原版 物品操作 L2289）：奶回复基数 =
+    // buildAttackerBonus 计算护盾 ×10%，封顶 = 各池计算上限。不再用基础 maxShield。
     const t1 = await game.handleUseItem(uid, '奶', 1);
     console.log('[奶·存活]', t1);
     expect(t1).toContain('享用了1的奶，恢复了10%的状态');
+    const combatSystem = app.get(CombatSystemService);
+    const pdBefore = await playerService.getPlayerData(uid);
+    const calc = combatSystem.buildAttackerBonus(pdBefore.player, pdBefore) as any;
+    const gain = Number(calc.护盾) * 0.1;
     const p1 = await prisma.player.findUnique({ where: { userId: uid } });
-    expect(p1!.hp).toBeCloseTo(250);
-    expect(p1!.shield).toBeCloseTo(650);
+    expect(p1!.hp).toBeCloseTo(100 + gain, 2);
+    expect(p1!.shield).toBeCloseTo(500 + gain, 2);
 
     // 死亡状态复活成功
     await mutatePlayerState(playerService, uid, (player) => { player.hp = 0; });
