@@ -5423,13 +5423,19 @@ export class GameService {
     onText: string,
     offText: string,
   ): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
-    const isOn = this.playerService.getMarkerValue(markers, key) === onValue;
-    markers[key] = isOn ? offValue : onValue;
-    player.markers = markers;
-    await this.playerService.savePlayer(player);
-    return `${player.name || '冒险者'}，${isOn ? offText : onText}`;
+    // 同 handleEquipEnhance：读改写整体进用户写队列、基于活态执行。
+    // 开关类指令本只该改一个键，但在锁外裸读档会把整列 markers 用旧快照写回，
+    // 抹掉同一时刻尚未落库的好感/计数增量。
+    return this.mutatePlayer(userId, async (ctx: any) => {
+      const { player } = ctx;
+      const markers: Record<string, number> = ctx.markers
+        ?? asJsonValue<Record<string, number>>(player.markers, {});
+      const isOn = this.playerService.getMarkerValue(markers, key) === onValue;
+      markers[key] = isOn ? offValue : onValue;
+      player.markers = markers;
+      await this.playerService.savePlayer(player);
+      return `${player.name || '冒险者'}，${isOn ? offText : onText}`;
+    });
   }
 
   /**
@@ -15475,8 +15481,15 @@ export class GameService {
    * @returns 强化结果文本
    */
   async handleEquipEnhance(userId: number, arg: string): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
+    // 读改写整体进用户写队列、基于活态执行（见 mutatePlayer 注释）。
+    // 旧实现在锁外裸读档 → 末尾把 markers/backpack 整列用旧快照覆盖：读到的是
+    // 「上一次落库时的行」，同一指令内/并发写入活态但尚未落库的改动（好感、使用计数…
+    // ）会被整体抹掉。正式库实证：7960 剑圣 13:53-13:54 连续执行「强化武器100/强化脚部100」
+    // 后，markers 里的「使用巧克力」计数与「剑圣好感」被抹回更早的旧值。
+    return this.mutatePlayer(userId, async (ctx: any) => {
+    const { player } = ctx;
+    const markers: Record<string, number> = ctx.markers
+      ?? asJsonValue<Record<string, number>>(player.markers, {});
 
     // 无参数：显示强化说明（含祥瑞气息各等级消耗）
     if (!arg) {
@@ -15561,6 +15574,7 @@ export class GameService {
     player.markers = markers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'}用${used}合金强化了${part}${done}次，升到了${level}级`;
+    });
   }
 
   /**

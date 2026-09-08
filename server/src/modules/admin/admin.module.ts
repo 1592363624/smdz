@@ -7,12 +7,13 @@ import { Module, Global, forwardRef } from '@nestjs/common';
 import { ChatModule } from '../chat/chat.module';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
+import { AdminLogsController } from './admin-logs.controller';
 import { StaticDataAdminService } from './static-data-admin.service';
 
 @Module({
   imports: [forwardRef(() => ChatModule)],
   providers: [AdminService, StaticDataAdminService],
-  controllers: [AdminController],
+  controllers: [AdminController, AdminLogsController],
   exports: [AdminService],
 })
 export class AdminModule {}

@@ -852,9 +852,12 @@ export class ItemService {
       ? rawBuffs.map((it) => this.combatState.normalizeBuffItem(it))
       : rawBuffs;
     const markers: Record<string, number> = asJsonValue<Record<string, number>>(player.markers, {});
-    // 快照键集：distributeLoot → addAchievement 会增量改写 player.markers（好感/采集等成就计数），
-    // 这些键以最新值为准合并回本地快照（Issue #10：巧克力好感被旧快照回写覆盖）；本地后续新增的键不受影响
-    const markerSnapshotKeys = Object.keys(markers);
+    // 快照（键+值）：distributeLoot → addAchievement 会增量改写 player.markers（好感/采集等成就计数）。
+    // addAchievement 内部用 { ...player.markers } 重新赋值，会把 player.markers 换成新对象，
+    // 本地 markers 因此与活态「脱钩」——末尾 player.markers = markers 整包回写会丢掉全部增量
+    // （Issue #10：巧克力好感被旧快照回写覆盖；正式库 7960 剑圣实证：键被抹掉后再也建不回来）。
+    // 故此处必须保存键与值，出货段结束后按「以最新活态为基准 + 重放本地增量」的方式合并。
+    const markerSnapshot: Record<string, number> = { ...markers };
 
     // L2251-2255：开箱防重入锁 a1=max(120, 数量*180/100000000)，处理完成后 L2458 移除（净零冷却，仅处理期生效）
     const lockSeconds = Math.max(120, Math.abs(actualCount) * 180 / 100000000);
@@ -1087,14 +1090,54 @@ export class ItemService {
 
       // distributeLoot 内部的 addAchievement 已把好感/采集等成就计数增量写入 player.markers，
       // 本地 markers 还是使用开始时的旧快照：直接回写会把这些增量覆盖掉
-      // （生产实证：使用巧克力×20 后 使用巧克力=20 但 花园猫好感 不变）。
-      // 合并规则：快照中已存在的键以最新值为准（含被删除的键同步删除），
-      // 本地在出货段之后新增的键（凭证/使用计数/useMarkers）保留不动。
+      // （生产实证：使用巧克力×20 后 使用巧克力=20 但 花园猫好感 不变；
+      //  正式库 7960 剑圣：剑圣好感键被抹掉后每次使用重建的新键都被整包回写丢弃，好感恒为 0）。
+      //
+      // 合并规则（2026-09-08 修订：以最新活态为基准，再重放本地相对快照的改动）：
+      //  1. 基线 = 出货段结束后的最新 player.markers：distributeLoot 新建的键（好感/{使魔}好感）
+      //     与被 addAchievement 删除的键（计数归零）都以此为准——旧写法只回填快照里已有的键，
+      //     新键会被 line 1182 的整包回写抹掉，形成「键一旦丢失就永远建不回来」的死锁。
+      //  2. 本地相对快照新增的键（凭证/使用计数/useMarkers）保留。
+      //  3. 本地相对快照改过的键（如 凭证+1、nydg+N）以**增量**重放到最新值上，
+      //     既不会被活态旧值反向覆盖，也不会覆盖掉活态自身对同一键的增量。
       const freshMarkers = asJsonValue<Record<string, number>>(player.markers, {});
-      for (const key of markerSnapshotKeys) {
-        if (key in freshMarkers) markers[key] = freshMarkers[key];
-        else delete markers[key];
+      const mergedMarkers: Record<string, number> = { ...freshMarkers };
+      for (const key of Object.keys(markerSnapshot)) {
+        const before = markerSnapshot[key];
+        const localNow = markers[key];
+        // 本地主动删除 → 同步删除（活态若另有增量，删除优先）
+        if (localNow === undefined) {
+          delete mergedMarkers[key];
+          continue;
+        }
+        // 本地未改动 → 完全以最新活态为准
+        if (localNow === before) continue;
+        // 本地改动过 → 增量重放。注意：asJsonValue 对「已是对象」的 Json 列返回同一引用，
+        // 本地 markers 与 player.markers 可能是同一个对象——此时本地改动已经被活态吸收
+        // （freshValue === before + delta），再重放就会双计（凭证 5→7 实证）。
+        // 分三种情形处理，优先保证「不双计」，其次保证「不丢本地改动」。
+        const delta = localNow - before;
+        const freshValue = mergedMarkers[key];
+        if (freshValue === undefined) {
+          // 活态把键删了但本地仍在改：以本地为准
+          mergedMarkers[key] = localNow;
+        } else if (freshValue === before + delta) {
+          // 共享引用：活态已包含本地这次改动，原样保留
+          mergedMarkers[key] = freshValue;
+        } else if (freshValue === before) {
+          // 脱钩（addAchievement 换过对象）：把本地增量重放到最新值上
+          mergedMarkers[key] = before + delta;
+        } else {
+          // 双方独立改动：活态增量 + 本地增量
+          mergedMarkers[key] = freshValue + delta;
+        }
       }
+      for (const key of Object.keys(markers)) {
+        if (!(key in markerSnapshot)) mergedMarkers[key] = markers[key];
+      }
+      // markers 是 const：就地换内容，保持与后续「player.markers = markers」同一对象引用
+      for (const key of Object.keys(markers)) delete markers[key];
+      Object.assign(markers, mergedMarkers);
     } else if (obtained.length > 0) {
       // 无 itemSystem（测试/轻量环境）兜底：直接入包，不入品质链路
       for (const o of obtained) {

@@ -190,6 +190,10 @@ export const adminApi = {
   // 数据管理：删除条目(按下标，expectName 乐观校验)
   deleteGameData: (key, index, expectName) =>
     http.delete(`/admin/gamedata/${key}/${index}`, { params: { expectName } }),
+  // 后台日志：列出可读日志文件(名称/大小/修改时间)
+  logFiles: () => http.get('/admin/logs/files'),
+  // 后台日志：读取尾部/增量(file/lines/keyword/level/since，只读)
+  logTail: (params) => http.get('/admin/logs/tail', { params }),
 };
 
 export default http;

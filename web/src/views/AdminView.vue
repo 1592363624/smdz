@@ -16,9 +16,21 @@
       <button :class="['tab', tab === 'config' && 'active']" @click="tab = 'config'">⚙️ 系统配置</button>
       <button :class="['tab', tab === 'users' && 'active']" @click="tab = 'users'">👥 用户管理</button>
       <button :class="['tab', tab === 'gm' && 'active']" @click="tab = 'gm'">🔧 GM 工具</button>
+      <button :class="['tab', tab === 'logs' && 'active']" @click="tab = 'logs'">📜 后台日志</button>
     </nav>
 
     <main class="admin-content">
+      <!-- ===== 后台日志（只读） ===== -->
+      <section v-if="tab === 'logs'" class="panel panel-wide">
+        <div class="panel-head">
+          <h2>后台日志</h2>
+          <p class="hint">
+            集中查看服务器标准输出/错误日志（pm2 落盘的 out.log / error.log）。支持关键字与级别过滤、尾部行数控制、3 秒增量跟随刷新。只读视图，不可修改或清理日志文件。
+          </p>
+        </div>
+        <LogViewerPanel />
+      </section>
+
       <!-- ===== 数据管理（模块化静态数据 CRUD） ===== -->
       <section v-if="tab === 'gamedata'" class="panel panel-wide">
         <div class="panel-head">
@@ -524,6 +536,7 @@ import { adminApi } from '../api';
 import { API_BASE } from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameDataPanel from '../components/admin/GameDataPanel.vue';
+import LogViewerPanel from '../components/admin/LogViewerPanel.vue';
 
 const router = useRouter();
 const tab = ref('dashboard');

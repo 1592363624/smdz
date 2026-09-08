@@ -465,17 +465,21 @@ describe('打开箱子（使用物品）', () => {
       player,
       { '巧克力': { name: '巧克力', useEffects: JSON.stringify(['好感1']), useMarkers: '[]' } },
     );
-    // 模拟真实 distributeLoot 的「好感」分支：addAchievement 增量改写 player.markers 并立即 savePlayer
+    // 模拟真实 distributeLoot 的「好感」分支：addAchievement 增量改写 player.markers 并立即 savePlayer。
+    // 关键 fidelity：addAchievement 内部是 player.markers = { ...player.markers }（换对象），
+    // 会把本地快照与活态脱钩——旧 stub 原地改同一对象，掩盖了「整包回写丢增量」的真实行为。
     (service as any).itemSystem = {
       distributeLoot: async (_playerData: any, drops: any[]) => {
         for (const drop of drops) {
           if (drop.name === '好感') {
             const qty = Number(drop.quantity) || 0;
+            const next: Record<string, number> = { ...player.markers };
             for (const key of ['花园猫好感', '好感']) {
-              const next = (Number(player.markers[key]) || 0) + qty;
-              if (next > 0) player.markers[key] = next;
-              else delete player.markers[key];
+              const value = (Number(next[key]) || 0) + qty;
+              if (value > 0) next[key] = value;
+              else delete next[key];
             }
+            player.markers = next;
           }
         }
         await playerService.savePlayer(player);
@@ -493,5 +497,76 @@ describe('打开箱子（使用物品）', () => {
     expect(player.markers['使用巧克力']).toBe(20);
     // 巧克力已消耗
     expect(parseJson(player.backpack, []).find((it: any) => it.name === '巧克力')).toBeUndefined();
+  });
+
+  it('好感键被抹掉后仍可由巧克力重建（正式库 7960 剑圣实证）：distributeLoot 新建的键不被整包回写丢弃', async () => {
+    const player = buildPlayer({
+      type: '剑圣',
+      // 快照里完全没有这两个键（历史旧快照覆盖把键删到归零后的形态）
+      markers: { '使用巧克力': 0 },
+      backpack: JSON.stringify([{ name: '巧克力', type: '资源', quantity: 3, count: 3 }]),
+    });
+    const { service, playerService } = buildHarness(
+      player,
+      { '巧克力': { name: '巧克力', useEffects: JSON.stringify(['好感1']), useMarkers: '[]' } },
+    );
+    (service as any).itemSystem = {
+      distributeLoot: async (_playerData: any, drops: any[]) => {
+        for (const drop of drops) {
+          if (drop.name === '好感') {
+            const qty = Number(drop.quantity) || 0;
+            const next: Record<string, number> = { ...player.markers };
+            for (const key of ['剑圣好感', '好感']) {
+              const value = (Number(next[key]) || 0) + qty;
+              if (value > 0) next[key] = value;
+              else delete next[key];
+            }
+            player.markers = next;
+          }
+        }
+        await playerService.savePlayer(player);
+        return '好感';
+      },
+    };
+
+    await service.useItem(42, '巧克力', 3);
+
+    // 键不存在时必须能被创建（修复前：新键不在快照键集 → 整包回写丢弃 → 好感恒为 0）
+    expect(player.markers['剑圣好感']).toBe(3);
+    expect(player.markers['好感']).toBe(3);
+    expect(player.markers['使用巧克力']).toBe(3);
+  });
+
+  it('出货段之前本地写入的键以增量重放，既不被活态旧值覆盖也不覆盖活态增量（凭证路径）', async () => {
+    const player = buildPlayer({
+      markers: { '凭证': 5, '改良建筑箱': 2 },
+      backpack: JSON.stringify([{ name: '凭证', type: '资源', quantity: 1, count: 1 }]),
+      level: 8,
+    });
+    const { service, playerService } = buildHarness(
+      player,
+      { '凭证': { name: '凭证', useEffects: JSON.stringify(['经验1']), useMarkers: '[]' } },
+    );
+    // 出货段另把「改良建筑箱」计数 +4（模拟战利品链路的成就写入），本地同时在凭证分支 +1
+    (service as any).itemSystem = {
+      distributeLoot: async (_playerData: any, drops: any[]) => {
+        const next: Record<string, number> = { ...player.markers };
+        for (const drop of drops) {
+          if (drop.name === '改良建筑箱') {
+            next['改良建筑箱'] = (Number(next['改良建筑箱']) || 0) + 4;
+          }
+        }
+        player.markers = next;
+        await playerService.savePlayer(player);
+        return '改良建筑箱';
+      },
+    };
+
+    const text = await service.useItem(42, '凭证', 1);
+    expect(text).toContain('凭证');
+    // 本地 +1 生效（不被活态旧值 5 反向覆盖）
+    expect(player.markers['凭证']).toBe(6);
+    // 活态侧 +4 生效（不被本地旧值 2 覆盖）：2 + 4 = 6
+    expect(player.markers['改良建筑箱']).toBe(6);
   });
 });
