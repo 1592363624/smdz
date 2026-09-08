@@ -1,0 +1,65 @@
+<!doctype html>
+<!--
+  静态维护页（nginx 维护模式拦截用）
+  - 由 Vite 从 public/ 原样拷贝到 dist/maintenance.html
+  - nginx 在 server/maintenance.flag 存在时把页面请求 rewrite 到本文件（见 deploy/README.md）
+  - 页面每 5 秒轮询 /api/system/version，返回 200（维护结束）立即整页刷新进入游戏
+  - 与 server/src/maintenance/maintenance.middleware.ts 内嵌页面保持一致的视觉与轮询行为
+-->
+<html lang="zh-CN" data-page-node-id="uEyUwiDe8kyXrELhuVjLpO">
+<head data-page-node-id="UzXzS1kdbA2G3RcmmkQ3Km">
+<meta charset="utf-8" data-page-node-id="yE3IjJDNxHcjXSLiCNTq05">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="Hu90Fmq4lxDMu6wiOVAhRy">
+<meta http-equiv="Cache-Control" content="no-store" data-page-node-id="U88pTVIBBULHytcWFZLpVB">
+<title>使魔大战3 · 系统维护中</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 0%, #1d2536 0%, #0d1117 70%);
+    color: #c9d4e3; font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    text-align: center; padding: 24px;
+  }
+  .card {
+    max-width: 460px; padding: 48px 36px; border-radius: 16px;
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  .orb {
+    width: 64px; height: 64px; margin: 0 auto 24px; border-radius: 50%;
+    border: 4px solid rgba(129,161,255,.25); border-top-color: #81a1ff;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-size: 22px; color: #e8eefc; margin-bottom: 12px; letter-spacing: 1px; }
+  p  { font-size: 14px; line-height: 1.8; color: #93a3bd; }
+  .since { margin-top: 16px; font-size: 12px; color: #5d6c85; }
+  .hint  { margin-top: 6px; font-size: 12px; color: #5d6c85; }
+</style>
+</head>
+<body data-page-node-id="qrHcp5BWkSuIowHRAevd5X">
+  <div class="card" data-page-node-id="ZxGLcLDyuhEjkurbPsIBjZ">
+    <div class="orb" data-page-node-id="l6Wqvr7zAco9YfSMSHs6fI"></div>
+    <h1 data-page-node-id="TvJAZyF7rReF37Ly5hDFn4">系统维护中</h1>
+    <p data-page-node-id="otyqZQH3qIybqKvEDqddBd">服务器正在更新版本，维护期间暂时无法进入游戏。<br data-page-node-id="iUqO2IySILD60fJvsUjN3H">页面将在维护结束后自动刷新，无需手动操作。</p>
+    <p class="since" id="maintenance-since" data-page-node-id="GLAcIiYKvyQN2oKHR7bYDn"></p>
+    <p class="hint" data-page-node-id="xqpGtTzTUeJDjjp4gTrBL9">感谢您的耐心等待 ⚔</p>
+  </div>
+<script>
+(function () {
+  // 维护开始时间：nginx 检测到 flag 时通过查询串带入（?since=<ISO时间>），可选
+  var since = new URLSearchParams(location.search).get('since');
+  if (since) {
+    document.getElementById('maintenance-since').textContent = '维护开始于 ' + since;
+  }
+  (function poll() {
+    fetch('/api/system/version', { cache: 'no-store' })
+      .then(function (r) { if (r.ok) location.reload(); })
+      .catch(function () {});
+    setTimeout(poll, 5000);
+  })();
+})();
+</script>
+</body>
+</html>

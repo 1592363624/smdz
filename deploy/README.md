@@ -82,6 +82,11 @@ pm2 save
 
 后端监听 3333 端口，前端 `web/dist` 是静态文件。推荐用 **Nginx**（Windows 版）托管：
 
+> ⚠️ 下面的配置已包含**维护模式拦截**（部署期间玩家看到「系统维护中」页面而不是刷新死循环）。
+> 依赖两个前提：① 前端构建产物中有 `dist/maintenance.html`（随 `web/public/maintenance.html` 自动发布，0.6.x 起）；
+> ② flag 路径与实际部署根目录一致（下方按 `C:\wwwroot\smdz` 示例，自行替换）。
+> **首次启用前请先手动把 `web/public/maintenance.html` 复制一份到服务器当前的 `web\dist\` 里**（下下次部署起构建会自动带上）。
+
 ```nginx
 server {
     listen 80;
@@ -91,12 +96,26 @@ server {
     root C:/wwwroot/smdz/web/dist;
     index index.html;
 
-    # 单页应用路由
+    # ===== 维护模式开关 =====
+    # deploy.ps1 部署开始时创建 server/maintenance.flag，部署成功后删除。
+    # flag 存在 → 所有页面请求改写为静态维护页 maintenance.html（nginx 层拦截，
+    # 页面请求根本不进 Node，所以必须在这里拦，而不是依赖后端中间件）。
+    set $maintenance 0;
+    if (-f C:/wwwroot/smdz/server/maintenance.flag) {
+        set $maintenance 1;
+    }
+
+    # 单页应用路由（维护激活时改写为维护页）
     location / {
+        if ($maintenance = 1) {
+            rewrite ^ /maintenance.html break;
+        }
         try_files $uri $uri/ /index.html;
     }
 
     # 后端 API 反向代理
+    # 维护期间无需 nginx 处理：Node 端维护中间件(maintenance.middleware.ts)会
+    # 对 /api/* 返回 503 {code:"MAINTENANCE"}，前端遮罩据此原地轮询等待恢复
     location /api/ {
         proxy_pass http://127.0.0.1:3333;
         proxy_set_header Host $host;
@@ -104,7 +123,13 @@ server {
     }
 
     # WebSocket 公屏代理(必须配 Upgrade)
-    location /ws/ {
+    # 注意：Socket.IO 的引擎路径默认是 /socket.io/，前端 config.js 里的 '/ws'
+    # 只是 namespace；代理 location 必须按 /socket.io/ 配，配成 /ws/ 会导致连接不通
+    # 维护期间建议直接拒绝新连接（已建立的连接不受影响，玩家反正卡在维护页）
+    location /socket.io/ {
+        if ($maintenance = 1) {
+            return 503;
+        }
         proxy_pass http://127.0.0.1:3333;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -113,6 +138,8 @@ server {
     }
 }
 ```
+
+> 生产环境的完整实际配置（宝塔 + SSL 版）留档在 `deploy/nginx/smdz.52shell.ltd.conf.example`。
 
 > 若用 IIS：把 web/dist 设为网站根目录，URL 重写 `/{R:0}` 到 `index.html`，并配置 `/api`、`/ws` 反向代理（需安装 Application Request Routing）。
 
@@ -135,6 +162,7 @@ server {
 | `pm2` 命令找不到 | 确认已全局安装 pm2 且 PATH 已刷新(重开 CMD) |
 | 数据库没建好 | 首次需手动执行 Section 四的命令 |
 | 前端访问 404 | 确认 Nginx/IIS 已配好 `try_files`/重写规则 |
+| 部署期间页面在两个路由间无限刷新 / 看不到维护页 | nginx 缺维护模式拦截（Section 五 + Section 十）。确认 `location /` 里有 `if ($maintenance = 1)` 一段，且 `web\dist\maintenance.html` 存在、flag 路径正确 |
 
 ## 八、`WIN_PATH` 配置细则（最容易踩坑）
 
@@ -161,3 +189,53 @@ GitHub Actions 在每次部署打包前会生成 `server/version.json`（含本�
   - `update.check.interval`：轮询间隔(秒)
   - `update.autoReloadSeconds`：弹窗后自动刷新倒计时(秒)，`0`=不自动刷新
   - `update.promptCooldown`：点击「稍后」后的重复提醒冷却(秒)
+
+## 十、维护模式（部署期间玩家看到「系统维护中」页面）
+
+### 1. 背景与原理
+
+部署全程玩家不应看到报错或白屏，而是看到维护页；部署完成后自动回到游戏。该效果由**四层防线**配合实现（缺一不可，尤其是第 1 层——页面请求由 nginx 静态托管，根本到不了 Node）：
+
+| 层 | 实现位置 | 职责 |
+|----|---------|------|
+| ① nginx 页面拦截 | nginx `location /` 检测 `server/maintenance.flag` | 维护期间**所有页面请求**返回静态维护页 `dist/maintenance.html`（第一道，也是最关键的一道） |
+| ② Node API 中间件 | `server/src/maintenance/maintenance.middleware.ts` | 维护期间 `/api/*` 返回 `503 {code:"MAINTENANCE"}`（QQ bot/Shell 等据此识别）；`/api/docs` 放行供健康检查 |
+| ③ 前端遮罩守卫 | `web/src/utils/maintenanceGuard.js`（axios 拦截器触发） | 已打开的旧游戏页签收到 503/断线时，**原地**盖全屏维护遮罩（绝不整页跳转），并自行轮询 `/api/system/version` |
+| ④ 自动恢复 | 维护页轮询脚本 + 前端遮罩轮询 | 轮询到 `/api/system/version` 返回 200（flag 已删）→ `location.reload()` 整页刷新进新版本 |
+
+> ⚠️ 历史事故（2026-09-08）：旧版前端拦截器在收到 503 时执行 `window.location.href = '/'`，
+> 但生产环境 `/` 由 nginx 静态返回 SPA（维护中间件拦不到页面请求），路由又把 `/` 弹回 `/chat`，
+> 造成「/chat ↔ / 无限刷新乒乓」，维护页从未生效。修复后前端**禁止**整页跳转，只原地遮罩。
+
+### 2. 依赖清单（启用前逐项确认）
+
+- [ ] nginx 配置含维护模式拦截（见 Section 五的配置，`if (-f ...maintenance.flag)` 一段）
+- [ ] `dist/maintenance.html` 存在于服务器 `web\dist\`（0.6.x 起随构建自动发布；旧部署可先手动复制 `web/public/maintenance.html` 过去）
+- [ ] flag 路径与实际部署根目录一致（配置里写的是 `C:/wwwroot/smdz/server/maintenance.flag`，按需替换）
+
+### 3. 手动开关维护模式（服务器 PowerShell）
+
+```powershell
+# 开启维护(玩家立即看到维护页,API 返回 503)
+Set-Content -LiteralPath C:\wwwroot\smdz\server\maintenance.flag -Value (Get-Date -Format o)
+
+# 关闭维护(所有维护页/遮罩在 5 秒内轮询到恢复并自动刷新进游戏)
+Remove-Item -LiteralPath C:\wwwroot\smdz\server\maintenance.flag -Force
+```
+
+> 开关均即时生效（Node 端有 2 秒检测结果缓存；nginx 的 `-f` 检查每个请求实时执行）。
+> 正常情况下无需手动操作——`deploy.ps1` 在部署开始时自动开启、健康检查通过后自动关闭。
+
+### 4. 验证方法
+
+```bash
+# 维护开启时：
+curl -i https://你的域名/                  # 应返回 200 + 「系统维护中」HTML（而非 SPA 的 index.html）
+curl -i https://你的域名/api/system/version # 应返回 503 JSON {"code":"MAINTENANCE",...}
+
+# 维护关闭时：
+curl -i https://你的域名/                  # 应返回 SPA index.html
+curl -i https://你的域名/api/system/version # 应返回 200 版本信息 JSON
+```
+
+游戏内验证：开启维护后，停留在游戏页签应立即被全屏「系统维护中」遮罩盖住（不再出现路由来回刷新）；关闭维护后 ≤5 秒自动刷新回到游戏。

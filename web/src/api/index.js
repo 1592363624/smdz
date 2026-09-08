@@ -3,6 +3,7 @@
  * 统一的 axios 实例，自动携带 JWT 令牌。
  */
 import axios from 'axios';
+import { showMaintenanceOverlay, reportNetworkFailure } from '../utils/maintenanceGuard';
 
 // 创建 axios 实例，基础路径为 /api(开发环境由 Vite 代理到后端)
 const http = axios.create({
@@ -19,7 +20,7 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-// 响应拦截：401 时跳转登录；503 维护模式时跳转到维护页
+// 响应拦截：401 时跳转登录；503 维护/断线时原地显示遮罩（绝不整页跳转）
 http.interceptors.response.use(
   (res) => res.data,
   (err) => {
@@ -31,13 +32,15 @@ http.interceptors.response.use(
       }
     }
     // 服务器处于部署维护状态（后端返回 503 + code=MAINTENANCE）：
-    // 整页跳转到根路径，由后端维护中间件返回维护页面；
-    // 维护结束后该页面会自动轮询并刷新回游戏。
+    // 原地盖全屏维护遮罩并轮询版本接口，维护结束后自动刷新进游戏。
+    // 注意：禁止整页跳转 '/'——生产环境页面由 nginx 静态托管，跳转拿到的仍是
+    // SPA，路由会弹回 /chat 形成 /chat ↔ / 无限刷新乒乓（2026-09-08 实证）。
     if (err.response?.status === 503 && err.response?.data?.code === 'MAINTENANCE') {
-      if (!window.__maintenanceRedirecting) {
-        window.__maintenanceRedirecting = true;
-        window.location.href = '/';
-      }
+      showMaintenanceOverlay();
+    } else if (!err.response) {
+      // 网络层失败（部署 cutover 端口关闭窗口的 ECONNREFUSED 等）：
+      // 连续失败达阈值后显示断线遮罩并轮询，恢复后自动刷新。
+      reportNetworkFailure();
     }
     return Promise.reject(err);
   },

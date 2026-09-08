@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家园系统界面原型 · 使魔大战3</title>
+<style>
+  :root{
+    --bg:#0a0a1a; --bg2:#12102a; --border:#2a1f5e; --border-light:rgba(139,92,246,.25);
+    --accent:#8b5cf6; --cyan:#06b6d4; --pink:#ec4899;
+    --grad:linear-gradient(90deg,#8b5cf6,#06b6d4);
+    --text:#f1f1f9; --text2:#c8c8e0; --muted:#a0a0c0; --muted2:#6b6b8a;
+    --success:#22c55e; --success-bg:rgba(34,197,94,.12);
+    --danger:#ef4444; --danger-bg:rgba(239,68,68,.12);
+    --warning:#eab308; --warning-bg:rgba(234,179,8,.12);
+    --glass:rgba(20,16,42,.75); --glass-border:rgba(139,92,246,.15);
+    --card:rgba(30,26,58,.6);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif;line-height:1.6;padding:16px}
+  .wrap{max-width:1200px;margin:0 auto}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px}
+  header h1{font-size:18px;font-weight:600;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  header .tag{font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:2px 10px}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tab{padding:8px 18px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text2);font-size:13px;cursor:pointer;transition:.2s}
+  .tab.active{background:var(--grad);color:#fff;border-color:transparent;font-weight:600}
+  .tab:hover{border-color:var(--accent)}
+  .panel{display:none}
+  .panel.active{display:block}
+
+  /* ===== 家园面板 ===== */
+  .phone{max-width:520px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:20px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+  .phone-top{background:linear-gradient(135deg,rgba(139,92,246,.18),rgba(6,182,212,.12));padding:12px 14px;border-bottom:1px solid var(--glass-border)}
+  .phone-top .row1{display:flex;align-items:center;gap:8px}
+  .phone-top .name{font-size:15px;font-weight:700}
+  .phone-top .lv{font-size:11px;background:var(--grad);border-radius:6px;padding:1px 8px;color:#fff}
+  .phone-top .row2{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{font-size:11px;padding:2px 10px;border-radius:999px;border:1px solid var(--glass-border);color:var(--text2);background:var(--glass)}
+  .chip.ok{color:var(--success);border-color:rgba(34,197,94,.35)}
+  .chip.warn{color:var(--warning);border-color:rgba(234,179,8,.35)}
+  .chip.off{color:var(--danger);border-color:rgba(239,68,68,.35)}
+
+  .offline{margin:10px 12px;padding:10px 12px;border-radius:12px;background:linear-gradient(90deg,rgba(236,72,153,.14),rgba(139,92,246,.14));border:1px solid rgba(236,72,153,.3)}
+  .offline .t{font-size:12px;font-weight:600;color:#fbcfe8}
+  .offline .items{font-size:11px;color:var(--text2);margin-top:3px}
+  .offline .btns{display:flex;gap:8px;margin-top:8px}
+  .offline .btns button{flex:1}
+
+  .sec{padding:10px 12px;border-top:1px solid var(--glass-border)}
+  .sec-title{font-size:12px;font-weight:600;color:var(--cyan);display:flex;align-items:center;gap:6px;margin-bottom:8px}
+  .sec-title .hint{font-size:10px;color:var(--muted);font-weight:400}
+  .bld{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--card);border:1px solid var(--glass-border);border-radius:10px;margin-bottom:6px;cursor:pointer;transition:.15s}
+  .bld:hover{border-color:var(--accent)}
+  .bld .ic{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,rgba(139,92,246,.3),rgba(6,182,212,.3));display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+  .bld .inf{flex:1;min-width:0}
+  .bld .inf .n{font-size:13px;font-weight:600}
+  .bld .inf .o{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bld .ops{display:flex;gap:6px;flex-shrink:0}
+  .mini{padding:3px 9px;border-radius:7px;font-size:11px;border:1px solid var(--border);background:var(--glass);color:var(--text2);cursor:pointer}
+  .mini:hover{border-color:var(--accent);color:#fff}
+  .mini.grad{background:var(--grad);border-color:transparent;color:#fff}
+  .mini.warn{color:var(--warning);border-color:rgba(234,179,8,.35)}
+
+  .crop{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--card);border:1px solid var(--glass-border);border-radius:10px;margin-bottom:6px}
+  .crop .ic{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,rgba(34,197,94,.25),rgba(6,182,212,.2));display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+  .crop .inf{flex:1;min-width:0}
+  .crop .inf .n{font-size:13px;font-weight:600}
+  .crop .inf .o{font-size:11px;color:var(--muted)}
+  .bar{height:5px;border-radius:99px;background:rgba(255,255,255,.08);margin-top:5px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:var(--grad);border-radius:99px}
+
+  .grid2{display:flex;flex-wrap:wrap;gap:0}
+  .grid2>div{flex:1 1 240px;min-width:0}
+  .pet{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--card);border:1px solid var(--glass-border);border-radius:8px;margin-bottom:6px;font-size:12px}
+  .pet .nm{font-weight:600;flex-shrink:0}
+  .pet .bn{color:var(--muted);font-size:11px}
+  .pet .bd{color:var(--success);font-size:11px;margin-left:auto;text-align:right}
+
+  .store{display:flex;flex-wrap:wrap;gap:6px}
+  .store .it{font-size:11px;background:var(--glass);border:1px solid var(--glass-border);border-radius:8px;padding:3px 9px;color:var(--text2)}
+
+  .dock{display:flex;flex-wrap:wrap;gap:6px;padding:12px;border-top:1px solid var(--glass-border);background:rgba(10,10,26,.6)}
+  .dock button{flex:1 1 84px;padding:9px 6px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text2);font-size:12px;cursor:pointer;transition:.15s}
+  .dock button:hover{border-color:var(--accent);color:#fff}
+  .dock button.primary{background:var(--grad);border-color:transparent;color:#fff;font-weight:600}
+
+  /* 行为说明卡 */
+  .explain{margin:14px 0;padding:14px;border-radius:14px;background:var(--card);border:1px solid var(--accent);position:relative}
+  .explain .x-title{font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:6px}
+  .explain .x-row{font-size:12px;margin:4px 0;color:var(--text2)}
+  .explain .x-row b{color:#f1f1f9}
+  .explain .x-cmd{display:inline-block;background:rgba(139,92,246,.15);border:1px solid var(--accent);color:#e9d5ff;border-radius:6px;padding:1px 8px;font-family:Consolas,monospace;font-size:12px}
+  .explain .x-back{font-size:12px;color:var(--muted);background:rgba(255,255,255,.04);border-radius:8px;padding:8px 10px;margin-top:6px;white-space:pre-wrap;font-family:Consolas,monospace;line-height:1.55}
+  .explain .x-calc{font-size:12px;color:var(--text2);border-left:2px solid var(--cyan);padding-left:10px;margin-top:6px}
+  .explain .x-calc .f{color:var(--cyan)}
+
+  /* ===== 开发规格 ===== */
+  .spec{max-width:1200px;margin:0 auto;display:flex;flex-wrap:wrap;gap:14px}
+  .spec .col{flex:1 1 480px;min-width:0}
+  .spec h3{font-size:14px;font-weight:600;color:#c4b5fd;margin:6px 0 8px}
+  .spec .box{background:var(--card);border:1px solid var(--glass-border);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .spec table{width:100%;border-collapse:collapse;font-size:12px}
+  .spec th{text-align:left;color:var(--cyan);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--border)}
+  .spec td{padding:5px 6px;border-bottom:1px solid rgba(42,31,94,.5);color:var(--text2);vertical-align:top}
+  .spec td:first-child{color:#f1f1f9;white-space:nowrap}
+  .spec code{font-family:Consolas,monospace;font-size:11px;background:rgba(139,92,246,.12);border-radius:5px;padding:1px 6px;color:#e9d5ff}
+  .spec pre{background:rgba(10,10,26,.8);border:1px solid var(--border);border-radius:10px;padding:12px;font-family:Consolas,monospace;font-size:11px;line-height:1.6;color:#c8c8e0;overflow-x:auto;white-space:pre}
+  .spec .note{font-size:11px;color:var(--muted);margin-top:6px}
+  .spec .k{display:inline-block;font-size:10px;border-radius:5px;padding:0 6px;margin-right:4px;background:var(--success-bg);color:var(--success)}
+  .spec .k2{display:inline-block;font-size:10px;border-radius:5px;padding:0 6px;margin-right:4px;background:var(--warning-bg);color:var(--warning)}
+  .spec .k3{display:inline-block;font-size:10px;border-radius:5px;padding:0 6px;margin-right:4px;background:rgba(139,92,246,.18);color:#c4b5fd}
+  .spec ul{font-size:12px;color:var(--text2);padding-left:18px}
+  .spec li{margin:3px 0}
+  footer{text-align:center;font-size:11px;color:var(--muted2);margin-top:20px}
+  @media (max-width:560px){ body{padding:10px} .grid2>div{flex:1 1 100%} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🏡 家园系统界面原型</h1>
+    <span class="tag">使魔大战3 · 复刻项目</span>
+    <span class="tag">模拟数据 · 公式按现有 home.service 推算</span>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="ui">界面原型</div>
+    <div class="tab" data-tab="spec">开发规格</div>
+  </div>
+
+  <!-- ===================== Tab1 界面原型 ===================== -->
+  <div class="panel active" id="tab-ui">
+    <div class="phone">
+      <!-- 顶部总览 -->
+      <div class="phone-top">
+        <div class="row1">
+          <span class="name" id="h-name">深渊221234</span>
+          <span class="lv" id="h-lv">繁荣 Lv.3</span>
+        </div>
+        <div class="row2">
+          <span class="chip ok" id="h-power">⚡ 有电</span>
+          <span class="chip ok" id="h-fuel">⛽ 燃料自给</span>
+          <span class="chip" id="h-mode">⚙ 生产模式：正常</span>
+        </div>
+      </div>
+
+      <!-- 离线回报 -->
+      <div class="offline" id="offline-card">
+        <div class="t">离线 8.3 小时 · 家园持续生产中</div>
+        <div class="items" id="offline-items"></div>
+        <div class="btns">
+          <button class="mini grad" data-action="output">一键收取（家园产出）</button>
+          <button class="mini" data-action="view">查看详情</button>
+        </div>
+      </div>
+
+      <!-- 建筑 -->
+      <div class="sec">
+        <div class="sec-title">📦 建筑 <span class="hint">点击建筑可收起/升级 · 产出按分钟计</span></div>
+        <div id="bld-list"></div>
+      </div>
+
+      <!-- 作物 -->
+      <div class="sec">
+        <div class="sec-title">🌱 作物 <span class="hint">成熟后可收获</span></div>
+        <div id="crop-list"></div>
+      </div>
+
+      <!-- 宠物 + 存放地 -->
+      <div class="sec">
+        <div class="sec-title">🐾 宠物加成 <span class="hint">读取地图 summons</span></div>
+        <div id="pet-list"></div>
+      </div>
+      <div class="sec">
+        <div class="sec-title">🗄 院内存放地 <span class="hint">他人不可拾取 · map.items</span></div>
+        <div class="store" id="store-list"></div>
+      </div>
+      <div class="sec">
+        <div class="sec-title">⚔ 前线防御 <span class="hint">家园前线</span></div>
+        <div id="front-line" style="font-size:12px;color:var(--text2)"></div>
+      </div>
+
+      <!-- 快捷操作 -->
+      <div class="dock">
+        <button class="primary" data-action="output">🗄 家园产出</button>
+        <button data-action="plant">🌱 种植</button>
+        <button data-action="harvest">⛏ 收获</button>
+        <button data-action="frontline">⚔ 前线</button>
+        <button data-action="trade">🤝 贸易</button>
+        <button data-action="ops">⚙ 家园操作</button>
+        <button data-action="rename">✏ 命名</button>
+      </div>
+    </div>
+
+    <!-- 行为说明卡 -->
+    <div class="explain" id="explain">
+      <div class="x-title">💡 点击上方任意按钮 / 建筑，查看它会做什么</div>
+      <div class="x-row">原型演示：模拟点击「家园产出」时的指令调用、后端计算与返回文本。</div>
+      <div class="x-row"><b>发送指令：</b><span class="x-cmd" id="x-cmd">家园 产出</span></div>
+      <div class="x-calc" id="x-calc"></div>
+      <div class="x-back" id="x-back"></div>
+    </div>
+    <p style="text-align:center;font-size:11px;color:var(--muted2);margin-top:10px;">说明：本面板数值为按现有公式推算的示例（离线 8.3h 场景），真实值以线上结算为准；点击行为模拟发送指令，未连接真实后端。</p>
+  </div>
+
+  <!-- ===================== Tab2 开发规格 ===================== -->
+  <div class="panel" id="tab-spec">
+    <div class="spec" id="spec-root"></div>
+  </div>
+
+  <footer>家园系统界面原型 · 由现有 home.service / familiar-system.service 数据与公式推算 · 供开发参照</footer>
+</div>
+<script>
+/* ===== 数据（模拟 GET /home/overview 返回）===== */
+var MOCK = {
+  houseName: '深渊221234',
+  progress: 4,
+  prosperity: { level: 3, nextAt: '还需累计产出 2000 件物品' },
+  power: { hasPower: true, generation: 100, consumption: 100 },
+  fuel: { selfSufficient: true, remainingSeconds: null },
+  productionMode: 0,
+  offline: { seconds: 8.3 * 3600, buildingRate: 1.05 },
+  buildings: [
+    { name: '基础发电机', count: 1, level: 1, perMinute: [{ name: '电力', q: 100, sign: '+' }, { name: '燃料', q: 0.1, sign: '-' }] },
+    { name: '基础钻机', count: 2, level: 1, perMinute: [{ name: '电力', q: 25, sign: '-' }, { name: '铁矿', q: 2, sign: '+' }] },
+    { name: '基础油井', count: 1, level: 1, perMinute: [{ name: '电力', q: 25, sign: '-' }, { name: '燃料', q: 0.25, sign: '+' }] },
+    { name: '基础聚焦器', count: 1, level: 1, perMinute: [{ name: '电力', q: 25, sign: '-' }, { name: '能量块', q: 0.75, sign: '+' }] }
+  ],
+  crops: [
+    { name: '灵石种子', count: 3, progress: 62, output: '灵石', matureIn: '约 2.1 小时' }
+  ],
+  pets: [
+    { name: '龙女仆', bonus: '建筑产出 +5%' },
+    { name: '英招', bonus: '作物倍率 +0.1' },
+    { name: '兰音幼崽', bonus: '时间流逝 ×105%' }
+  ],
+  storage: [
+    { name: '铁矿', q: 1420 }, { name: '能量块', q: 260 }, { name: '燃料', q: 96 },
+    { name: '蛋', q: 0.2 }, { name: '垃圾', q: 0.6 }
+  ],
+  frontline: { level: 2, defense: 3, maxDefense: 5 }
+};
+/* 离线产出示例（按公式推算，见开发规格） */
+var OFFLINE_OUTPUT = [
+  { name: '铁矿', q: 2196 }, { name: '能量块', q: 412 }, { name: '燃料', q: 78 }, { name: '蛋', q: 0.02 }
+];
+
+/* ===== 渲染 ===== */
+function el(id) { return document.getElementById(id); }
+function fmt(n) { if (n > 0 && n < 1) return n.toFixed(2); return (Math.round(n * 10) / 10).toLocaleString(); }
+
+function renderHome() {
+  el('h-name').textContent = MOCK.houseName;
+  el('h-lv').textContent = '繁荣 Lv.' + MOCK.prosperity.level;
+  el('h-power').textContent = MOCK.power.hasPower ? '⚡ 有电' : '⚡ 停电';
+  el('h-power').className = 'chip ' + (MOCK.power.hasPower ? 'ok' : 'off');
+  el('h-fuel').textContent = MOCK.fuel.selfSufficient ? '⛽ 燃料自给' : '⛽ 燃料 ' + fmt((MOCK.fuel.remainingSeconds || 0) / 3600) + 'h';
+  el('h-mode').textContent = '⚙ 生产模式：' + (MOCK.productionMode === 1 ? '超载' : '正常');
+
+  el('offline-items').textContent = '预计可收取：' + OFFLINE_OUTPUT.map(function (i) { return i.name + '×' + fmt(i.q); }).join(' · ');
+
+  el('bld-list').innerHTML = MOCK.buildings.map(function (b) {
+    var outs = b.perMinute.map(function (o) { return (o.sign === '+' ? '+' : '−') + o.name + ' ' + o.q + '/分'; }).join('  ');
+    return '<div class="bld" data-action="bld" data-name="' + b.name + '">' +
+      '<div class="ic">🏭</div>' +
+      '<div class="inf"><div class="n">' + b.name + ' ×' + b.count + ' <span style="font-size:10px;color:var(--muted)">Lv.' + b.level + '</span></div>' +
+      '<div class="o">' + outs + '</div></div>' +
+      '<div class="ops">' +
+      '<button class="mini" data-action="install" data-name="' + b.name + '">安装</button>' +
+      '<button class="mini" data-action="upgrade" data-name="' + b.name + '">升级</button>' +
+      '<button class="mini" data-action="remove" data-name="' + b.name + '">收起</button>' +
+      '</div></div>';
+  }).join('');
+
+  el('crop-list').innerHTML = MOCK.crops.map(function (c) {
+    return '<div class="crop">' +
+      '<div class="ic">🌾</div>' +
+      '<div class="inf"><div class="n">' + c.name + ' ×' + c.count + ' → ' + c.output + '</div>' +
+      '<div class="o">生长 ' + c.progress + '% · 预计成熟 ' + c.matureIn + '</div>' +
+      '<div class="bar"><i style="width:' + c.progress + '%"></i></div></div>' +
+      '<button class="mini grad" data-action="harvest" data-name="' + c.output + '">收获</button></div>';
+  }).join('');
+
+  el('pet-list').innerHTML = MOCK.pets.map(function (p) {
+    return '<div class="pet"><span class="nm">' + p.name + '</span><span class="bn">' + p.bonus + '</span></div>';
+  }).join('');
+
+  el('store-list').innerHTML = MOCK.storage.map(function (i) { return '<span class="it">' + i.name + ' ×' + fmt(i.q) + '</span>'; }).join('');
+
+  el('front-line').textContent = '防御 ' + MOCK.frontline.defense + '/' + MOCK.frontline.maxDefense + ' · 等级 ' + MOCK.frontline.level + ' · 发送「开始战斗」触发地精攻势';
+}
+
+/* ===== 行为说明库（与现有后端实现一一对应）===== */
+var ACTIONS = {
+  output: {
+    title: '🗄 家园产出（一键收取）',
+    cmd: '家园 产出',
+    calc: [
+      '后端：handleHome → familiarSystemService.handleHome(「产出」) → homeService.collectHomeOutput(userId)',
+      '① 取院子地图（player.houseName 关联），解析 map.buildings → 生产者列表（buildings.json 的 materials 即产出入）',
+      '② 读 map.markers[「观测时间」] 算 timeDiff；无记录默认 60s',
+      '③ 电力平衡：全部建筑电力正负合计 ≥ 0 才生产，否则返回「电力不足，建筑生产停止」',
+      '④ 燃料供应时间：燃料净产出 > 0 则自给（全额时间差）；否则 = 库存 ÷ 消耗率，取 min(timeDiff)',
+      '⑤ 人力倍率：labor = min(1, 宠物数 ÷ (建筑数/6))；有按摩椅按专属公式',
+      '⑥ 倍率叠加：超载模式 建筑×1.25/燃料消耗×1.5；龙女仆+5%建筑；英招+0.1作物；兰音幼崽 时间×1.05',
+      '⑦ 按优先级 1→7 逐级 produceResources：数量 × 人力 × 次数 × 时间/60，产出写入 map.items',
+      '⑧ 写回 观测时间/有电/每日产出（每日正产出供家园贸易 2% 使用）'
+    ].join('\n'),
+    back: '深渊221234的家园产出\n获得铁矿x2196.3\n获得能量块x411.8\n获得燃料x78.4\n正在训练硅基核心:12.3%(35/50/15)'
+  },
+  view: {
+    title: '🏠 查看家园状态',
+    cmd: '家园 查看',
+    calc: [
+      '后端：getHomeStatus(player, markers)',
+      '读 player.markers[「家园进度」]：0未开始/1清地面/2开挖地基/3建造房子/4已建成',
+      '已建成时列出院子 map.buildings 全部建筑与数量，拼接家园名称、背景音乐'
+    ].join('\n'),
+    back: '🏠 家园 - 深渊221234\n━━━━━━━━━━━━━━━\n家园已建成！\n你可以在家园里面休息、种地、安装生产设备、放置愿意跟随你的怪物和NPC\n━━━━━━━━━━━━━━━\n📦 建筑 (4种):\n  基础发电机 x1\n  基础钻机 x2\n  基础油井 x1\n  基础聚焦器 x1\n家园名称: 深渊221234'
+  },
+  plant: {
+    title: '🌱 种植',
+    cmd: '种植 灵石种子',
+    calc: [
+      '后端：homeService.plantSeed(map, 种子名, backpack, buildingDefs)',
+      '① 检查背包有「灵石种子」→ 消耗 1 颗',
+      '② 查种子「使用效果」指向的资源定义（作物），找不到回退建筑定义',
+      '③ 写 map.resources2：同作物 count+1，新作物写入 {name, type:作物, outputs2:资源产出2}',
+      '④ 作物产出为建筑的 10%（produceResources productionType=1）'
+    ].join('\n'),
+    back: '成功种植了「灵石」'
+  },
+  harvest: {
+    title: '⛏ 收获',
+    cmd: '收获 灵石',
+    calc: [
+      '后端：homeService.harvestCrop(map, 作物名, buildingDefs, backpack)',
+      '① 在 map.resources2 找该作物（产出2 非空）',
+      '② 产出 = 资源定义 outputs × 作物数量，全部加入背包',
+      '③ 从 resources2 移除该作物'
+    ].join('\n'),
+    back: '收获了「灵石」×3，获得：灵石×2.4'
+  },
+  frontline: {
+    title: '⚔ 家园前线',
+    cmd: '家园 前线',
+    calc: [
+      '后端：handleHomeFrontline(userId)',
+      '① 家园进度 < 4 时拒绝：需要先完成房屋的建造',
+      '② 取前线地图；首次查看以等级0生成前线（mutateMapFields 锁内去重）',
+      '③ 防御上限 = 前线地图建筑总数，等级存 player.markers[「前线」]',
+      '④ 显示火力通道（武器伤害%）与特殊存在（specialSeq>0 且存活）',
+      '⑤ 发送「开始战斗」触发地精攻势'
+    ].join('\n'),
+    back: '深渊221234,深渊221234前线防御阵地\n防御阵地和地精无视载具伤害上限，攻击无载具目标时一击必杀\n防御:3/5 等级:2\n火力通道:\n发送「开始战斗」开始地精的攻势'
+  },
+  trade: {
+    title: '🤝 家园贸易',
+    cmd: '贸易（需先到对方家园院子里）',
+    calc: [
+      '后端：handleHomeTrade（在他人院子执行）',
+      '消耗 10 活力；双方获得对方家园「每日产出」的 2%',
+      '每日产出 = map.markers[「每日产出」]（上次家园产出观测时写入的正产出折算）',
+      '电力不参与贸易；「银」在被贸易家园中时 <1 的正产出提升到 1',
+      '同一对玩家串行化（防并发重复扣活力/发奖）'
+    ].join('\n'),
+    back: '贸易成功！你获得了对方家园的每日产出 2%：铁矿×12.4、能量块×2.1'
+  },
+  ops: {
+    title: '⚙ 家园操作菜单',
+    cmd: '家园 操作',
+    calc: [
+      '后端：getHomeOperations(player, markers) 返回菜单文本',
+      '含：命名/搬迁/音乐/安装/拆卸/安装燃料/家园产出；进度≥4 追加「家园前线」'
+    ].join('\n'),
+    back: '深渊221234\n「家园命名」来修改家园名称\n「家园搬迁」来搬迁家园\n「家园音乐」来更换背景音乐\n「安装基础发电机1」来安装建筑\n「拆卸基础发电机1」来收起建筑\n「安装燃料50」来把燃料放入院子\n「家园产出」来观测家园生产\n「家园前线」来查看防御阵地'
+  },
+  rename: {
+    title: '✏ 家园命名',
+    cmd: '家园 命名 新家园名',
+    calc: [
+      '后端：handleHomeRename(userId, newName)',
+      '名称通过原版名称校验（长度/非法字符）→ 写 player.houseName 并同步关联地图名',
+      '面板弹输入框，用户输入后拼成「家园 命名 <名字>」发送'
+    ].join('\n'),
+    back: '家园已命名为「深渊221234」'
+  },
+  install: {
+    title: '📦 安装建筑（从背包放入院子）',
+    cmd: '安装 基础发电机1',
+    calc: [
+      '后端：homeService.installBuilding(map, 建筑名, backpack, count)',
+      '注意：安装 ≠ 建造。从背包扣除已制造好的「基础发电机」放入院子 map.buildings',
+      '背包不足时提示「你没有基础发电机」；数量 = min(请求数, 背包可用)'
+    ].join('\n'),
+    back: '把1个基础发电机放到了深渊221234'
+  },
+  upgrade: {
+    title: '⬆ 建筑升级（新版特有 · 待实现）',
+    cmd: '升级 基础钻机',
+    calc: [
+      '利用现有分级链：基础 → 改良 → 标准（buildings.json 已存在各级定义）',
+      '消耗指定材料 + 繁荣度，把 map.buildings 中该建筑替换为下一级对象',
+      '产出/耗电按新定义自动变化；不修改原版公式，仅替换建筑条目',
+      '设计参数示例：改良钻机 = 基础钻机 × 2.0 产出、耗电 × 1.6'
+    ].join('\n'),
+    back: '基础钻机 升级为 改良钻机（消耗：铁矿×120、木头×80、繁荣度 Lv.3）'
+  },
+  remove: {
+    title: '🗑 收起建筑',
+    cmd: '拆卸 基础发电机1',
+    calc: [
+      '后端：homeService.removeBuilding(map, 建筑名, buildingDefs, backpack)',
+      '从 map.buildings 移除 1 个；返还该建筑材料需求的 50%（floor 取整）'
+    ].join('\n'),
+    back: '拆除了「基础发电机」，返还了铁矿×3、木头×2'
+  },
+  bld: {
+    title: '🏭 建筑详情（点击建筑卡片）',
+    cmd: '（只读展示，操作走右侧按钮）',
+    calc: [
+      '数据来源：map.buildings + buildings.json 定义合并',
+      'buildings.json 的 materials 数组 = 每分钟产出入：负数=消耗，正数=产出',
+      '示例 基础钻机：{name:"基础钻机", materials:[{name:"电力",count:-25},{name:"铁矿",count:2}]}',
+      '实际结算：produceResources 公式 数量×人力×次数×时间/60；电力只参与总平衡不写入存放地'
+    ].join('\n'),
+    back: '建筑定义(buildings.json) 基础钻机：\n  电力 -25/分（消耗）\n  铁矿 +2/分（产出）\n面板「产出」列即按此实时结算'
+  }
+};
+
+function showExplain(action, name) {
+  var a = ACTIONS[action];
+  if (!a) return;
+  var title = name && (action === 'bld' || action === 'install' || action === 'upgrade' || action === 'remove')
+    ? a.title + '：' + name : a.title;
+  el('explain').querySelector('.x-title').textContent = '💡 ' + title;
+  el('x-cmd').textContent = a.cmd;
+  el('x-calc').innerHTML = a.calc.split('\n').map(function (l) {
+    var f = l.match(/^(\d+[①②③④⑤⑥⑦⑧]?)[.、]?\s*(.*)$/);
+    return f ? '<div class="x-row"><span class="f">' + f[1] + '.</span> ' + f[2] + '</div>' : '<div class="x-row">' + l + '</div>';
+  }).join('');
+  el('x-back').textContent = a.back;
+}
+
+/* ===== 事件 ===== */
+document.addEventListener('click', function (e) {
+  var t = e.target.closest('[data-action]');
+  if (!t) return;
+  var action = t.getAttribute('data-action');
+  var name = t.getAttribute('data-name') || '';
+  if (action === 'bld') { showExplain('bld', name); return; }
+  showExplain(action, name);
+});
+
+/* ===== Tab 切换 ===== */
+document.querySelectorAll('.tab').forEach(function (tab) {
+  tab.addEventListener('click', function () {
+    document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+    tab.classList.add('active');
+    el('tab-' + tab.getAttribute('data-tab')).classList.add('active');
+  });
+});
+
+/* ===== 开发规格内容 ===== */
+var SPEC_JSON = [
+  '{',
+  '  "houseName": "深渊221234",',
+  '  "progress": 4,                            // player.markers["家园进度"]  0未开始/1清地/2地基/3建房/4建成',
+  '  "prosperity": { "level": 3 },             // ➕新版特有：繁荣度=f(建筑种类, 建筑总数, 累计已领取产出)',
+  '  "power": { "hasPower": true, "generation": 100, "consumption": 100 },',
+  '                                            // map.buildings 全部电力正负合计 → 净 ≥0 才有电',
+  '  "fuel": { "selfSufficient": true, "remainingSeconds": null },',
+  '                                            // 燃料净产出>0 → 自给；否则 库存÷消耗率',
+  '  "productionMode": 0,                      // map.markers["生产模式"]  0正常 1超载',
+  '  "offline": { "seconds": 29880, "output": [ { "name": "铁矿", "q": 2196 } ] },',
+  '                                            // now - map.markers["观测时间"]；output = 预计可收取',
+  '  "buildings": [ { "name": "基础钻机", "count": 2, "level": 1,',
+  '      "perMinute": [ { "name": "电力", "q": -25 }, { "name": "铁矿", "q": 2 } ] } ],',
+  '                                            // map.buildings × buildings.json 定义（materials 即产出入）',
+  '  "crops": [ { "name": "灵石种子", "count": 3, "progress": 62, "output": "灵石" } ],',
+  '                                            // map.resources2 中 产出2 非空条目',
+  '  "pets": [ { "name": "龙女仆", "bonus": "建筑产出 +5%" } ],   // map.summons 特殊序号→加成文本',
+  '  "storage": [ { "name": "铁矿", "q": 1420 } ],              // map.items 院内存放地（他人不可拾取）',
+  '  "frontline": { "level": 2, "defense": 3, "maxDefense": 5 }',
+  '                                            // player.markers["前线"] + 前线地图建筑数(上限=建筑数)',
+  '}'
+].join('\n');
+
+var SPEC_HTML = '' +
+'<div class="col">' +
+  '<div class="box"><h3>① 聚合接口：GET /home/overview（新增只读接口，面板唯一数据源）</h3>' +
+  '<pre>' + SPEC_JSON + '</pre>' +
+  '<div class="note">前端只读此接口渲染；所有写操作（产出/种植/收获/前线/贸易）仍发送对应指令，由现有服务结算。避免前端另算数值导致双端不一致。</div></div>' +
+  '<div class="box"><h3>② 数据字段来源映射</h3>' +
+  '<table><tr><th>面板区块</th><th>数据来源</th></tr>' +
+  '<tr><td>家园名 / 进度</td><td>player.houseName、player.markers[家园进度]</td></tr>' +
+  '<tr><td>电力 / 燃料 / 模式</td><td>map.buildings 电力正负合计；燃料净产出或 库存÷消耗率；map.markers[生产模式]</td></tr>' +
+  '<tr><td>离线时长</td><td>now − map.markers[观测时间]（最多按 1 小时封顶？否——产出按真实时间差结算）</td></tr>' +
+  '<tr><td>建筑列表</td><td>map.buildings + buildings.json 定义合并（materials 即每分钟产出入）</td></tr>' +
+  '<tr><td>作物</td><td>map.resources2 中 产出2 非空条目；成熟度 = 种植后时间/生长周期（生长周期由资源定义配置）</td></tr>' +
+  '<tr><td>宠物加成</td><td>map.summons 特殊序号（vitality/specialSeq 负值）→ 加成文本（同 collectHomeOutput 逻辑）</td></tr>' +
+  '<tr><td>存放地</td><td>map.items（院内存放地，仅主人可拾取）</td></tr>' +
+  '<tr><td>前线</td><td>player.markers[前线] + 前线地图 map.buildings 建筑数</td></tr>' +
+  '</table></div>' +
+  '<div class="box"><h3>③ 按钮 → 指令映射（全部复用现有指令，聊天端/Web 端同一套）</h3>' +
+  '<table><tr><th>按钮</th><th>发送指令</th><th>后端入口</th></tr>' +
+  '<tr><td>家园产出 / 一键收取</td><td>家园 产出</td><td>homeService.collectHomeOutput</td></tr>' +
+  '<tr><td>查看</td><td>家园 查看</td><td>getHomeStatus</td></tr>' +
+  '<tr><td>种植</td><td>种植 种子名</td><td>homeService.plantSeed</td></tr>' +
+  '<tr><td>收获</td><td>收获 作物名</td><td>homeService.harvestCrop</td></tr>' +
+  '<tr><td>前线</td><td>家园 前线</td><td>handleHomeFrontline</td></tr>' +
+  '<tr><td>贸易</td><td>贸易</td><td>handleHomeTrade（需在对方院子）</td></tr>' +
+  '<tr><td>家园操作</td><td>家园 操作</td><td>getHomeOperations</td></tr>' +
+  '<tr><td>命名</td><td>家园 命名 名字</td><td>handleHomeRename</td></tr>' +
+  '<tr><td>安装 / 收起</td><td>安装 X / 拆卸 X</td><td>homeService.installBuilding / removeBuilding</td></tr>' +
+  '<tr><td>升级（➕新版）</td><td>升级 建筑名</td><td>待实现（利用 基础→改良→标准 分级链）</td></tr>' +
+  '</table></div>' +
+'</div>' +
+'<div class="col">' +
+  '<div class="box"><h3>④ 产出计算链路（与 collectHomeOutput 一致）</h3>' +
+  '<ul>' +
+  '<li><b>时间差</b>：now − map.markers[观测时间]；兰音幼崽存活时 ×1.05</li>' +
+  '<li><b>电力平衡</b>：净电力（正产出−负消耗）≥ 0 才生产；否则立即停止并返回</li>' +
+  '<li><b>燃料供应</b>：净产 > 0 → 自给；否则 remainingFuel = 库存 ÷ 每秒消耗，封顶 timeDiff</li>' +
+  '<li><b>人力</b>：无按摩椅 labor = min(1, 宠物数 ÷ (生产建筑数/6))；有按摩椅 = (宠物数+按摩椅数)×(1+按摩椅数/50) ÷ (建筑数/6)，封顶 1</li>' +
+  '<li><b>产出公式</b>：数量 × 人力 × 次数 × 生产时间 / 60；作物类型再 × 作物倍率 × 0.1</li>' +
+  '<li><b>倍率来源</b>：超载 1.25 / 燃料消耗 1.5；工业灌溉、工业控制电路、龙女仆、英招、执行者、朱雀、心之守望等（与现有实现一致）</li>' +
+  '<li><b>特殊产出</b>：世界模拟器训练硅基核心（86400s 一次）、宠物蛋/垃圾、肉食植物转换、兔子窝补缺等，均已有实现</li>' +
+  '</ul>' +
+  '<div class="note">面板「预计可收取」建议由后端聚合接口直接计算并返回（只读、不落库），与「家园产出」同公式但 <span class="k">不写观测时间</span>，避免预览改变结算。</div></div>' +
+  '<div class="box"><h3>⑤ 双端一致 & 扩展边界</h3>' +
+  '<ul>' +
+  '<li>面板所有按钮 = 发送指令；<span class="k">不新增第二套家园逻辑</span></li>' +
+  '<li>QQ 机器人端无 GUI，指令通道保持完整可用（本设计不破坏原版指令）</li>' +
+  '<li><span class="k2">➕新版特有</span>：繁荣度等级、建筑升级链、委托板（后续）；需按原版边界文档标注，不污染原版复刻验收</li>' +
+  '<li><span class="k3">性能</span>：聚合接口避免 O(建筑数×产出项) 重复计算，可直接复用 collectHomeOutput 的中间结果</li>' +
+  '<li><span class="k3">并发</span>：预览接口只读；「家园产出」写操作维持现有串行/锁机制（mutateMapFields）</li>' +
+  '</ul></div>' +
+  '<div class="box"><h3>⑥ 示例场景推算（离线 8.3h = 498min，宠物×3）</h3>' +
+  '<ul>' +
+  '<li>电力：发电机 +100 vs 钻机2×25+油井25+聚焦器25 = −100 → 净 0 → 有电</li>' +
+  '<li>人力：生产建筑 4 个 → 4/6=0.667 → 3÷0.667=4.5 → 封顶 1（满人力）</li>' +
+  '<li>燃料：油井 +0.25 vs 发电机 −0.1 → 净 +0.15/分 → 自给</li>' +
+  '<li>铁矿：2 × 1 × 2台 × 498min×1.05 / 60 = 34.86/min… 即 2×2×522.9 = <b>2092</b>，龙女仆 ×1.05 → <b>2196</b></li>' +
+  '<li>能量块：0.75 × 522.9 = 392，×1.05 → <b>412</b></li>' +
+  '<li>燃料结余：0.15 × 522.9 = <b>78</b> 进院子</li>' +
+  '<li>以上为示例推算（含龙女仆+5%），真实值以线上结算为准</li>' +
+  '</ul></div>' +
+'</div>';
+
+el('spec-root').innerHTML = SPEC_HTML;
+
+renderHome();
+showExplain('output');
+</script>
+</body>
+</html>
