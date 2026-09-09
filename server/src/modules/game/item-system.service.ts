@@ -11,7 +11,7 @@ import { ItemService, Item3, Equipment } from './item.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
 import { ShortcutService } from './shortcut.service';
-import { QUALITY_VALUE_MAP, BONUS_CODE_MAP, IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POOL, AMPLIFIER_RANDOM_POOL } from './item.service';
+import { IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POOL, AMPLIFIER_RANDOM_POOL } from './item.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
@@ -589,86 +589,11 @@ export class ItemSystemService {
   //  强化系统
   // ===================================================================
 
-  /**
-   * 强化装备
-   * 对应原版：强化()
-   * 消耗材料提升装备属性
-   */
-  async enhanceItem(userId: number, itemName: string): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, markers } = playerData;
-
-    // 查找背包装备
-    const itemIndex = backpack.findIndex(
-      (bp: Item3) => bp.name === itemName && bp.type === '装备',
-    );
-    if (itemIndex === -1) {
-      return `${player.name} 你的背包中没有【${itemName}】装备。`;
-    }
-
-    const item = backpack[itemIndex];
-    const equipment = this.parseEquipment(item);
-
-    // 检查是否已锁定
-    if (item.durability !== 0) {
-      return '不能强化被锁定的装备。';
-    }
-
-    // 计算需要的水晶数量
-    const level = (markers['强化等级'] as number) || 0;
-    const crystalCost = Math.max(1, level + 1);
-
-    // 检查水晶
-    const crystalQty = this.getItemQuantity('水晶', backpack);
-    if (crystalQty < crystalCost) {
-      return `需要${crystalCost}个水晶进行强化，你只有${crystalQty}个。`;
-    }
-
-    // 消耗水晶
-    this.removeItemFromBackpack(backpack, '水晶', crystalCost);
-
-    // 随机提升一个属性
-    const bonusKeys = Object.keys(equipment.bonus);
-    if (bonusKeys.length > 0) {
-      const randomKey = bonusKeys[Math.floor(Math.random() * bonusKeys.length)];
-      equipment.bonus[randomKey] = (equipment.bonus[randomKey] || 0) + 1;
-    } else {
-      // 无属性时随机增加一个
-      const allKeys = Object.values(BONUS_CODE_MAP);
-      const randomKey = allKeys[Math.floor(Math.random() * allKeys.length)];
-      equipment.bonus[randomKey] = 1;
-    }
-
-    // 更新装备数据
-    item.data = this.buildEquipmentData(equipment);
-
-    if (!markers['强化等级']) markers['强化等级'] = 0;
-    markers['强化等级'] += 1;
-    if (!markers['强化']) markers['强化'] = 0;
-    markers['强化'] += 1;
-
-    await this.playerService.enqueueUserWrite(userId, async () => {
-      const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, {
-        backpack: backpack, // Player backpack 为 Json 列，直接写数组
-        markers: markers, // Player markers 为 Json 列，直接写对象
-      });
-      await this.playerService.savePlayer(_pd.player);
-    });
-
-    // 强化后检查称号触发
-    try {
-      const playerRecord = await this.prisma.player.findUnique({ where: { userId } });
-      if (playerRecord) {
-        playerRecord.markers = markers; // Json 列直接写对象（仅供 checkTitles 读取）
-        await this.achievementService.checkTitles(playerRecord);
-      }
-    } catch (e) {
-      this.logger.warn(`强化后称号检查失败: ${e.message}`);
-    }
-
-    return `${player.name}消耗${crystalCost}个水晶强化了【${itemName}】，属性提升了！`;
-  }
+  // 【2026-09-09】旧 enhanceItem（按装备名消耗水晶随机+1 强化背包装备）已删除：
+  // 原版「强化」（_主程序.ecode L5050-L5153）不存在该路径（水晶系强化只属于植入体/增幅器），
+  // 且其写键（markers['强化等级']/['强化']）与部位强化体系（部位名+强化）不接轨致面板恒 +0，
+  // 并在 mutate 外以旧快照整包写回 backpack/markers，有覆盖并发写入风险（7960 剑圣好感被抹同类）。
+  // 现统一由 game.service handleEquipEnhance 承接「强化」指令。
 
   /**
    * 强化植入体

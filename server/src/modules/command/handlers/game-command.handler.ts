@@ -448,25 +448,25 @@ export class GameCommandHandler implements CommandHandler {
         case '强化':
         case 'enhance':
         case '升级': {
-          const enhancementPart = arg.replace(/\d+/g, '').trim();
-          const equipmentParts = new Set([
-            '头部', '饰品', '肩膀', '上身', '手臂', '手掌',
-            '腰部', '背部', '下身', '腿部', '腿环', '脚部', '武器',
-          ]);
-          if (equipmentParts.has(enhancementPart)) {
-            const result = await this.gameService.handleEquipEnhance(userId, arg);
-            if (this.isSuccessfulAction(result)) {
+          // 原版「强化」（_主程序.ecode L5050-L5153）只有两种分支：
+          // 纯数字=强化背包法宝（祥瑞气息）；部位名=部位强化熟练度（合金，写 部位名+强化 标记）。
+          // 非部位名一律「不是可以强化的部位。」——原版不存在按装备名消耗水晶强化的路径，
+          // 旧 item-system.enhanceItem 幽灵路径已删除（2026-09-09 诊断：写键与部位强化体系
+          // 不接轨致面板恒 +0，且 mutate 外旧快照整包写回有覆盖并发写入风险）。
+          const result = await this.gameService.handleEquipEnhance(userId, arg);
+          if (this.isSuccessfulAction(result)) {
+            const enhancementPart = arg.replace(/\d+/g, '').trim();
+            const equipmentParts = new Set([
+              '头部', '饰品', '肩膀', '上身', '手臂', '手掌',
+              '腰部', '背部', '下身', '腿部', '腿环', '脚部', '武器',
+            ]);
+            if (equipmentParts.has(enhancementPart)) {
               // 原版使用实际完成次数 c；资源不足时不能按请求次数虚增任务进度。
               const count = Number(result.match(/强化了[^\d]*(\d+)次/)?.[1]
                 || arg.match(/\d+/)?.[0] || 1);
               await this.taskService.advance(userId, '强化装备', count);
               await this.taskService.advance(userId, '强化' + enhancementPart, count);
             }
-            return this.wrap(result);
-          }
-          const result = await this.itemSystem.enhanceItem(userId, arg);
-          if (this.isSuccessfulAction(result) && arg) {
-            await this.taskService.advance(userId, '强化' + arg);
           }
           return this.wrap(result);
         }
