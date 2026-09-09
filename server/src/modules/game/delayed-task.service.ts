@@ -142,18 +142,20 @@ export class DelayedTaskService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * 超管特权：把某玩家所有未到期的延时任务「立即完成」。
+   * 超管特权：把某玩家所有进行中的延时任务「立即完成」。
    * 实现只把 runAt 提前到当前时刻——结算语义（markers 门禁清理、产出、广播）
    * 全部由既有 handler 链路完成，本方法不做任何业务结算（零分叉）。
    * 随后主动分发一轮：tick 有防重入与 deleteMany 原子认领，与周期 tick
    * 并发时最坏由下一轮周期 tick（1 秒内）兜底，不会双结算。
-   * 地图级任务（userId=null，如副本关闭）不属于玩家，天然不在范围内。
-   * @returns 提前到期的任务数
+   * 扫描该玩家全部任务行（含已到期未分发的边缘行）：已到期行本来马上会被
+   * 周期 tick 处理，一并"提前"无害且幂等；地图级任务（userId=null，
+   * 如副本关闭）不属于玩家，天然不在范围内。
+   * @returns 被提前的任务行数
    */
   async completeNowForUser(userId: number): Promise<number> {
     const now = new Date();
     const pending = await this.prisma.delayedTask.findMany({
-      where: { userId: Number(userId), runAt: { gt: now } },
+      where: { userId: Number(userId) },
       select: { id: true },
     });
     if (pending.length === 0) return 0;

@@ -167,13 +167,14 @@ export class GameController {
 
   /**
    * 超管特权：立即完成自己进行中的延时读条（采集/移动/救援等）。
-   * Web 读条「⚡完成」按钮的专用静默通道——指令与回包都不进公屏聊天流，
-   * 结算语义复用 handleAdminFinishNow（含 ADMIN/SUPER_ADMIN 权限校验）。
+   * Web 读条「⚡完成」按钮的专用静默通道——指令与回包都不进公屏聊天流。
+   * 结构化返回（success/message/completed），前端按 success 弹 Toast；
+   * 权限校验在 finishNowForUser 内（ADMIN/SUPER_ADMIN，ok=false 时 success=false）。
    */
   @Post('admin/finish-now')
   @ApiOperation({ summary: '超管特权：立即完成自己的延时读条（静默，不进聊天流）' })
   async finishNow(@Req() req) {
-    const message = await this.gameService.handleAdminFinishNow(req.user.userId);
-    return { success: true, message };
+    const result = await this.gameService.finishNowForUser(req.user.userId);
+    return { success: result.ok, message: result.message, completed: result.completed };
   }
 }

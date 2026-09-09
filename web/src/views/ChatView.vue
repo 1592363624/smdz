@@ -2093,16 +2093,19 @@ async function onPendingExpired() {
   await Promise.all([loadPlayerInfo(), loadMapOverview()]);
 }
 
-// 超管点击读条上的「⚡完成」：走 REST 静默通道（指令与结果都不进聊天流，别人不可见），
-// 结果用 Toast 提示，随后刷新读条快照让已结算条目消失。
+// 超管点击读条上的「⚡完成」：走 REST 静默通道（指令与结果都不进聊天流，别人不可见）。
+// 注意 http 拦截器已解包 body：res = { success, message, completed }，直接取 message。
+// 结果用 Toast 如实提示（成功/无任务/权限不足），成功后刷新读条快照让条目消失。
 async function onPendingComplete() {
+  let ok = false;
   try {
     const res = await gameApi.finishNow();
-    showToast(res?.data?.message || '已触发立即完成', 'success');
+    ok = !!res?.success;
+    showToast(res?.message || (ok ? '已触发立即完成' : '操作失败'), ok ? 'success' : 'error');
   } catch (e) {
-    showToast(e?.response?.data?.message || '立即完成失败', 'error');
+    showToast(e?.response?.data?.message || e?.message || '立即完成失败', 'error');
   }
-  await loadPlayerInfo();
+  if (ok) await loadPlayerInfo();
 }
 
 // 加载附近玩家列表（当前区域同一地图内的其他玩家）

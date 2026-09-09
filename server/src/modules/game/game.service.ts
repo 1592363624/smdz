@@ -14052,22 +14052,32 @@ export class GameService {
   // ========== GM 管理员命令 ==========
 
   /**
+   * 超管特权「立即完成」共享实现：QQ 指令与 Web REST 静默端点（读条按钮）双入口，
+   * 单一实现（统一调用约定）。结构化返回，调用方自行决定呈现——
+   * QQ 取 message 作文本回包，Web 按 ok/message 弹 Toast。
+   */
+  async finishNowForUser(userId: number): Promise<{ ok: boolean; completed: number; message: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { ok: false, completed: 0, message: '用户不存在' };
+    if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+      return { ok: false, completed: 0, message: '权限不足，需要管理员权限（ADMIN 或 SUPER_ADMIN）' };
+    }
+    if (!this.delayedTaskService) return { ok: false, completed: 0, message: '延时任务服务不可用' };
+    const n = await this.delayedTaskService.completeNowForUser(userId);
+    return n > 0
+      ? { ok: true, completed: n, message: `⚡ 管理员特权：${n} 个进行中的延时操作已立即完成` }
+      : { ok: true, completed: 0, message: '当前没有进行中的延时操作' };
+  }
+
+  /**
    * 超管特权「立即完成」：把自己身上所有进行中的延时操作（采集/移动/救援/装填/
    * 开采/补魔/货舱/维修等读条）立即结算，跳过剩余倒计时。
    * 实现只提前 DelayedTask.runAt，结算语义完全复用既有 handler 链路；
-   * 前端读条按钮与 QQ 指令都走这一条路径（统一调用约定）。
+   * QQ 指令与前端读条按钮共用 finishNowForUser，本方法只做文本呈现。
    */
   async handleAdminFinishNow(userId: number): Promise<string> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return '用户不存在';
-    if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
-      return '权限不足，需要管理员权限（ADMIN 或 SUPER_ADMIN）';
-    }
-    if (!this.delayedTaskService) return '延时任务服务不可用';
-    const n = await this.delayedTaskService.completeNowForUser(userId);
-    return n > 0
-      ? `⚡ 管理员特权：${n} 个进行中的延时操作已立即完成`
-      : '当前没有进行中的延时操作';
+    const result = await this.finishNowForUser(userId);
+    return result.message;
   }
 
   /**

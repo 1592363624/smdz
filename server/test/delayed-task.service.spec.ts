@@ -265,6 +265,21 @@ describe('GameService.handleAdminFinishNow：超管「立即完成」指令', ()
     expect(text).toContain('2 个进行中的延时操作已立即完成');
   });
 
+  it('finishNowForUser 结构化返回：成功/权限不足/无任务三态', async () => {
+    const ok = makeFinishFixture('SUPER_ADMIN', 2);
+    const okRes = await (ok.service as any).finishNowForUser(7);
+    expect(okRes).toEqual({ ok: true, completed: 2, message: expect.stringContaining('已立即完成') });
+
+    const denied = makeFinishFixture('USER', 1);
+    const deniedRes = await (denied.service as any).finishNowForUser(7);
+    expect(deniedRes).toEqual({ ok: false, completed: 0, message: expect.stringContaining('权限不足') });
+    expect(denied.completeNowForUser).not.toHaveBeenCalled();
+
+    const empty = makeFinishFixture('SUPER_ADMIN', 0);
+    const emptyRes = await (empty.service as any).finishNowForUser(7);
+    expect(emptyRes).toEqual({ ok: true, completed: 0, message: expect.stringContaining('没有进行中的延时操作') });
+  });
+
   it('ADMIN 同样可用', async () => {
     const { service, completeNowForUser } = makeFinishFixture('ADMIN', 1);
     expect(await (service as any).handleAdminFinishNow(7)).toContain('已立即完成');
