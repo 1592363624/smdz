@@ -1101,19 +1101,18 @@ export class GameCommandHandler implements CommandHandler {
         case '融合':
         case 'merge': {
           const result = await this.gameService.handleMerge(userId, firstArg, args.slice(1));
-          if (firstArg && this.isSuccessfulAction(result)) {
-            // 融合23 的10%成功分支对应原版独立成就“造神”；
-            // 普通融合以及特效/暴击伤害融合仍推进“融合”。
-            const fusionMode = args.slice(1).join(' ').trim();
-            if (/造神成功/.test(result)) {
-              await this.taskService.advance(userId, '造神');
-            } else if (
-              !/^23$/.test(firstArg)
-              || fusionMode === '42'
-              || (fusionMode === '' && /激活了/.test(result))
-            ) {
-              await this.taskService.advance(userId, '融合');
-            }
+          // 成就推进精确对齐原版加成就位置：造神成功(_主程序 L8733)→造神；
+          // 无工匠激活特效(L8764)、汪酱暴击伤害转移(L8992)→融合。
+          // 移除(0)/修正/自选/-1 激活在原版均不加成就，不推进；
+          // 无效输入（非数字参数等）不含下列关键词，同样天然不推进。
+          const fusionMode = args.slice(1).join(' ').trim();
+          if (/造神成功/.test(result)) {
+            await this.taskService.advance(userId, '造神');
+          } else if (
+            (fusionMode === '' && /激活了/.test(result))
+            || /获得了.+%暴击伤害/.test(result)
+          ) {
+            await this.taskService.advance(userId, '融合');
           }
           return this.wrap(result);
         }

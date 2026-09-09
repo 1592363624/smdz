@@ -125,7 +125,7 @@ describe('融合23装备迁移闭环', () => {
     expect(JSON.parse(fixture.player.backpack)[0].data).toContain('aw4');
   });
 
-  it('普通资源融合使用同一背包快照，产物不会被后续保存覆盖', async () => {
+  it('名称参数对齐原版：非数字按到整数=0处理，落入编号校验失败', async () => {
     const fixture = makeFusionService({ random: 0.2 });
     fixture.player.backpack = JSON.stringify([
       { name: '木头', type: '资源', quantity: 3 },
@@ -134,11 +134,19 @@ describe('融合23装备迁移闭环', () => {
     const result = await fixture.service.handleMerge(42, '木头');
     const backpack = JSON.parse(fixture.player.backpack);
 
-    expect(result).toContain('融合成功');
-    expect(backpack).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: '木头', quantity: 1 }),
-      expect.objectContaining({ name: '木头+', quantity: 1 }),
-    ]));
+    expect(result).toContain('你背包里面没有这么多东西或者输入了0');
+    expect(backpack).toHaveLength(1);
+    expect(fixture.service.playerService.savePlayer).not.toHaveBeenCalled();
+  });
+
+  it('无参数显示融合23帮助文案（原版 L8607-8613）', async () => {
+    const fixture = makeFusionService({ random: 0.2 });
+
+    const result = await fixture.service.handleMerge(42, '');
+
+    expect(result).toContain('融合23');
+    expect(result).toContain('神之工匠');
+    expect(result).toContain('汪酱');
   });
 });
 
@@ -176,11 +184,21 @@ describe('融合23任务分流', () => {
     expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '融合');
   });
 
-  it('普通融合仍推进融合任务', async () => {
-    const fixture = makeHandler('融合成功！');
-    await fixture.handler.handle({ userId: 42, rawMessage: '融合 木头', source: 'web' } as any, ['木头']);
+  it('汪酱暴击伤害转移成功推进融合任务（原版 L8992）', async () => {
+    const fixture = makeHandler('冒险者,测试装备获得了50%暴击伤害');
+    await fixture.handler.handle({ userId: 42, rawMessage: '融合 3 42', source: 'web' } as any, ['3', '42']);
 
-    expect(fixture.gameService.handleMerge).toHaveBeenCalledWith(42, '木头', []);
+    expect(fixture.gameService.handleMerge).toHaveBeenCalledWith(42, '3', ['42']);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '融合');
+  });
+
+  it('移除特效与自选特效不加成就（原版对应分支无成就）', async () => {
+    const removeFixture = makeHandler('冒险者移除了测试装备的特效');
+    await removeFixture.handler.handle({ userId: 42, rawMessage: '融合 1 0', source: 'web' } as any, ['1', '0']);
+    expect(removeFixture.taskService.advance).not.toHaveBeenCalled();
+
+    const selectFixture = makeHandler('冒险者激活了测试装备的特效【通用特效】');
+    await selectFixture.handler.handle({ userId: 42, rawMessage: '融合 1 自选1', source: 'web' } as any, ['1', '自选1']);
+    expect(selectFixture.taskService.advance).not.toHaveBeenCalled();
   });
 });

@@ -7975,80 +7975,42 @@ export class GameService {
 
   /**
    * 处理融合命令
-   * 原版“融合”同时包含普通资源融合和“融合23”装备操作：
-   * - 普通名称参数保留项目原有的同名资源合成入口；
-   * - 数字参数按背包 1-based 编号执行原版融合23（造神、特效、修正、汪酱暴击伤害）。
+   * 原版 _主程序.ecode L8603-9001：「融合」即融合23 体系，仅对装备生效，
+   * 参数必须是背包 1-based 编号；数字编号分发到 handleFusion23。
+   * 原版对非数字参数（如物品名）按 到整数=0 处理，统一落到 L8617
+   * 「你背包里面没有这么多东西或者输入了0」报错。
+   * 历史版本曾在此实现「2个同名物品→1个名称+物品」的自创融合；
+   * 该玩法不存在于原版，且带+产物在物品表中无定义（无法使用、无任何效果，
+   * 仅白白消耗材料），已按对齐原版原则移除。
    */
   async handleMerge(userId: number, targetName: string, fusionArgs: string[] = []): Promise<string> {
     const normalizedTarget = String(targetName || '').trim();
-    if (/^-?\d+$/.test(normalizedTarget)) {
-      return this.handleFusion23(userId, Number(normalizedTarget), fusionArgs);
+
+    // 原版 L8606-8613：无参数显示融合23 帮助文案。
+    if (!normalizedTarget) {
+      return this.fusionHelpText(userId);
     }
 
-    // 获取玩家数据
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack } = playerData;
-
-    // 如果没有指定目标，显示背包中可融合的物品
-    if (!targetName) {
-      const mergeableItems = backpack.filter((item: any) =>
-        this.itemQuantity(item) >= 2 && item.type !== '装备',
-      );
-      if (mergeableItems.length === 0) {
-        return '背包中没有可融合的物品（需要至少2个同种物品）';
-      }
-      const lines = ['🔀 可融合的物品:', `━━━━━━━━━━━━━━━`];
-      for (const item of mergeableItems) {
-        lines.push(`  ${item.name} ×${this.itemQuantity(item)}`);
-      }
-      lines.push(``);
-      lines.push(`使用「融合 物品名」进行融合（消耗2个同类物品合成1个）`);
-      return lines.join('\n');
+    // 原版 L8615：到整数(wa[1])，非数字解析为 0 → 编号校验统一失败。
+    if (!/^-?\d+$/.test(normalizedTarget)) {
+      return this.handleFusion23(userId, 0, fusionArgs);
     }
+    return this.handleFusion23(userId, Number(normalizedTarget), fusionArgs);
+  }
 
-    // 检查背包中是否有足够的该物品
-    const targetItem = backpack.find((item: any) => item.name === targetName);
-    if (!targetItem) {
-      return `背包中没有【${targetName}】`;
-    }
-    // 装备不可融合：候选清单已按 type!=='装备' 过滤，执行入口同样拦截，
-    // 避免装备被融成 data 为空的「名称+」裸条目（无法解析词条/部位）。
-    if ((targetItem.type ?? targetItem.类型) === '装备') {
-      return `【${targetName}】是装备，无法融合`;
-    }
-
-    const currentCount = this.itemQuantity(targetItem);
-    if (currentCount < 2) {
-      return `需要至少 2 个【${targetName}】才能融合（当前只有 ${currentCount} 个）`;
-    }
-
-    // 扣除2个物品
-    if (currentCount === 2) {
-      const idx = backpack.indexOf(targetItem);
-      if (idx !== -1) backpack.splice(idx, 1);
-    } else {
-      if (targetItem.quantity !== undefined) targetItem.quantity = currentCount - 2;
-      else targetItem.count = currentCount - 2;
-    }
-
-    // 产出融合后的物品（名称加"+"标记）
-    const mergedName = `${targetName}+`;
-    // 与扣除操作共用同一个背包对象，避免先独立保存产物、再用旧快照
-    // 保存扣除结果时把产物覆盖掉。
-    this.addItemToCollection(backpack, {
-      name: mergedName,
-      type: targetItem.type || '资源',
-      quantity: 1,
-      durability: 0,
-      data: '',
-    });
-
-    // 保存背包
-    player.backpack = backpack;
-    await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 融合了 ${targetName} → ${mergedName}`);
-    return `🔀 融合成功！\n消耗 2 个【${targetName}】\n获得 1 个【${mergedName}】`;
+  /** 原版 _主程序.ecode L8607-8613：融合23 帮助文案（#融合 无参数）。 */
+  private async fusionHelpText(userId: number): Promise<string> {
+    const { player } = await this.playerService.getPlayerData(userId);
+    const playerName = player?.name || '冒险者';
+    return [
+      `${playerName}\n◆“融合23 0”来清除掉装备上的特效，无消耗。`,
+      `◆“融合23 42”来为前面的装备添加汪酱的暴击伤害属性，后面那个装备必须是汪酱\n会覆盖原来已经融合的暴击伤害。每次消耗3凭证`,
+      `◆当前地图没有【神之工匠】存在时：\n“融合23”来强行激活装备的特效，重复激活会覆盖。每次消耗1凭证、1灵石。`,
+      `——————\n◆当前地图存在【神之工匠】时：\n“融合23 -1”来强行激活装备的特效，重复激活会覆盖。无消耗`,
+      `“融合23”来把一件装备的品质从【传说】提升为【神迹】。如果这件装备除暴击伤害之外的属性数量为4，则还会额外添加一个属性。消耗3灵石。成功率10%(未成功时，如果这件装备没有特效，则激活特效)。`,
+      `“融合23 自选”来手动选择一个特效添加给装备指定的装备，消耗的灵石为武器/装备特效总数的三分之一(四舍五入)`,
+      `“融合23 修正”来手动选择一个除去暴击伤害之外的属性少于常规数量的装备，为其修正`,
+    ].join('\n');
   }
 
   /**

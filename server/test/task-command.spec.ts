@@ -445,7 +445,7 @@ describe('原版任务动作收尾', () => {
     };
     const gameService = {
       handleAlchemy: jest.fn(async () => '冒险者炼制出了2个觉醒丹'),
-      handleMerge: jest.fn(async () => '融合成功'),
+      handleMerge: jest.fn(async () => '冒险者,测试装备获得了50%暴击伤害'),
       handleDialogueYongxing: jest.fn(async () => '咏星愿意跟随你了！'),
       handleSignalGun: jest.fn(async () => '冒险者发射了信号枪……'),
       handleSimulateVehicle: jest.fn(async () => '载具模拟完成'),
@@ -493,7 +493,7 @@ describe('原版任务动作收尾', () => {
     await fixture.handler.handle(ctx('炮击 目标谷'), ['目标谷']);
     await fixture.handler.handle(ctx('捕捉 史莱姆'), ['史莱姆']);
     await fixture.handler.handle(ctx('炼丹 觉醒丹 2'), ['觉醒丹', '2']);
-    await fixture.handler.handle(ctx('融合 装备'), ['装备']);
+    await fixture.handler.handle(ctx('融合 3 42'), ['3', '42']);
     await fixture.handler.handle(ctx('对话咏星跟随'), []);
     await fixture.handler.handle(ctx('发射信号枪 2'), ['2']);
     await fixture.handler.handle(ctx('载具模拟 部件'), ['部件']);
