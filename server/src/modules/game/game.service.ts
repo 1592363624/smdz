@@ -532,7 +532,13 @@ export class GameService {
     // 对齐原版 _主程序.ecode L6610-6618：新手（未触发「召唤白」剧情）自动导航锁——
     // 目的地图编号 >2（医疗室/走廊之外）时拦截，并预置临时输入 1→观察附近。
     // 副本入口在原版分支中早于该锁，不受限。
+    // 补充出生区作用域（当前地图 ≤2 才生效）：原版世界结构上不存在「人在外地且无召唤白」
+    // 的玩家（新号出生医疗室，外出本身被此锁挡住）；但本项目存在迁移存量老玩家
+    // （如人在地图66、标记无召唤白），无作用域时锁退化为全图禁行——走回出生区途经的
+    // 每张图 id>2 同样被拦，且引导的「观察附近→打开休眠仓」只在医疗室存在，形成死循环
+    // （2026-09-09 玩家无法移动事故）。
     if (!isDungeonEntry
+      && Number(currentMap.id) <= 2
       && (Number(this.playerService.getMarkerValue(asJsonValue(player.markers, {}), '召唤白')) || 0) < 1
       && Number(targetMap.id) > 2) {
       if (this.shortcutService?.setTempInput) {

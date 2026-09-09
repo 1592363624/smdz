@@ -263,12 +263,16 @@ describe('前往门禁（原版 _主程序.ecode L6514-6548 复刻）', () => {
     expect(fixture.scheduled[0]).toMatchObject({ mapId: 5, name: '乱流对岸' });
   });
 
-  it('新手（无召唤白标记）前往编号>2地图时拦截自动导航并预置临时输入（原版 L6610-6618）', async () => {
+  it('新手（无召唤白标记）在出生区（当前地图≤2）前往编号>2地图时拦截自动导航并预置临时输入（原版 L6610-6618）', async () => {
     const fixture = makeMoveService({
       player: {
-        id: 1, userId: 42, name: '冒险者', mapId: 7, markers: '{}',
+        id: 1, userId: 42, name: '冒险者', mapId: 1, markers: '{}',
         markers2: '[]', equipment: '[]', weapons: '[]', sets: '{}', vehicle: '',
         hp: 100,
+      },
+      currentMap: {
+        id: 1, name: '医疗室', noTeleport: false, isFrontier: false,
+        vehicles: '[]', summons: '[]',
       },
     });
 
@@ -278,6 +282,27 @@ describe('前往门禁（原版 _主程序.ecode L6514-6548 复刻）', () => {
     const tempArg = fixture.service.shortcutService.setTempInput.mock.calls[0][1];
     expect(tempArg).toContain('1@观察附近');
     expect(fixture.scheduled).toHaveLength(0);
+  });
+
+  it('出生区作用域：迁移老玩家在外地（当前地图>2）无召唤白不被锁（2026-09-09 无法移动事故）', async () => {
+    const fixture = makeMoveService({
+      player: {
+        id: 1, userId: 42, name: '老玩家', mapId: 66, markers: '{}',
+        markers2: '[]', equipment: '[]', weapons: '[]', sets: '{}', vehicle: '',
+        hp: 100,
+      },
+      currentMap: {
+        id: 66, name: '战场边缘', noTeleport: false, isFrontier: false,
+        vehicles: '[]', summons: '[]',
+      },
+    });
+
+    const result = await fixture.service.handleMove(42, '目标地图');
+
+    expect(result).not.toContain('你现在还不能使用自动导航');
+    expect(fixture.service.shortcutService.setTempInput).not.toHaveBeenCalled();
+    // 放行走正常前往流程：调度延时到达目的地
+    expect(fixture.scheduled[0]).toMatchObject({ mapId: 8, name: '目标地图' });
   });
 
   it('主前往路径写入 markers2「移动」标记（原版 L6668）', async () => {
