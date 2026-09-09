@@ -2241,6 +2241,8 @@ export class BonusService {
    * @param reinforceProficiency 强化熟练度（武器强化 或 装备类型+强化）
    * @param reverseProficiency 逆向熟练度（装备名）
    * @param mingYuLevel 冥鱼技能等级（强化放大系数）
+   * @param verbose 是否输出逐件日志（主结算链 buildAttackerBonus 高频调用必须保持 false，
+   *   否则每件装备一条日志会刷爆日志；低频诊断调用点如装备预设预览可传 true）
    */
   calcEquipReinforce(
     equip: EquipReinforceContext,
@@ -2248,6 +2250,7 @@ export class BonusService {
     reinforceProficiency: number,
     reverseProficiency: number,
     mingYuLevel = 0,
+    verbose = false,
   ): void {
     const self = equip.self || (equip.self = {});
     const bonus = equip.bonus || {};
@@ -2307,7 +2310,9 @@ export class BonusService {
       self.护盾 = this.safeNum(self.护盾) + charmBoost;
     }
 
-    this.logger.log(`计算装备强化：${equip.name || equip.type || '未知装备'} 强化系数=${a1.toFixed(4)}`);
+    if (verbose) {
+      this.logger.log(`计算装备强化：${equip.name || equip.type || '未知装备'} 强化系数=${a1.toFixed(4)}`);
+    }
   }
 
   /**

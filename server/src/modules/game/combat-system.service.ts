@@ -6596,8 +6596,31 @@ export class CombatSystemService {
       const equips = playerData.equipment?.length
         ? playerData.equipment
         : this.playerService.safeJsonParse<any[]>(player.equipment, []);
+      // 装备强化（原版 加成计算.ecode L1673-1679：_计算玩家 聚合每件装备时调
+      // 计算装备强化，把 部位名+强化 熟练度按 熟练度/200 系数折算进自带属性再叠加，
+      // 受冥鱼技能放大、装备名逆向熟练度≥20 加成 25%；增幅器除外 L1661。
+      // 2026-09-09 补接：此前主结算链漏调导致强化只涨等级面板不动（仅预设预览生效）。
+      const mingYuLevel = this.playerService.getMarkerValue(markers, '冥鱼技能');
+      const equipDefOf = (name: string) =>
+        typeof (this.staticData as any)?.getEquipmentByName === 'function'
+          ? (this.staticData as any).getEquipmentByName(name) || null
+          : null;
       for (const equip of equips) {
         const resolved = this.resolveItemBonus(equip);
+        // 装备强化：熟练度键=部位类型+强化（写入侧 handleEquipEnhance）；植入体的
+        // 植入体等级 键不匹配 植入体强化，熟练度=0 时 calcEquipReinforce 内部直接返回，无副作用
+        const equipName = String(equip?.name ?? equip?.名称 ?? '');
+        const eqDef = equipDefOf(equipName);
+        const eqType = String(eqDef?.equipType ?? eqDef?.type ?? equip?.type ?? equip?.类型 ?? '');
+        if (eqType && eqType !== '增幅器') {
+          this.bonusService.calcEquipReinforce(
+            { type: eqType, name: equipName, self: resolved.baseBonus, bonus: resolved.bonus },
+            false,
+            this.playerService.getMarkerValue(markers, `${eqType}强化`),
+            this.playerService.getMarkerValue(markers, equipName),
+            mingYuLevel,
+          );
+        }
         if (resolved.bonus && Object.keys(resolved.bonus).length) {
           Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.bonus));
         }
@@ -6621,6 +6644,20 @@ export class CombatSystemService {
         : this.playerService.safeJsonParse<any[]>(player.weapons, []);
       if (cwIdx > 0 && weaponList[cwIdx - 1]) {
         const resolved = this.resolveItemBonus(weaponList[cwIdx - 1]);
+        // 武器强化（原版 L1748-1751：武器数组每把都计算，仅当前武器并入总加成；
+        // isWeapon=真 使用 武器强化 熟练度。已知口径差：武器等级成长
+        // （index*(1+lv/100)，函数开头已写入 baseBonus）会被一起按系数放大，
+        // 原版顺序是 重置→强化→成长；差异量级 = a1×成长值（+3 级≈1.5%），
+        // 且手持第一把 index=0 成长为 0，影响可忽略）
+        const heldWeapon = weaponList[cwIdx - 1];
+        const weaponName = String(heldWeapon?.name ?? heldWeapon?.名称 ?? '');
+        this.bonusService.calcEquipReinforce(
+          { type: '武器', name: weaponName, self: resolved.baseBonus, bonus: resolved.bonus },
+          true,
+          this.playerService.getMarkerValue(markers, '武器强化'),
+          this.playerService.getMarkerValue(markers, weaponName),
+          mingYuLevel,
+        );
         if (resolved.bonus && Object.keys(resolved.bonus).length) {
           Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.bonus));
         }

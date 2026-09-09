@@ -15889,7 +15889,10 @@ export class GameService {
     // 输入了部位名：强化装备部位基础属性（消耗合金，每次消耗当前强化等级数量）
     const validParts = ['头部', '饰品', '肩膀', '上身', '手臂', '手掌', '腰部', '背部', '下身', '腿部', '腿环', '脚部', '武器'];
     if (!validParts.includes(part)) {
-      return `${player.name || '冒险者'}不是可以强化的部位。`;
+      // 原版文案是「玩家名+不是可以强化的部位。」（称呼前缀风格，缺逗号易歧义读成
+      // 「玩家名这个部位」）；主语改为用户输入的名称，语义直指非法强化目标。
+      // 2026-09-09 用户实测「强化动力头盔」回「剑圣不是可以强化的部位」确认歧义。
+      return `${part}不是可以强化的部位。`;
     }
     const current = this.playerService.getMarkerValue(markers, `${part}强化`);
     if (num === 0) {
@@ -16121,6 +16124,7 @@ export class GameService {
           prof,
           reverseProf,
           mingYu,
+          true, // 低频诊断调用点：保持逐件日志
         );
         addBonus(eq.baseBonus);
         addBonus(eq.bonus);
