@@ -465,7 +465,12 @@
       </div>
 
       <!-- 进行中操作倒计时：采集/移动/抢救等延时指令的剩余时间与进度 -->
-      <PendingActionBar :actions="pendingActions" @expired="onPendingExpired" />
+      <PendingActionBar
+        :actions="pendingActions"
+        :admin-mode="isAdmin"
+        @expired="onPendingExpired"
+        @complete="onPendingComplete"
+      />
 
       <!-- 手机端浮动快捷操作栏 -->
       <div class="mobile-float-actions">
@@ -2086,6 +2091,12 @@ async function onPendingExpired() {
   if (nowMs - pendingRefreshAt < 1500) return; // 多条同时到期时合并刷新
   pendingRefreshAt = nowMs;
   await Promise.all([loadPlayerInfo(), loadMapOverview()]);
+}
+
+// 超管点击读条上的「⚡完成」：走统一聊天指令通道（与 QQ「立即完成」同一路径），
+// 结算结果落在聊天流，条目随 player:update 推送自动消失。
+function onPendingComplete() {
+  sendChatMessage('立即完成');
 }
 
 // 加载附近玩家列表（当前区域同一地图内的其他玩家）

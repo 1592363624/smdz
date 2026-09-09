@@ -14052,6 +14052,25 @@ export class GameService {
   // ========== GM 管理员命令 ==========
 
   /**
+   * 超管特权「立即完成」：把自己身上所有进行中的延时操作（采集/移动/救援/装填/
+   * 开采/补魔/货舱/维修等读条）立即结算，跳过剩余倒计时。
+   * 实现只提前 DelayedTask.runAt，结算语义完全复用既有 handler 链路；
+   * 前端读条按钮与 QQ 指令都走这一条路径（统一调用约定）。
+   */
+  async handleAdminFinishNow(userId: number): Promise<string> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return '用户不存在';
+    if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+      return '权限不足，需要管理员权限（ADMIN 或 SUPER_ADMIN）';
+    }
+    if (!this.delayedTaskService) return '延时任务服务不可用';
+    const n = await this.delayedTaskService.completeNowForUser(userId);
+    return n > 0
+      ? `⚡ 管理员特权：${n} 个进行中的延时操作已立即完成`
+      : '当前没有进行中的延时操作';
+  }
+
+  /**
    * GM命令入口
    * 执行管理员GM命令，需要管理员权限
    * @param userId 调用者用户ID
@@ -14088,6 +14107,10 @@ export class GameService {
         case '世界等级':
         case 'world-level':
           return await this.handleAdminSetWorldLevel(subArgs);
+
+        case '完成':
+        case 'finish':
+          return await this.handleAdminFinishNow(userId);
 
         case '给物品':
         case 'give-item':

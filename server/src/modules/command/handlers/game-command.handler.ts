@@ -987,6 +987,11 @@ export class GameCommandHandler implements CommandHandler {
         case 'gm':
           return this.wrap(await this.gameService.handleAdminCommand(userId, args));
 
+        // 超管特权：立即完成自己的延时读条（前端读条「⚡完成」按钮同走此指令）
+        case '立即完成':
+        case 'finish-now':
+          return this.wrap(await this.gameService.handleAdminFinishNow(userId));
+
         // ========== 基础战斗命令 ==========
         case '开始战斗':
         case 'start-battle':

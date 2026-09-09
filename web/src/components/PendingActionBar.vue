@@ -18,6 +18,14 @@
           <span v-if="a.detail" class="pa-detail">{{ a.detail }}</span>
           <span class="pa-spacer"></span>
           <span class="pa-remain">{{ a.remain > 0 ? a.remain + ' 秒' : '即将完成' }}</span>
+          <!-- 超管特权：跳过倒计时立即结算（走统一聊天指令「立即完成」，与 QQ 同一路径） -->
+          <button
+            v-if="adminMode && a.remain > 0"
+            class="pa-complete"
+            :disabled="completedKeys.has(a.key)"
+            title="管理员特权：跳过倒计时立即完成"
+            @click="onComplete(a)"
+          >⚡完成</button>
         </div>
         <div class="pa-track">
           <div v-if="a.known" class="pa-fill" :style="{ width: a.percent + '%' }"></div>
@@ -36,11 +44,23 @@ const props = defineProps({
   // 后端 pendingActions 快照：[{ key, kind, label, detail, icon, startedAt, endAt, totalMs }]
   // 只有 endAt 是必需的；startedAt/totalMs 有则用于刷新页面后仍显示真实进度。
   actions: { type: Array, default: () => [] },
+  // 超管特权：显示「⚡完成」跳过倒计时按钮（仅 ADMIN/SUPER_ADMIN 传入 true）
+  adminMode: { type: Boolean, default: false },
 });
 
 // 有条目倒计时归零时通知父组件：后端延时结算有抖动（定时器/5 秒兜底扫描），
 // 前端先本地隐藏，再由父组件拉一次最新状态把已结算的条目彻底清掉。
-const emit = defineEmits(['expired']);
+const emit = defineEmits(['expired', 'complete']);
+
+// 已点过「⚡完成」的条目：结算需要零点几秒~几秒（服务端写锁排队），
+// 禁用按钮防连点；条目随 player:update 推送消失后 Set 残留无害。
+const completedKeys = new Set();
+
+const onComplete = (a) => {
+  if (completedKeys.has(a.key)) return;
+  completedKeys.add(a.key);
+  emit('complete', a);
+};
 
 // 每秒触发一次重渲染的对齐时钟（endAt 为服务器时刻，必须用 serverNow 相减，
 // 否则本机时钟漂移几秒会让倒计时整体提前/滞后同样秒数）
@@ -92,6 +112,11 @@ const activeActions = computed(() => {
 
 watch(activeActions, (list, prev) => {
   if ((prev?.length || 0) > 0 && list.length < prev.length) emit('expired');
+  // 条目消失（已结算）时清掉防连点记录：同一 key 的新一轮读条（再次挖土）要能重新点击
+  if (completedKeys.size) {
+    const alive = new Set((list || []).map((a) => a.key));
+    for (const k of [...completedKeys]) if (!alive.has(k)) completedKeys.delete(k);
+  }
 });
 </script>
 
@@ -154,6 +179,29 @@ watch(activeActions, (list, prev) => {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* 超管「⚡完成」：紧凑幽灵按钮，hover 才亮起，不干扰普通玩家的读条视觉 */
+.pa-complete {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pa-complete:hover:not(:disabled) {
+  border-color: rgba(139, 92, 246, 0.7);
+  color: var(--accent);
+  background: rgba(139, 92, 246, 0.12);
+}
+.pa-complete:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .pa-track {

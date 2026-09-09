@@ -17,10 +17,27 @@ function makeDelayedTaskPrisma() {
   let nextId = 1;
   return {
     rows,
-    findMany: jest.fn(async ({ where, take }: any) => rows
-      .filter((r) => r.runAt.getTime() <= where.runAt.lte.getTime())
-      .sort((a, b) => a.runAt.getTime() - b.runAt.getTime())
-      .slice(0, take ?? 30)),
+    findMany: jest.fn(async ({ where, take }: any) => {
+      // 两种形态：tick 到期扫描 {runAt: {lte}}；completeNowForUser 待完成扫描 {userId, runAt: {gt}}
+      const match = (r: any) => {
+        if (where.id !== undefined) return false;
+        if (where.userId !== undefined && r.userId !== where.userId) return false;
+        if (where.runAt?.lte && r.runAt.getTime() > where.runAt.lte.getTime()) return false;
+        if (where.runAt?.gt && r.runAt.getTime() <= where.runAt.gt.getTime()) return false;
+        return true;
+      };
+      return rows.filter(match).sort((a, b) => a.runAt.getTime() - b.runAt.getTime()).slice(0, take ?? 30);
+    }),
+    updateMany: jest.fn(async ({ where, data }: any) => {
+      let count = 0;
+      for (const r of rows) {
+        if (where.id?.in?.includes(r.id)) {
+          r.runAt = new Date(data.runAt);
+          count += 1;
+        }
+      }
+      return { count };
+    }),
     deleteMany: jest.fn(async ({ where }: any) => {
       // 两种形态：认领 {id, runAt<=lte}；排程覆盖 {type, userId, dedupeKey}
       const match = (r: any) => {
@@ -127,6 +144,42 @@ describe('DelayedTaskService：持久化延时任务', () => {
     await service.tick();
     expect(db.rows).toHaveLength(0);
   });
+
+  // ===== 超管特权「立即完成」：只提前 runAt，结算语义全由 handler 链路承担 =====
+
+  it('completeNowForUser：未到期任务被提前并立即分发恰好一次', async () => {
+    const db = makeDelayedTaskPrisma();
+    const service = makeService(db);
+    const handled: any[] = [];
+    service.registerHandler('gather', async (task) => { handled.push(task); });
+    await service.schedule({ type: 'gather', userId: 7, runAt: Date.now() + 600_000 });
+
+    expect(await service.completeNowForUser(7)).toBe(1);
+    expect(handled).toHaveLength(1);
+    expect(handled[0].userId).toBe(7);
+    expect(db.rows).toHaveLength(0); // 认领即删行
+  });
+
+  it('completeNowForUser：无 pending 任务返回 0；只作用于目标玩家自己', async () => {
+    const db = makeDelayedTaskPrisma();
+    const service = makeService(db);
+    service.registerHandler('gather', async () => undefined);
+    await service.schedule({ type: 'gather', userId: 8, runAt: Date.now() + 600_000 });
+
+    expect(await service.completeNowForUser(7)).toBe(0);
+    expect(db.rows).toHaveLength(1);
+    expect(db.rows[0].userId).toBe(8); // 别人的任务未被动过
+    expect(db.rows[0].runAt.getTime()).toBeGreaterThan(Date.now() + 500_000);
+  });
+
+  it('completeNowForUser：地图级任务（userId=null）不在玩家特权范围内', async () => {
+    const db = makeDelayedTaskPrisma();
+    const service = makeService(db);
+    await service.schedule({ type: 'dungeonClose', userId: null, dedupeKey: '副本组', runAt: Date.now() + 600_000, payload: { group: '副本组' } });
+
+    expect(await service.completeNowForUser(7)).toBe(0);
+    expect(db.rows).toHaveLength(1);
+  });
 });
 
 describe('GameService.recoverOrphanDelayedMarkers：启动迁移', () => {
@@ -191,5 +244,42 @@ describe('GameService.recoverOrphanDelayedMarkers：启动迁移', () => {
     });
     await (service as any).recoverOrphanDelayedMarkers();
     expect(scheduled).toHaveLength(0);
+  });
+});
+
+describe('GameService.handleAdminFinishNow：超管「立即完成」指令', () => {
+  function makeFinishFixture(role: string, pendingCount: number) {
+    const completeNowForUser = jest.fn(async () => pendingCount);
+    const service: any = Object.create(GameService.prototype);
+    Object.assign(service, {
+      prisma: { user: { findUnique: jest.fn(async () => ({ id: 7, role })) } },
+      delayedTaskService: { completeNowForUser },
+    });
+    return { service, completeNowForUser };
+  }
+
+  it('SUPER_ADMIN 触发 completeNowForUser 并回执完成数量', async () => {
+    const { service, completeNowForUser } = makeFinishFixture('SUPER_ADMIN', 2);
+    const text = await (service as any).handleAdminFinishNow(7);
+    expect(completeNowForUser).toHaveBeenCalledWith(7);
+    expect(text).toContain('2 个进行中的延时操作已立即完成');
+  });
+
+  it('ADMIN 同样可用', async () => {
+    const { service, completeNowForUser } = makeFinishFixture('ADMIN', 1);
+    expect(await (service as any).handleAdminFinishNow(7)).toContain('已立即完成');
+    expect(completeNowForUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('普通 USER 权限不足，不触达延时任务服务', async () => {
+    const { service, completeNowForUser } = makeFinishFixture('USER', 1);
+    const text = await (service as any).handleAdminFinishNow(7);
+    expect(text).toContain('权限不足');
+    expect(completeNowForUser).not.toHaveBeenCalled();
+  });
+
+  it('无进行中任务时给明确提示', async () => {
+    const { service } = makeFinishFixture('SUPER_ADMIN', 0);
+    expect(await (service as any).handleAdminFinishNow(7)).toContain('当前没有进行中的延时操作');
   });
 });
