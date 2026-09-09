@@ -1,4 +1,4 @@
-import { HomeService, HomeSettlement, renderHomeSettlementText } from '../src/modules/game/home.service';
+import { HomeService, HomeSettlement, renderHomeOverviewText, renderHomeSettlementText } from '../src/modules/game/home.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
 
 /**
@@ -180,13 +180,130 @@ describe('家园只读总览（preview 不结算）', () => {
     expect(renderHomeSettlementText({ ...base, blocked: '家园尚未建成，无法产出' })).toBe('家园尚未建成，无法产出');
   });
 
-  it('家园未建成时 blocked 早退投影', async () => {
+  it('家园未建成：preview 放宽进度门槛输出 0 值总览投影，settle 仍拦截', async () => {
     const fixture = makeHomeFixture({ playerMarkers: { 家园进度: 0 } });
+
+    // preview（使魔家园总览数据源）：原版观测地图无进度门禁，进度0 空院输出 0 值段。
+    // 原版有电判定=净电力<0（取地图产出 L299），空院无耗电建筑 → hasPower=true；
+    // 渲染层电力行按 powerNet<=0 显示「(电力不足)」——与原版实测截图一致。
+    const overview = await fixture.service.getHomeOverview(7);
+    expect(overview.blocked).toBeUndefined();
+    expect(overview.hasPower).toBe(true);
+    expect(overview.gains).toEqual([]);
+    expect(overview.overview).toBeDefined();
+    expect(overview.overview!.cropCount).toBe(0);
+    expect(overview.overview!.cropLimit).toBe(2); // ceil(10/5)+凭证0*5
+    expect(overview.overview!.buildingLimit).toBe(3); // ceil(10/20)+凭证0+2
+    // 基础肥沃度进入每日产出展示（原版 观测地图 L553-564 字面：0.15×1440）
+    const fertilizer = overview.overview!.dailyDisplay.find((item) => item.name === '肥料');
+    expect(fertilizer?.quantity).toBeCloseTo(216);
+
+    // settle（家园产出指令）：进度<4 仍拦截，且零持久化
+    const settleText = await fixture.service.collectHomeOutput(7);
+    expect(settleText).toBe('家园尚未建成，无法产出');
+    expect(fixture.mapService.updateDynamicFields).not.toHaveBeenCalled();
+    expect(fixture.playerService.savePlayer).not.toHaveBeenCalled();
+  });
+
+  it('preview 未圈地（无房子名）时 blocked 早退', async () => {
+    const fixture = makeHomeFixture({});
+    fixture.player.houseName = '';
 
     const overview = await fixture.service.getHomeOverview(7);
 
-    expect(overview.blocked).toBe('家园尚未建成，无法产出');
-    expect(overview.hasPower).toBe(false);
-    expect(overview.gains).toEqual([]);
+    expect(overview.blocked).toBe('还没有家园');
+  });
+});
+
+describe('家园总览渲染器（原版 观测地图 L515-565 投影）', () => {
+  const base: HomeSettlement = {
+    playerName: '测试玩家',
+    hasPower: false,
+    overloaded: false,
+    elapsedSeconds: 60,
+    effectiveElapsedSeconds: 60,
+    remainingFuelSeconds: 0,
+    powerGeneration: 0,
+    directOutput: [],
+    gains: [],
+    dailyOutput: [],
+    petBonusText: [],
+    producers: [],
+    storage: [],
+  };
+
+  it('空院子 0 值段与原版实测输出对齐（电力不足/燃料不到1秒/肥料∞）', () => {
+    const settlement: HomeSettlement = {
+      ...base,
+      overview: {
+        cropCount: 0,
+        cropLimit: 4,
+        buildingCount: 0,
+        buildingLimit: 3,
+        jobSupply: 0,
+        jobDemand: 0,
+        laborShortage: true,
+        powerNet: 0,
+        powerGeneration: 0,
+        fuelStock: 0,
+        fuelSeconds: 0,
+        fuelShortage: true,
+        fertilizerStock: 0,
+        fertilizerSeconds: null,
+        fertilizerShortage: false,
+        dailyDisplay: [{ name: '肥料', quantity: 216 }],
+      },
+    };
+    expect(renderHomeOverviewText(settlement)).toBe([
+      '作物:0/4\t建筑:0/3',
+      '(人力不足以胜任岗位,多抓几只宠物吧)',
+      '岗位:0/0\t模式:正常',
+      '电力:0/0(电力不足,建筑生产停止)',
+      '(燃料供应量不足！)',
+      '燃料:0(不到1秒)',
+      '肥料:0(∞)',
+      '每日产出:肥料x216',
+    ].join('\n'));
+  });
+
+  it('人力充足/有电/燃料自给：不显示不足提示行，∞ 与时长分支正确', () => {
+    const settlement: HomeSettlement = {
+      ...base,
+      hasPower: true,
+      overloaded: true,
+      overview: {
+        cropCount: 3,
+        cropLimit: 4,
+        buildingCount: 12,
+        buildingLimit: 3,
+        jobSupply: 13.68,
+        jobDemand: 2,
+        laborShortage: false,
+        powerNet: 25,
+        powerGeneration: 30,
+        fuelStock: 1234.5678,
+        fuelSeconds: 7260,
+        fuelShortage: false,
+        fertilizerStock: 88,
+        fertilizerSeconds: 21600,
+        fertilizerShortage: false,
+        dailyDisplay: [
+          { name: '石头', quantity: 0 },
+          { name: '果实', quantity: 3000.5 },
+        ],
+      },
+    };
+    expect(renderHomeOverviewText(settlement)).toBe([
+      '作物:3/4\t建筑:12/3',
+      '岗位:13.68/2\t模式:超载',
+      '电力:25/30',
+      '燃料:1234.57(2小时1分钟)',
+      '肥料:88(6小时)',
+      '每日产出:石头x0、果实x3000.5',
+    ].join('\n'));
+  });
+
+  it('overview 缺省返回空串（由调用方决定是否拼接）', () => {
+    expect(renderHomeOverviewText({ ...base })).toBe('');
   });
 });

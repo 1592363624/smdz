@@ -135,6 +135,8 @@ describe('任务相关制造入口', () => {
     };
     const gameService = {
       handleEquip: jest.fn(async () => '冒险者装备了石斧'),
+      // 背包展示契约（2026-09-09）：消耗品在前、装备在后；装备 N 的编号=展示列表序号
+      getBackpackDisplayItems: jest.fn(() => [playerData.backpack[1], playerData.backpack[0]]),
     };
     const playerService = {
       getPlayerData: jest.fn(async () => playerData),
@@ -160,12 +162,12 @@ describe('任务相关制造入口', () => {
 
     const result = await handler.handle({
       userId: 42,
-      rawMessage: '装备 1',
+      rawMessage: '装备 2',
       source: 'web',
-    } as any, ['1']);
+    } as any, ['2']);
 
     expect(result.success).toBe(true);
-    expect(gameService.handleEquip).toHaveBeenCalledWith(42, '1');
+    expect(gameService.handleEquip).toHaveBeenCalledWith(42, '2');
     expect(taskService.advance).toHaveBeenCalledWith(42, '使用武器');
     expect(taskService.advance).toHaveBeenCalledWith(42, '装备石斧');
     expect(taskService.advance).not.toHaveBeenCalledWith(42, '装备1');

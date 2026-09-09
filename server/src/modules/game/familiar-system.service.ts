@@ -12,7 +12,7 @@ import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
 import { MapService } from './map.service';
 import { CombatSystemService } from './combat-system.service';
-import { HomeService } from './home.service';
+import { HomeService, renderHomeOverviewText } from './home.service';
 import { ItemSystemService } from './item-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { ShortcutService } from './shortcut.service';
@@ -1016,7 +1016,7 @@ export class FamiliarSystemService {
     const { player, markers } = playerData;
 
     if (!subCommand) {
-      return this.getHomeStatus(player, markers);
+      return this.getHomeStatus(userId, player, markers);
     }
 
     switch (subCommand) {
@@ -1047,7 +1047,7 @@ export class FamiliarSystemService {
       case '建造房子':
         return this.handleHomeConstruct(userId, player, markers);
       case '查看':
-        return this.getHomeStatus(player, markers);
+        return this.getHomeStatus(userId, player, markers);
       default:
         return `未知的家园操作：${subCommand}\n可用操作：music、搬迁、命名、产出、前线、圈地、开挖地基、建造地基、建造房子、查看`;
     }
@@ -1119,72 +1119,80 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 获取家园状态
-   * 显示家园进度、建筑数量、产出预览等信息
+   * 获取家园状态（原版 _主程序.ecode L2425-2456「使魔家园」）。
+   * 结构：标题行 + 总览段（观测地图 L515-565 投影）+ 进度文案 + 编号菜单（临时输入替换）。
+   * 原版 L2440 在观测地图后用 `w = 标题 + #换行 + w2` 覆盖标题变量——
+   * 进度≠4 的「休息句」只在无家园图路径出现，有图路径不显示（对齐原版实测输出）。
    */
-  private async getHomeStatus(player: any, markers: any): Promise<string> {
+  private async getHomeStatus(userId: number, player: any, markers: any): Promise<string> {
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
 
-    // 原版动态地图的家园院子与玩家当前所在地图分离；已圈地后优先读取院子。
-    let mapName = player.houseName || '未设置';
-    let mapBuildings: any[] = [];
+    // 原版 L2426：按房子名取家园地图；取不到则无总览段
     const homeMap = player.houseName
       ? await this.mapService.getMapByName(player.houseName).catch(() => null)
-      : (player.mapId ? await this.mapService.getMapById(player.mapId) : null);
+      : null;
+
+    const lines: string[] = [];
     if (homeMap) {
+      lines.push(`${player.name || '冒险者'}的${player.houseName}`);
+      // 总览段走 preview 结算（不落盘）；原版观测地图无进度门禁，
+      // 进度1-3 的空院子同样输出 0 值段（作物:0/4 建筑:0/3 …）
       try {
-        mapName = homeMap.name;
-        mapBuildings = asJsonValue<any[]>(homeMap.buildings, []);
-      } catch {
-        // 忽略
-      }
-    }
-
-    const lines = [
-      `🏠 家园 - ${mapName}`,
-      `━━━━━━━━━━━━━━━`,
-    ];
-
-    if (progress === 0) {
-      lines.push('去到你中意的地点，然后「圈地」来开始建造你的家园');
-      lines.push('地点不需要太纠结，能搬家');
-      lines.push('当前进度: 未开始');
-    } else if (progress === 1) {
-      lines.push('当前进度: 清空地面');
-      lines.push('清理掉土堆和杂草后「开挖地基」');
-    } else if (progress === 2) {
-      lines.push('当前进度: 开挖地基');
-      lines.push('清理掉土堆后「建造地基」');
-      lines.push('建造地基需要消耗80木头、120石头、40铁矿和40绳子');
-    } else if (progress === 3) {
-      lines.push('当前进度: 建造房子');
-      lines.push('「建造房子」来建造，需要消耗300木头、500石头、160铁矿和120绳子');
-    } else if (progress >= 4) {
-      lines.push('家园已建成！');
-      lines.push('你可以在家园里面休息、种地、安装生产设备、放置愿意跟随你的怪物和NPC');
-
-      // 显示已在家园中的建筑
-      if (mapBuildings.length > 0) {
-        lines.push('━━━━━━━━━━━━━━━');
-        lines.push(`📦 建筑 (${mapBuildings.length}种):`);
-        for (const b of mapBuildings) {
-          lines.push(`  ${b.name} x${b.count || 1}`);
+        const settlement = this.homeService
+          ? await this.homeService.getHomeOverview(userId)
+          : null;
+        if (settlement && !settlement.blocked) {
+          const overviewText = renderHomeOverviewText(settlement);
+          if (overviewText) lines.push(overviewText);
         }
+      } catch {
+        // 总览计算失败不阻塞家园状态显示
       }
+    } else {
+      // 原版 L2431-2434：无家园图时标题只剩玩家名 + 休息句
+      lines.push(`${player.name || '冒险者'}`);
+      lines.push('你可以在家园里面休息、种地、安装生产设备、放置愿意跟随你的怪物和NPC。');
     }
 
-    // 家园名称
-    if (player.houseName && player.houseName !== mapName) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`家园名称: ${player.houseName}`);
-    }
-
-    // 背景音乐
-    if (player.houseMusic) {
-      lines.push(`🎵 背景音乐: ${player.houseMusic}`);
+    // 进度分支（原版 L2449-2455；编号菜单同时注册临时输入替换）
+    if (progress === 0) {
+      lines.push('去到你中意的地点，然后“圈地”来开始建造你的家园');
+      lines.push('地点不需要太纠结，能搬家');
+    } else if (progress === 1) {
+      lines.push('当前进度:清空地面。清理掉土堆和杂草后“开挖地基”');
+      lines.push(...await this.renderNumberedHomeMenu(userId, ['家园前线', '挖土', '割草', '家园操作']));
+    } else if (progress === 2) {
+      lines.push('当前进度:开挖地基。清理掉土堆后“建造地基”');
+      lines.push('建造地基需要消耗80木头、120石头、40铁矿和40绳子');
+      lines.push(...await this.renderNumberedHomeMenu(userId, ['家园前线', '挖土', '家园操作']));
+    } else if (progress === 3) {
+      lines.push('当前进度:建造房子。“建造房子”来建造，建造分钟需要消耗300木头、500石头、160铁矿和120绳子');
+      lines.push(...await this.renderNumberedHomeMenu(userId, ['家园前线', '家园操作']));
+    } else if (progress >= 4) {
+      lines.push(...await this.renderNumberedHomeMenu(userId, ['家园前线', '家园操作']));
     }
 
     return lines.join('\n');
+  }
+
+  /**
+   * 原版 临时输入替换(QQ, "1@X#2@Y")（快捷输入.ecode L3-40）：
+   * 菜单行 = 「1、家园前线」（@→、，无缩进），同时注册编号→指令的临时输入
+   * （2分钟有效，触发一次后清空；ShortcutService 同语义）。
+   */
+  private async renderNumberedHomeMenu(userId: number, options: string[]): Promise<string[]> {
+    const lines = options.map((label, i) => `${i + 1}、${label}`);
+    if (this.shortcutService && Number(userId) > 0) {
+      try {
+        await this.shortcutService.setTempInput(
+          userId,
+          options.map((label, i) => `${i + 1}@${label}`).join('#'),
+        );
+      } catch {
+        // 注册失败不影响菜单显示
+      }
+    }
+    return lines;
   }
 
   /**

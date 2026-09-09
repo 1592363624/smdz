@@ -132,6 +132,40 @@ export interface HomeSettlement {
   producers: HomeProducerSnapshot[];
   /** 结算（或预览投影）后的存放地快照（中英键名已归一化为 name/quantity） */
   storage: HomeSettlementItem[];
+  /** 家园总览段数据（使魔家园显示；preview 放宽进度门槛后进度1-3 也有值） */
+  overview?: HomeOverviewInfo;
+}
+
+/**
+ * 家园总览段数据——原版 观测地图 L515-565 生成的「使魔家园」显示内容。
+ * 与结算同源：由 computeHomeSettlement 在两个返回路径上填充，
+ * QQ 文本由 renderHomeOverviewText 纯函数投影。
+ */
+export interface HomeOverviewInfo {
+  /** 作物数量/上限（资源2产出2非空条目次数和 / ceil(等级/5)+凭证*5） */
+  cropCount: number;
+  cropLimit: number;
+  /** 建筑数量/上限（取建筑数量 / ceil(等级/20)+凭证+2） */
+  buildingCount: number;
+  buildingLimit: number;
+  /** 岗位 供应/需求：供应=(宠物+按摩椅)*(1+按摩椅/50)，需求=ceil(建筑/6) */
+  jobSupply: number;
+  jobDemand: number;
+  /** 人力供应倍率<1：岗位行前追加提示行 */
+  laborShortage: boolean;
+  /** 电力 净/发电量（原版取整=截断）；净<=0 追加电力不足提示 */
+  powerNet: number;
+  powerGeneration: number;
+  /** 燃料库存与可支撑秒数；null=燃料自给自足(∞) */
+  fuelStock: number;
+  fuelSeconds: number | null;
+  fuelShortage: boolean;
+  /** 肥料库存与可支撑秒数（基础肥沃度 0.15 已计入速率判断）；null=∞ */
+  fertilizerStock: number;
+  fertilizerSeconds: number | null;
+  fertilizerShortage: boolean;
+  /** 每日展示产出（总产出2 速率×1440，排除电力；保留 0 值项，含基础肥沃度肥料） */
+  dailyDisplay: HomeSettlementItem[];
 }
 
 @Injectable()
@@ -1325,7 +1359,14 @@ export class HomeService {
     const liveMarkers = asJsonValue<any>(player.markers, {});
     const markers = settle ? liveMarkers : this.deepCloneJson(liveMarkers);
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
-    if (progress < 4) return { ...this.emptySettlement(playerName), blocked: '家园尚未建成，无法产出' };
+    // 原版「家园产出」对未建成家园同样执行观测（观测地图不设进度门禁），
+    // 但结算写入必须等建成——settle 保持拦截；preview 放宽以支撑「使魔家园」
+    // 对进度1-3 院子的总览显示（空院子输出 0 值段，与原版一致）。
+    if (progress < 4 && settle) return { ...this.emptySettlement(playerName), blocked: '家园尚未建成，无法产出' };
+    if (!settle && !player.houseName) {
+      // preview：未圈地时无家园地图可看（原版使魔家园 L2426 按房子名取图，取不到则无总览）
+      return { ...this.emptySettlement(playerName), blocked: '还没有家园' };
+    }
     if (!player.houseName && !player.mapId) {
       return { ...this.emptySettlement(playerName), blocked: '你还没有家园所在地图' };
     }
@@ -1728,6 +1769,19 @@ export class HomeService {
         directOutput: directOutput.map((item) => ({ ...item })),
         producers: this.snapshotProducers(limitedCrops, buildingProducers),
         storage: this.snapshotStorage(storage),
+        overview: this.buildHomeOverview({
+          playerLevel: player.level || 1,
+          vouchers: this.readMarkerValue(markers, '凭证'),
+          cropCount: cropProducers.reduce((sum, crop) => sum + crop.count, 0),
+          cropLimit,
+          buildingCount,
+          petCount,
+          massageCount,
+          laborSupplyRate,
+          totalOutput: analysis.totalOutput,
+          powerGeneration: analysis.powerGeneration,
+          storage,
+        }),
       };
     }
 
@@ -1808,6 +1862,19 @@ export class HomeService {
       petBonusText: [...petBonusText],
       producers: this.snapshotProducers(limitedCrops, buildingProducers),
       storage: this.snapshotStorage(storage),
+      overview: this.buildHomeOverview({
+        playerLevel: player.level || 1,
+        vouchers: this.readMarkerValue(markers, '凭证'),
+        cropCount: cropProducers.reduce((sum, crop) => sum + crop.count, 0),
+        cropLimit,
+        buildingCount,
+        petCount,
+        massageCount,
+        laborSupplyRate,
+        totalOutput: analysis.totalOutput,
+        powerGeneration: analysis.powerGeneration,
+        storage,
+      }),
     };
     if (worldSimulationText && worldSimStats) {
       settlement.worldSimulation = {
@@ -1836,6 +1903,64 @@ export class HomeService {
       name: this.getItemName(item),
       quantity: this.getItemQuantityValue(item),
     }));
+  }
+
+  /**
+   * 组装家园总览段数据（原版 观测地图 L515-565）。
+   * 传入的 storage 须已完成临时肥料移除（原版显示段同样在移除后读取库存）；
+   * totalOutput 为每分钟净速率口径，本方法在其副本上追加基础肥沃度后再做燃料/肥料/每日产出判断。
+   */
+  private buildHomeOverview(args: {
+    playerLevel: number;
+    vouchers: number;
+    cropCount: number;
+    cropLimit: number;
+    buildingCount: number;
+    petCount: number;
+    massageCount: number;
+    laborSupplyRate: number;
+    totalOutput: ProduceItem[];
+    powerGeneration: number;
+    storage: any[];
+  }): HomeOverviewInfo {
+    // 副本上追加土壤基础肥沃度 0.15（原版 L553-555 获得物品 允许负数=真，无条件新增/累加）；
+    // 只影响肥料速率判断与每日产出展示，不回写 analysis.totalOutput。
+    const displayTotal: ProduceItem[] = args.totalOutput.map((item) => ({ ...item }));
+    this.addToOutput(displayTotal, { name: '肥料', quantity: 0.15 });
+
+    // 原版 a2 = 库存 / |速率×1440| × 86400 = 库存/|速率|×60（秒）；速率>0 即自给自足(∞)；
+    // 速率=0 时易语言除零得 0 →「不到1秒」。
+    const supportSeconds = (stock: number, ratePerMinute: number): number | null => {
+      if (ratePerMinute > 0) return null;
+      if (ratePerMinute === 0 || stock <= 0) return 0;
+      return stock * 60 / Math.abs(ratePerMinute);
+    };
+
+    const fuelStock = this.getItemQuantity('燃料', args.storage);
+    const fuelSeconds = supportSeconds(fuelStock, this.getItemQuantity('燃料', displayTotal));
+    const fertilizerStock = this.getItemQuantity('肥料', args.storage);
+    const fertilizerSeconds = supportSeconds(fertilizerStock, this.getItemQuantity('肥料', displayTotal));
+
+    return {
+      cropCount: args.cropCount,
+      cropLimit: args.cropLimit,
+      buildingCount: args.buildingCount,
+      buildingLimit: Math.ceil(args.playerLevel / 20) + args.vouchers + 2,
+      jobSupply: (args.petCount + args.massageCount) * (1 + args.massageCount / 50),
+      jobDemand: Math.ceil(args.buildingCount / 6),
+      laborShortage: args.laborSupplyRate < 1,
+      powerNet: Math.trunc(this.getItemQuantity('电力', args.totalOutput)),
+      powerGeneration: Math.trunc(args.powerGeneration),
+      fuelStock,
+      fuelSeconds,
+      fuelShortage: fuelSeconds !== null && fuelSeconds < 21600,
+      fertilizerStock,
+      fertilizerSeconds,
+      fertilizerShortage: fertilizerSeconds !== null && fertilizerSeconds < 21600,
+      dailyDisplay: displayTotal
+        .filter((item) => item.name !== '电力')
+        .map((item) => ({ name: item.name, quantity: item.quantity * 1440 })),
+    };
   }
 
   private writeMarkerValue(target: any, name: string, value: any): void {
@@ -1880,5 +2005,48 @@ export function renderHomeSettlementText(settlement: HomeSettlement): string {
   if (settlement.worldSimulation?.text) lines.push(settlement.worldSimulation.text);
   if (settlement.petBonusText.length > 0) lines.push(settlement.petBonusText.join('、'));
   if (lines.length === 1) lines.push('本次没有产出任何物品');
+  return lines.join('\n');
+}
+
+/** 总览数值格式化：两位小数封顶（项目数值红线），String 自动去尾零 */
+function formatOverviewNumber(value: number): string {
+  return String(Math.round((Number(value) || 0) * 100) / 100);
+}
+
+/** 秒数 → 时长文本（原版 数字到时间；不足1秒显示「不到1秒」，零段省略） */
+function secondsToTimeText(seconds: number): string {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (total < 1) return '不到1秒';
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days > 0) return hours > 0 ? `${days}天${hours}小时` : `${days}天`;
+  if (hours > 0) return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+  if (minutes > 0) return `${minutes}分钟`;
+  return `${total}秒`;
+}
+
+/**
+ * 家园总览文本渲染器（纯函数，无副作用）。
+ * 原版 观测地图 L515-565 投影：「使魔家园」标题行之后追加的总览段。
+ * 布局对齐原版宏：作物与建筑同行（#z9=制表符）、岗位与模式同行，
+ * 电力/燃料/肥料/每日产出各占一行；供应量不足提示独立成行、位于对应行之前。
+ */
+export function renderHomeOverviewText(settlement: HomeSettlement): string {
+  const overview = settlement.overview;
+  if (!overview) return '';
+  const lines: string[] = [];
+  lines.push(`作物:${overview.cropCount}/${overview.cropLimit}\t建筑:${overview.buildingCount}/${overview.buildingLimit}`);
+  if (overview.laborShortage) lines.push('(人力不足以胜任岗位,多抓几只宠物吧)');
+  lines.push(`岗位:${formatOverviewNumber(overview.jobSupply)}/${overview.jobDemand}\t模式:${settlement.overloaded ? '超载' : '正常'}`);
+  lines.push(`电力:${overview.powerNet}/${overview.powerGeneration}${overview.powerNet <= 0 ? '(电力不足,建筑生产停止)' : ''}`);
+  if (overview.fuelShortage) lines.push('(燃料供应量不足！)');
+  lines.push(`燃料:${formatOverviewNumber(overview.fuelStock)}(${overview.fuelSeconds === null ? '∞' : secondsToTimeText(overview.fuelSeconds)})`);
+  if (overview.fertilizerShortage) lines.push('(肥料供应量不足！)');
+  lines.push(`肥料:${formatOverviewNumber(overview.fertilizerStock)}(${overview.fertilizerSeconds === null ? '∞' : secondsToTimeText(overview.fertilizerSeconds)})`);
+  const daily = overview.dailyDisplay
+    .map((item) => `${item.name}x${formatOverviewNumber(item.quantity)}`)
+    .join('、');
+  lines.push(`每日产出:${daily}`);
   return lines.join('\n');
 }

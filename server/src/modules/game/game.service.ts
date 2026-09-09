@@ -2436,38 +2436,40 @@ export class GameService {
   }
 
   /**
-   * 「背包」列表口径（对齐原版：查看背包只显示装备，资源/材料/消耗品走「资源背包」）。
-   * 数字类指令（装备 N / 背包 N）的编号必须与本列表序号同源——单一实现，禁止散弹复制。
+   * 「背包」列表展示顺序（用户约定 2026-09-09）：资源/材料/消耗品在前、装备在后，
+   * 组内保持背包原始顺序（稳定分区）。数字类指令（装备 N / 背包 N）的编号必须
+   * 与本列表序号同源——单一实现，禁止散弹复制。
    */
-  getEquipmentBackpackItems(items: any[]): any[] {
-    return (items || []).filter((item: any) => (item.type || item.类型) === '装备');
+  getBackpackDisplayItems(items: any[]): any[] {
+    const list = items || [];
+    return [
+      ...list.filter((item: any) => (item.type || item.类型) !== '装备'),
+      ...list.filter((item: any) => (item.type || item.类型) === '装备'),
+    ];
   }
 
   /**
    * 处理查看背包命令
-   * 对齐原版：查看背包只显示装备；资源/材料/消耗品请用「资源背包」（handleResourceBag）。
-   * 数字入参（背包 N）= 装备列表序号，与列表展示同源（前端悬浮图鉴按行序号回查）。
+   * 列表=全部物品：资源在前、装备在后（getBackpackDisplayItems 统一排序）。
+   * 数字入参（背包 N）= 展示列表序号，与「背包」输出同源（前端悬浮图鉴按行序号回查）。
    */
   async handleInventory(userId: number, arg?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
     const items = this.playerService.getBackpackItems(player);
-    const equipmentItems = this.getEquipmentBackpackItems(items);
+    const displayItems = this.getBackpackDisplayItems(items);
 
-    if (equipmentItems.length === 0) {
-      if (items.length === 0) {
-        return '🎒 你的背包空空如也';
-      }
-      return '🎒 你的背包里没有装备（资源请用「资源背包」查看）';
+    if (displayItems.length === 0) {
+      return '🎒 你的背包空空如也';
     }
 
     // 查看单项详情（对应原版 物品操作.ecode L815~L818：背包 序号/名称 查看物品详情）
     if (arg) {
-      // 序号=装备列表编号（与「背包」输出同源）；名称仍查全背包（「背包 奶」等资源详情不回归）
+      // 序号=展示列表编号（与「背包」输出同源）；名称仍查全背包
       const idxNum = parseInt(arg, 10);
       let item;
-      if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= equipmentItems.length) {
-        item = equipmentItems[idxNum - 1];
+      if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= displayItems.length) {
+        item = displayItems[idxNum - 1];
       } else {
         item = items.find((i: any) => (i.name || i.名称) === arg);
       }
@@ -2484,11 +2486,16 @@ export class GameService {
       return `🎒【${itemName}】×${count}${type}${desc}`;
     }
 
-    const lines = equipmentItems.map((item: any, index: number) =>
-      `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`,
-    );
+    const lines = displayItems.map((item: any, index: number) => {
+      if ((item.type || item.类型) === '装备') {
+        return `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`;
+      }
+      const itemName = item.name || item.名称 || '未知物品';
+      const count = Math.round(this.itemQuantity(item) * 100) / 100;
+      return `${index + 1}. ${itemName} ×${count}`;
+    });
 
-    return `🎒 背包 (${equipmentItems.length}种):\n${lines.join('\n')}`;
+    return `🎒 背包 (${displayItems.length}种):\n${lines.join('\n')}`;
   }
 
   /**
@@ -2835,13 +2842,13 @@ export class GameService {
     const normalizedName = String(itemName || '').trim();
     if (!normalizedName) return '请指定要装备的物品名称';
 
-    // 数字入参（对齐原版）：「背包」列表只显示装备，N = 装备列表序号
-    //（与 handleInventory 输出同源；equipItem 需要 1-based 全背包编号，此处做映射）
+    // 数字入参：「背包」列表=资源在前、装备在后（getBackpackDisplayItems），
+    // N = 展示列表序号（与 handleInventory 输出同源；equipItem 需要 1-based 全背包编号，此处做映射）
     if (/^\d+$/.test(normalizedName)) {
-      const equipmentItems = this.getEquipmentBackpackItems(items);
+      const displayItems = this.getBackpackDisplayItems(items);
       const idx = Number(normalizedName) - 1;
-      if (idx < 0 || idx >= equipmentItems.length) return `背包中没有【${itemName}】`;
-      return this.itemService.equipItem(userId, items.indexOf(equipmentItems[idx]) + 1);
+      if (idx < 0 || idx >= displayItems.length) return `背包中没有【${itemName}】`;
+      return this.itemService.equipItem(userId, items.indexOf(displayItems[idx]) + 1);
     }
 
     let index = items.findIndex((item: any) => item.name === normalizedName);
@@ -9368,15 +9375,25 @@ export class GameService {
     }
 
     // 资源（编入编号列表；无采集指令的仅展示，不生成快捷编号）
+    // 兑现「开挖地基/建造地基」提示的承诺（观察附近可查看剩余次数）：
+    // times>0 的资源标注剩余可采次数；times<0（无限，如医疗箱）不标。
+    const timesLabel = (r: any): string => {
+      const times = this.getResourceTimes(r);
+      return times > 0 ? `(剩${times}次)` : '';
+    };
     for (const r of resources) {
       const amount = r.amount ? ` ×${formatDisplayNumber(r.amount)}` : '';
-      quickOptions.push({ label: `${r.name || '未知'}${amount}`, cmd: this.resolveGatherCmd(r) });
+      quickOptions.push({ label: `${r.name || '未知'}${amount}${timesLabel(r)}`, cmd: this.resolveGatherCmd(r) });
     }
 
     // 运行时资源2（对应原版 地图操作.ecode L862-893：观察附近列出产出2为空的地上资源——
     // 掉落货舱、家园院子的土堆/杂草等；作物/建筑产出2非空，走「查看作物」「查看建筑」）。
     // 教程文案（使魔大战.txt L3975）即要求玩家观察附近来发现院子里的杂草和土堆。
     const gatherPool = this.getGatherResources(map);
+    // getGatherResources 在 map.resources 为空时回退到 resources2——此时采集可见集与
+    // groundResources 同源，同源去重会把院子土堆/杂草全部误删（2026-09-09 巅峰阁事故）。
+    // 去重仅在 resources 非空（采集可见集与 resources2 异源）时生效。
+    const hasStaticResources = asJsonValue<any[]>(map.resources, []).length > 0;
     const groundResources = asJsonValue<any[]>(map.resources2, [])
       .filter((r: any) => !this.hasOutputs2(r)
         && this.getResourceTimes(r) !== 0
@@ -9384,11 +9401,11 @@ export class GameService {
       // 采集链路（getGatherResources）在 resources 非空时只读 resources。
       // resources2 中与采集可见集同名的条目不再重复编号，避免出现
       //「列表里有、点下去采不到」的僵尸条目（2026-09-06 货舱/能量元素事故）。
-      .filter((r: any) => !gatherPool.some((g: any) =>
+      .filter((r: any) => !hasStaticResources || !gatherPool.some((g: any) =>
         String(g?.name ?? g?.名称 ?? '').trim() === String(r?.name ?? r?.名称 ?? '').trim()));
     for (const r of groundResources) {
       const amount = r.amount ? ` ×${formatDisplayNumber(r.amount)}` : '';
-      quickOptions.push({ label: `${r.name || '未知'}${amount}`, cmd: this.resolveGatherCmd(r) });
+      quickOptions.push({ label: `${r.name || '未知'}${amount}${timesLabel(r)}`, cmd: this.resolveGatherCmd(r) });
     }
 
     // 地上物品（原版 L838-842：折叠为「拾取(N个物品)」单条入口，拾取前不展示明细）
