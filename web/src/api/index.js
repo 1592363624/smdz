@@ -119,6 +119,8 @@ export const gameApi = {
   quickAction: (action) => http.post('/game/player/action', { action }),
   // 玩家自助清除自己的游戏数据(等同管理员GM清除，保留账号，重置为未开始游玩)
   resetMyData: () => http.post('/game/player/reset-data'),
+  // 超管特权：立即完成自己的延时读条（静默通道，不进聊天流；服务端校验 ADMIN/SUPER_ADMIN）
+  finishNow: () => http.post('/game/admin/finish-now'),
   // 获取服务器在线统计（总玩家数、在线人数）
   stats: () => http.get('/game/stats'),
 };

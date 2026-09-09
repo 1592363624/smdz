@@ -164,4 +164,16 @@ export class GameController {
     const message = await this.adminService.resetPlayerData(req.user.userId);
     return { success: true, message };
   }
+
+  /**
+   * 超管特权：立即完成自己进行中的延时读条（采集/移动/救援等）。
+   * Web 读条「⚡完成」按钮的专用静默通道——指令与回包都不进公屏聊天流，
+   * 结算语义复用 handleAdminFinishNow（含 ADMIN/SUPER_ADMIN 权限校验）。
+   */
+  @Post('admin/finish-now')
+  @ApiOperation({ summary: '超管特权：立即完成自己的延时读条（静默，不进聊天流）' })
+  async finishNow(@Req() req) {
+    const message = await this.gameService.handleAdminFinishNow(req.user.userId);
+    return { success: true, message };
+  }
 }

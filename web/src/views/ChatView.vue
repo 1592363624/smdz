@@ -2093,10 +2093,16 @@ async function onPendingExpired() {
   await Promise.all([loadPlayerInfo(), loadMapOverview()]);
 }
 
-// 超管点击读条上的「⚡完成」：走统一聊天指令通道（与 QQ「立即完成」同一路径），
-// 结算结果落在聊天流，条目随 player:update 推送自动消失。
-function onPendingComplete() {
-  sendChatMessage('立即完成');
+// 超管点击读条上的「⚡完成」：走 REST 静默通道（指令与结果都不进聊天流，别人不可见），
+// 结果用 Toast 提示，随后刷新读条快照让已结算条目消失。
+async function onPendingComplete() {
+  try {
+    const res = await gameApi.finishNow();
+    showToast(res?.data?.message || '已触发立即完成', 'success');
+  } catch (e) {
+    showToast(e?.response?.data?.message || '立即完成失败', 'error');
+  }
+  await loadPlayerInfo();
 }
 
 // 加载附近玩家列表（当前区域同一地图内的其他玩家）
