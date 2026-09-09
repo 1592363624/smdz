@@ -59,7 +59,7 @@
         <span class="pi-arrow" :class="{ open: eqOpen }">▸</span>
       </button>
       <div v-show="eqOpen" class="pi-eq-grid">
-        <!-- 已装备格：按品质描边着色；空槽：半透明虚线弱化（见 pi-empty） -->
+        <!-- 已装备格：按品质描边着色；空槽：半透明虚线弱化（见 pi-empty）；带卸下序号徽标（与「卸下 N」对号） -->
         <div
           v-for="e in eqList"
           :key="'eq-' + e.slot"
@@ -71,11 +71,31 @@
           @click="onEqClick($event, e)"
         >
           <span class="pi-eq-slot">{{ e.slot }}</span>
+          <span v-if="e.name && e.no != null" class="pi-eq-no" title="卸下序号：发「卸下 N」可精确卸下该件">{{ e.no }}</span>
           <span v-if="e.name" class="pi-eq-val" :class="'q-' + qKey(e.quality)">
             {{ e.quality === '普通' ? '' : e.quality + ' ' }}{{ e.name }}<i v-if="e.effect > 0">[特效{{ e.effect }}]</i>(+{{ e.enhance }})
           </span>
           <span v-else class="pi-eq-empty">无(+{{ e.enhance }})</span>
         </div>
+      </div>
+    </div>
+
+    <!-- 武器详情列表（2026-09-09）：点击任意武器格展开/收起。
+         武器可装备多件（手持 + 背上备用），逐件展示品质/特效/强化/属性，每件带「卸下」按钮，
+         按已装备序号发「卸下 N」精确卸到指定那把（同名武器也能区分）。 -->
+    <div class="pi-section pi-weapons" v-show="weaponsOpen && weaponEntries.length">
+      <div class="pi-weapons-title">⚔️ 武器详情<span class="pi-count">{{ weaponEntries.length }}</span></div>
+      <div v-for="w in weaponEntries" :key="'wp-' + w.slot" class="pi-weapon">
+        <div class="pi-weapon-head">
+          <span class="pi-eq-slot">{{ w.slot }}</span>
+          <span v-if="w.no != null" class="pi-eq-no">{{ w.no }}</span>
+          <span class="pi-weapon-name" :class="'q-' + qKey(w.quality)">
+            {{ w.quality === '普通' ? '' : w.quality + ' ' }}{{ w.name }}<i v-if="w.effect > 0">[特效{{ w.effect }}]</i>
+          </span>
+          <button type="button" class="pi-unequip" title="放回背包" @click="unequip(w)">卸下</button>
+        </div>
+        <div class="pi-weapon-meta">强化 +{{ w.enhance }}</div>
+        <pre v-if="w.attrs" class="pi-weapon-attrs">{{ w.attrs }}</pre>
       </div>
     </div>
 
@@ -127,6 +147,23 @@ const props = defineProps({
 
 // 数值统一取整展示，避免浮点尾巴（如 545.6800000000001）
 const r = (v) => Math.round(Number(v) || 0);
+
+/** 向父组件（ChatView）回传指令：武器列表「卸下」按钮 → 发「卸下 N」按序号精确卸下 */
+const emit = defineEmits(['send']);
+
+// ===== 武器详情列表（2026-09-09，交互修订版） =====
+// 装备栏固定 15 格不变（背上武器不占格）；全部武器（手持+背上）详情由服务端挂在
+// 「武器」格的 weapons 子字段。单击「武器」格展开列表：逐件详情 + 卸下按钮，
+// 按序号发「卸下 N」精确卸到指定那把（序号与「信息」面板/卸下指令三处同源）。
+const weaponsOpen = ref(false);
+const weaponCell = computed(() => eqList.value.find((e) => e.slot === '武器') || null);
+const weaponEntries = computed(() =>
+  Array.isArray(weaponCell.value?.weapons) ? weaponCell.value.weapons : [],
+);
+function unequip(w) {
+  if (w?.no == null) return;
+  emit('send', `卸下 ${w.no}`);
+}
 
 const hpPercent = computed(() => (!props.info?.maxHp ? 0 : Math.round((props.info.hp / props.info.maxHp) * 100)));
 const expPercent = computed(() =>
@@ -262,15 +299,22 @@ function cancelHide() {
 }
 function onEqEnter(e, item) {
   if (!item.name) return;
+  // 武器格悬浮照常显示手持武器详情卡；全部武器列表由单击展开（见 onEqClick），两者并存
   cancelHide();
   showEq(item, e.currentTarget);
 }
 function onEqLeave() {
   armHide();
 }
-// 点击：移动端无 hover 的替代路径；桌面再点同一格也可收起
+// 点击：移动端无 hover 的替代路径；桌面再点同一格也可收起。
+// 武器格单击 → 展开/收起武器详情列表（手持+背上全部武器 + 卸下按钮）；展开时收起悬浮卡避免重叠。
 function onEqClick(e, item) {
-  if (!item.name) return;
+  if (!item.name && item.slot !== '武器') return;
+  if (item.slot === '武器') {
+    hoveredSlot.value = '';
+    weaponsOpen.value = !weaponsOpen.value;
+    return;
+  }
   if (hoveredSlot.value === item.slot) {
     hoveredSlot.value = '';
     return;

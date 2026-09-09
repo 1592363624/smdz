@@ -1742,10 +1742,77 @@ export class ItemService {
   }
 
   /**
+   * 已装备列表（卸下编号口径的单一实现，2026-09-09）
+   *
+   * 按「信息」面板装备栏的行序（12 部位 → 手持武器 → 植入 → 增幅 → 背上备用武器）
+   * 返回**已装备**的物品（空槽位不入列，序号不跳跃分配给玩家可见的每一件）。
+   * 三处消费方必须同源锚定本方法，禁各自重算：
+   *  1. unequipItem 纯数字分支：「卸下 N」按序号精确卸下（同名武器按索引卸，不再只命中第一把）；
+   *  2. handleInfo 文本面板：已装备行渲染「N.」前缀，与指令序号对号；
+   *  3. buildEquipmentSnapshot 网页快照：每格带 no 字段，前端卸下按钮直接发「卸下 no」。
+   * @returns 每项含展示槽位名、物品引用、类别、以及在其原数组中的 0-based 索引
+   *         （equipIndex/weaponIndex 供卸下时精确定位，不依赖对象引用相等）
+   */
+  buildEquippedList(player: any): Array<{
+    slot: string;
+    item: Item3;
+    kind: 'equip' | 'weapon';
+    equipIndex: number;
+    weaponIndex: number;
+    no: number;
+  }> {
+    const equipmentList: Item3[] = asJsonValue<Item3[]>(player?.equipment, []);
+    const weaponList: Item3[] = asJsonValue<Item3[]>(player?.weapons, []);
+    const currentWeaponIdx = Number(player?.currentWeapon ?? 0);
+
+    // 槽位取数与 handleInfo / buildEquipmentSnapshot 同口径：item.type 恒为「装备」大分类，
+    // 必须查静态表 equipType（对齐原版 物品操作.ecode L1824 寻找装备）
+    const getEquipType = (item: any): string => {
+      const def = typeof (this.staticData as any).getEquipmentByName === 'function'
+        ? (this.staticData as any).getEquipmentByName(item?.name)
+        : undefined;
+      return String(def?.equipType ?? def?.type ?? def?.类型 ?? item?.type ?? item?.类型 ?? '');
+    };
+
+    const list: Array<{ slot: string; item: Item3; kind: 'equip' | 'weapon'; equipIndex: number; weaponIndex: number; no: number }> = [];
+    const push = (slot: string, item: Item3, kind: 'equip' | 'weapon', equipIndex: number, weaponIndex: number) => {
+      if (!item) return;
+      list.push({ slot, item, kind, equipIndex, weaponIndex, no: list.length + 1 });
+    };
+
+    // 12 部位（顺序与面板 slotNames 一致）
+    const slotNames = ['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部'];
+    for (const slotName of slotNames) {
+      const eqIdx = equipmentList.findIndex((e: any) => e && getEquipType(e) === slotName);
+      if (eqIdx >= 0) push(slotName, equipmentList[eqIdx], 'equip', eqIdx, -1);
+    }
+    // 手持武器（currentWeapon 1-based，0=拳头；越界按赤手处理）
+    if (currentWeaponIdx > 0 && weaponList[currentWeaponIdx - 1]) {
+      push('武器', weaponList[currentWeaponIdx - 1], 'weapon', -1, currentWeaponIdx - 1);
+    }
+    // 植入体 / 增幅器
+    const implantIdx = equipmentList.findIndex((e: any) => e && getEquipType(e) === '植入体');
+    if (implantIdx >= 0) push('植入', equipmentList[implantIdx], 'equip', implantIdx, -1);
+    const ampIdx = equipmentList.findIndex((e: any) => e && getEquipType(e) === '增幅器');
+    if (ampIdx >= 0) push('增幅', equipmentList[ampIdx], 'equip', ampIdx, -1);
+    // 背上备用武器（手持那把已入列，跳过）
+    for (let i = 0; i < weaponList.length; i++) {
+      if (!weaponList[i] || i + 1 === currentWeaponIdx) continue;
+      push('背上', weaponList[i], 'weapon', -1, i);
+    }
+    return list;
+  }
+
+  /**
    * 卸下装备
    * 从指定部位卸下装备放回背包
+   *
+   * 参数口径（2026-09-09 起支持编号）：
+   *  - 纯数字 → 按「信息」面板已装备列表序号精确卸下（口径单源 buildEquippedList，
+   *    同名武器按数组索引卸，不再受「按名字只命中第一把」限制）；
+   *  - 其它   → 按部位名/装备名匹配（原行为，含 includes 模糊匹配）。
    * @param userId 玩家ID
-   * @param slot 装备部位或名称
+   * @param slot 装备部位名、装备名，或已装备列表序号（1-based）
    * @returns 操作结果文本
    */
   async unequipItem(userId: number, slot: string): Promise<string> {
@@ -1757,6 +1824,57 @@ export class ItemService {
     const equipment: Item3[] = asJsonValue<Item3[]>(player.equipment, []);
     const weapons: Item3[] = asJsonValue<Item3[]>(player.weapons, []);
 
+    // ---------- 编号分支：「卸下 2」按已装备列表序号精确卸下 ----------
+    const slotArg = String(slot ?? '').trim();
+    if (/^\d+$/.test(slotArg)) {
+      const equipped = this.buildEquippedList(player);
+      const no = Number(slotArg);
+      const entry = equipped[no - 1];
+      if (!entry) {
+        return `${player.name} 未找到编号${slotArg}的已装备物品（当前已装备 ${equipped.length} 件，发「信息」查看各件序号）`;
+      }
+      // 对齐原版 _主程序.ecode L4450-4451：植入体（含变体）无法被卸下
+      if (String(entry.item?.name ?? '').startsWith('植入体')) {
+        return `植入体无法被卸下`;
+      }
+      backpack.push(entry.item);
+      // 重算套装判定（卸下改变装备集合）
+      const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
+      if (entry.kind === 'weapon') {
+        // 武器按 weapons[] 索引精确移除（同名武器也能卸到指定那把）
+        weapons.splice(entry.weaponIndex, 1);
+        // currentWeapon 收敛（与名称分支同一口径：保证"卸下一把背上的武器，手上那把不变"）
+        let currentWeapon = Number(player.currentWeapon || 0);
+        if (currentWeapon > weapons.length) {
+          currentWeapon = weapons.length;
+        }
+        await this.playerService.enqueueUserWrite(userId, async () => {
+          const _pd = await this.playerService.getPlayerData(userId);
+          Object.assign(_pd.player, {
+            backpack: backpack,
+            weapons: weapons,
+            currentWeapon,
+            sets,
+          });
+          await this.playerService.savePlayer(_pd.player);
+        });
+      } else {
+        // 部位装备按 equipment[] 索引精确移除
+        equipment.splice(entry.equipIndex, 1);
+        await this.playerService.enqueueUserWrite(userId, async () => {
+          const _pd = await this.playerService.getPlayerData(userId);
+          Object.assign(_pd.player, {
+            backpack: backpack,
+            equipment: equipment,
+            sets,
+          });
+          await this.playerService.savePlayer(_pd.player);
+        });
+      }
+      return `${player.name}卸下了编号${no}的${entry.item.name}${this.qualityBracket(this.qualityPrefix(String(entry.item.data || (entry.item as any).数据 || '')))}（${entry.slot}）`;
+    }
+
+    // ---------- 名称分支（原行为） ----------
     // 先在装备中查找
     for (let i = 0; i < equipment.length; i++) {
       if (equipment[i].name === slot || equipment[i].name.includes(slot)) {

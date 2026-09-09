@@ -61,8 +61,8 @@
       <div class="sidebar-content">
         <!-- 我的 Tab：玩家信息 + 快捷操作 -->
         <div v-show="sidebarTab === 'me'" class="tab-pane">
-          <!-- 玩家状态面板：桌面侧栏与手机抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示） -->
-          <PlayerStatusPanel v-if="playerInfo" :info="playerInfo" />
+          <!-- 玩家状态面板：桌面侧栏与手机抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示）；@send 接武器列表「卸下」按钮指令 -->
+          <PlayerStatusPanel v-if="playerInfo" :info="playerInfo" @send="onRichCardSend" />
           <div class="player-info" v-else>
             <div class="pi-row">
               <span class="pi-label">状态</span>
@@ -240,8 +240,8 @@
       <div class="sidebar-content">
         <!-- 我的 Tab -->
         <div v-show="mobileTab === 'me'" class="tab-pane">
-          <!-- 玩家状态面板：桌面侧栏与手机抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示） -->
-          <PlayerStatusPanel v-if="playerInfo" :info="playerInfo" />
+          <!-- 玩家状态面板：桌面侧栏与手机抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示）；@send 接武器列表「卸下」按钮指令 -->
+          <PlayerStatusPanel v-if="playerInfo" :info="playerInfo" @send="onRichCardSend" />
           <div class="player-info" v-else>
             <div class="pi-row">
               <span class="pi-label">状态</span>

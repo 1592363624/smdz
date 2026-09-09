@@ -55,3 +55,4 @@ Thumbs.db
 .git-recovery-manifest/
 docs/git-recovery-guide.md
 __diffs.tmp.json
+server/.env_prd

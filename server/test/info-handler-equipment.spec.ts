@@ -11,6 +11,7 @@
  * 确保「信息」文本面板的装备栏与左面板保持一致（原版 寻找装备 等价于 z=装备列表[b] 后取 z.类型）。
  */
 import { GameService } from '../src/modules/game/game.service';
+import { ItemService } from '../src/modules/game/item.service';
 
 describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2210)', () => {
   /**
@@ -87,6 +88,14 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     service.staticData = {
       getEquipmentByName: jest.fn(opts.staticDataGetEquipmentByName),
     };
+    // 序号口径单源：handleInfo 通过 itemService.buildEquippedList 取已装备序号，
+    // 桩用真实 ItemService 原型（buildEquippedList 仅依赖 staticData），与生产同一实现
+    const itemService = Object.create(ItemService.prototype) as any;
+    itemService.logger = { warn: () => {}, log: () => {}, error: () => {} };
+    itemService.staticData = service.staticData;
+    itemService.playerService = service.playerService;
+    itemService.combatState = service.combatState;
+    service.itemService = itemService;
     service.shortcutService = { setTempInput: jest.fn(async () => {}) };
     return service;
   }
@@ -127,7 +136,8 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     });
     const out = await service.handleInfo(42);
     // "头部" 应该只命中第一个找到的 防弹头盔
-    const headLines = out.split('\n').filter((l) => l.startsWith('  头部:'));
+    // （2026-09-09 起已装备行带「N.」卸下序号前缀，行首为 "  1.头部:"）
+    const headLines = out.split('\n').filter((l) => /^\s+\d+\.头部:/.test(l));
     expect(headLines.length).toBe(1);
     expect(headLines[0]).toContain('防弹头盔');
   });
@@ -169,5 +179,21 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     expect(out).toContain('📋 装备:');
     expect(out).toContain('头部: 无(+0)');
     expect(out).toContain('武器: 普通 拳头(+0)');
+  });
+
+  it('已装备行带「N.」卸下序号前缀（与「卸下 N」指令对号），空槽不占号；尾部带用法提示', async () => {
+    const service = makeService({
+      staticDataGetEquipmentByName: (name: string) => ({
+        equipType: slotMap[name],
+      }),
+    });
+    const out = await service.handleInfo(42);
+
+    // 已装备行带序号：头部=1（12 部位顺序里第一个命中的）
+    expect(out).toMatch(/^\s+1\.头部: 精良 防弹头盔/m);
+    // 空槽位不占号（保持原格式）
+    expect(out).toContain('饰品: 无(+0)');
+    // 有已装备项 → 尾部出现「卸下 序号」用法提示
+    expect(out).toContain('💡 「卸下 序号」可精确卸下对应装备');
   });
 });

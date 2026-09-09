@@ -83,6 +83,7 @@
                   :style="e.has && e.quality ? { borderColor: QUALITY_COLOR[e.quality], boxShadow: `0 0 8px ${QUALITY_COLOR[e.quality]}55` } : {}"
                 >
                   <span class="rc-slot">{{ e.slot }}</span>
+                  <span v-if="e.no != null" class="rc-idx" title="卸下序号：发「卸下 N」可精确卸下该件">{{ e.no }}</span>
                   <span
                     v-if="e.has"
                     class="rc-eq-name"
@@ -532,16 +533,22 @@ function parseLayout(text) {
       if (t.startsWith('📋 装备')) { equipMode = true; continue; }
 
       if (equipMode) {
-        // 装备行："头部: 传说 动力头盔(+0)" / "武器: 无(+0)"
+        // 装备行："头部: 传说 动力头盔(+0)" / "武器: 无(+0)" / "1.头部: 传说 动力头盔(+2)"（带卸下序号）
         const em = t.match(/^([^:：]+)[:：]\s*(.+)$/);
-        if (em && slotSet.has(em[1])) {
-          const val = em[2].trim().replace(/\(\+?\d+\)$/, ''); // 去掉 (+强化)
-          // 默认武器「普通 拳头」视为未装备（与 backend 的占位一致）
-          const has = !/^(无|普通\s*无|普通\s*拳头)$/.test(val);
-          // 品质 = 值首词（普通/良好/优秀/精良/史诗/传说/神迹），用于格子描边着色
-          const firstWord = val.split(/\s+/)[0] || '';
-          const quality = QUALITY_SET.has(firstWord) ? firstWord : '';
-          equip.push({ slot: em[1], text: val || '无', has, quality });
+        if (em) {
+          // 服务端已装备行带「N.」序号前缀（与「卸下 N」指令对号），剥号后再匹配槽位名
+          const noMatch = em[1].match(/^(\d+)\.(.+)$/);
+          const slotName = noMatch ? noMatch[2] : em[1];
+          const eqNo = noMatch ? Number(noMatch[1]) : null;
+          if (slotSet.has(slotName)) {
+            const val = em[2].trim().replace(/\(\+?\d+\)$/, ''); // 去掉 (+强化)
+            // 默认武器「普通 拳头」视为未装备（与 backend 的占位一致）
+            const has = !/^(无|普通\s*无|普通\s*拳头)$/.test(val);
+            // 品质 = 值首词（普通/良好/优秀/精良/史诗/传说/神迹），用于格子描边着色
+            const firstWord = val.split(/\s+/)[0] || '';
+            const quality = QUALITY_SET.has(firstWord) ? firstWord : '';
+            equip.push({ slot: slotName, text: val || '无', has, quality, no: eqNo });
+          }
         } else if (t && equip.length) {
           // 背上备用武器等多行同属一格 → 追加到上一格
           const last = equip[equip.length - 1];

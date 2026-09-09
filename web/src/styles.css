@@ -2052,6 +2052,92 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   font-style: normal;
   opacity: 0.75;
 }
+
+/* 卸下序号徽标（装备格/武器列表通用）：与「卸下 N」指令对号 */
+.player-info .pi-eq-no {
+  flex-shrink: 0;
+  min-width: 14px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted-dark, #7b7484);
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 4px;
+  padding: 0 3px;
+  line-height: 1.5;
+  cursor: help;
+}
+
+/* ===== 武器详情列表（2026-09-09）：点击左栏任意武器格展开 ===== */
+/* 每件武器一块：头部（槽位+序号+品质名+卸下按钮）/ 强化行 / 属性块 */
+.player-info .pi-weapons {
+  margin-top: 6px;
+}
+.player-info .pi-weapons-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent2);
+  margin-bottom: 4px;
+}
+.player-info .pi-weapon {
+  padding: 5px 7px;
+  margin-bottom: 4px;
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  min-width: 0;
+}
+.player-info .pi-weapon-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.player-info .pi-weapon-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.player-info .pi-weapon-name i {
+  font-style: normal;
+  opacity: 0.75;
+}
+.player-info .pi-weapon-meta {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.player-info .pi-weapon-attrs {
+  margin: 3px 0 0;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+.player-info .pi-unequip {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  font-size: 10px;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.player-info .pi-unequip:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.55);
+}
+.player-info .pi-unequip:active {
+  transform: scale(0.95);
+}
 .player-info .pi-eq-empty {
   color: var(--muted);
 }

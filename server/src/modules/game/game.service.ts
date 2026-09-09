@@ -1822,7 +1822,10 @@ export class GameService {
    * 与 handleInfo 装备面板（原版 数据显示.ecode 使魔数据 L2032-2210）保持同一取数口径。
    * name 为 null 表示该栏位为空，前端显示「无(+强化等级)」。
    */
-  private buildEquipmentSnapshot(player: any, markers: any): Array<{ slot: string; name: string | null; quality: string; effect: number; enhance: number; attrs: string }> {
+  private buildEquipmentSnapshot(player: any, markers: any): Array<{
+    slot: string; name: string | null; quality: string; effect: number; enhance: number; attrs: string; no: number | null;
+    weapons?: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; attrs: string; no: number | null }>;
+  }> {
     // 品质前缀映射（对齐原版 显示品质 L1591-1639）
     const qualityPrefix = (data: string): string => {
       const c = (data || '').charAt(0).toLowerCase();
@@ -1832,10 +1835,15 @@ export class GameService {
     const equipmentList = asJsonValue<any[]>(player.equipment, []);
     const weaponList = asJsonValue<any[]>(player.weapons, []);
     const currentWeaponIdx = Number(player.currentWeapon ?? 0);
+    // 已装备序号（卸下编号口径单一实现）：每格带 no，前端武器列表「卸下」按钮直接发「卸下 no」，
+    // 与「信息」文本面板 / unequipItem 纯数字分支三处同源，禁各自重算。
+    const equipped = this.itemService.buildEquippedList(player);
+    const noOf = (kind: 'equip' | 'weapon', slot: string, arrIndex: number): number | null =>
+      equipped.find((e) => e.kind === kind && e.slot === slot && (kind === 'weapon' ? e.weaponIndex === arrIndex : e.equipIndex === arrIndex))?.no ?? null;
 
-    const entryOf = (slot: string, item: any, enhanceKey: string) => {
+    const entryOf = (slot: string, item: any, enhanceKey: string, no: number | null = null) => {
       const enhanceLv = this.combatState.getAchievementProficiency(markers, enhanceKey);
-      if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv, attrs: '' };
+      if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv, attrs: '', no: null };
       const rawData = String(item.data || item.数据 || '');
       let effectNum = Number(item.effect || item.特效 || 0);
       if (!effectNum && rawData) {
@@ -1863,6 +1871,7 @@ export class GameService {
         effect: effectNum,
         enhance: enhanceLv,
         attrs,
+        no,
       };
     };
 
@@ -1871,25 +1880,54 @@ export class GameService {
       return String(def?.equipType ?? def?.type ?? def?.类型 ?? item.type ?? item.类型 ?? '');
     };
     const slotNames = ['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部'];
-    const result = slotNames.map((slotName) =>
-      entryOf(
+    const result = slotNames.map((slotName) => {
+      const eqIdx = equipmentList.findIndex((e: any) => getEquipType(e) === slotName);
+      return entryOf(
         slotName,
-        equipmentList.find((e: any) => getEquipType(e) === slotName),
+        eqIdx >= 0 ? equipmentList[eqIdx] : null,
         slotName + '强化',
-      ),
-    );
-    // 武器（currentWeapon 从 1 计数，0/越界回落拳头）
-    result.push(entryOf('武器', currentWeaponIdx > 0 ? weaponList[currentWeaponIdx - 1] : null, '武器强化'));
+        eqIdx >= 0 ? noOf('equip', slotName, eqIdx) : null,
+      );
+    });
+    // 武器格（15 格之一：手持那把，空手回拳头占位；位置保持原顺序在植入之前）
+    const heldIdx = currentWeaponIdx - 1;
+    const weaponCell = entryOf('武器', heldIdx >= 0 && weaponList[heldIdx] ? weaponList[heldIdx] : null, '武器强化',
+      heldIdx >= 0 && weaponList[heldIdx] ? noOf('weapon', '武器', heldIdx) : null);
+    result.push(weaponCell);
     // 植入体 / 增幅器
     // 强化等级存放于 markers['植入体等级'] / markers['增幅器等级']（写入侧：item-system.service.ts upgradeImplant/upgradeAmplifier）
-    result.push(entryOf('植入', equipmentList.find((e: any) => {
+    const implantIdx = equipmentList.findIndex((e: any) => {
       const def = this.staticData.getEquipmentByName(e.name);
       return def?.equipType === '植入体' || def?.type === '植入体';
-    }), '植入体等级'));
-    result.push(entryOf('增幅', equipmentList.find((e: any) => {
+    });
+    result.push(entryOf('植入', implantIdx >= 0 ? equipmentList[implantIdx] : null, '植入体等级',
+      implantIdx >= 0 ? noOf('equip', '植入', implantIdx) : null));
+    const ampIdx = equipmentList.findIndex((e: any) => {
       const def = this.staticData.getEquipmentByName(e.name);
       return def?.equipType === '增幅器' || def?.type === '增幅器';
-    }), '增幅器等级'));
+    });
+    result.push(entryOf('增幅', ampIdx >= 0 ? equipmentList[ampIdx] : null, '增幅器等级',
+      ampIdx >= 0 ? noOf('equip', '增幅', ampIdx) : null));
+    // 全部武器详情（手持 + 背上备用），挂「武器」格 weapons 子字段：
+    // 2026-09-09 用户约定：左栏装备栏**固定 15 格不变**（背上武器不展开为独立格），
+    // 前端单击「武器」格时展开该列表逐件展示详情 + 卸下按钮（按序号发「卸下 no」，
+    // no 与「信息」文本面板 / unequipItem 编号分支三处同源）。列表顺序：手持在前，其余按 weapons[] 序。
+    const weaponDetails: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; attrs: string; no: number | null }> = [];
+    const weaponDetailOf = (slot: string, item: any, no: number | null) => {
+      const cell = entryOf(slot, item, '武器强化', no);
+      weaponDetails.push({ slot, name: cell.name ?? '', quality: cell.quality, effect: cell.effect, enhance: cell.enhance, attrs: cell.attrs, no });
+    };
+    // 背上武器按 weapons[] 序；手持插到最前（列表顺序约定：手持在前）
+    for (let i = 0; i < weaponList.length; i++) {
+      if (!weaponList[i] || i + 1 === currentWeaponIdx) continue;
+      weaponDetailOf('背上', weaponList[i], noOf('weapon', '背上', i));
+    }
+    if (heldIdx >= 0 && weaponList[heldIdx]) {
+      const no = noOf('weapon', '武器', heldIdx);
+      const cell = entryOf('武器', weaponList[heldIdx], '武器强化', no);
+      weaponDetails.unshift({ slot: '武器', name: cell.name ?? '', quality: cell.quality, effect: cell.effect, enhance: cell.enhance, attrs: cell.attrs, no });
+    }
+    (weaponCell as any).weapons = weaponDetails;
     return result;
   }
 
@@ -2340,6 +2378,13 @@ export class GameService {
     lines.push(`━━━━━━━━━━━━━━━`);
     lines.push(`📋 装备:`);
 
+    // 已装备列表（卸下编号口径单一实现 itemService.buildEquippedList）：已装备行渲染「N.」前缀，
+    // 与「卸下 N」指令序号对号；空槽位不入列不占号（玩家看到的每个序号都对应一件可操作装备）。
+    // 网页快照 buildEquipmentSnapshot 同源锚定本列表（每格带 no），三处口径禁各自重算。
+    const equipped = this.itemService.buildEquippedList(player);
+    const noOf = (kind: 'equip' | 'weapon', slot: string, arrIndex: number): number =>
+      equipped.find((e) => e.kind === kind && e.slot === slot && (kind === 'weapon' ? e.weaponIndex === arrIndex : e.equipIndex === arrIndex))?.no ?? 0;
+
     // 品质前缀映射（对齐原版 显示品质 L1591-1639）
     const qualityPrefix = (data: string): string => {
       const c = (data || '').charAt(0).toLowerCase();
@@ -2363,7 +2408,8 @@ export class GameService {
         const fx = eq.effect || eq.特效 || 0;
         const fxStr = fx > 0 ? `[特效${fx}]` : '';
         const enhanceLv = this.combatState.getAchievementProficiency(markers, slotName + '强化');
-        lines.push(`  ${slotName}: ${qName} ${eq.name || eq.名称 || '未知'}${fxStr}(+${enhanceLv})`);
+        const no = noOf('equip', slotName, eqIdx);
+        lines.push(`  ${no}.${slotName}: ${qName} ${eq.name || eq.名称 || '未知'}${fxStr}(+${enhanceLv})`);
       } else {
         const enhanceLv = this.combatState.getAchievementProficiency(markers, slotName + '强化');
         lines.push(`  ${slotName}: 无(+${enhanceLv})`);
@@ -2377,7 +2423,8 @@ export class GameService {
       const fx = w.effect || w.特效 || 0;
       const fxStr = fx > 0 ? `[特效${fx}]` : '';
       const enhanceLv = this.combatState.getAchievementProficiency(markers, '武器强化');
-      lines.push(`  武器: ${qName} ${w.name || w.名称 || '拳头'}${fxStr}(+${enhanceLv})`);
+      const no = noOf('weapon', '武器', currentWeaponIdx - 1);
+      lines.push(`  ${no}.武器: ${qName} ${w.name || w.名称 || '拳头'}${fxStr}(+${enhanceLv})`);
     } else {
       const enhanceLv = this.combatState.getAchievementProficiency(markers, '武器强化');
       lines.push(`  武器: 普通 拳头(+${enhanceLv})`);
@@ -2391,7 +2438,8 @@ export class GameService {
     if (implantIdx >= 0) {
       const im = equipmentList[implantIdx];
       const qName = qualityPrefix(im.data || im.数据 || '');
-      lines.push(`  植入: ${qName} ${im.name || im.名称 || '未知'}(+${implantLv})`);
+      const no = noOf('equip', '植入', implantIdx);
+      lines.push(`  ${no}.植入: ${qName} ${im.name || im.名称 || '未知'}(+${implantLv})`);
     } else {
       lines.push(`  植入: 无(+${implantLv})`);
     }
@@ -2403,12 +2451,13 @@ export class GameService {
     if (ampIdx >= 0) {
       const am = equipmentList[ampIdx];
       const qName = qualityPrefix(am.data || am.数据 || '');
-      lines.push(`  增幅: ${qName} ${am.name || am.名称 || '未知'}(+${ampLv})`);
+      const no = noOf('equip', '增幅', ampIdx);
+      lines.push(`  ${no}.增幅: ${qName} ${am.name || am.名称 || '未知'}(+${ampLv})`);
     } else {
       lines.push(`  增幅: 无(+${ampLv})`);
     }
 
-    // 背上备用武器（L2190-2209）
+    // 背上备用武器（L2190-2209）；每件带序号，与「卸下 N」对号（同名武器也能精确卸到指定那把）
     let backupIdx = 0;
     for (let i = 0; i < weaponList.length; i++) {
       if (i + 1 !== currentWeaponIdx) {
@@ -2416,13 +2465,19 @@ export class GameService {
         const qName = qualityPrefix(w.data || w.数据 || '');
         const fx = w.effect || w.特效 || 0;
         const fxStr = fx > 0 ? `[特效${fx}]` : '';
+        const no = noOf('weapon', '背上', i);
         if (backupIdx === 0) {
-          lines.push(`  背上: ${qName} ${w.name || w.名称 || '未知'}${fxStr}`);
+          lines.push(`  ${no}.背上: ${qName} ${w.name || w.名称 || '未知'}${fxStr}`);
         } else {
-          lines.push(`       ${qName} ${w.name || w.名称 || '未知'}${fxStr}`);
+          lines.push(`  ${no}.      ${qName} ${w.name || w.名称 || '未知'}${fxStr}`);
         }
         backupIdx++;
       }
+    }
+
+    // 卸下编号用法提示（有已装备项时才显示）
+    if (equipped.length > 0) {
+      lines.push(`💡 「卸下 序号」可精确卸下对应装备（如 卸下 ${equipped[0].no}）`);
     }
 
     // 当前增益效果（对齐原版 显示使魔数据 L956-963）
