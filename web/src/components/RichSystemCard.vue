@@ -18,12 +18,15 @@
      * 把弹层挪到主内容互斥链之后、用独立 v-if 渲染，彻底断开链依赖。
      -->
     <template v-if="layout">
-      <!-- 背包 → 物品网格（容器统一监听离开以延迟关闭图鉴弹层，格子间移动不再触发 hide/show，杜绝闪屏） -->
+      <!-- 背包 → 物品网格（容器统一监听离开以延迟关闭图鉴弹层，格子间移动不再触发 hide/show，杜绝闪屏）
+           大背包性能优化：物品超过 RENDER_LIMIT 时默认只渲染前 120 格，其余折叠进「展开全部」按钮。
+           几百上千件的背包若全量渲染会产生同等数量的 DOM 节点（且聊天历史里可能有多条背包消息），
+           是公屏滑动卡顿的主要来源；折叠后单卡片 DOM 恒定有上限，图鉴/点击交互对已渲染格子不受影响。 -->
       <div v-if="layout.kind === 'bag'" class="rc-bag" @mouseleave="scheduleHide">
         <div class="rc-title">{{ layout.title }}</div>
         <div class="rc-grid">
           <div
-            v-for="(row, i) in layout.items"
+            v-for="(row, i) in visibleItems"
             :key="i"
             class="rc-cell rc-cell-item"
             :class="{ 'rc-cell-use': row.kind === 'use' }"
@@ -36,6 +39,12 @@
             <span v-if="row.count != null" class="rc-count">×{{ row.count }}</span>
           </div>
         </div>
+        <!-- 折叠展开按钮：仅当物品数超过渲染上限时出现；序号与后端列表一致，展开不改变任何交互 -->
+        <button
+          v-if="layout.items.length > RENDER_LIMIT"
+          class="rc-bag-toggle"
+          @click="expanded = !expanded"
+        >{{ expanded ? '收起物品列表' : `展开全部 ${layout.items.length} 件物品（当前仅显示前 ${RENDER_LIMIT} 件）` }}</button>
         <!-- 末尾非物品行（宠物搜索「白发现了…」/功能提示等）集中展示，不再丢弃 -->
         <div v-if="layout.notes && layout.notes.length" class="rc-bag-notes">
           <div v-for="(n, i) in layout.notes" :key="i" class="rc-bag-note">{{ n }}</div>
@@ -389,6 +398,21 @@ const QUALITY_COLOR = {
 const layout = computed(() => parseLayout(props.text));
 
 /**
+ * 大背包懒渲染（性能优化）：
+ * 背包物品几百上千件时，全量 v-for 会产生同等数量的 DOM 节点；聊天历史里若有多条
+ * 背包消息，节点数成倍增长，公屏滑动明显卡顿。默认只渲染前 RENDER_LIMIT 个格子，
+ * 其余折叠进「展开全部」按钮，点击后本卡片内全量展开（每卡片独立状态，互不影响）。
+ * 截取保序：格子上的 idx（后端背包列表序号）不变，「装备 N」/图鉴按序号查询不受影响。
+ */
+const RENDER_LIMIT = 120;
+const expanded = ref(false);
+const visibleItems = computed(() => {
+  const items = layout.value?.items ?? [];
+  if (expanded.value || items.length <= RENDER_LIMIT) return items;
+  return items.slice(0, RENDER_LIMIT);
+});
+
+/**
  * 判断是否为系统横幅通知文本（如「【你的训练器现在可以使用了】」）。
  * 这类解锁/提示横幅不属于背包物品或装备，卡片内不展示，避免混入最后一项。
  */
@@ -711,6 +735,25 @@ function parseLayout(text) {
   line-height: 1.4;
 }
 .rc-count { color: var(--accent2); font-weight: 600; flex-shrink: 0; }
+
+/* ===== 背包折叠展开按钮（大背包懒渲染） ===== */
+.rc-bag-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--accent2);
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px dashed rgba(139, 92, 246, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.rc-bag-toggle:hover {
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(139, 92, 246, 0.5);
+}
 
 /* ===== 背包卡片末尾备注区（宠物搜索「白发现了…」/功能提示等，绝不丢弃原文） ===== */
 .rc-bag-notes {

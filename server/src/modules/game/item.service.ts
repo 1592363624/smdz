@@ -1649,12 +1649,26 @@ export class ItemService {
     backpack.splice(backpackIndex - 1, 1);
 
     if (isWeapon) {
-      // 加入武器列表
-      weapons.push(item);
-      // 对齐原版 #装备 L4255-4259：仅当前未持武器时自动拿起新武器（当前武器=1），
-      // 已有武器时只"背到背上"不切换当前武器
-      const tookUp = Number(player.currentWeapon || 0) === 0;
-      const currentWeapon = tookUp ? weapons.length : Number(player.currentWeapon || 0);
+      // 同名武器唯一化（2026-09-09 设计变更，替代原版"背上允许重复"行为）：
+      // 原版允许背上多把同名武器，但按名字切换只命中第一把、且攻击冷却按「武器名」写
+      // markers2 同名共用——多把同名武器没有战术价值，只有背包噪音与认知负担。
+      // 改为：装备同名武器时直接顶替背上那把的位置，旧武器放回背包并提示哪件被替换
+      //（基础名相同、品质码不同，文案必须带品质中括号才能区分具体是哪件）。
+      const dupIndex = weapons.findIndex((w: Item3) => String(w?.name ?? '') === item.name);
+      let replaced: Item3 | undefined;
+      if (dupIndex !== -1) {
+        replaced = weapons[dupIndex];
+        // 顶替原位置而非追加尾部：weapons 长度不变，currentWeapon 的 1-based 索引语义稳定
+        //（手里拿的正是被替换武器时，手持自动延续为新武器；拿的是别的武器时索引不受影响）
+        weapons.splice(dupIndex, 1, item);
+        backpack.push(replaced);
+      } else {
+        weapons.push(item);
+      }
+      // 对齐原版 #装备 L4255-4259：仅当前未持武器时自动拿起新武器
+      //（空手时含替换场景，拿起的都是本次新装备的那把）
+      const cur = Number(player.currentWeapon || 0);
+      const currentWeapon = cur === 0 ? (dupIndex !== -1 ? dupIndex + 1 : weapons.length) : cur;
       // 重算套装判定（对应原版 _计算玩家 实时 套装判断 累加 玩家.套装）
       const sets = this.recomputeSets(equipment, weapons, this.getTreasuresFromPresets(player));
       await this.playerService.enqueueUserWrite(userId, async () => {
@@ -1667,9 +1681,20 @@ export class ItemService {
         });
         await this.playerService.savePlayer(_pd.player);
       });
-      // 文案对齐原版：拿在手中 / 背到了背上（含品质中括号）
+      // 文案对齐原版：拿在手中 / 背到了背上（含品质中括号）；替换时先报哪件被换下
       const q = this.qualityPrefix(item.data);
-      return tookUp
+      if (replaced) {
+        const rq = this.qualityPrefix(replaced.data);
+        if (cur === 0) {
+          return `${player.name}把${replaced.name}${this.qualityBracket(rq)}放回了背包，把${item.name}${this.qualityBracket(q)}拿在了手中`;
+        }
+        // 手里拿的正是被替换的那把 → 手持自动延续为新武器，文案点明
+        if (cur === dupIndex + 1) {
+          return `${player.name}把${replaced.name}${this.qualityBracket(rq)}放回了背包，手中换上了${item.name}${this.qualityBracket(q)}`;
+        }
+        return `${player.name}把${replaced.name}${this.qualityBracket(rq)}放回了背包，把${item.name}${this.qualityBracket(q)}背到了背上`;
+      }
+      return cur === 0
         ? `${player.name}把${item.name}${this.qualityBracket(q)}拿在手中`
         : `${player.name}把${item.name}${this.qualityBracket(q)}背到了背上`;
     } else {

@@ -1424,6 +1424,16 @@ vite-plugin-checker-error-overlay,
   border-color: rgba(139, 92, 246, 0.3);
 }
 
+/* 历史消息渲染跳过（性能优化，配合 ChatView 的 msg-cv 类）：
+   content-visibility:auto 让浏览器跳过视口外消息的布局与绘制，滚动时按需渲染；
+   contain-intrinsic-size 提供估算占位高度（auto 前缀=记住上次真实高度，回滚更准），
+   避免长聊天流（上限 300 条 + 大卡片）滚动条跳动。最新几条消息不带此类，
+   保证自动滚底基于真实布局计算。 */
+.msg.msg-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+
 /* 消息主体（发送者+内容），占满剩余宽度，让时间戳靠右 */
 .msg-body {
   flex: 1;

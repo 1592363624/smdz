@@ -1663,6 +1663,8 @@ export class ItemSystemService {
     // 编号临时输入替换已注册（见 switchWeapon list 分支），提示发数字即可切换
     lines.push('💡 直接发送编号数字（如 1）即可切换');
     // 同名武器按名字切换只命中第一把；且冷却按武器名存储，同名武器共用一份冷却
+    // （2026-09-09 起 equipItem 装备同名武器时自动顶替背上那把，新数据不应再出现重复；
+    //   本提示保留用于兼容存量背包里已有的重复同名武器）
     const duplicated = [...nameCount.entries()].filter(([, c]) => c > 1).map(([n]) => n);
     if (duplicated.length > 0) {
       lines.push(`注意：${duplicated.join('、')}有重复，按名字切换只会选中第一把，且同名武器共用同一份攻击冷却`);

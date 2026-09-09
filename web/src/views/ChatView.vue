@@ -439,7 +439,7 @@
 
       <!-- 消息列表 -->
       <div ref="msgList" class="messages" @scroll="onMsgScroll">
-        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg), { 'msg-rich': v.rich, 'msg-battle': v.battle }]">
+        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg), { 'msg-rich': v.rich, 'msg-battle': v.battle, 'msg-cv': v.cv }]">
           <div class="msg-body">
             <span v-if="v.msg.sender" class="sender" :title="'右键 @ ' + (v.msg.sender.nickname || v.msg.sender.username)" @contextmenu.prevent="quickAtUser(v.msg.sender)">{{ v.msg.sender.nickname || v.msg.sender.username }}：</span>
             <span v-else-if="v.msg.type !== 'system' && v.msg.type !== 'game' && v.msg.type !== 'combat' && v.msg.type !== 'info'" class="sender">系统：</span>
@@ -989,6 +989,10 @@ const messageViews = computed(() =>
     rich: isRichCardContent(m.content),
     // 战斗结算文本 → 用战斗卡片渲染（修真科幻风伤害动画）
     battle: isBattleContent(m.content),
+    // 性能优化：历史消息（非最新 3 条）启用 content-visibility，视口外跳过布局与绘制。
+    // 消息上限 300 条 + 背包/战斗大卡片，全量渲染是公屏滑动卡顿主因；
+    // 最新 3 条不加（滚动到底的 scrollHeight 计算与自动滚底始终基于真实布局，不受估算高度影响）。
+    cv: i < visibleMessages.value.length - 3,
   })),
 );
 
