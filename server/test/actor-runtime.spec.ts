@@ -9,17 +9,18 @@
  *  4. writeThrough：仅当标脏（markDirty）才落库；纯只读 run 不白吞 DB 写（性能修复）
  *  5. deferred + deactivate：仅标脏，停用/周期才落库
  *  6. run fn 抛错 → 内存态被丢弃、不落库（all-or-nothing，正确性风险 #3 修复）
- *  7. 跨实体协调者（coordinate）：字典序确定性排序，打破 A↔B 死锁环路
- *  8. LRU 驱逐 + 周期空闲回收（干净空闲 cell 也回收，健壮性缺口修复）
- *  9. 邮箱背压：积压超限抛 ActorMailboxOverflowError（并发健壮性修复）
- * 10. deactivate 经邮箱排队，不与在途 run 竞争（正确性风险 #4 修复）
- * 11. stats() 可观测性计数
+ *  7. LRU 驱逐 + 周期空闲回收（干净空闲 cell 也回收，健壮性缺口修复）
+ *  8. 邮箱背压：积压超限抛 ActorMailboxOverflowError（并发健壮性修复）
+ *  9. deactivate 经邮箱排队，不与在途 run 竞争（正确性风险 #4 修复）
+ * 10. stats() 可观测性计数
+ *
+ * 说明（RVW04 P1-4）：跨实体协调者 coordinate/coordinateMany 已随悬空注册一并删除
+ * （业务零调用），其专项测试同步移除；等真实跨实体原子需求出现时再按需加回。
  *
  * 不依赖 Nest DI：直接 new ActorRuntime（构造仅接收配置，无需容器）。
  */
 
 import { ActorRuntime, ActorMailboxOverflowError } from '../src/modules/actor';
-import { coordinate } from '../src/modules/actor';
 
 function inMemoryType(backing: Record<string, any>) {
   let loadCalls = 0;
@@ -261,71 +262,5 @@ describe('LRU 驱逐', () => {
     expect(rt.peek('k', '1')).toBeUndefined(); // 最久未用被逐出
     expect(rt.peek('k', '2')).toBeDefined();
     expect(rt.peek('k', '3')).toBeDefined();
-  });
-});
-
-describe('跨实体协调者 coordinate（防死锁）', () => {
-  it('无论传入顺序如何都不死锁，且两笔并发转账结果确定一致', async () => {
-    const rt = new ActorRuntime({ flushIntervalMs: 0 });
-    rt.registerType('k', {
-      load: async (id) => ({ id, bal: 100 }),
-      save: async () => {},
-      persist: 'writeThrough',
-    });
-
-    async function transfer(from: string, to: string) {
-      await coordinate(
-        rt,
-        { type: 'k', id: from },
-        { type: 'k', id: to },
-        async (a: any, b: any) => {
-          a.bal -= 10;
-          b.bal += 10;
-          rt.markDirty();
-        },
-      );
-    }
-
-    await Promise.all([transfer('A', 'B'), transfer('B', 'A')]);
-
-    const pa = rt.peek('k', 'A') as any;
-    const pb = rt.peek('k', 'B') as any;
-    expect(pa.bal).toBe(100);
-    expect(pb.bal).toBe(100);
-  });
-
-  it('coordinate 内部排序固定，两种调用顺序得到相同结果', async () => {
-    const rt = new ActorRuntime({ flushIntervalMs: 0 });
-    rt.registerType('k', {
-      load: async (id) => ({ id, bal: 0 }),
-      save: async () => {},
-      persist: 'writeThrough',
-    });
-    const runAB = async () =>
-      coordinate(
-        rt,
-        { type: 'k', id: 'A' },
-        { type: 'k', id: 'B' },
-        async (a: any, b: any) => {
-          a.bal += 1;
-          b.bal += 2;
-          rt.markDirty();
-        },
-      );
-    const runBA = async () =>
-      coordinate(
-        rt,
-        { type: 'k', id: 'B' },
-        { type: 'k', id: 'A' },
-        async (a: any, b: any) => {
-          a.bal += 1;
-          b.bal += 2;
-          rt.markDirty();
-        },
-      );
-    await runAB();
-    await runBA();
-    expect((rt.peek('k', 'A') as any).bal).toBe(3);
-    expect((rt.peek('k', 'B') as any).bal).toBe(3);
   });
 });

@@ -1,6 +1,7 @@
 # 通用 Actor 运行时（单进程内、全部有状态实体）
 
-> 适用范围：玩家、怪物、地图、载具、商店物品等**一切有独立状态表的实体**。
+> 适用范围：运行时内核对**一切有独立状态表的实体**通用，但 2026-09-08（RVW04 P1-4）起
+> 全仓**仅注册 `player` 一种类型**——怪物/地图/载具/商店物品的注册已随零调用删除（见 §6）。
 > 设计目标：把「理想 Actor 模型」的单进程形态落地——每个实体一个串行邮箱 + 私有内存态 +
 > 单激活 + 异步落库，**单进程内天然无锁、无 CAS、无整包覆盖**。
 
@@ -27,10 +28,11 @@
 | --- | --- |
 | `src/modules/actor/types.ts` | 类型定义：`EntityType` / `EntityId` / `actorKey(type,id)='type:id'` / `PersistPolicy` / `ActorTypeConfig`（load/save/initState?/persist?） |
 | `src/modules/actor/actor-runtime.ts` | 核心运行时 `ActorRuntime`：`Map<key, ActorCell>` + per-key Promise 邮箱 + ALS 重入 + LRU 驱逐 + 周期落库 |
-| `src/modules/actor/coordinator.ts` | 跨实体协调者 `coordinate` / `coordinateMany`：按 `actorKey` 字典序确定性排序获取邮箱，打破 A↔B 死锁环路 |
-| `src/modules/actor/builtin-types.ts` | `registerBuiltinActorTypes(runtime, prisma)`：注册 monster / map / vehicle / shopitem 四种实体 |
-| `src/modules/actor/actor.module.ts` | Nest 模块：提供 `@Global` 的 `ActorRuntime` 单例，`onModuleInit` 时调用 `registerBuiltinActorTypes` |
+| `src/modules/actor/actor.module.ts` | Nest 模块：提供 `@Global` 的 `ActorRuntime` 单例 |
 | `src/modules/game/player.service.ts` | 玩家自己注册 `'player'` 类型（复用 getPlayerData / savePlayer 的归一化逻辑），`enqueueUserWrite` 委托运行时 |
+
+> 历史（RVW04 P1-4，2026-09-08）：`coordinator.ts`（跨实体协调者，见 §5）与
+> `builtin-types.ts`（注册 monster/map/vehicle/shopitem 四类，见 §6）已随全仓零调用删除。
 
 ### 2.1 ActorCell（每个实体的运行时态）
 
@@ -53,7 +55,7 @@ interface ActorCell<S = any> {
 ### 3.1 `run(type, id, fn)` —— 单一写入口
 
 ```ts
-const result = await actorRuntime.run('monster', monsterId, async (state) => {
+const result = await actorRuntime.run('player', userId, async (state) => {
   state.hp -= damage;        // 直接改内存态
   return state.hp;           // 返回值即 run 的返回值
 });
@@ -62,7 +64,7 @@ const result = await actorRuntime.run('monster', monsterId, async (state) => {
 执行流程：
 
 1. **重入识别**：若当前异步链已在同 `type:id` 的 Actor 内（ALS 上下文），直接执行 `fn(state)`，
-   不重复排队——避免跨实体协调者嵌套调用或 A→B→A 自死锁。
+   不重复排队——避免嵌套 run（如邮箱内业务再触发同实体 run）自死锁。
 2. **串行排队**：把本次任务挂到该实体邮箱链尾，等前一个任务完成再执行
    （`prev.then(...)`）。这就是「单时刻一条」的保证，全靠 Promise 链，无 `Mutex`/`lock`。
 3. **激活**：`state === undefined` 时调 `config.load(id)` 把存储态载入内存（并发 run 通过
@@ -107,38 +109,32 @@ const cached = actorRuntime.peek('player', userId); // 已在内存则返回同�
 
 退出：实现 `OnModuleDestroy`，`onModuleDestroy` 先 `clearInterval` 再 `flushAll()`，保证进程优雅退出不丢脏数据。
 
-## 5. 跨实体协调者（防死锁）
+## 5. 跨实体协调者（已移除，按需加回）
 
-纯单 Actor 的死穴是**两个 Actor 互相依赖**的场景：交易（A 扣钻 B 加钻）、公会银行、
-战斗同时改攻防双方。若「A 持锁等 B、B 持锁等 A」就会死锁。
+> 2026-09-08（RVW04 P1-4）：`coordinator.ts` 的 `coordinate` / `coordinateMany` 因
+> **全仓零业务调用**被删除；`ActorRuntime` 通用内核不受影响。设计要点留档备查——
+> 等出现真实跨实体原子性需求（玩家间交易、公会银行）时**加回代码即可，不是改造架构**。
 
-`coordinate(runtime, keyA, keyB, fn)` 用「按稳定键 `actorKey` 字典序**确定性排序**获取邮箱」
-打破环路：无论调用方以何种顺序传入 `keyA/keyB`，内部永远先拿字典序较小的那一个，再拿较大的，
-任何调用方拿锁顺序都一致，环路被破除。`coordinateMany` 对一组实体做同样处理，适用于
-公会银行、拍卖行等多方写。
+**原设计要点**：纯单 Actor 的死穴是「A 持锁等 B、B 持锁等 A」的互等死锁（交易、公会银行）。
+`coordinate(runtime, keyA, keyB, fn)` 按 `actorKey` 字典序**确定性排序**获取邮箱——无论调用方
+以何种顺序传参，内部永远先拿字典序较小的实体再拿较大的，全服拿锁顺序一致，环路被破除；
+`coordinateMany` 把同一规则推广到 N 个实体（公会银行、拍卖行等多方写）。若届时加回，须同时
+给 `coordinatorTimeoutMs` 配非零默认值（删除前默认 0 = 永不超时，见 RVW04 P1-4 备注）。
 
-```ts
-// 任意顺序调用都不会死锁，且最终余额一致
-await coordinate(rt, {type:'player',id:'A'}, {type:'player',id:'B'},
-  async (a, b) => { a.diamond -= 10; b.diamond += 10; });
-```
+嵌套安全（现存能力，不受影响）：`run` 内再 `run` 同一实体走 ALS 重入路径，不会自死锁。
 
-嵌套安全：`run` 内再 `run` 同一实体走 ALS 重入路径，不会自死锁。
-
-## 6. 已注册的实体类型
+## 6. 已注册的实体类型（2026-09-08 起：仅 player）
 
 | type | 注册方 | load / save | 策略 |
 | --- | --- | --- | --- |
-| `player`  | `PlayerService.onModuleInit` | `getPlayerData` / `persistPlayer`（复用货币列化、标记归一化、BigInt 转换） | `writeThrough` |
-| `monster` | `registerBuiltinActorTypes` | `prisma.gameMonster.findUnique` / 整行 `update`（去除 `createdAt`） | `writeThrough` |
-| `map`     | 同上 | `prisma.gameMap` | `writeThrough` |
-| `vehicle` | 同上 | `prisma.gameVehicle` | `writeThrough` |
-| `shopitem`| 同上 | `prisma.gameShopItem` | `writeThrough` |
+| `player`  | `PlayerService` 构造器（幂等 `registerPlayerActorType`） | `getPlayerData` / `persistPlayerData`（复用货币列化、标记归一化、BigInt 转换） | `writeThrough` |
 
+> 历史：`monster` / `map` / `vehicle` / `shopitem` 曾由 `builtin-types.ts` 注册，因全仓零调用
+> 随 RVW04 P1-4 一并删除（地图聚合写本就走 `MapService.withMapLock` 闭环——map.service.ts
+> 自身的 per-map Promise 链串行 + 锁内重读 + diff 写回，不依赖 map Actor）。
 > 说明：NPC 无独立表（嵌在 `GameMap.monsters/npcs` JSON 内），公会/副本（Guild/Dungeon）
-> 也无独立状态表（嵌在 `Player` JSON 内）。因此它们被各自「宿主实体 Actor」（map / player）
-> 的序列化状态覆盖，无需单独注册。需要独立事务一致性的调用点，可用 `coordinate` 跨宿主实体
-> 做原子操作。
+> 也无独立状态表（嵌在 `Player` JSON 内），被各自宿主实体的序列化状态覆盖，无需单独注册。
+> 需要跨实体原子操作的调用点见 §5（按需加回 coordinate）。
 
 ## 7. 边界与后续
 
@@ -147,13 +143,15 @@ await coordinate(rt, {type:'player',id:'A'}, {type:'player',id:'B'},
   运行时已预留 `type + id` 稳定键，便于未来接入分布式邮箱。
 - **BigInt / JSON**：内存储态直接持有 Prisma 行对象；`save` 时去掉 `createdAt` 后整行 `update`，
   Prisma 的 `BigInt` 列接受 `number`，精度无损。
-- **接入方式**：游戏内具体调用点（如战斗结算怪物 HP、地图事件）迁移到 `runtime.run('monster', …)`
-  是后续按调用点的渐进式改造；本步先把「实体即 Actor」的框架能力铺好。
+- **接入方式**：新实体按需调用 `runtime.registerType(...)`（参照 `registerPlayerActorType` 的
+  幂等注册模式）注册 load/save 后即可 `run / tell / ask`；内置四类实体注册已随 RVW04 P1-4
+  删除，出现真实需求时再加回（见 §5 / §6）。
 
 ## 8. 测试
 
 - `test/actor-runtime.spec.ts`：覆盖串行执行 / 单激活 / peek 缓存命中 / writeThrough 即时落库 /
-  deferred + deactivate 落库 / 未激活 peek 返回 undefined / LRU 驱逐 / coordinate 防死锁与确定性。
+  deferred + deactivate 落库 / 未激活 peek 返回 undefined / LRU 驱逐（coordinate 防死锁用例
+  已随 coordinator.ts 删除一并移除，见 §5）。
 
 ## 9. 健壮性加固（2026-08-30）
 

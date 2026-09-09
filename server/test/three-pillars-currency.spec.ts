@@ -107,6 +107,20 @@ function makeFixture(): { row: any; prisma: any; playerService: PlayerService; f
 }
 
 describe('支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故复现）', () => {
+  // 默认值已翻转 strict（RVW04 P1-3）：本 describe 的 prisma 桩 updateMany 以
+  // where.id_version（复合键）做 CAS 匹配，而真实 CAS 调用是平铺 {id, version}
+  // ——桩从未命中、恒返回 count:0，用例实际依赖 log 模式「CAS 未命中→留痕强制写」
+  // 路径完成落库。验证目标是货币新鲜度语义（与 CAS 模式无关），故显式声明 log，
+  // 不随默认值漂移（改前保存原值、改后还原）。
+  let casModeBefore: 'off' | 'log' | 'strict';
+  beforeEach(() => {
+    casModeBefore = (PlayerService as any).CAS_MODE;
+    (PlayerService as any).CAS_MODE = 'log';
+  });
+  afterEach(() => {
+    (PlayerService as any).CAS_MODE = casModeBefore;
+  });
+
   it('兑换召唤券52 后立即召唤使魔73 必须成功且按新余额扣减（修复前报「只有21.012」）', async () => {
     const { row, familiarSystem } = makeFixture();
 

@@ -423,6 +423,11 @@ export class PlayerService {
    * 解析所有JSON字段为对象，方便业务层直接使用
    * @param userId 用户ID
    * @returns 包含解析后各字段的玩家数据
+   * @deprecated 快照式写模型的读入口，仅存量调用点兼容保留，新代码禁用
+   *   （2026-09-08 RVW04 P2-5）。终态：指令域一律走 `PlayerMutateService.mutate`
+   *   （单一快照 + 统一落库 + 货币审计），后台跨玩家域走 `patchPlayer`（定向字段写，
+   *   不整包覆盖）。存量调用点暂不迁移；收口进度由架构门禁
+   *   `architecture-guard.spec.ts` 的 `RAW_SAVEPLAYER_BASELINE` 度量（只减不增）。
    */
   async getPlayerData(userId: number): Promise<PlayerData> {
     // 已在某玩家的 mutate 上下文内：直接复用外层那份已解析快照，
@@ -847,6 +852,10 @@ export class PlayerService {
    * 保存玩家数据
    * 将修改后的数据写回数据库，JSON 字段会自动序列化
    * @param player 要保存的玩家对象（包含可能已修改的 JSON 字段）
+   * @deprecated 快照式写模型的写入口，仅存量调用点兼容保留，新代码禁用
+   *   （2026-09-08 RVW04 P2-5）。终态：指令域一律走 `PlayerMutateService.mutate`
+   *   （最外层统一落库），后台跨玩家域走 `patchPlayer`（定向字段写，不整包覆盖）。
+   *   存量调用点暂不迁移；收口进度由架构门禁 `RAW_SAVEPLAYER_BASELINE` 度量（只减不增）。
    */
   async savePlayer(player: any): Promise<void> {
     // 已在 mutate 上下文内：把本次要写入的字段"合并"进上下文快照（局部写如
@@ -959,8 +968,9 @@ export class PlayerService {
    *
    * 调用方对象带 version 且小于活态 version，说明它是很久之前读出的快照
    * （活态此后已被其他写者推进）——正是「旧快照整包覆盖」的特征。
-   * - log 模式（默认）：记录冲突与调用方堆栈后照常合并（保持旧行为，先观测）；
-   * - strict 模式：直接丢弃本次合并，保护活态（调用方应基于活态重算后重试）。
+   * - strict 模式（默认）：直接丢弃本次合并，保护活态（调用方应基于活态重算后重试）；
+   * - log 模式（运维回退用，PLAYER_WRITE_CAS=log）：记录冲突与调用方堆栈后
+   *   照常合并（旧行为，业务不中断）。
    * version 相同或更大不属于旧快照，正常合并。
    */
   private mergeIntoLiveState(liveRow: any, incoming: any): void {
@@ -1265,18 +1275,20 @@ export class PlayerService {
   }
 
   /**
-   * 乐观锁模式（环境变量 PLAYER_WRITE_CAS，默认 log）：
+   * 乐观锁模式（环境变量 PLAYER_WRITE_CAS，默认 strict）：
    * - off：完全关闭 CAS，走旧的无条件 update（$use 中间件自增 version）。
-   * - log（默认）：按读取快照的 version 条件更新；count=0（快照已被他人推进）
+   * - log：按读取快照的 version 条件更新；count=0（快照已被他人推进）
    *   时记录冲突与调用方堆栈后强制写库——把「旧快照整包覆盖」从静默变成显式
-   *   可观测，业务行为保持不变（止血阶段的观测模式）。
-   * - strict：冲突直接抛错阻断，宁可让调用方重试也不用旧快照覆盖新写入。
+   *   可观测，业务行为保持不变（运维回退模式，不再是默认）。
+   * - strict（默认）：冲突直接抛错阻断，宁可让调用方重试也不用旧快照覆盖新写入。
+   *   2026-09-08（RVW04 P1-3）默认由 log 翻转为 strict：单进程 + Actor 邮箱收敛后
+   *   旁路写理论为零，CAS 命中即真实竞态，strict 让它立刻可见。
    * 存量测试桩手工 new PlayerService（无 updateMany mock）时自动退回旧路径。
    */
   private static readonly CAS_MODE: 'off' | 'log' | 'strict' =
     (['off', 'log', 'strict'] as const).includes(process.env.PLAYER_WRITE_CAS as any)
       ? (process.env.PLAYER_WRITE_CAS as 'off' | 'log' | 'strict')
-      : 'log';
+      : 'strict';
 
   /**
    * 真正的落库动作（非 Actor 感知，必由「不在 Actor 内」的路径调用）：

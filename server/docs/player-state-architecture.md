@@ -135,22 +135,22 @@ savePlayer })`，与指令、后台结算共享同一串行邮箱，达成全量
 ## 6. 通用 Actor 运行时（单进程内、全部有状态实体）
 
 玩家的 `enqueueUserWrite` 串行邮箱只是「每实体一个 Actor」在玩家身上的特例。现已将其泛化为
-**通用 Actor 运行时**：玩家 / 怪物 / 地图 / 载具 / 商店物品等一切有独立状态表的实体，都注册成
-`type:id` 唯一键的 Actor，统一享有「私有内存态 + 串行邮箱 + 单激活 + 异步落库」。
+**通用 Actor 运行时**：任意有独立状态表的实体都可注册成 `type:id` 唯一键的 Actor，统一享有
+「私有内存态 + 串行邮箱 + 单激活 + 异步落库」——**2026-09-08（RVW04 P1-4）起全仓仅注册
+`player` 一种类型**，内核通用能力保留，其它实体出现真实需求时按需注册。
 
-- 玩家由 `PlayerService.onModuleInit` 注册 `'player'`（复用 `getPlayerData` / `persistPlayer`），
-  且 `enqueueUserWrite` 直接委托 `actorRuntime.run('player', userId, …)`。
-- 怪物/地图/载具/商店物品由 `registerBuiltinActorTypes(runtime, prisma)` 在
-  `ActorModule.onModuleInit` 时注册（见 `src/modules/actor/actor.module.ts`）。
-- `ActorRuntime` 作为 `@Global` 单例提供，任意服务可直接注入并通过 `run / tell / ask / coordinate`
-  以纯 Actor 语义访问任意实体；`PersistPolicy` 支持 `writeThrough`（每次写后落库）与 `deferred`
-  （仅标脏、周期/停用/驱逐落库）；`coordinate` 用字典序确定性排序打破跨实体死锁环路。
+- 玩家由 `PlayerService` **构造器**幂等注册 `'player'`（`registerPlayerActorType`，复用
+  `getPlayerData` / `persistPlayer`），且 `enqueueUserWrite` 直接委托
+  `actorRuntime.run('player', userId, …)`。
+- `ActorRuntime` 作为 `@Global` 单例提供，任意服务可直接注入并通过 `run / tell / ask`
+  以纯 Actor 语义访问实体；`PersistPolicy` 支持 `writeThrough`（每次写后落库）与 `deferred`
+  （仅标脏、周期/停用/驱逐落库）。
 - 串行化仍靠 **Promise 链（非 Mutex）**，因此**无锁、无 CAS**；version 仅由 `$use` 中间件自增
   供审计/增量重放，不在 Actor 层做冲突判定。
 
-> 完整设计、模块布局、生命周期、跨实体协调者与边界见 **`docs/actor-runtime.md`**。
+> 完整设计、模块布局、生命周期与边界见 **`server/docs/actor-runtime.md`**。
 > 单元测试见 `test/actor-runtime.spec.ts`（串行执行 / 单激活 / peek 缓存命中 / 策略落库 /
-> LRU 驱逐 / coordinate 防死锁）。
+> LRU 驱逐）。
 
 ## 7. 地图聚合列的串行闭环写（2026-09-03 迁移收口）
 
@@ -161,8 +161,9 @@ markers / resources…）"，同样会"旧快照整包覆盖"。
 
 ### 7.1 核心写原语（`MapService`）
 
-- `withMapLock(mapId, fn)`：按 `type:mapId` 进 map Actor 的**串行邮箱**（复用 `actorRuntime.run`），
-  保证同一张地图的所有聚合写**顺序执行、互不并发**。单激活、无锁、无 CAS。
+- `withMapLock(mapId, fn)`：按 mapId 进 MapService **自身的 per-map Promise 链**
+  （`mapLocks: Map<number, Promise<unknown>>`，不经过 `actorRuntime.run`——map Actor 注册
+  已随 RVW04 P1-4 删除），保证同一张地图的所有聚合写**顺序执行、互不并发**。无锁、无 CAS。
 - `mutateMapFields(mapId, fieldList, mutator)`：**字段级 diff 闭环写**（推荐主入口）。
   流程：`withMapLock` → `prisma.gameMap.findUnique`（**重读最新行**）→ 按字段归一化出 working 副本 →
   执行 `mutator(working)` → 逐字段 `JSON.stringify(before) !== JSON.stringify(working)` **按需只写变化列** →
@@ -191,14 +192,16 @@ JSON.stringify(working)` → **本次写被静默丢弃**。setFollow / petEquip
 采集延时结算（settleGatherResource）、至纯圣水时间加速（item.service）、家园落库统一
 （home.service `persistHomeMap` → `updateDynamicFields`）等。
 
-> 遗留：`map.service.ts` 内部（闭环原语自身）与 `actor/builtin-types.ts`（Actor 载入/落库）是
-> 允许直写聚合列的**合法收口点**，不计入裸写。
+> 遗留：`map.service.ts` 内部（闭环原语自身）是唯一允许直写聚合列的**合法收口点**，不计入
+> 裸写。（`actor/builtin-types.ts` 曾是第二个豁免点——Actor 载入/落库——已随 RVW04 P1-4
+> 删除。）
 
 ### 7.4 测试护栏
 
 - `test/architecture-guard.spec.ts`：新增两条门禁——「业务代码禁止直写 GameMap 动态聚合列」
-  （统计业务文件里的 `prisma.gameMap.update(Many)?` 必须为 0，排除 map.service.ts / builtin-types.ts
-  收口点）+「地图闭环写入口实现不被误删」（断言 `withMapLock` / `findUnique` / `JSON.stringify(before)`
-  / `mutateMapFields` / `mutateSummons` 关键符号存在）。
+  （统计业务文件里的 `prisma.gameMap.update(Many)?` 必须为 0，唯一豁免收口点 map.service.ts，
+  builtin-types.ts 豁免已随 RVW04 P1-4 移除）+「地图闭环写入口实现不被误删」（断言
+  `withMapLock` / `findUnique` / `JSON.stringify(before)` / `mutateMapFields` / `mutateSummons`
+  关键符号存在）。
 - `test/map-mutate-closed-loop.spec.ts`（新增）：真实 MapService + prisma 桩，验证并发双 push 均保留、
   未改动不写、**嵌套元素改动持久化（7.2 的 bug 用例）**、多字段闭环、diff 只写变化列。

@@ -480,6 +480,11 @@ function parseLayout(text) {
 
   // ---------- 1. 背包：🎒 背包/资源背包 (N种): + "1. xxx ×N"（标题可能在行中，需扫描定位） ----------
   // 资源背包与背包共用同一网格分支：服务端输出格式完全同构（handleResourceBag 约定）
+  // 文本契约（RVW04 P2-8）：下方三条正则与 server/src/modules/game/game.service.ts 的
+  // handleInventory / handleResourceBag 输出组装一一对应——标题行匹配服务端
+  // `🎒 背包 (N种):` / `🎒 资源背包 (N种):`，普通物品行 `${i+1}. 名字 ×数量`，
+  // 装备行（formatEquipmentInventoryDisplay 输出，无数量段）落到 /^(\d+)\.\s*(.+)$/ 分支。
+  // 服务端另由 inventory-display.spec.ts 契约测试锁定排序与行格式；改动任一侧须三处同步。
   const bagIdx = lines.findIndex((l) => /^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/.test(l));
   if (bagIdx >= 0) {
     const items = [];

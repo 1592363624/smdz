@@ -65,8 +65,6 @@ export interface ActorRuntimeOptions {
   idleEvictMs?: number;
   /** 单实体邮箱积压上限：超过则后续入队任务抛 ActorMailboxOverflowError（背压） */
   mailboxMaxDepth?: number;
-  /** 协调者跨实体获取邮箱的超时（ms），0 = 不超时（防某个邮箱卡死连锁拖死） */
-  coordinatorTimeoutMs?: number;
 }
 
 export interface ActorRuntimeStats {
@@ -91,8 +89,6 @@ export class ActorRuntime implements OnModuleDestroy {
   private readonly flushIntervalMs: number;
   private readonly idleEvictMs: number;
   private readonly mailboxMaxDepth: number;
-  /** 跨实体协调者获取邮箱的超时（ms），0 = 不超时。对外只读，供 coordinator 使用。 */
-  readonly coordinatorTimeoutMs: number;
   private readonly logger = new Logger(ActorRuntime.name);
 
   // 可观测性计数
@@ -109,7 +105,6 @@ export class ActorRuntime implements OnModuleDestroy {
     this.flushIntervalMs = opts.flushIntervalMs ?? 5000;
     this.idleEvictMs = opts.idleEvictMs ?? 30_000;
     this.mailboxMaxDepth = opts.mailboxMaxDepth ?? 1000;
-    this.coordinatorTimeoutMs = opts.coordinatorTimeoutMs ?? 0;
     if (this.flushIntervalMs > 0) {
       this.flushTimer = setInterval(() => {
         void this.flushIdle().catch((e) => this.logger.error(`周期落库失败: ${String(e)}`));

@@ -7,8 +7,9 @@
  * 设计约束与兼容性（与 RichSystemCard 相同的展示层原则）：
  * - 本解析器仅服务于网页端「展示层」增强——只读原文做结构化展示，绝不改写原文内容。
  * - 后端与 AstrBot（QQ 等）仍走标准纯文本消息；解析失败时回退为原始文本直出。
- * - 文本特征全部来自服务端实际输出（combat-system.service.ts 的 resultLines 拼接规则），
- *   正则与服务端文案一一对应，改动服务端战斗文案时需同步维护本文件。
+ * - 文本特征全部来自服务端实际输出（combat-system.service.ts 的 resultLines 拼接规则，
+ *   见 server/src/modules/game/combat-system.service.ts），正则与服务端文案一一对应，
+ *   改动服务端战斗文案时需同步维护本文件（契约互指，RVW04 P2-8）。
  */
 
 /**

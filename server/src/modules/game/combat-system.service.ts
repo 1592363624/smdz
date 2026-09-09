@@ -8766,8 +8766,10 @@ export class CombatSystemService {
       }
 
       player.buffs = playerBuffs; // Json 列直接写数组
-      if (typeof (this.playerService as any).savePlayer === 'function') {
-        await (this.playerService as any).savePlayer(player);
+      // typeof 仅为运行时兜底：savePlayer 是 PlayerService 正式方法（类型上必存），
+      // 测试桩以 plain object 构造时可能缺该方法（RVW04 P2-10：去除 as any，保留运行时防御）。
+      if (typeof this.playerService.savePlayer === 'function') {
+        await this.playerService.savePlayer(player);
       }
 
       // GameMap 动态字段均为 Json 列，直接传结构体，避免 JSON 字符串双重编码

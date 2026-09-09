@@ -26,7 +26,7 @@
  *   vehicle-recipes.json -> 原版载具生产配方（无配置时保持空数组）
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { decodeJsonStrings, asJsonValue } from '../../common/utils/json-value.util';
@@ -70,49 +70,142 @@ const DATA_FILES = {
 type DataKey = keyof typeof DATA_FILES;
 
 @Injectable()
-export class StaticDataService {
+export class StaticDataService implements OnModuleInit {
   private readonly logger = new Logger(StaticDataService.name);
 
   /** 缓存：dataKey -> 原始数组 */
   private cache: Partial<Record<DataKey, any[]>> = {};
 
+  /** name 查询索引：dataKey -> Map(name -> 行引用)。懒构建，随数据重载/refresh 失效。 */
+  private nameIndex = new Map<DataKey, Map<string, any>>();
+
+  /**
+   * 启动预载（P2-7 启动校验）：应用启动时全量加载所有静态表。
+   * - 任何 JSON 语法损坏 → loadRaw 抛错 → onModuleInit 失败 → 应用拒绝启动（fail-fast）；
+   * - 内容问题（重复名/空表/负数量）→ 汇总为告警日志，不阻断启动；
+   * - 同一文件多别名（vehicles/vehiclesParts 同指 vehicles.json）只预载一次。
+   */
+  onModuleInit(): void {
+    const preloaded = new Set<string>();
+    for (const key of Object.keys(DATA_FILES) as DataKey[]) {
+      const file = DATA_FILES[key];
+      if (preloaded.has(file)) continue;
+      preloaded.add(file);
+      this.loadRaw(key);
+    }
+    this.logger.log(`静态数据启动校验完成（${preloaded.size} 个文件全量预载）`);
+  }
+
   /**
    * 读取某类 JSON 原始数组（懒加载 + 缓存）
    * @param key 数据类别
-   * @returns 固定配置数组；文件缺失或解析失败返回 []
+   * @returns 固定配置数组；文件缺失返回 []（warn）；JSON 解析失败抛错（fail-fast）
    */
   loadRaw<T = any>(key: DataKey): T[] {
     if (this.cache[key]) return this.cache[key] as T[];
     const file = path.join(DATA_DIR, DATA_FILES[key]);
     let rows: T[] = [];
+    let fileExisted = false;
     if (fs.existsSync(file)) {
+      fileExisted = true;
+      let raw: string;
       try {
-        rows = JSON.parse(fs.readFileSync(file, 'utf-8')) as T[];
+        raw = fs.readFileSync(file, 'utf-8');
+      } catch (err: any) {
+        // 读取失败（权限/IO）与语法损坏同样危险：表会静默为空 → 一并 fail-fast
+        throw new Error(
+          `静态数据 ${DATA_FILES[key]} 读取失败（fail-fast 终止启动）: ${err?.message ?? err}`,
+        );
+      }
+      try {
+        rows = JSON.parse(raw) as T[];
         // 统一归一化：把旧格式文件中双重编码的 JSON 字符串字段解码为真实结构，
         // 保证下游业务层无论数据文件是新旧格式，拿到的都是对象/数组。
         rows = decodeJsonStrings(rows);
       } catch (err: any) {
-        this.logger.warn(`静态数据 ${DATA_FILES[key]} 解析失败: ${err.message}`);
-        rows = [];
+        // fail-fast（P2-7）：语法损坏若沿旧逻辑 catch 后返回 []，整张表会以空数组
+        // 静默进缓存且无人察觉——这是全库数据级 P0（悬空引用/异常值）无拦截点的根因。
+        // 静默空表比崩溃更危险：宁可启动失败，也不带着空表对外提供错误数据。
+        throw new Error(
+          `静态数据 ${DATA_FILES[key]} JSON 解析失败（fail-fast 终止启动）: ${err?.message ?? err}`,
+        );
       }
     } else {
       this.logger.warn(`静态数据文件缺失: ${DATA_FILES[key]}`);
     }
     this.cache[key] = rows as any[];
+    this.nameIndex.delete(key); // 数据重载后旧索引作废，首次查询时重建
+    this.validateLoadedRows(key, rows, fileExisted);
     return rows;
+  }
+
+  /**
+   * 内容校验（P2-7）：对刚加载的表跑一轮静态规则检查，发现的问题**汇总为一条
+   * 告警日志**（不抛错、不阻断启动——避免一条存量脏数据挡死整个服务）。
+   * 规则：空表（文件存在但为空数组）、重复名、明显数值异常（quantity/count/数量 为负）。
+   * 非数组顶层（如 seed-items.json 的单对象形状）不在通用规则范围内，跳过避免误报。
+   */
+  private validateLoadedRows(key: DataKey, rows: unknown, fileExisted: boolean): void {
+    if (!Array.isArray(rows)) return;
+    const issues: string[] = [];
+    if (fileExisted && rows.length === 0) {
+      issues.push('空表（文件存在但内容为空数组）');
+    }
+    // 重复名：findByKey 索引与旧 Array.find 语义一致取首个同名条目，其余记告警
+    const seen = new Map<string, number>();
+    rows.forEach((row: any, idx: number) => {
+      const name = row?.name;
+      const hasName = typeof name === 'string' && name !== '';
+      if (hasName) {
+        const first = seen.get(name as string);
+        if (first === undefined) {
+          seen.set(name as string, idx);
+        } else {
+          issues.push(`重复名「${name}」（第 ${first + 1} 条与第 ${idx + 1} 条）`);
+        }
+      }
+      for (const field of ['quantity', 'count', '数量'] as const) {
+        const value = row?.[field];
+        if (typeof value === 'number' && Number.isFinite(value) && value < 0) {
+          issues.push(`负数量「${hasName ? name : `#${idx + 1}`}」 ${field}=${value}`);
+        }
+      }
+    });
+    if (issues.length > 0) {
+      this.logger.warn(
+        `静态数据 ${DATA_FILES[key]} 内容校验发现 ${issues.length} 处问题（不阻断启动）:\n`
+        + issues.map((s) => `  - ${s}`).join('\n'),
+      );
+    }
   }
 
   /** 强制重载所有已加载的静态数据（热更新，不重启进程） */
   refresh(): void {
     this.cache = {};
+    this.nameIndex.clear(); // 缓存清空后索引全部作废，下次查询按新数据重建
     this.logger.log('静态数据缓存已清空（下次访问将重新从 JSON 加载）');
   }
 
   // ============ 通用查询 ============
 
-  /** 按唯一键(name)查一条 */
+  /**
+   * 按唯一键(name)查一条（懒构建 Map 索引，O(1) 查找）。
+   * 语义与旧线性扫描完全一致：命中返回缓存行**同一引用**（不 clone、不换对象），
+   * 未命中返回 undefined；重复名返回首条（与 Array.find 相同）。
+   */
   private findByKey<T extends { name?: string }>(key: DataKey, name: string): T | undefined {
-    return this.loadRaw<T>(key).find((r) => r?.name === name);
+    const rows = this.loadRaw<T>(key);
+    let index = this.nameIndex.get(key);
+    if (!index) {
+      index = new Map<string, any>();
+      for (const row of rows as any[]) {
+        const n = row?.name;
+        // 只索引字符串名；重复名保留首个（与 Array.find 语义一致）
+        if (typeof n === 'string' && !index.has(n)) index.set(n, row);
+      }
+      this.nameIndex.set(key, index);
+    }
+    return index.get(name) as T | undefined;
   }
 
   /** 按整型序号查一条 */

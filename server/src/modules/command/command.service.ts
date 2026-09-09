@@ -100,10 +100,12 @@ export class CommandService {
     }
     // 原版每条指令都经过 _计算玩家：累计「在线时间」成就（加成计算.ecode L1588-1605）
     // 并记录曾经最高战斗力（L2474-2477），供 使魔排行 各子榜读取。
-    // 防御式调用 + 静默失败：排行统计异常/测试桩缺方法时不影响指令本身。
-    if (ctx.userId && typeof (this.gameService as any).recordRankingStats === 'function') {
+    // typeof 仅为运行时兜底：recordRankingStats 是 GameService 正式方法（类型上必存），
+    // 但测试桩以 plain object 手工构造（如 pet-search-inventory-display.spec）可能缺该方法；
+    // try/catch 保证排行统计异常不影响指令本身（RVW04 P2-10：去除 as any，保留运行时防御）。
+    if (ctx.userId && typeof this.gameService.recordRankingStats === 'function') {
       try {
-        await (this.gameService as any).recordRankingStats(ctx.userId);
+        await this.gameService.recordRankingStats(ctx.userId);
       } catch (e: any) {
         this.logger.warn(`排行数据源结算失败: ${e?.message ?? e}`);
       }
@@ -159,8 +161,9 @@ export class CommandService {
       //     打开箱子处理期间「开箱」标记未过期 → 拦截一切其他指令。
       //     原版语义：开箱是同步动作、锁只是防重复提交，正常情况下玩家感知不到；
       //     只有处理卡顿/并发连发时才会看到“正在开箱子，或者等待X”。
-      //     防御式调用：部分测试/轻量环境的 GameService 桩未实现该方法。
-      if (ctx.userId && typeof (this.gameService as any).getOpenBoxLockText === 'function') {
+      //     typeof 仅为运行时兜底：getOpenBoxLockText 是 GameService 正式方法（类型上必存），
+      //     部分测试/轻量环境的 GameService 桩未实现该方法（RVW04 P2-10：去除 as any）。
+      if (ctx.userId && typeof this.gameService.getOpenBoxLockText === 'function') {
         const openBoxLock = await this.gameService.getOpenBoxLockText(ctx.userId);
         if (openBoxLock) {
           return {

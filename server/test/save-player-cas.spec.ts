@@ -9,12 +9,13 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
  *    永远基于前写者的最新活态，不会用旧快照整包覆盖。
  * 2. **乐观锁 CAS 是最后防线**：即便某条写路径绕过邮箱（旁路裸写、跨进程、未来
  *    的分布式邮箱），落库时按「读取快照时的 version」条件更新，冲突显式暴露为
- *    错误日志（log 模式，默认）或异常（strict 模式），把静默覆盖变成可观测事件。
+ *    错误日志（log 模式，运维回退）或异常（strict 模式，默认），把静默覆盖变成
+ *    可观测事件。
  *
  * version 由 Prisma $use 中间件中央自增（prisma.service.ts）；调用方已显式携带
  * version 时中间件不重复注入，保证 CAS 只推进一次。
  *
- * 模式由环境变量 PLAYER_WRITE_CAS 控制：off / log（默认）/ strict。
+ * 模式由环境变量 PLAYER_WRITE_CAS 控制：off / log / strict（默认，RVW04 P1-3）。
  */
 
 /** 模拟真实 Prisma：(id) 定位 + $use 中间件自增 version */
@@ -95,9 +96,23 @@ function makeRow(overrides: any = {}) {
 }
 
 describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）', () => {
+  // CAS 模式是类静态字段（进程级）：用例改前保存原值、改后还原原值（而非硬编码
+  // 某个模式）——默认值翻转（RVW04 P1-3：log→strict）时不会把旧默认值泄漏给同
+  // 进程的其它套件。
+  let casModeBefore: 'off' | 'log' | 'strict';
+  beforeEach(() => {
+    casModeBefore = (PlayerService as any).CAS_MODE;
+  });
   afterEach(() => {
-    // CAS 模式是类静态字段（进程级），用例改过必须还原，避免污染同进程其它套件
-    (PlayerService as any).CAS_MODE = 'log';
+    (PlayerService as any).CAS_MODE = casModeBefore;
+  });
+
+  it('默认 CAS 模式必须是 strict（RVW04 P1-3，锁定默认值防静默回退）', () => {
+    // CAS_MODE 在类定义时一次性求值（import 时读 env）。测试进程未设置
+    // PLAYER_WRITE_CAS 时，字段值即代码内 fallback——锁定它，防止默认值再次
+    // 静默回退到 log（2026-09-09 回归实证：无此断言时翻转改动丢失仍全绿）。
+    expect(process.env.PLAYER_WRITE_CAS).toBeUndefined();
+    expect((PlayerService as any).CAS_MODE).toBe('strict');
   });
 
   it('版本匹配时正常保存并推进版本号', async () => {
@@ -116,6 +131,10 @@ describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）',
   });
 
   it('同一快照连续保存两次都成功（内存版本回写生效）', async () => {
+    // 默认值已翻转 strict（RVW04 P1-3）：「同一快照不重读连续写两次」在 strict 下
+    // 会被 merge 层正确拦截为旧快照写（第二次改动丢弃），与本用例验证的「货币列化
+    // + 列值回写 + 偏差判定」语义无关——显式声明 log，不随默认值漂移。
+    (PlayerService as any).CAS_MODE = 'log';
     // 行必须携带货币列：货币提取只信任经 materializeCurrencies 物化的对象
     // （_currencyMirror 存在）——无列的手工快照按「剥离条目+保留列原值」处理，
     // 这是「陈旧条目复活成权威余额」事故（正式库实锤）后的收紧不变量。
@@ -172,6 +191,9 @@ describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）',
   });
 
   it('绕过邮箱的裸写撞上版本推进：merge 层拦截留痕，业务不中断', async () => {
+    // 默认值已翻转 strict（RVW04 P1-3）：本用例锁定 log 模式「拦截留痕后照常
+    // 合并落库」的运维回退行为，须显式声明，不随默认值漂移。
+    (PlayerService as any).CAS_MODE = 'log';
     const row = makeRow({ version: 3 });
     const prisma = makePrismaWithCas([row]);
     const service = makeService(prisma);
@@ -191,6 +213,8 @@ describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）',
   });
 
   it('log 模式：旧快照写回不抛错（拦截留痕后按活态继续）', async () => {
+    // 默认值已翻转 strict（RVW04 P1-3）：本用例锁定 log 模式行为，显式声明。
+    (PlayerService as any).CAS_MODE = 'log';
     const row = makeRow();
     const prisma = makePrismaWithCas([row]);
     const service = makeService(prisma);
@@ -226,6 +250,8 @@ describe('savePlayer 落库：串行邮箱（主）+ 乐观锁 CAS（兜底）',
   });
 
   it('CAS 兜底仍可观测：绕过 savePlayer 的旁路快照直撞版本推进（log 模式强制写）', async () => {
+    // 依赖 log 模式「冲突仍强制写」旧行为：显式声明，不随默认值（strict）漂移
+    (PlayerService as any).CAS_MODE = 'log';
     // savePlayer 路径的冲突已在 merge 层拦截；persistPlayer 的 CAS 是给
     // 「未来绕过邮箱的写路径/跨进程写」留的最后防线，这里直击它本身。
     const row = makeRow({ version: 3, hp: 77 });

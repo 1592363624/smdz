@@ -2541,6 +2541,12 @@ export class GameService {
       return `🎒【${itemName}】×${count}${type}${desc}`;
     }
 
+    // 文本契约（RVW04 P2-8）：以下行格式被 web/src/components/RichSystemCard.vue
+    // parseLayout 背包分支的正则解析——普通物品行「N. 名称 ×数量」匹配
+    // /^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/，装备行「N. 名称」匹配 /^(\d+)\.\s*(.+)$/；
+    // 标题行「🎒 背包(N种)」匹配 /^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/。
+    // 排序与行格式另由 server/test/inventory-display.spec.ts 契约测试
+    // （'背包展示排序（资源在前、装备在后）'）锁定。改动此处输出必须同步前端正则与契约测试。
     const lines = displayItems.map((item: any, index: number) => {
       if ((item.type || item.类型) === '装备') {
         return `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`;
@@ -7502,6 +7508,10 @@ export class GameService {
     // 资源背包不设第二套解析分支（统一调用约定，禁止双重表示）。
     // 数量口径与 handleInventory 一致走 itemQuantity（quantity/count 双字段兜底），
     // 禁用旧的 count||quantity 读取（addToBackpack 历史路径只写 count 并 delete quantity）。
+    // 文本契约（RVW04 P2-8）：标题 `🎒 资源背包 (N种):` 与物品行 `N. 名字 ×数量` 的解析正则
+    // 定义在 web/src/components/RichSystemCard.vue parseLayout 背包分支
+    //（/^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/ 与 /^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/），
+    // server/test/inventory-display.spec.ts 契约测试同步锁定；改动须服务端、前端正则、契约测试三处一起改。
     const lines = resourceItems.map((item: any, index: number) => {
       const itemName = item.name || item.名称 || '未知物品';
       const count = Math.round(this.itemQuantity(item) * 100) / 100;

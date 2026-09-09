@@ -94,13 +94,18 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
   let prisma: any;
   let playerService: PlayerService;
 
+  // CAS 模式是类静态字段（进程级）：用例改前保存原值、改后还原原值（而非硬编码
+  // 'log'）——默认值翻转（RVW04 P1-3：log→strict）后不会把旧默认值泄漏给同进程
+  // 的其它套件。
+  let casModeBefore: 'off' | 'log' | 'strict';
   beforeEach(() => {
+    casModeBefore = (PlayerService as any).CAS_MODE;
     rows = [makeRow()];
     ({ prisma, playerService } = makeServices(rows));
   });
 
   afterEach(() => {
-    (PlayerService as any).CAS_MODE = 'log';
+    (PlayerService as any).CAS_MODE = casModeBefore;
   });
 
   it('仅有行 id 的局部写：反查 userId 进邮箱落库，绝不以行 id 建档', async () => {
@@ -126,6 +131,10 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
   });
 
   it('ALS 逃逸回调（run 已结束）：不得走邮箱内快捷分支，须排队按活态落库', async () => {
+    // 默认值已翻转 strict（RVW04 P1-3）：本用例构造的逃逸回调携带旧快照
+    // （version=0），验证的是「逃逸回调排队进邮箱落库」机制本身（与 CAS 模式
+    // 解耦），须显式声明 log 让旧快照字段照常合并，不随默认值漂移。
+    (PlayerService as any).CAS_MODE = 'log';
     // 先让活态版本推进到 1（一次正常写）
     await playerService.savePlayer({ userId: 101, hp: 88 });
     expect(rows[0].version).toBe(1);
@@ -157,6 +166,8 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
   });
 
   it('log 模式：旧快照整包写记录冲突后照常合并（行为兼容）', async () => {
+    // 默认值已翻转 strict（RVW04 P1-3）：本用例锁定 log 模式行为，显式声明。
+    (PlayerService as any).CAS_MODE = 'log';
     rows[0].version = 3; // 库内/活态版本已推进
     await playerService.savePlayer({ userId: 101, version: 1, hp: 77 });
 
@@ -168,6 +179,8 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
   });
 
   it('log 模式 CAS 冲突：记录堆栈后强制写库，业务不中断', async () => {
+    // 显式设 log：本用例验证 log 模式语义，不依赖历史默认值
+    (PlayerService as any).CAS_MODE = 'log';
     rows[0].version = 5; // 模拟其他写者已推进版本
     await (playerService as any).persistPlayer({ id: 900, userId: 101, version: 3, hp: 66 });
 

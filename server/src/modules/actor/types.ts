@@ -2,7 +2,7 @@
  * Actor 运行时类型定义
  *
  * 设计目标：把「每实体一个串行邮箱 + 内存态 + 单激活 + 异步落库」做成与具体实体无关的
- * 通用原语。玩家/怪物/地图/载具/商店物品都只是「注册进来的一种实体类型」，各自提供
+ * 通用原语。任何有状态实体都只是「注册进来的一种实体类型」，提供
  * load（从存储载入内存态）与 save（落库）即可成为 Actor。
  *
  * 这对应「理想 Actor 模型」的单进程形态：
@@ -12,16 +12,11 @@
  * - 单进程内天然单线程、无竞态、无锁、无 CAS（串行化靠 Promise 链，非 Mutex）
  */
 
-/** 实体类型名，如 'player' | 'monster' | 'map' | 'vehicle' | 'shopitem' */
+/** 实体类型名（当前注册类型：'player'；后续新实体按需 registerType） */
 export type EntityType = string;
 
-/** 实体主键（玩家用 userId，怪物用 GameMonster.id 等） */
+/** 实体主键（玩家用 userId，其他实体用各自表主键） */
 export type EntityId = number | string;
-
-export interface EntityKey {
-  type: EntityType;
-  id: EntityId;
-}
 
 /** 稳定字符串键，作为 Map / ALS 的标识 */
 export function actorKey(type: EntityType, id: EntityId): string {

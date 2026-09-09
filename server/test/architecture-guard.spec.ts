@@ -107,7 +107,10 @@ describe('架构门禁：玩家状态写入口收口', () => {
   //   原「召h货1藏」）与维修延时结算（applyCompleteVehicleRepair，原「维修wcc1」）
   //   两个 dts tick 直调入口按支柱二收口为 enqueueUserWrite → savePlayer，
   //   各新增 1 处邮箱内落库 sink，属预期增量（同 266 批次口径）。
-  const RAW_SAVEPLAYER_BASELINE = 275;
+  // - 基线 275 → 276（2026-09-08 RVW04 修复轮实测校准）：HEAD 存量裸写实测已为
+  //   276 处（前序提交未同步基线，门禁在干净工作树上即红）；本轮 P1-3（CAS 默认
+  //   strict）/ P2-7（static-data 校验+索引）两项修复零新增 savePlayer，按实测校准。
+  const RAW_SAVEPLAYER_BASELINE = 276;
   const MUTATE_CALL_BASELINE = 4;
   // 业务代码（非 excluded 文件）不得再出现任何裸 prisma.player.update——
   // 唯一允许的落库 sink 在 PlayerService.persistPlayerData（已 excluded，不计入）。
@@ -326,10 +329,11 @@ describe('架构门禁：玩家状态写入口收口', () => {
 
   it('业务代码禁止直写 GameMap 动态聚合列（必须走 mutateMapFields/mutateSummons 闭环）', () => {
     // 允许的落库 sink：map.service.ts 内部（mutateMapFields/updateDynamicFields/
-    // refreshExpiredMapResources 等封装了锁内闭环/缓存失效），以及 actor builtin-types.ts
-    // （map Actor 自身的 load→save 路径）。其余业务文件若再出现裸
+    // refreshExpiredMapResources 等封装了锁内闭环/缓存失效）。其余业务文件若再出现裸
     // prisma.gameMap.update / updateMany 写聚合列即判违规。
-    const MAP_SINK_FILES = ['map.service.ts', 'builtin-types.ts'];
+    // （RVW04 P1-4：actor/builtin-types.ts 的 map Actor load→save 路径已随悬空注册
+    // 删除，不再作为豁免 sink——任何新文件直写 gameMap 聚合列都会被本门禁拦下。）
+    const MAP_SINK_FILES = ['map.service.ts'];
     const business = targetFiles.filter(
       (f) => !MAP_SINK_FILES.some((name) => f.endsWith(name)),
     );
@@ -456,5 +460,32 @@ describe('架构门禁：玩家状态写入口收口', () => {
       );
     }
     expect(offenders.length).toBe(0);
+  });
+
+  // ===== GameService 体积冻结门禁（RVW04 P1-2）=====
+  // 背景：game.service.ts 从评审基线 15,222 行一路膨胀（RVW04 评审时点 17,296 行，
+  // 2026-09-08 修复轮实测——含本轮 P2-8 前后端契约注释落笔后的终值——17,434 行；
+  // 2026-09-09 自 17,428 上调 +6：当时取值实测时 handleInventory 的 P2-8 契约注释
+  // 因编辑未落地而少计 6 行，注释重做落地后按实测修正，见 QA Round 1 回归记录），
+  // 单文件 god class 已经大到任何修改都要在数千行里找上下文、任何合并都可能踩冲突。
+  // 止血规则：**新增指令 handler 一律新文件（挂 game 模块下），GameService 只减不增**；
+  // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
+  const GAME_SERVICE_LINE_BASELINE = 17434;
+
+  it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
+    const gameSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game.service.ts'),
+      'utf8',
+    );
+    // 与 wc -l 同口径：按换行符计数（该文件为 CRLF、末尾带换行，17,434 即实测值）
+    const lineCount = (gameSrc.match(/\r?\n/g) ?? []).length;
+    if (lineCount > GAME_SERVICE_LINE_BASELINE) {
+      throw new Error(
+        `game.service.ts 行数 ${lineCount} 已超过冻结基线 ${GAME_SERVICE_LINE_BASELINE}。\n` +
+          `新增指令 handler 一律新文件（挂 game 模块下），GameService 只减不增；\n` +
+          `拆分子 service 后请下调基线。`,
+      );
+    }
+    expect(lineCount).toBeLessThanOrEqual(GAME_SERVICE_LINE_BASELINE);
   });
 });
