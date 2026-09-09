@@ -13,6 +13,7 @@ import { GameService } from './game.service';
 import { CombatSystemService } from './combat-system.service';
 import { StatsService } from './stats.service';
 import { AdminService } from '../admin/admin.service';
+import { HomeService } from './home.service';
 
 @ApiTags('游戏')
 @ApiBearerAuth()
@@ -26,6 +27,7 @@ export class GameController {
     private readonly combatSystem: CombatSystemService,
     private readonly statsService: StatsService,
     private readonly adminService: AdminService,
+    private readonly homeService: HomeService,
   ) {}
 
   /**
@@ -38,6 +40,18 @@ export class GameController {
     const userId = req.user.userId;
     // 复用 gameService 的玩家状态摘要构建（与 socket 实时推送 player:update 使用同一数据源，保证一致）
     const data = await this.gameService.buildPlayerInfo(userId);
+    return { success: true, data };
+  }
+
+  /**
+   * 获取家园总览（只读预览，结构化 DTO）。
+   * 在深克隆上运行与家园结算完全相同的公式：不推进观测时间、不领取产出、
+   * 不写任何标记——网页面板随便看，QQ 端「产出」的结算不受影响。
+   */
+  @Get('home/overview')
+  @ApiOperation({ summary: '获取家园总览（只读预览：电力/燃料/产出速率/存放地/设备快照）' })
+  async getHomeOverview(@Req() req) {
+    const data = await this.homeService.getHomeOverview(req.user.userId);
     return { success: true, data };
   }
 

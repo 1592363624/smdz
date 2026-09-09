@@ -50,6 +50,9 @@
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'me' }" @click="sidebarTab = 'me'">
           <span class="tab-icon">👤</span>我的
         </button>
+        <button class="sidebar-tab" :class="{ active: sidebarTab === 'home' }" @click="sidebarTab = 'home'">
+          <span class="tab-icon">🏠</span>家园
+        </button>
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'cmd' }" @click="sidebarTab = 'cmd'">
           <span class="tab-icon">📖</span>指令
         </button>
@@ -120,6 +123,11 @@
             <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
             <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
           </div>
+        </div>
+
+        <!-- 家园 Tab：只读总览（电力/燃料/预计领取/每日速率/设备/存放地），一键领取走统一聊天指令通道 -->
+        <div v-show="sidebarTab === 'home'" class="tab-pane">
+          <HomePanel :active="sidebarTab === 'home'" @action="sendChatMessage" />
         </div>
 
         <!-- 指令 Tab：搜索 + 指令列表（更大空间） -->
@@ -221,6 +229,9 @@
         <button class="sidebar-tab" :class="{ active: mobileTab === 'map' }" @click="mobileTab = 'map'">
           <span class="tab-icon">🗺️</span>地图
         </button>
+        <button class="sidebar-tab" :class="{ active: mobileTab === 'home' }" @click="mobileTab = 'home'">
+          <span class="tab-icon">🏠</span>家园
+        </button>
         <button class="sidebar-tab" :class="{ active: mobileTab === 'cmd' }" @click="mobileTab = 'cmd'">
           <span class="tab-icon">📖</span>指令
         </button>
@@ -294,6 +305,10 @@
         </div>
 
         <!-- 地图 Tab -->
+        <div v-show="mobileTab === 'home'" class="tab-pane">
+          <HomePanel :active="mobileTab === 'home'" @action="sendChatMessage" />
+        </div>
+
         <div v-show="mobileTab === 'map'" class="tab-pane">
           <div class="map-connections" v-if="mapOverview">
             <div class="mc-current">
@@ -914,6 +929,7 @@ import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { useRouter } from 'vue-router';
 // 玩家状态面板（桌面侧栏 + 手机抽屉复用；战斗力/任务/装备/增益一屏展示）
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
+import HomePanel from '../components/HomePanel.vue';
 import PendingActionBar from '../components/PendingActionBar.vue';
 import { io } from 'socket.io-client';
 import { chatApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
@@ -986,9 +1002,10 @@ function isRichCardContent(text) {
   if (!text || typeof text !== 'string') return false;
   const lines = text.split('\n').map((l) => l.replace(/\r$/, '').trim()).filter(Boolean);
   if (!lines.length) return false;
-  // 背包：任意一行匹配 "🎒 背包 (N种):" 头，且其后存在 "序号." 行
+  // 背包：任意一行匹配 "🎒 背包/资源背包 (N种):" 头，且其后存在 "序号." 行
+  // 资源背包与背包服务端输出同构，共用富卡片判定（handleResourceBag 约定）
   for (let i = 0; i < lines.length; i++) {
-    if (/^🎒\s*背包\s*\(\d+(?:种)?\)/.test(lines[i])) {
+    if (/^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/.test(lines[i])) {
       return lines.slice(i + 1).some((l) => /^\d+\./.test(l));
     }
   }

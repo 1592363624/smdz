@@ -2430,24 +2430,38 @@ export class GameService {
   }
 
   /**
+   * 「背包」列表口径（对齐原版：查看背包只显示装备，资源/材料/消耗品走「资源背包」）。
+   * 数字类指令（装备 N / 背包 N）的编号必须与本列表序号同源——单一实现，禁止散弹复制。
+   */
+  getEquipmentBackpackItems(items: any[]): any[] {
+    return (items || []).filter((item: any) => (item.type || item.类型) === '装备');
+  }
+
+  /**
    * 处理查看背包命令
+   * 对齐原版：查看背包只显示装备；资源/材料/消耗品请用「资源背包」（handleResourceBag）。
+   * 数字入参（背包 N）= 装备列表序号，与列表展示同源（前端悬浮图鉴按行序号回查）。
    */
   async handleInventory(userId: number, arg?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
     const items = this.playerService.getBackpackItems(player);
+    const equipmentItems = this.getEquipmentBackpackItems(items);
 
-    if (items.length === 0) {
-      return '🎒 你的背包空空如也';
+    if (equipmentItems.length === 0) {
+      if (items.length === 0) {
+        return '🎒 你的背包空空如也';
+      }
+      return '🎒 你的背包里没有装备（资源请用「资源背包」查看）';
     }
 
     // 查看单项详情（对应原版 物品操作.ecode L815~L818：背包 序号/名称 查看物品详情）
     if (arg) {
-      // 支持按序号或名称定位
+      // 序号=装备列表编号（与「背包」输出同源）；名称仍查全背包（「背包 奶」等资源详情不回归）
       const idxNum = parseInt(arg, 10);
       let item;
-      if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= items.length) {
-        item = items[idxNum - 1];
+      if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= equipmentItems.length) {
+        item = equipmentItems[idxNum - 1];
       } else {
         item = items.find((i: any) => (i.name || i.名称) === arg);
       }
@@ -2464,16 +2478,11 @@ export class GameService {
       return `🎒【${itemName}】×${count}${type}${desc}`;
     }
 
-    const lines = items.map((item: any, index: number) => {
-      if ((item.type || item.类型) === '装备') {
-        return `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`;
-      }
-      const itemName = item.name || item.名称 || '未知物品';
-      const count = Math.round(this.itemQuantity(item) * 100) / 100;
-      return `${index + 1}. ${itemName} ×${count}`;
-    });
+    const lines = equipmentItems.map((item: any, index: number) =>
+      `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`,
+    );
 
-    return `🎒 背包 (${items.length}种):\n${lines.join('\n')}`;
+    return `🎒 背包 (${equipmentItems.length}种):\n${lines.join('\n')}`;
   }
 
   /**
@@ -2820,12 +2829,16 @@ export class GameService {
     const normalizedName = String(itemName || '').trim();
     if (!normalizedName) return '请指定要装备的物品名称';
 
-    const numericIndex = /^\d+$/.test(normalizedName)
-      ? Number(normalizedName) - 1
-      : -1;
-    let index = numericIndex >= 0
-      ? numericIndex
-      : items.findIndex((item: any) => item.name === normalizedName);
+    // 数字入参（对齐原版）：「背包」列表只显示装备，N = 装备列表序号
+    //（与 handleInventory 输出同源；equipItem 需要 1-based 全背包编号，此处做映射）
+    if (/^\d+$/.test(normalizedName)) {
+      const equipmentItems = this.getEquipmentBackpackItems(items);
+      const idx = Number(normalizedName) - 1;
+      if (idx < 0 || idx >= equipmentItems.length) return `背包中没有【${itemName}】`;
+      return this.itemService.equipItem(userId, items.indexOf(equipmentItems[idx]) + 1);
+    }
+
+    let index = items.findIndex((item: any) => item.name === normalizedName);
 
     // 回退 1：解析「基础名 + 可选单字母品质码 + 可选·后缀」形态（如 矢量S / 矢量B·绝对零度）。
     // 2026-09-06 修复（品质错配）：此前一律剥掉品质码后按基础名取第一件同名装备，
@@ -7397,7 +7410,7 @@ export class GameService {
 
   /**
    * 处理资源背包命令
-   * 从背包中筛选资源、材料、消耗品类型的物品，分类显示
+   * 从背包中筛选资源、材料、消耗品类型物品，输出格式与「背包」列表同构（见函数末尾注释）
    */
   async handleResourceBag(userId: number): Promise<string> {
     // 获取玩家数据
@@ -7416,26 +7429,18 @@ export class GameService {
       return '📦 你的资源背包是空的，当前没有资源、材料或消耗品';
     }
 
-    // 按类型分类
-    const categorized: Record<string, any[]> = {};
-    for (const item of resourceItems) {
-      const type = item.type || '其他';
-      if (!categorized[type]) categorized[type] = [];
-      categorized[type].push(item);
-    }
+    // 输出格式与「背包」列表完全同构（🎒 标题 + 「N. 名字 ×数量」行）：
+    // 前端 RichSystemCard 的背包网格解析与 ChatView isRichCardContent 按同一文本约定复用，
+    // 资源背包不设第二套解析分支（统一调用约定，禁止双重表示）。
+    // 数量口径与 handleInventory 一致走 itemQuantity（quantity/count 双字段兜底），
+    // 禁用旧的 count||quantity 读取（addToBackpack 历史路径只写 count 并 delete quantity）。
+    const lines = resourceItems.map((item: any, index: number) => {
+      const itemName = item.name || item.名称 || '未知物品';
+      const count = Math.round(this.itemQuantity(item) * 100) / 100;
+      return `${index + 1}. ${itemName} ×${count}`;
+    });
 
-    const lines = ['📦 资源背包:', `━━━━━━━━━━━━━━━`];
-    for (const [type, typeItems] of Object.entries(categorized)) {
-      lines.push(`【${type}】`);
-      for (const item of typeItems as any[]) {
-        const count = item.count || item.quantity || 1;
-        lines.push(`  ${item.name} ×${formatDisplayNumber(count)}`);
-      }
-      lines.push('');
-    }
-    lines.push(`共 ${resourceItems.length} 种物品`);
-
-    return lines.join('\n');
+    return `🎒 资源背包 (${resourceItems.length}种):\n${lines.join('\n')}`;
   }
 
   /**

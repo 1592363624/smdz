@@ -123,6 +123,12 @@ export const gameApi = {
   stats: () => http.get('/game/stats'),
 };
 
+/// 家园接口
+export const homeApi = {
+  // 家园总览（只读预览 DTO：不推进观测时间、不领取产出，随便看不影响 QQ 端结算）
+  overview: () => http.get('/game/home/overview'),
+};
+
 /// 系统/版本接口
 export const systemApi = {
   // 获取部署版本信息与更新检测配置（用于检测部署完成、弹窗提示更新日志）

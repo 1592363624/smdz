@@ -328,11 +328,17 @@ export class GameCommandHandler implements CommandHandler {
           }
           const playerData = await this.playerService.getPlayerData(userId);
           const equipArg = arg.trim();
-          const numericIndex = /^\d+$/.test(equipArg) ? Number(equipArg) - 1 : -1;
-          const itemIndex = numericIndex >= 0
-            ? numericIndex
-            : playerData.backpack.findIndex((candidate: any) => candidate.name === equipArg);
-          const item = itemIndex >= 0 ? playerData.backpack[itemIndex] : undefined;
+          // 编号口径=「背包」装备列表（getEquipmentBackpackItems，对齐原版分类：
+          // 背包只显示装备）。与 handleEquip 数字解析同源，保证任务记账与实际装备的是同一件。
+          let item: any;
+          if (/^\d+$/.test(equipArg)) {
+            const equipItems = this.gameService.getEquipmentBackpackItems(playerData.backpack);
+            const numericIdx = Number(equipArg) - 1;
+            item = numericIdx >= 0 && numericIdx < equipItems.length ? equipItems[numericIdx] : undefined;
+          } else {
+            const itemIndex = playerData.backpack.findIndex((candidate: any) => candidate.name === equipArg);
+            item = itemIndex >= 0 ? playerData.backpack[itemIndex] : undefined;
+          }
           const result = await this.gameService.handleEquip(userId, arg);
           if (this.isSuccessfulAction(result) && item?.type === '装备') {
             const action = this.itemSystem.isWeaponItem(item) ? '使用武器' : '使用装备';

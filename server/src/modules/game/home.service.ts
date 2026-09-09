@@ -68,6 +68,72 @@ export interface MapOutputResult {
   powerGeneration: number;          // 发电量
 }
 
+// ==================== 家园结算 DTO（唯一真相源） ====================
+
+/** 家园结算产出的单项（quantity 允许为负，负数表示消耗） */
+export interface HomeSettlementItem {
+  name: string;
+  quantity: number;
+}
+
+/** 家园生产者快照：参与本次结算的建筑/作物/特殊临时生产者的有效形态（供 Web 设备卡片） */
+export interface HomeProducerSnapshot {
+  name: string;
+  type?: string;
+  count: number;
+  priority: number;
+  outputs: ProduceItem[];
+}
+
+/** 世界模拟器训练进度快照 */
+export interface HomeWorldSimulation {
+  /** 训练进度百分比（aiProgress/864，原版口径） */
+  aiProgressPercent: number;
+  alphaChance: number;
+  betaChance: number;
+  /** 与 QQ 文本完全一致的状态行（含取整口径），文本渲染直接消费 */
+  text: string;
+  /** 本次训练生成的核心（settle 时已写入存放地；preview 时为概率投影） */
+  cores: HomeSettlementItem[];
+}
+
+/**
+ * 家园结算结构化结果——家园系统的唯一真相源。
+ * - QQ 文本由 renderHomeSettlementText(settlement) 纯函数投影，数值与文本永不双轨；
+ * - Web 面板（GET /game/home/overview）直接消费本 DTO；
+ * - preview（settle:false）在深克隆上运行与结算完全相同的公式，
+ *   不写观测时间/有电/每日产出/AI 标记，不触碰存放地与玩家档案。
+ */
+export interface HomeSettlement {
+  /** 早退原因（家园未建成/无家园地图等）；存在时其余字段为空投影 */
+  blocked?: string;
+  playerName: string;
+  hasPower: boolean;
+  /** 生产模式：true=超载（建筑产出 1.25x / 燃耗 1.5x） */
+  overloaded: boolean;
+  /** 原始观测间隔（秒） */
+  elapsedSeconds: number;
+  /** 含宠物时间倍率后的有效间隔（秒） */
+  effectiveElapsedSeconds: number;
+  /** 燃料可支撑的生产时长（秒） */
+  remainingFuelSeconds: number;
+  /** 发电量（电力/分钟口径，原版 MapOutputResult.powerGeneration） */
+  powerGeneration: number;
+  /** 宠物/具现装置直接产出（蛋/垃圾/未知物品/核心等，settle 时已写入存放地） */
+  directOutput: HomeSettlementItem[];
+  /** 按优先级结算的有序正产出——渲染「获得XxY」行的唯一来源 */
+  gains: HomeSettlementItem[];
+  /** 每日折算正产出（供家园贸易 2% 与 UI 速率表；无电时为空） */
+  dailyOutput: HomeSettlementItem[];
+  /** 宠物异常提示（如螳螂无采集工具） */
+  petBonusText: string[];
+  worldSimulation?: HomeWorldSimulation;
+  /** 参与本次结算的生产者快照（含特殊临时生产者） */
+  producers: HomeProducerSnapshot[];
+  /** 结算（或预览投影）后的存放地快照（中英键名已归一化为 name/quantity） */
+  storage: HomeSettlementItem[];
+}
+
 @Injectable()
 export class HomeService {
   private readonly logger = new Logger(HomeService.name);
@@ -1200,23 +1266,74 @@ export class HomeService {
   }
 
   /**
-   * 观测并领取家园产出。
+   * 观测并领取家园产出（QQ 文本出口，行为与历史版本逐字一致）。
    * 对应地图操作.ecode L53-540：先计算电力/燃料可支撑时间，再按优先级执行产出。
-   * 该入口集中所有家园公式，避免旧使魔服务维护另一套简化实现。
+   * 计算与文本已拆分：computeHomeSettlement 负责公式与结算，
+   * renderHomeSettlementText 负责 DTO → 文本投影。
    */
   async collectHomeOutput(userId: number): Promise<string> {
+    const settlement = await this.computeHomeSettlement(userId, { settle: true });
+    return renderHomeSettlementText(settlement);
+  }
+
+  /**
+   * 只读家园总览（Web 面板数据源）。
+   * 在深克隆上运行与结算完全相同的公式：不写观测时间/有电/每日产出/AI 标记，
+   * 不触碰存放地与玩家档案——「看面板」永远不会偷走 QQ 端「产出」的结算。
+   */
+  async getHomeOverview(userId: number): Promise<HomeSettlement> {
+    return this.computeHomeSettlement(userId, { settle: false });
+  }
+
+  private emptySettlement(playerName: string): HomeSettlement {
+    return {
+      playerName,
+      hasPower: false,
+      overloaded: false,
+      elapsedSeconds: 0,
+      effectiveElapsedSeconds: 0,
+      remainingFuelSeconds: 0,
+      powerGeneration: 0,
+      directOutput: [],
+      gains: [],
+      dailyOutput: [],
+      petBonusText: [],
+      producers: [],
+      storage: [],
+    };
+  }
+
+  private deepCloneJson<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  /**
+   * 家园结算纯计算核心（唯一真相源）。
+   * settle=true：在活态对象上执行结算并持久化（观测时间/有电/每日产出/AI/存放地/玩家标记）；
+   * settle=false：全部写入落在深克隆上，函数返回即丢弃，零持久化。
+   */
+  private async computeHomeSettlement(
+    userId: number,
+    options: { settle: boolean },
+  ): Promise<HomeSettlement> {
+    const settle = options.settle;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    // player.markers 为 Player Json 列（对象/字符串兼容读取）；safeJsonParse 对对象会解析失败丢数据
-    const markers = asJsonValue<any>(player.markers, {});
+    const playerName = player.name || '冒险者';
+    // player.markers 为 Player Json 列（对象/字符串兼容读取）；safeJsonParse 对对象会解析失败丢数据。
+    // preview 模式在克隆上运行，绝不污染 Actor 活态。
+    const liveMarkers = asJsonValue<any>(player.markers, {});
+    const markers = settle ? liveMarkers : this.deepCloneJson(liveMarkers);
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
-    if (progress < 4) return '家园尚未建成，无法产出';
-    if (!player.houseName && !player.mapId) return '你还没有家园所在地图';
+    if (progress < 4) return { ...this.emptySettlement(playerName), blocked: '家园尚未建成，无法产出' };
+    if (!player.houseName && !player.mapId) {
+      return { ...this.emptySettlement(playerName), blocked: '你还没有家园所在地图' };
+    }
 
     const map = player.houseName
       ? await this.mapService.getMapByName(player.houseName).catch(() => null)
       : await this.mapService.getMapById(player.mapId);
-    if (!map) return '家园所在的地图不存在';
+    if (!map) return { ...this.emptySettlement(playerName), blocked: '家园所在的地图不存在' };
 
     const buildings = this.safeParseJSON<any[]>(map.buildings, []);
     const definitions = this.staticData.getAllBuildings();
@@ -1237,7 +1354,9 @@ export class HomeService {
       }))
       .filter((resource) => resource.count > 0 && resource.outputs.length > 0);
     // 原版“产出存放”就是地图.物品，不是玩家背包；普通地图拾取命令再把它移入背包。
-    const storage = this.safeParseJSON<any[]>(map.items, []);
+    // preview 在克隆上运行全部公式，产出/消耗写入随克隆丢弃，不触碰活态。
+    const liveStorage = this.safeParseJSON<any[]>(map.items, []);
+    const storage = settle ? liveStorage : this.deepCloneJson(liveStorage);
     const summons = this.safeParseJSON<any[]>(map.summons, []);
     const alive = (pet: any): boolean => (pet?.hp ?? pet?.currentHp ?? pet?.当前生命 ?? 0) > 0;
     // 地图操作.ecode 的“是否有特殊宠物”默认不要求存活，只有兰音幼崽调用时显式传入真。
@@ -1252,7 +1371,8 @@ export class HomeService {
       .reduce((sum: number, b: any) => sum + this.getItemQuantityValue(b), 0);
 
     const now = Date.now() / 1000;
-    const mapMarkers = this.safeParseJSON<any>(map.markers, {});
+    const liveMapMarkers = this.safeParseJSON<any>(map.markers, {});
+    const mapMarkers = settle ? liveMapMarkers : this.deepCloneJson(liveMapMarkers);
     // 新版本使用地图标记保存观测时间；兼容此前写入玩家标记的存量家园。
     const lastOutput = this.readMarkerValue(mapMarkers, '观测时间')
       || this.readMarkerValue(mapMarkers, '读取时间')
@@ -1401,6 +1521,8 @@ export class HomeService {
     );
 
     let worldSimulationText = '';
+    let worldSimStats: { aiProgressPercent: number; alphaChance: number; betaChance: number } | null = null;
+    const trainedCores: ProduceItem[] = [];
     const directOutput = ambientOutput.map((item) => ({ ...item }));
     // 原版地图操作.ecode L254-L320：世界模拟器只在建筑可运行且有电时训练。
     const worldSimulatorCount = countBuilding('世界模拟器');
@@ -1458,10 +1580,16 @@ export class HomeService {
               : '废弃硅基核心';
           this.addItemToArray(generatedName, 1, storage, { data: 'a' });
           directOutput.push({ name: generatedName, quantity: 1 });
+          trainedCores.push({ name: generatedName, quantity: 1 });
         }
       }
       this.writeMarkerValue(mapMarkers, 'AI', aiProgress);
       worldSimulationText = `正在训练硅基核心:${this.roundLikeOriginal(aiProgress / 864)}%(${this.roundLikeOriginal(alphaChance)}/${this.roundLikeOriginal(betaChance)}/${this.roundLikeOriginal(100 - alphaChance - betaChance)})`;
+      worldSimStats = {
+        aiProgressPercent: this.roundLikeOriginal(aiProgress / 864),
+        alphaChance: this.roundLikeOriginal(alphaChance),
+        betaChance: this.roundLikeOriginal(betaChance),
+      };
     }
 
     // 特殊产出判断必须读取“当前已累计的总产出”，顺序与原版 L334-L499 一致。
@@ -1580,21 +1708,35 @@ export class HomeService {
     // 原版地图操作会把供电状态写入地图标记，贸易和其他家园功能都依赖该状态。
     this.writeMarkerValue(mapMarkers, '有电', analysis.hasPower ? 1 : 0);
     markers['家园产出时间'] = now;
-    // Player Json 列直接写对象（savePlayer 会整行写回，stringify 会双重编码）
-    player.markers = markers;
-    const resultLines = [`${player.name || '冒险者'}的家园产出`];
+    // Player Json 列直接写对象（savePlayer 会整行写回，stringify 会双重编码）；preview 不落盘、不污染 Actor 活态
+    if (settle) player.markers = markers;
     if (!analysis.hasPower) {
       this.removeItemQuantity('肥料', temporaryFertilizer, storage);
       this.writeMarkerValue(mapMarkers, '每日产出', []);
-      await this.persistHomeMap(map, storage, mapMarkers);
-      await this.playerService.savePlayer(player);
-      return `${resultLines[0]}\n电力不足，建筑生产停止`;
+      if (settle) {
+        await this.persistHomeMap(map, storage, mapMarkers);
+        await this.playerService.savePlayer(player);
+      }
+      return {
+        ...this.emptySettlement(playerName),
+        hasPower: false,
+        overloaded,
+        elapsedSeconds: timeDiff,
+        effectiveElapsedSeconds: effectiveTimeDiff,
+        remainingFuelSeconds: analysis.remainingFuel,
+        powerGeneration: analysis.powerGeneration,
+        directOutput: directOutput.map((item) => ({ ...item })),
+        producers: this.snapshotProducers(limitedCrops, buildingProducers),
+        storage: this.snapshotStorage(storage),
+      };
     }
 
     const duration = analysis.remainingFuel;
     const outputItems: ProduceItem[] = directOutput.map((item) => ({ ...item }));
+    // 有序正产出：直接产出在前，优先级产出随后——文本渲染「获得XxY」行的唯一来源
+    const gains: HomeSettlementItem[] = [];
     for (const item of directOutput) {
-      if (item.quantity > 0) resultLines.push(`获得${item.name}x${item.quantity}`);
+      if (item.quantity > 0) gains.push({ name: item.name, quantity: item.quantity });
     }
     for (let priority = 1; priority <= 7; priority++) {
       const cropOut = this.produceResources(
@@ -1628,7 +1770,7 @@ export class HomeService {
         // 原版每次产出资源都会立即写回存放地，后续优先级可以继续使用前一优先级产出的物品。
         if (item.quantity > 0) {
           this.addItemToArray(item.name, item.quantity, storage);
-          resultLines.push(`获得${item.name}x${item.quantity}`);
+          gains.push({ name: item.name, quantity: item.quantity });
         } else if (item.quantity < 0) {
           this.removeItemQuantity(item.name, Math.abs(item.quantity), storage);
         }
@@ -1644,19 +1786,56 @@ export class HomeService {
       if (item.name === '电力' || item.quantity <= 0) continue;
       dailyOutput.set(item.name, (dailyOutput.get(item.name) || 0) + item.quantity * 86400 / elapsed);
     }
-    this.writeMarkerValue(
-      mapMarkers,
-      '每日产出',
-      Array.from(dailyOutput.entries()).map(([name, quantity]) => ({ name, quantity })),
-    );
+    const dailyOutputItems = Array.from(dailyOutput.entries()).map(([name, quantity]) => ({ name, quantity }));
+    this.writeMarkerValue(mapMarkers, '每日产出', dailyOutputItems);
 
-    if (worldSimulationText) resultLines.push(worldSimulationText);
-    // 对齐原版 L591-604：拼接宠物加成文本
-    if (petBonusText.length > 0) resultLines.push(petBonusText.join('、'));
-    await this.persistHomeMap(map, storage, mapMarkers);
-    await this.playerService.savePlayer(player);
-    if (resultLines.length === 1) resultLines.push('本次没有产出任何物品');
-    return resultLines.join('\n');
+    if (settle) {
+      await this.persistHomeMap(map, storage, mapMarkers);
+      await this.playerService.savePlayer(player);
+    }
+
+    const settlement: HomeSettlement = {
+      ...this.emptySettlement(playerName),
+      hasPower: true,
+      overloaded,
+      elapsedSeconds: timeDiff,
+      effectiveElapsedSeconds: effectiveTimeDiff,
+      remainingFuelSeconds: analysis.remainingFuel,
+      powerGeneration: analysis.powerGeneration,
+      directOutput: directOutput.map((item) => ({ ...item })),
+      gains,
+      dailyOutput: dailyOutputItems.map((item) => ({ ...item })),
+      petBonusText: [...petBonusText],
+      producers: this.snapshotProducers(limitedCrops, buildingProducers),
+      storage: this.snapshotStorage(storage),
+    };
+    if (worldSimulationText && worldSimStats) {
+      settlement.worldSimulation = {
+        ...worldSimStats,
+        text: worldSimulationText,
+        cores: trainedCores.map((item) => ({ ...item })),
+      };
+    }
+    return settlement;
+  }
+
+  /** 生产者快照：作物在前、建筑在后（与优先级结算顺序一致），outputs 深拷贝脱离计算对象 */
+  private snapshotProducers(crops: Producer[], buildings: Producer[]): HomeProducerSnapshot[] {
+    return [...crops, ...buildings].map((producer) => ({
+      name: producer.name,
+      type: producer.type,
+      count: producer.count,
+      priority: producer.priority,
+      outputs: producer.outputs.map((output) => ({ ...output })),
+    }));
+  }
+
+  /** 存放地快照：中英键名归一化为 name/quantity，供 Web 库存面板直接消费 */
+  private snapshotStorage(storage: any[]): HomeSettlementItem[] {
+    return storage.map((item: any) => ({
+      name: this.getItemName(item),
+      quantity: this.getItemQuantityValue(item),
+    }));
   }
 
   private writeMarkerValue(target: any, name: string, value: any): void {
@@ -1684,4 +1863,22 @@ export class HomeService {
     // 避免陈旧整行回写覆盖本次落库）；不再保留裸 prisma 写分支。
     await this.mapService.updateDynamicFields(map.id, { items, markers });
   }
+}
+
+/**
+ * 家园结算文本渲染器（纯函数，无副作用）。
+ * 输出与历史 collectHomeOutput 逐字一致，供 QQ bot 文本出口消费：
+ * 标题行 → 有电短路行 / 「获得XxY」有序产出 → 世界模拟器状态 → 宠物提示 → 空产出兜底。
+ */
+export function renderHomeSettlementText(settlement: HomeSettlement): string {
+  if (settlement.blocked) return settlement.blocked;
+  const lines = [`${settlement.playerName}的家园产出`];
+  if (!settlement.hasPower) return `${lines[0]}\n电力不足，建筑生产停止`;
+  for (const item of settlement.gains) {
+    lines.push(`获得${item.name}x${item.quantity}`);
+  }
+  if (settlement.worldSimulation?.text) lines.push(settlement.worldSimulation.text);
+  if (settlement.petBonusText.length > 0) lines.push(settlement.petBonusText.join('、'));
+  if (lines.length === 1) lines.push('本次没有产出任何物品');
+  return lines.join('\n');
 }

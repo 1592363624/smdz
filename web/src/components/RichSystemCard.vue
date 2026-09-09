@@ -453,8 +453,9 @@ function parseLayout(text) {
     .map((l) => l.replace(/\r$/, ''))
     .filter((l) => l.trim() !== '');
 
-  // ---------- 1. 背包：🎒 背包 (N种): + "1. xxx ×N"（标题可能在行中，需扫描定位） ----------
-  const bagIdx = lines.findIndex((l) => /^🎒\s*背包\s*\(\d+(?:种)?\)/.test(l));
+  // ---------- 1. 背包：🎒 背包/资源背包 (N种): + "1. xxx ×N"（标题可能在行中，需扫描定位） ----------
+  // 资源背包与背包共用同一网格分支：服务端输出格式完全同构（handleResourceBag 约定）
+  const bagIdx = lines.findIndex((l) => /^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/.test(l));
   if (bagIdx >= 0) {
     const items = [];
     const notes = [];
@@ -483,7 +484,9 @@ function parseLayout(text) {
       if (t) notes.push(t);
     }
     if (items.length) {
-      return { kind: 'bag', title: `🎒 背包 (${items.length}种)`, items, notes };
+      // 标题沿用服务端原文（背包 / 资源背包），两种背包共用同一网格分支
+      const header = lines[bagIdx].match(/🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/)?.[0] ?? `🎒 背包 (${items.length}种)`;
+      return { kind: 'bag', title: header, items, notes };
     }
   }
 
