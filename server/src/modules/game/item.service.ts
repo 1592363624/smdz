@@ -29,6 +29,8 @@ import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity, formatDisplayNumber } from '../../common/utils/game-text.util';
 import { applyEquipmentEffect, createEffectTarget } from './equipment-effect.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+// 三池数值出口归一化（第四道闸）：回复 + 封顶统一走 player-pool.util 单一实现。
+import { capPoolValue } from './player-pool.util';
 
 /**
  * 物品3接口，对应原版易语言的"物品3"数据类型
@@ -889,13 +891,12 @@ export class ItemService {
       } catch {
         // 属性计算不可用（测试桩/部分 new 出来的实例）时退回基础字段，不影响主流程
       }
-      player.hp = Number(player.hp ?? player.currentHp ?? 0) + base * ratio * actualCount;
-      player.shield = Number(player.shield ?? 0) + base * ratio * actualCount;
-      player.armor = Number(player.armor ?? 0) + base * ratio * actualCount;
-      // 封顶口径与面板一致：当前值不得超过计算后上限（cap 为 0 视为该池未启用，不封）
-      if (capHp > 0 && Number(player.hp) > capHp) player.hp = capHp;
-      if (capShield > 0 && Number(player.shield) > capShield) player.shield = capShield;
-      if (capArmor > 0 && Number(player.armor) > capArmor) player.armor = capArmor;
+      // 出口归一化：比例回复（base×ratio×count）是典型浮点源，统一「两位小数 + <0.01
+      // 归零 + 封顶」一次性收敛；cap 为 0 视为该池未启用，只归一化不封顶。
+      const gain = base * ratio * actualCount;
+      player.hp = capPoolValue(Number(player.hp ?? player.currentHp ?? 0) + gain, capHp);
+      player.shield = capPoolValue(Number(player.shield ?? 0) + gain, capShield);
+      player.armor = capPoolValue(Number(player.armor ?? 0) + gain, capArmor);
     };
 
     /** 数字到时间（秒→分秒文本），格式沿用本框架 msToTimeText 约定 */

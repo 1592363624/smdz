@@ -33,6 +33,10 @@ import {
 } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
+// 三池数值出口归一化（第四道闸）：扣血/封顶/回复必须走 player-pool.util 的单一实现，
+// 禁止在调用侧对已截断的池值再 Math.round —— 那会把 0.02 这类残值抹成 0，造成
+// 「残血不死 + 伤害恒为 0」的死锁（2026-09-10 路人乙事故）。
+import { resolvePoolDamage, subtractPoolValue, capPoolValue } from './player-pool.util';
 
 // ==================== 类型定义 ====================
 
@@ -3097,12 +3101,15 @@ export class CombatSystemService {
       const pool = vehicleResolution.poolDamage || dmg.poolDamage || { shield: 0, armor: 0, hp: playerDamage };
       const shieldBeforeDamage = Number(victim.shield || 0);
       const armorBeforeDamage = Number(victim.armor || 0);
-      const shieldDmg = Math.min(Math.max(0, Math.round(pool.shield || 0)), victim.shield || 0);
-      const armorDmg = Math.min(Math.max(0, Math.round(pool.armor || 0)), victim.armor || 0);
-      const hpDmg = Math.min(Math.max(0, Math.round(pool.hp || 0)), victim.hp || 0);
-      victim.shield = Math.max(0, (victim.shield || 0) - shieldDmg);
-      victim.armor = Math.max(0, (victim.armor || 0) - armorDmg);
-      victim.hp = Math.max(0, (victim.hp || 0) - hpDmg);
+      // 三池出口归一化（player-pool.util）：先按当前池值解析实际扣减量，再归一化写回。
+      // 原实现 Math.round(pool.x) 会把 0.02/0.08 这类「已截断到残池」的伤害抹成 0，
+      // 使残血玩家永远扣不掉血（死锁）；resolvePoolDamage 在残池 <1 时按「打到即清空」处理。
+      const shieldDmg = resolvePoolDamage(pool.shield, victim.shield);
+      const armorDmg = resolvePoolDamage(pool.armor, victim.armor);
+      const hpDmg = resolvePoolDamage(pool.hp, victim.hp);
+      victim.shield = subtractPoolValue(victim.shield, shieldDmg);
+      victim.armor = subtractPoolValue(victim.armor, armorDmg);
+      victim.hp = subtractPoolValue(victim.hp, hpDmg);
 
       // 原版 L3877/L541-543：把玩家本次承受伤害累计进怪物标记「承受者+玩家」，
       // 作为击杀结算「参与者」名单中怪物行「总承受」与玩家行「承受:x(%)」的数据源。
@@ -7061,9 +7068,11 @@ export class CombatSystemService {
       const capHp = Number(bonus.生命 || 0);
       const capShield = Number(bonus.护盾 || 0);
       const capArmor = Number(bonus.装甲 || 0);
-      if (capHp > 0 && Number(player.hp || 0) > capHp) player.hp = capHp;
-      if (capShield > 0 && Number(player.shield || 0) > capShield) player.shield = capShield;
-      if (capArmor > 0 && Number(player.armor || 0) > capArmor) player.armor = capArmor;
+      // 出口归一化（player-pool.util）：超限封顶 + 两位小数 + 残值(<0.01)归零，
+      // 杜绝浮点上限/回复产物把 0.02 这类脏值留在三池里。cap<=0 时仅做归一化。
+      if ('hp' in player) player.hp = capPoolValue(player.hp, capHp);
+      if ('shield' in player) player.shield = capPoolValue(player.shield, capShield);
+      if ('armor' in player) player.armor = capPoolValue(player.armor, capArmor);
     } catch {
       // 封顶失败不影响属性计算主流程
     }
@@ -7392,14 +7401,14 @@ export class CombatSystemService {
     const armorDmg = Math.min(poolDamage.armor, currentArmor);
     const hpDmg = Math.min(poolDamage.hp, monster.hp || 0);
 
-    // 更新怪物状态
+    // 更新怪物状态（出口归一化：清浮点残尾，<0.01 归零，与玩家侧同一实现）
     if (monster.shield !== undefined) {
-      monster.shield = Math.max(0, (monster.shield || 0) - shieldDmg);
+      monster.shield = subtractPoolValue(monster.shield, shieldDmg);
     }
     if (monster.armor !== undefined) {
-      monster.armor = Math.max(0, (monster.armor || 0) - armorDmg);
+      monster.armor = subtractPoolValue(monster.armor, armorDmg);
     }
-    monster.hp = Math.max(0, (monster.hp || 0) - hpDmg);
+    monster.hp = subtractPoolValue(monster.hp, hpDmg);
 
     // 猩红积累（战斗相关.ecode L3854-3859）：防御方带活跃猩红增益时，
     // 本次总伤害（上限=三池当前总和）累计入防御方"猩红"熟练度，供真伤释放。

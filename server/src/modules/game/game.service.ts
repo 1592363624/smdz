@@ -38,6 +38,9 @@ import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
 import { buildFamiliarGateMenu } from './familiar-menu.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
+// 三池数值出口归一化（第四道闸）：回复/百分比缩放/封顶统一走 player-pool.util 单一实现，
+// 两位小数 + 残值(<0.01)归零，杜绝 0.02 这类脏值残留导致「残血不死 + 伤害恒为 0」死锁。
+import { capPoolValue, normalizePoolValue, normalizePools } from './player-pool.util';
 
 interface QuestSource {
   npcName: string;
@@ -7443,9 +7446,10 @@ export class GameService {
         const cur = (player.shield || 0) + (player.armor || 0) + (player.hp || 0);
         const a1pct = total > 0 ? (cur / total) * 100 : 0;
         await this.achievementService.addAchievement(player, '龙闪', Math.round(a1pct));
-        player.hp = (player.hp || 0) * 0.01;
-        player.armor = (player.armor || 0) * 0.01;
-        player.shield = (player.shield || 0) * 0.01;
+        // 出口归一化：×0.01 必产生浮点尾（例：71.98 → 0.7198…），统一两位小数后入库
+        player.hp = normalizePoolValue((player.hp || 0) * 0.01);
+        player.armor = normalizePoolValue((player.armor || 0) * 0.01);
+        player.shield = normalizePoolValue((player.shield || 0) * 0.01);
         w += `(龙闪${Math.round(a1pct)}%)`;
       }
     } else if (seq === 22) {
@@ -14599,9 +14603,10 @@ export class GameService {
         const armorRegen = Math.floor(rateArmor * timeDiff + rateArmor2 / 100 * capArmor * timeDiff);
 
         // 限制回复量不超过计算上限（含装备加成的面板分母）
-        player.hp = Math.min(capHp, hpBefore + hpRegen);
-        player.shield = Math.min(capShield, shieldBefore + shieldRegen);
-        player.armor = Math.min(capArmor, armorBefore + armorRegen);
+        // 出口归一化：封顶到计算上限 + 两位小数 + 残值归零（cap<=0 时仅归一化）
+        player.hp = capPoolValue(hpBefore + hpRegen, capHp);
+        player.shield = capPoolValue(shieldBefore + shieldRegen, capShield);
+        player.armor = capPoolValue(armorBefore + armorRegen, capArmor);
       }
 
       // ===== 躺下经验结算（原版 _计算玩家 L2478-2491） =====

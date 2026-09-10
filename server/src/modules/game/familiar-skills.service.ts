@@ -23,6 +23,8 @@ import { TaskService } from './task.service';
 import { MutateContext, PlayerMutateService } from './player-mutate.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+// 三池数值出口归一化（第四道闸）：百分比回复/固定量回复统一走 player-pool.util 单一实现。
+import { normalizePoolValue } from './player-pool.util';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -409,9 +411,10 @@ export class FamiliarSkillsService {
     const hp = Number(player.maxHp ?? player.生命 ?? 0) * 0.1;
     const shield = Number(player.maxShield ?? player.护盾 ?? 0) * 0.1;
     const armor = Number(player.maxArmor ?? player.装甲 ?? 0) * 0.1;
-    player.hp = Number(player.hp ?? player.当前生命 ?? 0) + hp;
-    player.shield = Number(player.shield ?? player.当前护盾 ?? 0) + shield;
-    player.armor = Number(player.armor ?? player.当前装甲 ?? 0) + armor;
+    // 出口归一化：×0.1 会产生浮点尾（例 71.98×0.1=7.198…），统一两位小数后写入
+    player.hp = normalizePoolValue(Number(player.hp ?? player.当前生命 ?? 0) + hp);
+    player.shield = normalizePoolValue(Number(player.shield ?? player.当前护盾 ?? 0) + shield);
+    player.armor = normalizePoolValue(Number(player.armor ?? player.当前装甲 ?? 0) + armor);
     resultLines.push(`恢复了${this.formatSkillNumber(shield)}护盾、${this.formatSkillNumber(armor)}装甲、${this.formatSkillNumber(hp)}生命`);
   }
 
@@ -1322,8 +1325,8 @@ export class FamiliarSkillsService {
     const firstAidLines: string[] = [];
     this.applyFirstAid(player, firstAidLines);
 
-    // 原版 L1326：当前生命 +0.1
-    player.hp = Number(player.hp ?? 0) + 0.1;
+    // 原版 L1326：当前生命 +0.1（出口归一化：固定量小数为典型浮点源，统一两位小数）
+    player.hp = normalizePoolValue(Number(player.hp ?? 0) + 0.1);
 
     // 原版 L1333-1335：库洛牌 → a3=1.25；添加标记("怒吼", a3*(10+技能等级/2), 玩家.增益)
     const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;

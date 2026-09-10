@@ -16,6 +16,8 @@ import { deriveDisplayName } from './display-name.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
 import { canonicalizeBackpack, lookupFromStaticData } from './item-normalize.util';
+// 三池数值出口归一化（第四道闸）：落库前兜底收敛，保证 DB 不出现浮点残值脏数据。
+import { normalizePools } from './player-pool.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { GameHighlightService } from './highlight.service';
 import { ActorRuntime, actorKey } from '../actor';
@@ -1300,6 +1302,9 @@ export class PlayerService {
    * 版本条件拦下，冲突显式暴露为错误日志/异常，而不是静默覆盖。
    */
   private async persistPlayer(player: any): Promise<void> {
+    // 落库兜底闸（第四道闸）：任何漏过业务出口的三池浮点/负值写入在此收敛为
+    // 「两位小数 + <0.01 归零」，DB 不会存下 0.02 这类「面板显示 0、判定仍存活」的脏值。
+    normalizePools(player);
     const updateData = this.buildPlayerUpdateData(player);
     // 全路径货币审计（P4 兜底）：mutate 管道内的审计只覆盖 mutate 链，这里在
     // 真正落库层兜底——Actor writeThrough / 邮箱路径 / 裸保存的货币变动同样入账。
