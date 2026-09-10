@@ -1030,11 +1030,29 @@ function isRichCardContent(text) {
 }
 
 /**
+ * 系统公告前缀常量（须与后端 admin.service.sendAnnouncement 写入的前缀一致）
+ * 服务端持久化公告时会在正文前拼上该前缀，用于消息流识别与留档；
+ * 但弹窗本身已有「📢 系统公告」标题，正文再出现一次即冗余，展示前需剥离。
+ */
+const ANN_PREFIX = '【系统公告】';
+
+/**
  * 判断一条消息是否为 GM 系统公告
  * 公告统一改为弹窗展示，不再出现在公屏消息流中（服务端仍持久化留档）
  */
 function isAnnouncementMsg(m) {
-  return m.type === 'system' && typeof m.content === 'string' && m.content.startsWith('【系统公告】');
+  return m.type === 'system' && typeof m.content === 'string' && m.content.startsWith(ANN_PREFIX);
+}
+
+/**
+ * 公告正文归一化：剥离服务端加上的「【系统公告】」前缀
+ * 实时推送（socket 载荷已是原始正文）与历史补弹（整条消息含前缀）共用此入口，
+ * 保证两条路径展示完全一致。
+ */
+function normalizeAnnContent(content) {
+  const text = String(content ?? '');
+  if (!text.startsWith(ANN_PREFIX)) return text;
+  return text.slice(ANN_PREFIX.length).replace(/^[ \t]*\r?\n?/, '');
 }
 
 /**
@@ -2908,7 +2926,8 @@ function showAnnouncement(a) {
   if (loadSeenAnnIds().includes(id)) return;
   // 去重：同一条公告（实时推送 + 历史扫描可能重复触发）只入队一次
   if (annQueue.value.some((it) => it.id === id)) return;
-  annQueue.value.push({ id, content: a.content, createdAt: a.createdAt });
+  // 正文剥离「【系统公告】」前缀：弹窗标题已表明这是公告，正文重复一次是冗余
+  annQueue.value.push({ id, content: normalizeAnnContent(a.content), createdAt: a.createdAt });
   // 仅在无进行中的倒计时时启动（队列后续公告由 closeAnnouncement 接力启动）
   if (!annTimer) startAnnForceShow();
 }
