@@ -15,6 +15,14 @@ import { IMPLANT_STATS, IMPLANT_STAT_MAP, AMPLIFIER_STAT_MAP, IMPLANT_RANDOM_POO
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+// 装备引用解析（基础名 + 品质码 + ·特效）单一实现：锁定/解锁与「装备」指令同源，禁各自写正则。
+import {
+  QUALITY_CODE_BY_NAME,
+  describeQualityMiss,
+  findEquipmentIndexByInstance,
+  resolveEquipmentRefIndex,
+  resolveEquipmentRefIndexes,
+} from './equipment-ref.util';
 import {
   CraftCategory,
   CraftClassifyLookups,
@@ -355,9 +363,17 @@ export class ItemSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack, markers } = playerData;
 
-    // 查找物品
-    const itemIndex = backpack.findIndex((bp: Item3) => bp.name === itemName);
+    // 查找物品（名字支持「基础名 / 基础名+品质码 / +·特效」形态，如 冰雹 / 冰雹S / 冰雹S·纯洁无瑕，
+    // 解析走 equipment-ref.util 单一实现，与锁定装备/解锁/装备指令同源；非装备条目同样可被精确名命中）
+    const itemIndex = resolveEquipmentRefIndex(backpack, itemName, {
+      displayName: (it: Item3) => this.itemService.formatEquipmentInventoryDisplay(it),
+      equipmentOnly: false,
+    });
     if (itemIndex === -1) {
+      const miss = describeQualityMiss(backpack, itemName);
+      if (miss) {
+        return `${player.name} 你的背包中没有【${miss.baseName}】的${miss.qualityName}品质装备。`;
+      }
       return `${player.name} 你的背包中没有${itemName}。`;
     }
 
@@ -971,10 +987,11 @@ export class ItemSystemService {
    * 对应原版：锁定装备()
    * 设置装备的耐久标记为1（锁定），防止误分解
    */
-  /** 品质关键词 → 装备数据串前缀（原版 锁定装备/解锁 按品质分支：神迹x/传说s/史诗a/精良b/优秀c） */
-  private static readonly LOCK_QUALITY_PREFIX: Record<string, string> = {
-    '神迹': 'x', '传说': 's', '史诗': 'a', '精良': 'b', '优秀': 'c',
-  };
+  /** 品质关键词 → 装备数据串前缀（原版 锁定装备/解锁 按品质分支：神迹x/传说s/史诗a/精良b/优秀c）
+   *  由 equipment-ref.util 的品质表派生（单一事实来源，禁在本文件再抄一份）。 */
+  private static readonly LOCK_QUALITY_PREFIX: Record<string, string> = Object.fromEntries(
+    ['神迹', '传说', '史诗', '精良', '优秀'].map((name) => [name, QUALITY_CODE_BY_NAME[name]]),
+  );
 
   /** 按品质前缀批量设置锁定状态（原版品质分支），返回被处理的物品 */
   private setLockByQuality(backpack: Item3[], prefix: string, locked: boolean): Item3[] {
@@ -988,14 +1005,19 @@ export class ItemSystemService {
     return touched;
   }
 
-  /** 按名字批量设置锁定状态（原版同名批量分支），返回被处理的物品 */
+  /**
+   * 按名字批量设置锁定状态，返回被处理的物品。
+   * 名字支持「基础名 / 基础名+品质码 / 基础名+品质码+·特效 / 基础名+中文品质词」四种形态
+   * （如 冰雹 / 冰雹S / 冰雹S·纯洁无瑕 / 冰雹传说），解析走 equipment-ref.util 单一实现：
+   * 带品质码时只锁该品质的同名装备，不降级到任意品质。
+   */
   private setLockByName(backpack: Item3[], name: string, locked: boolean): Item3[] {
+    const indexes = resolveEquipmentRefIndexes(backpack, name, { equipmentOnly: false })
+      .filter((idx) => backpack[idx]?.type === '装备');
     const touched: Item3[] = [];
-    for (const bp of backpack) {
-      if (bp.type === '装备' && bp.name === name) {
-        bp.durability = locked ? 1 : 0;
-        touched.push(bp);
-      }
+    for (const idx of indexes) {
+      backpack[idx].durability = locked ? 1 : 0;
+      touched.push(backpack[idx]);
     }
     return touched;
   }
@@ -1022,7 +1044,9 @@ export class ItemSystemService {
    *  1. 无参数      → 提示用法；
    *  2. 品质关键词  → 锁定背包全部该品质装备（神迹/传说/史诗/精良/优秀）；
    *  3. 纯数字      → 按背包编号锁定（1-based）；
-   *  4. 名字        → 锁定背包全部同名装备（原版即为批量）。
+   *  4. 名字        → 锁定背包全部同名装备（原版即为批量）；
+   *     名字可带品质码/特效后缀（冰雹S、冰雹S·纯洁无瑕、冰雹传说、冰雹[传说]），
+   *     带品质码时只锁该品质，解析走 equipment-ref.util 单一实现。
    */
   async lockEquipment(userId: number, arg: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1031,7 +1055,7 @@ export class ItemSystemService {
 
     // 1. 无参数 → 用法提示（原版 L3531）
     if (!key) {
-      return `${player.name}“锁定装备1”来锁定背包的第1个物品\n“锁定装备信号枪”来锁定背包的全部名称为“信号枪”的物品\n“锁定装备传说”来锁定背包的全部品质为传说的装备`;
+      return `${player.name}“锁定装备1”来锁定背包的第1个物品\n“锁定装备信号枪”来锁定背包的全部名称为“信号枪”的物品\n“锁定装备传说”来锁定背包的全部品质为传说的装备\n“锁定装备冰雹S”只锁定名称为“冰雹”且品质为传说的装备`;
     }
 
     // 2. 品质关键词 → 批量锁定该品质（原版 L3533-3590）
@@ -1063,9 +1087,13 @@ export class ItemSystemService {
       return `${player.name}给${item.name}上了锁，这个装备将不能分解。`;
     }
 
-    // 4. 名字 → 批量锁定全部同名装备（原版 L3607-3620）
+    // 4. 名字（可带品质码）→ 批量锁定全部同名装备（原版 L3607-3620）
     const locked = this.setLockByName(backpack, key, true);
     if (locked.length === 0) {
+      const miss = describeQualityMiss(backpack, key);
+      if (miss) {
+        return `${player.name} 你的背包中没有【${miss.baseName}】的${miss.qualityName}品质装备。`;
+      }
       return `${player.name} 你的背包中没有【${key}】装备。`;
     }
     await this.persistBackpack(userId, backpack);
@@ -1078,7 +1106,7 @@ export class ItemSystemService {
    *  1. 无参数      → 提示用法；
    *  2. 品质关键词  → 解锁背包全部该品质装备（神迹/传说/史诗/精良/优秀）；
    *  3. 纯数字      → 按背包编号解锁（1-based）；
-   *  4. 名字        → 解锁背包全部同名装备。
+   *  4. 名字        → 解锁背包全部同名装备（与锁定装备同口径，支持 冰雹S 等带品质码形态）。
    */
   async unlockEquipment(userId: number, arg: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1087,7 +1115,7 @@ export class ItemSystemService {
 
     // 1. 无参数 → 用法提示
     if (!key) {
-      return `${player.name}“解锁1”来解锁背包的第1个物品\n“解锁信号枪”来解锁背包的全部名称为“信号枪”的物品\n“解锁传说”来解锁背包的全部品质为传说的装备`;
+      return `${player.name}“解锁1”来解锁背包的第1个物品\n“解锁信号枪”来解锁背包的全部名称为“信号枪”的物品\n“解锁传说”来解锁背包的全部品质为传说的装备\n“解锁冰雹S”只解锁名称为“冰雹”且品质为传说的装备`;
     }
 
     // 2. 品质关键词 → 批量解锁该品质
@@ -1119,9 +1147,13 @@ export class ItemSystemService {
       return `${player.name}给${item.name}解锁了。`;
     }
 
-    // 4. 名字 → 批量解锁全部同名装备
+    // 4. 名字（可带品质码）→ 批量解锁全部同名装备
     const unlocked = this.setLockByName(backpack, key, false);
     if (unlocked.length === 0) {
+      const miss = describeQualityMiss(backpack, key);
+      if (miss) {
+        return `${player.name} 你的背包中没有【${miss.baseName}】的${miss.qualityName}品质装备。`;
+      }
       return `${player.name} 你的背包中没有【${key}】装备。`;
     }
     await this.persistBackpack(userId, backpack);
@@ -1137,9 +1169,16 @@ export class ItemSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack, safeBox } = playerData;
 
-    // 查找物品
-    const bpIndex = backpack.findIndex((bp: Item3) => bp.name === itemName);
+    // 查找物品（支持 冰雹S / 冰雹S·纯洁无瑕 等带品质码形态；非装备条目仍按整名命中）
+    const bpIndex = resolveEquipmentRefIndex(backpack, itemName, {
+      displayName: (it: Item3) => this.itemService.formatEquipmentInventoryDisplay(it),
+      equipmentOnly: false,
+    });
     if (bpIndex === -1) {
+      const miss = describeQualityMiss(backpack, itemName);
+      if (miss) {
+        return `${player.name} 你的背包中没有【${miss.baseName}】的${miss.qualityName}品质装备。`;
+      }
       return `${player.name} 你的背包中没有【${itemName}】。`;
     }
 
@@ -1184,8 +1223,11 @@ export class ItemSystemService {
       return `${player.name} 你没有次元保险柜或保险柜是空的，无法取出物品。`;
     }
 
-    // 在保险柜中查找目标物品（按名称匹配）
-    const sbIndex = safeBox.findIndex((sb: Item3) => sb.name === itemName);
+    // 在保险柜中查找目标物品（支持 冰雹S 等带品质码形态，口径与背包侧一致）
+    const sbIndex = resolveEquipmentRefIndex(safeBox, itemName, {
+      displayName: (it: Item3) => this.itemService.formatEquipmentInventoryDisplay(it),
+      equipmentOnly: false,
+    });
     if (sbIndex === -1) {
       return `${player.name} 你的次元保险柜中没有【${itemName}】。`;
     }
@@ -1222,8 +1264,16 @@ export class ItemSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack } = playerData;
 
-    const bpIndex = backpack.findIndex((bp: Item3) => bp.name === itemName);
+    // 查找物品（支持 冰雹S 等带品质码形态；非装备条目仍按整名命中）
+    const bpIndex = resolveEquipmentRefIndex(backpack, itemName, {
+      displayName: (it: Item3) => this.itemService.formatEquipmentInventoryDisplay(it),
+      equipmentOnly: false,
+    });
     if (bpIndex === -1) {
+      const miss = describeQualityMiss(backpack, itemName);
+      if (miss) {
+        return `${player.name} 你的背包中没有【${miss.baseName}】的${miss.qualityName}品质装备。`;
+      }
       return `${player.name} 你的背包中没有【${itemName}】。`;
     }
 
@@ -1267,25 +1317,35 @@ export class ItemSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack, equipment, weapons } = playerData;
 
-    // 先在背包中查找
-    let item = backpack.find(
-      (bp: Item3) => bp.name === itemName && bp.type === '装备',
-    );
+    // 定位顺序不变（背包 → 装备栏 → 武器栏），但匹配口径统一走 equipment-ref.util：
+    // 支持 冰雹 / 冰雹S / 冰雹S·纯洁无瑕 等形态，不再只认整名第一件。
+    // 背包沿用「仅装备条目」口径（原实现 bp.type === '装备'）；装备栏/武器栏条目不带 type，放开限制。
+    const displayName = (it: Item3) => this.itemService.formatEquipmentInventoryDisplay(it);
+    let item: Item3 | undefined;
     let source = '背包';
 
-    // 再在已装备中查找
-    if (!item) {
-      item = equipment.find((eq: Item3) => eq.name === itemName);
-      source = '装备栏';
+    const bagIndex = resolveEquipmentRefIndex(backpack, itemName, { displayName });
+    if (bagIndex >= 0) {
+      item = backpack[bagIndex];
+    } else {
+      const equipIndex = resolveEquipmentRefIndex(equipment, itemName, { displayName, equipmentOnly: false });
+      if (equipIndex >= 0) {
+        item = equipment[equipIndex];
+        source = '装备栏';
+      } else {
+        const weaponIndex = resolveEquipmentRefIndex(weapons, itemName, { displayName, equipmentOnly: false });
+        if (weaponIndex >= 0) {
+          item = weapons[weaponIndex];
+          source = '武器栏';
+        }
+      }
     }
 
-    // 再在武器中查找
     if (!item) {
-      item = weapons.find((w: Item3) => w.name === itemName);
-      source = '武器栏';
-    }
-
-    if (!item) {
+      const miss = describeQualityMiss(backpack, itemName);
+      if (miss) {
+        return `${player.name} 没有【${miss.baseName}】的${miss.qualityName}品质装备。`;
+      }
       return `${player.name} 未找到【${itemName}】。`;
     }
 
@@ -1718,9 +1778,9 @@ export class ItemSystemService {
       const newEquipment: Item3[] = [];
       const newWeapons: Item3[] = [];
       for (const presetItem of preset.equipment) {
-        const bpIndex = backpack.findIndex(
-          (bp: Item3) => bp.name === presetItem.name && bp.type === '装备',
-        );
+        // 按「基础名 + 品质码」还原实例（预设条目自带 data 品质码）：
+        // 只按名字取第一件会把同名不同品质的装备张冠李戴（预设存的是 S，加载回来成了 A）。
+        const bpIndex = findEquipmentIndexByInstance(backpack, presetItem);
         if (bpIndex !== -1) {
           const item = backpack.splice(bpIndex, 1)[0];
           // 判断是否为武器
@@ -2586,13 +2646,19 @@ export class ItemSystemService {
     itemName: string,
   ): Promise<{ equip: Equipment; item: Item3 } | null> {
     const { backpack, equipment, weapons } = playerData;
-
-    let item = backpack.find((bp: Item3) => bp.name === itemName && bp.type === '装备');
-    if (!item) item = equipment.find((eq: Item3) => eq.name === itemName);
-    if (!item) item = weapons.find((w: Item3) => w.name === itemName);
-
-    if (!item) return null;
-    return { equip: this.parseEquipment(item), item };
+    // 与解析/分解同源：支持 冰雹S 等带品质码形态。
+    // 背包沿用「仅装备条目」口径（原 bp.type === '装备'）；装备栏/武器栏条目不带 type，放开限制。
+    const displayName = (it: Item3) => this.itemService.formatEquipmentInventoryDisplay(it);
+    const pools: Array<{ list: Item3[]; equipmentOnly: boolean }> = [
+      { list: backpack, equipmentOnly: true },
+      { list: equipment, equipmentOnly: false },
+      { list: weapons, equipmentOnly: false },
+    ];
+    for (const { list, equipmentOnly } of pools) {
+      const index = resolveEquipmentRefIndex(list, itemName, { displayName, equipmentOnly });
+      if (index >= 0) return { equip: this.parseEquipment(list[index]), item: list[index] };
+    }
+    return null;
   }
 
   /**

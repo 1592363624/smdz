@@ -35,6 +35,8 @@ import { VitalityService } from './vitality.service';
 import { HandbookService } from './handbook.service';
 import { normalizeGameText, formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+// 装备引用解析（基础名 + 品质码 + ·特效）单一实现，与「锁定装备/解锁」同源。
+import { resolveEquipmentRefIndex } from './equipment-ref.util';
 import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
 import { buildFamiliarGateMenu } from './familiar-menu.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -2915,44 +2917,15 @@ export class GameService {
       return this.itemService.equipItem(userId, items.indexOf(displayItems[idx]) + 1);
     }
 
-    let index = items.findIndex((item: any) => item.name === normalizedName);
-
-    // 回退 1：解析「基础名 + 可选单字母品质码 + 可选·后缀」形态（如 矢量S / 矢量B·绝对零度）。
-    // 2026-09-06 修复（品质错配）：此前一律剥掉品质码后按基础名取第一件同名装备，
-    // 导致「穿上 矢量S」实际穿成背包数组里第一件任意品质的矢量（S 原件仍留在包内，
-    // 玩家可见品质与预期不符）。现当输入带品质码时，必须同时满足
-    // 「item.name == 基础名 且 item.data 首字符品质前缀 == 该品质码（不分大小写）」；
-    // 带品质码但无对应品质时不降级为任意品质，按未找到处理。
-    if (index < 0 || index >= items.length) {
-      const withoutSuffix = normalizedName
-        // 去掉末尾·xxx特效（最后一个·之后的内容）
-        .replace(/·[^·]+$/, '')
-        .trim();
-      const qualityLetter = withoutSuffix.match(/[edcbasxEDCBASX]$/)?.[0]?.toLowerCase();
-      if (qualityLetter) {
-        const baseName = withoutSuffix.slice(0, -1).trim();
-        if (baseName) {
-          index = items.findIndex((item: any) =>
-            item.name === baseName &&
-            String(item.data || '').charAt(0).toLowerCase() === qualityLetter,
-          );
-        }
-      } else if (withoutSuffix && withoutSuffix !== normalizedName) {
-        // 输入仅含「基础名·特效」或纯基础名形态：维持原 lenient 行为，取第一件同名装备
-        index = items.findIndex((item: any) => item.name === withoutSuffix);
-      }
-    }
-
-    // 回退 2：用背包显示全名（含品质码 + ·特效）整段匹配
-    if (index < 0 || index >= items.length) {
-      index = items.findIndex(
-        (item: any) =>
-          (item.type || item.类型) === '装备' &&
-          this.itemService.formatEquipmentInventoryDisplay(item) === normalizedName,
-      );
-    }
-
-    if (index < 0 || index >= items.length) return `背包中没有【${itemName}】`;
+    // 名称定位统一走 equipment-ref.util 单一实现（与「锁定装备/解锁」同源）：
+    //   整名精确 → 基础名+品质码（带品质码不降级为任意品质，2026-09-06 品质错配事故）
+    //   → 剥掉·特效后缀的基础名 → 背包显示全名（冰雹S·绝对零度）。
+    // 2026-09-10：此前本方法内联了一份「末尾字母品质码」正则，锁定/解锁各写一套，
+    // 属双重表示；现三处共用同一解析器，后续修品质口径只需改一处。
+    const index = resolveEquipmentRefIndex(items, normalizedName, {
+      displayName: (item: any) => this.itemService.formatEquipmentInventoryDisplay(item),
+    });
+    if (index < 0) return `背包中没有【${itemName}】`;
 
     // ItemService 使用 1-based 背包编号；这里的数组下标是 0-based。
     return this.itemService.equipItem(userId, index + 1);
