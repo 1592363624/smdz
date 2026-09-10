@@ -22,7 +22,7 @@ interface SystemConfigDefault {
 const DEFAULT_CONFIGS: SystemConfigDefault[] = [
   {
     key: 'chat.messageIntervalSec',
-    value: '0.5',
+    value: '0.2',
     label: '用户消息发送间隔(秒)',
     description: '同一用户两条消息之间的最小间隔，防止刷屏；0=不限制',
     type: 'number',
@@ -61,6 +61,14 @@ export class SystemConfigService implements OnModuleInit {
           await this.prisma.systemConfig.update({
             where: { key: cfg.key },
             data: { group: cfg.group, label: cfg.label, description: cfg.description },
+          });
+          this.cache.delete(cfg.key);
+        }
+        // 消息间隔：旧默认 0.5 迁到 0.2（仅当库中仍是旧默认时；管理员改过的其他值不动）
+        if (cfg.key === 'chat.messageIntervalSec' && Number(existing.value) === 0.5) {
+          await this.prisma.systemConfig.update({
+            where: { key: cfg.key },
+            data: { value: cfg.value },
           });
           this.cache.delete(cfg.key);
         }
@@ -202,7 +210,7 @@ export class SystemConfigService implements OnModuleInit {
    * 防止刷屏；管理员可在「系统配置 → 指令设置」在线调整。
    */
   getMessageIntervalSec(): Promise<number> {
-    return this.get<number>('chat.messageIntervalSec', 0.5);
+    return this.get<number>('chat.messageIntervalSec', 0.2);
   }
 
   /**

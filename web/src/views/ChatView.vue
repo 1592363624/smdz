@@ -2408,8 +2408,8 @@ const toasts = ref([]);
 let toastId = 0;
 /** 软节流：上次成功发出消息的时间戳（ms） */
 let lastChatSendAt = 0;
-/** 发送间隔（秒），由后端配置下发；缺失时按 0.5 兜底 */
-const chatRateLimitSec = ref(0.5);
+/** 发送间隔（秒），由后端配置下发；缺失时按 0.2 兜底 */
+const chatRateLimitSec = ref(0.2);
 /**
  * 显示一条轻提示（自动消失）
  * @param {string} message 提示内容
@@ -3095,7 +3095,7 @@ onMounted(async () => {
     // 时钟对齐：倒计时进度条/增益剩余时间都拿服务器时刻与本机时钟相减，
     // 先测一次偏移量（失败静默，倒计时退化为本机时钟）；socket 重连时会再测
     syncServerClock();
-    // 消息发送间隔：后端配置下发（防刷屏软节流）；失败保持默认 0.5s
+    // 消息发送间隔：后端配置下发（防刷屏软节流）；失败保持默认 0.2s
     try {
       const webCfg = await systemApi.getWebConfig();
       const sec = Number(webCfg?.data?.messageIntervalSec);

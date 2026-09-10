@@ -416,7 +416,7 @@ async function main() {
     { key: 'update.autoReloadSeconds', value: '15', label: '自动刷新倒计时(秒)', description: '弹窗展示更新日志后多少秒自动刷新页面，0=不自动刷新(需玩家手动点击)', type: 'number', group: 'update' },
     { key: 'update.promptCooldown', value: '300', label: '重复提醒冷却(秒)', description: '玩家点击「稍后」后，多少秒内不再重复弹窗打扰', type: 'number', group: 'update' },
     { key: 'web.handbookTooltipDelayMs', value: '1000', label: '背包图鉴悬浮延迟(毫秒)', description: '网页背包格子悬浮多少毫秒后弹出图鉴弹层，0=立即弹出', type: 'number', group: 'web' },
-    { key: 'chat.messageIntervalSec', value: '0.5', label: '用户消息发送间隔(秒)', description: '同一用户两条消息之间的最小间隔，防止刷屏；0=不限制', type: 'number', group: 'command' },
+    { key: 'chat.messageIntervalSec', value: '0.2', label: '用户消息发送间隔(秒)', description: '同一用户两条消息之间的最小间隔，防止刷屏；0=不限制', type: 'number', group: 'command' },
   ] as const;
 
   for (const cfg of systemConfigs) {
