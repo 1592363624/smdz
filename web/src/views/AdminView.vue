@@ -572,8 +572,10 @@ async function setWorldLevel() {
   gmLoading.value = true;
   try {
     const res = await adminApi.setWorldLevel(newWorldLevel.value);
-    worldLevel.value = res.data.level;
-    worldLevelResult.value = `世界等级已设置为 ${res.data.level}`;
+    // 设置接口只返回 { success, message }；等级需回读（写入的是「世界熟练度」点数，
+    // 世界等级是 floor(√点数)+1 的换算结果，不回读会显示成 undefined）。
+    await loadWorldLevel();
+    worldLevelResult.value = res.message || `世界等级已设置为 ${worldLevel.value}`;
     setTimeout(() => (worldLevelResult.value = ''), 3000);
   } catch (e) {
     worldLevelResult.value = '设置失败：' + (e.response?.data?.message || e.message);

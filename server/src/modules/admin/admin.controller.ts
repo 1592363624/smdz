@@ -278,7 +278,7 @@ export class AdminController {
   @Get('gm/world-level')
   @ApiOperation({ summary: '获取当前世界等级' })
   async getWorldLevel() {
-    const level = await this.systemConfigService.get<number>('game.worldLevel', 1);
+    const level = await this.adminService.getWorldLevel();
     return { success: true, data: { level } };
   }
 

@@ -28,6 +28,7 @@ import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { HandbookService } from './handbook.service';
 import { GameGlobalSettingService } from './game-global-setting.service';
+import { GlobalProficiencyService } from './global-proficiency.service';
 import { TutorialService } from './tutorial.service';
 import { StaticDataService } from './static-data.service';
 import { GameHighlightService } from './highlight.service';
@@ -75,6 +76,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     VitalityService,
     HandbookService,
     GameGlobalSettingService,
+    GlobalProficiencyService,
     TutorialService,
     StaticDataService,
     DelayedTaskService,
@@ -110,6 +112,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     VitalityService,
     HandbookService,
     GameGlobalSettingService,
+    GlobalProficiencyService,
     TutorialService,
     GameHighlightService,
     // token 别名同样导出，供全局的 AdminService 等注入

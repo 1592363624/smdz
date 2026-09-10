@@ -33,6 +33,7 @@ import { DelayedTaskService } from './delayed-task.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { HandbookService } from './handbook.service';
+import { GlobalProficiencyService } from './global-proficiency.service';
 import { normalizeGameText, formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 // 装备引用解析（基础名 + 品质码 + ·特效）单一实现，与「锁定装备/解锁」同源。
@@ -113,6 +114,9 @@ export class GameService {
     // 图鉴服务（HandbookService）负责 20 分类的详情渲染与搜索；
     // 用 @Optional 是为兼容现有 Object.create 测试桩，新测试请直接注入。
     @Optional() private readonly handbookService?: HandbookService,
+    // 全局熟练度（原版 全局标记）：技能面板「世界等级 / 怪物等级+」的唯一真相源。
+    // @Optional 兼容 Object.create / 位置传参的既有测试桩。
+    @Optional() private readonly globalProficiency?: GlobalProficiencyService,
   ) {}
 
   /**
@@ -7831,15 +7835,8 @@ export class GameService {
       // 图鉴是只读展示，加成取不到时按 0 展示基础掉落即可
     }
 
-    // 世界等级（原版 熟练度等级(全局标记,"世界")，来自 game.worldLevel 系统配置）
-    let worldLevel = 0;
-    try {
-      const cfg = await this.prisma.systemConfig.findUnique({ where: { key: 'game.worldLevel' } });
-      worldLevel = Number(cfg?.value ?? 0) || 0;
-    } catch {
-      // 同上：取不到按 0
-    }
-
+    // 世界等级与各物种熟练度不再由本方法透传：HandbookService 直接读
+    // GlobalProficiencyService（原版「全局标记」），避免"接口留了数据没接"的中间层。
     return this.handbookService.handle(arg, {
       userId,
       playerName: String((playerData as any)?.player?.name ?? (playerData as any)?.name ?? (player as any)?.name ?? '冒险者'),
@@ -7850,7 +7847,6 @@ export class GameService {
       playerDropRate,
       playerDropQuality,
       hasGemRibbon,
-      worldLevel,
     });
   }
   // ========== 物品操作命令 ==========
@@ -8558,21 +8554,14 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 获取世界等级（系统配置里 game.worldLevel 直接存等级，对应原版"世界"熟练度换算出的等级）
-    let worldLevel = 1;
-    try {
-      const cfg = await this.prisma.systemConfig.findUnique({ where: { key: 'game.worldLevel' } });
-      worldLevel = Number(cfg?.value ?? 1) || 1;
-    } catch {
-      // 读取失败按 1 兜底
-    }
+    // 世界等级 = 原版 显示熟练度等级(全局标记,"世界")，由全局熟练度换算（不再是独立配置项）
+    const wLevel = this.globalProficiency ? await this.globalProficiency.worldLevel() : 1;
 
     const lines: string[] = [];
     lines.push(`${player.name}`);
 
     // ---- 世界等级（原版 _主程序 L4012-L4023）----
-    // 新版 worldLevel 直接存等级（无全局熟练度），故不含"(熟练度/需求)"后缀
-    const wLevel = Math.max(1, Math.floor(worldLevel));
+    // 世界等级由全局熟练度换算，故「怪物等级+」确切成立：刷怪时确实会加该等级
     lines.push(`世界等级:${wLevel}`);
     lines.push(`  怪物等级+${wLevel}\t经验获取+${wLevel / 2}%`);
     // 新人加成：玩家等级 < 世界等级 × 10 时获得（原版：差距 = 1 - 等级/(世界等级×10)）

@@ -3266,6 +3266,10 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   cursor: pointer;
   padding: 4px;
   -webkit-tap-highlight-color: transparent;
+  /* 头部按钮组空间不足时不允许被压缩：否则汉堡按钮会被挤成 0 宽，
+     其菜单条溢出后被「显示他人」按钮遮住，导致侧边栏入口点不到 */
+  flex-shrink: 0;
+  align-self: center;
 }
 .mobile-menu-btn .menu-bar {
   display: block;
@@ -3340,10 +3344,14 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
     min-height: 0; /* 防止 flex 溢出 */
   }
 
+  /* 头部：按钮组放不下时允许换行，避免整排横向溢出被屏幕裁切；
+     行高由内容决定，换行后仍保持居中，不遮挡下方消息区 */
   .chat-header {
-    padding: 10px 14px;
-    padding-top: calc(10px + var(--safe-top));
-    gap: 8px;
+    padding: 8px 12px;
+    padding-top: calc(8px + var(--safe-top));
+    gap: 6px 8px;
+    flex-wrap: wrap;
+    align-content: center;
   }
   .chat-header h2 {
     font-size: 14px;
@@ -3351,6 +3359,17 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* 头部右侧按钮组：占据剩余宽度并在内部自行换行（覆盖桌面的 nowrap），
+     保证「显示他人 / 版本号 / 指令 / 私聊 / BUG 反馈」全部可见。
+     basis 必须为 0：若用 auto，它会先按最大内容宽度争位而被整体挤到第二行，
+     结果汉堡按钮独占一行、头部被拉高成三行 */
+  .header-right {
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
   }
   .reborn-link {
     margin-left: 8px;
@@ -3738,6 +3757,30 @@ textarea:focus:not(:focus-visible) {
   .header-action-btn {
     padding: 4px 8px;
     font-size: 11px;
+  }
+  /* 极限小屏：进一步压缩横向占位，尽量让整排按钮落在一行内（放不下时自动换行不裁切） */
+  .chat-header {
+    padding: 6px 10px;
+    padding-top: calc(6px + var(--safe-top));
+    gap: 5px 6px;
+  }
+  .header-right {
+    gap: 5px;
+  }
+  .github-issue-btn {
+    padding: 4px 8px;
+  }
+  .version-tag {
+    padding: 3px 7px;
+  }
+  .version-tag-sha {
+    margin-left: 3px;
+    padding: 1px 4px;
+  }
+  /* 版本号属于元信息：超小屏排到按钮组末尾（仅移动端生效，桌面端顺序不变）。
+     它是这一排最宽的单项，留在中间会把操作按钮挤到第三行，形成「孤行」观感 */
+  .header-right .version-tag {
+    order: 10;
   }
 }
 

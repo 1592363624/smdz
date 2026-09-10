@@ -22,6 +22,7 @@ import { CombatStateService } from './combat-state.service';
 import { ChangeBusService } from '../../game-sync/change-bus.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { ActorRuntime, actorKey } from '../actor';
+import { GlobalProficiencyService, pickMonsterLevel } from './global-proficiency.service';
 
 /**
  * 可前往地图的连接信息
@@ -188,7 +189,29 @@ export class MapService {
     private readonly changeBus: ChangeBusService,
     /** Actor 运行时（可选依赖）：地图聚合写入 DB 后失效 map Actor 缓存，防陈旧整行回写 */
     @Optional() private readonly actorRuntime?: ActorRuntime,
+    /** 全局熟练度（可选依赖）：怪物动态等级的数据源；测试桩未注入时等级退化为基线 1 级 */
+    @Optional() private readonly globalProficiency?: GlobalProficiencyService,
   ) {}
+
+  /**
+   * 怪物等级解析（原版 加成计算.ecode L2709-2716 / L2793-2807）。
+   * 优先级：显式指定（召唤物「强制等级」/ 管理员刷新怪物）→ 配置等级 > 0 → 动态公式。
+   *
+   * 关键：原版 数据存取.ecode L551-602 的怪物节**不读取「等级」字段**，
+   * 因此配置分支在原版恒不成立，怪物等级恒为
+   * `显示熟练度等级(全局标记, 物种名) + 显示熟练度等级(全局标记, "世界")`。
+   * 配置等级 > 0 的短路分支（L2710 / L2797）保留，供「手动指定等级」的怪物使用。
+   */
+  private async resolveMonsterLevel(def: any, explicitLevel?: number): Promise<number> {
+    const dynamicLevel = this.globalProficiency
+      ? await this.globalProficiency.monsterLevel(String(def?.name ?? ''))
+      : 1;
+    return pickMonsterLevel({
+      explicitLevel,
+      configuredLevel: def?.level,
+      dynamicLevel,
+    });
+  }
 
   /**
    * 对指定地图加锁执行一段异步操作，保证同一地图的状态变更串行化。
@@ -959,8 +982,9 @@ export class MapService {
         const shield = def?.shield || 0;
         const armor = def?.armor || 0;
         const defBonus = def?.bonus ? this.safeParseJSON<any>(def.bonus, {}) : {};
-        // 怪物等级：定义等级（若为0则用地图等级），用于 _初始化怪物 等级成长
-        const level = def?.level || map.level || 1;
+        // 怪物等级：配置等级>0 直用，否则走动态公式（物种熟练度等级 + 世界等级）。
+        // 用于 _初始化怪物 等级成长，对齐原版 加成计算 L2711 / L2796。
+        const level = await this.resolveMonsterLevel(def);
         // 觉醒：怪物定义 bonus.觉醒（原版 L2763 取成就熟练度(标记,"觉醒")，怪物默认0）
         const awaken = defBonus.觉醒 || 0;
 
@@ -1126,7 +1150,8 @@ export class MapService {
     if (!def) throw new NotFoundException(`怪物「${name}」不存在`);
 
     const defBonus = def.bonus ? this.safeParseJSON<Record<string, any>>(def.bonus, {}) : {};
-    const level = options.level ?? def.level ?? map.level ?? 1;
+    // 显式等级（召唤物「强制等级」/ 管理员刷新怪物）优先，其余走与原版一致的等级解析
+    const level = await this.resolveMonsterLevel(def, options.level);
     const awaken = Number(defBonus.觉醒 || 0);
     const equipmentList: string[] = Array.isArray(defBonus.equipmentList)
       ? defBonus.equipmentList

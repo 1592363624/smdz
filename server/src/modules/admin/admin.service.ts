@@ -22,6 +22,7 @@ import { StatsService } from '../game/stats.service';
 import { MapService } from '../game/map.service';
 import { ITEM_SYSTEM_SERVICE } from '../game/service-tokens';
 import type { ItemSystemService } from '../game/item-system.service';
+import { GlobalProficiencyService } from '../game/global-proficiency.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 @Injectable()
@@ -63,6 +64,9 @@ export class AdminService {
      *  用于 GM 背包管理保存时给裸装备条目补齐品质码/随机词条。 */
     @Optional() @Inject(ITEM_SYSTEM_SERVICE)
     private readonly itemSystem?: ItemSystemService,
+    /** 全局熟练度（原版「全局标记」）：世界等级的唯一真相源（GameModule 为 @Global 故可直接注入） */
+    @Optional()
+    private readonly globalProficiency?: GlobalProficiencyService,
   ) {}
 
   /**
@@ -692,13 +696,21 @@ export class AdminService {
 
   /**
    * 设置世界等级
-   * 写入系统配置 game.worldLevel，影响怪物强度和掉落
+   * 写入「全局标记」的 `世界熟练度` 点数（按 floor(√点数)+1 = 等级 的逆运算取 (等级-1)²）。
+   * 该值同时决定怪物等级、掉落熟练度加成与新人保护阈值——只有这一个真相源。
    * @returns 更新后的世界等级文本
    */
   async setWorldLevel(level: number): Promise<string> {
-    await this.systemConfigService.set('game.worldLevel', level);
-    this.logger.log(`世界等级已设置为 ${level}`);
-    return `世界等级已设置为 ${level}`;
+    if (!this.globalProficiency) return '全局熟练度服务未启用，无法设置世界等级';
+    const applied = await this.globalProficiency.setWorldLevel(level);
+    this.logger.log(`世界等级已设置为 ${applied}（世界熟练度点数 ${(applied - 1) ** 2}）`);
+    return `世界等级已设置为 ${applied}`;
+  }
+
+  /** 获取世界等级（原版 显示熟练度等级(全局标记,"世界")） */
+  async getWorldLevel(): Promise<number> {
+    if (!this.globalProficiency) return 1;
+    return this.globalProficiency.worldLevel();
   }
 
   /**

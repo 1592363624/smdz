@@ -13,9 +13,10 @@
  *   - 玩家.名称 前缀沿用原版习惯输出「玩家名 + 换行 + 条目内容」。
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StaticDataService } from './static-data.service';
 import { ShortcutService } from './shortcut.service';
+import { GlobalProficiencyService, pickMonsterLevel, proficiencyLevelFromPoints } from './global-proficiency.service';
 import { LINE_BREAK_MARKER } from '../../common/utils/game-text.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
@@ -229,10 +230,6 @@ export interface HandbookContext {
   playerDropQuality?: number;
   /** 是否持有「宝石缎带」（原版 L3215-3226 额外提升掉落几率） */
   hasGemRibbon?: boolean;
-  /** 世界等级（对应原版 熟练度等级(全局标记,"世界")，来自 game.worldLevel 配置） */
-  worldLevel?: number;
-  /** 各怪物类型的熟练度等级（对应原版 熟练度等级(全局标记,怪物类型)） */
-  monsterProficiency?: Record<string, number>;
 }
 
 // ---------- 分类键 ----------
@@ -312,6 +309,10 @@ export class HandbookService {
   constructor(
     private readonly staticData: StaticDataService,
     private readonly shortcutService: ShortcutService,
+    // 全局熟练度（原版 全局标记）：怪物「详细数据」的掉落熟练度加成需要它。
+    // 可选依赖：按位置 new 的单测不注入时，熟练度按 0（等价原版无标记基线）。
+    @Optional()
+    private readonly globalProficiency?: GlobalProficiencyService,
   ) {}
 
   /**
@@ -325,6 +326,8 @@ export class HandbookService {
    *   图鉴<关键词>        → 跨分类模糊搜索（原版 L2661 "X的图鉴搜索结果"）
    */
   async handle(arg: string | undefined | null, ctx: HandbookContext): Promise<string> {
+    // 渲染链是同步的，先预热全局熟练度，使掉落熟练度加成可同步读取真实值
+    await this.globalProficiency?.ensureLoaded();
     const query = String(arg ?? '').trim();
     // 当前玩家特有的渲染上下文：玩家姓名 + 当前使魔名/技能等级/好感值
     const renderCtx = ctx;
@@ -974,13 +977,40 @@ export class HandbookService {
     const out: string[] = [];
     if (m.description) out.push(nl(m.description));
     if (bonus.说明) out.push(nl(String(bonus.说明)));
-    out.push(`基础等级:${m.level ?? '?'}`);
+    // 原版 L3165-3166：基础等级 = 显示熟练度等级(全局标记, 怪物名, 返回文本, 去物种前缀=真)
+    // —— 展示的是**物种熟练度等级**（含「等级(已得点数/下一档需求)」后缀），
+    // 不是配置文件里的静态等级（配置等级 0 表示"走动态"，直接显示 0 是错的）。
+    out.push(`基础等级:${this.formatProficiencyLevel(m?.name)}`);
     // 原版取 怪物.好感 作产奶量；新版静态数据里该值落在 bonus.产奶量
     out.push(`产奶量:${roundText(bonus.产奶量 ?? 0)}`);
     out.push(`毛发:${hair.map((h) => `${h.name}x${roundText(h.count)}`).join('、') || '-'}`);
     out.push(`特效编号(调试用):${roundText(m.vitality ?? m.specialSeq ?? 0)}`);
     out.push('1、显示详细数据');
     return out;
+  }
+
+  /**
+   * 原版 显示熟练度等级(标记, 名称, 返回文本, 去物种前缀) 的展示形态：
+   * `等级（已得点数/下一档需求）`，下一档需求即循环终止时的 a²。
+   */
+  private formatProficiencyLevel(name: string): string {
+    const monsterName = String(name ?? '');
+    if (!this.globalProficiency) return '1';
+    const points = this.globalProficiency.pointsSync(monsterName);
+    const level = proficiencyLevelFromPoints(points);
+    return `${level}${paren(`${roundText(points)}/${level * level}`)}`;
+  }
+
+  /**
+   * 图鉴「详细数据」的等级：对齐原版 L3171 `_初始化怪物` 后 `显示使魔数据`，
+   * 即实际刷怪时会用的等级（配置等级>0 优先，否则物种熟练度等级 + 世界熟练度等级）。
+   */
+  private detailMonsterLevel(m: any): number {
+    if (!this.globalProficiency) return Number(m?.level ?? 0) || 0;
+    return pickMonsterLevel({
+      configuredLevel: m?.level,
+      dynamicLevel: this.globalProficiency.monsterLevelSync(String(m?.name ?? '')),
+    });
   }
 
   /**
@@ -999,7 +1029,7 @@ export class HandbookService {
 
     // ---- 属性面板（原版 显示使魔数据(详细=真) 的怪物分支） ----
     out.push(`${m.name}${paren(m.type ?? '怪物')}`);
-    out.push(`等级:${roundText(m.level ?? 0)}`);
+    out.push(`等级:${roundText(this.detailMonsterLevel(m))}`);
     if (Number(m.maxShield ?? 0) !== 0) out.push(`护盾:${roundText(m.shield)}/${roundText(m.maxShield)}`);
     if (Number(m.maxArmor ?? 0) !== 0) out.push(`装甲:${roundText(m.armor)}/${roundText(m.maxArmor)}`);
     out.push(`生命:${roundText(m.hp)}/${roundText(m.maxHp ?? m.hp)}`);
@@ -1116,14 +1146,14 @@ export class HandbookService {
 
   /**
    * 掉落熟练度等级（原版 L3199 的 b）。
-   * 原版 = 熟练度等级(全局标记, 怪物类型) + 熟练度等级(全局标记, "世界")。
-   * 新版：怪物类型熟练度取玩家标记，世界等级取 ctx.worldLevel（由调用方从
-   * `game.worldLevel` 系统配置读入）；两者缺省为 0，此时掉落倍率为 1.0（即原版无加成基线）。
+   * 原版 = 显示熟练度等级(全局标记, 怪物类型, 去物种前缀=真) + 显示熟练度等级(全局标记, "世界")。
+   * 两项均由 GlobalProficiencyService（原版「全局标记」）提供——单一真相源，
+   * 不再由调用方经 ctx 透传（此前 ctx.monsterProficiency 从未被填充，
+   * 导致怪物类型熟练度恒为 0，见 2026-09-10 审计）。
    */
-  private dropProficiencyLevel(m: any, ctx?: HandbookContext): number {
-    const monsterLevel = Number(ctx?.monsterProficiency?.[String(m.name)] ?? 0);
-    const worldLevel = Number(ctx?.worldLevel ?? 0);
-    return monsterLevel + worldLevel;
+  private dropProficiencyLevel(m: any, _ctx?: HandbookContext): number {
+    if (!this.globalProficiency) return 0;
+    return this.globalProficiency.monsterLevelSync(String(m?.name ?? ''));
   }
 
   // ----- 8. 任务 -----

@@ -160,7 +160,6 @@ export class FamiliarSkillsService {
     case '切换模式': return this.switchMode(userId, target);
     case '使魔挑战': return this.familiarChallenge(userId);
     case '开始挑战': return this.startChallenge(userId);
-    case '复活使魔': return this.reviveFamiliar(userId);
     case '大召唤术': return this.massSummon(userId);
 
     default:
@@ -3826,83 +3825,6 @@ ${result}`;
     await this.playerService.savePlayer(player);
 
     return `【第 ${currentWave} 波】挑战开始！\n出现了一只 Lv.${monsterLevel} 的挑战怪物\nHP: ${monsterHp} | 攻击: ${monsterAttack} | 防御: ${monsterDefense}\n击败后进入下一波（剩余 ${maxWaves - currentWave} 波）`;
-  }
-
-  /**
-   * 复活使魔 - 通用技能
-   * 复活死亡的使魔，消耗一定资源
-   * 对应原版：复活使魔()
-   * @param userId 用户ID
-   * @returns 技能效果文本
-   */
-  async reviveFamiliar(userId: number): Promise<string> {
-    // 读背包→扣钻石/觉醒丹→写回必须全程持用户级共享锁，理由同兑换/召唤。
-    return this.playerService.enqueueUserWrite(userId, () => this.applyReviveFamiliar(userId));
-  }
-
-  /** 复活使魔的数据库读改写段（调用方需已持有用户级锁）。 */
-  private async applyReviveFamiliar(userId: number): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
-
-    if (!player.type) {
-      return '你还没有选择使魔';
-    }
-
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '复活使魔', 86400);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
-
-    // 检查消耗资源（需要钻石或特殊物品）
-    const backpack = this.playerService.getBackpackItems(player);
-    const diamondItem = backpack.find((item: any) => item.name === '钻石');
-    const diamondCount = diamondItem ? (diamondItem.count || 0) : 0;
-
-    // 需要50钻石或1个觉醒丹
-    const hasAwakenPill = backpack.some((item: any) => item.name === '觉醒丹');
-
-    if (diamondCount < 50 && !hasAwakenPill) {
-      return '复活使魔需要50钻石或1个觉醒丹';
-    }
-
-    // 扣除资源
-    if (hasAwakenPill) {
-      // 扣除觉醒丹
-      const idx = backpack.findIndex((item: any) => item.name === '觉醒丹');
-      if (idx !== -1) {
-        const item = backpack[idx];
-        if (item.count && item.count > 1) {
-          item.count -= 1;
-        } else {
-          backpack.splice(idx, 1);
-        }
-      }
-      player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
-    } else {
-      // 扣除钻石
-      if (diamondCount === 50) {
-        const idx = backpack.findIndex((item: any) => item.name === '钻石');
-        if (idx !== -1) backpack.splice(idx, 1);
-      } else {
-        diamondItem!.count = diamondCount - 50;
-      }
-      player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
-    }
-
-    // 回复使魔生命
-    player.hp = player.maxHp || 100;
-
-    // 设置冷却（24小时）
-    this.setCooldown(player, '复活使魔', 86400);
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
-    await this.playerService.savePlayer(player);
-
-    const resourceText = hasAwakenPill ? '1个觉醒丹' : '50钻石';
-    return `消耗了${resourceText}，${player.type} 已复活！\n生命已全部恢复（冷却24小时）`;
   }
 
   /**

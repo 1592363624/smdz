@@ -30,6 +30,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { decodeJsonStrings, asJsonValue } from '../../common/utils/json-value.util';
+import { stripSpeciesPrefix } from './species-prefix.util';
 
 /** JSON 数据目录（相对本文件） */
 const DATA_DIR = path.resolve(__dirname, '../../../prisma/data');
@@ -348,10 +349,9 @@ export class StaticDataService implements OnModuleInit {
     let objectType = String(object?.type ?? object?.类型 ?? '');
     if (String(object?.qq ?? object?.QQ ?? '') === 'npc1g') objectType = '神之工匠';
     objectType = objectType.split('小樱2').join('小樱');
-    objectType = objectType.split('精英').join('');
-    objectType = objectType.split('神兽').join('');
-    objectType = objectType.split('深蓝').join('');
-    objectType = objectType.split('巨型宇航兔').join('宇航兔');
+    // 物种前缀归一化（精英/神兽/深蓝/巨型）与 显示熟练度等级 的取熟练度共用同一实现：
+    // 巨型宇航兔→宇航兔 亦由通用规则覆盖，无需特例。
+    objectType = stripSpeciesPrefix(objectType);
 
     const TYPE_TO_KEY: Record<number, string> = {
       0: 'hostileChat',

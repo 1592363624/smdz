@@ -428,7 +428,12 @@ function mapMonsterToMonster(section: ConfigSection) {
     specialSeq: -1,
     type: '怪物',
     description: fields['说明'] || '',
-    level: parseInt(fields['等级']) || 1,
+    // 原版 数据存取.ecode L551-602 的「怪物」分支**不读取「等级」字段**，
+    // 故原版怪物等级恒为 0 = 走动态公式（加成计算 L2711 / L2796：
+    // 显示熟练度等级(全局标记,物种名) + 显示熟练度等级(全局标记,"世界")）。
+    // 此处曾写 `parseInt(...) || 1`，既凭空发明了配置等级，又把 0 这个
+    // 「动态」哨兵值吞成 1，导致动态分支永远打不开（怪物恒 1 级）。
+    level: parseInt(fields['等级']) || 0,
     hp: parseFloat(fields['生命']) || 100,
     maxHp: parseFloat(fields['生命']) || 100,
     attack: parseFloat(fields['攻击']) || 10,

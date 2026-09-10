@@ -28,6 +28,7 @@ import { TaskService } from './task.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { VitalityService } from './vitality.service';
 import { MapBattleLoopService } from './map-battle-loop.service';
+import { GlobalProficiencyService, WORLD_PROFICIENCY_NAME } from './global-proficiency.service';
 import {
   expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainSeconds, toExpireMs,
 } from './expire-time.util';
@@ -352,6 +353,10 @@ export class CombatSystemService {
     @Inject(forwardRef(() => MapBattleLoopService))
     @Optional()
     private readonly mapBattleLoop?: MapBattleLoopService,
+    // 全局熟练度（原版 全局标记）：击杀累积怪物/世界熟练度，驱动后续刷怪的动态等级。
+    // 末位可选参数，兼容按位置 new 的既有测试。
+    @Optional()
+    private readonly globalProficiency?: GlobalProficiencyService,
   ) {}
 
   // ==================== 用户级战斗串行锁 ====================
@@ -735,10 +740,11 @@ export class CombatSystemService {
     // 差距用于命中/伤害：命中 = 命中/(1-差距)（放大），伤害 = 剩余/(1-差距)（放大）→ 新人加成。
     // 只有等级低于世界等级×10 的"新人"享受该加成，高等级玩家无差距。
     try {
-      const wlConfig = await this.prisma.systemConfig.findUnique({
-        where: { key: 'game.worldLevel' },
-      });
-      const worldLevel = Number(wlConfig?.value ?? 1) || 1;
+      // 世界等级来自全局熟练度换算（原版 显示熟练度等级(全局标记,"世界")），
+      // 不再读独立配置项——世界等级只有「全局标记」一个真相源。
+      const worldLevel = this.globalProficiency
+        ? await this.globalProficiency.worldLevel()
+        : 1;
       const threshold = worldLevel * 10;
       if (player.level < threshold) {
         attackerBonus.世界等级差距 = 1 - player.level / threshold;
@@ -2822,6 +2828,8 @@ export class CombatSystemService {
             map.id,
             playerData,
             'normal',
+            // 召唤物击杀：额外累积该召唤物物种的熟练度（原版 L3685-3687 攻击方.类型）
+            String(summon.type ?? summon.name ?? ''),
           );
           // 召唤物击杀经验累计到玩家（由 weaponAttack 末尾 addExp 统一发放）
           if (out?.totalExp !== undefined) out.totalExp += deathResult.expGain;
@@ -3164,6 +3172,14 @@ export class CombatSystemService {
         // 原版死亡/卷土重来后生命保持 0（L3674 只给增益不回血、L3690 击杀复活才回满），
         // 先把可能的负值夹回 0，避免负值穿透到持久化与展示层。
         if (Number(victim.hp) < 0) victim.hp = 0;
+        // ===== 全局熟练度累积（原版 战斗相关.ecode L3672-3673）=====
+        // 怪物击杀了目标：`攻击方.名称+"熟练度"` +1（本方法攻击方即 monster）、`世界熟练度` +1。
+        // 原版在 `防御方.当前生命 <= 0` 时立即计入，与之后是否授予「卷土重来」无关，
+        // 故此处同样以「被打倒」为准（每次打倒都计，与原版一致）。
+        if (this.globalProficiency) {
+          await this.globalProficiency.addProficiency(String(monster?.name ?? ''), 1);
+          await this.globalProficiency.addProficiency(WORLD_PROFICIENCY_NAME, 1);
+        }
         // ========== 原版 造成伤害 L3674 的身份门槛 ==========
         // 原版只有 防御方.特殊序号>0（玩家）才会获得"卷土重来"；召唤物/怪物
         // （特殊序号<=0）被打到 HP<=0 即真死 —— 不进卷土重来，也不回血。
@@ -5082,6 +5098,8 @@ export class CombatSystemService {
     mapId: number,
     attacker?: any,
     vitalityMode: 'normal' | 'sweep' = 'normal',
+    /** 击杀方物种名（宠物/召唤物击杀时传，原版 攻击方.类型）；玩家击杀传空 */
+    killerSpecies?: string,
   ): Promise<MonsterDeathResult> {
     // GameMonster 真实实例先抢占奖励资格，避免两个玩家同时击杀同一实例时
     // 各自扣活力、发经验和发掉落。纯内存测试夹具没有 claim 接口时保持兼容。
@@ -5093,6 +5111,19 @@ export class CombatSystemService {
       if (!claimed) {
         return { expGain: 0, drops: [], dropText: '', taskProgress: [], vitalityCost: 0, rewardMultiplier: 1 };
       }
+    }
+
+    // ===== 全局熟练度累积（原版 战斗相关.ecode L3684-3688）=====
+    // 怪物被击杀：`防御方.名称+"熟练度"` +1（防御方=被击杀的怪物），
+    // 击杀方是宠物/召唤物时另加 `攻击方.类型+"熟练度"` +1，并始终 `世界熟练度` +1。
+    // 这两项落在原版「全局标记」上，直接抬高后续刷出怪物的等级（越打越强）。
+    // 放在抢占奖励资格之后：未被抢到的重复结算不会重复计数。
+    if (this.globalProficiency) {
+      await this.globalProficiency.addProficiency(String(monster?.name ?? ''), 1);
+      if (killerSpecies) {
+        await this.globalProficiency.addProficiency(String(killerSpecies), 1);
+      }
+      await this.globalProficiency.addProficiency(WORLD_PROFICIENCY_NAME, 1);
     }
 
     // 计算经验值
@@ -8922,6 +8953,9 @@ export class CombatSystemService {
         ownerUserId,
         mapId,
         ownerPlayerData,
+        'normal',
+        // 宠物击杀：额外累积该宠物物种的熟练度（原版 L3685-3687 攻击方.类型）
+        String(pet.type ?? pet.name ?? ''),
       );
       taskProgress?.push(...(deathResult.taskProgress || []));
       let text = `${pet.name} 击败了 ${monster.name}！`;
