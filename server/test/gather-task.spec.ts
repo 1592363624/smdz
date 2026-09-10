@@ -16,6 +16,7 @@ function makeGatherFixture(resource: any, options: {
   mapOverrides?: Record<string, any>;
   summons?: any[];
   monsters?: any[];
+  role?: string;
 } = {}) {
   const player: any = {
     userId: 42,
@@ -48,6 +49,10 @@ function makeGatherFixture(resource: any, options: {
       findMany: jest.fn(async () => [
         { userId: player.userId, id: player.id ?? 1, markers: player.markers },
       ]),
+    },
+    // 超管野外批量：带数字后缀的采集开始会实时查库 role
+    user: {
+      findUnique: jest.fn(async () => ({ id: player.userId, role: options.role ?? 'USER' })),
     },
     gameMap: {
       update: jest.fn(async ({ data }: any) => {
@@ -373,6 +378,37 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(result).toContain('果实×3');
     const resources = parseJson(fixture.map.resources, []);
     expect(resources[0].times).toBe(96);
+  });
+
+  it('超管特权：家园外带数字指令同样批量（普通玩家数字仍被忽略）', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const resource = {
+      name: '老树',
+      times: -1,
+      outputs: [{ name: '木头', count: 1, chance: 100 }],
+      gatherCmd: '收集木头',
+      timeScale: 1,
+    };
+
+    // 超管：野外「收集木头5」→ 耗时×5、产出×5
+    const admin = makeGatherFixture(resource, { role: 'SUPER_ADMIN' });
+    const adminStart = await admin.service.handleGatherResource(42, '收集木头5');
+    const adminSeconds = Number(adminStart.match(/大概需要(\d+)秒$/)![1]);
+    expect(adminSeconds).toBeGreaterThanOrEqual(15);
+    expect(adminSeconds).toBeLessThanOrEqual(30);
+    const adminResult = await admin.service.settleGatherResource(42);
+    expect(adminResult).toContain('木头×5');
+    const adminMarkers = parseJson(admin.player.markers, {});
+    expect(adminMarkers['采集中']).toBeUndefined(); // 已结算认领
+
+    // 普通玩家：同指令数字被忽略（原版 L11383 家园限定），采 1 次
+    const plain = makeGatherFixture(resource, { role: 'USER' });
+    const plainStart = await plain.service.handleGatherResource(42, '收集木头5');
+    const plainSeconds = Number(plainStart.match(/大概需要(\d+)秒$/)![1]);
+    expect(plainSeconds).toBeGreaterThanOrEqual(3);
+    expect(plainSeconds).toBeLessThanOrEqual(6);
+    const plainResult = await plain.service.settleGatherResource(42);
+    expect(plainResult).toContain('木头×1');
   });
 
   it('阶段2：资源在等待期间消失时作废本次动作', async () => {

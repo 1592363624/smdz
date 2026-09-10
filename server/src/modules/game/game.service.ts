@@ -4410,6 +4410,16 @@ export class GameService {
   async handleGatherResource(userId: number, cmdName: string, requestedCount?: number): Promise<string> {
     if (!cmdName) return '';
 
+    // 超管特权「野外批量采集」：指令带数字后缀时实时查库 role（不信前端传值）；
+    // 无数字后缀不发起查询，普通采集零额外开销。mutate 外查好传入闭包。
+    const preParsed = this.parseGatherCommand(cmdName);
+    const preCount = Math.max(1, Math.floor(Number.isFinite(requestedCount) ? requestedCount as number : preParsed.count));
+    let userRole = '';
+    if (preCount > 1) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+      userRole = user?.role ?? '';
+    }
+
     // 采集开始是「读快照→改→写回」型操作，必须在用户级锁内完成，
     // 否则与定时器的采集结算并发会互相覆盖玩家数据（实测会偶发「并发冲突」）。
     // 走 mutate 收口：锁内单快照、统一落库（详见 docs/player-state-architecture.md）。
@@ -4457,9 +4467,12 @@ export class GameService {
 
     // ===== 原版 _主程序.ecode L11383-11399 计算采集耗时 =====
     // 家园院子里输入"指令N"一次执行 N 次（额外次数），其他地图忽略数字。
+    // 超管特权扩展（2026-09-10）：ADMIN/SUPER_ADMIN 在任何地图批量后缀同样生效；
+    // 耗时与产出线性同比放大（矿炮 30 秒封顶只封时长不封次数）。
     // 原版公式：a1 = 取随机数(3000×倍率, 6000×倍率) × d / 1000（毫秒→秒）
     const isOwnYard = player.houseName === map.name;
-    const extraMultiplier = isOwnYard ? Math.max(1, Math.floor(count)) : 1;
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+    const extraMultiplier = (isOwnYard || isAdmin) ? Math.max(1, Math.floor(count)) : 1;
     const timeScale = Math.max(0.01, Number(target.timeScale ?? target.时间倍率 ?? 1) || 1);
     const seconds = Math.round((3000 + Math.random() * 3000) * timeScale / 1000) * extraMultiplier;
 
@@ -4478,7 +4491,8 @@ export class GameService {
     // 获得增益("采集", 秒数)：同一标记的另一种写法，到期即采集完成。
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     markers['采集中'] = { target: resourceName, cmd: gatherName,
-      count: extraMultiplier, startedAt: now, settleAt: now + cappedSeconds * 1000 };
+      count: extraMultiplier, adminBatch: !isOwnYard && isAdmin,
+      startedAt: now, settleAt: now + cappedSeconds * 1000 };
     this.combatState.addMarker('采集', cappedSeconds, markers2, now);
     player.markers = markers; // Json 列直接写对象
     player.markers2 = markers2; // Json 列直接写数组
@@ -4601,13 +4615,17 @@ export class GameService {
     }
 
     // ===== 原版 地图操作.ecode L1537-1561 实际采集次数 =====
-    // e=跟随宠物数+1，再乘以院子里的额外次数；受资源剩余次数上限约束。
+    // e=跟随宠物数+1，再乘以额外次数；受资源剩余次数上限约束。
+    // 有限资源(times>0)夹到剩余次数（共享世界态，超管特权同样受限）；
+    // 无限资源(times<0)默认单次动作上限=|times|——超管野外批量（adminBatch）放开该上限。
     const followPetCount = await this.countFollowingSummons(map, userId);
     let actualGatherCount = (followPetCount + 1) * extraMultiplier;
     const resourceTimes = this.getResourceTimes(target);
     actualGatherCount = resourceTimes > 0
       ? Math.min(actualGatherCount, resourceTimes)
-      : Math.min(actualGatherCount, Math.abs(resourceTimes));
+      : (gatherState.adminBatch
+        ? actualGatherCount
+        : Math.min(actualGatherCount, Math.abs(resourceTimes)));
 
     const dropRate = this.getGatherDropRate(playerData);
     const outputs = this.parseResourceOutputs(target.outputs);
