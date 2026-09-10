@@ -7316,11 +7316,17 @@ export class GameService {
    * 冷却公式 15*(1+a2*0.05)（a2=飞羽套装等级封顶10），持续 a1=(a/(25+a)+1)*4（a=闪避熟练度等级）。
    */
   async handleDodge(userId: number): Promise<string> {
-    // 获取玩家数据（对应原版 玩家 参数）
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
-    const markers: Record<string, number> = playerData.markers || {};
-    const markers2: any[] = playerData.markers2 || [];
+    // 读改写整体进用户写队列、基于活态执行（见 mutatePlayer 注释）。
+    // 原先「锁外裸读档 + 一条指令内连写 3 次 savePlayer（闪避击成就 / 闪避熟练度成就 /
+    // buffs+markers2）」的形态，第 2 次起会被自己刚推进的 version 判成旧快照，strict
+    // 模式下静默丢弃（实测：闪避冷却标记没写进去 → 冷却判定失效 → 可无限连发闪避；
+    // 闪避增益与闪避熟练度成就一并丢失）。迁入 mutate 后全部改动合并进同一份 ctx 快照，
+    // 由最外层统一落库、只推进一次版本；内层 savePlayer 退化为「合并 + 标脏」。
+    return this.mutatePlayer(userId, async (ctx: any) => {
+    const { player } = ctx;
+    const markers: Record<string, number> = ctx.markers
+      ?? asJsonValue<Record<string, number>>(player.markers, {});
+    const markers2: any[] = ctx.markers2 ?? asJsonValue<any[]>(player.markers2, []);
 
     // 检查是否死亡（原版 L1846 玩家死亡 优先判定）
     if (this.playerService.isPlayerDead(player)) {
@@ -7358,7 +7364,7 @@ export class GameService {
       return '';
     }
     // 闪避属性过低无法释放（原版 L564-565：玩家.属性.闪避 <= 1）
-    const calcBonus = this.combatSystem.buildAttackerBonus(player, playerData);
+    const calcBonus = this.combatSystem.buildAttackerBonus(player, ctx);
     if ((calcBonus.闪避 || 0) <= 1) {
       return `${player.name}因为闪避属性过低无法释放闪避`;
     }
@@ -7410,7 +7416,7 @@ export class GameService {
     } else if (seq === 8) {
       // #战斗女仆（原版 @Constant 战斗女仆="8"；L587-597）：好感≥100 → 清空当前武器攻击冷却
       if (aff >= 100) {
-        const weapons: any[] = playerData.weapons || [];
+        const weapons: any[] = ctx.weapons || [];
         const curIdx = Number(player.currentWeapon || 0);
         const wname = weapons[curIdx]?.name || '拳头';
         const wcdName = wname === '拳头' ? '拳头冷却' : `${wname}冷却`;
@@ -7448,10 +7454,12 @@ export class GameService {
       }
     }
 
+    // ctx 路径下 savePlayer 只做「合并进当前快照 + 标脏」，实际落库由最外层 mutate 执行一次
     await this.playerService.savePlayer(player);
 
     this.logger.log(`玩家 ${userId} 释放闪避技能，持续 ${roundedA1} 秒，冷却 ${Math.round(cooldownSec * 100) / 100} 秒`);
     return w;
+    });
   }
 
   /**

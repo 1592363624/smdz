@@ -228,6 +228,11 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
     expect((playerService as any).logger.error).not.toHaveBeenCalledWith(
       expect.stringContaining('拦截到旧快照整包写入'),
     );
+    // 可观测性计数：正常收口路径必须零拦截
+    const diag = playerService.getWriteModelDiagnostics();
+    expect(diag.staleWriteBlocked).toBe(0);
+    expect(diag.staleWriteMerged).toBe(0);
+    expect(diag.casMode).toBe('strict');
   });
 
   it('真正陈旧的快照（从未被接受过）仍被 strict 拦截，本次修复不放宽该防线', async () => {
@@ -240,5 +245,10 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
       expect.stringContaining('拦截到旧快照整包写入'),
     );
     expect(rows[0].hp).toBe(100); // 活态未被旧快照覆盖
+    // 可观测性计数：拦截必须留痕，并记下调用方栈首帧（线上定位用）
+    const diag = playerService.getWriteModelDiagnostics();
+    expect(diag.staleWriteBlocked).toBe(1);
+    expect(diag.staleWriteAt).toEqual(expect.any(Number));
+    expect(diag.staleWriteCaller.length).toBeGreaterThan(0);
   });
 });

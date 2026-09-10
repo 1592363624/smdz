@@ -83,6 +83,20 @@ interface PlayerWriteMeta {
   /** 本次落库的货币变动已由兜底审计（auditCurrencyWrite）记账；mutate 链据此去重 */
   currencyAuditDone?: boolean;
 }
+
+/** 写模型诊断计数（见 PlayerService.writeModelStats / getWriteModelDiagnostics） */
+export interface PlayerWriteModelStats {
+  /** 旧快照整包写入被 strict 拦截（**已丢写**）的次数 */
+  staleWriteBlocked: number;
+  /** 旧快照写入被记录后照常合并（PLAYER_WRITE_CAS=log 兼容模式）的次数 */
+  staleWriteMerged: number;
+  /** persistPlayer 乐观锁冲突（CAS 未命中）次数 */
+  casConflict: number;
+  /** 最近一次旧快照拦截的时间戳（ms），无则为 null */
+  staleWriteAt: number | null;
+  /** 最近一次旧快照拦截的调用方栈首帧（便于直接定位写路径） */
+  staleWriteCaller: string;
+}
 function cloneJson<T>(value: T): T {
   if (value === undefined || value === null) return value;
   // BigInt：lastOpTime/readTime/playTime 等列在 schema 中是 BigInt。
@@ -124,6 +138,22 @@ function hasOwn(obj: any, key: PropertyKey): boolean {
 @Injectable()
 export class PlayerService {
   private readonly logger = new Logger(PlayerService.name);
+
+  /**
+   * 写模型诊断计数（进程级，重启归零）。
+   *
+   * 为什么需要：`拦截到旧快照整包写入` 与 `玩家乐观锁冲突` 都是**静默丢写**信号
+   * （strict 模式下调用方拿不到异常，玩家只会看到「操作了但状态没生效」）。历史上
+   * 这类问题只能靠玩家反馈 + 翻日志堆栈人肉定位。计数与「最近一次调用方」落到内存，
+   * 由 `GET game/admin/write-model` 一次性读出，便于上线后回归观测。
+   */
+  private readonly writeModelStats: PlayerWriteModelStats = {
+    staleWriteBlocked: 0,
+    staleWriteMerged: 0,
+    casConflict: 0,
+    staleWriteAt: null,
+    staleWriteCaller: '',
+  };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -932,6 +962,20 @@ export class PlayerService {
   }
 
   /**
+   * 写模型诊断读数（只读，供 `GET game/admin/write-model` 与测试断言）。
+   *
+   * 判读口径：
+   * - `staleWriteBlocked > 0`：**存在静默丢写**——仍有写路径在 mutate/邮箱管道之外，
+   *   对同一份快照连续写多次（同形态事故见 GameService.handleDodge 迁移注释）；
+   *   日志里每条 `拦截到旧快照整包写入` 都带调用方堆栈，可直接定位到方法。
+   * - `casConflict > 0`：确有并发写者撞版本（strict 下会向调用方抛「玩家数据并发冲突」）。
+   * 两者长期为 0 才说明写入口收口到位。
+   */
+  getWriteModelDiagnostics(): PlayerWriteModelStats & { casMode: string } {
+    return { ...this.writeModelStats, casMode: PlayerService.CAS_MODE };
+  }
+
+  /**
    * 解析写入对象的邮箱聚合键（恒为 userId）。
    *
    * - 带 userId：直接使用（校验为正整数）。
@@ -995,11 +1039,23 @@ export class PlayerService {
           .split('\n')
           .slice(2, 7)
           .join('\n');
+        // 可观测性计数：这类「静默丢写」是「玩家看到操作了但状态没生效」的直接信号。
+        // 数量非零即说明仍有写路径没走 mutate 管道（见 getWriteModelDiagnostics）。
+        const blocked = PlayerService.CAS_MODE === 'strict';
+        // 调用方栈首帧：跳过 player.service 自身帧，直接给到「是谁在写」
+        const frames = (new Error('stale-player-write').stack ?? '')
+          .split('\n').slice(1).map((s) => s.trim()).filter(Boolean);
+        this.writeModelStats.staleWriteAt = Date.now();
+        this.writeModelStats.staleWriteCaller = (
+          frames.find((f) => !f.includes('player.service')) ?? frames[0] ?? ''
+        ).slice(0, 200);
+        if (blocked) this.writeModelStats.staleWriteBlocked += 1;
+        else this.writeModelStats.staleWriteMerged += 1;
         this.logger.error(
           `拦截到旧快照整包写入: incoming.version=${incomingVersion} < live.version=${liveVersion}`
           + ` (PLAYER_WRITE_CAS=${PlayerService.CAS_MODE})，调用方堆栈:\n${stack}`,
         );
-        if (PlayerService.CAS_MODE === 'strict') return false;
+        if (blocked) return false;
       }
     }
 
@@ -1389,6 +1445,8 @@ export class PlayerService {
       .split('\n')
       .slice(2, 7)
       .join('\n');
+    // 可观测性计数（见 getWriteModelDiagnostics）
+    this.writeModelStats.casConflict += 1;
     this.logger.error(
       `玩家乐观锁冲突: id=${player.id} 快照version=${snapshotVersion}`
       + ` 库内version=${current?.version ?? '未知'}`

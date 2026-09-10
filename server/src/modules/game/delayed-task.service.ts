@@ -19,8 +19,9 @@
  *   结算 handler 自身都基于标记认领（幂等），重试安全。
  */
 
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlayerMutateService } from './player-mutate.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 /** 内置任务类型；新玩法延时请在此扩展并在业务侧 registerHandler。 */
@@ -85,7 +86,15 @@ export class DelayedTaskService implements OnModuleInit, OnModuleDestroy {
   /** 已告警过「无 handler」的类型（每类型只告警一次，防刷屏） */
   private readonly warnedTypes = new Set<string>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    /**
+     * 单玩家写入口收口（与 executeDispatch 同一范式，见 dispatch 注释）。
+     * @Optional 兼容 `new DelayedTaskService(prisma)` 的既有测试桩；未注入时
+     * handler 直调（等价旧行为，不阻断业务）。
+     */
+    @Optional() private readonly playerMutate?: PlayerMutateService,
+  ) {}
 
   onModuleInit(): void {
     // 已有同类型注册（测试里重复初始化）则跳过
@@ -226,13 +235,26 @@ export class DelayedTaskService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     try {
-      await handler({
+      const run = () => handler({
         id: row.id,
         type: row.type as DelayedTaskType,
         userId: row.userId == null ? null : Number(row.userId),
         dedupeKey: row.dedupeKey,
         payload,
       });
+      // 写入口收口：延时结算（采集 / 移动到达 / 救援 / 装填 / 副本关闭…）属于
+      // 「指令分发管道之外」的读改写路径（executeDispatch 只包住了玩家主动指令）。
+      // 这类 handler 内部往往连写多次 savePlayer（如 采集结算 5 次、移动到达 3 次），
+      // 第 2 次起会被上一步自己推进的活态 version 判成旧快照，strict 模式下静默丢弃
+      // （同一形态的实测事故见 GameService.handleDodge）。统一包进 Actor 式 mutate 后，
+      // 整条结算复用唯一快照、只落库一次，与指令路径行为一致。
+      // handler 抛错时 mutate 照常向上冒泡（锁由 enqueueUserWrite 释放），重试语义不变。
+      const targetUserId = row.userId == null ? null : Number(row.userId);
+      if (targetUserId != null && this.playerMutate) {
+        await this.playerMutate.mutate(targetUserId, run);
+      } else {
+        await run();
+      }
     } catch (e: any) {
       this.totalFailed += 1;
       const attempts = Number(payload?.attempts ?? 0) + 1;

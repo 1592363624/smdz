@@ -206,4 +206,18 @@ export class GameController {
     const result = await this.gameService.finishNowForUser(req.user.userId);
     return { success: result.ok, message: result.message, completed: result.completed };
   }
+
+  /**
+   * 写模型诊断（可观测性）：旧快照拦截 / 乐观锁冲突计数。
+   *
+   * 这两类事件都是**静默丢写**信号——strict 模式下调用方拿不到异常，玩家只会看到
+   * 「操作了但状态没生效」。此前只能靠玩家反馈 + 翻日志堆栈人肉定位；现在可直接读
+   * 本端点：`staleWriteBlocked > 0` 即代表仍有写路径没走 mutate 管道，
+   * `staleWriteCaller` 给出最近一次的调用方栈首帧，配合日志堆栈即可定位到方法。
+   */
+  @Get('admin/write-model')
+  @ApiOperation({ summary: '写模型诊断：旧快照拦截 / 乐观锁冲突计数' })
+  getWriteModelDiagnostics() {
+    return { success: true, data: this.playerService.getWriteModelDiagnostics() };
+  }
 }
