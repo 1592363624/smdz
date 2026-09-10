@@ -30,7 +30,8 @@ import { VitalityService } from './vitality.service';
 import { MapBattleLoopService } from './map-battle-loop.service';
 import { GlobalProficiencyService, WORLD_PROFICIENCY_NAME } from './global-proficiency.service';
 import {
-  expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainSeconds, toExpireMs,
+  expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainMs, remainSeconds,
+  toExpireMs, itemName,
 } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
@@ -74,6 +75,11 @@ export interface AttackContext {
    * 由 weaponAttackInner 在构建攻击方加成后叠加到护盾/装甲/生命穿透，仅本次攻击生效。
    */
   extraPenetrationFlat?: number;
+  /**
+   * 本次攻击临时暴击加成百分点（原版 会心一击：属性.暴击 += 10+技能等级）。
+   * 仅合并进本次 attackerBonus，不写玩家存档。
+   */
+  extraCrit?: number;
   /** 指定攻击目标名（对应原版 `攻击怪物名` 设置玩家.目标） */
   targetName?: string;
   /** 指定 GameMonster 实例，避免同名怪物被重复选中 */
@@ -249,6 +255,12 @@ export interface MonsterDeathResult {
   rewardMultiplier?: number;
   /** 活力消耗提示文本（原版 后台运作.ecode L867） */
   vitalityText?: string;
+  /**
+   * 击杀被动提示文本（原版 战斗相关.ecode L3742-3781 写入 文本 的那些行：
+   * 伊卡洛斯减冷却 / 剑圣减冷却 / 恶毒「(暴怒)」/ 军姬2 冷却完毕）。
+   * 原版直接追加进攻击文本，此处由调用方并进 resultLines。
+   */
+  passiveText?: string;
 }
 
 interface CombatTaskProgress {
@@ -551,6 +563,38 @@ export class CombatSystemService {
       const cooldownSec = wepFx.cooldown;
       const cooldownName = `${weapon.name}冷却`;
       const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
+
+      // ========== 公共攻击冷却（原版 战斗相关.ecode L4601-4605 检查 / L93-107 写入）==========
+      // 除单武器冷却外，武器之间还有「攻击冷却」公共 CD（基础 5 秒），否则切武器可立刻再出手。
+      // 原版两处分工不同，必须分开对待：
+      //   检查：`战斗` 子程序入口（L4601-4605）—— 位于 `.判断开始 (攻击方.当前武器 != 0)`
+      //         的 `.默认`（非管风琴）支内，外层仅要求 `无延迟 == 假`，
+      //         **与武器是否锁定无关**（用锁定武器攻击同样被拦）。
+      //   写入：`武器攻击` 的**无锁定支**（L83 的 `.否则`）内（L93-107）—— 有锁定武器
+      //         走 `新建延时("覅公jj")` 延时攻击分支，不写公共冷却。
+      // 拳头路径原版只查「拳头冷却」、**不查** 攻击冷却；管风琴整段跳过。
+      // 运行时攻击方（召唤物/怪物）无 markers2 语义，跳过。noDelay 已由外层 if 保证为假。
+      const weaponSeqPub = Number(weapon.specialSeq ?? 0);
+      const isOrganPub = weaponSeqPub === -14 || String(weapon.name ?? '').includes('管风琴');
+      const isFistPub = weaponIndex === 0 || weapon.name === '拳头';
+      const publicCdCheck = !isRuntimeActor && !isOrganPub && !isFistPub;
+      const weaponLock = Number(
+        weapon.lockTime ?? (weapon as any).lock ?? (weapon as any).锁定 ?? 0,
+      ) || 0;
+      const publicCdWrite = publicCdCheck && weaponLock === 0;
+      if (publicCdCheck) {
+        const pubRemainMs = remainMs(markers2.find((m: any) => itemName(m) === '攻击冷却'), now);
+        if (pubRemainMs > 0) {
+          return {
+            result: `${player.name || '冒险者'}攻击冷却还需要${Math.ceil(pubRemainMs / 1000)}秒`,
+            killed: [],
+            damageDealt: 0,
+            expGained: 0,
+            drops: [],
+          };
+        }
+      }
+
       const entry = markers2.find((m: any) => m?.name === cooldownName);
       if (entry && entry.expireAt && now < entry.expireAt) {
         const remaining = Math.ceil((entry.expireAt - now) / 1000);
@@ -562,9 +606,37 @@ export class CombatSystemService {
           drops: [],
         };
       }
-      // 写入武器冷却标记（覆盖旧标记）
-      const newMarkers2 = markers2.filter((m: any) => m?.name !== cooldownName);
+      // 写入武器冷却标记（覆盖旧标记）；「攻击冷却」仅在公共冷却**写入适用**时清理，
+      // 避免切到有锁定武器/拳头/管风琴时误删上一次留下的公共冷却
+      const newMarkers2 = markers2.filter((m: any) => (m?.name ?? m?.名称) !== cooldownName
+        && (!publicCdWrite || itemName(m) !== '攻击冷却'));
       newMarkers2.push({ name: cooldownName, expireAt: now + cooldownSec * 1000 });
+
+      // 写入公共「攻击冷却」（原版 战斗相关.ecode L93-107）
+      // 普拉娜 2s / 雷火剑 = 武器冷却×0.333 / 装机械触手(特殊序号110) 6s / 默认 5s
+      if (publicCdWrite) {
+        let publicCdSec = 5;
+        if (Number(player.specialSeq ?? 0) === 22 || player.type === '普拉娜') {
+          publicCdSec = 2;
+          resultLines.unshift(`[武器:${weapon.name}]`); // 原版 L95：文本前置「[武器:名]」
+        } else if (Number(weapon.specialSeq ?? 0) === -34 || weapon.name?.includes('雷火剑')) {
+          publicCdSec = Math.max(0.1, cooldownSec * 0.333);
+        } else {
+          const equipsNow = Array.isArray(playerData.equipment)
+            ? playerData.equipment
+            : this.safeParseJson<any[]>(player.equipment, []);
+          // 原版 L99 装备要求(攻击方, #机械触手)；@Constant.ecode:135 机械触手 = "110"
+          const hasMechTentacle = equipsNow.some((e: any) =>
+            Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 110
+            || String(e?.name ?? e?.名称 ?? '') === '机械触手');
+          if (hasMechTentacle) {
+            publicCdSec = 6;
+            resultLines.unshift(`[武器:${weapon.name}]`); // 原版 L100
+          }
+        }
+        newMarkers2.push({ name: '攻击冷却', expireAt: expireAfter(publicCdSec, now) });
+      }
+
       player.markers2 = newMarkers2; // Json 列直接写数组
       if (wepFx.effectText) resultLines.push(wepFx.effectText);
     }
@@ -637,6 +709,14 @@ export class CombatSystemService {
           resultLines.push('【射爆】');
         }
       }
+      // 阿尔缇娜 攻击模式（原版 L214-217）：a模式==0 → 额外攻击次数+1
+      if ((Number(player.specialSeq ?? 0) === 7 || player.type === '阿尔缇娜')
+        && this.playerService.getMarkerValue(
+          this.safeParseJson<Record<string, any>>(player.markers, {}),
+          'a模式',
+        ) === 0) {
+        extraAttackCount += 1;
+      }
       // 唯我主宰（原版 L460-466）：60s 冷却标记「wzj」→ 本次必中
       if (hasEquipSeqFx(84)) {
         const nowSecFx = Date.now() / 1000;
@@ -665,9 +745,16 @@ export class CombatSystemService {
     const taskProgress: CombatTaskProgress[] = [];
     let attackCount = 0;
     let comebackKill = false;
+    // 剑圣「苇名剑法」：近战命中且冷却就绪时，战后用第一件无锁定远程武器补一击
+    let ashinaFollowup = false;
 
     // 构造攻击者加成数据（合并基础+装备+增益；传入 map 供宠物存活数量加成使用）
-    const attackerBonus = this.buildAttackerBonus(player, playerData, map);
+    // 第 4 参传 resultLines：原版 `加成计算` 写入 玩家.特效 的文本（剑道/缘 等）随之进回包
+    const attackerBonus = this.buildAttackerBonus(player, playerData, map, resultLines);
+    // 技能临时暴击（会心一击等：仅本次 attackerBonus，不落库）
+    if (Number(context.extraCrit || 0) > 0) {
+      attackerBonus.暴击 = (attackerBonus.暴击 || 0) + Number(context.extraCrit);
+    }
 
     // 白的羁绊技能1（原版 加成计算.ecode L2245-2287：套装.白 且 bj1 与当前武器类型
     // 匹配时 属性.攻击2+15，即该武器类型攻击+15%）。
@@ -1193,6 +1280,24 @@ export class CombatSystemService {
         }
         // 裸体围裙/透明围裙 易伤（格挡判定中记录）
         vuln += apronVuln || 0;
+        // 剑圣「时代变了」（原版 战斗相关.ecode L3108-3121）：好感≥100，
+        // 且武器.类型 **既非** "近战武器" **也非** "生体武器"（原版按类型精确比较）
+        // 且 目标标记「被近战」==1 → 易伤 +50 + 技能等级×2
+        {
+          const atkSeq4 = Number(player.specialSeq ?? 0);
+          const isSwordSaint = atkSeq4 === 4 || player.type === '剑圣';
+          const wType4 = String(weapon.type ?? (weapon as any).类型 ?? '');
+          const isMeleeOrBio = wType4 === '近战武器' || wType4 === '生体武器'
+            || weapon.name === '拳头';
+          if (isSwordSaint && !isMeleeOrBio && (player.affinity ?? 0) >= 100) {
+            const tMarkers = this.normalizeMarkerObject(target.markers);
+            if (Number(tMarkers['被近战'] || 0) === 1) {
+              const ssSkill = this.skillLevelFromMarkers(playerData.markers, '剑圣');
+              vuln += 50 + ssSkill * 2;
+              resultLines.push('(时代变了)');
+            }
+          }
+        }
         defenderBonus.减益 = (defenderBonus.减益 || 0) + vuln;
       }
       // 应用使魔特效的额外穿透（单层，原版震撼弹等）
@@ -2277,6 +2382,48 @@ export class CombatSystemService {
       atkStats.effective++; // 有效伤（对应原版 物伤2 实际造成伤害次数）
       totalDamage += finalDamage;
 
+      // 剑圣「苇名剑法」冷却就绪检测（原版 L3124-3126：时间间隔要求(60s)==假 → 可触发）
+      // 原版**只判剑圣**，不区分武器类型、也不排除全体攻击（特效写在 造成伤害 内，
+      // 全体攻击时多个目标各写一次、文本合并后仍只触发一次补击）。
+      // 冷却在触发时写入 markers2「苇名剑法」60 秒。
+      // ⚠️ 第 4/6 参必须同为毫秒（`Date.now()`）：addMarker 以第 4 参为基准按毫秒累加，
+      //    normalizeBuffItem 再对小数值 ×1000；传秒刻度会把 60 秒放大成 ~59999 秒。
+      {
+        const atkSeqAshina = Number(player.specialSeq ?? 0);
+        if (atkSeqAshina === 4 || player.type === '剑圣') {
+          const ashinaMk2 = this.safeParseJson<any[]>(player.markers2 || playerData.markers2 || [], []);
+          const nowMsAshina = Date.now();
+          const ready = !this.combatState.timeIntervalRequire(
+            '苇名剑法',
+            60,
+            ashinaMk2,
+            nowMsAshina,
+            { value: '' },
+            nowMsAshina,
+          );
+          if (ready && !ashinaFollowup) {
+            ashinaFollowup = true;
+            player.markers2 = ashinaMk2;
+            playerData.markers2 = ashinaMk2;
+            resultLines.push('(苇名剑法)');
+          }
+        }
+      }
+
+      // 命中后写「被近战」标记（原版 战斗相关.ecode L1913-1917）：
+      // 仅 玩家（特殊序号>0）且「武器.名称==拳头 或 武器.类型==近战武器」时写入。
+      // 注意不能用 isMelee（它把「无类型武器」也算近战），否则无类型武器会误标，
+      // 进而放大剑圣「时代变了」的易伤。
+      // ⚠️ 原版用 `添加成就("被近战", 1, 防御方.标记)`，而 添加成就 是**累加**语义
+      //    （数据分析.ecode L678：数值 = 数值 + 数值），且 时代变了 的判定是
+      //    `取成就熟练度(...) == 1`（L3116）—— 即「累计恰好 1 次」才生效，
+      //    第 2 次近战命中后该易伤就失效。此处按原版保留累加行为（疑似笔误不擅改）。
+      if (!isRuntimeActor && (weapon.name === '拳头' || weapon.type === '近战武器')) {
+        const tMkMelee = this.normalizeMarkerObject(target.markers);
+        tMkMelee['被近战'] = Number(tMkMelee['被近战'] || 0) + 1;
+        target.markers = tMkMelee;
+      }
+
       // 原版 战斗相关.ecode L3652-3663：曾经造成的最高伤害
       // 玩家(特殊序号>0)写成就 markers；使魔(特殊序号<0 且 !=-1 敌对怪物)写自身标记
       this.recordMaxDamageDealt(player, playerData, finalDamage, isRuntimeActor);
@@ -2419,6 +2566,9 @@ export class CombatSystemService {
               map.id,
               playerData,
               context.vitalityMode || 'normal',
+              undefined, // killerSpecies：溅射仍算玩家本人击杀
+              context.attackText, // 军姬2 击杀被动依赖本次 攻击文本==「万象a」
+              weapon?.name, // 恶毒暴怒减「本次造成击杀的武器」冷却（原版 z1）
             );
             if (sd.expGain > 0) {
               totalExp += sd.expGain;
@@ -2430,6 +2580,8 @@ export class CombatSystemService {
               );
             }
             if (sd.dropText) resultLines.push(`掉落：${sd.dropText}`);
+            // 原版把击杀被动回显串进战斗文本（伊卡洛斯/剑圣减冷却等）
+            if (sd.passiveText) resultLines.push(sd.passiveText);
             taskProgress.push(...(sd.taskProgress || []));
             await this.updateMonsterHpInMap(map.id, st);
           } else {
@@ -2597,10 +2749,15 @@ export class CombatSystemService {
         map.id,
         playerData,
         context.vitalityMode || 'normal',
+        undefined, // killerSpecies：玩家本人击杀
+        context.attackText, // 军姬2 击杀被动依赖本次 攻击文本==「万象a」
+        weapon?.name, // 恶毒暴怒减「本次造成击杀的武器」冷却（原版 z1）
       );
         totalExp += deathResult.expGain;
         allDrops.push(...deathResult.drops);
         taskProgress.push(...(deathResult.taskProgress || []));
+        // 原版把击杀被动回显串进战斗文本（伊卡洛斯/剑圣减冷却等）
+        if (deathResult.passiveText) resultLines.push(deathResult.passiveText);
 
         if (deathResult.dropText) {
           resultLines.push(`掉落：${deathResult.dropText}`);
@@ -2721,6 +2878,38 @@ export class CombatSystemService {
         } catch (e: any) {
           this.logger.warn(`额外攻击执行失败: ${e?.message ?? e}`);
         }
+      }
+    }
+
+    // ========== 剑圣「苇名剑法」补击（原版 L706-739） ==========
+    // 近战命中且冷却写入成功后，用身上第一件「非近战且锁定==0」的武器再攻击一次。
+    if (ashinaFollowup && !isRuntimeActor && !context.isExtraAttack) {
+      try {
+        const weaponsAshina = this.safeParseJson<any[]>(player.weapons || playerData.weapons || [], []);
+        let followIdx = -1;
+        for (let i = 0; i < weaponsAshina.length; i++) {
+          const w = weaponsAshina[i];
+          if (!w) continue;
+          const wType = String(w.type ?? w.类型 ?? '');
+          const wLock = Number(w.lockTime ?? w.lock ?? w.锁定 ?? 0);
+          if (wType === '近战武器' || wType.includes('近战') || w.name === '拳头') continue;
+          if (wLock !== 0) continue;
+          followIdx = i + 1; // weaponIndex 为 1-based
+          break;
+        }
+        if (followIdx > 0) {
+          const follow = await this.weaponAttack(userId, followIdx, {
+            noDelay: true,
+            isCombo: true,
+            isExtraAttack: true,
+            // 原版 战斗相关.ecode L727-739：补击沿用**本次攻击的同一 伤害倍率**，
+            // 不是固定 100（会心一击等技能触发时不丢倍率）
+            damageMultiplier: context.damageMultiplier ?? 100,
+          });
+          resultLines.push(`【苇名剑法】\n${follow.result}`);
+        }
+      } catch (e: any) {
+        this.logger.warn(`苇名剑法补击失败: ${e?.message ?? e}`);
       }
     }
 
@@ -5105,6 +5294,13 @@ export class CombatSystemService {
     vitalityMode: 'normal' | 'sweep' = 'normal',
     /** 击杀方物种名（宠物/召唤物击杀时传，原版 攻击方.类型）；玩家击杀传空 */
     killerSpecies?: string,
+    /**
+     * 本次攻击的 攻击文本（原版 武器攻击 的 攻击文本 参数）。
+     * 击杀被动里只有军姬2 依赖它（原版 L3722：`攻击文本 == "万象a"` 才清空主动技能冷却）。
+     */
+    attackText?: string,
+    /** 本次造成击杀的武器名（原版 z1.名称）；恶毒暴怒减该武器冷却用 */
+    killingWeaponName?: string,
   ): Promise<MonsterDeathResult> {
     // GameMonster 真实实例先抢占奖励资格，避免两个玩家同时击杀同一实例时
     // 各自扣活力、发经验和发掉落。纯内存测试夹具没有 claim 接口时保持兼容。
@@ -5134,8 +5330,57 @@ export class CombatSystemService {
     // 计算经验值
     let expGain = this.calcMonsterExp(monster);
 
+    // 掉落能力（原版 后台运作.ecode L846-857）：
+    //   几率 × (1+掉落率/100) 判定；资源数量 × (1+掉落品质/100)；传说率进生成装备。
+    // 之前普通击杀恒传 dropMultiplier=1，面板掉落率/品质完全不生效。
+    const attackerPlayer = attacker?.player ?? attacker;
+    let dropRatePct = 0;
+    let dropQualityPct = 0;
+    let legendRate = 0;
+    /**
+     * 三池「计算上限」（恶毒暴怒回满用）。与掉落能力复用**同一次** buildAttackerBonus 结果，
+     * 不再为击杀被动额外算一遍。
+     */
+    let attackerCaps: { hp?: number; shield?: number; armor?: number } | undefined;
+    if (attackerPlayer) {
+      try {
+        const attackerDataForBonus = attacker?.player
+          ? attacker
+          : { player: attackerPlayer };
+        const bonus = this.buildAttackerBonus(attackerPlayer, attackerDataForBonus);
+        dropRatePct = Number(bonus?.掉落率 || 0);
+        dropQualityPct = Number(bonus?.掉落品质 || 0);
+        attackerCaps = {
+          hp: Number(bonus?.生命 || 0),
+          shield: Number(bonus?.护盾 || 0),
+          armor: Number(bonus?.装甲 || 0),
+        };
+        const sets = this.safeParseJson<any>(attackerPlayer.sets || attackerPlayer.套装 || '{}', {});
+        legendRate = Number(
+          sets?.传说率
+          ?? sets?.legendRate
+          ?? attackerPlayer.legendRate
+          ?? 0,
+        ) || 0;
+      } catch (err: any) {
+        this.logger.warn(`读取掉落能力失败: ${err?.message || err}`);
+      }
+    }
+
     // 生成掉落物（基础掉落清单，含 name/type/quantity/data）
-    let drops = this.generateDrops(monster, 1);
+    let drops = this.generateDrops(monster, Math.max(0, 1 + dropRatePct / 100));
+
+    // 掉落品质：资源数量 ×(1+品质/100)（原版 L849）
+    if (dropQualityPct !== 0) {
+      drops = drops.map((drop: any) => {
+        const type = String(drop?.type ?? drop?.类型 ?? '').trim();
+        if (type === '装备' || type === 'equipment') return { ...drop };
+        const quantity = Number(drop?.quantity ?? drop?.count ?? drop?.数量 ?? 0);
+        if (!Number.isFinite(quantity)) return { ...drop };
+        if (quantity < 0) return { ...drop, quantity: Math.abs(quantity) };
+        return { ...drop, quantity: quantity * (1 + dropQualityPct / 100) };
+      });
+    }
 
     let vitalityCost = 0;
     let rewardMultiplier = 1;
@@ -5143,15 +5388,21 @@ export class CombatSystemService {
 
     // 置掉落（原版 战利品 前序 置掉落 L5245）：记录攻击者对怪物的掉落能力到怪物标记
     // 注意：原版在怪物删除前写怪物.标记，本框架怪物即时删除，此处保留原版调用顺序（行为可见）
-    const attackerPlayer = attacker?.player ?? attacker;
+    // 掉落能力以参数传入 setDrop，禁止写回玩家对象（避免临时加成被 savePlayer 永久落库）。
     if (attacker) {
       const monsterMarkers = this.playerService.safeJsonParse<any[]>(monster.markers, []);
-      monster.markers = this.setDrop(attackerPlayer, monsterMarkers); // Json 列直接写对象
+      monster.markers = this.setDrop(attackerPlayer, monsterMarkers, {
+        dropRate: dropRatePct,
+        dropQuality: dropQualityPct,
+        legendRate,
+      });
     }
 
     // 战利品发放（原版 战斗相关.ecode L4874）：装备展开/资源经验/成就/背包写入/掉落文本。
     // 归属玩家必须在“是否有掉落”之前解析：原版即使没有物品掉落，也会结算经验和活力。
     let dropText = '';
+    // 击杀被动的提示行（原版把冷却减少提示写进 文本，本框架经 MonsterDeathResult 回传）
+    const passiveLines: string[] = [];
     const taskProgress: Array<{ actionName: string; count: number }> = [];
     let playerData: any;
     if (userId) {
@@ -5196,9 +5447,22 @@ export class CombatSystemService {
         playerData.player.markers = markers; // Json 列直接写对象
       }
 
+      // 击杀被动：减冷却 / 苦行叠加 / 暴怒回满（原版 战斗相关.ecode L3712-3781）
+      // 原版整段位于 `攻击方.特殊序号 > 0` 之内 → 宠物/召唤物击杀（killerSpecies 有值）
+      // 不结算玩家击杀被动（攻击方是宠物，特殊序号为负）。
+      if (killerSpecies === undefined) {
+        this.applyKillPassives(
+          playerData.player, playerData, attackText, passiveLines,
+          attackerCaps, killingWeaponName,
+        );
+      }
+
       if (drops.length > 0) {
         dropText = await this.itemSystem.distributeLoot(playerData, drops, {
           onTaskProgress: (actionName, count) => taskProgress.push({ actionName, count }),
+          // 原版 生成装备(..., 传说率, 掉落品质/1000, ...)
+          legendRate,
+          qualityUpper: dropQualityPct / 1000,
         });
         // 原版“奖励玩家”只在装备宝石缎带时记录稀有掉落：每个已成功
         // 结算且原始几率 <= 1% 的掉落条目计一次，不按装备数量展开。
@@ -5222,7 +5486,168 @@ export class CombatSystemService {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
 
-    return { expGain, drops, dropText, taskProgress, vitalityCost, rewardMultiplier, vitalityText };
+    return {
+      expGain, drops, dropText, taskProgress, vitalityCost, rewardMultiplier, vitalityText,
+      passiveText: passiveLines.join('\n'),
+    };
+  }
+
+  /**
+   * markers2 冷却递减：剩余时间 -N 秒，减到当前时刻以下即清空
+   * （对应原版 获得增益(标记2, key, 负数, 真)）。
+   *
+   * 到期时间一律经 `toExpireMs` 归一化（秒/毫秒存量都能读），回写统一成
+   * `{name, expireAt(毫秒)}` 单一形态——避免出现「写 expireAt、读却优先 有效期至」
+   * 导致减冷却被静默忽略。
+   */
+  private reduceMarkers2Cooldown(markers2: any[], name: string, seconds: number): boolean {
+    const idx = markers2.findIndex((m: any) => itemName(m) === name);
+    if (idx < 0) return false;
+    const nowMs = Date.now();
+    const reduced = Math.max(nowMs, toExpireMs(markers2[idx]) - seconds * 1000);
+    if (reduced <= nowMs) {
+      markers2.splice(idx, 1);
+      return true;
+    }
+    markers2[idx] = { name, expireAt: reduced };
+    return true;
+  }
+
+  /**
+   * 击杀被动结算（原版 战斗相关.ecode L3712-3781，位于 造成伤害 的死亡分支内）：
+   * - 伊卡洛斯+歼灭模式：类型技能冷却 -10，并回显「减少了10秒(还有X/冷却完毕)」
+   * - 剑圣 好感≥40：苦行+1（当天）；好感≥80：类型技能冷却/斩冷却 -30，并回显
+   * - 恶毒 好感≥80：暴怒——当前武器冷却-5、攻击冷却-3、三池回满，特效「(暴怒)」
+   * - 军姬2：**仅当本次 攻击文本 == "万象a"** 且 jj3==1 → 主动技能冷却清空（原版 -1000），并回显
+   *
+   * 只结算「原版确实存在的效果」——不推送任何自造的任务/成就计数
+   * （原版这四段只改 冷却/增益/三池 与 文本，没有任何 添加成就 调用）。
+   *
+   * @param attackText 本次攻击的 攻击文本（原版 武器攻击 入参），军姬2 分支依赖
+   * @param outLines   可选提示收集器（原版把上述回显串进 文本）
+   * @param caps       三池「计算上限」（含装备/增益）。恶毒暴怒回满须用计算上限，
+   *                   由调用方（handleMonsterDeath）复用已算出的 attackerBonus 传入；
+   *                   缺省/为 0 时跳过该项，绝不按基础上限回满。
+   */
+  private applyKillPassives(
+    player: any,
+    playerData: any,
+    attackText?: string,
+    outLines?: string[],
+    caps?: { hp?: number; shield?: number; armor?: number },
+    /** 本次造成击杀的武器名（原版 z1.名称，恶毒暴怒减该武器冷却用） */
+    killerWeapon?: string,
+  ): void {
+    if (!player) return;
+    const seq = Number(player.specialSeq ?? 0);
+    const type = String(player.type ?? player.类型 ?? '');
+    const affinity = Number(player.affinity ?? (player as any).好感
+      ?? this.playerService.getMarkerValue(playerData?.markers || asJsonValue<any>(player.markers, {}), `${type}好感`));
+    const markers2 = this.safeParseJson<any[]>(player.markers2 || playerData?.markers2 || [], []);
+    const playerName = String(player.name ?? player.名称 ?? '冒险者');
+    const nowMs = Date.now();
+    let changed = false;
+    const typeCdKey = `${type}技能冷却`;
+
+    /**
+     * 原版「标记要求(key, 标记2, w2, s)」：减冷却后回显剩余时间或「冷却完毕」。
+     * 两个分支文案不同，故分别传 进行中文案 / 完毕中文案。
+     */
+    const cdText = (prefix: string, donePrefix: string, key: string): string => {
+      const it = markers2.find((m: any) => itemName(m) === key);
+      const remain = it ? remainSeconds(it, nowMs) : 0;
+      return remain > 0
+        ? `${prefix}(还有${this.msToTimeTextLocal(remain * 1000)})`
+        : `${donePrefix}(冷却完毕)`;
+    };
+
+    // 伊卡洛斯：歼灭模式下击杀减主动冷却 10 秒（原版 L3742-3751）
+    if (seq === 13 || type === '伊卡洛斯') {
+      const buffs = this.safeParseJson<any[]>(player.buffs || playerData?.buffs || [], []);
+      if (hasActive(buffs, '歼灭模式')) {
+        if (this.reduceMarkers2Cooldown(markers2, typeCdKey, 10)) changed = true;
+        outLines?.push(cdText(`${playerName}的主动技能冷却减少了10秒`, `${playerName}的主动技能冷却减少了10秒`, typeCdKey));
+      }
+    }
+
+    // 剑圣（原版 L3753-3771）
+    if (seq === 4 || type === '剑圣') {
+      if (affinity >= 40) {
+        this.stackDayBuff(player, '苦行', 1);
+      }
+      if (affinity >= 80) {
+        if (this.reduceMarkers2Cooldown(markers2, typeCdKey, 30)) changed = true;
+        outLines?.push(cdText('会心一击冷却减少了30秒', '会心一击的主动技能冷却减少了30秒', typeCdKey));
+        if (this.reduceMarkers2Cooldown(markers2, '斩冷却', 30)) changed = true;
+        // ⚠️原版 L3766 第二段「标记要求」误用 类型+"技能冷却"（疑似复制粘贴笔误），
+        //   此处按原版保留（与 setDrop 传说率段 L5291 的处理口径一致）。
+        outLines?.push(cdText('斩冷却减少了30秒', '斩的主动技能冷却减少了30秒', typeCdKey));
+      }
+    }
+
+    // 恶毒 暴怒（原版 L3773-3781）
+    if (seq === 6 || type === '恶毒') {
+      if (affinity >= 80) {
+        outLines?.push('(暴怒)');
+        // ⚠️ 原版减的是 **z1**（本次造成击杀的那把武器）的冷却，此处取 killerWeapon；
+        //    旧调用点未传时退回「当前武器」（连击/苇名剑法补击下二者可能不同）。
+        const weapons = this.safeParseJson<any[]>(player.weapons || playerData?.weapons || [], []);
+        const curIdx = Math.max(0, (Number(player.currentWeapon) || 1) - 1);
+        const curWeaponName = String(
+          killerWeapon || weapons[curIdx]?.name || weapons[curIdx]?.名称 || '',
+        );
+        if (curWeaponName && this.reduceMarkers2Cooldown(markers2, `${curWeaponName}冷却`, 5)) changed = true;
+        if (this.reduceMarkers2Cooldown(markers2, '攻击冷却', 3)) changed = true;
+        // 原版：攻击方.当前生命/护盾/装甲 = 属性.生命/护盾/装甲（三池回满）。
+        // 必须走第四道闸 capPoolValue，且基数用**计算上限**（caps 由调用方传入）；
+        // 取不到计算上限时跳过该项，绝不按基础上限 maxHp/maxShield/maxArmor 回满。
+        const capHp = Number(caps?.hp) > 0 ? Number(caps!.hp) : 0;
+        const capShield = Number(caps?.shield) > 0 ? Number(caps!.shield) : 0;
+        const capArmor = Number(caps?.armor) > 0 ? Number(caps!.armor) : 0;
+        if (capHp > 0) player.hp = capPoolValue(capHp, capHp);
+        if (capShield > 0) player.shield = capPoolValue(capShield, capShield);
+        if (capArmor > 0) player.armor = capPoolValue(capArmor, capArmor);
+      }
+    }
+
+    // 军姬2（原版 L3721-3728）：**攻击文本 == "万象a"** 且 jj3==1 → 清空主动技能冷却。
+    // 原版无好感门槛（此前误加 affinity>=40，且漏了 攻击文本 条件 → 任意击杀都会清冷却）。
+    if (seq === 24 || type === '军姬2') {
+      const markers = playerData?.markers || asJsonValue<any>(player.markers, {});
+      const jj3 = Number(this.playerService.getMarkerValue(markers, 'jj3') || 0);
+      if (attackText === '万象a' && jj3 === 1) {
+        if (this.reduceMarkers2Cooldown(markers2, typeCdKey, 1000)) changed = true;
+        outLines?.push(`${playerName}的主动技能冷却完毕`);
+      }
+    }
+
+    if (changed) {
+      player.markers2 = markers2;
+      if (playerData) playerData.markers2 = markers2;
+    }
+  }
+
+  /**
+   * 当天 24 点失效的可叠加增益（原版 获得增益(..., 有效期当天(), 假, ..., 1, 真)）。
+   *
+   * 写入沿用本文件的秒级口径（与 FamiliarSkillsService.addBuff 一致）；读取侧一律
+   * 经 `expire-time.util.toExpireMs / isActive` 归一化（<1e12 视为秒），两套口径的
+   * 存量数据都能正确识别，不必迁移。
+   */
+  private stackDayBuff(player: any, name: string, stack = 1): void {
+    const buffs = this.safeParseJson<any[]>(player.buffs || [], []);
+    const endOfDay = new Date();
+    endOfDay.setHours(24, 0, 0, 0);
+    // 秒级，对齐 addBuff / hasBuff
+    const expireAt = Math.floor(endOfDay.getTime() / 1000);
+    const existing = buffs.find((b: any) => b && (b.name || b.名称) === name);
+    if (existing) {
+      existing.value = Number(existing.value || 0) + stack;
+      existing.expireAt = expireAt;
+    } else {
+      buffs.push({ name, value: stack, expireAt });
+    }
+    player.buffs = buffs;
   }
 
   /**
@@ -6002,7 +6427,19 @@ export class CombatSystemService {
    * 对应原版 加成计算.ecode _计算玩家()：按等级+熟练度成长。
    * public：供信息显示/属性面板调用，展示"计算后"的成长属性。
    */
-  buildAttackerBonus(player: any, playerData: PlayerData, map?: any): BonusData {
+  buildAttackerBonus(
+    player: any,
+    playerData: PlayerData,
+    map?: any,
+    /**
+     * 可选「特效」收集器（原版 玩家.特效 → 追加进攻击文本）。
+     *
+     * 传入时把原版 `加成计算.ecode` 里写入 玩家.特效 的文本就地追加，
+     * 由调用方（weaponAttack）拼进战斗回包；不传则完全无副作用
+     * （属性面板/图鉴等展示调用不需要特效文本）。
+     */
+    特效文本?: string[],
+  ): BonusData {
     // 原版 L1746-1760：每次计算玩家前先重置武器自带/加成，避免套装判断2
     // 写入的等级加成跨次累加。这里保留原始快照，供同一武器对象反复重置。
     // 从玩家基础属性构建
@@ -6358,16 +6795,28 @@ export class CombatSystemService {
         }
         break;
       }
-      case '4': { // 剑圣：物伤2+1.25；好感≥20 近战攻击2+15+技能；好感≥60 攻击/命中2比例加成
+      case '4': { // 剑圣：物伤2+1.25；好感≥20 近战武器时「剑道」；好感≥60「缘」按三池比例
         bonus.物伤2 = (bonus.物伤2 || 0) + 1.25;
-        if ((player.affinity || 0) >= 20) {
-          bonus.攻击2 = (bonus.攻击2 || 0) + 15 + skillLevel;
+        // 剑道（原版 加成计算.ecode L2010-2016）：当前武器 != 0（排除拳头）
+        // **且** 武器.类型 == "近战武器" 才生效。此前写成 currentWeapon === 0 判为近战，
+        // 与原版条件恰好相反（空手白得 15+技能等级），已按原版纠正。
+        if ((player.affinity || 0) >= 20 && Number(player.currentWeapon || 0) !== 0) {
+          const weaponsD = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+          const curW = weaponsD[Number(player.currentWeapon) - 1];
+          if (String(curW?.type ?? curW?.类型 ?? '') === '近战武器') {
+            bonus.攻击2 = (bonus.攻击2 || 0) + 15 + skillLevel;
+            特效文本?.push('(剑道)');
+          }
         }
+        // 缘（原版 L2023-2028）：按三池总状态比例，非仅生命
         if ((player.affinity || 0) >= 60) {
-          const ratio = Math.min(1, (player.hp || 0) / Math.max(1, (bonus.生命 || 1)));
+          const curState = (player.hp || 0) + (player.armor || 0) + (player.shield || 0);
+          const maxState = (bonus.生命 || 1) + (bonus.装甲 || 0) + (bonus.护盾 || 0);
+          const ratio = curState / Math.max(1, maxState);
           const a1 = 20 + ratio * 20;
           bonus.攻击2 = (bonus.攻击2 || 0) + a1;
           bonus.命中2 = (bonus.命中2 || 0) + a1;
+          特效文本?.push(`(缘${Math.round(a1)}%)`);
         }
         if ((player.affinity || 0) >= 40) {
           bonus.暴击伤害 = (bonus.暴击伤害 || 0) + 3 * skillLevel;
@@ -9332,105 +9781,49 @@ export class CombatSystemService {
     return false;
   }
 
+  /**
+   * 玩家死亡判定（对应原版 战斗相关.ecode L5173-5231 子程序）。
+   *
+   * 分工（避免双重实现）：
+   *  - 「免死()」留本类：原版在 造成伤害 入口调用，属战斗层语义；
+   *  - 「卷土重来 / 军姬 / 死亡行者 / 石中剑 / 真死」级联统一走
+   *    `PlayerService.resolvePlayerDeath`（唯一实现，指令门禁 deathGateText 同源）。
+   *
+   * @param playerData 玩家完整数据（含 player / buffs / equipment / weapons / map.summons）
+   */
   playerDeath(playerData: any): { dead: boolean; extraText: string; deathText: string } {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const player = playerData.player;
-    const buffs = Array.isArray(playerData.buffs) ? playerData.buffs : [];
+    const player = playerData?.player;
+    if (!player) return { dead: false, extraText: '', deathText: '' };
+
+    const buffs = Array.isArray(playerData.buffs)
+      ? playerData.buffs : this.playerService.safeJsonParse<any[]>(player.buffs, []);
+    const equipment = Array.isArray(playerData.equipment)
+      ? playerData.equipment : this.playerService.safeJsonParse<any[]>(player.equipment, []);
     const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
-    const equipment = Array.isArray(playerData.equipment) ? playerData.equipment : [];
-
-    // 时间间隔要求(name, sec, markers2, s)：存在且未过期 → 冷却中(真)；否则(假)=可触发
-    const intervalActive = (name: string, sec: number): boolean => {
-      const e = markers2.find((m: any) => m && m.name === name);
-      return !!(e && e.expireAt && e.expireAt > nowSec);
-    };
-    // 写入冷却标记
-    const setInterval = (name: string, sec: number) => {
-      const filtered = markers2.filter((m: any) => !(m && m.name === name));
-      filtered.push({ name, expireAt: nowSec + sec });
-      player.markers2 = filtered; // Json 列直接写数组
-    };
-    // 装备要求(玩家, specialSeq)：遍历装备命中 specialSeq
-    const hasEquip = (seq: number): boolean =>
-      equipment.some((e: any) => e && e.specialSeq === seq);
-    // 增益要求(name)：buff 存在且未过期
-    const buffActive = (name: string): boolean =>
-      buffs.some((b: any) => b && b.name === name && (!b.expireAt || b.expireAt > nowSec));
-
-    let extraText = player.额外文本 || '';
-    let deathText = '';
+    const nowMs = Date.now();
 
     // 当前生命>0 → 不可能死（原版入口隐含 玩家.当前生命<=0 才进入；此处保守判定）
-    if (player.当前生命 > 0 || player.currentHp > 0) {
-      return { dead: false, extraText, deathText };
-    }
+    const curHp = Number(player.hp ?? player.currentHp ?? player.当前生命 ?? 0);
+    if (curHp > 0) return { dead: false, extraText: player.额外文本 ?? '', deathText: '' };
 
-    // 原版 造成伤害 入口：当前生命<=0 先调 免死()，返回真则仍存活（龙姬/伊芙利特/战斗女仆/吸血姬/猫爪/五番a 分支）
+    // 免死（原版 造成伤害 入口）：返回真则仍存活（龙姬/伊芙利特/战斗女仆/吸血姬/猫爪/五番a）
     const dmgTextRef = { value: '' };
     const totalDmgRef = { value: Number.MAX_SAFE_INTEGER }; // 致死总伤害
-    // 传入 buffs/markers2 的浅拷贝副本：avoidDeath 内部会把元素原地归一化为中文 key（兼容层），
-    // 若直接传原引用会破坏本函数后续 buffActive（依赖英文 key）的读取，故隔离副本。
-    if (this.avoidDeath(player, [...buffs], [...markers2], equipment, nowSec * 1000, nowSec * 1000, totalDmgRef, dmgTextRef)) {
-      // 免死成功：b==2 已把 当前生命 置 1；b==3/4/5 保留当前生命；吸血姬已互换
-      extraText = extraText + dmgTextRef.value;
-      return { dead: false, extraText, deathText };
+    // 传 buffs/markers2 浅拷贝：avoidDeath 内部会把元素原地归一化为中文 key（兼容层），
+    // 直接传原引用会污染调用方依赖的英文 key 读取
+    if (this.avoidDeath(player, [...buffs], [...markers2], equipment, nowMs, nowMs, totalDmgRef, dmgTextRef)) {
+      return { dead: false, extraText: dmgTextRef.value, deathText: '' };
     }
 
-    // 卷土重来（原版 L5182-5184）
-    if (buffActive('卷土重来')) {
-      extraText = extraText + `卷土重来`;
-      return { dead: false, extraText, deathText };
-    }
-
-    // 军姬（原版 L5185-5199：特殊序号==16 且有存活宠物）
-    if (player.specialSeq === 16 || player.type === '军姬') {
-      // 宠物存活数量：map.summons 中归属本玩家且 hp>0（原版按 玩家.地图/玩家.QQ 查）
-      const map = playerData.map || {};
-      const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
-      const alivePet = summons.some(
-        (s: any) => s && (s.userId === player.qqNumber || s.userId === player.userId) && (s.hp || s.当前生命 || 0) > 0,
-      );
-      let b = 0;
-      if (alivePet) {
-        // 冷却"sf"60秒（原版 L5187：时间间隔要求("sf",60,...) 真=冷却中 b=0，假=未冷却 b=1）
-        b = intervalActive('sf', 60) ? 0 : 1;
-      } else {
-        b = 0;
-      }
-      if (b === 1) {
-        extraText = extraText + `死亡状态下被"森罗万象"复活`;
-        player.当前生命 = (player.属性?.生命 || player.生命上限 || 1) / 2; // 原版 玩家.属性.生命/2
-        return { dead: false, extraText, deathText };
-      }
-    }
-
-    // 死亡行者（原版 L5204-5212：specialSeq=16 装备）
-    if (hasEquip(16)) {
-      if (!intervalActive('死亡行者', 90)) {
-        extraText = extraText + `死亡状态下被死亡行者复活`;
-        player.当前生命 = (player.属性?.生命 || player.生命上限 || 1) / 2;
-        setInterval('死亡行者', 90);
-        return { dead: false, extraText, deathText };
-      }
-      deathText = `${player.name} 已经死掉了!你可以"复活使魔"或者"删除怪物"`;
-      return { dead: true, extraText, deathText };
-    }
-
-    // 石中剑（原版 L5214-5222：specialSeq=-35 装备）
-    if (hasEquip(-35)) {
-      if (!intervalActive('石中剑', 90)) {
-        extraText = extraText + `死亡状态下被石中剑复活`;
-        player.当前生命 = (player.属性?.生命 || player.生命上限 || 1) / 2;
-        setInterval('石中剑', 90);
-        return { dead: false, extraText, deathText };
-      }
-      deathText = `${player.name} 已经死掉了!你可以"复活使魔"或者"删除怪物"`;
-      return { dead: true, extraText, deathText };
-    }
-
-    // 默认（原版 L5224-5226）：真死
-    deathText = `${player.name} 已经死掉了!你可以"复活使魔"或者"删除怪物"`;
-    return { dead: true, extraText, deathText };
+    // 卷土重来 → 军姬 → 死亡行者 → 石中剑 → 真死（唯一实现见 PlayerService）
+    const result = this.playerService.resolvePlayerDeath(player, {
+      buffs, equipment, weapons: playerData.weapons, map: playerData.map,
+    });
+    return {
+      dead: result.dead,
+      extraText: player.额外文本 ?? '',
+      deathText: result.deathText,
+    };
   }
 
   // ==================== 置掉落 ====================
@@ -9446,11 +9839,16 @@ export class CombatSystemService {
    * 各段比较：玩家能力值 > 怪物已有记录值 才覆盖（否则保留更高记录）。
    * ⚠️原版 L5291 传说率段比较误用 `玩家.属性.掉落品质`（疑似笔误，按原版保留）。
    *
-   * @param attacker 攻击玩家（含 属性.掉落率/掉落品质、套装.传说率、QQ、equipment）
+   * @param attacker 攻击玩家（QQ、equipment）
    * @param monsterMarkers 怪物.标记 数组（会被原地更新，返回新数组）
+   * @param stats 本次战斗算出的掉落能力（不写回玩家对象，仅用于怪物标记）
    * @returns 更新后的怪物标记数组
    */
-  setDrop(attacker: any, monsterMarkers: any[]): any[] {
+  setDrop(
+    attacker: any,
+    monsterMarkers: any[],
+    stats?: { dropRate?: number; dropQuality?: number; legendRate?: number },
+  ): any[] {
     const markers = Array.isArray(monsterMarkers) ? monsterMarkers.slice() : [];
     const qq = attacker.qqNumber || attacker.QQ || attacker.userId || '';
 
@@ -9477,18 +9875,14 @@ export class CombatSystemService {
       }
     };
 
-    // 掉落率（原版 L5251-5267：玩家.属性.掉落率 != 0）
-    if ((attacker.属性?.掉落率 || attacker.掉落率 || 0) !== 0) {
-      writeMarker('dl', attacker.属性?.掉落率 || attacker.掉落率 || 0);
-    }
-    // 掉落品质（原版 L5269-5285：玩家.属性.掉落品质 != 0）
-    if ((attacker.属性?.掉落品质 || attacker.掉落品质 || 0) !== 0) {
-      writeMarker('dp', attacker.属性?.掉落品质 || attacker.掉落品质 || 0);
-    }
-    // 传说率（原版 L5287-5303：玩家.套装.传说率 != 0；⚠️L5291 比较误用 掉落品质，按原版保留）
-    if ((attacker.套装?.传说率 || attacker.legendRate || 0) !== 0) {
-      writeMarker('xy', attacker.套装?.传说率 || attacker.legendRate || 0);
-    }
+    // 优先用调用方传入的本次战斗加成（不污染玩家对象）；否则回落读玩家自身字段
+    const dropRate = Number(stats?.dropRate ?? attacker.属性?.掉落率 ?? attacker.掉落率 ?? 0) || 0;
+    const dropQuality = Number(stats?.dropQuality ?? attacker.属性?.掉落品质 ?? attacker.掉落品质 ?? 0) || 0;
+    const legendRate = Number(stats?.legendRate ?? attacker.套装?.传说率 ?? attacker.legendRate ?? 0) || 0;
+
+    if (dropRate !== 0) writeMarker('dl', dropRate);
+    if (dropQuality !== 0) writeMarker('dp', dropQuality);
+    if (legendRate !== 0) writeMarker('xy', legendRate);
     // 宝石缎带（原版 L5305-5317：装备要求(#宝石缎带) 成立 → 写 "ds"=1）
     const equipment = this.safeParseJson<any[]>(attacker.equipment, []);
     const hasGemRibbon = equipment.some((e: any) => e && (

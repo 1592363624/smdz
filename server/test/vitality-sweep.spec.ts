@@ -38,7 +38,7 @@ describe('扫荡活力批量结算', () => {
       getPlayerData: jest.fn(async () => playerData),
       savePlayer: jest.fn(async () => undefined),
       isPlayerDead: jest.fn(() => false),
-      handlePlayerDeath: jest.fn(),
+      deathGateText: jest.fn(async () => null),
       safeJsonParse: (value: any, fallback: any) => {
         if (typeof value !== 'string') return value ?? fallback;
         try { return JSON.parse(value); } catch { return fallback; }

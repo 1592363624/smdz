@@ -52,7 +52,7 @@ function makeSkillsService(options: {
         return level;
       }),
       isPlayerDead: jest.fn((p: any) => Number(p?.hp ?? 1) <= 0),
-      handlePlayerDeath: jest.fn(() => '你死了'),
+      deathGateText: jest.fn(async (p: any) => (Number(p?.hp ?? 1) <= 0 ? '你死了' : null)),
     },
     mapService: {
       getMapById: jest.fn(async () => map),

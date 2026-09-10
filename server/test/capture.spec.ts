@@ -272,6 +272,7 @@ describe('捕捉模式战斗层', () => {
       getBackpackItems: jest.fn(() => []),
       getMarkerValue: jest.fn((markers: any, key: string) => markers?.[key] ?? 0),
       isPlayerDead: jest.fn((value: any) => (value.hp || 0) <= 0),
+      deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
       savePlayer: jest.fn(async () => undefined),
       addExp: jest.fn(async () => undefined),
     };

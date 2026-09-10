@@ -856,7 +856,11 @@ export class AdminService {
     if (!player) {
       throw new NotFoundException('该用户还没有创建游戏角色');
     }
-    return this.playerService.getBackpackItems(player);
+    // 货币（钻石/召唤券/数据核心）真相源是独立列，savePlayer 落库时会从背包 JSON 剥离。
+    // 必须走 getPlayerData 把货币物化回背包数组：否则 GM 后台永远看不到货币条目；
+    // 更严重的是保存侧（authoritativeSnapshot + 缺失条目=0）会把货币列误清为 0。
+    const _pd = await this.playerService.getPlayerData(userId);
+    return this.playerService.getBackpackItems(_pd.player);
   }
 
   /**

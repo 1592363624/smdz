@@ -123,6 +123,7 @@ function makeGatherFixture(resource: any, options: {
     savePlayer: jest.fn(async () => undefined),
     addExp: jest.fn(async () => ({ leveledUp: false, newLevel: 10 })),
     isPlayerDead: jest.fn((p: any) => Number(p?.hp ?? 1) <= 0),
+    deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
     getMarkerValue: jest.fn((markers: any, name: string) => Number(markers?.[name] ?? 0)),
   };
   const itemSystemService = {

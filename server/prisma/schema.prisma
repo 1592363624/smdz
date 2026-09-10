@@ -394,7 +394,8 @@ model ChatMessage {
   senderId  Int?
   sender    User?    @relation(fields: [senderId], references: [id], onDelete: SetNull)
   type      String   @default("chat")
-  content   String   @db.Text
+  // LongText：批量召唤/结算等极端长回包曾因 MySQL TEXT(64KB) 落库失败，导致公屏无系统回包
+  content   String   @db.LongText
   commandId Int?
   createdAt DateTime @default(now())
 
@@ -406,7 +407,8 @@ model CommandLog {
   channelId  Int
   senderId   Int
   command    String
-  result     String   @db.Text
+  // LongText：与 ChatMessage.content 对齐，超长指令回包（批量召唤等）写审计日志不被 TEXT(64KB) 截断失败
+  result     String   @db.LongText
   durationMs Int      @default(0)
   source     String   @default("web")
   createdAt  DateTime @default(now())

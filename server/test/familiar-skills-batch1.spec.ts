@@ -166,8 +166,9 @@ describe('使魔技能第一批：怒吼/万象/鹰眼/歼灭（原版 使魔技
     const markers2 = parseJson(player.markers2, []);
     expect(markers2.find((m: any) => m.name === '军姬2技能冷却')).toBeTruthy();
     // 死亡倍率 Math.floor(300 + 7.5*1) = 307（技能等级最低为1）
+    // attackText 必须是逻辑字面量 "万象a"（原版 使魔技能 L1391 ↔ 战斗相关 L3722 击杀被动判定）
     expect(service.combatSystem.weaponAttack).toHaveBeenCalledWith(42, 0, expect.objectContaining({
-      damageMultiplier: 307, attackText: '【万象】', allAttack: true,
+      damageMultiplier: 307, attackText: '万象a', allAttack: true,
     }));
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '使用技能');
   });

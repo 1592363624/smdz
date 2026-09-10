@@ -305,7 +305,7 @@
 
         <!-- 用户详情 / 编辑弹窗 -->
         <div v-if="detailUser" class="modal-mask" @click.self="closeUserDetail">
-          <div class="modal-box">
+          <div class="modal-box" :class="{ wide: detailTab === 'backpack' && editForm }">
             <div class="modal-head">
               <h3>
                 用户详情
@@ -358,35 +358,98 @@
                   </div>
                 </template>
 
-                <!-- 页签：背包管理（解析当前用户背包，可编辑数量/增删） -->
+                <!-- 页签：背包管理（平铺卡片 + 背包内搜索 + 右侧目录添加） -->
                 <template v-else>
                   <p class="hint" style="margin: 10px 0 6px;">
                     背包管理：编辑 <b>{{ gmBackpack.username }}</b> 背包中的物品数量，可增删。
                   </p>
                   <div v-if="gmBackpackLoading" class="fb-empty">背包加载中…</div>
                   <template v-else>
-                    <div class="gm-field">
-                      <label>添加物品（输入名称筛选，点选加入；同名自动累计数量）</label>
-                      <div class="picker-box">
-                        <input v-model="bkItemQuery" placeholder="输入物品/装备名称筛选" @focus="bkItemMenuOpen = true" @blur="bkItemMenuOpen = false" />
-                        <ul v-if="bkItemMenuOpen" class="picker-menu">
-                          <li v-for="it in bkFilteredCatalog" :key="it.category + it.name" @mousedown.prevent="addBackpackItem(it)">
-                            <span class="picker-menu-name">{{ it.name }}</span>
-                            <span class="picker-menu-sub">{{ it.category }}</span>
-                          </li>
-                          <li v-if="!bkFilteredCatalog.length" class="picker-empty">{{ itemCatalog.length ? '没有匹配的物品' : '物品目录加载中…' }}</li>
-                        </ul>
+                    <div class="bk-toolbar">
+                      <div class="bk-search">
+                        <span class="bk-search-icon">⌕</span>
+                        <input v-model="bkSearchQuery" type="text" placeholder="搜索背包物品…" />
                       </div>
+                      <div class="bk-chips">
+                        <button
+                          v-for="t in bkTypeOptions"
+                          :key="t"
+                          class="bk-chip"
+                          :class="{ on: bkFilterType === t }"
+                          @click="bkFilterType = t"
+                        >{{ t === 'all' ? '全部' : t }}</button>
+                      </div>
+                      <span class="bk-stat">
+                        <b>{{ bkVisibleItems.length }}</b>/<b>{{ gmBackpack.items.length }}</b> 种
+                      </span>
+                      <button class="bk-toggle" :class="{ on: bkCatalogOpen }" @click="bkCatalogOpen = !bkCatalogOpen">＋ 添加</button>
                     </div>
 
-                    <div v-if="gmBackpack.items.length" class="bk-list">
-                      <div v-for="(it, idx) in gmBackpack.items" :key="it.name + idx" class="bk-item">
-                        <span class="bk-item-name" :title="it.type || '物品'">{{ it.name }}<i v-if="it.type" class="bk-item-type">{{ it.type }}</i></span>
-                        <input v-model.number="it.quantity" class="bk-item-qty" type="number" min="0" step="any" title="数量（0 表示删除，支持小数）" />
-                        <button class="picked-remove" title="删除" @click="removeBackpackItem(idx)">✕</button>
+                    <div class="bk-layout" :class="{ 'no-cat': !bkCatalogOpen }">
+                      <div class="bk-grid">
+                        <div
+                          v-for="it in bkVisibleItems"
+                          :key="it.name"
+                          class="bk-card"
+                          :class="bkTypeClass(it.type)"
+                        >
+                          <div class="bk-card-top">
+                            <span class="bk-card-name" :title="it.name">
+                              {{ it.name }}<i v-if="isCurrencyName(it.name)" class="bk-cur-badge">货币</i>
+                            </span>
+                            <button
+                              class="bk-card-x"
+                              :class="{ danger: isCurrencyName(it.name) }"
+                              :title="isCurrencyName(it.name) ? '删除将清零该货币（会二次确认）' : '删除'"
+                              @click="removeBackpackItem(it)"
+                            >✕</button>
+                          </div>
+                          <div class="bk-qty">
+                            <button class="bk-qbtn" title="−1" @click="bumpBackpackQty(it, -1)">−</button>
+                            <input
+                              v-model.number="it.quantity"
+                              class="bk-qin"
+                              type="number"
+                              min="0"
+                              step="any"
+                              title="数量（0 表示删除，支持小数）"
+                            />
+                            <button class="bk-qbtn" title="+1" @click="bumpBackpackQty(it, 1)">＋</button>
+                          </div>
+                        </div>
+                        <div v-if="!bkVisibleItems.length" class="bk-empty">
+                          {{ gmBackpack.items.length ? '没有匹配的物品' : '背包为空' }}
+                          <span v-if="gmBackpack.items.length">换个关键词，或从右侧目录添加</span>
+                          <span v-else>可通过右侧目录添加物品</span>
+                        </div>
                       </div>
+
+                      <aside v-if="bkCatalogOpen" class="bk-catalog">
+                        <div class="bk-catalog-head">
+                          <h4>物品目录 <span>{{ bkCatalogList.length }} 项</span></h4>
+                          <div class="bk-catalog-search">
+                            <span class="bk-search-icon">⌕</span>
+                            <input v-model="bkCatalogQuery" type="text" placeholder="筛选目录…" />
+                          </div>
+                        </div>
+                        <div class="bk-catalog-list">
+                          <div
+                            v-for="c in bkCatalogList"
+                            :key="c.category + c.name"
+                            class="bk-cat-item"
+                            :class="{ owned: bkIsOwned(c.name) }"
+                            @click="addBackpackItem(c)"
+                          >
+                            <span class="bk-dot" :class="bkTypeClass(c.category)"></span>
+                            <span class="bk-cat-name" :title="c.name">{{ c.name }}</span>
+                            <span class="bk-plus">＋</span>
+                          </div>
+                          <div v-if="!bkCatalogList.length" class="bk-catalog-empty">
+                            {{ itemCatalog.length ? '没有匹配的物品' : '物品目录加载中…' }}
+                          </div>
+                        </div>
+                      </aside>
                     </div>
-                    <p v-else class="muted" style="margin: 6px 0;">背包为空，可通过上方选择物品添加。</p>
 
                     <div class="modal-foot">
                       <button class="gm-btn success" :disabled="gmBackpackSaving" @click="saveBackpack">{{ gmBackpackSaving ? '保存中…' : '保存背包' }}</button>
@@ -869,6 +932,7 @@ async function openUserDetail(u) {
   detailTab.value = 'data';                    // 每次打开默认"游戏数据"页签
   gmBackpack.value.userId = null;              // 重置背包上下文，避免串到上一个用户
   gmBackpack.value.items = [];
+  gmBackpack.value.currencyBaseline = {};
   gmBackpack.value.result = '';
   try {
     const res = await adminApi.userDetail(u.id);
@@ -892,6 +956,7 @@ function closeUserDetail() {
   detailTab.value = 'data';
   gmBackpack.value.userId = null;
   gmBackpack.value.items = [];
+  gmBackpack.value.currencyBaseline = {};
   gmBackpack.value.result = '';
 }
 
@@ -1083,6 +1148,9 @@ const gmBackpack = ref({
   username: '',     // 目标用户名（展示用）
   items: [],        // 背包物品 [{ name, quantity, type, ... }]
   result: '',       // 操作结果
+  // 载入时的货币基准 { 钻石: n, ... }：仅用于「原本有值 → 保存后清零」的二次确认，
+  // 避免每次保存都因为「本来就是 0」而弹确认
+  currencyBaseline: {},
 });
 const gmBackpackLoading = ref(false);
 const gmBackpackSaving = ref(false);
@@ -1116,6 +1184,13 @@ async function loadBackpack() {
       ...it,
       quantity: Number(it.count ?? it.quantity ?? 0),
     }));
+    // 记录货币基准：保存时据此判断「是否原本有值、现在会被清零」
+    const baseline = {};
+    for (const n of CURRENCY_ITEM_NAMES) {
+      const hit = gmBackpack.value.items.find((it) => it.name === n);
+      baseline[n] = Number(hit?.quantity ?? 0);
+    }
+    gmBackpack.value.currencyBaseline = baseline;
   } catch (e) {
     gmBackpack.value.result = '加载背包失败：' + (e.response?.data?.message || e.message);
     gmBackpack.value.items = [];
@@ -1124,17 +1199,50 @@ async function loadBackpack() {
   }
 }
 
-// 添加物品：下拉目录筛选（复用物品目录数据）
-const bkItemQuery = ref('');
-const bkItemMenuOpen = ref(false);
+// 添加物品：右侧常驻目录（复用物品目录数据）
+const bkCatalogQuery = ref('');
+const bkCatalogOpen = ref(true);
+const bkSearchQuery = ref('');
+const bkFilterType = ref('all');
+const bkTypeOptions = ['all', '物品', '装备', '资源'];
 
-const bkFilteredCatalog = computed(() => {
-  const kw = bkItemQuery.value.trim().toLowerCase();
-  const pool = kw
-    ? itemCatalog.value.filter((i) => i.name.toLowerCase().includes(kw))
-    : itemCatalog.value;
-  return pool.slice(0, 30);
+/** 背包内搜索 + 类型筛选后的展示列表 */
+const bkVisibleItems = computed(() => {
+  const kw = bkSearchQuery.value.trim().toLowerCase();
+  const t = bkFilterType.value;
+  return gmBackpack.value.items.filter((it) => {
+    if (t !== 'all' && (it.type || '物品') !== t) return false;
+    if (kw && !(it.name || '').toLowerCase().includes(kw)) return false;
+    return true;
+  });
 });
+
+/** 右侧目录列表（关键词筛选，不限 30 条，面板内滚动） */
+const bkCatalogList = computed(() => {
+  const kw = bkCatalogQuery.value.trim().toLowerCase();
+  if (!kw) return itemCatalog.value;
+  return itemCatalog.value.filter((i) => i.name.toLowerCase().includes(kw));
+});
+
+/** 卡片/色点类型类名：紫=物品，粉=装备，青=资源 */
+function bkTypeClass(t) {
+  if (t === '装备') return 'equip';
+  if (t === '资源') return 'res';
+  return '';
+}
+
+function bkIsOwned(name) {
+  return gmBackpack.value.items.some((it) => it.name === name);
+}
+
+/**
+ * 货币条目（钻石/召唤券/数据核心）：落库时由服务端从背包 JSON 剥离进独立列，
+ * 读取时再物化回来。删除条目 = 把列清零，需二次确认（见 removeBackpackItem）。
+ */
+const CURRENCY_ITEM_NAMES = ['钻石', '召唤券', '数据核心'];
+function isCurrencyName(name) {
+  return CURRENCY_ITEM_NAMES.includes(String(name ?? '').trim());
+}
 
 /** 点选目录物品加入背包；同名已有则累计数量 */
 function addBackpackItem(it) {
@@ -1144,18 +1252,49 @@ function addBackpackItem(it) {
   } else {
     gmBackpack.value.items.push({ name: it.name, type: it.category, quantity: 1 });
   }
-  bkItemQuery.value = '';
 }
 
-/** 删除某条物品（直接移出数组） */
-function removeBackpackItem(idx) {
+/** 按对象删除（搜索/筛选后下标会偏，不能用 idx） */
+function removeBackpackItem(it) {
+  const idx = gmBackpack.value.items.indexOf(it);
+  if (idx < 0) return;
+  // ⚠️ 货币（钻石/召唤券/数据核心）真相源是 Player 的独立列：背包里删掉该条目后保存，
+  // 服务端按「权威快照」判定为「已花光」→ 直接把列清零（player.service 货币提取分支）。
+  // 这是不可撤销操作，必须二次确认，避免误点 ✕ 清空玩家货币。
+  if (isCurrencyName(it?.name)) {
+    const ok = window.confirm(
+      `「${it.name}」是货币，删除该条目并保存会把玩家该货币**清零**（不可撤销）。\n`
+      + `若只是想调数值，请直接把数量改成目标值。\n\n确定要清零吗？`,
+    );
+    if (!ok) return;
+  }
   gmBackpack.value.items.splice(idx, 1);
+}
+
+/** 卡片 ± 步进 */
+function bumpBackpackQty(it, delta) {
+  it.quantity = Math.max(0, Number(it.quantity ?? 0) + delta);
 }
 
 /** 保存背包：数量=0 的条目视为删除，其余整体提交 */
 async function saveBackpack() {
   const uid = gmBackpack.value.userId;
   if (!uid) return;
+  // 货币清零二次确认：货币条目「载入时有值、保存时缺失或 <=0」→ 服务端按权威快照把列清零。
+  // 这是不可撤销操作，必须显式确认（数量改为 0 与直接删除 ✕ 都会命中）。
+  const baseline = gmBackpack.value.currencyBaseline || {};
+  const zeroed = CURRENCY_ITEM_NAMES.filter((n) => {
+    const before = Number(baseline[n] ?? 0);
+    if (before <= 0) return false; // 本来就是 0，不算清零
+    const hit = gmBackpack.value.items.find((it) => it.name === n);
+    return !hit || Number(hit.quantity ?? 0) <= 0;
+  });
+  if (zeroed.length > 0) {
+    const ok = window.confirm(
+      `以下货币将被清零：${zeroed.join('、')}\n保存后不可撤销，确定继续？`,
+    );
+    if (!ok) return;
+  }
   gmBackpackSaving.value = true;
   gmBackpack.value.result = '';
   try {
@@ -1646,42 +1785,399 @@ onMounted(async () => {
 }
 
 /* ===== GM 背包管理 ===== */
-.bk-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-  max-height: 320px;
-  overflow-y: auto;
-  padding-right: 2px;
+.modal-box.wide {
+  width: min(980px, calc(100vw - 48px));
 }
-.bk-item {
+.bk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0;
+}
+.bk-search {
+  flex: 1 1 180px;
+  min-width: 140px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  gap: 5px;
+  background: rgba(10, 8, 26, 0.7);
   border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  padding: 6px 9px;
 }
-.bk-item-name {
+.bk-search:focus-within {
+  border-color: var(--accent, #8b5cf6);
+}
+.bk-search input {
   flex: 1;
-  font-size: 13px;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
   color: var(--text, #e5e7eb);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 12px;
+  padding: 0;
 }
-.bk-item-type {
-  font-style: normal;
+.bk-search input::placeholder {
+  color: var(--muted-dark, #6b6b8a);
+}
+.bk-search-icon {
+  color: var(--muted-dark, #6b6b8a);
+  font-size: 12px;
+  line-height: 1;
+}
+.bk-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.bk-chip {
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted, #9ca3af);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.bk-chip:hover {
+  color: var(--text, #e5e7eb);
+  border-color: rgba(139, 92, 246, 0.35);
+}
+.bk-chip.on {
+  color: #fff;
+  background: rgba(139, 92, 246, 0.25);
+  border-color: var(--accent, #8b5cf6);
+}
+.bk-stat {
   font-size: 11px;
   color: var(--muted, #9ca3af);
-  margin-left: 6px;
+  white-space: nowrap;
 }
-.bk-item-qty {
-  width: 78px;
-  padding: 2px 6px;
-  font-size: 13px;
+.bk-stat b {
+  color: var(--text, #e5e7eb);
+  font-weight: 600;
+}
+.bk-toggle {
+  border: 1px solid rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.18);
+  color: #d4c4ff;
+  font-size: 12px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bk-toggle:hover {
+  background: rgba(139, 92, 246, 0.28);
+}
+.bk-toggle.on {
+  background: var(--accent, #8b5cf6);
+  color: #fff;
+  border-color: var(--accent, #8b5cf6);
+}
+
+.bk-layout {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 8px;
+  align-items: start;
+}
+.bk-layout.no-cat {
+  grid-template-columns: 1fr;
+}
+
+.bk-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, rgba(255, 255, 255, 0.12)) transparent;
+}
+.bk-grid::-webkit-scrollbar {
+  width: 5px;
+}
+.bk-grid::-webkit-scrollbar-thumb {
+  background: var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 3px;
+}
+
+.bk-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-left: 3px solid var(--accent, #8b5cf6);
+  border-radius: 8px;
+  padding: 6px 8px 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 96px;
+  max-width: 100%;
+  transition: border-color 0.15s;
+}
+.bk-card:hover {
+  border-color: rgba(139, 92, 246, 0.35);
+  border-left-color: var(--accent, #8b5cf6);
+}
+.bk-card.equip {
+  border-left-color: #ec4899;
+}
+.bk-card.equip:hover {
+  border-color: rgba(139, 92, 246, 0.35);
+  border-left-color: #ec4899;
+}
+.bk-card.res {
+  border-left-color: #06b6d4;
+}
+.bk-card.res:hover {
+  border-color: rgba(139, 92, 246, 0.35);
+  border-left-color: #06b6d4;
+}
+.bk-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.bk-card-name {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text, #e5e7eb);
+  white-space: nowrap;
+}
+.bk-card-x {
+  border: none;
+  background: transparent;
+  color: var(--muted-dark, #6b6b8a);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 1px;
+  flex-shrink: 0;
+}
+.bk-card-x:hover {
+  color: #f87171;
+}
+/* 货币条目：危险删除（删除+保存=清零货币列），常显提示色 */
+.bk-card-x.danger {
+  color: #fbbf24;
+}
+.bk-cur-badge {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 14px;
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  vertical-align: middle;
+}
+.bk-qty {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 88px;
+}
+.bk-qbtn {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text, #e5e7eb);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+.bk-qbtn:hover {
+  border-color: var(--accent, #8b5cf6);
+  background: rgba(139, 92, 246, 0.15);
+}
+.bk-qin {
+  flex: 1;
+  min-width: 42px;
+  width: 52px;
+  text-align: center;
+  background: rgba(10, 8, 26, 0.65);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 5px;
+  color: var(--text, #e5e7eb);
+  font-size: 12px;
+  padding: 2px 0;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.bk-qin:focus {
+  border-color: var(--accent, #8b5cf6);
+}
+.bk-qin::-webkit-outer-spin-button,
+.bk-qin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.bk-qin[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.bk-empty {
+  width: 100%;
+  text-align: center;
+  color: var(--muted-dark, #6b6b8a);
+  padding: 32px 10px;
+  font-size: 12px;
+  border: 1px dashed var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bk-empty span {
+  font-size: 11px;
+}
+
+.bk-catalog {
+  background: rgba(10, 8, 26, 0.4);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  max-height: 460px;
+  position: sticky;
+  top: 8px;
+}
+.bk-catalog-head {
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+}
+.bk-catalog-head h4 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--text, #e5e7eb);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.bk-catalog-head h4 span {
+  font-size: 10px;
+  color: var(--muted-dark, #6b6b8a);
+  font-weight: 400;
+}
+.bk-catalog-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(10, 8, 26, 0.8);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  padding: 4px 7px;
+}
+.bk-catalog-search:focus-within {
+  border-color: var(--accent, #8b5cf6);
+}
+.bk-catalog-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text, #e5e7eb);
+  font-size: 11px;
+  padding: 0;
+}
+.bk-catalog-search input::placeholder {
+  color: var(--muted-dark, #6b6b8a);
+}
+.bk-catalog-list {
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, rgba(255, 255, 255, 0.12)) transparent;
+}
+.bk-catalog-list::-webkit-scrollbar {
+  width: 4px;
+}
+.bk-catalog-list::-webkit-scrollbar-thumb {
+  background: var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 2px;
+}
+.bk-cat-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.bk-cat-item:hover {
+  background: rgba(139, 92, 246, 0.14);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+.bk-cat-item.owned .bk-plus {
+  background: rgba(74, 222, 128, 0.15);
+  border-color: rgba(74, 222, 128, 0.4);
+  color: #4ade80;
+}
+.bk-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent, #8b5cf6);
+}
+.bk-dot.equip {
+  background: #ec4899;
+}
+.bk-dot.res {
+  background: #06b6d4;
+}
+.bk-cat-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text, #e5e7eb);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bk-plus {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted, #9ca3af);
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bk-catalog-empty {
+  text-align: center;
+  color: var(--muted-dark, #6b6b8a);
+  font-size: 11px;
+  padding: 16px 6px;
 }
 
 /* ===== 详情 / 编辑弹窗 ===== */
@@ -1886,5 +2382,15 @@ onMounted(async () => {
 
 /* ===== 移动端适配 ===== */
 @media (max-width: 768px) {
+  .bk-layout {
+    grid-template-columns: 1fr;
+  }
+  .bk-catalog {
+    position: static;
+    max-height: 280px;
+  }
+  .modal-box.wide {
+    width: calc(100vw - 24px);
+  }
 }
 </style>

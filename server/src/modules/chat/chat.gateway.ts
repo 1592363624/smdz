@@ -416,12 +416,24 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     // 此前 broadcast=false 的回包只 client.emit 给发送者、不落库，导致刷新后
     // 历史接口（getMessages 走 ChatMessage 表）查不到该回包 → RichSystemCard 消失。
     // 统一落库后实时与历史行为一致：实时看到的，刷新后仍能看到。
-    const msg = await this.chatService.saveMessage({
-      channelId: user.channelId,
-      senderId: user.userId,
-      type: 'system',
-      content: result.content,
-    });
-    this.server.to('世界频道').emit('chat:message', msg);
+    try {
+      const msg = await this.chatService.saveMessage({
+        channelId: user.channelId,
+        senderId: user.userId,
+        type: 'system',
+        content: result.content,
+      });
+      this.server.to('世界频道').emit('chat:message', msg);
+    } catch (e: any) {
+      // saveMessage 内部已做超长截断 + 短提示兜底；这里兜最后一层：
+      // 落库链路仍炸（库不可用等）时，至少给发送者一条可读失败回执，避免「指令执行了却毫无回包」
+      this.logger.error(`指令结果广播失败: ${e?.message ?? e}`);
+      this.server.to(`user:${user.userId}`).emit('chat:message', {
+        type: 'system',
+        content: '指令已执行，但结果上屏失败，请稍后重试或刷新查看历史消息。',
+        sender: null,
+        createdAt: new Date().toISOString(),
+      });
+    }
   }
 }

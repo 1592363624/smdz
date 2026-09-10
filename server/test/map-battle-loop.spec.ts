@@ -177,6 +177,7 @@ describe('adminAttackMap 续回合判定（原版 L502-530）', () => {
     const playerService = {
       getPlayerData: jest.fn(async (userId: number) => ({ player: players.get(userId) ?? makePlayer({ userId }) })),
       isPlayerDead: jest.fn((player: any) => (player?.hp ?? 0) <= 0),
+      deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
       savePlayer: jest.fn(async () => undefined),
       getMarkerValue: jest.fn((markers: any, key: string) => markers?.[key] ?? 0),
       safeJsonParse: jest.fn(<T,>(v: any, d: T): T => {

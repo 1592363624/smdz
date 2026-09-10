@@ -14,7 +14,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from '../game/game.service';
 import { PlayerService } from '../game/player.service';
-import { PlayerMutateService } from '../game/player-mutate.service';
+import { PlayerMutateService, MutateContext } from '../game/player-mutate.service';
 import { TaskService } from '../game/task.service';
 import {
   CommandContext,
@@ -388,7 +388,11 @@ export class CommandService {
       // 历史上反复的快照覆盖 bug 根因就是子流程自行重读档并落库，令外层快照过期。
       let result: CommandResult;
       if (ctx.userId && this.playerMutate) {
-        result = await this.playerMutate.mutate(ctx.userId, async () => handler.handle(ctx, args));
+        result = await this.playerMutate.mutate(ctx.userId, async (mutCtx) => {
+          const r = await handler.handle(ctx, args);
+          this.mergePlayerExtraText(mutCtx, r);
+          return r;
+        });
       } else {
         result = await handler.handle(ctx, args);
       }
@@ -547,15 +551,43 @@ export class CommandService {
 
   /**
    * 记录指令执行日志
+   * 超长回包（批量召唤等）先截断再入库，避免 CommandLog.result 被极端长度撑爆
    */
+  /**
+   * 合并玩家「额外文本」到本次指令回包（原版 _主程序.ecode L12033-12034：
+   * `w = w + 玩家.额外文本` 后清空）。
+   *
+   * `Player.额外文本` 不是数据库列，是原版「玩家」数据类型里的临时缓冲：战斗/死亡复活
+   * 等流程把提示写进去，由指令收尾统一拼接输出。此前全仓只写不读 → 复活提示（森罗万象/
+   * 死亡行者/石中剑）等被静默吞掉；此处补上唯一消费点，与 mutate 同一快照、零额外读档。
+   */
+  private mergePlayerExtraText(mutCtx: MutateContext, result: CommandResult): void {
+    const raw = mutCtx?.player?.额外文本;
+    if (typeof raw !== 'string' || !raw.trim()) return;
+    mutCtx.player.额外文本 = '';
+    const lines = raw
+      .split(/#?换行|\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return;
+    const extra = lines.join('\n');
+    result.content = result.content ? `${result.content}\n${extra}` : extra;
+  }
+
   private async recordLog(ctx: CommandContext, command: string, result: CommandResult) {
+    const MAX_LOG_RESULT_CHARS = 80_000;
+    const raw = result.content ?? '';
+    const resultText =
+      raw.length > MAX_LOG_RESULT_CHARS
+        ? raw.slice(0, MAX_LOG_RESULT_CHARS) + '\n…（内容过长，已截断）'
+        : raw;
     try {
       await this.prisma.commandLog.create({
         data: {
           channelId: ctx.channelId,
           senderId: ctx.userId ?? 0,
           command,
-          result: result.content,
+          result: resultText,
           durationMs: result.durationMs,
           source: ctx.source,
         },

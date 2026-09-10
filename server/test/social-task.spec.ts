@@ -70,6 +70,7 @@ describe('贸易、购物、求助任务触发', () => {
     const playerService: any = {
       getPlayerData: jest.fn(async () => ({ player, markers })),
       isPlayerDead: jest.fn(() => false),
+      deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
       getBackpackItems: jest.fn((current: any) => jsonParse(current.backpack, [])),
       safeJsonParse: jest.fn(jsonParse),
       savePlayer: jest.fn(async () => undefined),
@@ -117,6 +118,7 @@ describe('贸易、购物、求助任务触发', () => {
     const playerService: any = {
       getPlayerData: jest.fn(async () => ({ player, markers })),
       isPlayerDead: jest.fn(() => false),
+      deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
       safeJsonParse: jest.fn(jsonParse),
       setMarker: jest.fn((target: any, name: string, value: number) => { target[name] = value; }),
       savePlayer: jest.fn(async () => undefined),

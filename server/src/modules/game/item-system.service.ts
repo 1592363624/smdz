@@ -3149,13 +3149,25 @@ export class ItemSystemService {
     opts?: {
       judgeChance?: boolean;
       onTaskProgress?: (actionName: string, count: number) => void;
+      /** 传说率偏移（原版 生成装备 第三参）；不传则从玩家套装读取 */
+      legendRate?: number;
+      /** 品质上限 0~1（原版 第四参 掉落品质/1000）；不传用默认 0.1 */
+      qualityUpper?: number;
     },
   ): Promise<string> {
     const player = playerData.player;
     const judgeChance = opts?.judgeChance ?? false;
     const backpack = this.playerService.getBackpackItems(player);
     const backpackOut: any[] = []; // 物品数组2（最终掉落清单）
-    const legendRate = player.套装?.传说率 || player.legendRate || 0;
+    const legendRate = Number(
+      opts?.legendRate
+      ?? player.套装?.传说率
+      ?? player.legendRate
+      ?? 0,
+    ) || 0;
+    const qualityUpper = Number.isFinite(opts?.qualityUpper)
+      ? Number(opts!.qualityUpper)
+      : 0.1;
 
     for (const drop of (drops || [])) {
       const dropName = String(drop?.name ?? drop?.名称 ?? '').trim();
@@ -3190,8 +3202,8 @@ export class ItemSystemService {
         for (let b = 0; b < qty; b++) {
           let item = { ...drop };
           if (!item.data) {
-            // 原版 生成装备(名称, , 玩家.套装.传说率, , , , )
-            item = await this.generateEquipment(dropName, '', legendRate);
+            // 原版 生成装备(名称, , 传说率, 掉落品质/1000, 加成文本)
+            item = await this.generateEquipment(dropName, '', legendRate, qualityUpper);
           }
           await this.achievementService.addAchievement(player, '获得装备', 1, false);
           await this.achievementService.addAchievement(player, '获得' + item.name, qty, false);

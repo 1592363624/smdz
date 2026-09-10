@@ -114,7 +114,7 @@ function makeFixture(options: {
     addExp: jest.fn(async () => ({ leveledUp: false, newLevel: 10 })),
     isPlayerDead: jest.fn((p: any) => Number(p?.hp ?? 1) <= 0),
     getMarkerValue: jest.fn((markers: any, name: string) => Number(markers?.[name] ?? 0)),
-    handlePlayerDeath: jest.fn(async () => '死了'),
+    deathGateText: jest.fn(async () => null),
   };
   const combatSystem: any = {
     buildAttackerBonus: jest.fn(() => ({ 采集: 100 })),

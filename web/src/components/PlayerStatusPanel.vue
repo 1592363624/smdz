@@ -1,8 +1,9 @@
 <template>
   <div class="player-info">
+    <!-- 左=玩家昵称（与顶部用户卡片同源），右=当前使魔（type） -->
     <div class="pi-header">
-      <span class="pi-name">{{ info.name || '冒险者' }}</span>
-      <span class="pi-type" v-if="info.type">{{ info.type }}</span>
+      <span class="pi-name" :title="playerNameTitle">{{ displayName }}</span>
+      <span class="pi-type" v-if="info.type" :title="'当前使魔：' + info.type">{{ info.type }}</span>
     </div>
     <div class="pi-row pi-row-level">
       <span class="pi-label">等级</span>
@@ -143,10 +144,20 @@ import { serverNow } from '../utils/serverClock';
 const props = defineProps({
   // buildPlayerInfo 快照（REST 全量 / socket player:update 推送，结构一致）
   info: { type: Object, required: true },
+  // 玩家昵称（与顶部用户卡片同源：user.nickname / username）；缺省时回退角色显示名
+  nickname: { type: String, default: '' },
 });
 
 // 数值统一取整展示，避免浮点尾巴（如 545.6800000000001）
 const r = (v) => Math.round(Number(v) || 0);
+
+/** 左侧展示名：优先账号昵称，其次角色显示名 */
+const displayName = computed(() => props.nickname || props.info?.name || '冒险者');
+const playerNameTitle = computed(() =>
+  props.nickname && props.info?.name && props.info.name !== props.nickname
+    ? `角色名：${props.info.name}`
+    : '',
+);
 
 /** 向父组件（ChatView）回传指令：武器列表「卸下」按钮 → 发「卸下 N」按序号精确卸下 */
 const emit = defineEmits(['send']);

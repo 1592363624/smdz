@@ -152,9 +152,12 @@ describe('玩家死亡 - 复活豁免判定 (战斗相关.ecode L5173-5231)', ()
   const baseDeath = (over: any = {}) => ({
     player: {
       name: '测试者',
+      // Player 权威字段为 hp/maxHp；currentHp/当前生命/属性 为运行时对象的兼容别名
+      hp: 0, maxHp: 100,
       currentHp: 0, 当前生命: 0,
       specialSeq: 0, type: '',
       属性: { 生命: 100 }, 生命上限: 100,
+      weapons: JSON.stringify([]),
       markers2: JSON.stringify([]),
       额外文本: '',
     },
@@ -172,12 +175,13 @@ describe('玩家死亡 - 复活豁免判定 (战斗相关.ecode L5173-5231)', ()
     expect(r.extraText).toContain('卷土重来');
   });
 
-  it('L5214 石中剑(specialSeq=-35) 冷却未触发 → 复活(dead=false)，二次进入冷却 → 真死', () => {
-    const pd = baseDeath({ equipment: [{ name: '石中剑', specialSeq: -35 }] });
+  it('L5214 石中剑(武器 specialSeq=-35) 冷却未触发 → 复活(dead=false)，二次进入冷却 → 真死', () => {
+    // 原版 装备要求(玩家, #石中剑, , 真)：第4参=真 → 石中剑是**武器**，存于 player.weapons
+    const pd = baseDeath({ weapons: [{ name: '石中剑', specialSeq: -35 }] });
     const r1 = combat3.playerDeath(pd);
     expect(r1.dead).toBe(false);
     // 原版：复活后生命恢复，不会再次判死；此处模拟"再次濒死"前需重置生命为0
-    pd.player.currentHp = 0; pd.player.当前生命 = 0;
+    pd.player.hp = 0; pd.player.currentHp = 0; pd.player.当前生命 = 0;
     // 二次：冷却已写入，未过期 → 真死
     const r2 = combat3.playerDeath(pd);
     expect(r2.dead).toBe(true);
@@ -188,7 +192,7 @@ describe('玩家死亡 - 复活豁免判定 (战斗相关.ecode L5173-5231)', ()
     const pd = baseDeath({ equipment: [{ name: '死亡行者', specialSeq: 16 }] });
     const r1 = combat3.playerDeath(pd);
     expect(r1.dead).toBe(false);
-    pd.player.currentHp = 0; pd.player.当前生命 = 0;
+    pd.player.hp = 0; pd.player.currentHp = 0; pd.player.当前生命 = 0;
     const r2 = combat3.playerDeath(pd);
     expect(r2.dead).toBe(true);
   });
@@ -202,8 +206,10 @@ describe('玩家死亡 - 复活豁免判定 (战斗相关.ecode L5173-5231)', ()
   it('L5185 军姬(specialSeq=16) 且有存活宠物 → 森罗万象复活(dead=false)', () => {
     const pd = baseDeath({
       player: {
-        name: '军姬玩家', currentHp: 0, 当前生命: 0, specialSeq: 16, type: '军姬', qqNumber: 'testQQ',
-        属性: { 生命: 100 }, 生命上限: 100, markers2: JSON.stringify([]), 额外文本: '',
+        name: '军姬玩家', hp: 0, maxHp: 100, currentHp: 0, 当前生命: 0,
+        specialSeq: 16, type: '军姬', qqNumber: 'testQQ',
+        属性: { 生命: 100 }, 生命上限: 100, weapons: JSON.stringify([]),
+        markers2: JSON.stringify([]), 额外文本: '',
       },
       map: { summons: JSON.stringify([{ userId: 'testQQ', hp: 50 }]) },
     });

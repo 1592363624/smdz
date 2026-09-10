@@ -23,6 +23,7 @@ import { AchievementService } from '../src/modules/game/achievement.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { StatsService } from '../src/modules/game/stats.service';
+import { toExpireMs } from '../src/modules/game/expire-time.util';
 import { parseJson } from './parse-json.util';
 
 // ==================== 内存测试夹具 ====================
@@ -134,6 +135,7 @@ function buildMocks() {
       };
     }),
     isPlayerDead: jest.fn((player: any) => (player.hp || 0) <= 0),
+    deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
     savePlayer: jest.fn(async (player: any) => { saveLog.push(player); }),
     addExp: jest.fn(async (_userId: number, exp: number) => {
       addExpLog.push(exp);
@@ -848,7 +850,10 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
   // ---------- 套装特效（复刻 战斗相关.ecode 造成伤害 L1981-2062/L2447 等） ----------
   describe('套装特效（穿透/增幅器/超压 复刻）', () => {
     it('坚韧护盾(装备131)：护盾被打穿时终止后续伤害，15秒内不重复触发', async () => {
-      jest.useFakeTimers().setSystemTime(1_000_000);
+      // 真实 epoch 基准：冷却标记的秒/毫秒判定以 1e12 为界（见 expire-time.util），
+      // 用 1_000_000 这类小时间戳会被判成「秒」而放大 1000 倍，导致公共攻击冷却永远生效。
+      const BASE = 1_700_000_000_000;
+      jest.useFakeTimers().setSystemTime(BASE);
       const player = makePlayer({ userId: 2 });
       mocks.players.set(2, player);
       const monster = makeMonster({
@@ -873,7 +878,8 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(monster.shield).toBe(0);
       expect(monster.hp).toBe(100);
 
-      jest.setSystemTime(1_005_000);
+      // 推进 6 秒：越过 原版 公共攻击冷却(5s) 与 拳头冷却(5s)，但仍停在 坚韧护盾 15s 冷却内
+      jest.setSystemTime(BASE + 6_000);
       monster.hp = 100;
       const second = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
       expect(second.result).not.toContain('坚韧护盾');
@@ -902,6 +908,40 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const markers2 = Array.isArray(monster.markers2) ? monster.markers2 : JSON.parse(monster.markers2);
       expect(markers2.find((m: any) => m.name === '麻痹')).toBeDefined();
       expect(markers2.find((m: any) => m.name === '神兽之力青龙冷却')).toBeDefined();
+    });
+
+    it('剑圣「苇名剑法」：近战命中后写入 60 秒冷却（毫秒口径，原版 L3124）', async () => {
+      const melee = {
+        name: '试作近战剑', damage: 10, damageType: 1, type: '近战武器',
+        properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+      };
+      const player = makePlayer({
+        userId: 2, specialSeq: 4, type: '剑圣', affinity: 100,
+        currentWeapon: 1, weapons: JSON.stringify([melee]),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 5000, maxHp: 5000 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+      jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+      const before = Date.now();
+      const res = await combat.weaponAttack(2, 1, {
+        mustHit: true, targetName: '史莱姆', weaponOverride: melee as any,
+      });
+
+      const markers2 = Array.isArray(player.markers2) ? player.markers2 : JSON.parse(player.markers2);
+      const cd = markers2.find((m: any) => (m.name ?? m.名称) === '苇名剑法');
+      expect(cd).toBeDefined();
+      // 标记以中文键 {名称, 有效期至} 落库，读取须经统一归一化（秒/毫秒两种存量口径）
+      const expireMs = toExpireMs(cd);
+      // 毫秒口径（<1e12 会被读取侧当成秒再 ×1000 → 60 秒被放大成 ~16.7 小时）
+      expect(expireMs).toBeGreaterThan(1e12);
+      const remainSec = (expireMs - before) / 1000;
+      expect(remainSec).toBeGreaterThan(55);
+      expect(remainSec).toBeLessThan(65);
+      expect(res.result).toContain('苇名剑法');
     });
 
     it('两极反转(装备63) → 攻击时三层穿透+8，result 含「两极反转」', async () => {

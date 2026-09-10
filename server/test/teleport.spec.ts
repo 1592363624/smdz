@@ -60,7 +60,7 @@ function makeService(options: {
     safeJsonParse: jest.fn(parseJson),
     isPlayerDead: jest.fn(() => false),
     savePlayer: jest.fn(async (value: any) => saved.push(value)),
-    handlePlayerDeath: jest.fn(),
+    deathGateText: jest.fn(async () => null),
     getMarkerValue: jest.fn((markers: any, key: string) => Number(markers?.[key] ?? 0)),
     enqueueUserWrite: jest.fn(async (_uid: number, fn: () => Promise<any>) => fn()),
   };

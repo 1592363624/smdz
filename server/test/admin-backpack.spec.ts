@@ -38,7 +38,39 @@ function buildService(dbPlayer: any, dbUser: any) {
     },
     // 直接同步执行回调；回调内通过 getPlayerData 读共享对象、savePlayer 写回同一对象
     enqueueUserWrite: async (_uid: number, fn: () => Promise<unknown>) => fn(),
-    getPlayerData: async () => ({ player: dbPlayer }),
+    // 与 PlayerService.getPlayerData 对齐：把独立货币列物化回背包数组
+    // （真相源是 diamonds/tickets/dataCores 列，落库时背包 JSON 不含货币条目）
+    // 直接改 dbPlayer 引用：savePlayer 桩为空实现，Object.assign 才能落到断言读的同一对象。
+    getPlayerData: async () => {
+      const player = dbPlayer;
+      const raw = player.backpack;
+      let items: any[] = [];
+      if (typeof raw === 'string') {
+        try { items = JSON.parse(raw); } catch { items = []; }
+      } else if (Array.isArray(raw)) {
+        items = raw.map((it: any) => ({ ...it }));
+      }
+      const upsert = (name: string, qty: number) => {
+        if (!Number.isFinite(qty) || qty <= 0) return;
+        const idx = items.findIndex((it: any) => it?.name === name);
+        if (idx >= 0) {
+          items[idx].quantity = qty;
+          items[idx].count = qty;
+        } else {
+          items.push({ name, type: '资源', quantity: qty, count: qty });
+        }
+      };
+      if (player.diamonds !== undefined) upsert('钻石', Number(player.diamonds ?? 0));
+      if (player.tickets !== undefined) upsert('召唤券', Number(player.tickets ?? 0));
+      if (player.dataCores !== undefined) upsert('数据核心', Number(player.dataCores ?? 0));
+      player.backpack = items;
+      (player as any)._currencyMirror = {
+        钻石: Number(player.diamonds ?? 0),
+        召唤券: Number(player.tickets ?? 0),
+        数据核心: Number(player.dataCores ?? 0),
+      };
+      return { player };
+    },
     savePlayer: async () => undefined,
   };
 
@@ -116,6 +148,28 @@ describe('AdminService 背包管理', () => {
   it('gmGetBackpack 对未创建角色的用户抛 NotFound', async () => {
     const { service } = buildService(null, { id: 9, username: 'bob' });
     await expect(service.gmGetBackpack(9)).rejects.toThrow(NotFoundException);
+  });
+
+  it('gmGetBackpack 物化独立货币列（钻石/召唤券/数据核心）回背包', async () => {
+    // 落库态：背包 JSON 不含货币条目（savePlayer 会剥离），真相源在独立列
+    const dbPlayer = {
+      userId: 5,
+      backpack: JSON.stringify([{ name: '水晶', count: 10 }]),
+      diamonds: 1000,
+      tickets: 3,
+      dataCores: 0, // 0 不物化
+    };
+    const { service } = buildService(dbPlayer, { id: 5, username: 'alice' });
+
+    const items = await service.gmGetBackpack(5);
+    expect(items).toContainEqual(expect.objectContaining({ name: '水晶', count: 10 }));
+    expect(items).toContainEqual(
+      expect.objectContaining({ name: '钻石', count: 1000, quantity: 1000, type: '资源' }),
+    );
+    expect(items).toContainEqual(
+      expect.objectContaining({ name: '召唤券', count: 3, quantity: 3, type: '资源' }),
+    );
+    expect(items.some((i: any) => i.name === '数据核心')).toBe(false);
   });
 
   it('gmSaveBackpack 同名合并、quantity/count 统一为 count、数量0删除', async () => {

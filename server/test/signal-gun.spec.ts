@@ -41,6 +41,7 @@ function makeService(options: { backpack?: any[]; mapResources?: any[]; inCooldo
       weapons: [],
     })),
     isPlayerDead: jest.fn(() => false),
+    deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
     savePlayer: jest.fn(async (value: any) => savedPlayers.push(value)),
     getMarkerValue: jest.fn((markers: any, key: string) => Number(markers?.[key] ?? 0)),
     enqueueUserWrite: jest.fn(async (_uid: number, fn: () => Promise<any>) => fn()),

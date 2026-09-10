@@ -9,15 +9,17 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BonusData } from './bonus.service';
 import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
-import { ITEM_SYSTEM_SERVICE } from './service-tokens';
+import { ITEM_SYSTEM_SERVICE, COMBAT_SYSTEM_SERVICE } from './service-tokens';
 import type { ItemSystemService } from './item-system.service';
-import { filterActive } from './expire-time.util';
+import {
+  filterActive, findActive, expireAfter, remainSeconds, formatRemain, itemName,
+} from './expire-time.util';
 import { deriveDisplayName } from './display-name.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
 import { canonicalizeBackpack, lookupFromStaticData, mergeBackpackItem } from './item-normalize.util';
 // 三池数值出口归一化（第四道闸）：落库前兜底收敛，保证 DB 不出现浮点残值脏数据。
-import { normalizePools } from './player-pool.util';
+import { normalizePools, normalizePoolValue } from './player-pool.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
 import { GameHighlightService } from './highlight.service';
 import { ActorRuntime, actorKey } from '../actor';
@@ -183,6 +185,16 @@ export class PlayerService {
     /** 高光时刻推送（可选依赖）。升级时定向推送给该玩家播放屏幕级动画；
      *  存量测试桩手工 new PlayerService 时不传，升级结算逻辑完全不变。 */
     @Optional() private readonly highlight?: GameHighlightService,
+    /**
+     * 战斗系统（可选依赖，经 COMBAT_SYSTEM_SERVICE 字符串 token 别名注入）。
+     *
+     * 用途**唯一**：死亡复活「半血」的基数必须是**计算上限**（原版 玩家.属性.生命，
+     * 含装备/套装/增益），而计算上限的唯一出口是 `buildAttackerBonus`。PlayerService →
+     * CombatSystemService 会形成运行时循环加载，故走 token 别名（与 ItemService 的
+     * 三池回复基数同一范式）。存量测试桩不传时退回基础上限 maxHp 兜底。
+     */
+    @Optional() @Inject(COMBAT_SYSTEM_SERVICE)
+    private readonly combatSystem?: { buildAttackerBonus: (player: any, playerData?: any, map?: any) => any },
   ) {
     // Actor 运行时恒有实例：生产用注入的全局单例；测试桩自动内置独立实例。
     this.actorRuntime = injectedRuntime ?? new ActorRuntime();
@@ -1812,33 +1824,164 @@ export class PlayerService {
   }
 
   /**
-   * 处理玩家死亡（复活、惩罚等）
-   * - 生命值恢复至最大生命值的 50%
-   * - 护盾/装甲清零
-   * - 返回死亡提示文本
-   * @param userId 用户ID
-   * @param player 玩家对象
-   * @returns 死亡处理结果提示文本
+   * 三池「计算上限」（原版 玩家.属性.生命）——死亡复活半血基数。
+   *
+   * 计算上限的唯一出口是 `CombatSystemService.buildAttackerBonus`（含装备/套装/增益，
+   * 即面板分母），与「三池第四道闸」口径一致。取不到（测试桩未注入 / 计算异常）时
+   * 退回基础上限 `maxHp`，保证行为不劣化。
+   *
+   * 只用 player 自身可得的字段构造 playerData 入参，**绝不重新读档**——避免在既有
+   * mutate/Actor 链里产生第二份快照（历史上快照覆盖 bug 的根因）。
    */
-  async handlePlayerDeath(userId: number, player: any): Promise<string> {
-    // 复活：恢复 50% 最大生命值，清空护盾和装甲
-    player.hp = Math.floor((player.maxHp || 100) * 0.5);
-    player.shield = 0;
-    player.armor = 0;
+  private resolveCombatCapHp(player: any, playerData?: any): number {
+    const baseMax = Number(player?.maxHp ?? player?.生命上限 ?? player?.属性?.生命 ?? 0);
+    const fallback = Number.isFinite(baseMax) && baseMax > 0 ? baseMax : 100;
+    const bonusBuilder = this.combatSystem?.buildAttackerBonus;
+    if (typeof bonusBuilder !== 'function') return fallback;
+    try {
+      const parsedMarkers = playerData?.markers
+        ?? (player?.markers && typeof player.markers === 'object'
+          ? player.markers
+          : this.safeJsonParse<any>(player?.markers, {}));
+      const pd = {
+        player,
+        weapons: Array.isArray(playerData?.weapons)
+          ? playerData.weapons : this.safeJsonParse<any[]>(player?.weapons, []),
+        equipment: Array.isArray(playerData?.equipment)
+          ? playerData.equipment : this.safeJsonParse<any[]>(player?.equipment, []),
+        buffs: Array.isArray(playerData?.buffs)
+          ? playerData.buffs : this.safeJsonParse<any[]>(player?.buffs, []),
+        markers: parsedMarkers,
+      };
+      const bonus = bonusBuilder(player, pd);
+      const cap = Number(bonus?.生命);
+      if (Number.isFinite(cap) && cap > 0) return cap;
+    } catch (e: any) {
+      this.logger.warn(`计算上限取值失败，复活基数退回基础上限: ${e?.message ?? e}`);
+    }
+    return fallback;
+  }
 
-    // 更新数据库
-    await this.enqueueUserWrite(userId, async () => {
-      const _pd = await this.getPlayerData(userId);
-      Object.assign(_pd.player, {
-        hp: player.hp,
-        shield: 0,
-        armor: 0,
-      });
-      await this.savePlayer(_pd.player);
-    });
+  /**
+   * 原版「玩家死亡」判定与复活级联（战斗相关.ecode L5173-5227）。
+   *
+   * **唯一实现**：`deathGateText`（指令/技能门禁）与 `CombatSystemService.playerDeath`
+   * （战斗结算）都调用本方法；禁止任何地方再复写第二份级联。
+   *
+   * 判定顺序 1:1 对齐原版 `.判断` 链——原版每条分支都带显式返回，短路语义必须保留：
+   *   当前生命 > 0                                     → 不死
+   *   增益「卷土重来」（原版 L5182-5184）                → 免死放行（返回假，指令继续）
+   *   军姬(使魔 16) + 本图存活宠物 + `sf` 60s 就绪        → 半血复活；不满足则继续往下判
+   *   装备「死亡行者」(装备 16) 90s 就绪                 → 半血复活；冷却中 → 直接真死
+   *   持有「石中剑」(武器 -35) 90s 就绪                  → 半血复活；冷却中 → 直接真死
+   *   否则                                             → 真死
+   *
+   * 只读判定 + **原地改写** hp / markers2 / 额外文本，本方法自身不落库：
+   * 持久化由调用方收尾保存，或 `deathGateText` 统一执行一次。
+   */
+  resolvePlayerDeath(
+    player: any,
+    playerData?: { buffs?: any; equipment?: any; weapons?: any; markers?: any; map?: any },
+  ): { dead: boolean; reviveText: string; deathText: string } {
+    if (!player) return { dead: false, reviveText: '', deathText: '' };
+    const deathText = `${player.name || '冒险者'}已经死掉了!你可以"复活使魔"或者"删除怪物"`;
 
-    this.logger.log(`玩家 ${userId} 已死亡并复活，HP 恢复至 ${player.hp}`);
-    return '你已死亡，已消耗部分资源复活。生命值恢复至 50%，护盾和装甲已清零。';
+    const nowMs = Date.now();
+    // 运行时对象（召唤物/怪物/载具）生命存于 currentHp / 中文键，存在时才一并同步
+    const curHp = Number(player.hp ?? player.currentHp ?? player.当前生命 ?? 0);
+    if (curHp > 0) return { dead: false, reviveText: '', deathText: '' };
+
+    const buffs = Array.isArray(playerData?.buffs)
+      ? playerData!.buffs : this.safeJsonParse<any[]>(player.buffs, []);
+    const equipment = Array.isArray(playerData?.equipment)
+      ? playerData!.equipment : this.safeJsonParse<any[]>(player.equipment, []);
+    const weapons = Array.isArray(playerData?.weapons)
+      ? playerData!.weapons : this.safeJsonParse<any[]>(player.weapons, []);
+    const markers2 = this.safeJsonParse<any[]>(player.markers2, []);
+    // 原版 `玩家.当前生命 = 玩家.属性.生命 / 2`：基数必须是**计算上限**
+    // （含装备/套装/增益，即面板分母）。禁用 player.maxHp 作首选——它是
+    // recalcLevelStats 写的**基础上限**，装备加成余量会被削掉（见本文件
+    // recalcLevelStats 注释「不得按基础字段封顶」）。取不到计算上限才退回基础上限。
+    const maxHp = this.resolveCombatCapHp(player, playerData);
+
+    /** 追加 玩家.额外文本（原版以 "#换行" 起首，输出层统一转真实换行） */
+    const appendExtra = (text: string): string => {
+      const line = `#换行${text}`;
+      player.额外文本 = `${player.额外文本 ?? ''}${line}`;
+      return line;
+    };
+    /** 原版 装备要求(玩家, seq, , 真)：武器与装备任一命中即可 */
+    const ownsSpecialSeq = (seq: number): boolean =>
+      [...weapons, ...equipment]
+        .some((it: any) => it && Number(it.specialSeq ?? it.特殊序号 ?? NaN) === seq);
+    /** 半血复活 + 写冷却标记（原版 当前生命 = 属性.生命 / 2） */
+    const revive = (label: string, cdKey: string, cdSec: number) => {
+      const half = normalizePoolValue(maxHp / 2);
+      player.hp = half;
+      if ('currentHp' in player) player.currentHp = half;
+      if ('当前生命' in player) player.当前生命 = half;
+      const next = markers2.filter((m: any) => itemName(m) !== cdKey);
+      next.push({ name: cdKey, expireAt: expireAfter(cdSec, nowMs) });
+      player.markers2 = next;
+      this.logger.log(`玩家 ${player.userId ?? ''} 死亡状态下被「${label}」复活（HP ${half}）`);
+      return { dead: false, reviveText: appendExtra(`死亡状态下被${label}复活`), deathText: '' };
+    };
+    /** 冷却键是否仍在生效（原版 时间间隔要求(...) == 真） */
+    const cdActive = (key: string): boolean => !!findActive(markers2, key, nowMs);
+
+    // 卷土重来（原版 L5182-5184）：返回假 → 指令继续执行
+    const comeback = findActive(buffs, '卷土重来', nowMs);
+    if (comeback) {
+      return {
+        dead: false,
+        reviveText: appendExtra(`卷土重来${formatRemain(remainSeconds(comeback, nowMs))}`),
+        deathText: '',
+      };
+    }
+
+    // 军姬（原版 L5185-5199）：有存活宠物且 sf 冷却就绪才复活，否则继续往下判
+    if (Number(player.specialSeq ?? 0) === 16 || player.type === '军姬') {
+      const summons = this.safeJsonParse<any[]>(playerData?.map?.summons, []);
+      const alivePet = summons.some((s: any) => s
+        && (s.userId === player.qqNumber || s.userId === player.userId)
+        && Number(s.hp ?? s.当前生命 ?? 0) > 0);
+      if (alivePet && !cdActive('sf')) {
+        return revive('"森罗万象"', 'sf', 60);
+      }
+    }
+
+    // 死亡行者（原版 L5204-5212）：装备序号 16；冷却中直接真死（原版返回真，不试石中剑）
+    if (ownsSpecialSeq(16)) {
+      if (cdActive('死亡行者')) return { dead: true, reviveText: '', deathText };
+      return revive('死亡行者', '死亡行者', 90);
+    }
+
+    // 石中剑（原版 L5214-5222）：武器序号 -35（原版 装备要求(..., 真) = 含武器）
+    if (ownsSpecialSeq(-35)) {
+      if (cdActive('石中剑')) return { dead: true, reviveText: '', deathText };
+      return revive('石中剑', '石中剑', 90);
+    }
+
+    return { dead: true, reviveText: '', deathText };
+  }
+
+  /**
+   * 指令/技能死亡门禁（对齐原版 玩家死亡 返回 真/假 语义）。
+   *
+   * @returns null=可继续（未死 / 卷土重来免死 / 已复活）；字符串=真死提示，调用方直接 return
+   */
+  async deathGateText(player: any): Promise<string | null> {
+    if (!this.isPlayerDead(player)) return null;
+    // 军姬复活需要本图存活宠物：只在真死路径上按需读图，正常指令零开销
+    let map: any;
+    if (Number(player?.specialSeq ?? 0) === 16 || player?.type === '军姬') {
+      map = await this.mapService.getMapById(player.mapId).catch(() => null);
+    }
+    const result = this.resolvePlayerDeath(player, { map });
+    if (result.dead) return result.deathText;
+    // 复活是持久状态变更：统一落库一次（savePlayer 在 mutate/Actor 链内退化为合并+标脏）
+    if (result.reviveText) await this.savePlayer(player);
+    return null;
   }
 
   /**

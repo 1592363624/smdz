@@ -3,15 +3,21 @@
  * 负责消息的持久化、频道的查询，以及生成统一的"公屏消息"结构。
  */
 
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StatsService } from '../game/stats.service';
 import { CommandSourceRegistry } from '../command/command-source.registry';
 import { normalizeGameText } from '../../common/utils/game-text.util';
 
+/** 公屏单条消息字符上限：防止极端长指令回包拖垮库/前端/Socket 推送 */
+const MAX_CHAT_CONTENT_CHARS = 80_000;
+const TRUNCATE_NOTICE = '\n…（内容过长，已截断）';
+
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly statsService: StatsService,
@@ -142,8 +148,19 @@ export class ChatService {
   }
 
   /**
+   * 极端超长内容截断：保留前 MAX_CHAT_CONTENT_CHARS 字符并附截断提示。
+   * 召唤使魔10000 等批量回包可达数百 KB，若原样落库/推送会失败或拖垮公屏。
+   */
+  private clampChatContent(raw: string): string {
+    const text = normalizeGameText(raw ?? '');
+    if (text.length <= MAX_CHAT_CONTENT_CHARS) return text;
+    return text.slice(0, MAX_CHAT_CONTENT_CHARS) + TRUNCATE_NOTICE;
+  }
+
+  /**
    * 持久化一条公屏消息
    * 内容统一经过 normalizeGameText：把游戏文本中的 "#换行" 标记转为真实换行
+   * 超长内容先截断；若仍落库失败，退化为一条短错误提示，保证发送者能看到回执
    */
   async saveMessage(data: {
     channelId: number;
@@ -151,15 +168,32 @@ export class ChatService {
     type: string;
     content: string;
   }) {
-    return this.prisma.chatMessage.create({
-      data: {
-        channelId: data.channelId,
-        senderId: data.senderId,
-        type: data.type,
-        content: normalizeGameText(data.content),
-      },
-      include: { sender: { select: { id: true, username: true, nickname: true } } },
-    });
+    const content = this.clampChatContent(data.content);
+    try {
+      return await this.prisma.chatMessage.create({
+        data: {
+          channelId: data.channelId,
+          senderId: data.senderId,
+          type: data.type,
+          content,
+        },
+        include: { sender: { select: { id: true, username: true, nickname: true } } },
+      });
+    } catch (e: any) {
+      this.logger.error(
+        `公屏消息落库失败(长度=${content.length}): ${e?.message ?? e}`,
+      );
+      // 兜底短提示：原内容可能过长/含非法序列，务必让发送者看到失败原因
+      return this.prisma.chatMessage.create({
+        data: {
+          channelId: data.channelId,
+          senderId: data.senderId,
+          type: data.type,
+          content: '消息内容过长或保存失败，未能完整上屏。请减少批量次数后重试。',
+        },
+        include: { sender: { select: { id: true, username: true, nickname: true } } },
+      });
+    }
   }
 
   /**

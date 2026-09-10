@@ -4486,7 +4486,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     const value = String(raw ?? '').trim().replace(/[！!。]+$/g, '');
     const aliases: Record<string, string> = {
       ex: '誓约胜利之剑',
-      '半月斩': '斩',
+      // 空幻「半月斩」原版未实现（@Constant: 代码没写），不得映射到剑圣「斩」
     };
     if (aliases[value]) return aliases[value];
     const supported = new Set([

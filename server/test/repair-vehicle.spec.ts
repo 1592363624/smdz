@@ -52,7 +52,7 @@ function makeService(options: {
       })),
       isPlayerDead: jest.fn(() => false),
       savePlayer: jest.fn(async (value: any) => savedPlayers.push(value)),
-      handlePlayerDeath: jest.fn(() => '你死了'),
+      deathGateText: jest.fn(async () => null),
       enqueueUserWrite: jest.fn(async (_uid: number, fn: () => Promise<any>) => fn()),
     },
     mapService: {

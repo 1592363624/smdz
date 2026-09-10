@@ -87,9 +87,18 @@ export class FamiliarSkillsService {
    * @param userId 用户ID
    * @param skillName 技能名称
    * @param target 可选目标参数
+   * @param opts.skipUseSkillTask 成功时不推进「使用技能」任务。
+   *        仅用于原版本就不计「使用技能」的技能（如「模式转换」——_主程序.ecode
+   *        L9810-9821 只切 a模式，没有任何 添加成就("使用技能")，而「教程-技能」恰以
+   *        「使用技能」为完成条件，误计会污染教程进度）。
    * @returns 技能执行结果文本
    */
-  async executeSkill(userId: number, skillName: string, target?: string): Promise<string> {
+  async executeSkill(
+    userId: number,
+    skillName: string,
+    target?: string,
+    opts?: { skipUseSkillTask?: boolean },
+  ): Promise<string> {
     // 技能全程持用户级共享锁串行化：单次技能内部存在「读快照 → 多次 savePlayer
     // → 再改再写」的多轮读改写（castCombatSkill 会自行重新读档并落库，随后调用
     // 方还要追加增益再保存）。与采集结算、地图战斗节拍、其它指令等并发写入者
@@ -101,7 +110,8 @@ export class FamiliarSkillsService {
     );
 
     // 技能真正执行成功后才推进任务，失败、冷却或条件不足不能消耗任务次数。
-    if (this.isSuccessfulSkillResult(result)) {
+    // skipUseSkillTask：原版不计「使用技能」的技能（模式转换）跳过，见入参注释。
+    if (!opts?.skipUseSkillTask && this.isSuccessfulSkillResult(result)) {
       await this.taskService.advance(userId, '使用技能');
     }
     return result;
@@ -129,6 +139,7 @@ export class FamiliarSkillsService {
     case '银龙附体': return this.silverDragonPossession(userId);
     case '斩': return this.slash(userId);
     case '会心一击': return this.criticalHit(userId);
+    case '模式转换': return this.altinaModeSwitch(userId);
     case '全弹发射': return this.fullSalvo(userId);
     case '光翼': return this.lightWings(userId);
     case '炮冠': return this.cannonCrown(userId);
@@ -943,6 +954,8 @@ export class FamiliarSkillsService {
       familiarType: string;
       extraPenetrationFlat?: number;
       burnSeconds?: number;
+      /** 本次攻击临时暴击加成（原版 会心一击：属性.暴击+10+技能等级） */
+      extraCrit?: number;
     },
   ): Promise<{ result: string; player: any; markers: any }> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -961,13 +974,21 @@ export class FamiliarSkillsService {
 
     this.applyFirstAid(player, resultLines);
 
-    // 真正调战斗引擎造成伤害（三层穿透 + 击杀 + 经验 + 掉落）
-    const result = await this.combatSystem.weaponAttack(userId, 0, {
+    // 原版使魔主动技能统一：武器攻击(玩家, 玩家.当前武器, ..., 无延迟=真, ...)
+    // - 用当前武器（不是固定拳头）
+    // - 无延迟=真：跳过单武器冷却/公共攻击冷却/锁定（技能自身另设「类型技能冷却」）
+    const weaponIndex = Number(player.currentWeapon ?? 0) > 0
+      ? Number(player.currentWeapon)
+      : 0;
+    const result = await this.combatSystem.weaponAttack(userId, weaponIndex, {
       damageMultiplier: opts.damageMultiplier,
       attackText: opts.attackText,
       allAttack: opts.allAttack ?? false,
       extraPenetrationFlat: opts.extraPenetrationFlat,
       burnSeconds: opts.burnSeconds,
+      noDelay: true,
+      // 临时暴击只进本次攻击加成，不写玩家字段
+      extraCrit: opts.extraCrit,
       // 急救包等技能效果先写入当前玩家对象；沿用同一份 PlayerData，避免
       // weaponAttack 重新从数据库读取旧血量覆盖技能恢复结果。
       attackerDataOverride: playerData,
@@ -1377,7 +1398,10 @@ export class FamiliarSkillsService {
         cooldownName: '军姬2技能冷却',
         baseCooldown: 60,
         damageMultiplier: mult,
-        attackText: '【万象】',
+        // 原版 使魔技能.ecode L1391 传 "万象a"（与战斗相关 L3722 的击杀被动判定、
+        // L1721 的万象眩晕判定同名）。此处必须是逻辑字面量 "万象a"，不能再包展示装饰
+        // ——否则 `applyKillPassives` 的军姬2 分支（清空主动技能冷却）永不触发。
+        attackText: '万象a',
         allAttack: true,
         familiarType: '军姬2',
       });
@@ -2003,6 +2027,36 @@ export class FamiliarSkillsService {
   }
 
   /**
+   * 阿尔缇娜 - 模式转换
+   * 对应原版 _主程序.ecode L9810-9821：切换战术壳光剑的 a模式（0=攻击 / 1=防御）
+   * 需要好感≥100；与载具「模式转换」同名，由 game.service 先按使魔类型分流进来。
+   */
+  async altinaModeSwitch(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+
+    if (!this.checkFamiliarType(player, '阿尔缇娜') && Number(player.specialSeq ?? 0) !== 7) {
+      return `${player.name || '冒险者'}这是阿尔缇娜的技能`;
+    }
+    const affinity = Number((player as any).affinity ?? 0) || this.getAffinity(markers, '阿尔缇娜');
+    if (affinity < 100) {
+      return `${player.name || '冒险者'}需要100好感`;
+    }
+
+    const current = this.playerService.getMarkerValue(markers, 'a模式');
+    if (Number(current) === 0) {
+      markers['a模式'] = 1;
+      player.markers = markers;
+      await this.playerService.savePlayer(player);
+      return `${player.name || '冒险者'}战术壳光剑的模式切换为防御模式`;
+    }
+    markers['a模式'] = 0;
+    player.markers = markers;
+    await this.playerService.savePlayer(player);
+    return `${player.name || '冒险者'}战术壳光剑的模式切换为攻击模式`;
+  }
+
+  /**
    * 剑圣 - 斩
    * 高伤害单体攻击
    * 对应原版：斩()
@@ -2061,8 +2115,10 @@ export class FamiliarSkillsService {
       return `${player.name || '冒险者'}这是剑圣的技能`;
     }
     // 原版 L1746：死亡且未装备急救包 → 走死亡处理（急救包豁免）
-    if (this.playerService.isPlayerDead(player) && !this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
-      return this.playerService.handlePlayerDeath(player.userId, player);
+    // 卷土重来中：原版 玩家死亡 返回假 → 技能继续，不 return 死亡文案
+    if (!this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
+      const deathText = await this.playerService.deathGateText(player);
+      if (deathText) return deathText;
     }
 
     // 原版 L1748-1755：冷却核心 → 50 秒否则 60 秒；冷却键=剑圣技能冷却
@@ -2108,6 +2164,10 @@ export class FamiliarSkillsService {
     // 原版 L1771-1773 / L1768：非满池时附加三层穿透 15；满池走九头龙闪（无穿透）
     const extraPenetrationFlat = prefix === '天翔龙闪！' ? 15 : undefined;
 
+    // 原版 L1766：施放前 玩家.属性.暴击 += 10 + 技能等级（会心一击自带暴击加成）
+    // 写到临时 attacker 覆盖上，由 weaponAttack 的 attackerBonus 合并进本次攻击。
+    // 直接改 player.bonus 不持久化；用一次性属性覆盖更贴近原版「本次攻击生效」。
+    const critBonus = 10 + skillLevel;
     // 真正调用战斗引擎造成伤害（必中；隐匿模式下原版不拉起怪物回合）
     const { result, player: livePlayer } = await this.castCombatSkill(userId, {
       cooldownName: `${player.type}技能冷却`,
@@ -2116,6 +2176,7 @@ export class FamiliarSkillsService {
       attackText: '会心一击b',
       familiarType: '剑圣',
       extraPenetrationFlat,
+      extraCrit: critBonus,
     });
 
     // 原版 L1775-1781：隐匿模式豁免（标记要求("隐匿模式") → 不拉怪物回合）。
@@ -2188,9 +2249,10 @@ export class FamiliarSkillsService {
       return `${player.name || '冒险者'}这是绝灭天使的技能`;
     }
 
-    // 原版 L1838-1839：玩家死亡 → 死亡处理
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(player.userId, player);
+    // 原版 L1838-1839：玩家死亡 → 死亡处理（卷土重来中可继续）
+    {
+      const deathText = await this.playerService.deathGateText(player);
+      if (deathText) return deathText;
     }
 
     // 原版 L1840-1842：光翼冷却固定 15 秒（不与其他技能共享、不受冷却核心影响）
@@ -2276,10 +2338,10 @@ export class FamiliarSkillsService {
     if (!this.checkFamiliarType(player, '绝灭天使')) {
       return `${player.name || '冒险者'}这是绝灭天使的技能`;
     }
-    // 原版 L1872：死亡且未装备急救包 → 死亡处理（急救包豁免）
-    if (this.playerService.isPlayerDead(player)
-      && !this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
-      return this.playerService.handlePlayerDeath(player.userId, player);
+    // 原版 L1872：死亡且未装备急救包 → 死亡处理（急救包豁免；卷土重来中可继续）
+    if (!this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
+      const deathText = await this.playerService.deathGateText(player);
+      if (deathText) return deathText;
     }
 
     // 原版倍率：倍率转换(玩家, 100+技能等级) 后按地图存活怪物数分摊（使魔技能.ecode L1901）
@@ -2348,10 +2410,10 @@ export class FamiliarSkillsService {
     if (!this.checkFamiliarType(player, '安克雷奇')) {
       return `${player.name || '冒险者'}这是安克雷奇的技能`;
     }
-    // 原版 L1919：死亡且未装备急救包 → 死亡处理（急救包豁免）
-    if (this.playerService.isPlayerDead(player)
-      && !this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
-      return this.playerService.handlePlayerDeath(player.userId, player);
+    // 原版 L1919：死亡且未装备急救包 → 死亡处理（急救包豁免；卷土重来中可继续）
+    if (!this.hasEquipped(asJsonValue<any[]>(player.equipment, []), '急救包')) {
+      const deathText = await this.playerService.deathGateText(player);
+      if (deathText) return deathText;
     }
 
     // 原版 L1921-1928：冷却核心 → 50 秒否则 60 秒；冷却键=安克雷奇技能冷却

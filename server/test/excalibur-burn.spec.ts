@@ -104,6 +104,7 @@ function buildCombatMocks() {
       };
     }),
     isPlayerDead: jest.fn((player: any) => (player.hp || 0) <= 0),
+    deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
     savePlayer: jest.fn(async () => undefined),
     addExp: jest.fn(async () => ({ leveledUp: false, newLevel: 1 })),
     getMarkerValue: jest.fn((markers: any, key: string) => markers?.[key] ?? 0),

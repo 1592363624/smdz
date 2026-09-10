@@ -17,7 +17,7 @@ function makeBaseService(): any {
   service.playerService = {
     safeJsonParse: parseJson,
     isPlayerDead: jest.fn(() => false),
-    handlePlayerDeath: jest.fn(),
+    deathGateText: jest.fn(async () => null),
     addToBackpack: jest.fn(async () => undefined),
     getBackpackItems: jest.fn((player: any) => parseJson(player.backpack, [])),
     savePlayer: jest.fn(async () => undefined),

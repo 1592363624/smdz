@@ -12,6 +12,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
+import { toExpireMs } from './expire-time.util';
 
 /**
  * 加成属性接口，对应原版易语言的"加成"数据类型
@@ -1741,8 +1742,9 @@ export class BonusService {
     const hasBuff = (name: string): number | undefined => {
       const item = buffs.find((buff) => String(buff?.name ?? buff?.名称 ?? '') === name);
       if (!item) return undefined;
-      const rawExpire = Number(item.expireAt ?? item.有效期至 ?? 0);
-      if (!rawExpire || rawExpire <= nowSec) return undefined;
+      // 秒/毫秒双口径：与 expire-time.util 一致（否则毫秒 expireAt 会被当成永不过期）
+      const expireMs = toExpireMs(item);
+      if (expireMs > 0 && Math.floor(expireMs / 1000) <= Math.floor(nowSec)) return undefined;
       return this.safeNum(item.strength ?? item.value ?? item.强度);
     };
     const hasEquipBySeq = (seq: number): boolean =>

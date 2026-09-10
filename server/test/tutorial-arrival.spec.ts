@@ -81,6 +81,7 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
         })),
         safeJsonParse: jest.fn(parseJson),
         isPlayerDead: jest.fn(() => false),
+        deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
         savePlayer: jest.fn(async () => undefined),
         getBackpackItems: jest.fn(() => []),
         enqueueUserWrite: jest.fn((_userId: number, fn: () => any) => fn()),

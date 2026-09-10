@@ -70,6 +70,7 @@ function makeCannon(options: {
     })),
     safeJsonParse: jest.fn(json),
     isPlayerDead: jest.fn(() => false),
+    deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
     savePlayer: jest.fn(async (value: any) => saved.push(value)),
     getMarkerValue: jest.fn((markers: any, key: string) => markers?.[key] ?? 0),
   };

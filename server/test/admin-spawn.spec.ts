@@ -31,6 +31,7 @@ function makeService(options: { role?: string; map3?: any } = {}) {
         equipment: [], weapons: [],
       })),
       isPlayerDead: jest.fn(() => false),
+      deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
       savePlayer: jest.fn(async () => undefined),
     },
     mapService: {

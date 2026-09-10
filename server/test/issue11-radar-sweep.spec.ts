@@ -38,6 +38,7 @@ function makeItemSystem(staticOverrides: Partial<Record<string, any>> = {}) {
   const playerService: any = {
     getPlayerData: async () => playerData,
     savePlayer: async () => undefined,
+    deathGateText: async () => null, // 未死放行（死亡门禁同源，桩场景恒放行）
     enqueueUserWrite: async (_userId: number, fn: () => Promise<any>) => fn(),
     safeJsonParse: (v: any) => {
       try { return typeof v === 'string' ? JSON.parse(v) : v; } catch { return []; }
@@ -136,6 +137,7 @@ describe('Issue #11：探测雷达扫描废弃载具等十类目标', () => {
       playerService: {
         getPlayerData: async () => ({ player: { name: '测试员', markers } }),
         isPlayerDead: () => false,
+        deathGateText: async () => null, // 未死放行（死亡门禁同源，桩场景恒放行）
       },
       achievementService: {
         getAchievement: (m: any, k: string) => m?.[k] ?? 0,

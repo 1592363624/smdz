@@ -61,7 +61,7 @@ function makeService(options: {
     getMarkerValue: jest.fn((markers: any, key: string) => Number(markers?.[key] ?? 0)),
     isPlayerDead: jest.fn(() => false),
     savePlayer: jest.fn(async (value: any) => saved.push(value)),
-    handlePlayerDeath: jest.fn(),
+    deathGateText: jest.fn(async () => null),
     // performArrival 自串行（支柱二）：入口统一过用户级串行邮箱，桩直通
     enqueueUserWrite: jest.fn(async (_uid: number, fn: () => Promise<any>) => fn()),
   };

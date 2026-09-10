@@ -54,7 +54,7 @@ function makeSkillsService(options: {
         return level;
       }),
       isPlayerDead: jest.fn((p: any) => Number(p?.hp ?? 1) <= 0),
-      handlePlayerDeath: jest.fn(() => '你死了'),
+      deathGateText: jest.fn(async () => null),
       getBackpackItems: jest.fn((p: any) => parseJson(p.backpack, [])),
       safeJsonParse: parseJson,
     },

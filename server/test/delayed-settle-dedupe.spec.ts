@@ -98,6 +98,7 @@ function makeRescueFixture(playerOverrides: Record<string, any> = {}) {
     })),
     safeJsonParse: jest.fn(parseJson),
     isPlayerDead: jest.fn((target: any) => Number(target?.hp || 0) <= 0),
+    deathGateText: jest.fn(async () => null), // 未死放行（与 isPlayerDead 恒假同语义）
     savePlayer: jest.fn(async () => undefined),
     markPlayerDirty: jest.fn(() => undefined),
   };

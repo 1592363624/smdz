@@ -643,7 +643,7 @@ export class GameService {
     let playerData = await this.playerService.getPlayerData(userId);
     let player = playerData.player;
     const name = player.name || '冒险者';
-    if (this.playerService.isPlayerDead(player)) return this.playerService.handlePlayerDeath(userId, player);
+    { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     const markers2 = Array.isArray(playerData.markers2)
       ? playerData.markers2
@@ -854,9 +854,7 @@ export class GameService {
       ? playerData.markers2
       : this.parseJsonArray(player.markers2);
 
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 原版新手地图（地图序号小于3）不能直接飞行，只能先观察并按剧情移动。
     if (Number(player.mapId) < 3) {
@@ -3614,9 +3612,7 @@ export class GameService {
     const { player } = playerData;
 
     // 检查是否死亡
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
@@ -3715,9 +3711,7 @@ export class GameService {
     const { player } = playerData;
 
     // 检查是否死亡
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
@@ -3877,9 +3871,7 @@ export class GameService {
   private async mineByVehicle(userId: number): Promise<string> {
     return this.mutatePlayer(userId, async (ctx) => {
       const { player } = ctx;
-      if (this.playerService.isPlayerDead(player)) {
-        return this.playerService.handlePlayerDeath(userId, player);
-      }
+        { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
       const map = await this.mapService.getMapById(player.mapId);
       if (!map) return '你不在任何地图上！';
 
@@ -3969,9 +3961,7 @@ export class GameService {
     const { player, markers, markers2 } = playerData;
 
     // 检查是否死亡
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
@@ -5319,9 +5309,7 @@ export class GameService {
     const name = player.name || '冒险者';
 
     // 检查是否死亡
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 行动无限制（原版 L7089 理由6：自动开采中可以躺下）
     const restriction = this.combatSystem.actionUnrestricted(player, { ignoreReason: 6 });
@@ -5827,9 +5815,7 @@ export class GameService {
     const group = await this.dungeonService.findInstanceGroup(name);
     const anchor = group?.maps.find((map) => map.name === name && (map.respawnPoint || map.复活点) === name);
     if (!group || !anchor) return `${player.name},${name}不是副本`;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     const currentMap = await this.mapService.getMapById(player.mapId);
     if (!currentMap) return `${player.name}不在任何地图上`;
@@ -7017,9 +7003,7 @@ export class GameService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     const homeProgress = this.playerService.getMarkerValue(markers, '家园进度');
     if (homeProgress < 4 || !player.houseName) {
@@ -7117,9 +7101,7 @@ export class GameService {
     const { player } = playerData;
     const name = player.name || '冒险者';
 
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
@@ -7329,8 +7311,10 @@ export class GameService {
     const markers2: any[] = ctx.markers2 ?? asJsonValue<any[]>(player.markers2, []);
 
     // 检查是否死亡（原版 L1846 玩家死亡 优先判定）
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
+    // 卷土重来中：原版 返回假 → 闪避继续执行，不要 return 空/死亡文案
+    {
+      const deathText = await this.playerService.deathGateText(player);
+      if (deathText) return deathText;
     }
 
     // ========== 飞羽套装加成（对应原版 _主程序.ecode L1840-1844） ==========
@@ -10683,7 +10667,10 @@ export class GameService {
     const restriction = this.combatSystem.actionUnrestricted(player, { cannonOk: false, ignoreReason: 6 });
     if (restriction.restricted) return `${playerName}${restriction.text}`;
     if (this.playerService.isPlayerDead(player)) {
-      return `${playerName}已经死掉了!你可以“复活使魔”或者“删除怪物”`;
+      // 与其他指令同源：走 deathGateText（含 卷土重来免死 / 军姬·死亡行者·石中剑 半血复活
+      // 级联），不再硬编码死亡文案 —— 否则这些复活机制在载具组装指令上失效。
+      const deathText = await this.playerService.deathGateText(player);
+      if (deathText) return deathText;
     }
 
     if (await this.hasOwnedProductionVehicle(ownerQQ, coreSpec)) {
@@ -10943,7 +10930,7 @@ export class GameService {
       return `${name}当前地图正在战斗中，请消灭全部怪物、离开，或者等待${remainText}`;
     }
 
-    if (this.playerService.isPlayerDead(player)) return this.playerService.handlePlayerDeath(userId, player);
+    { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 取载具 + 计算载具（原版 L10412-10415）
     const vehicle = await this.findTravelVehicle(player, map);
@@ -11250,6 +11237,19 @@ export class GameService {
    * 对应原版：模式转换 命令
    */
   async handleModeChange(userId: number, modeName: string): Promise<string> {
+    // 阿尔缇娜「模式转换」优先（原版 _主程序.ecode L9810-9821：切换战术壳光剑 a模式）
+    // 与载具模式转换同名，按使魔类型分流。原版该分支是**精确匹配** `消息数据 == "模式转换"`，
+    // 带参数（如「模式转换 战斗」）不会进入 → 此处同样只在未带模式名时拦截。
+    // 原版该分支不计「使用技能」，故 skipUseSkillTask。
+    if (!modeName) {
+      const peek = await this.playerService.getPlayerData(userId);
+      if (peek?.player?.type === '阿尔缇娜' || Number(peek?.player?.specialSeq ?? 0) === 7) {
+        return this.familiarSkillsService.executeSkill(
+          userId, '模式转换', undefined, { skipUseSkillTask: true },
+        );
+      }
+    }
+
     if (!modeName) {
       return '请指定要转换的模式，格式：模式转换 模式名\n可用模式：战斗、移动、防御、隐匿';
     }
@@ -13017,9 +13017,7 @@ export class GameService {
         return '屋内或家园前线不能进行贸易，请回到对方家园院子';
       }
       if (targetUserId === userId) return '不能和自己的家园贸易';
-      if (this.playerService.isPlayerDead(actor)) {
-        return this.playerService.handlePlayerDeath(userId, actor);
-      }
+        { const __dt = await this.playerService.deathGateText(actor); if (__dt) return __dt; }
       if (Number(actor.vitality || 0) < 10) return `${actor.name || '冒险者'}你的剩余活力不足10`;
 
       // 先观测目标家园，刷新电力状态和每日产出缓存；被贸易者不会减少产出物。
@@ -13123,9 +13121,7 @@ export class GameService {
   async handleShop(userId: number, action: string, args: string[]): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     const map = await this.getCurrentMap(userId);
     const merchantInfo = this.findMerchantInSummons(map);
@@ -13551,9 +13547,7 @@ export class GameService {
   async handleRecharge(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, markers2 } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
     if (!this.hasEquippedSpecial(playerData, '护盾回充器', 4)) {
       return `${player.name}需要护盾回充器`;
     }
@@ -13583,9 +13577,7 @@ export class GameService {
   async handleRepairItem(userId: number, itemName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, markers2 } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
     if (!this.hasEquippedSpecial(playerData, '纳米注喷器', 13)) {
       return `${player.name}需要纳米注喷器`;
     }
@@ -13615,9 +13607,7 @@ export class GameService {
   async handleReload(userId: number, targetName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, markers2, weapons } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     let mode: 'plana' | 'organ' | '' = '';
     if (Number(player.specialSeq) === 22 && Number(player.affinity || 0) >= 60) {
@@ -15060,9 +15050,19 @@ export class GameService {
     const { player } = playerData;
 
     if (marker.rescueType === 'self') {
+      // 原版 _主程序.ecode L1305/L1318：自救恢复 `玩家.属性.生命 / 2` ——「属性」是**计算上限**
+      // （含装备/套装/增益，即面板分母），不是基础列 maxHp；与 PlayerService.resolvePlayerDeath
+      // 的复活基数同口径。取不到计算上限时退回基础上限，保证行为不劣化。
+      let rescueCapHp = Number(player.maxHp || 100);
+      try {
+        const rescueBonus = this.combatSystem.buildAttackerBonus(player, playerData) as any;
+        if (Number(rescueBonus?.生命) > 0) rescueCapHp = Number(rescueBonus.生命);
+      } catch { /* 计算上限取值失败 → 退回基础上限 */ }
+      // 三池第四道闸：写入必走 capPoolValue（封顶 + 两位小数 + 残值归零）
+      const rescueHp = capPoolValue(rescueCapHp / 2, rescueCapHp);
+
       if (this.playerService.isPlayerDead(player)) {
-        const maxHp = Number(player.maxHp || 100);
-        player.hp = Math.floor(maxHp / 2);
+        player.hp = rescueHp;
         player.shield = 0;
         player.armor = 0;
         await this.playerService.savePlayer(player);
@@ -15074,7 +15074,7 @@ export class GameService {
       const teleportSuffix = await this.applyWhiteAngelRevivalTeleport(userId, player);
       // 原版延时端会把结算文本发回群里；移植版统一走世界频道系统消息送达玩家
       //（指令回复通道覆盖不到进程内定时器回调）。
-      const result = `${player.name || '冒险者'}感觉好一点了吗？恢复了${Math.floor(Number(player.maxHp || 100) / 2)}生命${teleportSuffix}`;
+      const result = `${player.name || '冒险者'}感觉好一点了吗？恢复了${Math.floor(rescueHp)}生命${teleportSuffix}`;
       // 延时端推进的任务（复活等）完成提示前插，避免通知滞留队列丢失。
       const rescueTaskNotice = this.taskService.consumeNotifications(userId);
       const rescueText = rescueTaskNotice ? `${rescueTaskNotice}\n————————\n${result}` : result;
@@ -16153,9 +16153,7 @@ export class GameService {
   async handleProbeRadar(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 成就熟练度存于玩家标记中
     const markers = asJsonValue<Record<string, number>>(player.markers, {});
@@ -16338,9 +16336,7 @@ export class GameService {
   async handleProbeResources(userId: number, keyword: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 需要建筑[矿物探测器]（对应原版 建筑要求）
     if (!(await this.hasBuildingOnMap(userId, '矿物探测器'))) {
@@ -16391,9 +16387,7 @@ export class GameService {
   async handleProbeAndPickup(userId: number, keyword: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 需要建筑[矿物探测器]（对应原版 建筑要求）
     if (!(await this.hasBuildingOnMap(userId, '矿物探测器'))) {
@@ -16442,9 +16436,7 @@ export class GameService {
   async handleProbeCrops(userId: number, keyword: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     // 需要建筑[矿物探测器]（对应原版 建筑要求）
     if (!(await this.hasBuildingOnMap(userId, '矿物探测器'))) {
@@ -16702,9 +16694,7 @@ export class GameService {
     // 则玩家可请求露娜帮忙，持续到下一个整点；成功后露娜归属改为玩家、好感置满。
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     const map = await this.getCurrentMap(userId);
     const summons = asJsonValue<any[]>(map.summons, []);
@@ -16747,9 +16737,7 @@ export class GameService {
   async handleAutoShop(userId: number, itemName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
-    if (this.playerService.isPlayerDead(player)) {
-      return this.playerService.handlePlayerDeath(userId, player);
-    }
+      { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
     const map = await this.getCurrentMap(userId);
     const merchantInfo = this.findMerchantInSummons(map);
