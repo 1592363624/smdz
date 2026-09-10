@@ -100,49 +100,56 @@
             <h3>{{ grp.label }}</h3>
             <div class="config-grid">
               <template v-for="cfg in grp.items" :key="cfg.key">
-                <!-- 全局熟练度：表格编辑器（JSON 原文不便读写） -->
+                <!-- 全局熟练度：平铺卡片编辑器（对齐背包管理视觉；默认按点数从大到小） -->
                 <div v-if="cfg.key === 'game.globalMarkers'" class="config-item config-item-wide">
                   <div class="config-info">
                     <span class="config-label">{{ cfg.label }}</span>
                     <span class="config-desc">{{ cfg.description }}</span>
                   </div>
                   <div class="prof-editor">
-                    <div class="prof-toolbar">
-                      <span class="prof-world">世界等级 <strong>{{ globalProfWorldLevel }}</strong>（世界熟练度 {{ globalProfWorldPoints }}）</span>
-                      <span class="prof-count">共 {{ globalProfRows.length }} 项</span>
-                      <button class="btn-ghost" type="button" @click="addGlobalProfRow">＋ 添加</button>
-                      <button class="btn-primary" type="button" @click="saveGlobalProf(cfg)">保存</button>
+                    <div class="bk-toolbar">
+                      <div class="bk-search">
+                        <span class="bk-search-icon">⌕</span>
+                        <input v-model="globalProfSearch" type="text" placeholder="搜索熟练度名称…" />
+                      </div>
+                      <span class="prof-world">世界等级 <strong>{{ globalProfWorldLevel }}</strong>（点数 {{ globalProfWorldPoints }}）· 请用 GM 工具修改</span>
+                      <span class="bk-stat"><b>{{ globalProfVisible.length }}</b>/<b>{{ globalProfEditable.length }}</b> 项</span>
+                      <button class="bk-toggle" type="button" @click="addGlobalProfRow">＋ 添加</button>
+                      <button class="gm-btn success" type="button" @click="saveGlobalProf(cfg)">保存熟练度</button>
                       <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
                     </div>
                     <div v-if="globalProfError" class="prof-error">{{ globalProfError }}</div>
-                    <div class="prof-table-wrap">
-                      <table class="prof-table">
-                        <thead>
-                          <tr>
-                            <th>名称</th>
-                            <th class="num">熟练度点数</th>
-                            <th class="lv">等级</th>
-                            <th></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr v-for="(row, ri) in globalProfRows" :key="'prof-' + ri">
-                            <td>
-                              <input v-model="row.name" class="prof-name" placeholder="如：世界 / 史莱姆" />
-                            </td>
-                            <td class="num">
-                              <input v-model.number="row.points" type="number" min="0" step="1" class="prof-points" />
-                            </td>
-                            <td class="lv">{{ profLevel(row.points) }}</td>
-                            <td>
-                              <button class="btn-ghost prof-del" type="button" title="删除" @click="removeGlobalProfRow(ri)">✕</button>
-                            </td>
-                          </tr>
-                          <tr v-if="!globalProfRows.length">
-                            <td colspan="4" class="prof-empty">暂无数据，点「＋ 添加」新建条目</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                    <div class="bk-grid prof-grid">
+                      <div
+                        v-for="row in globalProfVisible"
+                        :key="'prof-' + row.uid"
+                        class="bk-card prof-card"
+                      >
+                        <div class="prof-card-row">
+                          <input
+                            v-model="row.name"
+                            class="prof-card-name"
+                            :size="nameInputSize(row.name)"
+                            placeholder="名称"
+                            title="名称（保存时自动补「熟练度」后缀）"
+                          />
+                          <input
+                            v-model.number="row.points"
+                            class="bk-qin prof-card-points"
+                            type="number"
+                            min="0"
+                            step="1"
+                            title="熟练度点数"
+                          />
+                          <span class="prof-lv-badge">Lv.{{ profLevel(row.points) }}</span>
+                          <button class="bk-card-x" type="button" title="删除" @click="removeGlobalProfByUid(row.uid)">✕</button>
+                        </div>
+                      </div>
+                      <div v-if="!globalProfVisible.length" class="bk-empty">
+                        {{ globalProfEditable.length ? '没有匹配的熟练度' : '暂无怪物/物种熟练度' }}
+                        <span v-if="globalProfEditable.length">换个关键词试试</span>
+                        <span v-else>点「＋ 添加」新建条目；世界等级请用 GM 工具</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -662,16 +669,39 @@ async function saveConfig(cfg, value) {
   setTimeout(() => (savedKey.value = ''), 1500);
 }
 
-// ---- 全局熟练度表格编辑器 ----
+// ---- 全局熟练度卡片编辑器（对齐背包管理：搜索 + 卡片 + 点数从大到小） ----
 const PROF_SUFFIX = '熟练度';
-const globalProfRows = ref([]); // [{ name, points }]，name 不含「熟练度」后缀
+const globalProfRows = ref([]); // [{ uid, name, points }]，name 不含「熟练度」后缀
 const globalProfError = ref('');
+const globalProfSearch = ref('');
+let globalProfUidSeq = 0;
 
 const globalProfWorldPoints = computed(() => {
   const row = globalProfRows.value.find((r) => r.name === '世界');
   return Number(row?.points) || 0;
 });
 const globalProfWorldLevel = computed(() => profLevel(globalProfWorldPoints.value));
+
+/** 可编辑项：排除「世界」（世界等级走 GM 工具，避免误删/误改） */
+const globalProfEditable = computed(() => globalProfRows.value.filter((r) => r.name !== '世界'));
+
+/** 搜索过滤后的可编辑项；默认顺序 = 加载时按点数从大到小 */
+const globalProfVisible = computed(() => {
+  const kw = globalProfSearch.value.trim().toLowerCase();
+  const list = globalProfEditable.value;
+  if (!kw) return list;
+  return list.filter((r) => String(r.name || '').toLowerCase().includes(kw));
+});
+
+/** 按熟练度点数从大到小排序（加载/初次展示用；编辑过程中不反复重排） */
+function sortGlobalProfRows() {
+  globalProfRows.value = [...globalProfRows.value].sort((a, b) => {
+    const pa = Number(a.points) || 0;
+    const pb = Number(b.points) || 0;
+    if (pb !== pa) return pb - pa;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'zh');
+  });
+}
 
 /** floor(√点数)+1，与服务端 显示熟练度等级 一致；点数≤0 时视为 0 级展示（实际游戏侧基线为 1） */
 function profLevel(points) {
@@ -680,13 +710,17 @@ function profLevel(points) {
   return Math.floor(Math.sqrt(p)) + 1;
 }
 
+function makeGlobalProfRow(name = '', points = 0) {
+  return { uid: ++globalProfUidSeq, name, points: Number(points) || 0 };
+}
+
 function parseGlobalProfRows(raw) {
   try {
     const obj = JSON.parse(raw || '{}');
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
     return Object.entries(obj).map(([key, points]) => {
       const name = key.endsWith(PROF_SUFFIX) ? key.slice(0, -PROF_SUFFIX.length) : key;
-      return { name, points: Number(points) || 0 };
+      return makeGlobalProfRow(name, points);
     });
   } catch {
     return [];
@@ -706,19 +740,45 @@ function hydrateGlobalProfFromConfigs(list) {
     globalProfError.value = '';
   }
   globalProfRows.value = rows;
+  sortGlobalProfRows();
 }
 
 function addGlobalProfRow() {
-  globalProfRows.value.push({ name: '', points: 0 });
+  globalProfRows.value.push(makeGlobalProfRow('', 0));
+  // 新条目默认点数 0 会排到列表末尾；清空搜索避免用户看不见
+  globalProfSearch.value = '';
 }
-function removeGlobalProfRow(index) {
-  globalProfRows.value.splice(index, 1);
+function removeGlobalProfByUid(uid) {
+  const row = globalProfRows.value.find((r) => r.uid === uid);
+  if (row?.name === '世界') return; // 世界不可在此删除
+  globalProfRows.value = globalProfRows.value.filter((r) => r.uid !== uid);
+}
+
+/** 名称输入框宽度：按字符数（中文/全角按 2 宽）刚好放下名字 */
+function nameInputSize(name) {
+  const text = String(name || '名称');
+  let w = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) || 0;
+    const wide =
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0x3400 && code <= 0x4dbf) ||
+      (code >= 0xff00 && code <= 0xffef) ||
+      (code >= 0x3000 && code <= 0x303f);
+    w += wide ? 2 : 1;
+  }
+  return Math.max(5, Math.min(16, w + 1));
 }
 
 async function saveGlobalProf(cfg) {
   globalProfError.value = '';
   const obj = {};
-  for (const row of globalProfRows.value) {
+  // 世界条目仍随整表落库（卡片里不展示，但不能丢）
+  const rowsToSave = [
+    ...globalProfEditable.value,
+    ...globalProfRows.value.filter((r) => r.name === '世界'),
+  ];
+  for (const row of rowsToSave) {
     const rawName = String(row.name || '').trim();
     if (!rawName) continue;
     const points = Number(row.points);
@@ -1825,6 +1885,62 @@ onMounted(async () => {
 }
 .bk-empty span {
   font-size: 11px;
+}
+
+/* ===== 全局熟练度卡片（单行：− 名称 点数 Lv ± ✕） ===== */
+.prof-grid {
+  max-height: 360px;
+}
+.prof-card {
+  min-width: 0;
+  width: max-content;
+  max-width: 100%;
+  padding: 5px 7px;
+  align-self: flex-start;
+}
+.prof-card-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+}
+.prof-card-name {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 140px;
+  box-sizing: content-box;
+  background: transparent;
+  border: 1px solid transparent;
+  outline: none;
+  color: var(--text, #e5e7eb);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 4px;
+  border-radius: 5px;
+  text-overflow: ellipsis;
+}
+.prof-card-name:hover,
+.prof-card-name:focus {
+  border-color: var(--border, rgba(255, 255, 255, 0.12));
+  background: rgba(10, 8, 26, 0.55);
+}
+.prof-card-points {
+  flex: 0 0 auto;
+  width: 40px;
+  min-width: 36px;
+}
+.prof-lv-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.18);
+  color: #d4c4ff;
+  font-variant-numeric: tabular-nums;
 }
 
 .bk-catalog {

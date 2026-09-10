@@ -1302,12 +1302,13 @@ vite-plugin-checker-error-overlay,
 .chat-header {
   padding: 14px 24px;
   border-bottom: 1px solid var(--glass-border);
-  display: flex;
   align-items: center;
   justify-content: space-between;
   background: rgba(10, 10, 26, 0.6);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  /* 桌面端顶栏只剩汉堡入口（已隐藏），整条省掉高度；移动端见 media 覆盖 */
+  display: none;
 }
 .chat-header h2 {
   font-size: 16px;
@@ -1340,13 +1341,14 @@ vite-plugin-checker-error-overlay,
   box-shadow: 0 4px 12px rgba(229, 46, 113, 0.4);
 }
 
-/* 头部右侧：版本号 + 跳转链接 组合容器（标题已移除，靠 margin 推到最右并保持单行） */
+/* 头部右侧：版本号 + 跳转链接 组合容器
+   （已迁到聊天区右下角 .action-dock；此处仍保留基础 flex 供该类复用） */
 .header-right {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  margin-left: auto; /* 头部无左标题时，将按钮组推到容器右侧 */
-  flex-wrap: nowrap; /* 保持单行，防止按钮溢出换行 */
+  margin-left: auto;
+  flex-wrap: nowrap;
   gap: 8px;
   min-width: 0;
 }
@@ -2767,7 +2769,7 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   background: rgba(10, 10, 26, 0.55);
   border-color: rgba(139, 92, 246, 0.25);
 }
-/* 全局熟练度等需要表格编辑的配置：跨满整行网格 */
+/* 全局熟练度等需要卡片编辑的配置：跨满整行网格 */
 .config-item-wide {
   grid-column: 1 / -1;
 }
@@ -2776,24 +2778,14 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   flex-direction: column;
   gap: 10px;
 }
-.prof-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
 .prof-world {
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text-secondary, #c8c8e0);
+  white-space: nowrap;
 }
 .prof-world strong {
   color: var(--accent, #8b5cf6);
-  font-size: 15px;
-}
-.prof-count {
-  font-size: 12px;
-  color: var(--muted);
-  margin-right: auto;
+  font-size: 14px;
 }
 .prof-error {
   font-size: 12px;
@@ -2802,71 +2794,6 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   border-radius: 6px;
   background: rgba(248, 113, 113, 0.1);
   border: 1px solid rgba(248, 113, 113, 0.3);
-}
-.prof-table-wrap {
-  max-height: 280px;
-  overflow: auto;
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-}
-.prof-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.prof-table th,
-.prof-table td {
-  padding: 6px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--glass-border);
-}
-.prof-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: rgba(15, 12, 32, 0.95);
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 12px;
-}
-.prof-table th.num,
-.prof-table td.num {
-  width: 140px;
-}
-.prof-table th.lv,
-.prof-table td.lv {
-  width: 70px;
-  color: var(--muted);
-}
-.prof-table td.lv {
-  font-variant-numeric: tabular-nums;
-}
-.prof-table tbody tr:hover {
-  background: rgba(139, 92, 246, 0.06);
-}
-.prof-name,
-.prof-points {
-  width: 100%;
-  min-width: 0;
-  padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 13px;
-}
-.prof-points {
-  font-variant-numeric: tabular-nums;
-}
-.prof-del {
-  padding: 2px 8px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-.prof-empty {
-  text-align: center;
-  color: var(--muted);
-  padding: 20px 10px !important;
 }
 .config-info {
   display: flex;
@@ -3453,9 +3380,9 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
     min-height: 0; /* 防止 flex 溢出 */
   }
 
-  /* 头部：按钮组放不下时允许换行，避免整排横向溢出被屏幕裁切；
-     行高由内容决定，换行后仍保持居中，不遮挡下方消息区 */
+  /* 手机端顶栏：仅保留汉堡菜单（操作组已迁到右下角坞） */
   .chat-header {
+    display: flex;
     padding: 8px 12px;
     padding-top: calc(8px + var(--safe-top));
     gap: 6px 8px;
@@ -3469,19 +3396,26 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* 头部右侧按钮组：占据剩余宽度并在内部自行换行（覆盖桌面的 nowrap），
-     保证「显示他人 / 版本号 / 指令 / 私聊 / BUG 反馈」全部可见。
-     basis 必须为 0：若用 auto，它会先按最大内容宽度争位而被整体挤到第二行，
-     结果汉堡按钮独占一行、头部被拉高成三行 */
-  .header-right {
-    flex: 1 1 0;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 6px;
-    min-width: 0;
+  /* 手机端：抬高避开输入栏，仍保持单行 */
+  .action-dock {
+    right: 8px;
+    left: auto;
+    bottom: calc(72px + 56px + 8px + var(--safe-bottom, 0px));
+    width: max-content;
+    max-width: calc(100vw - 16px);
+    flex-wrap: nowrap;
+    gap: 5px;
+    padding: 6px 8px;
+  }
+  .action-dock .header-action-btn,
+  .action-dock .github-issue-btn,
+  .action-dock .version-tag,
+  .action-dock .reborn-link {
+    font-size: 11px;
+    padding: 4px 8px;
   }
   .reborn-link {
-    margin-left: 8px;
+    margin-left: 0;
     padding: 3px 10px;
     font-size: 12px;
   }
@@ -3874,41 +3808,31 @@ textarea:focus:not(:focus-visible) {
   }
 }
 
-/* 小屏（≤480px）：头部按钮精简，避免与标题/版本号争抢空间 */
+/* 小屏（≤480px）：操作坞按钮精简，保证单行 */
 @media (max-width: 480px) {
-  .chat-header .reborn-link {
+  .action-dock .reborn-link {
     display: none;
   }
-  .github-issue-btn span {
+  .action-dock .github-issue-btn span {
     display: none;
   }
-  .header-action-btn {
-    padding: 4px 8px;
+  .action-dock .header-action-btn,
+  .action-dock .github-issue-btn,
+  .action-dock .version-tag {
+    padding: 4px 7px;
     font-size: 11px;
   }
-  /* 极限小屏：进一步压缩横向占位，尽量让整排按钮落在一行内（放不下时自动换行不裁切） */
+  .action-dock {
+    gap: 4px;
+  }
   .chat-header {
     padding: 6px 10px;
     padding-top: calc(6px + var(--safe-top));
     gap: 5px 6px;
   }
-  .header-right {
-    gap: 5px;
-  }
-  .github-issue-btn {
-    padding: 4px 8px;
-  }
-  .version-tag {
-    padding: 3px 7px;
-  }
   .version-tag-sha {
     margin-left: 3px;
     padding: 1px 4px;
-  }
-  /* 版本号属于元信息：超小屏排到按钮组末尾（仅移动端生效，桌面端顺序不变）。
-     它是这一排最宽的单项，留在中间会把操作按钮挤到第三行，形成「孤行」观感 */
-  .header-right .version-tag {
-    order: 10;
   }
 }
 

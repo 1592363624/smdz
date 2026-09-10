@@ -428,42 +428,6 @@
           <span class="menu-bar"></span>
           <span class="menu-bar"></span>
         </button>
-        <div class="header-right">
-          <!-- 消息过滤切换：选择是否显示其他玩家的聊天与系统回复 -->
-          <button
-            class="header-action-btn filter-toggle"
-            :class="{ on: showOthersMsg }"
-            :title="showOthersMsg ? '当前显示所有人的消息，点击隐藏他人的聊天与系统回复' : '当前仅显示自己的消息，点击恢复显示他人消息'"
-            @click="toggleShowOthers"
-          >
-            {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
-          </button>
-          <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
-          <!-- 命令面板入口：桌面端可用 Cmd/Ctrl+K 唤起，移动端点此打开 -->
-          <button class="header-action-btn palette-open-btn" title="指令面板（Cmd/Ctrl+K）" @click="ui.openPalette()">
-            ⌨️ 指令
-          </button>
-          <!-- 私聊入口按钮（带未读红点） -->
-          <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
-            💬 私聊
-            <span v-if="unreadPrivateCount > 0" class="unread-badge">{{ unreadPrivateCount > 99 ? '99+' : unreadPrivateCount }}</span>
-          </button>
-          <!-- BUG 反馈入口：醒目样式 + GitHub 图标，点击跳转 GitHub Issues 页 -->
-          <a
-            class="github-issue-btn"
-            :href="GITHUB_ISSUES_URL"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="前往 GitHub 提交 BUG 反馈"
-          >
-            <svg class="github-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <!-- GitHub 官方 Logo 路径（24x24 视窗） -->
-              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-            </svg>
-            <span>BUG 反馈</span>
-          </a>
-          <a class="reborn-link" href="http://xx.52shell.ltd" target="_blank" rel="noopener noreferrer">《重生之凡人修仙》</a>
-        </div>
       </header>
 
       <!-- 消息列表 -->
@@ -487,7 +451,7 @@
           <span class="msg-time">{{ formatTime(v.msg.createdAt) }}</span>
         </div>
         <div v-if="!messageViews.length" class="empty">
-          {{ messages.length ? '🙈 已隐藏其他玩家的消息，点击右上角「仅看自己」可恢复' : '暂无消息，发送第一条指令吧！' }}
+          {{ messages.length ? '🙈 已隐藏其他玩家的消息，点击右下角「仅看自己」可恢复' : '暂无消息，发送第一条指令吧！' }}
         </div>
         <!-- 回到底部按钮 -->
         <button v-if="showScrollBtn" class="scroll-bottom-btn" @click="scrollToBottom()">↓ 回到底部</button>
@@ -655,6 +619,44 @@
         </div>
       </div>
     </aside>
+
+    <!-- 右下角快捷操作坞（原顶部按钮组）：固定在页面右下，宽屏时贴在右侧信息栏底部 -->
+    <div class="header-right action-dock">
+      <!-- 消息过滤切换：选择是否显示其他玩家的聊天与系统回复 -->
+      <button
+        class="header-action-btn filter-toggle"
+        :class="{ on: showOthersMsg }"
+        :title="showOthersMsg ? '当前显示所有人的消息，点击隐藏他人的聊天与系统回复' : '当前仅显示自己的消息，点击恢复显示他人消息'"
+        @click="toggleShowOthers"
+      >
+        {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
+      </button>
+      <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
+      <!-- 命令面板入口：桌面端可用 Cmd/Ctrl+K 唤起，移动端点此打开 -->
+      <button class="header-action-btn palette-open-btn" title="指令面板（Cmd/Ctrl+K）" @click="ui.openPalette()">
+        ⌨️ 指令
+      </button>
+      <!-- 私聊入口按钮（带未读红点） -->
+      <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
+        💬 私聊
+        <span v-if="unreadPrivateCount > 0" class="unread-badge">{{ unreadPrivateCount > 99 ? '99+' : unreadPrivateCount }}</span>
+      </button>
+      <!-- BUG 反馈入口：醒目样式 + GitHub 图标，点击跳转 GitHub Issues 页 -->
+      <a
+        class="github-issue-btn"
+        :href="GITHUB_ISSUES_URL"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="前往 GitHub 提交 BUG 反馈"
+      >
+        <svg class="github-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+          <!-- GitHub 官方 Logo 路径（24x24 视窗） -->
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+        </svg>
+        <span>BUG 反馈</span>
+      </a>
+      <a class="reborn-link" href="http://xx.52shell.ltd" target="_blank" rel="noopener noreferrer">《重生之凡人修仙》</a>
+    </div>
 
     <!-- 私聊面板（右侧滑出覆盖层） -->
     <div v-if="privatePanelOpen" class="panel-overlay" @click.self="closePrivatePanel">
@@ -3348,7 +3350,7 @@ onUnmounted(() => {
   max-width: 100%;
   display: block;
 }
-/* ===== 头部操作按钮（私聊/反馈） ===== */
+/* ===== 右下角操作坞按钮（私聊/反馈等） ===== */
 .header-action-btn {
   position: relative;
   display: inline-flex;
@@ -3373,6 +3375,30 @@ onUnmounted(() => {
 }
 .header-action-btn:active {
   transform: scale(0.95);
+}
+
+/* ===== 右下角快捷操作坞（原顶部按钮组） ===== */
+/* 单行横排，不换行；视口右下角 */
+.action-dock {
+  position: fixed;
+  right: 16px;
+  bottom: calc(14px + var(--safe-bottom, 0px));
+  z-index: 40;
+  margin-left: 0;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(10, 10, 26, 0.82);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
 }
 
 /* ===== 消息过滤切换按钮（显示他人/仅看自己）===== */
