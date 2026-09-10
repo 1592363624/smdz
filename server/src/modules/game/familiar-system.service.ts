@@ -829,30 +829,27 @@ export class FamiliarSystemService {
   }
 
   private addResourceToBackpack(backpack: any[], name: string, count: number, type = '资源'): void {
-    const equipment = type === '装备';
-    if (equipment) {
-      backpack.push({ name, type, quantity: 1, durability: 0, data: '' });
-      return;
-    }
-    const existing = backpack.find((item: any) =>
-      (item?.name ?? item?.名称) === name && (item?.type ?? item?.类型 ?? '资源') !== '装备',
-    );
-    if (existing) {
-      const next = roundItemQuantity(this.getItemQuantity(existing) + count);
-      // 双字段同步写（P1 货币统一写入口纪律）：只写单字段会让另一字段滞留旧值，
-      // 后续按旧字段读取的路径（如召唤读 .count）就会吞掉本次到账（7516 事故根因）
-      existing.quantity = next;
-      existing.count = next;
-      return;
-    }
-    backpack.push({ name, type, quantity: count, count });
+    // 统一走背包写入唯一出口（item-normalize.mergeBackpackItem）：type 以静态定义为唯一真源、
+    // 非装备按名合并（双字段镜像 + 两位小数收敛）、装备不合并。
+    // 2026-09-10 收敛：原实现此处手写合并逻辑，且装备分支写死 `data: ''` —— 会落下
+    // 无品质码的裸装备（原版不存在这种装备）；出口对缺品质码的装备会前置补 E 兜底。
+    const item: any =
+      type === '装备'
+        ? { name, type: '装备', quantity: 1, count: 1, durability: 0 }
+        : { name, type, quantity: count, count };
+    mergeBackpackItem(backpack, item, lookupFromStaticData(this.staticData));
   }
 
   private async addExchangeReward(backpack: any[], itemName: string, count: number): Promise<void> {
     const equipmentDef = this.staticData.getEquipmentByName(itemName);
     if (equipmentDef?.name && this.itemSystem) {
       for (let i = 0; i < count; i++) {
-        backpack.push(await this.itemSystem.generateRewardEquipment(itemName));
+        // 入包走唯一出口（装备不合并，出口保证品质码不变量）
+        mergeBackpackItem(
+          backpack,
+          await this.itemSystem.generateRewardEquipment(itemName),
+          lookupFromStaticData(this.staticData),
+        );
       }
       return;
     }
@@ -3303,13 +3300,12 @@ ${this.getAwakenStageName(d)}(${d})`;
     const isSuccess = Math.random() < 0.4;
 
     const addLocalItem = (itemName: string, count: number): void => {
-      const existing = backpack.find((item: any) => item.name === itemName);
-      if (existing) {
-        const current = Number(existing.quantity ?? existing.count ?? 0);
-        this.setItemQuantity(existing, current + count);
-      } else {
-        backpack.push({ name: itemName, count });
-      }
+      // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 两位小数收敛）
+      mergeBackpackItem(
+        backpack,
+        { name: itemName, count, quantity: count },
+        lookupFromStaticData(this.staticData),
+      );
     };
 
     let result = `拿100饲料引诱${target}`;

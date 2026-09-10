@@ -19,16 +19,18 @@ import { COMBAT_SYSTEM_SERVICE } from './service-tokens';
  * 而非把 0.03334 原样拼进结果文本。
  */
 function formatLootQuantity(value: number): string {
-  const rounded = Math.round(value * 100) / 100;
+  // 数量收敛统一走 roundItemQuantity，展示统一走 formatDisplayNumber（2026-09-10 口径收敛）
+  const rounded = roundItemQuantity(value);
   if (rounded < 1) return '';
-  // 去尾零：toFixed(2) 后去掉多余 0 与小数点的 .
-  return String(Number(rounded.toFixed(2)));
+  return formatDisplayNumber(rounded);
 }
 import { ItemSystemService } from './item-system.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity, formatDisplayNumber } from '../../common/utils/game-text.util';
 import { applyEquipmentEffect, createEffectTarget } from './equipment-effect.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+// 品质口径单一实现（码 / 中文名 / 字母标签 / 词条倍率），装备相关展示与计算共用
+import { equipmentQualityName, equipmentQualityLabel } from './equipment-ref.util';
 // 三池数值出口归一化（第四道闸）：回复 + 封顶统一走 player-pool.util 单一实现。
 import { capPoolValue } from './player-pool.util';
 
@@ -90,18 +92,9 @@ export enum QualityLevel {
   MYTHIC = '神迹',
 }
 
-/**
- * 品质等级对应的数据前缀字符
- */
-export const QUALITY_PREFIX_MAP: Record<string, string> = {
-  e: QualityLevel.ORDINARY,
-  d: QualityLevel.GOOD,
-  c: QualityLevel.EXCELLENT,
-  b: QualityLevel.SUPERB,
-  a: QualityLevel.EPIC,
-  s: QualityLevel.LEGENDARY,
-  x: QualityLevel.MYTHIC,
-};
+// 品质码 ↔ 品质名的映射唯一实现在 equipment-ref.util（QUALITY_CODE_BY_NAME /
+// QUALITY_NAME_BY_CODE，及其派生的 equipmentQualityName / equipmentQualityLabel）。
+// 此处原有的 QUALITY_PREFIX_MAP（第二份定义）已于 2026-09-10 删除，避免改一处漏一处。
 
 /**
  * 品质等级对应的评分价值
@@ -508,16 +501,15 @@ export class ItemService {
    * @returns 品质等级文本
    */
   getEquipmentQuality(equipment: Equipment): string {
-    if (!equipment.data) return QualityLevel.ORDINARY;
-
-    const prefix = equipment.data.charAt(0);
-    return QUALITY_PREFIX_MAP[prefix] || QualityLevel.MYTHIC;
+    // 统一口径（equipment-ref.util.equipmentQualityName）：非法/缺失品质码返回**空串**，
+    // 不再回落「普通」或「神迹」——「装备必有品质码」是入包唯一出口保证的不变量。
+    // 旧实现取首字符未转小写，大写品质码会错误回落到「神迹」（已消除）。
+    return equipmentQualityName(equipment?.data ?? (equipment as any)?.数据);
   }
 
-  /** 返回原版背包列表使用的品质大写代码（E/D/C/B/A/S/X，X=神迹）。 */
+  /** 返回原版背包列表使用的品质大写代码（E/D/C/B/A/S/X，X=神迹）；非法/缺失返回空串。 */
   getEquipmentQualityCode(equipment: Equipment): string {
-    const prefix = String(equipment?.data || '').charAt(0);
-    return /^[edcbasx]$/i.test(prefix) ? prefix.toUpperCase() : '';
+    return equipmentQualityLabel(equipment?.data ?? (equipment as any)?.数据);
   }
 
   /** 读取装备实例的特效名称，编号仍按原版武器/装备分别计数。 */
@@ -1168,7 +1160,7 @@ export class ItemService {
 
     // 装备清单（原版 显示物品(物品数组,,,真,)：[序号]名称+品质大写前缀+【特效】）
     const equipmentText = newEquipmentItems.map((eq: any, idx: number) => {
-      const qualityLetter = String(eq.data || '').charAt(0).toUpperCase();
+      const qualityLetter = equipmentQualityLabel(eq.data);
       let effectName = '';
       try {
         const parsed = this.parseEquipment(eq as Item3);
@@ -1825,9 +1817,9 @@ export class ItemService {
    * @returns 品质文本（普通/良好/优秀/精良/史诗/传说/神迹）
    */
   qualityPrefix(data: string): string {
-    const c = (data || '').charAt(0).toLowerCase();
-    const map: Record<string, string> = { e: '普通', d: '良好', c: '优秀', b: '精良', a: '史诗', s: '传说' };
-    return map[c] || '神迹';
+    // 唯一实现见 equipment-ref.util.equipmentQualityName（保留方法名以兼容既有调用点）；
+    // 非法/缺失品质码返回空串，不再回落「神迹」。
+    return equipmentQualityName(data);
   }
 
   /**
@@ -1836,7 +1828,9 @@ export class ItemService {
    * @returns 形如 [优秀] 的字符串，普通品质返回空串
    */
   qualityBracket(quality: string): string {
-    return quality === '普通' ? '' : `[${quality}]`;
+    // 空品质（异常数据）不加括号，避免拼出「[]」
+    if (!quality || quality === '普通') return '';
+    return `[${quality}]`;
   }
 
   /**

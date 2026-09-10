@@ -7,6 +7,8 @@ import { CombatSystemService } from './combat-system.service';
 import { ItemSystemService } from './item-system.service';
 import { TaskService } from './task.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+// 数值收敛/展示唯一实现（两位小数），禁手写 Math.round 副本
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 
 interface MiningContext {
   playerData: PlayerData;
@@ -342,7 +344,8 @@ export class AutoMineService {
   }
 
   private formatNumber(value: number): string {
-    return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+    // 统一走 roundItemQuantity（两位小数、非有限值回落 0）
+    return String(roundItemQuantity(value));
   }
 
   private formatDuration(seconds: number): string {

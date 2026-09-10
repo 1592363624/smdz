@@ -58,28 +58,43 @@ export interface EquipmentRef {
   candidates: EquipmentRefCandidate[];
 }
 
-/** 读取条目的品质码（data 首字符小写；无 data 视为空串） */
+/** 读取条目的品质码（data 首字符小写；无 data / 非法码视为空串） */
 export function equipmentQualityCode(item: any): string {
-  return String(item?.data ?? item?.数据 ?? '').charAt(0).toLowerCase();
+  return qualityCodeFromData(item?.data ?? item?.数据);
 }
 
 /**
- * 品质展示标签（装备栏唯一口径，2026-09-10）：data 首字符品质码 → **大写字母**
- * （E 普通 / D 良好 / C 优秀 / B 精良 / A 史诗 / S 传说 / X 神迹）。
+ * 数据串 → 品质码（首字符小写）；非法/缺失一律返回**空串**。
  *
- * 与背包显示名「冰雹S」共用同一套码，玩家看装备栏不必再把中文品质名翻译回字母，
- * 就能直接和背包里的 S/A/B 对齐。
- *
- * 非法/缺失码返回**空串**（不显示品质前缀）——裸条目装备（如 GM 发放、无 data 的历史数据）
- * 不应自称「神迹」（旧内联 map 的 `|| '神迹'` 回落会把它显示成最高品质，属误导）。
- *
- * ⚠️ 「信息」文本面板与网页快照 buildEquipmentSnapshot 必须共用本函数：
- * 历史上两处各内联一份中文品质 map，改一处必漏另一处（双重表示）。
- * 中文品质名仍由 item.service.getEquipmentQuality 提供，仅用于强化/分解等文案。
+ * 原版唯一的装备构造入口「生成装备」（物品操作.ecode L1128-1261）保证 data 首字符恒为
+ * 品质码（e/d/c/b/a/s），因此空串 = **异常数据**。各调用方**不得**自行回落成某个档位：
+ * 历史上回落「神迹」会把白板装备显示成最高品质（误导），回落「普通」则与实际不符。
  */
+export function qualityCodeFromData(data: unknown): string {
+  const c = String(data ?? '').charAt(0).toLowerCase();
+  return QUALITY_NAME_BY_CODE[c] ? c : '';
+}
+
+/** 品质展示标签：**大写品质码**（E/D/C/B/A/S/X，与背包显示名「冰雹S」同套），非法/缺失返回空串 */
 export function equipmentQualityLabel(data: unknown): string {
-  const code = String(data ?? '').charAt(0).toLowerCase();
-  return QUALITY_NAME_BY_CODE[code] ? code.toUpperCase() : '';
+  return qualityCodeFromData(data).toUpperCase();
+}
+
+/** 品质中文名（普通/良好/优秀/精良/史诗/传说/神迹），非法/缺失返回空串 */
+export function equipmentQualityName(data: unknown): string {
+  return QUALITY_NAME_BY_CODE[qualityCodeFromData(data)] ?? '';
+}
+
+/**
+ * 品质 → 词条倍率（原版 生成装备 L1174-1192）：
+ * e=1 / d=2 / c=3 / b=4 / a=6 / s=9，**其余码走原版默认分支 = 神迹 12 倍**。
+ * 本项目曾有两份自建倍率表（item-system.generateEquipment、familiar-skills 洗装），已收敛到此处。
+ */
+export const AFFIX_MULT_BY_QUALITY: Record<string, number> = { e: 1, d: 2, c: 3, b: 4, a: 6, s: 9 };
+
+/** 品质码 → 词条倍率（未列举码 = 原版默认分支神迹 12） */
+export function affixMultiplier(code: unknown): number {
+  return AFFIX_MULT_BY_QUALITY[String(code ?? '').toLowerCase()] ?? 12;
 }
 
 /** 是否为装备条目（type 缺失/空的历史条目按装备处理，避免漏匹配） */

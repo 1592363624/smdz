@@ -18,8 +18,10 @@ import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 // 装备引用解析（基础名 + 品质码 + ·特效）单一实现：锁定/解锁与「装备」指令同源，禁各自写正则。
 import {
   QUALITY_CODE_BY_NAME,
+  affixMultiplier,
   describeQualityMiss,
   findEquipmentIndexByInstance,
+  qualityCodeFromData,
   resolveEquipmentRefIndex,
   resolveEquipmentRefIndexes,
 } from './equipment-ref.util';
@@ -997,7 +999,8 @@ export class ItemSystemService {
   private setLockByQuality(backpack: Item3[], prefix: string, locked: boolean): Item3[] {
     const touched: Item3[] = [];
     for (const bp of backpack) {
-      if (bp.type === '装备' && String(bp.data ?? '').charAt(0).toLowerCase() === prefix) {
+      // 品质码读取走统一实现（equipment-ref.util），不再自读首字符
+      if (bp.type === '装备' && qualityCodeFromData(bp.data ?? (bp as any).数据) === prefix) {
         bp.durability = locked ? 1 : 0;
         touched.push(bp);
       }
@@ -2867,16 +2870,17 @@ export class ItemSystemService {
       }
     }
 
-    // 词条倍率（原版 L1174-1188）
-    const qualityMult: Record<string, number> = { e: 1, d: 2, c: 3, b: 4, a: 6, s: 9 };
-    let affixMult = qualityMult[q] || 1;
+    // 词条倍率（原版 L1174-1188）：统一实现 equipment-ref.util.affixMultiplier
+    // （六档 e1/d2/c3/b4/a6/s9，其余码 = 原版「默认分支」神迹 12 倍）。
+    // 2026-09-10 修正：原实现 `if (q === '')` 是死代码（q 已被随机化保证非空），
+    // 且显式传 'x' 时倍率错误回落到 1（品级最高却只吃 1 倍词条）。
+    const affixMult = affixMultiplier(q);
     const templateAffixes: string[] = [];
     if (gameEquip?.affixes) {
       templateAffixes.push(...asJsonValue<string[]>(gameEquip.affixes, []));
     }
-    if (q === '' ) { // 神迹（默认分支，原版未指定字符时）
-      affixMult = 12;
-      if (templateAffixes.length < 5) templateAffixes.push('随机攻击');
+    if (affixMult === 12 && templateAffixes.length < 5) {
+      templateAffixes.push('随机攻击'); // 原版默认分支：不足 5 条时补一条随机攻击
     }
 
     // ---- 3) 词条循环：随机展开 + 去重 + 词条转换（原版 L1193-1227）----
@@ -3068,13 +3072,14 @@ export class ItemSystemService {
           await this.achievementService.addAchievement(player, '获得' + item.name, qty, false);
           opts?.onTaskProgress?.('获得装备', 1);
           opts?.onTaskProgress?.('获得' + item.name, qty);
-          backpack.push({
+          // 走入包唯一出口（item-normalize）：装备不参与合并，出口统一保证品质码不变量
+          // （2026-09-10：此前直接 push + `data: item.data || ''`，是空品质码的漏点之一）
+          this.addItemToBackpack(backpack, {
             ...item,
             name: item.name || dropName,
             type: '装备',
             quantity: 1,
             count: 1,
-            data: item.data || '',
           });
           backpackOut.push({ name: item.name || dropName, count: 1, data: item.data || '' });
         }

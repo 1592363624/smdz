@@ -10,6 +10,9 @@
  * 每行两项，列1按显示宽度（中文=2）补空格到 13 列后接制表符，编号右对齐 2 位。
  */
 
+// 数值收敛唯一实现（两位小数），禁手写 Math.round 副本
+import { roundItemQuantity } from '../../common/utils/game-text.util';
+
 /** 每行两列时列1的显示宽度（含编号），超出则不补空格直接接制表符 */
 const TWO_COLUMN_WIDTH = 13;
 
@@ -42,7 +45,7 @@ export function formatSkillLevelText(proficiency: number): string {
   const prof = Math.max(0, Number(proficiency) || 0);
   let level = 1;
   while (prof >= level * level) level += 1;
-  const rounded = Math.round(prof * 100) / 100;
+  const rounded = roundItemQuantity(prof);
   return `${level}(${rounded}/${level * level})`;
 }
 

@@ -15,7 +15,7 @@ import { filterActive } from './expire-time.util';
 import { deriveDisplayName } from './display-name.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
-import { canonicalizeBackpack, lookupFromStaticData } from './item-normalize.util';
+import { canonicalizeBackpack, lookupFromStaticData, mergeBackpackItem } from './item-normalize.util';
 // 三池数值出口归一化（第四道闸）：落库前兜底收敛，保证 DB 不出现浮点残值脏数据。
 import { normalizePools } from './player-pool.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
@@ -1790,21 +1790,22 @@ export class PlayerService {
                 this.logger.warn(`生成装备「${itemName}」失败，退化为静态条目: ${e?.message ?? e}`);
               }
             }
-            backpack.push({ ...gear, name: gear?.name || itemName, type: '装备', quantity: 1, count: 1 });
+            // 入包走唯一出口（装备不合并；出口兜底保证品质码不变量）
+            mergeBackpackItem(
+              backpack,
+              { ...gear, name: gear?.name || itemName, type: '装备', quantity: 1, count: 1 },
+              lookupFromStaticData(this.staticData),
+            );
           }
         } else {
-          // 普通物品：查找是否已有同名物品，有则叠加数量
-          // 兼容历史字段不一致：既有 quantity（初始装备/消耗品），又有 count（掉落物）
-          const existing = backpack.find((item: any) => item.name === itemName);
-          if (existing) {
-            const cur = existing.quantity ?? existing.count ?? 0;
-            // 统一写入 count，同时清理 quantity 避免双字段歧义
-            existing.count = roundItemQuantity(cur + count);
-            delete existing.quantity;
-          } else {
-            // 新物品数量同样收敛到两位小数，避免长尾入库
-            backpack.push({ name: itemName, count: roundItemQuantity(count) });
-          }
+          // 普通物品：走背包写入唯一出口（按名合并、type 以静态定义为唯一真源、
+          // 数量双字段镜像 + 两位小数收敛），不再在此手写合并逻辑（2026-09-10 收敛）
+          const qty = roundItemQuantity(count);
+          mergeBackpackItem(
+            backpack,
+            { name: itemName, count: qty, quantity: qty },
+            lookupFromStaticData(this.staticData),
+          );
         }
 
         _pd.player.backpack = backpack; // Json 列直接写数组

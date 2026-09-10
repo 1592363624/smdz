@@ -23,6 +23,8 @@ import { MapService } from '../game/map.service';
 import { ITEM_SYSTEM_SERVICE } from '../game/service-tokens';
 import type { ItemSystemService } from '../game/item-system.service';
 import { GlobalProficiencyService } from '../game/global-proficiency.service';
+// 装备品质码判定单一实现（装备栏展示 / 入包规范化 / GM 保存共用同一口径）
+import { equipmentQualityLabel } from '../game/equipment-ref.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 @Injectable()
@@ -911,26 +913,40 @@ export class AdminService {
     // 删除数量<=0 的条目（即前端删除操作的结果）
     const backpack = [...merged.values()].filter((i) => (i.count ?? 0) > 0);
 
-    // 裸装备条目规范化（2026-09-06「时间主宰点不了」修复）：
-    // GM 背包管理此前把装备落成 { name, type:'装备', count } ——无 data 品质码、无词条，
-    // 穿上后属性恒 0，背包显示名也无品质码，前端还会因名字无品质码尾字母误判为消耗品。
-    // 这里与 addToBackpack 的装备发放路径对齐：type='装备' 且缺 data 的条目
-    // 走「生成装备」补齐随机品质与词条；生成失败则保留原条目（不影响其余物品保存）。
+    // 装备条目规范化（2026-09-10 收敛，取代原「裸条目补生成 + 失败静默保留」补丁）：
+    // 原版唯一的装备构造入口是「生成装备」（物品操作.ecode L1128-1261），数据串恒以
+    // 品质码开头（e/d/c/b/a/s），**原版不存在无品质码的装备**。因此 GM 保存的装备条目
+    // 一律按「有合法品质码 → 原样保留；否则走生成装备接口补齐；名称不是静态装备 → 拒绝保存」
+    // 处理，不再静默落裸条目（那正是 2026-09-06「时间主宰点不了」的成因）。
+    // 装备身份判定器（静态装备表为唯一真源）：生产实现恒有 getEquipmentByName，
+    // 手工 new 的测试桩可能未提供，故做能力检测（与 item.service 既有写法一致）。
+    const equipDefOf =
+      typeof (this.staticData as any)?.getEquipmentByName === 'function'
+        ? (n: string) => this.staticData.getEquipmentByName(n)
+        : null;
     for (const item of backpack) {
-      if (item.type !== '装备' || item.data) continue;
-      if (!this.itemSystem) continue;
-      try {
-        const gear = await this.itemSystem.generateRewardEquipment(item.name);
-        if (gear?.data) {
-          item.data = gear.data;
-          item.durability = gear.durability ?? 0;
-          if (item.quantity === undefined) item.quantity = 1;
-        }
-      } catch (e) {
-        this.logger.warn(
-          `GM 背包管理：装备「${item.name}」补生成词条失败，按裸条目保存: ${e?.message ?? e}`,
+      const isEquipment = item.type === '装备' || !!equipDefOf?.(item.name);
+      if (!isEquipment) continue;
+      item.type = '装备';
+      if (equipmentQualityLabel(item.data)) continue; // 已有合法品质码 → 原样保留，不覆盖词条
+      if (!this.itemSystem || typeof this.itemSystem.generateRewardEquipment !== 'function') {
+        continue; // 手工 new 的测试桩可能未注入 itemSystem，此路径降级跳过（生产恒注入）
+      }
+      if (equipDefOf && !equipDefOf(item.name)) {
+        throw new BadRequestException(
+          `「${item.name}」被标记为装备，但静态装备表中没有该装备，请修正后再保存`,
         );
       }
+      // 无品质码 = 异常数据（白板无词条），按最低档 E 走生成接口补齐，不凭空拔高品级
+      const gear = await this.itemSystem.generateRewardEquipment(item.name, 'e');
+      if (!gear?.data || !equipmentQualityLabel(gear.data)) {
+        throw new BadRequestException(
+          `装备「${item.name}」生成品质数据失败，请检查该装备的静态定义后重试`,
+        );
+      }
+      item.data = gear.data;
+      item.durability = gear.durability ?? 0;
+      if (item.count === undefined) item.count = 1;
     }
 
     // 写入走用户串行邮箱，避免与玩家其他写操作并发覆盖

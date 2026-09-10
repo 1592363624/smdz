@@ -13,7 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
 import { BonusService, BonusData } from './bonus.service';
 import { CombatSystemService } from './combat-system.service';
-import { ItemService, QUALITY_PREFIX_MAP } from './item.service';
+import { ItemService } from './item.service';
 import { ItemSystemService } from './item-system.service';
 import { MapService } from './map.service';
 import { FamiliarSystemService } from './familiar-system.service';
@@ -22,7 +22,11 @@ import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
 import { MutateContext, PlayerMutateService } from './player-mutate.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+// 数值收敛唯一实现（两位小数），禁手写 Math.round 副本
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+// 品质口径单一实现（码 / 中文名 / 词条倍率）：洗装与腿环条数共用，禁自建映射表
+import { equipmentQualityName, qualityCodeFromData, affixMultiplier } from './equipment-ref.util';
 // 三池数值出口归一化（第四道闸）：百分比回复/固定量回复统一走 player-pool.util 单一实现。
 import { normalizePoolValue } from './player-pool.util';
 
@@ -1144,14 +1148,15 @@ export class FamiliarSkillsService {
     const ringIdx = equipped.findIndex((eq: any) => String(eq?.type ?? eq?.类型 ?? '') === '腿环');
     let rolls = 5;
     if (ringIdx >= 0) {
-      const ringPrefix = String(equipped[ringIdx]?.data ?? equipped[ringIdx]?.数据 ?? '').charAt(0).toLowerCase();
-      rolls = ringPrefix === 'x' ? 11 : ringPrefix === 's' ? 8 : (ringPrefix === 'a' || ringPrefix === 'b') ? 7 : 6;
+      // 品质码读取走统一实现（equipment-ref.util），不再各处自读首字符
+      const ringCode = qualityCodeFromData(equipped[ringIdx]?.data ?? equipped[ringIdx]?.数据);
+      rolls = ringCode === 'x' ? 11 : ringCode === 's' ? 8 : (ringCode === 'a' || ringCode === 'b') ? 7 : 6;
     }
 
-    // 词条倍率按被洗装备品质（原版 L1202-1217）；好感≥100 上限增加=5+技能等级÷2（原版 L1198-1201）
-    const qualityMultByPrefix: Record<string, number> = { x: 12, s: 9, a: 6, b: 4, c: 3, d: 2 };
-    const prefix = String(item.data || '').charAt(0).toLowerCase();
-    const mult = qualityMultByPrefix[prefix] || 1;
+    // 词条倍率按被洗装备品质（原版 L1202-1217）；倍率表统一在 equipment-ref.util.affixMultiplier。
+    // 品质码缺失（异常数据）保持旧行为 1 倍，不按「未列举码 = 神迹 12 倍」处理。
+    const prefix = qualityCodeFromData(item.data);
+    const mult = prefix ? affixMultiplier(prefix) : 1;
     const lowerIncPct = 10;
     const upperIncPct = affinity >= 100 ? 5 + skillLevel / 2 : 10;
 
@@ -1218,7 +1223,8 @@ export class FamiliarSkillsService {
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    const qualityName = QUALITY_PREFIX_MAP[prefix] || '神迹';
+    // 品质中文名走统一实现（equipment-ref.util），不再自建映射 + 回落「神迹」
+    const qualityName = equipmentQualityName(prefix);
     let text = `${player.name || '冒险者'}${item.name}（${qualityName}）的属性被修改了，选择你中意的项目:`;
     options.forEach((opt, i) => {
       text += `\n${i + 1}、${opt.name}${this.formatSkillNumber(opt.value)}`;
@@ -2194,7 +2200,7 @@ export class FamiliarSkillsService {
     // 原版 L1844：取羽毛(玩家, s, 10)——消耗 10 片羽毛；不足 → “羽毛只有N”
     const featherNow = this.combatSystem.getFeather(player, markers, Date.now());
     if (featherNow < 10) {
-      return `${player.name || '冒险者'}羽毛只有${Math.round(featherNow * 100) / 100}`;
+      return `${player.name || '冒险者'}羽毛只有${roundItemQuantity(featherNow)}`;
     }
     this.combatSystem.getFeather(player, markers, Date.now(), -10);
     const remaining = this.combatSystem.getFeather(player, markers, Date.now());

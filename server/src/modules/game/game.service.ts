@@ -44,7 +44,7 @@ import { buildFamiliarGateMenu } from './familiar-menu.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 // 三池数值出口归一化（第四道闸）：回复/百分比缩放/封顶统一走 player-pool.util 单一实现，
 // 两位小数 + 残值(<0.01)归零，杜绝 0.02 这类脏值残留导致「残血不死 + 伤害恒为 0」死锁。
-import { capPoolValue, normalizePoolValue, normalizePools } from './player-pool.util';
+import { capPoolValue, normalizePoolValue, normalizePools, round2 } from './player-pool.util';
 
 interface QuestSource {
   npcName: string;
@@ -3481,7 +3481,8 @@ export class GameService {
   }
 
   private round2Text(value: number): string {
-    return String(Math.round((Number(value) || 0) * 100) / 100);
+    // 展示口径统一走 game-text.util.formatDisplayNumber（两位小数、去尾零、非有限值回落 '0'）
+    return formatDisplayNumber(value);
   }
 
   /**
@@ -4153,7 +4154,7 @@ export class GameService {
             const itemType = this.staticData.getEquipmentByName(out.name) ? '装备' : '资源';
             if (itemType === '装备') {
               const equipment = await this.itemSystemService.generateRewardEquipment(out.name, out.quality || '');
-              backpack.push({ ...equipment, type: '装备', quantity: 1, count: 1 });
+              this.addBackpackItem(backpack, { ...equipment, type: '装备', quantity: 1, count: 1 });
               awardedEquipment.set(out.name, (awardedEquipment.get(out.name) || 0) + 1);
             } else {
               awarded.set(out.name, (awarded.get(out.name) || 0) + amount);
@@ -4219,7 +4220,7 @@ export class GameService {
       // 结算文本（原版 L7535-7542/L7595-7599）
       // 结算文本（原版 L7535-7542/L7595-7599）；装备按 件 计入（与手动采集块一致）
       const gainedText = [
-        ...[...awarded.entries()].map(([name, amount]) => `${name}×${Math.round(amount * 100) / 100}`),
+        ...[...awarded.entries()].map(([name, amount]) => `${name}×${formatDisplayNumber(amount)}`),
         ...[...awardedEquipment.entries()].map(([name, amount]) => `${name}×${amount}`),
       ].join('、');
       const followText = display.count > 0 ? `带着${display.names.join('、')}一起` : '';
@@ -4637,7 +4638,7 @@ export class GameService {
         if (itemType === '装备') {
           const quality = parsed.quality || '';
           const equipment = await this.itemSystemService.generateRewardEquipment(parsed.name, quality);
-          backpack.push({ ...equipment, type: '装备', quantity: 1, count: 1 });
+          this.addBackpackItem(backpack, { ...equipment, type: '装备', quantity: 1, count: 1 });
           awardedEquipment.set(parsed.name, (awardedEquipment.get(parsed.name) || 0) + 1);
         } else {
           const amount = parsed.count > 0
@@ -4988,7 +4989,8 @@ export class GameService {
   }
 
   private formatGatherNumber(value: number): string {
-    return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+    // 展示口径统一（两位小数、去尾零、非有限值回落 '0'）
+    return formatDisplayNumber(value);
   }
 
   /**
@@ -7334,7 +7336,7 @@ export class GameService {
     let w2 = '';
     if (a2 > 0) {
       // 原版 L1844：冷却+15*a2*0.05 秒
-      w2 = `(冷却+${Math.round(15 * a2 * 0.05 * 100) / 100}秒)`;
+      w2 = `(冷却+${formatDisplayNumber(15 * a2 * 0.05)}秒)`;
     }
 
     // ========== 冷却判定（对应原版 _主程序.ecode L1848） ==========
@@ -7375,7 +7377,7 @@ export class GameService {
       }
     }
     // 文本（原版 L576：玩家.名称+"尝试闪避攻击("+文本四舍(a1)+"秒)"+w2）
-    const roundedA1 = Math.round(a1 * 100) / 100;
+    const roundedA1 = roundItemQuantity(a1);
     let w = `${player.name}尝试闪避攻击(${roundedA1}秒)${w2}`;
     // 添加成就（原版 L577-578）
     await this.achievementService.addAchievement(player, '闪避', 1);
@@ -8436,7 +8438,7 @@ export class GameService {
     }
 
     // 计算熟练度文本 "等级(熟练度/等级平方)"
-    const roundedExp = Math.round(skillExp * 100) / 100;
+    const roundedExp = roundItemQuantity(skillExp);
     const skillLevelText = `${skillLevel}(${roundedExp}/${skillLevel * skillLevel})`;
 
     // 获取基础说明 + 特性 + 技能描述（对齐原版：w = 使魔列表[a].说明 + #换行符 + 使魔列表[a].技能说明）
@@ -8455,12 +8457,12 @@ export class GameService {
 
       // 替换技能等级占位符（对齐原版 数据显示.ecode L1801-L1844）
       const replacements: Record<string, string> = {
-        '【0.25技能等级】': String(Math.round(skillLevel / 4 * 100) / 100),
-        '【0.5技能等级】': String(Math.round(skillLevel / 2 * 100) / 100),
-        '【0.75技能等级】': String(Math.round(skillLevel * 0.75 * 100) / 100),
+        '【0.25技能等级】': formatDisplayNumber(skillLevel / 4),
+        '【0.5技能等级】': formatDisplayNumber(skillLevel / 2),
+        '【0.75技能等级】': formatDisplayNumber(skillLevel * 0.75),
         '【1技能等级】': String(skillLevel),
         '【2技能等级】': String(skillLevel * 2),
-        '【2.5技能等级】': String(Math.round(skillLevel * 2.5 * 100) / 100),
+        '【2.5技能等级】': formatDisplayNumber(skillLevel * 2.5),
         '【3技能等级】': String(skillLevel * 3),
         '【4技能等级】': String(skillLevel * 4),
         '【5技能等级】': String(skillLevel * 5),
@@ -8589,7 +8591,7 @@ export class GameService {
 
     // ---- 各属性等级（原版 _主程序 L4024-L4085，标记名 = 名称+"熟练度"）----
     const scale = 1 + player.level / 100;
-    const round2 = (v: number) => Math.round(v * 100) / 100;
+    // 两位小数统一走 player-pool.util.round2（原局部副本已删除，2026-09-10 口径收敛）
     const scaleLevel = (a: number) => round2(a * scale);
 
     // 通用技能配置：key=标记后缀，label=行首文本，attr=属性说明与取值函数
@@ -12498,14 +12500,12 @@ export class GameService {
     // 落库后再被末尾 savePlayer 的旧快照覆盖）
     const backpack = this.playerService.getBackpackItems(player);
     const grant = (itemName: string, count: number): void => {
-      const existing = backpack.find((item: any) => item.name === itemName);
-      if (existing) {
-        const cur = Number(existing.count ?? existing.quantity ?? 0);
-        existing.count = cur + count;
-        delete existing.quantity;
-      } else {
-        backpack.push({ name: itemName, count });
-      }
+      // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 两位小数收敛）
+      mergeBackpackItem(
+        backpack,
+        { name: itemName, count, quantity: count },
+        lookupFromStaticData(this.staticData),
+      );
     };
 
     // 周末强化券（星期六=传说、星期日=史诗）+ 活力（原版 L11717-11732）
@@ -13070,14 +13070,12 @@ export class GameService {
 
       const targetData = await this.playerService.getPlayerData(targetUserId);
       const addItem = (backpack: any[], name: string, amount: number): void => {
-        const existing = backpack.find((item: any) => (item?.name ?? item?.名称) === name);
-        if (existing) {
-          const current = Number(existing.count ?? existing.quantity ?? 0);
-          existing.count = current + amount;
-          delete existing.quantity;
-        } else {
-          backpack.push({ name, count: amount });
-        }
+        // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 两位小数收敛）
+        mergeBackpackItem(
+          backpack,
+          { name, count: amount, quantity: amount },
+          lookupFromStaticData(this.staticData),
+        );
       };
       for (const [name, amount] of tradeItems) {
         addItem(actorData.backpack, name, amount);
@@ -14642,7 +14640,7 @@ export class GameService {
       await this.playerService.savePlayer(player);
 
       // 构建回复结果文本（显示走两位小数闸，消除 126.39999999999998 型浮点尾巴）
-      const fmtDelta = (v: number) => String(Math.round(v * 100) / 100);
+      const fmtDelta = (v: number) => formatDisplayNumber(v);
       const regenLines: string[] = [];
       const actualHpRegen = (player.hp || 0) - hpBefore;
       const actualShieldRegen = (player.shield || 0) - shieldBefore;
@@ -16935,7 +16933,7 @@ export class GameService {
   }
 
   private roundText(value: number): string {
-    return String(Math.round(value * 100) / 100);
+    return formatDisplayNumber(value);
   }
 
   /** 行商列表显示名包含原版显示特效名称所需的特效标签。 */

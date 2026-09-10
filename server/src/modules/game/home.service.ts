@@ -11,6 +11,8 @@ import { PlayerService } from './player.service';
 import { StaticDataService } from './static-data.service';
 import { MapService } from './map.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+// 数值收敛唯一实现（两位小数），禁手写 Math.round 副本
+import { roundItemQuantity } from '../../common/utils/game-text.util';
 
 // ==================== 类型定义 ====================
 
@@ -1278,7 +1280,7 @@ export class HomeService {
 
   /** 原版“文本四舍”：保留两位小数后转文本。 */
   private roundLikeOriginal(value: number): number {
-    return Math.round(value * 100) / 100;
+    return roundItemQuantity(value);
   }
 
   /**

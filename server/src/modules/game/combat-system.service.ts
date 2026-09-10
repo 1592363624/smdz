@@ -34,10 +34,12 @@ import {
 } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
+// 背包写入唯一出口（按名合并 / type 以静态定义为唯一真源），禁各路径手写合并逻辑
+import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 // 三池数值出口归一化（第四道闸）：扣血/封顶/回复必须走 player-pool.util 的单一实现，
 // 禁止在调用侧对已截断的池值再 Math.round —— 那会把 0.02 这类残值抹成 0，造成
 // 「残血不死 + 伤害恒为 0」的死锁（2026-09-10 路人乙事故）。
-import { resolvePoolDamage, subtractPoolValue, capPoolValue } from './player-pool.util';
+import { resolvePoolDamage, subtractPoolValue, capPoolValue, round2 } from './player-pool.util';
 
 // ==================== 类型定义 ====================
 
@@ -1988,7 +1990,8 @@ export class CombatSystemService {
             if (defAff >= 80) {
               // 恢复 生命上限 生命（原版 当前生命 += 属性.生命 封顶）
               const maxHp = target.maxHp || target.hp || 0;
-              target.hp = Math.min(maxHp, (target.hp || 0) + maxHp);
+              // 走三池唯一实现封顶（原实现直写 player.hp，绕过第四道闸）
+              target.hp = capPoolValue((target.hp || 0) + maxHp, maxHp);
               resultLines.push(`【剑阵】恢复${maxHp}生命`);
             }
           }
@@ -2471,7 +2474,8 @@ export class CombatSystemService {
           origTs,
         );
         if (reflectDmg > 0) {
-          player.hp = Math.max(0, (player.hp || 0) - Math.floor(reflectDmg));
+          // 反伤扣血走三池唯一实现（原实现直写 player.hp，绕过第四道闸）
+          player.hp = subtractPoolValue(player.hp, Math.floor(reflectDmg));
           resultLines.push(`【反伤】${target.name} 反弹了 ${Math.floor(reflectDmg)} 点伤害给你！`);
         }
       }
@@ -2985,7 +2989,8 @@ export class CombatSystemService {
             monster.name || '', youText, missAtkName,
           )
           : `${monster.name} 向${youText}发起攻击，但被${youText}闪避了`;
-        lines.push(`${missLine}(命中率${Math.round(hitRate * 100) / 100}%)`);
+        // 两位小数统一走 roundItemQuantity（2026-09-10 口径收敛，禁手写 Math.round 副本）
+        lines.push(`${missLine}(命中率${roundItemQuantity(hitRate)}%)`);
         // ========== 花园猫闪避反击（对应原版 战斗相关.ecode L1429-1560 防御方闪避成功分支） ==========
         // 仅当花园猫就是外层持锁攻击者本人（sharedWithAttacker）时跳过再次加锁，
         // 否则正常走 weaponAttack 获取该玩家自己的战斗锁。
@@ -5019,7 +5024,7 @@ export class CombatSystemService {
   private async buildKillParticipantLines(monster: any, killerKey: string): Promise<string[]> {
     const lines: string[] = [];
     const markers = this.normalizeMarkerObject(monster.markers);
-    const round2 = (v: number) => Math.round(v * 100) / 100;
+    // 两位小数统一走 player-pool.util.round2（原局部副本已删除，2026-09-10 口径收敛）
 
     const maxHp = Number(monster.maxHp ?? monster.hp ?? 0) || 0;
     const maxShield = Number(monster.maxShield ?? monster.shield ?? 0) || 0;
@@ -5442,14 +5447,13 @@ export class CombatSystemService {
     for (const drop of drops) {
       const count = drop.quantity || drop.count || 1;
       if (count <= 0) continue;
-      const existing = backpack.find((b: any) => b.name === drop.name);
-      if (existing) {
-        const cur = existing.count ?? existing.quantity ?? 0;
-        existing.count = roundItemQuantity(cur + count);
-        delete existing.quantity; // 统一用 count 字段，避免双字段歧义
-      } else {
-        backpack.push({ name: drop.name, count: roundItemQuantity(count) });
-      }
+      // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 数量双字段镜像 + 两位小数收敛）
+      const qty = roundItemQuantity(count);
+      mergeBackpackItem(
+        backpack,
+        { name: drop.name, count: qty, quantity: qty },
+        lookupFromStaticData(this.staticData),
+      );
     }
     player.backpack = backpack; // Json 列直接写数组
   }
@@ -6415,7 +6419,7 @@ export class CombatSystemService {
         if (hasLightWing) a3 = a3 * (1 + 0.5 + skillLevel / 100);
         // 炮冠增益：贯穿 + 羽毛/2×a3、穿透+10（原版 L2084-2088）
         if (hasActive(pBuffs, '炮冠')) {
-          bonus.贯穿 = (bonus.贯穿 || 0) + Math.round(feather / 2 * a3 * 100) / 100;
+          bonus.贯穿 = (bonus.贯穿 || 0) + roundItemQuantity(feather / 2 * a3);
           this.bonusService.addPenetration(bonus, 10);
         }
         // 命中2 = 羽毛 × a3（原版 L2092）
@@ -10321,7 +10325,7 @@ export class CombatSystemService {
         vehicle.加成.生产 *= (1 + (productivity ?? 0) / 100 + 咏星);
       }
     }
-    vehicle.加成.生产 = Math.round(vehicle.加成.生产 * 100) / 100;
+    vehicle.加成.生产 = roundItemQuantity(vehicle.加成.生产);
     // 原版 L3836-3854：超限判定（行走/武器/防御/功能 超上限 → 当前生命=0）
     if (vehicle.行走 > vehicle.行走上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
     if (vehicle.武器 > vehicle.武器上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }

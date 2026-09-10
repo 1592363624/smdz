@@ -14,6 +14,8 @@
  * 可堆叠，避免同名不同 type 的历史脏数据永久分条）。装备永不合并（词条唯一）。
  */
 import { roundItemQuantity } from '../../common/utils/game-text.util';
+// 装备品质码判定单一实现（equipment-ref.util），与装备栏展示 / 引用解析同源
+import { equipmentQualityLabel } from './equipment-ref.util';
 
 /** 静态定义查询接口（由 StaticDataService 适配实现） */
 export interface ItemTypeLookup {
@@ -69,7 +71,19 @@ export function mergeBackpackItem(
 
   const canonical = canonicalItemType(name, lookup, item?.type ?? item?.类型);
   if (canonical === '装备') {
-    backpack.push({ ...item, name, type: '装备' });
+    // 装备品质码不变量（2026-09-10）：原版唯一的装备构造入口是「生成装备」
+    // （物品操作.ecode L1128-1261），其数据串恒为 `品质 + 加成转数据 + "!bx" + 特效`
+    // —— 首字符必然是品质码（e/d/c/b/a/s），原版不存在无品质码的装备。
+    // 因此入包出口在此兜底：数据串没有合法品质码时前置补最低档 E，保证
+    // 「背包/装备栏里的装备一定带品质码」；⚠️ 正常路径（generateRewardEquipment）
+    // 不会走到这里，触发即为上游写入漏洞，须修上游而非在此长期兜底。
+    const rawData = String(item?.data ?? item?.数据 ?? '');
+    const entry: any = { ...item, name, type: '装备' };
+    if (!equipmentQualityLabel(rawData)) {
+      entry.data = 'e' + rawData;
+      if (entry.数据 !== undefined) entry.数据 = entry.data;
+    }
+    backpack.push(entry);
     return;
   }
 

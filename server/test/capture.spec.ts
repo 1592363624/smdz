@@ -202,9 +202,11 @@ describe('GameMonster 捕捉闭环', () => {
 
     expect(result).toContain('紧紧跟着你');
     const backpack = parseJson(fixture.player.backpack, []);
+    // 入包统一走 item-normalize 出口（2026-09-10 收敛）：会额外写 type（静态定义/兜底资源）
+    // 与 quantity 双字段镜像，故此处用 objectContaining 断言关键字段
     expect(backpack).toEqual(expect.arrayContaining([
-      { name: '花园宝宝', count: 1 },
-      { name: '木头', count: 1 },
+      expect.objectContaining({ name: '花园宝宝', count: 1 }),
+      expect.objectContaining({ name: '木头', count: 1 }),
     ]));
     expect(backpack.some((item: any) => item.name === '饲料')).toBe(false);
     expect(JSON.parse(fixture.map.summons)).toHaveLength(0);
