@@ -202,4 +202,43 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
     expect(prisma.player.update).not.toHaveBeenCalled();
     expect(rows[0].hp).toBe(100); // 库内值未被旧快照覆盖
   });
+
+  // ========== 「读一次快照 → 连写多次」的自推进误判（2026-09-10 实测根因） ==========
+  // 旧行为：每次成功写入都会推进活态 version，而调用方快照的 version 停在读取时刻，
+  // 于是第 2 次起被判成旧快照、strict 下静默丢弃。实测形态为 handleDodge 连写三次
+  // （成就「闪避」→ 成就「闪避熟练度」→ buffs+markers2），后两次丢失 → 冷却没写进去。
+  it('同一份快照连续写多次：每次改动都必须落库，不得被判成旧快照', async () => {
+    (PlayerService as any).CAS_MODE = 'strict';
+    const snapshot: any = { userId: 101, version: 0, markers: {}, buffs: [], markers2: [] };
+
+    snapshot.markers = { 闪避: 1 };
+    await playerService.savePlayer(snapshot);
+
+    snapshot.markers = { 闪避: 1, 闪避熟练度: 1 };
+    await playerService.savePlayer(snapshot);
+
+    snapshot.buffs = [{ name: '闪避', expireAt: 9999 }];
+    snapshot.markers2 = [{ name: '闪避冷却', expireAt: 9999 }];
+    await playerService.savePlayer(snapshot);
+
+    expect(rows[0].markers['闪避熟练度']).toBe(1);
+    expect(rows[0].buffs).toEqual([{ name: '闪避', expireAt: 9999 }]);
+    expect(rows[0].markers2).toEqual([{ name: '闪避冷却', expireAt: 9999 }]);
+    expect(rows[0].version).toBe(3); // 三次写入各自推进一次
+    expect((playerService as any).logger.error).not.toHaveBeenCalledWith(
+      expect.stringContaining('拦截到旧快照整包写入'),
+    );
+  });
+
+  it('真正陈旧的快照（从未被接受过）仍被 strict 拦截，本次修复不放宽该防线', async () => {
+    (PlayerService as any).CAS_MODE = 'strict';
+    rows[0].version = 5; // 其它写者已推进：本方快照 version=1 从未参与过写入
+
+    await playerService.savePlayer({ userId: 101, version: 1, hp: 77 });
+
+    expect((playerService as any).logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('拦截到旧快照整包写入'),
+    );
+    expect(rows[0].hp).toBe(100); // 活态未被旧快照覆盖
+  });
 });

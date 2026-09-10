@@ -1318,7 +1318,7 @@ export class ItemSystemService {
    */
   async analyzeEquipment(userId: number, itemName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player, backpack, equipment, weapons } = playerData;
+    const { player, backpack, equipment, weapons, markers } = playerData;
 
     // 定位顺序不变（背包 → 装备栏 → 武器栏），但匹配口径统一走 equipment-ref.util：
     // 支持 冰雹 / 冰雹S / 冰雹S·纯洁无瑕 等形态，不再只认整名第一件。
@@ -1352,11 +1352,20 @@ export class ItemSystemService {
       return `${player.name} 未找到【${itemName}】。`;
     }
 
-    return this.analyzeEquipmentItem(item, source);
+    return this.analyzeEquipmentItem(item, source, markers);
   }
 
-  /** 按已定位的装备实例生成详情，避免同名装备被重新查找成第一件。 */
-  analyzeEquipmentItem(item: Item3, source = '背包'): string {
+  /**
+   * 按已定位的装备实例生成详情，避免同名装备被重新查找成第一件。
+   *
+   * @param item 装备实例（背包/装备栏/武器栏条目）
+   * @param source 来源标签（背包/装备栏/武器栏）
+   * @param markers 玩家标记：**必传**。自带属性块按「装备强化及自带」口径输出
+   *   （原版 _主程序.ecode L5618 把 显示装备 的“额外:”改名为“◆装备强化及自带:”，
+   *   而 z.自带 在 计算装备强化 中已被原地强化）——不传标记会退回强化前数值，
+   *   正是「查看装备看不出强化是否生效」的成因，故不提供默认值兜底。
+   */
+  analyzeEquipmentItem(item: Item3, source: string, markers: any): string {
     const equip = this.parseEquipment(item);
     const qualityInfo = this.getQuality(equip);
     const qualityCode = this.itemService.getEquipmentQualityCode(equip);
@@ -1384,13 +1393,29 @@ export class ItemSystemService {
 
     lines.push(`━━━━━━━━━━━━━━━`);
 
-    // 原版详情同时显示自带属性与随机词条属性。
-    const baseBonusLines = this.formatBonusStats(equip.baseBonus);
+    // 自带属性（**强化后**口径）：与装备栏/武器详情共用 applyEquipReinforce 单一实现，
+    // 强化增量以 (+x.xx) 标注（原版 显示装备 的「◆装备强化及自带」段）。
+    const baseBefore: Record<string, any> = { ...(equip.baseBonus || {}) };
+    const coefficient = this.applyEquipReinforce(
+      { type: equip.type, name: equip.name, self: equip.baseBonus, bonus: equip.bonus },
+      markers,
+      equip.type === '武器',
+    );
+    if (coefficient > 0) {
+      lines.push(`强化系数: +${Math.round(coefficient * 10000) / 100}%`);
+    }
+    const baseGains: Record<string, number> = {};
+    for (const [key, value] of Object.entries(equip.baseBonus || {})) {
+      const gain = Number(value) - Number(baseBefore[key] || 0);
+      if (gain > 0) baseGains[key] = gain;
+    }
+    const baseBonusLines = this.formatBonusStats(equip.baseBonus, baseGains);
     if (baseBonusLines.length > 0) {
-      lines.push('自带属性:');
+      lines.push('装备强化及自带:');
       lines.push(...baseBonusLines);
     }
 
+    // 附加加成（随机词条）：强化不改写本块（calcEquipReinforce 只写自带），按原样展示
     const bonusLines = this.formatBonusStats(equip.bonus);
     if (bonusLines.length > 0) {
       lines.push('加成属性:');

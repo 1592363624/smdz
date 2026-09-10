@@ -117,6 +117,25 @@ describe('装备强化可见性：展示链必须反映强化', () => {
     expect(weaponCell.weapons[0].enhanceRate).toBe(1);
     expect(weaponCell.weapons[0].attrs).toContain('火伤: 7.94 (+0.08)');
   });
+
+  it('查看装备详情：自带块按「装备强化及自带」强化后口径输出（原版 _主程序.ecode L5618）', () => {
+    const { itemSystemService } = makeGameService();
+    const text = itemSystemService.analyzeEquipmentItem(equippable('提卡'), '装备栏', { 武器强化: 2 });
+    expect(text).toContain('装备强化及自带:');
+    expect(text).toContain('火伤: 7.94 (+0.08)');
+    expect(text).toContain('强化系数: +1%');
+    // 强化前口径的旧标头不得再出现（同一件事只允许一套展示口径）
+    expect(text).not.toContain('自带属性:');
+  });
+
+  it('查看装备详情（未强化）：标头仍是「装备强化及自带」，但不出现系数行与增量标注', () => {
+    const { itemSystemService } = makeGameService();
+    const text = itemSystemService.analyzeEquipmentItem(equippable('加固腿甲'), '背包', {});
+    expect(text).toContain('装备强化及自带:');
+    expect(text).toContain('装甲: 6.72');
+    expect(text).not.toContain('强化系数');
+    expect(text).not.toContain('(+');
+  });
 });
 
 describe('calcEquipReinforce 是强化系数唯一出口', () => {

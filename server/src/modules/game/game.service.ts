@@ -2540,7 +2540,8 @@ export class GameService {
         return `背包中没有找到【${arg}】\n使用「背包」查看物品列表`;
       }
       if ((item.type || item.类型) === '装备') {
-        return this.itemSystemService.analyzeEquipmentItem(item, '背包');
+        // 传 markers：详情自带属性块按「装备强化及自带」强化后口径输出（单一实现）
+        return this.itemSystemService.analyzeEquipmentItem(item, '背包', playerData.markers);
       }
       const itemName = item.name || item.名称 || '未知物品';
       const count = Math.round(this.itemQuantity(item) * 100) / 100;

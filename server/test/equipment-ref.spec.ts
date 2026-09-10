@@ -34,7 +34,7 @@ const itemServiceReal = new ItemService(
 const itemSystem = new ItemSystemService(
   {} as PrismaService,
   {} as PlayerService,
-  {} as BonusService,
+  new BonusService(),
   itemServiceReal,
   {} as AchievementService,
   new StaticDataService(),
@@ -154,12 +154,14 @@ describe('分解 / 解析 指令接入统一解析（2026-09-10）', () => {
       getPlayerData: async () => ({ player, backpack, markers: {}, equipment: [], weapons: [], safeBox: [] }),
       enqueueUserWrite: async (_u: number, fn: () => Promise<void>) => fn(),
       savePlayer: async () => {},
+      // 详情自带块走强化唯一实现（analyzeEquipmentItem → applyEquipReinforce）：无标记=未强化
+      getMarkerValue: () => 0,
     };
     const achievementStub: any = { setAchievement: () => {} };
     return new ItemSystemService(
       {} as PrismaService,
       playerService,
-      {} as BonusService,
+      new BonusService(),
       itemServiceReal,
       achievementStub,
       staticDataStub,
@@ -223,11 +225,12 @@ describe('保护 / 丢弃 也走统一解析（2026-09-10）', () => {
       getPlayerData: async () => ({ player, backpack, markers: {}, equipment: [], weapons: [], safeBox }),
       enqueueUserWrite: async (_u: number, fn: () => Promise<void>) => fn(),
       savePlayer: async () => {},
+      getMarkerValue: () => 0,
     };
     return new ItemSystemService(
       {} as PrismaService,
       playerService,
-      {} as BonusService,
+      new BonusService(),
       itemServiceReal,
       { setAchievement: () => {} } as any,
       staticDataStub,

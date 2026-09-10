@@ -899,9 +899,12 @@ export class PlayerService {
         if (live) {
           // 同 Actor 链（真实在 run 内）：把调用方的裸行合并进活态 cell.state，
           // 由 Actor 末尾 writeThrough 落库。合并前做旧快照检测（见 mergeIntoLiveState）。
-          this.mergeIntoLiveState(live.player, player);
+          // accepted → 回写快照版本，否则同一条指令后续的第二次 savePlayer 会被
+          // 自己刚推进的 version 判成旧快照而静默丢弃（见 rebaseSnapshotVersion）。
+          const accepted = this.mergeIntoLiveState(live.player, player);
           this.applyLevelUps(live.player);
           this.refreshDisplayName(live.player);
+          if (accepted) this.rebaseSnapshotVersion(player, live.player);
           this.actorRuntime.markDirty();
           // 重入 run：本次写由「外层 run 末尾」统一写库，不再 repeat 打库。
           return;
@@ -915,10 +918,14 @@ export class PlayerService {
         // 实际落库以邮箱内的最新活态为准（merge 当前改动）。merge 的目标就是
         // 活态本身，run 收尾 writeThrough 不会重复落库（本 run 未标脏）。
         const pd = await this.getPlayerData(uid);
-        this.mergeIntoLiveState(pd.player, player);
+        const accepted = this.mergeIntoLiveState(pd.player, player);
         this.applyLevelUps(pd.player);
         this.refreshDisplayName(pd.player);
         await this.persistPlayer(pd.player);
+        // 落库已推进活态 version：回写到调用方快照，避免「同一份快照连写多次」时
+        // 第 2 次起被自己推进的版本判成旧快照（strict 模式静默丢写，实测事故见
+        // rebaseSnapshotVersion 注释）。必须放在 persistPlayer 之后取落库后的版本。
+        if (accepted) this.rebaseSnapshotVersion(player, pd.player);
       });
       return;
     }
@@ -974,9 +981,12 @@ export class PlayerService {
    * - log 模式（运维回退用，PLAYER_WRITE_CAS=log）：记录冲突与调用方堆栈后
    *   照常合并（旧行为，业务不中断）。
    * version 相同或更大不属于旧快照，正常合并。
+   *
+   * @returns 是否接受了本次合并（false = 判定为旧快照并丢弃，strict 模式）；
+   *   调用方据此决定是否回写快照 version（见 rebaseSnapshotVersion）。
    */
-  private mergeIntoLiveState(liveRow: any, incoming: any): void {
-    if (!incoming || typeof incoming !== 'object') return;
+  private mergeIntoLiveState(liveRow: any, incoming: any): boolean {
+    if (!incoming || typeof incoming !== 'object') return false;
     const liveVersion = Number(liveRow?.version ?? 0);
     if (incoming.version !== undefined) {
       const incomingVersion = Number(incoming.version);
@@ -989,7 +999,7 @@ export class PlayerService {
           `拦截到旧快照整包写入: incoming.version=${incomingVersion} < live.version=${liveVersion}`
           + ` (PLAYER_WRITE_CAS=${PlayerService.CAS_MODE})，调用方堆栈:\n${stack}`,
         );
-        if (PlayerService.CAS_MODE === 'strict') return;
+        if (PlayerService.CAS_MODE === 'strict') return false;
       }
     }
 
@@ -1006,7 +1016,7 @@ export class PlayerService {
       // 仍指向旧对象——同一条指令后续再改就改了个寂寞（静默丢写）。
       if (incoming === liveRow) {
         this.advanceWriteBaseline(incoming, diff);
-        return;
+        return true;
       }
       const submitted: Record<string, any> = {};
       for (const [field, value] of Object.entries(diff)) {
@@ -1014,7 +1024,7 @@ export class PlayerService {
         liveRow[field] = value;
       }
       this.advanceWriteBaseline(incoming, diff);
-      return;
+      return true;
     }
 
     // 混合态复活防线（Actor 合并路径）：incoming 携带未物化的原始背包（字符串形态，
@@ -1042,6 +1052,41 @@ export class PlayerService {
     if (incoming.version !== undefined) {
       liveRow.version = liveVersion;
     }
+    return true;
+  }
+
+  /**
+   * 写通过后把「本次读取的活态版本」回写到调用方快照上（自我推进基线）。
+   *
+   * ## 解决什么问题（2026-09-10 实测根因）
+   *
+   * 旧快照拦截判定用的是「调用方快照的 version < 活态 version」，但**调用方自己
+   * 每一次成功写入都会把活态 version 推进 1**，而调用方快照的 version 一直停在
+   * 读取时刻。于是「读一次快照 → 连续写多次」的指令，第 2 次及以后的写入全被判成
+   * 旧快照、在 strict 模式下被静默丢弃（`mergeIntoLiveState` 直接 return，调用方
+   * 拿不到任何异常）。
+   *
+   * 实测形态（`handleDodge`，玩家 728）：一次读取后连写 3 次（添加成就「闪避」→
+   * 添加成就「闪避熟练度」→ 写 buffs+markers2）。第 1 次落库推进 version 0→1，
+   * 后两次被拦：日志连出 2 条「拦截到旧快照整包写入」，结果是成就「闪避熟练度」
+   * 与闪避增益 / 闪避冷却标记全部丢失——表现为「发指令看着成功、状态没生效」
+   * （冷却没写进去 → 可以无限连发闪避）。
+   *
+   * ## 为什么这样是安全的
+   *
+   * 只在**合并已被接受**之后回写版本：真正陈旧（从未被接受过）的快照版本不变，
+   * 仍会被拦截；而字段级投递（attachWriteMeta 的写基线 diff）本来就只提交「相对
+   * 读取基线实际改过的字段」，回写版本不会让任何未改动字段进入活态。换言之，
+   * 回写只是承认「这份快照刚刚贡献过、它的基线已经推进到那个版本」，而不是放宽
+   * 整行搬运。
+   */
+  private rebaseSnapshotVersion(incoming: any, liveRow: any): void {
+    if (!incoming || typeof incoming !== 'object') return;
+    if (incoming === liveRow) return;
+    if (incoming.version === undefined) return;
+    const live = Number(liveRow?.version);
+    if (!Number.isFinite(live)) return;
+    incoming.version = live;
   }
 
   /**

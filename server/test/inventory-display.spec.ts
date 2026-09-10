@@ -1,6 +1,7 @@
 import { GameService } from '../src/modules/game/game.service';
 import { ItemService } from '../src/modules/game/item.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
+import { BonusService } from '../src/modules/game/bonus.service';
 
 /**
  * 背包展示契约（用户约定 2026-09-09）：
@@ -33,8 +34,10 @@ function makeInventoryService(backpackOverride?: any[]) {
   };
   const player = { name: '测试者', backpack: JSON.stringify(backpack) };
   const playerService: any = {
-    getPlayerData: jest.fn(async () => ({ player, backpack, equipment: [], weapons: [] })),
+    getPlayerData: jest.fn(async () => ({ player, backpack, equipment: [], weapons: [], markers: {} })),
     getBackpackItems: jest.fn(() => backpack),
+    // 查看装备详情（背包 N 命中装备时）走强化唯一实现：无标记=未强化
+    getMarkerValue: jest.fn(() => 0),
   };
   const itemService = new ItemService(
     {} as any,
@@ -46,7 +49,7 @@ function makeInventoryService(backpackOverride?: any[]) {
   const itemSystemService = new ItemSystemService(
     {} as any,
     playerService,
-    {} as any,
+    new BonusService(),
     itemService,
     {} as any,
     staticData,
