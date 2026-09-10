@@ -55,7 +55,13 @@
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'me' }" @click="sidebarTab = 'me'">
           <span class="tab-icon">👤</span>我的
         </button>
-        <button class="sidebar-tab" :class="{ active: sidebarTab === 'home' }" @click="sidebarTab = 'home'">
+        <button
+          class="sidebar-tab"
+          :class="{ active: sidebarTab === 'home' }"
+          :disabled="!isSuperAdmin"
+          :title="isSuperAdmin ? undefined : '功能开发中，仅超级管理员可进入'"
+          @click="openHomeTab('desktop')"
+        >
           <span class="tab-icon">🏠</span>家园
         </button>
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'cmd' }" @click="sidebarTab = 'cmd'">
@@ -239,7 +245,13 @@
         <button class="sidebar-tab" :class="{ active: mobileTab === 'map' }" @click="mobileTab = 'map'">
           <span class="tab-icon">🗺️</span>地图
         </button>
-        <button class="sidebar-tab" :class="{ active: mobileTab === 'home' }" @click="mobileTab = 'home'">
+        <button
+          class="sidebar-tab"
+          :class="{ active: mobileTab === 'home' }"
+          :disabled="!isSuperAdmin"
+          :title="isSuperAdmin ? undefined : '功能开发中，仅超级管理员可进入'"
+          @click="openHomeTab('mobile')"
+        >
           <span class="tab-icon">🏠</span>家园
         </button>
         <button class="sidebar-tab" :class="{ active: mobileTab === 'cmd' }" @click="mobileTab = 'cmd'">
@@ -1367,6 +1379,19 @@ function mentionDisplayText(name) {
 
 // 是否为管理员(显示管理后台入口)
 const isAdmin = computed(() => ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role));
+
+// 是否为超级管理员（家园等功能未完成，仅超管可进入）
+const isSuperAdmin = computed(() => user.value?.role === 'SUPER_ADMIN');
+
+/** 家园 Tab：功能未完成，仅超级管理员可点击进入 */
+function openHomeTab(target) {
+  if (!isSuperAdmin.value) return;
+  if (target === 'mobile') {
+    mobileTab.value = 'home';
+  } else {
+    sidebarTab.value = 'home';
+  }
+}
 
 // 开发登录是否启用(服务端 DEV_LOGIN_ENABLED=1 时 /auth/dev/status 返回 enabled)。
 // 开发环境下无论登录哪个账号都显示管理后台入口，方便本地调试。

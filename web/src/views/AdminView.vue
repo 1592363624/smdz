@@ -99,7 +99,54 @@
           <div v-for="grp in configGroups" :key="grp.name" class="config-group">
             <h3>{{ grp.label }}</h3>
             <div class="config-grid">
-              <div v-for="cfg in grp.items" :key="cfg.key" class="config-item">
+              <!-- 全局熟练度：表格编辑器（JSON 原文不便读写） -->
+              <div v-if="cfg.key === 'game.globalMarkers'" class="config-item config-item-wide">
+                <div class="config-info">
+                  <span class="config-label">{{ cfg.label }}</span>
+                  <span class="config-desc">{{ cfg.description }}</span>
+                </div>
+                <div class="prof-editor">
+                  <div class="prof-toolbar">
+                    <span class="prof-world">世界等级 <strong>{{ globalProfWorldLevel }}</strong>（世界熟练度 {{ globalProfWorldPoints }}）</span>
+                    <span class="prof-count">共 {{ globalProfRows.length }} 项</span>
+                    <button class="btn-ghost" type="button" @click="addGlobalProfRow">＋ 添加</button>
+                    <button class="btn-primary" type="button" @click="saveGlobalProf(cfg)">保存</button>
+                    <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
+                  </div>
+                  <div v-if="globalProfError" class="prof-error">{{ globalProfError }}</div>
+                  <div class="prof-table-wrap">
+                    <table class="prof-table">
+                      <thead>
+                        <tr>
+                          <th>名称</th>
+                          <th class="num">熟练度点数</th>
+                          <th class="lv">等级</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, ri) in globalProfRows" :key="'prof-' + ri">
+                          <td>
+                            <input v-model="row.name" class="prof-name" placeholder="如：世界 / 史莱姆" />
+                          </td>
+                          <td class="num">
+                            <input v-model.number="row.points" type="number" min="0" step="1" class="prof-points" />
+                          </td>
+                          <td class="lv">{{ profLevel(row.points) }}</td>
+                          <td>
+                            <button class="btn-ghost prof-del" type="button" title="删除" @click="removeGlobalProfRow(ri)">✕</button>
+                          </td>
+                        </tr>
+                        <tr v-if="!globalProfRows.length">
+                          <td colspan="4" class="prof-empty">暂无数据，点「＋ 添加」新建条目</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="config-item">
                 <div class="config-info">
                   <span class="config-label">{{ cfg.label }}</span>
                   <span class="config-desc">{{ cfg.description }}</span>
@@ -654,7 +701,7 @@ async function setWorldLevel() {
 // ---- 系统配置 ----
 const configs = ref([]);
 const savedKey = ref('');
-const groupLabels = { command: '指令设置', game: '游戏数据', system: '系统', bot: '机器人', web: '网页界面', update: '部署更新' };
+const groupLabels = { command: '指令设置', game: '游戏数据', system: '系统', bot: '机器人', web: '网页界面', update: '部署更新', chat: '聊天' };
 
 const configGroups = computed(() => {
   const groups = {};
@@ -678,6 +725,81 @@ async function saveConfig(cfg, value) {
   cfg.value = typeof value === 'object' ? JSON.stringify(value) : String(value);
   savedKey.value = cfg.key;
   setTimeout(() => (savedKey.value = ''), 1500);
+}
+
+// ---- 全局熟练度表格编辑器 ----
+const PROF_SUFFIX = '熟练度';
+const globalProfRows = ref([]); // [{ name, points }]，name 不含「熟练度」后缀
+const globalProfError = ref('');
+
+const globalProfWorldPoints = computed(() => {
+  const row = globalProfRows.value.find((r) => r.name === '世界');
+  return Number(row?.points) || 0;
+});
+const globalProfWorldLevel = computed(() => profLevel(globalProfWorldPoints.value));
+
+/** floor(√点数)+1，与服务端 显示熟练度等级 一致；点数≤0 时视为 0 级展示（实际游戏侧基线为 1） */
+function profLevel(points) {
+  const p = Number(points);
+  if (!Number.isFinite(p) || p <= 0) return 0;
+  return Math.floor(Math.sqrt(p)) + 1;
+}
+
+function parseGlobalProfRows(raw) {
+  try {
+    const obj = JSON.parse(raw || '{}');
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
+    return Object.entries(obj).map(([key, points]) => {
+      const name = key.endsWith(PROF_SUFFIX) ? key.slice(0, -PROF_SUFFIX.length) : key;
+      return { name, points: Number(points) || 0 };
+    });
+  } catch {
+    return [];
+  }
+}
+
+function hydrateGlobalProfFromConfigs(list) {
+  const cfg = list.find((c) => c.key === 'game.globalMarkers');
+  if (!cfg) {
+    globalProfRows.value = [];
+    return;
+  }
+  const rows = parseGlobalProfRows(cfg.value);
+  if (!rows.length && cfg.value && cfg.value !== '{}') {
+    globalProfError.value = 'JSON 解析失败，请检查格式（对象：名称 → 点数）';
+  } else {
+    globalProfError.value = '';
+  }
+  globalProfRows.value = rows;
+}
+
+function addGlobalProfRow() {
+  globalProfRows.value.push({ name: '', points: 0 });
+}
+function removeGlobalProfRow(index) {
+  globalProfRows.value.splice(index, 1);
+}
+
+async function saveGlobalProf(cfg) {
+  globalProfError.value = '';
+  const obj = {};
+  for (const row of globalProfRows.value) {
+    const rawName = String(row.name || '').trim();
+    if (!rawName) continue;
+    const points = Number(row.points);
+    if (!Number.isFinite(points) || points < 0) {
+      globalProfError.value = `「${rawName}」的点数无效，需为 ≥0 的数字`;
+      return;
+    }
+    // 与服务端条目键一致：名称 + 「熟练度」
+    const key = rawName.endsWith(PROF_SUFFIX) ? rawName : rawName + PROF_SUFFIX;
+    if (obj[key] !== undefined) {
+      globalProfError.value = `名称重复：${rawName}`;
+      return;
+    }
+    obj[key] = Math.floor(points);
+  }
+  await saveConfig(cfg, obj);
 }
 
 // ---- 用户管理 ----
@@ -1530,7 +1652,10 @@ onMounted(async () => {
   await Promise.allSettled([
     loadDashboard(),
     loadWorldLevel(),
-    adminApi.listConfig().then((res) => { configs.value = res.data; }),
+    adminApi.listConfig().then((res) => {
+      configs.value = res.data;
+      hydrateGlobalProfFromConfigs(res.data || []);
+    }),
     loadUsers(1),
   ]);
 });

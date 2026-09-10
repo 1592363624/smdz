@@ -11,6 +11,7 @@ import {
   DefaultValuePipe,
   Delete,
   Get,
+  Optional,
   Param,
   ParseIntPipe,
   Post,
@@ -32,6 +33,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { GlobalConfig } from '../../config/global.config';
 import { SystemConfigService } from '../system-config/system-config.service';
+import { GlobalProficiencyService, GLOBAL_MARKERS_KEY } from '../game/global-proficiency.service';
 import { AdminService } from './admin.service';
 import { StaticDataAdminService } from './static-data-admin.service';
 import {
@@ -60,6 +62,8 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly staticDataAdminService: StaticDataAdminService,
     private readonly systemConfigService: SystemConfigService,
+    // GameModule 为 @Global；循环依赖场景下可选注入，缺失时仅跳过内存同步
+    @Optional() private readonly globalProficiency?: GlobalProficiencyService,
   ) {}
 
   /// ===== 用户管理 =====
@@ -172,6 +176,19 @@ export class AdminController {
   @ApiOperation({ summary: '更新系统配置项(在线生效)' })
   async updateConfig(@Body() dto: UpdateConfigDto) {
     const data = await this.systemConfigService.set(dto.key, dto.value);
+    // 全局熟练度有内存权威表；整表替换后必须同步，否则下次 flush 会覆盖管理端修改
+    if (dto.key === GLOBAL_MARKERS_KEY && this.globalProficiency) {
+      let parsed: Record<string, number> = {};
+      try {
+        const raw = typeof dto.value === 'string' ? JSON.parse(dto.value) : dto.value;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) parsed = raw;
+      } catch {
+        // 非法 JSON 已在 set 落库为原文；内存表保持不动，避免被坏数据污染
+      }
+      if (Object.keys(parsed).length || dto.value === '{}' || dto.value === '') {
+        await this.globalProficiency.replacePoints(parsed);
+      }
+    }
     return { success: true, data };
   }
 

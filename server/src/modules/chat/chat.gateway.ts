@@ -51,6 +51,9 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   private readonly logger = new Logger(ChatGateway.name);
 
+  /** 每用户最近一次发消息时间戳（ms），用于发送间隔限流 */
+  private readonly lastUserMessageAt = new Map<number, number>();
+
   constructor(
     private readonly chatService: ChatService,
     private readonly commandService: CommandService,
@@ -222,15 +225,25 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const content = (body?.content || '').trim();
     if (!content) return;
 
-    // 多行输入：按换行符拆分，逐行顺序执行（每行间隔 300ms，避免后端处理压力）
+    // 发送间隔限流（防刷屏）：0=不限制
+    const intervalMs = await this.getMessageIntervalMs();
+    if (intervalMs > 0 && !this.tryConsumeMessageSlot(user.userId, intervalMs)) {
+      const waitSec = Math.ceil((intervalMs - (Date.now() - (this.lastUserMessageAt.get(user.userId) || 0))) / 100) / 10;
+      client.emit('error', { message: `消息发送过于频繁，请约 ${waitSec} 秒后再发` });
+      return;
+    }
+
+    // 多行输入：按换行符拆分，逐行顺序执行（行间同样受发送间隔约束，避免后端处理压力）
     const lines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length > 1) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         await this.processSingleLine(client, user, line);
-        // 最后一行不等待，其余行之间间隔 300ms
+        // 最后一行不等待，其余行之间按配置间隔等待
         if (i < lines.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, Math.max(intervalMs, 100)));
+          // 行间也刷新冷却起点，避免一次多行粘贴绕过间隔限制
+          this.lastUserMessageAt.set(user.userId, Date.now());
         }
       }
       return;
@@ -238,6 +251,30 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
     // 单行输入：保持原有逻辑
     await this.processSingleLine(client, user, content);
+  }
+
+  /** 读取用户消息最小间隔（毫秒）；配置异常或 ≤0 时返回 0（不限制） */
+  private async getMessageIntervalMs(): Promise<number> {
+    try {
+      const sec = await this.systemConfigService.getMessageIntervalSec();
+      const n = Number(sec);
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      return Math.round(n * 1000);
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * 检查并记录本次发送时间戳。
+   * @returns true=允许发送；false=间隔未到（本次不更新时间戳，避免惩罚重试）
+   */
+  private tryConsumeMessageSlot(userId: number, intervalMs: number): boolean {
+    const now = Date.now();
+    const last = this.lastUserMessageAt.get(userId) || 0;
+    if (last > 0 && now - last < intervalMs) return false;
+    this.lastUserMessageAt.set(userId, now);
+    return true;
   }
 
   /**
@@ -289,6 +326,14 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const content = (body?.content || '').trim();
     const to = body?.to;
     if (!content || to === undefined || to === null || to === '') return;
+
+    // 与公屏共用发送间隔，防止私聊刷屏
+    const intervalMs = await this.getMessageIntervalMs();
+    if (intervalMs > 0 && !this.tryConsumeMessageSlot(user.userId, intervalMs)) {
+      const waitSec = Math.ceil((intervalMs - (Date.now() - (this.lastUserMessageAt.get(user.userId) || 0))) / 100) / 10;
+      client.emit('chat:private-error', { message: `消息发送过于频繁，请约 ${waitSec} 秒后再发` });
+      return;
+    }
 
     // 根据 用户名/昵称/ID 解析目标用户
     const target = await this.resolveTargetUser(to, user.userId);

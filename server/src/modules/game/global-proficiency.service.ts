@@ -181,6 +181,23 @@ export class GlobalProficiencyService implements OnModuleInit, OnModuleDestroy {
     return legacyPoints > 0 ? { [`${WORLD_PROFICIENCY_NAME}${PROFICIENCY_SUFFIX}`]: legacyPoints } : {};
   }
 
+  /**
+   * 管理后台整表替换：写入后同步内存并立即落盘。
+   * 键为「名称熟练度」；非正数点数直接丢弃（与 load 一致）。
+   */
+  async replacePoints(next: Record<string, number>): Promise<void> {
+    const map = new Map<string, number>();
+    for (const [key, value] of Object.entries(next || {})) {
+      const num = Number(value);
+      if (Number.isFinite(num) && num > 0) map.set(key, num);
+    }
+    this.points = map;
+    this.loaded = true;
+    this.loadPromise = Promise.resolve();
+    this.dirty = true;
+    await this.flush();
+  }
+
   /** 原版 添加成就(名称+"熟练度", 数值, 全局标记)：累加点数并安排落盘 */
   async addProficiency(name: string, delta: number): Promise<void> {
     if (!Number.isFinite(delta) || delta === 0) return;

@@ -29,6 +29,7 @@ import { FamiliarSkillsService } from './familiar-skills.service';
 import { VitalityService } from './vitality.service';
 import { MapBattleLoopService } from './map-battle-loop.service';
 import { GlobalProficiencyService, WORLD_PROFICIENCY_NAME } from './global-proficiency.service';
+import { SystemConfigService } from '../system-config/system-config.service';
 import {
   expireAfter, findActive, hasActive, isActive, isActiveBeyond, remainMs, remainSeconds,
   toExpireMs, itemName,
@@ -371,6 +372,9 @@ export class CombatSystemService {
     // 末位可选参数，兼容按位置 new 的既有测试。
     @Optional()
     private readonly globalProficiency?: GlobalProficiencyService,
+    // 公共攻击CD下限等可在线调整的系统配置；测试按位置 new 时可不注入
+    @Optional()
+    private readonly systemConfig?: SystemConfigService,
   ) {}
 
   // ==================== 用户级战斗串行锁 ====================
@@ -389,6 +393,21 @@ export class CombatSystemService {
    * 对指定用户串行执行一段战斗流程（per-user 互斥，对齐原版单线程语义）。
    * 同一用户并发进入时按到达顺序排队；不同用户互不阻塞。
    */
+  /**
+   * 武器公共攻击CD最低冷却（秒）。
+   * 管理后台「系统配置 → 游戏数据」可在线调整；默认 5，0=不限制下限。
+   * 未注入 SystemConfigService（测试桩）时回退默认 5。
+   */
+  private async getWeaponPublicCdMinSec(): Promise<number> {
+    if (!this.systemConfig) return 5;
+    try {
+      const n = Number(await this.systemConfig.get<number>('game.weaponPublicCdMinSec', 5));
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    } catch {
+      return 5;
+    }
+  }
+
   private async withCombatLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
     const previous = this.combatLocks.get(userId) ?? Promise.resolve();
     const current = previous.then(fn, fn);
@@ -613,7 +632,8 @@ export class CombatSystemService {
       newMarkers2.push({ name: cooldownName, expireAt: now + cooldownSec * 1000 });
 
       // 写入公共「攻击冷却」（原版 战斗相关.ecode L93-107）
-      // 普拉娜 2s / 雷火剑 = 武器冷却×0.333 / 装机械触手(特殊序号110) 6s / 默认 5s
+      // 原版基准：普拉娜 2s / 雷火剑 = 武器冷却×0.333 / 装机械触手(特殊序号110) 6s / 默认 5s
+      // 管理后台可配「公共攻击CD最低冷却」作为下限（默认 5s），避免特殊效果把公共 CD 压得过低。
       if (publicCdWrite) {
         let publicCdSec = 5;
         if (Number(player.specialSeq ?? 0) === 22 || player.type === '普拉娜') {
@@ -634,6 +654,7 @@ export class CombatSystemService {
             resultLines.unshift(`[武器:${weapon.name}]`); // 原版 L100
           }
         }
+        publicCdSec = Math.max(publicCdSec, await this.getWeaponPublicCdMinSec());
         newMarkers2.push({ name: '攻击冷却', expireAt: expireAfter(publicCdSec, now) });
       }
 

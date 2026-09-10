@@ -24,6 +24,8 @@ export class SystemConfigService {
 
   /**
    * 获取所有配置项
+   * 注意：`game.globalMarkers`（全局熟练度）也会返回——管理界面用专用表格编辑器展示，
+   * 不要改成裸 JSON 文本框。
    */
   async findAll() {
     return this.prisma.systemConfig.findMany({ orderBy: { id: 'asc' } });
@@ -139,13 +141,24 @@ export class SystemConfigService {
   }
 
   /**
+   * 快捷读取：用户发消息最小间隔（秒）。0=不限制。
+   * 防止刷屏；管理员可在「系统配置 → 聊天」在线调整。
+   */
+  getMessageIntervalSec(): Promise<number> {
+    return this.get<number>('chat.messageIntervalSec', 0.5);
+  }
+
+  /**
    * 按配置类型解析存储值
    */
   private parseValue<T>(type: string, raw: string, defaultValue: T): T {
     if (raw === '' && raw === undefined) return defaultValue;
     switch (type) {
-      case 'number':
-        return (Number(raw) || defaultValue) as T;
+      case 'number': {
+        // 注意：0 是合法值（如「不限制」「立即弹出」），不能用 || 回退默认值
+        const n = Number(raw);
+        return (Number.isFinite(n) ? n : defaultValue) as T;
+      }
       case 'boolean':
         return (raw === 'true') as T;
       case 'json':

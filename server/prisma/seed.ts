@@ -406,6 +406,7 @@ async function main() {
     { key: 'game.respawnTime', value: '30', label: '怪物重生时间(秒)', description: '怪物被击杀后重生时间', type: 'number', group: 'game' },
     { key: 'game.spawnMonsterCooldown', value: '60', label: '怪物刷新时间(秒)', description: '地图怪物被清空后刷新时间', type: 'number', group: 'game' },
     { key: 'game.worldLevel', value: '1', label: '世界等级', description: '当前世界等级，影响怪物强度和掉落', type: 'number', group: 'game' },
+    { key: 'game.weaponPublicCdMinSec', value: '5', label: '武器公共攻击CD最低冷却(秒)', description: '所有武器公共「攻击冷却」的下限；特殊效果算出的公共CD若低于该值则抬高到该值。默认5秒，0=不限制下限', type: 'number', group: 'game' },
     { key: 'game.moveTimeEnabled', value: 'true', label: '移动真实耗时', description: '移动是否真实消耗时间(延时到达)。true=移动需等待耗时秒数后才到达，false=即时到达', type: 'boolean', group: 'game' },
     { key: 'game.forceVitality', value: 'false', label: '所有人强制开启活力', description: '开启后所有玩家普通击杀都会消耗1点活力并获得经验、资源双倍奖励，玩家个人关闭设置不再生效', type: 'boolean', group: 'game' },
     { key: 'game.vitalityNoBonus', value: 'false', label: '活力消耗不奖励双倍', description: '开启后玩家仍按规则正常消耗活力，但普通击杀不再获得活力双倍奖励（经验/资源保持普通值）', type: 'boolean', group: 'game' },
@@ -415,6 +416,7 @@ async function main() {
     { key: 'update.autoReloadSeconds', value: '15', label: '自动刷新倒计时(秒)', description: '弹窗展示更新日志后多少秒自动刷新页面，0=不自动刷新(需玩家手动点击)', type: 'number', group: 'update' },
     { key: 'update.promptCooldown', value: '300', label: '重复提醒冷却(秒)', description: '玩家点击「稍后」后，多少秒内不再重复弹窗打扰', type: 'number', group: 'update' },
     { key: 'web.handbookTooltipDelayMs', value: '1000', label: '背包图鉴悬浮延迟(毫秒)', description: '网页背包格子悬浮多少毫秒后弹出图鉴弹层，0=立即弹出', type: 'number', group: 'web' },
+    { key: 'chat.messageIntervalSec', value: '0.5', label: '用户消息发送间隔(秒)', description: '同一用户两条消息之间的最小间隔，防止刷屏；0=不限制', type: 'number', group: 'chat' },
   ] as const;
 
   for (const cfg of systemConfigs) {
@@ -450,8 +452,12 @@ async function main() {
   // 系统配置以 key 为主键(非 name)，单独同步删除
   {
     const seedKeys = new Set(systemConfigs.map((c: any) => c.key));
+    // 业务模块自动写入的内部存储键（非可调参数），同步删除时必须保留
+    const keepKeys = new Set(['game.globalMarkers']);
     const existing = await prisma.systemConfig.findMany({ select: { key: true } });
-    const toDelete = existing.map((r: any) => r.key).filter((k: string) => k && !seedKeys.has(k));
+    const toDelete = existing
+      .map((r: any) => r.key)
+      .filter((k: string) => k && !seedKeys.has(k) && !keepKeys.has(k));
     if (toDelete.length > 0) {
       await prisma.systemConfig.deleteMany({ where: { key: { in: toDelete } } });
       console.log(`🗑️ 系统配置: 已删除 ${toDelete.length} 条(代码中已移除): ${toDelete.join(', ')}`);
