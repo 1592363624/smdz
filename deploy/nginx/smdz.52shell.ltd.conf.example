@@ -1,0 +1,130 @@
+# =============================================================================
+# 生产环境实际配置（宝塔 Windows 面板 + SSL）· 完整内容留档
+# -----------------------------------------------------------------------------
+# 站点      : smdz.52shell.ltd
+# 线上位置  : C:/BtSoft/nginx/conf/vhost/smdz.52shell.ltd.conf
+# 后端      : NestJS 监听 127.0.0.1:3333（PM2 进程 smdz-server）
+# 前端      : C:/wwwroot/smdz/web/dist（由 nginx 直接静态托管）
+# 上传附件  : C:/wwwroot/smdz/server/uploads（由 Node 托管，nginx 反代 /uploads/）
+#
+# 本文件与线上内容 1:1 一致，可直接整段粘贴到宝塔「网站 → 设置 → 配置文件」。
+# 注意：宝塔面板保存时会重写该文件，粘贴后请确认 /uploads/ 一段仍在。
+#
+# 修改后必须重载才生效：
+#   cd /d C:\BtSoft\nginx && nginx.exe -t && nginx.exe -s reload
+#   Windows 服务式安装的 nginx（LocalSystem / nginx_server.exe）执行 -s reload
+#   会报 OpenEvent(...ngx_reload_<pid>) failed (5: Access is denied)，
+#   此时改用：sc stop nginx && sc start nginx
+# =============================================================================
+server
+{
+    listen 80 ;
+    listen 443 ssl ;
+    server_name smdz.52shell.ltd;
+    index index.php index.html index.htm default.php default.htm default.html;
+    # 前端静态文件目录(web/dist 的部署位置)
+    root C:/wwwroot/smdz/web/dist;
+    include C:/BtSoft/nginx/conf/vhost/extension/smdz.52shell.ltd/*.conf;
+    #START-ERROR-PAGE
+    #error_page 403 /403.html;
+    error_page 404 /404.html;
+    #error_page 502 /502.html;
+    #END-ERROR-PAGE
+    #HTTP_TO_HTTPS_START
+    #HTTP_TO_HTTPS_END
+    #LIMIT_INFO_START
+    #LIMIT_INFO_END
+    #SSL-INFO-START SSL证书配置
+    ssl_certificate    ssl/smdz.52shell.ltd/fullchain.pem;
+    ssl_certificate_key    ssl/smdz.52shell.ltd/privkey.pem;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    error_page 497  https://;
+    #SSL-INFO-END
+
+    # ===== 维护模式开关(新增) =====
+    # deploy.ps1 部署开始时创建 server/maintenance.flag，部署成功后删除。
+    # flag 存在 → 所有页面请求改写为维护页 maintenance.html（nginx 层拦截，
+    # 页面请求不进 Node，必须在这里拦而不是依赖后端维护中间件）
+    set $maintenance 0;
+    if (-f C:/wwwroot/smdz/server/maintenance.flag) {
+        set $maintenance 1;
+    }
+
+    # 维护页本体(新增)：仅维护期间可访问，防止平时误入触发自动刷新循环
+    location = /maintenance.html {
+        if ($maintenance != 1) {
+            return 404;
+        }
+        add_header Cache-Control "no-store";
+    }
+
+    # 前端单页应用:静态文件 + SPA 路由回退到 index.html
+    # 维护激活时改写为维护页(新增 if 一段)
+    location / {
+        if ($maintenance = 1) {
+            rewrite ^ /maintenance.html break;
+        }
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 后端 HTTP API 反向代理
+    # 维护期间无需 nginx 处理：Node 端维护中间件对 /api/* 返回 503 {code:"MAINTENANCE"}
+    location /api/ {
+        proxy_pass http://127.0.0.1:3333;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ===== 上传附件反向代理(新增：公告配图/反馈图片/私聊文件) =====
+    # 必须单独配这一段！站点 root 指向 web/dist 且 location / 带 SPA 回退
+    # (try_files $uri $uri/ /index.html)，不配的话 /uploads/xxx.png 会被回退成
+    # index.html(Content-Type: text/html)，浏览器 <img> 无法解码 → 图片裂图。
+    # 后端 NestJS 已用 ServeStaticModule 托管 /uploads(serveRoot=/uploads，
+    # 物理目录 C:/wwwroot/smdz/server/uploads)，这里只需反向代理到后端。
+    location /uploads/ {
+        proxy_pass http://127.0.0.1:3333;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # 上传文件名带时间戳、内容不变，缓存 7 天
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+
+    # WebSocket 公屏代理(必须配 Upgrade 和 keepalive 头)
+    # 维护期间拒绝新连接(新增 if 一段，已建立的连接不受影响)
+    location /socket.io/ {
+        if ($maintenance = 1) {
+            return 503;
+        }
+        proxy_pass http://127.0.0.1:3333;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
+    #access forbidden
+    location ~ ^/(\.user.ini|\.htaccess|\.git|\.svn|\.project|LICENSE|README.md)
+    {
+        return 404;
+    }
+
+    #ssl
+    location ~ \.well-known{
+        allow all;
+    }
+
+    access_log  C:/BtSoft/wwwlogs/smdz.52shell.ltd.log;
+    error_log  C:/BtSoft/wwwlogs/smdz.52shell.ltd.error.log;
+}

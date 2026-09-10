@@ -20,9 +20,10 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { extname, join } from 'path';
+import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { diskStorage } from 'multer';
+import { buildUploadFilename } from '../../common/utils/upload-filename.util';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { GlobalConfig } from '../../config/global.config';
 import { FeedbackService } from './feedback.service';
@@ -59,10 +60,8 @@ export class FeedbackController {
           cb(null, dir);
         },
         filename: (_req, file, cb) => {
-          // 文件名：时间戳 + 随机串 + 原始扩展名，避免中文/空格问题与重名
-          const random = Math.random().toString(36).slice(2, 10);
-          const ext = extname(file.originalname || '').toLowerCase();
-          cb(null, `${Date.now()}_${random}${ext}`);
+          // 文件名：时间戳 + 随机串 + 扩展名；无扩展名时按 MIME 兜底
+          cb(null, buildUploadFilename(file.originalname, file.mimetype));
         },
       }),
       limits: {

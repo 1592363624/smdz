@@ -73,7 +73,7 @@
           <span class="pi-eq-slot">{{ e.slot }}</span>
           <span v-if="e.name && e.no != null" class="pi-eq-no" title="卸下序号：发「卸下 N」可精确卸下该件">{{ e.no }}</span>
           <span v-if="e.name" class="pi-eq-val" :class="'q-' + qKey(e.quality)">
-            {{ e.quality === '普通' ? '' : e.quality + ' ' }}{{ e.name }}<i v-if="e.effect > 0">[特效{{ e.effect }}]</i>(+{{ e.enhance }})
+            {{ e.quality ? e.quality + ' ' : '' }}{{ e.name }}<i v-if="e.effect > 0">[特效{{ e.effect }}]</i>(+{{ e.enhance }})
           </span>
           <span v-else class="pi-eq-empty">无(+{{ e.enhance }})</span>
         </div>
@@ -90,7 +90,7 @@
           <span class="pi-eq-slot">{{ w.slot }}</span>
           <span v-if="w.no != null" class="pi-eq-no">{{ w.no }}</span>
           <span class="pi-weapon-name" :class="'q-' + qKey(w.quality)">
-            {{ w.quality === '普通' ? '' : w.quality + ' ' }}{{ w.name }}<i v-if="w.effect > 0">[特效{{ w.effect }}]</i>
+            {{ w.quality ? w.quality + ' ' : '' }}{{ w.name }}<i v-if="w.effect > 0">[特效{{ w.effect }}]</i>
           </span>
           <button type="button" class="pi-unequip" title="放回背包" @click="unequip(w)">卸下</button>
         </div>
@@ -126,7 +126,7 @@
       >
         <template v-if="hoveredEq">
           <div class="pi-tip-head" :class="'q-' + qKey(hoveredEq.quality)">
-            {{ hoveredEq.quality === '普通' ? '' : hoveredEq.quality + ' ' }}{{ hoveredEq.name }}<i v-if="hoveredEq.effect > 0">[特效{{ hoveredEq.effect }}]</i>
+            {{ hoveredEq.quality ? hoveredEq.quality + ' ' : '' }}{{ hoveredEq.name }}<i v-if="hoveredEq.effect > 0">[特效{{ hoveredEq.effect }}]</i>
           </div>
           <div class="pi-tip-meta">{{ hoveredEq.slot }} · 强化 +{{ hoveredEq.enhance }}</div>
           <pre v-if="hoveredEq.attrs" class="pi-tip-attrs">{{ hoveredEq.attrs }}</pre>
@@ -242,9 +242,11 @@ const tasks = computed(() => (Array.isArray(props.info?.tasks) ? props.info.task
 const eqList = computed(() => (Array.isArray(props.info?.equipment) ? props.info.equipment : []));
 const eqOpen = ref(true);
 const equippedCount = computed(() => eqList.value.filter((e) => e.name).length);
-// 品质文字 → 配色档位（普通灰/良好绿/优秀蓝/精良紫/史诗橙/传说金/神迹红）
-const QUALITY_KEY = { 普通: 'e', 良好: 'd', 优秀: 'c', 精良: 'b', 史诗: 'a', 传说: 's', 神迹: 'x' };
-const qKey = (q) => QUALITY_KEY[q] || 'e';
+// 品质配色档位（E 普通灰/D 良好绿/C 优秀蓝/B 精良紫/A 史诗橙/S 传说金/X 神迹红）
+// 2026-09-10 口径统一：服务端 equipment-ref.util.equipmentQualityLabel 直接下发**品质码字母**
+// （与背包显示名「冰雹S」同源），前端只把小写化后取配色，禁再抄一份中文品质名映射
+// （旧 QUALITY_KEY 中文表已删除：中文名与字母码两套表示并存，改一处必漏另一处）。
+const qKey = (q) => String(q || '').toLowerCase() || 'e';
 // 品质档位 → 边框/光晕颜色（用于装备格按品质描边，与聊天卡片一致）
 const EQ_COLOR = { e: '', d: '#4ade80', c: '#60a5fa', b: '#a78bfa', a: '#fb923c', s: '#fbbf24', x: '#f87171' };
 const eqBorder = (e) => (EQ_COLOR[qKey(e.quality)] ? `1px solid ${EQ_COLOR[qKey(e.quality)]}` : '');

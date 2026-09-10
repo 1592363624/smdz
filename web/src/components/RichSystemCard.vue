@@ -379,17 +379,23 @@ onBeforeUnmount(() => {
   hideNow();
 });
 
-/** 装备品质集合（与改版 backend qualityPrefix 对齐） */
-const QUALITY_SET = new Set(['普通', '良好', '优秀', '精良', '史诗', '传说', '神迹']);
-/** 品质 → 描边/文字颜色（供装备格区分品级） */
+/**
+ * 装备品质码集合（2026-09-10 口径统一）：服务端装备栏下发**品质码字母**
+ * （E 普通/D 良好/C 优秀/B 精良/A 史诗/S 传说/X 神迹，见 equipmentQualityLabel），
+ * 与背包显示名「冰雹S」同一套码 —— 旧版此处比对中文品质名（传说/史诗…），
+ * 与背包字母码两套表示并存，玩家需脑内换算，已废弃。
+ */
+const QUALITY_CODES = ['E', 'D', 'C', 'B', 'A', 'S', 'X'];
+const QUALITY_SET = new Set(QUALITY_CODES);
+/** 品质码 → 描边/文字颜色（供装备格区分品级） */
 const QUALITY_COLOR = {
-  普通: '#b0b6c4',
-  良好: '#4ade80',
-  优秀: '#38bdf8',
-  精良: '#a78bfa',
-  史诗: '#fbbf24',
-  传说: '#f87171',
-  神迹: '#f472b6',
+  E: '#b0b6c4',
+  D: '#4ade80',
+  C: '#38bdf8',
+  B: '#a78bfa',
+  A: '#fbbf24',
+  S: '#f87171',
+  X: '#f472b6',
 };
 
 /**
@@ -538,7 +544,7 @@ function parseLayout(text) {
       if (t.startsWith('📋 装备')) { equipMode = true; continue; }
 
       if (equipMode) {
-        // 装备行："头部: 传说 动力头盔(+0)" / "武器: 无(+0)" / "1.头部: 传说 动力头盔(+2)"（带卸下序号）
+        // 装备行："头部: S 动力头盔(+0)" / "武器: 拳头(+0)" / "1.头部: S 动力头盔(+2)"（带卸下序号）
         const em = t.match(/^([^:：]+)[:：]\s*(.+)$/);
         if (em) {
           // 服务端已装备行带「N.」序号前缀（与「卸下 N」指令对号），剥号后再匹配槽位名
@@ -547,10 +553,11 @@ function parseLayout(text) {
           const eqNo = noMatch ? Number(noMatch[1]) : null;
           if (slotSet.has(slotName)) {
             const val = em[2].trim().replace(/\(\+?\d+\)$/, ''); // 去掉 (+强化)
-            // 默认武器「普通 拳头」视为未装备（与 backend 的占位一致）
-            const has = !/^(无|普通\s*无|普通\s*拳头)$/.test(val);
-            // 品质 = 值首词（普通/良好/优秀/精良/史诗/传说/神迹），用于格子描边着色
-            const firstWord = val.split(/\s+/)[0] || '';
+            // 默认武器「拳头」视为未装备（与 backend 的空手占位一致，占位行不带品质码）
+            const has = !/^(无|拳头)$/.test(val);
+            // 品质 = 值首词的大写品质码（E/D/C/B/A/S/X），用于格子描边着色；
+            // 裸条目装备（无 data，服务端不下发品质码）首词不是品质码 → 不着色
+            const firstWord = (val.split(/\s+/)[0] || '').toUpperCase();
             const quality = QUALITY_SET.has(firstWord) ? firstWord : '';
             equip.push({ slot: slotName, text: val || '无', has, quality, no: eqNo });
           }

@@ -121,11 +121,13 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     // 至少应展示装备栏
     expect(out).toContain('📋 装备:');
     // 6 件都能找到对应槽位（与左面板 buildEquipmentSnapshot 同口径）
-    expect(out).toContain('头部: 精良 防弹头盔');
-    expect(out).toContain('肩膀: 史诗 动力肩甲');
-    expect(out).toContain('上身: 优秀 防弹上衣');
-    expect(out).toContain('腰部: 良好 游侠腰带');
-    expect(out).toContain('背部: 史诗 游侠披风');
+    // 品质展示为**品质码字母**（2026-09-10 口径统一，与背包显示名「冰雹S」同源）：
+    // b=精良→B / a=史诗→A / c=优秀→C / d=良好→D
+    expect(out).toContain('头部: B 防弹头盔');
+    expect(out).toContain('肩膀: A 动力肩甲');
+    expect(out).toContain('上身: C 防弹上衣');
+    expect(out).toContain('腰部: D 游侠腰带');
+    expect(out).toContain('背部: A 游侠披风');
   });
 
   it('同槽位多件只显示第一件（findIndex 行为）', async () => {
@@ -159,14 +161,14 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     expect(out).toContain('脚部: 无(+0)');
   });
 
-  it('无武器时 武器 槽位回退为「普通 拳头(+0)」', async () => {
+  it('无武器时 武器 槽位回退为「拳头(+0)」（拳头非品质装备，不带品质码前缀）', async () => {
     const service = makeService({
       staticDataGetEquipmentByName: (name: string) => ({
         equipType: slotMap[name],
       }),
     });
     const out = await service.handleInfo(42);
-    expect(out).toContain('武器: 普通 拳头(+0)');
+    expect(out).toContain('武器: 拳头(+0)');
   });
 
   it('静态表查不到时（未收录的旧装备）回退到 item.type，避免整段崩溃', async () => {
@@ -178,7 +180,7 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     const out = await service.handleInfo(42);
     expect(out).toContain('📋 装备:');
     expect(out).toContain('头部: 无(+0)');
-    expect(out).toContain('武器: 普通 拳头(+0)');
+    expect(out).toContain('武器: 拳头(+0)');
   });
 
   it('已装备行带「N.」卸下序号前缀（与「卸下 N」指令对号），空槽不占号；尾部带用法提示', async () => {
@@ -189,8 +191,8 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     });
     const out = await service.handleInfo(42);
 
-    // 已装备行带序号：头部=1（12 部位顺序里第一个命中的）
-    expect(out).toMatch(/^\s+1\.头部: 精良 防弹头盔/m);
+    // 已装备行带序号：头部=1（12 部位顺序里第一个命中的）；品质为品质码 B（data 'b'=精良）
+    expect(out).toMatch(/^\s+1\.头部: B 防弹头盔/m);
     // 空槽位不占号（保持原格式）
     expect(out).toContain('饰品: 无(+0)');
     // 有已装备项 → 尾部出现「卸下 序号」用法提示

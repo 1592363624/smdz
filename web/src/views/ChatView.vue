@@ -392,8 +392,10 @@
     </aside>
 
     <!-- 右侧：公屏聊天 -->
-    <main class="chat-main">
-      <header class="chat-header">
+    <!-- header-hidden：手机端顶部操作栏已自动收起（仅 ≤768px 有对应样式），消息区因此顶到屏幕顶部 -->
+    <main class="chat-main" :class="{ 'header-hidden': mobileHeaderHidden }">
+      <!-- header-collapsed：手机端默认收起、滑动消息列表时滑出；桌面端无对应样式，不受影响 -->
+      <header ref="chatHeaderEl" class="chat-header" :class="{ 'header-collapsed': mobileHeaderHidden }">
         <button class="mobile-menu-btn" @click="mobileMenuOpen = !mobileMenuOpen">
           <span class="menu-bar"></span>
           <span class="menu-bar"></span>
@@ -930,7 +932,7 @@
  * - 地图连接显示
  * - 消息类型彩色区分（聊天、指令、系统、游戏、战斗、信息）
  */
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 // 玩家状态面板（桌面侧栏 + 手机抽屉复用；战斗力/任务/装备/增益一屏展示）
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
@@ -2009,9 +2011,15 @@ function formatTime(ts) {
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${time}`;
 }
 
+// 时间戳窗口：程序化滚动（自动到底）与布局补偿引起的 scroll 事件不唤起手机端头部。
+// 声明必须早于 scrollToBottom 的调用点（其在 onMounted 之后才会执行）
+let suppressHeaderRevealUntil = 0;
+
 function scrollToBottom() {
   showScrollBtn.value = false;
   isUserScrolling = false;
+  // 程序化滚到底不算「用户滑动」，不唤起手机端顶部操作栏（否则每条新消息都会闪一次头部）
+  suppressHeaderRevealUntil = performance.now() + 160;
   nextTick(() => {
     if (msgList.value) {
       msgList.value.scrollTop = msgList.value.scrollHeight;
@@ -2033,6 +2041,158 @@ function onMsgScroll() {
   } else {
     showScrollBtn.value = false;
     isUserScrolling = false;
+  }
+  // 用户滑动 → 滑出顶部操作栏（布局补偿/程序化滚动引起的 scroll 事件跳过，避免抖动）
+  if (performance.now() >= suppressHeaderRevealUntil) revealMobileHeader();
+}
+
+// ============================================================
+// 手机端顶部操作栏：默认收起，滑动消息列表时滑出
+// ------------------------------------------------------------
+// 设计取舍：
+// 1) 头部收起会「让出」整块高度给消息区 → 属于布局变化，必须同步补偿 scrollTop，
+//    否则正在阅读的正文会整体跳动（收起时上跳、展开时下跳）。
+// 2) 汉堡按钮是侧边栏的唯一入口，因此：消息太少不可滚动时**禁止收起**，
+//    避免出现"没有滚动 → 头部不出现 → 打不开侧边栏"的死角。
+// 3) 只在贴底（实时消息流）状态下自动收起；用户上滑看历史时保持展开，
+//    否则 2.6s 后头部收回会连带正文跳一下。
+// 4) 仅 ≤768px 生效（CSS 规则在媒体查询内，桌面端类名无任何效果）。
+// ============================================================
+const MOBILE_HEADER_MQ = '(max-width: 768px)';
+const HEADER_AUTO_HIDE_MS = 2600; // 停止滑动后多久自动收回
+const HEADER_INITIAL_PEEK_MS = 2000; // 进入页面先展示一次（让用户知道顶部入口存在），再自动收起
+const chatHeaderEl = ref(null);
+const mobileHeaderHidden = ref(false);
+let headerHideTimer = null;
+let headerResizeObserver = null;
+
+function isMobileViewport() {
+  return typeof window !== 'undefined' && window.matchMedia(MOBILE_HEADER_MQ).matches;
+}
+
+// 消息列表是否真的能滚动：不能滚动时不允许收起头部（保底侧边栏入口）
+function isMessageListScrollable() {
+  const el = msgList.value;
+  return !!el && el.scrollHeight - el.clientHeight > 8;
+}
+
+function isMsgListAtBottom(el = msgList.value) {
+  return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+}
+
+// 头部真实高度写进 CSS 变量，供收起时的负 margin 使用
+// （高度随 1~2 行与安全区变化，不能写死）
+function syncHeaderHeightVar() {
+  const el = chatHeaderEl.value;
+  if (el) el.style.setProperty('--header-h', `${el.offsetHeight}px`);
+}
+
+function clearHeaderHideTimer() {
+  if (headerHideTimer) {
+    clearTimeout(headerHideTimer);
+    headerHideTimer = null;
+  }
+}
+
+// 切换收起态：布局瞬时生效（CSS 只过渡 transform），同一帧内补偿滚动锚点
+function setMobileHeaderHidden(hidden) {
+  if (mobileHeaderHidden.value === hidden) return;
+  const el = msgList.value;
+  const h = chatHeaderEl.value ? chatHeaderEl.value.offsetHeight : 0;
+  const atBottom = isMsgListAtBottom(el);
+  mobileHeaderHidden.value = hidden;
+  if (!el || !h) return;
+  suppressHeaderRevealUntil = performance.now() + 200;
+  // 等 Vue 把 class 刷进 DOM 后再补偿，确保读到新的可视高度
+  nextTick(() => {
+    if (hidden) {
+      // 收起：消息区顶边上移 h。贴底时直接吸附到底部（实时流语义）；
+      // 否则把阅读位置原地按住（scrollTop 同步减少 h）
+      el.scrollTop = atBottom ? el.scrollHeight : Math.max(0, el.scrollTop - h);
+    } else if (atBottom) {
+      // 展开：贴底时保持吸附底部；否则把阅读位置往下补回 h
+      el.scrollTop = el.scrollHeight;
+    } else {
+      el.scrollTop = Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + h);
+    }
+    suppressHeaderRevealUntil = performance.now() + 200;
+  });
+}
+
+// 滑出头部，并在停止滑动 HEADER_AUTO_HIDE_MS 后自动收回
+function revealMobileHeader() {
+  if (!isMobileViewport()) return;
+  clearHeaderHideTimer();
+  setMobileHeaderHidden(false);
+  if (!isMessageListScrollable()) return;
+  headerHideTimer = setTimeout(() => {
+    headerHideTimer = null;
+    if (mobileMenuOpen.value) return; // 抽屉打开时不收回
+    if (isMsgListAtBottom()) setMobileHeaderHidden(true);
+  }, HEADER_AUTO_HIDE_MS);
+}
+
+// 视口尺寸/断点变化：重新量高；回到桌面端宽度时强制展开
+function onHeaderViewportResize() {
+  syncHeaderHeightVar();
+  if (!isMobileViewport() && mobileHeaderHidden.value) {
+    clearHeaderHideTimer();
+    setMobileHeaderHidden(false);
+  }
+}
+
+// 抽屉开合联动：打开时固定展开；关闭后短暂展示再自动收回
+watch(mobileMenuOpen, (open) => {
+  if (open) {
+    clearHeaderHideTimer();
+    setMobileHeaderHidden(false);
+  } else {
+    revealMobileHeader();
+  }
+});
+
+// 消息条数变化：重算头部高度；消息少到不可滚动时强制展开（保底入口）；补上首次展示排期
+watch(() => messageViews.value.length, () => {
+  nextTick(() => {
+    syncHeaderHeightVar();
+    maybeScheduleInitialPeek();
+    if (mobileHeaderHidden.value && !isMessageListScrollable()) {
+      clearHeaderHideTimer();
+      setMobileHeaderHidden(false);
+    }
+  });
+});
+
+// 首次进入先展示一次（学习成本：让用户知道顶部入口存在），随后进入"默认收起"状态。
+// 挂载时消息还没拉到、列表不可滚动，所以此处只做登记，等列表真的能滚动了再排期。
+let headerInitialPeekPending = true;
+function maybeScheduleInitialPeek() {
+  if (!headerInitialPeekPending || !isMobileViewport()) return;
+  if (!isMessageListScrollable()) return;
+  headerInitialPeekPending = false;
+  clearHeaderHideTimer();
+  headerHideTimer = setTimeout(() => {
+    headerHideTimer = null;
+    if (!mobileMenuOpen.value) setMobileHeaderHidden(true);
+  }, HEADER_INITIAL_PEEK_MS);
+}
+
+function setupMobileHeaderAutoHide() {
+  syncHeaderHeightVar();
+  if (!isMobileViewport()) return;
+  const el = chatHeaderEl.value;
+  if (el && typeof ResizeObserver !== 'undefined') {
+    headerResizeObserver = new ResizeObserver(() => syncHeaderHeightVar());
+    headerResizeObserver.observe(el);
+  }
+  maybeScheduleInitialPeek();
+}
+
+function teardownMobileHeaderAutoHide() {
+  clearHeaderHideTimer();
+  if (headerResizeObserver) {
+    headerResizeObserver.disconnect();
+    headerResizeObserver = null;
   }
 }
 
@@ -2803,6 +2963,10 @@ function closeAnnImagePreview() {
 }
 
 onMounted(async () => {
+  // 手机端顶部操作栏自动收起：初始化量高、首次展示排期、视口变化重算
+  setupMobileHeaderAutoHide();
+  window.addEventListener('resize', onHeaderViewportResize);
+
   try {
     // 时钟对齐：倒计时进度条/增益剩余时间都拿服务器时刻与本机时钟相减，
     // 先测一次偏移量（失败静默，倒计时退化为本机时钟）；socket 重连时会再测
@@ -2999,6 +3163,8 @@ onUnmounted(() => {
   socket?.disconnect();
   window.removeEventListener('resize', setViewportHeight);
   window.visualViewport?.removeEventListener('resize', setViewportHeight);
+  teardownMobileHeaderAutoHide();
+  window.removeEventListener('resize', onHeaderViewportResize);
   if (statsTimer) clearInterval(statsTimer);
   if (nearbyTimer) clearInterval(nearbyTimer);
   if (atPlayersTimer) clearInterval(atPlayersTimer);

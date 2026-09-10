@@ -63,6 +63,25 @@ export function equipmentQualityCode(item: any): string {
   return String(item?.data ?? item?.数据 ?? '').charAt(0).toLowerCase();
 }
 
+/**
+ * 品质展示标签（装备栏唯一口径，2026-09-10）：data 首字符品质码 → **大写字母**
+ * （E 普通 / D 良好 / C 优秀 / B 精良 / A 史诗 / S 传说 / X 神迹）。
+ *
+ * 与背包显示名「冰雹S」共用同一套码，玩家看装备栏不必再把中文品质名翻译回字母，
+ * 就能直接和背包里的 S/A/B 对齐。
+ *
+ * 非法/缺失码返回**空串**（不显示品质前缀）——裸条目装备（如 GM 发放、无 data 的历史数据）
+ * 不应自称「神迹」（旧内联 map 的 `|| '神迹'` 回落会把它显示成最高品质，属误导）。
+ *
+ * ⚠️ 「信息」文本面板与网页快照 buildEquipmentSnapshot 必须共用本函数：
+ * 历史上两处各内联一份中文品质 map，改一处必漏另一处（双重表示）。
+ * 中文品质名仍由 item.service.getEquipmentQuality 提供，仅用于强化/分解等文案。
+ */
+export function equipmentQualityLabel(data: unknown): string {
+  const code = String(data ?? '').charAt(0).toLowerCase();
+  return QUALITY_NAME_BY_CODE[code] ? code.toUpperCase() : '';
+}
+
 /** 是否为装备条目（type 缺失/空的历史条目按装备处理，避免漏匹配） */
 export function isEquipmentEntry(item: any): boolean {
   const type = String(item?.type ?? item?.类型 ?? '').trim();

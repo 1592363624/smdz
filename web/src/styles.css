@@ -3377,6 +3377,25 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
     font-size: 12px;
   }
 
+  /* ===== 顶部操作栏自动收起（手机端默认隐藏，滑动消息列表时滑出） =====
+     只过渡 transform：布局用的负 margin 必须「瞬时」切换——若一起过渡，
+     消息区高度会逐帧变化而 JS 只在切换时补偿一次 scrollTop，阅读位置就会漂移。
+     --header-h 由 ChatView 用 ResizeObserver 实测写入（头部在 1~2 行间变化）。 */
+  .chat-header {
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .chat-header.header-collapsed {
+    transform: translateY(-100%);
+    margin-bottom: calc(-1 * var(--header-h, 0px));
+    pointer-events: none;
+  }
+  /* 收起后消息列表顶到屏幕顶部，补上安全区，避免正文压到刘海/状态栏 */
+  .chat-main.header-hidden .messages {
+    padding-top: calc(10px + var(--safe-top));
+  }
+  /* 注：「减少动态效果」无需在此另行处理——文件末尾的全局
+     @media (prefers-reduced-motion: reduce) 已把所有 transition 压到 0.001ms */
+
   /* 消息区域 - 确保可滚动且不溢出 */
   .messages {
     flex: 1 1 auto;

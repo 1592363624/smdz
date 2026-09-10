@@ -498,13 +498,17 @@
             <h3>📢 发送全服公告</h3>
             <div class="gm-field">
               <label>公告内容</label>
-              <textarea v-model="gmAnnouncement.content" placeholder="输入要发送给所有玩家的公告内容...&#10;&#10;支持格式：[文字](链接) 超链接、![说明](图片地址) 配图、**粗体**、*斜体*、`代码`"></textarea>
+              <textarea
+                v-model="gmAnnouncement.content"
+                placeholder="输入要发送给所有玩家的公告内容...&#10;&#10;支持直接 Ctrl+V 粘贴截图/图片&#10;支持格式：[文字](链接) 超链接、![说明](图片地址) 配图、**粗体**、*斜体*、`代码`"
+                @paste="onAnnPaste"
+              ></textarea>
               <div class="ann-editor-toolbar">
                 <input ref="annImgInput" type="file" accept="image/*" multiple style="display: none" @change="onAnnImagesSelected" />
                 <button class="btn-ghost" :disabled="annUploading" @click="pickAnnImages">
                   {{ annUploading ? '⏳ 上传中…' : '🖼️ 插入图片' }}
                 </button>
-                <span class="ann-editor-hint">支持 [文字](链接)、**粗体** 等写法，玩家端链接可直接点击</span>
+                <span class="ann-editor-hint">支持 Ctrl+V 直接粘贴截图；也支持 [文字](链接)、**粗体** 等写法</span>
               </div>
             </div>
             <!-- 实时预览：与玩家端公告弹窗同一渲染组件 -->
@@ -530,7 +534,7 @@
  * - 用户管理：查看/修改用户角色、封禁状态、昵称
  * - GM 工具：发放物品、设置世界等级、发送全服公告
  */
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { adminApi } from '../api';
 import { API_BASE } from '../config';
@@ -1247,34 +1251,89 @@ function pickAnnImages() {
   annImgInput.value?.click();
 }
 
-/** 选择图片后上传，成功后把 ![](url) 追加到公告正文光标处（无光标则追加到末尾） */
-async function onAnnImagesSelected(e) {
-  const files = Array.from(e.target.files || []);
-  // 清空 input 值，允许重复选择同一文件
-  e.target.value = '';
-  if (!files.length) return;
+/**
+ * 把若干图片地址以 Markdown 图片语法插入公告正文
+ * - 优先插入到 textarea 光标处（保持编辑体验），无光标则追加到末尾
+ * - Markdown 图片语法括号内不能有空格，否则玩家端解析器不识别
+ */
+function insertAnnImages(urls) {
+  if (!urls.length) return;
+  const ta = gmAnnouncement.value.content;
+  const snippet = urls.map((u) => `![](${u})`).join('\n');
+  const textareaEl = document.querySelector('.gm-tool-card .gm-field textarea');
+  let pos = textareaEl && textareaEl.selectionStart != null ? textareaEl.selectionStart : -1;
+  if (pos < 0 || pos > ta.length) pos = ta.length;
+  const before = ta.slice(0, pos);
+  const after = ta.slice(pos);
+  const pad1 = before && !before.endsWith('\n') ? '\n' : '';
+  const pad2 = after && !after.startsWith('\n') ? '\n' : '';
+  gmAnnouncement.value.content = before + pad1 + snippet + pad2 + after;
+  // 插入后把光标移到图片语法之后，方便继续输入文字
+  nextTick(() => {
+    const el = document.querySelector('.gm-tool-card .gm-field textarea');
+    if (!el) return;
+    const caret = before.length + pad1.length + snippet.length;
+    el.setSelectionRange(caret, caret);
+    el.focus();
+  });
+}
+
+/** 上传若干图片文件并把返回地址插入正文（「插入图片」按钮与「剪贴板粘贴」共用同一实现） */
+async function uploadAnnImages(files) {
+  if (!files || !files.length) return false;
   annUploading.value = true;
   try {
     const res = await adminApi.uploadAnnouncementImage(files);
     const urls = res.data || [];
     if (!urls.length) throw new Error('未返回图片地址');
-    const ta = gmAnnouncement.value.content;
-    // Markdown 图片语法：括号内不能有空格，否则玩家端解析器不识别
-    const snippet = urls.map((u) => `![](${u})`).join('\n');
-    // 优先插入到 textarea 光标处，保持编辑体验
-    const textareaEl = document.querySelector('.gm-tool-card .gm-field textarea');
-    let pos = textareaEl && textareaEl.selectionStart != null ? textareaEl.selectionStart : -1;
-    if (pos < 0 || pos > ta.length) pos = ta.length;
-    const before = ta.slice(0, pos);
-    const after = ta.slice(pos);
-    const pad1 = before && !before.endsWith('\n') ? '\n' : '';
-    const pad2 = after && !after.startsWith('\n') ? '\n' : '';
-    gmAnnouncement.value.content = before + pad1 + snippet + pad2 + after;
+    insertAnnImages(urls);
+    return true;
   } catch (err) {
     alert('上传公告配图失败：' + (err.response?.data?.message || err.message));
+    return false;
   } finally {
     annUploading.value = false;
   }
+}
+
+/** 「插入图片」按钮：选择本地文件后上传 */
+async function onAnnImagesSelected(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = ''; // 清空 input 值，允许重复选择同一文件
+  await uploadAnnImages(files);
+}
+
+// 剪贴板图片按 MIME 兜底扩展名，保证落盘文件名带后缀（静态服务据此后置 Content-Type）
+const PASTE_EXT_BY_MIME = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/bmp': 'bmp',
+  'image/avif': 'avif',
+};
+
+/**
+ * 剪贴板粘贴：支持直接 Ctrl+V 粘贴截图/复制的图片
+ * - 剪贴板中没有图片时直接放行，走浏览器默认的文本粘贴
+ * - 有图片时阻止默认行为，先上传再以 Markdown 图片语法插入光标处
+ */
+async function onAnnPaste(e) {
+  const items = Array.from(e.clipboardData?.items || []);
+  const files = items
+    .filter((it) => it.kind === 'file' && (it.type || '').startsWith('image/'))
+    .map((it) => it.getAsFile())
+    .filter(Boolean);
+  if (!files.length) return; // 纯文本粘贴交回浏览器处理
+  e.preventDefault();
+  // 剪贴板截图通常没有文件名/扩展名，补一个带正确扩展名的 File，避免落盘后丢失后缀
+  const named = files.map((f, i) => {
+    const ext = PASTE_EXT_BY_MIME[(f.type || '').toLowerCase()] || 'png';
+    const base = f.name && /\.[a-z0-9]+$/i.test(f.name) ? f.name : `paste_${Date.now()}_${i}.${ext}`;
+    return new File([f], base, { type: f.type || 'image/png' });
+  });
+  await uploadAnnImages(named);
 }
 
 async function doSendAnnouncement() {

@@ -23,8 +23,9 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname, join } from 'path';
+import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { buildUploadFilename } from '../../common/utils/upload-filename.util';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -237,10 +238,8 @@ export class AdminController {
           cb(null, dir);
         },
         filename: (_req, file, cb) => {
-          // 文件名：时间戳 + 随机串 + 原始扩展名，避免中文/空格问题与重名
-          const random = Math.random().toString(36).slice(2, 10);
-          const ext = extname(file.originalname || '').toLowerCase();
-          cb(null, `${Date.now()}_${random}${ext}`);
+          // 文件名：时间戳 + 随机串 + 扩展名；剪贴板粘贴的图片无扩展名时按 MIME 兜底
+          cb(null, buildUploadFilename(file.originalname, file.mimetype));
         },
       }),
       limits: {

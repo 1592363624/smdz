@@ -122,6 +122,21 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    # 上传附件反向代理（公告配图 / 反馈图片 / 私聊文件）
+    # ⚠️ 必须单独配！root 指向 web/dist 且 location / 带 SPA 回退（try_files ... /index.html），
+    # 若不配这一段，/uploads/xxx.png 会被回退成 index.html(Content-Type: text/html)，
+    # 浏览器 <img> 无法解码 → 玩家端显示裂图（事故：2026-09-10 系统公告配图不显示）。
+    # 后端 NestJS 已用 ServeStaticModule 托管 /uploads（serveRoot=/uploads，目录 server/uploads），
+    # 这里只需反向代理到后端。宝塔用户可直接写进站点 server 块（面板保存会重写主 conf，
+    # 粘贴后请确认这一段仍在；也可放进 extension/<站点名>/*.conf 由 include 引入，二选一不要重复）。
+    location /uploads/ {
+        proxy_pass http://127.0.0.1:3333;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+
     # WebSocket 公屏代理(必须配 Upgrade)
     # 注意：Socket.IO 的引擎路径默认是 /socket.io/，前端 config.js 里的 '/ws'
     # 只是 namespace；代理 location 必须按 /socket.io/ 配，配成 /ws/ 会导致连接不通
@@ -139,7 +154,11 @@ server {
 }
 ```
 
-> 生产环境的完整实际配置（宝塔 + SSL 版）留档在 `deploy/nginx/smdz.52shell.ltd.conf.example`。
+> 生产环境的完整实际配置（宝塔 + SSL 版）留档在 `deploy/nginx/smdz.52shell.ltd.conf.example`，
+> 与线上 1:1 一致，可直接整段粘贴到宝塔「网站 → 设置 → 配置文件」。
+> 改完必须重载才生效：`cd /d C:\BtSoft\nginx && nginx.exe -t && nginx.exe -s reload`；
+> Windows 服务式安装的 nginx（LocalSystem / `nginx_server.exe`）执行 `-s reload` 会报
+> `OpenEvent(...ngx_reload_<pid>) failed (5: Access is denied)`，此时改用 `sc stop nginx && sc start nginx`。
 
 > 若用 IIS：把 web/dist 设为网站根目录，URL 重写 `/{R:0}` 到 `index.html`，并配置 `/api`、`/ws` 反向代理（需安装 Application Request Routing）。
 
@@ -163,6 +182,7 @@ server {
 | 数据库没建好 | 首次需手动执行 Section 四的命令 |
 | 前端访问 404 | 确认 Nginx/IIS 已配好 `try_files`/重写规则 |
 | 部署期间页面在两个路由间无限刷新 / 看不到维护页 | nginx 缺维护模式拦截（Section 五 + Section 十）。确认 `location /` 里有 `if ($maintenance = 1)` 一段，且 `web\dist\maintenance.html` 存在、flag 路径正确 |
+| 公告配图 / 反馈图片 / 私聊图片显示裂图（上传成功但看不到） | nginx 缺 `location /uploads/`（Section 五）。验证：`curl -I https://域名/uploads/<某个真实文件>`，正确应为 `Content-Type: image/*`；若返回 `text/html` 说明被 SPA 回退吃掉了。改完 nginx 需 `nginx -t && nginx -s reload`（或重启 nginx 服务）才生效 |
 
 ## 八、`WIN_PATH` 配置细则（最容易踩坑）
 

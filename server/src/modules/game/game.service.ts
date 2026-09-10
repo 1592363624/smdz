@@ -36,8 +36,9 @@ import { HandbookService } from './handbook.service';
 import { GlobalProficiencyService } from './global-proficiency.service';
 import { normalizeGameText, formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
-// 装备引用解析（基础名 + 品质码 + ·特效）单一实现，与「锁定装备/解锁」同源。
-import { resolveEquipmentRefIndex } from './equipment-ref.util';
+// 装备引用解析（基础名 + 品质码 + ·特效）单一实现，与「锁定装备/解锁」同源；
+// equipmentQualityLabel = 装备栏品质展示标签（大写品质码）单一实现，文本面板/网页快照共用。
+import { resolveEquipmentRefIndex, equipmentQualityLabel } from './equipment-ref.util';
 import { filterActive, formatRemain, remainSeconds, toExpireMs } from './expire-time.util';
 import { buildFamiliarGateMenu } from './familiar-menu.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -1835,12 +1836,9 @@ export class GameService {
     slot: string; name: string | null; quality: string; effect: number; enhance: number; attrs: string; no: number | null;
     weapons?: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; attrs: string; no: number | null }>;
   }> {
-    // 品质前缀映射（对齐原版 显示品质 L1591-1639）
-    const qualityPrefix = (data: string): string => {
-      const c = (data || '').charAt(0).toLowerCase();
-      const map: Record<string, string> = { e: '普通', d: '良好', c: '优秀', b: '精良', a: '史诗', s: '传说' };
-      return map[c] || '神迹';
-    };
+    // 品质展示标签：大写品质码（S/A/B…），与背包显示名同口径，单一实现见 equipment-ref.util。
+    // 2026-09-10 用户约定：装备栏评级不再显示中文品质名（传说/史诗…），
+    // 玩家可直接和背包里的「冰雹S」对照，不必再脑内换算 S 是不是传说。
     const equipmentList = asJsonValue<any[]>(player.equipment, []);
     const weaponList = asJsonValue<any[]>(player.weapons, []);
     const currentWeaponIdx = Number(player.currentWeapon ?? 0);
@@ -1876,7 +1874,7 @@ export class GameService {
       return {
         slot,
         name: String(item.name || item.名称 || '未知'),
-        quality: qualityPrefix(rawData),
+        quality: equipmentQualityLabel(rawData),
         effect: effectNum,
         enhance: enhanceLv,
         attrs,
@@ -2394,12 +2392,11 @@ export class GameService {
     const noOf = (kind: 'equip' | 'weapon', slot: string, arrIndex: number): number =>
       equipped.find((e) => e.kind === kind && e.slot === slot && (kind === 'weapon' ? e.weaponIndex === arrIndex : e.equipIndex === arrIndex))?.no ?? 0;
 
-    // 品质前缀映射（对齐原版 显示品质 L1591-1639）
-    const qualityPrefix = (data: string): string => {
-      const c = (data || '').charAt(0).toLowerCase();
-      const map: Record<string, string> = { e: '普通', d: '良好', c: '优秀', b: '精良', a: '史诗', s: '传说' };
-      return map[c] || '神迹';
-    };
+    // 品质标签 = 大写品质码（S/A/B…，equipment-ref.util 单一实现），与网页快照同口径。
+    // 2026-09-10 用户约定：装备栏评级显示品质码字母，直接对应背包显示名「冰雹S」。
+    // 此处曾内联一份中文品质 map（与 buildEquipmentSnapshot 各抄一份 = 双重表示），已收敛。
+    // 有码才加「S 」前缀；裸条目装备（无 data）不加前缀，避免拼出「  防弹头盔」双空格。
+    const withQuality = (label: string, name: string): string => (label ? `${label} ${name}` : name);
 
     // 装备槽位取数：与 buildEquipmentSnapshot / 网页左面板同口径。
     // 运行时 item.type 固定为「装备」大分类（见 item.service.equipItem），必须查静态表 equipType，
@@ -2413,12 +2410,12 @@ export class GameService {
       const eqIdx = equipmentList.findIndex((e: any) => getEquipType(e) === slotName);
       if (eqIdx >= 0) {
         const eq = equipmentList[eqIdx];
-        const qName = qualityPrefix(eq.data || eq.数据 || '');
+        const qName = equipmentQualityLabel(eq.data || eq.数据 || '');
         const fx = eq.effect || eq.特效 || 0;
         const fxStr = fx > 0 ? `[特效${fx}]` : '';
         const enhanceLv = this.combatState.getAchievementProficiency(markers, slotName + '强化');
         const no = noOf('equip', slotName, eqIdx);
-        lines.push(`  ${no}.${slotName}: ${qName} ${eq.name || eq.名称 || '未知'}${fxStr}(+${enhanceLv})`);
+        lines.push(`  ${no}.${slotName}: ${withQuality(qName, `${eq.name || eq.名称 || '未知'}${fxStr}`)}(+${enhanceLv})`);
       } else {
         const enhanceLv = this.combatState.getAchievementProficiency(markers, slotName + '强化');
         lines.push(`  ${slotName}: 无(+${enhanceLv})`);
@@ -2428,15 +2425,16 @@ export class GameService {
     // 武器栏（L2160-2168）
     if (currentWeaponIdx > 0 && weaponList[currentWeaponIdx - 1]) {
       const w = weaponList[currentWeaponIdx - 1];
-      const qName = qualityPrefix(w.data || w.数据 || '');
+      const qName = equipmentQualityLabel(w.data || w.数据 || '');
       const fx = w.effect || w.特效 || 0;
       const fxStr = fx > 0 ? `[特效${fx}]` : '';
       const enhanceLv = this.combatState.getAchievementProficiency(markers, '武器强化');
       const no = noOf('weapon', '武器', currentWeaponIdx - 1);
-      lines.push(`  ${no}.武器: ${qName} ${w.name || w.名称 || '拳头'}${fxStr}(+${enhanceLv})`);
+      lines.push(`  ${no}.武器: ${withQuality(qName, `${w.name || w.名称 || '拳头'}${fxStr}`)}(+${enhanceLv})`);
     } else {
+      // 空手占位：拳头不是一件有品质的装备，不带品质码前缀（前端以「拳头」判定为未装备）
       const enhanceLv = this.combatState.getAchievementProficiency(markers, '武器强化');
-      lines.push(`  武器: 普通 拳头(+${enhanceLv})`);
+      lines.push(`  武器: 拳头(+${enhanceLv})`);
     }
 
     // 植入体（L2170-2179）
@@ -2446,9 +2444,9 @@ export class GameService {
     const implantLv = this.combatState.getAchievementProficiency(markers, '植入体等级');
     if (implantIdx >= 0) {
       const im = equipmentList[implantIdx];
-      const qName = qualityPrefix(im.data || im.数据 || '');
+      const qName = equipmentQualityLabel(im.data || im.数据 || '');
       const no = noOf('equip', '植入', implantIdx);
-      lines.push(`  ${no}.植入: ${qName} ${im.name || im.名称 || '未知'}(+${implantLv})`);
+      lines.push(`  ${no}.植入: ${withQuality(qName, im.name || im.名称 || '未知')}(+${implantLv})`);
     } else {
       lines.push(`  植入: 无(+${implantLv})`);
     }
@@ -2459,9 +2457,9 @@ export class GameService {
     const ampLv = this.combatState.getAchievementProficiency(markers, '增幅器等级');
     if (ampIdx >= 0) {
       const am = equipmentList[ampIdx];
-      const qName = qualityPrefix(am.data || am.数据 || '');
+      const qName = equipmentQualityLabel(am.data || am.数据 || '');
       const no = noOf('equip', '增幅', ampIdx);
-      lines.push(`  ${no}.增幅: ${qName} ${am.name || am.名称 || '未知'}(+${ampLv})`);
+      lines.push(`  ${no}.增幅: ${withQuality(qName, am.name || am.名称 || '未知')}(+${ampLv})`);
     } else {
       lines.push(`  增幅: 无(+${ampLv})`);
     }
@@ -2471,14 +2469,15 @@ export class GameService {
     for (let i = 0; i < weaponList.length; i++) {
       if (i + 1 !== currentWeaponIdx) {
         const w = weaponList[i];
-        const qName = qualityPrefix(w.data || w.数据 || '');
+        const qName = equipmentQualityLabel(w.data || w.数据 || '');
         const fx = w.effect || w.特效 || 0;
         const fxStr = fx > 0 ? `[特效${fx}]` : '';
         const no = noOf('weapon', '背上', i);
+        const label = withQuality(qName, `${w.name || w.名称 || '未知'}${fxStr}`);
         if (backupIdx === 0) {
-          lines.push(`  ${no}.背上: ${qName} ${w.name || w.名称 || '未知'}${fxStr}`);
+          lines.push(`  ${no}.背上: ${label}`);
         } else {
-          lines.push(`  ${no}.      ${qName} ${w.name || w.名称 || '未知'}${fxStr}`);
+          lines.push(`  ${no}.      ${label}`);
         }
         backupIdx++;
       }

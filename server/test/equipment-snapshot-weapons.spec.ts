@@ -53,16 +53,17 @@ describe('buildEquipmentSnapshot 15 格约定 + 武器格 weapons 子字段', ()
     // 武器格 = 手持那把（第 2 把，data 'c'），带 weapons 子数组
     const weaponCell = snap.find((e) => e.slot === '武器')!;
     expect(weaponCell.name).toBe('纵横');
-    expect(weaponCell.quality).toBe('优秀'); // data 'c' → 优秀
+    // 品质下发**品质码字母**（2026-09-10 口径统一，与背包显示名「纵横C」同源）：'c' → C
+    expect(weaponCell.quality).toBe('C');
     expect(Array.isArray(weaponCell.weapons)).toBe(true);
 
     // 列表顺序：手持在前，其余按 weapons[] 序；序号与 buildEquippedList 同源
     // （已装备序号：1=上身，2=武器（手持），3=背上（第1把），4=背上（第3把））
     const list = weaponCell.weapons!;
     expect(list.map((w) => `${w.slot}#${w.no}`)).toEqual(['武器#2', '背上#3', '背上#4']);
-    expect(list[0].quality).toBe('优秀');
-    expect(list[1].quality).toBe('传说'); // 's' → 传说
-    expect(list[2].quality).toBe('史诗'); // 'a' → 史诗
+    expect(list[0].quality).toBe('C'); // 'c' → C
+    expect(list[1].quality).toBe('S'); // 's' → S（传说）
+    expect(list[2].quality).toBe('A'); // 'a' → A（史诗）
   });
 
   it('空手玩家：武器格回拳头占位（name=null），weapons 为空数组', () => {
