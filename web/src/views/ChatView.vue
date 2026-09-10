@@ -1,5 +1,10 @@
 <template>
-  <div class="chat-page">
+  <!-- 开局门闸：判定完成前不渲染主界面，避免新玩家看到一瞬间的空壳页 -->
+  <div v-if="!bootReady" class="boot-splash">
+    <div class="boot-ring"></div>
+  </div>
+
+  <div v-show="bootReady" class="chat-page">
     <!-- 左侧：用户信息 + Tab 切换面板 -->
     <aside class="sidebar">
       <!-- 顶部固定：用户卡片（次要信息折叠进昵称下方小字）+ 绑定提示（按需展开） -->
@@ -971,6 +976,13 @@ const input = ref('');
 const connected = computed(() => connectionStore.connected);
 const msgList = ref(null);
 const inputEl = ref(null);
+
+/**
+ * 开局门闸：未完成「是否需要引导」判定的这段时间主界面不显示。
+ * 否则新玩家会先看到一帧空壳主界面再被跳转到契约引导页（闪现感很廉价）。
+ * 判定通过后置 true，主界面才真正参与布局（也保证移动端测高拿得到真实尺寸）。
+ */
+const bootReady = ref(false);
 
 // ===== 消息过滤：是否显示其他玩家的聊天与系统回复 =====
 // 偏好持久化到 localStorage，刷新后保持上次选择
@@ -2247,6 +2259,28 @@ async function loadPlayerInfo() {
   }
 }
 
+/**
+ * 开局预检：未选择使魔（player.type 为空）的玩家不允许停留在主界面，
+ * 直接重定向到全屏「使魔契约引导页」，选完再由引导页送回。
+ *
+ * 判据与服务端指令门禁完全一致（player.type 空 = 原版「老玩家==假」= 未开局），
+ * 因此本页只做跳转、不做任何写入，避免出现第二条换使魔通道。
+ * @returns {Promise<boolean>} true = 已发起跳转，调用方须立即中止后续初始化
+ */
+async function redirectIfNotOnboarded() {
+  try {
+    const res = await gameApi.playerInfo();
+    playerStore.setPlayerInfo(res.data);
+    if (!res.data?.type) {
+      router.replace('/onboard');
+      return true;
+    }
+  } catch {
+    // 接口异常时不阻断进主界面（后续 30s 兜底轮询会再校准），避免弱网被锁在引导页
+  }
+  return false;
+}
+
 async function loadMapOverview() {
   try {
     const res = await gameApi.mapOverview();
@@ -2982,6 +3016,14 @@ function closeAnnImagePreview() {
 }
 
 onMounted(async () => {
+  // 未选使魔的新玩家：先进全屏契约引导页，选定使魔后再回到主界面。
+  // 必须放在最前面——否则主界面会先渲染一帧，且公屏历史/面板数据对新玩家都是无意义的。
+  if (await redirectIfNotOnboarded()) return;
+
+  // 放行主界面渲染，并等 v-show 生效后再进入测高/滚动等依赖真实布局的初始化
+  bootReady.value = true;
+  await nextTick();
+
   // 手机端顶部操作栏自动收起：初始化量高、首次展示排期、视口变化重算
   setupMobileHeaderAutoHide();
   window.addEventListener('resize', onHeaderViewportResize);
@@ -3195,6 +3237,30 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ===== 开局门闸（仅判定期间可见）：避免新玩家看到空壳主界面后被打断跳转 ===== */
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+.boot-ring {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: boot-spin 0.8s linear infinite;
+}
+@keyframes boot-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-ring { animation: none; }
+}
+
 /* 富卡片消息容器：占满消息主体宽度，让内部网格能排多列 */
 .rich-wrap {
   width: 100%;

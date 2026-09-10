@@ -23,10 +23,12 @@ import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import {
+  buildFamiliarGateDetail,
   buildFamiliarGateMenu,
   buildFamiliarPreview,
   buildFamiliarSwitchMenu,
   buildTutorialClaimBlock,
+  FamiliarGateEntry,
 } from './familiar-menu.util';
 
 /**
@@ -369,6 +371,76 @@ export class FamiliarSystemService {
     await this.taskService.advance(userId, '更换使魔');
 
     return `${player.name || '冒险者'} 从${player.type}更换为${name}（冷却${Math.ceil(cooldown / 60)}分钟）`;
+  }
+
+  /**
+   * 使魔契约引导页数据（Web 全屏选择页专用，只读）。
+   *
+   * 与文本门禁 `GameService.getFirstFamiliarGate` 同源同口径，二者是同一件事的两个呈现：
+   * - 可选集合 = `getAllFamiliars().filter(f => !f.noSummon)`，保持静态 JSON 原始序，
+   *   与文本门禁两列编号菜单的编号一一对应（Web 版不得另写一套过滤/排序）；
+   * - 「是否需要选择」唯一判据 = `player.type` 为空（对应原版「老玩家==假」）。
+   *
+   * 区别仅在于返回结构化 DTO（供前端渲染卡片）而非两列文本菜单。只读、不落库。
+   */
+  async getFirstFamiliarGateDetail(userId: number): Promise<{
+    needsSelection: boolean;
+    currentType: string;
+    playerName: string;
+    familiars: FamiliarGateEntry[];
+  }> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const selectable = this.staticData.getAllFamiliars().filter((f: any) => !f.noSummon);
+    return {
+      needsSelection: !player.type,
+      currentType: player.type || '',
+      playerName: player.name || player.baseName || '',
+      familiars: buildFamiliarGateDetail(selectable),
+    };
+  }
+
+  /**
+   * Web 引导页「建立契约」：语义等价于文本渠道发送「选择使魔确认<名称>」。
+   *
+   * 刻意复用 `selectFamiliar` 的首次选择分支（清空初始数据 → 写 type/baseName/
+   * specialSeq/uniqueSkill/好感 → 重算等级属性并回满三池 → 领取教程任务 → 升级提示），
+   * 使 Web 与 QQ/AstrBot 两条入口共用同一份落库逻辑，避免二次实现导致分叉。
+   * 全程持用户级写锁（mutate 管道：锁内单一快照 + 统一落库 + 货币审计）。
+   *
+   * @returns {ok:false} 为可预期业务拒绝（名称非法/已开局），调用方按消息展示即可
+   */
+  async chooseFirstFamiliar(
+    userId: number,
+    familiarName: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const name = String(familiarName ?? '').trim();
+    if (!name) {
+      return { ok: false, message: '请先选择一位使魔再建立契约' };
+    }
+    // 名称必须命中静态定义，提前拦截脏参数（防止任意字符串被写进 player.type）
+    if (!this.staticData.getFamiliarByName(name)) {
+      return { ok: false, message: `不存在的使魔：${name}` };
+    }
+
+    // 单列轻量预检：已开局玩家不得经引导页入口改换使魔
+    // （换使魔受持有校验与冷却约束，唯一路径是「更换使魔」指令）
+    const snapshot = await this.prisma.player.findUnique({
+      where: { userId },
+      select: { type: true },
+    });
+    if (snapshot?.type) {
+      return {
+        ok: false,
+        message: `你已经契约了使魔「${snapshot.type}」，如需更换请发送「更换使魔」`,
+      };
+    }
+
+    const run = () => this.selectFamiliar(userId, `确认${name}`);
+    const message = this.mutateService?.mutate
+      ? await this.mutateService.mutate(userId, run)
+      : await this.playerService.enqueueUserWrite(userId, run);
+    return { ok: true, message };
   }
 
   /**

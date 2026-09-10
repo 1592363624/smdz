@@ -1833,8 +1833,8 @@ export class GameService {
    * name 为 null 表示该栏位为空，前端显示「无(+强化等级)」。
    */
   private buildEquipmentSnapshot(player: any, markers: any): Array<{
-    slot: string; name: string | null; quality: string; effect: number; enhance: number; attrs: string; no: number | null;
-    weapons?: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; attrs: string; no: number | null }>;
+    slot: string; name: string | null; quality: string; effect: number; enhance: number; enhanceRate: number; attrs: string; no: number | null;
+    weapons?: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; enhanceRate: number; attrs: string; no: number | null }>;
   }> {
     // 品质展示标签：大写品质码（S/A/B…），与背包显示名同口径，单一实现见 equipment-ref.util。
     // 2026-09-10 用户约定：装备栏评级不再显示中文品质名（传说/史诗…），
@@ -1850,26 +1850,23 @@ export class GameService {
 
     const entryOf = (slot: string, item: any, enhanceKey: string, no: number | null = null) => {
       const enhanceLv = this.combatState.getAchievementProficiency(markers, enhanceKey);
-      if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv, attrs: '', no: null };
+      if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv, enhanceRate: 0, attrs: '', no: null };
       const rawData = String(item.data || item.数据 || '');
       let effectNum = Number(item.effect || item.特效 || 0);
       if (!effectNum && rawData) {
         const bxMatch = rawData.match(/!bx(\d+)/);
         if (bxMatch) effectNum = parseInt(bxMatch[1], 10) || 0;
       }
-      // 解析装备属性（自带属性 + 随机词条），供网页左侧信息栏「已装备格」直接展示
+      // 逐件属性（**强化后**口径 + 行尾 `(+x.xx)` 增量标注）：单一实现
+      // itemSystemService.formatReinforcedEquipAttrs（与战斗链 calcEquipReinforce 同源）。
+      // 2026-09-10 修复：此前只读 parseEquipment 原始值，从不强化 → 玩家「强化武器」后
+      // 武器详情属性行完全不变，误判强化未生效（实测 +0 / +2 两组属性一模一样）。
       let attrs = '';
+      let enhanceRate = 0;
       if (rawData) {
-        try {
-          const parsed = this.itemService.parseEquipment(item);
-          const attrLines = [
-            ...this.itemSystemService.formatBonusStats(parsed?.baseBonus || {}),
-            ...this.itemSystemService.formatBonusStats(parsed?.bonus || {}),
-          ];
-          attrs = attrLines.join('\n');
-        } catch {
-          attrs = '';
-        }
+        const shown = this.itemSystemService.formatReinforcedEquipAttrs(item, markers);
+        attrs = shown.text;
+        enhanceRate = shown.coefficient;
       }
       return {
         slot,
@@ -1877,6 +1874,9 @@ export class GameService {
         quality: equipmentQualityLabel(rawData),
         effect: effectNum,
         enhance: enhanceLv,
+        // 强化系数百分比（系数 a1 × 100，两位小数）：面板「强化 +2（系数 +1%）」用，
+        // 等级取整后增益不可见时，玩家仍能读出实际收益
+        enhanceRate: Math.round(enhanceRate * 10000) / 100,
         attrs,
         no,
       };
@@ -1919,10 +1919,10 @@ export class GameService {
     // 2026-09-09 用户约定：左栏装备栏**固定 15 格不变**（背上武器不展开为独立格），
     // 前端单击「武器」格时展开该列表逐件展示详情 + 卸下按钮（按序号发「卸下 no」，
     // no 与「信息」文本面板 / unequipItem 编号分支三处同源）。列表顺序：手持在前，其余按 weapons[] 序。
-    const weaponDetails: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; attrs: string; no: number | null }> = [];
+    const weaponDetails: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; enhanceRate: number; attrs: string; no: number | null }> = [];
     const weaponDetailOf = (slot: string, item: any, no: number | null) => {
       const cell = entryOf(slot, item, '武器强化', no);
-      weaponDetails.push({ slot, name: cell.name ?? '', quality: cell.quality, effect: cell.effect, enhance: cell.enhance, attrs: cell.attrs, no });
+      weaponDetails.push({ slot, name: cell.name ?? '', quality: cell.quality, effect: cell.effect, enhance: cell.enhance, enhanceRate: cell.enhanceRate, attrs: cell.attrs, no });
     };
     // 背上武器按 weapons[] 序；手持插到最前（列表顺序约定：手持在前）
     for (let i = 0; i < weaponList.length; i++) {
@@ -1932,7 +1932,7 @@ export class GameService {
     if (heldIdx >= 0 && weaponList[heldIdx]) {
       const no = noOf('weapon', '武器', heldIdx);
       const cell = entryOf('武器', weaponList[heldIdx], '武器强化', no);
-      weaponDetails.unshift({ slot: '武器', name: cell.name ?? '', quality: cell.quality, effect: cell.effect, enhance: cell.enhance, attrs: cell.attrs, no });
+      weaponDetails.unshift({ slot: '武器', name: cell.name ?? '', quality: cell.quality, effect: cell.effect, enhance: cell.enhance, enhanceRate: cell.enhanceRate, attrs: cell.attrs, no });
     }
     (weaponCell as any).weapons = weaponDetails;
     return result;
@@ -16054,7 +16054,6 @@ export class GameService {
    */
   private async calcPresetBonus(player: any, preset: any): Promise<Record<string, number>> {
     const markers = asJsonValue<any>(player.markers, {});
-    const mingYu = this.playerService.getMarkerValue(markers, '冥鱼技能');
     const total: Record<string, number> = {};
     const addBonus = (src: any) => {
       if (!src || typeof src !== 'object') return;
@@ -16068,17 +16067,14 @@ export class GameService {
 
     for (const item of preset.equipment || []) {
       try {
+        // 强化唯一实现（熟练度键映射 / 增幅器排除 / 系数出口全在 itemSystemService）：
+        // 与装备栏展示链、战斗结算链同源，禁在此重拼 `xxx强化` 键；verbose=true 保留逐件诊断日志
         const eq = this.itemService.parseEquipment(item);
-        // 计算装备强化（强化熟练度写入自带属性）
-        const prof = this.playerService.getMarkerValue(markers, `${eq.type || ''}强化`);
-        const reverseProf = this.playerService.getMarkerValue(markers, eq.name || '');
-        this.bonusService.calcEquipReinforce(
+        this.itemSystemService.applyEquipReinforce(
           { type: eq.type, name: eq.name, self: eq.baseBonus, bonus: eq.bonus },
+          markers,
           eq.type === '武器',
-          prof,
-          reverseProf,
-          mingYu,
-          true, // 低频诊断调用点：保持逐件日志
+          true,
         );
         addBonus(eq.baseBonus);
         addBonus(eq.bonus);

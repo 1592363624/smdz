@@ -6,7 +6,7 @@
 import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
-import { BonusService } from './bonus.service';
+import { BonusService, EquipReinforceContext } from './bonus.service';
 import { ItemService, Item3, Equipment } from './item.service';
 import { StaticDataService } from './static-data.service';
 import { AchievementService } from './achievement.service';
@@ -2664,10 +2664,107 @@ export class ItemSystemService {
     return null;
   }
 
+  // ===================================================================
+  //  装备强化（唯一实现）
+  // ===================================================================
+  // 背景（2026-09-10 诊断，用户实测：武器强化前后装备详情属性完全一致）：
+  // 强化等级写在 markers[`${部位}强化`]（武器写「武器强化」），但历史上有两条消费链分叉——
+  // 战斗链 buildAttackerBonus 已调 calcEquipReinforce（2026-09-09 补接），
+  // 而左侧面板/武器详情的逐件属性（game.service.buildEquipmentSnapshot.entryOf）只读
+  // parseEquipment 的原始值，从未接入强化 → 玩家强化后属性行恒不变，误判「强化没生效」。
+  // 现在收敛：熟练度键映射 + 增幅器排除 + 系数出口全在本类，展示链/预设预览/战斗链一律调用，
+  // 禁各自拼 `xxx强化` 键、禁各自重算系数。
+
+  /**
+   * 对单件装备施加强化（原地修改传入的自带/加成），返回生效系数。
+   *
+   * 熟练度键映射唯一入口：武器→「武器强化」（全局共享），其余→`${类型}强化`（部位级共享）。
+   * 增幅器不参与装备强化（原版 加成计算.ecode L1669 明确跳过），其加成走独立的增幅放大体系。
+   *
+   * @param equip 装备上下文（type/name + self/bonus，self/bonus 会被就地强化）
+   * @param markers 玩家标记（对象或 JSON 字符串）
+   * @param isWeapon 是否武器（决定熟练度键；武器不看 type）
+   * @param verbose 是否逐件打日志（仅低频诊断点开启，高频结算链必须保持 false）
+   * @returns 生效强化系数（0 = 无强化）
+   */
+  applyEquipReinforce(
+    equip: EquipReinforceContext,
+    markers: any,
+    isWeapon = false,
+    verbose = false,
+  ): number {
+    // 增幅器：不参与装备强化，直接返回 0（避免误配 增幅器强化 标记后行为漂移）
+    if (String(equip.type || '') === '增幅器') return 0;
+    const proficiencyKey = isWeapon ? '武器强化' : `${String(equip.type || '')}强化`;
+    return this.bonusService.calcEquipReinforce(
+      equip,
+      isWeapon,
+      this.playerService.getMarkerValue(markers, proficiencyKey),
+      // 逆向熟练度：键 = 装备名（原版 玩家.逆向1）
+      this.playerService.getMarkerValue(markers, String(equip.name || '')),
+      this.playerService.getMarkerValue(markers, '冥鱼技能'),
+      verbose,
+    );
+  }
+
+  /**
+   * 装备逐条属性（**强化后**口径）：装备栏 / 武器详情 / 预设预览的统一取数入口。
+   *
+   * 与战斗链同源：parseEquipment → applyEquipReinforce → 自带+附加合并后逐行输出；
+   * 强化带来的增量以 `(+x.xx)` 标注（取整后无变化不标注，避免满屏噪声）。
+   * 「展示链必须含强化」是硬约束：否则玩家强化到 200 级（+100%）界面上仍看不出任何变化。
+   *
+   * @param item 装备条目（背包/装备栏/武器栏原始对象）
+   * @param markers 玩家标记
+   * @returns text：逐行属性文本（无属性时为空串）；coefficient：强化系数（0=未强化）
+   */
+  formatReinforcedEquipAttrs(
+    item: any,
+    markers: any,
+  ): { text: string; coefficient: number } {
+    let parsed: Equipment;
+    try {
+      parsed = this.itemService.parseEquipment(item);
+    } catch {
+      return { text: '', coefficient: 0 };
+    }
+    const isWeapon = parsed.type === '武器';
+    // 同键合并（自带 + 附加）：旧展示是两段直接拼接，同键会输出两行，合并后消除重复
+    const mergeInto = (target: Record<string, number>, source: any) => {
+      if (!source || typeof source !== 'object') return;
+      for (const [key, raw] of Object.entries(source)) {
+        const value = Number(raw);
+        if (Number.isFinite(value) && value !== 0) target[key] = (target[key] || 0) + value;
+      }
+    };
+    const flatten = (): Record<string, number> => {
+      const merged: Record<string, number> = {};
+      mergeInto(merged, parsed.baseBonus);
+      mergeInto(merged, parsed.bonus);
+      return merged;
+    };
+    // 强化前基线；parseEquipment 已对静态表做 cloneJson，就地强化不会污染进程级缓存
+    const before = flatten();
+    const coefficient = this.applyEquipReinforce(
+      { type: parsed.type, name: parsed.name, self: parsed.baseBonus, bonus: parsed.bonus },
+      markers,
+      isWeapon,
+    );
+    const after = flatten();
+    const gains: Record<string, number> = {};
+    for (const [key, value] of Object.entries(after)) {
+      const gain = value - (before[key] || 0);
+      if (gain > 0) gains[key] = gain;
+    }
+    return { text: this.formatBonusStats(after, gains).join('\n'), coefficient };
+  }
+
   /**
    * 格式化加成属性为显示文本
+   * @param bonus 属性对象
+   * @param gainMap 可选：逐键强化增量（仅展示链传入，用于行尾 ` (+x.xx)` 标注）
    */
-  formatBonusStats(bonus: Record<string, number>): string[] {
+  formatBonusStats(bonus: Record<string, number>, gainMap?: Record<string, number>): string[] {
     const lines: string[] = [];
     const displayMap: Record<string, string> = {
       shield: '护盾', 装甲: '装甲', 生命: '生命', 攻击: '攻击',
@@ -2706,7 +2803,10 @@ export class ItemSystemService {
         // 全局数值口径：显示最多两位小数，消除浮点尾巴（如 103.32000000000001）
         const fmtValue = Math.round(Number(value) * 100) / 100;
         const suffix = percentKeys.has(key) ? '%' : '';
-        lines.push(`  ${displayName}: ${fmtValue}${suffix}`);
+        // 强化增量标注：仅展示链（装备栏/武器详情）传入 gainMap；取整后为 0 不标注
+        const gain = Math.round((Number(gainMap?.[key]) || 0) * 100) / 100;
+        const gainText = gain > 0 ? ` (+${gain})` : '';
+        lines.push(`  ${displayName}: ${fmtValue}${suffix}${gainText}`);
       }
     }
     return lines;

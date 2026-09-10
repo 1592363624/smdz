@@ -2243,6 +2243,9 @@ export class BonusService {
    * @param mingYuLevel 冥鱼技能等级（强化放大系数）
    * @param verbose 是否输出逐件日志（主结算链 buildAttackerBonus 高频调用必须保持 false，
    *   否则每件装备一条日志会刷爆日志；低频诊断调用点如装备预设预览可传 true）
+   * @returns 实际生效的强化系数 a1（熟练度/200，逆向熟练度≥20 时 ×1.25）；
+   *   0 表示无强化（无熟练度 / 增幅器）。**系数由此单一出口返回**，调用方禁自行重算
+   *   （展示「系数 +x%」必须用本返回值，否则两处口径必然漂移）。
    */
   calcEquipReinforce(
     equip: EquipReinforceContext,
@@ -2251,7 +2254,7 @@ export class BonusService {
     reverseProficiency: number,
     mingYuLevel = 0,
     verbose = false,
-  ): void {
+  ): number {
     const self = equip.self || (equip.self = {});
     const bonus = equip.bonus || {};
 
@@ -2261,7 +2264,7 @@ export class BonusService {
     if ((reverseProficiency || 0) >= 20) {
       a1 *= 1.25;
     }
-    if (a1 <= 0) return;
+    if (a1 <= 0) return 0;
 
     // 冥鱼技能提供的强化放大系数
     const mingYuFactor = 1.05 + mingYuLevel / 200;
@@ -2313,6 +2316,7 @@ export class BonusService {
     if (verbose) {
       this.logger.log(`计算装备强化：${equip.name || equip.type || '未知装备'} 强化系数=${a1.toFixed(4)}`);
     }
+    return a1;
   }
 
   /**

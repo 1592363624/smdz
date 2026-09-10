@@ -4,7 +4,7 @@
  * 判据：这些 spec 通过 `NestFactory.createApplicationContext(AppModule)` 启动真实 Nest 应用，
  * 直连共享远程 MySQL（server/.env DATABASE_URL → smdz），并在同一游戏地图(mapId)上读写
  * 全局聚合状态（summons/vehicles/markers/怪物…）。它们之间只要并行就会互踩 → 假失败
- * （实测 13 并行 → integration-vehicle-combat / integration-merchant 间歇 3 用例红）。
+ * （实测 14 并行 → integration-vehicle-combat / integration-merchant 间歇 3 用例红）。
  *
  * 因此它们必须被隔离到独立 Jest project（jest.db.config.js），由编排脚本强制串行执行。
  * 默认 jest.config.js（unit project）通过 testPathIgnorePatterns 排除本清单，保证裸 `npx jest`
@@ -19,6 +19,7 @@ module.exports = {
     'test/integration-counter-attack.spec.ts',
     'test/integration-display-mult.spec.ts',
     'test/integration-dodge.spec.ts',
+    'test/familiar-gate-api.e2e.spec.ts',
     'test/integration-familiar-select.spec.ts',
     'test/integration-home-frontline.spec.ts',
     'test/integration-lann-plana-skill.spec.ts',

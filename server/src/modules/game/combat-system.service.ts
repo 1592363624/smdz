@@ -6642,7 +6642,9 @@ export class CombatSystemService {
       // 计算装备强化，把 部位名+强化 熟练度按 熟练度/200 系数折算进自带属性再叠加，
       // 受冥鱼技能放大、装备名逆向熟练度≥20 加成 25%；增幅器除外 L1661。
       // 2026-09-09 补接：此前主结算链漏调导致强化只涨等级面板不动（仅预设预览生效）。
-      const mingYuLevel = this.playerService.getMarkerValue(markers, '冥鱼技能');
+      // 2026-09-10 收敛：熟练度键映射 / 增幅器排除 / 系数出口统一走
+      // itemSystemService.applyEquipReinforce，与装备栏展示链、预设预览同源
+      // （此前三处各拼一份 `xxx强化` 键 + 各算一次系数）。
       const equipDefOf = (name: string) =>
         typeof (this.staticData as any)?.getEquipmentByName === 'function'
           ? (this.staticData as any).getEquipmentByName(name) || null
@@ -6654,13 +6656,12 @@ export class CombatSystemService {
         const equipName = String(equip?.name ?? equip?.名称 ?? '');
         const eqDef = equipDefOf(equipName);
         const eqType = String(eqDef?.equipType ?? eqDef?.type ?? equip?.type ?? equip?.类型 ?? '');
-        if (eqType && eqType !== '增幅器') {
-          this.bonusService.calcEquipReinforce(
+        if (eqType) {
+          // 熟练度键=部位类型+强化（写入侧 handleEquipEnhance）；增幅器由实现内部排除，
+          // 植入体的 植入体等级 键不匹配 部位+强化 → 熟练度 0 → 内部直接返回，无副作用
+          this.itemSystem.applyEquipReinforce(
             { type: eqType, name: equipName, self: resolved.baseBonus, bonus: resolved.bonus },
-            false,
-            this.playerService.getMarkerValue(markers, `${eqType}强化`),
-            this.playerService.getMarkerValue(markers, equipName),
-            mingYuLevel,
+            markers,
           );
         }
         if (resolved.bonus && Object.keys(resolved.bonus).length) {
@@ -6693,12 +6694,10 @@ export class CombatSystemService {
         // 且手持第一把 index=0 成长为 0，影响可忽略）
         const heldWeapon = weaponList[cwIdx - 1];
         const weaponName = String(heldWeapon?.name ?? heldWeapon?.名称 ?? '');
-        this.bonusService.calcEquipReinforce(
+        this.itemSystem.applyEquipReinforce(
           { type: '武器', name: weaponName, self: resolved.baseBonus, bonus: resolved.bonus },
+          markers,
           true,
-          this.playerService.getMarkerValue(markers, '武器强化'),
-          this.playerService.getMarkerValue(markers, weaponName),
-          mingYuLevel,
         );
         if (resolved.bonus && Object.keys(resolved.bonus).length) {
           Object.assign(bonus, this.bonusService.mergeBonus(bonus, resolved.bonus));

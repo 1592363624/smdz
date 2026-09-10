@@ -14,6 +14,7 @@ import { CombatSystemService } from './combat-system.service';
 import { StatsService } from './stats.service';
 import { AdminService } from '../admin/admin.service';
 import { HomeService } from './home.service';
+import { FamiliarSystemService } from './familiar-system.service';
 
 @ApiTags('游戏')
 @ApiBearerAuth()
@@ -28,6 +29,7 @@ export class GameController {
     private readonly statsService: StatsService,
     private readonly adminService: AdminService,
     private readonly homeService: HomeService,
+    private readonly familiarSystem: FamiliarSystemService,
   ) {}
 
   /**
@@ -41,6 +43,33 @@ export class GameController {
     // 复用 gameService 的玩家状态摘要构建（与 socket 实时推送 player:update 使用同一数据源，保证一致）
     const data = await this.gameService.buildPlayerInfo(userId);
     return { success: true, data };
+  }
+
+  /**
+   * 使魔契约引导页数据（全屏选择页用，只读）。
+   *
+   * 与文本门禁（未选使魔时拦截指令返回的两列菜单）同源：可选集合与展示顺序
+   * 均取自静态使魔定义 `!noSummon` 过滤后的原始序，保证 Web 与 QQ/AstrBot 一致。
+   * `needsSelection=false` 表示玩家已开局，前端据此直接回主界面。
+   */
+  @Get('familiar/gate')
+  @ApiOperation({ summary: '使魔契约引导页数据（可选使魔全量清单 + 是否需要选择）' })
+  async getFamiliarGate(@Req() req) {
+    const data = await this.familiarSystem.getFirstFamiliarGateDetail(req.user.userId);
+    return { success: true, data };
+  }
+
+  /**
+   * 建立使魔契约：等价于文本渠道发送「选择使魔确认<名称>」。
+   *
+   * 复用指令侧的首次选择实现（清空初始数据、写入角色、领教程任务、升级提示），
+   * 不新增第二条落库路径；返回 `success=false` 时为可预期业务拒绝（名称非法/已开局）。
+   */
+  @Post('familiar/choose')
+  @ApiOperation({ summary: '建立使魔契约（首次选择使魔，等价于「选择使魔确认<名称>」）' })
+  async chooseFamiliar(@Req() req, @Body() body: { name: string }) {
+    const result = await this.familiarSystem.chooseFirstFamiliar(req.user.userId, body?.name);
+    return { success: result.ok, message: result.message };
   }
 
   /**

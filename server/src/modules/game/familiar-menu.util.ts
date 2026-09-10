@@ -91,6 +91,197 @@ export function buildFamiliarGateMenu(summonableFamiliars: Array<{ name?: string
   return { text, tempInput };
 }
 
+/* ==================== 使魔契约引导页（Web）结构化 DTO ==================== */
+
+/** 专精归一后的元素键（前端据此上色；仅作展示层分类，不参与任何战斗计算） */
+export type FamiliarElementKey = 'thunder' | 'fire' | 'ice' | 'physical' | 'none';
+
+/** 使魔契约选择页的单张卡片数据（由 familiars.json 派生，纯读、不落库） */
+export interface FamiliarGateEntry {
+  /** 使魔名称（= 首次选择时写入 player.type/baseName 的值） */
+  name: string;
+  /** 特殊序号（原版常量表序号） */
+  specialSeq: number;
+  /** 特有技能名（主动技能，如「啾啾猫猫！」） */
+  uniqueSkill: string;
+  /** 定位标签（description2「定位」字段，复合定位如「辅助/输出」拆成两项） */
+  roleTags: string[];
+  /** 专精原文（description2「专精」字段；原版取值包含「雷电/火焰/无/物理/制造/远程武器」等） */
+  specialty: string;
+  /** 操作难度原文（超超低/低/中/高/超高/超超超高） */
+  difficulty: string;
+  /** 操作难度星级 1~5（1=最易上手，前端画点用；未知按 3） */
+  difficultyLevel: number;
+  /** 优点标签（description2「优点」字段按顿号切分） */
+  merits: string[];
+  /** 元素归一键（由全部文本关键字统计得出，用于卡片配色） */
+  elementKey: FamiliarElementKey;
+  /** 特性全文（description，含换行） */
+  trait: string;
+  /** 主动/被动技能说明全文（skillDesc，含换行） */
+  skillDesc: string;
+  /** 背景/设计行（description2 中非结构化的首行；可能为空） */
+  flavor: string;
+  /** 好感度逐档解锁的能力描述（affinityDesc，最多 5 档，含换行） */
+  awaken: string[];
+}
+
+/** 操作难度 → 星级（1 最易 ~ 5 最难）。未列举的值按关键字降级推断。 */
+const DIFFICULTY_LEVELS: Record<string, number> = {
+  超超低: 1,
+  超低: 1,
+  极低: 1,
+  低: 2,
+  较低: 2,
+  中: 3,
+  中等: 3,
+  较高: 4,
+  高: 4,
+  超高: 5,
+  超超高: 5,
+  超超超高: 5,
+};
+
+/** 原版换行哨兵 → 真换行（文本渠道唯一约定，禁各处手写 replace） */
+export function plainGameText(raw: unknown): string {
+  return String(raw ?? '').replace(/#换行/g, '\n');
+}
+
+/** 元素关键字 → 归一键。同一使魔命中多系时取出现次数最多者，平手按 雷 > 火 > 冰 > 物。 */
+function resolveElementKey(...texts: string[]): FamiliarElementKey {
+  const hay = texts.join('\n');
+  const groups: Array<{ key: FamiliarElementKey; re: RegExp }> = [
+    { key: 'thunder', re: /[雷电]/g },
+    { key: 'fire', re: /[火焰]/g },
+    { key: 'ice', re: /冰/g },
+    { key: 'physical', re: /物/g },
+  ];
+  let best: { key: FamiliarElementKey; n: number } | null = null;
+  for (const g of groups) {
+    const n = (hay.match(g.re) || []).length;
+    if (n > 0 && (!best || n > best.n)) best = { key: g.key, n };
+  }
+  return best ? best.key : 'none';
+}
+
+/**
+ * 解析 description2 的结构化字段。
+ * 原版格式（#换行 分节，节内两空格分隔）：
+ *   [可选故事行]
+ *   定位:辅助    专精:雷电
+ *   优点:全体复活、全体回复、…
+ *   操作难度:超超低
+ * 解析失败的节一律归入 flavor（绝不丢内容）。
+ */
+/**
+ * 是否为由原版作者留下的「设计:」署名行。
+ *
+ * 说明2 中有部分使魔带 `设计:某某(QQ前缀**)` 的作者署名，文本渠道（选择使魔预览）原样输出，
+ * 但对玩家首屏的引导页属于噪声——Web DTO 在展示层剥掉它，**不代表源数据缺失**，
+ * 修改内容时不要反过来去动 familiars.json。
+ */
+function isDesignCredit(line: string): boolean {
+  return /^设计\s*[:：]/.test(line);
+}
+
+function parseStyleSection(description2: unknown): {
+  roleTags: string[];
+  specialty: string;
+  merits: string[];
+  difficulty: string;
+  flavor: string;
+} {
+  const sections = plainGameText(description2)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  const roleTags: string[] = [];
+  let specialty = '';
+  const merits: string[] = [];
+  let difficulty = '';
+  const flavorLines: string[] = [];
+
+  /** 结构化字段关键字（任一命中即按结构化节处理） */
+  const STRUCTURED_RE = /(定位|专精|优点|操作难度)\s*[:：]/;
+
+  for (const line of sections) {
+    // 存量数据存在「叙述与字段粘连」的写法（如伊芙利特「…恢复如初定位:输出    专精:火焰」），
+    // 故此处不要求关键字位于行首：关键字之前的残留文本归入 flavor，绝不丢弃。
+    const kwIdx = line.search(STRUCTURED_RE);
+    if (kwIdx < 0) {
+      if (!isDesignCredit(line)) flavorLines.push(line);
+      continue;
+    }
+    const leading = line.slice(0, kwIdx).trim();
+    if (leading && !isDesignCredit(leading)) flavorLines.push(leading);
+
+    const role = line.match(/定位\s*[:：]\s*([^\s专]+)/);
+    if (role) {
+      for (const tag of role[1].split(/[/／]/)) {
+        const t = tag.trim();
+        if (t && !roleTags.includes(t)) roleTags.push(t);
+      }
+    }
+    const spec = line.match(/专精\s*[:：]\s*([^\s优]+)/);
+    if (spec) specialty = spec[1].trim();
+    // 「优点」可能与其后的结构化字段同处一行（#换行 缺失时），用前瞻截断避免吞掉别的字段
+    const merit = line.match(/优点\s*[:：]\s*(.+?)(?=\s*(?:定位|专精|操作难度)\s*[:：]|$)/);
+    if (merit) {
+      for (const item of merit[1].split(/[、,，]/)) {
+        const t = item.trim();
+        if (t && !merits.includes(t)) merits.push(t);
+      }
+    }
+    const diff = line.match(/操作难度\s*[:：]\s*(\S+)/);
+    if (diff) difficulty = diff[1].trim();
+  }
+
+  return { roleTags, specialty, merits, difficulty, flavor: flavorLines.join('\n') };
+}
+
+/** 难度星级：先查表，未列举时按「低/高」关键字降级推断，全无命中按 3（中性）。 */
+function resolveDifficultyLevel(difficulty: string): number {
+  const exact = DIFFICULTY_LEVELS[difficulty];
+  if (exact) return exact;
+  if (!difficulty) return 3;
+  if (difficulty.includes('低')) return 2;
+  if (difficulty.includes('高')) return 4;
+  return 3;
+}
+
+/**
+ * 使魔契约引导页 DTO 构建（纯函数）。
+ * 入参须为「已过滤 noSummon」的使魔定义数组，顺序即展示顺序——
+ * 与文本门禁 `buildFamiliarGateMenu` 的编号一一对应（同一份 getAllFamiliars 原始序），
+ * 保证 Web 引导页与 QQ/AstrBot 文本菜单列出的使魔集合、编号完全一致。
+ */
+export function buildFamiliarGateDetail(familiars: Array<Record<string, any>>): FamiliarGateEntry[] {
+  return familiars.map((f) => {
+    const style = parseStyleSection(f?.description2);
+    const trait = plainGameText(f?.description);
+    const skillDesc = plainGameText(f?.skillDesc);
+    const awaken = (Array.isArray(f?.affinityDesc) ? f.affinityDesc : [])
+      .map((t: unknown) => plainGameText(t))
+      .filter((t: string) => t !== '');
+    const rawSpecialSeq = Number(f?.specialSeq);
+    return {
+      name: String(f?.name ?? '未知'),
+      specialSeq: Number.isFinite(rawSpecialSeq) ? rawSpecialSeq : 0,
+      uniqueSkill: String(f?.uniqueSkill ?? ''),
+      roleTags: style.roleTags,
+      specialty: style.specialty,
+      difficulty: style.difficulty,
+      difficultyLevel: resolveDifficultyLevel(style.difficulty),
+      merits: style.merits,
+      elementKey: resolveElementKey(String(f?.description2 ?? ''), trait, skillDesc, style.specialty),
+      trait,
+      skillDesc,
+      flavor: style.flavor,
+      awaken,
+    };
+  });
+}
+
 /** 老玩家更换使魔列表（原版 L766-775）：返回菜单文本与临时输入替换串 */
 export function buildFamiliarSwitchMenu(
   playerName: string,

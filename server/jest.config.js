@@ -6,14 +6,14 @@
  * 全局聚合状态，只要并行就会互踩产生假失败。因此拆分三份独立 config（各为单 project，用
  * --config 显式调用，互不共享 worker 池语义）：
  *
- *   1. jest.config.js      (默认) → unit project：66 个纯桩/单元套件，**可并行**。裸 `npx jest`
+ *   1. jest.config.js      (默认) → unit project：105 个纯桩/单元套件，**可并行**。裸 `npx jest`
  *      只跑本组，永不触碰共享远程 DB → 并行恒稳定。
- *   2. jest.db.config.js            → db project：13 个真实 DB 集成套件，**必须串行**。
+ *   2. jest.db.config.js            → db project：14 个真实 DB 集成套件，**必须串行**。
  *   3. jest.full.config.js          → 全量 = unit ∪ db。npm test（--runInBand 串行）用它，为判绿标准。
  *
  * 若你只想快速跑可并行的单元套件：`npm run test:unit`（= 裸 npx jest）。
  * 若你改动了真实库集成逻辑：请跑 `npm run test:db`（串行）或 `npm run test:all`。
- * 判定全绿的唯一依据：`npm test`（= jest --config jest.full.config.js --runInBand，一次串行全量 79）。
+ * 判定全绿的唯一依据：`npm test`（= jest --config jest.full.config.js --runInBand，一次串行全量 119）。
  *
  * 使用 ts-jest 编译 TS，隔离 NestJS DI 依赖。
  */

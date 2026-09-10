@@ -94,7 +94,7 @@
           </span>
           <button type="button" class="pi-unequip" title="放回背包" @click="unequip(w)">卸下</button>
         </div>
-        <div class="pi-weapon-meta">强化 +{{ w.enhance }}</div>
+        <div class="pi-weapon-meta">强化 +{{ w.enhance }}<span v-if="w.enhanceRate > 0">（系数 +{{ w.enhanceRate }}%）</span></div>
         <pre v-if="w.attrs" class="pi-weapon-attrs">{{ w.attrs }}</pre>
       </div>
     </div>
@@ -128,7 +128,7 @@
           <div class="pi-tip-head" :class="'q-' + qKey(hoveredEq.quality)">
             {{ hoveredEq.quality ? hoveredEq.quality + ' ' : '' }}{{ hoveredEq.name }}<i v-if="hoveredEq.effect > 0">[特效{{ hoveredEq.effect }}]</i>
           </div>
-          <div class="pi-tip-meta">{{ hoveredEq.slot }} · 强化 +{{ hoveredEq.enhance }}</div>
+          <div class="pi-tip-meta">{{ hoveredEq.slot }} · 强化 +{{ hoveredEq.enhance }}<span v-if="hoveredEq.enhanceRate > 0">（系数 +{{ hoveredEq.enhanceRate }}%）</span></div>
           <pre v-if="hoveredEq.attrs" class="pi-tip-attrs">{{ hoveredEq.attrs }}</pre>
         </template>
       </div>

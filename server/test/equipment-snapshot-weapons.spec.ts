@@ -22,7 +22,8 @@ function makeService(player: any) {
     getAchievementProficiency: () => 0,
     setJudgment: () => {},
   };
-  service.itemSystemService = { formatBonusStats: () => [] };
+  // 逐件属性走「强化后」单一实现（2026-09-10）：本套用例只关心格子结构，属性文本置空桩
+  service.itemSystemService = { formatReinforcedEquipAttrs: () => ({ text: '', coefficient: 0 }) };
   const itemService = Object.create(ItemService.prototype) as any;
   itemService.logger = { warn: () => {}, log: () => {}, error: () => {} };
   itemService.staticData = staticData;

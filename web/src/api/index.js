@@ -125,6 +125,14 @@ export const gameApi = {
   stats: () => http.get('/game/stats'),
 };
 
+/// 使魔契约（新手引导）
+export const familiarApi = {
+  // 引导页数据：可选使魔全量清单（角色/专精/难度/优点/特性/技能）+ 是否需要选择
+  gate: () => http.get('/game/familiar/gate'),
+  // 建立契约（首次选择使魔）：等价于文本渠道「选择使魔确认<名称>」
+  choose: (name) => http.post('/game/familiar/choose', { name }),
+};
+
 /// 家园接口
 export const homeApi = {
   // 家园总览（只读预览 DTO：不推进观测时间、不领取产出，随便看不影响 QQ 端结算）
