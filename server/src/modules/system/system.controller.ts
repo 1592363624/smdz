@@ -48,10 +48,10 @@ export class SystemController {
   @Get('web-config')
   @ApiOperation({ summary: '获取网页前端可调配置(公开)' })
   async getWebConfig() {
-    const handbookTooltipDelayMs = await this.systemConfigService.get<number>(
-      'web.handbookTooltipDelayMs',
-      1000,
-    );
-    return { success: true, data: { handbookTooltipDelayMs } };
+    const [handbookTooltipDelayMs, messageIntervalSec] = await Promise.all([
+      this.systemConfigService.get<number>('web.handbookTooltipDelayMs', 1000),
+      this.systemConfigService.getMessageIntervalSec(),
+    ]);
+    return { success: true, data: { handbookTooltipDelayMs, messageIntervalSec } };
   }
 }

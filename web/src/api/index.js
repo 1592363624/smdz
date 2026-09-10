@@ -173,12 +173,8 @@ export const adminApi = {
   updateConfig: (key, value) => http.post('/admin/config/update', { key, value }),
   // 服务器仪表盘
   dashboard: () => http.get('/admin/dashboard'),
-  // GM 工具：发放物品(target 支持用户名/昵称/QQ号/ID；items 支持批量多物品)
-  giveItem: (data) => http.post('/admin/gm/give-item', data),
-  // GM 工具：可发放物品目录(物品+装备名称列表，供选择器)
+  // GM 工具：可发放物品目录(物品+装备名称列表，供背包管理选择器)
   gmCatalog: () => http.get('/admin/gm/catalog'),
-  // GM 工具：修改玩家属性(白名单字段)
-  modifyPlayer: (data) => http.post('/admin/gm/modify-player', data),
   // GM 工具：读取玩家背包(解析全部物品)
   getBackpack: (userId) => http.get('/admin/gm/backpack', { params: { userId } }),
   // GM 工具：保存玩家背包(编辑数量/增删)

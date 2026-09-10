@@ -1977,6 +1977,18 @@ function onRichCardSend(content) {
 function sendChatMessage(content) {
   const text = (content || '').trim();
   if (!text || !socket) return;
+  // 前端软节流：过快时直接提示，不发 socket、不本地回显（避免“看起来发出去了”）
+  const intervalSec = Number(chatRateLimitSec.value);
+  if (Number.isFinite(intervalSec) && intervalSec > 0) {
+    const now = Date.now();
+    const remainingMs = lastChatSendAt + intervalSec * 1000 - now;
+    if (remainingMs > 0) {
+      const waitSec = Math.max(0.1, Math.ceil(remainingMs / 100) / 10);
+      showToast(`消息发送过于频繁，请 ${waitSec} 秒后再发`, 'error');
+      return;
+    }
+    lastChatSendAt = now;
+  }
   socket.emit('chat:message', { content: text });
   const self = user.value || {};
   const sender = { id: self.id, username: self.username, nickname: self.nickname };
@@ -2392,6 +2404,10 @@ let setViewportHeight = null;
 // ===== 全局 Toast 轻提示 =====
 const toasts = ref([]);
 let toastId = 0;
+/** 软节流：上次成功发出消息的时间戳（ms） */
+let lastChatSendAt = 0;
+/** 发送间隔（秒），由后端配置下发；缺失时按 0.5 兜底 */
+const chatRateLimitSec = ref(0.5);
 /**
  * 显示一条轻提示（自动消失）
  * @param {string} message 提示内容
@@ -2668,6 +2684,16 @@ async function startNearbyPrivateChat(p) {
 function sendPrivateMessage() {
   const content = privateInput.value.trim();
   if (!content || !socket || !privatePeerId.value) return;
+  // 与公屏共用发送间隔，避免私聊静默被限
+  const intervalSec = Number(chatRateLimitSec.value);
+  if (Number.isFinite(intervalSec) && intervalSec > 0) {
+    const remainingMs = lastChatSendAt + intervalSec * 1000 - Date.now();
+    if (remainingMs > 0) {
+      showToast(`消息发送过于频繁，请 ${Math.max(0.1, Math.ceil(remainingMs / 100) / 10)} 秒后再发`, 'error');
+      return;
+    }
+    lastChatSendAt = Date.now();
+  }
   socket.emit('chat:private', { to: privatePeerId.value, content });
   privateInput.value = '';
 }
@@ -3067,6 +3093,12 @@ onMounted(async () => {
     // 时钟对齐：倒计时进度条/增益剩余时间都拿服务器时刻与本机时钟相减，
     // 先测一次偏移量（失败静默，倒计时退化为本机时钟）；socket 重连时会再测
     syncServerClock();
+    // 消息发送间隔：后端配置下发（防刷屏软节流）；失败保持默认 0.5s
+    try {
+      const webCfg = await systemApi.getWebConfig();
+      const sec = Number(webCfg?.data?.messageIntervalSec);
+      if (Number.isFinite(sec) && sec >= 0) chatRateLimitSec.value = sec;
+    } catch { /* 静默，用默认值 */ }
     // 移动端视图高度修复：动态计算实际可视高度，避免键盘弹出时布局错乱
     // 关键：必须用 visualViewport.height（键盘弹出时会实时缩小），而非 window.innerHeight
     // （iOS Safari 键盘弹出时 innerHeight 不变、resize 不触发，导致 --vh 仍为全屏高度，
@@ -3198,6 +3230,12 @@ onMounted(async () => {
     });
     socket.on('error', (e) => {
       console.error('socket error', e);
+      // 带 message 的错误顺带弹提示（未认证等）；限流走专用 chat:rate-limit
+      if (e?.message) showToast(e.message, 'error');
+    });
+    // 发送间隔限流：明确告知还要等多久，避免“静默发不出去”
+    socket.on('chat:rate-limit', (data) => {
+      showToast(data?.message || '消息发送过于频繁，请稍后再发', 'error');
     });
 
     // 接收私聊消息（发送方回传 + 接收方推送均通过该事件）

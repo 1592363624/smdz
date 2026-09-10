@@ -809,40 +809,21 @@ export class AdminService {
   }
 
   /**
-   * 给玩家发送物品（GM命令）
+   * 给玩家发送物品（GM 指令）
    * 调用 PlayerService 向玩家背包中添加物品
-   * @param operatorId 操作者用户ID（可选；提供时发放成功后向目标玩家私聊推送本次操作与物品明细）
    * @returns 操作结果文本
    */
   async gmGiveItem(
     userId: number,
     itemName: string,
     count: number,
-    operatorId?: number,
   ): Promise<string> {
     const success = await this.playerService.addToBackpack(userId, itemName, count);
     if (!success) {
       throw new Error('物品发送失败，请检查用户ID和物品名称');
     }
     this.logger.log(`GM 给用户 ${userId} 发放了 ${count} 个 ${itemName}`);
-    // 发放成功后给目标玩家私聊推送本次发放信息
-    await this.sendGrantNotice(operatorId, userId, [{ itemName, count }]);
     return `已向用户 ${userId} 发放 ${count} 个 ${itemName}`;
-  }
-
-  /**
-   * GM 按目标标识发放物品（后台网页用）
-   * @param target 用户名/昵称/QQ号/用户ID
-   * @param operatorId 操作者用户ID（可选，用于发放后的私聊通知）
-   */
-  async gmGiveItemToTarget(
-    target: string | number,
-    itemName: string,
-    count: number,
-    operatorId?: number,
-  ): Promise<string> {
-    const user = await this.resolveUserTarget(target);
-    return this.gmGiveItem(user.id, itemName, count, operatorId);
   }
 
   /**
@@ -967,7 +948,7 @@ export class AdminService {
 
   /**
    * GM 可发放物品目录：items.json(物品) + equipments.json(装备)，按名称去重。
-   * 供后台"发放物品"选择器与名称校验使用，保证发放名称一定存在于游戏物品库。
+   * 供后台"背包管理"选择器使用，保证添加名称一定存在于游戏物品库。
    */
   getGmItemCatalog(): Array<{ name: string; category: string }> {
     const catalog: Array<{ name: string; category: string }> = [];
@@ -984,137 +965,6 @@ export class AdminService {
       }
     }
     return catalog;
-  }
-
-  /**
-   * GM 批量给玩家发放多种物品（后台网页用，按用户ID定位）
-   * 名称先按目录校验，防止手输错误名称产生无效物品。
-   * @param userId 目标用户ID
-   * @param items 物品列表 [{ itemName, count }]
-   * @param operatorId 操作者用户ID（可选；提供时发放成功后向目标玩家私聊推送本次操作与物品明细）
-   */
-  async gmGiveItemBatch(
-    userId: number,
-    items: Array<{ itemName: string; count?: number }>,
-    operatorId?: number,
-  ): Promise<string> {
-    const validNames = new Set(this.getGmItemCatalog().map((i) => i.name));
-    const invalid = items
-      .map((i) => String(i?.itemName ?? '').trim())
-      .filter((name) => name && !validNames.has(name));
-    if (invalid.length) {
-      throw new BadRequestException(`以下物品不存在，请从列表中选择：${invalid.join('、')}`);
-    }
-
-    const granted: string[] = [];
-    for (const item of items) {
-      const name = String(item.itemName).trim();
-      const count = Math.max(1, Math.floor(Number(item.count) || 1));
-      const ok = await this.playerService.addToBackpack(userId, name, count);
-      if (!ok) {
-        throw new Error(`物品「${name}」发放失败`);
-      }
-      granted.push(`${name}×${count}`);
-    }
-    this.logger.log(`GM 给用户 ${userId} 批量发放：${granted.join(', ')}`);
-    // 发放成功后给目标玩家私聊推送本次发放信息
-    await this.sendGrantNotice(operatorId, userId, items);
-    return `已向用户 ${userId} 发放 ${granted.join('、')}`;
-  }
-
-  /**
-   * GM 发放成功后向目标玩家私聊推送本次操作与详细物品信息
-   * 发送者=操作者(GM)，接收者=目标玩家；仅当有操作者且非发放给自己时发送。
-   * 私聊推送失败不影响发放主链路（发放已成功落库）。
-   * @param operatorId 操作者用户ID（无则跳过）
-   * @param targetUserId 目标玩家用户ID
-   * @param granted 本次发放的物品列表 [{ itemName, count }]
-   */
-  private async sendGrantNotice(
-    operatorId: number | undefined,
-    targetUserId: number,
-    granted: Array<{ itemName: string; count?: number }>,
-  ): Promise<void> {
-    // 非 HTTP 调用（如游戏内指令）没有操作者，或发放给操作者自己时不发私聊
-    if (!operatorId || operatorId === targetUserId || !granted?.length) return;
-    try {
-      const lines: string[] = [];
-      for (const g of granted) {
-        const name = String(g?.itemName ?? '').trim();
-        const count = Math.max(1, Math.floor(Number(g?.count) || 1));
-        if (!name) continue;
-        // 取详细信息（物品/装备），拼装"名称 ×数量（类型）+ 描述"
-        const detail =
-          this.staticData.getItemByName(name) || this.staticData.getEquipmentByName(name);
-        const type = String(detail?.type ?? detail?.equipType ?? '物品');
-        const desc = String(detail?.description ?? '').trim();
-        lines.push(`· ${name} ×${count}（${type}）${desc ? `#换行　${desc}` : ''}`);
-      }
-      if (!lines.length) return;
-      const content = [
-        '📦【GM 发放通知】',
-        `运营团队已向你的背包发放 ${lines.length} 种物品：`,
-        ...lines,
-        '请注意查收！',
-      ].join('#换行');
-      // 发送者为操作者(账号即表现为 GM)，接收者为目标玩家
-      await this.chatService.sendPrivateMessage(operatorId, targetUserId, content);
-      this.logger.log(`GM(${operatorId}) 向用户 ${targetUserId} 私聊推送发放通知`);
-    } catch (e: any) {
-      // 私聊通知失败（如收发方异常）不影响发放主链路，仅记录日志
-      this.logger.warn(`GM 发放私聊通知失败: ${e?.message}`);
-    }
-  }
-
-  /** GM 可修改的玩家字段白名单 */
-  private static readonly MODIFY_ALLOWED_FIELDS = [
-    'level', 'exp', 'name', 'hp', 'maxHp', 'shield', 'maxShield',
-    'armor', 'maxArmor', 'attack', 'defense', 'speed', 'dodge',
-    'hit', 'crit', 'critDmg', 'affinity', 'mapId', 'location',
-  ];
-
-  /** 数值型可修改字段（其余白名单字段按字符串写入） */
-  private static readonly MODIFY_NUMERIC_FIELDS = [
-    'level', 'exp', 'hp', 'maxHp', 'shield', 'maxShield',
-    'armor', 'maxArmor', 'attack', 'defense', 'speed', 'dodge',
-    'hit', 'crit', 'critDmg', 'affinity', 'mapId',
-  ];
-
-  /**
-   * GM 修改玩家属性（后台网页用，按用户ID定位）
-   * @param operatorId 操作者用户ID（仅日志）
-   * @param userId 目标用户ID
-   * @param field 属性字段（白名单内）
-   * @param value 新值（数值字段自动转换并校验）
-   */
-  async gmModifyPlayer(operatorId: number, userId: number, field: string, value: string): Promise<string> {
-    if (!AdminService.MODIFY_ALLOWED_FIELDS.includes(field)) {
-      throw new BadRequestException(
-        `不允许修改字段「${field}」，可修改字段: ${AdminService.MODIFY_ALLOWED_FIELDS.join(', ')}`,
-      );
-    }
-
-    const player = await this.prisma.player.findUnique({ where: { userId } });
-    if (!player) {
-      throw new NotFoundException('该用户还没有创建游戏角色');
-    }
-
-    let parsedValue: any = value;
-    if (AdminService.MODIFY_NUMERIC_FIELDS.includes(field)) {
-      parsedValue = parseFloat(value);
-      if (isNaN(parsedValue)) {
-        throw new BadRequestException(`字段「${field}」需要数值类型`);
-      }
-    }
-
-    await this.playerService.enqueueUserWrite(player.userId, async () => {
-      const _pd = await this.playerService.getPlayerData(player.userId);
-      Object.assign(_pd.player, { [field]: parsedValue });
-      await this.playerService.savePlayer(_pd.player);
-    });
-
-    this.logger.log(`管理员 ${operatorId} 修改了用户 ${userId} 的 ${field}=${parsedValue}`);
-    return `✅ 已将用户 ${userId}(${player.name}) 的 ${field} 修改为 ${parsedValue}`;
   }
 
   // ========== 新增管理命令 ==========

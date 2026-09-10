@@ -228,8 +228,9 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     // 发送间隔限流（防刷屏）：0=不限制
     const intervalMs = await this.getMessageIntervalMs();
     if (intervalMs > 0 && !this.tryConsumeMessageSlot(user.userId, intervalMs)) {
-      const waitSec = Math.ceil((intervalMs - (Date.now() - (this.lastUserMessageAt.get(user.userId) || 0))) / 100) / 10;
-      client.emit('error', { message: `消息发送过于频繁，请约 ${waitSec} 秒后再发` });
+      const waitSec = this.formatRateLimitWaitSec(user.userId, intervalMs);
+      // 专用事件名：`error` 在 Socket.IO 中语义特殊，前端也不一定展示
+      client.emit('chat:rate-limit', { message: `消息发送过于频繁，请 ${waitSec} 秒后再发` });
       return;
     }
 
@@ -275,6 +276,12 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (last > 0 && now - last < intervalMs) return false;
     this.lastUserMessageAt.set(userId, now);
     return true;
+  }
+
+  /** 还需等待多少秒（至少 0.1s，保留一位小数） */
+  private formatRateLimitWaitSec(userId: number, intervalMs: number): number {
+    const remaining = intervalMs - (Date.now() - (this.lastUserMessageAt.get(userId) || 0));
+    return Math.max(0.1, Math.ceil(remaining / 100) / 10);
   }
 
   /**
@@ -330,8 +337,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     // 与公屏共用发送间隔，防止私聊刷屏
     const intervalMs = await this.getMessageIntervalMs();
     if (intervalMs > 0 && !this.tryConsumeMessageSlot(user.userId, intervalMs)) {
-      const waitSec = Math.ceil((intervalMs - (Date.now() - (this.lastUserMessageAt.get(user.userId) || 0))) / 100) / 10;
-      client.emit('chat:private-error', { message: `消息发送过于频繁，请约 ${waitSec} 秒后再发` });
+      const waitSec = this.formatRateLimitWaitSec(user.userId, intervalMs);
+      client.emit('chat:rate-limit', { message: `消息发送过于频繁，请 ${waitSec} 秒后再发` });
       return;
     }
 

@@ -99,71 +99,73 @@
           <div v-for="grp in configGroups" :key="grp.name" class="config-group">
             <h3>{{ grp.label }}</h3>
             <div class="config-grid">
-              <!-- 全局熟练度：表格编辑器（JSON 原文不便读写） -->
-              <div v-if="cfg.key === 'game.globalMarkers'" class="config-item config-item-wide">
-                <div class="config-info">
-                  <span class="config-label">{{ cfg.label }}</span>
-                  <span class="config-desc">{{ cfg.description }}</span>
+              <template v-for="cfg in grp.items" :key="cfg.key">
+                <!-- 全局熟练度：表格编辑器（JSON 原文不便读写） -->
+                <div v-if="cfg.key === 'game.globalMarkers'" class="config-item config-item-wide">
+                  <div class="config-info">
+                    <span class="config-label">{{ cfg.label }}</span>
+                    <span class="config-desc">{{ cfg.description }}</span>
+                  </div>
+                  <div class="prof-editor">
+                    <div class="prof-toolbar">
+                      <span class="prof-world">世界等级 <strong>{{ globalProfWorldLevel }}</strong>（世界熟练度 {{ globalProfWorldPoints }}）</span>
+                      <span class="prof-count">共 {{ globalProfRows.length }} 项</span>
+                      <button class="btn-ghost" type="button" @click="addGlobalProfRow">＋ 添加</button>
+                      <button class="btn-primary" type="button" @click="saveGlobalProf(cfg)">保存</button>
+                      <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
+                    </div>
+                    <div v-if="globalProfError" class="prof-error">{{ globalProfError }}</div>
+                    <div class="prof-table-wrap">
+                      <table class="prof-table">
+                        <thead>
+                          <tr>
+                            <th>名称</th>
+                            <th class="num">熟练度点数</th>
+                            <th class="lv">等级</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="(row, ri) in globalProfRows" :key="'prof-' + ri">
+                            <td>
+                              <input v-model="row.name" class="prof-name" placeholder="如：世界 / 史莱姆" />
+                            </td>
+                            <td class="num">
+                              <input v-model.number="row.points" type="number" min="0" step="1" class="prof-points" />
+                            </td>
+                            <td class="lv">{{ profLevel(row.points) }}</td>
+                            <td>
+                              <button class="btn-ghost prof-del" type="button" title="删除" @click="removeGlobalProfRow(ri)">✕</button>
+                            </td>
+                          </tr>
+                          <tr v-if="!globalProfRows.length">
+                            <td colspan="4" class="prof-empty">暂无数据，点「＋ 添加」新建条目</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
-                <div class="prof-editor">
-                  <div class="prof-toolbar">
-                    <span class="prof-world">世界等级 <strong>{{ globalProfWorldLevel }}</strong>（世界熟练度 {{ globalProfWorldPoints }}）</span>
-                    <span class="prof-count">共 {{ globalProfRows.length }} 项</span>
-                    <button class="btn-ghost" type="button" @click="addGlobalProfRow">＋ 添加</button>
-                    <button class="btn-primary" type="button" @click="saveGlobalProf(cfg)">保存</button>
+
+                <div v-else class="config-item">
+                  <div class="config-info">
+                    <span class="config-label">{{ cfg.label }}</span>
+                    <span class="config-desc">{{ cfg.description }}</span>
+                  </div>
+                  <div class="config-editor">
+                    <!-- 布尔类型 -->
+                    <select v-if="cfg.type === 'boolean'" :value="cfg.value === 'true'" @change="saveConfig(cfg, $event.target.value === 'true')">
+                      <option :value="true">是</option>
+                      <option :value="false">否</option>
+                    </select>
+                    <!-- 字符串数组 -->
+                    <input v-else-if="cfg.type === 'string-array'" :value="arrayValue(cfg.value)" @change="saveConfig(cfg, stringToArray($event.target.value))" placeholder="逗号分隔多个值" />
+                    <!-- 数字 / 文本 -->
+                    <input v-else :value="cfg.value" @change="saveConfig(cfg, cfg.type === 'number' ? Number($event.target.value) : $event.target.value)" />
                     <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
                   </div>
-                  <div v-if="globalProfError" class="prof-error">{{ globalProfError }}</div>
-                  <div class="prof-table-wrap">
-                    <table class="prof-table">
-                      <thead>
-                        <tr>
-                          <th>名称</th>
-                          <th class="num">熟练度点数</th>
-                          <th class="lv">等级</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(row, ri) in globalProfRows" :key="'prof-' + ri">
-                          <td>
-                            <input v-model="row.name" class="prof-name" placeholder="如：世界 / 史莱姆" />
-                          </td>
-                          <td class="num">
-                            <input v-model.number="row.points" type="number" min="0" step="1" class="prof-points" />
-                          </td>
-                          <td class="lv">{{ profLevel(row.points) }}</td>
-                          <td>
-                            <button class="btn-ghost prof-del" type="button" title="删除" @click="removeGlobalProfRow(ri)">✕</button>
-                          </td>
-                        </tr>
-                        <tr v-if="!globalProfRows.length">
-                          <td colspan="4" class="prof-empty">暂无数据，点「＋ 添加」新建条目</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
                 </div>
-              </div>
-
-              <div v-else class="config-item">
-                <div class="config-info">
-                  <span class="config-label">{{ cfg.label }}</span>
-                  <span class="config-desc">{{ cfg.description }}</span>
-                </div>
-                <div class="config-editor">
-                  <!-- 布尔类型 -->
-                  <select v-if="cfg.type === 'boolean'" :value="cfg.value === 'true'" @change="saveConfig(cfg, $event.target.value === 'true')">
-                    <option :value="true">是</option>
-                    <option :value="false">否</option>
-                  </select>
-                  <!-- 字符串数组 -->
-                  <input v-else-if="cfg.type === 'string-array'" :value="arrayValue(cfg.value)" @change="saveConfig(cfg, stringToArray($event.target.value))" placeholder="逗号分隔多个值" />
-                  <!-- 数字 / 文本 -->
-                  <input v-else :value="cfg.value" @change="saveConfig(cfg, cfg.type === 'number' ? Number($event.target.value) : $event.target.value)" />
-                  <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
-                </div>
-              </div>
+              </template>
             </div>
           </div>
         </div>
@@ -520,74 +522,7 @@
         </div>
 
         <div class="gm-tools">
-          <!-- 发放物品：目标玩家搜索点选 + 物品目录多选（带数量），避免手输名称出错 -->
-          <div class="gm-tool-card">
-            <h3>🎁 发放物品</h3>
-            <div class="gm-field">
-              <label>目标玩家（输入关键词搜索后点选）</label>
-              <div v-if="gmGiveItem.player" class="picker-chip">
-                <span class="picker-chip-name">
-                  {{ gmGiveItem.player.nickname || gmGiveItem.player.username }}
-                  <i class="picker-chip-sub">#{{ gmGiveItem.player.id }}<template v-if="gmGiveItem.player.player?.name"> · {{ gmGiveItem.player.player.name }}</template></i>
-                </span>
-                <button class="picker-chip-x" title="重新选择" @click="gmGiveItem.player = null">✕</button>
-              </div>
-              <div v-else class="picker-box">
-                <input v-model="playerQuery" placeholder="输入用户名/昵称/QQ号筛选" @input="searchPlayers" @focus="playerDropdown = true" @blur="playerDropdown = false" />
-                <ul v-if="playerDropdown" class="picker-menu">
-                  <li v-for="p in playerOptions" :key="p.id" @mousedown.prevent="choosePlayer(p)">
-                    <span class="picker-menu-name">{{ p.nickname || p.username }}</span>
-                    <span class="picker-menu-sub">{{ p.username }}<template v-if="p.player?.name"> · {{ p.player.name }}</template> · #{{ p.id }}</span>
-                  </li>
-                  <li v-if="playerSearched && !playerOptions.length" class="picker-empty">未找到匹配玩家</li>
-                  <li v-else-if="!playerSearched" class="picker-empty">输入关键词开始搜索</li>
-                </ul>
-              </div>
-            </div>
-            <div class="gm-field">
-              <label>选择物品（输入关键词筛选，可连续添加多个）</label>
-              <div class="picker-box">
-                <input v-model="itemQuery" placeholder="输入物品或装备名称筛选" @focus="itemMenuOpen = true" @blur="itemMenuOpen = false" />
-                <ul v-if="itemMenuOpen" class="picker-menu">
-                  <li v-for="it in filteredCatalog" :key="it.category + it.name" @mousedown.prevent="addGiveItem(it)">
-                    <span class="picker-menu-name">{{ it.name }}</span>
-                    <span class="picker-menu-sub">{{ it.category }}</span>
-                  </li>
-                  <li v-if="!filteredCatalog.length" class="picker-empty">{{ itemCatalog.length ? '没有匹配的物品' : '物品目录加载中…' }}</li>
-                </ul>
-              </div>
-              <div v-if="gmGiveItem.items.length" class="picked-list">
-                <div v-for="(sel, idx) in gmGiveItem.items" :key="sel.name" class="picked-item">
-                  <span class="picked-name">{{ sel.name }}<i class="picked-cat">{{ sel.category }}</i></span>
-                  <input v-model.number="sel.count" class="picked-qty" type="number" min="1" title="数量" />
-                  <button class="picked-remove" title="移除" @click="gmGiveItem.items.splice(idx, 1)">✕</button>
-                </div>
-              </div>
-            </div>
-            <button class="gm-btn success" :disabled="gmLoading || !canGiveItems" @click="doGiveItem">发放物品</button>
-            <p v-if="gmGiveItem.result" class="gm-result">{{ gmGiveItem.result }}</p>
-          </div>
-
-          <!-- 修改玩家属性 -->
-          <div class="gm-tool-card">
-            <h3>🔧 修改玩家属性</h3>
-            <div class="gm-field">
-              <label>目标玩家（用户名/昵称/QQ号/ID）</label>
-              <input v-model="gmModify.target" placeholder="输入玩家用户名、昵称、QQ号或ID" />
-            </div>
-            <div class="gm-field">
-              <label>属性字段</label>
-              <select v-model="gmModify.field">
-                <option v-for="f in modifyFields" :key="f.value" :value="f.value">{{ f.label }}</option>
-              </select>
-            </div>
-            <div class="gm-field">
-              <label>新值{{ modifyFieldValueIsNumber ? '（数字）' : '' }}</label>
-              <input v-model="gmModify.value" :placeholder="modifyFieldValueIsNumber ? '如：10' : '如：新手村'" />
-            </div>
-            <button class="gm-btn" @click="doModifyPlayer" :disabled="gmLoading">修改属性</button>
-            <p v-if="gmModify.result" class="gm-result">{{ gmModify.result }}</p>
-          </div>
+          <!-- 发放物品/修改属性已并入「用户管理 → 详情」，此处只保留全局类工具 -->
 
           <!-- 设置世界等级 -->
           <div class="gm-tool-card">
@@ -642,9 +577,9 @@
  * - 仪表盘：服务器状态统计、世界等级显示与控制
  * - 系统配置：在线修改指令前缀、游戏数值等配置项
  * - 用户管理：查看/修改用户角色、封禁状态、昵称
- * - GM 工具：发放物品、设置世界等级、发送全服公告
+ * - GM 工具：设置世界等级、发送全服公告
  */
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { adminApi } from '../api';
 import { API_BASE } from '../config';
@@ -1146,65 +1081,9 @@ function formatDuration(seconds) {
 // ---- GM 工具 ----
 const gmLoading = ref(false);
 
-// ---- GM 发放物品：玩家搜索点选 + 物品目录多选 ----
-const gmGiveItem = ref({
-  player: null, // 选中的目标用户 { id, username, nickname, player }
-  items: [], // 已选物品 [{ name, category, count }]
-  result: '',
-});
-
-// 目标玩家搜索（复用用户列表接口，输入即搜、点选即定）
-const playerQuery = ref('');
-const playerOptions = ref([]);
-const playerDropdown = ref(false);
-const playerSearched = ref(false);
-let playerSearchTimer = null;
-
-/** 玩家关键词防抖搜索 */
-function searchPlayers() {
-  clearTimeout(playerSearchTimer);
-  const kw = playerQuery.value.trim();
-  if (!kw) {
-    playerOptions.value = [];
-    playerSearched.value = false;
-    return;
-  }
-  playerSearchTimer = setTimeout(async () => {
-    try {
-      const res = await adminApi.listUsers({ page: 1, pageSize: 10, keyword: kw });
-      playerOptions.value = res.data.list || [];
-      playerSearched.value = true;
-      playerDropdown.value = true;
-    } catch {
-      playerOptions.value = [];
-      playerSearched.value = true;
-    }
-  }, 250);
-}
-
-/** 点选目标玩家后收起候选列表 */
-function choosePlayer(p) {
-  gmGiveItem.value.player = p;
-  playerQuery.value = '';
-  playerOptions.value = [];
-  playerSearched.value = false;
-  playerDropdown.value = false;
-}
-
-// 物品目录（进入 GM 页时懒加载一次）：[{ name, category }]
+// 物品目录（背包管理「添加物品」选择器用）：[{ name, category }]
 const itemCatalog = ref([]);
 const itemCatalogLoaded = ref(false);
-const itemQuery = ref('');
-const itemMenuOpen = ref(false);
-
-/** 按关键词筛选目录，最多展示 30 条避免列表过长 */
-const filteredCatalog = computed(() => {
-  const kw = itemQuery.value.trim().toLowerCase();
-  const pool = kw
-    ? itemCatalog.value.filter((i) => i.name.toLowerCase().includes(kw))
-    : itemCatalog.value;
-  return pool.slice(0, 30);
-});
 
 async function loadItemCatalog() {
   if (itemCatalogLoaded.value) return;
@@ -1217,49 +1096,6 @@ async function loadItemCatalog() {
     console.warn('[GM] 物品目录加载失败，稍后切回 GM 页会自动重试', err);
     // 目录加载失败时保留空列表，下次切到 GM 页会重试
     itemCatalogLoaded.value = false;
-  }
-}
-
-// 进入 GM 工具页时懒加载物品目录
-watch(tab, (t) => {
-  if (t === 'gm') loadItemCatalog();
-});
-
-/** 点选物品加入已选列表（重复添加只追加数量） */
-function addGiveItem(it) {
-  const existing = gmGiveItem.value.items.find((s) => s.name === it.name);
-  if (existing) {
-    existing.count += 1;
-  } else {
-    gmGiveItem.value.items.push({ name: it.name, category: it.category, count: 1 });
-  }
-  itemQuery.value = '';
-}
-
-/** 是否可提交发放：已选目标玩家且至少一个物品、数量均有效 */
-const canGiveItems = computed(
-  () =>
-    !!gmGiveItem.value.player &&
-    gmGiveItem.value.items.length > 0 &&
-    gmGiveItem.value.items.every((s) => Number(s.count) >= 1),
-);
-
-async function doGiveItem() {
-  const g = gmGiveItem.value;
-  if (!g.player || !g.items.length) return;
-  gmLoading.value = true;
-  try {
-    const res = await adminApi.giveItem({
-      userId: g.player.id,
-      items: g.items.map((s) => ({ itemName: s.name, count: Math.max(1, Math.floor(Number(s.count) || 1)) })),
-    });
-    g.result = res.data?.message || res.message || '发放成功！';
-    g.items = [];
-    setTimeout(() => (g.result = ''), 5000);
-  } catch (e) {
-    g.result = '发放失败：' + (e.response?.data?.message || e.message);
-  } finally {
-    gmLoading.value = false;
   }
 }
 
@@ -1437,64 +1273,6 @@ async function saveBackpack() {
     gmBackpack.value.result = '保存失败：' + (e.response?.data?.message || e.message);
   } finally {
     gmBackpackSaving.value = false;
-  }
-}
-
-// ---- GM 修改玩家属性 ----
-// 可修改字段（与后端白名单一致）
-const modifyFields = [
-  { value: 'level', label: '等级 (level)' },
-  { value: 'exp', label: '经验 (exp)' },
-  { value: 'name', label: '角色名 (name)' },
-  { value: 'hp', label: '当前HP (hp)' },
-  { value: 'maxHp', label: '最大HP (maxHp)' },
-  { value: 'shield', label: '当前护盾 (shield)' },
-  { value: 'maxShield', label: '最大护盾 (maxShield)' },
-  { value: 'armor', label: '当前护甲 (armor)' },
-  { value: 'maxArmor', label: '最大护甲 (maxArmor)' },
-  { value: 'attack', label: '攻击 (attack)' },
-  { value: 'defense', label: '防御 (defense)' },
-  { value: 'speed', label: '速度 (speed)' },
-  { value: 'dodge', label: '闪避 (dodge)' },
-  { value: 'hit', label: '命中 (hit)' },
-  { value: 'crit', label: '暴击率 (crit)' },
-  { value: 'critDmg', label: '暴击伤害 (critDmg)' },
-  { value: 'affinity', label: '好感度 (affinity)' },
-  { value: 'mapId', label: '地图ID (mapId)' },
-  { value: 'location', label: '所在位置 (location)' },
-];
-const modifyNumericFields = [
-  'level', 'exp', 'hp', 'maxHp', 'shield', 'maxShield',
-  'armor', 'maxArmor', 'attack', 'defense', 'speed', 'dodge',
-  'hit', 'crit', 'critDmg', 'affinity', 'mapId',
-];
-
-const gmModify = ref({
-  target: '',
-  field: 'level',
-  value: '',
-  result: '',
-});
-
-/** 当前选中字段是否为数值型（用于输入提示） */
-const modifyFieldValueIsNumber = computed(() => modifyNumericFields.includes(gmModify.value.field));
-
-async function doModifyPlayer() {
-  if (!gmModify.value.target || !gmModify.value.value) return;
-  gmLoading.value = true;
-  try {
-    // 后端支持按用户名/昵称/QQ号/ID 解析目标玩家
-    const res = await adminApi.modifyPlayer({
-      target: String(gmModify.value.target).trim(),
-      field: gmModify.value.field,
-      value: String(gmModify.value.value),
-    });
-    gmModify.value.result = res.message || res.data || '修改成功！';
-    setTimeout(() => (gmModify.value.result = ''), 3000);
-  } catch (e) {
-    gmModify.value.result = '修改失败：' + (e.response?.data?.message || e.message);
-  } finally {
-    gmLoading.value = false;
   }
 }
 
@@ -1782,131 +1560,6 @@ onMounted(async () => {
 }
 .reset-all-btn {
   margin-left: 12px;
-}
-
-/* ===== GM 发放物品：搜索选择器与已选物品列表 ===== */
-.picker-box {
-  position: relative;
-}
-.picker-menu {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  max-height: 240px;
-  overflow-y: auto;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-  background: var(--card, rgba(16, 16, 32, 0.98));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-.picker-menu li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text, #e5e7eb);
-}
-.picker-menu li:hover {
-  background: rgba(139, 92, 246, 0.18);
-}
-.picker-menu-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.picker-menu-sub {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--muted, #9ca3af);
-}
-.picker-empty {
-  justify-content: center;
-  color: var(--muted, #9ca3af);
-  cursor: default;
-}
-.picker-empty:hover {
-  background: transparent;
-}
-.picker-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  border-radius: 18px;
-  background: rgba(139, 92, 246, 0.12);
-  border: 1px solid rgba(139, 92, 246, 0.4);
-  color: var(--text, #e5e7eb);
-  font-size: 13px;
-}
-.picker-chip-sub {
-  font-style: normal;
-  font-size: 11px;
-  color: var(--muted, #9ca3af);
-}
-.picker-chip-x {
-  border: none;
-  background: transparent;
-  color: var(--muted, #9ca3af);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0 2px;
-}
-.picker-chip-x:hover {
-  color: #f87171;
-}
-.picked-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-}
-.picked-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
-}
-.picked-name {
-  flex: 1;
-  font-size: 13px;
-  color: var(--text, #e5e7eb);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.picked-cat {
-  font-style: normal;
-  font-size: 11px;
-  color: var(--muted, #9ca3af);
-  margin-left: 6px;
-}
-.picked-qty {
-  width: 70px;
-  padding: 2px 6px;
-  font-size: 13px;
-}
-.picked-remove {
-  border: none;
-  background: transparent;
-  color: var(--muted, #9ca3af);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0 2px;
-}
-.picked-remove:hover {
-  color: #f87171;
 }
 
 /* ===== GM 背包管理 ===== */

@@ -6,12 +6,69 @@
  * 遵循"配置项抽取"原则：业务逻辑中所有可能变化的常量都通过这里管理。
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
+/** 新增配置项的默认定义：启动时若库中缺失则自动补行，无需重跑 seed */
+interface SystemConfigDefault {
+  key: string;
+  value: string;
+  label: string;
+  description: string;
+  type: string;
+  group: string;
+}
+
+const DEFAULT_CONFIGS: SystemConfigDefault[] = [
+  {
+    key: 'chat.messageIntervalSec',
+    value: '0.5',
+    label: '用户消息发送间隔(秒)',
+    description: '同一用户两条消息之间的最小间隔，防止刷屏；0=不限制',
+    type: 'number',
+    group: 'command',
+  },
+];
+
 @Injectable()
-export class SystemConfigService {
+export class SystemConfigService implements OnModuleInit {
+  private readonly logger = new Logger(SystemConfigService.name);
+
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.ensureDefaultConfigs();
+  }
+
+  /**
+   * 把 DEFAULT_CONFIGS 中库中尚不存在的键补进去（update:{} 不覆盖管理员改过的值）。
+   * 用于「代码新增了配置项，但老库没重跑 seed」的场景，保证管理界面能立刻看到。
+   * 已存在的行只纠正 group/label/description，不动 value。
+   */
+  private async ensureDefaultConfigs(): Promise<void> {
+    for (const cfg of DEFAULT_CONFIGS) {
+      try {
+        const existing = await this.prisma.systemConfig.findUnique({ where: { key: cfg.key } });
+        if (!existing) {
+          await this.prisma.systemConfig.create({ data: { ...cfg } });
+          continue;
+        }
+        if (
+          existing.group !== cfg.group ||
+          existing.label !== cfg.label ||
+          existing.description !== cfg.description
+        ) {
+          await this.prisma.systemConfig.update({
+            where: { key: cfg.key },
+            data: { group: cfg.group, label: cfg.label, description: cfg.description },
+          });
+          this.cache.delete(cfg.key);
+        }
+      } catch (err: any) {
+        this.logger.warn(`补默认配置 ${cfg.key} 失败: ${err?.message ?? err}`);
+      }
+    }
+  }
 
   /**
    * 配置行内存缓存（key → 行），TTL 内免打库。
@@ -142,7 +199,7 @@ export class SystemConfigService {
 
   /**
    * 快捷读取：用户发消息最小间隔（秒）。0=不限制。
-   * 防止刷屏；管理员可在「系统配置 → 聊天」在线调整。
+   * 防止刷屏；管理员可在「系统配置 → 指令设置」在线调整。
    */
   getMessageIntervalSec(): Promise<number> {
     return this.get<number>('chat.messageIntervalSec', 0.5);

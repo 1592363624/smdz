@@ -92,42 +92,6 @@ function buildService(dbPlayer: any, dbUser: any) {
   return { service, dbPlayer };
 }
 
-/**
- * 组装用于「发放物品私聊通知」测试的 AdminService
- * 提供带 Spy 的 chatService 与 staticData，并 Stub addToBackpack 成功
- */
-function buildGiveNoticeService() {
-  const sendPrivate: jest.Mock = jest.fn(async () => ({}));
-  const chatService: any = { sendPrivateMessage: sendPrivate };
-  const staticData: any = {
-    getItemByName: jest.fn((name) =>
-      name === '水晶' ? { description: '零号元素结晶', type: '物品' } : null,
-    ),
-    getEquipmentByName: jest.fn(() => null),
-    getAllItems: jest.fn(() => [
-      { name: '水晶' },
-      { name: '铁矿石' },
-      { name: '巧克力' },
-    ]),
-    getAllEquipments: jest.fn(() => [
-      { name: '石剑', equipType: '装备' },
-      { name: '铁剑', equipType: '武器' },
-    ]),
-  };
-  const playerService: any = { addToBackpack: jest.fn(async () => true) };
-  const prisma: any = { user: {}, player: {} };
-  const service = new AdminService(
-    prisma,
-    playerService,
-    chatService,
-    { updateSystemConfig: jest.fn() } as any,
-    staticData,
-    {} as any,
-    {} as any,
-  );
-  return { service, sendPrivate, addToBackpack: playerService.addToBackpack };
-}
-
 describe('AdminService 背包管理', () => {
   it('gmGetBackpack 解析玩家背包全部物品', async () => {
     const dbPlayer = {
@@ -215,49 +179,5 @@ describe('AdminService 背包管理', () => {
     await expect(service.gmSaveBackpack(9, [{ name: '水晶', quantity: 1 }])).rejects.toThrow(
       NotFoundException,
     );
-  });
-});
-
-describe('AdminService 发放物品后私聊通知', () => {
-  it('gmGiveItem 携带操作者时向目标玩家私聊推送操作与物品明细', async () => {
-    const { service, sendPrivate, addToBackpack } = buildGiveNoticeService();
-    await service.gmGiveItem(5, '水晶', 2, 999);
-
-    expect(addToBackpack).toHaveBeenCalledWith(5, '水晶', 2);
-    expect(sendPrivate).toHaveBeenCalledTimes(1);
-    // 发送者=操作者999，接收者=目标5
-    expect(sendPrivate.mock.calls[0][0]).toBe(999);
-    expect(sendPrivate.mock.calls[0][1]).toBe(5);
-    // 内容包含「操作」与「详细物品信息」（名称/数量/类型/描述）
-    const content: string = sendPrivate.mock.calls[0][2];
-    expect(content).toContain('GM 发放通知');
-    expect(content).toContain('水晶 ×2（物品）');
-    expect(content).toContain('零号元素结晶');
-  });
-
-  it('gmGiveItemBatch 携带操作者时私聊列表含全部物品明细', async () => {
-    const { service, sendPrivate } = buildGiveNoticeService();
-    await service.gmGiveItemBatch(5, [
-      { itemName: '水晶', count: 3 },
-      { itemName: '铁矿石', count: 5 },
-    ], 999);
-
-    expect(sendPrivate).toHaveBeenCalledTimes(1);
-    const content: string = sendPrivate.mock.calls[0][2];
-    expect(content).toContain('水晶 ×3（物品）');
-    expect(content).toContain('铁矿石 ×5（物品）');
-    expect(content).toContain('2 种物品');
-  });
-
-  it('未提供操作者时不发私聊通知（不干扰发放本身）', async () => {
-    const { service, sendPrivate } = buildGiveNoticeService();
-    await service.gmGiveItem(5, '水晶', 2);
-    expect(sendPrivate).not.toHaveBeenCalled();
-  });
-
-  it('发放给自己时不发私聊通知', async () => {
-    const { service, sendPrivate } = buildGiveNoticeService();
-    await service.gmGiveItem(5, '水晶', 2, 5);
-    expect(sendPrivate).not.toHaveBeenCalled();
   });
 });
