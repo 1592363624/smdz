@@ -29,7 +29,10 @@ function makePrismaWithCas(rows: any[]) {
         return row ? { ...row } : null;
       }),
       update: jest.fn(async ({ where, data }: any) => {
-        const rowById = rows.find((r) => r.id === where?.id);
+        // 真实 Prisma 支持 id/userId 两种 unique 定位（savePlayer 现按 userId 归属写库）
+        const rowById = rows.find((r) =>
+          (where?.id !== undefined && r.id === where.id)
+          || (where?.userId !== undefined && r.userId === where.userId));
         if (!rowById) {
           const err: any = new Error('record not found');
           err.code = 'P2025';

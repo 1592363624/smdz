@@ -51,9 +51,10 @@ export function inspectWriteParams(model: string, operation: string, args: any):
     const where = fromWhere(args.where);
     // create/update 的 data 里通常带 userId（savePlayer 不写 userId，靠 where）
     const dataUserId = pickNumber(args.data?.userId ?? args.create?.userId);
-    const userId = where.userId ?? where.id ?? dataUserId;
+    // 只认 userId 归属：where.id 是 Player 自增主键 ≠ userId（见 schema.prisma），
+    // 拿它当 userId 会把同步事件推给错误用户，宁可放弃也不误发
+    const userId = where.userId ?? dataUserId;
     // deleteMany 全表或仅按非归属字段过滤时无法定位 → 放弃
-    // （Player.id 与 Player.userId 一一对应：@unique，见 schema.prisma L69）
     if (!userId) return null;
     return { entity: 'player', userId };
   }

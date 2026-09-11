@@ -2727,8 +2727,14 @@ export class CombatSystemService implements OnApplicationShutdown {
               player.markers2 = markersWithoutJlqR; // Json 列直接写数组
               resultLines.push(`你被反伤打倒，进入了卷土重来状态(${jtlSecR}秒)`);
             } else {
-              // jlq 冷却中：无新卷土重来，真倒下（原版此分支无额外播报，补引导文本）
-              resultLines.push(`你被反伤打倒，倒下了！可使用"复活使魔"或者"删除怪物"`);
+              // jlq 冷却中：不再授予新的卷土重来。原版 玩家死亡 门禁（战斗相关.ecode
+              // L5182-5184）规定增益"卷土重来"未过期时不算真死 —— 此时仅保留伤害
+              // 播报，不提示倒下引导；只有卷土重来也已失效（30秒后、jlq 60秒内的
+              // 再击倒）才是真死，才补引导文本。
+              const comebackActiveR = this.hasActiveRuntimeBuff(player.buffs, '卷土重来', Date.now());
+              if (!comebackActiveR) {
+                resultLines.push(`你被反伤打倒，倒下了！可使用"复活使魔"或者"删除怪物"`);
+              }
             }
           }
         }
@@ -3516,17 +3522,23 @@ export class CombatSystemService implements OnApplicationShutdown {
             victim.markers2 = markersWithoutJlq; // Json 列直接写数组
             lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}进入了卷土重来状态(${jtlSec}秒)`);
           } else {
-            lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}倒下了！`);
-            if (isSelf) lines.push(`你已死亡，可使用「救助」或「复活使魔」来复活`);
-            // 光荣弹（对应原版 战斗相关.ecode L584/591 死亡分支）：玩家死亡且装备 #光荣弹(44)
-            try {
-              const gloryText = await this.gloryGrenade(victim, monster, victimData, map, Date.now());
-              if (gloryText) {
-                lines.push(gloryText);
-                await this.updateMonsterHpInMap(map.id, monster).catch(() => undefined);
+            // jlq 冷却中不再授予新卷土重来。原版 玩家死亡 门禁（战斗相关.ecode
+            // L5182-5184）：增益"卷土重来"未过期时不算真死 —— 只保留伤害播报，
+            // 不播报倒下/死亡引导，也不触发光荣弹；卷土重来已失效才是真死。
+            const comebackActive = this.hasActiveRuntimeBuff(victim.buffs, '卷土重来', Date.now());
+            if (!comebackActive) {
+              lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}倒下了！`);
+              if (isSelf) lines.push(`你已死亡，可使用「救助」或「复活使魔」来复活`);
+              // 光荣弹（对应原版 战斗相关.ecode L584/591 死亡分支）：玩家死亡且装备 #光荣弹(44)
+              try {
+                const gloryText = await this.gloryGrenade(victim, monster, victimData, map, Date.now());
+                if (gloryText) {
+                  lines.push(gloryText);
+                  await this.updateMonsterHpInMap(map.id, monster).catch(() => undefined);
+                }
+              } catch (e: any) {
+                this.logger.warn(`光荣弹触发失败: ${e.message}`);
               }
-            } catch (e: any) {
-              this.logger.warn(`光荣弹触发失败: ${e.message}`);
             }
           }
         } else {

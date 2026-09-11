@@ -40,8 +40,12 @@ describe('ChangeBusService', () => {
 });
 
 describe('inspectWriteParams', () => {
-  it('Player update 按 where.id 定位（savePlayer 形态）', () => {
-    expect(inspectWriteParams('Player', 'update', { where: { id: 5 }, data: { hp: 1 } })).toEqual({
+  it('Player update 仅 where.id（Player 主键≠userId）无法判定归属 → null', () => {
+    expect(inspectWriteParams('Player', 'update', { where: { id: 5 }, data: { hp: 1 } })).toBeNull();
+  });
+
+  it('Player update 按 where.userId 定位（savePlayer 形态）', () => {
+    expect(inspectWriteParams('Player', 'update', { where: { userId: 5 }, data: { hp: 1 } })).toEqual({
       entity: 'player',
       userId: 5,
     });

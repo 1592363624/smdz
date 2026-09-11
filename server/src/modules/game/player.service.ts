@@ -513,7 +513,7 @@ export class PlayerService {
         player.mapId = startMap.id;
         player.location = startMap.name;
         await this.prisma.player.update({
-          where: { id: player.id },
+          where: { userId: player.userId }, // 归属判定靠 where.userId（Player.id ≠ userId）
           data: { mapId: startMap.id, location: startMap.name },
         });
         player.version = Number(player.version ?? 0) + 1;
@@ -1430,7 +1430,9 @@ export class PlayerService {
 
     if (!canCas) {
       await this.prisma.player.update({
-        where: { id: player.id },
+        // where 用 userId（unique）：write-inspect 靠 where.userId 判定归属，
+        // where.id 是 Player 自增主键 ≠ userId，会让 UI 同步事件推错用户
+        where: { userId: player.userId },
         data: updateData, // $use 中间件自动 version: { increment: 1 }
       });
       // 回写内存版本：保持快照与库一致（中间件已 +1）
@@ -1438,10 +1440,10 @@ export class PlayerService {
       return;
     }
 
-    // 乐观锁 CAS：按读取时的 version 条件更新（updateMany 走 where {id, version}，
-    // write-inspect 能从 where.id 提取归属，UI 同步广播不受影响）。
+    // 乐观锁 CAS：按读取时的 version 条件更新（updateMany 走 where {userId, id, version}，
+    // 带上 userId 让 write-inspect 能正确解析归属，UI 同步广播不受影响）。
     const result = await this.prisma.player.updateMany({
-      where: { id: player.id, version: snapshotVersion },
+      where: { id: player.id, userId: player.userId, version: snapshotVersion },
       data: { ...updateData, version: snapshotVersion + 1 },
     });
     if (result.count > 0) {
@@ -1471,7 +1473,7 @@ export class PlayerService {
     }
     // log 模式：强制写保持旧行为（业务不中断），version 以库内最新为准推进。
     await this.prisma.player.update({
-      where: { id: player.id },
+      where: { userId: player.userId }, // 归属判定靠 where.userId（Player.id ≠ userId）
       data: updateData, // $use 中间件自动 version: { increment: 1 }
     });
     player.version = Number(current?.version ?? snapshotVersion) + 1;

@@ -34,9 +34,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       // 携带 version（如 savePlayer 的 CAS 写法）时不重复注入。
       try {
         const p = params as any;
+        // 注意：Prisma 5 中间件参数里操作名是 action（如 'update'），不存在 operation 字段
         if (
           p.model === 'Player'
-          && (p.operation === 'update' || p.operation === 'updateMany')
+          && (p.action === 'update' || p.action === 'updateMany')
           && p.args?.data
           && p.args.data.version === undefined
         ) {
@@ -48,20 +49,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
       const result = await next(params);
       try {
-        const { model, operation, args } = params as any;
-        if (model && WRITE_OPERATIONS.has(operation) && SYNC_MODELS.has(model)) {
+        // Prisma 5 中间件参数的操作名字段是 action，此前误用 operation 导致事件永不触发
+        const { model, action, args } = params as any;
+        if (model && WRITE_OPERATIONS.has(action) && SYNC_MODELS.has(model)) {
           const ctx = writeContext.getStore();
           if (!ctx?.silent) {
-            const info = inspectWriteParams(String(model), String(operation), args);
+            const info = inspectWriteParams(String(model), String(action), args);
             if (info) {
               if (info.entity === 'player') {
-                this.changeBus?.emit({ entity: 'player', userId: info.userId!, writer: `prisma:${operation}` });
+                this.changeBus?.emit({ entity: 'player', userId: info.userId!, writer: `prisma:${action}` });
               } else {
                 this.changeBus?.emit({
                   entity: 'monster',
                   monsterId: info.monsterId ?? 0,
                   mapId: info.mapId!,
-                  writer: `prisma:${operation}`,
+                  writer: `prisma:${action}`,
                 });
               }
             }
