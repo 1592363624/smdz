@@ -12,8 +12,10 @@
  * - 递减收益：二阶段属性超过阈值后按比例衰减
  */
 
-import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject, forwardRef, OnApplicationShutdown } from '@nestjs/common';
+import { AsyncLocalStorage } from 'async_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ChatService } from '../chat/chat.service';
 import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData, SetData } from './bonus.service';
 import { MapService, MapMonster } from './map.service';
@@ -38,9 +40,7 @@ import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
 // 背包写入唯一出口（按名合并 / type 以静态定义为唯一真源），禁各路径手写合并逻辑
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
-// 三池数值出口归一化（第四道闸）：扣血/封顶/回复必须走 player-pool.util 的单一实现，
-// 禁止在调用侧对已截断的池值再 Math.round —— 那会把 0.02 这类残值抹成 0，造成
-// 「残血不死 + 伤害恒为 0」的死锁（2026-09-10 路人乙事故）。
+
 import { resolvePoolDamage, subtractPoolValue, capPoolValue, round2 } from './player-pool.util';
 
 // ==================== 类型定义 ====================
@@ -318,7 +318,7 @@ export interface WeaponData {
 }
 
 @Injectable()
-export class CombatSystemService {
+export class CombatSystemService implements OnApplicationShutdown {
   private readonly logger = new Logger(CombatSystemService.name);
 
   /** 白的羁绊技能1候选（bj1 值 → 对应武器类型攻击+15%，原版 控制终端技能a）。 */
@@ -375,7 +375,20 @@ export class CombatSystemService {
     // 公共攻击CD下限等可在线调整的系统配置；测试按位置 new 时可不注入
     @Optional()
     private readonly systemConfig?: SystemConfigService,
+    // 怪物锁定武器延时落伤（原版 覅公jj）的结算文本需要广播世界频道；
+    // ChatService 无反向依赖，@Optional 兼容按位置 new 的既有测试。
+    @Optional()
+    private readonly chatService?: ChatService,
   ) {}
+
+  /** 怪物锁定武器的延时落伤定时器（原版 覅公jj 内存延时，进程重启即丢弃）；key=地图:怪物:武器 */
+  private readonly monsterLockedAttackTimers = new Map<string, NodeJS.Timeout>();
+
+  /** 进程退出时丢弃待发锁定落伤（与 MapBattleLoopService 同语义） */
+  onApplicationShutdown(): void {
+    for (const timer of this.monsterLockedAttackTimers.values()) clearTimeout(timer);
+    this.monsterLockedAttackTimers.clear();
+  }
 
   // ==================== 用户级战斗串行锁 ====================
   // 原版为单线程内存模型，指令天然原子执行；本框架 Web 后端多请求并发
@@ -383,6 +396,14 @@ export class CombatSystemService {
   // 状态被外层攻击流程的旧玩家快照整体覆盖回数据库），因此所有玩家战斗
   // 入口统一经 weaponAttack 的 per-user 互斥锁串行化。
   private readonly combatLocks = new Map<number, Promise<unknown>>();
+
+  /**
+   * 嵌套攻击链标记（AsyncLocalStorage）：userId = 当前异步链已处于持锁的
+   * weaponAttackInner 内。weaponAttack 据此直通跳过 withCombatLock，
+   * 防止嵌套调用在自身未决的锁 tail 上排队形成永久自死锁
+   * （2026-09-11 正式库事故：剑圣苇名剑法补击/棒棒糖自动技能 → 攻击无回包）。
+   */
+  private readonly innerChain = new AsyncLocalStorage<number>();
 
   /** 召唤物主人解析缓存（ownerQQ → userId），地图战斗节拍每轮复用 */
   private readonly summonOwnerCache = new Map<string, number>();
@@ -468,12 +489,28 @@ export class CombatSystemService {
     weaponIndex: number,
     context: AttackContext = {},
   ): Promise<WeaponAttackResult> {
-    // 战斗会整包读改写玩家（背包扣弹药、掉落入包、增益标记等），
-    // 必须与兑换/召唤/后台结算共用同一把用户级共享锁，否则自动战斗的
-    // 周期回写会用旧快照覆盖并发写入的玩家数据。combatLock 只串行化
-    // 战斗自身（含 skipCombatLock 直通路径），与数据安全无关，保留不动。
+
+    const nested = context.skipCombatLock === true || this.innerChain.getStore() === userId;
     return this.playerService.enqueueUserWrite(userId, () =>
-      this.withCombatLock(userId, () => this.weaponAttackInner(userId, weaponIndex, context)));
+      nested
+        ? this.weaponAttackInnerGuarded(userId, weaponIndex, context)
+        : this.withCombatLock(userId, () =>
+            this.weaponAttackInnerGuarded(userId, weaponIndex, context),
+          ),
+    );
+  }
+
+  /**
+   * weaponAttackInner 的链路标记包装：在 innerChain ALS 中标记"当前异步链已处于
+   * 持锁的武器攻击内"，供 weaponAttack 的嵌套检测读取。内层嵌套调用重复 run 时
+   * 值不变，语义仍为"本链在锁内"。
+   */
+  private weaponAttackInnerGuarded(
+    userId: number,
+    weaponIndex: number,
+    context: AttackContext,
+  ): Promise<WeaponAttackResult> {
+    return this.innerChain.run(userId, () => this.weaponAttackInner(userId, weaponIndex, context));
   }
 
   /**
@@ -2894,6 +2931,8 @@ export class CombatSystemService {
             isCombo: true,
             isExtraAttack: true,
             damageMultiplier: 100,
+            // 已处于外层 weaponAttack 的战斗锁内，必须直通，否则自死锁
+            skipCombatLock: true,
           });
           resultLines.push(`【额外攻击】\n${extra.result}`);
         } catch (e: any) {
@@ -2926,6 +2965,8 @@ export class CombatSystemService {
             // 原版 战斗相关.ecode L727-739：补击沿用**本次攻击的同一 伤害倍率**，
             // 不是固定 100（会心一击等技能触发时不丢倍率）
             damageMultiplier: context.damageMultiplier ?? 100,
+            // 已处于外层 weaponAttack 的战斗锁内，必须直通，否则自死锁
+            skipCombatLock: true,
           });
           resultLines.push(`【苇名剑法】\n${follow.result}`);
         }
@@ -11362,8 +11403,42 @@ export class CombatSystemService {
       // 由 覅攻击pd L502 据此终止自动循环（本框架以 noTarget 标记表达）。
       if (victims.length === 0 && noTargetOut) noTargetOut.value = true;
     }
+    // 原版 武器攻击 L69-92：每把武器出手前先查 攻击方.标记2 的「武器名+冷却」，
+    // 冷却中该武器本回合直接跳过（不出手、无文本），出手通过时由 时间间隔要求 写入冷却标记。
+    // 频率失真修复：此前怪物每回合全部武器无冷却齐射（如剧毒飞龙三把武器冷却均 15 秒，
+    // 原版约 16 秒才各命中一轮，此前变成每 4 秒全中，受击频率约为原版 3 倍）。
+    const nowMsWeapon = Date.now();
     for (const rawWeapon of weapons) {
       const weapon = rawWeapon ? this.getWeaponData(monster, weaponList.indexOf(rawWeapon) + 1) : undefined;
+      if (weapon && victims.length > 0) {
+        const cdName = `${weapon.name}冷却`;
+        // 每把武器重新解析怪物标记：前序武器/幻时结算可能已写回 monster.markers2
+        const monsterMarkers2 = this.playerService.safeJsonParse<any[]>(monster.markers2, []);
+        const onCooldown = monsterMarkers2.some(
+          (m: any) => m?.name === cdName && Number(m?.expireAt ?? 0) > nowMsWeapon,
+        );
+        if (onCooldown) continue;
+        // 写入冷却标记（覆盖旧项，毫秒 expireAt，与玩家武器冷却同容器语义）；
+        // 锁定武器同样在起手时开始计冷却（原版 时间间隔要求 即查即写，落伤在锁定秒数之后）
+        const cdSec = Math.max(0, Number(weapon.cooldown) || 5);
+        const nextMarkers2 = monsterMarkers2.filter((m: any) => m?.name !== cdName);
+        nextMarkers2.push({ name: cdName, expireAt: nowMsWeapon + cdSec * 1000 });
+        monster.markers2 = nextMarkers2;
+        const lockSec = Number(weapon.lockTime) || 0;
+        if (lockSec > 0) {
+          // 原版 武器攻击 L69-81：锁定武器起手只播锁定文本，
+          // 锁定秒数后经「覅公jj」延时对当时的防御方落伤
+          lines.push(this.buildMonsterLockIntentText(monster, weapon));
+          this.scheduleMonsterLockedAttack(
+            map.id,
+            String(monster.qq ?? monster.QQ ?? monster.id ?? ''),
+            weapon.name,
+            lockSec,
+            userId,
+          );
+          continue;
+        }
+      }
       for (const victim of victims) {
         lines.push(...await this.monsterCounterAttackOnePlayer(
           monster,
@@ -11381,6 +11456,146 @@ export class CombatSystemService {
     }
     await this.mapService.saveGameMonster(monster);
     return lines;
+  }
+
+  /**
+   * 怪物锁定武器的起手文本（原版 武器攻击 L73-76 显示攻击文本(z1, 5) +
+   * 【载具】【名称】【武器】占位符替换；锁定文本不针对具体目标，【目标】不替换）。
+   */
+  private buildMonsterLockIntentText(monster: any, weapon: WeaponData): string {
+    const textName = this.resolveAttackTextName(weapon);
+    const templates = this.getAttackTextTemplates(textName, 5);
+    if (templates.length > 0) {
+      const tpl = templates[Math.floor(Math.random() * templates.length)];
+      return this.expandAttackPlaceholders(tpl, monster.name || '', '', weapon.name);
+    }
+    // 兼容回退：飞龙吐息a 等文本条目原版没有「锁定」分类（原版此时会输出
+    // 「[类型5]数组成员为0」调试文案，网页版不展示该提示），回落普通攻击文案
+    const attackTemplates = this.getAttackTextTemplates(textName, 1);
+    if (attackTemplates.length > 0) {
+      const tpl = attackTemplates[Math.floor(Math.random() * attackTemplates.length)];
+      return this.expandAttackPlaceholders(tpl, monster.name || '', '', weapon.name);
+    }
+    return `${monster.name || '怪物'} 正在使用${weapon.name}锁定目标`;
+  }
+
+  /**
+   * 排程怪物锁定武器的延时落伤（原版 _主程序.ecode 新建延时("覅公jj"+怪物QQ+"$"+武器名, 锁定秒)）。
+   * 同 (地图, 怪物, 武器) 同时最多一个待发延时（原版 延时执行 线程按 (命令,qq) 去重）。
+   */
+  private scheduleMonsterLockedAttack(
+    mapId: number,
+    monsterKey: string,
+    weaponName: string,
+    lockSec: number,
+    nominalUserId: number,
+  ): void {
+    if (!monsterKey || !(lockSec > 0)) return;
+    const key = `${mapId}:${monsterKey}:${weaponName}`;
+    const existing = this.monsterLockedAttackTimers.get(key);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.monsterLockedAttackTimers.delete(key);
+      void this.settleMonsterLockedAttack(mapId, monsterKey, weaponName, nominalUserId)
+        .catch((e: any) => this.logger.warn(`怪物延时落伤结算失败 mapId=${mapId} weapon=${weaponName}: ${e?.message ?? e}`));
+    }, lockSec * 1000);
+    // 延时游戏事件不阻塞进程退出（原版进程退出同样丢弃待执行延时）
+    const unref = (timer as any)?.unref;
+    if (typeof unref === 'function') unref.call(timer);
+    this.monsterLockedAttackTimers.set(key, timer);
+  }
+
+  /**
+   * 怪物锁定武器延时落伤（对应原版 _主程序.ecode L536-652「覅公jj」怪物分支）：
+   * 到期重读地图与怪物；地图处于「幻时」则只播凝固文本；防御方为存活召唤物 +
+   * 该图存活且未隐匿/未炮冠的玩家（原版 L575-602 顺序：召唤物在前、玩家在后），
+   * 逐一结算该武器伤害后把文本广播到世界频道（原版 发放奖励 → 发送群消息）。
+   */
+  private async settleMonsterLockedAttack(
+    mapId: number,
+    monsterKey: string,
+    weaponName: string,
+    nominalUserId: number,
+  ): Promise<void> {
+    const map = await this.mapService.getMapById(mapId);
+    if (!map) return;
+    const monsters = await this.mapService.getMapMonsters(map);
+    const monster = monsters.find((item: any) =>
+      String(item?.qq ?? item?.QQ ?? item?.id ?? '') === monsterKey
+      && (Number(item?.hp) || 0) > 0);
+    if (!monster) return;
+
+    // 原版 L570：地图标记3「幻时」生效时怪物被凝固，延时攻击不结算
+    const mapMarkers3 = this.playerService.safeJsonParse<any[]>(map.markers3 ?? map.标记3 ?? '[]', []);
+    const nowMs = Date.now();
+    const frozen = mapMarkers3.some((item: any) => {
+      const name = item?.名称 ?? item?.name;
+      const expire = Number(item?.有效期至 ?? item?.expireAt ?? 0);
+      const expireMs = expire > 0 && expire < 1e12 ? expire * 1000 : expire;
+      return name === '幻时' && (!expireMs || expireMs > nowMs);
+    });
+    if (frozen) {
+      await this.broadcastLockedAttackText(`${monster.name}被幻时凝固`);
+      return;
+    }
+
+    // 原版 L573-603：按武器名重新定位怪物身上的武器，不在身上时播提示文本
+    const weaponList = this.getRuntimeWeapons(monster);
+    const weaponIndex = weaponList.findIndex((item: any) => this.getRuntimeWeaponName(item) === weaponName);
+    if (weaponIndex < 0) {
+      await this.broadcastLockedAttackText(`${monster.name}的延时攻击武器${weaponName}不在身上`);
+      return;
+    }
+    const weapon = this.getWeaponData(monster, weaponIndex + 1);
+    const monsterBonus = this.buildMonsterBonus(monster);
+
+    // 防御方收集（原版 覅公jj 不检查玩家「活跃」标记，与 覅攻击pd 的 战斗 分支不同）
+    const victims: Array<{ actor: any; data: PlayerData; runtime: boolean; isSelf: boolean }> = [];
+    const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
+    for (const summon of summons) {
+      if ((summon?.hp ?? summon?.当前生命 ?? 0) <= 0) continue;
+      summon.mapId = map.id;
+      victims.push({ actor: summon, data: this.createRuntimeActorData(summon), runtime: true, isSelf: false });
+    }
+    const rows = await this.prisma.player.findMany({ where: { mapId: map.id }, select: { userId: true } });
+    for (const row of rows) {
+      const victimData = await this.playerService.getPlayerData(row.userId);
+      if (this.playerService.isPlayerDead(victimData.player)) continue;
+      const buffs = this.playerService.safeJsonParse<any[]>(victimData.player.buffs, []);
+      if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
+      victims.push({
+        actor: victimData.player,
+        data: victimData,
+        runtime: false,
+        isSelf: Number(row.userId) === Number(nominalUserId),
+      });
+    }
+
+    const lines: string[] = [];
+    for (const victim of victims) {
+      lines.push(...await this.monsterCounterAttackOnePlayer(
+        monster,
+        monsterBonus,
+        victim.actor,
+        victim.data,
+        map,
+        victim.isSelf,
+        weapon,
+        victim.runtime,
+      ));
+    }
+    await this.mapService.saveGameMonster(monster);
+    await this.broadcastLockedAttackText(lines.filter(Boolean).join('\n'));
+  }
+
+  /** 延时落伤文本广播到世界频道（原版 发放奖励 → 发送群消息）；未注入 ChatService 时静默跳过 */
+  private async broadcastLockedAttackText(text: string): Promise<void> {
+    if (!text || !text.trim() || !this.chatService) return;
+    try {
+      await this.chatService.broadcastSystem('世界频道', text);
+    } catch {
+      // 广播失败不影响落伤结算本身
+    }
   }
 
   /**

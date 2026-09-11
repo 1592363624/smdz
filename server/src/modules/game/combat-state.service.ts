@@ -86,7 +86,12 @@ export class CombatStateService {
     const rawTime = it.有效期至 ?? it.expireAt ?? 0;
     const expireMs = rawTime > 0 && rawTime < 1e12 ? rawTime * SECOND_MS : rawTime;
     const strength = it.强度 ?? it.value ?? it.strength ?? 0;
-    return { 名称: name, 强度: strength, 有效期至: expireMs };
+    // 兼容层只补齐 名称/强度/有效期至 三件套，必须保留其余扩展字段：
+    // 抢救链路的「复活/工作」标记携带 rescueType/startedAt/totalMs/token，
+    // 驱动前端 pendingActions 倒计时与延时任务完成回调，抹掉会导致读条消失。
+    // 英文别名（name/value/strength/expireAt）归一化后删除，避免双格式歧义。
+    const { name: _n, value: _v, strength: _s, expireAt: _e, ...rest } = it;
+    return { ...rest, 名称: name, 强度: strength, 有效期至: expireMs };
   }
 
   /**

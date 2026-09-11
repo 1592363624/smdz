@@ -428,6 +428,42 @@
           <span class="menu-bar"></span>
           <span class="menu-bar"></span>
         </button>
+        <div class="header-right action-dock" :class="{ 'is-hidden': dockHidden }" @mouseenter="revealDock" @mouseleave="scheduleDockHide">
+          <!-- 消息过滤切换：选择是否显示其他玩家的聊天与系统回复 -->
+          <button
+            class="header-action-btn filter-toggle"
+            :class="{ on: showOthersMsg }"
+            :title="showOthersMsg ? '当前显示所有人的消息，点击隐藏他人的聊天与系统回复' : '当前仅显示自己的消息，点击恢复显示他人消息'"
+            @click="toggleShowOthers"
+          >
+            {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
+          </button>
+          <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
+          <!-- 命令面板入口：桌面端可用 Cmd/Ctrl+K 唤起，移动端点此打开 -->
+          <button class="header-action-btn palette-open-btn" title="指令面板（Cmd/Ctrl+K）" @click="ui.openPalette()">
+            ⌨️ 指令
+          </button>
+          <!-- 私聊入口按钮（带未读红点） -->
+          <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
+            💬 私聊
+            <span v-if="unreadPrivateCount > 0" class="unread-badge">{{ unreadPrivateCount > 99 ? '99+' : unreadPrivateCount }}</span>
+          </button>
+          <!-- BUG 反馈入口：醒目样式 + GitHub 图标，点击跳转 GitHub Issues 页 -->
+          <a
+            class="github-issue-btn"
+            :href="GITHUB_ISSUES_URL"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="前往 GitHub 提交 BUG 反馈"
+          >
+            <svg class="github-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <!-- GitHub 官方 Logo 路径（24x24 视窗） -->
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+            </svg>
+            <span>BUG 反馈</span>
+          </a>
+          <a class="reborn-link" href="http://xx.52shell.ltd" target="_blank" rel="noopener noreferrer">《重生之凡人修仙》</a>
+        </div>
       </header>
 
       <!-- 消息列表 -->
@@ -451,7 +487,7 @@
           <span class="msg-time">{{ formatTime(v.msg.createdAt) }}</span>
         </div>
         <div v-if="!messageViews.length" class="empty">
-          {{ messages.length ? '🙈 已隐藏其他玩家的消息，点击右下角「仅看自己」可恢复' : '暂无消息，发送第一条指令吧！' }}
+          {{ messages.length ? '🙈 已隐藏其他玩家的消息，点击顶部「仅看自己」可恢复' : '暂无消息，发送第一条指令吧！' }}
         </div>
         <!-- 回到底部按钮 -->
         <button v-if="showScrollBtn" class="scroll-bottom-btn" @click="scrollToBottom()">↓ 回到底部</button>
@@ -619,44 +655,6 @@
         </div>
       </div>
     </aside>
-
-    <!-- 右下角快捷操作坞（原顶部按钮组）：固定在页面右下，宽屏时贴在右侧信息栏底部 -->
-    <div class="header-right action-dock">
-      <!-- 消息过滤切换：选择是否显示其他玩家的聊天与系统回复 -->
-      <button
-        class="header-action-btn filter-toggle"
-        :class="{ on: showOthersMsg }"
-        :title="showOthersMsg ? '当前显示所有人的消息，点击隐藏他人的聊天与系统回复' : '当前仅显示自己的消息，点击恢复显示他人消息'"
-        @click="toggleShowOthers"
-      >
-        {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
-      </button>
-      <span class="version-tag" title="点击查看更新记录" @click="openUpdateLog">v{{ APP_VERSION }}<em v-if="deployVersion?.short" class="version-tag-sha">#{{ deployVersion.short }}</em></span>
-      <!-- 命令面板入口：桌面端可用 Cmd/Ctrl+K 唤起，移动端点此打开 -->
-      <button class="header-action-btn palette-open-btn" title="指令面板（Cmd/Ctrl+K）" @click="ui.openPalette()">
-        ⌨️ 指令
-      </button>
-      <!-- 私聊入口按钮（带未读红点） -->
-      <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
-        💬 私聊
-        <span v-if="unreadPrivateCount > 0" class="unread-badge">{{ unreadPrivateCount > 99 ? '99+' : unreadPrivateCount }}</span>
-      </button>
-      <!-- BUG 反馈入口：醒目样式 + GitHub 图标，点击跳转 GitHub Issues 页 -->
-      <a
-        class="github-issue-btn"
-        :href="GITHUB_ISSUES_URL"
-        target="_blank"
-        rel="noopener noreferrer"
-        title="前往 GitHub 提交 BUG 反馈"
-      >
-        <svg class="github-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-          <!-- GitHub 官方 Logo 路径（24x24 视窗） -->
-          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-        </svg>
-        <span>BUG 反馈</span>
-      </a>
-      <a class="reborn-link" href="http://xx.52shell.ltd" target="_blank" rel="noopener noreferrer">《重生之凡人修仙》</a>
-    </div>
 
     <!-- 私聊面板（右侧滑出覆盖层） -->
     <div v-if="privatePanelOpen" class="panel-overlay" @click.self="closePrivatePanel">
@@ -2107,6 +2105,7 @@ function scrollToBottom() {
 }
 
 // 消息滚动监听 - 检测用户是否手动向上滚动
+let lastMsgScrollTop = 0;
 function onMsgScroll() {
   if (!msgList.value) return;
   const el = msgList.value;
@@ -2123,6 +2122,14 @@ function onMsgScroll() {
   }
   // 用户滑动 → 滑出顶部操作栏（布局补偿/程序化滚动引起的 scroll 事件跳过，避免抖动）
   if (performance.now() >= suppressHeaderRevealUntil) revealMobileHeader();
+  // 仅向上翻历史时短暂显示操作坞；向下滚/贴底不出现
+  const delta = el.scrollTop - lastMsgScrollTop;
+  lastMsgScrollTop = el.scrollTop;
+  if (delta < -2 && !isNearBottom) {
+    revealDock();
+  } else if (delta > 2 || isNearBottom) {
+    hideDockNow();
+  }
 }
 
 // ============================================================
@@ -2144,6 +2151,38 @@ const chatHeaderEl = ref(null);
 const mobileHeaderHidden = ref(false);
 let headerHideTimer = null;
 let headerResizeObserver = null;
+
+/** 顶部操作坞：滚动/进入时短暂显示，几秒后自动隐藏 */
+const DOCK_HIDE_MS = 3000;
+const dockHidden = ref(false);
+let dockHideTimer = null;
+
+function clearDockHideTimer() {
+  if (dockHideTimer) {
+    clearTimeout(dockHideTimer);
+    dockHideTimer = null;
+  }
+}
+
+function scheduleDockHide() {
+  clearDockHideTimer();
+  dockHideTimer = setTimeout(() => {
+    dockHideTimer = null;
+    dockHidden.value = true;
+  }, DOCK_HIDE_MS);
+}
+
+function revealDock() {
+  clearDockHideTimer();
+  dockHidden.value = false;
+  scheduleDockHide();
+}
+
+/** 立即隐藏操作坞（向下滚动时） */
+function hideDockNow() {
+  clearDockHideTimer();
+  dockHidden.value = true;
+}
 
 function isMobileViewport() {
   return typeof window !== 'undefined' && window.matchMedia(MOBILE_HEADER_MQ).matches;
@@ -2258,6 +2297,9 @@ function maybeScheduleInitialPeek() {
 
 function setupMobileHeaderAutoHide() {
   syncHeaderHeightVar();
+  // 操作坞：进入后短暂展示一次再隐藏；之后仅上滑时出现
+  dockHidden.value = false;
+  scheduleDockHide();
   if (!isMobileViewport()) return;
   const el = chatHeaderEl.value;
   if (el && typeof ResizeObserver !== 'undefined') {
@@ -2269,6 +2311,7 @@ function setupMobileHeaderAutoHide() {
 
 function teardownMobileHeaderAutoHide() {
   clearHeaderHideTimer();
+  clearDockHideTimer();
   if (headerResizeObserver) {
     headerResizeObserver.disconnect();
     headerResizeObserver = null;
@@ -3377,28 +3420,34 @@ onUnmounted(() => {
   transform: scale(0.95);
 }
 
-/* ===== 右下角快捷操作坞（原顶部按钮组） ===== */
-/* 单行横排，不换行；视口右下角 */
+/* ===== 顶部操作坞（原右下角按钮组恢复到顶部居中） ===== */
+/* 单行横排；滚动/悬停时显示，几秒后淡出隐藏 */
 .action-dock {
-  position: fixed;
-  right: 16px;
-  bottom: calc(14px + var(--safe-bottom, 0px));
-  z-index: 40;
-  margin-left: 0;
+  margin-left: auto;
+  margin-right: auto;
   width: max-content;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100% - 8px);
   flex-wrap: nowrap;
   white-space: nowrap;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: center;
   gap: 6px;
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: rgba(10, 10, 26, 0.82);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.22s ease, transform 0.22s ease, visibility 0.22s ease;
+}
+.action-dock.is-hidden {
+  opacity: 0;
+  transform: translateY(-6px);
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* ===== 消息过滤切换按钮（显示他人/仅看自己）===== */

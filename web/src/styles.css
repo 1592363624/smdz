@@ -1307,8 +1307,14 @@ vite-plugin-checker-error-overlay,
   background: rgba(10, 10, 26, 0.6);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  /* 桌面端顶栏只剩汉堡入口（已隐藏），整条省掉高度；移动端见 media 覆盖 */
-  display: none;
+  /* 顶部操作坞容器：桌面端常驻高度（操作坞在内自动淡入淡出） */
+  display: flex;
+}
+/* 操作坞隐藏时顶栏收成一条缝，避免空条占高 */
+.chat-header:has(.action-dock.is-hidden) {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  border-bottom-color: transparent;
 }
 .chat-header h2 {
   font-size: 16px;
@@ -3396,16 +3402,12 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* 手机端：抬高避开输入栏，仍保持单行 */
+  /* 手机端：操作坞在顶栏内，仍保持单行、允许略紧 */
   .action-dock {
-    right: 8px;
-    left: auto;
-    bottom: calc(72px + 56px + 8px + var(--safe-bottom, 0px));
     width: max-content;
-    max-width: calc(100vw - 16px);
+    max-width: calc(100% - 4px);
     flex-wrap: nowrap;
     gap: 5px;
-    padding: 6px 8px;
   }
   .action-dock .header-action-btn,
   .action-dock .github-issue-btn,

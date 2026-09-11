@@ -1034,8 +1034,15 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.gameService.handlePassiveEffects(userId));
 
         case '图鉴':
-        case 'handbook':
-          return this.wrap(await this.gameService.handleHandbook(userId, firstArg));
+        case 'handbook': {
+          // 图鉴是纯查看指令，菜单正文以「请选择分类」开头、地图/怪物详情含
+          // 「不可传送」等提示，都会命中 isSuccessfulResponse 的失败关键词，
+          // 被误判为指令失败 → finishCommandTasks 跳过任务要求「发送“图鉴”」的推进，
+          // 表现为「教程-图鉴」永远停留在 ◆需要发送“图鉴”x3 无法完成。
+          // 查看类指令不适用失败关键词启发式：有正文即视为成功（同 使魔技能 的修法）。
+          const handbookText = await this.gameService.handleHandbook(userId, firstArg);
+          return { success: !!handbookText?.trim(), content: handbookText, broadcast: true, durationMs: 0 };
+        }
 
         // ========== 物品操作命令 ==========
         case '切换武器':
