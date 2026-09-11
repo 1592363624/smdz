@@ -2687,6 +2687,50 @@ export class CombatSystemService implements OnApplicationShutdown {
           // 反伤扣血走三池唯一实现（原实现直写 player.hp，绕过第四道闸）
           player.hp = subtractPoolValue(player.hp, Math.floor(reflectDmg));
           resultLines.push(`【反伤】${target.name} 反弹了 ${Math.floor(reflectDmg)} 点伤害给你！`);
+          // ===== 反伤致死级联（原版反伤走完整 造成伤害() 管道，战斗相关.ecode L585-589） =====
+          // 原版 L3674-3690：玩家被打倒时 jlq 60秒冷却未过 → 真死；否则授予
+          // 卷土重来(30+属性.卷土重来) 并播报。移植版此前直扣血漏掉级联，
+          // 反伤致死时既无卷土重来也无倒下提示，表现为「突然死亡」。
+          // 与怪物反击链路（monsterCounterAttackOnePlayer）的级联保持同语义。
+          if (!isRuntimeActor && this.playerService.isPlayerDead(player)) {
+            // 负值夹回 0，与反击链路 L3430 一致，避免负血穿透持久化
+            if (Number(player.hp) < 0) player.hp = 0;
+            // 全局熟练度：怪物击倒目标 +1、世界 +1（原版 L3683-3684）
+            try {
+              if (this.globalProficiency) {
+                await this.globalProficiency.addProficiency(String(target?.name ?? ''), 1);
+                await this.globalProficiency.addProficiency(WORLD_PROFICIENCY_NAME, 1);
+              }
+            } catch {
+              /* 熟练度失败不影响死亡级联 */
+            }
+            taskProgress.push({ userId: Number(player.userId), actionName: '被击败', count: 1 });
+            const nowSecR = Math.floor(Date.now() / 1000);
+            const mk2R = this.safeParseJson<any[]>(player.markers2, []);
+            // 兼容秒/毫秒混存：≥1e12 视为毫秒（与反击链路 L3457 同一判定）
+            const toSecR = (raw: any): number => {
+              const n = Number(raw ?? 0);
+              return n >= 1e12 ? n / 1000 : n;
+            };
+            const hasActiveJlqR = mk2R.some(
+              (m: any) => (m?.name ?? m?.名称) === 'jlq' && toSecR(m?.expireAt ?? m?.有效期至) > nowSecR,
+            );
+            if (!hasActiveJlqR) {
+              // 原版 L3686-3690：授予 卷土重来(30+卷土重来属性)，写入 jlq 60秒冷却
+              const bonusR = this.safeParseJson<any>(player.bonus, {});
+              const jtlSecR = 30 + (Number(bonusR['卷土重来']) || 0);
+              const buffsR = this.safeParseJson<any[]>(player.buffs, []);
+              buffsR.push({ name: '卷土重来', expireAt: nowSecR + jtlSecR });
+              player.buffs = buffsR; // Json 列直接写数组
+              const markersWithoutJlqR = mk2R.filter((m: any) => (m?.name ?? m?.名称) !== 'jlq');
+              markersWithoutJlqR.push({ name: 'jlq', expireAt: nowSecR + 60 });
+              player.markers2 = markersWithoutJlqR; // Json 列直接写数组
+              resultLines.push(`你被反伤打倒，进入了卷土重来状态(${jtlSecR}秒)`);
+            } else {
+              // jlq 冷却中：无新卷土重来，真倒下（原版此分支无额外播报，补引导文本）
+              resultLines.push(`你被反伤打倒，倒下了！可使用"复活使魔"或者"删除怪物"`);
+            }
+          }
         }
       }
 

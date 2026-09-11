@@ -1641,7 +1641,7 @@ export class GameService {
       equipment: this.buildEquipmentSnapshot(player, markers),
       buffs: this.buildActiveBuffs(playerData.buffs),
       // 进行中的延时操作（采集/移动/抢救…）：前端据此渲染统一倒计时进度条
-      pendingActions: this.buildPendingActions(player, markers, playerData.markers2),
+      pendingActions: this.buildPendingActions(player, markers, playerData.markers2, playerData.buffs),
     };
   }
 
@@ -1656,6 +1656,7 @@ export class GameService {
    *   - 抢救：markers2 中 name=复活（抢救使魔 / 维修载具 / 自救）
    *   - 工作：markers2 中 name=工作（救助其他玩家）
    *   - 麻痹：markers2 中 name=麻痹（负面锁定状态）
+   *   - 卷土重来：buffs 中 name=卷土重来（倒地免死保护，到期即真死）
    * 只输出仍未到期的条目；已到期的由各自的延时结算/兜底任务清除，前端也会本地剔除。
    *
    * 关于进度百分比：只有 `endAt` 是必需字段。前端以「首次渲染时的剩余时间」作为分母自行起算
@@ -1666,12 +1667,14 @@ export class GameService {
    * @param player 玩家行（用于兜底取 markers2 原始串）
    * @param markers 已解析的对象标记
    * @param markers2 已解析的时效标记数组
+   * @param buffs 已解析的增益数组（卷土重来免死保护倒计时）
    * @returns 进行中操作列表（按结束时间升序，通常只有 1 条）
    */
   private buildPendingActions(
     player: any,
     markers: any,
     markers2: any,
+    buffs?: any,
   ): Array<{ key: string; kind: string; label: string; detail: string; icon: string; startedAt: number; endAt: number; totalMs: number }> {
     const now = Date.now();
     const list: Array<any> = [];
@@ -1798,6 +1801,32 @@ export class GameService {
       } else if (name === '麻痹') {
         push({ key: 'paralysis', kind: 'debuff', label: '麻痹中', detail: '无法行动', icon: '⚡', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       }
+    }
+
+    // ===== 4) buffs 增益：卷土重来（倒地免死保护，到期即真死）=====
+    // 写入处：怪物反击 / 反伤致死的死亡级联（combat-system），以及原版 获得增益("卷土重来")。
+    // 存量格式两套并存：英文 { name, expireAt=秒 } 与归一化中文 { 名称, 有效期至=毫秒 }，
+    // 与全文件 toEndMs 口径一致地兼容读取。同名多条时只保留结束时间最晚的一条，避免前端 key 冲突。
+    const buffList = Array.isArray(buffs)
+      ? buffs
+      : asJsonValue<any[]>(player?.buffs, []);
+    let comebackEndMs = 0;
+    for (const b of buffList) {
+      if (!b || typeof b !== 'object') continue;
+      if (String(b?.name ?? b?.名称 ?? '') !== '卷土重来') continue;
+      const endMs = toEndMs(b?.expireAt ?? b?.有效期至);
+      if (endMs > comebackEndMs) comebackEndMs = endMs;
+    }
+    if (comebackEndMs > 0) {
+      push({
+        key: 'comeback',
+        kind: 'comeback',
+        label: '卷土重来',
+        detail: '免死保护中，倒地仍可行动',
+        icon: '🔄',
+        endAt: comebackEndMs,
+        // 增益落盘不带 startedAt/时长，totalMs=0 → 前端按首次观测剩余时间起算（与麻痹同策略）
+      });
     }
 
     return list.sort((a: any, b: any) => a.endAt - b.endAt);
