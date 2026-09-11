@@ -1810,6 +1810,13 @@ export class GameService {
         push({ key: 'move', kind: 'move', label: '移动中', icon: '🚶', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       } else if (name === '工作') {
         push({ key: 'work', kind: 'work', label: '工作中', icon: '🔨', endAt: endMs, startedAt: markStart, totalMs: markTotal });
+      } else if (name === '攻击冷却') {
+        // 公共攻击冷却（原版 战斗相关.ecode L93-107 / L4601-4605 检查）：期间所有武器都无法出手
+        push({ key: 'attack-cd', kind: 'cooldown', label: '攻击冷却', detail: '无法攻击', icon: '⚔️', endAt: endMs, startedAt: markStart, totalMs: markTotal });
+      } else if (name.endsWith('冷却')) {
+        // 单武器冷却（原版 _主程序.ecode L904 `${武器名}冷却`）：标注是哪把武器在转CD。
+        // 这些标记只挂在攻击者自己的 markers2 上（被击方的「被寒风冷却」等在对方身上），天然不会串人。
+        push({ key: `cd:${name}`, kind: 'cooldown', label: name.replace(/冷却$/, ''), detail: '武器冷却中', icon: '⚔️', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       } else if (name === '麻痹') {
         push({ key: 'paralysis', kind: 'debuff', label: '麻痹中', detail: '无法行动', icon: '⚡', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       }

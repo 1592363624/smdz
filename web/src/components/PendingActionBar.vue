@@ -19,9 +19,9 @@
           <span class="pa-spacer"></span>
           <span class="pa-remain">{{ a.remain > 0 ? a.remain + ' 秒' : '即将完成' }}</span>
           <!-- 超管特权：跳过倒计时立即结算（走统一聊天指令「立即完成」，与 QQ 同一路径）；
-               卷土重来是免死保护状态没有可跳过的结算，排除 -->
+               卷土重来是免死保护状态、冷却条没有可跳过的延时结算任务，均排除 -->
           <button
-            v-if="adminMode && a.remain > 0 && a.kind !== 'comeback'"
+            v-if="adminMode && a.remain > 0 && a.kind !== 'comeback' && a.kind !== 'cooldown'"
             class="pa-complete"
             :disabled="completedKeys.has(a.key)"
             title="管理员特权：跳过倒计时立即完成"
@@ -260,6 +260,14 @@ watch(activeActions, (list, prev) => {
 .pa-kind-debuff .pa-fill {
   background: linear-gradient(90deg, #ef4444, #f87171);
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+/* 攻击/武器冷却：蓝色渐变，与"无法攻击"的等待性质区分于采集(黄)/工作(绿)/减益(红) */
+.pa-kind-cooldown .pa-remain {
+  color: #60a5fa;
+}
+.pa-kind-cooldown .pa-fill {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
 }
 /* 卷土重来：倒地免死保护，橙红警示渐变 + 呼吸脉动，提示「到期即真死」的紧迫感 */
 .pa-kind-comeback .pa-remain {

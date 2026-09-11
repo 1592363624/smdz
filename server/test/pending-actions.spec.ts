@@ -9,7 +9,8 @@ import { GameService } from '../src/modules/game/game.service';
  *   ② 移动（前往其它地图，含飞行）
  *   ③ 抢救使魔 / 维修载具 / 自救 / 救助玩家
  *   ④ 麻痹等负面锁定
- *   ⑤ 已到期条目被剔除、markers2 镜像标记不产生重复条目
+ *   ⑤ 攻击冷却（公共CD）/ 武器冷却（⚔️ 倒计时条）
+ *   ⑥ 已到期条目被剔除、markers2 镜像标记不产生重复条目
  */
 
 /** 用最小桩构造 GameService（只需 playerService.safeJsonParse） */
@@ -103,6 +104,24 @@ describe('进行中操作倒计时快照', () => {
     const svc = makeService();
     const list = build(svc, {}, [{ name: '麻痹', expireAt: Math.ceil(Date.now() / 1000) + 8 }]);
     expect(list[0]).toMatchObject({ key: 'paralysis', kind: 'debuff', label: '麻痹中' });
+  });
+
+  it('公共攻击冷却与单武器冷却输出 cooldown 条目（⚔️ 倒计时条数据源）', () => {
+    const svc = makeService();
+    const now = Date.now();
+    const list = build(svc, {}, [
+      { name: '攻击冷却', expireAt: now + 4000 },           // 公共CD（毫秒口径，combat-system 写入）
+      { name: '雷火剑冷却', expireAt: now + 9000 },          // 武器CD `${武器名}冷却`
+      { name: '采集', expireAt: Math.ceil(now / 1000) + 9 }, // 镜像标记不受影响
+    ]);
+
+    expect(list.filter((a: any) => a.kind === 'cooldown')).toHaveLength(2);
+    expect(list).toContainEqual(expect.objectContaining({
+      key: 'attack-cd', kind: 'cooldown', label: '攻击冷却', detail: '无法攻击',
+    }));
+    expect(list).toContainEqual(expect.objectContaining({
+      key: 'cd:雷火剑冷却', kind: 'cooldown', label: '雷火剑', detail: '武器冷却中',
+    }));
   });
 
   it('抢救标记带 startedAt/totalMs 时原样透出，供刷新页面后仍显示真实进度', () => {

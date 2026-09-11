@@ -2189,6 +2189,46 @@ function scrollToBottom() {
   });
 }
 
+// ===== 首次加载/刷新「持续贴底」兜底 =====
+// 初始的 scrollToBottom 只保证 Vue 渲染完那一帧滚到底，但之后字体加载完成、
+// 战斗卡/公告配图渲染、移动端头部收起、--vh 视口计算等仍会让 scrollHeight 继续增长，
+// 滚动位置便停在"中间"。这里做短时间的持续贴底：内容高度再变化就继续滚到底，
+// 直到用户主动滚动接管（isUserScrolling=true 即停止，绝不与用户抢滚动条）。
+let pinBottomTimers = [];
+// 监听消息区容器自身高度变化（键盘弹出/头部收起等），高度一变即重新贴底
+let pinBottomResizeObs = null;
+function pinBottomOnLoad() {
+  // 1) 常规滚动（nextTick）
+  scrollToBottom();
+  // 2) 双 rAF：浏览器完成最终布局后再补一次（nextTick 只保证 Vue 渲染完）
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (!isUserScrolling && msgList.value) {
+        msgList.value.scrollTop = msgList.value.scrollHeight;
+      }
+    })
+  );
+  // 3) 字体加载完成后文本行高会变，必须再贴一次底（不支持 fonts API 时静默跳过）
+  document.fonts?.ready
+    ?.then(() => {
+      if (!isUserScrolling) scrollToBottom();
+    })
+    .catch(() => {});
+  // 4) 分段重试：覆盖图片/懒渲染等更晚的布局变化；用户一旦手动滚动立即停手
+  [300, 800, 1500, 2500].forEach((ms) => {
+    pinBottomTimers.push(
+      setTimeout(() => {
+        if (!isUserScrolling) scrollToBottom();
+      }, ms)
+    );
+  });
+}
+/** 清掉加载期贴底重试（组件卸载时防泄漏） */
+function clearPinBottomTimers() {
+  pinBottomTimers.forEach(clearTimeout);
+  pinBottomTimers = [];
+}
+
 // 消息滚动监听 - 检测用户是否手动向上滚动
 let lastMsgScrollTop = 0;
 function onMsgScroll() {
@@ -3219,6 +3259,17 @@ onMounted(async () => {
   setupMobileHeaderAutoHide();
   window.addEventListener('resize', onHeaderViewportResize);
 
+  // 消息区容器高度变化（键盘弹出、头部收起、--vh 重算）时保持贴底：
+  // 用户没在手动翻历史（!isUserScrolling）才生效，避免与用户抢滚动条
+  if (msgList.value && 'ResizeObserver' in window) {
+    pinBottomResizeObs = new ResizeObserver(() => {
+      if (!isUserScrolling && msgList.value) {
+        msgList.value.scrollTop = msgList.value.scrollHeight;
+      }
+    });
+    pinBottomResizeObs.observe(msgList.value);
+  }
+
   try {
     // 时钟对齐：倒计时进度条/增益剩余时间都拿服务器时刻与本机时钟相减，
     // 先测一次偏移量（失败静默，倒计时退化为本机时钟）；socket 重连时会再测
@@ -3417,7 +3468,9 @@ onMounted(async () => {
       showToast(`反馈工单状态更新为「${statusLabel(status)}」`);
     });
 
-    scrollToBottom();
+    // 进入页面/刷新后持续贴底：字体/图片/布局补偿等会让 scrollHeight 迟到，
+    // 单次 scrollToBottom 会停在"中间"，这里做短时间兜底重滚
+    pinBottomOnLoad();
   } catch (e) {
     console.error('加载失败', e);
   }
@@ -3425,6 +3478,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   socket?.disconnect();
+  // 清理加载期贴底兜底：定时器 + 容器尺寸监听
+  clearPinBottomTimers();
+  pinBottomResizeObs?.disconnect();
+  pinBottomResizeObs = null;
   window.removeEventListener('resize', setViewportHeight);
   window.visualViewport?.removeEventListener('resize', setViewportHeight);
   teardownMobileHeaderAutoHide();

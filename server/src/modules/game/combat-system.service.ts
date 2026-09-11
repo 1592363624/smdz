@@ -1006,6 +1006,24 @@ export class CombatSystemService implements OnApplicationShutdown {
       hitRateModifier += 20;
     }
 
+    // 3.1 战斗女仆「沉着」消耗（原版 战斗相关.ecode 造成伤害 L1105-1118）：
+    // 好感≥20 时每次攻击读取「沉着」时间锚点，经过秒数封顶 10+技能等级/2 并播报
+    // (沉着N)，随后把锚点回拨"已消耗秒数的一半"（等价于沉着时间按半速消耗）。
+    // 注意：原版此处不要求沉着已存在——未设置时按 0 计算并初始化锚点。
+    if (Number(player.specialSeq ?? 0) === 8 && (player.affinity || 0) >= 20) {
+      const calmMarkers = (playerData.markers || {}) as Record<string, number>;
+      const calmTs = Number(this.playerService.getMarkerValue(calmMarkers, '沉着') || 0);
+      const nowSecCalm = Date.now() / 1000;
+      const capCalm = 10 + Number(player.skillLevel || 0) / 2; // 原版 L1108-1109 封顶（注意与加成计算处的 10+技能等级 不同）
+      let calmElapsed = calmTs > 0 ? nowSecCalm - calmTs : nowSecCalm; // 未设置时 (s-0)/转秒 → 巨大 → 封顶
+      if (calmElapsed > capCalm) calmElapsed = capCalm;
+      resultLines.push(`(沉着${Math.round(calmElapsed)})`);
+      // 原版 L1114-1118：a1 != 0 → 锚点 = s - a1/2×转秒；a1 == 0 → 锚点 = s
+      calmMarkers['沉着'] = calmElapsed !== 0 ? nowSecCalm - calmElapsed / 2 : nowSecCalm;
+      playerData.markers = calmMarkers;
+      player.markers = calmMarkers; // Json 列直接写对象
+    }
+
     // ========== 武器特殊序号特效（对应原版 造成伤害 L1306-1337） ==========
     // 兰音被动：好感≥100 时，武器冷却越长最终伤害越高（150×冷却/20/100，下限100%，上限200%+技能×5%）
     if (player.type === '兰音' && (player.affinity || 0) >= 100) {
@@ -4429,7 +4447,9 @@ export class CombatSystemService implements OnApplicationShutdown {
       : hasFastLoader
         ? (fastLoaderLevel === 2 ? 2.5 : 0)
         : 1;
-    const cooldownSeconds = (Number(weapon.cooldown ?? weapon.冷却 ?? 5) || 5) * 1.5 * cooldownFactor;
+    // 原版 炮击路径使用 攻击冷却（=max(5,当前武器冷却)，加成计算.ecode L1858-1862），
+    // 而非武器冷却字段本身——否则小樱(冷却-3)等会使炮击冷却被同步缩短（原版 5 vs 2）
+    const cooldownSeconds = Math.max(5, Number(weapon.cooldown ?? weapon.冷却 ?? 5) || 5) * 1.5 * cooldownFactor;
     const cooldownEntry = markers2.find((item: any) =>
       item?.name === `${weaponName}冷却` && Number(item.expireAt ?? item.expireTime ?? 0) > now,
     );
@@ -6767,9 +6787,44 @@ export class CombatSystemService implements OnApplicationShutdown {
     } catch (error: any) {
       this.logger.warn(`随机未冷却武器处理失败: ${error.message}`);
     }
+    // 当前武器冷却下限 5 秒（原版 加成计算.ecode L1858-1862，对所有玩家生效）：
+    // 玩家武器冷却字段随攻击持久化，若无此下限，小樱/启木之本樱的「冷却-3」、
+    // 增幅器的「冷却-10%」等缩减会无限累计直到变负（负数=无冷却）。
+    // 原版随后还有 攻击冷却=夹后冷却（炮击路径使用）；TS 公共攻击冷却独立按
+    // 固定 5 秒处理，故此处仅复刻武器字段下限。NaN/0 等异常值按 5 兜底。
+    try {
+      if (Number(player.currentWeapon || 0) > 0) {
+        const weaponsClamp = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+        const curWClamp = weaponsClamp[Number(player.currentWeapon) - 1];
+        if (curWClamp) {
+          const cdRaw = Number(curWClamp.cooldown ?? curWClamp.冷却 ?? 5) || 5;
+          if (cdRaw < 5) {
+            curWClamp.cooldown = 5;
+          }
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(`当前武器冷却下限处理失败: ${error.message}`);
+    }
     switch (String(seq)) {
-      case '8': { // 战斗女仆：电伤×1.25；好感≥20 沉着攻击2加成
+      case '8': { // 战斗女仆：电伤×1.25；好感≥20 沉着攻击2加成（原版 L1872-1889）
         bonus.电伤 = (bonus.电伤 || 0) * 1.25;
+        // 沉着加成：好感≥20 时读「沉着」时间锚点（秒级时间戳，施放技能时写入 2 ≈ 0，
+        // 等效"从未消耗"），按经过秒数给 攻击2 += 秒数×3，封顶 10+技能等级。
+        if ((player.affinity || 0) >= 20) {
+          const calmTs = Number(this.playerService.getMarkerValue(markers, '沉着') || 0);
+          if (calmTs > 0) {
+            // 守护1 增益使沉着时间流速减半 → 等效经过秒数×2（原版 L1877-1882）
+            const hasGuard1 = (playerData.buffs || []).some((b: any) => b && b.name === '守护1');
+            const a2 = hasGuard1 ? 2 : 1;
+            const nowSec = Date.now() / 1000;
+            // 原版 (s - a1) / (#转秒 / a2)：TS 标记直接存秒级时间戳，故为 (now-a1)×a2
+            let a1 = (nowSec - calmTs) * a2;
+            const cap = 10 + skillLevel;
+            if (a1 > cap) a1 = cap; // 原版 L1883-1885 封顶
+            bonus.攻击2 = (bonus.攻击2 || 0) + a1 * 3; // 原版 L1886
+          }
+        }
         break;
       }
       case '1': { // 花园猫：电伤2+25、掉落率+10+技能等级
@@ -6830,12 +6885,29 @@ export class CombatSystemService implements OnApplicationShutdown {
             }
           }
         }
+        // 武器冷却-3（原版 L1921-1923）。下限 5 由上方全局冷却下限统一处理
+        // （原版 L1859-1860），此处原样执行 -3，稳态下武器冷却收敛为 2 秒。
+        if (Number(player.currentWeapon || 0) > 0) {
+          const weaponsSakura = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+          const curWSakura = weaponsSakura[Number(player.currentWeapon) - 1];
+          if (curWSakura) {
+            curWSakura.cooldown = (Number(curWSakura.cooldown ?? curWSakura.冷却 ?? 5) || 5) - 3;
+          }
+        }
         break;
       }
       case '18': { // 启·木之本樱（原版 L1925-1931）：三元素伤2+15+技能、武器冷却-3
         bonus.电伤2 = (bonus.电伤2 || 0) + 15 + skillLevel;
         bonus.火伤2 = (bonus.火伤2 || 0) + 15 + skillLevel;
         bonus.冰伤2 = (bonus.冰伤2 || 0) + 15 + skillLevel;
+        // 武器冷却-3（原版 L1926-1928），下限由上方全局冷却下限统一处理
+        if (Number(player.currentWeapon || 0) > 0) {
+          const weaponsSakura2 = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+          const curWSakura2 = weaponsSakura2[Number(player.currentWeapon) - 1];
+          if (curWSakura2) {
+            curWSakura2.cooldown = (Number(curWSakura2.cooldown ?? curWSakura2.冷却 ?? 5) || 5) - 3;
+          }
+        }
         break;
       }
       case '13': { // 伊卡洛斯（原版 L1932-1952）：冰伤2+25；好感分支
@@ -6849,12 +6921,17 @@ export class CombatSystemService implements OnApplicationShutdown {
         if ((player.affinity || 0) >= 40) {
           let weaponSplash2 = 0;
           if ((player.affinity || 0) >= 60) {
-            // 武器锁定置0 + 武器溅射2
-            const weaponsD = this.playerService.safeJsonParse<any[]>(player.weapons, []);
-            const curW = weaponsD[(player.currentWeapon || 1) - 1];
-            if (curW) {
-              curW.lockTime = 0;
-              weaponSplash2 = (curW.bonus?.splash2 ?? curW.加成?.溅射2 ?? 0) + (curW.baseBonus?.splash2 ?? curW.基础加成?.溅射2 ?? 0);
+            // 原版 L1734-1741：好感3(≥60)时置 d=1，武器循环(L1746-1778)中
+            // 对所有武器执行 锁定=0（L1764-1766）——伊卡洛斯武器无锁定时间
+            const weaponsIcarus = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
+            weaponsIcarus.forEach((w: any) => { if (w) w.lockTime = 0; });
+            // 原版 L1941-1943：当前武器>0 时取其 溅射2（加成+自带）参与攻击2计算
+            if (Number(player.currentWeapon || 0) > 0) {
+              const curW = weaponsIcarus[Number(player.currentWeapon) - 1];
+              if (curW) {
+                curW.lockTime = 0;
+                weaponSplash2 = (curW.bonus?.splash2 ?? curW.加成?.溅射2 ?? 0) + (curW.baseBonus?.splash2 ?? curW.基础加成?.溅射2 ?? 0);
+              }
             }
           }
           bonus.攻击2 = (bonus.攻击2 || 0) + ((bonus.溅射数量 || 0) + weaponSplash2) * 20;
@@ -6892,8 +6969,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         break;
       }
-      case '2': { // 长萌：火伤×1.25+火伤2+25；护盾/装甲2+1+技能；好感≥20 回复转命中
-        bonus.火伤 = (bonus.火伤 || 0) * 1.25;
+      case '2': { // 长萌（原版 L1976-1995）：护盾/装甲2+1+技能、火伤按装甲+护盾转化、火伤2+25；好感≥20 回复转命中
+        // 原版此分支没有「火伤×1.25」，此前多写的一行已删除（原版 L1976-1980）
         bonus.火伤2 = (bonus.火伤2 || 0) + 25;
         bonus.护盾2 = (bonus.护盾2 || 0) + 1 + skillLevel;
         bonus.装甲2 = (bonus.装甲2 || 0) + 1 + skillLevel;
@@ -6983,11 +7060,12 @@ export class CombatSystemService implements OnApplicationShutdown {
         bonus.生命2 = (bonus.生命2 || 0) + 25 + skillLevel;
         break;
       }
-      case '3': { // 绝灭天使（对应原版 _计算玩家 L2076-2097 + 取羽毛）
+      case '3': { // 绝灭天使（对应原版 加成计算.ecode L2076-2097 + 取羽毛）
         // 羽毛存于时间锚点标记，统一通过原版“取羽毛”子程序计算恢复/封顶。
-        const feather = this.getFeather(player, markers, Date.now());
+        // 原版中 a1（羽毛数）会被 炮冠/光盾 分支逐次 +1，因此用 let 可变量承载。
+        let feather = this.getFeather(player, markers, Date.now());
         const pBuffs: any[] = playerData.buffs || [];
-        // a3 倍率：救世魔王×1.5（韧性+50%、穿透+10）；光翼×(1+0.5+技能/100)（原版 L2077-2091）
+        // a3 倍率：救世魔王×1.5（韧性+50%、穿透+10）（原版 L2079-2083）
         let a3 = 1;
         const hasSavior = hasActive(pBuffs, '救世魔王');
         if (hasSavior) {
@@ -6995,24 +7073,32 @@ export class CombatSystemService implements OnApplicationShutdown {
           bonus.韧性 = (bonus.韧性 || 0) + (1 - (bonus.韧性 || 0) / 100) * 50;
           this.bonusService.addPenetration(bonus, 10);
         }
-        const hasLightWing = hasActive(pBuffs, '光翼');
-        if (hasLightWing) a3 = a3 * (1 + 0.5 + skillLevel / 100);
-        // 炮冠增益：贯穿 + 羽毛/2×a3、穿透+10（原版 L2084-2088）
+        // 炮冠增益：贯穿+羽毛/2×a3、羽毛+1、穿透+10（原版 L2084-2088）。
+        // 注意顺序：原版炮冠判定在光翼之前，此处贯穿用的是未乘光翼系数的 a3。
         if (hasActive(pBuffs, '炮冠')) {
           bonus.贯穿 = (bonus.贯穿 || 0) + roundItemQuantity(feather / 2 * a3);
+          feather = feather + 1;
           this.bonusService.addPenetration(bonus, 10);
         }
-        // 命中2 = 羽毛 × a3（原版 L2092）
+        const hasLightWing = hasActive(pBuffs, '光翼');
+        if (hasLightWing) a3 = a3 * (1 + 0.5 + skillLevel / 100); // 原版 L2089-2091
+        // 命中2 = 当前羽毛 × a3（原版 L2092）
         bonus.命中2 = (bonus.命中2 || 0) + feather * a3;
-        // 无光盾时：每片羽毛额外+1%暴伤（原版 L2093-2096：光盾存在时羽毛+1并暴伤+羽毛）
+        // 无光盾时：羽毛+1 后计入暴伤（原版 L2093-2096，暴伤加的是 +1 后的羽毛数）
         if (!hasActive(pBuffs, '光盾')) {
+          feather = feather + 1;
           bonus.暴击伤害 = (bonus.暴击伤害 || 0) + feather;
         }
-        // 攻击2 = 羽毛 × a3（原版 L2097）
+        // 攻击2 = 当前羽毛 × a3（原版 L2097，同样使用 +1 后的羽毛数）
         bonus.攻击2 = (bonus.攻击2 || 0) + feather * a3;
         break;
       }
       case '16': { // 军姬：生命2+25；好感≥20 物伤2+45+技能、闪避2+5+技能/22
+        // 原版 L2098-2105 写法是 属性.生命2 = 属性.生命 + 25（覆盖写）。
+        // 注意：在 _计算玩家 专属分支处，使魔玩家的 属性.生命/属性.物伤 恒为 0
+        // （通用成长 L1800-1833 与装备主数值均写入 加成，装备的"2"字段才写 属性，
+        // 且装备表中不存在 生命2/物伤2 字段），故原版语义等价于固定 +25/+45+技能。
+        // 切勿改成「总生命+25」——那是把绝对值当倍率，数值会爆炸。
         bonus.生命2 = (bonus.生命2 || 0) + 25;
         if ((player.affinity || 0) >= 20) {
           bonus.物伤2 = (bonus.物伤2 || 0) + 45 + skillLevel;
