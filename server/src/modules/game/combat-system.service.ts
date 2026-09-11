@@ -2748,6 +2748,19 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (fairytaleText) resultLines.push(fairytaleText);
       }
 
+      // 梦倾天下（战斗相关.ecode L1759-1769）：兰音蓄势(mqtx)后命中时给目标挂「mqtx」增益，
+      // 目标全属性按 (1 - 当前麻醉/麻醉上限 × 强度/100) 缩放（加成计算 L3104-3111），持续 600*库洛牌 秒；
+      // 本回合立即生效（原版挂上后同回合后续属性计算即被削弱），故就地同步缩放 defenderBonus。
+      if (nextAttack.anesthetizeDebuff) {
+        const mqtxText = this.applyDreamworldDebuff(
+          target,
+          defenderBonus,
+          nextAttack.anesthetizePercent,
+          nextAttack.anesthetizeDuration,
+        );
+        if (mqtxText) resultLines.push(mqtxText);
+      }
+
       // 原版 L4260-4271：坚韧护盾在护盾被打穿后终止本次后续文本/反伤等处理。
       if (tenaciousShieldActive && tenaciousShieldBreak && tenaciousShieldTriggered) {
         await this.updateMonsterHpInMap(map.id, target);
@@ -7721,7 +7734,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       return 0;
     };
 
-    return {
+    const bonus: BonusData = {
       攻击: monster.attack || 0,
       命中: monster.hit || 85,
       闪避: monster.dodge || 5,
@@ -7756,6 +7769,23 @@ export class CombatSystemService implements OnApplicationShutdown {
       冰伤: pick('冰伤') || 0,
       电伤: pick('电伤') || 0,
     };
+
+    // 原版 加成计算.ecode L3104-3111「计算buff」：目标带「mqtx」(梦倾天下) 增益时，
+    // 全属性按 (1 - 当前麻醉/麻醉上限 × 强度/100) 缩放（麻醉上限≤0 不生效；
+    // 原版「全属性调整」不缩放 攻击，此处保持一致）
+    const monsterBuffs = asJsonValue<any[]>(monster.buffs, []);
+    const mqtx = monsterBuffs.find(
+      (b: any) =>
+        b && (b.name ?? b.名称) === 'mqtx' && Number(b.expireAt ?? b.有效期至 ?? 0) > Date.now() / 1000,
+    );
+    if (mqtx) {
+      const maxAnesthesia = Math.abs(Number(mb['麻醉'] ?? 0));
+      const current = Math.max(0, Number(mb['当前麻醉'] ?? 0));
+      if (maxAnesthesia > 0) {
+        this.scaleAllAttributes(bonus, 1 - (current / maxAnesthesia) * (Number(mqtx.value ?? mqtx.强度 ?? 0) / 100));
+      }
+    }
+    return bonus;
   }
 
   /**
@@ -8300,6 +8330,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     reverseResist: boolean;
     reverseChance: number;
     reverseDuration: number;
+    anesthetizeDebuff: boolean;
+    anesthetizePercent: number;
+    anesthetizeDuration: number;
   } {
     const result = {
       mustHitNext: false,
@@ -8309,6 +8342,9 @@ export class CombatSystemService implements OnApplicationShutdown {
       reverseResist: false,
       reverseChance: 0,
       reverseDuration: 600,
+      anesthetizeDebuff: false,
+      anesthetizePercent: 0,
+      anesthetizeDuration: 600,
     };
     const buffs: any[] = this.safeParseJson(player.buffs, []);
     const remain: any[] = [];
@@ -8328,6 +8364,12 @@ export class CombatSystemService implements OnApplicationShutdown {
           result.reverseChance = b.reverseChance ?? 0;
           result.reverseDuration = b.reverseDuration ?? 600;
         }
+        // 梦倾天下·蓄势（原版 mqtx 标记）：命中后给目标挂全属性削弱增益
+        if (b.anesthetizeDebuff) {
+          result.anesthetizeDebuff = true;
+          result.anesthetizePercent = Number(b.anesthetizePercent ?? 15);
+          result.anesthetizeDuration = Number(b.anesthetizeDuration ?? 600);
+        }
         // 消费：不保留该 buff
         continue;
       }
@@ -8335,6 +8377,53 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
     player.buffs = remain; // Json 列直接写数组
     return result;
+  }
+
+  /**
+   * 梦倾天下 触发端（战斗相关.ecode L1759-1769）
+   * 兰音蓄势(mqtx)后命中：给目标挂「mqtx」增益（强度=15+技等，持续 600*库洛牌 秒），
+   * 目标在 加成计算「计算buff」中按 (1 - 当前麻醉/麻醉上限 × 强度/100) 全属性缩放
+   * （加成计算 L3104-3111）。本回合伤害计算已在 buildMonsterBonus 之后，
+   * 因此就地同步缩放 defenderBonus 使本回合立即生效。
+   * @param target 防御方（怪物）
+   * @param defenderBonus 本回合已构建的防御方加成（就地缩放）
+   * @param percent 削弱强度百分比（15+技等）
+   * @param duration 持续秒数（600*库洛牌）
+   * @returns 特效文本；目标无麻醉上限时返回空（原版：属性.麻醉 > 0 才生效）
+   */
+  private applyDreamworldDebuff(target: any, defenderBonus: BonusData, percent: number, duration: number): string {
+    // 目标麻醉上限>0 才有效（原版 加成计算 L3107：属性.麻醉 > 0）
+    const tBonus = this.safeParseJson<Record<string, any>>(target.bonus, {});
+    const maxAnesthesia = Math.abs(Number(tBonus.麻醉 ?? 0));
+    if (maxAnesthesia <= 0) return '';
+    // 挂目标增益（后续回合由 buildMonsterBonus 统一应用缩放）
+    const tBuffs = this.safeParseJson<any[]>(target.buffs, []);
+    tBuffs.push({ name: 'mqtx', value: percent, expireAt: Date.now() / 1000 + duration, duration });
+    target.buffs = tBuffs; // Json 列直接写数组
+    // 本回合立即生效：按当前麻醉比例就地缩放防御方属性
+    const current = Math.max(0, Number(tBonus.当前麻醉 ?? 0));
+    this.scaleAllAttributes(defenderBonus, 1 - (current / maxAnesthesia) * (percent / 100));
+    return `(梦倾天下${percent}%)`;
+  }
+
+  /**
+   * 原版「全属性调整」（使魔技能.ecode L87-124）：按系数缩放全属性。
+   * 注意原版不缩放 攻击，此处保持一致；覆盖生命/护盾/装甲、三层各系抗性、
+   * 闪避/命中、四系伤害、贯穿/抗贯穿。
+   */
+  private scaleAllAttributes(bonus: BonusData, scale: number): void {
+    // BonusData 含 boolean 字段，联合键写入需走 Record 视图
+    const record = bonus as unknown as Record<string, number | undefined>;
+    const keys: string[] = [
+      '生命', '护盾', '装甲', '闪避', '命中',
+      '物伤', '火伤', '冰伤', '电伤', '贯穿', '抗贯穿',
+      '护盾物抗', '护盾火抗', '护盾冰抗', '护盾电抗',
+      '装甲物抗', '装甲火抗', '装甲冰抗', '装甲电抗',
+      '生命物抗', '生命火抗', '生命冰抗', '生命电抗',
+    ];
+    for (const k of keys) {
+      record[k] = (record[k] || 0) * scale;
+    }
   }
 
   /**

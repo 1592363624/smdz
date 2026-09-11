@@ -2740,77 +2740,102 @@ ${result}`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
+    // 检查使魔类型（原版 L2365：特殊序号 != 兰音 → "这是兰音的技能"，无好感门槛）
     if (!this.checkFamiliarType(player, '兰音')) {
-      return '需要兰音才能使出形神合一';
+      return '这是兰音的技能';
     }
 
-    // 原版公共冷却：30 - 技能等级*0.5 + a2（装备冷却核心时 a2=-10）
+    // 原版 L2367-2369：公共冷却值必须为 0（30 - 技等*0.5 + 冷却核心-10），否则直接拒绝
     const skillLevel = this.getSkillLevel(markers, '兰音');
     const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
     const publicCd = 30 - skillLevel * 0.5 + a2;
-    const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 0; // 公共cd为0时原版会自动释放形神合一（此处作为主动技能直接释放）
-    const cooldownCheck = this.checkCooldown(player, '形神合一', baseCd || 1);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
-
-    // 获取好感度与库洛牌时长放大
-    const affinity = this.getAffinity(markers, '兰音');
-    const a3 = this.buffDur(player, 600); // 风月入墨持续 600*库洛牌 秒
-
-    // 形神合一效果：
-    // 1) 给当前地图所有怪物(怪物2)施加麻醉（按 等级*(10+技能等级) 累积当前麻醉，满则获得「麻醉」增益可捕捉）
-    // 2) 给当前地图(标记3)施加「风月入墨」增益：使魔/宠物升级经验 -15% 持续
-    // 3) 兰音模式2 时，友方召唤物也获得 心无所扰/月落寸光 效果（同步友方召唤物增益）
-    let lines: string[] = ['兰音：形神合一！'];
-
-    // 风月入墨增益作用于地图（标记3）——经验-加成，离开地图失效
-    const expReduce = 15 + skillLevel * 0.25;
-    try {
-      await this.applyMapBuff(player.mapId, {
-        name: '风月入墨',
-        value: -expReduce,
-        duration: a3,
-        expireAt: Math.floor(Date.now() / 1000) + a3,
-        source: 'familiarSkill',
-      });
-      lines.push(`当前地图使魔和宠物升级所需经验-${expReduce.toFixed(2)}%（持续${Math.floor(a3 / 60)}分钟，离开地图失效）`);
-    } catch (e) {
-      lines.push('（地图增益施加失败，已跳过）');
+    if (publicCd > 0) {
+      return `${player.name || '冒险者'}\n需要技能公共冷却时间为0，当前：${publicCd}`;
     }
 
-    // 给地图怪物施加麻醉
+    // 原版 L2370：专属冷却键 = 类型+"技能冷却"（与心无所扰共用），60+a2
+    const a3 = this.buffDur(player, 600); // 600*库洛牌(1.25) 秒
+    const skillCd = 60 + a2;
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, skillCd);
+    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 原版 L2374-2375：急救包，文本顺序为 "形神合一！" 在前、急救包行在后
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines, playerData.equipment);
+    const lines: string[] = ['兰音：形神合一！', ...firstAidLines];
+
+    // 原版 L2376-2378：非开拓地地图才施加"风月入墨"地图增益（使魔/宠物升级经验-(15+技等*0.25)%）
+    const expReduce = 15 + skillLevel * 0.25;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (map && !(map.开拓地 || map.isFrontier)) {
+      try {
+        await this.applyMapBuff(player.mapId, {
+          name: '风月入墨',
+          value: -expReduce,
+          duration: a3,
+          expireAt: Math.floor(Date.now() / 1000) + a3,
+          source: 'familiarSkill',
+        });
+        lines.push(`当前地图使魔和宠物升级所需经验-${expReduce.toFixed(2)}%（持续${Math.floor(a3 / 60)}分钟，离开地图失效）`);
+      } catch {
+        lines.push('（地图增益施加失败，已跳过）');
+      }
+    }
+
+    // 原版 L2379-2394：遍历地图怪物灌麻醉 等级×(10+技等)，灌满挂"麻醉"增益1小时
     try {
       const anes = await this.applyMapMonstersAnesthesia(player.mapId, player.level, skillLevel, player.qqNumber ?? userId);
       if (anes.length) lines.push(anes.join('\n'));
-    } catch (e) {
+    } catch {
       lines.push('（怪物麻醉失败，已跳过）');
     }
 
-    // 兰音模式2：友方召唤物同步获得 心无所扰/月落寸光 效果
+    // 原版 L2422-2423（mqtx/fzth）+ L2395-2421（ylcg/xwsr）：
+    // TS 用"下次攻击"蓄势等价实现，由战斗引擎 weaponAttack 消费。
+    // mustHit 几率按原版消费端（战斗相关 L1397 几率判断(20+技等/2)）取 20+技等/2；
+    // 技能显示文本 15+技等/2（原版 L2472），两处数值不一致是原版固有矛盾，忠实保留。
+    this.setNextAttackBuff(player, '梦倾天下·蓄势', {
+      anesthetizeDebuff: true,
+      anesthetizePercent: 15 + skillLevel,
+      anesthetizeDuration: a3,
+    });
+    this.setNextAttackBuff(player, '反转童话·蓄势', {
+      reverseResist: true,
+      reverseChance: 50 + skillLevel / 2,
+      reverseDuration: a3,
+    });
+    this.setNextAttackBuff(player, '心无所扰·蓄势', { mustHitNext: true, mustHitChance: 20 + skillLevel / 2 });
+    this.setNextAttackBuff(player, '月落寸光·蓄势', { nextPenetration: true, skillLevelForPen: skillLevel });
+
+    // 原版 L2473-2477（兰音模式2）：友方召唤物也获得 心无所扰/月落寸光 效果
     const lannMode = this.getFamiliarSetMode(markers, '兰音');
     if (lannMode === 2) {
       const ally = await this.getAllySummons(player.mapId, player.qq || String(userId));
       if (ally.length) {
         lines.push(`${ally.join('、')}也得到了心无所扰和月落寸光的效果`);
-        // 给友方召唤物施加「必中」与「穿透蓄势」下次攻击标记
         for (const s of ally) {
-          await this.applySummonNextAttack(player.mapId, s, { mustHitNext: true, nextPenetration: 5 });
+          await this.applySummonNextAttack(player.mapId, s, { mustHitNext: true, mustHitChance: 20 + skillLevel / 2 });
+          await this.applySummonNextAttack(player.mapId, s, { nextPenetration: true, skillLevelForPen: skillLevel });
         }
       }
     }
 
-    // 记录熟练度/活跃度
-    const skillKey = '兰音技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+    // 原版 L2424/L2429：使用技能成就（原版重复计两次，统一记一次）；L2430：活跃度+1。
+    // 原版形神合一无技能经验/技能熟练度调用，不再自创。
+    markers['使用技能'] = this.playerService.getMarkerValue(markers, '使用技能') + 1;
+    markers['活跃度'] = this.playerService.getMarkerValue(markers, '活跃度') + 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
 
-    // 设置公共冷却（兰音通用）
-    this.setCooldown(player, '兰音通用', baseCd || 1);
-    this.setCooldown(player, '形神合一', baseCd || 1);
+    // 原版 L2370：自身 类型+"技能冷却" 60+a2（时间间隔要求检查通过时写入）；
+    // L2425-2428：四技能专属冷却各 60+a2；不写兰音通用（公共冷却本就为0）
+    this.setCooldown(player, `${player.type}技能冷却`, skillCd);
+    this.setCooldown(player, '风月入墨', skillCd);
+    this.setCooldown(player, '梦倾天下', skillCd);
+    this.setCooldown(player, '反转童话', skillCd);
+    this.setCooldown(player, '月落寸光', skillCd);
     await this.playerService.savePlayer(player);
 
-    return lines.join('\n') + `\n好感度加成: ${affinity}`;
+    return lines.join('\n');
   }
 
   /**
@@ -2989,7 +3014,12 @@ ${result}`;
     if (lines.length) text += '\n' + lines.join('\n');
 
     // 原版使用独立的 mqtx 标记记录技能已经成功释放；不是技能熟练度。
-    markers.mqtx = 1;
+    // TS 等价实现：挂"下次攻击"蓄势，由战斗引擎命中时给目标挂「mqtx」全属性削弱增益（战斗相关 L1759-1769）
+    this.setNextAttackBuff(player, '梦倾天下·蓄势', {
+      anesthetizeDebuff: true,
+      anesthetizePercent: reducePct,
+      anesthetizeDuration: a3,
+    });
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
 
