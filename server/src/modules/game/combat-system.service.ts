@@ -786,6 +786,54 @@ export class CombatSystemService implements OnApplicationShutdown {
           resultLines.push('【唯我主宰】必中');
         }
       }
+      // 赛加（特殊序号-6，原版 L474-481）：30秒冷却标记「赛加连击」，未冷却时
+      // 33% 几率额外攻击次数+1（原版冷却标记无论几率是否触发都会设置）
+      if (weapon.specialSeq === -6 || weapon.name?.includes('赛加')) {
+        const nowMsSj = Date.now();
+        const mk2Sj = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+        const sjEntry = mk2Sj.find((m: any) => m?.name === '赛加连击');
+        if (!sjEntry || nowMsSj >= (sjEntry.expireAt || 0)) {
+          // 时间间隔要求语义：未冷却 → 添加30秒冷却标记，再判定几率
+          if (sjEntry) sjEntry.expireAt = nowMsSj + 30 * 1000;
+          else mk2Sj.push({ name: '赛加连击', expireAt: nowMsSj + 30 * 1000 });
+          player.markers2 = mk2Sj; // Json 列直接写数组
+          if (Math.random() * 100 < 33) {
+            extraAttackCount += 1;
+            resultLines.push('(赛加连击)');
+          }
+        }
+      }
+      // 长萌舰装（装备 specialSeq=101，原版 L490-496）：60秒冷却标记「fp」→ 额外攻击次数+1（副炮）
+      if (equipsFx.some((e: any) => Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 101
+        || String(e?.name ?? e?.名称 ?? '').includes('长萌舰装'))) {
+        const nowMsFp = Date.now();
+        const mk2Fp = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+        const fpEntry = mk2Fp.find((m: any) => m?.name === 'fp');
+        if (!fpEntry || nowMsFp >= (fpEntry.expireAt || 0)) {
+          // 时间间隔要求语义：未冷却 → 设置60秒冷却标记并额外攻击
+          if (fpEntry) fpEntry.expireAt = nowMsFp + 60 * 1000;
+          else mk2Fp.push({ name: 'fp', expireAt: nowMsFp + 60 * 1000 });
+          player.markers2 = mk2Fp; // Json 列直接写数组
+          extraAttackCount += 1;
+          resultLines.push('(副炮)');
+        }
+      }
+      // 弹药箱（装备 specialSeq=19，原版 L497-506）：武器类型非"近战武器"时（原版按类型精确比较），
+      // 60秒冷却标记「弹药」→ 额外攻击次数+1（弹药充沛）
+      if (weapon.type !== '近战武器'
+        && equipsFx.some((e: any) => Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 19
+          || String(e?.name ?? e?.名称 ?? '').includes('弹药箱'))) {
+        const nowMsAm = Date.now();
+        const mk2Am = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+        const amEntry = mk2Am.find((m: any) => m?.name === '弹药');
+        if (!amEntry || nowMsAm >= (amEntry.expireAt || 0)) {
+          if (amEntry) amEntry.expireAt = nowMsAm + 60 * 1000;
+          else mk2Am.push({ name: '弹药', expireAt: nowMsAm + 60 * 1000 });
+          player.markers2 = mk2Am; // Json 列直接写数组
+          extraAttackCount += 1;
+          resultLines.push('(弹药充沛)');
+        }
+      }
     }
 
     // 如果使魔特效改变了全体攻击标记，重新选择目标
@@ -1036,18 +1084,58 @@ export class CombatSystemService implements OnApplicationShutdown {
       effectiveDamageMultiplier *= a1;
       resultLines.push(`【寸光】伤害×${(a1 * 100).toFixed(0)}%`);
     }
-    // 镰刀1：卷土重来增益时伤害×3
-    if (weapon.specialSeq === 37 || weapon.name?.includes('镰刀')) {
+    // 镰刀1（特殊序号-37，原版 L1306-1310）：攻击方处于「卷土重来」增益时伤害×3
+    if (weapon.specialSeq === -37 || weapon.name?.includes('镰刀')) {
       const hasComeback = hasActive(buffs, '卷土重来');
       if (hasComeback) {
         effectiveDamageMultiplier *= 3;
         resultLines.push('【镰刀】伤害×3');
       }
     }
-    // 艾斯特拉斯：60秒冷却，伤害+390%
-    if (weapon.specialSeq === 25 || weapon.name?.includes('艾斯特拉斯')) {
-      effectiveDamageMultiplier += 390;
-      resultLines.push('【艾斯特拉斯】伤害+390%');
+    // 艾斯特拉斯（特殊序号-25，原版 L1312-1316）：60秒冷却「艾斯冷却」标记，未冷却时
+    // 给自身加「工作」硬直（(1-韧性/100)×60 秒，获得增益叠加时间语义：expireAt 顺延），
+    // 伤害倍率 +390%。原版此处不显示特效文本，硬直由 行动无限制(工作) 判定消费。
+    if (weapon.specialSeq === -25 || weapon.name?.includes('艾斯特拉斯')) {
+      const nowMsAs = Date.now();
+      const mk2As = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+      const asCd = mk2As.find((m: any) => m?.name === '艾斯冷却');
+      if (!asCd || nowMsAs >= (asCd.expireAt || 0)) {
+        // 时间间隔要求语义：未冷却 → 设置60秒冷却标记并触发效果
+        if (asCd) asCd.expireAt = nowMsAs + 60 * 1000;
+        else mk2As.push({ name: '艾斯冷却', expireAt: nowMsAs + 60 * 1000 });
+        // 硬直「工作」：获得增益(攻击方.标记2,"工作",(1-韧性/100)*60,真,s) 叠加时间语义
+        const toughness = attackerBonus.韧性 || 0;
+        const stunSec = (1 - toughness / 100) * 60;
+        if (stunSec > 0) {
+          const work = mk2As.find((m: any) => m?.name === '工作');
+          if (work) work.expireAt = Math.max(work.expireAt || 0, nowMsAs) + stunSec * 1000;
+          else mk2As.push({ name: '工作', expireAt: nowMsAs + stunSec * 1000 });
+        }
+        player.markers2 = mk2As; // Json 列直接写数组
+        effectiveDamageMultiplier += 390;
+        resultLines.push(
+          stunSec > 0
+            ? `【艾斯特拉斯】伤害+390%，硬直${Math.round(stunSec * 10) / 10}秒`
+            : '【艾斯特拉斯】伤害+390%',
+        );
+      }
+    }
+
+    // 木天蓼（特殊序号-26，原版 L483-486）：攻击后自身被后坐力掀翻，加「工作」硬直
+    // 10×(1-韧性/100) 秒（添加标记叠加语义：已有标记 expireAt 顺延），每次攻击必触发。
+    // 排除 isExtraAttack：原版额外攻击在武器攻击内部循环消化，不会重新进入本流程重复结算
+    if ((weapon.specialSeq === -26 || weapon.name?.includes('木天蓼')) && !context.isExtraAttack) {
+      const nowMsMt = Date.now();
+      const toughnessMt = attackerBonus.韧性 || 0;
+      const recoilSec = 10 * (1 - toughnessMt / 100);
+      if (recoilSec > 0) {
+        const mk2Mt = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+        const workMt = mk2Mt.find((m: any) => m?.name === '工作');
+        if (workMt) workMt.expireAt = (workMt.expireAt || 0) + recoilSec * 1000; // 添加标记：叠加时间
+        else mk2Mt.push({ name: '工作', expireAt: nowMsMt + recoilSec * 1000 });
+        player.markers2 = mk2Mt; // Json 列直接写数组
+      }
+      resultLines.push(`${player.name || '冒险者'}被后坐力掀翻了(${Math.round(recoilSec * 10) / 10}秒)`);
     }
 
     // 读取并消费玩家"下次攻击"型标记 buff（兰音系 心无所扰/月落寸光/反转童话）
@@ -1107,6 +1195,51 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (hasLightWing) {
           targetDodgeModifier += 30; // 光翼闪避
         }
+      }
+
+      // 星象仪（特殊序号-39，原版 战斗相关.ecode L1296-1304）：「陨石cd」标记未激活时，
+      // 本次攻击暴击伤害 += 目标闪避÷自身命中×200，显示（星象X%）。
+      // 原版在命中判定前执行（L1296 早于 L1622 命中概率 roll），未命中也保留该加成；
+      // 30 秒「陨石cd」由武器攻击主流程在目标循环结束后统一设置（原版 L621-623），
+      // 因此多目标攻击时每个目标都会各结算一次（与原版一致）。
+      if (weapon.specialSeq === -39 || weapon.name?.includes('星象仪')) {
+        const xyMk2 = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+        const xyCd = xyMk2.find((m: any) => m?.name === '陨石cd');
+        if (!xyCd || nowMs >= (xyCd.expireAt || 0)) {
+          // 防御方闪避兼容中文键/英文键（与 calcHitRate 同口径）
+          const targetDodgeVal
+            = Number((target as any).闪避 ?? (target as any).dodge ?? 0)
+            + Number((target as any).闪避2 ?? (target as any).dodge2 ?? 0);
+          const attackerHitVal = (attackerBonus.命中 || 0) + (attackerBonus.命中2 || 0) || 100;
+          const xyBonus = (targetDodgeVal / attackerHitVal) * 200;
+          if (xyBonus > 0) {
+            attackerBonus.暴击伤害 = (attackerBonus.暴击伤害 || 150) + xyBonus;
+            resultLines.push(`(星象${Math.round(xyBonus)}%)`);
+          }
+        }
+      }
+
+      // ---- 神兽之力玄武（特殊序号-27，原版 L995-1000）：防御方每件武器冷却+3秒、
+      //      攻击冷却+3秒（获得增益叠加时间语义：已有标记 expireAt 顺延），显示【玄武】 ----
+      // 原版位于造成伤害命中判定（L1622）之前的攻击文本处理段（L995），
+      // 因此即使本次攻击未命中也会生效，此处与星象仪同放在命中判定前。
+      if (weapon.specialSeq === -27 || weapon.name?.includes('神兽之力玄武')) {
+        const xwDefMk2 = this.safeParseJson<any[]>(target.markers2 || '[]', []);
+        const xwTargetWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+        for (const targetWeapon of xwTargetWeapons) {
+          const targetWeaponName = targetWeapon?.name || targetWeapon?.名称;
+          if (targetWeaponName) {
+            const cooldownKey = `${targetWeaponName}冷却`;
+            const cooldownEntry = xwDefMk2.find((m: any) => m?.name === cooldownKey);
+            if (cooldownEntry) cooldownEntry.expireAt += 3 * 1000;
+            else xwDefMk2.push({ name: cooldownKey, expireAt: nowMs + 3 * 1000 });
+          }
+        }
+        const atkCdEntry = xwDefMk2.find((m: any) => m?.name === '攻击冷却');
+        if (atkCdEntry) atkCdEntry.expireAt += 3 * 1000;
+        else xwDefMk2.push({ name: '攻击冷却', expireAt: nowMs + 3 * 1000 });
+        target.markers2 = xwDefMk2; // Json 列直接写数组（后续命中段 defMk2 解析会包含本次变更）
+        resultLines.push('【玄武】');
       }
 
       // 命中判定（应用使魔特效的命中率修正 + 心无所扰必中标记 + 因果逆转 + 防御方闪避）
@@ -1589,6 +1722,29 @@ export class CombatSystemService implements OnApplicationShutdown {
           attackerBonus.贯穿 = (attackerBonus.贯穿 || 0) + 5;
           resultLines.push(`【火焰披风】火伤+${Math.round(a2)}，穿透+5`);
         }
+        // ---- 风精灵/雷精灵（装备 specialSeq=33/132，原版 L2902-2907）----
+        // 物伤/电伤 += 自身闪避×额外伤害倍率。原版为 判断开始/判断 互斥链：
+        // 同时装备时仅风精灵生效。位于命中后伤害计算段（原版每目标结算一次）。
+        const equipsSpirit: any[] = Array.isArray(playerData.equipment)
+          ? playerData.equipment
+          : this.safeParseJson<any[]>(playerData.equipment || player.equipment || '[]', []);
+        const hasWindSpirit = equipsSpirit.some(
+          (e: any) => Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 33
+            || String(e?.name ?? e?.名称 ?? '').includes('风精灵'),
+        );
+        const hasThunderSpirit = equipsSpirit.some(
+          (e: any) => Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 132
+            || String(e?.name ?? e?.名称 ?? '').includes('雷精灵'),
+        );
+        if (hasWindSpirit) {
+          const a2Ws = (attackerBonus.闪避 || 0) * extraDamageMult;
+          attackerBonus.物伤 = (attackerBonus.物伤 || 0) + a2Ws;
+          resultLines.push(`(风精灵${Math.round(a2Ws)})`);
+        } else if (hasThunderSpirit) {
+          const a2Ts = (attackerBonus.闪避 || 0) * extraDamageMult;
+          attackerBonus.电伤 = (attackerBonus.电伤 || 0) + a2Ts;
+          resultLines.push(`(雷精灵${Math.round(a2Ts)})`);
+        }
 
         // ========== 装备要求类穿透（原版 造成伤害 L2447 / L2021-2062） ==========
         // 两极反转（装备 specialSeq=63）：穿透+8（原版 L2447 增加穿透(攻击方.属性, 8)）
@@ -1863,6 +2019,8 @@ export class CombatSystemService implements OnApplicationShutdown {
             }
           }
         }
+
+        // ---- 神兽之力玄武（特殊序号-27，原版 L995-1000）已在命中判定前的预处理段实现 ----
 
         // 写回 markers2 数组变更（原版 标记2 容器）
         player.markers2 = atkMk2; // Json 列直接写数组
@@ -2921,6 +3079,20 @@ export class CombatSystemService implements OnApplicationShutdown {
           );
           resultLines.push(`生命偷取 ${leechAmount} 点`);
         }
+      }
+    }
+
+    // 星象仪：目标循环结束后设置30秒「陨石cd」标记（原版 武器攻击 L621-623：
+    // 主目标计次循环尾之后调用 时间间隔要求("陨石cd",30,攻击方.标记2,s,,原始时间戳)，
+    // 时间间隔要求语义：冷却中→不变；未冷却→添加标记并开始30秒冷却）
+    if (weapon.specialSeq === -39 || weapon.name?.includes('星象仪')) {
+      const nowMsXy = Date.now();
+      const mk2Xy = this.safeParseJson<any[]>(player.markers2 || '[]', []);
+      const xyCd = mk2Xy.find((m: any) => m?.name === '陨石cd');
+      if (!xyCd || nowMsXy >= (xyCd.expireAt || 0)) {
+        if (xyCd) xyCd.expireAt = nowMsXy + 30 * 1000;
+        else mk2Xy.push({ name: '陨石cd', expireAt: nowMsXy + 30 * 1000 });
+        player.markers2 = mk2Xy; // Json 列直接写数组
       }
     }
 

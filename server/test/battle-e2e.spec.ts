@@ -1471,5 +1471,354 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(result.result).toContain('激变星');
       expect(monster.hp).toBe(100);
     });
+
+    // ---------- 武器特殊序号特效补全（星象仪/玄武/赛加/镰刀1/艾斯特拉斯，原版 战斗相关.ecode） ----------
+    describe('武器特殊序号特效补全（原版 战斗相关.ecode L474/L621/L995/L1296-1316）', () => {
+      const xyWeapon = {
+        name: '星象仪', damage: 10, damageType: 1, specialSeq: -39,
+        properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+      };
+      const xwWeapon = {
+        name: '神兽之力玄武', damage: 10, damageType: 1, specialSeq: -27,
+        properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+      };
+      const sjWeapon = {
+        name: '赛加', damage: 10, damageType: 1, specialSeq: -6,
+        properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+      };
+      const asWeapon = {
+        name: '艾斯特拉斯', damage: 10, damageType: 1, specialSeq: -25,
+        properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+      };
+      const ldWeapon = {
+        name: '镰刀1', damage: 10, damageType: 1, specialSeq: -37,
+        properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+      };
+
+      it('星象仪(-39)：陨石cd未激活 → 暴击伤害+=目标闪避/自身命中×200，并设置30秒陨石cd', async () => {
+        const player = makePlayer({ userId: 2 });
+        mocks.players.set(2, player);
+        // dodge=40（英文键，与 calcHitRate 同口径），攻击方命中 200 → 40/200×200 = 40%
+        const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100, dodge: 40 });
+        registerMonsters(mocks, 1, [monster]);
+        const atkBonus = strongAttackerBonus();
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(atkBonus);
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆', weaponOverride: xyWeapon as any,
+        });
+
+        expect(atkBonus.暴击伤害).toBe(190); // 150 + 40
+        expect(result.result).toContain('星象40%');
+        const mk2 = parseJson(player.markers2, []);
+        const meteorCd = mk2.find((m: any) => m.name === '陨石cd');
+        expect(meteorCd).toBeDefined();
+        expect(meteorCd.expireAt).toBeGreaterThan(Date.now()); // 30秒冷却已设置
+      });
+
+      it('星象仪(-39)：陨石cd冷却期内 → 不重复叠加暴伤', async () => {
+        const player = makePlayer({
+          userId: 2,
+          markers2: JSON.stringify([{ name: '陨石cd', expireAt: Date.now() + 30 * 1000 }]),
+        });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100, dodge: 40 });
+        registerMonsters(mocks, 1, [monster]);
+        const atkBonus = strongAttackerBonus();
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(atkBonus);
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆', weaponOverride: xyWeapon as any,
+        });
+
+        expect(atkBonus.暴击伤害).toBe(150); // 未叠加
+        expect(result.result).not.toContain('(星象');
+      });
+
+      it('神兽之力玄武(-27)：命中判定前生效 → 目标每件武器冷却+3秒、攻击冷却+3秒，显示【玄武】', async () => {
+        const player = makePlayer({ userId: 2 });
+        mocks.players.set(2, player);
+        const monster = makeMonster({
+          id: 1001, hp: 100, maxHp: 100, weapons: [{ name: '拳套' }],
+        });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆', weaponOverride: xwWeapon as any,
+        });
+
+        expect(result.result).toContain('玄武');
+        const mk2 = parseJson(monster.markers2, []);
+        const weaponCd = mk2.find((m: any) => m.name === '拳套冷却');
+        const atkCd = mk2.find((m: any) => m.name === '攻击冷却');
+        expect(weaponCd).toBeDefined();
+        expect(atkCd).toBeDefined();
+        expect(weaponCd.expireAt).toBeGreaterThan(Date.now()); // +3秒
+        expect(atkCd.expireAt).toBeGreaterThan(Date.now());
+      });
+
+      it('赛加(-6)：30秒冷却标记设置，几率通过时(10%<33%)额外攻击并显示「赛加连击」', async () => {
+        const player = makePlayer({ userId: 2 });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 5000, maxHp: 5000 });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+        const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0.1); // 10 < 33 → 触发
+        try {
+          const result = await combat.weaponAttack(2, 0, {
+            mustHit: true, targetName: '史莱姆', weaponOverride: sjWeapon as any,
+          });
+
+          expect(result.result).toContain('赛加连击');
+          const mk2 = parseJson(player.markers2, []);
+          const sjCd = mk2.find((m: any) => m.name === '赛加连击');
+          expect(sjCd).toBeDefined();
+          expect(sjCd.expireAt).toBeGreaterThan(Date.now()); // 30秒冷却已设置
+        } finally {
+          randSpy.mockRestore();
+        }
+      });
+
+      it('赛加(-6)：几率未通过时(90%>33%)仍设置冷却标记但不额外攻击', async () => {
+        const player = makePlayer({ userId: 2 });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 5000, maxHp: 5000 });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+        const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0.9); // 90 > 33 → 不触发
+        try {
+          const result = await combat.weaponAttack(2, 0, {
+            mustHit: true, targetName: '史莱姆', weaponOverride: sjWeapon as any,
+          });
+
+          expect(result.result).not.toContain('赛加连击');
+          const mk2 = parseJson(player.markers2, []);
+          const sjCd = mk2.find((m: any) => m.name === '赛加连击');
+          expect(sjCd).toBeDefined(); // 冷却标记照常设置（原版时间间隔要求语义）
+          expect(sjCd.expireAt).toBeGreaterThan(Date.now());
+        } finally {
+          randSpy.mockRestore();
+        }
+      });
+
+      it('艾斯特拉斯(-25)：60秒冷却触发 → 伤害+390% + 「工作」硬直((1-韧性/100)×60秒)；冷却期内不重复', async () => {
+        const BASE = 1_700_000_000_000;
+        jest.useFakeTimers().setSystemTime(BASE);
+        const player = makePlayer({ userId: 2 });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 100000, maxHp: 100000 });
+        registerMonsters(mocks, 1, [monster]);
+        const atkBonus = strongAttackerBonus(); // 韧性=0 → 硬直 60 秒
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(atkBonus);
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const first = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆', weaponOverride: asWeapon as any,
+        });
+        expect(first.result).toContain('【艾斯特拉斯】伤害+390%，硬直60秒');
+        let mk2 = parseJson(player.markers2, []);
+        expect(mk2.find((m: any) => m.name === '艾斯冷却')).toBeDefined();
+        const work = mk2.find((m: any) => m.name === '工作');
+        expect(work).toBeDefined();
+        expect(work.expireAt).toBe(BASE + 60 * 1000); // (1-0/100)×60 = 60秒硬直
+
+        // 推进 6 秒（越过公共攻击冷却 5s，仍在 60s 艾斯冷却内）→ 不重复触发
+        jest.setSystemTime(BASE + 6_000);
+        monster.hp = 100000;
+        const second = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆', weaponOverride: asWeapon as any,
+        });
+        expect(second.result).not.toContain('【艾斯特拉斯】');
+        mk2 = parseJson(player.markers2, []);
+        expect(mk2.find((m: any) => m.name === '工作')?.expireAt).toBe(BASE + 60 * 1000); // 硬直未被刷新
+        jest.useRealTimers();
+      });
+
+      it('镰刀1(-37)：攻击方倒地且处于「卷土重来」增益 → 伤害×3（原版 hp>0 时卷土重来被移除，故须 hp=0）', async () => {
+        const player = makePlayer({
+          userId: 2,
+          hp: 0,
+          buffs: JSON.stringify([{ name: '卷土重来', expireAt: Date.now() / 1000 + 30 }]),
+        });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 1000, maxHp: 1000 });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆', weaponOverride: ldWeapon as any,
+        });
+
+        expect(result.result).toContain('【镰刀】伤害×3');
+        expect(monster.hp).toBeLessThan(1000);
+      });
+
+      it('镰刀1(-37)：无「卷土重来」增益 → 不触发×3', async () => {
+        const player = makePlayer({ userId: 2 });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 1000, maxHp: 1000 });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆', weaponOverride: ldWeapon as any,
+        });
+
+        expect(result.result).not.toContain('【镰刀】');
+      });
+
+      it('木天蓼(-26)：攻击后自身被后坐力掀翻，加「工作」硬直10×(1-韧性/100)秒', async () => {
+        const player = makePlayer({ userId: 2 });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆',
+          weaponOverride: {
+            name: '木天蓼', damage: 10, damageType: 1, specialSeq: -26,
+            properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+          } as any,
+        });
+
+        expect(result.result).toContain('被后坐力掀翻了(10秒)'); // 韧性=0 → 10×(1-0)=10秒
+        const mk2 = parseJson(player.markers2, []);
+        const work = mk2.find((m: any) => m.name === '工作');
+        expect(work).toBeDefined();
+        expect(work.expireAt).toBeGreaterThan(Date.now());
+      });
+
+      it('风精灵(装备33)：物伤 += 自身闪避×额外伤害倍率，显示(风精灵X)', async () => {
+        const player = makePlayer({ userId: 2, equipment: JSON.stringify([{ name: '风精灵', specialSeq: 33 }]) });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 500, maxHp: 500 });
+        registerMonsters(mocks, 1, [monster]);
+        const atkBonus = strongAttackerBonus();
+        atkBonus.闪避 = 25; // 25 × 1(额外伤害倍率) = 25 点物伤
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(atkBonus);
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆',
+          weaponOverride: {
+            name: '测试武器', damage: 10, damageType: 1,
+            properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+          } as any,
+        });
+
+        expect(result.result).toContain('(风精灵25)');
+        expect(atkBonus.物伤).toBe(125); // 100 + 25
+      });
+
+      it('雷精灵(装备132)：电伤 += 自身闪避×额外伤害倍率；与风精灵互斥时风精灵优先', async () => {
+        const player = makePlayer({ userId: 2, equipment: JSON.stringify([{ name: '雷精灵', specialSeq: 132 }]) });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 500, maxHp: 500 });
+        registerMonsters(mocks, 1, [monster]);
+        const atkBonus = strongAttackerBonus();
+        atkBonus.闪避 = 25;
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(atkBonus);
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆',
+          weaponOverride: {
+            name: '测试武器', damage: 10, damageType: 1,
+            properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+          } as any,
+        });
+
+        expect(result.result).toContain('(雷精灵25)');
+        expect(atkBonus.电伤).toBe(25); // 0 + 25
+        expect(atkBonus.物伤).toBe(100); // 风精灵未触发
+      });
+
+      it('长萌舰装(装备101)：60秒冷却标记「fp」→ 额外攻击+1并显示(副炮)', async () => {
+        const player = makePlayer({ userId: 2, equipment: JSON.stringify([{ name: '长萌舰装', specialSeq: 101 }]) });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 5000, maxHp: 5000 });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const result = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆',
+          weaponOverride: {
+            name: '测试武器', damage: 10, damageType: 1,
+            properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+          } as any,
+        });
+
+        expect(result.result).toContain('(副炮)');
+        const mk2 = parseJson(player.markers2, []);
+        const fp = mk2.find((m: any) => m.name === 'fp');
+        expect(fp).toBeDefined();
+        expect(fp.expireAt).toBeGreaterThan(Date.now()); // 60秒冷却已设置
+      });
+
+      it('弹药箱(装备19)：非近战武器时60秒冷却触发(弹药充沛)；近战武器不触发', async () => {
+        const player = makePlayer({ userId: 2, equipment: JSON.stringify([{ name: '弹药箱', specialSeq: 19 }]) });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 5000, maxHp: 5000 });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        // 远程武器（射弹武器）→ 触发
+        const ranged = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆',
+          weaponOverride: {
+            name: '测试手枪', damage: 10, damageType: 1, type: '射弹武器',
+            properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+          } as any,
+        });
+        expect(ranged.result).toContain('(弹药充沛)');
+        const mk2 = parseJson(player.markers2, []);
+        expect(mk2.find((m: any) => m.name === '弹药')).toBeDefined();
+        expect(mk2.find((m: any) => m.name === '弹药').expireAt).toBeGreaterThan(Date.now());
+      });
+
+      it('弹药箱(装备19)：近战武器不触发(弹药充沛)', async () => {
+        const player = makePlayer({ userId: 2, equipment: JSON.stringify([{ name: '弹药箱', specialSeq: 19 }]) });
+        mocks.players.set(2, player);
+        const monster = makeMonster({ id: 1001, hp: 500, maxHp: 500 });
+        registerMonsters(mocks, 1, [monster]);
+        jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+        jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+        jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+
+        const melee = await combat.weaponAttack(2, 0, {
+          mustHit: true, targetName: '史莱姆',
+          weaponOverride: {
+            name: '测试砍刀', damage: 10, damageType: 1, type: '近战武器',
+            properties: { phys: 100, fire: 0, ice: 0, elec: 0 },
+          } as any,
+        });
+        expect(melee.result).not.toContain('(弹药充沛)');
+      });
+    });
   });
 });
