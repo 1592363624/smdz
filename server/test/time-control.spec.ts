@@ -119,8 +119,11 @@ describe('时间主宰「掌控时间」对齐原版（Issue #9 反馈③）', (
 
     // 立即再次使用：应被自身 CD 拦截，剩余约 360 秒
     const second = await service.timeControl(42);
-    expect(second).toMatch(/冷却中/);
-    const remaining = Number((second.match(/剩余(\d+)秒/) ?? [])[1]);
+    // 冷却提示文本对齐原版：时间间隔要求 → 「还需要」+ 数字到时间（360 秒 → "6分0秒"）
+    expect(second).toMatch(/还需要/);
+    const mm = second.match(/还需要(?:(\d+)分)?(\d+)秒/);
+    expect(mm).toBeTruthy();
+    const remaining = Number(mm![1] ?? 0) * 60 + Number(mm![2]);
     expect(remaining).toBeGreaterThan(350);
     expect(remaining).toBeLessThanOrEqual(360);
   });

@@ -67,10 +67,12 @@ describe('伊芙利特灼烂歼鬼（使魔技能.ecode L1967-2006）', () => {
       {} as any,
       {} as any,
       mapService,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
+      {} as any, // familiarSystem
+      // SystemConfig 为位置参数 #8：技能冷却基准 / 冷却核心削减量由它读取
+      // （未配置时回落到默认 60 / 10，与生产「配置行缺失」行为一致）
+      { get: jest.fn(async (_key: string, defaultValue: any) => defaultValue) } as any, // systemConfig
+      {} as any, // staticData
+      {} as any, // taskService
       {} as any, // mutateService
     );
     return { service, player, markers, markers2, playerService, combatSystem };

@@ -41,12 +41,18 @@ function makeMonster(overrides: Record<string, any> = {}): any {
 function buildLoopService(overrides: {
   combatSystem?: any; online?: Set<number>; playersByMap?: Map<number, any[]>;
 } = {}) {
-  const mapService = {
+  const mapService: any = {
     getMapById: jest.fn(async (mapId: number) => ({
       id: mapId, mapIndex: mapId, name: `地图${mapId}`,
       markers2: '[]', summons: '[]', vehicles: '[]',
     })),
     updateDynamicFields: jest.fn(async () => undefined),
+    // 生产落库口：markers2 走 mergeMapMarkers2（锁内重读 + 按名 upsert）。
+    // 本用例无并发新增，桩实现等价于「记录本次写入的终态」。
+    lastMergedMarkers2: [] as any[],
+    mergeMapMarkers2: jest.fn(async (_mapId: number, incoming: any[]) => {
+      mapService.lastMergedMarkers2 = JSON.parse(JSON.stringify(incoming ?? []));
+    }),
   };
   const combatState = new CombatStateService();
   const statsService = {
@@ -124,7 +130,10 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
     const active = markers2.find((item: any) => (item.名称 ?? item.name) === '活动');
     expect(active).toBeTruthy();
     expect(active.有效期至).toBeGreaterThan(Date.now() + 60_000);
-    expect(mapService.updateDynamicFields).toHaveBeenCalledWith(1, expect.objectContaining({ markers2: map.markers2 }));
+    expect(mapService.mergeMapMarkers2).toHaveBeenCalledWith(1, expect.arrayContaining([
+      expect.objectContaining({ 名称: '活动' }),
+    ]));
+    expect(mapService.lastMergedMarkers2.some((item: any) => (item.名称 ?? item.name) === '活动')).toBe(true);
     expect((combatSystem.adminAttackMap as jest.Mock).mock.calls.length).toBe(0);
     expect(loop.hasPendingRound(1)).toBe(true);
 
@@ -195,6 +204,12 @@ describe('adminAttackMap 续回合判定（原版 L502-530）', () => {
       getMapById: jest.fn(async () => null),
       getMapMonsters: jest.fn(async () => monstersByMap.get(1)!),
       updateDynamicFields: jest.fn(async (_mapId: number, data: any) => { savedFields.push(data); }),
+      // 生产落库口：markers2 走 mergeMapMarkers2（锁内重读 + 按名 upsert）
+      mergeMapMarkers2: jest.fn(async (_mapId: number, incoming: any[]) => {
+        savedFields.push({ markers2: incoming });
+      }),
+      // 击杀登记「刷新怪物」标记（原版 发放奖励 L458-461）
+      addMonsterRespawnMarker: jest.fn(async () => true),
       updateMonsterFields: jest.fn(async () => undefined),
       saveGameMonster: jest.fn(async () => undefined),
       removeMapMonster: jest.fn(async () => undefined),

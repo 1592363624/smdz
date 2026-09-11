@@ -169,3 +169,19 @@ export function formatRemain(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
+
+/**
+ * 把时长（毫秒）格式化为原版「数字到时间」的可读文本：`N秒` / `M分S秒`。
+ *
+ * 原版 `数字到时间((有效期至 - 时间戳) / #转秒)`（数据分析.ecode L772）是**所有**
+ * 冷却/间隔提示的唯一格式来源：`标记要求` 产出剩余文本 → `时间间隔要求`（L1021）
+ * 前缀「还需要」→ 调用方再前缀玩家名。因此技能冷却、采集冷却、移动拦截等
+ * 提示文本必须共用本函数，禁止各写一套措辞（如「技能冷却中，剩余N秒」）。
+ */
+export function formatDurationText(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / SECOND_MS));
+  if (totalSec < 60) return `${totalSec}秒`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}分${sec}秒`;
+}

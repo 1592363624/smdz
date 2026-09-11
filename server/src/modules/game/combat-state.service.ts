@@ -24,6 +24,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { SetData } from './bonus.service';
+import { formatDurationText } from './expire-time.util';
 import { SEQ, AMPLIFIER_SEQ_RANGE, IMPLANT_SEQ_RANGE } from './constants/special-seq.constant';
 
 /** #转秒：原版易语言时间常数，1秒 = 1000 毫秒 */
@@ -309,7 +310,7 @@ export class CombatStateService {
       if (it.名称 === 检索名称) {
         const remainMs = it.有效期至 - 时间戳;
         // 数字到时间：剩余毫秒转可读文本（简化：显示秒/分）
-        返回剩余时间.value = this.msToTimeText(remainMs);
+        返回剩余时间.value = formatDurationText(remainMs);
         return true;
       }
     }
@@ -495,15 +496,6 @@ export class CombatStateService {
     }
     this.addMarker(名称, 冷却时间, 标记, 原始);
     return false;
-  }
-
-  /** 毫秒转可读时间文本（简化版，对应原版 数字到时间） */
-  private msToTimeText(ms: number): string {
-    const totalSec = Math.max(0, Math.floor(ms / SECOND_MS));
-    if (totalSec < 60) return `${totalSec}秒`;
-    const min = Math.floor(totalSec / 60);
-    const sec = totalSec % 60;
-    return `${min}分${sec}秒`;
   }
 
   /**

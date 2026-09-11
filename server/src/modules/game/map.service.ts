@@ -23,6 +23,22 @@ import { ChangeBusService } from '../../game-sync/change-bus.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { ActorRuntime, actorKey } from '../actor';
 import { GlobalProficiencyService, pickMonsterLevel } from './global-proficiency.service';
+import { expireAfter, isActive, itemName, toExpireMs } from './expire-time.util';
+
+/**
+ * 地图「刷新怪物」标记名（原版 刷新标记 类型1，后台运作.ecode L1032）。
+ * 写入方：怪物被击杀时（`addMonsterRespawnMarker`）；消费方：后台补怪（`refillResidentMonstersByMarker`）。
+ */
+export const MONSTER_RESPAWN_MARKER = '刷新怪物';
+
+/** 怪物刷新延迟（秒）：原版 刷新标记 L1033 固定 120 秒 */
+export const MONSTER_RESPAWN_SECONDS = 120;
+
+/** 地图资源刷新标记前缀（原版 刷新标记 类型2，后台运作.ecode L1035） */
+export const RESOURCE_REFRESH_MARKER_PREFIX = '刷新资源';
+
+/** 单地图常驻怪物数量上限（防御异常配置） */
+const MONSTER_INSTANCE_CAP = 20;
 
 /**
  * 可前往地图的连接信息
@@ -961,163 +977,16 @@ export class MapService {
       await this.prisma.gameMonster.deleteMany({ where: { mapId, isTemp: false } });
       return;
     }
-    const count = Math.min(map.monsterCount || 3, 20);
+    const count = Math.min(map.monsterCount || 3, MONSTER_INSTANCE_CAP);
 
     // 预加载地图上所有怪物名对应的怪物定义（含三层池 护盾/装甲），来自静态配置 JSON
-    const monsterDefs: Record<string, any> = {};
-    if (monsterNames.length > 0) {
-      const allDefs = this.staticData.getAllMonsters();
-      for (const name of monsterNames) {
-        const def = allDefs.find((d) => d?.name === name);
-        if (def) monsterDefs[name] = def;
-      }
-    }
+    const monsterDefs = this.loadMonsterDefsByName(monsterNames);
 
-    // 构建待插入的常驻怪物实例数据
+    // 构建待插入的常驻怪物实例数据（每只都走 buildResidentMonsterRow 单一口径）
     const inserts: any[] = [];
     for (let i = 0; i < count; i++) {
-      if (monsterNames.length > 0) {
-        const name = monsterNames[Math.floor(Math.random() * monsterNames.length)];
-        const def = monsterDefs[name];
-        const shield = def?.shield || 0;
-        const armor = def?.armor || 0;
-        const defBonus = def?.bonus ? this.safeParseJSON<any>(def.bonus, {}) : {};
-        // 怪物等级：配置等级>0 直用，否则走动态公式（物种熟练度等级 + 世界等级）。
-        // 用于 _初始化怪物 等级成长，对齐原版 加成计算 L2711 / L2796。
-        const level = await this.resolveMonsterLevel(def);
-        // 觉醒：怪物定义 bonus.觉醒（原版 L2763 取成就熟练度(标记,"觉醒")，怪物默认0）
-        const awaken = defBonus.觉醒 || 0;
-
-        // === 整合 _初始化怪物 深层计算（加成计算 L2644-3052）===
-        // 对综合 bonus 应用等级成长 + 好感 + 击杀 + 觉醒档 + 一拳/冰雪之心/恶毒之刃/线圈
-        // 返回最终 bonus（含成长后的 生命/护盾/装甲/闪避/命中/四伤 等）
-        const eqList: string[] = defBonus.equipmentList
-          ? (Array.isArray(defBonus.equipmentList) ? defBonus.equipmentList : [defBonus.equipmentList])
-          : (defBonus.装备 ? [defBonus.装备].filter(Boolean) : []);
-        const finalBonus = this.buildMonsterBonusFromDef(defBonus, {
-          level,
-          awaken,
-          affinity: 0,
-          killCount: 0,
-          equipments: eqList,
-          specialSeq: def?.specialSeq || -1,
-          xuexin: false,
-          edzhi: false,
-        });
-        // 三层池基础值取自最终 bonus（已含成长+好感系数）
-        const baseHp = def?.hp || (finalBonus.生命 || 100);
-        const baseShield = finalBonus.护盾 !== undefined ? finalBonus.护盾 : (shield || 0);
-        const baseArmor = finalBonus.装甲 !== undefined ? finalBonus.装甲 : (armor || 0);
-        // 等级成长系数 lvFactor（三层池额外 +等级×20；原版 L2764-2766）
-        const lvFactor = 1 + level * 0.05;
-        const awakenFactor = 1 + awaken / 200;
-        const hpVal = Math.floor(lvFactor * (baseHp + level * 20) * awakenFactor);
-        const shieldVal = Math.floor(lvFactor * (baseShield + level * 20) * awakenFactor);
-        const armorVal = Math.floor(lvFactor * (baseArmor + level * 20) * awakenFactor);
-        // 其余属性（L2767-2777）：仅 ×lvFactor×awakenFactor
-        const dodgeVal = Math.floor(lvFactor * (def?.dodge || finalBonus.闪避 || 5) * awakenFactor);
-        const hitVal = Math.floor(lvFactor * (def?.hit || finalBonus.命中 || 85) * awakenFactor);
-        // 攻击：优先用 finalBonus.攻击（已含一拳等套装加攻），否则用 def.attack 基础值
-        const atkVal = Math.floor(lvFactor * (finalBonus.攻击 || def?.attack || 10) * awakenFactor);
-        const speedVal = Math.floor(lvFactor * (def?.speed || 100) * awakenFactor);
-        const expVal = Math.floor(lvFactor * (finalBonus.经验 || 10) * awakenFactor);
-        inserts.push({
-          mapId,
-          type: def?.type || '怪物',
-          name: def?.name || name || '未知怪物',
-          // 唯一标识：原版为"怪物"+生成编号()，这里用"monster_"+mapId+序号+UUID 保证唯一且可读
-          qq: `monster_${mapId}_${i}_${randomUUID()}`,
-          specialSeq: def?.specialSeq || -1,
-          level,
-          image: def?.image || '',
-          hp: hpVal,
-          maxHp: hpVal,
-          shield: shieldVal,
-          maxShield: shieldVal,
-          armor: armorVal,
-          maxArmor: armorVal,
-          attack: atkVal,
-          defense: def?.defense || 0,
-          speed: speedVal,
-          dodge: dodgeVal,
-          hit: hitVal,
-          isElite: def?.type === '精英' || false,
-          // 最终加成（含等级成长/觉醒/套装等，对应原版 玩家.加成）；Json 列直接写对象/数组
-          bonus: finalBonus,
-          baseBonus: finalBonus,
-          extraBonus: {},
-          // 装备列表：用上方已按空格正确拆分的 eqList（原版 bonus.装备 形如"射爆核心 超载核心 袖剑"）
-          equipments: eqList,
-          weapons: defBonus.武器 ? String(defBonus.武器).split(/\s+/).filter(Boolean) : [],
-          currentWeapon: 0,
-          equipmentPresets: [],
-          markers: [],
-          markers2: [],
-          buffs: [],
-          achievements: [],
-          // 套装判定结果来自 buildMonsterBonusFromDef 计算的 finalBonus.套装（对齐原版 g.套装）
-          set: finalBonus.套装 || {},
-          affinity: 0,
-          vitality: 0,
-          exp: expVal,
-          backpack: [],
-          isPet: false,
-          isTemp: false,
-        });
-      } else {
-        const level = map.level || 1;
-        // 对齐原版 _初始化怪物 L2764-2777 等级成长公式（野怪：基础生命100/护盾0/装甲0/攻击10/闪避5/命中85/经验10）
-        const lvFactor = 1 + level * 0.05;
-        // 野怪综合 bonus：空 defBonus 经 buildMonsterBonusFromDef 得到默认成长属性（生命/闪避/命中等默认值）
-        const wildBonus = this.buildMonsterBonusFromDef({}, { level, awaken: 0 });
-        const hpVal = Math.floor(lvFactor * (100 + level * 20));
-        const atkVal = Math.floor(lvFactor * 10);
-        const speedVal = Math.floor(lvFactor * 100);
-        const dodgeVal = Math.floor(lvFactor * (wildBonus.闪避 || 5));
-        const hitVal = Math.floor(lvFactor * (wildBonus.命中 || 85));
-        const expVal = Math.floor(lvFactor * (wildBonus.经验 || 10));
-        inserts.push({
-          mapId,
-          type: '野怪',
-          name: '野怪',
-          qq: `monster_${mapId}_${i}_${randomUUID()}`,
-          specialSeq: -1,
-          level,
-          hp: hpVal,
-          maxHp: hpVal,
-          shield: 0,
-          maxShield: 0,
-          armor: 0,
-          maxArmor: 0,
-          attack: atkVal,
-          defense: 0,
-          speed: speedVal,
-          dodge: dodgeVal,
-          hit: hitVal,
-          isElite: false,
-          // Json 列直接写对象/数组（stringify 会双重编码）
-          bonus: wildBonus,
-          baseBonus: wildBonus,
-          extraBonus: {},
-          equipments: [],
-          weapons: [],
-          currentWeapon: 0,
-          equipmentPresets: [],
-          markers: [],
-          markers2: [],
-          buffs: [],
-          achievements: [],
-          set: {},
-          affinity: 0,
-          vitality: 0,
-          exp: expVal,
-          backpack: [],
-          isPet: false,
-          isTemp: false,
-        });
-      }
+      inserts.push(await this.buildResidentMonsterRow(mapId, monsterNames, monsterDefs, i));
     }
-
     // 整批重刷：加锁删除本地图常驻怪物，再批量插入（保留临时怪物 isTemp=true）
     await this.withMapLock(mapId, async () => {
       await this.prisma.gameMonster.deleteMany({
@@ -1129,6 +998,342 @@ export class MapService {
     });
 
     this.logger.log(`地图 ${map.name} 刷新了 ${inserts.length} 只常驻怪物`);
+  }
+
+  /**
+   * 预加载怪物名对应的静态定义（含三层池 护盾/装甲），来自 monsters.json。
+   * 供常驻怪物生成路径共用（禁止各写一份查找逻辑）。
+   */
+  private loadMonsterDefsByName(monsterNames: string[]): Record<string, any> {
+    const defs: Record<string, any> = {};
+    const allDefs = this.staticData.getAllMonsters();
+    for (const name of monsterNames) {
+      const def = allDefs.find((d) => d?.name === name);
+      if (def) defs[name] = def;
+    }
+    return defs;
+  }
+
+  /**
+   * 构造一只「常驻怪物」的 GameMonster 行数据（**单一口径**）。
+   *
+   * 原版两处生成片段完全一致，故收敛到本方法：
+   *   - `刷新地图`（后台运作.ecode L1013-1023）：整批重刷地图怪物；
+   *   - 后台补怪（后台运作.ecode L1663-1674）：按「刷新怪物」标记补 1 只。
+   * 两者都是 `g.类型 = 随机模板 → _初始化怪物(g, , 地图) → 加入成员(地图.怪物2)`。
+   *
+   * ⚠️ 调用方必须保证 `monsterNames` 非空：原版在空模板时不会生成任何怪物
+   * （刷新地图 L1014 / 补怪 L1632 均有 `取数组成员数(地图.怪物) > 0` 前置判断）。
+   * 早期实现里那条「空模板退化成野怪」的兜底分支因此恒不可达，已删除——
+   * 保留它会形成第二条生成口径（数值/等级成长容易漂移）。
+   *
+   * @param seq 同批次内的序号，仅用于 qq 可读性（UUID 已保证唯一）
+   */
+  private async buildResidentMonsterRow(
+    mapId: number,
+    monsterNames: string[],
+    monsterDefs: Record<string, any>,
+    seq: number,
+  ): Promise<any> {
+    const name = monsterNames[Math.floor(Math.random() * monsterNames.length)];
+    const def = monsterDefs[name];
+    const shield = def?.shield || 0;
+    const armor = def?.armor || 0;
+    const defBonus = def?.bonus ? this.safeParseJSON<any>(def.bonus, {}) : {};
+    // 怪物等级：配置等级>0 直用，否则走动态公式（物种熟练度等级 + 世界等级）。
+    // 用于 _初始化怪物 等级成长，对齐原版 加成计算 L2711 / L2796。
+    const level = await this.resolveMonsterLevel(def);
+    // 觉醒：怪物定义 bonus.觉醒（原版 L2763 取成就熟练度(标记,"觉醒")，怪物默认0）
+    const awaken = defBonus.觉醒 || 0;
+
+    // === 整合 _初始化怪物 深层计算（加成计算 L2644-3052）===
+    // 对综合 bonus 应用等级成长 + 好感 + 击杀 + 觉醒档 + 一拳/冰雪之心/恶毒之刃/线圈
+    // 返回最终 bonus（含成长后的 生命/护盾/装甲/闪避/命中/四伤 等）
+    const eqList: string[] = defBonus.equipmentList
+      ? (Array.isArray(defBonus.equipmentList) ? defBonus.equipmentList : [defBonus.equipmentList])
+      : (defBonus.装备 ? [defBonus.装备].filter(Boolean) : []);
+    const finalBonus = this.buildMonsterBonusFromDef(defBonus, {
+      level,
+      awaken,
+      affinity: 0,
+      killCount: 0,
+      equipments: eqList,
+      specialSeq: def?.specialSeq || -1,
+      xuexin: false,
+      edzhi: false,
+    });
+    // 三层池基础值取自最终 bonus（已含成长+好感系数）
+    const baseHp = def?.hp || (finalBonus.生命 || 100);
+    const baseShield = finalBonus.护盾 !== undefined ? finalBonus.护盾 : (shield || 0);
+    const baseArmor = finalBonus.装甲 !== undefined ? finalBonus.装甲 : (armor || 0);
+    // 等级成长系数 lvFactor（三层池额外 +等级×20；原版 L2764-2766）
+    const lvFactor = 1 + level * 0.05;
+    const awakenFactor = 1 + awaken / 200;
+    const hpVal = Math.floor(lvFactor * (baseHp + level * 20) * awakenFactor);
+    const shieldVal = Math.floor(lvFactor * (baseShield + level * 20) * awakenFactor);
+    const armorVal = Math.floor(lvFactor * (baseArmor + level * 20) * awakenFactor);
+    // 其余属性（L2767-2777）：仅 ×lvFactor×awakenFactor
+    const dodgeVal = Math.floor(lvFactor * (def?.dodge || finalBonus.闪避 || 5) * awakenFactor);
+    const hitVal = Math.floor(lvFactor * (def?.hit || finalBonus.命中 || 85) * awakenFactor);
+    // 攻击：优先用 finalBonus.攻击（已含一拳等套装加攻），否则用 def.attack 基础值
+    const atkVal = Math.floor(lvFactor * (finalBonus.攻击 || def?.attack || 10) * awakenFactor);
+    const speedVal = Math.floor(lvFactor * (def?.speed || 100) * awakenFactor);
+    const expVal = Math.floor(lvFactor * (finalBonus.经验 || 10) * awakenFactor);
+    return {
+      mapId,
+      type: def?.type || '怪物',
+      name: def?.name || name || '未知怪物',
+      // 唯一标识：原版为"怪物"+生成编号()，这里用"monster_"+mapId+序号+UUID 保证唯一且可读
+      qq: `monster_${mapId}_${seq}_${randomUUID()}`,
+      specialSeq: def?.specialSeq || -1,
+      level,
+      image: def?.image || '',
+      hp: hpVal,
+      maxHp: hpVal,
+      shield: shieldVal,
+      maxShield: shieldVal,
+      armor: armorVal,
+      maxArmor: armorVal,
+      attack: atkVal,
+      defense: def?.defense || 0,
+      speed: speedVal,
+      dodge: dodgeVal,
+      hit: hitVal,
+      isElite: def?.type === '精英' || false,
+      // 最终加成（含等级成长/觉醒/套装等，对应原版 玩家.加成）；Json 列直接写对象/数组
+      bonus: finalBonus,
+      baseBonus: finalBonus,
+      extraBonus: {},
+      // 装备列表：用上方已按空格正确拆分的 eqList（原版 bonus.装备 形如"射爆核心 超载核心 袖剑"）
+      equipments: eqList,
+      weapons: defBonus.武器 ? String(defBonus.武器).split(/\s+/).filter(Boolean) : [],
+      currentWeapon: 0,
+      equipmentPresets: [],
+      markers: [],
+      markers2: [],
+      buffs: [],
+      achievements: [],
+      // 套装判定结果来自 buildMonsterBonusFromDef 计算的 finalBonus.套装（对齐原版 g.套装）
+      set: finalBonus.套装 || {},
+      affinity: 0,
+      vitality: 0,
+      exp: expVal,
+      backpack: [],
+      isPet: false,
+      isTemp: false,
+    };
+  }
+
+  /** 常驻怪物（isTemp=false）数量——对应原版 `取数组成员数(地图.怪物2)`。 */
+  async countResidentMonsters(mapId: number): Promise<number> {
+    return this.prisma.gameMonster.count({ where: { mapId, isTemp: false } });
+  }
+
+  /**
+   * 把地图常驻怪物按配置补齐到上限（**只增不删**），返回补出的数量。
+   * 用于服务器启动补齐（原版 接口1.ecode L1374 读档时对每张地图执行 `刷新地图`）。
+   */
+  async topUpResidentMonsters(mapId: number, map?: any): Promise<number> {
+    const targetMap = map ?? await this.getMapById(mapId);
+    if (!targetMap) return 0;
+    const target = Math.min(Number(targetMap.monsterCount) || 0, MONSTER_INSTANCE_CAP);
+    if (target <= 0) return 0;
+    const residents = await this.countResidentMonsters(mapId);
+    const missing = target - residents;
+    if (missing <= 0) return 0;
+    return this.spawnResidentMonsters(mapId, missing, targetMap);
+  }
+
+  /**
+   * 按模板补出 N 只常驻怪物（**只增不删**，不触碰任何存活怪的血量）。
+   * 对应原版 后台运作.ecode L1663-1674：随机模板 → _初始化怪物 → 加入成员(地图.怪物2)。
+   *
+   * 与 refreshMapMonsters 的分工（勿混用）：
+   *   - refreshMapMonsters = 整批重刷（先删后插），只对应用户原版的**服务器读档**
+   *     （接口1.ecode L1374）与**副本刷新**（后台运作 L1066）；
+   *   - 本方法 = 日常补怪。若日常补怪走整批重刷，会把存活怪（含玩家正在攻击的目标、
+   *     已打出的伤害）一并替换成满血新实例，战斗将永远无法收尾。
+   *
+   * @param map 可选的已加载地图对象（避免重复读库）
+   * @returns 实际写入的怪物数量
+   */
+  async spawnResidentMonsters(mapId: number, count: number, map?: any): Promise<number> {
+    const n = Math.floor(Number(count) || 0);
+    if (n <= 0) return 0;
+    const targetMap = map ?? await this.getMapById(mapId);
+    if (!targetMap) return 0;
+    // 原版：空模板地图不生成怪物（刷新地图 L1014 / 补怪 L1632）
+    const monsterNames: string[] = this.safeParseJSON(targetMap.monsters, []);
+    if (monsterNames.length === 0) return 0;
+    const monsterDefs = this.loadMonsterDefsByName(monsterNames);
+    const rows: any[] = [];
+    for (let i = 0; i < n; i++) {
+      rows.push(await this.buildResidentMonsterRow(mapId, monsterNames, monsterDefs, i));
+    }
+    await this.prisma.gameMonster.createMany({ data: rows });
+    return rows.length;
+  }
+
+  /**
+   * 登记一条「刷新怪物」标记（原版 刷新标记 类型1，后台运作.ecode L1024-1038）。
+   *
+   * 原版：击杀怪物后（`发放奖励` L458-461）若非关卡地图 → `刷新标记(地图, 名称, 时间, 1)`
+   * → 向「标记2」**加入**（`加入成员`，非覆盖）一条 `有效期至 = 时间 + 120秒` 的标记。
+   * 到期后由后台补怪循环补 1 只（`refillResidentMonstersByMarker`）。
+   * 因是"加入"语义，同地图可并存多条——每条各对应一只待补怪。
+   *
+   * 关卡地图（原版 `地图.关卡 == 真`）不登记；空模板 / monsterCount<=0 的地图也不登记，
+   * 避免在根本不会生成怪物的地图上堆积无效标记。
+   *
+   * @returns 是否登记成功
+   */
+  async addMonsterRespawnMarker(mapId: number, seconds: number = MONSTER_RESPAWN_SECONDS): Promise<boolean> {
+    const map = await this.getMapById(mapId);
+    if (!map) return false;
+    if (map.isInstance || map.关卡) return false;
+    if (!(Number(map.monsterCount) > 0)) return false;
+    const monsterNames: string[] = this.safeParseJSON(map.monsters, []);
+    if (monsterNames.length === 0) return false;
+
+    const sec = Number(seconds) > 0 ? Number(seconds) : MONSTER_RESPAWN_SECONDS;
+    await this.mutateMapFields(mapId, ['markers2'], (fields) => {
+      const markers2 = Array.isArray(fields.markers2) ? fields.markers2 : [];
+      markers2.push({ name: MONSTER_RESPAWN_MARKER, expireAt: expireAfter(sec) });
+      fields.markers2 = markers2;
+    });
+    return true;
+  }
+
+  /**
+   * 消费地图上的「刷新怪物」标记并补怪 —— 对应原版 后台运作.ecode L1626-1690。
+   *
+   * 原版逐条语义（本方法逐行对齐）：
+   *   - L1652：只有**已到期**的标记会被处理；
+   *   - L1663-1674：`刷新怪物` 标记 → 若 `怪物2 数量 < 怪物数量` 则补 1 只随机模板怪，补完跳出；
+   *   - L1682：处理到的到期标记一律从「标记2」删除（无论是否真的补了怪）；
+   *   - L1630-1648：若「标记2」整体为空且数量不足，不等标记直接补 1 只。
+   *
+   * 原版后台线程约每秒一轮，本实现由每分钟的 cron 触发（`ScheduleService.respawnMonsters`），
+   * 因此把原版「每轮最多 1 只」合并为「一次消费全部到期标记，最多补 (monsterCount - 当前常驻数) 只」，
+   * 稳态结果一致（每条到期标记恰好产出 ≤1 只，且总量封顶在 `monsterCount`）。
+   *
+   * ⚠️ 本方法**绝不删除或重建存活怪**，因此不会重置玩家已打出的伤害。
+   *
+   * @returns 实际补出的怪物数量
+   */
+  async refillResidentMonstersByMarker(mapId: number): Promise<number> {
+    const map = await this.getMapById(mapId);
+    if (!map) return 0;
+    // 原版 L1628：只有非关卡地图参与后台补怪
+    if (map.isInstance || map.关卡) return 0;
+    const monsterCount = Math.min(Number(map.monsterCount) || 0, MONSTER_INSTANCE_CAP);
+    if (monsterCount <= 0) return 0;
+    const monsterNames: string[] = this.safeParseJSON(map.monsters, []);
+    if (monsterNames.length === 0) return 0;
+
+    return this.withMapLock(mapId, async () => {
+      // ⚠️ 锁内只调不加锁的纯写方法（spawnResidentMonsters / prisma 直写）：
+      // withMapLock 是不可重入的 Promise 链，锁体内再进本图任何 withMapLock /
+      // mutateMapFields / mutateSummons 会互相等待死锁。
+      // 锁内重读「标记2」：与击杀登记、活动窗口刷新等写路径串行，避免整组覆盖丢标记
+      const row = await this.prisma.gameMap.findUnique({
+        where: { id: mapId },
+        select: { markers2: true },
+      });
+      const markers2 = asJsonValue<any[]>(row?.markers2, []);
+
+      const now = Date.now();
+      const kept: any[] = [];
+      let expiredRespawnMarkers = 0;
+      for (const marker of markers2) {
+        const expiredRespawn = itemName(marker).trim() === MONSTER_RESPAWN_MARKER
+          && toExpireMs(marker) > 0
+          && !isActive(marker, now);
+        if (expiredRespawn) {
+          expiredRespawnMarkers += 1;
+          continue;
+        }
+        kept.push(marker);
+      }
+
+      const residents = await this.countResidentMonsters(mapId);
+      const slots = Math.max(0, monsterCount - residents);
+      // L1630 分支：标记2 为空 → 不等标记，直接补足（原版每轮 1 只，本实现按轮批量）
+      const want = markers2.length === 0
+        ? slots
+        : Math.min(expiredRespawnMarkers, slots);
+
+      let spawned = 0;
+      if (want > 0) {
+        spawned = await this.spawnResidentMonsters(mapId, want, map);
+      }
+      // L1682：到期的刷新标记一律消费掉
+      // 走 updateDynamicFields（而非裸 prisma）以便失效 map Actor 缓存，
+      // 防止后续 Actor run 用陈旧整行快照把已消费的标记写回来。
+      if (expiredRespawnMarkers > 0) {
+        await this.updateDynamicFields(mapId, { markers2: kept });
+      }
+      return spawned;
+    });
+  }
+
+  /**
+   * 合并写回地图「标记2」（markers2）——**所有以整数组形式持有 markers2 的调用方都应改走本方法**。
+   *
+   * 背景（项目写模型红线）：调用方通常是「先读一次 map 快照 → 中间 await 多个胜负结算 →
+   * 最后整组回写 markers2」。若期间有其他写路径往同一地图新增了标记（击杀登记
+   * 「刷新怪物」、采集登记「刷新资源X」、炮击登记「脏弹」…），整组回写会把新键抹掉。
+   *
+   * 合并规则：
+   *   - 以**锁内重读的当前 markers2** 为基底，其中的条目一律保留（含本次计算没有的新键）；
+   *   - `computed` 中的条目按**名称 upsert**（存在则覆盖，不存在则追加）；
+   *   - 「刷新怪物」「刷新资源X」属于**可同名并存、由专用消费者处理**的标记
+   *     （后台补怪 / 后台补资源分别消费），不参与 upsert，一律以锁内最新值为准，
+   *     避免被旧快照覆盖或折叠；
+   *   - **不做删除**：过期条目由 `pruneExpiredMapMarkers2` 定时清理
+   *     （原版 L1682 的删除副作用落在消费方，不落在整组回写方）。
+   *
+   * @param computed 本次调用要写入的标记（增量/变更条目，允许是全量快照）
+   */
+  async mergeMapMarkers2(mapId: number, computed: any[]): Promise<void> {
+    const incoming = Array.isArray(computed) ? computed : [];
+    await this.mutateMapFields(mapId, ['markers2'], (fields) => {
+      const fresh = Array.isArray(fields.markers2) ? fields.markers2 : [];
+      const result: any[] = [...fresh];
+      for (const item of incoming) {
+        const name = itemName(item).trim();
+        if (!name) continue;
+        // 专用消费者所有的标记：以锁内最新值为准，不参与 upsert
+        if (name === MONSTER_RESPAWN_MARKER || name.startsWith(RESOURCE_REFRESH_MARKER_PREFIX)) continue;
+        const idx = result.findIndex((entry: any) => itemName(entry).trim() === name);
+        if (idx >= 0) result[idx] = item;
+        else result.push(item);
+      }
+      fields.markers2 = result;
+    });
+  }
+
+  /**
+   * 清理地图「标记2」中已过期的一般条目（锁内重读，避免整组覆盖丢掉期间新增的标记）。
+   *
+   * 「刷新怪物」「刷新资源X」**不在此清理**：它们必须由各自的专用消费者
+   * （`refillResidentMonstersByMarker` / `refreshExpiredMapResources`，均每分钟）
+   * 在处理时"消费"掉，否则标记会被提前删除 → 怪物/资源从此不再刷新。
+   *
+   * @returns 本次删除的条目数
+   */
+  async pruneExpiredMapMarkers2(mapId: number, nowMs: number = Date.now()): Promise<number> {
+    return this.mutateMapFields<number>(mapId, ['markers2'], (fields) => {
+      const markers2 = Array.isArray(fields.markers2) ? fields.markers2 : [];
+      const kept = markers2.filter((marker: any) => {
+        const name = itemName(marker).trim();
+        if (name === MONSTER_RESPAWN_MARKER || name.startsWith(RESOURCE_REFRESH_MARKER_PREFIX)) return true;
+        if (toExpireMs(marker) === 0) return true;
+        return isActive(marker, nowMs);
+      });
+      fields.markers2 = kept;
+      return markers2.length - kept.length;
+    });
   }
 
   /**
@@ -1480,13 +1685,13 @@ export class MapService {
 
       for (const marker of markers2) {
         const markerName = String(marker?.name ?? marker?.名称 ?? marker?.key ?? '').trim();
-        const expireAt = this.normalizeMapMarkerTime(marker?.expireAt ?? marker?.有效期至 ?? marker?.expireTime);
-        if (!markerName.startsWith('刷新资源') || !expireAt || expireAt > now) {
+        const expireAt = toExpireMs(marker);
+        if (!markerName.startsWith(RESOURCE_REFRESH_MARKER_PREFIX) || !expireAt || expireAt > now) {
           activeMarkers.push(marker);
           continue;
         }
 
-        const resourceName = markerName.slice('刷新资源'.length).trim();
+        const resourceName = markerName.slice(RESOURCE_REFRESH_MARKER_PREFIX.length).trim();
         if (!resourceName) continue;
 
         // 采集链路（GameService.getGatherResources）在 resources 非空时只读 resources。
@@ -1522,12 +1727,6 @@ export class MapService {
       await this.prisma.gameMap.update({ where: { id: mapId }, data });
       return restored;
     });
-  }
-
-  private normalizeMapMarkerTime(value: any): number {
-    const time = Number(value ?? 0);
-    if (!Number.isFinite(time) || time <= 0) return 0;
-    return time < 1e12 ? time * 1000 : time;
   }
 
   private getMapResourceTemplate(map: any, resourceName: string): any | null {

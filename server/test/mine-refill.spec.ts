@@ -136,6 +136,19 @@ function makeFixture(options: {
     mapService: {
       getMapById: jest.fn(async () => map),
       updateDynamicFields: jest.fn(async () => undefined),
+      // 标记2 的生产落库口 mergeMapMarkers2（锁内重读 + 按名 upsert）
+      mergeMapMarkers2: jest.fn(async (_mapId: number, incoming: any[]) => {
+        const current = parseJson(map.markers2, []) as any[];
+        const merged = [...current];
+        for (const item of incoming ?? []) {
+          const name = item?.name ?? item?.名称;
+          if (!name) continue;
+          const idx = merged.findIndex((e: any) => (e?.name ?? e?.名称) === name);
+          if (idx >= 0) merged[idx] = item;
+          else merged.push(item);
+        }
+        map.markers2 = merged;
+      }),
       mutateMapFields: jest.fn(async (_mapId: number, fields: string[], mutator: (f: any) => any) => {
         const f: any = {};
         for (const field of fields) {

@@ -1063,7 +1063,7 @@ export class GameService {
 
   /**
    * 真正完成移动（到达目的地）
-   * 更新玩家位置、应用地图增益、懒刷新怪物、记录探索成就，并向世界频道广播到达消息。
+   * 更新玩家位置、应用地图增益、记录探索成就，并向世界频道广播到达消息。
    * @param userId 用户ID
    * @param targetMapId 目标地图ID
    * @param targetMapName 目标地图名
@@ -1072,13 +1072,12 @@ export class GameService {
     userId: number,
     targetMapId: number,
     targetMapName: string,
-    options: { skipMapRefresh?: boolean } = {},
   ): Promise<string> {
     // 支柱二·自串行：延时任务 tick 直调本方法时无任何外层锁；指令路径已在
     // mutate/邮箱内（enqueueUserWrite 重入放行）。统一过用户级串行邮箱，
     // 保证「读档→到达结算→写回」全程独占该玩家状态，不依赖调用方记得持锁。
     return this.playerService.enqueueUserWrite(userId, () =>
-      this.applyPerformArrival(userId, targetMapId, targetMapName, options));
+      this.applyPerformArrival(userId, targetMapId, targetMapName));
   }
 
   /** 移动到达结算的数据库读改写段（performArrival 已持用户级串行邮箱）。 */
@@ -1086,7 +1085,6 @@ export class GameService {
     userId: number,
     targetMapId: number,
     targetMapName: string,
-    options: { skipMapRefresh?: boolean } = {},
   ): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     let { player } = playerData;
@@ -1133,18 +1131,11 @@ export class GameService {
     // 会把刚完成的任务“复活”并回滚奖励。
     player = (await this.playerService.getPlayerData(userId)).player;
 
-    // 懒刷新：若目标地图当前没有已生成的怪物，立即补充刷新，避免到达后无怪可打
-    if (!options.skipMapRefresh) {
-      try {
-        const currentSpawn = await this.mapService.getMapMonsters(targetMap);
-        if (currentSpawn.length === 0) {
-          await this.mapService.refreshMapMonsters(targetMap.id);
-          this.logger.log(`玩家 ${userId} 到达「${targetMap.name}」时触发懒刷新怪物`);
-        }
-      } catch (e: any) {
-        this.logger.warn(`到达地图懒刷新怪物失败: ${e?.message}`);
-      }
-    }
+    // 到达不再"懒刷新"怪物（对齐原版）：原版 IS 不在地图到达处刷新怪物
+    // （`刷新地图` 仅在服务器读档 接口1.ecode L1374 与副本刷新 后台运作 L1066 调用）。
+    // 怪物补充完全由「刷新怪物」标记驱动：击杀登记 120 秒标记 → 到期后后台补 1 只
+    // （`MapService.refillResidentMonstersByMarker` / `ScheduleService.respawnMonsters`）。
+    // 旧实现「0 怪即整批满刷」会跳过原版的空窗期，并可能把其他玩家正在打的怪一并替换。
 
     // 探索成就：记录玩家首次到达的地图
     try {
@@ -3629,8 +3620,8 @@ export class GameService {
     }
 
     // 统一走普通移动/飞行共用的到达结算（含观测产出/四圣祭坛麒麟/普拉娜剪毛等到达触发），
-    // 确保地图增益、懒刷新、探索和任务只处理一次。
-    const arrivalResult = await this.performArrival(userId, targetMap.id, targetMap.name, { skipMapRefresh: true });
+    // 确保地图增益、探索和任务只处理一次。
+    const arrivalResult = await this.performArrival(userId, targetMap.id, targetMap.name);
     return arrivalResult;
   }
 
@@ -3975,8 +3966,10 @@ export class GameService {
       } else {
         const mapMarkers2 = asJsonValue<any[]>(map.markers2, []);
         this.combatState.gainBuff(mapMarkers2, '活动', 120, false, Date.now());
-        map.markers2 = mapMarkers2;
-        await this.mapService.updateDynamicFields(map.id, { markers2: map.markers2 });
+        map.markers2 = mapMarkers2; // 内存对象保持一致
+        // 落库走按名合并（锁内重读）：本命令期间可能已有击杀登记「刷新怪物」标记，
+        // 整组回写会把新标记抹掉 → 怪不再补。
+        await this.mapService.mergeMapMarkers2(map.id, mapMarkers2);
         this.combatState.gainBuff(markers2, '战斗', 15, false, Date.now());
       }
       player.markers2 = markers2; // Json 列直接写数组

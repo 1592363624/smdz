@@ -29,6 +29,8 @@ import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import { equipmentQualityName, qualityCodeFromData, affixMultiplier } from './equipment-ref.util';
 // 三池数值出口归一化（第四道闸）：百分比回复/固定量回复统一走 player-pool.util 单一实现。
 import { normalizePoolValue } from './player-pool.util';
+// 时间口径唯一收敛点：冷却读取/剩余文本一律走这里（禁手写 <1e12 启发式与自造措辞）
+import { formatDurationText, isActive, itemName, remainMs, toExpireMs } from './expire-time.util';
 import { proficiencyLevelFromPoints } from './global-proficiency.service';
 
 @Injectable()
@@ -191,22 +193,28 @@ export class FamiliarSkillsService {
 
   /**
    * 检查技能冷却
+   *
+   * 文本口径对齐原版：`标记要求` 产出剩余时间文本（数据分析.ecode L772）→
+   * `时间间隔要求` 前缀「还需要」（L1021）→ 调用方再前缀玩家名
+   * （使魔技能.ecode L1976 `w = 玩家.名称 + w`），即「{玩家名}还需要N秒」。
+   * 格式化唯一实现 `expire-time.util.formatDurationText`（原版 数字到时间），
+   * 禁用自造措辞（历史实现为「技能冷却中，剩余N秒」，与原版不一致）。
+   *
    * @param player 玩家对象
    * @param cooldownName 冷却标记名称
-   * @param defaultCooldown 默认冷却时间（秒）
+   * @param defaultCooldown 默认冷却时间（秒，调用方成功时自行写入，见 setCooldown）
    * @returns 是否冷却中，以及剩余冷却文本
    */
   private checkCooldown(player: any, cooldownName: string, defaultCooldown: number): { isOnCooldown: boolean; text: string } {
     const parsedMarkers2 = asJsonValue<any>(player.markers2, []);
     const markers2: any[] = Array.isArray(parsedMarkers2) ? parsedMarkers2 : [];
     const nowMs = Date.now();
-    const cooldownMarker = markers2.find((m: any) => (m?.name ?? m?.名称) === cooldownName);
-    const rawExpire = Number(cooldownMarker?.expireAt ?? cooldownMarker?.有效期至 ?? 0);
-    const expireAtMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+    const cooldownMarker = markers2.find((m: any) => itemName(m) === cooldownName);
+    // 原版 `标记要求`：无「有效期至」的条目等同过期（直接删/不命中），故必须先取到到期时刻
+    const expireAtMs = cooldownMarker ? toExpireMs(cooldownMarker) : 0;
     // 判断粒度=秒：两侧取整到秒再比较（用户约定，禁毫秒差判定）
-    if (cooldownMarker && Math.floor(expireAtMs / 1000) > Math.floor(nowMs / 1000)) {
-      const remaining = Math.ceil((expireAtMs - nowMs) / 1000);
-      return { isOnCooldown: true, text: `技能冷却中，剩余${remaining}秒` };
+    if (cooldownMarker && expireAtMs > 0 && isActive(cooldownMarker, nowMs)) {
+      return { isOnCooldown: true, text: `还需要${formatDurationText(remainMs(cooldownMarker, nowMs))}` };
     }
     // defaultCooldown is retained for the source-compatible signature. The original
     // interval helper only checks state here; callers write the interval on success.
@@ -2487,7 +2495,8 @@ export class FamiliarSkillsService {
     const cooldownSeconds = await this.getSkillCooldown(player, 60);
     const cooldownKey = `${player.type}技能冷却`;
     const cooldownCheck = this.checkCooldown(player, cooldownKey, cooldownSeconds);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+    // 原版 L1976-1977：`.判断(时间间隔要求(...)) → w = 玩家.名称 + w`（此处原版无换行符）
+    if (cooldownCheck.isOnCooldown) return `${player.name || '冒险者'}${cooldownCheck.text}`;
 
     const resultLines: string[] = [];
     this.applyFirstAid(player, resultLines, equipment);
@@ -3721,16 +3730,18 @@ ${result}`;
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return `${player.name}不在任何地图上`;
 
-    const markers2Raw = this.safeParse<any>(map.markers2, []);
-    const markers2: any[] = Array.isArray(markers2Raw) ? markers2Raw : [];
     // 原版逻辑 L1099 疑似笔误：启示录写入“福音书”，战斗 AI 同时兼容两种名称。
-    const nextMarkers2 = markers2.filter((entry: any) =>
-      (entry?.name ?? entry?.名称) !== '福音书'
-      && (entry?.name ?? entry?.名称) !== '启示录',
-    );
-    nextMarkers2.push({ name: '福音书', expireAt: Date.now() + 120 * 1000 });
-    map.markers2 = nextMarkers2; // GameMap markers2 为 Json 列，直接写数组
-    await this.mapService.updateDynamicFields(player.mapId, { markers2: map.markers2 });
+    // 走 mutateMapFields 锁内读改写（不再按本方法早先加载的快照整组回写）：
+    // 整组回写会抹掉期间其他写路径新增的标记（击杀登记的「刷新怪物」等）。
+    await this.mapService.mutateMapFields(player.mapId, ['markers2'], (fields) => {
+      const markers2 = Array.isArray(fields.markers2) ? fields.markers2 : [];
+      const nextMarkers2 = markers2.filter((entry: any) =>
+        (entry?.name ?? entry?.名称) !== '福音书'
+        && (entry?.name ?? entry?.名称) !== '启示录',
+      );
+      nextMarkers2.push({ name: '福音书', expireAt: Date.now() + 120 * 1000 });
+      fields.markers2 = nextMarkers2;
+    });
 
     markers['启示录'] = 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象

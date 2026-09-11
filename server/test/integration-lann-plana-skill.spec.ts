@@ -69,14 +69,19 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
   // 构造兰音使魔玩家：好感100 + 模式2 + 友方召唤物
   // 注意：getAllySummons 用 player.qq || String(userId) 作 ownerId 匹配，
   // 而 Prisma Player 无 qq 字段（真实QQ存于 User.qqNumber），故友方召唤物归属统一用 String(userId)。
-  async function makeLannPlayer(tag: string) {
+  //
+  // skillProficiency 默认 81 → 技能等级 10（测试1 断言的 expReduce=15+技等*0.25=17.5 依赖该值）。
+  // ⚠️「形神合一」在原版 使魔技能.ecode L2367 有一道硬门槛：`30 - 技能等级*0.5 + a2 > 0` 直接拒绝，
+  //    即未装备「冷却核心」(a2=0) 时技能等级必须 ≥ 60（熟练度 ≥ 3481）才能释放。需要过关的用例传高值。
+  async function makeLannPlayer(tag: string, skillProficiency = 81) {
     const username = `e2e_lann_${tag}_${stamp()}`;
     const user = await prisma.user.create({ data: { username, password: 'e2e_test', role: 'USER' } });
     createdUserIds.push(user.id);
     const markers: any = {
       '兰音好感': 100,
       '套装_兰音模式': 2,
-      '兰音技能熟练度': 81, // 平方阈值下 skillLevel=10
+      // 平方阈值下 81 → 技能等级 10；3600 → 技能等级 61（过形神合一门槛）
+      '兰音技能熟练度': skillProficiency,
     };
     await prisma.player.create({
       data: {
@@ -193,7 +198,8 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
   });
 
   it('测试4 形神合一：地图怪物麻醉 + 风月入墨地图增益 + 模式2友方同步', async () => {
-    const user = await makeLannPlayer('union');
+    // 熟练度 3600 → 技能等级 61：满足原版 L2367 的「技能公共冷却已降为 0」门槛
+    const user = await makeLannPlayer('union', 3600);
     const p = await playerService.getPlayerData(user.id);
     const allyName = await addAllySummon(user.id, '兰音卫');
     const w = await familiarSkills.executeSkill(user.id, '形神合一');

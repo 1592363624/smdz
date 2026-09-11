@@ -119,9 +119,12 @@ export class MapBattleLoopService implements OnApplicationShutdown {
       // 原版 L409：获得增益(地图.标记2, "活动", 120)——活动窗口是循环的存活条件
       const markers2 = this.safeParseArray(map.markers2);
       this.combatState.gainBuff(markers2, '活动', 120, false, Date.now());
-      // GameMap markers2 为 Json 列，直接写数组（下方 updateDynamicFields 透传）
+      // 内存对象保持一致（调用方可能继续读 context.map）
       map.markers2 = markers2;
-      await this.mapService.updateDynamicFields(map.id, { markers2: map.markers2 });
+      // 落库走 mergeMapMarkers2（锁内重读 + 按名 upsert）：本方法常收到调用方更早加载的
+      // map 快照，若整组回写会抹掉期间其他写路径新增的标记（击杀登记的「刷新怪物」、
+      // 采集登记的「刷新资源X」等），导致怪物/资源从此不再刷新。
+      await this.mapService.mergeMapMarkers2(map.id, markers2);
 
       this.scheduleRound(map.id, delaySec);
     } catch (e: any) {
