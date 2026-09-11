@@ -35,7 +35,10 @@ function makePrisma(rows: any[]) {
         return row ? { ...row } : null;
       }),
       update: jest.fn(async ({ where, data }: any) => {
-        const row = rows.find((r) => r.id === where?.id);
+        // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键匹配
+        const row = rows.find((r) =>
+          (where?.userId !== undefined && r.userId === where.userId)
+          || (where?.id !== undefined && r.id === where.id));
         if (!row) {
           const err: any = new Error('not found'); err.code = 'P2025'; throw err;
         }

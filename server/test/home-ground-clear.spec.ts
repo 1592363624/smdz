@@ -6,8 +6,9 @@
  *  - 开挖地基：产出2为空的障碍物未清空时拦截（"必须先清空地面"）；清空后
  *    不消耗材料，进度→2，并把资源2重置为2个土堆（资源列表1[3]）
  *  - 建造地基：再次校验障碍物（"必须先挖开土堆"），随后逐项校验材料，
- *    成功后 +200经验并添加「工作」标记60秒（L2580）
- *  - 建造房子：成功后 +500经验并添加「工作」标记120秒（L2489）
+ *    成功后挂60秒「工作」标记（L2580），经验与完工播报延迟到延时结算发放
+ *    （偏离原版的优化：原版开工瞬间即播报"完成"，已与需求方确认改为开工+完工两段）
+ *  - 建造房子：成功后挂120秒「工作」标记（L2489），经验与完工播报延迟到延时结算发放
  */
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
@@ -34,6 +35,7 @@ describe('家园地面清理前置', () => {
       savePlayer: jest.fn(async () => undefined),
       addExp: jest.fn(async () => ({ leveledUp: false, newLevel: 1 })),
       getPlayerData: jest.fn(async () => ({ player, markers: parseJson(player.markers, {}) })),
+      enqueueUserWrite: jest.fn(async (_uid: number, fn: () => any) => fn()),
     };
     service.mapService = {
       ensureHouseMaps: jest.fn(async () => ({ yard })),
@@ -41,6 +43,7 @@ describe('家园地面清理前置', () => {
       updateDynamicFields: jest.fn(async (_id: number, fields: any) => Object.assign(yard, fields)),
     };
     service.taskService = { advance: jest.fn(async () => '') };
+    service.delayedTaskService = { schedule: jest.fn(async () => undefined) };
     return service;
   };
 
@@ -123,7 +126,7 @@ describe('家园地面清理前置', () => {
     expect(parseJson(yard.resources2, [])).toHaveLength(2);
   });
 
-  it('土堆清空后建造地基通过：消耗材料、+200经验、加60秒工作标记', async () => {
+  it('土堆清空后建造地基通过：消耗材料、开工提示、挂60秒工作标记，延时到期结算经验与完工播报', async () => {
     const player = buildPlayer(2);
     const yard: any = { id: 9, resources2: '[]' };
     const service = buildService(player, yard);
@@ -131,19 +134,39 @@ describe('家园地面清理前置', () => {
 
     const result = await service.handleHome(1, '建造地基');
 
-    expect(result).toContain('花费1分钟完成了地基的建造，得到了200经验');
+    // 开工即返回提示（不再提前播报"完成"），经验/任务推迟到延时结算
+    expect(result).toContain('开始了地基的建造，需要1分钟');
     expect(parseJson(player.markers, {})['家园进度']).toBe(3);
+    expect(parseJson(player.markers, {})['地基结算待发']).toBe(1);
     const backpack = parseJson(player.backpack, []);
     expect(backpack.find((i: any) => i.name === '木头')).toBeUndefined();
     expect(backpack.find((i: any) => i.name === '绳子')).toBeUndefined();
-    expect(service.playerService.addExp).toHaveBeenCalledWith(1, 200);
-    expect(service.taskService.advance).toHaveBeenCalledWith(1, '建造地基');
+    expect(service.playerService.addExp).not.toHaveBeenCalled();
+    expect(service.taskService.advance).not.toHaveBeenCalled();
+    // 排程60秒完工延时任务
+    expect(service.delayedTaskService.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'homeFoundation', userId: 1 }),
+    );
+    const runAt = service.delayedTaskService.schedule.mock.calls[0][0].runAt;
+    expect(runAt).toBeGreaterThanOrEqual(before + 60 * 1000);
 
     const markers2 = parseJson(player.markers2, []);
     const work = markers2.find((m: any) => (m.name ?? m.名称) === '工作');
     expect(work).toBeDefined();
     expect(work.有效期至 ?? work.expireAt).toBeGreaterThanOrEqual(before + 60 * 1000);
     expect(work.有效期至 ?? work.expireAt).toBeLessThanOrEqual(Date.now() + 60 * 1000 + 50);
+
+    // 延时到期结算：认领标记、发放经验、推进任务并返回完工播报文本
+    const settleText = await service.settleHomeFoundation(1);
+    expect(settleText).toContain('花费1分钟完成了地基的建造，得到了200经验');
+    expect(settleText).toContain('接下来「建造房子」');
+    expect(service.playerService.addExp).toHaveBeenCalledWith(1, 200);
+    expect(service.taskService.advance).toHaveBeenCalledWith(1, '建造地基');
+    expect(parseJson(player.markers, {})['地基结算待发']).toBeUndefined();
+    // 幂等：重复结算不二次发放
+    const again = await service.settleHomeFoundation(1);
+    expect(again).toBe('');
+    expect(service.playerService.addExp).toHaveBeenCalledTimes(1);
   });
 
   it('行动受限（采集中/工作中）时建造地基被拦截且不扣材料', async () => {
@@ -159,7 +182,7 @@ describe('家园地面清理前置', () => {
     expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').count).toBe(80);
   });
 
-  it('建造房子成功：消耗材料、+500经验、加120秒工作标记、进度→4', async () => {
+  it('建造房子成功：消耗材料、开工提示、挂120秒工作标记、进度→4，延时到期结算经验与完工播报', async () => {
     const player = buildPlayer(3);
     player.backpack = JSON.stringify([
       { name: '木头', count: 300 },
@@ -173,15 +196,29 @@ describe('家园地面清理前置', () => {
 
     const result = await service.handleHome(1, '建造房子');
 
-    expect(result).toContain('花费2分钟完成了房子的建造，得到了500经验');
+    // 开工即返回提示（不再提前播报"完成"），经验/任务推迟到延时结算
+    expect(result).toContain('开始了房子的建造，需要2分钟');
     expect(parseJson(player.markers, {})['家园进度']).toBe(4);
+    expect(parseJson(player.markers, {})['房子结算待发']).toBe(1);
     const backpack = parseJson(player.backpack, []);
     expect(backpack).toEqual([]);
-    expect(service.playerService.addExp).toHaveBeenCalledWith(1, 500);
+    expect(service.playerService.addExp).not.toHaveBeenCalled();
     expect(service.mapService.ensureHouseMaps).toHaveBeenCalledWith('测试家园', 3, 4);
+    // 排程120秒完工延时任务
+    expect(service.delayedTaskService.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'homeConstruct', userId: 1 }),
+    );
     const markers2 = parseJson(player.markers2, []);
     const work = markers2.find((m: any) => (m.name ?? m.名称) === '工作');
     expect(work.有效期至 ?? work.expireAt).toBeGreaterThanOrEqual(before + 120 * 1000);
+
+    // 延时到期结算：认领标记、发放经验、推进任务并返回完工播报文本
+    const settleText = await service.settleHomeConstruct(1);
+    expect(settleText).toContain('花费2分钟完成了房子的建造，得到了500经验');
+    expect(settleText).toContain('🏠 家园建好了！');
+    expect(service.playerService.addExp).toHaveBeenCalledWith(1, 500);
+    expect(service.taskService.advance).toHaveBeenCalledWith(1, '建造房子');
+    expect(parseJson(player.markers, {})['房子结算待发']).toBeUndefined();
   });
 
   it('材料不足时建造地基按原版逐项提示', async () => {
@@ -194,5 +231,37 @@ describe('家园地面清理前置', () => {
 
     expect(result).toContain('建造地基需要80木头，你只有50');
     expect(parseJson(player.markers, {})['家园进度']).toBe(2);
+  });
+
+  it('建造地基倒计时期间重发指令提示剩余时间而非"已完成"', async () => {
+    const player = buildPlayer(2);
+    const yard: any = { id: 9, resources2: '[]' };
+    const service = buildService(player, yard);
+
+    await service.handleHome(1, '建造地基');
+    const again = await service.handleHome(1, '建造地基');
+
+    expect(again).toContain('家园正在建造中');
+    expect(again).toMatch(/还需要\d+秒/);
+  });
+
+  it('建造房子倒计时期间重发指令提示剩余时间而非"已建好"', async () => {
+    const player = buildPlayer(3);
+    player.backpack = JSON.stringify([
+      { name: '木头', count: 300 },
+      { name: '石头', count: 500 },
+      { name: '铁矿', count: 160 },
+      { name: '绳子', count: 120 },
+    ]);
+    const yard: any = { id: 9, resources2: '[]' };
+    const service = buildService(player, yard);
+
+    await service.handleHome(1, '建造房子');
+    const again = await service.handleHome(1, '建造房子');
+
+    expect(again).toContain('家园正在建造中');
+    expect(again).toMatch(/还需要\d+秒/);
+    // 倒计时期间经验不应已发放
+    expect(service.playerService.addExp).not.toHaveBeenCalled();
   });
 });

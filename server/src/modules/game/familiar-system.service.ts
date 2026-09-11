@@ -17,6 +17,7 @@ import { ItemSystemService } from './item-system.service';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { ShortcutService } from './shortcut.service';
 import { CombatStateService } from './combat-state.service';
+import { DelayedTaskService } from './delayed-task.service';
 import { GameHighlightService } from './highlight.service';
 import { hasActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -155,6 +156,9 @@ export class FamiliarSystemService {
     // 高光时刻推送（领取使魔称号时播放屏幕级动画）。Optional 末位参数，
     // 旧测试桩不传也不受影响。
     @Optional() private readonly highlight?: GameHighlightService,
+    // 建造地基/建造房子的完工延时结算（工作标记到期后发经验+完工播报）。
+    // Optional 末位参数，旧测试桩不传也不受影响（无排程时退化为开工即完工提示）。
+    @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {
     // P2 管道注入自检：@Optional 注入失效会静默回落裸锁路径（生产极难察觉，
     // 见正式库 CurrencyLog 空表事故）。
@@ -1482,7 +1486,12 @@ export class FamiliarSystemService {
     if (progress !== 2) {
       if (progress === 0) return '请先「圈地」来开始建造你的家园';
       if (progress < 2) return '请先「开挖地基」';
-      if (progress >= 3) return '已经完成了建造地基，继续「建造房子」吧';
+      if (progress >= 3) {
+        // 开工后进度即置3（与原版一致），倒计时期间重发指令应提示剩余时间而非"已完成"
+        const building = this.getHomeBuildingRemainText(player, markers);
+        if (building) return building;
+        return '已经完成了建造地基，继续「建造房子」吧';
+      }
       return `当前进度: ${this.getProgressText(progress)}，无法建造地基`;
     }
 
@@ -1538,17 +1547,35 @@ export class FamiliarSystemService {
     this.combatState?.addMarker('工作', 60, markers2, Date.now());
     player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
 
-    // 更新进度
+    // 更新进度，并挂完工待结算标记（延时到期时凭该标记认领，保证重试幂等）
     markers['家园进度'] = 3;
+    markers['地基结算待发'] = 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     await this.playerService.savePlayer(player);
-    // 原版：玩家.经验 = 玩家.经验 + 200（在自身保存完成后结算，走 addExp 的独立读改写）
-    await this.playerService.addExp(userId, 200);
-    await this.taskService.advance(userId, '建造地基');
 
-    return `${player.name || '冒险者'}花费1分钟完成了地基的建造，得到了200经验。\n接下来「建造房子」（需要300木头、500石头、160铁矿和120绳子）`;
+    // 偏离原版优化（已与需求方确认）：原版在开工瞬间就播报"完成"并加经验，
+    // 本版本改为开工提示，经验/任务进度/完工播报推迟到工作标记（60秒）到期后结算。
+    await this.scheduleHomeSettle('homeFoundation', userId, 60);
+
+    return `${player.name || '冒险者'}开始了地基的建造，需要1分钟。`;
+  }
+
+  /**
+   * 建造地基延时结算（工作标记60秒到期后由延时任务触发）：
+   * 凭「地基结算待发」标记认领（幂等，重试不双发），发放200经验并推进任务，
+   * 返回完工播报文本（由延时 handler 广播到世界频道）。
+   */
+  async settleHomeFoundation(userId: number): Promise<string> {
+    return this.playerService.enqueueUserWrite(userId, async () => {
+      const name = await this.claimHomeSettle(userId, '地基结算待发');
+      if (name === null) return '';
+      // 原版：玩家.经验 = 玩家.经验 + 200（走 addExp 的独立读改写）
+      await this.playerService.addExp(userId, 200);
+      await this.taskService.advance(userId, '建造地基');
+      return `${name}花费1分钟完成了地基的建造，得到了200经验。\n接下来「建造房子」（需要300木头、500石头、160铁矿和120绳子）`;
+    });
   }
 
   /**
@@ -1562,7 +1589,12 @@ export class FamiliarSystemService {
     if (progress !== 3) {
       if (progress === 0) return '请先「圈地」来开始建造你的家园';
       if (progress < 3) return '请先完成「建造地基」';
-      if (progress >= 4) return '你的家园已经建好了！';
+      if (progress >= 4) {
+        // 开工后进度即置4（与原版一致），倒计时期间重发指令应提示剩余时间而非"已建好"
+        const building = this.getHomeBuildingRemainText(player, markers);
+        if (building) return building;
+        return '你的家园已经建好了！';
+      }
       return `当前进度: ${this.getProgressText(progress)}，无法建造房子`;
     }
 
@@ -1610,20 +1642,89 @@ export class FamiliarSystemService {
     this.combatState?.addMarker('工作', 120, markers2, Date.now());
     player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
 
-    // 更新进度
+    // 更新进度，并挂完工待结算标记（延时到期时凭该标记认领，保证重试幂等）
     markers['家园进度'] = 4;
+    markers['房子结算待发'] = 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
     // 原版建成房子时追加“屋内”和“前线”地图，并在院子中加入两个入口。
+    // 地图在开工时即补建（与原版一致），玩家完工后即可前往。
     await this.mapService.ensureHouseMaps(player.houseName, this.getHouseBaseMapId(player), 4);
 
     await this.playerService.savePlayer(player);
-    // 原版：玩家.经验 = 玩家.经验 + 500（在自身保存完成后结算，走 addExp 的独立读改写）
-    await this.playerService.addExp(userId, 500);
-    await this.taskService.advance(userId, '建造房子');
 
-    return `${player.name || '冒险者'}花费2分钟完成了房子的建造，得到了500经验。\n🏠 家园建好了！\n你可以开始在家园里面安装生产设备、放置怪物和NPC了`;
+    // 偏离原版优化（已与需求方确认）：原版在开工瞬间就播报"完成"并加经验，
+    // 本版本改为开工提示，经验/任务进度/完工播报推迟到工作标记（120秒）到期后结算。
+    await this.scheduleHomeSettle('homeConstruct', userId, 120);
+
+    return `${player.name || '冒险者'}开始了房子的建造，需要2分钟。`;
+  }
+
+  /**
+   * 建造房子延时结算（工作标记120秒到期后由延时任务触发）：
+   * 凭「房子结算待发」标记认领（幂等，重试不双发），发放500经验并推进任务，
+   * 返回完工播报文本（由延时 handler 广播到世界频道）。
+   */
+  async settleHomeConstruct(userId: number): Promise<string> {
+    return this.playerService.enqueueUserWrite(userId, async () => {
+      const name = await this.claimHomeSettle(userId, '房子结算待发');
+      if (name === null) return '';
+      // 原版：玩家.经验 = 玩家.经验 + 500（走 addExp 的独立读改写）
+      await this.playerService.addExp(userId, 500);
+      await this.taskService.advance(userId, '建造房子');
+      return `${name}花费2分钟完成了房子的建造，得到了500经验。\n🏠 家园建好了！\n你可以开始在家园里面安装生产设备、放置怪物和NPC了`;
+    });
+  }
+
+  /**
+   * 排程家园完工延时任务（跨重启持久化）。
+   * 无延时服务（旧测试桩）时静默跳过：结算标记保留，由下次排程或结算兜底。
+   */
+  private async scheduleHomeSettle(
+    type: 'homeFoundation' | 'homeConstruct',
+    userId: number,
+    seconds: number,
+  ): Promise<void> {
+    if (!this.delayedTaskService) return;
+    await this.delayedTaskService.schedule({
+      type,
+      userId,
+      dedupeKey: String(userId),
+      runAt: Date.now() + seconds * 1000,
+    });
+  }
+
+  /**
+   * 认领家园完工结算标记：读到待发标记则清除并保存，返回玩家名；
+   * 未读到返回 null（幂等认领，延时任务重试不会重复发放经验）。
+   */
+  private async claimHomeSettle(userId: number, flagName: string): Promise<string | null> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const player = playerData.player;
+    const markers = asJsonValue<Record<string, any>>(player.markers, {});
+    if (Number(markers[flagName] || 0) !== 1) return null;
+    delete markers[flagName];
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
+    await this.playerService.savePlayer(player);
+    return String(player.name || '冒险者');
+  }
+
+  /**
+   * 家园建造倒计时期间的重复指令提示：
+   * 存在待结算标记（地基/房子）时按「工作」标记的剩余时间返回提示文本；
+   * 不在建造期返回 null（调用方继续走原有"已完成"分支）。
+   */
+  private getHomeBuildingRemainText(player: any, markers: any): string | null {
+    const building = Number(markers?.['地基结算待发'] || 0) === 1 || Number(markers?.['房子结算待发'] || 0) === 1;
+    if (!building) return null;
+    // 剩余秒数从 markers2 的「工作」标记（有效期至，毫秒）反推，向上取整
+    const markers2 = asJsonValue<any[]>(player?.markers2, []);
+    const work = markers2.find((m: any) => (m.name ?? m.名称) === '工作');
+    const remainMs = Number(work?.有效期至 ?? work?.expireAt ?? 0) - Date.now();
+    if (remainMs > 0) return `家园正在建造中，还需要${Math.ceil(remainMs / 1000)}秒`;
+    // 工作标记已过期但结算任务尚未执行（如延时任务失败重试间隙）
+    return '家园正在建造收尾，请稍候';
   }
 
   /**

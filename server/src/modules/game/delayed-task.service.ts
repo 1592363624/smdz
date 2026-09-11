@@ -35,7 +35,9 @@ export type DelayedTaskType =
   | 'refill'       // 补魔结算（原版「覅b魔w成」30秒，结算时重读跟随召唤物）
   | 'cargo'         // 召唤货舱结算（原版「召h货1藏」6秒，扣信号枪生成货舱资源）
   | 'repair'        // 维修载具结算（原版「维修wcc1」a秒，延时到期修好载具）
-  | 'proxySpeak';  // 采集代发言播报（原版「新建延时(代发言+复活点,2秒)」，执行资源配置的内部指令）
+  | 'proxySpeak'   // 采集代发言播报（原版「新建延时(代发言+复活点,2秒)」，执行资源配置的内部指令）
+  | 'homeFoundation' // 建造地基完工结算（工作标记60秒到期后发经验+完工播报）
+  | 'homeConstruct'; // 建造房子完工结算（工作标记120秒到期后发经验+完工播报）
 
 export interface DelayedTaskScheduleInput {
   type: DelayedTaskType;

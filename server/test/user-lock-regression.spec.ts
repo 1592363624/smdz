@@ -56,7 +56,9 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
       // 调用方对象）。
       findUnique: jest.fn(async ({ where }: any) => (where?.userId === player.userId ? { ...player } : undefined)),
       update: jest.fn(async ({ where, data }: any) => {
-        if (where?.id !== player.id) throw new Error(`player id 不匹配: ${where?.id}`);
+        // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键校验
+        if (where?.id !== undefined && where.id !== player.id) throw new Error(`player id 不匹配: ${where?.id}`);
+        if (where?.userId !== undefined && where.userId !== player.userId) throw new Error(`player userId 不匹配: ${where?.userId}`);
         Object.assign(player, data);
         return player;
       }),

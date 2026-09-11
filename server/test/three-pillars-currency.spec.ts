@@ -25,7 +25,9 @@ function makePrisma(row: any) {
     player: {
       findUnique: jest.fn(async () => cloneRow()),
       update: jest.fn(async ({ where, data }: any) => {
-        if (where?.id !== row.id) throw new Error('player id 不匹配');
+        // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键校验
+        if (where?.id !== undefined && where.id !== row.id) throw new Error('player id 不匹配');
+        if (where?.userId !== undefined && where.userId !== row.userId) throw new Error('player userId 不匹配');
         Object.assign(row, data);
         return { ...row };
       }),

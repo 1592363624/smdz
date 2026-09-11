@@ -180,6 +180,18 @@ export class GameService {
       const text = await this.completeVehicleRepair(Number(task.userId));
       if (text) await this.chatService.broadcastSystem('世界频道', text, Number(task.userId)).catch(() => undefined);
     });
+    // 建造地基完工结算（工作标记60秒到期）：发经验+推进任务，完工文本广播世界频道。
+    dts.registerHandler('homeFoundation', async (task) => {
+      const uid = Number(task.userId);
+      const text = await this.familiarSystemService.settleHomeFoundation(uid);
+      if (text) await this.chatService.broadcastSystem('世界频道', text, uid).catch(() => undefined);
+    });
+    // 建造房子完工结算（工作标记120秒到期）：发经验+推进任务，完工文本广播世界频道。
+    dts.registerHandler('homeConstruct', async (task) => {
+      const uid = Number(task.userId);
+      const text = await this.familiarSystemService.settleHomeConstruct(uid);
+      if (text) await this.chatService.broadcastSystem('世界频道', text, uid).catch(() => undefined);
+    });
     // 采集代发言播报（原版 地图操作.ecode L1620-1621：新建延时(代发言+复活点, 2秒)）。
     // 代发言是资源配置的内部延时指令名，数据中现存：覅本清（副本通关链）、
     // 覅下一层（使魔挑战下一层）、召唤1白1（已在采集入口内联召唤，不走此排程）。
