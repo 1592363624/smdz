@@ -29,6 +29,7 @@ import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import { equipmentQualityName, qualityCodeFromData, affixMultiplier } from './equipment-ref.util';
 // 三池数值出口归一化（第四道闸）：百分比回复/固定量回复统一走 player-pool.util 单一实现。
 import { normalizePoolValue } from './player-pool.util';
+import { proficiencyLevelFromPoints } from './global-proficiency.service';
 
 @Injectable()
 export class FamiliarSkillsService {
@@ -155,6 +156,7 @@ export class FamiliarSkillsService {
     case '梦倾天下': return this.dreamWorld(userId);
     case '反转童话': return this.reverseFairytale(userId);
     case '月落寸光': return this.moonlightInch(userId);
+    case '空间创造': return this.spaceCreation(userId);
 
     // 通用/装备技能
     case '洗脑': return this.brainwash(userId, target);
@@ -3301,44 +3303,91 @@ ${result}`;
   }
 
   /**
-   * 训练 - 需要建筑训练器
-   * 对应原版：训练()
-   * @param userId 用户ID
-   * @returns 技能效果文本
+   * 启木之本樱 - 空间创造
+   * 对应原版：使魔技能.ecode L2283-L2302
+   *   特殊序号 != 启木之本樱 → "这是小樱的技能"
+   *   装备冷却核心 → 冷却50秒，否则60秒；冷却键 = 类型+"技能冷却2"
+   *   （独立于其他技能共用的"技能冷却"，与封印解除互不干扰）
+   *   成功：获得15秒增益"空间创造"（命中/暴击/暴伤加成由 bonus.service 被动侧消费）、
+   *         技能经验、活跃度+1（"使用技能"成就由 executeSkill 收尾统一推进）
+   */
+  async spaceCreation(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+
+    // 原版 L2284：仅启木之本樱可用
+    if (!this.checkFamiliarType(player, '启木之本樱')) {
+      return `${player.name || '冒险者'}这是小樱的技能`;
+    }
+
+    // 原版 L2287-L2291：装备冷却核心 → 50 秒否则 60 秒（getSkillCooldown 已实现同口径）
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    // 原版 L2292：冷却键 = 类型 + "技能冷却2"（第二套独立冷却）
+    const cooldownKey = `${player.type}技能冷却2`;
+    const cooldownCheck = this.checkCooldown(player, cooldownKey, cooldownSeconds);
+    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 原版 L2295-L2296：播报"空间创造！" + 获得15秒增益"空间创造"
+    this.addBuff(player, '空间创造', 15);
+
+    // 原版 L2297 技能经验 / L2299 活跃度+1
+    const gainedExp = this.gainSkillExperience(player, markers, 1);
+    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+    this.setCooldown(player, cooldownKey, cooldownSeconds);
+    player.markers = markers; // Player markers 为 Json 列，直接写对象
+    await this.playerService.savePlayer(player);
+
+    const lines = ['空间创造！'];
+    lines.push(`(技能经验+${this.formatSkillNumber(gainedExp)})`);
+    return lines.join('\n');
+  }
+
+  /**
+   * 训练 - 需要建筑【训练器】
+   * 对应原版：使魔技能.ecode L2069-L2088
+   *   建筑要求("训练器") → 检测当前地图建筑（而非背包物品）
+   *   时间间隔要求("训练冷却", 79200, 标记2) → 22 小时冷却
+   *   成功：遍历全部使魔，好感>0 且非小樱2 的每只，
+   *         技能熟练度提高「当前等级」点（原版 显示熟练度等级 = floor(√点数)+1），
+   *         并累计"训练"成就。原版不奖励经验、无好感加成文本。
    */
   async train(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否有训练器
-    if (!this.hasItem(player, '训练器')) {
-      return '需要「训练器」才能进行训练';
+    // 原版 L2070：建筑要求("训练器") —— 检测当前地图上的建筑，与 hasBuildingOnMap 同口径
+    const map = await this.mapService.getMapById(player.mapId);
+    const buildings = asJsonValue<any[]>(map?.buildings ?? [], []);
+    if (!buildings.some((b: any) => b?.name === '训练器')) {
+      return `${player.name || '冒险者'}需要建筑【训练器】`;
     }
 
-    // 检查冷却
-    const cooldownCheck = this.checkCooldown(player, '训练', 3600);
+    // 原版 L2072：训练冷却 79200 秒（22 小时），存于标记2
+    const cooldownCheck = this.checkCooldown(player, '训练冷却', 79200);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
-    const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
-    const effect = this.getSkillEffect(affinity);
+    // 原版 L2075-L2085：遍历全部使魔，好感>0 且非小樱2 → 技能熟练度提高当前等级点
+    const lines: string[] = [];
+    for (const familiar of this.staticData.getAllFamiliars()) {
+      const name = String(familiar?.name ?? familiar?.名称 ?? '').trim();
+      if (!name || name === '小樱2') continue; // 原版 L2077：排除小樱2
+      if (this.playerService.getMarkerValue(markers, `${name}好感`) <= 0) continue; // 原版 L2076：好感>0 才训练
+      // 原版 L2078：b = 显示熟练度等级(标记, 名+"技能")，即 floor(√点数)+1
+      const key = `${name}技能熟练度`;
+      const level = proficiencyLevelFromPoints(this.playerService.getMarkerValue(markers, key));
+      // 原版 L2080：添加成就(名+"技能熟练度", b, 标记) —— 熟练度即标记计数
+      markers[key] = this.playerService.getMarkerValue(markers, key) + level;
+      lines.push(`${name}技能熟练度提高了${level}`);
+    }
 
-    // 训练效果：获得经验值
-    const expGain = Math.floor(50 + 50 * effect);
-
-    // 设置冷却（1小时）
-    this.setCooldown(player, '训练', 3600);
-
-    // 增加经验
-    await this.playerService.addExp(userId, expGain);
-
-    // 增加活跃度
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
+    // 原版 L2087：添加成就("训练", 1, 成就, 任务) —— 成就数据同样存于 markers
+    markers['训练'] = (this.playerService.getMarkerValue(markers, '训练') || 0) + 1;
+    this.setCooldown(player, '训练冷却', 79200);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    return `使用训练器进行训练！\n获得 ${expGain} 点经验值（冷却1小时）\n好感度加成: ${Math.round(effect * 100)}%`;
+    // 原版 L2086：w = 玩家.名称 + w（名称前缀 + 各使魔熟练度提升行）
+    return `${player.name || '冒险者'}${lines.length ? '\n' + lines.join('\n') : ''}`;
   }
 
   /**

@@ -9156,6 +9156,30 @@ export class CombatSystemService implements OnApplicationShutdown {
     } catch (error: any) {
       this.logger.warn(`击杀成就写入失败 userId=${userId}: ${error?.message}`);
     }
+
+    // 原版 战斗相关.ecode L3689：击杀怪物 → 攻击者"训练冷却"标记2 减少60秒
+    // （训练器描述：每击杀一个目标减少冷却1分钟）。批量击杀按数量累计缩减，
+    // 最低缩到当前时刻（原版 获得增益(-60, 真) 负增量同样不会让标记"负剩余"）。
+    try {
+      await this.playerService.enqueueUserWrite(userId, async () => {
+        const pd = await this.playerService.getPlayerData(userId);
+        const p = pd?.player;
+        if (!p) return;
+        const markers2 = asJsonValue<any[]>(p.markers2, []);
+        const cd = markers2.find((m: any) => (m?.name ?? m?.名称) === '训练冷却');
+        if (!cd) return;
+        const raw = Number(cd.expireAt ?? cd.有效期至 ?? 0);
+        // 兼容秒/毫秒两种存量形态（秒 < 1e12）
+        const expireAtMs = raw > 0 && raw < 1e12 ? raw * 1000 : raw;
+        // 冷却未激活（已过期/无冷却）则无需缩减
+        if (expireAtMs <= Date.now()) return;
+        cd.expireAt = Math.max(Date.now(), expireAtMs - total * 60 * 1000);
+        p.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
+        await this.playerService.savePlayer(p);
+      });
+    } catch (error: any) {
+      this.logger.warn(`训练冷却缩减失败 userId=${userId}: ${error?.message}`);
+    }
   }
 
   // ==================== 自动连击机制 ====================

@@ -353,6 +353,7 @@ async function main() {
     { name: '梦倾天下', alias: 'dream-world', description: '使魔技能 - 梦倾天下' },
     { name: '反转童话', alias: 'reverse-fairytale', description: '使魔技能 - 反转童话' },
     { name: '月落寸光', alias: 'moonlight-inch', description: '使魔技能 - 月落寸光' },
+    { name: '空间创造', alias: 'space-creation', description: '使魔技能 - 空间创造（小樱专属）' },
     { name: '洗脑', alias: 'brainwash', description: '通用技能 - 洗脑' },
     { name: '砸瓦鲁多', alias: 'za-warudo', description: '通用技能 - 砸瓦鲁多' },
     { name: '训练', alias: 'train', description: '通用技能 - 训练' },

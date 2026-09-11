@@ -91,7 +91,7 @@ export class GameCommandHandler implements CommandHandler {
 
   private isSuccessfulAction(result: string): boolean {
     if (!result?.trim()) return false;
-    return !/(失败|错误|未知指令|未知操作|未知技能|不存在|无法|不能|不可|未找到|无效|请选择|请指定|请输入|请先|正在前往|正在工作|战斗状态|当前不可用|只能使用|未安装|没有安装|还需要|等级不足|需要等级|材料不足|数量不足|活力不足|余额不足|没有足够|你只有|不够|尚未|未解锁|冷却中|已死亡|不在|不是|已经签到过|地上没有|背包中没有|当前地图没有可|当前地图没有名为|附近没有|没有目标|没有载具|没有家园|没有可挤奶|没有可剪毛|没有可以|你还没有|你没有|耐久度已满|还不需要修|无需维修)/.test(result);
+    return !/(失败|错误|未知指令|未知操作|未知技能|不存在|无法|不能|不可|未找到|无效|请选择|请指定|请输入|请先|正在前往|正在工作|战斗状态|当前不可用|只能使用|未安装|没有安装|还需要|需要建筑|等级不足|需要等级|材料不足|数量不足|活力不足|余额不足|没有足够|你只有|不够|尚未|未解锁|冷却中|已死亡|不在|不是|已经签到过|地上没有|背包中没有|当前地图没有可|当前地图没有名为|附近没有|没有目标|没有载具|没有家园|没有可挤奶|没有可剪毛|没有可以|你还没有|你没有|耐久度已满|还不需要修|无需维修)/.test(result);
   }
 
   /** 命令响应状态只识别明确错误，查询结果中的“没有”不代表命令失败。 */
@@ -694,6 +694,11 @@ export class GameCommandHandler implements CommandHandler {
             if (this.isSuccessfulAction(result)) await this.taskService.advance(userId, '训练');
             return this.wrap(result);
           }
+
+        // 小樱专属技能（原版 使魔技能.ecode L2283-2302）
+        case '空间创造':
+        case 'space-creation':
+          return this.wrap(await this.familiarSkills.executeSkill(userId, '空间创造'));
 
         case '掌控时间':
         case 'time-control':
