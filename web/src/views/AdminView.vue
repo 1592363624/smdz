@@ -182,7 +182,7 @@
       <section v-if="tab === 'users'" class="panel panel-wide">
         <div class="panel-head">
           <h2>用户管理</h2>
-          <p class="hint">管理平台注册用户：支持关键词搜索、每页条数切换与表头点击排序。</p>
+          <p class="hint">管理平台注册用户：默认在线优先，支持关键词搜索、每页条数切换与表头点击排序。</p>
         </div>
 
         <div class="user-toolbar">
@@ -237,8 +237,8 @@
                 <th class="sortable" :class="sortClass('id')" @click="handleSort('id')">
                   <span>ID</span><i class="sort-icon"></i>
                 </th>
-                <th class="sortable" :class="sortClass('username')" @click="handleSort('username')">
-                  <span>用户名</span><i class="sort-icon"></i>
+                <th>
+                  <span>头像</span>
                 </th>
                 <th class="sortable" :class="sortClass('nickname')" @click="handleSort('nickname')">
                   <span>昵称</span><i class="sort-icon"></i>
@@ -261,11 +261,11 @@
                 <th class="sortable" :class="sortClass('location')" @click="handleSort('location')">
                   <span>位置</span><i class="sort-icon"></i>
                 </th>
+                <th>
+                  <span>累计在线</span>
+                </th>
                 <th class="sortable" :class="sortClass('lastLoginAt')" @click="handleSort('lastLoginAt')">
                   <span>最后登录</span><i class="sort-icon"></i>
-                </th>
-                <th class="sortable" :class="sortClass('loginCount')" @click="handleSort('loginCount')">
-                  <span>登录次数</span><i class="sort-icon"></i>
                 </th>
                 <th>
                   <span>操作</span>
@@ -283,7 +283,16 @@
                 </td>
                 <td class="mono-cell">{{ u.id }}</td>
                 <td>
-                  <div class="user-name">{{ u.username }}</div>
+                  <div class="avatar-cell" :title="u.username">
+                    <img
+                      v-if="u.avatar && !avatarFailed.has(u.id)"
+                      class="user-avatar"
+                      :src="u.avatar"
+                      :alt="u.nickname || u.username"
+                      @error="avatarFailed.add(u.id)"
+                    />
+                    <span v-else class="user-avatar fallback">{{ (u.nickname || u.username || '?').slice(0, 1) }}</span>
+                  </div>
                   <div v-if="u.qqNumber" class="qq-ext">QQ: {{ u.qqNumber }}</div>
                 </td>
                 <td>
@@ -322,10 +331,12 @@
                   <span v-else class="muted">-</span>
                 </td>
                 <td class="time-cell">
+                  <span>{{ formatDuration(u.playTimeSeconds) }}</span>
+                </td>
+                <td class="time-cell">
                   <div>{{ formatTime(u.lastLoginAt) || '从未' }}</div>
                   <div class="time-sub">{{ u.loginCount ?? 0 }} 次</div>
                 </td>
-                <td>{{ u.loginCount ?? 0 }}</td>
                 <td>
                   <div class="action-group">
                     <span v-if="savedUser === u.id" class="saved-badge">✓</span>
@@ -586,7 +597,7 @@
  * - 用户管理：查看/修改用户角色、封禁状态、昵称
  * - GM 工具：设置世界等级、发送全服公告
  */
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, computed, reactive, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { adminApi } from '../api';
 import { API_BASE } from '../config';
@@ -813,7 +824,6 @@ const sortOrder = ref('asc');
 // 可点击排序的列定义
 const sortableColumns = [
   { field: 'id', label: 'ID' },
-  { field: 'username', label: '用户名' },
   { field: 'nickname', label: '昵称' },
   { field: 'role', label: '角色' },
   { field: 'status', label: '状态' },
@@ -821,7 +831,6 @@ const sortableColumns = [
   { field: 'playerName', label: '角色名' },
   { field: 'location', label: '位置' },
   { field: 'lastLoginAt', label: '最后登录' },
-  { field: 'loginCount', label: '登录次数' },
 ];
 
 async function loadUsers(p) {
@@ -1125,6 +1134,9 @@ async function savePlayerEdit() {
     editSaving.value = false;
   }
 }
+
+/** 头像加载失败的用户 id（降级显示首字母） */
+const avatarFailed = reactive(new Set());
 
 /** 秒数 → "X天X小时X分" 展示 */
 function formatDuration(seconds) {
@@ -1550,6 +1562,29 @@ onMounted(async () => {
   color: var(--muted);
   font-size: 11px;
   opacity: 0.85;
+}
+.avatar-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+}
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  background: rgba(139, 92, 246, 0.12);
+  display: block;
+}
+.user-avatar.fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--accent2, #a78bfa);
 }
 
 /* ===== 多选批量操作 ===== */

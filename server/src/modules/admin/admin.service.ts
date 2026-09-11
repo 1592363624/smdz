@@ -101,50 +101,100 @@ export class AdminService {
         }
       : {};
 
-    // 允许的排序字段白名单，避免 Prisma orderBy 注入
+    const select = {
+      id: true,
+      username: true,
+      nickname: true,
+      qqNumber: true,
+      externalId: true,
+      role: true,
+      status: true,
+      avatar: true,
+      createdAt: true,
+      lastLoginAt: true,
+      loginCount: true,
+      player: {
+        select: {
+          level: true,
+          name: true,
+          type: true,
+          hp: true,
+          maxHp: true,
+          mapId: true,
+          location: true,
+          affinity: true,
+          playTime: true,
+          lastOpTime: true,
+        },
+      },
+    };
+
+    const skip = (page - 1) * safePageSize;
+    // 默认（未点表头）：在线用户排在前面，再按 id 升序；点表头后走白名单字段排序
+    const onlineFirst = !sortField;
+    const onlineIds = onlineFirst ? Array.from(this.statsService.getOnlineUserIds()) : [];
     const orderBy = this.buildUserListOrderBy(sortField, sortOrder);
 
-    const [total, list] = await Promise.all([
-      this.prisma.user.count({ where }),
-      this.prisma.user.findMany({
-        where,
-        select: {
-          id: true,
-          username: true,
-          nickname: true,
-          qqNumber: true,
-          externalId: true,
-          role: true,
-          status: true,
-          avatar: true,
-          createdAt: true,
-          lastLoginAt: true,
-          loginCount: true,
-          player: {
-            select: {
-              level: true,
-              name: true,
-              type: true,
-              hp: true,
-              maxHp: true,
-              mapId: true,
-              location: true,
-              affinity: true,
-              playTime: true,
-              lastOpTime: true,
-            },
-          },
-        },
-        orderBy,
-        skip: (page - 1) * safePageSize,
-        take: safePageSize,
-      }),
-    ]);
+    let total: number;
+    let rawList: any[];
+    if (onlineFirst && onlineIds.length > 0) {
+      const onlineWhere = { AND: [where, { id: { in: onlineIds } }] } as any;
+      const offlineWhere = { AND: [where, { id: { notIn: onlineIds } }] } as any;
+      const [totalAll, totalOnline] = await Promise.all([
+        this.prisma.user.count({ where }),
+        this.prisma.user.count({ where: onlineWhere }),
+      ]);
+      total = totalAll;
+      if (skip >= totalOnline) {
+        rawList = (await this.prisma.user.findMany({
+          where: offlineWhere,
+          select,
+          orderBy,
+          skip: skip - totalOnline,
+          take: safePageSize,
+        })) as any;
+      } else {
+        const takeOnline = Math.min(totalOnline - skip, safePageSize);
+        const takeOffline = safePageSize - takeOnline;
+        const [onlineUsers, offlineUsers] = await Promise.all([
+          this.prisma.user.findMany({
+            where: onlineWhere,
+            select,
+            orderBy,
+            skip,
+            take: takeOnline,
+          }),
+          takeOffline > 0
+            ? this.prisma.user.findMany({
+                where: offlineWhere,
+                select,
+                orderBy,
+                skip: 0,
+                take: takeOffline,
+              })
+            : Promise.resolve([]),
+        ]);
+        rawList = [...(onlineUsers as any), ...(offlineUsers as any)];
+      }
+    } else {
+      const [totalAll, list] = await Promise.all([
+        this.prisma.user.count({ where }),
+        this.prisma.user.findMany({
+          where,
+          select,
+          orderBy,
+          skip,
+          take: safePageSize,
+        }),
+      ]);
+      total = totalAll;
+      rawList = list as any;
+    }
 
     // 在线判定与聊天页侧栏一致：以 StatsService 的 WebSocket 在线集合为准。
     // 原按 updatedAt 近5分钟估算会把后台自动保存等写库误判为在线。
     const now = Date.now();
-    const enriched = list.map((u) => {
+    const enriched = rawList.map((u) => {
       const p = u.player as any;
       return {
         ...u,
