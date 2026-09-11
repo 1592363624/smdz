@@ -4118,7 +4118,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       case '军姬2':
         bonus.速度 = (bonus.速度 || 0) + Math.floor(10 * affinityBonus);
         break;
-      case 'Saber':
+      case 'saber': // 数据权威名小写（familiars.json name="saber"），'Saber' 永远不命中
         bonus.攻击 = (bonus.攻击 || 0) + Math.floor(15 * affinityBonus);
         bonus.防御 = (bonus.防御 || 0) + Math.floor(5 * affinityBonus);
         break;

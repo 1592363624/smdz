@@ -441,40 +441,6 @@ export class FamiliarSkillsService {
     );
   }
 
-  /**
-   * 伊芙利特技能使用的公共技能冷却，原版键名是“类型+技能冷却”，
-   * 与技能名称冷却并不是同一个标记。兼容项目中秒/毫秒及中英文两套字段。
-   */
-  private requireFamiliarSkillCooldown(
-    player: any,
-    markers2: any[],
-    duration: number,
-    now = Date.now(),
-  ): { isOnCooldown: boolean; text: string } {
-    const name = `${player.type}技能冷却`;
-    const normalized = markers2
-      .map((marker: any) => {
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
-        const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
-        return { ...marker, name: marker?.name ?? marker?.名称 ?? '', expireAt };
-      })
-      .filter((marker: any) => marker.name && Math.floor(marker.expireAt / 1000) > Math.floor(now / 1000));
-
-    const active = normalized.find((marker: any) => marker.name === name);
-    markers2.splice(0, markers2.length, ...normalized);
-    if (active) {
-      const seconds = Math.max(0, Math.floor((active.expireAt - now) / 1000));
-      const text = seconds < 60
-        ? `${seconds}秒`
-        : `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
-      return { isOnCooldown: true, text: `${player.name}还需要${text}` };
-    }
-
-    normalized.push({ name, expireAt: now + duration * 1000, kind: 'skill-cd' });
-    markers2.splice(0, markers2.length, ...normalized);
-    return { isOnCooldown: false, text: '' };
-  }
-
   private formatSkillNumber(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
   }
@@ -1481,7 +1447,8 @@ export class FamiliarSkillsService {
     // 且游戏中也不存在名为「圣剑」的物品（只有「圣剑艾乐美达克」），不要加回此门禁。
 
     // 原版基础倍率公式：倍率转换(玩家, 300 + 3*技能等级)
-    const skillLevel = this.getSkillLevel(markers, 'Saber');
+    // 熟练度键与 gainSkillExperience 写入键保持一致：player.type（数据权威名小写 "saber"）
+    const skillLevel = this.getSkillLevel(markers, 'saber');
     const mult = 300 + 3 * skillLevel;
 
     // 真正调用战斗引擎造成伤害（三层穿透 + 击杀 + 经验 + 掉落）
@@ -1493,7 +1460,7 @@ export class FamiliarSkillsService {
       baseCooldown: 60,
       damageMultiplier: mult,
       attackText: '誓约胜利之剑a',
-      familiarType: 'Saber',
+      familiarType: 'saber',
       extraPenetrationFlat: 15,
       burnSeconds: 30,
     });
@@ -1510,7 +1477,8 @@ export class FamiliarSkillsService {
     // ========== 好感分层被动（对应原版 _decoded_original.txt [saber] 好感2/4/5） ==========
     // 原版语义是「使用主动技能后15秒内…」——即施放 #ex 时写入 15 秒窗口增益。
     // 好感1/3/ex全属性层是常驻属性，已在 combat-system _计算玩家 saber case（原版加成计算 L2107-2132）实现，此处不重复。
-    const affinity = this.getAffinity(liveMarkers, 'Saber');
+    // 好感键与好感写入键保持一致：数据权威名小写 "saber"（原 L1479 'Saber' 导致好感恒 0）
+    const affinity = this.getAffinity(liveMarkers, 'saber');
     const buffDur = 15; // 原版固定15秒窗口，不受库洛牌 a3 放大影响
     let affinityBuffText = '';
     // 好感2：15秒内抵挡所有伤害（原版「无敌」语义，映射为 invincible 字段，由 combat-system 消费）
@@ -2515,8 +2483,10 @@ export class FamiliarSkillsService {
     }
 
     const equipment = playerData.equipment || this.safeParse<any[]>(player.equipment, []);
-    const cooldown = this.hasEquipped(equipment, '冷却核心') ? 50 : 60;
-    const cooldownCheck = this.requireFamiliarSkillCooldown(player, playerData.markers2, cooldown);
+    // 原版 L1971-1976：冷却核心 → 50 秒否则 60 秒（getSkillCooldown 同口径，配置化读取）
+    const cooldownSeconds = await this.getSkillCooldown(player, 60);
+    const cooldownKey = `${player.type}技能冷却`;
+    const cooldownCheck = this.checkCooldown(player, cooldownKey, cooldownSeconds);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
     const resultLines: string[] = [];
@@ -2533,8 +2503,9 @@ export class FamiliarSkillsService {
     const gainedExp = this.gainSkillExperience(player, markers, 1);
     markers['使用技能'] = this.playerService.getMarkerValue(markers, '使用技能') + 1;
     markers['活跃度'] = this.playerService.getMarkerValue(markers, '活跃度') + 1;
+    // 原版 时间间隔要求 命中检查点时即写入新冷却
+    this.setCooldown(player, cooldownKey, cooldownSeconds);
     player.markers = markers; // Player markers 为 Json 列，直接写对象
-    player.markers2 = playerData.markers2; // Player markers2 为 Json 列，直接写数组
 
     resultLines.push(`${player.type}开始我们的约会吧(战斗)吧！`);
 
@@ -2863,15 +2834,32 @@ ${result}`;
       return '风月入墨需要兰音好感达到20才能使用';
     }
 
-    // 原版公共冷却：30 - 技能等级*0.5 + a2（冷却核心-10），独立冷却 60+a2
+    // 原版 L2440-2443：地图数据缺失 → 报错；当前地图为开拓地（家园）→ 不能在家园地图使用
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) {
+      return `${player.name || '冒险者'}玩家当前所处地图数据错误：${player.mapId}`;
+    }
+    if (map.开拓地 || map.isFrontier) {
+      return `${player.name || '冒险者'}不能在家园地图使用`;
+    }
+
+    // 原版公共冷却：30 - 技能等级*0.5 + a2（冷却核心-10），专属冷却 60+a2
     const skillLevel = this.getSkillLevel(markers, '兰音');
     const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
     const publicCd = 30 - skillLevel * 0.5 + a2;
     const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
-    const cooldownCheck = this.checkCooldown(player, '风月入墨', 60 + a2);
+    const skillCd = 60 + a2;
+    // 原版 L2445「时间间隔要求2」同时检查兰音公共冷却和风月入墨专属冷却
+    const publicCooldownCheck = this.checkCooldown(player, '兰音通用', baseCd);
+    if (publicCooldownCheck.isOnCooldown) return publicCooldownCheck.text;
+    const cooldownCheck = this.checkCooldown(player, '风月入墨', skillCd);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 原版：给当前地图(标记3)施加「风月入墨」增益——使魔/宠物升级经验 -15%，持续 600*库洛牌 秒
+    // 原版 L2449：急救包(玩家, w) —— 恢复血/盾/甲
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines, playerData.equipment);
+
+    // 原版 L2450-2451：给当前地图(标记3)施加「风月入墨」增益——使魔/宠物升级经验 -15+技等/4%，持续 600*库洛牌 秒
     const a3 = this.buffDur(player, 600);
     const expReduce = 15 + skillLevel * 0.25;
     try {
@@ -2886,18 +2874,13 @@ ${result}`;
       return '风月入墨：地图增益施加失败';
     }
 
-    // 记录技能熟练度/活跃度
-    const skillKey = '兰音技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
-
-    // 设置冷却（兰音通用 + 本技能）
+    // 原版 L2448-2452 成功路径无活跃度/技能熟练度调用，双冷却写入标记2
     this.setCooldown(player, '兰音通用', baseCd);
-    this.setCooldown(player, '风月入墨', 60 + a2);
+    this.setCooldown(player, '风月入墨', skillCd);
     await this.playerService.savePlayer(player);
 
-    return `兰音风月入墨！\n${player.mapId ? '当前地图' : '地图'}的使魔和宠物升级所需经验-${expReduce.toFixed(2)}%，持续${Math.floor(a3 / 60)}分钟，受益者离开当前地图时失效`;
+    return [...firstAidLines, `兰音风月入墨！\n${map.name}的使魔和宠物升级所需经验-${expReduce.toFixed(2)}%，持续${Math.floor(a3 / 60)}分钟，受益者离开当前地图时失效`]
+      .filter(Boolean).join('\n');
   }
 
   /**
@@ -2921,13 +2904,21 @@ ${result}`;
       return '心无所扰需要兰音好感达到40才能使用';
     }
 
-    // 原版公共冷却：30 - 技能等级*0.5 + a2
+    // 原版公共冷却：30 - 技能等级*0.5 + a2；专属冷却 60+a2（键 = 类型+"技能冷却"，与形神合一共用）
     const skillLevel = this.getSkillLevel(markers, '兰音');
     const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
     const publicCd = 30 - skillLevel * 0.5 + a2;
     const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
-    const cooldownCheck = this.checkCooldown(player, '心无所扰', baseCd);
+    const skillCd = 60 + a2;
+    // 原版 L2464「时间间隔要求2」同时检查兰音公共冷却和 类型+"技能冷却" 专属冷却
+    const publicCooldownCheck = this.checkCooldown(player, '兰音通用', baseCd);
+    if (publicCooldownCheck.isOnCooldown) return publicCooldownCheck.text;
+    const cooldownCheck = this.checkCooldown(player, `${player.type}技能冷却`, skillCd);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 原版 L2471：急救包(玩家, w) —— 恢复血/盾/甲
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines, playerData.equipment);
 
     // 原版：下次攻击有 (15+技能等级/2)% 几率无视闪避和闪避状态必中
     const mustHitChance = 15 + skillLevel / 2;
@@ -2946,18 +2937,13 @@ ${result}`;
       }
     }
 
-    // 记录技能熟练度/活跃度
-    const skillKey = '兰音技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 10;
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
-
-    // 设置冷却
+    // 原版 L2470-2497 成功路径无活跃度/技能熟练度调用，双冷却写入标记2
     this.setCooldown(player, '兰音通用', baseCd);
-    this.setCooldown(player, '心无所扰', baseCd);
+    this.setCooldown(player, `${player.type}技能冷却`, skillCd);
     await this.playerService.savePlayer(player);
 
-    return `兰音心无所扰！\n下次攻击有 ${mustHitChance.toFixed(1)}% 几率无视闪避和闪避状态必中${allyLine}`;
+    return [...firstAidLines, `兰音心无所扰！\n下次攻击有 ${mustHitChance.toFixed(1)}% 几率无视闪避和闪避状态必中${allyLine}`]
+      .filter(Boolean).join('\n');
   }
 
   /**
@@ -3036,13 +3022,21 @@ ${result}`;
       return '反转童话需要兰音好感达到80才能使用';
     }
 
-    // 原版公共冷却：30 - 技能等级*0.5 + a2
+    // 原版公共冷却：30 - 技能等级*0.5 + a2；专属冷却 60+a2
     const skillLevel = this.getSkillLevel(markers, '兰音');
     const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
     const publicCd = 30 - skillLevel * 0.5 + a2;
     const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
-    const cooldownCheck = this.checkCooldown(player, '反转童话', baseCd);
+    const skillCd = 60 + a2;
+    // 原版 L2540「时间间隔要求2」同时检查兰音公共冷却和反转童话专属冷却
+    const publicCooldownCheck = this.checkCooldown(player, '兰音通用', baseCd);
+    if (publicCooldownCheck.isOnCooldown) return publicCooldownCheck.text;
+    const cooldownCheck = this.checkCooldown(player, '反转童话', skillCd);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 原版 L2545：急救包(玩家, w) —— 恢复血/盾/甲
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines, playerData.equipment);
 
     // 原版：下次攻击无论是否命中，有 (50+技能等级/2)% 几率将目标某个属性正负符号反转，持续 600*库洛牌 秒
     const reverseChance = 50 + skillLevel / 2;
@@ -3053,18 +3047,13 @@ ${result}`;
       reverseDuration: a3,
     });
 
-    // 记录技能熟练度/活跃度
-    const skillKey = '兰音技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 15;
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
-
-    // 设置冷却
+    // 原版 L2544-2548 成功路径无活跃度/技能熟练度调用，双冷却写入标记2
     this.setCooldown(player, '兰音通用', baseCd);
-    this.setCooldown(player, '反转童话', baseCd);
+    this.setCooldown(player, '反转童话', skillCd);
     await this.playerService.savePlayer(player);
 
-    return `兰音反转童话！\n下次攻击无论是否命中，有 ${reverseChance.toFixed(1)}% 几率将目标的某个属性正负符号反转，持续${Math.floor(a3 / 60)}分钟`;
+    return [...firstAidLines, `兰音反转童话！\n下次攻击无论是否命中，有 ${reverseChance.toFixed(1)}% 几率将目标的某个属性正负符号反转，持续${Math.floor(a3 / 60)}分钟`]
+      .filter(Boolean).join('\n');
   }
 
   /**
@@ -3089,13 +3078,21 @@ ${result}`;
       return '月落寸光需要兰音好感达到100才能使用';
     }
 
-    // 原版公共冷却：30 - 技能等级*0.5 + a2
+    // 原版公共冷却：30 - 技能等级*0.5 + a2；专属冷却 60+a2
     const skillLevel = this.getSkillLevel(markers, '兰音');
     const a2 = this.hasItem(player, '冷却核心') ? -10 : 0;
     const publicCd = 30 - skillLevel * 0.5 + a2;
     const baseCd = publicCd > 0 ? Math.ceil(publicCd) : 1;
-    const cooldownCheck = this.checkCooldown(player, '月落寸光', baseCd);
+    const skillCd = 60 + a2;
+    // 原版 L2556「时间间隔要求2」同时检查兰音公共冷却和月落寸光专属冷却
+    const publicCooldownCheck = this.checkCooldown(player, '兰音通用', baseCd);
+    if (publicCooldownCheck.isOnCooldown) return publicCooldownCheck.text;
+    const cooldownCheck = this.checkCooldown(player, '月落寸光', skillCd);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
+
+    // 原版 L2560：急救包(玩家, w) —— 恢复血/盾/甲
+    const firstAidLines: string[] = [];
+    this.applyFirstAid(player, firstAidLines, playerData.equipment);
 
     // 原版：下次攻击按目标平均抗性获得穿透增益(2~20)x(1+技能等级/100)%
     // 实际穿透值由攻击引擎在命中时按目标三层平均抗性计算（见 weaponAttack → consumeNextAttackBuffs）
@@ -3117,18 +3114,13 @@ ${result}`;
       }
     }
 
-    // 记录技能熟练度/活跃度
-    const skillKey = '兰音技能熟练度';
-    markers[skillKey] = (this.playerService.getMarkerValue(markers, skillKey) || 0) + 15;
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
-
-    // 设置冷却
+    // 原版 L2559-2567 成功路径无活跃度/技能熟练度调用，双冷却写入标记2
     this.setCooldown(player, '兰音通用', baseCd);
-    this.setCooldown(player, '月落寸光', baseCd);
+    this.setCooldown(player, '月落寸光', skillCd);
     await this.playerService.savePlayer(player);
 
-    return `兰音月落寸光！\n下次攻击计算护盾/装甲/生命抗性时，根据目标对应状态的平均抗性获得穿透增益，平均值越高增益越高（2~20）×(1+${skillLevel}/100)%${allyLine}`;
+    return [...firstAidLines, `兰音月落寸光！\n下次攻击计算护盾/装甲/生命抗性时，根据目标对应状态的平均抗性获得穿透增益，平均值越高增益越高（2~20）×(1+${skillLevel}/100)%${allyLine}`]
+      .filter(Boolean).join('\n');
   }
 
   // ==================== 通用/装备技能 ====================
