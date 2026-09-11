@@ -468,7 +468,10 @@
 
       <!-- 消息列表 -->
       <div ref="msgList" class="messages" @scroll="onMsgScroll">
-        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg), { 'msg-rich': v.rich, 'msg-battle': v.battle, 'msg-cv': v.cv }]">
+        <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg), { 'msg-rich': v.rich, 'msg-battle': v.battle, 'msg-cv': v.cv }]"
+             :title="isUserMsg(v.msg) ? '单击复制消息 / 双击重发' : undefined"
+             @click="onMsgClick(v.msg)"
+             @dblclick="onMsgDblClick(v.msg)">
           <div class="msg-body">
             <span v-if="v.msg.sender" class="sender" :title="'右键 @ ' + (v.msg.sender.nickname || v.msg.sender.username)" @contextmenu.prevent="quickAtUser(v.msg.sender)">{{ v.msg.sender.nickname || v.msg.sender.username }}：</span>
             <span v-else-if="v.msg.type !== 'system' && v.msg.type !== 'game' && v.msg.type !== 'combat' && v.msg.type !== 'info'" class="sender">系统：</span>
@@ -480,7 +483,7 @@
               <template v-for="(seg, si) in v.segs" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
                 <span v-else-if="seg.type === 'mention'" class="mention-highlight" :title="'右键 @ ' + (seg.displayText || seg.text).replace('@', '')" @contextmenu.prevent="quickAtText(seg.displayText || seg.text)">{{ seg.displayText || seg.text }}</span>
-                <span v-else class="cmd-clickable" :title="'左键点击发送 / 右键填入输入框「' + seg.text + '」'" @click="quickSend(seg.text)" @contextmenu.prevent="quickFill(seg.text)">{{ seg.displayText || seg.text }}</span>
+                <span v-else class="cmd-clickable" :title="'左键点击发送 / 右键填入输入框「' + seg.text + '」'" @click.stop="quickSend(seg.text)" @contextmenu.prevent="quickFill(seg.text)">{{ seg.displayText || seg.text }}</span>
               </template>
             </span>
           </div>
@@ -1556,6 +1559,88 @@ function msgAlign(m) {
   // 普通聊天：按发送者归属区分左右
   if (!m.sender) return 'center';
   return m.sender.id === user.value?.id ? 'own' : 'other';
+}
+
+// ---------- 消息气泡交互：单击复制原文 / 双击重发 ----------
+// 仅对玩家实际发出的消息（chat/command，带发送者）生效，系统/战斗/卡片消息不受影响
+let msgClickTimer = null; // 单击延迟派发定时器：等待可能到来的双击，避免单击复制与双击重发同时触发
+
+/**
+ * 判断是否为玩家发送的消息气泡（单击/双击交互的作用范围）
+ * @param {object} m 消息对象
+ * @returns {boolean}
+ */
+function isUserMsg(m) {
+  return !!m.sender && (m.type === 'chat' || m.type === 'command');
+}
+
+/**
+ * 气泡单击：延迟 260ms 确认不是双击后，复制消息原文到剪贴板
+ * @param {object} msg 消息对象
+ */
+function onMsgClick(msg) {
+  if (!isUserMsg(msg)) return;
+  if (msgClickTimer) return; // 已有待派发的单击，说明这是双击的第一击，交给 dblclick 处理
+  msgClickTimer = setTimeout(() => {
+    msgClickTimer = null;
+    copyMsgContent(msg);
+  }, 260);
+}
+
+/**
+ * 气泡双击：取消待派发的单击，直接把这条消息原样重发一遍
+ * @param {object} msg 消息对象
+ */
+function onMsgDblClick(msg) {
+  if (!isUserMsg(msg)) return;
+  if (msgClickTimer) {
+    clearTimeout(msgClickTimer);
+    msgClickTimer = null;
+  }
+  resendMsg(msg);
+}
+
+/**
+ * 复制消息原文到剪贴板（clipboard API 失败时降级为隐藏文本域 + execCommand）
+ * @param {object} msg 消息对象
+ */
+function copyMsgContent(msg) {
+  const text = (msg.content || '').trim();
+  if (!text) return;
+  navigator.clipboard.writeText(text)
+    .then(() => showToast('消息已复制', 'success'))
+    .catch(() => {
+      // 降级方案：非安全上下文（http）下 clipboard API 不可用
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        showToast('消息已复制', 'success');
+      } catch {
+        showToast('复制失败', 'error');
+      }
+      document.body.removeChild(ta);
+    });
+}
+
+/**
+ * 重发消息：走统一发送入口 sendChatMessage（受发言频率限制约束）
+ * socket 未连接时降级为填入输入框
+ * @param {object} msg 消息对象
+ */
+function resendMsg(msg) {
+  const text = (msg.content || '').trim();
+  if (!text) return;
+  if (socket) {
+    sendChatMessage(text);
+  } else {
+    input.value = text;
+    nextTick(() => inputEl.value?.focus());
+  }
 }
 
 /**

@@ -1555,6 +1555,18 @@ vite-plugin-checker-error-overlay,
  * - 玩家聊天/指令消息：本人靠右、他人靠左
  * - 系统/游戏/战斗/信息回复：居中提示条
  */
+/* 玩家消息气泡（chat/command）：单击复制 / 双击重发 */
+.msg.chat,
+.msg.command {
+  cursor: pointer;
+  /* 双击重发会选中文字，禁用选中保持交互干净（复制走单击） */
+  user-select: none;
+  transition: filter 0.15s ease;
+}
+.msg.chat:hover,
+.msg.command:hover {
+  filter: brightness(1.15);
+}
 .msg.other {
   align-self: flex-start;
 }
