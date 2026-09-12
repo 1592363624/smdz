@@ -25,6 +25,7 @@ import { SystemConfigService } from '../system-config/system-config.service';
 import { ChatService } from '../chat/chat.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { TaskService } from './task.service';
+import { GameSupportService } from './game-support.service';
 import { ShortcutService } from './shortcut.service';
 import { StatsService } from './stats.service';
 import { CombatStateService } from './combat-state.service';
@@ -34,7 +35,7 @@ import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { HandbookService } from './handbook.service';
 import { GlobalProficiencyService } from './global-proficiency.service';
-import { normalizeGameText, formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
+import { normalizeGameText, formatDisplayNumber, formatDamageText, formatMsDurationText, formatSecondsDurationText, roundItemQuantity } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 // 装备引用解析（基础名 + 品质码 + ·特效）单一实现，与「锁定装备/解锁」同源；
 // equipmentQualityLabel = 装备栏品质展示标签（大写品质码）单一实现，文本面板/网页快照共用。
@@ -118,7 +119,31 @@ export class GameService {
     // 全局熟练度（原版 全局标记）：技能面板「世界等级 / 怪物等级+」的唯一真相源。
     // @Optional 兼容 Object.create / 位置传参的既有测试桩。
     @Optional() private readonly globalProficiency?: GlobalProficiencyService,
+    // 共享支撑层（P1-3 抽出）：数值/时长/标记等跨域辅助的唯一实现。
+    // @Optional 兼容 29 位置参数与 Object.create 测试桩（C2）；未注入时由
+    // supportSvc 访问器用桩自身的同名字段懒构造，委托目标恒存在（R8 兼容桥）。
+    @Optional() private support?: GameSupportService,
   ) {}
+
+  /**
+   * 门面委托目标（非空保证）：生产环境由 Nest 注入 GameSupportService；
+   * 测试桩未注入时，用桩上已有的同名字段（playerService/prisma/...）懒构造一份——
+   * 支撑层运行期用到的依赖与原方法在门面上的 this.X 完全一致，桩行为不变。
+   */
+  private get supportSvc(): GameSupportService {
+    if (!this.support) {
+      this.support = new GameSupportService(
+        this.playerService,
+        this.prisma,
+        this.mapService,
+        this.staticData,
+        this.taskService,
+        this.combatState,
+        this.playerMutate,
+      );
+    }
+    return this.support;
+  }
 
   /**
    * 玩家状态变更的收口入口（对 PlayerMutateService.mutate 的薄封装）。
@@ -129,13 +154,7 @@ export class GameService {
    * 避免逐个测试桩补依赖。
    */
   private mutatePlayer<T>(userId: number, fn: (ctx: any) => Promise<T> | T): Promise<T> {
-    if (this.playerMutate) return this.playerMutate.mutate(userId, fn);
-    return this.playerService.enqueueUserWrite(userId, async () => {
-      const ctx = await this.playerService.getPlayerData(userId);
-      const result = await fn(ctx);
-      await this.playerService.savePlayer(ctx.player);
-      return result;
-    });
+    return this.supportSvc.mutatePlayer(userId, fn);
   }
 
   /** 模块初始化：注册各延时任务的结算 handler，并把存量标记迁移为延时任务。 */
@@ -1682,12 +1701,8 @@ export class GameService {
     const now = Date.now();
     const list: Array<any> = [];
 
-    /** 历史数据里 expireAt 有秒/毫秒两种口径，统一归一为毫秒时间戳。 */
-    const toEndMs = (raw: any): number => {
-      const v = Number(raw ?? 0);
-      if (!Number.isFinite(v) || v <= 0) return 0;
-      return v >= 1e12 ? v : v * 1000;
-    };
+    /** 历史数据里 expireAt 有秒/毫秒两种口径：统一走 expire-time.util 归一（秒/毫秒启发式单一真相源）。 */
+    const toEndMs = (raw: any): number => toExpireMs({ expireAt: raw });
 
     const push = (item: {
       key: string; kind: string; label: string; detail?: string; icon?: string;
@@ -3513,14 +3528,11 @@ export class GameService {
 
   /** 毫秒 → 可读时间文本（对应原版 数字到时间 的秒/分秒简化）。 */
   private millisecondsToText(ms: number): string {
-    const totalSec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
-    if (totalSec < 60) return `${totalSec}秒`;
-    return `${Math.floor(totalSec / 60)}分${totalSec % 60}秒`;
+    return this.supportSvc.millisecondsToText(ms);
   }
 
   private round2Text(value: number): string {
-    // 展示口径统一走 game-text.util.formatDisplayNumber（两位小数、去尾零、非有限值回落 '0'）
-    return formatDisplayNumber(value);
+    return this.supportSvc.round2Text(value);
   }
 
   /**
@@ -3582,9 +3594,9 @@ export class GameService {
       })
       .filter((item: any) => (item.count || 0) > 0);
 
-    // 发放奖励物品
+    // 发放奖励物品（统一走 mergeBackpackItem：同名堆叠 + type 以静态定义为唯一真相源）
     const rewardItem = { name: rewardName, count: unknownCount };
-    player.backpack.push(rewardItem);
+    mergeBackpackItem(player.backpack, rewardItem, lookupFromStaticData(this.staticData));
 
     // 增加露娜熟练度
     markers['露娜熟练度'] = (markers['露娜熟练度'] || 0) + unknownCount * 10;
@@ -4042,8 +4054,7 @@ export class GameService {
       (m.key ?? m.name ?? m.名称) === cooldownKey,
     );
     if (cooldownEntry) {
-      const expireAt = Number(cooldownEntry.expireTime ?? cooldownEntry.expireAt ?? cooldownEntry.有效期至 ?? 0);
-      const expireMs = expireAt > 0 && expireAt < 1e12 ? expireAt * 1000 : expireAt;
+      const expireMs = toExpireMs(cooldownEntry);
       const remaining = expireMs - now;
       if (remaining > 0) {
         return `【${resourceName}】还需要 ${Math.ceil(remaining / 1000)} 秒才能再次开采`;
@@ -4346,7 +4357,7 @@ export class GameService {
 
   /** 原版 取随机数(最小,最大)（含两端）。 */
   private randomInt(min: number, max: number): number {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
+    return this.supportSvc.randomInt(min, max);
   }
 
   /**
@@ -4393,8 +4404,7 @@ export class GameService {
         : asJsonValue<any[]>(player.markers2, []);
       const entry = markers2.find((m: any) => (m?.name ?? m?.名称 ?? m?.key) === '开箱');
       if (!entry) return '';
-      const rawExpire = Number(entry.expireTime ?? entry.expireAt ?? entry.有效期至 ?? 0);
-      const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      const expireAt = toExpireMs(entry);
       const now = Date.now();
       if (!Number.isFinite(expireAt) || expireAt <= now) return '';
       const remainSec = Math.ceil((expireAt - now) / 1000);
@@ -4938,13 +4948,7 @@ export class GameService {
    * 这里做兜底：只要资源名能在全局资源表里找到，编号就一定点得动。
    */
   private resolveGatherCmd(resource: any): string {
-    const own = String(resource?.gatherCmd ?? resource?.采集指令 ?? '').trim();
-    if (own) return own;
-    const name = String(resource?.name ?? resource?.名称 ?? '').trim();
-    if (!name) return '';
-    const definition = this.staticData.getAllResources()
-      .find((r: any) => String(r?.name ?? '').trim() === name);
-    return String(definition?.gatherCmd ?? definition?.采集指令 ?? '').trim();
+    return this.supportSvc.resolveGatherCmd(resource);
   }
 
   private getGatherResources(map: any): any[] {
@@ -5021,8 +5025,7 @@ export class GameService {
   }
 
   private formatGatherNumber(value: number): string {
-    // 展示口径统一（两位小数、去尾零、非有限值回落 '0'）
-    return formatDisplayNumber(value);
+    return this.supportSvc.formatGatherNumber(value);
   }
 
   /**
@@ -5388,8 +5391,8 @@ export class GameService {
     const expBonus = Number(player.expBonus ?? 0);
     const level = Number(player.level ?? 1);
     let text = `${name}${display.count > 0 ? `和${display.names.join('和')}` : ''}躺到了床上`;
-    text += `\n每秒获得经验:${this.roundText(level / 100)}`;
-    text += `\n你的经验加成:${this.roundText(expBonus)}%`;
+    text += `\n每秒获得经验:${this.round2Text(level / 100)}`;
+    text += `\n你的经验加成:${this.round2Text(expBonus)}%`;
     text += `\n陪睡NPC/宠物:${sleepover}/2（+${sleepover * 50}%）`;
     if (luoPet) text += `\n${luoPet.name ?? luoPet.名称 ?? '洛'}:+10%`;
     const finalPerSec = (1 + sleepover * 0.5) * level * (1 + expBonus / 100) / 100 * (1 + (hasLuo ? 1 : 0) / 10);
@@ -6241,23 +6244,13 @@ export class GameService {
     return values.map((item: any) => {
       const name = item?.name ?? item?.名称 ?? '';
       const quantity = Number(item?.quantity ?? item?.数量 ?? 0);
-      return `${name}x${this.roundText(quantity)}`;
+      return `${name}x${this.round2Text(quantity)}`;
     }).join('、');
   }
 
   private formatVehicleTime(seconds: number): string {
     if (seconds === 86400.12345678) return '时间无限，显示一天的产量';
-    const total = Math.max(0, Math.floor(Number(seconds) || 0));
-    const day = Math.floor(total / 86400);
-    const hour = Math.floor((total % 86400) / 3600);
-    const minute = Math.floor((total % 3600) / 60);
-    const second = total % 60;
-    const parts: string[] = [];
-    if (day) parts.push(`${day}天`);
-    if (hour || parts.length) parts.push(`${hour}小时`);
-    if (minute || parts.length) parts.push(`${minute}分`);
-    parts.push(`${second}秒`);
-    return parts.join('');
+    return formatSecondsDurationText(seconds, 'fullUnits');
   }
 
   /**
@@ -6361,7 +6354,7 @@ export class GameService {
       const recipeLines = runtime.配方.slice(1).map((recipe: any, index: number) => {
         const def = this.staticData.getVehicleRecipeByName(recipe.名称);
         const level = Number(def?.level ?? def?.等级 ?? 0);
-        return `${index + 1}、${recipe.名称}(${level}级) ${this.roundText(Number(recipe.数值 || 0))}生产力`;
+        return `${index + 1}、${recipe.名称}(${level}级) ${this.round2Text(Number(recipe.数值 || 0))}生产力`;
       });
       const speedPercent = production.consumedProductivity > Number(runtime.加成.生产 || 0)
         ? production.productionSpeed * production.efficiency * 100
@@ -6369,8 +6362,8 @@ export class GameService {
       const lines = [
         `${playerName},${runtime.名称}的生产线:`,
         ...recipeLines,
-        `◆生产力${this.roundText(production.consumedProductivity)}/${this.roundText(Number(runtime.加成.生产 || 0))},可生产${this.formatVehicleTime(production.availableTime)}`,
-        `◆生产速度${this.roundText(speedPercent)}%${production.byproductMultiplier !== 1 ? `,副产物+${this.roundText((production.byproductMultiplier - 1) * 100)}%` : ''}${production.consumptionMultiplier !== 1 ? `,消耗-${this.roundText((1 - production.consumptionMultiplier) * 100)}%` : ''}`,
+        `◆生产力${this.round2Text(production.consumedProductivity)}/${this.round2Text(Number(runtime.加成.生产 || 0))},可生产${this.formatVehicleTime(production.availableTime)}`,
+        `◆生产速度${this.round2Text(speedPercent)}%${production.byproductMultiplier !== 1 ? `,副产物+${this.round2Text((production.byproductMultiplier - 1) * 100)}%` : ''}${production.consumptionMultiplier !== 1 ? `,消耗-${this.round2Text((1 - production.consumptionMultiplier) * 100)}%` : ''}`,
         `◆每分钟消耗:${this.formatVehicleItems(production.consumptionPerMinute)}`,
         `◆每分钟产出:${this.formatVehicleItems(production.outputPerMinute)}`,
         `◆消耗+产出:${this.formatVehicleItems(production.combinedPerMinute)}`,
@@ -6462,7 +6455,7 @@ export class GameService {
       const targetDef = this.staticData.getVehicleRecipeByName(target.名称);
       const targetInputs = this.parseVehicleValue<any[]>(targetDef?.消耗 ?? targetDef?.inputs, []);
       const productionView = this.combatSystem.calculateVehicleProduction(runtime, timestamp, productionOptions);
-      const messages: string[] = [`${runtime.名称}\n配方${target.名称}x${this.roundText(Number(target.数值 || 0))}`];
+      const messages: string[] = [`${runtime.名称}\n配方${target.名称}x${this.round2Text(Number(target.数值 || 0))}`];
       for (const input of targetInputs) {
         const inputName = input?.名称 ?? input?.name ?? '';
         const inputQty = Number(input?.数量 ?? input?.quantity ?? 0);
@@ -6484,7 +6477,7 @@ export class GameService {
           if (perProduction <= 0) continue;
           other.数值 = need / perProduction;
           other.value = other.数值;
-          messages.push(`配方${other.名称}产出${inputName}，生产力调整为${this.roundText(other.数值)}`);
+          messages.push(`配方${other.名称}产出${inputName}，生产力调整为${this.round2Text(other.数值)}`);
           matched = true;
         }
         if (!matched) messages.push(`没有其他产出${inputName}的配方`);
@@ -6549,7 +6542,7 @@ export class GameService {
     await this.persistRuntimeVehicle(source, runtime);
     await this.taskService.advance(userId, '设置生产配方');
     const currentOutput = view.combinedPerMinute.filter((item) => Number(item.quantity || 0) !== 0);
-    return `${playerName}为${runtime.名称}设置了${recipeName}\n它当前占用的生产力为${this.roundText(currentValue)}\n${runtime.名称}当前产出:${this.formatVehicleItems(currentOutput)}`;
+    return `${playerName}为${runtime.名称}设置了${recipeName}\n它当前占用的生产力为${this.round2Text(currentValue)}\n${runtime.名称}当前产出:${this.formatVehicleItems(currentOutput)}`;
   }
 
   /**
@@ -7273,7 +7266,7 @@ export class GameService {
     const lines = [
       `${name}消耗${consumed}点活力扫荡了${map.name || '当前地图'}`,
       `击败了${totalMonsterCount}只怪物`,
-      `得到了经验x${this.roundText(totalExp)}`,
+      `得到了经验x${this.round2Text(totalExp)}`,
     ];
     if (dropText) lines.push(`获得${dropText}`);
     return lines.join('\n');
@@ -7493,8 +7486,7 @@ export class GameService {
    * @param name 装备名称
    */
   private hasEquip(player: any, name: string): boolean {
-    const equips: any[] = asJsonValue<any[]>(player.equipment, []);
-    return equips.some((e: any) => e && (e.name === name || e.名称 === name));
+    return this.supportSvc.hasEquip(player, name);
   }
 
   /**
@@ -7505,13 +7497,7 @@ export class GameService {
    * @param strength 强度（可选）
    */
   private setMarkers2(markers2: any[], name: string, expireAt: number, strength?: number): void {
-    const idx = markers2.findIndex((m: any) => m && m.name === name);
-    if (idx >= 0) {
-      markers2[idx].expireAt = expireAt;
-      if (strength !== undefined) markers2[idx].strength = strength;
-    } else {
-      markers2.push(strength !== undefined ? { name, expireAt, strength } : { name, expireAt });
-    }
+    this.supportSvc.setMarkers2(markers2, name, expireAt, strength);
   }
 
   // ========== 玩家信息命令 ==========
@@ -8126,7 +8112,7 @@ export class GameService {
     const spirit = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === '灵石');
     const spiritCount = this.itemQuantity(spirit);
     if (spiritCount < 3) {
-      return `${playerName}，嗯你这样让我很为难啊……(必要的强化材料为3个灵石，你只有${this.roundText(spiritCount)})`;
+      return `${playerName}，嗯你这样让我很为难啊……(必要的强化材料为3个灵石，你只有${this.round2Text(spiritCount)})`;
     }
 
     this.deductBackpackItem(backpack, '灵石', 3);
@@ -8160,7 +8146,7 @@ export class GameService {
     const spiritCount = this.itemQuantity(spirit);
     const certificateCount = this.itemQuantity(certificate);
     if (spiritCount < 1 || certificateCount < 1) {
-      return `${playerName}激活装备特效需要1个灵石和1个凭证，你只有灵石${this.roundText(spiritCount)}、凭证${this.roundText(certificateCount)}`;
+      return `${playerName}激活装备特效需要1个灵石和1个凭证，你只有灵石${this.round2Text(spiritCount)}、凭证${this.round2Text(certificateCount)}`;
     }
     this.deductBackpackItem(backpack, '灵石', 1);
     this.deductBackpackItem(backpack, '凭证', 1);
@@ -8192,7 +8178,7 @@ export class GameService {
     this.deductBackpackItem(backpack, '凭证', 3);
     player.backpack = backpack; // Json 列直接写数组
     await this.playerService.savePlayer(player);
-    return `${playerName},${source.name}获得了${this.roundText(wangBonus)}%暴击伤害`;
+    return `${playerName},${source.name}获得了${this.round2Text(wangBonus)}%暴击伤害`;
   }
 
   private async handleFusion23SelectedEffect(
@@ -8225,7 +8211,7 @@ export class GameService {
     const cost = Math.round(effects.length / 3);
     const spirit = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === '灵石');
     if (this.itemQuantity(spirit) < cost) {
-      return `${playerName}需要${cost}个灵石，你只有${this.roundText(this.itemQuantity(spirit))}`;
+      return `${playerName}需要${cost}个灵石，你只有${this.round2Text(this.itemQuantity(spirit))}`;
     }
     this.deductBackpackItem(backpack, '灵石', cost);
     item.data = this.rewriteFusionData(item, undefined, selected);
@@ -8948,15 +8934,7 @@ export class GameService {
 
   /** 秒数 → 时间文本（对应原版 数字到时间；在线时间可能跨天，补 天/小时 段） */
   private secondsToTimeText(seconds: number): string {
-    const total = Math.max(0, Math.floor(Number(seconds) || 0));
-    const d = Math.floor(total / 86400);
-    const h = Math.floor((total % 86400) / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    if (d > 0) return `${d}天${h}小时${m}分`;
-    if (h > 0) return `${h}小时${m}分`;
-    if (m > 0) return `${m}分${s}秒`;
-    return `${s}秒`;
+    return this.supportSvc.secondsToTimeText(seconds);
   }
 
   // ==================== 排行数据源记录（原版 _计算玩家 随每条指令结算） ====================
@@ -9144,7 +9122,7 @@ export class GameService {
     entries: Array<{ name: string; value: number }>,
     valueText?: (value: number) => string,
   ): string {
-    const fmt = valueText ?? ((v: number) => this.displayDamage(v));
+    const fmt = valueText ?? ((v: number) => formatDamageText(v));
     const sorted = [...entries].sort((a, b) => b.value - a.value).slice(0, 30);
     if (sorted.length === 0) {
       return `${requesterName}不是可以查看的排行榜`;
@@ -9156,10 +9134,6 @@ export class GameService {
     return text;
   }
 
-  /** 显示伤害（原版 通用 显示伤害）：取整数值文本 */
-  private displayDamage(value: number): string {
-    return String(Math.round(value || 0));
-  }
 
   /**
    * 处理大召唤术命令
@@ -9623,13 +9597,13 @@ export class GameService {
       const level = Number(player.level ?? 1);
       const lieLines = [
         `${lieCount > 0 ? `正在和${lieDisplay.names.join('、')}` : '正'}躺在床上`,
-        `每秒获得经验:${this.roundText(level / 100)}`,
-        `你的经验加成:${this.roundText(expBonus)}%`,
+        `每秒获得经验:${this.round2Text(level / 100)}`,
+        `你的经验加成:${this.round2Text(expBonus)}%`,
         `陪睡NPC/宠物:${lieCount}/2（+${lieCount * 50}%）`,
       ];
       if (luo) lieLines.push(`${luo.name ?? luo.名称 ?? '洛'}:+10%`);
       const finalPerSec = (1 + lieCount * 0.5) * level * (1 + expBonus / 100) / 100 * (1 + (luo ? 1 : 0) / 10);
-      lieLines.push(`最终每秒获得:${this.roundText(finalPerSec)}`);
+      lieLines.push(`最终每秒获得:${this.round2Text(finalPerSec)}`);
       lines.push(...lieLines);
     }
 
@@ -11662,67 +11636,7 @@ export class GameService {
     userId: number,
     mode: 'follow' | 'idle' | 'active' | 'passive',
   ): Promise<{ count: number; map?: any }> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return { count: 0 };
-
-    const rawSummons = typeof map.summons === 'string'
-      ? asJsonValue<any[]>(map.summons, [])
-      : map.summons;
-    const summons = Array.isArray(rawSummons) ? rawSummons : [];
-    const ownerIds = new Set([
-      userId,
-      player.id,
-      player.userId,
-      player.qqNumber,
-      player.externalId,
-      player.masterQQ,
-    ].map((value) => String(value ?? '')).filter(Boolean));
-
-    const controllable = summons.filter((summon: any) => {
-      const owner = String(
-        summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? summon?.ownerId ?? '',
-      );
-      if (!ownerIds.has(owner)) return false;
-
-      const rawMarkers = typeof summon?.markers === 'string'
-        ? asJsonValue<any>(summon.markers, {})
-        : (summon?.markers ?? summon?.标记 ?? {});
-      const markers = rawMarkers && typeof rawMarkers === 'object' ? rawMarkers : {};
-      return Number(markers['幼崽'] ?? markers['阵地'] ?? 0) === 0;
-    });
-
-    for (const summon of controllable) {
-      const rawMarkers = typeof summon?.markers === 'string'
-        ? asJsonValue<any>(summon.markers, {})
-        : (summon?.markers ?? summon?.标记 ?? {});
-      const markers = rawMarkers && typeof rawMarkers === 'object' ? { ...rawMarkers } : {};
-      if (mode === 'follow') {
-        summon.follow = true;
-        summon.mode = 'follow';
-        markers['跟随'] = 0;
-      } else if (mode === 'idle') {
-        summon.follow = false;
-        summon.mode = 'idle';
-        markers['跟随'] = 1;
-      } else if (mode === 'active') {
-        summon.mode = 'active';
-        summon.active = true;
-        markers['主动'] = 0;
-      } else {
-        summon.mode = 'passive';
-        summon.active = false;
-        markers['主动'] = 1;
-      }
-      summon.markers = markers; // Json 列直接写对象
-      if (summon.标记 !== undefined) summon.标记 = summon.markers;
-    }
-
-    if (controllable.length > 0) {
-      await this.mapService.updateDynamicFields(map.id, { summons });
-    }
-    return { count: controllable.length, map };
+    return this.supportSvc.updateOwnedSummonMode(userId, mode);
   }
 
   /**
@@ -12050,7 +11964,7 @@ export class GameService {
       const upgradeExp = Number(player.upgradeExp || 0);
       if (upgradeExp > 0) {
         player.exp = Number(player.exp || 0) + upgradeExp;
-        extraText = `获得了${this.roundText(upgradeExp)}经验\n`;
+        extraText = `获得了${this.round2Text(upgradeExp)}经验\n`;
       }
     }
 
@@ -12061,16 +11975,14 @@ export class GameService {
     const bonusText = hasRong ? '（茸使奶量+25%）' : '';
     const names = successNames.join('、');
     const actionText = all
-      ? `${player.name || '冒险者'}给${names}挤了奶，得到了奶×${this.roundText(totalMilk)}`
-      : `从${names}挤出了奶，获得了奶×${this.roundText(totalMilk)}`;
+      ? `${player.name || '冒险者'}给${names}挤了奶，得到了奶×${this.round2Text(totalMilk)}`
+      : `从${names}挤出了奶，获得了奶×${this.round2Text(totalMilk)}`;
     this.logger.log(`玩家 ${userId} 挤奶成功：${names} ×${totalMilk}`);
     return { text: `${extraText}${actionText}${bonusText}`, count: successCount, amount: totalMilk };
   }
 
   private formatMilkRemaining(ms: number): string {
-    const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
-    if (totalSeconds < 60) return `${totalSeconds}秒`;
-    return `${Math.ceil(totalSeconds / 60)}分钟`;
+    return formatMsDurationText(ms, 'remainingMinutes');
   }
 
   private hasActiveMilkMarker(markers2: any[], name: string, now: number): boolean {
@@ -12694,16 +12606,7 @@ export class GameService {
 
   /** 当前是否可训练：当前地图存在「训练器」建筑，或背包持有「训练器」 */
   private async hasTrainerAccess(player: any): Promise<boolean> {
-    try {
-      const map = await this.mapService.getMapById(player.mapId);
-      const buildings = asJsonValue<any[]>(map?.buildings, []);
-      if (buildings.some((b: any) => String(b?.name ?? '') === '训练器')) return true;
-      const backpack = this.playerService.getBackpackItems(player);
-      if (backpack.some((item: any) => String(item?.name ?? '') === '训练器')) return true;
-    } catch {
-      /* 读取失败按不可训练处理 */
-    }
-    return false;
+    return this.supportSvc.hasTrainerAccess(player);
   }
 
   /**
@@ -13147,7 +13050,7 @@ export class GameService {
       await this.taskService.advance(targetUserId, '贸易');
 
       const itemText = Array.from(tradeItems.entries())
-        .map(([name, amount]) => `${name}x${this.roundText(amount)}`)
+        .map(([name, amount]) => `${name}x${this.round2Text(amount)}`)
         .join('、');
       const silverText = hasSilver ? '\n银：贸易所得中小于1的正产出已提升到1' : '';
       return `${actor.name || '冒险者'}和${target.name || '对方'}都得到了${itemText || '对方家园的正产出（本次为0）'}${silverText}`;
@@ -13212,8 +13115,8 @@ export class GameService {
     const levelFactor = (player.level || 1) / 10 + 1;
     const lines = [
       `行商#换行${player.name}有你喜欢的吗？`,
-      `好感${affinity}(优惠${this.roundText(affinity / (100 + affinity) * 100)}%)`,
-      `◆购买需要${this.roundText(priceRate * levelFactor * 50)}木头、${this.roundText(priceRate * levelFactor * 40)}石头、${this.roundText(priceRate * levelFactor * 30)}铁矿、${this.roundText(priceRate * levelFactor * 30)}绳子`,
+      `好感${affinity}(优惠${this.round2Text(affinity / (100 + affinity) * 100)}%)`,
+      `◆购买需要${this.round2Text(priceRate * levelFactor * 50)}木头、${this.round2Text(priceRate * levelFactor * 40)}石头、${this.round2Text(priceRate * levelFactor * 30)}铁矿、${this.round2Text(priceRate * levelFactor * 30)}绳子`,
     ];
     merchantBackpack.forEach((item: any, itemNumber: number) => {
       lines.push(`${itemNumber + 1}、${this.formatMerchantItem(item, true)}`);
@@ -13429,11 +13332,11 @@ export class GameService {
   }
 
   private itemName(item: any): string {
-    return String(item?.name ?? item?.名称 ?? '');
+    return this.supportSvc.itemName(item);
   }
 
   private itemType(item: any): string {
-    return String(item?.type ?? item?.类型 ?? '');
+    return this.supportSvc.itemType(item);
   }
 
   private reverseValue(item: any): number {
@@ -13497,7 +13400,7 @@ export class GameService {
   }
 
   private formatReverseNumber(value: number): string {
-    return String(Math.round(value));
+    return this.supportSvc.formatReverseNumber(value);
   }
 
   private formatReverseMenu(
@@ -13719,12 +13622,11 @@ export class GameService {
   }
 
   private incrementMarker(markers: Record<string, any>, key: string, amount: number): void {
-    markers[key] = Number(markers[key] || 0) + amount;
+    this.supportSvc.incrementMarker(markers, key, amount);
   }
 
   private normalizeMarkers2(markers2: any[]): void {
-    const normalized = markers2.map((entry: any) => this.combatState.normalizeBuffItem(entry));
-    markers2.splice(0, markers2.length, ...normalized);
+    this.supportSvc.normalizeMarkers2(markers2);
   }
 
   private scheduleReloadCompletion(
@@ -14480,16 +14382,7 @@ export class GameService {
    * 格式化运行时长（秒 → 可读文本）
    */
   private formatUptime(seconds: number): string {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    const parts: string[] = [];
-    if (days > 0) parts.push(`${days}天`);
-    if (hours > 0) parts.push(`${hours}小时`);
-    if (minutes > 0) parts.push(`${minutes}分`);
-    parts.push(`${secs}秒`);
-    return parts.join('');
+    return this.supportSvc.formatUptime(seconds);
   }
 
   // ==================== 时间流逝完整计算 ====================
@@ -14767,9 +14660,7 @@ export class GameService {
    * @returns 地图对象
    */
   async getCurrentMap(userId: number): Promise<any> {
-    const player = await this.prisma.player.findUnique({ where: { userId } });
-    if (!player) throw new Error('玩家数据不存在');
-    return this.mapService.getMapById(player.mapId);
+    return this.supportSvc.getCurrentMap(userId);
   }
 
   /**
@@ -14908,11 +14799,7 @@ export class GameService {
   }
 
   private firstPositiveNumber(...values: any[]): number {
-    for (const value of values) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed) && parsed > 0) return parsed;
-    }
-    return 0;
+    return this.supportSvc.firstPositiveNumber(...values);
   }
 
   private parseRescueObject(value: any): any {
@@ -15549,7 +15436,7 @@ export class GameService {
       for (let i = 0; i < merchantLevel; i++) {
         if (Math.random() * 100 < affinityChance) {
           extraCount++;
-          if (!triggerText) triggerText = `,并带来了更多物品。[行商好感触发,${this.roundText(affinityChance)}%]`;
+          if (!triggerText) triggerText = `,并带来了更多物品。[行商好感触发,${this.round2Text(affinityChance)}%]`;
         }
       }
       const homeSummons = asJsonValue<any[]>(homeMap.summons, [])
@@ -16034,7 +15921,7 @@ export class GameService {
       const target = presets[idx - 1];
       presets.splice(idx - 1, 1);
       const backpack = this.playerService.getBackpackItems(player);
-      for (const eq of target.equipment || []) backpack.push(eq);
+      for (const eq of target.equipment || []) mergeBackpackItem(backpack, eq, lookupFromStaticData(this.staticData));
       player.equipmentPresets = presets; // Json 列直接写数组
       player.backpack = backpack; // Json 列直接写数组
       await this.playerService.savePlayer(player);
@@ -16889,8 +16776,7 @@ export class GameService {
   }
 
   private parseJsonArray(value: any): any[] {
-    if (Array.isArray(value)) return value;
-    return asJsonValue<any[]>(value, []);
+    return this.supportSvc.parseJsonArray(value);
   }
 
   /**
@@ -16924,8 +16810,7 @@ export class GameService {
     for (let i = markers2.length - 1; i >= 0; i--) {
       const marker = markers2[i];
       const name = marker?.名称 ?? marker?.name ?? '';
-      const rawExpire = Number(marker?.有效期至 ?? marker?.expireAt ?? 0);
-      const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
+      const expireMs = toExpireMs(marker);
       if (expireMs <= now && !String(name).startsWith('刷新')) {
         markers2.splice(i, 1);
         changed = true;
@@ -16957,17 +16842,7 @@ export class GameService {
 
   /** 任务推进的服务层适配点，避免任务服务不可用时影响核心玩法动作。 */
   private async advanceTask(userId: number, actionName: string, count = 1): Promise<void> {
-    const advance = (this.taskService as any)?.advance;
-    if (typeof advance !== 'function') return;
-    if (count === 1) {
-      await advance.call(this.taskService, userId, actionName);
-    } else {
-      await advance.call(this.taskService, userId, actionName, count);
-    }
-  }
-
-  private roundText(value: number): string {
-    return formatDisplayNumber(value);
+    return this.supportSvc.advanceTask(userId, actionName, count);
   }
 
   /** 行商列表显示名包含原版显示特效名称所需的特效标签。 */
@@ -16989,7 +16864,7 @@ export class GameService {
     if ((item?.type ?? item?.类型) === '装备') {
       return `${name}${includeEffect && effect ? `【${effect}】` : ''}`;
     }
-    return `${name}${includeQuantity ? `x${this.roundText(this.itemQuantity(item))}` : ''}`;
+    return `${name}${includeQuantity ? `x${this.round2Text(this.itemQuantity(item))}` : ''}`;
   }
 
   private formatMerchantItems(items: any[]): string {
@@ -17079,7 +16954,7 @@ export class GameService {
         })
         .map((cost) => {
           const item = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === cost.name);
-          return `#换行需要${cost.name}x${this.roundText(cost.quantity)}，你只有${this.roundText(this.itemQuantity(item))}`;
+          return `#换行需要${cost.name}x${this.round2Text(cost.quantity)}，你只有${this.round2Text(this.itemQuantity(item))}`;
         }).join('');
       return `${player.name}${missing}`;
     }
@@ -17095,7 +16970,7 @@ export class GameService {
     if (Math.random() * 100 < giftChance) {
       const gift = this.generateMerchantResource();
       this.addItemToCollection(backpack, gift);
-      result += `#换行行商把${gift.name}x${gift.quantity}送给了${player.name}(${this.roundText(giftChance)}%)`;
+      result += `#换行行商把${gift.name}x${gift.quantity}送给了${player.name}(${this.round2Text(giftChance)}%)`;
     }
 
     this.achievementService.setAchievement(markers, '购物', shopSkill + 1);
@@ -17401,12 +17276,6 @@ export class GameService {
    * 获取玩家名称的辅助方法
    */
   private async getPlayerName(userId: number): Promise<string> {
-    try {
-      // 走 getPlayerData：Actor 邮箱内读内存活态，改名后无需等待落库即可生效
-      const pd = await this.playerService.getPlayerData(userId);
-      return pd.player.name || '冒险者';
-    } catch {
-      return '冒险者';
-    }
+    return this.supportSvc.getPlayerName(userId);
   }
 }

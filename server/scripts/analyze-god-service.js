@@ -9,11 +9,13 @@ const FILE = path.resolve(__dirname, '../src/modules/game/game.service.ts');
 const src = fs.readFileSync(FILE, 'utf8');
 const lines = src.split(/\r?\n/);
 
-const NAME_RE = /^  (private |public |protected )?(async )?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/;
+const NAME_RE = /^  (private |public |protected )?(async )?([a-zA-Z_][a-zA-Z0-9_]*)(<[^=]*?>)?\s*\(/;
 const methods = [];
 for (let i = 0; i < lines.length; i++) {
   const m = lines[i].match(NAME_RE);
-  if (m && !lines[i].includes('=') && !lines[i].trim().startsWith('*')) {
+  // 只排除箭头函数属性行与注释行；不能排除含 `=` 的行——带默认参数值的方法声明
+  //（如 `handleSweep(userId, requestedCount = 0)`）曾被 `includes('=')` 一并误杀。
+  if (m && !/=>\s*\{?\s*$/.test(lines[i]) && !lines[i].trim().startsWith('*')) {
     methods.push({ name: m[3], start: i + 1 });
   }
 }

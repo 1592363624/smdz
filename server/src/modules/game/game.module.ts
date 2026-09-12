@@ -4,6 +4,7 @@
 import { Module, Global, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from './game.service';
+import { GameSupportService } from './game-support.service';
 import { GameController } from './game.controller';
 import { PlayerService } from './player.service';
 import { PlayerMutateContextService } from './player-mutate-context.service';
@@ -53,6 +54,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   ],
   providers: [
     GameService,
+    GameSupportService,
     PlayerService,
     PlayerMutateContextService,
     PlayerMutateService,
@@ -89,6 +91,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   ],
   exports: [
     GameService,
+    GameSupportService,
     PlayerService,
     PlayerMutateContextService,
     PlayerMutateService,

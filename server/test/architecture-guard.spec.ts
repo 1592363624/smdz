@@ -470,7 +470,9 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 单文件 god class 已经大到任何修改都要在数千行里找上下文、任何合并都可能踩冲突。
   // 止血规则：**新增指令 handler 一律新文件（挂 game 模块下），GameService 只减不增**；
   // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
-  const GAME_SERVICE_LINE_BASELINE = 17434;
+  // 基线 17,434 → 17,281（2026-09-12 P1 批次）：P1-1 消重（roundText/displayDamage）+
+  // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
+  const GAME_SERVICE_LINE_BASELINE = 17281;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(
@@ -564,4 +566,89 @@ describe('架构门禁：玩家状态写入口收口', () => {
       expect(lineCount).toBeLessThanOrEqual(baseline);
     });
   }
+
+  // ===== G7：支撑层零回边（game.service.ts 模块化重构方案 §6 / §4 原则 2）=====
+  // 背景：GameSupportService 是被全部指令域共用的共享支撑层。它一旦注入/导入任何
+  // 指令域子服务（P2/P3 将拆出的 game/commands/*.service），依赖图立刻成环——
+  // 正是本次重构要消解的 SCC。断言标准：支撑层出度边 = 0（对指令域子服务的
+  // import 语句数 = 0，注释提及不算）。
+  it('GameSupportService 不得 import 任何指令域子服务（G7：支撑层出度边=0）', () => {
+    const supportSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game-support.service.ts'),
+      'utf8',
+    );
+    // 只匹配真正的 import 语句（含多行 import 的 from 子句），忽略注释
+    const importLines = supportSrc
+      .split('\n')
+      .filter((l) => /^\s*(import|}\s*from)\b/.test(l) || /from\s+['"]/.test(l));
+    const offenders = importLines.filter((l) => /commands\//.test(l));
+    expect(offenders).toEqual([]);
+  });
+
+  // ===== G8：门面类体内不得残留业务状态字段（§4.1 / C6）=====
+  // 背景：实例状态必须与使用它的方法族同批、同目标迁移；状态留在门面会破坏
+  // 「门面仅委托」。推送子系统 3 字段暂留门面（C7），P3 拆 panel 后白名单清空；
+  // 其余 4 个字段随各自归属批迁出（P2-1 ranking / P2-8 shop / P3 gather），
+  // 迁出时同步把该字段从白名单删除——白名单只减不增。
+  const FACADE_STATE_FIELD_WHITELIST = new Set([
+    // 推送/防抖子系统（C7，暂留门面至 P3 后）
+    'playerUpdateTimers',
+    'mapUpdateTimers',
+    'revCounters',
+    // gather 域并发去重（P3 内核批随迁）
+    'gatherStartInflight',
+    // shop 域交易串行化（P2-8 随迁）
+    'tradeLocks',
+    // ranking 域（P2-1 随迁）
+    'lastCalcAtByUser',
+    'RANKING_SUB_TYPES',
+    // skill 域静态定义表（P2-7 随迁）
+    'BOND_SKILL_A',
+    'BOND_SKILL_B',
+  ]);
+
+  it('game.service.ts 门面类体内不得新增业务状态 Map/Set/Timer 字段（G8）', () => {
+    const gameSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game.service.ts'),
+      'utf8',
+    );
+    const found = new Set<string>();
+    // Map/Set 初始器字段：`private [static] [readonly] x = new Map/Set`
+    for (const m of gameSrc.matchAll(
+      /^  (?:private |public |protected )?(?:static )?(?:readonly )?(\w+)(?:<[^>]*>)?(?::[^=\n]*)?=\s*new (?:Map|Set)\b/gm,
+    )) {
+      found.add(m[1]);
+    }
+    // 数组字面量状态（static readonly RANKING_SUB_TYPES = [...]）
+    for (const m of gameSrc.matchAll(
+      /^  (?:private |public |protected )?static (?:readonly )?(\w+)(?:<[^>]*>)?(?::[^=\n]*)?=\s*\[/gm,
+    )) {
+      found.add(m[1]);
+    }
+    // NodeJS.Timeout 字段（防抖定时器句柄）
+    for (const m of gameSrc.matchAll(
+      /^  (?:private |public |protected )?(?:static )?(?:readonly )?(\w+)(?:<[^>]*>)?[^\n=]*NodeJS\.Timeout/gm,
+    )) {
+      found.add(m[1]);
+    }
+    const illegal = [...found].filter((name) => !FACADE_STATE_FIELD_WHITELIST.has(name));
+    if (illegal.length > 0) {
+      throw new Error(
+        `门面出现未登记的业务状态字段：${illegal.join(', ')}。\n` +
+          `实例状态必须与使用它的方法族同批迁出（§4.1 归属表）；确需暂留门面请` +
+          `在 FACADE_STATE_FIELD_WHITELIST 登记（注明随迁批次），白名单只减不增。`,
+      );
+    }
+    expect(illegal).toEqual([]);
+  });
+
+  it('G8 白名单字段必须真实存在于门面（迁移后未摘牌即红，防名单腐化）', () => {
+    const gameSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game.service.ts'),
+      'utf8',
+    );
+    const stale = [...FACADE_STATE_FIELD_WHITELIST].filter((name) => !gameSrc.includes(name));
+    // 白名单字段已随批迁出的，必须同步从名单删除——名单是「暂留门面」的登记处
+    expect(stale).toEqual([]);
+  });
 });

@@ -37,7 +37,7 @@ import {
   toExpireMs, itemName,
 } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
-import { roundItemQuantity } from '../../common/utils/game-text.util';
+import { formatDamageText, formatMsDurationText, roundItemQuantity } from '../../common/utils/game-text.util';
 // 背包写入唯一出口（按名合并 / type 以静态定义为唯一真源），禁各路径手写合并逻辑
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 
@@ -5898,7 +5898,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const it = markers2.find((m: any) => itemName(m) === key);
       const remain = it ? remainSeconds(it, nowMs) : 0;
       return remain > 0
-        ? `${prefix}(还有${this.msToTimeTextLocal(remain * 1000)})`
+        ? `${prefix}(还有${formatMsDurationText(remain * 1000)})`
         : `${donePrefix}(冷却完毕)`;
     };
 
@@ -10103,19 +10103,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    * @returns { dead: boolean, extraText: string, deathText: string }
    */
 
-  /** 显示伤害（对应原版 通用 显示伤害）：返回取整后的伤害数值文本 */
-  private displayDamage(value: number): string {
-    return String(Math.round(value || 0));
-  }
 
-  /** 数字到时间（对应原版 通用 数字到时间）：毫秒 → 可读时间文本（秒/分秒） */
-  private msToTimeTextLocal(ms: number): string {
-    const totalSec = Math.max(0, Math.floor((ms || 0) / 1000));
-    if (totalSec < 60) return `${totalSec}秒`;
-    const min = Math.floor(totalSec / 60);
-    const sec = totalSec % 60;
-    return `${min}分${sec}秒`;
-  }
 
 
   /**
@@ -10217,7 +10205,7 @@ export class CombatSystemService implements OnApplicationShutdown {
               damageTextRef.value +
               '\n' +
               '生命' +
-              this.displayDamage(-(defender.currentHp || 0)) +
+              formatDamageText(-(defender.currentHp || 0)) +
               '(' + '0' + ')';
             defender.currentHp = member.currentHp || member.当前生命 || 0;
             member.currentHp = 0;
@@ -10225,7 +10213,7 @@ export class CombatSystemService implements OnApplicationShutdown {
               damageTextRef.value +
               '\n' +
               '【目标】与分身互换生命' +
-              '(' + '生命+' + this.displayDamage(defender.currentHp || 0) + ')';
+              '(' + '生命+' + formatDamageText(defender.currentHp || 0) + ')';
             return true;
           }
         }
@@ -10256,7 +10244,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         damageTextRef.value +
         '\n' +
         '生命' +
-        this.displayDamage(-((defender.currentHp || 0) - 1)) +
+        formatDamageText(-((defender.currentHp || 0) - 1)) +
         '(' + '1' + ')';
       defender.currentHp = 1;
       return true;
@@ -10265,23 +10253,23 @@ export class CombatSystemService implements OnApplicationShutdown {
         damageTextRef.value +
         '\n' +
         '生命-0' +
-        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
-        '(' + '神威灵装·五番' + this.msToTimeTextLocal(buffRemain('五番a')) + ')';
+        '(' + formatDamageText(defender.currentHp || 0) + ')' +
+        '(' + '神威灵装·五番' + formatMsDurationText(buffRemain('五番a')) + ')';
       return true;
     } else if (b === 4) {
       damageTextRef.value =
         damageTextRef.value +
         '\n' +
         '生命-0' +
-        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
-        '(' + '猫爪' + this.msToTimeTextLocal(buffRemain('猫爪')) + ')';
+        '(' + formatDamageText(defender.currentHp || 0) + ')' +
+        '(' + '猫爪' + formatMsDurationText(buffRemain('猫爪')) + ')';
       return true;
     } else if (b === 5) {
       damageTextRef.value =
         damageTextRef.value +
         '\n' +
         '生命-0' +
-        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
+        '(' + formatDamageText(defender.currentHp || 0) + ')' +
         '(' + '女仆' + ')';
       return true;
     }
