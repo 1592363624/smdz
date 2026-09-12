@@ -488,4 +488,80 @@ describe('架构门禁：玩家状态写入口收口', () => {
     }
     expect(lineCount).toBeLessThanOrEqual(GAME_SERVICE_LINE_BASELINE);
   });
+
+  // ===== P0 止损门禁：膨胀转移通道冻结（game.service.ts 模块化重构方案 §5 P0）=====
+  // 背景：G1 只冻结了 game.service.ts 一个文件，而门禁只会位移矛盾——
+  // game-command.handler.ts 从 1,009 行（08-13）膨胀到 2,041 行（09-11）即前车之鉴。
+  // 因此把「新增指令一律新文件」的止损口径扩展成一组冻结规则：
+  // - G5：调度层 game-command.handler.ts 行数只减不增（新增指令注册到
+  //   command/handlers/ 下新的 handlerKey 子域，不再写入 GameCommandHandler.dispatch）。
+  // - G6：game.service.ts 中 handleXxx 指令方法数量只减不增（P0-3 白名单冻结：
+  //   新指令不得以 handleXxx 形态挤进 god class；模块化拆分只允许让这个数变小）。
+  // - G9：combat-system / familiar-system / familiar-skills / item-system 四个二期
+  //   重点文件行数冻结（基线 = 2026-09-12 实测），二期拆分开工时改为「准许下降」。
+  // 冻结口径 = 净行数不增：改 bug / 重构 / 删代码不受限，只禁新增功能堆行。
+  // 真有正当理由加行数时，显式上调基线走 PR 评审——被门禁拦下的改动必须被看见。
+  const GAME_COMMAND_HANDLER_LINE_BASELINE = 2041;
+  const GAME_SERVICE_HANDLE_METHOD_BASELINE = 240;
+
+  it('game-command.handler.ts 行数只减不增（G5：新指令走新 handlerKey 子域，禁止膨胀转移）', () => {
+    const handlerSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/command/handlers/game-command.handler.ts'),
+      'utf8',
+    );
+    const lineCount = (handlerSrc.match(/\r?\n/g) ?? []).length;
+    if (lineCount > GAME_COMMAND_HANDLER_LINE_BASELINE) {
+      throw new Error(
+        `game-command.handler.ts 行数 ${lineCount} 已超过冻结基线 ${GAME_COMMAND_HANDLER_LINE_BASELINE}。\n` +
+          `新增指令一律新文件（game/commands/<域>.service.ts + 新 handlerKey 子域），\n` +
+          `不得继续写入 GameCommandHandler.dispatch 的分支；确需增量请显式上调基线走评审。`,
+      );
+    }
+    expect(lineCount).toBeLessThanOrEqual(GAME_COMMAND_HANDLER_LINE_BASELINE);
+  });
+
+  it('game.service.ts 的 handleXxx 方法数量只减不增（G6：新增指令不得挤进 god class）', () => {
+    const gameSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game.service.ts'),
+      'utf8',
+    );
+    // 只统计方法声明行（类体内 2 空格缩进的 handleXxx(），不匹配调用点。
+    // 当前 240 个即现有指令面白名单计数上限：新增指令必须落在新文件。
+    const handleDecls = gameSrc.match(
+      /^\s{2}(?:private\s+|public\s+|protected\s+|static\s+|async\s+)*handle[A-Z]\w*\s*\(/gm,
+    );
+    const count = handleDecls ? handleDecls.length : 0;
+    if (count > GAME_SERVICE_HANDLE_METHOD_BASELINE) {
+      throw new Error(
+        `game.service.ts 的 handleXxx 方法数量 ${count} 已超过冻结基线 ${GAME_SERVICE_HANDLE_METHOD_BASELINE}。\n` +
+          `新增指令一律新文件（game/commands/<域>.service.ts），不得以 handleXxx 形态进入 GameService；\n` +
+          `模块化拆分迁出后请同步下调本基线。`,
+      );
+    }
+    expect(count).toBeLessThanOrEqual(GAME_SERVICE_HANDLE_METHOD_BASELINE);
+  });
+
+  // G9：四个二期重点文件行数冻结（P0-4，基线 = 2026-09-12 实测）。
+  // 这些文件暂无门禁约束时，game.service 被冻结后新增战斗/使魔/物品逻辑会涌入，
+  // 重演 game-command.handler 1,009→2,041 的教训（§11.1）。
+  const PHASE2_FILE_LINE_BASELINES: Array<[string, number]> = [
+    ['modules/game/combat-system.service.ts', 12418],
+    ['modules/game/familiar-system.service.ts', 4853],
+    ['modules/game/familiar-skills.service.ts', 4053],
+    ['modules/game/item-system.service.ts', 3386],
+  ];
+  for (const [relFile, baseline] of PHASE2_FILE_LINE_BASELINES) {
+    it(`二期重点文件行数冻结（G9）：${path.basename(relFile)} 只减不增（基线 ${baseline}）`, () => {
+      const src = fs.readFileSync(path.join(SRC_DIR, relFile), 'utf8');
+      const lineCount = (src.match(/\r?\n/g) ?? []).length;
+      if (lineCount > baseline) {
+        throw new Error(
+          `${relFile} 行数 ${lineCount} 已超过冻结基线 ${baseline}。\n` +
+            `该文件是二期拆分重点，一期冻结防膨胀转移；改 bug / 重构 / 删代码不受限，\n` +
+            `确需新增功能堆行请显式上调基线走 PR 评审。`,
+        );
+      }
+      expect(lineCount).toBeLessThanOrEqual(baseline);
+    });
+  }
 });
