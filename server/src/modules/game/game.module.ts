@@ -5,6 +5,7 @@ import { Module, Global, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from './game.service';
 import { GameSupportService } from './game-support.service';
+import { EquipCommandService } from './commands/equip-command.service';
 import { PetCommandService } from './commands/pet-command.service';
 import { TimeSettleService } from './commands/time-settle.service';
 import { FusionCraftService } from './commands/fusion-craft.service';
@@ -60,6 +61,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   providers: [
     GameService,
     GameSupportService,
+    EquipCommandService,
     PetCommandService,
     TimeSettleService,
     FusionCraftService,
@@ -102,6 +104,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   exports: [
     GameService,
     GameSupportService,
+    EquipCommandService,
     PetCommandService,
     TimeSettleService,
     FusionCraftService,

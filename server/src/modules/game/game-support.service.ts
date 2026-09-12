@@ -407,4 +407,18 @@ export class GameSupportService {
     mergeBackpackItem(collection, item, lookupFromStaticData(this.staticData));
   }
 
+
+  getBackpackDisplayItems(items: any[]): any[] {
+    const list = items || [];
+    return [
+      ...list.filter((item: any) => (item.type || item.类型) !== '装备'),
+      ...list.filter((item: any) => (item.type || item.类型) === '装备'),
+    ];
+  }
+
+  /**
+   * 处理查看背包命令
+   * 列表=全部物品：资源在前、装备在后（getBackpackDisplayItems 统一排序）。
+   * 数字入参（背包 N）= 展示列表序号，与「背包」输出同源（前端悬浮图鉴按行序号回查）。
+   */
 }
