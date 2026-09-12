@@ -25,6 +25,7 @@ import { DungeonChallengeService } from '../src/modules/game/commands/dungeon-ch
 import { RescueWhiteService } from '../src/modules/game/commands/rescue-white.service';
 import { MovementVehicleService } from '../src/modules/game/commands/movement-vehicle.service';
 import { GatherPanelService } from '../src/modules/game/commands/gather-panel.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 /** 按原型造最小桩实例（方法可运行，依赖按需挂载） */
 function makeSvc(proto: object, fields: Record<string, any> = {}): any {
@@ -155,8 +156,7 @@ describe('P4-5：各指令域子服务冒烟桩测试', () => {
 
 describe('P4-5：门面委托链路冒烟（门面 → 子服务，R8 懒构造桥）', () => {
   it('Object.create 桩上的门面委托方法全部可达', async () => {
-    const stub: any = Object.create(GameService.prototype);
-    Object.assign(stub, {
+    const stub: any = createGameServiceStub({
       playerService: {
         enqueueUserWrite: async (_u: number, fn: () => any) => fn(),
         getPlayerData: async (uid: number) => ({ player: { userId: uid, name: '甲' } }),

@@ -8,9 +8,10 @@
  */
 import { GameService } from '../src/modules/game/game.service';
 import { ItemService } from '../src/modules/game/item.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function makeService(player: any) {
-  const service = Object.create(GameService.prototype) as any;
+  const service = createGameServiceStub() as any;
   const staticData = {
     getEquipmentByName: (name: string) =>
       name === '布衣'

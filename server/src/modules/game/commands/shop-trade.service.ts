@@ -6,8 +6,8 @@
  * 配方与配方解锁、逆向（查询/单项/全部/结算展示）。
  * 依赖方向：依赖 Player、Prisma、Task、StaticData、Map、FamiliarSystemService、
  * Achievement、Item、ItemSystem、Home、支撑层（getCurrentMap/round2Text/
- * itemName/itemType/itemQuantity/deductBackpackItem 等）；过渡期经门面引用
- * 触达 fusion 域的 isFusionWeapon（已拆出 FusionCraftService，可后续直改注入）。
+ * itemName/itemType/itemQuantity/deductBackpackItem 等）；跨域直接注入兄弟
+ * 子服务 FusionCraft（isFusionWeapon），单向边无环。
  * 单一真相源：库存生成统一 buildMerchantInventory（schedule.service 同源调用）；
  * 背包扣减/累加统一支撑层出口；货币读写统一 PlayerService 入口。
  * 对口原版：_主程序.ecode 商店/行商/逆向分支。
@@ -28,22 +28,11 @@ import { FamiliarSystemService } from '.././familiar-system.service';
 import { StaticDataService } from '.././static-data.service';
 import { TaskService } from '.././task.service';
 import { GameSupportService } from '.././game-support.service';
-import { GameService } from '.././game.service';
+import { FusionCraftService } from './fusion-craft.service';
 
 @Injectable()
 export class ShopTradeService {
   private readonly logger = new Logger(ShopTradeService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -57,6 +46,8 @@ export class ShopTradeService {
     private readonly familiarSystemService: FamiliarSystemService,
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    private readonly fusion: FusionCraftService,
   ) {}
 
   async withTradeLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -738,7 +729,7 @@ export class ShopTradeService {
     if ((item?.type ?? item?.类型) === '装备' && item?.data) {
       const parsed = this.itemService.parseEquipment(item as any);
       if (parsed.specialEffect > 0) {
-        const weapon = this.facade!.isFusionWeapon(item);
+        const weapon = this.fusion.isFusionWeapon(item);
         const effectRow = typeof (this.staticData as any).getEffectById === 'function'
           ? (this.staticData as any).getEffectById(parsed.specialEffect, weapon)
           : (weapon

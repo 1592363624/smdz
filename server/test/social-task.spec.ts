@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function jsonParse(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -25,8 +26,7 @@ describe('贸易、购物、求助任务触发', () => {
       user: { findUnique: jest.fn(async () => ({ qqNumber: 'qq-42' })) },
       gameShopItem: { create: jest.fn(async () => ({ id: 1 })) },
     };
-    const service: any = Object.create(GameService.prototype);
-    Object.assign(service, {
+    const service: any = createGameServiceStub({
       prisma,
       playerService,
       taskService,
@@ -80,8 +80,7 @@ describe('贸易、购物、求助任务触发', () => {
       getMapByName: jest.fn(async () => null),
       updateDynamicFields: jest.fn(async (_mapId: number, data: any) => Object.assign(map, data)),
     };
-    const service: any = Object.create(GameService.prototype);
-    Object.assign(service, {
+    const service: any = createGameServiceStub({
       prisma: { player: { findUnique: jest.fn(async () => player) } },
       playerService,
       mapService,
@@ -129,8 +128,7 @@ describe('贸易、购物、求助任务触发', () => {
         update: jest.fn(async ({ data }: any) => Object.assign(map, data)),
       },
     };
-    const service: any = Object.create(GameService.prototype);
-    Object.assign(service, {
+    const service: any = createGameServiceStub({
       prisma,
       playerService,
       taskService,

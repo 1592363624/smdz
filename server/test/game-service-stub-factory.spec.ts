@@ -1,16 +1,18 @@
 /**
- * GameService 桩工厂契约测试（P1-6 / 风险 R8）
+ * GameService 桩工厂契约测试（P1-6 建立，P4 过渡清理 B 批重写）
  *
- * 验证 test/helpers/game-service-stub.factory.ts 构造的「门面桩 + 支撑层实例」：
- * 1. 迁出到 GameSupportService 的方法经门面委托可达（委托目标非 undefined）；
- * 2. mutatePlayer 的降级回退路径（无 PlayerMutateService 注入）行为不变；
- * 3. 懒构造兜底：Object.create 桩即使不走工厂也能拿到委托目标（历史 spec 兼容）。
+ * 验证 test/helpers/game-service-stub.factory.ts 的「惰性挂载」语义：
+ * 1. 按生产构造签名挂支撑层与全部 15 个子服务（首次访问时构建，委托目标非 undefined）；
+ * 2. 跨域兄弟槽位已回填（movement↔panel 等互指边与生产 DI/forwardRef 等价）；
+ * 3. mutatePlayer 的降级回退路径（无 PlayerMutateService 注入）行为不变；
+ * 4. 测试显式提供的子服务/支撑层实例不被覆盖（可挂手写桩）。
  */
-import { GameService } from '../src/modules/game/game.service';
 import { GameSupportService } from '../src/modules/game/game-support.service';
+import { GatherPanelService } from '../src/modules/game/commands/gather-panel.service';
+import { MovementVehicleService } from '../src/modules/game/commands/movement-vehicle.service';
 import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
-describe('GameService 桩工厂（R8 固定缓解）', () => {
+describe('GameService 桩工厂（惰性挂载）', () => {
   const saved: any[] = [];
   const stub = createGameServiceStub({
     playerService: {
@@ -27,8 +29,19 @@ describe('GameService 桩工厂（R8 固定缓解）', () => {
     combatState: { normalizeBuffItem: jest.fn((entry: any) => entry) },
   });
 
-  it('工厂构造的桩上，支撑层已显式接线（委托目标非 undefined）', () => {
+  it('工厂构造的桩上，支撑层与全部子服务首次访问即挂载（委托目标非 undefined）', () => {
     expect(stub.support).toBeInstanceOf(GameSupportService);
+    expect(stub.gatherPanelService).toBeInstanceOf(GatherPanelService);
+    expect(stub.movementVehicleService).toBeInstanceOf(MovementVehicleService);
+  });
+
+  it('跨域兄弟槽位已回填（与生产 DI / forwardRef 语义等价）', () => {
+    const mv = stub.movementVehicleService;
+    expect((mv as any).panel).toBe(stub.gatherPanelService);
+    expect((mv as any).rescue).toBe(stub.rescueWhiteService);
+    expect((mv as any).shop).toBe(stub.shopTradeService);
+    expect((mv as any).homeBuild).toBe(stub.homeBuildService);
+    expect((stub.gatherPanelService as any).movement).toBe(mv);
   });
 
   it('迁出的私有辅助经门面委托可达且行为一致', () => {
@@ -55,17 +68,16 @@ describe('GameService 桩工厂（R8 固定缓解）', () => {
     await expect(noTask.advanceTask(1, '移动', 3)).resolves.toBeUndefined();
   });
 
-  it('懒构造兜底：Object.create 桩未挂 support 时委托仍可用（历史 spec 兼容）', () => {
-    const legacy: any = Object.create(GameService.prototype);
-    legacy.playerService = stub.playerService;
-    legacy.prisma = stub.prisma;
-    legacy.mapService = stub.mapService;
-    legacy.staticData = stub.staticData;
-    legacy.taskService = stub.taskService;
-    legacy.combatState = stub.combatState;
-    // 不设置 support——访问 supportSvc 时应用桩字段懒构造
-    expect(legacy.support).toBeUndefined();
-    expect(legacy.round2Text(2)).toBe('2');
-    expect(legacy.support).toBeInstanceOf(GameSupportService);
+  it('先建桩后补字段：惰性构建读取的是首次访问时点的桩字段', () => {
+    const late = createGameServiceStub({});
+    late.playerService = { getPlayerData: async () => ({ player: { name: '丙' } }) } as any;
+    expect(late.support).toBeInstanceOf(GameSupportService);
+    expect((late.support as any).playerService).toBe(late.playerService);
+  });
+
+  it('测试显式提供的手写子服务桩不被工厂覆盖', () => {
+    const handPanel = { handleLookAround: jest.fn(async () => '面板') };
+    const custom = createGameServiceStub({ gatherPanelService: handPanel });
+    expect(custom.gatherPanelService).toBe(handPanel);
   });
 });

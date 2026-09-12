@@ -1,6 +1,7 @@
 import { GameService } from '../src/modules/game/game.service';
 import { MapService } from '../src/modules/game/map.service';
 import { FamiliarSkillsService } from '../src/modules/game/familiar-skills.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -23,8 +24,7 @@ describe('生成神之工匠/生成废弃载具 语义还原 + 耗时公式复�
     const map: any = { id: 7, name: '工坊地图', markers2: '[]', summons: '[]' };
     const summonsStore: any[] = [];
     const wreckMapVehicles = { value: '[]' };
-    const service: any = Object.create(GameService.prototype);
-    Object.assign(service, {
+    const service: any = createGameServiceStub({
       prisma: {
         user: { findUnique: jest.fn(async () => ({ id: 42, role: options.role ?? 'ADMIN' })) },
       },
@@ -69,7 +69,6 @@ describe('生成神之工匠/生成废弃载具 语义还原 + 耗时公式复�
       logger: { log: jest.fn(), warn: jest.fn() },
     });
     // P3-4：dungeon 域已迁出，经门面引用调用 vehicle 域 toRuntimeVehicle/toStoredVehicle——桩自挂门面
-    (service as any).dungeonChallengeServiceSvc?.attachFacade?.(service);
     return { service, player, map, wreckMapVehicles, summonsStore };
   }
 

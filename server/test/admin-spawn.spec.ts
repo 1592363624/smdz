@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -17,8 +18,7 @@ function makeService(options: { role?: string; map3?: any } = {}) {
   };
   const map: any = { id: 7, name: '当前地图', level: 5 };
   const map3: any = options.map3 || { id: 3, name: '新手村', level: 1 };
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma: {
       user: { findUnique: jest.fn(async () => ({ id: 42, role: options.role ?? 'ADMIN' })) },
       player: { findFirst: jest.fn(async () => ({ id: 1, name: '归属者', masterQQ: '123' })) },

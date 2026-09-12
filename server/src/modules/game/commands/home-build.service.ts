@@ -5,13 +5,12 @@
  * 家园产出/作物/建筑/家园查看、信号枪、货舱召唤延时结算（completeCargoSummon/
  * applyCargoSummon）、updateMapBuildings 地图建筑写口。
  * 依赖方向：依赖 Player、Map、FamiliarSystemService、Prisma、StaticData、
- * DelayedTaskService、HomeService、Task、CombatState 与支撑层；过渡期经门面引用
- * 触达 vehicle 域 calcVehicleTotalBonus/getSlotLimit、shop 域 formatMerchantItems、
- * gather 域 parseResourceOutputs（P3-6 内核合并后改为直接注入）。
+ * DelayedTaskService、HomeService、Task、CombatState 与支撑层；跨域直接注入
+ * 兄弟子服务 ShopTrade、MovementVehicle（互调边，forwardRef 断环）、GatherPanel。
  * 单一真相源：地图建筑写入统一 updateMapBuildings（mapService.updateDynamicFields 闭环）；
  * 背包合并统一支撑层 addItemToCollection/mergeBackpackItem。
  * 对口原版：_主程序.ecode 家园/建造/货舱召唤分支。
- */import { Injectable, Logger, Optional } from '@nestjs/common';
+ */import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlayerService } from '.././player.service';
@@ -24,22 +23,12 @@ import { CombatStateService } from '.././combat-state.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
 import { ShopTradeService } from './shop-trade.service';
-import { GameService } from '.././game.service';
+import { GatherPanelService } from './gather-panel.service';
+import { MovementVehicleService } from './movement-vehicle.service';
 
 @Injectable()
 export class HomeBuildService {
   private readonly logger = new Logger(HomeBuildService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -52,6 +41,12 @@ export class HomeBuildService {
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
     private readonly combatState: CombatStateService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用）。home↔movement 互调边用 forwardRef 断环；
+    // panel 处于模块循环导入 SCC（gather↔movement↔home↔rescue）内，同样必须 forwardRef。
+    @Inject(forwardRef(() => MovementVehicleService))
+    private readonly movement: MovementVehicleService,
+    @Inject(forwardRef(() => GatherPanelService))
+    private readonly panel: GatherPanelService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {}
 
@@ -291,7 +286,7 @@ export class HomeBuildService {
     const typeCount = parts.filter((p: any) => Number(p.partType) === partType).length;
 
     // 获取插槽限制
-    const slotLimit = this.facade!.getSlotLimit(vehicle, partType);
+    const slotLimit = this.movement.getSlotLimit(vehicle, partType);
 
     const available = Math.max(0, Math.floor(this.support.itemQuantity(backpackItem)));
     const installCount = Math.min(requestedCount, available, Math.max(0, slotLimit.max - typeCount));
@@ -325,7 +320,7 @@ export class HomeBuildService {
     for (let i = 0; i < installCount; i++) parts.push({ ...newPart });
 
     // 8. 更新载具加成（重新计算总加成）
-    const totalBonus = this.facade!.calcVehicleTotalBonus({
+    const totalBonus = this.movement.calcVehicleTotalBonus({
       ...vehicle,
       parts, // calcVehicleTotalBonus 内部用 asJsonValue 读取，直接传数组
     });
@@ -435,7 +430,7 @@ export class HomeBuildService {
     }
 
     // 6. 更新载具加成（重新计算总加成）
-    const totalBonus = this.facade!.calcVehicleTotalBonus({
+    const totalBonus = this.movement.calcVehicleTotalBonus({
       ...vehicle,
       parts: remainingParts, // calcVehicleTotalBonus 内部用 asJsonValue 读取，直接传数组
     });
@@ -618,7 +613,7 @@ export class HomeBuildService {
     const resources2 = asJsonValue<any[]>(map.resources2, []);
     // 原版只列出有"产出2"的作物（取数组成员数(产出2) != 0）
     const crops = resources2.filter((r: any) => {
-      const prod2 = this.facade!.parseResourceOutputs(r.outputs2 ?? r.产出2 ?? r.production2 ?? r.output2);
+      const prod2 = this.panel.parseResourceOutputs(r.outputs2 ?? r.产出2 ?? r.production2 ?? r.output2);
       return prod2.length > 0;
     });
 

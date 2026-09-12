@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -38,8 +39,7 @@ function makeService(options: {
   };
   const scheduled: any[] = [];
   const savedPlayers: any[] = [];
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma: {},
     playerService: {
       getPlayerData: jest.fn(async () => ({
@@ -86,7 +86,6 @@ function makeService(options: {
     logger: { log: jest.fn(), warn: jest.fn() },
   });
   // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
-  (service as any).movementVehicleServiceSvc?.attachFacade?.(service);
   return { service, player, map, scheduled, savedPlayers };
 }
 

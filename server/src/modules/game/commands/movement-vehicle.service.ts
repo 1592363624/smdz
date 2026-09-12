@@ -7,12 +7,13 @@
  * 聚类依据（§3.4 策略 B）：movement↔vehicle 双向边最强，合并后依赖图无环。
  * 依赖方向：依赖 Player、Map、Prisma、CombatState、CombatSystem、Shortcut、
  * Achievement、Task、DelayedTaskService、StaticData、Chat、SystemConfig、
- * FamiliarSystemService 与支撑层；跨簇调用（panel/gather/inventory/rescue/shop/home）
- * 过渡期经门面引用（attachFacade 由 onModuleInit 注入）。
+ * FamiliarSystemService 与支撑层；跨簇调用（panel/rescue/shop/home）直接注入兄弟
+ * 子服务——movement↔panel、movement↔home、movement↔rescue 为真实互调，用
+ * forwardRef 断 DI 环（残余环兜底，§4 原则 4）。
  * 单一真相源：载具运行态/存储态互转 toRuntimeVehicle/toStoredVehicle；
  * 到达结算唯一入口 performArrival（dts settle，自串行）。
  * 对口原版：_主程序.ecode 移动/载具分支。
- */import { Injectable, Logger, Optional } from '@nestjs/common';
+ */import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { formatSecondsDurationText, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -29,22 +30,14 @@ import { ShortcutService } from '.././shortcut.service';
 import { CombatStateService } from '.././combat-state.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
-import { GameService } from '.././game.service';
+import { GatherPanelService } from './gather-panel.service';
+import { HomeBuildService } from './home-build.service';
+import { RescueWhiteService } from './rescue-white.service';
+import { ShopTradeService } from './shop-trade.service';
 
 @Injectable()
 export class MovementVehicleService {
   private readonly logger = new Logger(MovementVehicleService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -60,6 +53,14 @@ export class MovementVehicleService {
     private readonly taskService: TaskService,
     private readonly shortcutService: ShortcutService,
     private readonly combatState: CombatStateService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用）。三对互调边用 forwardRef 断环。
+    @Inject(forwardRef(() => GatherPanelService))
+    private readonly panel: GatherPanelService,
+    @Inject(forwardRef(() => HomeBuildService))
+    private readonly homeBuild: HomeBuildService,
+    @Inject(forwardRef(() => RescueWhiteService))
+    private readonly rescue: RescueWhiteService,
+    private readonly shop: ShopTradeService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {}
 
@@ -182,7 +183,7 @@ export class MovementVehicleService {
         await this.playerService.savePlayer(player);
         // 原版 L6573：路径节点数 = 当前图/空间乱流/目的地 共 3 个
         await this.support.advanceTask(userId, '移动', 3);
-        const exitFollow = await this.facade!.summonFollowDisplay(currentMap, userId, { requireFollow: true });
+        const exitFollow = await this.panel.summonFollowDisplay(currentMap, userId, { requireFollow: true });
         const exitFollowText = exitFollow.count > 0 ? `带着${exitFollow.names.join('、')}一起` : '';
         return `${player.name || '冒险者'}${exitFollowText}开始前往${dest.name},大概需要${exitSeconds}秒`;
       }
@@ -254,7 +255,7 @@ export class MovementVehicleService {
     // 计算移动所需耗时（秒）
     const travelDistance = isDungeonEntry
       ? Number(dungeonEntry?.distance || 100)
-      : this.facade!.getDistance(currentMap, targetMap);
+      : this.panel.getDistance(currentMap, targetMap);
     // 原版 _主程序.ecode L6574/L6601/L6664：移动任务按最短路径节点数推进，
     // 不是按耗时或距离推进；路径长度至少按一次移动处理。
     const movementTaskCount = await this.getMovementPathLength(currentMap, targetMap);
@@ -448,7 +449,7 @@ export class MovementVehicleService {
           const hasCloak = freshEquip.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '隐形披风');
           shouldTrigger = !hasCloak;
         } else {
-          const partNames = vehicle ? this.facade!.collectVehiclePartNames(vehicle) : [];
+          const partNames = vehicle ? this.panel.collectVehiclePartNames(vehicle) : [];
           shouldTrigger = !partNames.includes('隐形模块');
         }
         if (shouldTrigger) {
@@ -462,12 +463,12 @@ export class MovementVehicleService {
     // 观察附近 + 编号临时输入替换（原版 L1758 w4=观察附近 + 临时输入替换）
     let lookText = '';
     try {
-      lookText = await this.facade!.handleLookAround(userId);
+      lookText = await this.panel.handleLookAround(userId);
     } catch (e: any) {
       this.logger.warn(`传送生成观察附近失败: ${e.message}`);
     }
 
-    const follow = await this.facade!.summonFollowDisplay(targetMap, userId, { requireFollow: true });
+    const follow = await this.panel.summonFollowDisplay(targetMap, userId, { requireFollow: true });
     const followText = follow.count > 0 ? `带着${follow.names.join('、')}一起` : '';
     let lines: string[];
     if (!vehicle) {
@@ -483,7 +484,7 @@ export class MovementVehicleService {
       } catch {
         mapMonsters = [];
       }
-      const partNames = this.facade!.collectVehiclePartNames(vehicle);
+      const partNames = this.panel.collectVehiclePartNames(vehicle);
       const jumpText = { value: '' };
       if (mapMonsters.length > 0
         && partNames.includes('旗舰跃迁引擎')
@@ -728,7 +729,7 @@ export class MovementVehicleService {
    * @param targetMapId 目标地图ID
    * @param targetMapName 目标地图名
    */
-  /** 过渡期公开（P3-1 QuestDialogueService 经门面引用调用；P3-6 内核合并后改为直接注入） */
+  /** 跨子服务 API（§10.2）：QuestDialogue/RescueWhite 经 DI 直连调用；dts 到达结算唯一入口（自串行）。 */
 
   async performArrival(
     userId: number,
@@ -828,7 +829,7 @@ export class MovementVehicleService {
     // “玩家名来到了地图名”（关卡图附说明）+ 观察附近完整列表（含编号临时输入）。
     let lookText = '';
     try {
-      lookText = await this.facade!.handleLookAround(userId);
+      lookText = await this.panel.handleLookAround(userId);
     } catch (e: any) {
       this.logger.warn(`到达生成观察附近失败: ${e.message}`);
     }
@@ -859,7 +860,7 @@ export class MovementVehicleService {
 
     // 定向刷新该玩家的地图总览面板
     try {
-      const overview = await this.facade!.getMapOverview(userId);
+      const overview = await this.panel.getMapOverview(userId);
       this.chatService.emitToUser(userId, 'map:update', { overview });
       // 玩家面板无需手动刷新：上方 savePlayer 已由 Prisma 拦截器自动触发 player:update
     } catch (e: any) {
@@ -1618,7 +1619,7 @@ export class MovementVehicleService {
    * @param vehicle 载具对象
    * @returns 合并后的总加成对象
    */
-  /** 过渡期公开（P3-2 HomeBuildService 经门面引用调用） */
+  /** 跨子服务 API（§10.2）：HomeBuild 经 DI 直连调用。 */
 
   calcVehicleTotalBonus(vehicle: any): any {
     // 解析载具基础加成
@@ -1710,7 +1711,7 @@ export class MovementVehicleService {
   }
 
   /** 将原版中文运行时字段写回兼容的中英文载具对象。 */
-  /** 过渡期公开（P3-4 DungeonChallengeService 经门面引用调用；P3-6 内核合并后改为直接注入） */
+  /** 跨子服务 API（§10.2）：DungeonChallenge 经 DI 直连调用。 */
 
   toStoredVehicle(runtime: any): any {
     const parts = (runtime.零件 || []).map((item: any) => ({
@@ -2029,7 +2030,7 @@ export class MovementVehicleService {
 
     // 床等功能建筑也可以组装到载具，原版任务使用“组装床”而不是“安装床”。
     if (this.staticData.getBuildingByName(partName)) {
-      return this.facade!.handleAssembleBuilding(userId, partName, requestedCount);
+      return this.homeBuild.handleAssembleBuilding(userId, partName, requestedCount);
     }
 
     // 验证是否为有效部件（静态配置 JSON 单一来源）
@@ -2086,7 +2087,7 @@ export class MovementVehicleService {
     }
 
     // 通过安装部件来组装
-    return await this.facade!.handleInstallPart(userId, partName, requestedCount);
+    return await this.homeBuild.handleInstallPart(userId, partName, requestedCount);
   }
 
   /**
@@ -2334,7 +2335,7 @@ export class MovementVehicleService {
     const insufficient: string[] = [];
     for (const requirement of requirements) {
       const required = requirement.quantity * count;
-      const owned = await this.facade!.backpackQuantity(backpack, requirement.name);
+      const owned = await this.panel.backpackQuantity(backpack, requirement.name);
       if (owned < required) insufficient.push(`需要${requirement.name} ×${required}，你只有${owned}`);
     }
     if (insufficient.length > 0) return { success: false, text: insufficient.join('\n') };
@@ -2364,7 +2365,7 @@ export class MovementVehicleService {
         quantity: outputQuantity,
         数量: outputQuantity,
       };
-      await this.facade!.addBackpackItem(backpack, outputItem);
+      await this.panel.addBackpackItem(backpack, outputItem);
       producedTexts.push(`${output.name} ×${outputQuantity}`);
     }
     markers['制造'] = (markers['制造'] || 0) + count;
@@ -2408,7 +2409,7 @@ export class MovementVehicleService {
     const temporaryBackpack = JSON.parse(JSON.stringify(backpack));
     const missingParts: any[] = [];
     for (const part of requiredParts) {
-      const owned = await this.facade!.backpackQuantity(temporaryBackpack, part.名称);
+      const owned = await this.panel.backpackQuantity(temporaryBackpack, part.名称);
       if (owned >= part.数量) continue;
       const stillMissing = part.数量 - owned;
       missingParts.push({ ...part, 数量: stillMissing, quantity: stillMissing });
@@ -2680,13 +2681,13 @@ export class MovementVehicleService {
       return `${name}，${vehicle.名称 || vehicle.name}安装的${overLimit}超过了上限，无法维修`;
     }
 
-    const fullHp = Number(vehicle.加成?.生命 || 0) || this.facade!.rescueVehicleMaxHp(vehicle);
+    const fullHp = Number(vehicle.加成?.生命 || 0) || this.rescue.rescueVehicleMaxHp(vehicle);
     if (fullHp > 0 && Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0) === fullHp) {
       return `${name}还不需要修`;
     }
 
     // 耗时：基础 20 秒；小雫/小凰/小蓝/小粉 各 -5 秒（原版 L10431-10443）
-    const partNames = this.facade!.collectVehiclePartNames(vehicle);
+    const partNames = this.panel.collectVehiclePartNames(vehicle);
     let seconds = 20;
     for (const part of ['小雫', '小凰', '小蓝', '小粉']) {
       if (partNames.includes(part)) seconds -= 5;
@@ -2755,7 +2756,7 @@ export class MovementVehicleService {
 
   async applyVehicleRepair(userId: number, player: any, map: any, vehicle: any): Promise<string> {
     this.combatSystem.recalculateVehicle(vehicle, Date.now());
-    const fullHp = Number(vehicle.加成?.生命 || 0) || this.facade!.rescueVehicleMaxHp(vehicle);
+    const fullHp = Number(vehicle.加成?.生命 || 0) || this.rescue.rescueVehicleMaxHp(vehicle);
     vehicle.当前生命 = fullHp;
     vehicle.currentHp = fullHp;
     if (fullHp > 0) {
@@ -3143,7 +3144,7 @@ export class MovementVehicleService {
       }
       const homeSummons = asJsonValue<any[]>(homeMap.summons, [])
         .filter((summon: any) => (summon?.name ?? summon?.名称) !== '行商');
-      const inventory = await this.facade!.generateMerchantInventory(merchantLevel, extraCount);
+      const inventory = await this.shop.generateMerchantInventory(merchantLevel, extraCount);
       homeSummons.push({
         name: '行商',
         type: '行商',
@@ -3404,5 +3405,5 @@ export class MovementVehicleService {
   }
 
   /** 将 DB/地图载具转换为原版中文字段运行时结构。 */
-  /** 过渡期公开（P3-4 DungeonChallengeService 经门面引用调用；P3-6 内核合并后改为直接注入） */
+  /** 跨子服务 API（§10.2）：DungeonChallenge 经 DI 直连调用。 */
 }

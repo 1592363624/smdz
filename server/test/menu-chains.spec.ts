@@ -1,3 +1,4 @@
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 import { GameService } from '../src/modules/game/game.service';
 import { FamiliarSystemService } from '../src/modules/game/familiar-system.service';
 
@@ -21,7 +22,7 @@ describe('菜单链：设置/宠物操作 编号临时输入替换（原版 L519
   afterEach(() => jest.restoreAllMocks());
 
   function makeGameService() {
-    const service: any = Object.create(GameService.prototype);
+    const service: any = createGameServiceStub();
     const tempInput: string[] = [];
     const player = {
       id: 1, userId: 42, name: '冒险者', mapId: 7,

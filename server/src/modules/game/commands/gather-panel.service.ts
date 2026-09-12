@@ -9,7 +9,8 @@
  * Bonus、Item、ItemSystem、Vitality、Stats、Task、Shortcut、Achievement、Chat、
  * FamiliarService、FamiliarSystemService、AutoMineService、DelayedTaskService
  * 与支撑层；跨簇调用（movement-vehicle 域 findTravelVehicle、rescue 域
- * materializeWhiteSummon）过渡期经门面引用（attachFacade 由 onModuleInit 注入）。
+ * materializeWhiteSummon）直接注入兄弟子服务——movement↔panel 为真实互调，
+ * forwardRef 断 DI 环（§4 原则 4）。
  * 单一真相源：推送版本统一 nextRev 单调计数；增益标记统一 normalizeMarkers2；
  * 采集指令解析统一 resolveGatherCmd（支撑层）。
  * 对口原版：_主程序.ecode 面板/采集/背包分支。
@@ -17,7 +18,7 @@
  * 状态字段（§4.1 归属表，随本批迁出，G8 白名单自此清空）：
  * gatherStartInflight（采集并发去重）、playerUpdateTimers/mapUpdateTimers（推送防抖）、
  * revCounters（推送版本单调计数）。
- */import { Injectable, Logger, Optional } from '@nestjs/common';
+ */import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { formatDisplayNumber, normalizeGameText, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
@@ -44,22 +45,12 @@ import { AutoMineService } from '.././auto-mine.service';
 import { VitalityService } from '.././vitality.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
-import { GameService } from '.././game.service';
+import { MovementVehicleService } from './movement-vehicle.service';
+import { RescueWhiteService } from './rescue-white.service';
 
 @Injectable()
 export class GatherPanelService {
   private readonly logger = new Logger(GatherPanelService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -80,6 +71,12 @@ export class GatherPanelService {
     private readonly shortcutService: ShortcutService,
     private readonly statsService: StatsService,
     private readonly combatState: CombatStateService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用）。movement↔panel 互调边用 forwardRef 断环；
+    // rescue 处于模块循环导入 SCC（gather↔movement↔home↔rescue）内，同样必须 forwardRef。
+    @Inject(forwardRef(() => MovementVehicleService))
+    private readonly movement: MovementVehicleService,
+    @Inject(forwardRef(() => RescueWhiteService))
+    private readonly rescue: RescueWhiteService,
     @Optional() private readonly autoMineService?: AutoMineService,
     @Optional() private readonly vitalityService?: VitalityService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
@@ -782,8 +779,6 @@ export class GatherPanelService {
   /**
    * 获取两个地图之间的距离
    */
-  /** 过渡期公开（P3-6a MovementVehicleService 经门面引用调用） */
-
   async handleInfo(userId: number): Promise<string> {
     await this.taskService.ensureTutorialTasks(userId);
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1703,7 +1698,7 @@ export class GatherPanelService {
       if (!map) return '你不在任何地图上！';
 
       // 取载具（原版 L7494-7499）
-      const vehicle = await this.facade!.findTravelVehicle(player, map);
+      const vehicle = await this.movement.findTravelVehicle(player, map);
       if (!vehicle) return `${player.name ?? '冒险者'}需要驾驶载具`;
       const vehicleName = String(vehicle.name ?? vehicle.名称 ?? '载具');
       if (Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0) <= 0) {
@@ -1923,7 +1918,7 @@ export class GatherPanelService {
       if (!map) return '';
 
       // 载具/采集器重取（结算文本用；中途换载具时以当前载具为准）
-      const vehicle = await this.facade!.findTravelVehicle(player, map);
+      const vehicle = await this.movement.findTravelVehicle(player, map);
       const partNames = vehicle ? this.collectVehiclePartNames(vehicle) : [];
       const collector = partNames.includes('引力调频器')
         ? 3
@@ -2071,7 +2066,7 @@ export class GatherPanelService {
   }
 
   /** 载具部件名收集（含内置零件递归；与 AutoMineService.getVehiclePartNames 同口径）。 */
-  /** 过渡期公开（P3-6a MovementVehicleService 经门面引用调用） */
+  /** 跨子服务 API（§10.2）：MovementVehicle 经 DI 直连调用。 */
 
   collectVehiclePartNames(vehicle: any): string[] {
     const names: string[] = [];
@@ -2102,7 +2097,7 @@ export class GatherPanelService {
    * 归属=玩家（ownerQQ/userId 任意键命中）、requireFollow=true 时还要求「跟随」熟练度<1；
    * countLimit 为显示数量上限（原版第2参）。返回名单文本与数量。
    */
-  /** 过渡期公开（P3-3 DelayedSettleService 经门面引用调用；P3-6 内核合并后改为直接注入） */
+  /** 跨子服务 API（§10.2）：MovementVehicle/DelayedSettle 经 DI 直连调用。 */
 
   async summonFollowDisplay(
     map: any,
@@ -2397,7 +2392,7 @@ export class GatherPanelService {
       // 原版 L9780-9796：白作为真实召唤物加入当前地图（归属=玩家、初始好感30、
       // 任务池=白对话），随玩家移动而跟随，是对话/领取任务/挤奶/救助/控制终端的实体。
       try {
-        await this.facade!.materializeWhiteSummon(player, map, markers);
+        await this.rescue.materializeWhiteSummon(player, map, markers);
       } catch (e: any) {
         this.logger.warn(`创建白的召唤物失败 userId=${userId}: ${e?.message}`);
       }
@@ -2693,7 +2688,7 @@ export class GatherPanelService {
   }
 
   /** 兼容新格式与早期错误导出的 resources JSON。 */
-  /** 过渡期公开（P3-2 HomeBuildService 经门面引用调用） */
+  /** 跨子服务 API（§10.2）：HomeBuild 经 DI 直连调用。 */
 
   parseResourceOutputs(value: any): any[] {
     const outputs = Array.isArray(value)
@@ -3838,7 +3833,7 @@ export class GatherPanelService {
     return total;
   }
 
-  /** 过渡期公开（P3-6a MovementVehicleService 经门面引用调用） */
+  /** 跨子服务 API（§10.2）：MovementVehicle 经 DI 直连调用。 */
 
   addBackpackItem(backpack: any[], item: any): void {
     // 统一走 item-normalize 规范化合并：type 以静态定义为唯一真源（Issue #11）

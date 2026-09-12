@@ -6,6 +6,7 @@
  * - WS 离线（QQ 端/无连接）保持原横幅行为。
  */
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function build(player: any, online: boolean) {
   const playerService: any = {
@@ -14,7 +15,7 @@ function build(player: any, online: boolean) {
     getMarkerValue: jest.fn((markers: any, key: string) => Number(markers?.[key] ?? 0)),
   };
   const statsService: any = { isOnline: jest.fn(() => online) };
-  const service = Object.create(GameService.prototype) as any;
+  const service = createGameServiceStub() as any;
   (service as any).playerService = playerService;
   (service as any).statsService = statsService;
   (service as any).logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };

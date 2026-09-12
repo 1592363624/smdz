@@ -1,3 +1,4 @@
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 import { GameService } from '../src/modules/game/game.service';
 
 function parseJson(value: any, fallback: any): any {
@@ -30,7 +31,7 @@ function makeService(options: { backpack?: any[]; mapResources?: any[]; inCooldo
   const scheduled: any[] = [];
   const savedPlayers: any[] = [];
   const mapMutations: any[] = [];
-  const service: any = Object.create(GameService.prototype);
+  const service: any = createGameServiceStub();
   const playerService: any = {
     getPlayerData: jest.fn(async () => ({
       player,

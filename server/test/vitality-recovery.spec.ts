@@ -5,6 +5,7 @@
  */
 import { GameService } from '../src/modules/game/game.service';
 import { VitalityService } from '../src/modules/game/vitality.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 /** 构造最小可运行的 GameService：只注入 calculateTimeElapsed 实际用到的依赖。 */
 function build(player: any) {
@@ -21,33 +22,33 @@ function build(player: any) {
   const systemConfig: any = { get: jest.fn(async (_k: string, fallback: any) => fallback) };
   const vitalityService = new VitalityService(systemConfig, playerService);
 
-  const service = new GameService(
-    {} as any, // prisma
-    playerService,
-    {} as any, // bonusService
-    {} as any, // combatSystem
-    {} as any, // itemService
-    {} as any, // mapService
-    {} as any, // familiarService
-    {} as any, // dungeonService
-    {} as any, // adminService
-    {} as any, // achievementService
-    {} as any, // itemSystemService
-    {} as any, // homeService
-    {} as any, // familiarSystemService
-    {} as any, // familiarSkillsService
-    {} as any, // tutorialService
-    {} as any, // staticData
-    systemConfig,
-    {} as any, // chatService
-    {} as any, // feedbackService
-    {} as any, // taskService
-    {} as any, // shortcutService
-    {} as any, // statsService
-    {} as any, // combatState
-    {} as any, // autoMineService
-    vitalityService,
-  );
+  const service = createGameServiceStub({
+      prisma: {} as any,
+      playerService:     playerService,
+      bonusService: {} as any,
+      combatSystem:     {} as any,
+      itemService:     {} as any,
+      mapService:     {} as any,
+      familiarService:     {} as any,
+      dungeonService:     {} as any,
+      adminService:     {} as any,
+      achievementService:     {} as any,
+      itemSystemService:     {} as any,
+      homeService:     {} as any,
+      familiarSystemService:     {} as any,
+      familiarSkillsService:     {} as any,
+      tutorialService:     {} as any,
+      staticData:     {} as any,
+      systemConfigService:     systemConfig,
+      chatService: {} as any,
+      feedbackService:     {} as any,
+      taskService:     {} as any,
+      shortcutService:     {} as any,
+      statsService:     {} as any,
+      combatState:     {} as any,
+      autoMineService:     {} as any,
+      vitalityService:     vitalityService,
+    });
   return { service, player, saved };
 }
 

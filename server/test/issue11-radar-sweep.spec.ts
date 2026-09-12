@@ -10,7 +10,6 @@
  */
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { CombatSystemService } from '../src/modules/game/combat-system.service';
-import { GameService } from '../src/modules/game/game.service';
 import { GatherPanelService } from '../src/modules/game/commands/gather-panel.service';
 
 /** ItemSystemService 手工构造桩（绕过 Nest DI） */
@@ -53,7 +52,6 @@ function makeItemSystem(staticOverrides: Partial<Record<string, any>> = {}) {
     {} /* prisma */, playerService, {} /* bonus */, {} /* itemService */,
     achievementService, staticData,
   );
-  (service as any).gatherPanelServiceSvc?.attachFacade?.(service);
   return { service, playerData, markers };
 }
 

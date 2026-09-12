@@ -11,6 +11,7 @@
 import { DelayedTaskService } from '../src/modules/game/delayed-task.service';
 import { GameService } from '../src/modules/game/game.service';
 import { parseJson } from './parse-json.util';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function makeDelayedTaskPrisma() {
   const rows: any[] = [];
@@ -188,8 +189,7 @@ describe('GameService.recoverOrphanDelayedMarkers：启动迁移', () => {
     const delayedTaskService = {
       schedule: jest.fn(async (input: any) => { scheduled.push(input); }),
     };
-    const service: any = Object.create(GameService.prototype);
-    Object.assign(service, {
+    const service: any = createGameServiceStub({
       prisma: {
         player: { findMany: jest.fn(async () => [playerRow]) },
       },
@@ -250,8 +250,7 @@ describe('GameService.recoverOrphanDelayedMarkers：启动迁移', () => {
 describe('GameService.handleAdminFinishNow：超管「立即完成」指令', () => {
   function makeFinishFixture(role: string, pendingCount: number) {
     const completeNowForUser = jest.fn(async () => pendingCount);
-    const service: any = Object.create(GameService.prototype);
-    Object.assign(service, {
+    const service: any = createGameServiceStub({
       prisma: { user: { findUnique: jest.fn(async () => ({ id: 7, role })) } },
       delayedTaskService: { completeNowForUser },
     });

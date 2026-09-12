@@ -99,11 +99,30 @@ export class GameService {
     private readonly shortcutService: ShortcutService,
     private readonly statsService: StatsService,
     private readonly combatState: CombatStateService,
+    // —— 指令域子服务（P2/P3/P4 拆分收口，改为必选注入）——
+    // 测试桩统一走 test/helpers/game-service-stub.factory.ts（createGameServiceStub），
+    // 按生产构造签名惰性挂载支撑层与全部子服务，不再依赖门面懒构造桥。
+    private readonly support: GameSupportService,
+    private readonly rankingService: RankingCommandService,
+    private readonly adminCommandService: AdminCommandService,
+    private readonly fusionCraftService: FusionCraftService,
+    private readonly timeSettleService: TimeSettleService,
+    private readonly petCommandService: PetCommandService,
+    private readonly equipCommandService: EquipCommandService,
+    private readonly skillCommandService: SkillCommandService,
+    private readonly shopTradeService: ShopTradeService,
+    private readonly questDialogueService: QuestDialogueService,
+    private readonly homeBuildService: HomeBuildService,
+    private readonly delayedSettleService: DelayedSettleService,
+    private readonly dungeonChallengeService: DungeonChallengeService,
+    private readonly rescueWhiteService: RescueWhiteService,
+    private readonly movementVehicleService: MovementVehicleService,
+    private readonly gatherPanelService: GatherPanelService,
+    // —— 存量可选依赖（重构前即为 @Optional，兼容既有位置传参测试桩）——
     @Optional() private readonly autoMineService?: AutoMineService,
     // 活力上限与恢复公式共用规则服务，确保魅力历史值和旧存档兜底一致。
     @Optional() private readonly vitalityService?: VitalityService,
-    // 玩家状态收口入口（Actor 式写入口）。放最后且 @Optional：
-    // 既不影响现有测试桩的位置传参，未注入时也走 mutatePlayer 的等价回退路径。
+    // 玩家状态收口入口（Actor 式写入口）。未注入时走 mutatePlayer 的等价回退路径。
     @Optional() private readonly playerMutate?: PlayerMutateService,
     // 持久化延时任务（采集/移动/救援/装填/副本关闭的跨重启排程）。
     // @Optional：测试桩以 Object.create 构造或老位置传参时走「无排程」降级，
@@ -115,354 +134,7 @@ export class GameService {
     // 全局熟练度（原版 全局标记）：技能面板「世界等级 / 怪物等级+」的唯一真相源。
     // @Optional 兼容 Object.create / 位置传参的既有测试桩。
     @Optional() private readonly globalProficiency?: GlobalProficiencyService,
-    // 共享支撑层（P1-3 抽出）：数值/时长/标记等跨域辅助的唯一实现。
-    // @Optional 兼容 29 位置参数与 Object.create 测试桩（C2）；未注入时由
-    // supportSvc 访问器用桩自身的同名字段懒构造，委托目标恒存在（R8 兼容桥）。
-    @Optional() private support?: GameSupportService,
-    // RankingCommandService：15 个方法已迁出（本批 P2），未注入时由 rankingServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private rankingService?: RankingCommandService,
-      // AdminCommandService：17 个方法已迁出（本批 P2），未注入时由 adminCommandServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private adminCommandService?: AdminCommandService,
-    // FusionCraftService：20 个方法已迁出（本批 P2），未注入时由 fusionCraftServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private fusionCraftService?: FusionCraftService,
-    // TimeSettleService：10 个方法已迁出（本批 P2），未注入时由 timeSettleServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private timeSettleService?: TimeSettleService,
-    // PetCommandService：21 个方法已迁出（本批 P2），未注入时由 petCommandServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private petCommandService?: PetCommandService,
-    // EquipCommandService：25 个方法已迁出（本批 P2），未注入时由 equipCommandServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private equipCommandService?: EquipCommandService,
-    // SkillCommandService：23 个方法已迁出（本批 P2），未注入时由 skillCommandServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private skillCommandService?: SkillCommandService,
-    // ShopTradeService：32 个方法已迁出（本批 P2），未注入时由 shopTradeServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private shopTradeService?: ShopTradeService,
-    // QuestDialogueService：48 个方法已迁出（本批 P2），未注入时由 questDialogueServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private questDialogueService?: QuestDialogueService,
-    // HomeBuildService：24 个方法已迁出（本批 P2），未注入时由 homeBuildServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private homeBuildService?: HomeBuildService,
-    // DelayedSettleService：8 个方法已迁出（本批 P2），未注入时由 delayedSettleServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private delayedSettleService?: DelayedSettleService,
-    // DungeonChallengeService：20 个方法已迁出（本批 P2），未注入时由 dungeonChallengeServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private dungeonChallengeService?: DungeonChallengeService,
-    // RescueWhiteService：37 个方法已迁出（本批 P2），未注入时由 rescueWhiteServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private rescueWhiteService?: RescueWhiteService,
-    // MovementVehicleService：45 个方法已迁出（本批 P2），未注入时由 movementVehicleServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private movementVehicleService?: MovementVehicleService,
-    // GatherPanelService：72 个方法已迁出（本批 P2），未注入时由 gatherPanelServiceSvc 懒构造桥兜底（C2 尾部追加）。
-    @Optional() private gatherPanelService?: GatherPanelService,
 ) {}
-
-  /** GatherPanelService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get gatherPanelServiceSvc(): GatherPanelService {
-    if (!this.gatherPanelService) {
-      this.gatherPanelService = new GatherPanelService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.bonusService,
-        this.combatSystem,
-        this.itemService,
-        this.mapService,
-        this.familiarService,
-        this.achievementService,
-        this.itemSystemService,
-        this.homeService,
-        this.familiarSystemService,
-        this.staticData,
-        this.chatService,
-        this.taskService,
-        this.shortcutService,
-        this.statsService,
-        this.combatState,
-        this.autoMineService,
-        this.vitalityService,
-        this.delayedTaskService,
-      );
-    }
-    return this.gatherPanelService;
-  }
-
-  /** MovementVehicleService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get movementVehicleServiceSvc(): MovementVehicleService {
-    if (!this.movementVehicleService) {
-      this.movementVehicleService = new MovementVehicleService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.combatSystem,
-        this.mapService,
-        this.achievementService,
-        this.familiarSystemService,
-        this.staticData,
-        this.systemConfigService,
-        this.chatService,
-        this.taskService,
-        this.shortcutService,
-        this.combatState,
-        this.delayedTaskService,
-      );
-    }
-    return this.movementVehicleService;
-  }
-
-  /** RescueWhiteService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get rescueWhiteServiceSvc(): RescueWhiteService {
-    if (!this.rescueWhiteService) {
-      this.rescueWhiteService = new RescueWhiteService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.combatSystem,
-        this.mapService,
-        this.chatService,
-        this.taskService,
-        this.delayedTaskService,
-      );
-    }
-    return this.rescueWhiteService;
-  }
-
-  /** DungeonChallengeService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get dungeonChallengeServiceSvc(): DungeonChallengeService {
-    if (!this.dungeonChallengeService) {
-      this.dungeonChallengeService = new DungeonChallengeService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.combatSystem,
-        this.mapService,
-        this.dungeonService,
-        this.achievementService,
-        this.itemSystemService,
-        this.familiarSkillsService,
-        this.staticData,
-        this.taskService,
-        this.shortcutService,
-        this.combatState,
-        this.vitalityService,
-        this.delayedTaskService,
-      );
-    }
-    return this.dungeonChallengeService;
-  }
-
-  /** DelayedSettleService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get delayedSettleServiceSvc(): DelayedSettleService {
-    if (!this.delayedSettleService) {
-      this.delayedSettleService = new DelayedSettleService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.mapService,
-        this.achievementService,
-        this.homeService,
-        this.staticData,
-        this.chatService,
-        this.taskService,
-        this.combatState,
-        this.delayedTaskService,
-      );
-    }
-    return this.delayedSettleService;
-  }
-
-  /** HomeBuildService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get homeBuildServiceSvc(): HomeBuildService {
-    if (!this.homeBuildService) {
-      this.homeBuildService = new HomeBuildService(
-        this.supportSvc,
-        this.shopTradeServiceSvc,
-        this.prisma,
-        this.playerService,
-        this.mapService,
-        this.homeService,
-        this.familiarSystemService,
-        this.staticData,
-        this.taskService,
-        this.combatState,
-        this.delayedTaskService,
-      );
-    }
-    return this.homeBuildService;
-  }
-
-  /** QuestDialogueService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get questDialogueServiceSvc(): QuestDialogueService {
-    if (!this.questDialogueService) {
-      this.questDialogueService = new QuestDialogueService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.combatSystem,
-        this.mapService,
-        this.achievementService,
-        this.familiarSystemService,
-        this.familiarSkillsService,
-        this.tutorialService,
-        this.staticData,
-        this.systemConfigService,
-        this.chatService,
-        this.feedbackService,
-        this.taskService,
-        this.shortcutService,
-        this.handbookService,
-      );
-    }
-    return this.questDialogueService;
-  }
-
-  /** ShopTradeService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get shopTradeServiceSvc(): ShopTradeService {
-    if (!this.shopTradeService) {
-      this.shopTradeService = new ShopTradeService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.itemService,
-        this.mapService,
-        this.achievementService,
-        this.itemSystemService,
-        this.homeService,
-        this.familiarSystemService,
-        this.staticData,
-        this.taskService,
-      );
-    }
-    return this.shopTradeService;
-  }
-
-  /** SkillCommandService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get skillCommandServiceSvc(): SkillCommandService {
-    if (!this.skillCommandService) {
-      this.skillCommandService = new SkillCommandService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.mapService,
-        this.familiarSystemService,
-        this.familiarSkillsService,
-        this.staticData,
-        this.combatState,
-        this.globalProficiency,
-      );
-    }
-    return this.skillCommandService;
-  }
-
-  /** EquipCommandService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get equipCommandServiceSvc(): EquipCommandService {
-    if (!this.equipCommandService) {
-      this.equipCommandService = new EquipCommandService(
-        this.supportSvc,
-        this.playerService,
-        this.itemService,
-        this.itemSystemService,
-        this.staticData,
-        this.combatState,
-      );
-    }
-    return this.equipCommandService;
-  }
-
-  /** PetCommandService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get petCommandServiceSvc(): PetCommandService {
-    if (!this.petCommandService) {
-      this.petCommandService = new PetCommandService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.mapService,
-        this.familiarSystemService,
-        this.familiarSkillsService,
-        this.staticData,
-        this.combatState,
-      );
-    }
-    return this.petCommandService;
-  }
-
-  /** TimeSettleService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get timeSettleServiceSvc(): TimeSettleService {
-    if (!this.timeSettleService) {
-      this.timeSettleService = new TimeSettleService(
-        this.supportSvc,
-        this.playerService,
-        this.combatSystem,
-        this.staticData,
-        this.taskService,
-        this.statsService,
-        this.combatState,
-        this.vitalityService,
-        this.playerMutate,
-      );
-    }
-    return this.timeSettleService;
-  }
-
-  /** FusionCraftService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get fusionCraftServiceSvc(): FusionCraftService {
-    if (!this.fusionCraftService) {
-      this.fusionCraftService = new FusionCraftService(
-        this.supportSvc,
-        this.playerService,
-        this.itemService,
-        this.mapService,
-        this.itemSystemService,
-        this.staticData,
-        this.shortcutService,
-      );
-    }
-    return this.fusionCraftService;
-  }
-
-  /** AdminCommandService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get adminCommandServiceSvc(): AdminCommandService {
-    if (!this.adminCommandService) {
-      this.adminCommandService = new AdminCommandService(
-        this.supportSvc,
-        this.prisma,
-        this.adminService,
-        this.delayedTaskService,
-      );
-    }
-    return this.adminCommandService;
-  }
-
-  /** RankingCommandService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
-  private get rankingServiceSvc(): RankingCommandService {
-    if (!this.rankingService) {
-      this.rankingService = new RankingCommandService(
-        this.supportSvc,
-        this.prisma,
-        this.playerService,
-        this.bonusService,
-        this.combatSystem,
-        this.itemService,
-        this.combatState,
-      );
-    }
-    return this.rankingService;
-  }
-
-  /**
-   * 门面委托目标（非空保证）：生产环境由 Nest 注入 GameSupportService；
-   * 测试桩未注入时，用桩上已有的同名字段（playerService/prisma/...）懒构造一份——
-   * 支撑层运行期用到的依赖与原方法在门面上的 this.X 完全一致，桩行为不变。
-   */
-  private get supportSvc(): GameSupportService {
-    if (!this.support) {
-      this.support = new GameSupportService(
-        this.playerService,
-        this.prisma,
-        this.mapService,
-        this.staticData,
-        this.taskService,
-        this.combatState,
-        this.shortcutService,
-        this.playerMutate,
-      );
-    }
-    return this.support;
-  }
 
   /**
    * 玩家状态变更的收口入口（对 PlayerMutateService.mutate 的薄封装）。
@@ -473,7 +145,7 @@ export class GameService {
    * 避免逐个测试桩补依赖。
    */
   private mutatePlayer<T>(userId: number, fn: (ctx: any) => Promise<T> | T): Promise<T> {
-    return this.supportSvc.mutatePlayer(userId, fn);
+    return this.support.mutatePlayer(userId, fn);
   }
 
   /** 模块初始化：注册各延时任务的结算 handler，并把存量标记迁移为延时任务。 */
@@ -554,15 +226,6 @@ export class GameService {
     void this.recoverOrphanDelayedMarkers().catch((e: any) => {
       this.logger.warn(`延时任务存量迁移失败（下次重启重试）: ${e?.message || e}`);
     });
-    this.skillCommandService?.attachFacade?.(this);
-    this.shopTradeService?.attachFacade?.(this);
-    this.questDialogueService?.attachFacade?.(this);
-    this.homeBuildService?.attachFacade?.(this);
-    this.delayedSettleService?.attachFacade?.(this);
-    this.dungeonChallengeService?.attachFacade?.(this);
-    this.rescueWhiteService?.attachFacade?.(this);
-    this.movementVehicleService?.attachFacade?.(this);
-    this.gatherPanelService?.attachFacade?.(this);
   }
 
   /**
@@ -629,13 +292,13 @@ export class GameService {
    * 对应 _主程序 L11462 及 L11573-L11669 的顺序：技能自动处理后进入宠物互动/搜索。
    */
   async triggerAutoFamiliarSkill(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.triggerAutoFamiliarSkill(userId);
+    return this.questDialogueService.triggerAutoFamiliarSkill(userId);
   }
   private async buildNumberedMenu( userId: number, options: { label: string; cmd: string }[], hint = '💡 发送编号数字(如 1)即可快速操作', extraGroups: string[] = [], ): Promise<string[]>{
-    return this.supportSvc.buildNumberedMenu(userId, options, hint, extraGroups);
+    return this.support.buildNumberedMenu(userId, options, hint, extraGroups);
   }
   async handleViewUnit(userId: number, unitName: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleViewUnit(userId, unitName);
+    return this.questDialogueService.handleViewUnit(userId, unitName);
   }
   async handleAttack(userId: number): Promise<string> {
     // 调用完整的战斗系统进行武器攻击（索引0=拳头，默认攻击）
@@ -652,141 +315,140 @@ export class GameService {
    * 若配置 game.moveTimeEnabled=false 则退化为即时到达。
    */
   async handleMove(userId: number, targetMapName: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleMove(userId, targetMapName);
+    return this.movementVehicleService.handleMove(userId, targetMapName);
   }
   async handleTeleport(userId: number, targetMapName: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleTeleport(userId, targetMapName);
+    return this.movementVehicleService.handleTeleport(userId, targetMapName);
   }
   async handleFlyTo(userId: number, targetMapName: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleFlyTo(userId, targetMapName);
+    return this.movementVehicleService.handleFlyTo(userId, targetMapName);
   }
-  /** 过渡期公开（P3-6b GatherPanelService 经门面引用调用） */
   async findTravelVehicle(player: any, currentMap: any): Promise<any | null>{
-    return this.movementVehicleServiceSvc.findTravelVehicle(player, currentMap);
+    return this.movementVehicleService.findTravelVehicle(player, currentMap);
   }
   private async scheduleArrival(userId: number, targetMapId: number, targetMapName: string, travelTime: number): Promise<void>{
-    return this.movementVehicleServiceSvc.scheduleArrival(userId, targetMapId, targetMapName, travelTime);
+    return this.movementVehicleService.scheduleArrival(userId, targetMapId, targetMapName, travelTime);
   }
   async performArrival( userId: number, targetMapId: number, targetMapName: string, ): Promise<string>{
-    return this.movementVehicleServiceSvc.performArrival(userId, targetMapId, targetMapName);
+    return this.movementVehicleService.performArrival(userId, targetMapId, targetMapName);
   }
   private async applyPerformArrival( userId: number, targetMapId: number, targetMapName: string, ): Promise<string>{
-    return this.movementVehicleServiceSvc.applyPerformArrival(userId, targetMapId, targetMapName);
+    return this.movementVehicleService.applyPerformArrival(userId, targetMapId, targetMapName);
   }
   private async applyFoxAutoAttack(userId: number, map: any): Promise<string>{
-    return this.movementVehicleServiceSvc.applyFoxAutoAttack(userId, map);
+    return this.movementVehicleService.applyFoxAutoAttack(userId, map);
   }
   private async applyArrivalTriggers(player: any, targetMap: any): Promise<string>{
-    return this.movementVehicleServiceSvc.applyArrivalTriggers(player, targetMap);
+    return this.movementVehicleService.applyArrivalTriggers(player, targetMap);
   }
   private async shearPranaCubsOnArrival(map: any, arrivingPlayer: any): Promise<string>{
-    return this.movementVehicleServiceSvc.shearPranaCubsOnArrival(map, arrivingPlayer);
+    return this.movementVehicleService.shearPranaCubsOnArrival(map, arrivingPlayer);
   }
   private async migratePlayerAssetsOnMove( fromMapId: number, toMapId: number, player: any, ): Promise<void>{
-    return this.movementVehicleServiceSvc.migratePlayerAssetsOnMove(fromMapId, toMapId, player);
+    return this.movementVehicleService.migratePlayerAssetsOnMove(fromMapId, toMapId, player);
   }
   async buildPlayerInfo(userId: number): Promise<any | null>{
-    return this.gatherPanelServiceSvc.buildPlayerInfo(userId);
+    return this.gatherPanelService.buildPlayerInfo(userId);
   }
   private buildPendingActions( player: any, markers: any, markers2: any, buffs?: any, ): Array<{ key: string; kind: string; label: string; detail: string; icon: string; startedAt: number; endAt: number; totalMs: number }>{
-    return this.gatherPanelServiceSvc.buildPendingActions(player, markers, markers2, buffs);
+    return this.gatherPanelService.buildPendingActions(player, markers, markers2, buffs);
   }
   private buildActiveTasks(rawTasks: any): Array<{ name: string; count?: number }>{
-    return this.gatherPanelServiceSvc.buildActiveTasks(rawTasks);
+    return this.gatherPanelService.buildActiveTasks(rawTasks);
   }
   private buildEquipmentSnapshot(player: any, markers: any): Array<{
     slot: string; name: string | null; quality: string; effect: number; enhance: number; enhanceRate: number; attrs: string; no: number | null;
     weapons?: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; enhanceRate: number; attrs: string; no: number | null }>;
   }> {
-    return this.gatherPanelServiceSvc.buildEquipmentSnapshot(player, markers);
+    return this.gatherPanelService.buildEquipmentSnapshot(player, markers);
   }
   private formatBuffList(rawBuffs: any): string[]{
-    return this.gatherPanelServiceSvc.formatBuffList(rawBuffs);
+    return this.gatherPanelService.formatBuffList(rawBuffs);
   }
   private buildActiveBuffs(rawBuffs: any): Array<{ name: string; expireAt: number }>{
-    return this.gatherPanelServiceSvc.buildActiveBuffs(rawBuffs);
+    return this.gatherPanelService.buildActiveBuffs(rawBuffs);
   }
   async pushPlayerUpdate(userId: number): Promise<void>{
-    return this.gatherPanelServiceSvc.pushPlayerUpdate(userId);
+    return this.gatherPanelService.pushPlayerUpdate(userId);
   }
   private async doPushPlayerUpdate(userId: number): Promise<void>{
-    return this.gatherPanelServiceSvc.doPushPlayerUpdate(userId);
+    return this.gatherPanelService.doPushPlayerUpdate(userId);
   }
   async pushMapUpdate(userId: number): Promise<void>{
-    return this.gatherPanelServiceSvc.pushMapUpdate(userId);
+    return this.gatherPanelService.pushMapUpdate(userId);
   }
   private async doPushMapUpdate(userId: number): Promise<void>{
-    return this.gatherPanelServiceSvc.doPushMapUpdate(userId);
+    return this.gatherPanelService.doPushMapUpdate(userId);
   }
   private nextRev(key: string): number{
-    return this.gatherPanelServiceSvc.nextRev(key);
+    return this.gatherPanelService.nextRev(key);
   }
   async getMapOverview(userId: number){
-    return this.gatherPanelServiceSvc.getMapOverview(userId);
+    return this.gatherPanelService.getMapOverview(userId);
   }
   async getNearbyPlayers(userId: number): Promise<any[]>{
-    return this.gatherPanelServiceSvc.getNearbyPlayers(userId);
+    return this.gatherPanelService.getNearbyPlayers(userId);
   }
   getDistance(map1: any, map2: any): number{
-    return this.gatherPanelServiceSvc.getDistance(map1, map2);
+    return this.gatherPanelService.getDistance(map1, map2);
   }
   private async getMovementPathLength(startMap: any, targetMap: any): Promise<number>{
-    return this.movementVehicleServiceSvc.getMovementPathLength(startMap, targetMap);
+    return this.movementVehicleService.getMovementPathLength(startMap, targetMap);
   }
   async handleInfo(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleInfo(userId);
+    return this.gatherPanelService.handleInfo(userId);
   }
   getBackpackDisplayItems(items: any[]): any[]{
-    return this.supportSvc.getBackpackDisplayItems(items);
+    return this.support.getBackpackDisplayItems(items);
   }
   async handleInventory(userId: number, arg?: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleInventory(userId, arg);
+    return this.gatherPanelService.handleInventory(userId, arg);
   }
   async handleMap(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleMap(userId);
+    return this.gatherPanelService.handleMap(userId);
   }
   async handleStatus(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleStatus(userId);
+    return this.gatherPanelService.handleStatus(userId);
   }
   async handleUseItem(userId: number, itemName: string, count = 1): Promise<string>{
-    return this.gatherPanelServiceSvc.handleUseItem(userId, itemName, count);
+    return this.gatherPanelService.handleUseItem(userId, itemName, count);
   }
   async handleUseAllItems(userId: number, keyword: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleUseAllItems(userId, keyword);
+    return this.gatherPanelService.handleUseAllItems(userId, keyword);
   }
   private getSeedCropName(itemName: string): string{
-    return this.gatherPanelServiceSvc.getSeedCropName(itemName);
+    return this.gatherPanelService.getSeedCropName(itemName);
   }
   private async handleUseSeed( userId: number, seedName: string, cropName: string, requestedCount: number, ): Promise<string>{
-    return this.gatherPanelServiceSvc.handleUseSeed(userId, seedName, cropName, requestedCount);
+    return this.gatherPanelService.handleUseSeed(userId, seedName, cropName, requestedCount);
   }
   async handleEquip(userId: number, itemName: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleEquip(userId, itemName);
+    return this.equipCommandService.handleEquip(userId, itemName);
   }
   async handleUnequip(userId: number, slot: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleUnequip(userId, slot);
+    return this.equipCommandService.handleUnequip(userId, slot);
   }
   async handleSkill(userId: number): Promise<string>{
-    return this.skillCommandServiceSvc.handleSkill(userId);
+    return this.skillCommandService.handleSkill(userId);
   }
   async handleRescue(userId: number): Promise<string>{
-    return this.rescueWhiteServiceSvc.handleRescue(userId);
+    return this.rescueWhiteService.handleRescue(userId);
   }
   async handleTalk(userId: number, npcName: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleTalk(userId, npcName);
+    return this.questDialogueService.handleTalk(userId, npcName);
   }
   private genericNpcChatLine(npcType: string): string{
-    return this.questDialogueServiceSvc.genericNpcChatLine(npcType);
+    return this.questDialogueService.genericNpcChatLine(npcType);
   }
   private async buildUnitDialogue( player: any, userId: number, npcName: string, unit: any, kind: 'npc' | 'summon' | 'monster', ): Promise<string>{
-    return this.questDialogueServiceSvc.buildUnitDialogue(player, userId, npcName, unit, kind);
+    return this.questDialogueService.buildUnitDialogue(player, userId, npcName, unit, kind);
   }
   private millisecondsToText(ms: number): string {
-    return this.supportSvc.millisecondsToText(ms);
+    return this.support.millisecondsToText(ms);
   }
 
   private round2Text(value: number): string {
-    return this.supportSvc.round2Text(value);
+    return this.support.round2Text(value);
   }
 
   /**
@@ -796,40 +458,40 @@ export class GameService {
    * 可用其兑换"工业建筑箱"或"专属装备补给箱"，并增加露娜熟练度
    */
   async handleDialogueLuna(userId: number, arg: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleDialogueLuna(userId, arg);
+    return this.questDialogueService.handleDialogueLuna(userId, arg);
   }
   async handleArriveAt(userId: number, arg: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleArriveAt(userId, arg);
+    return this.questDialogueService.handleArriveAt(userId, arg);
   }
   async handleHome(userId: number, subCommand: string, ...args: string[]): Promise<string>{
-    return this.homeBuildServiceSvc.handleHome(userId, subCommand, ...args);
+    return this.homeBuildService.handleHome(userId, subCommand, ...args);
   }
   async handleProbe(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleProbe(userId);
+    return this.gatherPanelService.handleProbe(userId);
   }
   async handlePickup(userId: number, itemName?: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handlePickup(userId, itemName);
+    return this.gatherPanelService.handlePickup(userId, itemName);
   }
   async handleMine(userId: number, resourceName?: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleMine(userId, resourceName);
+    return this.gatherPanelService.handleMine(userId, resourceName);
   }
   private async mineByVehicle(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.mineByVehicle(userId);
+    return this.gatherPanelService.mineByVehicle(userId);
   }
   private async mineResourcePoint(userId: number, resourceName: string): Promise<string>{
-    return this.gatherPanelServiceSvc.mineResourcePoint(userId, resourceName);
+    return this.gatherPanelService.mineResourcePoint(userId, resourceName);
   }
   private async settleManualMine(userId: number): Promise<void>{
-    return this.gatherPanelServiceSvc.settleManualMine(userId);
+    return this.gatherPanelService.settleManualMine(userId);
   }
   collectVehiclePartNames(vehicle: any): string[]{
-    return this.gatherPanelServiceSvc.collectVehiclePartNames(vehicle);
+    return this.gatherPanelService.collectVehiclePartNames(vehicle);
   }
   async summonFollowDisplay( map: any, userId: number, options: { requireFollow?: boolean; countLimit?: number } = {}, ): Promise<{ names: string[]; count: number; indexes: number[] }>{
-    return this.gatherPanelServiceSvc.summonFollowDisplay(map, userId, options);
+    return this.gatherPanelService.summonFollowDisplay(map, userId, options);
   }
   private randomInt(min: number, max: number): number {
-    return this.supportSvc.randomInt(min, max);
+    return this.support.randomInt(min, max);
   }
 
   /**
@@ -841,70 +503,70 @@ export class GameService {
    * @returns true=当前地图存在该采集指令对应的资源
    */
   async hasGatherCmd(userId: number, cmdName: string): Promise<boolean>{
-    return this.gatherPanelServiceSvc.hasGatherCmd(userId, cmdName);
+    return this.gatherPanelService.hasGatherCmd(userId, cmdName);
   }
   async getOpenBoxLockText(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.getOpenBoxLockText(userId);
+    return this.gatherPanelService.getOpenBoxLockText(userId);
   }
   async handleGatherResource(userId: number, cmdName: string, requestedCount?: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleGatherResource(userId, cmdName, requestedCount);
+    return this.gatherPanelService.handleGatherResource(userId, cmdName, requestedCount);
   }
   async settleGatherResource(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.settleGatherResource(userId);
+    return this.gatherPanelService.settleGatherResource(userId);
   }
   private async applySettleGatherResource(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.applySettleGatherResource(userId);
+    return this.gatherPanelService.applySettleGatherResource(userId);
   }
   private takePendingGather( player: any, userId: number, ): { state: Record<string, any>; markers: Record<string, any> } | null{
-    return this.gatherPanelServiceSvc.takePendingGather(player, userId);
+    return this.gatherPanelService.takePendingGather(player, userId);
   }
   private clearStaleGatherLock(player: any, userId: number): void{
-    this.gatherPanelServiceSvc.clearStaleGatherLock(player, userId);
+    this.gatherPanelService.clearStaleGatherLock(player, userId);
   }
   private async countFollowingSummons(map: any, userId: number): Promise<number>{
-    return this.gatherPanelServiceSvc.countFollowingSummons(map, userId);
+    return this.gatherPanelService.countFollowingSummons(map, userId);
   }
   private getGatherExpBonus(playerData: any): number{
-    return this.gatherPanelServiceSvc.getGatherExpBonus(playerData);
+    return this.gatherPanelService.getGatherExpBonus(playerData);
   }
   parseResourceOutputs(value: any): any[]{
-    return this.gatherPanelServiceSvc.parseResourceOutputs(value);
+    return this.gatherPanelService.parseResourceOutputs(value);
   }
   private resolveGatherCmd(resource: any): string{
-    return this.gatherPanelServiceSvc.resolveGatherCmd(resource);
+    return this.gatherPanelService.resolveGatherCmd(resource);
   }
   private getGatherResources(map: any): any[]{
-    return this.gatherPanelServiceSvc.getGatherResources(map);
+    return this.gatherPanelService.getGatherResources(map);
   }
   private getGatherResourceField(map: any): 'resources' | 'resources2'{
-    return this.gatherPanelServiceSvc.getGatherResourceField(map);
+    return this.gatherPanelService.getGatherResourceField(map);
   }
   private isGatherResourceAvailable(resource: any, markers: Record<string, any>): boolean{
-    return this.gatherPanelServiceSvc.isGatherResourceAvailable(resource, markers);
+    return this.gatherPanelService.isGatherResourceAvailable(resource, markers);
   }
   private async getPlayerMarkers(userId: number): Promise<Record<string, any>>{
-    return this.gatherPanelServiceSvc.getPlayerMarkers(userId);
+    return this.gatherPanelService.getPlayerMarkers(userId);
   }
   private hasOutputs2(resource: any): boolean{
-    return this.gatherPanelServiceSvc.hasOutputs2(resource);
+    return this.gatherPanelService.hasOutputs2(resource);
   }
   private parseResourceOutputName(rawName: any, rawCount: number): { name: string; count: number; quality: string }{
-    return this.gatherPanelServiceSvc.parseResourceOutputName(rawName, rawCount);
+    return this.gatherPanelService.parseResourceOutputName(rawName, rawCount);
   }
   private getResourceTimes(resource: any): number{
-    return this.gatherPanelServiceSvc.getResourceTimes(resource);
+    return this.gatherPanelService.getResourceTimes(resource);
   }
   private parseGatherCommand(value: string): { name: string; count: number }{
-    return this.gatherPanelServiceSvc.parseGatherCommand(value);
+    return this.gatherPanelService.parseGatherCommand(value);
   }
   private getGatherMultiplier(playerData: any): number{
-    return this.gatherPanelServiceSvc.getGatherMultiplier(playerData);
+    return this.gatherPanelService.getGatherMultiplier(playerData);
   }
   private getGatherDropRate(playerData: any): number{
-    return this.gatherPanelServiceSvc.getGatherDropRate(playerData);
+    return this.gatherPanelService.getGatherDropRate(playerData);
   }
   private formatGatherNumber(value: number): string {
-    return this.supportSvc.formatGatherNumber(value);
+    return this.support.formatGatherNumber(value);
   }
 
   /**
@@ -912,164 +574,163 @@ export class GameService {
    * 将背包中的物品赠予其他玩家
    */
   async handleGive(userId: number, targetQQ: string, itemName: string, count: number): Promise<string>{
-    return this.shopTradeServiceSvc.handleGive(userId, targetQQ, itemName, count);
+    return this.shopTradeService.handleGive(userId, targetQQ, itemName, count);
   }
   async handlePrivateChat(userId: number, targetName: string, content: string): Promise<string>{
-    return this.questDialogueServiceSvc.handlePrivateChat(userId, targetName, content);
+    return this.questDialogueService.handlePrivateChat(userId, targetName, content);
   }
   async handleFeedback(userId: number, raw: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleFeedback(userId, raw);
+    return this.questDialogueService.handleFeedback(userId, raw);
   }
   async handleAcceptQuest(userId: number, questName?: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleAcceptQuest(userId, questName);
+    return this.questDialogueService.handleAcceptQuest(userId, questName);
   }
   private parseNpcMarkers(unit: any): Record<string, any>{
-    return this.questDialogueServiceSvc.parseNpcMarkers(unit);
+    return this.questDialogueService.parseNpcMarkers(unit);
   }
   private getQuestSources(units: any[]): QuestSource[]{
-    return this.questDialogueServiceSvc.getQuestSources(units);
+    return this.questDialogueService.getQuestSources(units);
   }
   private splitQuestNames(value: any): string[]{
-    return this.questDialogueServiceSvc.splitQuestNames(value);
+    return this.questDialogueService.splitQuestNames(value);
   }
   private questUnitName(unit: any): string{
-    return this.questDialogueServiceSvc.questUnitName(unit);
+    return this.questDialogueService.questUnitName(unit);
   }
   async handleViewQuests(userId: number, selector = ''): Promise<string>{
-    return this.questDialogueServiceSvc.handleViewQuests(userId, selector);
+    return this.questDialogueService.handleViewQuests(userId, selector);
   }
   async handleCompleteQuest(userId: number, questName: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleCompleteQuest(userId, questName);
+    return this.questDialogueService.handleCompleteQuest(userId, questName);
   }
   async handleLieDown(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleLieDown(userId);
+    return this.gatherPanelService.handleLieDown(userId);
   }
   async handleGetUp(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleGetUp(userId);
+    return this.gatherPanelService.handleGetUp(userId);
   }
   async handleSettings(userId: number, settingName?: string, settingValue?: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettings(userId, settingName, settingValue);
+    return this.questDialogueService.handleSettings(userId, settingName, settingValue);
   }
   private async toggleSetting( userId: number, key: string, onValue: number, offValue: number, onText: string, offText: string, ): Promise<string>{
-    return this.questDialogueServiceSvc.toggleSetting(userId, key, onValue, offValue, onText, offText);
+    return this.questDialogueService.toggleSetting(userId, key, onValue, offValue, onText, offText);
   }
   async handleSettingsGuide(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsGuide(userId);
+    return this.questDialogueService.handleSettingsGuide(userId);
   }
   async handleSettingsRandom(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsRandom(userId);
+    return this.questDialogueService.handleSettingsRandom(userId);
   }
   async handleSettingsGather(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsGather(userId);
+    return this.questDialogueService.handleSettingsGather(userId);
   }
   async handleSettingsVitality(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsVitality(userId);
+    return this.questDialogueService.handleSettingsVitality(userId);
   }
   async handleSettingsNoHelp(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsNoHelp(userId);
+    return this.questDialogueService.handleSettingsNoHelp(userId);
   }
   async handleSettingsMusic(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsMusic(userId);
+    return this.questDialogueService.handleSettingsMusic(userId);
   }
   async handleSettingsMultiplier(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsMultiplier(userId);
+    return this.questDialogueService.handleSettingsMultiplier(userId);
   }
   async handleSettingsShop(userId: number, value?: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsShop(userId, value);
+    return this.questDialogueService.handleSettingsShop(userId, value);
   }
   async handleSettingsLocation(userId: number, value?: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsLocation(userId, value);
+    return this.questDialogueService.handleSettingsLocation(userId, value);
   }
   async handleSettingsMarker(userId: number, value?: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleSettingsMarker(userId, value);
+    return this.questDialogueService.handleSettingsMarker(userId, value);
   }
   async handleStartDungeon(userId: number, dungeonName = ''): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleStartDungeon(userId, dungeonName);
+    return this.dungeonChallengeService.handleStartDungeon(userId, dungeonName);
   }
   async handleRefreshDungeon(userId: number, dungeonName = ''): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleRefreshDungeon(userId, dungeonName);
+    return this.dungeonChallengeService.handleRefreshDungeon(userId, dungeonName);
   }
   getSlotLimit(vehicle: any, partType: number): { slots: number; max: number; name: string }{
-    return this.movementVehicleServiceSvc.getSlotLimit(vehicle, partType);
+    return this.movementVehicleService.getSlotLimit(vehicle, partType);
   }
   calcVehicleTotalBonus(vehicle: any): any{
-    return this.movementVehicleServiceSvc.calcVehicleTotalBonus(vehicle);
+    return this.movementVehicleService.calcVehicleTotalBonus(vehicle);
   }
   private parseVehicleValue<T>(value: any, fallback: T): T{
-    return this.movementVehicleServiceSvc.parseVehicleValue(value, fallback);
+    return this.movementVehicleService.parseVehicleValue(value, fallback);
   }
   toRuntimeVehicle(raw: any): any{
-    return this.movementVehicleServiceSvc.toRuntimeVehicle(raw);
+    return this.movementVehicleService.toRuntimeVehicle(raw);
   }
   toStoredVehicle(runtime: any): any{
-    return this.movementVehicleServiceSvc.toStoredVehicle(runtime);
+    return this.movementVehicleService.toStoredVehicle(runtime);
   }
   private vehicleDbData(runtime: any): Record<string, any>{
-    return this.movementVehicleServiceSvc.vehicleDbData(runtime);
+    return this.movementVehicleService.vehicleDbData(runtime);
   }
   private async persistRuntimeVehicle(source: any, runtime: any): Promise<void>{
-    return this.movementVehicleServiceSvc.persistRuntimeVehicle(source, runtime);
+    return this.movementVehicleService.persistRuntimeVehicle(source, runtime);
   }
   private async findProductionVehicle(userId: number, player: any, currentMap: any): Promise<any | null>{
-    return this.movementVehicleServiceSvc.findProductionVehicle(userId, player, currentMap);
+    return this.movementVehicleService.findProductionVehicle(userId, player, currentMap);
   }
   private vehicleProductionOptions(map: any, vehicle: any): { yongxing: number; lannBaby: boolean }{
-    return this.movementVehicleServiceSvc.vehicleProductionOptions(map, vehicle);
+    return this.movementVehicleService.vehicleProductionOptions(map, vehicle);
   }
   private formatVehicleItems(items: any[]): string{
-    return this.movementVehicleServiceSvc.formatVehicleItems(items);
+    return this.movementVehicleService.formatVehicleItems(items);
   }
   private formatVehicleTime(seconds: number): string{
-    return this.movementVehicleServiceSvc.formatVehicleTime(seconds);
+    return this.movementVehicleService.formatVehicleTime(seconds);
   }
   async handleVehicleProduction(userId: number, argument = ''): Promise<string>{
-    return this.movementVehicleServiceSvc.handleVehicleProduction(userId, argument);
+    return this.movementVehicleService.handleVehicleProduction(userId, argument);
   }
   async handleInstall(userId: number, rawName: string): Promise<string>{
-    return this.homeBuildServiceSvc.handleInstall(userId, rawName);
+    return this.homeBuildService.handleInstall(userId, rawName);
   }
   private async handleInstallHomeFuel(userId: number, requestedCount: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleInstallHomeFuel(userId, requestedCount);
+    return this.homeBuildService.handleInstallHomeFuel(userId, requestedCount);
   }
-  /** 过渡期公开（P3-6a MovementVehicleService 经门面引用调用） */
   async handleAssembleBuilding(userId: number, buildingName: string, count = 1): Promise<string>{
-    return this.homeBuildServiceSvc.handleAssembleBuilding(userId, buildingName, count);
+    return this.homeBuildService.handleAssembleBuilding(userId, buildingName, count);
   }
   async handleInstallPart(userId: number, partName: string, count = 1): Promise<string>{
-    return this.homeBuildServiceSvc.handleInstallPart(userId, partName, count);
+    return this.homeBuildService.handleInstallPart(userId, partName, count);
   }
   async handleUninstallPart(userId: number, partName: string, count = 1): Promise<string>{
-    return this.homeBuildServiceSvc.handleUninstallPart(userId, partName, count);
+    return this.homeBuildService.handleUninstallPart(userId, partName, count);
   }
   private async tryUninstallHomeBuilding( userId: number, player: any, map: any, buildingName: string, requestedCount: number, ): Promise<string | null>{
-    return this.homeBuildServiceSvc.tryUninstallHomeBuilding(userId, player, map, buildingName, requestedCount);
+    return this.homeBuildService.tryUninstallHomeBuilding(userId, player, map, buildingName, requestedCount);
   }
   async handleVehicleStatus(userId: number): Promise<string>{
-    return this.movementVehicleServiceSvc.handleVehicleStatus(userId);
+    return this.movementVehicleService.handleVehicleStatus(userId);
   }
   async handleStartBattle(userId: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleStartBattle(userId);
+    return this.dungeonChallengeService.handleStartBattle(userId);
   }
   async handleSweep(userId: number, requestedCount = 0): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleSweep(userId, requestedCount);
+    return this.dungeonChallengeService.handleSweep(userId, requestedCount);
   }
   private async handleSweepInner(userId: number, requestedCount: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleSweepInner(userId, requestedCount);
+    return this.dungeonChallengeService.handleSweepInner(userId, requestedCount);
   }
   private parseSweepMonsterNames(map: any): string[]{
-    return this.dungeonChallengeServiceSvc.parseSweepMonsterNames(map);
+    return this.dungeonChallengeService.parseSweepMonsterNames(map);
   }
   private getSweepRequirement(playerData: any, monsterNames: string[]): { text: string; unmet: boolean }{
-    return this.dungeonChallengeServiceSvc.getSweepRequirement(playerData, monsterNames);
+    return this.dungeonChallengeService.getSweepRequirement(playerData, monsterNames);
   }
   private buildSweepRequirementText(playerData: any, monsterNames: string[]): string{
-    return this.dungeonChallengeServiceSvc.buildSweepRequirementText(playerData, monsterNames);
+    return this.dungeonChallengeService.buildSweepRequirementText(playerData, monsterNames);
   }
   async handleDodge(userId: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleDodge(userId);
+    return this.dungeonChallengeService.handleDodge(userId);
   }
   private hasEquip(player: any, name: string): boolean {
-    return this.supportSvc.hasEquip(player, name);
+    return this.support.hasEquip(player, name);
   }
 
   /**
@@ -1080,7 +741,7 @@ export class GameService {
    * @param strength 强度（可选）
    */
   private setMarkers2(markers2: any[], name: string, expireAt: number, strength?: number): void {
-    this.supportSvc.setMarkers2(markers2, name, expireAt, strength);
+    this.support.setMarkers2(markers2, name, expireAt, strength);
   }
 
   // ========== 玩家信息命令 ==========
@@ -1090,167 +751,166 @@ export class GameService {
    * 从背包中筛选资源、材料、消耗品类型物品，输出格式与「背包」列表同构（见函数末尾注释）
    */
   async handleResourceBag(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleResourceBag(userId);
+    return this.gatherPanelService.handleResourceBag(userId);
   }
   async handleSearchBag(userId: number, keyword: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleSearchBag(userId, keyword);
+    return this.gatherPanelService.handleSearchBag(userId, keyword);
   }
   async handleSearchSafe(userId: number, keyword: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleSearchSafe(userId, keyword);
+    return this.gatherPanelService.handleSearchSafe(userId, keyword);
   }
   async handleViewEquip(userId: number, arg: string, kind: '武器' | '装备'): Promise<string>{
-    return this.equipCommandServiceSvc.handleViewEquip(userId, arg, kind);
+    return this.equipCommandService.handleViewEquip(userId, arg, kind);
   }
   async handleViewSafe(userId: number, arg: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleViewSafe(userId, arg);
+    return this.equipCommandService.handleViewSafe(userId, arg);
   }
   async handleCompareEquip(userId: number, targetName: string, compareName: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleCompareEquip(userId, targetName, compareName);
+    return this.equipCommandService.handleCompareEquip(userId, targetName, compareName);
   }
   async handlePassiveEffects(userId: number): Promise<string>{
-    return this.equipCommandServiceSvc.handlePassiveEffects(userId);
+    return this.equipCommandService.handlePassiveEffects(userId);
   }
   async handleHandbook(userId: number, arg: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleHandbook(userId, arg);
+    return this.questDialogueService.handleHandbook(userId, arg);
   }
   async handleSwitchWeapon(userId: number, weaponName: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleSwitchWeapon(userId, weaponName);
+    return this.equipCommandService.handleSwitchWeapon(userId, weaponName);
   }
   async handleEnhanceImplant(userId: number, target: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleEnhanceImplant(userId, target);
+    return this.equipCommandService.handleEnhanceImplant(userId, target);
   }
   async handleViewImplant(userId: number): Promise<string>{
-    return this.equipCommandServiceSvc.handleViewImplant(userId);
+    return this.equipCommandService.handleViewImplant(userId);
   }
   async handleSwitchImplant(userId: number, implantName: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleSwitchImplant(userId, implantName);
+    return this.equipCommandService.handleSwitchImplant(userId, implantName);
   }
   async handleResetImplant(userId: number): Promise<string>{
-    return this.equipCommandServiceSvc.handleResetImplant(userId);
+    return this.equipCommandService.handleResetImplant(userId);
   }
   async handleViewAmplifier(userId: number): Promise<string>{
-    return this.equipCommandServiceSvc.handleViewAmplifier(userId);
+    return this.equipCommandService.handleViewAmplifier(userId);
   }
   async handleSwitchAmplifier(userId: number, amplifierName: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleSwitchAmplifier(userId, amplifierName);
+    return this.equipCommandService.handleSwitchAmplifier(userId, amplifierName);
   }
   async handleEnhanceAmplifier(userId: number, target: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleEnhanceAmplifier(userId, target);
+    return this.equipCommandService.handleEnhanceAmplifier(userId, target);
   }
   async handleResetAmplifier(userId: number): Promise<string>{
-    return this.equipCommandServiceSvc.handleResetAmplifier(userId);
+    return this.equipCommandService.handleResetAmplifier(userId);
   }
   async handleAlchemy(userId: number, recipeName: string, count = 1): Promise<string>{
-    return this.fusionCraftServiceSvc.handleAlchemy(userId, recipeName, count);
+    return this.fusionCraftService.handleAlchemy(userId, recipeName, count);
   }
   async handleMerge(userId: number, targetName: string, fusionArgs: string[] = []): Promise<string>{
-    return this.fusionCraftServiceSvc.handleMerge(userId, targetName, fusionArgs);
+    return this.fusionCraftService.handleMerge(userId, targetName, fusionArgs);
   }
   private async fusionHelpText(userId: number): Promise<string>{
-    return this.fusionCraftServiceSvc.fusionHelpText(userId);
+    return this.fusionCraftService.fusionHelpText(userId);
   }
   private async handleFusion23(userId: number, backpackNumber: number, args: string[]): Promise<string>{
-    return this.fusionCraftServiceSvc.handleFusion23(userId, backpackNumber, args);
+    return this.fusionCraftService.handleFusion23(userId, backpackNumber, args);
   }
   private async activateFusionEffectWithoutArtisan(player: any, backpack: any[], item: any): Promise<string>{
-    return this.fusionCraftServiceSvc.activateFusionEffectWithoutArtisan(player, backpack, item);
+    return this.fusionCraftService.activateFusionEffectWithoutArtisan(player, backpack, item);
   }
   private async handleFusion23WangDamage(player: any, backpack: any[], sourceIndex: number, wangNumber: number): Promise<string>{
-    return this.fusionCraftServiceSvc.handleFusion23WangDamage(player, backpack, sourceIndex, wangNumber);
+    return this.fusionCraftService.handleFusion23WangDamage(player, backpack, sourceIndex, wangNumber);
   }
   private async handleFusion23SelectedEffect( userId: number, player: any, backpack: any[], index: number, item: any, mode: string, ): Promise<string>{
-    return this.fusionCraftServiceSvc.handleFusion23SelectedEffect(userId, player, backpack, index, item, mode);
+    return this.fusionCraftService.handleFusion23SelectedEffect(userId, player, backpack, index, item, mode);
   }
   private hasFusionArtisan(map: any): boolean{
-    return this.fusionCraftServiceSvc.hasFusionArtisan(map);
+    return this.fusionCraftService.hasFusionArtisan(map);
   }
   private isFusionAmplifier(item: any): boolean{
-    return this.fusionCraftServiceSvc.isFusionAmplifier(item);
+    return this.fusionCraftService.isFusionAmplifier(item);
   }
   private fusionHasEffect(item: any): boolean{
-    return this.fusionCraftServiceSvc.fusionHasEffect(item);
+    return this.fusionCraftService.fusionHasEffect(item);
   }
-  /** 过渡期公开（P2-8 ShopTradeService 经门面引用调用；实体已在 FusionCraftService，可后续改为直接注入） */
   isFusionWeapon(item: any): boolean{
-    return this.fusionCraftServiceSvc.isFusionWeapon(item);
+    return this.fusionCraftService.isFusionWeapon(item);
   }
   private getFusionEffects(item: any): Array<{ id: number; row: any }>{
-    return this.fusionCraftServiceSvc.getFusionEffects(item);
+    return this.fusionCraftService.getFusionEffects(item);
   }
   private randomFusionEffectId(item: any): number{
-    return this.fusionCraftServiceSvc.randomFusionEffectId(item);
+    return this.fusionCraftService.randomFusionEffectId(item);
   }
   private fusionDataParts(item: any): { prefix: string; segments: string[] }{
-    return this.fusionCraftServiceSvc.fusionDataParts(item);
+    return this.fusionCraftService.fusionDataParts(item);
   }
   private rewriteFusionData(item: any, prefix?: string, effect?: number): string{
-    return this.fusionCraftServiceSvc.rewriteFusionData(item, prefix, effect);
+    return this.fusionCraftService.rewriteFusionData(item, prefix, effect);
   }
   private setFusionBonus(item: any, code: string, value: number): string{
-    return this.fusionCraftServiceSvc.setFusionBonus(item, code, value);
+    return this.fusionCraftService.setFusionBonus(item, code, value);
   }
   private upgradeFusionData(item: any): string{
-    return this.fusionCraftServiceSvc.upgradeFusionData(item);
+    return this.fusionCraftService.upgradeFusionData(item);
   }
   private correctFusionAttributes(item: any): boolean{
-    return this.fusionCraftServiceSvc.correctFusionAttributes(item);
+    return this.fusionCraftService.correctFusionAttributes(item);
   }
   async handleForge(userId: number, itemName: string, count = 1): Promise<string>{
-    return this.fusionCraftServiceSvc.handleForge(userId, itemName, count);
+    return this.fusionCraftService.handleForge(userId, itemName, count);
   }
   async handleBreed(userId: number, targetName: string): Promise<string>{
-    return this.fusionCraftServiceSvc.handleBreed(userId, targetName);
+    return this.fusionCraftService.handleBreed(userId, targetName);
   }
   async handleFamiliarSkills(userId: number): Promise<string>{
-    return this.skillCommandServiceSvc.handleFamiliarSkills(userId);
+    return this.skillCommandService.handleFamiliarSkills(userId);
   }
   async handleCommonSkills(userId: number): Promise<string>{
-    return this.skillCommandServiceSvc.handleCommonSkills(userId);
+    return this.skillCommandService.handleCommonSkills(userId);
   }
   private skillLevelInfo( markers: Record<string, any>, name: string, ): { level: number; text: string }{
-    return this.skillCommandServiceSvc.skillLevelInfo(markers, name);
+    return this.skillCommandService.skillLevelInfo(markers, name);
   }
   async handleFamiliarTitles(userId: number): Promise<string>{
-    return this.skillCommandServiceSvc.handleFamiliarTitles(userId);
+    return this.skillCommandService.handleFamiliarTitles(userId);
   }
   async handleClaimTitle(userId: number, titleName: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleClaimTitle(userId, titleName);
+    return this.skillCommandService.handleClaimTitle(userId, titleName);
   }
   async handleEquipTitle(userId: number, titleName: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleEquipTitle(userId, titleName);
+    return this.skillCommandService.handleEquipTitle(userId, titleName);
   }
   async handleFamiliarRank(userId: number, subtype = ''): Promise<string>{
-    return this.rankingServiceSvc.handleFamiliarRank(userId, subtype);
+    return this.rankingService.handleFamiliarRank(userId, subtype);
   }
   private isRankablePlayer(p: any): boolean{
-    return this.rankingServiceSvc.isRankablePlayer(p);
+    return this.rankingService.isRankablePlayer(p);
   }
   private async collectPlayerMarkerEntries( key: string, options: { excludeZero?: boolean } = {}, ): Promise<Array<{ name: string; value: number }>>{
-    return this.rankingServiceSvc.collectPlayerMarkerEntries(key, options);
+    return this.rankingService.collectPlayerMarkerEntries(key, options);
   }
   private handleCombatPowerRanking(requesterName: string): Promise<string>{
-    return this.rankingServiceSvc.handleCombatPowerRanking(requesterName);
+    return this.rankingService.handleCombatPowerRanking(requesterName);
   }
   private async handleLevelRanking(requesterName: string): Promise<string>{
-    return this.rankingServiceSvc.handleLevelRanking(requesterName);
+    return this.rankingService.handleLevelRanking(requesterName);
   }
   private async handleTheoreticalDamageRanking(requesterName: string): Promise<string>{
-    return this.rankingServiceSvc.handleTheoreticalDamageRanking(requesterName);
+    return this.rankingService.handleTheoreticalDamageRanking(requesterName);
   }
   private handleMaxDamageRanking(requesterName: string): Promise<string>{
-    return this.rankingServiceSvc.handleMaxDamageRanking(requesterName);
+    return this.rankingService.handleMaxDamageRanking(requesterName);
   }
   private handleKillCountRanking(requesterName: string): Promise<string>{
-    return this.rankingServiceSvc.handleKillCountRanking(requesterName);
+    return this.rankingService.handleKillCountRanking(requesterName);
   }
   private handleOnlineTimeRanking(requesterName: string): Promise<string>{
-    return this.rankingServiceSvc.handleOnlineTimeRanking(requesterName);
+    return this.rankingService.handleOnlineTimeRanking(requesterName);
   }
   private async handlePetRanking(requesterName: string, kind: '战斗力' | '最高伤害'): Promise<string>{
-    return this.rankingServiceSvc.handlePetRanking(requesterName, kind);
+    return this.rankingService.handlePetRanking(requesterName, kind);
   }
   private secondsToTimeText(seconds: number): string {
-    return this.supportSvc.secondsToTimeText(seconds);
+    return this.support.secondsToTimeText(seconds);
   }
 
   // ==================== 排行数据源记录（原版 _计算玩家 随每条指令结算） ====================
@@ -1265,76 +925,76 @@ export class GameService {
    * 由 CommandService.dispatch 入口调用；失败静默，不影响指令本身。
    */
   async recordRankingStats(userId: number): Promise<void>{
-    return this.rankingServiceSvc.recordRankingStats(userId);
+    return this.rankingService.recordRankingStats(userId);
   }
   async handleRanking(userId: number, type: string): Promise<string>{
-    return this.rankingServiceSvc.handleRanking(userId, type);
+    return this.rankingService.handleRanking(userId, type);
   }
   private async handleWealthRanking(requesterName: string): Promise<string>{
-    return this.rankingServiceSvc.handleWealthRanking(requesterName);
+    return this.rankingService.handleWealthRanking(requesterName);
   }
   private async handleVehicleValueRanking(requesterName: string): Promise<string>{
-    return this.rankingServiceSvc.handleVehicleValueRanking(requesterName);
+    return this.rankingService.handleVehicleValueRanking(requesterName);
   }
   private pushVehicleParts(target: any[], vehicle: any): void{
-    this.supportSvc.pushVehicleParts(target, vehicle);
+    this.support.pushVehicleParts(target, vehicle);
   }
   private formatRankingText( requesterName: string, title: string, entries: Array<{ name: string; value: number }>, valueText?: (value: number) => string, ): string{
-    return this.rankingServiceSvc.formatRankingText(requesterName, title, entries, valueText);
+    return this.rankingService.formatRankingText(requesterName, title, entries, valueText);
   }
   async handleMassSummon(userId: number, count: string): Promise<string>{
-    return this.petCommandServiceSvc.handleMassSummon(userId, count);
+    return this.petCommandService.handleMassSummon(userId, count);
   }
   async handleReviveFamiliar(userId: number): Promise<string>{
-    return this.rescueWhiteServiceSvc.handleReviveFamiliar(userId);
+    return this.rescueWhiteService.handleReviveFamiliar(userId);
   }
   private async beginSelfRescue(userId: number, player: any, markers2: any[]): Promise<string>{
-    return this.rescueWhiteServiceSvc.beginSelfRescue(userId, player, markers2);
+    return this.rescueWhiteService.beginSelfRescue(userId, player, markers2);
   }
   async handleEaseAngel(userId: number, targetName?: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleEaseAngel(userId, targetName);
+    return this.skillCommandService.handleEaseAngel(userId, targetName);
   }
   async handleGospel(userId: number, targetName?: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleGospel(userId, targetName);
+    return this.skillCommandService.handleGospel(userId, targetName);
   }
   async handleApocalypse(userId: number): Promise<string>{
-    return this.skillCommandServiceSvc.handleApocalypse(userId);
+    return this.skillCommandService.handleApocalypse(userId);
   }
   async handleSwitchMode(userId: number, modeName: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleSwitchMode(userId, modeName);
+    return this.skillCommandService.handleSwitchMode(userId, modeName);
   }
   async handleNanoSuit(userId: number, action: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleNanoSuit(userId, action);
+    return this.skillCommandService.handleNanoSuit(userId, action);
   }
   async handleArmorCombine(userId: number, armorName?: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleArmorCombine(userId, armorName);
+    return this.skillCommandService.handleArmorCombine(userId, armorName);
   }
   async handleFamiliarChallenge(userId: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleFamiliarChallenge(userId);
+    return this.dungeonChallengeService.handleFamiliarChallenge(userId);
   }
   async handleStartChallenge(userId: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleStartChallenge(userId);
+    return this.dungeonChallengeService.handleStartChallenge(userId);
   }
   async familiarChallengeNextLayer(userId: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.familiarChallengeNextLayer(userId);
+    return this.dungeonChallengeService.familiarChallengeNextLayer(userId);
   }
   async handleLookAround(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleLookAround(userId);
+    return this.gatherPanelService.handleLookAround(userId);
   }
   async handleViewPets(userId: number): Promise<string>{
-    return this.petCommandServiceSvc.handleViewPets(userId);
+    return this.petCommandService.handleViewPets(userId);
   }
   async handleViewVehicles(userId: number): Promise<string>{
-    return this.movementVehicleServiceSvc.handleViewVehicles(userId);
+    return this.movementVehicleService.handleViewVehicles(userId);
   }
   async handleViewCrops(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleViewCrops(userId);
+    return this.homeBuildService.handleViewCrops(userId);
   }
   async handleViewBuildings(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleViewBuildings(userId);
+    return this.homeBuildService.handleViewBuildings(userId);
   }
   async handleViewHomes(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleViewHomes(userId);
+    return this.homeBuildService.handleViewHomes(userId);
   }
   async handleViewAchievements(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1349,161 +1009,160 @@ export class GameService {
    * 避免与「查看使魔」重复。
    */
   async handleViewFamiliar(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleViewFamiliar(userId);
+    return this.homeBuildService.handleViewFamiliar(userId);
   }
   async handleFamiliarData(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleFamiliarData(userId);
+    return this.homeBuildService.handleFamiliarData(userId);
   }
   async handleFamiliarMore(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleFamiliarMore(userId);
+    return this.homeBuildService.handleFamiliarMore(userId);
   }
   async handleViewSkills(userId: number): Promise<string>{
-    return this.skillCommandServiceSvc.handleViewSkills(userId);
+    return this.skillCommandService.handleViewSkills(userId);
   }
   async handleViewMarkers(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleViewMarkers(userId);
+    return this.gatherPanelService.handleViewMarkers(userId);
   }
   async handleViewMarkers2(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleViewMarkers2(userId);
+    return this.gatherPanelService.handleViewMarkers2(userId);
   }
   async handleViewDescription(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleViewDescription(userId);
+    return this.gatherPanelService.handleViewDescription(userId);
   }
   async handleDialogueYongxing(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleDialogueYongxing(userId);
+    return this.questDialogueService.handleDialogueYongxing(userId);
   }
   async handleDialogueLittleDemon(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleDialogueLittleDemon(userId);
+    return this.questDialogueService.handleDialogueLittleDemon(userId);
   }
   async handleSetMeatRatio(userId: number, ratioStr: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleSetMeatRatio(userId, ratioStr);
+    return this.questDialogueService.handleSetMeatRatio(userId, ratioStr);
   }
   async handleSignalGun(userId: number, countArg = ''): Promise<string>{
-    return this.homeBuildServiceSvc.handleSignalGun(userId, countArg);
+    return this.homeBuildService.handleSignalGun(userId, countArg);
   }
   private async completeCargoSummon(userId: number, count: number): Promise<void>{
-    return this.homeBuildServiceSvc.completeCargoSummon(userId, count);
+    return this.homeBuildService.completeCargoSummon(userId, count);
   }
   private async applyCargoSummon(userId: number, count: number): Promise<void>{
-    return this.homeBuildServiceSvc.applyCargoSummon(userId, count);
+    return this.homeBuildService.applyCargoSummon(userId, count);
   }
   async handleFamiliarHome(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleFamiliarHome(userId);
+    return this.homeBuildService.handleFamiliarHome(userId);
   }
   async handleBuildHouse(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleBuildHouse(userId);
+    return this.homeBuildService.handleBuildHouse(userId);
   }
   async handleDigFoundation(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleDigFoundation(userId);
+    return this.homeBuildService.handleDigFoundation(userId);
   }
   async handleBuildFoundation(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleBuildFoundation(userId);
+    return this.homeBuildService.handleBuildFoundation(userId);
   }
   async handleClaimLand(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleClaimLand(userId);
+    return this.homeBuildService.handleClaimLand(userId);
   }
   async handleProduce(userId: number, productName: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleProduce(userId, productName);
+    return this.questDialogueService.handleProduce(userId, productName);
   }
   async handleClearDungeon(userId: number, dungeonName = ''): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleClearDungeon(userId, dungeonName);
+    return this.dungeonChallengeService.handleClearDungeon(userId, dungeonName);
   }
   private parseDungeonArray(value: any): any[]{
-    return this.dungeonChallengeServiceSvc.parseDungeonArray(value);
+    return this.dungeonChallengeService.parseDungeonArray(value);
   }
   private normalizeDungeonMarkers2(markers2: any[]): void{
-    this.dungeonChallengeServiceSvc.normalizeDungeonMarkers2(markers2);
+    this.dungeonChallengeService.normalizeDungeonMarkers2(markers2);
   }
   async handleAssembleVehicle(userId: number, partName: string, count = 1): Promise<string>{
-    return this.movementVehicleServiceSvc.handleAssembleVehicle(userId, partName, count);
+    return this.movementVehicleService.handleAssembleVehicle(userId, partName, count);
   }
   async handleDriveVehicle(userId: number, vehicleName: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleDriveVehicle(userId, vehicleName);
+    return this.movementVehicleService.handleDriveVehicle(userId, vehicleName);
   }
   private parseVehicleAssemblyParts(parts: string[]): any[]{
-    return this.movementVehicleServiceSvc.parseVehicleAssemblyParts(parts);
+    return this.movementVehicleService.parseVehicleAssemblyParts(parts);
   }
-  /** 过渡期公开（P3-6a MovementVehicleService 经门面引用调用） */
   async backpackQuantity(backpack: any[], name: string): Promise<number>{
-    return this.gatherPanelServiceSvc.backpackQuantity(backpack, name);
+    return this.gatherPanelService.backpackQuantity(backpack, name);
   }
   addBackpackItem(backpack: any[], item: any): void{
-    this.gatherPanelServiceSvc.addBackpackItem(backpack, item);
+    this.gatherPanelService.addBackpackItem(backpack, item);
   }
   private async craftVehiclePart( player: any, backpack: any[], markers: Record<string, number>, name: string, count: number, dryRun: boolean, ): Promise<{ success: boolean; text: string }>{
-    return this.movementVehicleServiceSvc.craftVehiclePart(player, backpack, markers, name, count, dryRun);
+    return this.movementVehicleService.craftVehiclePart(player, backpack, markers, name, count, dryRun);
   }
   async assembleVehicleFromParts(userId: number, rawParts: string[]): Promise<string>{
-    return this.movementVehicleServiceSvc.assembleVehicleFromParts(userId, rawParts);
+    return this.movementVehicleService.assembleVehicleFromParts(userId, rawParts);
   }
   private async hasOwnedProductionVehicle(ownerQQ: string, coreSpec: any): Promise<boolean>{
-    return this.movementVehicleServiceSvc.hasOwnedProductionVehicle(ownerQQ, coreSpec);
+    return this.movementVehicleService.hasOwnedProductionVehicle(ownerQQ, coreSpec);
   }
   async handleNameVehicle(userId: number, name: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleNameVehicle(userId, name);
+    return this.movementVehicleService.handleNameVehicle(userId, name);
   }
   async handleSimulateVehicle(userId: number, targetName: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleSimulateVehicle(userId, targetName);
+    return this.movementVehicleService.handleSimulateVehicle(userId, targetName);
   }
   async handleRepairVehicle(userId: number, targetName: string = ''): Promise<string>{
-    return this.movementVehicleServiceSvc.handleRepairVehicle(userId, targetName);
+    return this.movementVehicleService.handleRepairVehicle(userId, targetName);
   }
   private async completeVehicleRepair(userId: number): Promise<string>{
-    return this.movementVehicleServiceSvc.completeVehicleRepair(userId);
+    return this.movementVehicleService.completeVehicleRepair(userId);
   }
   private async applyCompleteVehicleRepair(userId: number): Promise<string>{
-    return this.movementVehicleServiceSvc.applyCompleteVehicleRepair(userId);
+    return this.movementVehicleService.applyCompleteVehicleRepair(userId);
   }
   private async applyVehicleRepair(userId: number, player: any, map: any, vehicle: any): Promise<string>{
-    return this.movementVehicleServiceSvc.applyVehicleRepair(userId, player, map, vehicle);
+    return this.movementVehicleService.applyVehicleRepair(userId, player, map, vehicle);
   }
   private findVehicleOverLimitPart(vehicle: any): string{
-    return this.movementVehicleServiceSvc.findVehicleOverLimitPart(vehicle);
+    return this.movementVehicleService.findVehicleOverLimitPart(vehicle);
   }
   async handleExitVehicle(userId: number): Promise<string>{
-    return this.movementVehicleServiceSvc.handleExitVehicle(userId);
+    return this.movementVehicleService.handleExitVehicle(userId);
   }
   async handleTakeoverVehicle(userId: number, targetName: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleTakeoverVehicle(userId, targetName);
+    return this.movementVehicleService.handleTakeoverVehicle(userId, targetName);
   }
   async handleDeployCannon(userId: number, targetName: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleDeployCannon(userId, targetName);
+    return this.movementVehicleService.handleDeployCannon(userId, targetName);
   }
   async handleModeChange(userId: number, modeName: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleModeChange(userId, modeName);
+    return this.skillCommandService.handleModeChange(userId, modeName);
   }
   async handleTransform(userId: number, targetForm: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleTransform(userId, targetForm);
+    return this.skillCommandService.handleTransform(userId, targetForm);
   }
   async handleTractorBeam(userId: number, targetName: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleTractorBeam(userId, targetName);
+    return this.skillCommandService.handleTractorBeam(userId, targetName);
   }
   async handleControlTerminal(userId: number, arg = ''): Promise<string>{
-    return this.skillCommandServiceSvc.handleControlTerminal(userId, arg);
+    return this.skillCommandService.handleControlTerminal(userId, arg);
   }
   private bondSkillLabel(slot: 'a' | 'b', value: number): string{
-    return this.skillCommandServiceSvc.bondSkillLabel(slot, value);
+    return this.skillCommandService.bondSkillLabel(slot, value);
   }
   private async handleWhiteBondTerminal( userId: number, player: any, markers: Record<string, any>, arg: string, ): Promise<string>{
-    return this.skillCommandServiceSvc.handleWhiteBondTerminal(userId, player, markers, arg);
+    return this.skillCommandService.handleWhiteBondTerminal(userId, player, markers, arg);
   }
   async handleVehicleOps(userId: number): Promise<string>{
-    return this.movementVehicleServiceSvc.handleVehicleOps(userId);
+    return this.movementVehicleService.handleVehicleOps(userId);
   }
   async handleAmplifierHelp(userId: number): Promise<string>{
-    return this.skillCommandServiceSvc.handleAmplifierHelp(userId);
+    return this.skillCommandService.handleAmplifierHelp(userId);
   }
   async handleStartCapture(userId: number, targetName: string): Promise<string>{
-    return this.petCommandServiceSvc.handleStartCapture(userId, targetName);
+    return this.petCommandService.handleStartCapture(userId, targetName);
   }
   async handleStopCapture(userId: number, targetName?: string): Promise<string>{
-    return this.petCommandServiceSvc.handleStopCapture(userId, targetName);
+    return this.petCommandService.handleStopCapture(userId, targetName);
   }
   private async updateOwnedSummonMode(
     userId: number,
     mode: 'follow' | 'idle' | 'active' | 'passive',
   ): Promise<{ count: number; map?: any }> {
-    return this.supportSvc.updateOwnedSummonMode(userId, mode);
+    return this.support.updateOwnedSummonMode(userId, mode);
   }
 
   /**
@@ -1512,258 +1171,258 @@ export class GameService {
    * 对应原版：全部跟随 命令
    */
   async handleFollowAll(userId: number): Promise<string>{
-    return this.petCommandServiceSvc.handleFollowAll(userId);
+    return this.petCommandService.handleFollowAll(userId);
   }
   async handleRefill(userId: number): Promise<string>{
-    return this.delayedSettleServiceSvc.handleRefill(userId);
+    return this.delayedSettleService.handleRefill(userId);
   }
   private async completeRefill(userId: number): Promise<void>{
-    return this.delayedSettleServiceSvc.completeRefill(userId);
+    return this.delayedSettleService.completeRefill(userId);
   }
   async handleMilk(userId: number, targetName?: string): Promise<string>{
-    return this.petCommandServiceSvc.handleMilk(userId, targetName);
+    return this.petCommandService.handleMilk(userId, targetName);
   }
   private async settleMilk( userId: number, targetName?: string, all = false, ): Promise<{ text: string; count: number; amount: number }>{
-    return this.petCommandServiceSvc.settleMilk(userId, targetName, all);
+    return this.petCommandService.settleMilk(userId, targetName, all);
   }
   private formatMilkRemaining(ms: number): string{
-    return this.petCommandServiceSvc.formatMilkRemaining(ms);
+    return this.petCommandService.formatMilkRemaining(ms);
   }
   private hasActiveMilkMarker(markers2: any[], name: string, now: number): boolean{
-    return this.petCommandServiceSvc.hasActiveMilkMarker(markers2, name, now);
+    return this.petCommandService.hasActiveMilkMarker(markers2, name, now);
   }
   private isMilkSpecial(pet: any, name: '茸' | '青龙', specialSeq: number): boolean{
-    return this.petCommandServiceSvc.isMilkSpecial(pet, name, specialSeq);
+    return this.petCommandService.isMilkSpecial(pet, name, specialSeq);
   }
   private getMilkAmount(pet: any): number{
-    return this.petCommandServiceSvc.getMilkAmount(pet);
+    return this.petCommandService.getMilkAmount(pet);
   }
   private addSummonMilkAffinity(pet: any, ownerIds: Set<string>): void{
-    this.petCommandServiceSvc.addSummonMilkAffinity(pet, ownerIds);
+    this.petCommandService.addSummonMilkAffinity(pet, ownerIds);
   }
   async handleShear(userId: number, targetName: string): Promise<string>{
-    return this.petCommandServiceSvc.handleShear(userId, targetName);
+    return this.petCommandService.handleShear(userId, targetName);
   }
   async handleAbandonQuest(userId: number, questName: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleAbandonQuest(userId, questName);
+    return this.questDialogueService.handleAbandonQuest(userId, questName);
   }
   async handleMenu(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleMenu(userId);
+    return this.questDialogueService.handleMenu(userId);
   }
   async handleFunctionMenu(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleFunctionMenu(userId);
+    return this.questDialogueService.handleFunctionMenu(userId);
   }
   async handleGameMenu(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleGameMenu(userId);
+    return this.questDialogueService.handleGameMenu(userId);
   }
   async handleCalculate(userId: number, expression: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleCalculate(userId, expression);
+    return this.questDialogueService.handleCalculate(userId, expression);
   }
   async handleRefreshData(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleRefreshData(userId);
+    return this.questDialogueService.handleRefreshData(userId);
   }
   async handleReloadData(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleReloadData(userId);
+    return this.questDialogueService.handleReloadData(userId);
   }
   async handleConfirmReloadData(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleConfirmReloadData(userId);
+    return this.questDialogueService.handleConfirmReloadData(userId);
   }
   async handleGameIntro(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleGameIntro(userId);
+    return this.questDialogueService.handleGameIntro(userId);
   }
   async getFirstFamiliarGate(userId: number): Promise<string | null>{
-    return this.questDialogueServiceSvc.getFirstFamiliarGate(userId);
+    return this.questDialogueService.getFirstFamiliarGate(userId);
   }
   private localTodayString(now = new Date()): string{
-    return this.timeSettleServiceSvc.localTodayString(now);
+    return this.timeSettleService.localTodayString(now);
   }
   async settleDailyLogin(userId: number): Promise<string>{
-    return this.timeSettleServiceSvc.settleDailyLogin(userId);
+    return this.timeSettleService.settleDailyLogin(userId);
   }
   async getActionHints(userId: number): Promise<string>{
-    return this.timeSettleServiceSvc.getActionHints(userId);
+    return this.timeSettleService.getActionHints(userId);
   }
   private async hasTrainerAccess(player: any): Promise<boolean>{
-    return this.timeSettleServiceSvc.hasTrainerAccess(player);
+    return this.timeSettleService.hasTrainerAccess(player);
   }
   async handleGameTerms(userId: number, termName: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleGameTerms(userId, termName);
+    return this.questDialogueService.handleGameTerms(userId, termName);
   }
   async handleMoreHelp(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleMoreHelp(userId);
+    return this.questDialogueService.handleMoreHelp(userId);
   }
   async handleChangelog(userId: number): Promise<string>{
-    return this.questDialogueServiceSvc.handleChangelog(userId);
+    return this.questDialogueService.handleChangelog(userId);
   }
   async handleTrade(userId: number, action: string, args: string[]): Promise<string>{
-    return this.shopTradeServiceSvc.handleTrade(userId, action, args);
+    return this.shopTradeService.handleTrade(userId, action, args);
   }
   private async withTradeLock<T>(key: string, fn: () => Promise<T>): Promise<T>{
-    return this.shopTradeServiceSvc.withTradeLock(key, fn);
+    return this.shopTradeService.withTradeLock(key, fn);
   }
   private async handleHomeTrade( userId: number, targetUserId: number, targetMapName: string, ): Promise<string>{
-    return this.shopTradeServiceSvc.handleHomeTrade(userId, targetUserId, targetMapName);
+    return this.shopTradeService.handleHomeTrade(userId, targetUserId, targetMapName);
   }
   async handleShop(userId: number, action: string, args: string[]): Promise<string>{
-    return this.shopTradeServiceSvc.handleShop(userId, action, args);
+    return this.shopTradeService.handleShop(userId, action, args);
   }
   async handleHelpMe(userId: number, question: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleHelpMe(userId, question);
+    return this.questDialogueService.handleHelpMe(userId, question);
   }
   async handleRecipe(userId: number, recipeName: string): Promise<string>{
-    return this.shopTradeServiceSvc.handleRecipe(userId, recipeName);
+    return this.shopTradeService.handleRecipe(userId, recipeName);
   }
   async handleReverse(userId: number, targetName: string): Promise<string>{
-    return this.shopTradeServiceSvc.handleReverse(userId, targetName);
+    return this.shopTradeService.handleReverse(userId, targetName);
   }
   private readReverseProficiencies(player: any): Array<{ name: string; value: number }>{
-    return this.shopTradeServiceSvc.readReverseProficiencies(player);
+    return this.shopTradeService.readReverseProficiencies(player);
   }
   private reverseProficiency(reverse: Array<{ name: string; value: number }>, itemName: string): number{
-    return this.shopTradeServiceSvc.reverseProficiency(reverse, itemName);
+    return this.shopTradeService.reverseProficiency(reverse, itemName);
   }
   private setReverseProficiency( reverse: Array<{ name: string; value: number }>, itemName: string, amount: number, ): number{
-    return this.shopTradeServiceSvc.setReverseProficiency(reverse, itemName, amount);
+    return this.shopTradeService.setReverseProficiency(reverse, itemName, amount);
   }
   private itemName(item: any): string {
-    return this.supportSvc.itemName(item);
+    return this.support.itemName(item);
   }
 
   private itemType(item: any): string {
-    return this.supportSvc.itemType(item);
+    return this.support.itemType(item);
   }
 
   private reverseValue(item: any): number{
-    return this.shopTradeServiceSvc.reverseValue(item);
+    return this.shopTradeService.reverseValue(item);
   }
   private reverseItemFailure( playerName: string, item: any, reverse: Array<{ name: string; value: number }>, ): string{
-    return this.shopTradeServiceSvc.reverseItemFailure(playerName, item, reverse);
+    return this.shopTradeService.reverseItemFailure(playerName, item, reverse);
   }
   private reverseOne(item: any, reverse: Array<{ name: string; value: number }>): number{
-    return this.shopTradeServiceSvc.reverseOne(item, reverse);
+    return this.shopTradeService.reverseOne(item, reverse);
   }
   private reverseAllEligible( playerName: string, backpack: any[], reverse: Array<{ name: string; value: number }>, ): { count: number; items: Array<{ name: string; value: number }> }{
-    return this.shopTradeServiceSvc.reverseAllEligible(playerName, backpack, reverse);
+    return this.shopTradeService.reverseAllEligible(playerName, backpack, reverse);
   }
   private formatReverseNumber(value: number): string {
-    return this.supportSvc.formatReverseNumber(value);
+    return this.support.formatReverseNumber(value);
   }
 
   private formatReverseMenu( playerName: string, reverse: Array<{ name: string; value: number }>, inProgress: boolean, ): string{
-    return this.shopTradeServiceSvc.formatReverseMenu(playerName, reverse, inProgress);
+    return this.shopTradeService.formatReverseMenu(playerName, reverse, inProgress);
   }
   private formatReverseBatchResult( playerName: string, count: number, items: Array<{ name: string; value: number }>, ): string{
-    return this.shopTradeServiceSvc.formatReverseBatchResult(playerName, count, items);
+    return this.shopTradeService.formatReverseBatchResult(playerName, count, items);
   }
   private formatReverseSingleResult( playerName: string, item: any, value: number, reverse: Array<{ name: string; value: number }>, ): string{
-    return this.shopTradeServiceSvc.formatReverseSingleResult(playerName, item, value, reverse);
+    return this.shopTradeService.formatReverseSingleResult(playerName, item, value, reverse);
   }
   private async saveReverseResult( userId: number, player: any, backpack: any[], reverse: Array<{ name: string; value: number }>, count: number, ): Promise<void>{
-    return this.shopTradeServiceSvc.saveReverseResult(userId, player, backpack, reverse, count);
+    return this.shopTradeService.saveReverseResult(userId, player, backpack, reverse, count);
   }
   async handlePresetSwitch(userId: number, presetName: string): Promise<string>{
-    return this.equipCommandServiceSvc.handlePresetSwitch(userId, presetName);
+    return this.equipCommandService.handlePresetSwitch(userId, presetName);
   }
   async handleRecharge(userId: number): Promise<string>{
-    return this.timeSettleServiceSvc.handleRecharge(userId);
+    return this.timeSettleService.handleRecharge(userId);
   }
   async handleRepairItem(userId: number, itemName: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleRepairItem(userId, itemName);
+    return this.equipCommandService.handleRepairItem(userId, itemName);
   }
   async handleReload(userId: number, targetName: string): Promise<string>{
-    return this.delayedSettleServiceSvc.handleReload(userId, targetName);
+    return this.delayedSettleService.handleReload(userId, targetName);
   }
   private currentWeaponItem(player: any, weapons: any[]): any | null{
-    return this.supportSvc.currentWeaponItem(player, weapons);
+    return this.support.currentWeaponItem(player, weapons);
   }
   private equipmentSpecialSeq(item: any): number{
-    return this.supportSvc.equipmentSpecialSeq(item);
+    return this.support.equipmentSpecialSeq(item);
   }
   private hasEquippedSpecial( playerData: any, equipmentName: string, specialSeq: number, ): boolean{
-    return this.supportSvc.hasEquippedSpecial(playerData, equipmentName, specialSeq);
+    return this.support.hasEquippedSpecial(playerData, equipmentName, specialSeq);
   }
   private incrementMarker(markers: Record<string, any>, key: string, amount: number): void {
-    this.supportSvc.incrementMarker(markers, key, amount);
+    this.support.incrementMarker(markers, key, amount);
   }
 
   private normalizeMarkers2(markers2: any[]): void {
-    this.supportSvc.normalizeMarkers2(markers2);
+    this.support.normalizeMarkers2(markers2);
   }
 
   private scheduleReloadCompletion( userId: number, mode: 'plana' | 'organ', seconds: number, ): void{
-    this.delayedSettleServiceSvc.scheduleReloadCompletion(userId, mode, seconds);
+    this.delayedSettleService.scheduleReloadCompletion(userId, mode, seconds);
   }
   private async completeReload(userId: number, mode: string): Promise<void>{
-    return this.delayedSettleServiceSvc.completeReload(userId, mode);
+    return this.delayedSettleService.completeReload(userId, mode);
   }
   async handleSpawnArtisan(userId: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleSpawnArtisan(userId);
+    return this.dungeonChallengeService.handleSpawnArtisan(userId);
   }
   async handleSpawnWreck(userId: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleSpawnWreck(userId);
+    return this.dungeonChallengeService.handleSpawnWreck(userId);
   }
   async handleDailyCheckin(userId: number): Promise<string>{
-    return this.timeSettleServiceSvc.handleDailyCheckin(userId);
+    return this.timeSettleService.handleDailyCheckin(userId);
   }
   async handleTextSend(userId: number, content: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleTextSend(userId, content);
+    return this.questDialogueService.handleTextSend(userId, content);
   }
   async handleViewPlayer(userId: number, targetName: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleViewPlayer(userId, targetName);
+    return this.gatherPanelService.handleViewPlayer(userId, targetName);
   }
   async finishNowForUser(userId: number): Promise<{ ok: boolean; completed: number; message: string }>{
-    return this.adminCommandServiceSvc.finishNowForUser(userId);
+    return this.adminCommandService.finishNowForUser(userId);
   }
   async handleAdminFinishNow(userId: number): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminFinishNow(userId);
+    return this.adminCommandService.handleAdminFinishNow(userId);
   }
   async handleAdminCommand(userId: number, args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminCommand(userId, args);
+    return this.adminCommandService.handleAdminCommand(userId, args);
   }
   private getAdminHelpText(): string{
-    return this.adminCommandServiceSvc.getAdminHelpText();
+    return this.adminCommandService.getAdminHelpText();
   }
   private async handleAdminStatus(): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminStatus();
+    return this.adminCommandService.handleAdminStatus();
   }
   private async handleAdminAnnounce(args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminAnnounce(args);
+    return this.adminCommandService.handleAdminAnnounce(args);
   }
   private async handleAdminSetWorldLevel(args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminSetWorldLevel(args);
+    return this.adminCommandService.handleAdminSetWorldLevel(args);
   }
   private async handleAdminGiveItem(args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminGiveItem(args);
+    return this.adminCommandService.handleAdminGiveItem(args);
   }
   private async handleAdminPlayerList(args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminPlayerList(args);
+    return this.adminCommandService.handleAdminPlayerList(args);
   }
   private async handleAdminToggleBan(args: string[], isBan: boolean): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminToggleBan(args, isBan);
+    return this.adminCommandService.handleAdminToggleBan(args, isBan);
   }
   private async handleAdminUpdateConfig(args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminUpdateConfig(args);
+    return this.adminCommandService.handleAdminUpdateConfig(args);
   }
   private async handleAdminUserList(args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminUserList(args);
+    return this.adminCommandService.handleAdminUserList(args);
   }
   private async handleAdminBanByQQ(userId: number, args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminBanByQQ(userId, args);
+    return this.adminCommandService.handleAdminBanByQQ(userId, args);
   }
   private async handleAdminResetPlayer(userId: number, args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminResetPlayer(userId, args);
+    return this.adminCommandService.handleAdminResetPlayer(userId, args);
   }
   private async handleAdminModifyPlayer(userId: number, args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminModifyPlayer(userId, args);
+    return this.adminCommandService.handleAdminModifyPlayer(userId, args);
   }
   private async handleAdminIntervalMessage(userId: number, args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminIntervalMessage(userId, args);
+    return this.adminCommandService.handleAdminIntervalMessage(userId, args);
   }
   private async handleAdminBroadcast(userId: number, args: string[]): Promise<string>{
-    return this.adminCommandServiceSvc.handleAdminBroadcast(userId, args);
+    return this.adminCommandService.handleAdminBroadcast(userId, args);
   }
   private formatUptime(seconds: number): string {
-    return this.supportSvc.formatUptime(seconds);
+    return this.support.formatUptime(seconds);
   }
 
   // ==================== 时间流逝完整计算 ====================
@@ -1785,19 +1444,19 @@ export class GameService {
    * @returns 回复结果文本（无回复时返回空字符串）
    */
   async calculateTimeElapsed( userId: number, opts?: { force?: boolean; showBanner?: boolean }, ): Promise<string>{
-    return this.timeSettleServiceSvc.calculateTimeElapsed(userId, opts);
+    return this.timeSettleService.calculateTimeElapsed(userId, opts);
   }
   async settleTimeElapsedOnDisconnect(userId: number): Promise<void>{
-    return this.timeSettleServiceSvc.settleTimeElapsedOnDisconnect(userId);
+    return this.timeSettleService.settleTimeElapsedOnDisconnect(userId);
   }
   async settleTimeElapsedOnReconnect(userId: number): Promise<string>{
-    return this.timeSettleServiceSvc.settleTimeElapsedOnReconnect(userId);
+    return this.timeSettleService.settleTimeElapsedOnReconnect(userId);
   }
   private mutateForTimeElapsed( userId: number, opts: { force?: boolean; showBanner?: boolean }, ): Promise<string>{
-    return this.timeSettleServiceSvc.mutateForTimeElapsed(userId, opts);
+    return this.timeSettleService.mutateForTimeElapsed(userId, opts);
   }
   async getCurrentMap(userId: number): Promise<any> {
-    return this.supportSvc.getCurrentMap(userId);
+    return this.support.getCurrentMap(userId);
   }
 
   /**
@@ -1806,238 +1465,236 @@ export class GameService {
    * @param buildingsJson 建筑数据JSON字符串
    */
   async updateMapBuildings(mapId: number, buildingsJson: string, resources2Json?: string): Promise<void>{
-    return this.homeBuildServiceSvc.updateMapBuildings(mapId, buildingsJson, resources2Json);
+    return this.homeBuildService.updateMapBuildings(mapId, buildingsJson, resources2Json);
   }
   async handleHelpUp(userId: number): Promise<string>{
-    return this.rescueWhiteServiceSvc.handleHelpUp(userId);
+    return this.rescueWhiteService.handleHelpUp(userId);
   }
   private parseRescueArray(value: any): any[]{
-    return this.rescueWhiteServiceSvc.parseRescueArray(value);
+    return this.rescueWhiteService.parseRescueArray(value);
   }
   private parseRescueMarkers(value: any): any[]{
-    return this.rescueWhiteServiceSvc.parseRescueMarkers(value);
+    return this.rescueWhiteService.parseRescueMarkers(value);
   }
   private createRescueMarker( rescueType: 'self' | 'familiar' | 'vehicle' | 'player', seconds: number, extra: Record<string, any> = {}, ): any{
-    return this.rescueWhiteServiceSvc.createRescueMarker(rescueType, seconds, extra);
+    return this.rescueWhiteService.createRescueMarker(rescueType, seconds, extra);
   }
   private getActiveRescueMarker(markers2: any[]): any | null{
-    return this.rescueWhiteServiceSvc.getActiveRescueMarker(markers2);
+    return this.rescueWhiteService.getActiveRescueMarker(markers2);
   }
   private rescueExpireAtSeconds(marker: any): number{
-    return this.rescueWhiteServiceSvc.rescueExpireAtSeconds(marker);
+    return this.rescueWhiteService.rescueExpireAtSeconds(marker);
   }
   private remainingRescueSeconds(marker: any): number{
-    return this.rescueWhiteServiceSvc.remainingRescueSeconds(marker);
+    return this.rescueWhiteService.remainingRescueSeconds(marker);
   }
   private rescueActionText(type: string): string{
-    return this.rescueWhiteServiceSvc.rescueActionText(type);
+    return this.rescueWhiteService.rescueActionText(type);
   }
   private formatRescueSeconds(seconds: number): number{
-    return this.rescueWhiteServiceSvc.formatRescueSeconds(seconds);
+    return this.rescueWhiteService.formatRescueSeconds(seconds);
   }
   private rescueHp(unit: any): number{
-    return this.rescueWhiteServiceSvc.rescueHp(unit);
+    return this.rescueWhiteService.rescueHp(unit);
   }
   private rescueMaxHp(unit: any): number{
-    return this.rescueWhiteServiceSvc.rescueMaxHp(unit);
+    return this.rescueWhiteService.rescueMaxHp(unit);
   }
   private firstPositiveNumber(...values: any[]): number {
-    return this.supportSvc.firstPositiveNumber(...values);
+    return this.support.firstPositiveNumber(...values);
   }
 
   private parseRescueObject(value: any): any{
-    return this.rescueWhiteServiceSvc.parseRescueObject(value);
+    return this.rescueWhiteService.parseRescueObject(value);
   }
   private setRescueHp(unit: any, hp: number): void{
-    this.rescueWhiteServiceSvc.setRescueHp(unit, hp);
+    this.rescueWhiteService.setRescueHp(unit, hp);
   }
   private rescueUnitId(unit: any): string{
-    return this.rescueWhiteServiceSvc.rescueUnitId(unit);
+    return this.rescueWhiteService.rescueUnitId(unit);
   }
   private rescueUnitName(unit: any): string{
-    return this.rescueWhiteServiceSvc.rescueUnitName(unit);
+    return this.rescueWhiteService.rescueUnitName(unit);
   }
   private rescueVehicleKey(summon: any): string{
-    return this.rescueWhiteServiceSvc.rescueVehicleKey(summon);
+    return this.rescueWhiteService.rescueVehicleKey(summon);
   }
   private rescueVehicleKeys(vehicle: any): Set<string>{
-    return this.rescueWhiteServiceSvc.rescueVehicleKeys(vehicle);
+    return this.rescueWhiteService.rescueVehicleKeys(vehicle);
   }
-  /** 过渡期公开（P3-6a MovementVehicleService 经门面引用调用） */
   rescueVehicleMaxHp(vehicle: any): number{
-    return this.rescueWhiteServiceSvc.rescueVehicleMaxHp(vehicle);
+    return this.rescueWhiteService.rescueVehicleMaxHp(vehicle);
   }
   private rescueVehicleHp(vehicle: any): number{
-    return this.rescueWhiteServiceSvc.rescueVehicleHp(vehicle);
+    return this.rescueWhiteService.rescueVehicleHp(vehicle);
   }
   private isDamagedRescueVehicle(vehicle: any): boolean{
-    return this.rescueWhiteServiceSvc.isDamagedRescueVehicle(vehicle);
+    return this.rescueWhiteService.isDamagedRescueVehicle(vehicle);
   }
   private setRescueVehicleHp(vehicle: any, hp: number): void{
-    this.rescueWhiteServiceSvc.setRescueVehicleHp(vehicle, hp);
+    this.rescueWhiteService.setRescueVehicleHp(vehicle, hp);
   }
   private hasActiveRescueBuff(value: any): boolean{
-    return this.rescueWhiteServiceSvc.hasActiveRescueBuff(value);
+    return this.rescueWhiteService.hasActiveRescueBuff(value);
   }
   private shortenRescueBuff(buffs: any[], name: string, seconds: number): boolean{
-    return this.rescueWhiteServiceSvc.shortenRescueBuff(buffs, name, seconds);
+    return this.rescueWhiteService.shortenRescueBuff(buffs, name, seconds);
   }
   private async saveRescueMap(map: any, summons: any[], vehicles: any[]): Promise<void>{
-    return this.rescueWhiteServiceSvc.saveRescueMap(map, summons, vehicles);
+    return this.rescueWhiteService.saveRescueMap(map, summons, vehicles);
   }
   private async claimRescueMarker(userId: number, token: string): Promise<boolean>{
-    return this.rescueWhiteServiceSvc.claimRescueMarker(userId, token);
+    return this.rescueWhiteService.claimRescueMarker(userId, token);
   }
   private async scheduleRescueCompletion(userId: number, marker: any): Promise<void>{
-    return this.rescueWhiteServiceSvc.scheduleRescueCompletion(userId, marker);
+    return this.rescueWhiteService.scheduleRescueCompletion(userId, marker);
   }
   private async completeRescue(userId: number, marker: any): Promise<string>{
-    return this.rescueWhiteServiceSvc.completeRescue(userId, marker);
+    return this.rescueWhiteService.completeRescue(userId, marker);
   }
   private async applyCompleteRescue(userId: number, marker: any): Promise<string>{
-    return this.rescueWhiteServiceSvc.applyCompleteRescue(userId, marker);
+    return this.rescueWhiteService.applyCompleteRescue(userId, marker);
   }
   private async applyWhiteAngelRevivalTeleport(userId: number, player: any): Promise<string>{
-    return this.rescueWhiteServiceSvc.applyWhiteAngelRevivalTeleport(userId, player);
+    return this.rescueWhiteService.applyWhiteAngelRevivalTeleport(userId, player);
   }
-  /** 过渡期公开（P3-6b GatherPanelService 经门面引用调用） */
   async materializeWhiteSummon( player: any, map: any, markers: Record<string, any>, ): Promise<void>{
-    return this.rescueWhiteServiceSvc.materializeWhiteSummon(player, map, markers);
+    return this.rescueWhiteService.materializeWhiteSummon(player, map, markers);
   }
   async ensurePlayerWhite(player: any, map: any): Promise<any | null>{
-    return this.rescueWhiteServiceSvc.ensurePlayerWhite(player, map);
+    return this.rescueWhiteService.ensurePlayerWhite(player, map);
   }
   private async syncWhiteAffinity( player: any, white: any, markers: Record<string, any>, mapId: number, ): Promise<void>{
-    return this.rescueWhiteServiceSvc.syncWhiteAffinity(player, white, markers, mapId);
+    return this.rescueWhiteService.syncWhiteAffinity(player, white, markers, mapId);
   }
   private async resolveRespawnMapId(allMaps: any[], fromMapId: number): Promise<number>{
-    return this.rescueWhiteServiceSvc.resolveRespawnMapId(allMaps, fromMapId);
+    return this.rescueWhiteService.resolveRespawnMapId(allMaps, fromMapId);
   }
   private findWhiteAngelMapId( allMaps: any[], isOwnWhite: (unit: any) => boolean, parseSummons: (map: any) => any[], ): number{
-    return this.rescueWhiteServiceSvc.findWhiteAngelMapId(allMaps, isOwnWhite, parseSummons);
+    return this.rescueWhiteService.findWhiteAngelMapId(allMaps, isOwnWhite, parseSummons);
   }
   async handleCallVehicle(userId: number, vehicleName: string): Promise<string>{
-    return this.movementVehicleServiceSvc.handleCallVehicle(userId, vehicleName);
+    return this.movementVehicleService.handleCallVehicle(userId, vehicleName);
   }
   async handleInstallAll(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleInstallAll(userId);
+    return this.homeBuildService.handleInstallAll(userId);
   }
   async handleUninstallAll(userId: number): Promise<string>{
-    return this.homeBuildServiceSvc.handleUninstallAll(userId);
+    return this.homeBuildService.handleUninstallAll(userId);
   }
   async handleBagOps(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleBagOps(userId);
+    return this.gatherPanelService.handleBagOps(userId);
   }
   async handleEquipEnhance(userId: number, arg: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleEquipEnhance(userId, arg);
+    return this.equipCommandService.handleEquipEnhance(userId, arg);
   }
   async handleEquipBonus(userId: number, itemName: string): Promise<string>{
-    return this.equipCommandServiceSvc.handleEquipBonus(userId, itemName);
+    return this.equipCommandService.handleEquipBonus(userId, itemName);
   }
   async handleEquipPreset(userId: number, action: string, args: string[]): Promise<string>{
-    return this.equipCommandServiceSvc.handleEquipPreset(userId, action, args);
+    return this.equipCommandService.handleEquipPreset(userId, action, args);
   }
   private listEquipPresets(player: any, presets: any[]): string{
-    return this.equipCommandServiceSvc.listEquipPresets(player, presets);
+    return this.equipCommandService.listEquipPresets(player, presets);
   }
   private async calcPresetBonus(player: any, preset: any): Promise<Record<string, number>>{
-    return this.equipCommandServiceSvc.calcPresetBonus(player, preset);
+    return this.equipCommandService.calcPresetBonus(player, preset);
   }
   private formatBonusText(bonus: Record<string, number>): string{
-    return this.equipCommandServiceSvc.formatBonusText(bonus);
+    return this.equipCommandService.formatBonusText(bonus);
   }
   async handleActivityShop(userId: number, itemName: string): Promise<string>{
-    return this.shopTradeServiceSvc.handleActivityShop(userId, itemName);
+    return this.shopTradeService.handleActivityShop(userId, itemName);
   }
   async handleDiamondShop(userId: number, itemName: string): Promise<string>{
-    return this.shopTradeServiceSvc.handleDiamondShop(userId, itemName);
+    return this.shopTradeService.handleDiamondShop(userId, itemName);
   }
   async handleDataShop(userId: number, itemName: string): Promise<string>{
-    return this.shopTradeServiceSvc.handleDataShop(userId, itemName);
+    return this.shopTradeService.handleDataShop(userId, itemName);
   }
   async handleProbeRadar(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleProbeRadar(userId);
+    return this.gatherPanelService.handleProbeRadar(userId);
   }
   async handleProbeResources(userId: number, keyword: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleProbeResources(userId, keyword);
+    return this.gatherPanelService.handleProbeResources(userId, keyword);
   }
   async handleProbeAndPickup(userId: number, keyword: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleProbeAndPickup(userId, keyword);
+    return this.gatherPanelService.handleProbeAndPickup(userId, keyword);
   }
   async handleProbeCrops(userId: number, keyword: string): Promise<string>{
-    return this.gatherPanelServiceSvc.handleProbeCrops(userId, keyword);
+    return this.gatherPanelService.handleProbeCrops(userId, keyword);
   }
   private async hasBuildingOnMap(userId: number, buildingName: string): Promise<boolean>{
-    return this.gatherPanelServiceSvc.hasBuildingOnMap(userId, buildingName);
+    return this.gatherPanelService.hasBuildingOnMap(userId, buildingName);
   }
   private formatMapResourceYield(mapName: string): string{
-    return this.gatherPanelServiceSvc.formatMapResourceYield(mapName);
+    return this.gatherPanelService.formatMapResourceYield(mapName);
   }
   async handlePetOps(userId: number, action: string, args: string[]): Promise<string>{
-    return this.petCommandServiceSvc.handlePetOps(userId, action, args);
+    return this.petCommandService.handlePetOps(userId, action, args);
   }
   async handlePetRename(userId: number, petName: string, newName: string): Promise<string>{
-    return this.petCommandServiceSvc.handlePetRename(userId, petName, newName);
+    return this.petCommandService.handlePetRename(userId, petName, newName);
   }
   async handlePetTransfer(userId: number, petName: string, targetPlayer: string): Promise<string>{
-    return this.petCommandServiceSvc.handlePetTransfer(userId, petName, targetPlayer);
+    return this.petCommandService.handlePetTransfer(userId, petName, targetPlayer);
   }
   async handlePetDrive(userId: number, petName: string, vehicleName = '原'): Promise<string>{
-    return this.petCommandServiceSvc.handlePetDrive(userId, petName, vehicleName);
+    return this.petCommandService.handlePetDrive(userId, petName, vehicleName);
   }
   async handlePetFeed(userId: number, petName: string, count = 1): Promise<string>{
-    return this.petCommandServiceSvc.handlePetFeed(userId, petName, count);
+    return this.petCommandService.handlePetFeed(userId, petName, count);
   }
   async handlePetSniff(userId: number, targetName: string, monsterName = ''): Promise<string>{
-    return this.petCommandServiceSvc.handlePetSniff(userId, targetName, monsterName);
+    return this.petCommandService.handlePetSniff(userId, targetName, monsterName);
   }
   async handlePetAwaken(userId: number, petName: string, count = '1'): Promise<string>{
-    return this.petCommandServiceSvc.handlePetAwaken(userId, petName, count);
+    return this.petCommandService.handlePetAwaken(userId, petName, count);
   }
   async handlePetAttack(userId: number, targetName: string): Promise<string>{
-    return this.petCommandServiceSvc.handlePetAttack(userId, targetName);
+    return this.petCommandService.handlePetAttack(userId, targetName);
   }
   async handlePetGoto(userId: number, targetName: string, mapName = ''): Promise<string>{
-    return this.petCommandServiceSvc.handlePetGoto(userId, targetName, mapName);
+    return this.petCommandService.handlePetGoto(userId, targetName, mapName);
   }
   async handlePetEquip(userId: number, petName: string, itemArg = ''): Promise<string>{
-    return this.petCommandServiceSvc.handlePetEquip(userId, petName, itemArg);
+    return this.petCommandService.handlePetEquip(userId, petName, itemArg);
   }
   async handleAllStop(userId: number): Promise<string>{
-    return this.petCommandServiceSvc.handleAllStop(userId);
+    return this.petCommandService.handleAllStop(userId);
   }
   async handleAllActive(userId: number): Promise<string>{
-    return this.petCommandServiceSvc.handleAllActive(userId);
+    return this.petCommandService.handleAllActive(userId);
   }
   async handleAllPassive(userId: number): Promise<string>{
-    return this.petCommandServiceSvc.handleAllPassive(userId);
+    return this.petCommandService.handleAllPassive(userId);
   }
   async handleAllMilk(userId: number): Promise<string>{
-    return this.petCommandServiceSvc.handleAllMilk(userId);
+    return this.petCommandService.handleAllMilk(userId);
   }
   async handleAllCommands(userId: number): Promise<string>{
-    return this.petCommandServiceSvc.handleAllCommands(userId);
+    return this.petCommandService.handleAllCommands(userId);
   }
   async handleAutoMine(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleAutoMine(userId);
+    return this.gatherPanelService.handleAutoMine(userId);
   }
   async handleStopMine(userId: number): Promise<string>{
-    return this.gatherPanelServiceSvc.handleStopMine(userId);
+    return this.gatherPanelService.handleStopMine(userId);
   }
   async handleRecipeUnlock(userId: number, recipeName = ''): Promise<string>{
-    return this.shopTradeServiceSvc.handleRecipeUnlock(userId, recipeName);
+    return this.shopTradeService.handleRecipeUnlock(userId, recipeName);
   }
   async handleConfirmHelp(userId: number, targetName: string): Promise<string>{
-    return this.questDialogueServiceSvc.handleConfirmHelp(userId, targetName);
+    return this.questDialogueService.handleConfirmHelp(userId, targetName);
   }
   async handleAutoShop(userId: number, itemName: string): Promise<string>{
-    return this.shopTradeServiceSvc.handleAutoShop(userId, itemName);
+    return this.shopTradeService.handleAutoShop(userId, itemName);
   }
   private findMerchantInSummons(map: any): { summons: any[]; index: number } | null{
-    return this.shopTradeServiceSvc.findMerchantInSummons(map);
+    return this.shopTradeService.findMerchantInSummons(map);
   }
   private parseJsonArray(value: any): any[] {
-    return this.supportSvc.parseJsonArray(value);
+    return this.support.parseJsonArray(value);
   }
 
   /**
@@ -2045,79 +1702,77 @@ export class GameService {
    * 原版在自己的院子里不加“购买冷却”，在其他地图购买时每10秒允许一次。
    */
   private checkMerchantPurchaseGate( player: any, map: any, houseMap: any, ): { blocked: boolean; message: string; markers2: any[]; markers2Changed: boolean }{
-    return this.shopTradeServiceSvc.checkMerchantPurchaseGate(player, map, houseMap);
+    return this.shopTradeService.checkMerchantPurchaseGate(player, map, houseMap);
   }
   private itemQuantity(item: any): number{
-    return this.supportSvc.itemQuantity(item);
+    return this.support.itemQuantity(item);
   }
   private async advanceTask(userId: number, actionName: string, count = 1): Promise<void> {
-    return this.supportSvc.advanceTask(userId, actionName, count);
+    return this.support.advanceTask(userId, actionName, count);
   }
 
   /** 行商列表显示名包含原版显示特效名称所需的特效标签。 */
   private formatMerchantItem(item: any, includeQuantity = false, includeEffect = true): string{
-    return this.shopTradeServiceSvc.formatMerchantItem(item, includeQuantity, includeEffect);
+    return this.shopTradeService.formatMerchantItem(item, includeQuantity, includeEffect);
   }
-  /** 过渡期公开（P3-2 HomeBuildService 经门面引用调用） */
   formatMerchantItems(items: any[]): string{
-    return this.shopTradeServiceSvc.formatMerchantItems(items);
+    return this.shopTradeService.formatMerchantItems(items);
   }
   private addItemToCollection(collection: any[], item: any): void{
-    this.supportSvc.addItemToCollection(collection, item);
+    this.support.addItemToCollection(collection, item);
   }
   private hasEnoughResources(backpack: any[], costs: any[]): boolean{
-    return this.shopTradeServiceSvc.hasEnoughResources(backpack, costs);
+    return this.shopTradeService.hasEnoughResources(backpack, costs);
   }
   private generateMerchantResource(): any{
-    return this.shopTradeServiceSvc.generateMerchantResource();
+    return this.shopTradeService.generateMerchantResource();
   }
-  /** 过渡期公开（P3-6a MovementVehicleService 经门面引用调用） */
   async generateMerchantInventory(level: number, extra: number): Promise<any[]>{
-    return this.shopTradeServiceSvc.generateMerchantInventory(level, extra);
+    return this.shopTradeService.generateMerchantInventory(level, extra);
   }
   async buildMerchantInventory(level = 1, extra = 0): Promise<any[]>{
-    return this.shopTradeServiceSvc.buildMerchantInventory(level, extra);
+    return this.shopTradeService.buildMerchantInventory(level, extra);
   }
   private async purchaseMerchantItem( userId: number, player: any, markers: any, map: any, summons: any[], merchantIndex: number, merchantBackpack: any[], itemIndex: number, ): Promise<string>{
-    return this.shopTradeServiceSvc.purchaseMerchantItem(userId, player, markers, map, summons, merchantIndex, merchantBackpack, itemIndex);
+    return this.shopTradeService.purchaseMerchantItem(userId, player, markers, map, summons, merchantIndex, merchantBackpack, itemIndex);
   }
   private deductBackpackItem(backpack: any[], name: string, quantity: number): void{
-    this.supportSvc.deductBackpackItem(backpack, name, quantity);
+    this.support.deductBackpackItem(backpack, name, quantity);
   }
   async handleRefreshMonster(userId: number, monsterName = ''): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleRefreshMonster(userId, monsterName);
+    return this.dungeonChallengeService.handleRefreshMonster(userId, monsterName);
   }
   async handleSpawnNpc(userId: number, argsString = ''): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleSpawnNpc(userId, argsString);
+    return this.dungeonChallengeService.handleSpawnNpc(userId, argsString);
   }
   async handleDeleteMonster(userId: number): Promise<string>{
-    return this.dungeonChallengeServiceSvc.handleDeleteMonster(userId);
+    return this.dungeonChallengeService.handleDeleteMonster(userId);
   }
   async handleProductionMode(userId: number, mode: number): Promise<string>{
-    return this.skillCommandServiceSvc.handleProductionMode(userId, mode);
+    return this.skillCommandService.handleProductionMode(userId, mode);
   }
   async handleTransformText(userId: number, text: string): Promise<string>{
-    return this.skillCommandServiceSvc.handleTransformText(userId, text);
+    return this.skillCommandService.handleTransformText(userId, text);
   }
   async handleSaveImage(userId: number, imageName: string): Promise<string>{
-    return this.delayedSettleServiceSvc.handleSaveImage(userId, imageName);
+    return this.delayedSettleService.handleSaveImage(userId, imageName);
   }
   async handleStartSaveImage(userId: number): Promise<string>{
-    return this.delayedSettleServiceSvc.handleStartSaveImage(userId);
+    return this.delayedSettleService.handleStartSaveImage(userId);
   }
   async handleStopSaveImage(userId: number): Promise<string>{
-    return this.delayedSettleServiceSvc.handleStopSaveImage(userId);
+    return this.delayedSettleService.handleStopSaveImage(userId);
   }
   async handleStopTakeover(userId: number): Promise<string>{
-    return this.movementVehicleServiceSvc.handleStopTakeover(userId);
+    return this.movementVehicleService.handleStopTakeover(userId);
   }
   async handleConfirmResetImplant(userId: number): Promise<string>{
-    return this.equipCommandServiceSvc.handleConfirmResetImplant(userId);
+    return this.equipCommandService.handleConfirmResetImplant(userId);
   }
   async handleConfirmResetAmplifier(userId: number): Promise<string>{
-    return this.equipCommandServiceSvc.handleConfirmResetAmplifier(userId);
+    return this.equipCommandService.handleConfirmResetAmplifier(userId);
   }
   private async getPlayerName(userId: number): Promise<string> {
-    return this.supportSvc.getPlayerName(userId);
+    return this.support.getPlayerName(userId);
   }
 }

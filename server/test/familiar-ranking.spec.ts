@@ -18,6 +18,7 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
 import { BonusService } from '../src/modules/game/bonus.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { CombatSystemService } from '../src/modules/game/combat-system.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseValue<T>(value: any, fallback: T): T {
   if (value === null || value === undefined) return fallback;
@@ -81,29 +82,31 @@ function makeService(options: { players?: any[]; maps?: any[] } = {}) {
     })),
   };
 
-  const service = new GameService(
-    prisma,
-    playerService,
-    bonusService,
-    combatSystem,
-    {} as any, // itemService
-    {} as any, // mapService
-    {} as any, {} as any, {} as any, // familiarService/dungeonService/adminService
-    {} as any, // achievementService
-    {} as any, // itemSystemService
-    {} as any, // homeService
-    {} as any, // familiarSystemService
-    {} as any, // familiarSkillsService
-    {} as any, // tutorialService
-    new StaticDataService(),
-    {} as any, // systemConfigService
-    {} as any, // chatService
-    {} as any, // feedbackService
-    {} as any, // taskService
-    shortcutService,
-    {} as any, // statsService
-    combatState,
-  );
+  const service = createGameServiceStub({
+      prisma: prisma,
+      playerService: playerService,
+      bonusService: bonusService,
+      combatSystem: combatSystem,
+      itemService: {} as any,
+      mapService:     {} as any,
+      familiarService:     {} as any,
+      dungeonService: {} as any,
+      adminService: {} as any,
+      achievementService:     {} as any,
+      itemSystemService:     {} as any,
+      homeService:     {} as any,
+      familiarSystemService:     {} as any,
+      familiarSkillsService:     {} as any,
+      tutorialService:     {} as any,
+      staticData:     new StaticDataService(),
+      systemConfigService: {} as any,
+      chatService:     {} as any,
+      feedbackService:     {} as any,
+      taskService:     {} as any,
+      shortcutService:     shortcutService,
+      statsService: {} as any,
+      combatState:     combatState,
+    });
 
   return { service, prisma, players, maps, savedPlayers, tempInputs, combatSystem, bonusService, shortcutService, combatState };
 }

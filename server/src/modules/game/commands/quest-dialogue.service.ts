@@ -7,8 +7,8 @@
  * 新手使魔门/自动使魔技能触发、确认帮助、生产入口。
  * 依赖方向：依赖 Player、Map、Shortcut（临时输入）、Prisma、Task、StaticData、
  * SystemConfig、FamiliarSystem、Handbook、Tutorial、Achievement、CombatSystem、
- * Chat、Feedback、FamiliarSkills 与支撑层；过渡期经门面引用触达 rescue 域
- * ensurePlayerWhite 与 movement 域 performArrival（对应组拆出后改为直接注入）。
+ * Chat、Feedback、FamiliarSkills 与支撑层；跨域直接注入兄弟子服务 RescueWhite
+ * （ensurePlayerWhite）与 MovementVehicle（performArrival），单向边无环。
  * 单一真相源：编号菜单统一支撑层 buildNumberedMenu；快捷输入统一 ShortcutService。
  * 对口原版：_主程序.ecode 任务/对话/设置分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -31,7 +31,8 @@ import { TaskService } from '.././task.service';
 import { ShortcutService } from '.././shortcut.service';
 import { HandbookService } from '.././handbook.service';
 import { GameSupportService } from '.././game-support.service';
-import { GameService } from '.././game.service';
+import { RescueWhiteService } from './rescue-white.service';
+import { MovementVehicleService } from './movement-vehicle.service';
 
 /** 任务来源（NPC → 任务名列表），getQuestSources 的返回条目类型 */
 export interface QuestSource {
@@ -43,17 +44,6 @@ export interface QuestSource {
 @Injectable()
 export class QuestDialogueService {
   private readonly logger = new Logger(QuestDialogueService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -71,6 +61,9 @@ export class QuestDialogueService {
     private readonly feedbackService: FeedbackService,
     private readonly taskService: TaskService,
     private readonly shortcutService: ShortcutService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    private readonly rescue: RescueWhiteService,
+    private readonly movement: MovementVehicleService,
     @Optional() private readonly handbookService?: HandbookService,
   ) {}
 
@@ -306,7 +299,7 @@ export class QuestDialogueService {
     }
     // 白：优先找地图实体；历史存档（只有 召唤白 标记）按需补建实体。
     if (!targetNpc && npcName === '白' && map) {
-      const white = await this.facade!.ensurePlayerWhite(player, map).catch(() => null);
+      const white = await this.rescue.ensurePlayerWhite(player, map).catch(() => null);
       if (white) {
         targetNpc = white;
         unitKind = 'summon';
@@ -666,7 +659,7 @@ export class QuestDialogueService {
 
     // 统一走普通移动/飞行共用的到达结算（含观测产出/四圣祭坛麒麟/普拉娜剪毛等到达触发），
     // 确保地图增益、探索和任务只处理一次。
-    const arrivalResult = await this.facade!.performArrival(userId, targetMap.id, targetMap.name);
+    const arrivalResult = await this.movement.performArrival(userId, targetMap.id, targetMap.name);
     return arrivalResult;
   }
 
@@ -822,7 +815,7 @@ export class QuestDialogueService {
     // 白：历史存档（只有 召唤白 标记）按需补建实体，保证任务池可解析。
     const wantedName = String(questName || '').trim();
     if (!wantedName || wantedName === '白') {
-      const white = await this.facade!.ensurePlayerWhite(player, map).catch(() => null);
+      const white = await this.rescue.ensurePlayerWhite(player, map).catch(() => null);
       if (white && !summons.some((s: any) => String(s?.qq ?? s?.QQ ?? '') === String(white.qq ?? ''))) {
         summons.push(white);
       }

@@ -4,12 +4,12 @@
  * 职责：救助/扶起/复活使魔、自救、救援标记（创建/领取/过期/善后）、绑定载具维修、
  * 白天使全家桶（召唤物落位/好感同步/复活传送/重生图解析/白的对话任务池与羁绊联动）。
  * 依赖方向：依赖 Player、Map、Task、Prisma、Chat、DelayedTaskService、CombatSystem、
- * 支撑层（firstPositiveNumber/mutatePlayer 等）；过渡期经门面引用触达 movement 域
- * performArrival（P3-6 内核合并后改为直接注入）。
+ * 支撑层（firstPositiveNumber/mutatePlayer 等）；跨域直接注入兄弟子服务
+ * MovementVehicle（movement↔rescue 互调边，forwardRef 断环）。
  * 单一真相源：救援标记秒口径统一 rescueExpireAtSeconds；地面单位出入统一
  * mutateSummons 锁内闭环（mapService）。
  * 对口原版：_主程序.ecode 救助/复活/白 召唤分支。
- */import { Injectable, Logger, Optional } from '@nestjs/common';
+ */import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { capPoolValue } from '.././player-pool.util';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -20,22 +20,11 @@ import { ChatService } from '../../chat/chat.service';
 import { TaskService } from '.././task.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
-import { GameService } from '.././game.service';
+import { MovementVehicleService } from './movement-vehicle.service';
 
 @Injectable()
 export class RescueWhiteService {
   private readonly logger = new Logger(RescueWhiteService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -45,6 +34,9 @@ export class RescueWhiteService {
     private readonly mapService: MapService,
     private readonly chatService: ChatService,
     private readonly taskService: TaskService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用）。movement↔rescue 互调边用 forwardRef 断环。
+    @Inject(forwardRef(() => MovementVehicleService))
+    private readonly movement: MovementVehicleService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {}
 
@@ -613,7 +605,7 @@ export class RescueWhiteService {
       const targetMap = await this.mapService.getMapById(Number(targetMapId));
       if (!targetMap) return '';
 
-      const result = await this.facade!.performArrival(userId, targetMap.id, targetMap.name);
+      const result = await this.movement.performArrival(userId, targetMap.id, targetMap.name);
       if (!result) return '';
       // performArrival 成功时返回到达欢迎语；失败路径返回错误描述，不追加传送后缀。
       if (result.includes('不存在') || result.includes('已经在')) return '';
@@ -676,7 +668,6 @@ export class RescueWhiteService {
    * 好感采用原版“白好感”双向同步（地图操作.ecode L841-853）：
    * 单位侧与玩家标记互为备份，单位因地图写竞态丢失重建时不掉好感。
    */
-  /** 过渡期公开（P2-7 SkillCommandService 经门面引用调用；P3-5 rescue 拆出后改为子服务直接注入） */
 
   async ensurePlayerWhite(player: any, map: any): Promise<any | null> {
     const userId = Number(player.userId);

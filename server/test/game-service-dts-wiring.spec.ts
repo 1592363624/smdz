@@ -12,6 +12,7 @@
  *   2. 回调体可调用（经门面委托走到委托目标，而非 undefined）；
  *   3. dts 缺席时静默降级（Object.create 测试桩路径，不得抛错）。
  */
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 import { GameService } from '../src/modules/game/game.service';
 
 const EXPECTED_HANDLER_TYPES = [
@@ -36,7 +37,7 @@ function makeWiredStub() {
       registered.set(type, fn);
     },
   };
-  const stub: any = Object.create(GameService.prototype);
+  const stub: any = createGameServiceStub();
   stub.delayedTaskService = dts;
   stub.logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
   stub.onModuleInit();
@@ -60,13 +61,13 @@ describe('延时任务结算接线冒烟（R9）', () => {
   });
 
   it('dts 缺席时 onModuleInit 静默降级（测试桩路径不得抛错）', () => {
-    const stub: any = Object.create(GameService.prototype);
+    const stub: any = createGameServiceStub();
     expect(() => stub.onModuleInit()).not.toThrow();
   });
 
   it('回调体经门面委托触达实现（示例：gather 回调最终调 settleGatherResource）', async () => {
     const calls: any[] = [];
-    const stub2: any = Object.create(GameService.prototype);
+    const stub2: any = createGameServiceStub();
     const registered2 = new Map<string, (task: any) => Promise<void>>();
     stub2.delayedTaskService = {
       registerHandler: (type: string, fn: any) => registered2.set(type, fn),

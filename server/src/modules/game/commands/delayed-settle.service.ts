@@ -5,8 +5,8 @@
  * 依赖方向：依赖 Player、DelayedTaskService（排程）、CombatState、Chat、
  * Achievement、Prisma、Map、FamiliarSystemService、StaticData、Dungeon、Task、
  * HomeService、SkillCommandService、ShopTradeService、QuestDialogueService、
- * HomeBuildService 与支撑层；内核域（gather/movement/rescue/vehicle/panel）的
- * 结算入口过渡期经门面引用触达（P3-6 合并后改为直接注入）。
+ * HomeBuildService 与支撑层；内核域（panel）的推送/跟随显示入口直接注入
+ * 兄弟子服务 GatherPanel，单向边无环。
  * 单一真相源：dts.registerHandler 注册块仍整体保留在 GameService.onModuleInit
  * （§4.2 C5：门面是唯一知道全部延时入口的地方，注册时序不可变，R9 冒烟测试锁定）。
  * 对口原版：_主程序.ecode 延时任务/装填/补给/存图分支。
@@ -23,22 +23,11 @@ import { TaskService } from '.././task.service';
 import { CombatStateService } from '.././combat-state.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
-import { GameService } from '.././game.service';
+import { GatherPanelService } from './gather-panel.service';
 
 @Injectable()
 export class DelayedSettleService {
   private readonly logger = new Logger(DelayedSettleService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -51,6 +40,8 @@ export class DelayedSettleService {
     private readonly chatService: ChatService,
     private readonly taskService: TaskService,
     private readonly combatState: CombatStateService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    private readonly panel: GatherPanelService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {}
 
@@ -178,7 +169,7 @@ export class DelayedSettleService {
       }
 
       // 门禁3：有跟随中的召唤物（原版 L7116 召唤物跟随显示(玩家,2,...)，b==0 → 不能自己发电）
-      const display = await this.facade!.summonFollowDisplay(map, userId, { requireFollow: true, countLimit: 2 });
+      const display = await this.panel.summonFollowDisplay(map, userId, { requireFollow: true, countLimit: 2 });
       if (display.count === 0) return `${player.name ?? '冒险者'}不能自己发电`;
       const displayText = `正在和${display.names.join('、')}一起`;
 
@@ -230,7 +221,7 @@ export class DelayedSettleService {
       if (!map) return '';
 
       // 补魔对象校验（原版 L7159-7161：跟随显示 b==0 → 补魔失败）
-      const display = await this.facade!.summonFollowDisplay(map, userId, { requireFollow: true, countLimit: 2 });
+      const display = await this.panel.summonFollowDisplay(map, userId, { requireFollow: true, countLimit: 2 });
       if (display.count === 0) return `${player.name ?? '冒险者'}补魔对象丢失，补魔失败`;
       const displayText = `与${display.names.join('、')}一起`;
 
@@ -317,8 +308,8 @@ export class DelayedSettleService {
     if (text) {
       await this.chatService.broadcastSystem('世界频道', text, userId).catch(() => undefined);
       try {
-        await this.facade!.pushPlayerUpdate(userId);
-        await this.facade!.pushMapUpdate(userId);
+        await this.panel.pushPlayerUpdate(userId);
+        await this.panel.pushMapUpdate(userId);
       } catch { /* 推送失败不影响结算 */ }
     }
   }

@@ -1,5 +1,6 @@
 import { GameCommandHandler } from '../src/modules/command/handlers/game-command.handler';
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === undefined || value === null) return fallback;
@@ -29,7 +30,7 @@ function makeFusionService(options: { artisan?: boolean; random?: number } = {})
       { name: '凭证', type: '资源', quantity: 3 },
     ]),
   };
-  const service = Object.create(GameService.prototype) as any;
+  const service = createGameServiceStub() as any;
   service.logger = { log: jest.fn(), warn: jest.fn() };
   service.playerService = {
     safeJsonParse: parseJson,

@@ -401,7 +401,8 @@ describe('架构门禁：玩家状态写入口收口', () => {
         const next = rest.search(/\r?\n  (private )?async /);
         const body = rest.slice(0, next < 0 ? undefined : next);
         if (body.includes('enqueueUserWrite')) { found = true; break; }
-        if (!/return this\.\w+Svc\./.test(body)) {
+        // 一行委托（过渡清理 B 批后委托目标为必选注入的子服务字段，不再带 Svc 后缀）
+        if (!/return this\.\w+\./.test(body)) {
           throw new Error(
             `延时结算入口 ${fn} 未自串行（${path.relative(SRC_DIR, file)}，函数体内无 enqueueUserWrite）。\n` +
               `它会被 DelayedTaskService.tick 在无锁上下文直调，必须像 settleGatherResource 一样\r\n` +
@@ -483,7 +484,9 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
   // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）→ 16659（P2-2 admin 批次）→ 8695（P2-3~P2-8 / P3-1~P3-5 批次）：P1-1 消重（roundText/displayDamage）+
   // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
-  const GAME_SERVICE_LINE_BASELINE = 2123;
+  // 2153（P4 收尾・过渡清理 A 批）：门面反指改直接注入，桥 getter 补兄弟挂接暂时+30 行。
+  // 1778（P4 收尾・过渡清理 B 批）：删除 16 个懒构造桥 getter，子服务依赖改必选注入，测试桩统一走工厂。
+  const GAME_SERVICE_LINE_BASELINE = 1778;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(

@@ -6,8 +6,8 @@
  * 依赖方向：依赖 Player、Map、CombatSystem、Achievement、Task、DungeonService、
  * Prisma、Vitality、CombatState、StaticData、Shortcut、DelayedTaskService、
  * FamiliarSkills、ItemSystem 与支撑层（setMarkers2/hasEquip/mutatePlayer 等）；
- * 过渡期经门面引用触达 panel 域 handleLookAround 与 vehicle 域
- * toRuntimeVehicle/toStoredVehicle（P3-6 内核合并后改为直接注入）。
+ * 跨域直接注入兄弟子服务 GatherPanel（handleLookAround）与 MovementVehicle
+ * （toRuntimeVehicle/toStoredVehicle），单向边无环。
  * 单一真相源：副本标记写入统一 normalizeDungeonMarkers2（combatState.normalizeBuffItem 同源）。
  * 对口原版：_主程序.ecode 副本/扫荡/挑战分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -29,22 +29,12 @@ import { CombatStateService } from '.././combat-state.service';
 import { VitalityService } from '.././vitality.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
-import { GameService } from '.././game.service';
+import { GatherPanelService } from './gather-panel.service';
+import { MovementVehicleService } from './movement-vehicle.service';
 
 @Injectable()
 export class DungeonChallengeService {
   private readonly logger = new Logger(DungeonChallengeService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -60,6 +50,9 @@ export class DungeonChallengeService {
     private readonly taskService: TaskService,
     private readonly shortcutService: ShortcutService,
     private readonly combatState: CombatStateService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    private readonly panel: GatherPanelService,
+    private readonly movement: MovementVehicleService,
     @Optional() private readonly vitalityService?: VitalityService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {}
@@ -625,17 +618,6 @@ export class DungeonChallengeService {
     return result.message;
   }
 
-  // ========== 载具部件系统 ==========
-
-  // 原版 部件类型转换 L2180-L2195：0核心部件、1防御部件、2行走机构、4功能部件，默认武器部件。
-
-  /**
-   * 获取部件类型对应的插槽限制信息
-   * @param vehicle 载具对象
-   * @param partType 部件类型（0核心 1防御 2行走 3武器 4功能）
-   */
-  /** 过渡期公开（P3-2 HomeBuildService 经门面引用调用） */
-
   async handleClearDungeon(userId: number, dungeonName = ''): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -787,7 +769,7 @@ export class DungeonChallengeService {
     await this.playerService.savePlayer(player);
 
     // 原版 L6453-6455：观察附近 + 提示文本
-    const look = await this.facade!.handleLookAround(userId);
+    const look = await this.panel.handleLookAround(userId);
     return `${player.name} 准备挑战第${level}层，得到了${b}个挑战装备箱和挑战资源箱\n${look}`;
   }
 
@@ -883,7 +865,7 @@ export class DungeonChallengeService {
     const targetMap = candidates[Math.floor(Math.random() * candidates.length)];
 
     const seq = `${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-    const runtime = this.facade!.toRuntimeVehicle({});
+    const runtime = this.movement.toRuntimeVehicle({});
     runtime.名称 = String(wreck.name ?? '废弃载具').replace(/[0-9]/g, '');
     runtime.name = runtime.名称;
     runtime.编号 = `V${seq}`;
@@ -910,7 +892,7 @@ export class DungeonChallengeService {
 
     await this.mapService.mutateMapFields(targetMap.id, ['vehicles'], (f) => {
       const vehicles = Array.isArray(f.vehicles) ? f.vehicles : [];
-      vehicles.push(this.facade!.toStoredVehicle(runtime));
+      vehicles.push(this.movement.toStoredVehicle(runtime));
       f.vehicles = vehicles;
       return true;
     });

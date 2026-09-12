@@ -2,6 +2,7 @@ import { GameService } from '../src/modules/game/game.service';
 import { ItemService } from '../src/modules/game/item.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { BonusService } from '../src/modules/game/bonus.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 /**
  * 背包展示契约（用户约定 2026-09-09）：
@@ -54,7 +55,7 @@ function makeInventoryService(backpackOverride?: any[]) {
     {} as any,
     staticData,
   );
-  const service = Object.create(GameService.prototype) as any;
+  const service = createGameServiceStub() as any;
   service.playerService = playerService;
   service.itemService = itemService;
   service.itemSystemService = itemSystemService;

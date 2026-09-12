@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 describe('装备入口序号兼容', () => {
   function makeService() {
@@ -11,7 +12,7 @@ describe('装备入口序号兼容', () => {
     const itemService = {
       equipItem: jest.fn(async () => '装备成功'),
     };
-    const service = Object.create(GameService.prototype) as any;
+    const service = createGameServiceStub() as any;
     service.playerService = {
       getPlayerData: jest.fn(async () => ({ player })),
       getBackpackItems: jest.fn((value: any) => JSON.parse(value.backpack)),
@@ -58,7 +59,7 @@ describe('带品质码的装备名匹配（2026-09-06 品质错配修复）', ()
       // 回退 2 依赖显示名整段匹配；桩按基础名返回即可覆盖「全不匹配」的路径
       formatEquipmentInventoryDisplay: jest.fn((item: any) => item.name),
     };
-    const service = Object.create(GameService.prototype) as any;
+    const service = createGameServiceStub() as any;
     service.playerService = {
       getPlayerData: jest.fn(async () => ({ player })),
       getBackpackItems: jest.fn((value: any) => JSON.parse(value.backpack)),

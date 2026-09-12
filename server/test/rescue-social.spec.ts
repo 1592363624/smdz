@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -81,8 +82,7 @@ function makeService(options: {
     }),
     cancel: jest.fn(async () => undefined),
   };
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma,
     playerService,
     mapService,
@@ -92,13 +92,15 @@ function makeService(options: {
     logger: { warn: jest.fn(), log: jest.fn(), error: jest.fn() },
   });
   // 自救「白」传送用例只关心目标地图的选择；真实移动链路由移动相关测试覆盖。
-  // P3-5：rescue 域已迁出，复活传送经门面引用调用 movement 域 performArrival——桩自挂门面
-  (service as any).rescueWhiteServiceSvc?.attachFacade?.(service);
-  service.performArrival = jest.fn(async (_userId: number, targetMapId: number, targetMapName: string) => {
-    player.mapId = Number(targetMapId);
-    return `你来到了【${targetMapName}】`;
-  });
-  return { service, player, map, taskService, playerService, updates, savedPlayers, chatService, delayedTaskService, scheduledTasks };
+  // P4 直连清理：rescue 经 DI 兄弟调 movement.performArrival——覆写挂到兄弟实例（原挂门面层）。
+  ((service as any).rescueWhiteService.movement as any).performArrival = jest.fn(
+    async (_userId: number, targetMapId: number, targetMapName: string) => {
+      player.mapId = Number(targetMapId);
+      return `你来到了【${targetMapName}】`;
+    },
+  );
+  const performArrival = (service as any).rescueWhiteService.movement.performArrival as jest.Mock;
+  return { service, player, map, taskService, playerService, updates, savedPlayers, chatService, delayedTaskService, scheduledTasks, performArrival };
 }
 
 describe('扶、救助、复活使魔社交救援流程', () => {
@@ -284,7 +286,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
     expect(player.hp).toBe(50);
     // 原版 L1303-1305：复活到附近复活点并提示。
     expect(player.mapId).toBe(9);
-    expect(fixture.service.performArrival).toHaveBeenCalledWith(1, 9, '安全屋');
+    expect(fixture.performArrival).toHaveBeenCalledWith(1, 9, '安全屋');
   });
 
   it('白在别的地图时，复活后传送到白身边', async () => {
@@ -324,7 +326,7 @@ describe('扶、救助、复活使魔社交救援流程', () => {
 
     expect(player.hp).toBe(50);
     expect(player.mapId).toBe(7);
-    expect(fixture.service.performArrival).not.toHaveBeenCalled();
+    expect(fixture.performArrival).not.toHaveBeenCalled();
   });
 
   it('没有白时原地复活，并把结算文本广播到世界频道', async () => {

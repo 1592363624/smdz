@@ -1,5 +1,6 @@
 import { GameService } from '../src/modules/game/game.service';
 import { FamiliarSystemService } from '../src/modules/game/familiar-system.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === undefined || value === null) return fallback;
@@ -22,7 +23,7 @@ function makeService() {
       { name: '防御阵地', ownerQQ: '7', markers: JSON.stringify({ 阵地: 1 }) },
     ]),
   };
-  const service = Object.create(GameService.prototype) as any;
+  const service = createGameServiceStub() as any;
   service.logger = { log: jest.fn() };
   service.playerService = {
     getPlayerData: jest.fn(async () => ({ player })),

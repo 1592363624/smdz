@@ -6,8 +6,8 @@
  * （含白色羁绊终端）、技能查看、生产模式、增幅器说明。
  * 依赖方向：依赖 Player、FamiliarSystemService、FamiliarSkillsService、Prisma、
  * GlobalProficiency、StaticData、CombatState、Map 与支撑层（buildNumberedMenu、
- * hasEquippedSpecial、millisecondsToText、mutatePlayer 等）；过渡期经门面引用
- * 触达 rescue 域的 ensurePlayerWhite（P3-5 拆出后改为直接注入）。
+ * hasEquippedSpecial、millisecondsToText、mutatePlayer 等）；跨域直接注入兄弟
+ * 子服务 RescueWhite（ensurePlayerWhite），单向边无环。
  * 单一真相源：称号/技能等级口径走 skillLevelInfo；世界等级走 GlobalProficiencyService。
  * 对口原版：_主程序.ecode 技能/变身/称号分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -23,22 +23,11 @@ import { StaticDataService } from '.././static-data.service';
 import { CombatStateService } from '.././combat-state.service';
 import { GlobalProficiencyService } from '.././global-proficiency.service';
 import { GameSupportService } from '.././game-support.service';
-import { GameService } from '.././game.service';
+import { RescueWhiteService } from './rescue-white.service';
 
 @Injectable()
 export class SkillCommandService {
   private readonly logger = new Logger(SkillCommandService.name);
-
-  /**
-   * 过渡期门面引用：仅用于触达尚未迁出的跨域方法（对应组拆出后改为直接注入）。
-   * 由 GameService.onModuleInit 注入（构造后赋值，不构成 DI 环）。
-   */
-  private facade?: GameService;
-
-  /** GameService.onModuleInit 注入门面引用。 */
-  attachFacade(facade: GameService): void {
-    this.facade = facade;
-  }
 
   constructor(
     private readonly support: GameSupportService,
@@ -49,6 +38,8 @@ export class SkillCommandService {
     private readonly familiarSkillsService: FamiliarSkillsService,
     private readonly staticData: StaticDataService,
     private readonly combatState: CombatStateService,
+    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    private readonly rescue: RescueWhiteService,
     @Optional() private readonly globalProficiency?: GlobalProficiencyService,
   ) {}
 
@@ -645,7 +636,7 @@ export class SkillCommandService {
 
     // 原版：当前地图存在归属自己的「白」→ 羁绊终端
     if (map) {
-      const white = await this.facade!.ensurePlayerWhite(player, map).catch(() => null);
+      const white = await this.rescue.ensurePlayerWhite(player, map).catch(() => null);
       if (white) {
         return this.handleWhiteBondTerminal(userId, player, markers, String(arg || '').trim());
       }

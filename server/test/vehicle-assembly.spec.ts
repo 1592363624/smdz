@@ -1,5 +1,6 @@
 import { GameService } from '../src/modules/game/game.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 jest.mock('../src/modules/game/static-data.service', () => {
   const actual = jest.requireActual('../src/modules/game/static-data.service');
@@ -104,34 +105,33 @@ function makeService(options: {
 
   const taskService: any = { advance: jest.fn(async () => '') };
 
-  const service = new GameService(
-    prisma,
-    playerService,
-    {} as any,
-    combatSystem,
-    {} as any,
-    mapService,
-    {} as any,
-    {} as any,
-    {} as any,
-    achievementService,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    new StaticDataService(),
-    {} as any,
-    {} as any,
-    {} as any,
-    taskService,
-    {} as any,
-    {} as any,
-    {} as any,
-  );
+  const service = createGameServiceStub({
+      prisma: prisma,
+      playerService: playerService,
+      bonusService: {} as any,
+      combatSystem: combatSystem,
+      itemService: {} as any,
+      mapService: mapService,
+      familiarService: {} as any,
+      dungeonService: {} as any,
+      adminService: {} as any,
+      achievementService: achievementService,
+      itemSystemService: {} as any,
+      homeService: {} as any,
+      familiarSystemService: {} as any,
+      familiarSkillsService: {} as any,
+      tutorialService: {} as any,
+      staticData: new StaticDataService(),
+      systemConfigService: {} as any,
+      chatService: {} as any,
+      feedbackService: {} as any,
+      taskService: taskService,
+      shortcutService: {} as any,
+      statsService: {} as any,
+      combatState: {} as any,
+    });
 
   // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
-  (service as any).movementVehicleServiceSvc?.attachFacade?.(service);
   return { service, player, map, updateCalls, savedPlayers, taskService, achievementService };
 }
 

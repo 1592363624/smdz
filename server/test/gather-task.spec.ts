@@ -2,6 +2,7 @@ import { GatherHandler } from '../src/modules/command/handlers/gather.handler';
 import { GameService } from '../src/modules/game/game.service';
 import { DelayedTaskService } from '../src/modules/game/delayed-task.service';
 import { parseJson } from './parse-json.util';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 /**
  * 手动采集两阶段流程自检（1:1 对齐原版）：
@@ -143,8 +144,7 @@ function makeGatherFixture(resource: any, options: {
     broadcastSystem: jest.fn(async () => undefined),
     emitToUser: jest.fn(async () => undefined),
   };
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma,
     delayedTaskService,
     playerService,
@@ -192,7 +192,6 @@ function makeGatherFixture(resource: any, options: {
     pushPlayerUpdate: jest.fn(async () => undefined),
     pushMapUpdate: jest.fn(async () => undefined),
   });
-  (service as any).gatherPanelServiceSvc?.attachFacade?.(service);
   return { service, player, map, taskService, prisma, itemSystemService, chatService, playerService, combatSystem, delayedTaskService, delayedTaskRows };
 }
 

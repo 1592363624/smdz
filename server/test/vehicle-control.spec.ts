@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseValue<T>(value: any, fallback: T): T {
   if (value === null || value === undefined) return fallback;
@@ -99,31 +100,31 @@ function makeService(options: {
   const taskService: any = { advance: jest.fn(async () => '') };
   const placeholder = {} as any;
 
-  const service = new GameService(
-    prisma,
-    playerService,
-    {} as any,
-    {} as any,
-    {} as any,
-    mapService,
-    {} as any,
-    {} as any,
-    {} as any,
-    achievementService,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    taskService,
-    {} as any,
-    {} as any,
-    {} as any,
-  );
+  const service = createGameServiceStub({
+      prisma: prisma,
+      playerService: playerService,
+      bonusService: {} as any,
+      combatSystem: {} as any,
+      itemService: {} as any,
+      mapService: mapService,
+      familiarService: {} as any,
+      dungeonService: {} as any,
+      adminService: {} as any,
+      achievementService: achievementService,
+      itemSystemService: {} as any,
+      homeService: {} as any,
+      familiarSystemService: {} as any,
+      familiarSkillsService: {} as any,
+      tutorialService: {} as any,
+      staticData: {} as any,
+      systemConfigService: {} as any,
+      chatService: {} as any,
+      feedbackService: {} as any,
+      taskService: taskService,
+      shortcutService: {} as any,
+      statsService: {} as any,
+      combatState: {} as any,
+    });
 
   return { service, player, map, dbVehicles, previousPlayers, updateCalls, dbUpdateCalls, savedPlayers, achievements };
 }
