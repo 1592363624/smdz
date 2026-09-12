@@ -5,6 +5,7 @@ import { Module, Global, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from './game.service';
 import { GameSupportService } from './game-support.service';
+import { FusionCraftService } from './commands/fusion-craft.service';
 import { AdminCommandService } from './commands/admin-command.service';
 import { RankingCommandService } from './commands/ranking-command.service';
 import { GameController } from './game.controller';
@@ -57,6 +58,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   providers: [
     GameService,
     GameSupportService,
+    FusionCraftService,
     AdminCommandService,
     RankingCommandService,
     PlayerService,
@@ -96,6 +98,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   exports: [
     GameService,
     GameSupportService,
+    FusionCraftService,
     AdminCommandService,
     RankingCommandService,
     PlayerService,

@@ -341,4 +341,31 @@ export class GameSupportService {
    * 查看地图单位详情（原版 对话菜单 1、查看 → 查看X，_主程序.ecode L1519-1520）。
    * 支持 NPC/召唤物/怪物；找不到返回空串（由调用方回退到查看自己）。
    */
+
+  itemQuantity(item: any): number {
+    if (item == null) return 0;
+    return Number(item.quantity ?? item.count ?? 1) || 0;
+  }
+
+  /** 任务推进的服务层适配点，避免任务服务不可用时影响核心玩法动作。 */
+
+  deductBackpackItem(backpack: any[], name: string, quantity: number): void {
+    const item = backpack.find((i: any) => (i?.name ?? i?.名称) === name);
+    if (!item) return;
+    const current = this.itemQuantity(item);
+    if (current <= quantity) {
+      const idx = backpack.indexOf(item);
+      if (idx !== -1) backpack.splice(idx, 1);
+    } else {
+      if (item.quantity !== undefined) item.quantity = current - quantity;
+      else item.count = current - quantity;
+    }
+  }
+
+  /**
+   * 刷新怪物（管理员）（原版 _主程序.ecode L6829-6851）。
+   * 管理权限 → 怪物列表按名称查找（未找到→“怪物列表未找到X”）→ _初始化怪物
+   * （等级成长/三层池公式，复用 map.service.buildMonsterSpawnData）→ 加入当前地图怪物2
+   * → “在X刷新了一只Y”。非管理员原版静默无输出，新版明确提示权限（与设置位置同口径）。
+   */
 }
