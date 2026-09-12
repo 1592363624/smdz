@@ -138,6 +138,10 @@ describe('支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故�
     // 落库终态：73.012 过两位小数闸=73.01，扣 73 后 0.01（条目花光移除），钻石只扣一次
     expect(row.tickets).toBeCloseTo(0.01, 6);
     expect(row.diamonds).toBeCloseTo(10.6, 6);
+
+    // 方案B：召唤成功写入「召唤冷却」标记并声明 summon-cd 类型（面板据此显示「召唤冷却中」）
+    const markers2 = typeof row.markers2 === 'string' ? JSON.parse(row.markers2) : row.markers2;
+    expect(markers2).toContainEqual(expect.objectContaining({ name: '召唤冷却', kind: 'summon-cd' }));
   });
 
   it('召唤数量 ≤ 兑换前旧值时也不得吞券：扣减必须基于兑换后的新余额', async () => {

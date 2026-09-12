@@ -396,6 +396,12 @@ model ChatMessage {
   type      String   @default("chat")
   // LongText：批量召唤/结算等极端长回包曾因 MySQL TEXT(64KB) 落库失败，导致公屏无系统回包
   content   String   @db.LongText
+  // 可见范围：public=公屏可见(默认)；private=仅 senderId 本人可见，其他玩家只看到占位提示。
+  // 用于探测雷达等高价值情报指令，防止他人白嫖他人探测结果（2026-09-13）。
+  visibility String  @default("public")
+  // 私密消息对其他玩家展示的占位文本：落库时按「私密消息规则」中该指令的配置写入，
+  // 供历史消息脱敏使用（为空则回退系统内置默认占位文本）。
+  placeholder String?
   commandId Int?
   createdAt DateTime @default(now())
 

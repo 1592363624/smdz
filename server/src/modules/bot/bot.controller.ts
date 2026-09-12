@@ -18,7 +18,7 @@ import {
   HttpStatus,
   Post,
 } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { GlobalConfig } from '../../config/global.config';
 import { BotService } from './bot.service';
 import { UsersService } from '../users/users.service';
@@ -42,6 +42,36 @@ export class BotController {
     name: 'x-bot-token',
     description: '机器人访问令牌(与BOT_ACCESS_TOKEN一致)',
     required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      '指令执行结果。data.visibility="private" 表示私密结果（如探测雷达），' +
+      '插件应仅将 data.content 私聊回传给发起者，群内展示 data.placeholder 占位文本',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', description: '指令是否执行成功' },
+            content: { type: 'string', description: '指令结果文本（私密结果即为真实内容）' },
+            broadcast: { type: 'boolean', description: '是否对所有人公屏可见' },
+            visibility: {
+              type: 'string',
+              enum: ['public', 'private'],
+              description: '可见范围：public=公开；private=仅发起者可见',
+            },
+            placeholder: {
+              type: 'string',
+              description: '私密结果对其他玩家展示的占位文本（visibility=private 时返回）',
+            },
+            durationMs: { type: 'number', description: '执行耗时(ms)' },
+          },
+        },
+      },
+    },
   })
   async command(
     @Headers('x-bot-token') token: string,

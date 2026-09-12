@@ -12,14 +12,18 @@ import { PlayerService } from './player.service';
  * 每种操作类型对应一段引导提示，在玩家首次执行该操作时显示
  */
 const TUTORIAL_TEXTS: Record<string, string> = {
-  viewBag: '📖 你打开背包，里面有一些基础物资：\n  石制工具 - 一把石制的工具，可以用来战斗\n  布帽 - 简单的布帽，能提供少量防护\n  布衣 - 粗糙的布衣，聊胜于无\n\n试试「装备 石制工具」来装备你的第一把武器！',
+  // 引导只讲用法、不描述"背包里有哪些物品"——正文已列出真实背包，引导再列举具体物品会自相矛盾
+  viewBag: '📖 发送「查看背包1」查看第1个物品的详情；发送「装备 物品名」穿戴装备，发送「丢弃 物品名」丢弃物品。',
   pickup: '📖 你注意到地上有个闪闪发光的东西！\n使用「拾取 物品名」拾取指定物品\n使用「拾取 全部」拾取所有物品\n\n地上的物品可能是怪物掉落的，也可能是其他玩家留下的。',
-  equipWeapon: '📖 你拿起石制工具，感觉沉甸甸的。\n石制工具的攻击力虽然不高，但对付新手村的史莱姆绰绰有余。\n\n装备完成后，使用「攻击」来试试你的实力吧！',
-  equipArmor: '📖 穿戴好防具，你感觉安心了许多。\n布帽保护头部，布衣防护身体，这些都是冒险者的基本装备。\n\n试试「装备 布帽」来戴上帽子，再「装备 布衣」穿上衣服。',
+  // 装备类引导只讲用法、不描述"你拿起了某件具体物品"——装备的具体物品由装备结算文案给出，
+  // 引导若指名道姓（旧文案写死石制工具），穿上别的东西时会自相矛盾（2026-09-12 用户实测）。
+  equipWeapon: '📖 只有当前手持武器的属性生效，可以发送「切换武器」来切换。\n发送「卸下 武器名」来卸下身上的武器。',
+  equipArmor: '📖 同部位的装备会自动替换。\n发送「卸下 装备名」来卸下身上对应部位的装备。',
   familiarData: '📖 使魔是你的战斗伙伴！\n使用「召唤使魔」来召唤使魔，使用「选择使魔」切换当前使魔。\n使魔拥有独特的技能，使用「使魔技能」查看详情。',
   attack: '📖 你举起武器，准备战斗！\n眼前的史莱姆缓缓蠕动着，看起来并不强。\n\n使用「攻击」来攻击当前地图的怪物，击败它们可以获得经验和掉落物品。\n\n注意：如果生命值过低，可以使用「躺下」休息恢复。',
   info: '📖 这是你的角色信息面板。\n你可以看到自己的等级、经验、生命值、攻击力等属性。\n\n使用「探测」可以查看当前地图的详细信息，了解周围的环境。',
-  map: '📖 地图显示了你当前所在的位置。\n新手村周围连接着迷雾森林，那里有更强大的怪物。\n\n使用「移动 迷雾森林」前往新区域探索，但要注意提升等级哦！',
+  // 同上：地图引导不描述"你周围是哪张地图"（正文已给出真实地图），只讲用法
+  map: '📖 发送「移动 地图名」前往相邻地图，发送「探测」查看当前位置的怪物、NPC 与资源。',
   move: '📖 你迈开脚步，走向新的区域。\n在使魔大战的世界中，每个地图都有不同的怪物和资源。\n\n使用「地图」查看当前所在位置的信息。',
   talk: '📖 你看到前方有个人影，看起来是个NPC。\n使用「对话 NPC名」与NPC交谈，他们可能会给你任务或者有用的信息。\n\n试试和新手村的「新手引导员」对话吧！',
   craft: '📖 制造系统可以让你把收集到的材料加工成有用的物品。\n使用「制造」查看可制造的物品列表。\n\n收集足够的资源后，你可以制造武器、防具和各种工具。',
@@ -72,6 +76,30 @@ export class TutorialService {
   markTutorialDone(markers: any, type: string): void {
     const tutorialMarker = `指引_${type}`;
     markers[tutorialMarker] = 1;
+  }
+
+  /**
+   * 取出引导文本并标记该类型引导已消费（写入 markers 的「指引_类型」并落库）。
+   *
+   * 唯一消费入口：各指令 handler 必须在**动作执行之后**调用（对齐原版"引导只追加、不拦截"：
+   * 原版 _主程序.ecode L4262/L4289 装备引导、物品操作.ecode L811 查看背包引导均在正文之后拼接）。
+   * 旧实现在 GameCommandHandler 内私有一份 checkTutorial，且部分分支在动作前拦截 return，
+   * 导致「首次操作被引导吞掉」（2026-09-12 装备事故）；现收敛到本方法，禁止各处再自写一套。
+   * @param userId 用户ID
+   * @param type 操作类型（viewBag/pickup/equipWeapon/equipArmor/familiarData/attack/info/map）
+   * @returns 引导文本（空字符串表示无需引导）
+   */
+  async consumeTutorial(userId: number, type: string): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const markers: any = playerData?.markers ?? {};
+    const text = this.getTutorial(type, markers);
+    if (!text) return '';
+    // 标记该引导已完成，下次不再显示（markTutorialDone 直接写传入的 markers，勿再重复赋值）
+    this.markTutorialDone(markers, type);
+    // 命令化写入口：只投递「markers 这一列被改了」的意图，由邮箱内基于最新活态应用。
+    // 不传整行对象，因此不存在「旧快照字段顺带覆盖活态」的可能。
+    await this.playerService.patchPlayer(userId, { markers }, 'tutorial');
+    return text;
   }
 
   /**

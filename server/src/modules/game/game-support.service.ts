@@ -104,14 +104,20 @@ export class GameSupportService {
    * @param name 标记名
    * @param expireAt 到期时间戳（秒）
    * @param strength 强度（可选）
+   * @param kind 冷却类型标签（可选，方案B：面板据此渲染冷却文案；
+   *             存量条目在下次写入时补标签，历史无 kind 的按武器冷却兜底）
    */
-  setMarkers2(markers2: any[], name: string, expireAt: number, strength?: number): void {
+  setMarkers2(markers2: any[], name: string, expireAt: number, strength?: number, kind?: string): void {
     const idx = markers2.findIndex((m: any) => m && m.name === name);
     if (idx >= 0) {
       markers2[idx].expireAt = expireAt;
       if (strength !== undefined) markers2[idx].strength = strength;
+      if (kind !== undefined) markers2[idx].kind = kind;
     } else {
-      markers2.push(strength !== undefined ? { name, expireAt, strength } : { name, expireAt });
+      const entry: any = { name, expireAt };
+      if (strength !== undefined) entry.strength = strength;
+      if (kind !== undefined) entry.kind = kind;
+      markers2.push(entry);
     }
   }
 

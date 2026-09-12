@@ -97,25 +97,26 @@
                 v-for="(f, fi) in favoriteCommands"
                 :key="'fav-' + f.cmd"
                 class="fav-chip"
-                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi }"
+                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi, 'edit-target': favEditTarget === f.cmd }"
                 :draggable="favEditing"
                 @dragstart="onFavDragStart(fi)"
                 @dragover.prevent="onFavDragOver(fi)"
                 @drop="onFavDrop(fi)"
-                @click="onFavoriteClick(f)"
+                @click="onFavoriteClick(f, $event)"
               >
-                <span v-if="favEditing" class="fav-grip" title="拖拽排序">⋮⋮</span>
-                {{ f.label }}
-                <span v-if="favEditing" class="fav-del">✕</span>
+                <span v-if="favEditing" class="fav-grip" title="拖拽排序" @click.stop>⋮⋮</span>
+                <span class="fav-label" :title="favEditing ? '点击载入下方重新编辑' : f.label">{{ f.label }}</span>
+                <span v-if="favEditing" class="fav-del" title="删除" @click.stop="removeFavorite(f.cmd)">✕</span>
               </span>
               <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
             </div>
             <div v-if="favEditing" class="fav-add">
+              <div v-if="favEditTarget" class="fav-edit-tip">正在编辑「{{ favEditTip }}」，保存后覆盖原项</div>
               <textarea
                 class="fav-add-input fav-add-textarea"
                 v-model="favAddInput"
                 rows="3"
-                placeholder="发送内容（每行一条，可组成指令集，点击后从上到下顺序执行；Ctrl+Enter 添加）"
+                placeholder="发送内容（每行一条，可组成指令集，点击后从上到下顺序执行；Ctrl+Enter 保存）"
                 @click.stop
                 @keydown.enter.ctrl.prevent="favAddInput.trim() ? addFavorite() : null"
               ></textarea>
@@ -126,7 +127,10 @@
                 @click.stop
                 @keyup.enter="favAddInput.trim() ? addFavorite() : null"
               />
-              <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="addFavorite()">+ 添加</button>
+              <div class="fav-add-actions">
+                <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="addFavorite()">{{ favEditTarget ? '保存修改' : '+ 添加' }}</button>
+                <button v-if="favEditTarget" class="fav-cancel-btn" @click="resetFavForm()">取消编辑</button>
+              </div>
               <div v-if="favAddCandidates.length" class="fav-candidates">
                 <span
                   v-for="c in favAddCandidates"
@@ -287,25 +291,26 @@
                 v-for="(f, fi) in favoriteCommands"
                 :key="'mfav-' + f.cmd"
                 class="fav-chip"
-                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi }"
+                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi, 'edit-target': favEditTarget === f.cmd }"
                 :draggable="favEditing"
                 @dragstart="onFavDragStart(fi)"
                 @dragover.prevent="onFavDragOver(fi)"
                 @drop="onFavDrop(fi)"
-                @click="mobileMenuOpen = false; onFavoriteClick(f)"
+                @click="onMobileFavClick(f, $event)"
               >
-                <span v-if="favEditing" class="fav-grip" title="拖拽排序">⋮⋮</span>
-                {{ f.label }}
-                <span v-if="favEditing" class="fav-del">✕</span>
+                <span v-if="favEditing" class="fav-grip" title="拖拽排序" @click.stop>⋮⋮</span>
+                <span class="fav-label" :title="favEditing ? '点击载入下方重新编辑' : f.label">{{ f.label }}</span>
+                <span v-if="favEditing" class="fav-del" title="删除" @click.stop="removeFavorite(f.cmd)">✕</span>
               </span>
               <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
             </div>
             <div v-if="favEditing" class="fav-add">
+              <div v-if="favEditTarget" class="fav-edit-tip">正在编辑「{{ favEditTip }}」，保存后覆盖原项</div>
               <textarea
                 class="fav-add-input fav-add-textarea"
                 v-model="favAddInput"
                 rows="3"
-                placeholder="发送内容（每行一条，可组成指令集，点击后从上到下顺序执行；Ctrl+Enter 添加）"
+                placeholder="发送内容（每行一条，可组成指令集，点击后从上到下顺序执行；Ctrl+Enter 保存）"
                 @click.stop
                 @keydown.enter.ctrl.prevent="favAddInput.trim() ? addFavorite() : null"
               ></textarea>
@@ -316,7 +321,10 @@
                 @click.stop
                 @keyup.enter="favAddInput.trim() ? addFavorite() : null"
               />
-              <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="addFavorite()">+ 添加</button>
+              <div class="fav-add-actions">
+                <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="addFavorite()">{{ favEditTarget ? '保存修改' : '+ 添加' }}</button>
+                <button v-if="favEditTarget" class="fav-cancel-btn" @click="resetFavForm()">取消编辑</button>
+              </div>
               <div v-if="favAddCandidates.length" class="fav-candidates">
                 <span
                   v-for="c in favAddCandidates"
@@ -475,6 +483,8 @@
           <div class="msg-body">
             <span v-if="v.msg.sender" class="sender" :title="'右键 @ ' + (v.msg.sender.nickname || v.msg.sender.username)" @contextmenu.prevent="quickAtUser(v.msg.sender)">{{ v.msg.sender.nickname || v.msg.sender.username }}：</span>
             <span v-else-if="v.msg.type !== 'system' && v.msg.type !== 'game' && v.msg.type !== 'combat' && v.msg.type !== 'info'" class="sender">系统：</span>
+            <!-- 私密消息（自己发出的）→ 打上 🔒 标记便于识别；他人看到的是占位文案，文案本身已带锁图标 -->
+            <span v-if="isPrivateSelfMsg(v.msg)" class="private-badge" title="这条消息只有你自己能看到完整内容">🔒 仅你可见</span>
             <!-- 战斗结算 → 修真科幻风战斗卡片（伤害重击/暴击迸发/击杀烙印动画） -->
             <div v-if="v.battle" class="battle-wrap"><BattleCard :text="v.msg.content" :viewer-name="viewerName" /></div>
             <!-- 结构化长消息（背包/属性/装备）→ 网格卡片布局；外层 div 显式撑满，避免 center 对齐收缩宽度 -->
@@ -1193,6 +1203,14 @@ const cmdSearchResults = computed(() => {
 const favoriteCommands = ref([]);
 // 常用指令编辑态（true=进入编辑模式，显示删除按钮/添加框/拖拽手柄）
 const favEditing = ref(false);
+// 正在编辑的已有项原始 cmd（空字符串=新增模式）：点击常用项文字会把它「放下来」载入下方表单重新编辑，保存时原地覆盖
+const favEditTarget = ref('');
+// 编辑态表单顶部提示：取列表里的显示名（多行指令集的 cmd 会很长，不适合直接展示）
+const favEditTip = computed(() => {
+  if (!favEditTarget.value) return '';
+  const it = favoriteCommands.value.find((f) => f.cmd === favEditTarget.value);
+  return it ? it.label : favEditTarget.value;
+});
 // 添加常用指令：cmd 为发送内容（任意文本），label 为可选显示名
 const favAddInput = ref('');
 const favAddLabel = ref('');
@@ -1250,37 +1268,77 @@ async function saveFavorites(next) {
   }
 }
 
-// 添加一条常用指令（去重按 cmd，无数量上限）
+// 由「发送内容 + 可选显示名」构造一条常用项；内容为空返回 null
+// 归一化：按行拆分、去首尾空白、过滤空行后重新拼接（单行文本行为不变）
+function buildFavorite(raw, labelInput) {
+  const lines = String(raw ?? '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const cmd = lines.join('\n');
+  if (!cmd) return null;
+  // 多行指令集默认显示名：首行 + 条数，避免按钮上挤进整段多行文本
+  const label = (labelInput || '').trim() || (lines.length > 1 ? `${lines[0]}（${lines.length}条）` : cmd);
+  return { cmd, label };
+}
+
+// 提交常用指令表单：新增或覆盖保存修改（去重按 cmd，无数量上限）
+// - favEditTarget 为空 → 追加新项
+// - favEditTarget 有值 → 原地替换该项（保持原顺序），即「点击文字载入重新编辑」后的保存
 // 支持多行指令集：每行一条指令，点击按钮时由后端按行拆分、从上到下顺序执行（与发送窗口多行行为一致）
 async function addFavorite(cmdText) {
   const raw = cmdText != null ? cmdText : favAddInput.value;
-  // 归一化：按行拆分、去首尾空白、过滤空行后重新拼接（单行文本行为不变）
-  const lines = String(raw).split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  const cmd = lines.join('\n');
-  if (!cmd) return;
-  let label = (favAddLabel.value || '').trim();
-  if (!label) {
-    // 多行指令集默认显示名：首行 + 条数，避免按钮上挤进整段多行文本
-    label = lines.length > 1 ? `${lines[0]}（${lines.length}条）` : cmd;
-  }
-  if (favoriteCommands.value.some((f) => f.cmd === cmd)) {
+  const built = buildFavorite(raw, favAddLabel.value);
+  if (!built) return;
+  const { cmd, label } = built;
+  const editing = favEditTarget.value;
+  // 去重校验：编辑态必须排除自身，否则原样保存会被误判为「已在常用列表中」
+  if (favoriteCommands.value.some((f) => f.cmd === cmd && f.cmd !== editing)) {
     showFavMsg('已在常用列表中');
     return;
   }
-  const next = [...favoriteCommands.value, { cmd, label }];
+  const next = editing
+    ? favoriteCommands.value.map((f) => (f.cmd === editing ? { cmd, label } : f))
+    : [...favoriteCommands.value, { cmd, label }];
   const ok = await saveFavorites(next);
   if (ok) {
-    favAddInput.value = '';
-    favAddLabel.value = '';
-    showFavMsg('已添加');
+    showFavMsg(editing ? '修改已保存' : '已添加');
+    resetFavForm();
   }
 }
 
-// 删除一条常用指令（按 cmd 匹配）
+// 退出「编辑已有项」状态并清空下方表单（取消编辑 / 保存成功后 / 退出编辑模式时调用）
+function resetFavForm() {
+  favAddInput.value = '';
+  favAddLabel.value = '';
+  favEditTarget.value = '';
+}
+
+// 点击常用项文字：把该项「放下来」载入下方表单重新编辑（此时列表不变，点「保存修改」才覆盖原项）
+function startFavEdit(item, evt) {
+  favEditTarget.value = item.cmd;
+  favAddInput.value = item.cmd;
+  // 仅当显示名是自定义的才回填；自动生成的显示名（多行指令集「首行（N条）」）留空以便按新内容重新生成
+  const autoLabel = buildFavorite(item.cmd, '')?.label || item.cmd;
+  favAddLabel.value = item.label && item.label !== autoLabel ? item.label : '';
+  favMsg.value = '';
+  // 载入后把光标落到同一个「我的常用」面板的输入框里，省去用户再点一次
+  nextTick(() => {
+    const scope = evt?.currentTarget?.closest?.('.fav-cmds');
+    const ta = scope?.querySelector?.('.fav-add-textarea');
+    if (ta) {
+      ta.focus();
+      ta.setSelectionRange?.(ta.value.length, ta.value.length);
+    }
+  });
+}
+
+// 删除一条常用指令（按 cmd 匹配，仅由 ✕ 按钮触发）
 async function removeFavorite(cmd) {
   const next = favoriteCommands.value.filter((f) => f.cmd !== cmd);
   const ok = await saveFavorites(next);
-  if (ok) showFavMsg('已删除');
+  if (ok) {
+    // 若正在编辑的就是被删掉的那条，同步清空表单，避免保存时写回一条已删除的项
+    if (favEditTarget.value === cmd) resetFavForm();
+    showFavMsg('已删除');
+  }
 }
 
 // 拖拽排序：拖拽开始记录索引
@@ -1304,20 +1362,25 @@ async function onFavDrop(idx) {
   showFavMsg('顺序已保存');
 }
 
-// 进入/退出编辑模式
+// 进入/退出编辑模式：退出时清空表单与「正在编辑」状态，避免残留状态误保存
 function toggleFavEdit() {
   favEditing.value = !favEditing.value;
-  favAddInput.value = '';
-  favAddLabel.value = '';
+  resetFavForm();
   dragIndex.value = -1;
   dragOverIndex.value = -1;
   if (!favEditing.value) favMsg.value = '';
 }
 
-// 点击常用指令：编辑态→删除；非编辑态→直接模拟从输入框发送（任意文本）
-function onFavoriteClick(item) {
+// 手机抽屉内点击常用项：非编辑态先收起抽屉（避免遮挡聊天区），编辑态保留抽屉以便继续编辑
+function onMobileFavClick(item, evt) {
+  if (!favEditing.value) mobileMenuOpen.value = false;
+  onFavoriteClick(item, evt);
+}
+
+// 点击常用指令：编辑态→把该项载入下方表单重新编辑；非编辑态→直接模拟从输入框发送（任意文本）
+function onFavoriteClick(item, evt) {
   if (favEditing.value) {
-    removeFavorite(item.cmd);
+    startFavEdit(item, evt);
   } else {
     // 直接走 socket 发送（与输入框发送完全一致，含本地回显），cmd 可为任意文本、未必是指令
     if (socket) {
@@ -1540,6 +1603,16 @@ function msgClass(m) {
   if (m.type === 'combat') return 'combat';
   if (m.type === 'info') return 'info';
   return 'chat';
+}
+
+/**
+ * 是否为「自己发出的私密消息」——需要额外打 🔒 标记的那类。
+ * 他人看到的私密消息内容本身就是占位文案（占位文案默认自带 🔒 图标），再叠加标记只会重复。
+ * @param {object} m 消息对象
+ * @returns {boolean}
+ */
+function isPrivateSelfMsg(m) {
+  return m?.visibility === 'private' && isOwnSystemMessage(m);
 }
 
 /**
@@ -3497,6 +3570,21 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ===== 私密消息标记：自己才能看到完整内容的消息 ===== */
+.private-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  color: #ffd76a;
+  background: rgba(255, 215, 106, 0.12);
+  border: 1px solid rgba(255, 215, 106, 0.35);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* ===== 开局门闸（仅判定期间可见）：避免新玩家看到空壳主界面后被打断跳转 ===== */
 .boot-splash {
   position: fixed;

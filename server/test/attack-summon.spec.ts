@@ -219,7 +219,8 @@ describe('攻击召唤（使魔技能.ecode L210-373）', () => {
     const blocked = await fixture.combat.attackSummons(fixture.map, data.player, data, plainWeapon, now);
     expect(blocked).toContain('#换行【精英火焰飞龙被重力井阻挡在外】');
     expect(fixture.enemyMonsters).toHaveLength(0);
-    expect(data.markers2[0]).toMatchObject({ name: '精英火焰飞龙冷却', expireAt: now + 60_000 });
+    // kind=方案B 召唤类型：面板据此把「xx冷却」渲染为「召唤冷却中」而非兜底的「武器冷却中」
+    expect(data.markers2[0]).toMatchObject({ name: '精英火焰飞龙冷却', kind: 'summon-cd', expireAt: now + 60_000 });
 
     fixture.map.markers3 = [];
     data.markers2.length = 0;

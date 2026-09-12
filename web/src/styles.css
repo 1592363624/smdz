@@ -894,17 +894,33 @@ vite-plugin-checker-error-overlay,
 .fav-chip:hover {
   background: rgba(139, 92, 246, 0.24);
 }
+/* 编辑态：点击整条=载入下方表单重新编辑，✕ 单独负责删除，故用中性强调色而非危险色 */
 .fav-chip.editing {
-  background: rgba(239, 68, 68, 0.14);
-  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
 }
 .fav-chip.editing:hover {
-  background: rgba(239, 68, 68, 0.24);
+  background: rgba(139, 92, 246, 0.32);
+}
+/* 当前已载入下方表单、正在编辑的那一条：高亮描边便于对照 */
+.fav-chip.edit-target {
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 1px var(--accent2);
+}
+.fav-label {
+  cursor: pointer;
 }
 .fav-del {
   font-size: 11px;
   color: #ef4444;
   line-height: 1;
+  padding: 0 3px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.fav-del:hover {
+  background: rgba(239, 68, 68, 0.3);
+  color: #fff;
 }
 .fav-empty {
   font-size: 12px;
@@ -1008,6 +1024,34 @@ vite-plugin-checker-error-overlay,
 }
 .fav-add-btn:not(:disabled):hover {
   background: var(--accent, #7c3aed);
+}
+/* 表单底部按钮行：新增时只有「+ 添加」，编辑已有项时追加「取消编辑」 */
+.fav-add-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+}
+.fav-add-actions .fav-add-btn {
+  align-self: center;
+}
+.fav-cancel-btn {
+  font-size: 13px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.16));
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.fav-cancel-btn:hover {
+  color: var(--text);
+  border-color: var(--accent2);
+}
+/* 表单顶部「正在编辑 XXX」提示 */
+.fav-edit-tip {
+  font-size: 12px;
+  color: var(--accent2);
 }
 /* 非编辑态且无常用时的提示 */
 .fav-hint {
@@ -3007,10 +3051,9 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
 }
 /* 管理后台：QQ互联 openid 展示（区分旧版绑定与真实QQ号） */
 .qq-ext {
-  margin-top: 4px;
   font-size: 11px;
   color: var(--muted);
-  word-break: break-all;
+  white-space: nowrap;
   line-height: 1.3;
 }
 

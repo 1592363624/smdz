@@ -16,14 +16,29 @@ import { MapService } from './map.service';
 import { AutoMineService } from './auto-mine.service';
 import { GameService } from './game.service';
 import { StaticDataService } from './static-data.service';
+import { DungeonService, DUNGEON_ENTRY_SOURCE } from './dungeon.service';
 import { runSilent } from '../../game-sync/write-context';
 import { filterActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 /**
- * 默认副本名称列表（未配置 game.instanceNames 时使用）
+ * 副本名来源优先级（原版 后台运作.ecode L3-35 取 [商店]副本 / [商店]副本2）：
+ *   1. 配置中心 game.instanceNames / game.instanceNames2（运维覆盖）
+ *   2. 静态数据 shops.json 的 dungeons / dungeons2（原版「副本」/「副本2」配置的解析结果）
+ *   3. DungeonService.getInstanceGroups() 的真实副本组名（兜底）
+ * 三个来源都会按“地图表中是否真实存在”过滤：副本入口靠“去掉(副本)后的名称”解析目标地图，
+ * 名字对不上地图时入口会永远进不去（2026-09-13「扭曲深渊」事故）。
  */
-const DEFAULT_INSTANCE_NAMES = ['扭曲深渊', '遗忘之地', '虚空裂谷', '古战场', '血色遗迹', '幽暗迷宫'];
+
+/**
+ * 名单字段容错：兼容数组、逗号/空白分隔的字符串。
+ * 原版 [商店]副本 是逗号分隔文本，配置中心也可能存成字符串。
+ */
+function toNameArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((s) => String(s).trim()).filter(Boolean);
+  if (typeof value === 'string') return value.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
+  return [];
+}
 
 /**
  * 默认随机无主载具名称列表（未配置 game.randomVehicles 时使用）
@@ -51,6 +66,7 @@ export class ScheduleService implements OnApplicationBootstrap {
     private readonly autoMineService: AutoMineService,
     private readonly gameService: GameService,
     private readonly staticData: StaticDataService,
+    private readonly dungeonService: DungeonService,
   ) {}
 
   /**
@@ -66,6 +82,24 @@ export class ScheduleService implements OnApplicationBootstrap {
   onApplicationBootstrap(): void {
     // 不阻塞启动收尾；失败只告警（DB 尚未就绪时下一分钟 cron 仍会补齐）
     void this.ensureResidentMonstersAtBoot();
+    // 启动自愈：清掉历史遗留的无效副本入口（副本名在地图表里不存在，玩家点了进不去）
+    void this.purgeInvalidDungeonEntriesAtBoot();
+  }
+
+  /**
+   * 启动清理无效副本入口（一次性自愈，失败只告警不影响启动）。
+   */
+  private async purgeInvalidDungeonEntriesAtBoot(): Promise<void> {
+    try {
+      const result = await this.dungeonService.purgeInvalidDungeonEntries();
+      if (result.removed > 0) {
+        this.logger.warn(
+          `启动清理无效副本入口: 删除 ${result.removed} 条，涉及 ${result.maps} 张地图（${result.entries.join('、')}）`,
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(`启动清理无效副本入口失败: ${err?.message ?? err}`);
+    }
   }
 
   private async ensureResidentMonstersAtBoot(): Promise<void> {
@@ -808,38 +842,75 @@ export class ScheduleService implements OnApplicationBootstrap {
         return;
       }
 
-      // 从配置中心读取副本名称列表
-      const instanceNames = await this.getConfigValue<string[]>('game.instanceNames', DEFAULT_INSTANCE_NAMES);
-      if (!instanceNames || instanceNames.length === 0) {
-        this.logger.warn('生成副本: 未配置副本名称(game.instanceNames)');
-        return;
-      }
+      const pools = await this.getInstanceNamePools();
 
-      // 生成2个副本入口
+      // 原版 后台运作.ecode L3-35：生成 2 个入口，第 1 个取「副本」名单、第 2 个取「副本2」名单
       for (let i = 0; i < 2; i++) {
+        const names = i === 0 ? pools.primary : pools.secondary;
+        if (names.length === 0) {
+          this.logger.warn(`生成副本: 第 ${i + 1} 个入口没有可用的副本名`);
+          continue;
+        }
         const map = this.pickRandomMap(maps);
-        const connections = this.parseJsonArray<any>(map.connections);
-
-        // 先移除该地图已有的副本入口，避免入口无限累积
-        const keptConnections = connections.filter((c: any) => !(c.name && c.name.includes('(副本)')));
-        const name = instanceNames[Math.floor(Math.random() * instanceNames.length)];
-
-        keptConnections.push({
-          name: `${name}(副本)`,
-          type: 'instance',
-          distance: 100,
-        });
-
-        await this.mapService.updateDynamicFields(map.id, {
-          connections: keptConnections,
-        });
-        this.logger.log(`生成副本: 地图 ${map.name} 添加了副本入口「${name}(副本)」`);
+        const name = names[Math.floor(Math.random() * names.length)];
+        // 与「开启副本」共用入口生成逻辑：入口带 mapId 指向真实副本地图，
+        // 只回收上一次定时生成的入口，不动玩家花副本券开的入口。
+        const result = await this.dungeonService.openDungeonEntry(
+          Number(map.id),
+          name,
+          DUNGEON_ENTRY_SOURCE.SPAWN,
+        );
+        if (!result.ok) {
+          this.logger.warn(`生成副本: 地图 ${map.name} 添加入口失败 - ${result.reason}`);
+          continue;
+        }
+        this.logger.log(`生成副本: 地图 ${map.name} 添加了副本入口「${result.entryName}」→地图#${result.mapId}`);
       }
     } catch (err: any) {
       this.logger.error(`生成副本失败: ${err.message}`);
     } finally {
       this.instanceRunning = false;
     }
+  }
+
+  /**
+   * 读取两个副本名池（原版 [商店]副本 / [商店]副本2）：
+   * 配置中心可覆盖，任何来源的名字都按地图表过滤，只保留真实存在的副本名。
+   */
+  private async getInstanceNamePools(): Promise<{ primary: string[]; secondary: string[] }> {
+    const shop = (this.staticData.getAllShops?.() || [])[0] || {};
+    let primary = await this.resolveInstanceNames('game.instanceNames', toNameArray(shop?.dungeons));
+    let secondary = await this.resolveInstanceNames('game.instanceNames2', toNameArray(shop?.dungeons2));
+
+    // 兜底：配置与静态数据都不可用时退回真实副本组名，保证生成的入口一定进得去
+    if (primary.length === 0 || secondary.length === 0) {
+      const groupNames = (await this.dungeonService.getInstanceGroups()).map((group) => group.name);
+      if (primary.length === 0) primary = groupNames;
+      if (secondary.length === 0) secondary = groupNames;
+    }
+    return { primary, secondary };
+  }
+
+  /**
+   * 解析单个副本名池：优先配置中心，回退静态数据；两者都按地图表过滤。
+   */
+  private async resolveInstanceNames(key: string, fallback: string[]): Promise<string[]> {
+    const configured = await this.getConfigValue<string[]>(key, []);
+    const candidates = Array.isArray(configured) && configured.length > 0 ? configured : fallback;
+    const valid = await this.filterExistingMapNames(candidates);
+    return valid.length > 0 ? valid : await this.filterExistingMapNames(fallback);
+  }
+
+  /**
+   * 只保留地图表中真实存在的副本名。
+   * 入口解析目标地图靠“去掉(副本)后的名称”，名字对不上地图的入口玩家永远进不去。
+   */
+  private async filterExistingMapNames(names: string[]): Promise<string[]> {
+    const maps = await this.mapService.getAllMaps();
+    const existing = new Set(
+      maps.map((map: any) => String(map?.name || '').trim()).filter(Boolean),
+    );
+    return names.map((name) => String(name).trim()).filter((name) => existing.has(name));
   }
 
   /**

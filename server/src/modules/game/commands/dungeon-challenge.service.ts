@@ -13,12 +13,13 @@
  */import { Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { formatDisplayNumber, roundItemQuantity } from '../../../common/utils/game-text.util';
+import { tagMarkerKind } from '.././expire-time.util';
 import { normalizePoolValue } from '.././player-pool.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlayerService } from '.././player.service';
 import { CombatSystemService } from '.././combat-system.service';
 import { MapService } from '.././map.service';
-import { DungeonService } from '.././dungeon.service';
+import { DungeonService, DUNGEON_ENTRY_SOURCE } from '.././dungeon.service';
 import { AchievementService } from '.././achievement.service';
 import { ItemSystemService } from '.././item-system.service';
 import { FamiliarSkillsService } from '.././familiar-skills.service';
@@ -447,7 +448,8 @@ export class DungeonChallengeService {
     }
     player.buffs = playerBuffs; // Json 列直接写数组
     // 写入冷却标记（原版 L1848：时间间隔要求 "闪避冷却" cooldownSec）
-    this.support.setMarkers2(markers2, '闪避冷却', nowSec + cooldownSec);
+    // 方案B：声明冷却类型，面板据此显示「闪避冷却中」而非兜底的「武器冷却中」
+    this.support.setMarkers2(markers2, '闪避冷却', nowSec + cooldownSec, undefined, 'dodge-cd');
     player.markers2 = markers2; // Json 列直接写数组
 
     // ========== 使魔专属分支（原版 L580-632） ==========
@@ -565,13 +567,14 @@ export class DungeonChallengeService {
     if (!removed) return `${player.name}需要副本券，去活跃度商店看看吧`;
     await this.playerService.patchPlayer(userId, { markers: playerData.markers }, 'dungeon-open');
 
-    const target = anchor;
-    await this.mapService.appendMapConnection(currentMap.id, {
-      name: `${group.name}(副本)`,
-      mapId: target?.id,
-      distance: 100,
-      isInstance: true,
-    });
+    // 与定时「生成副本」共用同一套入口生成逻辑：入口带 mapId 指向真实副本地图，
+    // 并标记为 ticket 来源——定时生成只回收自己的 spawn 入口，不会删掉玩家花券开的入口。
+    const opened = await this.dungeonService.openDungeonEntry(
+      Number(currentMap.id),
+      group.name,
+      DUNGEON_ENTRY_SOURCE.TICKET,
+    );
+    if (!opened.ok) return `${player.name},${group.name}不是副本`;
     return `${player.name}在“${currentMap.name}”开启了副本${group.name}`;
   }
 
@@ -610,6 +613,8 @@ export class DungeonChallengeService {
       await this.playerService.patchPlayer(userId, { markers2 }, 'dungeon-refresh-cooldown');
       return `${player.name}${cooldownText.value}`;
     }
+    // 刚写入的「刷新副本冷却」补类型标签（方案B：面板据此显示「刷新副本 · 冷却中」）
+    tagMarkerKind(markers2, '刷新副本冷却', 'act-cd');
     await this.playerService.patchPlayer(userId, { markers2 }, 'dungeon-refresh');
 
     const group = await this.dungeonService.findInstanceGroup(name);
@@ -1053,6 +1058,8 @@ export class DungeonChallengeService {
       await this.playerService.savePlayer(player);
       return `${player.name || '冒险者'}${cooldownText.value}`;
     }
+    // 刚写入的「刷怪冷却」补类型标签（方案B：面板据此显示「刷怪 · 冷却中」而非兜底的「武器冷却中」）
+    tagMarkerKind(markers2, '刷怪冷却', 'act-cd');
 
     await this.mapService.clearMapMonsters(map.id);
     this.achievementService.setAchievement(

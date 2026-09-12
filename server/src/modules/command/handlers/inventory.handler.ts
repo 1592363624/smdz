@@ -6,6 +6,7 @@
 import { Inject } from '@nestjs/common';
 import { GameService } from '../../game/game.service';
 import { TaskService } from '../../game/task.service';
+import { TutorialService } from '../../game/tutorial.service';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
 
 /**
@@ -20,6 +21,7 @@ export class InventoryHandler implements CommandHandler {
   constructor(
     @Inject(GameService) private readonly gameService: GameService,
     @Inject(TaskService) private readonly taskService: TaskService,
+    @Inject(TutorialService) private readonly tutorialService: TutorialService,
   ) {}
 
   async handle(ctx: CommandContext, args: string[]): Promise<CommandResult> {
@@ -34,6 +36,15 @@ export class InventoryHandler implements CommandHandler {
       await this.taskService.advance(ctx.userId, '查看背包详细');
     }
     const result = await this.gameService.handleInventory(ctx.userId, arg || undefined);
-    return { success: true, content: result, broadcast: false, durationMs: 0 };
+    // 新手引导：查看照常执行、引导仅作附加提示（不拦截，避免「首次查看背包被吞」；
+    // 对齐原版 物品操作.ecode L811：背包正文之后才拼接 新手指引("查看背包")）。
+    // 2026-09-13：旧实现在 game 处理器的死分支里用引导拦截正文，此处为迁移补齐。
+    const tutorialText = await this.tutorialService.consumeTutorial(ctx.userId, 'viewBag');
+    return {
+      success: true,
+      content: tutorialText ? `${result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result,
+      broadcast: false,
+      durationMs: 0,
+    };
   }
 }

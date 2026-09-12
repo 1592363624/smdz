@@ -125,6 +125,64 @@ describe('进行中操作倒计时快照', () => {
     }));
   });
 
+  it('冷却标记按 kind 渲染专属文案（方案B）：技能/召唤/捕捉/商店/闪避/特效', () => {
+    const svc = makeService();
+    const now = Date.now();
+    const list = build(svc, {}, [
+      { name: '剑圣技能冷却', kind: 'skill-cd', expireAt: now + 30000 },   // familiar-skills.setCooldown 写入
+      { name: '召唤冷却', kind: 'summon-cd', expireAt: now + 8000 },       // familiar-system 召唤券召唤
+      { name: '小火苗冷却', kind: 'capture-cd', expireAt: now + 600000 },  // familiar-system 宠物捕捉（30分钟）
+      { name: '购买冷却', kind: 'shop-cd', expireAt: now + 5000 },         // shop-trade 商店购买
+      { name: '闪避冷却', kind: 'dodge-cd', expireAt: now + 10000 },       // dungeon-challenge 闪避
+      { name: '艾斯冷却', kind: 'effect-cd', expireAt: now + 40000 },      // combat-system 武器特效
+    ]);
+
+    expect(list).toHaveLength(6);
+    expect(list).toContainEqual(expect.objectContaining({ label: '剑圣技能', detail: '技能冷却中' }));
+    expect(list).toContainEqual(expect.objectContaining({ label: '召唤', detail: '召唤冷却中' }));
+    expect(list).toContainEqual(expect.objectContaining({ label: '小火苗', detail: '捕捉冷却中' }));
+    expect(list).toContainEqual(expect.objectContaining({ label: '购买', detail: '商店冷却中' }));
+    expect(list).toContainEqual(expect.objectContaining({ label: '闪避', detail: '闪避冷却中' }));
+    expect(list).toContainEqual(expect.objectContaining({ label: '艾斯', detail: '特效冷却中' }));
+    // 展示分类仍统一为 cooldown（前端配色/「⚡完成」排除逻辑不变），仅文案/图标区分
+    expect(list.every((a: any) => a.kind === 'cooldown')).toBe(true);
+  });
+
+  it('无 kind 的冷却标记兜底为武器冷却（含历史存量数据，维持原渲染）', () => {
+    const svc = makeService();
+    const now = Date.now();
+    const list = build(svc, {}, [
+      { name: '雷火剑冷却', expireAt: now + 9000 },   // 武器名+冷却 约定（武器冷却写入方未声明 kind）
+      { name: '召唤冷却', expireAt: now + 6000 },     // 存量旧数据：无 kind，兜底行为不变
+    ]);
+
+    expect(list).toContainEqual(expect.objectContaining({ key: 'cd:雷火剑冷却', detail: '武器冷却中', icon: '⚔️' }));
+    expect(list).toContainEqual(expect.objectContaining({ key: 'cd:召唤冷却', detail: '武器冷却中', icon: '⚔️' }));
+  });
+
+  it('飞行冷却与「移动中」去重：移动期间只保留移动读条', () => {
+    const svc = makeService();
+    const now = Date.now();
+    const list = build(
+      svc,
+      { 移动中: JSON.stringify({ targetName: '森林出口', startedAt: now, arriveAt: now + 5000, mode: '飞行' }) },
+      [{ name: '飞行冷却', kind: 'act-cd', expireAt: now + 10000 }],
+    );
+
+    expect(list.filter((a: any) => a.key === 'move')).toHaveLength(1);
+    expect(list.some((a: any) => a.key === 'cd:飞行冷却')).toBe(false);
+  });
+
+  it('无移动时的飞行冷却按 act-cd 渲染「冷却中」（不再兜底武器冷却）', () => {
+    const svc = makeService();
+    const now = Date.now();
+    const list = build(svc, {}, [{ name: '飞行冷却', kind: 'act-cd', expireAt: now + 8000 }]);
+
+    expect(list).toContainEqual(expect.objectContaining({
+      key: 'cd:飞行冷却', label: '飞行', detail: '冷却中', icon: '⏱️', kind: 'cooldown',
+    }));
+  });
+
   it('抢救标记带 startedAt/totalMs 时原样透出，供刷新页面后仍显示真实进度', () => {
     const svc = makeService();
     const now = Date.now();

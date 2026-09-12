@@ -15,16 +15,25 @@ export class ChatController {
 
   /**
    * 获取频道历史消息（页面刷新时加载）
+   * 需登录：以便识别查看者身份，对「私密消息」（如探测雷达结果）做脱敏——
+   * 非本人发送的私密消息只返回占位文本，防止他人刷新页面后白嫖。
    */
   @Get('messages')
-  @ApiOperation({ summary: '获取频道历史消息' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '获取频道历史消息',
+    description:
+      '需登录。对「私密消息」(visibility=private，如探测雷达) 做脱敏：' +
+      '非本人发送的私密消息 content 返回占位文本，真实内容仅发送者本人可见。',
+  })
   @ApiQuery({ name: 'channelId', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  async getMessages(@Query('channelId') channelId?: string, @Query('limit') limit?: string) {
+  async getMessages(@Req() req, @Query('channelId') channelId?: string, @Query('limit') limit?: string) {
     const channel = await this.chatService.ensureDefaultChannel();
     const cid = Number(channelId) || channel.id;
     const lmt = Math.min(Number(limit) || 50, 200);
-    const data = await this.chatService.getMessages(cid, lmt);
+    const data = await this.chatService.getMessages(cid, lmt, req.user?.userId);
     return { success: true, data };
   }
 

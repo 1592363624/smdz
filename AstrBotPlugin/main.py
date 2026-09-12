@@ -21,6 +21,9 @@
   订阅后端 /ws 的 bot 房间；玩家转发指令时记录 QQ→会话来源 映射，后端延时任务
   结算广播（broadcastSystem）时会向 bot 房间推 bot:push 事件，插件据此把
   「伊卡洛斯采集完成，获得铁矿×2」这类消息主动回推到玩家最后使用的会话。
+- 私密消息（如探测雷达）：后端对命中「私密指令名单」的指令返回 visibility=private 与
+  placeholder 占位文本。群聊场景下，插件把真实结果私聊发送给发起者，群内只回占位提示，
+  避免同群其他玩家白嫖他人的探测结果；私聊场景本身即一对一，直接回复真实内容。
 """
 
 import asyncio
@@ -39,6 +42,9 @@ class SmdzBridgePlugin(Star):
 
     # 单条消息最多拆分转发的行数：防止误粘贴超长文本导致连续刷屏或冲击后端接口
     _MAX_FORWARD_LINES = 5
+
+    # 私密消息占位文本的内置兜底（正常由后端 chat.privateMessages 规则下发，此处仅防缺失）
+    _PRIVATE_PLACEHOLDER_FALLBACK = "🔒 该消息为私密消息"
 
     # 沉浸模式开关口令：玩家发送口令后，其在本会话内的消息免前缀直接转发；
     # 发送关闭口令后恢复按插件配置的前缀方式触发。口令免前缀、整句精确匹配。
@@ -114,15 +120,19 @@ class SmdzBridgePlugin(Star):
     # ------------------------------------------------------------------
     # 私有工具方法
     # ------------------------------------------------------------------
-    async def _forward_to_game(self, qq_id: str, game_command: str) -> str:
-        """调用游戏后端统一接口执行指令，返回结果文本。
+    async def _forward_to_game(self, qq_id: str, game_command: str) -> tuple[str, bool, str]:
+        """调用游戏后端统一接口执行指令，返回结果。
 
         Args:
             qq_id: 发送者 QQ 号（作为 botIdentity 传给后端，用于玩家绑定）。
             game_command: 要执行的游戏指令文本。
 
         Returns:
-            游戏返回的结果文本；出错时返回可读的错误提示。
+            (结果文本, 是否私密消息, 私密占位文本) 三元组：
+            - 结果文本：游戏返回的可读文本；出错时为错误提示。
+            - 是否私密：后端 visibility='private' 时为 True（如探测雷达），
+              表示该结果只应对发起者可见。
+            - 私密占位文本：后端下发的、对其他玩家展示的替代文本（可能为空）。
         """
         url = f"{self.server_url}/api/bot/command"
         headers = {
@@ -142,26 +152,88 @@ class SmdzBridgePlugin(Star):
                         logger.error(
                             f"[使魔大战3桥接] 游戏服务返回状态 {resp.status}: {body}"
                         )
-                        return f"游戏服务异常（HTTP {resp.status}），请检查令牌或服务地址。"
+                        return f"游戏服务异常（HTTP {resp.status}），请检查令牌或服务地址。", False, ""
 
                     data = await resp.json()
         except aiohttp.ClientConnectorError as exc:
             logger.error(f"[使魔大战3桥接] 无法连接游戏服务: {exc}")
-            return "无法连接游戏服务，请确认后端已启动且服务地址配置正确。"
+            return "无法连接游戏服务，请确认后端已启动且服务地址配置正确。", False, ""
         except asyncio.TimeoutError:
             logger.error("[使魔大战3桥接] 请求游戏服务超时")
-            return "游戏服务响应超时，请稍后再试。"
+            return "游戏服务响应超时，请稍后再试。", False, ""
 
-        # 解析统一返回结构 { success, data: { content, broadcast, ... } }
+        # 解析统一返回结构 { success, data: { content, broadcast, visibility, placeholder, ... } }
         if data.get("success"):
             result = data.get("data") or {}
             content = result.get("content")
             if not content:
-                return "（游戏无返回内容）"
+                return "（游戏无返回内容）", False, ""
+            # 私密标记 + 占位文本：均以后端下发为准（私密指令名单在系统配置中心维护）
+            is_private = str(result.get("visibility") or "").lower() == "private"
+            placeholder = str(result.get("placeholder") or "").strip()
             # 兜底：旧版后端可能仍返回 "#换行" 标记（原版 #换行符），转为真实换行
-            return str(content).replace("#换行", "\n")
+            return str(content).replace("#换行", "\n"), is_private, placeholder
 
-        return "游戏指令执行失败，请检查指令是否正确。"
+        return "游戏指令执行失败，请检查指令是否正确。", False, ""
+
+    async def _build_result_reply(
+        self, event: AstrMessageEvent, content: str, is_private: bool, placeholder: str
+    ) -> str:
+        """按结果可见性构造要回复到当前会话的文本。
+
+        公开结果：原样回复（群内所有人可见）。
+        私密结果（如探测雷达）：
+        - 私聊会话：本身就是一对一，直接回复真实内容；
+        - 群聊：真实内容私聊发送给发起者，群内只留占位提示，
+          避免同群其他玩家白嫖他人的探测雷达等级结果。
+
+        Args:
+            event: 触发指令的消息事件。
+            content: 后端返回的真实结果文本。
+            is_private: 是否为私密结果。
+            placeholder: 后端下发的占位文本（可能为空，为空时用内置兜底）。
+        """
+        if not is_private:
+            return content
+        # 私聊场景：会话本身即为私密，直接回复真实内容
+        if not event.get_group_id():
+            return content
+        # 群聊场景：真实内容私聊发给发起者，群内只回占位提示
+        qq_id = event.get_sender_id()
+        sent = await self._send_private(qq_id, content, event)
+        notice = placeholder or self._PRIVATE_PLACEHOLDER_FALLBACK
+        if sent:
+            return notice
+        # 私聊失败（未加好友/平台不支持主动私聊）：群内只给占位与引导，绝不外泄真实内容
+        return f"{notice}\n（结果私聊发送失败，请先添加机器人为好友或私聊机器人后重试）"
+
+    async def _send_private(self, qq_id: str, content: str, event: AstrMessageEvent) -> bool:
+        """把内容私聊发送给指定 QQ，成功返回 True。
+
+        私聊 umo 格式为 `{platform_name}:FriendMessage:{qq_id}`：
+        platform_name 优先取事件平台名，取不到时从 unified_msg_origin 首段回退。
+
+        Args:
+            qq_id: 目标 QQ 号。
+            content: 要私聊发送的内容。
+            event: 当前消息事件（用于解析平台名）。
+        """
+        try:
+            platform = ""
+            with contextlib.suppress(Exception):
+                platform = event.get_platform_name() or ""
+            if not platform:
+                platform = (event.unified_msg_origin or "").split(":")[0]
+            if not platform or not qq_id:
+                return False
+            umo = f"{platform}:FriendMessage:{qq_id}"
+            import astrbot.api.message_components as Comp
+
+            await self.context.send_message(umo, MessageChain(chain=[Comp.Plain(content)]))
+            return True
+        except Exception as exc:
+            logger.warning(f"[使魔大战3桥接] 私密消息私聊发送失败(QQ={qq_id}): {exc}")
+            return False
 
     def _extract_bind_openid(self, text: str) -> str:
         """检测是否为 QQ 绑定指令，并提取 OpenID。
@@ -608,14 +680,16 @@ class SmdzBridgePlugin(Star):
                 )
                 lines = lines[: self._MAX_FORWARD_LINES]
             for line in lines:
-                content = await self._forward_to_game(qq_id, line)
-                yield event.plain_result(content)
+                content, is_private, placeholder = await self._forward_to_game(qq_id, line)
+                reply = await self._build_result_reply(event, content, is_private, placeholder)
+                yield event.plain_result(reply)
             # 阻断消息继续广播，防止其它插件对同一条指令再次响应
             event.stop_event()
             return
 
-        content = await self._forward_to_game(qq_id, game_command)
-        yield event.plain_result(content)
+        content, is_private, placeholder = await self._forward_to_game(qq_id, game_command)
+        reply = await self._build_result_reply(event, content, is_private, placeholder)
+        yield event.plain_result(reply)
         # 阻断消息继续广播，防止其它插件对同一条指令再次响应
         event.stop_event()
 

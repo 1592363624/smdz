@@ -20,6 +20,7 @@ import { StaticDataService } from '.././static-data.service';
 import { TaskService } from '.././task.service';
 import { StatsService } from '.././stats.service';
 import { CombatStateService } from '.././combat-state.service';
+import { tagMarkerKind } from '.././expire-time.util';
 import { VitalityService } from '.././vitality.service';
 import { PlayerMutateService } from '.././player-mutate.service';
 import { GameSupportService } from '.././game-support.service';
@@ -615,6 +616,8 @@ export class TimeSettleService {
       await this.playerService.savePlayer(player);
       return `${player.name}护盾回充冷却${remaining.value}`;
     }
+    // 刚写入的「回充冷却」补类型标签（方案B）：面板据此显示「特效冷却中」而非兜底的「武器冷却中」
+    tagMarkerKind(markers2, '回充冷却', 'effect-cd');
     this.support.incrementMarker(markers, '活跃度', 1);
     this.combatState.addMarker('回充', 10, markers2, now);
     player.markers = markers;

@@ -352,6 +352,8 @@ export class QuestDialogueService {
     dialogLines.push(greetings[Math.floor(Math.random() * greetings.length)]);
 
     // 特殊NPC对话剧情（对话阶段推进）
+    // 对话引导文本在块内消费、块外拼接到正文末尾（见下方 talkTutorialText 使用处）
+    let talkTutorialText = '';
     {
       // 根据教程进度和与当前NPC的对话历史确定对话阶段
       const tutorialValue = markers['教程'] || 0;
@@ -373,9 +375,11 @@ export class QuestDialogueService {
         dialogPhase = 'done';
       }
 
-      // 检查新手指引中的对话引导
+      // 检查新手指引中的对话引导（就地消费：与「对话_XX」进度同批 savePlayer 落库，
+      // 不再走 consumeTutorial 二次 patch，避免同一次对话对 markers 列写两遍）
       const tutorialText = this.tutorialService.getTutorial('talk', markers);
       if (tutorialText) {
+        talkTutorialText = tutorialText;
         markers['指引_talk'] = 1;
         player.markers = markers; // Json 列直接写对象
         await this.playerService.savePlayer(player);
@@ -420,6 +424,13 @@ export class QuestDialogueService {
     ], '💡 发送编号数字(如 1)快速操作');
     dialogLines.push(`━━━━━━━━━━━━━━━`);
     dialogLines.push(...menuLines);
+
+    // 新手指引：引导追加在对话正文之后（2026-09-13 修复：旧实现只写标记+落库，
+    // tutorialText 从未拼进正文——引导被消费却永远看不到）
+    if (talkTutorialText) {
+      dialogLines.push(`━━━━━━━━━━━━━━━`);
+      dialogLines.push(`💡 ${talkTutorialText}`);
+    }
 
     return dialogLines.join('\n');
   }

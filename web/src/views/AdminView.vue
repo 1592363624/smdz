@@ -154,6 +154,20 @@
                   </div>
                 </div>
 
+                <!-- 私密消息规则：默认只占一行，点击后弹窗编辑「指令 ↔ 占位文本」列表，节省展示位置 -->
+                <div v-else-if="cfg.key === 'chat.privateMessages'" class="config-item">
+                  <div class="config-info">
+                    <span class="config-label">{{ cfg.label }}</span>
+                    <span class="config-desc">{{ cfg.description }}</span>
+                  </div>
+                  <div class="config-editor">
+                    <button class="gm-btn" type="button" @click="openPrivateRules(cfg)">
+                      ✏️ 编辑规则（共 {{ privateRuleCount(cfg) }} 条）
+                    </button>
+                    <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
+                  </div>
+                </div>
+
                 <div v-else class="config-item">
                   <div class="config-info">
                     <span class="config-label">{{ cfg.label }}</span>
@@ -176,6 +190,42 @@
             </div>
           </div>
         </div>
+        <!-- 私密消息规则编辑弹窗：左侧指令、右侧对应的占位文本 -->
+        <div v-if="privateRulesCfg" class="modal-mask" @click.self="closePrivateRules">
+          <div class="modal-box">
+            <div class="modal-head">
+              <h3>
+                私密消息规则
+                <small class="muted">指令结果仅发送者本人可见，其他玩家只见对应占位文本</small>
+              </h3>
+              <button class="modal-close" @click="closePrivateRules">×</button>
+            </div>
+
+            <div class="private-rule-head">
+              <span>指令</span>
+              <span>占位文本（对其他玩家显示）</span>
+              <span></span>
+            </div>
+            <div class="private-rules">
+              <div v-for="row in privateRules" :key="row.uid" class="private-rule-row">
+                <input v-model="row.command" placeholder="如：探测雷达" />
+                <input v-model="row.placeholder" placeholder="如：🔒 该消息为私密消息" />
+                <button class="bk-card-x" type="button" title="删除" @click="removePrivateRule(row.uid)">✕</button>
+              </div>
+              <div v-if="!privateRules.length" class="bk-empty">
+                暂无规则，点「＋ 添加规则」新建一条
+              </div>
+            </div>
+            <div v-if="privateRulesError" class="prof-error">{{ privateRulesError }}</div>
+
+            <div class="modal-foot">
+              <button class="bk-toggle" type="button" @click="addPrivateRule">＋ 添加规则</button>
+              <button class="gm-btn success" type="button" @click="savePrivateRules">保存规则</button>
+              <span v-if="privateRulesSaved" class="edit-result">✓ 已保存</span>
+            </div>
+          </div>
+        </div>
+
       </section>
 
       <!-- ===== 用户管理 ===== -->
@@ -261,8 +311,8 @@
                 <th class="sortable" :class="sortClass('location')" @click="handleSort('location')">
                   <span>位置</span><i class="sort-icon"></i>
                 </th>
-                <th>
-                  <span>累计在线</span>
+                <th class="sortable" :class="sortClass('playTime')" @click="handleSort('playTime')">
+                  <span>累计在线</span><i class="sort-icon"></i>
                 </th>
                 <th class="sortable" :class="sortClass('lastLoginAt')" @click="handleSort('lastLoginAt')">
                   <span>最后登录</span><i class="sort-icon"></i>
@@ -283,17 +333,20 @@
                 </td>
                 <td class="mono-cell">{{ u.id }}</td>
                 <td>
-                  <div class="avatar-cell" :title="u.username">
-                    <img
-                      v-if="u.avatar && !avatarFailed.has(u.id)"
-                      class="user-avatar"
-                      :src="u.avatar"
-                      :alt="u.nickname || u.username"
-                      @error="avatarFailed.add(u.id)"
-                    />
-                    <span v-else class="user-avatar fallback">{{ (u.nickname || u.username || '?').slice(0, 1) }}</span>
+                  <!-- 头像与QQ号横向排列，避免QQ号单独占一行撑高表格行 -->
+                  <div class="avatar-wrap" :title="u.username">
+                    <div class="avatar-cell">
+                      <img
+                        v-if="u.avatar && !avatarFailed.has(u.id)"
+                        class="user-avatar"
+                        :src="u.avatar"
+                        :alt="u.nickname || u.username"
+                        @error="avatarFailed.add(u.id)"
+                      />
+                      <span v-else class="user-avatar fallback">{{ (u.nickname || u.username || '?').slice(0, 1) }}</span>
+                    </div>
+                    <span v-if="u.qqNumber" class="qq-ext">QQ: {{ u.qqNumber }}</span>
                   </div>
-                  <div v-if="u.qqNumber" class="qq-ext">QQ: {{ u.qqNumber }}</div>
                 </td>
                 <td>
                   <input class="inline-input" :value="u.nickname" @change="updateUser(u, { nickname: $event.target.value })" />
@@ -808,6 +861,87 @@ async function saveGlobalProf(cfg) {
   await saveConfig(cfg, obj);
 }
 
+// ---- 私密消息规则（chat.privateMessages）弹窗编辑 ----
+const privateRulesCfg = ref(null); // 当前编辑的配置项；null 表示弹窗未打开
+const privateRules = ref([]); // 编辑中的规则行（左边指令、右边占位文本）
+const privateRulesError = ref('');
+const privateRulesSaved = ref(false);
+let privateRuleUidSeq = 0;
+const PRIVATE_RULE_DEFAULT_PLACEHOLDER = '🔒 该消息为私密消息';
+
+/** 构造一行规则（uid 仅用于 v-for 稳定 key，不落库） */
+function makePrivateRuleRow(command = '', placeholder = PRIVATE_RULE_DEFAULT_PLACEHOLDER) {
+  return { uid: ++privateRuleUidSeq, command, placeholder };
+}
+
+/** 解析配置值为规则数组；容错：非 JSON / 非数组 / 缺字段一律回落默认 */
+function parsePrivateRules(raw) {
+  try {
+    const arr = JSON.parse(raw || '[]');
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((r) =>
+        makePrivateRuleRow(
+          String(r?.command ?? ''),
+          String(r?.placeholder ?? '') || PRIVATE_RULE_DEFAULT_PLACEHOLDER,
+        ),
+      )
+      .filter((r) => r.command);
+  } catch {
+    return [];
+  }
+}
+
+/** 折叠行上展示的规则条数 */
+function privateRuleCount(cfg) {
+  return parsePrivateRules(cfg?.value).length;
+}
+
+/** 打开弹窗，载入当前配置 */
+function openPrivateRules(cfg) {
+  privateRulesCfg.value = cfg;
+  privateRules.value = parsePrivateRules(cfg?.value);
+  privateRulesError.value = '';
+  privateRulesSaved.value = false;
+}
+
+function closePrivateRules() {
+  privateRulesCfg.value = null;
+}
+
+function addPrivateRule() {
+  privateRules.value.push(makePrivateRuleRow('', PRIVATE_RULE_DEFAULT_PLACEHOLDER));
+}
+
+function removePrivateRule(uid) {
+  privateRules.value = privateRules.value.filter((r) => r.uid !== uid);
+}
+
+/** 保存规则：校验指令非空且不重复，占位文本为空时补默认值 */
+async function savePrivateRules() {
+  privateRulesError.value = '';
+  const seen = new Set();
+  const rules = [];
+  for (const row of privateRules.value) {
+    const command = String(row.command || '').trim();
+    if (!command) continue;
+    if (seen.has(command)) {
+      privateRulesError.value = `指令重复：${command}`;
+      return;
+    }
+    seen.add(command);
+    rules.push({
+      command,
+      placeholder: String(row.placeholder || '').trim() || PRIVATE_RULE_DEFAULT_PLACEHOLDER,
+    });
+  }
+  await saveConfig(privateRulesCfg.value, rules);
+  privateRulesSaved.value = true;
+  setTimeout(() => {
+    privateRulesSaved.value = false;
+  }, 2000);
+}
+
 // ---- 用户管理 ----
 const users = ref([]);
 const keyword = ref('');
@@ -830,6 +964,7 @@ const sortableColumns = [
   { field: 'level', label: '等级' },
   { field: 'playerName', label: '角色名' },
   { field: 'location', label: '位置' },
+  { field: 'playTime', label: '累计在线' },
   { field: 'lastLoginAt', label: '最后登录' },
 ];
 
@@ -1563,11 +1698,18 @@ onMounted(async () => {
   font-size: 11px;
   opacity: 0.85;
 }
+/* 头像 + QQ 号横向排列，避免 QQ 号另起一行撑高表格行 */
+.avatar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .avatar-cell {
   display: flex;
   align-items: center;
   justify-content: center;
   min-width: 36px;
+  flex-shrink: 0;
 }
 .user-avatar {
   width: 32px;
@@ -2107,6 +2249,32 @@ onMounted(async () => {
   color: var(--muted-dark, #6b6b8a);
   font-size: 11px;
   padding: 16px 6px;
+}
+
+/* ===== 私密消息规则编辑弹窗（左指令、右占位文本的两列表格） ===== */
+.private-rule-head,
+.private-rule-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 32px;
+  gap: 8px;
+  align-items: center;
+}
+.private-rule-head {
+  font-size: 12px;
+  color: #8b93a7;
+  padding: 0 4px 6px;
+}
+.private-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 48vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.private-rule-row input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ===== 详情 / 编辑弹窗 ===== */

@@ -42,6 +42,15 @@ export interface CommandResult {
   content: string;
   /** 是否对所有人公屏可见（若为 false 仅回传给发送者） */
   broadcast: boolean;
+  /**
+   * 结果可见范围：
+   * - 'public'（默认）：公屏广播，所有玩家可见；
+   * - 'private'：仅指令发送者可见，其他玩家只能看到 placeholder 占位提示。
+   * 由指令引擎按「私密指令名单」配置自动填充（如探测雷达等高价值情报指令）。
+   */
+  visibility?: 'public' | 'private';
+  /** 私密结果对其他玩家展示的占位文本（visibility='private' 时由引擎写入） */
+  placeholder?: string;
   /** 执行耗时(ms) */
   durationMs: number;
 }

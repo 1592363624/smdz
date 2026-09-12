@@ -128,3 +128,40 @@ describe('观察附近五段展示（原版 地图操作.ecode L867-968 复刻�
     expect(result).toContain('木材x');
   });
 });
+
+describe('孤岛地图观察附近：提示「出口」为唯一出路（血族城堡/战舰坟场/太空/暗影岛）', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function makeIsolatedService(isolated: boolean) {
+    const fixture = makeService({
+      map: {
+        id: 88, name: '血族城堡', isFrontier: false,
+        monsters: '[]', resources: '[]', resources2: '[]', items: '[]', npcs: '[]', summons: '[]',
+        markers2: '[]',
+        connections: JSON.stringify([{ name: '出口', distance: 100 }]),
+      },
+    });
+    fixture.service.mapService.getConnections = jest.fn(() => [{ name: '出口', distance: 100 }]);
+    fixture.service.mapService.isIsolatedMap = jest.fn(async () => isolated);
+    return fixture;
+  }
+
+  it('孤岛地图：提示没有道路、出口为唯一出路，并把出口置顶为 1 号（不重复编号）', async () => {
+    const fixture = makeIsolatedService(true);
+
+    const result = await fixture.service.handleLookAround(42);
+
+    expect(result).toContain('🚪 这里没有任何通往其它地图的道路');
+    expect(result).toContain('唯一的出路是「出口」');
+    expect(result).toContain('1、出口(唯一出路)');
+    expect(result).not.toContain('2、出口');
+  });
+
+  it('非孤岛地图（有真实地图连接）不输出出口提示', async () => {
+    const fixture = makeIsolatedService(false);
+
+    const result = await fixture.service.handleLookAround(42);
+
+    expect(result).not.toContain('这里没有任何通往其它地图的道路');
+  });
+});

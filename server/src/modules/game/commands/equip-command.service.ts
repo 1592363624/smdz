@@ -14,7 +14,7 @@
  */import { Injectable, Logger } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
-import { filterActive, remainSeconds } from '.././expire-time.util';
+import { filterActive, remainSeconds, tagMarkerKind } from '.././expire-time.util';
 import { resolveEquipmentRefIndex } from '.././equipment-ref.util';
 import { PlayerService } from '.././player.service';
 import { ItemService } from '.././item.service';
@@ -450,6 +450,8 @@ export class EquipCommandService {
       await this.playerService.savePlayer(player);
       return `${player.name}装甲修理冷却${remaining.value}`;
     }
+    // 刚写入的「回充冷却」补类型标签（方案B）：面板据此显示「特效冷却中」而非兜底的「武器冷却中」
+    tagMarkerKind(markers2, '回充冷却', 'effect-cd');
     this.support.incrementMarker(markers, '活跃度', 1);
     this.combatState.addMarker('修理', 10, markers2, now);
     player.markers = markers;

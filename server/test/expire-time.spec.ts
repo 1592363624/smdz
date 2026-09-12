@@ -3,7 +3,7 @@ import { GameService } from '../src/modules/game/game.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import {
   expireAfter, filterActive, findActive, formatRemain, hasActive, isActive,
-  isActiveBeyond, isDueSince, remainSeconds, shortenBuff, toExpireMs,
+  isActiveBeyond, isDueSince, remainSeconds, shortenBuff, tagMarkerKind, toExpireMs,
 } from '../src/modules/game/expire-time.util';
 
 describe('过期时间统一工具（增益/标记）', () => {
@@ -76,6 +76,22 @@ describe('过期时间统一工具（增益/标记）', () => {
 
     // 容器中无该名称 → 无改动
     expect(shortenBuff([{ name: '闪避', expireAt: nowSec + 30 }], '卷土重来', 60, nowMs)).toBe(false);
+  });
+
+  it('tagMarkerKind：给指定条目补 kind 冷却类型标签（不存在时无操作）', () => {
+    const list: any[] = [{ name: '飞行冷却', expireAt: nowMs + 10_000 }, { name: '麻痹', expireAt: nowMs + 5_000 }];
+    tagMarkerKind(list, '飞行冷却', 'act-cd');
+    expect(list[0].kind).toBe('act-cd');
+    expect(list[1].kind).toBeUndefined(); // 其它条目不受影响
+
+    // 名称不存在 → 无操作（不抛错、不新增条目）
+    tagMarkerKind(list, '购买冷却', 'shop-cd');
+    expect(list).toHaveLength(2);
+
+    // 中文键条目也能命中（中英文 key 兼容）
+    const cn: any[] = [{ 名称: '飞行冷却', 有效期至: nowMs + 10_000 }];
+    tagMarkerKind(cn, '飞行冷却', 'act-cd');
+    expect(cn[0].kind).toBe('act-cd');
   });
 });
 

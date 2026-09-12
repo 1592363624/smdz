@@ -53,6 +53,13 @@ export interface MapConnection {
   requireTravel?: number;
   /** 需求标记列表 */
   requireMarkers?: string[];
+  /** 是否为副本临时入口（原版 “XX(副本)” 条目，按传送处理，不参与最短路径） */
+  isInstance?: boolean;
+  /**
+   * 入口来源：spawn=0/12/18 点定时生成（原版 生成副本），ticket=副本券「开启副本」。
+   * 用于定时生成时只回收自己产生的入口，不误删玩家花副本券开的入口。
+   */
+  source?: string;
 }
 
 /**
@@ -598,6 +605,37 @@ export class MapService {
   getConnections(map: any): MapConnection[] {
     // connections 兼容静态数据（已解析数组）与 DB 字符串两种来源
     return asJsonValue<MapConnection[]>(map.connections, []);
+  }
+
+  /**
+   * 是否为孤岛地图：连接列表中没有任何指向真实地图的条目。
+   *
+   * 原版数据里「血族城堡 / 战舰坟场 / 太空 / 暗影岛」的「可前往」只有「出口」
+   * 这种空间乱流特殊入口，玩家无法用「前往」走到其它地图，只能走「出口」
+   * 或装备天蓝吊坠/跃迁载具离开——极易误以为游戏卡死（2026-09-12 反馈）。
+   * 用于「观察附近」提示出口；原版无该提示，属本项目的体验补强。
+   *
+   * 兜底：连接列表为空（数据缺失或测试桩）按非孤岛处理，避免误提示。
+   */
+  async isIsolatedMap(map: any): Promise<boolean> {
+    const connections = this.getConnections(map);
+    if (!Array.isArray(connections) || connections.length === 0) return false;
+
+    let mapNames: Set<string>;
+    try {
+      const maps = await this.getAllMaps();
+      mapNames = new Set(
+        (maps || []).map((item: any) => String(item?.name || '').trim()).filter(Boolean),
+      );
+    } catch {
+      return false;
+    }
+
+    // 只要有一条连接指向真实地图，就不是孤岛（「出口」/「XX(副本)」等特殊名不算）
+    return !connections.some((connection: any) => {
+      const name = String(connection?.name || '').trim();
+      return name !== '' && mapNames.has(name);
+    });
   }
 
   /**

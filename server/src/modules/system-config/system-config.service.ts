@@ -19,13 +19,67 @@ interface SystemConfigDefault {
   group: string;
 }
 
+/// 私密消息规则表中「其他玩家看到的占位文本」的默认值（规则未填时使用）
+const DEFAULT_PRIVATE_PLACEHOLDER = '🔒 该消息为私密消息';
+
+/// 历史版本的占位文案（未带锁图标），用于把旧配置值升级为新版默认值
+const LEGACY_PRIVATE_PLACEHOLDER = '该消息为私密消息';
+
+/// 全新部署时默认纳入私密的指令（探测系列：结果属高价值情报，公开会被他人白嫖）
+const DEFAULT_PRIVATE_COMMANDS = ['探测雷达', '探测资源', '探测拾取', '探测作物'];
+
+/// 私密消息规则表的默认值：每条规则 = { command: 指令名, placeholder: 占位文本 }
+const DEFAULT_PRIVATE_RULES_JSON = JSON.stringify(
+  DEFAULT_PRIVATE_COMMANDS.map((command) => ({
+    command,
+    placeholder: DEFAULT_PRIVATE_PLACEHOLDER,
+  })),
+);
+
+/// 0/12/18 点「生成副本」第 1 个入口的副本名池（原版 使魔大战.txt [商店]副本）
+const DEFAULT_INSTANCE_NAMES_JSON = JSON.stringify([
+  'CELL研究中心', 'CELL总部', 'CELL后勤部', '组装车间',
+]);
+
+/// 第 2 个入口的副本名池（原版 使魔大战.txt [商店]副本2）
+const DEFAULT_INSTANCE_NAMES2_JSON = JSON.stringify([
+  '灭绝之地', '誓约之地', '核战废墟', '灵山岛', '四圣祭坛',
+]);
+
 const DEFAULT_CONFIGS: SystemConfigDefault[] = [
+  {
+    key: 'game.instanceNames',
+    value: DEFAULT_INSTANCE_NAMES_JSON,
+    label: '定时副本名池1',
+    description:
+      '0/12/18 点「生成副本」第 1 个入口随机取的副本名；必须是地图表中真实存在的地图名，否则入口进不去（无效名字会被自动过滤）',
+    type: 'json',
+    group: 'game',
+  },
+  {
+    key: 'game.instanceNames2',
+    value: DEFAULT_INSTANCE_NAMES2_JSON,
+    label: '定时副本名池2',
+    description:
+      '0/12/18 点「生成副本」第 2 个入口随机取的副本名（原版 [商店]副本2）；同样必须是真实地图名',
+    type: 'json',
+    group: 'game',
+  },
   {
     key: 'chat.messageIntervalSec',
     value: '0.2',
     label: '用户消息发送间隔(秒)',
     description: '同一用户两条消息之间的最小间隔，防止刷屏；0=不限制',
     type: 'number',
+    group: 'command',
+  },
+  {
+    key: 'chat.privateMessages',
+    value: DEFAULT_PRIVATE_RULES_JSON,
+    label: '私密消息规则',
+    description:
+      '列表内指令的结果仅发送者本人可见，其他玩家只见对应的占位文本（防止他人白嫖探测雷达等情报）',
+    type: 'json',
     group: 'command',
   },
 ];
@@ -50,6 +104,16 @@ export class SystemConfigService implements OnModuleInit {
       try {
         const existing = await this.prisma.systemConfig.findUnique({ where: { key: cfg.key } });
         if (!existing) {
+          // 私密消息规则首次创建：把旧版「私密指令名单 + 占位文本」两项迁移合并进来，
+          // 并删除旧行，避免管理界面出现两个重复的私密配置卡片。
+          if (cfg.key === 'chat.privateMessages') {
+            const merged = await this.buildInitialPrivateRules();
+            await this.prisma.systemConfig.create({ data: { ...cfg, value: merged } });
+            await this.prisma.systemConfig.deleteMany({
+              where: { key: { in: ['chat.privateCommands', 'chat.privatePlaceholder'] } },
+            });
+            continue;
+          }
           await this.prisma.systemConfig.create({ data: { ...cfg } });
           continue;
         }
@@ -72,9 +136,71 @@ export class SystemConfigService implements OnModuleInit {
           });
           this.cache.delete(cfg.key);
         }
+        // 私密占位文案升级：旧默认未带锁图标 → 补 🔒（管理员自定义过的文案不动）
+        if (cfg.key === 'chat.privateMessages') {
+          await this.upgradePrivatePlaceholder(existing);
+        }
       } catch (err: any) {
         this.logger.warn(`补默认配置 ${cfg.key} 失败: ${err?.message ?? err}`);
       }
+    }
+  }
+
+  /**
+   * 构造「私密消息规则」的初始值（仅首次创建该配置时调用）。
+   * 兼容旧版两个配置项（chat.privateCommands 名单 + chat.privatePlaceholder 占位文本）：
+   * 把旧名单全部并入，占位文本沿用旧值；再补齐内置默认的探测系列指令。
+   * @returns JSON 字符串：[{ command, placeholder }, ...]
+   */
+  private async buildInitialPrivateRules(): Promise<string> {
+    const [listRow, phRow] = await Promise.all([
+      this.prisma.systemConfig.findUnique({ where: { key: 'chat.privateCommands' } }),
+      this.prisma.systemConfig.findUnique({ where: { key: 'chat.privatePlaceholder' } }),
+    ]);
+    const placeholder = (phRow?.value || '').trim() || DEFAULT_PRIVATE_PLACEHOLDER;
+    const commands = new Set<string>();
+    // 旧名单解析：兼容 JSON 数组与逗号/顿号分隔两种历史格式
+    if (listRow?.value) {
+      try {
+        const parsed = JSON.parse(listRow.value);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((c) => String(c).trim() && commands.add(String(c).trim()));
+        }
+      } catch {
+        listRow.value
+          .split(/[,，、\s]+/)
+          .forEach((c) => c.trim() && commands.add(c.trim()));
+      }
+    }
+    DEFAULT_PRIVATE_COMMANDS.forEach((c) => commands.add(c));
+    return JSON.stringify(Array.from(commands).map((command) => ({ command, placeholder })));
+  }
+
+  /**
+   * 占位文案升级：旧默认「该消息为私密消息」未带锁图标，统一补 🔒 前缀。
+   * 仅「恰好等于旧默认文案」的规则被改写，管理员自定义的其他文案保持不动。
+   */
+  private async upgradePrivatePlaceholder(row: { value: string }): Promise<void> {
+    if (!row?.value) return;
+    try {
+      const rules = this.parsePrivateRules(row.value);
+      let changed = false;
+      const next = rules.map((r) => {
+        if (r.placeholder === LEGACY_PRIVATE_PLACEHOLDER) {
+          changed = true;
+          return { ...r, placeholder: DEFAULT_PRIVATE_PLACEHOLDER };
+        }
+        return r;
+      });
+      if (!changed) return;
+      await this.prisma.systemConfig.update({
+        where: { key: 'chat.privateMessages' },
+        data: { value: JSON.stringify(next) },
+      });
+      this.cache.delete('chat.privateMessages');
+      this.logger.log('已升级私密消息占位文案（补齐 🔒 标记）');
+    } catch (err: any) {
+      this.logger.warn(`升级私密消息占位文案失败: ${err?.message ?? err}`);
     }
   }
 
@@ -211,6 +337,38 @@ export class SystemConfigService implements OnModuleInit {
    */
   getMessageIntervalSec(): Promise<number> {
     return this.get<number>('chat.messageIntervalSec', 0.2);
+  }
+
+  /**
+   * 快捷读取：私密消息规则列表（[{ command, placeholder }]）。
+   * 列表中指令的结果仅发送者本人可见，其他玩家只见对应的占位文本。
+   * 用于探测系列等高价值情报指令，防止他人白嫖他人探测结果。
+   */
+  async getPrivateMessages(): Promise<Array<{ command: string; placeholder: string }>> {
+    const raw = await this.get<any>('chat.privateMessages', []);
+    return this.parsePrivateRules(raw);
+  }
+
+  /**
+   * 解析私密消息规则：容错处理（JSON 字符串/数组、缺字段、空指令），
+   * 占位文本缺省时回退内置默认值。
+   */
+  private parsePrivateRules(raw: any): Array<{ command: string; placeholder: string }> {
+    let arr = raw;
+    if (typeof raw === 'string') {
+      try {
+        arr = JSON.parse(raw);
+      } catch {
+        arr = [];
+      }
+    }
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((r: any) => ({
+        command: String(r?.command ?? '').trim(),
+        placeholder: String(r?.placeholder ?? '').trim() || DEFAULT_PRIVATE_PLACEHOLDER,
+      }))
+      .filter((r) => r.command);
   }
 
   /**

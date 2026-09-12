@@ -48,6 +48,25 @@ import { GameSupportService } from '.././game-support.service';
 import { MovementVehicleService } from './movement-vehicle.service';
 import { RescueWhiteService } from './rescue-white.service';
 
+/**
+ * 冷却标记类型 → 展示文案/图标映射（方案B：类型随数据走）。
+ *
+ * 数据层：markers2 冷却条目通过 `kind` 声明自己的类型（技能 CD 由
+ * familiar-skills.setCooldown 写 'skill-cd'；召唤/捕捉/购买/闪避/特效等由
+ * 各自写入方写对应值）。面板只做映射，不再靠名字后缀猜测类型；
+ * 未声明 kind 的条目（含历史存量数据）按原版「武器名+冷却」约定兜底为武器冷却。
+ */
+const COOLDOWN_KIND_META: Record<string, { detail: string; icon: string }> = {
+  'skill-cd': { detail: '技能冷却中', icon: '✨' },
+  'summon-cd': { detail: '召唤冷却中', icon: '🌀' },
+  'capture-cd': { detail: '捕捉冷却中', icon: '🐾' },
+  'shop-cd': { detail: '商店冷却中', icon: '🛒' },
+  'dodge-cd': { detail: '闪避冷却中', icon: '💨' },
+  'effect-cd': { detail: '特效冷却中', icon: '🔮' },
+  // 移动类动作节流（飞行/传送/刷新副本/刷怪）：不阻止攻击，只限制该动作的再次执行
+  'act-cd': { detail: '冷却中', icon: '⏱️' },
+};
+
 @Injectable()
 export class GatherPanelService {
   private readonly logger = new Logger(GatherPanelService.name);
@@ -307,6 +326,9 @@ export class GatherPanelService {
       // 纯进度型锁定标记：采集/移动的 markers2 镜像（markers 里已有更详细信息时跳过，避免重复条目）
       if (name === '采集' && list.some((a: any) => a.key === 'gather')) continue;
       if (name === '移动' && list.some((a: any) => a.key === 'move')) continue;
+      // 「飞行冷却」（10 秒飞行节流）与「移动中」读条同源：飞行指令同时写入两者，
+      // 移动期间只保留移动读条，避免同一动作出现两条进度；落地后冷却未过仍会单独显示。
+      if (name === '飞行冷却' && list.some((a: any) => a.key === 'move')) continue;
       // 这些标记的 startedAt/totalMs 是可选字段，缺失时前端按「总时长未知」处理
       const markStart = Number(entry?.startedAt ?? 0);
       const markTotal = Number(entry?.totalMs ?? 0);
@@ -320,9 +342,11 @@ export class GatherPanelService {
         // 公共攻击冷却（原版 战斗相关.ecode L93-107 / L4601-4605 检查）：期间所有武器都无法出手
         push({ key: 'attack-cd', kind: 'cooldown', label: '攻击冷却', detail: '无法攻击', icon: '⚔️', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       } else if (name.endsWith('冷却')) {
-        // 单武器冷却（原版 _主程序.ecode L904 `${武器名}冷却`）：标注是哪把武器在转CD。
+        // 冷却类标记：按条目自身的 kind 声明渲染专属文案（方案B），未声明 kind 的
+        // （含历史存量数据）兜底为武器冷却（原版 _主程序.ecode L904 `${武器名}冷却`）。
         // 这些标记只挂在攻击者自己的 markers2 上（被击方的「被寒风冷却」等在对方身上），天然不会串人。
-        push({ key: `cd:${name}`, kind: 'cooldown', label: name.replace(/冷却$/, ''), detail: '武器冷却中', icon: '⚔️', endAt: endMs, startedAt: markStart, totalMs: markTotal });
+        const kindMeta = COOLDOWN_KIND_META[String(entry?.kind ?? '')];
+        push({ key: `cd:${name}`, kind: 'cooldown', label: name.replace(/冷却$/, ''), detail: kindMeta?.detail ?? '武器冷却中', icon: kindMeta?.icon ?? '⚔️', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       } else if (name === '麻痹') {
         push({ key: 'paralysis', kind: 'debuff', label: '麻痹中', detail: '无法行动', icon: '⚡', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       }
@@ -1272,9 +1296,28 @@ export class GatherPanelService {
 
     // 可前往（原版 L656-684：直接编入编号列表，N@前往名）
     const connections = this.mapService.getConnections(map) || [];
+    // 孤岛地图（血族城堡/战舰坟场/太空/暗影岛：可前往里只有「出口」这种空间乱流入口）
+    // 没有任何通往真实地图的道路，玩家极易误以为移动系统坏了（2026-09-12 反馈）——
+    // 此处显式提示出口为唯一出路并把出口置顶（原版无此提示，属体验补强）。
+    const hasExit = connections.some((c: any) => String(c?.name || '').trim() === '出口');
+    let isolated = false;
+    if (hasExit) {
+      try {
+        isolated = await this.mapService.isIsolatedMap(map);
+      } catch {
+        isolated = false; // 精简注入或数据缺失时不提示
+      }
+    }
     for (const connection of connections) {
       if (!connection?.name) continue;
+      // 孤岛的出口在下方统一置顶编号，此处不重复编号
+      if (isolated && String(connection.name).trim() === '出口') continue;
       quickOptions.push({ label: connection.name, cmd: `前往 ${connection.name}` });
+    }
+    if (isolated) {
+      lines.push('🚪 这里没有任何通往其它地图的道路');
+      lines.push('   唯一的出路是「出口」（空间乱流会把你随机送到某张地图）');
+      lines.push('   也可装备「天蓝吊坠」后用「传送/前往」，或驾驶装了跃迁引擎的载具离开');
     }
 
     // 资源（编入编号列表；无采集指令的仅展示，不生成快捷编号）
@@ -1399,6 +1442,11 @@ export class GatherPanelService {
       quickOptions.push({ label: '地图信息', cmd: '查看说明' });
     }
     quickOptions.push({ label: '查看地图', cmd: '查看地图' });
+
+    // 孤岛地图：「出口」置顶为编号列表首位并标注唯一出路
+    if (isolated) {
+      quickOptions.unshift({ label: '出口(唯一出路)', cmd: '前往 出口' });
+    }
 
     // 统一生成编号快捷操作菜单（原版观察附近输出即编号列表本体：编号同时注册临时输入替换）
     if (quickOptions.length > 0) {

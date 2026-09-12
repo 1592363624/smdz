@@ -1100,9 +1100,9 @@ export class CombatSystemService implements OnApplicationShutdown {
       const mk2As = this.safeParseJson<any[]>(player.markers2 || '[]', []);
       const asCd = mk2As.find((m: any) => m?.name === '艾斯冷却');
       if (!asCd || nowMsAs >= (asCd.expireAt || 0)) {
-        // 时间间隔要求语义：未冷却 → 设置60秒冷却标记并触发效果
-        if (asCd) asCd.expireAt = nowMsAs + 60 * 1000;
-        else mk2As.push({ name: '艾斯冷却', expireAt: nowMsAs + 60 * 1000 });
+        // 时间间隔要求语义：未冷却 → 设置60秒冷却标记并触发效果；kind=方案B 特效类型（存量条目补标签）
+        if (asCd) { asCd.expireAt = nowMsAs + 60 * 1000; asCd.kind = 'effect-cd'; }
+        else mk2As.push({ name: '艾斯冷却', kind: 'effect-cd', expireAt: nowMsAs + 60 * 1000 });
         // 硬直「工作」：获得增益(攻击方.标记2,"工作",(1-韧性/100)*60,真,s) 叠加时间语义
         const toughness = attackerBonus.韧性 || 0;
         const stunSec = (1 - toughness / 100) * 60;
@@ -3958,7 +3958,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (active) return false;
 
     const next = entries.filter((entry: any) => (entry?.name ?? entry?.名称) !== name);
-    next.push({ name, expireAt: nowMs + Math.max(0, seconds) * 1000 });
+    // kind=方案B 召唤类型：面板对「xx冷却」渲染「召唤冷却中」（`召yht`/`召2yht`/`xx冷却` 等别名共用）
+    next.push({ name, kind: 'summon-cd', expireAt: nowMs + Math.max(0, seconds) * 1000 });
     attacker.markers2 = next; // Json 列直接写数组
     attackerData.markers2 = next;
     if (attacker.标记2 !== undefined) attacker.标记2 = next;

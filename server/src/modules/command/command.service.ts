@@ -26,6 +26,7 @@ import { COMMAND_HANDLER_MAP } from './command-handler-map.provider';
 import { CommandSourceRegistry } from './command-source.registry';
 import { normalizeGameText } from '../../common/utils/game-text.util';
 import { buildTutorialClaimBlock } from '../game/familiar-menu.util';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 @Injectable()
 export class CommandService {
@@ -55,6 +56,9 @@ export class CommandService {
     // ChatService.broadcastSystem 判定延时结果是否回推 QQ。@Optional 兼容测试桩
     // （未注入时不登记，bot:push 过滤端随之回落为不推，宁可漏推不错推）。
     @Optional() private readonly sourceRegistry?: CommandSourceRegistry,
+    // 系统配置中心：读取「私密指令名单/占位文本」，给探测雷达等情报类指令结果打私密标记。
+    // @Optional 兼容手工构造的测试桩（未注入时不做私密判定，行为与改造前一致）。
+    @Optional() private readonly systemConfigService?: SystemConfigService,
   ) {
     // P2 管道注入自检：@Optional 注入失效（模块装配遗漏/循环依赖截断）会静默
     // 回落旧路径，生产极难察觉——正式库 CurrencyLog 空表事故的直接教训。
@@ -114,7 +118,34 @@ export class CommandService {
     if (result?.content) {
       result.content = normalizeGameText(result.content);
     }
+    // 私密指令打标：命中「私密指令名单」的指令，结果仅发送者可见（统一出口，覆盖全部渠道）
+    await this.markPrivateResult(ctx, result);
     return result;
+  }
+
+  /**
+   * 私密指令打标。
+   * 命中系统配置中心「私密消息规则」(chat.privateMessages) 的指令，其结果标记为
+   * visibility='private'，并写入该规则配置的占位文本 placeholder 供各渠道展示给"其他玩家"。
+   * 用途：探测系列等高价值情报指令的结果不应公开，避免他人白嫖他人探测等级。
+   * 规则（指令 ↔ 占位文本）可在管理界面在线调整，无需改代码。
+   */
+  private async markPrivateResult(ctx: CommandContext, result: CommandResult): Promise<void> {
+    if (!result || !this.systemConfigService) return;
+    // 取指令名（与 executeDispatch 的解析口径一致：去前缀、取首个 token）
+    const name = (ctx.rawMessage || '').trim().replace(/^[\/！!]+/, '').split(/\s+/)[0];
+    if (!name) return;
+    try {
+      const rules = await this.systemConfigService.getPrivateMessages();
+      const hit = rules.find((r) => r.command === name);
+      if (hit) {
+        result.visibility = 'private';
+        result.placeholder = hit.placeholder;
+      }
+    } catch (e: any) {
+      // 私密判定失败不能影响指令主链路：宁可漏标（公开）也不阻断指令执行
+      this.logger.warn(`私密指令判定失败: ${e?.message ?? e}`);
+    }
   }
 
   private async executeDispatch(ctx: CommandContext): Promise<CommandResult> {

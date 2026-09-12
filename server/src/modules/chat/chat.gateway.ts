@@ -468,14 +468,34 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     // 此前 broadcast=false 的回包只 client.emit 给发送者、不落库，导致刷新后
     // 历史接口（getMessages 走 ChatMessage 表）查不到该回包 → RichSystemCard 消失。
     // 统一落库后实时与历史行为一致：实时看到的，刷新后仍能看到。
+    //
+    // 私密结果（visibility='private'，如探测雷达，2026-09-13）：
+    // 真实内容仅定向回传发送者本人，其他玩家只收到占位提示，防止他人白嫖探测结果。
+    const isPrivate = result.visibility === 'private';
     try {
+      // 私密结果：占位文本随消息落库，供历史加载脱敏时使用（规则配置的占位优先）
+      const placeholder = isPrivate
+        ? result.placeholder || this.chatService.getPrivatePlaceholder()
+        : undefined;
       const msg = await this.chatService.saveMessage({
         channelId: user.channelId,
         senderId: user.userId,
         type: 'system',
         content: result.content,
+        visibility: isPrivate ? 'private' : 'public',
+        placeholder,
       });
-      this.server.to('世界频道').emit('chat:message', msg);
+      if (isPrivate) {
+        // 世界频道内除发送者外所有人：只看到占位提示
+        this.server
+          .to('世界频道')
+          .except(`user:${user.userId}`)
+          .emit('chat:message', { ...msg, content: placeholder });
+        // 发送者本人：定向推送真实内容
+        this.server.to(`user:${user.userId}`).emit('chat:message', msg);
+      } else {
+        this.server.to('世界频道').emit('chat:message', msg);
+      }
     } catch (e: any) {
       // saveMessage 内部已做超长截断 + 短提示兜底；这里兜最后一层：
       // 落库链路仍炸（库不可用等）时，至少给发送者一条可读失败回执，避免「指令执行了却毫无回包」

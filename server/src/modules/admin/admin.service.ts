@@ -239,6 +239,8 @@ export class AdminService {
       playerName: { player: { name: order } },
       location: { player: { location: order } },
       affinity: { player: { affinity: order } },
+      // 累计在线时长（Player.playTime 为 BigInt 秒数，Prisma 支持直接按此排序）
+      playTime: { player: { playTime: order } },
     };
 
     return map[field] ?? { id: 'asc' };

@@ -1,4 +1,4 @@
-import { DungeonService } from '../src/modules/game/dungeon.service';
+import { DungeonService, DUNGEON_ENTRY_SOURCE } from '../src/modules/game/dungeon.service';
 import { parseJson } from './parse-json.util';
 
 describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
@@ -105,5 +105,96 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
       { id: 'existing-summon' },
       { id: 'dungeon-summon' },
     ]));
+  });
+});
+
+describe('副本入口统一生成与脏入口清理', () => {
+  /** 入口相关的地图桩：connections 真实读写，便于断言入口结构 */
+  function makeEntryFixture() {
+    const maps: any[] = [
+      { id: 1, name: '医疗室', isInstance: true, isFrontier: false, respawnPoint: '医疗室', connections: [] },
+      { id: 2, name: '走廊', isInstance: true, isFrontier: false, respawnPoint: '医疗室', connections: [] },
+      { id: 3, name: '浅海', isInstance: false, isFrontier: false, respawnPoint: '沙滩', connections: [] },
+      { id: 4, name: 'CELL研究中心', isInstance: true, isFrontier: false, respawnPoint: 'CELL研究中心', connections: [] },
+      { id: 5, name: '灭绝之地', isInstance: true, isFrontier: false, respawnPoint: '灭绝之地', connections: [] },
+    ];
+    const readConnections = (map: any): any[] => {
+      const raw = map?.connections;
+      if (Array.isArray(raw)) return raw;
+      try { return JSON.parse(raw || '[]'); } catch { return []; }
+    };
+    const mapService: any = {
+      getAllMaps: jest.fn(async () => maps),
+      getMapByName: jest.fn(async (name: string) => maps.find((m: any) => m.name === name) || null),
+      getMapById: jest.fn(async (id: number) => maps.find((m: any) => Number(m.id) === Number(id)) || null),
+      getConnections: jest.fn((map: any) => readConnections(map)),
+      appendMapConnection: jest.fn(async (mapId: number, connection: any) => {
+        const map = maps.find((m: any) => Number(m.id) === Number(mapId));
+        if (!map) return;
+        const list = readConnections(map);
+        if (list.some((c: any) => c?.name === connection.name)) return;
+        list.push(connection);
+        map.connections = list;
+      }),
+      removeMapConnection: jest.fn(async (mapId: number, name: string) => {
+        const map = maps.find((m: any) => Number(m.id) === Number(mapId));
+        if (!map) return;
+        map.connections = readConnections(map).filter((c: any) => c?.name !== name);
+      }),
+    };
+    const service = new DungeonService({} as any, {} as any, mapService);
+    return { service, maps, mapService };
+  }
+
+  it('两条路径生成同一结构：入口带真实地图 mapId、距离100、isInstance', async () => {
+    const { service, maps } = makeEntryFixture();
+
+    const ticket = await service.openDungeonEntry(3, 'CELL研究中心', DUNGEON_ENTRY_SOURCE.TICKET);
+    expect(ticket.ok).toBe(true);
+    expect(ticket.mapId).toBe(4);
+
+    const spawned = await service.openDungeonEntry(3, '灭绝之地', DUNGEON_ENTRY_SOURCE.SPAWN);
+    expect(spawned.ok).toBe(true);
+    expect(spawned.mapId).toBe(5);
+
+    expect(maps[2].connections).toEqual([
+      { name: 'CELL研究中心(副本)', mapId: 4, distance: 100, isInstance: true, source: 'ticket' },
+      { name: '灭绝之地(副本)', mapId: 5, distance: 100, isInstance: true, source: 'spawn' },
+    ]);
+  });
+
+  it('副本名不存在时不生成入口（避免产生永远进不去的入口）', async () => {
+    const { service, maps } = makeEntryFixture();
+    const result = await service.openDungeonEntry(3, '扭曲深渊', DUNGEON_ENTRY_SOURCE.SPAWN);
+    expect(result.ok).toBe(false);
+    expect(maps[2].connections).toEqual([]);
+  });
+
+  it('定时生成只回收自己上一次的入口，保留副本券开的入口', async () => {
+    const { service, maps } = makeEntryFixture();
+    await service.openDungeonEntry(3, '灭绝之地', DUNGEON_ENTRY_SOURCE.SPAWN);
+    await service.openDungeonEntry(3, 'CELL研究中心', DUNGEON_ENTRY_SOURCE.TICKET);
+
+    await service.openDungeonEntry(3, '灭绝之地', DUNGEON_ENTRY_SOURCE.SPAWN);
+    const names = maps[2].connections.map((c: any) => `${c.name}/${c.source}`);
+    expect(names).toEqual(['CELL研究中心(副本)/ticket', '灭绝之地(副本)/spawn']);
+  });
+
+  it('清理掉指向不存在地图的脏入口，保留有效入口', async () => {
+    const { service, maps } = makeEntryFixture();
+    maps[2].connections = [
+      { name: '扭曲深渊(副本)', distance: 100 },
+      { name: 'CELL研究中心(副本)', mapId: 4, distance: 100 },
+      { name: '灭绝之地(副本)', distance: 100 },
+    ];
+    const result = await service.purgeInvalidDungeonEntries();
+
+    expect(result.removed).toBe(1);
+    expect(result.entries).toEqual(['浅海→扭曲深渊(副本)']);
+    // 无 mapId 但名称能对上真实地图的入口按有效保留
+    expect(maps[2].connections.map((c: any) => c.name)).toEqual([
+      'CELL研究中心(副本)',
+      '灭绝之地(副本)',
+    ]);
   });
 });

@@ -37,6 +37,8 @@ function makeService(options: {
     name: '当前地图',
     noTeleport: false,
     isFrontier: false,
+    // 真实数据中可达的地图之间必有连接：handleMove 会先做「没有路径」判定（原版 L6622-6632）
+    connections: JSON.stringify([{ name: '目标地图', distance: 50 }]),
     vehicles: '[]',
     summons: '[]',
   };
@@ -45,6 +47,7 @@ function makeService(options: {
     name: '目标地图',
     noTeleport: false,
     isFrontier: false,
+    connections: JSON.stringify([{ name: '当前地图', distance: 50 }]),
     vehicles: '[]',
     summons: '[]',
   };
@@ -71,7 +74,9 @@ function makeService(options: {
     playerService,
     mapService: {
       getMapById: jest.fn(async (id: number) => Number(id) === currentMap.id ? currentMap : targetMap),
-      getMapByName: jest.fn(async (name: string) => name === targetMap.name ? targetMap : null),
+      getMapByName: jest.fn(async (name: string) => (
+        name === targetMap.name ? targetMap : (name === currentMap.name ? currentMap : null)
+      )),
       getAllMaps: jest.fn(async () => [currentMap, targetMap]),
       getConnections: jest.fn((map: any) => parseJson(map?.connections, [])),
       calcTravelTime: jest.fn(() => 1),
@@ -296,6 +301,8 @@ describe('前往门禁（原版 _主程序.ecode L6514-6548 复刻）', () => {
       },
       currentMap: {
         id: 66, name: '战场边缘', noTeleport: false, isFrontier: false,
+        // 与目标地图连通（真实数据中可达的地图之间必有连接）
+        connections: JSON.stringify([{ name: '目标地图', distance: 10 }]),
         vehicles: '[]', summons: '[]',
       },
     });
@@ -335,6 +342,34 @@ describe('前往门禁（原版 _主程序.ecode L6514-6548 复刻）', () => {
     const result = await fixture.service.handleMove(42, '目标地图');
 
     expect(result).toContain('战斗状态');
+    expect(fixture.scheduled).toHaveLength(0);
+  });
+
+  it('孤岛地图（只连「出口」，如血族城堡/战舰坟场）前往其它地图：提示没有路径并预置「飞到」临时输入（原版 L6631-6632）', async () => {
+    const fixture = makeService({
+      currentMap: {
+        id: 88, name: '血族城堡', noTeleport: false, isFrontier: false, requiredTravel: 2,
+        connections: JSON.stringify([{ name: '出口', distance: 100 }]),
+        vehicles: '[]', summons: '[]',
+      },
+    });
+
+    const result = await fixture.service.handleMove(42, '目标地图');
+
+    // 无路径判定优先于前往需求：不再误报“需要传送/跃迁”（历史形态：走廊/森林出口被判传送级）
+    expect(result).toContain('没有前往');
+    expect(result).not.toContain('需要传送或者跃迁');
+    expect(result).toContain('1、飞到目标地图');
+    expect(fixture.service.shortcutService.setTempInput.mock.calls[0][1]).toBe('1@飞到目标地图');
+    expect(fixture.scheduled).toHaveLength(0);
+  });
+
+  it('目的地为脚下地图：按距离 0 提示没有路径（原版 L6631-6632）', async () => {
+    const fixture = makeService({});
+
+    const result = await fixture.service.handleMove(42, '当前地图');
+
+    expect(result).toContain('所在地"当前地图"没有前往"当前地图"的路径');
     expect(fixture.scheduled).toHaveLength(0);
   });
 });

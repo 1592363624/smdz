@@ -1,4 +1,5 @@
 import { MapService } from '../src/modules/game/map.service';
+import { MovementVehicleService } from '../src/modules/game/commands/movement-vehicle.service';
 
 /**
  * 地图通行门槛门禁（完整复刻原版「前往需求判断」地图操作.ecode L992-1046
@@ -122,5 +123,108 @@ describe('地图通行门槛 checkCanTravel（原版复刻门禁）', () => {
 
     const move = svc.checkCanTravel(from, to, player(), { mode: 'move' });
     expect(move.canTravel).toBe(true);
+  });
+});
+
+/**
+ * 地图连通性门禁：原版 L6622「取最短路径」的存在性部分。
+ * 历史事故背景：旧实现缺失该判定（无路径也能发起「前往」，孤岛地图如
+ * 血族城堡/战舰坟场 go 任意地图只会误报「需要传送/跃迁」），本 spec 防止回归。
+ */
+describe('地图连通性 hasTravelPath（原版 L6622 复刻门禁）', () => {
+  function makeTravelService(maps: any[]): any {
+    const svc: any = Object.create(MovementVehicleService.prototype);
+    svc.mapService = {
+      getAllMaps: async () => maps,
+      getConnections: (map: any) =>
+        typeof map?.connections === 'string' ? JSON.parse(map.connections) : (map?.connections || []),
+    };
+    svc.logger = { log: () => undefined, warn: () => undefined };
+    return svc;
+  }
+
+  it('孤岛地图（血族城堡/战舰坟场只连「出口」）与外界不连通', async () => {
+    const castle = { id: 88, name: '血族城堡', connections: [{ name: '出口', distance: 100 }] };
+    const corridor = {
+      id: 2, name: '走廊',
+      connections: [{ name: '医疗室', distance: 30 }, { name: '森林出口', distance: 50 }],
+    };
+    const medical = { id: 1, name: '医疗室', connections: [{ name: '走廊', distance: 30 }] };
+    const forest = { id: 3, name: '森林出口', connections: [{ name: '走廊', distance: 50 }] };
+    const svc = makeTravelService([castle, corridor, medical, forest]);
+
+    expect(await svc.hasTravelPath(castle, corridor)).toBe(false);
+    expect(await svc.hasTravelPath(castle, forest)).toBe(false);
+    expect(await svc.hasTravelPath(corridor, forest)).toBe(true);   // 走廊直连森林出口
+    expect(await svc.hasTravelPath(medical, forest)).toBe(true);    // 医疗室→走廊→森林出口
+    expect(await svc.hasTravelPath(castle, castle)).toBe(false);    // 脚下地图按距离 0 处理
+  });
+
+  it('无向连通：动态地图单侧连接（母图→开拓地）也能取到路径', async () => {
+    const base = {
+      id: 3, name: '森林出口',
+      connections: [{ name: '矮行星101', mapId: 92, distance: 10, isFrontier: true }],
+    };
+    // 开拓地侧缺回连的历史数据形态：无向遍历保证「回家」不被误拦
+    const frontier = { id: 92, name: '矮行星101', connections: [] };
+    const svc = makeTravelService([base, frontier]);
+
+    expect(await svc.hasTravelPath(frontier, base)).toBe(true);
+  });
+
+  it('连接名不是真实地图时忽略（「出口」/「XX(副本)」不参与图搜索）', async () => {
+    const a = {
+      id: 1, name: '甲',
+      connections: [{ name: '出口', distance: 10 }, { name: '小岛(副本)', distance: 10 }],
+    };
+    const b = { id: 2, name: '乙', connections: [] };
+    const svc = makeTravelService([a, b]);
+
+    expect(await svc.hasTravelPath(a, b)).toBe(false);
+  });
+
+  it('地图查询能力缺失或异常时保守放行（不误拦正常移动）', async () => {
+    const svc: any = Object.create(MovementVehicleService.prototype);
+    svc.mapService = {}; // 精简测试桩：无 getAllMaps/getConnections
+    svc.logger = { warn: () => undefined };
+
+    expect(await svc.hasTravelPath({ name: 'A' }, { name: 'B' })).toBe(true);
+  });
+});
+
+/**
+ * 孤岛地图判定门禁：原版「可前往」里只有「出口」（空间乱流）的地图
+ * ——血族城堡/战舰坟场/太空/暗影岛。用于「观察附近」提示出口，
+ * 防止玩家（尤其无天蓝吊坠的测试账号）误以为移动系统坏了。
+ */
+describe('孤岛地图 isIsolatedMap（观察附近出口提示）', () => {
+  const allMaps = [
+    { id: 1, name: '医疗室', connections: [{ name: '走廊', distance: 30 }] },
+    {
+      id: 2, name: '走廊',
+      connections: [{ name: '医疗室', distance: 30 }, { name: '森林出口', distance: 50 }],
+    },
+    { id: 3, name: '森林出口', connections: [{ name: '走廊', distance: 50 }] },
+    { id: 88, name: '血族城堡', connections: [{ name: '出口', distance: 100 }] },
+  ];
+
+  function makeMapService(): any {
+    const svc: any = Object.create(MapService.prototype);
+    svc.getAllMaps = async () => allMaps;
+    return svc;
+  }
+
+  it('只连「出口」的地图判为孤岛；有真实地图连接的判为非孤岛', async () => {
+    const svc = makeMapService();
+
+    expect(await svc.isIsolatedMap(allMaps[3])).toBe(true);   // 血族城堡
+    expect(await svc.isIsolatedMap(allMaps[0])).toBe(false);  // 医疗室
+    expect(await svc.isIsolatedMap(allMaps[2])).toBe(false);  // 森林出口
+  });
+
+  it('连接列表为空（数据缺失/精简桩）按非孤岛处理，避免误提示', async () => {
+    const svc = makeMapService();
+
+    expect(await svc.isIsolatedMap({ id: 9, name: '无名地', connections: [] })).toBe(false);
   });
 });

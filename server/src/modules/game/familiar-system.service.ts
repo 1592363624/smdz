@@ -520,12 +520,9 @@ export class FamiliarSystemService {
       markers['活跃度'] = activity + 1;
       player.markers = markers; // Player markers 为 Json 列，直接写对象
 
-      // 设置冷却
+      // 设置冷却（kind=方案B 冷却类型：面板据此显示「召唤冷却中」，不写则兜底武器冷却）
       const newMarkers2 = markers2.filter((m: any) => m.name !== '召唤冷却');
-      newMarkers2.push({
-        name: '召唤冷却',
-        expireAt: now + 10,
-      });
+      newMarkers2.push({ name: '召唤冷却', kind: 'summon-cd', expireAt: now + 10 });
       player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
     }
 
@@ -3490,12 +3487,9 @@ ${this.getAwakenStageName(d)}(${d})`;
       // 添加到当前背包，和饲料扣除一起由本次 savePlayer 原子写回。
       addLocalItem(target, 1);
 
-      // 设置冷却
+      // 设置冷却（kind=方案B 冷却类型：宠物捕捉 30 分钟，面板据此显示「捕捉冷却中」）
       const newMarkers2 = markers2.filter((m: any) => m.name !== `${target}冷却`);
-      newMarkers2.push({
-        name: `${target}冷却`,
-        expireAt: now + 1800,
-      });
+      newMarkers2.push({ name: `${target}冷却`, kind: 'capture-cd', expireAt: now + 1800 });
       player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
     } else {
       // 捕捉失败

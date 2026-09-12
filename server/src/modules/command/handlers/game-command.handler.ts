@@ -14,7 +14,7 @@ import { TutorialService } from '../../game/tutorial.service';
 import { ShortcutService } from '../../game/shortcut.service';
 import { HomeService } from '../../game/home.service';
 import { TaskService } from '../../game/task.service';
-import { asJsonValue } from '../../../common/utils/json-value.util';
+import { resolveEquipmentRefIndex } from '../../game/equipment-ref.util';
 import { CRAFT_MENU_ARGS } from '../../game/craft-menu.util';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
 
@@ -50,28 +50,6 @@ export class GameCommandHandler implements CommandHandler {
 
     const result = await this.dispatch(ctx, cmdName, args);
     return result;
-  }
-
-  /**
-   * 检查新手指引
-   * 如果玩家开启了新手指引且该操作有对应的引导文本，返回引导提示
-   * @param userId 用户ID
-   * @param tutorialType 引导类型
-   * @returns 引导文本（空字符串表示不需要引导）
-   */
-  private async checkTutorial(userId: number, tutorialType: string): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { markers } = playerData;
-    const text = this.tutorialService.getTutorial(tutorialType, markers);
-    if (text) {
-      // 标记该引导已完成，下次不再显示
-      this.tutorialService.markTutorialDone(markers, tutorialType);
-      markers['指引_' + tutorialType] = 1;
-      // 命令化写入口：只投递「markers 这一列被改了」的意图，由邮箱内基于最新
-      // 活态应用。不传整行对象，因此不存在「旧快照字段顺带覆盖活态」的可能。
-      await this.playerService.patchPlayer(userId, { markers }, 'tutorial');
-    }
-    return text;
   }
 
   /** 执行动作后再推进任务，避免参数错误、冷却和资源不足被误记成功。 */
@@ -194,11 +172,8 @@ export class GameCommandHandler implements CommandHandler {
           await this.combatSystem.recordKills(userId, result.killed || []);
           // 新手引导：攻击照常执行，引导文本作为附加提示（不拦截，避免"首次攻击被吞"）
           // 对应原版：攻击即攻击，无引导拦截逻辑
-          const tutorialText = await this.checkTutorial(userId, 'attack');
-          if (tutorialText) {
-            return this.wrap(`${result.result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}`);
-          }
-          return this.wrap(result.result);
+          const tutorialText = await this.tutorialService.consumeTutorial(userId, 'attack');
+          return this.wrap(tutorialText ? `${result.result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result.result);
         }
 
         case '炮击':
@@ -239,37 +214,11 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(ok ? `⏳ 已安排延时攻击（锁定${lockTime}秒后自动出手）` : '延时攻击安排失败');
         }
 
-        case '信息':
-        case 'info':
-        case '资料':
-        case '查看': {
-          // 查看地图单位（原版 对话菜单 1、查看 → 查看NPC/怪物名）；未命中单位时回退查看自己
-          if (arg.trim()) {
-            const unitDetail = await this.gameService.handleViewUnit(userId, arg.trim());
-            if (unitDetail) return this.wrap(unitDetail);
-          }
-          // 信息照常展示，引导作为附加提示（不拦截，对齐原版：查看即查看）
-          const info = await this.gameService.handleInfo(userId);
-          const tutorialText = await this.checkTutorial(userId, 'info');
-          if (tutorialText) {
-            return this.wrap(`${info}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}`);
-          }
-          return this.wrap(info);
-        }
+        // 注意：「信息」指令的 handlerKey 是 info（专属 InfoHandler），引导在那里实现——
+        // 此处原有的分支是永不执行的死代码，已删除。
 
-        case '背包':
-        case 'inventory': {
-          // 检查新手指引
-          const tutorialText = await this.checkTutorial(userId, 'viewBag');
-          if (tutorialText) {
-            return this.wrap(tutorialText);
-          }
-          // 查看背包单项详情（对应原版 物品操作.ecode L817：添加成就("查看背包详细")）
-          if (arg) {
-            await this.taskService.advance(userId, '查看背包详细');
-          }
-          return this.wrap(await this.gameService.handleInventory(userId, arg));
-        }
+        // 注意：「背包」指令的 handlerKey 是 inventory（专属 InventoryHandler），
+        // 引导/task 推进都在那里实现——此处原有的分支是永不执行的死代码，已删除。
 
         case '移动':
         case 'move':
@@ -293,15 +242,8 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        case '地图':
-        case 'map': {
-          // 检查新手指引
-          const tutorialText = await this.checkTutorial(userId, 'map');
-          if (tutorialText) {
-            return this.wrap(tutorialText);
-          }
-          return this.wrap(await this.gameService.handleMap(userId));
-        }
+        // 注意：「地图」指令的 handlerKey 是 map（专属 MapHandler），引导在那里实现——
+        // 此处原有的分支是永不执行的死代码，已删除。
 
         case '技能':
         case 'skill':
@@ -321,31 +263,32 @@ export class GameCommandHandler implements CommandHandler {
         case '装备':
         case 'equip':
         case '穿上': {
-          // 检查新手指引
-          const tutorialText = await this.checkTutorial(userId, 'equipWeapon');
-          if (tutorialText) {
-            return this.wrap(tutorialText);
-          }
           const playerData = await this.playerService.getPlayerData(userId);
           const equipArg = arg.trim();
-          // 编号口径=「背包」展示列表（getBackpackDisplayItems：资源在前、装备在后）。
-          // 与 handleEquip 数字解析同源，保证任务记账与实际装备的引用是同一件。
+          // 编号口径=「背包」展示列表（资源在前、装备在后）；名称口径走 equipment-ref.util
+          // 单一定位实现（支持「麻醉枪A」品质码形态），与 handleEquip 同源，任务记账/引导判定一致。
           let item: any;
           if (/^\d+$/.test(equipArg)) {
             const displayItems = this.gameService.getBackpackDisplayItems(playerData.backpack);
             const numericIdx = Number(equipArg) - 1;
             item = numericIdx >= 0 && numericIdx < displayItems.length ? displayItems[numericIdx] : undefined;
           } else {
-            const itemIndex = playerData.backpack.findIndex((candidate: any) => candidate.name === equipArg);
+            const itemIndex = resolveEquipmentRefIndex(playerData.backpack, equipArg);
             item = itemIndex >= 0 ? playerData.backpack[itemIndex] : undefined;
           }
           const result = await this.gameService.handleEquip(userId, arg);
-          if (this.isSuccessfulAction(result) && item?.type === '装备') {
+          const equipped = this.isSuccessfulAction(result) && item?.type === '装备';
+          if (equipped) {
             const action = this.itemSystem.isWeaponItem(item) ? '使用武器' : '使用装备';
             await this.taskService.advance(userId, action);
             await this.taskService.advance(userId, '装备' + item.name);
           }
-          return this.wrap(result);
+          // 新手引导：装备照常执行、引导仅作附加提示（2026-09-12 修复「首次装备被吞」：旧实现
+          // 装备前拦截并 return 引导文本；对齐原版 _主程序.ecode L4262/L4289，结算后才追加引导）。
+          const tutorialText = equipped
+            ? await this.tutorialService.consumeTutorial(userId, this.itemSystem.isWeaponItem(item) ? 'equipWeapon' : 'equipArmor')
+            : '';
+          return this.wrap(tutorialText ? `${result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result);
         }
 
         case '卸下':
@@ -506,14 +449,12 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.familiarSystem.nameFamiliar(userId, arg));
 
         case '查看使魔': {
-          // 检查新手指引
-          const tutorialText = await this.checkTutorial(userId, 'familiarData');
-          if (tutorialText) {
-            return this.wrap(tutorialText);
-          }
           // 查看使魔 = 基础数据 + 「1、更多」子菜单（原版 _主程序.ecode L5527/L5548）
           // 「更多」是全局帮助指令，为免冲突此处「查看使魔」的更多子菜单使用专用令牌「使魔更多」。
-          return this.wrap(await this.gameService.handleViewFamiliar(userId));
+          const result = await this.gameService.handleViewFamiliar(userId);
+          // 新手引导：查看照常执行、引导仅作附加提示（不拦截，避免「首次查看使魔被吞」）
+          const tutorialText = await this.tutorialService.consumeTutorial(userId, 'familiarData');
+          return this.wrap(tutorialText ? `${result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result);
         }
         case '使魔数据':
         case 'familiar-data': {
@@ -798,7 +739,7 @@ export class GameCommandHandler implements CommandHandler {
         case '拾取':
         case 'pickup': {
           const result = await this.gameService.handlePickup(userId, arg);
-          const tutorialText = await this.checkTutorial(userId, 'pickup');
+          const tutorialText = await this.tutorialService.consumeTutorial(userId, 'pickup');
           return this.wrap(tutorialText ? `${result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result);
         }
 

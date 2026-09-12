@@ -64,6 +64,23 @@ export function itemName(it: any): string {
 }
 
 /**
+ * 给 markers2 容器中指定名称的条目补写 `kind` 冷却类型标签（方案B）。
+ *
+ * 背景：面板（buildPendingActions）按 `kind` 渲染冷却文案，未打标签的条目
+ * 按原版「武器名+冷却」约定兜底为武器冷却。某些冷却经通用链路
+ * （如 combat-state 的「时间间隔要求」）写入、无法在写入处直接声明类型，
+ * 由调用方在写入后紧跟本函数补标签。
+ *
+ * 语义：条目不存在时不做任何事；已存在时覆盖 kind（同一标记名的类型固定，覆盖无副作用，
+ * 且能让历史无标签的存量条目在下次触发写入时获得分类）。
+ */
+export function tagMarkerKind(list: any, name: string, kind: string): void {
+  const arr = Array.isArray(list) ? list : [];
+  const entry = arr.find((it: any) => itemName(it) === name);
+  if (entry) entry.kind = kind;
+}
+
+/**
  * 判断增益数组中是否存在「指定名称且未过期」的条目
  * @param list 增益/标记数组（可为 JSON 字符串）
  * @param name 增益名称

@@ -98,6 +98,16 @@ function parseSpaceSeparatedString(str: string): string[] {
   return str.split(/\s+/).map((s) => s.trim()).filter((s) => s);
 }
 
+/**
+ * 解析「逗号分隔」的名单字段。
+ * 原版 [商店] 副本 / 副本2 这类名单用中英文逗号分隔（如 “CELL研究中心,CELL总部,...”），
+ * 运行时由「随机文本」按逗号随机取一项。若按空白切分会把整串当成单个候选名，
+ * 生成出来的副本入口将指向不存在的地图（2026-09-13 修复）。
+ */
+function parseCommaSeparatedString(str: string): string[] {
+  return str.split(/[,，\s]+/).map((s) => s.trim()).filter((s) => s);
+}
+
 function parseSemicolonString(str: string): string[] {
   return str.split(/[;；]/).map((s) => s.trim()).filter((s) => s);
 }
@@ -877,8 +887,8 @@ function mapShopToShop(section: ConfigSection) {
     shopActivity: parseShopCostString(fields['活跃度'] || ''),
     shopDiamond: parseShopCostString(fields['钻石'] || ''),
     shopData: parseShopCostString(fields['数据'] || ''),
-    dungeons: parseSpaceSeparatedString(fields['副本'] || ''),
-    dungeons2: parseSpaceSeparatedString(fields['副本2'] || ''),
+    dungeons: parseCommaSeparatedString(fields['副本'] || ''),
+    dungeons2: parseCommaSeparatedString(fields['副本2'] || ''),
     robotQQ: fields['机器人'] || '',
     familiarImg: imgObj(['使魔jpg', '使魔png']),
     characterImg: imgObj(['人物jpg', '人物png']),

@@ -14,6 +14,9 @@ import { normalizeGameText } from '../../common/utils/game-text.util';
 const MAX_CHAT_CONTENT_CHARS = 80_000;
 const TRUNCATE_NOTICE = '\n…（内容过长，已截断）';
 
+/// 私密消息脱敏时的兜底占位文本（消息自身未记录 placeholder 时使用）
+const DEFAULT_PRIVATE_PLACEHOLDER = '🔒 该消息为私密消息';
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -136,8 +139,8 @@ export class ChatService {
    * @param channelId 频道ID
    * @param limit 拉取条数（取最近 limit 条，由调用方传入较大值以容纳指令+系统消息）
    */
-  async getMessages(channelId: number, limit = 100) {
-    return this.prisma.chatMessage.findMany({
+  async getMessages(channelId: number, limit = 100, viewerId?: number) {
+    const rows = await this.prisma.chatMessage.findMany({
       where: {
         channelId,
       },
@@ -145,6 +148,33 @@ export class ChatService {
       take: limit,
       include: { sender: { select: { id: true, username: true, nickname: true } } },
     });
+    // 私密消息脱敏：历史加载时，非本人发送的私密消息内容替换为占位文本，
+    // 保证刷新页面/新连接也无法看到他人的探测雷达等情报（与实时广播口径一致）。
+    return this.maskPrivateMessages(rows, viewerId);
+  }
+
+  /**
+   * 私密消息脱敏：visibility='private' 且发送者非查看者本人的消息，内容替换为占位文本。
+   * @param rows 原始消息行
+   * @param viewerId 查看者用户ID（未登录/未知时不放行任何私密内容）
+   */
+  private maskPrivateMessages<
+    T extends { visibility?: string; senderId?: number | null; content: string; placeholder?: string | null },
+  >(rows: T[], viewerId?: number): T[] {
+    if (!rows.some((r) => r.visibility === 'private')) return rows;
+    return rows.map((r) =>
+      r.visibility === 'private' && r.senderId !== viewerId
+        ? { ...r, content: r.placeholder || DEFAULT_PRIVATE_PLACEHOLDER }
+        : r,
+    );
+  }
+
+  /**
+   * 私密消息默认占位文本（消息自身未记录 placeholder 时的兜底）。
+   * 具体每条规则的占位文本由系统配置中心「私密消息规则」维护，落库时写入消息。
+   */
+  getPrivatePlaceholder(): string {
+    return DEFAULT_PRIVATE_PLACEHOLDER;
   }
 
   /**
@@ -167,8 +197,14 @@ export class ChatService {
     senderId?: number;
     type: string;
     content: string;
+    /** 可见范围：public=公屏可见(默认)；private=仅发送者可见，其他玩家只见占位提示 */
+    visibility?: 'public' | 'private';
+    /** 私密消息对其他玩家展示的占位文本（visibility='private' 时写入，供历史脱敏使用） */
+    placeholder?: string;
   }) {
     const content = this.clampChatContent(data.content);
+    const visibility = data.visibility ?? 'public';
+    const placeholder = data.placeholder ?? null;
     try {
       return await this.prisma.chatMessage.create({
         data: {
@@ -176,6 +212,8 @@ export class ChatService {
           senderId: data.senderId,
           type: data.type,
           content,
+          visibility,
+          placeholder,
         },
         include: { sender: { select: { id: true, username: true, nickname: true } } },
       });
@@ -183,13 +221,16 @@ export class ChatService {
       this.logger.error(
         `公屏消息落库失败(长度=${content.length}): ${e?.message ?? e}`,
       );
-      // 兜底短提示：原内容可能过长/含非法序列，务必让发送者看到失败原因
+      // 兜底短提示：原内容可能过长/含非法序列，务必让发送者看到失败原因。
+      // visibility/placeholder 保持一致：即便内容被替换，也不能把原本私密的消息降级成公开。
       return this.prisma.chatMessage.create({
         data: {
           channelId: data.channelId,
           senderId: data.senderId,
           type: data.type,
           content: '消息内容过长或保存失败，未能完整上屏。请减少批量次数后重试。',
+          visibility,
+          placeholder,
         },
         include: { sender: { select: { id: true, username: true, nickname: true } } },
       });

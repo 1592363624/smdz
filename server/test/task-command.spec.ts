@@ -144,8 +144,9 @@ describe('任务相关制造入口', () => {
     const itemSystem = {
       isWeaponItem: jest.fn(() => true),
     };
+    // 引导消费已收敛到 TutorialService.consumeTutorial（2026-09-13）
     const tutorialService = {
-      getTutorial: jest.fn(() => ''),
+      consumeTutorial: jest.fn(async () => ''),
     };
     const handler = new GameCommandHandler(
       gameService as any,
@@ -674,5 +675,108 @@ describe('采集命令总路由', () => {
     expect(gatherHandler.handle).toHaveBeenCalled();
     expect(taskService.advance).not.toHaveBeenCalled();
     expect(commandLog.create).toHaveBeenCalled();
+  });
+});
+
+describe('装备指令新手指引（2026-09-12：不再吞掉首次装备）', () => {
+  /**
+   * 构造装备指令 handler 夹具。
+   * 背景：旧实现在装备前先查新手指引，命中即 return 引导文本，导致
+   * 「第一次穿上 麻醉枪A」只看到引导（文案写死石制工具）且装备未生效。
+   */
+  function makeHandler(options: {
+    backpack: any[];
+    equipResult?: string;
+    isWeapon?: boolean;
+    tutorialText?: string;
+  }) {
+    const taskService: any = {
+      ensureTutorialTasks: jest.fn(async () => []),
+      advance: jest.fn(async () => ''),
+      consumeNotifications: jest.fn(() => ''),
+    };
+    const playerData: any = { backpack: options.backpack };
+    const playerService: any = {
+      getPlayerData: jest.fn(async () => playerData),
+    };
+    const gameService: any = {
+      handleEquip: jest.fn(async () => options.equipResult || '剑圣把麻醉枪[史诗]拿在手中'),
+    };
+    // 引导消费统一走 TutorialService.consumeTutorial（2026-09-13 起 handler 内不再自写一套）
+    const tutorialService: any = {
+      consumeTutorial: jest.fn(async () => options.tutorialText ?? '📖 只有当前手持武器的属性生效。'),
+    };
+    const itemSystem: any = {
+      isWeaponItem: jest.fn(() => options.isWeapon !== false),
+    };
+    const handler = new GameCommandHandler(
+      gameService,
+      {} as any,
+      itemSystem,
+      {} as any,
+      {} as any,
+      playerService,
+      tutorialService,
+      {} as any,
+      {} as any,
+      taskService,
+    );
+    return { handler, gameService, taskService, tutorialService, itemSystem };
+  }
+
+  it('首次穿上「麻醉枪A」：装备照常生效，引导追加在装备结算之后', async () => {
+    const fixture = makeHandler({
+      // 生产形态：item.name 只存基础名「麻醉枪」，品质码 a（史诗）在 data 首字符
+      backpack: [{ name: '麻醉枪', type: '装备', data: 'a!' }],
+      equipResult: '剑圣把麻醉枪[史诗]拿在手中',
+    });
+
+    const result = await fixture.handler.handle(
+      { userId: 42, rawMessage: '穿上 麻醉枪A', source: 'web' } as any,
+      ['麻醉枪A'],
+    );
+
+    // 装备动作必须真正执行（旧缺陷：引导拦截后直接 return，装备被吞）
+    expect(fixture.gameService.handleEquip).toHaveBeenCalledWith(42, '麻醉枪A');
+    expect(result.content).toContain('剑圣把麻醉枪[史诗]拿在手中');
+    // 引导追加在装备结算之后（💡 分隔条），武器走 equipWeapon
+    expect(result.content).toContain('💡');
+    expect(fixture.tutorialService.consumeTutorial).toHaveBeenCalledWith(42, 'equipWeapon');
+    // 品质码形态的名称定位与 handleEquip 同源，任务记账同步命中
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '使用武器');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '装备麻醉枪');
+  });
+
+  it('首次穿防具：走 equipArmor 引导', async () => {
+    const fixture = makeHandler({
+      backpack: [{ name: '动力头盔', type: '装备', data: 'c!' }],
+      equipResult: '剑圣穿上了动力头盔[优秀]',
+      isWeapon: false,
+    });
+
+    const result = await fixture.handler.handle(
+      { userId: 42, rawMessage: '装备 动力头盔', source: 'web' } as any,
+      ['动力头盔'],
+    );
+
+    expect(result.content).toContain('穿上了动力头盔');
+    expect(fixture.tutorialService.consumeTutorial).toHaveBeenCalledWith(42, 'equipArmor');
+    expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '使用装备');
+  });
+
+  it('装备失败时不显示引导，也不推进任务', async () => {
+    const fixture = makeHandler({
+      backpack: [{ name: '麻醉枪', type: '装备', data: 'a!' }],
+      equipResult: '背包中没有【麻醉枪S】',
+    });
+
+    const result = await fixture.handler.handle(
+      { userId: 42, rawMessage: '穿上 麻醉枪S', source: 'web' } as any,
+      ['麻醉枪S'],
+    );
+
+    expect(result.content).not.toContain('💡');
+    expect(fixture.tutorialService.consumeTutorial).not.toHaveBeenCalled();
+    expect(fixture.taskService.advance).not.toHaveBeenCalled();
   });
 });

@@ -74,7 +74,8 @@ export class AdminController {
   @ApiQuery({
     name: 'sortField',
     required: false,
-    description: '排序字段：id/username/nickname/role/status/createdAt/lastLoginAt/loginCount/level/playerName/location/affinity',
+    description:
+      '排序字段：id/username/nickname/role/status/createdAt/lastLoginAt/loginCount/level/playerName/location/affinity/playTime',
     type: String,
   })
   @ApiQuery({ name: 'sortOrder', required: false, description: '排序方向：asc 或 desc，默认 asc', type: String })

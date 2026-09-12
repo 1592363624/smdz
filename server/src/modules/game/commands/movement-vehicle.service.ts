@@ -16,6 +16,7 @@
  */import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { formatSecondsDurationText, roundItemQuantity } from '../../../common/utils/game-text.util';
+import { tagMarkerKind } from '.././expire-time.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlayerService } from '.././player.service';
 import { CombatSystemService } from '.././combat-system.service';
@@ -196,10 +197,17 @@ export class MovementVehicleService {
     let targetMap: any = null;
     if (isDungeonEntry) {
       // 原版 _主程序.ecode L6578-L6604：必须先验证当前地图存在该临时入口，
-      // 再去掉“(副本)”解析真实地图并按传送路径移动。
+      // 再去掉“(副本)”解析真实地图并按传送路径移动；
+      // 解析不到时原版输出「#错误：副本不存在"XXX(副本)"」（L6603-6604），不落通用分支。
       if (!dungeonEntry) return `${player.name}#错误：副本不存在"${requestedName}"`;
       const baseName = requestedName.slice(0, -4);
-      targetMap = await this.mapService.getMapByName(baseName).catch(() => null);
+      // 入口由统一生成逻辑写入时带 mapId，优先按 ID 解析（副本名与地图名不一致也能进）；
+      // 历史入口没有 mapId，回退按名称解析。
+      const byEntryId = Number(dungeonEntry.mapId || 0) > 0
+        ? await this.mapService.getMapById(Number(dungeonEntry.mapId)).catch(() => null)
+        : null;
+      targetMap = byEntryId || await this.mapService.getMapByName(baseName).catch(() => null);
+      if (!targetMap) return `${player.name}#错误：副本不存在"${requestedName}"`;
     } else {
       targetMap = await this.mapService.getMapByName(requestedName).catch(() => null);
     }
@@ -238,10 +246,19 @@ export class MovementVehicleService {
       }
     }
 
-    // 对齐原版 _主程序.ecode 前往分支：目的地为当前位置时 取最短路径 距离为0，
-    // 按“没有路径”拦截，不允许反复前往脚下地图；副本入口按传送处理不受此限制。
-    if (!isDungeonEntry && Number(targetMap.id) === Number(currentMap.id)) {
-      return `${player.name}所在地"${currentMap.name}"没有前往"${targetMap.name}"的路径`;
+    // 对齐原版 _主程序.ecode L6622-6632：先「取最短路径」，距离为 0 时按“没有路径”拦截——
+    // 含脚下地图与图间不连通两种情形（如血族城堡/战舰坟场这类只连「出口」的孤岛地图），
+    // 并给出「飞到」临时输入；只有存在路径才进入 L6634 的前往需求判定。
+    // 副本入口按传送处理，不受此限制。
+    if (!isDungeonEntry) {
+      const pathExists = await this.hasTravelPath(currentMap, targetMap);
+      if (!pathExists) {
+        if (this.shortcutService?.setTempInput) {
+          await this.shortcutService.setTempInput(userId, `1@飞到${targetMap.name}`);
+        }
+        return `${player.name}所在地"${currentMap.name}"没有前往"${targetMap.name}"的路径`
+          + `\n1、飞到${targetMap.name}`;
+      }
     }
 
     // 检查是否可以前往（原版 L6634：前往需求查出发地图；L6648：标记要求查目的地图）
@@ -403,6 +420,8 @@ export class MovementVehicleService {
       await this.playerService.savePlayer(player);
       return `${name}${cooldownText.value}`;
     }
+    // 刚写入的「传送冷却」补类型标签（方案B：面板据此显示「传送 · 冷却中」而非兜底的「武器冷却中」）
+    tagMarkerKind(markers2, '传送冷却', 'act-cd');
     // 原版 L1744：传送查目的地图的前往需求（动态能力判定：vehicle 为 null=徒步持天蓝吊坠）
     const travelCheck = this.mapService.checkCanTravel(currentMap, targetMap, player, { mode: 'teleport', vehicle });
     if (!travelCheck.canTravel) return `${name}${travelCheck.reason || '无法前往该地图'}`;
@@ -620,6 +639,8 @@ export class MovementVehicleService {
       await this.playerService.savePlayer(player);
       return `${playerName}${cooldownText.value}`;
     }
+    // 刚写入的「飞行冷却」补类型标签（方案B：面板据此显示「飞行 · 冷却中」，并与「移动中」读条去重）
+    tagMarkerKind(markers2, '飞行冷却', 'act-cd');
 
     // 原版 L1620：飞到查目的地图的前往需求（动态能力判定）
     const vehicle = await this.findTravelVehicle(player, currentMap);
@@ -1262,13 +1283,82 @@ export class MovementVehicleService {
   }
 
   /**
-   * 构建当前玩家的状态摘要（等级/经验/HP/护盾/装甲/属性等）
-   * 数据结构与 GET /game/player/info 一致，供前端玩家信息面板展示，
-   * 也用于指令执行后通过 socket 实时刷新玩家面板。
-   * @param userId 用户ID
-   * @returns 玩家状态摘要对象（属性为按等级+熟练度计算后的值）
+   * 判断两张地图之间是否存在通行路径（原版 _主程序.ecode L6622「取最短路径」的存在性部分）。
+   *
+   * 原版判定：取最短路径 距离为 0（即无路径）时 → 「所在地"X"没有前往"Y"的路径」
+   * （L6631-6632），且不会进入前往需求判定（L6634）。典型场景：血族城堡/战舰坟场
+   * 这类「可前往」中只有「出口」的孤岛地图，无法直接前往其它任何地图。
+   *
+   * 实现要点：
+   * - 图搜索按**无向**处理：家园/开拓地/副本入口等动态地图的连接由运行时单侧追加，
+   *   双向遍历可避免把「回家」误判为无路径（比原版有向图更保守，宁可放行不可误拦）；
+   * - 连接名不是真实地图时忽略（「出口」空间乱流、`XX(副本)` 临时入口等）；
+   * - 起点=终点（原版距离 0 的一种）视为无路径，由调用方提示「飞到」；
+   * - 地图数据缺失或查询异常时返回 true（保守放行，避免误拦正常移动）。
    */
+  private async hasTravelPath(startMap: any, targetMap: any): Promise<boolean> {
+    const startName = String(startMap?.name || '');
+    const targetName = String(targetMap?.name || '');
+    // 名称缺失时无法判定：保守放行，交由后续门槛/落地逻辑兜底
+    if (!startName || !targetName) return true;
+    // 原版「取最短路径(自己, 自己)」距离为 0：脚下地图按无路径处理
+    if (startName === targetName) return false;
 
+    try {
+      const getAllMaps = (this.mapService as any)?.getAllMaps;
+      const getConnections = (this.mapService as any)?.getConnections;
+      // 测试桩/精简注入缺少地图查询能力时不拦（与 getMovementPathLength 同口径）
+      if (typeof getAllMaps !== 'function' || typeof getConnections !== 'function') return true;
+
+      const maps = (await getAllMaps.call(this.mapService)) || [];
+      const mapByName = new Map<string, any>();
+      for (const map of maps) {
+        const name = String(map?.name || '');
+        if (name) mapByName.set(name, map);
+      }
+      mapByName.set(startName, startMap);
+      mapByName.set(targetName, targetMap);
+
+      // 构建无向邻接表：仅当连接名确实是地图时才建边（特殊连接名不参与图搜索）
+      const adjacency = new Map<string, Set<string>>();
+      const link = (a: string, b: string) => {
+        if (!a || !b || a === b) return;
+        if (!adjacency.has(a)) adjacency.set(a, new Set());
+        if (!adjacency.has(b)) adjacency.set(b, new Set());
+        adjacency.get(a)!.add(b);
+        adjacency.get(b)!.add(a);
+      };
+      for (const map of mapByName.values()) {
+        const name = String(map?.name || '');
+        if (!name) continue;
+        for (const connection of getConnections.call(this.mapService, map) || []) {
+          const nextName = String(connection?.name || '');
+          if (!nextName || !mapByName.has(nextName)) continue;
+          link(name, nextName);
+        }
+      }
+
+      // BFS 判断起点与终点是否连通
+      const seen = new Set<string>([startName]);
+      const queue: string[] = [startName];
+      while (queue.length > 0) {
+        const current = queue.shift() as string;
+        for (const next of adjacency.get(current) || []) {
+          if (next === targetName) return true;
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      return false;
+    } catch (error: any) {
+      this.logger.warn(`计算地图连通性失败，按放行处理: ${error?.message || error}`);
+      return true;
+    }
+  }
+
+  /** 计算移动路径节点数（含起点与终点；原版「移动」成就按此推进）。 */
   async getMovementPathLength(startMap: any, targetMap: any): Promise<number> {
     const startName = String(startMap?.name || '');
     const targetName = String(targetMap?.name || '');

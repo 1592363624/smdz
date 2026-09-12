@@ -718,7 +718,8 @@ export class ShopTradeService {
       };
     }
 
-    markers2.push({ name: '购买冷却', expireAt: now + 10 * 1000 });
+    // 方案B：声明冷却类型，面板据此显示「商店冷却中」而非兜底的「武器冷却中」
+    markers2.push({ name: '购买冷却', kind: 'shop-cd', expireAt: now + 10 * 1000 });
     return { blocked: false, message: '', markers2, markers2Changed: true };
   }
 

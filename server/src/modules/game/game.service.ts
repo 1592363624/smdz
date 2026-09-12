@@ -733,17 +733,6 @@ export class GameService {
     return this.support.hasEquip(player, name);
   }
 
-  /**
-   * 写入/覆盖 markers2 增益标记（对应原版 获得增益/添加标记）
-   * @param markers2 增益数组（就地修改）
-   * @param name 标记名
-   * @param expireAt 到期时间戳（秒）
-   * @param strength 强度（可选）
-   */
-  private setMarkers2(markers2: any[], name: string, expireAt: number, strength?: number): void {
-    this.support.setMarkers2(markers2, name, expireAt, strength);
-  }
-
   // ========== 玩家信息命令 ==========
 
   /**
