@@ -5,6 +5,7 @@ import { Module, Global, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from './game.service';
 import { GameSupportService } from './game-support.service';
+import { RescueWhiteService } from './commands/rescue-white.service';
 import { DungeonChallengeService } from './commands/dungeon-challenge.service';
 import { DelayedSettleService } from './commands/delayed-settle.service';
 import { HomeBuildService } from './commands/home-build.service';
@@ -67,6 +68,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   providers: [
     GameService,
     GameSupportService,
+    RescueWhiteService,
     DungeonChallengeService,
     DelayedSettleService,
     HomeBuildService,
@@ -116,6 +118,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   exports: [
     GameService,
     GameSupportService,
+    RescueWhiteService,
     DungeonChallengeService,
     DelayedSettleService,
     HomeBuildService,

@@ -92,6 +92,8 @@ function makeService(options: {
     logger: { warn: jest.fn(), log: jest.fn(), error: jest.fn() },
   });
   // 自救「白」传送用例只关心目标地图的选择；真实移动链路由移动相关测试覆盖。
+  // P3-5：rescue 域已迁出，复活传送经门面引用调用 movement 域 performArrival——桩自挂门面
+  (service as any).rescueWhiteServiceSvc?.attachFacade?.(service);
   service.performArrival = jest.fn(async (_userId: number, targetMapId: number, targetMapName: string) => {
     player.mapId = Number(targetMapId);
     return `你来到了【${targetMapName}】`;
