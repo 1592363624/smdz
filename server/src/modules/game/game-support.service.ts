@@ -421,4 +421,8 @@ export class GameSupportService {
    * 列表=全部物品：资源在前、装备在后（getBackpackDisplayItems 统一排序）。
    * 数字入参（背包 N）= 展示列表序号，与「背包」输出同源（前端悬浮图鉴按行序号回查）。
    */
+
+  public readonly PART_TYPE_NAMES: Record<number, string> = {
+    0: '核心部件', 1: '防御部件', 2: '行走机构', 3: '武器部件', 4: '功能部件',
+  };
 }

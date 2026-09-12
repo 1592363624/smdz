@@ -368,13 +368,19 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // ===== 支柱二门禁：延时任务结算入口必须自串行 =====
   // 背景：dts tick 直调结算 handler（无任何外层锁），若结算入口不自串行，
   // 「读档→改→写回」窗口与邮箱内操作并发就会互相覆盖（旧快照覆盖族事故）。
-  // 规则：game.service 里注册给 DelayedTaskService 的每个玩家级结算入口，
-  // 函数体内必须出现 enqueueUserWrite（指令路径调用时邮箱重入放行，无双锁）。
+  // 规则：注册给 DelayedTaskService 的每个玩家级结算入口，函数体内必须出现
+  // enqueueUserWrite（指令路径调用时邮箱重入放行，无双锁）。
+  // P3 改造（重构方案 §6 G2）：模块化拆分后结算入口迁入 game/commands/*.service.ts，
+  // 扫描目标改为可配置——按方法名在门面与各指令域子服务文件中定位真实实现体。
   it('延时任务结算入口必须自串行（dts tick 直调，不得依赖调用方持锁）', () => {
-    const gameSrc = fs.readFileSync(
+    const scanTargets = [
       path.join(SRC_DIR, 'modules/game/game.service.ts'),
-      'utf8',
-    );
+      ...fs
+        .readdirSync(path.join(SRC_DIR, 'modules/game/commands'))
+        .filter((f) => f.endsWith('.service.ts'))
+        .map((f) => path.join(SRC_DIR, 'modules/game/commands', f)),
+    ];
+    const sources = scanTargets.map((f) => ({ file: f, src: fs.readFileSync(f, 'utf8') }));
     const settleEntries = [
       'settleGatherResource', // gather
       'performArrival',       // move
@@ -386,19 +392,24 @@ describe('架构门禁：玩家状态写入口收口', () => {
       'completeVehicleRepair', // repair（原「维修wcc1」，2026-09-05 补）
     ];
     for (const fn of settleEntries) {
-      const start = gameSrc.indexOf(`async ${fn}(`);
-      if (start < 0) throw new Error(`延时结算入口 ${fn} 不存在（被改名/删除？）`);
-      // 函数体切片：到下一个同级方法声明为止
-      const rest = gameSrc.slice(start + 1);
-      const next = rest.search(/\r?\n  (private )?async /);
-      const body = rest.slice(0, next < 0 ? undefined : next);
-      if (!body.includes('enqueueUserWrite')) {
-        throw new Error(
-          `延时结算入口 ${fn} 未自串行（函数体内无 enqueueUserWrite）。\n` +
-            `它会被 DelayedTaskService.tick 在无锁上下文直调，必须像 settleGatherResource 一样\r\n` +
-            `在入口处包 enqueueUserWrite（指令路径重入放行），否则读改写窗口会与邮箱内操作并发覆盖。`,
-        );
+      // 在门面与子服务中定位真实实现体（一行委托不是实现体，继续查找）
+      let found = false;
+      for (const { file, src } of sources) {
+        const start = src.indexOf(`async ${fn}(`);
+        if (start < 0) continue;
+        const rest = src.slice(start + 1);
+        const next = rest.search(/\r?\n  (private )?async /);
+        const body = rest.slice(0, next < 0 ? undefined : next);
+        if (body.includes('enqueueUserWrite')) { found = true; break; }
+        if (!/return this\.\w+Svc\./.test(body)) {
+          throw new Error(
+            `延时结算入口 ${fn} 未自串行（${path.relative(SRC_DIR, file)}，函数体内无 enqueueUserWrite）。\n` +
+              `它会被 DelayedTaskService.tick 在无锁上下文直调，必须像 settleGatherResource 一样\r\n` +
+              `在入口处包 enqueueUserWrite（指令路径重入放行），否则读改写窗口会与邮箱内操作并发覆盖。`,
+          );
+        }
       }
+      if (!found) throw new Error(`延时结算入口 ${fn} 不存在（被改名/删除？）`);
     }
   });
 
@@ -470,9 +481,9 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 单文件 god class 已经大到任何修改都要在数千行里找上下文、任何合并都可能踩冲突。
   // 止血规则：**新增指令 handler 一律新文件（挂 game 模块下），GameService 只减不增**；
   // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
-  // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）→ 16659（P2-2 admin 批次）→ 11183（P2-3~P2-8 / P3-1 批次）：P1-1 消重（roundText/displayDamage）+
+  // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）→ 16659（P2-2 admin 批次）→ 10476（P2-3~P2-8 / P3-1~P3-2 批次）：P1-1 消重（roundText/displayDamage）+
   // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
-  const GAME_SERVICE_LINE_BASELINE = 11183;
+  const GAME_SERVICE_LINE_BASELINE = 10476;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(
