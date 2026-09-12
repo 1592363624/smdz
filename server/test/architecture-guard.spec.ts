@@ -470,9 +470,9 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 单文件 god class 已经大到任何修改都要在数千行里找上下文、任何合并都可能踩冲突。
   // 止血规则：**新增指令 handler 一律新文件（挂 game 模块下），GameService 只减不增**；
   // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
-  // 基线 17,434 → 17,281（2026-09-12 P1 批次）：P1-1 消重（roundText/displayDamage）+
+  // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）：P1-1 消重（roundText/displayDamage）+
   // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
-  const GAME_SERVICE_LINE_BASELINE = 17281;
+  const GAME_SERVICE_LINE_BASELINE = 16967;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(
@@ -599,9 +599,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
     'gatherStartInflight',
     // shop 域交易串行化（P2-8 随迁）
     'tradeLocks',
-    // ranking 域（P2-1 随迁）
-    'lastCalcAtByUser',
-    'RANKING_SUB_TYPES',
+    // ranking 域（P2-1 已随迁：lastCalcAtByUser / RANKING_SUB_TYPES 已摘牌）
     // skill 域静态定义表（P2-7 随迁）
     'BOND_SKILL_A',
     'BOND_SKILL_B',

@@ -225,13 +225,13 @@ describe('使魔排行十子榜复刻（原版 _主程序.ecode L9562-9745）', 
     expect(afterFirst['战斗力']).toBeGreaterThan(0);
 
     // 手动回拨上次指令时间 120 秒 → 第二条累计 120
-    (service as any).lastCalcAtByUser.set(1, Date.now() - 120_000);
+    (service as any).rankingService.lastCalcAtByUser.set(1, Date.now() - 120_000);
     await (service as any).recordRankingStats(1);
     const afterSecond = parseValue<Record<string, number>>(savedPlayers[savedPlayers.length - 1].markers, {});
     expect(afterSecond['在线时间']).toBe(120);
 
     // 超长离线（>180s）只记 180
-    (service as any).lastCalcAtByUser.set(1, Date.now() - 10 * 60_000);
+    (service as any).rankingService.lastCalcAtByUser.set(1, Date.now() - 10 * 60_000);
     await (service as any).recordRankingStats(1);
     const afterThird = parseValue<Record<string, number>>(savedPlayers[savedPlayers.length - 1].markers, {});
     expect(afterThird['在线时间']).toBe(300);
@@ -239,7 +239,7 @@ describe('使魔排行十子榜复刻（原版 _主程序.ecode L9562-9745）', 
     // 历史最高战斗力不被更低值覆盖
     const high = afterThird['战斗力'];
     (service as any).combatSystem.buildAttackerBonus = jest.fn(() => ({ 物伤: 0, 生命: 1 }));
-    (service as any).lastCalcAtByUser.set(1, Date.now() - 5_000);
+    (service as any).rankingService.lastCalcAtByUser.set(1, Date.now() - 5_000);
     await (service as any).recordRankingStats(1);
     const afterFourth = parseValue<Record<string, number>>(savedPlayers[savedPlayers.length - 1].markers, {});
     expect(afterFourth['战斗力']).toBe(high);

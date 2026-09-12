@@ -30,6 +30,7 @@ import { MapService } from './map.service';
 import { StaticDataService } from './static-data.service';
 import { TaskService } from './task.service';
 import { CombatStateService } from './combat-state.service';
+import { ShortcutService } from './shortcut.service';
 
 @Injectable()
 export class GameSupportService {
@@ -42,6 +43,7 @@ export class GameSupportService {
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
     private readonly combatState: CombatStateService,
+    private readonly shortcutService: ShortcutService,
     // PlayerMutateService 可选：与原 GameService.mutatePlayer 相同的降级回退
     //（测试桩未注入时走 enqueueUserWrite 等价路径，行为不变）。
     @Optional() private readonly playerMutate?: PlayerMutateService,
@@ -296,4 +298,47 @@ export class GameSupportService {
     }
     return false;
   }
+
+  pushVehicleParts(target: any[], vehicle: any): void {
+    const parts = asJsonValue<any[]>(vehicle.parts ?? vehicle.零件 ?? [], []);
+    for (const part of parts) {
+      const name = String(part?.name ?? part?.['名称'] ?? '').trim();
+      if (!name) continue;
+      target.push({ name, type: part.type ?? '资源', quantity: Number(part.quantity ?? part.count ?? 1), count: Number(part.quantity ?? part.count ?? 1) });
+    }
+  }
+
+  /**
+   * 排行榜输出（原版 L9733-9745）：按数值降序取前30，格式「N、名称(数值)」。
+   * 在线时间子榜（原版 L9737-9741）数值用 数字到时间 格式，通过 valueText 定制。
+   */
+
+  async buildNumberedMenu(
+    userId: number,
+    options: { label: string; cmd: string }[],
+    hint = '💡 发送编号数字(如 1)即可快速操作',
+    // 原版同时映射文字别名（如 “不要跟着我了@设置跟随X”，_主程序.ecode L1546）：
+    // 额外的 临时输入 组（原文@目标指令），随编号组一并写入。
+    extraGroups: string[] = [],
+  ): Promise<string[]> {
+    const lines: string[] = [];
+    const tempGroups: string[] = [];
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i];
+      lines.push(`  ${i + 1}、${opt.label}`);
+      if (opt.cmd) tempGroups.push(`${i + 1}@${opt.cmd}`);
+    }
+    tempGroups.push(...extraGroups.filter(Boolean));
+    if (tempGroups.length > 0) {
+      // 设置临时输入替换（2分钟有效，触发一次后清空；同时保留直接输入指令的方式）
+      await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
+      lines.push(`${hint}`);
+    }
+    return lines;
+  }
+
+  /**
+   * 查看地图单位详情（原版 对话菜单 1、查看 → 查看X，_主程序.ecode L1519-1520）。
+   * 支持 NPC/召唤物/怪物；找不到返回空串（由调用方回退到查看自己）。
+   */
 }

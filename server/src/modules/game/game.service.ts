@@ -26,6 +26,7 @@ import { ChatService } from '../chat/chat.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { TaskService } from './task.service';
 import { GameSupportService } from './game-support.service';
+import { RankingCommandService } from './commands/ranking-command.service';
 import { ShortcutService } from './shortcut.service';
 import { StatsService } from './stats.service';
 import { CombatStateService } from './combat-state.service';
@@ -62,11 +63,6 @@ interface HandbookEntry {
 
 @Injectable()
 export class GameService {
-  /** 使魔排行十子榜（原版 _主程序.ecode L9565 菜单顺序） */
-  private static readonly RANKING_SUB_TYPES = [
-    '战斗力', '等级', '理论输出', '最高伤害', '击杀', '在线时间',
-    '财富', '宠物战斗力', '宠物最高伤害', '载具',
-  ] as const;
 
   private readonly logger = new Logger(GameService.name);
   /** 采集开始阶段的进程内去重时间戳：key=userId（防同刻连发双开任务）。 */
@@ -123,7 +119,25 @@ export class GameService {
     // @Optional 兼容 29 位置参数与 Object.create 测试桩（C2）；未注入时由
     // supportSvc 访问器用桩自身的同名字段懒构造，委托目标恒存在（R8 兼容桥）。
     @Optional() private support?: GameSupportService,
+    // RankingCommandService：15 个方法已迁出（本批 P2），未注入时由 rankingServiceSvc 懒构造桥兜底（C2 尾部追加）。
+    @Optional() private rankingService?: RankingCommandService,
   ) {}
+
+  /** RankingCommandService 懒构造桥（R8）：生产由 Nest 注入；测试桩未注入时用门面自身字段构建，委托目标恒存在。 */
+  private get rankingServiceSvc(): RankingCommandService {
+    if (!this.rankingService) {
+      this.rankingService = new RankingCommandService(
+        this.supportSvc,
+        this.prisma,
+        this.playerService,
+        this.bonusService,
+        this.combatSystem,
+        this.itemService,
+        this.combatState,
+      );
+    }
+    return this.rankingService;
+  }
 
   /**
    * 门面委托目标（非空保证）：生产环境由 Nest 注入 GameSupportService；
@@ -139,6 +153,7 @@ export class GameService {
         this.staticData,
         this.taskService,
         this.combatState,
+        this.shortcutService,
         this.playerMutate,
       );
     }
@@ -321,34 +336,9 @@ export class GameService {
    * @param hint 底部提示语（默认：💡 发送编号数字(如 1)即可快速操作）
    * @returns 生成的编号菜单展示行（含分隔线和提示），调用方直接 push 到输出即可
    */
-  private async buildNumberedMenu(
-    userId: number,
-    options: { label: string; cmd: string }[],
-    hint = '💡 发送编号数字(如 1)即可快速操作',
-    // 原版同时映射文字别名（如 “不要跟着我了@设置跟随X”，_主程序.ecode L1546）：
-    // 额外的 临时输入 组（原文@目标指令），随编号组一并写入。
-    extraGroups: string[] = [],
-  ): Promise<string[]> {
-    const lines: string[] = [];
-    const tempGroups: string[] = [];
-    for (let i = 0; i < options.length; i++) {
-      const opt = options[i];
-      lines.push(`  ${i + 1}、${opt.label}`);
-      if (opt.cmd) tempGroups.push(`${i + 1}@${opt.cmd}`);
-    }
-    tempGroups.push(...extraGroups.filter(Boolean));
-    if (tempGroups.length > 0) {
-      // 设置临时输入替换（2分钟有效，触发一次后清空；同时保留直接输入指令的方式）
-      await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
-      lines.push(`${hint}`);
-    }
-    return lines;
+  private async buildNumberedMenu( userId: number, options: { label: string; cmd: string }[], hint = '💡 发送编号数字(如 1)即可快速操作', extraGroups: string[] = [], ): Promise<string[]>{
+    return this.supportSvc.buildNumberedMenu(userId, options, hint, extraGroups);
   }
-
-  /**
-   * 查看地图单位详情（原版 对话菜单 1、查看 → 查看X，_主程序.ecode L1519-1520）。
-   * 支持 NPC/召唤物/怪物；找不到返回空串（由调用方回退到查看自己）。
-   */
   async handleViewUnit(userId: number, unitName: string): Promise<string> {
     const name = String(unitName || '').trim();
     if (!name) return '';
@@ -8773,174 +8763,42 @@ export class GameService {
    * 玩家类子榜过滤=老玩家(已选使魔)且等级>10（原版 L9571 等）；
    * 统一 top30 输出「N、名称(数值)」，在线时间子榜用时间格式（原版 数字到时间）。
    */
-  async handleFamiliarRank(userId: number, subtype = ''): Promise<string> {
-    const requester = await this.prisma.player.findUnique({ where: { userId } });
-    const requesterName = requester?.name || '冒险者';
-    const normalized = (subtype || '').trim();
-
-    // 无参：十项编号菜单（原版 L9565「1@使魔排行战斗力#2@使魔排行等级#...」）
-    if (!normalized) {
-      const lines = await this.buildNumberedMenu(
-        userId,
-        GameService.RANKING_SUB_TYPES.map((t) => ({ label: `使魔排行${t}`, cmd: `使魔排行${t}` })),
-        '💡 发送编号数字或「使魔排行+子榜名」(如 使魔排行战斗力) 查看对应排行',
-      );
-      return [`${requesterName}`, ...lines].join('\n');
-    }
-
-    // 英文别名归一（排行 财富/载具 复用同分支）
-    const type = normalized === 'wealth' ? '财富' : normalized === 'vehicle' ? '载具' : normalized;
-    if (!(GameService.RANKING_SUB_TYPES as readonly string[]).includes(type)) {
-      return `${requesterName}不是可以查看的排行榜`; // 原版 L9731
-    }
-    switch (type) {
-      case '战斗力': return this.handleCombatPowerRanking(requesterName);
-      case '等级': return this.handleLevelRanking(requesterName);
-      case '理论输出': return this.handleTheoreticalDamageRanking(requesterName);
-      case '最高伤害': return this.handleMaxDamageRanking(requesterName);
-      case '击杀': return this.handleKillCountRanking(requesterName);
-      case '在线时间': return this.handleOnlineTimeRanking(requesterName);
-      case '财富': return this.handleWealthRanking(requesterName);
-      case '宠物战斗力': return this.handlePetRanking(requesterName, '战斗力');
-      case '宠物最高伤害': return this.handlePetRanking(requesterName, '最高伤害');
-      default: return this.handleVehicleValueRanking(requesterName); // 载具
-    }
+  async handleFamiliarRank(userId: number, subtype = ''): Promise<string>{
+    return this.rankingServiceSvc.handleFamiliarRank(userId, subtype);
   }
-
-  /** 原版排行玩家过滤（_主程序.ecode L9571 等）：老玩家(已选使魔)且等级>10 */
-  private isRankablePlayer(p: any): boolean {
-    return String(p?.type || '') !== '' && Number(p?.level || 0) > 10;
+  private isRankablePlayer(p: any): boolean{
+    return this.rankingServiceSvc.isRankablePlayer(p);
   }
-
-  /** 玩家成就类子榜通用收集：从 Player.markers 读成就键（原版 取成就熟练度） */
-  private async collectPlayerMarkerEntries(
-    key: string,
-    options: { excludeZero?: boolean } = {},
-  ): Promise<Array<{ name: string; value: number }>> {
-    const players = await this.prisma.player.findMany();
-    const entries: Array<{ name: string; value: number }> = [];
-    for (const p of players) {
-      if (!this.isRankablePlayer(p)) continue;
-      const markers = asJsonValue<Record<string, number>>(p.markers, {});
-      const value = this.combatState.getAchievementProficiency(markers, key);
-      // 原版 L9601/L9616：最高伤害/杀敌数量为 0 不入榜
-      if (options.excludeZero && value === 0) continue;
-      entries.push({ name: String(p.name || '冒险者'), value });
-    }
-    return entries;
+  private async collectPlayerMarkerEntries( key: string, options: { excludeZero?: boolean } = {}, ): Promise<Array<{ name: string; value: number }>>{
+    return this.rankingServiceSvc.collectPlayerMarkerEntries(key, options);
   }
-
-  /** 曾经达到的最高战斗力排行（原版 L9569-9578） */
-  private handleCombatPowerRanking(requesterName: string): Promise<string> {
-    return this.collectPlayerMarkerEntries('战斗力').then((entries) =>
-      this.formatRankingText(requesterName, '曾经达到的最高战斗力排行', entries),
-    );
+  private handleCombatPowerRanking(requesterName: string): Promise<string>{
+    return this.rankingServiceSvc.handleCombatPowerRanking(requesterName);
   }
-
-  /** 等级排行（原版 L9579-9588） */
-  private async handleLevelRanking(requesterName: string): Promise<string> {
-    const players = await this.prisma.player.findMany();
-    const entries = players
-      .filter((p) => this.isRankablePlayer(p))
-      .map((p) => ({ name: String(p.name || '冒险者'), value: Number(p.level || 0) }));
-    return this.formatRankingText(requesterName, '等级排行', entries);
+  private async handleLevelRanking(requesterName: string): Promise<string>{
+    return this.rankingServiceSvc.handleLevelRanking(requesterName);
   }
-
-  /**
-   * 理论输出排行（原版 L9589-9598）：
-   * 四系伤害之和 ×(1 + 暴击/100 ×(暴伤-100)/100)，按计算后属性现算
-   */
-  private async handleTheoreticalDamageRanking(requesterName: string): Promise<string> {
-    const players = await this.prisma.player.findMany();
-    const entries: Array<{ name: string; value: number }> = [];
-    for (const p of players) {
-      if (!this.isRankablePlayer(p)) continue;
-      try {
-        const playerData = await this.playerService.getPlayerData(p.userId);
-        const b = this.combatSystem.buildAttackerBonus(p, playerData);
-        const element =
-          (Number(b.物伤) || 0) + (Number(b.冰伤) || 0) +
-          (Number(b.电伤) || 0) + (Number(b.火伤) || 0);
-        const value =
-          element + element * ((Number(b.暴击) || 0) / 100) * (((Number(b.暴击伤害) || 100)) - 100) / 100;
-        entries.push({ name: String(p.name || '冒险者'), value });
-      } catch {
-        // 单个玩家属性异常时跳过
-      }
-    }
-    return this.formatRankingText(requesterName, '理论输出排行', entries);
+  private async handleTheoreticalDamageRanking(requesterName: string): Promise<string>{
+    return this.rankingServiceSvc.handleTheoreticalDamageRanking(requesterName);
   }
-
-  /** 曾经造成的最高伤害排行（原版 L9599-9611） */
-  private handleMaxDamageRanking(requesterName: string): Promise<string> {
-    return this.collectPlayerMarkerEntries('最高伤害', { excludeZero: true }).then((entries) =>
-      this.formatRankingText(requesterName, '曾经造成的最高伤害排行', entries),
-    );
+  private handleMaxDamageRanking(requesterName: string): Promise<string>{
+    return this.rankingServiceSvc.handleMaxDamageRanking(requesterName);
   }
-
-  /** 杀敌数量排行（原版 L9612-9624） */
-  private handleKillCountRanking(requesterName: string): Promise<string> {
-    return this.collectPlayerMarkerEntries('击败怪物', { excludeZero: true }).then((entries) =>
-      this.formatRankingText(requesterName, '杀敌数量排行', entries),
-    );
+  private handleKillCountRanking(requesterName: string): Promise<string>{
+    return this.rankingServiceSvc.handleKillCountRanking(requesterName);
   }
-
-  /** 在线时间排行（原版 L9625-9634；输出用 数字到时间 格式） */
-  private handleOnlineTimeRanking(requesterName: string): Promise<string> {
-    return this.collectPlayerMarkerEntries('在线时间').then((entries) =>
-      this.formatRankingText(requesterName, '在线时间排行', entries, (v) => this.secondsToTimeText(v)),
-    );
+  private handleOnlineTimeRanking(requesterName: string): Promise<string>{
+    return this.rankingServiceSvc.handleOnlineTimeRanking(requesterName);
   }
-
-  /**
-   * 宠物排行榜（原版 L9679-9712）：全地图存活召唤物，按召唤物标记去重（屏蔽复制品）
-   * @param kind '战斗力' | '最高伤害'
-   */
-  private async handlePetRanking(requesterName: string, kind: '战斗力' | '最高伤害'): Promise<string> {
-    const players = await this.prisma.player.findMany();
-    const nameByOwner = new Map<string, string>();
-    for (const p of players) {
-      const name = String(p.name || '冒险者');
-      nameByOwner.set(String(p.userId), name);
-      const qq = String((p as any).qq || '');
-      if (qq) nameByOwner.set(qq, name);
-    }
-
-    const maps = await this.prisma.gameMap.findMany();
-    const entries: Array<{ name: string; value: number }> = [];
-    const seen = new Set<string>(); // 屏蔽复制品（原版 L9684 寻找文本去重）
-    for (const map of maps) {
-      for (const pet of asJsonValue<any[]>(map.summons, [])) {
-        // 原版 L9681：属性.生命>0 才入榜
-        if (Number(pet?.hp ?? pet?.当前生命 ?? 0) <= 0) continue;
-        const petKey = String(pet?.qq ?? pet?.QQ ?? '');
-        if (!petKey || seen.has(petKey)) continue;
-        seen.add(petKey);
-        const markers = asJsonValue<Record<string, number>>(pet?.markers ?? pet?.标记 ?? {}, {});
-        const value = this.combatState.getAchievementProficiency(markers, kind);
-        // 原版 L9704：宠物最高伤害为 0 不入榜
-        if (kind === '最高伤害' && value === 0) continue;
-        const ownerName =
-          nameByOwner.get(String(pet?.ownerId ?? pet?.归属 ?? pet?.ownerQQ ?? '')) || '未知';
-        entries.push({ name: `${String(pet?.name ?? pet?.名称 ?? '使魔')}(${ownerName})`, value });
-      }
-    }
-    return this.formatRankingText(
-      requesterName,
-      kind === '战斗力' ? '宠物曾经达到的最高战斗力排行' : '宠物曾经达到的最高伤害排行',
-      entries,
-    );
+  private async handlePetRanking(requesterName: string, kind: '战斗力' | '最高伤害'): Promise<string>{
+    return this.rankingServiceSvc.handlePetRanking(requesterName, kind);
   }
-
-  /** 秒数 → 时间文本（对应原版 数字到时间；在线时间可能跨天，补 天/小时 段） */
   private secondsToTimeText(seconds: number): string {
     return this.supportSvc.secondsToTimeText(seconds);
   }
 
   // ==================== 排行数据源记录（原版 _计算玩家 随每条指令结算） ====================
 
-  /** 每用户上次指令时间（毫秒），用于在线时间累计（对应原版 玩家.读取时间/时间差） */
-  private readonly lastCalcAtByUser = new Map<number, number>();
 
   /**
    * 指令入口排行数据源结算（原版每条指令都执行的 _计算玩家 记录段）：
@@ -8950,196 +8808,24 @@ export class GameService {
    *    （原版 加成计算.ecode L2474-2477，四舍五入两位）
    * 由 CommandService.dispatch 入口调用；失败静默，不影响指令本身。
    */
-  async recordRankingStats(userId: number): Promise<void> {
-    const now = Date.now();
-    const last = this.lastCalcAtByUser.get(userId) || 0;
-    this.lastCalcAtByUser.set(userId, now);
-    let onlineDelta = 0;
-    if (last > 0) {
-      const diffSec = Math.floor((now - last) / 1000);
-      onlineDelta = diffSec > 180 ? 180 : diffSec;
-    }
-    await this.mutatePlayer(userId, (ctx) => {
-      const markers = asJsonValue<Record<string, number>>(ctx.player.markers, {});
-      try {
-        const calcBonus = this.combatSystem.buildAttackerBonus(ctx.player, ctx);
-        const power = this.bonusService.calcCombatPower(calcBonus);
-        const rounded = Math.round((Number(power) || 0) * 100) / 100;
-        if (rounded > (Number(markers['战斗力']) || 0)) {
-          markers['战斗力'] = rounded;
-        }
-      } catch {
-        // 属性计算异常时跳过战斗力记录，在线时间照常累计
-      }
-      if (onlineDelta > 0) {
-        // 原版 添加成就（累加语义）
-        markers['在线时间'] = (Number(markers['在线时间']) || 0) + onlineDelta;
-      }
-      ctx.player.markers = markers;
-    });
+  async recordRankingStats(userId: number): Promise<void>{
+    return this.rankingServiceSvc.recordRankingStats(userId);
   }
-
-  /**
-   * 排行榜（排行 财富/载具）：独立命令入口，复用 使魔排行 的同名子榜实现。
-   * 完整十子榜见 handleFamiliarRank（原版 _主程序.ecode L9562-9745）。
-   */
-  async handleRanking(userId: number, type: string): Promise<string> {
-    const requester = await this.prisma.player.findUnique({ where: { userId } });
-    const requesterName = requester?.name || '冒险者';
-    const normalized = (type || '财富').trim();
-
-    if (normalized === '财富' || normalized === 'wealth') {
-      return this.handleWealthRanking(requesterName);
-    }
-    if (normalized === '载具' || normalized === 'vehicle') {
-      return this.handleVehicleValueRanking(requesterName);
-    }
-    // 原版 L9731：无匹配类型
-    return `${requesterName}不是可以查看的排行榜`;
+  async handleRanking(userId: number, type: string): Promise<string>{
+    return this.rankingServiceSvc.handleRanking(userId, type);
   }
-
-  /** 游戏总财富排行（原版 L9635-9676） */
-  private async handleWealthRanking(requesterName: string): Promise<string> {
-    const players = await this.prisma.player.findMany();
-    const maps = await this.prisma.gameMap.findMany();
-    const entries: Array<{ name: string; value: number }> = [];
-
-    for (const p of players) {
-      // 原版 L9638：老玩家(已选使魔)且等级>10 才入榜
-      if (!this.isRankablePlayer(p)) continue;
-      // 战斗力/1000（原版 L9641）：按计算后属性构建
-      let value = 0;
-      try {
-        const playerData = await this.playerService.getPlayerData(p.userId);
-        const calcBonus = this.combatSystem.buildAttackerBonus(p, playerData);
-        const combatPower = this.bonusService.calcCombatPower({
-          攻击: calcBonus.攻击 || 0,
-          生命: calcBonus.生命 || 0,
-          装甲: calcBonus.装甲 || 0,
-          速度: calcBonus.速度 || 0,
-        });
-        value += combatPower / 1000;
-
-        const ownerKey = String((p as any).qq || p.userId);
-        // 宠物：归属匹配的召唤物 战斗力/100+100（原版 L9643-9648）
-        for (const map of maps) {
-          const summons = asJsonValue<any[]>(map.summons, []);
-          for (const pet of summons) {
-            const owner = String(pet.ownerId ?? pet.归属 ?? '');
-            if (owner !== ownerKey) continue;
-            const petPower = Number(
-              pet.combatPower ?? pet.战斗力
-              ?? asJsonValue<any>(pet.markers, {})?.['战斗力'] ?? 0,
-            );
-            value += petPower / 100 + 100;
-          }
-        }
-
-        // 载具零件 + 家园三图物品/建筑 + 背包 + 保险柜 → 计算价值（原版 L9649-9673）
-        const items: any[] = [];
-        const houseName = String(p.houseName || '');
-        for (const map of maps) {
-          const mapName = String(map.name || '');
-          const isHome = houseName && (mapName === houseName
-            || mapName === houseName + '屋内' || mapName === houseName + '前线');
-          if (!isHome) {
-            // 非家园地图仅统计玩家载具零件
-            const vehicles = asJsonValue<any[]>(map.vehicles, []);
-            for (const v of vehicles) {
-              const owner = String(v.ownerId ?? v.归属 ?? '');
-              if (owner !== ownerKey) continue;
-              this.pushVehicleParts(items, v);
-            }
-            continue;
-          }
-          const mapItems = asJsonValue<any[]>(map.items, []);
-          const buildings = asJsonValue<any[]>(map.buildings, []);
-          const vehicles = asJsonValue<any[]>(map.vehicles, []);
-          items.push(...mapItems, ...buildings);
-          for (const v of vehicles) {
-            const owner = String(v.ownerId ?? v.归属 ?? '');
-            if (owner !== ownerKey) continue;
-            this.pushVehicleParts(items, v);
-          }
-        }
-        const backpack = asJsonValue<any[]>(p.backpack, []);
-        const safeBox = asJsonValue<any[]>(p.safeBox, []);
-        items.push(...backpack, ...safeBox);
-        value += await this.itemService.calculateValue(items as any);
-      } catch {
-        // 单个玩家数据异常时按当前累计值参与排名
-      }
-      entries.push({ name: String(p.name || '冒险者'), value });
-    }
-
-    return this.formatRankingText(requesterName, '游戏总财富排行', entries);
+  private async handleWealthRanking(requesterName: string): Promise<string>{
+    return this.rankingServiceSvc.handleWealthRanking(requesterName);
   }
-
-  /** 最有价值的载具排行（原版 L9714-9726）：全地图玩家载具按制造成本估值 */
-  private async handleVehicleValueRanking(requesterName: string): Promise<string> {
-    const players = await this.prisma.player.findMany();
-    const nameByOwner = new Map<string, string>();
-    for (const p of players) {
-      nameByOwner.set(String((p as any).qq || p.userId), String(p.name || '冒险者'));
-    }
-
-    const maps = await this.prisma.gameMap.findMany();
-    const entries: Array<{ name: string; value: number }> = [];
-    for (const map of maps) {
-      const vehicles = asJsonValue<any[]>(map.vehicles, []);
-      for (const v of vehicles) {
-        const owner = String(v.ownerId ?? v.归属 ?? '');
-        // 原版 L9718：去数字(归属)=="" 才计入（排除怪物/NPC载具）
-        if (owner.replace(/\D/g, '') === '') continue;
-        if (!nameByOwner.has(owner)) continue;
-        const parts: any[] = [];
-        this.pushVehicleParts(parts, v);
-        const value = await this.itemService.calculateValue(parts as any);
-        entries.push({ name: `${String(v.name ?? v.名称 ?? '载具')}(${nameByOwner.get(owner)})`, value });
-      }
-    }
-
-    return this.formatRankingText(requesterName, '最有价值的载具排行', entries);
+  private async handleVehicleValueRanking(requesterName: string): Promise<string>{
+    return this.rankingServiceSvc.handleVehicleValueRanking(requesterName);
   }
-
-  /** 取制造成本：把载具零件展开为可估值的物品数组（原版 取制造成本） */
-  private pushVehicleParts(target: any[], vehicle: any): void {
-    const parts = asJsonValue<any[]>(vehicle.parts ?? vehicle.零件 ?? [], []);
-    for (const part of parts) {
-      const name = String(part?.name ?? part?.['名称'] ?? '').trim();
-      if (!name) continue;
-      target.push({ name, type: part.type ?? '资源', quantity: Number(part.quantity ?? part.count ?? 1), count: Number(part.quantity ?? part.count ?? 1) });
-    }
+  private pushVehicleParts(target: any[], vehicle: any): void{
+    this.supportSvc.pushVehicleParts(target, vehicle);
   }
-
-  /**
-   * 排行榜输出（原版 L9733-9745）：按数值降序取前30，格式「N、名称(数值)」。
-   * 在线时间子榜（原版 L9737-9741）数值用 数字到时间 格式，通过 valueText 定制。
-   */
-  private formatRankingText(
-    requesterName: string,
-    title: string,
-    entries: Array<{ name: string; value: number }>,
-    valueText?: (value: number) => string,
-  ): string {
-    const fmt = valueText ?? ((v: number) => formatDamageText(v));
-    const sorted = [...entries].sort((a, b) => b.value - a.value).slice(0, 30);
-    if (sorted.length === 0) {
-      return `${requesterName}不是可以查看的排行榜`;
-    }
-    let text = `${requesterName}\n${title}`;
-    sorted.forEach((entry, idx) => {
-      text += `\n${idx + 1}、${entry.name}(${fmt(entry.value)})`;
-    });
-    return text;
+  private formatRankingText( requesterName: string, title: string, entries: Array<{ name: string; value: number }>, valueText?: (value: number) => string, ): string{
+    return this.rankingServiceSvc.formatRankingText(requesterName, title, entries, valueText);
   }
-
-
-  /**
-   * 处理大召唤术命令
-   * 批量召唤使魔
-   * 委托到 FamiliarSkillsService.executeSkill 执行大召唤术技能
-   */
   async handleMassSummon(userId: number, count: string): Promise<string> {
     // 委托到使魔技能服务执行大召唤术技能（count参数由底层实现处理）
     return this.familiarSkillsService.executeSkill(userId, '大召唤术');
