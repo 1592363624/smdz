@@ -470,9 +470,9 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 单文件 god class 已经大到任何修改都要在数千行里找上下文、任何合并都可能踩冲突。
   // 止血规则：**新增指令 handler 一律新文件（挂 game 模块下），GameService 只减不增**；
   // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
-  // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）→ 16659（P2-2 admin 批次）→ 16242（P2-3 fusion 批次）：P1-1 消重（roundText/displayDamage）+
+  // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）→ 16659（P2-2 admin 批次）→ 15695（P2-3 fusion / P2-4 time 批次）：P1-1 消重（roundText/displayDamage）+
   // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
-  const GAME_SERVICE_LINE_BASELINE = 16242;
+  const GAME_SERVICE_LINE_BASELINE = 15695;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(

@@ -368,4 +368,35 @@ export class GameSupportService {
    * （等级成长/三层池公式，复用 map.service.buildMonsterSpawnData）→ 加入当前地图怪物2
    * → “在X刷新了一只Y”。非管理员原版静默无输出，新版明确提示权限（与设置位置同口径）。
    */
+
+  hasEquippedSpecial(
+    playerData: any,
+    equipmentName: string,
+    specialSeq: number,
+  ): boolean {
+    const equipment = (playerData.equipment || []).map((item: any) => ({
+      名称: this.itemName(item),
+      特殊序号: this.equipmentSpecialSeq(item),
+    }));
+    // 先按特殊序号查询，再保留名称查询作为静态数据中未写入特殊序号时的兼容映射。
+    return this.combatState.equipRequire(equipment, [], 0, specialSeq, equipmentName, false)
+      || this.combatState.equipRequire(equipment, [], 0, 0, equipmentName, false);
+  }
+
+
+  equipmentSpecialSeq(item: any): number {
+    if (!item) return 0;
+    const explicit = Number(item.specialSeq ?? item.特殊序号 ?? 0);
+    if (explicit !== 0) return explicit;
+    const definition = this.staticData.getEquipmentByName(this.itemName(item));
+    return Number(definition?.specialSeq ?? definition?.特殊序号 ?? 0);
+  }
+
+
+  currentWeaponItem(player: any, weapons: any[]): any | null {
+    const index = Number(player.currentWeapon || 0);
+    if (index <= 0) return null;
+    return weapons[index - 1] || weapons[index] || null;
+  }
+
 }
