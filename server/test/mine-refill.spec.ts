@@ -187,6 +187,8 @@ function makeFixture(options: {
     pushPlayerUpdate: jest.fn(async () => undefined),
     pushMapUpdate: jest.fn(async () => undefined),
   });
+  // P3-3：delayed 域已迁出，经门面引用调用 gather/panel 域方法——桩自挂门面
+  (service as any).delayedSettleServiceSvc?.attachFacade?.(service);
   return {
     service, player, map, taskService, prisma, chatService, playerService,
     combatSystem, delayedTaskService, delayedTaskRows, shortcutService: (service as any).shortcutService,
