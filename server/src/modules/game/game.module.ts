@@ -5,6 +5,7 @@ import { Module, Global, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from './game.service';
 import { GameSupportService } from './game-support.service';
+import { ShopTradeService } from './commands/shop-trade.service';
 import { SkillCommandService } from './commands/skill-command.service';
 import { EquipCommandService } from './commands/equip-command.service';
 import { PetCommandService } from './commands/pet-command.service';
@@ -62,6 +63,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   providers: [
     GameService,
     GameSupportService,
+    ShopTradeService,
     SkillCommandService,
     EquipCommandService,
     PetCommandService,
@@ -106,6 +108,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
   exports: [
     GameService,
     GameSupportService,
+    ShopTradeService,
     SkillCommandService,
     EquipCommandService,
     PetCommandService,
