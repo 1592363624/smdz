@@ -37,7 +37,7 @@ import {
   toExpireMs, itemName,
 } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
-import { roundItemQuantity } from '../../common/utils/game-text.util';
+import { formatDamageText, formatMsDurationText, roundItemQuantity } from '../../common/utils/game-text.util';
 // 背包写入唯一出口（按名合并 / type 以静态定义为唯一真源），禁各路径手写合并逻辑
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 
@@ -4664,11 +4664,12 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     // 原版 L925-L932：炮击后记录成就、活动标记和活跃度；地图标记用当前项目的 markers2 表达。
     await this.achievementService.addAchievement(player, '炮击', 1);
-    const targetMarkers2 = parse<any[]>(targetMap.markers2, []);
-    const activeEntry = targetMarkers2.find((item: any) => item?.name === '活动');
-    if (activeEntry) activeEntry.expireAt = now + 60 * 1000;
-    else targetMarkers2.push({ name: '活动', expireAt: now + 60 * 1000 });
-    await this.mapService.updateDynamicFields(targetMap.id, { markers2: targetMarkers2 }); // Json 列直接传数组
+    // 活动标记续期 60 秒。走 mergeMapMarkers2（锁内重读 + 按名 upsert）：
+    // 炮击链路内部会调用 weaponAttack（可能击杀目标地图上的怪物并登记「刷新怪物」标记），
+    // 若按 targetMap 的旧快照整组回写，会把刚登记的刷新标记抹掉。
+    await this.mapService.mergeMapMarkers2(targetMap.id, [
+      { name: '活动', expireAt: now + 60 * 1000 },
+    ]);
 
     // 原版 L918-L923：若炮击载具带有脏弹，则消耗一枚并污染目标地图120秒。
     const dirtyBomb = this.findVehiclePart(vehicle, '脏弹', parse);
@@ -4677,9 +4678,11 @@ export class CombatSystemService implements OnApplicationShutdown {
       if (dirtyBomb.quantity !== undefined) dirtyBomb.quantity = count;
       if (dirtyBomb.数量 !== undefined) dirtyBomb.数量 = count;
       await this.persistCannonVehicle(vehicleSource, parse);
-      const polluted = parse<any[]>(targetMap.markers2, []);
-      polluted.push({ name: '脏弹', value: 120, expireAt: now + 120 * 1000 });
-      await this.mapService.updateDynamicFields(targetMap.id, { markers2: polluted }); // Json 列直接传数组
+      // 同样按名合并（原版为 push 追加；此处按名 upsert，重复污染只保留一条，
+      // 消费方均以「是否存在且未过期」判定，语义等价）
+      await this.mapService.mergeMapMarkers2(targetMap.id, [
+        { name: '脏弹', value: 120, expireAt: now + 120 * 1000 },
+      ]);
       return `${prefix}${attack.result}\n脏弹里面装载的核废料污染了${targetMap.name}`;
     }
 
@@ -5809,6 +5812,21 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
 
+    // ===== 击杀登记「刷新怪物」标记（原版 后台运作.ecode 发放奖励 L458-461）=====
+    // 原版：`怪物.当前生命 <= 0` → 若 `地图.关卡 == 假` → `刷新标记(地图, 名称, 时间, 1)`
+    // → 向地图「标记2」加入一条 **120 秒后到期** 的「刷新怪物」标记；到期由后台补怪循环
+    // 补 1 只（`MapService.refillResidentMonstersByMarker`）。
+    // 因此原版语义是：击杀后并不立即刷新，且补怪「只增不删」（不会重置存活怪血量）。
+    // 宠物在本框架存为 GameMonster + isPet=true，原版属于「召唤物」数组而非「怪物2」，
+    // 因此不登记刷新标记。
+    if (!monster?.isPet && Number(mapId) > 0) {
+      try {
+        await this.mapService.addMonsterRespawnMarker(Number(mapId));
+      } catch (error) {
+        this.logger.warn(`登记刷新怪物标记失败: ${error?.message ?? error}`);
+      }
+    }
+
     return {
       expGain, drops, dropText, taskProgress, vitalityCost, rewardMultiplier, vitalityText,
       passiveText: passiveLines.join('\n'),
@@ -5880,7 +5898,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const it = markers2.find((m: any) => itemName(m) === key);
       const remain = it ? remainSeconds(it, nowMs) : 0;
       return remain > 0
-        ? `${prefix}(还有${this.msToTimeTextLocal(remain * 1000)})`
+        ? `${prefix}(还有${formatMsDurationText(remain * 1000)})`
         : `${donePrefix}(冷却完毕)`;
     };
 
@@ -10085,19 +10103,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    * @returns { dead: boolean, extraText: string, deathText: string }
    */
 
-  /** 显示伤害（对应原版 通用 显示伤害）：返回取整后的伤害数值文本 */
-  private displayDamage(value: number): string {
-    return String(Math.round(value || 0));
-  }
 
-  /** 数字到时间（对应原版 通用 数字到时间）：毫秒 → 可读时间文本（秒/分秒） */
-  private msToTimeTextLocal(ms: number): string {
-    const totalSec = Math.max(0, Math.floor((ms || 0) / 1000));
-    if (totalSec < 60) return `${totalSec}秒`;
-    const min = Math.floor(totalSec / 60);
-    const sec = totalSec % 60;
-    return `${min}分${sec}秒`;
-  }
 
 
   /**
@@ -10199,7 +10205,7 @@ export class CombatSystemService implements OnApplicationShutdown {
               damageTextRef.value +
               '\n' +
               '生命' +
-              this.displayDamage(-(defender.currentHp || 0)) +
+              formatDamageText(-(defender.currentHp || 0)) +
               '(' + '0' + ')';
             defender.currentHp = member.currentHp || member.当前生命 || 0;
             member.currentHp = 0;
@@ -10207,7 +10213,7 @@ export class CombatSystemService implements OnApplicationShutdown {
               damageTextRef.value +
               '\n' +
               '【目标】与分身互换生命' +
-              '(' + '生命+' + this.displayDamage(defender.currentHp || 0) + ')';
+              '(' + '生命+' + formatDamageText(defender.currentHp || 0) + ')';
             return true;
           }
         }
@@ -10238,7 +10244,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         damageTextRef.value +
         '\n' +
         '生命' +
-        this.displayDamage(-((defender.currentHp || 0) - 1)) +
+        formatDamageText(-((defender.currentHp || 0) - 1)) +
         '(' + '1' + ')';
       defender.currentHp = 1;
       return true;
@@ -10247,23 +10253,23 @@ export class CombatSystemService implements OnApplicationShutdown {
         damageTextRef.value +
         '\n' +
         '生命-0' +
-        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
-        '(' + '神威灵装·五番' + this.msToTimeTextLocal(buffRemain('五番a')) + ')';
+        '(' + formatDamageText(defender.currentHp || 0) + ')' +
+        '(' + '神威灵装·五番' + formatMsDurationText(buffRemain('五番a')) + ')';
       return true;
     } else if (b === 4) {
       damageTextRef.value =
         damageTextRef.value +
         '\n' +
         '生命-0' +
-        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
-        '(' + '猫爪' + this.msToTimeTextLocal(buffRemain('猫爪')) + ')';
+        '(' + formatDamageText(defender.currentHp || 0) + ')' +
+        '(' + '猫爪' + formatMsDurationText(buffRemain('猫爪')) + ')';
       return true;
     } else if (b === 5) {
       damageTextRef.value =
         damageTextRef.value +
         '\n' +
         '生命-0' +
-        '(' + this.displayDamage(defender.currentHp || 0) + ')' +
+        '(' + formatDamageText(defender.currentHp || 0) + ')' +
         '(' + '女仆' + ')';
       return true;
     }
@@ -11554,9 +11560,11 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 原版 L212-235、L507-530：活动结束时只修复地图怪物和召唤物所挂载的低等级载具，
       // 不再执行攻击，也不发放额外物品。
       await this.repairMapVehicles(map, monsters, lines);
-      map.markers2 = mapMarkers2; // Json 列直接写数组
+      map.markers2 = mapMarkers2; // 内存对象保持一致（本方法随后即返回）
+      // 标记2 走按名合并落库：本轮读取快照期间，其他写路径可能已登记「刷新怪物」
+      // 「刷新资源X」等新标记，整组回写会把它们抹掉。
+      await this.mapService.mergeMapMarkers2(map.id, mapMarkers2);
       await this.mapService.updateDynamicFields(map.id, {
-        markers2: map.markers2,
         vehicles: map.vehicles,
       });
       return lines.join('\n');
@@ -11611,9 +11619,11 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    map.markers2 = mapMarkers2; // Json 列直接写数组
+    map.markers2 = mapMarkers2; // 内存对象保持一致（本方法随后即返回）
+    // 标记2 走按名合并落库：本回合可能已击杀怪物并登记「刷新怪物」标记
+    // （灼烧/召唤物击杀），整组回写会把该标记抹掉 → 怪不再补。
+    await this.mapService.mergeMapMarkers2(map.id, mapMarkers2);
     await this.mapService.updateDynamicFields(map.id, {
-      markers2: map.markers2,
       summons: map.summons,
       vehicles: map.vehicles,
     });

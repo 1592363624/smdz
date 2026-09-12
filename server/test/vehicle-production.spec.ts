@@ -1,6 +1,7 @@
 import { CombatSystemService } from '../src/modules/game/combat-system.service';
 import { GameService } from '../src/modules/game/game.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 type Recipe = {
   name: string;
@@ -273,11 +274,31 @@ describe('载具生产复刻 - 特殊状态和字段兼容', () => {
       savePlayer: jest.fn(),
     };
     const mapService: any = { updateDynamicFields: jest.fn() };
-    const game = new GameService(
-      prisma, playerService, {} as any, {} as any, {} as any, mapService, {} as any, {} as any, {} as any, {} as any,
-      {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
-      {} as any, {} as any, {} as any,
-    );
+    const game = createGameServiceStub({
+      prisma: prisma,
+      playerService: playerService,
+      bonusService: {} as any,
+      combatSystem: {} as any,
+      itemService: {} as any,
+      mapService: mapService,
+      familiarService: {} as any,
+      dungeonService: {} as any,
+      adminService: {} as any,
+      achievementService: {} as any,
+      itemSystemService: {} as any,
+      homeService: {} as any,
+      familiarSystemService: {} as any,
+      familiarSkillsService: {} as any,
+      tutorialService: {} as any,
+      staticData: {} as any,
+      systemConfigService: {} as any,
+      chatService: {} as any,
+      feedbackService: {} as any,
+      taskService: {} as any,
+      shortcutService: {} as any,
+      statsService: {} as any,
+      combatState: {} as any,
+    });
     const runtime = (game as any).toRuntimeVehicle({
       id: 7,
       name: '数据库载具',

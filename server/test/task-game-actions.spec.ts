@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === undefined || value === null) return fallback;
@@ -11,7 +12,7 @@ function parseJson(value: any, fallback: any): any {
 }
 
 function makeBaseService(): any {
-  const service = Object.create(GameService.prototype) as any;
+  const service = createGameServiceStub() as any;
   service.logger = { log: jest.fn(), warn: jest.fn() };
   service.taskService = { advance: jest.fn(async () => '') };
   service.playerService = {
@@ -64,6 +65,7 @@ function makeBaseService(): any {
   service.familiarSystemService = {
     checkAndUpdateGrowth: jest.fn(() => false),
   };
+  // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
   return service;
 }
 
@@ -255,7 +257,8 @@ describe('任务动作服务层闭环', () => {
     service.mapService.getMapById.mockResolvedValue(map);
     service.mapService.getMapByName.mockResolvedValue(map);
     service.mapService.getAllMaps.mockResolvedValue([map]);
-    service.generateMerchantInventory = jest.fn(async () => []);
+    // 子服务直连后：movement 经 DI 兄弟调 shop，覆写挂到兄弟实例（原挂门面层）
+    ((service as any).movementVehicleService as any).shop.generateMerchantInventory = jest.fn(async () => []);
 
     await expect(service.handleCallVehicle(42, '行商')).resolves.toContain('行商来到了');
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '呼叫行商', 4);

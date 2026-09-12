@@ -1,3 +1,4 @@
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 import { GameService } from '../src/modules/game/game.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import {
@@ -102,7 +103,7 @@ describe('信息面板增益行（formatBuffList）', () => {
   const nowSec = Math.floor(Date.now() / 1000);
 
   const build = (buffs: any[]) => {
-    const service: any = Object.create(GameService.prototype);
+    const service: any = createGameServiceStub();
     service.playerService = { safeJsonParse: (_v: any, d: any) => d };
     return service.formatBuffList(buffs);
   };

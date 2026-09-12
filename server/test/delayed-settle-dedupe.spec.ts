@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 /**
  * 延时任务（救援/采集）结算去重回归：
@@ -112,8 +113,7 @@ function makeRescueFixture(playerOverrides: Record<string, any> = {}) {
     broadcastSystem: jest.fn(async () => undefined),
     emitToUser: jest.fn(async () => undefined),
   };
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma,
     playerService,
     taskService,
@@ -203,8 +203,7 @@ function makeGatherFixture(options: { times?: number } = {}) {
     broadcastSystem: jest.fn(async () => undefined),
     emitToUser: jest.fn(async () => undefined),
   };
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma,
     playerService,
     taskService,

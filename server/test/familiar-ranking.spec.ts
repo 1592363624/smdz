@@ -18,6 +18,7 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
 import { BonusService } from '../src/modules/game/bonus.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { CombatSystemService } from '../src/modules/game/combat-system.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseValue<T>(value: any, fallback: T): T {
   if (value === null || value === undefined) return fallback;
@@ -81,29 +82,31 @@ function makeService(options: { players?: any[]; maps?: any[] } = {}) {
     })),
   };
 
-  const service = new GameService(
-    prisma,
-    playerService,
-    bonusService,
-    combatSystem,
-    {} as any, // itemService
-    {} as any, // mapService
-    {} as any, {} as any, {} as any, // familiarService/dungeonService/adminService
-    {} as any, // achievementService
-    {} as any, // itemSystemService
-    {} as any, // homeService
-    {} as any, // familiarSystemService
-    {} as any, // familiarSkillsService
-    {} as any, // tutorialService
-    new StaticDataService(),
-    {} as any, // systemConfigService
-    {} as any, // chatService
-    {} as any, // feedbackService
-    {} as any, // taskService
-    shortcutService,
-    {} as any, // statsService
-    combatState,
-  );
+  const service = createGameServiceStub({
+      prisma: prisma,
+      playerService: playerService,
+      bonusService: bonusService,
+      combatSystem: combatSystem,
+      itemService: {} as any,
+      mapService:     {} as any,
+      familiarService:     {} as any,
+      dungeonService: {} as any,
+      adminService: {} as any,
+      achievementService:     {} as any,
+      itemSystemService:     {} as any,
+      homeService:     {} as any,
+      familiarSystemService:     {} as any,
+      familiarSkillsService:     {} as any,
+      tutorialService:     {} as any,
+      staticData:     new StaticDataService(),
+      systemConfigService: {} as any,
+      chatService:     {} as any,
+      feedbackService:     {} as any,
+      taskService:     {} as any,
+      shortcutService:     shortcutService,
+      statsService: {} as any,
+      combatState:     combatState,
+    });
 
   return { service, prisma, players, maps, savedPlayers, tempInputs, combatSystem, bonusService, shortcutService, combatState };
 }
@@ -225,13 +228,13 @@ describe('使魔排行十子榜复刻（原版 _主程序.ecode L9562-9745）', 
     expect(afterFirst['战斗力']).toBeGreaterThan(0);
 
     // 手动回拨上次指令时间 120 秒 → 第二条累计 120
-    (service as any).lastCalcAtByUser.set(1, Date.now() - 120_000);
+    (service as any).rankingService.lastCalcAtByUser.set(1, Date.now() - 120_000);
     await (service as any).recordRankingStats(1);
     const afterSecond = parseValue<Record<string, number>>(savedPlayers[savedPlayers.length - 1].markers, {});
     expect(afterSecond['在线时间']).toBe(120);
 
     // 超长离线（>180s）只记 180
-    (service as any).lastCalcAtByUser.set(1, Date.now() - 10 * 60_000);
+    (service as any).rankingService.lastCalcAtByUser.set(1, Date.now() - 10 * 60_000);
     await (service as any).recordRankingStats(1);
     const afterThird = parseValue<Record<string, number>>(savedPlayers[savedPlayers.length - 1].markers, {});
     expect(afterThird['在线时间']).toBe(300);
@@ -239,7 +242,7 @@ describe('使魔排行十子榜复刻（原版 _主程序.ecode L9562-9745）', 
     // 历史最高战斗力不被更低值覆盖
     const high = afterThird['战斗力'];
     (service as any).combatSystem.buildAttackerBonus = jest.fn(() => ({ 物伤: 0, 生命: 1 }));
-    (service as any).lastCalcAtByUser.set(1, Date.now() - 5_000);
+    (service as any).rankingService.lastCalcAtByUser.set(1, Date.now() - 5_000);
     await (service as any).recordRankingStats(1);
     const afterFourth = parseValue<Record<string, number>>(savedPlayers[savedPlayers.length - 1].markers, {});
     expect(afterFourth['战斗力']).toBe(high);

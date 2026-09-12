@@ -12,6 +12,7 @@
  */
 import { GameService } from '../src/modules/game/game.service';
 import { ItemService } from '../src/modules/game/item.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2210)', () => {
   /**
@@ -53,7 +54,7 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
       markers: JSON.stringify({}),
       tasks: JSON.stringify([]),
     };
-    const service = Object.create(GameService.prototype) as any;
+    const service = createGameServiceStub() as any;
     service.playerService = {
       getPlayerData: jest.fn(async () => ({
         player,

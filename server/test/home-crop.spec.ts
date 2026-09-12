@@ -1,3 +1,4 @@
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 import { HomeService } from '../src/modules/game/home.service';
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { GameService } from '../src/modules/game/game.service';
@@ -59,7 +60,7 @@ describe('家园作物种植与收获', () => {
     const player: any = { id: 7, name: '测试玩家', mapId: 9, houseName: '测试家园', backpack: '[]' };
     const backpack: any[] = [{ name: '苹果树种子', quantity: 1, count: 1 }];
     const homeService = new HomeService({} as any, {} as any, {} as any, staticData);
-    const service: any = Object.create(GameService.prototype);
+    const service: any = createGameServiceStub();
     service.staticData = staticData;
     service.homeService = homeService;
     service.itemService = { useItem: jest.fn() };

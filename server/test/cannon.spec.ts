@@ -79,6 +79,25 @@ function makeCannon(options: {
     getMapByName: jest.fn(async (name: string) => [...maps.values()].find((map) => map.name === name) || null),
     getMapMonsters: jest.fn(async (map: any) => map.id === 2 ? [monster] : []),
     updateDynamicFields: jest.fn(async (_id: number, data: any) => dynamicUpdates.push(data)),
+    // 标记2 的生产落库口 mergeMapMarkers2（锁内重读 + 按名 upsert）。
+    // 本用例无并发新增，桩实现按同一语义把写入反映到地图对象与 dynamicUpdates。
+    mergeMapMarkers2: jest.fn(async (mapId: number, incoming: any[]) => {
+      const map: any = maps.get(mapId);
+      if (!map) return;
+      const current = typeof map.markers2 === 'string'
+        ? (JSON.parse(map.markers2 || '[]') as any[])
+        : (Array.isArray(map.markers2) ? map.markers2 : []);
+      const merged = [...current];
+      for (const item of incoming ?? []) {
+        const name = item?.name ?? item?.名称;
+        if (!name) continue;
+        const idx = merged.findIndex((e: any) => (e?.name ?? e?.名称) === name);
+        if (idx >= 0) merged[idx] = item;
+        else merged.push(item);
+      }
+      map.markers2 = merged;
+      dynamicUpdates.push({ markers2: merged });
+    }),
   };
   const achievementService: any = { addAchievement: jest.fn(async () => undefined) };
   const prisma: any = { systemConfig: { findUnique: jest.fn(async () => ({ value: '1' })) } };

@@ -8,6 +8,7 @@
  */
 import { GameService } from '../src/modules/game/game.service';
 import { TaskService } from '../src/modules/game/task.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -65,8 +66,7 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
       getAvailableTasks: jest.fn(async () => []),
     };
     const gameMapUpdates: any[] = [];
-    const service: any = Object.create(GameService.prototype);
-    Object.assign(service, {
+    const service: any = createGameServiceStub({
       prisma: {
         user: { findUnique: jest.fn(async () => ({ id: 42, nickname: '伊卡洛斯' })) },
         gameMap: { update: jest.fn(async (args: any) => { gameMapUpdates.push(args); return {}; }) },
@@ -112,6 +112,7 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
       familiarSystemService: { checkAndUpdateGrowth: jest.fn() },
       logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
     });
+    // P3-1：quest 域已迁出，经门面引用调用 rescue 域 ensurePlayerWhite——桩自挂门面（懒构造桥触发后接线）
     return { service, player, map, taskService, gameMapUpdates };
   }
 

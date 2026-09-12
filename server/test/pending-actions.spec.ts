@@ -1,3 +1,4 @@
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 import { GameService } from '../src/modules/game/game.service';
 
 /**
@@ -15,7 +16,7 @@ import { GameService } from '../src/modules/game/game.service';
 
 /** 用最小桩构造 GameService（只需 playerService.safeJsonParse） */
 function makeService(): any {
-  const svc: any = Object.create(GameService.prototype);
+  const svc: any = createGameServiceStub();
   svc.playerService = {
     safeJsonParse: (value: any, fallback: any) => {
       if (value === null || value === undefined) return fallback;

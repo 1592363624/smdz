@@ -368,13 +368,19 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // ===== 支柱二门禁：延时任务结算入口必须自串行 =====
   // 背景：dts tick 直调结算 handler（无任何外层锁），若结算入口不自串行，
   // 「读档→改→写回」窗口与邮箱内操作并发就会互相覆盖（旧快照覆盖族事故）。
-  // 规则：game.service 里注册给 DelayedTaskService 的每个玩家级结算入口，
-  // 函数体内必须出现 enqueueUserWrite（指令路径调用时邮箱重入放行，无双锁）。
+  // 规则：注册给 DelayedTaskService 的每个玩家级结算入口，函数体内必须出现
+  // enqueueUserWrite（指令路径调用时邮箱重入放行，无双锁）。
+  // P3 改造（重构方案 §6 G2）：模块化拆分后结算入口迁入 game/commands/*.service.ts，
+  // 扫描目标改为可配置——按方法名在门面与各指令域子服务文件中定位真实实现体。
   it('延时任务结算入口必须自串行（dts tick 直调，不得依赖调用方持锁）', () => {
-    const gameSrc = fs.readFileSync(
+    const scanTargets = [
       path.join(SRC_DIR, 'modules/game/game.service.ts'),
-      'utf8',
-    );
+      ...fs
+        .readdirSync(path.join(SRC_DIR, 'modules/game/commands'))
+        .filter((f) => f.endsWith('.service.ts'))
+        .map((f) => path.join(SRC_DIR, 'modules/game/commands', f)),
+    ];
+    const sources = scanTargets.map((f) => ({ file: f, src: fs.readFileSync(f, 'utf8') }));
     const settleEntries = [
       'settleGatherResource', // gather
       'performArrival',       // move
@@ -386,19 +392,25 @@ describe('架构门禁：玩家状态写入口收口', () => {
       'completeVehicleRepair', // repair（原「维修wcc1」，2026-09-05 补）
     ];
     for (const fn of settleEntries) {
-      const start = gameSrc.indexOf(`async ${fn}(`);
-      if (start < 0) throw new Error(`延时结算入口 ${fn} 不存在（被改名/删除？）`);
-      // 函数体切片：到下一个同级方法声明为止
-      const rest = gameSrc.slice(start + 1);
-      const next = rest.search(/\r?\n  (private )?async /);
-      const body = rest.slice(0, next < 0 ? undefined : next);
-      if (!body.includes('enqueueUserWrite')) {
-        throw new Error(
-          `延时结算入口 ${fn} 未自串行（函数体内无 enqueueUserWrite）。\n` +
-            `它会被 DelayedTaskService.tick 在无锁上下文直调，必须像 settleGatherResource 一样\r\n` +
-            `在入口处包 enqueueUserWrite（指令路径重入放行），否则读改写窗口会与邮箱内操作并发覆盖。`,
-        );
+      // 在门面与子服务中定位真实实现体（一行委托不是实现体，继续查找）
+      let found = false;
+      for (const { file, src } of sources) {
+        const start = src.indexOf(`async ${fn}(`);
+        if (start < 0) continue;
+        const rest = src.slice(start + 1);
+        const next = rest.search(/\r?\n  (private )?async /);
+        const body = rest.slice(0, next < 0 ? undefined : next);
+        if (body.includes('enqueueUserWrite')) { found = true; break; }
+        // 一行委托（过渡清理 B 批后委托目标为必选注入的子服务字段，不再带 Svc 后缀）
+        if (!/return this\.\w+\./.test(body)) {
+          throw new Error(
+            `延时结算入口 ${fn} 未自串行（${path.relative(SRC_DIR, file)}，函数体内无 enqueueUserWrite）。\n` +
+              `它会被 DelayedTaskService.tick 在无锁上下文直调，必须像 settleGatherResource 一样\r\n` +
+              `在入口处包 enqueueUserWrite（指令路径重入放行），否则读改写窗口会与邮箱内操作并发覆盖。`,
+          );
+        }
       }
+      if (!found) throw new Error(`延时结算入口 ${fn} 不存在（被改名/删除？）`);
     }
   });
 
@@ -470,7 +482,11 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 单文件 god class 已经大到任何修改都要在数千行里找上下文、任何合并都可能踩冲突。
   // 止血规则：**新增指令 handler 一律新文件（挂 game 模块下），GameService 只减不增**；
   // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
-  const GAME_SERVICE_LINE_BASELINE = 17434;
+  // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）→ 16659（P2-2 admin 批次）→ 8695（P2-3~P2-8 / P3-1~P3-5 批次）：P1-1 消重（roundText/displayDamage）+
+  // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
+  // 2153（P4 收尾・过渡清理 A 批）：门面反指改直接注入，桥 getter 补兄弟挂接暂时+30 行。
+  // 1778（P4 收尾・过渡清理 B 批）：删除 16 个懒构造桥 getter，子服务依赖改必选注入，测试桩统一走工厂。
+  const GAME_SERVICE_LINE_BASELINE = 1778;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(
@@ -487,5 +503,152 @@ describe('架构门禁：玩家状态写入口收口', () => {
       );
     }
     expect(lineCount).toBeLessThanOrEqual(GAME_SERVICE_LINE_BASELINE);
+  });
+
+  // ===== P0 止损门禁：膨胀转移通道冻结（game.service.ts 模块化重构方案 §5 P0）=====
+  // 背景：G1 只冻结了 game.service.ts 一个文件，而门禁只会位移矛盾——
+  // game-command.handler.ts 从 1,009 行（08-13）膨胀到 2,041 行（09-11）即前车之鉴。
+  // 因此把「新增指令一律新文件」的止损口径扩展成一组冻结规则：
+  // - G5：调度层 game-command.handler.ts 行数只减不增（新增指令注册到
+  //   command/handlers/ 下新的 handlerKey 子域，不再写入 GameCommandHandler.dispatch）。
+  // - G6：game.service.ts 中 handleXxx 指令方法数量只减不增（P0-3 白名单冻结：
+  //   新指令不得以 handleXxx 形态挤进 god class；模块化拆分只允许让这个数变小）。
+  // - G9：combat-system / familiar-system / familiar-skills / item-system 四个二期
+  //   重点文件行数冻结（基线 = 2026-09-12 实测），二期拆分开工时改为「准许下降」。
+  // 冻结口径 = 净行数不增：改 bug / 重构 / 删代码不受限，只禁新增功能堆行。
+  // 真有正当理由加行数时，显式上调基线走 PR 评审——被门禁拦下的改动必须被看见。
+  const GAME_COMMAND_HANDLER_LINE_BASELINE = 2041;
+  const GAME_SERVICE_HANDLE_METHOD_BASELINE = 240;
+
+  it('game-command.handler.ts 行数只减不增（G5：新指令走新 handlerKey 子域，禁止膨胀转移）', () => {
+    const handlerSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/command/handlers/game-command.handler.ts'),
+      'utf8',
+    );
+    const lineCount = (handlerSrc.match(/\r?\n/g) ?? []).length;
+    if (lineCount > GAME_COMMAND_HANDLER_LINE_BASELINE) {
+      throw new Error(
+        `game-command.handler.ts 行数 ${lineCount} 已超过冻结基线 ${GAME_COMMAND_HANDLER_LINE_BASELINE}。\n` +
+          `新增指令一律新文件（game/commands/<域>.service.ts + 新 handlerKey 子域），\n` +
+          `不得继续写入 GameCommandHandler.dispatch 的分支；确需增量请显式上调基线走评审。`,
+      );
+    }
+    expect(lineCount).toBeLessThanOrEqual(GAME_COMMAND_HANDLER_LINE_BASELINE);
+  });
+
+  it('game.service.ts 的 handleXxx 方法数量只减不增（G6：新增指令不得挤进 god class）', () => {
+    const gameSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game.service.ts'),
+      'utf8',
+    );
+    // 只统计方法声明行（类体内 2 空格缩进的 handleXxx(），不匹配调用点。
+    // 当前 240 个即现有指令面白名单计数上限：新增指令必须落在新文件。
+    const handleDecls = gameSrc.match(
+      /^\s{2}(?:private\s+|public\s+|protected\s+|static\s+|async\s+)*handle[A-Z]\w*\s*\(/gm,
+    );
+    const count = handleDecls ? handleDecls.length : 0;
+    if (count > GAME_SERVICE_HANDLE_METHOD_BASELINE) {
+      throw new Error(
+        `game.service.ts 的 handleXxx 方法数量 ${count} 已超过冻结基线 ${GAME_SERVICE_HANDLE_METHOD_BASELINE}。\n` +
+          `新增指令一律新文件（game/commands/<域>.service.ts），不得以 handleXxx 形态进入 GameService；\n` +
+          `模块化拆分迁出后请同步下调本基线。`,
+      );
+    }
+    expect(count).toBeLessThanOrEqual(GAME_SERVICE_HANDLE_METHOD_BASELINE);
+  });
+
+  // G9：四个二期重点文件行数冻结（P0-4，基线 = 2026-09-12 实测）。
+  // 这些文件暂无门禁约束时，game.service 被冻结后新增战斗/使魔/物品逻辑会涌入，
+  // 重演 game-command.handler 1,009→2,041 的教训（§11.1）。
+  const PHASE2_FILE_LINE_BASELINES: Array<[string, number]> = [
+    ['modules/game/combat-system.service.ts', 12418],
+    ['modules/game/familiar-system.service.ts', 4853],
+    ['modules/game/familiar-skills.service.ts', 4053],
+    ['modules/game/item-system.service.ts', 3386],
+  ];
+  for (const [relFile, baseline] of PHASE2_FILE_LINE_BASELINES) {
+    it(`二期重点文件行数冻结（G9）：${path.basename(relFile)} 只减不增（基线 ${baseline}）`, () => {
+      const src = fs.readFileSync(path.join(SRC_DIR, relFile), 'utf8');
+      const lineCount = (src.match(/\r?\n/g) ?? []).length;
+      if (lineCount > baseline) {
+        throw new Error(
+          `${relFile} 行数 ${lineCount} 已超过冻结基线 ${baseline}。\n` +
+            `该文件是二期拆分重点，一期冻结防膨胀转移；改 bug / 重构 / 删代码不受限，\n` +
+            `确需新增功能堆行请显式上调基线走 PR 评审。`,
+        );
+      }
+      expect(lineCount).toBeLessThanOrEqual(baseline);
+    });
+  }
+
+  // ===== G7：支撑层零回边（game.service.ts 模块化重构方案 §6 / §4 原则 2）=====
+  // 背景：GameSupportService 是被全部指令域共用的共享支撑层。它一旦注入/导入任何
+  // 指令域子服务（P2/P3 将拆出的 game/commands/*.service），依赖图立刻成环——
+  // 正是本次重构要消解的 SCC。断言标准：支撑层出度边 = 0（对指令域子服务的
+  // import 语句数 = 0，注释提及不算）。
+  it('GameSupportService 不得 import 任何指令域子服务（G7：支撑层出度边=0）', () => {
+    const supportSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game-support.service.ts'),
+      'utf8',
+    );
+    // 只匹配真正的 import 语句（含多行 import 的 from 子句），忽略注释
+    const importLines = supportSrc
+      .split('\n')
+      .filter((l) => /^\s*(import|}\s*from)\b/.test(l) || /from\s+['"]/.test(l));
+    const offenders = importLines.filter((l) => /commands\//.test(l));
+    expect(offenders).toEqual([]);
+  });
+
+  // ===== G8：门面类体内不得残留业务状态字段（§4.1 / C6）=====
+  // 背景：实例状态必须与使用它的方法族同批、同目标迁移；状态留在门面会破坏
+  // 「门面仅委托」。推送子系统 3 字段暂留门面（C7），P3 拆 panel 后白名单清空；
+  // 其余 4 个字段随各自归属批迁出（P2-1 ranking / P2-8 shop / P3 gather），
+  // 迁出时同步把该字段从白名单删除——白名单只减不增。
+  // P3-6b 后推送 3 字段与 gatherStartInflight 已随簇迁出：白名单清空（任何业务状态字段回到门面即红）
+  const FACADE_STATE_FIELD_WHITELIST = new Set<string>([]);
+
+  it('game.service.ts 门面类体内不得新增业务状态 Map/Set/Timer 字段（G8）', () => {
+    const gameSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game.service.ts'),
+      'utf8',
+    );
+    const found = new Set<string>();
+    // Map/Set 初始器字段：`private [static] [readonly] x = new Map/Set`
+    for (const m of gameSrc.matchAll(
+      /^  (?:private |public |protected )?(?:static )?(?:readonly )?(\w+)(?:<[^>]*>)?(?::[^=\n]*)?=\s*new (?:Map|Set)\b/gm,
+    )) {
+      found.add(m[1]);
+    }
+    // 数组字面量状态（static readonly RANKING_SUB_TYPES = [...]）
+    for (const m of gameSrc.matchAll(
+      /^  (?:private |public |protected )?static (?:readonly )?(\w+)(?:<[^>]*>)?(?::[^=\n]*)?=\s*\[/gm,
+    )) {
+      found.add(m[1]);
+    }
+    // NodeJS.Timeout 字段（防抖定时器句柄）
+    for (const m of gameSrc.matchAll(
+      /^  (?:private |public |protected )?(?:static )?(?:readonly )?(\w+)(?:<[^>]*>)?[^\n=]*NodeJS\.Timeout/gm,
+    )) {
+      found.add(m[1]);
+    }
+    const illegal = [...found].filter((name) => !FACADE_STATE_FIELD_WHITELIST.has(name));
+    if (illegal.length > 0) {
+      throw new Error(
+        `门面出现未登记的业务状态字段：${illegal.join(', ')}。\n` +
+          `实例状态必须与使用它的方法族同批迁出（§4.1 归属表）；确需暂留门面请` +
+          `在 FACADE_STATE_FIELD_WHITELIST 登记（注明随迁批次），白名单只减不增。`,
+      );
+    }
+    expect(illegal).toEqual([]);
+  });
+
+  it('G8 白名单字段必须真实存在于门面（迁移后未摘牌即红，防名单腐化）', () => {
+    const gameSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'modules/game/game.service.ts'),
+      'utf8',
+    );
+    const stale = [...FACADE_STATE_FIELD_WHITELIST].filter((name) => !gameSrc.includes(name));
+    // 白名单字段已随批迁出的，必须同步从名单删除——名单是「暂留门面」的登记处
+    expect(stale).toEqual([]);
   });
 });

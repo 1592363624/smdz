@@ -448,16 +448,11 @@ export class PlayerService {
         },
       });
 
-      // 新玩家出生后立即刷新出生地图的怪物，避免"开局无怪可打、只能干等每分钟定时刷新"的问题。
-      // 原版玩家在医疗室醒来后应能立即与史莱姆战斗。
-      if (startMap) {
-        try {
-          await this.mapService.refreshMapMonsters(startMap.id);
-          this.logger.log(`新玩家 ${userId} 出生，已在「${startMap.name}」刷出怪物`);
-        } catch (e) {
-          this.logger.warn(`新玩家出生刷怪失败: ${e.message}`);
-        }
-      }
+      // 新玩家出生不再单独刷怪（对齐原版）：原版 `刷新地图` 只在服务器读档
+      // （接口1.ecode L1374）与副本刷新（后台运作 L1066）执行，与建档无关；
+      // 出生地图的常驻怪由启动补齐（ScheduleService.onApplicationBootstrap →
+      // MapService.spawnResidentMonsters）与「刷新怪物」标记驱动补齐覆盖。
+      // 旧实现「出生即整批重刷出生地图」会把该地图上其他玩家正在打的怪一并替换。
     }
     return player;
   }

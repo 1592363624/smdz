@@ -1,3 +1,4 @@
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 import { GameService } from '../src/modules/game/game.service';
 
 function parseJson(value: any, fallback: any): any {
@@ -12,7 +13,7 @@ function parseJson(value: any, fallback: any): any {
 }
 
 function makeService() {
-  const service: any = Object.create(GameService.prototype);
+  const service: any = createGameServiceStub();
   const tempInput: string[] = [];
   const player = { id: 1, userId: 42, name: '冒险者', mapId: 7, markers: '{}', markers2: '[]' };
   service.playerService = {

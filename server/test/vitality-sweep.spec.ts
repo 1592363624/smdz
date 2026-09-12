@@ -1,6 +1,7 @@
 /** 原版扫荡批量结算回归测试。 */
 import { GameService } from '../src/modules/game/game.service';
 import { VitalityService } from '../src/modules/game/vitality.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 describe('扫荡活力批量结算', () => {
   function buildFixture() {
@@ -77,32 +78,31 @@ describe('扫荡活力批量结算', () => {
     const taskService: any = { advance: jest.fn(async () => undefined) };
     const systemConfig: any = { get: jest.fn(async (_key: string, fallback: any) => fallback) };
     const vitalityService = new VitalityService(systemConfig, playerService);
-    const game = new GameService(
-      {} as any,
-      playerService,
-      {} as any,
-      combatSystem,
-      {} as any,
-      mapService,
-      {} as any,
-      {} as any,
-      {} as any,
-      { addAchievement: jest.fn(async () => undefined) } as any,
-      itemSystem,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      { getMonsterByName: jest.fn(() => ({ name: '史莱姆' })) } as any,
-      systemConfig,
-      {} as any,
-      {} as any,
-      taskService,
-      {} as any,
-      {} as any,
-      {} as any,
-      undefined,
-    );
+    const game = createGameServiceStub({
+      prisma: {} as any,
+      playerService: playerService,
+      bonusService: {} as any,
+      combatSystem: combatSystem,
+      itemService: {} as any,
+      mapService: mapService,
+      familiarService: {} as any,
+      dungeonService: {} as any,
+      adminService: {} as any,
+      achievementService: { addAchievement: jest.fn(async () => undefined) } as any,
+      itemSystemService: itemSystem,
+      homeService: {} as any,
+      familiarSystemService: {} as any,
+      familiarSkillsService: {} as any,
+      tutorialService: {} as any,
+      staticData: { getMonsterByName: jest.fn(() => ({ name: '史莱姆' })) } as any,
+      systemConfigService: systemConfig,
+      chatService: {} as any,
+      feedbackService: {} as any,
+      taskService: taskService,
+      shortcutService: {} as any,
+      statsService: {} as any,
+      combatState: {} as any,
+    });
     (game as any).vitalityService = vitalityService;
     return { game, player, playerData, playerService, mapService, combatSystem, itemSystem, taskService };
   }

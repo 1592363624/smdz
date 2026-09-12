@@ -150,6 +150,11 @@ function buildCombatMocks() {
       }
     }),
     updateDynamicFields: jest.fn(async () => {}),
+    // 标记2 的生产落库口 mergeMapMarkers2（锁内重读 + 按名 upsert）；
+    // 本套件只验证灼烧伤害与击杀，落库细节无关，桩成空实现。
+    mergeMapMarkers2: jest.fn(async () => {}),
+    // 击杀登记「刷新怪物」标记（原版 发放奖励 L458-461）：灼烧击杀会触达
+    addMonsterRespawnMarker: jest.fn(async () => true),
     saveGameMonster: jest.fn(async (_monster: any) => {}),
   } as unknown as jest.Mocked<MapService>;
 
@@ -385,11 +390,14 @@ import { FamiliarSkillsService } from '../src/modules/game/familiar-skills.servi
 
 function makeSaberPlayer(affinity: number, skillLevel: number, overrides: any = {}) {
   return {
-    id: 1, userId: 1, name: 'saber', type: 'Saber', specialSeq: 19,
+    // ⚠️ 使魔类型取数据权威名：familiars.json name="saber"（小写）。
+    // 好感/熟练度标记键 = `${player.type}好感`，写成 'Saber'(大写) 时
+    // getAffinity 恒返回 0 → 好感分层 buff 永不触发（对应源码 L1480 的注释）。
+    id: 1, userId: 1, name: 'saber', type: 'saber', specialSeq: 19,
     level: 10, hp: 100, maxHp: 100, shield: 50, maxShield: 50, armor: 30, maxArmor: 30,
     mapId: 1, affinity, skillLevel, markers2: '[]', weapons: '[]', equipment: '[]',
     backpack: '[]', tasks: '[]', vehicle: null,
-    markers: JSON.stringify({ Saber好感: affinity, Saber技能熟练度: 0 }),
+    markers: JSON.stringify({ saber好感: affinity, saber技能熟练度: 0 }),
     buffs: '[]',
     ...overrides,
   };
@@ -494,7 +502,7 @@ describe('誓约胜利之剑 保存链路回归（旧快照不得续写）', () 
       const inner: any = { ...player, version: player.version, buffs: '[]' };
       const innerMarkers = parseJson(inner.markers, {});
       innerMarkers['活跃度'] = 1;
-      innerMarkers['Saber技能熟练度'] = 100;
+      innerMarkers['saber技能熟练度'] = 100;
       inner.markers = JSON.stringify(innerMarkers);
       await service.playerService.savePlayer(inner); // version 5 → 6
       return { result: '【命中】', player: inner, markers: innerMarkers };
@@ -512,6 +520,6 @@ describe('誓约胜利之剑 保存链路回归（旧快照不得续写）', () 
 
     // 关键回归点：不能把 castCombatSkill 写入的活跃度/技能经验整包覆盖回滚
     expect(parseJson(last.markers, {})['活跃度']).toBe(1);
-    expect(parseJson(last.markers, {})['Saber技能熟练度']).toBe(100);
+    expect(parseJson(last.markers, {})['saber技能熟练度']).toBe(100);
   });
 });

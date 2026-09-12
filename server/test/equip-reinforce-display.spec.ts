@@ -14,6 +14,7 @@ import { GameService } from '../src/modules/game/game.service';
 import { ItemService } from '../src/modules/game/item.service';
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { BonusService } from '../src/modules/game/bonus.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 // data 用占位串 'x'：只让 parseEquipment 走「静态表 hydrate」路径，
 // 属性全部来自静态定义 baseBonus，便于按原版口径手算期望值。
@@ -44,7 +45,7 @@ function makeGameService() {
   itemSystemService.bonusService = new BonusService();
   itemSystemService.playerService = { getMarkerValue: markerReader };
 
-  const service = Object.create(GameService.prototype) as any;
+  const service = createGameServiceStub() as any;
   service.staticData = staticData;
   service.itemService = itemService;
   service.itemSystemService = itemSystemService;

@@ -8,7 +8,7 @@
  * 可配置项（副本名、宠物数量上限、几率等）统一从 SystemConfig 配置中心读取。
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
@@ -31,7 +31,7 @@ const DEFAULT_INSTANCE_NAMES = ['扭曲深渊', '遗忘之地', '虚空裂谷', 
 const DEFAULT_VEHICLES = ['流浪者', '勘探者', '游骑兵', '探险家', '开拓者'];
 
 @Injectable()
-export class ScheduleService {
+export class ScheduleService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ScheduleService.name);
   private autoSaveRunning = false;
   private lastAutoSaveTime = 0;
@@ -52,6 +52,37 @@ export class ScheduleService {
     private readonly gameService: GameService,
     private readonly staticData: StaticDataService,
   ) {}
+
+  /**
+   * 启动时补齐各地图常驻怪物（原版 接口1.ecode L1374：读档时对每张地图执行 `刷新地图`）。
+   *
+   * 与旧实现的关键差异：这里是**只补不删**（`topUpResidentMonsters` → `spawnResidentMonsters`），
+   * 不重建存活怪。原版 `刷新地图` 之所以是整批重建，是因为它的世界存档在启动时整体载入内存；
+   * 本框架的怪物实例持久化在 GameMonster 表，重启不该抹掉怪物身上已有的状态。
+   *
+   * 作用：保证「刚部署/冷启动」后所有非关卡地图都有怪可打，因此到达与建档两条路径
+   * 不再需要任何"懒刷新"捷径（这两条捷径已按原版移除）。
+   */
+  onApplicationBootstrap(): void {
+    // 不阻塞启动收尾；失败只告警（DB 尚未就绪时下一分钟 cron 仍会补齐）
+    void this.ensureResidentMonstersAtBoot();
+  }
+
+  private async ensureResidentMonstersAtBoot(): Promise<void> {
+    try {
+      const allMaps = await this.mapService.getAllMaps();
+      const maps = allMaps.filter((m: any) => this.isMonsterRespawnMap(m));
+      let spawned = 0;
+      for (const map of maps) {
+        spawned += await this.mapService.topUpResidentMonsters(map.id, map);
+      }
+      if (spawned > 0) {
+        this.logger.log(`启动补齐常驻怪物: ${spawned} 只`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`启动补齐常驻怪物失败: ${err?.message ?? err}`);
+    }
+  }
 
   /**
    * 自动开采每分钟结算一次已积累时间，保留玩家的进行中标记。
@@ -206,38 +237,51 @@ export class ScheduleService {
   }
 
   /**
-   * 怪物重生 - 每分钟检查一次
-   * 对应原版：怪物刷新
+   * 怪物重生 - 每分钟消费地图上的「刷新怪物」标记并按标记补怪
+   * 对应原版：后台运作.ecode L1626-1690（后台线程逐 tick 扫描地图「标记2」）。
+   *
+   * 原版链路（**勿改回「数量不足就整批重刷」**）：
+   *   击杀怪物 → 发放奖励 L458-461 登记「刷新怪物」标记（+120 秒）
+   *   → 标记到期 → L1663-1674 补 1 只随机模板怪（上限 `地图.怪物数量`）
+   *   → L1682 删除该标记。
+   * ⚠️ 补怪**只增不删**：绝不重建存活怪，否则会把玩家已打出的伤害清零，
+   *    导致战斗永远无法收尾（线上事故：每分钟把残血怪替换成满血新怪，战斗打不完）。
    */
   @Cron('0 * * * * *') // 每分钟
   async respawnMonsters() {
     try {
       const allMaps = await this.mapService.getAllMaps();
-      // 仅处理「有怪物模板」的地图：空模板地图（如城镇出口）原版语义就是无常驻怪，
-      // 提前过滤掉可避免每分钟对它们执行 getMapMonsters 查询与空刷新（delete+insert 0）
-      const maps = allMaps.filter((m: any) => {
-        if (!(m.monsterCount > 0)) return false;
-        const tpl = Array.isArray(m.monsters)
-          ? m.monsters
-          : typeof m.monsters === 'string'
-            ? this.safeParseStringArray(m.monsters)
-            : [];
-        return tpl.length > 0;
-      });
+      // 仅处理「有怪物模板」的非关卡地图：空模板地图（如城镇出口）原版语义就是无常驻怪，
+      // 提前过滤掉可避免每分钟对它们空跑一轮标记扫描
+      const maps = allMaps.filter((m: any) => this.isMonsterRespawnMap(m));
 
+      let spawned = 0;
+      let mapsTouched = 0;
       for (const map of maps) {
-        // 常驻怪物数量来自 GameMonster 表（isTemp=false）；不足则整批重刷
-        const monsters = await this.mapService.getMapMonsters(map.id);
-        const residentCount = monsters.filter((m: any) => !m.isTemp).length;
-
-        // 如果常驻怪物数量少于配置，整批刷新（refreshMapMonsters 内部先删后插）
-        if (residentCount < map.monsterCount) {
-          await this.mapService.refreshMapMonsters(map.id);
+        const added = await this.mapService.refillResidentMonstersByMarker(map.id);
+        if (added > 0) {
+          spawned += added;
+          mapsTouched += 1;
         }
+      }
+      if (spawned > 0) {
+        this.logger.log(`怪物重生: ${mapsTouched} 张地图补出 ${spawned} 只常驻怪物`);
       }
     } catch (err: any) {
       this.logger.error(`怪物重生失败: ${err.message}`);
     }
+  }
+
+  /** 该地图是否参与后台补怪（原版 L1628/L1632：非关卡 + 有怪物模板 + 怪物数量 > 0）。 */
+  private isMonsterRespawnMap(map: any): boolean {
+    if (!(Number(map?.monsterCount) > 0)) return false;
+    if (map?.isInstance || map?.关卡) return false;
+    const tpl = Array.isArray(map?.monsters)
+      ? map.monsters
+      : typeof map?.monsters === 'string'
+        ? this.safeParseStringArray(map.monsters)
+        : [];
+    return tpl.length > 0;
   }
 
   /**
@@ -860,30 +904,25 @@ export class ScheduleService {
         this.logger.log(`清理了 ${cleanedCount} 个玩家的过期标记`);
       }
 
-      // ----- 清理地图过期刷新标记（刷新怪物/刷新资源等，对应原版刷新标记逻辑） -----
+      // ----- 清理地图过期标记（对应原版 后台运作 L1682 的到期删除副作用） -----
+      // ⚠️ 必须走 pruneExpiredMapMarkers2（锁内重读 → 只删已过期的一般标记）：
+      //   - 不能用「循环外批量读取的快照」整组回写——遍历耗时期间其他写路径
+      //     （击杀登记「刷新怪物」、采集登记「刷新资源X」）新增的标记会被抹掉；
+      //   - 「刷新怪物」/「刷新资源X」**不清理**：它们必须由各自的专用消费者
+      //     （respawnMonsters / refreshMapResources，均每分钟）消费掉，提前删除
+      //     会让怪物/资源从此不再刷新。
       const allMapsForCleanup = await this.mapService.getAllMaps();
-      const maps = allMapsForCleanup.map((m: any) => ({ id: m.id, markers2: m.markers2 }));
 
       let cleanedMaps = 0;
-      for (const map of maps) {
-        // 与玩家 markers2 同口径：只清理秒级「到期时刻」，保留触发时刻型标记
-        const mapMarkers2 = this.parseJsonArray<any>(map.markers2);
-        const validMapMarkers2 = mapMarkers2.filter((m: any) => {
-          if (!m?.expireAt) return true;
-          const raw = Number(m.expireAt);
-          const expireSec = raw >= 1e12 ? raw / 1000 : raw;
-          return expireSec > nowSec;
-        });
-        if (validMapMarkers2.length !== mapMarkers2.length) {
-          await this.mapService.updateDynamicFields(map.id, {
-            markers2: validMapMarkers2,
-          });
-          cleanedMaps++;
-        }
+      for (const map of allMapsForCleanup) {
+        // 快照为空只用于"跳过"（不可能有可清理项）；真正的判断在锁内重读后进行
+        if (this.parseJsonArray<any>(map.markers2).length === 0) continue;
+        const removed = await this.mapService.pruneExpiredMapMarkers2(map.id, nowMs);
+        if (removed > 0) cleanedMaps++;
       }
 
       if (cleanedMaps > 0) {
-        this.logger.log(`清理了 ${cleanedMaps} 个地图的过期刷新标记`);
+        this.logger.log(`清理了 ${cleanedMaps} 个地图的过期标记`);
       }
     } catch (err: any) {
       this.logger.error(`清理过期标记失败: ${err.message}`);

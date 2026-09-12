@@ -4,6 +4,22 @@
 import { Module, Global, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from './game.service';
+import { GameSupportService } from './game-support.service';
+import { GatherPanelService } from './commands/gather-panel.service';
+import { MovementVehicleService } from './commands/movement-vehicle.service';
+import { RescueWhiteService } from './commands/rescue-white.service';
+import { DungeonChallengeService } from './commands/dungeon-challenge.service';
+import { DelayedSettleService } from './commands/delayed-settle.service';
+import { HomeBuildService } from './commands/home-build.service';
+import { QuestDialogueService } from './commands/quest-dialogue.service';
+import { ShopTradeService } from './commands/shop-trade.service';
+import { SkillCommandService } from './commands/skill-command.service';
+import { EquipCommandService } from './commands/equip-command.service';
+import { PetCommandService } from './commands/pet-command.service';
+import { TimeSettleService } from './commands/time-settle.service';
+import { FusionCraftService } from './commands/fusion-craft.service';
+import { AdminCommandService } from './commands/admin-command.service';
+import { RankingCommandService } from './commands/ranking-command.service';
 import { GameController } from './game.controller';
 import { PlayerService } from './player.service';
 import { PlayerMutateContextService } from './player-mutate-context.service';
@@ -53,6 +69,22 @@ import { FeedbackModule } from '../feedback/feedback.module';
   ],
   providers: [
     GameService,
+    GameSupportService,
+    GatherPanelService,
+    MovementVehicleService,
+    RescueWhiteService,
+    DungeonChallengeService,
+    DelayedSettleService,
+    HomeBuildService,
+    QuestDialogueService,
+    ShopTradeService,
+    SkillCommandService,
+    EquipCommandService,
+    PetCommandService,
+    TimeSettleService,
+    FusionCraftService,
+    AdminCommandService,
+    RankingCommandService,
     PlayerService,
     PlayerMutateContextService,
     PlayerMutateService,
@@ -89,6 +121,22 @@ import { FeedbackModule } from '../feedback/feedback.module';
   ],
   exports: [
     GameService,
+    GameSupportService,
+    GatherPanelService,
+    MovementVehicleService,
+    RescueWhiteService,
+    DungeonChallengeService,
+    DelayedSettleService,
+    HomeBuildService,
+    QuestDialogueService,
+    ShopTradeService,
+    SkillCommandService,
+    EquipCommandService,
+    PetCommandService,
+    TimeSettleService,
+    FusionCraftService,
+    AdminCommandService,
+    RankingCommandService,
     PlayerService,
     PlayerMutateContextService,
     PlayerMutateService,

@@ -122,7 +122,9 @@ describe('使魔技能第一批：怒吼/万象/鹰眼/歼灭（原版 使魔技
 
     const result = await service.executeSkill(42, '怒吼');
 
-    expect(result).toContain('技能冷却中');
+    // 冷却提示文本对齐原版：时间间隔要求 → 「还需要」+ 数字到时间（数据分析.ecode L1021）
+    expect(result).toContain('还需要');
+    expect(result).toMatch(/还需要\d+秒/);
     expect(service.taskService.advance).not.toHaveBeenCalled();
   });
 

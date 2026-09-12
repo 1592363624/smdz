@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -22,8 +23,7 @@ function makeService(options: { markers?: Record<string, any>; map?: any } = {})
     monsters: '[]', resources: '[]', resources2: '[]',
     items: '[]', npcs: '[]', summons: '[]', markers2: '[]',
   };
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma: {
       player: {
         findMany: jest.fn(async () => [

@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseJson(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -65,8 +66,7 @@ function makeService(options: {
     // performArrival 自串行（支柱二）：入口统一过用户级串行邮箱，桩直通
     enqueueUserWrite: jest.fn(async (_uid: number, fn: () => Promise<any>) => fn()),
   };
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma: {},
     playerService,
     mapService: {
@@ -101,6 +101,9 @@ function makeService(options: {
       scheduled.push({ userId, mapId, name, seconds });
     }),
   });
+  // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
+  // scheduleArrival 的 spy 需落在子服务实例上（实体已迁出）
+  (service as any).movementVehicleService.scheduleArrival = (service as any).scheduleArrival;
   return { service, player, currentMap, targetMap, saved, scheduled, playerService, mapService: service.mapService };
 }
 

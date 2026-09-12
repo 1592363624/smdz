@@ -2,6 +2,7 @@ import { GameService } from '../src/modules/game/game.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
 import { DelayedTaskService } from '../src/modules/game/delayed-task.service';
 import { parseJson } from './parse-json.util';
+import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 /**
  * 手动载具开采与补魔语义对齐自检（修复迁移审计发现 1 / 发现 2）：
@@ -128,14 +129,26 @@ function makeFixture(options: {
     emitToUser: jest.fn(async (_userId: number, _text: string) => undefined),
   };
   const combatState = new CombatStateService();
-  const service: any = Object.create(GameService.prototype);
-  Object.assign(service, {
+  const service: any = createGameServiceStub({
     prisma,
     delayedTaskService,
     playerService,
     mapService: {
       getMapById: jest.fn(async () => map),
       updateDynamicFields: jest.fn(async () => undefined),
+      // 标记2 的生产落库口 mergeMapMarkers2（锁内重读 + 按名 upsert）
+      mergeMapMarkers2: jest.fn(async (_mapId: number, incoming: any[]) => {
+        const current = parseJson(map.markers2, []) as any[];
+        const merged = [...current];
+        for (const item of incoming ?? []) {
+          const name = item?.name ?? item?.名称;
+          if (!name) continue;
+          const idx = merged.findIndex((e: any) => (e?.name ?? e?.名称) === name);
+          if (idx >= 0) merged[idx] = item;
+          else merged.push(item);
+        }
+        map.markers2 = merged;
+      }),
       mutateMapFields: jest.fn(async (_mapId: number, fields: string[], mutator: (f: any) => any) => {
         const f: any = {};
         for (const field of fields) {
@@ -174,6 +187,7 @@ function makeFixture(options: {
     pushPlayerUpdate: jest.fn(async () => undefined),
     pushMapUpdate: jest.fn(async () => undefined),
   });
+  // P3-3：delayed 域已迁出，经门面引用调用 gather/panel 域方法——桩自挂门面
   return {
     service, player, map, taskService, prisma, chatService, playerService,
     combatSystem, delayedTaskService, delayedTaskRows, shortcutService: (service as any).shortcutService,
