@@ -68,6 +68,8 @@ describe('生成神之工匠/生成废弃载具 语义还原 + 耗时公式复�
       },
       logger: { log: jest.fn(), warn: jest.fn() },
     });
+    // P3-4：dungeon 域已迁出，经门面引用调用 vehicle 域 toRuntimeVehicle/toStoredVehicle——桩自挂门面
+    (service as any).dungeonChallengeServiceSvc?.attachFacade?.(service);
     return { service, player, map, wreckMapVehicles, summonsStore };
   }
 
