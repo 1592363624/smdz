@@ -13,6 +13,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AdminService } from '../../admin/admin.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
+import { asJsonValue } from '../../../common/utils/json-value.util';
 
 @Injectable()
 export class AdminCommandService {
@@ -33,9 +34,44 @@ export class AdminCommandService {
     }
     if (!this.delayedTaskService) return { ok: false, completed: 0, message: '延时任务服务不可用' };
     const n = await this.delayedTaskService.completeNowForUser(userId);
+    // 结算后复核：删除「采集中」是结算链的一步，若其落库被旧快照/跨进程覆盖（线上实测：
+    // 任务已完成、产出已发放，唯独标记残留导致前端读条不消失），此处补删一次——
+    // 让「⚡完成」返回时状态与用户所见一致（再次点击也对残留生效）。
+    await this.reconcileStaleGatherMarker(userId);
     return n > 0
       ? { ok: true, completed: n, message: `⚡ 管理员特权：${n} 个进行中的延时操作已立即完成` }
       : { ok: true, completed: 0, message: '当前没有进行中的延时操作' };
+  }
+
+  /**
+   * 「⚡完成」结算后复核：清理无对应 gather 延时任务行、却仍留在玩家身上的
+   * 「采集中」标记（含配套的 markers2「采集」锁定标记）。
+   *
+   * 判据是「无 gather 任务行」：正常采集开始时标记与任务行同时落库，
+   * 任务行被结算认领删除后标记应同步消失；仍残留即为删除被覆盖的异常态。
+   * 有任务行时（正在采集/刚重新开始）一律不动，幂等且不引入新语义。
+   */
+  private async reconcileStaleGatherMarker(userId: number): Promise<void> {
+    try {
+      const pending = await this.prisma.delayedTask.findMany({
+        where: { userId: Number(userId), type: 'gather' },
+        select: { id: true },
+      });
+      if (pending.length > 0) return; // 仍有采集任务行：正在采集，保持原状
+      await this.support.mutatePlayer(userId, (ctx: any) => {
+        const markers = asJsonValue<Record<string, any>>(ctx.player.markers, {});
+        if (!markers['采集中']) return;
+        delete markers['采集中'];
+        ctx.player.markers = markers;
+        const mk2 = asJsonValue<any[]>(ctx.player.markers2, []);
+        const filtered = mk2.filter((m: any) => (m?.name ?? m?.名称 ?? m?.key) !== '采集');
+        if (filtered.length !== mk2.length) ctx.player.markers2 = filtered;
+        this.logger.warn(`「⚡完成」复核清理残留「采集中」标记 userId=${userId}`);
+      });
+    } catch (e: any) {
+      // 复核是旁路：任何异常不得影响「⚡完成」的主结果
+      this.logger.warn(`「⚡完成」复核清理残留标记失败 userId=${userId}: ${e?.message || e}`);
+    }
   }
 
   /**

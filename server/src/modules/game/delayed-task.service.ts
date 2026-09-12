@@ -174,6 +174,14 @@ export class DelayedTaskService implements OnModuleInit, OnModuleDestroy {
       where: { id: { in: pending.map((p) => p.id) } },
       data: { runAt: now },
     });
+    // tick 带防重入（周期 tick 在跑时直接返回 0），而那一轮可能已经扫描过到期
+    // 列表、不包含本次刚提前的任务行。若就此返回，调用方（REST「⚡完成」按钮 /
+    // QQ「立即完成」）会在结算真正完成前拿到回执，前端紧接着刷新只能看到
+    // 「结算前」的旧读条——表现为「任务已完成但读条不消失」。因此先等在途
+    // 轮次收尾，再补跑一轮，保持本方法「返回即已结算」的同步语义。
+    for (let i = 0; i < 300 && this.ticking; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
     await this.tick();
     return pending.length;
   }

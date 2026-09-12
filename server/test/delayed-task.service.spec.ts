@@ -161,6 +161,30 @@ describe('DelayedTaskService：持久化延时任务', () => {
     expect(db.rows).toHaveLength(0); // 认领即删行
   });
 
+  it('completeNowForUser：周期 tick 在途（防重入）时等待并补跑，返回即已结算', async () => {
+    const db = makeDelayedTaskPrisma();
+    const service = makeService(db);
+    const handled: any[] = [];
+    service.registerHandler('gather', async (task) => { handled.push(task); });
+    await service.schedule({ type: 'gather', userId: 7, runAt: Date.now() + 600_000 });
+
+    // 模拟"周期 tick 正在执行且已扫描过到期列表（不含本次刚提前的行）"：
+    // 修复前 completeNowForUser 的 tick 会被防重入直接跳过并立即返回，
+    // 结算要等下一轮周期 tick —— 调用方（REST「⚡完成」）拿到回执时前端刷新
+    // 只能看到结算前的旧读条（用户实测「任务完成但读条不消失」）。
+    (service as any).ticking = true;
+    setTimeout(() => { (service as any).ticking = false; }, 80);
+
+    const n = await service.completeNowForUser(7);
+    expect(n).toBe(1);
+    expect(handled).toHaveLength(1); // 等在途轮次收尾后补跑的一轮完成了结算
+    expect(db.rows).toHaveLength(0); // 认领即删行
+
+    // 再点一次：无 pending 任务返回 0，不重复结算
+    expect(await service.completeNowForUser(7)).toBe(0);
+    expect(handled).toHaveLength(1);
+  });
+
   it('completeNowForUser：无 pending 任务返回 0；只作用于目标玩家自己', async () => {
     const db = makeDelayedTaskPrisma();
     const service = makeService(db);

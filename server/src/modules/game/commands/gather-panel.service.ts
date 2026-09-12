@@ -94,7 +94,7 @@ export class GatherPanelService {
       装甲: calcBonus.装甲 || 0,
       速度: calcBonus.速度 || 0,
     };
-    return {
+    const result = {
       id: player.id,
       userId: player.userId,
       level: player.level,
@@ -128,6 +128,42 @@ export class GatherPanelService {
       // 进行中的延时操作（采集/移动/抢救…）：前端据此渲染统一倒计时进度条
       pendingActions: this.buildPendingActions(player, markers, playerData.markers2, playerData.buffs),
     };
+    // 残留诊断（只读、fire-and-forget，不阻塞面板返回）
+    void this.detectStaleGatherMarker(userId, asJsonValue<Record<string, any>>(markers, {}));
+    return result;
+  }
+
+  /** 残留「采集中」告警节流（userId → 上次告警时间；60 秒一次，防刷屏） */
+  private readonly staleGatherWarnAt = new Map<number, number>();
+
+  /**
+   * 残留诊断（只读，不写库）：玩家身上有「采集中」标记、却已无对应 gather 延时
+   * 任务行时，记录一条节流告警，为"任务已完成但读条不消失"的现场留证据。
+   *
+   * 正常采集时标记与任务行同时存在；"有标记无任务行"只可能出现在"结算已认领
+   * 任务行、但标记删除被覆盖/未生效"的异常形态（2026-09-12 玩家 2660 实测现场）。
+   * 清理动作由「⚡完成」的复核（AdminCommandService.reconcileStaleGatherMarker）承担。
+   */
+  private async detectStaleGatherMarker(userId: number, markers: Record<string, any>): Promise<void> {
+    try {
+      const gather = markers?.['采集中'];
+      if (!gather) return;
+      if (typeof (this.prisma as any)?.delayedTask?.findMany !== 'function') return; // 测试桩无模型
+      const last = this.staleGatherWarnAt.get(userId) || 0;
+      if (Date.now() - last < 60_000) return;
+      const tasks = await this.prisma.delayedTask.findMany({
+        where: { userId: Number(userId), type: 'gather' },
+        select: { id: true },
+      });
+      if (tasks.length > 0) return; // 仍有采集任务行：正在采集，正常
+      if (this.staleGatherWarnAt.size > 500) this.staleGatherWarnAt.clear();
+      this.staleGatherWarnAt.set(userId, Date.now());
+      this.logger.warn(
+        `检测到残留「采集中」标记（无 gather 任务行）：userId=${userId}`
+        + ` target=${gather?.target ?? ''} settleAt=${gather?.settleAt ?? 0}`
+        + ` —— 结算删除被覆盖的异常形态，点「⚡完成」可清理；请保留此日志用于定位`,
+      );
+    } catch { /* 诊断旁路：任何异常都不得影响面板读取 */ }
   }
 
   /**
@@ -558,13 +594,19 @@ export class GatherPanelService {
   }
 
   /**
-   * 推送版本号：每个 (实体,用户) 维度的单调递增计数器。
-   * 前端据此丢弃网络乱序导致的旧包（rev 小于已应用值则忽略）。
-   * 进程重启归零无碍——前端对 rev 回退/归零宽容处理（视为新会话）。
+   * 推送版本号：每个 (实体,用户) 维度的单调递增计数器，前端据此丢弃网络乱序
+   * 导致的旧包（rev <= 已应用值则忽略）。
+   *
+   * 取 `Math.max(Date.now(), prev + 1)` 而非简单 +1：计数器是进程内存态，
+   * 服务重启后若从 1 重新计数，前端守卫会把重启后的所有推送都判成旧包丢弃
+   * （前端未实现「rev 回退宽容」），直到重新追上重启前的计数——期间玩家面板/
+   * 读条只能靠 REST 兜底轮询刷新，表现为「操作已完成但界面（读条）不消失」。
+   * 时间戳天然跨重启单调，同毫秒内多次推送用 prev+1 兜底。
    */
 
   nextRev(key: string): number {
-    const next = (this.revCounters.get(key) || 0) + 1;
+    const prev = this.revCounters.get(key) || 0;
+    const next = Math.max(Date.now(), prev + 1);
     this.revCounters.set(key, next);
     return next;
   }

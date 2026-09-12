@@ -92,6 +92,35 @@ export function filterActive(list: any, nowMs: number = Date.now()): any[] {
 }
 
 /**
+ * 缩短容器中指定名称条目的有效期（原版 `获得增益(容器, name, -seconds, 真)` 语义）：
+ * 把到期时间提前 seconds 秒，减后已到期的条目按原版直接删除（删除成员），
+ * 尚有剩余的条目按**原字段口径**写回（`有效期至` 毫秒 / `expireAt` 保持原秒或毫秒）。
+ * 就地修改传入数组；「卷土重来」击杀复活 -60 秒、救助/扶起 -30 秒等场景共用。
+ * @returns 是否有条目被改动（删除或缩短）
+ */
+export function shortenBuff(list: any[], name: string, seconds: number, nowMs: number = Date.now()): boolean {
+  if (!Array.isArray(list)) return false;
+  let changed = false;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const it = list[i];
+    if (itemName(it) !== name) continue;
+    const raw = Number(it?.expireAt ?? it?.有效期至 ?? 0);
+    if (!raw) { list.splice(i, 1); changed = true; continue; } // 无到期时间的异常条目直接清掉
+    const isMs = raw >= MS_THRESHOLD || it?.有效期至 !== undefined;
+    const remainMs = (isMs ? raw : raw * SECOND_MS) - seconds * SECOND_MS;
+    if (floorSec(remainMs) <= floorSec(nowMs)) {
+      list.splice(i, 1); // 减后已过期 → 保护结束（原版 删除成员）
+    } else if (it?.有效期至 !== undefined) {
+      it.有效期至 = remainMs;
+    } else {
+      it.expireAt = isMs ? remainMs : remainMs / SECOND_MS;
+    }
+    changed = true;
+  }
+  return changed;
+}
+
+/**
  * 「触发时刻」型冷却判定：距上次触发时刻是否已超过 intervalMs 毫秒。
  *
  * 与「到期时刻」型的区别：容器里存的是**上次触发的时刻**（过去值），

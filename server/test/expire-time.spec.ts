@@ -3,7 +3,7 @@ import { GameService } from '../src/modules/game/game.service';
 import { PlayerService } from '../src/modules/game/player.service';
 import {
   expireAfter, filterActive, findActive, formatRemain, hasActive, isActive,
-  isActiveBeyond, isDueSince, remainSeconds, toExpireMs,
+  isActiveBeyond, isDueSince, remainSeconds, shortenBuff, toExpireMs,
 } from '../src/modules/game/expire-time.util';
 
 describe('过期时间统一工具（增益/标记）', () => {
@@ -53,6 +53,29 @@ describe('过期时间统一工具（增益/标记）', () => {
     expect(remainSeconds({ expireAt: nowSec + 65 }, nowMs)).toBe(64);
     expect(formatRemain(65)).toBe('1:05');
     expect(formatRemain(-3)).toBe('0:00');
+  });
+
+  it('shortenBuff：减后过期即删除、剩余按原口径写回（原版 获得增益 -N 真）', () => {
+    // 秒口径：30 秒保护减 60 秒 → 直接移除（击杀复活「卷土重来」主场景）
+    const secExpire = [{ name: '卷土重来', expireAt: nowSec + 30 }];
+    expect(shortenBuff(secExpire, '卷土重来', 60, nowMs)).toBe(true);
+    expect(secExpire).toHaveLength(0);
+
+    // 毫秒口径（中文键）：120 秒保护减 60 秒 → 保留约 60 秒，写回毫秒
+    const msExpire = [{ 名称: '卷土重来', 有效期至: nowMs + 120 * 1000 }];
+    expect(shortenBuff(msExpire, '卷土重来', 60, nowMs)).toBe(true);
+    expect(msExpire).toHaveLength(1);
+    expect(msExpire[0].有效期至).toBe(nowMs + 60 * 1000);
+
+    // 秒口径未过期：缩短后写回秒（保持原字段口径），其它增益不受影响
+    const secKeep = [{ name: '卷土重来', expireAt: nowSec + 120 }, { name: '闪避', expireAt: nowSec + 30 }];
+    expect(shortenBuff(secKeep, '卷土重来', 60, nowMs)).toBe(true);
+    expect(secKeep).toHaveLength(2);
+    expect(secKeep[0].expireAt).toBe(nowSec + 60);
+    expect(secKeep[1].expireAt).toBe(nowSec + 30);
+
+    // 容器中无该名称 → 无改动
+    expect(shortenBuff([{ name: '闪避', expireAt: nowSec + 30 }], '卷土重来', 60, nowMs)).toBe(false);
   });
 });
 
