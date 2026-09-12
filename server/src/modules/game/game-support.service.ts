@@ -19,6 +19,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import {
   formatDisplayNumber,
   formatMsDurationText,
@@ -397,6 +398,13 @@ export class GameSupportService {
     const index = Number(player.currentWeapon || 0);
     if (index <= 0) return null;
     return weapons[index - 1] || weapons[index] || null;
+  }
+
+
+  addItemToCollection(collection: any[], item: any): void {
+    // 统一走 item-normalize 规范化合并（Issue #11）：type 以静态定义为唯一真源。
+    // 注意红线：装备在此只追加不合并，调用方不得把装备当资源记账条目传入。
+    mergeBackpackItem(collection, item, lookupFromStaticData(this.staticData));
   }
 
 }
