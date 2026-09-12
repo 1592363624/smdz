@@ -191,9 +191,15 @@ export class ScheduleService implements OnApplicationBootstrap {
    * 在线时长统计 - 每分钟执行一次
    * 把最近5分钟内有更新（视为在线）的玩家累计在线秒数 +60，
    * 用于 GM 后台用户管理展示"累计在线时长"。
+   *
+   * 可用环境变量 PLAYTIME_CRON=off 停用：本任务每分钟推进活跃玩家的 version，
+   * 会与「锁外快照式 savePlayer」路径互相挤掉写入（stale-block 静默丢写 / CAS
+   * 冲突）——集成测试环境必须停用，否则 e2e 断言偶发读到半套写入的结果
+   * （2026-09-12 integration-vehicle-combat 偶发失败根因）。
    */
   @Cron('30 * * * * *')
   async accumulatePlayTime() {
+    if (process.env.PLAYTIME_CRON === 'off') return;
     try {
       const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
       // 静默上下文：纯统计写入，不触发 UI 同步事件（避免每分钟全体在线玩家的事件风暴）

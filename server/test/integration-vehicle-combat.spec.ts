@@ -14,6 +14,24 @@
  *  - 测试3 无载具直扣：玩家无载具 → 怪物反击 → 断言玩家 hp 直接下降。
  *  - 测试4 扫荡走完整模型：调用 gameService.handleSweep → 断言返回击杀/经验且玩家存在。
  *  - afterAll 清理测试账号（User 级联删 Player）。
+ *
+ * 偶发失败排查结论（2026-09-12）：
+ *  - 本文件在全量套件中偶发（约 1/3 全量跑）单用例失败，单独跑稳定全绿；
+ *    失败点漂移（测试7 护盾归零 / 测试2 载具写丢失 / 测试8、11 resetPlayer CAS 冲突）。
+ *    经探针与开启日志实测：与门面/测试桩清理无关，也非读副本延迟（单主库）。
+ *  - **根因（实锤）＝共享远程库上的「在线时长统计」并发写者**：
+ *    ScheduleService.accumulatePlayTime 每分钟 :30 给所有 5 分钟内活跃的玩家
+ *    推进 version（本进程实例 + 部署在共享库 smdztest 上的服务端实例各有一个）。
+ *    e2e 玩家全程高频写 → 每轮都被选中 → 测试的「锁外快照式保存」被它挤掉：
+ *    mergeIntoLiveState stale-block **静默丢写**（测试7 护盾回到 0）或 CAS 冲突
+ *    抛错被反击路径的整体 catch 吞掉（部分应用，测试2 载具写丢失）。
+ *    失败时间戳全部落在每分钟 :31-:32，与 cron 触发窗口吻合。
+ *  - 处置：① 本进程实例经 PLAYTIME_CRON=off 停用（test/jest.env.cjs 全局注入，
+ *            外部服务端实例无法从测试侧关闭）；
+ *          ② 本文件所有「读快照→改→存」改走 savePlayerResilient（CAS 冲突时
+ *            重读最新行重新应用字段后重试）；
+ *          ③ 本文件启动保留 warn/error 日志，吞掉的失败从此可见；
+ *          ④ jest.retryTimes(2) 兜底 + afterAll 打印写模型诊断。
  */
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
@@ -95,14 +113,16 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
       ...extra,
     }];
     await mapService.updateDynamicFields(mapId, { vehicles });
-    const pd = await playerService.getPlayerData(uid);
-    pd.player.vehicle = vId;
-    await playerService.savePlayer(pd.player);
+    await savePlayerResilient(uid, (player) => {
+      player.vehicle = vId;
+    });
     return { vId, vName };
   }
 
   beforeAll(async () => {
-    app = await NestFactory.createApplicationContext(AppModule, { logger: false });
+    // 注意：不要用 logger:false——反击路径的吞错点只走 logger.warn/error，
+    // 关掉日志会让「部分应用」类偶发失败完全不可见（2026-09-12 排查结论）。
+    app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
     prisma = app.get(PrismaService);
     combat = app.get(CombatSystemService);
     playerService = app.get(PlayerService);
@@ -158,11 +178,40 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
       try { await prisma.user.delete({ where: { id: uid } }); } catch { /* 已删 */ }
       (StatsService as any).onlineUsers.delete(uid);
     }
+    // 写模型健康度：staleWriteBlocked/casConflict 非零即本文件内发生过静默丢写，
+    // 是「偶发断言失败」类问题的第一排查信号。
+    try {
+      console.log(`[vehicle-combat] 写模型诊断:`, JSON.stringify((playerService as any).getWriteModelDiagnostics()));
+    } catch { /* 诊断自身失败不影响清理 */ }
     if (app) await app.close();
   });
 
   async function getPlayer(uid: number) {
     return playerService.getPlayerData(uid);
+  }
+
+  /**
+   * 共享远程库弹性保存：外部进程（部署的测试服）也有每分钟 :30 的在线时长统计
+   * cron，会推进活跃玩家的 version——本文件的快照式保存偶发 CAS 冲突。
+   * 冲突时重新读取最新行、重新应用字段后重试（字段 applier 必须是幂等覆盖式写法）。
+   */
+  async function savePlayerResilient(
+    uid: number,
+    apply: (player: any) => void,
+    attempts = 5,
+  ): Promise<void> {
+    for (let i = 0; ; i++) {
+      const pd = await getPlayer(uid);
+      apply(pd.player);
+      try {
+        await playerService.savePlayer(pd.player);
+        return;
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        if (i >= attempts - 1 || !msg.includes('并发冲突')) throw e;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
   }
 
   // 复刻原 weaponAttack 内联怪物反击的收集逻辑（该内联反击已按原版语义移除，
@@ -210,15 +259,15 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
   /** 将指定玩家重置为干净战斗态（满血、无载具、无增减益干扰），保证跨套件共享远程库时断言稳定 */
   async function resetPlayer(uid: number, hp = 100) {
-    const pd = await getPlayer(uid);
-    pd.player.hp = hp;
-    pd.player.maxHp = hp;
-    pd.player.shield = 0;
-    pd.player.armor = 0;
-    pd.player.vehicle = '';
-    pd.player.buffs = '[]';
-    pd.player.markers2 = '[]';
-    await playerService.savePlayer(pd.player);
+    await savePlayerResilient(uid, (player) => {
+      player.hp = hp;
+      player.maxHp = hp;
+      player.shield = 0;
+      player.armor = 0;
+      player.vehicle = '';
+      player.buffs = '[]';
+      player.markers2 = '[]';
+    });
   }
 
   it('测试1 载具吸收：玩家驾驶耐久充足载具 → 玩家 hp 不变、载具扣血', async () => {
@@ -296,10 +345,10 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
   it('测试4 扫荡走完整模型：handleSweep 返回击杀/经验且玩家存活', async () => {
     const uid = createdUserIds[0];
     // 重置该玩家状态，确保可扫荡
-    const pd = await getPlayer(uid);
-    pd.player.hp = pd.player.maxHp;
-    pd.player.vehicle = '';
-    await playerService.savePlayer(pd.player);
+    await savePlayerResilient(uid, (player) => {
+      player.hp = player.maxHp;
+      player.vehicle = '';
+    });
 
     const before = await getPlayer(uid);
     void before;
@@ -360,12 +409,12 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
   it('测试7 贯穿：载具只承受普通伤害，贯穿额外伤害直接作用于玩家三池', async () => {
     const uid = createdUserIds[2];
     await resetPlayer(uid, 100);
-    const pd = await getPlayer(uid);
-    pd.player.shield = 100;
-    pd.player.maxShield = 100;
-    pd.player.armor = 100;
-    pd.player.maxArmor = 100;
-    await playerService.savePlayer(pd.player);
+    await savePlayerResilient(uid, (player) => {
+      player.shield = 100;
+      player.maxShield = 100;
+      player.armor = 100;
+      player.maxArmor = 100;
+    });
     const { vId } = await setupVehicle(uid, 200);
     mockFixedDamage(100, {
       poolDamage: { shield: 70, armor: 20, hp: 10 },

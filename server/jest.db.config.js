@@ -23,6 +23,8 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/test'],
   testMatch,
+  // 与 jest.full.config.js 保持一致：真实库套件同样停用统计类 cron（见 test/jest.env.cjs）
+  setupFiles: ['<rootDir>/test/jest.env.cjs'],
   // ts-jest 转换 TS 源码
   transform: {
     '^.+\\.ts$': [

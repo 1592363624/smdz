@@ -18,6 +18,8 @@ module.exports = {
   // 仅运行 test 目录下以 .spec.ts 结尾的文件
   roots: ['<rootDir>/test'],
   testMatch: ['**/*.spec.ts'],
+  // 每个测试文件执行前注入测试环境默认值（停用统计类 cron，见 test/jest.env.cjs）
+  setupFiles: ['<rootDir>/test/jest.env.cjs'],
   // ts-jest 转换 TS 源码
   transform: {
     '^.+\\.ts$': [
