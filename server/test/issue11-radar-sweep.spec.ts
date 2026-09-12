@@ -11,6 +11,7 @@
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { CombatSystemService } from '../src/modules/game/combat-system.service';
 import { GameService } from '../src/modules/game/game.service';
+import { GatherPanelService } from '../src/modules/game/commands/gather-panel.service';
 
 /** ItemSystemService 手工构造桩（绕过 Nest DI） */
 function makeItemSystem(staticOverrides: Partial<Record<string, any>> = {}) {
@@ -52,6 +53,7 @@ function makeItemSystem(staticOverrides: Partial<Record<string, any>> = {}) {
     {} /* prisma */, playerService, {} /* bonus */, {} /* itemService */,
     achievementService, staticData,
   );
+  (service as any).gatherPanelServiceSvc?.attachFacade?.(service);
   return { service, playerData, markers };
 }
 
@@ -163,7 +165,7 @@ describe('Issue #11：探测雷达扫描废弃载具等十类目标', () => {
       },
     ];
     const { self } = makeRadarThis(maps);
-    const text = await (GameService.prototype as any).handleProbeRadar.call(self, 1);
+    const text = await (GatherPanelService.prototype as any).handleProbeRadar.call(self, 1);
     expect(text).toContain('◆废弃载具: 荒原入口附近x1');
     expect(text).toContain('◆行商: 绿洲门附近x1');
   });
@@ -181,7 +183,7 @@ describe('Issue #11：探测雷达扫描废弃载具等十类目标', () => {
       },
     ];
     const { self } = makeRadarThis(maps);
-    const text = await (GameService.prototype as any).handleProbeRadar.call(self, 1);
+    const text = await (GatherPanelService.prototype as any).handleProbeRadar.call(self, 1);
     expect(text).toContain('◆货舱: 森林出口附近x3');
     expect(text).toContain('◆能量元素: 森林出口附近x2');
   });
@@ -197,7 +199,7 @@ describe('Issue #11：探测雷达扫描废弃载具等十类目标', () => {
     self.playerService.getPlayerData = async () => ({
       player: { name: '测试员', markers: { 探测雷达等级5: 1 } },
     });
-    const text = await (GameService.prototype as any).handleProbeRadar.call(self, 1);
+    const text = await (GatherPanelService.prototype as any).handleProbeRadar.call(self, 1);
     expect(text).toContain('◆行商: 沙漠之心x1');
   });
 });

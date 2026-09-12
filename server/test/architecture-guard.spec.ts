@@ -483,7 +483,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
   // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）→ 16659（P2-2 admin 批次）→ 8695（P2-3~P2-8 / P3-1~P3-5 批次）：P1-1 消重（roundText/displayDamage）+
   // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
-  const GAME_SERVICE_LINE_BASELINE = 5566;
+  const GAME_SERVICE_LINE_BASELINE = 2123;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(
@@ -601,17 +601,8 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 「门面仅委托」。推送子系统 3 字段暂留门面（C7），P3 拆 panel 后白名单清空；
   // 其余 4 个字段随各自归属批迁出（P2-1 ranking / P2-8 shop / P3 gather），
   // 迁出时同步把该字段从白名单删除——白名单只减不增。
-  const FACADE_STATE_FIELD_WHITELIST = new Set([
-    // 推送/防抖子系统（C7，暂留门面至 P3 后）
-    'playerUpdateTimers',
-    'mapUpdateTimers',
-    'revCounters',
-    // gather 域并发去重（P3 内核批随迁）
-    'gatherStartInflight',
-    // shop 域交易串行化（P2-8 已随迁摘牌）
-    // ranking 域（P2-1 已随迁：lastCalcAtByUser / RANKING_SUB_TYPES 已摘牌）
-    // skill 域静态定义表（P2-7 已随迁摘牌）
-  ]);
+  // P3-6b 后推送 3 字段与 gatherStartInflight 已随簇迁出：白名单清空（任何业务状态字段回到门面即红）
+  const FACADE_STATE_FIELD_WHITELIST = new Set<string>([]);
 
   it('game.service.ts 门面类体内不得新增业务状态 Map/Set/Timer 字段（G8）', () => {
     const gameSrc = fs.readFileSync(

@@ -192,6 +192,7 @@ function makeGatherFixture(resource: any, options: {
     pushPlayerUpdate: jest.fn(async () => undefined),
     pushMapUpdate: jest.fn(async () => undefined),
   });
+  (service as any).gatherPanelServiceSvc?.attachFacade?.(service);
   return { service, player, map, taskService, prisma, itemSystemService, chatService, playerService, combatSystem, delayedTaskService, delayedTaskRows };
 }
 
