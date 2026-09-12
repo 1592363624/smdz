@@ -112,6 +112,8 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
       familiarSystemService: { checkAndUpdateGrowth: jest.fn() },
       logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
     });
+    // P3-1：quest 域已迁出，经门面引用调用 rescue 域 ensurePlayerWhite——桩自挂门面（懒构造桥触发后接线）
+    (service as any).questDialogueServiceSvc?.attachFacade?.(service);
     return { service, player, map, taskService, gameMapUpdates };
   }
 
