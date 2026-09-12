@@ -114,6 +114,7 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
     });
     // P3-1：quest 域已迁出，经门面引用调用 rescue 域 ensurePlayerWhite——桩自挂门面（懒构造桥触发后接线）
     (service as any).questDialogueServiceSvc?.attachFacade?.(service);
+    (service as any).movementVehicleServiceSvc?.attachFacade?.(service);
     return { service, player, map, taskService, gameMapUpdates };
   }
 

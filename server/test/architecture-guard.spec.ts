@@ -483,7 +483,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 后续把成组 handler 拆成子 service 后，请同步下调本基线。
   // 基线 17,434 → 17,281（2026-09-12 P1 批次）→ 16,967（P2-1 ranking 批次）→ 16659（P2-2 admin 批次）→ 8695（P2-3~P2-8 / P3-1~P3-5 批次）：P1-1 消重（roundText/displayDamage）+
   // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
-  const GAME_SERVICE_LINE_BASELINE = 8695;
+  const GAME_SERVICE_LINE_BASELINE = 5566;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(

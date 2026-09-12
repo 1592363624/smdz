@@ -94,9 +94,12 @@ function makeService(options: {
   // 内部到达链打桩：观测地图/剪毛/资产迁移/观察附近/跟随显示均为独立重逻辑，
   // 本套件只验证传送自身的门禁与文本分支。
   service.applyArrivalTriggers = jest.fn(async () => '');
-  service.migratePlayerAssetsOnMove = jest.fn(async () => undefined);
+  // P3-6a：实体已迁出 MovementVehicleService——spy 改挂子服务实例
+  (service as any).movementVehicleServiceSvc.migratePlayerAssetsOnMove = jest.fn(async () => undefined);
   service.handleLookAround = jest.fn(async () => '👀 【目标地图】附近情况');
   service.summonFollowDisplay = jest.fn(async () => ({ names: [], count: 0, indexes: [] }));
+  // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
+  (service as any).movementVehicleServiceSvc?.attachFacade?.(service);
   return { service, player, currentMap, targetMap, saved, playerService };
 }
 
@@ -111,7 +114,7 @@ describe('传送/跃迁（原版 L1676-1808 复刻）', () => {
     expect(result).toContain('在目标地图完成了分子重组');
     expect(fixture.service.taskService.advance).toHaveBeenCalledWith(42, '前往目标地图');
     expect(fixture.service.taskService.advance).toHaveBeenCalledWith(42, '传送');
-    expect(fixture.service.migratePlayerAssetsOnMove).toHaveBeenCalled();
+    expect((fixture.service as any).movementVehicleServiceSvc.migratePlayerAssetsOnMove).toHaveBeenCalled();
     const savedOnce = fixture.saved[fixture.saved.length - 1];
     expect(Number(parseJson(savedOnce.markers, {})['活跃度'])).toBe(1);
     expect(fixture.player.mapId).toBe(8);
@@ -184,7 +187,7 @@ describe('传送/跃迁（原版 L1676-1808 复刻）', () => {
     const result = await fixture.service.handleTeleport(42, '目标地图');
 
     expect(result).toContain('战斗状态');
-    expect(fixture.service.migratePlayerAssetsOnMove).not.toHaveBeenCalled();
+    expect((fixture.service as any).movementVehicleServiceSvc.migratePlayerAssetsOnMove).not.toHaveBeenCalled();
   });
 
   it('空参返回编号菜单并把家园房子与地图写入临时输入替换', async () => {

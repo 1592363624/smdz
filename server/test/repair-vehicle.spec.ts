@@ -85,6 +85,8 @@ function makeService(options: {
     chatService: { broadcastSystem: jest.fn(async () => undefined) },
     logger: { log: jest.fn(), warn: jest.fn() },
   });
+  // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
+  (service as any).movementVehicleServiceSvc?.attachFacade?.(service);
   return { service, player, map, scheduled, savedPlayers };
 }
 
