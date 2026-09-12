@@ -3103,6 +3103,31 @@ export class CombatSystemService implements OnApplicationShutdown {
       player.hp = Number(player.maxHp || attackerBonus.生命 || player.hp || 0);
       player.shield = Number(player.maxShield || attackerBonus.护盾 || player.shield || 0);
       player.armor = Number(player.maxArmor || attackerBonus.装甲 || player.armor || 0);
+      // 原版造成伤害 L3694：复活成功即 获得增益(攻击方.增益, "卷土重来", -60, 真)
+      // —— 免死保护时长减 60 秒，减后过期即删除（常见时长 30+属性 秒 < 60 秒 → 直接移除）。
+      // 此前遗漏该步：「卷土重来」增益残留会让前端免死保护倒计时（PendingActionBar
+      // 的 comeback 条）在复活后继续跑，直到下次出手被生命>0 兜底清除或自然过期，
+      // 与「已复活」状态自相矛盾。
+      const comebackBuffList = Array.isArray(playerData.buffs)
+        ? playerData.buffs
+        : this.playerService.safeJsonParse<any[]>(player.buffs, []);
+      const nowMsComebackKill = Date.now();
+      for (let i = comebackBuffList.length - 1; i >= 0; i--) {
+        const entry = comebackBuffList[i];
+        if ((entry?.name ?? entry?.名称) !== '卷土重来') continue;
+        const raw = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+        if (!raw) { comebackBuffList.splice(i, 1); continue; } // 无到期时间的异常条目直接清掉
+        const isMs = raw >= 1e12 || entry?.有效期至 !== undefined;
+        const remainMs = (isMs ? raw : raw * 1000) - 60 * 1000;
+        if (remainMs <= nowMsComebackKill) {
+          comebackBuffList.splice(i, 1); // 减后已过期 → 保护结束（原版 删除成员）
+        } else if (entry?.有效期至 !== undefined) {
+          entry.有效期至 = remainMs; // 中文键存毫秒口径
+        } else {
+          entry.expireAt = isMs ? remainMs : remainMs / 1000; // 保持原字段的秒/毫秒口径
+        }
+      }
+      player.buffs = comebackBuffList; // Json 列直接写数组
       comebackKill = true;
       resultLines.push(`${player.name || '你'}卷土重来！`);
     }

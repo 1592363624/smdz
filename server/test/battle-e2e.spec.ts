@@ -367,6 +367,75 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
     });
   });
 
+  // ---------- 卷土重来击杀复活 ----------
+  describe('卷土重来击杀复活（原版 造成伤害 L3690-3697）', () => {
+    it('倒地（卷土重来）击杀目标 → 回满三池 + 保护增益按 -60 秒结束（前端倒计时不再残留）', async () => {
+      const player = makePlayer({
+        userId: 2,
+        hp: 0,
+        maxHp: 100,
+        shield: 0,
+        maxShield: 40,
+        armor: 0,
+        maxArmor: 60,
+        // 生产写入为秒口径（怪物反击 / 反伤级联均写 nowSec + jtlSec）
+        buffs: JSON.stringify([{ name: '卷土重来', expireAt: Math.floor(Date.now() / 1000) + 30 }]),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 10, maxHp: 10 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+      jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({
+        damage: 999, poolDamage: { shield: 0, armor: 0, hp: 999 }, rating: '', critMultiplier: 1,
+      });
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+
+      expect(result.result).toContain('卷土重来！');
+      // 原版 L3691-3693：击杀复活回满三池
+      expect(player.hp).toBe(100);
+      expect(player.shield).toBe(40);
+      expect(player.armor).toBe(60);
+      // 原版 L3694：获得增益("卷土重来", -60, 真) → 30 秒保护减 60 秒后删除；
+      // 否则前端免死保护倒计时（PendingActionBar comeback 条）会在复活后继续跑。
+      const buffs = parseJson(player.buffs, []) as any[];
+      expect(buffs.some((b: any) => (b?.name ?? b?.名称) === '卷土重来')).toBe(false);
+    });
+
+    it('保护时长超过 60 秒（高「卷土重来」属性）→ 复活后按 -60 秒缩短但仍保留', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const player = makePlayer({
+        userId: 2,
+        hp: 0,
+        maxHp: 100,
+        buffs: JSON.stringify([{ name: '卷土重来', expireAt: nowSec + 120 }]),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 10, maxHp: 10 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+      jest.spyOn(combat as any, 'attackSummons').mockResolvedValue([]);
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({
+        damage: 999, poolDamage: { shield: 0, armor: 0, hp: 999 }, rating: '', critMultiplier: 1,
+      });
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+
+      expect(result.result).toContain('卷土重来！');
+      const buffs = parseJson(player.buffs, []) as any[];
+      const comeback = buffs.find((b: any) => (b?.name ?? b?.名称) === '卷土重来');
+      // 原版精确语义为「缩短 60 秒」而非无条件删除：120 秒保护 → 剩余约 60 秒
+      expect(comeback).toBeDefined();
+      const rawExpire = Number(comeback.expireAt ?? comeback.有效期至 ?? 0);
+      const expireSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
+      expect(Math.round(expireSec - Date.now() / 1000)).toBeGreaterThanOrEqual(58);
+      expect(Math.round(expireSec - Date.now() / 1000)).toBeLessThanOrEqual(61);
+    });
+  });
+
   // ---------- 轮次2：当前武器攻击 ----------
   describe('轮次2 当前武器攻击（修复2：指令攻击用 player.currentWeapon）', () => {
     it('装备了武器(currentWeapon>0)时，写入「武器名+冷却」标记而非拳头', async () => {
