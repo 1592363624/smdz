@@ -475,7 +475,10 @@ export class QuestDialogueService {
     const nameOf = String(unit?.name ?? unit?.名称 ?? '') || npcName;
     const typeOf = String(unit?.type ?? unit?.类型 ?? '') || nameOf;
     const qqOf = String(unit?.qq ?? unit?.QQ ?? '');
-    const isMonsterUnit = kind === 'monster' || qqOf.startsWith('怪物');
+    // 原版 L1482：怪物分支只看单位是否来自"怪物2"列表（g1==2），
+    // 召唤物列表中的露娜(qq=怪物露娜1g)/跟随小恶魔(qq=怪物001xg)虽然 qq 带"怪物"前缀，
+    // 但都走 NPC 分支（1、查看 2、领取任务 3、求助…），不能按 qq 前缀误判。
+    const isMonsterUnit = kind === 'monster';
 
     const markerOf = (markerName: string): number => {
       const raw = unit?.markers ?? unit?.标记 ?? {};
@@ -2023,7 +2026,12 @@ export class QuestDialogueService {
       await this.taskService.advance(userId, '求助');
       return `${player.name} 好吧，从现在开始到下一个整点之前，我可以帮你解决战斗上的问题。`;
     } else {
-      return `${player.name} 我正在帮 ${luna.ownerQQ} 解决问题，你之后再找我吧。`;
+      // 原版：取玩家名称(玩家2.归属) —— 归属存的是 userId，需解析为玩家名展示
+      const ownerUser = await this.prisma.user.findUnique({
+        where: { id: Number(luna.ownerQQ) },
+      }).catch(() => null);
+      const ownerName = ownerUser?.nickname || ownerUser?.username || String(luna.ownerQQ);
+      return `${player.name} 我正在帮 ${ownerName} 解决问题，你之后再找我吧。`;
     }
   }
 

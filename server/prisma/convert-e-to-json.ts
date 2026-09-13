@@ -782,8 +782,9 @@ function mapDialogueToNpc(section: ConfigSection) {
   return {
     name: section.name,
     taskId: fields['任务'] || '',
-    hostileChat: [],
-    friendlyChat: parseSemicolonString(fields['聊天'] || ''),
+    // 原版 数据存取.ecode L755-756：友好聊天/敌对聊天 按"；"分割（原版配置无"聊天"字段名）
+    hostileChat: parseSemicolonString(fields['敌对聊天'] || ''),
+    friendlyChat: parseSemicolonString(fields['友好聊天'] || ''),
     followText: parseSemicolonString(fields['跟随'] || ''),
     stopText: parseSemicolonString(fields['停下'] || ''),
     pickupText: [], milkText: [], killText: [],
