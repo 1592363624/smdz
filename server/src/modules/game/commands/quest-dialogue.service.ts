@@ -13,6 +13,7 @@
  * 对口原版：_主程序.ecode 任务/对话/设置分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
+import { padToWidth } from '../../../common/utils/game-text.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
 import { buildFamiliarGateMenu } from '.././familiar-menu.util';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -1117,11 +1118,20 @@ export class QuestDialogueService {
       `━━━━━━━━━━━━━━━`,
       `发送下方编号数字即可进入对应功能：`,
     ];
-    // 生成编号临时输入替换（1@指令#2@指令...），玩家发数字即可触发
+    // 两列排版（32 项高度减半；序号右对齐、左列按显示宽度补空格，
+    // 与图鉴总览两列菜单同一套 padToWidth 口径——common/utils/game-text.util 单一实现）。
+    // 编号临时输入替换与排版无关，仍按 menu 顺序 1..N 一一对应。
+    const COL_WIDTH = 14; // 序号2 + ". "2 + 最长标签（5 个 CJK=10）
     const tempGroups: string[] = [];
-    for (let i = 0; i < menu.length; i++) {
-      lines.push(`  ${i + 1}. ${menu[i].label}`);
+    for (let i = 0; i < menu.length; i += 2) {
+      const left = `${String(i + 1).padStart(2, ' ')}. ${menu[i].label}`;
+      let row = padToWidth(left, COL_WIDTH);
       tempGroups.push(`${i + 1}@${menu[i].cmd}`);
+      if (menu[i + 1]) {
+        row += ` ${String(i + 2).padStart(2, ' ')}. ${menu[i + 1].label}`;
+        tempGroups.push(`${i + 2}@${menu[i + 1].cmd}`);
+      }
+      lines.push(`  ${row}`);
     }
     lines.push(`━━━━━━━━━━━━━━━`);
     lines.push(`💡 发送编号数字(如 1)即可快速进入功能`);

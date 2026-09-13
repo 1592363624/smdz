@@ -23,7 +23,7 @@ import { asJsonValue } from '../../../common/utils/json-value.util';
 import { formatDisplayNumber, normalizeGameText, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
 import { equipmentQualityLabel } from '.././equipment-ref.util';
-import { filterActive, formatDungeonEntryRemaining, formatRemain, remainSeconds, toExpireMs } from '.././expire-time.util';
+import { filterActive, formatDungeonEntryRemaining, formatRemain, hasActive, remainSeconds, toExpireMs } from '.././expire-time.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlayerService } from '.././player.service';
 import { BonusData, BonusService } from '.././bonus.service';
@@ -2377,11 +2377,34 @@ export class GatherPanelService {
     const cappedSeconds = currentWeapon?.specialSeq === -38 ? Math.min(seconds, 30) : seconds;
 
     const now = Date.now();
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
+
+    // ===== 原版 _主程序.ecode L11415-11426 采集引怪 =====
+    // 隐形披风装备 / 隐匿模式增益 / 特殊序号15=四糸乃 / 等级<15 四豁免：不排怪物回合；
+    // 其余玩家 新建延时("覅攻击pd"+地图, 5秒)——5秒后怪物回合开始并自动续回合。
+    // 玩家活跃（L11427，判断块之外无条件执行）：地图"活动"窗口120秒 + 玩家"战斗"标记15秒。
+    {
+      const equipments = Array.isArray(playerData.equipment) ? playerData.equipment
+        : asJsonValue<any[]>(player.equipment, []);
+      const hasCloak = this.combatState.equipRequire(equipments, weapons, currentWeaponIdx, 26, '隐形披风', false);
+      const isYoshino = Number(player.specialSeq ?? player.特殊序号 ?? 0) === 15;
+      const stealthActive = hasActive(asJsonValue<any[]>(player.buffs, []), '隐匿模式');
+      if (Number(player.level ?? 0) >= 15 && !hasCloak && !isYoshino && !stealthActive) {
+        // triggerMapBattleLoop 内部含玩家活跃语义（活动窗口/战斗标记随本次 mutate 统一落库）
+        await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player, map });
+      } else {
+        // 豁免分支不排怪物回合，但玩家活跃照常；地图标记按名合并（防抹掉并发新增的
+        // 「刷新怪物/刷新资源X」标记），战斗标记挂玩家标记2，随本次 mutate 统一落库
+        const mapMarkers2 = asJsonValue<any[]>(map.markers2, []);
+        this.combatState.gainBuff(mapMarkers2, '活动', 120, false, now);
+        await this.mapService.mergeMapMarkers2(map.id, mapMarkers2);
+        this.combatState.gainBuff(markers2, '战斗', 15, false, now);
+      }
+    }
 
     // ===== 原版 _主程序.ecode L11428-11435 锁定与延时任务 =====
     // 添加标记("采集", 次数)：锁定期间 行动无限制 会拦截移动/攻击/再次采集；
     // 获得增益("采集", 秒数)：同一标记的另一种写法，到期即采集完成。
-    const markers2 = asJsonValue<any[]>(player.markers2, []);
     markers['采集中'] = { target: resourceName, cmd: gatherName,
       count: extraMultiplier, adminBatch: !isOwnYard && isAdmin,
       startedAt: now, settleAt: now + cappedSeconds * 1000 };
@@ -2646,32 +2669,13 @@ export class GatherPanelService {
       await this.playerService.savePlayer(freshPlayer);
     }
 
-    // 代发言=触发攻击：采集完成会激怒附近怪物
-    // （原版 _主程序.ecode L11426：新建延时("覅攻击pd"+地图, "0", 群号, 5)——
-    //   采集后5秒怪物回合开始并自动续回合。
-    //   四豁免对齐原版 L11417-11426：隐形披风装备 / 隐匿模式增益（triggerMapBattleLoop
-    //   内部处理） / 特殊序号15=四糸乃 / 等级<15）
-    if (String(target.proxySpeak ?? target.代发言 ?? '') === '触发攻击' && !map.isInstance) {
-      try {
-        const fresh = await this.playerService.getPlayerData(userId);
-        const freshEquipments = fresh.equipment || asJsonValue<any[]>(fresh.player.equipment, []);
-        const freshWeapons = fresh.weapons || asJsonValue<any[]>(fresh.player.weapons, []);
-        const hasCloak = this.combatState.equipRequire(freshEquipments, freshWeapons, Number(fresh.player.currentWeapon ?? 0), 26, '隐形披风', false);
-        const isYoshino = Number(fresh.player.specialSeq ?? fresh.player.特殊序号 ?? 0) === 15;
-        if (Number(fresh.player.level ?? 0) >= 15 && !hasCloak && !isYoshino) {
-          await (this.combatSystem as any).triggerMapBattleLoop(userId, 5, { player: fresh.player, map });
-        }
-      } catch (e: any) {
-        this.logger.warn(`采集激怒怪物失败 userId=${userId}: ${e?.message}`);
-      }
-    }
-
-    // 代发言播报（原版 地图操作.ecode L1620-1621：代发言非空 → 新建延时(代发言+复活点, 2秒)）。
-    // 代发言是资源配置的内部延时指令名：触发攻击已在上方激怒怪物路径处理，
-    // 召唤1白1 已在采集入口内联召唤，其余（覅本清/覅下一层）按 2 秒延时排程执行并广播。
+    // 代发言播报（原版 地图操作.ecode L1619-1621：代发言非空 → 新建延时(代发言+复活点, 2秒)）。
+    // 资源级代发言只承担"采集后执行指定延时指令"（覅本清/覅下一层等，未知名静默忽略）；
+    // 采集引怪在开始采集阶段按原版 _主程序.ecode L11415-11426 处理（见 handleGatherResource），
+    // 与代发言无关。召唤1白1 已在采集入口内联召唤，不走此排程。
     {
       const proxySpeak = String(target.proxySpeak ?? target.代发言 ?? '');
-      if (proxySpeak && proxySpeak !== '触发攻击' && proxySpeak !== '召唤1白1') {
+      if (proxySpeak && proxySpeak !== '召唤1白1') {
         if (this.delayedTaskService) {
           await this.delayedTaskService.schedule({
             type: 'proxySpeak',

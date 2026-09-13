@@ -51,6 +51,36 @@
         </div>
       </div>
 
+      <!-- 制造配方清单 → 配方网格（与背包同一套格子样式）：
+           点击格子发「制造 配方名」，数量缺省时服务端按原版 物品操作.ecode L399
+           展示该配方的制造需求菜单（再发「1」即可制造 1 个），与背包格「穿上 X」同一交互范式。
+           图鉴的「配方」分类是 recipes.json（生产力配方），与制造 craftings.json 是两个数据集，
+           悬浮查不到制造配方 → 菜单格子不做图鉴悬浮，只保留点击。 -->
+      <div v-else-if="layout.kind === 'menu'" class="rc-menu">
+        <div class="rc-title">{{ layout.title }}</div>
+        <div class="rc-grid">
+          <div
+            v-for="(row, i) in visibleItems"
+            :key="i"
+            class="rc-cell rc-cell-item"
+            :title="`发「制造 ${row.name}」查看制造需求`"
+            @click="onMenuCellClick(row.name)"
+          >
+            <span v-if="row.idx != null" class="rc-idx">{{ row.idx }}</span>
+            <span class="rc-name">{{ row.name }}</span>
+          </div>
+        </div>
+        <!-- 大清单折叠：配方可达数百条（craftings.json 426 条），与背包共用 RENDER_LIMIT 懒渲染 -->
+        <button
+          v-if="layout.items.length > RENDER_LIMIT"
+          class="rc-bag-toggle"
+          @click="expanded = !expanded"
+        >{{ expanded ? '收起配方列表' : `展开全部 ${layout.items.length} 个配方（当前仅显示前 ${RENDER_LIMIT} 个）` }}</button>
+        <div v-if="layout.notes && layout.notes.length" class="rc-bag-notes">
+          <div v-for="(n, i) in layout.notes" :key="i" class="rc-bag-note">{{ n }}</div>
+        </div>
+      </div>
+
       <!-- 属性面板 → 两栏：左列属性卡片 + 右列装备网格 -->
       <div v-else-if="layout.kind === 'profile'" class="rc-profile">
         <div class="rc-title">{{ layout.title }}</div>
@@ -211,6 +241,15 @@ onMounted(loadWebConfigOnce);
 function onCellClick(name, itemKind) {
   if (itemKind !== 'equip') return;
   emit('send', `穿上 ${name}`);
+}
+
+/**
+ * 制造配方格子点击：发「制造 配方名」（不带数量）。
+ * 服务端 craftItem 数量<1 时按原版展示制造需求菜单并注册编号临时输入替换，
+ * 玩家再发「1」即制造 1 个 —— 与背包格点击「穿上 X」同一套 @send 流程。
+ */
+function onMenuCellClick(name) {
+  emit('send', `制造 ${name}`);
 }
 
 /**
@@ -526,7 +565,34 @@ function parseLayout(text) {
     }
   }
 
-  // ---------- 2. 属性面板：【名字】Lv.N 标题 + 属性行 + 📋 装备 区块 ----------
+  // ---------- 2. 制造配方清单：X请选择要制造的Y配方: + "1、名称" ----------
+  // 文本契约：标题与行格式由 server/src/modules/game/craft-menu.util.ts buildCategoryListText
+  // 生成（「制造 资源/装备/建筑/载具」的配方清单；序号分隔符为原版的「、」，与背包的「.」不同）。
+  // 服务端文本不改（AstrBot/QQ 仍走原版纯文本），此处仅网页端结构化为网格；
+  // 标题扫描定位（前面可能拼有离线结算横幅），配方名进入格子，序号原样保留供肉眼对号
+  // （回复数字由服务端临时输入替换承接，前端不依赖序号发指令）。
+  const menuIdx = lines.findIndex((l) => /.+请选择要制造的\S+配方[:：]?\s*$/.test(l));
+  if (menuIdx >= 0) {
+    const items = [];
+    const notes = [];
+    for (const line of lines.slice(menuIdx + 1)) {
+      const t = line.trim();
+      if (/^━+$/.test(t)) continue; // 分隔线跳过
+      if (isBannerLine(t)) { notes.push(t); continue; }
+      const m = t.match(/^(\d+)、\s*(.+)$/);
+      if (m) {
+        if (m[2].trim()) items.push({ idx: m[1], name: m[2].trim(), count: null, kind: 'craft' });
+        continue;
+      }
+      // 其余非配方行（提示、说明等）保留展示，不静默丢弃（组件约定：展示层绝不改写原文内容）
+      if (t) notes.push(t);
+    }
+    if (items.length) {
+      return { kind: 'menu', title: lines[menuIdx], items, notes };
+    }
+  }
+
+  // ---------- 3. 属性面板：【名字】Lv.N 标题 + 属性行 + 📋 装备 区块 ----------
   const titleIdx = lines.findIndex((l) => /^【.+】\s*Lv\.?\d+/i.test(l));
   if (titleIdx >= 0 && lines.some((l) => l.includes('📋 装备'))) {
     const stats = [];

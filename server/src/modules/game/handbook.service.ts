@@ -17,7 +17,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StaticDataService } from './static-data.service';
 import { ShortcutService } from './shortcut.service';
 import { GlobalProficiencyService, pickMonsterLevel, proficiencyLevelFromPoints } from './global-proficiency.service';
-import { LINE_BREAK_MARKER } from '../../common/utils/game-text.util';
+import { LINE_BREAK_MARKER, padToWidth } from '../../common/utils/game-text.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 // ---------- 纯函数工具 ----------
@@ -182,21 +182,7 @@ function sciText(n: unknown): string {
 
 // ---------- 原版两列菜单排版（L2654） ----------
 
-/** 计算字符串的显示宽度：CJK/全角算 2，其余算 1 */
-function displayWidth(s: string): number {
-  let w = 0;
-  for (const ch of String(s)) {
-    const code = ch.codePointAt(0) ?? 0;
-    w += code > 0x2e80 ? 2 : 1;
-  }
-  return w;
-}
-
-/** 按显示宽度右补空格到指定宽度（用于两列菜单左列对齐） */
-function padToWidth(s: string, width: number): string {
-  const pad = Math.max(0, width - displayWidth(s));
-  return s + ' '.repeat(pad);
-}
+// displayWidth / padToWidth 已下沉到 common/utils/game-text.util（主菜单两列排版共用，单一实现）
 
 /** 两列菜单左列的显示宽度：序号2 + "、"2 + 最长标签"对话文本"8 = 12，留 1 列余量 */
 const MENU_COL_WIDTH = 13;

@@ -71,6 +71,33 @@ export function formatDamageText(value: unknown): string {
 }
 
 // ============================================================
+// 等宽排版工具（原版两列菜单对齐，单一真相源）
+//
+// 原 handbook.service.ts 持有唯一的本地实现（图鉴总览两列菜单），
+// 主菜单（quest-dialogue handleGameIntro）改两列排版后同样需要对齐，
+// 下沉为本 util 防止双实现漂移。
+// ============================================================
+
+/**
+ * 计算字符串的显示宽度：CJK/全角算 2，其余算 1。
+ * 注意：纯"显示宽度"估算，网页比例字体下不保证逐列像素对齐（QQ/终端等准等宽场景对齐）。
+ */
+export function displayWidth(s: string): number {
+  let w = 0;
+  for (const ch of String(s)) {
+    const code = ch.codePointAt(0) ?? 0;
+    w += code > 0x2e80 ? 2 : 1;
+  }
+  return w;
+}
+
+/** 按显示宽度右补空格到指定宽度（用于两列菜单左列对齐） */
+export function padToWidth(s: string, width: number): string {
+  const pad = Math.max(0, width - displayWidth(s));
+  return s + ' '.repeat(pad);
+}
+
+// ============================================================
 // 时长文本统一出口（P1-2 收敛）
 //
 // 全库曾扩散 7 个时长格式化辅助（game.service 6 个 + combat-system 1 个，

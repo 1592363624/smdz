@@ -1067,6 +1067,13 @@ function isRichCardContent(text) {
       return lines.slice(i + 1).some((l) => /^\d+\./.test(l));
     }
   }
+  // 制造配方清单：任意一行匹配 "X请选择要制造的Y配方:" 头，且其后存在 "序号、" 行
+  // （craft-menu.util buildCategoryListText 输出约定；「制造 资源/装备/建筑/载具」共用）
+  for (let i = 0; i < lines.length; i++) {
+    if (/.+请选择要制造的\S+配方[:：]?$/.test(lines[i])) {
+      return lines.slice(i + 1).some((l) => /^\d+、/.test(l));
+    }
+  }
   // 属性面板：扫描到 "📋 装备" 区块，且消息中含 "【名字】Lv" 标题与属性行 "图标 标签:值"
   if (lines.some((l) => l.includes('📋 装备'))) {
     const hasTitle = lines.some((l) => /^【.+】\s*Lv\.?\d+/i.test(l));

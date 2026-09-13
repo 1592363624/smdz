@@ -11,7 +11,7 @@
  *
  * 触发点对齐原版 新建延时 调用位：
  *   - 攻击指令（_主程序.ecode L166，3秒）→ CombatSystemService.weaponAttack
- *   - 采集（L11426，5秒）→ GameService 采集结算
+ *   - 采集（L11426，5秒）→ GatherPanelService.handleGatherResource 采集开始
  *   - 传送/跃迁到达（L1761/1767/1790，5秒）→ GameService.performArrival
  *   - 地精攻势（L2167，3秒）→ GameService 家园前线
  *   - 使魔技能延时（使魔技能.ecode，5秒）→ FamiliarSkillsService

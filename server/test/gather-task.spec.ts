@@ -139,6 +139,9 @@ function makeGatherFixture(resource: any, options: {
     buildAttackerBonus: jest.fn(() => ({ 采集: 100, 掉落率: 0, 经验: 0 })),
     actionUnrestricted: jest.fn(() => ({ restricted: false, text: '' })),
     adminAttackMap: jest.fn(async () => '攻击'),
+    // 采集引怪（原版 L11415-11426）：默认玩家等级10 <15 走豁免分支，不会真正调用；
+    // 高等级用例显式断言本调用
+    triggerMapBattleLoop: jest.fn(async () => undefined),
   };
   const chatService = {
     broadcastSystem: jest.fn(async () => undefined),
@@ -173,12 +176,28 @@ function makeGatherFixture(resource: any, options: {
         (map as any).summons = summons;
         return result;
       }),
+      // 采集引怪豁免分支的地图"活动"窗口刷新（按名合并落库）
+      mergeMapMarkers2: jest.fn(async (_mapId: number, markers2: any[]) => {
+        (map as any).markers2 = markers2;
+      }),
     },
     combatSystem,
     combatState: {
       addMarker: jest.fn((名称: string, 时间: number, 标记: any[], 现行时间: number) => {
         if (时间 === 0) return;
         标记.push({ 名称, 有效期至: 现行时间 + 时间 * 1000 });
+      }),
+      // 采集引怪豁免分支的玩家活跃（原版 L11427）：披风判定 + 地图/玩家标记刷新
+      equipRequire: jest.fn((装备列表: any[], _武器列表: any[], _当前武器: number,
+        特殊序号: number, 名称?: string, 是否武器?: boolean) => {
+        if (是否武器) return false;
+        return (装备列表 || []).some((eq: any) =>
+          (特殊序号 !== 0 && eq?.特殊序号 === 特殊序号)
+          || (!!名称 && (eq?.名称 === 名称 || eq?.name === 名称)));
+      }),
+      gainBuff: jest.fn((增益: any[], 名称: string, 时间: number, _叠加: boolean, 现行时间: number) => {
+        增益.push({ 名称, 有效期至: 现行时间 + 时间 * 1000 });
+        return 0;
       }),
     },
     staticData: {
@@ -227,7 +246,11 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const markers = parseJson(fixture.player.markers, {});
     expect(markers['采集中']).toEqual(expect.objectContaining({ target: '医疗箱', cmd: '打开箱子' }));
     const markers2 = parseJson(fixture.player.markers2, []);
-    expect(markers2).toEqual([expect.objectContaining({ 名称: '采集' })]);
+    // 等级10<15 走采集引怪豁免分支：玩家活跃（原版 L11427）先写"战斗"15秒标记，再写"采集"锁定标记
+    expect(markers2).toEqual([
+      expect.objectContaining({ 名称: '战斗' }),
+      expect.objectContaining({ 名称: '采集' }),
+    ]);
     expect(fixture.playerService.savePlayer).toHaveBeenCalled();
   });
 
@@ -552,7 +575,10 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(backpack).toEqual([expect.objectContaining({ name: '木头', count: 3, quantity: 3 })]);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '采集', 1);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '打开旧箱子', 1);
+    // 采集开始时玩家活跃（原版 L11427，等级10<15 走豁免分支仍执行）刷新地图"活动"窗口；
+    // 结算枯竭后登记 1800 秒刷新标记
     expect(parseJson(fixture.map.markers2, [])).toEqual([
+      expect.objectContaining({ 名称: '活动' }),
       expect.objectContaining({ name: '刷新资源旧箱子' }),
     ]);
   });
@@ -623,5 +649,75 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(white).toBeTruthy();
     expect(white.type).toBe('白');
     expect(white.markers['好感42']).toBe(30);
+  });
+
+  // ===== 采集引怪（原版 _主程序.ecode L11415-11426：开始采集时四豁免判断）=====
+
+  it('采集引怪：等级≥15且无豁免时，开始采集即拉起5秒怪物回合', async () => {
+    const fixture = makeGatherFixture({
+      name: '老树',
+      times: 5,
+      outputs: [{ name: '木头', count: 2, chance: 100 }],
+      gatherCmd: '收集木头',
+    });
+    fixture.player.level = 20;
+
+    await fixture.service.handleGatherResource(42, '收集木头');
+
+    expect(fixture.combatSystem.triggerMapBattleLoop).toHaveBeenCalledWith(
+      42, 5, { player: fixture.player, map: fixture.map },
+    );
+  });
+
+  it('采集引怪：等级<15豁免，不排怪物回合但玩家活跃照常', async () => {
+    const fixture = makeGatherFixture({
+      name: '老树',
+      times: 5,
+      outputs: [{ name: '木头', count: 2, chance: 100 }],
+      gatherCmd: '收集木头',
+    });
+    // 夹具默认等级10，<15 豁免
+
+    await fixture.service.handleGatherResource(42, '收集木头');
+
+    expect(fixture.combatSystem.triggerMapBattleLoop).not.toHaveBeenCalled();
+    // 玩家活跃（原版 L11427）："战斗"15秒挂玩家标记2、"活动"120秒刷新地图标记2；
+    // 随后照常写"采集"锁定标记
+    expect(parseJson(fixture.player.markers2, [])).toEqual([
+      expect.objectContaining({ 名称: '战斗' }),
+      expect.objectContaining({ 名称: '采集' }),
+    ]);
+    expect(parseJson(fixture.map.markers2, [])).toEqual(
+      [expect.objectContaining({ 名称: '活动' })],
+    );
+  });
+
+  it('采集引怪：隐形披风/隐匿模式/四糸乃豁免，不排怪物回合', async () => {
+    const resource = {
+      name: '老树',
+      times: 5,
+      outputs: [{ name: '木头', count: 2, chance: 100 }],
+      gatherCmd: '收集木头',
+    };
+    const cases: Array<(player: any) => void> = [
+      (player) => { player.equipment = JSON.stringify([{ 名称: '隐形披风', 特殊序号: 26 }]); },
+      (player) => { player.buffs = JSON.stringify([{ 名称: '隐匿模式', 有效期至: Date.now() + 60_000 }]); },
+      (player) => { player.specialSeq = 15; },
+    ];
+    for (const exempt of cases) {
+      const fixture = makeGatherFixture(resource);
+      fixture.player.level = 20;
+      exempt(fixture.player);
+      fixture.combatSystem.triggerMapBattleLoop.mockClear();
+
+      await fixture.service.handleGatherResource(42, '收集木头');
+
+      expect(fixture.combatSystem.triggerMapBattleLoop).not.toHaveBeenCalled();
+      // 豁免分支玩家活跃照常（原版 L11427 判断块之外无条件执行），随后照常写"采集"锁定标记
+      expect(parseJson(fixture.player.markers2, [])).toEqual([
+        expect.objectContaining({ 名称: '战斗' }),
+        expect.objectContaining({ 名称: '采集' }),
+      ]);
+    }
   });
 });

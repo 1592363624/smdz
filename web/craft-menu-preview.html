@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>制造配方卡片预览 · 使魔大战3</title>
+  <style>
+    /* 页面外壳：模拟游戏公屏的暗色底，仅用于预览 */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Noto Sans SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+      background: #0a0a1a;
+      color: #f1f1f9;
+      min-height: 100vh;
+      padding: 24px 20px 40px;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .sub { font-size: 13px; color: #a0a0c0; line-height: 1.7; margin-bottom: 14px; }
+    .sub code {
+      background: rgba(139, 92, 246, 0.14);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 12px;
+    }
+    /* 公屏消息近似：消息行 = 发送者前缀 + 卡片 */
+    .case-label { font-size: 12px; color: #7b7484; margin: 20px 0 8px; letter-spacing: 1px; }
+    .msg { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 4px; }
+    .msg .msg-body { flex: 1; min-width: 0; font-size: 14px; }
+    .msg .sender { color: #a78bfa; font-weight: 600; margin-right: 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🛠 制造配方清单卡片预览</h1>
+    <p class="sub">
+      预览 <code>RichSystemCard.vue</code> 制造配方分支对
+      <code>craft-menu.util.ts buildCategoryListText</code> 输出的渲染效果（组件真实代码，经 Vite 编译）。
+      点击配方格会真实 emit「制造 配方名」（本预览页仅弹 toast 展示，不发送）。
+    </p>
+    <div id="cards"></div>
+  </div>
+
+  <script type="module">
+    import { createApp, h } from 'vue';
+    import RichSystemCard from '/src/components/RichSystemCard.vue';
+
+    // 样例文本与 server/src/modules/game/craft-menu.util.ts buildCategoryListText 的实际输出一致
+    const DEMOS = [
+      {
+        label: '样例 1 · 制造资源配方清单（截图文本）',
+        sender: '剑圣',
+        text: [
+          '剑圣请选择要制造的资源配方:',
+          ...['升级探测雷达一', '升级探测雷达二', '升级探测雷达三', '升级探测雷达四', '升级探测雷达五', '升级探测雷达六',
+            '强效麻醉镖', '精英战利品', '金属提炼', '燃料a', '燃料b', '燃料c', '燃料d', '燃料e', '燃料f', '燃料g',
+            '木头a', '木头b', '木头c', '石头a', '石头b', '绳子a', '绳子b', '绳子c', '铁矿a', '铁矿b', '铁矿c'].map((n, i) => `${i + 1}、${n}`),
+        ].join('\n'),
+      },
+      {
+        label: '样例 2 · 前置离线结算横幅 + 制造载具配方清单',
+        sender: '路人甲',
+        text: [
+          '⏰ 你离开了 1 分 47 秒',
+          '【活力快满了:102/102】',
+          '━━━━━━━━━━━━━━━',
+          '路人甲请选择要制造的载具配方:',
+          '1、双轮小车',
+          '2、四轮越野车',
+          '3、货运卡车',
+        ].join('\n'),
+      },
+      {
+        label: '样例 3 · 回归对照：背包仍走网格分支',
+        sender: '路人甲',
+        text: '🎒 背包 (3种):\n1. 燃料a ×12.5\n2. 铁矿b ×3\n3. 冰雹S',
+      },
+    ];
+
+    const container = document.getElementById('cards');
+    DEMOS.forEach((d) => {
+      const label = document.createElement('div');
+      label.className = 'case-label';
+      label.textContent = d.label;
+      container.appendChild(label);
+
+      const row = document.createElement('div');
+      row.className = 'msg';
+      row.innerHTML = '<div class="msg-body"></div>';
+      const body = row.querySelector('.msg-body');
+      const sender = document.createElement('span');
+      sender.className = 'sender';
+      sender.textContent = `${d.sender}：`;
+      body.appendChild(sender);
+
+      const mount = document.createElement('span');
+      mount.style.display = 'block';
+      body.appendChild(mount);
+
+      const app = createApp({
+        render() {
+          return h(RichSystemCard, {
+            text: d.text,
+            onSend: (cmd) => alert(`将发送指令：${cmd}`),
+          });
+        },
+      });
+      app.mount(mount);
+      container.appendChild(row);
+    });
+  </script>
+</body>
+</html>
