@@ -82,23 +82,32 @@ export class ScheduleService implements OnApplicationBootstrap {
   onApplicationBootstrap(): void {
     // 不阻塞启动收尾；失败只告警（DB 尚未就绪时下一分钟 cron 仍会补齐）
     void this.ensureResidentMonstersAtBoot();
-    // 启动自愈：清掉历史遗留的无效副本入口（副本名在地图表里不存在，玩家点了进不去）
-    void this.purgeInvalidDungeonEntriesAtBoot();
+    // 启动清扫：副本入口持久化倒计时，重启不清空；这里清掉无效入口与已到期入口
+    void this.sweepDungeonEntriesAtBoot();
   }
 
   /**
-   * 启动清理无效副本入口（一次性自愈，失败只告警不影响启动）。
+   * 启动清扫副本入口（无效/过期，失败只告警不影响启动）。
    */
-  private async purgeInvalidDungeonEntriesAtBoot(): Promise<void> {
+  private async sweepDungeonEntriesAtBoot(): Promise<void> {
     try {
-      const result = await this.dungeonService.purgeInvalidDungeonEntries();
-      if (result.removed > 0) {
-        this.logger.warn(
-          `启动清理无效副本入口: 删除 ${result.removed} 条，涉及 ${result.maps} 张地图（${result.entries.join('、')}）`,
-        );
-      }
+      await this.dungeonService.sweepDungeonEntries();
     } catch (err: any) {
-      this.logger.warn(`启动清理无效副本入口失败: ${err?.message ?? err}`);
+      this.logger.warn(`启动清扫副本入口失败: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * 副本入口到期清扫 - 每5分钟执行一次。
+   * 入口从开启时刻起 game.dungeonEntryLifetimeHours（默认 24h）自动关闭；
+   * 重启不清空，按入口上的 expireAt 继续倒计时。
+   */
+  @Cron('0 */5 * * * *')
+  async sweepDungeonEntriesPeriodic() {
+    try {
+      await this.dungeonService.sweepDungeonEntries();
+    } catch (err: any) {
+      this.logger.warn(`副本入口定时清扫失败: ${err?.message ?? err}`);
     }
   }
 
@@ -853,8 +862,8 @@ export class ScheduleService implements OnApplicationBootstrap {
         }
         const map = this.pickRandomMap(maps);
         const name = names[Math.floor(Math.random() * names.length)];
-        // 与「开启副本」共用入口生成逻辑：入口带 mapId 指向真实副本地图，
-        // 只回收上一次定时生成的入口，不动玩家花副本券开的入口。
+        // 与「开启副本」共用入口生成逻辑：入口带 mapId 指向真实副本地图。
+        // 原版只加不删（后台运作.ecode L22/L35），入口累积到「刷新副本」关闭或重启重置。
         const result = await this.dungeonService.openDungeonEntry(
           Number(map.id),
           name,

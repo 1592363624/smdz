@@ -1,5 +1,6 @@
 import { GameService } from '../src/modules/game/game.service';
 import { createGameServiceStub } from './helpers/game-service-stub.factory';
+import { formatDungeonEntryRemaining } from '../src/modules/game/expire-time.util';
 
 function parseJson(value: any, fallback: any): any {
   if (value === null || value === undefined) return fallback;
@@ -163,5 +164,56 @@ describe('孤岛地图观察附近：提示「出口」为唯一出路（血族�
     const result = await fixture.service.handleLookAround(42);
 
     expect(result).not.toContain('这里没有任何通往其它地图的道路');
+  });
+});
+
+describe('副本入口剩余时间展示（观察附近）', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function makeEntryService(connections: any[]) {
+    const fixture = makeService({
+      map: {
+        id: 7, name: '浅海', isFrontier: false,
+        monsters: '[]', resources: '[]', resources2: '[]', items: '[]', npcs: '[]', summons: '[]',
+        markers2: '[]',
+      },
+    });
+    fixture.service.mapService.getConnections = jest.fn(() => connections);
+    return fixture;
+  }
+
+  it('带 expireAt 的副本入口在编号列表附剩余时间，普通连接不附', async () => {
+    const fixture = makeEntryService([
+      { name: '沙滩', distance: 100 },
+      { name: '扭曲深渊(副本)', mapId: 40, expireAt: Date.now() + 3 * 3600 * 1000 },
+    ]);
+
+    const result = await fixture.service.handleLookAround(42);
+
+    expect(result).toContain('扭曲深渊(副本)(剩3小时)');
+    expect(result).not.toContain('沙滩(剩');
+  });
+
+  it('无 expireAt 的存量入口不附剩余时间', async () => {
+    const fixture = makeEntryService([
+      { name: '灭绝之地(副本)', mapId: 41, distance: 100 },
+    ]);
+
+    const result = await fixture.service.handleLookAround(42);
+
+    expect(result).toContain('灭绝之地(副本)');
+    expect(result).not.toContain('(剩');
+  });
+
+  it('formatDungeonEntryRemaining 边界：无倒计时/已过期/分钟/小时/向上取整', () => {
+    const now = Date.now();
+    expect(formatDungeonEntryRemaining(0, now)).toBe('');
+    expect(formatDungeonEntryRemaining(now - 1000, now)).toBe('已过期');
+    expect(formatDungeonEntryRemaining(now + 30 * 1000, now)).toBe('剩1分钟');
+    expect(formatDungeonEntryRemaining(now + 45 * 60 * 1000, now)).toBe('剩45分钟');
+    expect(formatDungeonEntryRemaining(now + 3 * 3600 * 1000, now)).toBe('剩3小时');
+    expect(formatDungeonEntryRemaining(now + 3 * 3600 * 1000 + 25 * 60 * 1000, now)).toBe('剩3小时25分');
+    // 59分59秒 向上取整为「剩1小时」，避免临期显示误导性的「剩0分钟」
+    expect(formatDungeonEntryRemaining(now + 3599 * 1000, now)).toBe('剩1小时');
   });
 });

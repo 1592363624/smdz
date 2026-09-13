@@ -200,6 +200,11 @@ export class MovementVehicleService {
       // 再去掉“(副本)”解析真实地图并按传送路径移动；
       // 解析不到时原版输出「#错误：副本不存在"XXX(副本)"」（L6603-6604），不落通用分支。
       if (!dungeonEntry) return `${player.name}#错误：副本不存在"${requestedName}"`;
+      // 入口带有效期倒计时（跨重启），已到期视为不存在（清扫任务每 5 分钟兜底删除）
+      const entryExpireAt = Number(dungeonEntry.expireAt || 0);
+      if (entryExpireAt > 0 && entryExpireAt <= Date.now()) {
+        return `${player.name}#错误：副本不存在"${requestedName}"`;
+      }
       const baseName = requestedName.slice(0, -4);
       // 入口由统一生成逻辑写入时带 mapId，优先按 ID 解析（副本名与地图名不一致也能进）；
       // 历史入口没有 mapId，回退按名称解析。
@@ -269,19 +274,22 @@ export class MovementVehicleService {
       return `无法前往：${check.reason}`;
     }
 
-    // 计算移动所需耗时（秒）
-    const travelDistance = isDungeonEntry
-      ? Number(dungeonEntry?.distance || 100)
-      : this.panel.getDistance(currentMap, targetMap);
-    // 原版 _主程序.ecode L6574/L6601/L6664：移动任务按最短路径节点数推进，
-    // 不是按耗时或距离推进；路径长度至少按一次移动处理。
-    const movementTaskCount = await this.getMovementPathLength(currentMap, targetMap);
-    // 原版 L6638-6644：b = 距离/速度（整数截断）；b < 路径节点数 → b=路径节点数；b < 1 → b=1
-    const travelTime = this.mapService.calcTravelTime(
-      travelDistance,
-      player.speed || 100,
-      movementTaskCount,
-    );
+    // 计算移动所需耗时（秒）。
+    // 副本入口按原版 _主程序.ecode L6592-6601 的“传送”路径处理：耗时=50/速度（整数截断、
+    // 下限3秒），移动任务按 出发/传送/目的地 共3个节点推进，与入口连接距离无关。
+    let movementTaskCount: number;
+    let travelTime: number;
+    if (isDungeonEntry) {
+      movementTaskCount = 3;
+      travelTime = this.mapService.calcTravelTime(50, player.speed || 100, 3);
+    } else {
+      // 原版 L6638-6644：b = 取最短路径沿途累计距离/速度（整数截断）；b < 路径节点数 → b=节点数；
+      // b < 1 → b=1。距离按 取最短路径 逐段累加（地图操作.ecode L1429），跨图移动按全程计费，
+      // 不再只按直连一段（或非直连兜底50）计。
+      const path = await this.getMovementPath(currentMap, targetMap);
+      movementTaskCount = path.nodeCount;
+      travelTime = this.mapService.calcTravelTime(path.distance, player.speed || 100, movementTaskCount);
+    }
 
     // 若关闭了移动耗时开关，则即时到达
     if (!moveTimeEnabled) {
@@ -1360,40 +1368,91 @@ export class MovementVehicleService {
 
   /** 计算移动路径节点数（含起点与终点；原版「移动」成就按此推进）。 */
   async getMovementPathLength(startMap: any, targetMap: any): Promise<number> {
+    return (await this.getMovementPath(startMap, targetMap)).nodeCount;
+  }
+
+  /**
+   * 按原版 取最短路径（地图操作.ecode L1393-1445）计算移动路径：返回路径节点数（含起点，
+   * 「移动」成就按此推进）与沿途逐段累加的距离（L1429 l2.距离 = l2.距离 + 段距离），
+   * 移动耗时按该累计距离/速度计（_主程序.ecode L6638），跨图移动按全程计费。
+   * 与 hasTravelPath 同口径按无向图遍历（家园/开拓地等动态连接由运行时单侧追加，补反向边，
+   * 距离沿用该连接的登记值），连接名不是真实地图时忽略（出口/XX(副本) 等特殊连接不参与）。
+   * 找不到路径时返回 distance=0（对应原版空路径 距离=0），耗时由 calcTravelTime 下限兜底。
+   */
+  async getMovementPath(startMap: any, targetMap: any): Promise<{ nodeCount: number; distance: number }> {
     const startName = String(startMap?.name || '');
     const targetName = String(targetMap?.name || '');
-    if (!startName || !targetName || startName === targetName) return 1;
+    if (!startName || !targetName || startName === targetName) return { nodeCount: 1, distance: 0 };
 
     try {
       const getAllMaps = (this.mapService as any)?.getAllMaps;
       const getConnections = (this.mapService as any)?.getConnections;
-      if (typeof getAllMaps !== 'function' || typeof getConnections !== 'function') return 1;
+      if (typeof getAllMaps !== 'function' || typeof getConnections !== 'function') {
+        return { nodeCount: 1, distance: 0 };
+      }
 
       const maps = await getAllMaps.call(this.mapService);
-      const mapByName = new Map((maps || []).map((map: any) => [String(map?.name || ''), map]));
+      const mapByName = new Map<string, any>(
+        (maps || []).map((map: any) => [String(map?.name || ''), map] as [string, any]),
+      );
       mapByName.set(startName, startMap);
       mapByName.set(targetName, targetMap);
 
-      const queue: Array<{ name: string; length: number }> = [{ name: startName, length: 1 }];
+      // 出边沿用出发侧声明的距离（缺失按 50 兜底）；反向补边只在没有自带连接时生效，
+      // 双向都登记的连接保持各自方向的距离（与原版按出发侧取 可前往.距离 一致）。
+      const adjacency = new Map<string, Map<string, number>>();
+      const link = (from: string, to: string, distance: number) => {
+        if (!from || !to || from === to) return;
+        if (!adjacency.has(from)) adjacency.set(from, new Map());
+        const edges = adjacency.get(from)!;
+        if (!edges.has(to)) edges.set(to, distance);
+      };
+      const hopDistance = (connection: any): number => {
+        const declared = Number(connection?.distance);
+        return Number.isFinite(declared) && declared > 0 ? declared : 50;
+      };
+      for (const map of mapByName.values()) {
+        const name = String(map?.name || '');
+        if (!name) continue;
+        for (const connection of getConnections.call(this.mapService, map) || []) {
+          const to = String(connection?.name || '');
+          if (!to || !mapByName.has(to)) continue;
+          link(name, to, hopDistance(connection));
+        }
+      }
+      for (const map of mapByName.values()) {
+        const name = String(map?.name || '');
+        if (!name) continue;
+        for (const connection of getConnections.call(this.mapService, map) || []) {
+          const to = String(connection?.name || '');
+          if (!to || !mapByName.has(to)) continue;
+          link(to, name, hopDistance(connection));
+        }
+      }
+
+      // BFS 按跳数取最短（与原版遍历口径一致），沿途累加每段距离
+      const queue: Array<{ name: string; nodeCount: number; distance: number }> = [
+        { name: startName, nodeCount: 1, distance: 0 },
+      ];
       const visited = new Set<string>([startName]);
       while (queue.length > 0) {
-        const current = queue.shift() as { name: string; length: number };
-        const currentMap = mapByName.get(current.name);
-        for (const connection of getConnections.call(this.mapService, currentMap) || []) {
-          const nextName = String(connection?.name || '');
-          if (!nextName || visited.has(nextName)) continue;
-          const nextLength = current.length + 1;
-          if (nextName === targetName) return nextLength;
-          if (mapByName.has(nextName)) {
-            visited.add(nextName);
-            queue.push({ name: nextName, length: nextLength });
-          }
+        const current = queue.shift()!;
+        for (const [nextName, hop] of adjacency.get(current.name) || []) {
+          if (visited.has(nextName)) continue;
+          const next = {
+            name: nextName,
+            nodeCount: current.nodeCount + 1,
+            distance: current.distance + hop,
+          };
+          if (nextName === targetName) return { nodeCount: next.nodeCount, distance: next.distance };
+          visited.add(nextName);
+          queue.push(next);
         }
       }
     } catch (error: any) {
-      this.logger.warn(`计算移动路径长度失败: ${error?.message || error}`);
+      this.logger.warn(`计算移动路径失败: ${error?.message || error}`);
     }
-    return 1;
+    return { nodeCount: 1, distance: 0 };
   }
 
   /**

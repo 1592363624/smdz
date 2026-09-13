@@ -146,8 +146,9 @@ describe('副本入口统一生成与脏入口清理', () => {
     return { service, maps, mapService };
   }
 
-  it('两条路径生成同一结构：入口带真实地图 mapId、距离100、isInstance', async () => {
+  it('两条路径生成同一结构：mapId + 距离100 + isInstance + 24h 到期', async () => {
     const { service, maps } = makeEntryFixture();
+    const before = Date.now();
 
     const ticket = await service.openDungeonEntry(3, 'CELL研究中心', DUNGEON_ENTRY_SOURCE.TICKET);
     expect(ticket.ok).toBe(true);
@@ -157,9 +158,14 @@ describe('副本入口统一生成与脏入口清理', () => {
     expect(spawned.ok).toBe(true);
     expect(spawned.mapId).toBe(5);
 
-    expect(maps[2].connections).toEqual([
-      { name: 'CELL研究中心(副本)', mapId: 4, distance: 100, isInstance: true, source: 'ticket' },
-      { name: '灭绝之地(副本)', mapId: 5, distance: 100, isInstance: true, source: 'spawn' },
+    // 有效期默认 24h（fixture 的 prisma 桩读不到配置表，回退默认值），从开启时刻起算
+    for (const entry of maps[2].connections) {
+      expect(entry.expireAt).toBeGreaterThan(before + 23 * 3600 * 1000);
+      expect(entry.expireAt).toBeLessThanOrEqual(Date.now() + 24 * 3600 * 1000);
+    }
+    expect(maps[2].connections.map((c: any) => `${c.name}/${c.source}/${c.mapId}`)).toEqual([
+      'CELL研究中心(副本)/ticket/4',
+      '灭绝之地(副本)/spawn/5',
     ]);
   });
 
@@ -170,31 +176,58 @@ describe('副本入口统一生成与脏入口清理', () => {
     expect(maps[2].connections).toEqual([]);
   });
 
-  it('定时生成只回收自己上一次的入口，保留副本券开的入口', async () => {
+  it('定时生成只追加不回收：入口累积到「刷新副本」关闭或重启重置（原版 后台运作 L22/L35）', async () => {
     const { service, maps } = makeEntryFixture();
     await service.openDungeonEntry(3, '灭绝之地', DUNGEON_ENTRY_SOURCE.SPAWN);
     await service.openDungeonEntry(3, 'CELL研究中心', DUNGEON_ENTRY_SOURCE.TICKET);
-
+    // 原版「生成副本」纯加入成员：不同名入口都保留，同名入口幂等去重（mapId 刷新）
     await service.openDungeonEntry(3, '灭绝之地', DUNGEON_ENTRY_SOURCE.SPAWN);
-    const names = maps[2].connections.map((c: any) => `${c.name}/${c.source}`);
-    expect(names).toEqual(['CELL研究中心(副本)/ticket', '灭绝之地(副本)/spawn']);
+
+    expect(maps[2].connections.map((c: any) => `${c.name}/${c.source}`)).toEqual([
+      'CELL研究中心(副本)/ticket',
+      '灭绝之地(副本)/spawn',
+    ]);
   });
 
-  it('清理掉指向不存在地图的脏入口，保留有效入口', async () => {
+  it('清扫：过期入口删除并关闭副本组，未过期入口保留', async () => {
+    const { service, maps } = makeEntryFixture();
+    const now = Date.now();
+    maps[2].connections = [
+      { name: 'CELL研究中心(副本)', mapId: 4, expireAt: now - 1000 },
+      { name: '灭绝之地(副本)', mapId: 5, expireAt: now + 3600 * 1000 },
+    ];
+    const closeSpy = jest.spyOn(service, 'closeDungeon').mockResolvedValue({
+      name: 'CELL研究中心', movedPlayers: [], message: 'CELL研究中心副本已关闭',
+    });
+
+    const result = await service.sweepDungeonEntries();
+    expect(closeSpy).toHaveBeenCalledWith('CELL研究中心');
+    expect(result.closedGroups).toEqual(['CELL研究中心']);
+    expect(result.expired).toBe(1);
+    expect(maps[2].connections.map((c: any) => c.name)).toEqual(['灭绝之地(副本)']);
+  });
+
+  it('清扫：同副本名在别处还有未过期入口时只删到期入口，不关闭副本组', async () => {
+    const { service, maps } = makeEntryFixture();
+    const now = Date.now();
+    maps[2].connections = [{ name: 'CELL研究中心(副本)', mapId: 4, expireAt: now - 1000 }];
+    maps[3].connections = [{ name: 'CELL研究中心(副本)', mapId: 4, expireAt: now + 3600 * 1000 }];
+    const closeSpy = jest.spyOn(service, 'closeDungeon');
+
+    await service.sweepDungeonEntries();
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(maps[2].connections).toEqual([]);
+    expect(maps[3].connections).toHaveLength(1);
+  });
+
+  it('清扫：解析不到目标地图的无效入口直接删除（历史脏数据兜底）', async () => {
     const { service, maps } = makeEntryFixture();
     maps[2].connections = [
       { name: '扭曲深渊(副本)', distance: 100 },
-      { name: 'CELL研究中心(副本)', mapId: 4, distance: 100 },
-      { name: '灭绝之地(副本)', distance: 100 },
+      { name: '灭绝之地(副本)', mapId: 5, expireAt: Date.now() + 3600 * 1000 },
     ];
-    const result = await service.purgeInvalidDungeonEntries();
-
+    const result = await service.sweepDungeonEntries();
     expect(result.removed).toBe(1);
-    expect(result.entries).toEqual(['浅海→扭曲深渊(副本)']);
-    // 无 mapId 但名称能对上真实地图的入口按有效保留
-    expect(maps[2].connections.map((c: any) => c.name)).toEqual([
-      'CELL研究中心(副本)',
-      '灭绝之地(副本)',
-    ]);
+    expect(maps[2].connections.map((c: any) => c.name)).toEqual(['灭绝之地(副本)']);
   });
 });

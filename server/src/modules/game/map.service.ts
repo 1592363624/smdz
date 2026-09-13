@@ -60,6 +60,11 @@ export interface MapConnection {
    * 用于定时生成时只回收自己产生的入口，不误删玩家花副本券开的入口。
    */
   source?: string;
+  /**
+   * 入口到期时刻（毫秒时间戳）：开启时刻 + 有效期（game.dungeonEntryLifetimeHours，默认 24h）。
+   * 持久化在连接上，服务器重启后按剩余时间继续倒计时；到期由清扫任务自动关闭副本。
+   */
+  expireAt?: number;
 }
 
 /**

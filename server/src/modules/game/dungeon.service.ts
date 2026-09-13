@@ -37,6 +37,8 @@ export interface DungeonEntryResult {
   entryName?: string;
   /** 入口指向的真实副本地图 ID */
   mapId?: number;
+  /** 入口到期时刻（毫秒时间戳）：开启时刻 + 有效期 */
+  expireAt?: number;
   /** 失败原因 */
   reason?: string;
 }
@@ -51,9 +53,18 @@ export const DUNGEON_ENTRY_SOURCE = {
   TICKET: 'ticket',
 } as const;
 
+/**
+ * 副本入口默认有效期（小时）。原版入口是内存态、随重启消失，无过期概念；
+ * 本框架持久化入口后用有效期实现「开启 24h 后自动关闭」，可通过配置中心
+ * game.dungeonEntryLifetimeHours 调整。
+ */
+const DEFAULT_ENTRY_LIFETIME_HOURS = 24;
+
 @Injectable()
 export class DungeonService {
   private readonly logger = new Logger(DungeonService.name);
+  /** 入口清扫运行锁：启动、每 5 分钟定时与玩家踩到过期入口都会触发，防并发重复关闭副本 */
+  private sweepRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -117,13 +128,16 @@ export class DungeonService {
    * 统一副本入口生成：定时「生成副本」与玩家「开启副本」两条路径都走这里，
    * 保证入口结构一致（带 mapId 指向真实副本地图、距离 100、isInstance 标记）。
    *
-   * 原版两条路径都只是 `加入成员(地图.可前往, k)`，既不写地图编号也不回收旧入口；
+   * 原版两条路径都只是 `加入成员(地图.可前往, k)`，只加不删，入口随重启消失；
+   * 「刷新副本」关闭副本时才按名称删除入口（后台运作.ecode L1082-L1090）。
+   *
    * 这里补上 mapId 是为了让「前往 X(副本)」不再依赖名称解析（名称解析在副本名与地图名
    * 不一致时会产生永远进不去的入口，见 2026-09-13 的“扭曲深渊”事故）。
+   * 唯一差异：同图同名入口幂等（原版会重复加入成员），避免面板出现重复编号。
    *
-   * 覆盖策略：同名的旧入口先移除再写入（保证 mapId 指向当前地图）；
-   * source=spawn 时额外回收本图上一次定时生成的入口，避免入口无限累积，
-   * 但不会动玩家花副本券开的 source=ticket 入口。
+   * 与原版的差异（2026-09-13 需求）：入口持久化并带有效期——从开启时刻起
+   * game.dungeonEntryLifetimeHours（默认 24h）后自动关闭；重启不清空、按剩余时间
+   * 继续倒计时，取代原版「重启重置」的内存态语义。
    *
    * @param mapId 承载入口的地图 ID（玩家/随机选中的出发地图）
    * @param dungeonName 副本名（不含“(副本)”后缀）
@@ -140,12 +154,10 @@ export class DungeonService {
     const target = await this.resolveDungeonTarget(name);
     if (!target) return { ok: false, reason: `副本不存在${name}` };
 
-    // 定时生成先回收自己上一次的入口，避免 0/12/18 点各刷一次后入口堆积
-    if (source === DUNGEON_ENTRY_SOURCE.SPAWN) {
-      await this.removeSpawnedDungeonEntries(mapId);
-    }
-    // 同名入口可能由另一条路径留下且 mapId 已失效，先按名称移除再重写
-    const entryName = `${name}(副本)`;
+    // 原版是纯追加；同图同名先删后写保证 mapId 指向当前地图（幂等去重）。
+    // 入口从开启时刻起计有效期（两条路径一致），到期由 sweepDungeonEntries 自动关闭。
+    const entryName = `${name}${INSTANCE_ENTRY_SUFFIX}`;
+    const expireAt = Date.now() + (await this.getEntryLifetimeMs());
     await this.mapService.removeMapConnection(mapId, entryName);
     await this.mapService.appendMapConnection(mapId, {
       name: entryName,
@@ -153,71 +165,109 @@ export class DungeonService {
       distance: 100,
       isInstance: true,
       source,
+      expireAt,
     });
-    return { ok: true, entryName, mapId: Number(target.id) };
+    return { ok: true, entryName, mapId: Number(target.id), expireAt };
   }
 
   /**
-   * 回收某张地图上由定时生成留下的副本入口（source=spawn）。
-   * 历史数据没有 source 标记，由 purgeInvalidDungeonEntries 按“是否指向真实地图”兜底清理。
+   * 读取副本入口有效期（毫秒）。配置中心 game.dungeonEntryLifetimeHours；读取失败回退默认 24h。
    */
-  private async removeSpawnedDungeonEntries(mapId: number): Promise<void> {
-    const map = await this.mapService.getMapById(mapId).catch(() => null);
-    if (!map) return;
-    const spawned = this.mapService.getConnections(map).filter(
-      (connection: any) => String(connection?.name || '').endsWith(INSTANCE_ENTRY_SUFFIX)
-        && connection?.source === DUNGEON_ENTRY_SOURCE.SPAWN,
-    );
-    for (const connection of spawned) {
-      await this.mapService.removeMapConnection(mapId, String(connection.name));
-    }
-  }
-
-  /**
-   * 清理无效副本入口（启动自愈 + 数据兜底）。
-   *
-   * 判定：连接名以“(副本)”结尾，且 mapId 未指向存在的地图、去掉“(副本)”后也查不到同名地图，
-   * 即为脏入口（玩家点了只会得到“地图不存在”）。典型来源：旧版定时生成用了
-   * 地图表里不存在的副本名（扭曲深渊/遗忘之地/…）——入口会一直卡在地图上直到副本被刷新。
-   *
-   * @returns 清理统计：涉及地图数、删除入口数、被删入口的“地图→入口”清单
-   */
-  async purgeInvalidDungeonEntries(): Promise<{ maps: number; removed: number; entries: string[] }> {
-    const allMaps = await this.mapService.getAllMaps();
-    const validIds = new Set(
-      allMaps.map((map: any) => Number(map?.id)).filter((id) => Number.isFinite(id) && id > 0),
-    );
-    const validNames = new Set(
-      allMaps.map((map: any) => String(map?.name || '').trim()).filter(Boolean),
-    );
-
-    let maps = 0;
-    let removed = 0;
-    const entries: string[] = [];
-    for (const map of allMaps) {
-      const invalid = this.mapService.getConnections(map).filter((connection: any) => {
-        const entryName = String(connection?.name || '');
-        if (!entryName.endsWith(INSTANCE_ENTRY_SUFFIX)) return false;
-        const byId = connection?.mapId !== undefined
-          && connection?.mapId !== null
-          && validIds.has(Number(connection.mapId));
-        const byName = validNames.has(entryName.slice(0, -INSTANCE_ENTRY_SUFFIX.length));
-        return !byId && !byName;
+  private async getEntryLifetimeMs(): Promise<number> {
+    try {
+      const row = await this.prisma.systemConfig.findUnique({
+        where: { key: 'game.dungeonEntryLifetimeHours' },
       });
-      if (invalid.length === 0) continue;
+      const hours = Number(row?.value);
+      if (Number.isFinite(hours) && hours > 0) return hours * 3600 * 1000;
+    } catch {
+      // 测试桩/配置表未就绪时走默认值
+    }
+    return DEFAULT_ENTRY_LIFETIME_HOURS * 3600 * 1000;
+  }
 
-      maps += 1;
-      for (const connection of invalid) {
-        const entryName = String(connection.name);
-        await this.mapService.removeMapConnection(Number(map.id), entryName);
-        entries.push(`${map.name}→${entryName}`);
-        removed += 1;
+  /**
+   * 副本入口清扫（启动 + 每 5 分钟定时触发）：
+   *
+   * 1) 无效入口（去掉“(副本)”后解析不到任何地图的历史脏数据）→ 直接删除；
+   * 2) 过期入口（expireAt 倒计时结束，开启时刻 + 有效期）→ 删除入口；若全服已无该副本名
+   *    的未过期入口，执行完整关闭（迁移副本内玩家、清怪重刷——对应原版「刷新副本」的
+   *    关闭语义）；若其他地图还有未到期的同名入口，只删到期这条，副本继续开放。
+   *
+   * 原版入口是内存态、随重启消失；持久化后以「到期时间」取代「重启重置」：
+   * 重启不清空入口，倒计时继续（玩家副本券开的入口不再因重启被吞）。
+   * 无 expireAt 的存量入口按原版语义视为长期有效，同名重新开启时会被带 expireAt 的新入口覆盖。
+   *
+   * @returns 清扫统计：删除数 / 过期数 / 关闭的副本组 / “地图→入口”清单
+   */
+  async sweepDungeonEntries(): Promise<{
+    removed: number;
+    expired: number;
+    closedGroups: string[];
+    entries: string[];
+  }> {
+    // 启动/定时/玩家触发可能并发，重入时放弃本轮（下一轮 5 分钟后自然补扫）
+    if (this.sweepRunning) {
+      return { removed: 0, expired: 0, closedGroups: [], entries: [] };
+    }
+    this.sweepRunning = true;
+    try {
+      const now = Date.now();
+      const allMaps = await this.mapService.getAllMaps();
+
+      // 第一遍分类：过期 / 无效（未过期但解析不到地图）/ 未过期有效（记录副本名）
+      const expired: Array<{ mapId: number; entryName: string; baseName: string; mapName: string }> = [];
+      const invalid: Array<{ mapId: number; entryName: string; mapName: string }> = [];
+      const liveBaseNames = new Set<string>();
+      for (const map of allMaps) {
+        for (const connection of this.mapService.getConnections(map)) {
+          const entryName = String(connection?.name || '');
+          if (!entryName.endsWith(INSTANCE_ENTRY_SUFFIX)) continue;
+          const baseName = entryName.slice(0, -INSTANCE_ENTRY_SUFFIX.length);
+          const expireAt = Number(connection?.expireAt || 0);
+          if (expireAt > 0 && expireAt <= now) {
+            expired.push({ mapId: Number(map.id), entryName, baseName, mapName: String(map.name) });
+            continue;
+          }
+          const target = await this.resolveDungeonTarget(baseName);
+          if (!target) {
+            invalid.push({ mapId: Number(map.id), entryName, mapName: String(map.name) });
+          } else {
+            liveBaseNames.add(baseName);
+          }
+        }
       }
+
+      // 第二遍执行删除：无效入口 + 到期入口
+      const entries: string[] = [];
+      for (const item of [...invalid, ...expired]) {
+        await this.mapService.removeMapConnection(item.mapId, item.entryName);
+        entries.push(`${item.mapName}→${item.entryName}`);
+      }
+
+      // 过期副本的完整关闭：closeDungeon 会删除全服同名入口，
+      // 仅当不存在任何未到期同名入口时才执行，避免误关别处刚开的副本
+      const closedGroups: string[] = [];
+      const handledBases = new Set<string>();
+      for (const item of expired) {
+        if (liveBaseNames.has(item.baseName) || handledBases.has(item.baseName)) continue;
+        handledBases.add(item.baseName);
+        const group = await this.findInstanceGroup(item.baseName);
+        if (!group) continue;
+        await this.closeDungeon(item.baseName);
+        closedGroups.push(item.baseName);
+      }
+
+      const removed = entries.length;
+      if (removed > 0) {
+        this.logger.log(
+          `副本入口清扫：删除 ${removed} 条（过期 ${expired.length}，关闭副本组 ${closedGroups.join('、') || '无'}）：${entries.join('、')}`,
+        );
+      }
+      return { removed, expired: expired.length, closedGroups, entries };
+    } finally {
+      this.sweepRunning = false;
     }
-    if (removed > 0) {
-      this.logger.log(`清理无效副本入口 ${removed} 条（涉及 ${maps} 张地图）：${entries.join('、')}`);
-    }
-    return { maps, removed, entries };
   }
 
   /**

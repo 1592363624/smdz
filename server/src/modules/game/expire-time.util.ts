@@ -231,3 +231,25 @@ export function formatDurationText(ms: number): string {
   const sec = totalSec % 60;
   return `${min}分${sec}秒`;
 }
+
+/**
+ * 副本临时入口的剩余时间文案：`剩3小时25分` / `剩45分钟` / `剩1小时` / `已过期`。
+ *
+ * 副本入口从开启时刻起有有效期（game.dungeonEntryLifetimeHours，默认 24h）、
+ * 到期由清扫任务自动关闭；观察附近/查看地图在入口名后附上剩余时间供玩家判断。
+ *
+ * @param expireAt 入口到期毫秒时间戳；<=0 表示无倒计时（历史存量入口），返回空串
+ * @param nowMs 当前毫秒时间戳
+ */
+export function formatDungeonEntryRemaining(expireAt: number, nowMs: number = Date.now()): string {
+  if (!Number.isFinite(expireAt) || expireAt <= 0) return '';
+  // 判断/显示粒度=秒（项目约定），毫秒尾巴不参与计算
+  const remainSec = Math.floor((expireAt - nowMs) / SECOND_MS);
+  if (remainSec <= 0) return '已过期';
+  const hours = Math.floor(remainSec / 3600);
+  // 分钟向上取整：59分59秒显示为「剩1小时」，避免临期入口显示误导性的「剩0分钟」
+  const minutes = Math.ceil((remainSec % 3600) / 60);
+  if (minutes >= 60) return `剩${hours + 1}小时`;
+  if (hours <= 0) return `剩${minutes}分钟`;
+  return minutes > 0 ? `剩${hours}小时${minutes}分` : `剩${hours}小时`;
+}

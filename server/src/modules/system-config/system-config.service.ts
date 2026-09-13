@@ -48,6 +48,15 @@ const DEFAULT_INSTANCE_NAMES2_JSON = JSON.stringify([
 
 const DEFAULT_CONFIGS: SystemConfigDefault[] = [
   {
+    key: 'game.dungeonEntryLifetimeHours',
+    value: '24',
+    label: '副本入口有效期(小时)',
+    description:
+      '副本入口从开启时刻起算的有效期；到期后入口自动关闭（迁移副本内玩家并清怪重刷）。重启不清空，按剩余时间继续倒计时',
+    type: 'number',
+    group: 'game',
+  },
+  {
     key: 'game.instanceNames',
     value: DEFAULT_INSTANCE_NAMES_JSON,
     label: '定时副本名池1',

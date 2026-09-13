@@ -23,7 +23,7 @@ import { asJsonValue } from '../../../common/utils/json-value.util';
 import { formatDisplayNumber, normalizeGameText, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
 import { equipmentQualityLabel } from '.././equipment-ref.util';
-import { filterActive, formatRemain, remainSeconds, toExpireMs } from '.././expire-time.util';
+import { filterActive, formatDungeonEntryRemaining, formatRemain, remainSeconds, toExpireMs } from '.././expire-time.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlayerService } from '.././player.service';
 import { BonusData, BonusService } from '.././bonus.service';
@@ -1255,6 +1255,15 @@ export class GatherPanelService {
    * 处理使用物品命令
    */
 
+  /**
+   * 副本入口的剩余时间后缀（如 "(剩3小时25分)"）。
+   * 无 expireAt 的历史存量入口返回空串（原版入口随重启消失，无倒计时概念）。
+   */
+  private dungeonEntrySuffix(connection: any): string {
+    const remaining = formatDungeonEntryRemaining(Number(connection?.expireAt || 0));
+    return remaining ? `(${remaining})` : '';
+  }
+
   async handleLookAround(userId: number): Promise<string> {
     // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1312,7 +1321,10 @@ export class GatherPanelService {
       if (!connection?.name) continue;
       // 孤岛的出口在下方统一置顶编号，此处不重复编号
       if (isolated && String(connection.name).trim() === '出口') continue;
-      quickOptions.push({ label: connection.name, cmd: `前往 ${connection.name}` });
+      const name = String(connection.name);
+      // 副本临时入口附剩余时间：入口从开启时刻起计有效期、到期自动关闭，
+      // 玩家需要知道还能进多久。cmd 保持原名，编号快捷指令不受显示文案影响。
+      quickOptions.push({ label: `${name}${this.dungeonEntrySuffix(connection)}`, cmd: `前往 ${name}` });
     }
     if (isolated) {
       lines.push('🚪 这里没有任何通往其它地图的道路');
@@ -1654,7 +1666,7 @@ export class GatherPanelService {
         : '',
       `━━━━━━━━━━━━━━━`,
       `可前往:`,
-      ...connections.map((c: any) => `  → ${c.name} (距离: ${c.distance})`),
+      ...connections.map((c: any) => `  → ${c.name}${this.dungeonEntrySuffix(c)} (距离: ${c.distance})`),
     ];
 
     return lines.filter(Boolean).join('\n');
@@ -2990,7 +3002,7 @@ export class GatherPanelService {
       lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`🚪 可前往:`);
       for (const c of connections) {
-        lines.push(`  → ${c.name} (距离: ${c.distance || '?'})`);
+        lines.push(`  → ${c.name}${this.dungeonEntrySuffix(c)} (距离: ${c.distance || '?'})`);
       }
     }
 
