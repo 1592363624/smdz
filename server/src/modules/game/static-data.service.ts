@@ -49,6 +49,8 @@ const DATA_FILES = {
   vehicles: 'vehicles.json',
   blueprints: 'blueprints.json',
   buffs: 'buffs.json',
+  // 增益悬浮提示用的人工维护描述（技能/装备类增益，convert 工具不会重写本文件）
+  buffDocs: 'buff-docs.json',
   shops: 'shops.json',
   resources: 'resources.json',
   effects: 'effects.json',
@@ -528,6 +530,11 @@ export class StaticDataService implements OnModuleInit {
 
   getAllBuffs(): any[] {
     return this.loadRaw('buffs');
+  }
+
+  /** 增益悬浮提示用的人工维护描述（buff-docs.json，覆盖 buffs.json 未收录的技能/装备类增益） */
+  getAllBuffDocs(): any[] {
+    return this.loadRaw('buffDocs');
   }
 
   getAllShops(): any[] {

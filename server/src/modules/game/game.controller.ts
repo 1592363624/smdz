@@ -15,6 +15,7 @@ import { StatsService } from './stats.service';
 import { AdminService } from '../admin/admin.service';
 import { HomeService } from './home.service';
 import { FamiliarSystemService } from './familiar-system.service';
+import { StaticDataService } from './static-data.service';
 
 @ApiTags('游戏')
 @ApiBearerAuth()
@@ -30,7 +31,37 @@ export class GameController {
     private readonly adminService: AdminService,
     private readonly homeService: HomeService,
     private readonly familiarSystem: FamiliarSystemService,
+    private readonly staticData: StaticDataService,
   ) {}
+
+  /**
+   * 获取增益定义清单（前端悬浮提示用）
+   * 数据源：buffs.json（原版静态增益，含描述/时长/加成）+ buff-docs.json（人工维护的
+   * 技能/装备类增益描述）。同名条目以 buff-docs 为准（描述更面向玩家、含实际数值）。
+   */
+  @Get('buff-definitions')
+  @ApiOperation({ summary: '获取增益定义清单（名称/描述/时长/属性加成，悬浮提示用）' })
+  getBuffDefinitions() {
+    // 静态增益：跳过「增益模板」行（仅作转换工具的格式样板，不是真实增益）
+    const staticBuffs = this.staticData
+      .getAllBuffs()
+      .filter((b: any) => b && b.name && b.name !== '增益模板')
+      .map((b: any) => ({
+        name: b.name,
+        description: b.description || '',
+        duration: Number(b.duration) || 0,
+        bonus: b.bonus || {},
+      }));
+    // 人工描述：按名称建索引，覆盖同名静态条目
+    const docMap = new Map<string, any>();
+    for (const d of this.staticData.getAllBuffDocs()) {
+      if (d && d.name) docMap.set(d.name, { name: d.name, description: d.description || '', duration: 0, bonus: {} });
+    }
+    for (const b of staticBuffs) {
+      if (!docMap.has(b.name)) docMap.set(b.name, b);
+    }
+    return { success: true, data: Array.from(docMap.values()) };
+  }
 
   /**
    * 获取当前登录玩家的完整信息

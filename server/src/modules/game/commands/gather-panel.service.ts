@@ -540,13 +540,15 @@ export class GatherPanelService {
    * 剩余倒计时由前端按本地时钟实时计算。
    */
 
-  buildActiveBuffs(rawBuffs: any): Array<{ name: string; expireAt: number }> {
+  buildActiveBuffs(rawBuffs: any): Array<{ name: string; expireAt: number; strength: number }> {
     // 先按统一时间口径剔除过期条目，再统一输出毫秒时间戳给前端倒计时
     // （历史数据里 expireAt 有秒/毫秒两种口径，必须归一化后再交给前端）
+    // strength：可叠加增益的层数/强度（如 苦行、龙姬闪避），悬浮提示展示用
     const now = Date.now();
     return filterActive(rawBuffs, now).map((b: any) => ({
       name: String(b?.name || b?.名称 || '未知'),
       expireAt: toExpireMs(b),
+      strength: Number(b?.strength ?? b?.value ?? b?.强度) || 0,
     }));
   }
 

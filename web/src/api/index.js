@@ -109,6 +109,8 @@ export const commandApi = {
 export const gameApi = {
   // 获取玩家信息（等级、HP、位置等）
   playerInfo: () => http.get('/game/player/info'),
+  // 获取增益定义清单（状态面板增益悬浮提示用：名称/描述/时长/属性加成）
+  buffDefinitions: () => http.get('/game/buff-definitions'),
   // 获取地图连接
   mapConnections: () => http.get('/game/map/connections'),
   // 获取地图总览（当前区域+全部地图）

@@ -100,11 +100,18 @@
       </div>
     </div>
 
-    <!-- 增益：本地时钟实时倒计时，过期条目后端已过滤，前端再兜底隐藏 -->
+    <!-- 增益：本地时钟实时倒计时，过期条目后端已过滤，前端再兜底隐藏；悬浮/点击查看增益详情 -->
     <div class="pi-section" v-if="visibleBuffs.length">
       <div class="pi-section-title">✨ 增益</div>
       <div class="pi-buff-list">
-        <span v-for="b in visibleBuffs" :key="'buff-' + b.name" class="pi-buff">
+        <span
+          v-for="b in visibleBuffs"
+          :key="'buff-' + b.name"
+          class="pi-buff"
+          @mouseenter="onBuffEnter(b, $event.currentTarget)"
+          @mouseleave="onBuffLeave"
+          @click="onBuffClick(b, $event.currentTarget)"
+        >
           {{ b.name }}<em>({{ buffRemain(b.expireAt) }})</em>
         </span>
       </div>
@@ -134,12 +141,32 @@
         </template>
       </div>
     </Teleport>
+
+    <!-- 增益详情悬浮卡片：与装备弹层同款交互（悬浮/移动端点击），Teleport 到 body 避免侧栏裁切 -->
+    <Teleport to="body">
+      <div
+        v-show="hoveredBuff"
+        ref="buffTipEl"
+        class="pi-eq-tooltip pi-buff-tip"
+        :style="{ top: buffPos.top + 'px', left: buffPos.left + 'px' }"
+        @mouseenter="cancelBuffHide"
+        @mouseleave="onBuffTipLeave"
+      >
+        <template v-if="hoveredBuff">
+          <div class="pi-tip-head buff-tip-head">✨ {{ hoveredBuff.name }}</div>
+          <div class="pi-tip-meta">{{ buffTipMeta(hoveredBuff) }}</div>
+          <div v-if="buffTipDesc(hoveredBuff)" class="pi-tip-attrs">{{ buffTipDesc(hoveredBuff) }}</div>
+          <div v-else class="pi-tip-attrs buff-desc-none">暂无详细描述</div>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { serverNow } from '../utils/serverClock';
+import { gameApi } from '../api';
 
 const props = defineProps({
   // buildPlayerInfo 快照（REST 全量 / socket player:update 推送，结构一致）
@@ -341,6 +368,7 @@ function onTooltipLeave() {
 // 侧栏滚动 / 窗口尺寸变化时直接收起，避免弹层与格子错位
 function dismissOnScroll() {
   hoveredSlot.value = '';
+  hoveredBuff.value = null;
 }
 onMounted(() => {
   window.addEventListener('scroll', dismissOnScroll, true);
@@ -350,6 +378,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', dismissOnScroll, true);
   window.removeEventListener('resize', dismissOnScroll);
   if (hideTimer) clearTimeout(hideTimer);
+  if (buffHideTimer) clearTimeout(buffHideTimer);
 });
 
 // 增益倒计时：每秒跳一次对齐时钟驱动重渲染（expireAt 为服务器时刻，
@@ -379,5 +408,105 @@ function buffRemain(expireAt) {
   const mm = Math.floor(remainSec / 60);
   const ss = remainSec % 60;
   return `${mm}:${String(ss).padStart(2, '0')}`;
+}
+
+// ---------- 增益详情悬浮卡片 ----------
+// 数据源：GET /game/buff-definitions（buffs.json 静态定义 + buff-docs.json 人工描述）。
+// 进面板时拉取一次建 name→定义 索引；拉取失败静默降级为"暂无详细描述"，不影响面板本身。
+const buffDefs = ref({});
+onMounted(() => {
+  gameApi
+    .buffDefinitions()
+    .then((res) => {
+      const list = Array.isArray(res?.data) ? res.data : [];
+      const map = {};
+      for (const d of list) {
+        if (d?.name) map[d.name] = d;
+      }
+      buffDefs.value = map;
+    })
+    .catch(() => {});
+});
+
+const hoveredBuff = ref(null);
+const buffPos = ref({ top: 0, left: 0 });
+const buffTipEl = ref(null);
+let buffHideTimer = null;
+
+// 与装备弹层同款定位：优先右侧、空间不足换左侧、垂直夹在视口内
+function positionBuffTip(target) {
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const tipW = 280;
+  const tipH = buffTipEl.value?.offsetHeight || 120;
+  const gap = 8;
+  let left = rect.right + gap;
+  if (left + tipW > window.innerWidth - 4) left = rect.left - tipW - gap;
+  if (left < 4) left = 4;
+  let top = rect.top;
+  if (top + tipH > window.innerHeight - 4) top = window.innerHeight - tipH - 4;
+  if (top < 4) top = 4;
+  buffPos.value = { top, left };
+}
+
+function showBuffTip(b, target) {
+  hoveredBuff.value = b;
+  nextTick(() => positionBuffTip(target));
+}
+// 延迟收起：给鼠标挪进弹层的间隙，避免路过增益条目时闪烁（与装备格 armHide 同口径）
+function armBuffHide() {
+  if (buffHideTimer) clearTimeout(buffHideTimer);
+  buffHideTimer = setTimeout(() => {
+    if (!buffTipEl.value?.matches(':hover')) hoveredBuff.value = null;
+  }, 150);
+}
+function cancelBuffHide() {
+  if (buffHideTimer) clearTimeout(buffHideTimer);
+}
+function onBuffEnter(b, target) {
+  cancelBuffHide();
+  showBuffTip(b, target);
+}
+function onBuffLeave() {
+  armBuffHide();
+}
+function onBuffTipLeave() {
+  armBuffHide();
+}
+// 点击：移动端无 hover 的替代路径；再点同一增益收起
+function onBuffClick(b, target) {
+  if (hoveredBuff.value && hoveredBuff.value.name === b.name) {
+    hoveredBuff.value = null;
+    return;
+  }
+  cancelBuffHide();
+  showBuffTip(b, target);
+}
+
+/** 副标题行：剩余时长 + 强度（strength/value 为可叠加增益的层数或强度） */
+function buffTipMeta(b) {
+  const parts = [`剩余 ${buffRemain(b.expireAt)}`];
+  const strength = Number(b.strength ?? b.value ?? b.强度 ?? 0);
+  if (strength) parts.push(`强度 ${strength}`);
+  return parts.join(' · ');
+}
+
+/**
+ * 增益描述文本：优先人工描述（buff-docs），其次静态定义的 bonus 逐项拼接。
+ * 原版描述里的【目标】【名称】【载具】为模板占位符，替换为面向玩家的说法。
+ */
+function buffTipDesc(b) {
+  const def = buffDefs.value[b.name ?? b.名称];
+  if (def?.description) {
+    return String(def.description)
+      .replace(/【名称】【载具】/g, '攻击者')
+      .replace(/【目标】/g, '你')
+      .replace(/【名称】/g, '攻击者')
+      .replace(/【载具】/g, '攻击者');
+  }
+  // 无人工描述时回退：把静态加成对象拼成 "属性 值" 列表
+  const bonus = def?.bonus || {};
+  const lines = Object.entries(bonus).map(([k, v]) => `${k} ${Number(v) > 0 ? '+' : ''}${v}`);
+  return lines.join('\n');
 }
 </script>
