@@ -2,981 +2,4269 @@
   {
     "name": "肝帝I",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "发送指令",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "肝帝II",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "发送指令",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "肝帝III",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "发送指令",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "肝帝IV",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "发送指令",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "肝帝V",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "发送指令",
+        "count": 100000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "肝帝VI",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "发送指令",
+        "count": 1000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "住这了I",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 60
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "住这了II",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 300
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "住这了III",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 1500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "住这了IV",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 7500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "住这了V",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 37500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "住这了VI",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 187500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "仓鼠I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "5"
+    },
+    "requirements": [
+      {
+        "name": "采集资源",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "仓鼠II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "5"
+    },
+    "requirements": [
+      {
+        "name": "采集资源",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "仓鼠III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "5"
+    },
+    "requirements": [
+      {
+        "name": "采集资源",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "仓鼠IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "5"
+    },
+    "requirements": [
+      {
+        "name": "采集资源",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "仓鼠V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "10"
+    },
+    "requirements": [
+      {
+        "name": "采集资源",
+        "count": 100000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "仓鼠VI",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "10"
+    },
+    "requirements": [
+      {
+        "name": "采集资源",
+        "count": 1000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "仓鼠VII",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "10"
+    },
+    "requirements": [
+      {
+        "name": "采集资源",
+        "count": 10000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 64000
+      },
+      {
+        "name": "水晶",
+        "count": 640000
+      },
+      {
+        "name": "能量块",
+        "count": 400000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "仓鼠VIII",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "10"
+    },
+    "requirements": [
+      {
+        "name": "采集资源",
+        "count": 100000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 128000
+      },
+      {
+        "name": "水晶",
+        "count": 1280000
+      },
+      {
+        "name": "能量块",
+        "count": 800000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "裁缝I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1"
+    },
+    "requirements": [
+      {
+        "name": "获得装备",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "裁缝II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1"
+    },
+    "requirements": [
+      {
+        "name": "获得装备",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "裁缝III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1"
+    },
+    "requirements": [
+      {
+        "name": "获得装备",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "裁缝IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1"
+    },
+    "requirements": [
+      {
+        "name": "获得装备",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "裁缝V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "2"
+    },
+    "requirements": [
+      {
+        "name": "获得装备",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "裁缝VI",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "2"
+    },
+    "requirements": [
+      {
+        "name": "获得装备",
+        "count": 100000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "裁缝VII",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "2"
+    },
+    "requirements": [
+      {
+        "name": "获得装备",
+        "count": 1000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 64000
+      },
+      {
+        "name": "水晶",
+        "count": 640000
+      },
+      {
+        "name": "能量块",
+        "count": 400000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "裁缝VIII",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "2"
+    },
+    "requirements": [
+      {
+        "name": "获得装备",
+        "count": 10000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 128000
+      },
+      {
+        "name": "水晶",
+        "count": 1280000
+      },
+      {
+        "name": "能量块",
+        "count": 800000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "铁血I",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "击败怪物",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "铁血II",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "击败怪物",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "铁血III",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "击败怪物",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "铁血IV",
     "description": "-0.25",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.25"
+    },
+    "requirements": [
+      {
+        "name": "击败怪物",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "铁血V",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "击败怪物",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "铁血VI",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "击败怪物",
+        "count": 100000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "铁血VII",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "击败怪物",
+        "count": 1000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 64000
+      },
+      {
+        "name": "水晶",
+        "count": 640000
+      },
+      {
+        "name": "能量块",
+        "count": 400000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "多面手I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "说明": "降低更换使魔冷却"
+    },
+    "requirements": [
+      {
+        "name": "更换使魔",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "多面手II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "说明": "降低更换使魔冷却"
+    },
+    "requirements": [
+      {
+        "name": "更换使魔",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "多面手III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "说明": "降低更换使魔冷却"
+    },
+    "requirements": [
+      {
+        "name": "更换使魔",
+        "count": 50
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "多面手IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "说明": "降低更换使魔冷却"
+    },
+    "requirements": [
+      {
+        "name": "更换使魔",
+        "count": 200
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "打桩机I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "命中": "10"
+    },
+    "requirements": [
+      {
+        "name": "补魔",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "打桩机II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "命中": "100"
+    },
+    "requirements": [
+      {
+        "name": "补魔",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "打桩机III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "命中": "1000"
+    },
+    "requirements": [
+      {
+        "name": "补魔",
+        "count": 50
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "打桩机IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "命中": "10000"
+    },
+    "requirements": [
+      {
+        "name": "补魔",
+        "count": 200
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "妻妾成群I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生命": "10"
+    },
+    "requirements": [
+      {
+        "name": "捕捉",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "妻妾成群II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生命": "100"
+    },
+    "requirements": [
+      {
+        "name": "捕捉",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "妻妾成群III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生命": "1000"
+    },
+    "requirements": [
+      {
+        "name": "捕捉",
+        "count": 30
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "妻妾成群IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生命": "10000"
+    },
+    "requirements": [
+      {
+        "name": "捕捉",
+        "count": 50
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "身轻如燕I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "闪避": "10"
+    },
+    "requirements": [
+      {
+        "name": "闪避攻击",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "身轻如燕II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "闪避": "100"
+    },
+    "requirements": [
+      {
+        "name": "闪避攻击",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "身轻如燕III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "闪避": "1000"
+    },
+    "requirements": [
+      {
+        "name": "闪避攻击",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "身轻如燕IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "闪避": "10000"
+    },
+    "requirements": [
+      {
+        "name": "闪避攻击",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "天选之子I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1",
+      "说明": "获得几率小于等于1%的掉落"
+    },
+    "requirements": [
+      {
+        "name": "稀有掉落",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "天选之子II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1",
+      "说明": "获得几率小于等于1%的掉落"
+    },
+    "requirements": [
+      {
+        "name": "稀有掉落",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "天选之子III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1",
+      "说明": "获得几率小于等于1%的掉落"
+    },
+    "requirements": [
+      {
+        "name": "稀有掉落",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "天选之子IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1",
+      "说明": "获得几率小于等于1%的掉落"
+    },
+    "requirements": [
+      {
+        "name": "稀有掉落",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "天选之子V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "2",
+      "说明": "获得几率小于等于1%的掉落"
+    },
+    "requirements": [
+      {
+        "name": "稀有掉落",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "刺客I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "攻击": "1"
+    },
+    "requirements": [
+      {
+        "name": "满血秒杀",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "刺客II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "攻击": "10"
+    },
+    "requirements": [
+      {
+        "name": "满血秒杀",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "刺客III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "攻击": "100"
+    },
+    "requirements": [
+      {
+        "name": "满血秒杀",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "刺客IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "攻击": "1000"
+    },
+    "requirements": [
+      {
+        "name": "满血秒杀",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "刺客V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "攻击": "10000"
+    },
+    "requirements": [
+      {
+        "name": "满血秒杀",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "狗头人I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "2",
+      "说明": "杀死状态小于10%的目标"
+    },
+    "requirements": [
+      {
+        "name": "捡人头",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "狗头人II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "2",
+      "说明": "杀死状态小于10%的目标"
+    },
+    "requirements": [
+      {
+        "name": "捡人头",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "狗头人III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "2",
+      "说明": "杀死状态小于10%的目标"
+    },
+    "requirements": [
+      {
+        "name": "捡人头",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "狗头人IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "2",
+      "说明": "杀死状态小于10%的目标"
+    },
+    "requirements": [
+      {
+        "name": "捡人头",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "狗头人V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "4",
+      "说明": "杀死状态小于10%的目标"
+    },
+    "requirements": [
+      {
+        "name": "捡人头",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "奶王I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "护盾全抗": "1",
+      "生命全抗": "1",
+      "装甲全抗": "1"
+    },
+    "requirements": [
+      {
+        "name": "挤奶",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "奶王II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "护盾全抗": "1",
+      "生命全抗": "1",
+      "装甲全抗": "1"
+    },
+    "requirements": [
+      {
+        "name": "挤奶",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "奶王III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "护盾全抗": "1",
+      "生命全抗": "1",
+      "装甲全抗": "1"
+    },
+    "requirements": [
+      {
+        "name": "挤奶",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "奶王IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "护盾全抗": "1",
+      "生命全抗": "1",
+      "装甲全抗": "1"
+    },
+    "requirements": [
+      {
+        "name": "挤奶",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "奶王V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "护盾全抗": "2",
+      "生命全抗": "2",
+      "装甲全抗": "2"
+    },
+    "requirements": [
+      {
+        "name": "挤奶",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "奴隶主I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "5"
+    },
+    "requirements": [
+      {
+        "name": "奴役",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "奴隶主II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "5"
+    },
+    "requirements": [
+      {
+        "name": "奴役",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "奴隶主III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "5"
+    },
+    "requirements": [
+      {
+        "name": "奴役",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "奴隶主IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "5"
+    },
+    "requirements": [
+      {
+        "name": "奴役",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "奴隶主V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "采集": "10"
+    },
+    "requirements": [
+      {
+        "name": "奴役",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "猎马人I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "命中": "1"
+    },
+    "requirements": [
+      {
+        "name": "击败马",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "猎马人II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "命中": "10"
+    },
+    "requirements": [
+      {
+        "name": "击败马",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "猎马人III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "命中": "100"
+    },
+    "requirements": [
+      {
+        "name": "击败马",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "猎马人IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "命中": "1000"
+    },
+    "requirements": [
+      {
+        "name": "击败马",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "猎马人V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "攻击": "10000"
+    },
+    "requirements": [
+      {
+        "name": "击败马",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "战神I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "2"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "战神II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "2"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "战神III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "2"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 100000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "战神IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "2"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 1000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "战神V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 10000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "战神VI",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 100000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "战神VII",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 1000000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 64000
+      },
+      {
+        "name": "水晶",
+        "count": 640000
+      },
+      {
+        "name": "能量块",
+        "count": 400000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "战神VIII",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 10000000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 128000
+      },
+      {
+        "name": "水晶",
+        "count": 1280000
+      },
+      {
+        "name": "能量块",
+        "count": 800000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "战神IX",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 100000000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 256000
+      },
+      {
+        "name": "水晶",
+        "count": 2560000
+      },
+      {
+        "name": "能量块",
+        "count": 1600000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "战神X",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "10"
+    },
+    "requirements": [
+      {
+        "name": "战斗力",
+        "count": 1000000000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 512000
+      },
+      {
+        "name": "水晶",
+        "count": 5120000
+      },
+      {
+        "name": "能量块",
+        "count": 3200000
+      },
+      {
+        "name": "发带",
+        "count": 5
+      }
+    ]
   },
   {
     "name": "巨人猎手I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "1"
+    },
+    "requirements": [
+      {
+        "name": "*巨人",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "巨人猎手II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "3"
+    },
+    "requirements": [
+      {
+        "name": "*巨人",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "巨人猎手III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "5"
+    },
+    "requirements": [
+      {
+        "name": "*巨人",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "怪蜀黍I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "1"
+    },
+    "requirements": [
+      {
+        "name": "捕捉花园宝宝",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "怪蜀黍II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "1"
+    },
+    "requirements": [
+      {
+        "name": "捕捉花园宝宝",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "怪蜀黍III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "1"
+    },
+    "requirements": [
+      {
+        "name": "捕捉花园宝宝",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "住这了VII",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 937500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 64000
+      },
+      {
+        "name": "水晶",
+        "count": 640000
+      },
+      {
+        "name": "能量块",
+        "count": 400000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "住这了VIII",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 4687500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 128000
+      },
+      {
+        "name": "水晶",
+        "count": 1280000
+      },
+      {
+        "name": "能量块",
+        "count": 800000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "住这了IX",
     "description": "-0.5",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-0.5"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 23437500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 256000
+      },
+      {
+        "name": "水晶",
+        "count": 2560000
+      },
+      {
+        "name": "能量块",
+        "count": 1600000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "住这了X",
     "description": "-1",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "升级经验": "-1"
+    },
+    "requirements": [
+      {
+        "name": "在线时间",
+        "count": 117187500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 512000
+      },
+      {
+        "name": "水晶",
+        "count": 5120000
+      },
+      {
+        "name": "能量块",
+        "count": 3200000
+      },
+      {
+        "name": "发带",
+        "count": 5
+      }
+    ]
   },
   {
     "name": "渴望I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "1"
+    },
+    "requirements": [
+      {
+        "name": "消耗活力",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "渴望II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "1"
+    },
+    "requirements": [
+      {
+        "name": "消耗活力",
+        "count": 50
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "渴望III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "1"
+    },
+    "requirements": [
+      {
+        "name": "消耗活力",
+        "count": 250
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "巨人猎手IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "1"
+    },
+    "requirements": [
+      {
+        "name": "*巨人",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "怪蜀黍IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "1"
+    },
+    "requirements": [
+      {
+        "name": "捕捉花园宝宝",
+        "count": 500
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "渴望IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "1"
+    },
+    "requirements": [
+      {
+        "name": "消耗活力",
+        "count": 1250
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "巨人猎手V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "2"
+    },
+    "requirements": [
+      {
+        "name": "*巨人",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "渴望V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落数量": "2"
+    },
+    "requirements": [
+      {
+        "name": "消耗活力",
+        "count": 6250
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "怪蜀黍V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "溅射": "2"
+    },
+    "requirements": [
+      {
+        "name": "捕捉花园宝宝",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "一发入魂I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "2"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "一发入魂II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "2"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 1000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "一发入魂III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "2"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 10000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "一发入魂IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "2"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 100000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "一发入魂V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 1000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "一发入魂VI",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 10000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "一发入魂VII",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 100000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 64000
+      },
+      {
+        "name": "水晶",
+        "count": 640000
+      },
+      {
+        "name": "能量块",
+        "count": 400000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "一发入魂VIII",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 1000000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 128000
+      },
+      {
+        "name": "水晶",
+        "count": 1280000
+      },
+      {
+        "name": "能量块",
+        "count": 800000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "一发入魂IX",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "5"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 10000000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 256000
+      },
+      {
+        "name": "水晶",
+        "count": 2560000
+      },
+      {
+        "name": "能量块",
+        "count": 1600000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "一发入魂X",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "暴击伤害": "10"
+    },
+    "requirements": [
+      {
+        "name": "最高伤害",
+        "count": 100000000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 512000
+      },
+      {
+        "name": "水晶",
+        "count": 5120000
+      },
+      {
+        "name": "能量块",
+        "count": 3200000
+      },
+      {
+        "name": "发带",
+        "count": 5
+      }
+    ]
   },
   {
     "name": "土豪I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1"
+    },
+    "requirements": [
+      {
+        "name": "购物",
+        "count": 5
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "土豪II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1"
+    },
+    "requirements": [
+      {
+        "name": "购物",
+        "count": 25
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "土豪III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1"
+    },
+    "requirements": [
+      {
+        "name": "购物",
+        "count": 125
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "土豪IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "1"
+    },
+    "requirements": [
+      {
+        "name": "购物",
+        "count": 625
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "土豪V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "掉落率": "2"
+    },
+    "requirements": [
+      {
+        "name": "购物",
+        "count": 3125
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "托拉斯I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生产": "1"
+    },
+    "requirements": [
+      {
+        "name": "生产",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10
+      },
+      {
+        "name": "水晶",
+        "count": 100
+      },
+      {
+        "name": "能量块",
+        "count": 60
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "托拉斯II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生产": "1"
+    },
+    "requirements": [
+      {
+        "name": "生产",
+        "count": 4000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 100
+      },
+      {
+        "name": "水晶",
+        "count": 2000
+      },
+      {
+        "name": "能量块",
+        "count": 1200
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "托拉斯III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生产": "1"
+    },
+    "requirements": [
+      {
+        "name": "生产",
+        "count": 160000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 1000
+      },
+      {
+        "name": "水晶",
+        "count": 40000
+      },
+      {
+        "name": "能量块",
+        "count": 24000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "托拉斯IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生产": "2"
+    },
+    "requirements": [
+      {
+        "name": "生产",
+        "count": 6400000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 5000
+      },
+      {
+        "name": "水晶",
+        "count": 80000
+      },
+      {
+        "name": "能量块",
+        "count": 48000
+      },
+      {
+        "name": "发带",
+        "count": 1
+      }
+    ]
   },
   {
     "name": "托拉斯V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生产": "2"
+    },
+    "requirements": [
+      {
+        "name": "生产",
+        "count": 256000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 10000
+      },
+      {
+        "name": "水晶",
+        "count": 160000
+      },
+      {
+        "name": "能量块",
+        "count": 96000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "托拉斯VI",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "生产": "3"
+    },
+    "requirements": [
+      {
+        "name": "生产",
+        "count": 10240000000
+      }
+    ],
+    "rewards": [
+      {
+        "name": "经验胶囊",
+        "count": 32000
+      },
+      {
+        "name": "水晶",
+        "count": 320000
+      },
+      {
+        "name": "能量块",
+        "count": 200000
+      },
+      {
+        "name": "发带",
+        "count": 2
+      }
+    ]
   },
   {
     "name": "意外之喜I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "韧性": "1"
+    },
+    "requirements": [
+      {
+        "name": "拾取载具",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "载具零件",
+        "count": 50
+      },
+      {
+        "name": "资源箱",
+        "count": 500
+      }
+    ]
   },
   {
     "name": "意外之喜II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "韧性": "2"
+    },
+    "requirements": [
+      {
+        "name": "拾取载具",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "载具零件",
+        "count": 500
+      },
+      {
+        "name": "资源箱",
+        "count": 5000
+      }
+    ]
   },
   {
     "name": "意外之喜III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "韧性": "3"
+    },
+    "requirements": [
+      {
+        "name": "拾取载具",
+        "count": 30
+      }
+    ],
+    "rewards": [
+      {
+        "name": "载具零件",
+        "count": 5000
+      },
+      {
+        "name": "资源箱",
+        "count": 50000
+      }
+    ]
   },
   {
     "name": "意外之喜IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "韧性": "4"
+    },
+    "requirements": [
+      {
+        "name": "拾取载具",
+        "count": 100
+      }
+    ],
+    "rewards": [
+      {
+        "name": "载具零件",
+        "count": 50000
+      },
+      {
+        "name": "资源箱",
+        "count": 500000
+      }
+    ]
   },
   {
     "name": "跪地王I",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "卷土重来": "1"
+    },
+    "requirements": [
+      {
+        "name": "卷土重来",
+        "count": 1
+      }
+    ],
+    "rewards": [
+      {
+        "name": "奶油蛋糕",
+        "count": 5
+      }
+    ]
   },
   {
     "name": "跪地王II",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "卷土重来": "2"
+    },
+    "requirements": [
+      {
+        "name": "卷土重来",
+        "count": 3
+      }
+    ],
+    "rewards": [
+      {
+        "name": "奶油蛋糕",
+        "count": 10
+      }
+    ]
   },
   {
     "name": "跪地王III",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "卷土重来": "3"
+    },
+    "requirements": [
+      {
+        "name": "卷土重来",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "奶油蛋糕",
+        "count": 15
+      }
+    ]
   },
   {
     "name": "跪地王IV",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "卷土重来": "4"
+    },
+    "requirements": [
+      {
+        "name": "卷土重来",
+        "count": 10
+      }
+    ],
+    "rewards": [
+      {
+        "name": "奶油蛋糕",
+        "count": 30
+      }
+    ]
   },
   {
     "name": "跪地王V",
     "description": "",
-    "bonus": {},
-    "requirements": [],
-    "rewards": []
+    "bonus": {
+      "卷土重来": "5"
+    },
+    "requirements": [
+      {
+        "name": "卷土重来",
+        "count": 30
+      }
+    ],
+    "rewards": [
+      {
+        "name": "奶油蛋糕",
+        "count": 100
+      }
+    ]
   }
 ]

@@ -18,7 +18,7 @@ function buildService(gameServiceOverrides: Record<string, any> = {}) {
     consumeNotifications: jest.fn(() => ''),
   };
   const gameService = {
-    handleAvailableTitles: jest.fn(async () => '📜 可领取的称号\n使魔新手（拥有1个使魔好感度≥25）'),
+    handleAvailableTitles: jest.fn(async () => '📜 可领取的称号\n1、肝帝I\n  发送指令(0/10)'),
     handleInfo: jest.fn(async () => '【路人甲】Lv.145'),
     calculateTimeElapsed: jest.fn(async () => ''),
     getFirstFamiliarGate: jest.fn(async () => null),

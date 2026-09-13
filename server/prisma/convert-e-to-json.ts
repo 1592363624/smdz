@@ -34,12 +34,11 @@ try {
   process.exit(1);
 }
 
-// 易语言源码实际位于 e/源码解析成为txt/ 子目录下（带中文目录名）
+// 易语言源码实际位于 原版易语言源代码/源码/ 子目录下（带中文目录名）
 const ROOT_DIR = path.resolve(__dirname, '../../');
-const ECODE_DIR = path.resolve(ROOT_DIR, 'e/源码解析成为txt');
-// 原版主配置（GBK 编码）：易语言源码 e/源码解析成为txt/使魔大战.txt。
-// 工作区根目录的 _decoded_original.txt 是当前完整 UTF-8 导出；旧版 GBK 文件是裁剪版，
-// 缺少后续版本的使魔、载具和生产配置。存在完整导出时，所有静态数据都以它为准。
+const ECODE_DIR = path.resolve(ROOT_DIR, '原版易语言源代码/源码');
+// 原版主配置：易语言源码 原版易语言源代码/源码/使魔大战.txt。
+// 当前导出为 UTF-8（无 BOM）完整版，包含全部 140 个称号等完整配置。
 const COMPLETE_DATA_FILE = path.resolve(ROOT_DIR, '_decoded_original.txt');
 const DATA_FILE = path.resolve(ECODE_DIR, '使魔大战.txt');
 const RECIPE_DATA_FILE = fs.existsSync(COMPLETE_DATA_FILE) ? COMPLETE_DATA_FILE : DATA_FILE;
@@ -57,15 +56,24 @@ interface ConfigSection {
 }
 
 /** 读取并解析 [节头] + 键值对 格式的配置文件。
- *  兼容 GBK（原版使魔大战.txt）与 UTF-8(BOM)（完整导出 _decoded_original.txt）：
- *  检测 UTF-8 BOM(EF BB BF) 则用 utf-8 解码，否则用 gbk。 */
+ *  编码自动检测：UTF-8(BOM) → utf-8；无 BOM 时先用「严格 UTF-8」试探解码，
+ *  失败（存在非法多字节序列）才回退 GBK——当前源码导出是无 BOM 的 UTF-8，
+ *  按 GBK 解会整篇乱码导致称号等节字段全部丢失。 */
 function parseConfigFile(filePath: string): ConfigSection[] {
   const buf = fs.readFileSync(filePath);
   let txt: string;
   if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
     txt = iconv.decode(buf, 'utf-8');
   } else {
-    txt = iconv.decode(buf, 'gbk');
+    // 严格 UTF-8 试探：TextDecoder fatal 模式遇到非法字节即抛错
+    let strictUtf8 = false;
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(buf);
+      strictUtf8 = true;
+    } catch {
+      strictUtf8 = false;
+    }
+    txt = strictUtf8 ? iconv.decode(buf, 'utf-8') : iconv.decode(buf, 'gbk');
   }
   const sections: ConfigSection[] = [];
   const lines = txt.split(/\r?\n/);
@@ -642,12 +650,23 @@ function parseUnlockRequirements(str: string): Array<{ name: string; count: numb
 
 function mapTitleToTitle(section: ConfigSection) {
   const fields = section.fields;
-  const rewards = parseItemCountString(fields['奖励'] || '');
-  const requirements = parseItemCountString(fields['要求'] || '');
+  // 称号的 奖励/要求 是“名称+数量”紧凑后缀格式（如 “经验胶囊10 水晶100 能量块60 发带1”、
+  // “发送指令10”），与解锁需求同格式 —— 必须用 parseUnlockRequirements 解析。
+  // 此前误用按“名称,数量”逗号切分的 parseItemCountString，导致 140 个称号的
+  // 条件与奖励全部解析为空数组（2026-09-13 修复）。
+  const rewards = parseUnlockRequirements(fields['奖励'] || '');
+  const requirements = parseUnlockRequirements(fields['要求'] || '');
+  // 加成字段（升级经验/采集/掉落率等）全量收进 bonus 对象留存：
+  // 当前版本称号为纯外观（不加数值），但保留原版加成数据便于后续启用
+  const bonus: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (k === '奖励' || k === '要求') continue;
+    bonus[k] = v;
+  }
   return {
     name: section.name,
     description: fields['升级经验'] || '',
-    bonus: {},
+    bonus,
     requirements,
     rewards,
   };
@@ -920,6 +939,12 @@ interface BlueprintData {
 }
 
 function parseBlueprintSections(): { blueprints: BlueprintData[]; purchase: BlueprintData[] } {
+  // 蓝图源文件（0.txt）在当前源码目录缺失：跳过蓝图解析（--only=titles 场景不需要），
+  // 避免整个转换因单一缺失文件中断
+  if (!fs.existsSync(BLUEPRINT_FILE)) {
+    console.warn(`⚠️ 蓝图文件不存在，跳过: ${BLUEPRINT_FILE}`);
+    return { blueprints: [], purchase: [] };
+  }
   const buf = fs.readFileSync(BLUEPRINT_FILE);
   const txt = iconv.decode(buf, 'gbk');
   const blueprints: BlueprintData[] = [];
@@ -1038,7 +1063,17 @@ function readResourceTexts(): { setEffects: any[]; flavorTexts: any[]; seedItems
 
 // ========== 主流程 ==========
 
+// 命令行 --only=a,b：只重建指定 JSON 文件（不带该参数则全量重建）
+const ONLY_KEYS: string[] | null = (() => {
+  const arg = process.argv.find((a) => a.startsWith('--only='));
+  if (!arg) return null;
+  return arg.slice('--only='.length).split(',').map((s) => s.trim()).filter(Boolean);
+})();
+
 function writeJson(name: string, data: any) {
+  // --only=titles 只重建指定文件（逗号分隔可多个），避免整库重刷覆盖
+  // 已手工校准过的其它 JSON（2026-09-13 称号修复引入）。
+  if (ONLY_KEYS && !ONLY_KEYS.includes(name.replace(/\.json$/, ''))) return;
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
   const file = path.join(OUT_DIR, name);
   fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');

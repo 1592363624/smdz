@@ -124,91 +124,16 @@ export class AchievementService {
   }
 
   /**
-   * 检查称号触发
-   * 根据玩家各种成就数据判断是否获得新称号
-   * 称号数据从 GameTitle 表读取，每个称号的 requirements 字段为 JSON 条件数组
-   * 支持的条件类型：achievement（成就数值）、level（等级）、affinity（好感度）
-   * @param player 玩家对象（会修改并保存 titles）
-   * @returns 新获得的称号名称列表
+   * 检查称号触发（已停用自动发放）
+   * 对齐原版：称号只能通过「领取称号」手动领取（原版 _主程序.ecode L10577-10620，
+   * 条件满足时同时发放资源奖励）。自动发放会导致玩家跳过领取环节、错失奖励，
+   * 因此本方法仅保留签名兼容（addAchievement / item-system 的既有调用点），恒返回空数组。
+   * @param player 玩家对象（不再修改）
+   * @returns 恒为空数组
    */
   async checkTitles(player: any): Promise<string[]> {
-    const newTitles: string[] = [];
-
-    // 1. 解析玩家称号列表和标记。
-    // 统一为 {name, equipped} 形状（与 领取称号/佩戴称号 一致）：历史上自动发放
-    // 写的是纯字符串数组，会把领取/佩戴写入的对象形状覆盖掉，导致佩戴状态丢失。
-    const rawTitles = asJsonValue<any[]>(player.titles, []);
-    const playerTitles: Array<{ name: string; equipped?: boolean }> = Array.isArray(rawTitles)
-      ? rawTitles.filter((t: any) => t)
-        .map((t: any) => (typeof t === 'string' ? { name: t } : t))
-      : [];
-    const markers = asJsonValue<Record<string, number>>(player.markers, {});
-
-    // 2. 从静态配置读取所有称号（JSON 单一来源）
-    const allTitles = this.staticData.getAllTitles();
-
-    // 3. 检查每个称号的触发条件
-    for (const title of allTitles) {
-      // 跳过已获得的称号
-      if (playerTitles.some((t) => t.name === title.name)) continue;
-
-      // 解析触发条件
-      const requirements: Array<{ type?: string; name?: string; value?: number }> =
-        asJsonValue(title.requirements, []);
-      if (requirements.length === 0) continue;
-
-      // 检查所有条件是否满足
-      let allMet = true;
-      for (const req of requirements) {
-        const type = req.type || 'achievement';
-        const reqName = req.name || '';
-        const reqValue = req.value || 0;
-
-        if (type === 'achievement') {
-          // 成就数值条件：检查 markers 中对应成就的数值
-          const currentVal = markers[reqName] || 0;
-          if (currentVal < reqValue) {
-            allMet = false;
-            break;
-          }
-        } else if (type === 'level') {
-          // 等级条件
-          if ((player.level || 0) < reqValue) {
-            allMet = false;
-            break;
-          }
-        } else if (type === 'affinity') {
-          // 好感度条件
-          if ((player.affinity || 0) < reqValue) {
-            allMet = false;
-            break;
-          }
-        }
-      }
-
-      // 4. 如果满足条件且玩家尚未获得，发放称号（新称号默认未佩戴）
-      if (allMet) {
-        playerTitles.push({ name: title.name, equipped: false });
-        newTitles.push(title.name);
-        this.logger.log(`玩家 ${player.userId || player.id} 获得称号: ${title.name}`);
-      }
-    }
-
-    // 更新玩家称号列表
-    if (newTitles.length > 0) {
-      player.titles = playerTitles; // Player titles 为 Json 列，直接写数组
-      // 称号解锁属里程碑时刻：定向推送给该玩家播放屏幕级高光动画。
-      // 推送失败不影响称号发放（emit 内部已静默兜底）。
-      this.highlight?.emit(player.userId, {
-        type: 'title',
-        title: newTitles.length > 1 ? `称号解锁 ×${newTitles.length}` : '称号解锁',
-        names: newTitles,
-        detail: '成就达成',
-      });
-    }
-
-    // 5. 返回新获得的称号名称列表
-    return newTitles;
+    void player;
+    return [];
   }
 
   /**

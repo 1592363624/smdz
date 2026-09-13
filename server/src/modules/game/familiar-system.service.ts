@@ -21,7 +21,7 @@ import { DelayedTaskService } from './delayed-task.service';
 import { GameHighlightService } from './highlight.service';
 import { hasActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
-import { roundItemQuantity } from '../../common/utils/game-text.util';
+import { roundItemQuantity, formatDamageText, formatSecondsDurationText } from '../../common/utils/game-text.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import {
   buildFamiliarGateDetail,
@@ -4140,23 +4140,28 @@ ${this.getAwakenStageName(d)}(${d})`;
 
   // ==================== 使魔称号 ====================
 
-  /** 称号配置列表 */
-  private readonly titleConfigs = [
-    { name: '使魔新手', condition: '拥有1个使魔好感度≥25', check: (affinities: Record<string, number>) => Object.values(affinities).filter(a => a >= 25).length >= 1, bonus: '攻击+5' },
-    { name: '使魔收藏家', condition: '拥有3个使魔好感度≥25', check: (affinities: Record<string, number>) => Object.values(affinities).filter(a => a >= 25).length >= 3, bonus: '攻击+10，防御+5' },
-    { name: '使魔大师', condition: '拥有5个使魔好感度≥25', check: (affinities: Record<string, number>) => Object.values(affinities).filter(a => a >= 25).length >= 5, bonus: '攻击+20，防御+10，速度+5' },
-    { name: '挚爱之人', condition: '任意使魔好感度达到100', check: (affinities: Record<string, number>) => Object.values(affinities).some(a => a >= 100), bonus: '全属性+15' },
-    { name: '驯服者', condition: '拥有使魔总数≥10', check: (affinities: Record<string, number>) => Object.keys(affinities).length >= 10, bonus: '攻击+10' },
-    { name: '百战勇士', condition: '使魔等级达到100级', check: async (prisma: PrismaService, userId: number) => {
-      const player = await prisma.player.findUnique({ where: { userId } });
-      return player ? (player.level || 0) >= 100 : false;
-    }, bonus: '攻击+30，防御+20' },
-    { name: '资深驯兽师', condition: '拥有使魔总数≥20', check: (affinities: Record<string, number>) => Object.keys(affinities).length >= 20, bonus: '全属性+25' },
-  ];
+  /**
+   * 原版称号要求的进度值（对应原版 取成就熟练度）。
+   * 要求名含 "*" 时为模糊匹配：取汉字后对所有「包含该串」的成就求和
+   * （原版 取成就熟练度(成就, 取汉字(名称), 真, 真)，如 "*巨人" 匹配 击败巨人 等）。
+   */
+  private getTitleProgress(markers: Record<string, any>, reqName: string): number {
+    if (reqName.includes('*')) {
+      const chars = (reqName.match(/[\u4e00-\u9fa5]+/g) || []).join('');
+      if (!chars) return 0;
+      let sum = 0;
+      for (const [key, value] of Object.entries(markers || {})) {
+        if (key.includes(chars)) sum += Number(value) || 0;
+      }
+      return sum;
+    }
+    return Number(markers?.[reqName]) || 0;
+  }
 
   /**
    * 领取称号
-   * 完成特定条件获得称号
+   * 仅支持原版 140 个称号（titles.json：条件+资源奖励，
+   * 对应原版 _主程序.ecode L10577-10620）。
    * @param userId 用户ID
    * @param titleName 称号名称
    * @returns 操作结果文本
@@ -4165,58 +4170,70 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 查找称号配置
-    const titleConfig = this.titleConfigs.find(t => t.name === titleName);
-    if (!titleConfig) {
-      return `不存在的称号：${titleName}\n可用称号：${this.titleConfigs.map(t => t.name).join('、')}`;
-    }
-
-    // 检查是否已拥有该称号
+    // 检查是否已拥有该称号（历史形状兼容：字符串条目视为已拥有称号名）
     const titles = asJsonValue<any[]>(player.titles, []);
-    if (titles.some((t: any) => t.name === titleName)) {
-      return `你已经拥有称号「${titleName}」了`;
+    if (titles.some((t: any) => (typeof t === 'string' ? t : t.name) === titleName)) {
+      return `你已经获得过这个称号了。`;
     }
 
-    // 检查条件
-    // 收集所有使魔好感度（静态配置 JSON 单一来源）
-    const allFamiliars = this.staticData.getAllFamiliars();
-    const affinities: Record<string, number> = {};
-    for (const familiar of allFamiliars) {
-      const affinityKey = `${familiar.name}好感`;
-      const affinity = this.playerService.getMarkerValue(markers, affinityKey);
-      if (affinity > 0) {
-        affinities[familiar.name] = affinity;
+    // ---------- 条件校验：原版称号（titles.json：条件+奖励） ----------
+    const originalTitle = this.staticData.getTitleByName(titleName);
+    if (!originalTitle) {
+      return `${player.name || '冒险者'}${titleName}在称号列表不存在！`;
+    }
+    const requirements = asJsonValue<Array<{ name?: string; count?: number }>>(originalTitle.requirements, []);
+    // 逐条校验条件（原版通常单条件；多条件需全部满足），未满足时按原版文案播报第一条差距
+    for (const req of requirements) {
+      const reqName = String(req?.name || '').trim();
+      if (!reqName) continue;
+      const need = Number(req?.count) || 0;
+      const current = this.getTitleProgress(markers, reqName);
+      if (current < need) {
+        return `${player.name || '冒险者'}\n${titleName}需要${reqName}x${formatDamageText(need)},你只达到了${formatDamageText(current)}`;
       }
     }
+    const pendingRewards = asJsonValue<Array<{ name?: string; count?: number }>>(originalTitle.rewards, [])
+      .map((r) => ({ name: String(r?.name || '').trim(), count: roundItemQuantity(Number(r?.count) || 0) }))
+      .filter((r) => r.name && r.count > 0);
 
-    // 检查条件是否满足
-    let conditionMet = false;
-    if (typeof titleConfig.check === 'function') {
-      // 如果是异步函数（需要prisma参数）
-      if (titleConfig.check.length > 1) {
-        conditionMet = await (titleConfig.check as any)(this.prisma, userId);
-      } else {
-        conditionMet = (titleConfig.check as any)(affinities);
+    // ---------- 条件满足：发放奖励 + 写称号 + 单点落库 ----------
+    const rewardLines: string[] = [];
+    if (pendingRewards.length > 0) {
+      // 原版 L10608-10617 获得物品：奖励物品进背包（装备类走生成装备管道，词条随机）
+      const backpack = asJsonValue<any[]>(player.backpack, []);
+      const lookup = lookupFromStaticData(this.staticData);
+      for (const reward of pendingRewards) {
+        if (lookup.isEquipment(reward.name)) {
+          const equipment = this.itemSystem
+            ? await this.itemSystem.generateRewardEquipment(reward.name)
+            : { name: reward.name, data: 'e' };
+          mergeBackpackItem(backpack, { ...equipment, name: reward.name, quantity: 1, count: 1 }, lookup);
+        } else {
+          mergeBackpackItem(backpack, { name: reward.name, quantity: reward.count, count: reward.count }, lookup);
+        }
+        rewardLines.push(`${reward.name}x${formatDamageText(reward.count)}`);
       }
+      player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     }
 
-    if (!conditionMet) {
-      return `条件不满足：${titleConfig.condition}`;
-    }
-
-    // 领取称号
     titles.push({ name: titleName, equipped: false });
     player.titles = titles; // Player titles 为 Json 列，直接写数组
     await this.playerService.savePlayer(player);
-    // 落库成功后才推送高光：避免"弹了动画但称号没拿到"的错觉
+
+    // 原版领取成功后 添加成就("领取称号",1,,玩家.任务)（推进同名任务，无任务时静默）
+    await this.taskService.advance(userId, '领取称号', 1);
+
     this.highlight?.emit(userId, {
       type: 'title',
       title: '称号解锁',
       names: [titleName],
-      detail: titleConfig.bonus ? `效果：${titleConfig.bonus}` : '使魔称号',
+      // 纯外观称号不展示"效果：xxx"假文案；原版称号展示获得的资源奖励
+      detail: rewardLines.length > 0 ? `获得：${rewardLines.join('、')}` : '称号解锁',
     });
 
-    return `恭喜你获得了称号「${titleName}」！\n效果：${titleConfig.bonus}`;
+    return rewardLines.length > 0
+      ? `${player.name || '冒险者'}领取了称号${titleName}\n得到了${rewardLines.join('、')}`
+      : `恭喜你获得了称号「${titleName}」！`;
   }
 
   /**
@@ -4295,10 +4312,9 @@ ${this.getAwakenStageName(d)}(${d})`;
     ];
 
     for (const title of titles) {
+      // 称号为纯外观（对齐原版）：列表只展示称号名与佩戴状态，不再拼"效果"文案
       const equippedMark = title.equipped ? '✅' : '  ';
-      const titleConfig = this.titleConfigs.find(t => t.name === title.name);
-      const bonus = titleConfig ? titleConfig.bonus : '';
-      lines.push(`${equippedMark} ${title.name}${bonus ? `（${bonus}）` : ''}`);
+      lines.push(`${equippedMark} ${title.name}`);
     }
 
     lines.push(`━━━━━━━━━━━━━━━`);
@@ -4309,7 +4325,10 @@ ${this.getAwakenStageName(d)}(${d})`;
 
   /**
    * 查看可领取的称号
-   * 可领取项带编号，并注册临时输入替换：玩家直接发数字即可快速领取（原版编号菜单惯例）
+   * 原版 140 个称号（titles.json）统一编号；可领取项注册临时输入替换：
+   * 玩家直接发数字即可快速领取（原版编号菜单惯例，原版 L10520-10553）。
+   * 进度行格式：要求名(当前/要求值)；在线时间用时间格式（数字到时间）；
+   * 含 "*" 的要求做汉字模糊匹配求和（对应原版 取成就熟练度 模糊+取全部匹配）。
    * @param userId 用户ID
    * @returns 可领取称号列表
    */
@@ -4321,38 +4340,39 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 历史形状兼容（同 佩戴称号）：字符串条目视为已拥有称号名
     const ownedNames = new Set(ownedTitles.map((t: any) => (typeof t === 'string' ? t : t.name)));
 
-    // 收集所有使魔好感度（静态配置 JSON 单一来源）
-    const allFamiliars = this.staticData.getAllFamiliars();
-    const affinities: Record<string, number> = {};
-    for (const familiar of allFamiliars) {
-      const affinityKey = `${familiar.name}好感`;
-      const affinity = this.playerService.getMarkerValue(markers, affinityKey);
-      if (affinity > 0) {
-        affinities[familiar.name] = affinity;
-      }
-    }
-
     // 编号临时输入替换：数字精确匹配（ShortcutService 对纯数字 original 走全等），
     // 只给可领取的称号发号，已领取的（✅）不发号不占号。
     const tempGroups: string[] = [];
 
     const lines = [
-      '📜 可领取的称号',
+      `📜 可领取的称号`,
       `━━━━━━━━━━━━━━━`,
     ];
 
     let no = 0;
-    for (const config of this.titleConfigs) {
-      const owned = ownedNames.has(config.name);
-      if (owned) {
-        lines.push(`${config.name}`);
-        lines.push(`  效果: ${config.bonus} | ✅ 已领取`);
-        continue;
-      }
+
+    // ---------- 原版称号（titles.json：条件+奖励） ----------
+    for (const title of this.staticData.getAllTitles()) {
+      if (ownedNames.has(title.name)) continue;
+      const requirements = asJsonValue<Array<{ name?: string; count?: number }>>(title.requirements, []);
+      if (requirements.length === 0) continue;
       no++;
-      lines.push(`${no}、${config.name}（${config.condition}）`);
-      lines.push(`  效果: ${config.bonus} | ⏳ 可领取`);
-      tempGroups.push(`${no}@领取称号 ${config.name}`);
+      lines.push(`${no}、${title.name}`);
+      // 进度行：与原版一致，逐条要求显示 (当前/要求值)；在线时间用时间格式
+      for (const req of requirements) {
+        const reqName = String(req?.name || '').trim();
+        if (!reqName) continue;
+        const need = Number(req?.count) || 0;
+        const current = this.getTitleProgress(markers, reqName);
+        if (reqName === '在线时间') {
+          lines.push(`  ${reqName}(${formatSecondsDurationText(current)}/${formatSecondsDurationText(need)})`);
+        } else if (reqName.includes('*')) {
+          lines.push(`  ${reqName}(${formatDamageText(current)}/${formatDamageText(need)})`);
+        } else {
+          lines.push(`  ${reqName}(${formatDamageText(current)}/${formatDamageText(need)})`);
+        }
+      }
+      tempGroups.push(`${no}@领取称号 ${title.name}`);
     }
 
     lines.push(`━━━━━━━━━━━━━━━`);

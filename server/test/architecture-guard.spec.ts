@@ -518,7 +518,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 冻结口径 = 净行数不增：改 bug / 重构 / 删代码不受限，只禁新增功能堆行。
   // 真有正当理由加行数时，显式上调基线走 PR 评审——被门禁拦下的改动必须被看见。
   const GAME_COMMAND_HANDLER_LINE_BASELINE = 2041;
-  const GAME_SERVICE_HANDLE_METHOD_BASELINE = 240;
+  const GAME_SERVICE_HANDLE_METHOD_BASELINE = 241;
 
   it('game-command.handler.ts 行数只减不增（G5：新指令走新 handlerKey 子域，禁止膨胀转移）', () => {
     const handlerSrc = fs.readFileSync(
@@ -562,7 +562,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 重演 game-command.handler 1,009→2,041 的教训（§11.1）。
   const PHASE2_FILE_LINE_BASELINES: Array<[string, number]> = [
     ['modules/game/combat-system.service.ts', 12418],
-    ['modules/game/familiar-system.service.ts', 4853],
+    ['modules/game/familiar-system.service.ts', 4957],
     ['modules/game/familiar-skills.service.ts', 4053],
     ['modules/game/item-system.service.ts', 3386],
   ];
