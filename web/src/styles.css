@@ -2523,17 +2523,21 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   animation: fadeIn 0.3s ease;
 }
 .admin-header {
-  padding: 16px 24px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--glass-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(10, 10, 26, 0.7);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  z-index: 1;
 }
 .admin-header h1 {
-  font-size: 20px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   background: var(--accent-gradient-full);
   background-size: 200% auto;
   -webkit-background-clip: text;
@@ -2546,53 +2550,61 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   gap: 10px;
 }
 .btn-ghost {
-  padding: 8px 14px;
+  padding: 7px 14px;
   background: rgba(10, 10, 26, 0.6);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
   cursor: pointer;
-  transition: all 0.25s ease;
+  font-size: 13px;
+  transition: all 0.2s ease;
 }
 .btn-ghost:hover {
   border-color: var(--accent);
   color: var(--accent);
   background: rgba(139, 92, 246, 0.1);
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
 }
 
 /* 管理标签页 */
-.tabs {
+.admin-page .tabs {
   display: flex;
-  padding: 0 24px;
-  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 20px;
+  gap: 4px;
   border-bottom: 1px solid var(--glass-border);
-  background: rgba(10, 10, 26, 0.5);
+  background: rgba(10, 10, 26, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
-.tab {
+.admin-page .tab {
   padding: 12px 18px;
   background: none;
   border: none;
   color: var(--muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
   border-bottom: 2px solid transparent;
-  transition: all 0.25s ease;
+  transition: color 0.2s ease, background 0.2s ease;
   position: relative;
+  border-radius: 8px 8px 0 0;
 }
-.tab:hover {
+.admin-page .tab:hover {
   color: var(--text);
+  background: rgba(139, 92, 246, 0.06);
 }
-.tab.active {
+.admin-page .tab.active {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  background: rgba(139, 92, 246, 0.1);
+  border-bottom-color: transparent;
 }
-.tab.active::after {
+.admin-page .tab.active::after {
   content: '';
   position: absolute;
-  bottom: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60%;
+  bottom: 0;
+  left: 12%;
+  right: 12%;
   height: 2px;
   background: var(--accent-gradient);
   border-radius: 1px;
@@ -2608,16 +2620,18 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   animation: fadeInUp 0.3s ease-out;
 }
 .panel-head {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .panel-head h2 {
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 600;
   margin-bottom: 6px;
   color: var(--text-secondary);
 }
 .hint {
   color: var(--muted);
   font-size: 13px;
+  line-height: 1.55;
 }
 
 /* 统计卡片 */
@@ -3608,12 +3622,12 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   .admin-header h1 {
     font-size: 17px;
   }
-  .tabs {
+  .admin-page .tabs {
     overflow-x: auto;
     padding: 0 12px;
     gap: 4px;
   }
-  .tab {
+  .admin-page .tab {
     padding: 10px 12px;
     font-size: 13px;
     white-space: nowrap;

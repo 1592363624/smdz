@@ -144,7 +144,18 @@ export class AdminLogsController {
     try {
       const buffer = Buffer.alloc(length);
       await handle.read(buffer, 0, length, start);
-      text = buffer.toString('utf8');
+      // 非文件起点时，跳过开头的 UTF-8 续字节（10xxxxxx），对齐到字符边界
+      let buf = buffer;
+      if (start > 0) {
+        let skip = 0;
+        while (skip < buf.length && skip < 3 && (buf[skip] & 0xc0) === 0x80) {
+          skip++;
+        }
+        if (skip > 0) buf = buf.subarray(skip);
+      }
+      text = buf.toString('utf8');
+      // 去掉可能的 BOM
+      if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
     } finally {
       await handle.close();
     }
