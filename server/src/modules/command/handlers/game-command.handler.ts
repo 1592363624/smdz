@@ -1101,6 +1101,10 @@ export class GameCommandHandler implements CommandHandler {
         case 'familiar-titles':
           return this.wrap(await this.gameService.handleFamiliarTitles(userId));
 
+        case '查看可领取称号':
+        case 'available-titles':
+          return this.wrap(await this.gameService.handleAvailableTitles(userId));
+
         case '领取称号':
         case 'claim-title': {
           const result = await this.gameService.handleClaimTitle(userId, firstArg);

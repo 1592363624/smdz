@@ -4309,6 +4309,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
   /**
    * 查看可领取的称号
+   * 可领取项带编号，并注册临时输入替换：玩家直接发数字即可快速领取（原版编号菜单惯例）
    * @param userId 用户ID
    * @returns 可领取称号列表
    */
@@ -4317,7 +4318,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     const { player, markers } = playerData;
 
     const ownedTitles = asJsonValue<any[]>(player.titles, []);
-    const ownedNames = new Set(ownedTitles.map((t: any) => t.name));
+    // 历史形状兼容（同 佩戴称号）：字符串条目视为已拥有称号名
+    const ownedNames = new Set(ownedTitles.map((t: any) => (typeof t === 'string' ? t : t.name)));
 
     // 收集所有使魔好感度（静态配置 JSON 单一来源）
     const allFamiliars = this.staticData.getAllFamiliars();
@@ -4330,20 +4332,39 @@ ${this.getAwakenStageName(d)}(${d})`;
       }
     }
 
+    // 编号临时输入替换：数字精确匹配（ShortcutService 对纯数字 original 走全等），
+    // 只给可领取的称号发号，已领取的（✅）不发号不占号。
+    const tempGroups: string[] = [];
+
     const lines = [
       '📜 可领取的称号',
       `━━━━━━━━━━━━━━━`,
     ];
 
+    let no = 0;
     for (const config of this.titleConfigs) {
       const owned = ownedNames.has(config.name);
-      const status = owned ? '✅ 已领取' : '⏳ 可领取';
-      lines.push(`${config.name}${owned ? '' : '（' + config.condition + '）'}`);
-      lines.push(`  效果: ${config.bonus} | ${status}`);
+      if (owned) {
+        lines.push(`${config.name}`);
+        lines.push(`  效果: ${config.bonus} | ✅ 已领取`);
+        continue;
+      }
+      no++;
+      lines.push(`${no}、${config.name}（${config.condition}）`);
+      lines.push(`  效果: ${config.bonus} | ⏳ 可领取`);
+      tempGroups.push(`${no}@领取称号 ${config.name}`);
     }
 
     lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`使用「领取称号 称号名」来领取称号`);
+    if (tempGroups.length > 0) {
+      // 编号菜单必须注册：玩家发送编号即触发对应「领取称号 称号名」（2分钟内有效）
+      if (this.shortcutService?.setTempInput) {
+        await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
+      }
+      lines.push(`发送编号即可快速领取，或使用「领取称号 称号名」`);
+    } else {
+      lines.push(`所有称号均已领取 ✅`);
+    }
 
     return lines.join('\n');
   }

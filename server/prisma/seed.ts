@@ -138,6 +138,7 @@ async function main() {
     { name: '使魔家园', alias: 'familiar-home', description: '进入使魔家园', handlerKey: 'game', minRole: 'USER', sortOrder: 181 },
     { name: '通用技能', alias: 'common-skills', description: '查看通用技能', handlerKey: 'game', minRole: 'USER', sortOrder: 182 },
     { name: '使魔称号', alias: 'familiar-titles', description: '查看使魔称号', handlerKey: 'game', minRole: 'USER', sortOrder: 183 },
+    { name: '查看可领取称号', alias: 'available-titles', description: '查看所有称号及领取状态', handlerKey: 'game', minRole: 'USER', sortOrder: 1831 },
     { name: '领取称号', alias: 'claim-title', description: '领取已获得的称号', handlerKey: 'game', minRole: 'USER', sortOrder: 184 },
     { name: '佩戴称号', alias: 'equip-title', description: '佩戴称号', handlerKey: 'game', minRole: 'USER', sortOrder: 185 },
     { name: '使魔排行', alias: 'familiar-rank', description: '查看使魔排行榜', handlerKey: 'game', minRole: 'USER', sortOrder: 186 },

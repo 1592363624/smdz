@@ -391,6 +391,16 @@ export class SkillCommandService {
   }
 
   /**
+   * 处理查看可领取称号命令
+   * 查看所有称号及领取状态
+   * 委托到 FamiliarSystemService.viewAvailableTitles
+   */
+
+  async handleAvailableTitles(userId: number): Promise<string> {
+    return this.familiarSystemService.viewAvailableTitles(userId);
+  }
+
+  /**
    * 处理领取称号命令
    * 领取指定的称号
    * 委托到 FamiliarSystemService.claimTitle 领取称号

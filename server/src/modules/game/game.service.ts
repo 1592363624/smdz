@@ -862,6 +862,9 @@ export class GameService {
   async handleFamiliarTitles(userId: number): Promise<string>{
     return this.skillCommandService.handleFamiliarTitles(userId);
   }
+  async handleAvailableTitles(userId: number): Promise<string>{
+    return this.skillCommandService.handleAvailableTitles(userId);
+  }
   async handleClaimTitle(userId: number, titleName: string): Promise<string>{
     return this.skillCommandService.handleClaimTitle(userId, titleName);
   }

@@ -340,7 +340,7 @@ export class DungeonChallengeService {
       .sort((a, b) => b[1] - a[1])
       .map(([monsterName, weight]) => {
         let required = Math.round(weight / totalWeight * 25);
-        required = Math.max(1, Math.min(5, required));
+        required = Math.max(5, Math.min(100, required));
         const completed = typeof this.playerService.getMarkerValue === 'function'
           ? Number(this.playerService.getMarkerValue(markers, `击败${monsterName}`)) || 0
           : Number(markers?.[`击败${monsterName}`] || 0);
