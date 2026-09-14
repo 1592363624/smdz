@@ -60,22 +60,22 @@ export const userApi = {
   setFavorites: (commands) => http.post('/users/favorite-commands', { commands }),
 };
 
-/// 聊天接口
+/// 聊天接口（游戏内私聊功能已下线，相关接口随功能一并移除）
 export const chatApi = {
   getMessages: (channelId = 1, limit = 50) =>
     http.get('/chat/messages', { params: { channelId, limit } }),
   getChannel: () => http.get('/chat/channel'),
   // 获取可@提及的玩家列表（含在线状态，在线优先排序）
   getPlayers: () => http.get('/chat/players'),
-  // 私聊会话列表（含未读数与最后一条消息）
-  getPrivateConversations: () => http.get('/chat/private/conversations'),
-  // 与指定用户的私聊历史
-  getPrivateMessages: (withUserId, limit = 50) =>
-    http.get('/chat/private/messages', { params: { withUserId, limit } }),
-  // 标记与指定用户的私聊为已读
-  markPrivateRead: (withUserId) => http.post('/chat/private/read', { withUserId }),
-  // 通过 HTTP 发送私聊（指令通道等场景）
-  sendPrivateMessage: (to, content) => http.post('/chat/private/send', { to, content }),
+  // 发红包可选道具清单（读当前玩家背包，已排除装备/硬通货）
+  getRedPacketItems: () => http.get('/chat/redpacket/items'),
+  // 查询红包状态列表（不传 ids 返回时间窗内最近红包；传 ids 按ID批量查询）
+  getRedPackets: (ids) =>
+    http.get('/chat/redpackets', { params: ids?.length ? { ids: ids.join(',') } : {} }),
+  // 发送世界红包（发送即扣除背包道具）
+  createRedPacket: (payload) => http.post('/chat/redpacket', payload),
+  // 领取世界红包（先到先得，每人限领1份）
+  claimRedPacket: (id) => http.post(`/chat/redpacket/${id}/claim`),
 };
 
 /// 反馈接口

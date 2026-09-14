@@ -19,6 +19,8 @@
             <div class="name-row">
               <span class="name">{{ user?.nickname || user?.username }}</span>
               <button v-if="!nicknameEditing" class="nickname-edit-btn" title="修改昵称" @click.stop="openNicknameEdit">✏️</button>
+              <!-- 当前使魔：原「我的」面板顶部独占一行展示，现合并进用户卡片省掉一行高度 -->
+              <span v-if="playerInfo?.type" class="user-marker" :title="'当前使魔：' + playerInfo.type">{{ playerInfo.type }}</span>
             </div>
             <!-- 昵称行内编辑 -->
             <div v-if="nicknameEditing" class="nickname-edit-row">
@@ -90,15 +92,22 @@
           <div class="fav-cmds">
             <div class="fav-head">
               <span class="fav-title">⭐ 我的常用</span>
-              <button class="fav-edit-btn" @click="toggleFavEdit">{{ favEditing ? '完成' : '编辑' }}</button>
+              <div class="fav-actions">
+                <!-- 分享：把当前常用列表生成分享码并复制到剪贴板，可在其他账号导入 -->
+                <button class="fav-mini-btn" title="复制分享码，可在其他账号导入" @click="exportFavorites">分享</button>
+                <!-- 导入：粘贴其他账号的分享码，合并进当前列表 -->
+                <button class="fav-mini-btn" title="粘贴分享码导入常用指令" @click="openFavImport">导入</button>
+                <button class="fav-edit-btn" @click="toggleFavEdit">{{ favEditing ? '完成' : '编辑' }}</button>
+              </div>
             </div>
             <div v-if="favoriteCommands.length || favEditing" class="fav-list">
+              <!-- 非编辑态也允许拖拽排序：HTML5 拖拽自带触发阈值，未实际拖动时 click 仍正常触发发送 -->
               <span
                 v-for="(f, fi) in favoriteCommands"
                 :key="'fav-' + f.cmd"
                 class="fav-chip"
                 :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi, 'edit-target': favEditTarget === f.cmd }"
-                :draggable="favEditing"
+                :draggable="true"
                 @dragstart="onFavDragStart(fi)"
                 @dragover.prevent="onFavDragOver(fi)"
                 @drop="onFavDrop(fi)"
@@ -138,6 +147,49 @@
                   class="fav-cand"
                   @click="addFavorite(c.name)"
                 >{{ c.name }}</span>
+              </div>
+            </div>
+            <!-- 导入面板：粘贴其他账号的分享码，实时预览解析结果，确认后再合并进当前列表 -->
+            <div v-if="favImporting" class="fav-add fav-import">
+              <textarea
+                class="fav-add-input fav-add-textarea"
+                v-model="favImportText"
+                rows="4"
+                placeholder="粘贴分享码（在其他账号点「分享」复制的内容）"
+                @click.stop
+              ></textarea>
+              <!-- 预览区：解析失败提示原因，成功则列出「将新增」与「将跳过」的条目 -->
+              <div v-if="favImportPreview.error" class="fav-import-tip err">{{ favImportPreview.error }}</div>
+              <div v-else-if="favImportPreview.incoming.length" class="fav-import-preview">
+                <div class="fav-import-sum">
+                  共解析 {{ favImportPreview.incoming.length }} 条：
+                  <b class="ok">新增 {{ favImportPreview.added.length }} 条</b>
+                  <span v-if="favImportPreview.dup.length">，<span class="skip">跳过 {{ favImportPreview.dup.length }} 条重复</span></span>
+                </div>
+                <div v-if="favImportPreview.added.length" class="fav-list">
+                  <span
+                    v-for="p in favImportPreview.added"
+                    :key="'favp-' + p.cmd"
+                    class="fav-chip"
+                    :title="p.cmd"
+                  >{{ p.label }}</span>
+                </div>
+                <div v-else class="fav-import-sum">与当前列表完全相同，无需重复导入</div>
+                <details v-if="favImportPreview.dup.length" class="fav-import-dup">
+                  <summary>已存在、将跳过 {{ favImportPreview.dup.length }} 条</summary>
+                  <div class="fav-list">
+                    <span
+                      v-for="p in favImportPreview.dup"
+                      :key="'favd-' + p.cmd"
+                      class="fav-chip muted"
+                      :title="p.cmd"
+                    >{{ p.label }}</span>
+                  </div>
+                </details>
+              </div>
+              <div class="fav-add-actions">
+                <button class="fav-add-btn" :disabled="favBusy || !favImportPreview.added.length" @click="confirmFavImport()">确认导入{{ favImportPreview.added.length ? `（${favImportPreview.added.length} 条）` : '' }}</button>
+                <button class="fav-cancel-btn" @click="cancelFavImport()">取消</button>
               </div>
             </div>
             <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
@@ -180,10 +232,47 @@
             <span class="ss-value">{{ serverStats.totalPlayers }}</span>
           </span>
           <span class="ss-divider"></span>
-          <span class="ss-text">
+          <!-- 在线：悬停展开在线玩家名单（条数上限由后端配置决定，默认 10） -->
+          <div
+            class="ss-text ss-online-wrap"
+            title="悬停查看在线玩家名单"
+            @mouseenter="openOnlinePanel"
+            @mouseleave="scheduleCloseOnlinePanel"
+          >
             <span class="ss-label">在线</span>
             <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
-          </span>
+            <div
+              v-if="onlinePanelOpen"
+              class="ss-popover"
+              @mouseenter="openOnlinePanel"
+              @mouseleave="scheduleCloseOnlinePanel"
+            >
+              <div class="ss-pop-head">
+                <span>当前在线</span>
+                <span class="ss-pop-count">{{ serverStats.onlinePlayers }}</span>
+              </div>
+              <ul v-if="serverStats.onlineList.length" class="ss-pop-list">
+                <li v-for="(name, i) in serverStats.onlineList" :key="name + '-' + i">
+                  <span class="ss-pop-dot"></span>
+                  <span class="ss-pop-name">{{ name }}</span>
+                </li>
+              </ul>
+              <div v-else class="ss-pop-empty">暂无在线玩家</div>
+              <div v-if="hiddenOnlineCount > 0" class="ss-pop-more">
+                另有 {{ hiddenOnlineCount }} 名玩家在线
+              </div>
+            </div>
+          </div>
+          <!-- 上下线提示：紧跟「在线」数字同一行只显示最新一条（1 分钟后自动消失，时长见 PRESENCE_CONFIG） -->
+          <div
+            v-if="presenceNotices.length"
+            :key="presenceNotices[0].id"
+            class="ss-presence"
+            :class="presenceNotices[0].type"
+          >
+            <span class="ss-presence-name">{{ presenceNotices[0].name }}</span>
+            <span class="ss-presence-text">{{ presenceNotices[0].type === 'online' ? '上线了' : '离线了' }}</span>
+          </div>
         </div>
         <div class="sidebar-footer-actions">
           <button class="logout" title="个人设置" @click="settingsOpen = true">🔧 设置</button>
@@ -210,6 +299,8 @@
             <div class="name-row">
               <span class="name">{{ user?.nickname || user?.username }}</span>
               <button v-if="!nicknameEditing" class="nickname-edit-btn" title="修改昵称" @click.stop="openNicknameEdit">✏️</button>
+              <!-- 当前使魔：原「我的」面板顶部独占一行展示，现合并进用户卡片省掉一行高度 -->
+              <span v-if="playerInfo?.type" class="user-marker" :title="'当前使魔：' + playerInfo.type">{{ playerInfo.type }}</span>
             </div>
             <!-- 昵称行内编辑 -->
             <div v-if="nicknameEditing" class="nickname-edit-row">
@@ -284,15 +375,22 @@
           <div class="fav-cmds">
             <div class="fav-head">
               <span class="fav-title">⭐ 我的常用</span>
-              <button class="fav-edit-btn" @click="toggleFavEdit">{{ favEditing ? '完成' : '编辑' }}</button>
+              <div class="fav-actions">
+                <!-- 分享：把当前常用列表生成分享码并复制到剪贴板，可在其他账号导入 -->
+                <button class="fav-mini-btn" title="复制分享码，可在其他账号导入" @click="exportFavorites">分享</button>
+                <!-- 导入：粘贴其他账号的分享码，合并进当前列表 -->
+                <button class="fav-mini-btn" title="粘贴分享码导入常用指令" @click="openFavImport">导入</button>
+                <button class="fav-edit-btn" @click="toggleFavEdit">{{ favEditing ? '完成' : '编辑' }}</button>
+              </div>
             </div>
             <div v-if="favoriteCommands.length || favEditing" class="fav-list">
+              <!-- 非编辑态也允许拖拽排序：HTML5 拖拽自带触发阈值，未实际拖动时 click 仍正常触发发送 -->
               <span
                 v-for="(f, fi) in favoriteCommands"
                 :key="'mfav-' + f.cmd"
                 class="fav-chip"
                 :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi, 'edit-target': favEditTarget === f.cmd }"
-                :draggable="favEditing"
+                :draggable="true"
                 @dragstart="onFavDragStart(fi)"
                 @dragover.prevent="onFavDragOver(fi)"
                 @drop="onFavDrop(fi)"
@@ -334,6 +432,49 @@
                 >{{ c.name }}</span>
               </div>
             </div>
+            <!-- 导入面板：粘贴其他账号的分享码，实时预览解析结果，确认后再合并进当前列表 -->
+            <div v-if="favImporting" class="fav-add fav-import">
+              <textarea
+                class="fav-add-input fav-add-textarea"
+                v-model="favImportText"
+                rows="4"
+                placeholder="粘贴分享码（在其他账号点「分享」复制的内容）"
+                @click.stop
+              ></textarea>
+              <!-- 预览区：解析失败提示原因，成功则列出「将新增」与「将跳过」的条目 -->
+              <div v-if="favImportPreview.error" class="fav-import-tip err">{{ favImportPreview.error }}</div>
+              <div v-else-if="favImportPreview.incoming.length" class="fav-import-preview">
+                <div class="fav-import-sum">
+                  共解析 {{ favImportPreview.incoming.length }} 条：
+                  <b class="ok">新增 {{ favImportPreview.added.length }} 条</b>
+                  <span v-if="favImportPreview.dup.length">，<span class="skip">跳过 {{ favImportPreview.dup.length }} 条重复</span></span>
+                </div>
+                <div v-if="favImportPreview.added.length" class="fav-list">
+                  <span
+                    v-for="p in favImportPreview.added"
+                    :key="'favp-' + p.cmd"
+                    class="fav-chip"
+                    :title="p.cmd"
+                  >{{ p.label }}</span>
+                </div>
+                <div v-else class="fav-import-sum">与当前列表完全相同，无需重复导入</div>
+                <details v-if="favImportPreview.dup.length" class="fav-import-dup">
+                  <summary>已存在、将跳过 {{ favImportPreview.dup.length }} 条</summary>
+                  <div class="fav-list">
+                    <span
+                      v-for="p in favImportPreview.dup"
+                      :key="'favd-' + p.cmd"
+                      class="fav-chip muted"
+                      :title="p.cmd"
+                    >{{ p.label }}</span>
+                  </div>
+                </details>
+              </div>
+              <div class="fav-add-actions">
+                <button class="fav-add-btn" :disabled="favBusy || !favImportPreview.added.length" @click="confirmFavImport()">确认导入{{ favImportPreview.added.length ? `（${favImportPreview.added.length} 条）` : '' }}</button>
+                <button class="fav-cancel-btn" @click="cancelFavImport()">取消</button>
+              </div>
+            </div>
             <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
             <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
           </div>
@@ -373,7 +514,7 @@
             <div class="mc-block">
               <div class="mc-block-title">👥 附近玩家（{{ nearbyPlayers.length }}）</div>
               <div class="mc-grid" v-if="nearbyPlayers.length">
-                <span v-for="p in nearbyPlayers" :key="'mnp-' + p.userId" class="mc-node nearby-node" :class="{ online: p.online }" @click="mobileMenuOpen = false; startNearbyPrivateChat(p)">
+                <span v-for="p in nearbyPlayers" :key="'mnp-' + p.userId" class="mc-node nearby-node" :class="{ online: p.online }" @click="mobileMenuOpen = false; atNearbyPlayer(p)">
                   {{ p.nickname || p.username }}<em v-if="!p.online">·离线</em>
                 </span>
               </div>
@@ -412,10 +553,47 @@
             <span class="ss-value">{{ serverStats.totalPlayers }}</span>
           </span>
           <span class="ss-divider"></span>
-          <span class="ss-text">
+          <!-- 在线：悬停展开在线玩家名单（与桌面端同一份 store 数据） -->
+          <div
+            class="ss-text ss-online-wrap"
+            title="悬停查看在线玩家名单"
+            @mouseenter="openOnlinePanel"
+            @mouseleave="scheduleCloseOnlinePanel"
+          >
             <span class="ss-label">在线</span>
             <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
-          </span>
+            <div
+              v-if="onlinePanelOpen"
+              class="ss-popover"
+              @mouseenter="openOnlinePanel"
+              @mouseleave="scheduleCloseOnlinePanel"
+            >
+              <div class="ss-pop-head">
+                <span>当前在线</span>
+                <span class="ss-pop-count">{{ serverStats.onlinePlayers }}</span>
+              </div>
+              <ul v-if="serverStats.onlineList.length" class="ss-pop-list">
+                <li v-for="(name, i) in serverStats.onlineList" :key="name + '-' + i">
+                  <span class="ss-pop-dot"></span>
+                  <span class="ss-pop-name">{{ name }}</span>
+                </li>
+              </ul>
+              <div v-else class="ss-pop-empty">暂无在线玩家</div>
+              <div v-if="hiddenOnlineCount > 0" class="ss-pop-more">
+                另有 {{ hiddenOnlineCount }} 名玩家在线
+              </div>
+            </div>
+          </div>
+          <!-- 上下线提示：紧跟「在线」数字同一行只显示最新一条（1 分钟后自动消失，时长见 PRESENCE_CONFIG） -->
+          <div
+            v-if="presenceNotices.length"
+            :key="presenceNotices[0].id"
+            class="ss-presence"
+            :class="presenceNotices[0].type"
+          >
+            <span class="ss-presence-name">{{ presenceNotices[0].name }}</span>
+            <span class="ss-presence-text">{{ presenceNotices[0].type === 'online' ? '上线了' : '离线了' }}</span>
+          </div>
         </div>
         <div class="sidebar-footer-actions">
           <button class="logout" title="个人设置" @click="settingsOpen = true">🔧 设置</button>
@@ -450,11 +628,6 @@
           <!-- 命令面板入口：桌面端可用 Cmd/Ctrl+K 唤起，移动端点此打开 -->
           <button class="header-action-btn palette-open-btn" title="指令面板（Cmd/Ctrl+K）" @click="ui.openPalette()">
             ⌨️ 指令
-          </button>
-          <!-- 私聊入口按钮（带未读红点） -->
-          <button class="header-action-btn" title="私聊" @click="togglePrivatePanel">
-            💬 私聊
-            <span v-if="unreadPrivateCount > 0" class="unread-badge">{{ unreadPrivateCount > 99 ? '99+' : unreadPrivateCount }}</span>
           </button>
           <!-- BUG 反馈入口：醒目样式 + GitHub 图标，点击跳转 GitHub Issues 页 -->
           <a
@@ -575,10 +748,14 @@
     </main>
 
     <!-- 右下角悬浮世界聊天：与中央游戏区隔离，聊天/红包等不淹没战斗指令结果 -->
+    <!-- mention-players：复用本页轮询的可@玩家列表，供悬浮窗 @ 下拉与右键 @ 使用 -->
     <FloatingChatWidget
       :connected="connected"
       :self-id="user?.id"
+      :mention-players="mentionablePlayers"
       :send="sendChatMessage"
+      @refresh-players="loadMentionablePlayers"
+      @notify="onFloatingNotify"
     />
 
     <!-- 桌面端右栏：当前地图详情 + 怪物/资源/NPC -->
@@ -633,7 +810,8 @@
             :key="'np-' + p.userId"
             class="ip-row player-row"
             :class="{ online: p.online }"
-            @click="startNearbyPrivateChat(p)"
+            title="点击把 TA 的 @ 提及填入输入框"
+            @click="atNearbyPlayer(p)"
           >
             <span class="ip-row-avatar">
               <img v-if="p.avatar" :src="p.avatar" class="np-avatar" />
@@ -679,60 +857,6 @@
         </div>
       </div>
     </aside>
-
-    <!-- 私聊面板（右侧滑出覆盖层） -->
-    <div v-if="privatePanelOpen" class="panel-overlay" @click.self="closePrivatePanel">
-      <aside class="side-panel private-panel">
-        <header class="panel-header">
-          <h3>💬 私聊</h3>
-          <button class="panel-close" title="关闭" @click="closePrivatePanel">✕</button>
-        </header>
-        <div class="private-body">
-          <!-- 左侧：会话列表 -->
-          <div class="conv-list">
-            <div
-              v-for="conv in privateConversations"
-              :key="conv.peerId"
-              class="conv-item"
-              :class="{ active: privatePeerId === conv.peerId }"
-              @click="openPrivateConversation(conv)"
-            >
-              <div class="conv-top">
-                <span class="conv-name">{{ conv.peer?.nickname || conv.peer?.username || '玩家' }}</span>
-                <span v-if="conv.unread > 0" class="conv-unread">{{ conv.unread > 99 ? '99+' : conv.unread }}</span>
-              </div>
-              <div class="conv-preview">{{ conv.lastMessage || '' }}</div>
-            </div>
-            <div v-if="!privateConversations.length" class="panel-empty">暂无私聊会话</div>
-          </div>
-          <!-- 右侧：聊天窗口 -->
-          <div class="private-chat">
-            <div class="private-msgs" v-if="privatePeerId">
-              <div
-                v-for="(pm, pi) in privateMessages"
-                :key="pm.id || pi"
-                :class="['pmsg', pm.senderId === user?.id ? 'own' : 'other']"
-              >
-                <span class="pmsg-sender">{{ pm.sender?.nickname || pm.sender?.username || '未知' }}：</span>
-                <span class="pmsg-content" style="white-space: pre-line">{{ pm.content }}</span>
-                <span class="pmsg-time">{{ formatTime(pm.createdAt) }}</span>
-              </div>
-              <div v-if="!privateMessages.length" class="panel-empty">暂无消息，发送第一条私聊吧！</div>
-            </div>
-            <div v-else class="panel-empty">选择左侧会话开始私聊</div>
-            <footer class="panel-input-bar">
-              <input
-                v-model="privateInput"
-                :disabled="!privatePeerId || !connected"
-                placeholder="输入私聊内容..."
-                @keyup.enter="sendPrivateMessage"
-              />
-              <button :disabled="!privatePeerId || !connected" @click="sendPrivateMessage">发送</button>
-            </footer>
-          </div>
-        </div>
-      </aside>
-    </div>
 
     <!-- 个人设置弹窗：用户级设置功能统一收纳（当前：血量预警特效档位） -->
     <div v-if="settingsOpen" class="settings-overlay" @click.self="settingsOpen = false">
@@ -992,7 +1116,19 @@ import PendingActionBar from '../components/PendingActionBar.vue';
 import FloatingChatWidget from '../components/FloatingChatWidget.vue';
 import { io } from 'socket.io-client';
 import { chatApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
-import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
+import {
+  WS_URL,
+  API_BASE,
+  APP_VERSION,
+  UPDATE_SETTINGS,
+  GITHUB_ISSUES_URL,
+  // @提及 规则（字符集/长度/下拉上限/刷新间隔）统一从配置读取，与后端解析规则保持一致
+  MENTION_CONFIG,
+  mentionParseRegex,
+  isSafeMentionName,
+  // 在线玩家悬浮面板 / 上下线提示（保留时长、条数、关闭延迟）配置
+  PRESENCE_CONFIG,
+} from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameHighlight from '../components/GameHighlight.vue';
 // 血量预警/死亡状态全屏特效层（三边呼吸光效、受击快闪、死亡三段式反馈）
@@ -1142,10 +1278,44 @@ const visibleMessages = computed(() => {
   });
 });
 
-// 服务器统计（总人数、在线人数）
+// 服务器统计（总人数、在线人数、在线玩家名单）
 const serverStats = computed(() => connectionStore.stats);
 let statsTimer = null;
 let socket = null;
+
+// ===== 状态栏「在线」悬浮名单 + 上下线提示 =====
+/** 上下线提示（store 统一维护，到期自动移除；保留时长见 PRESENCE_CONFIG） */
+const presenceNotices = computed(() => connectionStore.presenceNotices);
+/** 悬浮面板是否展开 */
+const onlinePanelOpen = ref(false);
+/** 延迟关闭定时器：让鼠标从数字滑到面板上时不闪断 */
+let onlinePanelCloseTimer = null;
+/**
+ * 未在名单中列出的在线人数。
+ * 后端只返回前 N 个在线玩家（N 由后端配置控制），差值用「还有 X 人」补足，
+ * 保证玩家知道总在线数远大于展示条数。
+ */
+const hiddenOnlineCount = computed(() =>
+  Math.max(0, Number(serverStats.value.onlinePlayers || 0) - (serverStats.value.onlineList?.length || 0)),
+);
+
+/** 展开悬浮名单（顺带取消待执行的关闭，实现"数字 ↔ 面板"之间连续悬停） */
+function openOnlinePanel() {
+  if (onlinePanelCloseTimer) {
+    clearTimeout(onlinePanelCloseTimer);
+    onlinePanelCloseTimer = null;
+  }
+  onlinePanelOpen.value = true;
+}
+
+/** 延迟关闭悬浮名单：留出鼠标移动时间，避免玩家一离开数字面板就消失 */
+function scheduleCloseOnlinePanel() {
+  if (onlinePanelCloseTimer) clearTimeout(onlinePanelCloseTimer);
+  onlinePanelCloseTimer = setTimeout(() => {
+    onlinePanelOpen.value = false;
+    onlinePanelCloseTimer = null;
+  }, PRESENCE_CONFIG.hoverCloseDelayMs);
+}
 
 // 玩家信息
 const playerInfo = computed(() => playerStore.info);
@@ -1388,9 +1558,127 @@ async function onFavDrop(idx) {
 function toggleFavEdit() {
   favEditing.value = !favEditing.value;
   resetFavForm();
+  // 切换编辑态时收起导入面板，避免两个面板同时展开互相干扰
+  favImporting.value = false;
   dragIndex.value = -1;
   dragOverIndex.value = -1;
   if (!favEditing.value) favMsg.value = '';
+}
+
+// ---------- 常用指令 分享 / 导入（跨账号复用，纯前端实现，无需后端改动） ----------
+// 分享码格式：{ v: 1, items: [{ cmd, label }] }，经 UTF-8 安全的 Base64 编码后输出
+// 导入面板开关与分享码输入内容
+const favImporting = ref(false);
+const favImportText = ref('');
+
+// 分享码编码：JSON → UTF-8 字节 → Base64（unescape/escape 兼容中文等多字节字符）
+function encodeFavCode(payload) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+}
+// 分享码解码：先按 Base64 + UTF-8 还原 JSON；失败时兼容直接粘贴原始 JSON 的情况
+function decodeFavCode(code) {
+  try {
+    return JSON.parse(decodeURIComponent(escape(atob(code))));
+  } catch {
+    try {
+      return JSON.parse(code);
+    } catch {
+      return null;
+    }
+  }
+}
+
+// 分享：把当前常用列表编码成分享码并复制到剪贴板
+async function exportFavorites() {
+  if (!favoriteCommands.value.length) {
+    showFavMsg('暂无常用指令可分享');
+    return;
+  }
+  const code = encodeFavCode({ v: 1, items: favoriteCommands.value });
+  try {
+    // 优先用异步剪贴板 API（需 HTTPS 或 localhost 环境）
+    await navigator.clipboard.writeText(code);
+    showFavMsg('分享码已复制，去其他账号点「导入」粘贴即可');
+  } catch {
+    // 降级：老浏览器或非安全上下文用隐藏 textarea + execCommand 复制
+    const ta = document.createElement('textarea');
+    ta.value = code;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand?.('copy');
+    document.body.removeChild(ta);
+    showFavMsg(ok ? '分享码已复制，去其他账号点「导入」粘贴即可' : '复制失败，请手动复制');
+  }
+}
+
+// 打开导入面板
+function openFavImport() {
+  favImporting.value = true;
+  favImportText.value = '';
+  favMsg.value = '';
+}
+
+// 取消导入：收起面板并清空输入
+function cancelFavImport() {
+  favImporting.value = false;
+  favImportText.value = '';
+}
+
+// 解析分享码（预览与正式导入共用，保证「看到的」和「导入的」完全一致）
+// 返回 { error, incoming, added, dup }：
+// - incoming：分享码中归一化后的全部条目
+// - added：与当前列表不重复、真正会新增的条目
+// - dup：当前列表已存在、会被跳过的条目
+function parseFavImport(raw) {
+  const empty = { error: '', incoming: [], added: [], dup: [] };
+  if (!raw) return empty;
+  const parsed = decodeFavCode(raw);
+  // 兼容裸数组或 { items: [...] } 两种结构
+  const items = Array.isArray(parsed) ? parsed : parsed?.items;
+  if (!Array.isArray(items)) return { ...empty, error: '分享码无效，请检查是否复制完整' };
+  // 归一化：只收有非空 cmd 的项，label 缺省用 cmd（与后端存储格式保持一致）
+  const incoming = items
+    .filter((it) => it && typeof it.cmd === 'string' && it.cmd.trim())
+    .map((it) => ({ cmd: it.cmd, label: (typeof it.label === 'string' && it.label.trim()) || it.cmd }));
+  if (!incoming.length) return { ...empty, error: '分享码中没有可导入的内容' };
+  // 按 cmd 与当前列表比对：重复的放进 dup 跳过，其余按序放入 added
+  const existing = new Set(favoriteCommands.value.map((f) => f.cmd));
+  const added = [];
+  const dup = [];
+  for (const it of incoming) {
+    if (existing.has(it.cmd)) {
+      dup.push(it);
+      continue;
+    }
+    existing.add(it.cmd);
+    added.push(it);
+  }
+  return { error: '', incoming, added, dup };
+}
+
+// 导入预览：随输入框内容实时刷新，粘贴后即可看到将新增/将跳过的条目
+const favImportPreview = computed(() => parseFavImport(favImportText.value.trim()));
+
+// 确认导入：直接复用预览的解析结果，追加新增条目并整体保存
+async function confirmFavImport() {
+  const { incoming, added, dup } = parseFavImport(favImportText.value.trim());
+  if (!incoming.length) {
+    showFavMsg('分享码无效或没有可导入的内容');
+    return;
+  }
+  if (!added.length) {
+    showFavMsg('分享内容已全部存在，无需导入');
+    return;
+  }
+  // 当前列表保持原顺序在前，新增项按分享码顺序追加在后
+  const ok = await saveFavorites([...favoriteCommands.value, ...added]);
+  if (ok) {
+    favImporting.value = false;
+    favImportText.value = '';
+    showFavMsg(`已导入 ${added.length} 条${dup.length ? `（跳过 ${dup.length} 条重复）` : ''}`);
+  }
 }
 
 // 手机抽屉内点击常用项：非编辑态先收起抽屉（避免遮挡聊天区），编辑态保留抽屉以便继续编辑
@@ -1459,7 +1747,8 @@ const mentionableByName = computed(() => {
 function mentionDisplayText(name) {
   const p = mentionableByName.value.get(name);
   const nick = String(p?.nickname || '').trim();
-  if (nick && nick !== name && /^[\u4e00-\u9fa5A-Za-z0-9_]{1,32}$/.test(nick)) {
+  // 名字规则统一取自配置（与后端 @提及 解析一致）
+  if (nick && nick !== name && isSafeMentionName(nick)) {
     return '@' + nick;
   }
   return '@' + name;
@@ -1850,8 +2139,8 @@ function parseContent(content, cmdList) {
   }
 
   // 处理文本片段中的 @提及 高亮（在已有 segment 基础上拆解 text 片段）
-  // 上限 64：QQ 互联用户名形如 qq_<32位openid>（共 35 字符），32 会截断导致尾部字符漏出高亮
-  const mentionRegex = /@([\u4e00-\u9fa5A-Za-z0-9_]{1,64})/g;
+  // 解析规则（字符集与长度上限）统一取自配置，与后端 parseMentions 保持一致
+  const mentionRegex = mentionParseRegex();
   const finalSegments = [];
   for (const seg of segments) {
     if (seg.type === 'text' && seg.text) {
@@ -1941,7 +2230,7 @@ function quickFill(name) {
 function atMentionName(p) {
   if (!p) return '';
   const nick = String(p.nickname || '').trim();
-  if (nick && /^[\u4e00-\u9fa5A-Za-z0-9_]{1,32}$/.test(nick)) return nick;
+  if (nick && isSafeMentionName(nick)) return nick;
   return p.username || '';
 }
 
@@ -2222,7 +2511,7 @@ async function sendMessage() {
 
 /**
  * 是否应路由到右下角悬浮世界聊天窗（而非中央游戏流）。
- * chat = 玩家世界聊天；预留 redpacket / redpacket_claim / item 等扩展类型。
+ * chat = 玩家世界聊天；redpacket = 世界红包卡片（refId 关联红包）
  */
 function isFloatingChatMsg(m) {
   if (!m?.type) return false;
@@ -2674,6 +2963,15 @@ async function loadMentionablePlayers() {
   }
 }
 
+/**
+ * 悬浮世界聊天窗的轻提示回调（抢红包结果 / 红包发出 / 背包读取失败等）
+ * 统一转成页面 Toast，保证提示样式与其它功能一致。
+ * @param {{type?: string, message?: string}} payload
+ */
+function onFloatingNotify(payload) {
+  if (payload?.message) showToast(payload.message, payload.type || 'info');
+}
+
 // 加载服务器统计（总人数、在线人数）
 async function loadServerStats() {
   try {
@@ -2868,153 +3166,13 @@ function formatDeployTime(ts) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// ===== 私聊面板状态 =====
-const privatePanelOpen = ref(false);
-const privateConversations = ref([]);
-const privatePeerId = ref(null);
-const privateMessages = ref([]);
-const privateInput = ref('');
-// 未读私聊总数（头部红点）
-const unreadPrivateCount = ref(0);
-
 /**
- * 打开/关闭私聊面板
- * 打开时刷新会话列表（同步未读计数）
- */
-function togglePrivatePanel() {
-  if (privatePanelOpen.value) {
-    closePrivatePanel();
-  } else {
-    privatePanelOpen.value = true;
-    loadPrivateConversations();
-  }
-}
-
-/** 关闭私聊面板 */
-function closePrivatePanel() {
-  privatePanelOpen.value = false;
-}
-
-/**
- * 加载私聊会话列表，并重新计算头部未读总数
- */
-async function loadPrivateConversations() {
-  try {
-    const res = await chatApi.getPrivateConversations();
-    privateConversations.value = res.data || [];
-    unreadPrivateCount.value = privateConversations.value.reduce((sum, c) => sum + (c.unread || 0), 0);
-  } catch (e) {
-    console.error('加载私聊会话失败', e);
-    showToast('加载私聊会话失败', 'error');
-  }
-}
-
-/**
- * 点击会话：加载与该用户的私聊历史，并标记已读
- * @param {object} conv 会话对象（含 peerId）
- */
-async function openPrivateConversation(conv) {
-  if (!conv || conv.peerId === privatePeerId.value) return;
-  privatePeerId.value = conv.peerId;
-  privateMessages.value = [];
-  try {
-    const res = await chatApi.getPrivateMessages(conv.peerId, 50);
-    privateMessages.value = res.data || [];
-  } catch (e) {
-    console.error('加载私聊历史失败', e);
-    showToast('加载私聊历史失败', 'error');
-  }
-  // 本地清空该会话未读并重新计算总未读
-  conv.unread = 0;
-  unreadPrivateCount.value = privateConversations.value.reduce((sum, c) => sum + (c.unread || 0), 0);
-  // 调用后端标记已读（失败不影响本地展示）
-  try {
-    await chatApi.markPrivateRead(conv.peerId);
-  } catch (e) {
-    console.error('标记私聊已读失败', e);
-  }
-}
-
-/**
- * 从附近玩家列表发起私聊：打开私聊面板并切换到指定玩家
+ * 点击附近玩家：把 "@昵称 " 填入输入框（原「私聊」功能已下线，改为快速 @ 提及）
  * @param {object} p 附近玩家对象（含 userId / nickname / username / online）
  */
-async function startNearbyPrivateChat(p) {
-  if (!p || !p.userId) return;
-  // 若会话已存在，直接切换到该会话
-  const existing = privateConversations.value.find((c) => c.peerId === p.userId);
-  if (existing) {
-    await openPrivateConversation(existing);
-    privatePanelOpen.value = true;
-    return;
-  }
-  // 新会话：先打开面板并加载历史，再在会话列表中补一条占位会话
-  privatePanelOpen.value = true;
-  await openPrivateConversation({ peerId: p.userId });
-  privateConversations.value.unshift({
-    peerId: p.userId,
-    peer: { id: p.userId, nickname: p.nickname, username: p.username },
-    lastMessage: '',
-    lastAt: null,
-    unread: 0,
-  });
-  // 离线玩家仍可发送（消息会持久化，对方上线后可看到）
-  if (!p.online) {
-    showToast(`${p.nickname || p.username} 当前离线，消息将在其上线后送达`, 'info');
-  }
-}
-
-/**
- * 发送私聊消息（经 Socket，发送成功后由服务端回传 chat:private 追加显示）
- */
-function sendPrivateMessage() {
-  const content = privateInput.value.trim();
-  if (!content || !socket || !privatePeerId.value) return;
-  // 与公屏共用发送间隔，避免私聊静默被限
-  const intervalSec = Number(chatRateLimitSec.value);
-  if (Number.isFinite(intervalSec) && intervalSec > 0) {
-    const remainingMs = lastChatSendAt + intervalSec * 1000 - Date.now();
-    if (remainingMs > 0) {
-      showToast(`消息发送过于频繁，请 ${Math.max(0.1, Math.ceil(remainingMs / 100) / 10)} 秒后再发`, 'error');
-      return;
-    }
-    lastChatSendAt = Date.now();
-  }
-  socket.emit('chat:private', { to: privatePeerId.value, content });
-  privateInput.value = '';
-}
-
-/**
- * 处理收到的私聊消息（发送方回传 + 接收方推送均走这里）
- * @param {object} msg 私聊消息对象
- */
-function handleIncomingPrivate(msg) {
-  if (!msg || !user.value) return;
-  // 对方ID：发给我的是发送方；我发出的则是接收方
-  const peerId = msg.senderId === user.value.id ? msg.receiverId : msg.senderId;
-  if (privatePanelOpen.value && privatePeerId.value === peerId) {
-    // 面板打开且是当前会话 → 直接追加并标记已读
-    privateMessages.value.push(msg);
-    chatApi.markPrivateRead(peerId).catch(() => {});
-  } else {
-    // 否则增加未读计数，并同步更新会话列表
-    unreadPrivateCount.value += 1;
-    const conv = privateConversations.value.find((c) => c.peerId === peerId);
-    if (conv) {
-      conv.unread = (conv.unread || 0) + 1;
-      conv.lastMessage = msg.content;
-      conv.lastAt = msg.createdAt;
-    } else {
-      // 新会话插到最前
-      privateConversations.value.unshift({
-        peerId,
-        peer: msg.senderId === user.value.id ? msg.receiver : msg.sender,
-        lastMessage: msg.content,
-        lastAt: msg.createdAt,
-        unread: 1,
-      });
-    }
-  }
+function atNearbyPlayer(p) {
+  if (!p) return;
+  quickAtUser({ id: p.userId, username: p.username, nickname: p.nickname });
 }
 
 // ===== 反馈面板状态 =====
@@ -3436,6 +3594,18 @@ onMounted(async () => {
       else historyGame.push(m);
     }
     floatingChat.setMessages(historyChat);
+    // 历史里的红包卡片需要实时状态（已领 x/y、是否过期/抢完）：按 refId 批量拉取后写入 store
+    const redPacketIds = historyChat
+      .filter((m) => m.type === 'redpacket' && Number.isFinite(m.refId))
+      .map((m) => m.refId);
+    if (redPacketIds.length) {
+      chatApi
+        .getRedPackets(redPacketIds)
+        .then((res) => floatingChat.setRedPackets(res.data || []))
+        .catch(() => {
+          // 红包状态拉取失败不影响聊天展示（卡片会退化为基础展示）
+        });
+    }
     messages.value = historyGame;
     // 扫描历史中的未读系统公告 → 弹窗补展示（离线期间错过的公告上线后仍会弹出）
     scanHistoryAnnouncements(historyGame);
@@ -3468,8 +3638,8 @@ onMounted(async () => {
     }, 30000);
     // 每 30 秒刷新一次附近玩家（感知其他玩家进出当前区域/上下线）
     nearbyTimer = setInterval(loadNearbyPlayers, 30000);
-    // 每 60 秒刷新一次可@玩家列表（同步在线状态与新增账号）
-    atPlayersTimer = setInterval(loadMentionablePlayers, 60000);
+    // 定时刷新可@玩家列表（同步在线状态与新增账号），间隔由配置控制
+    atPlayersTimer = setInterval(loadMentionablePlayers, MENTION_CONFIG.playersRefreshMs);
 
     // 部署更新检测：首次加载仅同步版本标签(不弹窗)；随后按配置间隔轮询检测新部署
     await loadDeployInfo();
@@ -3544,19 +3714,23 @@ onMounted(async () => {
       showToast(data?.message || '消息发送过于频繁，请稍后再发', 'error');
     });
 
-    // 接收私聊消息（发送方回传 + 接收方推送均通过该事件）
-    socket.on('chat:private', (msg) => {
-      handleIncomingPrivate(msg);
-    });
     // 接收公屏 @提及 通知，弹出轻提示
     socket.on('chat:at', (data) => {
       if (!data) return;
       const fromName = data.from?.nickname || data.from?.username || '有人';
       showToast(`${fromName} 在公屏 @ 了你`);
     });
-    // 私聊发送失败提示
-    socket.on('chat:private-error', (data) => {
-      showToast(data?.message || '私聊发送失败', 'error');
+    // 红包状态更新（有人领取 / 被领完 / 过期退回）：同步悬浮窗里的红包卡片
+    socket.on('chat:redpacket', (packet) => {
+      if (packet?.id) floatingChat.upsertRedPacket(packet);
+    });
+    // 红包过期退回通知：提醒发送者剩余道具已回到背包
+    socket.on('chat:redpacket-refund', (data) => {
+      if (!data) return;
+      const names = (data.items || [])
+        .map((item) => `${item.name}×${item.quantity}`)
+        .join('、');
+      showToast(names ? `红包已过期，剩余道具已退回背包：${names}` : '红包已过期，道具已退回背包', 'info');
     });
     // 反馈：收到新消息（管理员回复时推送给用户）
     socket.on('feedback:message', (data) => {
@@ -3618,6 +3792,11 @@ onUnmounted(() => {
   if (updateTimer) clearInterval(updateTimer);
   if (updateCountdownTimer) clearInterval(updateCountdownTimer);
   if (annTimer) clearInterval(annTimer);
+  // 在线玩家悬浮面板的延迟关闭定时器
+  if (onlinePanelCloseTimer) {
+    clearTimeout(onlinePanelCloseTimer);
+    onlinePanelCloseTimer = null;
+  }
 });
 </script>
 
@@ -3675,7 +3854,7 @@ onUnmounted(() => {
   max-width: 100%;
   display: block;
 }
-/* ===== 右下角操作坞按钮（私聊/反馈等） ===== */
+/* ===== 右下角操作坞按钮（反馈等） ===== */
 .header-action-btn {
   position: relative;
   display: inline-flex;
@@ -4059,112 +4238,6 @@ onUnmounted(() => {
   text-align: center;
   color: var(--muted-dark);
   font-size: 13px;
-}
-
-/* ===== 私聊面板 ===== */
-.private-body {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
-.conv-list {
-  width: 150px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--glass-border);
-  overflow-y: auto;
-  background: rgba(10, 10, 26, 0.4);
-}
-.conv-item {
-  padding: 10px;
-  border-bottom: 1px solid rgba(139, 92, 246, 0.08);
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.conv-item:hover {
-  background: rgba(139, 92, 246, 0.1);
-}
-.conv-item.active {
-  background: rgba(139, 92, 246, 0.2);
-  border-left: 2px solid var(--accent);
-}
-.conv-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-}
-.conv-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.conv-unread {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 10px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
-  flex-shrink: 0;
-}
-.conv-preview {
-  margin-top: 3px;
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.private-chat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.private-msgs {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.pmsg {
-  padding: 8px 10px;
-  border-radius: 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  max-width: 92%;
-  word-break: break-word;
-}
-.pmsg.own {
-  align-self: flex-end;
-  background: rgba(139, 92, 246, 0.18);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-}
-.pmsg.other {
-  align-self: flex-start;
-  background: rgba(20, 16, 42, 0.8);
-  border: 1px solid var(--glass-border);
-}
-.pmsg-sender {
-  font-weight: 600;
-  color: var(--accent2);
-  margin-right: 4px;
-}
-.pmsg-time {
-  display: block;
-  margin-top: 4px;
-  font-size: 10px;
-  color: var(--muted-dark);
 }
 
 .panel-input-bar {

@@ -18,6 +18,7 @@ import { RankingCommandService } from '../../src/modules/game/commands/ranking-c
 import { AdminCommandService } from '../../src/modules/game/commands/admin-command.service';
 import { FusionCraftService } from '../../src/modules/game/commands/fusion-craft.service';
 import { TimeSettleService } from '../../src/modules/game/commands/time-settle.service';
+import { CheckinRewardService } from '../../src/modules/game/checkin-reward.service';
 import { PetCommandService } from '../../src/modules/game/commands/pet-command.service';
 import { EquipCommandService } from '../../src/modules/game/commands/equip-command.service';
 import { SkillCommandService } from '../../src/modules/game/commands/skill-command.service';
@@ -84,7 +85,12 @@ function defineLazyMounts(stub: any): void {
 
   defineLazyMount(stub, 'timeSettleService', (s) => new TimeSettleService(
     s.support, s.playerService, s.combatSystem, s.staticData, s.taskService, s.statsService, s.combatState,
-    s.vitalityService, s.playerMutate,
+    s.checkinReward, s.vitalityService, s.playerMutate,
+  ));
+
+  // 签到奖励服务：未显式提供时按默认依赖构造；systemConfig 缺失时其读取逻辑会回落到内置默认规则
+  defineLazyMount(stub, 'checkinReward', (s) => new CheckinRewardService(
+    s.systemConfig, s.playerService,
   ));
 
   defineLazyMount(stub, 'petCommandService', (s) => new PetCommandService(

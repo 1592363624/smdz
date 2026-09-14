@@ -15,6 +15,7 @@ import { GameModule } from '../game/game.module';
 import { ChatGateway } from './chat.gateway';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
+import { RedPacketService } from './red-packet.service';
 
 @Global()
 @Module({
@@ -28,8 +29,8 @@ import { ChatService } from './chat.service';
       signOptions: { expiresIn: GlobalConfig.getInstance().jwtExpiresIn },
     }),
   ],
-  providers: [ChatGateway, ChatService],
+  providers: [ChatGateway, ChatService, RedPacketService],
   controllers: [ChatController],
-  exports: [ChatService],
+  exports: [ChatService, RedPacketService],
 })
 export class ChatModule {}

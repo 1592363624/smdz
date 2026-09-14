@@ -8,6 +8,17 @@
 
 import { PrismaClient } from '@prisma/client';
 import { attachBeijingTimeMiddleware } from '../src/common/utils/beijing-time.middleware';
+// 签到奖励默认规则：与系统配置中心(SystemConfigService)共用同一份常量，避免两处默认值漂移
+import {
+  CHECKIN_BASE_EXP_KEY,
+  CHECKIN_CONSECUTIVE_EXP_MAX_DAYS_KEY,
+  CHECKIN_CONSECUTIVE_EXP_PER_DAY_KEY,
+  CHECKIN_REWARDS_KEY,
+  DEFAULT_CHECKIN_BASE_EXP,
+  DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS,
+  DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY,
+  DEFAULT_CHECKIN_REWARDS_JSON,
+} from '../src/modules/game/checkin-config.defaults';
 
 const prisma = new PrismaClient();
 attachBeijingTimeMiddleware(prisma);
@@ -96,8 +107,7 @@ async function main() {
     { name: '救助', alias: 'rescue', description: '救助倒地使魔或维修载具', handlerKey: 'game', minRole: 'USER', sortOrder: 111 },
     { name: '赠予', alias: 'give,gift', description: '赠予物品给其他玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 112 },
     { name: '设置跟随', alias: 'follow', description: '设置跟随目标', handlerKey: 'game', minRole: 'USER', sortOrder: 113 },
-    // 私聊 / 反馈（统一 game 处理器）
-    { name: '私聊', alias: 'whisper,pm', description: '私聊其他玩家，格式：私聊 用户名 内容', handlerKey: 'game', minRole: 'USER', sortOrder: 114 },
+    // 反馈（统一 game 处理器）：私聊功能已下线，原「私聊」指令随之下线
     { name: '反馈', alias: 'feedback', description: '提交游戏反馈建议，格式：反馈 内容', handlerKey: 'game', minRole: 'USER', sortOrder: 115 },
     // 状态系统（统一 game 处理器）
     { name: '躺下', alias: 'lie-down', description: '躺下休息', handlerKey: 'game', minRole: 'USER', sortOrder: 120 },
@@ -419,6 +429,11 @@ async function main() {
     { key: 'update.promptCooldown', value: '300', label: '重复提醒冷却(秒)', description: '玩家点击「稍后」后，多少秒内不再重复弹窗打扰', type: 'number', group: 'update' },
     { key: 'web.handbookTooltipDelayMs', value: '1000', label: '背包图鉴悬浮延迟(毫秒)', description: '网页背包格子悬浮多少毫秒后弹出图鉴弹层，0=立即弹出', type: 'number', group: 'web' },
     { key: 'chat.messageIntervalSec', value: '0.2', label: '用户消息发送间隔(秒)', description: '同一用户两条消息之间的最小间隔，防止刷屏；0=不限制', type: 'number', group: 'command' },
+    // ===== 签到奖励（默认规则 = 改造前硬编码逻辑，后台可直接改） =====
+    { key: CHECKIN_BASE_EXP_KEY, value: String(DEFAULT_CHECKIN_BASE_EXP), label: '签到基础经验', description: '每次签到固定获得的经验；连续加成另算（总经验 = 基础经验 + 连续天数加成）', type: 'number', group: 'game' },
+    { key: CHECKIN_CONSECUTIVE_EXP_PER_DAY_KEY, value: String(DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY), label: '签到每连续1天额外经验', description: '连续签到每多 1 天额外增加的经验；设为 0 则取消连续加成', type: 'number', group: 'game' },
+    { key: CHECKIN_CONSECUTIVE_EXP_MAX_DAYS_KEY, value: String(DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS), label: '签到连续加成封顶天数', description: '连续签到经验加成的天数上限（超过该天数不再累加）；0 = 不封顶', type: 'number', group: 'game' },
+    { key: CHECKIN_REWARDS_KEY, value: DEFAULT_CHECKIN_REWARDS_JSON, label: '签到奖励表', description: '配置「哪天给什么东西」：每日奖励（按连续第 N 天，可设循环周期）、连续签到里程碑、累计签到里程碑；奖励类型支持物品/经验/活力', type: 'json', group: 'game' },
   ] as const;
 
   for (const cfg of systemConfigs) {

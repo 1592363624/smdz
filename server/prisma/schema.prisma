@@ -43,8 +43,8 @@ model User {
   player           Player?
   messages         ChatMessage[]
   bindings         UserBinding[]
-  privateSent      PrivateMessage[]  @relation("PrivateSent")
-  privateReceived  PrivateMessage[]  @relation("PrivateReceived")
+  redPackets       RedPacket[]        @relation("RedPacketSent")
+  redPacketClaims  RedPacketClaim[]   @relation("RedPacketClaimed")
   feedbacks        Feedback[]
   feedbackMessages FeedbackMessage[]
 
@@ -403,6 +403,9 @@ model ChatMessage {
   // 供历史消息脱敏使用（为空则回退系统内置默认占位文本）。
   placeholder String?
   commandId Int?
+  // 业务对象引用ID：目前用于红包消息（type='redpacket' 时指向 RedPacket.id），
+  // 前端据此把消息渲染成可领取的红包卡片并订阅其实时状态。
+  refId     Int?
   createdAt DateTime @default(now())
 
   @@index([channelId, createdAt])
@@ -453,21 +456,67 @@ model SystemConfig {
   createdAt   DateTime @default(now())
 }
 
-// ========== 玩家私聊 ==========
+// ========== 世界红包（私聊功能已下线，原 PrivateMessage 表随之移除） ==========
 
-/// 私聊消息表：玩家之间一对一的私聊消息
-model PrivateMessage {
-  id         Int      @id @default(autoincrement())
-  senderId   Int
-  sender     User     @relation("PrivateSent", fields: [senderId], references: [id], onDelete: Cascade)
-  receiverId Int
-  receiver   User     @relation("PrivateReceived", fields: [receiverId], references: [id], onDelete: Cascade)
-  content    String   @db.LongText
-  read       Boolean  @default(false) // 接收方是否已读
-  createdAt  DateTime @default(now())
+/// 世界红包：发送者把背包道具作为红包投入公屏，其他玩家先到先得；
+/// 超过有效期（默认 24 小时，见 red-packet.config.ts）未被领完的份额自动退回发送者背包。
+model RedPacket {
+  id      Int    @id @default(autoincrement())
+  senderId Int
+  sender  User   @relation("RedPacketSent", fields: [senderId], references: [id], onDelete: Cascade)
+  channelId Int  @default(1)
+  /// 祝福语/备注（可空串）
+  greeting  String @default("") @db.Text
+  /// ACTIVE=可领取；FINISHED=已领完；EXPIRED=已过期（剩余份额已退回发送者）
+  status    String @default("ACTIVE")
+  /// 总份数（= 各条目 quantity 之和），展示「已领 x/y 份」用
+  totalCount   Int @default(0)
+  /// 已领取份数（每被领走 1 个道具 +1）
+  claimedCount Int @default(0)
+  /// 过期时间（创建时间 + 有效期）
+  expireAt  DateTime
+  createdAt DateTime @default(now())
 
+  items  RedPacketItem[]
+  claims RedPacketClaim[]
+
+  @@index([status, expireAt])
   @@index([senderId, createdAt])
-  @@index([receiverId, createdAt])
+}
+
+/// 红包道具条目：发送时的背包道具快照，按份被领取
+model RedPacketItem {
+  id       Int      @id @default(autoincrement())
+  packetId Int
+  packet   RedPacket @relation(fields: [packetId], references: [id], onDelete: Cascade)
+  name     String
+  type     String   @default("")
+  /// 该道具放入红包的总数量
+  quantity Int      @default(0)
+  /// 已被领走的数量
+  claimedQuantity Int @default(0)
+  /// 展示用属性快照（装备类实例数据；可堆叠道具为空）
+  data       String? @db.Text
+  durability String? @db.Text
+  maker      String? @db.Text
+
+  @@index([packetId])
+}
+
+/// 红包领取记录：同一玩家对同一红包只能领一次
+model RedPacketClaim {
+  id        Int      @id @default(autoincrement())
+  packetId  Int
+  packet    RedPacket @relation(fields: [packetId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation("RedPacketClaimed", fields: [userId], references: [id], onDelete: Cascade)
+  /// 领到的道具名与数量（当前每份 1 个）
+  itemName  String
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+
+  @@unique([packetId, userId])
+  @@index([userId, createdAt])
 }
 
 // ========== 反馈系统 ==========

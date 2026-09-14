@@ -24,6 +24,7 @@ import { tagMarkerKind } from '.././expire-time.util';
 import { VitalityService } from '.././vitality.service';
 import { PlayerMutateService } from '.././player-mutate.service';
 import { GameSupportService } from '.././game-support.service';
+import { CheckinRewardService } from '.././checkin-reward.service';
 
 @Injectable()
 export class TimeSettleService {
@@ -37,6 +38,7 @@ export class TimeSettleService {
     private readonly taskService: TaskService,
     private readonly statsService: StatsService,
     private readonly combatState: CombatStateService,
+    private readonly checkinReward: CheckinRewardService,
     @Optional() private readonly vitalityService?: VitalityService,
     @Optional() private readonly playerMutate?: PlayerMutateService,
   ) {}
@@ -503,18 +505,20 @@ export class TimeSettleService {
   }
 
   /**
-   * 处理游戏术语解释命令
-   * 解释游戏中的专业术语，帮助玩家理解游戏机制
-   * 对应原版：游戏解释 命令
+   * 处理每日签到：
+   * - 同一天重复签到只回执、不重复发放；
+   * - 连续天数：昨天签过则 +1，否则重置为 1；累计天数每次 +1；
+   * - 奖励完全由「系统配置中心」驱动（基础经验 / 连续加成 / 每日表 / 连续表 / 累计表），
+   *   运营可在后台调整「哪天给什么」，无需改代码或重启。
    */
 
   async handleDailyCheckin(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 获取当前日期（使用中国时区）
+    // 当前日期（本地时区，与每日登录结算同一口径）
     const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayStr = this.localTodayString(now);
 
     // 从 markers 中读取签到数据
     const checkinData = markers['daily_checkin'] || { lastDate: '', consecutiveDays: 0, totalDays: 0 };
@@ -528,46 +532,44 @@ export class TimeSettleService {
     // 检查昨天是否签到，判断连续天数
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    const yesterdayStr = this.localTodayString(yesterday);
 
-    let consecutiveDays = (lastDate === yesterdayStr) ? (checkinData.consecutiveDays || 0) + 1 : 1;
-    const totalDays = (checkinData.totalDays || 0) + 1;
+    const consecutiveDays = (lastDate === yesterdayStr) ? (Number(checkinData.consecutiveDays) || 0) + 1 : 1;
+    const totalDays = (Number(checkinData.totalDays) || 0) + 1;
 
-    // 计算签到奖励
-    const baseExp = 50; // 基础经验
-    const consecutiveBonus = Math.min(consecutiveDays, 30) * 5; // 连续奖励，最多计算30天
-    const totalExp = baseExp + consecutiveBonus;
+    // 奖励规则（基础经验/连续加成/三张奖励表）全部读自系统配置中心，后台可在线调整
+    const cfg = await this.checkinReward.getConfig();
 
-    // 发放经验奖励
-    await this.playerService.addExp(userId, totalExp);
-
-    // 额外奖励：连续签到7天、15天、30天
-    let extraReward = '';
-    if (consecutiveDays === 7) {
-      await this.playerService.addToBackpack(userId, '签到礼包', 1);
-      extraReward = '\n🎉 连续签到7天！获得签到礼包×1';
-    } else if (consecutiveDays === 15) {
-      await this.playerService.addToBackpack(userId, '签到礼包', 2);
-      extraReward = '\n🎉 连续签到15天！获得签到礼包×2';
-    } else if (consecutiveDays === 30) {
-      await this.playerService.addToBackpack(userId, '签到礼包', 3);
-      extraReward = '\n🎉 连续签到30天！获得签到礼包×3';
+    // 经验奖励：基础经验 + 连续天数加成（封顶天数由配置控制）
+    const totalExp = this.checkinReward.calcExp(cfg, consecutiveDays);
+    if (totalExp > 0) {
+      await this.playerService.addExp(userId, totalExp);
     }
 
-    // 累计签到奖励
-    let totalReward = '';
-    if (totalDays === 30) {
-      await this.playerService.addToBackpack(userId, '累计签到礼包', 1);
-      totalReward = '\n🏆 累计签到30天！获得累计签到礼包×1';
-    } else if (totalDays === 100) {
-      await this.playerService.addToBackpack(userId, '累计签到礼包', 2);
-      totalReward = '\n🏆 累计签到100天！获得累计签到礼包×2';
-    } else if (totalDays === 365) {
-      await this.playerService.addToBackpack(userId, '累计签到礼包', 3);
-      totalReward = '\n🏆 累计签到365天！获得满年签到礼包×3';
-    }
+    // 物品/活力类奖励：每日（按连续第 N 天，可循环）+ 连续里程碑 + 累计里程碑
+    const extraLines: string[] = [];
+    const dailyTexts = await this.checkinReward.grantRewards(
+      userId,
+      this.checkinReward.matchDaily(cfg, consecutiveDays),
+      { player },
+    );
+    if (dailyTexts.length) extraLines.push(`🎁 每日奖励: ${dailyTexts.join('、')}`);
 
-    // 更新签到数据
+    const consecutiveTexts = await this.checkinReward.grantRewards(
+      userId,
+      this.checkinReward.matchConsecutive(cfg, consecutiveDays),
+      { player },
+    );
+    if (consecutiveTexts.length) extraLines.push(`🎉 连续签到${consecutiveDays}天: ${consecutiveTexts.join('、')}`);
+
+    const totalTexts = await this.checkinReward.grantRewards(
+      userId,
+      this.checkinReward.matchTotal(cfg, totalDays),
+      { player },
+    );
+    if (totalTexts.length) extraLines.push(`🏆 累计签到${totalDays}天: ${totalTexts.join('、')}`);
+
+    // 更新签到数据（活力由 grantRewards 累加在 player 上，随本次落库）
     markers['daily_checkin'] = {
       lastDate: todayStr,
       consecutiveDays: consecutiveDays,
@@ -585,10 +587,12 @@ export class TimeSettleService {
       `🔥 连续签到: ${consecutiveDays} 天`,
       `📊 累计签到: ${totalDays} 天`,
       `━━━━━━━━━━━━━━━`,
-      `✨ 获得经验: +${totalExp}`,
-      extraReward ? `━━━━━━━━━━━━━━━${extraReward}` : '',
-      totalReward ? `━━━━━━━━━━━━━━━${totalReward}` : '',
+      `✨ 获得经验: +${formatDisplayNumber(totalExp)}`,
     ];
+    // 三类额外奖励合并到一个分隔区块，避免配置变多时刷屏
+    if (extraLines.length) {
+      lines.push(`━━━━━━━━━━━━━━━`, ...extraLines);
+    }
 
     return lines.filter(Boolean).join('\n');
   }

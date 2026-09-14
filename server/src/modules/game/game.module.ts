@@ -42,6 +42,7 @@ import { TaskService } from './task.service';
 import { StatsService } from './stats.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
+import { CheckinRewardService } from './checkin-reward.service';
 import { HandbookService } from './handbook.service';
 import { GameGlobalSettingService } from './game-global-setting.service';
 import { GlobalProficiencyService } from './global-proficiency.service';
@@ -106,6 +107,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     StatsService,
     AutoMineService,
     VitalityService,
+    CheckinRewardService,
     HandbookService,
     GameGlobalSettingService,
     GlobalProficiencyService,

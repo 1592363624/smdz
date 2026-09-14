@@ -129,8 +129,9 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       // 断开期间的离开计时以此刻为终点（见下方 settleTimeElapsedOnReconnect）
       const wasOffline = !this.statsService.isOnline(user.userId);
       this.statsService.userOnline(user.userId);
-      // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新
-      this.refreshStatsBroadcast();
+      // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新；
+      // 只有「从无连接变为有连接」才算真的上线（同一账号重开标签页不重复提示）
+      this.refreshStatsBroadcast(wasOffline ? { type: 'online', userId: user.userId } : null);
       this.logger.log(`用户 ${payload.username}(id=${payload.userId}) 已连接并加入频道「${channel.name}」`);
 
       // 通知客户端连接成功
@@ -179,14 +180,16 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const user = client.data?.user as SocketUser | undefined;
     if (user) {
       this.statsService.userOffline(user.userId);
+      // 引用计数归零才算真正离线（多标签页只关一个既不提示、也不改在线数）
+      const trulyOffline = !this.statsService.isOnline(user.userId);
       // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新
-      this.refreshStatsBroadcast();
+      this.refreshStatsBroadcast(trulyOffline ? { type: 'offline', userId: user.userId } : null);
       this.logger.log(`用户 ${user.username}(id=${user.userId}) 断开连接`);
       // 「WS 断开 = 离开」：仅当最后一个连接关闭（多标签页引用计数归零）时
       // 强制结算一次，把 lastOpTime 推进到断开时刻，使离开时长从断开这一刻
       // 精确起算（重连时由 handleConnection 结算并定向推送提示）。
       // 内部自捕获，fire-and-forget。
-      if (!this.statsService.isOnline(user.userId)) {
+      if (trulyOffline) {
         void this.gameService.settleTimeElapsedOnDisconnect(user.userId);
       }
     } else {
@@ -195,13 +198,31 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   /**
-   * 重新统计并广播"服务器统计"（总玩家数/在线人数）到所有客户端
-   * 在用户上线/离线时调用，让网页左下角统计即时变化，无需手动刷新
+   * 重新统计并广播"服务器统计"（总玩家数/在线人数/在线玩家名单）到所有客户端
+   * 在用户上线/离线时调用，让网页左下角统计即时变化，无需手动刷新。
+   *
+   * 同时把「谁上线 / 谁离线」作为 presence 事件一并下发：客户端据此在状态栏
+   * 在线数字后面展示 1 分钟的提示（保留时长由前端配置控制）。
+   *
+   * @param presence 本次触发的上下线玩家；无实际在线状态变化（如同一账号开新标签页）传 null
    */
-  private async refreshStatsBroadcast(): Promise<void> {
+  private async refreshStatsBroadcast(
+    presence: { type: 'online' | 'offline'; userId: number } | null = null,
+  ): Promise<void> {
     try {
       const stats = await this.statsService.getStats();
-      this.server.emit('stats:update', stats);
+      let payload: typeof stats & { presence?: { type: 'online' | 'offline'; name: string } } = stats;
+      if (presence) {
+        // 名字解析失败只影响提示文案，不应阻断统计广播本身，故单独兜底
+        let name = '';
+        try {
+          name = await this.statsService.getUserDisplayName(presence.userId);
+        } catch (e: any) {
+          this.logger.warn(`解析上下线玩家名失败(userId=${presence.userId}): ${e.message}`);
+        }
+        payload = { ...stats, presence: { type: presence.type, name } };
+      }
+      this.server.emit('stats:update', payload);
     } catch (e: any) {
       this.logger.warn(`广播服务器统计失败: ${e.message}`);
     }
@@ -317,52 +338,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   /**
-   * 私聊消息（Socket 实时通道，网页私聊面板使用）
-   * 前端发送 { to: 对方用户名/ID, content }，服务端持久化并推送给接收方
-   */
-  @SubscribeMessage('chat:private')
-  async handlePrivateMessage(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() body: { to: string | number; content: string },
-  ) {
-    const user: SocketUser | undefined = client.data.user;
-    if (!user) {
-      client.emit('error', { message: '未认证' });
-      return;
-    }
-    const content = (body?.content || '').trim();
-    const to = body?.to;
-    if (!content || to === undefined || to === null || to === '') return;
-
-    // 与公屏共用发送间隔，防止私聊刷屏
-    const intervalMs = await this.getMessageIntervalMs();
-    if (intervalMs > 0 && !this.tryConsumeMessageSlot(user.userId, intervalMs)) {
-      const waitSec = this.formatRateLimitWaitSec(user.userId, intervalMs);
-      client.emit('chat:rate-limit', { message: `消息发送过于频繁，请 ${waitSec} 秒后再发` });
-      return;
-    }
-
-    // 根据 用户名/昵称/ID 解析目标用户
-    const target = await this.resolveTargetUser(to, user.userId);
-    if (!target) {
-      client.emit('chat:private-error', { message: '未找到该玩家，请确认用户名是否正确' });
-      return;
-    }
-    if (target.id === user.userId) {
-      client.emit('chat:private-error', { message: '不能给自己发送私聊消息' });
-      return;
-    }
-    try {
-      const msg = await this.chatService.sendPrivateMessage(user.userId, target.id, content);
-      // 回传给自己（便于发送方即时显示）
-      client.emit('chat:private', msg);
-    } catch (e: any) {
-      client.emit('chat:private-error', { message: e.message });
-    }
-  }
-
-  /**
-   * 解析 @提及的目标玩家：按 用户名/昵称/ID 精确匹配
+   * 解析 @提及 的目标玩家：按 用户名/昵称/ID 精确匹配
    * @param to 目标标识（用户名/昵称/数字ID）
    * @param selfId 当前用户ID（排除自己）
    */

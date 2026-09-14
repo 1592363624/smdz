@@ -2,12 +2,12 @@
  * 任务/对话/帮助指令域服务（game 模块化重构 P3-1 抽出）
  *
  * 职责：查看单位/NPC 对话（露娜/永兴/小恶魔）、任务接取/完成/放弃、图鉴、
- * 游戏介绍/术语/帮助/更新记录、私聊/反馈/发文字/计算器、菜单/功能菜单/
+ * 游戏介绍/术语/帮助/更新记录、反馈/发文字/计算器、菜单/功能菜单/
  * 游戏菜单、刷新数据/重载数据、设置系列（指引/采集/活力/倍率等）、
  * 新手使魔门/自动使魔技能触发、确认帮助、生产入口。
  * 依赖方向：依赖 Player、Map、Shortcut（临时输入）、Prisma、Task、StaticData、
  * SystemConfig、FamiliarSystem、Handbook、Tutorial、Achievement、CombatSystem、
- * Chat、Feedback、FamiliarSkills 与支撑层；跨域直接注入兄弟子服务 RescueWhite
+ * Feedback、FamiliarSkills 与支撑层；跨域直接注入兄弟子服务 RescueWhite
  * （ensurePlayerWhite）与 MovementVehicle（performArrival），单向边无环。
  * 单一真相源：编号菜单统一支撑层 buildNumberedMenu；快捷输入统一 ShortcutService。
  * 对口原版：_主程序.ecode 任务/对话/设置分支。
@@ -26,7 +26,6 @@ import { FamiliarSkillsService } from '.././familiar-skills.service';
 import { TutorialService } from '.././tutorial.service';
 import { StaticDataService } from '.././static-data.service';
 import { SystemConfigService } from '../../system-config/system-config.service';
-import { ChatService } from '../../chat/chat.service';
 import { FeedbackService } from '../../feedback/feedback.service';
 import { TaskService } from '.././task.service';
 import { ShortcutService } from '.././shortcut.service';
@@ -58,7 +57,6 @@ export class QuestDialogueService {
     private readonly tutorialService: TutorialService,
     private readonly staticData: StaticDataService,
     private readonly systemConfigService: SystemConfigService,
-    private readonly chatService: ChatService,
     private readonly feedbackService: FeedbackService,
     private readonly taskService: TaskService,
     private readonly shortcutService: ShortcutService,
@@ -1312,31 +1310,6 @@ export class QuestDialogueService {
       `━━━━━━━━━━━━━━━`,
       `你的求助已记录，请等待其他玩家帮助`,
     ].join('\n');
-  }
-
-  /**
-   * 处理配方命令
-   * 查看配方列表，从 GameCrafting 表中查询所有可制造配方，按类型分类显示
-   */
-
-  async handlePrivateChat(userId: number, targetName: string, content: string): Promise<string> {
-    if (!targetName || !content) {
-      return '请指定私聊对象和内容，格式：私聊 用户名 内容';
-    }
-    // 查找目标用户：优先按用户名/昵称精确匹配，支持数字ID
-    const target = /^\d+$/.test(targetName)
-      ? await this.prisma.user.findUnique({ where: { id: Number(targetName) } })
-      : (await this.prisma.user.findFirst({ where: { username: targetName } })) ||
-        (await this.prisma.user.findFirst({ where: { nickname: targetName } }));
-    if (!target) {
-      return `未找到玩家「${targetName}」`;
-    }
-    if (target.id === userId) {
-      return '不能给自己发送私聊消息';
-    }
-    // 复用聊天服务的持久化 + 实时推送逻辑
-    const msg = await this.chatService.sendPrivateMessage(userId, target.id, content);
-    return `已私聊给 ${target.nickname || target.username}：${content}`;
   }
 
   /**

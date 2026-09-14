@@ -653,13 +653,7 @@ export class ShopTradeService {
     return `成功将 ${itemName} ×${actualCount} 赠予给 ${targetUser.nickname || targetQQ}`;
   }
 
-  /**
-   * 处理私聊指令（指令通道）
-   * 格式：私聊 用户名/昵称/ID 消息内容
-   * 将消息持久化到 PrivateMessage 并通过 Socket 实时推送给对方
-   * 对应原版：私聊 命令
-   */
-
+  /** 在当前地图的召唤物中定位「行商」的库位（找不到返回 null） */
   findMerchantInSummons(map: any): { summons: any[]; index: number } | null {
     if (!map) return null;
     const summons = this.support.parseJsonArray(map.summons);

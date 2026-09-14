@@ -505,6 +505,28 @@ vite-plugin-checker-error-overlay,
 .nickname-edit-btn:hover {
   opacity: 1;
 }
+/* 名字过长时省略，保证右侧的「当前使魔」徽章始终可见 */
+.user-card .name-row .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 当前使魔徽章：从「我的」面板头部合并到用户卡片昵称行，省掉一整行高度 */
+.user-card .name-row .user-marker {
+  flex-shrink: 0;
+  max-width: 8em;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--accent2, #06b6d4);
+  background: rgba(6, 182, 212, 0.12);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* 昵称行内编辑 */
 .nickname-edit-row {
   display: flex;
@@ -873,6 +895,69 @@ vite-plugin-checker-error-overlay,
 .fav-edit-btn:hover {
   background: rgba(139, 92, 246, 0.12);
 }
+/* 标题右侧操作按钮组：分享 / 导入 / 编辑 */
+.fav-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 分享/导入迷你按钮：比编辑按钮更弱化，避免抢视觉焦点 */
+.fav-mini-btn {
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.fav-mini-btn:hover {
+  color: var(--accent2);
+  border-color: var(--accent2);
+  background: rgba(139, 92, 246, 0.12);
+}
+/* ===== 导入预览区 ===== */
+.fav-import-tip {
+  font-size: 12px;
+  color: var(--muted);
+}
+.fav-import-tip.err {
+  color: #ef4444;
+}
+.fav-import-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fav-import-sum {
+  font-size: 12px;
+  color: var(--muted);
+}
+.fav-import-sum .ok {
+  color: var(--accent2);
+}
+.fav-import-sum .skip {
+  color: var(--muted-dark);
+}
+/* 重复项默认折叠，避免预览被大量已存在条目撑高 */
+.fav-import-dup summary {
+  font-size: 12px;
+  color: var(--muted-dark);
+  cursor: pointer;
+  user-select: none;
+}
+.fav-import-dup .fav-list {
+  margin-top: 4px;
+}
+/* 会被跳过的重复条目：灰化弱化显示 */
+.fav-chip.muted {
+  opacity: 0.55;
+  cursor: default;
+}
+.fav-chip.muted:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
 .fav-list {
   display: flex;
   flex-wrap: wrap;
@@ -1148,6 +1233,151 @@ vite-plugin-checker-error-overlay,
   height: 24px;
   background: var(--glass-border);
   flex-shrink: 0;
+}
+
+/* --- 在线人数：悬停展开在线玩家名单（关闭有延迟，见 PRESENCE_CONFIG.hoverCloseDelayMs） --- */
+/* 定位基准必须是 .sidebar-status（position: sticky 本身已建立包含块）：
+   .ss-online-wrap 自身只有几十像素宽，以它为基准右对齐会让 220px 的面板向左溢出侧栏被裁掉 */
+.sidebar-status .ss-online-wrap {
+  cursor: help;
+}
+.sidebar-status .ss-online-wrap:hover .ss-label,
+.sidebar-status .ss-online-wrap:hover .ss-value {
+  color: #4ade80;
+}
+.sidebar-status .ss-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: 220px;
+  max-width: 100%;
+  padding: 8px 10px;
+  background: var(--card, rgba(16, 16, 32, 0.98));
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  animation: ssPopIn 0.16s ease-out;
+}
+/* 指向「在线」数字的小三角 */
+.sidebar-status .ss-popover::after {
+  content: '';
+  position: absolute;
+  right: 14px;
+  top: 100%;
+  border: 6px solid transparent;
+  border-top-color: rgba(139, 92, 246, 0.35);
+}
+.sidebar-status .ss-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.sidebar-status .ss-pop-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4ade80;
+}
+.sidebar-status .ss-pop-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.sidebar-status .ss-pop-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #c8c8e0);
+}
+.sidebar-status .ss-pop-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 5px rgba(74, 222, 128, 0.7);
+}
+.sidebar-status .ss-pop-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-status .ss-pop-empty,
+.sidebar-status .ss-pop-more {
+  font-size: 11px;
+  color: var(--muted-dark, #6b6b8a);
+}
+.sidebar-status .ss-pop-more {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--glass-border);
+}
+
+/* --- 上下线提示：紧跟在「在线」数字后面同一行展示最新一条（1 分钟后由 store 自动移除） --- */
+.sidebar-status .ss-presence {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  animation: ssPresenceIn 0.22s ease-out;
+}
+/* 名字过长时省略，「上线了/离线了」始终完整可见 */
+.sidebar-status .ss-presence-name {
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-status .ss-presence.online .ss-presence-name {
+  color: #4ade80;
+}
+.sidebar-status .ss-presence.offline .ss-presence-name {
+  color: #fbbf24;
+}
+.sidebar-status .ss-presence-text {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+@keyframes ssPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes ssPresenceIn {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 /* ===== 聊天主区域 ===== */
@@ -1833,27 +2063,8 @@ vite-plugin-checker-error-overlay,
   background: linear-gradient(90deg, #eab308, #facc15);
 }
 
-/* 增强版玩家信息面板：头部、经验/护盾/装甲条、6项战斗属性 */
-.player-info .pi-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 6px;
-  margin-bottom: 8px;
-  border-bottom: 1px dashed rgba(139, 92, 246, 0.2);
-}
-.player-info .pi-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text);
-}
-.player-info .pi-type {
-  font-size: 11px;
-  color: var(--accent2);
-  background: rgba(6, 182, 212, 0.12);
-  padding: 2px 8px;
-  border-radius: 10px;
-}
+/* 增强版玩家信息面板：经验/护盾/装甲条、6项战斗属性
+   注：原面板头部「昵称 + 当前使魔」已合并到顶部用户卡片（见 .user-card .user-marker），不再重复占一行 */
 .player-info .pi-bar-row {
   margin-bottom: 6px;
 }
@@ -3832,7 +4043,7 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
 }
 
 /* ============================================================
- * 头部操作按钮（过滤/私聊/指令面板）统一样式
+ * 头部操作按钮（过滤/指令面板）统一样式
  * 此前这些按钮为裸 button，这里补齐与整体暗黑二次元风格一致的外观
  * ============================================================ */
 .header-action-btn {

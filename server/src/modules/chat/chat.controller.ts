@@ -1,17 +1,23 @@
 /**
  * 聊天控制器
- * 提供公屏历史消息查询、频道信息等 HTTP API。
+ * 提供公屏历史消息查询、频道信息、可@玩家列表，以及世界红包相关 API。
+ *
+ * 说明：游戏内「私聊」功能已下线（原 private/* 接口随功能一并移除）。
  */
 
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ChatService } from './chat.service';
+import { RedPacketItemInput, RedPacketService } from './red-packet.service';
 
 @ApiTags('公屏聊天')
 @Controller('chat')
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly redPacketService: RedPacketService,
+  ) {}
 
   /**
    * 获取频道历史消息（页面刷新时加载）
@@ -25,7 +31,8 @@ export class ChatController {
     summary: '获取频道历史消息',
     description:
       '需登录。对「私密消息」(visibility=private，如探测雷达) 做脱敏：' +
-      '非本人发送的私密消息 content 返回占位文本，真实内容仅发送者本人可见。',
+      '非本人发送的私密消息 content 返回占位文本，真实内容仅发送者本人可见。' +
+      'type=redpacket 的消息带 refId（红包ID），前端据此渲染可领取的红包卡片。',
   })
   @ApiQuery({ name: 'channelId', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -60,53 +67,67 @@ export class ChatController {
     return { success: true, data };
   }
 
+  /// ===== 世界红包 =====
+
   /**
-   * 获取当前用户的私聊会话列表（含未读数与最后一条消息）
+   * 发红包可选道具清单：读取当前玩家背包，过滤出可放入红包的道具
+   * （默认排除装备类与硬通货，规则见系统配置 chat.redPacket）
    */
-  @Get('private/conversations')
+  @Get('redpacket/items')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '获取我的私聊会话列表' })
-  async getPrivateConversations(@Req() req) {
-    const data = await this.chatService.getPrivateConversations(req.user.userId);
+  @ApiOperation({
+    summary: '发红包可选道具清单（读当前玩家背包）',
+    description: '返回 [{ name, type, quantity }]，仅含数量>0 且允许放入红包的道具（排除装备/硬通货）。',
+  })
+  async getRedPacketItems(@Req() req) {
+    const data = await this.redPacketService.listSendableItems(req.user.userId);
     return { success: true, data };
   }
 
   /**
-   * 获取与指定用户的私聊历史消息（按时间正序）
+   * 查询红包状态：不传 ids 时返回时间窗内最近的红包（用于进频道时对齐卡片状态），
+   * 传 ids 时按ID批量查询（历史消息里的红包卡片补状态）
    */
-  @Get('private/messages')
+  @Get('redpackets')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '获取与指定用户的私聊历史' })
-  @ApiQuery({ name: 'withUserId', required: true, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
-  async getPrivateMessages(@Req() req, @Query('withUserId') withUserId: string, @Query('limit') limit?: string) {
-    const data = await this.chatService.getPrivateMessages(req.user.userId, Number(withUserId), Number(limit) || 50);
+  @ApiOperation({ summary: '查询红包状态列表（可按ID批量）' })
+  @ApiQuery({ name: 'ids', required: false, description: '红包ID，逗号分隔', type: String })
+  async listRedPackets(@Req() req, @Query('ids') ids?: string) {
+    const idList = String(ids || '')
+      .split(',')
+      .map((v) => Number(v.trim()))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    const data = await this.redPacketService.listPackets(req.user.userId, idList);
     return { success: true, data };
   }
 
   /**
-   * 标记与指定用户的私聊消息为已读
+   * 发红包：发送时立即从背包扣除所选道具，并把红包广播到世界频道
    */
-  @Post('private/read')
+  @Post('redpacket')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '标记与指定用户的私聊为已读' })
-  async markPrivateRead(@Req() req, @Body() body: { withUserId: number }) {
-    const count = await this.chatService.markPrivateRead(req.user.userId, Number(body.withUserId));
-    return { success: true, data: { updated: count } };
+  @ApiOperation({
+    summary: '发送世界红包（扣除背包道具并广播）',
+    description: 'body: { greeting?: string, items: [{ name, quantity }] }，成功后返回红包视图与公屏消息。',
+  })
+  async createRedPacket(@Req() req, @Body() body: { greeting?: string; items?: RedPacketItemInput[] }) {
+    const data = await this.redPacketService.createPacket(req.user.userId, body || {});
+    return { success: true, data };
   }
 
   /**
-   * 通过 HTTP 发送私聊消息（网页面板优先走 Socket；此接口供指令/机器人等场景复用）
+   * 领取红包：先到先得，每人每个红包限领 1 份，领到的道具直接进背包
    */
-  @Post('private/send')
+  @Post('redpacket/:id/claim')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '发送私聊消息' })
-  async sendPrivateMessage(@Req() req, @Body() body: { to: number; content: string }) {
-    const msg = await this.chatService.sendPrivateMessage(req.user.userId, Number(body.to), String(body.content || ''));
-    return { success: true, data: msg };
+  @ApiOperation({ summary: '领取世界红包（先到先得，每人限领1次）' })
+  @ApiParam({ name: 'id', required: true, description: '红包ID', type: Number })
+  async claimRedPacket(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    const data = await this.redPacketService.claimPacket(req.user.userId, id);
+    return { success: true, data };
   }
 }

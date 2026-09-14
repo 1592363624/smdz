@@ -162,11 +162,12 @@ export class GameController {
   }
 
   /**
-   * 获取服务器在线统计（总玩家数、在线人数）
-   * 前端左下角展示用
+   * 获取服务器在线统计（总玩家数、在线人数、在线玩家名单）
+   * 前端左下角展示用：鼠标悬停「在线」数字时展示名单（条数上限由
+   * GlobalConfig.presence.onlineListLimit 控制，默认 10）
    */
   @Get('stats')
-  @ApiOperation({ summary: '获取服务器在线统计（总玩家数、在线人数）' })
+  @ApiOperation({ summary: '获取服务器在线统计（总玩家数、在线人数、在线玩家名单）' })
   async getStats() {
     const stats = await this.statsService.getStats();
     return { success: true, data: stats };

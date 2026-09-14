@@ -168,6 +168,20 @@
                   </div>
                 </div>
 
+                <!-- 签到奖励表：默认只占一行，点击弹窗编辑「每日/连续/累计」三张奖励表 -->
+                <div v-else-if="cfg.key === 'game.checkinRewards'" class="config-item">
+                  <div class="config-info">
+                    <span class="config-label">{{ cfg.label }}</span>
+                    <span class="config-desc">{{ cfg.description }}</span>
+                  </div>
+                  <div class="config-editor">
+                    <button class="gm-btn" type="button" @click="openCheckinRewards(cfg)">
+                      ✏️ 编辑奖励（每日 {{ checkinGroupCount(cfg, 'daily') }} / 连续 {{ checkinGroupCount(cfg, 'consecutive') }} / 累计 {{ checkinGroupCount(cfg, 'total') }} 条）
+                    </button>
+                    <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
+                  </div>
+                </div>
+
                 <div v-else class="config-item">
                   <div class="config-info">
                     <span class="config-label">{{ cfg.label }}</span>
@@ -192,36 +206,114 @@
         </div>
         <!-- 私密消息规则编辑弹窗：左侧指令、右侧对应的占位文本 -->
         <div v-if="privateRulesCfg" class="modal-mask" @click.self="closePrivateRules">
-          <div class="modal-box">
-            <div class="modal-head">
-              <h3>
-                私密消息规则
-                <small class="muted">指令结果仅发送者本人可见，其他玩家只见对应占位文本</small>
-              </h3>
+          <div class="modal-box private-modal">
+            <div class="modal-head private-modal-head">
+              <div class="private-modal-title">
+                <span class="private-modal-icon">🔒</span>
+                <div class="private-modal-titles">
+                  <h3>私密消息规则</h3>
+                  <p class="private-modal-sub">指令结果仅发送者本人可见，其他玩家只会看到对应的占位文本</p>
+                </div>
+              </div>
               <button class="modal-close" @click="closePrivateRules">×</button>
             </div>
 
-            <div class="private-rule-head">
-              <span>指令</span>
-              <span>占位文本（对其他玩家显示）</span>
-              <span></span>
-            </div>
-            <div class="private-rules">
-              <div v-for="row in privateRules" :key="row.uid" class="private-rule-row">
-                <input v-model="row.command" placeholder="如：探测雷达" />
-                <input v-model="row.placeholder" placeholder="如：🔒 该消息为私密消息" />
-                <button class="bk-card-x" type="button" title="删除" @click="removePrivateRule(row.uid)">✕</button>
+            <!-- 表格容器：表头固定在顶部，数据行区域独立滚动 -->
+            <div class="private-rule-table">
+              <div class="private-rule-head">
+                <span class="pr-idx">#</span>
+                <span>指令</span>
+                <span>占位文本<em>（对其他玩家显示）</em></span>
+                <span></span>
               </div>
-              <div v-if="!privateRules.length" class="bk-empty">
-                暂无规则，点「＋ 添加规则」新建一条
+              <div class="private-rules">
+                <div v-for="(row, idx) in privateRules" :key="row.uid" class="private-rule-row">
+                  <span class="pr-idx">{{ idx + 1 }}</span>
+                  <input v-model="row.command" placeholder="如：探测雷达" />
+                  <input v-model="row.placeholder" placeholder="如：🔒 该消息为私密消息" />
+                  <button class="pr-del" type="button" title="删除该行" @click="removePrivateRule(row.uid)">✕</button>
+                </div>
+                <div v-if="!privateRules.length" class="private-empty">
+                  <strong>还没有任何规则</strong>
+                  <span>点击下方「添加规则」新建一条：左侧填指令，右侧填对其他玩家展示的占位文本</span>
+                </div>
               </div>
             </div>
             <div v-if="privateRulesError" class="prof-error">{{ privateRulesError }}</div>
 
-            <div class="modal-foot">
-              <button class="bk-toggle" type="button" @click="addPrivateRule">＋ 添加规则</button>
-              <button class="gm-btn success" type="button" @click="savePrivateRules">保存规则</button>
+            <!-- 底部操作栏：左「添加规则」、右「保存规则」 -->
+            <div class="modal-foot private-modal-foot">
+              <button class="private-add-btn" type="button" @click="addPrivateRule">＋ 添加规则</button>
+              <span class="private-foot-gap"></span>
               <span v-if="privateRulesSaved" class="edit-result">✓ 已保存</span>
+              <button class="gm-btn success" type="button" @click="savePrivateRules">保存规则</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 签到奖励配置弹窗：每日 / 连续 / 累计三张奖励表，逐条配置「哪天给什么」 -->
+        <div v-if="checkinCfg" class="modal-mask" @click.self="closeCheckinRewards">
+          <div class="modal-box private-modal">
+            <div class="modal-head private-modal-head">
+              <div class="private-modal-title">
+                <span class="private-modal-icon">📅</span>
+                <div class="private-modal-titles">
+                  <h3>签到奖励配置</h3>
+                  <p class="private-modal-sub">每日奖励按「连续签到第 N 天」发放（可设循环周期），连续/累计奖励在达到指定天数时发放一次</p>
+                </div>
+              </div>
+              <button class="modal-close" @click="closeCheckinRewards">×</button>
+            </div>
+
+            <div class="checkin-body">
+              <div class="checkin-cycle">
+                <label class="checkin-cycle-label">每日奖励循环周期（天）</label>
+                <input v-model.number="checkinCycleDays" class="checkin-cycle-input" type="number" min="0" step="1" title="0 = 不循环" />
+                <span class="checkin-cycle-hint">0 = 不循环（只有连续第 N 天精确命中才发）；填 7 = 每 7 天一轮回</span>
+              </div>
+
+              <section v-for="sec in checkinSections" :key="sec.key" class="checkin-sec">
+                <div class="checkin-sec-head">
+                  <h4>{{ sec.title }}</h4>
+                  <span class="checkin-sec-desc">{{ sec.desc }}</span>
+                  <button class="private-add-btn" type="button" @click="addCheckinRow(sec.key)">＋ 添加</button>
+                </div>
+                <div class="private-rule-table">
+                  <div class="private-rule-head checkin-rule-head">
+                    <span class="pr-idx">#</span>
+                    <span>{{ sec.dayLabel }}</span>
+                    <span>奖励类型</span>
+                    <span>物品名称<em>（经验/活力可留空）</em></span>
+                    <span>数量</span>
+                    <span></span>
+                  </div>
+                  <div class="private-rules">
+                    <div v-for="(row, idx) in sec.rows" :key="row.uid" class="private-rule-row checkin-rule-row">
+                      <span class="pr-idx">{{ idx + 1 }}</span>
+                      <input v-model.number="row.days" type="number" min="1" step="1" title="触发天数" />
+                      <select v-model="row.type" class="checkin-type-select" title="奖励类型">
+                        <option value="item">物品</option>
+                        <option value="exp">经验</option>
+                        <option value="vitality">活力</option>
+                      </select>
+                      <input v-model="row.name" :disabled="row.type !== 'item'" placeholder="如：签到礼包" />
+                      <input v-model.number="row.count" type="number" min="0" step="0.01" title="数量" />
+                      <button class="pr-del" type="button" title="删除该行" @click="removeCheckinRow(sec.key, row.uid)">✕</button>
+                    </div>
+                    <div v-if="!sec.rows.length" class="private-empty">
+                      <strong>还没有奖励条目</strong>
+                      <span>点「＋ 添加」新增一行：填触发天数 + 奖励类型 + 物品名 + 数量</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <div v-if="checkinError" class="prof-error">{{ checkinError }}</div>
+
+            <div class="modal-foot private-modal-foot">
+              <span class="private-foot-gap"></span>
+              <span v-if="checkinSaved" class="edit-result">✓ 已保存</span>
+              <button class="gm-btn success" type="button" @click="saveCheckinRewards">保存奖励配置</button>
             </div>
           </div>
         </div>
@@ -939,6 +1031,137 @@ async function savePrivateRules() {
   privateRulesSaved.value = true;
   setTimeout(() => {
     privateRulesSaved.value = false;
+  }, 2000);
+}
+
+// ---- 签到奖励表（game.checkinRewards）弹窗编辑 ----
+const checkinCfg = ref(null); // 当前编辑的配置项；null 表示弹窗未打开
+const checkinCycleDays = ref(0); // 每日奖励循环周期（0=不循环）
+const checkinDailyRows = ref([]); // 每日奖励行（按连续第 N 天）
+const checkinConsecutiveRows = ref([]); // 连续签到里程碑行
+const checkinTotalRows = ref([]); // 累计签到里程碑行
+const checkinError = ref('');
+const checkinSaved = ref(false);
+let checkinRowUidSeq = 0;
+
+/** 三张表的元信息：rows 直接指向对应 ref，表格里编辑即改到源数组 */
+const checkinSections = computed(() => [
+  { key: 'daily', title: '每日签到奖励', desc: '按「连续签到第 N 天」发放，可配合循环周期轮转', dayLabel: '第几天', rows: checkinDailyRows.value },
+  { key: 'consecutive', title: '连续签到奖励', desc: '连续签到满 N 天时发放一次', dayLabel: '连续天数', rows: checkinConsecutiveRows.value },
+  { key: 'total', title: '累计签到奖励', desc: '累计签到满 N 天时发放一次', dayLabel: '累计天数', rows: checkinTotalRows.value },
+]);
+
+/** 构造一行奖励（uid 仅用于 v-for 稳定 key，不落库） */
+function makeCheckinRow(days = 1, type = 'item', name = '', count = 1) {
+  return { uid: ++checkinRowUidSeq, days, type, name, count };
+}
+
+/** 解析配置值为对象；非法 JSON / 非对象返回 null，由调用方决定回落 */
+function parseCheckinRewards(raw) {
+  try {
+    const obj = JSON.parse(raw || '{}');
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+/** 扁平化 [{ days, rewards }] → 每个奖励条目一行，便于表格编辑（同一天多条会拆成多行） */
+function flattenCheckinGroups(groups) {
+  const rows = [];
+  for (const g of groups || []) {
+    const days = Number(g?.days);
+    if (!Number.isFinite(days) || days <= 0) continue;
+    for (const r of g?.rewards || []) {
+      const type = r?.type === 'exp' || r?.type === 'vitality' ? r.type : 'item';
+      rows.push(makeCheckinRow(days, type, String(r?.name ?? ''), Number(r?.count) || 0));
+    }
+  }
+  return rows;
+}
+
+/** 折叠行上展示的条目数（三张表分开统计） */
+function checkinGroupCount(cfg, kind) {
+  const obj = parseCheckinRewards(cfg?.value);
+  return flattenCheckinGroups(obj?.[kind]).length;
+}
+
+/** 取某张表编辑中的行 ref，供添加/删除复用 */
+function checkinRowsOf(key) {
+  if (key === 'consecutive') return checkinConsecutiveRows;
+  if (key === 'total') return checkinTotalRows;
+  return checkinDailyRows;
+}
+
+/** 打开弹窗，载入当前配置 */
+function openCheckinRewards(cfg) {
+  const obj = parseCheckinRewards(cfg?.value) || {};
+  checkinCfg.value = cfg;
+  const cycle = Number(obj.dailyCycleDays);
+  checkinCycleDays.value = Number.isFinite(cycle) && cycle > 0 ? Math.floor(cycle) : 0;
+  checkinDailyRows.value = flattenCheckinGroups(obj.daily);
+  checkinConsecutiveRows.value = flattenCheckinGroups(obj.consecutive);
+  checkinTotalRows.value = flattenCheckinGroups(obj.total);
+  checkinError.value = '';
+  checkinSaved.value = false;
+}
+
+function closeCheckinRewards() {
+  checkinCfg.value = null;
+}
+
+function addCheckinRow(key) {
+  checkinRowsOf(key).value.push(makeCheckinRow());
+}
+
+function removeCheckinRow(key, uid) {
+  const rows = checkinRowsOf(key);
+  rows.value = rows.value.filter((r) => r.uid !== uid);
+}
+
+/** 把编辑中的扁平行还原成 [{ days, rewards }]：同一天合并为一组，按天数升序；非法行直接抛错 */
+function buildCheckinGroups(rows) {
+  const map = new Map();
+  for (const row of rows) {
+    const days = Number(row.days);
+    if (!Number.isInteger(days) || days < 1) {
+      throw new Error('触发天数必须是不小于 1 的整数');
+    }
+    const count = Number(row.count);
+    if (!Number.isFinite(count) || count <= 0) {
+      throw new Error(`第 ${days} 天的数量必须是正数`);
+    }
+    const type = row.type === 'exp' || row.type === 'vitality' ? row.type : 'item';
+    const name = String(row.name || '').trim();
+    if (type === 'item' && !name) {
+      throw new Error(`第 ${days} 天的物品名称不能为空`);
+    }
+    if (!map.has(days)) map.set(days, []);
+    map.get(days).push({ type, name, count });
+  }
+  return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([days, rewards]) => ({ days, rewards }));
+}
+
+/** 保存三张奖励表 + 循环周期（整体一次保存，避免分组保存造成中间态） */
+async function saveCheckinRewards() {
+  checkinError.value = '';
+  try {
+    const cycle = Number(checkinCycleDays.value);
+    const payload = {
+      dailyCycleDays: Number.isFinite(cycle) && cycle > 0 ? Math.floor(cycle) : 0,
+      daily: buildCheckinGroups(checkinDailyRows.value),
+      consecutive: buildCheckinGroups(checkinConsecutiveRows.value),
+      total: buildCheckinGroups(checkinTotalRows.value),
+    };
+    await saveConfig(checkinCfg.value, payload);
+  } catch (e) {
+    checkinError.value = e?.message || '保存失败，请检查填写内容';
+    return;
+  }
+  checkinSaved.value = true;
+  setTimeout(() => {
+    checkinSaved.value = false;
   }, 2000);
 }
 
@@ -2252,29 +2475,300 @@ onMounted(async () => {
 }
 
 /* ===== 私密消息规则编辑弹窗（左指令、右占位文本的两列表格） ===== */
+/* 提高特异性以覆盖通用 .modal-box（padding / 滚动交给内部列表处理，避免表头被滚走） */
+.modal-box.private-modal {
+  width: min(760px, calc(100vw - 40px));
+  max-height: 86vh;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+/* 头部：图标 + 主标题 + 副标题（副标题独占一行，不再与标题挤在同一行） */
+.modal-head.private-modal-head {
+  margin-bottom: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+.private-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.private-modal-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 10px;
+  background: rgba(139, 92, 246, 0.16);
+  border: 1px solid rgba(139, 92, 246, 0.32);
+}
+.private-modal-titles {
+  min-width: 0;
+}
+.private-modal-title .private-modal-titles h3 {
+  font-size: 15px;
+  line-height: 1.3;
+}
+.private-modal-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+/* 表格容器：圆角描边 + 内部独立滚动 */
+.private-rule-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(10, 10, 26, 0.35);
+  overflow: hidden;
+}
 .private-rule-head,
 .private-rule-row {
   display: grid;
-  grid-template-columns: 1fr 1.4fr 32px;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1.45fr) 40px;
   gap: 8px;
   align-items: center;
 }
+/* 表头：小号灰字 + 淡紫底，与数据行严格对齐 */
 .private-rule-head {
-  font-size: 12px;
-  color: #8b93a7;
-  padding: 0 4px 6px;
+  flex-shrink: 0;
+  padding: 9px 12px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  background: rgba(139, 92, 246, 0.08);
+  border-bottom: 1px solid var(--border);
+}
+.private-rule-head em {
+  font-style: normal;
+  color: var(--muted-dark);
 }
 .private-rules {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 48vh;
+  gap: 6px;
+  max-height: 46vh;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 8px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
+.private-rules::-webkit-scrollbar {
+  width: 8px;
+}
+.private-rules::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+/* 单行：hover / 聚焦时轻微高亮，便于定位正在编辑的行 */
+.private-rule-row {
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.private-rule-row:hover,
+.private-rule-row:focus-within {
+  background: rgba(139, 92, 246, 0.07);
+  border-color: rgba(139, 92, 246, 0.22);
+}
+/* 行序号：等宽数字、不可选中，避免复制时带上 */
+.pr-idx {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted-dark);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+/* 输入框深色化：与站内其它输入框统一，替换浏览器默认白底 */
 .private-rule-row input {
   width: 100%;
-  box-sizing: border-box;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: rgba(10, 10, 26, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.private-rule-row input::placeholder {
+  color: var(--muted-dark);
+}
+.private-rule-row input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+/* 删除按钮：默认低调，hover 才变红提示危险 */
+.pr-del {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted-dark);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.pr-del:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+.private-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 26px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted-dark);
+}
+.private-empty strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* 底部操作栏：左「添加规则」右「保存规则」，中间弹性撑开 */
+.modal-foot.private-modal-foot {
+  margin-top: 0;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.private-add-btn {
+  padding: 8px 14px;
+  font-size: 12.5px;
+  color: #d4c4ff;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px dashed rgba(139, 92, 246, 0.5);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.private-add-btn:hover {
+  background: rgba(139, 92, 246, 0.22);
+  border-style: solid;
+}
+.private-foot-gap {
+  flex: 1;
+}
+
+/* ===== 签到奖励配置弹窗：三张奖励表分区编辑 ===== */
+/* 主体独立滚动：三张表较高，超出弹窗高度时整体滚动而不是撑破弹窗 */
+.checkin-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+.checkin-body::-webkit-scrollbar {
+  width: 8px;
+}
+.checkin-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+.checkin-cycle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.checkin-cycle-label {
+  font-size: 12.5px;
+  color: var(--text);
+}
+.checkin-cycle-input {
+  width: 90px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: rgba(10, 10, 26, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.checkin-cycle-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+.checkin-cycle-hint {
+  font-size: 11.5px;
+  color: var(--muted-dark);
+}
+.checkin-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.checkin-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.checkin-sec-head h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.checkin-sec-desc {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--muted-dark);
+}
+/* 奖励行比私密规则行多两列（类型、数量），单独定义栅格 */
+.checkin-rule-head,
+.checkin-rule-row {
+  grid-template-columns: 34px 92px 96px minmax(0, 1fr) 92px 40px;
+}
+/* 三张表各占较小高度，避免合计高度超出弹窗 */
+.checkin-sec .private-rules {
+  max-height: 22vh;
+}
+.checkin-type-select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: rgba(10, 10, 26, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.checkin-type-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+/* 经验/活力类型不需要物品名，置灰提示不可填 */
+.checkin-rule-row input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ===== 详情 / 编辑弹窗 ===== */
@@ -2488,6 +2982,33 @@ onMounted(async () => {
   }
   .modal-box.wide {
     width: calc(100vw - 24px);
+  }
+  /* 私密消息规则：窄屏隐藏表头，每行改为「指令 + 占位文本」上下堆叠 */
+  .modal-box.private-modal {
+    width: calc(100vw - 24px);
+    padding: 16px;
+  }
+  .private-rule-head {
+    display: none;
+  }
+  .private-rule-row {
+    grid-template-columns: minmax(0, 1fr) 34px;
+    row-gap: 6px;
+  }
+  .private-rule-row .pr-idx {
+    display: none;
+  }
+  .private-rule-row input:nth-of-type(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .private-rule-row input:nth-of-type(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .private-rule-row .pr-del {
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
 }
 </style>

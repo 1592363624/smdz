@@ -46,6 +46,23 @@ export class GlobalConfig {
   /** 每条消息最多可携带的附件数量（默认 5） */
   public readonly maxAttachments: number;
 
+  /**
+   * 「在线玩家」展示配置（网页左下角状态栏：悬停「在线」看名单 + 上下线提示）
+   * 条数上限做成配置项，避免大服一次广播带出超大名单。
+   */
+  public readonly presence = {
+    /** 单次返回/广播的在线玩家名单条数上限（前端只展示前 N 个，其余折算为"还有 X 人"） */
+    onlineListLimit: Number(process.env.PRESENCE_ONLINE_LIST_LIMIT || 10),
+    /**
+     * 在线玩家「显示名」缓存时长（毫秒），默认 60 秒。
+     *
+     * 缓存的是「userId → 显示名」映射，不是最终名单：名单每次按当前在线 ids 实时组装，
+     * 所以谁上线/离线都立刻生效；缓存只把"上下线时全量查库"降级为"为新出现的 id 增量查库"。
+     * TTL 决定名字新鲜度（玩家改名后最迟该时长生效），设为 0 表示关闭缓存。
+     */
+    onlineListCacheTtlMs: Number(process.env.PRESENCE_ONLINE_LIST_CACHE_TTL_MS || 60000),
+  };
+
   /** 玩家默认属性（游戏数值配置示例，未来可迁移到数据库） */
   public readonly playerDefaults = {
     maxLevel: 100,

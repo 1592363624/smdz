@@ -8,6 +8,25 @@
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+// 签到奖励默认规则（纯常量模块，无服务依赖，不会引入循环依赖）
+import {
+  CHECKIN_BASE_EXP_KEY,
+  CHECKIN_CONSECUTIVE_EXP_MAX_DAYS_KEY,
+  CHECKIN_CONSECUTIVE_EXP_PER_DAY_KEY,
+  CHECKIN_REWARDS_KEY,
+  DEFAULT_CHECKIN_BASE_EXP,
+  DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS,
+  DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY,
+  DEFAULT_CHECKIN_REWARDS_JSON,
+} from '../game/checkin-config.defaults';
+// 世界红包默认配置（纯常量模块：有效期/份数上限/可发放范围等，管理员可在线调整）
+import {
+  DEFAULT_RED_PACKET_CONFIG,
+  DEFAULT_RED_PACKET_CONFIG_JSON,
+  RED_PACKET_CONFIG_KEY,
+  RedPacketConfig,
+  normalizeRedPacketConfig,
+} from '../../config/red-packet.config';
 
 /** 新增配置项的默认定义：启动时若库中缺失则自动补行，无需重跑 seed */
 interface SystemConfigDefault {
@@ -75,6 +94,41 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
     group: 'game',
   },
   {
+    key: CHECKIN_BASE_EXP_KEY,
+    value: String(DEFAULT_CHECKIN_BASE_EXP),
+    label: '签到基础经验',
+    description:
+      '每次签到固定获得的经验；连续加成另算（总经验 = 基础经验 + 连续天数加成）',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: CHECKIN_CONSECUTIVE_EXP_PER_DAY_KEY,
+    value: String(DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY),
+    label: '签到每连续1天额外经验',
+    description: '连续签到每多 1 天额外增加的经验；设为 0 则取消连续加成',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: CHECKIN_CONSECUTIVE_EXP_MAX_DAYS_KEY,
+    value: String(DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS),
+    label: '签到连续加成封顶天数',
+    description:
+      '连续签到经验加成的天数上限（超过该天数不再累加）；0 = 不封顶',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: CHECKIN_REWARDS_KEY,
+    value: DEFAULT_CHECKIN_REWARDS_JSON,
+    label: '签到奖励表',
+    description:
+      '配置「哪天给什么东西」：每日奖励（按连续第 N 天，可设循环周期）、连续签到里程碑、累计签到里程碑；奖励类型支持物品/经验/活力',
+    type: 'json',
+    group: 'game',
+  },
+  {
     key: 'chat.messageIntervalSec',
     value: '0.2',
     label: '用户消息发送间隔(秒)',
@@ -88,6 +142,17 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
     label: '私密消息规则',
     description:
       '列表内指令的结果仅发送者本人可见，其他玩家只见对应的占位文本（防止他人白嫖探测雷达等情报）',
+    type: 'json',
+    group: 'command',
+  },
+  {
+    key: RED_PACKET_CONFIG_KEY,
+    value: DEFAULT_RED_PACKET_CONFIG_JSON,
+    label: '世界红包',
+    description:
+      '红包有效期(小时)、单个红包道具种类/份数上限、祝福语长度、是否允许放装备或硬通货等。' +
+      '格式：{"expireHours":24,"maxItemKinds":10,"maxTotalCount":100,"minTotalCount":1,' +
+      '"maxGreetingLength":60,"allowEquipment":false,"allowCurrency":false,"historyHours":72}',
     type: 'json',
     group: 'command',
   },
@@ -346,6 +411,20 @@ export class SystemConfigService implements OnModuleInit {
    */
   getMessageIntervalSec(): Promise<number> {
     return this.get<number>('chat.messageIntervalSec', 0.2);
+  }
+
+  /**
+   * 快捷读取：世界红包配置（有效期、份数上限、可发放范围等）。
+   * 管理员在「系统配置 → 世界红包」在线调整；缺失/格式损坏时回退代码默认值。
+   */
+  async getRedPacketConfig(): Promise<RedPacketConfig> {
+    try {
+      const raw = await this.get<any>(RED_PACKET_CONFIG_KEY, DEFAULT_RED_PACKET_CONFIG);
+      return normalizeRedPacketConfig(raw);
+    } catch {
+      // 读配置失败不应阻断发红包主链路，退回代码默认值
+      return { ...DEFAULT_RED_PACKET_CONFIG };
+    }
   }
 
   /**

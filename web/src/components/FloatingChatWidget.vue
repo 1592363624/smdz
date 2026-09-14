@@ -32,6 +32,15 @@
         {{ connected ? '已连接' : '未连接' }}
       </span>
       <div class="fc-header-actions">
+        <!-- 发红包：打开道具选择弹窗（读背包 → 选中后立即扣除并广播） -->
+        <button
+          type="button"
+          class="fc-icon-btn fc-rp-open"
+          title="发红包（把背包道具装进红包）"
+          @click="openRedPacketComposer"
+        >
+          🧧
+        </button>
         <button
           type="button"
           class="fc-icon-btn"
@@ -62,42 +71,103 @@
           <!-- 系统/通知类：居中细体 -->
           <div v-if="isSystemLike(m)" class="fc-sys-line">{{ systemText(m) }}</div>
 
-          <!-- 未来扩展：红包卡片 -->
-          <div v-else-if="m.type === 'redpacket'" class="fc-rp-card" :class="{ mine: isMine(m) }">
+          <!-- 世界红包卡片：展示道具内容与领取进度，可一键领取 -->
+          <div
+            v-else-if="m.type === 'redpacket'"
+            class="fc-rp-card"
+            :class="{ mine: isMine(m), done: rpState(m).done }"
+          >
             <div class="fc-rp-emoji">🧧</div>
             <div class="fc-rp-body">
-              <div class="fc-rp-title">世界红包</div>
-              <div class="fc-rp-sub">{{ m.content }}</div>
+              <div class="fc-rp-title">{{ rpState(m).title }}</div>
+              <div class="fc-rp-sub">{{ rpState(m).sub }}</div>
+              <div v-if="rpState(m).greeting" class="fc-rp-greeting">“{{ rpState(m).greeting }}”</div>
+              <div class="fc-rp-progress">{{ rpState(m).progress }}</div>
             </div>
+            <button
+              type="button"
+              class="fc-rp-btn"
+              :class="{ claimed: rpState(m).mine }"
+              :disabled="rpState(m).disabled || rpClaimingId === rpState(m).id"
+              @click="claimRedPacket(m)"
+            >
+              {{ rpClaimingId === rpState(m).id ? '领取中…' : rpState(m).btnText }}
+            </button>
           </div>
 
           <!-- 普通聊天气泡 -->
           <div v-else class="fc-row" :class="{ mine: isMine(m) }">
-            <div class="fc-avatar" :style="{ background: avatarBg(m) }">
+            <!-- 头像：右键可直接 @ 对方（QQ 式快捷提及） -->
+            <div
+              class="fc-avatar"
+              :class="{ 'at-able': canAtSender(m) }"
+              :style="{ background: avatarBg(m) }"
+              @contextmenu="openPlayerCtx($event, m)"
+            >
               {{ avatarLetter(m) }}
             </div>
             <div class="fc-bubble-wrap">
               <div class="fc-meta">
-                <span class="fc-name">{{ displayName(m) }}</span>
+                <span
+                  class="fc-name"
+                  :class="{ 'at-able': canAtSender(m) }"
+                  @contextmenu="openPlayerCtx($event, m)"
+                >{{ displayName(m) }}</span>
                 <span class="fc-time">{{ formatTime(m.createdAt) }}</span>
               </div>
-              <div class="fc-msg-bubble" :class="{ pending: m._pending }">{{ m.content }}</div>
+              <div class="fc-msg-bubble" :class="{ pending: m._pending }">
+                <!-- @提及 分段渲染：命中后端可解析的 @名字 时高亮，并支持右键快速 @ -->
+                <template v-for="(seg, si) in contentSegments(m.content)" :key="si">
+                  <span
+                    v-if="seg.type === 'mention'"
+                    class="fc-mention"
+                    :title="'右键快速 @ ' + seg.text.replace('@', '')"
+                    @contextmenu="openMentionCtx($event, seg)"
+                  >{{ seg.display }}</span>
+                  <template v-else>{{ seg.text }}</template>
+                </template>
+              </div>
             </div>
           </div>
         </div>
       </template>
     </div>
 
+    <!-- 未读提醒：面板开着但用户在看历史时，新消息以红色提示条显示；点击回到底部并清未读 -->
+    <button v-if="chat.unread > 0" type="button" class="fc-unread-jump" @click="jumpToLatest">
+      ↓ {{ chat.unread > 99 ? '99+' : chat.unread }} 条新消息
+    </button>
+
     <div class="fc-input-bar">
+      <!-- @ 玩家下拉：输入 @ 时在上方展开，支持方向键/回车/Tab/鼠标选择 -->
+      <div
+        v-if="showAt && atCandidates.length"
+        class="fc-at-list"
+        :style="{ maxHeight: FLOATING_CHAT_CONFIG.atListMaxHeight + 'px' }"
+      >
+        <div
+          v-for="(p, pi) in atCandidates"
+          :key="p.id ?? p.username"
+          class="fc-at-item"
+          :class="{ active: pi === atIndex }"
+          @mousedown.prevent="pickAtPlayer(p)"
+        >
+          <span class="fc-at-icon">@</span>
+          <span class="fc-at-name">{{ p.nickname || p.username }}</span>
+          <span class="fc-at-state" :class="{ on: p.online }">{{ p.online ? '在线' : '离线' }}</span>
+        </div>
+      </div>
       <input
         ref="inputEl"
         v-model="draft"
         class="fc-input"
         type="text"
-        maxlength="200"
-        placeholder="说点什么…（纯聊天，不会混入游戏指令）"
+        :maxlength="FLOATING_CHAT_CONFIG.draftMaxLen"
+        placeholder="说点什么…（输入 @ 可 @人，右键名字可快捷 @）"
         :disabled="!connected"
-        @keyup.enter="onSend"
+        @input="onDraftInput"
+        @keydown="onInputKeydown"
+        @blur="onInputBlur"
       />
       <button
         type="button"
@@ -109,6 +179,89 @@
       </button>
     </div>
   </div>
+
+  <!-- 右键快捷菜单：@ TA / 复制昵称。Teleport 到 body，避免被面板 backdrop-filter 裁剪 -->
+  <Teleport to="body">
+    <div
+      v-if="ctxMenu.show"
+      class="fc-ctx"
+      :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+      @contextmenu.prevent
+    >
+      <button type="button" class="fc-ctx-item" @click="ctxAtPlayer">
+        <span class="fc-ctx-icon">@</span>
+        提及 {{ ctxMenu.label }}
+      </button>
+      <button type="button" class="fc-ctx-item" @click="ctxCopyName">
+        <span class="fc-ctx-icon">📋</span>
+        复制昵称
+      </button>
+    </div>
+  </Teleport>
+
+  <!-- 发红包弹窗：从背包挑选道具（发送时立即扣除），支持逐个调整份数 -->
+  <Teleport to="body">
+    <div v-if="rpOpen" class="fc-rp-overlay" @click.self="closeRedPacketComposer">
+      <div class="fc-rp-modal">
+        <header class="fc-rp-modal-head">
+          <h3>🧧 发红包</h3>
+          <button type="button" class="fc-icon-btn" title="关闭" @click="closeRedPacketComposer">✕</button>
+        </header>
+
+        <div class="fc-rp-modal-body">
+          <p class="fc-rp-hint">从背包里挑道具放进红包，点击发送时立即从背包扣除；24 小时内没人领完的会自动退回。</p>
+
+          <div v-if="rpLoading" class="fc-rp-empty">背包加载中…</div>
+          <div v-else-if="!rpItems.length" class="fc-rp-empty">背包里暂无可放入红包的道具</div>
+          <div v-else class="fc-rp-items">
+            <div
+              v-for="item in rpItems"
+              :key="item.name"
+              class="fc-rp-item"
+              :class="{ picked: rpPicked(item.name) > 0 }"
+            >
+              <span class="fc-rp-item-name">{{ item.name }}</span>
+              <span class="fc-rp-item-owned">拥有 {{ item.quantity }}</span>
+              <div class="fc-rp-stepper">
+                <!-- 步进器：0 表示不放这个道具 -->
+                <button type="button" :disabled="rpPicked(item.name) <= 0" @click="rpStep(item, -1)">−</button>
+                <span class="fc-rp-picked">{{ rpPicked(item.name) }}</span>
+                <button
+                  type="button"
+                  :disabled="rpPicked(item.name) >= item.quantity || rpTotalCount >= RED_PACKET_CLIENT_CONFIG.maxTotalCount"
+                  @click="rpStep(item, 1)"
+                >
+                  ＋
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <input
+            v-model="rpGreeting"
+            class="fc-rp-greeting-input"
+            type="text"
+            :maxlength="RED_PACKET_CLIENT_CONFIG.maxGreetingLength"
+            placeholder="祝福语（选填）"
+          />
+        </div>
+
+        <footer class="fc-rp-modal-foot">
+          <span class="fc-rp-total">
+            共 {{ rpTotalCount }} 份<em v-if="rpKindCount">／{{ rpKindCount }} 种</em>
+          </span>
+          <button
+            type="button"
+            class="fc-send"
+            :disabled="!rpTotalCount || rpSubmitting"
+            @click="submitRedPacket"
+          >
+            {{ rpSubmitting ? '发送中…' : '塞进红包' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -117,10 +270,24 @@
  * 参照 palworld-server-tool 的三态设计：气泡 → 小窗 → 伪全屏。
  * 消息由 ChatView 按 type=chat 路由进本组件；发送走统一 socket 通道。
  *
+ * 支持 QQ 式 @人：
+ * - 气泡内 @提及 自动高亮（@用户名 换算为 @昵称展示）
+ * - 右键头像/昵称/@片段 → 弹出菜单「提及 TA」（把 "@名字 " 填入输入框）
+ * - 输入框中输入 @ 时弹出玩家下拉，支持方向键/回车/Tab/鼠标选择
+ * 被 @ 的玩家由后端 chat:at 事件定向提醒（ChatView 统一弹轻提示）。
+ *
  * 未来扩展：红包 / 道具赠送等消息 type 直接进 messages，模板按 type 分支渲染即可。
  */
-import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useFloatingChatStore } from '../stores/floatingChat';
+import { chatApi } from '../api';
+import {
+  MENTION_CONFIG,
+  FLOATING_CHAT_CONFIG,
+  RED_PACKET_CLIENT_CONFIG,
+  mentionParseRegex,
+  isSafeMentionName,
+} from '../config';
 
 const props = defineProps({
   /** 是否已连接 Socket.IO */
@@ -129,7 +296,11 @@ const props = defineProps({
   selfId: { type: [Number, String], default: null },
   /** 发送纯聊天： (content: string) => void */
   send: { type: Function, default: null },
+  /** 可@玩家列表（父组件轮询下发，形如 [{ id, username, nickname, online }]） */
+  mentionPlayers: { type: Array, default: () => [] },
 });
+
+const emit = defineEmits(['refresh-players', 'notify']);
 
 const chat = useFloatingChatStore();
 
@@ -212,6 +383,8 @@ function onListScroll() {
   const el = listEl.value;
   if (!el) return;
   stickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  // 同步给 store：不在底部时新消息要计入未读（红点提醒）
+  chat.setAtBottom(stickToBottom.value);
 }
 
 function scrollToBottom(force = false) {
@@ -220,10 +393,17 @@ function scrollToBottom(force = false) {
   nextTick(() => {
     const el = listEl.value;
     if (el) el.scrollTop = el.scrollHeight;
+    chat.setAtBottom(true);
   });
 }
 
-// 打开面板时贴底
+/** 未读提示条点击：跳回最新消息并清空未读 */
+function jumpToLatest() {
+  scrollToBottom(true);
+  chat.setAtBottom(true);
+}
+
+// 打开面板时贴底，并请求父组件刷新可@玩家列表（保证下拉里是较新的在线状态）
 watch(
   () => [chat.open, chat.fullscreen, chat.messages.length],
   () => {
@@ -235,6 +415,405 @@ watch(
   },
 );
 
+watch(
+  () => chat.open,
+  (v) => {
+    if (v) emit('refresh-players');
+  },
+);
+
+// 同步当前用户 id 到 store：自己发送的消息（如自己发的红包广播回来）不计未读红点
+watch(
+  () => props.selfId,
+  (id) => chat.setSelfId(id),
+  { immediate: true },
+);
+
+// ---------- @提及（QQ 式 @人） ----------
+// 可@玩家列表由父组件（ChatView，按 MENTION_CONFIG.playersRefreshMs 轮询）下发，避免重复请求接口
+const players = computed(() => (Array.isArray(props.mentionPlayers) ? props.mentionPlayers : []));
+
+/** 用户名/昵称 → 玩家 映射：把消息里的 @用户名 解析成昵称展示 */
+const playerByName = computed(() => {
+  const map = new Map();
+  for (const p of players.value) {
+    if (p?.username) map.set(p.username, p);
+    if (p?.nickname) map.set(p.nickname, p);
+  }
+  return map;
+});
+
+/**
+ * 取可写入 @ 的名字：昵称能被后端解析时优先昵称（更直观），
+ * 否则退回用户名——含空格/表情的昵称会被 @ 解析截断，导致 @ 不到人
+ * @param {object} player { username, nickname }
+ * @returns {string}
+ */
+function mentionNameOf(player) {
+  const nick = String(player?.nickname || '').trim();
+  if (nick && isSafeMentionName(nick)) return nick;
+  return String(player?.username || '').trim();
+}
+
+/**
+ * @提及 的展示文本：能匹配到玩家且昵称「@ 安全」时显示 @昵称，否则保持原文
+ * @param {string} name @ 后面的名字（用户名或昵称）
+ * @returns {string}
+ */
+function mentionDisplay(name) {
+  const p = playerByName.value.get(name);
+  const nick = String(p?.nickname || '').trim();
+  if (nick && nick !== name && isSafeMentionName(nick)) return '@' + nick;
+  return '@' + name;
+}
+
+/**
+ * 把聊天文本按 @提及 拆成片段（mention / text），供模板高亮渲染
+ * 与后端 ChatService.parseMentions 使用同款规则，保证「高亮的都能 @ 到人」
+ * @param {string} content 原始消息文本
+ * @returns {Array<{type:'text'|'mention', text:string, display?:string}>}
+ */
+function contentSegments(content) {
+  const text = String(content ?? '');
+  const segs = [];
+  const regex = mentionParseRegex();
+  let last = 0;
+  let m;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) segs.push({ type: 'text', text: text.slice(last, m.index) });
+    // text 保留原文用于回填兜底，display 优先显示昵称
+    segs.push({ type: 'mention', text: m[0], display: mentionDisplay(m[1]) });
+    last = regex.lastIndex;
+  }
+  if (last === 0) return [{ type: 'text', text }];
+  if (last < text.length) segs.push({ type: 'text', text: text.slice(last) });
+  return segs;
+}
+
+/** 该消息是否提供「右键 @ 对方」入口（自己发的、无发送者的消息不给） */
+function canAtSender(m) {
+  if (!m?.sender || isMine(m)) return false;
+  return !!mentionNameOf(m.sender);
+}
+
+// ---------- @ 输入补全 ----------
+// @ 下拉是否展开、当前选中索引、过滤关键词、@ 在输入框中的起始位置（用于替换）
+const showAt = ref(false);
+const atIndex = ref(0);
+const atKeyword = ref('');
+const atStart = ref(-1);
+
+/** 过滤后的 @ 候选玩家（昵称/用户名匹配，按在线优先由后端排序，这里只截断） */
+const atCandidates = computed(() => {
+  const kw = atKeyword.value.trim().toLowerCase();
+  const list = kw
+    ? players.value.filter(
+        (p) =>
+          String(p.username || '').toLowerCase().includes(kw) ||
+          String(p.nickname || '').toLowerCase().includes(kw),
+      )
+    : players.value;
+  return list.slice(0, MENTION_CONFIG.autocompleteLimit);
+});
+
+/**
+ * 检测输入框是否处于 @ 模式（光标前存在最近一个未被空白打断的 @）
+ * 处于 @ 模式时同步记录 @ 起始位置与关键词，便于后续整体替换
+ */
+function detectAtMode() {
+  const el = inputEl.value;
+  const text = draft.value;
+  const pos = el?.selectionStart ?? text.length;
+  const before = text.slice(0, pos);
+  const atIdx = before.lastIndexOf('@');
+  if (atIdx === -1) return false;
+  const after = before.slice(atIdx + 1);
+  // 关键词超长（如粘贴整段文本）时不进入 @ 模式，避免误触发下拉
+  if (after.length > MENTION_CONFIG.nameMaxLen) return false;
+  // @ 与光标之间出现空白，说明是普通文本里的 @（邮箱、表情等）
+  if (/\s/.test(after)) return false;
+  atStart.value = atIdx;
+  atKeyword.value = after;
+  return true;
+}
+
+/** 关闭 @ 下拉并重置状态 */
+function closeAt() {
+  showAt.value = false;
+  atIndex.value = 0;
+  atKeyword.value = '';
+  atStart.value = -1;
+}
+
+/** 输入变化：@ 模式下呼出玩家下拉（无候选则关闭） */
+function onDraftInput() {
+  if (detectAtMode() && atCandidates.value.length) {
+    showAt.value = true;
+    atIndex.value = 0;
+  } else {
+    closeAt();
+  }
+}
+
+/**
+ * 把 "@名字 " 插入输入框
+ * @param {string} name 要 @ 的名字（用户名/昵称）
+ * @param {{start:number,end:number}|null} range 需替换的区间（@ 补全用）；为空则插入到光标处（失焦则追加到末尾）
+ */
+function insertMentionText(name, range = null) {
+  const clean = String(name || '').trim();
+  if (!clean) return;
+  const el = inputEl.value;
+  const text = draft.value;
+  const focused = !!el && document.activeElement === el;
+  const start = range ? range.start : focused ? el.selectionStart : text.length;
+  const end = range ? range.end : focused ? el.selectionEnd : start;
+  const before = text.slice(0, start);
+  const after = text.slice(end);
+  // 前一个字符不是空白时补一个空格，避免出现 "你好@张三" 这种粘连
+  const lead = before && !/\s$/.test(before) ? ' ' : '';
+  const insert = `${lead}@${clean} `;
+  draft.value = (before + insert + after).slice(0, FLOATING_CHAT_CONFIG.draftMaxLen);
+  closeAt();
+  nextTick(() => {
+    const node = inputEl.value;
+    if (!node) return;
+    const caret = Math.min((before + insert).length, FLOATING_CHAT_CONFIG.draftMaxLen);
+    node.focus();
+    node.setSelectionRange(caret, caret);
+  });
+}
+
+/** 从 @ 下拉中选中玩家：把 " @关键词 " 区间替换为 "@名字 " */
+function pickAtPlayer(p) {
+  const name = mentionNameOf(p);
+  if (!name) return;
+  const start = atStart.value >= 0 ? atStart.value : (inputEl.value?.selectionStart ?? draft.value.length);
+  insertMentionText(name, { start, end: start + 1 + atKeyword.value.length });
+}
+
+/** 输入框失焦：延迟关闭下拉，给 mousedown 选中留出时间 */
+function onInputBlur() {
+  setTimeout(closeAt, MENTION_CONFIG.blurCloseDelayMs);
+}
+
+// ---------- 右键快捷 @ ----------
+// 菜单状态：显示标记 + 视口坐标 + 待 @ 的名字/展示名
+const ctxMenu = ref({ show: false, x: 0, y: 0, name: '', label: '' });
+
+/** 弹出右键菜单（坐标钳制在视口内，避免菜单跑出屏幕） */
+function showCtxMenu(e, name, label) {
+  ctxMenu.value = {
+    show: true,
+    x: Math.max(8, Math.min(e.clientX, window.innerWidth - 172)),
+    y: Math.max(8, Math.min(e.clientY, window.innerHeight - 88)),
+    name,
+    label: label || name,
+  };
+}
+
+function closeCtxMenu() {
+  ctxMenu.value.show = false;
+}
+
+/** 右键消息头像/昵称：菜单里提供「提及 TA」 */
+function openPlayerCtx(e, m) {
+  if (!canAtSender(m)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  showCtxMenu(e, mentionNameOf(m.sender), displayName(m));
+}
+
+/** 右键气泡里的 @提及 片段：菜单里提供「提及 TA」（原文优先，保证能 @ 到人） */
+function openMentionCtx(e, seg) {
+  const name = String(seg?.text || '').replace(/^@/, '').trim();
+  if (!name) return;
+  e.preventDefault();
+  e.stopPropagation();
+  showCtxMenu(e, name, String(seg.display || seg.text).replace(/^@/, ''));
+}
+
+/** 菜单项「提及 TA」：把 "@名字 " 填入输入框 */
+function ctxAtPlayer() {
+  const name = ctxMenu.value.name;
+  closeCtxMenu();
+  insertMentionText(name);
+}
+
+/** 菜单项「复制昵称」：剪贴板不可用时静默忽略，不打断聊天 */
+async function ctxCopyName() {
+  const label = ctxMenu.value.label;
+  closeCtxMenu();
+  try {
+    await navigator.clipboard?.writeText(label);
+  } catch {
+    // 非 HTTPS / 未授权等场景写入失败，忽略即可
+  }
+}
+
+/** 点击菜单外部时收起菜单（菜单自身的 pointerdown 不关，交给 click 处理） */
+function onGlobalPointerDown(e) {
+  if (!ctxMenu.value.show) return;
+  if (e.target?.closest?.('.fc-ctx')) return;
+  closeCtxMenu();
+}
+
+// ---------- 世界红包 ----------
+// 发红包弹窗状态：打开时拉取背包可发放清单；份数在本地调整，提交时由服务端扣除背包
+const rpOpen = ref(false);
+const rpLoading = ref(false);
+const rpItems = ref([]);
+/** 已选道具：name → 份数（0 表示不放） */
+const rpPickedMap = ref({});
+const rpGreeting = ref('');
+const rpSubmitting = ref(false);
+/** 正在领取的红包ID（按钮转圈用） */
+const rpClaimingId = ref(null);
+
+/** 已选总份数（1 份 = 1 个道具） */
+const rpTotalCount = computed(() =>
+  Object.values(rpPickedMap.value).reduce((sum, qty) => sum + (Number(qty) || 0), 0),
+);
+/** 已选道具种类数 */
+const rpKindCount = computed(() => Object.keys(rpPickedMap.value).length);
+
+/** 某道具已选份数 */
+function rpPicked(name) {
+  return Number(rpPickedMap.value[name] || 0);
+}
+
+/** 步进调整某道具放入的份数（0 ~ 拥有量）；超出种类上限时不生效 */
+function rpStep(item, delta) {
+  const next = Math.max(0, Math.min(item.quantity, rpPicked(item.name) + delta));
+  const map = { ...rpPickedMap.value };
+  if (next <= 0) delete map[item.name];
+  else map[item.name] = next;
+  // 前端先挡一道种类上限，避免提交后才被后端拒绝
+  if (Object.keys(map).length > RED_PACKET_CLIENT_CONFIG.maxItemKinds) return;
+  rpPickedMap.value = map;
+}
+
+/** 打开发红包弹窗：读取背包中可放入红包的道具 */
+async function openRedPacketComposer() {
+  if (!props.connected) {
+    emit('notify', { type: 'error', message: '未连接服务器，暂时无法发红包' });
+    return;
+  }
+  rpOpen.value = true;
+  rpGreeting.value = '';
+  rpPickedMap.value = {};
+  rpItems.value = [];
+  rpLoading.value = true;
+  try {
+    const res = await chatApi.getRedPacketItems();
+    rpItems.value = res.data || [];
+  } catch {
+    emit('notify', { type: 'error', message: '背包读取失败，请稍后重试' });
+  } finally {
+    rpLoading.value = false;
+  }
+}
+
+function closeRedPacketComposer() {
+  rpOpen.value = false;
+}
+
+/** 提交红包：服务端二次校验并扣背包，随后会向世界频道广播一条红包消息 */
+async function submitRedPacket() {
+  if (rpSubmitting.value) return;
+  const items = Object.entries(rpPickedMap.value).map(([name, quantity]) => ({ name, quantity }));
+  if (!items.length) return;
+  rpSubmitting.value = true;
+  try {
+    await chatApi.createRedPacket({ greeting: rpGreeting.value, items });
+    rpOpen.value = false;
+    emit('notify', { type: 'success', message: '红包已发出' });
+    // 背包已被扣减：下次打开弹窗会重新拉取清单，无需本地维护
+  } catch (e) {
+    emit('notify', { type: 'error', message: extractApiMessage(e, '红包发送失败') });
+  } finally {
+    rpSubmitting.value = false;
+  }
+}
+
+/**
+ * 红包卡片展示状态：优先取 store 里的实时视图（socket 推送 / 接口拉取），
+ * 视图缺失（如状态接口失败）时退化为只读展示，避免用户点了没反应。
+ * @param {object} m 聊天消息（type='redpacket'）
+ */
+function rpState(m) {
+  const view = chat.redPackets[m.refId] || m.redPacket || null;
+  const mine = isMine(m);
+  if (!view) {
+    return {
+      id: m.refId,
+      title: '🧧 世界红包',
+      sub: m.content || '道具红包',
+      greeting: '',
+      progress: '状态加载中…',
+      mine: false,
+      done: false,
+      btnText: '领取',
+      disabled: true,
+    };
+  }
+  const finished = view.status === 'FINISHED';
+  const expired = view.status === 'EXPIRED' || view.expired;
+  const exhausted = view.claimedCount >= view.totalCount;
+  const claimedByMe = !!view.myClaim;
+  let btnText = '领取';
+  let disabled = false;
+  if (mine) {
+    btnText = '我发的';
+    disabled = true;
+  } else if (claimedByMe) {
+    btnText = `已领 ${view.myClaim.itemName}`;
+    disabled = true;
+  } else if (expired) {
+    btnText = '已过期';
+    disabled = true;
+  } else if (finished || exhausted) {
+    btnText = '已抢完';
+    disabled = true;
+  }
+  const statusText = expired ? '已过期退回' : finished || exhausted ? '已抢完' : '可领取';
+  return {
+    id: view.id,
+    title: `🧧 ${view.senderName} 的红包`,
+    sub: view.summary || '道具红包',
+    greeting: view.greeting || '',
+    progress: `已领 ${view.claimedCount}/${view.totalCount} 份 · ${statusText}`,
+    mine: claimedByMe,
+    done: finished || expired || exhausted,
+    btnText,
+    disabled,
+  };
+}
+
+/** 领取红包：成功提示领到的道具，并同步卡片状态（服务端同时会广播给所有人） */
+async function claimRedPacket(m) {
+  const id = m.refId;
+  if (!id || rpClaimingId.value) return;
+  rpClaimingId.value = id;
+  try {
+    const res = await chatApi.claimRedPacket(id);
+    if (res?.data?.packet) chat.upsertRedPacket(res.data.packet);
+    emit('notify', {
+      type: 'success',
+      message: `抢到 ${res?.data?.itemName || '道具'}×${res?.data?.quantity || 1}`,
+    });
+  } catch (e) {
+    emit('notify', { type: 'error', message: extractApiMessage(e, '领取失败，请稍后再试') });
+  } finally {
+    rpClaimingId.value = null;
+  }
+}
+
+/** 从接口错误里取提示文案：后端异常统一返回 { message }，取不到则用兜底文案 */
+function extractApiMessage(error, fallback) {
+  return error?.response?.data?.message || error?.message || fallback;
+}
+
 // ---------- 发送 ----------
 function onSend() {
   const text = draft.value.trim();
@@ -243,9 +822,43 @@ function onSend() {
     props.send(text);
   }
   draft.value = '';
+  closeAt();
+  closeCtxMenu();
   stickToBottom.value = true;
   scrollToBottom(true);
   nextTick(() => inputEl.value?.focus());
+}
+
+/** 回车发送 / @ 下拉键盘导航：下拉激活时方向键与回车优先用于选人 */
+function onInputKeydown(e) {
+  if (showAt.value && atCandidates.value.length) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      atIndex.value = Math.min(atIndex.value + 1, atCandidates.value.length - 1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      atIndex.value = Math.max(atIndex.value - 1, 0);
+      return;
+    }
+    if (e.key === 'Tab' || e.key === 'Enter') {
+      e.preventDefault();
+      pickAtPlayer(atCandidates.value[atIndex.value] || atCandidates.value[0]);
+      return;
+    }
+    if (e.key === 'Escape') {
+      // 阻止冒泡，避免 Esc 顺手把整个聊天面板也关掉
+      e.preventDefault();
+      e.stopPropagation();
+      closeAt();
+      return;
+    }
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    onSend();
+  }
 }
 
 // ---------- Esc ----------
@@ -255,7 +868,17 @@ function onEsc() {
 }
 
 function onKeydown(e) {
-  if (e.key !== 'Escape' || !chat.open) return;
+  if (e.key !== 'Escape') return;
+  // Esc 逐层收起：发红包弹窗 → 右键菜单 → 聊天面板
+  if (rpOpen.value) {
+    closeRedPacketComposer();
+    return;
+  }
+  if (ctxMenu.value.show) {
+    closeCtxMenu();
+    return;
+  }
+  if (!chat.open) return;
   onEsc();
 }
 
@@ -302,10 +925,13 @@ watch(
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
+  // 点击任意位置收起右键菜单（菜单内部点击由菜单自身处理）
+  window.addEventListener('pointerdown', onGlobalPointerDown);
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('pointerdown', onGlobalPointerDown);
   document.body.style.overflow = '';
 });
 </script>
@@ -594,7 +1220,7 @@ onUnmounted(() => {
   opacity: 0.7;
 }
 
-/* 红包卡片（预留） */
+/* ===== 世界红包卡片 ===== */
 .fc-msg.rp {
   display: flex;
 }
@@ -602,35 +1228,253 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: 220px;
+  width: min(100%, 320px);
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.35), rgba(234, 179, 8, 0.25));
-  border: 1px solid rgba(239, 68, 68, 0.45);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.28), rgba(234, 179, 8, 0.2));
+  border: 1px solid rgba(239, 68, 68, 0.42);
   margin-left: 36px;
-  cursor: pointer;
 }
 .fc-rp-card.mine {
   margin-left: auto;
-  margin-right: 36px;
+  margin-right: 0;
+}
+/* 已结束（抢完/过期）的红包降低存在感，避免误点 */
+.fc-rp-card.done {
+  opacity: 0.72;
+  filter: saturate(0.6);
 }
 .fc-rp-emoji {
-  font-size: 28px;
+  flex-shrink: 0;
+  font-size: 26px;
   line-height: 1;
 }
+.fc-rp-body {
+  flex: 1;
+  min-width: 0;
+}
 .fc-rp-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
   color: #fecaca;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .fc-rp-sub {
   font-size: 11px;
   color: var(--text-secondary);
-  margin-top: 2px;
+  margin-top: 3px;
+  word-break: break-all;
+}
+.fc-rp-greeting {
+  font-size: 11px;
+  color: #fcd34d;
+  margin-top: 3px;
+  word-break: break-all;
+}
+.fc-rp-progress {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.fc-rp-btn {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ef4444, #f59e0b);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fc-rp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.fc-rp-btn.claimed {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
 }
 
-/* 输入栏 */
+/* ===== 未读提示条（面板开着但用户在翻历史时显示） ===== */
+.fc-unread-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 5px 14px;
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.92);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.fc-unread-jump:hover {
+  filter: brightness(1.08);
+}
+
+/* ===== 发红包弹窗 ===== */
+.fc-rp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.fc-rp-modal {
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 1px solid var(--border-light);
+  background: rgba(24, 20, 46, 0.98);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.fc-rp-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.fc-rp-modal-head h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.fc-rp-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.fc-rp-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.fc-rp-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted-dark);
+}
+.fc-rp-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fc-rp-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(10, 10, 26, 0.55);
+}
+.fc-rp-item.picked {
+  border-color: rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.08);
+}
+.fc-rp-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fc-rp-item-owned {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.fc-rp-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.fc-rp-stepper button {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(139, 92, 246, 0.14);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fc-rp-stepper button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.fc-rp-picked {
+  min-width: 22px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fbbf24;
+}
+.fc-rp-greeting-input {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+.fc-rp-greeting-input:focus {
+  border-color: var(--accent);
+}
+.fc-rp-modal-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: rgba(20, 16, 42, 0.6);
+}
+.fc-rp-total {
+  font-size: 12px;
+  color: var(--muted);
+}
+.fc-rp-total em {
+  font-style: normal;
+  color: var(--muted-dark);
+}
+
+/* 输入栏：position 供 @ 玩家下拉绝对定位 */
 .fc-input-bar {
+  position: relative;
   flex-shrink: 0;
   display: flex;
   gap: 8px;
@@ -678,6 +1522,115 @@ onUnmounted(() => {
 }
 .fc-send:not(:disabled):hover {
   filter: brightness(1.1);
+}
+
+/* ===== @提及 相关 ===== */
+/* 气泡内的 @名字 高亮：与中央公屏 .mention-highlight 视觉一致 */
+.fc-mention {
+  color: #fbbf24;
+  font-weight: 700;
+  background: rgba(251, 191, 36, 0.12);
+  border-radius: 4px;
+  padding: 0 2px;
+  cursor: context-menu;
+}
+/* 可右键 @ 的头像/昵称：给出可交互暗示（context-menu 光标 + hover 高亮） */
+.fc-avatar.at-able,
+.fc-name.at-able {
+  cursor: context-menu;
+}
+.fc-avatar.at-able:hover {
+  border-color: rgba(251, 191, 36, 0.55);
+}
+.fc-name.at-able:hover {
+  text-decoration: underline;
+}
+
+/* @ 玩家下拉：在输入框上方展开 */
+.fc-at-list {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  background: rgba(20, 16, 42, 0.98);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.fc-at-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.fc-at-item.active,
+.fc-at-item:hover {
+  background: rgba(139, 92, 246, 0.2);
+  color: var(--text);
+}
+.fc-at-icon {
+  color: #fbbf24;
+  font-weight: 800;
+}
+.fc-at-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fc-at-state {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--muted-dark);
+}
+.fc-at-state.on {
+  color: var(--success);
+}
+
+/* 右键快捷菜单（Teleport 到 body，fixed 定位） */
+.fc-ctx {
+  position: fixed;
+  z-index: 600;
+  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  background: rgba(24, 20, 46, 0.98);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+}
+.fc-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.fc-ctx-item:hover {
+  background: rgba(139, 92, 246, 0.22);
+  color: var(--text);
+}
+.fc-ctx-icon {
+  color: #fbbf24;
+  font-weight: 800;
 }
 
 /* 移动端：略缩小，避开底部快捷栏 */

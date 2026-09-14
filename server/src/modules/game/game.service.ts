@@ -576,9 +576,6 @@ export class GameService {
   async handleGive(userId: number, targetQQ: string, itemName: string, count: number): Promise<string>{
     return this.shopTradeService.handleGive(userId, targetQQ, itemName, count);
   }
-  async handlePrivateChat(userId: number, targetName: string, content: string): Promise<string>{
-    return this.questDialogueService.handlePrivateChat(userId, targetName, content);
-  }
   async handleFeedback(userId: number, raw: string): Promise<string>{
     return this.questDialogueService.handleFeedback(userId, raw);
   }

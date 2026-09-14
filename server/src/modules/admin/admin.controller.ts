@@ -172,7 +172,38 @@ export class AdminController {
   }
 
   @Post('config/update')
-  @ApiOperation({ summary: '更新系统配置项(在线生效)' })
+  @ApiOperation({
+    summary: '更新系统配置项(在线生效)',
+    description:
+      '修改后立即生效，无需重启；全部配置键见 GET /admin/config。签到奖励相关键：' +
+      'game.checkinBaseExp(签到基础经验) / game.checkinConsecutiveExpPerDay(每连续1天额外经验) / ' +
+      'game.checkinConsecutiveExpMaxDays(连续加成封顶天数，0=不封顶) / ' +
+      'game.checkinRewards(奖励表 JSON：{ dailyCycleDays, daily, consecutive, total }，' +
+      '奖励条目 { type: item|exp|vitality, name, count })。',
+  })
+  @ApiBody({
+    type: UpdateConfigDto,
+    examples: {
+      number: {
+        summary: '数值型示例（签到基础经验）',
+        value: { key: 'game.checkinBaseExp', value: 50 },
+      },
+      checkinRewards: {
+        summary: '签到奖励表示例（JSON 型）',
+        description:
+          'daily=按连续第 N 天发放(dailyCycleDays>0 时按周期轮转)；consecutive=连续签到里程碑；total=累计签到里程碑',
+        value: {
+          key: 'game.checkinRewards',
+          value: {
+            dailyCycleDays: 7,
+            daily: [{ days: 1, rewards: [{ type: 'item', name: '签到礼包', count: 1 }] }],
+            consecutive: [{ days: 7, rewards: [{ type: 'item', name: '签到礼包', count: 1 }] }],
+            total: [{ days: 30, rewards: [{ type: 'item', name: '累计签到礼包', count: 1 }] }],
+          },
+        },
+      },
+    },
+  })
   async updateConfig(@Body() dto: UpdateConfigDto) {
     const data = await this.systemConfigService.set(dto.key, dto.value);
     // 全局熟练度有内存权威表；整表替换后必须同步，否则下次 flush 会覆盖管理端修改
