@@ -3685,6 +3685,11 @@ onUnmounted(() => {
   transform: translateY(-6px);
   visibility: hidden;
   pointer-events: none;
+  /* visibility:hidden 仍占布局高；压到 0 才不会在顶栏里撑出一条空黑条 */
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
 }
 
 /* ===== 消息过滤切换按钮（显示他人/仅看自己）===== */

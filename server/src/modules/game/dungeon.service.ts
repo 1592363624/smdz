@@ -302,11 +302,17 @@ export class DungeonService {
     if (instanceMapIds.length > 0) {
       const players = await this.prisma.player.findMany({
         where: { mapId: { in: instanceMapIds } },
-        select: { id: true, userId: true, name: true, markers: true },
+        select: { id: true, userId: true, name: true, markers: true, markers2: true },
       });
       for (const player of players) {
         const markers = this.parseObject(player.markers, {});
         delete markers['移动中'];
+        // 同步清除 markers2 的「移动」镜像锁标记：否则提前传送出副本后，残留的
+        // 行动门禁会让玩家在新地图被 行动无限制 拦截移动，且面板读条不消失
+        const markers2 = Array.isArray(player.markers2)
+          ? (player.markers2 as any[])
+          : [];
+        const kept2 = markers2.filter((m: any) => String(m?.名称 ?? m?.name ?? '') !== '移动');
         await this.playerService.enqueueUserWrite(player.userId, async () => {
           const _pd = await this.playerService.getPlayerData(player.userId);
           Object.assign(_pd.player, {
@@ -314,6 +320,7 @@ export class DungeonService {
             location: exitMap.name,
             // Player markers 为 Json 列，直接写对象
             markers,
+            ...(kept2.length !== markers2.length ? { markers2: kept2 } : {}),
           });
           await this.playerService.savePlayer(_pd.player);
         });

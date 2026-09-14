@@ -1354,11 +1354,29 @@ vite-plugin-checker-error-overlay,
   /* 顶部操作坞容器：桌面端常驻高度（操作坞在内自动淡入淡出） */
   display: flex;
 }
-/* 操作坞隐藏时顶栏收成一条缝，避免空条占高 */
+/* 操作坞隐藏时顶栏收成一条缝，避免空条占高。
+   根因：.action-dock.is-hidden 用 visibility:hidden 淡出，仍保留文档流占位；
+   顶栏若继续铺半透明底，会在消息区顶部残留一条空黑条（看起来像遮罩）。
+   坞自身已压到 height:0，这里只需去掉顶栏内边距/底色/描边，高度会随内容自然塌掉；
+   不要在这里写死 height:0——手机端 header-collapsed 靠负 margin 补偿，强制 0 高会双重扣高度。 */
 .chat-header:has(.action-dock.is-hidden) {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 0;
+  padding-bottom: 0;
   border-bottom-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* 手机端顶栏内还有汉堡入口：坞隐藏时仍保留汉堡所需内边距与底色 */
+@media (max-width: 768px) {
+  .chat-header:has(.action-dock.is-hidden):not(.header-collapsed) {
+    padding-top: calc(4px + var(--safe-top));
+    padding-bottom: 4px;
+    background: rgba(10, 10, 26, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--glass-border);
+  }
 }
 .chat-header h2 {
   font-size: 16px;

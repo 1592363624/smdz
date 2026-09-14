@@ -1342,6 +1342,10 @@ export class GatherPanelService {
       return times > 0 ? `(剩${times}次)` : '';
     };
     for (const r of resources) {
+      // 对齐原版 刷新地图（后台运作.ecode L1003-1012）：地图资源按名称匹配不到资源定义时
+      // 不会被实例化（如飞龙谷/飞龙巢穴的「黑曜石」原版就没有 [黑曜石] 定义段，属悬空引用），
+      // 表现为完全不可见不可采。解析不出采集指令的资源不进编号菜单，避免出现按了没反应的死编号。
+      if (!this.resolveGatherCmd(r)) continue;
       const amount = r.amount ? ` ×${formatDisplayNumber(r.amount)}` : '';
       quickOptions.push({ label: `${r.name || '未知'}${amount}${timesLabel(r)}`, cmd: this.resolveGatherCmd(r) });
     }
@@ -1364,6 +1368,8 @@ export class GatherPanelService {
       .filter((r: any) => !hasStaticResources || !gatherPool.some((g: any) =>
         String(g?.name ?? g?.名称 ?? '').trim() === String(r?.name ?? r?.名称 ?? '').trim()));
     for (const r of groundResources) {
+      // 同上：解析不出采集指令的资源不进编号菜单（对齐原版不可见不可采）
+      if (!this.resolveGatherCmd(r)) continue;
       const amount = r.amount ? ` ×${formatDisplayNumber(r.amount)}` : '';
       quickOptions.push({ label: `${r.name || '未知'}${amount}${timesLabel(r)}`, cmd: this.resolveGatherCmd(r) });
     }

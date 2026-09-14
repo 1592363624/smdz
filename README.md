@@ -195,7 +195,7 @@ Body: {
 | PORT               | 服务端口          | 3333                              |
 | DATABASE\_URL      | MySQL 8.0 连接串 | `mysql://用户:密码@主机:3306/库名`        |
 | JWT\_SECRET        | JWT密钥(务必修改)   | dev\_secret\_change\_me           |
-| JWT\_EXPIRES\_IN   | token有效期(秒)   | 86400                             |
+| JWT\_EXPIRES\_IN   | token有效期(秒)   | 604800（7天）                        |
 | CORS\_ORIGINS      | 允许的前端来源       | localhost:5173,...                |
 | BOT\_ACCESS\_TOKEN | AstrBot访问令牌   | astrbot\_web\_secret              |
 | QQ\_APP\_ID        | QQ 登录应用 ID    | -                                 |

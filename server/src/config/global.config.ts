@@ -25,7 +25,7 @@ export class GlobalConfig {
   /** JWT 签名密钥（生产环境必须通过环境变量覆盖） */
   public readonly jwtSecret: string;
 
-  /** JWT 访问令牌有效期（秒） */
+  /** JWT 访问令牌有效期（秒），默认 7 天；令牌不随请求续期，到期须重新登录 */
   public readonly jwtExpiresIn: number;
 
   /** 数据库连接串（MySQL，由 .env 的 DATABASE_URL 决定） */
@@ -58,7 +58,9 @@ export class GlobalConfig {
   private constructor() {
     this.port = Number(process.env.PORT || 3333);
     this.jwtSecret = process.env.JWT_SECRET || 'dev_secret_change_me';
-    this.jwtExpiresIn = Number(process.env.JWT_EXPIRES_IN || 86400); // 默认 24 小时
+    // 默认 7 天（604800 秒）：登录态在 localStorage 中持久保存，延长令牌有效期以避免玩家
+    // 每日被踢回登录页。注意 jsonwebtoken 对 number 类型按「秒」解析。
+    this.jwtExpiresIn = Number(process.env.JWT_EXPIRES_IN || 604800);
     this.databaseUrl =
       process.env.DATABASE_URL ||
       'mysql://root:root@localhost:3306/smdz?charset=utf8mb4'; // MySQL 数据库（本地开发回退）

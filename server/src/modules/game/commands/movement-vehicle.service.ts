@@ -800,6 +800,17 @@ export class MovementVehicleService {
     delete markers['移动中'];
     player.markers = markers; // Json 列直接写对象
 
+    // 同步清除 markers2 的「移动」镜像锁标记（handleMove 写入的行动门禁，有效期至=原到达时刻）。
+    // 不清的话：提前到达（管理员⚡完成/到期补偿结算）后，残留标记会被 行动无限制
+    // 判成"移动中"继续拦截移动指令，且面板把它渲染成一条读条直到原到期时刻才消失。
+    const lockMarkers2 = Array.isArray(playerData.markers2)
+      ? playerData.markers2
+      : asJsonValue<any[]>(player.markers2, []);
+    const kept2 = lockMarkers2.filter((m: any) => String(m?.名称 ?? m?.name ?? '') !== '移动');
+    if (kept2.length !== lockMarkers2.length) {
+      player.markers2 = kept2; // Json 列直接写数组
+    }
+
     const fromMapId = player.mapId;
     player.mapId = targetMap.id;
     player.location = targetMap.name;

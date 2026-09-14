@@ -42,6 +42,11 @@ export class GatherHandler implements CommandHandler {
     const compact = cmdName.match(/^(.*?)(\d+)$/);
     const gatherName = compact ? compact[1].trim() : cmdName;
     const gatherCount = compact ? Math.max(1, Number(compact[2])) : 1;
+    // 纯数字输入（如编号菜单死编号/过期编号未被临时替换）剥不出采集指令名：
+    // 原版此时不会进采集分支，这里给出可行动的提示而非空的「可「」的资源」
+    if (!gatherName) {
+      return { success: false, content: '这个编号没有对应的操作（可能已失效），可直接输入采集指令，如「收集木头」', broadcast: false, durationMs: 0 };
+    }
     const result = await this.gameService.handleGatherResource(ctx.userId, gatherName, gatherCount);
     if (result) {
       // 冷却、死亡等提示也有返回文本，但不能因此消耗任务次数。
