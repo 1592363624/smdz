@@ -58,12 +58,28 @@ export const DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY = 5;
 export const DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS = 30;
 
 /**
- * 默认奖励表（原实现硬编码的三组奖励）：
- * - 连续 7/15/30 天 → 签到礼包 x1 / x2 / x3
- * - 累计 30/100/365 天 → 累计签到礼包 x1 / x2 / x3
- * - 每日表默认留空（原实现没有「第几天固定给某物品」的规则，交给后台按需配置）
+ * 默认奖励表（= 当前游戏真实存在的签到默认奖励）：
+ * 默认只保留经验奖励（基础 50 + 每连续 1 天 +5，封顶 30 天，见上方三个数值键），
+ * 三张物品奖励表默认留空——「签到礼包/累计签到礼包」并不在游戏道具表(items.json)中，
+ * 属于历史残留规则，不应作为默认配置。
+ * 「哪天给什么物品」由运营在后台按需配置（物品从目录中选择，保证一定存在）。
  */
 export const DEFAULT_CHECKIN_REWARDS: CheckinRewardsConfig = {
+  dailyCycleDays: 7,
+  daily: [],
+  consecutive: [],
+  total: [],
+};
+
+/** 供 SystemConfig 表补默认行使用的 JSON 字符串 */
+export const DEFAULT_CHECKIN_REWARDS_JSON = JSON.stringify(DEFAULT_CHECKIN_REWARDS);
+
+/**
+ * 历史版本的默认奖励表（含「签到礼包/累计签到礼包」）。
+ * 仅用于启动时迁移：库里「恰好等于该值」的行会被升级为新默认（空表），
+ * 管理员自定义过的奖励表不受影响。
+ */
+export const LEGACY_CHECKIN_REWARDS_JSON = JSON.stringify({
   dailyCycleDays: 7,
   daily: [],
   consecutive: [
@@ -76,7 +92,4 @@ export const DEFAULT_CHECKIN_REWARDS: CheckinRewardsConfig = {
     { days: 100, rewards: [{ type: 'item', name: '累计签到礼包', count: 2 }] },
     { days: 365, rewards: [{ type: 'item', name: '累计签到礼包', count: 3 }] },
   ],
-};
-
-/** 供 SystemConfig 表补默认行使用的 JSON 字符串 */
-export const DEFAULT_CHECKIN_REWARDS_JSON = JSON.stringify(DEFAULT_CHECKIN_REWARDS);
+});

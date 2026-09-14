@@ -18,6 +18,7 @@ import {
   DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS,
   DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY,
   DEFAULT_CHECKIN_REWARDS_JSON,
+  LEGACY_CHECKIN_REWARDS_JSON,
 } from '../game/checkin-config.defaults';
 // 世界红包默认配置（纯常量模块：有效期/份数上限/可发放范围等，管理员可在线调整）
 import {
@@ -213,6 +214,16 @@ export class SystemConfigService implements OnModuleInit {
         // 私密占位文案升级：旧默认未带锁图标 → 补 🔒（管理员自定义过的文案不动）
         if (cfg.key === 'chat.privateMessages') {
           await this.upgradePrivatePlaceholder(existing);
+        }
+        // 签到奖励表升级：初版默认含「签到礼包/累计签到礼包」，但物品表中并不存在这两个道具，
+        // 属于历史残留 → 改为默认空表。仅「恰好等于旧默认」的行被改写，管理员自定义过的表不动。
+        if (cfg.key === CHECKIN_REWARDS_KEY && existing.value === LEGACY_CHECKIN_REWARDS_JSON) {
+          await this.prisma.systemConfig.update({
+            where: { key: cfg.key },
+            data: { value: cfg.value },
+          });
+          this.cache.delete(cfg.key);
+          this.logger.log('已升级签到奖励默认表（移除道具表中不存在的礼包物品）');
         }
       } catch (err: any) {
         this.logger.warn(`补默认配置 ${cfg.key} 失败: ${err?.message ?? err}`);

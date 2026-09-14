@@ -107,6 +107,19 @@ export const RED_PACKET_CLIENT_CONFIG = {
   maxItemKinds: 10,
   /** 单个红包最大总份数（1 份 = 1 个道具） */
   maxTotalCount: 100,
+  /** 口令最大字符数（与后端 maxPasscodeLength 保持一致） */
+  maxPasscodeLength: 16,
+  /**
+   * 红包玩法选项：value 与后端 packetType 一一对应
+   * - NORMAL：谁都能领
+   * - TARGET：专属红包，只有指定玩家能领
+   * - PASSCODE：口令红包，输入正确口令才能领
+   */
+  packetTypes: [
+    { value: 'NORMAL', label: '普通', icon: '🧧', desc: '谁都能领' },
+    { value: 'TARGET', label: '专属', icon: '🎯', desc: '指定人领取' },
+    { value: 'PASSCODE', label: '口令', icon: '🔑', desc: '输口令领取' },
+  ],
 };
 
 // 部署更新检测配置(默认值)

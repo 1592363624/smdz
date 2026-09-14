@@ -168,14 +168,14 @@
                   </div>
                 </div>
 
-                <!-- 签到奖励表：默认只占一行，点击弹窗编辑「每日/连续/累计」三张奖励表 -->
-                <div v-else-if="cfg.key === 'game.checkinRewards'" class="config-item">
+                <!-- 签到奖励表：点击弹窗编辑「每日/连续/累计」三张奖励表（跨整行，按钮不换行） -->
+                <div v-else-if="cfg.key === 'game.checkinRewards'" class="config-item config-item-wide">
                   <div class="config-info">
                     <span class="config-label">{{ cfg.label }}</span>
                     <span class="config-desc">{{ cfg.description }}</span>
                   </div>
                   <div class="config-editor">
-                    <button class="gm-btn" type="button" @click="openCheckinRewards(cfg)">
+                    <button class="gm-btn checkin-open-btn" type="button" @click="openCheckinRewards(cfg)">
                       ✏️ 编辑奖励（每日 {{ checkinGroupCount(cfg, 'daily') }} / 连续 {{ checkinGroupCount(cfg, 'consecutive') }} / 累计 {{ checkinGroupCount(cfg, 'total') }} 条）
                     </button>
                     <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
@@ -282,27 +282,47 @@
                   <div class="private-rule-head checkin-rule-head">
                     <span class="pr-idx">#</span>
                     <span>{{ sec.dayLabel }}</span>
-                    <span>奖励类型</span>
-                    <span>物品名称<em>（经验/活力可留空）</em></span>
-                    <span>数量</span>
+                    <span>奖励明细<em>（一行可加多条，物品/经验/活力混搭）</em></span>
                     <span></span>
                   </div>
                   <div class="private-rules">
                     <div v-for="(row, idx) in sec.rows" :key="row.uid" class="private-rule-row checkin-rule-row">
                       <span class="pr-idx">{{ idx + 1 }}</span>
-                      <input v-model.number="row.days" type="number" min="1" step="1" title="触发天数" />
-                      <select v-model="row.type" class="checkin-type-select" title="奖励类型">
-                        <option value="item">物品</option>
-                        <option value="exp">经验</option>
-                        <option value="vitality">活力</option>
-                      </select>
-                      <input v-model="row.name" :disabled="row.type !== 'item'" placeholder="如：签到礼包" />
-                      <input v-model.number="row.count" type="number" min="0" step="0.01" title="数量" />
-                      <button class="pr-del" type="button" title="删除该行" @click="removeCheckinRow(sec.key, row.uid)">✕</button>
+                      <input v-model.number="row.days" class="checkin-days-input" type="number" min="1" step="1" title="触发天数" />
+                      <!-- 奖励明细：一行内多条 {类型+名称+数量}，物品条目可从目录挑选 -->
+                      <div class="checkin-entries">
+                        <div v-for="entry in row.entries" :key="entry.uid" class="checkin-entry">
+                          <select v-model="entry.type" class="checkin-type-select" title="奖励类型">
+                            <option value="item">物品</option>
+                            <option value="exp">经验</option>
+                            <option value="vitality">活力</option>
+                          </select>
+                          <div v-if="entry.type === 'item'" class="checkin-name-cell">
+                            <input v-model="entry.name" placeholder="点击 ⌕ 从目录选择，或直接输入名称" />
+                            <button
+                              class="checkin-pick-btn"
+                              type="button"
+                              title="从全部游戏道具中选择"
+                              @click="openCheckinItemPicker(entry)"
+                            >⌕</button>
+                          </div>
+                          <input
+                            v-model.number="entry.count"
+                            class="checkin-count-input"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            :title="entry.type === 'item' ? '数量' : '数值'"
+                          />
+                          <button class="pr-del" type="button" title="删除该条奖励" @click="removeCheckinEntry(row, entry.uid)">✕</button>
+                        </div>
+                        <button class="checkin-entry-add" type="button" @click="addCheckinEntry(row)">＋ 奖励项</button>
+                      </div>
+                      <button class="pr-del" type="button" title="删除整行" @click="removeCheckinRow(sec.key, row.uid)">✕</button>
                     </div>
                     <div v-if="!sec.rows.length" class="private-empty">
                       <strong>还没有奖励条目</strong>
-                      <span>点「＋ 添加」新增一行：填触发天数 + 奖励类型 + 物品名 + 数量</span>
+                      <span>点「＋ 添加」新增一行：填触发天数，再点「＋ 奖励项」加任意多条奖励</span>
                     </div>
                   </div>
                 </div>
@@ -317,6 +337,13 @@
             </div>
           </div>
         </div>
+
+        <!-- 通用物品选择弹窗：为签到奖励行挑选物品（三张表共用一个选择器） -->
+        <ItemPickerModal
+          v-model:visible="checkinPickerVisible"
+          title="选择奖励物品"
+          @select="onCheckinItemPicked"
+        />
 
       </section>
 
@@ -749,6 +776,8 @@ import { API_BASE } from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameDataPanel from '../components/admin/GameDataPanel.vue';
 import LogViewerPanel from '../components/admin/LogViewerPanel.vue';
+// 通用物品选择弹窗：签到奖励等「从全部游戏道具中选一个」的场景复用
+import ItemPickerModal from '../components/ItemPickerModal.vue';
 
 const router = useRouter();
 const tab = ref('dashboard');
@@ -1042,7 +1071,6 @@ const checkinConsecutiveRows = ref([]); // 连续签到里程碑行
 const checkinTotalRows = ref([]); // 累计签到里程碑行
 const checkinError = ref('');
 const checkinSaved = ref(false);
-let checkinRowUidSeq = 0;
 
 /** 三张表的元信息：rows 直接指向对应 ref，表格里编辑即改到源数组 */
 const checkinSections = computed(() => [
@@ -1051,9 +1079,20 @@ const checkinSections = computed(() => [
   { key: 'total', title: '累计签到奖励', desc: '累计签到满 N 天时发放一次', dayLabel: '累计天数', rows: checkinTotalRows.value },
 ]);
 
-/** 构造一行奖励（uid 仅用于 v-for 稳定 key，不落库） */
-function makeCheckinRow(days = 1, type = 'item', name = '', count = 1) {
-  return { uid: ++checkinRowUidSeq, days, type, name, count };
+let checkinUidSeq = 0; // 行与奖励明细共用一个自增序列，保证 v-for key 全局唯一
+
+/** 构造一条奖励明细（type=item 时 name 为物品名；经验/活力不需要名称） */
+function makeCheckinEntry(type = 'item', name = '', count = 1) {
+  return { uid: ++checkinUidSeq, type, name, count };
+}
+
+/** 构造一行奖励：触发天数 + N 条奖励明细（默认带一条空物品条目，便于直接填写） */
+function makeCheckinRow(days = 1, entries) {
+  return {
+    uid: ++checkinUidSeq,
+    days,
+    entries: entries && entries.length ? entries : [makeCheckinEntry()],
+  };
 }
 
 /** 解析配置值为对象；非法 JSON / 非对象返回 null，由调用方决定回落 */
@@ -1067,24 +1106,25 @@ function parseCheckinRewards(raw) {
   }
 }
 
-/** 扁平化 [{ days, rewards }] → 每个奖励条目一行，便于表格编辑（同一天多条会拆成多行） */
+/** [{ days, rewards }] → 每组一行：同一天的 N 条奖励在行内的「奖励明细」区一起编辑 */
 function flattenCheckinGroups(groups) {
   const rows = [];
   for (const g of groups || []) {
     const days = Number(g?.days);
     if (!Number.isFinite(days) || days <= 0) continue;
-    for (const r of g?.rewards || []) {
+    const entries = (g?.rewards || []).map((r) => {
       const type = r?.type === 'exp' || r?.type === 'vitality' ? r.type : 'item';
-      rows.push(makeCheckinRow(days, type, String(r?.name ?? ''), Number(r?.count) || 0));
-    }
+      return makeCheckinEntry(type, String(r?.name ?? ''), Number(r?.count) || 0);
+    });
+    rows.push(makeCheckinRow(Math.floor(days), entries));
   }
   return rows;
 }
 
-/** 折叠行上展示的条目数（三张表分开统计） */
+/** 折叠行上展示的奖励条数（三张表分开统计，按明细条数计） */
 function checkinGroupCount(cfg, kind) {
   const obj = parseCheckinRewards(cfg?.value);
-  return flattenCheckinGroups(obj?.[kind]).length;
+  return flattenCheckinGroups(obj?.[kind]).reduce((sum, row) => sum + row.entries.length, 0);
 }
 
 /** 取某张表编辑中的行 ref，供添加/删除复用 */
@@ -1120,27 +1160,65 @@ function removeCheckinRow(key, uid) {
   rows.value = rows.value.filter((r) => r.uid !== uid);
 }
 
-/** 把编辑中的扁平行还原成 [{ days, rewards }]：同一天合并为一组，按天数升序；非法行直接抛错 */
+/** 当前行追加一条空奖励明细（物品/经验/活力可混搭多条件目） */
+function addCheckinEntry(row) {
+  row.entries.push(makeCheckinEntry());
+}
+
+/** 删除一条奖励明细；删光后补一条空条目，避免整行变成无法编辑的空壳 */
+function removeCheckinEntry(row, uid) {
+  row.entries = row.entries.filter((e) => e.uid !== uid);
+  if (!row.entries.length) row.entries.push(makeCheckinEntry());
+}
+
+// ---- 签到奖励 × 通用物品选择器 ----
+const checkinPickerVisible = ref(false);
+/** 当前正在挑物品的奖励明细引用（选择器回填目标；三张表共用一个选择器实例） */
+const checkinPickEntry = ref(null);
+
+/** 打开物品选择器，记录要回填的奖励明细 */
+function openCheckinItemPicker(entry) {
+  checkinPickEntry.value = entry;
+  checkinPickerVisible.value = true;
+}
+
+/** 选中目录物品后回填到目标明细的物品名（组件已自动关闭弹窗） */
+function onCheckinItemPicked(item) {
+  if (checkinPickEntry.value) {
+    checkinPickEntry.value.name = item.name;
+  }
+}
+
+/**
+ * 把编辑中的行还原成 [{ days, rewards }]：按天数升序。
+ * - 没填写完整的空条目（默认物品类型、无名称无数量）视为"没写完"，静默跳过；
+ * - 填了一半的条目（有名称但数量非法等）抛错提示，避免保存出无效配置。
+ */
 function buildCheckinGroups(rows) {
-  const map = new Map();
+  const groups = [];
   for (const row of rows) {
     const days = Number(row.days);
     if (!Number.isInteger(days) || days < 1) {
       throw new Error('触发天数必须是不小于 1 的整数');
     }
-    const count = Number(row.count);
-    if (!Number.isFinite(count) || count <= 0) {
-      throw new Error(`第 ${days} 天的数量必须是正数`);
+    const rewards = [];
+    for (const entry of row.entries) {
+      const count = Number(entry.count);
+      const name = String(entry.name || '').trim();
+      // 完全空白的默认条目直接跳过（用户点了「＋ 奖励项」又没填的情况）
+      if (entry.type === 'item' && !name && !count) continue;
+      if (!Number.isFinite(count) || count <= 0) {
+        throw new Error(`第 ${days} 天存在数量为空的奖励项`);
+      }
+      const type = entry.type === 'exp' || entry.type === 'vitality' ? entry.type : 'item';
+      if (type === 'item' && !name) {
+        throw new Error(`第 ${days} 天的物品名称不能为空`);
+      }
+      rewards.push({ type, name, count });
     }
-    const type = row.type === 'exp' || row.type === 'vitality' ? row.type : 'item';
-    const name = String(row.name || '').trim();
-    if (type === 'item' && !name) {
-      throw new Error(`第 ${days} 天的物品名称不能为空`);
-    }
-    if (!map.has(days)) map.set(days, []);
-    map.get(days).push({ type, name, count });
+    if (rewards.length) groups.push({ days, rewards });
   }
-  return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([days, rewards]) => ({ days, rewards }));
+  return groups.sort((a, b) => a.days - b.days);
 }
 
 /** 保存三张奖励表 + 循环周期（整体一次保存，避免分组保存造成中间态） */
@@ -2740,10 +2818,54 @@ onMounted(async () => {
   font-size: 11.5px;
   color: var(--muted-dark);
 }
-/* 奖励行比私密规则行多两列（类型、数量），单独定义栅格 */
+/* 奖励行改为 4 列：# / 天数 / 奖励明细区（内含多条）/ 删行 */
 .checkin-rule-head,
 .checkin-rule-row {
-  grid-template-columns: 34px 92px 96px minmax(0, 1fr) 92px 40px;
+  grid-template-columns: 34px 92px minmax(0, 1fr) 40px;
+}
+/* 奖励明细区：一列多条奖励，条目间小间距 */
+.checkin-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* 单条奖励：类型 + 名称（含 ⌕）+ 数量 + 删除，一行排开放不下时允许折行 */
+.checkin-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.checkin-entry .checkin-type-select {
+  width: 84px;
+  flex-shrink: 0;
+}
+/* 双类名提高特异性，覆盖 .private-rule-row input 的 width:100% */
+.checkin-entry .checkin-count-input {
+  width: 76px;
+  flex-shrink: 0;
+}
+/* 追加奖励项：虚线小按钮，靠左不占满 */
+.checkin-entry-add {
+  align-self: flex-start;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #d4c4ff;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px dashed rgba(139, 92, 246, 0.5);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.checkin-entry-add:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-style: solid;
+}
+/* 「编辑奖励」入口按钮：文字不换行（卡片已跨整行，空间足够） */
+.checkin-open-btn {
+  white-space: nowrap;
 }
 /* 三张表各占较小高度，避免合计高度超出弹窗 */
 .checkin-sec .private-rules {
@@ -2768,6 +2890,42 @@ onMounted(async () => {
 /* 经验/活力类型不需要物品名，置灰提示不可填 */
 .checkin-rule-row input:disabled {
   opacity: 0.45;
+  cursor: not-allowed;
+}
+/* 物品名称单元格：输入框 + 目录选择按钮（在奖励条目内弹性占满剩余宽度） */
+.checkin-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 160px;
+}
+.checkin-name-cell input {
+  flex: 1;
+  min-width: 0;
+}
+/* 目录选择按钮：与输入框同高的方形小按钮，点击弹出通用物品选择器 */
+.checkin-pick-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #d4c4ff;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.checkin-pick-btn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.24);
+  border-color: rgba(139, 92, 246, 0.6);
+}
+.checkin-pick-btn:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
 }
 

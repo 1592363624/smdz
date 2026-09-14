@@ -44,6 +44,7 @@ model User {
   messages         ChatMessage[]
   bindings         UserBinding[]
   redPackets       RedPacket[]        @relation("RedPacketSent")
+  redPacketTargets RedPacket[]        @relation("RedPacketTarget")
   redPacketClaims  RedPacketClaim[]   @relation("RedPacketClaimed")
   feedbacks        Feedback[]
   feedbackMessages FeedbackMessage[]
@@ -456,6 +457,32 @@ model SystemConfig {
   createdAt   DateTime @default(now())
 }
 
+// ========== 游戏数据审计 ==========
+
+/// 游戏静态数据（prisma/data/*.json）变更审计日志：
+/// 记录管理员对数据条目的新增/修改/删除/回滚（含变更前后 JSON 快照），便于追溯与回滚。
+/// 注意：该表此前只存在于数据库中未写入 schema，导致每次 `prisma db push` 都误判为「应删除的表」，
+/// 现按库中真实结构补回（表名/索引名与既有数据完全一致，push 不会再产生差异）。
+model GamedataChangeLog {
+  id             Int      @id @default(autoincrement())
+  operatorUserId Int
+  operatorName   String
+  category       String
+  file           String
+  action         String
+  /// 变更条目在数据文件数组中的下标（列名为 MySQL 保留字 index，故用 @map）
+  entryIndex     Int      @map("index")
+  entryName      String
+  beforeJson     String   @db.LongText
+  afterJson      String   @db.LongText
+  createdAt      DateTime @default(now())
+
+  @@index([category, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@map("gamedatachangelog")
+}
+
 // ========== 世界红包（私聊功能已下线，原 PrivateMessage 表随之移除） ==========
 
 /// 世界红包：发送者把背包道具作为红包投入公屏，其他玩家先到先得；
@@ -465,8 +492,18 @@ model RedPacket {
   senderId Int
   sender  User   @relation("RedPacketSent", fields: [senderId], references: [id], onDelete: Cascade)
   channelId Int  @default(1)
-  /// 祝福语/备注（可空串）
-  greeting  String @default("") @db.Text
+  /// 祝福语/备注（可空串）。
+  /// 注意：TEXT 列在 MySQL 中不允许 DB 默认值，故此处不加 @default，
+  /// 由业务层写入时统一传值（RedPacketService.createPacket 会传 greeting）。
+  greeting  String @db.Text
+  /// 红包玩法：NORMAL=谁都能领；TARGET=仅限指定领取人；PASSCODE=输入正确口令才能领
+  packetType   String @default("NORMAL")
+  /// 专属红包的指定领取人（packetType=TARGET 时有效）
+  targetUserId Int?
+  targetUser   User?  @relation("RedPacketTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  /// 口令红包的口令（packetType=PASSCODE 时有效）。
+  /// 明文存储：仅用于游戏内小范围玩法校验，且永远只下发给发送者本人（见 RedPacketService.buildView）
+  passcode     String? @db.Text
   /// ACTIVE=可领取；FINISHED=已领完；EXPIRED=已过期（剩余份额已退回发送者）
   status    String @default("ACTIVE")
   /// 总份数（= 各条目 quantity 之和），展示「已领 x/y 份」用

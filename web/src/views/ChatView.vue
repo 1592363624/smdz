@@ -3724,6 +3724,14 @@ onMounted(async () => {
     socket.on('chat:redpacket', (packet) => {
       if (packet?.id) floatingChat.upsertRedPacket(packet);
     });
+    // 专属红包定向提醒：有人专门给你发了红包（只推给被指定的人）
+    socket.on('chat:redpacket-target', (data) => {
+      if (!data) return;
+      const from = data.from || '有人';
+      const detail = data.summary ? `（${data.summary}）` : '';
+      // 红包消息本身会进悬浮窗并累计未读红点，这里再给一条即时轻提示
+      showToast(`${from} 给你发了一个专属红包${detail}，快去领！`, 'success');
+    });
     // 红包过期退回通知：提醒发送者剩余道具已回到背包
     socket.on('chat:redpacket-refund', (data) => {
       if (!data) return;

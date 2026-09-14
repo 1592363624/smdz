@@ -41,6 +41,15 @@
         >
           🧧
         </button>
+        <!-- 我的红包：发出的 / 领到的 / 过期退回明细 -->
+        <button
+          type="button"
+          class="fc-icon-btn"
+          title="我的红包（发出/领到/退回明细）"
+          @click="rpMineOpen = true"
+        >
+          🧾
+        </button>
         <button
           type="button"
           class="fc-icon-btn"
@@ -89,7 +98,7 @@
               class="fc-rp-btn"
               :class="{ claimed: rpState(m).mine }"
               :disabled="rpState(m).disabled || rpClaimingId === rpState(m).id"
-              @click="claimRedPacket(m)"
+              @click="onRedPacketClick(m)"
             >
               {{ rpClaimingId === rpState(m).id ? '领取中…' : rpState(m).btnText }}
             </button>
@@ -211,6 +220,61 @@
         <div class="fc-rp-modal-body">
           <p class="fc-rp-hint">从背包里挑道具放进红包，点击发送时立即从背包扣除；24 小时内没人领完的会自动退回。</p>
 
+          <!-- 玩法选择：普通 / 专属（指定领取人）/ 口令 -->
+          <div class="fc-rp-types">
+            <button
+              v-for="t in RED_PACKET_CLIENT_CONFIG.packetTypes"
+              :key="t.value"
+              type="button"
+              class="fc-rp-type"
+              :class="{ active: rpType === t.value }"
+              :title="t.desc"
+              @click="rpType = t.value"
+            >
+              <span class="fc-rp-type-icon">{{ t.icon }}</span>
+              <span class="fc-rp-type-label">{{ t.label }}</span>
+            </button>
+          </div>
+
+          <!-- 专属红包：搜索并选择指定领取人 -->
+          <template v-if="rpType === 'TARGET'">
+            <div v-if="rpTargetId" class="fc-rp-picked-target">
+              🎯 仅 <strong>{{ rpTargetName }}</strong> 可领
+              <button type="button" class="fc-rp-clear-target" @click="clearRedPacketTarget">更换</button>
+            </div>
+            <template v-else>
+              <input
+                v-model="rpTargetKeyword"
+                class="fc-rp-greeting-input"
+                type="text"
+                placeholder="搜索领取人（昵称 / 用户名）"
+              />
+              <div v-if="rpTargetCandidates.length" class="fc-rp-targets">
+                <button
+                  v-for="p in rpTargetCandidates"
+                  :key="p.id"
+                  type="button"
+                  class="fc-rp-target"
+                  @click="pickRedPacketTarget(p)"
+                >
+                  <span class="fc-rp-target-name">{{ p.nickname || p.username }}</span>
+                  <em :class="{ on: p.online }">{{ p.online ? '在线' : '离线' }}</em>
+                </button>
+              </div>
+              <div v-else class="fc-rp-empty">没有匹配的玩家</div>
+            </template>
+          </template>
+
+          <!-- 口令红包：设置领取口令（领取者需要输入它） -->
+          <input
+            v-if="rpType === 'PASSCODE'"
+            v-model="rpPasscode"
+            class="fc-rp-greeting-input"
+            type="text"
+            :maxlength="RED_PACKET_CLIENT_CONFIG.maxPasscodeLength"
+            placeholder="设置领取口令（别人要输入它才能领）"
+          />
+
           <div v-if="rpLoading" class="fc-rp-empty">背包加载中…</div>
           <div v-else-if="!rpItems.length" class="fc-rp-empty">背包里暂无可放入红包的道具</div>
           <div v-else class="fc-rp-items">
@@ -223,9 +287,19 @@
               <span class="fc-rp-item-name">{{ item.name }}</span>
               <span class="fc-rp-item-owned">拥有 {{ item.quantity }}</span>
               <div class="fc-rp-stepper">
-                <!-- 步进器：0 表示不放这个道具 -->
+                <!-- 步进器：0 表示不放这个道具；中间份数支持直接手填（负号/字母会被过滤，超出拥有量会被截断） -->
                 <button type="button" :disabled="rpPicked(item.name) <= 0" @click="rpStep(item, -1)">−</button>
-                <span class="fc-rp-picked">{{ rpPicked(item.name) }}</span>
+                <input
+                  class="fc-rp-count-input"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  :value="rpPicked(item.name)"
+                  :title="`可直接填写数量（0 ~ ${item.quantity}，不能为负数）`"
+                  @focus="onRpCountFocus"
+                  @input="onRpCountInput(item, $event)"
+                  @blur="onRpCountBlur(item, $event)"
+                />
                 <button
                   type="button"
                   :disabled="rpPicked(item.name) >= item.quantity || rpTotalCount >= RED_PACKET_CLIENT_CONFIG.maxTotalCount"
@@ -262,6 +336,41 @@
       </div>
     </div>
   </Teleport>
+
+  <!-- 口令红包领取：输入发送者设定的口令后再提交领取 -->
+  <Teleport to="body">
+    <div v-if="rpPassPrompt.open" class="fc-rp-overlay" @click.self="closePasscodePrompt">
+      <div class="fc-rp-modal fc-rp-pass-modal">
+        <header class="fc-rp-modal-head">
+          <h3>🔑 输入口令</h3>
+          <button type="button" class="fc-icon-btn" title="关闭" @click="closePasscodePrompt">✕</button>
+        </header>
+        <div class="fc-rp-modal-body">
+          <p class="fc-rp-hint">这是口令红包，输入发送者设置的口令就能领走一份。</p>
+          <input
+            v-model="rpPassPrompt.value"
+            class="fc-rp-greeting-input"
+            type="text"
+            :maxlength="RED_PACKET_CLIENT_CONFIG.maxPasscodeLength"
+            placeholder="请输入口令"
+            @keyup.enter="submitPasscode"
+          />
+        </div>
+        <footer class="fc-rp-modal-foot">
+          <span class="fc-rp-total">口令默认不区分大小写</span>
+          <button type="button" class="fc-send" @click="submitPasscode">确认领取</button>
+        </footer>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 我的红包：发出的 / 领到的 / 过期退回明细（组件内部自行拉取数据） -->
+  <RedPacketMinePanel
+    v-if="rpMineOpen"
+    :connected="props.connected"
+    @close="rpMineOpen = false"
+    @notify="(payload) => emit('notify', payload)"
+  />
 </template>
 
 <script setup>
@@ -280,6 +389,7 @@
  */
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useFloatingChatStore } from '../stores/floatingChat';
+import RedPacketMinePanel from './RedPacketMinePanel.vue';
 import { chatApi } from '../api';
 import {
   MENTION_CONFIG,
@@ -669,6 +779,53 @@ const rpGreeting = ref('');
 const rpSubmitting = ref(false);
 /** 正在领取的红包ID（按钮转圈用） */
 const rpClaimingId = ref(null);
+/** 红包玩法：NORMAL / TARGET / PASSCODE（选项见 RED_PACKET_CLIENT_CONFIG.packetTypes） */
+const rpType = ref('NORMAL');
+/** 专属红包：领取人搜索关键词与已选目标ID */
+const rpTargetKeyword = ref('');
+const rpTargetId = ref(null);
+/** 口令红包：发送者设置的口令 */
+const rpPasscode = ref('');
+/** 领取口令红包时的输入弹窗状态 */
+const rpPassPrompt = ref({ open: false, packetId: null, value: '' });
+/** 「我的红包」面板开关（组件内部自行拉取 GET /chat/redpacket/mine） */
+const rpMineOpen = ref(false);
+
+/** 可指定为领取人的玩家：复用父组件下发的可@玩家列表，按关键词过滤 */
+const rpTargetCandidates = computed(() => {
+  const kw = rpTargetKeyword.value.trim().toLowerCase();
+  const list = Array.isArray(props.mentionPlayers) ? props.mentionPlayers : [];
+  const hit = kw
+    ? list.filter(
+        (p) =>
+          String(p.nickname || '').toLowerCase().includes(kw) ||
+          String(p.username || '').toLowerCase().includes(kw),
+      )
+    : list;
+  return hit.slice(0, MENTION_CONFIG.autocompleteLimit);
+});
+
+/** 已选领取人的展示名（用于「仅 XXX 可领」提示） */
+const rpTargetName = computed(() => {
+  const id = rpTargetId.value;
+  if (!id) return '';
+  const list = Array.isArray(props.mentionPlayers) ? props.mentionPlayers : [];
+  const hit = list.find((p) => p.id === id);
+  return hit ? hit.nickname || hit.username : `#${id}`;
+});
+
+/** 选中专属红包的领取人 */
+function pickRedPacketTarget(p) {
+  if (!p) return;
+  rpTargetId.value = p.id;
+  rpTargetKeyword.value = '';
+}
+
+/** 清除已选领取人（重新搜索） */
+function clearRedPacketTarget() {
+  rpTargetId.value = null;
+  rpTargetKeyword.value = '';
+}
 
 /** 已选总份数（1 份 = 1 个道具） */
 const rpTotalCount = computed(() =>
@@ -682,15 +839,59 @@ function rpPicked(name) {
   return Number(rpPickedMap.value[name] || 0);
 }
 
-/** 步进调整某道具放入的份数（0 ~ 拥有量）；超出种类上限时不生效 */
-function rpStep(item, delta) {
-  const next = Math.max(0, Math.min(item.quantity, rpPicked(item.name) + delta));
+/**
+ * 设置某道具放入的份数（手填与步进共用入口）
+ * 统一钳制规则：整数、0 ~ 拥有量、总量不超过 maxTotalCount、种类不超过 maxItemKinds
+ * @returns {number} 实际生效的份数（供输入框回写，避免显示与状态不一致）
+ */
+function rpSetCount(item, value) {
+  const owned = Math.max(0, Math.floor(Number(item?.quantity) || 0));
+  let next = Math.floor(Number(value) || 0);
+  // 负数/NaN 一律归零；上限取「拥有量」与「剩余可分配总量」的较小值
+  if (!Number.isFinite(next) || next < 0) next = 0;
+  next = Math.min(next, owned);
+  const others = rpTotalCount.value - rpPicked(item.name);
+  const remainCap = Math.max(0, RED_PACKET_CLIENT_CONFIG.maxTotalCount - others);
+  next = Math.min(next, remainCap);
+
   const map = { ...rpPickedMap.value };
   if (next <= 0) delete map[item.name];
   else map[item.name] = next;
   // 前端先挡一道种类上限，避免提交后才被后端拒绝
-  if (Object.keys(map).length > RED_PACKET_CLIENT_CONFIG.maxItemKinds) return;
+  if (Object.keys(map).length > RED_PACKET_CLIENT_CONFIG.maxItemKinds) return rpPicked(item.name);
   rpPickedMap.value = map;
+  return next;
+}
+
+/** 步进调整某道具放入的份数（0 ~ 拥有量）；超出种类上限时不生效 */
+function rpStep(item, delta) {
+  rpSetCount(item, rpPicked(item.name) + delta);
+}
+
+/** 聚焦时全选，方便直接输入覆盖（不必先删掉原来的数字） */
+function onRpCountFocus(event) {
+  event?.target?.select?.();
+}
+
+/**
+ * 手填份数：过滤掉负号/字母/小数点等非法字符后写入状态
+ * - 输入为空时保留空输入（不强行填 0），失焦再规范化
+ * - 超过拥有量/总量上限时立即截断为合法值并回写输入框
+ */
+function onRpCountInput(item, event) {
+  const raw = String(event?.target?.value ?? '');
+  // 只保留数字：'-'、'.'、'e'、空格等会被直接丢弃，所以永远不可能是负数
+  const digits = raw.replace(/\D/g, '');
+  rpSetCount(item, digits ? Number(digits) : 0);
+  if (raw === '' || !event?.target) return;
+  // 回写实际生效值（体现上限截断）；未变化时不回写，避免打断连续输入
+  const applied = String(rpPicked(item.name));
+  if (raw !== applied) event.target.value = applied;
+}
+
+/** 失焦规范化：空输入或超限输入都显示为真实生效的份数 */
+function onRpCountBlur(item, event) {
+  if (event?.target) event.target.value = String(rpPicked(item.name));
 }
 
 /** 打开发红包弹窗：读取背包中可放入红包的道具 */
@@ -703,6 +904,11 @@ async function openRedPacketComposer() {
   rpGreeting.value = '';
   rpPickedMap.value = {};
   rpItems.value = [];
+  // 玩法相关状态重置：默认普通红包，清空领取人与口令
+  rpType.value = 'NORMAL';
+  rpTargetId.value = null;
+  rpTargetKeyword.value = '';
+  rpPasscode.value = '';
   rpLoading.value = true;
   try {
     const res = await chatApi.getRedPacketItems();
@@ -723,9 +929,22 @@ async function submitRedPacket() {
   if (rpSubmitting.value) return;
   const items = Object.entries(rpPickedMap.value).map(([name, quantity]) => ({ name, quantity }));
   if (!items.length) return;
+  // 玩法前置校验（服务端还会再校验一次，这里只是为了让用户少一次无效请求）
+  if (rpType.value === 'TARGET' && !rpTargetId.value) {
+    emit('notify', { type: 'error', message: '请先选择专属红包的领取人' });
+    return;
+  }
+  if (rpType.value === 'PASSCODE' && !rpPasscode.value.trim()) {
+    emit('notify', { type: 'error', message: '请先设置口令红包的口令' });
+    return;
+  }
   rpSubmitting.value = true;
   try {
-    await chatApi.createRedPacket({ greeting: rpGreeting.value, items });
+    const payload = { greeting: rpGreeting.value, items, packetType: rpType.value };
+    // 专属：传目标用户ID；口令：传明文口令（服务端按配置忽略大小写比对）
+    if (rpType.value === 'TARGET') payload.target = rpTargetId.value;
+    if (rpType.value === 'PASSCODE') payload.passcode = rpPasscode.value.trim();
+    await chatApi.createRedPacket(payload);
     rpOpen.value = false;
     emit('notify', { type: 'success', message: '红包已发出' });
     // 背包已被扣减：下次打开弹窗会重新拉取清单，无需本地维护
@@ -755,12 +974,23 @@ function rpState(m) {
       done: false,
       btnText: '领取',
       disabled: true,
+      packetType: 'NORMAL',
+      targetUserId: null,
+      targetUserName: null,
+      passcode: null,
+      needsPasscode: false,
     };
   }
   const finished = view.status === 'FINISHED';
   const expired = view.status === 'EXPIRED' || view.expired;
   const exhausted = view.claimedCount >= view.totalCount;
   const claimedByMe = !!view.myClaim;
+  const packetType = view.packetType || 'NORMAL';
+  const isTargetType = packetType === 'TARGET';
+  const isPasscodeType = packetType === 'PASSCODE';
+  // 专属红包：指定领取人不是我 → 按钮置灰（服务端也会拦）
+  const notForMe =
+    isTargetType && view.targetUserId && String(view.targetUserId) !== String(props.selfId);
   let btnText = '领取';
   let disabled = false;
   if (mine) {
@@ -775,28 +1005,75 @@ function rpState(m) {
   } else if (finished || exhausted) {
     btnText = '已抢完';
     disabled = true;
+  } else if (notForMe) {
+    btnText = '专属红包';
+    disabled = true;
+  } else if (isPasscodeType) {
+    btnText = '输口令领取';
   }
   const statusText = expired ? '已过期退回' : finished || exhausted ? '已抢完' : '可领取';
+  // 副标题带玩法提示：专属显示领取人；口令显示「需口令」（自己发的顺带回显自己设的口令）
+  const subSuffix = isTargetType
+    ? ` · 仅 ${view.targetUserName || '指定玩家'} 可领`
+    : isPasscodeType
+      ? mine && view.passcode
+        ? ` · 我的口令「${view.passcode}」`
+        : ' · 需口令'
+      : '';
   return {
     id: view.id,
     title: `🧧 ${view.senderName} 的红包`,
-    sub: view.summary || '道具红包',
+    sub: `${view.summary || '道具红包'}${subSuffix}`,
     greeting: view.greeting || '',
     progress: `已领 ${view.claimedCount}/${view.totalCount} 份 · ${statusText}`,
     mine: claimedByMe,
     done: finished || expired || exhausted,
     btnText,
     disabled,
+    packetType,
+    targetUserId: view.targetUserId ?? null,
+    targetUserName: view.targetUserName || null,
+    passcode: view.passcode || null,
+    // 需要弹口令输入才能领（口令正确性由服务端判定）
+    needsPasscode: isPasscodeType && !disabled && !mine,
   };
 }
 
+/**
+ * 红包卡片按钮点击：口令红包先弹出口令输入框，其余直接领取
+ * @param {object} m 红包消息
+ */
+function onRedPacketClick(m) {
+  const state = rpState(m);
+  if (state.disabled) return;
+  if (state.needsPasscode) {
+    rpPassPrompt.value = { open: true, packetId: m.refId, value: '' };
+    return;
+  }
+  claimRedPacket(m);
+}
+
+/** 关闭口令输入弹窗 */
+function closePasscodePrompt() {
+  rpPassPrompt.value.open = false;
+}
+
+/** 提交口令并领取（口令正确性由服务端判定，不对会给提示） */
+async function submitPasscode() {
+  const id = rpPassPrompt.value.packetId;
+  const code = String(rpPassPrompt.value.value || '').trim();
+  if (!id || !code) return;
+  rpPassPrompt.value.open = false;
+  await claimRedPacket({ refId: id }, code);
+}
+
 /** 领取红包：成功提示领到的道具，并同步卡片状态（服务端同时会广播给所有人） */
-async function claimRedPacket(m) {
+async function claimRedPacket(m, passcode = '') {
   const id = m.refId;
   if (!id || rpClaimingId.value) return;
   rpClaimingId.value = id;
   try {
-    const res = await chatApi.claimRedPacket(id);
+    const res = await chatApi.claimRedPacket(id, passcode);
     if (res?.data?.packet) chat.upsertRedPacket(res.data.packet);
     emit('notify', {
       type: 'success',
@@ -869,7 +1146,15 @@ function onEsc() {
 
 function onKeydown(e) {
   if (e.key !== 'Escape') return;
-  // Esc 逐层收起：发红包弹窗 → 右键菜单 → 聊天面板
+  // Esc 逐层收起：我的红包 → 口令弹窗 → 发红包弹窗 → 右键菜单 → 聊天面板
+  if (rpMineOpen.value) {
+    rpMineOpen.value = false;
+    return;
+  }
+  if (rpPassPrompt.value.open) {
+    closePasscodePrompt();
+    return;
+  }
   if (rpOpen.value) {
     closeRedPacketComposer();
     return;
@@ -1433,12 +1718,24 @@ onUnmounted(() => {
   opacity: 0.35;
   cursor: not-allowed;
 }
-.fc-rp-picked {
-  min-width: 22px;
-  text-align: center;
+/* 份数输入框：支持直接手填（宽到能放下 4~5 位数字，避免数字被截断看不清） */
+.fc-rp-count-input {
+  width: 48px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(10, 10, 26, 0.7);
+  color: #fbbf24;
   font-size: 12px;
   font-weight: 700;
-  color: #fbbf24;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.fc-rp-count-input:focus {
+  border-color: rgba(251, 191, 36, 0.7);
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.15);
 }
 .fc-rp-greeting-input {
   height: 34px;
@@ -1470,6 +1767,105 @@ onUnmounted(() => {
 .fc-rp-total em {
   font-style: normal;
   color: var(--muted-dark);
+}
+
+/* ===== 红包玩法选择（普通 / 专属 / 口令） ===== */
+.fc-rp-types {
+  display: flex;
+  gap: 6px;
+}
+.fc-rp-type {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(10, 10, 26, 0.55);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fc-rp-type.active {
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  font-weight: 600;
+}
+.fc-rp-type-icon {
+  font-size: 13px;
+}
+
+/* 专属红包：指定领取人的搜索与列表 */
+.fc-rp-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 132px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.fc-rp-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(10, 10, 26, 0.55);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fc-rp-target:hover {
+  background: rgba(139, 92, 246, 0.16);
+}
+.fc-rp-target-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fc-rp-target em {
+  flex-shrink: 0;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--muted-dark);
+}
+.fc-rp-target em.on {
+  color: var(--success);
+}
+.fc-rp-picked-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.fc-rp-picked-target strong {
+  color: #fbbf24;
+}
+.fc-rp-clear-target {
+  margin-left: auto;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.fc-rp-clear-target:hover {
+  color: var(--text);
+  border-color: var(--border-light);
+}
+
+/* 口令红包领取弹窗：比发红包弹窗窄一些 */
+.fc-rp-pass-modal {
+  width: min(320px, calc(100vw - 32px));
 }
 
 /* 输入栏：position 供 @ 玩家下拉绝对定位 */

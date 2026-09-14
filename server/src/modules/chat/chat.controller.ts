@@ -9,7 +9,7 @@ import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ChatService } from './chat.service';
-import { RedPacketItemInput, RedPacketService } from './red-packet.service';
+import { RedPacketCreateInput, RedPacketService } from './red-packet.service';
 
 @ApiTags('公屏聊天')
 @Controller('chat')
@@ -104,6 +104,22 @@ export class ChatController {
   }
 
   /**
+   * 我的红包：我发出的 / 我领到的 / 退回明细（悬浮聊天窗「我的红包」面板）
+   */
+  @Get('redpacket/mine')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '我的红包（发出/领到/退回明细）',
+    description:
+      '返回 { sent: 发出的红包（含剩余未领/退回明细）, claimed: 领到的记录, refunds: 过期退回明细 }。',
+  })
+  async getMyRedPackets(@Req() req) {
+    const data = await this.redPacketService.getMyRedPackets(req.user.userId);
+    return { success: true, data };
+  }
+
+  /**
    * 发红包：发送时立即从背包扣除所选道具，并把红包广播到世界频道
    */
   @Post('redpacket')
@@ -111,23 +127,38 @@ export class ChatController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: '发送世界红包（扣除背包道具并广播）',
-    description: 'body: { greeting?: string, items: [{ name, quantity }] }，成功后返回红包视图与公屏消息。',
+    description:
+      'body: { greeting?: string, items: [{ name, quantity }], packetType?: "NORMAL"|"TARGET"|"PASSCODE", target?: 用户名/昵称/ID, passcode?: string }。' +
+      'packetType=TARGET 为专属红包（仅 target 玩家可领）；=PASSCODE 为口令红包（领取时需填对口令）。' +
+      '成功后返回红包视图与公屏消息。',
   })
-  async createRedPacket(@Req() req, @Body() body: { greeting?: string; items?: RedPacketItemInput[] }) {
+  async createRedPacket(@Req() req, @Body() body: RedPacketCreateInput) {
     const data = await this.redPacketService.createPacket(req.user.userId, body || {});
     return { success: true, data };
   }
 
   /**
-   * 领取红包：先到先得，每人每个红包限领 1 份，领到的道具直接进背包
+   * 领取红包：先到先得，每人每个红包限领 1 份，领到的道具直接进背包。
+   * 口令红包（packetType=PASSCODE）需在 body 里带上 passcode。
    */
   @Post('redpacket/:id/claim')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '领取世界红包（先到先得，每人限领1次）' })
+  @ApiOperation({
+    summary: '领取世界红包（先到先得，每人限领1次）',
+    description: '口令红包需传 body: { passcode: "口令" }；专属红包仅指定领取人可领。',
+  })
   @ApiParam({ name: 'id', required: true, description: '红包ID', type: Number })
-  async claimRedPacket(@Req() req, @Param('id', ParseIntPipe) id: number) {
-    const data = await this.redPacketService.claimPacket(req.user.userId, id);
+  async claimRedPacket(
+    @Req() req,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body?: { passcode?: string },
+  ) {
+    const data = await this.redPacketService.claimPacket(
+      req.user.userId,
+      id,
+      String(body?.passcode || ''),
+    );
     return { success: true, data };
   }
 }

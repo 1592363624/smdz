@@ -464,22 +464,16 @@ async function main() {
       console.log(`🗑️ ${label}: 已删除 ${toDelete.length} 条(代码中已移除): ${toDelete.join(', ')}`);
     }
   };
-  // 仅同步 seed.ts 权威的指令表与系统配置；保留管理员在线修改不被覆盖(update:{})
+  // 仅同步 seed.ts 权威的指令表（指令表以本文件为唯一真相源，update+delete 均同步）
   await syncDeleted('指令', commands.map((c) => c.name), (q: any) => prisma.command.findMany(q), (q: any) => prisma.command.deleteMany(q));
-  // 系统配置以 key 为主键(非 name)，单独同步删除
-  {
-    const seedKeys = new Set(systemConfigs.map((c: any) => c.key));
-    // 业务模块自动写入的内部存储键（非可调参数），同步删除时必须保留
-    const keepKeys = new Set(['game.globalMarkers']);
-    const existing = await prisma.systemConfig.findMany({ select: { key: true } });
-    const toDelete = existing
-      .map((r: any) => r.key)
-      .filter((k: string) => k && !seedKeys.has(k) && !keepKeys.has(k));
-    if (toDelete.length > 0) {
-      await prisma.systemConfig.deleteMany({ where: { key: { in: toDelete } } });
-      console.log(`🗑️ 系统配置: 已删除 ${toDelete.length} 条(代码中已移除): ${toDelete.join(', ')}`);
-    }
-  }
+
+  // ⚠️ 系统配置**不做**同步删除（只 upsert 初始项）。
+  // 原因：SystemConfig 的权威来源是「SystemConfigService.DEFAULT_CONFIGS 默认项 + 管理员在线修改」，
+  // 而本文件的 systemConfigs 只是其中一小部分初始项；若按 seedKeys 反删，
+  // 会把启动期 ensureDefaultConfigs() 自动补入的配置项（chat.privateMessages、chat.redPacket、
+  // game.instanceNames / game.instanceNames2 / game.dungeonEntryLifetimeHours 等）
+  // 当成「代码中已移除」误删，连同管理员的自定义值一起丢失（2026-09-15 实际发生过）。
+  // 如需清理废弃配置项，请先把它从 DEFAULT_CONFIGS 移除，再在管理后台手动删除。
 
   console.log('🎉 种子数据写入完成');
 }

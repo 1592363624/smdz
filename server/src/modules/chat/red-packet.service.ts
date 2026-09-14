@@ -10,6 +10,9 @@
  * - 背包读写统一走 PlayerService（内部走 Actor 串行邮箱），不在本服务里直接改 Player JSON；
  * - 领取份额用「条件更新（claimedQuantity < quantity）」抢占，杜绝并发超发；
  * - 状态机：ACTIVE（可领取）→ FINISHED（领完）/ EXPIRED（过期已退回）。
+ *
+ * 配置来源：默认值见 config/red-packet.config.ts，运行期由系统配置中心 chat.redPacket 覆盖
+ * （管理员在线可调：有效期、份数上限、是否开放专属/口令玩法、口令长度等）。
  */
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -28,6 +31,11 @@ const STATUS_ACTIVE = 'ACTIVE';
 const STATUS_FINISHED = 'FINISHED';
 const STATUS_EXPIRED = 'EXPIRED';
 
+/** 红包玩法常量：NORMAL=谁都能领；TARGET=仅指定领取人；PASSCODE=口令红包 */
+const PACKET_TYPE_NORMAL = 'NORMAL';
+const PACKET_TYPE_TARGET = 'TARGET';
+const PACKET_TYPE_PASSCODE = 'PASSCODE';
+
 /** 世界频道房间名（Socket.IO room，消息广播用） */
 const WORLD_CHANNEL_NAME = '世界频道';
 
@@ -43,6 +51,20 @@ export interface RedPacketItemInput {
   name: string;
   /** 放入数量（整数份） */
   quantity: number;
+}
+
+/** 发红包入参（整体） */
+export interface RedPacketCreateInput {
+  /** 祝福语/备注 */
+  greeting?: string;
+  /** 道具清单 */
+  items?: RedPacketItemInput[];
+  /** 玩法：NORMAL（默认，谁都能领）/ TARGET（指定领取人）/ PASSCODE（口令红包） */
+  packetType?: string;
+  /** 专属红包的领取人：用户名 / 昵称 / 数字用户ID */
+  target?: string | number;
+  /** 口令红包的口令 */
+  passcode?: string;
 }
 
 /** 红包视图（返回给前端/广播的统一结构） */
@@ -63,6 +85,17 @@ export interface RedPacketView {
   myClaim: { itemName: string; quantity: number } | null;
   /** 是否已过期（前端按钮态兜底判断用） */
   expired: boolean;
+  /** 玩法：NORMAL / TARGET / PASSCODE */
+  packetType: string;
+  /** 专属红包的指定领取人ID（非专属为 null） */
+  targetUserId: number | null;
+  /** 专属红包的指定领取人昵称（非专属为 null） */
+  targetUserName: string | null;
+  /**
+   * 口令红包的口令：仅发送者本人能拿到（用于自己查看/提醒），其他人一律为 null。
+   * 非口令红包为 null。
+   */
+  passcode: string | null;
 }
 
 @Injectable()
@@ -118,14 +151,78 @@ export class RedPacketService {
   }
 
   /**
+   * 解析红包玩法：把前端传来的 packetType / target / passcode 归一化为入库字段。
+   * - NORMAL：谁都能领（默认）
+   * - TARGET（专属红包）：解析指定领取人（支持 用户名/昵称/数字用户ID），不能指定自己
+   * - PASSCODE（口令红包）：校验口令长度；玩法开关与长度上限均由系统配置控制
+   * @param userId 发送者用户ID
+   * @param input 发红包入参
+   * @param cfg 生效配置
+   */
+  private async resolvePacketType(
+    userId: number,
+    input: RedPacketCreateInput,
+    cfg: RedPacketConfig,
+  ): Promise<{ packetType: string; targetUserId: number | null; passcode: string | null }> {
+    const requested = String(input?.packetType || PACKET_TYPE_NORMAL).trim().toUpperCase();
+
+    if (requested === PACKET_TYPE_TARGET) {
+      if (!cfg.enableTargeted) {
+        throw new BadRequestException('专属红包当前未开放');
+      }
+      const name = String(input?.target ?? '').trim();
+      if (!name) {
+        throw new BadRequestException('专属红包需要指定领取人');
+      }
+      // 与 @提及 同一套解析口径：数字ID → 用户名 → 昵称
+      const target = /^\d+$/.test(name)
+        ? await this.prisma.user.findUnique({ where: { id: Number(name) } })
+        : ((await this.prisma.user.findFirst({ where: { username: name } })) ??
+          (await this.prisma.user.findFirst({ where: { nickname: name } })));
+      if (!target) {
+        throw new BadRequestException(`未找到玩家「${name}」，请确认用户名或昵称`);
+      }
+      if (target.id === userId) {
+        throw new BadRequestException('不能给自己发专属红包，换成普通红包即可');
+      }
+      return { packetType: PACKET_TYPE_TARGET, targetUserId: target.id, passcode: null };
+    }
+
+    if (requested === PACKET_TYPE_PASSCODE) {
+      if (!cfg.enablePasscode) {
+        throw new BadRequestException('口令红包当前未开放');
+      }
+      const code = String(input?.passcode || '').trim().slice(0, cfg.maxPasscodeLength);
+      if (code.length < cfg.minPasscodeLength) {
+        throw new BadRequestException(
+          `口令至少 ${cfg.minPasscodeLength} 个字符（最多 ${cfg.maxPasscodeLength} 个）`,
+        );
+      }
+      return { packetType: PACKET_TYPE_PASSCODE, targetUserId: null, passcode: code };
+    }
+
+    return { packetType: PACKET_TYPE_NORMAL, targetUserId: null, passcode: null };
+  }
+
+  /** 口令比对：默认忽略大小写与首尾空格（配置 caseSensitivePasscode=true 时严格比对） */
+  private passcodeMatch(expected: string | null, actual: string | undefined, caseSensitive: boolean): boolean {
+    const right = String(expected || '').trim();
+    const give = String(actual || '').trim();
+    if (!right) return false;
+    return caseSensitive ? right === give : right.toLowerCase() === give.toLowerCase();
+  }
+
+  /**
    * 发红包：校验 → 扣背包 → 落库 → 公屏广播（type=redpacket 消息 + 红包视图）
    * @param userId 发送者用户ID
-   * @param input { greeting, items: [{ name, quantity }] }
+   * @param input { greeting, items, packetType?, target?, passcode? }
    * @returns { packet, message } packet=红包视图，message=已广播的公屏消息
    */
-  async createPacket(userId: number, input: { greeting?: string; items?: RedPacketItemInput[] }) {
+  async createPacket(userId: number, input: RedPacketCreateInput) {
     const cfg = await this.getConfig();
     const greeting = String(input?.greeting || '').trim().slice(0, cfg.maxGreetingLength);
+    // 玩法解析：专属红包 → 解析指定领取人；口令红包 → 校验口令（开关/长度由配置控制）
+    const play = await this.resolvePacketType(userId, input, cfg);
 
     // 1. 入参归一化：同名道具合并数量，丢弃非法条目
     const merged = new Map<string, number>();
@@ -186,6 +283,9 @@ export class RedPacketService {
           senderId: userId,
           channelId: channel.id,
           greeting,
+          packetType: play.packetType,
+          targetUserId: play.targetUserId,
+          passcode: play.passcode,
           status: STATUS_ACTIVE,
           totalCount,
           claimedCount: 0,
@@ -224,6 +324,18 @@ export class RedPacketService {
     // 消息上附带红包实时视图，前端收到即可直接渲染（无需再发一次查询）
     const payload = { ...message, redPacket: view };
     this.chatService.emitToChannel(WORLD_CHANNEL_NAME, 'chat:message', payload);
+
+    // 专属红包：给被指定的人发一条定向提醒（per-user 房间，与 @提及 同一套通道）
+    if (play.packetType === PACKET_TYPE_TARGET && play.targetUserId) {
+      this.chatService.emitToUser(play.targetUserId, 'chat:redpacket-target', {
+        packetId: packet.id,
+        from: view.senderName,
+        greeting,
+        totalCount: view.totalCount,
+        summary: view.summary,
+        at: new Date().toISOString(),
+      });
+    }
     return { packet: view, message: payload };
   }
 
@@ -234,7 +346,8 @@ export class RedPacketService {
    * @param userId 领取者用户ID
    * @param packetId 红包ID
    */
-  async claimPacket(userId: number, packetId: number) {
+  async claimPacket(userId: number, packetId: number, inputPasscode?: string) {
+    const cfg = await this.getConfig();
     const picked = await this.prisma.$transaction(async (tx) => {
       const packet = await tx.redPacket.findUnique({ where: { id: packetId } });
       if (!packet) throw new NotFoundException('红包不存在或已被清理');
@@ -243,6 +356,18 @@ export class RedPacketService {
       }
       if (packet.status !== STATUS_ACTIVE) {
         throw new BadRequestException('这个红包已经被抢完了');
+      }
+      // 专属红包：只有指定领取人能领（前端按钮已置灰，这里是服务端兜底）
+      if (packet.packetType === PACKET_TYPE_TARGET) {
+        if (!packet.targetUserId || packet.targetUserId !== userId) {
+          throw new BadRequestException('这是专属红包，只有指定的玩家才能领取');
+        }
+      }
+      // 口令红包：口令必须一致（默认忽略大小写与首尾空格）
+      if (packet.packetType === PACKET_TYPE_PASSCODE) {
+        if (!this.passcodeMatch(packet.passcode, inputPasscode, cfg.caseSensitivePasscode)) {
+          throw new BadRequestException('口令不对，再想想？');
+        }
       }
       // 同一玩家同一红包只能领一次（DB 有唯一约束兜底）
       const claimed = await tx.redPacketClaim.findUnique({
@@ -319,10 +444,110 @@ export class RedPacketService {
       include: {
         items: true,
         sender: { select: { id: true, username: true, nickname: true } },
+        // 专属红包的指定领取人：用于卡片上显示「仅限 XXX 领取」
+        targetUser: { select: { id: true, username: true, nickname: true } },
         claims: { where: { userId: viewerId } },
       },
     });
     return Promise.all(rows.map((row) => this.buildView(row, viewerId)));
+  }
+
+  /**
+   * 「我的红包」面板数据：我发出的 / 我领到的 / 退回明细。
+   *
+   * 退回明细不额外建表：红包过期时已把「剩余份额」一次性退回到发送者背包，
+   * 而剩余份额 = Σ(quantity - claimedQuantity)，且状态变为 EXPIRED 后份额不再变动，
+   * 因此可直接由条目快照精确还原「退回了什么、退了多少」。
+   * @param userId 当前用户ID
+   */
+  async getMyRedPackets(userId: number) {
+    const cfg = await this.getConfig();
+    const [sent, claims] = await Promise.all([
+      this.prisma.redPacket.findMany({
+        where: { senderId: userId },
+        orderBy: { createdAt: 'desc' },
+        take: cfg.myPanelLimit,
+        include: {
+          items: true,
+          // 专属红包的指定领取人（面板上显示「仅 XXX 可领」）
+          targetUser: { select: { id: true, username: true, nickname: true } },
+        },
+      }),
+      this.prisma.redPacketClaim.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: cfg.myPanelLimit,
+        include: {
+          packet: {
+            select: {
+              id: true,
+              senderId: true,
+              greeting: true,
+              packetType: true,
+              status: true,
+              sender: { select: { id: true, username: true, nickname: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    // 发出列表：带上「剩余未领」明细（过期后再看即当时的退回量）
+    const sentRows = sent.map((packet) => {
+      const items = (packet.items || []).map((item) => ({
+        name: item.name,
+        quantity: Math.max(0, item.quantity - item.claimedQuantity),
+      }));
+      const remaining = items.filter((item) => item.quantity > 0);
+      const expired = packet.status === STATUS_EXPIRED || packet.expireAt.getTime() <= Date.now();
+      return {
+        id: packet.id,
+        packetType: packet.packetType || PACKET_TYPE_NORMAL,
+        greeting: packet.greeting || '',
+        status: packet.status,
+        totalCount: packet.totalCount,
+        claimedCount: packet.claimedCount,
+        summary: (packet.items || []).map((item) => `${item.name}×${item.quantity}`).join('、'),
+        remainingSummary: remaining.map((item) => `${item.name}×${item.quantity}`).join('、'),
+        remaining,
+        targetUserName: packet.targetUser
+          ? packet.targetUser.nickname || packet.targetUser.username
+          : null,
+        createdAt: packet.createdAt.toISOString(),
+        expireAt: packet.expireAt.toISOString(),
+        expired,
+      };
+    });
+
+    // 领到列表：来自谁、领到什么、什么时候领的
+    const claimedRows = claims.map((claim) => ({
+      packetId: claim.packetId,
+      itemName: claim.itemName,
+      quantity: claim.quantity,
+      from: claim.packet?.sender
+        ? claim.packet.sender.nickname || claim.packet.sender.username
+        : '未知玩家',
+      packetType: claim.packet?.packetType || PACKET_TYPE_NORMAL,
+      greeting: claim.packet?.greeting || '',
+      createdAt: claim.createdAt.toISOString(),
+    }));
+
+    // 退回明细：仅过期红包；其「剩余份额」就是过期时退回发送者背包的道具
+    const refundRows = sentRows
+      .filter((row) => row.status === STATUS_EXPIRED)
+      .map((row) => ({
+        packetId: row.id,
+        packetType: row.packetType,
+        greeting: row.greeting,
+        totalCount: row.totalCount,
+        claimedCount: row.claimedCount,
+        remainingSummary: row.remainingSummary,
+        items: row.remaining,
+        refundedAt: row.expireAt,
+        createdAt: row.createdAt,
+      }));
+
+    return { sent: sentRows, claimed: claimedRows, refunds: refundRows };
   }
 
   /**
@@ -416,10 +641,18 @@ export class RedPacketService {
     }
   }
 
-  /** 消息文案：红包在公屏消息流中的可读摘要 */
+  /** 消息文案：红包在公屏消息流中的可读摘要（专属/口令红包带标记） */
   private buildSummaryText(view: RedPacketView): string {
     const greeting = view.greeting ? `：${view.greeting}` : '';
-    return `🧧 ${view.senderName} 发了一个红包（${view.totalCount} 份）${greeting}`;
+    const tag =
+      view.packetType === PACKET_TYPE_TARGET
+        ? '专属'
+        : view.packetType === PACKET_TYPE_PASSCODE
+          ? '口令'
+          : '';
+    const target =
+      view.packetType === PACKET_TYPE_TARGET && view.targetUserName ? ` → ${view.targetUserName}` : '';
+    return `🧧 ${view.senderName} 发了一个${tag}红包（${view.totalCount} 份）${target}${greeting}`;
   }
 
   /**
@@ -432,6 +665,14 @@ export class RedPacketService {
     if (!sender && row.senderId) {
       sender = await this.prisma.user.findUnique({
         where: { id: row.senderId },
+        select: { id: true, username: true, nickname: true },
+      });
+    }
+    // 专属红包的「指定领取人」信息（列表查询会 include；广播等场景按需补查）
+    let targetUser = row.targetUser;
+    if (!targetUser && row.targetUserId) {
+      targetUser = await this.prisma.user.findUnique({
+        where: { id: row.targetUserId },
         select: { id: true, username: true, nickname: true },
       });
     }
@@ -465,6 +706,16 @@ export class RedPacketService {
       items,
       myClaim: myClaim ? { itemName: myClaim.itemName, quantity: myClaim.quantity } : null,
       expired: row.status === STATUS_EXPIRED || new Date(row.expireAt).getTime() <= Date.now(),
+      packetType: row.packetType || PACKET_TYPE_NORMAL,
+      targetUserId: row.targetUserId ?? null,
+      targetUserName: targetUser ? targetUser.nickname || targetUser.username : null,
+      // 口令只回给发送者本人（前端用于回显"我设的口令"），其他人一律拿不到
+      passcode:
+        (row.packetType || PACKET_TYPE_NORMAL) === PACKET_TYPE_PASSCODE &&
+        viewerId &&
+        row.senderId === viewerId
+          ? row.passcode || ''
+          : null,
     };
   }
 }

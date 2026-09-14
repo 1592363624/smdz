@@ -26,6 +26,17 @@ export interface RedPacketConfig {
   allowCurrency: boolean;
   /** 前端可查询的红包历史时间窗（小时），超过则不再返回状态（消息本身仍在聊天记录里） */
   historyHours: number;
+  /** 是否开放「专属红包」（指定领取人，只有 TA 能领） */
+  enableTargeted: boolean;
+  /** 是否开放「口令红包」（输入正确口令才能领） */
+  enablePasscode: boolean;
+  /** 口令允许的最短/最长字符数 */
+  minPasscodeLength: number;
+  maxPasscodeLength: number;
+  /** 口令比对是否区分大小写（默认 false：体验优先，游戏内口令不涉密） */
+  caseSensitivePasscode: boolean;
+  /** 「我的红包」面板中，发出/领到列表各自最多返回的条数 */
+  myPanelLimit: number;
 }
 
 /** 代码内置默认值（系统配置缺失/损坏时兜底） */
@@ -38,6 +49,12 @@ export const DEFAULT_RED_PACKET_CONFIG: RedPacketConfig = {
   allowEquipment: false,
   allowCurrency: false,
   historyHours: 72,
+  enableTargeted: true,
+  enablePasscode: true,
+  minPasscodeLength: 1,
+  maxPasscodeLength: 16,
+  caseSensitivePasscode: false,
+  myPanelLimit: 50,
 };
 
 /**
@@ -89,5 +106,11 @@ export function normalizeRedPacketConfig(raw: any): RedPacketConfig {
     allowEquipment: bool(src.allowEquipment, base.allowEquipment),
     allowCurrency: bool(src.allowCurrency, base.allowCurrency),
     historyHours: num(src.historyHours, base.historyHours),
+    enableTargeted: bool(src.enableTargeted, base.enableTargeted),
+    enablePasscode: bool(src.enablePasscode, base.enablePasscode),
+    minPasscodeLength: num(src.minPasscodeLength, base.minPasscodeLength),
+    maxPasscodeLength: num(src.maxPasscodeLength, base.maxPasscodeLength),
+    caseSensitivePasscode: bool(src.caseSensitivePasscode, base.caseSensitivePasscode),
+    myPanelLimit: num(src.myPanelLimit, base.myPanelLimit),
   };
 }

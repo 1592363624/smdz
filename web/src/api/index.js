@@ -74,8 +74,11 @@ export const chatApi = {
     http.get('/chat/redpackets', { params: ids?.length ? { ids: ids.join(',') } : {} }),
   // 发送世界红包（发送即扣除背包道具）
   createRedPacket: (payload) => http.post('/chat/redpacket', payload),
-  // 领取世界红包（先到先得，每人限领1份）
-  claimRedPacket: (id) => http.post(`/chat/redpacket/${id}/claim`),
+  // 领取世界红包（先到先得，每人限领1份；口令红包需带 passcode）
+  claimRedPacket: (id, passcode) =>
+    http.post(`/chat/redpacket/${id}/claim`, passcode ? { passcode } : {}),
+  // 我的红包：发出的 / 领到的 / 过期退回明细
+  getMyRedPackets: () => http.get('/chat/redpacket/mine'),
 };
 
 /// 反馈接口
