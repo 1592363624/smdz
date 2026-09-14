@@ -1714,6 +1714,12 @@ vite-plugin-checker-error-overlay,
   margin-top: 60px;
   font-size: 14px;
 }
+.empty-chat-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted-dark);
+  opacity: 0.75;
+}
 
 /* ===== 输入栏 ===== */
 .input-bar {

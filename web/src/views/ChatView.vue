@@ -441,7 +441,7 @@
           <button
             class="header-action-btn filter-toggle"
             :class="{ on: showOthersMsg }"
-            :title="showOthersMsg ? '当前显示所有人的消息，点击隐藏他人的聊天与系统回复' : '当前仅显示自己的消息，点击恢复显示他人消息'"
+            :title="showOthersMsg ? '当前显示所有人的系统/指令消息，点击隐藏他人的回复' : '当前仅显示自己的消息，点击恢复显示他人消息'"
             @click="toggleShowOthers"
           >
             {{ showOthersMsg ? '👁 显示他人' : '🙈 仅看自己' }}
@@ -500,7 +500,11 @@
           <span class="msg-time">{{ formatTime(v.msg.createdAt) }}</span>
         </div>
         <div v-if="!messageViews.length" class="empty">
-          {{ messages.length ? '🙈 已隐藏其他玩家的消息，点击顶部「仅看自己」可恢复' : '暂无消息，发送第一条指令吧！' }}
+          <template v-if="messages.length">🙈 已隐藏其他玩家的消息，点击顶部「仅看自己」可恢复</template>
+          <template v-else>
+            <div>暂无游戏消息，发送第一条指令吧！</div>
+            <div class="empty-chat-hint">世界聊天在右下角 💬 悬浮窗</div>
+          </template>
         </div>
         <!-- 回到底部按钮 -->
         <button v-if="showScrollBtn" class="scroll-bottom-btn" @click="scrollToBottom()">↓ 回到底部</button>
@@ -535,7 +539,7 @@
             @keyup="onInputKeyup"
             @input="onInputChange"
             @blur="onInputBlur"
-            placeholder="回车换行，Ctrl+Enter 或点击「发送」发送指令"
+            placeholder="回车换行，Ctrl+Enter 发指令；纯文本发到右下角世界聊天"
           ></textarea>
           <!-- 指令自动补全下拉 -->
           <div v-if="showAutocomplete && filteredCommands.length" class="autocomplete-list">
@@ -569,6 +573,13 @@
         <button @click="sendMessage" :disabled="!connected">发送</button>
       </footer>
     </main>
+
+    <!-- 右下角悬浮世界聊天：与中央游戏区隔离，聊天/红包等不淹没战斗指令结果 -->
+    <FloatingChatWidget
+      :connected="connected"
+      :self-id="user?.id"
+      :send="sendChatMessage"
+    />
 
     <!-- 桌面端右栏：当前地图详情 + 怪物/资源/NPC -->
     <aside class="info-panel">
@@ -978,6 +989,7 @@ import { useRouter } from 'vue-router';
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
 import HomePanel from '../components/HomePanel.vue';
 import PendingActionBar from '../components/PendingActionBar.vue';
+import FloatingChatWidget from '../components/FloatingChatWidget.vue';
 import { io } from 'socket.io-client';
 import { chatApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
 import { WS_URL, API_BASE, APP_VERSION, UPDATE_SETTINGS, GITHUB_ISSUES_URL } from '../config';
@@ -993,6 +1005,7 @@ import { useUiStore } from '../stores/ui';
 import { useCommandStore } from '../stores/command';
 import { useConnectionStore } from '../stores/connection';
 import { usePlayerStore } from '../stores/player';
+import { useFloatingChatStore } from '../stores/floatingChat';
 import { syncServerClock } from '../utils/serverClock';
 import { parseHighlights, GAME_HIGHLIGHT_EVENT } from '../utils/gameHighlight';
 import { isBattleContent } from '../utils/battleText';
@@ -1003,6 +1016,8 @@ const ui = useUiStore();
 const commandStore = useCommandStore();
 const connectionStore = useConnectionStore();
 const playerStore = usePlayerStore();
+// 世界聊天（type=chat）与中央游戏流分离：聊天进悬浮窗，指令/战斗/系统留中央
+const floatingChat = useFloatingChatStore();
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'));
 const channel = ref(null);
 const messages = ref([]);
@@ -2159,13 +2174,19 @@ function sendChatMessage(content) {
   const sender = { id: self.id, username: self.username, nickname: self.nickname };
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   for (const line of lines) {
-    appendMessage({
-      type: guessMessageType(line),
-      content: line,
-      sender,
-      createdAt: new Date().toISOString(),
-      _pending: true, // 本地暂存标记：服务器广播到达后被替换
-    });
+    const type = guessMessageType(line);
+    if (type === 'chat') {
+      // 纯聊天本地回显 → 悬浮窗
+      floatingChat.append(floatingChat.makePending(line, self));
+    } else {
+      appendMessage({
+        type,
+        content: line,
+        sender,
+        createdAt: new Date().toISOString(),
+        _pending: true, // 本地暂存标记：服务器广播到达后被替换
+      });
+    }
   }
   // 发送后强制回到底部，确保刚发出的消息立即可见（即使用户之前向上翻阅过历史）
   scrollToBottom();
@@ -2199,18 +2220,33 @@ async function sendMessage() {
   autoResizeInput();
 }
 
+/**
+ * 是否应路由到右下角悬浮世界聊天窗（而非中央游戏流）。
+ * chat = 玩家世界聊天；预留 redpacket / redpacket_claim / item 等扩展类型。
+ */
+function isFloatingChatMsg(m) {
+  if (!m?.type) return false;
+  return m.type === 'chat' || m.type === 'redpacket' || m.type === 'redpacket_claim';
+}
+
 function appendMessage(msg) {
   if (!msg) return;
   // 兜底：socket 实时消息若缺少时间戳，则补当前时间，保证每条消息都能显示精确到秒的时间
   if (!msg.createdAt) msg.createdAt = new Date().toISOString();
   // 里程碑动画：先于下方去重替换逻辑执行，无论消息是新增还是替换本地回显都能触发
   highlightFromMessage(msg);
-  // 本地回显去重：自己发出的聊天/指令广播到达时，用服务端正式消息（带 id/准确类型/时间）
+  // 世界聊天 → 右下角悬浮窗（与中央游戏流分离，避免聊天刷屏游戏区）
+  // 未来红包/道具消息 type 同样进悬浮窗
+  if (isFloatingChatMsg(msg)) {
+    floatingChat.append(msg);
+    return;
+  }
+  // 本地回显去重：自己发出的指令广播到达时，用服务端正式消息（带 id/准确类型/时间）
   // 替换发送瞬间暂存的那条本地回显，避免同一条消息显示两遍。
   // 优先按内容精确匹配；找不到再按先后顺序配对——后端会做快捷输入替换（如发"1"被替换成
   // "选择使魔XX"）导致广播内容与原输入不同，此时按 FIFO 配对才不会漏。
   // 只认 30 秒内的暂存，避免陈旧未确认消息被后来者误替换。
-  if (msg.sender?.id != null && msg.sender.id === user.value?.id && (msg.type === 'chat' || msg.type === 'command')) {
+  if (msg.sender?.id != null && msg.sender.id === user.value?.id && msg.type === 'command') {
     const now = Date.now();
     const fresh = (m) => m._pending && now - new Date(m.createdAt).getTime() < 30000;
     let idx = messages.value.findIndex((m) => fresh(m) && m.content === msg.content);
@@ -3391,9 +3427,18 @@ onMounted(async () => {
     const msgs = await chatApi.getMessages(ch.data.id, 100);
     // 后端按 createdAt 倒序返回（最新在前），需反转成"旧消息在上、新消息在下"，
     // 与实时 push 到末尾的顺序一致，避免新消息出现在历史消息中间/顶部
-    messages.value = (msgs.data || []).reverse();
+    // 历史按类型分流：世界聊天进悬浮窗，指令/系统/战斗等留在中央游戏流
+    const historyAll = (msgs.data || []).reverse();
+    const historyChat = [];
+    const historyGame = [];
+    for (const m of historyAll) {
+      if (isFloatingChatMsg(m)) historyChat.push(m);
+      else historyGame.push(m);
+    }
+    floatingChat.setMessages(historyChat);
+    messages.value = historyGame;
     // 扫描历史中的未读系统公告 → 弹窗补展示（离线期间错过的公告上线后仍会弹出）
-    scanHistoryAnnouncements(messages.value);
+    scanHistoryAnnouncements(historyGame);
     // 加载指令列表（集中到 command store）
     await commandStore.loadCommands();
     // 加载我的常用指令（置顶展示）
