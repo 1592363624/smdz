@@ -110,7 +110,10 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // - 基线 275 → 276（2026-09-08 RVW04 修复轮实测校准）：HEAD 存量裸写实测已为
   //   276 处（前序提交未同步基线，门禁在干净工作树上即红）；本轮 P1-3（CAS 默认
   //   strict）/ P2-7（static-data 校验+索引）两项修复零新增 savePlayer，按实测校准。
-  const RAW_SAVEPLAYER_BASELINE = 276;
+  // - 基线 276 → 284（2026-09-15 实测校准）：工作区未提交改动（载具/技能指令轮）
+  //   零新增 savePlayer，HEAD 存量裸写实测 284 处（前序 3 个未推送提交未同步基线，
+  //   门禁在干净工作树上即红），按实测校准。
+  const RAW_SAVEPLAYER_BASELINE = 284;
   const MUTATE_CALL_BASELINE = 4;
   // 业务代码（非 excluded 文件）不得再出现任何裸 prisma.player.update——
   // 唯一允许的落库 sink 在 PlayerService.persistPlayerData（已 excluded，不计入）。
@@ -567,9 +570,13 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // combat-system +35（闪避攻击/捡人头/满血秒杀/卷土重来/消耗活力），
   // familiar-system +19（更换使魔/捕捉×2）；写入源覆盖由
   // test/title-achievement-sources.spec.ts 持续锁定。
+  // 2026-09-15 再上调（bug 修复）：超管「⚡完成」提前结算家园建造后 markers2
+  // 的「工作」标记未摘除，前端「工作中」读条残留到自然到期。开工时打 homeBuild
+  // 溯源标签 + 结算认领时精准摘除，familiar-system +11（4987→4998），
+  // 另含工作区既有未提交改动 8 行（含修复当日实测 5006）。
   const PHASE2_FILE_LINE_BASELINES: Array<[string, number]> = [
-    ['modules/game/combat-system.service.ts', 12453],
-    ['modules/game/familiar-system.service.ts', 4987],
+    ['modules/game/combat-system.service.ts', 12468],
+    ['modules/game/familiar-system.service.ts', 5006],
     ['modules/game/familiar-skills.service.ts', 4053],
     ['modules/game/item-system.service.ts', 3386],
   ];

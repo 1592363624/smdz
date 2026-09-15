@@ -1544,6 +1544,9 @@ export class FamiliarSystemService {
     // 原版添加标记("工作", 60, 玩家.标记2, 原始时间戳)："正在工作"期间行动无限制拦截其他操作
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     this.combatState?.addMarker('工作', 60, markers2, Date.now());
+    // 打 homeBuild 溯源标签：结算时精准摘除（「工作」标记被维修/抢救/硬直等复用，不能按名盲删）
+    const workEntry = markers2.find((m: any) => (m?.name ?? m?.名称) === '工作');
+    if (workEntry) workEntry.homeBuild = true;
     player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
 
     // 更新进度，并挂完工待结算标记（延时到期时凭该标记认领，保证重试幂等）
@@ -1639,6 +1642,9 @@ export class FamiliarSystemService {
     // 原版添加标记("工作", 120, 玩家.标记2, 原始时间戳)
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     this.combatState?.addMarker('工作', 120, markers2, Date.now());
+    // 打 homeBuild 溯源标签：结算时精准摘除（「工作」标记被维修/抢救/硬直等复用，不能按名盲删）
+    const workEntry = markers2.find((m: any) => (m?.name ?? m?.名称) === '工作');
+    if (workEntry) workEntry.homeBuild = true;
     player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
 
     // 更新进度，并挂完工待结算标记（延时到期时凭该标记认领，保证重试幂等）
@@ -1705,6 +1711,11 @@ export class FamiliarSystemService {
     if (Number(markers[flagName] || 0) !== 1) return null;
     delete markers[flagName];
     player.markers = markers; // Player markers 为 Json 列，直接写对象
+    // 同步摘除家园建造的「工作」读条标记（开工时打了 homeBuild 溯源标签）：
+    // 否则超管「⚡完成」提前结算后，标记仍挂原始到期时间，前端「工作中」读条会残留到自然到期
+    const markers2 = asJsonValue<any[]>(player.markers2, []);
+    const kept = markers2.filter((m: any) => !(((m?.name ?? m?.名称) === '工作') && m?.homeBuild));
+    if (kept.length !== markers2.length) player.markers2 = kept; // Player markers2 为 Json 列，直接写数组
     await this.playerService.savePlayer(player);
     return String(player.name || '冒险者');
   }

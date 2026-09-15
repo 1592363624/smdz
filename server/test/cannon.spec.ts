@@ -149,6 +149,14 @@ describe('炮击复刻（_主程序.ecode L800-L950）', () => {
     expect(attack).not.toHaveBeenCalled();
   });
 
+  it('无炮击模式时挂临时输入 1@转换#2@架炮（原版 L833）', async () => {
+    const fixture = makeCannon({ attackMode: 0 });
+    const setTempInput = jest.fn(async () => '');
+    (fixture.service as any).shortcutService = { setTempInput };
+    await fixture.service.cannonAttack(10, '目标谷');
+    expect(setTempInput).toHaveBeenCalledWith(10, '1@转换#2@架炮');
+  });
+
   it('复刻目标地图复活点限制', async () => {
     const fixture = makeCannon({ targetRespawn: '复活点B' });
     const attack = jest.spyOn(fixture.service, 'weaponAttack');

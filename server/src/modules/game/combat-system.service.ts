@@ -16,6 +16,7 @@ import { Injectable, Logger, Optional, Inject, forwardRef, OnApplicationShutdown
 import { AsyncLocalStorage } from 'async_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
+import { ShortcutService } from './shortcut.service';
 import { PlayerService, PlayerData } from './player.service';
 import { BonusService, BonusData, SetData } from './bonus.service';
 import { MapService, MapMonster } from './map.service';
@@ -379,6 +380,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     // ChatService 无反向依赖，@Optional 兼容按位置 new 的既有测试。
     @Optional()
     private readonly chatService?: ChatService,
+    // 炮击无模式时挂临时输入 1@转换#2@架炮（原版 L833）；末位可选兼容测试桩
+    @Optional()
+    private readonly shortcutService?: ShortcutService,
   ) {}
 
   /** 怪物锁定武器的延时落伤定时器（原版 覅公jj 内存延时，进程重启即丢弃）；key=地图:怪物:武器 */
@@ -4600,6 +4604,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     else cannonMode = 0;
 
     if (cannonMode === 0) {
+      // 原版 L832-833：提示 + 临时输入 1@转换#2@架炮
+      if (this.shortcutService?.setTempInput) {
+        await this.shortcutService.setTempInput(userId, '1@转换#2@架炮');
+      }
       return `${player.name}需要切换为炮击模式，或者驾驶安装了舰炮的载具\n1、转换  2、架炮`;
     }
 

@@ -442,76 +442,69 @@ export class SkillCommandService {
    */
 
   async handleModeChange(userId: number, modeName: string): Promise<string> {
-    // 阿尔缇娜「模式转换」优先（原版 _主程序.ecode L9810-9821：切换战术壳光剑 a模式）
-    // 与载具模式转换同名，按使魔类型分流。原版该分支是**精确匹配** `消息数据 == "模式转换"`，
-    // 带参数（如「模式转换 战斗」）不会进入 → 此处同样只在未带模式名时拦截。
-    // 原版该分支不计「使用技能」，故 skipUseSkillTask。
-    if (!modeName) {
-      const peek = await this.playerService.getPlayerData(userId);
-      if (peek?.player?.type === '阿尔缇娜' || Number(peek?.player?.specialSeq ?? 0) === 7) {
-        return this.familiarSkillsService.executeSkill(
-          userId, '模式转换', undefined, { skipUseSkillTask: true },
-        );
-      }
+    // 原版 _主程序.ecode L9810-9821：仅精确匹配「模式转换」的阿尔缇娜专属技能
+    // （战术壳光剑 a模式 0/1），不计「使用技能」。带参数不进入该分支。
+    if (String(modeName || '').trim()) {
+      return `${await this.peekPlayerName(userId)}这是阿尔缇娜的技能`;
     }
+    return this.familiarSkillsService.executeSkill(
+      userId, '模式转换', undefined, { skipUseSkillTask: true },
+    );
+  }
 
-    if (!modeName) {
-      return '请指定要转换的模式，格式：模式转换 模式名\n可用模式：战斗、移动、防御、隐匿';
-    }
-
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
-
-    if (!player.vehicle) {
-      return '你当前没有驾驶任何载具';
-    }
-
-    // 模式列表
-    const modes: Record<string, string> = {
-      '战斗': '战斗模式 - 提升攻击力',
-      '移动': '移动模式 - 提升速度',
-      '防御': '防御模式 - 提升装甲和护盾',
-      '隐匿': '隐匿模式 - 提升闪避',
-    };
-
-    if (!modes[modeName]) {
-      return `未知模式「${modeName}」\n可用模式：${Object.keys(modes).join('、')}`;
-    }
-
-    // 存储载具模式到 markers
-    markers['vehicle_mode'] = modeName;
-    player.markers = markers;
-    await this.playerService.savePlayer(player);
-
-    this.logger.log(`玩家 ${userId} 将载具切换为${modeName}模式`);
-    return `✅ 载具已切换为${modeName}\n${modes[modeName]}`;
+  private async peekPlayerName(userId: number): Promise<string> {
+    const data = await this.playerService.getPlayerData(userId);
+    return String(data?.player?.name || '冒险者');
   }
 
   /**
-   * 处理转换命令
-   * 载具形态转换
-   * 对应原版：转换 命令
+   * 处理转换命令（原版 _主程序.ecode L9823-L9866）。
+   * - 伊芙利特（特殊序号11）：好感≥20 时切换 攻击模式 0/1（斧形态/炮形态）
+   * - 其他使魔：「这是伊芙利特的技能」
+   * 不是载具形态切换。
    */
 
-  async handleTransform(userId: number, targetForm: string): Promise<string> {
-    if (!targetForm) {
-      return '请指定要转换的形态，格式：转换 形态名';
-    }
-
+  async handleTransform(userId: number, targetForm?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
+    const name = player.name || '冒险者';
 
-    if (!player.vehicle) {
-      return '你当前没有驾驶任何载具';
+    if (Number(player.specialSeq ?? 0) !== 11 && String(player.type || '') !== '伊芙利特') {
+      return `${name}这是伊芙利特的技能`;
     }
 
-    // 存储载具形态到 markers
-    markers['vehicle_form'] = targetForm;
-    player.markers = markers;
+    const affinity = Number(player.affinity ?? 0)
+      || Number(markers?.['伊芙利特好感'] || markers?.['好感'] || 0);
+    if (affinity < 20) {
+      return `${name}需要好感大于等于20`;
+    }
+
+    const sets = this.parseSets(player.sets);
+    const current = Number(player.attackMode ?? sets.attackMode ?? sets.攻击模式 ?? 0);
+    const next = current === 1 ? 0 : 1;
+    sets.attackMode = next;
+    sets.攻击模式 = next;
+    player.sets = sets;
+    player.attackMode = next;
     await this.playerService.savePlayer(player);
 
-    this.logger.log(`玩家 ${userId} 将载具转换为${targetForm}形态`);
-    return `✅ 载具已转换为【${targetForm}】形态`;
+    if (next === 1) {
+      return `${name}切换成了炮形态，“炮击森林出口”来指定攻击的区域`;
+    }
+    return `${name}切换成了斧形态`;
+  }
+
+  private parseSets(value: any): any {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return { ...value };
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
   }
 
   /**
@@ -520,8 +513,46 @@ export class SkillCommandService {
    * 对应原版：牵引 命令
    */
 
+    /**
+   * 转换文本（原版 _主程序.ecode L9824-L9847）：
+   * 「转换文本 QQ 编号」查看他人背包第 N 件的展示与数据串。
+   */
   async handleTransformText(userId: number, text: string): Promise<string> {
-    return `📝 文本转换功能开发中...`;
+    const payload = String(text || '').trim();
+    if (!payload) {
+      return '“转换文本@人 编号”';
+    }
+    const parts = payload.split(/\s+/).filter(Boolean);
+    if (parts.length < 2) {
+      return '“转换文本@人 编号”';
+    }
+    const targetKey = String(parts[0]).trim();
+    const index = Math.floor(Number(parts[1]));
+    if (!targetKey || !Number.isFinite(index) || index < 1) {
+      return '“转换文本@人 编号”';
+    }
+    const target = await this.prisma.player.findFirst({
+      where: {
+        OR: [
+          { userId: Number(targetKey) || -1 },
+          { name: targetKey },
+        ],
+      },
+    });
+    if (!target) {
+      return `${targetKey}在玩家列表不存在`;
+    }
+    const backpack = asJsonValue<any[]>((target as any).backpack, []);
+    if (backpack.length < index) {
+      return `${target.name || targetKey}的背包只有${backpack.length}个成员`;
+    }
+    const item = backpack[index - 1];
+    const itemName = String(item?.name ?? item?.名称 ?? '');
+    const data = String(item?.data ?? item?.数据 ?? '').split('#换行').join('【换行2】');
+    return [
+      `${itemName}${item?.type === '装备' || item?.类型 === '装备' ? '(装备)' : ''}`,
+      data,
+    ].filter(Boolean).join('\n');
   }
 
   /**
@@ -653,8 +684,8 @@ export class SkillCommandService {
       `  安装 - 安装部件`,
       `  拆卸 - 拆卸部件`,
       `  架炮 - 恶毒专属：架起/收起炮击阵地`,
-      `  模式转换 - 切换模式`,
-      `  转换 - 切换形态`,
+      `  模式转换 - 阿尔缇娜专属：战术壳光剑攻/防切换`,
+      `  转换 - 伊芙利特专属：斧形态/炮形态切换`,
       `  牵引货舱 / 牵引能量 - 用牵引光束远程拉取补给`,
       `  维修 - 修复耐久度`,
       `━━━━━━━━━━━━━━━`,

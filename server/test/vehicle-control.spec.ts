@@ -60,6 +60,7 @@ function makeService(options: {
     },
     player: {
       findUnique: jest.fn(async () => null),
+      findFirst: jest.fn(async () => null),
     },
     gameVehicle: {
       findUnique: jest.fn(async ({ where }: any) =>
@@ -208,7 +209,7 @@ function makeService(options: {
     });
     (service.movementVehicleService as any).panel = gatherPanel;
 
-  return { service, player, map, dbVehicles, previousPlayers, updateCalls, dbUpdateCalls, savedPlayers, achievements, staticData, combatSystem, combatState, shortcutService };
+  return { service, player, map, prisma, dbVehicles, previousPlayers, updateCalls, dbUpdateCalls, savedPlayers, achievements, staticData, combatSystem, combatState, shortcutService };
 }
 
 function vehicle(overrides: any = {}) {
@@ -505,5 +506,76 @@ describe('牵引与载具模拟（原版对齐）', () => {
     const { service } = makeService({});
     const result = await service.handleSimulateVehicle(10, '牵引光束1 巡洋舰核心1');
     expect(result).toContain('核心必须在最前面');
+  });
+
+  it('载具模拟可一键组装：挂临时输入并提示', async () => {
+    const { service, shortcutService } = makeService({});
+    const result = await service.handleSimulateVehicle(10, '巡洋舰核心1');
+    expect(result).toContain('消耗材料:');
+    expect(shortcutService.setTempInput).toHaveBeenCalled();
+    const temp = String(shortcutService.setTempInput.mock.calls[0][1]);
+    expect(temp).toContain('组装');
+    expect(temp).toContain('巡洋舰核心');
+  });
+});
+
+describe('转换/模式转换（伊芙利特/阿尔缇娜）', () => {
+  it('非伊芙利特转换提示专属技能', async () => {
+    const { service } = makeService({
+      player: {
+        id: 1, userId: 10, name: '甲', mapId: 7, vehicle: '', sets: '{}', masterQQ: '',
+        type: '普拉娜', specialSeq: 1, affinity: 100,
+      },
+    });
+    const result = await (service as any).skillCommandService.handleTransform(10);
+    expect(result).toContain('这是伊芙利特的技能');
+  });
+
+  it('伊芙利特好感不足时拦截', async () => {
+    const { service } = makeService({
+      player: {
+        id: 1, userId: 10, name: '甲', mapId: 7, vehicle: '', sets: '{}', masterQQ: '',
+        type: '伊芙利特', specialSeq: 11, affinity: 5,
+      },
+    });
+    const result = await (service as any).skillCommandService.handleTransform(10);
+    expect(result).toBe('甲需要好感大于等于20');
+  });
+
+  it('伊芙利特转换切换炮/斧形态与 attackMode', async () => {
+    const { service, player } = makeService({
+      player: {
+        id: 1, userId: 10, name: '甲', mapId: 7, vehicle: '', sets: '{}', masterQQ: '',
+        type: '伊芙利特', specialSeq: 11, affinity: 30, attackMode: 0,
+      },
+    });
+    const cannon = await (service as any).skillCommandService.handleTransform(10);
+    expect(cannon).toContain('切换成了炮形态');
+    expect(player.attackMode).toBe(1);
+
+    const axe = await (service as any).skillCommandService.handleTransform(10);
+    expect(axe).toContain('切换成了斧形态');
+    expect(player.attackMode).toBe(0);
+  });
+
+  it('模式转换带参数时提示阿尔缇娜专属', async () => {
+    const { service } = makeService({
+      player: {
+        id: 1, userId: 10, name: '甲', mapId: 7, vehicle: '', sets: '{}', masterQQ: '',
+        type: '普拉娜',
+      },
+    });
+    const result = await (service as any).skillCommandService.handleModeChange(10, '战斗');
+    expect(result).toContain('这是阿尔缇娜的技能');
+  });
+
+  it('转换文本查看他人背包条目', async () => {
+    const { service, prisma } = makeService({});
+    prisma.player.findFirst = jest.fn(async () => ({
+      name: '乙',
+      backpack: JSON.stringify([{ name: '生肉', type: '资源', quantity: 3 }]),
+    }));
+    const result = await (service as any).skillCommandService.handleTransformText(10, '乙 1');
+    expect(result).toContain('生肉');
   });
 });

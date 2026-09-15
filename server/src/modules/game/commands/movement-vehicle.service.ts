@@ -2893,10 +2893,15 @@ export class MovementVehicleService {
       ? cost.map((c) => `${c.name}x${this.support.round2Text(c.count)}`).join('、')
       : '无';
     const detail = await this.formatVehicleDetail(runtime);
+    // 模拟结果可直接落地：临时输入 1 → 组装（原版多零件组装路径）
+    if (this.shortcutService?.setTempInput) {
+      await this.shortcutService.setTempInput(userId, `1@组装 ${payload}#组装 ${payload}`);
+    }
     return [
       detail,
       `消耗材料:${costText}`,
       ...invalidParts,
+      '💡 发送 1 或“组装”+相同部件清单，用背包材料直接组装该载具（缺件会自动制造）',
     ].filter(Boolean).join('\n');
   }
 
@@ -3075,6 +3080,7 @@ export class MovementVehicleService {
       let changed = false;
       while (budget > 0) {
         const timesLeft = Number(r?.times ?? r?.次数 ?? r?.amount ?? r?.数量 ?? 0);
+        // 次数耗尽；-1=无限资源（野外木石），仍受单次预算与牵引冷却限制，不会无冷却刷
         if (timesLeft === 0) break;
         for (const out of outputs) {
           const name = String(out?.name ?? out?.名称 ?? '');

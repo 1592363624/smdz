@@ -1804,7 +1804,8 @@ export class GameCommandHandler implements CommandHandler {
         // ========== 其他 ==========
         case '转换文本':
         case 'transform-text':
-          return this.wrap(await this.gameService.handleTransformText(userId, firstArg));
+          // 原版「转换文本 QQ 编号」两段参数
+          return this.wrap(await this.gameService.handleTransformText(userId, arg));
 
         case '保存图片':
         case 'save-image':
