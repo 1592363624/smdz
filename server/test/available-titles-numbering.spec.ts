@@ -8,6 +8,9 @@
  * 3. 领取原版称号：条件不足播报差距；满足则发奖励物品进背包。
  * 4. 按系列分组后，组内只展开「已达成待领取的阶位」+「首个未达成的下一阶」，
  *    更高阶位不铺行、不占编号；标题分子仍为未拥有称号总数（收集进度口径）。
+ * 5. 2026-09-15 可读性重排：已达成项置顶成「✅ 现在就能领」区块（行首 ✅ + 编号优先），
+ *    更高阶未达成项进「⏳ 下一阶进度」区块；顶部汇总直接点名可领取称号
+ *    （名单超过 GlobalConfig.titlesView.readySummaryNameLimit 时折算「…（共 N 个）」）。
  */
 import { FamiliarSystemService } from '../src/modules/game/familiar-system.service';
 
@@ -161,6 +164,69 @@ describe('查看可领取称号编号菜单', () => {
 
     expect(out).toContain('所有称号均已领取');
     expect(shortcutService.setTempInput).not.toHaveBeenCalled();
+  });
+
+  it('可领取项置顶成独立区块：顶部点名 + 行首 ✅ + 编号优先发放', async () => {
+    const allTitles = [
+      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
+      { name: '战神I', requirements: [{ name: '战斗力', count: 10000 }], rewards: [] },
+    ];
+    const { service, shortcutService } = createService(
+      { titles: '[]' },
+      { '发送指令': 3, '战斗力': 20000 },
+      { allTitles },
+    );
+
+    const out = await service.viewAvailableTitles(42);
+
+    // 顶部直接点名可领取的称号（玩家反馈的痛点：旧版只报数量，看不出是哪几个）
+    expect(out).toContain('✅ 1 个条件已达成可领取：战神I');
+    // 已达成的「战神I」置顶成 ✅ 区块并拿到 1 号；未达成的「肝帝I」在下一阶区块拿 2 号
+    expect(out).toContain('✅ 现在就能领');
+    expect(out.indexOf('✅ 1、战神I')).toBeGreaterThan(-1);
+    expect(out.indexOf('✅ 1、战神I')).toBeLessThan(out.indexOf(' 2、肝帝I'));
+    expect(shortcutService.setTempInput).toHaveBeenCalledWith(
+      42,
+      ['1@领取称号 战神I', '2@领取称号 肝帝I'].join('#'),
+    );
+  });
+
+  it('顶部点名超过配置上限时折算「…（共 N 个）」，完整清单仍在编号区块', async () => {
+    const allTitles = Array.from({ length: 10 }, (_, i) => ({
+      name: `成就王${i + 1}I`,
+      requirements: [{ name: '发送指令', count: 1 }],
+      rewards: [],
+    }));
+    const { service, shortcutService } = createService(
+      { titles: '[]' },
+      { '发送指令': 5 },
+      { allTitles },
+    );
+
+    const out = await service.viewAvailableTitles(42);
+
+    // 默认上限 8（GlobalConfig.titlesView.readySummaryNameLimit）：点名前 8 个 + 折算总数
+    expect(out).toContain('✅ 10 个条件已达成可领取：');
+    expect(out).toContain('…（共 10 个）');
+    // 编号区块完整列出 10 个可领取项，编号 1~10 连续（领奖入口一个都不少）
+    expect(out).toContain('✅ 1、成就王1I');
+    expect(out).toContain('✅ 10、成就王10I');
+    const registered = shortcutService.setTempInput.mock.calls[0][1] as string;
+    expect(registered.split('#')).toHaveLength(10);
+  });
+
+  it('暂无达成项时不出现「现在就能领」区块，仅展示下一阶进度', async () => {
+    const allTitles = [
+      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
+    ];
+    const { service } = createService({ titles: '[]' }, { '发送指令': 1 }, { allTitles });
+
+    const out = await service.viewAvailableTitles(42);
+
+    expect(out).not.toContain('现在就能领');
+    expect(out).toContain('暂无条件达成的称号');
+    expect(out).toContain('⏳ 下一阶进度');
+    expect(out).toContain(' 1、肝帝I');
   });
 });
 

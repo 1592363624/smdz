@@ -63,6 +63,16 @@ export class GlobalConfig {
     onlineListCacheTtlMs: Number(process.env.PRESENCE_ONLINE_LIST_CACHE_TTL_MS || 60000),
   };
 
+  /**
+   * 「查看可领取称号」列表面板配置（机器人 / 网页共用同一段文本）。
+   * 2026-09-15：可领取项改为置顶 + 顶部点名后，点名的条数上限做成配置项，
+   * 避免一次可领几十个时头部一行刷屏（完整清单始终在「✅ 现在就能领」编号区块）。
+   */
+  public readonly titlesView = {
+    /** 顶部汇总最多点名的可领取称号数量（默认 8，超出折算「…（共 N 个）」） */
+    readySummaryNameLimit: Number(process.env.TITLES_READY_SUMMARY_NAME_LIMIT || 8),
+  };
+
   /** 玩家默认属性（游戏数值配置示例，未来可迁移到数据库） */
   public readonly playerDefaults = {
     maxLevel: 100,

@@ -21,8 +21,14 @@ import { DelayedTaskService } from './delayed-task.service';
 import { GameHighlightService } from './highlight.service';
 import { hasActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
-import { roundItemQuantity, formatDamageText, formatSecondsDurationText } from '../../common/utils/game-text.util';
+import { roundItemQuantity, formatDamageText } from '../../common/utils/game-text.util';
+import { GlobalConfig } from '../../config/global.config';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+import {
+  renderAvailableTitles,
+  formatTitleProgress,
+  TitleSeriesGroupView,
+} from './title-menu.util';
 import {
   buildFamiliarGateDetail,
   buildFamiliarGateMenu,
@@ -4356,11 +4362,11 @@ ${this.getAwakenStageName(d)}(${d})`;
    * 查看可领取的称号
    * 原版 140 个称号（titles.json）统一编号；可领取项注册临时输入替换：
    * 玩家直接发数字即可快速领取（原版编号菜单惯例，原版 L10520-10553）。
-   * 版式（2026-09-15 可读性重排）：同一系列（去尾部罗马数字后的同名前缀 +
-   * 同一要求名）归为一组，组头展示当前进度与“下一阶”迷你进度条；
-   * 每个称号压成一行 `N、称号名 要求名(当前/要求值)`，条件全部达成的行尾标 ✦。
+   * 本方法只做数据装配（进度计算 + 系列归组），版式渲染统一走
+   * title-menu.util.renderAvailableTitles（2026-09-15 可读性重排：可领取项从
+   * "行尾一个 ✦" 改为置顶「✅ 现在就能领」区块 + 顶部点名，玩家不再找不到是哪几个）。
    * 组内只展开「已达成待领取的阶位」+「首个未达成的下一阶」，更靠后的高阶位
-   * 不再逐行铺开（由组头“下一阶需 X”概括），编号也只发给展开项以保持连续。
+   * 由组头“下一阶需 X”与顶部汇总概括，编号也只发给展开项以保持连续。
    * 进度格式：要求名(当前/要求值)；在线时间用时间格式（数字到时间）；
    * 含 "*" 的要求做汉字模糊匹配求和（对应原版 取成就熟练度 模糊+取全部匹配）。
    * @param userId 用户ID
@@ -4373,44 +4379,13 @@ ${this.getAwakenStageName(d)}(${d})`;
     const ownedTitles = asJsonValue<any[]>(player.titles, []);
     // 历史形状兼容（同 佩戴称号）：字符串条目视为已拥有称号名
     const ownedNames = new Set(ownedTitles.map((t: any) => (typeof t === 'string' ? t : t.name)));
-
-    // 编号临时输入替换：数字精确匹配（ShortcutService 对纯数字 original 走全等），
-    // 只给可领取的称号发号，已领取的（✅）不发号不占号。
-    const tempGroups: string[] = [];
-
-    // 进度值的展示格式：在线时间用时分秒，其余走通用数值格式化
-    const formatProgress = (reqName: string, value: number): string =>
-      reqName === '在线时间' ? formatSecondsDurationText(value) : formatDamageText(value);
-    // 5 格迷你进度条 + 百分比（封顶 100%）
-    const miniBar = (current: number, need: number): string => {
-      const ratio = need > 0 ? Math.min(1, current / need) : 1;
-      const filled = Math.round(ratio * 5);
-      return `${'▰'.repeat(filled)}${'▱'.repeat(5 - filled)} ${Math.floor(ratio * 100)}%`;
-    };
     // 系列名 = 称号名去掉尾部罗马数字阶位（肝帝II → 肝帝；住这了IX → 住这了）
     const seriesNameOf = (name: string): string =>
       name.replace(/(?:IX|IV|VI{0,3}|I{1,3}|X|V)$/, '').trim() || name;
 
-    interface AvailableEntry {
-      no: number; // 展示阶段按组顺序统一发放
-      name: string;
-      reqTexts: string[]; // 保留原版进度子串：要求名(当前/要求值)
-      ready: boolean; // 全部条件已达成（发编号即可领）
-      firstCurrent: number; // 首个要求的当前原始值（组头进度条用）
-      firstNeed: number; // 首个要求的目标原始值
-    }
-    interface SeriesGroup {
-      seriesName: string;
-      reqName: string;
-      current: number;
-      entries: AvailableEntry[];
-      displayEntries: AvailableEntry[]; // 实际展开的条目：已达成待领取 + 首个未达成的下一阶
-    }
-
-    // ---------- 原版称号（titles.json：条件+奖励）：连续编号并按系列归组 ----------
-    const groupOrder: SeriesGroup[] = [];
-    const groupMap = new Map<string, SeriesGroup>();
-    const totalCount = this.staticData.getAllTitles().length;
+    // ---------- 原版称号（titles.json：条件+奖励）：按系列归组，进度在装配阶段算好 ----------
+    const groups: TitleSeriesGroupView[] = [];
+    const groupMap = new Map<string, TitleSeriesGroupView>();
 
     for (const title of this.staticData.getAllTitles()) {
       if (ownedNames.has(title.name)) continue;
@@ -4434,77 +4409,37 @@ ${this.getAwakenStageName(d)}(${d})`;
           firstCurrent = current;
           firstNeed = need;
         }
-        reqTexts.push(`${reqName}(${formatProgress(reqName, current)}/${formatProgress(reqName, need)})`);
+        reqTexts.push(`${reqName}(${formatTitleProgress(reqName, current)}/${formatTitleProgress(reqName, need)})`);
       }
       const seriesName = seriesNameOf(title.name);
       const groupKey = `${seriesName}@${firstReqName}`;
       let group = groupMap.get(groupKey);
       if (!group) {
-        group = { seriesName, reqName: firstReqName, current: firstCurrent, entries: [], displayEntries: [] };
+        group = { seriesName, reqName: firstReqName, current: firstCurrent, entries: [] };
         groupMap.set(groupKey, group);
-        groupOrder.push(group);
+        groups.push(group);
       }
-      group.entries.push({ no: 0, name: title.name, reqTexts, ready, firstCurrent, firstNeed });
+      group.entries.push({ name: title.name, reqTexts, ready, firstNeed });
     }
 
-    // 编号按展示顺序发放：组顺序 = 系列首次出现顺序，组内按门槛升序（I→X 阶梯），
-    // 组内只展开「已达成待领取」+「首个未达成的下一阶」，更高阶位由组头进度条概括；
-    // 编号只发给展开项（高阶位条件未到，发号也领不了），保证编号连续。
-    // 标题进度口径：未拥有称号总数（含未展开的高阶位），分母为原版称号总数
-    const availableCount = groupOrder.reduce((sum, g) => sum + g.entries.length, 0);
-    let no = 0;
-    let readyCount = 0;
-    for (const group of groupOrder) {
-      group.entries.sort((a, b) => a.firstNeed - b.firstNeed || a.name.localeCompare(b.name, 'zh'));
-      const nextEntry = group.entries.find((e) => !e.ready);
-      group.displayEntries = group.entries.filter((e) => e.ready || e === nextEntry);
-      for (const entry of group.displayEntries) {
-        no++;
-        entry.no = no;
-        if (entry.ready) readyCount++;
-        tempGroups.push(`${no}@领取称号 ${entry.name}`);
-      }
-    }
-
-    // ---------- 渲染：标题统计 → 系列分组 → 操作脚注 ----------
-    const lines = [`📜 可领取的称号（${availableCount}/${totalCount}）`];
-    if (no > 0) {
-      lines.push(
-        readyCount > 0
-          ? `✦ ${readyCount} 个条件已达成，发编号即可领取`
-          : `暂无条件达成的称号，继续加油`,
-      );
-    }
-    lines.push(`━━━━━━━━━━━━━━━`);
-
-    for (const group of groupOrder) {
-      // 组头：系列名 · 要求名：当前值；首个未达成阶位即“下一阶”，附迷你进度条
-      const next = group.entries.find((e) => !e.ready);
-      let header = `▎${group.seriesName} · ${group.reqName}：当前 ${formatProgress(group.reqName, group.current)}`;
-      if (next) {
-        header += ` ｜下一阶需 ${formatProgress(group.reqName, next.firstNeed)}　${miniBar(group.current, next.firstNeed)}`;
-      } else {
-        header += ` ｜本系列均可领取 ✦`;
-      }
-      lines.push(header);
-      for (const entry of group.displayEntries) {
-        lines.push(` ${entry.no}、${entry.name}　${entry.reqTexts.join('　')}${entry.ready ? ' ✦' : ''}`);
-      }
-    }
-
-    lines.push(`━━━━━━━━━━━━━━━`);
-    if (tempGroups.length > 0) {
+    // ---------- 渲染（可领取置顶 + 下一阶进度）+ 编号注册 ----------
+    // 标题分子 = 未拥有称号总数（含未展开的高阶位），分母 = 原版称号总数；
+    // 编号临时输入：数字精确匹配（ShortcutService 对纯数字 original 走全等），
+    // 只给展开项发号，已领取的不发号不占号。
+    const { text, shortcutEntries } = renderAvailableTitles(groups, {
+      totalCount: this.staticData.getAllTitles().length,
+      availableCount: groups.reduce((sum, g) => sum + g.entries.length, 0),
+      // 顶部点名条数上限是展示阈值，抽取到 GlobalConfig 便于按需调整（不改代码）
+      readySummaryNameLimit: Number(GlobalConfig.getInstance().titlesView.readySummaryNameLimit),
+    });
+    if (shortcutEntries.length > 0) {
       // 编号菜单必须注册：玩家发送编号即触发对应「领取称号 称号名」（2分钟内有效）
       if (this.shortcutService?.setTempInput) {
-        await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
+        await this.shortcutService.setTempInput(userId, shortcutEntries.join('#'));
       }
-      const foot = `发送编号即可快速领取，或使用「领取称号 称号名」`;
-      lines.push(readyCount > 0 ? `✦ = 条件已达成可立即领取；${foot}` : foot);
-    } else {
-      lines.push(`所有称号均已领取 ✅`);
     }
 
-    return lines.join('\n');
+    return text;
   }
 
   // ==================== 使魔等级/技能等级 ====================

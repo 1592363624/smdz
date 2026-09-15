@@ -648,7 +648,13 @@
       </header>
 
       <!-- 消息列表 -->
-      <div ref="msgList" class="messages" @scroll="onMsgScroll">
+      <!-- 滚动意图：滚轮/触摸上翻/拖滚动条 → 解除贴底跟随；布局变化（图片/大卡片迟到渲染）
+           引发的滚动不再被误判为"用户翻历史"，因此不会再聊着聊着停到中间 -->
+      <div ref="msgList" class="messages" @scroll="onMsgScroll"
+           @wheel.passive="onWheelIntent"
+           @touchstart.passive="onTouchStartIntent"
+           @touchmove.passive="onTouchMoveIntent"
+           @pointerdown="markUserScrollIntent">
         <div v-for="(v, i) in messageViews" :key="v.key" :class="['msg', msgClass(v.msg), msgAlign(v.msg), { 'msg-rich': v.rich, 'msg-battle': v.battle, 'msg-cv': v.cv }]"
              :title="isUserMsg(v.msg) ? '单击复制消息 / 双击重发' : undefined"
              @click="onMsgClick(v.msg)"
@@ -1385,7 +1391,9 @@ const mobileTab = ref('me');
 
 // 回到底部按钮
 const showScrollBtn = ref(false);
-let isUserScrolling = false;
+// 是否「贴底跟随最新消息」（QQ 式滚动行为）：默认跟随，永远看着最新一条。
+// 只由用户真实滚动意图解除（滚轮/触摸/拖动滚动条），布局变化一律不算，详见 onMsgScroll
+let stickToBottom = true;
 
 // 指令列表折叠状态（手机端默认折叠）
 const cmdCollapsed = ref(window.innerWidth < 768);
@@ -2608,7 +2616,7 @@ function appendMessage(msg) {
     }
     if (idx >= 0) {
       messages.value.splice(idx, 1, msg);
-      if (!isUserScrolling) scrollToBottom();
+      if (stickToBottom) scrollToBottom();
       return;
     }
     // 中央公屏没有对应 pending：说明本地预判为聊天、回显进了悬浮窗，
@@ -2620,8 +2628,8 @@ function appendMessage(msg) {
   if (messages.value.length > 300) {
     messages.value.splice(0, messages.value.length - 300);
   }
-  // 用户没有手动滚动时，自动滚动到底部
-  if (!isUserScrolling) {
+  // 用户没有手动翻历史时，自动滚动到底部（贴底跟随）
+  if (stickToBottom) {
     scrollToBottom();
   }
 }
@@ -2649,15 +2657,90 @@ function formatTime(ts) {
 // 声明必须早于 scrollToBottom 的调用点（其在 onMounted 之后才会执行）
 let suppressHeaderRevealUntil = 0;
 
+// ===== 贴底跟随（QQ 式滚动）：默认永远看着最新一条 =====
+// 背景：历史消息带 content-visibility:auto（高度按 contain-intrinsic-size 估算），
+// 图片/战斗卡/字体又常在消息上屏后若干帧才完成布局 → scrollHeight「迟到增长」，
+// 单次 scrollTop=scrollHeight 会停在中间；更糟的是，这类布局变化引发的 scroll 事件
+// 会被误判成「用户向上翻历史」，于是永久停止自动贴底（按钮出现、别人再发言也不跟了）。
+// 对策：
+//   ① 只有「用户真实滚动意图」（滚轮/触摸/拖拽滚动条）才解除贴底，布局变化一律不算；
+//   ② 贴底状态由一个常驻 rAF 循环维持：每帧若发现离底（内容又长高了）就补滚到最后，
+//      用户一旦接管立即停手 —— 与微信/QQ「始终停在最新消息」的行为一致。
+const SCROLL_BOTTOM_THRESHOLD = 150; // 距底部多少像素内仍视为「贴底」
+const USER_SCROLL_INTENT_MS = 600; // 用户滚动意图有效期：窗口内的 scroll 事件才算「用户在滚」
+let userScrollIntentAt = 0; // 最近一次用户滚动意图时间戳
+let bottomFollowRafId = 0; // 常驻贴底循环句柄（0 = 未运行）
+
+/** 登记用户滚动意图（模板 @pointerdown 等调用）：只有用户亲手滚才允许解除贴底 */
+function markUserScrollIntent() {
+  userScrollIntentAt = performance.now();
+  // 用户上手即时恢复「滑动唤出手机端头部」的判定，避免被程序化滚动的抑制窗口压住
+  suppressHeaderRevealUntil = 0;
+}
+
+/** 立即解除贴底（用户主动向上翻历史时调用）。
+ *  不等 scroll 事件：手机端合成器滚动的 scroll 事件会延迟数帧，期间贴底循环会把位置抢回底部；
+ *  列表本来就不能滚动时不解除（否则会弹出一个点了也没用的「回到底部」按钮）。 */
+function releaseBottomStick() {
+  if (!isMessageListScrollable()) return;
+  userScrollIntentAt = performance.now();
+  stickToBottom = false;
+  showScrollBtn.value = true;
+  stopBottomFollow();
+}
+
+/** 滚轮：向上滚（deltaY<0）= 查看历史 → 立即解除贴底；向下滚仍保持跟随（滑到底看最新） */
+function onWheelIntent(e) {
+  markUserScrollIntent();
+  if (e.deltaY < 0) releaseBottomStick();
+}
+
+let touchStartY = 0; // 触摸起点 y：与 touchmove 比较即可判断手指方向
+/** 触摸开始：登记起点与意图 */
+function onTouchStartIntent(e) {
+  touchStartY = e.touches[0]?.clientY ?? 0;
+  markUserScrollIntent();
+}
+/** 触摸移动：手指向下拖 = 内容上翻（查看历史）→ 立即解除贴底 */
+function onTouchMoveIntent(e) {
+  markUserScrollIntent();
+  if ((e.touches[0]?.clientY ?? 0) - touchStartY > 8) releaseBottomStick();
+}
+
+/** 停止贴底跟随（用户接管阅读历史或组件卸载时调用） */
+function stopBottomFollow() {
+  if (bottomFollowRafId) cancelAnimationFrame(bottomFollowRafId);
+  bottomFollowRafId = 0;
+}
+
+/** 启动常驻贴底循环：只要 stickToBottom 为真，每帧把滚动位置补到最新内容之后。
+ *  内容稳定时每帧只做一次数值比较，开销可忽略；标签页隐藏时浏览器会自动暂停 rAF。 */
+function startBottomFollow() {
+  if (bottomFollowRafId || !stickToBottom) return;
+  const step = () => {
+    bottomFollowRafId = 0;
+    const el = msgList.value;
+    if (!el || !stickToBottom) return; // 用户接管 / 已卸载 → 停手
+    // 推迟的布局（图片加载、content-visibility 重排等）让 scrollHeight 又变大 → 补滚到底
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
+      suppressHeaderRevealUntil = performance.now() + 160; // 程序化滚动不算用户滑动
+      el.scrollTop = el.scrollHeight;
+    }
+    bottomFollowRafId = requestAnimationFrame(step);
+  };
+  bottomFollowRafId = requestAnimationFrame(step);
+}
+
 function scrollToBottom() {
   showScrollBtn.value = false;
-  isUserScrolling = false;
+  stickToBottom = true;
   // 程序化滚到底不算「用户滑动」，不唤起手机端顶部操作栏（否则每条新消息都会闪一次头部）
   suppressHeaderRevealUntil = performance.now() + 160;
   nextTick(() => {
     if (msgList.value) {
       msgList.value.scrollTop = msgList.value.scrollHeight;
     }
+    startBottomFollow(); // 渲染完这一帧后交给贴底循环（图片/卡片迟到布局也能跟上）
   });
 }
 
@@ -2665,57 +2748,49 @@ function scrollToBottom() {
 // 初始的 scrollToBottom 只保证 Vue 渲染完那一帧滚到底，但之后字体加载完成、
 // 战斗卡/公告配图渲染、移动端头部收起、--vh 视口计算等仍会让 scrollHeight 继续增长，
 // 滚动位置便停在"中间"。这里做短时间的持续贴底：内容高度再变化就继续滚到底，
-// 直到用户主动滚动接管（isUserScrolling=true 即停止，绝不与用户抢滚动条）。
-let pinBottomTimers = [];
+// 直到用户主动滚动接管（stickToBottom=false 即停止，绝不与用户抢滚动条）。
 // 监听消息区容器自身高度变化（键盘弹出/头部收起等），高度一变即重新贴底
 let pinBottomResizeObs = null;
 function pinBottomOnLoad() {
-  // 1) 常规滚动（nextTick）
+  // 常驻贴底循环由 scrollToBottom 在渲染完那一帧接管：
+  // 字体/图片/战斗卡/content-visibility 等迟到布局都会被它继续兜住
   scrollToBottom();
-  // 2) 双 rAF：浏览器完成最终布局后再补一次（nextTick 只保证 Vue 渲染完）
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      if (!isUserScrolling && msgList.value) {
-        msgList.value.scrollTop = msgList.value.scrollHeight;
-      }
-    })
-  );
-  // 3) 字体加载完成后文本行高会变，必须再贴一次底（不支持 fonts API 时静默跳过）
+  // 字体加载完成后文本行高会变，显式再贴一次底（不支持 fonts API 时静默跳过）
   document.fonts?.ready
     ?.then(() => {
-      if (!isUserScrolling) scrollToBottom();
+      if (stickToBottom) scrollToBottom();
     })
     .catch(() => {});
-  // 4) 分段重试：覆盖图片/懒渲染等更晚的布局变化；用户一旦手动滚动立即停手
-  [300, 800, 1500, 2500].forEach((ms) => {
-    pinBottomTimers.push(
-      setTimeout(() => {
-        if (!isUserScrolling) scrollToBottom();
-      }, ms)
-    );
-  });
-}
-/** 清掉加载期贴底重试（组件卸载时防泄漏） */
-function clearPinBottomTimers() {
-  pinBottomTimers.forEach(clearTimeout);
-  pinBottomTimers = [];
 }
 
-// 消息滚动监听 - 检测用户是否手动向上滚动
+// 消息滚动监听：维护「贴底跟随」状态（是否继续跟着最新消息）
+// 关键：图片/卡片迟到布局、content-visibility 高度估算切换、滚动锚定补偿……
+// 这些非用户行为同样会触发 scroll 事件，此时 scrollHeight 与上次不同；
+// 不能把它们当成「用户向上翻历史」，否则就会重演"聊着聊着滚动条自己停在中间"的问题。
 let lastMsgScrollTop = 0;
+let lastSeenScrollHeight = 0;
 function onMsgScroll() {
   if (!msgList.value) return;
   const el = msgList.value;
-  const threshold = 150;
-  const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  const h = el.scrollHeight;
+  // scrollHeight 变了 → 这次 scroll 事件多半来自布局变化/程序化滚动，而非用户滚动
+  const heightChanged = h !== lastSeenScrollHeight;
+  lastSeenScrollHeight = h;
+  const isNearBottom = h - el.scrollTop - el.clientHeight < SCROLL_BOTTOM_THRESHOLD;
   if (!isNearBottom) {
-    if (!isUserScrolling) {
-      isUserScrolling = true;
+    // 只有两种情况解除贴底：① 用户刚有滚动动作（滚轮/触摸/拖拽滚动条）；
+    // ② 高度没变却离底（说明是用户自己滚上去的，而不是内容长高把我们顶上去的）
+    const userIntent = performance.now() - userScrollIntentAt < USER_SCROLL_INTENT_MS;
+    if (stickToBottom && (userIntent || !heightChanged)) {
+      stickToBottom = false;
       showScrollBtn.value = true;
+      stopBottomFollow(); // 用户接管：立刻停掉贴底循环，绝不抢滚动条
     }
   } else {
+    // 回到（接近）底部：恢复贴底跟随，按钮隐藏；用户手动滚回底部同样会恢复
+    stickToBottom = true;
     showScrollBtn.value = false;
-    isUserScrolling = false;
+    startBottomFollow();
   }
   // 用户滑动 → 滑出顶部操作栏（布局补偿/程序化滚动引起的 scroll 事件跳过，避免抖动）
   if (performance.now() >= suppressHeaderRevealUntil) revealMobileHeader();
@@ -3601,10 +3676,10 @@ onMounted(async () => {
   window.addEventListener('resize', onHeaderViewportResize);
 
   // 消息区容器高度变化（键盘弹出、头部收起、--vh 重算）时保持贴底：
-  // 用户没在手动翻历史（!isUserScrolling）才生效，避免与用户抢滚动条
+  // 用户没在手动翻历史（stickToBottom=false）才生效，避免与用户抢滚动条
   if (msgList.value && 'ResizeObserver' in window) {
     pinBottomResizeObs = new ResizeObserver(() => {
-      if (!isUserScrolling && msgList.value) {
+      if (stickToBottom && msgList.value) {
         msgList.value.scrollTop = msgList.value.scrollHeight;
       }
     });
@@ -3852,8 +3927,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   socket?.disconnect();
-  // 清理加载期贴底兜底：定时器 + 容器尺寸监听
-  clearPinBottomTimers();
+  // 清理贴底跟随循环 + 容器尺寸监听
+  stopBottomFollow();
   pinBottomResizeObs?.disconnect();
   pinBottomResizeObs = null;
   window.removeEventListener('resize', setViewportHeight);
