@@ -774,7 +774,8 @@
       <div class="ip-block" v-if="mapOverview?.currentMap">
         <h4 class="ip-title">👾 怪物 ({{ mapOverview.currentMap.monsters || 0 }})</h4>
         <div class="ip-list" v-if="mapOverview.currentMap.monsterList?.length">
-          <div v-for="m in mapOverview.currentMap.monsterList" :key="'cur-mon-' + m.name" class="ip-row">
+          <!-- 点击怪物行 = 直接发送「攻击 怪物名」指令（与 NPC 行同款快捷交互） -->
+          <div v-for="m in mapOverview.currentMap.monsterList" :key="'cur-mon-' + m.name" class="ip-row npc-row" title="点击发送攻击指令" @click="quickAction('攻击 ' + m.name)">
             <span class="ip-row-name">💀 {{ m.name }}</span>
             <span class="ip-row-meta">Lv.{{ m.level }} · HP {{ Math.round(m.hp || 0) }}</span>
           </div>
@@ -785,7 +786,8 @@
       <div class="ip-block" v-if="mapOverview?.currentMap">
         <h4 class="ip-title">⛏️ 资源 ({{ mapOverview.currentMap.resources || 0 }})</h4>
         <div class="ip-list" v-if="mapOverview.currentMap.resourceList?.length">
-          <div v-for="r in mapOverview.currentMap.resourceList" :key="'cur-res-' + r.name" class="ip-row">
+          <!-- 点击资源行 = 直接发送该资源的采集指令（gatherCmd 优先，如 打开货舱/收集能量；缺失时回退「采集 资源名」） -->
+          <div v-for="r in mapOverview.currentMap.resourceList" :key="'cur-res-' + r.name" class="ip-row npc-row" title="点击发送采集指令" @click="quickAction(r.gatherCmd || '采集 ' + r.name)">
             <span class="ip-row-name">📦 {{ r.name }}</span>
             <span class="ip-row-meta" v-if="r.count >= 0">×{{ r.count }} · {{ r.gatherCmd || '采集' }}</span>
             <span class="ip-row-meta" v-else>{{ r.gatherCmd || '采集' }}</span>
