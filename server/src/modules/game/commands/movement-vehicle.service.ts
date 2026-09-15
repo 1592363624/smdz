@@ -2832,60 +2832,286 @@ export class MovementVehicleService {
    */
 
   async handleSimulateVehicle(userId: number, targetName: string): Promise<string> {
+    // 原版 _主程序.ecode L10385-10395 + 数据分析.ecode L114-156 载具模拟：
+    // 「载具模拟 巡洋舰核心1 中型推进器1 平定者1」按部件清单模拟整备性能，
+    // 核心必须在最前；并输出 制造成本（消耗材料）。无参时给出原版提示。
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-
-    if (!player.vehicle) {
-      // 如果没有驾驶载具，模拟指定部件装配效果
-      if (!targetName) {
-        return '请指定要模拟的部件名称，或先驾驶载具后使用「载具模拟」';
-      }
-
-      // 查找部件定义（静态配置 JSON 单一来源）
-      const partDef = this.staticData.getVehiclePartByName(targetName);
-      if (!partDef) {
-        return `未找到部件【${targetName}】`;
-      }
-
-      const bonus = asJsonValue<any>(partDef.bonus, {});
-      const bonusLines = Object.entries(bonus)
-        .filter(([, v]) => typeof v === 'number' && v > 0)
-        .map(([k, v]) => `  ${k}: +${v}`);
-
-      return [
-        `🔧 部件模拟：${partDef.name}`,
-        `━━━━━━━━━━━━━━━`,
-        `类型: ${this.support.PART_TYPE_NAMES[partDef.partType] || '未知'}`,
-        `描述: ${partDef.description || '无'}`,
-        bonusLines.length > 0 ? `━━━━━━━━━━━━━━━\n加成属性:` : '',
-        ...bonusLines,
-        `━━━━━━━━━━━━━━━`,
-        `使用「组装 ${partDef.name}1」安装到当前驾驶的载具，负数取出`,
-      ].filter(Boolean).join('\n');
+    const playerName = player.name || '冒险者';
+    const payload = String(targetName || '').trim().replace(/[,，]/g, ' ').trim();
+    if (!payload) {
+      return `${playerName}\n“载具模拟巡洋舰核心1 中型推进器1 平定者1”来模拟，注意核心必须在最前`;
     }
 
-    // 已有载具：地图 JSON / DB 双存储统一
-    const map = await this.mapService.getMapById(player.mapId);
-    if (!map) return `${player.name || '冒险者'}不在服务区`;
-    const vehicle = await this.findTravelVehicle(player, map);
-    if (!vehicle) {
-      if (!targetName) {
-        return '请指定要模拟的部件名称，或先驾驶载具后使用「载具模拟」';
+    await this.taskService.advance(userId, '载具模拟');
+
+    // 解析「部件名 数量」列表（原版 去数字/取数字）
+    const tokens = payload.split(/\s+/).filter(Boolean);
+    const simParts: { 名称: string; name: string; 类型: string; type: string; 数量: number; quantity: number; 耐久: number; durability: number }[] = [];
+    const invalidParts: string[] = [];
+    for (const token of tokens) {
+      const m = token.match(/^(.*?)(\d+)$/);
+      const name = (m ? m[1] : token).trim();
+      const qty = m ? Number(m[2]) : 1;
+      if (!name || qty < 1) continue;
+      if (!this.staticData.getVehiclePartByName(name)) {
+        invalidParts.push(`【${name}不是载具部件】`);
+        continue;
       }
-      return `未找到部件【${targetName}】或当前驾驶的载具`;
+      const exist = simParts.find((p) => p.名称 === name);
+      if (exist) exist.数量 += qty;
+      else simParts.push({
+        名称: name, name,
+        类型: '资源', type: '资源',
+        数量: qty, quantity: qty,
+        耐久: 100, durability: 100,
+      });
+    }
+    if (simParts.length === 0) {
+      return `${playerName}“载具模拟巡洋舰核心1 中型推进器1 平定者1”来模拟，注意核心必须在最前`;
+    }
+    if (!String(simParts[0].名称).endsWith('核心')) {
+      return `${playerName}核心必须在最前面`;
     }
 
-    this.combatSystem.recalculateVehicle(vehicle, Date.now());
-    const parts = vehicle.零件 || [];
-    const totalBonus = vehicle.加成 || this.calcVehicleTotalBonus(vehicle);
-    const bonusText = this.renderVehicleBonus(totalBonus) || '无加成属性';
-
+    const productionBonus = this.achievementService.getAchievement(
+      asJsonValue<any>(player.markers, {}),
+      '生产',
+    );
+    const runtime = this.toRuntimeVehicle({
+      名称: '模拟载具',
+      name: '模拟载具',
+      编号: 'SIM',
+      零件: simParts,
+      配方: [],
+      加成: {},
+      标记2: [],
+    });
+    this.combatSystem.recalculateVehicle(runtime, 0, productionBonus);
+    const cost = this.calcManufactureCost(simParts.map((p) => ({ name: p.名称, count: p.数量 })));
+    const costText = cost.length > 0
+      ? cost.map((c) => `${c.name}x${this.support.round2Text(c.count)}`).join('、')
+      : '无';
+    const detail = await this.formatVehicleDetail(runtime);
     return [
-      `🔧 载具模拟：${vehicle.名称}`,
-      `部件数量: ${parts.length}个`,
-      `模拟加成:${bonusText}`,
-      `使用「组装 部件名 数量」安装，负数取出`,
-    ].join('\n');
+      detail,
+      `消耗材料:${costText}`,
+      ...invalidParts,
+    ].filter(Boolean).join('\n');
+  }
+
+  /** 取制造成本：零件按 craftings 需求折算（原版 数据分析.ecode L157-179）。 */
+  private calcManufactureCost(parts: Array<{ name: string; count: number }>): Array<{ name: string; count: number }> {
+    const craftings = this.staticData.getAllCraftings();
+    const acc = new Map<string, number>();
+    for (const p of parts) {
+      const recipe = craftings.find((c: any) => c.name === p.name);
+      if (!recipe) continue;
+      const reqs = asJsonValue<any[]>(recipe.requirements ?? recipe.需求, []);
+      for (const req of reqs) {
+        const reqName = String(req?.name ?? req?.名称 ?? '');
+        const reqCount = Number(req?.count ?? req?.数量 ?? 0);
+        if (!reqName || !Number.isFinite(reqCount)) continue;
+        acc.set(reqName, (acc.get(reqName) ?? 0) + reqCount * Number(p.count || 1));
+      }
+    }
+    return Array.from(acc, ([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /**
+   * 处理牵引命令（原版 _主程序.ecode L7722-L7808）。
+   * 需驾驶且载具有生命；大型牵引光束/牵引光束决定档位与次数预算；
+   * 6 秒冷却后对世界中的「货舱」或「能量元素」连续采集。
+   */
+  async handleTractorBeam(userId: number, target: string = ''): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers2 } = playerData;
+    const playerName = player.name || '冒险者';
+    const kind = String(target || '').trim();
+
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${playerName}不在任何地图上`;
+    const vehicle = await this.findTravelVehicle(player, map);
+    if (!vehicle) return `${playerName}需要驾驶载具`;
+    const vehicleName = String(vehicle.名称 ?? vehicle.name ?? '载具');
+    if (Number(vehicle.当前生命 ?? vehicle.currentHp ?? 0) <= 0) {
+      return `${playerName}载具需要“维修”`;
+    }
+    this.combatSystem.recalculateVehicle(vehicle, Date.now());
+
+    // 行动无限制（理由5=躺下豁免，原版 L7730）
+    const restrict = this.combatSystem.actionUnrestricted(player, { ignoreReason: 5, cannonOk: true });
+    if (restrict.restricted) return restrict.text;
+
+    // 部件档位：大型牵引光束=2/24次，牵引光束=1/6次（含内置）
+    const partNames = this.panel.collectVehiclePartNames(vehicle);
+    let tier = 0;
+    let budget = 0;
+    if (partNames.includes('大型牵引光束')) {
+      tier = 2;
+      budget = 24;
+    } else if (partNames.includes('牵引光束')) {
+      tier = 1;
+      budget = 6;
+    }
+    if (tier === 0) {
+      if (this.shortcutService?.setTempInput) {
+        await this.shortcutService.setTempInput(userId, '1@制造牵引光束#2@制造大型牵引光束');
+      }
+      return `${playerName}${vehicleName}需要安装牵引光束或大型牵引光束\n(输入 1 前往制造牵引光束)`;
+    }
+
+    // 6 秒冷却（原版 L7745）
+    const cdText = { value: '' };
+    if (this.combatState.timeIntervalRequire('牵引', 6, markers2, Date.now(), cdText, Date.now())) {
+      player.markers2 = markers2;
+      await this.playerService.savePlayer(player);
+      const beamName = tier === 1 ? '牵引光束' : '大型牵引光束';
+      return `${playerName}${vehicleName}的${beamName}正在散热,${cdText.value}`;
+    }
+    player.markers2 = markers2;
+
+    // 货舱 / 能量（原版 L7753-L7758）
+    let gatherCmd = '';
+    let resourceName = '';
+    if (kind === '货舱') {
+      gatherCmd = '打开货舱';
+      resourceName = '货舱';
+    } else if (kind === '能量') {
+      gatherCmd = '收集能量';
+      resourceName = '能量元素';
+    } else {
+      await this.playerService.savePlayer(player);
+      return `${playerName}“牵引货舱”或“牵引能量”来牵引世界中的补给`;
+    }
+
+    // 大型光束每次可拉走更多（原版 L7788-L7796：g2=min(5, d/4)）
+    const pullBudget = tier === 2 ? Math.min(5, Math.floor(budget / 4)) || 1 : 1;
+    const lines: string[] = [];
+    let pulls = 0;
+    let remain = budget;
+    const maps = await this.mapService.getAllMaps();
+    while (remain > 0) {
+      // 原版遍历地图找 资源2 中的 w4；跳过非开拓地之外的家园相关图
+      const targetMap = maps.find((m: any) => {
+        if (!m) return false;
+        const isPioneer = Boolean(m.开拓地 ?? m.isPioneer ?? false);
+        if (isPioneer) {
+          const home = String(player.houseName || '');
+          const n = String(m.name || '');
+          if (home && (n === home || n === `${home}屋内` || n === `${home}前线`)) return false;
+        }
+        const resources = this.getTractorResources(m);
+        return resources.some((r: any) => {
+          const name = String(r?.name ?? r?.名称 ?? '');
+          const times = Number(r?.times ?? r?.次数 ?? r?.amount ?? r?.数量 ?? 0);
+          return name === resourceName && times !== 0;
+        });
+      });
+      if (!targetMap) {
+        lines.push(`${playerName}没有可以牵引的${resourceName}了`);
+        break;
+      }
+      const pulled = await this.pullTractorResource(
+        userId,
+        player,
+        targetMap,
+        resourceName,
+        gatherCmd,
+        Math.min(pullBudget, remain),
+      );
+      if (pulled.count <= 0) {
+        lines.push(`${playerName}没有可以牵引的${resourceName}了`);
+        break;
+      }
+      remain -= pulled.count;
+      pulls += pulled.count;
+      lines.push(pulled.text);
+    }
+
+    await this.playerService.savePlayer(player);
+    if (pulls <= 0 && lines.length === 0) {
+      return `${playerName}没有可以牵引的${resourceName}了`;
+    }
+    return lines.join('\n') || `${playerName}牵引失败`;
+  }
+
+  /** 地图上可被牵引的目标资源（统一 resources / resources2）。 */
+  private getTractorResources(map: any): any[] {
+    const a = asJsonValue<any[]>(map?.resources, []);
+    const b = asJsonValue<any[]>(map?.resources2, []);
+    return [...a, ...b];
+  }
+
+  /**
+   * 对指定地图上的资源做一次即时牵引采集（原版 采集资源 的同步简化）。
+   * 大型牵引光束一次可多次结算；产出进背包并扣减地图次数。
+   */
+  private async pullTractorResource(
+    userId: number,
+    player: any,
+    map: any,
+    resourceName: string,
+    gatherCmd: string,
+    times: number,
+  ): Promise<{ count: number; text: string }> {
+    const resourcesKey: 'resources' | 'resources2' = ((): 'resources' | 'resources2' => {
+      const inRes = asJsonValue<any[]>(map.resources, []).some((r: any) => String(r?.name ?? r?.名称 ?? '') === resourceName);
+      return inRes ? 'resources' : 'resources2';
+    })();
+    const backpack = this.playerService.getBackpackItems(player);
+    let pulled = 0;
+    const got = new Map<string, number>();
+
+    const mutateKey = resourcesKey;
+    await this.mapService.mutateMapFields(map.id, [mutateKey], (f) => {
+      const list = f[mutateKey] as any[];
+      const idx = list.findIndex((r: any) => String(r?.name ?? r?.名称 ?? '') === resourceName);
+      if (idx < 0) return false;
+      const r = list[idx];
+      const outputs = asJsonValue<any[]>(r?.outputs ?? r?.产出, []);
+      let budget = Math.max(1, Math.floor(times));
+      let changed = false;
+      while (budget > 0) {
+        const timesLeft = Number(r?.times ?? r?.次数 ?? r?.amount ?? r?.数量 ?? 0);
+        if (timesLeft === 0) break;
+        for (const out of outputs) {
+          const name = String(out?.name ?? out?.名称 ?? '');
+          const qty = Number(out?.count ?? out?.数量 ?? 0);
+          const chance = Number(out?.chance ?? out?.几率 ?? 100);
+          if (!name || qty <= 0) continue;
+          if (Math.random() * 100 >= chance) continue;
+          this.addBackpackItem(player, backpack, name, qty);
+          got.set(name, (got.get(name) || 0) + qty);
+        }
+        // 次数-1（-1=无限）
+        if (timesLeft > 0) {
+          const next = timesLeft - 1;
+          r.times = next;
+          r.次数 = next;
+          r.amount = next;
+          r.数量 = next;
+          if (next <= 0) {
+            list.splice(idx, 1);
+          }
+        }
+        budget -= 1;
+        pulled += 1;
+        changed = true;
+      }
+      return changed;
+    });
+
+    if (pulled <= 0) return { count: 0, text: '' };
+    player.backpack = backpack;
+    await this.achievementService.addAchievement(player, '牵引', pulled);
+    await this.taskService.advance(userId, gatherCmd === '打开货舱' ? '打开货舱' : '牵引' + resourceName, pulled);
+    const loot = [...got.entries()].map(([n, q]) => `${n}x${this.support.round2Text(q)}`).join('、') || '无';
+    return {
+      count: pulled,
+      text: `${player.name || '冒险者'}从${map.name}牵引了${resourceName}x${pulled}，获得:${loot}`,
+    };
   }
 
   /**

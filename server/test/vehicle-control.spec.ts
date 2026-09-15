@@ -16,6 +16,7 @@ function makeService(options: {
   user?: any;
   player?: any;
   map?: any;
+  allMaps?: any[];
   dbVehicles?: any[];
   previousPlayers?: Map<number, any>;
 }) {
@@ -81,19 +82,59 @@ function makeService(options: {
 
   const playerService: any = {
     getPlayerData: jest.fn(async (userId: number) => {
-      if (userId === player.userId) return { player };
+      if (userId === player.userId) return { player, markers: parseValue(player.markers, {}) };
       const previous = previousPlayers.get(userId);
       return previous ? { player: previous } : { player: null };
     }),
     savePlayer: jest.fn(async (value: any) => { savedPlayers.push(value); }),
     safeJsonParse: jest.fn(parseValue),
+    getBackpackItems: (value: any) => parseValue<any[]>(value.backpack, []),
+    getCurrencyAmount: (value: any, name: string, backpack?: any[]) => {
+      const items = backpack ?? parseValue<any[]>(value.backpack, []);
+      const item = items.find((it: any) => it?.name === name);
+      return Number(item?.quantity ?? item?.count ?? 0) || 0;
+    },
+    setCurrencyAmount: (value: any, name: string, qty: number, backpack?: any[]) => {
+      const items = backpack ?? parseValue<any[]>(value.backpack, []);
+      const idx = items.findIndex((it: any) => it?.name === name);
+      const n = Number(qty) || 0;
+      if (n <= 0) {
+        if (idx >= 0) items.splice(idx, 1);
+      } else if (idx >= 0) {
+        items[idx].quantity = n;
+        items[idx].count = n;
+      } else {
+        items.push({ name, type: '资源', quantity: n, count: n });
+      }
+      if (!backpack) value.backpack = items;
+    },
+    isPlayerDead: (value: any) => (value.hp || 0) <= 0,
   };
   const mapService: any = {
-    getMapById: jest.fn(async () => map),
+    getMapById: jest.fn(async (id?: number) => (id == null || map.id === id) ? map : null),
+    getAllMaps: jest.fn(async () => options.allMaps || [map]),
     updateDynamicFields: jest.fn(async (_mapId: number, data: any) => {
       updateCalls.push(data);
       Object.assign(map, data);
     }),
+    mutateMapFields: jest.fn(async (mapId: number, _fields: string[], mutator: (f: any) => any) => {
+      const targetMap = (options.allMaps || []).find((m: any) => m.id === mapId)
+        || (map.id === mapId ? map : null)
+        || map;
+      const working: Record<string, any> = {};
+      for (const key of ['resources', 'resources2', 'vehicles', 'summons', 'markers2']) {
+        if (targetMap[key] !== undefined) {
+          const raw = targetMap[key];
+          working[key] = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        }
+      }
+      const result = await mutator(working);
+      for (const key of Object.keys(working)) {
+        targetMap[key] = JSON.stringify(working[key]);
+      }
+      return result;
+    }),
+    getMapMonsters: jest.fn(async () => []),
   };
   const achievementService: any = {
     addAchievement: jest.fn(async (_player: any, name: string) => { achievements.push(name); }),
@@ -108,12 +149,36 @@ function makeService(options: {
         vehicle.加成 = { ...(vehicle.加成 || {}), 生命: Number(vehicle.加成?.生命 ?? vehicle.maxHp ?? 100) };
         return vehicle;
       }),
+      actionUnrestricted: jest.fn(() => ({ restricted: false, text: '' })),
+    };
+    const combatState: any = {
+      timeIntervalRequire: jest.fn(() => false),
+      addMarker: jest.fn(),
+      buffRequire: jest.fn(() => false),
     };
     const staticData: any = {
-      getVehiclePartSpecByName: jest.fn(() => null),
+      getVehiclePartSpecByName: jest.fn((name: string) =>
+        name === '牵引光束' || name === '大型牵引光束' || name === '巡洋舰核心'
+          ? { name, partType: name.endsWith('核心') ? 0 : 4, bonus: {} }
+          : null),
       getBuildingByName: jest.fn(() => null),
-      getVehiclePartByName: jest.fn(() => null),
+      getVehiclePartByName: jest.fn((name: string) =>
+        name.endsWith('核心') || name === '牵引光束' || name === '大型牵引光束' || name === '中型推进器'
+          ? { name, partType: name.endsWith('核心') ? 0 : 4, bonus: { 生命: 100 } }
+          : null),
+      getAllCraftings: jest.fn(() => [
+        { name: '牵引光束', requirements: [{ name: '铁矿', count: 2 }] },
+        { name: '巡洋舰核心', requirements: [{ name: '铁矿', count: 10 }] },
+      ]),
+      getAllVehiclePartSpecs: jest.fn(() => []),
     };
+    const gatherPanel: any = {
+      collectVehiclePartNames: jest.fn((vehicle: any) => {
+        const parts = Array.isArray(vehicle?.零件) ? vehicle.零件 : [];
+        return parts.map((p: any) => String(p?.名称 ?? p?.name ?? ''));
+      }),
+    };
+    const shortcutService: any = { setTempInput: jest.fn(async () => undefined) };
 
     const service = createGameServiceStub({
       prisma: prisma,
@@ -136,12 +201,14 @@ function makeService(options: {
       chatService: {} as any,
       feedbackService: {} as any,
       taskService: taskService,
-      shortcutService: {} as any,
+      shortcutService,
       statsService: {} as any,
-      combatState: {} as any,
+      combatState,
+      gatherPanelService: gatherPanel,
     });
+    (service.movementVehicleService as any).panel = gatherPanel;
 
-  return { service, player, map, dbVehicles, previousPlayers, updateCalls, dbUpdateCalls, savedPlayers, achievements };
+  return { service, player, map, dbVehicles, previousPlayers, updateCalls, dbUpdateCalls, savedPlayers, achievements, staticData, combatSystem, combatState, shortcutService };
 }
 
 function vehicle(overrides: any = {}) {
@@ -366,5 +433,77 @@ describe('载具状态/命名/架炮（地图 JSON 双存储统一）', () => {
       ],
     });
     expect(over).toBe('功能部件');
+  });
+});
+
+describe('牵引与载具模拟（原版对齐）', () => {
+  it('无牵引光束时提示制造', async () => {
+    const { service, shortcutService } = makeService({
+      player: { id: 1, userId: 10, name: '甲', mapId: 7, vehicle: 'vehicle-1', sets: '{}', masterQQ: '' },
+      map: {
+        id: 7, mapIndex: 7, name: '医疗室',
+        vehicles: JSON.stringify([{
+          名称: '测试车', name: '测试车', 编号: 'vehicle-1', vehicleId: 'vehicle-1',
+          归属: 'qq10', owner: 'qq10', 驾驶员: 'qq10', driver: 'qq10',
+          当前生命: 100, currentHp: 100,
+          零件: [{ 名称: '骑士核心', name: '骑士核心', 数量: 1, quantity: 1 }],
+          配方: [], 加成: {}, 标记2: [],
+        }]),
+        summons: '[]',
+      },
+    });
+    const result = await service.handleTractorBeam(10, '货舱');
+    expect(result).toContain('需要安装牵引光束或大型牵引光束');
+  });
+
+  it('牵引货舱：有牵引光束时从目标地图拉取资源', async () => {
+    const cargoMap = {
+      id: 9, name: '荒野',
+      resources: JSON.stringify([{ name: '货舱', times: 3, outputs: [{ name: '能量块', count: 2, chance: 100 }] }]),
+      resources2: '[]',
+      vehicles: '[]', summons: '[]',
+    };
+    const { service, player, map } = makeService({
+      player: { id: 1, userId: 10, name: '甲', mapId: 7, vehicle: 'vehicle-1', sets: '{}', masterQQ: '', backpack: '[]', markers: '{}', markers2: '[]' },
+      map: {
+        id: 7, mapIndex: 7, name: '医疗室',
+        vehicles: JSON.stringify([{
+          名称: '测试车', name: '测试车', 编号: 'vehicle-1', vehicleId: 'vehicle-1',
+          归属: 'qq10', owner: 'qq10', 驾驶员: 'qq10', driver: 'qq10',
+          当前生命: 100, currentHp: 100,
+          零件: [
+            { 名称: '骑士核心', name: '骑士核心', 数量: 1, quantity: 1 },
+            { 名称: '牵引光束', name: '牵引光束', 数量: 1, quantity: 1 },
+          ],
+          配方: [], 加成: {}, 标记2: [],
+        }]),
+        summons: '[]',
+      },
+      allMaps: [cargoMap, {
+        id: 7, name: '医疗室', resources: [], resources2: [], vehicles: '[]', summons: '[]',
+      }],
+    });
+
+    const result = await service.handleTractorBeam(10, '货舱');
+    expect(result).toContain('牵引了货舱');
+    const bag = parseValue<any[]>(player.backpack, []);
+    expect(bag.find((i: any) => i.name === '能量块')?.quantity).toBeGreaterThan(0);
+    // 原版循环直到预算用尽或世界无货舱：3 次货舱被普通光束拉完后资源移除
+    const cargo = parseValue<any[]>(cargoMap.resources, []);
+    expect(cargo).toHaveLength(0);
+  });
+
+  it('载具模拟输出整备详情与消耗材料', async () => {
+    const { service } = makeService({});
+    const result = await service.handleSimulateVehicle(10, '巡洋舰核心1 牵引光束1');
+    expect(result).toContain('巡洋舰核心');
+    expect(result).toContain('消耗材料:');
+    expect(result).toContain('铁矿');
+  });
+
+  it('载具模拟提示核心必须在最前', async () => {
+    const { service } = makeService({});
+    const result = await service.handleSimulateVehicle(10, '牵引光束1 巡洋舰核心1');
+    expect(result).toContain('核心必须在最前面');
   });
 });

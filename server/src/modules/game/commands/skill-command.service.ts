@@ -589,47 +589,8 @@ export class SkillCommandService {
    * 委托到 FamiliarSkillsService.executeSkill 执行切换模式技能
    */
 
-  async handleTractorBeam(userId: number, targetName: string): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
-
-    if (!player.vehicle) {
-      return '你当前没有驾驶任何载具，无法使用牵引光束';
-    }
-
-    if (!targetName) {
-      return '请指定牵引目标，格式：牵引 目标名';
-    }
-
-    // 检查载具是否安装了功能部件（partType=4）
-    const vehicleId = parseInt(player.vehicle, 10);
-    if (isNaN(vehicleId)) return '载具数据异常';
-
-    const vehicle = await this.prisma.gameVehicle.findUnique({
-      where: { id: vehicleId },
-    });
-    if (!vehicle) return '载具数据不存在';
-
-    const parts = asJsonValue<any[]>(vehicle.parts, []);
-    const funcParts = parts.filter((p: any) => p.partType === 4);
-
-    if (funcParts.length === 0) {
-      return '载具没有安装功能部件，无法使用牵引光束\n请先安装功能部件';
-    }
-
-    // 查找目标（可能是玩家或物品）
-    const targetUser = await this.prisma.user.findUnique({
-      where: { qqNumber: targetName },
-    });
-
-    this.logger.log(`玩家 ${userId} 使用牵引光束拖拽目标 ${targetName}`);
-
-    if (targetUser) {
-      return `🔦 牵引光束已锁定目标玩家【${targetUser.nickname || targetUser.username}】\n正在拖拽...\n（牵引功能简化版，实际效果取决于目标状态）`;
-    }
-
-    return `🔦 牵引光束已锁定目标【${targetName}】\n正在拖拽...`;
-  }
+  // 牵引真实实现已迁至 MovementVehicleService.handleTractorBeam（原版 L7722-L7808）。
+  // game.service.handleTractorBeam 直连 movement，本文件不再维护副本。
 
   /**
    * 处理控制终端命令（对齐原版 _主程序.ecode L10714-10871）：
@@ -694,7 +655,7 @@ export class SkillCommandService {
       `  架炮 - 恶毒专属：架起/收起炮击阵地`,
       `  模式转换 - 切换模式`,
       `  转换 - 切换形态`,
-      `  牵引 - 使用牵引光束`,
+      `  牵引货舱 / 牵引能量 - 用牵引光束远程拉取补给`,
       `  维修 - 修复耐久度`,
       `━━━━━━━━━━━━━━━`,
       `插槽使用:`,

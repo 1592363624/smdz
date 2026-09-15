@@ -1127,7 +1127,7 @@ export class GameService {
     return this.skillCommandService.handleTransform(userId, targetForm);
   }
   async handleTractorBeam(userId: number, targetName: string): Promise<string>{
-    return this.skillCommandService.handleTractorBeam(userId, targetName);
+    return this.movementVehicleService.handleTractorBeam(userId, targetName);
   }
   async handleControlTerminal(userId: number, arg = ''): Promise<string>{
     return this.skillCommandService.handleControlTerminal(userId, arg);
