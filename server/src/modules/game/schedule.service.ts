@@ -17,6 +17,7 @@ import { AutoMineService } from './auto-mine.service';
 import { GameService } from './game.service';
 import { StaticDataService } from './static-data.service';
 import { DungeonService, DUNGEON_ENTRY_SOURCE } from './dungeon.service';
+import { DungeonChallengeService } from './commands/dungeon-challenge.service';
 import { runSilent } from '../../game-sync/write-context';
 import { filterActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -40,11 +41,6 @@ function toNameArray(value: unknown): string[] {
   return [];
 }
 
-/**
- * 默认随机无主载具名称列表（未配置 game.randomVehicles 时使用）
- */
-const DEFAULT_VEHICLES = ['流浪者', '勘探者', '游骑兵', '探险家', '开拓者'];
-
 @Injectable()
 export class ScheduleService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ScheduleService.name);
@@ -67,6 +63,8 @@ export class ScheduleService implements OnApplicationBootstrap {
     private readonly gameService: GameService,
     private readonly staticData: StaticDataService,
     private readonly dungeonService: DungeonService,
+    // 废弃载具生成与管理员指令共用同一实现（DungeonChallengeService 由全局 GameModule 导出）
+    private readonly dungeonChallengeService: DungeonChallengeService,
   ) {}
 
   /**
@@ -397,8 +395,8 @@ export class ScheduleService implements OnApplicationBootstrap {
       // 7. 生成小蓝（5%几率生成特殊物品）
       await this.spawnBlueItem(maps);
 
-      // 8. 生成随机无主载具（10点/22点必刷，其他时间随机）
-      await this.spawnRandomVehicle(maps);
+      // 8. 生成随机无主载具（10点/22点全图无载具时必刷，其余时间按 wrecks.json 几率判定）
+      await this.spawnRandomVehicle();
     } catch (err: any) {
       this.logger.error(`行商判断失败: ${err.message}`);
     } finally {
@@ -697,59 +695,37 @@ export class ScheduleService implements OnApplicationBootstrap {
   }
 
   /**
-   * 生成随机无主载具
-   * 对应原版：生成随机载具()，10点/22点必刷，其他时间随机几率生成
-   * @param maps 可刷特殊的地图列表
+   * 生成随机无主载具（废弃载具）
+   * 对应原版：后台运作.ecode L1390-L1412 行商判断尾部：
+   *   1. 扫全图是否已存在"无主"载具（b=1）；
+   *   2. 全图无无主载具时取当前小时数 → 10点/22点必刷（生成随机载具(真)）；
+   *   3. 其余情况走常规几率判定（生成随机载具()，按 wrecks.json 各载具几率逐个判定，
+   *      可能整轮未命中 → 本小时不生成）。
+   * 生成与投放统一走 DungeonChallengeService.spawnWreckToRandomMap（与管理员指令同源，
+   * 数据源 wrecks.json 而非普通载具名）。
    */
-  private async spawnRandomVehicle(maps: any[]): Promise<void> {
+  private async spawnRandomVehicle(): Promise<void> {
     try {
       const hour = new Date().getHours();
-      let mustSpawn = hour === 10 || hour === 22;
-
-      // 原版 后台运作.ecode L1393-L1405：全图已存在无主载具时，
-      // 10/22 点的必刷失效，退化为普通随机几率（每小时最多一个）。
-      if (mustSpawn) {
-        const hasOwnerless = maps.some((map: any) =>
-          this.parseJsonArray<any>(map.vehicles).some(
-            (v: any) => String(v?.owner ?? v?.归属 ?? '') === '无主',
+      let force = false;
+      if (hour === 10 || hour === 22) {
+        // 原版 L1393-L1405 扫的是全部地图（含开拓地/关卡等），不只可刷特殊地图
+        const allMaps = await this.mapService.getAllMaps();
+        const hasOwnerless = allMaps.some((map: any) =>
+          asJsonValue<any[]>(map.vehicles, []).some(
+            // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
+            (v: any) => String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主',
           ),
         );
-        if (hasOwnerless) mustSpawn = false;
+        // 全图已存在无主载具时，10/22 的必刷退化为常规几率判定
+        if (!hasOwnerless) force = true;
       }
-
-      // 非必刷时间，按随机几率判断（默认50%）
-      if (!mustSpawn) {
-        const chance = await this.getConfigValue<number>('game.vehicleChance', 50);
-        if (Math.random() * 100 >= chance) return;
+      const result = await this.dungeonChallengeService.spawnWreckToRandomMap(force);
+      if (result.ok) {
+        this.logger.log(
+          `行商判断: 在地图 ${result.mapName} 生成了无主载具「${result.wreckName}」${force ? '（10/22点必刷）' : ''}`,
+        );
       }
-
-      const vehicleNames = await this.getConfigValue<string[]>('game.randomVehicles', DEFAULT_VEHICLES);
-      if (!vehicleNames || vehicleNames.length === 0) return;
-
-      const name = vehicleNames[Math.floor(Math.random() * vehicleNames.length)];
-      const map = this.pickRandomMap(maps);
-      const vehicles = this.parseJsonArray<any>(map.vehicles);
-
-      vehicles.push({
-        name,
-        owner: '无主',
-        driver: '',
-        vehicleId: this.genId(),
-        type: '',
-        moveType: 0,
-        maxHp: 100,
-        currentHp: 100,
-        parts: [],
-        markers: {},
-        markers2: [],
-        recipes: [],
-        builtinParts: [],
-        bonus: {},
-      });
-      await this.mapService.updateDynamicFields(map.id, {
-        vehicles: vehicles,
-      });
-      this.logger.log(`行商判断: 在地图 ${map.name} 生成了无主载具「${name}」`);
     } catch (err: any) {
       this.logger.error(`生成随机载具失败: ${err.message}`);
     }

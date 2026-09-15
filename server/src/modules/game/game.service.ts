@@ -976,6 +976,9 @@ export class GameService {
   async handleViewVehicles(userId: number): Promise<string>{
     return this.movementVehicleService.handleViewVehicles(userId);
   }
+  async handleViewVehicle(userId: number, vehicleName: string): Promise<string>{
+    return this.movementVehicleService.handleViewVehicle(userId, vehicleName);
+  }
   async handleViewCrops(userId: number): Promise<string>{
     return this.homeBuildService.handleViewCrops(userId);
   }

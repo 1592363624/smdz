@@ -3518,6 +3518,140 @@ export class MovementVehicleService {
   }
 
   /**
+   * 查看载具详情（「查看 载具名」，「查看载具」编号菜单的落地指令）
+   * 对应原版：地图链接 @查看+编号 → 显示载具（数据显示.ecode L2430-L2510）
+   * 在当前地图载具中按 名称/编号 匹配（含无主废弃载具）；找不到时提示。
+   */
+  async handleViewVehicle(userId: number, vehicleName: string): Promise<string> {
+    if (!vehicleName) {
+      return '请指定载具名称，格式：查看 载具名（可先发送「查看载具」获取列表）';
+    }
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+
+    // 与 handleDriveVehicle 相同的键匹配口径：编号/vehicleId/名称 皆可命中
+    const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
+    const keys = (v: any): string[] =>
+      [v?.编号, v?.vehicleId, v?.id, v?.名称, v?.name]
+        .filter((k) => k !== undefined && k !== null && String(k) !== '')
+        .map(String);
+    const index = vehicles.findIndex((v: any) => keys(v).includes(String(vehicleName)));
+    if (index < 0) {
+      return `${player.name || '冒险者'}附近没有${vehicleName}`;
+    }
+    const runtime = this.toRuntimeVehicle(vehicles[index]);
+    // 原版查看载具前必先 计算载具 刷新生命/状态（_主程序.ecode L5766/L5776）
+    this.combatSystem.recalculateVehicle(runtime, Date.now());
+    // 归属判定口径与 handleDriveVehicle 一致（userId/qqNumber/externalId/masterQQ 皆算自己）
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const ownerIds = new Set(
+      [String(userId), String(user?.qqNumber || ''), String(user?.externalId || ''), String(player.masterQQ || '')]
+        .filter(Boolean),
+    );
+    const owner = String(runtime?.归属 ?? runtime?.owner ?? '');
+    const isOwn = ownerIds.has(owner);
+    if (isOwn) {
+      // 原版 L5767：自己的载具计算后写回地图；无主/他人载具仅临时计算不落库
+      const stored = vehicles.slice();
+      stored[index] = this.toStoredVehicle(runtime);
+      await this.mapService.updateDynamicFields(map.id, { vehicles: stored });
+    }
+
+    const detail = await this.formatVehicleDetail(runtime);
+    // 原版查看载具尾部菜单（_主程序.ecode L5770-L5781）：
+    // 自己的载具 → 1、载具操作（加成.生产>0 时追加 2、生产）；
+    // 无主载具 → 1、获取权限（临时输入 1@驾驶+编号 / 获取权限@驾驶+编号）
+    if (isOwn) {
+      const options: { label: string; cmd: string }[] = [{ label: '载具操作', cmd: '载具操作' }];
+      if (Number(runtime?.加成?.生产 ?? 0) > 0) options.push({ label: '生产', cmd: '生产' });
+      const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可操作');
+      return `${detail}\n${menu.join('\n')}`;
+    }
+    if (owner === '无主') {
+      const vid = String(runtime?.编号 ?? runtime?.vehicleId ?? vehicleName);
+      const menu = await this.support.buildNumberedMenu(
+        userId,
+        [{ label: '获取权限', cmd: `驾驶 ${vid}` }],
+        '💡 发送编号数字即可获取权限',
+        ['获取权限@驾驶' + vid], // 原版同时映射文字别名 获取权限@驾驶+编号（L5781）
+      );
+      return `${detail}\n${menu.join('\n')}`;
+    }
+    return detail;
+  }
+
+  /**
+   * 原版 取玩家名称：数字归属（userId）解析为玩家名称，解析不到原样返回。
+   * 对应原版 数据显示.ecode L2449「主人:」+ 取玩家名称(载具.归属)。
+   */
+  private async resolvePlayerName(idOrName: string): Promise<string> {
+    if (!/^\d+$/.test(idOrName)) return idOrName;
+    const numeric = Number(idOrName);
+    if (!Number.isInteger(numeric) || numeric <= 0) return idOrName;
+    const player = await this.prisma.player.findUnique({
+      where: { userId: numeric },
+      select: { name: true },
+    });
+    return String(player?.name || idOrName);
+  }
+
+  /**
+   * 载具详情文本（原版 数据显示.ecode 显示载具 L2430-L2510 的网页版呈现）
+   * 生命/主人/驾驶员/四槽位/移动方式/ID/零件清单；无主载具主人显示"无主"。
+   */
+  private async formatVehicleDetail(runtime: any): Promise<string> {
+    const name = String(runtime?.名称 ?? runtime?.name ?? '未知载具');
+    // 原版：类型 = 零件[1].名称 去掉"核心"（计算载具同款推导），类型为空时回退现算
+    let type = String(runtime?.类型 ?? runtime?.type ?? '');
+    const parts = Array.isArray(runtime?.零件) ? runtime.零件 : [];
+    if (!type && parts.length > 0) {
+      type = String(parts[0]?.名称 ?? '').replace(/核心/g, '');
+    }
+    const currentHp = Number(runtime?.当前生命 ?? runtime?.currentHp ?? 0);
+    const maxHp = Number(runtime?.生命 ?? runtime?.maxHp ?? 0);
+    const owner = String(runtime?.归属 ?? runtime?.owner ?? '');
+    const driver = String(runtime?.驾驶员 ?? runtime?.driver ?? '');
+    const num = (v: any) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 100) / 100 : 0);
+
+    const lines: string[] = [];
+    lines.push(type ? `${name}(${type})` : name);
+    lines.push(`生命: ${num(currentHp)}/${num(maxHp)}`);
+    // 原版 归属三态（L2446-L2457）：无主 → "无主"；数字归属 → 取玩家名称；其余（召唤物持有）原样
+    if (owner === '无主') {
+      lines.push('主人: 无主');
+    } else if (owner === '') {
+      lines.push('主人: 无');
+    } else {
+      lines.push(`主人: ${await this.resolvePlayerName(owner)}`);
+    }
+    // 驾驶员同口径（L2458-L2466）：数字 → 取玩家名称，空 → 无
+    lines.push(`驾驶员: ${driver ? await this.resolvePlayerName(driver) : '无'}`);
+    lines.push(
+      `武器: ${num(runtime?.武器)}/${num(runtime?.武器上限)}  防御: ${num(runtime?.防御)}/${num(runtime?.防御上限)}` +
+      `  功能: ${num(runtime?.功能)}/${num(runtime?.功能上限)}  行走: ${num(runtime?.行走)}/${num(runtime?.行走上限)}`,
+    );
+    // 移动方式（原版 L2468-L2476）：1=陆地、2=飞行、3=跃迁、0/4=坐地(无法移动)
+    const moveType = Number(runtime?.行走方式 ?? runtime?.moveType ?? 0);
+    const moveText = moveType === 1 ? '陆地' : moveType === 2 ? '飞行' : moveType === 3 ? '跃迁' : '坐地(无法移动)';
+    lines.push(`移动方式: ${moveText}  ID: ${runtime?.编号 ?? runtime?.vehicleId ?? ''}`);
+
+    // 零件清单（原版 L2477-L2510 将零件分为 载具部件/其他物品/生产限制 三组，网页版统一列表带数量）
+    if (parts.length > 0) {
+      lines.push(`零件 (${parts.length}项):`);
+      for (const p of parts) {
+        const pName = String(p?.名称 ?? p?.name ?? '未知');
+        const qty = Number(p?.数量 ?? p?.quantity ?? p?.count ?? 1);
+        lines.push(qty > 1 ? `  ${pName} ×${qty}` : `  ${pName}`);
+      }
+    } else {
+      lines.push('零件: 无');
+    }
+    return lines.join('\n');
+  }
+
+  /**
    * 处理查看作物命令（对应原版 _主程序.ecode L5466）
    * 列出当前地图资源2中可产出（产出2非空）的作物，并生成编号快捷。
    */

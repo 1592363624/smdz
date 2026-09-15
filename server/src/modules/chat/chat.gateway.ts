@@ -232,11 +232,15 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
    * 接收用户发来的消息（聊天 或 指令）
    * 前端聊天框发送的内容统一走这里。
    * 支持多行输入：每行作为一个独立指令/聊天消息，按顺序逐行执行。
+   *
+   * source='floating'（右下角世界聊天悬浮窗发出）：该入口定位为纯聊天频道，
+   * 内容一律作为聊天广播，不进快捷替换/指令系统——"在哪个窗口发就归哪个窗口"，
+   * 避免"签到"这类指令名文字在悬浮窗发出后被执行并跑到中央公屏。
    */
   @SubscribeMessage('chat:message')
   async handleIncomingMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { content: string },
+    @MessageBody() body: { content: string; source?: string },
   ) {
     const user: SocketUser | undefined = client.data.user;
     if (!user) {
@@ -245,6 +249,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     }
     const content = (body?.content || '').trim();
     if (!content) return;
+    const source = body?.source === 'floating' ? 'floating' : 'main';
 
     // 发送间隔限流（防刷屏）：0=不限制
     const intervalMs = await this.getMessageIntervalMs();
@@ -260,7 +265,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (lines.length > 1) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        await this.processSingleLine(client, user, line);
+        await this.processSingleLine(client, user, line, source);
         // 最后一行不等待，其余行之间按配置间隔等待
         if (i < lines.length - 1) {
           await new Promise(resolve => setTimeout(resolve, Math.max(intervalMs, 100)));
@@ -272,7 +277,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     }
 
     // 单行输入：保持原有逻辑
-    await this.processSingleLine(client, user, content);
+    await this.processSingleLine(client, user, content, source);
   }
 
   /** 读取用户消息最小间隔（毫秒）；配置异常或 ≤0 时返回 0（不限制） */
@@ -308,33 +313,43 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   /**
    * 处理单行消息（指令 或 聊天）
    * 抽离为独立方法，供单行和多行输入复用
+   * @param source 消息来源：'floating'=世界聊天悬浮窗（纯聊天，不进指令系统）；'main'=主输入框（指令判定优先）
    */
-  private async processSingleLine(client: Socket, user: SocketUser, rawContent: string) {
+  private async processSingleLine(
+    client: Socket,
+    user: SocketUser,
+    rawContent: string,
+    source: 'floating' | 'main' = 'main',
+  ) {
     let content = rawContent;
 
-    // 先经过快捷输入系统预处理（快捷键/输入替换/临时替换）
-    content = await this.shortcutService.processShortcut(content, user.userId);
+    // 悬浮窗消息：定位为纯聊天频道，跳过快捷替换与指令判定，直接公屏广播
+    if (source !== 'floating') {
+      // 先经过快捷输入系统预处理（快捷键/输入替换/临时替换）
+      content = await this.shortcutService.processShortcut(content, user.userId);
 
-    // 判断是否是指令：根据配置的前缀和"是否必须前缀"决定（见 GlobalConfig）
-    const isCommand = await this.isCommandInput(content, user.userId);
+      // 判断是否是指令：根据配置的前缀和"是否必须前缀"决定（见 GlobalConfig）
+      const isCommand = await this.isCommandInput(content, user.userId);
 
-    if (isCommand) {
-      // 新玩家选使魔门禁不在网关重复判定：CommandService.dispatch 已有同款拦截
-      // （覆盖网页/AstrBot/API 所有渠道），且门禁判定需要全量读玩家——网关这边
-      // 每条指令都读一遍纯属浪费，直接放行交给 dispatch。
-      await this.handleCommand(client, user, content);
-    } else {
-      // 普通聊天，公屏广播
-      const msg = await this.chatService.saveMessage({
-        channelId: user.channelId,
-        senderId: user.userId,
-        type: 'chat',
-        content,
-      });
-      this.server.to('世界频道').emit('chat:message', msg);
-      // 解析 @提及并定向通知被提及的玩家（不改变公屏显示，仅推送提醒）
-      await this.notifyMentions(user, content);
+      if (isCommand) {
+        // 新玩家选使魔门禁不在网关重复判定：CommandService.dispatch 已有同款拦截
+        // （覆盖网页/AstrBot/API 所有渠道），且门禁判定需要全量读玩家——网关这边
+        // 每条指令都读一遍纯属浪费，直接放行交给 dispatch。
+        await this.handleCommand(client, user, content);
+        return;
+      }
     }
+
+    // 普通聊天，公屏广播
+    const msg = await this.chatService.saveMessage({
+      channelId: user.channelId,
+      senderId: user.userId,
+      type: 'chat',
+      content,
+    });
+    this.server.to('世界频道').emit('chat:message', msg);
+    // 解析 @提及并定向通知被提及的玩家（不改变公屏显示，仅推送提醒）
+    await this.notifyMentions(user, content);
   }
 
   /**

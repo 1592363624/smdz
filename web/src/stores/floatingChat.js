@@ -84,6 +84,26 @@ export const useFloatingChatStore = defineStore('floatingChat', {
       }
     },
 
+    /**
+     * 移除与广播消息匹配的「自己的」pending 回显。
+     * 场景：本地预判为聊天进了悬浮窗，服务端最终判定为指令广播到中央公屏；
+     * 指令广播不会进悬浮窗替换 pending，需在收到指令广播时主动移除，
+     * 避免同一条消息在悬浮窗与中央公屏各显示一份。
+     * 匹配规则与 append 的替换一致：先按内容精确匹配，找不到再按 FIFO 取最旧的
+     * 一条（兼容快捷输入替换导致广播内容与原输入不同的情况），只认 30 秒内的 pending。
+     */
+    removePendingLike(msg) {
+      if (!msg || msg.sender?.id == null) return;
+      const now = Date.now();
+      const freshSelf = (m) =>
+        m._pending &&
+        m.sender?.id === msg.sender.id &&
+        now - new Date(m.createdAt).getTime() < 30000;
+      let idx = this.messages.findIndex((m) => freshSelf(m) && m.content === msg.content);
+      if (idx < 0) idx = this.messages.findIndex(freshSelf);
+      if (idx >= 0) this.messages.splice(idx, 1);
+    },
+
     /** 记录当前用户 id，用于判断消息是否自己发的（自己发的不计未读） */
     setSelfId(id) {
       this.selfId = id == null ? null : String(id);

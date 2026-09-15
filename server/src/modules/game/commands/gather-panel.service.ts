@@ -1664,10 +1664,29 @@ export class GatherPanelService {
     const connections = this.mapService.getConnections(currentMap);
     const monsters = await this.mapService.getMapMonsters(currentMap);
 
+    // 载具（原版 地图操作.ecode L806-L828：载具列在怪物之前，
+    // 无主载具（废弃载具）名称后加 [!] 标记；详情用「查看载具」查看）
+    const vehicles = asJsonValue<any[]>(currentMap.vehicles, []);
+    const vehicleLines: string[] = [];
+    if (vehicles.length > 0) {
+      vehicleLines.push(`载具数量: ${vehicles.length}`);
+      vehicleLines.push(
+        `载具: ${vehicles
+          .map((v: any) => {
+            const vName = String(v?.name ?? v?.名称 ?? '未知载具');
+            // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
+            const unowned = String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主';
+            return unowned ? `${vName}[!]` : vName;
+          })
+          .join(', ')}`,
+      );
+    }
+
     const lines = [
       `🗺️ 【${currentMap.name}】`,
       currentMap.description ? `📖 ${currentMap.description}` : '',
       `━━━━━━━━━━━━━━━`,
+      ...vehicleLines,
       `怪物数量: ${monsters.length}`,
       monsters.length > 0
         ? `怪物: ${monsters.map((m: any) => m.name || '未知').join(', ')}`
@@ -3014,6 +3033,20 @@ export class GatherPanelService {
       }
     }
 
+    // 载具（原版地图显示含载具，无主载具即"废弃载具"，加 [!] 标记——地图操作.ecode L806-L828；
+    // 无主载具可「驾驶 载具名」接管，「查看载具」看零件详情）
+    const vehicles = asJsonValue<any[]>(map.vehicles, []);
+    if (vehicles.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(`🚗 载具 (${vehicles.length}辆):`);
+      for (const v of vehicles) {
+        const vName = String(v?.name ?? v?.名称 ?? '未知载具');
+        // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
+        const unowned = String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主';
+        lines.push(`  ${vName}${unowned ? '[!]' : ''}`);
+      }
+    }
+
     // 连接信息
     const connections = this.mapService.getConnections(map);
     if (connections.length > 0) {
@@ -3168,7 +3201,8 @@ export class GatherPanelService {
     for (const map of maps) {
       const vehicles = asJsonValue<any[]>(map.vehicles, []);
       const wreckCount = vehicles.filter(
-        (v: any) => String(v?.owner ?? v?.归属 ?? '') === '无主',
+        // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
+        (v: any) => String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主',
       ).length;
       if (wreckCount > 0) wreckEntries.push({ name: near(map), count: wreckCount });
     }

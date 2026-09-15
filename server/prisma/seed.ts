@@ -171,6 +171,9 @@ async function main() {
     { name: '种植', alias: 'plant', description: '在家园种植作物', handlerKey: 'game', minRole: 'USER', sortOrder: 213 },
     { name: '收获', alias: 'harvest', description: '收获家园作物', handlerKey: 'game', minRole: 'USER', sortOrder: 214 },
     // 载具系统扩展（统一 game 处理器）
+    // NOTE: 「查看载具」必须独立注册：未注册时 `查看载具` 会被前缀回退吞进 `查看`(信息)，
+    // 永远进不了 game 处理器的载具列表分支（同「查看使魔」不能做别名的道理）。
+    { name: '查看载具', alias: 'view-vehicles', description: '查看当前地图载具列表（带参数查看指定载具详情）', handlerKey: 'game', minRole: 'USER', sortOrder: 219 },
     { name: '载具', alias: 'vehicle', description: '查看载具状态', handlerKey: 'game', minRole: 'USER', sortOrder: 220 },
     { name: '组装', alias: 'assemble', description: '组装载具', handlerKey: 'game', minRole: 'USER', sortOrder: 221 },
     { name: '驾驶', alias: 'drive', description: '驾驶载具', handlerKey: 'game', minRole: 'USER', sortOrder: 222 },

@@ -849,29 +849,61 @@ export class DungeonChallengeService {
       return '权限不足，需要管理员权限';
     }
 
-    // 原版 _主程序.ecode L7152-7156 + 后台运作.ecode 生成随机载具(真,a)：
-    // 按几率加权抽取随机载具定义（wrecks.json，含零件清单），归属=无主，
-    // 随机生成地点=编号3起、排除开拓地/关卡/副本/不刷特殊地图，加入该地图载具列表。
+    // 原版 _主程序.ecode L7152-7156：管理员指令 → 生成随机载具(真, a)，必定生成
+    const result = await this.spawnWreckToRandomMap(true);
+    return result.message;
+  }
+
+  /**
+   * 生成一个废弃载具并放入随机地图（共享核心：管理员指令 + 每小时定时刷新统一走此方法）
+   * 对应原版：后台运作.ecode 生成随机载具(必定生成, 生成地点) L1414-L1469
+   *
+   * - 数据源 wrecks.json（原版「随机载具」配置：name/chance/parts，几率原编码在名称里）
+   * - 抽取算法（L1425-L1444）：倒序遍历（低几率载具在数组末尾先判定），逐个 几率判断(chance)，
+   *   首个命中者生成。注意原版记录的是循环序号 a（b=a），最终却取 随机载具[b]，
+   *   即"掷的是镜像位、选的是正序位"——此镜像错位按原样保留（1:1 复刻）。
+   * - force=true（原版"必刷"，对应 10/22 点或管理员指令）：外层 .判断循环首(b==0)
+   *   整轮重掷直至命中（几率和>0 必然终止，保留 10000 次护栏）；
+   *   force=false（每小时常规刷新）：整轮未命中则本小时不生成（原版 b==0 静默跳过）。
+   * - 生成地点：编号>=3 且非开拓地/关卡/副本/不刷特殊的随机地图（L1457-L1465）
+   * - 零件清单按 wrecks.json 原样写入（装备件由生成装备生成的细节见后续对齐）
+   *
+   * @param force 是否必定生成
+   * @returns ok=是否生成；message=管理员回包文案；wreckName/mapName 供定时器日志使用
+   */
+  async spawnWreckToRandomMap(
+    force = false,
+  ): Promise<{ ok: boolean; message: string; wreckName?: string; mapName?: string }> {
     const wrecks = this.staticData.loadRaw('wrecks') as any[];
     if (!Array.isArray(wrecks) || wrecks.length === 0) {
-      return '随机载具列表为空，无法生成废弃载具';
+      return { ok: false, message: '随机载具列表为空，无法生成废弃载具' };
     }
-    // 按几率加权抽取（原版几率判断循环的等价实现）
-    const totalChance = wrecks.reduce((sum, w) => sum + Math.max(0, Number(w?.chance ?? 0)), 0);
-    let roll = Math.random() * totalChance;
-    let wreck = wrecks[0];
-    for (const candidate of wrecks) {
-      roll -= Math.max(0, Number(candidate?.chance ?? 0));
-      if (roll <= 0) {
-        wreck = candidate;
-        break;
+
+    // 原版抽取：一轮从末尾（稀有）往头（常见）逐个几率判定，返回命中的循环序号（0=未命中）
+    const rollPass = (): number => {
+      const total = wrecks.length;
+      for (let a = 1; a <= total; a++) {
+        // 随机载具[c-a+1]（1基）→ 0基下标 c-a；几率判断 → 项目统一 Math.random()*100 < 几率
+        const chance = Number(wrecks[total - a]?.chance ?? 0);
+        if (Math.random() * 100 < chance) return a;
       }
+      return 0;
+    };
+    let b = rollPass();
+    if (force) {
+      // 原版必刷：整轮未命中就再来一轮，直至命中
+      for (let guard = 0; guard < 10000 && b === 0; guard++) b = rollPass();
     }
+    if (b === 0) {
+      // 常规小时全部未命中：本小时不生成（对齐原版 .如果真(b != 0) 才落地的静默行为）
+      return { ok: false, message: '' };
+    }
+    const wreck = wrecks[b - 1]; // 原版 随机载具[b]（镜像错位按原样保留）
 
     const maps = await this.mapService.getAllMaps();
     const candidates = (maps as any[]).filter((m: any) =>
       Number(m?.id ?? 0) >= 3 && !m.开拓地 && !m.isFrontier && !m.关卡 && !m.isInstance && !m.noSpecial);
-    if (candidates.length === 0) return '没有可生成废弃载具的地图';
+    if (candidates.length === 0) return { ok: false, message: '没有可生成废弃载具的地图' };
     const targetMap = candidates[Math.floor(Math.random() * candidates.length)];
 
     const seq = `${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -881,7 +913,9 @@ export class DungeonChallengeService {
     runtime.编号 = `V${seq}`;
     runtime.vehicleId = runtime.编号;
     runtime.归属 = '无主';
-    runtime.owner = '';
+    // 双字段镜像（toStoredVehicle 对 归属/owner 成对存储）：必须同步写"无主"，
+    // 留空串会让 owner ?? 归属 一类的判读短路（2026-09-15 [!]标记缺失根因）
+    runtime.owner = '无主';
     runtime.驾驶员 = '';
     runtime.driver = '';
     // 随机载具零件清单（原版 零件=名称数量，装备类由生成装备生成——此处保留清单原样）
@@ -907,8 +941,14 @@ export class DungeonChallengeService {
       return true;
     });
 
-    this.logger.log(`管理员 ${userId} 在地图 ${targetMap.name} 生成废弃载具 ${runtime.名称}`);
-    return `在${targetMap.name}生成了一个废弃载具`;
+    // 管理员回包对齐原版（_主程序 L7155）：「在X生成了一个废弃载具」，不带载具名；
+    // wreckName/mapName 单独返回，供定时刷新写日志区分具体刷出了哪种载具。
+    return {
+      ok: true,
+      message: `在${targetMap.name}生成了一个废弃载具`,
+      wreckName: runtime.名称,
+      mapName: targetMap.name,
+    };
   }
 
   /**

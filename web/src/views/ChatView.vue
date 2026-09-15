@@ -757,7 +757,7 @@
       :connected="connected"
       :self-id="user?.id"
       :mention-players="mentionablePlayers"
-      :send="sendChatMessage"
+      :send="(text) => sendChatMessage(text, 'floating')"
       @refresh-players="loadMentionablePlayers"
       @notify="onFloatingNotify"
     />
@@ -2482,7 +2482,15 @@ function onRichCardSend(content) {
   sendChatMessage(content);
 }
 
-function sendChatMessage(content) {
+/**
+ * 统一发送入口（中央输入框 / 悬浮窗 / 侧栏按钮共用）。
+ * @param {string} content 消息文本
+ * @param {'main'|'floating'} source 发送来源：
+ *  - 'main'（默认）：中央游戏区入口，指令优先——后端判定为指令则执行并显示在中央公屏；
+ *  - 'floating'：右下角世界聊天悬浮窗，定位纯聊天频道——后端不做指令判定，
+ *    一律当聊天广播回悬浮窗，"在哪个窗口发就归哪个窗口"。
+ */
+function sendChatMessage(content, source = 'main') {
   const text = (content || '').trim();
   if (!text || !socket) return;
   // 前端软节流：过快时直接提示，不发 socket、不本地回显（避免“看起来发出去了”）
@@ -2497,12 +2505,15 @@ function sendChatMessage(content) {
     }
     lastChatSendAt = now;
   }
-  socket.emit('chat:message', { content: text });
+  // source 随消息上送：后端据此决定"悬浮窗=纯聊天 / 主输入框=指令判定"（见 chat.gateway）
+  socket.emit('chat:message', { content: text, source });
   const self = user.value || {};
   const sender = { id: self.id, username: self.username, nickname: self.nickname };
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   for (const line of lines) {
-    const type = guessMessageType(line);
+    // 悬浮窗消息本地回显一律进悬浮窗；主输入框消息按内容预估样式（指令金色/聊天白色），
+    // 预估不准时由服务端广播纠偏（appendMessage 双向去重），最终只显示在一处。
+    const type = source === 'floating' ? 'chat' : guessMessageType(line);
     if (type === 'chat') {
       // 纯聊天本地回显 → 悬浮窗
       floatingChat.append(floatingChat.makePending(line, self));
@@ -2567,6 +2578,18 @@ function appendMessage(msg) {
   // 未来红包/道具消息 type 同样进悬浮窗
   if (isFloatingChatMsg(msg)) {
     floatingChat.append(msg);
+    // 服务端判定为聊天的纠偏：若本地预判为指令而在中央公屏留了 pending 回显，
+    // 需将其移除，避免同一条消息在中央公屏与悬浮窗各显示一份。
+    // 只认自己 30 秒内的 pending：先按内容精确匹配，再 FIFO 兜底。
+    if (msg.type === 'chat' && msg.sender?.id != null && msg.sender.id === user.value?.id) {
+      const now = Date.now();
+      const freshSelf = (m) =>
+        m._pending && m.sender?.id === user.value?.id &&
+        now - new Date(m.createdAt).getTime() < 30000;
+      let idx = messages.value.findIndex((m) => freshSelf(m) && m.content === msg.content);
+      if (idx < 0) idx = messages.value.findIndex(freshSelf);
+      if (idx >= 0) messages.value.splice(idx, 1);
+    }
     return;
   }
   // 本地回显去重：自己发出的指令广播到达时，用服务端正式消息（带 id/准确类型/时间）
@@ -2586,6 +2609,9 @@ function appendMessage(msg) {
       if (!isUserScrolling) scrollToBottom();
       return;
     }
+    // 中央公屏没有对应 pending：说明本地预判为聊天、回显进了悬浮窗，
+    // 但服务端判定为指令。移除悬浮窗里的 pending，避免同一条消息两边各显示一份。
+    floatingChat.removePendingLike(msg);
   }
   messages.value.push(msg);
   // 限制本地消息数量，防止内存增长

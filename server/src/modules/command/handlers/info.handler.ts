@@ -36,6 +36,12 @@ export class InfoHandler implements CommandHandler {
         // 也避免引导文案（"这是你的角色信息面板"）与正文语义不符。
         return { success: true, content: unitDetail, broadcast: false, durationMs: 0 };
       }
+      // 原版通用查看链（_主程序.ecode L5671-L5683）：召唤物/怪物未命中 →
+      // 继续匹配当前地图载具（名称/编号皆可），无主废弃载具亦在列
+      const vehicleDetail = await this.gameService.handleViewVehicle(ctx.userId, unitName).catch(() => '');
+      if (vehicleDetail && !vehicleDetail.includes('附近没有')) {
+        return { success: true, content: vehicleDetail, broadcast: false, durationMs: 0 };
+      }
     }
     const result = await this.gameService.handleInfo(ctx.userId);
     // 新手引导：信息照常展示、引导仅作附加提示（不拦截，避免「首次查看信息被吞」）。

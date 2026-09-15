@@ -1191,7 +1191,12 @@ export class GameCommandHandler implements CommandHandler {
 
         case '查看载具':
         case 'view-vehicles':
-          return this.wrap(await this.gameService.handleViewVehicles(userId));
+          // 带参数=查看指定载具详情（名称/编号皆可，含无主废弃载具）；不带参数=列出当前地图载具
+          return this.wrap(
+            firstArg
+              ? await this.gameService.handleViewVehicle(userId, firstArg)
+              : await this.gameService.handleViewVehicles(userId),
+          );
 
         case '查看作物':
         case 'view-crops':
