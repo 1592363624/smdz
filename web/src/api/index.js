@@ -142,6 +142,8 @@ export const familiarApi = {
 export const homeApi = {
   // 家园总览（只读预览 DTO：不推进观测时间、不领取产出，随便看不影响 QQ 端结算）
   overview: () => http.get('/game/home/overview'),
+  // 家园院子格子视图（地块/仓库/障碍/存放地，只读不结算；写操作统一走 commandApi.execute）
+  yard: () => http.get('/game/home/yard'),
 };
 
 /// 系统/版本接口

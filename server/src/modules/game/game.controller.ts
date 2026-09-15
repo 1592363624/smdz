@@ -14,6 +14,7 @@ import { CombatSystemService } from './combat-system.service';
 import { StatsService } from './stats.service';
 import { AdminService } from '../admin/admin.service';
 import { HomeService } from './home.service';
+import { HomeYardService } from './home-yard.service';
 import { FamiliarSystemService } from './familiar-system.service';
 import { StaticDataService } from './static-data.service';
 
@@ -30,6 +31,7 @@ export class GameController {
     private readonly statsService: StatsService,
     private readonly adminService: AdminService,
     private readonly homeService: HomeService,
+    private readonly homeYardService: HomeYardService,
     private readonly familiarSystem: FamiliarSystemService,
     private readonly staticData: StaticDataService,
   ) {}
@@ -112,6 +114,23 @@ export class GameController {
   @ApiOperation({ summary: '获取家园总览（只读预览：电力/燃料/产出速率/存放地/设备快照）' })
   async getHomeOverview(@Req() req) {
     const data = await this.homeService.getHomeOverview(req.user.userId);
+    return { success: true, data };
+  }
+
+  /**
+   * 获取家园院子格子视图（QQ 农场式地块总览，只读）。
+   *
+   * 把院子地图上的建筑 / 作物 / 地面障碍投影成一格一格的地块数组，并附带背包里
+   * 可种植的种子与可安装的建筑，供网页端在格子上直接点选操作。
+   *
+   * 与 home/overview 同为只读：不推进观测时间、不领取产出、不写任何标记；
+   * 一切变更仍走 QQ 与网页统一的指令通道（种植 / 收获 / 安装 / 拆除 / 产出），
+   * 不存在第二条写路径。
+   */
+  @Get('home/yard')
+  @ApiOperation({ summary: '获取家园院子格子视图（地块/仓库/障碍/存放地，只读不结算）' })
+  async getHomeYard(@Req() req) {
+    const data = await this.homeYardService.getHomeYard(req.user.userId);
     return { success: true, data };
   }
 

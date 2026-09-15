@@ -10,7 +10,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as express from 'express';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { GlobalConfig } from './config/global.config';
@@ -63,6 +63,19 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
+
+  // 静态导出 OpenAPI 3.0 文档到 docs/openapi.json：
+  // 直接把该文件拖进 Apifox / Postman 即可导入全部接口，无需再抓 /api/docs 页面。
+  // 导出失败（如只读环境）只告警，绝不影响服务启动。
+  try {
+    const openapiPath = join(process.cwd(), '..', 'docs', 'openapi.json');
+    writeFileSync(openapiPath, JSON.stringify(document, null, 2), 'utf-8');
+    // eslint-disable-next-line no-console
+    console.log(`📄 OpenAPI 已导出: ${openapiPath}`);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn(`⚠️ OpenAPI 静态导出失败（不影响服务）: ${(error as Error)?.message ?? error}`);
+  }
 
   const port = config.port;
   await app.listen(port);

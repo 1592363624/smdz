@@ -57,12 +57,11 @@
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'me' }" @click="sidebarTab = 'me'">
           <span class="tab-icon">👤</span>我的
         </button>
+        <!-- 家园：跳转到独立全屏页面（侧栏空间不足以展示格子院落，改为 /home） -->
         <button
           class="sidebar-tab"
-          :class="{ active: sidebarTab === 'home' }"
-          :disabled="!isSuperAdmin"
-          :title="isSuperAdmin ? undefined : '功能开发中，仅超级管理员可进入'"
-          @click="openHomeTab('desktop')"
+          title="打开家园院子（独立页面）"
+          @click="router.push('/home')"
         >
           <span class="tab-icon">🏠</span>家园
         </button>
@@ -197,11 +196,7 @@
           </div>
         </div>
 
-        <!-- 家园 Tab：只读总览（电力/燃料/预计领取/每日速率/设备/存放地），一键领取走统一聊天指令通道 -->
-        <div v-show="sidebarTab === 'home'" class="tab-pane">
-          <HomePanel :active="sidebarTab === 'home'" @action="sendChatMessage" />
-        </div>
-
+        <!-- 家园：已迁移为独立页面 /home（侧栏空间不足以展示格子院落） -->
         <!-- 指令 Tab：搜索 + 指令列表（更大空间） -->
         <div v-show="sidebarTab === 'cmd'" class="tab-pane tab-pane-cmd">
           <div class="cmd-search-wrapper">
@@ -342,10 +337,8 @@
         </button>
         <button
           class="sidebar-tab"
-          :class="{ active: mobileTab === 'home' }"
-          :disabled="!isSuperAdmin"
-          :title="isSuperAdmin ? undefined : '功能开发中，仅超级管理员可进入'"
-          @click="openHomeTab('mobile')"
+          title="打开家园院子（独立页面）"
+          @click="router.push('/home')"
         >
           <span class="tab-icon">🏠</span>家园
         </button>
@@ -480,11 +473,7 @@
           </div>
         </div>
 
-        <!-- 地图 Tab -->
-        <div v-show="mobileTab === 'home'" class="tab-pane">
-          <HomePanel :active="mobileTab === 'home'" @action="sendChatMessage" />
-        </div>
-
+        <!-- 家园：已迁移为独立页面 /home（侧栏空间不足以展示格子院落） -->
         <div v-show="mobileTab === 'map'" class="tab-pane">
           <div class="map-connections" v-if="mapOverview">
             <div class="mc-current">
@@ -1123,7 +1112,6 @@ import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 // 玩家状态面板（桌面侧栏 + 手机抽屉复用；战斗力/任务/装备/增益一屏展示）
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
-import HomePanel from '../components/HomePanel.vue';
 import PendingActionBar from '../components/PendingActionBar.vue';
 import FloatingChatWidget from '../components/FloatingChatWidget.vue';
 import { io } from 'socket.io-client';
@@ -1797,19 +1785,6 @@ function mentionDisplayText(name) {
 
 // 是否为管理员(显示管理后台入口)
 const isAdmin = computed(() => ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role));
-
-// 是否为超级管理员（家园等功能未完成，仅超管可进入）
-const isSuperAdmin = computed(() => user.value?.role === 'SUPER_ADMIN');
-
-/** 家园 Tab：功能未完成，仅超级管理员可点击进入 */
-function openHomeTab(target) {
-  if (!isSuperAdmin.value) return;
-  if (target === 'mobile') {
-    mobileTab.value = 'home';
-  } else {
-    sidebarTab.value = 'home';
-  }
-}
 
 // 开发登录是否启用(服务端 DEV_LOGIN_ENABLED=1 时 /auth/dev/status 返回 enabled)。
 // 开发环境下无论登录哪个账号都显示管理后台入口，方便本地调试。

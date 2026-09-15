@@ -202,3 +202,122 @@ export const UPDATE_SETTINGS = {
   // 点击「稍后」后的重复提醒冷却(秒)
   promptCooldown: 300,
 };
+
+/**
+ * 家园院子（QQ 农场式格子）前端配置
+ *
+ * 所有展示口径与指令模板集中在此：改图标、改格子尺寸、改指令写法都不需要动视图代码。
+ *
+ * 重要约定：本页面的种植/收获/安装/拆除/领取**不新增写接口**，一律通过
+ * commandApi.execute 发送与 QQ 端完全相同的文本指令（见 commands 模板），
+ * 保证只有一条写路径、结算口径永不双轨。
+ */
+export const HOME_YARD_CONFIG = {
+  /** 地块网格：格子边长区间与间距（px），列数按容器宽度自适应 */
+  plot: { minSize: 96, maxSize: 132, gap: 10, maxVisible: 150 },
+  /** 院子数据自动刷新间隔（毫秒）；操作后会立即再拉一次 */
+  refreshMs: 45000,
+  /** 执行指令后重新拉取数据的延迟（毫秒），等后端写完再读 */
+  refetchDelayMs: 400,
+  /**
+   * 地块图标：按名称包含关键词自上而下匹配，首个命中生效；均未命中用 fallbackIcon。
+   * 新增作物/建筑时只要往这里补一条规则即可。
+   */
+  icons: {
+    crop: [
+      { kw: '椰树', icon: '🌴' },
+      { kw: '圣诞树', icon: '🎄' },
+      { kw: '苹果', icon: '🍎' },
+      { kw: '可可', icon: '🍫' },
+      { kw: '钻石树', icon: '💎' },
+      { kw: '藤蔓', icon: '🌿' },
+      { kw: '云杉', icon: '🌲' },
+      { kw: '苍兰', icon: '🌸' },
+      { kw: '油瓜', icon: '🍈' },
+      { kw: '金龙果', icon: '🍑' },
+      { kw: '豆蔻', icon: '🫘' },
+      { kw: '水晶', icon: '💠' },
+      { kw: '心脏', icon: '🫀' },
+      { kw: '猪崽', icon: '🐖' },
+      { kw: '收集器', icon: '📡' },
+      { kw: '板', icon: '🪧' },
+      { kw: '草', icon: '🌾' },
+      { kw: '树', icon: '🌳' },
+      { kw: '花', icon: '🌷' },
+      { kw: '果', icon: '🍒' },
+    ],
+    building: [
+      { kw: '发电', icon: '⚡' },
+      { kw: '电站', icon: '⚡' },
+      { kw: '星链', icon: '✨' },
+      { kw: '星路', icon: '✨' },
+      { kw: '裂变', icon: '☢️' },
+      { kw: '聚变', icon: '☢️' },
+      { kw: '射线', icon: '📶' },
+      { kw: '广播塔', icon: '📡' },
+      { kw: '钻机', icon: '⛏️' },
+      { kw: '采掘', icon: '⛏️' },
+      { kw: '熔炉', icon: '🔥' },
+      { kw: '锻炉', icon: '🔥' },
+      { kw: '油井', icon: '🛢️' },
+      { kw: '炼油', icon: '🛢️' },
+      { kw: '灌溉', icon: '🚿' },
+      { kw: '化肥', icon: '🧪' },
+      { kw: '堆肥', icon: '🧪' },
+      { kw: '离心', icon: '🧪' },
+      { kw: '净水', icon: '💧' },
+      { kw: '模拟', icon: '🔮' },
+      { kw: '聚焦', icon: '🔆' },
+      { kw: '具现', icon: '🌀' },
+      { kw: '合成', icon: '🏭' },
+      { kw: '组装', icon: '🏭' },
+      { kw: '工厂', icon: '🏭' },
+      { kw: '打包', icon: '📦' },
+      { kw: '回收', icon: '♻️' },
+      { kw: '牵引', icon: '🚜' },
+      { kw: '核心', icon: '🧠' },
+      { kw: '床', icon: '🛏️' },
+      { kw: '按摩椅', icon: '💺' },
+      { kw: '窝', icon: '🐾' },
+      { kw: '兔子', icon: '🐇' },
+      { kw: '狐狸', icon: '🦊' },
+      { kw: '保险柜', icon: '🗄️' },
+      { kw: '碉堡', icon: '🗼' },
+      { kw: '榨汁', icon: '🥤' },
+      { kw: '导航', icon: '🧭' },
+      { kw: '探测', icon: '🔍' },
+      { kw: '炼丹', icon: '⚗️' },
+      { kw: '育种', icon: '🧬' },
+      { kw: '训练器', icon: '🏋️' },
+      { kw: '机床', icon: '🔧' },
+      { kw: '工作台', icon: '🔧' },
+      { kw: '控制台', icon: '🎛️' },
+      { kw: '通讯台', icon: '☎️' },
+    ],
+  },
+  /** 图标兜底（作物 / 建筑） */
+  fallbackIcon: { crop: '🌱', building: '🏗️' },
+  /** 指令模板：与 QQ 端逐字一致 */
+  commands: {
+    plant: (seedName) => `种植 ${seedName}`,
+    harvest: (cropName) => `收获 ${cropName}`,
+    install: (buildingName) => `安装 ${buildingName}`,
+    remove: (buildingName) => `拆除 ${buildingName}`,
+    collect: () => '产出',
+    goHome: (houseName) => `前往 ${houseName}`,
+    // 凭证：使用后写入「凭证」标记，作物上限 +5、建筑上限 +1（原版每日限一次）
+    useVoucher: () => '使用 凭证',
+  },
+  /** 文案（集中在便于调整/本地化） */
+  texts: {
+    notAtHome: '需要站在自己的院子里才能动土，先回家吧',
+    emptyCrop: '点一下选种子',
+    emptyBuilding: '点一下装建筑',
+    pickSeedTitle: '选一颗种子种下',
+    pickBuildingTitle: '选一个建筑安装',
+    noSeed: '背包里没有可种植的种子',
+    noBuilding: '背包里没有可安装的建筑',
+    harvestAll: '收获全部',
+    removeAll: '拆除全部',
+  },
+};

@@ -1,0 +1,2552 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/users/nickname": {
+      "post": {
+        "operationId": "UsersController_updateNickname",
+        "summary": "设置游戏昵称",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNicknameDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "用户"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/users/me": {
+      "get": {
+        "operationId": "UsersController_me",
+        "summary": "获取当前登录用户信息",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "用户"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/users/favorite-commands": {
+      "get": {
+        "operationId": "UsersController_getFavoriteCommands",
+        "summary": "获取我的常用指令",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "返回常用指令字符串数组",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "用户"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "UsersController_setFavoriteCommands",
+        "summary": "设置我的常用指令",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetFavoriteCommandsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "用户"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/qq/status": {
+      "get": {
+        "operationId": "QQAuthController_checkStatus",
+        "summary": "检查 QQ 登录是否已配置",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "QQ 登录"
+        ]
+      }
+    },
+    "/api/auth/qq/login": {
+      "get": {
+        "operationId": "QQAuthController_qqLogin",
+        "summary": "跳转到 QQ 授权页面",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "QQ 登录"
+        ]
+      }
+    },
+    "/api/auth/qq/callback": {
+      "get": {
+        "operationId": "QQAuthController_qqCallback",
+        "summary": "QQ 授权回调处理",
+        "parameters": [
+          {
+            "name": "code",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "QQ 登录"
+        ]
+      }
+    },
+    "/api/auth/dev/status": {
+      "get": {
+        "operationId": "DevAuthController_checkStatus",
+        "summary": "[仅开发] 查询模拟登录是否启用",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "开发调试"
+        ]
+      }
+    },
+    "/api/auth/dev/login": {
+      "post": {
+        "operationId": "DevAuthController_devLogin",
+        "summary": "[仅开发] 模拟登录：按用户名直接签发 JWT",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "开发调试"
+        ]
+      }
+    },
+    "/api/chat/messages": {
+      "get": {
+        "operationId": "ChatController_getMessages",
+        "summary": "获取频道历史消息",
+        "description": "需登录。对「私密消息」(visibility=private，如探测雷达) 做脱敏：非本人发送的私密消息 content 返回占位文本，真实内容仅发送者本人可见。type=redpacket 的消息带 refId（红包ID），前端据此渲染可领取的红包卡片。",
+        "parameters": [
+          {
+            "name": "channelId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "公屏聊天"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/chat/channel": {
+      "get": {
+        "operationId": "ChatController_getChannel",
+        "summary": "获取默认频道信息",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "公屏聊天"
+        ]
+      }
+    },
+    "/api/chat/players": {
+      "get": {
+        "operationId": "ChatController_getMentionablePlayers",
+        "summary": "获取可@提及的玩家列表（含在线状态）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "公屏聊天"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/chat/redpacket/items": {
+      "get": {
+        "operationId": "ChatController_getRedPacketItems",
+        "summary": "发红包可选道具清单（读当前玩家背包）",
+        "description": "返回 [{ name, type, quantity }]，仅含数量>0 且允许放入红包的道具（排除装备/硬通货）。",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "公屏聊天"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/chat/redpackets": {
+      "get": {
+        "operationId": "ChatController_listRedPackets",
+        "summary": "查询红包状态列表（可按ID批量）",
+        "parameters": [
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "红包ID，逗号分隔",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "公屏聊天"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/chat/redpacket/mine": {
+      "get": {
+        "operationId": "ChatController_getMyRedPackets",
+        "summary": "我的红包（发出/领到/退回明细）",
+        "description": "返回 { sent: 发出的红包（含剩余未领/退回明细）, claimed: 领到的记录, refunds: 过期退回明细 }。",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "公屏聊天"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/chat/redpacket": {
+      "post": {
+        "operationId": "ChatController_createRedPacket",
+        "summary": "发送世界红包（扣除背包道具并广播）",
+        "description": "body: { greeting?: string, items: [{ name, quantity }], packetType?: \"NORMAL\"|\"TARGET\"|\"PASSCODE\", target?: 用户名/昵称/ID, passcode?: string }。packetType=TARGET 为专属红包（仅 target 玩家可领）；=PASSCODE 为口令红包（领取时需填对口令）。成功后返回红包视图与公屏消息。",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "公屏聊天"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/chat/redpacket/{id}/claim": {
+      "post": {
+        "operationId": "ChatController_claimRedPacket",
+        "summary": "领取世界红包（先到先得，每人限领1次）",
+        "description": "口令红包需传 body: { passcode: \"口令\" }；专属红包仅指定领取人可领。",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "红包ID",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "公屏聊天"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/commands/execute": {
+      "post": {
+        "operationId": "CommandController_execute",
+        "summary": "执行一条指令(登录用户)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteCommandDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "指令引擎"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/commands/list": {
+      "get": {
+        "operationId": "CommandController_list",
+        "summary": "获取可用指令列表",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "指令引擎"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/buff-definitions": {
+      "get": {
+        "operationId": "GameController_getBuffDefinitions",
+        "summary": "获取增益定义清单（名称/描述/时长/属性加成，悬浮提示用）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/player/info": {
+      "get": {
+        "operationId": "GameController_getPlayerInfo",
+        "summary": "获取当前玩家信息（等级、HP、位置等）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/familiar/gate": {
+      "get": {
+        "operationId": "GameController_getFamiliarGate",
+        "summary": "使魔契约引导页数据（可选使魔全量清单 + 是否需要选择）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/familiar/choose": {
+      "post": {
+        "operationId": "GameController_chooseFamiliar",
+        "summary": "建立使魔契约（首次选择使魔，等价于「选择使魔确认<名称>」）",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/home/overview": {
+      "get": {
+        "operationId": "GameController_getHomeOverview",
+        "summary": "获取家园总览（只读预览：电力/燃料/产出速率/存放地/设备快照）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/home/yard": {
+      "get": {
+        "operationId": "GameController_getHomeYard",
+        "summary": "获取家园院子格子视图（地块/仓库/障碍/存放地，只读不结算）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/map/overview": {
+      "get": {
+        "operationId": "GameController_getMapOverview",
+        "summary": "获取地图总览（当前区域+全部地图）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/map/connections": {
+      "get": {
+        "operationId": "GameController_getMapConnections",
+        "summary": "获取当前玩家所在地图的可前往连接列表",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/map/nearby-players": {
+      "get": {
+        "operationId": "GameController_getNearbyPlayers",
+        "summary": "获取当前区域附近的玩家列表（同一地图，含在线状态）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/stats": {
+      "get": {
+        "operationId": "GameController_getStats",
+        "summary": "获取服务器在线统计（总玩家数、在线人数、在线玩家名单）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/player/action": {
+      "post": {
+        "operationId": "GameController_quickAction",
+        "summary": "快捷操作：执行游戏内动作",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/player/reset-data": {
+      "post": {
+        "operationId": "GameController_resetMyData",
+        "summary": "清除自己的游戏数据(重置为未开始游玩，保留账号)",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/admin/finish-now": {
+      "post": {
+        "operationId": "GameController_finishNow",
+        "summary": "超管特权：立即完成自己的延时读条（静默，不进聊天流）",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/admin/write-model": {
+      "get": {
+        "operationId": "GameController_getWriteModelDiagnostics",
+        "summary": "写模型诊断：旧快照拦截 / 乐观锁冲突计数",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "operationId": "AdminController_listUsers",
+        "summary": "分页查询用户列表",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "当前页码，默认 1",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "description": "每页条数（最大100），默认 20",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "keyword",
+            "required": false,
+            "in": "query",
+            "description": "搜索关键词（用户名/昵称/QQ）",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortField",
+            "required": false,
+            "in": "query",
+            "description": "排序字段：id/username/nickname/role/status/createdAt/lastLoginAt/loginCount/level/playerName/location/affinity/playTime",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "description": "排序方向：asc 或 desc，默认 asc",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/users/update": {
+      "post": {
+        "operationId": "AdminController_updateUser",
+        "summary": "更新用户角色/状态/昵称/QQ号",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/users/detail": {
+      "post": {
+        "operationId": "AdminController_getUserDetail",
+        "summary": "获取用户详细信息(含玩家档案、在线状态、累计在线时长等)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserDetailDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/players/edit": {
+      "post": {
+        "operationId": "AdminController_editPlayerData",
+        "summary": "批量编辑玩家游戏数据(字段白名单，数值自动校验)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditPlayerDataDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/users/delete": {
+      "post": {
+        "operationId": "AdminController_deleteUser",
+        "summary": "删除用户(级联删除其玩家档案，不可删除自己/超级管理员)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/users/reset-data": {
+      "post": {
+        "operationId": "AdminController_resetUserData",
+        "summary": "清理用户游戏数据(重置为未开始游玩，保留账号)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetUserDataDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/users/batch-delete": {
+      "post": {
+        "operationId": "AdminController_batchDeleteUsers",
+        "summary": "批量删除用户账号(级联删除其玩家档案；自动跳过自己/超级管理员)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchUserIdsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/users/batch-reset-data": {
+      "post": {
+        "operationId": "AdminController_batchResetUserData",
+        "summary": "批量清理用户游戏数据(重置为未开始游玩，保留账号)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchUserIdsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/users/reset-all-data": {
+      "post": {
+        "operationId": "AdminController_resetAllUserData",
+        "summary": "一键清空全部玩家游戏数据(保留所有账号)",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/config": {
+      "get": {
+        "operationId": "AdminController_listConfig",
+        "summary": "获取所有系统配置项",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/config/{key}": {
+      "get": {
+        "operationId": "AdminController_getConfig",
+        "summary": "获取单个配置项",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/config/update": {
+      "post": {
+        "operationId": "AdminController_updateConfig",
+        "summary": "更新系统配置项(在线生效)",
+        "description": "修改后立即生效，无需重启；全部配置键见 GET /admin/config。签到奖励相关键：game.checkinBaseExp(签到基础经验) / game.checkinConsecutiveExpPerDay(每连续1天额外经验) / game.checkinConsecutiveExpMaxDays(连续加成封顶天数，0=不封顶) / game.checkinRewards(奖励表 JSON：{ dailyCycleDays, daily, consecutive, total }，奖励条目 { type: item|exp|vitality, name, count })。",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConfigDto"
+              },
+              "examples": {
+                "number": {
+                  "summary": "数值型示例（签到基础经验）",
+                  "value": {
+                    "key": "game.checkinBaseExp",
+                    "value": 50
+                  }
+                },
+                "checkinRewards": {
+                  "summary": "签到奖励表示例（JSON 型）",
+                  "description": "daily=按连续第 N 天发放(dailyCycleDays>0 时按周期轮转)；consecutive=连续签到里程碑；total=累计签到里程碑",
+                  "value": {
+                    "key": "game.checkinRewards",
+                    "value": {
+                      "dailyCycleDays": 7,
+                      "daily": [
+                        {
+                          "days": 1,
+                          "rewards": [
+                            {
+                              "type": "item",
+                              "name": "签到礼包",
+                              "count": 1
+                            }
+                          ]
+                        }
+                      ],
+                      "consecutive": [
+                        {
+                          "days": 7,
+                          "rewards": [
+                            {
+                              "type": "item",
+                              "name": "签到礼包",
+                              "count": 1
+                            }
+                          ]
+                        }
+                      ],
+                      "total": [
+                        {
+                          "days": 30,
+                          "rewards": [
+                            {
+                              "type": "item",
+                              "name": "累计签到礼包",
+                              "count": 1
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/status": {
+      "get": {
+        "operationId": "AdminController_getServerStatus",
+        "summary": "获取服务器状态（用户数、在线玩家、地图数等）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/dashboard": {
+      "get": {
+        "operationId": "AdminController_getDashboard",
+        "summary": "获取服务器仪表盘数据（同 status）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/announcement": {
+      "post": {
+        "operationId": "AdminController_sendAnnouncement",
+        "summary": "发送系统公告（广播给所有在线玩家，兼容 content/message 字段）",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/gm/announcement": {
+      "post": {
+        "operationId": "AdminController_sendGmAnnouncement",
+        "summary": "发送系统公告（GM 兼容路径）",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/announcement/upload": {
+      "post": {
+        "operationId": "AdminController_uploadAnnouncementImages",
+        "summary": "上传公告配图（仅图片），返回可访问 URL 列表",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/world-level": {
+      "post": {
+        "operationId": "AdminController_setWorldLevel",
+        "summary": "设置世界等级（影响怪物强度和掉落）",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWorldLevelDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/gm/world-level": {
+      "get": {
+        "operationId": "AdminController_getWorldLevel",
+        "summary": "获取当前世界等级",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "AdminController_setGmWorldLevel",
+        "summary": "设置世界等级（GM 兼容路径）",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWorldLevelDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/configs": {
+      "get": {
+        "operationId": "AdminController_getConfigs",
+        "summary": "获取系统配置列表（可按分组筛选）",
+        "parameters": [
+          {
+            "name": "group",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "AdminController_updateAdminConfig",
+        "summary": "更新系统配置",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConfigDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/players": {
+      "get": {
+        "operationId": "AdminController_getPlayers",
+        "summary": "获取玩家列表（管理员用，分页）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/players/{id}/ban": {
+      "post": {
+        "operationId": "AdminController_toggleBan",
+        "summary": "封禁/解封用户（切换 ACTIVE ↔ BANNED）",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/gm/catalog": {
+      "get": {
+        "operationId": "AdminController_getGmCatalog",
+        "summary": "GM 物品目录（物品+装备名称列表）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/gm/backpack": {
+      "get": {
+        "operationId": "AdminController_getBackpack",
+        "summary": "GM 读取玩家背包（解析背包全部物品）",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "query",
+            "description": "目标用户ID",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/gm/backpack/save": {
+      "post": {
+        "operationId": "AdminController_saveBackpack",
+        "summary": "GM 保存玩家背包（编辑数量/增删物品，数量为0即删除）",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackpackSaveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/gamedata": {
+      "get": {
+        "operationId": "AdminController_listGameDataCategories",
+        "summary": "静态数据分类列表(含条目数/展示列/新增模板,驱动前端数据管理面板)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/gamedata/{key}": {
+      "get": {
+        "operationId": "AdminController_getGameDataEntries",
+        "summary": "获取某分类全部条目(数据量小整包返回,前端本地过滤)",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "AdminController_createGameDataEntry",
+        "summary": "新增静态数据条目(写 JSON 文件+自动备份+热重载生效)",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GameDataSaveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/gamedata/{key}/{index}": {
+      "put": {
+        "operationId": "AdminController_updateGameDataEntry",
+        "summary": "更新静态数据条目(按下标,expectName 乐观校验)",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GameDataSaveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "AdminController_deleteGameDataEntry",
+        "summary": "删除静态数据条目(按下标,expectName 乐观校验;单配置分类禁删)",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "expectName",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/logs/files": {
+      "get": {
+        "operationId": "AdminLogsController_listFiles",
+        "summary": "列出后台日志文件（只读）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/logs/tail": {
+      "get": {
+        "operationId": "AdminLogsController_tail",
+        "summary": "读取日志尾部/增量（只读，支持关键字与级别过滤）",
+        "parameters": [
+          {
+            "name": "file",
+            "required": false,
+            "in": "query",
+            "description": "日志文件名，默认 out.log",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lines",
+            "required": false,
+            "in": "query",
+            "description": "返回行数上限，默认 200，最大 2000",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "keyword",
+            "required": false,
+            "in": "query",
+            "description": "关键字过滤（忽略大小写）",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "level",
+            "required": false,
+            "in": "query",
+            "description": "级别过滤：LOG/ERROR/WARN/DEBUG",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "required": false,
+            "in": "query",
+            "description": "增量跟随起点（字节偏移），>0 时只返回新增内容",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/feedback/upload": {
+      "post": {
+        "operationId": "FeedbackController_uploadFiles",
+        "summary": "上传反馈附件（图片/文件），返回可访问 URL 列表",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "反馈系统"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/feedback": {
+      "post": {
+        "operationId": "FeedbackController_create",
+        "summary": "提交反馈工单（标题/分类/内容/附件）",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFeedbackDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "反馈系统"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/feedback/mine": {
+      "get": {
+        "operationId": "FeedbackController_getMine",
+        "summary": "获取我的反馈工单列表",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "反馈系统"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/feedback/{id}": {
+      "get": {
+        "operationId": "FeedbackController_getDetail",
+        "summary": "获取反馈工单详情（含完整消息与附件）",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "反馈系统"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/feedback/{id}/messages": {
+      "post": {
+        "operationId": "FeedbackController_reply",
+        "summary": "回复反馈工单（追加一条消息）",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFeedbackMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "反馈系统"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bot/command": {
+      "post": {
+        "operationId": "BotController_command",
+        "summary": "机器人发送指令(供AstrBot调用)",
+        "parameters": [
+          {
+            "name": "x-bot-token",
+            "required": true,
+            "in": "header",
+            "description": "机器人访问令牌(与BOT_ACCESS_TOKEN一致)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "指令执行结果。data.visibility=\"private\" 表示私密结果（如探测雷达），插件应仅将 data.content 私聊回传给发起者，群内展示 data.placeholder 占位文本",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "description": "指令是否执行成功"
+                        },
+                        "content": {
+                          "type": "string",
+                          "description": "指令结果文本（私密结果即为真实内容）"
+                        },
+                        "broadcast": {
+                          "type": "boolean",
+                          "description": "是否对所有人公屏可见"
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "enum": [
+                            "public",
+                            "private"
+                          ],
+                          "description": "可见范围：public=公开；private=仅发起者可见"
+                        },
+                        "placeholder": {
+                          "type": "string",
+                          "description": "私密结果对其他玩家展示的占位文本（visibility=private 时返回）"
+                        },
+                        "durationMs": {
+                          "type": "number",
+                          "description": "执行耗时(ms)"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "AstrBot机器人对接"
+        ]
+      }
+    },
+    "/api/bot/bind-qq": {
+      "post": {
+        "operationId": "BotController_bindQQ",
+        "summary": "插件端通过 OpenID 绑定用户真实QQ号",
+        "parameters": [
+          {
+            "name": "x-bot-token",
+            "required": true,
+            "in": "header",
+            "description": "机器人访问令牌(与BOT_ACCESS_TOKEN一致)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AstrBot机器人对接"
+        ]
+      }
+    },
+    "/api/system/version": {
+      "get": {
+        "operationId": "SystemController_getVersion",
+        "summary": "获取部署版本信息与更新检测配置",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "系统"
+        ]
+      }
+    },
+    "/api/system/server-time": {
+      "get": {
+        "operationId": "SystemController_getServerTime",
+        "summary": "获取服务器当前时间(毫秒时间戳)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "系统"
+        ]
+      }
+    },
+    "/api/system/web-config": {
+      "get": {
+        "operationId": "SystemController_getWebConfig",
+        "summary": "获取网页前端可调配置(公开)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "系统"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "使魔大战3 网页版 API",
+    "description": "使魔大战3 网页版后端接口文档（OpenAPI 3.0 规范）",
+    "version": "0.1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "UpdateNicknameDto": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "description": "游戏昵称",
+            "example": "冒险者小张"
+          }
+        },
+        "required": [
+          "nickname"
+        ]
+      },
+      "SetFavoriteCommandsDto": {
+        "type": "object",
+        "properties": {
+          "commands": {
+            "type": "array",
+            "description": "常用指令列表（全量覆盖）。每条可为字符串（如 \"攻击\"）或对象 { cmd:\"攻击 史莱姆\", label:\"攻击史莱姆\" }；cmd 为实际发送内容（可为任意文本，不一定是指令），label 为按钮展示文字。服务端按 cmd 去重",
+            "example": [
+              "攻击",
+              "背包",
+              {
+                "cmd": "攻击 史莱姆",
+                "label": "攻击史莱姆"
+              }
+            ],
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "cmd": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "commands"
+        ]
+      },
+      "DevLoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "测试用户名（本地开发用）",
+            "example": "tester"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "ExecuteCommandDto": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "指令文本",
+            "example": "info"
+          },
+          "channelId": {
+            "type": "number",
+            "description": "频道ID(可选，默认1=世界频道)",
+            "example": 1
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "UpdateUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "用户ID",
+            "example": 1
+          },
+          "role": {
+            "type": "string",
+            "description": "新角色",
+            "enum": [
+              "USER",
+              "ADMIN",
+              "SUPER_ADMIN"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "账号状态",
+            "enum": [
+              "ACTIVE",
+              "BANNED"
+            ]
+          },
+          "nickname": {
+            "type": "string",
+            "description": "昵称"
+          },
+          "qqNumber": {
+            "type": "string",
+            "description": "QQ号(可修改，解绑传空字符串)",
+            "example": "123456789"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "UserDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "用户ID",
+            "example": 1
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "EditPlayerDataDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "用户ID",
+            "example": 1
+          },
+          "data": {
+            "type": "object",
+            "description": "待修改字段(白名单: name/type/level/exp/hp/maxHp/attack/defense/mapId/location 等)",
+            "example": {
+              "level": 50,
+              "attack": 999
+            },
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "id",
+          "data"
+        ]
+      },
+      "DeleteUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "用户ID",
+            "example": 1
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "ResetUserDataDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "用户ID",
+            "example": 1
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "BatchUserIdsDto": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "description": "用户ID列表",
+            "example": [
+              1,
+              2,
+              3
+            ],
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      },
+      "UpdateConfigDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "配置键",
+            "example": "command.prefixes"
+          },
+          "value": {
+            "type": "object",
+            "description": "新配置值",
+            "example": "[\"/\",\"!\"]"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ]
+      },
+      "AnnouncementDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "公告内容",
+            "example": "服务器将于今晚 22:00 进行维护"
+          },
+          "message": {
+            "type": "string",
+            "description": "公告内容(兼容字段)"
+          }
+        }
+      },
+      "SetWorldLevelDto": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "number",
+            "description": "世界等级",
+            "example": 50,
+            "minimum": 1
+          }
+        },
+        "required": [
+          "level"
+        ]
+      },
+      "BackpackItemDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "物品名称",
+            "example": "水晶"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "数量(0 表示删除该物品)",
+            "example": 10,
+            "minimum": 0
+          },
+          "count": {
+            "type": "number",
+            "description": "数量(兼容字段)",
+            "example": 10,
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "description": "类型(物品/装备/资源等)",
+            "example": "物品"
+          },
+          "durability": {
+            "type": "object",
+            "description": "耐久度(仅装备类)"
+          },
+          "data": {
+            "type": "object",
+            "description": "附加数据(原版 data 字段，如装备材料)"
+          },
+          "slot": {
+            "type": "object",
+            "description": "穿戴部位/槽位(仅装备类)"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "BackpackSaveDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "number",
+            "description": "目标用户ID",
+            "example": 1
+          },
+          "items": {
+            "description": "背包物品完整列表（编辑/增/删后整体提交；数量为0的条目将被删除）",
+            "example": [
+              {
+                "name": "水晶",
+                "quantity": 10
+              }
+            ],
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackpackItemDto"
+            }
+          }
+        },
+        "required": [
+          "userId",
+          "items"
+        ]
+      },
+      "GameDataSaveDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "条目完整 JSON 数据（新增/更新均为整体提交；非单配置分类必须含非空 name）",
+            "example": {
+              "name": "水晶",
+              "type": "物品",
+              "value": 5,
+              "description": "零号元素结晶"
+            }
+          },
+          "expectName": {
+            "type": "string",
+            "description": "乐观校验：更新时预期条目原名，与当前不符则拒绝（防止索引错位误改）"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "CreateFeedbackDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "反馈标题",
+            "example": "游戏地图卡顿"
+          },
+          "category": {
+            "type": "string",
+            "description": "反馈分类",
+            "enum": [
+              "general",
+              "bug",
+              "suggestion",
+              "other"
+            ],
+            "default": "general"
+          },
+          "content": {
+            "type": "string",
+            "description": "反馈内容描述",
+            "example": "进入第三张地图后帧率明显下降"
+          },
+          "attachments": {
+            "description": "附件访问地址列表（先经上传接口得到，再随工单提交）",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ]
+      },
+      "CreateFeedbackMessageDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "消息内容",
+            "example": "已补充截图，请查看"
+          },
+          "attachments": {
+            "description": "附件访问地址列表",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "content"
+        ]
+      }
+    }
+  }
+}

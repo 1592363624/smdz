@@ -37,6 +37,7 @@ import { MapBattleLoopService } from './map-battle-loop.service';
 import { DungeonService } from './dungeon.service';
 import { AchievementService } from './achievement.service';
 import { HomeService } from './home.service';
+import { HomeYardService } from './home-yard.service';
 import { ShortcutService } from './shortcut.service';
 import { TaskService } from './task.service';
 import { StatsService } from './stats.service';
@@ -102,6 +103,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     DungeonService,
     AchievementService,
     HomeService,
+    HomeYardService,
     ShortcutService,
     TaskService,
     StatsService,
@@ -155,6 +157,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     DungeonService,
     AchievementService,
     HomeService,
+    HomeYardService,
     ShortcutService,
     TaskService,
     StatsService,
