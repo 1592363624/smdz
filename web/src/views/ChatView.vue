@@ -60,7 +60,8 @@
         <!-- 家园：跳转到独立全屏页面（侧栏空间不足以展示格子院落，改为 /home） -->
         <button
           class="sidebar-tab"
-          title="打开家园院子（独立页面）"
+          :disabled="!isSuperAdmin"
+          :title="isSuperAdmin ? '打开家园院子（独立页面）' : '家园模块开发中，仅超级管理员可进入'"
           @click="router.push('/home')"
         >
           <span class="tab-icon">🏠</span>家园
@@ -337,7 +338,8 @@
         </button>
         <button
           class="sidebar-tab"
-          title="打开家园院子（独立页面）"
+          :disabled="!isSuperAdmin"
+          :title="isSuperAdmin ? '打开家园院子（独立页面）' : '家园模块开发中，仅超级管理员可进入'"
           @click="router.push('/home')"
         >
           <span class="tab-icon">🏠</span>家园
@@ -1785,6 +1787,9 @@ function mentionDisplayText(name) {
 
 // 是否为管理员(显示管理后台入口)
 const isAdmin = computed(() => ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role));
+
+// 是否为超级管理员：家园模块尚未完全完成，入口暂时只对超管开放（完成后移除该门禁）
+const isSuperAdmin = computed(() => user.value?.role === 'SUPER_ADMIN');
 
 // 开发登录是否启用(服务端 DEV_LOGIN_ENABLED=1 时 /auth/dev/status 返回 enabled)。
 // 开发环境下无论登录哪个账号都显示管理后台入口，方便本地调试。

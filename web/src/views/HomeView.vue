@@ -49,16 +49,26 @@
             <div class="yd-block-head">
               <span class="yd-b-title">🌾 农田</span>
               <span class="yd-b-count">{{ crop.used }}/{{ crop.limit }}</span>
-              <span class="yd-dim">空地点击选种子种下；地块随等级与凭证开垦</span>
-              <button class="yd-btn tiny" :disabled="running" @click="useVoucher">使用凭证开垦 +5</button>
+              <span class="yd-dim">{{ batchKind === 'crop' ? C.texts.batchEmpty : '空地点击选种子种下；地块随等级与凭证开垦' }}</span>
+              <div class="yd-b-ops">
+                <button class="yd-btn tiny" :class="{ on: batchKind === 'crop' }" :title="C.texts.batchHint" @click="toggleBatch('crop')">
+                  {{ batchKind === 'crop' ? C.texts.batchOff : C.texts.batchOn }}
+                </button>
+                <button class="yd-btn tiny warn" :disabled="running || !cropNames.length" @click="harvestAllCrops">
+                  🌾 一键收获{{ cropNames.length ? `（${cropNames.length} 种）` : '' }}
+                </button>
+                <button class="yd-btn tiny" :disabled="running" @click="useVoucher">凭证开垦 +5</button>
+              </div>
             </div>
-            <div class="yd-grid" :style="gridStyle">
+            <div class="yd-grid" :class="{ brushing: batchKind === 'crop' }" :style="gridStyle">
               <button
                 v-for="p in visibleCropPlots"
                 :key="'c-' + p.index"
                 class="yd-plot"
-                :class="[p.state, { sel: selected === p }]"
-                @click="onPlot(p)"
+                :class="[p.state, { sel: selected === p, picked: selection.has('crop:' + p.index) }]"
+                :data-sel-key="'crop:' + p.index"
+                @pointerdown="onPlotDown($event, 'crop', p)"
+                @click="onPlot(p, 'crop')"
               >
                 <span class="yd-p-icon">{{ iconOf(p) }}</span>
                 <span class="yd-p-name">{{ p.name || (p.state === 'locked' ? '待开垦' : '+') }}</span>
@@ -83,15 +93,22 @@
             <div class="yd-block-head">
               <span class="yd-b-title">🏭 建筑区</span>
               <span class="yd-b-count">{{ building.used }}/{{ building.limit }}</span>
-              <span class="yd-dim">空地点击选建筑安装；已安装的点击可拆除</span>
+              <span class="yd-dim">{{ batchKind === 'building' ? C.texts.batchEmpty : '空地点击选建筑安装；已安装的点击可拆除' }}</span>
+              <div class="yd-b-ops">
+                <button class="yd-btn tiny" :class="{ on: batchKind === 'building' }" :title="C.texts.batchHint" @click="toggleBatch('building')">
+                  {{ batchKind === 'building' ? C.texts.batchOff : C.texts.batchOn }}
+                </button>
+              </div>
             </div>
-            <div class="yd-grid" :style="gridStyle">
+            <div class="yd-grid" :class="{ brushing: batchKind === 'building' }" :style="gridStyle">
               <button
                 v-for="p in visibleBuildingPlots"
                 :key="'b-' + p.index"
                 class="yd-plot"
-                :class="[p.state, { sel: selected === p }]"
-                @click="onPlot(p)"
+                :class="[p.state, { sel: selected === p, picked: selection.has('building:' + p.index) }]"
+                :data-sel-key="'building:' + p.index"
+                @pointerdown="onPlotDown($event, 'building', p)"
+                @click="onPlot(p, 'building')"
               >
                 <span class="yd-p-icon">{{ iconOf(p) }}</span>
                 <span class="yd-p-name">{{ p.name || (p.state === 'locked' ? '待开垦' : '+') }}</span>
@@ -188,8 +205,39 @@
         </aside>
       </div>
 
+      <!-- 批量操作条：拖拽刷选后一次性种下 / 收获 / 拆除 -->
+      <div v-if="selectionCount" class="yd-batch-bar">
+        <span class="yd-bb-info">已选 <b>{{ selectionCount }}</b> 块 · {{ selectionLabel }}</span>
+        <div class="yd-bb-ops">
+          <button
+            v-if="selectionState === 'empty' && batchKind === 'crop'"
+            class="yd-btn warn"
+            :disabled="running"
+            @click="openPicker('crop', selectionCount)"
+          >
+            {{ C.texts.seedCount(selectionCount) }}
+          </button>
+          <button
+            v-else-if="selectionState === 'empty'"
+            class="yd-btn primary"
+            :disabled="running"
+            @click="openPicker('building', selectionCount)"
+          >
+            {{ C.texts.installCount(selectionCount) }}
+          </button>
+          <button v-else-if="batchKind === 'crop'" class="yd-btn warn" :disabled="running" @click="harvestSelected">
+            {{ C.texts.harvestCount(selectionCount) }}
+          </button>
+          <button v-else class="yd-btn danger" :disabled="running" @click="removeSelected">
+            {{ C.texts.removeCount(selectionCount) }}
+          </button>
+          <button class="yd-btn ghost" @click="clearSelection">取消选择</button>
+          <button class="yd-btn ghost" @click="toggleBatch(batchKind)">{{ C.texts.batchOff }}</button>
+        </div>
+      </div>
+
       <!-- 选中地块详情条 -->
-      <div v-if="selected && selected.state === 'occupied'" class="yd-detail">
+      <div v-else-if="selected && selected.state === 'occupied'" class="yd-detail">
         <div class="yd-d-head">
           <span class="yd-d-icon">{{ iconOf(selected) }}</span>
           <div class="yd-d-info">
@@ -235,7 +283,10 @@
       <div v-if="picker.open" class="yd-mask" @click.self="picker.open = false">
         <div class="yd-modal">
           <div class="yd-m-head">
-            {{ picker.kind === 'crop' ? C.texts.pickSeedTitle : C.texts.pickBuildingTitle }}
+            <span>
+              {{ picker.kind === 'crop' ? C.texts.pickSeedTitle : C.texts.pickBuildingTitle }}
+              <b v-if="picker.count > 1">×{{ picker.count }}</b>
+            </span>
             <button class="yd-x" @click="picker.open = false">✕</button>
           </div>
           <div class="yd-m-list">
@@ -243,6 +294,7 @@
               v-for="s in picker.items"
               :key="'p-' + s.name"
               class="yd-stock"
+              :disabled="running"
               @click="pickStock(s)"
             >
               <span class="yd-s-icon">{{ stockIcon(s) }}</span>
@@ -268,6 +320,13 @@
  * 写操作约定：种植/收获/安装/拆除/领取一律通过 commandApi.execute 发送与 QQ 端
  * 逐字相同的文本指令，与聊天输入框、AstrBot 完全同一条路径——没有第二条写路径，
  * 结算口径不会双轨，操作结果也照常进聊天流。
+ *
+ * 批量与拖拽（QQ 农场式）：
+ * - 「批量」按钮开启刷选模式后，在地块上按住拖动即可刷选多块（只收同状态地块），
+ *   松手后在底部批量条一次性种下 / 收获 / 拆除；Shift+点击 可反选微调。
+ * - 批量指令沿用原版「名称+数量」写法（parseCountedAction），超出单条上限自动拆多条；
+ *   种子名若以数字结尾导致批量解析失败，会自动退化为逐颗种植。
+ * - 「一键收获」= 对田里每种作物各发一条「收获 名称」（该指令本就收走同名全部）。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -285,10 +344,14 @@ const error = ref('');
 const running = ref(false);
 /** 当前选中的地块（详情条数据源） */
 const selected = ref(null);
-/** 空地上弹出的种子/建筑选择器 */
-const picker = ref({ open: false, kind: 'crop', items: [] });
+/** 空地上弹出的种子/建筑选择器（count>1 表示批量） */
+const picker = ref({ open: false, kind: 'crop', items: [], count: 1 });
 /** 右侧仓库当前 Tab */
 const stockTab = ref('seed');
+/** 正在刷选的区域：'' | 'crop' | 'building'（同时只对一块区域生效） */
+const batchKind = ref('');
+/** 刷选中的地块 key 集合，形如 'crop:3' */
+const selection = ref(new Set());
 let timer = null;
 
 // ---------- 派生数据 ----------
@@ -324,6 +387,44 @@ const gridStyle = computed(() => ({
   '--yd-min': `${C.plot.minSize}px`,
   '--yd-gap': `${C.plot.gap}px`,
 }));
+/** 田里现存的作物名（去重），用于「一键收获」 */
+const cropNames = computed(() => {
+  const names = new Set();
+  for (const p of crop.value.plots) {
+    if (p.state === 'occupied' && p.name) names.add(p.name);
+  }
+  return Array.from(names);
+});
+
+// ---------- 刷选派生 ----------
+/** 选中的 key → 还原成 { kind, plot } */
+const selectionList = computed(() => {
+  const list = [];
+  for (const key of selection.value) {
+    const [kind, raw] = String(key).split(':');
+    const source = kind === 'crop' ? crop.value.plots : building.value.plots;
+    const plot = source[Number(raw)];
+    if (plot) list.push({ kind, plot });
+  }
+  return list;
+});
+const selectionCount = computed(() => selectionList.value.length);
+/** 选中块的状态（刷选时已保证同类）：empty / occupied */
+const selectionState = computed(() => selectionList.value[0]?.plot?.state ?? '');
+const selectionLabel = computed(() => {
+  if (!selectionCount.value) return '';
+  if (selectionState.value === 'empty') return batchKind.value === 'crop' ? '空地（准备种植）' : '空地（准备安装）';
+  return batchKind.value === 'crop' ? '已种植作物' : '已安装建筑';
+});
+/** 按名称聚合的选中项（建筑批量拆除用） */
+const selectionGroups = computed(() => {
+  const groups = new Map();
+  for (const { plot } of selectionList.value) {
+    if (!plot?.name) continue;
+    groups.set(plot.name, (groups.get(plot.name) || 0) + 1);
+  }
+  return Array.from(groups.entries());
+});
 
 // ---------- 数据拉取 ----------
 async function refresh() {
@@ -345,6 +446,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
+  endBrush();
 });
 
 // ---------- 展示工具 ----------
@@ -381,7 +483,193 @@ function fmtDuration(sec) {
   return h > 0 ? `${h}时${m}分` : `${m}分`;
 }
 
+// ---------- 刷选交互（批量模式） ----------
+/** 开/关某块区域的批量刷选；切换时清空选择，避免跨区域混选 */
+function toggleBatch(kind) {
+  if (batchKind.value === kind) {
+    batchKind.value = '';
+    clearSelection();
+    return;
+  }
+  batchKind.value = kind;
+  clearSelection();
+}
+function clearSelection() {
+  selection.value = new Set();
+}
+/** Set 是引用类型，整体替换才能可靠触发响应 */
+function addSelectionKey(key) {
+  if (selection.value.has(key)) return;
+  const next = new Set(selection.value);
+  next.add(key);
+  selection.value = next;
+}
+function toggleSelectionKey(key) {
+  const next = new Set(selection.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  selection.value = next;
+}
+
+let brushing = false;
+/** 本次刷选的基准状态：只刷同状态地块，避免空地与作物混选 */
+let brushState = '';
+
+/**
+ * 批量模式下按下地块开始刷选（非批量模式完全不介入，交给 click 处理）。
+ * 触屏同样生效：网格在刷选态会禁用 touch-action，避免被页面滚动抢走手势。
+ */
+function onPlotDown(event, kind, plot) {
+  if (batchKind.value !== kind || !plot) return;
+  event.preventDefault();
+  brushing = true;
+  brushState = plot.state;
+  if (plot.state === 'locked') {
+    ui.pushToast({ type: 'info', message: plot.unlockHint || '该地块尚未开垦' });
+    return;
+  }
+  const key = `${kind}:${plot.index}`;
+  // Shift 点击 = 反选，方便微调
+  if (event.shiftKey) toggleSelectionKey(key);
+  else addSelectionKey(key);
+  window.addEventListener('pointermove', onBrushMove);
+  window.addEventListener('pointerup', endBrush);
+  window.addEventListener('pointercancel', endBrush);
+}
+
+/** 拖动刷过其它地块：只加不选，且只收同状态的地块 */
+function onBrushMove(event) {
+  if (!brushing) return;
+  const el = document.elementFromPoint(event.clientX, event.clientY);
+  const host = el?.closest?.('.yd-plot');
+  const key = host?.getAttribute?.('data-sel-key');
+  if (!key) return;
+  const [kind, raw] = key.split(':');
+  if (kind !== batchKind.value) return;
+  const source = kind === 'crop' ? crop.value.plots : building.value.plots;
+  const plot = source[Number(raw)];
+  if (!plot || plot.state !== brushState || plot.state === 'locked') return;
+  addSelectionKey(key);
+}
+
+function endBrush() {
+  brushing = false;
+  window.removeEventListener('pointermove', onBrushMove);
+  window.removeEventListener('pointerup', endBrush);
+  window.removeEventListener('pointercancel', endBrush);
+}
+
 // ---------- 操作 ----------
+/**
+ * 生成「名称+数量」的批量指令列表（超出单条上限自动拆分）。
+ * 原版 parseCountedAction 支持「种植 椰树种子5」这类写法。
+ */
+function countedCommands(template, name, count) {
+  const total = Math.max(1, Math.floor(Number(count) || 1));
+  const cmds = [];
+  let left = total;
+  while (left > 0) {
+    const n = Math.min(left, C.batch.maxPerCommand);
+    cmds.push(template(C.commands.withCount(name, n)));
+    left -= n;
+  }
+  return cmds;
+}
+
+/** 汇总批量执行结果（多条时只展示前几条，避免 toast 刷屏） */
+function toastResults(texts) {
+  const list = (texts || []).filter(Boolean);
+  const shown = list.slice(0, C.batch.toastResultLimit).join(' / ');
+  const tail = list.length > C.batch.toastResultLimit ? ` …共 ${list.length} 条` : '';
+  ui.pushToast({ type: 'success', message: `${shown || '操作完成'}${tail}`, timeout: 5000 });
+}
+
+/** 批量收尾：解锁、清选择、退出批量模式、延迟重拉数据 */
+function endBatch() {
+  running.value = false;
+  selected.value = null;
+  picker.value = { open: false, kind: picker.value.kind, items: [], count: 1 };
+  clearSelection();
+  batchKind.value = '';
+  setTimeout(refresh, C.refetchDelayMs);
+}
+
+/**
+ * 顺序执行多条指令（批量操作统一出口）。
+ * @param {string[]} cmds 与 QQ 端一致的指令文本列表
+ * @param {{requireHome?: boolean}} opts
+ */
+async function runMany(cmds, opts = {}) {
+  const requireHome = opts.requireHome !== false;
+  if (running.value || !cmds?.length) return;
+  if (requireHome && !atHome.value) {
+    ui.pushToast({ type: 'warning', message: C.texts.notAtHome });
+    return;
+  }
+  running.value = true;
+  const texts = [];
+  try {
+    for (const cmd of cmds) {
+      try {
+        const res = await commandApi.execute(cmd);
+        const text = res?.data?.content ?? '';
+        if (text) texts.push(text);
+      } catch (e) {
+        texts.push(e?.response?.data?.message || `执行失败：${cmd}`);
+      }
+    }
+    toastResults(texts);
+  } finally {
+    endBatch();
+  }
+}
+
+/**
+ * 批量种植：优先发「种植 种子N」；若种子名本身以数字结尾导致批量解析失败
+ * （回包不含「成功」），自动退化为逐颗种植，保证结果一致。
+ */
+async function plantMany(seedName, count) {
+  if (running.value) return;
+  if (!atHome.value) {
+    ui.pushToast({ type: 'warning', message: C.texts.notAtHome });
+    return;
+  }
+  const total = Math.max(1, Math.floor(Number(count) || 1));
+  running.value = true;
+  const texts = [];
+  try {
+    for (const cmd of countedCommands(C.commands.plant, seedName, total)) {
+      let ok = false;
+      try {
+        const res = await commandApi.execute(cmd);
+        const text = res?.data?.content ?? '';
+        if (text) texts.push(text);
+        ok = text.includes('成功');
+      } catch (e) {
+        texts.push(e?.response?.data?.message || `执行失败：${cmd}`);
+      }
+      if (!ok) {
+        // 退化路径：逐颗种，遇到「没有/不足」即停（种子已用完）
+        for (let i = 0; i < total; i += 1) {
+          try {
+            const res = await commandApi.execute(C.commands.plant(seedName));
+            const text = res?.data?.content ?? '';
+            if (text) texts.push(text);
+            if (text.includes('没有') || text.includes('不足')) break;
+          } catch (e) {
+            texts.push(e?.response?.data?.message || `执行失败：${C.commands.plant(seedName)}`);
+            break;
+          }
+        }
+        break;
+      }
+    }
+    toastResults(texts);
+  } finally {
+    endBatch();
+  }
+}
+
 /**
  * 执行一条游戏指令（唯一的写路径）。
  * @param {string} cmd 与 QQ 端一致的指令文本
@@ -410,35 +698,87 @@ async function run(cmd, opts = {}) {
   }
 }
 
-function onPlot(plot) {
+function onPlot(plot, kind) {
   if (!plot) return;
+  // 批量模式下点击 = 勾选/取消（拖拽刷选由 pointerdown / pointermove 处理）
+  if (batchKind.value === kind) {
+    if (plot.state === 'locked') {
+      ui.pushToast({ type: 'info', message: plot.unlockHint || '该地块尚未开垦' });
+      return;
+    }
+    toggleSelectionKey(`${kind}:${plot.index}`);
+    return;
+  }
   if (plot.state === 'locked') {
     ui.pushToast({ type: 'info', message: plot.unlockHint || '该地块尚未开垦' });
     return;
   }
   selected.value = plot;
-  if (plot.state === 'empty') openPicker(plot.kind);
+  if (plot.state === 'empty') openPicker(kind, 1);
 }
 
-function openPicker(kind) {
+/** 打开种子/建筑选择器；count>1 时表示批量操作 */
+function openPicker(kind, count = 1) {
   const items = kind === 'crop' ? seeds.value : buildings.value;
   if (!items.length) {
     ui.pushToast({ type: 'info', message: kind === 'crop' ? C.texts.noSeed : C.texts.noBuilding });
     return;
   }
-  picker.value = { open: true, kind, items };
+  picker.value = { open: true, kind, items, count: Math.max(1, count) };
 }
 
 function pickStock(stock) {
-  const cmd = stock.kind === 'seed'
-    ? C.commands.plant(stock.name)
-    : C.commands.install(stock.name);
-  run(cmd);
+  const count = Math.max(1, picker.value.count || 1);
+  picker.value = { ...picker.value, open: false };
+  if (stock.kind === 'seed') {
+    // 超出已开垦地块的作物不参与产出，先按剩余空地截断
+    const free = Math.max(0, crop.value.limit - crop.value.used);
+    const wanted = Math.min(count, Math.floor(stock.quantity));
+    const planted = Math.min(wanted, free);
+    if (planted <= 0) {
+      ui.pushToast({ type: 'warning', message: C.texts.overLimit(free) });
+      endBatch();
+      return;
+    }
+    if (planted < count) ui.pushToast({ type: 'warning', message: C.texts.overLimit(free) });
+    plantMany(stock.name, planted);
+    return;
+  }
+  const installed = Math.min(count, Math.floor(stock.quantity));
+  runMany(countedCommands(C.commands.install, stock.name, installed));
 }
 
 /** 仓库里直接点「种下 / 安装」：等价于发送一次指令 */
 function quickUse(stock) {
-  pickStock(stock);
+  if (stock.kind === 'seed') {
+    plantMany(stock.name, 1);
+    return;
+  }
+  run(C.commands.install(stock.name));
+}
+
+// ---------- 批量操作 ----------
+/** 一键收获全部作物：对每种作物各发一条「收获 名称」（该指令本就收走同名全部） */
+function harvestAllCrops() {
+  if (!cropNames.value.length) {
+    ui.pushToast({ type: 'info', message: C.texts.nothingToHarvest });
+    return;
+  }
+  runMany(cropNames.value.map((name) => C.commands.harvest(name)));
+}
+
+/** 收获选中地块（按作物名去重） */
+function harvestSelected() {
+  const names = Array.from(new Set(selectionList.value.map((x) => x.plot.name).filter(Boolean)));
+  if (!names.length) return;
+  runMany(names.map((name) => C.commands.harvest(name)));
+}
+
+/** 拆除选中建筑（按名称聚合成「拆除 名称N」） */
+function removeSelected() {
+  if (!selectionGroups.value.length) return;
+  const cmds = selectionGroups.value.flatMap(([name, n]) => countedCommands(C.commands.remove, name, n));
+  runMany(cmds);
 }
 
 function goHome() {
@@ -597,7 +937,11 @@ function clearObstacle(obstacle) {
 .yd-btn.tiny {
   padding: 3px 8px;
   font-size: 11px;
-  margin-left: auto;
+}
+.yd-btn.tiny.on {
+  border-color: var(--accent, #8b5cf6);
+  background: rgba(139, 92, 246, 0.16);
+  color: var(--text, #e5e7eb);
 }
 .yd-btn.primary {
   border-color: rgba(139, 92, 246, 0.45);
@@ -671,12 +1015,24 @@ function clearObstacle(obstacle) {
   padding: 0 6px;
   font-size: 11px;
 }
+.yd-b-ops {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
 
 /* ---------- 地块网格 ---------- */
 .yd-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--yd-min, 96px), 1fr));
   gap: var(--yd-gap, 10px);
+}
+/* 刷选模式：禁用滚动与文本选中，让触屏拖拽刷选不被页面滚动抢走 */
+.yd-grid.brushing {
+  touch-action: none;
+  user-select: none;
 }
 .yd-plot {
   position: relative;
@@ -702,6 +1058,11 @@ function clearObstacle(obstacle) {
 .yd-plot.sel {
   border-color: var(--accent, #8b5cf6);
   box-shadow: 0 0 0 1px var(--accent, #8b5cf6) inset;
+}
+.yd-plot.picked {
+  border-color: var(--accent2, #06b6d4);
+  background: rgba(6, 182, 212, 0.14);
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.45) inset;
 }
 .yd-plot.empty {
   border-style: dashed;
@@ -922,6 +1283,33 @@ function clearObstacle(obstacle) {
   font-size: 11px;
   padding: 8px;
   text-align: center;
+}
+
+/* ---------- 批量操作条 ---------- */
+.yd-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(6, 182, 212, 0.12), rgba(139, 92, 246, 0.12));
+  padding: 10px 14px;
+  flex-shrink: 0;
+}
+.yd-bb-info {
+  font-size: 12px;
+  color: var(--muted);
+}
+.yd-bb-info b {
+  color: var(--accent2, #06b6d4);
+  font-size: 14px;
+}
+.yd-bb-ops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
 }
 
 /* ---------- 详情条 ---------- */

@@ -307,6 +307,19 @@ export const HOME_YARD_CONFIG = {
     goHome: (houseName) => `前往 ${houseName}`,
     // 凭证：使用后写入「凭证」标记，作物上限 +5、建筑上限 +1（原版每日限一次）
     useVoucher: () => '使用 凭证',
+    /** 带数量的批量写法（原版 parseCountedAction 支持「名称+数量」） */
+    withCount: (name, count) => `${name}${count}`,
+  },
+  /**
+   * 批量 / 拖拽刷选配置（QQ 农场式操作）
+   * - maxPerCommand：单条指令允许携带的最大数量，超出自动拆成多条
+   *   （如种 150 棵 → 「种植 种子99」+「种植 种子51」）
+   * - drag：刷选判定用的指针移动阈值
+   */
+  batch: {
+    maxPerCommand: 99,
+    /** toast 里最多合并展示的执行结果条数（避免刷屏） */
+    toastResultLimit: 3,
   },
   /** 文案（集中在便于调整/本地化） */
   texts: {
@@ -317,7 +330,16 @@ export const HOME_YARD_CONFIG = {
     pickBuildingTitle: '选一个建筑安装',
     noSeed: '背包里没有可种植的种子',
     noBuilding: '背包里没有可安装的建筑',
-    harvestAll: '收获全部',
-    removeAll: '拆除全部',
+    // 批量 / 拖拽刷选
+    batchOn: '✥ 批量',
+    batchOff: '退出批量',
+    batchHint: '开启后可在地块上按住拖动刷选，再一次性种下 / 收获 / 拆除',
+    batchEmpty: '批量：点或拖着刷过要操作的地块',
+    seedCount: (n) => `种下 ${n} 颗`,
+    installCount: (n) => `安装 ${n} 个`,
+    harvestCount: (n) => `收获 ${n} 块`,
+    removeCount: (n) => `拆除 ${n} 个`,
+    overLimit: (free) => `已开垦地块只剩 ${free} 块，超出的作物不参与产出，已自动截断`,
+    nothingToHarvest: '地里没有可收获的作物',
   },
 };
