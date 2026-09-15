@@ -571,7 +571,7 @@ describe('载具任务动作收尾', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(fixture.gameService.handleAssembleVehicle).toHaveBeenCalledWith(42, '轻型足', 3);
+    expect(fixture.gameService.handleAssembleVehicle).toHaveBeenCalledWith(42, '轻型足', 3, undefined);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '组装部件', 2);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '组装轻型足', 2);
     expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '组装载具', expect.anything());
@@ -586,7 +586,7 @@ describe('载具任务动作收尾', () => {
       ['骑士核心2'],
     );
 
-    expect(fixture.gameService.handleAssembleVehicle).toHaveBeenCalledWith(42, '骑士核心', 2);
+    expect(fixture.gameService.handleAssembleVehicle).toHaveBeenCalledWith(42, '骑士核心', 2, undefined);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '组装载具', 1);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '组装骑士核心', 1);
     expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '组装部件', expect.anything());

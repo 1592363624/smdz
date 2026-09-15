@@ -57,6 +57,9 @@ function makeService(options: {
         )) || null;
       }),
     },
+    player: {
+      findUnique: jest.fn(async () => null),
+    },
     gameVehicle: {
       findUnique: jest.fn(async ({ where }: any) =>
         dbVehicles.find((value: any) => value.id === where.id) || null),
@@ -100,11 +103,23 @@ function makeService(options: {
   const taskService: any = { advance: jest.fn(async () => '') };
   const placeholder = {} as any;
 
-  const service = createGameServiceStub({
+  const combatSystem: any = {
+      recalculateVehicle: jest.fn((vehicle: any) => {
+        vehicle.加成 = { ...(vehicle.加成 || {}), 生命: Number(vehicle.加成?.生命 ?? vehicle.maxHp ?? 100) };
+        return vehicle;
+      }),
+    };
+    const staticData: any = {
+      getVehiclePartSpecByName: jest.fn(() => null),
+      getBuildingByName: jest.fn(() => null),
+      getVehiclePartByName: jest.fn(() => null),
+    };
+
+    const service = createGameServiceStub({
       prisma: prisma,
       playerService: playerService,
       bonusService: {} as any,
-      combatSystem: {} as any,
+      combatSystem,
       itemService: {} as any,
       mapService: mapService,
       familiarService: {} as any,
@@ -116,7 +131,7 @@ function makeService(options: {
       familiarSystemService: {} as any,
       familiarSkillsService: {} as any,
       tutorialService: {} as any,
-      staticData: {} as any,
+      staticData,
       systemConfigService: {} as any,
       chatService: {} as any,
       feedbackService: {} as any,
@@ -261,5 +276,95 @@ describe('载具驾驶/脱出复刻', () => {
     expect(vehicles[0].driver).toBe('');
     expect(vehicles[0].驾驶员).toBe('');
     expect(achievements).toContain('脱出');
+  });
+});
+
+describe('载具状态/命名/架炮（地图 JSON 双存储统一）', () => {
+  it('载具状态走地图载具而不是仅 DB parseInt', async () => {
+    const { service } = makeService({
+      player: { id: 1, userId: 10, name: '甲', mapId: 7, vehicle: 'vehicle-1', sets: '{}', masterQQ: '' },
+      map: {
+        id: 7, mapIndex: 7, name: '医疗室',
+        vehicles: JSON.stringify([{
+          名称: '测试车', name: '测试车', 类型: '战斗', type: '战斗',
+          编号: 'vehicle-1', vehicleId: 'vehicle-1',
+          归属: 'qq10', owner: 'qq10', 驾驶员: 'qq10', driver: 'qq10',
+          当前生命: 80, currentHp: 80, 生命: 100, maxHp: 100,
+          行走方式: 1, moveType: 1,
+          零件: [{ 名称: '骑士核心', name: '骑士核心', 数量: 1, quantity: 1 }],
+          配方: [], 加成: { 生命: 100, 攻击: 5 }, 标记: {},
+        }]),
+        summons: '[]',
+      },
+    });
+
+    const result = await service.handleVehicleStatus(10);
+    expect(result).toContain('测试车');
+    expect(result).toContain('驾驶员加成:');
+    expect(result).toContain('攻击+5');
+  });
+
+  it('载具命名按旧名+新名在当前地图改名', async () => {
+    const { service, map, updateCalls } = makeService({
+      map: {
+        id: 7, mapIndex: 7, name: '医疗室',
+        vehicles: JSON.stringify([{
+          名称: '骑士', name: '骑士', 编号: 'vehicle-1', vehicleId: 'vehicle-1',
+          归属: 'qq10', owner: 'qq10', 零件: [], 配方: [], 加成: {}, 标记2: [],
+        }]),
+        summons: '[]',
+      },
+    });
+
+    const result = await service.handleNameVehicle(10, '骑士 坦克');
+    expect(result).toBe('甲,骑士名称修改为坦克');
+    const vehicles = parseValue<any[]>(map.vehicles, []);
+    expect(vehicles[0].名称).toBe('坦克');
+    expect(vehicles[0].name).toBe('坦克');
+    expect(updateCalls).toHaveLength(1);
+  });
+
+  it('非恶毒玩家不能架炮', async () => {
+    const { service } = makeService({
+      player: {
+        id: 1, userId: 10, name: '甲', mapId: 7, vehicle: '', sets: '{}', masterQQ: '',
+        type: '普拉娜',
+      },
+    });
+    const result = await service.handleDeployCannon(10);
+    expect(result).toBe('甲这是恶毒的技能');
+  });
+
+  it('恶毒架炮切换攻击模式并写回 sets', async () => {
+    const { service, player } = makeService({
+      player: {
+        id: 1, userId: 10, name: '甲', mapId: 7, vehicle: '', sets: '{}', masterQQ: '',
+        type: '恶毒', attackMode: 0,
+      },
+    });
+
+    const deploy = await service.handleDeployCannon(10);
+    expect(deploy).toContain('架好了炮击阵地');
+    expect(player.attackMode).toBe(1);
+    expect(parseValue<any>(player.sets, {}).attackMode).toBe(1);
+
+    const stow = await service.handleDeployCannon(10);
+    expect(stow).toContain('收好了炮击阵地');
+    expect(player.attackMode).toBe(0);
+  });
+
+  it('findVehicleOverLimitPart 识别 partType 而不是 type', () => {
+    const { service } = makeService({});
+    const over = service.findVehicleOverLimitPart({
+      maxFunction: 1,
+      maxWeapon: 5,
+      maxMove: 5,
+      maxDefense: 5,
+      零件: [
+        { 名称: '功能A', partType: 4 },
+        { 名称: '功能B', partType: 4 },
+      ],
+    });
+    expect(over).toBe('功能部件');
   });
 });

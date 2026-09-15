@@ -130,6 +130,9 @@ describe('载具生产复刻 - 静态配置与核心分支', () => {
     expect(meat.数量).toBeCloseTo(97.5);
     expect(vehicle.零件.some((value: any) => value.名称 === 'undefined')).toBe(false);
     expect(result.produced.every((value) => Number.isFinite(value.quantity))).toBe(true);
+    // 原版 加成计算 L3901：结算后把可生产秒数写入 载具.标记["生产时间"]
+    expect(result.availableTime).toBeGreaterThan(0);
+    expect(vehicle.标记?.['生产时间']).toBeCloseTo(result.availableTime);
   });
 
   it('九尾狐核心、副产物、消耗降低和兰音幼崽按原版倍率叠加', () => {
@@ -273,7 +276,10 @@ describe('载具生产复刻 - 特殊状态和字段兼容', () => {
       },
       savePlayer: jest.fn(),
     };
-    const mapService: any = { updateDynamicFields: jest.fn() };
+    const mapService: any = {
+      updateDynamicFields: jest.fn(),
+      getAllMaps: jest.fn(async () => []),
+    };
     const game = createGameServiceStub({
       prisma: prisma,
       playerService: playerService,
@@ -333,5 +339,58 @@ describe('载具生产复刻 - 特殊状态和字段兼容', () => {
     expect(mapService.updateDynamicFields).toHaveBeenCalledWith(3, expect.objectContaining({
       vehicles: expect.arrayContaining([expect.objectContaining({ 名称: '数据库载具' })]),
     }));
+  });
+
+  it('查看载具详情渲染生产线可运行与驾驶员加成行', async () => {
+    const prisma: any = { user: { findUnique: jest.fn() }, player: { findUnique: jest.fn() }, gameVehicle: {} };
+    const playerService: any = {
+      safeJsonParse: (value: any, fallback: any) => {
+        if (value && typeof value === 'object') return value;
+        try { return JSON.parse(value); } catch { return fallback; }
+      },
+      savePlayer: jest.fn(),
+    };
+    const mapService: any = {
+      updateDynamicFields: jest.fn(),
+      getAllMaps: jest.fn(async () => []),
+    };
+    const game = createGameServiceStub({
+      prisma, playerService, bonusService: {} as any, combatSystem: {} as any,
+      itemService: {} as any, mapService, familiarService: {} as any, dungeonService: {} as any,
+      adminService: {} as any, achievementService: {} as any, itemSystemService: {} as any,
+      homeService: {} as any, familiarSystemService: {} as any, familiarSkillsService: {} as any,
+      tutorialService: {} as any,
+      staticData: {
+        getVehiclePartSpecByName: jest.fn(() => null),
+        getBuildingByName: jest.fn(() => null),
+        getVehiclePartByName: jest.fn(() => null),
+        getVehicleRecipeByName: jest.fn(() => null),
+        getAllVehiclePartSpecs: jest.fn(() => []),
+      } as any,
+      systemConfigService: {} as any,
+      chatService: {} as any, feedbackService: {} as any, taskService: {} as any,
+      shortcutService: {} as any, statsService: {} as any, combatState: {} as any,
+    });
+    const detail = await (game as any).movementVehicleService.formatVehicleDetail({
+      名称: '白天鹅',
+      类型: '骑士',
+      当前生命: 100,
+      生命: 100,
+      归属: 'qq10',
+      驾驶员: 'qq10',
+      武器: 1, 武器上限: 2, 防御: 0, 防御上限: 2, 功能: 0, 功能上限: 3, 行走: 1, 行走上限: 1,
+      行走方式: 1,
+      编号: 'v1',
+      零件: [{ 名称: '骑士核心', 数量: 1 }],
+      配方: [],
+      加成: { 生命: 100, 生产: 50, 攻击: 8 },
+      标记: { 生产时间: 3661 },
+      上限: 0,
+    });
+    expect(detail).toContain('生产线可运行:1小时1分1秒');
+    expect(detail).toContain('驾驶员加成:');
+    expect(detail).toContain('生命+100');
+    expect(detail).toContain('攻击+8');
+    expect(detail).toContain('生产+50');
   });
 });

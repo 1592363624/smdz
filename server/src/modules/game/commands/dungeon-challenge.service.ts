@@ -866,7 +866,7 @@ export class DungeonChallengeService {
    *   整轮重掷直至命中（几率和>0 必然终止，保留 10000 次护栏）；
    *   force=false（每小时常规刷新）：整轮未命中则本小时不生成（原版 b==0 静默跳过）。
    * - 生成地点：编号>=3 且非开拓地/关卡/副本/不刷特殊的随机地图（L1457-L1465）
-   * - 零件清单按 wrecks.json 原样写入（装备件由生成装备生成的细节见后续对齐）
+   * - 零件清单逐件分类：装备类替换为 生成装备(名称,"s",0) 成品（词条/特效随机），资源类保持 数量
    *
    * @param force 是否必定生成
    * @returns ok=是否生成；message=管理员回包文案；wreckName/mapName 供定时器日志使用
@@ -918,15 +918,38 @@ export class DungeonChallengeService {
     runtime.owner = '无主';
     runtime.驾驶员 = '';
     runtime.driver = '';
-    // 随机载具零件清单（原版 零件=名称数量，装备类由生成装备生成——此处保留清单原样）
-    runtime.零件 = (wreck.parts ?? []).map((part: any) => ({
-      名称: String(part?.name ?? ''),
-      name: String(part?.name ?? ''),
-      类型: '资源',
-      type: '资源',
-      数量: Number(part?.count ?? 1) || 1,
-      quantity: Number(part?.count ?? 1) || 1,
-    }));
+    // 随机载具零件清单（原版 后台运作.ecode L1450-L1456：逐件 判断物品2 分类，
+    // 类型=="装备" 的零件整体替换为 生成装备(名称,"s",0) 的成品——品质"s"词条倍率9，
+    // 词条/特效随机，耐久0；资源件保持 名称x数量）
+    runtime.零件 = [];
+    for (const part of (wreck.parts ?? [])) {
+      const partName = String(part?.name ?? '').trim();
+      if (!partName) continue;
+      if (this.itemSystemService.isEquipment(partName)) {
+        const equip = await this.itemSystemService.generateEquipment(partName, 's', 0);
+        runtime.零件.push({
+          名称: equip.name,
+          name: equip.name,
+          类型: '装备',
+          type: '装备',
+          数量: 1,
+          quantity: 1,
+          耐久: Number(equip.durability ?? 0),
+          durability: Number(equip.durability ?? 0),
+          ...(equip.data ? { 数据: equip.data, data: equip.data } : {}),
+        });
+      } else {
+        const qty = Number(part?.count ?? 1) || 1;
+        runtime.零件.push({
+          名称: partName,
+          name: partName,
+          类型: '资源',
+          type: '资源',
+          数量: qty,
+          quantity: qty,
+        });
+      }
+    }
     this.combatSystem.recalculateVehicle(runtime, Date.now());
     const calculatedHp = Number(runtime.加成?.生命 || 0);
     runtime.当前生命 = calculatedHp;

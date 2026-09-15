@@ -66,6 +66,13 @@ function makeService(options: {
 
   const prisma: any = {
     user: { findUnique: jest.fn(async () => user) },
+    gameVehicle: {
+      findUnique: jest.fn(async () => null),
+      findFirst: jest.fn(async () => null),
+      findMany: jest.fn(async () => []),
+      update: jest.fn(async () => null),
+      create: jest.fn(async () => ({ id: 99, name: '新载具' })),
+    },
   };
 
   const playerService: any = {
@@ -74,6 +81,25 @@ function makeService(options: {
     safeJsonParse: jest.fn(parseValue),
     getBackpackItems: (value: any) => parseValue<any[]>(value.backpack, []),
     isPlayerDead: (value: any) => (value.hp || 0) <= 0,
+    getCurrencyAmount: (player: any, name: string, backpack?: any[]) => {
+      const items = backpack ?? parseValue<any[]>(player.backpack, []);
+      const item = items.find((it: any) => it?.name === name);
+      return Number(item?.quantity ?? item?.count ?? 0) || 0;
+    },
+    setCurrencyAmount: (player: any, name: string, value: number, backpack?: any[]) => {
+      const items = backpack ?? parseValue<any[]>(player.backpack, []);
+      const idx = items.findIndex((it: any) => it?.name === name);
+      const qty = Number(value) || 0;
+      if (qty <= 0) {
+        if (idx >= 0) items.splice(idx, 1);
+      } else if (idx >= 0) {
+        items[idx].quantity = qty;
+        items[idx].count = qty;
+      } else {
+        items.push({ name, type: '资源', quantity: qty, count: qty });
+      }
+      if (!backpack) player.backpack = items;
+    },
   };
 
   const mapService: any = {
@@ -101,6 +127,41 @@ function makeService(options: {
       vehicle.加成 = { 生命: 5 };
       return vehicle;
     }),
+    produceVehicle: jest.fn((vehicle: any) => {
+      vehicle.加成 = { 生命: 5 };
+      return {
+        productionDisplay: '0!0!0!100',
+        productionSpeed: 1,
+        byproductMultiplier: 1,
+        consumptionMultiplier: 1,
+        efficiency: 1,
+        availableTime: 0,
+        consumedProductivity: 0,
+        elapsedMs: 0,
+        outputPerMinute: [],
+        consumptionPerMinute: [],
+        combinedPerMinute: [],
+        produced: [],
+        consumed: [],
+        stopped: false,
+      };
+    }),
+    calculateVehicleProduction: jest.fn(() => ({
+      productionDisplay: '0!0!0!100',
+      productionSpeed: 1,
+      byproductMultiplier: 1,
+      consumptionMultiplier: 1,
+      efficiency: 1,
+      availableTime: 0,
+      consumedProductivity: 0,
+      elapsedMs: 0,
+      outputPerMinute: [],
+      consumptionPerMinute: [],
+      combinedPerMinute: [],
+      produced: [],
+      consumed: [],
+      stopped: false,
+    })),
   };
 
   const taskService: any = { advance: jest.fn(async () => '') };
@@ -209,5 +270,94 @@ describe('多零件组装载具复刻', () => {
     expect(result).toContain('一个玩家只能同时存在一个生产类载具');
     expect(map.vehicles).toBe('[]');
     expect(updateCalls).toHaveLength(0);
+  });
+});
+
+describe('组装双向物流（原版 L10203-L10269）', () => {
+  function makeDrivingService(backpackItems: any[] = [], vehicleParts: any[] = []) {
+    const vehicle = {
+      名称: '白天鹅',
+      name: '白天鹅',
+      类型: '骑士',
+      type: '骑士',
+      编号: 'vehicle-1',
+      vehicleId: 'vehicle-1',
+      归属: 'qq10',
+      owner: 'qq10',
+      驾驶员: 'qq10',
+      driver: 'qq10',
+      当前生命: 100,
+      currentHp: 100,
+      生命: 100,
+      maxHp: 100,
+      零件: [
+        { 名称: '骑士核心', name: '骑士核心', 类型: '资源', type: '资源', 数量: 1, quantity: 1, 耐久: 100, durability: 100 },
+        ...vehicleParts,
+      ],
+      配方: [{ 名称: '1', name: '1', 数值: 0, value: 0 }],
+      加成: {},
+      标记2: [],
+    };
+    return makeService({
+      player: {
+        id: 1, userId: 10, name: '甲', level: 10, hp: 100, mapId: 7,
+        vehicle: 'vehicle-1',
+        sets: '{}', attackMode: 0, masterQQ: '',
+        backpack: JSON.stringify(backpackItems),
+        markers: JSON.stringify({}), markers2: JSON.stringify([]),
+      },
+      map: {
+        id: 7, mapIndex: 7, name: '医疗室',
+        vehicles: JSON.stringify([vehicle]),
+        summons: '[]',
+      },
+    });
+  }
+
+  it('组装生肉100 把资源塞进载具零件', async () => {
+    const { service, player, map } = makeDrivingService(
+      [{ name: '生肉', type: '资源', quantity: 120 }],
+      [],
+    );
+
+    const result = await service.handleAssembleVehicle(10, '生肉', 100);
+
+    expect(result).toContain('把生肉x100塞到了白天鹅里面');
+    const stored = parseValue<any[]>(map.vehicles, [])[0];
+    const meat = parseValue<any[]>(stored.零件, []).find((p: any) => p.名称 === '生肉');
+    expect(meat?.数量).toBe(100);
+    const bag = parseValue<any[]>(player.backpack, []).find((i: any) => i.name === '生肉');
+    expect(bag?.quantity).toBe(20);
+  });
+
+  it('组装生肉-40 从载具取出资源回背包', async () => {
+    const { service, player, map } = makeDrivingService(
+      [],
+      [{ 名称: '生肉', name: '生肉', 类型: '资源', type: '资源', 数量: 50, quantity: 50, 耐久: 100, durability: 100 }],
+    );
+
+    const result = await service.handleAssembleVehicle(10, '生肉', -40);
+
+    expect(result).toContain('把生肉x40从白天鹅上取了出来');
+    const stored = parseValue<any[]>(map.vehicles, [])[0];
+    const meat = parseValue<any[]>(stored.零件, []).find((p: any) => p.名称 === '生肉');
+    expect(meat?.数量).toBe(10);
+    const bag = parseValue<any[]>(player.backpack, []).find((i: any) => i.name === '生肉');
+    expect(bag?.quantity).toBe(40);
+  });
+
+  it('背包不足时按现有数量尽量装入', async () => {
+    const { service, player, map } = makeDrivingService(
+      [{ name: '燃料', type: '资源', quantity: 3 }],
+      [],
+    );
+
+    const result = await service.handleAssembleVehicle(10, '燃料', 10);
+
+    expect(result).toContain('把燃料x3塞到了白天鹅里面');
+    const stored = parseValue<any[]>(map.vehicles, [])[0];
+    const fuel = parseValue<any[]>(stored.零件, []).find((p: any) => p.名称 === '燃料');
+    expect(fuel?.数量).toBe(3);
+    expect(parseValue<any[]>(player.backpack, []).find((i: any) => i.name === '燃料')).toBeUndefined();
   });
 });

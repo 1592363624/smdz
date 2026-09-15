@@ -2959,7 +2959,7 @@ export class ItemSystemService {
    * @param qualityLower 品质下限(0~1) 默认0.1
    * @param noEffect 不生成特效
    */
-  private async generateEquipment(
+  public async generateEquipment(
     name: string,
     quality?: string,
     legendaryRate?: number,

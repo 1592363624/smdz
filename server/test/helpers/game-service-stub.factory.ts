@@ -183,7 +183,7 @@ function defineLazyMounts(stub: any): void {
   defineLazyMount(stub, 'movementVehicleService', (s) => {
     const inst = new MovementVehicleService(
       s.support, s.prisma, s.playerService, s.combatSystem, s.mapService, s.achievementService,
-      s.familiarSystemService, s.staticData, s.systemConfigService, s.chatService, s.taskService,
+      s.familiarSystemService, s.staticData, s.itemService, s.systemConfigService, s.chatService, s.taskService,
       s.shortcutService, s.combatState, undefined as any, undefined as any, undefined as any, undefined as any,
       s.delayedTaskService,
     );

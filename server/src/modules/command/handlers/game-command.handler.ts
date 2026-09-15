@@ -85,6 +85,36 @@ export class GameCommandHandler implements CommandHandler {
     return { name: match[1].trim(), count: Math.max(1, Number(match[2])) };
   }
 
+  /**
+   * 解析「组装」参数（原版 _主程序.ecode L10096-L10117）：
+   * - `部件` / `部件 数量` / `部件数量`（数量可为负）
+   * - `核心 新名称`（建命名载具）
+   * - `核心1 部件2 ...`（多段走 assembleVehicleFromParts）
+   */
+  private parseAssembleCommand(input: string): {
+    name: string;
+    count: number;
+    newVehicleName?: string;
+    multi?: string[];
+  } {
+    const value = String(input || '').trim();
+    if (!value) return { name: '', count: 1 };
+    const tokens = value.split(/\s+/).filter(Boolean);
+    if (tokens.length > 2) return { name: '', count: 1, multi: tokens };
+
+    if (tokens.length === 2) {
+      const spacedNum = tokens[1].match(/^(-?\d+)$/);
+      if (spacedNum) return { name: tokens[0], count: Number(spacedNum[1]) };
+      // 第二段不是纯数字 → 视为「核心 新名称」
+      return { name: tokens[0], count: 0, newVehicleName: tokens[1] };
+    }
+
+    const single = tokens[0];
+    const m = single.match(/^(.+?)(-?\d+)$/);
+    if (m && m[1]) return { name: m[1].trim(), count: Number(m[2]) };
+    return { name: single, count: 1 };
+  }
+
   /** 从载具批量操作的响应中读取实际完成数量，避免库存不足时虚增任务进度。 */
   private parseActionResultCount(result: string, fallback: number): number {
     const match = result.match(/(?:[x×]\s*(\d+)|把\s*(\d+)\s*个|拆卸了[^\n]*?[x×]\s*(\d+))/i);
@@ -1279,19 +1309,23 @@ export class GameCommandHandler implements CommandHandler {
         case '组装':
         case 'assemble': {
           // 原版 _主程序.ecode L10096-L10117：多段空格参数表示按模拟配方直接组装新载具。
-          const parts = arg.split(/\s+/).filter(Boolean);
-          if (parts.length > 2) {
-            const multiPartResult = await this.gameService.assembleVehicleFromParts(userId, parts);
+          const assembleParsed = this.parseAssembleCommand(arg);
+          if (assembleParsed.multi) {
+            const multiPartResult = await this.gameService.assembleVehicleFromParts(userId, assembleParsed.multi);
             return this.wrap(multiPartResult);
           }
 
-          const action = this.parseCountedAction(arg);
-          const result = await this.gameService.handleAssembleVehicle(userId, action.name, action.count);
+          const result = await this.gameService.handleAssembleVehicle(
+            userId,
+            assembleParsed.name,
+            assembleParsed.count,
+            assembleParsed.newVehicleName,
+          );
           if (this.isSuccessfulAction(result)) {
             const isVehicleAssembly = /成功组装载具|组装了一个载具/.test(result);
-            const count = isVehicleAssembly ? 1 : this.parseActionResultCount(result, action.count);
+            const count = isVehicleAssembly ? 1 : Math.abs(this.parseActionResultCount(result, Math.abs(assembleParsed.count) || 1));
             await this.taskService.advance(userId, isVehicleAssembly ? '组装载具' : '组装部件', count);
-            if (action.name) await this.taskService.advance(userId, '组装' + action.name, count);
+            if (assembleParsed.name) await this.taskService.advance(userId, '组装' + assembleParsed.name, count);
           }
           return this.wrap(result);
         }
@@ -1305,7 +1339,8 @@ export class GameCommandHandler implements CommandHandler {
 
         case '载具命名':
         case 'name-vehicle':
-          return this.wrap(await this.gameService.handleNameVehicle(userId, firstArg));
+          // 原版「载具命名 骑士 坦克」：旧名 + 新名两段参数
+          return this.wrap(await this.gameService.handleNameVehicle(userId, arg));
 
         case '载具模拟':
         case 'simulate-vehicle': {

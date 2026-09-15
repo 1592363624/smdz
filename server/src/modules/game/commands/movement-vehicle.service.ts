@@ -24,6 +24,7 @@ import { MapService } from '.././map.service';
 import { AchievementService } from '.././achievement.service';
 import { FamiliarSystemService } from '.././familiar-system.service';
 import { StaticDataService } from '.././static-data.service';
+import { ItemService } from '../item.service';
 import { SystemConfigService } from '../../system-config/system-config.service';
 import { ChatService } from '../../chat/chat.service';
 import { TaskService } from '.././task.service';
@@ -49,6 +50,7 @@ export class MovementVehicleService {
     private readonly achievementService: AchievementService,
     private readonly familiarSystemService: FamiliarSystemService,
     private readonly staticData: StaticDataService,
+    private readonly itemService: ItemService,
     private readonly systemConfigService: SystemConfigService,
     private readonly chatService: ChatService,
     private readonly taskService: TaskService,
@@ -1487,9 +1489,11 @@ export class MovementVehicleService {
         `“生产限制资源箱10000”来对[资源箱]这种产物进行限制，输入0移除。`,
         `“生产配平5”来让载具其他配方自动根据消耗进行生产力分配。`,
         `产出的物品会存放于载具内，配方需要消耗的材料直接放入载具内即可。`,
+        `“组装燃料100”把材料塞进当前驾驶的载具；“组装燃料-100”从载具取出。`,
         `载具生命为0时也可以生产，但是有部件超出容许安装限制时无法生产。`,
         `生产所需的配方可以发送“配方”来获取。`,
         `载具的核心不是生产类载具的核心时，生产力降低75%。`,
+        `排在上面的配方优先结算。`,
         `1、配方    2、查看产物`,
       ].join('\n');
     }
@@ -1509,48 +1513,21 @@ export class MovementVehicleService {
     }
 
     const runtime = source.runtime;
-    const productionBonus = this.achievementService.getAchievement(playerData.markers, '生产');
-    // 接管载具可能来自其他地图；兰音幼崽/咏星状态应从载具所在地图读取。
+    const production = await this.settleVehicleProduction(
+      userId,
+      player,
+      source,
+      runtime,
+      map,
+      playerData.markers,
+    );
+    const timestamp = Date.now();
     const productionMap = source.kind === 'map'
       ? source.map
       : (Number(source.db?.mapIndex || 0) > 0
         ? await this.mapService.getMapById(Number(source.db.mapIndex))
         : map);
     const productionOptions = this.vehicleProductionOptions(productionMap || map, runtime);
-    const timestamp = Date.now();
-    const production = this.combatSystem.produceVehicle(
-      runtime,
-      timestamp,
-      productionBonus,
-      map.id,
-      productionOptions,
-    );
-
-    // 生产结算必须先持久化，后续生产限制/排序/配方设置才不会覆盖已结算的时间戳。
-    await this.persistRuntimeVehicle(source, runtime);
-
-    // 原版实际产出同时推进「生产」成就和按物品拆分的任务要求。
-    const producedByName = new Map<string, number>();
-    for (const item of production.produced) {
-      const name = String(item.name || '');
-      const quantity = Number(item.quantity || 0);
-      if (name && quantity > 0) producedByName.set(name, (producedByName.get(name) || 0) + quantity);
-    }
-    if (producedByName.size > 0) {
-      const markers = playerData.markers || {};
-      const total = [...producedByName.values()].reduce((sum, value) => sum + value, 0);
-      this.achievementService.setAchievement(
-        markers,
-        '生产',
-        this.achievementService.getAchievement(markers, '生产') + total,
-      );
-      player.markers = markers;
-      await this.playerService.savePlayer(player);
-      for (const [name, quantity] of producedByName) {
-        await this.taskService.advance(userId, `生产${name}`, quantity);
-        await this.taskService.advance(userId, '生产', quantity);
-      }
-    }
 
     const playerName = player.name || '冒险者';
     if (Number(runtime.加成?.生产 || 0) === 0) {
@@ -1866,7 +1843,14 @@ export class MovementVehicleService {
       零件: Array.isArray(parts) ? parts.map(normalizeItem) : [],
       配方: Array.isArray(recipes) ? recipes.map(normalizeRecipe) : [],
       加成: bonus && typeof bonus === 'object' ? bonus : {},
+      标记: this.parseVehicleValue<any>(raw?.标记 ?? raw?.markers, {}),
       标记2: Array.isArray(markers2) ? markers2 : [],
+      逆转力场: Boolean(raw?.逆转力场 ?? raw?.reverseField ?? false),
+      reverseField: Boolean(raw?.reverseField ?? raw?.逆转力场 ?? false),
+      发丝: Boolean(raw?.发丝 ?? raw?.hair ?? false),
+      hair: Boolean(raw?.hair ?? raw?.发丝 ?? false),
+      涂层: Number(raw?.涂层 ?? raw?.coating ?? 0) || 0,
+      coating: Number(raw?.coating ?? raw?.涂层 ?? 0) || 0,
     };
   }
 
@@ -1894,6 +1878,7 @@ export class MovementVehicleService {
     }));
     const bonus = runtime.加成 || {};
     const markers2 = runtime.标记2 || [];
+    const markers = runtime.标记 ?? runtime.markers ?? {};
     return {
       ...(runtime || {}),
       名称: runtime.名称 ?? runtime.name ?? '',
@@ -1920,8 +1905,16 @@ export class MovementVehicleService {
       recipes,
       加成: bonus,
       bonus,
+      标记: markers && typeof markers === 'object' ? markers : {},
+      markers,
       标记2: markers2,
       markers2,
+      逆转力场: Boolean(runtime.逆转力场 ?? runtime.reverseField ?? false),
+      reverseField: Boolean(runtime.reverseField ?? runtime.逆转力场 ?? false),
+      发丝: Boolean(runtime.发丝 ?? runtime.hair ?? false),
+      hair: Boolean(runtime.hair ?? runtime.发丝 ?? false),
+      涂层: Number(runtime.涂层 ?? runtime.coating ?? 0) || 0,
+      coating: Number(runtime.coating ?? runtime.涂层 ?? 0) || 0,
     };
   }
 
@@ -1940,9 +1933,72 @@ export class MovementVehicleService {
       slotStatus: Number(stored.slotStatus || 0),
       bonus: stored.bonus || {},
       parts: stored.parts || [],
+      markers: stored.markers || {},
       markers2: stored.markers2 || [],
       recipes: stored.recipes || [],
+      reverseField: Boolean(stored.reverseField ?? stored.逆转力场 ?? false),
+      coating: Number(stored.coating ?? stored.涂层 ?? 0) || 0,
     };
+  }
+
+  /**
+   * 按时间戳结算载具生产并持久化（原版 计算载具(..., 计算产出=真) 的统一入口）。
+   * 查看自己载具与「生产」命令共用，保证挂机后打开详情也会补产。
+   */
+  private async settleVehicleProduction(
+    userId: number,
+    player: any,
+    source: any,
+    runtime: any,
+    map: any,
+    playerMarkers?: any,
+  ): Promise<any> {
+    const productionBonus = this.achievementService.getAchievement(
+      playerMarkers ?? asJsonValue<any>(player?.markers, {}),
+      '生产',
+    );
+    // 接管载具可能来自其他地图；兰音幼崽/咏星状态应从载具所在地图读取。
+    const productionMap = source.kind === 'map'
+      ? source.map
+      : (Number(source.db?.mapIndex || 0) > 0
+        ? await this.mapService.getMapById(Number(source.db.mapIndex))
+        : map);
+    const productionOptions = this.vehicleProductionOptions(productionMap || map, runtime);
+    const production = this.combatSystem.produceVehicle(
+      runtime,
+      Date.now(),
+      productionBonus,
+      map.id,
+      productionOptions,
+    );
+
+    // 生产结算必须先持久化，后续生产限制/排序/配方设置才不会覆盖已结算的时间戳。
+    await this.persistRuntimeVehicle(source, runtime);
+
+    // 原版实际产出同时推进「生产」成就和按物品拆分的任务要求。
+    const producedByName = new Map<string, number>();
+    for (const item of production.produced || []) {
+      const anyItem = item as any;
+      const name = String(anyItem.name || anyItem.名称 || '');
+      const quantity = Number(anyItem.quantity ?? anyItem.数量 ?? 0);
+      if (name && quantity > 0) producedByName.set(name, (producedByName.get(name) || 0) + quantity);
+    }
+    if (producedByName.size > 0) {
+      const markers = playerMarkers ?? asJsonValue<any>(player?.markers, {});
+      const total = [...producedByName.values()].reduce((sum, value) => sum + value, 0);
+      this.achievementService.setAchievement(
+        markers,
+        '生产',
+        this.achievementService.getAchievement(markers, '生产') + total,
+      );
+      player.markers = markers;
+      await this.playerService.savePlayer(player);
+      for (const [name, quantity] of producedByName) {
+        await this.taskService.advance(userId, `生产${name}`, quantity);
+        await this.taskService.advance(userId, '生产', quantity);
+      }
+    }
+    return production;
   }
 
   /** 持久化生产结算后的载具；地图 JSON 和 GameVehicle 共用同一运行时结构。 */
@@ -2076,87 +2132,25 @@ export class MovementVehicleService {
    */
 
   async handleVehicleStatus(userId: number): Promise<string> {
-    // 1. 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-
-    // 2. 检查玩家是否有载具
     if (!player.vehicle) {
       return '你当前没有驾驶任何载具';
     }
-    const vehicleId = parseInt(player.vehicle, 10);
-    if (isNaN(vehicleId)) {
-      return '载具数据异常';
-    }
 
-    // 3. 从数据库查询载具定义
-    const vehicle = await this.prisma.gameVehicle.findUnique({
-      where: { id: vehicleId },
-    });
+    // 地图 JSON 与 GameVehicle 双存储统一走 findTravelVehicle（对齐查看载具/维修口径）
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name || '冒险者'}不在服务区`;
+    const vehicle = await this.findTravelVehicle(player, map);
     if (!vehicle) {
-      return '载具数据不存在';
+      const key = String(player.vehicle);
+      player.vehicle = '';
+      await this.playerService.savePlayer(player);
+      return `#错误：附近没有载具${key},已弹射`;
     }
 
-    // 4. 解析部件列表和加成
-    const parts = asJsonValue<any[]>(vehicle.parts, []);
-    const totalBonus = asJsonValue<any>(vehicle.bonus, {});
-
-    // 统计各类型部件数量
-    const typeCounts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
-    for (const part of parts) {
-      typeCounts[part.partType] = (typeCounts[part.partType] || 0) + 1;
-    }
-
-    // 5. 格式化显示
-    const lines: string[] = [
-      `🚗 【${vehicle.name}】`,
-      `━━━━━━━━━━━━━━━`,
-      `❤️ 耐久度: ${vehicle.currentHp || 0}/${vehicle.maxHp || 100}`,
-      `━━━━━━━━━━━━━━━`,
-      `📦 部件 (${parts.length}个):`,
-    ];
-
-    // 按类型分组显示部件
-    if (parts.length === 0) {
-      lines.push(`  暂无安装部件`);
-    } else {
-      for (const part of parts) {
-        const typeName = this.support.PART_TYPE_NAMES[part.partType] || '未知';
-        lines.push(`  ${part.name} [${typeName}]`);
-      }
-    }
-
-    // 显示插槽使用情况
-    lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`📊 插槽使用:`);
-    lines.push(`  武器: ${typeCounts[3] || 0}/${vehicle.maxWeapon || 5}`);
-    lines.push(`  防御: ${typeCounts[1] || 0}/${vehicle.maxDefense || 5}`);
-    lines.push(`  行走: ${typeCounts[2] || 0}/${vehicle.maxMove || 5}`);
-    lines.push(`  功能: ${typeCounts[4] || 0}/${vehicle.maxFunction || 5}`);
-
-    // 显示加成摘要
-    const bonusFields: { key: string; label: string }[] = [
-      { key: '攻击', label: '攻击' },
-      { key: '生命', label: '生命' },
-      { key: '装甲', label: '装甲' },
-      { key: '护盾', label: '护盾' },
-      { key: '速度', label: '速度' },
-      { key: '闪避', label: '闪避' },
-    ];
-
-    const hasBonus = bonusFields.some((bf) => (totalBonus as any)[bf.key]);
-    if (hasBonus) {
-      lines.push(`━━━━━━━━━━━━━━━`);
-      lines.push(`✨ 加成属性:`);
-      for (const bf of bonusFields) {
-        const val = (totalBonus as any)[bf.key];
-        if (val) {
-          lines.push(`  ${bf.label}: +${Math.round(val)}`);
-        }
-      }
-    }
-
-    return lines.join('\n');
+    this.combatSystem.recalculateVehicle(vehicle, Date.now());
+    return this.formatVehicleDetail(vehicle);
   }
 
   // ========== 基础战斗命令 ==========
@@ -2167,87 +2161,214 @@ export class MovementVehicleService {
    * 写入 GameMonster，生成/刷新前线防御召唤物，并开启前线活动状态。
    */
 
-  async handleAssembleVehicle(userId: number, partName: string, count = 1): Promise<string> {
-    const requestedCount = Math.max(1, Math.floor(Number(count) || 1));
+  async handleAssembleVehicle(userId: number, partName: string, count = 1, newVehicleName?: string): Promise<string> {
     if (!partName) {
-      return '请指定要组装的部件名称，格式：组装 部件名';
+      return '请指定要组装的部件名称，格式：组装 部件名 [数量/新名称]';
     }
+    // 原版 _主程序.ecode L10096-10269：数量可为负（从载具取出）；
+    // count===0 且带 newVehicleName 表示「组装核心 新名称」建车。
+    const rawCount = Number(count);
+    const requestedCount = Number.isFinite(rawCount) ? Math.trunc(rawCount) : 1;
 
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
-
-    // 获取用户QQ号
+    const { player, markers } = playerData;
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    const userQQ = user?.qqNumber || String(userId);
-
-    // 检查背包中是否有该部件
+    const userQQ = String(user?.qqNumber || user?.externalId || userId);
     const backpack = this.playerService.getBackpackItems(player);
-    const partItem = backpack.find((item: any) => item.name === partName);
-    if (!partItem) {
-      return `背包中没有【${partName}】`;
-    }
+    const playerName = player.name || '冒险者';
 
     // 床等功能建筑也可以组装到载具，原版任务使用“组装床”而不是“安装床”。
-    if (this.staticData.getBuildingByName(partName)) {
+    if (this.staticData.getBuildingByName(partName) && requestedCount > 0) {
       return this.homeBuild.handleAssembleBuilding(userId, partName, requestedCount);
     }
 
-    // 验证是否为有效部件（静态配置 JSON 单一来源）
     const partDef = this.staticData.getVehiclePartByName(partName);
-    if (!partDef) {
-      return `【${partName}】不是有效的载具部件`;
-    }
+    const isCore = !!partDef && Number(partDef.partType) === 0;
 
-    // 如果部件类型是核心（partType=0），需要创建新载具
-    if (partDef.partType === 0) {
-      // 检查是否已有载具
+    // 组装核心 新名称 → 以此核心创建命名新载具（原版 L10119-L10164）
+    if (isCore && newVehicleName) {
+      if (this.playerService.getCurrencyAmount(player, partName, backpack) < 1) {
+        return `${playerName}你背包里的${partName}数量不足1`;
+      }
       if (player.vehicle) {
-        return '你已经有一辆载具了，无法创建新的载具';
+        return `${playerName}你已经有一辆载具了，无法创建新的载具`;
       }
-
-      // 从背包移除核心部件
-      const removed = await this.playerService.removeFromBackpack(userId, partName, 1);
-      if (!removed) {
-        return '移除部件失败';
+      const map = await this.mapService.getMapById(player.mapId);
+      if (!map) return `${playerName}不在服务区`;
+      if (await this.hasOwnedProductionVehicle(userQQ, partDef)) {
+        return `${playerName}一个玩家只能同时存在一个生产类载具，你可以在普通载具上组装生产线，一样有生产的效果。`;
       }
-
-      // 创建新载具
-      const vehicle = await this.prisma.gameVehicle.create({
-        data: {
-          name: `${player.name || '冒险者'}的载具`,
-          vehicleId: Math.random().toString(36).substring(2, 10).toUpperCase(),
-          type: '组装',
-          owner: userQQ,
-          driver: userQQ,
-          mapIndex: player.mapId,
-          maxHp: 100,
-          currentHp: 100,
-          parts: [{
-            name: partDef.name,
-            partType: 0,
-            bonus: asJsonValue<any>(partDef.bonus, {}),
-            description: partDef.description || '',
-          }],
-          bonus: asJsonValue<any>(partDef.bonus, {}),
-        },
+      const vehicleName = newVehicleName === '原' ? '默认' : newVehicleName;
+      this.playerService.setCurrencyAmount(player, partName, this.playerService.getCurrencyAmount(player, partName, backpack) - 1, backpack);
+      player.backpack = backpack;
+      const runtime = this.toRuntimeVehicle({
+        名称: vehicleName,
+        name: vehicleName,
+        编号: Math.random().toString(36).substring(2, 10).toUpperCase(),
+        归属: userQQ,
+        owner: userQQ,
+        驾驶员: userQQ,
+        driver: userQQ,
+        零件: [{ 名称: partName, name: partName, 类型: '资源', type: '资源', 数量: 1, quantity: 1, 耐久: 100, durability: 100 }],
+        配方: [],
+        加成: {},
+        标记2: [],
       });
-
-      // 自动驾驶载具
-      player.vehicle = String(vehicle.id);
+      this.combatSystem.recalculateVehicle(runtime, Date.now());
+      if (runtime.配方.length === 0) runtime.配方.push({ 名称: '1', name: '1', 数值: Date.now(), value: Date.now() });
+      runtime.当前生命 = Number(runtime.加成?.生命 ?? runtime.生命 ?? 0);
+      runtime.currentHp = runtime.当前生命;
+      const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
+      vehicles.push(this.toStoredVehicle(runtime));
+      await this.mapService.updateDynamicFields(map.id, { vehicles });
+      player.vehicle = String(runtime.编号);
       await this.playerService.savePlayer(player);
-
-      this.logger.log(`玩家 ${userId} 使用核心部件 ${partName} 创建了新载具 ${vehicle.id}`);
-      return `✅ 成功组装载具：${vehicle.name}\n使用核心部件【${partName}】创建成功\n核心已自动安装，使用「载具」查看状态`;
+      this.achievementService.setAchievement(markers, '组装载具', this.achievementService.getAchievement(markers, '组装载具') + 1);
+      player.markers = markers;
+      await this.playerService.savePlayer(player);
+      return `${playerName}组装了一个载具：${vehicleName}`;
     }
 
-    // 非核心部件，检查是否已有载具
-    if (!player.vehicle) {
-      return '你还没有载具，请先使用核心部件组装载具';
+    // 驾驶/接管后才能对载具做零件进出（原版 L10166+）
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${playerName}不在服务区`;
+    const source = await this.findProductionVehicle(userId, player, map);
+    if (!source) {
+      const sets = this.parseVehicleValue<any>(player.sets, {});
+      if (sets?.takeVehicle ?? sets?.接管载具) {
+        sets.takeVehicle = '';
+        sets.接管载具 = '';
+        player.sets = sets;
+        await this.playerService.savePlayer(player);
+        return `${playerName}由于你之前接管的载具不在世界上，已自动停止接管\n必须“驾驶”或者“接管”载具之后才能执行此操作`;
+      }
+      if (isCore) {
+        return `${playerName}必须“驾驶”或者“接管”载具之后才能执行此操作，如果你想用核心组装一个新的载具，你可以发送\n“组装${partName} 新名称”`;
+      }
+      return `${playerName}必须“驾驶”或者“接管”载具之后才能执行此操作`;
     }
 
-    // 通过安装部件来组装
-    return await this.homeBuild.handleInstallPart(userId, partName, requestedCount);
+    const runtime = source.runtime;
+    const parts = runtime.零件 || (runtime.零件 = []);
+
+    // 驾驶中替换核心（原版 L10209-L10221：右侧为“核心”时直接换核）
+    if (isCore && requestedCount > 0) {
+      if (await this.hasOwnedProductionVehicle(userQQ, partDef)) {
+        return `${playerName}一个玩家只能同时存在一个生产类载具，你可以在普通载具上组装生产线，一样有生产的效果。`;
+      }
+      if (this.playerService.getCurrencyAmount(player, partName, backpack) < 1) {
+        return `${playerName}你的背包里面没有${partName}`;
+      }
+      const oldCore = parts[0] ? { ...parts[0] } : null;
+      parts[0] = {
+        名称: partName,
+        name: partName,
+        类型: '资源',
+        type: '资源',
+        数量: Number(parts[0]?.数量 ?? parts[0]?.quantity ?? 1) || 1,
+        quantity: Number(parts[0]?.quantity ?? parts[0]?.数量 ?? 1) || 1,
+        耐久: 100,
+        durability: 100,
+      };
+      if (oldCore?.名称) {
+        this.addBackpackItem(player, backpack, String(oldCore.名称), Number(oldCore.数量 ?? oldCore.quantity ?? 1) || 1);
+      }
+      this.playerService.setCurrencyAmount(player, partName, this.playerService.getCurrencyAmount(player, partName, backpack) - 1, backpack);
+      player.backpack = backpack;
+      await this.settleVehicleProduction(userId, player, source, runtime, map, markers);
+      return `${playerName}把${runtime.名称}的${oldCore?.名称 || '核心'}更换成了${partName}`;
+    }
+
+    // 负数量：从载具零件取出（原版 L10241-L10269）
+    if (requestedCount < 0) {
+      if (partName.includes('生产限制')) {
+        return `${playerName}${runtime.名称}上没有${partName}`;
+      }
+      const take = Math.abs(requestedCount);
+      const held = parts.reduce((sum: number, p: any) =>
+        sum + ((p?.名称 ?? p?.name) === partName ? Number(p?.数量 ?? p?.quantity ?? 0) : 0), 0);
+      const actual = Math.min(take, held);
+      if (actual <= 0) {
+        return `${playerName}${runtime.名称}上没有${partName}`;
+      }
+      this.mergeVehiclePartQuantity(parts, partName, -actual);
+      this.addBackpackItem(player, backpack, partName, actual);
+      player.backpack = backpack;
+      // 卸核心时整车散架（原版 L10252-L10262）
+      if (isCore) {
+        await this.settleVehicleProduction(userId, player, source, runtime, map, markers);
+        const lootLines: string[] = [];
+        for (const p of parts) {
+          const n = String(p?.名称 ?? p?.name ?? '');
+          if (!n || n.includes('生产限制')) continue;
+          const q = Number(p?.数量 ?? p?.quantity ?? 0);
+          if (q <= 0) continue;
+          this.addBackpackItem(player, backpack, n, q);
+          lootLines.push(`${n}x${this.support.round2Text(q)}`);
+        }
+        player.backpack = backpack;
+        player.vehicle = '';
+        await this.playerService.savePlayer(player);
+        if (source.kind === 'map') {
+          const vehicles = this.parseVehicleValue<any[]>(source.map?.vehicles, []);
+          vehicles.splice(source.index, 1);
+          await this.mapService.updateDynamicFields(source.map.id, { vehicles });
+        }
+        return `${playerName}拆掉了${runtime.名称}的核心，${runtime.名称}散架了\n载具内容物收入了背包：${lootLines.join('、') || '无'}`;
+      }
+      await this.settleVehicleProduction(userId, player, source, runtime, map, markers);
+      const isPart = !!partDef;
+      return `${playerName}把${partName}x${actual}从${runtime.名称}上${isPart ? '拆了下来' : '取了出来'}`;
+    }
+
+    // 正数量：背包 → 载具零件（原版 L10203-L10239）。部件与资源一视同仁。
+    let want = Math.max(1, requestedCount);
+    const available = this.playerService.getCurrencyAmount(player, partName, backpack);
+    if (available < want) want = available;
+    if (want < 1) {
+      return `${playerName}你的背包里面没有${partName}`;
+    }
+    this.mergeVehiclePartQuantity(parts, partName, want);
+    this.playerService.setCurrencyAmount(player, partName, available - want, backpack);
+    player.backpack = backpack;
+    await this.settleVehicleProduction(userId, player, source, runtime, map, markers);
+    const isPart = !!partDef;
+    return `${playerName}把${partName}x${want}${isPart ? '装到了' : '塞到了'}${runtime.名称}${isPart ? '上' : '里面'}`;
+  }
+
+  /** 背包条目增减（双字段 + 工作数组）。 */
+  private addBackpackItem(player: any, backpack: any[], name: string, delta: number): void {
+    if (!name || !Number.isFinite(delta) || delta === 0) return;
+    const next = this.playerService.getCurrencyAmount(player, name, backpack) + delta;
+    this.playerService.setCurrencyAmount(player, name, next, backpack);
+  }
+
+  /** 载具零件数量增减（原版 获得物品 对 载具.零件 的合并语义）。 */
+  private mergeVehiclePartQuantity(parts: any[], name: string, delta: number): void {
+    const idx = parts.findIndex((p: any) => (p?.名称 ?? p?.name) === name);
+    if (idx >= 0) {
+      const next = Number(parts[idx]?.数量 ?? parts[idx]?.quantity ?? 0) + delta;
+      if (next <= 0) {
+        parts.splice(idx, 1);
+        return;
+      }
+      parts[idx].数量 = next;
+      parts[idx].quantity = next;
+      if (parts[idx].count !== undefined) parts[idx].count = next;
+      return;
+    }
+    if (delta > 0) {
+      parts.push({
+        名称: name,
+        name,
+        类型: '资源',
+        type: '资源',
+        数量: delta,
+        quantity: delta,
+        耐久: 100,
+        durability: 100,
+      });
+    }
   }
 
   /**
@@ -2662,33 +2783,46 @@ export class MovementVehicleService {
    * 对应原版：载具命名 命令
    */
 
-  async handleNameVehicle(userId: number, name: string): Promise<string> {
-    if (!name) {
-      return '请指定新的载具名称，格式：载具命名 新名称';
+  async handleNameVehicle(userId: number, argument: string): Promise<string> {
+    // 原版 L10355-10381：「载具命名 旧名 新名」——按当前地图归属匹配，不依赖驾驶状态。
+    const tokens = String(argument || '').trim().split(/\s+/).filter(Boolean);
+    if (tokens.length < 2) {
+      return `请发送“载具命名骑士 坦克”来把名为【骑士】的载具名称修改为【坦克】`;
     }
+    const oldName = tokens[0];
+    const newName = tokens[1];
+    if (!newName) return '名字不能为空';
+    if (newName === '原') return '不能改成这个';
 
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const ownerIds = new Set(
+      [String(userId), String(user?.qqNumber || ''), String(user?.externalId || ''), String(player.masterQQ || '')]
+        .filter(Boolean),
+    );
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name || '冒险者'}不在服务区`;
 
-    // 检查是否有载具
-    if (!player.vehicle) {
-      return '你当前没有驾驶任何载具';
-    }
-
-    const vehicleId = parseInt(player.vehicle, 10);
-    if (isNaN(vehicleId)) {
-      return '载具数据异常';
-    }
-
-    // 更新载具名称
-    await this.prisma.gameVehicle.update({
-      where: { id: vehicleId },
-      data: { name },
+    const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
+    const index = vehicles.findIndex((item: any) => {
+      const name = String(item?.名称 ?? item?.name ?? '');
+      const owner = String(item?.归属 ?? item?.owner ?? '');
+      return name === oldName && ownerIds.has(owner);
     });
+    if (index < 0) {
+      return `${player.name || '冒险者'},${map.name || '当前地图'}没有名为【${oldName}】的载具`;
+    }
 
-    this.logger.log(`玩家 ${userId} 将载具更名为 ${name}`);
-    return `✅ 载具已更名为【${name}】`;
+    const runtime = this.toRuntimeVehicle(vehicles[index]);
+    runtime.名称 = newName;
+    runtime.name = newName;
+    vehicles[index] = this.toStoredVehicle(runtime);
+    await this.mapService.updateDynamicFields(map.id, { vehicles });
+
+    // 若该载具正在被驾驶，同步 player.vehicle 键（编号不变，通常无需改）
+    this.logger.log(`玩家 ${userId} 将载具 ${oldName} 更名为 ${newName}`);
+    return `${player.name || '冒险者'},${oldName}名称修改为${newName}`;
   }
 
   /**
@@ -2726,54 +2860,32 @@ export class MovementVehicleService {
         bonusLines.length > 0 ? `━━━━━━━━━━━━━━━\n加成属性:` : '',
         ...bonusLines,
         `━━━━━━━━━━━━━━━`,
-        `使用「安装 ${partDef.name}」安装到载具`,
+        `使用「组装 ${partDef.name}1」安装到当前驾驶的载具，负数取出`,
       ].filter(Boolean).join('\n');
     }
 
-    // 已有载具，模拟当前载具的总加成
-    const vehicleId = parseInt(player.vehicle, 10);
-    if (isNaN(vehicleId)) return '载具数据异常';
-
-    const vehicle = await this.prisma.gameVehicle.findUnique({
-      where: { id: vehicleId },
-    });
-    if (!vehicle) return '载具数据不存在';
-
-    const parts = asJsonValue<any[]>(vehicle.parts, []);
-    const totalBonus = this.calcVehicleTotalBonus(vehicle);
-
-    const lines = [
-      `🔧 载具模拟：${vehicle.name}`,
-      `━━━━━━━━━━━━━━━`,
-      `部件数量: ${parts.length}个`,
-      `━━━━━━━━━━━━━━━`,
-      `📊 模拟加成:`,
-    ];
-
-    const bonusFields: { key: string; label: string }[] = [
-      { key: '攻击', label: '攻击' },
-      { key: '生命', label: '生命' },
-      { key: '装甲', label: '装甲' },
-      { key: '护盾', label: '护盾' },
-      { key: '速度', label: '速度' },
-      { key: '闪避', label: '闪避' },
-      { key: '命中', label: '命中' },
-      { key: '暴击', label: '暴击' },
-    ];
-
-    let hasBonus = false;
-    for (const bf of bonusFields) {
-      const val = (totalBonus as any)[bf.key];
-      if (val) {
-        lines.push(`  ${bf.label}: +${Math.round(val)}`);
-        hasBonus = true;
+    // 已有载具：地图 JSON / DB 双存储统一
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return `${player.name || '冒险者'}不在服务区`;
+    const vehicle = await this.findTravelVehicle(player, map);
+    if (!vehicle) {
+      if (!targetName) {
+        return '请指定要模拟的部件名称，或先驾驶载具后使用「载具模拟」';
       }
-    }
-    if (!hasBonus) {
-      lines.push(`  无加成属性`);
+      return `未找到部件【${targetName}】或当前驾驶的载具`;
     }
 
-    return lines.join('\n');
+    this.combatSystem.recalculateVehicle(vehicle, Date.now());
+    const parts = vehicle.零件 || [];
+    const totalBonus = vehicle.加成 || this.calcVehicleTotalBonus(vehicle);
+    const bonusText = this.renderVehicleBonus(totalBonus) || '无加成属性';
+
+    return [
+      `🔧 载具模拟：${vehicle.名称}`,
+      `部件数量: ${parts.length}个`,
+      `模拟加成:${bonusText}`,
+      `使用「组装 部件名 数量」安装，负数取出`,
+    ].join('\n');
   }
 
   /**
@@ -2953,8 +3065,16 @@ export class MovementVehicleService {
     const parts = Array.isArray(vehicle?.parts ?? vehicle?.零件)
       ? (vehicle.parts ?? vehicle.零件)
       : asJsonValue<any[]>(vehicle?.parts ?? vehicle?.零件, []);
+    // 安装写入的是 partType（0核心/1防御/2行走/3武器/4功能）；type 多为「资源/装备」标签，不能当槽位类型。
+    const partTypeOf = (part: any): number => {
+      const fromPartType = Number(part?.partType ?? part?.部件类型);
+      if (Number.isFinite(fromPartType) && fromPartType > 0) return fromPartType;
+      // 地图 JSON 中文部件可回落 静态规格
+      const spec = this.staticData?.getVehiclePartSpecByName?.(String(part?.名称 ?? part?.name ?? ''));
+      return Number(spec?.partType ?? -1);
+    };
     const count = (type: number): number =>
-      parts.filter((part: any) => Number(part?.type ?? part?.类型 ?? -1) === type).length;
+      parts.filter((part: any) => partTypeOf(part) === type).length;
     if (count(4) > Number(vehicle?.maxFunction ?? 5)) return '功能部件';
     if (count(3) > Number(vehicle?.maxWeapon ?? 5)) return '武器部件';
     if (count(2) > Number(vehicle?.maxMove ?? 5)) return '行走机构';
@@ -3110,50 +3230,41 @@ export class MovementVehicleService {
    * 对应原版：确认还原植入体等级 命令
    */
 
-  async handleDeployCannon(userId: number, targetName: string): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
+  async handleDeployCannon(_userId: number, _targetName?: string): Promise<string> {
+    // 原版 _主程序.ecode L9796-L9808：架炮=恶毒专属，切换 套装.攻击模式 0/1。
+    // 不是“选载具武器架设”；炮击指令本身按攻击模式/舰炮判定。
+    const playerData = await this.playerService.getPlayerData(_userId);
+    const { player, markers2 } = playerData;
+    const name = player.name || '冒险者';
 
-    if (!player.vehicle) {
-      return '你当前没有驾驶任何载具，无法架炮';
+    const isVenom = String(player.type || '') === '恶毒'
+      || Number(player.specialSeq ?? player?.vitality ?? 0) === 6;
+    if (!isVenom) {
+      return `${name}这是恶毒的技能`;
     }
 
-    // 检查载具是否有武器部件
-    const vehicleId = parseInt(player.vehicle, 10);
-    if (isNaN(vehicleId)) return '载具数据异常';
+    const sets = this.parseVehicleValue<any>(player.sets, {}) || {};
+    const current = Number(player.attackMode ?? sets.attackMode ?? sets.攻击模式 ?? 0);
+    const next = current === 1 ? 0 : 1;
+    sets.attackMode = next;
+    sets.攻击模式 = next;
+    player.sets = sets;
+    player.attackMode = next;
+    await this.playerService.savePlayer(player);
 
-    const vehicle = await this.prisma.gameVehicle.findUnique({
-      where: { id: vehicleId },
-    });
-    if (!vehicle) return '载具数据不存在';
-
-    const parts = asJsonValue<any[]>(vehicle.parts, []);
-    const weaponParts = parts.filter((p: any) => p.partType === 3);
-
-    if (weaponParts.length === 0) {
-      return '载具没有安装武器部件，无法架炮\n请先使用「安装」安装武器部件';
-    }
-
-    // 选择武器部件（如果有指定目标）
-    if (targetName) {
-      const targetPart = weaponParts.find((p: any) => p.name === targetName);
-      if (!targetPart) {
-        return `载具没有安装武器【${targetName}】`;
+    // 架炮/收炮时解除炮击相关行动门禁（若存在「攻击模式」限时标记则清掉）
+    if (Array.isArray(markers2)) {
+      const kept = markers2.filter((m: any) => m && m.name !== '攻击模式' && m.名称 !== '攻击模式');
+      if (kept.length !== markers2.length) {
+        player.markers2 = kept;
+        await this.playerService.savePlayer(player);
       }
-      return `🔫 已架设【${targetName}】\n目标已锁定，使用「炮击」开火！`;
     }
 
-    // 显示可用的武器
-    const lines = [
-      `🔫 载具武器列表:`,
-      `━━━━━━━━━━━━━━━`,
-    ];
-    for (const wp of weaponParts) {
-      lines.push(`  ${wp.name}`);
+    if (next === 1) {
+      return `${name}架好了炮击阵地，“炮击森林出口”来指定攻击的区域`;
     }
-    lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`使用「架炮 武器名」选择武器`);
-    return lines.join('\n');
+    return `${name}收好了炮击阵地`;
   }
 
   /**
@@ -3505,7 +3616,7 @@ export class MovementVehicleService {
       vehicles.forEach((v: any) => {
         const name = v.name || '未知载具';
         lines.push(`  ${name}`);
-        options.push({ label: name, cmd: `查看 ${name}` });
+        options.push({ label: name, cmd: `查看载具 ${name}` });
       });
     }
 
@@ -3542,8 +3653,6 @@ export class MovementVehicleService {
       return `${player.name || '冒险者'}附近没有${vehicleName}`;
     }
     const runtime = this.toRuntimeVehicle(vehicles[index]);
-    // 原版查看载具前必先 计算载具 刷新生命/状态（_主程序.ecode L5766/L5776）
-    this.combatSystem.recalculateVehicle(runtime, Date.now());
     // 归属判定口径与 handleDriveVehicle 一致（userId/qqNumber/externalId/masterQQ 皆算自己）
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const ownerIds = new Set(
@@ -3553,10 +3662,18 @@ export class MovementVehicleService {
     const owner = String(runtime?.归属 ?? runtime?.owner ?? '');
     const isOwn = ownerIds.has(owner);
     if (isOwn) {
-      // 原版 L5767：自己的载具计算后写回地图；无主/他人载具仅临时计算不落库
-      const stored = vehicles.slice();
-      stored[index] = this.toStoredVehicle(runtime);
-      await this.mapService.updateDynamicFields(map.id, { vehicles: stored });
+      // 原版 L5765-5766：自己的载具 计算载具(..., 计算产出=真) 并写回地图；
+      // 无主/他人载具仅临时重算不落库。
+      await this.settleVehicleProduction(
+        userId,
+        player,
+        { kind: 'map', map, index, raw: vehicles[index], runtime },
+        runtime,
+        map,
+        asJsonValue<any>(player.markers, {}),
+      );
+    } else {
+      this.combatSystem.recalculateVehicle(runtime, Date.now());
     }
 
     const detail = await this.formatVehicleDetail(runtime);
@@ -3617,7 +3734,9 @@ export class MovementVehicleService {
 
     const lines: string[] = [];
     lines.push(type ? `${name}(${type})` : name);
-    lines.push(`生命: ${num(currentHp)}/${num(maxHp)}`);
+    // 显示层钳0：损坏件超上限的载具按原版公式会算出负血（如 -996），
+    // 计算口径保持原样，仅显示时夹回 0 避免负数观感
+    lines.push(`生命: ${num(Math.max(0, currentHp))}/${num(Math.max(0, maxHp))}`);
     // 原版 归属三态（L2446-L2457）：无主 → "无主"；数字归属 → 取玩家名称；其余（召唤物持有）原样
     if (owner === '无主') {
       lines.push('主人: 无主');
@@ -3632,23 +3751,206 @@ export class MovementVehicleService {
       `武器: ${num(runtime?.武器)}/${num(runtime?.武器上限)}  防御: ${num(runtime?.防御)}/${num(runtime?.防御上限)}` +
       `  功能: ${num(runtime?.功能)}/${num(runtime?.功能上限)}  行走: ${num(runtime?.行走)}/${num(runtime?.行走上限)}`,
     );
-    // 移动方式（原版 L2468-L2476）：1=陆地、2=飞行、3=跃迁、0/4=坐地(无法移动)
+    // 移动方式（原版 L2468-L2476）：1=陆地、2=飞行、3=跃迁；0/4 → 「坐地(无法移动)」无"移动方式"前缀
     const moveType = Number(runtime?.行走方式 ?? runtime?.moveType ?? 0);
-    const moveText = moveType === 1 ? '陆地' : moveType === 2 ? '飞行' : moveType === 3 ? '跃迁' : '坐地(无法移动)';
-    lines.push(`移动方式: ${moveText}  ID: ${runtime?.编号 ?? runtime?.vehicleId ?? ''}`);
-
-    // 零件清单（原版 L2477-L2510 将零件分为 载具部件/其他物品/生产限制 三组，网页版统一列表带数量）
-    if (parts.length > 0) {
-      lines.push(`零件 (${parts.length}项):`);
-      for (const p of parts) {
-        const pName = String(p?.名称 ?? p?.name ?? '未知');
-        const qty = Number(p?.数量 ?? p?.quantity ?? p?.count ?? 1);
-        lines.push(qty > 1 ? `  ${pName} ×${qty}` : `  ${pName}`);
-      }
+    const idText = String(runtime?.编号 ?? runtime?.vehicleId ?? '');
+    if (moveType === 0 || moveType === 4) {
+      lines.push(`坐地(无法移动)  ID: ${idText}`);
     } else {
-      lines.push('零件: 无');
+      const moveText = moveType === 1 ? '陆地' : moveType === 2 ? '飞行' : '跃迁';
+      lines.push(`移动方式: ${moveText}  ID: ${idText}`);
     }
+
+    // 零件分组（原版 数据显示.ecode L2477-L2512）：部件/内置/杂物/生产限制
+    this.appendVehiclePartLines(lines, parts);
+
+    // 原版 L2513-2516：生产线可运行 + 驾驶员加成
+    const productionPower = Number(runtime?.加成?.生产 ?? 0);
+    if (productionPower > 0) {
+      const marks = asJsonValue<Record<string, number>>(runtime?.标记 ?? runtime?.markers, {});
+      const availableSec = Number(marks?.['生产时间'] ?? 0) || 0;
+      lines.push(`生产线可运行:${this.formatVehicleTime(availableSec)}`);
+    }
+    lines.push(`驾驶员加成:${this.renderVehicleBonus(runtime?.加成)}`);
+
+    // 原版 L2517-2528：逆转力场 / 白的发丝 / 超限状态
+    if (runtime?.逆转力场 ?? runtime?.reverseField) {
+      lines.push('【载具不会受到伤害也不能抵挡伤害】');
+    }
+    if (runtime?.发丝 ?? runtime?.hair) {
+      lines.push('掉落率+222%  掉落数量+444%');
+    }
+    const slotStatus = Number(runtime?.上限 ?? runtime?.slotStatus ?? 0);
+    if (slotStatus === 1) {
+      lines.push('有部件超过了建议安装数量，超过的部分的效果减半。');
+    } else if (slotStatus === 2) {
+      lines.push('有部件超过了可安装上限，载具无法正常运作。');
+    } else if (slotStatus === 3) {
+      lines.push('有部件超过了建议安装数量，超过的部分的效果减半。');
+      lines.push('有部件超过了可安装上限，载具无法正常运作。');
+    }
+
     return lines.join('\n');
+  }
+
+  /**
+   * 原版 显示加成（数据显示.ecode L456+）的网页版精简版：
+   * 按固定字段序输出非零项，格式 `生命+100、攻击+5%`。
+   */
+  private renderVehicleBonus(bonus: any): string {
+    if (!bonus || typeof bonus !== 'object') return '';
+    const fields: [string, string, number, string][] = [
+      // [key, label, divide, suffix]
+      ['护盾', '护盾', 1, ''],
+      ['装甲', '装甲', 1, ''],
+      ['生命', '生命', 1, ''],
+      ['护盾全抗', '护盾全抗', 1, '%'],
+      ['装甲全抗', '装甲全抗', 1, '%'],
+      ['生命全抗', '生命全抗', 1, '%'],
+      ['物伤', '物攻', 1, ''],
+      ['电伤', '电攻', 1, ''],
+      ['火伤', '火攻', 1, ''],
+      ['冰伤', '冰攻', 1, ''],
+      ['攻击', '攻击', 1, ''],
+      ['魅力', '魅力', 1, ''],
+      ['冷却', '攻击冷却', 1, ''],
+      ['暴击', '暴击', 1, '%'],
+      ['生命物抗', '生命物抗', 1, '%'],
+      ['生命火抗', '生命火抗', 1, '%'],
+      ['生命冰抗', '生命冰抗', 1, '%'],
+      ['生命电抗', '生命电抗', 1, '%'],
+      ['装甲物抗', '装甲物抗', 1, '%'],
+      ['装甲火抗', '装甲火抗', 1, '%'],
+      ['装甲冰抗', '装甲冰抗', 1, '%'],
+      ['装甲电抗', '装甲电抗', 1, '%'],
+      ['护盾物抗', '护盾物抗', 1, '%'],
+      ['护盾火抗', '护盾火抗', 1, '%'],
+      ['护盾冰抗', '护盾冰抗', 1, '%'],
+      ['护盾电抗', '护盾电抗', 1, '%'],
+      ['速度', '速度', 1, ''],
+      ['命中', '命中', 1, ''],
+      ['闪避', '闪避', 1, ''],
+      ['掉落率', '掉落率', 1, '%'],
+      ['掉落品质', '掉落数量', 1, '%'],
+      ['采集', '采集', 1, '%'],
+      ['护盾回复', '护盾回复', 10, ''],
+      ['装甲回复', '装甲修复', 10, ''],
+      ['生命回复', '生命恢复', 10, ''],
+      ['攻击2', '攻击', 1, '%'],
+      ['速度2', '速度', 1, '%'],
+      ['命中2', '命中', 1, '%'],
+      ['闪避2', '闪避', 1, '%'],
+      ['贯穿', '贯穿几率', 1, '%'],
+      ['抗贯穿', '被贯穿几率', -1, '%'],
+      ['韧性', '韧性', 1, '%'],
+      ['生产', '生产', 1, ''],
+    ];
+    const parts: string[] = [];
+    for (const [key, label, divide, suffix] of fields) {
+      const raw = Number(bonus[key]);
+      if (!Number.isFinite(raw) || raw === 0) continue;
+      const value = raw / divide;
+      const sign = value > 0 ? '+' : '';
+      const rounded = this.support.round2Text(value);
+      parts.push(`${label}${sign}${rounded}${suffix}`);
+    }
+    return parts.join('、');
+  }
+
+  /**
+   * 原版 显示载具 的零件分组渲染（数据显示.ecode L2477-L2512 + 显示物品 L1847-L1957）：
+   * - 部件：部件列表（vehicle-parts.json）命中 或 建筑命中（是否部件/取建筑）
+   * - 生产限制：名称以"生产限制"开头 → 剥离前缀归入该组（L2480-L2483）
+   * - 杂物：其余物品（原版「其他物品」）
+   * - 内置：已安装部件规格的 内置零件 展开，同名合并数量（L2493-L2502 获得物品）
+   * - 资源渲染 名称x数量；装备渲染 名称+品质大写+特效名（显示物品 L1879-L1951）
+   */
+  private appendVehiclePartLines(lines: string[], parts: any[]): void {
+    if (!Array.isArray(parts) || parts.length === 0) {
+      lines.push('部件: 无');
+      return;
+    }
+    const fmtQty = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
+    // 资源类同名合并（qty 累加），装备类为独立实例逐条渲染（equips）
+    type Bucket = { qty: number; equips: string[] };
+    const partMap = new Map<string, Bucket>();
+    const miscMap = new Map<string, Bucket>();
+    const builtinMap = new Map<string, number>();
+    const limitMap = new Map<string, number>();
+    const touch = (m: Map<string, Bucket>, key: string): Bucket => {
+      let b = m.get(key);
+      if (!b) { b = { qty: 0, equips: [] }; m.set(key, b); }
+      return b;
+    };
+
+    for (const p of parts) {
+      const pname = String(p?.名称 ?? p?.name ?? '').trim();
+      if (!pname) continue; // 原版 L1870：空名跳过
+      const qty = Number(p?.数量 ?? p?.quantity ?? p?.count ?? 1) || 0;
+      const isEquip = String(p?.类型 ?? p?.type ?? '') === '装备';
+      const spec = this.staticData.getVehiclePartSpecByName(pname);
+      const isBuilding = !!this.staticData.getBuildingByName(pname);
+      if (spec || isBuilding) {
+        // 部件组：资源按 名称x数量 合并，装备按实例渲染（显示物品 装备分支）
+        const bucket = touch(partMap, pname);
+        if (isEquip) {
+          bucket.equips.push(
+            this.itemService.formatEquipmentInventoryDisplay({
+              name: pname, type: '装备', quantity: 1, durability: 0,
+              data: String(p?.数据 ?? p?.data ?? ''),
+            } as any),
+          );
+        } else {
+          bucket.qty += qty;
+        }
+        // 内置零件展开（L2493-L2502）：对全部已安装部件按规格展开，与实例是否装备无关
+        if (spec && Array.isArray(spec.builtinParts)) {
+          for (const inner of spec.builtinParts) {
+            const inName = String(inner?.name ?? inner?.名称 ?? '').trim();
+            if (!inName) continue;
+            const inQty = Number(inner?.count ?? inner?.数量 ?? 1) || 1;
+            builtinMap.set(inName, (builtinMap.get(inName) ?? 0) + inQty);
+          }
+        }
+      } else if (pname.startsWith('生产限制')) {
+        // 生产限制组：剥离前缀（L2480-L2483）
+        const key = pname.replace('生产限制', '');
+        limitMap.set(key, (limitMap.get(key) ?? 0) + qty);
+      } else {
+        // 杂物组（原版 其他物品）
+        const bucket = touch(miscMap, pname);
+        if (isEquip) {
+          bucket.equips.push(
+            this.itemService.formatEquipmentInventoryDisplay({
+              name: pname, type: '装备', quantity: 1, durability: 0,
+              data: String(p?.数据 ?? p?.data ?? ''),
+            } as any),
+          );
+        } else {
+          bucket.qty += qty;
+        }
+      }
+    }
+
+    const render = (m: Map<string, Bucket>): string =>
+      [...m.entries()]
+        .map(([bName, b]) => {
+          const segs: string[] = [];
+          if (b.qty > 0 || b.equips.length === 0) segs.push(`${bName}x${fmtQty(b.qty)}`);
+          segs.push(...b.equips);
+          return segs.join('、');
+        })
+        .join('、');
+
+    // 原版 L2503 部件: 恒有；内置/杂物/生产限制 仅在非空时输出（L2504-L2512）
+    lines.push(`部件: ${render(partMap) || '无'}`);
+    if (builtinMap.size > 0) {
+      lines.push(`内置: ${[...builtinMap.entries()].map(([bName, q]) => `${bName}x${fmtQty(q)}`).join('、')}`);
+    }
+    if (miscMap.size > 0) lines.push(`杂物: ${render(miscMap)}`);
+    if (limitMap.size > 0) {
+      lines.push(`生产限制: ${[...limitMap.entries()].map(([bName, q]) => `${bName}x${fmtQty(q)}`).join('、')}`);
+    }
   }
 
   /**
@@ -3657,32 +3959,21 @@ export class MovementVehicleService {
    */
 
   async handleVehicleOps(userId: number): Promise<string> {
+    // 原版 _主程序.ecode L10875-10886 载具操作帮助
     return [
-      `📖 载具操作指南`,
-      `━━━━━━━━━━━━━━━`,
-      `【基础操作】`,
-      `  组装 核心名 - 使用核心部件创建载具`,
-      `  驾驶 载具名 - 驾驶载具`,
-      `  载具 - 查看当前载具状态`,
-      `  脱出 - 离开载具`,
-      `━━━━━━━━━━━━━━━`,
-      `【部件管理】`,
-      `  安装 部件名 - 安装部件到载具`,
-      `  拆卸 部件名 - 从载具拆卸部件`,
-      `  载具模拟 [部件名] - 模拟性能`,
-      `━━━━━━━━━━━━━━━`,
-      `【战斗操作】`,
-      `  架炮 [武器名] - 架设武器`,
-      `  炮击 - 使用载具火炮攻击`,
-      `  模式转换 模式名 - 切换模式`,
-      `━━━━━━━━━━━━━━━`,
-      `【其他操作】`,
-      `  载具命名 新名称 - 为载具命名`,
-      `  维修 - 修复载具耐久`,
-      `  牵引 目标 - 使用牵引光束`,
-      `  转换 形态名 - 转换形态`,
-      `  控制终端 - 打开控制面板`,
-      `  接管 载具名 - 接管其他载具`,
+      `“组装轻型装甲2”安装2块轻型装甲`,
+      `“组装轻型装甲-2”拆下2块轻型装甲`,
+      `“驾驶骑士”驾驶名为【骑士】的载具`,
+      `“呼叫骑士”让名为【骑士】的载具传送到你当前所在地`,
+      `“维修”修理载具`,
+      `“脱出”离开载具`,
+      `“宠物驾驶史莱姆 骑士”让名为【史莱姆】的宠物驾驶名为【骑士】的载具`,
+      `“载具命名骑士 坦克”把名为【骑士】的载具名称修改为【坦克】`,
+      `“生产”了解和设置设置载具生产相关`,
+      `“接管骑士”可以无需驾驶对载具进行拆装部件、设置生产等操作`,
+      `你可以从一个载具上直接驾驶另一个载具，无须脱出再驾驶`,
+      `床等家具也可以安装在载具里`,
+      `想拆掉载具直接把核心拆掉即可，载具里面的东西会回到背包`,
     ].join('\n');
   }
 

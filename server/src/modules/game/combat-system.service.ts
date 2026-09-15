@@ -10988,6 +10988,10 @@ export class CombatSystemService implements OnApplicationShutdown {
         : Math.min(availableTime, supportedSeconds);
     }
 
+    // 原版 加成计算.ecode L3901：置成就熟练度("生产时间", 载具.标记, 可生产秒数)
+    // 显示载具 L2513-2514 据此渲染「生产线可运行」
+    this.writeVehicleProductionTime(vehicle, availableTime);
+
     return {
       productionDisplay: productionDisplayText,
       productionSpeed: productionDisplay.productionSpeed,
@@ -11004,6 +11008,17 @@ export class CombatSystemService implements OnApplicationShutdown {
       consumed,
       stopped: false,
     };
+  }
+
+  /** 把可生产秒数写入载具标记（原版 载具.标记["生产时间"]），供查看详情展示。 */
+  private writeVehicleProductionTime(vehicle: any, availableTime: number): void {
+    const marks = vehicle.标记 ?? vehicle.markers;
+    const bag: any = marks && typeof marks === 'object' && !Array.isArray(marks)
+      ? marks
+      : {};
+    bag['生产时间'] = Number(availableTime) || 0;
+    vehicle.标记 = bag;
+    vehicle.markers = bag;
   }
 
   /**

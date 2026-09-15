@@ -1066,8 +1066,8 @@ export class GameService {
   private normalizeDungeonMarkers2(markers2: any[]): void{
     this.dungeonChallengeService.normalizeDungeonMarkers2(markers2);
   }
-  async handleAssembleVehicle(userId: number, partName: string, count = 1): Promise<string>{
-    return this.movementVehicleService.handleAssembleVehicle(userId, partName, count);
+  async handleAssembleVehicle(userId: number, partName: string, count = 1, newVehicleName?: string): Promise<string>{
+    return this.movementVehicleService.handleAssembleVehicle(userId, partName, count, newVehicleName);
   }
   async handleDriveVehicle(userId: number, vehicleName: string): Promise<string>{
     return this.movementVehicleService.handleDriveVehicle(userId, vehicleName);
@@ -1090,8 +1090,8 @@ export class GameService {
   private async hasOwnedProductionVehicle(ownerQQ: string, coreSpec: any): Promise<boolean>{
     return this.movementVehicleService.hasOwnedProductionVehicle(ownerQQ, coreSpec);
   }
-  async handleNameVehicle(userId: number, name: string): Promise<string>{
-    return this.movementVehicleService.handleNameVehicle(userId, name);
+  async handleNameVehicle(userId: number, argument: string): Promise<string>{
+    return this.movementVehicleService.handleNameVehicle(userId, argument);
   }
   async handleSimulateVehicle(userId: number, targetName: string): Promise<string>{
     return this.movementVehicleService.handleSimulateVehicle(userId, targetName);
