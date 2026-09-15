@@ -659,6 +659,10 @@
             <div v-if="v.battle" class="battle-wrap"><BattleCard :text="v.msg.content" :viewer-name="viewerName" /></div>
             <!-- 结构化长消息（背包/属性/装备）→ 网格卡片布局；外层 div 显式撑满，避免 center 对齐收缩宽度 -->
             <div v-else-if="v.rich" class="rich-wrap"><RichSystemCard :text="v.msg.content" @send="onRichCardSend" /></div>
+            <!-- 家园建造四步引导 → 带动画的进度卡片（按钮只发指令，跳转去 /home） -->
+            <div v-else-if="v.homeGuide" class="home-guide-wrap">
+              <HomeBuildGuide :step="v.homeGuide" @send="onHomeGuideSend" @open-home="goHomeYard" />
+            </div>
             <span v-else class="content" style="white-space: pre-line">
               <template v-for="(seg, si) in v.segs" :key="si">
                 <span v-if="seg.type === 'text'">{{ seg.text }}</span>
@@ -1132,6 +1136,8 @@ import {
   PRESENCE_CONFIG,
   // 指令检索（拼音/别名匹配、各入口条数上限）配置
   COMMAND_SEARCH_CONFIG,
+  // 家园建造四步引导（识别规则 / 步骤 / 动画 / 自动跳转）配置
+  HOME_BUILD_GUIDE_CONFIG,
 } from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameHighlight from '../components/GameHighlight.vue';
@@ -1139,6 +1145,8 @@ import GameHighlight from '../components/GameHighlight.vue';
 import HealthVfx from '../components/HealthVfx.vue';
 // 结构化长消息（背包/属性/装备）在公屏的网格卡片渲染（纯前端展示层优化，不影响后端/AstrBot 文本）
 import RichSystemCard from '../components/RichSystemCard.vue';
+// 家园建造四步引导卡片（圈地→开挖地基→建造地基→建造房子），识别后端引导文本后渲染
+import HomeBuildGuide from '../components/HomeBuildGuide.vue';
 import BattleCard from '../components/BattleCard.vue';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useUiStore } from '../stores/ui';
@@ -1200,6 +1208,8 @@ const messageViews = computed(() =>
     rich: isRichCardContent(m.content),
     // 战斗结算文本 → 用战斗卡片渲染（修真科幻风伤害动画）
     battle: isBattleContent(m.content),
+    // 家园建造四步引导：0=不是引导消息，1-4=当前建造进度
+    homeGuide: parseHomeBuildGuideStep(m.content),
     // 性能优化：历史消息（非最新 3 条）启用 content-visibility，视口外跳过布局与绘制。
     // 消息上限 300 条 + 背包/战斗大卡片，全量渲染是公屏滑动卡顿主因；
     // 最新 3 条不加（滚动到底的 scrollHeight 计算与自动滚底始终基于真实布局，不受估算高度影响）。
@@ -1238,6 +1248,24 @@ function isRichCardContent(text) {
     return hasTitle && hasProp;
   }
   return false;
+}
+
+/**
+ * 识别家园建造引导文本，取出当前进度步数（1-4）。
+ *
+ * 后端在「圈地 / 开挖地基 / 建造地基 / 建造房子」的回包末尾追加统一格式的引导块
+ * （见 server/src/modules/game/home-build-guide.util.ts），这里只做展示层识别，
+ * 不改变原文；不匹配时返回 0（按普通系统消息渲染）。
+ *
+ * @param {string} text 消息正文
+ * @returns {number} 进度步数，非引导消息返回 0
+ */
+function parseHomeBuildGuideStep(text) {
+  if (!text || typeof text !== 'string') return 0;
+  const matched = text.match(HOME_BUILD_GUIDE_CONFIG.headerRegex);
+  if (!matched) return 0;
+  const step = Number(matched[1]);
+  return step >= 1 && step <= HOME_BUILD_GUIDE_CONFIG.total ? step : 0;
 }
 
 /**
@@ -2471,6 +2499,36 @@ function selectAutocomplete(cmd) {
 function onRichCardSend(content) {
   sendChatMessage(content);
 }
+
+/** 家园建造引导卡片：点击「下一步」按钮 → 走统一指令通道发送（与 QQ 端逐字一致） */
+function onHomeGuideSend(cmd) {
+  sendChatMessage(cmd);
+}
+
+/** 家园建造引导：跳转家园院子页面（/home），后续清理地面/开挖/建造都在该页操作 */
+function goHomeYard() {
+  router.push('/home');
+}
+
+/**
+ * 圈地成功后自动把玩家送到家园页（可配置关闭）。
+ * 只对自己触发的回包、且仅配置的那一步生效，每条消息只处理一次，避免刷屏反复跳。
+ */
+const autoRedirectedGuideKeys = new Set();
+watch(messageViews, (views) => {
+  const cfgRedirect = HOME_BUILD_GUIDE_CONFIG.autoRedirect;
+  if (!cfgRedirect?.enabled) return;
+  for (let i = views.length - 1; i >= 0 && i >= views.length - 3; i -= 1) {
+    const v = views[i];
+    if (!v?.homeGuide || v.homeGuide !== cfgRedirect.step) continue;
+    if (!isOwnSystemMessage(v.msg)) continue;
+    const key = v.key;
+    if (autoRedirectedGuideKeys.has(key)) continue;
+    autoRedirectedGuideKeys.add(key);
+    setTimeout(goHomeYard, Math.max(0, Number(cfgRedirect.delayMs) || 0));
+    break;
+  }
+});
 
 /**
  * 统一发送入口（中央输入框 / 悬浮窗 / 侧栏按钮共用）。
@@ -3975,6 +4033,13 @@ onUnmounted(() => {
   width: 100%;
   min-width: 0;
   display: block;
+}
+/* 家园建造引导卡片容器：宽度自适应，最宽 560px 避免超宽屏被拉散 */
+.home-guide-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 560px;
+  margin: 2px auto;
 }
 /* 个人中心 @username 行：长 username（完整 QQ OpenID 约35字符）超出显示省略号，不换行 */
 .meta {

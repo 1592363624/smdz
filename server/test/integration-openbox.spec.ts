@@ -125,7 +125,11 @@ describe('打开箱子端到端（真实远程库）', () => {
   });
 
   it('凭证每日一次发放等级/2的改良建筑箱，同日再次使用进入冷却', async () => {
-    const uid = await makePlayer([{ name: '凭证', type: '资源', quantity: 5, count: 5 }]);
+    // 凭证属家园写操作（开垦地块）：夹具给到「已建成」，否则会被建成门禁拦截
+    const uid = await makePlayer(
+      [{ name: '凭证', type: '资源', quantity: 5, count: 5 }],
+      { markers: JSON.stringify({ 家园进度: 4 }) },
+    );
     const t1 = await game.handleUseItem(uid, '凭证', 3);
     console.log('[凭证]', t1);
     expect(t1).toContain('得到了6的改良建筑箱'); // floor(12/2)=6

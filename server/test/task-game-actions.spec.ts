@@ -314,6 +314,8 @@ describe('任务动作服务层闭环', () => {
       name: '冒险者',
       mapId: 1,
       houseName: '家园',
+      // 家园进度=4：安装属家园写操作，要求房子已建成
+      markers: { 家园进度: 4 },
       backpack: JSON.stringify([
         { name: '高速生产器', type: '资源', quantity: 3 },
         { name: '普通建筑', type: '资源', quantity: 2 },

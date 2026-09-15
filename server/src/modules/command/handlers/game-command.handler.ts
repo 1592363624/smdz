@@ -15,6 +15,7 @@ import { ShortcutService } from '../../game/shortcut.service';
 import { HomeService } from '../../game/home.service';
 import { TaskService } from '../../game/task.service';
 import { resolveEquipmentRefIndex } from '../../game/equipment-ref.util';
+import { homeBuiltGateText } from '../../game/home-gate.util';
 import { CRAFT_MENU_ARGS } from '../../game/craft-menu.util';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
 
@@ -1895,6 +1896,10 @@ export class GameCommandHandler implements CommandHandler {
         if (yardAction && (!map || !player.houseName || map.name !== player.houseName)) {
           return `${player.name || '冒险者'}只能在自己的院子里进行${normalizedSubCommand}操作`;
         }
+        // 家园写操作统一门禁：房子建成（家园进度>=4）前不允许建造/拆除/种植/收获
+        // （与「家园产出 / 家园前线」既有口径一致，避免圈完地就能种地的错觉）
+        const builtGate = homeBuiltGateText(player);
+        if (yardAction && builtGate) return builtGate;
         const backpack = this.playerService.safeJsonParse<any[]>(player.backpack, []);
 
         // 加载建筑定义列表

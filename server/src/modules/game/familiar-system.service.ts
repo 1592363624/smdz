@@ -24,6 +24,7 @@ import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity, formatDamageText } from '../../common/utils/game-text.util';
 import { GlobalConfig } from '../../config/global.config';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+import { appendHomeBuildGuide } from './home-build-guide.util';
 import {
   renderAvailableTitles,
   formatTitleProgress,
@@ -1435,7 +1436,11 @@ export class FamiliarSystemService {
 
     await this.playerService.savePlayer(player);
 
-    return `${player.name || '冒险者'}在${currentMap.name}圈了一块地，你暂时称呼它为${houseName}\n清理掉土堆和杂草后「开挖地基」`;
+    // 回包追加四步建造引导（圈地→开挖地基→建造地基→建造房子），网页端据此渲染引导卡片
+    return appendHomeBuildGuide(
+      `${player.name || '冒险者'}在${currentMap.name}圈了一块地，你暂时称呼它为${houseName}\n清理掉土堆和杂草后「开挖地基」`,
+      1,
+    );
   }
 
   /**
@@ -1477,7 +1482,10 @@ export class FamiliarSystemService {
     await this.playerService.savePlayer(player);
     await this.taskService.advance(userId, '开挖地基');
 
-    return `${player.name || '冒险者'}开始挖地基。\n院子里又出现了两个土堆，清掉后就可以「建造地基」（需要80木头、120石头、40铁矿和40绳子）`;
+    return appendHomeBuildGuide(
+      `${player.name || '冒险者'}开始挖地基。\n院子里又出现了两个土堆，清掉后就可以「建造地基」（需要80木头、120石头、40铁矿和40绳子）`,
+      2,
+    );
   }
 
   /**
@@ -1567,7 +1575,7 @@ export class FamiliarSystemService {
     // 本版本改为开工提示，经验/任务进度/完工播报推迟到工作标记（60秒）到期后结算。
     await this.scheduleHomeSettle('homeFoundation', userId, 60);
 
-    return `${player.name || '冒险者'}开始了地基的建造，需要1分钟。`;
+    return appendHomeBuildGuide(`${player.name || '冒险者'}开始了地基的建造，需要1分钟。`, 3);
   }
 
   /**
@@ -1669,7 +1677,7 @@ export class FamiliarSystemService {
     // 本版本改为开工提示，经验/任务进度/完工播报推迟到工作标记（120秒）到期后结算。
     await this.scheduleHomeSettle('homeConstruct', userId, 120);
 
-    return `${player.name || '冒险者'}开始了房子的建造，需要2分钟。`;
+    return appendHomeBuildGuide(`${player.name || '冒险者'}开始了房子的建造，需要2分钟。`, 4);
   }
 
   /**

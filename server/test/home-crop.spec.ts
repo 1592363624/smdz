@@ -57,7 +57,15 @@ describe('家园作物种植与收获', () => {
   it('使用种子直接进入当前家园种植闭环并推进种植任务', async () => {
     const staticData = new StaticDataService();
     const map: any = { id: 9, name: '测试家园', buildings: '[]', resources2: '[]' };
-    const player: any = { id: 7, name: '测试玩家', mapId: 9, houseName: '测试家园', backpack: '[]' };
+    // markers 带 家园进度=4：家园写操作（使用种子种植）要求房子已建成
+    const player: any = {
+      id: 7,
+      name: '测试玩家',
+      mapId: 9,
+      houseName: '测试家园',
+      backpack: '[]',
+      markers: { 家园进度: 4 },
+    };
     const backpack: any[] = [{ name: '苹果树种子', quantity: 1, count: 1 }];
     const homeService = new HomeService({} as any, {} as any, {} as any, staticData);
     const service: any = createGameServiceStub();

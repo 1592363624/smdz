@@ -22,6 +22,7 @@
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { formatDisplayNumber, normalizeGameText, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
+import { homeBuiltGateText } from '.././home-gate.util';
 import { equipmentQualityLabel } from '.././equipment-ref.util';
 import { filterActive, formatDungeonEntryRemaining, formatRemain, hasActive, remainSeconds, toExpireMs } from '.././expire-time.util';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -3869,6 +3870,10 @@ export class GatherPanelService {
     if (mapName.endsWith('屋内')) {
       return `${player.name || '冒险者'}不能在房子内使用${seedName}`;
     }
+
+    // 家园写操作统一门禁：种地属于家园玩法，房子建成（家园进度>=4）前一律不允许
+    const builtGate = homeBuiltGateText(player);
+    if (builtGate) return builtGate;
 
     const ownHouse = Boolean(player.houseName && mapName === String(player.houseName));
     if (map.isFrontier && !ownHouse) {

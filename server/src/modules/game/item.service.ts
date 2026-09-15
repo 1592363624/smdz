@@ -29,6 +29,7 @@ import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity, formatDisplayNumber } from '../../common/utils/game-text.util';
 import { applyEquipmentEffect, createEffectTarget } from './equipment-effect.util';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+import { homeBuiltGateText } from './home-gate.util';
 // 品质口径单一实现（码 / 中文名 / 字母标签 / 词条倍率），装备相关展示与计算共用
 import { equipmentQualityName, equipmentQualityLabel } from './equipment-ref.util';
 // 三池数值出口归一化（第四道闸）：回复 + 封顶统一走 player-pool.util 单一实现。
@@ -952,16 +953,23 @@ export class ItemService {
         w4 = `\n享用了${actualCount}的瓶装奶，恢复了${actualCount * 30}%的状态`;
       }
     } else if (itemName === '凭证') {
-      // L2320-2333：每日一次；冷却中不消耗直接返回
-      const remain = cooldownRemainText('凭证', secondsUntilMidnight());
-      if (remain !== null) {
-        earlyReturn = `${player.name}${remain}`;
+      // 凭证 = 家园开垦（地块上限 +5），属家园写操作：房子建成（家园进度>=4）前不可使用，
+      // 且必须优先于下面的发奖逻辑，避免"被拦截却已发箱子/已 +1 凭证"。
+      const homeGate = homeBuiltGateText(player);
+      if (homeGate) {
+        earlyReturn = homeGate;
       } else {
-        const boxCount = Math.floor(Number(player.level ?? 1) / 2);
-        w4 = `\n得到了${boxCount}的改良建筑箱`;
-        mergeObtained({ name: '改良建筑箱', count: boxCount });
-        markers['凭证'] = (markers['凭证'] || 0) + 1;
-        actualCount = 1;
+        // L2320-2333：每日一次；冷却中不消耗直接返回
+        const remain = cooldownRemainText('凭证', secondsUntilMidnight());
+        if (remain !== null) {
+          earlyReturn = `${player.name}${remain}`;
+        } else {
+          const boxCount = Math.floor(Number(player.level ?? 1) / 2);
+          w4 = `\n得到了${boxCount}的改良建筑箱`;
+          mergeObtained({ name: '改良建筑箱', count: boxCount });
+          markers['凭证'] = (markers['凭证'] || 0) + 1;
+          actualCount = 1;
+        }
       }
     } else if (itemName === '蛋糕') {
       // L2335-2339：掉落率+50% 增益，可叠加时间

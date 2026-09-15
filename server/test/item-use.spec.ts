@@ -237,8 +237,10 @@ describe('打开箱子（使用物品）', () => {
   });
 
   it('凭证每日一次发放等级/2的改良建筑箱，冷却中不消耗凭证', async () => {
+    // 家园进度=4：凭证属家园写操作（开垦地块），要求房子已建成
     const player = buildPlayer({
       level: 11,
+      markers: { 家园进度: 4 },
       backpack: JSON.stringify([{ name: '凭证', type: '资源', quantity: 5, count: 5 }]),
     });
     const { service } = buildHarness(
@@ -539,7 +541,8 @@ describe('打开箱子（使用物品）', () => {
 
   it('出货段之前本地写入的键以增量重放，既不被活态旧值覆盖也不覆盖活态增量（凭证路径）', async () => {
     const player = buildPlayer({
-      markers: { '凭证': 5, '改良建筑箱': 2 },
+      // 家园进度=4：凭证属家园写操作（开垦地块），要求房子已建成
+      markers: { '凭证': 5, '改良建筑箱': 2, 家园进度: 4 },
       backpack: JSON.stringify([{ name: '凭证', type: '资源', quantity: 1, count: 1 }]),
       level: 8,
     });

@@ -8,7 +8,8 @@
         <div class="yd-meta">
           <span>Lv.{{ level }}</span>
           <span>凭证 {{ vouchers }}</span>
-          <span v-if="progress < 4" class="yd-warn">建造进度 {{ progress }}/4</span>
+          <!-- 未圈地（进度 0）才显示纯文本徽标；1-4 由下方四步引导条展示 -->
+          <span v-if="progress === 0" class="yd-warn">建造进度 {{ progress }}/4</span>
           <span>作物 {{ crop.used }}/{{ crop.limit }}</span>
           <span>建筑 {{ building.used }}/{{ building.limit }}</span>
         </div>
@@ -19,6 +20,18 @@
         <button class="yd-btn ghost" :disabled="loading" @click="refresh">刷新</button>
       </div>
     </header>
+
+    <!-- 建造期四步引导（圈地 → 开挖地基 → 建造地基 → 建造房子）：
+         进度 < 4 时展示带动画的进度条，按钮就地发送与 QQ 端相同的指令 -->
+    <div v-if="data && progress < 4" class="yd-guide">
+      <HomeBuildGuide
+        :step="progress"
+        compact
+        :busy="running"
+        :at-home="progress === 0 || atHome"
+        @send="runGuideCommand"
+      />
+    </div>
 
     <!-- 加载 / 错误 / 无家园 -->
     <div v-if="loading && !data" class="yd-hint">家园数据加载中...</div>
@@ -331,7 +344,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { commandApi, homeApi } from '../api';
-import { HOME_YARD_CONFIG as C } from '../config';
+import { HOME_YARD_CONFIG as C, HOME_BUILD_GUIDE_CONFIG as G } from '../config';
+// 家园建造四步引导卡片（顶部进度条，就地发指令）
+import HomeBuildGuide from '../components/HomeBuildGuide.vue';
 import { useUiStore } from '../stores/ui';
 
 const router = useRouter();
@@ -599,9 +614,21 @@ function endBatch() {
  * @param {string[]} cmds 与 QQ 端一致的指令文本列表
  * @param {{requireHome?: boolean}} opts
  */
+/**
+ * 家园写操作门禁：房子建成（进度 >= 4）前不允许种植 / 收获 / 安装 / 拆除 / 凭证开垦。
+ * 与后端 home-gate.util 同一口径（后端也会拦截，这里只是提前给提示、少一次无效请求）。
+ * @returns {boolean} true = 已被拦截
+ */
+function homeBuiltGuard() {
+  if (progress.value >= G.total) return false;
+  ui.pushToast({ type: 'warning', message: G.texts.needBuilt });
+  return true;
+}
+
 async function runMany(cmds, opts = {}) {
   const requireHome = opts.requireHome !== false;
   if (running.value || !cmds?.length) return;
+  if (homeBuiltGuard()) return;
   if (requireHome && !atHome.value) {
     ui.pushToast({ type: 'warning', message: C.texts.notAtHome });
     return;
@@ -630,6 +657,7 @@ async function runMany(cmds, opts = {}) {
  */
 async function plantMany(seedName, count) {
   if (running.value) return;
+  if (homeBuiltGuard()) return;
   if (!atHome.value) {
     ui.pushToast({ type: 'warning', message: C.texts.notAtHome });
     return;
@@ -696,6 +724,14 @@ async function run(cmd, opts = {}) {
     // 后端写完再读，避免读到旧快照
     setTimeout(refresh, C.refetchDelayMs);
   }
+}
+
+/**
+ * 四步引导条上的按钮：执行一步建造指令（仍走统一指令通道）。
+ * 进度 0 的「圈地」不需要人在院子（此时还没有家园），其余步骤沿用「必须在院子」门禁。
+ */
+function runGuideCommand(cmd) {
+  return run(cmd, { requireHome: progress.value > 0 });
 }
 
 function onPlot(plot, kind) {
@@ -788,6 +824,8 @@ function collect() {
   run(C.commands.collect(), { requireHome: false });
 }
 function useVoucher() {
+  // 凭证 = 开垦地块，属家园写操作：建成前不可用（后端同口径拦截）
+  if (homeBuiltGuard()) return;
   run(C.commands.useVoucher(), { requireHome: false });
 }
 function clearObstacle(obstacle) {
@@ -877,6 +915,11 @@ function clearObstacle(obstacle) {
 .yd-pill.over {
   color: #fb923c;
   border-color: rgba(251, 146, 60, 0.45);
+}
+
+/* 建造期四步引导条容器：与内容区同宽，上下留白避免贴住顶栏 */
+.yd-guide {
+  margin: 10px 14px 0;
 }
 
 /* ---------- 通用块 ---------- */

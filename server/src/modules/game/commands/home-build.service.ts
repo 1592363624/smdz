@@ -22,6 +22,7 @@ import { TaskService } from '.././task.service';
 import { CombatStateService } from '.././combat-state.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
+import { homeBuiltGateText } from '.././home-gate.util';
 import { ShopTradeService } from './shop-trade.service';
 import { GatherPanelService } from './gather-panel.service';
 import { MovementVehicleService } from './movement-vehicle.service';
@@ -147,6 +148,10 @@ export class HomeBuildService {
     const houseName = String(player.houseName || '').trim();
     if (!houseName) return '你还没有家园';
 
+    // 家园写操作统一门禁：房子建成（家园进度>=4）前不允许安装建筑
+    const builtGate = homeBuiltGateText(player);
+    if (builtGate) return builtGate;
+
     const materials = asJsonValue<any[]>(building.materials, []);
     const isProductionBuilding = materials.some((item: any) =>
       Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0) !== 0,
@@ -184,6 +189,9 @@ export class HomeBuildService {
     if (!player.houseName || map.name !== player.houseName) {
       return `${player.name || '冒险者'}燃料只能放院子里`;
     }
+    // 家园写操作统一门禁：房子建成前不允许往院子放燃料
+    const builtGate = homeBuiltGateText(player);
+    if (builtGate) return builtGate;
 
     const backpack = this.playerService.getBackpackItems(player);
     const available = Math.floor(this.support.itemQuantity(
@@ -468,6 +476,9 @@ export class HomeBuildService {
       || map.name === `${player.houseName}屋内`
       || map.name === `${player.houseName}前线`;
     if (!allowed) return null;
+    // 家园写操作统一门禁：房子建成前不允许拆卸家园建筑/燃料
+    const builtGate = homeBuiltGateText(player);
+    if (builtGate) return builtGate;
 
     const name = String(buildingName || '').trim();
     if (!name) return `${player.name || '冒险者'}请指定要拆卸的建筑`;
@@ -531,6 +542,9 @@ export class HomeBuildService {
     if (map.name !== player.houseName) {
       return `${player.name || '冒险者'}你没在自己的院子里。`;
     }
+    // 家园写操作统一门禁：房子建成前不允许一键安装
+    const builtGate = homeBuiltGateText(player);
+    if (builtGate) return builtGate;
 
     const backpack = this.playerService.getBackpackItems(player);
     const buildings: any[] = asJsonValue<any[]>(map.buildings, []);
@@ -582,6 +596,9 @@ export class HomeBuildService {
     if (!allowed) {
       return `${player.name || '冒险者'}只能拆卸自己家里的东西`;
     }
+    // 家园写操作统一门禁：房子建成前不允许一键拆卸
+    const uninstallGate = homeBuiltGateText(player);
+    if (uninstallGate) return uninstallGate;
 
     const buildings: any[] = asJsonValue<any[]>(map.buildings, []);
     const backpack = this.playerService.getBackpackItems(player);

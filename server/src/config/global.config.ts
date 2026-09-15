@@ -73,6 +73,18 @@ export class GlobalConfig {
     readySummaryNameLimit: Number(process.env.TITLES_READY_SUMMARY_NAME_LIMIT || 8),
   };
 
+  /**
+   * 家园系统写操作门禁配置。
+   *
+   * requireBuiltForActions：种植 / 收获 / 建造 / 拆除 / 安装 / 使用凭证 等家园操作
+   * 是否必须等房子建成（`家园进度 >= 4`）才允许。默认 true（与「家园产出 / 家园前线」
+   * 等已有门禁口径一致）；置为 false 即回退到原版「圈完地就能种」的宽松行为。
+   * 环境变量：HOME_REQUIRE_BUILT=false 关闭（修改后需重启生效）。
+   */
+  public readonly home = {
+    requireBuiltForActions: process.env.HOME_REQUIRE_BUILT !== 'false',
+  };
+
   /** 玩家默认属性（游戏数值配置示例，未来可迁移到数据库） */
   public readonly playerDefaults = {
     maxLevel: 100,

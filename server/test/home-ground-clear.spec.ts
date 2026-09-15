@@ -94,6 +94,9 @@ describe('家园地面清理前置', () => {
     const result = await service.handleHome(1, '开挖地基');
 
     expect(result).toContain('开始挖地基');
+    // 回包必须带四步引导块（网页端据此渲染引导卡片），且步数与进度一致
+    expect(result).toContain('家园建造进度 2/4');
+    expect(result).toContain('发送「建造地基」');
     expect(parseJson(player.markers, {})['家园进度']).toBe(2);
     const backpack = parseJson(player.backpack, []);
     expect(backpack.find((i: any) => i.name === '木头').count).toBe(80);
