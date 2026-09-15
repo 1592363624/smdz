@@ -711,6 +711,8 @@
             @keydown="onInputKeydown"
             @keyup="onInputKeyup"
             @input="onInputChange"
+            @compositionstart="onInputCompositionStart"
+            @compositionend="onInputCompositionEnd"
             @blur="onInputBlur"
             placeholder="回车换行，Ctrl+Enter 发指令；纯文本发到右下角世界聊天"
           ></textarea>
@@ -724,6 +726,8 @@
               @mousedown.prevent="selectAutocomplete(cmd)"
             >
               <span class="ac-name">{{ cmd.name }}</span>
+              <!-- 非名称命中（别名/拼音/首字母）时展示命中来源，解释候选为何出现 -->
+              <span v-if="cmd.match && cmd.match.type !== 'name'" class="ac-hit">{{ hitLabel(cmd.match) }}</span>
               <span class="ac-desc">{{ cmd.description }}</span>
             </div>
           </div>
@@ -1128,6 +1132,8 @@ import {
   isSafeMentionName,
   // 在线玩家悬浮面板 / 上下线提示（保留时长、条数、关闭延迟）配置
   PRESENCE_CONFIG,
+  // 指令检索（拼音/别名匹配、各入口条数上限）配置
+  COMMAND_SEARCH_CONFIG,
 } from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameHighlight from '../components/GameHighlight.vue';
@@ -1145,6 +1151,8 @@ import { useFloatingChatStore } from '../stores/floatingChat';
 import { syncServerClock } from '../utils/serverClock';
 import { parseHighlights, GAME_HIGHLIGHT_EVENT } from '../utils/gameHighlight';
 import { isBattleContent } from '../utils/battleText';
+// 指令检索：中文名/别名/拼音全拼/拼音首字母统一匹配，供自动补全、侧栏搜索、常用指令候选取用
+import { searchCommands, hitLabel } from '../utils/commandSearch';
 
 const router = useRouter();
 const ui = useUiStore();
@@ -1380,15 +1388,11 @@ let isUserScrolling = false;
 // 指令列表折叠状态（手机端默认折叠）
 const cmdCollapsed = ref(window.innerWidth < 768);
 
-// 指令搜索
+// 指令搜索（支持中文名/别名/描述/拼音全拼/拼音首字母；查询为空时按原顺序展示全部）
 const cmdSearch = ref('');
-const cmdSearchResults = computed(() => {
-  const q = cmdSearch.value.trim().toLowerCase();
-  if (!q) return commands.value;
-  return commands.value.filter(
-    c => c.name.toLowerCase().includes(q) || (c.description && c.description.toLowerCase().includes(q))
-  );
-});
+const cmdSearchResults = computed(() =>
+  searchCommands(commands.value, cmdSearch.value, { limit: COMMAND_SEARCH_CONFIG.limits.sidebar })
+);
 
 // ---------- 我的常用指令（用户自定义，置顶展示、可编辑、可拖拽排序） ----------
 // 常用指令数组：每项 { cmd, label }。cmd 为实际发送内容（任意文本，模拟从输入框发送）；label 为按钮展示文字
@@ -1409,12 +1413,12 @@ const favAddLabel = ref('');
 // 添加时的候选指令（基于 cmd 文本从全量指令过滤，仅作快速选择辅助；也可直接输入任意文本）
 const favAddCandidates = computed(() => {
   // 多行输入时仅用第一行做候选匹配（候选只是快速选择辅助）
-  const q = (favAddInput.value.split(/\r?\n/)[0] || '').trim().toLowerCase();
+  const q = (favAddInput.value.split(/\r?\n/)[0] || '').trim();
   if (!q) return [];
-  return commands.value
-    .filter(c => c.name.toLowerCase().includes(q))
-    .filter(c => !favoriteCommands.value.some(f => f.cmd === c.name))
-    .slice(0, 30);
+  // 已在常用列表里的指令不再重复作为候选
+  const rest = commands.value.filter((c) => !favoriteCommands.value.some((f) => f.cmd === c.name));
+  // 候选支持拼音检索：输入 "bb" 也能找到「背包」
+  return searchCommands(rest, q, { limit: COMMAND_SEARCH_CONFIG.limits.favoriteCandidate });
 });
 // 保存中/提示
 const favBusy = ref(false);
@@ -1705,6 +1709,33 @@ function onFavoriteClick(item, evt) {
 // 自动补全状态
 const showAutocomplete = ref(false);
 const autocompleteIndex = ref(-1);
+// 输入法组合状态与输入框 DOM 实时快照：
+// 中文输入法组合期间（正在打拼音）v-model 不会更新（组合文本由浏览器托管），
+// 只读 v-model 就做不到「边打拼音边出候选」，因此组合期间改用 DOM 实时值检索。
+const inputComposing = ref(false);
+const inputRaw = ref('');
+
+/** 记录输入框 DOM 实时内容（组合期间 v-model 尚未更新，检索需要这份快照） */
+function syncInputRaw() {
+  const el = inputEl.value;
+  if (el && typeof el.value === 'string') inputRaw.value = el.value;
+}
+
+/** 输入法开始组合（如开始输入拼音）：切到 DOM 实时值检索，边打边出候选 */
+function onInputCompositionStart() {
+  inputComposing.value = true;
+  syncInputRaw();
+}
+
+/**
+ * 输入法组合结束（拼音已上屏为文字）：切回 v-model 值。
+ * 这里不主动刷新下拉：上屏后 v-model 变化会让 filteredCommands 自动重算；
+ * 主动刷新反而会在「点击补全项导致组合被打断」时把刚关掉的下拉又弹出来。
+ */
+function onInputCompositionEnd() {
+  inputComposing.value = false;
+  syncInputRaw();
+}
 
 // ---------- 玩家 @ 提及状态 ----------
 // 可@的玩家列表（含在线状态，在线优先），加载后缓存
@@ -1880,18 +1911,20 @@ function copyOpenId() {
     .catch(() => {});
 }
 
-// 根据输入前缀过滤指令列表，用于自动补全
+// 根据输入过滤指令列表，用于自动补全
+// 支持中文名、别名、拼音全拼（beibao）、拼音首字母（bb）检索；
+// 不纳入描述匹配：描述命中面太广，会让下拉被长尾候选淹没（描述检索留给侧栏搜索/命令面板）
 const filteredCommands = computed(() => {
-  const text = input.value.trim();
+  // 组合期间（正在打拼音）用 DOM 实时值检索，其余时候用 v-model 值
+  const text = (inputComposing.value ? inputRaw.value : input.value).trim();
   // 不需要 / 前缀，只要输入非空就展示自动补全
   if (!text) return [];
-  const partial = text.toLowerCase();
-  // 优先匹配开头，其次匹配包含
-  const startsWith = commands.value.filter((c) => c.name.toLowerCase().startsWith(partial));
-  const contains = commands.value.filter(
-    (c) => c.name.toLowerCase().includes(partial) && !startsWith.includes(c)
-  );
-  return [...startsWith, ...contains].slice(0, 10);
+  return searchCommands(commands.value, text, {
+    limit: COMMAND_SEARCH_CONFIG.limits.autocomplete,
+    matchDescription: false,
+    // 附带命中信息：拼音/别名命中时在候选行上提示，让玩家知道候选为何出现
+    withMatch: true,
+  });
 });
 
 // 判断系统消息是否归属当前用户（自己的指令结果 vs 别人的公屏系统广播）
@@ -2290,6 +2323,8 @@ function detectAtMode() {
 
 // 输入框值变化事件：处理 @ 玩家下拉的显示与过滤
 function onInputChange() {
+  // 同步 DOM 实时内容（输入法组合期间每次变化都会触发，是拼音候选的刷新时机）
+  syncInputRaw();
   if (detectAtMode()) {
     // @ 模式下：更新关键词并重置选中索引，隐藏指令补全
     showAtAutocomplete.value = true;
@@ -2349,6 +2384,8 @@ function selectFirstCmd() {
 
 // 输入框键盘事件（keyup）：仅在非 @ 模式下控制指令自动补全
 function onInputKeyup() {
+  // 同步 DOM 实时内容，保证检索文本最新（输入法组合期间 v-model 落后于 DOM）
+  syncInputRaw();
   // @ 模式下隐藏指令补全，避免两者下拉冲突
   if (showAtAutocomplete.value || detectAtMode()) {
     showAutocomplete.value = false;
@@ -2366,6 +2403,8 @@ function onInputKeyup() {
 }
 
 function onInputKeydown(e) {
+  // 输入法组合中（正在选拼音候选）：回车/Tab 归输入法选词，不能被补全逻辑拦截
+  if (e.isComposing) return;
   // Ctrl+Enter 组合键发送消息（多行输入时回车用于换行，不触发发送）
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();

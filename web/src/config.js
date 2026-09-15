@@ -65,6 +65,65 @@ export function isSafeMentionName(name) {
 }
 
 /**
+ * 指令检索配置（输入框自动补全 / 左侧栏指令搜索 / Ctrl+K 命令面板 / 常用指令候选）
+ *
+ * 检索范围：指令名、别名（alias，后端以逗号分隔多条）、拼音全拼（beibao）、拼音首字母（bb）、描述。
+ * 所有阈值/权重/条数上限集中在此，调整检索行为无需改动视图代码。
+ */
+export const COMMAND_SEARCH_CONFIG = {
+  /** 是否启用拼音检索（关闭后退化为仅按中文名/别名/描述检索） */
+  enablePinyin: true,
+  /** 启用「拼音首字母」检索所需的最小输入长度（设为 1 时单字母会命中大量候选，建议 ≥2） */
+  minInitialsLen: 2,
+  /** 启用「拼音全拼」检索所需的最小输入长度（2 时输入 "da" 即可命中"打坐"） */
+  minFullPinyinLen: 2,
+  /** 描述参与检索所需的最小输入长度（描述命中最靠后，仅作兜底） */
+  minDescriptionLen: 2,
+  /** 各入口最多展示条数（0 = 不限制） */
+  limits: {
+    /** 输入框自动补全下拉 */
+    autocomplete: 10,
+    /** 左侧栏「指令」搜索 */
+    sidebar: 0,
+    /** Ctrl+K 命令面板 */
+    palette: 50,
+    /** 「添加常用指令」候选 */
+    favoriteCandidate: 30,
+  },
+  /**
+   * 匹配权重（分数越大越靠前）
+   * 排序原则：指令名直接命中 > 别名直接命中 > 拼音命中 > 描述兜底；
+   * 同分时保持后端返回的 sortOrder 顺序，保证结果稳定不跳动。
+   */
+  score: {
+    /** 指令名：完全相等 / 以输入开头 / 包含输入 */
+    nameExact: 1000,
+    namePrefix: 900,
+    nameContains: 800,
+    /** 别名（逗号分隔的每条）：完全相等 / 开头 / 包含 */
+    aliasExact: 700,
+    aliasPrefix: 660,
+    aliasContains: 620,
+    /** 指令名拼音全拼：开头 / 包含 */
+    namePinyinPrefix: 580,
+    namePinyinContains: 540,
+    /** 指令名拼音首字母：完全相等 / 开头 / 包含（如 bb 命中"资源背包" zybb） */
+    nameInitialsExact: 500,
+    nameInitialsPrefix: 460,
+    nameInitialsContains: 430,
+    /** 中文别名拼音：全拼开头 / 全拼包含 / 首字母相等 / 开头 / 包含 */
+    aliasPinyinPrefix: 420,
+    aliasPinyinContains: 400,
+    aliasInitialsExact: 380,
+    aliasInitialsPrefix: 360,
+    aliasInitialsContains: 340,
+    /** 描述：包含关键词 / 拼音包含（兜底，分数最低） */
+    descContains: 200,
+    descPinyin: 160,
+  },
+};
+
+/**
  * 在线玩家展示配置（左下角状态栏：悬停「在线」看名单 + 上下线提示）
  *
  * 说明：

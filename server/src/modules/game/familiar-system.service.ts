@@ -4327,7 +4327,10 @@ ${this.getAwakenStageName(d)}(${d})`;
    * 查看可领取的称号
    * 原版 140 个称号（titles.json）统一编号；可领取项注册临时输入替换：
    * 玩家直接发数字即可快速领取（原版编号菜单惯例，原版 L10520-10553）。
-   * 进度行格式：要求名(当前/要求值)；在线时间用时间格式（数字到时间）；
+   * 版式（2026-09-15 可读性重排）：同一系列（去尾部罗马数字后的同名前缀 +
+   * 同一要求名）归为一组，组头展示当前进度与“下一阶”迷你进度条；
+   * 每个称号压成一行 `N、称号名 要求名(当前/要求值)`，条件全部达成的行尾标 ✦。
+   * 进度格式：要求名(当前/要求值)；在线时间用时间格式（数字到时间）；
    * 含 "*" 的要求做汉字模糊匹配求和（对应原版 取成就熟练度 模糊+取全部匹配）。
    * @param userId 用户ID
    * @returns 可领取称号列表
@@ -4344,35 +4347,112 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 只给可领取的称号发号，已领取的（✅）不发号不占号。
     const tempGroups: string[] = [];
 
-    const lines = [
-      `📜 可领取的称号`,
-      `━━━━━━━━━━━━━━━`,
-    ];
+    // 进度值的展示格式：在线时间用时分秒，其余走通用数值格式化
+    const formatProgress = (reqName: string, value: number): string =>
+      reqName === '在线时间' ? formatSecondsDurationText(value) : formatDamageText(value);
+    // 5 格迷你进度条 + 百分比（封顶 100%）
+    const miniBar = (current: number, need: number): string => {
+      const ratio = need > 0 ? Math.min(1, current / need) : 1;
+      const filled = Math.round(ratio * 5);
+      return `${'▰'.repeat(filled)}${'▱'.repeat(5 - filled)} ${Math.floor(ratio * 100)}%`;
+    };
+    // 系列名 = 称号名去掉尾部罗马数字阶位（肝帝II → 肝帝；住这了IX → 住这了）
+    const seriesNameOf = (name: string): string =>
+      name.replace(/(?:IX|IV|VI{0,3}|I{1,3}|X|V)$/, '').trim() || name;
 
-    let no = 0;
+    interface AvailableEntry {
+      no: number; // 展示阶段按组顺序统一发放
+      name: string;
+      reqTexts: string[]; // 保留原版进度子串：要求名(当前/要求值)
+      ready: boolean; // 全部条件已达成（发编号即可领）
+      firstCurrent: number; // 首个要求的当前原始值（组头进度条用）
+      firstNeed: number; // 首个要求的目标原始值
+    }
+    interface SeriesGroup {
+      seriesName: string;
+      reqName: string;
+      current: number;
+      entries: AvailableEntry[];
+    }
 
-    // ---------- 原版称号（titles.json：条件+奖励） ----------
+    // ---------- 原版称号（titles.json：条件+奖励）：连续编号并按系列归组 ----------
+    const groupOrder: SeriesGroup[] = [];
+    const groupMap = new Map<string, SeriesGroup>();
+    const totalCount = this.staticData.getAllTitles().length;
+
     for (const title of this.staticData.getAllTitles()) {
       if (ownedNames.has(title.name)) continue;
       const requirements = asJsonValue<Array<{ name?: string; count?: number }>>(title.requirements, []);
       if (requirements.length === 0) continue;
-      no++;
-      lines.push(`${no}、${title.name}`);
+
+      const reqTexts: string[] = [];
+      let ready = true;
+      let firstReqName = '';
+      let firstCurrent = 0;
+      let firstNeed = 0;
       // 进度行：与原版一致，逐条要求显示 (当前/要求值)；在线时间用时间格式
       for (const req of requirements) {
         const reqName = String(req?.name || '').trim();
         if (!reqName) continue;
         const need = Number(req?.count) || 0;
         const current = this.getTitleProgress(markers, reqName);
-        if (reqName === '在线时间') {
-          lines.push(`  ${reqName}(${formatSecondsDurationText(current)}/${formatSecondsDurationText(need)})`);
-        } else if (reqName.includes('*')) {
-          lines.push(`  ${reqName}(${formatDamageText(current)}/${formatDamageText(need)})`);
-        } else {
-          lines.push(`  ${reqName}(${formatDamageText(current)}/${formatDamageText(need)})`);
+        if (current < need) ready = false;
+        if (!firstReqName) {
+          firstReqName = reqName;
+          firstCurrent = current;
+          firstNeed = need;
         }
+        reqTexts.push(`${reqName}(${formatProgress(reqName, current)}/${formatProgress(reqName, need)})`);
       }
-      tempGroups.push(`${no}@领取称号 ${title.name}`);
+      const seriesName = seriesNameOf(title.name);
+      const groupKey = `${seriesName}@${firstReqName}`;
+      let group = groupMap.get(groupKey);
+      if (!group) {
+        group = { seriesName, reqName: firstReqName, current: firstCurrent, entries: [] };
+        groupMap.set(groupKey, group);
+        groupOrder.push(group);
+      }
+      group.entries.push({ no: 0, name: title.name, reqTexts, ready, firstCurrent, firstNeed });
+    }
+
+    // 编号按展示顺序发放：组顺序 = 系列首次出现顺序，组内按门槛升序（I→X 阶梯），
+    // 保证同系列相邻、编号连续；编号临时输入与该顺序一一对应
+    let no = 0;
+    let readyCount = 0;
+    for (const group of groupOrder) {
+      group.entries.sort((a, b) => a.firstNeed - b.firstNeed || a.name.localeCompare(b.name, 'zh'));
+      for (const entry of group.entries) {
+        no++;
+        entry.no = no;
+        if (entry.ready) readyCount++;
+        tempGroups.push(`${no}@领取称号 ${entry.name}`);
+      }
+    }
+
+    // ---------- 渲染：标题统计 → 系列分组 → 操作脚注 ----------
+    const lines = [`📜 可领取的称号（${no}/${totalCount}）`];
+    if (no > 0) {
+      lines.push(
+        readyCount > 0
+          ? `✦ ${readyCount} 个条件已达成，发编号即可领取`
+          : `暂无条件达成的称号，继续加油`,
+      );
+    }
+    lines.push(`━━━━━━━━━━━━━━━`);
+
+    for (const group of groupOrder) {
+      // 组头：系列名 · 要求名：当前值；首个未达成阶位即“下一阶”，附迷你进度条
+      const next = group.entries.find((e) => !e.ready);
+      let header = `▎${group.seriesName} · ${group.reqName}：当前 ${formatProgress(group.reqName, group.current)}`;
+      if (next) {
+        header += ` ｜下一阶需 ${formatProgress(group.reqName, next.firstNeed)}　${miniBar(group.current, next.firstNeed)}`;
+      } else {
+        header += ` ｜本系列均可领取 ✦`;
+      }
+      lines.push(header);
+      for (const entry of group.entries) {
+        lines.push(` ${entry.no}、${entry.name}　${entry.reqTexts.join('　')}${entry.ready ? ' ✦' : ''}`);
+      }
     }
 
     lines.push(`━━━━━━━━━━━━━━━`);
@@ -4381,7 +4461,8 @@ ${this.getAwakenStageName(d)}(${d})`;
       if (this.shortcutService?.setTempInput) {
         await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
       }
-      lines.push(`发送编号即可快速领取，或使用「领取称号 称号名」`);
+      const foot = `发送编号即可快速领取，或使用「领取称号 称号名」`;
+      lines.push(readyCount > 0 ? `✦ = 条件已达成可立即领取；${foot}` : foot);
     } else {
       lines.push(`所有称号均已领取 ✅`);
     }

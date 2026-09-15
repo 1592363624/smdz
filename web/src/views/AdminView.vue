@@ -168,15 +168,20 @@
                   </div>
                 </div>
 
-                <!-- 签到奖励表：点击弹窗编辑「每日/连续/累计」三张奖励表（跨整行，按钮不换行） -->
-                <div v-else-if="cfg.key === 'game.checkinRewards'" class="config-item config-item-wide">
+                <!-- 签到奖励表：点击弹窗编辑「每日/连续/累计」三张奖励表（卡片常规宽度，按钮随文字自适应） -->
+                <div v-else-if="cfg.key === 'game.checkinRewards'" class="config-item">
                   <div class="config-info">
                     <span class="config-label">{{ cfg.label }}</span>
                     <span class="config-desc">{{ cfg.description }}</span>
                   </div>
                   <div class="config-editor">
-                    <button class="gm-btn checkin-open-btn" type="button" @click="openCheckinRewards(cfg)">
-                      ✏️ 编辑奖励（每日 {{ checkinGroupCount(cfg, 'daily') }} / 连续 {{ checkinGroupCount(cfg, 'consecutive') }} / 累计 {{ checkinGroupCount(cfg, 'total') }} 条）
+                    <button
+                      class="gm-btn checkin-open-btn"
+                      type="button"
+                      :title="`每日 ${checkinGroupCount(cfg, 'daily')} / 连续 ${checkinGroupCount(cfg, 'consecutive')} / 累计 ${checkinGroupCount(cfg, 'total')} 条奖励`"
+                      @click="openCheckinRewards(cfg)"
+                    >
+                      ✏️ 编辑奖励（共 {{ checkinTotalCount(cfg) }} 条）
                     </button>
                     <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
                   </div>
@@ -1121,10 +1126,15 @@ function flattenCheckinGroups(groups) {
   return rows;
 }
 
-/** 折叠行上展示的奖励条数（三张表分开统计，按明细条数计） */
+/** 单张表的奖励明细条数（悬浮提示里按表分开显示） */
 function checkinGroupCount(cfg, kind) {
   const obj = parseCheckinRewards(cfg?.value);
   return flattenCheckinGroups(obj?.[kind]).reduce((sum, row) => sum + row.entries.length, 0);
+}
+
+/** 三张表的奖励明细总条数（按钮上显示，保持按钮文案简短、一行放得下） */
+function checkinTotalCount(cfg) {
+  return ['daily', 'consecutive', 'total'].reduce((sum, kind) => sum + checkinGroupCount(cfg, kind), 0);
 }
 
 /** 取某张表编辑中的行 ref，供添加/删除复用 */
@@ -2863,9 +2873,11 @@ onMounted(async () => {
   background: rgba(139, 92, 246, 0.2);
   border-style: solid;
 }
-/* 「编辑奖励」入口按钮：文字不换行（卡片已跨整行，空间足够） */
+/* 「编辑奖励」入口按钮：宽度随文字自适应、不换行也不被 flex 压缩（文案已精简为总条数） */
 .checkin-open-btn {
   white-space: nowrap;
+  flex-shrink: 0;
+  align-self: flex-start;
 }
 /* 三张表各占较小高度，避免合计高度超出弹窗 */
 .checkin-sec .private-rules {

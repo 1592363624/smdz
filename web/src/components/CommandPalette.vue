@@ -57,6 +57,9 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useUiStore } from '../stores/ui';
+// 指令检索：名称/别名/描述/拼音全拼/拼音首字母统一匹配
+import { searchCommands } from '../utils/commandSearch';
+import { COMMAND_SEARCH_CONFIG } from '../config';
 
 const props = defineProps({
   /** 指令列表：[{ name, description, alias, argsSchema }] */
@@ -73,21 +76,10 @@ const active = ref(0);
 const inputEl = ref(null);
 const listEl = ref(null);
 
-/** 根据关键词过滤指令（名称/描述/别名） */
-const results = computed(() => {
-  const list = props.commands || [];
-  const kw = q.value.trim().toLowerCase();
-  if (!kw) return list.slice(0, 50);
-  return list
-    .filter((c) => {
-      const hay = [c.name, c.description, c.alias]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return hay.includes(kw);
-    })
-    .slice(0, 50);
-});
+/** 根据关键词过滤指令（名称/别名/描述，以及拼音全拼 beibao 与首字母 bb） */
+const results = computed(() =>
+  searchCommands(props.commands || [], q.value, { limit: COMMAND_SEARCH_CONFIG.limits.palette })
+);
 
 // 关键词变化后重置高亮项，避免越界
 watch(q, () => {
