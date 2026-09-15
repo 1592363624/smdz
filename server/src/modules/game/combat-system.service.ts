@@ -1349,6 +1349,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         target.markers = tMarkers; // Json 列直接写对象
         // 原版“闪避攻击”成就只在玩家作为攻击方的玩家对战分支产生。
         if (player.specialSeq > 0 && target.userId && Number(target.specialSeq ?? 0) > 0) {
+          // 原版 L1485 添加成就(“闪避攻击”,1,防御方.成就,防御方.任务)：成就与任务同写。
+          // 成就是称号条件数据源（defMarkers 即防御方玩家活态），只推进任务会让条件恒为 0。
+          tMarkers['闪避攻击'] = (Number(tMarkers['闪避攻击']) || 0) + 1;
           taskProgress.push({ userId: Number(target.userId), actionName: '闪避攻击', count: 1 });
         }
         continue;
@@ -2675,6 +2678,9 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 扣除怪物血量（三池分伤）
       const shieldBeforeDamage = target.shield === undefined ? 0 : Number(target.shield || 0);
       const armorBeforeDamage = target.armor === undefined ? 0 : Number(target.armor || 0);
+      // 原版 L3710-3717「状态」= 本次伤害结算前防御方当前三池总和；击杀时与该目标
+      // 计算后属性三池（a1）比对，判定「捡人头」（攻击前残血<10%）与「满血秒杀」。
+      const poolTotalBeforeDamage = Number(target.hp || 0) + shieldBeforeDamage + armorBeforeDamage;
       const defenderEquipment = ((target as any).equipment || []) as any[];
       const hasTenaciousShield = defenderEquipment.some((item: any) =>
         item && (item.specialSeq === 131 || (item.name || item.名称) === '坚韧护盾'));
@@ -3036,6 +3042,29 @@ export class CombatSystemService implements OnApplicationShutdown {
         const killMarkers = this.normalizeMarkerObject(target.markers);
         killMarkers[`击杀者${killSourceKey}`] = 1;
         target.markers = killMarkers; // Json 列直接写对象
+        // 原版 L3710-3717：玩家（特殊序号>0）击杀时按「攻击前三池总血量 / 目标最大三池」
+        // 判定「捡人头」（攻击前已残血 <10%）与「满血秒杀」（攻击前满血被一击击杀）。
+        // 成就是称号条件数据源（此前只推进任务会让这两个称号恒为 0）。
+        if (Number(player.specialSeq ?? 0) > 0) {
+          const maxPoolTotal = Number(defenderBonus.生命 || 0)
+            + Number(defenderBonus.护盾 || 0)
+            + Number(defenderBonus.装甲 || 0);
+          if (maxPoolTotal > 0) {
+            const killerMarkers = this.safeParseJson<Record<string, number>>(player.markers, {});
+            let killerMarkersChanged = false;
+            if (poolTotalBeforeDamage < maxPoolTotal / 10) {
+              killerMarkers['捡人头'] = (Number(killerMarkers['捡人头']) || 0) + 1;
+              killerMarkersChanged = true;
+            }
+            if (poolTotalBeforeDamage >= maxPoolTotal) {
+              killerMarkers['满血秒杀'] = (Number(killerMarkers['满血秒杀']) || 0) + 1;
+              killerMarkersChanged = true;
+            }
+            if (killerMarkersChanged) {
+              player.markers = killerMarkers; // Json 列直接写对象（随本方法末尾 savePlayer 落库）
+            }
+          }
+        }
         // 原版 后台运作.ecode L558-680：击杀结算输出「参与者」名单
         resultLines.push(...await this.buildKillParticipantLines(target, killSourceKey));
 
@@ -3111,6 +3140,11 @@ export class CombatSystemService implements OnApplicationShutdown {
         : this.playerService.safeJsonParse<any[]>(player.buffs, []);
       shortenBuff(comebackBuffs, '卷土重来', 60);
       player.buffs = comebackBuffs; // Json 列直接写数组
+      // 原版 L3695 添加成就("卷土重来",1,攻击方.成就,攻击方.任务)：任务由下方
+      // advance 推进，成就是称号条件数据源，必须同步写 markers（随 L3154 savePlayer 落库）。
+      const comebackMarkers = this.safeParseJson<Record<string, number>>(player.markers, {});
+      comebackMarkers['卷土重来'] = (Number(comebackMarkers['卷土重来']) || 0) + 1;
+      player.markers = comebackMarkers; // Json 列直接写对象
       comebackKill = true;
       resultLines.push(`${player.name || '你'}卷土重来！`);
     }
@@ -5769,6 +5803,10 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         if (vitalityCost > 0) {
           taskProgress.push({ actionName: '消耗活力', count: vitalityCost });
+          // 原版 后台运作.ecode L868 添加成就(“消耗活力”,1,玩家.成就,玩家.任务)：
+          // 任务由调用方统一 advance，成就必须写同一份 markers（称号条件数据源），
+          // 否则「消耗活力」称号条件恒为 0（markers 在下方 L5816 随玩家一起落库）。
+          markers['消耗活力'] = (Number(markers['消耗活力']) || 0) + vitalityCost;
           // ===== 活力消耗提示（原版 后台运作.ecode L864-869）=====
           // 【原文 L864】.判断开始 (玩家.活力 >= 1 && 取成就熟练度 (玩家.标记, "使用活力") == 0)
           // 【原文 L865】    玩家.活力 = 玩家.活力 - 1

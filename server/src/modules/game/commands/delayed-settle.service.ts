@@ -288,7 +288,11 @@ export class DelayedSettleService {
       }
 
       // 任务推进（原版 L7318 添加成就("补魔", c, 玩家.成就, 玩家.任务)；
-      // c 在原版循环中恒为 2）
+      // c 在原版循环中恒为 2）。成就是称号进度数据源，必须与任务同步写 markers，
+      // 否则「补魔」相关称号条件恒为 0（advanceTask 只推进任务）。
+      const refillMarkers = asJsonValue<Record<string, any>>(player.markers, {});
+      refillMarkers['补魔'] = (Number(refillMarkers['补魔']) || 0) + 2;
+      player.markers = refillMarkers; // Player markers 为 Json 列，直接写对象
       await this.support.advanceTask(userId, '补魔', 2);
       await this.playerService.savePlayer(player);
 

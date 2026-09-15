@@ -271,6 +271,11 @@ export class DungeonChallengeService {
     for (const [monsterName, count] of defeatedByName) {
       sweepMarkers[`击败${monsterName}`] = (Number(sweepMarkers[`击败${monsterName}`]) || 0) + count;
     }
+    // 「消耗活力」成就：扫荡消耗的活力点同样计入（成就是称号条件数据源，
+    // 下方 advance 只推进任务，必须在此同步补写 markers）
+    if (consumed > 0) {
+      sweepMarkers['消耗活力'] = (Number(sweepMarkers['消耗活力']) || 0) + consumed;
+    }
     player.markers = sweepMarkers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 

@@ -12,6 +12,7 @@
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AchievementService } from '../game/achievement.service';
 import { GameService } from '../game/game.service';
 import { PlayerService } from '../game/player.service';
 import { PlayerMutateService, MutateContext } from '../game/player-mutate.service';
@@ -59,6 +60,9 @@ export class CommandService {
     // 系统配置中心：读取「私密指令名单/占位文本」，给探测雷达等情报类指令结果打私密标记。
     // @Optional 兼容手工构造的测试桩（未注入时不做私密判定，行为与改造前一致）。
     @Optional() private readonly systemConfigService?: SystemConfigService,
+    // 成就系统：指令收尾写「发送指令」成就（称号「肝帝」系列条件）。
+    // @Optional 兼容手工构造的测试桩（未注入时跳过成就写入，任务推进行为不变）。
+    @Optional() private readonly achievementService?: AchievementService,
   ) {
     // P2 管道注入自检：@Optional 注入失效（模块装配遗漏/循环依赖截断）会静默
     // 回落旧路径，生产极难察觉——正式库 CurrencyLog 空表事故的直接教训。
@@ -549,11 +553,19 @@ export class CommandService {
     sentText: string,
     result: CommandResult,
   ): Promise<void> {
-    if (!ctx.userId || !this.taskService) return;
+    if (!ctx.userId) return;
     if (result.success && sentText) {
-      await this.taskService.advance(ctx.userId, '发送“' + sentText + '”');
-      await this.taskService.advance(ctx.userId, '发送指令');
+      // 「发送指令」成就与任务推进必须同时写入：原版
+      // 添加成就(“发送指令”,1,玩家.成就,玩家.任务) 一次调用写成就+任务两处；
+      // 本移植任务与成就分家——taskService.advance 只推进任务，而称号进度读
+      // markers（成就），只推进任务会让「肝帝」系列条件恒为 0。
+      await this.addSendCommandAchievement(ctx.userId);
+      if (this.taskService) {
+        await this.taskService.advance(ctx.userId, '发送“' + sentText + '”');
+        await this.taskService.advance(ctx.userId, '发送指令');
+      }
     }
+    if (!this.taskService) return;
     const taskNotice = this.taskService.consumeNotifications(ctx.userId);
     if (taskNotice) {
       // 对齐原版 _主程序.ecode L11960-11972：完成块前插到指令输出之前
@@ -561,6 +573,28 @@ export class CommandService {
       result.content = result.content
         ? `${taskNotice}\n————————\n${result.content}`
         : taskNotice;
+    }
+  }
+
+  /**
+   * 写入「发送指令」成就（对应原版 _主程序.ecode L12047 每次成功指令收尾的
+   * 添加成就(“发送指令”,1,玩家.成就,玩家.任务)；称号「肝帝」系列的要求即此计数）。
+   *
+   * 称号进度读 Player.markers（成就存储位），因此这里必须写 markers。
+   * 正常调用路径（finishCommandTasks 被包在 mutate 管道内）直接复用权威态
+   * 快照改写，由最外层 mutate 统一落库，零额外读档；上下文缺失（playerMutate
+   * 未注入的降级路径）时回退为自读档 + savePlayer。
+   */
+  private async addSendCommandAchievement(userId: number): Promise<void> {
+    if (!this.achievementService) return;
+    try {
+      const ctx = this.playerMutate?.currentFor(userId);
+      const player = ctx?.player ?? (await this.playerService.getPlayerData(userId)).player;
+      if (!player) return;
+      await this.achievementService.addAchievement(player, '发送指令', 1, false);
+    } catch (e: any) {
+      // 成就是旁路计数：失败只告警，绝不阻断指令主链路
+      this.logger.warn(`「发送指令」成就写入失败: ${e?.message ?? e}`);
     }
   }
 

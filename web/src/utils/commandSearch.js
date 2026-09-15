@@ -27,6 +27,9 @@ const PINYIN_INITIALS_OPTS = {
 /** 索引缓存：key = 指令名 + 别名，值为 buildIndex 的返回结构 */
 const indexCache = new Map();
 
+/** 中文字符判定：用于「只检索中文别名」模式过滤英文别名 */
+const ZH_CHAR_RE = /[\u4e00-\u9fa5]/;
+
 /** 命中来源 → 中文标签（用于下拉项提示，帮助玩家理解候选为何出现） */
 const HIT_TYPE_LABELS = {
   alias: '别名',
@@ -87,6 +90,8 @@ function buildIndex(cmd) {
     .filter(Boolean)
     .map((a) => ({
       raw: a,
+      // 是否含中文：供 aliasMatch='chinese'（默认）过滤掉 attack/lock/pickup 这类英文别名
+      isZh: ZH_CHAR_RE.test(a),
       lower: normalize(a),
       compact: compact(a),
       full: toFullPinyin(a),
@@ -124,7 +129,14 @@ function withDescPinyin(idx) {
  * @returns {{score:number, hit:{type:string,text:string}}|null} 命中信息；null 表示不匹配
  */
 function scoreOne(idx, q, matchDescription) {
-  const { enablePinyin, minInitialsLen, minFullPinyinLen, minDescriptionLen, score: S } = COMMAND_SEARCH_CONFIG;
+  const {
+    enablePinyin,
+    aliasMatch,
+    minInitialsLen,
+    minFullPinyinLen,
+    minDescriptionLen,
+    score: S,
+  } = COMMAND_SEARCH_CONFIG;
   let best = 0;
   let hit = null;
   /** 记录更优命中：仅当分数更高时覆盖，从而自然实现「名称 > 别名 > 拼音 > 描述」的优先级 */
@@ -140,14 +152,33 @@ function scoreOne(idx, q, matchDescription) {
   else if (idx.nameLower.startsWith(q)) take(S.namePrefix, 'name', idx.name);
   else if (idx.nameCompact.includes(q)) take(S.nameContains, 'name', idx.name);
 
-  // ---------- 2. 别名直接匹配（别名多为英文，输入英文指令名同样能命中） ----------
-  for (const a of idx.aliases) {
-    if (a.lower === q) take(S.aliasExact, 'alias', a.raw);
-    else if (a.lower.startsWith(q)) take(S.aliasPrefix, 'alias', a.raw);
-    else if (a.compact.includes(q)) take(S.aliasContains, 'alias', a.raw);
+  // ---------- 2. 别名匹配（原文 + 拼音），按配置决定是否检索英文别名 ----------
+  // 默认 aliasMatch='chinese'：只认含中文的别名。
+  // 英文别名（attack/lock/pickup…）是给后端指令引擎用的，若参与检索，
+  // 输入 "ck" 会因为 lock/unlock/pickup/attack 都包含 ck 而命中一堆无关指令。
+  if (aliasMatch !== 'none') {
+    for (const a of idx.aliases) {
+      if (aliasMatch === 'chinese' && !a.isZh) continue;
+      // 2.1 别名原文：完全相等 > 前缀 > 包含
+      if (a.lower === q) take(S.aliasExact, 'alias', a.raw);
+      else if (a.lower.startsWith(q)) take(S.aliasPrefix, 'alias', a.raw);
+      else if (a.compact.includes(q)) take(S.aliasContains, 'alias', a.raw);
+      // 2.2 别名拼音（只有中文别名的全拼/首字母才有检索价值）
+      if (enablePinyin) {
+        if (q.length >= minFullPinyinLen && a.full) {
+          if (a.full.startsWith(q)) take(S.aliasPinyinPrefix, 'alias-pinyin', a.raw);
+          else if (a.full.includes(q)) take(S.aliasPinyinContains, 'alias-pinyin', a.raw);
+        }
+        if (q.length >= minInitialsLen && a.init) {
+          if (a.init === q) take(S.aliasInitialsExact, 'alias-initials', a.raw);
+          else if (a.init.startsWith(q)) take(S.aliasInitialsPrefix, 'alias-initials', a.raw);
+          else if (a.init.includes(q)) take(S.aliasInitialsContains, 'alias-initials', a.raw);
+        }
+      }
+    }
   }
 
-  // ---------- 3. 拼音匹配（可在配置中整体关闭） ----------
+  // ---------- 3. 指令名拼音匹配（可在配置中整体关闭） ----------
   if (enablePinyin) {
     // 3.1 全拼（beibao → 背包）：过短输入命中面太大，需达到最小长度
     if (q.length >= minFullPinyinLen && idx.nameFull) {
@@ -159,18 +190,6 @@ function scoreOne(idx, q, matchDescription) {
       if (idx.nameInit === q) take(S.nameInitialsExact, 'initials', idx.nameInit);
       else if (idx.nameInit.startsWith(q)) take(S.nameInitialsPrefix, 'initials', idx.nameInit);
       else if (idx.nameInit.includes(q)) take(S.nameInitialsContains, 'initials', idx.nameInit);
-    }
-    // 3.3 中文别名的拼音（英文别名的拼音与 2 中 compact 匹配重复，此处仅在中文别名上生效）
-    for (const a of idx.aliases) {
-      if (q.length >= minFullPinyinLen && a.full) {
-        if (a.full.startsWith(q)) take(S.aliasPinyinPrefix, 'alias-pinyin', a.raw);
-        else if (a.full.includes(q)) take(S.aliasPinyinContains, 'alias-pinyin', a.raw);
-      }
-      if (q.length >= minInitialsLen && a.init) {
-        if (a.init === q) take(S.aliasInitialsExact, 'alias-initials', a.raw);
-        else if (a.init.startsWith(q)) take(S.aliasInitialsPrefix, 'alias-initials', a.raw);
-        else if (a.init.includes(q)) take(S.aliasInitialsContains, 'alias-initials', a.raw);
-      }
     }
   }
 

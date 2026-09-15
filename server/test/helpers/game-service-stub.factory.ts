@@ -125,7 +125,7 @@ function defineLazyMounts(stub: any): void {
     const inst = new QuestDialogueService(
       s.support, s.prisma, s.playerService, s.combatSystem, s.mapService, s.achievementService,
       s.familiarSystemService, s.familiarSkillsService, s.tutorialService, s.staticData, s.systemConfigService,
-      s.chatService, s.feedbackService, s.taskService, s.shortcutService,
+      s.feedbackService, s.taskService, s.shortcutService,
       undefined as any, undefined as any, s.handbookService,
     );
     s.questDialogueService = inst;

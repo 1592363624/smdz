@@ -67,7 +67,7 @@ export function isSafeMentionName(name) {
 /**
  * 指令检索配置（输入框自动补全 / 左侧栏指令搜索 / Ctrl+K 命令面板 / 常用指令候选）
  *
- * 检索范围：指令名、别名（alias，后端以逗号分隔多条）、拼音全拼（beibao）、拼音首字母（bb）、描述。
+ * 检索范围：指令名、中文别名、拼音全拼（beibao）、拼音首字母（bb）、描述。
  * 所有阈值/权重/条数上限集中在此，调整检索行为无需改动视图代码。
  */
 export const COMMAND_SEARCH_CONFIG = {
@@ -79,6 +79,14 @@ export const COMMAND_SEARCH_CONFIG = {
   minFullPinyinLen: 2,
   /** 描述参与检索所需的最小输入长度（描述命中最靠后，仅作兜底） */
   minDescriptionLen: 2,
+  /**
+   * 别名检索模式（别名是给后端指令引擎用的，如 "attack,打,揍"）：
+   * - 'chinese'（默认）：只检索含中文的别名（「查看背包」「打」），忽略 attack/lock/pickup 这类英文别名，
+   *   否则输入 "ck" 会因为 lock/unlock/pickup/attack 都包含 ck 而命中一堆无关指令；
+   * - 'all'：英文别名也参与检索（输入 attack 可命中「攻击」）；
+   * - 'none'：完全不检索别名。
+   */
+  aliasMatch: 'chinese',
   /** 各入口最多展示条数（0 = 不限制） */
   limits: {
     /** 输入框自动补全下拉 */

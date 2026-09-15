@@ -363,6 +363,11 @@ export class ShopTradeService {
       actor.markers2 = validMarkers; // Json 列直接写数组
       actor.backpack = actorData.backpack;
       targetData.player.backpack = targetData.backpack;
+      // 「消耗活力」成就：与下方任务推进同口径按 10 点累加。
+      // 成就是称号条件数据源，taskService.advance 只推进任务，必须同步写 markers。
+      const actorMarkers = asJsonValue<Record<string, any>>(actor.markers, {});
+      actorMarkers['消耗活力'] = (Number(actorMarkers['消耗活力']) || 0) + 10;
+      actor.markers = actorMarkers; // Player markers 为 Json 列，直接写对象
       await Promise.all([
         this.playerService.savePlayer(actor),
         this.playerService.savePlayer(targetData.player),

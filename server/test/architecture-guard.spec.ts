@@ -560,9 +560,16 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // G9：四个二期重点文件行数冻结（P0-4，基线 = 2026-09-12 实测）。
   // 这些文件暂无门禁约束时，game.service 被冻结后新增战斗/使魔/物品逻辑会涌入，
   // 重演 game-command.handler 1,009→2,041 的教训（§11.1）。
+  //
+  // 2026-09-15 上调（bug 修复性质，非新增功能模块）：称号「肝帝」系列条件
+  // 恒为 0——原版 添加成就(名称,数值,玩家.成就,玩家.任务) 需同时写成就(markers)
+  // 与任务，移植版多处只调 taskService.advance。补齐写入点后行数：
+  // combat-system +35（闪避攻击/捡人头/满血秒杀/卷土重来/消耗活力），
+  // familiar-system +19（更换使魔/捕捉×2）；写入源覆盖由
+  // test/title-achievement-sources.spec.ts 持续锁定。
   const PHASE2_FILE_LINE_BASELINES: Array<[string, number]> = [
-    ['modules/game/combat-system.service.ts', 12418],
-    ['modules/game/familiar-system.service.ts', 4957],
+    ['modules/game/combat-system.service.ts', 12453],
+    ['modules/game/familiar-system.service.ts', 4987],
     ['modules/game/familiar-skills.service.ts', 4053],
     ['modules/game/item-system.service.ts', 3386],
   ];

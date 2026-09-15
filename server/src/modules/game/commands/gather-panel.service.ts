@@ -2673,6 +2673,12 @@ export class GatherPanelService {
       const freshPlayer = (await this.playerService.getPlayerData(userId)).player;
       const proficiencyMarkers = asJsonValue<Record<string, any>>(freshPlayer.markers, {});
       proficiencyMarkers['采集熟练度'] = Number(proficiencyMarkers['采集熟练度'] ?? 0) + actualGatherCount;
+      // 原版 L1614/L1616：「采集」与「奴役」同样是 添加成就(名称, e, 玩家.成就, 玩家.任务)
+      // 的双写调用——本移植上面的 advance 只推进任务，称号「奴役」读 markers（成就），
+      // 故必须在同一份重载快照里补写成就计数，否则该称号条件恒为 0。
+      proficiencyMarkers['采集'] = Number(proficiencyMarkers['采集'] ?? 0) + actualGatherCount;
+      proficiencyMarkers['奴役'] = Number(proficiencyMarkers['奴役'] ?? 0)
+        + Math.max(0, actualGatherCount - 1);
       freshPlayer.markers = proficiencyMarkers;
       await this.playerService.savePlayer(freshPlayer);
     }

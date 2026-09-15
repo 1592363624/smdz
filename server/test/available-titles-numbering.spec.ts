@@ -6,6 +6,8 @@
  * 2. 仅保留原版 140 个称号（titles.json：条件+奖励），无任何自创称号；
  *    进度行格式 `要求名(当前/要求值)`，在线时间用时间格式（数字到时间）。
  * 3. 领取原版称号：条件不足播报差距；满足则发奖励物品进背包。
+ * 4. 按系列分组后，组内只展开「已达成待领取的阶位」+「首个未达成的下一阶」，
+ *    更高阶位不铺行、不占编号；标题分子仍为未拥有称号总数（收集进度口径）。
  */
 import { FamiliarSystemService } from '../src/modules/game/familiar-system.service';
 
@@ -59,7 +61,7 @@ function createService(
 }
 
 describe('查看可领取称号编号菜单', () => {
-  it('原版称号从 1 开始连续编号，并注册编号→领取称号的临时输入', async () => {
+  it('同一系列尚无阶位达成时，只展开第一阶，更高阶位不铺行不占号', async () => {
     const allTitles = [
       { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
       { name: '肝帝II', requirements: [{ name: '发送指令', count: 100 }], rewards: [] },
@@ -68,9 +70,35 @@ describe('查看可领取称号编号菜单', () => {
 
     const out = await service.viewAvailableTitles(42);
 
+    // 肝帝I 即“下一阶”，唯一展开；肝帝II 由组头“下一阶需”概括，不再铺行
+    expect(out).toContain('1、肝帝I');
+    expect(out).not.toContain('肝帝II');
+    expect(out).toContain('发送编号即可快速领取');
+    // 标题分子仍是未拥有总数（2/2），编号只注册展开的第一阶
+    expect(out).toContain('可领取的称号（2/2）');
+    expect(shortcutService.setTempInput).toHaveBeenCalledWith(42, '1@领取称号 肝帝I');
+  });
+
+  it('已达成待领取的阶位全部保留，再追加首个未达成的下一阶', async () => {
+    const allTitles = [
+      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
+      { name: '肝帝II', requirements: [{ name: '发送指令', count: 100 }], rewards: [] },
+      { name: '肝帝III', requirements: [{ name: '发送指令', count: 1000 }], rewards: [] },
+    ];
+    const { service, shortcutService } = createService(
+      { titles: '[]' },
+      { '发送指令': 50 },
+      { allTitles },
+    );
+
+    const out = await service.viewAvailableTitles(42);
+
+    // 肝帝I 已达成（50>=10）保留可领取；肝帝II 是下一阶（50<100）展开；肝帝III 隐藏
     expect(out).toContain('1、肝帝I');
     expect(out).toContain('2、肝帝II');
-    expect(out).toContain('发送编号即可快速领取');
+    expect(out).not.toContain('肝帝III');
+    // 顶部达成计数只统计已达成项
+    expect(out).toContain('1 个条件已达成');
     expect(shortcutService.setTempInput).toHaveBeenCalledWith(
       42,
       ['1@领取称号 肝帝I', '2@领取称号 肝帝II'].join('#'),
@@ -109,6 +137,7 @@ describe('查看可领取称号编号菜单', () => {
 
     const out = await service.viewAvailableTitles(42);
 
+    // 三个不同系列各只有一个阶位，全部展开，编号连续
     expect(out).toContain('1、肝帝II');
     expect(out).toContain('发送指令(40/100)');
     expect(out).toContain('2、住这了I');

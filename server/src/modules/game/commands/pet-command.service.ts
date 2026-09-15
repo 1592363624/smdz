@@ -302,6 +302,12 @@ export class PetCommandService {
     }
 
     await this.mapService.updateDynamicFields(map.id, { summons });
+    // 挤奶成就（原版 L9070/L9176 添加成就(“挤奶”,1,玩家.成就,玩家.任务)）：
+    // 每成功一个对象 +1，与下方任务推进同口径；成就是称号条件数据源，
+    // 只推进任务会让「挤奶」称号条件恒为 0。
+    const milkMarkers = asJsonValue<Record<string, any>>(player.markers, {});
+    milkMarkers['挤奶'] = (Number(milkMarkers['挤奶']) || 0) + successCount;
+    player.markers = milkMarkers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
     await this.support.advanceTask(userId, '挤奶', successCount);
 

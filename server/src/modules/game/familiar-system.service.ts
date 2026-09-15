@@ -366,9 +366,11 @@ export class FamiliarSystemService {
     });
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
-    // 增加活跃度
+    // 增加活跃度，并同步「更换使魔」成就（原版 L755 添加成就(“更换使魔”,1,玩家.成就,玩家.任务)——
+    // 任务由下方 advance 推进，成就是称号进度数据源，必须写 markers，否则称号条件恒为 0）
     const activity = this.playerService.getMarkerValue(markers, '活跃度');
     markers['活跃度'] = activity + 1;
+    markers['更换使魔'] = (Number(markers['更换使魔']) || 0) + 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
 
     await this.playerService.savePlayer(player);
@@ -3402,6 +3404,12 @@ ${this.getAwakenStageName(d)}(${d})`;
         });
       }
 
+      // 原版 L6195-6196：普通捕捉成功同时写「捕捉」与「捕捉X」两个成就
+      // （带成就参数的那次调用）；称号条件含“捕捉”，必须落 markers
+      markers['捕捉'] = (Number(markers['捕捉']) || 0) + 1;
+      markers[`捕捉${target}`] = (Number(markers[`捕捉${target}`]) || 0) + 1;
+      player.markers = markers; // Player markers 为 Json 列，直接写对象
+
       await this.playerService.savePlayer(player);
       await this.advanceTask(userId, '捕捉');
       await this.advanceTask(userId, `捕捉${target}`);
@@ -3510,6 +3518,16 @@ ${this.getAwakenStageName(d)}(${d})`;
       const idx = fresh.findIndex((s: any) => s.name === target);
       if (idx >= 0) fresh.splice(idx, 1);
     });
+
+    // 特殊驯服同样要落成就 markers（原版 L6153 添加成就(“捕捉”+名称,1,玩家.成就,玩家.任务)；
+    // 称号「捕捉花园宝宝」即该动态键）。成就与上面的任务推进保持同口径，
+    // 避免「任务算、称号不算」的再次分叉。
+    const captureMarkers = markers && typeof markers === 'object'
+      ? markers
+      : asJsonValue<Record<string, any>>(player.markers, {});
+    captureMarkers['捕捉'] = (Number(captureMarkers['捕捉']) || 0) + 1;
+    captureMarkers[`捕捉${target}`] = (Number(captureMarkers[`捕捉${target}`]) || 0) + 1;
+    player.markers = captureMarkers; // Player markers 为 Json 列，直接写对象
 
     await this.playerService.savePlayer(player);
     await this.advanceTask(userId, '捕捉');
@@ -4330,6 +4348,8 @@ ${this.getAwakenStageName(d)}(${d})`;
    * 版式（2026-09-15 可读性重排）：同一系列（去尾部罗马数字后的同名前缀 +
    * 同一要求名）归为一组，组头展示当前进度与“下一阶”迷你进度条；
    * 每个称号压成一行 `N、称号名 要求名(当前/要求值)`，条件全部达成的行尾标 ✦。
+   * 组内只展开「已达成待领取的阶位」+「首个未达成的下一阶」，更靠后的高阶位
+   * 不再逐行铺开（由组头“下一阶需 X”概括），编号也只发给展开项以保持连续。
    * 进度格式：要求名(当前/要求值)；在线时间用时间格式（数字到时间）；
    * 含 "*" 的要求做汉字模糊匹配求和（对应原版 取成就熟练度 模糊+取全部匹配）。
    * @param userId 用户ID
@@ -4373,6 +4393,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       reqName: string;
       current: number;
       entries: AvailableEntry[];
+      displayEntries: AvailableEntry[]; // 实际展开的条目：已达成待领取 + 首个未达成的下一阶
     }
 
     // ---------- 原版称号（titles.json：条件+奖励）：连续编号并按系列归组 ----------
@@ -4408,7 +4429,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       const groupKey = `${seriesName}@${firstReqName}`;
       let group = groupMap.get(groupKey);
       if (!group) {
-        group = { seriesName, reqName: firstReqName, current: firstCurrent, entries: [] };
+        group = { seriesName, reqName: firstReqName, current: firstCurrent, entries: [], displayEntries: [] };
         groupMap.set(groupKey, group);
         groupOrder.push(group);
       }
@@ -4416,12 +4437,17 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 编号按展示顺序发放：组顺序 = 系列首次出现顺序，组内按门槛升序（I→X 阶梯），
-    // 保证同系列相邻、编号连续；编号临时输入与该顺序一一对应
+    // 组内只展开「已达成待领取」+「首个未达成的下一阶」，更高阶位由组头进度条概括；
+    // 编号只发给展开项（高阶位条件未到，发号也领不了），保证编号连续。
+    // 标题进度口径：未拥有称号总数（含未展开的高阶位），分母为原版称号总数
+    const availableCount = groupOrder.reduce((sum, g) => sum + g.entries.length, 0);
     let no = 0;
     let readyCount = 0;
     for (const group of groupOrder) {
       group.entries.sort((a, b) => a.firstNeed - b.firstNeed || a.name.localeCompare(b.name, 'zh'));
-      for (const entry of group.entries) {
+      const nextEntry = group.entries.find((e) => !e.ready);
+      group.displayEntries = group.entries.filter((e) => e.ready || e === nextEntry);
+      for (const entry of group.displayEntries) {
         no++;
         entry.no = no;
         if (entry.ready) readyCount++;
@@ -4430,7 +4456,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // ---------- 渲染：标题统计 → 系列分组 → 操作脚注 ----------
-    const lines = [`📜 可领取的称号（${no}/${totalCount}）`];
+    const lines = [`📜 可领取的称号（${availableCount}/${totalCount}）`];
     if (no > 0) {
       lines.push(
         readyCount > 0
@@ -4450,7 +4476,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         header += ` ｜本系列均可领取 ✦`;
       }
       lines.push(header);
-      for (const entry of group.entries) {
+      for (const entry of group.displayEntries) {
         lines.push(` ${entry.no}、${entry.name}　${entry.reqTexts.join('　')}${entry.ready ? ' ✦' : ''}`);
       }
     }

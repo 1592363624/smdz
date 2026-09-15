@@ -3748,7 +3748,7 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 5
+        "count": 25
       }
     ],
     "rewards": [
@@ -3779,7 +3779,7 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 25
+        "count": 125
       }
     ],
     "rewards": [
@@ -3810,7 +3810,7 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 125
+        "count": 625
       }
     ],
     "rewards": [
@@ -3841,7 +3841,7 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 625
+        "count": 3125
       }
     ],
     "rewards": [
@@ -3872,7 +3872,7 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 3125
+        "count": 15625
       }
     ],
     "rewards": [
@@ -4181,7 +4181,7 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 1
+        "count": 10
       }
     ],
     "rewards": [
@@ -4200,7 +4200,7 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 3
+        "count": 30
       }
     ],
     "rewards": [
@@ -4219,7 +4219,7 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 10
+        "count": 100
       }
     ],
     "rewards": [
@@ -4238,7 +4238,7 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 10
+        "count": 100
       }
     ],
     "rewards": [
@@ -4257,7 +4257,7 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 30
+        "count": 300
       }
     ],
     "rewards": [
