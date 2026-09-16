@@ -2822,7 +2822,176 @@ export class GatherPanelService {
       await this.pushPlayerUpdate(userId);
       await this.pushMapUpdate(userId);
     } catch { /* 推送失败不影响结算 */ }
+    // 服务端清障队列：挖土/割草连点排队后，本次结算完成自动接龙下一次
+    await this.drainHomeClearQueue(userId);
     return resultText;
+  }
+
+  /** 清障队列在 markers 里的键（挖土/割草连点排队，跨刷新/重启不丢） */
+  private static readonly CLEAR_QUEUE_KEY = '清障队列';
+
+  /** 合法的清障指令（与院子障碍 clearCmd 对齐） */
+  private static readonly CLEAR_CMDS = new Set(['挖土', '割草']);
+
+  /** 读取清障队列（string[]，元素如「挖土」「割草」） */
+  private readClearQueue(markers: Record<string, any>): string[] {
+    const raw = markers?.[GatherPanelService.CLEAR_QUEUE_KEY];
+    if (!Array.isArray(raw)) return [];
+    return raw.map((x) => String(x || '').trim()).filter((x) => GatherPanelService.CLEAR_CMDS.has(x));
+  }
+
+  /**
+   * 把一次清障加入服务端队列（网页连点排队 / 刷新后恢复用）。
+   * - 队列只允许一种类型：挖土进行中只能再排挖土，割草同理
+   * - 上限 = 当前地图该障碍剩余次数 −（进行中 1 次）−（已在队列）
+   * - 空闲时立刻开挖第一发；进行中只入队，由 settle 后 drain 接龙
+   */
+  async enqueueHomeClear(userId: number, cmdRaw: string): Promise<{ ok: boolean; message: string; queueCount?: number }> {
+    const cmd = String(cmdRaw || '').trim();
+    if (!GatherPanelService.CLEAR_CMDS.has(cmd)) {
+      return { ok: false, message: '只支持排队「挖土」或「割草」' };
+    }
+    const result = await this.playerService.enqueueUserWrite(userId, async () => {
+      const playerData = await this.playerService.getPlayerData(userId);
+      const { player } = playerData;
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
+      const houseName = String(player.houseName || '').trim();
+      const progress = Number(this.playerService.getMarkerValue(markers, '家园进度') || 0);
+      if (!houseName || progress < 1 || progress >= 4) {
+        return { ok: false, message: '建造期才能排队清障', queueCount: 0, gathering: false };
+      }
+      const map = await this.mapService.getMapById(player.mapId).catch(() => null);
+      if (!map || String(map.name || '') !== houseName) {
+        return { ok: false, message: '需要先回到自己的院子', queueCount: 0, gathering: false };
+      }
+
+      const queue = this.readClearQueue(markers);
+      if (queue.length && queue[0] !== cmd) {
+        return { ok: false, message: `队列里还有「${queue[0]}」未清完`, queueCount: queue.length, gathering: false };
+      }
+
+      // 障碍剩余次数：队列里的是「还没开挖的」，进行中另计 1
+      const resources = this.getGatherResources(map);
+      const target = resources.find((r: any) => r.gatherCmd === cmd);
+      const remainTimes = target ? this.getResourceTimes(target) : 0;
+      const gathering = !!(markers['采集中'] && typeof markers['采集中'] === 'object');
+      const inFlightSame = gathering && String((markers['采集中'] as any)?.cmd || '') === cmd ? 1 : 0;
+      // remainTimes < 0 表示无限次资源
+      const cap = remainTimes < 0 ? 99 : remainTimes;
+      if (queue.length + inFlightSame >= Math.max(0, cap)) {
+        return {
+          ok: false,
+          message: remainTimes <= 0 ? `「${cmd}」已经没有可清的了` : `「${cmd}」次数已排满`,
+          queueCount: queue.length,
+          gathering,
+        };
+      }
+
+      queue.push(cmd);
+      markers[GatherPanelService.CLEAR_QUEUE_KEY] = queue;
+      player.markers = markers;
+      await this.playerService.savePlayer(player);
+      return {
+        ok: true,
+        message: gathering ? `已排队「${cmd}」` : `开始排队「${cmd}」`,
+        queueCount: queue.length,
+        gathering,
+      };
+    });
+
+    if (!result?.ok) {
+      await this.pushPlayerUpdate(userId);
+      return { ok: false, message: result?.message || '操作失败', queueCount: result?.queueCount ?? 0 };
+    }
+
+    // 空闲时立刻出队开挖第一发；进行中则等 settle 后 drain
+    if (!result.gathering) {
+      await this.drainHomeClearQueue(userId);
+    }
+    await this.pushPlayerUpdate(userId);
+    return { ok: true, message: result.message, queueCount: result.queueCount ?? 0 };
+  }
+
+  /**
+   * 清障结算完成后：从服务端队列取出下一条并开挖。
+   * 刷新页面/换设备队列仍在；进程重启也因标记在库里而不丢。
+   */
+  async drainHomeClearQueue(userId: number): Promise<void> {
+    try {
+      const playerData = await this.playerService.getPlayerData(userId);
+      const { player } = playerData;
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
+      if (markers['采集中']) return; // 仍有采集读条
+      const queue = this.readClearQueue(markers);
+      if (!queue.length) return;
+      const cmd = queue[0];
+      // 先出队再开挖：失败时把该条放回队首，避免卡死
+      const next = queue.slice(1);
+      markers[GatherPanelService.CLEAR_QUEUE_KEY] = next;
+      player.markers = markers;
+      await this.playerService.savePlayer(player);
+      const text = await this.handleGatherResource(userId, cmd);
+      if (!text) {
+        // 开挖失败（无资源/门禁）：丢弃该条并推送，避免死循环
+        await this.pushPlayerUpdate(userId);
+        return;
+      }
+      await this.pushPlayerUpdate(userId);
+    } catch (e: any) {
+      this.logger.warn(`清障队列接龙失败 userId=${userId}: ${e?.message || e}`);
+    }
+  }
+
+  /** 读清障队列快照（yard / 面板用） */
+  getHomeClearQueueSnapshot(userId: number, markers: Record<string, any>): Array<{ cmd: string; count: number }> {
+    const queue = this.readClearQueue(markers || {});
+    if (!queue.length) return [];
+    const grouped: Array<{ cmd: string; count: number }> = [];
+    for (const cmd of queue) {
+      const last = grouped[grouped.length - 1];
+      if (last && last.cmd === cmd) last.count += 1;
+      else grouped.push({ cmd, count: 1 });
+    }
+    void userId;
+    return grouped;
+  }
+
+  /**
+   * 超管：跳过**整条**清障队列（含进行中的那一发）。
+   * 反复 completeNow + 服务端 drain，直到队列空且无「采集中」读条，
+   * 而不是只消掉当前 1 条延时。返回实际结算次数。
+   */
+  async finishAllHomeClear(userId: number): Promise<{ ok: boolean; message: string; completed: number }> {
+    if (!this.delayedTaskService) {
+      return { ok: false, message: '延时任务服务不可用', completed: 0 };
+    }
+    let completed = 0;
+    const maxRounds = 120;
+    for (let round = 0; round < maxRounds; round += 1) {
+      const n = await this.delayedTaskService.completeNowForUser(userId);
+      completed += n;
+
+      const playerData = await this.playerService.getPlayerData(userId);
+      const { player } = playerData;
+      const markers = asJsonValue<Record<string, any>>(player.markers, {});
+      const gathering = !!(markers['采集中'] && typeof markers['采集中'] === 'object');
+      const queue = this.readClearQueue(markers);
+      if (!gathering && queue.length === 0) break;
+
+      // 无读条但队列还有：接龙开下一发，下一轮再 completeNow
+      if (!gathering && queue.length > 0) {
+        await this.drainHomeClearQueue(userId);
+      }
+    }
+
+    try {
+      await this.pushPlayerUpdate(userId);
+      await this.pushMapUpdate(userId);
+    } catch { /* 推送失败不影响结果 */ }
+
+    return completed > 0
+      ? { ok: true, completed, message: `⚡ 已跳过清障队列，共完成 ${completed} 次` }
+      : { ok: true, completed: 0, message: '当前没有可跳过的清障读条' };
   }
 
   /**

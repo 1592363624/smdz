@@ -127,6 +127,8 @@ export interface HomeYardInfo {
   storage: HomeYardRate[];
   /** 复用既有只读总览（电力/产出速率等），前端无需再单独请求 */
   overview: HomeSettlement | null;
+  /** 服务端清障排队快照：[{ cmd: '挖土', count: 3 }]，刷新/换端不丢 */
+  clearQueue: Array<{ cmd: string; count: number }>;
 }
 
 @Injectable()
@@ -162,6 +164,7 @@ export class HomeYardService {
       buildings: extra.buildings ?? [],
       storage: extra.storage ?? [],
       overview: extra.overview ?? null,
+      clearQueue: extra.clearQueue ?? [],
     });
 
     const playerData = await this.playerService.getPlayerData(userId);
@@ -312,6 +315,19 @@ export class HomeYardService {
       .slice(0, HOME_YARD_CONFIG.storageDisplayLimit)
       .map((item) => ({ name: item.name, quantity: item.quantity }));
 
+    // 服务端清障队列（挖土/割草连点排队）：刷新页面仍可见
+    const clearQueueRaw = asJsonValue<any[]>(markers['清障队列'], []);
+    const clearQueue: Array<{ cmd: string; count: number }> = [];
+    if (Array.isArray(clearQueueRaw)) {
+      for (const item of clearQueueRaw) {
+        const cmd = String(item || '').trim();
+        if (!cmd) continue;
+        const last = clearQueue[clearQueue.length - 1];
+        if (last && last.cmd === cmd) last.count += 1;
+        else clearQueue.push({ cmd, count: 1 });
+      }
+    }
+
     return {
       blocked: overview?.blocked,
       houseName,
@@ -326,6 +342,7 @@ export class HomeYardService {
       buildings,
       storage,
       overview: overview ?? null,
+      clearQueue,
     };
   }
 

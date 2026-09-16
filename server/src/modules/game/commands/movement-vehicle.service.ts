@@ -2183,7 +2183,10 @@ export class MovementVehicleService {
     }
 
     const partDef = this.staticData.getVehiclePartByName(partName);
-    const isCore = !!partDef && Number(partDef.partType) === 0;
+    // 原版 L10252：取文本右边(名称,4)=="核心" 即视为核心，卸下时整车散架。
+    // 不依赖 vehicles.json 模板命中——废弃空间站核心等 wreck 核心只在 vehicle-parts.json，
+    // 用模板查会漏判导致只拆核心不散架。
+    const isCore = partName.endsWith('核心') || (!!partDef && Number(partDef.partType) === 0);
 
     // 组装核心 新名称 → 以此核心创建命名新载具（原版 L10119-L10164）
     if (isCore && newVehicleName) {
@@ -2308,6 +2311,16 @@ export class MovementVehicleService {
         }
         player.backpack = backpack;
         player.vehicle = '';
+        // 散架后清掉指向本车的接管残留，否则 findTravelVehicle 仍会命中已销毁载具挡住移动
+        const setsAfterScrap = this.parseVehicleValue<any>(player.sets, {});
+        const scrapKeys = new Set([
+          String(runtime?.编号 ?? ''), String(runtime?.vehicleId ?? ''), String(runtime?.id ?? ''),
+        ].filter(Boolean));
+        if (scrapKeys.has(String(setsAfterScrap?.takeVehicle ?? '')) || scrapKeys.has(String(setsAfterScrap?.接管载具 ?? ''))) {
+          setsAfterScrap.takeVehicle = '';
+          setsAfterScrap.接管载具 = '';
+          player.sets = setsAfterScrap;
+        }
         await this.playerService.savePlayer(player);
         if (source.kind === 'map') {
           const vehicles = this.parseVehicleValue<any[]>(source.map?.vehicles, []);
@@ -3325,6 +3338,15 @@ export class MovementVehicleService {
     const { player } = playerData;
 
     if (!player.vehicle) {
+      // 驾驶字段已空但接管状态残留时，顺带清掉，避免 findTravelVehicle 仍按接管载具拦移动
+      const sets = this.parseVehicleValue<any>(player.sets, {});
+      if (sets?.takeVehicle || sets?.接管载具) {
+        sets.takeVehicle = '';
+        sets.接管载具 = '';
+        player.sets = sets;
+        await this.playerService.savePlayer(player);
+        return '你当前没有驾驶任何载具（已清理失效的接管状态）';
+      }
       return '你当前没有驾驶任何载具';
     }
 
@@ -3857,6 +3879,57 @@ export class MovementVehicleService {
       const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看详情');
       lines.push(...menu);
     }
+    return lines.join('\n');
+  }
+
+  /**
+   * 我的载具：跨地图列出名下所有载具，并提供呼叫快捷指令。
+   * 对应原版 呼叫 无参时的全图归属扫描（_主程序.ecode L5846-5859），但只列载具、不混宠物。
+   */
+  async handleMyVehicles(userId: number): Promise<string> {
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const ownerIds = new Set([
+      String(userId),
+      String(user?.qqNumber || ''),
+      String(user?.externalId || ''),
+      String(player.masterQQ || ''),
+    ].filter(Boolean));
+    const ownerOf = (unit: any): boolean => ownerIds.has(String(
+      unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '',
+    ));
+    const currentKey = String(player.vehicle || '');
+
+    const allMaps = await this.mapService.getAllMaps();
+    const owned: Array<{ name: string; mapName: string; key: string; driving: boolean; moveType: number }> = [];
+    for (const map of allMaps) {
+      const vehicles = asJsonValue<any[]>(map.vehicles, []);
+      for (const v of vehicles) {
+        if (!ownerOf(v)) continue;
+        const name = String(v?.name ?? v?.名称 ?? '未命名');
+        const key = String(v?.编号 ?? v?.vehicleId ?? v?.id ?? name);
+        const moveType = Number(v?.行走方式 ?? v?.moveType ?? 0);
+        const driving = currentKey !== '' && (currentKey === key || currentKey === String(v?.id ?? ''));
+        owned.push({ name, mapName: String(map?.name ?? ''), key, driving, moveType });
+      }
+    }
+
+    if (owned.length === 0) {
+      return `${player.name || '冒险者'}你名下没有任何载具`;
+    }
+
+    const lines: string[] = [`🚗 ${player.name || '冒险者'}名下共 ${owned.length} 辆载具:`, '━━━━━━━━━━━━━━━'];
+    const options: { label: string; cmd: string }[] = [];
+    owned.forEach((v, index) => {
+      const moveTag = v.moveType === 0 || v.moveType === 4 ? '坐地' : v.moveType === 2 ? '飞行' : v.moveType === 3 ? '跃迁' : '陆地';
+      const statusTag = v.driving ? ' [驾驶中]' : '';
+      lines.push(`  ${index + 1}. ${v.name} @${v.mapName} (${moveTag})${statusTag}`);
+      options.push({ label: `${v.name}(${v.mapName})`, cmd: `呼叫载具${v.key}` });
+    });
+    lines.push('━━━━━━━━━━━━━━━');
+    const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字可呼叫该载具到身边');
+    lines.push(...menu);
     return lines.join('\n');
   }
 

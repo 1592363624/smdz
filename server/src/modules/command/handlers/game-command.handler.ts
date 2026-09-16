@@ -821,6 +821,10 @@ export class GameCommandHandler implements CommandHandler {
         case 'vehicle':
           return this.wrap(await this.gameService.handleVehicleStatus(userId));
 
+        case '我的载具':
+        case 'my-vehicles':
+          return this.wrap(await this.gameService.handleMyVehicles(userId));
+
         // ========== 任务系统 ==========
         case '领取任务':
         case 'accept-quest':

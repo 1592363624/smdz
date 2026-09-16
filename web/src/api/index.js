@@ -144,6 +144,10 @@ export const homeApi = {
   overview: () => http.get('/game/home/overview'),
   // 家园院子格子视图（地块/仓库/障碍/存放地，只读不结算；写操作统一走 commandApi.execute）
   yard: () => http.get('/game/home/yard'),
+  // 家园清障排队（挖土/割草连点）：写入服务端 markers 队列，刷新/重启不丢
+  enqueueClear: (cmd) => http.post('/game/home/enqueue-clear', { cmd }),
+  // 超管：跳过整条清障队列（进行中+已排队全部立即结算，静默）
+  finishClear: () => http.post('/game/home/finish-clear'),
   // 家园前线面板视图（防御/火力/敌人/库存，只读不结算；写操作统一走 commandApi.execute）
   frontline: () => http.get('/game/home/frontline'),
 };

@@ -738,6 +738,46 @@
         ]
       }
     },
+    "/api/game/home/enqueue-clear": {
+      "post": {
+        "operationId": "GameController_enqueueHomeClear",
+        "summary": "家园清障排队（挖土/割草，服务端持久队列）",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/home/finish-clear": {
+      "post": {
+        "operationId": "GameController_finishHomeClear",
+        "summary": "超管：跳过整条家园清障队列（静默）",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/game/admin/write-model": {
       "get": {
         "operationId": "GameController_getWriteModelDiagnostics",

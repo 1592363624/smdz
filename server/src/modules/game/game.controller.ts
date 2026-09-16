@@ -274,6 +274,35 @@ export class GameController {
   }
 
   /**
+   * 家园清障排队（挖土/割草连点）：写入玩家 markers['清障队列']，跨刷新/重启不丢。
+   * 空闲时自动开第一发；进行中只入队，采集结算后服务端自动接龙。
+   */
+  @Post('home/enqueue-clear')
+  @ApiOperation({ summary: '家园清障排队（挖土/割草，服务端持久队列）' })
+  async enqueueHomeClear(@Req() req, @Body() body: { cmd?: string }) {
+    const result = await this.gameService.enqueueHomeClear(req.user.userId, String(body?.cmd || ''));
+    return {
+      success: result.ok,
+      message: result.message,
+      queueCount: result.queueCount ?? 0,
+    };
+  }
+
+  /**
+   * 超管：跳过整条家园清障队列（进行中 + 已排队全部立即结算），不进聊天流。
+   */
+  @Post('home/finish-clear')
+  @ApiOperation({ summary: '超管：跳过整条家园清障队列（静默）' })
+  async finishHomeClear(@Req() req) {
+    const result = await this.gameService.finishAllHomeClear(req.user.userId);
+    return {
+      success: result.ok,
+      message: result.message,
+      completed: result.completed,
+    };
+  }
+
+  /**
    * 写模型诊断（可观测性）：旧快照拦截 / 乐观锁冲突计数。
    *
    * 这两类事件都是**静默丢写**信号——strict 模式下调用方拿不到异常，玩家只会看到

@@ -93,12 +93,13 @@
             :key="c"
             class="hbg-btn tiny hbg-btn-cmd"
             :class="{ on: isPendingCmd(c) }"
-            :disabled="busy || !atHome || hasPending"
-            :title="isPendingCmd(c) ? '进行中，完成后自动刷新' : `发送「${c}」`"
+            :disabled="busy || !atHome || isOtherClearBusy(c)"
+            :title="assistTitle(c)"
             @click="onSend(c)"
           >
             <i v-if="isPendingCmd(c)" class="hbg-travel-ring"></i>
             {{ isPendingCmd(c) ? `${c} ${pendingLeft}s` : c }}
+            <span v-if="queueCountFor(c) > 0" class="hbg-queue-badge">×{{ 1 + queueCountFor(c) }}</span>
           </button>
           <button
             v-if="!isDone && (hasPending && isPendingHome || (!atHome && stage > 0 && homeCmd))"
@@ -129,7 +130,18 @@
             <template v-else>{{ primaryText }}</template>
             <span v-if="busy" class="hbg-btn-spin"></span>
           </button>
+          <!-- 超管：跳过当前延时（挖土/赶路/建造），与聊天页「⚡完成」同一通道 -->
+          <button
+            v-if="queue?.adminMode && hasPending"
+            class="hbg-btn tiny hbg-skip"
+            title="管理员特权：跳过倒计时立即完成"
+            @click="emit('skip')"
+          >⚡完成</button>
         </div>
+        <p v-if="queue?.queueCount > 0" class="hbg-queue-hint">
+          服务端队列：{{ queue.queueDetail || `${queue.queueCmd}×${queue.queueCount}` }} ·
+          结算后自动继续（还可清 {{ queue.clearLeft }} 次，刷新不丢）
+        </p>
       </div>
 
       <!-- 第 4 步（房子开工）撒花 -->
@@ -230,9 +242,14 @@ const props = defineProps({
    * { cmd, label, remain, total }；remain>0 时对应按钮显示倒计时并禁用其它操作。
    */
   pending: { type: Object, default: null },
+  /**
+   * 清障排队 + 超管跳过：
+   * { adminMode, queueCount, queueCmd, clearLeft, clearTotalLeft }
+   */
+  queue: { type: Object, default: null },
 });
 
-const emit = defineEmits(['send', 'open-home', 'open-chat']);
+const emit = defineEmits(['send', 'open-home', 'open-chat', 'skip']);
 
 const steps = cfg.steps;
 const total = cfg.total;
@@ -300,6 +317,40 @@ function isPendingCmd(cmd) {
   const p = pendingCmd.value;
   if (!p) return false;
   return p === c || p.startsWith(c) || c.startsWith(p);
+}
+
+/** 队列里该指令的条数（进行中不计，模板上 ×(1+n)） */
+function queueCountFor(cmd) {
+  const c = String(cmd || '').trim();
+  if (!c || !props.queue?.queueCmd) return 0;
+  return props.queue.queueCmd === c ? Number(props.queue.queueCount || 0) : 0;
+}
+
+/** 清障按钮 tooltip：进行中可继续排队 */
+function assistTitle(cmd) {
+  const c = String(cmd || '').trim();
+  if (isOtherClearBusy(c)) {
+    const busy = String(props.queue?.busyClearCmd || '').trim();
+    return `正在「${busy}」，完成前只能继续点「${busy}」`;
+  }
+  if (isPendingCmd(c)) {
+    const q = queueCountFor(c);
+    return q > 0
+      ? `进行中 · 已排队 ${1 + q} 次，可继续点击追加`
+      : '进行中——再点一次可排队，结算后自动继续';
+  }
+  if (queueCountFor(c) > 0) return '已排队，进行结束后自动执行';
+  return `发送「${c}」（倒计时中可连点排队）`;
+}
+
+/** 另一类清障正在进行：禁用本按钮（挖土进行中禁用割草，反之亦然） */
+function isOtherClearBusy(cmd) {
+  const c = String(cmd || '').trim();
+  if (c !== '挖土' && c !== '割草') return false;
+  const busy = String(props.queue?.busyClearCmd || '').trim();
+  if (!busy || busy === c) return false;
+  // 忙的是清障（当前 gather 或队列头），而不是「前往/建造」
+  return busy === '挖土' || busy === '割草';
 }
 
 /** 施工告示牌文案 */
@@ -1188,6 +1239,31 @@ onBeforeUnmount(() => {
 .hbg-panel .hbg-btn.ghost {
   padding: 9px 16px;
   font-size: 13px;
+}
+
+.hbg-queue-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #0a1628;
+  background: linear-gradient(120deg, #7ee8fa, #4ea3ff);
+  vertical-align: 1px;
+}
+.hbg-skip {
+  border-color: rgba(255, 214, 106, 0.55) !important;
+  color: #ffd76a !important;
+  background: rgba(80, 60, 10, 0.4) !important;
+  font-weight: 700;
+}
+.hbg-queue-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #9fd0ff;
+  opacity: 0.9;
 }
 
 /* 赶路/施工中按钮：环形进度 + 脉冲 */
