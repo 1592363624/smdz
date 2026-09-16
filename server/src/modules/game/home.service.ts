@@ -58,6 +58,22 @@ export interface BuildingItem {
 }
 
 /**
+ * 作物生长计划（分阶段成熟玩法）
+ * 每个作物从种下起按 stageNames 逐阶段生长，全部走完即成熟，
+ * 成熟后一次性收获"整个生长周期本应掉落的收益"（见 harvestCrop）。
+ */
+export interface CropGrowthPlan {
+  /** 阶段名称（如 播种/发芽/生长/开花/成熟） */
+  stageNames: string[];
+  /** 总成熟时长（秒） */
+  totalSeconds: number;
+  /** 每个阶段的秒数（均分） */
+  stageSeconds: number[];
+  /** 收获收益换算口径：总收益 = 基础产出/分 × 总时长/600（与旧版作物口径一致） */
+  rewardScaleDivisor: number;
+}
+
+/**
  * 地图产出结果
  */
 export interface MapOutputResult {
@@ -569,26 +585,21 @@ export class HomeService {
       }
     }
 
-    // ----- 计算作物总产出 -----
+    // ----- 计算作物总产出（分阶段成熟玩法） -----
+    // 作物不再按分钟掉落普通物品——收益改为成熟后一次性收获（见 harvestCrop）。
+    // 这里只保留「电力类作物」（如太阳能板）的发电平衡作用，保证纯发电院子的
+    // hasPower 判断与旧版一致；其余产出一律不进入总产出/消耗，也不影响每日产出。
     for (const crop of crops) {
       for (const output of crop.outputs) {
         const outputQuantity = this.getProduceQuantity(output);
+        if (output.name !== '电力' || outputQuantity <= 0) continue;
         tempItem.name = output.name;
         // 作物的产出/10=建筑相同时间产出
         tempItem.quantity = outputQuantity * crop.count / 10;
-
-        if (output.name === '电力' && outputQuantity > 0) {
-          powerGeneration += tempItem.quantity;
-        }
-
         tempItem.quantity = tempItem.quantity * cropOutputRate * laborSupplyRate;
-
+        powerGeneration += tempItem.quantity;
         this.addToOutput(cropOutput, { ...tempItem });
         this.addToOutput(totalOutput, { ...tempItem });
-
-        if (tempItem.quantity < 0) {
-          this.addToOutput(totalConsumption, { ...tempItem });
-        }
       }
     }
 
@@ -983,23 +994,22 @@ export class HomeService {
       backpack.splice(seedIndex, 1);
     }
 
-    // 原版作物存储在地图.resources2，字段中带有资源定义和产出2。
+    // 原版作物存储在地图.resources2。分阶段成熟玩法下，每一粒种子都写入
+    // **独立的资源条目**并打上 plantedAt 时间戳，这样各批次各自独立生长、
+    // 各自成熟（不再按"名称+数量"聚合——聚合会让同一作物所有棵共享一个成熟时间）。
     const resources2 = this.safeParseJSON<any[]>(map.resources2, []);
-    const existingCrop = resources2.find((resource: any) => this.getItemName(resource) === cropName);
-    if (existingCrop) {
-      this.setResourceQuantity(existingCrop, this.getResourceQuantityValue(existingCrop) + 1);
-    } else {
-      const crop = resourceDef
-        ? JSON.parse(JSON.stringify(resourceDef))
-        : { name: cropName, type: '作物', outputs2: [] };
-      crop.name = cropName;
-      crop.type = crop.type || crop['类型'] || '作物';
-      crop.times = 1;
-      crop.count = 1;
-      crop.outputs = this.normalizeProduceItems(crop.outputs ?? crop['产出'] ?? []);
-      crop.outputs2 = resourceOutputs;
-      resources2.push(crop);
-    }
+    const crop = resourceDef
+      ? JSON.parse(JSON.stringify(resourceDef))
+      : { name: cropName, type: '作物', outputs2: [] };
+    crop.name = cropName;
+    crop.type = crop.type || crop['类型'] || '作物';
+    crop.times = 1;
+    crop.count = 1;
+    crop.outputs = this.normalizeProduceItems(crop.outputs ?? crop['产出'] ?? []);
+    crop.outputs2 = resourceOutputs;
+    // 种植时间戳（秒）：收获时按它计算所处生长阶段；旧存档没有此字段视为已成熟
+    crop.plantedAt = Date.now() / 1000;
+    resources2.push(crop);
 
     map.resources2 = resources2; // Json 列直接写数组
 
@@ -1007,9 +1017,12 @@ export class HomeService {
   }
 
   /**
-   * 收获作物
-   * 收获指定作物，将产出加入背包，移除作物
-   * 
+   * 收获作物（分阶段成熟玩法）
+   * 只有**已成熟**的同名作物才会被收获：成熟棵数 = 所有达到总时长的独立条目
+   * 棵数之和，收益 = 产出2正收益 × 棵数 × 总时长/600（等价旧版该时段持续掉落的
+   * 总量，只是把"被动分钟掉落"改成"成熟后一次性收获"）。
+   * 未成熟的作物保留在地里，提示还需多久成熟；没有该作物则走旧存档兼容分支。
+   *
    * @param map 地图对象
    * @param cropName 作物名称
    * @param buildingDefs 建筑定义列表
@@ -1022,37 +1035,73 @@ export class HomeService {
     buildingDefs: any[],
     backpack: any[],
   ): Promise<{ success: boolean; message: string }> {
-    // 新格式：作物位于resources2，收获物来自资源定义的outputs。
+    // 新格式：作物位于resources2，收获物来自资源定义outputs2 的正收益。
     const resources2 = this.safeParseJSON<any[]>(map.resources2, []);
-    const resourceIndex = resources2.findIndex((resource: any) =>
+    const now = Date.now() / 1000;
+    const isCropEntry = (resource: any): boolean =>
       this.getItemName(resource) === cropName
-      && this.normalizeProduceItems(resource?.outputs2 ?? resource?.['产出2'] ?? []).length > 0,
-    );
-    if (resourceIndex >= 0) {
-      const crop = resources2[resourceIndex];
+      && this.normalizeProduceItems(resource?.outputs2 ?? resource?.['产出2'] ?? []).length > 0;
+
+    const ripeEntries: any[] = [];
+    const unripeEntries: any[] = [];
+    const plan = this.getCropGrowthPlan(cropName);
+    for (const resource of resources2) {
+      if (!isCropEntry(resource)) continue;
+      const plantedAt = Number(resource.plantedAt ?? resource['种植时间'] ?? 0);
+      // 无 plantedAt 的条目（旧版聚合存档/历史数据）视为已成熟，可直接收获
+      const ripe = plantedAt <= 0 || (now - plantedAt) >= plan.totalSeconds;
+      (ripe ? ripeEntries : unripeEntries).push(resource);
+    }
+
+    if (ripeEntries.length === 0 && unripeEntries.length > 0) {
+      // 全部未成熟：给出最早一株还需多久（各株时间戳不同，取剩余最少者）
+      let earliestRemain = Infinity;
+      for (const resource of unripeEntries) {
+        const plantedAt = Number(resource.plantedAt ?? 0);
+        const remain = plan.totalSeconds - (now - plantedAt);
+        if (remain < earliestRemain) earliestRemain = remain;
+      }
+      return {
+        success: false,
+        message: `「${cropName}」还有${unripeEntries.length}棵未成熟，最早还需${this.formatRemainTime(earliestRemain)}`,
+      };
+    }
+
+    if (ripeEntries.length > 0) {
       const resourceDef = this.staticData.getAllResources().find((resource: any) =>
         this.getItemName(resource) === cropName,
       );
+      // 收益取 outputs2 的正收益（作物掉落物）；旧版为每分钟口径，这里折算整周期
       const outputs = this.normalizeProduceItems(
-        resourceDef?.outputs ?? resourceDef?.['产出'] ?? crop.outputs ?? crop['产出'] ?? [],
+        resourceDef?.outputs2 ?? resourceDef?.['产出2'] ?? ripeEntries[0]?.outputs2 ?? [],
       );
-      const cropCount = this.getResourceQuantityValue(crop);
+      // 统计成熟棵数（聚合条目 count=N 算 N 棵，独立条目各 1 棵）
+      let ripeCount = 0;
+      for (const resource of ripeEntries) {
+        ripeCount += Math.max(1, Math.round(this.getResourceQuantityValue(resource)) || 1);
+      }
 
-      resources2.splice(resourceIndex, 1);
+      // 只移除成熟条目，未成熟的继续留在地里生长
+      for (const resource of ripeEntries) {
+        const index = resources2.indexOf(resource);
+        if (index >= 0) resources2.splice(index, 1);
+      }
       map.resources2 = resources2; // Json 列直接写数组
 
       const harvested: string[] = [];
       for (const output of outputs) {
-        // 资源定义中的负产出代表拆除/收获时的消耗项，只有正向产出进入背包。
-        const totalQuantity = output.quantity * cropCount;
+        // 电力只参与家园平衡，不进入背包（与结算口径一致）
+        if (output.name === '电力' || output.quantity <= 0) continue;
+        // 总收益 = 每分钟基础产出 × 棵数 × 总成熟秒数 / 600
+        const totalQuantity = output.quantity * ripeCount * plan.totalSeconds / plan.rewardScaleDivisor;
         if (totalQuantity <= 0) continue;
         this.addItemToArray(output.name, totalQuantity, backpack);
-        harvested.push(`${output.name}×${totalQuantity}`);
+        harvested.push(`${output.name}×${this.roundLikeOriginal(totalQuantity)}`);
       }
 
       return {
         success: true,
-        message: `收获了「${cropName}」×${cropCount}，获得：${harvested.join('、') || '无产出'}`,
+        message: `收获了「${cropName}」×${ripeCount}，获得：${harvested.join('、') || '无产出'}`,
       };
     }
 
@@ -1242,6 +1291,10 @@ export class HomeService {
       item.count = value;
     } else {
       item.quantity = value;
+      // 地图建筑等条目同时含 count/quantity 双字段：必须同步更新 count，
+      // 否则增量安装/拆卸后 count 残留旧值，导致防御计数、安装上限、前线武器
+      // 倍率（26×攻击×数量）等所有以 count 为口径的消费方读到过期数量。
+      if (Object.prototype.hasOwnProperty.call(item, 'count')) item.count = value;
     }
   }
 
@@ -1259,6 +1312,84 @@ export class HomeService {
 
   private getItemName(item: any): string {
     return String(item?.name ?? item?.['名称'] ?? '').trim();
+  }
+
+  /**
+   * 计算作物的生长计划（阶段名/总时长/阶段时长/收益换算口径）。
+   *
+   * 时长确定规则（crop-growth.json 配置）：
+   * 1. 显式覆盖：crops 中按作物名配置的 durationSeconds 优先（椰树/活性灵石/豆蔻等
+   *    长线作物，避免被"价值分低"误分到速生档）；
+   * 2. 价值分级：未覆盖的作物按"产出2 正收益 × 物品价值"的分数匹配 tiers，
+   *    分数越低越速生（1 小时），越高越慢熟（最长 2 周）；
+   * 3. 兜底：查不到定义时给 1 天（普通作物）。
+   *
+   * @param cropName 作物名（如 钻石树 / 椰树）
+   */
+  getCropGrowthPlan(cropName: string): CropGrowthPlan {
+    const config = this.staticData.getCropGrowth();
+    const override = config?.crops?.[cropName];
+    const defaultNames = Array.isArray(config?.stageNames) && config.stageNames.length > 0
+      ? config.stageNames
+      : ['播种', '发芽', '生长', '开花', '成熟'];
+    const divisor = Number(config?.rewardScaleDivisor ?? 600) || 600;
+
+    let totalSeconds: number;
+    let stageCount: number;
+    if (override && Number(override.durationSeconds) > 0) {
+      // 分作物覆盖：时长与阶段数都按配置来
+      totalSeconds = Number(override.durationSeconds);
+      stageCount = Math.max(1, Number(override.stages ?? defaultNames.length) || defaultNames.length);
+    } else {
+      // 价值分级：分数 = Σ(产出2正收益 × 物品价值)，tiers 按分数区间给默认时长
+      const resourceDef = this.staticData.getAllResources().find((r: any) => this.getItemName(r) === cropName);
+      const outputs = this.normalizeProduceItems(resourceDef?.outputs2 ?? resourceDef?.['产出2'] ?? []);
+      let score = 0;
+      for (const output of outputs) {
+        const quantity = this.getProduceQuantity(output);
+        if (quantity <= 0) continue;
+        const value = Number(this.staticData.getItemByName(output.name)?.value ?? 0) || 1;
+        score += quantity * value;
+      }
+      const tier = (Array.isArray(config?.tiers) ? config.tiers : []).find((t: any) =>
+        score >= Number(t?.minScore ?? 0)
+        && (t?.maxScore == null || t.maxScore === '' || score < Number(t.maxScore)),
+      );
+      totalSeconds = Number(tier?.durationSeconds ?? 86400) || 86400;
+      stageCount = Math.max(1, Number(tier?.stages ?? defaultNames.length) || defaultNames.length);
+    }
+
+    // 阶段名按数量裁剪/补足（保证前端每个阶段都有名字可显示）。
+    // 4 阶段作物应展示「播种/发芽/生长/成熟」，而不是把「成熟」裁掉——
+    // 裁剪时保留默认名列表的最后一个（成熟），其余取前 stageCount-1 个。
+    let stageNames: string[];
+    if (stageCount >= defaultNames.length) {
+      stageNames = defaultNames.slice(0, stageCount);
+    } else {
+      stageNames = [...defaultNames.slice(0, stageCount - 1), defaultNames[defaultNames.length - 1]];
+    }
+    while (stageNames.length < stageCount) stageNames.push(`阶段${stageNames.length + 1}`);
+    const stageSeconds = Array.from({ length: stageCount }, () => Math.round(totalSeconds / stageCount));
+    return { stageNames, totalSeconds, stageSeconds, rewardScaleDivisor: divisor };
+  }
+
+  /**
+   * 格式化剩余成熟时长（秒 → 中文，供未成熟提示使用）。
+   */
+  private formatRemainTime(seconds: number): string {
+    const sec = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (sec <= 0) return '刚刚';
+    if (sec >= 86400) {
+      const days = Math.floor(sec / 86400);
+      const hours = Math.floor((sec % 86400) / 3600);
+      return hours > 0 ? `${days}天${hours}小时` : `${days}天`;
+    }
+    if (sec >= 3600) {
+      const hours = Math.floor(sec / 3600);
+      const minutes = Math.floor((sec % 3600) / 60);
+      return minutes > 0 ? `${hours}小时${minutes}分` : `${hours}小时`;
+    }
+    return `${Math.max(1, Math.ceil(sec / 60))}分钟`;
   }
 
   private readMarkerValue(source: any, name: string): number {
@@ -1795,19 +1926,8 @@ export class HomeService {
       if (item.quantity > 0) gains.push({ name: item.name, quantity: item.quantity });
     }
     for (let priority = 1; priority <= 7; priority++) {
-      const cropOut = this.produceResources(
-        limitedCrops.filter((p) => p.priority === priority),
-        storage,
-        duration,
-        priority,
-        1,
-        buildingOutputRate,
-        cropOutputRate,
-        1,
-        1,
-        1,
-        1,
-      );
+      // 作物走分阶段成熟玩法：不再参与每分钟掉落结算（收益在成熟收获时一次性给）
+      const cropOut: ProduceItem[] = [];
       const buildingOut = this.produceResources(
         buildingProducers.filter((p) => p.priority === priority),
         storage,

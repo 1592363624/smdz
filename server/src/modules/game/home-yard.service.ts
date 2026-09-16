@@ -31,6 +31,24 @@ export interface HomeYardRate {
   quantity: number;
 }
 
+/** 作物生长阶段信息（分阶段成熟玩法；建筑地块无此字段） */
+export interface HomeYardCropStage {
+  /** 当前阶段下标（0 基，播种=0） */
+  index: number;
+  /** 阶段总数（4~5） */
+  total: number;
+  /** 阶段名称数组（如 播种/发芽/生长/开花/成熟） */
+  names: string[];
+  /** 生长进度 0~1（用于进度条） */
+  progressPct: number;
+  /** 剩余成熟秒数（成熟为 0） */
+  remainSeconds: number;
+  /** 是否已成熟（成熟后才能收获） */
+  ripe: boolean;
+  /** 总成熟秒数 */
+  totalSeconds: number;
+}
+
 /** 单个地块 */
 export interface HomeYardPlot {
   /** 地块序号（0 基，前端可直接当 key） */
@@ -43,10 +61,12 @@ export interface HomeYardPlot {
   name: string;
   /** 同名事物在院子里的总数量（用于「拆除全部 N 个」这类批量指令） */
   total: number;
-  /** 每分钟产出（负数=消耗） */
+  /** 每分钟产出（负数=消耗）；作物进入分阶段成熟玩法后此字段恒为空 */
   outputs: HomeYardRate[];
-  /** 一次性可得：作物=收获产出，建筑=拆除返还 */
+  /** 一次性可得：作物=成熟收获产出，建筑=拆除返还 */
   harvest: HomeYardRate[];
+  /** 作物生长阶段（仅 occupied 作物格有值；建筑格为 undefined） */
+  stage?: HomeYardCropStage;
   description: string;
   /** 待开垦地块的解锁提示文案 */
   unlockHint: string;
@@ -171,7 +191,14 @@ export class HomeYardService {
     const buildingEntries = asJsonValue<any[]>(map.buildings, []);
 
     // ---- 作物与地面障碍：原版以「产出2 是否为空」区分 ----
-    const cropSlots: Array<{ name: string; count: number; outputs: HomeYardRate[]; harvest: HomeYardRate[]; description: string }> = [];
+    const cropSlots: Array<{
+      name: string;
+      count: number;
+      plantedAt?: number;
+      outputs: HomeYardRate[];
+      harvest: HomeYardRate[];
+      description: string;
+    }> = [];
     const obstacles: HomeYardObstacle[] = [];
     for (const resource of resources2) {
       const name = this.nameOf(resource);
@@ -180,11 +207,21 @@ export class HomeYardService {
       const outputs = this.toRates(resource?.outputs2 ?? resource?.['产出2'] ?? []);
       if (outputs.length > 0) {
         const def = this.findResourceDef(name);
+        // 分阶段成熟玩法：收获收益 = 产出2 正收益 × 成熟总秒数/600（整周期掉落）
+        const plan = this.homeService.getCropGrowthPlan(name);
+        const harvestRate = plan.totalSeconds / plan.rewardScaleDivisor;
         cropSlots.push({
           name,
           count,
-          outputs,
-          harvest: this.toRates(def?.outputs ?? def?.['产出'] ?? []).filter((item) => item.quantity > 0),
+          // 每粒种子独立的种植时间戳；旧聚合存档没有该字段（buildCropStage 里按已成熟处理）
+          plantedAt: Number(resource?.plantedAt ?? resource?.['种植时间'] ?? 0) || undefined,
+          outputs: [],
+          harvest: outputs
+            .filter((item) => item.quantity > 0 && item.name !== '电力')
+            .map((item) => ({
+              name: item.name,
+              quantity: Math.round(item.quantity * harvestRate * 100) / 100,
+            })),
           description: String(def?.description ?? resource?.description ?? ''),
         });
         continue;
@@ -298,12 +335,20 @@ export class HomeYardService {
    * 把聚合条目（名称 + 数量）展开成地块数组。
    * 已占用的格数可能超过上限（历史数据 / 凭证过期），此时全部渲染为 occupied，
    * 不再补空地；上限之外补 lockedPreviewPlots 个待开垦地块作为解锁目标。
+   * 作物格附带生长阶段信息（stage），未成熟的格由前端禁用收获。
    */
   private buildArea(args: {
     kind: 'crop' | 'building';
     level: number;
     limit: number;
-    slots: Array<{ name: string; count: number; outputs: HomeYardRate[]; harvest: HomeYardRate[]; description: string }>;
+    slots: Array<{
+      name: string;
+      count: number;
+      plantedAt?: number;
+      outputs: HomeYardRate[];
+      harvest: HomeYardRate[];
+      description: string;
+    }>;
   }): HomeYardArea {
     const plots: HomeYardPlot[] = [];
     const pushPlot = (plot: Omit<HomeYardPlot, 'index'>) => {
@@ -319,6 +364,8 @@ export class HomeYardService {
           total: slot.count,
           outputs: slot.outputs.slice(0, HOME_YARD_CONFIG.outputsPerPlot),
           harvest: slot.harvest.slice(0, HOME_YARD_CONFIG.outputsPerPlot),
+          // 作物格计算生长阶段；建筑格不参与
+          stage: args.kind === 'crop' ? this.buildCropStage(slot.name, slot.plantedAt) : undefined,
           description: slot.description,
           unlockHint: '',
         });
@@ -394,6 +441,28 @@ export class HomeYardService {
       cropName,
       outputs,
       description: String(resourceDef?.description ?? def?.description ?? ''),
+    };
+  }
+
+  /**
+   * 计算作物当前生长阶段（与 HomeService.harvestCrop 的成熟判定同口径）。
+   * - 有 plantedAt：按 (now - plantedAt) 与总时长换算阶段下标与剩余时间；
+   * - 无 plantedAt（旧聚合存档/历史数据）：视为已成熟，方便旧数据直接收获。
+   */
+  private buildCropStage(cropName: string, plantedAt?: number): HomeYardCropStage {
+    const plan = this.homeService.getCropGrowthPlan(cropName);
+    const stageCount = Math.max(1, plan.stageNames.length);
+    const now = Date.now() / 1000;
+    const elapsed = plantedAt ? Math.max(0, now - plantedAt) : plan.totalSeconds;
+    const ripe = elapsed >= plan.totalSeconds;
+    return {
+      index: ripe ? stageCount - 1 : Math.min(stageCount - 1, Math.floor(elapsed / (plan.totalSeconds / stageCount))),
+      total: stageCount,
+      names: plan.stageNames,
+      progressPct: ripe ? 1 : Math.min(1, elapsed / plan.totalSeconds),
+      remainSeconds: ripe ? 0 : Math.max(1, Math.ceil(plan.totalSeconds - elapsed)),
+      ripe,
+      totalSeconds: plan.totalSeconds,
     };
   }
 

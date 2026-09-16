@@ -578,6 +578,26 @@
         ]
       }
     },
+    "/api/game/home/frontline": {
+      "get": {
+        "operationId": "GameController_getHomeFrontline",
+        "summary": "获取家园前线面板（防御/火力/敌人/库存，只读不结算）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/game/map/overview": {
       "get": {
         "operationId": "GameController_getMapOverview",

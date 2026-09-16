@@ -1375,6 +1375,33 @@ export class GatherPanelService {
       quickOptions.push({ label: `${r.name || '未知'}${amount}${timesLabel(r)}`, cmd: this.resolveGatherCmd(r) });
     }
 
+    // 载具（原版 地图操作.ecode L806-828）：
+    // >2 辆时：无主（废弃）载具逐辆标[!]入编号，再折叠「载具(N个)」跳转查看载具完整列表；
+    // ≤2 辆时：每辆直接编入编号（无主加[!]），cmd 走已有路由「查看载具 {编号}」——
+    // 废弃载具即由此在场景中可见可交互（查看详情→认领/获取权限），修复"雷达能探测到、
+    // 场景里却看不见"的问题。原版 w2 是「查看+编号」，这里用「查看载具+编号」完全等价。
+    const vehicles = asJsonValue<any[]>(map.vehicles, []);
+    if (vehicles.length > 0) {
+      const isUnownedVehicle = (v: any): boolean => String(v?.归属 ?? v?.owner ?? '') === '无主';
+      const vehicleKeyOf = (v: any): string => String(v?.编号 ?? v?.vehicleId ?? v?.id ?? '');
+      const vehicleNameOf = (v: any): string => String(v?.名称 ?? v?.name ?? '未知载具');
+      const vehicleCmd = (v: any): string => `查看载具 ${vehicleKeyOf(v) || vehicleNameOf(v)}`;
+      if (vehicles.length > 2) {
+        for (const v of vehicles) {
+          if (!isUnownedVehicle(v)) continue;
+          quickOptions.push({ label: `${vehicleNameOf(v)}[!]`, cmd: vehicleCmd(v) });
+        }
+        quickOptions.push({ label: `载具(${vehicles.length}个)`, cmd: '查看载具' });
+      } else {
+        for (const v of vehicles) {
+          quickOptions.push({
+            label: isUnownedVehicle(v) ? `${vehicleNameOf(v)}[!]` : vehicleNameOf(v),
+            cmd: vehicleCmd(v),
+          });
+        }
+      }
+    }
+
     // 地上物品（原版 L838-842：折叠为「拾取(N个物品)」单条入口，拾取前不展示明细）
     if (items.length > 0) {
       quickOptions.push({ label: `拾取(${items.length}个物品)`, cmd: '拾取' });

@@ -68,6 +68,9 @@ const DATA_FILES = {
   // 由 scripts/extract-recipes-wrecks.js 从 使魔大战.txt 抽取（此前未迁移）。
   recipes: 'recipes.json',
   wrecks: 'wrecks.json',
+  // 家园作物分阶段成熟配置（阶段名/时长分级/分作物覆盖），新增玩法：作物种下后
+  // 按阶段生长，成熟后才能收获。详见 crop-growth.json 顶部注释。
+  cropGrowth: 'crop-growth.json',
 } as const;
 
 type DataKey = keyof typeof DATA_FILES;
@@ -543,6 +546,20 @@ export class StaticDataService implements OnModuleInit {
 
   getAllResources(): any[] {
     return this.loadRaw('resources');
+  }
+
+  /**
+   * 作物分阶段成熟配置（crop-growth.json，单对象结构）：
+   * - stageNames：阶段名称数组（默认 播种/发芽/生长/开花/成熟）
+   * - rewardScaleDivisor：成熟总收益换算口径（作物基础产出/600 秒，与
+   *   旧版 produceResources 的 consumeRateDivisor=600 一致，保证单位换算统一）
+   * - tiers：按作物「价值分」分级的默认时长（durationSeconds）与阶段数（stages）
+   * - crops：分作物覆盖（椰树/活性灵石/豆蔻等长线作物显式指定总时长与阶段数）
+   */
+  getCropGrowth(): any {
+    const config = (this.loadRaw('cropGrowth') as any) ?? {};
+    if (Array.isArray(config)) return {}; // 防御：文件被误写成数组时按空配置处理
+    return config;
   }
 
   getAllEffects(): any[] {

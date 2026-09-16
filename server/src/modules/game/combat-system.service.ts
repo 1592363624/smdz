@@ -11436,7 +11436,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     for (const b of buildings) {
       // 取建筑完整定义（含 加成.攻击/加成.生命/攻击文本），原版 取建筑(d.建筑[a].名称)
       const j = this.staticData.getBuildingByName(b.name) || b;
-      const jBonus = j.加成 || b.加成 || {};
+      // 加成兼容两种 key：原版中文「加成」，网页版数据 JSON 用「bonus」
+      const jBonus = j.加成 || j.bonus || b.加成 || b.bonus || {};
       if (jBonus.攻击 !== 0 && jBonus.攻击 != null) {
         const z: any = {
           类型: '射弹武器',
@@ -11512,10 +11513,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 原版 L5399：g.载具 = zj.编号
     g.载具 = zj.编号;
 
-    // 原版 L5400：g2 = 取召唤物(g.QQ, d) —— 重新取一次（判断编号）。等价写回 编号=下标
+    // 原版 L5400：g2 = 取召唤物(g.QQ, d) —— 重新取一次（判断编号）。等价以 findIndex 为准
     const g2Idx2 = summons.findIndex((x: any) => x.QQ === g.QQ);
-    const g2b = g2Idx2 >= 0 ? summons[g2Idx2] : {};
-    if (g2Idx2 >= 0) g2b.编号 = g2Idx2; // 等价 取召唤物 L487
 
     // 原版 L5401-5402：置成就熟练度("跟随"/"阵地", g.标记, 1)
     const markerArr: any[] = Array.isArray(g.标记) ? g.标记 : [];
@@ -11523,12 +11522,17 @@ export class CombatSystemService implements OnApplicationShutdown {
     this.combatState.setAchievementProficiency('阵地', markerArr, 1);
     g.标记 = markerArr;
 
-    // 原版 L5403-5421：按 g2.编号 决定 新增/更新
-    if (g2b.编号 == null || g2b.编号 === 0 || g2Idx2 < 0) {
+    // 原版 L5403-5421：按 g2.编号 决定 新增/更新。
+    // 原版以「编号==0」作未找到哨兵，但 取召唤物 找到时 编号=数组下标（0 起），
+    // 下标 0 与哨兵冲突：Web 版前线地图召唤物常只有 1 个（恒为下标 0），
+    // 会导致每次「开始战斗」都重复新增一个前线召唤物，旧的仍留在数组里，
+    // 前端/家园前线 find 永远取到旧版 → 火力通道不更新。
+    // 改为以 findIndex（g2Idx2 ≥ 0 即存在）为准；下标>0 的正常场景语义与原版一致。
+    if (g2Idx2 < 0) {
       // 原版 L5404：g.当前生命 = 1
       g.当前生命 = 1;
-      // 原版 L5405-5410：载具 列表编号==0 → 新增，否则更新
-      if (zj.列表编号 == null || zj.列表编号 === 0 || zjIdx < 0) {
+      // 原版 L5405-5410：载具 列表编号==0 → 新增，否则更新（同理，以下标 zjIdx 为准）
+      if (zjIdx < 0) {
         zj.当前生命 = zj.加成.生命;
         vehicles.push(zj);
       } else {
@@ -11539,8 +11543,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     } else {
       // 原版 L5413：d.召唤物[g2.编号] = g
       summons[g2Idx2] = g;
-      // 原版 L5414-5419：载具 列表编号==0 → 新增，否则更新
-      if (zj.列表编号 == null || zj.列表编号 === 0 || zjIdx < 0) {
+      // 原版 L5414-5419：载具 列表编号==0 → 新增，否则更新（同上）
+      if (zjIdx < 0) {
         zj.当前生命 = zj.加成.生命;
         vehicles.push(zj);
       } else {

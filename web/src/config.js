@@ -345,6 +345,71 @@ export const HOME_YARD_CONFIG = {
 };
 
 /**
+ * 家园前线面板（FrontlineView）配置。
+ *
+ * 与后端 `server/src/modules/game/frontline-view.service.ts` 的只读视图一一对应；
+ * 本页面的安装 / 拆卸 / 开始战斗 / 前往前线 **不新增写接口**，一律通过
+ * commandApi.execute 发送与 QQ 端完全相同的文本指令（见 commands 模板），
+ * 保证只有一条写路径、结算口径永不双轨。
+ */
+export const HOME_FRONTLINE_CONFIG = {
+  /** 前线数据自动刷新间隔（毫秒）；操作后会立即再拉一次 */
+  refreshMs: 30000,
+  /** 执行指令后重新拉取数据的延迟（毫秒），等后端写完再读 */
+  refetchDelayMs: 500,
+  /** 防御建筑 / 武器 / 敌人的图标兜底与关键词匹配（自上而下首个命中生效） */
+  icons: {
+    building: [
+      { kw: '机枪', icon: '🔫' },
+      { kw: '火炮', icon: '💥' },
+      { kw: '喷火', icon: '🔥' },
+      { kw: '重炮', icon: '🧨' },
+      { kw: '碉堡', icon: '🏰' },
+    ],
+    weapon: [
+      { kw: '机枪', icon: '🔫' },
+      { kw: '火炮', icon: '💥' },
+      { kw: '喷火', icon: '🔥' },
+      { kw: '重炮', icon: '🧨' },
+      { kw: '火力', icon: '🎯' },
+    ],
+    enemy: [
+      { kw: '将军', icon: '👑' },
+      { kw: '千夫长', icon: '🎖️' },
+      { kw: '百夫长', icon: '🪖' },
+      { kw: '十夫长', icon: '⛑️' },
+      { kw: '地精', icon: '👺' },
+    ],
+  },
+  fallbackIcon: { building: '🏗️', weapon: '🎯', enemy: '👾' },
+  /** 指令模板：与 QQ 端逐字一致 */
+  commands: {
+    // 前往前线（需先走到自己家园附近，原版「前往 家园名前线」）
+    goFrontline: (houseName) => `前往 ${houseName}前线`,
+    install: (buildingName) => `安装 ${buildingName}`,
+    remove: (buildingName) => `拆卸 ${buildingName}`,
+    startBattle: () => '开始战斗',
+    // 查看前线文本状态（家园前线），与 UI 互为印证
+    view: () => '家园前线',
+  },
+  /** 文案（集中在便于调整/本地化） */
+  texts: {
+    needBuilt: '需要先完成房子的建造，才能开启前线',
+    noHouse: '还没有家园',
+    needFrontline: '需要站在家园前线才能布防，先前往前线吧',
+    atHomeElsewhere: '你不在前线地图上，布防与拆卸需要站在前线',
+    frontlineQuiet: '前线平静，没有敌人',
+    canBattle: '可以开始战斗',
+    hasEnemies: '还有需要解决的敌人，先击败它们',
+    startBattleConfirm: '开始战斗会消耗 1 点活跃度，并引来一波地精攻势，确定吗？',
+    removeConfirm: (name, count) => `确定把前线的 ${name} ×${count} 拆卸装箱收回背包吗？`,
+    installEmpty: '背包里没有可安装的防御建筑（带 攻击 加成的建筑）',
+    noFirepower: '火力通道为空，安装防御建筑后会生成对应武器',
+    frontlineHint: '防御阵地和地精无视载具伤害上限，攻击无载具目标时一击必杀',
+  },
+};
+
+/**
  * 家园建造四步引导（圈地 → 开挖地基 → 建造地基 → 建造房子）前端配置
  *
  * 与后端 `server/src/modules/game/home-build-guide.util.ts` 一一对应：后端在四条

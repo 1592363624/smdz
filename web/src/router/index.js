@@ -7,6 +7,7 @@ import LoginView from '../views/LoginView.vue';
 import OnboardView from '../views/OnboardView.vue';
 import ChatView from '../views/ChatView.vue';
 import HomeView from '../views/HomeView.vue';
+import FrontlineView from '../views/FrontlineView.vue';
 import AdminView from '../views/AdminView.vue';
 
 const router = createRouter({
@@ -18,6 +19,8 @@ const router = createRouter({
     { path: '/chat', name: 'chat', component: ChatView, meta: { requiresAuth: true } },
     // 家园院子：QQ 农场式格子视图独立页面（侧栏空间不足，单独开一屏）
     { path: '/home', name: 'home', component: HomeView, meta: { requiresAuth: true } },
+    // 家园前线：防守阵地/火力通道/地精波次独立页面（与家园同属家园系统）
+    { path: '/frontline', name: 'frontline', component: FrontlineView, meta: { requiresAuth: true } },
     { path: '/admin', name: 'admin', component: AdminView, meta: { requiresAuth: true, requiresAdmin: true } },
   ],
 });

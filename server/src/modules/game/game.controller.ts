@@ -15,6 +15,7 @@ import { StatsService } from './stats.service';
 import { AdminService } from '../admin/admin.service';
 import { HomeService } from './home.service';
 import { HomeYardService } from './home-yard.service';
+import { FrontlineViewService } from './frontline-view.service';
 import { FamiliarSystemService } from './familiar-system.service';
 import { StaticDataService } from './static-data.service';
 
@@ -32,6 +33,7 @@ export class GameController {
     private readonly adminService: AdminService,
     private readonly homeService: HomeService,
     private readonly homeYardService: HomeYardService,
+    private readonly frontlineViewService: FrontlineViewService,
     private readonly familiarSystem: FamiliarSystemService,
     private readonly staticData: StaticDataService,
   ) {}
@@ -131,6 +133,19 @@ export class GameController {
   @ApiOperation({ summary: '获取家园院子格子视图（地块/仓库/障碍/存放地，只读不结算）' })
   async getHomeYard(@Req() req) {
     const data = await this.homeYardService.getHomeYard(req.user.userId);
+    return { success: true, data };
+  }
+
+  /**
+   * 获取家园前线面板视图（防御阵地/火力通道/敌人波次/活动状态/可安装防御建筑，只读）。
+   *
+   * 与 home/yard 同为只读：不推进战斗回合、不写任何标记；
+   * 安装 / 拆卸 / 开始战斗 / 前往前线 仍走 QQ 与网页统一的指令通道。
+   */
+  @Get('home/frontline')
+  @ApiOperation({ summary: '获取家园前线面板（防御/火力/敌人/库存，只读不结算）' })
+  async getHomeFrontline(@Req() req) {
+    const data = await this.frontlineViewService.getFrontlineView(req.user.userId);
     return { success: true, data };
   }
 

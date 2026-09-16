@@ -144,6 +144,8 @@ export const homeApi = {
   overview: () => http.get('/game/home/overview'),
   // 家园院子格子视图（地块/仓库/障碍/存放地，只读不结算；写操作统一走 commandApi.execute）
   yard: () => http.get('/game/home/yard'),
+  // 家园前线面板视图（防御/火力/敌人/库存，只读不结算；写操作统一走 commandApi.execute）
+  frontline: () => http.get('/game/home/frontline'),
 };
 
 /// 系统/版本接口

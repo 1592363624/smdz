@@ -1,0 +1,50 @@
+{
+  "stageNames": ["播种", "发芽", "生长", "开花", "成熟"],
+  "rewardScaleDivisor": 600,
+  "tiers": [
+    {
+      "label": "速生作物",
+      "durationSeconds": 3600,
+      "stages": 4,
+      "minScore": 0,
+      "maxScore": 1.5
+    },
+    {
+      "label": "快熟作物",
+      "durationSeconds": 21600,
+      "stages": 5,
+      "minScore": 1.5,
+      "maxScore": 3
+    },
+    {
+      "label": "普通作物",
+      "durationSeconds": 86400,
+      "stages": 5,
+      "minScore": 3,
+      "maxScore": 6
+    },
+    {
+      "label": "慢熟作物",
+      "durationSeconds": 345600,
+      "stages": 5,
+      "minScore": 6,
+      "maxScore": 12
+    },
+    {
+      "label": "稀有作物",
+      "durationSeconds": 1209600,
+      "stages": 5,
+      "minScore": 12,
+      "maxScore": null
+    }
+  ],
+  "crops": {
+    "椰树": { "durationSeconds": 259200, "stages": 5 },
+    "改良椰树": { "durationSeconds": 345600, "stages": 5 },
+    "强壮椰树": { "durationSeconds": 518400, "stages": 5 },
+    "活性灵石": { "durationSeconds": 604800, "stages": 5 },
+    "浆果豆蔻": { "durationSeconds": 432000, "stages": 5 },
+    "多汁豆蔻": { "durationSeconds": 604800, "stages": 5 },
+    "饱满豆蔻": { "durationSeconds": 777600, "stages": 5 }
+  }
+}

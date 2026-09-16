@@ -513,9 +513,12 @@ function jumpToLatest() {
   chat.setAtBottom(true);
 }
 
-// 打开面板时贴底，并请求父组件刷新可@玩家列表（保证下拉里是较新的在线状态）
+// 打开面板/切换全屏时贴底，并请求父组件刷新可@玩家列表（保证下拉里是较新的在线状态）。
+// 注意：不监听 messages.length —— 若每次新消息都强制滚到底，会无视用户正在上翻历史的
+// 状态，表现为"往上滑一点又被拽回底部"。新消息到达时只做常规跟随：用户本就在底部
+// （stickToBottom=true）就继续贴底，用户在看历史则保持原位（未读红点由 store 记账）。
 watch(
-  () => [chat.open, chat.fullscreen, chat.messages.length],
+  () => [chat.open, chat.fullscreen],
   () => {
     if (chat.open) {
       stickToBottom.value = true;

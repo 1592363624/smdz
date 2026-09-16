@@ -66,6 +66,15 @@
         >
           <span class="tab-icon">🏠</span>家园
         </button>
+        <!-- 前线：跳转到家园前线防守面板（独立全屏页面） -->
+        <button
+          class="sidebar-tab"
+          :disabled="!isSuperAdmin"
+          :title="isSuperAdmin ? '打开家园前线（独立页面）' : '前线模块开发中，仅超级管理员可进入'"
+          @click="router.push('/frontline')"
+        >
+          <span class="tab-icon">🛡️</span>前线
+        </button>
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'cmd' }" @click="sidebarTab = 'cmd'">
           <span class="tab-icon">📖</span>指令
         </button>
@@ -343,6 +352,15 @@
           @click="router.push('/home')"
         >
           <span class="tab-icon">🏠</span>家园
+        </button>
+        <!-- 前线：跳转到家园前线防守面板（独立全屏页面） -->
+        <button
+          class="sidebar-tab"
+          :disabled="!isSuperAdmin"
+          :title="isSuperAdmin ? '打开家园前线（独立页面）' : '前线模块开发中，仅超级管理员可进入'"
+          @click="router.push('/frontline')"
+        >
+          <span class="tab-icon">🛡️</span>前线
         </button>
         <button class="sidebar-tab" :class="{ active: mobileTab === 'cmd' }" @click="mobileTab = 'cmd'">
           <span class="tab-icon">📖</span>指令
@@ -1198,23 +1216,44 @@ function toggleShowOthers() {
 
 // 预解析后的渲染视图：每条消息 { id, msg, segs }，segs 是 parseContent 的缓存结果。
 // 避免模板里对全部消息重复执行书名号/💡正则（消息越多越卡的主因），新消息只需解析一次。
-const messageViews = computed(() =>
-  visibleMessages.value.map((m, i) => ({
-    // 优先用服务端消息 id 作 key；实时推送的系统回包没有 id 时用 内容+序号 兜底
-    key: m.id ?? `rt-${i}-${m.createdAt || ''}`,
-    msg: m,
-    segs: parseContent(m.content, commands.value),
+// 用 WeakMap 按「消息对象」缓存解析结果：除非命令列表（commands）变化，否则同一条消息
+// 在任意次重新渲染（新消息插入、过滤开关切换等）都直接复用，滚动不会再重复跑几百条正则。
+const msgParseCache = new WeakMap();
+function cachedParseMsg(m) {
+  const cmds = commands.value;
+  const hit = msgParseCache.get(m);
+  if (hit && hit.cmds === cmds) return hit; // 命令列表未变 → 直接复用
+  const v = {
+    cmds,
+    segs: parseContent(m.content, cmds),
     // 背包/属性面板等结构化长列表 → 用网格卡片渲染；其余保持原样式
     rich: isRichCardContent(m.content),
     // 战斗结算文本 → 用战斗卡片渲染（修真科幻风伤害动画）
     battle: isBattleContent(m.content),
     // 家园建造四步引导：0=不是引导消息，1-4=当前建造进度
     homeGuide: parseHomeBuildGuideStep(m.content),
-    // 性能优化：历史消息（非最新 3 条）启用 content-visibility，视口外跳过布局与绘制。
-    // 消息上限 300 条 + 背包/战斗大卡片，全量渲染是公屏滑动卡顿主因；
-    // 最新 3 条不加（滚动到底的 scrollHeight 计算与自动滚底始终基于真实布局，不受估算高度影响）。
-    cv: i < visibleMessages.value.length - 3,
-  })),
+  };
+  msgParseCache.set(m, v);
+  return v;
+}
+
+const messageViews = computed(() =>
+  visibleMessages.value.map((m, i) => {
+    const p = cachedParseMsg(m);
+    return {
+      // 优先用服务端消息 id 作 key；实时推送的系统回包没有 id 时用 内容+序号 兜底
+      key: m.id ?? `rt-${i}-${m.createdAt || ''}`,
+      msg: m,
+      segs: p.segs,
+      rich: p.rich,
+      battle: p.battle,
+      homeGuide: p.homeGuide,
+      // 性能优化：历史消息（非最新 3 条）启用 content-visibility，视口外跳过布局与绘制。
+      // 消息上限 300 条 + 背包/战斗大卡片，全量渲染是公屏滑动卡顿主因；
+      // 最新 3 条不加（滚动到底的 scrollHeight 计算与自动滚底始终基于真实布局，不受估算高度影响）。
+      cv: i < visibleMessages.value.length - 3,
+    };
+  }),
 );
 
 /**
@@ -2704,7 +2743,10 @@ let suppressHeaderRevealUntil = 0;
 //   ① 只有「用户真实滚动意图」（滚轮/触摸/拖拽滚动条）才解除贴底，布局变化一律不算；
 //   ② 贴底状态由一个常驻 rAF 循环维持：每帧若发现离底（内容又长高了）就补滚到最后，
 //      用户一旦接管立即停手 —— 与微信/QQ「始终停在最新消息」的行为一致。
-const SCROLL_BOTTOM_THRESHOLD = 150; // 距底部多少像素内仍视为「贴底」
+// 距底部多少像素内仍视为「贴底」。原 150px 过大：用户刚上滑几十像素就会被判为
+// 「还在底部」而立即贴回 → 表现为"往上滑一点点又弹回最下面"。缩小到 40px 后，
+// 只有真正贴近底部才跟随，上滑查看历史更符合 QQ 的直觉。
+const SCROLL_BOTTOM_THRESHOLD = 40; // 距底部多少像素内仍视为「贴底」
 const USER_SCROLL_INTENT_MS = 600; // 用户滚动意图有效期：窗口内的 scroll 事件才算「用户在滚」
 let userScrollIntentAt = 0; // 最近一次用户滚动意图时间戳
 let bottomFollowRafId = 0; // 常驻贴底循环句柄（0 = 未运行）
@@ -2761,6 +2803,12 @@ function startBottomFollow() {
     if (!el || !stickToBottom) return; // 用户接管 / 已卸载 → 停手
     // 推迟的布局（图片加载、content-visibility 重排等）让 scrollHeight 又变大 → 补滚到底
     if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
+      // 用户刚上手（触摸/按住滚动条拖动）的短时间内绝不去抢滚动条，
+      // 先让他自由滑动；意图窗口过去后再补滚，避免"手指一放就弹到底"
+      if (performance.now() - userScrollIntentAt < USER_SCROLL_INTENT_MS) {
+        bottomFollowRafId = requestAnimationFrame(step);
+        return;
+      }
       suppressHeaderRevealUntil = performance.now() + 160; // 程序化滚动不算用户滑动
       el.scrollTop = el.scrollHeight;
     }
@@ -2825,10 +2873,15 @@ function onMsgScroll() {
       stopBottomFollow(); // 用户接管：立刻停掉贴底循环，绝不抢滚动条
     }
   } else {
-    // 回到（接近）底部：恢复贴底跟随，按钮隐藏；用户手动滚回底部同样会恢复
-    stickToBottom = true;
-    showScrollBtn.value = false;
-    startBottomFollow();
+    // 回到（接近）底部：恢复贴底跟随，按钮隐藏；用户手动滚回底部同样会恢复。
+    // 但若用户此刻正在向上翻历史（意图窗口内且实际位置离底），不能急着贴回——
+    // 否则会出现"往上滑一点点又弹回最下面"的抢滚动条体验。
+    const userScrollingUp = performance.now() - userScrollIntentAt < USER_SCROLL_INTENT_MS && el.scrollTop > 0;
+    if (!userScrollingUp) {
+      stickToBottom = true;
+      showScrollBtn.value = false;
+      startBottomFollow();
+    }
   }
   // 用户滑动 → 滑出顶部操作栏（布局补偿/程序化滚动引起的 scroll 事件跳过，避免抖动）
   if (performance.now() >= suppressHeaderRevealUntil) revealMobileHeader();

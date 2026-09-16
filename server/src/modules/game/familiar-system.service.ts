@@ -1777,6 +1777,9 @@ export class FamiliarSystemService {
     if (!item) return;
     if (item.quantity !== undefined) {
       item.quantity = value;
+      // 双字段条目（如地图建筑）同步 count，与 home.service 口径一致，
+      // 避免陈旧 count 被防御计数/上限/武器倍率等消费方误读。
+      if (item.count !== undefined) item.count = value;
     } else {
       item.count = value;
     }

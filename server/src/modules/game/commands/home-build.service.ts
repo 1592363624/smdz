@@ -152,6 +152,34 @@ export class HomeBuildService {
     const builtGate = homeBuiltGateText(player);
     if (builtGate) return builtGate;
 
+    const markers = asJsonValue<any>(player.markers, {});
+
+    // 防御建筑（加成.攻击 != 0）：原版 _主程序.ecode L1975-2004 三分支之一。
+    // 只能安装到「家园名前线」地图，上限 = 前线等级 + 3（与原版 显示熟练度等级(标记,"前线")+3 一致）。
+    const buildingBonus = asJsonValue<any>(building.bonus ?? building.加成 ?? {}, {});
+    if (Number(buildingBonus.攻击 ?? 0) !== 0) {
+      if (map.name !== `${houseName}前线`) {
+        return `${player.name}防御类建筑只能安装${houseName}前线`;
+      }
+      const frontlineBuildings = asJsonValue<any[]>(map.buildings, []);
+      const installed = frontlineBuildings.reduce(
+        (sum: number, item: any) => sum + Number(item?.count ?? item?.数量 ?? 1),
+        0,
+      );
+      const frontLevel = Number(this.playerService.getMarkerValue(markers, '前线') ?? 0) || 0;
+      const limit = frontLevel + 3;
+      if (installed + count > limit) {
+        return `${player.name}当前前线等级只能再安装${Math.max(0, limit - installed)}个防御建筑`;
+      }
+      const backpack = this.playerService.getBackpackItems(player);
+      const result = this.homeService.installBuilding(map, name, backpack, count);
+      if (!result.success) return result.message;
+      await this.mapService.updateDynamicFields(map.id, { buildings: map.buildings });
+      player.backpack = backpack; // Json 列直接写数组
+      await this.playerService.savePlayer(player);
+      return result.message;
+    }
+
     const materials = asJsonValue<any[]>(building.materials, []);
     const isProductionBuilding = materials.some((item: any) =>
       Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0) !== 0,
@@ -505,10 +533,15 @@ export class HomeBuildService {
 
     if (removeCount >= available) {
       collection.splice(index, 1);
-    } else if (source.quantity !== undefined) {
-      source.quantity = available - removeCount;
     } else {
-      source.count = available - removeCount;
+      const remain = available - removeCount;
+      if (source.quantity !== undefined) {
+        source.quantity = remain;
+        // 地图建筑等双字段条目必须同步 count，避免防御计数/上限读到陈旧值
+        if (source.count !== undefined) source.count = remain;
+      } else {
+        source.count = remain;
+      }
     }
 
     const backpack = this.playerService.getBackpackItems(player);

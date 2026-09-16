@@ -1073,14 +1073,26 @@
     "type": "建筑",
     "description": "防御建筑。",
     "storage": 0,
-    "materials": []
+    "materials": [],
+    "bonus": {
+      "攻击": 0.2,
+      "攻击次数": 1,
+      "生命": 1
+    },
+    "攻击文本": "自动步枪"
   },
   {
     "name": "火炮碉堡",
     "type": "建筑",
     "description": "防御建筑。",
     "storage": 0,
-    "materials": []
+    "materials": [],
+    "bonus": {
+      "攻击": 0.5,
+      "攻击次数": 1,
+      "生命": 1.5
+    },
+    "攻击文本": "天蝎a"
   },
   {
     "name": "机床",
@@ -1094,7 +1106,13 @@
     "type": "建筑",
     "description": "防御建筑。",
     "storage": 0,
-    "materials": []
+    "materials": [],
+    "bonus": {
+      "攻击": 0.8,
+      "攻击次数": 1,
+      "生命": 2
+    },
+    "攻击文本": "能量步枪"
   },
   {
     "name": "育种器",
@@ -1108,7 +1126,13 @@
     "type": "建筑",
     "description": "防御建筑。",
     "storage": 0,
-    "materials": []
+    "materials": [],
+    "bonus": {
+      "攻击": 1.2,
+      "攻击次数": 1,
+      "生命": 3
+    },
+    "攻击文本": "天蝎a"
   },
   {
     "name": "星链",

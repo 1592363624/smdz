@@ -12,6 +12,8 @@
           <span v-if="progress === 0" class="yd-warn">建造进度 {{ progress }}/4</span>
           <span>作物 {{ crop.used }}/{{ crop.limit }}</span>
           <span>建筑 {{ building.used }}/{{ building.limit }}</span>
+          <!-- 正在生长的作物格数量（QQ 农场式"种植中"徽标） -->
+          <span v-if="growingCount" class="yd-grow">🌱 种植中 {{ growingCount }}</span>
         </div>
       </div>
       <div class="yd-head-ops">
@@ -21,24 +23,35 @@
       </div>
     </header>
 
-    <!-- 建造期四步引导（圈地 → 开挖地基 → 建造地基 → 建造房子）：
-         进度 < 4 时展示带动画的进度条，按钮就地发送与 QQ 端相同的指令 -->
-    <div v-if="data && progress < 4" class="yd-guide">
+    <!-- 房子未建成前的全屏建造引导（圈地 → 开挖地基 → 建造地基 → 建造房子）：
+         进度 < 4 时整页只显示引导，隐藏农田/建筑区等一切家园功能——
+         房子没建成，其它家园系统操作一律不开放（后端 home-gate.util 同口径拦截）。
+         按钮就地发送与 QQ 端相同的指令，带动画的院子场景随进度逐级"长出"房子。 -->
+    <div v-if="data && progress < 4" class="yd-guide-full">
       <HomeBuildGuide
         :step="progress"
-        compact
+        fullscreen
         :busy="running"
         :at-home="progress === 0 || atHome"
         @send="runGuideCommand"
       />
     </div>
 
-    <!-- 加载 / 错误 / 无家园 -->
+    <!-- 加载 / 错误 / 无家园：尚未圈地 → 全屏圈地引导（选地 → 圈地按钮） -->
     <div v-if="loading && !data" class="yd-hint">家园数据加载中...</div>
     <div v-else-if="error && !data" class="yd-hint err">{{ error }}</div>
-    <div v-else-if="blocked" class="yd-hint">🏠 {{ blocked }}<span class="yd-dim">发送「圈地」开始建造自己的家园</span></div>
+    <div v-else-if="blocked" class="yd-full-cta">
+      <div class="yd-cta-card">
+        <div class="yd-cta-icon">🏡</div>
+        <h2 class="yd-cta-title">{{ blocked }}</h2>
+        <p class="yd-cta-sub">选一块你中意的土地圈下来，就能开始建造你的专属家园</p>
+        <button class="yd-btn primary big" :disabled="running" @click="startClaim">🚀 开始圈地</button>
+        <p class="yd-cta-hint">圈地指令会在地图上生成你的院子，之后按引导逐步建造房子</p>
+      </div>
+    </div>
 
-    <template v-else-if="data">
+    <!-- 建造期（进度 < 4）只显示上方全屏引导，其余区块不渲染 -->
+    <template v-else-if="data && progress >= 4">
       <!-- 不在院子：种植/安装/拆除/收获都会被人不在院子拦截，先引导回家 -->
       <div v-if="!atHome" class="yd-banner">
         <span>📍 {{ C.texts.notAtHome }}</span>
@@ -60,7 +73,8 @@
           <!-- 农田 -->
           <div class="yd-block">
             <div class="yd-block-head">
-              <span class="yd-b-title">🌾 农田</span>
+              <span class="yd-b-chip crop">🌾</span>
+              <span class="yd-b-title">农田</span>
               <span class="yd-b-count">{{ crop.used }}/{{ crop.limit }}</span>
               <span class="yd-dim">{{ batchKind === 'crop' ? C.texts.batchEmpty : '空地点击选种子种下；地块随等级与凭证开垦' }}</span>
               <div class="yd-b-ops">
@@ -78,19 +92,30 @@
                 v-for="p in visibleCropPlots"
                 :key="'c-' + p.index"
                 class="yd-plot"
-                :class="[p.state, { sel: selected === p, picked: selection.has('crop:' + p.index) }]"
+                :class="[p.state, { sel: selected === p, picked: selection.has('crop:' + p.index), ripe: p.stage?.ripe }]"
                 :data-sel-key="'crop:' + p.index"
                 @pointerdown="onPlotDown($event, 'crop', p)"
                 @click="onPlot(p, 'crop')"
               >
                 <span class="yd-p-icon">{{ iconOf(p) }}</span>
                 <span class="yd-p-name">{{ p.name || (p.state === 'locked' ? '待开垦' : '+') }}</span>
-                <span v-if="p.state === 'occupied'" class="yd-p-out">
-                  <span v-if="p.outputs.length" :class="p.outputs[0].quantity >= 0 ? 'gain' : 'cost'">
-                    {{ p.outputs[0].quantity >= 0 ? '+' : '' }}{{ fmtQty(p.outputs[0].quantity) }} {{ p.outputs[0].name }}/分
+                <!-- 作物格：分阶段成熟玩法，显示生长阶段条 + 剩余时间 / 可收获 -->
+                <template v-if="p.kind === 'crop' && p.stage">
+                  <span class="yd-p-stages">
+                    <i v-for="(sName, si) in p.stage.names" :key="'s' + si" :class="{ on: si <= p.stage.index, ripe: p.stage.ripe }"></i>
                   </span>
-                  <span v-else class="yd-dim">无产出</span>
-                </span>
+                  <span class="yd-p-out" :class="p.stage.ripe ? 'gain' : ''">
+                    {{ p.stage.ripe ? '✓ 可收获' : `${p.stage.names[p.stage.index]} · ${fmtRemain(p.stage.remainSeconds)}` }}
+                  </span>
+                </template>
+                <template v-else-if="p.state === 'occupied'">
+                  <span class="yd-p-out">
+                    <span v-if="p.outputs.length" :class="p.outputs[0].quantity >= 0 ? 'gain' : 'cost'">
+                      {{ p.outputs[0].quantity >= 0 ? '+' : '' }}{{ fmtQty(p.outputs[0].quantity) }} {{ p.outputs[0].name }}/分
+                    </span>
+                    <span v-else class="yd-dim">无产出</span>
+                  </span>
+                </template>
                 <span v-else-if="p.state === 'locked'" class="yd-p-hint">🔒 {{ p.unlockHint }}</span>
                 <span v-else class="yd-p-hint">{{ C.texts.emptyCrop }}</span>
                 <span v-if="p.total > 1" class="yd-p-total">×{{ p.total }}</span>
@@ -104,7 +129,8 @@
           <!-- 建筑区 -->
           <div class="yd-block">
             <div class="yd-block-head">
-              <span class="yd-b-title">🏭 建筑区</span>
+              <span class="yd-b-chip build">🏭</span>
+              <span class="yd-b-title">建筑区</span>
               <span class="yd-b-count">{{ building.used }}/{{ building.limit }}</span>
               <span class="yd-dim">{{ batchKind === 'building' ? C.texts.batchEmpty : '空地点击选建筑安装；已安装的点击可拆除' }}</span>
               <div class="yd-b-ops">
@@ -144,7 +170,8 @@
           <!-- 地面障碍：土堆/杂草未清理会挡住建造 -->
           <div v-if="obstacles.length" class="yd-block">
             <div class="yd-block-head">
-              <span class="yd-b-title">🪨 地面障碍</span>
+              <span class="yd-b-chip obstacle">🪨</span>
+              <span class="yd-b-title">地面障碍</span>
               <span class="yd-dim">清理后地块才能正常使用</span>
             </div>
             <div class="yd-chips">
@@ -165,7 +192,8 @@
         <aside class="yd-side">
           <div class="yd-card">
             <div class="yd-card-head">
-              <span class="yd-c-title">📦 产出存放地</span>
+              <span class="yd-b-chip stock">📦</span>
+              <span class="yd-c-title">产出存放地</span>
               <span class="yd-c-count">{{ storage.length }}</span>
             </div>
             <div class="yd-chips">
@@ -182,6 +210,7 @@
 
           <div class="yd-card">
             <div class="yd-card-head">
+              <span class="yd-b-chip bag">🎒</span>
               <button class="yd-tab" :class="{ on: stockTab === 'seed' }" @click="stockTab = 'seed'">🌱 种子 {{ seeds.length }}</button>
               <button class="yd-tab" :class="{ on: stockTab === 'building' }" @click="stockTab = 'building'">🏗️ 建筑 {{ buildings.length }}</button>
             </div>
@@ -208,7 +237,10 @@
           </div>
 
           <div class="yd-card" v-if="dailyList.length">
-            <div class="yd-card-head"><span class="yd-c-title">📈 每日产出速率</span></div>
+            <div class="yd-card-head">
+              <span class="yd-b-chip rate">📈</span>
+              <span class="yd-c-title">每日产出速率</span>
+            </div>
             <div class="yd-chips">
               <span v-for="(d, i) in dailyList" :key="'d-' + d.name + '-' + i" class="yd-chip rate">
                 {{ d.name }} {{ fmtQty(d.quantity) }}/天
@@ -266,15 +298,34 @@
             {{ o.name }} {{ fmtQty(o.quantity) }}/分
           </span>
           <span v-for="(h, i) in selected.harvest" :key="'rh-' + i" class="gain">
-            {{ selected.kind === 'crop' ? '收获' : '拆除返还' }} {{ h.name }}×{{ fmtQty(h.quantity) }}
+            {{ selected.kind === 'crop' ? '成熟收获' : '拆除返还' }} {{ h.name }}×{{ fmtQty(h.quantity) }}
           </span>
+        </div>
+        <!-- 作物生长阶段详情：阶段点 + 剩余时间，未成熟禁用收获 -->
+        <div v-if="selected.kind === 'crop' && selected.stage" class="yd-d-stage">
+          <span
+            v-for="(sName, si) in selected.stage.names"
+            :key="'ds-' + si"
+            :class="{ on: si <= selected.stage.index, ripe: selected.stage.ripe }"
+          >
+            {{ sName }}
+          </span>
+          <div class="yd-d-stage-tip" :class="selected.stage.ripe ? 'gain' : ''">
+            {{ selected.stage.ripe ? '✓ 已成熟，点击下方收获' : `🌱 生长中，还需 ${fmtRemain(selected.stage.remainSeconds)} 成熟` }}
+          </div>
         </div>
         <div class="yd-d-ops">
           <template v-if="selected.kind === 'crop'">
-            <button class="yd-btn warn" :disabled="running" @click="run(C.commands.harvest(selected.name))">
+            <button
+              class="yd-btn warn"
+              :disabled="running || (selected.stage && !selected.stage.ripe)"
+              @click="run(C.commands.harvest(selected.name))"
+            >
               🌾 收获全部（{{ selected.name }} ×{{ selected.total }}）
             </button>
-            <span class="yd-dim">作物按名称聚合存放，收获会一次收走同名的全部</span>
+            <span class="yd-dim">
+              {{ selected.stage && !selected.stage.ripe ? '未成熟的作物还不能收获，等它长完再收' : '收获会一次收走该作物全部已成熟的棵' }}
+            </span>
           </template>
           <template v-else>
             <button class="yd-btn danger" :disabled="running" @click="run(C.commands.remove(selected.name))">
@@ -402,13 +453,21 @@ const gridStyle = computed(() => ({
   '--yd-min': `${C.plot.minSize}px`,
   '--yd-gap': `${C.plot.gap}px`,
 }));
-/** 田里现存的作物名（去重），用于「一键收获」 */
+/** 田里已成熟的作物名（去重），用于「一键收获」；未成熟的不参与，避免白跑一遍 */
 const cropNames = computed(() => {
   const names = new Set();
   for (const p of crop.value.plots) {
-    if (p.state === 'occupied' && p.name) names.add(p.name);
+    if (p.state === 'occupied' && p.name && p.stage?.ripe) names.add(p.name);
   }
   return Array.from(names);
+});
+/** 田里正在生长的作物格数量（顶栏统计用） */
+const growingCount = computed(() => {
+  let count = 0;
+  for (const p of crop.value.plots) {
+    if (p.state === 'occupied' && p.stage && !p.stage.ripe) count += 1;
+  }
+  return count;
 });
 
 // ---------- 刷选派生 ----------
@@ -496,6 +555,20 @@ function fmtDuration(sec) {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   return h > 0 ? `${h}时${m}分` : `${m}分`;
+}
+
+/** 剩余成熟时长：秒 → 中文（天/时/分），用于阶段倒计时展示 */
+function fmtRemain(sec) {
+  const s = Math.max(0, Math.ceil(Number(sec) || 0));
+  if (s <= 0) return '0分';
+  if (s >= 86400) {
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    return h > 0 ? `${d}天${h}时` : `${d}天`;
+  }
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}时${m}分` : `${Math.max(1, m)}分`;
 }
 
 // ---------- 刷选交互（批量模式） ----------
@@ -728,10 +801,17 @@ async function run(cmd, opts = {}) {
 
 /**
  * 四步引导条上的按钮：执行一步建造指令（仍走统一指令通道）。
- * 进度 0 的「圈地」不需要人在院子（此时还没有家园），其余步骤沿用「必须在院子」门禁。
+ * 进度 0 的「圈地」不需要人在院子（此时还没有家园）；「回家」本身也无需门禁——
+ * 否则人还没站在院子里时，引导里的「先回家」按钮会被 必须在院子 门禁误拦。
+ * 其余步骤沿用「必须在院子」门禁。
  */
 function runGuideCommand(cmd) {
-  return run(cmd, { requireHome: progress.value > 0 });
+  return run(cmd, { requireHome: cmd !== '回家' && progress.value > 0 });
+}
+
+/** 尚未圈地时的入口按钮：发送「圈地」（不需要人在院子） */
+function startClaim() {
+  return run(G.firstCommand, { requireHome: false });
 }
 
 function onPlot(plot, kind) {
@@ -794,19 +874,27 @@ function quickUse(stock) {
 }
 
 // ---------- 批量操作 ----------
-/** 一键收获全部作物：对每种作物各发一条「收获 名称」（该指令本就收走同名全部） */
+/** 一键收获全部作物：对每种已成熟的作物各发一条「收获 名称」 */
 function harvestAllCrops() {
   if (!cropNames.value.length) {
-    ui.pushToast({ type: 'info', message: C.texts.nothingToHarvest });
+    ui.pushToast({
+      type: 'info',
+      message: growingCount.value ? `地里还有 ${growingCount.value} 棵在生长，成熟后才能收获` : C.texts.nothingToHarvest,
+    });
     return;
   }
   runMany(cropNames.value.map((name) => C.commands.harvest(name)));
 }
 
-/** 收获选中地块（按作物名去重） */
+/** 收获选中地块（按作物名去重；后端会拦截未成熟的，前端只收集已成熟的避免无效请求） */
 function harvestSelected() {
-  const names = Array.from(new Set(selectionList.value.map((x) => x.plot.name).filter(Boolean)));
-  if (!names.length) return;
+  const names = Array.from(
+    new Set(selectionList.value.filter((x) => x.plot.stage?.ripe).map((x) => x.plot.name).filter(Boolean)),
+  );
+  if (!names.length) {
+    ui.pushToast({ type: 'info', message: '选中的作物都还没成熟，先等它们长完再收' });
+    return;
+  }
   runMany(names.map((name) => C.commands.harvest(name)));
 }
 
@@ -890,6 +978,19 @@ function clearObstacle(obstacle) {
 .yd-warn {
   color: #fb923c;
 }
+/* 顶栏"种植中"徽标：绿色呼吸提示正在生长的作物格数 */
+.yd-grow {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  border-radius: 10px;
+  padding: 1px 8px;
+  animation: yd-grow-pulse 2s ease-in-out infinite;
+}
+@keyframes yd-grow-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
 .yd-head-ops {
   display: flex;
   align-items: center;
@@ -917,9 +1018,67 @@ function clearObstacle(obstacle) {
   border-color: rgba(251, 146, 60, 0.45);
 }
 
-/* 建造期四步引导条容器：与内容区同宽，上下留白避免贴住顶栏 */
-.yd-guide {
-  margin: 10px 14px 0;
+/* 房子未建成：全屏建造引导（占满顶栏以下全部区域，场景随进度"长出"房子） */
+.yd-guide-full {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.yd-guide-full > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 尚未圈地：全屏圈地引导（居中卡片 + 圈地按钮） */
+.yd-full-cta {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.yd-cta-card {
+  width: min(430px, 100%);
+  padding: 30px 26px 26px;
+  border: 1px solid rgba(78, 163, 255, 0.3);
+  border-radius: 18px;
+  background: linear-gradient(165deg, rgba(20, 32, 52, 0.95), rgba(12, 18, 32, 0.96));
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+  text-align: center;
+}
+.yd-cta-icon {
+  font-size: 46px;
+  margin-bottom: 10px;
+  animation: yd-cta-bob 2.4s ease-in-out infinite;
+}
+.yd-cta-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  color: var(--text, #e5e7eb);
+}
+.yd-cta-sub {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.yd-cta-hint {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+@keyframes yd-cta-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+.yd-btn.big {
+  padding: 12px 26px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 12px;
 }
 
 /* ---------- 通用块 ---------- */
@@ -965,10 +1124,13 @@ function clearObstacle(obstacle) {
   color: var(--text, #e5e7eb);
   cursor: pointer;
   font-size: 12px;
-  transition: filter 0.15s;
+  transition: filter 0.15s, transform 0.1s;
 }
 .yd-btn:hover:not(:disabled) {
   filter: brightness(1.25);
+}
+.yd-btn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 .yd-btn:disabled {
   opacity: 0.45;
@@ -1025,6 +1187,10 @@ function clearObstacle(obstacle) {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.008));
 }
 .yd-stat {
   padding: 4px 10px;
@@ -1040,16 +1206,56 @@ function clearObstacle(obstacle) {
 }
 .yd-block {
   margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.008));
+  padding: 12px 12px 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.yd-block:hover {
+  border-color: rgba(139, 92, 246, 0.35);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
 }
 .yd-block-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   flex-wrap: wrap;
+}
+/* 模块图标徽章：渐变圆角方块，按模块类型着色（QQ 农场式分区感） */
+.yd-b-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 16px;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.yd-b-chip.crop {
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.28), rgba(34, 197, 94, 0.14));
+}
+.yd-b-chip.build {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(99, 102, 241, 0.15));
+}
+.yd-b-chip.obstacle {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.26), rgba(249, 115, 22, 0.12));
+}
+.yd-b-chip.stock {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.28), rgba(14, 165, 233, 0.12));
+}
+.yd-b-chip.bag {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.28), rgba(234, 179, 8, 0.12));
+}
+.yd-b-chip.rate {
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.26), rgba(236, 72, 153, 0.12));
 }
 .yd-b-title {
   font-weight: 700;
+  font-size: 14px;
 }
 .yd-b-count {
   color: var(--accent, #8b5cf6);
@@ -1091,12 +1297,27 @@ function clearObstacle(obstacle) {
   background: var(--bg3, #171a21);
   color: var(--text, #e5e7eb);
   cursor: pointer;
-  transition: transform 0.12s, border-color 0.12s, background 0.12s;
+  transition: transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1), border-color 0.18s, background 0.18s, box-shadow 0.18s;
   overflow: hidden;
+  will-change: transform;
 }
 .yd-plot:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   border-color: var(--accent, #8b5cf6);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.22);
+}
+.yd-plot:active {
+  transform: translateY(0) scale(0.97);
+}
+/* 成熟地块：绿色光晕呼吸，提示"可以收获了" */
+.yd-plot.ripe {
+  border-color: rgba(74, 222, 128, 0.6);
+  background: rgba(74, 222, 128, 0.07);
+  animation: yd-ripe-glow 2.2s ease-in-out infinite;
+}
+@keyframes yd-ripe-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.2); }
 }
 .yd-plot.sel {
   border-color: var(--accent, #8b5cf6);
@@ -1161,6 +1382,28 @@ function clearObstacle(obstacle) {
   border-radius: 6px;
   padding: 0 4px;
 }
+/* 作物格生长阶段条：横排小圆点，已度过阶段高亮为主题色，成熟整体变绿 */
+.yd-p-stages {
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+}
+.yd-p-stages i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--bg2, #0f1116);
+  border: 1px solid var(--border);
+  transition: background 0.3s, border-color 0.3s;
+}
+.yd-p-stages i.on {
+  background: var(--accent, #8b5cf6);
+  border-color: var(--accent, #8b5cf6);
+}
+.yd-p-stages i.ripe {
+  background: #4ade80;
+  border-color: #4ade80;
+}
 .yd-more {
   margin-top: 6px;
   color: var(--muted);
@@ -1184,15 +1427,20 @@ function clearObstacle(obstacle) {
 }
 .yd-card {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg3, #171a21);
-  padding: 10px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.008));
+  padding: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+.yd-card:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
 }
 .yd-card-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .yd-c-title {
   font-weight: 700;
@@ -1338,6 +1586,7 @@ function clearObstacle(obstacle) {
   background: linear-gradient(90deg, rgba(6, 182, 212, 0.12), rgba(139, 92, 246, 0.12));
   padding: 10px 14px;
   flex-shrink: 0;
+  animation: yd-slide-up 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 .yd-bb-info {
   font-size: 12px;
@@ -1361,6 +1610,17 @@ function clearObstacle(obstacle) {
   background: var(--bg3, #171a21);
   padding: 10px 14px;
   flex-shrink: 0;
+  animation: yd-slide-up 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@keyframes yd-slide-up {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 .yd-d-head {
   display: flex;
@@ -1397,6 +1657,40 @@ function clearObstacle(obstacle) {
   margin: 8px 0;
   font-size: 11px;
 }
+/* 详情条生长阶段胶囊：已度过阶段高亮主题色，成熟整体变绿 */
+.yd-d-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+.yd-d-stage span {
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg2, #0f1116);
+  font-size: 11px;
+  color: var(--muted);
+}
+.yd-d-stage span.on {
+  color: var(--text, #e5e7eb);
+  border-color: var(--accent, #8b5cf6);
+  background: rgba(139, 92, 246, 0.15);
+}
+.yd-d-stage span.ripe {
+  color: #4ade80;
+  border-color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+}
+.yd-d-stage-tip {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+.yd-d-stage-tip.gain {
+  color: #4ade80;
+}
 .yd-d-ops {
   display: flex;
   align-items: center;
@@ -1414,6 +1708,7 @@ function clearObstacle(obstacle) {
   justify-content: center;
   z-index: 50;
   padding: 20px;
+  animation: yd-fade-in 0.18s ease-out;
 }
 .yd-modal {
   width: min(420px, 100%);
@@ -1424,6 +1719,21 @@ function clearObstacle(obstacle) {
   border: 1px solid var(--border);
   background: var(--bg3, #171a21);
   overflow: hidden;
+  animation: yd-pop-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes yd-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes yd-pop-in {
+  from {
+    transform: scale(0.92) translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
 }
 .yd-m-head {
   display: flex;

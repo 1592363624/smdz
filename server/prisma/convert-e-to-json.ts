@@ -674,13 +674,27 @@ function mapTitleToTitle(section: ConfigSection) {
 
 function mapBuildingToBuilding(section: ConfigSection) {
   const fields = section.fields;
-  return {
+  const building: any = {
     name: section.name,
     type: '建筑',
     description: fields['说明'] || '',
     storage: 0,
     materials: parseItemCountString(fields['产出'] || ''),
   };
+  // 防御建筑（原版 碉堡 系列）：攻击/攻击次数/生命/攻击文本 是 加成.攻击 判定的输入。
+  // generateFrontline 读取 建筑.加成.攻击 != 0 生成前线武器（伤害 26/25/25/25 × 攻击 × 数量），
+  // 必须原样保留，否则前端「安装防御建筑→火力通道」链路失效。
+  const atk = fields['攻击'];
+  const life = fields['生命'];
+  if (atk || life || fields['攻击次数']) {
+    building.bonus = {
+      攻击: Number.parseFloat(atk) || 0,
+      攻击次数: Number.parseInt(fields['攻击次数'] || '1', 10) || 1,
+      生命: Number.parseFloat(life) || 0,
+    };
+  }
+  if (fields['攻击文本']) building['攻击文本'] = fields['攻击文本'];
+  return building;
 }
 
 function mapVehicleToVehicle(section: ConfigSection) {
