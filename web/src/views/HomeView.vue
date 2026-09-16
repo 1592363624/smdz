@@ -1,5 +1,25 @@
 <template>
-  <div class="yd-page">
+  <!-- 建造期（已拉到数据且进度 < 4）：整页接管为全屏建造引导。
+       不显示游戏顶栏 / 农田 / 仓库等任何家园功能——房子没建成，
+       其它家园系统操作一律不开放（后端 home-gate.util 同口径拦截）。
+       圈地 / 开挖 / 建基 / 建房按钮就地发送与 QQ 端相同的指令，
+       施工场景随进度逐级"长出"房子。 -->
+  <div v-if="buildingPhase" class="yd-page yd-page-building">
+    <HomeBuildGuide
+      class="yd-guide-full"
+      :step="progress"
+      fullscreen
+      :busy="running"
+      :at-home="progress === 0 || atHome"
+      :house-name="rawHouseName"
+      :travel-left="travelLeft"
+      @send="runGuideCommand"
+      @open-chat="router.push('/chat')"
+    />
+  </div>
+
+  <!-- 建成后 / 加载中 / 错误：正常家园页（顶栏 + 农田等） -->
+  <div v-else class="yd-page">
     <!-- 顶栏：家园名 / 关键指标 / 状态与刷新 -->
     <header class="yd-top">
       <button class="yd-back" title="返回聊天" @click="router.push('/chat')">←</button>
@@ -8,8 +28,6 @@
         <div class="yd-meta">
           <span>Lv.{{ level }}</span>
           <span>凭证 {{ vouchers }}</span>
-          <!-- 未圈地（进度 0）才显示纯文本徽标；1-4 由下方四步引导条展示 -->
-          <span v-if="progress === 0" class="yd-warn">建造进度 {{ progress }}/4</span>
           <span>作物 {{ crop.used }}/{{ crop.limit }}</span>
           <span>建筑 {{ building.used }}/{{ building.limit }}</span>
           <!-- 正在生长的作物格数量（QQ 农场式"种植中"徽标） -->
@@ -23,23 +41,9 @@
       </div>
     </header>
 
-    <!-- 房子未建成前的全屏建造引导（圈地 → 开挖地基 → 建造地基 → 建造房子）：
-         进度 < 4 时整页只显示引导，隐藏农田/建筑区等一切家园功能——
-         房子没建成，其它家园系统操作一律不开放（后端 home-gate.util 同口径拦截）。
-         按钮就地发送与 QQ 端相同的指令，带动画的院子场景随进度逐级"长出"房子。 -->
-    <div v-if="data && progress < 4" class="yd-guide-full">
-      <HomeBuildGuide
-        :step="progress"
-        fullscreen
-        :busy="running"
-        :at-home="progress === 0 || atHome"
-        @send="runGuideCommand"
-      />
-    </div>
-
-    <!-- 加载 / 错误 / 无家园：尚未圈地 → 全屏圈地引导（选地 → 圈地按钮） -->
     <div v-if="loading && !data" class="yd-hint">家园数据加载中...</div>
     <div v-else-if="error && !data" class="yd-hint err">{{ error }}</div>
+    <!-- 异常空态（档案不存在 / 地图丢失等）：正常页内居中提示，不再与全屏引导叠加 -->
     <div v-else-if="blocked" class="yd-full-cta">
       <div class="yd-cta-card">
         <div class="yd-cta-icon">🏡</div>
@@ -50,7 +54,6 @@
       </div>
     </div>
 
-    <!-- 建造期（进度 < 4）只显示上方全屏引导，其余区块不渲染 -->
     <template v-else-if="data && progress >= 4">
       <!-- 不在院子：种植/安装/拆除/收获都会被人不在院子拦截，先引导回家 -->
       <div v-if="!atHome" class="yd-banner">
@@ -392,7 +395,7 @@
  *   种子名若以数字结尾导致批量解析失败，会自动退化为逐颗种植。
  * - 「一键收获」= 对田里每种作物各发一条「收获 名称」（该指令本就收走同名全部）。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { commandApi, homeApi } from '../api';
 import { HOME_YARD_CONFIG as C, HOME_BUILD_GUIDE_CONFIG as G } from '../config';
@@ -419,12 +422,27 @@ const batchKind = ref('');
 /** 刷选中的地块 key 集合，形如 'crop:3' */
 const selection = ref(new Set());
 let timer = null;
+/** 刚建成：全屏引导多停留一会儿播完落成庆祝，再切完整家园页 */
+const holdDone = ref(false);
+let holdDoneTimer = null;
+/** 前往某地的剩余秒数（>0 时引导按钮显示倒计时，到点自动 refresh） */
+const travelLeft = ref(0);
+let travelTick = null;
+let travelDoneTimer = null;
 
 // ---------- 派生数据 ----------
-const houseName = computed(() => data.value?.houseName || '家园');
+/** 接口里的真实房名（可为空）；展示名 houseName 才做「家园」兜底 */
+const rawHouseName = computed(() => String(data.value?.houseName || '').trim());
+const houseName = computed(() => rawHouseName.value || '家园');
 const level = computed(() => Number(data.value?.level ?? 1) || 1);
 const vouchers = computed(() => Number(data.value?.vouchers ?? 0) || 0);
 const progress = computed(() => Number(data.value?.progress ?? 0) || 0);
+/** 是否处于「房子未建成 → 全屏引导接管」阶段（含刚建成的庆祝停留） */
+const buildingPhase = computed(() => {
+  if (!data.value) return false;
+  if (progress.value < 4) return true;
+  return holdDone.value;
+});
 const atHome = computed(() => Boolean(data.value?.atHome));
 const blocked = computed(() => data.value?.blocked || '');
 const crop = computed(() => data.value?.crop || { used: 0, limit: 0, plots: [] });
@@ -520,7 +538,63 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
+  if (holdDoneTimer) clearTimeout(holdDoneTimer);
+  clearTravelCountdown();
   endBrush();
+});
+
+/** 从指令回包里解析「预计 N 秒后到达」；解析不到返回 0 */
+function parseTravelSeconds(text) {
+  const m = String(text || '').match(/预计\s*(\d+)\s*秒后到达/);
+  return m ? Math.max(0, Number(m[1]) || 0) : 0;
+}
+
+function clearTravelCountdown() {
+  if (travelTick) {
+    clearInterval(travelTick);
+    travelTick = null;
+  }
+  if (travelDoneTimer) {
+    clearTimeout(travelDoneTimer);
+    travelDoneTimer = null;
+  }
+  travelLeft.value = 0;
+}
+
+/**
+ * 启动「前往」倒计时：按钮上每秒 -1，到 0 后立刻 refresh，
+ * 不用再手动刷新才能看到「已到家 / 进度变化」。
+ */
+function startTravelCountdown(seconds) {
+  const total = Math.max(1, Math.floor(Number(seconds) || 0));
+  clearTravelCountdown();
+  travelLeft.value = total;
+  travelTick = setInterval(() => {
+    travelLeft.value = Math.max(0, travelLeft.value - 1);
+    if (travelLeft.value <= 0) {
+      if (travelTick) {
+        clearInterval(travelTick);
+        travelTick = null;
+      }
+      // 到达后多等一小拍，确保后端 arrival 已落库
+      travelDoneTimer = setTimeout(() => {
+        travelDoneTimer = null;
+        refresh();
+      }, 400);
+    }
+  }, 1000);
+}
+
+/** 进度推进到 4：引导页多留 1.6s 播完撒花/落成动画，再切完整家园 */
+watch(progress, (now, before) => {
+  if (before === undefined || now === before) return;
+  if (now >= 4 && before < 4) {
+    holdDone.value = true;
+    clearTimeout(holdDoneTimer);
+    holdDoneTimer = setTimeout(() => { holdDone.value = false; }, 1600);
+  } else if (now < 4) {
+    holdDone.value = false;
+  }
 });
 
 // ---------- 展示工具 ----------
@@ -784,29 +858,40 @@ async function run(cmd, opts = {}) {
     return;
   }
   running.value = true;
+  let text = '';
   try {
     const res = await commandApi.execute(cmd);
-    const text = res?.data?.content ?? '';
-    ui.pushToast({ type: 'success', message: text || `已执行：${cmd}`, timeout: 4000 });
+    text = res?.data?.content ?? '';
+    ui.pushToast({ type: 'success', message: text || `已执行：${cmd}`, timeout: 5000 });
   } catch (e) {
-    ui.pushToast({ type: 'error', message: e?.response?.data?.message || `执行失败：${cmd}` });
+    text = e?.response?.data?.message || `执行失败：${cmd}`;
+    ui.pushToast({ type: 'error', message: text });
   } finally {
     running.value = false;
     selected.value = null;
     picker.value.open = false;
-    // 后端写完再读，避免读到旧快照
-    setTimeout(refresh, C.refetchDelayMs);
+    // 「前往」带移动耗时：回包会写「预计 N 秒后到达」——
+    // 先短延时拉一次（标记/菜单），再启动倒计时到点自动 refresh，推动 UI（如 atHome）变化。
+    const travelSec = parseTravelSeconds(text);
+    if (travelSec > 0) {
+      setTimeout(refresh, C.refetchDelayMs);
+      startTravelCountdown(travelSec);
+    } else {
+      setTimeout(refresh, C.refetchDelayMs);
+    }
   }
 }
 
 /**
  * 四步引导条上的按钮：执行一步建造指令（仍走统一指令通道）。
- * 进度 0 的「圈地」不需要人在院子（此时还没有家园）；「回家」本身也无需门禁——
- * 否则人还没站在院子里时，引导里的「先回家」按钮会被 必须在院子 门禁误拦。
+ * 进度 0 的「圈地」不需要人在院子（此时还没有家园）。
+ * 「前往 房名」是移动指令，本身也无需「必须在院子」门禁——
+ * 否则人还没站在院子里时，引导里的「先回家」会被门禁误拦。
  * 其余步骤沿用「必须在院子」门禁。
  */
 function runGuideCommand(cmd) {
-  return run(cmd, { requireHome: cmd !== '回家' && progress.value > 0 });
+  const isTravel = typeof cmd === 'string' && cmd.startsWith('前往 ');
+  return run(cmd, { requireHome: !isTravel && progress.value > 0 });
 }
 
 /** 尚未圈地时的入口按钮：发送「圈地」（不需要人在院子） */
@@ -906,7 +991,12 @@ function removeSelected() {
 }
 
 function goHome() {
-  run(C.commands.goHome(houseName.value), { requireHome: false });
+  const name = rawHouseName.value;
+  if (!name) {
+    ui.pushToast({ type: 'warning', message: '还没有家园，先「圈地」' });
+    return;
+  }
+  run(C.commands.goHome(name), { requireHome: false });
 }
 function collect() {
   run(C.commands.collect(), { requireHome: false });
@@ -1018,20 +1108,17 @@ function clearObstacle(obstacle) {
   border-color: rgba(251, 146, 60, 0.45);
 }
 
-/* 房子未建成：全屏建造引导（占满顶栏以下全部区域，场景随进度"长出"房子） */
+/* 建造期：整页交给全屏引导，铺满视口（组件内部自带场景 + 指令面板） */
+.yd-page-building {
+  overflow: hidden;
+}
 .yd-guide-full {
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.yd-guide-full > * {
-  flex: 1;
-  min-height: 0;
+  width: 100%;
 }
 
-/* 尚未圈地：全屏圈地引导（居中卡片 + 圈地按钮） */
+/* 异常空态（档案/地图异常）：正常页内居中卡片 */
 .yd-full-cta {
   flex: 1;
   display: flex;

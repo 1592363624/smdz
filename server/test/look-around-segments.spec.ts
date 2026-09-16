@@ -13,9 +13,15 @@ function parseJson(value: any, fallback: any): any {
   }
 }
 
-function makeService(options: { markers?: Record<string, any>; map?: any } = {}) {
+function makeService(options: {
+  markers?: Record<string, any>;
+  map?: any;
+  houseName?: string;
+  connections?: any[];
+} = {}) {
   const player: any = {
     id: 1, userId: 42, name: '冒险者', mapId: 7, level: 5, expBonus: 20,
+    houseName: options.houseName ?? '',
     markers: JSON.stringify(options.markers ?? {}),
     markers2: '[]',
   };
@@ -43,7 +49,7 @@ function makeService(options: { markers?: Record<string, any>; map?: any } = {})
     mapService: {
       getMapById: jest.fn(async () => map),
       getMapMonsters: jest.fn(async () => []),
-      getConnections: jest.fn(() => []),
+      getConnections: jest.fn(() => options.connections ?? []),
     },
     combatState: {},
     combatSystem: {
@@ -164,6 +170,86 @@ describe('孤岛地图观察附近：提示「出口」为唯一出路（血族�
     const result = await fixture.service.handleLookAround(42);
 
     expect(result).not.toContain('这里没有任何通往其它地图的道路');
+  });
+});
+
+describe('观察附近开拓地过滤（原版 地图操作.ecode L656-684 / L843-854）', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('非自家开拓地不逐条列出，折叠为「家园(N个)」跳转查看家园', async () => {
+    const fixture = makeService({
+      houseName: '我家',
+      connections: [
+        { name: '城镇出口', distance: 100 },
+        { name: '森林深处', distance: 130 },
+        { name: '超新星10919494', distance: 10, isFrontier: true },
+        { name: '桃花源', distance: 10, isFrontier: true },
+        { name: '巅峰阁', distance: 10, isFrontier: true },
+      ],
+    });
+
+    const result = await fixture.service.handleLookAround(42);
+
+    expect(result).toContain('城镇出口');
+    expect(result).toContain('森林深处');
+    expect(result).toContain('家园(3个)');
+    expect(result).not.toContain('超新星10919494');
+    expect(result).not.toContain('桃花源');
+    expect(result).not.toContain('巅峰阁');
+  });
+
+  it('自己的院子单独列出，且仍计入家园总数', async () => {
+    const fixture = makeService({
+      houseName: '我家',
+      connections: [
+        { name: '城镇出口', distance: 100 },
+        { name: '我家', distance: 10, isFrontier: true },
+        { name: '超新星999', distance: 10, isFrontier: true },
+      ],
+    });
+
+    const result = await fixture.service.handleLookAround(42);
+
+    expect(result).toContain('我家');
+    expect(result).toContain('家园(2个)');
+    expect(result).not.toContain('超新星999');
+  });
+
+  it('他人「xx屋内」开拓地入口单独列出；自家屋内不重复编号', async () => {
+    const fixture = makeService({
+      houseName: '我家',
+      connections: [
+        { name: '我家屋内', distance: 10, isFrontier: true },
+        { name: '超新星888屋内', distance: 10, isFrontier: true },
+        { name: '超新星777', distance: 10, isFrontier: true },
+      ],
+    });
+
+    const result = await fixture.service.handleLookAround(42);
+
+    expect(result).toContain('我家屋内');
+    expect(result).toContain('超新星888屋内');
+    expect(result).toContain('家园(3个)');
+    expect(result).not.toContain('超新星777');
+  });
+
+  it('兼容开拓地字段名（isFrontier / 开拓地 / type）', async () => {
+    const fixture = makeService({
+      connections: [
+        { name: 'A家园', distance: 10, 开拓地: true },
+        { name: 'B家园', distance: 10, type: '开拓地' },
+        { name: 'C家园', distance: 10, isFrontier: true },
+        { name: '城镇出口', distance: 100 },
+      ],
+    });
+
+    const result = await fixture.service.handleLookAround(42);
+
+    expect(result).toContain('家园(3个)');
+    expect(result).toContain('城镇出口');
+    expect(result).not.toContain('A家园');
+    expect(result).not.toContain('B家园');
+    expect(result).not.toContain('C家园');
   });
 });
 

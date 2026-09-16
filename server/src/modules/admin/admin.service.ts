@@ -442,6 +442,19 @@ export class AdminService {
     await this.prisma.currencyLog.deleteMany({ where: { userId: targetId } });
     await this.prisma.commandLog.deleteMany({ where: { senderId: targetId } });
 
+    // 家园三张动态图与宿主入口无外键，删号前先拆，避免幽灵家园刷「观察附近/查看家园」。
+    const targetPlayer = await this.prisma.player.findUnique({
+      where: { userId: targetId },
+      select: { houseName: true },
+    });
+    if (targetPlayer?.houseName) {
+      try {
+        await this.mapService.removeHouseData(targetPlayer.houseName);
+      } catch (e: any) {
+        this.logger.warn(`删除用户 ${targetId} 时清理家园「${targetPlayer.houseName}」失败: ${e?.message ?? e}`);
+      }
+    }
+
     // 清理各地图 summons 里的召唤物（白/宠物等 JSON 裸存、无外键级联）：
     // 残留孤儿单位会被 ensurePlayerWhite/对话等路径当作"别人的白"读取（显示归属为
     // 已删除的 id），某些主人解析路径还会把它当 userId 去建档触发外键错误。
@@ -590,6 +603,15 @@ export class AdminService {
     const player = await this.prisma.player.findUnique({ where: { userId } });
     if (!player) {
       return `账号 ${user.username} 尚无玩家记录，无需清理`;
+    }
+
+    // 清档前拆除家园图与宿主入口：仅清 houseName 会在宿主图上留下幽灵连接。
+    if (player.houseName) {
+      try {
+        await this.mapService.removeHouseData(player.houseName);
+      } catch (e: any) {
+        this.logger.warn(`清档用户 ${userId} 时清理家园「${player.houseName}」失败: ${e?.message ?? e}`);
+      }
     }
 
     // 初始背包（与新玩家一致，全部为原版道具：布装备+石制工具）

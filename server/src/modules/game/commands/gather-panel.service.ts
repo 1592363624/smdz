@@ -650,8 +650,11 @@ export class GatherPanelService {
     if (!currentMap) return null;
 
     // 当前地图的可前往子区域（connections）
+    // 与「观察附近」同口径：开拓地（玩家家园）不逐条展开，避免宿主图被家园刷屏；
+    // 网页面板只需真实地图连接，家园入口走「查看家园」。
     const subMaps = this.mapService
       .getConnections(currentMap)
+      .filter((c: any) => !(c?.isFrontier === true || c?.开拓地 === true || c?.type === '开拓地'))
       .map((c) => ({ name: c.name, mapId: c.mapId, distance: c.distance || 0 }));
 
     // 全部地图，标记当前所在地图及是否由当前地图直接可达
@@ -1306,7 +1309,7 @@ export class GatherPanelService {
       }
     }
 
-    // 可前往（原版 L656-684：直接编入编号列表，N@前往名）
+    // 可前往（原版 L656-684）：非开拓地全列；开拓地不逐条展开，只折叠为「家园(N个)」
     const connections = this.mapService.getConnections(map) || [];
     // 孤岛地图（血族城堡/战舰坟场/太空/暗影岛：可前往里只有「出口」这种空间乱流入口）
     // 没有任何通往真实地图的道路，玩家极易误以为移动系统坏了（2026-09-12 反馈）——
@@ -1320,14 +1323,44 @@ export class GatherPanelService {
         isolated = false; // 精简注入或数据缺失时不提示
       }
     }
-    for (const connection of connections) {
-      if (!connection?.name) continue;
+    const houseName = String((player as any).houseName || '').trim();
+    const ownHomeNames = new Set(
+      houseName ? [houseName, `${houseName}屋内`, `${houseName}前线`] : [],
+    );
+    const isFrontierConnection = (c: any): boolean =>
+      c?.isFrontier === true || c?.开拓地 === true || c?.type === '开拓地';
+    const pushTravelOption = (connection: any, name: string): void => {
       // 孤岛的出口在下方统一置顶编号，此处不重复编号
-      if (isolated && String(connection.name).trim() === '出口') continue;
-      const name = String(connection.name);
+      if (isolated && name.trim() === '出口') return;
       // 副本临时入口附剩余时间：入口从开启时刻起计有效期、到期自动关闭，
       // 玩家需要知道还能进多久。cmd 保持原名，编号快捷指令不受显示文案影响。
       quickOptions.push({ label: `${name}${this.dungeonEntrySuffix(connection)}`, cmd: `前往 ${name}` });
+    };
+    // 第一段：自己的院子/屋内/前线优先单独列出（原版 L656-663）
+    for (const connection of connections) {
+      if (!connection?.name) continue;
+      const name = String(connection.name);
+      if (!ownHomeNames.has(name)) continue;
+      pushTravelOption(connection, name);
+    }
+    // 第二段：普通出口全列；开拓地默认不展开（原版 L664-684）
+    // 森林出口等宿主图会挂上大量玩家家园入口，全列会把观察附近刷成家园墙。
+    let frontierCount = 0;
+    for (const connection of connections) {
+      if (!connection?.name) continue;
+      const name = String(connection.name);
+      if (isFrontierConnection(connection)) {
+        frontierCount += 1;
+        // 自家屋内已在第一段列出；其余开拓地默认隐藏
+        if (name === `${houseName}屋内`) continue;
+        // 串门场景：他人「xx屋内」入口仍单独列出（原版 L668-671）
+        if (!name.endsWith('屋内')) continue;
+        pushTravelOption(connection, name);
+        continue;
+      }
+      // 第一段已列出的自家入口不重复编号
+      if (ownHomeNames.has(name)) continue;
+      pushTravelOption(connection, name);
     }
     if (isolated) {
       lines.push('🚪 这里没有任何通往其它地图的道路');
@@ -1405,6 +1438,11 @@ export class GatherPanelService {
     // 地上物品（原版 L838-842：折叠为「拾取(N个物品)」单条入口，拾取前不展示明细）
     if (items.length > 0) {
       quickOptions.push({ label: `拾取(${items.length}个物品)`, cmd: '拾取' });
+    }
+
+    // 家园折叠入口（原版 L843-854：全部开拓地计数 → 「家园(N个)」跳转「查看家园」）
+    if (frontierCount > 0) {
+      quickOptions.push({ label: `家园(${frontierCount}个)`, cmd: '查看家园' });
     }
 
     // NPC（静态 NPC 直接编入编号列表）
@@ -1689,7 +1727,23 @@ export class GatherPanelService {
     const currentMap = await this.mapService.getMapById(player.mapId);
     if (!currentMap) return '你不在任何地图上';
 
-    const connections = this.mapService.getConnections(currentMap);
+    // 与观察附近同口径：开拓地不逐条列出（家园入口改由「查看家园」浏览）
+    const houseName = String((player as any).houseName || '').trim();
+    const ownHomeNames = new Set(
+      houseName ? [houseName, `${houseName}屋内`, `${houseName}前线`] : [],
+    );
+    const isFrontierConnection = (c: any): boolean =>
+      c?.isFrontier === true || c?.开拓地 === true || c?.type === '开拓地';
+    const allConnections = this.mapService.getConnections(currentMap);
+    const connections = allConnections.filter((c: any) => {
+      if (!c?.name) return false;
+      const name = String(c.name);
+      if (!isFrontierConnection(c)) return true;
+      if (ownHomeNames.has(name)) return true;
+      return name.endsWith('屋内');
+    });
+    const frontierCount = allConnections.filter((c: any) =>
+      Boolean(c?.name) && isFrontierConnection(c)).length;
     const monsters = await this.mapService.getMapMonsters(currentMap);
 
     // 载具（原版 地图操作.ecode L806-L828：载具列在怪物之前，
@@ -1722,6 +1776,7 @@ export class GatherPanelService {
       `━━━━━━━━━━━━━━━`,
       `可前往:`,
       ...connections.map((c: any) => `  → ${c.name}${this.dungeonEntrySuffix(c)} (距离: ${c.distance})`),
+      ...(frontierCount > 0 ? [`  → 家园(${frontierCount}个)（发送「查看家园」浏览）`] : []),
     ];
 
     return lines.filter(Boolean).join('\n');

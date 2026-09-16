@@ -1132,10 +1132,24 @@ export class FamiliarSystemService {
     }
   }
 
-  /** 读取家园原始所在地图。家园建成后玩家可能已移动到屋内/前线，不能再用 player.mapId 推断。 */
-  private getHouseBaseMapId(player: any): number {
+  /**
+   * 读取家园原始所在地图。家园建成后玩家可能已移动到屋内/前线，不能再用 player.mapId 推断。
+   * stats 缺失时从院子 outbound 连接反查宿主；仍取不到则返回 0（禁止静默挂到玩家当前图）。
+   */
+  private async getHouseBaseMapId(player: any): Promise<number> {
     const stats = asJsonValue<Record<string, any>>(player.stats, {});
-    return Number(stats['家园原地图ID'] || stats.houseBaseMapId || player.mapId || 0);
+    const fromStats = Number(stats['家园原地图ID'] || stats.houseBaseMapId || 0);
+    if (fromStats > 0) return fromStats;
+    if (!player.houseName) return 0;
+    const yard = await this.mapService.getMapByName(String(player.houseName)).catch(() => null);
+    if (!yard) return 0;
+    const conns = asJsonValue<any[]>(yard.connections, []);
+    const baseConn = conns.find((c: any) =>
+      c?.mapId != null
+      && !(c?.isFrontier === true || c?.开拓地 === true)
+      && String(c?.name || '') !== `${player.houseName}屋内`
+      && String(c?.name || '') !== `${player.houseName}前线`);
+    return Number(baseConn?.mapId || 0);
   }
 
   /** 原版圈地使用固定词库加生成编号为家园命名；名称必须全局唯一。 */
@@ -1155,7 +1169,7 @@ export class FamiliarSystemService {
   /** 取得玩家家园关联动态地图；必要时按原版流程补建。 */
   private async getHouseMaps(player: any, progress: number): Promise<{ yard: any; interior?: any; frontline?: any } | null> {
     if (!player.houseName) return null;
-    const baseMapId = this.getHouseBaseMapId(player);
+    const baseMapId = await this.getHouseBaseMapId(player);
     if (!baseMapId) return null;
     return this.mapService.ensureHouseMaps(player.houseName, baseMapId, progress);
   }
@@ -1341,7 +1355,7 @@ export class FamiliarSystemService {
 
     // 原版“搬迁”只改变家园所在的世界地图，不改变家园名称和内部三张地图。
     const stats = asJsonValue<Record<string, any>>(player.stats, {});
-    const oldBaseMapId = Number(stats['家园原地图ID'] || stats.houseBaseMapId || 0);
+    const oldBaseMapId = await this.getHouseBaseMapId(player);
     stats['家园原地图ID'] = map.id;
     stats['家园原地图'] = map.name;
     player.stats = stats; // Player stats 为 Json 列，直接写对象
@@ -1349,9 +1363,12 @@ export class FamiliarSystemService {
     player.location = map.name;
     if (player.houseName) {
       await this.mapService.ensureHouseMaps(player.houseName, map.id, progress);
+      // 旧宿主入口：stats 有旧 ID 时删那一条；同时全库摘掉除新宿主外的同名入口，防漏删。
       if (oldBaseMapId > 0 && oldBaseMapId !== map.id) {
         await this.mapService.removeMapConnection(oldBaseMapId, player.houseName);
       }
+      await this.mapService.removeHouseConnectionsFromAllMaps(player.houseName, map.id);
+      await this.mapService.relinkHouseYardToBase(player.houseName, map.id);
     }
 
     await this.playerService.savePlayer(player);
@@ -1420,6 +1437,12 @@ export class FamiliarSystemService {
     if (!currentMap) return '你不在任何地图上，无法圈地';
     if (currentMap.isInstance || currentMap.isFrontier) {
       return `${player.name || '冒险者'} 不能在副本或玩家的家园内圈地`;
+    }
+
+    // 进度归零但仍残留 houseName/旧院落时（清档不彻底/测试重置），先拆干净再圈，避免双家园幽灵连接。
+    if (player.houseName) {
+      await this.mapService.removeHouseData(String(player.houseName));
+      player.houseName = '';
     }
 
     const houseName = await this.generateHouseName(userId);
@@ -1669,7 +1692,11 @@ export class FamiliarSystemService {
 
     // 原版建成房子时追加“屋内”和“前线”地图，并在院子中加入两个入口。
     // 地图在开工时即补建（与原版一致），玩家完工后即可前往。
-    await this.mapService.ensureHouseMaps(player.houseName, this.getHouseBaseMapId(player), 4);
+    const houseBaseMapId = await this.getHouseBaseMapId(player);
+    if (!houseBaseMapId) {
+      return '家园宿主地图缺失，无法继续建造。请「家园搬迁」到目标地图后重试';
+    }
+    await this.mapService.ensureHouseMaps(player.houseName, houseBaseMapId, 4);
 
     await this.playerService.savePlayer(player);
 

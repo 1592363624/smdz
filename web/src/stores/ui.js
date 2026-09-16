@@ -4,7 +4,7 @@
  * 散落状态（连接状态、玩家信息、toast、命令面板）抽到 store 打下基础。
  *
  * 当前纳入：
- * - toasts：全局轻提示队列（成功/错误/警告/信息）
+ * - toasts：全局轻提示队列（成功/错误/警告/信息；悬停暂停自动关闭）
  * - paletteOpen：命令面板（Cmd/Ctrl+K）开关
  * - hpVfxLevel：血量预警特效强度档位（simple/standard/strong，localStorage 持久化）
  */
@@ -14,9 +14,17 @@ import { defineStore } from 'pinia';
 const HP_VFX_LEVELS = ['simple', 'standard', 'strong'];
 const HP_VFX_LEVEL_KEY = 'smdz_hp_vfx_level';
 
+/** 默认 toast 停留时长（ms）：略长于旧版 3s，方便读完一句话 */
+const TOAST_DEFAULT_TIMEOUT = 5000;
+
 export const useUiStore = defineStore('ui', {
   state: () => ({
-    /** @type {Array<{id:number,type:string,title:string,message:string}>} */
+    /**
+     * @type {Array<{
+     *   id:number, type:string, title:string, message:string,
+     *   timeout:number, remaining:number, _timer:number|null, _startedAt:number
+     * }>}
+     */
     toasts: [],
     /** 命令面板是否打开 */
     paletteOpen: false,
@@ -27,21 +35,62 @@ export const useUiStore = defineStore('ui', {
     /**
      * 弹出一条轻提示
      * @param {{type?:'success'|'error'|'warning'|'info', title?:string, message?:string, timeout?:number}} opts
+     *   timeout<=0 表示不自动关闭（仍可点击/点叉关掉）
      * @returns {number} toast id（可用于手动关闭）
      */
     pushToast(opts = {}) {
-      const { type = 'info', title = '', message = '', timeout = 3000 } = opts;
+      const {
+        type = 'info',
+        title = '',
+        message = '',
+        timeout = TOAST_DEFAULT_TIMEOUT,
+      } = opts;
       const id = ++this._toastSeq;
-      this.toasts.push({ id, type, title, message });
-      if (timeout > 0) {
-        setTimeout(() => this.removeToast(id), timeout);
-      }
+      const toast = {
+        id,
+        type,
+        title,
+        message,
+        timeout,
+        remaining: Math.max(0, timeout),
+        _timer: null,
+        _startedAt: 0,
+      };
+      this.toasts.push(toast);
+      this._armToastTimer(toast);
       return id;
     },
     /** 关闭指定 toast */
     removeToast(id) {
       const i = this.toasts.findIndex((t) => t.id === id);
-      if (i !== -1) this.toasts.splice(i, 1);
+      if (i === -1) return;
+      const toast = this.toasts[i];
+      if (toast._timer) {
+        clearTimeout(toast._timer);
+        toast._timer = null;
+      }
+      this.toasts.splice(i, 1);
+    },
+    /** 鼠标悬停：暂停自动关闭倒计时，避免还没读完就消失 */
+    pauseToast(id) {
+      const toast = this.toasts.find((t) => t.id === id);
+      if (!toast || !toast._timer) return;
+      clearTimeout(toast._timer);
+      toast._timer = null;
+      const elapsed = Date.now() - toast._startedAt;
+      toast.remaining = Math.max(500, toast.remaining - elapsed);
+    },
+    /** 鼠标离开：从剩余时长继续倒计时 */
+    resumeToast(id) {
+      const toast = this.toasts.find((t) => t.id === id);
+      if (!toast || toast._timer || toast.timeout <= 0) return;
+      this._armToastTimer(toast);
+    },
+    /** 内部：给 toast 装上自动关闭定时器 */
+    _armToastTimer(toast) {
+      if (toast.timeout <= 0 || toast.remaining <= 0) return;
+      toast._startedAt = Date.now();
+      toast._timer = setTimeout(() => this.removeToast(toast.id), toast.remaining);
     },
     /** 打开命令面板 */
     openPalette() {

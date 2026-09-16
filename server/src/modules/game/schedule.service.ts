@@ -395,7 +395,7 @@ export class ScheduleService implements OnApplicationBootstrap {
       // 7. 生成小蓝（5%几率生成特殊物品）
       await this.spawnBlueItem(maps);
 
-      // 8. 生成随机无主载具（10点/22点全图无载具时必刷，其余时间按 wrecks.json 几率判定）
+      // 8. 生成随机无主载具（仅在 game.wreckSpawnHour 对应小时必刷，全图无主数受 game.wreckMaxCount 上限约束）
       await this.spawnRandomVehicle();
     } catch (err: any) {
       this.logger.error(`行商判断失败: ${err.message}`);
@@ -696,34 +696,49 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 生成随机无主载具（废弃载具）
-   * 对应原版：后台运作.ecode L1390-L1412 行商判断尾部：
-   *   1. 扫全图是否已存在"无主"载具（b=1）；
-   *   2. 全图无无主载具时取当前小时数 → 10点/22点必刷（生成随机载具(真)）；
-   *   3. 其余情况走常规几率判定（生成随机载具()，按 wrecks.json 各载具几率逐个判定，
-   *      可能整轮未命中 → 本小时不生成）。
+   *
+   * 现行规则（配置中心可在线调整，实时生效）：
+   *   1. 仅在 game.wreckSpawnHour（默认 10）对应的整点小时尝试刷新；
+   *      -1 = 关闭自动刷新。
+   *   2. 全图无主载具总数达到 game.wreckMaxCount（默认 3）时跳过；0 = 不限制。
+   *   3. 到点且未达上限则必刷一个（force=true）。
    * 生成与投放统一走 DungeonChallengeService.spawnWreckToRandomMap（与管理员指令同源，
-   * 数据源 wrecks.json 而非普通载具名）。
+   * 数据源 wrecks.json）。管理员「生成废弃载具」不受上限限制。
    */
   private async spawnRandomVehicle(): Promise<void> {
     try {
       const hour = new Date().getHours();
-      let force = false;
-      if (hour === 10 || hour === 22) {
-        // 原版 L1393-L1405 扫的是全部地图（含开拓地/关卡等），不只可刷特殊地图
-        const allMaps = await this.mapService.getAllMaps();
-        const hasOwnerless = allMaps.some((map: any) =>
-          asJsonValue<any[]>(map.vehicles, []).some(
-            // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
-            (v: any) => String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主',
-          ),
-        );
-        // 全图已存在无主载具时，10/22 的必刷退化为常规几率判定
-        if (!hasOwnerless) force = true;
+      const spawnHour = await this.getConfigValue<number>('game.wreckSpawnHour', 10);
+      const maxCount = await this.getConfigValue<number>('game.wreckMaxCount', 3);
+
+      // 非配置刷新小时：直接跳过（原版其余小时的概率刷新已按需求移除）
+      if (spawnHour < 0 || hour !== spawnHour) return;
+
+      // 统计全图无主载具数量（含开拓地/关卡等，与原版扫描口径一致）
+      const allMaps = await this.mapService.getAllMaps();
+      let ownerlessCount = 0;
+      for (const map of allMaps) {
+        const vehicles = asJsonValue<any[]>(map.vehicles, []);
+        for (const v of vehicles) {
+          // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
+          if (String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主') {
+            ownerlessCount++;
+          }
+        }
       }
-      const result = await this.dungeonChallengeService.spawnWreckToRandomMap(force);
+
+      // 达到全图上限：不刷新
+      if (maxCount > 0 && ownerlessCount >= maxCount) {
+        this.logger.log(
+          `行商判断: 废弃载具已达全图上限 ${ownerlessCount}/${maxCount}，跳过刷新`,
+        );
+        return;
+      }
+
+      const result = await this.dungeonChallengeService.spawnWreckToRandomMap(true);
       if (result.ok) {
         this.logger.log(
-          `行商判断: 在地图 ${result.mapName} 生成了无主载具「${result.wreckName}」${force ? '（10/22点必刷）' : ''}`,
+          `行商判断: 在地图 ${result.mapName} 生成了无主载具「${result.wreckName}」（${spawnHour}点必刷）`,
         );
       }
     } catch (err: any) {

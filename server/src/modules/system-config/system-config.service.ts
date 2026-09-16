@@ -130,6 +130,24 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
     group: 'game',
   },
   {
+    key: 'game.wreckSpawnHour',
+    value: '10',
+    label: '废弃载具刷新小时',
+    description:
+      '每天在该整点小时自动刷新废弃载具（0-23）。默认 10。改后下次到点即生效，无需重启。设为 -1 可关闭自动刷新',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: 'game.wreckMaxCount',
+    value: '3',
+    label: '废弃载具全图上限',
+    description:
+      '所有地图上无主废弃载具的总数量上限；达到上限后不再自动刷新（管理员指令不受限）。默认 3，0=不限制',
+    type: 'number',
+    group: 'game',
+  },
+  {
     key: 'chat.messageIntervalSec',
     value: '0.2',
     label: '用户消息发送间隔(秒)',

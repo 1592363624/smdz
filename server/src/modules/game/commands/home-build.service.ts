@@ -731,8 +731,14 @@ export class HomeBuildService {
     if (!map) return '你不在任何地图上！';
 
     const connections = asJsonValue<any[]>(map.connections, []);
-    // 原版只列出"开拓地"类型（isFrontier / 开拓地 标记）
-    const frontiers = connections.filter((c: any) => c.isFrontier === true || c.开拓地 === true || c.type === '开拓地');
+    // 原版只列出"开拓地"类型（isFrontier / 开拓地 标记）；
+    // 额外过滤悬空入口（对应 GameMap 已不存在），避免历史脏数据刷屏。
+    const allMaps = await this.mapService.getAllMaps();
+    const mapNames = new Set((allMaps || []).map((m: any) => String(m?.name || '').trim()).filter(Boolean));
+    const frontiers = connections.filter((c: any) => {
+      const isFrontier = c.isFrontier === true || c.开拓地 === true || c.type === '开拓地';
+      return isFrontier && mapNames.has(String(c?.name || '').trim());
+    });
 
     const lines: string[] = [`🏡 附近的玩家家园:`, `━━━━━━━━━━━━━━━`];
     const options: { label: string; cmd: string }[] = [];

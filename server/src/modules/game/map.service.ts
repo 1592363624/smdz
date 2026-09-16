@@ -541,6 +541,136 @@ export class MapService {
     });
   }
 
+  /** 家园三张动态图的完整名称集合（院子 / 屋内 / 前线）。 */
+  private houseMapNames(houseName: string): string[] {
+    return [houseName, `${houseName}屋内`, `${houseName}前线`];
+  }
+
+  /**
+   * 从所有地图 connections 中摘掉指向指定家园名的入口（含院子/屋内/前线）。
+   * 清档/删号/重圈地/搬迁漏删时的统一清理出口。
+   */
+  async removeHouseConnectionsFromAllMaps(houseName: string, exceptMapId?: number): Promise<number> {
+    if (!houseName) return 0;
+    const names = new Set(this.houseMapNames(houseName));
+    const allMaps = await this.prisma.gameMap.findMany({
+      select: { id: true, connections: true },
+    });
+    let removed = 0;
+    for (const map of allMaps) {
+      if (exceptMapId && map.id === exceptMapId) continue;
+      const connections = this.safeParseJSON<any[]>(map.connections, []);
+      const filtered = connections.filter((connection: any) => !names.has(String(connection?.name || '')));
+      if (filtered.length === connections.length) continue;
+      removed += connections.length - filtered.length;
+      await this.prisma.gameMap.update({
+        where: { id: map.id },
+        data: { connections: filtered },
+      });
+    }
+    return removed;
+  }
+
+  /**
+   * 删除玩家家园的三张动态地图，并摘掉全库指向它们的入口。
+   * 用于清档/删号/进度归零后重圈地，避免幽灵家园残留。
+   */
+  async removeHouseData(houseName: string): Promise<void> {
+    if (!houseName) return;
+    const names = this.houseMapNames(houseName);
+    await this.removeHouseConnectionsFromAllMaps(houseName);
+    await this.prisma.gameMap.deleteMany({ where: { name: { in: names } } });
+  }
+
+  /**
+   * 搬迁后把院子出口改指新宿主：只保留指向 baseMap 的世界入口，
+   * 保留院内 屋内/前线 连接。
+   */
+  async relinkHouseYardToBase(houseName: string, baseMapId: number): Promise<void> {
+    if (!houseName) return;
+    const baseMap = await this.getMapById(baseMapId);
+    if (!baseMap) return;
+    const yard = await this.prisma.gameMap.findUnique({ where: { name: houseName } });
+    if (!yard) return;
+    await this.withMapLock(yard.id, async () => {
+      const current = await this.prisma.gameMap.findUnique({ where: { id: yard.id } });
+      if (!current) return;
+      const connections = this.safeParseJSON<any[]>(current.connections, []);
+      const indoor = connections.filter((c: any) => {
+        const name = String(c?.name || '');
+        return name === `${houseName}屋内` || name === `${houseName}前线`;
+      });
+      const next = [
+        { name: baseMap.name, mapId: baseMap.id, distance: 10, isFrontier: false },
+        ...indoor,
+      ];
+      await this.prisma.gameMap.update({
+        where: { id: yard.id },
+        data: { connections: next },
+      });
+    });
+  }
+
+  /**
+   * 清理无主/悬空家园数据：
+   * - 删除 isFrontier=true 且不属于任何现有 Player.houseName 的地图
+   * - 删除 name 以「屋内/前线」结尾且无主的家园附属图
+   * - 从所有地图 connections 去掉指向无效家园名的开拓地入口
+   */
+  async purgeOrphanHomeData(): Promise<{ removedMaps: number; removedConnections: number }> {
+    const players = await this.prisma.player.findMany({ select: { houseName: true } });
+    const validNames = new Set<string>();
+    for (const player of players) {
+      const name = String(player.houseName || '').trim();
+      if (!name) continue;
+      for (const n of this.houseMapNames(name)) validNames.add(n);
+    }
+
+    const allMaps = await this.prisma.gameMap.findMany({
+      select: { id: true, name: true, isFrontier: true },
+    });
+    const nameToId = new Map(allMaps.map((m) => [m.name, m.id]));
+    const orphanMapIds = allMaps
+      .filter((m) => {
+        if (validNames.has(m.name)) return false;
+        const name = m.name || '';
+        const looksLikeHome = m.isFrontier === true
+          || name.endsWith('屋内')
+          || name.endsWith('前线');
+        return looksLikeHome;
+      })
+      .map((m) => m.id);
+
+    if (orphanMapIds.length > 0) {
+      await this.prisma.gameMap.deleteMany({ where: { id: { in: orphanMapIds } } });
+    }
+
+    // 删图后重扫：开拓地入口必须名称合法且指向仍存在的家园图
+    const liveMaps = await this.prisma.gameMap.findMany({
+      select: { id: true, name: true, connections: true },
+    });
+    const aliveNameToId = new Map(liveMaps.map((m) => [m.name, m.id]));
+    let removedConnections = 0;
+    for (const map of liveMaps) {
+      const connections = this.safeParseJSON<any[]>(map.connections, []);
+      const filtered = connections.filter((c: any) => {
+        const name = String(c?.name || '');
+        const isFrontierConn = c?.isFrontier === true || c?.开拓地 === true || c?.type === '开拓地';
+        if (!isFrontierConn) return true;
+        if (!name || !validNames.has(name)) return false;
+        return aliveNameToId.has(name);
+      });
+      if (filtered.length === connections.length) continue;
+      removedConnections += connections.length - filtered.length;
+      await this.prisma.gameMap.update({
+        where: { id: map.id },
+        data: { connections: filtered },
+      });
+    }
+
+    return { removedMaps: orphanMapIds.length, removedConnections };
+  }
+
   /** 创建/读取不在静态 maps.json 中的运行时地图。 */
   private async ensureDynamicMap(name: string, defaults: Record<string, any>): Promise<any> {
     const existing = await this.prisma.gameMap.findUnique({ where: { name } });

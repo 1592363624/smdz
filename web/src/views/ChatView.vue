@@ -2741,15 +2741,16 @@ let suppressHeaderRevealUntil = 0;
 // 会被误判成「用户向上翻历史」，于是永久停止自动贴底（按钮出现、别人再发言也不跟了）。
 // 对策：
 //   ① 只有「用户真实滚动意图」（滚轮/触摸/拖拽滚动条）才解除贴底，布局变化一律不算；
-//   ② 贴底状态由一个常驻 rAF 循环维持：每帧若发现离底（内容又长高了）就补滚到最后，
+//   ② 贴底状态由一个低频守护定时器维持：只在外界内容（scrollHeight）变长时才补滚一次，
 //      用户一旦接管立即停手 —— 与微信/QQ「始终停在最新消息」的行为一致。
 // 距底部多少像素内仍视为「贴底」。原 150px 过大：用户刚上滑几十像素就会被判为
 // 「还在底部」而立即贴回 → 表现为"往上滑一点点又弹回最下面"。缩小到 40px 后，
 // 只有真正贴近底部才跟随，上滑查看历史更符合 QQ 的直觉。
 const SCROLL_BOTTOM_THRESHOLD = 40; // 距底部多少像素内仍视为「贴底」
-const USER_SCROLL_INTENT_MS = 600; // 用户滚动意图有效期：窗口内的 scroll 事件才算「用户在滚」
+const USER_SCROLL_INTENT_MS = 300; // 用户滚动意图有效期：窗口内的滚动动作才算「用户在滚」
 let userScrollIntentAt = 0; // 最近一次用户滚动意图时间戳
-let bottomFollowRafId = 0; // 常驻贴底循环句柄（0 = 未运行）
+let bottomFollowTimer = 0; // 贴底守护定时器句柄（0 = 未运行）
+let lastFollowScrollHeight = 0; // 贴底守护已补滚到的高度基准（内容未变就不抢）
 
 /** 登记用户滚动意图（模板 @pointerdown 等调用）：只有用户亲手滚才允许解除贴底 */
 function markUserScrollIntent() {
@@ -2789,32 +2790,37 @@ function onTouchMoveIntent(e) {
 
 /** 停止贴底跟随（用户接管阅读历史或组件卸载时调用） */
 function stopBottomFollow() {
-  if (bottomFollowRafId) cancelAnimationFrame(bottomFollowRafId);
-  bottomFollowRafId = 0;
+  if (bottomFollowTimer) {
+    clearInterval(bottomFollowTimer);
+    bottomFollowTimer = 0;
+  }
 }
 
-/** 启动常驻贴底循环：只要 stickToBottom 为真，每帧把滚动位置补到最新内容之后。
- *  内容稳定时每帧只做一次数值比较，开销可忽略；标签页隐藏时浏览器会自动暂停 rAF。 */
+/**
+ * 启动低频贴底守护：只要 stickToBottom 为真，每 120ms 采样一次 scrollHeight，
+ * 只有当内容真的变长（新消息/图片/卡片迟到布局）时才补滚回底部。
+ *
+ * 关键改进（修复"往上滑一点点又弹回底部 / 滑不动"）：
+ * 旧实现用 rAF 每帧无条件对比「离底距离」，用户即使在 40px 贴底区内小幅上滑，
+ * 也会被下一帧强行拽回底部——尤其鼠标拖滚动条不刷新用户意图时间戳，完全滑不动；
+ * 且每帧读 scrollHeight 强制 layout，滚动时还掉帧。
+ * 新实现不比较「离底距离」而比较「scrollHeight 是否变长」：用户上滑翻历史时
+ * scrollHeight 不变，守护永不抢滚动条；只在内容长高时才跟随，与 QQ 行为一致。
+ */
 function startBottomFollow() {
-  if (bottomFollowRafId || !stickToBottom) return;
-  const step = () => {
-    bottomFollowRafId = 0;
+  if (bottomFollowTimer || !stickToBottom) return;
+  lastFollowScrollHeight = msgList.value?.scrollHeight ?? 0;
+  bottomFollowTimer = setInterval(() => {
     const el = msgList.value;
     if (!el || !stickToBottom) return; // 用户接管 / 已卸载 → 停手
-    // 推迟的布局（图片加载、content-visibility 重排等）让 scrollHeight 又变大 → 补滚到底
-    if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
-      // 用户刚上手（触摸/按住滚动条拖动）的短时间内绝不去抢滚动条，
-      // 先让他自由滑动；意图窗口过去后再补滚，避免"手指一放就弹到底"
-      if (performance.now() - userScrollIntentAt < USER_SCROLL_INTENT_MS) {
-        bottomFollowRafId = requestAnimationFrame(step);
-        return;
-      }
-      suppressHeaderRevealUntil = performance.now() + 160; // 程序化滚动不算用户滑动
-      el.scrollTop = el.scrollHeight;
-    }
-    bottomFollowRafId = requestAnimationFrame(step);
-  };
-  bottomFollowRafId = requestAnimationFrame(step);
+    const h = el.scrollHeight;
+    if (h <= lastFollowScrollHeight) return; // 内容没变（用户上滑/静止）→ 绝不抢滚动条
+    lastFollowScrollHeight = h;
+    // 用户刚上手（滚轮/触摸/拖动滚动条）的短时间内延迟补滚，避免"手指一放就弹到底"
+    if (performance.now() - userScrollIntentAt < USER_SCROLL_INTENT_MS) return;
+    suppressHeaderRevealUntil = performance.now() + 160; // 程序化滚动不算用户滑动
+    el.scrollTop = el.scrollHeight;
+  }, 120);
 }
 
 function scrollToBottom() {
@@ -2826,7 +2832,7 @@ function scrollToBottom() {
     if (msgList.value) {
       msgList.value.scrollTop = msgList.value.scrollHeight;
     }
-    startBottomFollow(); // 渲染完这一帧后交给贴底循环（图片/卡片迟到布局也能跟上）
+    startBottomFollow(); // 复杂度由贴底守护接管（图片/卡片迟到布局也能跟上）
   });
 }
 
