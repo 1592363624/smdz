@@ -18,6 +18,7 @@ import { HomeYardService } from './home-yard.service';
 import { FrontlineViewService } from './frontline-view.service';
 import { FamiliarSystemService } from './familiar-system.service';
 import { StaticDataService } from './static-data.service';
+import { LotteryService } from './lottery.service';
 
 @ApiTags('游戏')
 @ApiBearerAuth()
@@ -36,6 +37,7 @@ export class GameController {
     private readonly frontlineViewService: FrontlineViewService,
     private readonly familiarSystem: FamiliarSystemService,
     private readonly staticData: StaticDataService,
+    private readonly lotteryService: LotteryService,
   ) {}
 
   /**
@@ -329,5 +331,36 @@ export class GameController {
   @ApiOperation({ summary: '写模型诊断：旧快照拦截 / 乐观锁冲突计数' })
   getWriteModelDiagnostics() {
     return { success: true, data: this.playerService.getWriteModelDiagnostics() };
+  }
+
+  /**
+   * 抽奖状态：今日剩余次数、凭证持有、奖池规模与预览（前端滚动动画用）。
+   */
+  @Get('lottery/status')
+  @ApiOperation({ summary: '每日抽奖状态（剩余次数/凭证/奖池预览）' })
+  async getLotteryStatus(@Req() req) {
+    const data = await this.lotteryService.getStatus(req.user.userId);
+    return { success: true, data };
+  }
+
+  /**
+   * 执行一次抽奖：消耗凭证，从奖池随机发一件资源或武器入包。
+   * 每天 0 点重置次数；结果供前端播放道具名跳动动画后展示。
+   */
+  @Post('lottery/draw')
+  @ApiOperation({ summary: '每日抽奖（消耗凭证，中奖自动入包）' })
+  async drawLottery(@Req() req) {
+    const result = await this.lotteryService.drawOnce(req.user.userId);
+    // 执行后推送玩家状态，前端背包/资源即时刷新
+    if (result.ok) {
+      await this.gameService.pushPlayerUpdate(req.user.userId);
+    }
+    return {
+      success: result.ok,
+      message: result.message,
+      reward: result.reward ?? null,
+      dailyLimitHit: !!result.dailyLimitHit,
+      noTicket: !!result.noTicket,
+    };
   }
 }

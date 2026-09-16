@@ -50,7 +50,7 @@ export const HOME_BUILD_STEPS: readonly HomeBuildStepDef[] = [
     step: 2,
     name: '开挖地基',
     command: '建造地基',
-    tip: '挖掉新出现的土堆，备好 80木头、120石头、40铁矿、40绳子',
+    tip: '挖掉新出现的土堆（通常 2 堆，要挖完才算清空），备好 80木头、120石头、40铁矿、40绳子',
   },
   {
     step: 3,

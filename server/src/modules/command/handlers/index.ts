@@ -20,6 +20,7 @@ import { TeleportHandler } from './teleport.handler';
 import { HomeHandler } from './home.handler';
 import { GatherHandler } from './gather.handler';
 import { GameCommandHandler } from './game-command.handler';
+import { LotteryCommandHandler } from './lottery-command.handler';
 
 /// 指令处理器类列表（供 Nest 注册为 provider）
 export const handlerProviders = [
@@ -38,6 +39,7 @@ export const handlerProviders = [
   TeleportHandler,
   HomeHandler,
   GameCommandHandler,
+  LotteryCommandHandler,
   GatherHandler,
 ];
 

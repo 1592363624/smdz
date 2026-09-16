@@ -818,6 +818,46 @@
         ]
       }
     },
+    "/api/game/lottery/status": {
+      "get": {
+        "operationId": "GameController_getLotteryStatus",
+        "summary": "每日抽奖状态（剩余次数/凭证/奖池预览）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/lottery/draw": {
+      "post": {
+        "operationId": "GameController_drawLottery",
+        "summary": "每日抽奖（消耗凭证，中奖自动入包）",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/admin/users": {
       "get": {
         "operationId": "AdminController_listUsers",

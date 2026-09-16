@@ -41,6 +41,15 @@
         >
           🧧
         </button>
+        <!-- 每日抽奖：消耗凭证，奖池资源+武器随机跳动抽取 -->
+        <button
+          type="button"
+          class="fc-icon-btn"
+          title="每日抽奖（消耗凭证，中奖自动入包）"
+          @click="lotteryOpen = true"
+        >
+          🎰
+        </button>
         <!-- 我的红包：发出的 / 领到的 / 过期退回明细 -->
         <button
           type="button"
@@ -371,6 +380,13 @@
     @close="rpMineOpen = false"
     @notify="(payload) => emit('notify', payload)"
   />
+
+  <!-- 每日抽奖：奖池道具名跳动动画 + 中奖入包 -->
+  <LotteryPanel
+    v-if="lotteryOpen"
+    @close="lotteryOpen = false"
+    @notify="(payload) => emit('notify', payload)"
+  />
 </template>
 
 <script setup>
@@ -390,6 +406,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useFloatingChatStore } from '../stores/floatingChat';
 import RedPacketMinePanel from './RedPacketMinePanel.vue';
+import LotteryPanel from './LotteryPanel.vue';
 import { chatApi } from '../api';
 import {
   MENTION_CONFIG,
@@ -793,6 +810,8 @@ const rpPasscode = ref('');
 const rpPassPrompt = ref({ open: false, packetId: null, value: '' });
 /** 「我的红包」面板开关（组件内部自行拉取 GET /chat/redpacket/mine） */
 const rpMineOpen = ref(false);
+/** 「每日抽奖」面板开关 */
+const lotteryOpen = ref(false);
 
 /** 可指定为领取人的玩家：复用父组件下发的可@玩家列表，按关键词过滤 */
 const rpTargetCandidates = computed(() => {

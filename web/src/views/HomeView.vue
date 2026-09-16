@@ -533,11 +533,20 @@ const clearSpots = computed(() => {
     if (!cmd) continue;
     const left = Math.max(0, Number(o.count) || 0);
     if (left <= 0 && !queuedCountOf(cmd)) continue;
-    byCmd.set(cmd, {
-      cmd,
-      name: String(o.name || cmd).trim(),
-      left,
-    });
+    // 开挖地基后院子里会有 2 个同名「土堆」资源；按指令聚合时必须累加 left，
+    // 否则只显示最后一堆的次数，玩家会以为「清完 ×20」就能结束（实际还要再清一堆）。
+    const prev = byCmd.get(cmd);
+    if (prev) {
+      prev.left += left;
+      prev.piles = (prev.piles || 1) + 1;
+    } else {
+      byCmd.set(cmd, {
+        cmd,
+        name: String(o.name || cmd).trim(),
+        left,
+        piles: 1,
+      });
+    }
   }
   // 队列里有、地图上却没有显示的类型：也要露出来，避免「队列有挖土但界面只有割草」
   for (const row of data.value?.clearQueue || []) {

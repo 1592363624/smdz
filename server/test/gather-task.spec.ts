@@ -404,6 +404,61 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(resources[0].times).toBe(96);
   });
 
+  it('阶段2：同名多堆资源（开挖地基后2个土堆）可连续清完，清完一堆会提示还有下一堆', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const mound = () => ({
+      name: '土堆',
+      times: 20,
+      outputs: [{ name: '钻石', count: 1, chance: 100 }],
+      gatherCmd: '挖土',
+      renewable: false,
+      timeScale: 1,
+    });
+    // 开挖地基后院子里是 2 个独立的「土堆」资源条目（各 20 次）
+    const multi = makeGatherFixture(mound(), {
+      mapOverrides: { name: '我的家' },
+    });
+    multi.player.houseName = '我的家';
+    multi.map.resources = JSON.stringify([mound(), mound()]);
+
+    // 挖20：只清第一堆，结算文案必须提示「还有同名障碍」而不是装作清空了
+    const realNow = Date.now;
+    try {
+      let now = realNow();
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+      await multi.service.handleGatherResource(42, '挖土20');
+      const first = await multi.service.settleGatherResource(42);
+      expect(first).toContain('这一堆土堆清完了');
+      expect(first).toContain('不是没挖到');
+      let piles = parseJson(multi.map.resources, []);
+      expect(piles).toHaveLength(1);
+      expect(piles[0].times).toBe(20);
+
+      // 再挖20：第二堆也清掉（跨过 3 秒防重入窗口）
+      now += 5000;
+      await multi.service.handleGatherResource(42, '挖土20');
+      const second = await multi.service.settleGatherResource(42);
+      expect(second).not.toContain('这一堆土堆清完了');
+      piles = parseJson(multi.map.resources, []);
+      expect(piles).toHaveLength(0);
+
+      // 一次「挖土40」应能把两堆合计 40 次都清掉（上限按同名合计）
+      now += 5000;
+      const all = makeGatherFixture(mound(), {
+        mapOverrides: { name: '我的家' },
+      });
+      all.player.houseName = '我的家';
+      all.map.resources = JSON.stringify([mound(), mound()]);
+      await all.service.handleGatherResource(42, '挖土40');
+      const clearAll = await all.service.settleGatherResource(42);
+      expect(clearAll).toContain('钻石');
+      expect(parseJson(all.map.resources, [])).toHaveLength(0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it('超管特权：家园外带数字指令同样批量（普通玩家数字仍被忽略）', async () => {
     jest.spyOn(Math, 'random').mockReturnValue(0);
     const resource = {

@@ -45,6 +45,7 @@ import { StatsService } from './stats.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { CheckinRewardService } from './checkin-reward.service';
+import { LotteryService } from './lottery.service';
 import { HandbookService } from './handbook.service';
 import { GameGlobalSettingService } from './game-global-setting.service';
 import { GlobalProficiencyService } from './global-proficiency.service';
@@ -112,6 +113,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     AutoMineService,
     VitalityService,
     CheckinRewardService,
+    LotteryService,
     HandbookService,
     GameGlobalSettingService,
     GlobalProficiencyService,
@@ -166,6 +168,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     StatsService,
     AutoMineService,
     VitalityService,
+    LotteryService,
     HandbookService,
     GameGlobalSettingService,
     GlobalProficiencyService,

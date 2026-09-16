@@ -224,6 +224,34 @@ describe('家园地面清理前置', () => {
     expect(parseJson(player.markers, {})['房子结算待发']).toBeUndefined();
   });
 
+  it('同名多堆/小数物资按合计校验与扣料（与院子「已有 X」同口径）', async () => {
+    const player = buildPlayer(2);
+    // 历史脏数据：木头拆成多条，count 与 quantity 混用；院子 materials 会合计成 385.23
+    player.backpack = JSON.stringify([
+      { name: '木头', count: 5 },
+      { name: '木头', quantity: 380.23 },
+      { name: '石头', quantity: 569.11 },
+      { name: '铁矿', count: 243.09 },
+      { name: '绳子', count: 161.42 },
+    ]);
+    const yard: any = { id: 9, resources2: '[]' };
+    const service = buildService(player, yard);
+
+    const result = await service.handleHome(1, '建造地基');
+
+    // 修复前只读第一条 count=5，会误报「你只有5」
+    expect(result).toContain('开始了地基的建造');
+    const backpack = parseJson(player.backpack, []);
+    const sumOf = (name: string) => backpack
+      .filter((i: any) => i.name === name)
+      .reduce((n: number, i: any) => n + Number(i.quantity ?? i.count ?? 0), 0);
+    // 扣 80：5 + 380.23 = 385.23 → 剩 305.23
+    expect(sumOf('木头')).toBeCloseTo(305.23, 5);
+    expect(sumOf('石头')).toBeCloseTo(449.11, 5);
+    expect(sumOf('铁矿')).toBeCloseTo(203.09, 5);
+    expect(sumOf('绳子')).toBeCloseTo(121.42, 5);
+  });
+
   it('材料不足时建造地基按原版逐项提示', async () => {
     const player = buildPlayer(2);
     player.backpack = JSON.stringify([{ name: '木头', count: 50 }]);

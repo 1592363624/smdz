@@ -1214,6 +1214,55 @@ export class FamiliarSystemService {
   }
 
   /**
+   * 背包同名物资合计（与院子 materials 聚合同口径）。
+   * 历史数据可能把木头/石头拆成多条（count 与 quantity 字段混用、采集倍率产生小数）；
+   * 只 find 第一条会把「已有 385」误判成「只有 5」，建造地基/房子的校验必须用合计。
+   */
+  private sumBackpackByName(backpack: any[], name: string): number {
+    const target = String(name || '').trim();
+    if (!target) return 0;
+    let total = 0;
+    for (const item of backpack || []) {
+      const itemName = String(item?.name ?? item?.['名称'] ?? '').trim();
+      if (itemName !== target) continue;
+      const qty = Number(item?.quantity ?? item?.count ?? item?.['数量'] ?? 0);
+      if (Number.isFinite(qty) && qty > 0) total += qty;
+    }
+    return total;
+  }
+
+  /**
+   * 从背包扣除同名物资（跨条目扣减，与 sumBackpackByName 配套）。
+   * 已在调用方校验合计足够；扣完为 0 的条目移除。
+   */
+  private consumeBackpackByName(backpack: any[], name: string, need: number): void {
+    const target = String(name || '').trim();
+    let left = Math.max(0, need);
+    for (let i = (backpack || []).length - 1; i >= 0 && left > 0; i -= 1) {
+      const item = backpack[i];
+      const itemName = String(item?.name ?? item?.['名称'] ?? '').trim();
+      if (itemName !== target) continue;
+      const raw = Number(item?.quantity ?? item?.count ?? item?.['数量'] ?? 0);
+      const qty = Number.isFinite(raw) ? raw : 0;
+      if (qty <= 0) continue;
+      if (qty <= left + 1e-9) {
+        left -= qty;
+        backpack.splice(i, 1);
+      } else {
+        const after = qty - left;
+        if (item.quantity !== undefined) item.quantity = after;
+        if (item.count !== undefined) item.count = after;
+        if (item['数量'] !== undefined) item['数量'] = after;
+        // 两字段都不存在时至少写 count，避免扣完后条目仍显示旧值
+        if (item.quantity === undefined && item.count === undefined && item['数量'] === undefined) {
+          item.count = after;
+        }
+        left = 0;
+      }
+    }
+  }
+
+  /**
    * 获取家园状态（原版 _主程序.ecode L2425-2456「使魔家园」）。
    * 结构：标题行 + 总览段（观测地图 L515-565 投影）+ 进度文案 + 编号菜单（临时输入替换）。
    * 原版 L2440 在观测地图后用 `w = 标题 + #换行 + w2` 覆盖标题变量——
@@ -1556,9 +1605,9 @@ export class FamiliarSystemService {
 
     const backpack = this.playerService.getBackpackItems(player);
 
+    // 与院子「已有 X」同口径：按名合计所有条目（多堆/小数物资），不能只 find 第一条
     for (const req of required) {
-      const item = backpack.find((i: any) => i.name === req.name);
-      const hasCount = item ? (item.count || 1) : 0;
+      const hasCount = this.sumBackpackByName(backpack, req.name);
       if (hasCount < req.count) {
         return `建造地基需要${req.count}${req.name}，你只有${Math.round(hasCount)}`;
       }
@@ -1568,16 +1617,9 @@ export class FamiliarSystemService {
     const restriction = this.combatSystem.actionUnrestricted(player, { cannonOk: false });
     if (restriction.restricted) return restriction.text;
 
-    // 扣除材料
+    // 扣除材料（跨条目扣减，保证与校验一致）
     for (const req of required) {
-      const item = backpack.find((i: any) => i.name === req.name);
-      const itemCount = item.count || 1;
-      if (itemCount === req.count) {
-        const idx = backpack.findIndex((i: any) => i.name === req.name);
-        if (idx !== -1) backpack.splice(idx, 1);
-      } else {
-        item.count = itemCount - req.count;
-      }
+      this.consumeBackpackByName(backpack, req.name, req.count);
     }
 
     // 原版添加标记("工作", 60, 玩家.标记2, 原始时间戳)："正在工作"期间行动无限制拦截其他操作
@@ -1660,9 +1702,9 @@ export class FamiliarSystemService {
 
     const backpack = this.playerService.getBackpackItems(player);
 
+    // 与院子「已有 X」同口径：按名合计所有条目（多堆/小数物资），不能只 find 第一条
     for (const req of required) {
-      const item = backpack.find((i: any) => i.name === req.name);
-      const hasCount = item ? (item.count || 1) : 0;
+      const hasCount = this.sumBackpackByName(backpack, req.name);
       if (hasCount < req.count) {
         return `建造房子需要${req.count}${req.name}，你只有${Math.round(hasCount)}`;
       }
@@ -1672,16 +1714,9 @@ export class FamiliarSystemService {
     const restriction = this.combatSystem.actionUnrestricted(player, { cannonOk: false });
     if (restriction.restricted) return restriction.text;
 
-    // 扣除材料
+    // 扣除材料（跨条目扣减，保证与校验一致）
     for (const req of required) {
-      const item = backpack.find((i: any) => i.name === req.name);
-      const itemCount = item.count || 1;
-      if (itemCount === req.count) {
-        const idx = backpack.findIndex((i: any) => i.name === req.name);
-        if (idx !== -1) backpack.splice(idx, 1);
-      } else {
-        item.count = itemCount - req.count;
-      }
+      this.consumeBackpackByName(backpack, req.name, req.count);
     }
 
     // 原版添加标记("工作", 120, 玩家.标记2, 原始时间戳)

@@ -128,6 +128,10 @@ export const gameApi = {
   finishNow: () => http.post('/game/admin/finish-now'),
   // 获取服务器在线统计（总玩家数、在线人数）
   stats: () => http.get('/game/stats'),
+  // 每日抽奖状态（剩余次数/凭证持有/奖池预览）
+  lotteryStatus: () => http.get('/game/lottery/status'),
+  // 执行一次抽奖（消耗凭证，中奖自动入包；每天 0 点重置次数）
+  lotteryDraw: () => http.post('/game/lottery/draw'),
 };
 
 /// 使魔契约（新手引导）

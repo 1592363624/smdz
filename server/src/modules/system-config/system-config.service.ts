@@ -20,6 +20,18 @@ import {
   DEFAULT_CHECKIN_REWARDS_JSON,
   LEGACY_CHECKIN_REWARDS_JSON,
 } from '../game/checkin-config.defaults';
+// 每日抽奖默认配置（纯常量模块，无服务依赖）
+import {
+  DEFAULT_LOTTERY_DAILY_LIMIT,
+  DEFAULT_LOTTERY_POOL_EXCLUDE_JSON,
+  DEFAULT_LOTTERY_TICKET_COST,
+  DEFAULT_LOTTERY_TICKET_ITEM,
+  LOTTERY_DAILY_LIMIT_KEY,
+  LOTTERY_ENABLED_KEY,
+  LOTTERY_POOL_EXCLUDE_KEY,
+  LOTTERY_TICKET_COST_KEY,
+  LOTTERY_TICKET_ITEM_KEY,
+} from '../game/lottery-config.defaults';
 // 世界红包默认配置（纯常量模块：有效期/份数上限/可发放范围等，管理员可在线调整）
 import {
   DEFAULT_RED_PACKET_CONFIG,
@@ -166,6 +178,46 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
     label: '签到奖励表',
     description:
       '配置「哪天给什么东西」：每日奖励（按连续第 N 天，可设循环周期）、连续签到里程碑、累计签到里程碑；奖励类型支持物品/经验/活力',
+    type: 'json',
+    group: 'game',
+  },
+  {
+    key: LOTTERY_ENABLED_KEY,
+    value: 'true',
+    label: '抽奖开关',
+    description: '关闭后玩家无法参与每日抽奖',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: LOTTERY_DAILY_LIMIT_KEY,
+    value: String(DEFAULT_LOTTERY_DAILY_LIMIT),
+    label: '每日抽奖次数',
+    description: '每人每天可抽奖次数（0 点重置）；0 = 关闭抽奖次数',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: LOTTERY_TICKET_ITEM_KEY,
+    value: DEFAULT_LOTTERY_TICKET_ITEM,
+    label: '抽奖凭证物品名',
+    description: '单次抽奖消耗的背包物品名（默认「凭证」）',
+    type: 'string',
+    group: 'game',
+  },
+  {
+    key: LOTTERY_TICKET_COST_KEY,
+    value: String(DEFAULT_LOTTERY_TICKET_COST),
+    label: '单次抽奖消耗凭证数',
+    description: '每次抽奖扣多少个凭证',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: LOTTERY_POOL_EXCLUDE_KEY,
+    value: DEFAULT_LOTTERY_POOL_EXCLUDE_JSON,
+    label: '奖池排除名单',
+    description: 'JSON 数组，这些物品名不会进入抽奖奖池（默认排除模板类）',
     type: 'json',
     group: 'game',
   },

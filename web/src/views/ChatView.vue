@@ -75,9 +75,6 @@
         >
           <span class="tab-icon">🛡️</span>前线
         </button>
-        <button class="sidebar-tab" :class="{ active: sidebarTab === 'cmd' }" @click="sidebarTab = 'cmd'">
-          <span class="tab-icon">📖</span>指令
-        </button>
       </div>
 
       <div class="sidebar-content">
@@ -204,23 +201,6 @@
             <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
             <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
           </div>
-        </div>
-
-        <!-- 家园：已迁移为独立页面 /home（侧栏空间不足以展示格子院落） -->
-        <!-- 指令 Tab：搜索 + 指令列表（更大空间） -->
-        <div v-show="sidebarTab === 'cmd'" class="tab-pane tab-pane-cmd">
-          <div class="cmd-search-wrapper">
-            <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车发送第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
-            <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
-          </div>
-          <ul class="cmd-list">
-            <li v-for="c in cmdSearchResults" :key="c.name" @click="quickSend(c.name)">
-              <span class="cmd-name">{{ c.name }}</span>
-              <span class="cmd-desc">{{ c.description }}</span>
-            </li>
-            <li v-if="cmdSearchResults.length === 0 && cmdSearch" class="cmd-empty">未匹配到指令</li>
-          </ul>
-          <div class="cmd-stats" v-if="!cmdSearch">共 {{ commands.length }} 条指令</div>
         </div>
       </div>
 
@@ -361,9 +341,6 @@
           @click="router.push('/frontline')"
         >
           <span class="tab-icon">🛡️</span>前线
-        </button>
-        <button class="sidebar-tab" :class="{ active: mobileTab === 'cmd' }" @click="mobileTab = 'cmd'">
-          <span class="tab-icon">📖</span>指令
         </button>
       </div>
 
@@ -530,22 +507,6 @@
               <div class="mc-block-title" v-else style="color: var(--muted); font-weight: 400;">当前区域暂无其他玩家</div>
             </div>
           </div>
-        </div>
-
-        <!-- 指令 Tab -->
-        <div v-show="mobileTab === 'cmd'" class="tab-pane tab-pane-cmd">
-          <div class="cmd-search-wrapper">
-            <input class="cmd-search" v-model="cmdSearch" placeholder="搜索指令（回车发送第一条）..." @click.stop @keyup.enter="selectFirstCmd" />
-            <span v-if="cmdSearch" class="cmd-search-clear" @click="cmdSearch = ''">✕</span>
-          </div>
-          <ul class="cmd-list">
-            <li v-for="c in cmdSearchResults" :key="'mcmd-' + c.name" @click="mobileMenuOpen = false; quickSend(c.name)">
-              <span class="cmd-name">{{ c.name }}</span>
-              <span class="cmd-desc">{{ c.description }}</span>
-            </li>
-            <li v-if="cmdSearchResults.length === 0 && cmdSearch" class="cmd-empty">未匹配到指令</li>
-          </ul>
-          <div class="cmd-stats" v-if="!cmdSearch">共 {{ commands.length }} 条指令</div>
         </div>
       </div>
 
@@ -733,7 +694,7 @@
             @compositionstart="onInputCompositionStart"
             @compositionend="onInputCompositionEnd"
             @blur="onInputBlur"
-            placeholder="回车换行，Ctrl+Enter 发指令；纯文本发到右下角世界聊天"
+            placeholder="回车换行，Ctrl+Enter 发指令；Ctrl+K 唤起指令面板"
           ></textarea>
           <!-- 指令自动补全下拉 -->
           <div v-if="showAutocomplete && filteredCommands.length" class="autocomplete-list">
@@ -1441,7 +1402,7 @@ const allMapsCollapsed = ref(true);
 // 手机端菜单状态
 const mobileMenuOpen = ref(false);
 
-// 桌面端左侧栏 Tab 切换（me=个人/cmd=指令；地图信息统一在右侧信息面板展示）
+// 桌面端左侧栏 Tab 切换（me=个人；地图信息统一在右侧信息面板展示。指令入口改为 Ctrl+K / 顶栏 ⌨️）
 const sidebarTab = ref('me');
 // 手机端抽屉 Tab 切换（与桌面端独立，避免互相干扰）
 const mobileTab = ref('me');
@@ -1451,15 +1412,6 @@ const showScrollBtn = ref(false);
 // 是否「贴底跟随最新消息」（QQ 式滚动行为）：默认跟随，永远看着最新一条。
 // 只由用户真实滚动意图解除（滚轮/触摸/拖动滚动条），布局变化一律不算，详见 onMsgScroll
 let stickToBottom = true;
-
-// 指令列表折叠状态（手机端默认折叠）
-const cmdCollapsed = ref(window.innerWidth < 768);
-
-// 指令搜索（支持中文名/别名/描述/拼音全拼/拼音首字母；查询为空时按原顺序展示全部）
-const cmdSearch = ref('');
-const cmdSearchResults = computed(() =>
-  searchCommands(commands.value, cmdSearch.value, { limit: COMMAND_SEARCH_CONFIG.limits.sidebar })
-);
 
 // ---------- 我的常用指令（用户自定义，置顶展示、可编辑、可拖拽排序） ----------
 // 常用指令数组：每项 { cmd, label }。cmd 为实际发送内容（任意文本，模拟从输入框发送）；label 为按钮展示文字
@@ -2429,14 +2381,6 @@ function closeAtAutocomplete() {
   atAutocompleteIndex.value = -1;
   atKeyword.value = '';
   atStartPos.value = -1;
-}
-
-// 指令搜索回车选中第一条
-function selectFirstCmd() {
-  if (cmdSearchResults.value.length > 0) {
-    mobileMenuOpen.value = false;
-    quickSend(cmdSearchResults.value[0].name);
-  }
 }
 
 // 输入框键盘事件（keyup）：仅在非 @ 模式下控制指令自动补全

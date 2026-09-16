@@ -2647,14 +2647,23 @@ export class GatherPanelService {
     // e=跟随宠物数+1，再乘以额外次数；受资源剩余次数上限约束。
     // 有限资源(times>0)夹到剩余次数（共享世界态，超管特权同样受限）；
     // 无限资源(times<0)默认单次动作上限=|times|——超管野外批量（adminBatch）放开该上限。
+    // 家园院子「开挖地基」会生成 2 个同名「土堆」（各 20 次）；上限按同名合计，
+    // 否则「挖土40」只能清掉第一堆，第二堆会让玩家以为挖了没效果。
     const followPetCount = await this.countFollowingSummons(map, userId);
     let actualGatherCount = (followPetCount + 1) * extraMultiplier;
     const resourceTimes = this.getResourceTimes(target);
-    actualGatherCount = resourceTimes > 0
-      ? Math.min(actualGatherCount, resourceTimes)
-      : (gatherState.adminBatch
+    if (resourceTimes > 0) {
+      const sameNameTotal = resources
+        .filter((r: any) => r.name === target.name
+          && this.getResourceTimes(r) !== 0
+          && this.isGatherResourceAvailable(r, markersRecord))
+        .reduce((sum: number, r: any) => sum + Math.max(0, this.getResourceTimes(r)), 0);
+      actualGatherCount = Math.min(actualGatherCount, sameNameTotal || resourceTimes);
+    } else {
+      actualGatherCount = gatherState.adminBatch
         ? actualGatherCount
-        : Math.min(actualGatherCount, Math.abs(resourceTimes)));
+        : Math.min(actualGatherCount, Math.abs(resourceTimes));
+    }
 
     const dropRate = this.getGatherDropRate(playerData);
     const outputs = this.parseResourceOutputs(target.outputs);
@@ -2716,19 +2725,32 @@ export class GatherPanelService {
 
     let timesSuffix = '';
     if (resourceTimes > 0) {
-      // mutateMapFields 锁内闭环：重读最新资源数组与 markers2 → 按名重定位目标 →
-      // 用最新剩余次数夹取实际采集数 → 扣减次数/耗尽移除/登记刷新标记 → 差异写回
-      // （避免并发采集把次数扣成负数、或按各自快照整组覆盖刷新标记）
+      // mutateMapFields 锁内闭环：重读最新资源数组 → 按名扣减次数（同名多堆连续清）→
+      // 耗尽移除/登记刷新标记 → 差异写回。开挖地基后院子里是 2 个「土堆」，
+      // 一次「挖土40」必须能把两堆都清掉，否则第二堆会让玩家以为没挖到。
       const gatherResult = await this.mapService.mutateMapFields(map.id, [resourceField, 'markers2'], (f) => {
         const fresh = f[resourceField] as any[];
-        const idx = fresh.findIndex((r: any) => r.name === target.name);
-        if (idx === -1) return { removed: true, remaining: 0 };
-        const freshTarget = fresh[idx];
-        const freshTimes = this.getResourceTimes(freshTarget);
-        const count = freshTimes > 0 ? Math.min(actualGatherCount, freshTimes) : actualGatherCount;
-        const remaining = freshTimes - count;
-        if (remaining <= 0) {
-          fresh.splice(idx, 1);
+        let budget = actualGatherCount;
+        let remaining = 0;
+        let removedAny = false;
+        for (let i = 0; i < fresh.length && budget > 0;) {
+          if (fresh[i].name !== target.name) { i += 1; continue; }
+          const freshTarget = fresh[i];
+          const freshTimes = this.getResourceTimes(freshTarget);
+          if (freshTimes === 0) { i += 1; continue; }
+          const take = freshTimes > 0 ? Math.min(budget, freshTimes) : budget;
+          budget -= take;
+          if (freshTimes > 0) {
+            const after = freshTimes - take;
+            if (after > 0) {
+              freshTarget.times = after;
+              remaining += after;
+              i += 1;
+              continue;
+            }
+          }
+          fresh.splice(i, 1);
+          removedAny = true;
           // 原版"次数归零"会添加"刷新资源<名称>"地图标记，后台刷新任务按该标记恢复资源。
           if (freshTarget.renewable !== false) {
             const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
@@ -2742,13 +2764,23 @@ export class GatherPanelService {
             });
             f.markers2 = refreshedMarkers2;
           }
-          return { removed: true, remaining: 0 };
         }
-        freshTarget.times = remaining;
-        return { removed: false, remaining };
+        // 挖完一堆后：同名未动的堆也要计入 sameNameLeft，否则「挖20清第一堆」时误报已清空
+        const sameNameLeft = fresh
+          .filter((r: any) => r?.name === target.name)
+          .reduce((sum: number, r: any) => {
+            const t = this.getResourceTimes(r);
+            return sum + (t > 0 ? t : 0);
+          }, 0);
+        return { removed: removedAny && sameNameLeft <= 0, remaining: sameNameLeft, removedAny, sameNameLeft };
       });
-      if (gatherResult.remaining > 0) {
-        timesSuffix = `\n${map.name}的${resourceName}还可以采集${gatherResult.remaining}次`;
+      if (gatherResult.sameNameLeft > 0) {
+        // 一堆挖完但同名还有下一堆：明确提示「不是没挖到」，避免误以为 bug
+        if (gatherResult.removedAny) {
+          timesSuffix = `\n这一堆${resourceName}清完了，院子里还有同名障碍（约 ${gatherResult.sameNameLeft} 次）——继续发送「${gatherName}」即可，不是没挖到`;
+        } else {
+          timesSuffix = `\n${map.name}的${resourceName}还可以采集${gatherResult.sameNameLeft}次`;
+        }
       }
     }
     await this.playerService.savePlayer(player);
@@ -2878,14 +2910,20 @@ export class GatherPanelService {
         return { ok: false, message: `队列里还有「${queue[0]}」未清完`, queueCount: queue.length, gathering: false, added: 0 };
       }
 
-      // 障碍剩余次数：队列里的是「还没开挖的」，进行中另计 1
+      // 障碍剩余次数：队列里的是「还没开挖的」，进行中另计 1。
+      // 同名多堆（开挖地基后 2 个「土堆」）必须合计，否则只能排满第一堆的 20 次。
       const resources = this.getGatherResources(map);
-      const target = resources.find((r: any) => r.gatherCmd === cmd);
-      const remainTimes = target ? this.getResourceTimes(target) : 0;
+      const sameName = resources.filter((r: any) => r.gatherCmd === cmd
+        && this.getResourceTimes(r) !== 0);
+      const remainTimes = sameName.reduce(
+        (sum: number, r: any) => sum + Math.max(0, this.getResourceTimes(r)),
+        0,
+      );
       const gathering = !!(markers['采集中'] && typeof markers['采集中'] === 'object');
       const inFlightSame = gathering && String((markers['采集中'] as any)?.cmd || '') === cmd ? 1 : 0;
-      // remainTimes < 0 表示无限次资源
-      const cap = remainTimes < 0 ? 99 : remainTimes;
+      // remainTimes < 0 表示无限次资源（上面 sum 为 0 时走 0 分支）
+      const infinite = sameName.some((r: any) => this.getResourceTimes(r) < 0);
+      const cap = infinite ? 99 : remainTimes;
       const slots = Math.max(0, cap - queue.length - inFlightSame);
       if (slots <= 0) {
         return {

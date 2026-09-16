@@ -173,6 +173,7 @@
               <span>已安排 {{ s.arranged }}/{{ Math.max(s.left, s.arranged) }}</span>
             </div>
           </template>
+          <p v-if="multiPileHint" class="hbg-multipile-hint">{{ multiPileHint }}</p>
         </div>
 
         <div class="hbg-ops hbg-ops-full">
@@ -515,10 +516,23 @@ function clearTitle(s) {
   }
   const arranged = s.arranged ?? ((s.busy ? 1 : 0) + (s.queued || 0));
   const available = s.available ?? Math.max(0, (s.left || 0) - arranged);
-  if (s.busy) return `进行中 · 已安排 ${arranged}/${s.left} · 还可再排 ${available}（点一下 +1）`;
-  if (arranged > 0) return `已安排 ${arranged}/${s.left} · 还可再排 ${available}`;
-  return `院子共 ${s.left} 个「${s.cmd}」· 点一下清 1 个`;
+  const pileNote = s.piles > 1 ? `（共 ${s.piles} 堆，要全部挖完）` : '';
+  if (s.busy) return `进行中 · 已安排 ${arranged}/${s.left}${pileNote} · 还可再排 ${available}（点一下 +1）`;
+  if (arranged > 0) return `已安排 ${arranged}/${s.left}${pileNote} · 还可再排 ${available}`;
+  return `院子共 ${s.left} 次「${s.cmd}」${pileNote} · 点一下清 1 次`;
 }
+
+/** 同名多堆障碍（开挖地基后 2 堆土）的醒目提示：避免清完一堆以为挖完了 */
+const multiPileHint = computed(() => {
+  const list = fullscreenClears.value;
+  const multi = list.find((s) => (s.piles || 1) > 1 && (s.left > 0 || s.arranged > 0));
+  if (!multi) return '';
+  const n = multi.piles || 2;
+  if (multi.arranged > 0 && multi.available <= 0) {
+    return `院子里有 ${n} 堆「${multi.cmd}」（共 ${multi.left} 次），已全部排进队列——挖完这一波才算清空，中途弹出新次数是正常的`;
+  }
+  return `院子里有 ${n} 堆「${multi.cmd}」要清（共 ${multi.left} 次）。用「清完」一次排满；若挖完一堆后还剩，系统会提示继续挖——不是没挖到`;
+});
 
 /** 已安排进度文案：「挖土 已安排 12/19」；障碍数为 0 时只报队列条数 */
 const primaryArrangeText = computed(() => {
@@ -1832,6 +1846,17 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 180, 84, 0.45);
   background: linear-gradient(120deg, rgba(255, 180, 84, 0.22), rgba(255, 140, 60, 0.18));
   color: #ffd79a;
+}
+.hbg-multipile-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 215, 106, 0.35);
+  background: rgba(255, 215, 106, 0.08);
+  color: #ffe9a8;
+  font-size: 12px;
+  line-height: 1.45;
 }
 .hbg-clear-all:hover:not(:disabled) {
   transform: translateY(-1px);

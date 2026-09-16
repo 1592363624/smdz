@@ -19,6 +19,17 @@ import {
   DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY,
   DEFAULT_CHECKIN_REWARDS_JSON,
 } from '../src/modules/game/checkin-config.defaults';
+import {
+  DEFAULT_LOTTERY_DAILY_LIMIT,
+  DEFAULT_LOTTERY_POOL_EXCLUDE_JSON,
+  DEFAULT_LOTTERY_TICKET_COST,
+  DEFAULT_LOTTERY_TICKET_ITEM,
+  LOTTERY_DAILY_LIMIT_KEY,
+  LOTTERY_ENABLED_KEY,
+  LOTTERY_POOL_EXCLUDE_KEY,
+  LOTTERY_TICKET_COST_KEY,
+  LOTTERY_TICKET_ITEM_KEY,
+} from '../src/modules/game/lottery-config.defaults';
 
 const prisma = new PrismaClient();
 attachBeijingTimeMiddleware(prisma);
@@ -324,6 +335,8 @@ async function main() {
     { name: '逆向', alias: 'reverse', description: '逆向操作', handlerKey: 'game', minRole: 'USER', sortOrder: 346 },
     { name: '预设切换', alias: 'preset,切换预设', description: '切换装备预设', handlerKey: 'game', minRole: 'USER', sortOrder: 347 },
     { name: '签到', alias: 'daily-checkin', description: '每日签到', handlerKey: 'game', minRole: 'USER', sortOrder: 348 },
+    { name: '抽奖', alias: 'lottery,lottery-draw', description: '每日抽奖（消耗凭证，中奖自动入包）', handlerKey: 'lottery', minRole: 'USER', sortOrder: 3481 },
+    { name: '抽奖状态', alias: 'lottery-status', description: '查看抽奖剩余次数与奖池', handlerKey: 'lottery', minRole: 'USER', sortOrder: 3482 },
     { name: '文本发送', alias: 'text-send', description: '文本发送', handlerKey: 'game', minRole: 'USER', sortOrder: 349 },
     // 设置子指令（统一 game 处理器）
     { name: '设置指引', alias: 'setting-guide', description: '设置新手指引开关', handlerKey: 'game', minRole: 'USER', sortOrder: 350 },
@@ -442,6 +455,13 @@ async function main() {
     { key: CHECKIN_CONSECUTIVE_EXP_PER_DAY_KEY, value: String(DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY), label: '签到每连续1天额外经验', description: '连续签到每多 1 天额外增加的经验；设为 0 则取消连续加成', type: 'number', group: 'game' },
     { key: CHECKIN_CONSECUTIVE_EXP_MAX_DAYS_KEY, value: String(DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS), label: '签到连续加成封顶天数', description: '连续签到经验加成的天数上限（超过该天数不再累加）；0 = 不封顶', type: 'number', group: 'game' },
     { key: CHECKIN_REWARDS_KEY, value: DEFAULT_CHECKIN_REWARDS_JSON, label: '签到奖励表', description: '配置「哪天给什么东西」：每日奖励（按连续第 N 天，可设循环周期）、连续签到里程碑、累计签到里程碑；奖励类型支持物品/经验/活力', type: 'json', group: 'game' },
+
+    // ===== 每日抽奖（默认：每天 1 次，消耗「凭证」x1） =====
+    { key: LOTTERY_ENABLED_KEY, value: 'true', label: '抽奖开关', description: '关闭后玩家无法参与每日抽奖', type: 'boolean', group: 'game' },
+    { key: LOTTERY_DAILY_LIMIT_KEY, value: String(DEFAULT_LOTTERY_DAILY_LIMIT), label: '每日抽奖次数', description: '每人每天可抽奖次数（0 点重置）；0 = 关闭抽奖次数', type: 'number', group: 'game' },
+    { key: LOTTERY_TICKET_ITEM_KEY, value: DEFAULT_LOTTERY_TICKET_ITEM, label: '抽奖凭证物品名', description: '单次抽奖消耗的背包物品名（默认「凭证」）', type: 'string', group: 'game' },
+    { key: LOTTERY_TICKET_COST_KEY, value: String(DEFAULT_LOTTERY_TICKET_COST), label: '单次抽奖消耗凭证数', description: '每次抽奖扣多少个凭证', type: 'number', group: 'game' },
+    { key: LOTTERY_POOL_EXCLUDE_KEY, value: DEFAULT_LOTTERY_POOL_EXCLUDE_JSON, label: '奖池排除名单', description: 'JSON 数组，这些物品名不会进入抽奖奖池（默认排除模板类）', type: 'json', group: 'game' },
   ] as const;
 
   for (const cfg of systemConfigs) {
