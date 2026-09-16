@@ -29,6 +29,7 @@ import { ShortcutService } from '.././shortcut.service';
 import { CombatStateService } from '.././combat-state.service';
 import { VitalityService } from '.././vitality.service';
 import { DelayedTaskService } from '.././delayed-task.service';
+import { SystemConfigService } from '../../system-config/system-config.service';
 import { GameSupportService } from '.././game-support.service';
 import { GatherPanelService } from './gather-panel.service';
 import { MovementVehicleService } from './movement-vehicle.service';
@@ -56,6 +57,7 @@ export class DungeonChallengeService {
     private readonly movement: MovementVehicleService,
     @Optional() private readonly vitalityService?: VitalityService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
+    @Optional() private readonly systemConfigService?: SystemConfigService,
   ) {}
 
   async handleStartBattle(userId: number): Promise<string> {
@@ -918,6 +920,37 @@ export class DungeonChallengeService {
     runtime.owner = '无主';
     runtime.驾驶员 = '';
     runtime.driver = '';
+    // 远古遗迹封印盖戳：requireLevel/guardWaves/sealCost 来自 wrecks.json，
+    // 等级门槛可被 game.wreckLevelReqOffset 全局偏移；封印开启时写入封印态。
+    const wreckRequireLevel = Number(wreck.requireLevel ?? 0) || 0;
+    const wreckGuardWaves = Math.max(1, Math.trunc(Number(wreck.guardWaves ?? 1)) || 1);
+    const rawSealCost = wreck.sealCost && typeof wreck.sealCost === 'object' ? wreck.sealCost : {};
+    const sealCost = {
+      vouchers: Math.max(1, Math.trunc(Number(rawSealCost.vouchers ?? 1)) || 1),
+      vitality: Math.max(2, Math.trunc(Number(rawSealCost.vitality ?? 2)) || 2),
+    };
+    const levelOffset = this.systemConfigService
+      ? Number(await this.systemConfigService.get<number>('game.wreckLevelReqOffset', 0)) || 0
+      : 0;
+    const sealEnabled = this.systemConfigService
+      ? await this.systemConfigService.get<boolean>('game.wreckSealEnabled', true)
+      : true;
+    if (wreckRequireLevel > 0) {
+      runtime.需求等级 = Math.max(1, wreckRequireLevel + levelOffset);
+      runtime.requireLevel = runtime.需求等级;
+      runtime.封印等级 = runtime.需求等级;
+      runtime.sealLevel = runtime.需求等级;
+      runtime.守卫波数 = wreckGuardWaves;
+      runtime.guardWaves = wreckGuardWaves;
+      runtime.献祭凭证 = sealCost.vouchers;
+      runtime.sacrificeVouchers = sealCost.vouchers;
+      runtime.献祭活力 = sealCost.vitality;
+      runtime.sacrificeVitality = sealCost.vitality;
+      if (sealEnabled) {
+        runtime.封印中 = true;
+        runtime.sealed = true;
+      }
+    }
     // 随机载具零件清单（原版 后台运作.ecode L1450-L1456：逐件 判断物品2 分类，
     // 类型=="装备" 的零件整体替换为 生成装备(名称,"s",0) 的成品——品质"s"词条倍率9，
     // 词条/特效随机，耐久0；资源件保持 名称x数量）

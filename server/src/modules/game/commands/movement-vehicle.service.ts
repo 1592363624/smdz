@@ -2384,6 +2384,311 @@ export class MovementVehicleService {
     }
   }
 
+  /** 解析封印态 requireLevel：优先运行时戳，存量残骸按名回查 wrecks.json。 */
+  private async resolveWreckSealInfo(runtime: any): Promise<{
+    requireLevel: number;
+    guardWaves: number;
+    vouchers: number;
+    vitality: number;
+    sealed: boolean;
+  } | null> {
+    const name = String(runtime?.名称 ?? runtime?.name ?? '').trim();
+    if (!name) return null;
+    const stampedLevel = Number(runtime?.需求等级 ?? runtime?.requireLevel ?? 0) || 0;
+    const stampedWaves = Number(runtime?.守卫波数 ?? runtime?.guardWaves ?? 0) || 0;
+    const stampedVouchers = Number(runtime?.献祭凭证 ?? runtime?.sacrificeVouchers ?? 0) || 0;
+    const stampedVitality = Number(runtime?.献祭活力 ?? runtime?.sacrificeVitality ?? 0) || 0;
+    const sealedFlag = runtime?.封印中 ?? runtime?.sealed;
+    if (stampedLevel > 0) {
+      return {
+        requireLevel: stampedLevel,
+        guardWaves: Math.max(1, stampedWaves || 1),
+        vouchers: Math.max(1, stampedVouchers || 1),
+        vitality: Math.max(2, stampedVitality || 2),
+        sealed: sealedFlag === true || sealedFlag === 1 || sealedFlag === 'true',
+      };
+    }
+    const wrecks = this.staticData.loadRaw('wrecks') as any[];
+    if (!Array.isArray(wrecks)) return null;
+    const def = wrecks.find((row: any) => String(row?.name ?? '') === name);
+    if (!def || !(Number(def.requireLevel) > 0)) return null;
+    const sealCost = def.sealCost && typeof def.sealCost === 'object' ? def.sealCost : {};
+    return {
+      requireLevel: Math.max(1, Math.trunc(Number(def.requireLevel)) || 1),
+      guardWaves: Math.max(1, Math.trunc(Number(def.guardWaves ?? 1)) || 1),
+      vouchers: Math.max(1, Math.trunc(Number(sealCost.vouchers ?? 1)) || 1),
+      vitality: Math.max(2, Math.trunc(Number(sealCost.vitality ?? 2)) || 2),
+      sealed: true,
+    };
+  }
+
+  /** 读取唤醒/封印全局开关。 */
+  private async getWreckSealFlags(): Promise<{ levelGate: boolean; sealEnabled: boolean; costFactor: number }> {
+    const [levelGate, sealEnabled, costFactor] = await Promise.all([
+      this.systemConfigService.get<boolean>('game.wreckClaimLevelGate', true),
+      this.systemConfigService.get<boolean>('game.wreckSealEnabled', true),
+      this.systemConfigService.get<number>('game.wreckSealCostFactor', 100),
+    ]);
+    const factor = Number(costFactor);
+    return {
+      levelGate: levelGate !== false,
+      sealEnabled: sealEnabled !== false,
+      costFactor: Number.isFinite(factor) && factor > 0 ? factor : 100,
+    };
+  }
+
+  /** 管理员（ADMIN/SUPER_ADMIN）在认领/唤醒链路可绕过等级门槛。 */
+  private async isAdminUser(userId: number): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    return user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  }
+
+  /** 统计背包内某物品数量（count/quantity 双字段兼容）。 */
+  private countBackpackItem(player: any, itemName: string): number {
+    const backpack = this.playerService.getBackpackItems(player);
+    let total = 0;
+    for (const item of backpack) {
+      if (String(item?.name ?? '') !== itemName) continue;
+      total += Number(item?.count ?? item?.quantity ?? 0) || 0;
+    }
+    return total;
+  }
+
+  /** 调整献祭系数后的凭证/活力消耗（凭证≥1、活力≥2）。 */
+  private scaleSealCost(base: { vouchers: number; vitality: number }, factorPct: number) {
+    const factor = (Number(factorPct) || 100) / 100;
+    return {
+      vouchers: Math.max(1, Math.round(base.vouchers * factor)),
+      vitality: Math.max(2, Math.round(base.vitality * factor)),
+    };
+  }
+
+  /** 在残骸所在地图生成一波遗迹守卫（GameMonster isTemp）。 */
+  private async spawnWreckGuardWave(
+    mapId: number,
+    vehicleId: string,
+    wave: number,
+    level: number,
+  ): Promise<number> {
+    const guardLevel = Math.max(1, Math.trunc(level) || 1);
+    const created: any[] = [];
+    // 每波 1 只；后续波次强度靠等级成长（与 requireLevel 同级）
+    const guard = await this.mapService.spawnMonsterByName(mapId, '遗迹守卫', {
+      isTemp: true,
+      level: guardLevel,
+      qq: `sealguard_${vehicleId}_w${wave}`,
+    });
+    created.push(guard);
+    this.logger.log(`遗迹守卫生成 map=${mapId} vehicle=${vehicleId} wave=${wave} lv=${guardLevel}`);
+    return created.length;
+  }
+
+  /** 统计地图上仍存活、归属该载具的遗迹守卫数量。 */
+  private async countSealGuards(mapId: number, vehicleId: string): Promise<number> {
+    const monsters = await this.mapService.getMapMonsters(mapId);
+    return monsters.filter((m: any) =>
+      (Number(m?.hp ?? 0) > 0)
+      && String(m?.qq ?? '').startsWith(`sealguard_${vehicleId}_`),
+    ).length;
+  }
+
+  /** 击杀守卫后推进：清空下一波或解封并授予唤醒者归属。 */
+  async advanceWreckSealAfterKill(mapId: number): Promise<string> {
+    const map = await this.mapService.getMapById(mapId);
+    if (!map) return '';
+    const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
+    let changed = false;
+    const lines: string[] = [];
+    for (let i = 0; i < vehicles.length; i++) {
+      const runtime = this.toRuntimeVehicle(vehicles[i]);
+      const sealed = runtime.封印中 === true || runtime.sealed === true;
+      const sealWave = Number(runtime.当前守卫波 ?? runtime.sealWave ?? 0) || 0;
+      const waker = String(runtime.唤醒者 ?? runtime.sealWaker ?? '');
+      if (!sealed || sealWave <= 0 || !waker) continue;
+      if ((await this.countSealGuards(map.id, String(runtime.编号 || ''))) > 0) continue;
+      const totalWaves = Math.max(1, Number(runtime.守卫波数 ?? runtime.guardWaves ?? 1) || 1);
+      const playerName = await this.resolvePlayerName(waker);
+      if (sealWave < totalWaves) {
+        const nextWave = sealWave + 1;
+        runtime.当前守卫波 = nextWave;
+        runtime.sealWave = nextWave;
+        vehicles[i] = this.toStoredVehicle(runtime);
+        changed = true;
+        await this.spawnWreckGuardWave(
+          map.id,
+          String(runtime.编号 || runtime.vehicleId || ''),
+          nextWave,
+          Number(runtime.需求等级 ?? runtime.requireLevel ?? 100),
+        );
+        lines.push(`${playerName}击破了守卫！第${nextWave}波守卫从遗迹中苏醒……`);
+      } else {
+        // 全波击破：解除封印，唤醒者直接获得归属
+        delete runtime.封印中;
+        delete runtime.sealed;
+        delete runtime.当前守卫波;
+        delete runtime.sealWave;
+        delete runtime.唤醒者;
+        delete runtime.sealWaker;
+        runtime.sealed = false;
+        runtime.封印中 = false;
+        runtime.归属 = waker;
+        runtime.owner = waker;
+        vehicles[i] = this.toStoredVehicle(runtime);
+        changed = true;
+        lines.push(`${playerName}击破了全部守卫，${runtime.名称}的封印解除了！`);
+        const wakerData = await this.playerService.getPlayerData(Number(waker)).catch(() => null);
+        if (wakerData?.player) {
+          await this.achievementService.addAchievement(wakerData.player, '遗迹征服者', 1);
+        }
+      }
+    }
+    if (changed) {
+      await this.mapService.updateDynamicFields(map.id, { vehicles });
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 处理「唤醒 载具名」：
+   * 首次 → 展示确认（战斗对象 + 消耗），编号 1 或「确认唤醒 …」进入下一步；
+   * 确认 → 资格校验 → 献祭(凭证+活力) → 刷守卫 → 自动开打。
+   */
+  async handleWakeWreck(userId: number, vehicleName: string, options: { confirmed?: boolean } = {}): Promise<string> {
+    const rawName = String(vehicleName ?? '').trim();
+    let name = rawName;
+    let confirmed = options.confirmed === true;
+    // 「确认唤醒 载具名」 / 指令里带确认前缀
+    if (/^确认/.test(name)) {
+      confirmed = true;
+      name = name.replace(/^确认/, '').trim();
+    }
+    if (!name) {
+      return '请指定载具名称，格式：唤醒 载具名';
+    }
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player } = playerData;
+    const map = await this.mapService.getMapById(player.mapId);
+    if (!map) return '你不在任何地图上！';
+    const playerName = player.name || '冒险者';
+
+    const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
+    const keys = (v: any): string[] =>
+      [v?.编号, v?.vehicleId, v?.id, v?.名称, v?.name]
+        .filter((k) => k !== undefined && k !== null && String(k) !== '')
+        .map(String);
+    const index = vehicles.findIndex((v: any) => keys(v).includes(String(name)));
+    if (index < 0) return `${playerName}附近没有${name}`;
+
+    const runtime = this.toRuntimeVehicle(vehicles[index]);
+    const owner = String(runtime.归属 ?? runtime.owner ?? '');
+    if (owner !== '无主') {
+      return `${playerName}${runtime.名称}已有归属，无需唤醒`;
+    }
+
+    const flags = await this.getWreckSealFlags();
+    const isAdmin = await this.isAdminUser(userId);
+    let sealInfo = await this.resolveWreckSealInfo(runtime);
+    if (sealInfo && !sealInfo.sealed) {
+      return `${playerName}${runtime.名称}的封印已解除，可直接「驾驶」认领`;
+    }
+    // 存量未盖戳且总开关关闭：按普通无主处理
+    if (!sealInfo && !flags.sealEnabled) {
+      return `${playerName}${runtime.名称}不是被封印的远古遗迹`;
+    }
+    if (!sealInfo) {
+      // 无配置可回查：允许管理员按最低门槛唤醒，普通玩家不拦
+      if (!isAdmin) {
+        return `${playerName}${runtime.名称}的封印状态未知，无法唤醒`;
+      }
+      sealInfo = { requireLevel: 1, guardWaves: 1, vouchers: 1, vitality: 2, sealed: true };
+    }
+
+    const currentWave = Number(runtime.当前守卫波 ?? runtime.sealWave ?? 0) || 0;
+    const waker = String(runtime.唤醒者 ?? runtime.sealWaker ?? '');
+    // 守卫仍在：提示继续战斗，不重复献祭
+    if (currentWave > 0 && waker) {
+      const remaining = await this.countSealGuards(map.id, String(runtime.编号 || runtime.vehicleId || ''));
+      if (remaining > 0) {
+        return `${playerName}${runtime.名称}的守卫仍在（第${currentWave}/${sealInfo.guardWaves}波），请先「攻击 遗迹守卫」`;
+      }
+      // 守卫已清但未推进（例如上次击杀钩子未触发）：本地推进
+      const progress = await this.advanceWreckSealAfterKill(map.id);
+      if (progress) return `${playerName}收到了遗迹回响：\n${progress}`;
+    }
+
+    if (flags.levelGate && !isAdmin && Number(player.level || 0) < sealInfo.requireLevel) {
+      return `${playerName}无法唤醒${runtime.名称}：需要等级 Lv.${sealInfo.requireLevel}（当前 Lv.${player.level || 1}）`;
+    }
+
+    const cost = this.scaleSealCost(
+      { vouchers: sealInfo.vouchers, vitality: sealInfo.vitality },
+      flags.costFactor,
+    );
+    const ownedVouchers = this.countBackpackItem(player, '凭证');
+    if (ownedVouchers < cost.vouchers) {
+      return `${playerName}唤醒${runtime.名称}缺少贡品：凭证x${cost.vouchers - ownedVouchers}`;
+    }
+    const ownedVitality = Number(player.vitality || 0);
+    if (ownedVitality < cost.vitality) {
+      return `${playerName}唤醒${runtime.名称}活力不足：需要${cost.vitality}点活力（当前${ownedVitality}）`;
+    }
+
+    const vehicleId = String(runtime.编号 || runtime.vehicleId || `V${index}`);
+    // ========== 首次唤醒：只展示确认，不扣材料、不刷怪 ==========
+    if (!confirmed) {
+      const menu = await this.support.buildNumberedMenu(
+        userId,
+        [
+          {
+            label: '确认唤醒',
+            cmd: `确认唤醒 ${vehicleId}`,
+          },
+        ],
+        '💡 发送编号数字 1 确认唤醒（取消可忽略）',
+        [`确认唤醒@确认唤醒${vehicleId}`],
+      );
+      return [
+        `${playerName}即将唤醒远古遗迹「${runtime.名称}」（Lv.${sealInfo.requireLevel}），请确认：`,
+        `◆战斗：第1/${sealInfo.guardWaves}波遗迹守卫将从遗迹中苏醒（等级≈Lv.${sealInfo.requireLevel}），唤醒后自动进入战斗`,
+        `◆消耗：凭证x${cost.vouchers}、活力${cost.vitality}点（失败不返还）`,
+        `◆当前持有：凭证x${ownedVouchers}、活力${Math.floor(ownedVitality)}点`,
+        ...menu,
+      ].join('\n');
+    }
+
+    const removed = await this.playerService.removeFromBackpack(userId, '凭证', cost.vouchers);
+    if (!removed) {
+      return `${playerName}唤醒${runtime.名称}缺少贡品：凭证x${cost.vouchers}`;
+    }
+    player.vitality = Math.max(0, ownedVitality - cost.vitality);
+    await this.playerService.savePlayer(player);
+
+    runtime.当前守卫波 = 1;
+    runtime.sealWave = 1;
+    runtime.唤醒者 = String(userId);
+    runtime.sealWaker = String(userId);
+    vehicles[index] = this.toStoredVehicle(runtime);
+    await this.mapService.updateDynamicFields(map.id, { vehicles });
+    await this.spawnWreckGuardWave(map.id, vehicleId, 1, sealInfo.requireLevel);
+
+    // 唤醒即开打：自动对遗迹守卫发起一次攻击
+    let autoBattle = '第1波守卫从遗迹中苏醒……';
+    try {
+      const weaponIndex = Number(player.currentWeapon ?? 0) > 0 ? Number(player.currentWeapon) : 0;
+      const attack = await this.combatSystem.weaponAttack(userId, weaponIndex, {
+        targetName: '遗迹守卫',
+      });
+      autoBattle = attack?.result
+        ? `第1波守卫从遗迹中苏醒……\n${attack.result}`
+        : autoBattle;
+    } catch (e: any) {
+      this.logger.warn(`唤醒自动攻击失败: ${e?.message ?? e}`);
+      autoBattle += '\n（自动攻击未触发，可手动发送「攻击 遗迹守卫」）';
+    }
+
+    return `${playerName}开始唤醒${runtime.名称}！献祭了凭证x${cost.vouchers}与${cost.vitality}点活力。\n${autoBattle}`;
+  }
+
   /**
    * 处理驾驶载具命令
    * 驾驶或切换到指定的载具
@@ -2459,6 +2764,23 @@ export class MovementVehicleService {
     if (source.kind === 'db') targetKeys.add(String(source.db.id));
     const oldVehicleKey = String(player.vehicle || '');
     const targetWasUnowned = ownerOf(runtime) === '无主';
+    // 远古遗迹封印：首次认领无主残骸前拦截（管理员绕过）
+    if (targetWasUnowned) {
+      const flags = await this.getWreckSealFlags();
+      const isAdmin = await this.isAdminUser(userId);
+      const sealInfo = await this.resolveWreckSealInfo(runtime);
+      if (!isAdmin && sealInfo) {
+        if (flags.sealEnabled && sealInfo.sealed) {
+          if (flags.levelGate && Number(player.level || 0) < sealInfo.requireLevel) {
+            return `${playerName}被远古禁制弹开：需要等级 Lv.${sealInfo.requireLevel}才能唤醒${runtime.名称}（当前 Lv.${player.level || 1}）`;
+          }
+          return `${playerName}被远古禁制弹开：${runtime.名称}被远古禁制封印，请先发送「唤醒 ${runtime.名称}」`;
+        }
+        if (flags.levelGate && Number(player.level || 0) < sealInfo.requireLevel) {
+          return `${playerName}被远古禁制弹开：需要等级 Lv.${sealInfo.requireLevel}才能唤醒${runtime.名称}（当前 Lv.${player.level || 1}）`;
+        }
+      }
+    }
     let mapChanged = false;
     const summons = this.parseVehicleValue<any[]>(map?.summons, []);
     const dbUpdates: Promise<any>[] = [];
@@ -2520,6 +2842,15 @@ export class MovementVehicleService {
     if (targetWasUnowned) {
       runtime.归属 = driverId;
       runtime.owner = driverId;
+      // 管理员直接认领时顺带清封印态，避免残留 sealed 字段干扰后续判读
+      if (runtime.封印中 === true || runtime.sealed === true) {
+        runtime.封印中 = false;
+        runtime.sealed = false;
+        runtime.当前守卫波 = 0;
+        runtime.sealWave = 0;
+        delete runtime.唤醒者;
+        delete runtime.sealWaker;
+      }
     }
     if (source.kind === 'map') {
       mapVehicles[source.index] = this.toStoredVehicle(runtime);
@@ -3993,6 +4324,27 @@ export class MovementVehicleService {
     }
     if (owner === '无主') {
       const vid = String(runtime?.编号 ?? runtime?.vehicleId ?? vehicleName);
+      const flags = await this.getWreckSealFlags();
+      const sealInfo = await this.resolveWreckSealInfo(runtime);
+      const isAdmin = await this.isAdminUser(userId);
+      const sealed = flags.sealEnabled && !!sealInfo?.sealed;
+      if (sealed) {
+        const sealWave = Number(runtime?.当前守卫波 ?? runtime?.sealWave ?? 0) || 0;
+        const totalWaves = sealInfo?.guardWaves ?? 1;
+        const statusLine = sealWave > 0
+          ? `当前唤醒进度：第${sealWave}/${totalWaves}波守卫`
+          : `需要「唤醒」后才能认领（凭证x${sealInfo?.vouchers ?? 1}、活力${sealInfo?.vitality ?? 2}点）`;
+        const costNote = sealWave === 0
+          ? `\n远古遗迹・被封印 Lv.${sealInfo?.requireLevel ?? '?'}\n${statusLine}`
+          : `\n远古遗迹・守卫战中 Lv.${sealInfo?.requireLevel ?? '?'}\n${statusLine}`;
+        const wakeMenu = await this.support.buildNumberedMenu(
+          userId,
+          [{ label: '唤醒遗迹', cmd: `唤醒 ${vid}` }],
+          '💡 发送编号数字查看唤醒确认',
+          ['唤醒@唤醒' + vid],
+        );
+        return `${detail}${costNote}\n${wakeMenu.join('\n')}`;
+      }
       const menu = await this.support.buildNumberedMenu(
         userId,
         [{ label: '获取权限', cmd: `驾驶 ${vid}` }],
@@ -4045,6 +4397,13 @@ export class MovementVehicleService {
     // 原版 归属三态（L2446-L2457）：无主 → "无主"；数字归属 → 取玩家名称；其余（召唤物持有）原样
     if (owner === '无主') {
       lines.push('主人: 无主');
+      const sealedFlag = runtime?.封印中 ?? runtime?.sealed;
+      if (sealedFlag === true || sealedFlag === 1 || sealedFlag === 'true') {
+        const sealLv = Number(runtime?.需求等级 ?? runtime?.requireLevel ?? runtime?.封印等级 ?? runtime?.sealLevel ?? 0) || 0;
+        lines.push(sealLv > 0
+          ? `远古遗迹・被封印 Lv.${sealLv}`
+          : '远古遗迹・被封印');
+      }
     } else if (owner === '') {
       lines.push('主人: 无');
     } else {

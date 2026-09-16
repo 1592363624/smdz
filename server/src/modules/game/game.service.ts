@@ -304,6 +304,7 @@ export class GameService {
     // 调用完整的战斗系统进行武器攻击（索引0=拳头，默认攻击）
     const result = await this.combatSystem.weaponAttack(userId, 0, {});
     // 返回攻击结果文本（含攻击描述、伤害、击杀、经验、掉落等信息）
+    // 遗迹守卫波次推进已在 combat-system 击杀路径内处理
     return result.result;
   }
 
@@ -1086,6 +1087,9 @@ export class GameService {
   }
   async handleDriveVehicle(userId: number, vehicleName: string): Promise<string>{
     return this.movementVehicleService.handleDriveVehicle(userId, vehicleName);
+  }
+  async handleWakeWreck(userId: number, vehicleName: string, options?: { confirmed?: boolean }): Promise<string>{
+    return this.movementVehicleService.handleWakeWreck(userId, vehicleName, options);
   }
   private parseVehicleAssemblyParts(parts: string[]): any[]{
     return this.movementVehicleService.parseVehicleAssemblyParts(parts);

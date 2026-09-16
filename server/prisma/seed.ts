@@ -178,6 +178,8 @@ async function main() {
     { name: '载具', alias: 'vehicle', description: '查看载具状态', handlerKey: 'game', minRole: 'USER', sortOrder: 220 },
     { name: '组装', alias: 'assemble', description: '组装载具', handlerKey: 'game', minRole: 'USER', sortOrder: 221 },
     { name: '驾驶', alias: 'drive', description: '驾驶载具', handlerKey: 'game', minRole: 'USER', sortOrder: 222 },
+    { name: '唤醒', alias: 'wake-wreck', description: '唤醒被封印的远古遗迹（先确认再献祭+守卫战）', handlerKey: 'game', minRole: 'USER', sortOrder: 2221 },
+    { name: '确认唤醒', alias: 'confirm-wake-wreck', description: '确认唤醒远古遗迹并自动进入守卫战', handlerKey: 'game', minRole: 'USER', sortOrder: 2222 },
     { name: '载具命名', alias: 'name-vehicle', description: '为载具命名', handlerKey: 'game', minRole: 'USER', sortOrder: 223 },
     { name: '载具模拟', alias: 'simulate-vehicle', description: '模拟载具操作', handlerKey: 'game', minRole: 'USER', sortOrder: 224 },
     { name: '维修', alias: 'repair', description: '维修载具', handlerKey: 'game', minRole: 'USER', sortOrder: 225 },

@@ -2579,7 +2579,7 @@ watch(messageViews, (views) => {
  */
 function sendChatMessage(content, source = 'main') {
   const text = (content || '').trim();
-  if (!text || !socket) return;
+  if (!text || !socket) return false;
   // 前端软节流：过快时直接提示，不发 socket、不本地回显（避免“看起来发出去了”）
   const intervalSec = Number(chatRateLimitSec.value);
   if (Number.isFinite(intervalSec) && intervalSec > 0) {
@@ -2588,7 +2588,7 @@ function sendChatMessage(content, source = 'main') {
     if (remainingMs > 0) {
       const waitSec = Math.max(0.1, Math.ceil(remainingMs / 100) / 10);
       showToast(`消息发送过于频繁，请 ${waitSec} 秒后再发`, 'error');
-      return;
+      return false;
     }
     lastChatSendAt = now;
   }
@@ -2616,6 +2616,7 @@ function sendChatMessage(content, source = 'main') {
   }
   // 发送后强制回到底部，确保刚发出的消息立即可见（即使用户之前向上翻阅过历史）
   scrollToBottom();
+  return true;
 }
 
 // 本地回显的消息类型预估：命中前缀或已知指令名/别名 → command，否则 chat。
@@ -2623,6 +2624,9 @@ function sendChatMessage(content, source = 'main') {
 function guessMessageType(text) {
   const t = (text || '').trim();
   if (/^[\/！!]/.test(t)) return 'command';
+  // 纯数字编号菜单（如 1/2/3）走主窗指令路径：后端会做临时输入替换；
+  // 若当聊天本地回显会进悬浮窗，用户主屏看起来像“发了没反应”。
+  if (/^\d+$/.test(t)) return 'command';
   const name = t.replace(/^[\/！!]+/, '').split(/\s+/)[0] || '';
   if (!name) return 'chat';
   return commands.value.some(
@@ -2638,8 +2642,10 @@ async function sendMessage() {
   }
   const content = input.value.trim();
   if (!content || !socket) return;
-  // 通过 WebSocket 发送(后端自动判断聊天或指令)，同时本地回显立即上屏
-  sendChatMessage(content);
+  // 通过 WebSocket 发送(后端自动判断聊天或指令)，同时本地回显立即上屏。
+  // 限流/未连接时 sendChatMessage 返回 false：保留输入框内容，避免“发出去了但屏幕没反应”。
+  const ok = sendChatMessage(content);
+  if (!ok) return;
   input.value = '';
   showAutocomplete.value = false;
   closeAtAutocomplete();

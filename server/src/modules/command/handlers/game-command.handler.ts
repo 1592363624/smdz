@@ -1342,6 +1342,14 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
+        case '确认唤醒':
+        case 'confirm-wake-wreck':
+          return this.wrap(await this.gameService.handleWakeWreck(userId, arg, { confirmed: true }));
+
+        case '唤醒':
+        case 'wake-wreck':
+          return this.wrap(await this.gameService.handleWakeWreck(userId, arg));
+
         case '载具命名':
         case 'name-vehicle':
           // 原版「载具命名 骑士 坦克」：旧名 + 新名两段参数

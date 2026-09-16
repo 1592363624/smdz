@@ -2,6 +2,12 @@
   {
     "name": "废弃的骑士",
     "chance": 2,
+    "requireLevel": 100,
+    "guardWaves": 1,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 2
+    },
     "parts": [
       {
         "name": "骑士核心",
@@ -56,6 +62,12 @@
   {
     "name": "损坏的骑士",
     "chance": 2,
+    "requireLevel": 100,
+    "guardWaves": 1,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 2
+    },
     "parts": [
       {
         "name": "骑士核心",
@@ -118,6 +130,12 @@
   {
     "name": "废弃的兰斯洛特",
     "chance": 1,
+    "requireLevel": 120,
+    "guardWaves": 1,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 3
+    },
     "parts": [
       {
         "name": "兰斯洛特核心",
@@ -176,6 +194,12 @@
   {
     "name": "废弃的采矿车",
     "chance": 1,
+    "requireLevel": 150,
+    "guardWaves": 2,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 4
+    },
     "parts": [
       {
         "name": "盾构机核心",
@@ -238,6 +262,12 @@
   {
     "name": "坠毁的穿梭机",
     "chance": 1,
+    "requireLevel": 180,
+    "guardWaves": 2,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 5
+    },
     "parts": [
       {
         "name": "损坏的穿梭机核心",
@@ -284,6 +314,12 @@
   {
     "name": "可疑的移动工厂",
     "chance": 1,
+    "requireLevel": 150,
+    "guardWaves": 2,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 4
+    },
     "parts": [
       {
         "name": "工作台核心",
@@ -338,6 +374,12 @@
   {
     "name": "坠毁的采矿空间站",
     "chance": 0.8,
+    "requireLevel": 200,
+    "guardWaves": 3,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 6
+    },
     "parts": [
       {
         "name": "废弃空间站核心",
@@ -408,6 +450,12 @@
   {
     "name": "废弃的轻型航母",
     "chance": 0.6,
+    "requireLevel": 220,
+    "guardWaves": 3,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 7
+    },
     "parts": [
       {
         "name": "驱逐舰核心",
@@ -462,6 +510,12 @@
   {
     "name": "废弃的采矿船",
     "chance": 0.4,
+    "requireLevel": 220,
+    "guardWaves": 3,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 7
+    },
     "parts": [
       {
         "name": "盾构机核心",
@@ -540,6 +594,12 @@
   {
     "name": "掩埋的幻影骑士",
     "chance": 0.3,
+    "requireLevel": 250,
+    "guardWaves": 3,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 9
+    },
     "parts": [
       {
         "name": "幻影骑士核心",
@@ -586,6 +646,12 @@
   {
     "name": "坠毁的行星杀手",
     "chance": 0.1,
+    "requireLevel": 300,
+    "guardWaves": 3,
+    "sealCost": {
+      "vouchers": 1,
+      "vitality": 12
+    },
     "parts": [
       {
         "name": "损坏的灭星者核心",

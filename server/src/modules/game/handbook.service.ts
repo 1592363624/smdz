@@ -343,7 +343,16 @@ export class HandbookService {
     // 精确名称优先（原版 L2672-2965）：按固定分类顺序找同名条目，命中直接渲染详情。
     // 这是「图鉴花园猫」应当直达使魔详情、而不是返回 9 条模糊结果的关键。
     const exact = this.findExactByName(query, renderCtx);
-    if (exact) return (exact.detail ?? []).join('\n');
+    if (exact) {
+      // 怪物基础图鉴的「1、显示详细数据」：注册编号映射，否则玩家发 1 无处可去。
+      if (query.endsWith('详细') === false) {
+        const monster = this.rawList('monster').find((m: any) => m?.name === query);
+        if (monster) {
+          await this.shortcutService.setTempInput(ctx.userId, `1@图鉴${query}详细`);
+        }
+      }
+      return (exact.detail ?? []).join('\n');
+    }
 
     // 跨分类模糊搜索
     return this.renderSearch(query, sections);

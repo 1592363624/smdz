@@ -263,6 +263,8 @@ export interface MonsterDeathResult {
    * 原版直接追加进攻击文本，此处由调用方并进 resultLines。
    */
   passiveText?: string;
+  /** 远古遗迹守卫：波次推进/解封提示 */
+  sealText?: string;
 }
 
 interface CombatTaskProgress {
@@ -3088,6 +3090,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         taskProgress.push(...(deathResult.taskProgress || []));
         // 原版把击杀被动回显串进战斗文本（伊卡洛斯/剑圣减冷却等）
         if (deathResult.passiveText) resultLines.push(deathResult.passiveText);
+        // 远古遗迹守卫：波次推进/解封提示
+        if (deathResult.sealText) resultLines.push(String(deathResult.sealText));
 
         if (deathResult.dropText) {
           resultLines.push(`掉落：${deathResult.dropText}`);
@@ -5867,6 +5871,16 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`从地图移除怪物失败: ${error.message}`);
     }
 
+    // 远古遗迹守卫：击杀后尝试推进封印波次/解封（仅依赖 mapService，避免注入环）
+    let sealText = '';
+    if (String(monster?.qq ?? '').startsWith('sealguard_')) {
+      try {
+        sealText = await this.advanceWreckSealAfterGuardKill(Number(mapId));
+      } catch (error: any) {
+        this.logger.warn(`遗迹守卫波次推进失败: ${error?.message ?? error}`);
+      }
+    }
+
     // ===== 击杀登记「刷新怪物」标记（原版 后台运作.ecode 发放奖励 L458-461）=====
     // 原版：`怪物.当前生命 <= 0` → 若 `地图.关卡 == 假` → `刷新标记(地图, 名称, 时间, 1)`
     // → 向地图「标记2」加入一条 **120 秒后到期** 的「刷新怪物」标记；到期由后台补怪循环
@@ -5885,7 +5899,80 @@ export class CombatSystemService implements OnApplicationShutdown {
     return {
       expGain, drops, dropText, taskProgress, vitalityCost, rewardMultiplier, vitalityText,
       passiveText: passiveLines.join('\n'),
+      sealText,
     };
+  }
+
+  /**
+   * 远古遗迹守卫被击杀后的波次推进：
+   * - 本波守卫清空且仍有下一波 → 生成下一波
+   * - 最后一波清空 → 解除封印并把归属授予唤醒者
+   * 仅依赖 mapService，避免 Combat↔Movement 循环依赖。
+   * @returns 展示给玩家的推进/解封文案（无变化时为空串）
+   */
+  private async advanceWreckSealAfterGuardKill(mapId: number): Promise<string> {
+    if (!(mapId > 0)) return '';
+    const map = await this.mapService.getMapById(mapId);
+    if (!map) return '';
+    const vehicles = asJsonValue<any[]>(map.vehicles, []);
+    if (!Array.isArray(vehicles) || vehicles.length === 0) return '';
+    const monsters = await this.mapService.getMapMonsters(mapId);
+    let changed = false;
+    const lines: string[] = [];
+    for (let i = 0; i < vehicles.length; i++) {
+      const raw = vehicles[i] || {};
+      const sealed = raw.封印中 === true || raw.sealed === true;
+      const sealWave = Number(raw.当前守卫波 ?? raw.sealWave ?? 0) || 0;
+      const waker = String(raw.唤醒者 ?? raw.sealWaker ?? '');
+      if (!sealed || sealWave <= 0 || !waker) continue;
+      const vehicleId = String(raw.编号 ?? raw.vehicleId ?? raw.id ?? '');
+      if (!vehicleId) continue;
+      const remaining = monsters.filter((m: any) =>
+        (Number(m?.hp ?? 0) > 0) && String(m?.qq ?? '').startsWith(`sealguard_${vehicleId}_`),
+      ).length;
+      if (remaining > 0) continue;
+      const totalWaves = Math.max(1, Number(raw.守卫波数 ?? raw.guardWaves ?? 1) || 1);
+      const wakerName = await this.prisma.player
+        .findUnique({ where: { userId: Number(waker) }, select: { name: true } })
+        .then((p) => p?.name || waker)
+        .catch(() => waker);
+      if (sealWave < totalWaves) {
+        const nextWave = sealWave + 1;
+        raw.当前守卫波 = nextWave;
+        raw.sealWave = nextWave;
+        vehicles[i] = raw;
+        changed = true;
+        const level = Math.max(1, Number(raw.需求等级 ?? raw.requireLevel ?? 100) || 100);
+        try {
+          await this.mapService.spawnMonsterByName(mapId, '遗迹守卫', {
+            isTemp: true,
+            level,
+            qq: `sealguard_${vehicleId}_w${nextWave}`,
+          });
+        } catch (e: any) {
+          this.logger.warn(`遗迹守卫下一波生成失败: ${e?.message ?? e}`);
+        }
+        lines.push(`${wakerName}击破了守卫！第${nextWave}波守卫从遗迹中苏醒……`);
+        this.logger.log(`${raw.名称 ?? '遗迹'}第${nextWave}波守卫苏醒 map=${mapId}`);
+      } else {
+        raw.封印中 = false;
+        raw.sealed = false;
+        raw.当前守卫波 = 0;
+        raw.sealWave = 0;
+        raw.归属 = waker;
+        raw.owner = waker;
+        delete raw.唤醒者;
+        delete raw.sealWaker;
+        vehicles[i] = raw;
+        changed = true;
+        lines.push(`${wakerName}击破了全部守卫，${raw.名称 ?? '遗迹'}的封印解除了！`);
+        this.logger.log(`${raw.名称 ?? '遗迹'}封印解除，归属=${waker} map=${mapId}`);
+      }
+    }
+    if (changed) {
+      await this.mapService.updateDynamicFields(mapId, { vehicles });
+    }
+    return lines.join('\n');
   }
 
   /**

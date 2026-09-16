@@ -188,6 +188,42 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
     group: 'game',
   },
   {
+    key: 'game.wreckClaimLevelGate',
+    value: 'true',
+    label: '遗迹认领等级门槛',
+    description:
+      '开启后，首次认领无主废弃载具（远古遗迹）需达到 requireLevel；管理员可绕过。关闭则恢复零门槛认领',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: 'game.wreckSealEnabled',
+    value: 'true',
+    label: '遗迹封印唤醒',
+    description:
+      '开启后，无主残骸显示为「远古遗迹·被封印」，需「唤醒 载具名」完成献祭+守卫战后才能驾驶认领',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: 'game.wreckLevelReqOffset',
+    value: '0',
+    label: '遗迹等级门槛全局偏移',
+    description:
+      '对所有残骸的 requireLevel 统一加减（生成时盖戳）；觉得太难填负数。默认 0',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: 'game.wreckSealCostFactor',
+    value: '100',
+    label: '遗迹献祭系数(%)',
+    description:
+      '唤醒献祭的凭证与活力按此百分比缩放（四舍五入，凭证至少 1、活力至少 2）。默认 100',
+    type: 'number',
+    group: 'game',
+  },
+  {
     key: 'chat.messageIntervalSec',
     value: '0.2',
     label: '用户消息发送间隔(秒)',
