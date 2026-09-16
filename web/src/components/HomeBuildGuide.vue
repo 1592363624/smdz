@@ -10,7 +10,7 @@
   <div ref="rootEl" class="hbg" :class="{ 'hbg-compact': compact, 'hbg-full': fullscreen, 'hbg-done': isDone, 'hbg-flash': flashing }">
     <!-- ========== 全屏接管：场景 + 浮层顶栏 + 底部指令面板 ========== -->
     <template v-if="fullscreen">
-      <!-- 施工场景（纯 CSS，不加载图片；pointer-events:none 不挡操作） -->
+      <!-- 天空装饰（纯 CSS；pointer-events:none 不挡操作） -->
       <div class="hbg-scene" aria-hidden="true">
         <i class="sb sb-sun"></i>
         <i class="sb sb-cloud sc1"></i>
@@ -18,8 +18,18 @@
         <i class="sb sb-bird sv1"></i>
         <i class="sb sb-bird sv2"></i>
         <i v-for="n in 7" :key="'mote' + n" class="sb-mote" :style="{ '--d': `${n * 1.7}s`, '--x': `${8 + n * 12}%`, '--y': `${20 + (n % 3) * 18}%` }"></i>
+      </div>
 
-        <div class="sb-lot" :class="'p' + stage">
+      <!-- 浮层：返回聊天（建造期其它家园功能全部隐藏） -->
+      <div class="hbg-topbar">
+        <button type="button" class="hbg-back" :disabled="busy" @click="emit('open-chat')">← 聊天</button>
+        <span v-if="hasPending" class="hbg-at-home-warn travelling">⏳ {{ pendingLabel }}<template v-if="!pending?.finishing"> · {{ pendingLeft }}s</template></span>
+        <span v-else-if="!atHome && stage > 0" class="hbg-at-home-warn">📍 需要先回家</span>
+      </div>
+
+      <!-- 院子场景 + 指令面板：整组垂直居中，宽屏不再整块贴底 -->
+      <div class="hbg-stage">
+        <div class="sb-lot" :class="'p' + stage" aria-hidden="true">
           <div class="sb-ground"></div>
           <!-- 圈地阶段：四角界桩 + 虚线地界 -->
           <div v-if="stage === 0" class="sb-stakes">
@@ -43,18 +53,9 @@
             <i v-for="n in 6" :key="n" :style="{ '--d': `${n * 0.35}s`, '--x': `${n * 20 - 58}px` }"></i>
           </div>
         </div>
-        <div class="sb-fence"><i v-for="n in 15" :key="n"></i></div>
-      </div>
+        <div class="sb-fence" aria-hidden="true"><i v-for="n in 15" :key="n"></i></div>
 
-      <!-- 浮层：返回聊天（建造期其它家园功能全部隐藏） -->
-      <div class="hbg-topbar">
-        <button type="button" class="hbg-back" :disabled="busy" @click="emit('open-chat')">← 聊天</button>
-        <span v-if="hasPending" class="hbg-at-home-warn travelling">⏳ {{ pendingLabel }} · {{ pendingLeft }}s</span>
-        <span v-else-if="!atHome && stage > 0" class="hbg-at-home-warn">📍 需要先回家</span>
-      </div>
-
-      <!-- 底部指令面板：大标题 + 四步轨 + 材料 + 主操作 -->
-      <div ref="panelEl" class="hbg-panel">
+        <div ref="panelEl" class="hbg-panel">
         <div class="hbg-eyebrow">
           <span class="hbg-eyebrow-step">{{ stepLabel }}</span>
           <span v-if="!isDone" class="hbg-eyebrow-sub">{{ displayStep.subtitle }}</span>
@@ -80,68 +81,116 @@
 
         <p class="hbg-tip">{{ isDone ? cfg.texts.doneTip : tipText }}</p>
 
-        <!-- 材料清单（开挖 / 建地基步） -->
-        <div v-if="!isDone && displayStep.materials?.length" class="hbg-mats">
-          <span v-for="m in displayStep.materials" :key="m.name" class="hbg-mat">
-            <i>{{ m.icon }}</i>{{ m.name }} <b>{{ m.qty }}</b>
+        <!-- 材料清单：只在「还没开工、仍需备料」时展示；建造中材料已扣，避免和实扣对不上 -->
+        <div v-if="showMaterials" class="hbg-mats">
+          <span
+            v-for="m in displayStep.materials"
+            :key="m.name"
+            class="hbg-mat"
+            :class="{ ok: ownedOf(m.name) >= m.qty }"
+            :title="`需要 ${m.qty}，已有 ${ownedOf(m.name)}`"
+          >
+            <i>{{ m.icon }}</i>{{ m.name }}
+            <b>{{ m.qty }}</b>
+            <em>已有 {{ ownedOf(m.name) }}</em>
           </span>
         </div>
 
+        <!-- 清障：含队列进度条（即使障碍数暂时为 0，只要队列还有也要显示） -->
+        <div v-if="!isDone && fullscreenClears.length" class="hbg-clears">
+          <template v-for="s in fullscreenClears" :key="s.cmd">
+            <div class="hbg-clear-row">
+              <button
+                class="hbg-btn hbg-clear"
+                :class="{ on: s.busy }"
+                :disabled="busy || !atHome || needHome || (s.available <= 0 && !s.busy)"
+                :title="clearTitle(s)"
+                @click="onSend(s.cmd)"
+              >
+                <i v-if="s.busy" class="hbg-travel-ring"></i>
+                {{ s.busy ? (pending?.finishing ? `${s.cmd} …` : `${s.cmd} ${pendingLeft}s`) : s.cmd }}
+                <span class="hbg-clear-left">
+                  {{ s.left > 0
+                    ? (s.available > 0 ? `还可排 ${s.available}` : '已排满')
+                    : (s.arranged > 0 ? '队列中' : '—') }}
+                </span>
+                <span v-if="s.arranged > 0" class="hbg-queue-badge">
+                  {{ s.arranged }}/{{ Math.max(s.left, s.arranged) }}
+                </span>
+              </button>
+              <button
+                v-if="s.arranged > 0 || s.left > 1"
+                class="hbg-btn hbg-clear-all"
+                :disabled="busy || !atHome || needHome || (s.arranged > 0 && s.available <= 0)"
+                :title="s.arranged > 0 && s.available > 0
+                  ? `把剩余可排的 ${s.available} 次全部排进队列`
+                  : s.left > 1 ? `用「${s.cmd}${s.left}」一次清完` : undefined"
+                @click="onSend(`${s.cmd}${s.arranged > 0 ? Math.max(s.available, 1) : s.left}`)"
+              >
+                {{ s.arranged > 0
+                  ? (s.available > 0 ? `排满剩余 ×${s.available}` : '排队中…')
+                  : `清完 ×${s.left}` }}
+              </button>
+            </div>
+            <!-- 已安排进度条：一眼看到队列推进 -->
+            <div v-if="s.arranged > 0" class="hbg-clear-track" :title="`已安排 ${s.arranged} / ${Math.max(s.left, s.arranged)}`">
+              <i :style="{ width: s.progressPct + '%' }"></i>
+              <span>已安排 {{ s.arranged }}/{{ Math.max(s.left, s.arranged) }}</span>
+            </div>
+          </template>
+        </div>
+
         <div class="hbg-ops hbg-ops-full">
+          <!-- 不在院子：回家是唯一主操作 -->
           <button
-            v-for="c in assistCmds"
-            :key="c"
-            class="hbg-btn tiny hbg-btn-cmd"
-            :class="{ on: isPendingCmd(c) }"
-            :disabled="busy || !atHome || isOtherClearBusy(c)"
-            :title="assistTitle(c)"
-            @click="onSend(c)"
-          >
-            <i v-if="isPendingCmd(c)" class="hbg-travel-ring"></i>
-            {{ isPendingCmd(c) ? `${c} ${pendingLeft}s` : c }}
-            <span v-if="queueCountFor(c) > 0" class="hbg-queue-badge">×{{ 1 + queueCountFor(c) }}</span>
-          </button>
-          <button
-            v-if="!isDone && (hasPending && isPendingHome || (!atHome && stage > 0 && homeCmd))"
-            class="hbg-btn ghost hbg-btn-travel"
+            v-if="!isDone && needHome && homeCmd"
+            class="hbg-btn primary big"
             :class="{ on: hasPending && isPendingHome }"
-            :disabled="hasPending || busy"
-            :title="hasPending && isPendingHome ? '赶路中，到达后自动刷新' : undefined"
+            :disabled="busy || (hasPending && !isPendingHome)"
+            :title="hasPending && isPendingHome ? '赶路中，到达后自动继续' : '回到自己的院子才能动土'"
             @click="!(hasPending && isPendingHome) && onSend(homeCmd)"
           >
             <template v-if="hasPending && isPendingHome">
-              <i class="hbg-travel-ring"></i>
-              赶路中 {{ pendingLeft }}s
+              <i class="hbg-travel-ring dark"></i>
+              {{ pending?.finishing ? '落地结算中…' : `赶路中 ${pendingLeft}s` }}
             </template>
-            <template v-else>🏠 先回家</template>
+            <template v-else>🏠 先回家院子</template>
           </button>
+
+          <!-- 在院子里：下一步建造 -->
           <button
-            v-if="!isDone && nextCmd"
+            v-else-if="!isDone && nextCmd"
             class="hbg-btn primary big"
             :class="{ on: isPendingCmd(nextCmd) }"
-            :disabled="busy || hasPending || (!atHome && stage > 0)"
-            :title="isPendingCmd(nextCmd) ? '施工中，完成后自动刷新下一步' : undefined"
+            :disabled="busy || hasPending || (needHome && stage > 0) || blockers.blockNext"
+            :title="nextTitle"
             @click="onSend(nextCmd)"
           >
             <template v-if="isPendingCmd(nextCmd)">
               <i class="hbg-travel-ring dark"></i>
-              {{ nextCmd }}中 {{ pendingLeft }}s
+              {{ pending?.finishing ? `${pendingLabel} …` : `${pendingLabel} ${pendingLeft}s` }}
             </template>
             <template v-else>{{ primaryText }}</template>
             <span v-if="busy" class="hbg-btn-spin"></span>
           </button>
-          <!-- 超管：跳过当前延时（挖土/赶路/建造），与聊天页「⚡完成」同一通道 -->
+
+          <!-- 超管：跳过当前延时 -->
           <button
             v-if="queue?.adminMode && hasPending"
             class="hbg-btn tiny hbg-skip"
-            title="管理员特权：跳过倒计时立即完成"
+            title="管理员特权：跳过整条清障/延时队列"
             @click="emit('skip')"
           >⚡完成</button>
         </div>
         <p v-if="queue?.queueCount > 0" class="hbg-queue-hint">
-          服务端队列：{{ queue.queueDetail || `${queue.queueCmd}×${queue.queueCount}` }} ·
-          结算后自动继续（还可清 {{ queue.clearLeft }} 次，刷新不丢）
+          服务端队列 {{ queue.queueDetail || queue.queueCmd }} ·
+          这一段结束后自动继续
+          <template v-if="primaryArrangeText"> · {{ primaryArrangeText }}</template>
         </p>
+        <p v-else-if="hasPending && pending?.finishing" class="hbg-queue-hint">
+          {{ pending?.kind === 'move' ? '即将落地，正在确认位置…' : '即将完成，界面马上更新…' }}
+        </p>
+        </div>
       </div>
 
       <!-- 第 4 步（房子开工）撒花 -->
@@ -176,6 +225,20 @@
 
       <div class="hbg-body">
         <p class="hbg-tip">{{ tipText }}</p>
+        <!-- 材料清单：有 materials prop 时显示已有量（聊天流默认不传则只在全屏展示） -->
+        <div v-if="!isDone && displayStep.materials?.length && materials" class="hbg-mats">
+          <span
+            v-for="m in displayStep.materials"
+            :key="m.name"
+            class="hbg-mat"
+            :class="{ ok: ownedOf(m.name) >= m.qty }"
+            :title="`需要 ${m.qty}，已有 ${ownedOf(m.name)}`"
+          >
+            <i>{{ m.icon }}</i>{{ m.name }}
+            <b>{{ m.qty }}</b>
+            <em>已有 {{ ownedOf(m.name) }}</em>
+          </span>
+        </div>
         <div class="hbg-ops">
           <button
             v-for="c in assistCmds"
@@ -243,10 +306,15 @@ const props = defineProps({
    */
   pending: { type: Object, default: null },
   /**
-   * 清障排队 + 超管跳过：
-   * { adminMode, queueCount, queueCmd, clearLeft, clearTotalLeft }
+   * 清障排队 / 障碍剩余 / 超管跳过（HomeView 合成）：
+   * { adminMode, queueCount, queueCmd, queueDetail, busyClearCmd, clears, needHome, ... }
    */
   queue: { type: Object, default: null },
+  /**
+   * 背包资源存量：{ 木头: 50, 石头: 30, … }。来自 GET /game/home/yard 的 materials 字段，
+   * 用于在材料清单上显示「已有 X」。缺省/空对象时只显示需求量。
+   */
+  materials: { type: Object, default: null },
 });
 
 const emit = defineEmits(['send', 'open-home', 'open-chat', 'skip']);
@@ -260,15 +328,32 @@ const current = computed(() => {
   if (props.step <= 0) return cfg.claim;
   return steps.find((s) => s.step === props.step) || null;
 });
-/** 进度到 4 即视为建成（房子开工后 2 分钟完工，此处按原版口径视作已完成流程） */
-const isDone = computed(() => props.step >= total);
-/** 下一步要发送的指令：进度 0 → 圈地；最后一步为空 */
+/**
+ * 房子已开工但读条未结束：进度虽是 4，仍算「施工中」而非「已建成」。
+ * 读条结束后 isDone 才变 true，引导页播庆祝再交给完整家园。
+ */
+const isHouseConstructing = computed(() => {
+  if (props.step < total) return false;
+  if (!hasPending.value || props.pending?.kind !== 'work') return false;
+  const label = String(props.pending?.label || '').trim();
+  return label.includes('房子') || label.includes('建造');
+});
+/** 流程完成 = 进度到 4 且房子读条已结束 */
+const isDone = computed(() => props.step >= total && !isHouseConstructing.value);
+/** 下一步要发送的指令：进度 0 → 圈地；最后一步为空（施工中保留「建造房子」以便显示读条） */
 const nextCmd = computed(() => {
   if (!props.step) return cfg.firstCommand;
+  if (isHouseConstructing.value) return '建造房子';
   return current.value?.next || '';
 });
 /** 当前步可用的辅助指令（挖土/割草等清障指令） */
 const assistCmds = computed(() => (isDone.value ? [] : current.value?.cmds || []));
+/** 背包中某材料的已有数量（缺省为 0） */
+function ownedOf(name) {
+  const bag = props.materials;
+  if (!bag || typeof bag !== 'object') return 0;
+  return Number(bag[name] || 0);
+}
 /** 回家指令：注册的是「移动/前往」，没有裸「回家」命令 */
 const homeCmd = computed(() => {
   const name = String(props.houseName || '').trim();
@@ -277,6 +362,9 @@ const homeCmd = computed(() => {
 const titleText = computed(() => (isDone.value ? cfg.texts.doneTitle : cfg.texts.title));
 const tipText = computed(() => {
   if (isDone.value) return cfg.texts.doneTip;
+  // 开工后进度立刻跳步，但材料是当前步刚扣的——建造中不要再说「备齐材料」
+  if (buildingWork.value === 'foundation') return '地基正在浇筑，稍等片刻即可准备材料建造房子';
+  if (buildingWork.value === 'house') return '小屋正在施工，约 2 分钟后完工';
   return current.value?.tip || cfg.texts.startTip;
 });
 const nextText = computed(() => (nextCmd.value ? cfg.texts.nextCmd(nextCmd.value) : cfg.texts.building));
@@ -296,15 +384,21 @@ const stepLabel = computed(() => {
 });
 
 /** 全屏场景的建造阶段：0=空地圈地，1=开挖地基，2=建造地基，3=建造房子，4=建成 */
-const stage = computed(() => Math.max(0, Math.min(4, props.step)));
+const stage = computed(() => {
+  // 房子施工中场景保持「施工中」样式，读条结束才切「已落成」
+  if (isHouseConstructing.value) return 3;
+  return Math.max(0, Math.min(4, props.step));
+});
 
 /** 是否有进行中的延时操作（挖土/割草/前往/建造…） */
-const hasPending = computed(() => Number(props.pending?.remain || 0) > 0);
+const hasPending = computed(() => Number(props.pending?.remain || 0) > 0 || Boolean(props.pending?.finishing));
 const pendingLeft = computed(() => Math.max(0, Math.ceil(Number(props.pending?.remain || 0))));
 const pendingCmd = computed(() => String(props.pending?.cmd || '').trim());
-/** 短标签优先用父组件给的 label，其次截断 cmd */
+/** 短标签优先用父组件给的 label，其次截断 cmd；建造读条补「中」与旧文案一致 */
 const pendingLabel = computed(() => {
-  const label = String(props.pending?.label || pendingCmd.value || '').trim();
+  let label = String(props.pending?.label || pendingCmd.value || '').trim();
+  if (props.pending?.kind === 'work' && label && !label.endsWith('中')) label = `${label}中`;
+  if (props.pending?.finishing) return `${label || '进行中'} · 即将完成`;
   if (label.length <= 10) return label;
   return `${label.slice(0, 10)}…`;
 });
@@ -319,28 +413,74 @@ function isPendingCmd(cmd) {
   return p === c || p.startsWith(c) || c.startsWith(p);
 }
 
+/** 当前是否在浇地基 / 盖房子读条中（开工后进度已跳步，用读条区分真实阶段） */
+const buildingWork = computed(() => {
+  if (!hasPending.value || props.pending?.kind !== 'work') return null;
+  const label = String(props.pending?.label || '').trim();
+  if (label.includes('地基')) return 'foundation';
+  if (label.includes('房子')) return 'house';
+  return 'work';
+});
+
+/**
+ * 材料清单是否展示。
+ * 开工后进度立刻跳下一步（原版口径），若仍渲染下一步材料会让人以为「要扣 300 却没扣」——
+ * 实际此刻扣的是当前步材料。故：地基/房子读条进行中时隐藏材料行。
+ */
+const showMaterials = computed(() => {
+  if (isDone.value) return false;
+  if (!displayStep.value?.materials?.length) return false;
+  return !buildingWork.value;
+});
+
+/** 全屏清障按钮列表（剩余次数 + 是否进行中） */
+const fullscreenClears = computed(() => (props.queue?.clears || []).map((s) => ({
+  ...s,
+  busy: s.busy || isPendingCmd(s.cmd),
+})));
+
+const needHome = computed(() => Boolean(props.queue?.needHome) && stage.value > 0);
+
+/** 「下一步」是否被障碍挡住 */
+const blockers = computed(() => ({
+  blockNext: needHome.value || (fullscreenClears.value.length > 0 && !hasPending.value),
+}));
+
+const nextTitle = computed(() => {
+  if (isPendingCmd(nextCmd.value)) return '施工中，完成后自动刷新下一步';
+  if (needHome.value) return '需要先回到自己的院子';
+  if (blockers.value.blockNext) return '院子里还有土堆/杂草，先清完才能开挖地基';
+  return undefined;
+});
+
+function clearTitle(s) {
+  if (needHome.value) return '回到院子后才能清障';
+  if (isOtherClearBusy(s.cmd)) {
+    const busy = String(props.queue?.busyClearCmd || '').trim();
+    return `正在「${busy}」，完成前只能继续点「${busy}」`;
+  }
+  const arranged = s.arranged ?? ((s.busy ? 1 : 0) + (s.queued || 0));
+  const available = s.available ?? Math.max(0, (s.left || 0) - arranged);
+  if (s.busy) return `进行中 · 已安排 ${arranged}/${s.left} · 还可再排 ${available}（点一下 +1）`;
+  if (arranged > 0) return `已安排 ${arranged}/${s.left} · 还可再排 ${available}`;
+  return `院子共 ${s.left} 个「${s.cmd}」· 点一下清 1 个`;
+}
+
+/** 已安排进度文案：「挖土 已安排 12/19」；障碍数为 0 时只报队列条数 */
+const primaryArrangeText = computed(() => {
+  const list = fullscreenClears.value;
+  if (!list.length) return '';
+  const s = list.find((x) => x.busy || x.arranged > 0) || null;
+  if (!s || !s.arranged) return '';
+  if (s.left <= 0) return `${s.cmd} 队列中 ×${s.arranged}`;
+  return `${s.cmd} 已安排 ${s.arranged}/${s.left}`;
+});
+
 /** 队列里该指令的条数（进行中不计，模板上 ×(1+n)） */
 function queueCountFor(cmd) {
   const c = String(cmd || '').trim();
   if (!c || !props.queue?.queueCmd) return 0;
   return props.queue.queueCmd === c ? Number(props.queue.queueCount || 0) : 0;
-}
-
-/** 清障按钮 tooltip：进行中可继续排队 */
-function assistTitle(cmd) {
-  const c = String(cmd || '').trim();
-  if (isOtherClearBusy(c)) {
-    const busy = String(props.queue?.busyClearCmd || '').trim();
-    return `正在「${busy}」，完成前只能继续点「${busy}」`;
-  }
-  if (isPendingCmd(c)) {
-    const q = queueCountFor(c);
-    return q > 0
-      ? `进行中 · 已排队 ${1 + q} 次，可继续点击追加`
-      : '进行中——再点一次可排队，结算后自动继续';
-  }
-  if (queueCountFor(c) > 0) return '已排队，进行结束后自动执行';
-  return `发送「${c}」（倒计时中可连点排队）`;
 }
 
 /** 另一类清障正在进行：禁用本按钮（挖土进行中禁用割草，反之亦然） */
@@ -349,7 +489,6 @@ function isOtherClearBusy(cmd) {
   if (c !== '挖土' && c !== '割草') return false;
   const busy = String(props.queue?.busyClearCmd || '').trim();
   if (!busy || busy === c) return false;
-  // 忙的是清障（当前 gather 或队列头），而不是「前往/建造」
   return busy === '挖土' || busy === '割草';
 }
 
@@ -674,13 +813,30 @@ onBeforeUnmount(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   border: none;
   border-radius: 0;
-  padding: 0;
+  padding: 48px 16px 24px;
   /* 黄昏→白昼的天空：随进度从冷色工地感过渡到暖色落成感 */
   background: linear-gradient(180deg, #0c1830 0%, #152a48 38%, #1e4a3a 72%, #2d5a32 100%);
   overflow: hidden;
   box-shadow: none;
+}
+
+/* 院子场景 + 指令面板：整组垂直居中，宽屏不再整块贴底 */
+.hbg-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  max-height: 100%;
+  /* 给顶栏留出空间，避免返回按钮压住院子 */
+  padding-top: 48px;
 }
 
 /* ---- 施工场景 ---- */
@@ -761,15 +917,12 @@ onBeforeUnmount(() => {
   animation: sb-mote 7s ease-in-out var(--d) infinite;
 }
 
-/* 地块（院子）：抬到面板上方，保证房子/地基完整露出 */
+/* 地块（院子）：在 stage 内流式排布，紧贴指令面板上方 */
 .sb-lot {
-  position: absolute;
-  left: 50%;
-  bottom: calc(var(--hbg-panel-h, 280px) + 8px);
+  position: relative;
   width: min(560px, 86vw);
-  height: min(34vh, 280px);
-  min-height: 180px;
-  transform: translateX(-50%);
+  height: min(32vh, 260px);
+  min-height: 160px;
   background: linear-gradient(180deg, #5fae52 0%, #47863f 55%, #3a6f35 100%);
   border-radius: 22px 22px 0 0;
   box-shadow:
@@ -1040,11 +1193,12 @@ onBeforeUnmount(() => {
   animation: sb-dust 1.6s ease-out infinite;
 }
 
-/* 院子栅栏 */
+/* 院子栅栏：贴在 stage 内院子顶沿 */
 .sb-fence {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--hbg-panel-h, 280px) + 8px + min(34vh, 280px) - 2px);
+  /* 院子高度 + 一点重叠，让桩落在草地顶边 */
+  top: calc(min(32vh, 260px) - 10px);
   transform: translateX(-50%);
   width: min(620px, 92vw);
   max-width: 92vw;
@@ -1052,6 +1206,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   padding: 0 2%;
   box-sizing: border-box;
+  z-index: 1;
+  pointer-events: none;
 }
 .sb-fence i {
   width: 6px;
@@ -1106,15 +1262,12 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(6px);
 }
 
-/* ---- 底部指令面板 ---- */
+/* ---- 指令面板（stage 内，紧接院子下方） ---- */
 .hbg-panel {
   position: relative;
   z-index: 2;
-  margin-top: auto;
-  width: min(600px, calc(100% - 28px));
-  margin-left: auto;
-  margin-right: auto;
-  margin-bottom: 16px;
+  width: min(600px, 100%);
+  margin: 0 auto;
   padding: 16px 20px 18px;
   border-radius: 18px;
   border: 1px solid rgba(120, 170, 230, 0.22);
@@ -1190,6 +1343,21 @@ onBeforeUnmount(() => {
   color: #ffd76a;
   font-variant-numeric: tabular-nums;
 }
+/* 已有数量：不足偏暗、够了偏绿 */
+.hbg-mat em {
+  font-style: normal;
+  font-size: 11px;
+  color: #8fa3c0;
+  font-variant-numeric: tabular-nums;
+  margin-left: 2px;
+}
+.hbg-mat.ok {
+  border-color: rgba(72, 200, 130, 0.45);
+  background: rgba(72, 200, 130, 0.1);
+}
+.hbg-mat.ok em {
+  color: #6ddea0;
+}
 
 /* 全屏操作区 */
 .hbg-ops-full { align-items: center; }
@@ -1264,6 +1432,87 @@ onBeforeUnmount(() => {
   line-height: 1.5;
   color: #9fd0ff;
   opacity: 0.9;
+}
+
+/* 清障区：剩余次数醒目，一键清完更突出 */
+.hbg-clears {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.hbg-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  font-size: 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 170, 230, 0.28);
+  background: rgba(30, 48, 72, 0.45);
+  color: #e8f1ff;
+}
+.hbg-clear.on {
+  border-color: rgba(78, 163, 255, 0.55);
+  background: rgba(30, 60, 100, 0.5);
+  font-weight: 700;
+}
+.hbg-clear-left {
+  font-size: 11px;
+  color: #ffd76a;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.hbg-clear-all {
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 800;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 180, 84, 0.45);
+  background: linear-gradient(120deg, rgba(255, 180, 84, 0.22), rgba(255, 140, 60, 0.18));
+  color: #ffd79a;
+}
+.hbg-clear-all:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(255, 160, 60, 0.25);
+}
+.hbg-clear:disabled,
+.hbg-clear-all:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.hbg-clear-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+.hbg-clear-track {
+  position: relative;
+  width: 100%;
+  height: 18px;
+  margin: -2px 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.hbg-clear-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(78, 163, 255, 0.35), rgba(56, 211, 159, 0.55));
+  transition: width 0.35s ease;
+}
+.hbg-clear-track span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #e8f1ff;
+  letter-spacing: 0.2px;
 }
 
 /* 赶路/施工中按钮：环形进度 + 脉冲 */

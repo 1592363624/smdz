@@ -84,6 +84,11 @@ function makeYardFixture(options: FixtureOptions = {}) {
         dailyDisplay: [],
       },
     })),
+    getCropGrowthPlan: jest.fn(() => ({
+      totalSeconds: 600,
+      rewardScaleDivisor: 600,
+      stageNames: ['播种', '发芽', '生长', '成熟'],
+    })),
   };
 
   const service = new HomeYardService(
@@ -175,6 +180,29 @@ describe('家园院子格子视图', () => {
     expect(yard.seeds[0].target).toBe('椰树');
     expect(yard.seeds[0].quantity).toBe(3);
     expect(yard.buildings.map((b) => b.name)).toEqual(['基础钻机']);
+  });
+
+  it('materials 汇总背包资源存量（建造引导「已有 X」用），装备不计入', async () => {
+    const fixture = makeYardFixture({
+      backpack: [
+        { name: '木头', type: '资源', quantity: 50 },
+        { name: '木头', type: '资源', count: 30 },
+        { name: '石头', type: '资源', quantity: 120 },
+        { name: '铁矿', type: '资源', quantity: 12 },
+        { name: '绳子', type: '资源', quantity: 0 },
+        { name: '布帽', type: '装备', quantity: 1 },
+      ],
+    });
+
+    const yard = await fixture.service.getHomeYard(7);
+
+    expect(yard.materials['木头']).toBe(80);
+    expect(yard.materials['石头']).toBe(120);
+    expect(yard.materials['铁矿']).toBe(12);
+    // 数量为 0 的不进 map
+    expect(yard.materials['绳子']).toBeUndefined();
+    // 装备不计入材料存量
+    expect(yard.materials['布帽']).toBeUndefined();
   });
 
   it('atHome 反映玩家是否站在自己的院子里（种植/拆除的前置条件）', async () => {

@@ -123,6 +123,8 @@ export interface HomeYardInfo {
   seeds: HomeYardStock[];
   /** 背包里可安装的建筑 */
   buildings: HomeYardStock[];
+  /** 背包资源类物品按名聚合的存量（建造引导「已有 X」用；装备不计入） */
+  materials: Record<string, number>;
   /** 院子存放地（产出堆）快照 */
   storage: HomeYardRate[];
   /** 复用既有只读总览（电力/产出速率等），前端无需再单独请求 */
@@ -162,6 +164,7 @@ export class HomeYardService {
       obstacles: extra.obstacles ?? [],
       seeds: extra.seeds ?? [],
       buildings: extra.buildings ?? [],
+      materials: extra.materials ?? {},
       storage: extra.storage ?? [],
       overview: extra.overview ?? null,
       clearQueue: extra.clearQueue ?? [],
@@ -273,15 +276,22 @@ export class HomeYardService {
       slots: buildingSlots,
     });
 
-    // ---- 背包库存：可种植的种子 + 可安装的建筑 ----
+    // ---- 背包库存：可种植的种子 + 可安装的建筑 + 建造材料存量 ----
     const backpack = this.playerService.getBackpackItems(player);
     const seeds: HomeYardStock[] = [];
     const buildings: HomeYardStock[] = [];
+    /** 背包资源类物品按名聚合：建造引导要展示「已拥有」数量（木头/石头/铁矿/绳子等） */
+    const materials: Record<string, number> = {};
     for (const item of backpack) {
       const name = this.nameOf(item);
       if (!name) continue;
       const quantity = this.countOf(item);
       if (quantity <= 0) continue;
+
+      const itemType = String((item as any)?.type ?? (item as any)?.['类型'] ?? '').trim();
+      if (itemType !== '装备') {
+        materials[name] = (materials[name] || 0) + quantity;
+      }
 
       const buildingDef = this.staticData.getBuildingByName(name);
       if (buildingDef) {
@@ -340,6 +350,8 @@ export class HomeYardService {
       obstacles,
       seeds,
       buildings,
+      /** 背包资源存量 map（引导卡片「已有 X/需要 Y」用；装备不计入） */
+      materials,
       storage,
       overview: overview ?? null,
       clearQueue,

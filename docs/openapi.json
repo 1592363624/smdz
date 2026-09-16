@@ -778,6 +778,26 @@
         ]
       }
     },
+    "/api/game/home/drain-clear": {
+      "post": {
+        "operationId": "GameController_drainHomeClear",
+        "summary": "家园清障队列接龙（队列有货且无读条时开挖下一条）",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "游戏"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/game/admin/write-model": {
       "get": {
         "operationId": "GameController_getWriteModelDiagnostics",

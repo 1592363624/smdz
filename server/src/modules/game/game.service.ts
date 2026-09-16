@@ -372,12 +372,16 @@ export class GameService {
     return this.gatherPanelService.pushPlayerUpdate(userId);
   }
   /** 家园清障排队（服务端持久队列，挖土/割草连点） */
-  async enqueueHomeClear(userId: number, cmd: string) {
-    return this.gatherPanelService.enqueueHomeClear(userId, cmd);
+  async enqueueHomeClear(userId: number, cmd: string, count = 1) {
+    return this.gatherPanelService.enqueueHomeClear(userId, cmd, count);
   }
   /** 超管：跳过整条清障队列（含进行中 + 已排队全部） */
   async finishAllHomeClear(userId: number) {
     return this.gatherPanelService.finishAllHomeClear(userId);
+  }
+  /** 清障队列接龙：无读条时开挖下一条 */
+  async drainHomeClearQueue(userId: number) {
+    return this.gatherPanelService.drainHomeClearQueue(userId);
   }
   private async doPushPlayerUpdate(userId: number): Promise<void>{
     return this.gatherPanelService.doPushPlayerUpdate(userId);

@@ -14,6 +14,7 @@
       :house-name="rawHouseName"
       :pending="pendingOp"
       :queue="guideQueue"
+      :materials="materialsOwned"
       @send="runGuideCommand"
       @skip="skipPendingOp"
       @open-chat="router.push('/chat')"
@@ -434,9 +435,12 @@ const holdDone = ref(false);
 let holdDoneTimer = null;
 /** 家园页专用 socket：延时结算由服务端推送，不轮询 */
 let socket = null;
-/** 本机逐秒心跳：把 pendingActions.endAt（服务器时刻）换成剩余秒数 */
+/** 高频心跳：把 pendingActions.endAt（服务器时刻）换成剩余秒数（1s 心跳会在最后一格卡住） */
 const clockTick = ref(serverNow());
 let clockTimer = null;
+/** 到点后的主动拉取：socket 可能慢半拍，本地先到点就主动刷玩家+院子 */
+let settlePullTimer = null;
+let settlePullCount = 0;
 
 // ---------- 派生数据 ----------
 /**
@@ -452,16 +456,21 @@ const homePendingAction = computed(() => {
     || null;
 });
 
-/** pendingActions 快照 → 引导按钮倒计时（endAt 为服务器时刻） */
+/**
+ * pendingActions 快照 → 引导按钮倒计时（endAt 为服务器时刻）。
+ * - 剩余 >1s：整秒展示（ceil）
+ * - 最后 ~0.6s：直接进 finishing，避免「1s」卡住观感
+ * - 到点后仍保留条目直到服务端推送清空，由主动拉取兜底
+ */
 const pendingOp = computed(() => {
   const a = homePendingAction.value;
   if (!a) return null;
   const endAt = Number(a.endAt || 0);
   if (!endAt) return null;
   const remainMs = endAt - clockTick.value;
-  if (remainMs <= 0) return null;
-  const remain = Math.ceil(remainMs / 1000);
-  const totalMs = Number(a.totalMs || 0) || remainMs;
+  const finishing = remainMs <= 600;
+  const remain = finishing ? 0 : Math.max(1, Math.ceil(remainMs / 1000));
+  const totalMs = Number(a.totalMs || 0) || Math.max(remainMs, 1);
   const total = Math.max(remain, Math.ceil(totalMs / 1000));
   const cmd = a.kind === 'gather'
     ? String(a.label || '').trim()
@@ -476,6 +485,8 @@ const pendingOp = computed(() => {
     remain,
     total,
     endAt,
+    finishing,
+    remainMs,
   };
 });
 
@@ -506,21 +517,74 @@ function queuedCountOf(cmd) {
   return Math.max(0, Number(row?.count || 0));
 }
 
+/**
+ * 院子障碍 + 服务端队列合成的清障进度视图。
+ * - left：地图障碍剩余（结算前不变，含进行中/已排队）
+ * - arranged：进行中 + 队列
+ * - available：还能再排 = max(0, left - arranged)
+ * - progress：已安排 / max(left, arranged)  —— 队列有货但障碍数为 0 时也要能看见
+ */
+const clearSpots = computed(() => {
+  const p = pendingOp.value;
+  const busy = p?.kind === 'gather' ? p.cmd : '';
+  const byCmd = new Map();
+  for (const o of obstacles.value || []) {
+    const cmd = String(o.clearCmd || '').trim();
+    if (!cmd) continue;
+    const left = Math.max(0, Number(o.count) || 0);
+    if (left <= 0 && !queuedCountOf(cmd)) continue;
+    byCmd.set(cmd, {
+      cmd,
+      name: String(o.name || cmd).trim(),
+      left,
+    });
+  }
+  // 队列里有、地图上却没有显示的类型：也要露出来，避免「队列有挖土但界面只有割草」
+  for (const row of data.value?.clearQueue || []) {
+    const cmd = String(row?.cmd || '').trim();
+    if (!cmd) continue;
+    if (!byCmd.has(cmd)) {
+      byCmd.set(cmd, { cmd, name: cmd, left: 0 });
+    }
+  }
+  return Array.from(byCmd.values()).map((s) => {
+    const queued = queuedCountOf(s.cmd);
+    const inFlight = busy === s.cmd ? 1 : 0;
+    const arranged = inFlight + queued;
+    const available = Math.max(0, s.left - arranged);
+    const progressTotal = Math.max(s.left, arranged, 1);
+    return {
+      ...s,
+      queued,
+      inFlight,
+      arranged,
+      available,
+      busy: busy === s.cmd,
+      progressPct: Math.min(100, Math.round((arranged / progressTotal) * 100)),
+    };
+  });
+});
+
 /** 传给引导组件的排队/跳过信息（队列来自服务端，刷新不丢） */
 const guideQueue = computed(() => {
   const p = pendingOp.value;
   const serverQueue = data.value?.clearQueue || [];
   const firstCmd = serverQueue[0]?.cmd || '';
+  const busyCmd = p?.kind === 'gather' ? p.cmd : firstCmd;
+  const busySpot = clearSpots.value.find((s) => s.cmd === busyCmd) || null;
+  const queuedLeft = serverQueue.reduce((n, x) => n + Number(x?.count || 0), 0);
   return {
     adminMode: isAdmin.value,
-    queueCount: serverQueue.reduce((n, x) => n + Number(x?.count || 0), 0),
+    queueCount: queuedLeft,
     queueCmd: firstCmd,
     queueDetail: serverQueue.map((x) => `${x.cmd}×${x.count}`).join('、'),
-    /** 当前进行中的清障指令（挖土/割草），用于禁用另一个按钮 */
-    busyClearCmd: p?.kind === 'gather' ? p.cmd : firstCmd,
-    clearLeft: firstCmd ? clearLeftOf(firstCmd) : 0,
-    clearTotalLeft: (p?.kind === 'gather' ? 1 : 0)
-      + serverQueue.reduce((n, x) => n + Number(x?.count || 0), 0),
+    busyClearCmd: busyCmd,
+    clears: clearSpots.value,
+    /** 障碍总数（结算前不变）；可排看 clears[].available */
+    clearLeft: busySpot ? busySpot.left : (clearSpots.value[0]?.left || 0),
+    clearTotalLeft: (p?.kind === 'gather' ? 1 : 0) + queuedLeft,
+    needHome: progress.value > 0 && !atHome.value,
+    obstaclesLeft: clearSpots.value.reduce((n, s) => n + s.left, 0),
   };
 });
 
@@ -530,19 +594,41 @@ const houseName = computed(() => rawHouseName.value || '家园');
 const level = computed(() => Number(data.value?.level ?? 1) || 1);
 const vouchers = computed(() => Number(data.value?.vouchers ?? 0) || 0);
 const progress = computed(() => Number(data.value?.progress ?? 0) || 0);
-/** 是否处于「房子未建成 → 全屏引导接管」阶段（含刚建成的庆祝停留） */
+/**
+ * 房子开工后进度立刻是 4（与原版一致），但 2 分钟读条未结束前
+ * 仍应留在建造引导页，不能切到完整家园（房子还没盖好）。
+ */
+const houseConstructing = computed(() => {
+  if (progress.value < 4) return false;
+  const p = pendingOp.value;
+  if (!p || p.kind !== 'work') return false;
+  const label = String(p.label || '').trim();
+  return label.includes('房子') || label.includes('建造');
+});
+/** 是否处于「建造引导接管」阶段：未建成 / 房子施工中 / 刚建成庆祝 */
 const buildingPhase = computed(() => {
   if (!data.value) return false;
   if (progress.value < 4) return true;
+  if (houseConstructing.value) return true;
   return holdDone.value;
 });
-const atHome = computed(() => Boolean(data.value?.atHome));
+/** 玩家快照上的位置（与院子图名一致即视为已到家，不单靠读条消失） */
+const playerLocation = computed(() => String(playerStore.info?.location || '').trim());
+/** 到家判定：yard.atHome 为权威；赶路 finishing 时若 location 已是自家院子，也视为到家 */
+const atHome = computed(() => {
+  if (data.value?.atHome) return true;
+  const house = rawHouseName.value;
+  if (house && playerLocation.value && playerLocation.value === house) return true;
+  return false;
+});
 const blocked = computed(() => data.value?.blocked || '');
 const crop = computed(() => data.value?.crop || { used: 0, limit: 0, plots: [] });
 const building = computed(() => data.value?.building || { used: 0, limit: 0, plots: [] });
 const obstacles = computed(() => data.value?.obstacles || []);
 const seeds = computed(() => data.value?.seeds || []);
 const buildings = computed(() => data.value?.buildings || []);
+/** 背包资源存量：{ 木头: 50, 石头: 30, … }（建造引导「已有 X/需要 Y」用） */
+const materialsOwned = computed(() => data.value?.materials || {});
 const storage = computed(() => data.value?.storage || []);
 const overview = computed(() => data.value?.overview || null);
 const hasPower = computed(() => overview.value?.hasPower !== false);
@@ -627,14 +713,39 @@ async function refresh() {
 
 onMounted(() => {
   refresh();
+  // 首屏必须拉一次玩家快照：建造倒计时依赖 pendingActions.endAt，
+  // 只等 socket player:update 会漏掉「直接进 /home / 刷新页面」的场景
+  void loadPlayerSnapshot();
   timer = setInterval(refresh, C.refreshMs);
-  clockTimer = setInterval(() => { clockTick.value = serverNow(); }, 1000);
+  // 250ms 心跳：最后 1 格用秒级时会在 1s 卡近 1 秒+结算延迟，观感像卡住
+  clockTimer = setInterval(() => { clockTick.value = serverNow(); }, 250);
   connectHomeSocket();
+  // 挂载后若已有空转队列，立刻尝试接龙（watch 只在变化时触发，首屏可能漏）
+  setTimeout(() => { tryDrainIdleQueue(); }, 600);
 });
+
+/** 空闲且队列有货：调服务端接龙（无读条时开挖下一条） */
+async function tryDrainIdleQueue() {
+  if (drainGuard || running.value) return;
+  const qLen = (data.value?.clearQueue || []).length;
+  if (!qLen || pendingOp.value || !atHome.value) return;
+  drainGuard = true;
+  try {
+    await homeApi.drainClear();
+    await Promise.all([loadPlayerSnapshot(), refresh()]);
+  } catch { /* 静默 */ }
+  finally {
+    drainGuard = false;
+  }
+}
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
   if (clockTimer) clearInterval(clockTimer);
   if (holdDoneTimer) clearTimeout(holdDoneTimer);
+  if (settlePullTimer) {
+    clearTimeout(settlePullTimer);
+    settlePullTimer = null;
+  }
   disconnectHomeSocket();
   endBrush();
 });
@@ -658,10 +769,13 @@ function connectHomeSocket() {
     clockTick.value = serverNow();
     syncPendingFlag();
   });
-  // 移动到达只强推 map:update；院子 atHome / 是否在家随之变化
+  // 移动到达强推 map:update：建造期一律刷院子（到家后 atHome/清障按钮要立刻变）
   socket.on('map:update', () => {
     clockTick.value = serverNow();
-    if (hadPending || pendingOp.value) refresh();
+    if (buildingPhase.value || hadPending || pendingOp.value) {
+      refresh();
+      void loadPlayerSnapshot();
+    }
   });
 }
 
@@ -679,11 +793,38 @@ function syncPendingFlag() {
   const has = Boolean(pendingOp.value) || Boolean(homePendingAction.value);
   if (hadPending && !has) {
     hadPending = false;
-    // 服务端结算后已自动接龙队列；这里只刷院子视图（障碍数/进度）
     refresh();
     return;
   }
   hadPending = has;
+}
+
+/**
+ * 本地时钟一到点（finishing）：不干等 socket——连续主动拉玩家快照+院子，
+ * 否则结算/推送慢时会一直停在「1s / 即将完成」。
+ */
+function armSettlePull() {
+  settlePullCount = 0;
+  if (settlePullTimer) clearTimeout(settlePullTimer);
+  settlePullTimer = setTimeout(pullUntilSettled, 80);
+}
+
+function pullUntilSettled() {
+  settlePullTimer = null;
+  if (running.value) return;
+  if (!pendingOp.value?.finishing && !hadPending) return;
+  settlePullCount += 1;
+  Promise.all([loadPlayerSnapshot(), refresh()]).finally(() => {
+    if (running.value) return;
+    // 赶路：延时任务 tick 最多可晚 1s+结算写库，多拉几轮避免卡在「即将到达」
+    const stillBusy = pendingOp.value?.finishing || (hadPending && pendingOp.value);
+    if (!stillBusy) return;
+    const maxPulls = pendingOp.value?.kind === 'move' ? 20 : 8;
+    const gap = pendingOp.value?.kind === 'move' ? 200 : 300;
+    if (settlePullCount < maxPulls) {
+      settlePullTimer = setTimeout(pullUntilSettled, gap);
+    }
+  });
 }
 
 /** 本地时钟走到 endAt、或服务端列表变空时，都尝试推进一次 UI */
@@ -691,16 +832,37 @@ watch([pendingOp, homePendingAction], () => {
   syncPendingFlag();
 });
 
-/** 进度推进到 4：引导页多留 1.6s 播完撒花/落成动画，再切完整家园 */
-watch(progress, (now, before) => {
-  if (before === undefined || now === before) return;
-  if (now >= 4 && before < 4) {
+watch(
+  () => pendingOp.value?.finishing,
+  (now, prev) => {
+    if (now && !prev) armSettlePull();
+  },
+);
+
+/** 队列有货但没有任何读条（刷新后空转 / 结算间隙）：主动接龙，别让进度条消失 */
+let drainGuard = false;
+watch(
+  [() => (data.value?.clearQueue || []).length, () => Boolean(pendingOp.value)],
+  // Vue 多源 watch 的回调参数是数组，不是标量——写成 (qLen, hasPend) 会让 hasPend 恒为真，接龙永远不触发
+  async ([qLen], [hasPend]) => {
+    if (!qLen || hasPend || running.value) return;
+    await tryDrainIdleQueue();
+  },
+);
+
+/**
+ * 房子读条结束（houseConstructing true→false）：引导页多留 1.6s
+ * 播完撒花/落成动画，再切完整家园。开工瞬间进度已是 4，不能那时就切走。
+ */
+watch(houseConstructing, (now, before) => {
+  if (before && !now && progress.value >= 4) {
     holdDone.value = true;
     clearTimeout(holdDoneTimer);
     holdDoneTimer = setTimeout(() => { holdDone.value = false; }, 1600);
-  } else if (now < 4) {
-    holdDone.value = false;
   }
+});
+watch(progress, (now) => {
+  if (now < 4) holdDone.value = false;
 });
 
 // ---------- 展示工具 ----------
@@ -974,25 +1136,28 @@ async function run(cmd, opts = {}) {
     running.value = false;
     selected.value = null;
     picker.value.open = false;
-    // 即时指令：短延时补拉一次。延时指令（挖土/赶路/建造）的倒计时与结算后的院子刷新
-    // 都由 socket player:update / map:update 驱动，这里不再轮询。
-    setTimeout(refresh, C.refetchDelayMs);
+    // 即时指令：短延时补拉院子。延时指令（挖土/赶路/建造）还必须补拉 playerInfo，
+    // 否则「建造房子中 Ns」的 endAt 来自旧快照/缺失，倒计时会卡住不动。
+    setTimeout(() => {
+      refresh();
+      void loadPlayerSnapshot();
+    }, C.refetchDelayMs);
   }
 }
 
 /**
- * 四步引导条上的按钮：执行一步建造指令（仍走统一指令通道）。
- * 进度 0 的「圈地」不需要人在院子（此时还没有家园）。
- * 「前往 房名」是移动指令，本身也无需「必须在院子」门禁。
- * 挖土/割草走服务端持久队列（markers['清障队列']），刷新/重启不丢；
- * 结算后服务端自动接龙，前端只跟 socket 推送。
+ * 四步引导条上的按钮。
+ * - 挖土/割草：入服务端队列（连点排队，刷新不丢）
+ * - 挖土N/割草N：批量一次采集（后端院子支持次数后缀），比连点 N 次顺滑
+ * - 其余走统一指令通道
  */
 function runGuideCommand(cmd) {
   const c = String(cmd || '').trim();
-  const isClear = c === '挖土' || c === '割草';
   const isTravel = c.startsWith('前往');
+  const isSingleClear = c === '挖土' || c === '割草';
+  const isBatchClear = /^(挖土|割草)\d+$/.test(c);
 
-  if (isClear) {
+  if (isSingleClear) {
     const gathering = pendingOp.value?.kind === 'gather' ? pendingOp.value : null;
     if (gathering && gathering.cmd !== c) {
       ui.pushToast({
@@ -1004,15 +1169,40 @@ function runGuideCommand(cmd) {
     return enqueueClear(c);
   }
 
+  // 批量/排满：
+  // - 闲置：直接发「挖土N」一次采集完（后端院子批量）
+  // - 已有同类读条或队列：把剩余可排次数一次塞进服务端队列（不发新 gather）
+  if (isBatchClear) {
+    const m = c.match(/^(挖土|割草)(\d+)$/);
+    const base = m?.[1] || '';
+    const n = Math.max(1, Number(m?.[2] || 1));
+    const gathering = pendingOp.value?.kind === 'gather' ? pendingOp.value : null;
+    if (gathering && gathering.cmd !== base) {
+      ui.pushToast({ type: 'info', message: `正在「${gathering.cmd}」，完成前只能清「${gathering.cmd}」` });
+      return;
+    }
+    if (gathering || queuedCountOf(base) > 0) {
+      // 排满：按「还能再排多少」入队，而不是再开一条批量 gather
+      const spot = clearSpots.value.find((s) => s.cmd === base);
+      const available = spot ? spot.available : n;
+      if (available <= 0) {
+        ui.pushToast({ type: 'info', message: `「${base}」已经全部安排好了` });
+        return;
+      }
+      return enqueueClear(base, available);
+    }
+    return run(c, { requireHome: progress.value > 0 });
+  }
+
   return run(c, { requireHome: !isTravel && progress.value > 0 });
 }
 
-/** 清障入队（服务端持久化）：空闲自动开第一发，进行中只排队 */
-async function enqueueClear(cmd) {
+/** 清障入队（服务端持久化）：空闲自动开第一发，进行中只排队；count=一次入队条数 */
+async function enqueueClear(cmd, count = 1) {
   if (running.value) return;
   running.value = true;
   try {
-    const res = await homeApi.enqueueClear(cmd);
+    const res = await homeApi.enqueueClear(cmd, count);
     const payload = res?.data ?? res;
     ui.pushToast({
       type: payload?.success ? 'success' : 'info',
@@ -1062,13 +1252,19 @@ async function skipPendingOp() {
   }
 }
 
-/** 拉一次玩家快照写入 player store（pendingActions / atHome 相关状态） */
+/** 拉一次玩家快照写入 player store（pendingActions / location / atHome） */
 async function loadPlayerSnapshot() {
   try {
     const res = await gameApi.playerInfo();
     playerStore.setPlayerInfo(res?.data ?? res ?? null);
     clockTick.value = serverNow();
     syncPendingFlag();
+    // 位置已是自家院子但 yard 还没刷到 atHome：立刻补拉院子
+    const house = rawHouseName.value;
+    const loc = String(playerStore.info?.location || '').trim();
+    if (house && loc === house && !data.value?.atHome) {
+      await refresh();
+    }
   } catch { /* 静默：socket 推送仍会兜底 */ }
 }
 

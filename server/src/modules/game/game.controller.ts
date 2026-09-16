@@ -279,12 +279,17 @@ export class GameController {
    */
   @Post('home/enqueue-clear')
   @ApiOperation({ summary: '家园清障排队（挖土/割草，服务端持久队列）' })
-  async enqueueHomeClear(@Req() req, @Body() body: { cmd?: string }) {
-    const result = await this.gameService.enqueueHomeClear(req.user.userId, String(body?.cmd || ''));
+  async enqueueHomeClear(@Req() req, @Body() body: { cmd?: string; count?: number }) {
+    const result = await this.gameService.enqueueHomeClear(
+      req.user.userId,
+      String(body?.cmd || ''),
+      Number(body?.count) || 1,
+    );
     return {
       success: result.ok,
       message: result.message,
       queueCount: result.queueCount ?? 0,
+      added: result.added ?? 0,
     };
   }
 
@@ -300,6 +305,16 @@ export class GameController {
       message: result.message,
       completed: result.completed,
     };
+  }
+
+  /**
+   * 清障队列空转救援：有队列但无「采集中」读条时（刷新后/结算间隙）主动接龙开挖。
+   */
+  @Post('home/drain-clear')
+  @ApiOperation({ summary: '家园清障队列接龙（队列有货且无读条时开挖下一条）' })
+  async drainHomeClear(@Req() req) {
+    await this.gameService.drainHomeClearQueue(req.user.userId);
+    return { success: true };
   }
 
   /**

@@ -448,7 +448,7 @@ export const HOME_BUILD_GUIDE_CONFIG = {
       headline: '院子已经圈好了',
       subtitle: '清理地面，才能动土',
       next: '开挖地基',
-      tip: '院子里还有土堆和杂草挡着——先用「挖土」「割草」清干净，再开挖地基',
+      tip: '院子里还有土堆和杂草挡着。点清障按钮一次清一块；剩得多就用「一次清完」，倒计时里也能连点排队',
       materials: [],
       cmds: ['挖土', '割草'],
     },
@@ -459,7 +459,7 @@ export const HOME_BUILD_GUIDE_CONFIG = {
       headline: '挖开地基坑',
       subtitle: '清掉障碍，备齐材料',
       next: '建造地基',
-      tip: '地基坑已经出现。挖掉坑边的土堆，然后备好下面这些材料，发送「建造地基」',
+      tip: '地基坑出现了。先清掉坑边土堆（可「一次清完」），材料备好后发送「建造地基」',
       materials: [
         { icon: '🪵', name: '木头', qty: 80 },
         { icon: '🪨', name: '石头', qty: 120 },

@@ -1579,11 +1579,17 @@ export class FamiliarSystemService {
     }
 
     // 原版添加标记("工作", 60, 玩家.标记2, 原始时间戳)："正在工作"期间行动无限制拦截其他操作
-    const markers2 = asJsonValue<any[]>(player.markers2, []);
+    // 先摘掉残留的 homeBuild「工作」：addMarker 同名会**续时**而非覆盖，地基/房子连做会叠时长
+    let markers2 = asJsonValue<any[]>(player.markers2, []);
+    markers2 = markers2.filter((m: any) => !(((m?.name ?? m?.名称) === '工作') && m?.homeBuild));
     this.combatState?.addMarker('工作', 60, markers2, Date.now());
     // 打 homeBuild 溯源标签：结算时精准摘除（「工作」标记被维修/抢救/硬直等复用，不能按名盲删）
+    // label 供 pendingActions 显示「建造地基中/建造房子中」，避免误标成下一步指令
     const workEntry = markers2.find((m: any) => (m?.name ?? m?.名称) === '工作');
-    if (workEntry) workEntry.homeBuild = true;
+    if (workEntry) {
+      workEntry.homeBuild = true;
+      workEntry.label = '建造地基';
+    }
     player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
 
     // 更新进度，并挂完工待结算标记（延时到期时凭该标记认领，保证重试幂等）
@@ -1677,11 +1683,16 @@ export class FamiliarSystemService {
     }
 
     // 原版添加标记("工作", 120, 玩家.标记2, 原始时间戳)
-    const markers2 = asJsonValue<any[]>(player.markers2, []);
+    // 先摘掉残留的 homeBuild「工作」：addMarker 同名会**续时**而非覆盖
+    let markers2 = asJsonValue<any[]>(player.markers2, []);
+    markers2 = markers2.filter((m: any) => !(((m?.name ?? m?.名称) === '工作') && m?.homeBuild));
     this.combatState?.addMarker('工作', 120, markers2, Date.now());
     // 打 homeBuild 溯源标签：结算时精准摘除（「工作」标记被维修/抢救/硬直等复用，不能按名盲删）
     const workEntry = markers2.find((m: any) => (m?.name ?? m?.名称) === '工作');
-    if (workEntry) workEntry.homeBuild = true;
+    if (workEntry) {
+      workEntry.homeBuild = true;
+      workEntry.label = '建造房子';
+    }
     player.markers2 = markers2; // Player markers2 为 Json 列，直接写数组
 
     // 更新进度，并挂完工待结算标记（延时到期时凭该标记认领，保证重试幂等）
