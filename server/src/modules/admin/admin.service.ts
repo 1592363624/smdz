@@ -707,6 +707,144 @@ export class AdminService {
     return `已清空账号 ${user.username} 的游戏数据，可重新登录后重新选择使魔开始` ;
   }
 
+  /** 家园维度需要抹掉的永久标记（markers 键） */
+  private static readonly HOME_MARKER_KEYS = [
+    '家园进度',
+    '家园产出时间',
+    '地基结算待发',
+    '房子结算待发',
+    '前线',
+    '凭证',
+  ];
+
+  /**
+   * 重置单个用户的家园系统（仅家园：进度/家园名/动态图/建造延时任务）。
+   * 等级、背包、任务、货币等其它进度不动，等价于「从未圈地」。
+   */
+  async resetHomeData(userId: number): Promise<string> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    const player = await this.prisma.player.findUnique({ where: { userId } });
+    if (!player) {
+      return `账号 ${user.username} 尚无玩家记录，无需重置家园`;
+    }
+
+    const houseName = String(player.houseName || '').trim();
+    let relocateMapId: number | null = null;
+    let relocateName = '';
+
+    if (houseName) {
+      const homeMaps = await this.prisma.gameMap.findMany({
+        where: { name: { in: [houseName, `${houseName}屋内`, `${houseName}前线`] } },
+        select: { id: true },
+      });
+      if (homeMaps.some((m) => m.id === player.mapId)) {
+        const startMap = await this.prisma.gameMap.findFirst({ orderBy: { mapIndex: 'asc' } });
+        relocateMapId = startMap?.id ?? 1;
+        relocateName = startMap?.name ?? '';
+      }
+      // 拆三张动态家园图 + 全库摘掉指向它们的开拓地入口（与清档/删号同一出口）
+      await this.mapService.removeHouseData(houseName);
+    }
+
+    // 只清家园建造/货舱延时，避免误伤采集/移动等其它延时任务
+    await this.prisma.delayedTask.deleteMany({
+      where: {
+        userId,
+        type: { in: ['homeFoundation', 'homeConstruct', 'cargo'] },
+      },
+    });
+
+    await this.playerService.enqueueUserWrite(player.userId, async () => {
+      const pd = await this.playerService.getPlayerData(player.userId);
+      const p = pd.player;
+      const markers = asJsonValue<Record<string, any>>(p.markers, {}) || {};
+      for (const key of AdminService.HOME_MARKER_KEYS) {
+        delete markers[key];
+      }
+      p.markers = markers;
+
+      const markers2 = asJsonValue<any[]>(p.markers2, []) || [];
+      p.markers2 = markers2.filter((m: any) => {
+        const name = String(m?.name ?? m?.名称 ?? '');
+        return !(m?.homeBuild === true && name === '工作');
+      });
+
+      const stats = asJsonValue<Record<string, any>>(p.stats, {}) || {};
+      delete stats['家园原地图ID'];
+      delete stats['家园原地图'];
+      p.stats = stats;
+      p.houseName = '';
+      if (relocateMapId != null) {
+        p.mapId = relocateMapId;
+        p.location = relocateName;
+      }
+      await this.playerService.savePlayer(p);
+    });
+
+    this.logger.log(
+      `管理员重置了用户 ${userId} (${user.username}) 的家园${houseName ? `「${houseName}」` : ''}`,
+    );
+    return houseName
+      ? `已重置账号 ${user.username} 的家园「${houseName}」，可重新圈地`
+      : `账号 ${user.username} 本无家园或仅有残留标记，家园进度已归零`;
+  }
+
+  /**
+   * 批量重置所选用户的家园（仅家园维度）。
+   */
+  async batchResetHomeData(ids: number[]): Promise<string> {
+    const idList = [...new Set((ids ?? []).map(Number).filter((id) => Number.isFinite(id)))];
+    if (idList.length === 0) {
+      throw new BadRequestException('请至少选择一个用户');
+    }
+
+    const ok: string[] = [];
+    const failed: string[] = [];
+    for (const id of idList) {
+      try {
+        ok.push(await this.resetHomeData(id));
+      } catch (e) {
+        const msg = e?.response?.message ?? e?.message ?? String(e);
+        failed.push(`用户 ${id}：${msg}`);
+      }
+    }
+
+    const lines = [`批量重置家园完成：成功 ${ok.length}/${idList.length}`];
+    if (failed.length) lines.push(`失败：\n${failed.join('\n')}`);
+    this.logger.log(`批量重置玩家家园：成功 ${ok.length}，失败 ${failed.length}`);
+    return lines.join('\n');
+  }
+
+  /**
+   * 一键重置全部玩家的家园（仅家园维度，保留等级/背包/账号）。
+   */
+  async resetAllHomeData(): Promise<string> {
+    const players = await this.prisma.player.findMany({ select: { userId: true } });
+    if (players.length === 0) {
+      return '当前没有任何玩家记录，无需重置家园';
+    }
+
+    const ok: string[] = [];
+    const failed: string[] = [];
+    for (const p of players) {
+      try {
+        ok.push(await this.resetHomeData(p.userId));
+      } catch (e) {
+        const msg = e?.response?.message ?? e?.message ?? String(e);
+        failed.push(`用户 ${p.userId}：${msg}`);
+      }
+    }
+
+    const lines = [`已重置全部玩家家园：成功 ${ok.length}/${players.length}（等级/背包/账号均保留）`];
+    if (failed.length) lines.push(`失败：\n${failed.join('\n')}`);
+    this.logger.log(`一键重置全部玩家家园：成功 ${ok.length}/${players.length}，失败 ${failed.length}`);
+    return lines.join('\n');
+  }
+
   /**
    * 获取服务器状态
    * 统计用户数、玩家数、在线玩家数（暂取有活跃标记的玩家）、地图数、指令数、

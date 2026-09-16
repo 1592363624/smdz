@@ -134,6 +134,27 @@ export class AdminController {
     return { success: true, message };
   }
 
+  @Post('users/reset-home')
+  @ApiOperation({ summary: '重置用户家园(进度/家园名/动态图归零，等级背包等其它进度不动)' })
+  async resetUserHome(@Body() dto: ResetUserDataDto) {
+    const message = await this.adminService.resetHomeData(dto.id);
+    return { success: true, message };
+  }
+
+  @Post('users/batch-reset-home')
+  @ApiOperation({ summary: '批量重置所选用户家园(仅家园维度)' })
+  async batchResetUserHome(@Body() dto: BatchUserIdsDto) {
+    const message = await this.adminService.batchResetHomeData(dto.ids);
+    return { success: true, message };
+  }
+
+  @Post('users/reset-all-homes')
+  @ApiOperation({ summary: '一键重置全部玩家家园(仅家园维度，保留等级/背包/账号)' })
+  async resetAllUserHomes() {
+    const message = await this.adminService.resetAllHomeData();
+    return { success: true, message };
+  }
+
   @Post('users/batch-delete')
   @ApiOperation({ summary: '批量删除用户账号(级联删除其玩家档案；自动跳过自己/超级管理员)' })
   async batchDeleteUsers(@Body() dto: BatchUserIdsDto, @Req() req) {

@@ -387,6 +387,12 @@
             @click="batchResetSelected"
           >🧹 清空所选数据</button>
           <button
+            class="batch-btn home"
+            title="重置所选玩家的家园进度(家园名/动态图/建造进度归零，等级背包不动)"
+            :disabled="batchLoading"
+            @click="batchResetHomeSelected"
+          >🏡 重置所选家园</button>
+          <button
             class="batch-btn danger"
             title="删除所选账号(级联删除其角色数据；自动跳过自己和超级管理员)"
             :disabled="batchLoading"
@@ -519,6 +525,11 @@
                     <span v-if="savedUser === u.id" class="saved-badge">✓</span>
                     <button class="action-btn info" title="查看/编辑用户详细数据" @click="openUserDetail(u)">详情</button>
                     <button
+                      class="action-btn home"
+                      title="重置家园(进度/家园名/动态图归零，等级背包不动)"
+                      @click="resetUserHome(u)"
+                    >家园</button>
+                    <button
                       class="action-btn warning"
                       title="清空该玩家的游戏进度(保留账号，可重新选使魔开局)"
                       @click="resetUserData(u)"
@@ -544,6 +555,12 @@
               :disabled="batchLoading"
               @click="resetAllData"
             >⚠️ 一键清空全部玩家数据</button>
+            <button
+              class="batch-btn home reset-all-btn"
+              title="一键重置全服家园(仅家园维度，等级/背包/账号均保留)"
+              :disabled="batchLoading"
+              @click="resetAllHomes"
+            >🏡 一键重置全部家园</button>
           </div>
         </div>
 
@@ -1352,6 +1369,15 @@ async function batchResetSelected() {
   );
 }
 
+/** 批量重置所选玩家的家园（仅家园维度） */
+async function batchResetHomeSelected() {
+  await runBatch(
+    `确定要重置所选 ${selectedIds.value.length} 个玩家的家园吗？\n家园名、建造进度、院子/屋内/前线动态图会全部清掉，可重新圈地。\n等级、背包、任务等其它进度保留。`,
+    (ids) => adminApi.batchResetUserHome(ids),
+    '已重置所选玩家家园',
+  );
+}
+
 /** 批量删除所选账号（自动跳过自己和超级管理员） */
 async function batchDeleteSelected() {
   await runBatch(
@@ -1372,6 +1398,26 @@ async function resetAllData() {
   try {
     const res = await adminApi.resetAllPlayerData();
     batchResult.value = res.message || '已清空全部玩家数据';
+    selectedIds.value = [];
+    await loadUsers(page.value);
+  } catch (e) {
+    batchResult.value = '操作失败：' + (e.response?.data?.message || e.message);
+  } finally {
+    batchLoading.value = false;
+  }
+}
+
+/** 一键重置全服家园（仅家园维度，等级/背包/账号保留） */
+async function resetAllHomes() {
+  const text = prompt(
+    '即将重置全服所有玩家的家园（家园名、建造进度、动态家园图清空，可重新圈地）。\n等级、背包、任务等其它进度与账号均保留。\n\n如确认，请输入 YES：',
+  );
+  if (text !== 'YES') return;
+  batchLoading.value = true;
+  batchResult.value = '正在重置全部玩家家园...';
+  try {
+    const res = await adminApi.resetAllUserHomes();
+    batchResult.value = res.message || '已重置全部玩家家园';
     selectedIds.value = [];
     await loadUsers(page.value);
   } catch (e) {
@@ -1443,6 +1489,22 @@ async function resetUserData(u) {
     alert(res.message || '已清空游戏数据');
   } catch (e) {
     alert('清空失败：' + (e.response?.data?.message || e.message));
+  }
+}
+
+/** 重置玩家家园（仅家园维度，等级/背包等其它进度保留） */
+async function resetUserHome(u) {
+  const ok = confirm(
+    `确定要重置用户「${u.username}」的家园吗？\n` +
+    `家园名、建造进度、院子/屋内/前线动态图会全部清掉，可重新圈地。\n` +
+    `等级、背包、任务等其它进度保留。此操作不可恢复！`,
+  );
+  if (!ok) return;
+  try {
+    const res = await adminApi.resetUserHome(u.id);
+    alert(res.message || '已重置家园');
+  } catch (e) {
+    alert('重置家园失败：' + (e.response?.data?.message || e.message));
   }
 }
 
@@ -2088,6 +2150,11 @@ onMounted(async () => {
   background: rgba(245, 158, 11, 0.18);
   border-color: rgba(245, 158, 11, 0.5);
   color: #fbbf24;
+}
+.batch-btn.home {
+  background: rgba(52, 211, 153, 0.15);
+  border-color: rgba(52, 211, 153, 0.5);
+  color: #34d399;
 }
 .batch-btn.danger {
   background: rgba(239, 68, 68, 0.15);

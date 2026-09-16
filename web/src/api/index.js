@@ -170,6 +170,10 @@ export const adminApi = {
   editPlayerData: (id, data) => http.post('/admin/players/edit', { id, data }),
   // 用户管理：清空游戏数据(保留账号，重置为未开始游玩)
   resetUserData: (id) => http.post('/admin/users/reset-data', { id }),
+  // 用户管理：重置家园(进度/家园名/动态图归零，等级背包不动)
+  resetUserHome: (id) => http.post('/admin/users/reset-home', { id }),
+  batchResetUserHome: (ids) => http.post('/admin/users/batch-reset-home', { ids }),
+  resetAllUserHomes: () => http.post('/admin/users/reset-all-homes'),
   // 用户管理：批量删除账号(级联删除其玩家档案；自动跳过自己/超级管理员)
   batchDeleteUsers: (ids) => http.post('/admin/users/batch-delete', { ids }),
   // 用户管理：批量清空游戏数据(保留账号，多选操作)

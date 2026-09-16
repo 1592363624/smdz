@@ -49,7 +49,7 @@
       <!-- 浮层：返回聊天（建造期其它家园功能全部隐藏） -->
       <div class="hbg-topbar">
         <button type="button" class="hbg-back" :disabled="busy" @click="emit('open-chat')">← 聊天</button>
-        <span v-if="travelling" class="hbg-at-home-warn travelling">🧳 正在路上… {{ travelLeft }}s</span>
+        <span v-if="hasPending" class="hbg-at-home-warn travelling">⏳ {{ pendingLabel }} · {{ pendingLeft }}s</span>
         <span v-else-if="!atHome && stage > 0" class="hbg-at-home-warn">📍 需要先回家</span>
       </div>
 
@@ -91,35 +91,43 @@
           <button
             v-for="c in assistCmds"
             :key="c"
-            class="hbg-btn tiny"
-            :disabled="busy || !atHome || travelling"
-            :title="`发送「${c}」`"
+            class="hbg-btn tiny hbg-btn-cmd"
+            :class="{ on: isPendingCmd(c) }"
+            :disabled="busy || !atHome || hasPending"
+            :title="isPendingCmd(c) ? '进行中，完成后自动刷新' : `发送「${c}」`"
             @click="onSend(c)"
           >
-            {{ c }}
+            <i v-if="isPendingCmd(c)" class="hbg-travel-ring"></i>
+            {{ isPendingCmd(c) ? `${c} ${pendingLeft}s` : c }}
           </button>
           <button
-            v-if="!isDone && (travelling || (!atHome && stage > 0 && homeCmd))"
+            v-if="!isDone && (hasPending && isPendingHome || (!atHome && stage > 0 && homeCmd))"
             class="hbg-btn ghost hbg-btn-travel"
-            :class="{ on: travelling }"
-            :disabled="travelling || busy"
-            :title="travelling ? '已在路上，到达后自动刷新' : undefined"
-            @click="!travelling && onSend(homeCmd)"
+            :class="{ on: hasPending && isPendingHome }"
+            :disabled="hasPending || busy"
+            :title="hasPending && isPendingHome ? '赶路中，到达后自动刷新' : undefined"
+            @click="!(hasPending && isPendingHome) && onSend(homeCmd)"
           >
-            <template v-if="travelling">
-              <i class="hbg-travel-ring" :style="{ '--p': travelLeft + 's' }"></i>
-              赶路中 {{ travelLeft }}s
+            <template v-if="hasPending && isPendingHome">
+              <i class="hbg-travel-ring"></i>
+              赶路中 {{ pendingLeft }}s
             </template>
             <template v-else>🏠 先回家</template>
           </button>
           <button
             v-if="!isDone && nextCmd"
             class="hbg-btn primary big"
-            :disabled="busy || travelling || (!atHome && stage > 0)"
+            :class="{ on: isPendingCmd(nextCmd) }"
+            :disabled="busy || hasPending || (!atHome && stage > 0)"
+            :title="isPendingCmd(nextCmd) ? '施工中，完成后自动刷新下一步' : undefined"
             @click="onSend(nextCmd)"
           >
-            {{ primaryText }}
-            <span v-if="busy || travelling" class="hbg-btn-spin"></span>
+            <template v-if="isPendingCmd(nextCmd)">
+              <i class="hbg-travel-ring dark"></i>
+              {{ nextCmd }}中 {{ pendingLeft }}s
+            </template>
+            <template v-else>{{ primaryText }}</template>
+            <span v-if="busy" class="hbg-btn-spin"></span>
           </button>
         </div>
       </div>
@@ -217,8 +225,11 @@ const props = defineProps({
   atHome: { type: Boolean, default: true },
   /** 自家院子地图名：用于拼「前往 房名」回家指令（与 QQ 端逐字一致） */
   houseName: { type: String, default: '' },
-  /** 前往途中剩余秒数（父组件倒计时）；>0 时按钮显示赶路动画并禁用操作 */
-  travelLeft: { type: Number, default: 0 },
+  /**
+   * 通用延时操作：父组件解析回包「预计 N 秒后到达 / 大概需要 N 秒 / 需要 N 分钟」后写入。
+   * { cmd, label, remain, total }；remain>0 时对应按钮显示倒计时并禁用其它操作。
+   */
+  pending: { type: Object, default: null },
 });
 
 const emit = defineEmits(['send', 'open-home', 'open-chat']);
@@ -269,8 +280,27 @@ const stepLabel = computed(() => {
 
 /** 全屏场景的建造阶段：0=空地圈地，1=开挖地基，2=建造地基，3=建造房子，4=建成 */
 const stage = computed(() => Math.max(0, Math.min(4, props.step)));
-/** 是否在「前往」赶路中（有剩余秒数） */
-const travelling = computed(() => Number(props.travelLeft) > 0);
+
+/** 是否有进行中的延时操作（挖土/割草/前往/建造…） */
+const hasPending = computed(() => Number(props.pending?.remain || 0) > 0);
+const pendingLeft = computed(() => Math.max(0, Math.ceil(Number(props.pending?.remain || 0))));
+const pendingCmd = computed(() => String(props.pending?.cmd || '').trim());
+/** 短标签优先用父组件给的 label，其次截断 cmd */
+const pendingLabel = computed(() => {
+  const label = String(props.pending?.label || pendingCmd.value || '').trim();
+  if (label.length <= 10) return label;
+  return `${label.slice(0, 10)}…`;
+});
+/** 当前延时是否由「先回家/前往」触发 */
+const isPendingHome = computed(() => pendingCmd.value.startsWith('前往'));
+/** 某条指令是否正是当前延时操作 */
+function isPendingCmd(cmd) {
+  if (!hasPending.value || !cmd) return false;
+  const c = String(cmd).trim();
+  const p = pendingCmd.value;
+  if (!p) return false;
+  return p === c || p.startsWith(c) || c.startsWith(p);
+}
 
 /** 施工告示牌文案 */
 const signLabel = computed(() => {
@@ -328,7 +358,7 @@ function syncPanelHeight() {
 }
 
 watch(
-  () => [props.fullscreen, props.step, isDone.value, props.busy, props.atHome],
+  () => [props.fullscreen, props.step, isDone.value, props.busy, props.atHome, props.pending],
   async () => {
     await nextTick();
     syncPanelHeight();
@@ -573,7 +603,9 @@ onBeforeUnmount(() => {
   .sb-dust i,
   .sb-mote,
   .hbg-travel-ring,
-  .hbg-btn-travel.on {
+  .hbg-btn-travel.on,
+  .hbg-btn-cmd.on,
+  .hbg-btn.primary.big.on {
     animation: none !important;
   }
 }
@@ -1158,13 +1190,26 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-/* 赶路中按钮：环形进度 + 脉冲 */
+/* 赶路/施工中按钮：环形进度 + 脉冲 */
+.hbg-btn-travel.on,
+.hbg-btn-cmd.on,
+.hbg-btn.primary.big.on {
+  cursor: default;
+  animation: hbg-travel-glow 1.2s ease-in-out infinite;
+}
 .hbg-btn-travel.on {
   border-color: rgba(255, 180, 84, 0.55);
   color: #ffd79a;
   background: rgba(80, 50, 16, 0.35);
-  cursor: default;
-  animation: hbg-travel-glow 1.2s ease-in-out infinite;
+}
+.hbg-btn-cmd.on {
+  border-color: rgba(78, 163, 255, 0.55);
+  color: #cfe6ff;
+  background: rgba(30, 60, 100, 0.4);
+  font-weight: 700;
+}
+.hbg-btn.primary.big.on {
+  filter: saturate(0.85) brightness(0.95);
 }
 .hbg-travel-ring {
   display: inline-block;
@@ -1176,6 +1221,10 @@ onBeforeUnmount(() => {
   border-top-color: #ffb454;
   vertical-align: -1px;
   animation: hbg-spin 0.85s linear infinite;
+}
+.hbg-travel-ring.dark {
+  border-color: rgba(42, 24, 8, 0.25);
+  border-top-color: #2a1808;
 }
 @keyframes hbg-travel-glow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 180, 84, 0.25); }

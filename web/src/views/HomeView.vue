@@ -12,7 +12,7 @@
       :busy="running"
       :at-home="progress === 0 || atHome"
       :house-name="rawHouseName"
-      :travel-left="travelLeft"
+      :pending="pendingOp"
       @send="runGuideCommand"
       @open-chat="router.push('/chat')"
     />
@@ -425,10 +425,14 @@ let timer = null;
 /** 刚建成：全屏引导多停留一会儿播完落成庆祝，再切完整家园页 */
 const holdDone = ref(false);
 let holdDoneTimer = null;
-/** 前往某地的剩余秒数（>0 时引导按钮显示倒计时，到点自动 refresh） */
-const travelLeft = ref(0);
-let travelTick = null;
-let travelDoneTimer = null;
+/**
+ * 通用延时操作倒计时：挖土/割草（采集 3~6s）、前往（移动）、建造地基/房子（1~2 分钟）等。
+ * 到点后不是只刷一次，而是轮询 refresh 直到院子快照真的变了（障碍消失 / atHome 翻转等），
+ * 避免后端延时结算抖动导致「倒计时完了 UI 还没进下一阶段」。
+ */
+const pendingOp = ref(null);
+/** @type {{ cmd: string, label: string, remain: number, total: number } | null} */
+let pendingTick = null;
 
 // ---------- 派生数据 ----------
 /** 接口里的真实房名（可为空）；展示名 houseName 才做「家园」兜底 */
@@ -539,50 +543,105 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
   if (holdDoneTimer) clearTimeout(holdDoneTimer);
-  clearTravelCountdown();
+  clearPendingOp();
   endBrush();
 });
 
-/** 从指令回包里解析「预计 N 秒后到达」；解析不到返回 0 */
-function parseTravelSeconds(text) {
-  const m = String(text || '').match(/预计\s*(\d+)\s*秒后到达/);
-  return m ? Math.max(0, Number(m[1]) || 0) : 0;
+/**
+ * 从指令回包解析延时秒数。覆盖家园引导链路上所有「发指令 → 等 N 秒 → 延时结算」：
+ * - 移动：预计 N 秒后到达
+ * - 采集（挖土/割草/打开箱子…）：大概需要 N 秒
+ * - 建造：需要 N 分钟 / 需要 N 秒
+ * 解析不到返回 0（即时完成的指令不启动倒计时）。
+ */
+function parseDelaySeconds(text) {
+  const s = String(text || '');
+  const travel = s.match(/预计\s*(\d+)\s*秒后到达/);
+  if (travel) return Math.max(1, Number(travel[1]) || 0);
+  const gather = s.match(/大概需要\s*(\d+)\s*秒/);
+  if (gather) return Math.max(1, Number(gather[1]) || 0);
+  const minutes = s.match(/需要\s*(\d+)\s*分钟/);
+  if (minutes) return Math.max(1, (Number(minutes[1]) || 0) * 60);
+  const seconds = s.match(/需要\s*(\d+)\s*秒/);
+  if (seconds) return Math.max(1, Number(seconds[1]) || 0);
+  return 0;
 }
 
-function clearTravelCountdown() {
-  if (travelTick) {
-    clearInterval(travelTick);
-    travelTick = null;
+/** 指令 → 按钮上的短标签（优先发给引导组件做高亮） */
+function labelForCmd(cmd) {
+  const c = String(cmd || '').trim();
+  if (!c) return '';
+  if (c.startsWith('前往')) return c;
+  if (c.includes('挖土') || c.includes('割草') || c.includes('开挖') || c.includes('建造')) return c;
+  return c;
+}
+
+/** 院子快照指纹：用于判断延时结算后 UI 是否真的推进了 */
+function yardFingerprint() {
+  const d = data.value;
+  if (!d) return '';
+  const obs = (d.obstacles || []).map((o) => `${o.name}:${o.count}`).join(',');
+  return [
+    d.progress ?? 0,
+    d.atHome ? 1 : 0,
+    d.houseName || '',
+    obs,
+    d.crop?.used ?? 0,
+    d.building?.used ?? 0,
+  ].join('|');
+}
+
+function clearPendingOp() {
+  if (pendingTick) {
+    clearInterval(pendingTick);
+    pendingTick = null;
   }
-  if (travelDoneTimer) {
-    clearTimeout(travelDoneTimer);
-    travelDoneTimer = null;
-  }
-  travelLeft.value = 0;
+  pendingOp.value = null;
 }
 
 /**
- * 启动「前往」倒计时：按钮上每秒 -1，到 0 后立刻 refresh，
- * 不用再手动刷新才能看到「已到家 / 进度变化」。
+ * 启动通用延时倒计时。到点后连续轮询 refresh，直到院子指纹变化或次数用尽——
+ * 后端延时任务有排队/兑底扫描抖动，单刷一次经常读到旧快照。
  */
-function startTravelCountdown(seconds) {
+function startPendingOp(cmd, seconds, beforePrint) {
   const total = Math.max(1, Math.floor(Number(seconds) || 0));
-  clearTravelCountdown();
-  travelLeft.value = total;
-  travelTick = setInterval(() => {
-    travelLeft.value = Math.max(0, travelLeft.value - 1);
-    if (travelLeft.value <= 0) {
-      if (travelTick) {
-        clearInterval(travelTick);
-        travelTick = null;
-      }
-      // 到达后多等一小拍，确保后端 arrival 已落库
-      travelDoneTimer = setTimeout(() => {
-        travelDoneTimer = null;
-        refresh();
-      }, 400);
+  clearPendingOp();
+  pendingOp.value = {
+    cmd: String(cmd || ''),
+    label: labelForCmd(cmd),
+    remain: total,
+    total,
+  };
+  pendingTick = setInterval(() => {
+    if (!pendingOp.value) {
+      clearPendingOp();
+      return;
     }
+    pendingOp.value = {
+      ...pendingOp.value,
+      remain: Math.max(0, pendingOp.value.remain - 1),
+    };
+    if (pendingOp.value.remain > 0) return;
+
+    clearInterval(pendingTick);
+    pendingTick = null;
+    const snap = beforePrint || yardFingerprint();
+    pollUntilSettled(snap).finally(() => {
+      pendingOp.value = null;
+    });
   }, 1000);
+}
+
+/** 到点后轮询：指纹一变就停，最多约 6 秒兜底 */
+async function pollUntilSettled(beforePrint) {
+  const maxTries = 8;
+  const gapMs = 700;
+  for (let i = 0; i < maxTries; i += 1) {
+    // 短延时再拉，给后端延时任务落库一点余量
+    await new Promise((r) => setTimeout(r, i === 0 ? 350 : gapMs));
+    await refresh();
+    if (yardFingerprint() !== beforePrint) return;
+  }
 }
 
 /** 进度推进到 4：引导页多留 1.6s 播完撒花/落成动画，再切完整家园 */
@@ -774,7 +833,7 @@ function homeBuiltGuard() {
 
 async function runMany(cmds, opts = {}) {
   const requireHome = opts.requireHome !== false;
-  if (running.value || !cmds?.length) return;
+  if (running.value || pendingOp.value || !cmds?.length) return;
   if (homeBuiltGuard()) return;
   if (requireHome && !atHome.value) {
     ui.pushToast({ type: 'warning', message: C.texts.notAtHome });
@@ -803,7 +862,7 @@ async function runMany(cmds, opts = {}) {
  * （回包不含「成功」），自动退化为逐颗种植，保证结果一致。
  */
 async function plantMany(seedName, count) {
-  if (running.value) return;
+  if (running.value || pendingOp.value) return;
   if (homeBuiltGuard()) return;
   if (!atHome.value) {
     ui.pushToast({ type: 'warning', message: C.texts.notAtHome });
@@ -852,13 +911,14 @@ async function plantMany(seedName, count) {
  */
 async function run(cmd, opts = {}) {
   const requireHome = opts.requireHome !== false;
-  if (running.value || !cmd) return;
+  if (running.value || pendingOp.value || !cmd) return;
   if (requireHome && !atHome.value) {
     ui.pushToast({ type: 'warning', message: C.texts.notAtHome });
     return;
   }
   running.value = true;
   let text = '';
+  const beforePrint = yardFingerprint();
   try {
     const res = await commandApi.execute(cmd);
     text = res?.data?.content ?? '';
@@ -870,12 +930,12 @@ async function run(cmd, opts = {}) {
     running.value = false;
     selected.value = null;
     picker.value.open = false;
-    // 「前往」带移动耗时：回包会写「预计 N 秒后到达」——
-    // 先短延时拉一次（标记/菜单），再启动倒计时到点自动 refresh，推动 UI（如 atHome）变化。
-    const travelSec = parseTravelSeconds(text);
-    if (travelSec > 0) {
+    // 带延时的指令（挖土/割草/前往/建造…）：启动按钮倒计时，到点轮询直到 UI 真的推进
+    const delaySec = parseDelaySeconds(text);
+    if (delaySec > 0) {
+      // 先短拉一次（写「移动中/采集中」等即时可见的标记），再挂倒计时
       setTimeout(refresh, C.refetchDelayMs);
-      startTravelCountdown(travelSec);
+      startPendingOp(cmd, delaySec, beforePrint);
     } else {
       setTimeout(refresh, C.refetchDelayMs);
     }
