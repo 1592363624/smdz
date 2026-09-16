@@ -27,8 +27,10 @@ import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import { appendHomeBuildGuide } from './home-build-guide.util';
 import {
   renderAvailableTitles,
+  renderOwnedTitles,
   formatTitleProgress,
   TitleSeriesGroupView,
+  OwnedTitleItem,
 } from './title-menu.util';
 import {
   buildFamiliarGateDetail,
@@ -4376,7 +4378,8 @@ ${this.getAwakenStageName(d)}(${d})`;
 
   /**
    * 查看称号列表
-   * 显示所有已获得的称号
+   * 显示已获得的称号：同系列只保留最高等级、一行双列压缩高度；
+   * 注册临时输入 `编号@佩戴称号 称号名`，玩家直接回数字即可佩戴。
    * @param userId 用户ID
    * @returns 称号列表文本
    */
@@ -4384,27 +4387,23 @@ ${this.getAwakenStageName(d)}(${d})`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    const titles = asJsonValue<any[]>(player.titles, []);
+    const rawTitles = asJsonValue<any[]>(player.titles, []);
+    // 历史形状兼容：字符串条目视为已拥有、未佩戴的称号名
+    const titles: OwnedTitleItem[] = rawTitles.map((t: any) =>
+      typeof t === 'string' ? { name: t, equipped: false } : { name: String(t?.name || ''), equipped: !!t?.equipped },
+    );
 
     if (titles.length === 0) {
       return '你还没有获得任何称号\n使用「查看可领取称号」查看所有可领取的称号';
     }
 
-    const lines = [
-      `${player.name || '冒险者'} 的称号列表`,
-      `━━━━━━━━━━━━━━━`,
-    ];
-
-    for (const title of titles) {
-      // 称号为纯外观（对齐原版）：列表只展示称号名与佩戴状态，不再拼"效果"文案
-      const equippedMark = title.equipped ? '✅' : '  ';
-      lines.push(`${equippedMark} ${title.name}`);
+    const { text, shortcutEntries } = renderOwnedTitles(player.name || '冒险者', titles);
+    if (shortcutEntries.length > 0 && this.shortcutService?.setTempInput) {
+      // 编号菜单必须注册：玩家发送编号即触发对应「佩戴称号 称号名」（2分钟内有效）
+      await this.shortcutService.setTempInput(userId, shortcutEntries.join('#'));
     }
 
-    lines.push(`━━━━━━━━━━━━━━━`);
-    lines.push(`使用「佩戴称号 称号名」来佩戴，发送「佩戴称号取消」可摘下称号`);
-
-    return lines.join('\n');
+    return text;
   }
 
   /**

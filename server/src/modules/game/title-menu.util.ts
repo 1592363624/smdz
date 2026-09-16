@@ -28,6 +28,10 @@ export const TITLE_NONE_READY_HINT = '暂无条件达成的称号，继续加油
 export const TITLE_ALL_OWNED_TEXT = '所有称号均已领取 ✅';
 /** 领取方式脚注 */
 export const TITLE_FOOTER = '发送编号即可快速领取，或使用「领取称号 称号名」';
+/** 已拥有称号列表的佩戴方式脚注 */
+export const OWNED_TITLE_FOOTER = '发送编号即可快速佩戴，或使用「佩戴称号 称号名」；发送「佩戴称号取消」可摘下称号';
+/** 已拥有称号列表的一行双列个数 */
+export const OWNED_TITLE_PER_LINE = 2;
 
 /** 单个称号条目（进度在数据装配阶段已算好） */
 export interface TitleEntryView {
@@ -184,4 +188,93 @@ export function renderAvailableTitles(
     shortcutEntries: [...readyPlanned, ...nextPlanned].map((p) => `${p.no}@领取称号 ${p.entry.name}`),
     readyCount,
   };
+}
+
+// ==================== 已拥有称号列表（使魔称号） ====================
+
+/** 已拥有称号条目（历史字符串形状由调用方先归一） */
+export interface OwnedTitleItem {
+  name: string;
+  equipped: boolean;
+}
+
+/** 已拥有称号渲染结果 */
+export interface OwnedTitlesRenderResult {
+  text: string;
+  /** 按展示顺序的 `编号@佩戴称号 称号名` 注册项 */
+  shortcutEntries: string[];
+}
+
+/** 罗马数字阶位 → 阿拉伯序号（用于同系列取最高等级；无阶位视为 1） */
+export function titleTierRank(name: string): number {
+  const map: Record<string, number> = {
+    I: 1,
+    II: 2,
+    III: 3,
+    IV: 4,
+    V: 5,
+    VI: 6,
+    VII: 7,
+    VIII: 8,
+    IX: 9,
+    X: 10,
+  };
+  const matched = name.match(/(IX|IV|VI{0,3}|I{1,3}|X|V)$/);
+  return matched ? map[matched[1]] || 1 : 1;
+}
+
+/** 系列名 = 称号名去掉尾部罗马数字阶位（肝帝II → 肝帝；住这了IX → 住这了） */
+export function titleSeriesName(name: string): string {
+  return name.replace(/(?:IX|IV|VI{0,3}|I{1,3}|X|V)$/, '').trim() || name;
+}
+
+/**
+ * 渲染「使魔称号」已拥有列表。
+ * 同一系列默认只保留最高等级；若当前佩戴的是该系列的非最高阶，一并保留佩戴项
+ * （否则 ✅ 会消失，玩家找不到自己在戴什么）。编号与展示顺序一致；一行双列压缩高度。
+ * @param playerName 已佩戴称号后的派生显示名（列表标题用）
+ * @param titles 已拥有称号（含佩戴状态）
+ */
+export function renderOwnedTitles(playerName: string, titles: OwnedTitleItem[]): OwnedTitlesRenderResult {
+  // 按系列折叠：最高阶必留；佩戴中的低阶额外保留
+  const bySeries = new Map<string, OwnedTitleItem[]>();
+  for (const title of titles) {
+    const series = titleSeriesName(title.name);
+    const bucket = bySeries.get(series);
+    if (bucket) bucket.push(title);
+    else bySeries.set(series, [title]);
+  }
+
+  const kept: OwnedTitleItem[] = [];
+  for (const bucket of bySeries.values()) {
+    let highest = bucket[0];
+    for (const title of bucket) {
+      if (titleTierRank(title.name) > titleTierRank(highest.name)) highest = title;
+    }
+    kept.push(highest);
+    for (const title of bucket) {
+      if (title.equipped && title.name !== highest.name) kept.push(title);
+    }
+  }
+
+  // 佩戴中的置顶，其余按系列出现顺序，便于一眼找到当前称号
+  kept.sort((a, b) => Number(b.equipped) - Number(a.equipped));
+
+  const lines = [`${playerName} 的称号列表`, TITLE_DIVIDER];
+  const shortcutEntries: string[] = [];
+  let no = 0;
+  for (let i = 0; i < kept.length; i += OWNED_TITLE_PER_LINE) {
+    const cells = kept
+      .slice(i, i + OWNED_TITLE_PER_LINE)
+      .map((title) => {
+        no += 1;
+        shortcutEntries.push(`${no}@佩戴称号 ${title.name}`);
+        return `${no}、${title.equipped ? '✅' : ''}${title.name}`;
+      });
+    lines.push(cells.join('  '));
+  }
+  lines.push(TITLE_DIVIDER);
+  lines.push(OWNED_TITLE_FOOTER);
+
+  return { text: lines.join('\n'), shortcutEntries };
 }
