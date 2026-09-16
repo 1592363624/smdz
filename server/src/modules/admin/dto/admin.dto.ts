@@ -5,7 +5,7 @@
 
 import { ApiProperty } from '@nestjs/swagger';
 import { Allow, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Matches, Min, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 /// 更新用户角色/状态
 export class UpdateUserDto {
@@ -90,6 +90,39 @@ export class UpdateConfigDto {
   @ApiProperty({ description: '新配置值', example: '["/","!"]' })
   @Allow() // 任意类型，避免被 whitelist 过滤
   value: any;
+}
+
+/// 导入系统配置包（GET /admin/config/export 下载的 JSON 原样回传）
+export class ImportConfigDto {
+  @ApiProperty({
+    description: '导出文件内容（format 必须为 system-config-export）',
+    example: {
+      format: 'system-config-export',
+      version: 1,
+      configs: [{ key: 'command.prefixes', value: '["/","！","!"]', type: 'string-array' }],
+    },
+  })
+  @Allow()
+  payload: any;
+
+  @ApiProperty({
+    description: '导入模式：merge=按键合并（默认）；replace=先清空再全量写入',
+    enum: ['merge', 'replace'],
+    required: false,
+    default: 'merge',
+  })
+  @IsOptional()
+  @IsIn(['merge', 'replace'])
+  mode?: 'merge' | 'replace';
+
+  @ApiProperty({
+    description: '只预览差异不落库（created/updated/unchanged 统计）',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === 1 || value === '1')
+  dryRun?: boolean;
 }
 
 /// 发送系统公告（兼容 content / message 两种字段名）

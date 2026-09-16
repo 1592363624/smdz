@@ -190,6 +190,11 @@ export const adminApi = {
   listConfig: () => http.get('/admin/config'),
   getConfig: (key) => http.get(`/admin/config/${key}`),
   updateConfig: (key, value) => http.post('/admin/config/update', { key, value }),
+  // 系统配置：导出全部配置（含 type/group/label 元数据）
+  exportConfig: () => http.get('/admin/config/export'),
+  // 系统配置：导入配置包（mode=merge|replace；dryRun=true 只预览不落库）
+  importConfig: (payload, mode = 'merge', dryRun = false) =>
+    http.post('/admin/config/import', { payload, mode, dryRun }),
   // 服务器仪表盘
   dashboard: () => http.get('/admin/dashboard'),
   // GM 工具：可发放物品目录(物品+装备名称列表，供背包管理选择器)

@@ -1214,6 +1214,58 @@
         ]
       }
     },
+    "/api/admin/config/export": {
+      "get": {
+        "operationId": "AdminController_exportConfig",
+        "summary": "导出系统配置为 JSON 文件",
+        "description": "整表导出（含 type/group/label/description），供跨部署共享或测试库→正式库同步。未来新增配置项自动包含，无需改此接口。",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/config/import": {
+      "post": {
+        "operationId": "AdminController_importConfig",
+        "summary": "导入系统配置包",
+        "description": "payload 为 GET /admin/config/export 下载的 JSON。merge：按键合并（有则改、无则建）；replace：清空后全量写入。dryRun=true 时只返回差异统计不落库。",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportConfigDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/admin/config/{key}": {
       "get": {
         "operationId": "AdminController_getConfig",
@@ -2510,6 +2562,43 @@
         },
         "required": [
           "ids"
+        ]
+      },
+      "ImportConfigDto": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "object",
+            "description": "导出文件内容（format 必须为 system-config-export）",
+            "example": {
+              "format": "system-config-export",
+              "version": 1,
+              "configs": [
+                {
+                  "key": "command.prefixes",
+                  "value": "[\"/\",\"！\",\"!\"]",
+                  "type": "string-array"
+                }
+              ]
+            }
+          },
+          "mode": {
+            "type": "string",
+            "description": "导入模式：merge=按键合并（默认）；replace=先清空再全量写入",
+            "enum": [
+              "merge",
+              "replace"
+            ],
+            "default": "merge"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "只预览差异不落库（created/updated/unchanged 统计）",
+            "default": false
+          }
+        },
+        "required": [
+          "payload"
         ]
       },
       "UpdateConfigDto": {

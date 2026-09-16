@@ -91,8 +91,25 @@
       <!-- ===== 系统配置 ===== -->
       <section v-if="tab === 'config'" class="panel panel-wide">
         <div class="panel-head">
-          <h2>系统配置中心</h2>
-          <p class="hint">修改后立即生效，无需重启服务。可按分组管理指令、游戏等各类配置。</p>
+          <div class="panel-head-row">
+            <div>
+              <h2>系统配置中心</h2>
+              <p class="hint">修改后立即生效，无需重启服务。可按分组管理指令、游戏等各类配置。</p>
+            </div>
+            <div class="config-io-bar">
+              <button class="gm-btn" type="button" :disabled="configExporting" @click="exportConfigs">
+                {{ configExporting ? '导出中…' : '⬇ 导出配置' }}
+              </button>
+              <button class="gm-btn" type="button" @click="pickImportFile">⬆ 导入配置</button>
+              <input
+                ref="configImportInput"
+                type="file"
+                accept="application/json,.json"
+                style="display: none"
+                @change="onImportFileSelected"
+              />
+            </div>
+          </div>
         </div>
 
         <div class="config-groups">
@@ -486,6 +503,97 @@
               <span v-if="jsonSaved" class="edit-result">✓ 已保存</span>
               <button class="gm-btn" type="button" @click="closeJsonConfig">取消</button>
               <button class="gm-btn success" type="button" @click="saveJsonConfig">保存</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 配置导入预览弹窗：dry-run 差异统计 → 确认应用 -->
+        <div v-if="importOpen" class="modal-mask" @click.self="closeImportPreview">
+          <div class="modal-box private-modal import-modal">
+            <div class="modal-head private-modal-head">
+              <div class="private-modal-title">
+                <span class="private-modal-icon">📥</span>
+                <div class="private-modal-titles">
+                  <h3>导入系统配置</h3>
+                  <p class="private-modal-sub">预览差异后确认写入；未来新增的配置键会一并导入</p>
+                </div>
+              </div>
+              <button class="modal-close" @click="closeImportPreview">×</button>
+            </div>
+
+            <div class="import-body">
+              <div class="import-meta">
+                <span>文件：<strong>{{ importMeta.fileName }}</strong></span>
+                <span v-if="importMeta.exportedAt">导出时间：{{ formatImportTime(importMeta.exportedAt) }}</span>
+                <span>配置项：<strong>{{ importMeta.count }}</strong> 条</span>
+              </div>
+
+              <div class="import-mode-row">
+                <label class="import-mode-label">导入模式</label>
+                <label class="import-mode-opt">
+                  <input v-model="importMode" type="radio" value="merge" :disabled="importApplying" />
+                  <span>
+                    <strong>合并（推荐）</strong>
+                    <em>文件里的键：有则改、无则建；本库多出的键保留</em>
+                  </span>
+                </label>
+                <label class="import-mode-opt">
+                  <input v-model="importMode" type="radio" value="replace" :disabled="importApplying" />
+                  <span>
+                    <strong>替换</strong>
+                    <em>清空本库全部配置后，按文件全量写入</em>
+                  </span>
+                </label>
+              </div>
+
+              <div v-if="importError" class="prof-error">{{ importError }}</div>
+
+              <div v-if="importPreview" class="import-preview">
+                <div class="import-stats">
+                  <span class="istat created">新增 {{ importPreview.created }}</span>
+                  <span class="istat updated">更新 {{ importPreview.updated }}</span>
+                  <span class="istat unchanged">无变化 {{ importPreview.unchanged }}</span>
+                  <span v-if="importPreview.deleted" class="istat deleted">删除 {{ importPreview.deleted }}</span>
+                </div>
+                <div v-if="importPreview.entries?.length" class="import-entries">
+                  <div
+                    v-for="e in importPreview.entries.filter((x) => x.status !== 'unchanged').slice(0, 40)"
+                    :key="e.key"
+                    class="import-entry"
+                    :class="e.status"
+                  >
+                    <span class="istatus">{{ importStatusText(e.status) }}</span>
+                    <code>{{ e.key }}</code>
+                  </div>
+                  <div
+                    v-if="importPreview.entries.filter((x) => x.status !== 'unchanged').length > 40"
+                    class="import-entry-more"
+                  >
+                    …还有 {{ importPreview.entries.filter((x) => x.status !== 'unchanged').length - 40 }} 项变更未列出
+                  </div>
+                </div>
+              </div>
+              <p v-else-if="!importApplying" class="hint" style="margin: 8px 0 0;">选择模式后点「预览差异」查看将要发生的变更。</p>
+            </div>
+
+            <div class="modal-foot private-modal-foot">
+              <button class="gm-btn" type="button" :disabled="importApplying" @click="closeImportPreview">取消</button>
+              <span class="private-foot-gap"></span>
+              <span v-if="importResultMsg" class="edit-result" :class="{ err: importError }">{{ importResultMsg }}</span>
+              <button
+                v-if="!importPreview"
+                class="gm-btn"
+                type="button"
+                :disabled="importApplying"
+                @click="previewImport"
+              >{{ importApplying ? '计算中…' : '预览差异' }}</button>
+              <button
+                v-else
+                class="gm-btn success"
+                type="button"
+                :disabled="importApplying || (!importPreview.created && !importPreview.updated && !importPreview.deleted)"
+                @click="applyImport"
+              >{{ importApplying ? '导入中…' : '确认导入' }}</button>
             </div>
           </div>
         </div>
@@ -1014,6 +1122,153 @@ async function saveConfig(cfg, value) {
   cfg.value = typeof value === 'object' ? JSON.stringify(value) : String(value);
   savedKey.value = cfg.key;
   setTimeout(() => (savedKey.value = ''), 1500);
+}
+
+// ---- 系统配置导入 / 导出 ----
+const configExporting = ref(false);
+const configImportInput = ref(null);
+const importOpen = ref(false);
+const importApplying = ref(false);
+const importMode = ref('merge');
+const importError = ref('');
+const importResultMsg = ref('');
+const importPreview = ref(null);
+const importPayload = ref(null);
+const importMeta = ref({ fileName: '', exportedAt: '', count: 0 });
+
+/** 导出全部配置为 JSON 文件下载（整表 dump，未来新键自动包含） */
+async function exportConfigs() {
+  configExporting.value = true;
+  try {
+    const res = await adminApi.exportConfig();
+    const payload = res?.data;
+    if (!payload?.configs) {
+      alert('导出失败：服务端未返回配置数据');
+      return;
+    }
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `system-config-${ts}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(`导出失败：${err?.response?.data?.message || err?.message || '未知错误'}`);
+  } finally {
+    configExporting.value = false;
+  }
+}
+
+function pickImportFile() {
+  importError.value = '';
+  importResultMsg.value = '';
+  importPreview.value = null;
+  importPayload.value = null;
+  importMode.value = 'merge';
+  configImportInput.value?.click();
+}
+
+function onImportFileSelected(ev) {
+  const file = ev.target.files?.[0];
+  ev.target.value = ''; // 允许重复选择同一文件
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    alert('文件过大（上限 2MB）');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const payload = JSON.parse(String(reader.result || ''));
+      if (payload?.format !== 'system-config-export') {
+        alert('不是有效的配置导出文件（format 不匹配）');
+        return;
+      }
+      if (!Array.isArray(payload.configs)) {
+        alert('配置文件缺少 configs 数组');
+        return;
+      }
+      importPayload.value = payload;
+      importMeta.value = {
+        fileName: file.name,
+        exportedAt: payload.exportedAt || '',
+        count: payload.configs.length,
+      };
+      importOpen.value = true;
+      importPreview.value = null;
+      importError.value = '';
+      importResultMsg.value = '';
+    } catch {
+      alert('JSON 解析失败，请确认是有效的配置导出文件');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function closeImportPreview() {
+  if (importApplying.value) return;
+  importOpen.value = false;
+  importPreview.value = null;
+  importPayload.value = null;
+  importError.value = '';
+  importResultMsg.value = '';
+}
+
+async function previewImport() {
+  if (!importPayload.value) return;
+  importApplying.value = true;
+  importError.value = '';
+  importResultMsg.value = '';
+  try {
+    const res = await adminApi.importConfig(importPayload.value, importMode.value, true);
+    importPreview.value = res?.data || null;
+  } catch (err) {
+    importError.value = err?.response?.data?.message || err?.message || '预览失败';
+  } finally {
+    importApplying.value = false;
+  }
+}
+
+async function applyImport() {
+  if (!importPayload.value) return;
+  if (
+    importMode.value === 'replace' &&
+    !confirm('替换模式将清空本库全部系统配置后按文件写入，确定继续？')
+  ) {
+    return;
+  }
+  importApplying.value = true;
+  importError.value = '';
+  importResultMsg.value = '';
+  try {
+    const res = await adminApi.importConfig(importPayload.value, importMode.value, false);
+    importResultMsg.value = res?.message || '导入完成';
+    importPreview.value = null;
+    // 重新拉取配置列表，刷新界面
+    const list = await adminApi.listConfig();
+    configs.value = list.data || [];
+    hydrateGlobalProfFromConfigs(list.data || []);
+  } catch (err) {
+    importError.value = err?.response?.data?.message || err?.message || '导入失败';
+  } finally {
+    importApplying.value = false;
+  }
+}
+
+function importStatusText(status) {
+  return { created: '新增', updated: '更新', unchanged: '—', skipped: '跳过' }[status] || status;
+}
+
+function formatImportTime(iso) {
+  try {
+    return new Date(iso).toLocaleString('zh-CN');
+  } catch {
+    return iso;
+  }
 }
 
 // ---- 全局熟练度卡片编辑器（对齐背包管理：搜索 + 卡片 + 点数从大到小） ----
@@ -3250,6 +3505,164 @@ onMounted(async () => {
 }
 .private-foot-gap {
   flex: 1;
+}
+
+/* ===== 系统配置导入 / 导出 ===== */
+.panel-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.config-io-bar {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.import-modal {
+  width: min(560px, calc(100vw - 48px));
+}
+.import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.import-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.import-meta strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.import-mode-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.import-mode-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.import-mode-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+}
+.import-mode-opt:has(input:checked) {
+  border-color: rgba(139, 92, 246, 0.55);
+  background: rgba(139, 92, 246, 0.08);
+}
+.import-mode-opt input {
+  margin-top: 3px;
+  accent-color: #8b5cf6;
+}
+.import-mode-opt span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.import-mode-opt strong {
+  font-size: 13px;
+  color: var(--text);
+}
+.import-mode-opt em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.import-preview {
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.import-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.istat {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.istat.created {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.1);
+  border-color: rgba(74, 222, 128, 0.35);
+}
+.istat.updated {
+  color: #7aa2ff;
+  background: rgba(122, 162, 255, 0.1);
+  border-color: rgba(122, 162, 255, 0.35);
+}
+.istat.unchanged {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border, rgba(255, 255, 255, 0.12));
+}
+.istat.deleted {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+.import-entries {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  scrollbar-width: thin;
+}
+.import-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.import-entry.created {
+  background: rgba(74, 222, 128, 0.06);
+}
+.import-entry.updated {
+  background: rgba(122, 162, 255, 0.06);
+}
+.import-entry .istatus {
+  flex-shrink: 0;
+  width: 32px;
+  font-weight: 600;
+}
+.import-entry.created .istatus {
+  color: #4ade80;
+}
+.import-entry.updated .istatus {
+  color: #7aa2ff;
+}
+.import-entry code {
+  font-size: 11.5px;
+  color: var(--text);
+  word-break: break-all;
+}
+.import-entry-more {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 6px;
 }
 
 /* ===== 签到奖励配置弹窗：三张奖励表分区编辑 ===== */

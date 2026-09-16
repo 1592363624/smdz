@@ -45,6 +45,7 @@ import {
   GameDataSaveDto,
   ResetUserDataDto,
   SetWorldLevelDto,
+  ImportConfigDto,
   UpdateConfigDto,
   UpdateUserDto,
   UserDetailDto,
@@ -183,6 +184,60 @@ export class AdminController {
   async listConfig() {
     const data = await this.systemConfigService.findAll();
     return { success: true, data };
+  }
+
+  /** 导出全部系统配置（须在 config/:key 之前注册，避免 export 被当成 key） */
+  @Get('config/export')
+  @ApiOperation({
+    summary: '导出系统配置为 JSON 文件',
+    description:
+      '整表导出（含 type/group/label/description），供跨部署共享或测试库→正式库同步。' +
+      '未来新增配置项自动包含，无需改此接口。',
+  })
+  async exportConfig() {
+    const data = await this.systemConfigService.exportAll();
+    return { success: true, data };
+  }
+
+  @Post('config/import')
+  @ApiOperation({
+    summary: '导入系统配置包',
+    description:
+      'payload 为 GET /admin/config/export 下载的 JSON。' +
+      'merge：按键合并（有则改、无则建）；replace：清空后全量写入。' +
+      'dryRun=true 时只返回差异统计不落库。',
+  })
+  async importConfig(@Body() dto: ImportConfigDto) {
+    try {
+      const result = await this.systemConfigService.importConfigs(dto.payload, {
+        mode: dto.mode,
+        dryRun: dto.dryRun === true,
+      });
+      // 全局熟练度有内存权威表；导入若覆盖该键必须同步，否则下次 flush 会覆盖导入值
+      if (
+        !result.dryRun &&
+        this.globalProficiency &&
+        Array.isArray(dto.payload?.configs) &&
+        dto.payload.configs.some((c: any) => c?.key === GLOBAL_MARKERS_KEY)
+      ) {
+        const row = dto.payload.configs.find((c: any) => c?.key === GLOBAL_MARKERS_KEY);
+        try {
+          const raw = typeof row.value === 'string' ? JSON.parse(row.value || '{}') : row.value;
+          let parsed: Record<string, number> = {};
+          if (raw && typeof raw === 'object' && !Array.isArray(raw)) parsed = raw;
+          await this.globalProficiency.replacePoints(parsed);
+        } catch {
+          // 坏数据已落库为原文；内存表保持不动
+        }
+      }
+      const message = result.dryRun
+        ? `预览完成：新增 ${result.created}、更新 ${result.updated}、无变化 ${result.unchanged}`
+        : `导入完成：新增 ${result.created}、更新 ${result.updated}、无变化 ${result.unchanged}` +
+          (result.deleted ? `、删除 ${result.deleted}` : '');
+      return { success: true, message, data: result };
+    } catch (err: any) {
+      throw new BadRequestException(err?.message ?? '导入失败');
+    }
   }
 
   @Get('config/:key')

@@ -29,6 +29,46 @@ import {
   normalizeRedPacketConfig,
 } from '../../config/red-packet.config';
 
+/** 导出文件 format 标识，导入时严格校验，防止误传其他 JSON */
+export const SYSTEM_CONFIG_EXPORT_FORMAT = 'system-config-export';
+
+/** 导出/导入包中的单条配置（value 恒为字符串，与库中 LongText 列一致） */
+export interface SystemConfigExportEntry {
+  key: string;
+  value: string;
+  type?: string;
+  group?: string;
+  label?: string;
+  description?: string;
+}
+
+/** 导出文件顶层结构 */
+export interface SystemConfigExportPayload {
+  format: string;
+  version: number;
+  exportedAt?: string;
+  appVersion?: string;
+  configs: SystemConfigExportEntry[];
+}
+
+/** 导入结果：单键状态 */
+export interface SystemConfigImportEntryResult {
+  key: string;
+  status: 'created' | 'updated' | 'unchanged' | 'skipped';
+}
+
+/** 导入结果：汇总 */
+export interface SystemConfigImportResult {
+  mode: 'merge' | 'replace';
+  dryRun: boolean;
+  created: number;
+  updated: number;
+  unchanged: number;
+  deleted: number;
+  removedKeys?: string[];
+  entries: SystemConfigImportEntryResult[];
+}
+
 /** 新增配置项的默认定义：启动时若库中缺失则自动补行，无需重跑 seed */
 interface SystemConfigDefault {
   key: string;
@@ -494,6 +534,179 @@ export class SystemConfigService implements OnModuleInit {
         placeholder: String(r?.placeholder ?? '').trim() || DEFAULT_PRIVATE_PLACEHOLDER,
       }))
       .filter((r) => r.command);
+  }
+
+  /**
+   * 导出全部系统配置（含元数据），用于跨部署共享 / 测试库→正式库同步。
+   * 整表 dump，不维护键白名单——未来新增配置项启动补行后自动被包含。
+   */
+  async exportAll(version = 1): Promise<SystemConfigExportPayload> {
+    const rows = await this.prisma.systemConfig.findMany({ orderBy: { id: 'asc' } });
+    return {
+      format: SYSTEM_CONFIG_EXPORT_FORMAT,
+      version,
+      exportedAt: new Date().toISOString(),
+      configs: rows.map((row) => ({
+        key: row.key,
+        value: row.value ?? '',
+        type: row.type || 'string',
+        group: row.group || 'system',
+        label: row.label || '',
+        description: row.description || '',
+      })),
+    };
+  }
+
+  /**
+   * 导入系统配置包。
+   * - merge（默认）：文件里有的 key 有则改、无则建；目标库多出的 key 不动。
+   * - replace：先删目标库所有行，再按文件全量写入。
+   * 按 key upsert，不校验「本代码是否认识该键」——旧库导入新键、新库导入旧键均可。
+   *
+   * @param dryRun 只计算差异不落库（前端预览用）
+   */
+  async importConfigs(
+    payload: SystemConfigExportPayload,
+    options: { mode?: 'merge' | 'replace'; dryRun?: boolean } = {},
+  ): Promise<SystemConfigImportResult> {
+    const mode = options.mode === 'replace' ? 'replace' : 'merge';
+    const dryRun = options.dryRun === true;
+    this.assertImportPayload(payload);
+
+    const existingRows = await this.prisma.systemConfig.findMany();
+    // 浅拷贝快照：upsert 会 Object.assign 就地改 row，统计须基于导入前状态
+    const existingMap = new Map(
+      existingRows.map((row) => [row.key, { ...row } as typeof row]),
+    );
+    const removedKeys: string[] =
+      mode === 'replace'
+        ? existingRows
+            .filter((row) => !payload.configs.some((c) => c.key === row.key))
+            .map((row) => row.key)
+        : [];
+
+    const entries: SystemConfigImportEntryResult[] = [];
+    let created = 0;
+    let updated = 0;
+    let unchanged = 0;
+
+    for (const cfg of payload.configs) {
+      const existing = existingMap.get(cfg.key);
+      if (!existing) {
+        created++;
+        entries.push({ key: cfg.key, status: 'created' });
+        if (!dryRun) await this.createImportedRow(cfg);
+        continue;
+      }
+      if (this.rowDiffers(existing, cfg)) {
+        updated++;
+        entries.push({ key: cfg.key, status: 'updated' });
+        if (!dryRun) await this.upsertImportedRow(cfg, existing);
+      } else {
+        unchanged++;
+        entries.push({ key: cfg.key, status: 'unchanged' });
+      }
+    }
+
+    if (!dryRun && mode === 'replace' && removedKeys.length) {
+      await this.prisma.systemConfig.deleteMany({
+        where: { key: { in: removedKeys } },
+      });
+    }
+    if (!dryRun && (created > 0 || updated > 0 || (mode === 'replace' && removedKeys.length))) {
+      await this.invalidateCacheKeys([
+        ...payload.configs.map((c) => c.key),
+        ...removedKeys,
+      ]);
+    }
+
+    return {
+      mode,
+      dryRun,
+      created,
+      updated,
+      unchanged,
+      deleted: mode === 'replace' ? removedKeys.length : 0,
+      ...(mode === 'replace' ? { removedKeys } : {}),
+      entries,
+    };
+  }
+
+  /** 导入包结构校验（format/version/configs） */
+  private assertImportPayload(payload: SystemConfigExportPayload): void {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('导入内容不是有效的 JSON 对象');
+    }
+    if (payload.format !== SYSTEM_CONFIG_EXPORT_FORMAT) {
+      throw new Error(
+        `导入格式不匹配：期望 format=${SYSTEM_CONFIG_EXPORT_FORMAT}，实际=${String(payload.format)}`,
+      );
+    }
+    if (!Array.isArray(payload.configs)) {
+      throw new Error('导入内容缺少 configs 数组');
+    }
+    if (payload.configs.length > 2000) {
+      throw new Error('配置项数量过多（上限 2000）');
+    }
+    for (const cfg of payload.configs) {
+      if (!cfg || typeof cfg.key !== 'string' || !cfg.key.trim()) {
+        throw new Error('存在缺少 key 的配置项');
+      }
+      if (cfg.key.length > 190) {
+        throw new Error(`配置键过长：${cfg.key.slice(0, 40)}…`);
+      }
+      if (cfg.value != null && typeof cfg.value !== 'string') {
+        throw new Error(`配置 ${cfg.key} 的 value 必须是字符串`);
+      }
+    }
+  }
+
+  /** 值或元数据是否与库中不同（用于 dry-run / unchanged 判定） */
+  private rowDiffers(
+    existing: { value: string; type: string; group: string; label: string; description: string },
+    cfg: SystemConfigExportEntry,
+  ): boolean {
+    const nextValue = cfg.value ?? '';
+    if (existing.value !== nextValue) return true;
+    if (cfg.type && existing.type !== cfg.type) return true;
+    if (cfg.group && existing.group !== cfg.group) return true;
+    if (cfg.label && existing.label !== cfg.label) return true;
+    if (cfg.description && existing.description !== cfg.description) return true;
+    return false;
+  }
+
+  /** 按导入项更新已有行（value 一定写；元数据仅在文件提供时覆盖） */
+  private async upsertImportedRow(
+    cfg: SystemConfigExportEntry,
+    existing: { key: string; type: string },
+  ): Promise<void> {
+    const data: Record<string, string> = { value: cfg.value ?? '' };
+    if (cfg.type) data.type = cfg.type;
+    if (cfg.group) data.group = cfg.group;
+    if (cfg.label) data.label = cfg.label;
+    if (cfg.description) data.description = cfg.description;
+    // 已知行若文件未给 type，保留库中现有 type（避免把 json 降级成 string）
+    if (!cfg.type && existing?.type) data.type = existing.type;
+    await this.prisma.systemConfig.update({ where: { key: cfg.key }, data });
+  }
+
+  /** 按导入项新建行 */
+  private async createImportedRow(cfg: SystemConfigExportEntry): Promise<void> {
+    await this.prisma.systemConfig.create({
+      data: {
+        key: cfg.key,
+        value: cfg.value ?? '',
+        type: cfg.type || 'string',
+        group: cfg.group || cfg.key.split('.')[0] || 'system',
+        label: cfg.label || cfg.key,
+        description: cfg.description || '（导入创建）',
+      },
+    });
+  }
+
+  /** 批量失效缓存（导入后立即生效） */
+  private async invalidateCacheKeys(keys: string[]): Promise<void> {
+    for (const key of keys) this.cache.delete(key);
   }
 
   /**
