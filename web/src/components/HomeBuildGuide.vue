@@ -52,6 +52,41 @@
           <div v-if="stage > 0 && stage < 4" class="sb-dust">
             <i v-for="n in 6" :key="n" :style="{ '--d': `${n * 0.35}s`, '--x': `${n * 20 - 58}px` }"></i>
           </div>
+
+          <!-- 施工工具动画：按当前读条/阶段切换 -->
+          <div class="sb-tools" :class="toolAnimClass" aria-hidden="true">
+            <!-- 铲子：挖土 / 开挖地基 -->
+            <div class="sb-tool sb-shovel">
+              <i class="sh-handle"></i>
+              <i class="sh-blade"></i>
+            </div>
+            <!-- 锄头：割草 -->
+            <div class="sb-tool sb-hoe">
+              <i class="ho-handle"></i>
+              <i class="ho-head"></i>
+            </div>
+            <!-- 砌刀+砖：建造地基 -->
+            <div class="sb-tool sb-trowel">
+              <i class="tr-blade"></i>
+              <i class="tr-brick b1"></i>
+              <i class="tr-brick b2"></i>
+              <i class="tr-brick b3"></i>
+            </div>
+            <!-- 锤子+钉：建造房子 -->
+            <div class="sb-tool sb-hammer">
+              <i class="hm-handle"></i>
+              <i class="hm-head"></i>
+              <i class="hm-nail"></i>
+            </div>
+            <!-- 割下的草屑 -->
+            <div class="sb-grass-cut">
+              <i v-for="n in 5" :key="n" :class="'gc' + n"></i>
+            </div>
+            <!-- 挖出的土块飞溅 -->
+            <div class="sb-dig-chips">
+              <i v-for="n in 4" :key="n" :class="'dc' + n"></i>
+            </div>
+          </div>
         </div>
         <div class="sb-fence" aria-hidden="true"><i v-for="n in 15" :key="n"></i></div>
 
@@ -423,6 +458,25 @@ const buildingWork = computed(() => {
 });
 
 /**
+ * 场景工具动画类名：按读条优先，其次按 stage 兜底。
+ * dig=铲子挖土 · weed=锄头除草 · pour=砌地基 · hammer=锤子敲房 · idle=无
+ */
+const toolAnimClass = computed(() => {
+  if (hasPending.value && props.pending?.kind === 'gather') {
+    const cmd = String(props.pending?.cmd || props.pending?.label || '');
+    if (cmd.includes('割草')) return 't-weed';
+    if (cmd.includes('挖土') || cmd.includes('清')) return 't-dig';
+  }
+  if (buildingWork.value === 'foundation') return 't-pour';
+  if (buildingWork.value === 'house') return 't-hammer';
+  // 无读条时按阶段给个静态提示（方便知道下一步该干嘛）
+  if (stage.value === 1) return 't-dig';
+  if (stage.value === 2) return 't-pour';
+  if (stage.value === 3) return 't-hammer';
+  return 't-idle';
+});
+
+/**
  * 材料清单是否展示。
  * 开工后进度立刻跳下一步（原版口径），若仍渲染下一步材料会让人以为「要扣 300 却没扣」——
  * 实际此刻扣的是当前步材料。故：地基/房子读条进行中时隐藏材料行。
@@ -516,16 +570,25 @@ let flashTimer = null;
 let celebrateTimer = null;
 
 watch(
-  () => props.step,
-  (now, before) => {
-    if (!anim.enabled || before === undefined || now === before) return;
-    flashing.value = true;
-    clearTimeout(flashTimer);
-    flashTimer = setTimeout(() => { flashing.value = false; }, anim.flashMs);
-    if (now >= total) {
-      celebrating.value = true;
+  () => [props.step, isHouseConstructing.value],
+  ([now, constructing], [before]) => {
+    if (!anim.enabled) return;
+    // 进度跳步高亮
+    if (before !== undefined && now !== before) {
+      flashing.value = true;
+      clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => { flashing.value = false; }, anim.flashMs);
+    }
+    // 建成瞬间（读条刚结束）开始撒花；施工中不撒
+    if (now >= total && !constructing) {
+      if (!celebrating.value) {
+        celebrating.value = true;
+        clearTimeout(celebrateTimer);
+        celebrateTimer = setTimeout(() => { celebrating.value = false; }, anim.celebrateMs);
+      }
+    } else if (constructing) {
+      celebrating.value = false;
       clearTimeout(celebrateTimer);
-      celebrateTimer = setTimeout(() => { celebrating.value = false; }, anim.celebrateMs);
     }
   },
 );
@@ -747,9 +810,12 @@ onBeforeUnmount(() => {
   height: 12px;
   border-radius: 2px;
   background: linear-gradient(180deg, #ffd76a, #ff8a5b);
-  animation: hbg-fall 1.8s linear var(--d) forwards;
+  animation: hbg-fall 5.2s linear var(--d) forwards;
 }
 .hbg-confetti span:nth-child(even) { background: linear-gradient(180deg, #7ee8fa, #4ea3ff); }
+/* 第二波：延后落下，撑满 6 秒庆祝窗口 */
+.hbg-confetti span:nth-child(3n) { animation-delay: calc(var(--d) + 1.4s); }
+.hbg-confetti span:nth-child(4n) { animation-delay: calc(var(--d) + 2.6s); }
 
 /* ---- 关键帧 ---- */
 @keyframes hbg-in {
@@ -774,8 +840,10 @@ onBeforeUnmount(() => {
   to { opacity: 0; }
 }
 @keyframes hbg-fall {
-  from { transform: translateY(0) rotate(0deg); opacity: 1; }
-  to { transform: translateY(190px) rotate(420deg); opacity: 0; }
+  0% { transform: translateY(0) rotate(0deg); opacity: 0; }
+  8% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateY(min(42vh, 360px)) rotate(480deg); opacity: 0; }
 }
 
 /* 系统开启「减少动效」时关闭全部动画（无障碍降级） */
@@ -795,7 +863,15 @@ onBeforeUnmount(() => {
   .hbg-travel-ring,
   .hbg-btn-travel.on,
   .hbg-btn-cmd.on,
-  .hbg-btn.primary.big.on {
+  .hbg-btn.primary.big.on,
+  .sb-shovel,
+  .sb-hoe,
+  .sb-hammer,
+  .tr-blade,
+  .tr-brick,
+  .hm-nail,
+  .sb-grass-cut i,
+  .sb-dig-chips i {
     animation: none !important;
   }
 }
@@ -1191,6 +1267,291 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: rgba(210, 180, 130, 0.8);
   animation: sb-dust 1.6s ease-out infinite;
+}
+
+/* ============================================================
+   施工工具动画（纯 CSS，按 toolAnimClass 切换）
+   ============================================================ */
+.sb-tools {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  overflow: hidden;
+}
+.sb-tool {
+  position: absolute;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+/* ---- 铲子（挖土） ---- */
+.sb-shovel {
+  left: 58%;
+  bottom: 28%;
+  width: 36px;
+  height: 72px;
+  transform-origin: 50% 85%;
+}
+.sb-shovel .sh-handle {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  width: 5px;
+  height: 48px;
+  margin-left: -2px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #c4a070, #8b5a3a);
+}
+.sb-shovel .sh-handle::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 14px;
+  height: 8px;
+  margin-left: -7px;
+  border: 3px solid #8b5a3a;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+}
+.sb-shovel .sh-blade {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  background: linear-gradient(145deg, #c0c8d0, #7a8490);
+  clip-path: polygon(10% 0%, 90% 0%, 100% 55%, 50% 100%, 0% 55%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.t-dig .sb-shovel {
+  opacity: 1;
+  animation: sb-dig-strike 0.9s ease-in-out infinite;
+}
+
+/* ---- 锄头（除草） ---- */
+.sb-hoe {
+  left: 38%;
+  bottom: 30%;
+  width: 50px;
+  height: 56px;
+  transform-origin: 70% 90%;
+}
+.sb-hoe .ho-handle {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  width: 4px;
+  height: 48px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #d4b07a, #9a6a3a);
+  transform: rotate(-28deg);
+  transform-origin: 50% 100%;
+}
+.sb-hoe .ho-head {
+  position: absolute;
+  left: 4px;
+  bottom: 10px;
+  width: 22px;
+  height: 10px;
+  border-radius: 2px 6px 6px 2px;
+  background: linear-gradient(180deg, #b8c0c8, #6a7480);
+  transform: rotate(-28deg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.t-weed .sb-hoe {
+  opacity: 1;
+  animation: sb-hoe-chop 1.1s ease-in-out infinite;
+}
+.t-weed .sb-grass-cut {
+  opacity: 1;
+}
+.sb-grass-cut {
+  position: absolute;
+  left: 32%;
+  bottom: 28%;
+  width: 40px;
+  height: 24px;
+  opacity: 0;
+}
+.sb-grass-cut i {
+  position: absolute;
+  bottom: 0;
+  width: 5px;
+  height: 10px;
+  border-radius: 2px 2px 0 0;
+  background: #5a9a40;
+  opacity: 0;
+}
+.sb-grass-cut .gc1 { left: 0; animation: sb-grass-fly 1.1s ease-out infinite 0s; }
+.sb-grass-cut .gc2 { left: 10px; height: 8px; animation: sb-grass-fly 1.1s ease-out infinite 0.08s; }
+.sb-grass-cut .gc3 { left: 20px; animation: sb-grass-fly 1.1s ease-out infinite 0.16s; }
+.sb-grass-cut .gc4 { left: 28px; height: 7px; animation: sb-grass-fly 1.1s ease-out infinite 0.24s; }
+.sb-grass-cut .gc5 { left: 36px; animation: sb-grass-fly 1.1s ease-out infinite 0.32s; }
+
+/* ---- 砌刀 + 砖（建造地基） ---- */
+.sb-trowel {
+  left: 46%;
+  bottom: 26%;
+  width: 64px;
+  height: 40px;
+}
+.sb-trowel .tr-blade {
+  position: absolute;
+  right: 0;
+  bottom: 14px;
+  width: 28px;
+  height: 10px;
+  border-radius: 2px 8px 8px 2px;
+  background: linear-gradient(180deg, #d0d6de, #8a929c);
+  transform-origin: 0% 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.sb-trowel .tr-brick {
+  position: absolute;
+  bottom: 0;
+  width: 18px;
+  height: 10px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #c47850, #a05838);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.sb-trowel .b1 { left: 2px; }
+.sb-trowel .b2 { left: 22px; bottom: 2px; }
+.sb-trowel .b3 { left: 42px; }
+.t-pour .sb-trowel {
+  opacity: 1;
+}
+.t-pour .tr-blade {
+  animation: sb-trowel-spread 1.2s ease-in-out infinite;
+}
+.t-pour .tr-brick {
+  animation: sb-brick-set 1.2s ease-in-out infinite;
+}
+.t-pour .b2 { animation-delay: 0.15s; }
+.t-pour .b3 { animation-delay: 0.3s; }
+
+/* ---- 锤子 + 钉（建造房子） ---- */
+.sb-hammer {
+  left: 62%;
+  bottom: 38%;
+  width: 48px;
+  height: 52px;
+  transform-origin: 30% 90%;
+}
+.sb-hammer .hm-handle {
+  position: absolute;
+  left: 10px;
+  bottom: 0;
+  width: 5px;
+  height: 40px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #d4a860, #8b5a3a);
+  transform: rotate(-12deg);
+}
+.sb-hammer .hm-head {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 26px;
+  height: 14px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #c8d0d8, #6a7480);
+  transform: rotate(-12deg);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
+}
+.sb-hammer .hm-head::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 0 3px 3px 0;
+  background: #8a929c;
+}
+.sb-hammer .hm-nail {
+  position: absolute;
+  left: 28px;
+  bottom: 22px;
+  width: 3px;
+  height: 12px;
+  background: linear-gradient(180deg, #e8d090, #b09050);
+  border-radius: 1px 1px 0 0;
+}
+.t-hammer .sb-hammer {
+  opacity: 1;
+  animation: sb-hammer-strike 0.7s ease-in-out infinite;
+}
+.t-hammer .hm-nail {
+  animation: sb-nail-drive 0.7s ease-in-out infinite;
+}
+
+/* ---- 挖出土块飞溅 ---- */
+.sb-dig-chips {
+  position: absolute;
+  left: 54%;
+  bottom: 30%;
+  width: 30px;
+  height: 28px;
+  opacity: 0;
+}
+.sb-dig-chips i {
+  position: absolute;
+  bottom: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #6b4a26;
+  opacity: 0;
+}
+.t-dig .sb-dig-chips {
+  opacity: 1;
+}
+.t-dig .sb-dig-chips .dc1 { left: 4px; animation: sb-chip-fly 0.9s ease-out infinite 0s; }
+.t-dig .sb-dig-chips .dc2 { left: 12px; width: 4px; height: 4px; animation: sb-chip-fly 0.9s ease-out infinite 0.12s; }
+.t-dig .sb-dig-chips .dc3 { left: 18px; animation: sb-chip-fly 0.9s ease-out infinite 0.24s; }
+.t-dig .sb-dig-chips .dc4 { left: 24px; width: 3px; height: 3px; animation: sb-chip-fly 0.9s ease-out infinite 0.36s; }
+
+/* ---- 工具关键帧 ---- */
+@keyframes sb-dig-strike {
+  0%, 100% { transform: rotate(-8deg) translateY(0); }
+  35% { transform: rotate(18deg) translateY(10px); }
+  55% { transform: rotate(12deg) translateY(6px); }
+}
+@keyframes sb-hoe-chop {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  40% { transform: rotate(22deg) translateY(8px); }
+  60% { transform: rotate(14deg) translateY(4px); }
+}
+@keyframes sb-grass-fly {
+  0% { opacity: 0; transform: translate(0, 0) rotate(0deg); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--gx, 8px), -18px) rotate(50deg); }
+}
+.sb-grass-cut .gc1 { --gx: -10px; }
+.sb-grass-cut .gc2 { --gx: 4px; }
+.sb-grass-cut .gc3 { --gx: 14px; }
+.sb-grass-cut .gc4 { --gx: -4px; }
+.sb-grass-cut .gc5 { --gx: 18px; }
+@keyframes sb-trowel-spread {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  50% { transform: rotate(-18deg) translateX(-6px); }
+}
+@keyframes sb-brick-set {
+  0%, 100% { opacity: 0.5; transform: translateY(6px); }
+  40%, 70% { opacity: 1; transform: translateY(0); }
+}
+@keyframes sb-hammer-strike {
+  0%, 100% { transform: rotate(-20deg); }
+  45% { transform: rotate(8deg); }
+  60% { transform: rotate(2deg); }
+}
+@keyframes sb-nail-drive {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(6px); opacity: 0.7; }
 }
 
 /* 院子栅栏：贴在 stage 内院子顶沿 */

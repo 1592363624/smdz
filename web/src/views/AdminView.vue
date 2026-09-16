@@ -187,6 +187,20 @@
                   </div>
                 </div>
 
+                <!-- JSON 类型：卡片只放摘要 + 编辑按钮，点开后弹窗结构化编辑（避免原始 JSON 挤占卡片） -->
+                <div v-else-if="cfg.type === 'json'" class="config-item">
+                  <div class="config-info">
+                    <span class="config-label">{{ cfg.label }}</span>
+                    <span class="config-desc">{{ cfg.description }}</span>
+                  </div>
+                  <div class="config-editor">
+                    <button class="gm-btn checkin-open-btn" type="button" :title="jsonConfigSummary(cfg)" @click="openJsonConfig(cfg)">
+                      ✏️ 编辑（{{ jsonConfigSummary(cfg) }}）
+                    </button>
+                    <span class="saved-tip" :class="{ show: savedKey === cfg.key }">✓ 已保存</span>
+                  </div>
+                </div>
+
                 <div v-else class="config-item">
                   <div class="config-info">
                     <span class="config-label">{{ cfg.label }}</span>
@@ -349,6 +363,132 @@
           title="选择奖励物品"
           @select="onCheckinItemPicked"
         />
+
+        <!-- 通用 JSON 配置编辑弹窗：有字段 schema 时用中文表单，否则按类型自适应列表 / 键值对；也可切到原始 JSON -->
+        <div v-if="jsonCfg" class="modal-mask" @click.self="closeJsonConfig">
+          <div class="modal-box private-modal json-modal">
+            <div class="modal-head private-modal-head">
+              <div class="private-modal-title">
+                <span class="private-modal-icon">{{ jsonModalIcon }}</span>
+                <div class="private-modal-titles">
+                  <h3>{{ jsonCfg.label }}</h3>
+                  <p class="private-modal-sub">{{ jsonCfg.description }}</p>
+                </div>
+              </div>
+              <button class="modal-close" @click="closeJsonConfig">×</button>
+            </div>
+
+            <!-- 模式切换：表单编辑 / 原始 JSON -->
+            <div class="json-mode-bar">
+              <div class="json-mode-tabs">
+                <button
+                  type="button"
+                  class="json-mode-tab"
+                  :class="{ active: jsonEditMode === 'form' }"
+                  :disabled="!jsonFormAvailable"
+                  :title="jsonFormAvailable ? '按字段填写，自动校验' : '当前结构暂无表单模式，请用 JSON'"
+                  @click="jsonEditMode = 'form'"
+                >表单</button>
+                <button
+                  type="button"
+                  class="json-mode-tab"
+                  :class="{ active: jsonEditMode === 'raw' }"
+                  @click="switchJsonToRaw"
+                >JSON</button>
+              </div>
+              <span v-if="jsonEditMode === 'raw'" class="json-mode-hint">支持直接粘贴；保存前会校验并格式化</span>
+              <span v-else-if="jsonKind === 'object'" class="json-mode-hint">共 {{ jsonFormRowCount }} 项</span>
+              <span v-else-if="jsonKind === 'array'" class="json-mode-hint">共 {{ jsonArrRows.length }} 条</span>
+            </div>
+
+            <!-- 表单模式：对象（已知字段 + 未知字段） -->
+            <div v-if="jsonEditMode === 'form' && jsonKind === 'object'" class="json-body">
+              <div class="json-field-list">
+                <div
+                  v-for="row in jsonObjRows"
+                  :key="'jf-' + row.uid"
+                  class="json-field-row"
+                  :class="{ 'json-field-unknown': row.unknown }"
+                >
+                  <div class="json-field-meta">
+                    <span class="json-field-label">{{ row.label }}</span>
+                    <code class="json-field-key">{{ row.key }}</code>
+                  </div>
+                  <div class="json-field-control">
+                    <select
+                      v-if="row.fieldType === 'boolean'"
+                      v-model="row.text"
+                      class="json-input"
+                    >
+                      <option value="true">是</option>
+                      <option value="false">否</option>
+                    </select>
+                    <input
+                      v-else
+                      v-model="row.text"
+                      class="json-input"
+                      :type="row.fieldType === 'number' ? 'number' : 'text'"
+                      :step="row.fieldType === 'number' ? 'any' : undefined"
+                      :placeholder="row.hint || row.key"
+                    />
+                  </div>
+                  <span class="json-field-hint" v-if="row.hint">{{ row.hint }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 表单模式：字符串数组（每行一项，可加删排序） -->
+            <div v-else-if="jsonEditMode === 'form' && jsonKind === 'array'" class="json-body">
+              <div class="json-list-table">
+                <div class="json-list-head">
+                  <span class="pr-idx">#</span>
+                  <span>内容</span>
+                  <span></span>
+                </div>
+                <div class="json-list-rows">
+                  <div v-for="(row, idx) in jsonArrRows" :key="row.uid" class="json-list-row">
+                    <span class="pr-idx">{{ idx + 1 }}</span>
+                    <input v-model="row.text" class="json-input" placeholder="每一项的文本内容" />
+                    <div class="json-list-ops">
+                      <button class="pr-del json-move" type="button" title="上移" :disabled="idx === 0" @click="moveJsonArrRow(idx, -1)">↑</button>
+                      <button class="pr-del json-move" type="button" title="下移" :disabled="idx === jsonArrRows.length - 1" @click="moveJsonArrRow(idx, 1)">↓</button>
+                      <button class="pr-del" type="button" title="删除该行" @click="removeJsonArrRow(row.uid)">✕</button>
+                    </div>
+                  </div>
+                  <div v-if="!jsonArrRows.length" class="private-empty">
+                    <strong>列表为空</strong>
+                    <span>点下方「＋ 添加一项」新增条目</span>
+                  </div>
+                </div>
+              </div>
+              <button class="private-add-btn" type="button" @click="addJsonArrRow">＋ 添加一项</button>
+            </div>
+
+            <!-- 原始 JSON 模式：大编辑框 + 格式化 -->
+            <div v-else class="json-body json-raw-body">
+              <div class="json-raw-toolbar">
+                <button type="button" class="private-add-btn" @click="formatJsonRaw">格式化</button>
+                <span class="json-mode-hint">粘贴后点「格式化」可快速检查语法</span>
+              </div>
+              <textarea
+                v-model="jsonRawText"
+                class="json-raw-textarea"
+                spellcheck="false"
+                :placeholder="jsonRawPlaceholder"
+              ></textarea>
+            </div>
+
+            <div v-if="jsonError" class="prof-error">{{ jsonError }}</div>
+
+            <div class="modal-foot private-modal-foot">
+              <button class="private-add-btn" type="button" @click="resetJsonToDefault">恢复默认</button>
+              <span class="private-foot-gap"></span>
+              <span v-if="jsonSaved" class="edit-result">✓ 已保存</span>
+              <button class="gm-btn" type="button" @click="closeJsonConfig">取消</button>
+              <button class="gm-btn success" type="button" @click="saveJsonConfig">保存</button>
+            </div>
+          </div>
+        </div>
 
       </section>
 
@@ -1083,6 +1223,291 @@ async function savePrivateRules() {
   setTimeout(() => {
     privateRulesSaved.value = false;
   }, 2000);
+}
+
+// ---- 通用 JSON 配置弹窗（chat.redPacket、副本名池等 type=json 项） ----
+/**
+ * 已知 JSON 配置的字段元信息：中文标签 + 类型 + 提示。
+ * 未登记的字段仍会出现在表单里（未知样式），保证以后加字段不必改前端也能编辑。
+ */
+const JSON_CONFIG_SCHEMAS = {
+  'chat.redPacket': {
+    icon: '🧧',
+    fields: [
+      { key: 'expireHours', label: '有效期（小时）', type: 'number', hint: '到期后未领完的份额自动退回发送者' },
+      { key: 'maxItemKinds', label: '最多道具种类', type: 'number', hint: '单个红包最多放入几种道具' },
+      { key: 'maxTotalCount', label: '最大总份数', type: 'number', hint: '1 份 = 1 个道具' },
+      { key: 'minTotalCount', label: '最小总份数', type: 'number', hint: '' },
+      { key: 'maxGreetingLength', label: '祝福语最大字数', type: 'number', hint: '' },
+      { key: 'allowEquipment', label: '允许放入装备', type: 'boolean', hint: '装备为独立实例，默认关闭' },
+      { key: 'allowCurrency', label: '允许放入硬通货', type: 'boolean', hint: '钻石/召唤券/数据核心，默认关闭' },
+      { key: 'historyHours', label: '历史可查时间（小时）', type: 'number', hint: '超过后前端不再返回红包状态' },
+      { key: 'enableTargeted', label: '开放专属红包', type: 'boolean', hint: '指定领取人，只有 TA 能领' },
+      { key: 'enablePasscode', label: '开口令红包', type: 'boolean', hint: '输入正确口令才能领' },
+      { key: 'minPasscodeLength', label: '口令最短字数', type: 'number', hint: '' },
+      { key: 'maxPasscodeLength', label: '口令最长字数', type: 'number', hint: '' },
+      { key: 'caseSensitivePasscode', label: '口令区分大小写', type: 'boolean', hint: '默认关闭' },
+      { key: 'myPanelLimit', label: '我的红包列表上限', type: 'number', hint: '发出/领到列表各自最多条数' },
+    ],
+  },
+  'game.instanceNames': {
+    icon: '🗺️',
+    fields: [],
+  },
+  'game.instanceNames2': {
+    icon: '🗺️',
+    fields: [],
+  },
+};
+
+const jsonCfg = ref(null); // 当前编辑的 JSON 配置项
+const jsonEditMode = ref('form'); // form | raw
+const jsonKind = ref('object'); // object | array | other
+const jsonObjRows = ref([]); // 对象表单行
+const jsonArrRows = ref([]); // 字符串数组行
+const jsonRawText = ref('');
+const jsonError = ref('');
+const jsonSaved = ref(false);
+let jsonUidSeq = 0;
+
+const jsonFormAvailable = computed(() => jsonKind.value === 'object' || jsonKind.value === 'array');
+const jsonFormRowCount = computed(() => jsonObjRows.value.length);
+
+const jsonModalIcon = computed(() => {
+  const schema = JSON_CONFIG_SCHEMAS[jsonCfg.value?.key];
+  return schema?.icon || '🧧';
+});
+
+const jsonRawPlaceholder = computed(() => {
+  if (jsonKind.value === 'array') return '["第一项", "第二项"]';
+  if (jsonKind.value === 'object') return '{\n  "key": "value"\n}';
+  return '';
+});
+
+/** 卡片按钮上的简短摘要，替代整段原始 JSON */
+function jsonConfigSummary(cfg) {
+  const parsed = safeParseJson(cfg?.value);
+  if (Array.isArray(parsed)) return `${parsed.length} 项`;
+  if (parsed && typeof parsed === 'object') {
+    const n = Object.keys(parsed).length;
+    return `${n} 个字段`;
+  }
+  return '编辑';
+}
+
+function safeParseJson(raw) {
+  if (raw == null || raw === '') return null;
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function makeJsonObjRow(key, value, schemaField) {
+  const fieldType =
+    schemaField?.type ||
+    (typeof value === 'boolean' ? 'boolean' : typeof value === 'number' ? 'number' : 'text');
+  return {
+    uid: ++jsonUidSeq,
+    key,
+    label: schemaField?.label || key,
+    hint: schemaField?.hint || '',
+    fieldType,
+    unknown: !schemaField,
+    text: value == null ? '' : String(value),
+  };
+}
+
+function makeJsonArrRow(text = '') {
+  return { uid: ++jsonUidSeq, text: String(text ?? '') };
+}
+
+/** 把对象转成表单行：schema 顺序在前（含缺失字段补默认空），库里多出的未知字段跟在后面 */
+function buildJsonObjRows(parsed) {
+  const schema = JSON_CONFIG_SCHEMAS[jsonCfg.value?.key];
+  const fields = schema?.fields || [];
+  const knownKeys = new Set(fields.map((f) => f.key));
+  const rows = fields.map((f) => makeJsonObjRow(f.key, parsed?.[f.key] ?? defaultForType(f.type), f));
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    for (const [key, value] of Object.entries(parsed)) {
+      if (knownKeys.has(key)) continue;
+      rows.push(makeJsonObjRow(key, value, null));
+    }
+  }
+  return rows;
+}
+
+function defaultForType(type) {
+  if (type === 'boolean') return false;
+  if (type === 'number') return 0;
+  return '';
+}
+
+function loadJsonConfigIntoEditors(cfg, rawOverride) {
+  const raw = rawOverride !== undefined ? rawOverride : cfg?.value;
+  const parsed = safeParseJson(raw);
+  if (Array.isArray(parsed)) {
+    jsonKind.value = 'array';
+    jsonArrRows.value = parsed.map((item) => makeJsonArrRow(item));
+    jsonObjRows.value = [];
+  } else if (parsed && typeof parsed === 'object') {
+    jsonKind.value = 'object';
+    jsonObjRows.value = buildJsonObjRows(parsed);
+    jsonArrRows.value = [];
+  } else {
+    // 解析失败或非对象/数组：走原始 JSON 模式兜底
+    jsonKind.value = 'other';
+    jsonObjRows.value = [];
+    jsonArrRows.value = [];
+  }
+  jsonRawText.value =
+    typeof raw === 'string' && raw.trim()
+      ? tryPrettyJson(raw)
+      : JSON.stringify(parsed ?? (jsonKind.value === 'array' ? [] : {}), null, 2);
+  jsonEditMode.value = jsonFormAvailable.value ? 'form' : 'raw';
+  jsonError.value = '';
+  jsonSaved.value = false;
+}
+
+function tryPrettyJson(text) {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+function openJsonConfig(cfg) {
+  jsonCfg.value = cfg;
+  loadJsonConfigIntoEditors(cfg);
+}
+
+function closeJsonConfig() {
+  jsonCfg.value = null;
+  jsonError.value = '';
+}
+
+function switchJsonToRaw() {
+  // 切到原始 JSON 前，把当前表单内容同步进文本框，避免用户看到旧值
+  if (jsonEditMode.value === 'form' && jsonFormAvailable.value) {
+    jsonError.value = '';
+    const value = collectJsonFormValue();
+    // 表单本身不合法时留在表单页并提示，避免带着脏数据切走
+    if (value === null) return;
+    jsonRawText.value = JSON.stringify(value, null, 2);
+  }
+  jsonEditMode.value = 'raw';
+  jsonError.value = '';
+}
+
+function formatJsonRaw() {
+  try {
+    const parsed = JSON.parse(jsonRawText.value || '');
+    jsonRawText.value = JSON.stringify(parsed, null, 2);
+    jsonError.value = '';
+  } catch (err) {
+    jsonError.value = `JSON 语法错误：${err?.message || err}`;
+  }
+}
+
+function collectJsonFormValue() {
+  if (jsonKind.value === 'array') {
+    return jsonArrRows.value.map((row) => String(row.text ?? '').trim()).filter((s) => s.length > 0);
+  }
+  if (jsonKind.value !== 'object') return null;
+  const obj = {};
+  for (const row of jsonObjRows.value) {
+    const key = String(row.key || '').trim();
+    if (!key) continue;
+    if (row.fieldType === 'number') {
+      const n = Number(row.text);
+      if (row.text === '' || !Number.isFinite(n)) {
+        jsonError.value = `「${row.label || key}」需为有效数字`;
+        return null;
+      }
+      obj[key] = n;
+    } else if (row.fieldType === 'boolean') {
+      obj[key] = row.text === 'true' || row.text === true;
+    } else {
+      obj[key] = String(row.text ?? '');
+    }
+  }
+  return obj;
+}
+
+async function saveJsonConfig() {
+  jsonError.value = '';
+  let value;
+  if (jsonEditMode.value === 'form' && jsonFormAvailable.value) {
+    value = collectJsonFormValue();
+    if (value === null) return;
+  } else {
+    try {
+      value = JSON.parse(jsonRawText.value || '');
+    } catch (err) {
+      jsonError.value = `JSON 语法错误：${err?.message || err}`;
+      return;
+    }
+  }
+  await saveConfig(jsonCfg.value, value);
+  // 保存成功后回读到编辑器，保证界面与库里一致（原始模式也会重新格式化）
+  loadJsonConfigIntoEditors(jsonCfg.value);
+  jsonSaved.value = true;
+  setTimeout(() => {
+    jsonSaved.value = false;
+  }, 2000);
+}
+
+/** 恢复该配置在代码中的默认 JSON（仅回填编辑器，点「保存」才写库） */
+function resetJsonToDefault() {
+  const key = jsonCfg.value?.key;
+  const defaults = {
+    'chat.redPacket': {
+      expireHours: 24,
+      maxItemKinds: 10,
+      maxTotalCount: 100,
+      minTotalCount: 1,
+      maxGreetingLength: 60,
+      allowEquipment: false,
+      allowCurrency: false,
+      historyHours: 72,
+      enableTargeted: true,
+      enablePasscode: true,
+      minPasscodeLength: 1,
+      maxPasscodeLength: 16,
+      caseSensitivePasscode: false,
+      myPanelLimit: 50,
+    },
+    'game.instanceNames': ['CELL研究中心', 'CELL总部', 'CELL后勤部', '组装车间'],
+    'game.instanceNames2': ['灭绝之地', '誓约之地', '核战废墟', '灵山岛', '四圣祭坛'],
+  };
+  if (!(key in defaults)) {
+    jsonError.value = '当前配置没有内置默认值，请手动修改';
+    return;
+  }
+  // 不改动 jsonCfg 本身（保持对库中配置对象的引用），只重载编辑器内容
+  loadJsonConfigIntoEditors(jsonCfg.value, JSON.stringify(defaults[key]));
+}
+
+function moveJsonArrRow(idx, delta) {
+  const next = idx + delta;
+  if (next < 0 || next >= jsonArrRows.value.length) return;
+  const list = jsonArrRows.value;
+  const tmp = list[idx];
+  list[idx] = list[next];
+  list[next] = tmp;
+  // 触发响应式
+  jsonArrRows.value = [...list];
+}
+
+function addJsonArrRow() {
+  jsonArrRows.value.push(makeJsonArrRow(''));
+}
+
+function removeJsonArrRow(uid) {
+  jsonArrRows.value = jsonArrRows.value.filter((r) => r.uid !== uid);
 }
 
 // ---- 签到奖励表（game.checkinRewards）弹窗编辑 ----
@@ -3008,6 +3433,227 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
+/* ===== 通用 JSON 配置编辑弹窗 ===== */
+.modal-box.json-modal {
+  width: min(640px, calc(100vw - 40px));
+  max-height: 88vh;
+}
+.json-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.json-mode-tabs {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: rgba(10, 10, 26, 0.55);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.json-mode-tab {
+  padding: 6px 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.json-mode-tab.active {
+  color: var(--text);
+  background: rgba(139, 92, 246, 0.28);
+}
+.json-mode-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.json-mode-hint {
+  font-size: 11.5px;
+  color: var(--muted-dark);
+}
+.json-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.json-body::-webkit-scrollbar {
+  width: 8px;
+}
+.json-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+.json-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.json-field-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.1fr) minmax(120px, 1fr);
+  grid-template-rows: auto auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.json-field-row:hover,
+.json-field-row:focus-within {
+  background: rgba(139, 92, 246, 0.06);
+  border-color: rgba(139, 92, 246, 0.2);
+}
+.json-field-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.json-field-label {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.json-field-key {
+  font-size: 11px;
+  color: var(--muted-dark);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+.json-field-hint {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--muted-dark);
+  line-height: 1.35;
+}
+.json-field-control {
+  min-width: 0;
+}
+.json-input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: rgba(10, 10, 26, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.json-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+/* 未知字段用虚线边框区分：可能是历史遗留 key，提醒管理员谨慎 */
+.json-field-unknown {
+  border: 1px dashed rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.04);
+}
+.json-list-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(10, 10, 26, 0.35);
+  overflow: hidden;
+}
+.json-list-head,
+.json-list-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.json-list-head {
+  flex-shrink: 0;
+  padding: 9px 12px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  background: rgba(139, 92, 246, 0.08);
+  border-bottom: 1px solid var(--border);
+}
+.json-list-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 8px 10px;
+  scrollbar-width: thin;
+}
+.json-list-rows::-webkit-scrollbar {
+  width: 8px;
+}
+.json-list-rows::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+.json-list-row {
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.json-list-row:hover,
+.json-list-row:focus-within {
+  background: rgba(139, 92, 246, 0.07);
+  border-color: rgba(139, 92, 246, 0.22);
+}
+.json-list-ops {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.json-move {
+  font-size: 11px;
+  line-height: 1;
+}
+.json-move:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.json-raw-body {
+  gap: 8px;
+}
+.json-raw-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.json-raw-textarea {
+  width: 100%;
+  min-height: 280px;
+  max-height: 48vh;
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  background: rgba(10, 10, 26, 0.75);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  resize: vertical;
+  tab-size: 2;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.json-raw-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
 /* ===== 详情 / 编辑弹窗 ===== */
 .modal-mask {
   position: fixed;
@@ -3246,6 +3892,31 @@ onMounted(async () => {
   .private-rule-row .pr-del {
     grid-column: 2;
     grid-row: 1 / span 2;
+  }
+  /* JSON 编辑弹窗：字段行改为上下堆叠 */
+  .modal-box.json-modal {
+    width: calc(100vw - 24px);
+    padding: 16px;
+  }
+  .json-field-row {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+  .json-field-hint {
+    grid-column: 1;
+  }
+  .json-list-head {
+    display: none;
+  }
+  .json-list-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 6px;
+  }
+  .json-list-row .pr-idx {
+    display: none;
+  }
+  .json-raw-textarea {
+    min-height: 220px;
   }
 }
 </style>

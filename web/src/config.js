@@ -503,8 +503,8 @@ export const HOME_BUILD_GUIDE_CONFIG = {
     stepDelayMs: 110,
     /** 进度推进时的高亮闪烁时长 */
     flashMs: 1200,
-    /** 第 4 步（房子开工）撒花时长 */
-    celebrateMs: 1800,
+    /** 第 4 步（房子建成）撒花时长 */
+    celebrateMs: 6000,
   },
   /**
    * 指令回包后自动跳转家园页：只在指定步（默认圈地成功）触发一次，

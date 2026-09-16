@@ -851,14 +851,14 @@ watch(
 );
 
 /**
- * 房子读条结束（houseConstructing true→false）：引导页多留 1.6s
+ * 房子读条结束（houseConstructing true→false）：引导页多留 6s
  * 播完撒花/落成动画，再切完整家园。开工瞬间进度已是 4，不能那时就切走。
  */
 watch(houseConstructing, (now, before) => {
   if (before && !now && progress.value >= 4) {
     holdDone.value = true;
     clearTimeout(holdDoneTimer);
-    holdDoneTimer = setTimeout(() => { holdDone.value = false; }, 1600);
+    holdDoneTimer = setTimeout(() => { holdDone.value = false; }, 6000);
   }
 });
 watch(progress, (now) => {

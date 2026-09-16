@@ -48,6 +48,10 @@ export class ScheduleService implements OnApplicationBootstrap {
   private lastAutoSaveTime = 0;
   /** 行商判断运行锁，防止上一次未结束时重复执行 */
   private merchantRunning = false;
+  /** 废弃载具定时刷新运行锁 */
+  private wreckSpawnRunning = false;
+  /** 上次废弃载具刷新命中的「日期+HH:mm」槽位，防止同一分钟内重复触发 */
+  private lastWreckSpawnSlot = '';
   /** 掉落货舱运行锁 */
   private cargoRunning = false;
   /** 生成副本运行锁 */
@@ -348,7 +352,8 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 行商判断 - 每小时整点执行
-   * 对应原版：行商判断()，生成行商、花园宝宝、小白狐、露娜、神之工匠、小雫、小恶魔、小蓝、无主载具
+   * 对应原版：行商判断()，生成行商、花园宝宝、小白狐、露娜、神之工匠、小雫、小恶魔、小蓝
+   * （无主载具已拆到独立 cron wreckSpawnTick，支持多时间点/到分）
    * 通过运行锁 + 逐步 try-catch，保证单个步骤失败不影响其他步骤
    */
   @Cron('0 0 * * * *') // 每小时整点（秒=0，分=0）
@@ -394,9 +399,7 @@ export class ScheduleService implements OnApplicationBootstrap {
 
       // 7. 生成小蓝（5%几率生成特殊物品）
       await this.spawnBlueItem(maps);
-
-      // 8. 生成随机无主载具（仅在 game.wreckSpawnHour 对应小时必刷，全图无主数受 game.wreckMaxCount 上限约束）
-      await this.spawnRandomVehicle();
+      // 注：废弃载具改由独立的每分钟 cron（wreckSpawnTick）按 game.wreckSpawnHour 时间点表触发
     } catch (err: any) {
       this.logger.error(`行商判断失败: ${err.message}`);
     } finally {
@@ -695,24 +698,72 @@ export class ScheduleService implements OnApplicationBootstrap {
   }
 
   /**
-   * 生成随机无主载具（废弃载具）
+   * 解析 game.wreckSpawnHour 配置 → 当天有效的 {hour,minute} 列表。
+   *
+   * 兼容格式（逗号/顿号/空白分隔，可混用）：
+   *   - 「10」或「10:00」 → 10 点整
+   *   - 「10,22」         → 10 点、22 点整（旧值兼容）
+   *   - 「10:00,20:22」   → 10:00、20:22（精确到分）
+   *   - 「-1」或空        → 关闭自动刷新（返回空数组）
+   * 非法片段跳过；全部非法视同关闭。
+   */
+  private parseWreckSpawnTimes(raw: string): Array<{ hour: number; minute: number }> {
+    const text = String(raw ?? '').trim();
+    if (!text || text === '-1') return [];
+
+    const times: Array<{ hour: number; minute: number }> = [];
+    for (const part of text.split(/[,，;；\s]+/)) {
+      if (!part) continue;
+      const m = part.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+      if (!m) continue;
+      const hour = Number(m[1]);
+      const minute = m[2] !== undefined ? Number(m[2]) : 0;
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) continue;
+      times.push({ hour, minute });
+    }
+    return times;
+  }
+
+  /**
+   * 废弃载具定时刷新 - 每分钟整点秒触发，匹配 game.wreckSpawnHour 时间点表。
    *
    * 现行规则（配置中心可在线调整，实时生效）：
-   *   1. 仅在 game.wreckSpawnHour（默认 10）对应的整点小时尝试刷新；
-   *      -1 = 关闭自动刷新。
+   *   1. game.wreckSpawnHour 支持多个时间点，可精确到分（默认 10 = 10:00）；
+   *      -1 或空 = 关闭自动刷新。
    *   2. 全图无主载具总数达到 game.wreckMaxCount（默认 3）时跳过；0 = 不限制。
-   *   3. 到点且未达上限则必刷一个（force=true）。
+   *   3. 到点且未达上限则必刷一个（force=true）；同一分钟槽位只触发一次。
    * 生成与投放统一走 DungeonChallengeService.spawnWreckToRandomMap（与管理员指令同源，
    * 数据源 wrecks.json）。管理员「生成废弃载具」不受上限限制。
    */
+  @Cron('0 * * * * *') // 每分钟第 0 秒（对齐 HH:mm 匹配粒度）
+  async wreckSpawnTick() {
+    if (this.wreckSpawnRunning) return;
+    this.wreckSpawnRunning = true;
+    try {
+      await this.spawnRandomVehicle();
+    } catch (err: any) {
+      this.logger.error(`废弃载具定时刷新失败: ${err.message}`);
+    } finally {
+      this.wreckSpawnRunning = false;
+    }
+  }
+
   private async spawnRandomVehicle(): Promise<void> {
     try {
-      const hour = new Date().getHours();
-      const spawnHour = await this.getConfigValue<number>('game.wreckSpawnHour', 10);
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      const raw = await this.getConfigValue<string>('game.wreckSpawnHour', '10');
+      const spawnTimes = this.parseWreckSpawnTimes(raw);
       const maxCount = await this.getConfigValue<number>('game.wreckMaxCount', 3);
 
-      // 非配置刷新小时：直接跳过（原版其余小时的概率刷新已按需求移除）
-      if (spawnHour < 0 || hour !== spawnHour) return;
+      // 未命中任一配置时间点：跳过（原版其余小时的概率刷新已按需求移除）
+      if (!spawnTimes.some((t) => t.hour === hour && t.minute === minute)) return;
+
+      // 同一分钟槽位只触发一次（cron 与配置变更边界防抖）
+      const slot = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      if (this.lastWreckSpawnSlot === slot) return;
+      this.lastWreckSpawnSlot = slot;
 
       // 统计全图无主载具数量（含开拓地/关卡等，与原版扫描口径一致）
       const allMaps = await this.mapService.getAllMaps();
@@ -730,7 +781,7 @@ export class ScheduleService implements OnApplicationBootstrap {
       // 达到全图上限：不刷新
       if (maxCount > 0 && ownerlessCount >= maxCount) {
         this.logger.log(
-          `行商判断: 废弃载具已达全图上限 ${ownerlessCount}/${maxCount}，跳过刷新`,
+          `废弃载具: 已达全图上限 ${ownerlessCount}/${maxCount}，跳过 ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} 刷新`,
         );
         return;
       }
@@ -738,7 +789,7 @@ export class ScheduleService implements OnApplicationBootstrap {
       const result = await this.dungeonChallengeService.spawnWreckToRandomMap(true);
       if (result.ok) {
         this.logger.log(
-          `行商判断: 在地图 ${result.mapName} 生成了无主载具「${result.wreckName}」（${spawnHour}点必刷）`,
+          `废弃载具: 在地图 ${result.mapName} 生成了无主载具「${result.wreckName}」（${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} 必刷）`,
         );
       }
     } catch (err: any) {

@@ -132,10 +132,10 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
   {
     key: 'game.wreckSpawnHour',
     value: '10',
-    label: '废弃载具刷新小时',
+    label: '废弃载具刷新时间',
     description:
-      '每天在该整点小时自动刷新废弃载具（0-23）。默认 10。改后下次到点即生效，无需重启。设为 -1 可关闭自动刷新',
-    type: 'number',
+      '每天在指定时间点自动刷新废弃载具。支持：10（整点）、10,22（多个整点）、10:00,20:22（精确到分）。默认 10。改后下次到点即生效，无需重启。设为 -1 可关闭自动刷新',
+    type: 'string',
     group: 'game',
   },
   {
@@ -218,6 +218,14 @@ export class SystemConfigService implements OnModuleInit {
           await this.prisma.systemConfig.update({
             where: { key: cfg.key },
             data: { group: cfg.group, label: cfg.label, description: cfg.description },
+          });
+          this.cache.delete(cfg.key);
+        }
+        // 废弃载具刷新时间：旧 type=number 迁为 string（value 保持原样，兼容「10」等旧值）
+        if (cfg.key === 'game.wreckSpawnHour' && existing.type !== 'string') {
+          await this.prisma.systemConfig.update({
+            where: { key: cfg.key },
+            data: { type: 'string' },
           });
           this.cache.delete(cfg.key);
         }
