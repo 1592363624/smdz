@@ -40,6 +40,9 @@ export const RESOURCE_REFRESH_MARKER_PREFIX = '刷新资源';
 /** 单地图常驻怪物数量上限（防御异常配置） */
 const MONSTER_INSTANCE_CAP = 20;
 
+/** 家园删除/清退时的统一落点（不落到医疗室） */
+export const HOME_EVACUATION_MAP_NAME = '城镇广场';
+
 /**
  * 可前往地图的连接信息
  */
@@ -547,6 +550,120 @@ export class MapService {
   }
 
   /**
+   * 解析家园删除/清退时的统一落点。优先「城镇广场」，缺失时回退 mapIndex 最小图。
+   * 注意：不要回退到医疗室——删家园统一要求丢到城镇广场。
+   */
+  async resolveHomeEvacuationMap(): Promise<{ id: number; name: string } | null> {
+    try {
+      const preferred = await this.prisma.gameMap.findUnique({
+        where: { name: HOME_EVACUATION_MAP_NAME },
+      });
+      if (preferred) return { id: preferred.id, name: preferred.name };
+    } catch {
+      // 测试桩/表未就绪时继续兜底
+    }
+    const fallback = await this.prisma.gameMap.findFirst({ orderBy: { mapIndex: 'asc' } });
+    return fallback ? { id: fallback.id, name: fallback.name } : null;
+  }
+
+  /**
+   * 删图前把站在 mapIds 上的玩家与载具迁到落点图。
+   * 玩家走 prisma 定点写 + invalidate actor 缓存（MapService 无法注入 PlayerService，
+   * 会与 PlayerService→MapService 循环依赖），避免出现指向已删地图的幽灵 mapId。
+   */
+  async evacuateMapsBeforeDelete(
+    mapIds: number[],
+    evacuation: { id: number; name: string },
+  ): Promise<{ movedPlayers: number; movedVehicles: number }> {
+    const ids = [...new Set(mapIds.map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    if (ids.length === 0 || !evacuation?.id) {
+      return { movedPlayers: 0, movedVehicles: 0 };
+    }
+
+    let movedPlayers = 0;
+    try {
+      const players = await this.prisma.player.findMany({
+        where: { mapId: { in: ids } },
+        select: { id: true, userId: true, markers: true, markers2: true },
+      });
+      for (const player of players) {
+        const markers = this.safeParseJSON<Record<string, any>>(player.markers, {}) || {};
+        delete markers['移动中'];
+        const markers2 = this.safeParseJSON<any[]>(player.markers2, []) || [];
+        const kept2 = markers2.filter((m: any) => String(m?.名称 ?? m?.name ?? '') !== '移动');
+        await this.prisma.player.update({
+          where: { id: player.id },
+          data: {
+            mapId: evacuation.id,
+            location: evacuation.name,
+            markers,
+            ...(kept2.length !== markers2.length ? { markers2: kept2 } : {}),
+            version: { increment: 1 },
+          },
+        });
+        try {
+          this.actorRuntime?.invalidate('player', player.userId);
+        } catch {
+          // 缓存失效失败不影响主流程
+        }
+        movedPlayers += 1;
+      }
+    } catch (e: any) {
+      this.logger.warn(`清退玩家离开待删地图失败: ${e?.message ?? e}`);
+    }
+
+    let movedVehicles = 0;
+    try {
+      const doomedMaps = await this.prisma.gameMap.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, vehicles: true },
+      });
+      const orphanVehicles: any[] = [];
+      for (const map of doomedMaps) {
+        const vehicles = this.safeParseJSON<any[]>(map.vehicles, []);
+        if (Array.isArray(vehicles) && vehicles.length > 0) {
+          orphanVehicles.push(...vehicles);
+        }
+      }
+
+      if (orphanVehicles.length > 0) {
+        await this.mutateMapFields(evacuation.id, ['vehicles'], (f) => {
+          const list = Array.isArray(f.vehicles) ? f.vehicles : [];
+          const existingKeys = new Set(
+            list.map((v: any) => String(v?.vehicleId ?? v?.编号 ?? v?.id ?? '')),
+          );
+          for (const v of orphanVehicles) {
+            const key = String(v?.vehicleId ?? v?.编号 ?? v?.id ?? '');
+            if (key && existingKeys.has(key)) continue;
+            list.push(v);
+            if (key) existingKeys.add(key);
+            movedVehicles += 1;
+          }
+          f.vehicles = list;
+        });
+      }
+
+      // GameVehicle 表 mapIndex 与地图 JSON 同步：仍指向待删图的行统一改到落点。
+      const vehicleModel = (this.prisma as any).gameVehicle;
+      if (vehicleModel?.updateMany) {
+        await vehicleModel.updateMany({
+          where: { mapIndex: { in: ids } },
+          data: { mapIndex: evacuation.id },
+        });
+      }
+    } catch (e: any) {
+      this.logger.warn(`清退载具离开待删地图失败: ${e?.message ?? e}`);
+    }
+
+    if (movedPlayers > 0 || movedVehicles > 0) {
+      this.logger.log(
+        `删图前清退 → ${evacuation.name}(id=${evacuation.id})：玩家 ${movedPlayers} 人、载具 ${movedVehicles} 台`,
+      );
+    }
+    return { movedPlayers, movedVehicles };
+  }
+
+  /**
    * 从所有地图 connections 中摘掉指向指定家园名的入口（含院子/屋内/前线）。
    * 清档/删号/重圈地/搬迁漏删时的统一清理出口。
    */
@@ -574,10 +691,24 @@ export class MapService {
   /**
    * 删除玩家家园的三张动态地图，并摘掉全库指向它们的入口。
    * 用于清档/删号/进度归零后重圈地，避免幽灵家园残留。
+   * 删图前先把站在家园图上的玩家/载具迁到「城镇广场」，避免幽灵 mapId。
    */
   async removeHouseData(houseName: string): Promise<void> {
     if (!houseName) return;
     const names = this.houseMapNames(houseName);
+    const homeMaps = await this.prisma.gameMap.findMany({
+      where: { name: { in: names } },
+      select: { id: true },
+    });
+    const homeIds = homeMaps.map((m) => m.id);
+    if (homeIds.length > 0) {
+      const evacuation = await this.resolveHomeEvacuationMap();
+      if (evacuation) {
+        await this.evacuateMapsBeforeDelete(homeIds, evacuation).catch((e: any) => {
+          this.logger.warn(`删除家园「${houseName}」前清退失败（继续删图）: ${e?.message ?? e}`);
+        });
+      }
+    }
     await this.removeHouseConnectionsFromAllMaps(houseName);
     await this.prisma.gameMap.deleteMany({ where: { name: { in: names } } });
   }
@@ -642,6 +773,13 @@ export class MapService {
       .map((m) => m.id);
 
     if (orphanMapIds.length > 0) {
+      // 删幽灵家园图前先把站在图上的玩家/载具迁到城镇广场，避免幽灵 mapId/mapIndex
+      const evacuation = await this.resolveHomeEvacuationMap();
+      if (evacuation) {
+        await this.evacuateMapsBeforeDelete(orphanMapIds, evacuation).catch((e: any) => {
+          this.logger.warn(`清理幽灵家园前清退失败（继续删图）: ${e?.message ?? e}`);
+        });
+      }
       await this.prisma.gameMap.deleteMany({ where: { id: { in: orphanMapIds } } });
     }
 
@@ -1606,6 +1744,23 @@ export class MapService {
       data,
     });
     return row as unknown as MapMonster;
+  }
+
+  /**
+   * 远古遗迹守卫：走与普通刷怪同一套 buildMonsterSpawnData 成长公式
+   * （等级越高越硬，与 requireLevel 对齐）。
+   */
+  async spawnSealGuard(
+    mapId: number,
+    opts: { vehicleId: string; wave: number; level: number },
+  ): Promise<MapMonster> {
+    const lv = Math.max(1, Math.trunc(Number(opts.level) || 1));
+    const wave = Math.max(1, Math.trunc(Number(opts.wave) || 1));
+    return this.spawnMonsterByName(mapId, '遗迹守卫', {
+      isTemp: true,
+      level: lv,
+      qq: `sealguard_${opts.vehicleId}_w${wave}`,
+    });
   }
 
   /**

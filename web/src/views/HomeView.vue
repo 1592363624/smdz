@@ -1208,7 +1208,11 @@ async function enqueueClear(cmd, count = 1) {
       type: payload?.success ? 'success' : 'info',
       message: payload?.message || (payload?.success ? `已排队「${cmd}」` : '排队失败'),
     });
-    if (payload?.success) await refresh();
+    // 空闲入队时服务端会立刻 drain 开第一发：clearQueue 被弹空，
+    // 只刷院子看不到「已安排/读条」；必须同步拉玩家快照，按钮才立刻变倒计时。
+    if (payload?.success) {
+      await Promise.all([refresh(), loadPlayerSnapshot()]);
+    }
   } catch (e) {
     ui.pushToast({
       type: 'error',

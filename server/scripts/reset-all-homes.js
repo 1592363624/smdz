@@ -41,9 +41,10 @@ const HOME_MARKER_KEYS = [
   '凭证',
 ];
 
-/** 玩家当前所在图若是待删家园图，先挪回起始图 */
+/** 玩家当前所在图若是待删家园图，先挪回「城镇广场」（与服务端 removeHouseData 一致，不丢医疗室） */
 async function resolveStartMapId() {
   const startMap =
+    (await prisma.gameMap.findUnique({ where: { name: '城镇广场' } })) ||
     (await prisma.gameMap.findFirst({ orderBy: { mapIndex: 'asc' } })) ||
     (await prisma.gameMap.findFirst({ orderBy: { id: 'asc' } }));
   if (!startMap) throw new Error('找不到任何起始地图');

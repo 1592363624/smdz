@@ -5944,10 +5944,10 @@ export class CombatSystemService implements OnApplicationShutdown {
         changed = true;
         const level = Math.max(1, Number(raw.需求等级 ?? raw.requireLevel ?? 100) || 100);
         try {
-          await this.mapService.spawnMonsterByName(mapId, '遗迹守卫', {
-            isTemp: true,
+          await this.mapService.spawnSealGuard(mapId, {
+            vehicleId,
+            wave: nextWave,
             level,
-            qq: `sealguard_${vehicleId}_w${nextWave}`,
           });
         } catch (e: any) {
           this.logger.warn(`遗迹守卫下一波生成失败: ${e?.message ?? e}`);

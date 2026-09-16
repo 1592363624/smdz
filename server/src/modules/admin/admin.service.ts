@@ -733,6 +733,8 @@ export class AdminService {
     }
 
     const houseName = String(player.houseName || '').trim();
+    // removeHouseData 内部会把站在家园图上的玩家/载具迁到「城镇广场」
+    // （不落到医疗室）；这里再兜底一次，防止清迁失败后玩家仍卡在已删图上。
     let relocateMapId: number | null = null;
     let relocateName = '';
 
@@ -742,9 +744,9 @@ export class AdminService {
         select: { id: true },
       });
       if (homeMaps.some((m) => m.id === player.mapId)) {
-        const startMap = await this.prisma.gameMap.findFirst({ orderBy: { mapIndex: 'asc' } });
-        relocateMapId = startMap?.id ?? 1;
-        relocateName = startMap?.name ?? '';
+        const evacuation = await this.mapService.resolveHomeEvacuationMap();
+        relocateMapId = evacuation?.id ?? 1;
+        relocateName = evacuation?.name ?? '';
       }
       // 拆三张动态家园图 + 全库摘掉指向它们的开拓地入口（与清档/删号同一出口）
       await this.mapService.removeHouseData(houseName);

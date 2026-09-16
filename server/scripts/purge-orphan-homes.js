@@ -41,6 +41,40 @@ async function main() {
   });
 
   if (orphanMaps.length > 0) {
+    // 删幽灵家园图前把站在图上的玩家/载具迁到城镇广场（与服务端 removeHouseData 一致）
+    const plaza =
+      (await prisma.gameMap.findUnique({ where: { name: '城镇广场' } })) ||
+      (await prisma.gameMap.findFirst({ orderBy: { mapIndex: 'asc' } }));
+    if (plaza) {
+      const orphanIds = orphanMaps.map((m) => m.id);
+      const standing = await prisma.player.findMany({
+        where: { mapId: { in: orphanIds } },
+        select: { id: true, userId: true, markers: true, markers2: true },
+      });
+      for (const p of standing) {
+        const markers = parseJson(p.markers, {}) || {};
+        delete markers['移动中'];
+        const markers2 = parseJson(p.markers2, []) || [];
+        const kept2 = Array.isArray(markers2)
+          ? markers2.filter((m) => String(m?.名称 ?? m?.name ?? '') !== '移动')
+          : markers2;
+        await prisma.player.update({
+          where: { id: p.id },
+          data: {
+            mapId: plaza.id,
+            location: plaza.name,
+            markers,
+            ...(Array.isArray(markers2) && kept2.length !== markers2.length ? { markers2: kept2 } : {}),
+            version: { increment: 1 },
+          },
+        });
+      }
+      const vehicleUpdates = await prisma.gameVehicle.updateMany({
+        where: { mapIndex: { in: orphanIds } },
+        data: { mapIndex: plaza.id },
+      }).catch(() => ({ count: 0 }));
+      console.log(`清退孤儿家园：玩家 ${standing.length} 人、GameVehicle ${vehicleUpdates.count ?? 0} 台 → ${plaza.name}`);
+    }
     await prisma.gameMap.deleteMany({ where: { id: { in: orphanMaps.map((m) => m.id) } } });
   }
 

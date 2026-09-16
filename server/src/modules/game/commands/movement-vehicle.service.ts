@@ -2463,7 +2463,7 @@ export class MovementVehicleService {
     };
   }
 
-  /** 在残骸所在地图生成一波遗迹守卫（GameMonster isTemp）。 */
+  /** 在残骸所在地图生成一波遗迹守卫（GameMonster isTemp，温和成长）。 */
   private async spawnWreckGuardWave(
     mapId: number,
     vehicleId: string,
@@ -2471,16 +2471,13 @@ export class MovementVehicleService {
     level: number,
   ): Promise<number> {
     const guardLevel = Math.max(1, Math.trunc(level) || 1);
-    const created: any[] = [];
-    // 每波 1 只；后续波次强度靠等级成长（与 requireLevel 同级）
-    const guard = await this.mapService.spawnMonsterByName(mapId, '遗迹守卫', {
-      isTemp: true,
+    const guard = await this.mapService.spawnSealGuard(mapId, {
+      vehicleId,
+      wave,
       level: guardLevel,
-      qq: `sealguard_${vehicleId}_w${wave}`,
     });
-    created.push(guard);
-    this.logger.log(`遗迹守卫生成 map=${mapId} vehicle=${vehicleId} wave=${wave} lv=${guardLevel}`);
-    return created.length;
+    this.logger.log(`遗迹守卫生成 map=${mapId} vehicle=${vehicleId} wave=${wave} lv=${guardLevel} hp=${guard.hp}`);
+    return 1;
   }
 
   /** 统计地图上仍存活、归属该载具的遗迹守卫数量。 */

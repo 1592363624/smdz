@@ -492,9 +492,18 @@ export class PlayerService {
     }
     const player = await this.getOrCreatePlayer(userId);
 
-    // 自动修复存量玩家无效地图（mapId=0 或不存在的地图）
-    // 避免"新手村"地图不存在导致 mapId=0 被写入数据库后，玩家卡在无效地图
-    if (!player.mapId || player.mapId <= 0) {
+    // 自动修复存量玩家无效地图（mapId=0 / <=0 / 指向已不存在的地图）
+    // 覆盖：新手村缺失导致 mapId=0；家园被删后 mapId 仍指向已删动态图等幽灵位置。
+    let needsStartMapFix = !player.mapId || player.mapId <= 0;
+    if (!needsStartMapFix && player.mapId > 0) {
+      try {
+        const currentMap = await this.mapService.getMapById(player.mapId);
+        if (!currentMap) needsStartMapFix = true;
+      } catch {
+        // 测试桩未提供 getMapById 或读图抛错：不把有效 mapId 误判为无效
+      }
+    }
+    if (needsStartMapFix) {
       const startMap = await this.resolveStartMap();
       if (startMap && startMap.id !== player.mapId) {
         this.logger.warn(`玩家 ${userId} 地图无效(mapId=${player.mapId})，自动修正为 ${startMap.name}(id=${startMap.id})`);

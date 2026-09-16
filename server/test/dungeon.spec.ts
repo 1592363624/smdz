@@ -51,6 +51,7 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
       refreshMapMonsters: jest.fn(async () => undefined),
       refreshMapResources: jest.fn(async () => undefined),
     };
+    const vehicleUpdates: Array<{ where: any; data: any }> = [];
     const prisma: any = {
       player: {
         findMany: jest.fn(async () => players),
@@ -58,6 +59,12 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
           const player = players.find((item) => item.id === where.id);
           if (player) Object.assign(player, data);
           return player;
+        }),
+      },
+      gameVehicle: {
+        updateMany: jest.fn(async (args: any) => {
+          vehicleUpdates.push(args);
+          return { count: 0 };
         }),
       },
     };
@@ -69,7 +76,7 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
       }),
       savePlayer: jest.fn(async (p: any) => p),
     };
-    return { service: new DungeonService(prisma, playerService, mapService), maps, players, updates, mapService, prisma };
+    return { service: new DungeonService(prisma, playerService, mapService), maps, players, updates, mapService, prisma, vehicleUpdates };
   }
 
   it('菜单按复活点合并正式副本，并排除新手/家园地图', async () => {
@@ -105,6 +112,11 @@ describe('副本生命周期（后台运作.ecode L1039-1106）', () => {
       { id: 'existing-summon' },
       { id: 'dungeon-summon' },
     ]));
+    // 关副本后 GameVehicle.mapIndex 同步到出口，避免表行残留指向副本图
+    expect(fixture.prisma.gameVehicle.updateMany).toHaveBeenCalledWith({
+      where: { mapIndex: { in: [4, 5] } },
+      data: { mapIndex: 23 },
+    });
   });
 });
 

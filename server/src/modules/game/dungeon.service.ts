@@ -346,6 +346,20 @@ export class DungeonService {
       f.vehicles.push(...exitVehicles);
     });
 
+    // 同步 GameVehicle.mapIndex：双写路径下表行仍可能指向副本图，关副本后改到出口。
+    // 地图 JSON 已迁走的车 + 仅存在表里、mapIndex 仍落在副本组的行，一并改。
+    const vehicleModel = (this.prisma as any).gameVehicle;
+    if (vehicleModel?.updateMany && instanceMapIds.length > 0) {
+      try {
+        await vehicleModel.updateMany({
+          where: { mapIndex: { in: instanceMapIds } },
+          data: { mapIndex: exitMap.id },
+        });
+      } catch (error: any) {
+        this.logger.warn(`关闭副本同步 GameVehicle.mapIndex 失败: ${error?.message ?? error}`);
+      }
+    }
+
     // 原版先删除所有入口，再刷新所有复活点相同的地图。
     const dungeonEntry = `${group.name}${INSTANCE_ENTRY_SUFFIX}`;
     for (const map of allMaps) {
