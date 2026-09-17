@@ -292,9 +292,8 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     // 原版普通载具承伤固定为1或2，不承受完整的10点三池伤害。
     expect(after.player.hp).toBe(beforeHp);
-    // 当前状态100，10/2不超过状态，因此载具承伤为1。
+    // 当前状态100，10/2不超过状态，因此载具承伤为1。（规范键 currentHp；中文别名已边界收敛）
     expect(v.currentHp).toBe(199);
-    expect(v.当前生命).toBe(199);
   });
 
   it('测试2 载具破碎：普通攻击不把同次溢出伤害扣到玩家 hp', async () => {
@@ -318,7 +317,6 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
     // 载具破碎：耐久归零
     expect(v.currentHp).toBe(0);
-    expect(v.当前生命).toBe(0);
     // 原版 L3512-L3515 清空普通剩余四属性，同次普通溢出不会落到玩家。
     expect(after.player.hp).toBe(beforeHp);
   });

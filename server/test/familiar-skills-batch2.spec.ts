@@ -173,7 +173,7 @@ describe('使魔技能第二批：歼灭模式/绝对守护/斗转星移/火力�
     expect(result).toContain('火力压制32.3%'); // 28.5 + 1.9*2
     expect(result).toContain('剩余20秒');
     const markers2 = parseJson(player.markers2, []);
-    const suppression = markers2.find((m: any) => m.名称 === '压制');
+    const suppression = markers2.find((m: any) => m.name === '压制');
     expect(suppression).toBeTruthy();
     const gatling = markers2.find((m: any) => m.name === '加特林冷却');
     expect(gatling.expireAt).toBeLessThanOrEqual(Date.now() + 34 * 1000); // 60 - 27

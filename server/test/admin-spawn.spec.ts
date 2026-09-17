@@ -113,9 +113,10 @@ describe('管理指令：刷新怪物 / 生成人物（原版 L6829-6881 复刻�
     expect(unit.qq).toMatch(/^召唤物/);
     expect(unit.name).toBe('小白');
     expect(unit.type).toBe('白');
-    expect(unit.标记).toEqual([
-      { 名称: '好感123', 数值: 30 },
-      { 名称: '宝宝', 数值: 1 },
+    // 召唤物标记已统一为规范键 markers: [{name, value}]（中文旧键 标记/名称/数值 不再写）
+    expect(unit.markers).toEqual([
+      { name: '好感123', value: 30 },
+      { name: '宝宝', value: 1 },
     ]);
   });
 
@@ -132,6 +133,7 @@ describe('管理指令：刷新怪物 / 生成人物（原版 L6829-6881 复刻�
     const petSummons: any[] = [];
     await petMutator(petSummons);
     expect(petSummons[0].name).toBe('小灰狼');
-    expect(petSummons[0].标记).toEqual([{ 名称: '好感123', 数值: 10 }]);
+    // 标记统一为规范键 markers: [{name, value}]
+    expect(petSummons[0].markers).toEqual([{ name: '好感123', value: 10 }]);
   });
 });

@@ -1,4 +1,5 @@
 import { GameService } from '../src/modules/game/game.service';
+import { normalizeMapRow } from '../src/modules/game/field-contract.util';
 import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 function parseValue<T>(value: any, fallback: T): T {
@@ -93,7 +94,7 @@ function makeService(options: {
     getCurrencyAmount: (value: any, name: string, backpack?: any[]) => {
       const items = backpack ?? parseValue<any[]>(value.backpack, []);
       const item = items.find((it: any) => it?.name === name);
-      return Number(item?.quantity ?? item?.count ?? 0) || 0;
+      return Number(item?.quantity ?? 0) || 0;
     },
     setCurrencyAmount: (value: any, name: string, qty: number, backpack?: any[]) => {
       const items = backpack ?? parseValue<any[]>(value.backpack, []);
@@ -115,8 +116,12 @@ function makeService(options: {
     getMapById: jest.fn(async (id?: number) => (id == null || map.id === id) ? map : null),
     getAllMaps: jest.fn(async () => options.allMaps || [map]),
     updateDynamicFields: jest.fn(async (_mapId: number, data: any) => {
-      updateCalls.push(data);
-      Object.assign(map, data);
+      // 真实链路的 GameMap 落库会过 Prisma 字段规范中间件（normalizeMapRow），
+      // 桩内同样归一化，保证持久层不再残留旧别名（名称/归属/驾驶员…）。
+      const payload = { ...data };
+      if (payload.vehicles) normalizeMapRow({ vehicles: payload.vehicles });
+      updateCalls.push(payload);
+      Object.assign(map, payload);
     }),
     mutateMapFields: jest.fn(async (mapId: number, _fields: string[], mutator: (f: any) => any) => {
       const targetMap = (options.allMaps || []).find((m: any) => m.id === mapId)
@@ -168,15 +173,17 @@ function makeService(options: {
           ? { name, partType: name.endsWith('核心') ? 0 : 4, bonus: { 生命: 100 } }
           : null),
       getAllCraftings: jest.fn(() => [
-        { name: '牵引光束', requirements: [{ name: '铁矿', count: 2 }] },
-        { name: '巡洋舰核心', requirements: [{ name: '铁矿', count: 10 }] },
+        { name: '牵引光束', requirements: [{ name: '铁矿', quantity: 2 }] },
+        { name: '巡洋舰核心', requirements: [{ name: '铁矿', quantity: 10 }] },
       ]),
       getAllVehiclePartSpecs: jest.fn(() => []),
+      // 远古遗迹残骸静态表（认领封印用，桩内无数据）
+      loadRaw: jest.fn(() => []),
     };
     const gatherPanel: any = {
       collectVehiclePartNames: jest.fn((vehicle: any) => {
-        const parts = Array.isArray(vehicle?.零件) ? vehicle.零件 : [];
-        return parts.map((p: any) => String(p?.名称 ?? p?.name ?? ''));
+        const parts = Array.isArray(vehicle?.parts) ? vehicle.parts : [];
+        return parts.map((p: any) => String(p?.name ?? ''));
       }),
     };
     const shortcutService: any = { setTempInput: jest.fn(async () => undefined) };
@@ -198,7 +205,8 @@ function makeService(options: {
       familiarSkillsService: {} as any,
       tutorialService: {} as any,
       staticData,
-      systemConfigService: {} as any,
+      // 封印/唤醒开关统一走 SystemConfigService.get（未指定时回落默认值）
+      systemConfigService: { get: jest.fn(async (_key: string, fallback: any) => fallback) } as any,
       chatService: {} as any,
       feedbackService: {} as any,
       taskService: taskService,
@@ -260,9 +268,10 @@ describe('载具驾驶/脱出复刻', () => {
     expect(player.vehicle).toBe('new-vehicle');
     expect(parseValue<any>(player.sets, {})).toEqual({ takeVehicle: '', 接管载具: '' });
     expect(vehicles[0].driver).toBe('');
-    expect(vehicles[0].驾驶员).toBe('');
+    // 口径统一后地图载具只落英文规范键，不再写中文镜像（双存储已合并为单一存储）
+    expect(vehicles[0].驾驶员).toBeUndefined();
     expect(vehicles[1].owner).toBe('qq10');
-    expect(vehicles[1].归属).toBe('qq10');
+    expect(vehicles[1].归属).toBeUndefined();
     expect(vehicles[1].driver).toBe('qq10');
     expect(updateCalls).toHaveLength(1);
     expect(achievements).toEqual(expect.arrayContaining(['拾取载具', '驾驶载具']));
@@ -342,7 +351,8 @@ describe('载具驾驶/脱出复刻', () => {
     expect(result).toBe('甲离开了测试车(战斗)');
     expect(player.vehicle).toBe('');
     expect(vehicles[0].driver).toBe('');
-    expect(vehicles[0].驾驶员).toBe('');
+    // 同上：落库/写回地图只保留规范键
+    expect(vehicles[0].驾驶员).toBeUndefined();
     expect(achievements).toContain('脱出');
   });
 });
@@ -387,7 +397,8 @@ describe('载具状态/命名/架炮（地图 JSON 双存储统一）', () => {
     const result = await service.handleNameVehicle(10, '骑士 坦克');
     expect(result).toBe('甲,骑士名称修改为坦克');
     const vehicles = parseValue<any[]>(map.vehicles, []);
-    expect(vehicles[0].名称).toBe('坦克');
+    // 写回地图的载具只有规范键 name（中文镜像 名称 已随口径统一删除）
+    expect(vehicles[0].名称).toBeUndefined();
     expect(vehicles[0].name).toBe('坦克');
     expect(updateCalls).toHaveLength(1);
   });
@@ -428,9 +439,9 @@ describe('载具状态/命名/架炮（地图 JSON 双存储统一）', () => {
       maxWeapon: 5,
       maxMove: 5,
       maxDefense: 5,
-      零件: [
-        { 名称: '功能A', partType: 4 },
-        { 名称: '功能B', partType: 4 },
+      parts: [
+        { name: '功能A', partType: 4 },
+        { name: '功能B', partType: 4 },
       ],
     });
     expect(over).toBe('功能部件');
@@ -460,7 +471,7 @@ describe('牵引与载具模拟（原版对齐）', () => {
   it('牵引货舱：有牵引光束时从目标地图拉取资源', async () => {
     const cargoMap = {
       id: 9, name: '荒野',
-      resources: JSON.stringify([{ name: '货舱', times: 3, outputs: [{ name: '能量块', count: 2, chance: 100 }] }]),
+      resources: JSON.stringify([{ name: '货舱', times: 3, outputs: [{ name: '能量块', quantity: 2, chance: 100 }] }]),
       resources2: '[]',
       vehicles: '[]', summons: '[]',
     };

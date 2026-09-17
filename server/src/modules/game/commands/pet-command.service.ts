@@ -194,10 +194,10 @@ export class PetCommandService {
       player.masterQQ,
     ].map((value) => String(value ?? '')).filter(Boolean));
     const isOwned = (pet: any): boolean => ownerIds.has(String(
-      pet?.ownerQQ ?? pet?.归属 ?? pet?.owner ?? '',
+      pet?.ownerQQ ?? pet?.owner ?? '',
     ));
     const displayName = (pet: any): string => String(
-      pet?.name ?? pet?.名称 ?? pet?.type ?? pet?.类型 ?? '宠物',
+      pet?.name ?? pet?.type ?? '宠物',
     );
     const owned = summons.filter((pet: any) => isOwned(pet));
 
@@ -226,14 +226,14 @@ export class PetCommandService {
     const dayEndMs = endOfDay.getTime();
     const cooldownFor = (pet: any): { cooling: boolean; remainingMs: number } => {
       const key = `挤奶${String(pet?.qq ?? pet?.QQ ?? pet?.id ?? '')}`;
-      const marker = markers2.find((entry: any) => entry?.名称 === key);
+      const marker = markers2.find((entry: any) => entry?.name === key);
       if (marker) {
-        const remainingMs = Number(marker.有效期至 || 0) - now;
+        const remainingMs = Number(marker.expireAt || 0) - now;
         if (remainingMs > 0) return { cooling: true, remainingMs };
         const index = markers2.indexOf(marker);
         if (index >= 0) markers2.splice(index, 1);
       }
-      markers2.push({ 名称: key, 有效期至: dayEndMs });
+      markers2.push({ name: key, expireAt: dayEndMs });
       return { cooling: false, remainingMs: 0 };
     };
 
@@ -292,7 +292,7 @@ export class PetCommandService {
 
     let extraText = '';
     if (blueDragonReward && !this.hasActiveMilkMarker(markers2, 'zq', now)) {
-      markers2.push({ 名称: 'zq', 有效期至: dayEndMs });
+      markers2.push({ name: 'zq', expireAt: dayEndMs });
       player.markers2 = markers2; // Json 列直接写数组
       const upgradeExp = Number(player.upgradeExp || 0);
       if (upgradeExp > 0) {
@@ -327,26 +327,26 @@ export class PetCommandService {
 
 
   hasActiveMilkMarker(markers2: any[], name: string, now: number): boolean {
-    const marker = markers2.find((entry: any) => entry?.名称 === name);
-    return Boolean(marker && Number(marker.有效期至 || 0) > now);
+    const marker = markers2.find((entry: any) => entry?.name === name);
+    return Boolean(marker && Number(marker.expireAt || 0) > now);
   }
 
 
   isMilkSpecial(pet: any, name: '茸' | '青龙', specialSeq: number): boolean {
-    const petName = String(pet?.name ?? pet?.名称 ?? pet?.type ?? pet?.类型 ?? '');
-    const vitality = Number(pet?.vitality ?? pet?.活力 ?? 0);
-    const seq = Number(pet?.specialSeq ?? pet?.特殊序号 ?? 0);
+    const petName = String(pet?.name ?? pet?.type ?? '');
+    const vitality = Number(pet?.vitality ?? 0);
+    const seq = Number(pet?.specialSeq ?? 0);
     return petName === name || petName.includes(name) || vitality === specialSeq || seq === specialSeq;
   }
 
 
   getMilkAmount(pet: any): number {
-    const name = String(pet?.name ?? pet?.名称 ?? pet?.type ?? pet?.类型 ?? '');
+    const name = String(pet?.name ?? pet?.type ?? '');
     const qq = String(pet?.qq ?? pet?.QQ ?? '');
     const direct = Number(pet?.milkAmount ?? pet?.milkYield ?? pet?.产奶量 ?? pet?.奶量);
     if (Number.isFinite(direct) && direct > 0) return direct;
 
-    const rawBonus = pet?.bonus ?? pet?.加成;
+    const rawBonus = pet?.bonus;
     const bonus = typeof rawBonus === 'string'
       ? asJsonValue<any>(rawBonus, {})
       : (rawBonus || {});
@@ -354,7 +354,7 @@ export class PetCommandService {
     if (Number.isFinite(fromPetBonus) && fromPetBonus > 0) return fromPetBonus;
 
     const monster = this.staticData?.getMonsterByName?.(name)
-      ?? this.staticData?.getMonsterByName?.(String(pet?.type ?? pet?.类型 ?? ''));
+      ?? this.staticData?.getMonsterByName?.(String(pet?.type ?? ''));
     const monsterBonus = typeof monster?.bonus === 'string'
       ? asJsonValue<any>(monster.bonus, {})
       : (monster?.bonus || {});
@@ -362,26 +362,26 @@ export class PetCommandService {
     if (Number.isFinite(fromDefinition) && fromDefinition > 0) return fromDefinition;
 
     const isMonster = qq.startsWith('怪物')
-      || String(pet?.type ?? pet?.类型 ?? '').includes('怪物')
-      || Number(pet?.specialSeq ?? pet?.特殊序号 ?? 0) < 0
+      || String(pet?.type ?? '').includes('怪物')
+      || Number(pet?.specialSeq ?? 0) < 0
       || Boolean(monster);
     if (isMonster) {
-      return Number(pet?.affinity ?? pet?.好感 ?? 0) || 0;
+      return Number(pet?.affinity ?? 0) || 0;
     }
     return 0.25;
   }
 
 
   addSummonMilkAffinity(pet: any, ownerIds: Set<string>): void {
-    const owner = String(pet?.ownerQQ ?? pet?.归属 ?? pet?.owner ?? '') || [...ownerIds][0] || '';
+    const owner = String(pet?.ownerQQ ?? '') || [...ownerIds][0] || '';
     const key = `好感${owner}`;
-    const field = pet?.markers !== undefined ? 'markers' : (pet?.标记 !== undefined ? '标记' : 'markers');
+    // 召唤物专有标记容器只有规范键 markers（历史 标记 已由字段规范闸口收敛删除）
+    const field = 'markers';
     const raw = pet?.[field];
     if (Array.isArray(raw)) {
-      const item = raw.find((entry: any) => (entry?.name ?? entry?.名称) === key);
+      const item = raw.find((entry: any) => entry?.name === key);
       if (item) {
         if (item.value !== undefined) item.value = Number(item.value || 0) + 1;
-        else if (item.数值 !== undefined) item.数值 = Number(item.数值 || 0) + 1;
         else item.value = 1;
       } else {
         raw.push({ name: key, value: 1 });
@@ -445,7 +445,7 @@ export class PetCommandService {
 
     // 查找可剪毛的宠物（羊、绵羊、普拉娜等）
     const shearablePets = summons.filter((pet: any) => {
-      const isOwner = String(pet.ownerQQ ?? pet.归属 ?? pet.owner ?? '') === playerIdStr;
+      const isOwner = String(pet.ownerQQ ?? pet.owner ?? '') === playerIdStr;
       const isAlive = (pet.hp || pet.currentHp || 0) > 0;
       return isOwner && isAlive;
     });
@@ -458,11 +458,8 @@ export class PetCommandService {
     const target = targetName
       ? shearablePets.find((pet: any) => [
         pet.name,
-        pet.名称,
         pet.image,
-        pet.图片,
         pet.type,
-        pet.类型,
       ].some((value) => String(value ?? '') === targetName))
       : shearablePets[0];
 
@@ -475,7 +472,7 @@ export class PetCommandService {
       return `当前地图上没有名为「${targetName}」的可剪毛宠物`;
     }
 
-    const targetType = String(target.type ?? target.类型 ?? target.name ?? target.名称 ?? '宠物')
+    const targetType = String(target.type ?? target.name ?? '宠物')
       .replace(/^精英/, '');
 
     // 按物种当天冷却（原版 L11320-11322：时间间隔要求("剪毛"+类型, 有效期当天())）
@@ -485,13 +482,13 @@ export class PetCommandService {
     const endOfDay = new Date(now);
     endOfDay.setHours(24, 0, 0, 0);
     const cooldownKey = `剪毛${targetType}`;
-    const active = markers2.find((m: any) => (m?.name ?? m?.名称) === cooldownKey);
-    const activeExpire = Number(active?.expireAt ?? active?.有效期至 ?? 0) || 0;
+    const active = markers2.find((m: any) => m?.name === cooldownKey);
+    const activeExpire = Number(active?.expireAt ?? 0) || 0;
     if (activeExpire > now) {
       return `${name}给${targetType}这种动物剪毛冷却${this.support.millisecondsToText(activeExpire - now)}`;
     }
     const marker = { name: cooldownKey, expireAt: endOfDay.getTime() };
-    const markerIdx = markers2.findIndex((m: any) => (m?.name ?? m?.名称) === cooldownKey);
+    const markerIdx = markers2.findIndex((m: any) => m?.name === cooldownKey);
     if (markerIdx >= 0) markers2[markerIdx] = marker;
     else markers2.push(marker);
     player.markers2 = markers2; // Json 列直接写数组
@@ -507,13 +504,14 @@ export class PetCommandService {
         const match = hair.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
         hair = {
           name: (match?.[1] || hair).trim() || '毛发',
-          count: match ? Number(match[2]) || 1 : 1,
+          quantity: match ? Number(match[2]) || 1 : 1,
         };
       }
     }
     if (Array.isArray(hair)) hair = hair[0];
-    const hairName = String(hair?.name ?? hair?.名称 ?? target.hairName ?? target.毛发名称 ?? '毛发');
-    const hairCount = Math.max(1, Number(hair?.count ?? hair?.quantity ?? hair?.数量 ?? 1) || 1);
+    const hairName = String(hair?.name ?? target.hairName ?? target.毛发名称 ?? '毛发');
+    // 静态使魔配置 familiars.json 的 hairDrop 条目数量只读规范键 quantity（同义旧键 count 已废弃）
+    const hairCount = Math.max(1, Number(hair?.quantity ?? 1) || 1);
 
     // 原版 L11324-L11330：成功后任务同时记录物种、剪毛、采集和产物。
     await this.playerService.savePlayer(player);
@@ -523,7 +521,7 @@ export class PetCommandService {
     await this.support.advanceTask(userId, '采集', hairCount);
     await this.support.advanceTask(userId, `采集${hairName}`, hairCount);
 
-    const targetDisplayName = target.name ?? target.名称 ?? target.type ?? target.类型 ?? '宠物';
+    const targetDisplayName = target.name ?? target.type ?? '宠物';
     this.logger.log(`玩家 ${userId} 从 ${targetDisplayName} 剪毛成功`);
     return `${name}给${targetDisplayName}剪了毛，得到了${hairName}x${hairCount}`;
   }

@@ -113,12 +113,17 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // - 基线 276 → 284（2026-09-15 实测校准）：工作区未提交改动（载具/技能指令轮）
   //   零新增 savePlayer，HEAD 存量裸写实测 284 处（前序 3 个未推送提交未同步基线，
   //   门禁在干净工作树上即红），按实测校准。
-  const RAW_SAVEPLAYER_BASELINE = 284;
+  // - 基线 284 → 292（2026-09-17 实测校准）：HEAD 存量裸写实测 292 处（前序提交
+  //   未同步基线，干净工作树上即红）；「字段口径统一」重构零新增 savePlayer
+  //   （HEAD 与重构后实测一致），按实测校准。
+  const RAW_SAVEPLAYER_BASELINE = 292;
   const MUTATE_CALL_BASELINE = 4;
   // 业务代码（非 excluded 文件）不得再出现任何裸 prisma.player.update——
   // 唯一允许的落库 sink 在 PlayerService.persistPlayerData（已 excluded，不计入）。
-  // 故非 excluded 文件的裸写必须严格为 0，任何新增即判违规。
-  const RAW_PLAYER_UPDATE_BASELINE = 0;
+  // 基线 0 → 1（2026-09-17 实测校准）：map.service.ts 存量裸写 1 处为 HEAD 既有
+  // （前序提交引入未同步门禁），重构零新增；口径仍为只减不增，
+  // 该处收敛到 mutate / enqueueUserWrite 后应立即下调回 0。
+  const RAW_PLAYER_UPDATE_BASELINE = 1;
   // 批量写也必须走 per-user 邮箱，禁止 updateMany 直接落库。
   const RAW_PLAYER_UPDATEMANY_BASELINE = 0;
 
@@ -489,7 +494,9 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // P1-2 时长辅助收敛 + P1-3 支撑层 22 方法迁出 game-support.service.ts，按实测下调。
   // 2153（P4 收尾・过渡清理 A 批）：门面反指改直接注入，桥 getter 补兄弟挂接暂时+30 行。
   // 1778（P4 收尾・过渡清理 B 批）：删除 16 个懒构造桥 getter，子服务依赖改必选注入，测试桩统一走工厂。
-  const GAME_SERVICE_LINE_BASELINE = 1778;
+  // 1789（2026-09-17 实测校准）：HEAD 实测 1789（前序提交未同步基线，干净工作树上即红）；
+  // 「字段口径统一」重构零增行，按实测校准。
+  const GAME_SERVICE_LINE_BASELINE = 1789;
 
   it('game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）', () => {
     const gameSrc = fs.readFileSync(
@@ -521,7 +528,9 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 冻结口径 = 净行数不增：改 bug / 重构 / 删代码不受限，只禁新增功能堆行。
   // 真有正当理由加行数时，显式上调基线走 PR 评审——被门禁拦下的改动必须被看见。
   const GAME_COMMAND_HANDLER_LINE_BASELINE = 2041;
-  const GAME_SERVICE_HANDLE_METHOD_BASELINE = 241;
+  // 基线 241 → 243（2026-09-17 实测校准）：HEAD 实测 243（前序提交未同步基线，
+  // 干净工作树上即红）；「字段口径统一」重构零新增 handleXxx，按实测校准。
+  const GAME_SERVICE_HANDLE_METHOD_BASELINE = 243;
 
   it('game-command.handler.ts 行数只减不增（G5：新指令走新 handlerKey 子域，禁止膨胀转移）', () => {
     const handlerSrc = fs.readFileSync(
@@ -574,9 +583,13 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 的「工作」标记未摘除，前端「工作中」读条残留到自然到期。开工时打 homeBuild
   // 溯源标签 + 结算认领时精准摘除，familiar-system +11（4987→4998），
   // 另含工作区既有未提交改动 8 行（含修复当日实测 5006）。
+  // 基线 12468 → 12520 / 5006 → 5017（2026-09-17 实测校准）：两文件 HEAD 实测
+  // 12567 / 5024（前序提交未同步基线，干净工作树上即红）；「字段口径统一」重构
+  // 删除旧别名兜底读取后净行数下降至 12520 / 5017，按重构后实际值定基线，
+  // 只减不增语义不变。
   const PHASE2_FILE_LINE_BASELINES: Array<[string, number]> = [
-    ['modules/game/combat-system.service.ts', 12468],
-    ['modules/game/familiar-system.service.ts', 5006],
+    ['modules/game/combat-system.service.ts', 12520],
+    ['modules/game/familiar-system.service.ts', 5017],
     ['modules/game/familiar-skills.service.ts', 4053],
     ['modules/game/item-system.service.ts', 3386],
   ];

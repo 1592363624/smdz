@@ -277,7 +277,7 @@ describe('载具开采结算（原版 L7534「开采1c2c」）', () => {
                 { name: '小凰', ownerQQ: '42', hp: 100, markers: { '跟随': 0 } }],
       resources: [{
         name: '矿脉', marker: '', times: 100, renewable: true,
-        outputs: [{ name: '铁矿', count: 2, chance: 100 }, { name: '电力', count: 5, chance: 100 }],
+        outputs: [{ name: '铁矿', quantity: 2, chance: 100 }, { name: '电力', quantity: 5, chance: 100 }],
       }],
     });
     await fixture.service.settleManualMine(42);
@@ -299,7 +299,7 @@ describe('载具开采结算（原版 L7534「开采1c2c」）', () => {
     // 背包写入
     const backpack = parseJson(fixture.player.backpack, []);
     const iron = backpack.find((item: any) => item.name === '铁矿');
-    expect(Number(iron?.quantity ?? iron?.count ?? 0)).toBeCloseTo(192, 6);
+    expect(Number(iron?.quantity ?? 0)).toBeCloseTo(192, 6);
   });
 
   it('行星解裂器产出额外随机增幅（1.25~1.5 倍）', async () => {
@@ -307,7 +307,7 @@ describe('载具开采结算（原版 L7534「开采1c2c」）', () => {
       vehicleParts: ['行星解裂器'],
       resources: [{
         name: '矿脉', marker: '', times: -1, renewable: true,
-        outputs: [{ name: '铁矿', count: 1, chance: 100 }],
+        outputs: [{ name: '铁矿', quantity: 1, chance: 100 }],
       }],
     });
     await fixture.service.settleManualMine(42);
@@ -324,7 +324,7 @@ describe('载具开采结算（原版 L7534「开采1c2c」）', () => {
     const fixture = makeFixture({
       resources: [{
         name: '矿脉', marker: '', times: 6, renewable: true,
-        outputs: [{ name: '铁矿', count: 1, chance: 100 }],
+        outputs: [{ name: '铁矿', quantity: 1, chance: 100 }],
       }],
     });
     await fixture.service.settleManualMine(42);
@@ -341,7 +341,7 @@ describe('载具开采结算（原版 L7534「开采1c2c」）', () => {
     const fixture = makeFixture({
       resources: [{
         name: '枯矿', marker: '', times: -1, renewable: true,
-        outputs: [{ name: '铁矿', count: 1, chance: 0 }],
+        outputs: [{ name: '铁矿', quantity: 1, chance: 0 }],
       }],
     });
     await fixture.service.settleManualMine(42);
@@ -352,9 +352,9 @@ describe('载具开采结算（原版 L7534「开采1c2c」）', () => {
   it('不可再生/一次性/产出2资源不参与载具开采结算', async () => {
     const fixture = makeFixture({
       resources: [
-        { name: '非再生矿', marker: '', times: -1, renewable: false, outputs: [{ name: '铁矿', count: 1, chance: 100 }] },
-        { name: '一次性宝箱', marker: '宝箱', times: -1, renewable: true, outputs: [{ name: '铁矿', count: 1, chance: 100 }] },
-        { name: '作物田', marker: '', times: -1, renewable: true, outputs: [], outputs2: [{ name: '小麦', count: 1, chance: 100 }] },
+        { name: '非再生矿', marker: '', times: -1, renewable: false, outputs: [{ name: '铁矿', quantity: 1, chance: 100 }] },
+        { name: '一次性宝箱', marker: '宝箱', times: -1, renewable: true, outputs: [{ name: '铁矿', quantity: 1, chance: 100 }] },
+        { name: '作物田', marker: '', times: -1, renewable: true, outputs: [], outputs2: [{ name: '小麦', quantity: 1, chance: 100 }] },
       ],
     });
     await fixture.service.settleManualMine(42);
@@ -442,7 +442,8 @@ describe('补魔结算（原版 L7158「覅b魔w成」）', () => {
     const playerBuffs = parseJson(fixture.player.buffs, []);
     const excitement = playerBuffs.find((b: any) => (b.name ?? b.名称) === '兴奋');
     expect(excitement).toBeTruthy();
-    expect(excitement.有效期至 - Date.now()).toBeLessThanOrEqual(600 * SECOND_MS);
+    // 增益有效期只写规范键 expireAt（中文旧键 有效期至 已废弃）
+    expect(excitement.expireAt - Date.now()).toBeLessThanOrEqual(600 * SECOND_MS);
 
     // 露娜在跟随显示名单中出现（原版 召唤物跟随显示 不排除露娜），
     // 但增益/好感名单被排除（原版 L7190-7192：露娜是来帮忙的不是来上床的）
@@ -471,7 +472,8 @@ describe('补魔结算（原版 L7158「覅b魔w成」）', () => {
     await fixture.service.completeRefill(42);
     const playerBuffs = parseJson(fixture.player.buffs, []);
     const excitement = playerBuffs.find((b: any) => (b.name ?? b.名称) === '兴奋');
-    const remainSec = (excitement.有效期至 - Date.now()) / SECOND_MS;
+    // 增益有效期只写规范键 expireAt（中文旧键 有效期至 已废弃）
+    const remainSec = (excitement.expireAt - Date.now()) / SECOND_MS;
     expect(remainSec).toBeGreaterThan(3590);
     expect(remainSec).toBeLessThanOrEqual(3600);
   });

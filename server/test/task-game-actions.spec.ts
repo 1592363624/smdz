@@ -392,9 +392,9 @@ describe('任务动作服务层闭环', () => {
     });
     service.prisma.user.findUnique.mockResolvedValue({ id: 42, qqNumber: '42', externalId: null });
     service.combatState.normalizeBuffItem = jest.fn((entry: any) => ({
-      名称: entry.名称 ?? entry.name ?? entry.key ?? '',
-      强度: entry.强度 ?? entry.value ?? 0,
-      有效期至: entry.有效期至 ?? entry.expireTime ?? entry.expireAt ?? 0,
+      name: entry.name ?? entry.名称 ?? entry.key ?? '',
+      strength: entry.strength ?? entry.强度 ?? entry.value ?? 0,
+      expireAt: entry.expireAt ?? entry.有效期至 ?? entry.expireTime ?? 0,
     }));
     service.staticData = {
       getMonsterByName: jest.fn(() => undefined),
@@ -406,7 +406,7 @@ describe('任务动作服务层闭环', () => {
     ]);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '挤奶');
     expect(parseJson(player.markers2, [])).toEqual([
-      expect.objectContaining({ 名称: '挤奶怪物斑点牛1g' }),
+      expect.objectContaining({ name: '挤奶怪物斑点牛1g' }),
     ]);
 
     service.taskService.advance.mockClear();
@@ -468,9 +468,9 @@ describe('任务动作服务层闭环', () => {
     });
     service.prisma.user.findUnique.mockResolvedValue({ id: 42, qqNumber: '42', externalId: null });
     service.combatState.normalizeBuffItem = jest.fn((entry: any) => ({
-      名称: entry.名称 ?? entry.name ?? entry.key ?? '',
-      强度: entry.强度 ?? entry.value ?? 0,
-      有效期至: entry.有效期至 ?? entry.expireTime ?? entry.expireAt ?? 0,
+      name: entry.name ?? entry.名称 ?? entry.key ?? '',
+      strength: entry.strength ?? entry.强度 ?? entry.value ?? 0,
+      expireAt: entry.expireAt ?? entry.有效期至 ?? entry.expireTime ?? 0,
     }));
     service.staticData = { getMonsterByName: jest.fn(() => undefined) };
 
@@ -481,7 +481,7 @@ describe('任务动作服务层闭环', () => {
     expect(player.exp).toBe(13);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '挤奶', 3);
     expect(parseJson(player.markers2, [])).toEqual(expect.arrayContaining([
-      expect.objectContaining({ 名称: 'zq' }),
+      expect.objectContaining({ name: 'zq' }),
     ]));
   });
 

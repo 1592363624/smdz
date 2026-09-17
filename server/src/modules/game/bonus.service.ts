@@ -1048,22 +1048,23 @@ export class BonusService {
       }
     }
     return list
-      .filter((item) => String(item?.name ?? item?.名称 ?? '') === name)
+      .filter((item) => String(item?.name ?? '') === name)
       .reduce((sum, item) => {
-        const raw = item?.quantity ?? item?.数量 ?? item?.count;
+        // 数量：只读规范键 quantity（count/数量 已由持久化边界收敛，见 field-contract.util）
+        const raw = item?.quantity;
         const quantity = raw === undefined || raw === null || raw === '' ? 1 : this.safeNum(raw);
         return sum + quantity;
       }, 0);
   }
 
-  /** 原版“获得物品”的最小地图数组映射，兼容存量中英文数量字段。 */
+  /** 原版“获得物品”的最小地图数组映射；数量只写规范键 quantity。 */
   private adjustItemQuantity(items: any[] | undefined, name: string, delta: number): void {
     if (!Array.isArray(items) || !delta) return;
-    const index = items.findIndex((item) => String(item?.name ?? item?.名称 ?? '') === name);
+    const index = items.findIndex((item) => String(item?.name ?? '') === name);
     if (index < 0) {
       if (delta > 0) {
         const qty = roundItemQuantity(delta);
-        items.push({ name, quantity: qty, count: qty, type: '资源' });
+        items.push({ name, quantity: qty, type: '资源' });
       }
       return;
     }
@@ -1074,14 +1075,14 @@ export class BonusService {
       items.splice(index, 1);
       return;
     }
-    if (Object.prototype.hasOwnProperty.call(item, '数量')) item.数量 = next;
-    if (Object.prototype.hasOwnProperty.call(item, 'quantity')) item.quantity = next;
-    if (Object.prototype.hasOwnProperty.call(item, 'count')) item.count = next;
-    if (!('数量' in item) && !('quantity' in item) && !('count' in item)) item.quantity = next;
+    // 只写规范键 quantity，不再写 count/数量 镜像（镜像正是「同一条目两个数量打架」的根源）
+    item.quantity = next;
   }
 
   private hasEquipment(summon: any, name: string): boolean {
-    const raw = summon?.equipment ?? summon?.装备 ?? summon?.equipments ?? summon?.装备列表 ?? [];
+    // 召唤物装备容器：规范键为 equipments（SUMMON_ALIASES 装备→equipments）；
+    // equipment 是玩家行的列名，保留读取以兼容召唤物上的历史英文键
+    const raw = summon?.equipments ?? summon?.equipment ?? [];
     let list: any[];
     if (Array.isArray(raw)) list = raw;
     else if (typeof raw === 'string') {
@@ -1092,7 +1093,7 @@ export class BonusService {
         list = raw.split(/\s+/);
       }
     } else list = [];
-    return list.some((item) => String(item?.name ?? item?.名称 ?? item ?? '') === name);
+    return list.some((item) => String(item?.name ?? item ?? '') === name);
   }
 
   /**
@@ -1127,8 +1128,8 @@ export class BonusService {
     for (let i = markers3.length - 1; i >= 0; i--) {
       const marker = markers3[i];
       if (!marker) continue;
-      const markerName = String((marker as any).name ?? (marker as any).名称 ?? '');
-      const rawExpireAt = this.safeNum((marker as any).expireAt ?? (marker as any).有效期至);
+      const markerName = String((marker as any).name ?? '');
+      const rawExpireAt = this.safeNum((marker as any).expireAt);
       const expireAt = rawExpireAt > 1e12 ? rawExpireAt / 1000 : rawExpireAt;
       if (now >= expireAt) {
         // 过期：若为"孵化中"且存在孵蛋鸡，原版会孵化神兽蛋（需召唤系统支持）
@@ -1144,7 +1145,7 @@ export class BonusService {
           const selectedEgg = eggs.find(([eggName]) => this.countItem(map.items, eggName) >= 1);
           if (selectedEgg) {
             const [, summonType] = selectedEgg;
-            const ownerQQ = String((marker as any).strength ?? (marker as any).强度 ?? '');
+            const ownerQQ = String((marker as any).strength ?? '');
             this.adjustItemQuantity(map.items, '孵蛋鸡', -1);
             this.adjustItemQuantity(map.items, selectedEgg[0], -1);
             this.adjustItemQuantity(map.items, '合金', 10);
@@ -1165,9 +1166,9 @@ export class BonusService {
           playerBuffs,
           markerName,
           (expireAt - now) / 1,
-          !!((marker as any).stackTime ?? (marker as any).是否叠加时间),
+          !!((marker as any).stackTime),
           now,
-          this.safeNum((marker as any).strength ?? (marker as any).强度),
+          this.safeNum((marker as any).strength),
         );
       }
     }
@@ -1427,17 +1428,17 @@ export class BonusService {
    * 获取当前武器名称
    * 非数字QQ（怪物/宠物）使用当前武器索引；数字QQ（玩家）使用第一把武器
    */
-  private findCurrentWeaponName(player: { qq?: string; weapons?: Array<{ name?: string; 名称?: string; baseBonus?: any; 基础加成?: any; self?: any; 自带?: any }>; currentWeapon?: number }): string {
+  private findCurrentWeaponName(player: { qq?: string; weapons?: Array<{ name?: string; baseBonus?: any; self?: any }>; currentWeapon?: number }): string {
     const qq = String(player.qq || '');
     const weapons = player.weapons || [];
     if (/^\d+$/.test(qq)) {
       const w = weapons[0];
-      return w ? (w.name ?? w.名称 ?? '') : '';
+      return w ? (w.name ?? '') : '';
     }
       // 原版当前武器是 1-based 序号。
       const idx = Math.max(0, this.safeNum(player.currentWeapon) - 1);
       const w = weapons[idx];
-      return w ? (w.name ?? w.名称 ?? '') : '';
+      return w ? (w.name ?? '') : '';
   }
 
   /**
@@ -1458,7 +1459,7 @@ export class BonusService {
       currentArmor?: number;
       bonus?: BonusData;
       attributes?: BonusData;
-      weapons?: Array<{ name?: string; 名称?: string; baseBonus?: any; 基础加成?: any; self?: any; 自带?: any }>;
+      weapons?: Array<{ name?: string; baseBonus?: any; self?: any }>;
       currentWeapon?: number;
       level?: number;
       qq?: string;
@@ -1506,7 +1507,7 @@ export class BonusService {
       const level = this.safeNum(player.level);
       const weaponIndex = Math.max(0, this.safeNum(player.currentWeapon) - 1);
       const weapon = (player.weapons || [])[weaponIndex] || {};
-      const weaponSelf = weapon.self ?? weapon.自带 ?? weapon.baseBonus ?? weapon.基础加成 ?? {};
+      const weaponSelf = weapon.self ?? weapon.baseBonus ?? {};
       const selfField = (field: '物伤' | '电伤' | '火伤' | '冰伤') => {
         const key = field === '电伤' ? '电伤'
           : field === '火伤' ? '火伤'
@@ -1677,7 +1678,7 @@ export class BonusService {
     };
     for (const b of buffs) {
       if (!b) continue;
-      const name = String(b.name ?? b.名称 ?? '');
+      const name = String(b.name ?? '');
       switch (name) {
         case 'fzth1':
           flipIfPositive('护盾电抗'); flipIfPositive('护盾火抗'); flipIfPositive('护盾冰抗'); flipIfPositive('护盾物抗');
@@ -1740,21 +1741,22 @@ export class BonusService {
     const sets = context.sets || {};
 
     const hasBuff = (name: string): number | undefined => {
-      const item = buffs.find((buff) => String(buff?.name ?? buff?.名称 ?? '') === name);
+      const item = buffs.find((buff) => String(buff?.name ?? '') === name);
       if (!item) return undefined;
       // 秒/毫秒双口径：与 expire-time.util 一致（否则毫秒 expireAt 会被当成永不过期）
       const expireMs = toExpireMs(item);
       if (expireMs > 0 && Math.floor(expireMs / 1000) <= Math.floor(nowSec)) return undefined;
-      return this.safeNum(item.strength ?? item.value ?? item.强度);
+      // 强度规范键 = strength（value 为战斗层历史英文别名，已由 field-contract 在读写边界收敛）
+      return this.safeNum(item.strength);
     };
     const hasEquipBySeq = (seq: number): boolean =>
-      equips.some((item) => this.safeNum(item.specialSeq ?? item.特殊序号) === seq)
-      || (currentWeapon > 0 && this.safeNum(weapons[currentWeapon - 1]?.specialSeq ?? weapons[currentWeapon - 1]?.特殊序号) === seq);
+      equips.some((item) => this.safeNum(item.specialSeq) === seq)
+      || (currentWeapon > 0 && this.safeNum(weapons[currentWeapon - 1]?.specialSeq) === seq);
     const hasEquipByName = (name: string): boolean =>
-      equips.some((item) => String(item.name ?? item.名称 ?? '') === name)
-      || (currentWeapon > 0 && String(weapons[currentWeapon - 1]?.name ?? weapons[currentWeapon - 1]?.名称 ?? '') === name);
+      equips.some((item) => String(item.name ?? '') === name)
+      || (currentWeapon > 0 && String(weapons[currentWeapon - 1]?.name ?? '') === name);
     const hasEquipOnlyBySeq = (seq: number): boolean =>
-      equips.some((item) => this.safeNum(item.specialSeq ?? item.特殊序号) === seq);
+      equips.some((item) => this.safeNum(item.specialSeq) === seq);
     const addAllResist = (life = 0, shield = 0, armor = 0) => {
       this.addAllResistancePublic(bonus, life, shield, armor);
     };
@@ -1814,8 +1816,8 @@ export class BonusService {
     }
 
     // L140-L143：麻痹降低三层电抗。
-    const paralyzed = buffs.some((buff) => String(buff?.name ?? buff?.名称 ?? '') === '麻痹'
-      && Number(buff?.expireAt ?? buff?.有效期至 ?? 0) > nowSec);
+    const paralyzed = buffs.some((buff) => String(buff?.name ?? '') === '麻痹'
+      && Number(buff?.expireAt ?? 0) > nowSec);
     if (paralyzed) {
       bonus.护盾电抗 = this.safeNum(bonus.护盾电抗) * 0.9;
       bonus.装甲电抗 = this.safeNum(bonus.装甲电抗) * 0.9;
@@ -2047,14 +2049,14 @@ export class BonusService {
         bonus.贯穿 = this.safeNum(bonus.贯穿) + 20;
         addPenetration(15);
       }
-      const currentType = String(weapons[currentWeapon - 1]?.type ?? weapons[currentWeapon - 1]?.类型 ?? '');
+      const currentType = String(weapons[currentWeapon - 1]?.type ?? '');
       if (currentWeapon === 0 || currentType === '近战武器') addAllResist(25);
     }
 
     // L427-L436：直接携带加成的增益、增幅器与皇冠。
     for (const buff of buffs) {
       if (!buff) continue;
-      const source = buff.bonus ?? buff.加成;
+      const source = buff.bonus;
       if (source) Object.assign(bonus, this.mergeBonus(bonus, source));
       if (source?.生命全抗 || source?.护盾全抗 || source?.装甲全抗) {
         addAllResist(
@@ -2154,7 +2156,7 @@ export class BonusService {
     // L562-L575：肩炮溅射。
     if (hasEquipBySeq(8)) {
       const currentSelfSplash = currentWeapon > 0
-        ? this.safeNum((weapons[currentWeapon - 1].baseBonus ?? weapons[currentWeapon - 1].自带 ?? {})['溅射2'])
+        ? this.safeNum((weapons[currentWeapon - 1].baseBonus ?? {})['溅射2'])
         : 0;
       if ((this.safeNum(bonus.溅射2) < 1 && currentSelfSplash < 1 && currentWeapon > 0)
         || (currentWeapon === 0 && this.safeNum(bonus.溅射2) < 1)) {

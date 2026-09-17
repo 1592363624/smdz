@@ -125,7 +125,7 @@ export class EquipCommandService {
       // 按当前等级确定所需祥瑞气息数量
       const cost = level < 3 ? 2 : level < 6 ? 3 : level < 9 ? 5 : 10;
       const auraItem = items.find((it: any) => it.name === '祥瑞气息');
-      const auraCount = auraItem ? (auraItem.count || 0) : 0;
+      const auraCount = auraItem ? (auraItem.quantity || 0) : 0;
       if (auraCount < cost) {
         return `${player.name || '冒险者'}需要${cost}祥瑞气息来强化${item.name}，你只有${auraCount}`;
       }
@@ -133,7 +133,7 @@ export class EquipCommandService {
       if (auraCount === cost) {
         items.splice(items.indexOf(auraItem), 1);
       } else {
-        auraItem.count = auraCount - cost;
+        auraItem.quantity = auraCount - cost;
       }
       item.durability = level + 1;
       player.backpack = items; // Json 列直接写数组
@@ -154,7 +154,7 @@ export class EquipCommandService {
       return `${player.name || '冒险者'}「强化${part}10」来强化`;
     }
     const alloyItem = items.find((it: any) => it.name === '合金');
-    let alloyCount = alloyItem ? (alloyItem.count || 0) : 0;
+    let alloyCount = alloyItem ? (alloyItem.quantity || 0) : 0;
     let used = 0;
     let done = 0;
     let level = current;
@@ -174,10 +174,10 @@ export class EquipCommandService {
     }
     // 扣除合金
     if (alloyItem && used > 0) {
-      if (alloyItem.count === used) {
+      if (alloyItem.quantity === used) {
         items.splice(items.indexOf(alloyItem), 1);
       } else {
-        alloyItem.count -= used;
+        alloyItem.quantity -= used;
       }
     }
     markers[`${part}强化`] = level;
@@ -740,7 +740,7 @@ export class EquipCommandService {
       if (item.type === '装备') {
         return this.itemSystemService.analyzeEquipment(userId, item.name);
       }
-      const count = item.quantity ?? item.count ?? 1;
+      const count = item.quantity ?? 1;
       return `【${item.name}】×${count}${item.description ? `\n${item.description}` : ''}`;
     }
 
@@ -748,7 +748,7 @@ export class EquipCommandService {
       if (item.type === '装备') {
         return `${index + 1}. ${item.name} [装备]`;
       }
-      const count = item.quantity ?? item.count ?? 1;
+      const count = item.quantity ?? 1;
       return `${index + 1}. ${item.name} ×${count} [${item.type || '资源'}]`;
     });
     return `🔒 保险柜 (${safeBox.length}种):\n${lines.join('\n')}`;

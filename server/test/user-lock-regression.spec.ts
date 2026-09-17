@@ -36,7 +36,8 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
     resources: JSON.stringify(options.resources ?? [{
       name: '矿脉',
       marker: '',
-      outputs: options.outputs ?? [{ name: '铁矿', count: 2, chance: 100 }],
+      // 产出数量走规范键 quantity（normalizeOutputs 只读 quantity，count 已废弃）
+      outputs: options.outputs ?? [{ name: '铁矿', quantity: 2, chance: 100 }],
     }]),
     vehicles: JSON.stringify([{
       id: 'v1',
@@ -78,7 +79,8 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
     getEquipmentByName: () => undefined,
     getShopConfig: () => ({
       activity: [],
-      diamond: [{ name: '召唤券', count: 20 }],
+      // 商品价格走规范键 quantity（getShopCatalog 读 item.quantity 作为 cost）
+      diamond: [{ name: '召唤券', quantity: 20 }],
       dataCore: [],
     }),
     getAllFamiliars: () => [
@@ -96,7 +98,7 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
       const backpack = JSON.parse(playerData.player.backpack || '[]');
       for (const drop of drops) {
         const existing = backpack.find((item: any) => item.name === drop.name);
-        if (existing) existing.quantity = Number(existing.quantity ?? existing.count ?? 0) + drop.quantity;
+        if (existing) existing.quantity = Number(existing.quantity ?? 0) + drop.quantity;
         else backpack.push({ name: drop.name, type: '资源', quantity: drop.quantity });
       }
       playerData.player.backpack = JSON.stringify(backpack);
@@ -147,7 +149,8 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     const diamondAfter = afterExchange.find((item: any) => item.name === '钻石');
     const ticketAfter = afterExchange.find((item: any) => item.name === '召唤券');
     expect(diamondAfter.quantity).toBeCloseTo(960);
-    expect(ticketAfter.count).toBeCloseTo(72);
+    // 货币物化条目只写规范键 quantity（count 镜像已废弃）
+    expect(ticketAfter.quantity).toBeCloseTo(72);
 
     // 后台结算在「读快照」处挂起，模拟远程库高延迟窗口
     let releaseContext: (() => void) | undefined;
@@ -189,7 +192,7 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     // 钻石只被两次兑换扣减，未被旧快照回滚到 2000
     expect(diamondFinal.quantity).toBeCloseTo(940, 5);
     // 召唤券保留两次兑换的成果并叠加本轮开采产出
-    expect(ticketFinal.count).toBeCloseTo(73, 5);
+    expect(ticketFinal.quantity).toBeCloseTo(73, 5);
     expect(ore).toBeDefined();
 
     expect(realPlayerService.enqueueUserWrite).toBeTruthy();
@@ -217,7 +220,7 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     const diamonds = backpack.find((item: any) => item.name === '钻石');
     const tickets = backpack.find((item: any) => item.name === '召唤券');
     expect(diamonds.quantity).toBe(1960);
-    expect(tickets.count).toBeCloseTo(22, 5);
+    expect(tickets.quantity).toBeCloseTo(22, 5);
 
     // 可重入：锁内再进同用户锁直接放行，不自我死锁（exchange→advance 嵌套场景）
     await expect(realPlayerService.enqueueUserWrite(42, async () =>

@@ -106,7 +106,7 @@ export function applyEquipmentEffect(
   target.specialEffect = b;
 
   // 存量数据文件/旧存档中 bonus 可能是 JSON 文本，统一归一为对象
-  let bonus: Record<string, any> = (effect as any)?.bonus ?? (effect as any)?.加成 ?? {};
+  let bonus: Record<string, any> = (effect as any)?.bonus ?? {};
   if (typeof bonus === 'string') {
     try { bonus = JSON.parse(bonus) as Record<string, any>; } catch { bonus = {}; }
   }

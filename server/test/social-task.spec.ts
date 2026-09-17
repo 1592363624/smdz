@@ -19,7 +19,7 @@ describe('贸易、购物、求助任务触发', () => {
       getPlayerData: jest.fn(async () => ({
         player: { userId: 42, name: '冒险者', backpack: '[]' },
       })),
-      getBackpackItems: jest.fn(() => [{ name: '木头', count: 2 }]),
+      getBackpackItems: jest.fn(() => [{ name: '木头', quantity: 2 }]),
       removeFromBackpack: jest.fn(async () => true),
     };
     const prisma: any = {
@@ -49,11 +49,12 @@ describe('贸易、购物、求助任务触发', () => {
       houseName: '',
       markers: '{}',
       markers2: '[]',
+      // 背包条目数量只读规范键 quantity（count 旧镜像已废弃）
       backpack: JSON.stringify([
-        { name: '木头', count: 1000 },
-        { name: '石头', count: 1000 },
-        { name: '绳子', count: 1000 },
-        { name: '铁矿', count: 1000 },
+        { name: '木头', quantity: 1000 },
+        { name: '石头', quantity: 1000 },
+        { name: '绳子', quantity: 1000 },
+        { name: '铁矿', quantity: 1000 },
       ]),
     };
     const map: any = {

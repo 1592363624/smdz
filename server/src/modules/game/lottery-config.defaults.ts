@@ -43,7 +43,8 @@ export const DEFAULT_LOTTERY_POOL_EXCLUDE_JSON = JSON.stringify(
 export interface LotteryDrawResult {
   ok: boolean;
   message: string;
-  reward?: { name: string; count: number; type: string };
+  /** 中奖数量：规范键 quantity（同义旧键 count 已废弃） */
+  reward?: { name: string; quantity: number; type: string };
   /** 是否因今日已抽满而失败 */
   dailyLimitHit?: boolean;
   /** 是否因凭证不足而失败 */
@@ -53,7 +54,8 @@ export interface LotteryDrawResult {
 /** 奖池条目（给前端滚动动画用） */
 export interface LotteryPoolEntry {
   name: string;
-  count: number;
+  /** 中奖数量：规范键 quantity（同义旧键 count 已废弃） */
+  quantity: number;
   /** 资源 / 装备（武器） */
   kind: 'resource' | 'weapon';
 }

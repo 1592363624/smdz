@@ -343,7 +343,7 @@
                             >⌕</button>
                           </div>
                           <input
-                            v-model.number="entry.count"
+                            v-model.number="entry.quantity"
                             class="checkin-count-input"
                             type="number"
                             min="0"
@@ -1784,8 +1784,8 @@ const checkinSections = computed(() => [
 let checkinUidSeq = 0; // 行与奖励明细共用一个自增序列，保证 v-for key 全局唯一
 
 /** 构造一条奖励明细（type=item 时 name 为物品名；经验/活力不需要名称） */
-function makeCheckinEntry(type = 'item', name = '', count = 1) {
-  return { uid: ++checkinUidSeq, type, name, count };
+function makeCheckinEntry(type = 'item', name = '', quantity = 1) {
+  return { uid: ++checkinUidSeq, type, name, quantity };
 }
 
 /** 构造一行奖励：触发天数 + N 条奖励明细（默认带一条空物品条目，便于直接填写） */
@@ -1816,7 +1816,7 @@ function flattenCheckinGroups(groups) {
     if (!Number.isFinite(days) || days <= 0) continue;
     const entries = (g?.rewards || []).map((r) => {
       const type = r?.type === 'exp' || r?.type === 'vitality' ? r.type : 'item';
-      return makeCheckinEntry(type, String(r?.name ?? ''), Number(r?.count) || 0);
+      return makeCheckinEntry(type, String(r?.name ?? ''), Number(r?.quantity) || 0);
     });
     rows.push(makeCheckinRow(Math.floor(days), entries));
   }
@@ -1910,18 +1910,18 @@ function buildCheckinGroups(rows) {
     }
     const rewards = [];
     for (const entry of row.entries) {
-      const count = Number(entry.count);
+      const quantity = Number(entry.quantity);
       const name = String(entry.name || '').trim();
       // 完全空白的默认条目直接跳过（用户点了「＋ 奖励项」又没填的情况）
-      if (entry.type === 'item' && !name && !count) continue;
-      if (!Number.isFinite(count) || count <= 0) {
+      if (entry.type === 'item' && !name && !quantity) continue;
+      if (!Number.isFinite(quantity) || quantity <= 0) {
         throw new Error(`第 ${days} 天存在数量为空的奖励项`);
       }
       const type = entry.type === 'exp' || entry.type === 'vitality' ? entry.type : 'item';
       if (type === 'item' && !name) {
         throw new Error(`第 ${days} 天的物品名称不能为空`);
       }
-      rewards.push({ type, name, count });
+      rewards.push({ type, name, quantity });
     }
     if (rewards.length) groups.push({ days, rewards });
   }
@@ -2397,10 +2397,10 @@ async function loadBackpack() {
   try {
     const res = await adminApi.getBackpack(uid);
     const list = res?.data || [];
-    // 统一数量字段：既有 count 又有 quantity 时优先 count，缺省补 0，便于前端数字输入
+    // 数量字段统一为规范键 quantity，缺省补 0，便于前端数字输入
     gmBackpack.value.items = (list || []).map((it) => ({
       ...it,
-      quantity: Number(it.count ?? it.quantity ?? 0),
+      quantity: Number(it.quantity ?? 0),
     }));
     // 记录货币基准：保存时据此判断「是否原本有值、现在会被清零」
     const baseline = {};

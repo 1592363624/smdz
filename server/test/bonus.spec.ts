@@ -108,23 +108,25 @@ describe('加成核心闭环 (加成计算.ecode L3-L62/L577-L663)', () => {
     expect(power).toBe(760);
   });
 
-  it('地图增益兼容中文字段、建筑数量和中文装备 JSON，并完成孵化闭环', () => {
+  it('地图增益按规范键读取建筑/物品/装备 JSON，并完成孵化闭环', () => {
+    // 字段口径统一后：地图行在持久化边界已归一化为规范键，getMapBonus 只读 name/quantity/expireAt 等
     const playerBuffs: any[] = [];
     const map: any = {
-      buildings: [{ 名称: '花园猫窝', 数量: 2 }],
-      summons: [{ 装备: '[{"名称":"叹息之墙"}]' }],
+      buildings: [{ name: '花园猫窝', quantity: 2 }],
+      summons: [{ equipments: '[{"name":"叹息之墙"}]' }],
       items: [
-        { 名称: '孵蛋鸡', 数量: 1 },
-        { 名称: '青龙蛋', 数量: 1 },
+        { name: '孵蛋鸡', quantity: 1 },
+        { name: '青龙蛋', quantity: 1 },
       ],
-      markers3: [{ 名称: '孵化中', 有效期至: 900, 强度: 'owner-1' }],
+      markers3: [{ name: '孵化中', expireAt: 900, strength: 'owner-1' }],
     };
     const hatch: any[] = [];
 
     bonusService.getMapBonus(playerBuffs, { ...map, onHatch: (request) => hatch.push(request) }, 1000, 1000);
 
     expect(hatch).toEqual([expect.objectContaining({ type: '青龙', ownerQQ: 'owner-1' })]);
-    expect(map.items).toEqual([{ name: '合金', quantity: 10, count: 10, type: '资源' }]);
+    // 孵化消耗孵蛋鸡/青龙蛋、产出 合金x10（只写规范键 quantity，count 旧镜像不再写）
+    expect(map.items).toEqual([{ name: '合金', quantity: 10, type: '资源' }]);
     expect(map.markers3).toHaveLength(2);
     expect(playerBuffs).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: '啾啾猫猫', strength: 60 }),
@@ -136,18 +138,19 @@ describe('加成核心闭环 (加成计算.ecode L3-L62/L577-L663)', () => {
 describe('获得增益2 (加成计算.ecode L664-L681)', () => {
   it('新增时按韧性折算持续时间', () => {
     const buffs: any[] = [];
-    combatState.gainBuff2(buffs, { 名称: '福音书', 持续时间: 300, 强度: 10 }, 1000, 20);
+    // 增益定义已统一为规范键 {name, strength, duration}（中文旧键 名称/强度/持续时间 不再收）
+    combatState.gainBuff2(buffs, { name: '福音书', duration: 300, strength: 10 }, 1000, 20);
     expect(buffs).toHaveLength(1);
-    expect(buffs[0].名称).toBe('福音书');
-    expect(buffs[0].强度).toBe(10);
-    expect(buffs[0].有效期至).toBe(1000 + 240 * 1000);
+    expect(buffs[0].name).toBe('福音书');
+    expect(buffs[0].strength).toBe(10);
+    expect(buffs[0].expireAt).toBe(1000 + 240 * 1000);
   });
 
   it('同名增益直接替换，不叠加旧有效期或强度', () => {
-    const buffs: any[] = [{ 名称: '福音书', 强度: 5, 有效期至: 999 }];
-    combatState.gainBuff2(buffs, { 名称: '福音书', 持续时间: 300, 强度: 10 }, 1000, 0);
+    const buffs: any[] = [{ name: '福音书', strength: 5, expireAt: 999 }];
+    combatState.gainBuff2(buffs, { name: '福音书', duration: 300, strength: 10 }, 1000, 0);
     expect(buffs).toHaveLength(1);
-    expect(buffs[0]).toEqual({ 名称: '福音书', 持续时间: 300, 强度: 10, 有效期至: 301000 });
+    expect(buffs[0]).toEqual({ name: '福音书', duration: 300, strength: 10, expireAt: 301000 });
   });
 });
 

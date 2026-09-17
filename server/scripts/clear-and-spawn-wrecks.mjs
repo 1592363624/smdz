@@ -64,7 +64,8 @@ function buildSealedWreck(wreck, levelOffset = 0) {
   const parts = (wreck.parts ?? []).map((part) => {
     const partName = String(part?.name ?? '').trim();
     if (!partName) return null;
-    const qty = Number(part?.count ?? 1) || 1;
+    // wrecks.json 的零件数量键已统一为 quantity（count 为历史旧键，保留兜底）
+    const qty = Number(part?.quantity ?? part?.count ?? 1) || 1;
     return {
       名称: partName,
       name: partName,

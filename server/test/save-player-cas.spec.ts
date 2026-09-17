@@ -92,7 +92,7 @@ function makeRow(overrides: any = {}) {
     markers: '{}',
     backpack: JSON.stringify([
       { name: '钻石', type: '资源', quantity: 2000 },
-      { name: '召唤券', type: '资源', count: 20 },
+      { name: '召唤券', type: '资源', quantity: 20 },
     ]),
     ...overrides,
   };

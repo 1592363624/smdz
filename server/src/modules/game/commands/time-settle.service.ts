@@ -358,7 +358,7 @@ export class TimeSettleService {
       // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 两位小数收敛）
       mergeBackpackItem(
         backpack,
-        { name: itemName, count, quantity: count },
+        { name: itemName, quantity: count },
         lookupFromStaticData(this.staticData),
       );
     };

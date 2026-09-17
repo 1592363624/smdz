@@ -13,7 +13,8 @@ function parseJson(value: any, fallback: any): any {
 describe('家园作物种植与收获', () => {
   it('按种子useEffects映射资源，并写入resources2而不是buildings', async () => {
     const map: any = { buildings: '[]', resources2: '[]' };
-    const backpack: any[] = [{ name: '苹果树种子', quantity: 2, count: 2 }];
+    // 背包条目数量只读规范键 quantity（count 旧镜像已废弃）
+    const backpack: any[] = [{ name: '苹果树种子', quantity: 2 }];
     const service = new HomeService(
       {} as any,
       {} as any,
@@ -29,28 +30,40 @@ describe('家园作物种植与收获', () => {
     expect(second.success).toBe(true);
     expect(parseJson(map.buildings, [])).toEqual([]);
     expect(backpack).toEqual([]);
-    expect(crops).toHaveLength(1);
-    expect(crops[0].name).toBe('苹果树');
-    expect(crops[0].count).toBe(2);
+    // 分阶段成熟玩法：每粒种子写入独立作物条目（不再按名称+数量聚合），
+    // 两粒种子 → 两条同名"苹果树"，各自独立成熟
+    expect(crops).toHaveLength(2);
+    expect(crops.every((crop) => crop.name === '苹果树')).toBe(true);
     expect(Array.isArray(crops[0].outputs2)).toBe(true);
   });
 
   it('收获resources2作物时从资源定义outputs发放正向产出', async () => {
     const map: any = { buildings: '[]', resources2: '[]' };
-    const backpack: any[] = [{ name: '强壮苹果树种子', quantity: 1, count: 1 }];
+    const staticData = new StaticDataService();
+    // 背包条目数量只读规范键 quantity（count 旧镜像已废弃）
+    const backpack: any[] = [{ name: '强壮苹果树种子', quantity: 1 }];
     const service = new HomeService(
       {} as any,
       {} as any,
       {} as any,
-      new StaticDataService(),
+      staticData,
     );
 
     await service.plantSeed(map, '强壮苹果树种子', backpack, []);
+    // 分阶段成熟玩法：刚种下的作物未成熟；把 plantedAt 置 0 模拟已成熟条目
+    // （harvestCrop 对无/零 plantedAt 的旧存档条目按已成熟处理）
+    parseJson(map.resources2, [])[0].plantedAt = 0;
     const result = await service.harvestCrop(map, '强壮苹果树', [], backpack);
 
     expect(result.success).toBe(true);
     expect(parseJson(map.resources2, [])).toEqual([]);
-    expect(backpack.find((item) => item.name === '果实')?.quantity).toBe(5);
+    // 收益 = 产出2正收益 × 棵数 × 总成熟秒数 / 600（旧版每分钟口径折算整周期）
+    const plan: any = (service as any).getCropGrowthPlan('强壮苹果树');
+    const baseFruit = staticData.getAllResources()
+      .find((r: any) => r.name === '强壮苹果树')
+      .outputs2.find((o: any) => o.name === '果实').quantity;
+    expect(backpack.find((item) => item.name === '果实')?.quantity)
+      .toBeCloseTo(baseFruit * plan.totalSeconds / plan.rewardScaleDivisor, 6);
     expect(backpack.find((item) => item.name === '木头')).toBeUndefined();
   });
 
@@ -66,7 +79,7 @@ describe('家园作物种植与收获', () => {
       backpack: '[]',
       markers: { 家园进度: 4 },
     };
-    const backpack: any[] = [{ name: '苹果树种子', quantity: 1, count: 1 }];
+    const backpack: any[] = [{ name: '苹果树种子', quantity: 1 }];
     const homeService = new HomeService({} as any, {} as any, {} as any, staticData);
     const service: any = createGameServiceStub();
     service.staticData = staticData;

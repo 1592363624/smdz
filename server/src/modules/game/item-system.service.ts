@@ -86,13 +86,10 @@ export class ItemSystemService {
     const { player, backpack, markers } = playerData;
     const actualCount = count ?? 1;
 
-    // 存量掉落使用 count，初始/任务物品使用 quantity；制造内部统一到 quantity，
-    // 写回时同时保留 count，保证任务奖励和旧背包都能继续制造。
+    // 数量口径统一到规范键 quantity（count 为历史别名，已由持久化边界收敛）
     for (const item of backpack) {
       if (item.type !== '装备') {
-        const quantity = Number(item.quantity ?? item.count ?? 0);
-        item.quantity = quantity;
-        item.count = quantity;
+        item.quantity = Number(item.quantity ?? 0);
       }
     }
 
@@ -113,8 +110,9 @@ export class ItemSystemService {
       const raw = Array.isArray(value) ? value : this.playerService.safeJsonParse<any[]>(value, []);
       return raw.map((item: any) => ({
         ...item,
-        name: item.name ?? item.名称,
-        quantity: Number(item.quantity ?? item.count ?? item.数量 ?? 0),
+        name: item.name,
+        // 数量只读规范键 quantity（同义旧键 count 已废弃，静态数据与存档均由持久化边界收敛为 quantity）
+        quantity: Number(item.quantity ?? 0),
       })).filter((item: Item3) => item.name && Number.isFinite(item.quantity));
     };
     const outputs = normalizeRecipeItems(recipe.outputs);
@@ -381,8 +379,8 @@ export class ItemSystemService {
 
     const item = backpack[itemIndex];
     const available = item.type === '装备'
-      ? Math.max(1, Number(item.quantity ?? item.count ?? 1))
-      : Number(item.quantity ?? item.count ?? 0);
+      ? Math.max(1, Number(item.quantity ?? 1))
+      : Number(item.quantity ?? 0);
     const requested = Number(count);
     const actualCount = count === undefined || requested < 0
       ? available
@@ -422,8 +420,8 @@ export class ItemSystemService {
       if (actualCount >= available) {
         backpack.splice(itemIndex, 1);
       } else {
+        // 数量只写规范键 quantity（count 镜像由持久化边界收敛删除）
         item.quantity = available - actualCount;
-        item.count = item.quantity;
       }
 
       // 添加产物
@@ -460,16 +458,17 @@ export class ItemSystemService {
         : this.playerService.safeJsonParse<any[]>(recipe.requirements, []))
         .map((req: any) => ({
           ...req,
-          name: req.name ?? req.名称,
-          quantity: Number(req.quantity ?? req.count ?? req.数量 ?? 0),
+          name: req.name,
+          // 数量只读规范键 quantity（同义旧键 count 已废弃）
+          quantity: Number(req.quantity ?? 0),
         }));
       const deconstructMul = Number(recipe.deconstructMul ?? 5) || 5;
 
       if (actualCount >= available) {
         backpack.splice(itemIndex, 1);
       } else {
+        // 数量只写规范键 quantity（count 镜像由持久化边界收敛删除）
         item.quantity = available - actualCount;
-        item.count = item.quantity;
       }
 
       // 返还材料（按分解倍率）
@@ -595,7 +594,7 @@ export class ItemSystemService {
       const raw = (map as any).summons ?? (map as any).召唤物 ?? [];
       const summons = Array.isArray(raw) ? raw : [];
       return summons.some((s: any) =>
-        String(s?.type ?? s?.name ?? s?.名称 ?? '') === '彩虹鸟',
+        String(s?.type ?? s?.name ?? '') === '彩虹鸟',
       );
     } catch (err) {
       this.logger.warn(`检查彩虹鸟在场失败(mapId=${mapId}): ${err instanceof Error ? err.message : err}`);
@@ -1000,7 +999,7 @@ export class ItemSystemService {
     const touched: Item3[] = [];
     for (const bp of backpack) {
       // 品质码读取走统一实现（equipment-ref.util），不再自读首字符
-      if (bp.type === '装备' && qualityCodeFromData(bp.data ?? (bp as any).数据) === prefix) {
+      if (bp.type === '装备' && qualityCodeFromData(bp.data) === prefix) {
         bp.durability = locked ? 1 : 0;
         touched.push(bp);
       }
@@ -1685,9 +1684,9 @@ export class ItemSystemService {
     return lines.join('\n');
   }
 
-  /** 武器名（兼容中英文 key） */
+  /** 武器名（只读规范键 name，别名由持久化边界收敛，见 field-contract.util.ts） */
   private weaponName(item: any): string {
-    return String(item?.name ?? item?.名称 ?? '');
+    return String(item?.name ?? '');
   }
 
   /** 武器品质中括号，对齐原版 加中括号(显示品质())：普通品质不显示 */
@@ -1700,9 +1699,9 @@ export class ItemSystemService {
    * 冷却以「武器名+冷却」写在 markers2 上，故**同名武器共用同一份冷却**（原版行为）。
    */
   private weaponCooldownLeft(markers2: any[], weaponName: string, nowMs: number): number {
-    const entry = (markers2 || []).find((m: any) => (m?.name ?? m?.名称) === `${weaponName}冷却`);
+    const entry = (markers2 || []).find((m: any) => m?.name === `${weaponName}冷却`);
     if (!entry) return 0;
-    const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+    const rawExpire = Number(entry?.expireAt ?? 0);
     if (!rawExpire) return 0;
     const expireMs = rawExpire >= 1e12 ? rawExpire : rawExpire * 1000;
     return expireMs > nowMs ? Math.ceil((expireMs - nowMs) / 1000) : 0;
@@ -1710,8 +1709,8 @@ export class ItemSystemService {
 
   /** 标记是否仍处于有效期内（兼容秒/毫秒两种存量时间戳） */
   private markerActive(markers2: any[], name: string, nowMs: number): boolean {
-    const entry = (markers2 || []).find((m: any) => (m?.name ?? m?.名称) === name);
-    const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+    const entry = (markers2 || []).find((m: any) => m?.name === name);
+    const rawExpire = Number(entry?.expireAt ?? 0);
     if (!rawExpire) return false;
     const expireMs = rawExpire >= 1e12 ? rawExpire : rawExpire * 1000;
     return expireMs > nowMs;
@@ -1722,11 +1721,11 @@ export class ItemSystemService {
    * 不在冷却期时会顺带写入该标记（原版 时间间隔要求 的副作用）。
    */
   private intervalRequire(markers2: any[], name: string, seconds: number, nowMs: number): boolean {
-    const entry = (markers2 || []).find((m: any) => (m?.name ?? m?.名称) === name);
-    const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+    const entry = (markers2 || []).find((m: any) => m?.name === name);
+    const rawExpire = Number(entry?.expireAt ?? 0);
     const expireMs = rawExpire ? (rawExpire >= 1e12 ? rawExpire : rawExpire * 1000) : 0;
     if (entry && expireMs > nowMs) return true;
-    const idx = (markers2 || []).findIndex((m: any) => (m?.name ?? m?.名称) === name);
+    const idx = (markers2 || []).findIndex((m: any) => m?.name === name);
     if (idx >= 0) markers2.splice(idx, 1);
     markers2.push({ name, expireAt: nowMs + seconds * 1000 });
     return false;
@@ -1867,8 +1866,9 @@ export class ItemSystemService {
 
   private getSpecialLevel(markers: Record<string, any>, key: string): number {
     const raw = markers?.[key];
+    // 标记值可能是标量，也可能是 { value } / { level } 对象；旧中文别名（数值）已由标记域归一化收敛
     const value = typeof raw === 'object' && raw !== null
-      ? (raw.value ?? raw.数值 ?? raw.level ?? 0)
+      ? (raw.value ?? raw.level ?? 0)
       : raw;
     const level = Number(value ?? 0);
     return Number.isFinite(level) && level > 0 ? Math.floor(level) : 0;
@@ -2624,7 +2624,7 @@ export class ItemSystemService {
     let total = 0;
     for (const bp of backpack) {
       if (bp.name === name) {
-        total += bp.type !== '装备' ? Number(bp.quantity ?? bp.count ?? 0) : 1;
+        total += bp.type !== '装备' ? Number(bp.quantity ?? 0) : 1;
       }
     }
     return total;
@@ -2642,10 +2642,9 @@ export class ItemSystemService {
           remaining--;
           i--;
         } else {
-          const current = Number(backpack[i].quantity ?? backpack[i].count ?? 0);
+          const current = Number(backpack[i].quantity ?? 0);
           const remove = Math.min(current, remaining);
           backpack[i].quantity = current - remove;
-          backpack[i].count = backpack[i].quantity;
           remaining -= remove;
           if (backpack[i].quantity <= 0) {
             backpack.splice(i, 1);
@@ -3170,22 +3169,22 @@ export class ItemSystemService {
       : 0.1;
 
     for (const drop of (drops || [])) {
-      const dropName = String(drop?.name ?? drop?.名称 ?? '').trim();
+      const dropName = String(drop?.name ?? '').trim();
       if (!drop || dropName === '') continue; // 原版 L4889 空名跳过
       if (dropName === '电力') continue;       // 原版 L4892 电力跳过
 
       // 判断几率（原版 L4895-4903）
       if (judgeChance) {
-        const chance = Number(drop.chance ?? drop.几率 ?? 0);
+        const chance = Number(drop.chance ?? 0);
         if (Math.random() * 100 >= chance) continue;
       }
 
-      const explicitType = String(drop.type ?? drop.类型 ?? '').trim().toLowerCase();
+      const explicitType = String(drop.type ?? '').trim().toLowerCase();
       const isEquipment = explicitType === '装备'
         || explicitType === 'equipment'
         || (!explicitType && typeof this.staticData?.getEquipmentByName === 'function'
           && !!this.staticData.getEquipmentByName(dropName));
-      const rawQuantity = drop.quantity ?? drop.count ?? drop.数量;
+      const rawQuantity = drop.quantity;
       const parsedQuantity = rawQuantity === undefined || rawQuantity === null || rawQuantity === ''
         ? 1
         : Number(rawQuantity);
@@ -3216,9 +3215,8 @@ export class ItemSystemService {
             name: item.name || dropName,
             type: '装备',
             quantity: 1,
-            count: 1,
           });
-          backpackOut.push({ name: item.name || dropName, count: 1, data: item.data || '' });
+          backpackOut.push({ name: item.name || dropName, quantity: 1, data: item.data || '' });
         }
       } else if (dropType === '资源') {
         // 原版 L4922-4938
@@ -3239,7 +3237,7 @@ export class ItemSystemService {
             opts?.onTaskProgress?.('采集资源', qty);
             opts?.onTaskProgress?.('采集' + dropName, qty);
           }
-          if (changed) backpackOut.push({ name: dropName, count: qty });
+          if (changed) backpackOut.push({ name: dropName, quantity: qty });
         }
       } else {
         // 默认（原版 L4939 空分支）：不处理
@@ -3248,7 +3246,7 @@ export class ItemSystemService {
 
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     // 显示物品（原版 L4946 返回 显示物品(物品数组2)）：近似为名字列表
-    return backpackOut.map((i) => `${i.name}${i.count > 1 ? '×' + i.count : ''}`).join('、');
+    return backpackOut.map((i) => `${i.name}${i.quantity > 1 ? '×' + i.quantity : ''}`).join('、');
   }
 
   /**
@@ -3264,21 +3262,18 @@ export class ItemSystemService {
       const qty = roundItemQuantity(quantity);
       backpack.push({
         name,
-        type: source?.type || source?.类型 || '资源',
-        count: qty,
+        type: source?.type || '资源',
+        // 数量只写规范键 quantity（count 镜像由持久化边界收敛删除）
         quantity: qty,
       });
       return true;
     }
 
     const item = backpack[index];
-    const current = Number(item.quantity ?? item.count ?? 0);
+    const current = Number(item.quantity ?? 0);
     const next = roundItemQuantity(current + quantity);
     if (next <= 0) backpack.splice(index, 1);
-    else {
-      item.count = next;
-      item.quantity = next;
-    }
+    else item.quantity = next;
     return true;
   }
 
@@ -3302,15 +3297,15 @@ export class ItemSystemService {
   /** 对应原版 判断物品2()：按装备列表命中则改写为装备，否则固定为资源。 */
   judgeItem(item: any): void {
     if (!item) return;
-    const name = String(item?.名称 ?? item?.name ?? '');
-    item.类型 = this.staticData.getEquipmentByName(name) ? '装备' : '资源';
-    item.type = item.类型;
+    const name = String(item?.name ?? '');
+    // 类型只写规范键 type（中文别名「类型」由持久化边界收敛）
+    item.type = this.staticData.getEquipmentByName(name) ? '装备' : '资源';
   }
 
   /** 对应原版 寻找装备()：按类型返回第一个下标；未找到返回 -1。 */
   findEquipment(equipments: any[], type: string): number {
     if (!Array.isArray(equipments)) return -1;
-    return equipments.findIndex((item) => (item?.类型 ?? item?.type) === type);
+    return equipments.findIndex((item) => item?.type === type);
   }
 
   /** 对应原版 资源需求()：数量上限1000000，逐项校验并返回原版换行提示。 */
@@ -3319,8 +3314,8 @@ export class ItemSystemService {
     if (actualCount > 1000000) actualCount = 1000000;
     let text = '';
     for (const requirement of Array.isArray(requirements) ? requirements : []) {
-      const name = String(requirement?.name ?? requirement?.名称 ?? '');
-      const required = Number(requirement?.quantity ?? requirement?.count ?? 0) * actualCount;
+      const name = String(requirement?.name ?? '');
+      const required = Number(requirement?.quantity ?? 0) * actualCount;
       const owned = this.getItemQuantity(name, backpack);
       if (owned < required) {
         text += `\n需要${name}x${this.roundDisplay(required)}，你只有${this.roundDisplay(owned)}`;
@@ -3332,9 +3327,9 @@ export class ItemSystemService {
   /** 对应原版 取物品数量()：首个同名物品生效，装备返回1，未命中返回空类型并返回0。 */
   getItemQuantityWithType(name: string, items: any[]): { quantity: number; type: string } {
     for (const item of Array.isArray(items) ? items : []) {
-      if ((item?.name ?? item?.名称) === name) {
-        const type = String(item?.type ?? item?.类型 ?? '');
-        return { quantity: type !== '装备' ? Number(item.quantity ?? item.count ?? item.数量 ?? 0) : 1, type };
+      if (item?.name === name) {
+        const type = String(item?.type ?? '');
+        return { quantity: type !== '装备' ? Number(item.quantity ?? 0) : 1, type };
       }
     }
     return { quantity: 0, type: '' };
@@ -3359,21 +3354,21 @@ export class ItemSystemService {
     const result = { found: false, index: -1, hint: '' };
     if (!Array.isArray(items)) return result;
     for (let a = 0; a < items.length; a++) {
-      if (items[a] && items[a].名称 === name) {
+      if (items[a] && items[a].name === name) {
         if (requireQty == null) {
           // 原版 L1794-1796：未提供要求数量 → 存在即满足，写回下标返回真
           result.index = a;
           result.found = true;
           return result;
         } else {
-          if ((items[a].数量 ?? 0) >= requireQty) {
+          if (Number(items[a].quantity ?? 0) >= requireQty) {
             // 原版 L1798-1800：数量满足 → 写回下标返回真
             result.index = a;
             result.found = true;
             return result;
           } else {
             // 原版 L1802：数量不足 → 写回提示返回假（文本四舍 近似为整数）
-            result.hint = '需要' + String(requireQty) + '的' + name + '，你只有' + Math.round(items[a].数量 ?? 0);
+            result.hint = '需要' + String(requireQty) + '的' + name + '，你只有' + Math.round(Number(items[a].quantity ?? 0));
             result.found = false;
             return result;
           }

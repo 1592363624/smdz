@@ -38,7 +38,7 @@
                 :class="{ highlight: spinning === false && result && i === resultIndex }"
               >
                 <span class="lt-reel-name">{{ row.name }}</span>
-                <span class="lt-reel-x">×{{ row.count }}</span>
+                <span class="lt-reel-x">×{{ row.quantity }}</span>
               </div>
             </div>
             <div class="lt-pointer" aria-hidden="true"></div>
@@ -53,7 +53,7 @@
           <div class="lt-result-label">🎉 恭喜获得</div>
           <div class="lt-result-name">
             {{ result.name }}
-            <em>×{{ result.count }}</em>
+            <em>×{{ result.quantity }}</em>
           </div>
           <div class="lt-result-type">{{ result.type === 'weapon' ? '武器（词条随机）' : '资源道具' }}</div>
         </div>
@@ -142,14 +142,14 @@ async function reload() {
 function pickPreviewPool() {
   const preview = status.value?.poolPreview || [];
   if (preview.length) return preview;
-  return [{ name: '未知道具', count: 1, kind: 'resource' }];
+  return [{ name: '未知道具', quantity: 1, kind: 'resource' }];
 }
 
 function randomRow(pool) {
   const p = pool[Math.floor(Math.random() * pool.length)];
   return {
     name: p.name,
-    count: Math.max(1, Number(p.count) || 1),
+    quantity: Math.max(1, Number(p.quantity) || 1),
     kind: p.kind || 'resource',
   };
 }
@@ -188,7 +188,7 @@ async function onDraw() {
   for (let i = 0; i < SPIN_ROWS; i++) rows.push(randomRow(pool));
   rows.push({
     name: reward.name,
-    count: Math.max(1, Number(reward.count) || 1),
+    quantity: Math.max(1, Number(reward.quantity) || 1),
     kind: reward.type || 'resource',
   });
   reelRows.value = rows;
@@ -206,10 +206,10 @@ async function onDraw() {
     spinning.value = false;
     result.value = {
       name: reward.name,
-      count: reward.count,
+      quantity: reward.quantity,
       type: reward.type,
     };
-    emit('notify', { type: 'success', message: drawRes.message || `获得 ${reward.name}×${reward.count}` });
+    emit('notify', { type: 'success', message: drawRes.message || `获得 ${reward.name}×${reward.quantity}` });
     reload();
   }, 2700);
 }

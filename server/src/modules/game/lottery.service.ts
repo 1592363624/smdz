@@ -106,7 +106,7 @@ export class LotteryService {
       const name = String(item?.name ?? '').trim();
       if (!name || excludeSet.has(name) || seen.has(name)) continue;
       seen.add(name);
-      pool.push({ name, count: 1, kind: 'resource' });
+      pool.push({ name, quantity: 1, kind: 'resource' });
     }
 
     for (const eq of this.staticData.getAllWeapons() || []) {
@@ -115,7 +115,7 @@ export class LotteryService {
       // 模板 / 空手类占位不进池
       if (name === '空手' || name.includes('模板')) continue;
       seen.add(name);
-      pool.push({ name, count: 1, kind: 'weapon' });
+      pool.push({ name, quantity: 1, kind: 'weapon' });
     }
 
     return pool;
@@ -126,11 +126,11 @@ export class LotteryService {
     return 1;
   }
 
-  /** 背包中某物品当前数量（兼容 quantity/count 双字段） */
+  /** 背包中某物品当前数量（只读规范键 quantity） */
   private countInBackpack(backpack: any[], name: string): number {
     const row = backpack.find((it: any) => String(it?.name ?? '') === name);
     if (!row) return 0;
-    return Number(row.count ?? row.quantity ?? 0) || 0;
+    return Number(row.quantity ?? 0) || 0;
   }
 
   private safeBackpack(raw: any): any[] {
@@ -186,7 +186,7 @@ export class LotteryService {
       today,
       poolPreview: pool.slice(0, 60).map((p) => ({
         name: p.name,
-        count: 1,
+        quantity: 1,
         kind: p.kind,
       })),
     };
@@ -213,8 +213,8 @@ export class LotteryService {
     }
 
     const picked = pool[Math.floor(Math.random() * pool.length)];
-    // 固定只发 1 个
-    const count = 1;
+    // 固定只发 1 个（数量规范键 quantity）
+    const quantity = 1;
 
     return this.mutate.mutate(userId, async (ctx): Promise<LotteryDrawResult> => {
       const markers = asJsonValue<Record<string, any>>(ctx.player?.markers, {});
@@ -249,7 +249,7 @@ export class LotteryService {
             const idx = backpack.indexOf(row);
             if (idx >= 0) backpack.splice(idx, 1);
           } else {
-            row.count = next;
+            // 数量只写规范键 quantity（count 镜像已废弃）
             row.quantity = next;
           }
         }
@@ -261,7 +261,6 @@ export class LotteryService {
           name: picked.name,
           type: '装备',
           quantity: 1,
-          count: 1,
           durability: 0,
           data: 'e',
         };
@@ -281,7 +280,6 @@ export class LotteryService {
             name: gear?.name || picked.name,
             type: '装备',
             quantity: 1,
-            count: 1,
             data: String(gear?.data || 'e'),
           },
           lookupFromStaticData(this.staticData),
@@ -289,7 +287,7 @@ export class LotteryService {
       } else {
         mergeBackpackItem(
           backpack,
-          { name: picked.name, count: 1, quantity: 1 },
+          { name: picked.name, quantity: 1 },
           lookupFromStaticData(this.staticData),
         );
       }
@@ -309,7 +307,7 @@ export class LotteryService {
         ok: true,
         reward: {
           name: picked.name,
-          count: 1,
+          quantity,
           type: picked.kind,
         },
         message: `🎉 抽奖获得：${picked.name}×1`,

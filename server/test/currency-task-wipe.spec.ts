@@ -68,13 +68,13 @@ function makePlayerRow(): any {
     dataCores: 0,
     // 落库态背包不含物化货币条目（提取进独立列后的形态），股票 优秀武器补给箱 12.64
     backpack: JSON.stringify([
-      { name: '优秀武器补给箱', type: '资源', count: 12.64, quantity: 12.64 },
+      { name: '优秀武器补给箱', type: '资源', quantity: 12.64 },
     ]),
     markers: JSON.stringify({}),
     markers2: '[]',
     recipes: '[]',
     tasks: JSON.stringify([
-      { name: '主线-继续询问', requirements: [{ name: '对话史莱姆', count: 3 }] },
+      { name: '主线-继续询问', requirements: [{ name: '对话史莱姆', quantity: 3 }] },
     ]),
     hp: 52, maxHp: 52, shield: 22, maxShield: 22, armor: 32, maxArmor: 32,
     attack: 10, hit: 10, dodge: 10, speed: 10, crit: 3, critDmg: 150,
@@ -98,8 +98,8 @@ function makeTaskService(prisma: any): { service: TaskService; rows: any[] } {
       name === '主线-继续询问'
         ? {
             name,
-            requirements: [{ name: '对话史莱姆', count: 3 }],
-            rewards: [{ name: '主线补给箱', count: 10.61 }],
+            requirements: [{ name: '对话史莱姆', quantity: 3 }],
+            rewards: [{ name: '主线补给箱', quantity: 10.61 }],
             nextTasks: '[]',
             restrictMarkers: '[]',
             level: 1,
@@ -145,12 +145,12 @@ describe('任务结算不误清货币（正式库「主线-继续询问」事故
     const bp = parseJson(row.backpack, []);
     const box = bp.find((i: any) => i.name === '优秀武器补给箱');
     expect(box).toBeDefined();
-    expect(Number(box.count)).toBeCloseTo(12.64, 5);
+    expect(Number(box.quantity)).toBeCloseTo(12.64, 5);
     const reward = bp.find((i: any) => i.name === '主线补给箱');
     expect(reward).toBeDefined();
     // getRewardScale：任务熟练度0 → 等级1 → (1+1/100)=1.01 倍奖励
     // 乘积过 roundItemQuantity 闸：10.61*1.01=10.716099999999999（浮点尾巴）收敛为 10.72
-    expect(Number(reward.count)).toBeCloseTo(10.72, 5);
+    expect(Number(reward.quantity)).toBeCloseTo(10.72, 5);
     expect(bp.some((i: any) => i.name === '钻石')).toBe(false);
     expect(bp.some((i: any) => i.name === '召唤券')).toBe(false);
 
@@ -167,7 +167,7 @@ describe('任务结算不误清货币（正式库「主线-继续询问」事故
     // 模拟旧读档路径：拿到 findUnique 原始行直接改背包后 savePlayer
     const raw = await prisma.player.findUnique({ where: { userId: 42 } });
     const bp = parseJson(raw.backpack, []);
-    bp.push({ name: '主线补给箱', type: '资源', count: 10.61, quantity: 10.61 });
+    bp.push({ name: '主线补给箱', type: '资源', quantity: 10.61 });
     raw.backpack = JSON.stringify(bp);
     await service.savePlayer(raw);
 
@@ -185,7 +185,7 @@ describe('任务结算不误清货币（正式库「主线-继续询问」事故
     const raw = await prisma.player.findUnique({ where: { userId: 42 } });
     const bp = parseJson(raw.backpack, []);
     // 陈旧条目：余额早已是 1055.75，条目却还是旧值 500
-    bp.push({ name: '钻石', type: '资源', count: 500, quantity: 500 });
+    bp.push({ name: '钻石', type: '资源', quantity: 500 });
     raw.backpack = JSON.stringify(bp);
     await service.savePlayer(raw);
 

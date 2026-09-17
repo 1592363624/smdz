@@ -15,16 +15,20 @@
  *  - 时间间隔要求   数据分析.ecode L1008
  *  - 获得增益       加成计算.ecode L1522（返回最终强度）
  *
- * 数据结构约定（对齐易语言「技能」「增益」数组）：
- *  - AchievementItem = { 名称, 数值 }       对应原版 技能 数组成员
- *  - BuffItem        = { 名称, 强度, 有效期至, 是否叠加时间 }  对应原版 增益 数组成员
- *    · 有效期至 单位：毫秒时间戳（原版 #转秒=1000，时间参数单位为秒，存时 ×1000）
+ * 数据结构约定（对齐易语言「技能」「增益」数组的**字段语义**，键名统一英文）：
+ *  - AchievementItem = { name, value }     对应原版 技能 数组成员
+ *    （`name` 的值是内容语义：存于 Player.markers 字典时字典键即标记名，保持原版中文）
+ *  - BuffItem        = { name, strength, expireAt, stackTime }  对应原版 增益 数组成员
+ *    · expireAt 单位：毫秒时间戳（原版 #转秒=1000，时间参数单位为秒，存时 ×1000）
+ *    · 字段规范见 field-contract.util.ts（SSOT）：所有持久化边界会把
+ *      名称/强度/有效期至/是否叠加时间 收敛为上述英文键
  *  - MarkerItem（标记2）= 同 BuffItem 结构（标记要求/添加标记 复用）
  */
 
 import { Injectable } from '@nestjs/common';
 import { SetData } from './bonus.service';
 import { formatDurationText } from './expire-time.util';
+import { normalizeMarkers, normalizeEntryKeys } from './field-contract.util';
 import { SEQ, AMPLIFIER_SEQ_RANGE, IMPLANT_SEQ_RANGE } from './constants/special-seq.constant';
 
 /** #转秒：原版易语言时间常数，1秒 = 1000 毫秒 */
@@ -46,22 +50,22 @@ const SECOND_MS = 1000;
  */
 /** 成就/熟练度条目（原版「技能」数组项） */
 export interface AchievementItem {
-  /** 名称（如 "在线时间" / "破盾" / "火力全开"） */
-  名称: string;
+  /** 名称（如 "在线时间" / "破盾" / "火力全开"），内容语义，保持中文值 */
+  name: string;
   /** 数值（熟练度/计数，可为负，但添加成就不保存负数） */
-  数值: number;
+  value: number;
 }
 
 /** 增益/标记条目（原版「增益」「标记2」数组项） */
 export interface BuffItem {
-  /** 名称（如 "激变星" / "强袭冷却" / "xla" / "麻痹"） */
-  名称: string;
+  /** 名称（如 "激变星" / "强袭冷却" / "xla" / "麻痹"），内容语义，保持中文值 */
+  name: string;
   /** 强度（部分增益有，如激变星强度=减伤秒数） */
-  强度?: number;
-  /** 有效期至：毫秒时间戳 */
-  有效期至: number;
+  strength?: number;
+  /** 到期时间：毫秒时间戳 */
+  expireAt: number;
   /** 是否叠加时间（原版 增益.是否叠加时间 字段） */
-  是否叠加时间?: boolean;
+  stackTime?: boolean;
 }
 
 @Injectable()
@@ -70,36 +74,39 @@ export class CombatStateService {
    * 增益/标记条目格式归一化（兼容层，非原版逻辑）
    *
    * 项目历史原因存在两套写入约定：
-   *  - combat-state 内部约定（原版对齐）：中文 key { 名称, 强度, 有效期至 }，有效期至=毫秒
+   *  - 早期 combat-state 内部约定：中文 key { 名称, 强度, 有效期至 }，有效期至=毫秒
    *  - 运行时 game 逻辑层约定：英文 key { name, value, expireAt }，expireAt=秒级时间戳
    * 两套格式并存导致 buffRequire/timeIntervalRequire/markerRequire 读不到运行时写入的增益。
    *
-   * 本函数将任意格式条目归一化为「中文 key + 毫秒」，保证两层数据互相可读，
-   * 存量数据（无论哪种格式）都能被战斗状态机正确识别。幂等（中文/毫秒再归一化不变）。
+   * 现统一收敛为**英文规范键 + 毫秒**（规范名见 field-contract.util.ts）：
+   *   { name, strength, expireAt(毫秒), stackTime }，中文字段名一律丢弃。
+   * 存量数据（无论哪种格式）都能被战斗状态机正确识别。幂等（英文/毫秒再归一化不变）。
    *
    * @param it 原始条目（可能含中/英 key、秒/毫秒时间）
    * @returns 归一化后的 BuffItem
    */
   normalizeBuffItem(it: any): BuffItem {
-    if (!it) return { 名称: '', 有效期至: 0 };
-    const name = it.名称 ?? it.name ?? '';
-    // 时间：优先中文 有效期至，否则英文 expireAt；<1e12 视为秒，否则毫秒
-    const rawTime = it.有效期至 ?? it.expireAt ?? 0;
+    if (!it) return { name: '', expireAt: 0 };
+    // 字段别名一律交给 SSOT 契约表收敛（本处不再自建别名清单，避免两套口径）
+    normalizeEntryKeys(it, 'buff');
+    const name = it.name ?? '';
+    // 时间：<1e12 视为秒，否则毫秒
+    const rawTime = it.expireAt ?? 0;
     const expireMs = rawTime > 0 && rawTime < 1e12 ? rawTime * SECOND_MS : rawTime;
-    const strength = it.强度 ?? it.value ?? it.strength ?? 0;
-    // 兼容层只补齐 名称/强度/有效期至 三件套，必须保留其余扩展字段：
+    const strength = it.strength ?? 0;
+    const stackTime = it.stackTime;
+    // 兼容层只补齐四件套，必须保留其余扩展字段：
     // 抢救链路的「复活/工作」标记携带 rescueType/startedAt/totalMs/token，
     // 驱动前端 pendingActions 倒计时与延时任务完成回调，抹掉会导致读条消失。
-    // 英文别名（name/value/strength/expireAt）归一化后删除，避免双格式歧义。
-    const { name: _n, value: _v, strength: _s, expireAt: _e, ...rest } = it;
-    return { ...rest, 名称: name, 强度: strength, 有效期至: expireMs };
+    const { name: _n, strength: _s, expireAt: _e, stackTime: _t, ...rest } = it;
+    return { ...rest, name: String(name), strength, expireAt: expireMs, ...(stackTime !== undefined ? { stackTime } : {}) };
   }
 
   /**
    * 成就容器归一化（兼容层，非原版逻辑）
    *
    * 本框架将玩家成就熟练度统一存于 Player.markers（JSON 对象 {"成就名": 数值}），
-   * 而原版/战斗状态机内部使用「技能」数组 [{名称, 数值}]。
+   * 而原版/战斗状态机内部使用「技能」数组 [{name, value}]。
    * 调用方两种格式都可能传入，先统一识别，避免对对象/字符串做 for...of
    * 抛出「成就 is not iterable」导致整个指令失败。
    *
@@ -118,6 +125,8 @@ export class CombatStateService {
       }
     }
     if (Array.isArray(container)) {
+      // 边界收敛：历史条目 {名称,数值} → 规范 {name,value}（字典形态不受影响）
+      normalizeMarkers(container);
       return { array: container as AchievementItem[], record: {} };
     }
     if (container && typeof container === 'object') {
@@ -157,10 +166,10 @@ export class CombatStateService {
     }
     // 先遍历已有同名项累加
     for (let i = array.length - 1; i >= 0; i--) {
-      if (array[i].名称 === 名称) {
-        array[i].数值 = array[i].数值 + 数值;
+      if (array[i].name === 名称) {
+        array[i].value = array[i].value + 数值;
         // 不保存负数：值 ≤0 删除该项
-        if (array[i].数值 <= 0) {
+        if (array[i].value <= 0) {
           array.splice(i, 1);
         }
         return;
@@ -169,7 +178,7 @@ export class CombatStateService {
     // 未遍历到对应名称，且提供的是负数 → 直接返回（不新增负项）
     if (数值 <= 0) return;
     // 新增成就项
-    array.push({ 名称, 数值 });
+    array.push({ name: 名称, value: 数值 });
   }
 
   /**
@@ -211,16 +220,16 @@ export class CombatStateService {
     for (const item of array) {
       if (模糊匹配) {
         // 易语言 寻找文本(...) != -1 表示包含
-        if (item.名称.indexOf(名称) !== -1) {
+        if (item.name.indexOf(名称) !== -1) {
           if (取全部匹配) {
-            a1 = a1 + item.数值;
+            a1 = a1 + item.value;
           } else {
-            return item.数值;
+            return item.value;
           }
         }
       } else {
-        if (item.名称 === 名称) {
-          return item.数值;
+        if (item.name === 名称) {
+          return item.value;
         }
       }
     }
@@ -253,9 +262,9 @@ export class CombatStateService {
       return;
     }
     for (let i = array.length - 1; i >= 0; i--) {
-      if (array[i].名称 === 名称) {
+      if (array[i].name === 名称) {
         if (熟练度 !== 0) {
-          array[i].数值 = 熟练度;
+          array[i].value = 熟练度;
         } else {
           array.splice(i, 1);
         }
@@ -264,7 +273,7 @@ export class CombatStateService {
     }
     // 不存在且熟练度非0 → 新增
     if (熟练度 !== 0) {
-      array.push({ 名称, 数值: 熟练度 });
+      array.push({ name: 名称, value: 熟练度 });
     }
   }
 
@@ -287,28 +296,28 @@ export class CombatStateService {
     返回剩余时间: { value: string },
     时间戳: number,
   ): boolean {
-    // 兼容层：先归一化数组（中/英文 key、秒/毫秒时间统一为 中文key+毫秒），保证存量数据可读
+    // 兼容层：先归一化数组（中/英文 key、秒/毫秒时间统一为 英文key+毫秒），保证存量数据可读
     const arr: BuffItem[] = 标记数组.map((it) => this.normalizeBuffItem(it));
     标记数组.length = 0;
     标记数组.push(...arr);
     // 第一步：清理过期标记（名称左边4字 == "刷新" 的不过期）
     for (let i = 标记数组.length - 1; i >= 0; i--) {
       const it = 标记数组[i];
-      if (it.名称 === '') {
+      if (it.name === '') {
         标记数组.splice(i, 1);
         continue;
       }
-      if (时间戳 - it.有效期至 >= 0) {
+      if (时间戳 - it.expireAt >= 0) {
         // 原版：取文本左边(名称,4) != "刷新" 才删除
-        if ((it.名称 || '').substring(0, 4) !== '刷新') {
+        if ((it.name || '').substring(0, 4) !== '刷新') {
           标记数组.splice(i, 1);
         }
       }
     }
     // 第二步：检索同名标记
     for (const it of 标记数组) {
-      if (it.名称 === 检索名称) {
-        const remainMs = it.有效期至 - 时间戳;
+      if (it.name === 检索名称) {
+        const remainMs = it.expireAt - 时间戳;
         // 数字到时间：剩余毫秒转可读文本（简化：显示秒/分）
         返回剩余时间.value = formatDurationText(remainMs);
         return true;
@@ -330,12 +339,12 @@ export class CombatStateService {
   addMarker(名称: string, 时间: number, 标记: BuffItem[], 现行时间: number): void {
     if (时间 === 0) return;
     for (const it of 标记) {
-      if (it.名称 === 名称) {
-        it.有效期至 = it.有效期至 + 时间 * SECOND_MS;
+      if (it.name === 名称) {
+        it.expireAt = it.expireAt + 时间 * SECOND_MS;
         return;
       }
     }
-    const b: BuffItem = { 名称, 有效期至: 现行时间 + 时间 * SECOND_MS };
+    const b: BuffItem = { name: 名称, expireAt: 现行时间 + 时间 * SECOND_MS };
     标记.push(b);
   }
 
@@ -358,21 +367,21 @@ export class CombatStateService {
     s: number,
     剩余时间返回值: { value: number },
   ): boolean {
-    // 兼容层：先归一化数组（中/英文 key、秒/毫秒时间统一为 中文key+毫秒），保证存量数据可读
+    // 兼容层：先归一化数组（中/英文 key、秒/毫秒时间统一为 英文key+毫秒），保证存量数据可读
     const arr: BuffItem[] = 增益.map((it) => this.normalizeBuffItem(it));
     增益.length = 0;
     增益.push(...arr);
     let c = 0;
     for (let i = 增益.length - 1; i >= 0; i--) {
       // 原版：s - 有效期至 > 0 删除（已过期）
-      if (s - 增益[i].有效期至 > 0) {
+      if (s - 增益[i].expireAt > 0) {
         增益.splice(i, 1);
         continue;
       }
-      if (c === 0 && 增益[i].名称 === 名称) {
+      if (c === 0 && 增益[i].name === 名称) {
         c = 1;
-        剩余时间返回值.value = (增益[i].有效期至 - s) / SECOND_MS;
-        强度返回值.value = 增益[i].强度 || 0;
+        剩余时间返回值.value = (增益[i].expireAt - s) / SECOND_MS;
+        强度返回值.value = 增益[i].strength || 0;
       }
     }
     if (c === 1) return true;
@@ -404,38 +413,38 @@ export class CombatStateService {
     是否叠加强度?: boolean,
   ): number {
     for (const it of 增益) {
-      if (it.名称 === 名称) {
+      if (it.name === 名称) {
         if (是否叠加时间) {
-          it.有效期至 = it.有效期至 + 时间 * SECOND_MS;
+          it.expireAt = it.expireAt + 时间 * SECOND_MS;
           // 叠加后若已过期则删除并返回0
-          if (s - it.有效期至 >= 0) {
+          if (s - it.expireAt >= 0) {
             const idx = 增益.indexOf(it);
             if (idx >= 0) 增益.splice(idx, 1);
             return 0;
           }
         } else {
           if (时间 !== 0) {
-            it.有效期至 = s + 时间 * SECOND_MS;
+            it.expireAt = s + 时间 * SECOND_MS;
           }
         }
-        it.是否叠加时间 = 是否叠加时间;
+        it.stackTime = 是否叠加时间;
         if (是否叠加强度) {
-          it.强度 = (it.强度 || 0) + (强度 || 0);
+          it.strength = (it.strength || 0) + (强度 || 0);
         } else {
           // 取较大值（原版：强度 < 新强度 才覆盖）
-          if ((it.强度 || 0) < (强度 || 0)) {
-            it.强度 = 强度;
+          if ((it.strength || 0) < (强度 || 0)) {
+            it.strength = 强度;
           }
         }
-        return it.强度 || 0;
+        return it.strength || 0;
       }
     }
     // 未找到 → 新增
     const z: BuffItem = {
-      名称,
-      有效期至: s + 时间 * SECOND_MS,
-      是否叠加时间,
-      强度: 强度 || 0,
+      name: 名称,
+      expireAt: s + 时间 * SECOND_MS,
+      stackTime: 是否叠加时间,
+      strength: 强度 || 0,
     };
     增益.push(z);
     return 强度 || 0;
@@ -445,24 +454,24 @@ export class CombatStateService {
    * 获得增益2（加成计算.ecode L664-L681）
    * 战斗中获得 buff：同名直接替换，并按防御方韧性折算持续时间；否则新增。
    * @param 增益 增益数组（原地修改）
-   * @param 增益定义 完整增益对象
+   * @param 增益定义 完整增益对象（{ name, strength, duration? }）
    * @param s 当前毫秒时间戳
    * @param 韧性 防御方韧性百分比
    */
   gainBuff2(
     增益: BuffItem[],
-    增益定义: Omit<BuffItem, '有效期至'> & { 持续时间?: number },
+    增益定义: Omit<BuffItem, 'expireAt'> & { duration?: number },
     s: number,
     韧性 = 0,
   ): void {
-    const durationSeconds = this.safeNumber(增益定义.持续时间);
+    const durationSeconds = this.safeNumber(增益定义.duration);
     const expireAt = s + (1 - this.safeNumber(韧性) / 100) * durationSeconds * SECOND_MS;
-    const existingIndex = 增益.findIndex((item) => item?.名称 === 增益定义.名称);
+    const existingIndex = 增益.findIndex((item) => item?.name === 增益定义.name);
     if (existingIndex >= 0) {
-      增益[existingIndex] = { ...增益定义, 有效期至: expireAt };
+      增益[existingIndex] = { ...增益定义, expireAt };
       return;
     }
-    增益.push({ ...增益定义, 有效期至: expireAt });
+    增益.push({ ...增益定义, expireAt });
   }
 
   private safeNumber(value: any): number {
@@ -649,8 +658,8 @@ export class CombatStateService {
    * 装备要求（物品操作.ecode L1512）
    * 判断玩家是否装备了指定特殊序号或名称的装备（或手持对应武器）。
    *
-   * @param 装备列表 玩家已装备列表，每项 { 名称, 特殊序号 }
-   * @param 武器列表 玩家武器列表，每项 { 名称, 特殊序号 }（当前武器索引 = 当前武器）
+   * @param 装备列表 玩家已装备列表，每项 { name, specialSeq }
+   * @param 武器列表 玩家武器列表，每项 { name, specialSeq }（当前武器索引 = 当前武器）
    * @param 当前武器 当前手持武器下标（0 表示拳头/无武器）
    * @param 特殊序号 检索的特殊序号（0 表示按名称）
    * @param 名称 检索的名称
@@ -658,8 +667,8 @@ export class CombatStateService {
    * @returns 是否装备/手持
    */
   equipRequire(
-    装备列表: Array<{ 名称: string; 特殊序号?: number }>,
-    武器列表: Array<{ 名称: string; 特殊序号?: number }>,
+    装备列表: Array<{ name: string; specialSeq?: number }>,
+    武器列表: Array<{ name: string; specialSeq?: number }>,
     当前武器: number,
     特殊序号: number,
     名称?: string,
@@ -671,30 +680,30 @@ export class CombatStateService {
       const cur = 武器列表[当前武器 - 1] || 武器列表[当前武器]; // 易语言数组从1开始
       if (!cur) return false;
       if (特殊序号 !== 0) {
-        return cur.特殊序号 === 特殊序号;
+        return cur.specialSeq === 特殊序号;
       }
-      return cur.名称 === 名称;
+      return cur.name === 名称;
     }
     // 第二段：装备检索（原版 L1537-1579）
     if (特殊序号 !== 0) {
       for (const eq of 装备列表) {
-        if (特殊序号 === eq.特殊序号) return true;
+        if (特殊序号 === eq.specialSeq) return true;
         // 增幅器范围 71-75（原版 L1542-1543）
         if (特殊序号 === SEQ.增幅器 &&
-          eq.特殊序号! >= AMPLIFIER_SEQ_RANGE[0] && eq.特殊序号! <= AMPLIFIER_SEQ_RANGE[1]) return true;
+          eq.specialSeq! >= AMPLIFIER_SEQ_RANGE[0] && eq.specialSeq! <= AMPLIFIER_SEQ_RANGE[1]) return true;
         // 植入体范围 76-79（原版 L1547-1548）
         if (特殊序号 === SEQ.植入体 &&
-          eq.特殊序号! >= IMPLANT_SEQ_RANGE[0] && eq.特殊序号! <= IMPLANT_SEQ_RANGE[1]) return true;
+          eq.specialSeq! >= IMPLANT_SEQ_RANGE[0] && eq.specialSeq! <= IMPLANT_SEQ_RANGE[1]) return true;
       }
       return false;
     }
     // 按名称检索（原版 L1557-1576）
     for (const eq of 装备列表) {
       if (名称 === '增幅器') {
-        if ((eq.名称 || '').substring(0, 6) === '增幅器') return true;
+        if ((eq.name || '').substring(0, 6) === '增幅器') return true;
       } else if (名称 === '植入体') {
-        if ((eq.名称 || '').substring(0, 6) === '植入体') return true;
-      } else if (eq.名称 === 名称) {
+        if ((eq.name || '').substring(0, 6) === '植入体') return true;
+      } else if (eq.name === 名称) {
         return true;
       }
     }

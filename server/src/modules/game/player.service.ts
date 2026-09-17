@@ -18,6 +18,9 @@ import { deriveDisplayName } from './display-name.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
 import { canonicalizeBackpack, lookupFromStaticData, mergeBackpackItem } from './item-normalize.util';
+// 字段规范契约（唯一别名映射表）：读档/落库两个边界统一收敛字段名；
+// 标记读/写/存在性判定统一走这里的唯一口径（数组 { name, value } / 字典按键）
+import { normalizePlayerRow, normalizeEntryList, readMarkerValue, writeMarkerValue } from './field-contract.util';
 // 三池数值出口归一化（第四道闸）：落库前兜底收敛，保证 DB 不出现浮点残值脏数据。
 import { normalizePools, normalizePoolValue } from './player-pool.util';
 import { PlayerMutateContextService } from './player-mutate-context.service';
@@ -394,11 +397,12 @@ export class PlayerService {
 
       // 初始任务：自动领取「新手教程」（对应原版 开局自动接取新手引导任务）
       // 任务要求与奖励从静态数据 tasks.json 读取，避免在代码中硬编码
-      let initialTasks: Array<{ name: string; requirements: Array<{ name: string; count: number }> }> = [];
+      // 任务需求条目数量规范键为 quantity（同义旧键 count 已废弃）
+      let initialTasks: Array<{ name: string; requirements: Array<{ name: string; quantity: number }> }> = [];
       const tutorialTask = this.staticData.getTaskByName('新手教程');
       if (tutorialTask) {
         // asJsonValue 容错读取：静态数据可能已是解析数组（新格式）或 JSON 字符串（旧格式）
-        const reqs = asJsonValue<Array<{ name: string; count: number }>>(
+        const reqs = asJsonValue<Array<{ name: string; quantity: number }>>(
           tutorialTask.requirements, []
         );
         if (reqs.length > 0) {
@@ -547,6 +551,11 @@ export class PlayerService {
     }
 
 
+    // 字段规范归一化（读档闸）：把历史别名键（数量/名称/count/有效期至…）就地收敛为
+    // 规范英文键，业务代码此后只可能看到一套字段名，杜绝「某处只读 count」这类口径分裂。
+    // 详见 field-contract.util.ts（唯一映射表）。
+    normalizePlayerRow(player);
+
     // 货币物化（P1）：钻石/召唤券/数据核心的真相源是独立列，读取时物化回
     // 背包数组，业务代码照常按背包物品读写（透明兼容）。
     this.materializeCurrencies(player);
@@ -638,7 +647,6 @@ export class PlayerService {
       name: '植入体',
       type: '装备',
       quantity: 1,
-      count: 1,
       durability: 0,
       data: 'x', // 白板品质码：无词条、无强化
     });
@@ -800,31 +808,15 @@ export class PlayerService {
   /**
    * 统一货币读写入口（三支柱·支柱一：单写者下的构造级新鲜度）
    *
-   * 背景（正式库 7516「兑换后立刻召唤只看到兑换前 21.012」事故）：货币条目是
-   * count/quantity 双字段镜像，兑换加券只写 quantity、召唤只读 count——同一次
-   * 兑换后，同一份权威活态里 count 仍是旧值，召唤在 Actor 内读到它并按旧值扣减，
-   * 把刚兑换的券整段吞掉。savePlayer 的「重读+合并」安全网救不了这种分裂：
-   * 两个字段都属于同一权威态， quantity 的修改是真实变更，count 的陈旧是合法字段值。
+   * 背景（正式库 7516「兑换后立刻召唤只看到兑换前 21.012」事故）：货币条目曾经是
+   * count/quantity 双字段镜像——兑换加券只写 quantity、召唤只读 count，同一份权威
+   * 活态里两个数量互相打架，savePlayer 的「重读+合并」安全网救不了这种分裂
+   * （两个字段都属于同一权威态，quantity 的修改是真变更、count 的陈旧是合法字段值）。
    *
-   * 根治方式：所有货币数量读写必须经过本入口——
-   * - 读（getEntryQuantity/getCurrencyAmount）：与落库仲裁完全同口径（已知物化基准时
-   *   取「偏离基准更大」的字段），对历史分裂条目也读到最新值；
-   * - 写（setCurrencyAmount）：count/quantity 双字段同步 + 刷新物化基准，
-   *   「读到旧字段」在构造上不再可能。
+   * 根治方式：货币条目只保留规范键 quantity（与物品域完全同口径，历史别名 count
+   * 由 field-contract 在读写档边界收敛），因此「读到旧字段」在构造上不再可能；
+   * 所有货币数量读写统一经过本入口。
    */
-
-  /** 背包条目数量的权威读：镜像基准可知时取偏离基准更大的字段（与落库仲裁同口径）。 */
-  getEntryQuantity(player: any, item: any): number {
-    if (!item) return 0;
-    const q = item.quantity !== undefined ? Number(item.quantity) : undefined;
-    const c = item.count !== undefined ? Number(item.count) : undefined;
-    const base = (player as any)?._currencyMirror?.[item?.name];
-    if (base !== undefined && q !== undefined && c !== undefined) {
-      return Math.abs(q - Number(base)) >= Math.abs(c - Number(base)) ? q : c;
-    }
-    const v = q ?? c ?? 0;
-    return Number.isFinite(Number(v)) ? Number(v) : 0;
-  }
 
   /**
    * 按名称读货币数量（背包条目缺失 = 0）。
@@ -834,13 +826,13 @@ export class PlayerService {
   getCurrencyAmount(player: any, name: string, backpack?: any[]): number {
     const items = backpack ?? asJsonValue<any[]>(player?.backpack, []);
     const item = items.find((it: any) => it?.name === name);
-    return this.getEntryQuantity(player, item);
+    const quantity = Number(item?.quantity);
+    return Number.isFinite(quantity) ? quantity : 0;
   }
 
   /**
-   * 按名称写货币数量：双字段同步 + 刷新 _currencyMirror 物化基准；
-   * value<=0 视为花光——移除条目并把基准清 0（对齐「背包条目缺失=已花光」不变量，
-   * 落库侧据此把列同步为 0）。无 _currencyMirror 的对象（原始行/测试桩）只做双字段写。
+   * 按名称写货币数量：只写规范键 quantity；value<=0 视为花光——移除条目
+   * （对齐「背包条目缺失=已花光」不变量，落库侧据此把列同步为 0）。
    * @param backpack 调用方持有的工作背包数组。传入时只改该数组（提交由调用方
    * `player.backpack = backpack` 统一完成，与全库「解析克隆→改→写回」约定一致）；
    * 不传时自行解析并写回权威态。
@@ -849,18 +841,12 @@ export class PlayerService {
     const items = backpack ?? asJsonValue<any[]>(player?.backpack, []);
     const idx = items.findIndex((it: any) => it?.name === name);
     const qty = roundItemQuantity(value);
-    const mirror: Record<string, number> | undefined = (player as any)._currencyMirror;
     if (!Number.isFinite(qty) || qty <= 0) {
       if (idx >= 0) items.splice(idx, 1);
-      if (mirror) mirror[name] = 0;
+    } else if (idx >= 0) {
+      items[idx].quantity = qty;
     } else {
-      if (idx >= 0) {
-        items[idx].quantity = qty;
-        items[idx].count = qty;
-      } else {
-        items.push({ name, type: '资源', quantity: qty, count: qty });
-      }
-      if (mirror) mirror[name] = qty;
+      items.push({ name, type: '资源', quantity: qty });
     }
     if (!backpack) player.backpack = items;
   }
@@ -875,24 +861,19 @@ export class PlayerService {
     const upsert = (name: string, qty: number) => {
       const idx = backpack.findIndex((item: any) => item?.name === name);
       if (qty > 0) {
-        // 双字段镜像：存量代码读 .count（如召唤）或 .quantity（如兑换）都正确；
-        // 写侧只改其一也没关系——保存时按「与物化基准值的偏差」识别被改的字段。
-        if (idx >= 0) {
-          backpack[idx].quantity = qty;
-          backpack[idx].count = qty;
-        } else {
-          backpack.push({ name, type: '资源', quantity: qty, count: qty });
-        }
+        if (idx >= 0) backpack[idx].quantity = qty;
+        else backpack.push({ name, type: '资源', quantity: qty });
       } else if (idx >= 0) {
         backpack.splice(idx, 1);
       }
-      // 记录物化基准（不落库）：保存时用于识别业务改的是哪个字段
-      ((player as any)._currencyMirror ||= {})[name] = qty;
     };
     upsert('钻石', Number(player.diamonds ?? 0));
     upsert('召唤券', Number(player.tickets ?? 0));
     upsert('数据核心', Number(player.dataCores ?? 0));
     player.backpack = backpack; // Json 列直接写数组
+    // 物化标记（不落库）：落库提取货币时据此确认「背包对三种货币有最终解释权」，
+    // 手工构造的局部对象/未物化的原始行没有它，其货币条目不被信任。
+    (player as any)._currencyMaterialized = true;
   }
 
 
@@ -1100,11 +1081,11 @@ export class PlayerService {
     }
 
     // 混合态复活防线（Actor 合并路径）：incoming 携带未物化的原始背包（字符串形态，
-    // 直读 prisma 行的特征）而活态已有货币镜像时，incoming 的货币条目新鲜度不可知
+    // 直读 prisma 行的特征）而活态已物化过货币时，incoming 的货币条目新鲜度不可知
     // ——正式库「陈旧钻石条目复活」事故形态。货币以活态列+物化条目为唯一权威：
     // 丢弃 incoming 的货币条目、保留活态物化条目，非货币改动照常合并。
     // （经 getPlayerData 物化的 incoming 走上方 diff 路径，不受本分支影响。）
-    if (typeof incoming.backpack === 'string' && (liveRow as any)._currencyMirror) {
+    if (typeof incoming.backpack === 'string' && (liveRow as any)._currencyMaterialized) {
       const incomingBp = this.safeJsonParse<any[]>(incoming.backpack, []);
       const liveBp = this.safeJsonParse<any[]>(liveRow.backpack, []);
       if (Array.isArray(incomingBp) && Array.isArray(liveBp)) {
@@ -1330,6 +1311,9 @@ export class PlayerService {
         try { items = JSON.parse(updateData.backpack); } catch { items = null; }
       }
       if (Array.isArray(items)) {
+        // 落库边界统一收敛条目字段名（count→quantity 等历史别名在此彻底消失，
+        // 保证 DB 中永远只有规范键；读档边界已收敛，这里是幂等的兜底）
+        normalizeEntryList(items, 'item');
         // 判别「权威快照」：对象上有货币列字段说明它来自 getPlayerData 的完整读取，
         // 此时背包对三种货币有最终解释权（条目缺失=已花光=0）；
         // 手工构造的局部对象（无货币字段）只做「有条目才同步」的保守提取，
@@ -1337,48 +1321,32 @@ export class PlayerService {
         const authoritativeSnapshot = player.diamonds !== undefined
           || player.tickets !== undefined
           || player.dataCores !== undefined;
-        // 物化时记录的基准值：用于双字段镜像下识别「哪个字段被业务改过」
-        const mirrorMap = (player as any)._currencyMirror || {};
+        // 列同步只信任经 materializeCurrencies 物化过的对象（_currencyMaterialized）：
+        // 该标记等价于「这份背包是 getPlayerData 装载的完整态」。无标记的对象（手工
+        // 构造的局部写、findUnique 原始行的历史遗留 JSON 条目）其条目新鲜度不可知——
+        // 正式库事故即「陈旧钻石条目」经保守提取复活成权威余额（旧余额覆盖新余额的
+        // 混合态）。此类对象一律：条目从背包 JSON 剥离（维持背包不含货币条目的
+        // 不变量）、货币列保持原值不动、告警暴露。
+        const materialized = (player as any)._currencyMaterialized === true;
         const pairs: Array<[string, string]> = [['钻石', 'diamonds'], ['召唤券', 'tickets'], ['数据核心', 'dataCores']];
         for (const [itemName, column] of pairs) {
           const idx = items.findIndex((it: any) => it?.name === itemName);
           if (idx >= 0) {
-            const it = items[idx];
-            const hasQ = it.quantity !== undefined;
-            const hasC = it.count !== undefined;
-            // 列同步只信任经 materializeCurrencies 物化的对象（_currencyMirror
-            // 存在）：双字段镜像仲裁必须已知基准才可靠。无 mirror 的对象（手工
-            // 构造的局部写、findUnique 原始行的历史遗留 JSON 条目）其条目新鲜度
-            // 不可知——正式库事故即「陈旧钻石条目」经保守提取复活成权威余额
-            // （旧余额覆盖新余额的混合态）。此类对象一律：条目从背包 JSON 剥离
-            // （维持背包不含货币条目的不变量）、货币列保持原值不动、告警暴露。
-            if (mirrorMap[itemName] !== undefined) {
-              let value: number;
-              if (hasQ && hasC) {
-                // 双字段都在且已知基准：取偏离基准更大的字段（另一个是未被修改的镜像）
-                const q = Number(it.quantity);
-                const c = Number(it.count);
-                const base = Number(mirrorMap[itemName]);
-                value = Math.abs(q - base) >= Math.abs(c - base) ? q : c;
-              } else if (hasQ) {
-                // 单字段：该字段即权威值
-                value = Number(it.quantity);
-              } else {
-                value = Number(it.count ?? 0);
-              }
+            if (materialized) {
+              const value = Number(items[idx].quantity) || 0;
               updateData[column] = value;
               // 同步回内存快照：调用方（如 mutate 审计）保存后读取列值应与库一致
               (player as any)[column] = value;
             } else {
               this.logger.warn(
-                `货币条目来自未物化对象(无_currencyMirror)，已剥离条目并保留列原值`
-                + ` id=${player?.id ?? '未知'} column=${column} 条目值=${hasQ ? it.quantity : it.count}`,
+                `货币条目来自未物化对象(无_currencyMaterialized)，已剥离条目并保留列原值`
+                + ` id=${player?.id ?? '未知'} column=${column} 条目值=${items[idx].quantity}`,
               );
             }
             items.splice(idx, 1);
-          } else if (authoritativeSnapshot && (player as any)._currencyMirror) {
-            // 仅当对象经 getPlayerData 物化过货币（_currencyMirror 存在）时，
-            // 背包条目缺失才算「已花光=0」；findUnique 原始行没有 mirror，
+          } else if (authoritativeSnapshot && materialized) {
+            // 仅当对象经 getPlayerData 物化过货币（_currencyMaterialized 存在）时，
+            // 背包条目缺失才算「已花光=0」；findUnique 原始行没有该标记，
             // 其背包本就不含物化条目——缺失只代表落库态未物化，绝不能据此清零，
             // 否则旧读档把整列背包回写会顺带把货币误清为 0
             // （「主线-继续询问」任务结算清空玩家钻石/召唤券的正式库事故根因防护）。
@@ -1422,6 +1390,9 @@ export class PlayerService {
     // 落库兜底闸（第四道闸）：任何漏过业务出口的三池浮点/负值写入在此收敛为
     // 「两位小数 + <0.01 归零」，DB 不会存下 0.02 这类「面板显示 0、判定仍存活」的脏值。
     normalizePools(player);
+    // 字段规范闸（落库唯一出口）：任何写入方即使写了历史别名键（数量/名称/count/
+    // 有效期至…），此处一并收敛为规范英文键后落库，保证 DB 里同义字段只有一份。
+    normalizePlayerRow(player);
     const updateData = this.buildPlayerUpdateData(player);
     // 全路径货币审计（P4 兜底）：mutate 管道内的审计只覆盖 mutate 链，这里在
     // 真正落库层兜底——Actor writeThrough / 邮箱路径 / 裸保存的货币变动同样入账。
@@ -1893,8 +1864,8 @@ export class PlayerService {
     const deathText = `${player.name || '冒险者'}已经死掉了!你可以"复活使魔"或者"删除怪物"`;
 
     const nowMs = Date.now();
-    // 运行时对象（召唤物/怪物/载具）生命存于 currentHp / 中文键，存在时才一并同步
-    const curHp = Number(player.hp ?? player.currentHp ?? player.当前生命 ?? 0);
+    // 运行时对象（召唤物/怪物/载具）生命存于 currentHp，存在时才一并同步
+    const curHp = Number(player.hp ?? player.currentHp ?? 0);
     if (curHp > 0) return { dead: false, reviveText: '', deathText: '' };
 
     const buffs = Array.isArray(playerData?.buffs)
@@ -1919,13 +1890,12 @@ export class PlayerService {
     /** 原版 装备要求(玩家, seq, , 真)：武器与装备任一命中即可 */
     const ownsSpecialSeq = (seq: number): boolean =>
       [...weapons, ...equipment]
-        .some((it: any) => it && Number(it.specialSeq ?? it.特殊序号 ?? NaN) === seq);
+        .some((it: any) => it && Number(it.specialSeq ?? NaN) === seq);
     /** 半血复活 + 写冷却标记（原版 当前生命 = 属性.生命 / 2） */
     const revive = (label: string, cdKey: string, cdSec: number) => {
       const half = normalizePoolValue(maxHp / 2);
       player.hp = half;
       if ('currentHp' in player) player.currentHp = half;
-      if ('当前生命' in player) player.当前生命 = half;
       const next = markers2.filter((m: any) => itemName(m) !== cdKey);
       next.push({ name: cdKey, expireAt: expireAfter(cdSec, nowMs) });
       player.markers2 = next;
@@ -1950,7 +1920,7 @@ export class PlayerService {
       const summons = this.safeJsonParse<any[]>(playerData?.map?.summons, []);
       const alivePet = summons.some((s: any) => s
         && (s.userId === player.qqNumber || s.userId === player.userId)
-        && Number(s.hp ?? s.当前生命 ?? 0) > 0);
+        && Number(s.hp ?? 0) > 0);
       if (alivePet && !cdActive('sf')) {
         return revive('"森罗万象"', 'sf', 60);
       }
@@ -2045,17 +2015,17 @@ export class PlayerService {
             // 入包走唯一出口（装备不合并；出口兜底保证品质码不变量）
             mergeBackpackItem(
               backpack,
-              { ...gear, name: gear?.name || itemName, type: '装备', quantity: 1, count: 1 },
+              { ...gear, name: gear?.name || itemName, type: '装备', quantity: 1 },
               lookupFromStaticData(this.staticData),
             );
           }
         } else {
           // 普通物品：走背包写入唯一出口（按名合并、type 以静态定义为唯一真源、
-          // 数量双字段镜像 + 两位小数收敛），不再在此手写合并逻辑（2026-09-10 收敛）
+          // 数量只写规范键 quantity + 两位小数收敛），不再在此手写合并逻辑（2026-09-10 收敛）
           const qty = roundItemQuantity(count);
           mergeBackpackItem(
             backpack,
-            { name: itemName, count: qty, quantity: qty },
+            { name: itemName, quantity: qty },
             lookupFromStaticData(this.staticData),
           );
         }
@@ -2091,8 +2061,8 @@ export class PlayerService {
         }
 
         const item = backpack[index];
-        // 兼容 quantity/count 双字段：优先 count，其次 quantity
-        const currentCount = item.count ?? item.quantity ?? 1;
+        // 数量只读规范键 quantity（count/数量 等别名已由持久化边界收敛，见 field-contract.util.ts）
+        const currentCount = Number(item.quantity ?? 0);
 
         if (currentCount < count) {
           this.logger.warn(`移除物品失败：${itemName} 数量不足（需要 ${count}，拥有 ${currentCount}）`);
@@ -2103,9 +2073,9 @@ export class PlayerService {
           // 数量刚好用完，移除该物品条目
           backpack.splice(index, 1);
         } else {
-          // 减少数量（统一写 count，清理 quantity 避免歧义）
-          item.count = currentCount - count;
-          delete item.quantity;
+          // 减少数量（只写规范键 quantity，清理历史别名 count 避免歧义）
+          item.quantity = currentCount - count;
+          if ('count' in item) delete item.count;
         }
 
         _pd.player.backpack = backpack; // Json 列直接写数组
@@ -2119,46 +2089,39 @@ export class PlayerService {
   }
 
   /**
-   * 检查玩家是否有某个标记
-   * @param markers 标记对象（已解析或 JSON 字符串）
+   * 检查玩家是否有某个标记。
+   * 数组形态看是否存在同名条目，字典形态看键是否存在；两者都由共享口径判定。
+   * @param markers 标记容器（已解析对象/数组，或 Json 列历史字符串）
    * @param name 标记名
    * @returns 是否存在该标记
    */
   hasMarker(markers: any, name: string): boolean {
-    const parsed = typeof markers === 'string'
-      ? this.safeJsonParse<any>(markers, {})
-      : (markers || {});
-    return parsed[name] !== undefined && parsed[name] !== null;
+    const parsed = typeof markers === 'string' ? this.safeJsonParse<any>(markers, {}) : markers;
+    if (Array.isArray(parsed)) return parsed.some((it: any) => it && it.name === name);
+    return parsed?.[name] !== undefined && parsed?.[name] !== null;
   }
 
   /**
-   * 获取标记的数值
-   * @param markers 标记对象（已解析或 JSON 字符串）
+   * 获取标记的数值（标记读取唯一口径，数组/字典两种形态通用，缺失返回 0）。
+   * @param markers 标记容器（已解析对象/数组，或 Json 列历史字符串）
    * @param name 标记名
    * @returns 标记数值，不存在时返回 0
    */
   getMarkerValue(markers: any, name: string): number {
-    const parsed = typeof markers === 'string'
-      ? this.safeJsonParse<any>(markers, {})
-      : (markers || {});
-    return parsed[name] || 0;
+    const parsed = typeof markers === 'string' ? this.safeJsonParse<any>(markers, {}) : markers;
+    return readMarkerValue(parsed, name);
   }
 
   /**
-   * 设置标记
-   * 若标记已存在则覆盖，不存在则新增
-   * @param markers 标记对象（已解析或 JSON 字符串，会被修改）
+   * 设置标记（标记写入唯一口径：数组写 { name, value }、字典按键赋值，原地修改）。
+   * 传入字符串（Json 列原始值）时无法原地写回，调用方必须先解析为对象/数组——
+   * 与历史行为一致（旧实现解析副本后写它，同样不会作用到调用方）。
+   * @param markers 标记容器（对象或数组）
    * @param name 标记名
    * @param value 标记数值
    */
   setMarker(markers: any, name: string, value: number): void {
-    const parsed = typeof markers === 'string'
-      ? this.safeJsonParse<any>(markers, {})
-      : (markers || {});
-    parsed[name] = value;
-    // 如果传入的是对象引用，直接修改；否则修改后返回
-    if (typeof markers === 'object' && markers !== null) {
-      Object.assign(markers, parsed);
-    }
+    if (!markers || typeof markers !== 'object') return;
+    writeMarkerValue(markers, name, value);
   }
 }

@@ -1,7 +1,7 @@
 /**
  * GM 后台「背包管理」单元测试
  * 覆盖 AdminService.gmGetBackpack / gmSaveBackpack 的核心归一化逻辑：
- * 同名合并、quantity→count 统一、数量=0 删除、非法数量校验、无角色保护。
+ * 同名合并、数量统一为规范键 quantity（count 旧镜像已废弃）、数量=0 删除、非法数量校验、无角色保护。
  * 通过 Stub 掉 PrismaService 与 PlayerService，只验证业务层行为。
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -53,22 +53,19 @@ function buildService(dbPlayer: any, dbUser: any) {
       const upsert = (name: string, qty: number) => {
         if (!Number.isFinite(qty) || qty <= 0) return;
         const idx = items.findIndex((it: any) => it?.name === name);
+        // 数量只写规范键 quantity，count 旧镜像不再写（与 materializeCurrencies 真实实现对齐）
         if (idx >= 0) {
           items[idx].quantity = qty;
-          items[idx].count = qty;
         } else {
-          items.push({ name, type: '资源', quantity: qty, count: qty });
+          items.push({ name, type: '资源', quantity: qty });
         }
       };
       if (player.diamonds !== undefined) upsert('钻石', Number(player.diamonds ?? 0));
       if (player.tickets !== undefined) upsert('召唤券', Number(player.tickets ?? 0));
       if (player.dataCores !== undefined) upsert('数据核心', Number(player.dataCores ?? 0));
       player.backpack = items;
-      (player as any)._currencyMirror = {
-        钻石: Number(player.diamonds ?? 0),
-        召唤券: Number(player.tickets ?? 0),
-        数据核心: Number(player.dataCores ?? 0),
-      };
+      // 物化标记与真实实现一致（不落库，仅内存标记）
+      (player as any)._currencyMaterialized = true;
       return { player };
     },
     savePlayer: async () => undefined,
@@ -97,7 +94,7 @@ describe('AdminService 背包管理', () => {
     const dbPlayer = {
       userId: 5,
       backpack: JSON.stringify([
-        { name: '水晶', count: 10 },
+        { name: '水晶', quantity: 10 },
         { name: '石制工具', type: '装备', quantity: 1, durability: 0, data: 'e' },
       ]),
     };
@@ -105,7 +102,7 @@ describe('AdminService 背包管理', () => {
 
     const items = await service.gmGetBackpack(5);
     expect(items).toHaveLength(2);
-    expect(items[0]).toMatchObject({ name: '水晶', count: 10 });
+    expect(items[0]).toMatchObject({ name: '水晶', quantity: 10 });
     expect(items[1]).toMatchObject({ name: '石制工具', type: '装备', durability: 0 });
   });
 
@@ -118,7 +115,7 @@ describe('AdminService 背包管理', () => {
     // 落库态：背包 JSON 不含货币条目（savePlayer 会剥离），真相源在独立列
     const dbPlayer = {
       userId: 5,
-      backpack: JSON.stringify([{ name: '水晶', count: 10 }]),
+      backpack: JSON.stringify([{ name: '水晶', quantity: 10 }]),
       diamonds: 1000,
       tickets: 3,
       dataCores: 0, // 0 不物化
@@ -126,24 +123,24 @@ describe('AdminService 背包管理', () => {
     const { service } = buildService(dbPlayer, { id: 5, username: 'alice' });
 
     const items = await service.gmGetBackpack(5);
-    expect(items).toContainEqual(expect.objectContaining({ name: '水晶', count: 10 }));
+    expect(items).toContainEqual(expect.objectContaining({ name: '水晶', quantity: 10 }));
     expect(items).toContainEqual(
-      expect.objectContaining({ name: '钻石', count: 1000, quantity: 1000, type: '资源' }),
+      expect.objectContaining({ name: '钻石', quantity: 1000, type: '资源' }),
     );
     expect(items).toContainEqual(
-      expect.objectContaining({ name: '召唤券', count: 3, quantity: 3, type: '资源' }),
+      expect.objectContaining({ name: '召唤券', quantity: 3, type: '资源' }),
     );
     expect(items.some((i: any) => i.name === '数据核心')).toBe(false);
   });
 
-  it('gmSaveBackpack 同名合并、quantity/count 统一为 count、数量0删除', async () => {
+  it('gmSaveBackpack 同名合并、count/quantity 统一为规范键 quantity、数量0删除', async () => {
     const dbPlayer = { userId: 5, backpack: JSON.stringify([]) };
     const { service, dbPlayer: dp } = buildService(dbPlayer, { id: 5, username: 'alice' });
 
     const msg = await service.gmSaveBackpack(5, [
       { name: '水晶', quantity: 5 },
       { name: '水晶', quantity: 5 }, // 同名合并 → 10
-      { name: '木头', count: 3 },
+      { name: '木头', quantity: 3 },
       { name: '面包', quantity: 0 }, // 0 → 删除
       { name: '石制工具', quantity: 1, type: '装备', durability: 0, data: 'e' },
     ]);
@@ -151,11 +148,11 @@ describe('AdminService 背包管理', () => {
     expect(msg).toContain('3 种物品');
     const saved = parseJson(dp.backpack, []);
     expect(saved).toHaveLength(3);
-    expect(saved).toContainEqual({ name: '水晶', count: 10 });
-    expect(saved).toContainEqual({ name: '木头', count: 3 });
-    // quantity 已被清理为 count，durability/data 保留
-    expect(saved).toContainEqual(expect.objectContaining({ name: '石制工具', count: 1, durability: 0, data: 'e' }));
-    expect(saved.some((i: any) => i.quantity !== undefined)).toBe(false);
+    expect(saved).toContainEqual({ name: '水晶', quantity: 10 });
+    expect(saved).toContainEqual({ name: '木头', quantity: 3 });
+    // count 旧镜像已被清理，durability/data 保留
+    expect(saved).toContainEqual(expect.objectContaining({ name: '石制工具', quantity: 1, durability: 0, data: 'e' }));
+    expect(saved.some((i: any) => i.count !== undefined)).toBe(false);
   });
 
   it('gmSaveBackpack 拒绝非法（负数）数量', async () => {

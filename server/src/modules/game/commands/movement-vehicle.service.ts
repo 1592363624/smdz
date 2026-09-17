@@ -17,6 +17,7 @@
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { formatSecondsDurationText, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { tagMarkerKind } from '.././expire-time.util';
+import { normalizeVehicleEntry, readMarkerValue } from '.././field-contract.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlayerService } from '.././player.service';
 import { CombatSystemService } from '.././combat-system.service';
@@ -244,12 +245,12 @@ export class MovementVehicleService {
     // 对齐原版 _主程序.ecode L6626-6630：载具行走方式 0(未安装行走机构)/4(无法移动) 时不能"前往"
     const travelVehicle = await this.findTravelVehicle(player, currentMap);
     if (travelVehicle) {
-      const walkMode = Number(travelVehicle?.行走方式 ?? travelVehicle?.walkMode ?? travelVehicle?.moveType ?? 0);
+      const walkMode = Number(travelVehicle?.moveType ?? travelVehicle?.walkMode ?? 0);
       if (walkMode === 0) {
-        return `${player.name}当前驾驶的载具${travelVehicle?.名称 || travelVehicle?.name || ''}未安装行走机构或有的部件超过了上限`;
+        return `${player.name}当前驾驶的载具${travelVehicle?.name || ''}未安装行走机构或有的部件超过了上限`;
       }
       if (walkMode === 4) {
-        return `${player.name}当前驾驶的载具${travelVehicle?.名称 || travelVehicle?.name || ''}安装了无法移动的组件`;
+        return `${player.name}当前驾驶的载具${travelVehicle?.name || ''}安装了无法移动的组件`;
       }
     }
 
@@ -355,15 +356,15 @@ export class MovementVehicleService {
     // 无载具才检查天蓝吊坠/军姬免费传送。
     const vehicle = await this.findTravelVehicle(player, currentMap);
     if (vehicle) {
-      const walkMode = Number(vehicle?.行走方式 ?? vehicle?.walkMode ?? vehicle?.moveType ?? 0);
-      const vehicleName = vehicle?.名称 || vehicle?.name || '';
+      const walkMode = Number(vehicle?.moveType ?? vehicle?.walkMode ?? 0);
+      const vehicleName = vehicle?.name || '';
       if (walkMode === 1) return `${name}当前驾驶的载具${vehicleName}只能使用“前往”来移动`;
       if (walkMode === 2) return `${name}当前驾驶的载具${vehicleName}只能使用“前往”或者“飞到”来移动`;
       if (walkMode === 4) return `${name}当前驾驶的载具${vehicleName}安装了无法移动的组件`;
       if (walkMode === 0) return `${name}当前驾驶的载具${vehicleName}未安装行走机构或有的部件超过了上限`;
     } else {
       const equipment = playerData.equipment || asJsonValue<any[]>(player.equipment, []);
-      const hasPendant = equipment.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '天蓝吊坠');
+      const hasPendant = equipment.some((item: any) => String(item?.name ?? '') === '天蓝吊坠');
       const freeByFamiliar = await this.familiarSystemService.canFreeTeleport(userId);
       if (!hasPendant && !freeByFamiliar) return `${name},需要装备“天蓝吊坠”`;
     }
@@ -468,14 +469,14 @@ export class MovementVehicleService {
 
     // 代发言触发（原版 L1761-1777）：地图“代发言”字段当前数据未配置（已知遗留），
     // 字段存在时按原版语义执行——载具损毁看隐形披风，其余看载具隐形模块。
-    const autoBroadcast = String((targetMap as any).代发言 ?? (targetMap as any).autoBroadcast ?? '');
+    const autoBroadcast = String((targetMap as any).proxySpeak ?? (targetMap as any).autoBroadcast ?? '');
     if (autoBroadcast) {
       if (autoBroadcast === '触发攻击') {
-        const vehicleHp = Number(vehicle?.当前生命 ?? vehicle?.currentHp ?? vehicle?.hp ?? 0);
+        const vehicleHp = Number(vehicle?.currentHp ?? 0);
         let shouldTrigger = false;
         if (vehicle && vehicleHp < 0) {
           const freshEquip = asJsonValue<any[]>((await this.playerService.getPlayerData(userId)).player.equipment, []);
-          const hasCloak = freshEquip.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '隐形披风');
+          const hasCloak = freshEquip.some((item: any) => String(item?.name ?? '') === '隐形披风');
           shouldTrigger = !hasCloak;
         } else {
           const partNames = vehicle ? this.panel.collectVehiclePartNames(vehicle) : [];
@@ -659,19 +660,19 @@ export class MovementVehicleService {
       if (!check.canTravel) return `${playerName}${check.reason || '无法前往该地图'}`;
     }
 
-    const moveType = Number(vehicle?.行走方式 ?? vehicle?.walkMode ?? vehicle?.moveType ?? 0);
+    const moveType = Number(vehicle?.moveType ?? vehicle?.walkMode ?? 0);
     if (vehicle && moveType === 0) {
-      return `${playerName}当前驾驶的载具${vehicle.名称 || vehicle.name}未安装行走机构或有的部件超过了上限`;
+      return `${playerName}当前驾驶的载具${vehicle.name}未安装行走机构或有的部件超过了上限`;
     }
     if (vehicle && moveType === 1) {
-      return `${playerName}当前驾驶的载具${vehicle.名称 || vehicle.name}只能使用“前往”来移动`;
+      return `${playerName}当前驾驶的载具${vehicle.name}只能使用“前往”来移动`;
     }
     if (vehicle && moveType === 4) {
-      return `${playerName}当前驾驶的载具${vehicle.名称 || vehicle.name}安装了无法移动的组件`;
+      return `${playerName}当前驾驶的载具${vehicle.name}安装了无法移动的组件`;
     }
 
     const hasFox = [...(playerData.equipment || []), ...(playerData.weapons || [])]
-      .some((item: any) => String(item?.name ?? item?.名称 ?? '') === '狐');
+      .some((item: any) => String(item?.name ?? '') === '狐');
     let arrivalMap = targetMap;
     let confused = false;
     if (!vehicle && !hasFox && Math.random() < 0.1) {
@@ -715,7 +716,7 @@ export class MovementVehicleService {
     if (!key) return null;
     const vehicles = this.parseVehicleValue<any[]>(currentMap?.vehicles, []);
     const keys = (value: any): string[] => [
-      value?.编号, value?.vehicleId, value?.id, value?.名称, value?.name,
+      value?.vehicleId, value?.id, value?.name,
     ].filter((value) => value !== undefined && value !== null && String(value) !== '').map(String);
     const local = vehicles.find((value: any) => keys(value).includes(key));
     if (local) return this.toRuntimeVehicle(local);
@@ -808,7 +809,7 @@ export class MovementVehicleService {
     const lockMarkers2 = Array.isArray(playerData.markers2)
       ? playerData.markers2
       : asJsonValue<any[]>(player.markers2, []);
-    const kept2 = lockMarkers2.filter((m: any) => String(m?.名称 ?? m?.name ?? '') !== '移动');
+    const kept2 = lockMarkers2.filter((m: any) => String(m?.name ?? '') !== '移动');
     if (kept2.length !== lockMarkers2.length) {
       player.markers2 = kept2; // Json 列直接写数组
     }
@@ -1003,10 +1004,10 @@ export class MovementVehicleService {
         const items = f.items as any[];
         const mergeItem = (name: string, qty: number): void => {
           if (!(qty > 0)) return;
-          const found = items.find((it: any) => it && (it.name ?? it.名称) === name);
+          const found = items.find((it: any) => it && it.name === name);
           if (found) {
             // 数量累加统一过 roundItemQuantity 三道闸（比例产出会累出浮点长尾）
-            found.quantity = roundItemQuantity(readNum(found.quantity ?? found.count ?? found.数量) + qty);
+            found.quantity = roundItemQuantity(readNum(found.quantity) + qty);
           } else {
             items.push({ name, quantity: roundItemQuantity(qty) });
           }
@@ -1019,7 +1020,7 @@ export class MovementVehicleService {
         }
         // 具现装置：每天产出1个未知物品（原版 L70-75）
         const hasGadget = (f.buildings as any[]).some(
-          (b: any) => b && String(b.name ?? b.名称 ?? '') === '具现装置' && readNum(b.quantity ?? b.count ?? b.数量 ?? 1) > 0,
+          (b: any) => b && String(b.name ?? '') === '具现装置' && readNum(b.quantity ?? 1) > 0,
         );
         if (hasGadget) mergeItem('未知物品', timeDiff / 86400);
       });
@@ -1090,7 +1091,7 @@ export class MovementVehicleService {
     const summons = asJsonValue<any[]>(map.summons, []);
     if (!summons.length) return '';
     const isPranaCub = (s: any): boolean =>
-      !!s && (Number(s.vitality ?? s.活力 ?? 0) === -31 || String(s.type ?? s.类型 ?? '') === '普拉娜幼崽');
+      !!s && (Number(s.vitality ?? 0) === -31 || String(s.type ?? '') === '普拉娜幼崽');
     const cubs = summons.filter(isPranaCub);
     if (!cubs.length) return '';
 
@@ -1103,17 +1104,17 @@ export class MovementVehicleService {
 
     for (const cub of cubs) {
       // 剪刀判定（原版 L27-33）：武器列表含 特殊序号==#剪刀(-40)
-      const rawWeapons = cub.weapons ?? cub.武器;
+      const rawWeapons = cub.weapons;
       const weapons = Array.isArray(rawWeapons)
         ? rawWeapons
         : asJsonValue<any[]>(String(rawWeapons ?? '[]'), []);
       const hasScissors = weapons.some(
-        (w: any) => w && (String(w.name ?? w.名称 ?? '') === '剪刀' || Number(w.specialSeq ?? w.特殊序号 ?? 0) === -40),
+        (w: any) => w && (String(w.name ?? '') === '剪刀' || Number(w.specialSeq ?? 0) === -40),
       );
       if (!hasScissors) continue;
 
       // 归属者解析（原版 L36-41）：归属 != 当前玩家 → 取玩家(归属)，否则用当前玩家
-      const ownerKey = String(cub.ownerQQ ?? cub.归属 ?? cub.owner ?? '');
+      const ownerKey = String(cub.ownerQQ ?? cub.owner ?? '');
       let owner = arrivingPlayer;
       if (ownerKey
         && ownerKey !== String(arrivingPlayer.qq ?? '')
@@ -1129,13 +1130,13 @@ export class MovementVehicleService {
       }
 
       // 幼崽需有 装备预设[2]（原版 L35）；毛发写入 装备预设[2].装备（宠物随身包）
-      const rawPresets = cub.equipmentPresets ?? cub.装备预设;
+      const rawPresets = cub.equipmentPresets;
       const presets = Array.isArray(rawPresets)
         ? rawPresets
         : asJsonValue<any[]>(String(rawPresets ?? '[]'), []);
       if (presets.length <= 1) continue;
       if (!presets[1]) presets[1] = { name: '宠物背包', equipment: [] };
-      const rawBag = presets[1].equipment ?? presets[1].装备;
+      const rawBag = presets[1].equipment;
       const bag = Array.isArray(rawBag)
         ? rawBag
         : asJsonValue<any[]>(String(rawBag ?? '[]'), []);
@@ -1144,7 +1145,7 @@ export class MovementVehicleService {
       let totalHair = 0;
       for (const animal of summons) {
         if (!animal || animal === cub) continue;
-        const typeName = String(animal.type ?? animal.类型 ?? animal.name ?? animal.名称 ?? '').trim();
+        const typeName = String(animal.type ?? animal.name ?? '').trim();
         if (!typeName) continue;
         const key = `剪毛${typeName}`;
         // 时间间隔要求(name, 有效期当天())：存在且未过期 → 冷却中
@@ -1156,11 +1157,11 @@ export class MovementVehicleService {
         markers2.push(...filtered);
         // 毛发：召唤物自带 毛发 字段为空时按原版默认给"毛发"1个（@Struct L342）
         const hairRaw = animal.毛发 ?? animal.hair;
-        const hairName = String(hairRaw?.name ?? hairRaw?.名称 ?? '毛发') || '毛发';
-        const hairQty = Math.max(1, Math.round(readNum(hairRaw?.quantity ?? hairRaw?.数量 ?? 1)));
-        const found = bag.find((it: any) => it && (it.name ?? it.名称) === hairName);
+        const hairName = String(hairRaw?.name ?? '毛发') || '毛发';
+        const hairQty = Math.max(1, Math.round(readNum(hairRaw?.quantity ?? 1)));
+        const found = bag.find((it: any) => it && it.name === hairName);
         if (found) {
-          found.quantity = (Number(found.quantity ?? found.count ?? found.数量) || 0) + hairQty;
+          found.quantity = (Number(found.quantity) || 0) + hairQty;
         } else {
           bag.push({ name: hairName, quantity: hairQty });
         }
@@ -1169,25 +1170,25 @@ export class MovementVehicleService {
 
       if (totalHair > 0) {
         presets[1].equipment = bag;
-        cub.equipmentPresets = cub.装备预设 = presets;
+        cub.equipmentPresets = presets;
         owner.markers2 = markers2; // Json 列直接写数组
         // 地图聚合串行化写入口：锁内重读最新 summons，把「装备预设」写回其中的幼崽
         // （幼崽可能被并发路径迁移/移除，找不到时跳过，绝不复活已删除单位）。
         const cubQQ = String(cub?.qq ?? cub?.QQ ?? '');
-        const cubName = String(cub?.name ?? cub?.名称 ?? '');
+        const cubName = String(cub?.name ?? '');
         const isSameCub = (s: any): boolean =>
           !!s && String(s?.qq ?? s?.QQ ?? '') === cubQQ
-            && (cubQQ ? true : String(s?.name ?? s?.名称 ?? '') === cubName);
+            && (cubQQ ? true : String(s?.name ?? '') === cubName);
         await this.mapService.mutateSummons(map.id, (fresh) => {
           const freshCub = fresh.find(isSameCub);
-          if (freshCub) freshCub.equipmentPresets = freshCub.装备预设 = presets;
+          if (freshCub) freshCub.equipmentPresets = presets;
         });
         if (owner.userId) {
           await this.playerService.savePlayer(owner);
           await this.achievementService.addAchievement(owner, '剪毛', totalHair, false);
           await this.achievementService.addAchievement(owner, '采集', totalHair, false);
         }
-        return `${cub.name ?? cub.名称 ?? '普拉娜幼崽'} 为地图上的动物剪了毛，获得了毛发x${totalHair}`;
+        return `${cub.name ?? '普拉娜幼崽'} 为地图上的动物剪了毛，获得了毛发x${totalHair}`;
       }
     }
     return '';
@@ -1215,8 +1216,8 @@ export class MovementVehicleService {
     if (!playerQQ) return;
 
     try {
-      const vehicleKey = (v: any) => String(v?.id ?? v?.编号 ?? v?.vehicleId ?? '');
-      const summonOwner = (s: any) => String(s?.归属 ?? s?.owner ?? s?.qq ?? '');
+      const vehicleKey = (v: any) => String(v?.id ?? v?.vehicleId ?? '');
+      const summonOwner = (s: any) => String(s?.ownerQQ ?? s?.owner ?? s?.qq ?? '');
 
       // 地图聚合串行化写入口：迁出/迁入各自在 per-map 锁内「重读最新容器 → 改 → 写回」
       // 闭环执行，消除基于合并快照的旧数据覆盖（跟随单位被地图写竞态清除的根因）。
@@ -1244,11 +1245,11 @@ export class MovementVehicleService {
           // 只迁移跟随玩家的召唤物的载具（行走方式≠0且≠4）
           const followSummons = fromSummons.filter((s: any) => summonOwner(s) === playerQQ);
           for (const summon of followSummons) {
-            const sVehicle = String(summon?.载具 ?? summon?.vehicle ?? '');
+            const sVehicle = String(summon?.vehicle ?? '');
             if (!sVehicle) continue;
 
             // 检查"跟随"熟练度<1（原版 取成就熟练度(标记,"跟随")<1）
-            const summonMarkers = asJsonValue<any[]>(summon?.标记 ?? summon?.markers, []);
+            const summonMarkers = asJsonValue<any[]>(summon?.markers, []);
             const followSkill = summonMarkers['跟随'] ?? 0;
             if (Number(followSkill) >= 1) continue; // 熟练度>=1 不迁移（非跟随状态）
 
@@ -1256,7 +1257,7 @@ export class MovementVehicleService {
             if (vIdx < 0) continue;
 
             const sv = fromVehicles[vIdx];
-            const walkMode = Number(sv?.行走方式 ?? sv?.walkMode ?? 0);
+            const walkMode = Number(sv?.moveType ?? sv?.walkMode ?? 0);
             // 行走方式 0=无行走机构（不能动），4=坐地（不能动）
             if (walkMode === 0 || walkMode === 4) continue;
 
@@ -1270,7 +1271,7 @@ export class MovementVehicleService {
             if (summonOwner(s) !== playerQQ) continue;
 
             // 跟随熟练度<1 才迁移
-            const sMarkers = asJsonValue<any[]>(s?.标记 ?? s?.markers, []);
+            const sMarkers = asJsonValue<any[]>(s?.markers, []);
             const fSkill = sMarkers['跟随'] ?? 0;
             if (Number(fSkill) >= 1) continue;
 
@@ -1294,7 +1295,7 @@ export class MovementVehicleService {
       // 原版在移动时从 player.增益 中删除"风月入墨"（离开地图失效）
       const buffs = asJsonValue<any[]>(player.buffs, []);
       const beforeLen = buffs.length;
-      const keptBuffs = buffs.filter((b: any) => String(b?.name ?? b?.名称 ?? '') !== '风月入墨');
+      const keptBuffs = buffs.filter((b: any) => String(b?.name ?? '') !== '风月入墨');
       if (keptBuffs.length !== beforeLen) {
         player.buffs = keptBuffs; // Json 列直接写数组
       }
@@ -1530,29 +1531,29 @@ export class MovementVehicleService {
     const productionOptions = this.vehicleProductionOptions(productionMap || map, runtime);
 
     const playerName = player.name || '冒险者';
-    if (Number(runtime.加成?.生产 || 0) === 0) {
-      return `${playerName},${runtime.名称}没有生产力，你可以组装生产线，或者使用专门的生产类载具。专门的生产类载具效率更高`;
+    if (Number(runtime.bonus?.生产 || 0) === 0) {
+      return `${playerName},${runtime.name}没有生产力，你可以组装生产线，或者使用专门的生产类载具。专门的生产类载具效率更高`;
     }
-    if (runtime.上限 > 1) {
-      return `${playerName},${runtime.名称}有部件超出了容许安装限制，无法正常运作`;
+    if (runtime.slotStatus > 1) {
+      return `${playerName},${runtime.name}有部件超出了容许安装限制，无法正常运作`;
     }
 
     if (command === '0') {
-      if (runtime.配方.length < 2) {
-        return `${playerName}你尚未对${runtime.名称}输入配方\n“生产生肉分解1 5.2”来为当前驾驶的载具输入[生肉分解1]这个配方，并且把5.2的生产力分配给这个配方。`;
+      if (runtime.recipes.length < 2) {
+        return `${playerName}你尚未对${runtime.name}输入配方\n“生产生肉分解1 5.2”来为当前驾驶的载具输入[生肉分解1]这个配方，并且把5.2的生产力分配给这个配方。`;
       }
-      const recipeLines = runtime.配方.slice(1).map((recipe: any, index: number) => {
-        const def = this.staticData.getVehicleRecipeByName(recipe.名称);
-        const level = Number(def?.level ?? def?.等级 ?? 0);
-        return `${index + 1}、${recipe.名称}(${level}级) ${this.support.round2Text(Number(recipe.数值 || 0))}生产力`;
+      const recipeLines = runtime.recipes.slice(1).map((recipe: any, index: number) => {
+        const def = this.staticData.getVehicleRecipeByName(recipe.name);
+        const level = Number(def?.level ?? 0);
+        return `${index + 1}、${recipe.name}(${level}级) ${this.support.round2Text(Number(recipe.value || 0))}生产力`;
       });
-      const speedPercent = production.consumedProductivity > Number(runtime.加成.生产 || 0)
+      const speedPercent = production.consumedProductivity > Number(runtime.bonus.生产 || 0)
         ? production.productionSpeed * production.efficiency * 100
         : production.productionSpeed * 100;
       const lines = [
-        `${playerName},${runtime.名称}的生产线:`,
+        `${playerName},${runtime.name}的生产线:`,
         ...recipeLines,
-        `◆生产力${this.support.round2Text(production.consumedProductivity)}/${this.support.round2Text(Number(runtime.加成.生产 || 0))},可生产${this.formatVehicleTime(production.availableTime)}`,
+        `◆生产力${this.support.round2Text(production.consumedProductivity)}/${this.support.round2Text(Number(runtime.bonus.生产 || 0))},可生产${this.formatVehicleTime(production.availableTime)}`,
         `◆生产速度${this.support.round2Text(speedPercent)}%${production.byproductMultiplier !== 1 ? `,副产物+${this.support.round2Text((production.byproductMultiplier - 1) * 100)}%` : ''}${production.consumptionMultiplier !== 1 ? `,消耗-${this.support.round2Text((1 - production.consumptionMultiplier) * 100)}%` : ''}`,
         `◆每分钟消耗:${this.formatVehicleItems(production.consumptionPerMinute)}`,
         `◆每分钟产出:${this.formatVehicleItems(production.outputPerMinute)}`,
@@ -1566,7 +1567,7 @@ export class MovementVehicleService {
       }
       const missing = production.combinedPerMinute
         .filter((item) => Number(item.quantity || 0) < 0 &&
-          this.support.itemQuantity((runtime.零件 || []).find((part: any) => (part.名称 ?? part.name) === item.name)) <= 0)
+          this.support.itemQuantity((runtime.parts || []).find((part: any) => part.name === item.name)) <= 0)
         .length > 0;
       if (missing) lines.push('【缺少部分物品导致无法生产，你可以手动把物品组装到载具上】');
       await this.persistRuntimeVehicle(source, runtime);
@@ -1577,7 +1578,7 @@ export class MovementVehicleService {
       const sets = this.parseVehicleValue<any>(player.sets, {});
       const scientist = Number(sets?.scientist ?? sets?.科学家 ?? 0);
       if (scientist < 4) return `${playerName}需要装备科学家外套/裙子/手套以及白色丝袜`;
-      if (runtime.配方.length < 2) return `${playerName}${runtime.名称}未输入配方`;
+      if (runtime.recipes.length < 2) return `${playerName}${runtime.name}未输入配方`;
       const markers2 = playerData.markers2 || [];
       const cooldownText = { value: '' };
       const cooling = this.combatState.timeIntervalRequire(
@@ -1593,10 +1594,10 @@ export class MovementVehicleService {
         await this.playerService.savePlayer(player);
         return `${playerName}${cooldownText.value}`;
       }
-      runtime.配方[0].数值 = Number(runtime.配方[0].数值 || timestamp) - 3600 * 1000;
+      runtime.recipes[0].value = Number(runtime.recipes[0].value || timestamp) - 3600 * 1000;
       await this.persistRuntimeVehicle(source, runtime);
       await this.playerService.savePlayer(player);
-      return `${playerName},${runtime.名称}的时间加速流逝了一小时`;
+      return `${playerName},${runtime.name}的时间加速流逝了一小时`;
     }
 
     if (command.startsWith('限制')) {
@@ -1608,20 +1609,18 @@ export class MovementVehicleService {
       }
       const limit = Math.max(0, numberMatch ? Number(numberMatch[0]) : 0);
       const limitName = `生产限制${productName}`;
-      const parts = runtime.零件 || [];
-      const existingIndex = parts.findIndex((part: any) => (part.名称 ?? part.name) === limitName);
+      const parts = runtime.parts || [];
+      const existingIndex = parts.findIndex((part: any) => part.name === limitName);
       if (existingIndex >= 0) {
         if (limit === 0) {
           parts.splice(existingIndex, 1);
           await this.persistRuntimeVehicle(source, runtime);
           return `${playerName},移除了${productName}的生产限制`;
         }
-        parts[existingIndex].名称 = limitName;
         parts[existingIndex].name = limitName;
-        parts[existingIndex].数量 = limit;
         parts[existingIndex].quantity = limit;
       } else if (limit > 0) {
-        parts.push({ 名称: limitName, name: limitName, 类型: '资源', type: '资源', 数量: limit, quantity: limit, 耐久: 100, durability: 100 });
+        parts.push({ name: limitName, type: '资源', quantity: limit, durability: 100 });
       } else {
         return `${playerName},移除了${productName}的生产限制`;
       }
@@ -1633,41 +1632,40 @@ export class MovementVehicleService {
       const payload = command.substring(2).trim();
       let recipeNumber = Number(payload);
       if (!/^\d+$/.test(payload)) {
-        const actualIndex = runtime.配方.findIndex((recipe: any, index: number) => index > 0 && recipe.名称 === payload);
+        const actualIndex = runtime.recipes.findIndex((recipe: any, index: number) => index > 0 && recipe.name === payload);
         recipeNumber = actualIndex > 0 ? actualIndex : 0;
       }
-      const recipeCount = Math.max(0, runtime.配方.length - 1);
+      const recipeCount = Math.max(0, runtime.recipes.length - 1);
       if (!recipeNumber) return `${playerName}“生产配平5”或者“生产配平木头分解1”来配平`;
       if (recipeNumber < 1 || recipeNumber > recipeCount) {
-        return `${playerName},${runtime.名称}只有${recipeCount}个配方，输入的值超范围或者小于1:${recipeNumber}`;
+        return `${playerName},${runtime.name}只有${recipeCount}个配方，输入的值超范围或者小于1:${recipeNumber}`;
       }
-      const target = runtime.配方[recipeNumber];
-      const targetDef = this.staticData.getVehicleRecipeByName(target.名称);
-      const targetInputs = this.parseVehicleValue<any[]>(targetDef?.消耗 ?? targetDef?.inputs, []);
+      const target = runtime.recipes[recipeNumber];
+      const targetDef = this.staticData.getVehicleRecipeByName(target.name);
+      const targetInputs = this.parseVehicleValue<any[]>(targetDef?.inputs, []);
       const productionView = this.combatSystem.calculateVehicleProduction(runtime, timestamp, productionOptions);
-      const messages: string[] = [`${runtime.名称}\n配方${target.名称}x${this.support.round2Text(Number(target.数值 || 0))}`];
+      const messages: string[] = [`${runtime.name}\n配方${target.name}x${this.support.round2Text(Number(target.value || 0))}`];
       for (const input of targetInputs) {
-        const inputName = input?.名称 ?? input?.name ?? '';
-        const inputQty = Number(input?.数量 ?? input?.quantity ?? 0);
-        const inputDurability = Number(input?.耐久 ?? input?.durability ?? 100) / 100;
-        const need = inputQty * inputDurability * Number(target.数值 || 0)
+        const inputName = input?.name ?? '';
+        const inputQty = Number(input?.quantity ?? 0);
+        const inputDurability = Number(input?.durability ?? 100) / 100;
+        const need = inputQty * inputDurability * Number(target.value || 0)
           * productionView.consumptionMultiplier * productionView.efficiency * productionView.productionSpeed;
         let matched = false;
-        for (let index = 1; index < runtime.配方.length; index++) {
+        for (let index = 1; index < runtime.recipes.length; index++) {
           if (index === recipeNumber) continue;
-          const other = runtime.配方[index];
-          const otherDef = this.staticData.getVehicleRecipeByName(other.名称);
-          const outputs = this.parseVehicleValue<any[]>(otherDef?.产出 ?? otherDef?.outputs, []);
-          const output = outputs.find((item: any) => (item?.名称 ?? item?.name) === inputName);
+          const other = runtime.recipes[index];
+          const otherDef = this.staticData.getVehicleRecipeByName(other.name);
+          const outputs = this.parseVehicleValue<any[]>(otherDef?.outputs, []);
+          const output = outputs.find((item: any) => item?.name === inputName);
           if (!output) continue;
-          const outputQty = Number(output.数量 ?? output.quantity ?? 0);
-          const outputDurability = Number(output.耐久 ?? output.durability ?? 100) / 100;
+          const outputQty = Number(output.quantity ?? 0);
+          const outputDurability = Number(output.durability ?? 100) / 100;
           const perProduction = outputQty * (outputDurability < 1 ? outputDurability * productionView.byproductMultiplier : 1)
             * productionView.efficiency * productionView.productionSpeed;
           if (perProduction <= 0) continue;
-          other.数值 = need / perProduction;
-          other.value = other.数值;
-          messages.push(`配方${other.名称}产出${inputName}，生产力调整为${this.support.round2Text(other.数值)}`);
+          other.value = need / perProduction;
+          messages.push(`配方${other.name}产出${inputName}，生产力调整为${this.support.round2Text(other.value)}`);
           matched = true;
         }
         if (!matched) messages.push(`没有其他产出${inputName}的配方`);
@@ -1679,31 +1677,31 @@ export class MovementVehicleService {
     if (command.startsWith('排序')) {
       const insertMatch = command.match(/^排序插入\s*(\d+)\s+(\d+)$/);
       const swapMatch = command.match(/^排序\s*(\d+)\s+(\d+)$/);
-      const recipeCount = Math.max(0, runtime.配方.length - 1);
+      const recipeCount = Math.max(0, runtime.recipes.length - 1);
       if (insertMatch) {
         const from = Number(insertMatch[1]);
         const to = Number(insertMatch[2]);
         if (from < 1 || from > recipeCount || to < 1 || to > recipeCount || from === to) {
-          return `${playerName},${runtime.名称}只有${recipeCount}个配方，或者你输入的值不符合规范(小于1或者相等)\n${from} ${to}`;
+          return `${playerName},${runtime.name}只有${recipeCount}个配方，或者你输入的值不符合规范(小于1或者相等)\n${from} ${to}`;
         }
-        const moved = runtime.配方.splice(from, 1)[0];
-        runtime.配方.splice(to, 0, moved);
+        const moved = runtime.recipes.splice(from, 1)[0];
+        runtime.recipes.splice(to, 0, moved);
         await this.persistRuntimeVehicle(source, runtime);
         await this.taskService.advance(userId, '生产排序');
-        return `${playerName},${runtime.名称}的配方[${moved.名称}]移动到了${to}号`;
+        return `${playerName},${runtime.name}的配方[${moved.name}]移动到了${to}号`;
       }
       if (swapMatch) {
         const first = Number(swapMatch[1]);
         const second = Number(swapMatch[2]);
         if (first < 1 || second < 1 || first > recipeCount || second > recipeCount || first === second) {
-          return `${playerName},${runtime.名称}只有${recipeCount}个配方，或者你输入的值不符合规范(小于1或者相等)\n${first} ${second}`;
+          return `${playerName},${runtime.name}只有${recipeCount}个配方，或者你输入的值不符合规范(小于1或者相等)\n${first} ${second}`;
         }
-        const temp = runtime.配方[first];
-        runtime.配方[first] = runtime.配方[second];
-        runtime.配方[second] = temp;
+        const temp = runtime.recipes[first];
+        runtime.recipes[first] = runtime.recipes[second];
+        runtime.recipes[second] = temp;
         await this.persistRuntimeVehicle(source, runtime);
         await this.taskService.advance(userId, '生产排序');
-        return `${playerName},${runtime.名称}的配方[${runtime.配方[second].名称}]和[${runtime.配方[first].名称}]交换了位置`;
+        return `${playerName},${runtime.name}的配方[${runtime.recipes[second].name}]和[${runtime.recipes[first].name}]交换了位置`;
       }
       return `${playerName}\n“生产排序2 3”来调整两个配方的先后顺序。“生产排序插入12 3”来把第12个配方插入到3的位置。`;
     }
@@ -1716,7 +1714,7 @@ export class MovementVehicleService {
     const allocation = Number(recipeInput[1]);
     const unlocked = this.parseVehicleValue<any>(player.recipes, []);
     const unlockedNames = Array.isArray(unlocked)
-      ? unlocked.map((recipe: any) => String(recipe?.名称 ?? recipe?.name ?? recipe))
+      ? unlocked.map((recipe: any) => String(recipe?.name ?? recipe))
       : Object.keys(unlocked || {}).filter((key) => Number(unlocked[key]) !== 0);
     if (!unlockedNames.includes(recipeName) || !this.staticData.getVehicleRecipeByName(recipeName)) {
       return `${playerName}你尚未解锁这个配方，或者输入的配方不存在：${recipeName}`;
@@ -1724,15 +1722,15 @@ export class MovementVehicleService {
     if (!Number.isFinite(allocation)) {
       return `${playerName}你输入的数据不正确，请检查：${command}`;
     }
-    if (runtime.配方.length === 0) runtime.配方.push({ 名称: '1', name: '1', 数值: timestamp, value: timestamp });
-    this.combatState.addAchievement(recipeName, allocation, runtime.配方 as any);
-    const current = runtime.配方.find((recipe: any) => recipe.名称 === recipeName);
-    const currentValue = Number(current?.数值 || 0);
+    if (runtime.recipes.length === 0) runtime.recipes.push({ name: '1', value: timestamp });
+    this.combatState.addAchievement(recipeName, allocation, runtime.recipes as any);
+    const current = runtime.recipes.find((recipe: any) => recipe.name === recipeName);
+    const currentValue = Number(current?.value || 0);
     const view = this.combatSystem.calculateVehicleProduction(runtime, timestamp, productionOptions);
     await this.persistRuntimeVehicle(source, runtime);
     await this.taskService.advance(userId, '设置生产配方');
     const currentOutput = view.combinedPerMinute.filter((item) => Number(item.quantity || 0) !== 0);
-    return `${playerName}为${runtime.名称}设置了${recipeName}\n它当前占用的生产力为${this.support.round2Text(currentValue)}\n${runtime.名称}当前产出:${this.formatVehicleItems(currentOutput)}`;
+    return `${playerName}为${runtime.name}设置了${recipeName}\n它当前占用的生产力为${this.support.round2Text(currentValue)}\n${runtime.name}当前产出:${this.formatVehicleItems(currentOutput)}`;
   }
 
   /**
@@ -1782,139 +1780,106 @@ export class MovementVehicleService {
     return totalBonus;
   }
 
-  /** 解析载具运行时 JSON，兼容 DB 字符串和地图 JSON 对象。 */
-
+  /**
+   * 载具运行时对象工厂（载具域唯一入口）。
+   *
+   * 全链路口径：DB 载具行 / 地图 vehicles 条目 / 静态模板一律先过这里，
+   * 由 field-contract.util 的载具域映射把历史中文键（零件/配方/加成/当前生命/上限…）
+   * 一次性收敛为英文规范键；此后各业务模块只读写英文规范键，禁止再做中文兜底。
+   */
   toRuntimeVehicle(raw: any): any {
+    if (!raw || typeof raw !== 'object') return raw;
+    // 字段名先在副本上收敛，避免污染调用方传入的原始对象
+    const src: any = { ...raw };
+    normalizeVehicleEntry(src);
+
     const normalizeItem = (item: any): any => {
-      const name = String(item?.名称 ?? item?.name ?? '');
-      const quantity = Number(item?.数量 ?? item?.quantity ?? item?.count ?? 1);
-      const durability = Number(item?.耐久 ?? item?.durability ?? 100);
+      const quantity = Number(item?.quantity ?? 1);
+      const durability = Number(item?.durability ?? 100);
       return {
         ...(item || {}),
-        名称: name,
-        name: item?.name ?? name,
-        类型: item?.类型 ?? item?.type ?? '资源',
-        type: item?.type ?? item?.类型 ?? '资源',
-        数量: Number.isFinite(quantity) ? quantity : 0,
-        quantity: item?.quantity ?? item?.count ?? (Number.isFinite(quantity) ? quantity : 0),
-        耐久: Number.isFinite(durability) ? durability : 100,
-        durability: item?.durability ?? (Number.isFinite(durability) ? durability : 100),
+        name: String(item?.name ?? ''),
+        type: item?.type ?? '资源',
+        quantity: Number.isFinite(quantity) ? quantity : 0,
+        durability: Number.isFinite(durability) ? durability : 100,
       };
     };
     const normalizeRecipe = (recipe: any): any => {
-      const name = String(recipe?.名称 ?? recipe?.name ?? '');
-      const value = Number(recipe?.数值 ?? recipe?.value ?? recipe?.production ?? recipe?.count ?? 0);
+      const value = Number(recipe?.value ?? 0);
       return {
         ...(recipe || {}),
-        名称: name,
-        name: recipe?.name ?? name,
-        数值: Number.isFinite(value) ? value : 0,
-        value: recipe?.value ?? (Number.isFinite(value) ? value : 0),
+        name: String(recipe?.name ?? ''),
+        value: Number.isFinite(value) ? value : 0,
       };
     };
-    const parts = this.parseVehicleValue<any[]>(raw?.零件 ?? raw?.parts, []);
-    const recipes = this.parseVehicleValue<any[]>(raw?.配方 ?? raw?.recipes, []);
-    const bonus = this.parseVehicleValue<any>(raw?.加成 ?? raw?.bonus, {});
-    const markers2 = this.parseVehicleValue<any[]>(raw?.标记2 ?? raw?.markers2, []);
-    const currentHp = Number(raw?.当前生命 ?? raw?.currentHp ?? raw?.hp ?? 0);
-    const maxHp = Number(raw?.生命 ?? raw?.maxHp ?? 0);
-    const slotStatus = Number(raw?.上限 ?? raw?.slotStatus ?? 0);
-    const moveType = Number(raw?.行走方式 ?? raw?.moveType ?? 0);
+    const parts = this.parseVehicleValue<any[]>(src.parts, []);
+    const recipes = this.parseVehicleValue<any[]>(src.recipes, []);
+    const bonus = this.parseVehicleValue<any>(src.bonus, {});
+    const markers = this.parseVehicleValue<any>(src.markers, {});
+    const markers2 = this.parseVehicleValue<any[]>(src.markers2, []);
+    const currentHp = Number(src.currentHp ?? 0);
+    const maxHp = Number(src.maxHp ?? 0);
+    const slotStatus = Number(src.slotStatus ?? 0);
+    const moveType = Number(src.moveType ?? 0);
     return {
-      ...(raw || {}),
-      名称: String(raw?.名称 ?? raw?.name ?? ''),
-      name: raw?.name ?? raw?.名称 ?? '',
-      类型: String(raw?.类型 ?? raw?.type ?? ''),
-      type: raw?.type ?? raw?.类型 ?? '',
-      编号: String(raw?.编号 ?? raw?.vehicleId ?? raw?.id ?? ''),
-      vehicleId: raw?.vehicleId ?? raw?.编号 ?? raw?.id ?? '',
-      归属: String(raw?.归属 ?? raw?.owner ?? ''),
-      owner: raw?.owner ?? raw?.归属 ?? '',
-      驾驶员: String(raw?.驾驶员 ?? raw?.driver ?? ''),
-      driver: raw?.driver ?? raw?.驾驶员 ?? '',
-      当前生命: Number.isFinite(currentHp) ? currentHp : 0,
+      ...src,
+      name: String(src.name ?? ''),
+      type: String(src.type ?? ''),
+      vehicleId: String(src.vehicleId ?? src.id ?? ''),
+      owner: String(src.owner ?? ''),
+      driver: String(src.driver ?? ''),
       currentHp: Number.isFinite(currentHp) ? currentHp : 0,
-      生命: Number.isFinite(maxHp) ? maxHp : 0,
       maxHp: Number.isFinite(maxHp) ? maxHp : 0,
-      上限: Number.isFinite(slotStatus) ? slotStatus : 0,
       slotStatus: Number.isFinite(slotStatus) ? slotStatus : 0,
-      行走方式: Number.isFinite(moveType) ? moveType : 0,
       moveType: Number.isFinite(moveType) ? moveType : 0,
-      零件: Array.isArray(parts) ? parts.map(normalizeItem) : [],
-      配方: Array.isArray(recipes) ? recipes.map(normalizeRecipe) : [],
-      加成: bonus && typeof bonus === 'object' ? bonus : {},
-      标记: this.parseVehicleValue<any>(raw?.标记 ?? raw?.markers, {}),
-      标记2: Array.isArray(markers2) ? markers2 : [],
-      逆转力场: Boolean(raw?.逆转力场 ?? raw?.reverseField ?? false),
-      reverseField: Boolean(raw?.reverseField ?? raw?.逆转力场 ?? false),
-      发丝: Boolean(raw?.发丝 ?? raw?.hair ?? false),
-      hair: Boolean(raw?.hair ?? raw?.发丝 ?? false),
-      涂层: Number(raw?.涂层 ?? raw?.coating ?? 0) || 0,
-      coating: Number(raw?.coating ?? raw?.涂层 ?? 0) || 0,
+      parts: Array.isArray(parts) ? parts.map(normalizeItem) : [],
+      recipes: Array.isArray(recipes) ? recipes.map(normalizeRecipe) : [],
+      bonus: bonus && typeof bonus === 'object' ? bonus : {},
+      markers: markers && typeof markers === 'object' && !Array.isArray(markers) ? markers : {},
+      markers2: Array.isArray(markers2) ? markers2 : [],
+      reverseField: Boolean(src.reverseField),
+      hair: Boolean(src.hair),
+      coating: Number(src.coating ?? 0) || 0,
     };
   }
 
-  /** 将原版中文运行时字段写回兼容的中英文载具对象。 */
-  /** 跨子服务 API（§10.2）：DungeonChallenge 经 DI 直连调用。 */
-
+  /**
+   * 落库 / 写回地图用的载具对象（载具域规范键）。
+   * 与 toRuntimeVehicle 同口径：只产出英文规范键，不再写中英双份镜像。
+   * 跨子服务 API（§10.2）：DungeonChallenge 经 DI 直连调用。
+   */
   toStoredVehicle(runtime: any): any {
-    const parts = (runtime.零件 || []).map((item: any) => ({
+    const parts = ((runtime?.parts as any[]) || []).map((item: any) => ({
       ...(item || {}),
-      名称: item?.名称 ?? item?.name ?? '',
-      name: item?.name ?? item?.名称 ?? '',
-      类型: item?.类型 ?? item?.type ?? '资源',
-      type: item?.type ?? item?.类型 ?? '资源',
-      数量: Number(item?.数量 ?? item?.quantity ?? item?.count ?? 0),
-      quantity: Number(item?.quantity ?? item?.数量 ?? item?.count ?? 0),
-      耐久: Number(item?.耐久 ?? item?.durability ?? 100),
-      durability: Number(item?.durability ?? item?.耐久 ?? 100),
+      name: String(item?.name ?? ''),
+      type: item?.type ?? '资源',
+      quantity: Number(item?.quantity ?? 0),
+      durability: Number(item?.durability ?? 100),
     }));
-    const recipes = (runtime.配方 || []).map((recipe: any) => ({
+    const recipes = ((runtime?.recipes as any[]) || []).map((recipe: any) => ({
       ...(recipe || {}),
-      名称: recipe?.名称 ?? recipe?.name ?? '',
-      name: recipe?.name ?? recipe?.名称 ?? '',
-      数值: Number(recipe?.数值 ?? recipe?.value ?? 0),
-      value: Number(recipe?.value ?? recipe?.数值 ?? 0),
+      name: String(recipe?.name ?? ''),
+      value: Number(recipe?.value ?? 0),
     }));
-    const bonus = runtime.加成 || {};
-    const markers2 = runtime.标记2 || [];
-    const markers = runtime.标记 ?? runtime.markers ?? {};
     return {
       ...(runtime || {}),
-      名称: runtime.名称 ?? runtime.name ?? '',
-      name: runtime.name ?? runtime.名称 ?? '',
-      编号: runtime.编号 ?? runtime.vehicleId ?? runtime.id ?? '',
-      vehicleId: runtime.vehicleId ?? runtime.编号 ?? runtime.id ?? '',
-      类型: runtime.类型 ?? runtime.type ?? '',
-      type: runtime.type ?? runtime.类型 ?? '',
-      归属: runtime.归属 ?? runtime.owner ?? '',
-      owner: runtime.owner ?? runtime.归属 ?? '',
-      驾驶员: runtime.驾驶员 ?? runtime.driver ?? '',
-      driver: runtime.driver ?? runtime.驾驶员 ?? '',
-      当前生命: Number(runtime.当前生命 ?? runtime.currentHp ?? 0),
-      currentHp: Number(runtime.currentHp ?? runtime.当前生命 ?? 0),
-      生命: Number(runtime.生命 ?? runtime.maxHp ?? 0),
-      maxHp: Number(runtime.maxHp ?? runtime.生命 ?? 0),
-      上限: Number(runtime.上限 ?? runtime.slotStatus ?? 0),
-      slotStatus: Number(runtime.slotStatus ?? runtime.上限 ?? 0),
-      行走方式: Number(runtime.行走方式 ?? runtime.moveType ?? 0),
-      moveType: Number(runtime.moveType ?? runtime.行走方式 ?? 0),
-      零件: parts,
+      name: runtime?.name ?? '',
+      vehicleId: runtime?.vehicleId ?? runtime?.id ?? '',
+      type: runtime?.type ?? '',
+      owner: runtime?.owner ?? '',
+      driver: runtime?.driver ?? '',
+      currentHp: Number(runtime?.currentHp ?? 0),
+      maxHp: Number(runtime?.maxHp ?? 0),
+      slotStatus: Number(runtime?.slotStatus ?? 0),
+      moveType: Number(runtime?.moveType ?? 0),
       parts,
-      配方: recipes,
       recipes,
-      加成: bonus,
-      bonus,
-      标记: markers && typeof markers === 'object' ? markers : {},
-      markers,
-      标记2: markers2,
-      markers2,
-      逆转力场: Boolean(runtime.逆转力场 ?? runtime.reverseField ?? false),
-      reverseField: Boolean(runtime.reverseField ?? runtime.逆转力场 ?? false),
-      发丝: Boolean(runtime.发丝 ?? runtime.hair ?? false),
-      hair: Boolean(runtime.hair ?? runtime.发丝 ?? false),
-      涂层: Number(runtime.涂层 ?? runtime.coating ?? 0) || 0,
-      coating: Number(runtime.coating ?? runtime.涂层 ?? 0) || 0,
+      bonus: runtime?.bonus && typeof runtime.bonus === 'object' ? runtime.bonus : {},
+      markers: runtime?.markers && typeof runtime.markers === 'object' ? runtime.markers : {},
+      markers2: Array.isArray(runtime?.markers2) ? runtime.markers2 : [],
+      reverseField: Boolean(runtime?.reverseField),
+      hair: Boolean(runtime?.hair),
+      coating: Number(runtime?.coating ?? 0) || 0,
     };
   }
 
@@ -1936,8 +1901,8 @@ export class MovementVehicleService {
       markers: stored.markers || {},
       markers2: stored.markers2 || [],
       recipes: stored.recipes || [],
-      reverseField: Boolean(stored.reverseField ?? stored.逆转力场 ?? false),
-      coating: Number(stored.coating ?? stored.涂层 ?? 0) || 0,
+      reverseField: Boolean(stored.reverseField),
+      coating: Number(stored.coating || 0),
     };
   }
 
@@ -1979,8 +1944,8 @@ export class MovementVehicleService {
     const producedByName = new Map<string, number>();
     for (const item of production.produced || []) {
       const anyItem = item as any;
-      const name = String(anyItem.name || anyItem.名称 || '');
-      const quantity = Number(anyItem.quantity ?? anyItem.数量 ?? 0);
+      const name = String(anyItem.name || '');
+      const quantity = Number(anyItem.quantity ?? 0);
       if (name && quantity > 0) producedByName.set(name, (producedByName.get(name) || 0) + quantity);
     }
     if (producedByName.size > 0) {
@@ -2032,11 +1997,11 @@ export class MovementVehicleService {
     const requested = takeover || String(player?.vehicle ?? '');
 
     const matchUnit = (unit: any, key: string): boolean => {
-      const ids = [unit?.编号, unit?.vehicleId, unit?.id, unit?.name, unit?.名称]
+      const ids = [unit?.vehicleId, unit?.id, unit?.name]
         .filter((value) => value !== undefined && value !== null)
         .map(String);
       if (key && ids.includes(key)) return true;
-      const driver = String(unit?.驾驶员 ?? unit?.driver ?? '');
+      const driver = String(unit?.driver ?? '');
       return !key && ownerIds.has(driver);
     };
     const mapSource = (map: any, index: number): any => {
@@ -2095,12 +2060,12 @@ export class MovementVehicleService {
 
   vehicleProductionOptions(map: any, vehicle: any): { yongxing: number; lannBaby: boolean } {
     const summons = this.parseVehicleValue<any[]>(map?.summons, []);
-    const driver = String(vehicle?.驾驶员 ?? vehicle?.driver ?? '');
+    const driver = String(vehicle?.driver ?? '');
     const driverSummon = summons.find((summon: any) =>
-      [summon?.QQ, summon?.qq, summon?.编号, summon?.id].filter(Boolean).map(String).includes(driver),
+      [summon?.QQ, summon?.qq, summon?.id].filter(Boolean).map(String).includes(driver),
     );
     const seq = (summon: any): number => Number(
-      summon?.活力 ?? summon?.vitality ?? summon?.特殊序号 ?? summon?.specialSeq ?? 0,
+      summon?.vitality ?? summon?.specialSeq ?? 0,
     );
     return {
       // 原版常量：咏星特殊序号=-27，兰音幼崽特殊序号=-30。
@@ -2111,11 +2076,11 @@ export class MovementVehicleService {
 
 
   formatVehicleItems(items: any[]): string {
-    const values = (items || []).filter((item: any) => Number(item?.quantity ?? item?.数量 ?? 0) !== 0);
+    const values = (items || []).filter((item: any) => Number(item?.quantity ?? 0) !== 0);
     if (values.length === 0) return '无';
     return values.map((item: any) => {
-      const name = item?.name ?? item?.名称 ?? '';
-      const quantity = Number(item?.quantity ?? item?.数量 ?? 0);
+      const name = item?.name ?? '';
+      const quantity = Number(item?.quantity ?? 0);
       return `${name}x${this.support.round2Text(quantity)}`;
     }).join('、');
   }
@@ -2205,26 +2170,22 @@ export class MovementVehicleService {
       this.playerService.setCurrencyAmount(player, partName, this.playerService.getCurrencyAmount(player, partName, backpack) - 1, backpack);
       player.backpack = backpack;
       const runtime = this.toRuntimeVehicle({
-        名称: vehicleName,
         name: vehicleName,
-        编号: Math.random().toString(36).substring(2, 10).toUpperCase(),
-        归属: userQQ,
+        vehicleId: Math.random().toString(36).substring(2, 10).toUpperCase(),
         owner: userQQ,
-        驾驶员: userQQ,
         driver: userQQ,
-        零件: [{ 名称: partName, name: partName, 类型: '资源', type: '资源', 数量: 1, quantity: 1, 耐久: 100, durability: 100 }],
-        配方: [],
-        加成: {},
-        标记2: [],
+        parts: [{ name: partName, type: '资源', quantity: 1, durability: 100 }],
+        recipes: [],
+        bonus: {},
+        markers2: [],
       });
       this.combatSystem.recalculateVehicle(runtime, Date.now());
-      if (runtime.配方.length === 0) runtime.配方.push({ 名称: '1', name: '1', 数值: Date.now(), value: Date.now() });
-      runtime.当前生命 = Number(runtime.加成?.生命 ?? runtime.生命 ?? 0);
-      runtime.currentHp = runtime.当前生命;
+      if (runtime.recipes.length === 0) runtime.recipes.push({ name: '1', value: Date.now() });
+      runtime.currentHp = Number(runtime.bonus?.生命 ?? runtime.maxHp ?? 0);
       const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
       vehicles.push(this.toStoredVehicle(runtime));
       await this.mapService.updateDynamicFields(map.id, { vehicles });
-      player.vehicle = String(runtime.编号);
+      player.vehicle = String(runtime.vehicleId);
       await this.playerService.savePlayer(player);
       this.achievementService.setAchievement(markers, '组装载具', this.achievementService.getAchievement(markers, '组装载具') + 1);
       player.markers = markers;
@@ -2252,7 +2213,7 @@ export class MovementVehicleService {
     }
 
     const runtime = source.runtime;
-    const parts = runtime.零件 || (runtime.零件 = []);
+    const parts = runtime.parts || (runtime.parts = []);
 
     // 驾驶中替换核心（原版 L10209-L10221：右侧为“核心”时直接换核）
     if (isCore && requestedCount > 0) {
@@ -2264,35 +2225,31 @@ export class MovementVehicleService {
       }
       const oldCore = parts[0] ? { ...parts[0] } : null;
       parts[0] = {
-        名称: partName,
         name: partName,
-        类型: '资源',
         type: '资源',
-        数量: Number(parts[0]?.数量 ?? parts[0]?.quantity ?? 1) || 1,
-        quantity: Number(parts[0]?.quantity ?? parts[0]?.数量 ?? 1) || 1,
-        耐久: 100,
+        quantity: Number(parts[0]?.quantity ?? 1) || 1,
         durability: 100,
       };
-      if (oldCore?.名称) {
-        this.addBackpackItem(player, backpack, String(oldCore.名称), Number(oldCore.数量 ?? oldCore.quantity ?? 1) || 1);
+      if (oldCore?.name) {
+        this.addBackpackItem(player, backpack, String(oldCore.name), Number(oldCore.quantity ?? 1) || 1);
       }
       this.playerService.setCurrencyAmount(player, partName, this.playerService.getCurrencyAmount(player, partName, backpack) - 1, backpack);
       player.backpack = backpack;
       await this.settleVehicleProduction(userId, player, source, runtime, map, markers);
-      return `${playerName}把${runtime.名称}的${oldCore?.名称 || '核心'}更换成了${partName}`;
+      return `${playerName}把${runtime.name}的${oldCore?.name || '核心'}更换成了${partName}`;
     }
 
     // 负数量：从载具零件取出（原版 L10241-L10269）
     if (requestedCount < 0) {
       if (partName.includes('生产限制')) {
-        return `${playerName}${runtime.名称}上没有${partName}`;
+        return `${playerName}${runtime.name}上没有${partName}`;
       }
       const take = Math.abs(requestedCount);
       const held = parts.reduce((sum: number, p: any) =>
-        sum + ((p?.名称 ?? p?.name) === partName ? Number(p?.数量 ?? p?.quantity ?? 0) : 0), 0);
+        sum + (p?.name === partName ? Number(p?.quantity ?? 0) : 0), 0);
       const actual = Math.min(take, held);
       if (actual <= 0) {
-        return `${playerName}${runtime.名称}上没有${partName}`;
+        return `${playerName}${runtime.name}上没有${partName}`;
       }
       this.mergeVehiclePartQuantity(parts, partName, -actual);
       this.addBackpackItem(player, backpack, partName, actual);
@@ -2302,9 +2259,9 @@ export class MovementVehicleService {
         await this.settleVehicleProduction(userId, player, source, runtime, map, markers);
         const lootLines: string[] = [];
         for (const p of parts) {
-          const n = String(p?.名称 ?? p?.name ?? '');
+          const n = String(p?.name ?? '');
           if (!n || n.includes('生产限制')) continue;
-          const q = Number(p?.数量 ?? p?.quantity ?? 0);
+          const q = Number(p?.quantity ?? 0);
           if (q <= 0) continue;
           this.addBackpackItem(player, backpack, n, q);
           lootLines.push(`${n}x${this.support.round2Text(q)}`);
@@ -2314,7 +2271,7 @@ export class MovementVehicleService {
         // 散架后清掉指向本车的接管残留，否则 findTravelVehicle 仍会命中已销毁载具挡住移动
         const setsAfterScrap = this.parseVehicleValue<any>(player.sets, {});
         const scrapKeys = new Set([
-          String(runtime?.编号 ?? ''), String(runtime?.vehicleId ?? ''), String(runtime?.id ?? ''),
+          String(runtime?.vehicleId ?? ''), String(runtime?.id ?? ''),
         ].filter(Boolean));
         if (scrapKeys.has(String(setsAfterScrap?.takeVehicle ?? '')) || scrapKeys.has(String(setsAfterScrap?.接管载具 ?? ''))) {
           setsAfterScrap.takeVehicle = '';
@@ -2327,11 +2284,11 @@ export class MovementVehicleService {
           vehicles.splice(source.index, 1);
           await this.mapService.updateDynamicFields(source.map.id, { vehicles });
         }
-        return `${playerName}拆掉了${runtime.名称}的核心，${runtime.名称}散架了\n载具内容物收入了背包：${lootLines.join('、') || '无'}`;
+        return `${playerName}拆掉了${runtime.name}的核心，${runtime.name}散架了\n载具内容物收入了背包：${lootLines.join('、') || '无'}`;
       }
       await this.settleVehicleProduction(userId, player, source, runtime, map, markers);
       const isPart = !!partDef;
-      return `${playerName}把${partName}x${actual}从${runtime.名称}上${isPart ? '拆了下来' : '取了出来'}`;
+      return `${playerName}把${partName}x${actual}从${runtime.name}上${isPart ? '拆了下来' : '取了出来'}`;
     }
 
     // 正数量：背包 → 载具零件（原版 L10203-L10239）。部件与资源一视同仁。
@@ -2346,7 +2303,7 @@ export class MovementVehicleService {
     player.backpack = backpack;
     await this.settleVehicleProduction(userId, player, source, runtime, map, markers);
     const isPart = !!partDef;
-    return `${playerName}把${partName}x${want}${isPart ? '装到了' : '塞到了'}${runtime.名称}${isPart ? '上' : '里面'}`;
+    return `${playerName}把${partName}x${want}${isPart ? '装到了' : '塞到了'}${runtime.name}${isPart ? '上' : '里面'}`;
   }
 
   /** 背包条目增减（双字段 + 工作数组）。 */
@@ -2358,27 +2315,21 @@ export class MovementVehicleService {
 
   /** 载具零件数量增减（原版 获得物品 对 载具.零件 的合并语义）。 */
   private mergeVehiclePartQuantity(parts: any[], name: string, delta: number): void {
-    const idx = parts.findIndex((p: any) => (p?.名称 ?? p?.name) === name);
+    const idx = parts.findIndex((p: any) => p?.name === name);
     if (idx >= 0) {
-      const next = Number(parts[idx]?.数量 ?? parts[idx]?.quantity ?? 0) + delta;
+      const next = Number(parts[idx]?.quantity ?? 0) + delta;
       if (next <= 0) {
         parts.splice(idx, 1);
         return;
       }
-      parts[idx].数量 = next;
       parts[idx].quantity = next;
-      if (parts[idx].count !== undefined) parts[idx].count = next;
       return;
     }
     if (delta > 0) {
       parts.push({
-        名称: name,
         name,
-        类型: '资源',
         type: '资源',
-        数量: delta,
         quantity: delta,
-        耐久: 100,
         durability: 100,
       });
     }
@@ -2392,13 +2343,13 @@ export class MovementVehicleService {
     vitality: number;
     sealed: boolean;
   } | null> {
-    const name = String(runtime?.名称 ?? runtime?.name ?? '').trim();
+    const name = String(runtime?.name ?? '').trim();
     if (!name) return null;
-    const stampedLevel = Number(runtime?.需求等级 ?? runtime?.requireLevel ?? 0) || 0;
-    const stampedWaves = Number(runtime?.守卫波数 ?? runtime?.guardWaves ?? 0) || 0;
-    const stampedVouchers = Number(runtime?.献祭凭证 ?? runtime?.sacrificeVouchers ?? 0) || 0;
-    const stampedVitality = Number(runtime?.献祭活力 ?? runtime?.sacrificeVitality ?? 0) || 0;
-    const sealedFlag = runtime?.封印中 ?? runtime?.sealed;
+    const stampedLevel = Number(runtime?.requireLevel ?? 0) || 0;
+    const stampedWaves = Number(runtime?.guardWaves ?? 0) || 0;
+    const stampedVouchers = Number(runtime?.sacrificeVouchers ?? 0) || 0;
+    const stampedVitality = Number(runtime?.sacrificeVitality ?? 0) || 0;
+    const sealedFlag = runtime?.sealed;
     if (stampedLevel > 0) {
       return {
         requireLevel: stampedLevel,
@@ -2443,13 +2394,13 @@ export class MovementVehicleService {
     return user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   }
 
-  /** 统计背包内某物品数量（count/quantity 双字段兼容）。 */
+  /** 统计背包内某物品数量。 */
   private countBackpackItem(player: any, itemName: string): number {
     const backpack = this.playerService.getBackpackItems(player);
     let total = 0;
     for (const item of backpack) {
       if (String(item?.name ?? '') !== itemName) continue;
-      total += Number(item?.count ?? item?.quantity ?? 0) || 0;
+      total += Number(item?.quantity ?? 0) || 0;
     }
     return total;
   }
@@ -2498,41 +2449,35 @@ export class MovementVehicleService {
     const lines: string[] = [];
     for (let i = 0; i < vehicles.length; i++) {
       const runtime = this.toRuntimeVehicle(vehicles[i]);
-      const sealed = runtime.封印中 === true || runtime.sealed === true;
-      const sealWave = Number(runtime.当前守卫波 ?? runtime.sealWave ?? 0) || 0;
-      const waker = String(runtime.唤醒者 ?? runtime.sealWaker ?? '');
+      const sealed = runtime.sealed === true;
+      const sealWave = Number(runtime.sealWave ?? 0) || 0;
+      const waker = String(runtime.sealWaker ?? '');
       if (!sealed || sealWave <= 0 || !waker) continue;
-      if ((await this.countSealGuards(map.id, String(runtime.编号 || ''))) > 0) continue;
-      const totalWaves = Math.max(1, Number(runtime.守卫波数 ?? runtime.guardWaves ?? 1) || 1);
+      if ((await this.countSealGuards(map.id, String(runtime.vehicleId || ''))) > 0) continue;
+      const totalWaves = Math.max(1, Number(runtime.guardWaves ?? 1) || 1);
       const playerName = await this.resolvePlayerName(waker);
       if (sealWave < totalWaves) {
         const nextWave = sealWave + 1;
-        runtime.当前守卫波 = nextWave;
         runtime.sealWave = nextWave;
         vehicles[i] = this.toStoredVehicle(runtime);
         changed = true;
         await this.spawnWreckGuardWave(
           map.id,
-          String(runtime.编号 || runtime.vehicleId || ''),
+          String(runtime.vehicleId || ''),
           nextWave,
-          Number(runtime.需求等级 ?? runtime.requireLevel ?? 100),
+          Number(runtime.requireLevel ?? 100),
         );
         lines.push(`${playerName}击破了守卫！第${nextWave}波守卫从遗迹中苏醒……`);
       } else {
         // 全波击破：解除封印，唤醒者直接获得归属
-        delete runtime.封印中;
         delete runtime.sealed;
-        delete runtime.当前守卫波;
         delete runtime.sealWave;
-        delete runtime.唤醒者;
         delete runtime.sealWaker;
         runtime.sealed = false;
-        runtime.封印中 = false;
-        runtime.归属 = waker;
         runtime.owner = waker;
         vehicles[i] = this.toStoredVehicle(runtime);
         changed = true;
-        lines.push(`${playerName}击破了全部守卫，${runtime.名称}的封印解除了！`);
+        lines.push(`${playerName}击破了全部守卫，${runtime.name}的封印解除了！`);
         const wakerData = await this.playerService.getPlayerData(Number(waker)).catch(() => null);
         if (wakerData?.player) {
           await this.achievementService.addAchievement(wakerData.player, '遗迹征服者', 1);
@@ -2570,43 +2515,43 @@ export class MovementVehicleService {
 
     const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
     const keys = (v: any): string[] =>
-      [v?.编号, v?.vehicleId, v?.id, v?.名称, v?.name]
+      [v?.vehicleId, v?.id, v?.name]
         .filter((k) => k !== undefined && k !== null && String(k) !== '')
         .map(String);
     const index = vehicles.findIndex((v: any) => keys(v).includes(String(name)));
     if (index < 0) return `${playerName}附近没有${name}`;
 
     const runtime = this.toRuntimeVehicle(vehicles[index]);
-    const owner = String(runtime.归属 ?? runtime.owner ?? '');
+    const owner = String(runtime.owner ?? '');
     if (owner !== '无主') {
-      return `${playerName}${runtime.名称}已有归属，无需唤醒`;
+      return `${playerName}${runtime.name}已有归属，无需唤醒`;
     }
 
     const flags = await this.getWreckSealFlags();
     const isAdmin = await this.isAdminUser(userId);
     let sealInfo = await this.resolveWreckSealInfo(runtime);
     if (sealInfo && !sealInfo.sealed) {
-      return `${playerName}${runtime.名称}的封印已解除，可直接「驾驶」认领`;
+      return `${playerName}${runtime.name}的封印已解除，可直接「驾驶」认领`;
     }
     // 存量未盖戳且总开关关闭：按普通无主处理
     if (!sealInfo && !flags.sealEnabled) {
-      return `${playerName}${runtime.名称}不是被封印的远古遗迹`;
+      return `${playerName}${runtime.name}不是被封印的远古遗迹`;
     }
     if (!sealInfo) {
       // 无配置可回查：允许管理员按最低门槛唤醒，普通玩家不拦
       if (!isAdmin) {
-        return `${playerName}${runtime.名称}的封印状态未知，无法唤醒`;
+        return `${playerName}${runtime.name}的封印状态未知，无法唤醒`;
       }
       sealInfo = { requireLevel: 1, guardWaves: 1, vouchers: 1, vitality: 2, sealed: true };
     }
 
-    const currentWave = Number(runtime.当前守卫波 ?? runtime.sealWave ?? 0) || 0;
-    const waker = String(runtime.唤醒者 ?? runtime.sealWaker ?? '');
+    const currentWave = Number(runtime.sealWave ?? 0) || 0;
+    const waker = String(runtime.sealWaker ?? '');
     // 守卫仍在：提示继续战斗，不重复献祭
     if (currentWave > 0 && waker) {
-      const remaining = await this.countSealGuards(map.id, String(runtime.编号 || runtime.vehicleId || ''));
+      const remaining = await this.countSealGuards(map.id, String(runtime.vehicleId || ''));
       if (remaining > 0) {
-        return `${playerName}${runtime.名称}的守卫仍在（第${currentWave}/${sealInfo.guardWaves}波），请先「攻击 遗迹守卫」`;
+        return `${playerName}${runtime.name}的守卫仍在（第${currentWave}/${sealInfo.guardWaves}波），请先「攻击 遗迹守卫」`;
       }
       // 守卫已清但未推进（例如上次击杀钩子未触发）：本地推进
       const progress = await this.advanceWreckSealAfterKill(map.id);
@@ -2614,7 +2559,7 @@ export class MovementVehicleService {
     }
 
     if (flags.levelGate && !isAdmin && Number(player.level || 0) < sealInfo.requireLevel) {
-      return `${playerName}无法唤醒${runtime.名称}：需要等级 Lv.${sealInfo.requireLevel}（当前 Lv.${player.level || 1}）`;
+      return `${playerName}无法唤醒${runtime.name}：需要等级 Lv.${sealInfo.requireLevel}（当前 Lv.${player.level || 1}）`;
     }
 
     const cost = this.scaleSealCost(
@@ -2623,14 +2568,14 @@ export class MovementVehicleService {
     );
     const ownedVouchers = this.countBackpackItem(player, '凭证');
     if (ownedVouchers < cost.vouchers) {
-      return `${playerName}唤醒${runtime.名称}缺少贡品：凭证x${cost.vouchers - ownedVouchers}`;
+      return `${playerName}唤醒${runtime.name}缺少贡品：凭证x${cost.vouchers - ownedVouchers}`;
     }
     const ownedVitality = Number(player.vitality || 0);
     if (ownedVitality < cost.vitality) {
-      return `${playerName}唤醒${runtime.名称}活力不足：需要${cost.vitality}点活力（当前${ownedVitality}）`;
+      return `${playerName}唤醒${runtime.name}活力不足：需要${cost.vitality}点活力（当前${ownedVitality}）`;
     }
 
-    const vehicleId = String(runtime.编号 || runtime.vehicleId || `V${index}`);
+    const vehicleId = String(runtime.vehicleId || `V${index}`);
     // ========== 首次唤醒：只展示确认，不扣材料、不刷怪 ==========
     if (!confirmed) {
       const menu = await this.support.buildNumberedMenu(
@@ -2645,7 +2590,7 @@ export class MovementVehicleService {
         [`确认唤醒@确认唤醒${vehicleId}`],
       );
       return [
-        `${playerName}即将唤醒远古遗迹「${runtime.名称}」（Lv.${sealInfo.requireLevel}），请确认：`,
+        `${playerName}即将唤醒远古遗迹「${runtime.name}」（Lv.${sealInfo.requireLevel}），请确认：`,
         `◆战斗：第1/${sealInfo.guardWaves}波遗迹守卫将从遗迹中苏醒（等级≈Lv.${sealInfo.requireLevel}），唤醒后自动进入战斗`,
         `◆消耗：凭证x${cost.vouchers}、活力${cost.vitality}点（失败不返还）`,
         `◆当前持有：凭证x${ownedVouchers}、活力${Math.floor(ownedVitality)}点`,
@@ -2655,14 +2600,12 @@ export class MovementVehicleService {
 
     const removed = await this.playerService.removeFromBackpack(userId, '凭证', cost.vouchers);
     if (!removed) {
-      return `${playerName}唤醒${runtime.名称}缺少贡品：凭证x${cost.vouchers}`;
+      return `${playerName}唤醒${runtime.name}缺少贡品：凭证x${cost.vouchers}`;
     }
     player.vitality = Math.max(0, ownedVitality - cost.vitality);
     await this.playerService.savePlayer(player);
 
-    runtime.当前守卫波 = 1;
     runtime.sealWave = 1;
-    runtime.唤醒者 = String(userId);
     runtime.sealWaker = String(userId);
     vehicles[index] = this.toStoredVehicle(runtime);
     await this.mapService.updateDynamicFields(map.id, { vehicles });
@@ -2683,7 +2626,7 @@ export class MovementVehicleService {
       autoBattle += '\n（自动攻击未触发，可手动发送「攻击 遗迹守卫」）';
     }
 
-    return `${playerName}开始唤醒${runtime.名称}！献祭了凭证x${cost.vouchers}与${cost.vitality}点活力。\n${autoBattle}`;
+    return `${playerName}开始唤醒${runtime.name}！献祭了凭证x${cost.vouchers}与${cost.vitality}点活力。\n${autoBattle}`;
   }
 
   /**
@@ -2709,10 +2652,10 @@ export class MovementVehicleService {
     ].filter(Boolean));
 
     const vehicleKeys = (value: any): string[] => [
-      value?.编号, value?.vehicleId, value?.id, value?.名称, value?.name,
+      value?.vehicleId, value?.id, value?.name,
     ].filter((key) => key !== undefined && key !== null && String(key) !== '').map(String);
     const matchesVehicle = (value: any): boolean => vehicleKeys(value).includes(String(vehicleName));
-    const ownerOf = (value: any): string => String(value?.归属 ?? value?.owner ?? '');
+    const ownerOf = (value: any): string => String(value?.owner ?? '');
     const isAllowedOwner = (value: any): boolean => {
       const owner = ownerOf(value);
       return owner === '无主' || ownerIds.has(owner);
@@ -2753,7 +2696,7 @@ export class MovementVehicleService {
 
     if (!source) return `${playerName}附近没有${vehicleName}`;
     if (!isAllowedOwner(source.runtime)) {
-      return `${playerName}这是别人的${source.runtime.名称}，你不能驾驶`;
+      return `${playerName}这是别人的${source.runtime.name}，你不能驾驶`;
     }
 
     const runtime = source.runtime;
@@ -2769,12 +2712,12 @@ export class MovementVehicleService {
       if (!isAdmin && sealInfo) {
         if (flags.sealEnabled && sealInfo.sealed) {
           if (flags.levelGate && Number(player.level || 0) < sealInfo.requireLevel) {
-            return `${playerName}被远古禁制弹开：需要等级 Lv.${sealInfo.requireLevel}才能唤醒${runtime.名称}（当前 Lv.${player.level || 1}）`;
+            return `${playerName}被远古禁制弹开：需要等级 Lv.${sealInfo.requireLevel}才能唤醒${runtime.name}（当前 Lv.${player.level || 1}）`;
           }
-          return `${playerName}被远古禁制弹开：${runtime.名称}被远古禁制封印，请先发送「唤醒 ${runtime.名称}」`;
+          return `${playerName}被远古禁制弹开：${runtime.name}被远古禁制封印，请先发送「唤醒 ${runtime.name}」`;
         }
         if (flags.levelGate && Number(player.level || 0) < sealInfo.requireLevel) {
-          return `${playerName}被远古禁制弹开：需要等级 Lv.${sealInfo.requireLevel}才能唤醒${runtime.名称}（当前 Lv.${player.level || 1}）`;
+          return `${playerName}被远古禁制弹开：需要等级 Lv.${sealInfo.requireLevel}才能唤醒${runtime.name}（当前 Lv.${player.level || 1}）`;
         }
       }
     }
@@ -2783,7 +2726,7 @@ export class MovementVehicleService {
     const dbUpdates: Promise<any>[] = [];
 
     // 原版 L10328-L10340：先让原驾驶员离开目标载具；玩家和召唤物分别清除自己的载具字段。
-    const previousDriver = String(runtime.驾驶员 ?? runtime.driver ?? '');
+    const previousDriver = String(runtime.driver ?? '');
     if (previousDriver && !ownerIds.has(previousDriver)) {
       let previousUser: any = null;
       const numericDriver = Number(previousDriver);
@@ -2803,10 +2746,9 @@ export class MovementVehicleService {
         }
       } else {
         const summon = summons.find((unit: any) => [
-          unit?.QQ, unit?.qq, unit?.编号, unit?.id,
+          unit?.QQ, unit?.qq, unit?.id,
         ].filter(Boolean).map(String).includes(previousDriver));
         if (summon) {
-          summon.载具 = '';
           summon.vehicle = '';
           mapChanged = true;
         }
@@ -2817,7 +2759,6 @@ export class MovementVehicleService {
     if (oldVehicleKey && !targetKeys.has(oldVehicleKey)) {
       const oldMapIndex = mapVehicles.findIndex((unit: any) => vehicleKeys(unit).includes(oldVehicleKey));
       if (oldMapIndex >= 0) {
-        mapVehicles[oldMapIndex].驾驶员 = '';
         mapVehicles[oldMapIndex].driver = '';
         mapChanged = true;
       } else {
@@ -2834,18 +2775,13 @@ export class MovementVehicleService {
       }
     }
 
-    runtime.驾驶员 = driverId;
     runtime.driver = driverId;
     if (targetWasUnowned) {
-      runtime.归属 = driverId;
       runtime.owner = driverId;
       // 管理员直接认领时顺带清封印态，避免残留 sealed 字段干扰后续判读
-      if (runtime.封印中 === true || runtime.sealed === true) {
-        runtime.封印中 = false;
+      if (runtime.sealed === true) {
         runtime.sealed = false;
-        runtime.当前守卫波 = 0;
         runtime.sealWave = 0;
-        delete runtime.唤醒者;
         delete runtime.sealWaker;
       }
     }
@@ -2856,7 +2792,7 @@ export class MovementVehicleService {
       dbUpdates.push(this.prisma.gameVehicle.update({
         where: { id: source.db.id },
         data: {
-          owner: String(runtime.owner || runtime.归属 || ''),
+          owner: String(runtime.owner || ''),
           driver: driverId,
           mapIndex: Number(map?.id || 0),
         },
@@ -2872,7 +2808,7 @@ export class MovementVehicleService {
 
     player.vehicle = source.kind === 'db'
       ? String(source.db.id)
-      : String(runtime.编号 || runtime.vehicleId || runtime.id || '');
+      : String(runtime.vehicleId || runtime.id || '');
     const sets = this.parseVehicleValue<any>(player.sets, {});
     // 原版 L10314：驾驶成功后立即终止接管状态。
     sets.takeVehicle = '';
@@ -2882,16 +2818,16 @@ export class MovementVehicleService {
 
     if (targetWasUnowned) {
       await this.achievementService.addAchievement(player, '拾取载具', 1);
-      await this.taskService.advance(userId, '拾取载具' + runtime.名称);
+      await this.taskService.advance(userId, '拾取载具' + runtime.name);
     }
     await this.achievementService.addAchievement(player, '驾驶载具', 1);
-    await this.taskService.advance(userId, '驾驶' + runtime.类型);
+    await this.taskService.advance(userId, '驾驶' + runtime.type);
 
-    const vehicleText = `${runtime.名称}(${runtime.类型})`;
+    const vehicleText = `${runtime.name}(${runtime.type})`;
     const result = targetWasUnowned
-      ? `${playerName}获取了${runtime.名称}的权限,然后进入了${vehicleText}的驾驶舱,"脱出"来离开`
+      ? `${playerName}获取了${runtime.name}的权限,然后进入了${vehicleText}的驾驶舱,"脱出"来离开`
       : `${playerName}进入了${vehicleText}的驾驶舱,"脱出"来离开`;
-    this.logger.log(`玩家 ${userId} 驾驶了载具 ${runtime.名称}`);
+    this.logger.log(`玩家 ${userId} 驾驶了载具 ${runtime.name}`);
     return result;
   }
 
@@ -2902,8 +2838,8 @@ export class MovementVehicleService {
       const value = String(rawPart || '').trim();
       const name = index === 0 ? value.replace(/\d+/g, '') : value.replace(/\d+(?=\s*$)/, '').trim();
       const quantity = index === 0 ? 1 : Math.trunc(Number(value.match(/(\d+)\s*$/)?.[1] || 0));
-      return { 名称: name, name, 类型: '资源', type: '资源', 数量: quantity, quantity };
-    }).filter((part) => part.名称 && Number.isFinite(part.数量) && part.数量 > 0);
+      return { name, type: '资源', quantity };
+    }).filter((part) => part.name && Number.isFinite(part.quantity) && part.quantity > 0);
   }
 
 
@@ -2924,22 +2860,20 @@ export class MovementVehicleService {
     const normalizeItems = (value: any): any[] => {
       const rows = Array.isArray(value) ? value : asJsonValue<any[]>(value, []);
       return rows.map((row: any) => {
-        const name = row?.name ?? row?.名称;
+        const name = row?.name;
         // Issue #11：产出/需求缺 type 时对齐静态物品定义（经验胶囊=物品），
         // 防止默认“资源”与 item-system 路径（determineItemType=物品）分叉，
         // 造成同名不同 type 的背包条目永不合并。
         const staticType = name
           ? (this.staticData.getEquipmentByName(name) ? '装备' : this.staticData.getItemByName(name)?.type)
           : undefined;
-        const type = row?.type ?? row?.类型 ?? staticType ?? '资源';
+        const type = row?.type ?? staticType ?? '资源';
         return {
           ...row,
           name,
-          名称: row?.名称 ?? row?.name,
           type,
-          类型: row?.类型 ?? type,
-          quantity: Number(row?.quantity ?? row?.count ?? row?.数量 ?? 0),
-          数量: Number(row?.quantity ?? row?.count ?? row?.数量 ?? 0),
+          // 数量只读规范键 quantity（count 为历史遗留同义键，静态数据已统一为 quantity）
+          quantity: Number(row?.quantity ?? 0),
         };
       }).filter((row: any) => row.name && Number.isFinite(row.quantity));
     };
@@ -2967,14 +2901,13 @@ export class MovementVehicleService {
       let remaining = requirement.quantity * count;
       for (let index = backpack.length - 1; index >= 0 && remaining > 0; index--) {
         const item = backpack[index];
-        if ((item?.name ?? item?.名称) !== requirement.name) continue;
-        const current = Number(item.quantity ?? item.count ?? 0);
+        if (item?.name !== requirement.name) continue;
+        const current = Number(item.quantity ?? 0);
         const removed = Math.min(current, remaining);
         remaining -= removed;
         if (current - removed <= 0) backpack.splice(index, 1);
         else {
           item.quantity = current - removed;
-          item.count = current - removed;
         }
       }
     }
@@ -2985,7 +2918,6 @@ export class MovementVehicleService {
       const outputItem = {
         ...output,
         quantity: outputQuantity,
-        数量: outputQuantity,
       };
       await this.panel.addBackpackItem(backpack, outputItem);
       producedTexts.push(`${output.name} ×${outputQuantity}`);
@@ -3003,8 +2935,8 @@ export class MovementVehicleService {
   async assembleVehicleFromParts(userId: number, rawParts: string[]): Promise<string> {
     const requiredParts = this.parseVehicleAssemblyParts(rawParts);
     if (!requiredParts.length) return '核心必须在最前面';
-    const coreSpec = this.staticData.getVehiclePartSpecByName(requiredParts[0].名称);
-    if (!coreSpec || !String(requiredParts[0].名称).replace(/\d+$/, '').endsWith('核心')) {
+    const coreSpec = this.staticData.getVehiclePartSpecByName(requiredParts[0].name);
+    if (!coreSpec || !String(requiredParts[0].name).replace(/\d+$/, '').endsWith('核心')) {
       return '核心必须在最前面';
     }
 
@@ -3031,20 +2963,20 @@ export class MovementVehicleService {
     const temporaryBackpack = JSON.parse(JSON.stringify(backpack));
     const missingParts: any[] = [];
     for (const part of requiredParts) {
-      const owned = await this.panel.backpackQuantity(temporaryBackpack, part.名称);
-      if (owned >= part.数量) continue;
-      const stillMissing = part.数量 - owned;
-      missingParts.push({ ...part, 数量: stillMissing, quantity: stillMissing });
+      const owned = await this.panel.backpackQuantity(temporaryBackpack, part.name);
+      if (owned >= part.quantity) continue;
+      const stillMissing = part.quantity - owned;
+      missingParts.push({ ...part, quantity: stillMissing });
     }
 
     let aborted = false;
     let failureText = '';
     for (const part of missingParts) {
-      const dryRun = await this.craftVehiclePart(player, temporaryBackpack, markers, part.名称, part.数量, true);
+      const dryRun = await this.craftVehiclePart(player, temporaryBackpack, markers, part.name, part.quantity, true);
       if (!dryRun.success) {
         failureText += failureText
-          ? `、${part.名称}x${part.数量}`
-          : `\n缺少这些物品，并且背包里面的数量不够/背包里面的资源不足以制造缺少的数量：${part.名称}x${part.数量}`;
+          ? `、${part.name}x${part.quantity}`
+          : `\n缺少这些物品，并且背包里面的数量不够/背包里面的资源不足以制造缺少的数量：${part.name}x${part.quantity}`;
         aborted = true;
       }
     }
@@ -3052,26 +2984,21 @@ export class MovementVehicleService {
 
     const craftTexts: string[] = [];
     for (const part of missingParts) {
-      const crafted = await this.craftVehiclePart(player, backpack, markers, part.名称, part.数量, false);
+      const crafted = await this.craftVehiclePart(player, backpack, markers, part.name, part.quantity, false);
       if (crafted.text) craftTexts.push(crafted.text);
     }
 
     const timestamp = Date.now();
     const runtime = this.toRuntimeVehicle({});
-    runtime.零件 = requiredParts.map((part) => ({ ...part }));
-    runtime.配方 = [{ 名称: '1', name: '1', 数值: timestamp, value: timestamp }];
-    runtime.编号 = `V${timestamp.toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-    runtime.vehicleId = runtime.编号;
-    runtime.归属 = ownerQQ;
+    runtime.parts = requiredParts.map((part) => ({ ...part }));
+    runtime.recipes = [{ name: '1', value: timestamp }];
+    runtime.vehicleId = `V${timestamp.toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     runtime.owner = ownerQQ;
     this.combatSystem.recalculateVehicle(runtime, timestamp);
-    const calculatedHp = Number(runtime.加成?.生命 || 0);
-    runtime.当前生命 = calculatedHp;
+    const calculatedHp = Number(runtime.bonus?.生命 || 0);
     runtime.currentHp = calculatedHp;
-    runtime.生命 = calculatedHp;
     runtime.maxHp = calculatedHp;
-    runtime.名称 = `${playerName}的${String(requiredParts[0].名称).replace('核心', '')}`;
-    runtime.name = runtime.名称;
+    runtime.name = `${playerName}的${String(requiredParts[0].name).replace('核心', '')}`;
 
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return `${playerName}不在任何地图上`;
@@ -3080,17 +3007,16 @@ export class MovementVehicleService {
     await this.mapService.updateDynamicFields(map.id, { vehicles });
 
     for (const part of requiredParts) {
-      let remaining = part.数量;
+      let remaining = part.quantity;
       for (let index = backpack.length - 1; index >= 0 && remaining > 0; index--) {
         const item = backpack[index];
-        if ((item?.name ?? item?.名称) !== part.名称) continue;
-        const current = Number(item.quantity ?? item.count ?? 0);
+        if (item?.name !== part.name) continue;
+        const current = Number(item.quantity ?? 0);
         const removed = Math.min(current, remaining);
         remaining -= removed;
         if (current - removed <= 0) backpack.splice(index, 1);
         else {
           item.quantity = current - removed;
-          item.count = current - removed;
         }
       }
     }
@@ -3099,20 +3025,20 @@ export class MovementVehicleService {
     await this.playerService.savePlayer(player);
 
     await this.achievementService.addAchievement(player, '组装载具', 1);
-    await this.taskService.advance(userId, `组装${requiredParts[0].名称}`, 1);
+    await this.taskService.advance(userId, `组装${requiredParts[0].name}`, 1);
 
-    return [`${playerName}组装了一个载具：${runtime.名称}`, ...craftTexts].filter(Boolean).join('\n');
+    return [`${playerName}组装了一个载具：${runtime.name}`, ...craftTexts].filter(Boolean).join('\n');
   }
 
 
   async hasOwnedProductionVehicle(ownerQQ: string, coreSpec: any): Promise<boolean> {
-    if (!(Number(coreSpec?.partType ?? coreSpec?.类型) === 0 && Number(coreSpec?.bonus?.生产 || 0) !== 0)) return false;
+    if (!(Number(coreSpec?.partType) === 0 && Number(coreSpec?.bonus?.生产 || 0) !== 0)) return false;
     const maps = await this.mapService.getAllMaps();
     return maps.some((map: any) => this.parseVehicleValue<any[]>(map?.vehicles, []).some((vehicleRaw: any) => {
-      if (String(vehicleRaw?.归属 ?? vehicleRaw?.owner ?? '') !== ownerQQ) return false;
+      if (String(vehicleRaw?.owner ?? '') !== ownerQQ) return false;
       const vehicle = this.toRuntimeVehicle(vehicleRaw);
-      return Number(vehicle.加成?.生产 || 0) !== 0 || (vehicle.零件 || []).some((part: any) => {
-        const spec = this.staticData.getVehiclePartSpecByName(part.名称);
+      return Number(vehicle.bonus?.生产 || 0) !== 0 || (vehicle.parts || []).some((part: any) => {
+        const spec = this.staticData.getVehiclePartSpecByName(part.name);
         return Number(spec?.partType) === 0 && Number(spec?.bonus?.生产 || 0) !== 0;
       });
     }));
@@ -3147,8 +3073,8 @@ export class MovementVehicleService {
 
     const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
     const index = vehicles.findIndex((item: any) => {
-      const name = String(item?.名称 ?? item?.name ?? '');
-      const owner = String(item?.归属 ?? item?.owner ?? '');
+      const name = String(item?.name ?? '');
+      const owner = String(item?.owner ?? '');
       return name === oldName && ownerIds.has(owner);
     });
     if (index < 0) {
@@ -3156,7 +3082,6 @@ export class MovementVehicleService {
     }
 
     const runtime = this.toRuntimeVehicle(vehicles[index]);
-    runtime.名称 = newName;
     runtime.name = newName;
     vehicles[index] = this.toStoredVehicle(runtime);
     await this.mapService.updateDynamicFields(map.id, { vehicles });
@@ -3188,7 +3113,7 @@ export class MovementVehicleService {
 
     // 解析「部件名 数量」列表（原版 去数字/取数字）
     const tokens = payload.split(/\s+/).filter(Boolean);
-    const simParts: { 名称: string; name: string; 类型: string; type: string; 数量: number; quantity: number; 耐久: number; durability: number }[] = [];
+    const simParts: { name: string; type: string; quantity: number; durability: number }[] = [];
     const invalidParts: string[] = [];
     for (const token of tokens) {
       const m = token.match(/^(.*?)(\d+)$/);
@@ -3199,19 +3124,19 @@ export class MovementVehicleService {
         invalidParts.push(`【${name}不是载具部件】`);
         continue;
       }
-      const exist = simParts.find((p) => p.名称 === name);
-      if (exist) exist.数量 += qty;
+      const exist = simParts.find((p) => p.name === name);
+      if (exist) exist.quantity += qty;
       else simParts.push({
-        名称: name, name,
-        类型: '资源', type: '资源',
-        数量: qty, quantity: qty,
-        耐久: 100, durability: 100,
+        name,
+        type: '资源',
+        quantity: qty,
+        durability: 100,
       });
     }
     if (simParts.length === 0) {
       return `${playerName}“载具模拟巡洋舰核心1 中型推进器1 平定者1”来模拟，注意核心必须在最前`;
     }
-    if (!String(simParts[0].名称).endsWith('核心')) {
+    if (!String(simParts[0].name).endsWith('核心')) {
       return `${playerName}核心必须在最前面`;
     }
 
@@ -3220,18 +3145,17 @@ export class MovementVehicleService {
       '生产',
     );
     const runtime = this.toRuntimeVehicle({
-      名称: '模拟载具',
       name: '模拟载具',
-      编号: 'SIM',
-      零件: simParts,
-      配方: [],
-      加成: {},
-      标记2: [],
+      vehicleId: 'SIM',
+      parts: simParts,
+      recipes: [],
+      bonus: {},
+      markers2: [],
     });
     this.combatSystem.recalculateVehicle(runtime, 0, productionBonus);
-    const cost = this.calcManufactureCost(simParts.map((p) => ({ name: p.名称, count: p.数量 })));
+    const cost = this.calcManufactureCost(simParts.map((p) => ({ name: p.name, quantity: p.quantity })));
     const costText = cost.length > 0
-      ? cost.map((c) => `${c.name}x${this.support.round2Text(c.count)}`).join('、')
+      ? cost.map((c) => `${c.name}x${this.support.round2Text(c.quantity)}`).join('、')
       : '无';
     const detail = await this.formatVehicleDetail(runtime);
     // 模拟结果可直接落地：临时输入 1 → 组装（原版多零件组装路径）
@@ -3247,22 +3171,23 @@ export class MovementVehicleService {
   }
 
   /** 取制造成本：零件按 craftings 需求折算（原版 数据分析.ecode L157-179）。 */
-  private calcManufactureCost(parts: Array<{ name: string; count: number }>): Array<{ name: string; count: number }> {
+  private calcManufactureCost(parts: Array<{ name: string; quantity: number }>): Array<{ name: string; quantity: number }> {
     const craftings = this.staticData.getAllCraftings();
     const acc = new Map<string, number>();
     for (const p of parts) {
       const recipe = craftings.find((c: any) => c.name === p.name);
       if (!recipe) continue;
-      const reqs = asJsonValue<any[]>(recipe.requirements ?? recipe.需求, []);
+      const reqs = asJsonValue<any[]>(recipe.requirements, []);
       for (const req of reqs) {
-        const reqName = String(req?.name ?? req?.名称 ?? '');
-        const reqCount = Number(req?.count ?? req?.数量 ?? 0);
-        if (!reqName || !Number.isFinite(reqCount)) continue;
-        acc.set(reqName, (acc.get(reqName) ?? 0) + reqCount * Number(p.count || 1));
+        const reqName = String(req?.name ?? '');
+        // 需求数量只读规范键 quantity（count 为历史遗留同义键）
+        const reqQuantity = Number(req?.quantity ?? 0);
+        if (!reqName || !Number.isFinite(reqQuantity)) continue;
+        acc.set(reqName, (acc.get(reqName) ?? 0) + reqQuantity * Number(p.quantity || 1));
       }
     }
-    return Array.from(acc, ([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
+    return Array.from(acc, ([name, quantity]) => ({ name, quantity }))
+      .sort((a, b) => b.quantity - a.quantity);
   }
 
   /**
@@ -3280,8 +3205,8 @@ export class MovementVehicleService {
     if (!map) return `${playerName}不在任何地图上`;
     const vehicle = await this.findTravelVehicle(player, map);
     if (!vehicle) return `${playerName}需要驾驶载具`;
-    const vehicleName = String(vehicle.名称 ?? vehicle.name ?? '载具');
-    if (Number(vehicle.当前生命 ?? vehicle.currentHp ?? 0) <= 0) {
+    const vehicleName = String(vehicle.name ?? '载具');
+    if (Number(vehicle.currentHp ?? 0) <= 0) {
       return `${playerName}载具需要“维修”`;
     }
     this.combatSystem.recalculateVehicle(vehicle, Date.now());
@@ -3350,8 +3275,8 @@ export class MovementVehicleService {
         }
         const resources = this.getTractorResources(m);
         return resources.some((r: any) => {
-          const name = String(r?.name ?? r?.名称 ?? '');
-          const times = Number(r?.times ?? r?.次数 ?? r?.amount ?? r?.数量 ?? 0);
+          const name = String(r?.name ?? '');
+          const times = Number(r?.times ?? r?.amount ?? 0);
           return name === resourceName && times !== 0;
         });
       });
@@ -3403,7 +3328,7 @@ export class MovementVehicleService {
     times: number,
   ): Promise<{ count: number; text: string }> {
     const resourcesKey: 'resources' | 'resources2' = ((): 'resources' | 'resources2' => {
-      const inRes = asJsonValue<any[]>(map.resources, []).some((r: any) => String(r?.name ?? r?.名称 ?? '') === resourceName);
+      const inRes = asJsonValue<any[]>(map.resources, []).some((r: any) => String(r?.name ?? '') === resourceName);
       return inRes ? 'resources' : 'resources2';
     })();
     const backpack = this.playerService.getBackpackItems(player);
@@ -3413,20 +3338,21 @@ export class MovementVehicleService {
     const mutateKey = resourcesKey;
     await this.mapService.mutateMapFields(map.id, [mutateKey], (f) => {
       const list = f[mutateKey] as any[];
-      const idx = list.findIndex((r: any) => String(r?.name ?? r?.名称 ?? '') === resourceName);
+      const idx = list.findIndex((r: any) => String(r?.name ?? '') === resourceName);
       if (idx < 0) return false;
       const r = list[idx];
-      const outputs = asJsonValue<any[]>(r?.outputs ?? r?.产出, []);
+      const outputs = asJsonValue<any[]>(r?.outputs, []);
       let budget = Math.max(1, Math.floor(times));
       let changed = false;
       while (budget > 0) {
-        const timesLeft = Number(r?.times ?? r?.次数 ?? r?.amount ?? r?.数量 ?? 0);
+        const timesLeft = Number(r?.times ?? r?.amount ?? 0);
         // 次数耗尽；-1=无限资源（野外木石），仍受单次预算与牵引冷却限制，不会无冷却刷
         if (timesLeft === 0) break;
         for (const out of outputs) {
-          const name = String(out?.name ?? out?.名称 ?? '');
-          const qty = Number(out?.count ?? out?.数量 ?? 0);
-          const chance = Number(out?.chance ?? out?.几率 ?? 100);
+          const name = String(out?.name ?? '');
+          // 产出数量只读规范键 quantity（count 为历史遗留同义键）
+          const qty = Number(out?.quantity ?? 0);
+          const chance = Number(out?.chance ?? 100);
           if (!name || qty <= 0) continue;
           if (Math.random() * 100 >= chance) continue;
           this.addBackpackItem(player, backpack, name, qty);
@@ -3436,9 +3362,7 @@ export class MovementVehicleService {
         if (timesLeft > 0) {
           const next = timesLeft - 1;
           r.times = next;
-          r.次数 = next;
           r.amount = next;
-          r.数量 = next;
           if (next <= 0) {
             list.splice(idx, 1);
           }
@@ -3523,11 +3447,11 @@ export class MovementVehicleService {
     // 部件超上限四类拦截（原版 L10419-10427）
     const overLimit = this.findVehicleOverLimitPart(vehicle);
     if (overLimit) {
-      return `${name}，${vehicle.名称 || vehicle.name}安装的${overLimit}超过了上限，无法维修`;
+      return `${name}，${vehicle.name}安装的${overLimit}超过了上限，无法维修`;
     }
 
-    const fullHp = Number(vehicle.加成?.生命 || 0) || this.rescue.rescueVehicleMaxHp(vehicle);
-    if (fullHp > 0 && Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0) === fullHp) {
+    const fullHp = Number(vehicle.bonus?.生命 || 0) || this.rescue.rescueVehicleMaxHp(vehicle);
+    if (fullHp > 0 && Number(vehicle.currentHp ?? 0) === fullHp) {
       return `${name}还不需要修`;
     }
 
@@ -3554,7 +3478,7 @@ export class MovementVehicleService {
         runAt: Date.now() + seconds * 1000,
       });
     }
-    return `${name}正在维修${vehicle.名称 || vehicle.name},大概需要${seconds}秒`;
+    return `${name}正在维修${vehicle.name},大概需要${seconds}秒`;
   }
 
   /**
@@ -3588,7 +3512,7 @@ export class MovementVehicleService {
     }
     const overLimit = this.findVehicleOverLimitPart(vehicle);
     if (overLimit) {
-      return `${name}，${vehicle.名称 || vehicle.name}安装的${overLimit}超过了上限，无法维修`;
+      return `${name}，${vehicle.name}安装的${overLimit}超过了上限，无法维修`;
     }
     return this.applyVehicleRepair(userId, player, map, vehicle);
   }
@@ -3601,18 +3525,16 @@ export class MovementVehicleService {
 
   async applyVehicleRepair(userId: number, player: any, map: any, vehicle: any): Promise<string> {
     this.combatSystem.recalculateVehicle(vehicle, Date.now());
-    const fullHp = Number(vehicle.加成?.生命 || 0) || this.rescue.rescueVehicleMaxHp(vehicle);
-    vehicle.当前生命 = fullHp;
+    const fullHp = Number(vehicle.bonus?.生命 || 0) || this.rescue.rescueVehicleMaxHp(vehicle);
     vehicle.currentHp = fullHp;
     if (fullHp > 0) {
-      vehicle.生命 = fullHp;
       vehicle.maxHp = fullHp;
     }
 
     const vehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
-    const key = String(vehicle.编号 ?? vehicle.vehicleId ?? vehicle.id ?? vehicle.名称 ?? vehicle.name ?? '');
+    const key = String(vehicle.vehicleId ?? vehicle.id ?? vehicle.name ?? '');
     const matches = (value: any): boolean => [
-      value?.编号, value?.vehicleId, value?.id, value?.名称, value?.name,
+      value?.vehicleId, value?.id, value?.name,
     ].some((candidate) => candidate !== undefined && candidate !== null && String(candidate) === key);
     const index = key ? vehicles.findIndex(matches) : -1;
     if (index >= 0) {
@@ -3627,23 +3549,23 @@ export class MovementVehicleService {
     }
 
     await this.support.advanceTask(userId, '维修载具');
-    const vehicleType = String(vehicle.类型 ?? vehicle.type ?? '');
+    const vehicleType = String(vehicle.type ?? '');
     const typeText = vehicleType ? `（${vehicleType}）` : '';
-    return `${player.name || '冒险者'}用0载具零件修好了${vehicle.名称 || vehicle.name}${typeText}`;
+    return `${player.name || '冒险者'}用0载具零件修好了${vehicle.name}${typeText}`;
   }
 
   /** 原版 L10419-10427 四类部件超上限拦截：按 功能→武器→行走→防御 顺序返回超限类别名。 */
 
   findVehicleOverLimitPart(vehicle: any): string {
-    const parts = Array.isArray(vehicle?.parts ?? vehicle?.零件)
-      ? (vehicle.parts ?? vehicle.零件)
-      : asJsonValue<any[]>(vehicle?.parts ?? vehicle?.零件, []);
+    const parts = Array.isArray(vehicle?.parts)
+      ? vehicle.parts
+      : asJsonValue<any[]>(vehicle?.parts, []);
     // 安装写入的是 partType（0核心/1防御/2行走/3武器/4功能）；type 多为「资源/装备」标签，不能当槽位类型。
     const partTypeOf = (part: any): number => {
       const fromPartType = Number(part?.partType ?? part?.部件类型);
       if (Number.isFinite(fromPartType) && fromPartType > 0) return fromPartType;
       // 地图 JSON 中文部件可回落 静态规格
-      const spec = this.staticData?.getVehiclePartSpecByName?.(String(part?.名称 ?? part?.name ?? ''));
+      const spec = this.staticData?.getVehiclePartSpecByName?.(String(part?.name ?? ''));
       return Number(spec?.partType ?? -1);
     };
     const count = (type: number): number =>
@@ -3682,21 +3604,20 @@ export class MovementVehicleService {
     const map = await this.mapService.getMapById(player.mapId);
     const mapVehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
     const vehicleKeys = (value: any): string[] => [
-      value?.编号, value?.vehicleId, value?.id,
+      value?.vehicleId, value?.id,
     ].filter((key) => key !== undefined && key !== null && String(key) !== '').map(String);
     const index = mapVehicles.findIndex((value: any) => vehicleKeys(value).includes(vehicleKey));
 
     if (index >= 0) {
       const runtime = this.toRuntimeVehicle(mapVehicles[index]);
-      runtime.驾驶员 = '';
       runtime.driver = '';
       mapVehicles[index] = this.toStoredVehicle(runtime);
       await this.mapService.updateDynamicFields(map.id, { vehicles: mapVehicles });
       player.vehicle = '';
       await this.playerService.savePlayer(player);
       await this.achievementService.addAchievement(player, '脱出', 1);
-      this.logger.log(`玩家 ${userId} 从载具 ${runtime.名称} 中脱出`);
-      return `${player.name}离开了${runtime.名称}(${runtime.类型})`;
+      this.logger.log(`玩家 ${userId} 从载具 ${runtime.name} 中脱出`);
+      return `${player.name}离开了${runtime.name}(${runtime.type})`;
     }
 
     const numericId = Number(vehicleKey);
@@ -3740,13 +3661,13 @@ export class MovementVehicleService {
     const map = await this.mapService.getMapById(player.mapId);
     const vehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
     const match = (item: any): boolean => {
-      const identifiers = [item?.名称, item?.name, item?.编号, item?.vehicleId, item?.id]
+      const identifiers = [item?.name, item?.vehicleId, item?.id]
         .filter((value) => value !== undefined && value !== null).map(String);
-      const owner = String(item?.归属 ?? item?.owner ?? '');
+      const owner = String(item?.owner ?? '');
       return identifiers.includes(String(targetName)) && ownerIds.has(owner);
     };
     let vehicle: any = vehicles.find(match);
-    let vehicleId = vehicle ? String(vehicle.编号 ?? vehicle.vehicleId ?? vehicle.id ?? '') : '';
+    let vehicleId = vehicle ? String(vehicle.vehicleId ?? vehicle.id ?? '') : '';
 
     if (!vehicle) {
       const numericId = Number(targetName);
@@ -3775,7 +3696,7 @@ export class MovementVehicleService {
     player.sets = sets;
     await this.playerService.savePlayer(player);
 
-    const vehicleName = vehicle.名称 ?? vehicle.name ?? targetName;
+    const vehicleName = vehicle.name ?? targetName;
     this.logger.log(`玩家 ${userId} 接管了载具 ${vehicleName}`);
     return `${player.name || '冒险者'}已对${vehicleName}进行接管，现在无需驾驶即可拆装部件、设置生产\n“接管停止”可停止接管\n“驾驶”也可以中止接管`;
   }
@@ -3797,9 +3718,9 @@ export class MovementVehicleService {
     const map = await this.mapService.getMapById(player.mapId);
     const vehicles = this.parseVehicleValue<any[]>(map?.vehicles, []);
     const vehicle = vehicles.find((item: any) =>
-      [item?.编号, item?.vehicleId, item?.id].filter((value) => value !== undefined && value !== null).map(String).includes(takeover),
+      [item?.vehicleId, item?.id].filter((value) => value !== undefined && value !== null).map(String).includes(takeover),
     );
-    if (vehicle) vehicleName = vehicle.名称 ?? vehicle.name ?? takeover;
+    if (vehicle) vehicleName = vehicle.name ?? takeover;
     sets.takeVehicle = '';
     sets.接管载具 = '';
     player.sets = sets;
@@ -3836,7 +3757,7 @@ export class MovementVehicleService {
 
     // 架炮/收炮时解除炮击相关行动门禁（若存在「攻击模式」限时标记则清掉）
     if (Array.isArray(markers2)) {
-      const kept = markers2.filter((m: any) => m && m.name !== '攻击模式' && m.名称 !== '攻击模式');
+      const kept = markers2.filter((m: any) => m && m.name !== '攻击模式');
       if (kept.length !== markers2.length) {
         player.markers2 = kept;
         await this.playerService.savePlayer(player);
@@ -3865,13 +3786,13 @@ export class MovementVehicleService {
     const currentBuildings = asJsonValue<any[]>(currentMap.buildings, []);
     const currentVehicles = asJsonValue<any[]>(currentMap.vehicles, []);
     const currentVehicle = currentVehicles.find((vehicle: any) =>
-      String(vehicle?.id ?? vehicle?.编号 ?? '') === String(player.vehicle || ''),
+      String(vehicle?.id ?? vehicle?.vehicleId ?? '') === String(player.vehicle || ''),
     );
     const currentVehicleParts = asJsonValue<any[]>(currentVehicle?.parts, []);
     const hasCommunication = currentBuildings.some((building: any) =>
-      (building?.name ?? building?.名称) === '通讯台',
+      building?.name === '通讯台',
     ) || currentVehicleParts.some((part: any) =>
-      (part?.name ?? part?.名称) === '通讯台',
+      part?.name === '通讯台',
     );
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -3884,16 +3805,13 @@ export class MovementVehicleService {
     ].filter(Boolean));
     const jsonArray = (value: any): any[] => asJsonValue<any[]>(value, []);
     const ownerOf = (unit: any): boolean => ownerIds.has(String(
-      unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '',
+      unit?.ownerQQ ?? unit?.owner ?? '',
     ));
     const markerValue = (unit: any, markerName: string): number => {
-      const raw = unit?.markers ?? unit?.标记 ?? {};
+      const raw = unit?.markers ?? {};
       const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
-      if (Array.isArray(parsed)) {
-        const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
-        return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
-      }
-      return Number(parsed?.[markerName] ?? 0);
+      // 标记读取唯一口径（数组 [{name,value}] / 字典 {标记名:数值}），见 field-contract.util.ts
+      return readMarkerValue(parsed, markerName);
     };
     const allMaps = await this.mapService.getAllMaps();
     const candidates: Array<{ kind: 'pet' | 'vehicle'; map: any; unit: any; index: number }> = [];
@@ -3915,7 +3833,7 @@ export class MovementVehicleService {
         lines.push(`神之工匠`);
       }
       candidates.forEach((candidate, index) => {
-        const label = candidate.unit.name ?? candidate.unit.名称 ?? candidate.unit.type ?? candidate.unit.类型 ?? '未命名';
+        const label = candidate.unit.name ?? candidate.unit.type ?? '未命名';
         lines.push(`${(hasCommunication ? 2 : 0) + index + 1}、${label}(${candidate.map.name})`);
       });
       return lines.join('\n');
@@ -3925,9 +3843,9 @@ export class MovementVehicleService {
     // 因此先保留完整名称命中，再解析快捷前缀，避免“宠物甲”被截成“甲”。
     const exactRawTarget = candidates.some((candidate) => {
       const unit = candidate.unit;
-      return String(unit.qq ?? unit.QQ ?? unit.id ?? unit.编号 ?? '') === rawTarget
-        || (unit.name ?? unit.名称 ?? '') === rawTarget
-        || (unit.image ?? unit.图片 ?? '') === rawTarget;
+      return String(unit.qq ?? unit.QQ ?? unit.id ?? '') === rawTarget
+        || (unit.name ?? '') === rawTarget
+        || (unit.image ?? '') === rawTarget;
     });
     const explicitKind: 'pet' | 'vehicle' | undefined = exactRawTarget
       ? undefined
@@ -3956,15 +3874,15 @@ export class MovementVehicleService {
           : { name: '通讯3', message: '18点才能再次使用' };
       const existingSlotMarkers = jsonArray(player.markers2);
       const hadFreeCall = existingSlotMarkers.some((marker: any) => {
-        const name = marker?.name ?? marker?.名称;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const name = marker?.name;
+        const rawExpire = Number(marker?.expireAt ?? 0);
         const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
         return name === slot.name && expireSec > nowSec;
       });
       const markers2 = existingSlotMarkers.filter((marker: any) => {
-        const name = marker?.name ?? marker?.名称;
+        const name = marker?.name;
         if (name !== slot.name) return true;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const rawExpire = Number(marker?.expireAt ?? 0);
         const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
         return expireSec > nowSec;
       });
@@ -3972,7 +3890,7 @@ export class MovementVehicleService {
       let merchantLevel = 0;
       let extraText = '';
       if (hadFreeCall) {
-        const band = backpack.find((item: any) => (item?.name ?? item?.名称) === '发带');
+        const band = backpack.find((item: any) => item?.name === '发带');
         const bandCount = this.support.itemQuantity(band);
         if (bandCount < 1) return `${player.name || '冒险者'}${slot.message}`;
         const affinity = (10 + this.achievementService.getAchievement(markers, '购物') / 100) / 2;
@@ -3996,7 +3914,7 @@ export class MovementVehicleService {
         }
       }
       const homeSummons = asJsonValue<any[]>(homeMap.summons, [])
-        .filter((summon: any) => (summon?.name ?? summon?.名称) !== '行商');
+        .filter((summon: any) => summon?.name !== '行商');
       const inventory = await this.shop.generateMerchantInventory(merchantLevel, extraCount);
       homeSummons.push({
         name: '行商',
@@ -4028,20 +3946,20 @@ export class MovementVehicleService {
       const nowMs = Date.now();
       const nowSec = nowMs / 1000;
       const markers2 = jsonArray(player.markers2).filter((marker: any) => {
-        const name = marker?.name ?? marker?.名称;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const name = marker?.name;
+        const rawExpire = Number(marker?.expireAt ?? 0);
         const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
         return name !== '通讯4' || expireSec <= nowSec;
       });
       const hasCooldown = jsonArray(player.markers2).some((marker: any) => {
-        const name = marker?.name ?? marker?.名称;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const name = marker?.name;
+        const rawExpire = Number(marker?.expireAt ?? 0);
         const expireSec = rawExpire > 100000000000 ? rawExpire / 1000 : rawExpire;
         return name === '通讯4' && expireSec > nowSec;
       });
       const backpack = this.playerService.getBackpackItems(player);
       if (hasCooldown) {
-        const spirit = backpack.find((item: any) => (item?.name ?? item?.名称) === '灵石');
+        const spirit = backpack.find((item: any) => item?.name === '灵石');
         if (this.support.itemQuantity(spirit) < 10) return `${player.name || '冒险者'}明天才能再次使用`;
         this.support.deductBackpackItem(backpack, '灵石', 10);
       } else {
@@ -4068,9 +3986,9 @@ export class MovementVehicleService {
     const matched = candidates.find((candidate) => {
       if (explicitKind && candidate.kind !== explicitKind) return false;
       const unit = candidate.unit;
-      return String(unit.qq ?? unit.QQ ?? unit.id ?? unit.编号 ?? '') === target
-        || (unit.name ?? unit.名称 ?? '') === target
-        || (unit.image ?? unit.图片 ?? unit.type ?? unit.类型 ?? '') === target;
+      return String(unit.qq ?? unit.QQ ?? unit.id ?? '') === target
+        || (unit.name ?? '') === target
+        || (unit.image ?? unit.type ?? '') === target;
     });
     if (!matched) return `${player.name || '冒险者'}你呼叫的对象${rawTarget}不在服务区`;
 
@@ -4078,13 +3996,13 @@ export class MovementVehicleService {
       // 对齐原版 L6045：先调用 计算幼崽 更新成长计时，再检查标记
       this.familiarSystemService.checkAndUpdateGrowth(matched.unit);
       if (markerValue(matched.unit, '阵地') !== 0) {
-        return `${player.name || '冒险者'}\n${matched.unit.name ?? matched.unit.名称}防御阵地不能移动`;
+        return `${player.name || '冒险者'}\n${matched.unit.name}防御阵地不能移动`;
       }
       if (markerValue(matched.unit, '幼崽') !== 0) {
-        return `${player.name || '冒险者'}\n${matched.unit.name ?? matched.unit.名称}还是宝宝，不能离开家`;
+        return `${player.name || '冒险者'}\n${matched.unit.name}还是宝宝，不能离开家`;
       }
-    } else if (Number(matched.unit.moveType ?? matched.unit.行走方式 ?? 0) === 4) {
-      return `${player.name || '冒险者'}${matched.unit.name ?? matched.unit.名称}安装了无法移动的组件`;
+    } else if (Number(matched.unit.moveType ?? 0) === 4) {
+      return `${player.name || '冒险者'}${matched.unit.name}安装了无法移动的组件`;
     }
 
     const targetSummons = jsonArray(currentMap.summons);
@@ -4098,14 +4016,14 @@ export class MovementVehicleService {
       sourceSummons.splice(matched.index, 1);
       targetSummons.push(matched.unit);
       // 原版召唤物移动时会携带其驾驶的载具。
-      const petVehicleId = matched.unit.vehicle ?? matched.unit.载具 ?? '';
+      const petVehicleId = matched.unit.vehicle ?? '';
       if (petVehicleId) {
         const vehicleIndex = sourceVehicles.findIndex((v: any) =>
-          String(v.id ?? v.编号 ?? '') === String(petVehicleId),
+          String(v.id ?? v.vehicleId ?? '') === String(petVehicleId),
         );
         if (vehicleIndex >= 0) {
           carriedVehicle = sourceVehicles[vehicleIndex];
-          const carriedMoveType = Number(carriedVehicle.moveType ?? carriedVehicle.行走方式 ?? 0);
+          const carriedMoveType = Number(carriedVehicle.moveType ?? 0);
           // 原版“召唤物移动2”只携带可移动载具；行走方式4的载具留在原地图。
           if (carriedMoveType !== 4 && !sameMap) {
             targetVehicles.push(...sourceVehicles.splice(vehicleIndex, 1));
@@ -4131,11 +4049,11 @@ export class MovementVehicleService {
         vehicles: targetVehicles,
       });
     }
-    const label = matched.unit.name ?? matched.unit.名称 ?? '对象';
+    const label = matched.unit.name ?? '对象';
     let result: string;
     if (matched.kind === 'pet') {
-      const moveType = Number(carriedVehicle?.moveType ?? carriedVehicle?.行走方式 ?? 0);
-      const vehicleLabel = carriedVehicle?.name ?? carriedVehicle?.名称 ?? '载具';
+      const moveType = Number(carriedVehicle?.moveType ?? 0);
+      const vehicleLabel = carriedVehicle?.name ?? '载具';
       const suffix = !carriedVehicle
         ? '跑到了'
         : moveType === 4
@@ -4149,7 +4067,7 @@ export class MovementVehicleService {
                 : `操纵${vehicleLabel}跃迁到了`;
       result = `${label}${suffix}${currentMap.name}`;
     } else {
-      const moveType = Number(matched.unit.moveType ?? matched.unit.行走方式 ?? 0);
+      const moveType = Number(matched.unit.moveType ?? 0);
       const suffix = moveType === 0
         ? '被拖到了'
         : moveType === 1
@@ -4225,7 +4143,7 @@ export class MovementVehicleService {
       String(player.masterQQ || ''),
     ].filter(Boolean));
     const ownerOf = (unit: any): boolean => ownerIds.has(String(
-      unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '',
+      unit?.ownerQQ ?? unit?.owner ?? '',
     ));
     const currentKey = String(player.vehicle || '');
 
@@ -4235,9 +4153,9 @@ export class MovementVehicleService {
       const vehicles = asJsonValue<any[]>(map.vehicles, []);
       for (const v of vehicles) {
         if (!ownerOf(v)) continue;
-        const name = String(v?.name ?? v?.名称 ?? '未命名');
-        const key = String(v?.编号 ?? v?.vehicleId ?? v?.id ?? name);
-        const moveType = Number(v?.行走方式 ?? v?.moveType ?? 0);
+        const name = String(v?.name ?? '未命名');
+        const key = String(v?.vehicleId ?? v?.id ?? name);
+        const moveType = Number(v?.moveType ?? 0);
         const driving = currentKey !== '' && (currentKey === key || currentKey === String(v?.id ?? ''));
         owned.push({ name, mapName: String(map?.name ?? ''), key, driving, moveType });
       }
@@ -4278,7 +4196,7 @@ export class MovementVehicleService {
     // 与 handleDriveVehicle 相同的键匹配口径：编号/vehicleId/名称 皆可命中
     const vehicles = this.parseVehicleValue<any[]>(map.vehicles, []);
     const keys = (v: any): string[] =>
-      [v?.编号, v?.vehicleId, v?.id, v?.名称, v?.name]
+      [v?.vehicleId, v?.id, v?.name]
         .filter((k) => k !== undefined && k !== null && String(k) !== '')
         .map(String);
     const index = vehicles.findIndex((v: any) => keys(v).includes(String(vehicleName)));
@@ -4292,7 +4210,7 @@ export class MovementVehicleService {
       [String(userId), String(user?.qqNumber || ''), String(user?.externalId || ''), String(player.masterQQ || '')]
         .filter(Boolean),
     );
-    const owner = String(runtime?.归属 ?? runtime?.owner ?? '');
+    const owner = String(runtime?.owner ?? '');
     const isOwn = ownerIds.has(owner);
     if (isOwn) {
       // 原版 L5765-5766：自己的载具 计算载具(..., 计算产出=真) 并写回地图；
@@ -4315,18 +4233,18 @@ export class MovementVehicleService {
     // 无主载具 → 1、获取权限（临时输入 1@驾驶+编号 / 获取权限@驾驶+编号）
     if (isOwn) {
       const options: { label: string; cmd: string }[] = [{ label: '载具操作', cmd: '载具操作' }];
-      if (Number(runtime?.加成?.生产 ?? 0) > 0) options.push({ label: '生产', cmd: '生产' });
+      if (Number(runtime?.bonus?.生产 ?? 0) > 0) options.push({ label: '生产', cmd: '生产' });
       const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可操作');
       return `${detail}\n${menu.join('\n')}`;
     }
     if (owner === '无主') {
-      const vid = String(runtime?.编号 ?? runtime?.vehicleId ?? vehicleName);
+      const vid = String(runtime?.vehicleId ?? vehicleName);
       const flags = await this.getWreckSealFlags();
       const sealInfo = await this.resolveWreckSealInfo(runtime);
       const isAdmin = await this.isAdminUser(userId);
       const sealed = flags.sealEnabled && !!sealInfo?.sealed;
       if (sealed) {
-        const sealWave = Number(runtime?.当前守卫波 ?? runtime?.sealWave ?? 0) || 0;
+        const sealWave = Number(runtime?.sealWave ?? 0) || 0;
         const totalWaves = sealInfo?.guardWaves ?? 1;
         const statusLine = sealWave > 0
           ? `当前唤醒进度：第${sealWave}/${totalWaves}波守卫`
@@ -4373,17 +4291,17 @@ export class MovementVehicleService {
    * 生命/主人/驾驶员/四槽位/移动方式/ID/零件清单；无主载具主人显示"无主"。
    */
   private async formatVehicleDetail(runtime: any): Promise<string> {
-    const name = String(runtime?.名称 ?? runtime?.name ?? '未知载具');
+    const name = String(runtime?.name ?? '未知载具');
     // 原版：类型 = 零件[1].名称 去掉"核心"（计算载具同款推导），类型为空时回退现算
-    let type = String(runtime?.类型 ?? runtime?.type ?? '');
-    const parts = Array.isArray(runtime?.零件) ? runtime.零件 : [];
+    let type = String(runtime?.type ?? '');
+    const parts = Array.isArray(runtime?.parts) ? runtime.parts : [];
     if (!type && parts.length > 0) {
-      type = String(parts[0]?.名称 ?? '').replace(/核心/g, '');
+      type = String(parts[0]?.name ?? '').replace(/核心/g, '');
     }
-    const currentHp = Number(runtime?.当前生命 ?? runtime?.currentHp ?? 0);
-    const maxHp = Number(runtime?.生命 ?? runtime?.maxHp ?? 0);
-    const owner = String(runtime?.归属 ?? runtime?.owner ?? '');
-    const driver = String(runtime?.驾驶员 ?? runtime?.driver ?? '');
+    const currentHp = Number(runtime?.currentHp ?? 0);
+    const maxHp = Number(runtime?.maxHp ?? 0);
+    const owner = String(runtime?.owner ?? '');
+    const driver = String(runtime?.driver ?? '');
     const num = (v: any) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 100) / 100 : 0);
 
     const lines: string[] = [];
@@ -4394,9 +4312,9 @@ export class MovementVehicleService {
     // 原版 归属三态（L2446-L2457）：无主 → "无主"；数字归属 → 取玩家名称；其余（召唤物持有）原样
     if (owner === '无主') {
       lines.push('主人: 无主');
-      const sealedFlag = runtime?.封印中 ?? runtime?.sealed;
+      const sealedFlag = runtime?.sealed;
       if (sealedFlag === true || sealedFlag === 1 || sealedFlag === 'true') {
-        const sealLv = Number(runtime?.需求等级 ?? runtime?.requireLevel ?? runtime?.封印等级 ?? runtime?.sealLevel ?? 0) || 0;
+        const sealLv = Number(runtime?.requireLevel ?? runtime?.sealLevel ?? 0) || 0;
         lines.push(sealLv > 0
           ? `远古遗迹・被封印 Lv.${sealLv}`
           : '远古遗迹・被封印');
@@ -4409,12 +4327,12 @@ export class MovementVehicleService {
     // 驾驶员同口径（L2458-L2466）：数字 → 取玩家名称，空 → 无
     lines.push(`驾驶员: ${driver ? await this.resolvePlayerName(driver) : '无'}`);
     lines.push(
-      `武器: ${num(runtime?.武器)}/${num(runtime?.武器上限)}  防御: ${num(runtime?.防御)}/${num(runtime?.防御上限)}` +
-      `  功能: ${num(runtime?.功能)}/${num(runtime?.功能上限)}  行走: ${num(runtime?.行走)}/${num(runtime?.行走上限)}`,
+      `武器: ${num(runtime?.weaponSlots)}/${num(runtime?.maxWeapon)}  防御: ${num(runtime?.defenseSlots)}/${num(runtime?.maxDefense)}` +
+      `  功能: ${num(runtime?.functionSlots)}/${num(runtime?.maxFunction)}  行走: ${num(runtime?.moveSlots)}/${num(runtime?.maxMove)}`,
     );
     // 移动方式（原版 L2468-L2476）：1=陆地、2=飞行、3=跃迁；0/4 → 「坐地(无法移动)」无"移动方式"前缀
-    const moveType = Number(runtime?.行走方式 ?? runtime?.moveType ?? 0);
-    const idText = String(runtime?.编号 ?? runtime?.vehicleId ?? '');
+    const moveType = Number(runtime?.moveType ?? 0);
+    const idText = String(runtime?.vehicleId ?? '');
     if (moveType === 0 || moveType === 4) {
       lines.push(`坐地(无法移动)  ID: ${idText}`);
     } else {
@@ -4426,22 +4344,22 @@ export class MovementVehicleService {
     this.appendVehiclePartLines(lines, parts);
 
     // 原版 L2513-2516：生产线可运行 + 驾驶员加成
-    const productionPower = Number(runtime?.加成?.生产 ?? 0);
+    const productionPower = Number(runtime?.bonus?.生产 ?? 0);
     if (productionPower > 0) {
-      const marks = asJsonValue<Record<string, number>>(runtime?.标记 ?? runtime?.markers, {});
+      const marks = asJsonValue<Record<string, number>>(runtime?.markers, {});
       const availableSec = Number(marks?.['生产时间'] ?? 0) || 0;
       lines.push(`生产线可运行:${this.formatVehicleTime(availableSec)}`);
     }
-    lines.push(`驾驶员加成:${this.renderVehicleBonus(runtime?.加成)}`);
+    lines.push(`驾驶员加成:${this.renderVehicleBonus(runtime?.bonus)}`);
 
     // 原版 L2517-2528：逆转力场 / 白的发丝 / 超限状态
-    if (runtime?.逆转力场 ?? runtime?.reverseField) {
+    if (runtime?.reverseField) {
       lines.push('【载具不会受到伤害也不能抵挡伤害】');
     }
-    if (runtime?.发丝 ?? runtime?.hair) {
+    if (runtime?.hair) {
       lines.push('掉落率+222%  掉落数量+444%');
     }
-    const slotStatus = Number(runtime?.上限 ?? runtime?.slotStatus ?? 0);
+    const slotStatus = Number(runtime?.slotStatus ?? 0);
     if (slotStatus === 1) {
       lines.push('有部件超过了建议安装数量，超过的部分的效果减半。');
     } else if (slotStatus === 2) {
@@ -4545,10 +4463,10 @@ export class MovementVehicleService {
     };
 
     for (const p of parts) {
-      const pname = String(p?.名称 ?? p?.name ?? '').trim();
+      const pname = String(p?.name ?? '').trim();
       if (!pname) continue; // 原版 L1870：空名跳过
-      const qty = Number(p?.数量 ?? p?.quantity ?? p?.count ?? 1) || 0;
-      const isEquip = String(p?.类型 ?? p?.type ?? '') === '装备';
+      const qty = Number(p?.quantity ?? 1) || 0;
+      const isEquip = String(p?.type ?? '') === '装备';
       const spec = this.staticData.getVehiclePartSpecByName(pname);
       const isBuilding = !!this.staticData.getBuildingByName(pname);
       if (spec || isBuilding) {
@@ -4558,7 +4476,7 @@ export class MovementVehicleService {
           bucket.equips.push(
             this.itemService.formatEquipmentInventoryDisplay({
               name: pname, type: '装备', quantity: 1, durability: 0,
-              data: String(p?.数据 ?? p?.data ?? ''),
+              data: String(p?.data ?? ''),
             } as any),
           );
         } else {
@@ -4567,9 +4485,9 @@ export class MovementVehicleService {
         // 内置零件展开（L2493-L2502）：对全部已安装部件按规格展开，与实例是否装备无关
         if (spec && Array.isArray(spec.builtinParts)) {
           for (const inner of spec.builtinParts) {
-            const inName = String(inner?.name ?? inner?.名称 ?? '').trim();
+            const inName = String(inner?.name ?? '').trim();
             if (!inName) continue;
-            const inQty = Number(inner?.count ?? inner?.数量 ?? 1) || 1;
+            const inQty = Number(inner?.quantity ?? 1) || 1;
             builtinMap.set(inName, (builtinMap.get(inName) ?? 0) + inQty);
           }
         }
@@ -4584,7 +4502,7 @@ export class MovementVehicleService {
           bucket.equips.push(
             this.itemService.formatEquipmentInventoryDisplay({
               name: pname, type: '装备', quantity: 1, durability: 0,
-              data: String(p?.数据 ?? p?.data ?? ''),
+              data: String(p?.data ?? ''),
             } as any),
           );
         } else {

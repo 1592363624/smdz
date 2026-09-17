@@ -12,7 +12,7 @@ describe('过期时间统一工具（增益/标记）', () => {
 
   it('秒级与毫秒级到期时间都归一化为毫秒', () => {
     expect(toExpireMs({ expireAt: nowSec + 30 })).toBeGreaterThan(1e12);
-    expect(toExpireMs({ 有效期至: nowMs + 30 * 1000 })).toBe(nowMs + 30 * 1000);
+    expect(toExpireMs({ expireAt: nowMs + 30 * 1000 })).toBe(nowMs + 30 * 1000);
     expect(toExpireMs({ expireAt: 0 })).toBe(0);
     expect(toExpireMs(null)).toBe(0);
   });
@@ -20,8 +20,8 @@ describe('过期时间统一工具（增益/标记）', () => {
   it('过期条目失效、未过期条目生效，无到期时间视为永久', () => {
     expect(isActive({ expireAt: nowSec - 1 })).toBe(false);       // 秒级已过期
     expect(isActive({ expireAt: nowSec + 10 })).toBe(true);       // 秒级未过期
-    expect(isActive({ 有效期至: nowMs - 1000 })).toBe(false);      // 毫秒级已过期
-    expect(isActive({ 有效期至: nowMs + 1000 })).toBe(true);       // 毫秒级未过期
+    expect(isActive({ expireAt: nowMs - 1000 })).toBe(false);      // 毫秒级已过期
+    expect(isActive({ expireAt: nowMs + 1000 })).toBe(true);       // 毫秒级未过期
     expect(isActive({ name: '常驻' })).toBe(true);
   });
 
@@ -29,7 +29,7 @@ describe('过期时间统一工具（增益/标记）', () => {
     const list = [
       { name: 'ex', expireAt: nowSec - 1 },
       { name: 'ex', expireAt: nowSec + 10 },
-      { 名称: '蛋糕', 有效期至: nowMs - 10 },
+      { name: '蛋糕', expireAt: nowMs - 10 },
       { name: '永久' },
     ];
     expect(hasActive(list, 'ex')).toBe(true);
@@ -61,11 +61,11 @@ describe('过期时间统一工具（增益/标记）', () => {
     expect(shortenBuff(secExpire, '卷土重来', 60, nowMs)).toBe(true);
     expect(secExpire).toHaveLength(0);
 
-    // 毫秒口径（中文键）：120 秒保护减 60 秒 → 保留约 60 秒，写回毫秒
-    const msExpire = [{ 名称: '卷土重来', 有效期至: nowMs + 120 * 1000 }];
+    // 毫秒口径：120 秒保护减 60 秒 → 保留约 60 秒，写回毫秒（规范键 expireAt）
+    const msExpire = [{ name: '卷土重来', expireAt: nowMs + 120 * 1000 }];
     expect(shortenBuff(msExpire, '卷土重来', 60, nowMs)).toBe(true);
     expect(msExpire).toHaveLength(1);
-    expect(msExpire[0].有效期至).toBe(nowMs + 60 * 1000);
+    expect(msExpire[0].expireAt).toBe(nowMs + 60 * 1000);
 
     // 秒口径未过期：缩短后写回秒（保持原字段口径），其它增益不受影响
     const secKeep = [{ name: '卷土重来', expireAt: nowSec + 120 }, { name: '闪避', expireAt: nowSec + 30 }];
@@ -89,7 +89,7 @@ describe('过期时间统一工具（增益/标记）', () => {
     expect(list).toHaveLength(2);
 
     // 中文键条目也能命中（中英文 key 兼容）
-    const cn: any[] = [{ 名称: '飞行冷却', 有效期至: nowMs + 10_000 }];
+    const cn: any[] = [{ name: '飞行冷却', expireAt: nowMs + 10_000 }];
     tagMarkerKind(cn, '飞行冷却', 'act-cd');
     expect(cn[0].kind).toBe('act-cd');
   });
@@ -118,7 +118,7 @@ describe('玩家数据读取（getPlayerData）', () => {
       buffs: JSON.stringify([
         { name: 'ex', expireAt: nowSec - 5 },                    // 秒级已过期
         { name: '闪避', expireAt: nowSec + 10 },                  // 秒级未过期
-        { 名称: '蛋糕', 有效期至: Date.now() - 1000 },             // 毫秒级已过期
+        { name: '蛋糕', expireAt: Date.now() - 1000 },             // 毫秒级已过期
         { name: '力量模式' },                                     // 永久
       ]),
       backpack: '[]',
@@ -130,7 +130,7 @@ describe('玩家数据读取（getPlayerData）', () => {
     const service = makePlayerService(player);
     const data = await service.getPlayerData(1);
 
-    const names = data.buffs.map((b: any) => b.name ?? b.名称);
+    const names = data.buffs.map((b: any) => b.name);
     expect(names).toContain('闪避');
     expect(names).toContain('力量模式');
     expect(names).not.toContain('ex');
@@ -192,18 +192,18 @@ describe('地图标记有效期归一化（toExpireMs，修复地图增益全部
   const nowMs = Date.now();
   const nowSec = Math.floor(nowMs / 1000);
 
-  it('秒级有效期至被归一成毫秒，毫秒级保持不变', () => {
-    // 原版地图标记"有效期至"写秒级（加成计算.ecode L577-652 初始化）
-    const secBuff = toExpireMs({ name: '湖边祝福', 有效期至: nowSec + 60 });
+  it('秒级 expireAt 被归一成毫秒，毫秒级保持不变', () => {
+    // 原版地图标记写秒级 expireAt（加成计算.ecode L577-652 初始化）；中文别名已在边界收敛
+    const secBuff = toExpireMs({ name: '湖边祝福', expireAt: nowSec + 60 });
     expect(secBuff).toBe((nowSec + 60) * 1000); // 关键：修复前归一成秒会让 getMapBonus 判全部过期
-    const msBuff = toExpireMs({ name: '湖边祝福', 有效期至: nowMs + 60 * 1000 });
+    const msBuff = toExpireMs({ name: '湖边祝福', expireAt: nowMs + 60 * 1000 });
     expect(msBuff).toBe(nowMs + 60 * 1000);
   });
 
   it('applyMapBuffs 风格数组：秒级标记归一化后不过期，未过期增益被 filterActive 保留', () => {
     const mapBuffs = [
-      { name: '湖边祝福', 有效期至: nowSec + 60 }, // 秒级未过期
-      { name: '过期祝福', 有效期至: nowSec - 10 }, // 秒级已过期
+      { name: '湖边祝福', expireAt: nowSec + 60 }, // 秒级未过期
+      { name: '过期祝福', expireAt: nowSec - 10 }, // 秒级已过期
     ];
     const normalized = mapBuffs.map((b) => ({ ...b, expireAt: toExpireMs(b) }));
     const active = filterActive(normalized);

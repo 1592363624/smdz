@@ -403,8 +403,11 @@ export class GameCommandHandler implements CommandHandler {
 
         case '丢弃':
         case 'discard':
-        case '扔掉':
-          return this.wrap(await this.itemSystem.discardItem(userId, firstArg));
+        case '扔掉': {
+          // 与「使用」同口径解析数量：丢弃 木头 5 / 丢弃木头5 → name+count；缺省整叠
+          const discardArgs = this.parseUseArguments(args);
+          return this.wrap(await this.itemSystem.discardItem(userId, discardArgs.itemName, discardArgs.count === 1 && !/\d/.test(arg.trim()) ? undefined : discardArgs.count));
+        }
 
         case '移除':
         case 'remove':

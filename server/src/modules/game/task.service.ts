@@ -20,7 +20,8 @@ import { roundItemQuantity } from '../../common/utils/game-text.util';
 interface TaskRequirement {
   [key: string]: any;
   name: string;
-  count: number;
+  /** 需求数量：规范键 quantity（同义旧键 count 已废弃） */
+  quantity: number;
 }
 
 interface PlayerTask {
@@ -33,7 +34,8 @@ interface PlayerTask {
 
 interface TaskReward {
   name: string;
-  count: number;
+  /** 奖励数量：规范键 quantity（同义旧键 count 已废弃） */
+  quantity: number;
   type?: string;
 }
 
@@ -206,7 +208,7 @@ export class TaskService {
         || rawTask.status === '已提交';
       if (!isLegacyCompleted) {
         const current = parsedTasks.find((task) => task.name === actualTaskName);
-        const remaining = current?.requirements.map((r) => `${r.name}(${r.count})`).join('，') || '未知';
+        const remaining = current?.requirements.map((r) => `${r.name}(${r.quantity})`).join('，') || '未知';
         return `【${actualTaskName}】任务还未完成，当前剩余要求：${remaining}`;
       }
 
@@ -305,10 +307,10 @@ export class TaskService {
     const rewardLines: string[] = [];
 
     for (const reward of this.parseRewards(gameTask.rewards)) {
-      if (!reward.name || reward.count <= 0) continue;
+      if (!reward.name || reward.quantity <= 0) continue;
       // 奖励金额 = 基数 × 加成系数（rewardScale 含 (1+等级/100) 等小数因子），
       // 乘法浮点尾巴过 roundItemQuantity 闸，不进背包/不进文案
-      const amount = roundItemQuantity(reward.count * rewardScale);
+      const amount = roundItemQuantity(reward.quantity * rewardScale);
       const rewardName = this.cleanName(reward.name);
 
       if (rewardName === '好感') {
@@ -515,8 +517,8 @@ export class TaskService {
     backpack.push({
       ...equipment,
       type: '装备',
+      // 数量只写规范键 quantity（count 镜像已废弃）
       quantity: 1,
-      count: 1,
       durability: Number(equipment?.durability || 0),
     });
   }
@@ -525,24 +527,16 @@ export class TaskService {
     const qty = roundItemQuantity(count);
     const existing = backpack.find((item: any) => this.taskName(item) === name);
     if (existing) {
-      // 统一货币读入口（P1 支柱一）：有物化基准时取「偏离基准更大」的字段，
-      // 绝不把双字段镜像里的旧值当存量（正式库 7516「4.02+1050.6≠1050.6」吞余额同源）
-      const current = player !== undefined
-        ? this.playerService.getEntryQuantity(player, existing)
-        : Number(existing.count ?? existing.quantity ?? 0);
       // ADD 语义：命中同名条目（含物化货币条目「钻石/召唤券」）一律累加，绝不
       // 整条替换——吞掉存量余额（4.02+1050.6≠1050.6）就是 SET 语义的历史事故。
+      // 数量只有一个规范键 quantity（count 双字段镜像已删除），无歧义可读。
       // 累加结果过 roundItemQuantity 闸（数值三道闸），防浮点尾巴入库。
-      const next = roundItemQuantity(current + qty);
-      // 新版物品系统读取 quantity，旧存档/旧展示读取 count；任务奖励
-      // 同时保留两者，避免奖励入包后无法制造、使用或显示。
-      existing.count = next;
+      const next = roundItemQuantity((Number(existing.quantity) || 0) + qty);
       existing.quantity = next;
       return;
     }
     backpack.push({
       name,
-      count: qty,
       quantity: qty,
       type: type || '资源',
     });
@@ -616,9 +610,9 @@ export class TaskService {
       for (let i = task.requirements.length - 1; i >= 0; i--) {
         const requirement = task.requirements[i];
         if (requirement.name !== normalizedAction) continue;
-        requirement.count -= count;
+        requirement.quantity -= count;
         changed = true;
-        if (requirement.count <= 0) task.requirements.splice(i, 1);
+        if (requirement.quantity <= 0) task.requirements.splice(i, 1);
       }
     }
     return changed;
@@ -852,7 +846,7 @@ export class TaskService {
     lines.push(`${task.name}`);
     if (definition?.description) lines.push(`${definition.description}`);
     for (const requirement of task.requirements) {
-      const count = Number(requirement.count);
+      const count = Number(requirement.quantity);
       lines.push(count === 1
         ? `◆需要${requirement.name}`
         : `◆需要${requirement.name}x${this.formatNumber(count)}`);
@@ -862,7 +856,7 @@ export class TaskService {
     if (publisherLine) lines.push(publisherLine);
     const rewards = this.parseRewards(definition?.rewards);
     lines.push(`·完成可获得:${rewards
-      .map((reward) => `${reward.name}x${this.formatNumber(reward.count * this.getRewardScale(markers))}`)
+      .map((reward) => `${reward.name}x${this.formatNumber(reward.quantity * this.getRewardScale(markers))}`)
       .join('、')}`);
     lines.push('·完成任务后奖励自动发放。');
     // 对齐原版 数据显示.ecode L452-454：任务文本含"采集"时追加说明
@@ -1192,19 +1186,19 @@ export class TaskService {
 
   /** 把流入物品的数量增量叠加到活态条目上，并覆盖其它业务字段。 */
   private overlayBackpackItem(liveItem: any, incoming: any, base?: any): void {
-    for (const key of ['count', 'quantity']) {
-      if (incoming[key] === undefined) continue;
-      const inVal = Number(incoming[key]);
-      if (base && base[key] !== undefined && liveItem[key] !== undefined) {
+    // 数量只认规范键 quantity（count 镜像已废弃）
+    if (incoming.quantity !== undefined) {
+      const inVal = Number(incoming.quantity);
+      if (base && base.quantity !== undefined && liveItem.quantity !== undefined) {
         // 有读档基准：活态值 = 活态原值 + (流入值 - 基准值)，保留并发增量
-        liveItem[key] = Number(liveItem[key]) + (inVal - Number(base[key]));
+        liveItem.quantity = Number(liveItem.quantity) + (inVal - Number(base.quantity));
       } else {
         // 无基准 / 活态缺该字段：以流入值为准（覆盖语义，兼容无快照调用）
-        liveItem[key] = inVal;
+        liveItem.quantity = inVal;
       }
     }
     for (const key of Object.keys(incoming)) {
-      if (key === 'count' || key === 'quantity') continue;
+      if (key === 'quantity' || key === 'count') continue;
       liveItem[key] = incoming[key];
     }
   }
@@ -1302,22 +1296,24 @@ export class TaskService {
       .map((item: any) => {
         if (typeof item === 'string') return this.parseNameCountToken(item);
         return {
-          name: this.cleanName(item?.name ?? item?.名称 ?? ''),
-          count: Number(item?.count ?? item?.数值 ?? item?.quantity ?? item?.数量 ?? 0),
+          name: this.cleanName(item?.name ?? ''),
+          // 需求数量只读规范键 quantity（同义旧键 count 已废弃，存量数据由迁移脚本收敛）
+          quantity: Number(item?.quantity ?? 0),
         };
       })
-      .filter((item) => item.name && Number.isFinite(item.count) && item.count > 0);
+      .filter((item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0);
   }
 
   private parseRewards(value: any): TaskReward[] {
     const parsed = this.parseAnyArray(value);
     return parsed
       .map((item: any) => ({
-        name: this.cleanName(item?.name ?? item?.名称 ?? ''),
-        count: Number(item?.count ?? item?.quantity ?? item?.数量 ?? item?.数值 ?? 0),
-        type: item?.type ?? item?.类型,
+        name: this.cleanName(item?.name ?? ''),
+        // 奖励数量只读规范键 quantity（同义旧键 count 已废弃）
+        quantity: Number(item?.quantity ?? 0),
+        type: item?.type,
       }))
-      .filter((item) => item.name && Number.isFinite(item.count));
+      .filter((item) => item.name && Number.isFinite(item.quantity));
   }
 
   private parseStringArray(value: any): string[] {
@@ -1352,7 +1348,7 @@ export class TaskService {
     if (raw.includes('#b#')) {
       return raw.split('#a#').map((entry) => {
         const parts = entry.split('#b#');
-        return { name: parts[0], count: parts[1] };
+        return { name: parts[0], quantity: parts[1] };
       });
     }
     return raw.split(/[，,\s]+/).filter(Boolean);
@@ -1360,8 +1356,8 @@ export class TaskService {
 
   private parseNameCountToken(value: string): TaskRequirement {
     const match = String(value || '').trim().match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
-    if (!match) return { name: this.cleanName(value), count: 0 };
-    return { name: this.cleanName(match[1]), count: Number(match[2]) };
+    if (!match) return { name: this.cleanName(value), quantity: 0 };
+    return { name: this.cleanName(match[1]), quantity: Number(match[2]) };
   }
 
   private hasRequirementEntries(value: any): boolean {
@@ -1426,7 +1422,7 @@ export class TaskService {
   }
 
   private cloneRequirements(value: TaskRequirement[]): TaskRequirement[] {
-    return value.map((item) => ({ name: item.name, count: item.count }));
+    return value.map((item) => ({ name: item.name, quantity: item.quantity }));
   }
 
   private formatNumber(value: number): string {

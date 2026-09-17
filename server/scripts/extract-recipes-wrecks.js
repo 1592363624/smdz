@@ -61,7 +61,8 @@ function parseTriple(text) {
     if (!name) continue;
     out.push({
       name,
-      count: Number(parts[1]) || 0,
+      // 输出 JSON 的键名统一为 quantity（物品域规范键）；原版该字段叫「数量」（产出/消耗 第 2 段）。
+      quantity: Number(parts[1]) || 0,
       chance: Number(parts[2]) || 0,
     });
   }
@@ -87,7 +88,7 @@ for (const sec of sections) {
       .split(' ')
       .map((t) => t.trim())
       .filter(Boolean)
-      .map((t) => ({ name: 去数字(t), count: Number(取数字(t)) || 0 }))
+      .map((t) => ({ name: 去数字(t), quantity: Number(取数字(t)) || 0 }))
       .filter((x) => x.name),
   });
 }
@@ -101,7 +102,7 @@ for (const sec of sections) {
     .split('，')
     .map((t) => t.trim())
     .filter(Boolean)
-    .map((t) => ({ name: 去数字(t), count: Number(取数字(t)) || 1 }))
+    .map((t) => ({ name: 去数字(t), quantity: Number(取数字(t)) || 1 }))
     .filter((x) => x.name);
   if (parts.length <= 2) continue; // 原版要求零件 > 2 才收录
   wrecks.push({ name: sec.name, chance, parts });

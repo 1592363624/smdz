@@ -273,7 +273,9 @@ describe('pickMonsterLevel 等级优先规则（原版 L2709-2716 / L2793-2807�
 describe('图鉴怪物等级展示（原版 数据显示 L3165-3166 / L3171）', () => {
   const staticData = new StaticDataService();
   function makeHandbook(proficiency?: GlobalProficiencyService) {
-    return new HandbookService(staticData, {} as any, proficiency);
+    // shortcutService 桩：图鉴命中怪物名后会写临时快捷输入（handbook.service L351）
+    const shortcutService = { setTempInput: jest.fn(async () => undefined) };
+    return new HandbookService(staticData, shortcutService as any, proficiency);
   }
 
   it('基础等级 = 物种熟练度等级，并带「(点数/下一档需求)」后缀', async () => {

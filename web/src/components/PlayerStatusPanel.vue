@@ -45,7 +45,7 @@
     <div class="pi-section" v-if="tasks.length">
       <div class="pi-section-title">📋 当前任务<span class="pi-count">{{ tasks.length }}</span></div>
       <div class="pi-task-list">
-        <span v-for="t in tasks" :key="'task-' + t.name" class="pi-task">{{ t.name }}<i v-if="t.count">({{ t.count }})</i></span>
+        <span v-for="t in tasks" :key="'task-' + t.name" class="pi-task">{{ t.name }}<i v-if="t.quantity">({{ t.quantity }})</i></span>
       </div>
     </div>
 

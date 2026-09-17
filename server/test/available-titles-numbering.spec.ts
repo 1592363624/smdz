@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 称号系统（2026-09-13 对齐原版重构）
  *
  * 1. 「查看可领取称号」编号快速领取：仅给未领取的称号发号（已领取的不占号），
@@ -66,8 +66,8 @@ function createService(
 describe('查看可领取称号编号菜单', () => {
   it('同一系列尚无阶位达成时，只展开第一阶，更高阶位不铺行不占号', async () => {
     const allTitles = [
-      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
-      { name: '肝帝II', requirements: [{ name: '发送指令', count: 100 }], rewards: [] },
+      { name: '肝帝I', requirements: [{ name: '发送指令', quantity: 10 }], rewards: [] },
+      { name: '肝帝II', requirements: [{ name: '发送指令', quantity: 100 }], rewards: [] },
     ];
     const { service, shortcutService } = createService({ titles: '[]' }, {}, { allTitles });
 
@@ -84,9 +84,9 @@ describe('查看可领取称号编号菜单', () => {
 
   it('已达成待领取的阶位全部保留，再追加首个未达成的下一阶', async () => {
     const allTitles = [
-      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
-      { name: '肝帝II', requirements: [{ name: '发送指令', count: 100 }], rewards: [] },
-      { name: '肝帝III', requirements: [{ name: '发送指令', count: 1000 }], rewards: [] },
+      { name: '肝帝I', requirements: [{ name: '发送指令', quantity: 10 }], rewards: [] },
+      { name: '肝帝II', requirements: [{ name: '发送指令', quantity: 100 }], rewards: [] },
+      { name: '肝帝III', requirements: [{ name: '发送指令', quantity: 1000 }], rewards: [] },
     ];
     const { service, shortcutService } = createService(
       { titles: '[]' },
@@ -110,8 +110,8 @@ describe('查看可领取称号编号菜单', () => {
 
   it('已领取的称号不发号不占号：编号只落在可领取项上', async () => {
     const allTitles = [
-      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
-      { name: '仓鼠I', requirements: [{ name: '采集资源', count: 10 }], rewards: [] },
+      { name: '肝帝I', requirements: [{ name: '发送指令', quantity: 10 }], rewards: [] },
+      { name: '仓鼠I', requirements: [{ name: '采集资源', quantity: 10 }], rewards: [] },
     ];
     const { service, shortcutService } = createService(
       { titles: [{ name: '肝帝I', equipped: false }] },
@@ -131,9 +131,9 @@ describe('查看可领取称号编号菜单', () => {
 
   it('原版称号显示进度行（普通成就/在线时间时间格式/*模糊匹配）', async () => {
     const allTitles = [
-      { name: '肝帝II', requirements: [{ name: '发送指令', count: 100 }], rewards: [] },
-      { name: '住这了I', requirements: [{ name: '在线时间', count: 3600 }], rewards: [] },
-      { name: '巨人猎手I', requirements: [{ name: '*巨人', count: 10 }], rewards: [] },
+      { name: '肝帝II', requirements: [{ name: '发送指令', quantity: 100 }], rewards: [] },
+      { name: '住这了I', requirements: [{ name: '在线时间', quantity: 3600 }], rewards: [] },
+      { name: '巨人猎手I', requirements: [{ name: '*巨人', quantity: 10 }], rewards: [] },
     ];
     const markers = { '发送指令': 40, '在线时间': 300, '击败巨人': 4, '击败巨人王': 2 };
     const { service } = createService({ titles: '[]' }, markers, { allTitles });
@@ -152,7 +152,7 @@ describe('查看可领取称号编号菜单', () => {
 
   it('全部已领取时提示无可领取，不注册临时输入', async () => {
     const allTitles = [
-      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
+      { name: '肝帝I', requirements: [{ name: '发送指令', quantity: 10 }], rewards: [] },
     ];
     const { service, shortcutService } = createService(
       { titles: [{ name: '肝帝I', equipped: false }] },
@@ -168,8 +168,8 @@ describe('查看可领取称号编号菜单', () => {
 
   it('可领取项置顶成独立区块：顶部点名 + 行首 ✅ + 编号优先发放', async () => {
     const allTitles = [
-      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
-      { name: '战神I', requirements: [{ name: '战斗力', count: 10000 }], rewards: [] },
+      { name: '肝帝I', requirements: [{ name: '发送指令', quantity: 10 }], rewards: [] },
+      { name: '战神I', requirements: [{ name: '战斗力', quantity: 10000 }], rewards: [] },
     ];
     const { service, shortcutService } = createService(
       { titles: '[]' },
@@ -194,7 +194,7 @@ describe('查看可领取称号编号菜单', () => {
   it('顶部点名超过配置上限时折算「…（共 N 个）」，完整清单仍在编号区块', async () => {
     const allTitles = Array.from({ length: 10 }, (_, i) => ({
       name: `成就王${i + 1}I`,
-      requirements: [{ name: '发送指令', count: 1 }],
+      requirements: [{ name: '发送指令', quantity: 1 }],
       rewards: [],
     }));
     const { service, shortcutService } = createService(
@@ -217,7 +217,7 @@ describe('查看可领取称号编号菜单', () => {
 
   it('暂无达成项时不出现「现在就能领」区块，仅展示下一阶进度', async () => {
     const allTitles = [
-      { name: '肝帝I', requirements: [{ name: '发送指令', count: 10 }], rewards: [] },
+      { name: '肝帝I', requirements: [{ name: '发送指令', quantity: 10 }], rewards: [] },
     ];
     const { service } = createService({ titles: '[]' }, { '发送指令': 1 }, { allTitles });
 
@@ -234,8 +234,8 @@ describe('领取称号（对齐原版）', () => {
   it('原版称号：条件不足播报差距，不发奖励不写入称号', async () => {
     const titlesJson = {
       name: '肝帝II',
-      requirements: [{ name: '发送指令', count: 100 }],
-      rewards: [{ name: '经验胶囊', count: 100 }],
+      requirements: [{ name: '发送指令', quantity: 100 }],
+      rewards: [{ name: '经验胶囊', quantity: 100 }],
     };
     const player: any = { name: '路人甲', titles: '[]', backpack: [] };
     const { service, playerService } = createService(player, { '发送指令': 40 }, {
@@ -253,11 +253,11 @@ describe('领取称号（对齐原版）', () => {
   it('原版称号：条件满足发奖励物品进背包并写入称号', async () => {
     const titlesJson = {
       name: '肝帝I',
-      requirements: [{ name: '发送指令', count: 10 }],
+      requirements: [{ name: '发送指令', quantity: 10 }],
       rewards: [
-        { name: '经验胶囊', count: 10 },
-        { name: '水晶', count: 100 },
-        { name: '发带', count: 1 },
+        { name: '经验胶囊', quantity: 10 },
+        { name: '水晶', quantity: 100 },
+        { name: '发带', quantity: 1 },
       ],
     };
     const player: any = { name: '路人甲', titles: '[]', backpack: [] };

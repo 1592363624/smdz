@@ -148,7 +148,8 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     // 原版 expReduce=15+技能等级*0.25（skillLevel=10 → 17.5%）
     const mb = findMapBuff(map.mapBuffs, '风月入墨');
     expect(mb).toBeDefined();
-    expect(mb.value).toBeCloseTo(-17.5, 1);
+    // mapBuffs 规范键 strength（历史别名 value 已由 combat-system 收敛）
+    expect(mb.strength).toBeCloseTo(-17.5, 1);
   });
 
   it('测试2 心无所扰：player.buffs 含「心无所扰·蓄势」+ 模式2同步友方召唤物', async () => {
@@ -278,8 +279,8 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
       (m: any) => (m?.name ?? m?.名称) === '压制',
     );
     expect(suppression).toBeDefined();
-    expect(Number(suppression.强度 ?? 0)).toBeGreaterThan(0);
-    expect(Number(suppression.有效期至 ?? 0)).toBeGreaterThan(now);
+    expect(Number(suppression.strength ?? 0)).toBeGreaterThan(0);
+    expect(Number(suppression.expireAt ?? 0)).toBeGreaterThan(now);
   });
 
   it('测试8 普拉娜火力全开 类型不匹配拦截（非普拉娜使魔）', async () => {

@@ -14,9 +14,9 @@ import { TaskService } from '../src/modules/game/task.service';
  * 双字段分裂，读侧拿到陈旧值；若召唤数量 ≤ 旧值还会按旧值扣减写回，把刚到账
  * 的券整段吞掉（16:12 会话实际损失 52 券/1040 钻）。
  *
- * 修复：所有货币读写收敛到 PlayerService.getEntryQuantity / getCurrencyAmount /
- * setCurrencyAmount——读侧与落库仲裁同口径（偏离物化基准更大的字段），写侧
- * count/quantity 双字段同步 + 刷新基准。「读到旧字段」在构造上不再可能。
+ * 修复：所有货币读写收敛到 PlayerService.getCurrencyAmount /
+ * setCurrencyAmount——货币条目只保留规范键 quantity（count 双字段镜像已彻底删除），
+ * 「读到旧字段」在构造上不再可能；物化标记为 _currencyMaterialized。
  */
 
 function makePrisma(row: any) {
@@ -75,7 +75,8 @@ function makeStaticData(): any {
     getEquipmentByName: () => undefined,
     getShopConfig: () => ({
       activity: [],
-      diamond: [{ name: '召唤券', count: 20 }],
+      // 商店配置规范键 quantity（与 shops.json 一致；旧键 count 会被读成 NaN 价）
+      diamond: [{ name: '召唤券', quantity: 20 }],
       dataCore: [],
     }),
     getAllFamiliars: () => [{ name: '阿尔缇娜' }, { name: '露娜' }],
@@ -91,7 +92,9 @@ function makeFixture(): { row: any; prisma: any; playerService: PlayerService; f
   const playerService = new PlayerService(
     prisma,
     makeStaticData() as unknown as StaticDataService,
-    { getMapById: async () => null } as any,
+    // mapId=1 是有效地图：返回真地图对象，避免触发 getPlayerData 的
+    // 「无效地图自动修复」路径（该路径会调用桩上不存在的 getMapByName）
+    { getMapById: async (id: number) => ({ id, name: '新手村' }) } as any,
     undefined as any,
     actorRuntime,
   );
@@ -159,57 +162,54 @@ describe('支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故�
 });
 
 describe('支柱一：统一货币读写入口语义', () => {
-  it('读侧与落库仲裁同口径：取偏离物化基准更大的字段，绝不读双字段镜像旧值', () => {
+  it('读侧只认规范键 quantity：残留 count 旧镜像一律忽略（count 双字段镜像已删除）', () => {
     const { playerService } = makeFixture();
     const player: any = {
-      backpack: [{ name: '召唤券', type: '资源', quantity: 73.012, count: 21.012 }],
-      _currencyMirror: { '召唤券': 21.012 },
+      backpack: [{ name: '召唤券', type: '资源', quantity: 73.012 }],
+      _currencyMaterialized: true,
     };
-    // 修复前 addResourceToBackpack 只写 quantity 后，召唤读 .count 得到旧值 21.012
+    // 修复前召唤读 .count 得到旧值 21.012；口径统一后 quantity 是唯一数量键
     expect(playerService.getCurrencyAmount(player, '召唤券')).toBeCloseTo(73.012, 6);
-    // 反向分裂同样处理
+    // 反向残留的脏 count 同样被忽略：数量永远以 quantity 为准
     const player2: any = {
-      backpack: [{ name: '召唤券', type: '资源', quantity: 21.012, count: 73.012 }],
-      _currencyMirror: { '召唤券': 21.012 },
+      backpack: [{ name: '召唤券', type: '资源', quantity: 21.012 }],
+      _currencyMaterialized: true,
     };
-    expect(playerService.getCurrencyAmount(player2, '召唤券')).toBeCloseTo(73.012, 6);
-    // 无基准（原始行/手工条目）：quantity 优先
+    expect(playerService.getCurrencyAmount(player2, '召唤券')).toBeCloseTo(21.012, 6);
+    // 无基准（原始行/手工条目）：quantity 即全部
     const player3: any = { backpack: [{ name: '钻石', quantity: 5 }] };
     expect(playerService.getCurrencyAmount(player3, '钻石')).toBe(5);
     // 条目缺失 = 0
     expect(playerService.getCurrencyAmount(player, '数据核心')).toBe(0);
   });
 
-  it('写侧双字段同步 + 刷新物化基准；<=0 视为花光移除条目并把基准清零', () => {
+  it('写侧只写规范键 quantity；<=0 视为花光移除条目', () => {
     const { playerService } = makeFixture();
     const player: any = {
-      backpack: [{ name: '召唤券', type: '资源', quantity: 21.012, count: 21.012 }],
-      _currencyMirror: { '召唤券': 21.012 },
+      backpack: [{ name: '召唤券', type: '资源', quantity: 21.012 }],
+      _currencyMaterialized: true,
     };
 
     playerService.setCurrencyAmount(player, '召唤券', 73.012);
     const entry = player.backpack.find((i: any) => i.name === '召唤券');
     // 写侧过 roundItemQuantity 两位小数闸（防 73.012 型长尾入库的既定纪律）
     expect(entry.quantity).toBeCloseTo(73.01, 6);
-    expect(entry.count).toBeCloseTo(73.01, 6);
-    expect(player._currencyMirror['召唤券']).toBeCloseTo(73.01, 6);
+    expect(entry.count).toBeUndefined(); // count 双字段镜像已删除，不再写第二份
 
     playerService.setCurrencyAmount(player, '召唤券', 0.012000000000000455);
     const entry2 = player.backpack.find((i: any) => i.name === '召唤券');
     expect(entry2.quantity).toBeCloseTo(0.01, 6);
-    expect(entry2.count).toBeCloseTo(0.01, 6);
 
     playerService.setCurrencyAmount(player, '召唤券', 0);
     expect(player.backpack.some((i: any) => i.name === '召唤券')).toBe(false);
-    expect(player._currencyMirror['召唤券']).toBe(0);
 
-    // 无条目时写入自动创建双字段条目（无 mirror 的对象也不炸）
+    // 无条目时写入自动创建 quantity 单键条目（无物化标记的对象也不炸）
     const player2: any = { backpack: [] };
     playerService.setCurrencyAmount(player2, '钻石', 1050.6);
-    expect(player2.backpack[0]).toMatchObject({ name: '钻石', quantity: 1050.6, count: 1050.6 });
+    expect(player2.backpack[0]).toEqual({ name: '钻石', type: '资源', quantity: 1050.6 });
   });
 
-  it('任务发奖 addBackpackItem 用偏差感知读当存量：分裂条目上累加不吞余额', () => {
+  it('任务发奖 addBackpackItem 读规范键 quantity 当存量：同名条目累加不吞余额', () => {
     const { playerService } = makeFixture();
     const prisma = makePrisma(makeRow());
     const taskService = new TaskService(
@@ -218,12 +218,13 @@ describe('支柱一：统一货币读写入口语义', () => {
       { getTaskByName: () => undefined } as any,
       undefined as any,
     );
-    // 7516 同源形态：条目被某单字段写者分裂（count=旧值4.02，quantity=新值1050.62）
-    const player: any = { backpack: [{ name: '钻石', type: '资源', count: 4.02, quantity: 1050.62 }], _currencyMirror: { '钻石': 4.02 } };
+    // 7516 同源形态：写侧已统一只写 quantity，单字段写者分裂在构造上不再可能。
+    // 入口/落库均不写 count 镜像；旧镜像由 field-contract 边界收敛删除。
+    const player: any = { backpack: [{ name: '钻石', type: '资源', quantity: 1050.62 }] };
     (taskService as any).addBackpackItem(player.backpack, '钻石', 1050.6, '资源', player);
     const entry = player.backpack.find((i: any) => i.name === '钻石');
-    // 修复前读 count=4.02 → 4.02+1050.6=1054.62，把 quantity 上的真实余额吞掉
-    expect(entry.count).toBeCloseTo(2101.22, 6);
+    // 修复前若读 count 会吞掉 quantity 上的真实余额；现只认规范键累加
     expect(entry.quantity).toBeCloseTo(2101.22, 6);
+    expect(entry.count).toBeUndefined();
   });
 });

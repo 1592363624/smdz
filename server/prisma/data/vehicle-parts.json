@@ -13,11 +13,11 @@
     "builtinParts": [
       {
         "name": "能量剑",
-        "count": 1
+        "quantity": 1
       },
       {
         "name": "轻型装甲",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -38,7 +38,7 @@
     "builtinParts": [
       {
         "name": "能量剑",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -65,7 +65,7 @@
     "builtinParts": [
       {
         "name": "和平鸽",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -111,7 +111,7 @@
     "builtinParts": [
       {
         "name": "损伤控制系统A",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -137,7 +137,7 @@
     "builtinParts": [
       {
         "name": "逆转力场",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -160,11 +160,11 @@
     "builtinParts": [
       {
         "name": "损伤控制系统A",
-        "count": 1
+        "quantity": 1
       },
       {
         "name": "损伤控制系统强化",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -191,7 +191,7 @@
     "builtinParts": [
       {
         "name": "激光采集器",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -213,7 +213,7 @@
     "builtinParts": [
       {
         "name": "激光采集器",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -235,7 +235,7 @@
     "builtinParts": [
       {
         "name": "硅基核心阿尔法",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -387,11 +387,11 @@
     "builtinParts": [
       {
         "name": "超级目标定位",
-        "count": 1
+        "quantity": 1
       },
       {
         "name": "追踪模块",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -418,7 +418,7 @@
     "builtinParts": [
       {
         "name": "舰载机弹射器",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -441,7 +441,7 @@
     "builtinParts": [
       {
         "name": "旗舰辅助推进",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -2464,7 +2464,7 @@
     "builtinParts": [
       {
         "name": "小型跃迁引擎",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {
@@ -2861,11 +2861,11 @@
     "builtinParts": [
       {
         "name": "追踪模块",
-        "count": 1
+        "quantity": 1
       },
       {
         "name": "能量索敌",
-        "count": 1
+        "quantity": 1
       }
     ],
     "bonus": {

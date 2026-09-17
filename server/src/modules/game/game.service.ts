@@ -271,7 +271,7 @@ export class GameService {
       }
       const markers2 = asJsonValue<any[]>(row.markers2, []);
       for (const marker of markers2) {
-        const name = marker?.name ?? marker?.名称;
+        const name = marker?.name;
         if (marker?.rescueType && (name === '复活' || name === '工作')) {
           await this.delayedTaskService.schedule({
             type: 'rescue',
@@ -354,7 +354,7 @@ export class GameService {
   private buildPendingActions( player: any, markers: any, markers2: any, buffs?: any, ): Array<{ key: string; kind: string; label: string; detail: string; icon: string; startedAt: number; endAt: number; totalMs: number }>{
     return this.gatherPanelService.buildPendingActions(player, markers, markers2, buffs);
   }
-  private buildActiveTasks(rawTasks: any): Array<{ name: string; count?: number }>{
+  private buildActiveTasks(rawTasks: any): Array<{ name: string; quantity?: number }>{
     return this.gatherPanelService.buildActiveTasks(rawTasks);
   }
   private buildEquipmentSnapshot(player: any, markers: any): Array<{
@@ -563,7 +563,7 @@ export class GameService {
   private hasOutputs2(resource: any): boolean{
     return this.gatherPanelService.hasOutputs2(resource);
   }
-  private parseResourceOutputName(rawName: any, rawCount: number): { name: string; count: number; quality: string }{
+  private parseResourceOutputName(rawName: any, rawCount: number): { name: string; quantity: number; quality: string }{
     return this.gatherPanelService.parseResourceOutputName(rawName, rawCount);
   }
   private getResourceTimes(resource: any): number{

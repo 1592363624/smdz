@@ -107,7 +107,7 @@ afterEach(() => {
 describe('家园院子格子视图', () => {
   it('纯只读：不写玩家档案、不写地图动态字段', async () => {
     const fixture = makeYardFixture({
-      resources2: [{ name: '椰树', count: 1, outputs2: [{ name: '奶', count: 0.0007 }] }],
+      resources2: [{ name: '椰树', quantity: 1, outputs2: [{ name: '奶', quantity: 0.0007 }] }],
     });
 
     await fixture.service.getHomeYard(7);
@@ -119,7 +119,7 @@ describe('家园院子格子视图', () => {
   it('作物按数量展开成地块，地面障碍（产出2 为空）归入 obstacles', async () => {
     const fixture = makeYardFixture({
       resources2: [
-        { name: '椰树', count: 2, outputs2: [{ name: '奶', count: 0.0007 }] },
+        { name: '椰树', quantity: 2, outputs2: [{ name: '奶', quantity: 0.0007 }] },
         { name: '土堆', times: 3, outputs2: [] },
       ],
     });
@@ -132,12 +132,12 @@ describe('家园院子格子视图', () => {
     expect(yard.crop.plots[0].total).toBe(2);
     expect(yard.obstacles).toHaveLength(1);
     expect(yard.obstacles[0].name).toBe('土堆');
-    expect(yard.obstacles[0].count).toBe(3);
+    expect(yard.obstacles[0].quantity).toBe(3);
   });
 
   it('建筑按数量展开成地块，拆除返还按原版 50% 折算', async () => {
     const fixture = makeYardFixture({
-      buildings: [{ name: '基础钻机', count: 2 }],
+      buildings: [{ name: '基础钻机', quantity: 2 }],
     });
 
     const yard = await fixture.service.getHomeYard(7);
@@ -168,9 +168,9 @@ describe('家园院子格子视图', () => {
   it('仓库只收录可种植的种子与可安装的建筑，普通物品不入列', async () => {
     const fixture = makeYardFixture({
       backpack: [
-        { name: '椰树种子', count: 3 },
-        { name: '基础钻机', count: 1 },
-        { name: '面包', count: 5 },
+        { name: '椰树种子', quantity: 3 },
+        { name: '基础钻机', quantity: 1 },
+        { name: '面包', quantity: 5 },
       ],
     });
 
@@ -186,7 +186,7 @@ describe('家园院子格子视图', () => {
     const fixture = makeYardFixture({
       backpack: [
         { name: '木头', type: '资源', quantity: 50 },
-        { name: '木头', type: '资源', count: 30 },
+        { name: '木头', type: '资源', quantity: 30 },
         { name: '石头', type: '资源', quantity: 120 },
         { name: '铁矿', type: '资源', quantity: 12 },
         { name: '绳子', type: '资源', quantity: 0 },

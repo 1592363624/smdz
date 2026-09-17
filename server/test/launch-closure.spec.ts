@@ -73,7 +73,7 @@ describe('上线闭环补齐：取对话/反转童话/贯穿抵抗词条', () =>
         电伤: 100, 火伤: 200, 冰伤: 300, 物伤: 400,
       };
       bonus.consumeReverseFairytaleBuffs(attrs, [
-        { name: 'fzth7' }, { 名称: 'fzth10' },
+        { name: 'fzth7' }, { name: 'fzth10' },
       ]);
       expect(attrs.护盾回复).toBe(-1);
       expect(attrs.装甲回复).toBe(-2);

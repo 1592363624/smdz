@@ -53,8 +53,8 @@ export class FusionCraftService {
       for (const recipe of forgeRecipes) {
         const reqs = asJsonValue<any[]>(recipe.requirements, []);
         const outputs = asJsonValue<any[]>(recipe.outputs, []);
-        const reqText = reqs.map((r: any) => `${r.name}×${r.count || r.quantity || 1}`).join(', ');
-        const outText = outputs.map((o: any) => `${o.name}×${o.count || o.quantity || 1}`).join(', ');
+        const reqText = reqs.map((r: any) => `${r.name}×${r.quantity ?? 1}`).join(', ');
+        const outText = outputs.map((o: any) => `${o.name}×${o.quantity ?? 1}`).join(', ');
         lines.push(`【${recipe.name}】`);
         lines.push(`  需求: ${reqText}`);
         lines.push(`  产出: ${outText}`);
@@ -189,7 +189,7 @@ export class FusionCraftService {
       return `${playerName}，你这件装备${item.name}不是传说品质的哦，换一件吧。`;
     }
 
-    const spirit = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === '灵石');
+    const spirit = backpack.find((entry: any) => entry?.name === '灵石');
     const spiritCount = this.support.itemQuantity(spirit);
     if (spiritCount < 3) {
       return `${playerName}，嗯你这样让我很为难啊……(必要的强化材料为3个灵石，你只有${this.support.round2Text(spiritCount)})`;
@@ -222,8 +222,8 @@ export class FusionCraftService {
     if (this.isFusionAmplifier(item)) {
       return `${playerName}，增幅器的话……我可不敢随便对它动刀啊！`;
     }
-    const spirit = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === '灵石');
-    const certificate = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === '凭证');
+    const spirit = backpack.find((entry: any) => entry?.name === '灵石');
+    const certificate = backpack.find((entry: any) => entry?.name === '凭证');
     const spiritCount = this.support.itemQuantity(spirit);
     const certificateCount = this.support.itemQuantity(certificate);
     if (spiritCount < 1 || certificateCount < 1) {
@@ -251,7 +251,7 @@ export class FusionCraftService {
       return `${playerName}${source.name}不是装备或者${wang.name}不是汪酱`;
     }
     if (this.isFusionAmplifier(source)) return `${playerName}增幅器不可以。`;
-    const certificate = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === '凭证');
+    const certificate = backpack.find((entry: any) => entry?.name === '凭证');
     if (this.support.itemQuantity(certificate) < 3) return `${playerName}每次需要消耗3凭证`;
 
     const wangBonus = this.itemService.parseEquipment(wang).bonus?.['暴击伤害'] || 0;
@@ -292,7 +292,7 @@ export class FusionCraftService {
       return `${playerName}${item.name}已经是这个特效了`;
     }
     const cost = Math.round(effects.length / 3);
-    const spirit = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === '灵石');
+    const spirit = backpack.find((entry: any) => entry?.name === '灵石');
     if (this.support.itemQuantity(spirit) < cost) {
       return `${playerName}需要${cost}个灵石，你只有${this.support.round2Text(this.support.itemQuantity(spirit))}`;
     }
@@ -310,16 +310,16 @@ export class FusionCraftService {
       ? value
       : asJsonValue<any[]>(value, []);
     return [...parse(map.summons), ...parse(map.npcs)].some((unit: any) =>
-      (unit?.name ?? unit?.名称) === '神之工匠'
+      unit?.name === '神之工匠'
       || (unit?.qq ?? unit?.QQ) === 'npc1g'
-      || (unit?.type ?? unit?.类型) === '神之工匠',
+      || unit?.type === '神之工匠',
     );
   }
 
 
   isFusionAmplifier(item: any): boolean {
-    return String(item?.name ?? item?.名称 ?? '').startsWith('增幅器')
-      || String(item?.name ?? item?.名称 ?? '').includes('增幅器');
+    return String(item?.name ?? '').startsWith('增幅器')
+      || String(item?.name ?? '').includes('增幅器');
   }
 
 
@@ -439,7 +439,7 @@ export class FusionCraftService {
       }
       const lines = ['🌱 可育种的种子:', `━━━━━━━━━━━━━━━`];
       for (const seed of seeds) {
-        lines.push(`  ${seed.name} ×${seed.count || 1}`);
+        lines.push(`  ${seed.name} ×${seed.quantity || 1}`);
       }
       lines.push(``);
       lines.push(`使用「育种 种子名」进行育种`);
@@ -453,12 +453,12 @@ export class FusionCraftService {
     }
 
     // 消耗种子
-    const count = seedItem.count || 1;
+    const count = seedItem.quantity || 1;
     if (count <= 1) {
       const idx = backpack.indexOf(seedItem);
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
-      seedItem.count = count - 1;
+      seedItem.quantity = count - 1;
     }
 
     // 根据种子名称推断产出作物
@@ -502,8 +502,8 @@ export class FusionCraftService {
       for (const recipe of alchemyRecipes) {
         const reqs = asJsonValue<any[]>(recipe.requirements, []);
         const outputs = asJsonValue<any[]>(recipe.outputs, []);
-        const reqText = reqs.map((r: any) => `${r.name}×${r.count || r.quantity || 1}`).join(', ');
-        const outText = outputs.map((o: any) => `${o.name}×${o.count || o.quantity || 1}`).join(', ');
+        const reqText = reqs.map((r: any) => `${r.name}×${r.quantity ?? 1}`).join(', ');
+        const outText = outputs.map((o: any) => `${o.name}×${o.quantity ?? 1}`).join(', ');
         lines.push(`【${recipe.name}】`);
         lines.push(`  需求: ${reqText}`);
         lines.push(`  产出: ${outText}`);
@@ -514,7 +514,7 @@ export class FusionCraftService {
       return lines.join('\n');
     }
 
-    // 炼丹与普通制造共用完整物品系统，保持 count/quantity 双格式兼容。
+    // 炼丹与普通制造共用完整物品系统（配方条目数量规范键统一为 quantity）。
     return this.itemSystemService.craftItem(userId, recipeName, count);
   }
 

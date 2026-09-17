@@ -188,7 +188,7 @@
                 :disabled="running || !o.clearCmd"
                 @click="clearObstacle(o)"
               >
-                {{ o.name }} ×{{ o.count }}<span v-if="o.clearCmd" class="yd-chip-go">{{ o.clearCmd }}</span>
+                {{ o.name }} ×{{ o.quantity }}<span v-if="o.clearCmd" class="yd-chip-go">{{ o.clearCmd }}</span>
               </button>
             </div>
           </div>
@@ -500,21 +500,21 @@ const isAdmin = computed(() => {
   }
 });
 
-/** 某清障指令对应的障碍剩余次数（yard.obstacles[].count） */
+/** 某清障指令对应的障碍剩余次数（yard.obstacles[].quantity） */
 function clearLeftOf(cmd) {
   const c = String(cmd || '').trim();
   if (!c) return 0;
   const hit = obstacles.value.find(
     (o) => o.clearCmd === c || o.name === c || String(o.clearCmd || '').includes(c),
   );
-  return Math.max(0, Number(hit?.count || 0));
+  return Math.max(0, Number(hit?.quantity || 0));
 }
 
-/** 服务端清障队列（yard.clearQueue：[{cmd,count}]）中某指令的条数 */
+/** 服务端清障队列（yard.clearQueue：[{cmd,quantity}]）中某指令的条数 */
 function queuedCountOf(cmd) {
   const c = String(cmd || '').trim();
   const row = (data.value?.clearQueue || []).find((x) => x?.cmd === c);
-  return Math.max(0, Number(row?.count || 0));
+  return Math.max(0, Number(row?.quantity || 0));
 }
 
 /**
@@ -531,7 +531,7 @@ const clearSpots = computed(() => {
   for (const o of obstacles.value || []) {
     const cmd = String(o.clearCmd || '').trim();
     if (!cmd) continue;
-    const left = Math.max(0, Number(o.count) || 0);
+    const left = Math.max(0, Number(o.quantity) || 0);
     if (left <= 0 && !queuedCountOf(cmd)) continue;
     // 开挖地基后院子里会有 2 个同名「土堆」资源；按指令聚合时必须累加 left，
     // 否则只显示最后一堆的次数，玩家会以为「清完 ×20」就能结束（实际还要再清一堆）。
@@ -581,12 +581,12 @@ const guideQueue = computed(() => {
   const firstCmd = serverQueue[0]?.cmd || '';
   const busyCmd = p?.kind === 'gather' ? p.cmd : firstCmd;
   const busySpot = clearSpots.value.find((s) => s.cmd === busyCmd) || null;
-  const queuedLeft = serverQueue.reduce((n, x) => n + Number(x?.count || 0), 0);
+  const queuedLeft = serverQueue.reduce((n, x) => n + Number(x?.quantity || 0), 0);
   return {
     adminMode: isAdmin.value,
     queueCount: queuedLeft,
     queueCmd: firstCmd,
-    queueDetail: serverQueue.map((x) => `${x.cmd}×${x.count}`).join('、'),
+    queueDetail: serverQueue.map((x) => `${x.cmd}×${x.quantity}`).join('、'),
     busyClearCmd: busyCmd,
     clears: clearSpots.value,
     /** 障碍总数（结算前不变）；可排看 clears[].available */
@@ -1240,7 +1240,7 @@ async function enqueueClear(cmd, count = 1) {
  */
 async function skipPendingOp() {
   if (!isAdmin.value) return;
-  const queueLen = (data.value?.clearQueue || []).reduce((n, x) => n + Number(x?.count || 0), 0);
+  const queueLen = (data.value?.clearQueue || []).reduce((n, x) => n + Number(x?.quantity || 0), 0);
   const isClear = pendingOp.value?.kind === 'gather' || queueLen > 0;
   running.value = true;
   try {

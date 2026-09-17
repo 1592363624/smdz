@@ -91,7 +91,7 @@
           <button v-for="(b, i) in defense.buildings" :key="i" class="fl-cell" :class="{ disabled: !atFrontline }" :title="atFrontline ? '点击拆卸' : C.texts.needFrontline" @click="askRemove(b)">
             <span class="fl-cell-icon">{{ iconOf(b.name, 'building') }}</span>
             <span class="fl-cell-name">{{ b.name }}</span>
-            <span class="fl-cell-num">×{{ b.count }}</span>
+            <span class="fl-cell-num">×{{ b.quantity }}</span>
           </button>
         </div>
         <div v-else class="fl-empty">尚未安装防御建筑，从下方库存中安装</div>
@@ -125,7 +125,7 @@
     <div v-if="confirm" class="fl-mask" @click.self="confirm = null">
       <div class="fl-modal">
         <div class="fl-modal-title">拆卸防御建筑</div>
-        <div class="fl-modal-desc">{{ C.texts.removeConfirm(confirm.name, confirm.count) }}</div>
+        <div class="fl-modal-desc">{{ C.texts.removeConfirm(confirm.name, confirm.quantity) }}</div>
         <div class="fl-modal-btns">
           <button class="fl-btn ghost" :disabled="running" @click="confirm = null">取消</button>
           <button class="fl-btn danger" :disabled="running" @click="doRemove">拆卸</button>
@@ -158,7 +158,7 @@ const loading = ref(false);
 const error = ref('');
 /** 指令执行中：期间禁用其它操作，避免并发写入 */
 const running = ref(false);
-/** 拆卸确认弹窗数据（{name, count}） */
+/** 拆卸确认弹窗数据（{name, quantity}） */
 const confirm = ref(null);
 
 let timer = null;
@@ -265,7 +265,7 @@ function askRemove(b) {
     ui.pushToast({ type: 'warning', message: C.texts.needFrontline });
     return;
   }
-  confirm.value = { name: b.name, count: b.count };
+  confirm.value = { name: b.name, quantity: b.quantity };
 }
 
 /** 执行拆卸（原版「拆卸 名称N」数量缺省 1，逐格拆除） */

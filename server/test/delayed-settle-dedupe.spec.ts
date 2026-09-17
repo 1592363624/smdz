@@ -132,7 +132,7 @@ function makeGatherFixture(options: { times?: number } = {}) {
   const resource = {
     name: '老树',
     times: options.times ?? 5,
-    outputs: [{ name: '木头', count: 2, chance: 100 }],
+    outputs: [{ name: '木头', quantity: 2, chance: 100 }],
     gatherCmd: '收集木头',
   };
   const gatherState = {
@@ -149,7 +149,7 @@ function makeGatherFixture(options: { times?: number } = {}) {
     backpack: '[]',
     // 采集中状态 + 采集锁定标记（handleGatherResource 阶段1 的落库结果）
     markers: JSON.stringify({ 采集中: { ...gatherState } }),
-    markers2: JSON.stringify([{ 名称: '采集', 有效期至: Date.now() / 1000 + 30 }]),
+    markers2: JSON.stringify([{ name: '采集', expireAt: Date.now() + 30_000 }]),
     version: 5,
   });
   const map: any = {
@@ -280,7 +280,7 @@ describe('延时结算去重（救援/采集恰好一次）', () => {
     expect(settledTexts).toHaveLength(1);
     expect(fixture.chatService.broadcastSystem).toHaveBeenCalledTimes(1);
     const backpack = parseJson(fixture.persistence.state.backpack, []);
-    expect(backpack).toEqual([expect.objectContaining({ name: '木头', count: 2 })]);
+    expect(backpack).toEqual([expect.objectContaining({ name: '木头', quantity: 2 })]);
     // 资源次数只扣一次（Json 列落库为原生对象）
     expect(parseJson(fixture.map.resources, [])[0].times).toBe(4);
     const advanceCalls = (fixture.taskService.advance as jest.Mock).mock.calls.filter(

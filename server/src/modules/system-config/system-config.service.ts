@@ -378,6 +378,9 @@ export class SystemConfigService implements OnModuleInit {
           });
           this.cache.delete(cfg.key);
           this.logger.log('已升级签到奖励默认表（移除道具表中不存在的礼包物品）');
+        } else if (cfg.key === CHECKIN_REWARDS_KEY) {
+          // 存量自定义奖励表：奖励条目的数量键由历史 count 收敛为规范键 quantity
+          await this.upgradeCheckinRewardEntries(existing);
         }
       } catch (err: any) {
         this.logger.warn(`补默认配置 ${cfg.key} 失败: ${err?.message ?? err}`);
@@ -440,6 +443,47 @@ export class SystemConfigService implements OnModuleInit {
       this.logger.log('已升级私密消息占位文案（补齐 🔒 标记）');
     } catch (err: any) {
       this.logger.warn(`升级私密消息占位文案失败: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * 签到奖励表存量升级（幂等）：把奖励条目的数量键由历史 count 收敛为规范键 quantity。
+   * 三张表（daily / consecutive / total）逐组逐条重写；quantity 已存在时以其为准
+   * （旧键只是脏镜像），数值一律不动；无旧键时直接返回，不产生无谓写库。
+   * 与 upgradePrivatePlaceholder 同一写法：只在启动补默认配置时跑一次，小表、低频。
+   */
+  private async upgradeCheckinRewardEntries(row: { value: string }): Promise<void> {
+    if (!row?.value) return;
+    try {
+      const parsed = JSON.parse(row.value);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+      let changed = false;
+      const next: any = { ...parsed };
+      for (const kind of ['daily', 'consecutive', 'total'] as const) {
+        const groups = Array.isArray(parsed[kind]) ? parsed[kind] : [];
+        next[kind] = groups.map((group: any) => {
+          if (!group || !Array.isArray(group.rewards)) return group;
+          return {
+            ...group,
+            rewards: group.rewards.map((reward: any) => {
+              if (!reward || typeof reward !== 'object' || !('count' in reward)) return reward;
+              const { count, ...rest } = reward;
+              if (rest.quantity === undefined) rest.quantity = count;
+              changed = true;
+              return rest;
+            }),
+          };
+        });
+      }
+      if (!changed) return;
+      await this.prisma.systemConfig.update({
+        where: { key: CHECKIN_REWARDS_KEY },
+        data: { value: JSON.stringify(next) },
+      });
+      this.cache.delete(CHECKIN_REWARDS_KEY);
+      this.logger.log('已升级签到奖励表：奖励数量键 count → quantity');
+    } catch (err: any) {
+      this.logger.warn(`升级签到奖励表数量键失败: ${err?.message ?? err}`);
     }
   }
 

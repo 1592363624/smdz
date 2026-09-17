@@ -1,0 +1,296 @@
+﻿[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 医疗箱，预计 13 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 老树，预计 3 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 CELL数据中心，预计 3 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 常驻树，预计 3 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 院子果树，预计 27 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 土堆，预计 60 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:56 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 土堆，预计 60 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:18:01 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 土堆，预计 120 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 老树，预计 15 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 一次性资源，预计 4 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 采集结算时资源已消失: 一次性资源[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 大矿山，预计 30 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 延时树，预计 3 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 旧箱子，预计 3 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 数组旧箱子，预计 3 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 集装箱，预计 3 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 休眠仓，预计 6 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 唤醒了白[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 老树，预计 5 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 老树，预计 4 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 老树，预计 3 秒[39m
+[32m[Nest] 38172  - [39m2026/09/17 02:17:51 [32m    LOG[39m [38;5;3m[GatherPanelService] [39m[32m玩家 42 开始采集 老树，预计 3 秒[39m
+node.exe : FAIL test/gather-task.spec.ts
+At line:1 char:1
++ & "D:\nodejs/node.exe" "D:\nodejs/node_modules/npm/bin/npx-cli.js" je ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (FAIL test/gather-task.spec.ts:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  手动采集两阶段流程（对齐原版采集耗时机制）
+    √ 阶段1：回复预计耗时不发奖励，并写入采集中状态+采集锁定标记 (9 ms)
+    × 阶段2：延时结算发放产出、经验和“还可以采集N次”提示 (4 ms)
+    √ 阶段2：代发言非空时按原版排程 2 秒延时播报（原版 L1620-1621） (2 ms)
+    √ 阶段1：采集中再次采集被「行动无限制」拦截（原版 正在采集，还需要N） (1 ms)
+    √ 阶段1：副本有怪物时提示先清除目标；自动采集模式禁止手动采集 (1 ms)
+    × 阶段2：跟随宠物数量计入实际采集次数（原版 召唤物跟随显示+奴役成就） (1 ms)
+    × 阶段2：家园院子里带数字指令按额外次数放大耗时与采集量 (2 ms)
+    × 阶段2：同名多堆资源（开挖地基后2个土堆）可连续清完，清完一堆会提示还有下一堆 (4 ms)
+    × 超管特权：家园外带数字指令同样批量（普通玩家数字仍被忽略） (1 ms)
+    √ 阶段2：资源在等待期间消失时作废本次动作 (1 ms)
+    √ 矿炮在手时限时上限30秒（原版 #矿炮 特殊序号-38） (1 ms)
+    × handleGatherResource 排程持久化延时任务，DelayedTaskService 到点分发结算恰好一次 (4 ms)
+    × 服务重启后启动迁移把存量「采集中」标记补建为延时任务 (2 ms)
+    √ 采集冷却提示不推进采集任务 (1 ms)
+    × 兼容旧 JSON：名称末尾数量、count 字段作为概率 (1 ms)
+    × 兼容数组形式旧 JSON，并按名称末尾数量发放 (1 ms)
+    × 装备品质后缀和负数产出按原版分别生成装备、获得绝对数量 (2 ms)
+    √ 休眠仓首次采集在结算时触发召唤白剧情 (2 ms)
+    √ 采集引怪：等级≥15且无豁免时，开始采集即拉起5秒怪物回合 (1 ms)
+    √ 采集引怪：等级<15豁免，不排怪物回合但玩家活跃照常 (1 ms)
+    × 采集引怪：隐形披风/隐匿模式/四糸乃豁免，不排怪物回合 (2 ms)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：延时结算发放产出、经验和“还可以采集N次”提示
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "测试玩家收集到了木头×2"
+    Received string:    "测试玩家什么都没有收集到,得到了6经验
+    测试地图的老树还可以采集4次"
+
+    [0m [90m 267 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m fixture[33m.[39mservice[33m.[39mse
+ttleGatherResource([35m42[39m)[33m;[39m
+     [90m 268 |[39m
+    [31m[1m>[22m[39m[90m 269 |[39m     expect(result)[33m.[39mtoContain([32m'测试玩家收集到了木头×2'[39m)[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 270 |[39m     expect(result)[33m.[39mtoContain([32m',得到了'[39m)[33m;[39m
+     [90m 271 |[39m     expect(result)[33m.[39mtoContain([32m'经验'[39m)[33m;[39m
+     [90m 272 |[39m     expect(result)[33m.[39mtoContain([32m'测试地图的老树还可以采集4次'[39m)[33m;[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:269:20)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：跟随宠物数量计入实际采集次数（原版 召唤物跟随显示+奴役成就）
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "带着1只宠物一起收集到了木头×2"
+    Received string:    "测试玩家带着2只宠物一起什么都没有收集到,得到了18经验
+    测试地图的常驻树还可以采集7次"
+
+    [0m [90m 377 |[39m
+     [90m 378 |[39m     [90m// 1只跟随宠物 → 实际采集2次[39m
+    [31m[1m>[22m[39m[90m 379 |[39m     expect(result)[33m.[39mtoContain([32m'带着1只宠物一起收集到了木头×2'[39m)[33m;[39
+m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 380 |[39m     expect(fixture[33m.[39mtaskService[33m.[39madvance)[33m.[39mtoHaveBeenCalledWith([35m4
+2[39m[33m,[39m [32m'奴役'[39m[33m,[39m [35m1[39m)[33m;[39m
+     [90m 381 |[39m   })[33m;[39m
+     [90m 382 |[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:379:20)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：家园院子里带数字指令按额外次数放大耗时与采集量
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "果实×3"
+    Received string:    "测试玩家什么都没有收集到,得到了18经验
+    我的家的院子果树还可以采集96次"
+
+    [0m [90m 400 |[39m
+     [90m 401 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m fixture[33m.[39mservice[33m.[39msettle
+GatherResource([35m42[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 402 |[39m     expect(result)[33m.[39mtoContain([32m'果实×3'[39m)[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 403 |[39m     [36mconst[39m resources [33m=[39m parseJson(fixture[33m.[39mmap[33m.[39mresources[33
+m,[39m [])[33m;[39m
+     [90m 404 |[39m     expect(resources[[35m0[39m][33m.[39mtimes)[33m.[39mtoBe([35m96[39m)[33m;[39m
+     [90m 405 |[39m   })[33m;[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:402:20)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：同名多堆资源（开挖地基后2个土堆）可连续清完，清完一堆会提示还有下一堆
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "钻石"
+    Received string:    "测试玩家什么都没有收集到,得到了240经验"
+
+    [0m [90m 453 |[39m       [36mawait[39m all[33m.[39mservice[33m.[39mhandleGatherResource([35m42[39m[33m,
+[39m [32m'挖土40'[39m)[33m;[39m
+     [90m 454 |[39m       [36mconst[39m clearAll [33m=[39m [36mawait[39m all[33m.[39mservice[33m.[39msettle
+GatherResource([35m42[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 455 |[39m       expect(clearAll)[33m.[39mtoContain([32m'钻石'[39m)[33m;[39m
+     [90m     |[39m                        [31m[1m^[22m[39m
+     [90m 456 |[39m       expect(parseJson(all[33m.[39mmap[33m.[39mresources[33m,[39m []))[33m.[39mtoHaveLeng
+th([35m0[39m)[33m;[39m
+     [90m 457 |[39m     } [36mfinally[39m {
+     [90m 458 |[39m       [33mDate[39m[33m.[39mnow [33m=[39m realNow[33m;[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:455:24)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 超管特权：家园外带数字指令同样批量（普通玩家数字仍被忽略）
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "木头×5"
+    Received string:    "测试玩家什么都没有收集到,得到了30经验"
+
+    [0m [90m 477 |[39m     expect(adminSeconds)[33m.[39mtoBeLessThanOrEqual([35m30[39m)[33m;[39m
+     [90m 478 |[39m     [36mconst[39m adminResult [33m=[39m [36mawait[39m admin[33m.[39mservice[33m.[39mset
+tleGatherResource([35m42[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 479 |[39m     expect(adminResult)[33m.[39mtoContain([32m'木头×5'[39m)[33m;[39m
+     [90m     |[39m                         [31m[1m^[22m[39m
+     [90m 480 |[39m     [36mconst[39m adminMarkers [33m=[39m parseJson(admin[33m.[39mplayer[33m.[39mmarkers[
+33m,[39m {})[33m;[39m
+     [90m 481 |[39m     expect(adminMarkers[[32m'采集中'[39m])[33m.[39mtoBeUndefined()[33m;[39m [90m// 已结算认领[39m
+     [90m 482 |[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:479:25)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › handleGatherResource 排程持久化延时任务，DelayedTaskService 到点分发结算恰好一次
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 5
+    + Received  + 1
+
+    - Array [
+    -   ObjectContaining {
+    -     "name": "木头",
+    -   },
+    - ]
+    + Array []
+
+    [0m [90m 551 |[39m     [36mconst[39m dispatched [33m=[39m [36mawait[39m fixture[33m.[39mdelayedTaskServi
+ce[33m.[39mtick()[33m;[39m
+     [90m 552 |[39m     expect(dispatched)[33m.[39mtoBe([35m1[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 553 |[39m     expect(parseJson(fixture[33m.[39mplayer[33m.[39mbackpack[33m,[39m []
+))[33m.[39mtoEqual([
+     [90m     |[39m                                                    [31m[1m^[22m[39m
+     [90m 554 |[39m       expect[33m.[39mobjectContaining({ name[33m:[39m [32m'木头'[39m })[33m,[39m
+     [90m 555 |[39m     ])[33m;[39m
+     [90m 556 |[39m     [90m// 结算后「采集中」标记清除[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:553:52)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 服务重启后启动迁移把存量「采集中」标记补建为延时任务
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 5
+    + Received  + 1
+
+    - Array [
+    -   ObjectContaining {
+    -     "name": "木头",
+    -   },
+    - ]
+    + Array []
+
+    [0m [90m 586 |[39m     [90m// 迁移出的任务到点分发后正常结算[39m
+     [90m 587 |[39m     [36mawait[39m fixture[33m.[39mdelayedTaskService[33m.[39mtick()[33m;[39m
+    [31m[1m>[22m[39m[90m 588 |[39m     expect(parseJson(fixture[33m.[39mplayer[33m.[39mbackpack[33m,[39m []
+))[33m.[39mtoEqual([
+     [90m     |[39m                                                    [31m[1m^[22m[39m
+     [90m 589 |[39m       expect[33m.[39mobjectContaining({ name[33m:[39m [32m'木头'[39m })[33m,[39m
+     [90m 590 |[39m     ])[33m;[39m
+     [90m 591 |[39m   })[33m;[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:588:52)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 兼容旧 JSON：名称末尾数量、count 字段作为概率
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "木头×3"
+    Received string:    "测试玩家什么都没有收集到,得到了6经验"
+
+    [0m [90m 627 |[39m     [36mconst[39m backpack [33m=[39m parseJson(fixture[33m.[39mplayer[33m.[39mbackpac
+k[33m,[39m [])[33m;[39m
+     [90m 628 |[39m
+    [31m[1m>[22m[39m[90m 629 |[39m     expect(result)[33m.[39mtoContain([32m'木头×3'[39m)[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 630 |[39m     expect(backpack)[33m.[39mtoEqual([expect[33m.[39mobjectContaining({ name[33m:[39m [32m
+'木头'[39m[33m,[39m count[33m:[39m [35m3[39m[33m,[39m quantity[33m:[39m [35m3[39m })])[33m;[39m
+     [90m 631 |[39m     expect(fixture[33m.[39mtaskService[33m.[39madvance)[33m.[39mtoHaveBeenCalledWith([35m4
+2[39m[33m,[39m [32m'采集'[39m[33m,[39m [35m1[39m)[33m;[39m
+     [90m 632 |[39m     expect(fixture[33m.[39mtaskService[33m.[39madvance)[33m.[39mtoHaveBeenCalledWith([35m4
+2[39m[33m,[39m [32m'打开旧箱子'[39m[33m,[39m [35m1[39m)[33m;[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:629:20)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 兼容数组形式旧 JSON，并按名称末尾数量发放
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "石头×2"
+    Received string:    "测试玩家什么都没有收集到,得到了6经验"
+
+    [0m [90m 651 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m fixture[33m.[39mservice[33m.[39mse
+ttleGatherResource([35m42[39m)[33m;[39m
+     [90m 652 |[39m
+    [31m[1m>[22m[39m[90m 653 |[39m     expect(result)[33m.[39mtoContain([32m'石头×2'[39m)[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 654 |[39m     expect(parseJson(fixture[33m.[39mplayer[33m.[39mbackpack[33m,[39m []))[33m.[39mtoEqua
+l([
+     [90m 655 |[39m       expect[33m.[39mobjectContaining({ name[33m:[39m [32m'石头'[39m[33m,[39m count[33m:[
+39m [35m2[39m[33m,[39m quantity[33m:[39m [35m2[39m })[33m,[39m
+     [90m 656 |[39m     ])[33m;[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:653:20)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 装备品质后缀和负数产出按原版分别生成装备、获得绝对数量
+
+    expect(received).toEqual(expected) // deep equality
+
+    Expected: ArrayContaining [ObjectContaining {"name": "寒风", "type": "装备"}, ObjectContaining {"count": 3, "name": "工业
+建筑箱", "quantity": 3}]
+    Received: [{"data": "e!bx0", "name": "寒风", "quality": "s", "quantity": 1, "type": "装备"}, {"name": "工业建筑箱", "quantit
+y": 3, "type": "资源"}]
+
+    [0m [90m 674 |[39m
+     [90m 675 |[39m     expect(fixture[33m.[39mitemSystemService[33m.[39mgenerateRewardEquipment)[33m.[39mtoHav
+eBeenCalledWith([32m'寒风'[39m[33m,[39m [32m's'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 676 |[39m     expect(backpack)[33m.[39mtoEqual(expect[33m.[39marrayContaining([
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 677 |[39m       expect[33m.[39mobjectContaining({ name[33m:[39m [32m'寒风'[39m[33m,[39m type[33m:[3
+9m [32m'装备'[39m })[33m,[39m
+     [90m 678 |[39m       expect[33m.[39mobjectContaining({ name[33m:[39m [32m'工业建筑箱'[39m[33m,[39m count[33m
+:[39m [35m3[39m[33m,[39m quantity[33m:[39m [35m3[39m })[33m,[39m
+     [90m 679 |[39m     ]))[33m;[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:676:22)
+
+  ● 手动采集两阶段流程（对齐原版采集耗时机制） › 采集引怪：隐形披风/隐匿模式/四糸乃豁免，不排怪物回合
+
+    expect(jest.fn()).not.toHaveBeenCalled()
+
+    Expected number of calls: 0
+    Received number of calls: 1
+
+    1: 42, 5, {"map": {"id": 7, "markers2": "[]", "name": "测试地图", "resources": "[{\"name\":\"老树\",\"times\":5,\"outputs
+\":[{\"name\":\"木头\",\"count\":2,\"chance\":100}],\"gatherCmd\":\"收集木头\"}]", "resources2": "[]", "summons": "[]"}, "pla
+yer": {"backpack": "[]", "buffs": "[{\"名称\":\"隐匿模式\",\"有效期至\":1789582731673}]", "currentWeapon": 0, "houseName": "", "l
+evel": 20, "mapId": 7, "markers": {"采集中": {"adminBatch": false, "cmd": "收集木头", "count": 1, "settleAt": 1789582674673, "
+startedAt": 1789582671673, "target": "老树"}}, "markers2": [{"名称": "采集", "有效期至": 1789582674673}], "name": "测试玩家", "userId
+": 42}}
+
+    [0m [90m 768 |[39m       [36mawait[39m fixture[33m.[39mservice[33m.[39mhandleGatherResource([35m42[39m[
+33m,[39m [32m'收集木头'[39m)[33m;[39m
+     [90m 769 |[39m
+    [31m[1m>[22m[39m[90m 770 |[39m       expect(fixture[33m.[39mcombatSystem[33m.[39mtriggerMapBattleLoop)[3
+3m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m     |[39m                                                             [31m[1m^[22m[39m
+     [90m 771 |[39m       [90m// 豁免分支玩家活跃照常（原版 L11427 判断块之外无条件执行），随后照常写"采集"锁定标记[39m
+     [90m 772 |[39m       expect(parseJson(fixture[33m.[39mplayer[33m.[39mmarkers2[33m,[39m []))[33m.[39mtoEq
+ual([
+     [90m 773 |[39m         expect[33m.[39mobjectContaining({ 名称[33m:[39m [32m'战斗'[39m })[33m,[39m[0m
+
+      at Object.<anonymous> (test/gather-task.spec.ts:770:61)
+
+Test Suites: 1 failed, 1 total
+Tests:       11 failed, 10 passed, 21 total
+Snapshots:   0 total
+Time:        5.34 s
+Ran all test suites matching /test\\gather-task.spec.ts/i.

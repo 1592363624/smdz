@@ -184,7 +184,7 @@ export class DelayedSettleService {
       const summons = Array.isArray(map.summons) ? map.summons : asJsonValue<any[]>(map.summons, []);
       const target = summons[display.indexes[this.support.randomInt(0, display.indexes.length - 1)]];
       const dialogue = target
-        ? this.staticData.getDialogue(String(player.name ?? ''), target, String(target.name ?? target.名称 ?? ''), 7)
+        ? this.staticData.getDialogue(String(player.name ?? ''), target, String(target.name ?? ''), 7)
         : '';
 
       // 执行：工作 35 秒标记（原版 L7127 添加标记("工作",35,玩家.标记2)）+ 排程 30 秒延时
@@ -229,7 +229,7 @@ export class DelayedSettleService {
       const mapSummons: any[] = Array.isArray(map.summons) ? map.summons : asJsonValue<any[]>(map.summons, []);
       const target = mapSummons[display.indexes[this.support.randomInt(0, display.indexes.length - 1)]];
       const dialogue = target
-        ? this.staticData.getDialogue(String(player.name ?? ''), target, String(target.name ?? target.名称 ?? ''), 8)
+        ? this.staticData.getDialogue(String(player.name ?? ''), target, String(target.name ?? ''), 8)
         : '';
 
       // 兴奋增益时长（原版 L7169-7183：有特殊宠物小恶魔(-20) → 3600 秒，否则 600 秒；
@@ -251,21 +251,21 @@ export class DelayedSettleService {
       const boostedIndexes: number[] = [];
       for (let i = 0; i < mapSummons.length; i++) {
         const summon = mapSummons[i];
-        const owner = String(summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? summon?.qq ?? '');
+        const owner = String(summon?.ownerQQ ?? summon?.qq ?? '');
         if (owner !== ownerKey) continue;
-        let summonMarkers: any = summon?.markers ?? summon?.标记 ?? {};
+        let summonMarkers: any = summon?.markers ?? {};
         if (!Array.isArray(summonMarkers) && typeof summonMarkers === 'string') {
           summonMarkers = asJsonValue<any>(summonMarkers, {});
         }
         const followProf = Array.isArray(summonMarkers)
-          ? Number(summonMarkers.find((m: any) => (m?.name ?? m?.名称) === '跟随')?.value ?? 0)
+          ? Number(summonMarkers.find((m: any) => m?.name === '跟随')?.value ?? 0)
           : Number(summonMarkers?.['跟随'] ?? 0);
         if (followProf >= 1) continue; // 只有设置为跟随的才跟玩家补魔
         const qq = String(summon?.qq ?? summon?.QQ ?? '');
         if (qq === '怪物露娜1g') continue; // 露娜是来帮忙的不是来上床的
         if (qq.includes('x')) continue;   // 临时召唤物不能补魔
-        const hp = Number(summon?.hp ?? summon?.当前生命 ?? 1);
-        const name = String(summon?.name ?? summon?.名称 ?? summon?.type ?? summon?.类型 ?? '宠物');
+        const hp = Number(summon?.hp ?? 1);
+        const name = String(summon?.name ?? summon?.type ?? '宠物');
         if (hp <= 0 && name !== '白') continue; // 生命0的是npc不是宠物
         boostedNames.push(name);
         boostedIndexes.push(i);
@@ -275,10 +275,10 @@ export class DelayedSettleService {
           for (const i of boostedIndexes) {
             const summon = fresh[i];
             if (!summon) continue;
-            const summonBuffs = asJsonValue<any[]>(summon.buffs ?? summon.增益, []);
+            const summonBuffs = asJsonValue<any[]>(summon.buffs, []);
             this.combatState.gainBuff(summonBuffs, '兴奋', buffSeconds, false, Date.now());
             summon.buffs = summonBuffs;
-            const summonMarkers = asJsonValue<Record<string, any>>(summon.markers ?? summon.标记 ?? {}, {});
+            const summonMarkers = asJsonValue<Record<string, any>>(summon.markers, {});
             const affinityKey = `好感${ownerKey}`;
             summonMarkers[affinityKey] = Number(summonMarkers[affinityKey] ?? 0) + 3;
             summon.markers = summonMarkers;
@@ -366,7 +366,7 @@ export class DelayedSettleService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers2 } = playerData;
     const filtered = (Array.isArray(markers2) ? markers2 : []).filter(
-      (entry: any) => (entry?.name ?? entry?.名称) !== 'tk',
+      (entry: any) => entry?.name !== 'tk',
     );
     player.markers2 = filtered; // Json 列直接写数组
     await this.playerService.savePlayer(player);

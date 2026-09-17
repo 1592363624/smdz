@@ -312,7 +312,7 @@ export class DungeonService {
         const markers2 = Array.isArray(player.markers2)
           ? (player.markers2 as any[])
           : [];
-        const kept2 = markers2.filter((m: any) => String(m?.名称 ?? m?.name ?? '') !== '移动');
+        const kept2 = markers2.filter((m: any) => String(m?.name ?? '') !== '移动');
         await this.playerService.enqueueUserWrite(player.userId, async () => {
           const _pd = await this.playerService.getPlayerData(player.userId);
           Object.assign(_pd.player, {

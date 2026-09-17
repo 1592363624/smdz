@@ -17,7 +17,8 @@ export type CheckinRewardType = 'item' | 'exp' | 'vitality';
 export interface CheckinRewardEntry {
   type: CheckinRewardType;
   name: string;
-  count: number;
+  /** 奖励数量：规范键 quantity（同义旧键 count 已废弃） */
+  quantity: number;
 }
 
 /** 一组奖励：days 为触发天数（每日表=连续第几天；连续表=连续签到天数；累计表=累计签到天数） */
@@ -78,6 +79,9 @@ export const DEFAULT_CHECKIN_REWARDS_JSON = JSON.stringify(DEFAULT_CHECKIN_REWAR
  * 历史版本的默认奖励表（含「签到礼包/累计签到礼包」）。
  * 仅用于启动时迁移：库里「恰好等于该值」的行会被升级为新默认（空表），
  * 管理员自定义过的奖励表不受影响。
+ *
+ * 注意：本常量必须与历史落库值**逐字一致**（故仍保留当时的旧键 count），
+ * 是「存量比对基准」而非现行字段规范；现行字段规范键为 quantity。
  */
 export const LEGACY_CHECKIN_REWARDS_JSON = JSON.stringify({
   dailyCycleDays: 7,

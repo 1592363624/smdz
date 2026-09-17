@@ -49,9 +49,9 @@ export function canonicalItemType(
   return lookup.itemTypeName(name) ?? provided ?? '资源';
 }
 
-/** 读取条目数量（quantity 优先，兼容 count / 数量） */
+/** 读取条目数量（只读规范键 quantity，规范名见 field-contract.util.ts） */
 function entryQuantity(item: any): number {
-  const v = Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0);
+  const v = Number(item?.quantity ?? 0);
   return Number.isFinite(v) ? v : 0;
 }
 
@@ -66,10 +66,10 @@ export function mergeBackpackItem(
   item: any,
   lookup: ItemTypeLookup,
 ): void {
-  const name = String(item?.name ?? item?.名称 ?? '').trim();
+  const name = String(item?.name ?? '').trim();
   if (!name) return;
 
-  const canonical = canonicalItemType(name, lookup, item?.type ?? item?.类型);
+  const canonical = canonicalItemType(name, lookup, item?.type);
   if (canonical === '装备') {
     // 装备品质码不变量（2026-09-10）：原版唯一的装备构造入口是「生成装备」
     // （物品操作.ecode L1128-1261），其数据串恒为 `品质 + 加成转数据 + "!bx" + 特效`
@@ -77,11 +77,10 @@ export function mergeBackpackItem(
     // 因此入包出口在此兜底：数据串没有合法品质码时前置补最低档 E，保证
     // 「背包/装备栏里的装备一定带品质码」；⚠️ 正常路径（generateRewardEquipment）
     // 不会走到这里，触发即为上游写入漏洞，须修上游而非在此长期兜底。
-    const rawData = String(item?.data ?? item?.数据 ?? '');
+    const rawData = String(item?.data ?? '');
     const entry: any = { ...item, name, type: '装备' };
     if (!equipmentQualityLabel(rawData)) {
       entry.data = 'e' + rawData;
-      if (entry.数据 !== undefined) entry.数据 = entry.data;
     }
     backpack.push(entry);
     return;
@@ -89,26 +88,24 @@ export function mergeBackpackItem(
 
   const existing = backpack.find(
     (bp: any) =>
-      String(bp?.name ?? bp?.名称 ?? '') === name &&
-      String(bp?.type ?? bp?.类型 ?? '') !== '装备',
+      String(bp?.name ?? '') === name &&
+      String(bp?.type ?? '') !== '装备',
   );
   if (existing) {
     const next = roundItemQuantity(entryQuantity(existing) + entryQuantity(item));
-    // 数量镜像字段全量同步：quantity/count 为现行规范，数量 为中文旧字段
-    // （兼容读取，不同步会留下指向旧值的脏镜像）
+    // 数量只写规范键 quantity：count/数量 等历史别名已由 field-contract.util 在
+    // 读档/落库边界统一收敛删除，此处不再写镜像字段（写镜像正是历史上
+    // 「同一条目两个数量互相打架」的根源）。
     existing.quantity = next;
-    existing.count = next;
-    if (existing.数量 !== undefined || item?.数量 !== undefined) existing.数量 = next;
     // 自愈：存量条目若带历史脏 type（同名不同 type 分叉的根源），收敛到规范值
     if (existing.type !== canonical) {
       existing.type = canonical;
-      if (existing.类型 !== undefined || item?.类型 !== undefined) existing.类型 = canonical;
     }
     return;
   }
 
   const qty = roundItemQuantity(entryQuantity(item));
-  backpack.push({ ...item, name, type: canonical, quantity: qty, count: qty });
+  backpack.push({ ...item, name, type: canonical, quantity: qty });
 }
 
 /**
@@ -125,15 +122,14 @@ export function canonicalizeBackpack(backpack: any[], lookup: ItemTypeLookup): a
 
   backpack.forEach((item: any, idx: number) => {
     if (!item || typeof item !== 'object') return;
-    const type = String(item.type ?? item.类型 ?? '');
+    const type = String(item.type ?? '');
     if (type === '装备') return;
-    const name = String(item.name ?? item.名称 ?? '').trim();
+    const name = String(item.name ?? '').trim();
     if (!name) return;
 
     const canonical = canonicalItemType(name, lookup, type || undefined);
     if (item.type !== canonical) {
       item.type = canonical;
-      if (item.类型 !== undefined) item.类型 = canonical;
     }
 
     const first = firstIndexByName.get(name);
@@ -143,7 +139,6 @@ export function canonicalizeBackpack(backpack: any[], lookup: ItemTypeLookup): a
       const base = backpack[first];
       const next = roundItemQuantity(entryQuantity(base) + entryQuantity(item));
       base.quantity = next;
-      base.count = next;
       removeIdx.add(idx);
     }
   });

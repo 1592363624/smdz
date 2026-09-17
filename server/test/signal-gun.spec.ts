@@ -72,7 +72,7 @@ function makeService(options: { backpack?: any[]; mapResources?: any[]; inCooldo
     taskService: { advance: jest.fn(async () => ''), consumeNotifications: jest.fn(() => '') },
     staticData: {
       getAllResources: jest.fn(() => [
-        { name: '货舱', type: '资源', times: 1, gatherCmd: '打开货舱', renewable: false, outputs: [{ name: '能量块', count: 1, chance: 50 }] },
+        { name: '货舱', type: '资源', times: 1, gatherCmd: '打开货舱', renewable: false, outputs: [{ name: '能量块', quantity: 1, chance: 50 }] },
       ]),
     },
     delayedTaskService: {

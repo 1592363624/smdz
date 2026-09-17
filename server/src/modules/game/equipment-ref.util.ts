@@ -60,7 +60,7 @@ export interface EquipmentRef {
 
 /** 读取条目的品质码（data 首字符小写；无 data / 非法码视为空串） */
 export function equipmentQualityCode(item: any): string {
-  return qualityCodeFromData(item?.data ?? item?.数据);
+  return qualityCodeFromData(item?.data);
 }
 
 /**
@@ -99,7 +99,7 @@ export function affixMultiplier(code: unknown): number {
 
 /** 是否为装备条目（type 缺失/空的历史条目按装备处理，避免漏匹配） */
 export function isEquipmentEntry(item: any): boolean {
-  const type = String(item?.type ?? item?.类型 ?? '').trim();
+  const type = String(item?.type ?? '').trim();
   return type === '' || type === '装备';
 }
 
@@ -168,7 +168,7 @@ export function resolveEquipmentRefIndexes(
   const equipmentOnly = options.equipmentOnly !== false;
   const pool = (Array.isArray(backpack) ? backpack : []).map((item, index) => ({ item, index }))
     .filter(({ item }) => !equipmentOnly || isEquipmentEntry(item));
-  const nameOf = (item: any): string => String(item?.name ?? item?.名称 ?? '');
+  const nameOf = (item: any): string => String(item?.name ?? '');
 
   const pick = (predicate: (item: any) => boolean): number[] =>
     pool.filter(({ item }) => predicate(item)).map(({ index }) => index);
@@ -243,17 +243,17 @@ export function describeQualityMiss(
  */
 export function findEquipmentIndexByInstance(
   backpack: any[],
-  instance: { name?: string; 名称?: string; data?: string; 数据?: string },
+  instance: { name?: string; data?: string },
   options: { equipmentOnly?: boolean } = {},
 ): number {
-  const name = String(instance?.name ?? instance?.名称 ?? '').trim();
+  const name = String(instance?.name ?? '').trim();
   if (!name) return -1;
 
   const equipmentOnly = options.equipmentOnly !== false;
   const pool = (Array.isArray(backpack) ? backpack : [])
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => !equipmentOnly || isEquipmentEntry(item));
-  const nameOf = (item: any): string => String(item?.name ?? item?.名称 ?? '');
+  const nameOf = (item: any): string => String(item?.name ?? '');
 
   const quality = equipmentQualityCode(instance);
   if (quality) {

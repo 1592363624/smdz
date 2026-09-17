@@ -199,38 +199,26 @@ describe('宠物搜索物品', () => {
     expect(result).toContain('物品数量+20%');
   });
 
-  it('兼容宠物和物品的中文旧字段，并保留原字段数量', async () => {
+  it('同名物品入包合并数量：只写规范键 quantity，不再写 count/数量 镜像', async () => {
     const p = player({
-      markers: undefined,
-      标记: JSON.stringify({ 活力2: 100 }),
-      markers2: undefined,
-      标记2: '[]',
-      backpack: undefined,
-      背包: JSON.stringify([{ 名称: '木头', 类型: '资源', 数量: 1 }]),
+      backpack: JSON.stringify([{ name: '木头', type: '资源', quantity: 1 }]),
     });
     const map = {
       id: 1,
       name: '医疗室',
-      summons: JSON.stringify([summon({
-        name: undefined,
-        名称: '测试宠物',
-        ownerQQ: undefined,
-        归属: '1',
-        markers: undefined,
-        标记: JSON.stringify({ 好感1: 140 }),
-      })]),
+      summons: JSON.stringify([summon()]),
     };
     const { service } = createService({ player: p, map, itemText: '木头1' });
 
     await service.searchPetItems(1, 1_000_000, sequence(0, 0, 0));
 
-    const backpack = parse(p.背包, []);
-    // 规范化合并后：数量镜像字段（quantity/count/数量）全量同步为 2，
-    // type 补齐规范值（静态定义缺失时兜底 资源，与原值一致）
+    const backpack = parse(p.backpack, []);
+    // 同名非装备按名合并（1+1），且条目上不再出现 count/数量 等历史镜像
+    // （历史别名已由 field-contract.util 在读档/落库边界收敛删除）
     expect(backpack).toEqual([
-      { 名称: '木头', 类型: '资源', 数量: 2, type: '资源', quantity: 2, count: 2 },
+      { name: '木头', type: '资源', quantity: 2 },
     ]);
-    expect(parse(p.标记2, [])).toEqual([
+    expect(parse(p.markers2, [])).toEqual([
       { name: '宠搜', expireAt: 1_000_600 },
     ]);
   });

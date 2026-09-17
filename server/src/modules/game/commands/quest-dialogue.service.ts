@@ -76,28 +76,28 @@ export class QuestDialogueService {
 
     const parse = (value: any): any[] => asJsonValue<any[]>(value, []);
     const markerOf = (unit: any, markerName: string): number => {
-      const raw = unit?.markers ?? unit?.标记 ?? {};
+      const raw = unit?.markers ?? {};
       const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
       if (Array.isArray(parsed)) {
-        const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
-        return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+        const item = parsed.find((x: any) => x?.name === markerName);
+        return Number(item?.value ?? 0);
       }
       return Number(parsed?.[markerName] ?? 0);
     };
 
     // NPC/召唤物
-    const unit = parse(map.npcs).find((n: any) => (n?.name ?? n?.名称) === name)
+    const unit = parse(map.npcs).find((n: any) => n?.name === name)
       || parse(map.summons).find((s: any) =>
-        [s?.name, s?.名称, s?.image, s?.图片].some((v: any) => String(v ?? '') === name));
+        [s?.name, s?.image].some((v: any) => String(v ?? '') === name));
     if (unit) {
-      const lines = [`【${String(unit?.name ?? unit?.名称 ?? name)}】`];
-      lines.push(`类型:${String(unit?.type ?? unit?.类型 ?? '未知')}`);
-      const hp = Number(unit?.hp ?? unit?.当前生命 ?? 0);
+      const lines = [`【${String(unit?.name ?? name)}】`];
+      lines.push(`类型:${String(unit?.type ?? '未知')}`);
+      const hp = Number(unit?.hp ?? 0);
       const maxHp = Number(unit?.maxHp ?? unit?.最大生命 ?? 0);
       if (maxHp > 0) lines.push(`生命:${hp}/${maxHp}`);
       const affinity = markerOf(unit, `好感${userId}`);
       if (affinity) lines.push(`对你的好感:${this.support.round2Text(affinity)}`);
-      const owner = String(unit?.ownerQQ ?? unit?.归属 ?? '');
+      const owner = String(unit?.ownerQQ ?? '');
       if (owner) {
         const ownerUser = await this.prisma.user.findUnique({ where: { id: Number(owner) } }).catch(() => null);
         lines.push(`归属:${ownerUser?.nickname || ownerUser?.username || owner}`);
@@ -108,11 +108,10 @@ export class QuestDialogueService {
     // 怪物（含临时怪）
     try {
       const monsters = await this.mapService.getMapMonsters(map.id);
-      const monster = (monsters || []).find((m: any) =>
-        [m?.name, m?.名称].some((v: any) => String(v ?? '') === name));
+      const monster = (monsters || []).find((m: any) => String(m?.name ?? '') === name);
       if (monster) {
         const lines = [`【${String(monster?.name ?? name)}】`];
-        lines.push(`类型:${String((monster as any)?.type ?? (monster as any)?.类型 ?? '怪物')}`);
+        lines.push(`类型:${String((monster as any)?.type ?? '怪物')}`);
         if (monster.level) lines.push(`等级:${monster.level}`);
         if (monster.maxHp) lines.push(`生命:${monster.hp}/${monster.maxHp}`);
         if (monster.attack) lines.push(`攻击:${monster.attack}`);
@@ -208,8 +207,8 @@ export class QuestDialogueService {
     const parsedSummons = asJsonValue<any>(map ? map.summons : [], []);
     const mapSummons = Array.isArray(parsedSummons) ? parsedSummons : [];
     const whiteAvailable = Number(markers['召唤白'] || 0) > 0
-      || npcs.some((unit: any) => (unit?.name ?? unit?.名称) === '白')
-      || mapSummons.some((unit: any) => (unit?.name ?? unit?.名称) === '白');
+      || npcs.some((unit: any) => unit?.name === '白')
+      || mapSummons.some((unit: any) => unit?.name === '白');
     const isSpecialNpc = isKnownSpecialNpc && (npcName !== '白' || whiteAvailable);
     if (!map && !isSpecialNpc) return '你不在任何地图上！';
 
@@ -243,7 +242,7 @@ export class QuestDialogueService {
       }
       // 召唤物（白/行商/宠物等运行时单位）也是原版对话对象
       for (const summon of mapSummons) {
-        const name = String(summon?.name ?? summon?.名称 ?? '');
+        const name = String(summon?.name ?? '');
         if (!name) continue;
         if (name === '白' && !whiteAvailable) continue;
         pushOption(name, '召唤物');
@@ -251,9 +250,9 @@ export class QuestDialogueService {
       // 怪物（同名只列一次，原版同名单位匹配第一只）
       for (const monster of mapMonsters) {
         if ((monster?.hp ?? 0) <= 0) continue;
-        const name = String(monster?.name ?? monster?.名称 ?? '');
+        const name = String(monster?.name ?? '');
         if (!name) continue;
-        const level = Number(monster?.level ?? monster?.等级 ?? 0);
+        const level = Number(monster?.level ?? 0);
         pushOption(name, level > 0 ? `怪物 Lv.${level}` : '怪物');
       }
       // 地图无NPC/召唤物/怪物数据时，列出新手固定NPC供玩家选择
@@ -286,11 +285,11 @@ export class QuestDialogueService {
 
     // ===== 对话目标解析（对齐原版 对话 分支 _主程序.ecode L1478-1570）=====
     // 优先级：地图NPC → 地图召唤物（白/行商/宠物等运行时单位）→ 地图怪物 → 特殊NPC占位。
-    let targetNpc: any = npcs.find((n: any) => (n?.name ?? n?.名称) === npcName) || null;
+    let targetNpc: any = npcs.find((n: any) => n?.name === npcName) || null;
     let unitKind: 'npc' | 'summon' | 'monster' | 'special' = targetNpc ? 'npc' : 'special';
     if (!targetNpc) {
       const summonIdx = mapSummons.findIndex((s: any) =>
-        [s?.name, s?.名称, s?.image, s?.图片].some((v: any) => String(v ?? '') === npcName));
+        [s?.name, s?.image].some((v: any) => String(v ?? '') === npcName));
       if (summonIdx >= 0) {
         targetNpc = mapSummons[summonIdx];
         unitKind = 'summon';
@@ -307,7 +306,7 @@ export class QuestDialogueService {
     if (!targetNpc && mapMonsters.length > 0) {
       // 原版 L1469-1478：召唤物没匹配上时按名称找怪物。优先存活个体。
       const matchByName = (list: any[]) =>
-        list.find((m: any) => [m?.name, m?.名称].some((v: any) => String(v ?? '') === npcName));
+        list.find((m: any) => String(m?.name ?? '') === npcName);
       const monster = matchByName(mapMonsters.filter((m: any) => (m?.hp ?? 0) > 0))
         || matchByName(mapMonsters);
       if (monster) {
@@ -470,8 +469,8 @@ export class QuestDialogueService {
     unit: any,
     kind: 'npc' | 'summon' | 'monster',
   ): Promise<string> {
-    const nameOf = String(unit?.name ?? unit?.名称 ?? '') || npcName;
-    const typeOf = String(unit?.type ?? unit?.类型 ?? '') || nameOf;
+    const nameOf = String(unit?.name ?? '') || npcName;
+    const typeOf = String(unit?.type ?? '') || nameOf;
     const qqOf = String(unit?.qq ?? unit?.QQ ?? '');
     // 原版 L1482：怪物分支只看单位是否来自"怪物2"列表（g1==2），
     // 召唤物列表中的露娜(qq=怪物露娜1g)/跟随小恶魔(qq=怪物001xg)虽然 qq 带"怪物"前缀，
@@ -479,15 +478,15 @@ export class QuestDialogueService {
     const isMonsterUnit = kind === 'monster';
 
     const markerOf = (markerName: string): number => {
-      const raw = unit?.markers ?? unit?.标记 ?? {};
+      const raw = unit?.markers ?? {};
       const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
       if (Array.isArray(parsed)) {
-        const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
-        return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+        const item = parsed.find((x: any) => x?.name === markerName);
+        return Number(item?.value ?? 0);
       }
       return Number(parsed?.[markerName] ?? 0);
     };
-    const ownerOf = String(unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '');
+    const ownerOf = String(unit?.ownerQQ ?? unit?.owner ?? '');
     const ownerIds = new Set([String(userId), String(player?.id ?? '')].filter(Boolean));
     const isOwned = ownerIds.has(ownerOf);
 
@@ -542,7 +541,7 @@ export class QuestDialogueService {
       } else if (qqOf === '怪物露娜1g' || nameOf === '露娜') {
         options.push({ label: '求助', cmd: '求助' });
         const backpack = this.playerService.getBackpackItems(player);
-        if (backpack.some((item: any) => (item?.name ?? item?.名称 ?? '') === '未知物品')) {
+        if (backpack.some((item: any) => (item?.name ?? '') === '未知物品')) {
           options.push({ label: '询问幽能', cmd: '对话露娜未知' });
         }
       } else {
@@ -597,9 +596,9 @@ export class QuestDialogueService {
     // 解析兑换选项：无参数时展示选项，参数为1/2时执行兑换
     const choice = parseInt(arg.replace(/[^\d]/g, ''), 10) || 0;
 
-    // 统计背包中的"未知物品"数量
+    // 统计背包中的"未知物品"数量（背包条目已归一化，数量统一读 quantity）
     const unknownItems = backpack.filter((item: any) => item.name === '未知物品' || item.name.includes('未知物品'));
-    const unknownCount = unknownItems.reduce((sum: number, item: any) => sum + (item.count || 1), 0);
+    const unknownCount = unknownItems.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
 
     if (choice === 0) {
       // 展示兑换菜单
@@ -619,21 +618,21 @@ export class QuestDialogueService {
       return '请输入正确的选项：1=工业建筑箱，2=专属装备补给箱';
     }
 
-    // 扣除未知物品，给予奖励物品
+    // 扣除未知物品，给予奖励物品（背包条目已归一化，数量统一读 quantity）
     let remaining = unknownCount;
     player.backpack = backpack
       .map((item: any) => {
         if (item.name === '未知物品' || item.name.includes('未知物品')) {
-          const take = Math.min(item.count || 1, remaining);
+          const take = Math.min(item.quantity || 1, remaining);
           remaining -= take;
-          return { ...item, count: (item.count || 1) - take };
+          return { ...item, quantity: (item.quantity || 1) - take };
         }
         return item;
       })
-      .filter((item: any) => (item.count || 0) > 0);
+      .filter((item: any) => (item.quantity || 0) > 0);
 
     // 发放奖励物品（统一走 mergeBackpackItem：同名堆叠 + type 以静态定义为唯一真相源）
-    const rewardItem = { name: rewardName, count: unknownCount };
+    const rewardItem = { name: rewardName, quantity: unknownCount };
     mergeBackpackItem(player.backpack, rewardItem, lookupFromStaticData(this.staticData));
 
     // 增加露娜熟练度
@@ -909,12 +908,12 @@ export class QuestDialogueService {
   /** 读取地图单位的标记对象（兼容对象/数组/JSON字符串三种存法）。 */
 
   parseNpcMarkers(unit: any): Record<string, any> {
-    const raw = unit?.markers ?? unit?.标记 ?? {};
+    const raw = unit?.markers ?? {};
     const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
     if (Array.isArray(parsed)) {
       return Object.fromEntries(parsed.map((item: any) => [
-        item?.name ?? item?.名称,
-        Number(item?.value ?? item?.数值 ?? item?.count ?? 0),
+        item?.name,
+        Number(item?.value ?? 0),
       ]).filter(([name]) => Boolean(name)));
     }
     return parsed && typeof parsed === 'object' ? parsed : {};
@@ -932,7 +931,7 @@ export class QuestDialogueService {
       if (!unit || typeof unit !== 'object') continue;
 
       const npcName = this.questUnitName(unit);
-      const type = String(unit.type ?? unit.类型 ?? '').trim();
+      const type = String(unit.type ?? '').trim();
       const directTaskPool = unit.taskId ?? unit.taskID ?? unit.任务池 ?? unit.任务;
       const configNames = [
         String(unit.dialog ?? unit.对话 ?? '').trim(),
@@ -967,7 +966,7 @@ export class QuestDialogueService {
         .filter((name) => !!this.staticData.getTaskByName(name));
       if (taskNames.length === 0) continue;
 
-      const publisherValue = unit.qq ?? unit.QQ ?? unit.id ?? unit.编号;
+      const publisherValue = unit.qq ?? unit.QQ ?? unit.id;
       const publisher = publisherValue === undefined || publisherValue === null || publisherValue === ''
         ? undefined
         : String(publisherValue);
@@ -979,7 +978,7 @@ export class QuestDialogueService {
 
   splitQuestNames(value: any): string[] {
     const raw = Array.isArray(value)
-      ? value.flatMap((item) => typeof item === 'string' ? item : [item?.name ?? item?.名称 ?? ''])
+      ? value.flatMap((item) => typeof item === 'string' ? item : [item?.name ?? ''])
       : [value];
     return [...new Set(raw
       .flatMap((item) => String(item ?? '').split(/[，,、\n]+/))
@@ -991,12 +990,9 @@ export class QuestDialogueService {
   questUnitName(unit: any): string {
     return String(
       unit?.name
-      ?? unit?.名称
       ?? unit?.image
-      ?? unit?.图片
       ?? unit?.title
       ?? unit?.type
-      ?? unit?.类型
       ?? '',
     ).trim();
   }
@@ -1287,7 +1283,7 @@ export class QuestDialogueService {
       if (this.shortcutService?.setTempInput) {
         await this.shortcutService.setTempInput(userId, '1@求助确认');
       }
-      return `【${luna.name || luna.名称 || '露娜'}】\n有解决不了的麻烦需要我帮忙的吗？\n1、求助确认`;
+      return `【${luna.name || '露娜'}】\n有解决不了的麻烦需要我帮忙的吗？\n1、求助确认`;
     }
 
     // 获取玩家信息

@@ -246,29 +246,29 @@ describe('置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317)', () =>
     let mk = combat4.setDrop(a, []);
     const dl = mk.find((m: any) => m.name === 'dltestQQ');
     expect(dl).toBeDefined();
-    expect(dl.数值).toBe(50);
+    expect(dl.value).toBe(50);
     // 更高掉落率覆盖
     const a2 = attacker({ 属性: { 掉落率: 80, 掉落品质: 0 } });
     mk = combat4.setDrop(a2, mk);
-    expect(mk.find((m: any) => m.name === 'dltestQQ').数值).toBe(80);
+    expect(mk.find((m: any) => m.name === 'dltestQQ').value).toBe(80);
     // 更低掉落率不覆盖
     const a3 = attacker({ 属性: { 掉落率: 30, 掉落品质: 0 } });
     mk = combat4.setDrop(a3, mk);
-    expect(mk.find((m: any) => m.name === 'dltestQQ').数值).toBe(80);
+    expect(mk.find((m: any) => m.name === 'dltestQQ').value).toBe(80);
   });
 
   it('L5269 掉落品质!=0 → 写入 "dp"+QQ；L5287 传说率!=0 → 写入 "xy"+QQ', () => {
     const a = attacker({ 属性: { 掉落率: 0, 掉落品质: 20 }, 套装: { 传说率: 5 } });
     const mk = combat4.setDrop(a, []);
-    expect(mk.find((m: any) => m.name === 'dptestQQ').数值).toBe(20);
-    expect(mk.find((m: any) => m.name === 'xytestQQ').数值).toBe(5);
+    expect(mk.find((m: any) => m.name === 'dptestQQ').value).toBe(20);
+    expect(mk.find((m: any) => m.name === 'xytestQQ').value).toBe(5);
   });
 
   it('L5305 宝石缎带(specialSeq=98) → 写入 "ds"+QQ=1', () => {
     const a = attacker({ equipment: [{ name: '宝石缎带', specialSeq: 98 }] });
     const mk = combat4.setDrop(a, []);
     expect(mk.find((m: any) => m.name === 'dstestQQ')).toBeDefined();
-    expect(mk.find((m: any) => m.name === 'dstestQQ').数值).toBe(1);
+    expect(mk.find((m: any) => m.name === 'dstestQQ').value).toBe(1);
   });
 
   it('无条件(掉落率/品质/传说率=0且无缎带) → 不写入任何记录', () => {
@@ -352,22 +352,22 @@ describe('掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L494
     );
 
   it('L4954 各名称系数：地精=1 / 十夫长=1.5 / 百夫长=2 / 千夫长=2.5 / 将军=3', () => {
-    expect(combat6.dropWreckage([], '地精').find((r: any) => r.名称 === '载具残骸').次数).toBe(1);
-    expect(combat6.dropWreckage([], '地精十夫长').find((r: any) => r.名称 === '载具残骸').次数).toBe(1.5);
-    expect(combat6.dropWreckage([], '地精百夫长').find((r: any) => r.名称 === '载具残骸').次数).toBe(2);
-    expect(combat6.dropWreckage([], '地精千夫长').find((r: any) => r.名称 === '载具残骸').次数).toBe(2.5);
-    expect(combat6.dropWreckage([], '地精将军').find((r: any) => r.名称 === '载具残骸').次数).toBe(3);
+    expect(combat6.dropWreckage([], '地精').find((r: any) => r.name === '载具残骸').times).toBe(1);
+    expect(combat6.dropWreckage([], '地精十夫长').find((r: any) => r.name === '载具残骸').times).toBe(1.5);
+    expect(combat6.dropWreckage([], '地精百夫长').find((r: any) => r.name === '载具残骸').times).toBe(2);
+    expect(combat6.dropWreckage([], '地精千夫长').find((r: any) => r.name === '载具残骸').times).toBe(2.5);
+    expect(combat6.dropWreckage([], '地精将军').find((r: any) => r.name === '载具残骸').times).toBe(3);
   });
 
   it('L4967 已存在载具残骸 → 累加次数', () => {
-    const res = combat6.dropWreckage([{ 名称: '载具残骸', 次数: 2 }], '地精');
-    expect(res.find((r: any) => r.名称 === '载具残骸').次数).toBe(3);
+    const res = combat6.dropWreckage([{ name: '载具残骸', times: 2 }], '地精');
+    expect(res.find((r: any) => r.name === '载具残骸').times).toBe(3);
   });
 
   it('L4964 非地精系列 → 不修改（原版返回）', () => {
-    const res = combat6.dropWreckage([{ 名称: '其他', 次数: 5 }], '史莱姆');
+    const res = combat6.dropWreckage([{ name: '其他', times: 5 }], '史莱姆');
     expect(res.length).toBe(1);
-    expect(res[0].名称).toBe('其他');
+    expect(res[0].name).toBe('其他');
   });
 });
 
@@ -700,12 +700,12 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
   // 真实 PlayerService 提供 safeJsonParse（generateFrontline 用其解析地图 JSON 字段）
   const playerService = new PlayerService({} as PrismaService, {} as StaticDataService, {} as MapService);
 
-  // mock StaticDataService：getBuildingByName 返回带 加成.攻击/生命/攻击文本 的战斗建筑，
+  // mock StaticDataService：getBuildingByName 返回带 bonus.攻击/生命 + 攻击文本 的战斗建筑，
   // getAllAttackTexts 返回含 "自动步枪" 的攻击文本列表（取攻击文本 命中/默认逻辑）
   const mockStatic = {
     getBuildingByName: (name: string) => {
       if (name === '防御炮台') {
-        return { name: '防御炮台', 加成: { 攻击: 5, 生命: 3, 攻击文本: '轴炮a' }, 攻击文本: '轴炮a' };
+        return { name: '防御炮台', bonus: { 攻击: 5, 生命: 3, 攻击文本: '轴炮a' }, 攻击文本: '轴炮a' };
       }
       return null;
     },
@@ -751,10 +751,10 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
     const c = makeCombat();
     const res = c.generateFrontline(baseMap(), '12345', 0, 3);
     const g = res.summon;
-    expect(g.名称).toBe('前线');
-    expect(g.类型).toBe('前线');
+    expect(g.name).toBe('前线');
+    expect(g.type).toBe('前线');
     expect(g.QQ).toBe('怪物前线12345sg');
-    expect(g.归属).toBe('12345');
+    expect(g.ownerQQ).toBe('12345');
     expect(g.属性.必中).toBe(true);
     expect(g.属性.生命).toBe(1);
     expect(g.属性.闪避).toBe(1);
@@ -763,16 +763,16 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
     expect(g.属性.电伤).toBe(1);
     expect(g.属性.火伤).toBe(1);
     expect(g.属性.命中).toBe(4); // 前线等级3 + 1
-    expect(g.特殊序号).toBe(-2);
+    expect(g.specialSeq).toBe(-2);
   });
 
   it('L5372-5380 无建筑(加成.攻击均0) → 默认"火力"武器(属性26/25/25/25)，且攻击文本.名称清空', () => {
     const c = makeCombat();
-    const res = c.generateFrontline(baseMap({ buildings: JSON.stringify([{ name: '基础发电机', count: 1 }]) }), '12345', 0, 0);
-    expect(res.summon.武器.length).toBe(1);
-    const z = res.summon.武器[0];
-    expect(z.名称).toBe('火力');
-    expect(z.类型).toBe('射弹武器');
+    const res = c.generateFrontline(baseMap({ buildings: JSON.stringify([{ name: '基础发电机', quantity: 1 }]) }), '12345', 0, 0);
+    expect(res.summon.weapons.length).toBe(1);
+    const z = res.summon.weapons[0];
+    expect(z.name).toBe('火力');
+    expect(z.type).toBe('射弹武器');
     expect(z.载具强制伤害).toBe(true);
     expect(z.冷却).toBe(10);
     expect(z.属性.物).toBe(26);
@@ -786,39 +786,39 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
   it('L5356-5368 战斗建筑(加成.攻击!=0) → 加武器(属性=26/25/25/25×攻击×数量)，c累加生命×数量', () => {
     const c = makeCombat();
     const res = c.generateFrontline(
-      baseMap({ buildings: JSON.stringify([{ name: '防御炮台', count: 2 }]) }),
+      baseMap({ buildings: JSON.stringify([{ name: '防御炮台', quantity: 2 }]) }),
       '12345', 0, 0,
     );
-    expect(res.summon.武器.length).toBe(1);
-    const z = res.summon.武器[0];
-    expect(z.名称).toBe('防御炮台');
+    expect(res.summon.weapons.length).toBe(1);
+    const z = res.summon.weapons[0];
+    expect(z.name).toBe('防御炮台');
     // 攻击=5，数量=2 → 26*5*2=260
     expect(z.属性.物).toBe(260);
     expect(z.属性.电).toBe(250);
     expect(z.属性.冰).toBe(250);
     expect(z.属性.火).toBe(250);
-    expect(z.加成.攻击).toBe(10); // 叠加载具加成：5×2
+    expect(z.bonus.攻击).toBe(10); // 叠加载具加成：5×2
   });
 
   it('L5382-5399 阵地载具：零件=阵地核心×1 + 轻型装甲×(10+c+等级)，编号=g.QQ，载具生命由计算载具置0', () => {
     const c = makeCombat();
     // 带防御炮台(生命=3，数量2) → c = 3*2 = 6；前线等级=1 → 轻型装甲数量=10+6+1=17
     const res = c.generateFrontline(
-      baseMap({ buildings: JSON.stringify([{ name: '防御炮台', count: 2 }]) }),
+      baseMap({ buildings: JSON.stringify([{ name: '防御炮台', quantity: 2 }]) }),
       '12345', 0, 1,
     );
-    const v = res.vehicles.find((x: any) => x.名称 === '阵地');
+    const v = res.vehicles.find((x: any) => x.name === '阵地');
     expect(v).toBeDefined();
-    expect(v.编号).toBe('怪物前线12345sg');
-    expect(v.归属).toBe('怪物前线12345sg');
-    expect(v.驾驶员).toBe('怪物前线12345sg');
-    const core = v.零件.find((p: any) => p.名称 === '阵地核心');
-    const armor = v.零件.find((p: any) => p.名称 === '轻型装甲');
-    expect(core.数量).toBe(1);
-    expect(armor.数量).toBe(17);
-    // 计算载具基础阶段：本场景零件为资源不贡献加成 → 载具.加成.生命=0
-    expect(v.加成.生命).toBe(0);
-    expect(v.当前生命).toBe(0);
+    expect(v.vehicleId).toBe('怪物前线12345sg');
+    expect(v.owner).toBe('怪物前线12345sg');
+    expect(v.driver).toBe('怪物前线12345sg');
+    const core = v.parts.find((p: any) => p.name === '阵地核心');
+    const armor = v.parts.find((p: any) => p.name === '轻型装甲');
+    expect(core.quantity).toBe(1);
+    expect(armor.quantity).toBe(17);
+    // 计算载具基础阶段：本场景零件为资源不贡献加成 → 载具.bonus.生命=0
+    expect(v.bonus.生命).toBe(0);
+    expect(v.currentHp).toBe(0);
   });
 
   it('L5401-5402 置成就熟练度 跟随/阵地 = 1', () => {
@@ -838,7 +838,7 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
     expect(res.summons.length).toBe(1);
     expect(res.summons[0].QQ).toBe('怪物前线12345sg');
     expect(res.vehicles.length).toBe(1);
-    expect(res.vehicles[0].名称).toBe('阵地');
+    expect(res.vehicles[0].name).toBe('阵地');
   });
 
   it('L5412-5419 已存在召唤物(g2.编号!=0) → 更新而非新增，summons长度不变', () => {
@@ -847,12 +847,12 @@ describe('生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecod
     const existing = baseMap({
       summons: JSON.stringify([
         { QQ: '占位', 编号: 0 },
-        { QQ: '怪物前线12345sg', 编号: 0, 名称: '前线', 当前生命: 50 },
+        { QQ: '怪物前线12345sg', 编号: 0, name: '前线', hp: 50 },
       ]),
     });
     const res = c.generateFrontline(existing, '12345', 0, 0);
     expect(res.summons.length).toBe(2); // 未新增（更新下标1处）
-    expect(res.summons[1].当前生命).toBe(50); // 保留既有血量（L5343）
+    expect(res.summons[1].hp).toBe(50); // 保留既有血量（L5343）
   });
 });
 
@@ -883,40 +883,40 @@ describe('计算载具 - 载具属性计算 (加成计算.ecode L3556-3912)', ()
 
   it('L3581 空名称载具 → 直接返回不报错', () => {
     const v = makeVehicle();
-    const veh: any = { 名称: '', 零件: [], 加成: {}, 当前生命: 100, 标记2: [] };
+    const veh: any = { name: '', parts: [], bonus: {}, currentHp: 100, markers2: [] };
     expect(() => v['computeVehicle'](veh, 0)).not.toThrow();
   });
 
   it('L3580/L3591/L3647 核心部件(骑士核心 partType=0, 内置能量剑) → 加成叠加, 上限取自核心', () => {
     const v = makeVehicle();
     const veh: any = {
-      名称: '测试载具',
-      零件: [{ 名称: '骑士核心', 数量: 1 }],
-      加成: {},
-      当前生命: 0,
-      行走上限: 0, 武器上限: 0, 防御上限: 0, 功能上限: 0, 行走方式: 0,
-      标记2: [],
+      name: '测试载具',
+      parts: [{ name: '骑士核心', quantity: 1 }],
+      bonus: {},
+      currentHp: 0,
+      maxMove: 0, maxWeapon: 0, maxDefense: 0, maxFunction: 0, moveType: 0,
+      markers2: [],
     };
     // s=null → 跳过回血，直接封顶逻辑（当前生命0 < 加成.生命 → 不改）
     v['computeVehicle'](veh, null);
     // 原版计算载具会展开骑士核心内置的能量剑，额外叠加攻击10。
-    expect(veh.加成.攻击).toBe(25);     // 核心15 + 内置能量剑10
-    expect(veh.加成.生命).toBe(1);       // bonus.生命=1
-    expect(veh.加成.闪避).toBe(10);      // bonus.闪避=10
-    expect(veh.行走上限).toBe(1);        // 核心 walk=1
-    expect(veh.武器上限).toBe(1);        // 核心 weapon=1
-    expect(veh.当前生命).toBe(0);        // s=null 不回血，保持初始0
+    expect(veh.bonus.攻击).toBe(25);     // 核心15 + 内置能量剑10
+    expect(veh.bonus.生命).toBe(1);       // bonus.生命=1
+    expect(veh.bonus.闪避).toBe(10);      // bonus.闪避=10
+    expect(veh.maxMove).toBe(1);         // 核心 walk=1
+    expect(veh.maxWeapon).toBe(1);       // 核心 weapon=1
+    expect(veh.currentHp).toBe(0);       // s=null 不回血，保持初始0
   });
 
   it('L3719 白的发丝 部件 → vehicle.发丝=true', () => {
     const v = makeVehicle();
     const veh: any = {
-      名称: '发丝载具',
-      零件: [{ 名称: '白的发丝', 数量: 1 }],
-      加成: {}, 当前生命: 0, 标记2: [],
+      name: '发丝载具',
+      parts: [{ name: '白的发丝', quantity: 1 }],
+      bonus: {}, currentHp: 0, markers2: [],
     };
     v['computeVehicle'](veh, null);
-    expect(veh.发丝).toBe(true);
+    expect(veh.hair).toBe(true);
   });
 
   it('L3752 逆转力场 + 攻击部件 → 攻击/攻击2/韧性 ×0.34', () => {
@@ -924,32 +924,32 @@ describe('计算载具 - 载具属性计算 (加成计算.ecode L3556-3912)', ()
     // 逆转力场将已有攻击类加成×0.34。
     const v = makeVehicle();
     const veh: any = {
-      名称: '逆转载具',
-      零件: [{ 名称: '骑士核心', 数量: 1 }, { 名称: '逆转力场', 数量: 1 }],
-      加成: {},
-      当前生命: 0, 标记2: [],
+      name: '逆转载具',
+      parts: [{ name: '骑士核心', quantity: 1 }, { name: '逆转力场', quantity: 1 }],
+      bonus: {},
+      currentHp: 0, markers2: [],
     };
     v['computeVehicle'](veh, null);
-    expect(veh.逆转力场).toBe(true);
-    expect(Math.round(veh.加成.攻击 * 100) / 100).toBe(8.5);    // 25*0.34
-    expect(Math.round(veh.加成.攻击2 * 100) / 100).toBe(1.02);  // 3*0.34
+    expect(veh.reverseField).toBe(true);
+    expect(Math.round(veh.bonus.攻击 * 100) / 100).toBe(8.5);    // 25*0.34
+    expect(Math.round(veh.bonus.攻击2 * 100) / 100).toBe(1.02);  // 3*0.34
   });
 
   it('L3836 行走超限(负行走部件累加超上限) → 当前生命=0, 行走方式=0', () => {
     // 原版 vehicle.行走 由 负行走部件(取绝对值)累加；骑士核心 行走上限=1，中型足 walk=-1×5 → 行走=5 > 1
     const v = makeVehicle();
     const veh: any = {
-      名称: '超限载具',
-      零件: [{ 名称: '骑士核心', 数量: 1 }, { 名称: '中型足', 数量: 5 }],
-      加成: {},
-      当前生命: 50,
-      标记2: [],
+      name: '超限载具',
+      parts: [{ name: '骑士核心', quantity: 1 }, { name: '中型足', quantity: 5 }],
+      bonus: {},
+      currentHp: 50,
+      markers2: [],
     };
     v['computeVehicle'](veh, null);
-    expect(veh.行走).toBe(5);   // 0 + 5*|-1|
-    expect(veh.行走上限).toBe(1);
-    expect(veh.当前生命).toBe(0);   // 超限 → 生命清零
-    expect(veh.行走方式).toBe(0);
+    expect(veh.moveSlots).toBe(5);   // 0 + 5*|-1|
+    expect(veh.maxMove).toBe(1);
+    expect(veh.currentHp).toBe(0);   // 超限 → 生命清零
+    expect(veh.moveType).toBe(0);
   });
 });
 
@@ -973,7 +973,7 @@ describe('免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096)', 
   const nowMs = Date.now();
   const baseDef = (over: any = {}) => ({
     specialSeq: 0,
-    活力: 0,
+    vitality: 0,
     currentHp: 100,
     skillLevel: 0,
     markers: JSON.stringify({}),
@@ -984,7 +984,7 @@ describe('免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096)', 
   });
 
   it('L5031-L5036 龙姬(specialSeq=12) 怒吼标记存在 → b=2（但被 L5072 默认覆盖为1，原版怒吼免死实际不生效，按原版保留）', () => {
-    const d = baseDef({ specialSeq: 12, buffs: [{ 名称: '怒吼', 有效期至: nowMs + 60000 }], currentHp: 100 });
+    const d = baseDef({ specialSeq: 12, buffs: [{ name: '怒吼', expireAt: nowMs + 60000 }], currentHp: 100 });
     const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
     // ⚠️原版 L5072 独立判断的 默认 b=1 会覆盖 L5031 的 b=2，故龙姬怒吼实际不免死（原版疑似冗余分支，按原版保留）
     expect(ok).toBe(false);
@@ -1000,11 +1000,11 @@ describe('免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096)', 
     const d = baseDef({ specialSeq: 11, currentHp: 50 });
     const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
     expect(ok).toBe(true); // 五番a 增益已置 → L5072 b=3 免死返回真
-    expect(d.buffs.some((b: any) => b.名称 === '五番a')).toBe(true);
+    expect(d.buffs.some((b: any) => b.name === '五番a')).toBe(true);
   });
 
   it('L5072-L5078 伊芙利特 五番a 增益存在 → b=3 免死(生命-0)', () => {
-    const d = baseDef({ specialSeq: 11, currentHp: 50, buffs: [{ 名称: '五番a', 有效期至: nowMs + 5000 }] });
+    const d = baseDef({ specialSeq: 11, currentHp: 50, buffs: [{ name: '五番a', expireAt: nowMs + 5000 }] });
     const txtRef = { value: '' };
     const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, txtRef);
     expect(ok).toBe(true);
@@ -1026,8 +1026,8 @@ describe('免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096)', 
   });
 
   it('L5050-L5063 吸血姬(活力=-15) 场上有分身(活力=-16, 当前生命>0) → 互换生命免死', () => {
-    const clone = { 活力: -16, currentHp: 200 };
-    const d = baseDef({ 活力: -15, currentHp: 30 });
+    const clone = { vitality: -16, currentHp: 200 };
+    const d = baseDef({ vitality: -15, currentHp: 30 });
     const txtRef = { value: '' };
     const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, txtRef, [clone]);
     expect(ok).toBe(true);
@@ -1040,11 +1040,11 @@ describe('免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096)', 
     const d = baseDef({ equipment: [{ specialSeq: 23 }], currentHp: 60 });
     const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, { value: '' });
     expect(ok).toBe(true); // 猫爪 增益已置 → L5072 b=4 免死返回真
-    expect(d.buffs.some((b: any) => b.名称 === '猫爪')).toBe(true);
+    expect(d.buffs.some((b: any) => b.name === '猫爪')).toBe(true);
   });
 
   it('L5072-L5078 猫爪增益存在 → b=4 免死(生命-0)', () => {
-    const d = baseDef({ currentHp: 60, buffs: [{ 名称: '猫爪', 有效期至: nowMs + 10000 }] });
+    const d = baseDef({ currentHp: 60, buffs: [{ name: '猫爪', expireAt: nowMs + 10000 }] });
     const txtRef = { value: '' };
     const ok = avoidCombat['avoidDeath'](d, d.buffs, d.markers2, d.equipment, nowMs, nowMs, { value: 0 }, txtRef);
     expect(ok).toBe(true);
@@ -1112,15 +1112,15 @@ describe('计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873)', () 
     d.type = '军姬';
     d.specialSeq = 16; // 原版 #军姬 = 16
     d.affinity = 40;
-    // buffRequire 按中文 key 读取（名称/有效期至，毫秒时间戳），与原版战斗状态机一致
-    d.buffs = JSON.stringify([{ 名称: '剑阵', 有效期至: nowMs() + 60000 }]);
+    // buffRequire 读规范键 { name, expireAt(毫秒) }（见 field-contract.util.ts 增益域）
+    d.buffs = JSON.stringify([{ name: '剑阵', expireAt: nowMs() + 60000 }]);
     const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
     expect(r).toBe(100);
   });
 
   it('L4824 装备荆棘之翼(#18) → 倍率+0.15 产生反伤值', () => {
     const d = baseDefender();
-    d.equipments = JSON.stringify([{ 名称: '荆棘之翼', 特殊序号: 18 }]);
+    d.equipments = JSON.stringify([{ name: '荆棘之翼', specialSeq: 18 }]);
     const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
     // 倍率=0.1+0.15=0.25；a2=50*1*150/100*5/100*150/100=5.625; a2*0.25=1.406; a1=40*1*150/100*5/100=3; pct=1.406/3*100≈46.875; 反伤=3*46.875/100≈1.406
     expect(r).toBeGreaterThan(0);
@@ -1129,7 +1129,7 @@ describe('计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873)', () 
 
   it('L4827 装备小鱼发饰(#35) 且 小鱼冷却(60s)未过 → 倍率+2', () => {
     const d = baseDefender();
-    d.equipments = JSON.stringify([{ 名称: '小鱼发饰', 特殊序号: 35 }]);
+    d.equipments = JSON.stringify([{ name: '小鱼发饰', specialSeq: 35 }]);
     const r = reflectCombat['calcReflectDamage'](d, defBonus, atkBonus, z1Props, { phys: 100, fire: 0, ice: 0, elec: 0 }, 150, nowSec(), nowMs());
     // 倍率=0.1+2=2.1; a2*2.1=11.8125; a1=3; pct=11.8125/3*100=393.75; 反伤=3*3.9375≈11.8125
     expect(Math.abs(r - 11.8125)).toBeLessThan(0.01);
@@ -1378,8 +1378,8 @@ describe('生成掉落 - 掉落表判定与兜底移除', () => {
   it('100% 项必掉；几率项按 Math.random 判定', () => {
     const m = monsterWith({
       drops: [
-        { name: '钻石', count: 8, chance: 100 },
-        { name: '生肉', count: 1, chance: 50 },
+        { name: '钻石', quantity: 8, chance: 100 },
+        { name: '生肉', quantity: 1, chance: 50 },
       ],
     });
     withRandom(0.999, () => {
@@ -1394,7 +1394,7 @@ describe('生成掉落 - 掉落表判定与兜底移除', () => {
   });
 
   it('倍率放大几率并封顶 100', () => {
-    const m = monsterWith({ drops: [{ name: '生肉', count: 1, chance: 30 }] });
+    const m = monsterWith({ drops: [{ name: '生肉', quantity: 1, chance: 30 }] });
     withRandom(0.55, () => {
       expect(combat.generateDrops(m, 1)).toHaveLength(0); // 55 ≥ 30
       expect(combat.generateDrops(m, 2)).toHaveLength(1); // 55 < 60（30×2）
@@ -1402,7 +1402,7 @@ describe('生成掉落 - 掉落表判定与兜底移除', () => {
   });
 
   it('负数量保持原值（强化箱-1 的背包扣除语义不被改成 1）', () => {
-    const m = monsterWith({ drops: [{ name: '强化箱', count: -1, chance: 100 }] });
+    const m = monsterWith({ drops: [{ name: '强化箱', quantity: -1, chance: 100 }] });
     expect(combat.generateDrops(m, 1)[0].quantity).toBe(-1);
   });
 
@@ -1410,8 +1410,8 @@ describe('生成掉落 - 掉落表判定与兜底移除', () => {
     const m = {
       name: '旧怪',
       level: 1,
-      dropTable: JSON.stringify([{ name: '木头', count: 2, chance: 100 }]),
-      bonus: JSON.stringify({ drops: [{ name: '不该用', count: 1, chance: 100 }] }),
+      dropTable: JSON.stringify([{ name: '木头', quantity: 2, chance: 100 }]),
+      bonus: JSON.stringify({ drops: [{ name: '不该用', quantity: 1, chance: 100 }] }),
     };
     expect(combat.generateDrops(m, 1)[0].name).toBe('木头');
   });

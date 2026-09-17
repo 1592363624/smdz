@@ -71,7 +71,7 @@ function makeService(options: {
     combatSystem: {
       actionUnrestricted: jest.fn(() => ({ restricted: false })),
       recalculateVehicle: jest.fn((vehicle: any) => {
-        vehicle.加成 = { 生命: 100 };
+        vehicle.bonus = { 生命: 100 };
         return vehicle;
       }),
       triggerMapBattleLoop: jest.fn(async () => undefined),
@@ -147,7 +147,7 @@ describe('维修载具延时链（原版 L10397-10495 复刻）', () => {
     expect(fixture.service.taskService.advance).toHaveBeenCalledWith(42, '维修载具');
     expect(fixture.scheduled).toHaveLength(0);
     const vehicles = parseJson(fixture.map.vehicles, []);
-    expect(Number(vehicles[0].当前生命)).toBe(100);
+    expect(Number(vehicles[0].currentHp)).toBe(100);
   });
 
   it('维修 wcc1 延时结算分支：修好当前驾驶的载具', async () => {

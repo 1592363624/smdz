@@ -37,18 +37,19 @@ const service = new ItemSystemService(
 
 describe('物品基础判定复刻', () => {
   it('判断物品2：命中装备列表改为装备，否则资源', () => {
-    const equipment: any = { 名称: '测试铠甲', type: '' };
-    const resource: any = { 名称: '铁矿', type: '' };
+    const equipment: any = { name: '测试铠甲', type: '' };
+    const resource: any = { name: '铁矿', type: '' };
     service.judgeItem(equipment);
     service.judgeItem(resource);
-    expect(equipment).toMatchObject({ 名称: '测试铠甲', 类型: '装备', type: '装备' });
-    expect(resource).toMatchObject({ 名称: '铁矿', 类型: '资源', type: '资源' });
+    // 类型只写规范键 type（中文别名「类型」由持久化边界收敛，不再落双字段）
+    expect(equipment).toMatchObject({ name: '测试铠甲', type: '装备' });
+    expect(resource).toMatchObject({ name: '铁矿', type: '资源' });
   });
 
   it('是否装备与寻找装备按原版首项命中', () => {
     expect(service.isEquipment('测试铠甲')).toBe(true);
     expect(service.isEquipment('铁矿')).toBe(false);
-    const items = [{ 类型: '资源' }, { 类型: '装备', 名称: '测试铠甲' }];
+    const items = [{ type: '资源' }, { type: '装备', name: '测试铠甲' }];
     expect(service.findEquipment(items, '装备')).toBe(1);
     expect(service.findEquipment(items, '武器')).toBe(-1);
   });
@@ -65,7 +66,7 @@ describe('物品基础判定复刻', () => {
   it('取物品数量：装备返回1，普通资源返回数量，未命中返回空类型', () => {
     const items = [
       { name: '测试铠甲', type: '装备', quantity: 3 },
-      { name: '铁矿', type: '资源', count: 2.5 },
+      { name: '铁矿', type: '资源', quantity: 2.5 },
     ];
     expect(service.getItemQuantityWithType('测试铠甲', items)).toEqual({ quantity: 1, type: '装备' });
     expect(service.getItemQuantityWithType('铁矿', items)).toEqual({ quantity: 2.5, type: '资源' });

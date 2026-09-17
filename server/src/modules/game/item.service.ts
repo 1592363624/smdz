@@ -43,7 +43,7 @@ export interface Item3 {
   name: string;
   type: string;       // 装备 / 资源 / 消耗品
   quantity: number;
-  /** 兼容掉落物和旧存档使用的数量字段。 */
+  /** 同义旧键 count（已废弃）：仅货币镜像与存量存档过渡期可能出现，规范键为 quantity。 */
   count?: number;
   durability: number;  // 耐久，0=未锁定，1=已锁定
   data: string;       // 装备数据编码字符串（品质前缀 + 加成序列 + 特效）
@@ -391,18 +391,20 @@ export class ItemService {
       }
     };
     if (definition) {
-      equipment.type = String(definition.equipType ?? definition.type ?? definition.类型 ?? '');
-      equipment.specialSeq = Number(definition.specialSeq ?? definition.特殊序号 ?? 0) || 0;
-      equipment.damageType = String(definition.damageType ?? definition.伤害类型 ?? equipment.damageType);
-      equipment.cooldown = Number(definition.cooldown ?? definition.冷却 ?? equipment.cooldown) || 0;
-      equipment.forcedEffect = definition.forcedEffect === true || definition.forcedEffect === 'true' || definition.必出特效 === true;
-      equipment.vehicleForceDmg = definition.vehicleForceDmg === true || definition.vehicleForceDmg === 'true' || definition.无视载具伤害上限 === true;
-      equipment.lockTime = Number(definition.lockTime ?? definition.锁定 ?? 0) || 0;
-      equipment.description = String(definition.description ?? definition.说明 ?? '');
-      equipment.baseBonus = cloneJson<Record<string, number>>(definition.baseBonus ?? definition.自带加成, {});
-      equipment.affixes = cloneJson<string[]>(definition.affixes ?? definition.词条, []);
-      equipment.attackText = cloneJson<any>(definition.attackText ?? definition.攻击文本, null);
-      equipment.buffs = cloneJson<any[]>(definition.buffs ?? definition.增益, []);
+      // definition 来自静态 equipments.json（已是英文规范键，中文别名由持久化边界
+      // 收敛，见 field-contract.util.ts），此处不再保留中文兜底。
+      equipment.type = String(definition.equipType ?? definition.type ?? '');
+      equipment.specialSeq = Number(definition.specialSeq ?? 0) || 0;
+      equipment.damageType = String(definition.damageType ?? equipment.damageType);
+      equipment.cooldown = Number(definition.cooldown ?? equipment.cooldown) || 0;
+      equipment.forcedEffect = definition.forcedEffect === true || definition.forcedEffect === 'true';
+      equipment.vehicleForceDmg = definition.vehicleForceDmg === true || definition.vehicleForceDmg === 'true';
+      equipment.lockTime = Number(definition.lockTime ?? 0) || 0;
+      equipment.description = String(definition.description ?? '');
+      equipment.baseBonus = cloneJson<Record<string, number>>(definition.baseBonus, {});
+      equipment.affixes = cloneJson<string[]>(definition.affixes, []);
+      equipment.attackText = cloneJson<any>(definition.attackText, null);
+      equipment.buffs = cloneJson<any[]>(definition.buffs, []);
       const props = parseJson<any>(definition.properties ?? definition.属性, {});
       const damage = props?.damage ?? props?.伤害 ?? props;
       equipment.properties = {
@@ -505,12 +507,12 @@ export class ItemService {
     // 统一口径（equipment-ref.util.equipmentQualityName）：非法/缺失品质码返回**空串**，
     // 不再回落「普通」或「神迹」——「装备必有品质码」是入包唯一出口保证的不变量。
     // 旧实现取首字符未转小写，大写品质码会错误回落到「神迹」（已消除）。
-    return equipmentQualityName(equipment?.data ?? (equipment as any)?.数据);
+    return equipmentQualityName(equipment?.data);
   }
 
   /** 返回原版背包列表使用的品质大写代码（E/D/C/B/A/S/X，X=神迹）；非法/缺失返回空串。 */
   getEquipmentQualityCode(equipment: Equipment): string {
-    return equipmentQualityLabel(equipment?.data ?? (equipment as any)?.数据);
+    return equipmentQualityLabel(equipment?.data);
   }
 
   /** 读取装备实例的特效名称，编号仍按原版武器/装备分别计数。 */
@@ -536,7 +538,7 @@ export class ItemService {
       });
       effect = rows[effectId - 1];
     }
-    return String(effect?.name || effect?.名称 || '');
+    return String(effect?.name || '');
   }
 
   /**
@@ -782,7 +784,7 @@ export class ItemService {
     }
 
     const item = backpack[itemIndex];
-    const available = Number(item.quantity ?? item.count ?? 0);
+    const available = Number(item.quantity ?? 0);
     if (!Number.isFinite(available) || available <= 0) {
       return `${player.name} 你的背包中没有可用的${itemName}`;
     }
@@ -829,7 +831,7 @@ export class ItemService {
       let notUsableText = `${player.name},${itemName}不是可以直接使用的物品，或者暂时还无法使用`;
       for (const entry of backpack) {
         if (entry.name === itemName) {
-          notUsableText += `\n${entry.name}x${formatDisplayNumber(Number(entry.quantity ?? entry.count ?? 0))}`;
+          notUsableText += `\n${entry.name}x${formatDisplayNumber(Number(entry.quantity ?? 0))}`;
           break;
         }
       }
@@ -909,10 +911,11 @@ export class ItemService {
     let w4 = '';
     let earlyReturn: string | null = null;
     // 特殊分支先行产出的物品（如凭证的改良建筑箱），随出货段一起走战利品链路
-    const specialObtained: Array<{ name: string; count: number }> = [];
-    const mergeObtained = (entry: { name: string; count: number }): void => {
+    // 数量统一用规范键 quantity（count 为历史别名）
+    const specialObtained: Array<{ name: string; quantity: number }> = [];
+    const mergeObtained = (entry: { name: string; quantity: number }): void => {
       const existing = specialObtained.find((it) => it.name === entry.name);
-      if (existing) existing.count += entry.count;
+      if (existing) existing.quantity += entry.quantity;
       else specialObtained.push({ ...entry });
     };
 
@@ -966,7 +969,7 @@ export class ItemService {
         } else {
           const boxCount = Math.floor(Number(player.level ?? 1) / 2);
           w4 = `\n得到了${boxCount}的改良建筑箱`;
-          mergeObtained({ name: '改良建筑箱', count: boxCount });
+          mergeObtained({ name: '改良建筑箱', quantity: boxCount });
           markers['凭证'] = (markers['凭证'] || 0) + 1;
           actualCount = 1;
         }
@@ -1035,7 +1038,7 @@ export class ItemService {
     }
 
     // ===== 出货段 L2378-2415 =====
-    type UseCandidate = { name: string; count: number };
+    type UseCandidate = { name: string; quantity: number };
     const parseCandidate = (raw: string): UseCandidate | null => {
       let token = String(raw || '').trim();
       if (!token) return null;
@@ -1045,12 +1048,12 @@ export class ItemService {
       const legacyCount = token.match(/^(.*?)\s+x(-?\d+(?:\.\d+)?)$/i);
       if (legacyCount) token = legacyCount[1].trim();
       const match = token.match(/^(.+?)(-?\d+(?:\.\d+)?)$/);
-      if (!match) return { name: token, count: 1 };
+      if (!match) return { name: token, quantity: 1 };
       const name = match[1].trim();
       const parsedCount = Number(match[2]);
       return name && Number.isFinite(parsedCount)
-        ? { name, count: parsedCount }
-        : { name: token, count: 1 };
+        ? { name, quantity: parsedCount }
+        : { name: token, quantity: 1 };
     };
 
     const pools: UseCandidate[][] = [];
@@ -1062,19 +1065,19 @@ export class ItemService {
       if (pool.length > 0) pools.push(pool);
     }
 
-    const obtained: Array<{ name: string; count: number }> = specialObtained;
+    const obtained: Array<{ name: string; quantity: number }> = specialObtained;
     for (const pool of pools) {
       if (pool.length === 1) {
         // L2402-2405：单候选池直接乘以数量
         const candidate = pool[0];
-        if (candidate.count > 0) mergeObtained({ name: candidate.name, count: candidate.count * actualCount });
+        if (candidate.quantity > 0) mergeObtained({ name: candidate.name, quantity: candidate.quantity * actualCount });
         continue;
       }
       // L2407-2410：多候选池每次使用随机取一
       for (let i = 0; i < actualCount; i++) {
         const candidate = pool[Math.floor(Math.random() * pool.length)];
-        if (!candidate || candidate.count <= 0) continue;
-        mergeObtained({ name: candidate.name, count: candidate.count });
+        if (!candidate || candidate.quantity <= 0) continue;
+        mergeObtained({ name: candidate.name, quantity: candidate.quantity });
       }
     }
 
@@ -1084,7 +1087,7 @@ export class ItemService {
     let newEquipmentItems: any[] = [];
     if (obtained.length > 0 && this.itemSystem) {
       const backpackLenBefore = this.playerService.getBackpackItems(player).length;
-      await this.itemSystem.distributeLoot(playerData, obtained.map((o) => ({ name: o.name, quantity: o.count })));
+      await this.itemSystem.distributeLoot(playerData, obtained.map((o) => ({ name: o.name, quantity: o.quantity })));
       const afterBackpack = this.playerService.getBackpackItems(player);
       newEquipmentItems = afterBackpack.slice(backpackLenBefore).filter((it: any) => it.type === '装备');
       equipmentCount = newEquipmentItems.length;
@@ -1143,12 +1146,12 @@ export class ItemService {
       // 无 itemSystem（测试/轻量环境）兜底：直接入包，不入品质链路
       for (const o of obtained) {
         if (this.staticData.getEquipmentByName(o.name)) {
-          for (let i = 0; i < Math.max(1, Math.floor(o.count)); i++) {
-            backpack.push({ name: o.name, type: '装备', quantity: 1, count: 1, durability: 0, data: 'e' });
+          for (let i = 0; i < Math.max(1, Math.floor(o.quantity)); i++) {
+            backpack.push({ name: o.name, type: '装备', quantity: 1, durability: 0, data: 'e' });
             equipmentCount++;
           }
         } else {
-          this.addItemToBackpack(backpack, { name: o.name, type: '资源', quantity: roundItemQuantity(o.count), count: roundItemQuantity(o.count), durability: 0, data: '' });
+          this.addItemToBackpack(backpack, { name: o.name, type: '资源', quantity: roundItemQuantity(o.quantity), durability: 0, data: '' });
         }
       }
       player.backpack = backpack;
@@ -1160,7 +1163,7 @@ export class ItemService {
     const resourceSummary: string[] = [];
     for (const o of obtained) {
       if (!this.staticData.getEquipmentByName(o.name)) {
-        const qty = formatLootQuantity(o.count);
+        const qty = formatLootQuantity(o.quantity);
         if (qty) resourceSummary.push(`${o.name}x${qty}`); // 数量<1 不显示（普通武器补给箱0.03334 → 不显示）
       }
     }
@@ -1213,12 +1216,11 @@ export class ItemService {
     const usedEntry = finalBackpack.find((entry) => entry.name === itemName && entry.type !== '装备')
       ?? finalBackpack.find((entry) => entry.name === itemName);
     if (usedEntry) {
-      const remaining = Number(usedEntry.quantity ?? usedEntry.count ?? 0) - actualCount;
+      const remaining = Number(usedEntry.quantity ?? 0) - actualCount;
       const idx = finalBackpack.indexOf(usedEntry);
       if (remaining <= 0) finalBackpack.splice(idx, 1);
       else {
         usedEntry.quantity = remaining;
-        usedEntry.count = remaining;
       }
     }
 
@@ -1267,7 +1269,7 @@ export class ItemService {
     for (let i = backpack.length - 1; i >= 0; i--) {
       const entry = backpack[i];
       const name = String(entry?.name ?? '');
-      const quantity = Number(entry?.quantity ?? entry?.count ?? 0);
+      const quantity = Number(entry?.quantity ?? 0);
       if (!name || !Number.isFinite(quantity) || quantity < 1) continue; // L4525 数量>=1
       if (!name.includes(key)) continue; // L4524 寻找文本(名称, 关键词) 模糊包含
       if (this.isSeedItem(name)) continue; // L4526 是否种子 屏蔽种子
@@ -1652,7 +1654,7 @@ export class ItemService {
       const def = typeof (this.staticData as any).getEquipmentByName === 'function'
         ? (this.staticData as any).getEquipmentByName(item?.name)
         : undefined;
-      return String(def?.equipType ?? def?.type ?? def?.类型 ?? item?.type ?? item?.类型 ?? '');
+      return String(def?.equipType ?? def?.type ?? item?.type ?? '');
     };
 
     const list: Array<{ slot: string; item: Item3; kind: 'equip' | 'weapon'; equipIndex: number; weaponIndex: number; no: number }> = [];
@@ -1752,7 +1754,7 @@ export class ItemService {
           await this.playerService.savePlayer(_pd.player);
         });
       }
-      return `${player.name}卸下了编号${no}的${entry.item.name}${this.qualityBracket(this.qualityPrefix(String(entry.item.data || (entry.item as any).数据 || '')))}（${entry.slot}）`;
+      return `${player.name}卸下了编号${no}的${entry.item.name}${this.qualityBracket(this.qualityPrefix(String(entry.item.data || '')))}（${entry.slot}）`;
     }
 
     // ---------- 名称分支（原行为） ----------

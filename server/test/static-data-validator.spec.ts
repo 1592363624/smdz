@@ -114,12 +114,13 @@ describe('StaticDataService 启动校验 + findByKey 索引（RVW04 P2-7）', ()
       expect(missing.warn).toHaveBeenCalledWith(expect.stringContaining('文件缺失'));
     });
 
-    it('负数量（quantity/count/数量 任一为负）触发告警，不抛错', () => {
+    it('负数量（quantity 为负）触发告警，不抛错', () => {
       mockedExists.mockReturnValue(true);
       mockedRead.mockReturnValue(
         JSON.stringify([
           { name: '正常物品', quantity: 3 },
-          { name: '负数量物品', count: -2 },
+          // 数量口径统一后校验只认规范键 quantity（旧键 count/数量 已随静态数据全量改名废弃）
+          { name: '负数量物品', quantity: -2 },
         ]),
       );
       const { svc, warn } = makeService();
@@ -134,7 +135,7 @@ describe('StaticDataService 启动校验 + findByKey 索引（RVW04 P2-7）', ()
       mockedRead.mockReturnValue(
         JSON.stringify([
           { name: '甲', quantity: 1 },
-          { name: '乙', count: 2 },
+          { name: '乙', quantity: 2 },
         ]),
       );
       const { svc, warn } = makeService();
@@ -192,7 +193,7 @@ describe('StaticDataService 启动校验 + findByKey 索引（RVW04 P2-7）', ()
           { name: '甲', quantity: 1 },
           { name: '乙', quantity: 2 },
           { name: '丙', specialSeq: -3 },
-          { name: '丁', 数量: 4 },
+          { name: '丁', quantity: 4 },
         ]),
       );
       const { svc } = makeService();

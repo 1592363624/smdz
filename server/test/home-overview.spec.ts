@@ -127,12 +127,13 @@ describe('家园只读总览（preview 不结算）', () => {
 
   it('世界模拟器结构化投影：text 与结算文本同口径，核心名与概率快照一致', async () => {
     const fixture = makeHomeFixture({
+      // 建筑与存放地条目只读规范键 name/quantity（单测夹具绕过持久化归一化边界）
       buildings: [
-        { 名称: '工业电站', 数量: 52 },
-        { 名称: '世界模拟器', 数量: 1 },
+        { name: '工业电站', quantity: 52 },
+        { name: '世界模拟器', quantity: 1 },
       ],
       summons: [{ 名称: '普通宠物', 活力: 1, 当前生命: 100 }],
-      items: [{ 名称: '燃料', 数量: 500000 }],
+      items: [{ name: '燃料', quantity: 500000 }],
     });
     jest.spyOn(Math, 'random').mockReturnValue(0);
 

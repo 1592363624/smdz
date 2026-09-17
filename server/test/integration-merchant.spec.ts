@@ -273,7 +273,7 @@ describe('行商迁移（真实数据库端到端）', () => {
   it('按原版商店配置显示余额，并解析兑换名称后的次数', async () => {
     await setPlayer({
       markers: JSON.stringify({ 活跃度: 500, 兑换: 0 }),
-      backpack: JSON.stringify([{ name: '钻石', quantity: 20 }, { name: '数据核心', count: 50 }]),
+      backpack: JSON.stringify([{ name: '钻石', quantity: 20 }, { name: '数据核心', quantity: 50 }]),
     });
 
     const activityShop = await familiarSystem.familiarShop(userId, 'activity');
@@ -292,7 +292,7 @@ describe('行商迁移（真实数据库端到端）', () => {
     expect(backpack.find((item: any) => item.name === '优秀武器补给箱').quantity).toBe(3);
   });
 
-  it('兑换按活跃度、钻石、数据核心顺序匹配，并以quantity/count兼容余额', async () => {
+  it('兑换按活跃度、钻石、数据核心顺序匹配', async () => {
     // P1 货币列化：货币真相源是列（读取时物化回背包）
     await setPlayer({
       markers: JSON.stringify({ 活跃度: 0 }),

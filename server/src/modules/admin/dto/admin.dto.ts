@@ -157,11 +157,6 @@ export class BackpackItemDto {
   @Min(0)
   quantity?: number;
 
-  @ApiProperty({ description: '数量(兼容字段)', example: 10, minimum: 0, required: false })
-  @IsOptional()
-  @Min(0)
-  count?: number;
-
   @ApiProperty({ description: '类型(物品/装备/资源等)', example: '物品', required: false })
   @IsOptional()
   @IsString()

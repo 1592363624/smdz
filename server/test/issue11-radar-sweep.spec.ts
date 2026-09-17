@@ -20,8 +20,8 @@ function makeItemSystem(staticOverrides: Partial<Record<string, any>> = {}) {
         name: '升级探测雷达一',
         noCraft: false,
         level: 1,
-        outputs: [{ name: '经验胶囊', count: 100 }],
-        requirements: [{ name: '木头', count: 500 }],
+        outputs: [{ name: '经验胶囊', quantity: 100 }],
+        requirements: [{ name: '木头', quantity: 500 }],
         gainMarkers: ['探测雷达等级1'],
       },
     ],
@@ -32,7 +32,7 @@ function makeItemSystem(staticOverrides: Partial<Record<string, any>> = {}) {
   const markers: Record<string, number> = {};
   const playerData: any = {
     player: { name: '测试员', level: 10, markers, sets: {} },
-    backpack: [{ name: '木头', type: '资源', quantity: 1000, count: 1000 }],
+    backpack: [{ name: '木头', type: '资源', quantity: 1000 }],
     markers,
   };
   const playerService: any = {
@@ -77,7 +77,7 @@ describe('Issue #11：背包同名物品合并不再要求 type 一致', () => {
   it('同名不同 type 合并为一条：统一收敛到静态定义规范 type（物品）', () => {
     const { service } = makeItemSystem();
     const backpack: any[] = [
-      { name: '经验胶囊', type: '资源', quantity: 400100, count: 400100 },
+      { name: '经验胶囊', type: '资源', quantity: 400100 },
     ];
     (service as any).addItemToBackpack(backpack, { name: '经验胶囊', type: '物品', quantity: 400000 });
     expect(backpack).toHaveLength(1);
@@ -88,8 +88,8 @@ describe('Issue #11：背包同名物品合并不再要求 type 一致', () => {
 
   it('装备条目永不参与合并', () => {
     const { service } = makeItemSystem();
-    const backpack: any[] = [{ name: '高斯步枪', type: '装备', quantity: 1, count: 1, data: 'a!bx1' }];
-    (service as any).addItemToBackpack(backpack, { name: '高斯步枪', type: '装备', quantity: 1, count: 1, data: 'b!bx2' });
+    const backpack: any[] = [{ name: '高斯步枪', type: '装备', quantity: 1, data: 'a!bx1' }];
+    (service as any).addItemToBackpack(backpack, { name: '高斯步枪', type: '装备', quantity: 1, data: 'b!bx2' });
     expect(backpack).toHaveLength(2);
   });
 });

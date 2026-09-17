@@ -24,7 +24,7 @@ function makeFixture(options: {
     resources: JSON.stringify(options.resources || [{
       name: '矿脉',
       marker: '',
-      outputs: [{ name: '铁矿', count: 2, chance: 100 }],
+      outputs: [{ name: '铁矿', quantity: 2, chance: 100 }],
     }]),
     vehicles: JSON.stringify([{
       id: 'v1',

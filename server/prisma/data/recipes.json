@@ -7,26 +7,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "钻石",
-        "count": 50,
+        "quantity": 50,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集钻石",
-        "count": 10000
+        "quantity": 10000
       }
     ]
   },
@@ -38,26 +38,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生肉",
-        "count": 2.5,
+        "quantity": 2.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集生肉",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -69,26 +69,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "果实",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集果实",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -100,26 +100,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "饲料",
-        "count": 0.5,
+        "quantity": 0.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "制造饲料",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -131,26 +131,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "木头",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集木头",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -162,26 +162,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "石头",
-        "count": 9,
+        "quantity": 9,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集石头",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -193,26 +193,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铁矿",
-        "count": 4.5,
+        "quantity": 4.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集铁矿",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -224,26 +224,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "绳子",
-        "count": 4.5,
+        "quantity": 4.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集绳子",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -255,26 +255,26 @@
     "outputs": [
       {
         "name": "肥料",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "肥料",
-        "count": 1,
+        "quantity": 1,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集肥料",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -286,26 +286,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "钻石",
-        "count": 250,
+        "quantity": 250,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -317,26 +317,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生肉",
-        "count": 12.5,
+        "quantity": 12.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -348,26 +348,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "果实",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -379,26 +379,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "饲料",
-        "count": 2.5,
+        "quantity": 2.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -410,26 +410,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "木头",
-        "count": 50,
+        "quantity": 50,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -441,26 +441,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "石头",
-        "count": 45,
+        "quantity": 45,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -472,26 +472,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铁矿",
-        "count": 22.5,
+        "quantity": 22.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -503,26 +503,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 25,
+        "quantity": 25,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "绳子",
-        "count": 22.5,
+        "quantity": 22.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -534,30 +534,30 @@
     "outputs": [
       {
         "name": "生肉",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "生肉",
-        "count": 1,
+        "quantity": 1,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 3,
+        "quantity": 3,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 500000
+        "quantity": 500000
       },
       {
         "name": "采集生肉",
-        "count": 5000
+        "quantity": 5000
       }
     ]
   },
@@ -569,26 +569,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 5,
+        "quantity": 5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "神兽之血",
-        "count": 0.05,
+        "quantity": 0.05,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集神兽之血",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -600,45 +600,45 @@
     "outputs": [
       {
         "name": "导弹",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "导弹",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "燃料",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 50,
+        "quantity": 50,
         "chance": 100
       },
       {
         "name": "木头",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "载具零件",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集合金",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产燃料",
-        "count": 10000
+        "quantity": 10000
       }
     ]
   },
@@ -650,33 +650,33 @@
     "outputs": [
       {
         "name": "资源箱",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 24,
+        "quantity": 24,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集木头",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集石头",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集绳子",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集铁矿",
-        "count": 1000
+        "quantity": 1000
       }
     ]
   },
@@ -688,21 +688,21 @@
     "outputs": [
       {
         "name": "资源箱",
-        "count": 1.2,
+        "quantity": 1.2,
         "chance": 100
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 24,
+        "quantity": 24,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产资源箱",
-        "count": 10000
+        "quantity": 10000
       }
     ]
   },
@@ -714,21 +714,21 @@
     "outputs": [
       {
         "name": "资源箱",
-        "count": 1.5,
+        "quantity": 1.5,
         "chance": 100
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 24,
+        "quantity": 24,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产资源箱",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -740,26 +740,26 @@
     "outputs": [
       {
         "name": "经验胶囊",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "经验胶囊",
-        "count": 10,
+        "quantity": 10,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "巧克力",
-        "count": 0.5,
+        "quantity": 0.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集巧克力",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -771,30 +771,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 10,
+        "quantity": 10,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 8,
+        "quantity": 8,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集燃料",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "生产生物质",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -806,30 +806,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 12,
+        "quantity": 12,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 12,
+        "quantity": 12,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 8,
+        "quantity": 8,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产燃料",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产生物质",
-        "count": 10000
+        "quantity": 10000
       }
     ]
   },
@@ -841,30 +841,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 15,
+        "quantity": 15,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 15,
+        "quantity": 15,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 8,
+        "quantity": 8,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产燃料",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -876,30 +876,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 30,
+        "quantity": 30,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 30,
+        "quantity": 30,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 16,
+        "quantity": 16,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产燃料",
-        "count": 1000000
+        "quantity": 1000000
       },
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -911,30 +911,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 60,
+        "quantity": 60,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 60,
+        "quantity": 60,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 32,
+        "quantity": 32,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产燃料",
-        "count": 5000000
+        "quantity": 5000000
       },
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -946,30 +946,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 120,
+        "quantity": 120,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 120,
+        "quantity": 120,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 64,
+        "quantity": 64,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产燃料",
-        "count": 50000000
+        "quantity": 50000000
       },
       {
         "name": "生产生物质",
-        "count": 50000000
+        "quantity": 50000000
       }
     ]
   },
@@ -981,30 +981,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 8,
+        "quantity": 8,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 8,
+        "quantity": 8,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "油瓜种子",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集燃料",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "生产生物质",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -1016,30 +1016,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 16,
+        "quantity": 16,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 16,
+        "quantity": 16,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "改良油瓜种子",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集燃料",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "生产生物质",
-        "count": 10000
+        "quantity": 10000
       }
     ]
   },
@@ -1051,30 +1051,30 @@
     "outputs": [
       {
         "name": "燃料",
-        "count": 32,
+        "quantity": 32,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 32,
+        "quantity": 32,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "强壮油瓜种子",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集燃料",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -1086,35 +1086,35 @@
     "outputs": [
       {
         "name": "水晶",
-        "count": 0.2,
+        "quantity": 0.2,
         "chance": 100
       },
       {
         "name": "水晶",
-        "count": 0.2,
+        "quantity": 0.2,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集水晶",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 100000
+        "quantity": 100000
       }
     ]
   },
@@ -1126,31 +1126,31 @@
     "outputs": [
       {
         "name": "水晶",
-        "count": 0.4,
+        "quantity": 0.4,
         "chance": 100
       },
       {
         "name": "水晶",
-        "count": 0.4,
+        "quantity": 0.4,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 4,
+        "quantity": 4,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产水晶",
-        "count": 100000
+        "quantity": 100000
       }
     ]
   },
@@ -1162,31 +1162,31 @@
     "outputs": [
       {
         "name": "水晶",
-        "count": 0.8,
+        "quantity": 0.8,
         "chance": 100
       },
       {
         "name": "水晶",
-        "count": 0.8,
+        "quantity": 0.8,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 40,
+        "quantity": 40,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 8,
+        "quantity": 8,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产水晶",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -1198,35 +1198,35 @@
     "outputs": [
       {
         "name": "能量块",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       },
       {
         "name": "能量块",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集能量块",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -1238,31 +1238,31 @@
     "outputs": [
       {
         "name": "能量块",
-        "count": 0.2,
+        "quantity": 0.2,
         "chance": 100
       },
       {
         "name": "能量块",
-        "count": 0.2,
+        "quantity": 0.2,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 4,
+        "quantity": 4,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产能量块",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -1274,31 +1274,31 @@
     "outputs": [
       {
         "name": "能量块",
-        "count": 0.4,
+        "quantity": 0.4,
         "chance": 100
       },
       {
         "name": "能量块",
-        "count": 0.4,
+        "quantity": 0.4,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 40,
+        "quantity": 40,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 8,
+        "quantity": 8,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产能量块",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -1312,7 +1312,7 @@
     "unlockReq": [
       {
         "name": "生产",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -1326,7 +1326,7 @@
     "unlockReq": [
       {
         "name": "生产",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -1340,7 +1340,7 @@
     "unlockReq": [
       {
         "name": "生产",
-        "count": 1000000000
+        "quantity": 1000000000
       }
     ]
   },
@@ -1352,35 +1352,35 @@
     "outputs": [
       {
         "name": "合金",
-        "count": 2.5,
+        "quantity": 2.5,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 2.5,
+        "quantity": 2.5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铁矿",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "木头",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集铁矿",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "采集木头",
-        "count": 100
+        "quantity": 100
       }
     ]
   },
@@ -1392,39 +1392,39 @@
     "outputs": [
       {
         "name": "合金",
-        "count": 3,
+        "quantity": 3,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 3,
+        "quantity": 3,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铁矿",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "木头",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集铁矿",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集木头",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产合金",
-        "count": 10000
+        "quantity": 10000
       }
     ]
   },
@@ -1436,39 +1436,39 @@
     "outputs": [
       {
         "name": "合金",
-        "count": 3.5,
+        "quantity": 3.5,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 3.5,
+        "quantity": 3.5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铁矿",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "木头",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集铁矿",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "采集木头",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产合金",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -1480,39 +1480,39 @@
     "outputs": [
       {
         "name": "合金",
-        "count": 17.5,
+        "quantity": 17.5,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 17.5,
+        "quantity": 17.5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铁矿",
-        "count": 50,
+        "quantity": 50,
         "chance": 100
       },
       {
         "name": "木头",
-        "count": 100,
+        "quantity": 100,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集铁矿",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "采集木头",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产合金",
-        "count": 5000000
+        "quantity": 5000000
       }
     ]
   },
@@ -1524,35 +1524,35 @@
     "outputs": [
       {
         "name": "改良建筑箱",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "改良建筑箱",
-        "count": 1,
+        "quantity": 1,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "载具零件",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集改良建筑箱",
-        "count": 500
+        "quantity": 500
       },
       {
         "name": "生产燃料",
-        "count": 10000
+        "quantity": 10000
       }
     ]
   },
@@ -1564,35 +1564,35 @@
     "outputs": [
       {
         "name": "改良建筑箱",
-        "count": 1.2,
+        "quantity": 1.2,
         "chance": 100
       },
       {
         "name": "改良建筑箱",
-        "count": 1.2,
+        "quantity": 1.2,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "载具零件",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产改良建筑箱",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产燃料",
-        "count": 100000
+        "quantity": 100000
       }
     ]
   },
@@ -1604,35 +1604,35 @@
     "outputs": [
       {
         "name": "改良建筑箱",
-        "count": 1.5,
+        "quantity": 1.5,
         "chance": 100
       },
       {
         "name": "改良建筑箱",
-        "count": 1.5,
+        "quantity": 1.5,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "载具零件",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产改良建筑箱",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产燃料",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -1644,35 +1644,35 @@
     "outputs": [
       {
         "name": "特装建筑箱",
-        "count": 0.4,
+        "quantity": 0.4,
         "chance": 100
       },
       {
         "name": "特装建筑箱",
-        "count": 0.4,
+        "quantity": 0.4,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "改良建筑箱",
-        "count": 100,
+        "quantity": 100,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 200,
+        "quantity": 200,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集改良建筑箱",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "生产燃料",
-        "count": 100000
+        "quantity": 100000
       }
     ]
   },
@@ -1684,35 +1684,35 @@
     "outputs": [
       {
         "name": "特装建筑箱",
-        "count": 0.48,
+        "quantity": 0.48,
         "chance": 100
       },
       {
         "name": "特装建筑箱",
-        "count": 0.48,
+        "quantity": 0.48,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "改良建筑箱",
-        "count": 100,
+        "quantity": 100,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 200,
+        "quantity": 200,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产特装建筑箱",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产燃料",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -1724,35 +1724,35 @@
     "outputs": [
       {
         "name": "特装建筑箱",
-        "count": 0.65,
+        "quantity": 0.65,
         "chance": 100
       },
       {
         "name": "特装建筑箱",
-        "count": 0.65,
+        "quantity": 0.65,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "改良建筑箱",
-        "count": 100,
+        "quantity": 100,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 200,
+        "quantity": 200,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产特装建筑箱",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产燃料",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -1764,45 +1764,45 @@
     "outputs": [
       {
         "name": "载具零件",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "载具零件",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "合金",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       },
       {
         "name": "能量块",
-        "count": 0.5,
+        "quantity": 0.5,
         "chance": 100
       },
       {
         "name": "水晶",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集载具零件",
-        "count": 500
+        "quantity": 500
       },
       {
         "name": "生产燃料",
-        "count": 10000
+        "quantity": 10000
       }
     ]
   },
@@ -1814,45 +1814,45 @@
     "outputs": [
       {
         "name": "载具零件",
-        "count": 0.012,
+        "quantity": 0.012,
         "chance": 100
       },
       {
         "name": "载具零件",
-        "count": 0.012,
+        "quantity": 0.012,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "合金",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       },
       {
         "name": "能量块",
-        "count": 0.5,
+        "quantity": 0.5,
         "chance": 100
       },
       {
         "name": "水晶",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产载具零件",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产燃料",
-        "count": 100000
+        "quantity": 100000
       }
     ]
   },
@@ -1864,45 +1864,45 @@
     "outputs": [
       {
         "name": "载具零件",
-        "count": 0.015,
+        "quantity": 0.015,
         "chance": 100
       },
       {
         "name": "载具零件",
-        "count": 0.015,
+        "quantity": 0.015,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "合金",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       },
       {
         "name": "能量块",
-        "count": 0.5,
+        "quantity": 0.5,
         "chance": 100
       },
       {
         "name": "水晶",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产载具零件",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产燃料",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -1914,45 +1914,45 @@
     "outputs": [
       {
         "name": "载具零件",
-        "count": 0.075,
+        "quantity": 0.075,
         "chance": 100
       },
       {
         "name": "载具零件",
-        "count": 0.075,
+        "quantity": 0.075,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "合金",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "能量块",
-        "count": 2.5,
+        "quantity": 2.5,
         "chance": 100
       },
       {
         "name": "水晶",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产载具零件",
-        "count": 1000000
+        "quantity": 1000000
       },
       {
         "name": "生产燃料",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -1964,39 +1964,39 @@
     "outputs": [
       {
         "name": "要塞零件",
-        "count": 0.001,
+        "quantity": 0.001,
         "chance": 100
       }
     ],
     "inputs": [
       {
         "name": "载具零件",
-        "count": 25,
+        "quantity": 25,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 150,
+        "quantity": 150,
         "chance": 100
       },
       {
         "name": "资源箱",
-        "count": 225,
+        "quantity": 225,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产资源箱",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产载具零件",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产合金",
-        "count": 100000
+        "quantity": 100000
       }
     ]
   },
@@ -2008,30 +2008,30 @@
     "outputs": [
       {
         "name": "种子箱",
-        "count": 0.25,
+        "quantity": 0.25,
         "chance": 100
       }
     ],
     "inputs": [
       {
         "name": "资源箱",
-        "count": 2.5,
+        "quantity": 2.5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集资源",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -2043,30 +2043,30 @@
     "outputs": [
       {
         "name": "种子箱",
-        "count": 1.25,
+        "quantity": 1.25,
         "chance": 100
       }
     ],
     "inputs": [
       {
         "name": "资源箱",
-        "count": 12.5,
+        "quantity": 12.5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 50,
+        "quantity": 50,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产种子箱",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -2078,30 +2078,30 @@
     "outputs": [
       {
         "name": "种子箱",
-        "count": 6.25,
+        "quantity": 6.25,
         "chance": 100
       }
     ],
     "inputs": [
       {
         "name": "资源箱",
-        "count": 62.5,
+        "quantity": 62.5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 300,
+        "quantity": 300,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产种子箱",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产生物质",
-        "count": 500000000
+        "quantity": 500000000
       }
     ]
   },
@@ -2113,45 +2113,45 @@
     "outputs": [
       {
         "name": "觉醒丹",
-        "count": 0.001,
+        "quantity": 0.001,
         "chance": 100
       },
       {
         "name": "觉醒丹",
-        "count": 0.001,
+        "quantity": 0.001,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铀",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       },
       {
         "name": "神兽之血",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "灵石",
-        "count": 0.0001,
+        "quantity": 0.0001,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集神兽之血",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -2163,45 +2163,45 @@
     "outputs": [
       {
         "name": "觉醒丹",
-        "count": 0.0012,
+        "quantity": 0.0012,
         "chance": 100
       },
       {
         "name": "觉醒丹",
-        "count": 0.0012,
+        "quantity": 0.0012,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铀",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       },
       {
         "name": "神兽之血",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "灵石",
-        "count": 0.0001,
+        "quantity": 0.0001,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产觉醒丹",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2213,45 +2213,45 @@
     "outputs": [
       {
         "name": "觉醒丹",
-        "count": 0.0015,
+        "quantity": 0.0015,
         "chance": 100
       },
       {
         "name": "觉醒丹",
-        "count": 0.0015,
+        "quantity": 0.0015,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铀",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 2,
+        "quantity": 2,
         "chance": 100
       },
       {
         "name": "神兽之血",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "灵石",
-        "count": 0.0001,
+        "quantity": 0.0001,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产觉醒丹",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -2263,40 +2263,40 @@
     "outputs": [
       {
         "name": "裂变电站",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "核废料",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铀",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 2000,
+        "quantity": 2000,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 1000,
+        "quantity": 1000,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产铀",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产合金",
-        "count": 100000
+        "quantity": 100000
       }
     ]
   },
@@ -2308,35 +2308,35 @@
     "outputs": [
       {
         "name": "聚变电站",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       }
     ],
     "inputs": [
       {
         "name": "灵石",
-        "count": 5,
+        "quantity": 5,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 2000,
+        "quantity": 2000,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 5000,
+        "quantity": 5000,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产灵石",
-        "count": 500
+        "quantity": 500
       },
       {
         "name": "生产合金",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -2348,35 +2348,35 @@
     "outputs": [
       {
         "name": "铀",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       },
       {
         "name": "铀",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "燃料",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "石头",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集铀",
-        "count": 20
+        "quantity": 20
       },
       {
         "name": "采集石头",
-        "count": 500000
+        "quantity": 500000
       }
     ]
   },
@@ -2388,35 +2388,35 @@
     "outputs": [
       {
         "name": "铀",
-        "count": 0.12,
+        "quantity": 0.12,
         "chance": 100
       },
       {
         "name": "铀",
-        "count": 0.12,
+        "quantity": 0.12,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "燃料",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "石头",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产铀",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集石头",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -2428,35 +2428,35 @@
     "outputs": [
       {
         "name": "铀",
-        "count": 0.15,
+        "quantity": 0.15,
         "chance": 100
       },
       {
         "name": "铀",
-        "count": 0.15,
+        "quantity": 0.15,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "燃料",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "石头",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产铀",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "采集石头",
-        "count": 3000000
+        "quantity": 3000000
       }
     ]
   },
@@ -2468,35 +2468,35 @@
     "outputs": [
       {
         "name": "圣水",
-        "count": 0.0001,
+        "quantity": 0.0001,
         "chance": 100
       },
       {
         "name": "至纯圣水",
-        "count": 0.0001,
+        "quantity": 0.0001,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "圣水",
-        "count": 0.000107411385607,
+        "quantity": 0.000107411385607,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 0.1,
+        "quantity": 0.1,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集圣水",
-        "count": 20
+        "quantity": 20
       },
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -2508,45 +2508,45 @@
     "outputs": [
       {
         "name": "灵石",
-        "count": 0.001,
+        "quantity": 0.001,
         "chance": 100
       },
       {
         "name": "灵石",
-        "count": 0.001,
+        "quantity": 0.001,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铀",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "圣水",
-        "count": 0.001,
+        "quantity": 0.001,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产铀",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -2558,40 +2558,40 @@
     "outputs": [
       {
         "name": "灵石",
-        "count": 0.0012,
+        "quantity": 0.0012,
         "chance": 100
       },
       {
         "name": "灵石",
-        "count": 0.0012,
+        "quantity": 0.0012,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铀",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产灵石",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2603,40 +2603,40 @@
     "outputs": [
       {
         "name": "灵石",
-        "count": 0.0015,
+        "quantity": 0.0015,
         "chance": 100
       },
       {
         "name": "灵石",
-        "count": 0.0015,
+        "quantity": 0.0015,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铀",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产灵石",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产铀",
-        "count": 100000
+        "quantity": 100000
       }
     ]
   },
@@ -2648,35 +2648,35 @@
     "outputs": [
       {
         "name": "奶",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "奶",
-        "count": 1,
+        "quantity": 1,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 10000,
+        "quantity": 10000,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 20,
+        "quantity": 20,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "挤奶",
-        "count": 20
+        "quantity": 20
       },
       {
         "name": "生产",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2688,26 +2688,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "钻石",
-        "count": 1250,
+        "quantity": 1250,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2719,26 +2719,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生肉",
-        "count": 62.5,
+        "quantity": 62.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2750,26 +2750,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "果实",
-        "count": 50,
+        "quantity": 50,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2781,26 +2781,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "饲料",
-        "count": 12.5,
+        "quantity": 12.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2812,26 +2812,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "木头",
-        "count": 250,
+        "quantity": 250,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2843,26 +2843,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "石头",
-        "count": 225,
+        "quantity": 225,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2874,26 +2874,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铁矿",
-        "count": 112.5,
+        "quantity": 112.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ]
   },
@@ -2905,26 +2905,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 125,
+        "quantity": 125,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "绳子",
-        "count": 112.5,
+        "quantity": 112.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -2936,26 +2936,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "钻石",
-        "count": 6250,
+        "quantity": 6250,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -2967,26 +2967,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生肉",
-        "count": 312.5,
+        "quantity": 312.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -2998,26 +2998,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "果实",
-        "count": 250,
+        "quantity": 250,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -3029,26 +3029,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "饲料",
-        "count": 62.5,
+        "quantity": 62.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -3060,26 +3060,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "木头",
-        "count": 1250,
+        "quantity": 1250,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -3091,26 +3091,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "石头",
-        "count": 1125,
+        "quantity": 1125,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -3122,26 +3122,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "铁矿",
-        "count": 562.5,
+        "quantity": 562.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -3153,26 +3153,26 @@
     "outputs": [
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 625,
+        "quantity": 625,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "绳子",
-        "count": 562.5,
+        "quantity": 562.5,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   },
@@ -3184,35 +3184,35 @@
     "outputs": [
       {
         "name": "圣水",
-        "count": 0.00015,
+        "quantity": 0.00015,
         "chance": 100
       },
       {
         "name": "至纯圣水",
-        "count": 0.00015,
+        "quantity": 0.00015,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "圣水",
-        "count": 0.0002013963480131,
+        "quantity": 0.0002013963480131,
         "chance": 100
       },
       {
         "name": "生物质",
-        "count": 0.18,
+        "quantity": 0.18,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产至纯圣水",
-        "count": 1440
+        "quantity": 1440
       },
       {
         "name": "生产圣水",
-        "count": 14400
+        "quantity": 14400
       }
     ]
   },
@@ -3224,40 +3224,40 @@
     "outputs": [
       {
         "name": "钚",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "钚",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "核废料",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "铀",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "燃料",
-        "count": 200,
+        "quantity": 200,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集核废料",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产铀",
-        "count": 1000000
+        "quantity": 1000000
       }
     ]
   },
@@ -3269,26 +3269,26 @@
     "outputs": [
       {
         "name": "未知物品",
-        "count": 0.0001,
+        "quantity": 0.0001,
         "chance": 100
       },
       {
         "name": "未知物品",
-        "count": 0.000005,
+        "quantity": 0.000005,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "未知物品",
-        "count": 0.0001136363636364,
+        "quantity": 0.0001136363636364,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "采集未知物品",
-        "count": 10
+        "quantity": 10
       }
     ]
   },
@@ -3300,31 +3300,31 @@
     "outputs": [
       {
         "name": "高强度框架",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "高强度框架",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "钚",
-        "count": 1,
+        "quantity": 1,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产钚",
-        "count": 1000
+        "quantity": 1000
       }
     ]
   },
@@ -3336,31 +3336,31 @@
     "outputs": [
       {
         "name": "太阳帆",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 100
       },
       {
         "name": "太阳帆",
-        "count": 0.01,
+        "quantity": 0.01,
         "chance": 10
       }
     ],
     "inputs": [
       {
         "name": "生物质",
-        "count": 100,
+        "quantity": 100,
         "chance": 100
       },
       {
         "name": "合金",
-        "count": 10,
+        "quantity": 10,
         "chance": 100
       }
     ],
     "unlockReq": [
       {
         "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ]
   }

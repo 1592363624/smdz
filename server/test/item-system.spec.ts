@@ -300,18 +300,18 @@ describe('战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946)',
     const txt = await itemSystemLoot.distributeLoot(pd, [{ name: '怪物材料', type: '资源', quantity: 2 }]);
     expect(txt).toContain('怪物材料');
     const bp = parseJson(pd.player.backpack, []);
-    expect(bp.find((b: any) => b.name === '怪物材料').count).toBe(2);
+    expect(bp.find((b: any) => b.name === '怪物材料').quantity).toBe(2);
     // addAchievement 将 markers 直接写为对象（非字符串），按对象读取
     expect((pd.player.markers as any)['采集资源']).toBe(2);
   });
 
   it('L4935/物品操作 L2964 负数资源 → 从背包扣除，归零删除，不写入负库存', async () => {
     const pd = mkPlayer();
-    pd.player.backpack = JSON.stringify([{ name: '载具零件', type: '资源', count: 3, quantity: 3 }]);
+    pd.player.backpack = JSON.stringify([{ name: '载具零件', type: '资源', quantity: 3 }]);
 
     await itemSystemLoot.distributeLoot(pd, [{ name: '载具零件', type: '资源', quantity: -2 }]);
     expect(parseJson(pd.player.backpack, [])).toEqual([
-      expect.objectContaining({ name: '载具零件', count: 1, quantity: 1 }),
+      expect.objectContaining({ name: '载具零件', quantity: 1 }),
     ]);
 
     await itemSystemLoot.distributeLoot(pd, [{ name: '载具零件', type: '资源', quantity: -2 }]);
@@ -347,35 +347,35 @@ describe('战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946)',
 // ==================== 物品要求 (物品操作.ecode L1784-1811) ====================
 describe('物品要求 - 数量要求判定 (物品操作.ecode L1784-1811)', () => {
   it('L1794-1796 不提供要求数量 → 存在即满足(found=true)，写回数组下标', () => {
-    const items = [{ 名称: '导弹', 数量: 0 }];
+    const items = [{ name: '导弹', quantity: 0 }];
     const r = itemSystem.itemRequire('导弹', items);
     expect(r.found).toBe(true);
     expect(r.index).toBe(0);
   });
 
   it('L1798-1800 提供要求数量且数量满足 → found=true', () => {
-    const items = [{ 名称: '氢弹', 数量: 5 }];
+    const items = [{ name: '氢弹', quantity: 5 }];
     const r = itemSystem.itemRequire('氢弹', items, 0.1);
     expect(r.found).toBe(true);
     expect(r.index).toBe(0);
   });
 
   it('L1802 数量不足 → found=false，提示"需要X的NAME，你只有Y"', () => {
-    const items = [{ 名称: '导弹', 数量: 0.05 }];
+    const items = [{ name: '导弹', quantity: 0.05 }];
     const r = itemSystem.itemRequire('导弹', items, 0.1);
     expect(r.found).toBe(false);
     expect(r.hint).toBe('需要0.1的导弹，你只有0');
   });
 
   it('L1810-1811 名称未命中 → 返回 found=false', () => {
-    const items = [{ 名称: '电力', 数量: 100 }];
+    const items = [{ name: '电力', quantity: 100 }];
     const r = itemSystem.itemRequire('氢弹', items, 1);
     expect(r.found).toBe(false);
     expect(r.index).toBe(-1);
   });
 
   it('多个同名物品 → 返回第一个匹配下标', () => {
-    const items = [{ 名称: '导弹', 数量: 1 }, { 名称: '导弹', 数量: 1 }];
+    const items = [{ name: '导弹', quantity: 1 }, { name: '导弹', quantity: 1 }];
     const r = itemSystem.itemRequire('导弹', items);
     expect(r.found).toBe(true);
     expect(r.index).toBe(0);

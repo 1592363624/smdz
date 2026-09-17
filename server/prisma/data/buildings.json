@@ -14,11 +14,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "燃料",
-        "count": -0.1
+        "quantity": -0.1
       }
     ]
   },
@@ -30,11 +30,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "水晶",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -46,11 +46,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "铁矿",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -62,11 +62,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "能量块",
-        "count": 0.75
+        "quantity": 0.75
       }
     ]
   },
@@ -78,11 +78,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "燃料",
-        "count": 0.25
+        "quantity": 0.25
       }
     ]
   },
@@ -94,15 +94,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "钻石",
-        "count": 2
+        "quantity": 2
       },
       {
         "name": "木头",
-        "count": -0.2
+        "quantity": -0.2
       }
     ]
   },
@@ -114,15 +114,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "精良装备补给箱",
-        "count": 0.0028
+        "quantity": 0.0028
       },
       {
         "name": "垃圾",
-        "count": 0.0015
+        "quantity": 0.0015
       }
     ]
   },
@@ -134,11 +134,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": 150
+        "quantity": 150
       },
       {
         "name": "燃料",
-        "count": -0.2
+        "quantity": -0.2
       }
     ]
   },
@@ -150,11 +150,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "水晶",
-        "count": 1.5
+        "quantity": 1.5
       }
     ]
   },
@@ -166,11 +166,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "铁矿",
-        "count": 3
+        "quantity": 3
       }
     ]
   },
@@ -182,11 +182,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "能量块",
-        "count": 1.125
+        "quantity": 1.125
       }
     ]
   },
@@ -198,11 +198,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "燃料",
-        "count": 0.5
+        "quantity": 0.5
       }
     ]
   },
@@ -214,15 +214,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "钻石",
-        "count": 3
+        "quantity": 3
       },
       {
         "name": "木头",
-        "count": -0.3
+        "quantity": -0.3
       }
     ]
   },
@@ -234,15 +234,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "精良装备补给箱",
-        "count": 0.0042
+        "quantity": 0.0042
       },
       {
         "name": "垃圾",
-        "count": 0.003
+        "quantity": 0.003
       }
     ]
   },
@@ -254,11 +254,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": 200
+        "quantity": 200
       },
       {
         "name": "燃料",
-        "count": -0.5
+        "quantity": -0.5
       }
     ]
   },
@@ -270,11 +270,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "水晶",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -286,11 +286,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "铁矿",
-        "count": 4
+        "quantity": 4
       }
     ]
   },
@@ -302,11 +302,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "能量块",
-        "count": 1.5
+        "quantity": 1.5
       }
     ]
   },
@@ -318,11 +318,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "燃料",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -334,15 +334,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "钻石",
-        "count": 4
+        "quantity": 4
       },
       {
         "name": "木头",
-        "count": -0.4
+        "quantity": -0.4
       }
     ]
   },
@@ -354,15 +354,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "精良装备补给箱",
-        "count": 0.0056
+        "quantity": 0.0056
       },
       {
         "name": "垃圾",
-        "count": 0.01
+        "quantity": 0.01
       }
     ]
   },
@@ -374,11 +374,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": 300
+        "quantity": 300
       },
       {
         "name": "燃料",
-        "count": -1
+        "quantity": -1
       }
     ]
   },
@@ -390,11 +390,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "水晶",
-        "count": 5
+        "quantity": 5
       }
     ]
   },
@@ -406,11 +406,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "铁矿",
-        "count": 10
+        "quantity": 10
       }
     ]
   },
@@ -422,11 +422,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "能量块",
-        "count": 4
+        "quantity": 4
       }
     ]
   },
@@ -438,11 +438,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "燃料",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -454,15 +454,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "钻石",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "木头",
-        "count": -1
+        "quantity": -1
       }
     ]
   },
@@ -474,15 +474,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "精良装备补给箱",
-        "count": 0.014
+        "quantity": 0.014
       },
       {
         "name": "垃圾",
-        "count": 0.003
+        "quantity": 0.003
       }
     ]
   },
@@ -494,11 +494,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "燃料",
-        "count": -5
+        "quantity": -5
       }
     ]
   },
@@ -510,11 +510,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "水晶",
-        "count": 15
+        "quantity": 15
       }
     ]
   },
@@ -526,11 +526,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "铁矿",
-        "count": 30
+        "quantity": 30
       }
     ]
   },
@@ -542,11 +542,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "能量块",
-        "count": 12
+        "quantity": 12
       }
     ]
   },
@@ -558,11 +558,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "燃料",
-        "count": 10
+        "quantity": 10
       }
     ]
   },
@@ -574,15 +574,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "钻石",
-        "count": 30
+        "quantity": 30
       },
       {
         "name": "木头",
-        "count": -3
+        "quantity": -3
       }
     ]
   },
@@ -594,15 +594,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "精良装备补给箱",
-        "count": 0.042
+        "quantity": 0.042
       },
       {
         "name": "垃圾",
-        "count": 0.025
+        "quantity": 0.025
       }
     ]
   },
@@ -628,11 +628,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "改良建筑箱",
-        "count": 0.0028
+        "quantity": 0.0028
       }
     ]
   },
@@ -644,11 +644,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "改良建筑箱",
-        "count": 0.0042
+        "quantity": 0.0042
       }
     ]
   },
@@ -660,11 +660,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "改良建筑箱",
-        "count": 0.0056
+        "quantity": 0.0056
       }
     ]
   },
@@ -676,11 +676,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "改良建筑箱",
-        "count": 0.014
+        "quantity": 0.014
       }
     ]
   },
@@ -692,11 +692,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "改良建筑箱",
-        "count": 0.042
+        "quantity": 0.042
       }
     ]
   },
@@ -708,15 +708,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "载具零件",
-        "count": 0.0028
+        "quantity": 0.0028
       },
       {
         "name": "垃圾",
-        "count": 0.001
+        "quantity": 0.001
       }
     ]
   },
@@ -728,15 +728,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "载具零件",
-        "count": 0.0042
+        "quantity": 0.0042
       },
       {
         "name": "垃圾",
-        "count": 0.0015
+        "quantity": 0.0015
       }
     ]
   },
@@ -748,15 +748,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "载具零件",
-        "count": 0.0056
+        "quantity": 0.0056
       },
       {
         "name": "垃圾",
-        "count": 0.002
+        "quantity": 0.002
       }
     ]
   },
@@ -768,15 +768,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "载具零件",
-        "count": 0.014
+        "quantity": 0.014
       },
       {
         "name": "垃圾",
-        "count": 0.0025
+        "quantity": 0.0025
       }
     ]
   },
@@ -788,15 +788,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "载具零件",
-        "count": 0.042
+        "quantity": 0.042
       },
       {
         "name": "垃圾",
-        "count": 0.003
+        "quantity": 0.003
       }
     ]
   },
@@ -808,19 +808,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": 600
+        "quantity": 600
       },
       {
         "name": "燃料",
-        "count": -3
+        "quantity": -3
       },
       {
         "name": "圣诞礼物",
-        "count": 0.042
+        "quantity": 0.042
       },
       {
         "name": "果实",
-        "count": -0.0105
+        "quantity": -0.0105
       }
     ]
   },
@@ -832,19 +832,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -350
+        "quantity": -350
       },
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "铁矿",
-        "count": -45
+        "quantity": -45
       },
       {
         "name": "合金",
-        "count": 15
+        "quantity": 15
       }
     ]
   },
@@ -856,15 +856,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -350
+        "quantity": -350
       },
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "改良建筑箱",
-        "count": 0.084
+        "quantity": 0.084
       }
     ]
   },
@@ -876,19 +876,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -350
+        "quantity": -350
       },
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "载具零件",
-        "count": 0.084
+        "quantity": 0.084
       },
       {
         "name": "垃圾",
-        "count": 0.0035
+        "quantity": 0.0035
       }
     ]
   },
@@ -921,15 +921,15 @@
     "materials": [
       {
         "name": "燃料",
-        "count": 4
+        "quantity": 4
       },
       {
         "name": "经验胶囊",
-        "count": 1
+        "quantity": 1
       },
       {
         "name": "生肉",
-        "count": -0.0105
+        "quantity": -0.0105
       }
     ]
   },
@@ -941,11 +941,11 @@
     "materials": [
       {
         "name": "燃料",
-        "count": -4
+        "quantity": -4
       },
       {
         "name": "电力",
-        "count": 2000
+        "quantity": 2000
       }
     ]
   },
@@ -957,11 +957,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "肥料",
-        "count": -0.00695
+        "quantity": -0.00695
       }
     ]
   },
@@ -973,7 +973,7 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       }
     ]
   },
@@ -985,11 +985,11 @@
     "materials": [
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "经验胶囊",
-        "count": 4
+        "quantity": 4
       }
     ]
   },
@@ -1001,15 +1001,15 @@
     "materials": [
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "瓶子",
-        "count": 0.005
+        "quantity": 0.005
       },
       {
         "name": "经验胶囊",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1021,7 +1021,7 @@
     "materials": [
       {
         "name": "电力",
-        "count": -10000
+        "quantity": -10000
       }
     ]
   },
@@ -1040,15 +1040,15 @@
     "materials": [
       {
         "name": "燃料",
-        "count": 4
+        "quantity": 4
       },
       {
         "name": "种子箱",
-        "count": 0.084
+        "quantity": 0.084
       },
       {
         "name": "生肉",
-        "count": -0.0105
+        "quantity": -0.0105
       }
     ]
   },
@@ -1060,11 +1060,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -350
+        "quantity": -350
       },
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       }
     ]
   },
@@ -1142,15 +1142,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": 400
+        "quantity": 400
       },
       {
         "name": "燃料",
-        "count": -8
+        "quantity": -8
       },
       {
         "name": "星屑",
-        "count": 0.0025
+        "quantity": 0.0025
       }
     ]
   },
@@ -1169,15 +1169,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": 400
+        "quantity": 400
       },
       {
         "name": "燃料",
-        "count": -6
+        "quantity": -6
       },
       {
         "name": "神兽之血",
-        "count": 0.24
+        "quantity": 0.24
       }
     ]
   },
@@ -1189,15 +1189,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -350
+        "quantity": -350
       },
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "水晶",
-        "count": 30
+        "quantity": 30
       }
     ]
   },
@@ -1209,15 +1209,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -350
+        "quantity": -350
       },
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "能量块",
-        "count": 24
+        "quantity": 24
       }
     ]
   },
@@ -1229,11 +1229,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": 50
+        "quantity": 50
       },
       {
         "name": "燃料",
-        "count": -1
+        "quantity": -1
       }
     ]
   },
@@ -1245,15 +1245,15 @@
     "materials": [
       {
         "name": "资源箱",
-        "count": 0.8
+        "quantity": 0.8
       },
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "生肉",
-        "count": -0.0105
+        "quantity": -0.0105
       }
     ]
   },
@@ -1265,11 +1265,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -350
+        "quantity": -350
       },
       {
         "name": "燃料",
-        "count": 18
+        "quantity": 18
       }
     ]
   },
@@ -1281,15 +1281,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": 50
+        "quantity": 50
       },
       {
         "name": "燃料",
-        "count": -20
+        "quantity": -20
       },
       {
         "name": "灵石",
-        "count": 0.0007
+        "quantity": 0.0007
       }
     ]
   },
@@ -1301,19 +1301,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -5000
+        "quantity": -5000
       },
       {
         "name": "燃料",
-        "count": 1
+        "quantity": 1
       },
       {
         "name": "灵石",
-        "count": 0.00035
+        "quantity": 0.00035
       },
       {
         "name": "生肉",
-        "count": -0.07
+        "quantity": -0.07
       }
     ]
   },
@@ -1325,15 +1325,15 @@
     "materials": [
       {
         "name": "燃料",
-        "count": -35
+        "quantity": -35
       },
       {
         "name": "电力",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "核废料",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1345,11 +1345,11 @@
     "materials": [
       {
         "name": "燃料",
-        "count": -35
+        "quantity": -35
       },
       {
         "name": "电力",
-        "count": 20000
+        "quantity": 20000
       }
     ]
   },
@@ -1361,11 +1361,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -500
+        "quantity": -500
       },
       {
         "name": "圣水",
-        "count": 0.0028
+        "quantity": 0.0028
       }
     ]
   },
@@ -1377,31 +1377,31 @@
     "materials": [
       {
         "name": "电力",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "燃料",
-        "count": -0.5
+        "quantity": -0.5
       },
       {
         "name": "钻石",
-        "count": -7
+        "quantity": -7
       },
       {
         "name": "残骸",
-        "count": 0.16667
+        "quantity": 0.16667
       },
       {
         "name": "合金",
-        "count": 0.28
+        "quantity": 0.28
       },
       {
         "name": "垃圾",
-        "count": 0.007
+        "quantity": 0.007
       },
       {
         "name": "生物质",
-        "count": 0.035
+        "quantity": 0.035
       }
     ]
   },
@@ -1420,7 +1420,7 @@
     "materials": [
       {
         "name": "电力",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1446,11 +1446,11 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "铁矿",
-        "count": 60
+        "quantity": 60
       }
     ]
   },
@@ -1462,19 +1462,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -200
+        "quantity": -200
       },
       {
         "name": "燃料",
-        "count": -1
+        "quantity": -1
       },
       {
         "name": "铁矿",
-        "count": -15
+        "quantity": -15
       },
       {
         "name": "合金",
-        "count": 5
+        "quantity": 5
       }
     ]
   },
@@ -1486,19 +1486,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "燃料",
-        "count": -0.5
+        "quantity": -0.5
       },
       {
         "name": "肥料",
-        "count": 0.07
+        "quantity": 0.07
       },
       {
         "name": "垃圾",
-        "count": -0.035
+        "quantity": -0.035
       }
     ]
   },
@@ -1510,19 +1510,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100
+        "quantity": -100
       },
       {
         "name": "燃料",
-        "count": -0.5
+        "quantity": -0.5
       },
       {
         "name": "铁矿",
-        "count": -5
+        "quantity": -5
       },
       {
         "name": "合金",
-        "count": 1.66666667
+        "quantity": 1.66666667
       }
     ]
   },
@@ -1534,19 +1534,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "燃料",
-        "count": -0.25
+        "quantity": -0.25
       },
       {
         "name": "铁矿",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "合金",
-        "count": 0.6666667
+        "quantity": 0.6666667
       }
     ]
   },
@@ -1558,19 +1558,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -37.5
+        "quantity": -37.5
       },
       {
         "name": "燃料",
-        "count": -0.1
+        "quantity": -0.1
       },
       {
         "name": "铁矿",
-        "count": -1.5
+        "quantity": -1.5
       },
       {
         "name": "合金",
-        "count": 0.5
+        "quantity": 0.5
       }
     ]
   },
@@ -1582,19 +1582,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -25
+        "quantity": -25
       },
       {
         "name": "燃料",
-        "count": -0.05
+        "quantity": -0.05
       },
       {
         "name": "铁矿",
-        "count": -1
+        "quantity": -1
       },
       {
         "name": "合金",
-        "count": 0.333333
+        "quantity": 0.333333
       }
     ]
   },
@@ -1606,15 +1606,15 @@
     "materials": [
       {
         "name": "电力",
-        "count": -500
+        "quantity": -500
       },
       {
         "name": "燃料",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "燃料",
-        "count": 75
+        "quantity": 75
       }
     ]
   },
@@ -1626,19 +1626,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -20000
+        "quantity": -20000
       },
       {
         "name": "核废料",
-        "count": -50
+        "quantity": -50
       },
       {
         "name": "铀",
-        "count": 12.5
+        "quantity": 12.5
       },
       {
         "name": "钚",
-        "count": 0.1
+        "quantity": 0.1
       }
     ]
   },
@@ -1650,19 +1650,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -2000
+        "quantity": -2000
       },
       {
         "name": "燃料",
-        "count": -20
+        "quantity": -20
       },
       {
         "name": "铁矿",
-        "count": -3800
+        "quantity": -3800
       },
       {
         "name": "合金",
-        "count": 1500
+        "quantity": 1500
       }
     ]
   },
@@ -1674,7 +1674,7 @@
     "materials": [
       {
         "name": "电力",
-        "count": -250
+        "quantity": -250
       }
     ]
   },
@@ -1686,7 +1686,7 @@
     "materials": [
       {
         "name": "电力",
-        "count": -500
+        "quantity": -500
       }
     ]
   },
@@ -1698,7 +1698,7 @@
     "materials": [
       {
         "name": "电力",
-        "count": -100000
+        "quantity": -100000
       }
     ]
   },
@@ -1710,7 +1710,7 @@
     "materials": [
       {
         "name": "电力",
-        "count": -5
+        "quantity": -5
       }
     ]
   },
@@ -1722,19 +1722,19 @@
     "materials": [
       {
         "name": "电力",
-        "count": -500
+        "quantity": -500
       },
       {
         "name": "燃料",
-        "count": -2
+        "quantity": -2
       },
       {
         "name": "肥料",
-        "count": 0.35
+        "quantity": 0.35
       },
       {
         "name": "垃圾",
-        "count": -0.175
+        "quantity": -0.175
       }
     ]
   },
@@ -1746,7 +1746,7 @@
     "materials": [
       {
         "name": "果实",
-        "count": -0.03
+        "quantity": -0.03
       }
     ]
   }

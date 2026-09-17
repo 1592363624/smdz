@@ -110,7 +110,8 @@ describe('家园产出复刻', () => {
 
   it('具现装置按每天一个未知物品写入地图物品，不直接污染玩家背包', async () => {
     const fixture = makeHomeFixture({
-      buildings: [{ 名称: '具现装置', 数量: 1 }],
+      // 建筑条目只读规范键 name/quantity（单测夹具绕过持久化归一化边界，需直接写规范键）
+      buildings: [{ name: '具现装置', quantity: 1 }],
     });
 
     await fixture.service.collectHomeOutput(7);
@@ -122,12 +123,13 @@ describe('家园产出复刻', () => {
 
   it('世界模拟器按建筑运行时间推进 AI，完成训练后产出带 a 数据的核心', async () => {
     const fixture = makeHomeFixture({
+      // 建筑与存放地条目只读规范键 name/quantity（夹具绕过归一化边界）
       buildings: [
-        { 名称: '工业电站', 数量: 52 },
-        { 名称: '世界模拟器', 数量: 1 },
+        { name: '工业电站', quantity: 52 },
+        { name: '世界模拟器', quantity: 1 },
       ],
       summons: [{ 名称: '普通宠物', 活力: 1, 当前生命: 100 }],
-      items: [{ 名称: '燃料', 数量: 500000 }],
+      items: [{ name: '燃料', quantity: 500000 }],
     });
     const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
 

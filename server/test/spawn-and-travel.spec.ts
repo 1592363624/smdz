@@ -57,14 +57,20 @@ describe('生成神之工匠/生成废弃载具 语义还原 + 耗时公式复�
       },
       combatSystem: {
         recalculateVehicle: jest.fn((vehicle: any) => {
-          vehicle.加成 = { 生命: 300 };
+          // 加成字典挂在规范键 bonus 上（生产 L971 读 bonus?.生命）；「生命」为属性名内容语义
+          vehicle.bonus = { 生命: 300 };
           return vehicle;
         }),
       },
       staticData: {
         loadRaw: jest.fn((key: string) => key === 'wrecks' ? [
-          { name: '废弃的骑士', chance: 2, parts: [{ name: '骑士核心', count: 1 }, { name: '残骸', count: 100 }] },
+          // 零件数量走规范键 quantity（对齐 wrecks.json 真实数据，旧键 count 已废弃）
+          { name: '废弃的骑士', chance: 2, parts: [{ name: '骑士核心', quantity: 1 }, { name: '残骸', quantity: 100 }] },
         ] : []),
+      },
+      itemSystemService: {
+        isEquipment: jest.fn(() => false),
+        generateEquipment: jest.fn(async (name: string) => ({ name, durability: 0 })),
       },
       logger: { log: jest.fn(), warn: jest.fn() },
     });
@@ -82,8 +88,8 @@ describe('生成神之工匠/生成废弃载具 语义还原 + 耗时公式复�
     expect(mapId).toBe(7);
     // 两次 mutateSummons 共享累积数组：神之工匠 + 小雫
     expect(fixture.summonsStore).toHaveLength(2);
-    expect(fixture.summonsStore[0]).toMatchObject({ name: '神之工匠', type: '粉狐狐', qq: 'npc1g', 特殊序号: -2, 归属: '1' });
-    expect(fixture.summonsStore[1]).toMatchObject({ name: '小雫', type: '精英小雫', qq: 'npc2g', 特殊序号: -2, 归属: '1' });
+    expect(fixture.summonsStore[0]).toMatchObject({ name: '神之工匠', type: '粉狐狐', qq: 'npc1g', specialSeq: -2, ownerQQ: '1' });
+    expect(fixture.summonsStore[1]).toMatchObject({ name: '小雫', type: '精英小雫', qq: 'npc2g', specialSeq: -2, ownerQQ: '1' });
   });
 
   it('生成神之工匠：非管理员拒绝', async () => {
@@ -107,10 +113,11 @@ describe('生成神之工匠/生成废弃载具 语义还原 + 耗时公式复�
     const vehicles = parseJson(fixture.wreckMapVehicles.value, []);
     expect(vehicles).toHaveLength(1);
     const vehicle = vehicles[0];
-    expect(vehicle.名称).toBe('废弃的骑士'); // 原版 去数字
-    expect(vehicle.归属).toBe('无主');
-    expect(vehicle.零件[0].名称).toBe('骑士核心');
-    expect(Number(vehicle.当前生命)).toBe(300); // recalculateVehicle 桩
+    // 载具条目只写英文规范键（toStoredVehicle 同口径，不再写中英双份镜像）
+    expect(vehicle.name).toBe('废弃的骑士'); // 原版 去数字
+    expect(vehicle.owner).toBe('无主');
+    expect(vehicle.parts[0].name).toBe('骑士核心');
+    expect(Number(vehicle.currentHp)).toBe(300); // recalculateVehicle 桩
     // 排除 id<3 / 开拓地 / 关卡
     expect(result).not.toContain('新手村');
   });

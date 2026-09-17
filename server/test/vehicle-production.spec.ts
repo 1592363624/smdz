@@ -7,8 +7,6 @@ type Recipe = {
   name: string;
   outputs?: any[];
   inputs?: any[];
-  产出?: any[];
-  消耗?: any[];
 };
 
 function makeCombat(recipes: Recipe[], options: { production?: number; functionSlots?: number } = {}) {
@@ -73,26 +71,26 @@ function makeVehicle(
   coreName = '测试核心',
 ): any {
   return {
-    名称: '生产测试载具',
-    类型: '',
-    零件: [
-      { 名称: coreName, 类型: '资源', 数量: 1, 耐久: 100 },
+    name: '生产测试载具',
+    type: '',
+    parts: [
+      { name: coreName, type: '资源', quantity: 1, durability: 100 },
       ...parts,
     ],
-    配方: recipeEntries,
-    加成: {},
-    当前生命: 100,
-    上限: 0,
-    标记2: [],
+    recipes: recipeEntries,
+    bonus: {},
+    currentHp: 100,
+    slotStatus: 0,
+    markers2: [],
   };
 }
 
 function item(name: string, quantity: number, durability = 100): any {
-  return { 名称: name, 类型: '资源', 数量: quantity, 耐久: durability };
+  return { name, type: '资源', quantity, durability };
 }
 
 function recipe(name: string, outputs: any[], inputs: any[] = []): Recipe {
-  return { name, 产出: outputs, 消耗: inputs };
+  return { name, outputs, inputs };
 }
 
 describe('载具生产复刻 - 静态配置与核心分支', () => {
@@ -106,7 +104,7 @@ describe('载具生产复刻 - 静态配置与核心分支', () => {
     const result = combat.produceVehicle(vehicle, 123456);
 
     expect(result.produced).toEqual([]);
-    expect(vehicle.配方).toEqual([{ 名称: '1', 数值: 123456 }]);
+    expect(vehicle.recipes).toEqual([{ name: '1', value: 123456 }]);
   });
 
   it('生肉分解1按原版顺序结算，并保留耐久10%的副产物比例', () => {
@@ -117,22 +115,22 @@ describe('载具生产复刻 - 静态配置与核心分支', () => {
     )];
     const { combat } = makeCombat(recipes);
     const vehicle = makeVehicle(
-      [{ 名称: '1', 数值: 0 }, { 名称: '生肉分解1', 数值: 1 }],
+      [{ name: '1', value: 0 }, { name: '生肉分解1', value: 1 }],
       [item('生肉', 100)],
     );
 
     const result = combat.produceVehicle(vehicle, 60 * 1000);
     const produced = result.produced.find((value) => value.name === '生物质');
-    const meat = vehicle.零件.find((value: any) => value.名称 === '生肉');
+    const meat = vehicle.parts.find((value: any) => value.name === '生肉');
 
     expect(result.productionSpeed).toBe(1);
     expect(produced?.quantity).toBeCloseTo(5.5);
-    expect(meat.数量).toBeCloseTo(97.5);
-    expect(vehicle.零件.some((value: any) => value.名称 === 'undefined')).toBe(false);
+    expect(meat.quantity).toBeCloseTo(97.5);
+    expect(vehicle.parts.some((value: any) => value.name === 'undefined')).toBe(false);
     expect(result.produced.every((value) => Number.isFinite(value.quantity))).toBe(true);
     // 原版 加成计算 L3901：结算后把可生产秒数写入 载具.标记["生产时间"]
     expect(result.availableTime).toBeGreaterThan(0);
-    expect(vehicle.标记?.['生产时间']).toBeCloseTo(result.availableTime);
+    expect(vehicle.markers?.['生产时间']).toBeCloseTo(result.availableTime);
   });
 
   it('九尾狐核心、副产物、消耗降低和兰音幼崽按原版倍率叠加', () => {
@@ -143,7 +141,7 @@ describe('载具生产复刻 - 静态配置与核心分支', () => {
     )];
     const { combat } = makeCombat(recipes);
     const vehicle = makeVehicle(
-      [{ 名称: '1', 数值: 0 }, { 名称: '分解', 数值: 1 }],
+      [{ name: '1', value: 0 }, { name: '分解', value: 1 }],
       [item('材料', 100), item('小凰', 1), item('小雫', 1)],
       '九尾狐核心',
     );
@@ -155,7 +153,7 @@ describe('载具生产复刻 - 静态配置与核心分支', () => {
     expect(result.elapsedMs).toBeCloseTo(60 * 1000 * 1.05);
     expect(result.produced.find((value) => value.name === '产品')?.quantity).toBeCloseTo(1.05);
     expect(result.produced.find((value) => value.name === '副产品')?.quantity).toBeCloseTo(10 * 0.1 * 2.25 * 1.05);
-    expect(vehicle.零件.find((value: any) => value.名称 === '材料').数量).toBeCloseTo(100 - 2 * 0.93 * 1.05);
+    expect(vehicle.parts.find((value: any) => value.name === '材料').quantity).toBeCloseTo(100 - 2 * 0.93 * 1.05);
   });
 });
 
@@ -168,9 +166,9 @@ describe('载具生产复刻 - 调度、限制与顺序', () => {
     const { combat } = makeCombat(recipes);
     const vehicle = makeVehicle(
       [
-        { 名称: '1', 数值: 0 },
-        { 名称: '生产加速8', 数值: 1 },
-        { 名称: '产出', 数值: 1 },
+        { name: '1', value: 0 },
+        { name: '生产加速8', value: 1 },
+        { name: '产出', value: 1 },
       ],
       [item('生产调度系统', 3), item('生产调度系统II', 2), item('材料', 100)],
     );
@@ -186,8 +184,8 @@ describe('载具生产复刻 - 调度、限制与顺序', () => {
     const recipes = [recipe('产出', [item('产品', 1)], [item('材料', 1)])];
     const { combat } = makeCombat(recipes);
     const vehicle = makeVehicle([
-      { 名称: '1', 数值: 0 },
-      { 名称: '产出', 数值: 200 },
+      { name: '1', value: 0 },
+      { name: '产出', value: 200 },
     ], [item('材料', 100)]);
 
     const result = combat.produceVehicle(vehicle, 60 * 1000);
@@ -201,15 +199,15 @@ describe('载具生产复刻 - 调度、限制与顺序', () => {
     const recipes = [recipe('产出', [item('产品', 1)], [item('材料', 1)])];
     const { combat } = makeCombat(recipes);
     const vehicle = makeVehicle(
-      [{ 名称: '1', 数值: 0 }, { 名称: '产出', 数值: 1 }],
+      [{ name: '1', value: 0 }, { name: '产出', value: 1 }],
       [item('材料', 100), item('生产限制产品', 2)],
     );
 
     const result = combat.produceVehicle(vehicle, 10 * 60 * 1000);
 
     expect(result.produced.find((value) => value.name === '产品')?.quantity).toBeCloseTo(2);
-    expect(vehicle.零件.find((value: any) => value.名称 === '产品').数量).toBeCloseTo(2);
-    expect(vehicle.零件.find((value: any) => value.名称 === '材料').数量).toBeCloseTo(98);
+    expect(vehicle.parts.find((value: any) => value.name === '产品').quantity).toBeCloseTo(2);
+    expect(vehicle.parts.find((value: any) => value.name === '材料').quantity).toBeCloseTo(98);
   });
 
   it('前置配方先生产时可立即为后置配方提供材料，反向排序则不能', () => {
@@ -219,11 +217,11 @@ describe('载具生产复刻 - 调度、限制与顺序', () => {
     ];
     const { combat } = makeCombat(recipes);
     const forward = makeVehicle(
-      [{ 名称: '1', 数值: 0 }, { 名称: '加工原料', 数值: 1 }, { 名称: '加工成品', 数值: 1 }],
+      [{ name: '1', value: 0 }, { name: '加工原料', value: 1 }, { name: '加工成品', value: 1 }],
       [item('原料', 1)],
     );
     const reverse = makeVehicle(
-      [{ 名称: '1', 数值: 0 }, { 名称: '加工成品', 数值: 1 }, { 名称: '加工原料', 数值: 1 }],
+      [{ name: '1', value: 0 }, { name: '加工成品', value: 1 }, { name: '加工原料', value: 1 }],
       [item('原料', 1)],
     );
 
@@ -232,7 +230,7 @@ describe('载具生产复刻 - 调度、限制与顺序', () => {
 
     expect(forwardResult.produced.find((value) => value.name === '成品')?.quantity).toBeCloseTo(1);
     expect(reverseResult.produced.find((value) => value.name === '成品')).toBeUndefined();
-    expect(reverse.零件.find((value: any) => value.名称 === '中间材料').数量).toBeCloseTo(1);
+    expect(reverse.parts.find((value: any) => value.name === '中间材料').quantity).toBeCloseTo(1);
   });
 });
 
@@ -241,30 +239,30 @@ describe('载具生产复刻 - 特殊状态和字段兼容', () => {
     const recipes = [recipe('产出', [item('产品', 1)])];
     const { combat } = makeCombat(recipes, { production: 0 });
     const vehicle = makeVehicle(
-      [{ 名称: '1', 数值: 0 }, { 名称: '产出', 数值: 1 }],
+      [{ name: '1', value: 0 }, { name: '产出', value: 1 }],
       [item('具现装置', 1)],
     );
 
     const result = combat.produceVehicle(vehicle, 86400 * 1000);
 
     expect(result.produced).toEqual([]);
-    expect(vehicle.零件.find((value: any) => value.名称 === '未知物品').数量).toBeCloseTo(1);
+    expect(vehicle.parts.find((value: any) => value.name === '未知物品').quantity).toBeCloseTo(1);
   });
 
   it('功能部件超出核心上限时不生产，并写回读取时间', () => {
     const recipes = [recipe('产出', [item('产品', 1)])];
     const { combat } = makeCombat(recipes, { functionSlots: 1 });
     const vehicle = makeVehicle(
-      [{ 名称: '1', 数值: 0 }, { 名称: '产出', 数值: 1 }],
+      [{ name: '1', value: 0 }, { name: '产出', value: 1 }],
       [item('超限部件', 2)],
     );
 
     const result = combat.produceVehicle(vehicle, 60 * 1000);
 
     expect(result.stopped).toBe(true);
-    expect(vehicle.上限).toBeGreaterThan(1);
-    expect(vehicle.配方[0].数值).toBe(60 * 1000);
-    expect(vehicle.零件.find((value: any) => value.名称 === '产品')).toBeUndefined();
+    expect(vehicle.slotStatus).toBeGreaterThan(1);
+    expect(vehicle.recipes[0].value).toBe(60 * 1000);
+    expect(vehicle.parts.find((value: any) => value.name === '产品')).toBeUndefined();
   });
 
   it('数据库载具和地图JSON载具可互转并按各自存储层持久化', async () => {
@@ -318,26 +316,26 @@ describe('载具生产复刻 - 特殊状态和字段兼容', () => {
       markers2: '[]',
     });
 
-    expect(runtime.名称).toBe('数据库载具');
-    expect(runtime.零件[0].名称).toBe('材料');
-    expect(runtime.零件[0].数量).toBe(3);
-    expect(runtime.配方[0].名称).toBe('产出');
-    expect(runtime.配方[0].数值).toBe(2);
+    expect(runtime.name).toBe('数据库载具');
+    expect(runtime.parts[0].name).toBe('材料');
+    expect(runtime.parts[0].quantity).toBe(3);
+    expect(runtime.recipes[0].name).toBe('产出');
+    expect(runtime.recipes[0].value).toBe(2);
 
     await (game as any).persistRuntimeVehicle({ kind: 'db', db: { id: 7 } }, runtime);
-    // gameVehicle.parts/recipes 是 Json 列：生产写回原生数组，不再 JSON.stringify 落库
+    // gameVehicle.parts/recipes 是 Json 列：生产写回原生数组（载具/物品域规范键），不再 JSON.stringify 落库
     expect(prisma.gameVehicle.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 7 },
       data: expect.objectContaining({
-        parts: expect.arrayContaining([expect.objectContaining({ 名称: '材料', 数量: 3 })]),
-        recipes: expect.arrayContaining([expect.objectContaining({ 名称: '产出', 数值: 2 })]),
+        parts: expect.arrayContaining([expect.objectContaining({ name: '材料', quantity: 3 })]),
+        recipes: expect.arrayContaining([expect.objectContaining({ name: '产出', value: 2 })]),
       }),
     }));
 
     const map = { id: 3, vehicles: '[{}]' };
     await (game as any).persistRuntimeVehicle({ kind: 'map', map, index: 0 }, runtime);
     expect(mapService.updateDynamicFields).toHaveBeenCalledWith(3, expect.objectContaining({
-      vehicles: expect.arrayContaining([expect.objectContaining({ 名称: '数据库载具' })]),
+      vehicles: expect.arrayContaining([expect.objectContaining({ name: '数据库载具' })]),
     }));
   });
 
@@ -372,20 +370,20 @@ describe('载具生产复刻 - 特殊状态和字段兼容', () => {
       shortcutService: {} as any, statsService: {} as any, combatState: {} as any,
     });
     const detail = await (game as any).movementVehicleService.formatVehicleDetail({
-      名称: '白天鹅',
-      类型: '骑士',
-      当前生命: 100,
-      生命: 100,
-      归属: 'qq10',
-      驾驶员: 'qq10',
-      武器: 1, 武器上限: 2, 防御: 0, 防御上限: 2, 功能: 0, 功能上限: 3, 行走: 1, 行走上限: 1,
-      行走方式: 1,
-      编号: 'v1',
-      零件: [{ 名称: '骑士核心', 数量: 1 }],
-      配方: [],
-      加成: { 生命: 100, 生产: 50, 攻击: 8 },
-      标记: { 生产时间: 3661 },
-      上限: 0,
+      name: '白天鹅',
+      type: '骑士',
+      currentHp: 100,
+      maxHp: 100,
+      owner: 'qq10',
+      driver: 'qq10',
+      weaponSlots: 1, maxWeapon: 2, defenseSlots: 0, maxDefense: 2, functionSlots: 0, maxFunction: 3, moveSlots: 1, maxMove: 1,
+      moveType: 1,
+      vehicleId: 'v1',
+      parts: [{ name: '骑士核心', quantity: 1 }],
+      recipes: [],
+      bonus: { 生命: 100, 生产: 50, 攻击: 8 },
+      markers: { 生产时间: 3661 },
+      slotStatus: 0,
     });
     expect(detail).toContain('生产线可运行:1小时1分1秒');
     expect(detail).toContain('驾驶员加成:');

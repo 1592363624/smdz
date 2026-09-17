@@ -141,8 +141,8 @@ export class RedPacketService {
       .map((it: any) => ({
         name: String(it.name),
         type: String(it.type || ''),
-        // 兼容 count / quantity 双字段镜像（与 PlayerService.removeFromBackpack 口径一致）
-        quantity: Math.floor(Number(it.count ?? it.quantity ?? 0)),
+        // 数量只读规范键 quantity（同义旧键 count 已废弃）
+        quantity: Math.floor(Number(it.quantity ?? 0)),
       }))
       .filter((it) => Number.isFinite(it.quantity) && it.quantity > 0)
       .filter((it) => cfg.allowEquipment || it.type !== '装备')

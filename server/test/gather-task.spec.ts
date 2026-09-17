@@ -185,7 +185,7 @@ function makeGatherFixture(resource: any, options: {
     combatState: {
       addMarker: jest.fn((名称: string, 时间: number, 标记: any[], 现行时间: number) => {
         if (时间 === 0) return;
-        标记.push({ 名称, 有效期至: 现行时间 + 时间 * 1000 });
+        标记.push({ name: 名称, expireAt: 现行时间 + 时间 * 1000 });
       }),
       // 采集引怪豁免分支的玩家活跃（原版 L11427）：披风判定 + 地图/玩家标记刷新
       equipRequire: jest.fn((装备列表: any[], _武器列表: any[], _当前武器: number,
@@ -196,7 +196,7 @@ function makeGatherFixture(resource: any, options: {
           || (!!名称 && (eq?.名称 === 名称 || eq?.name === 名称)));
       }),
       gainBuff: jest.fn((增益: any[], 名称: string, 时间: number, _叠加: boolean, 现行时间: number) => {
-        增益.push({ 名称, 有效期至: 现行时间 + 时间 * 1000 });
+        增益.push({ name: 名称, expireAt: 现行时间 + 时间 * 1000 });
         return 0;
       }),
     },
@@ -221,7 +221,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '医疗箱',
       times: -1,
-      outputs: [{ name: '奶', count: 2, chance: 100 }],
+      outputs: [{ name: '奶', quantity: 2, chance: 100 }],
       gatherCmd: '打开箱子',
       gatherText: '【名称】【载具】正在打开医疗箱',
       timeScale: 3,
@@ -248,8 +248,8 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const markers2 = parseJson(fixture.player.markers2, []);
     // 等级10<15 走采集引怪豁免分支：玩家活跃（原版 L11427）先写"战斗"15秒标记，再写"采集"锁定标记
     expect(markers2).toEqual([
-      expect.objectContaining({ 名称: '战斗' }),
-      expect.objectContaining({ 名称: '采集' }),
+      expect.objectContaining({ name: '战斗' }),
+      expect.objectContaining({ name: '采集' }),
     ]);
     expect(fixture.playerService.savePlayer).toHaveBeenCalled();
   });
@@ -259,7 +259,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '老树',
       times: 5,
-      outputs: [{ name: '木头', count: 2, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 2, chance: 100 }],
       gatherCmd: '收集木头',
     });
 
@@ -273,7 +273,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
 
     const backpack = parseJson(fixture.player.backpack, []);
     expect(backpack).toEqual([
-      expect.objectContaining({ name: '木头', count: 2, quantity: 2 }),
+      expect.objectContaining({ name: '木头', quantity: 2 }),
     ]);
     // 经验按原版公式：(等级/2+1)×次数×(1+加成%) = (10/2+1)×1 = 6
     expect(fixture.playerService.addExp).toHaveBeenCalledWith(42, 6);
@@ -284,7 +284,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
 
     // 结算后锁定标记应已移除
     const markers2 = parseJson(fixture.player.markers2, []);
-    expect(markers2.find((m: any) => m.名称 === '采集')).toBeUndefined();
+    expect(markers2.find((m: any) => m.name === '采集')).toBeUndefined();
 
     // 地图资源剩余次数被扣减
     const resources = parseJson(fixture.map.resources, []);
@@ -296,7 +296,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: 'CELL数据中心',
       times: 5,
-      outputs: [{ name: '能量块', count: 2, chance: 100 }],
+      outputs: [{ name: '能量块', quantity: 2, chance: 100 }],
       gatherCmd: '打开箱子',
       proxySpeak: '覅本清',
     });
@@ -316,7 +316,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '医疗箱',
       times: -1,
-      outputs: [{ name: '奶', count: 2, chance: 100 }],
+      outputs: [{ name: '奶', quantity: 2, chance: 100 }],
       gatherCmd: '打开箱子',
     }, {
       markers2: [{ 名称: '采集', 有效期至: Date.now() / 1000 + 8 }],
@@ -337,7 +337,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const dungeon = makeGatherFixture({
       name: '副本箱',
       times: -1,
-      outputs: [{ name: '奶', count: 1, chance: 100 }],
+      outputs: [{ name: '奶', quantity: 1, chance: 100 }],
       gatherCmd: '打开箱子',
     }, { mapOverrides: { isInstance: true }, monsters: [{ id: 1 }] });
     expect(await dungeon.service.handleGatherResource(42, '打开箱子'))
@@ -346,7 +346,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const autoMode = makeGatherFixture({
       name: '普通树',
       times: -1,
-      outputs: [{ name: '木头', count: 1, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 1, chance: 100 }],
       gatherCmd: '收集木头',
     }, { markers: { 自动采集: 1 } });
     expect(await autoMode.service.handleGatherResource(42, '收集木头'))
@@ -359,16 +359,16 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
       name: '常驻树',
       // 原版负数次数=无限资源，|次数|=单次动作上限；此处给足余量验证宠物加成
       times: 10,
-      outputs: [{ name: '木头', count: 1, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 1, chance: 100 }],
       gatherCmd: '收集木头',
     }, {
       summons: [
         // 跟随中的存活宠物（跟随熟练度<1）
-        { ownerQQ: '42', hp: 50, 标记: {} },
+        { ownerQQ: '42', hp: 50, markers: {} },
         // 非跟随状态（跟随=1）
-        { ownerQQ: '42', hp: 50, 标记: { '跟随': 1 } },
+        { ownerQQ: '42', hp: 50, markers: { '跟随': 1 } },
         // 别人的宠物
-        { ownerQQ: '99', hp: 50, 标记: {} },
+        { ownerQQ: '99', hp: 50, markers: {} },
       ],
     });
 
@@ -385,7 +385,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '院子果树',
       times: 99,
-      outputs: [{ name: '果实', count: 1, chance: 100 }],
+      outputs: [{ name: '果实', quantity: 1, chance: 100 }],
       gatherCmd: '摘果子',
       timeScale: 3,
     }, { mapOverrides: { name: '我的家' } });
@@ -409,7 +409,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const mound = () => ({
       name: '土堆',
       times: 20,
-      outputs: [{ name: '钻石', count: 1, chance: 100 }],
+      outputs: [{ name: '钻石', quantity: 1, chance: 100 }],
       gatherCmd: '挖土',
       renewable: false,
       timeScale: 1,
@@ -464,7 +464,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const resource = {
       name: '老树',
       times: -1,
-      outputs: [{ name: '木头', count: 1, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 1, chance: 100 }],
       gatherCmd: '收集木头',
       timeScale: 1,
     };
@@ -495,7 +495,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
       name: '一次性资源',
       times: -1,
       marker: '一次性资源标记',
-      outputs: [{ name: '水晶', count: 1, chance: 100 }],
+      outputs: [{ name: '水晶', quantity: 1, chance: 100 }],
       gatherCmd: '采集一次性资源',
     });
 
@@ -514,7 +514,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '大矿山',
       times: -1,
-      outputs: [{ name: '铁矿', count: 1, chance: 100 }],
+      outputs: [{ name: '铁矿', quantity: 1, chance: 100 }],
       gatherCmd: '挖矿',
       timeScale: 20, // 无矿炮时 60~120 秒
     });
@@ -530,7 +530,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '延时树',
       times: -1,
-      outputs: [{ name: '木头', count: 1, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 1, chance: 100 }],
       gatherCmd: '收集木头',
     });
     jest.spyOn(Math, 'random').mockReturnValue(0);
@@ -560,7 +560,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const secondTick = await fixture.delayedTaskService.tick();
     expect(secondTick).toBe(0);
     expect(parseJson(fixture.player.backpack, [])).toEqual([
-      expect.objectContaining({ name: '木头', count: 1 }),
+      expect.objectContaining({ name: '木头', quantity: 1 }),
     ]);
   });
 
@@ -568,7 +568,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '重启树',
       times: -1,
-      outputs: [{ name: '木头', count: 1, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 1, chance: 100 }],
       gatherCmd: '收集木头',
     });
     jest.spyOn(Math, 'random').mockReturnValue(0);
@@ -613,12 +613,12 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(taskService.advance).not.toHaveBeenCalled();
   });
 
-  it('兼容旧 JSON：名称末尾数量、count 字段作为概率', async () => {
+  it('名称末尾数量编码：解析出物品名+数量，概率统一走 chance', async () => {
     jest.spyOn(Math, 'random').mockReturnValue(0);
     const fixture = makeGatherFixture({
       name: '旧箱子',
       times: 1,
-      outputs: JSON.stringify([{ name: '木头3', count: 100 }]),
+      outputs: JSON.stringify([{ name: '木头3', chance: 100 }]),
       gatherCmd: '打开旧箱子',
     });
 
@@ -627,23 +627,23 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const backpack = parseJson(fixture.player.backpack, []);
 
     expect(result).toContain('木头×3');
-    expect(backpack).toEqual([expect.objectContaining({ name: '木头', count: 3, quantity: 3 })]);
+    expect(backpack).toEqual([expect.objectContaining({ name: '木头', quantity: 3 })]);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '采集', 1);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '打开旧箱子', 1);
     // 采集开始时玩家活跃（原版 L11427，等级10<15 走豁免分支仍执行）刷新地图"活动"窗口；
     // 结算枯竭后登记 1800 秒刷新标记
     expect(parseJson(fixture.map.markers2, [])).toEqual([
-      expect.objectContaining({ 名称: '活动' }),
+      expect.objectContaining({ name: '活动' }),
       expect.objectContaining({ name: '刷新资源旧箱子' }),
     ]);
   });
 
-  it('兼容数组形式旧 JSON，并按名称末尾数量发放', async () => {
+  it('数组形式产出：按名称末尾数量发放，概率只认 chance', async () => {
     jest.spyOn(Math, 'random').mockReturnValue(0);
     const fixture = makeGatherFixture({
       name: '数组旧箱子',
       times: -1,
-      outputs: [{ name: '石头2', count: 100 }],
+      outputs: [{ name: '石头2', chance: 100 }],
       gatherCmd: '打开数组旧箱子',
     });
 
@@ -652,7 +652,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
 
     expect(result).toContain('石头×2');
     expect(parseJson(fixture.player.backpack, [])).toEqual([
-      expect.objectContaining({ name: '石头', count: 2, quantity: 2 }),
+      expect.objectContaining({ name: '石头', quantity: 2 }),
     ]);
   });
 
@@ -662,8 +662,8 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
       name: '集装箱',
       times: -1,
       outputs: [
-        { name: '寒风s', count: 0, chance: 100 },
-        { name: '工业建筑箱-3', count: 0, chance: 100 },
+        { name: '寒风s', quantity: 0, chance: 100 },
+        { name: '工业建筑箱-3', quantity: 0, chance: 100 },
       ],
       gatherCmd: '打开集装箱',
     }, { equipmentNames: ['寒风'] });
@@ -675,7 +675,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     expect(fixture.itemSystemService.generateRewardEquipment).toHaveBeenCalledWith('寒风', 's');
     expect(backpack).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: '寒风', type: '装备' }),
-      expect.objectContaining({ name: '工业建筑箱', count: 3, quantity: 3 }),
+      expect.objectContaining({ name: '工业建筑箱', quantity: 3 }),
     ]));
   });
 
@@ -684,7 +684,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
       name: '休眠仓',
       times: -1,
       proxySpeak: '召唤1白1',
-      outputs: [{ name: '增幅器s', count: 0, chance: 100 }],
+      outputs: [{ name: '增幅器s', quantity: 0, chance: 100 }],
       gatherCmd: '打开休眠仓',
     }, { equipmentNames: ['增幅器'] });
 
@@ -712,7 +712,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '老树',
       times: 5,
-      outputs: [{ name: '木头', count: 2, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 2, chance: 100 }],
       gatherCmd: '收集木头',
     });
     fixture.player.level = 20;
@@ -728,7 +728,7 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const fixture = makeGatherFixture({
       name: '老树',
       times: 5,
-      outputs: [{ name: '木头', count: 2, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 2, chance: 100 }],
       gatherCmd: '收集木头',
     });
     // 夹具默认等级10，<15 豁免
@@ -739,11 +739,11 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     // 玩家活跃（原版 L11427）："战斗"15秒挂玩家标记2、"活动"120秒刷新地图标记2；
     // 随后照常写"采集"锁定标记
     expect(parseJson(fixture.player.markers2, [])).toEqual([
-      expect.objectContaining({ 名称: '战斗' }),
-      expect.objectContaining({ 名称: '采集' }),
+      expect.objectContaining({ name: '战斗' }),
+      expect.objectContaining({ name: '采集' }),
     ]);
     expect(parseJson(fixture.map.markers2, [])).toEqual(
-      [expect.objectContaining({ 名称: '活动' })],
+      [expect.objectContaining({ name: '活动' })],
     );
   });
 
@@ -751,12 +751,12 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
     const resource = {
       name: '老树',
       times: 5,
-      outputs: [{ name: '木头', count: 2, chance: 100 }],
+      outputs: [{ name: '木头', quantity: 2, chance: 100 }],
       gatherCmd: '收集木头',
     };
     const cases: Array<(player: any) => void> = [
       (player) => { player.equipment = JSON.stringify([{ 名称: '隐形披风', 特殊序号: 26 }]); },
-      (player) => { player.buffs = JSON.stringify([{ 名称: '隐匿模式', 有效期至: Date.now() + 60_000 }]); },
+      (player) => { player.buffs = JSON.stringify([{ name: '隐匿模式', expireAt: Date.now() + 60_000 }]); },
       (player) => { player.specialSeq = 15; },
     ];
     for (const exempt of cases) {
@@ -770,8 +770,8 @@ describe('手动采集两阶段流程（对齐原版采集耗时机制）', () =
       expect(fixture.combatSystem.triggerMapBattleLoop).not.toHaveBeenCalled();
       // 豁免分支玩家活跃照常（原版 L11427 判断块之外无条件执行），随后照常写"采集"锁定标记
       expect(parseJson(fixture.player.markers2, [])).toEqual([
-        expect.objectContaining({ 名称: '战斗' }),
-        expect.objectContaining({ 名称: '采集' }),
+        expect.objectContaining({ name: '战斗' }),
+        expect.objectContaining({ name: '采集' }),
       ]);
     }
   });

@@ -769,7 +769,7 @@
           <!-- 点击资源行 = 直接发送该资源的采集指令（gatherCmd 优先，如 打开货舱/收集能量；缺失时回退「采集 资源名」） -->
           <div v-for="r in mapOverview.currentMap.resourceList" :key="'cur-res-' + r.name" class="ip-row npc-row" title="点击发送采集指令" @click="quickAction(r.gatherCmd || '采集 ' + r.name)">
             <span class="ip-row-name">📦 {{ r.name }}</span>
-            <span class="ip-row-meta" v-if="r.count >= 0">×{{ r.count }} · {{ r.gatherCmd || '采集' }}</span>
+            <span class="ip-row-meta" v-if="r.times >= 0">×{{ r.times }} · {{ r.gatherCmd || '采集' }}</span>
             <span class="ip-row-meta" v-else>{{ r.gatherCmd || '采集' }}</span>
           </div>
         </div>

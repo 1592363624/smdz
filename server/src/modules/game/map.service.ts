@@ -329,7 +329,7 @@ export class MapService {
     if (type === 1) {
       const maps = await this.getAllMaps();
       return maps.some((map: any) => {
-        const raw = map?.summons ?? map?.召唤物 ?? [];
+        const raw = map?.summons ?? [];
         const summons = Array.isArray(raw)
           ? raw
           : this.safeParseJSON<any[]>(raw, []);
@@ -590,7 +590,7 @@ export class MapService {
         const markers = this.safeParseJSON<Record<string, any>>(player.markers, {}) || {};
         delete markers['移动中'];
         const markers2 = this.safeParseJSON<any[]>(player.markers2, []) || [];
-        const kept2 = markers2.filter((m: any) => String(m?.名称 ?? m?.name ?? '') !== '移动');
+        const kept2 = markers2.filter((m: any) => String(m?.name ?? '') !== '移动');
         await this.prisma.player.update({
           where: { id: player.id },
           data: {
@@ -630,10 +630,10 @@ export class MapService {
         await this.mutateMapFields(evacuation.id, ['vehicles'], (f) => {
           const list = Array.isArray(f.vehicles) ? f.vehicles : [];
           const existingKeys = new Set(
-            list.map((v: any) => String(v?.vehicleId ?? v?.编号 ?? v?.id ?? '')),
+            list.map((v: any) => String(v?.vehicleId ?? v?.id ?? '')),
           );
           for (const v of orphanVehicles) {
-            const key = String(v?.vehicleId ?? v?.编号 ?? v?.id ?? '');
+            const key = String(v?.vehicleId ?? v?.id ?? '');
             if (key && existingKeys.has(key)) continue;
             list.push(v);
             if (key) existingKeys.add(key);
@@ -977,9 +977,9 @@ export class MapService {
    * @param destName 目的地名称（原版文案前缀）
    */
   private checkTravelCapability(player: any, vehicle: any, requirement: number, destName: string): string | null {
-    const onFoot = !vehicle || Number(vehicle?.列表编号 ?? vehicle?.listId ?? 0) === 0;
-    const walkMode = onFoot ? 0 : Number(vehicle?.行走方式 ?? vehicle?.walkMode ?? vehicle?.moveType ?? 0);
-    const vehicleName = String(vehicle?.名称 ?? vehicle?.name ?? '');
+    const onFoot = !vehicle;
+    const walkMode = onFoot ? 0 : Number(vehicle?.moveType ?? 0);
+    const vehicleName = String(vehicle?.name ?? '');
 
     if (requirement === 1) {
       // 需求=飞行（原版 L1006-1014）：徒步（玩家本身能飞）放行；
@@ -994,7 +994,7 @@ export class MapService {
       if (onFoot) {
         const equipment = asJsonValue<any[]>(player?.equipment, []);
         const hasPendant = equipment.some((item: any) =>
-          String(item?.name ?? item?.名称 ?? '') === '天蓝吊坠');
+          String(item?.name ?? '') === '天蓝吊坠');
         if (hasPendant) return null;
         return `${destName}限制了需要传送或者跃迁才能到达，你可以装备[天蓝吊坠]或者给载具安装任意型号的“跃迁引擎”`;
       }
@@ -1960,14 +1960,14 @@ export class MapService {
 
     const resourceDefinitions = this.staticData.getAllResources();
     const refreshedResources = configuredResources.map((configured: any) => {
-      const name = String(configured?.name ?? configured?.名称 ?? '').trim();
+      const name = String(configured?.name ?? '').trim();
       const definition = resourceDefinitions.find((resource: any) => resource?.name === name);
       // 保留地图配置中可能被事件改写的字段，同时用资源列表补齐原版运行时字段。
       return {
         ...(definition || {}),
         ...configured,
         name,
-        type: configured?.type || configured?.类型 || definition?.type || '资源',
+        type: configured?.type || definition?.type || '资源',
         times: configured?.times ?? definition?.times ?? 1,
         outputs: configured?.outputs ?? definition?.outputs ?? [],
         outputs2: configured?.outputs2 ?? definition?.outputs2 ?? [],
@@ -2012,7 +2012,7 @@ export class MapService {
       let resources2Changed = false;
 
       for (const marker of markers2) {
-        const markerName = String(marker?.name ?? marker?.名称 ?? marker?.key ?? '').trim();
+        const markerName = String(marker?.name ?? marker?.key ?? '').trim();
         const expireAt = toExpireMs(marker);
         if (!markerName.startsWith(RESOURCE_REFRESH_MARKER_PREFIX) || !expireAt || expireAt > now) {
           activeMarkers.push(marker);
@@ -2033,7 +2033,7 @@ export class MapService {
           : 'resources';
         const targetResources = field === 'resources2' ? resources2 : resources;
         if (targetResources.some((resource: any) =>
-          String(resource?.name ?? resource?.名称 ?? '').trim() === resourceName,
+          String(resource?.name ?? '').trim() === resourceName,
         )) {
           continue;
         }
@@ -2061,10 +2061,10 @@ export class MapService {
     const staticMap = this.staticData.getMapByName(map.name);
     const configuredResources = this.safeParseJSON<any[]>(staticMap?.resources, []);
     const configured = configuredResources.find((resource: any) =>
-      String(resource?.name ?? resource?.名称 ?? '').trim() === resourceName,
+      String(resource?.name ?? '').trim() === resourceName,
     );
     const definition = this.staticData.getAllResources().find((resource: any) =>
-      String(resource?.name ?? resource?.名称 ?? '').trim() === resourceName,
+      String(resource?.name ?? '').trim() === resourceName,
     );
     if (!configured && !definition) return null;
 
@@ -2072,11 +2072,11 @@ export class MapService {
       ...(definition || {}),
       ...(configured || {}),
       name: resourceName,
-      type: configured?.type || configured?.类型 || definition?.type || definition?.类型 || '资源',
-      times: configured?.times ?? configured?.次数 ?? definition?.times ?? definition?.次数 ?? 1,
-      outputs: configured?.outputs ?? configured?.产出 ?? definition?.outputs ?? definition?.产出 ?? [],
-      outputs2: configured?.outputs2 ?? configured?.产出2 ?? definition?.outputs2 ?? definition?.产出2 ?? [],
-      gatherCmd: configured?.gatherCmd ?? configured?.采集指令 ?? definition?.gatherCmd ?? definition?.采集指令 ?? '',
+      type: configured?.type || definition?.type || '资源',
+      times: configured?.times ?? definition?.times ?? 1,
+      outputs: configured?.outputs ?? definition?.outputs ?? [],
+      outputs2: configured?.outputs2 ?? definition?.outputs2 ?? [],
+      gatherCmd: configured?.gatherCmd ?? definition?.gatherCmd ?? '',
     };
     return JSON.parse(JSON.stringify(template));
   }
@@ -2114,19 +2114,16 @@ export class MapService {
     return this.mutateMapFields(mapId, ['resources'], (f) => {
       const resources = Array.isArray(f.resources) ? f.resources : [];
       const idx = resources.findIndex((r: any) =>
-        String(r?.name ?? r?.名称 ?? '').trim() === name);
+        String(r?.name ?? '').trim() === name);
       if (idx >= 0) {
         // 已在地上：次数累加（对应原版 `资源2[c].次数 = 资源2[c].次数 + 1`）
         const target = resources[idx];
-        const times = Number(target?.times ?? target?.次数 ?? 0) + add;
-        target.times = times;
-        if (target.次数 !== undefined) target.次数 = times;
+        target.times = Number(target?.times ?? 0) + add;
         return true;
       }
       const dropped = JSON.parse(JSON.stringify(template));
       // 首次落地：以本次投放量作为可采集次数（模板自带的 times 是配置默认值）
       dropped.times = add;
-      if (dropped.次数 !== undefined) dropped.次数 = add;
       resources.push(dropped);
       f.resources = resources;
       return true;

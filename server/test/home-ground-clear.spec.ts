@@ -56,10 +56,10 @@ describe('家园地面清理前置', () => {
     markers: JSON.stringify({ 家园进度: progress }),
     markers2: '[]',
     backpack: JSON.stringify([
-      { name: '木头', count: 80 },
-      { name: '石头', count: 120 },
-      { name: '铁矿', count: 40 },
-      { name: '绳子', count: 40 },
+      { name: '木头', quantity: 80 },
+      { name: '石头', quantity: 120 },
+      { name: '铁矿', quantity: 40 },
+      { name: '绳子', quantity: 40 },
     ]),
   });
 
@@ -82,7 +82,7 @@ describe('家园地面清理前置', () => {
     expect(result).toContain('挖土');
     expect(result).toContain('割草');
     expect(parseJson(player.markers, {})['家园进度']).toBe(1);
-    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').count).toBe(80);
+    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').quantity).toBe(80);
     expect(service.mapService.updateDynamicFields).not.toHaveBeenCalled();
   });
 
@@ -99,7 +99,7 @@ describe('家园地面清理前置', () => {
     expect(result).toContain('发送「建造地基」');
     expect(parseJson(player.markers, {})['家园进度']).toBe(2);
     const backpack = parseJson(player.backpack, []);
-    expect(backpack.find((i: any) => i.name === '木头').count).toBe(80);
+    expect(backpack.find((i: any) => i.name === '木头').quantity).toBe(80);
 
     const resources2 = parseJson(yard.resources2, []);
     expect(resources2).toHaveLength(2);
@@ -125,7 +125,7 @@ describe('家园地面清理前置', () => {
     const result = await service.handleHome(1, '建造地基');
     expect(result).toContain('必须先挖开土堆');
     expect(parseJson(player.markers, {})['家园进度']).toBe(2);
-    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').count).toBe(80);
+    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').quantity).toBe(80);
     expect(parseJson(yard.resources2, [])).toHaveLength(2);
   });
 
@@ -182,16 +182,16 @@ describe('家园地面清理前置', () => {
 
     expect(result).toContain('采集中');
     expect(parseJson(player.markers, {})['家园进度']).toBe(2);
-    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').count).toBe(80);
+    expect(parseJson(player.backpack, []).find((i: any) => i.name === '木头').quantity).toBe(80);
   });
 
   it('建造房子成功：消耗材料、开工提示、挂120秒工作标记、进度→4，延时到期结算经验与完工播报', async () => {
     const player = buildPlayer(3);
     player.backpack = JSON.stringify([
-      { name: '木头', count: 300 },
-      { name: '石头', count: 500 },
-      { name: '铁矿', count: 160 },
-      { name: '绳子', count: 120 },
+      { name: '木头', quantity: 300 },
+      { name: '石头', quantity: 500 },
+      { name: '铁矿', quantity: 160 },
+      { name: '绳子', quantity: 120 },
     ]);
     const yard: any = { id: 9, resources2: '[]' };
     const service = buildService(player, yard);
@@ -226,13 +226,13 @@ describe('家园地面清理前置', () => {
 
   it('同名多堆/小数物资按合计校验与扣料（与院子「已有 X」同口径）', async () => {
     const player = buildPlayer(2);
-    // 历史脏数据：木头拆成多条，count 与 quantity 混用；院子 materials 会合计成 385.23
+    // 历史脏数据：木头拆成多条（采集倍率产生小数）；院子 materials 会合计成 385.23
     player.backpack = JSON.stringify([
-      { name: '木头', count: 5 },
+      { name: '木头', quantity: 5 },
       { name: '木头', quantity: 380.23 },
       { name: '石头', quantity: 569.11 },
-      { name: '铁矿', count: 243.09 },
-      { name: '绳子', count: 161.42 },
+      { name: '铁矿', quantity: 243.09 },
+      { name: '绳子', quantity: 161.42 },
     ]);
     const yard: any = { id: 9, resources2: '[]' };
     const service = buildService(player, yard);
@@ -244,7 +244,7 @@ describe('家园地面清理前置', () => {
     const backpack = parseJson(player.backpack, []);
     const sumOf = (name: string) => backpack
       .filter((i: any) => i.name === name)
-      .reduce((n: number, i: any) => n + Number(i.quantity ?? i.count ?? 0), 0);
+      .reduce((n: number, i: any) => n + Number(i.quantity ?? 0), 0);
     // 扣 80：5 + 380.23 = 385.23 → 剩 305.23
     expect(sumOf('木头')).toBeCloseTo(305.23, 5);
     expect(sumOf('石头')).toBeCloseTo(449.11, 5);
@@ -254,7 +254,7 @@ describe('家园地面清理前置', () => {
 
   it('材料不足时建造地基按原版逐项提示', async () => {
     const player = buildPlayer(2);
-    player.backpack = JSON.stringify([{ name: '木头', count: 50 }]);
+    player.backpack = JSON.stringify([{ name: '木头', quantity: 50 }]);
     const yard: any = { id: 9, resources2: '[]' };
     const service = buildService(player, yard);
 
@@ -279,10 +279,10 @@ describe('家园地面清理前置', () => {
   it('建造房子倒计时期间重发指令提示剩余时间而非"已建好"', async () => {
     const player = buildPlayer(3);
     player.backpack = JSON.stringify([
-      { name: '木头', count: 300 },
-      { name: '石头', count: 500 },
-      { name: '铁矿', count: 160 },
-      { name: '绳子', count: 120 },
+      { name: '木头', quantity: 300 },
+      { name: '石头', quantity: 500 },
+      { name: '铁矿', quantity: 160 },
+      { name: '绳子', quantity: 120 },
     ]);
     const yard: any = { id: 9, resources2: '[]' };
     const service = buildService(player, yard);

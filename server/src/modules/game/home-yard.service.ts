@@ -9,7 +9,7 @@
  * 1. **只读**：本服务不写任何数据、不推进观测时间、不领取产出。所有变更依旧
  *    由 QQ / 网页统一的指令通道（种植 / 收获 / 安装 / 拆除 / 产出）执行，
  *    杜绝出现第二条写路径造成结算双轨。
- * 2. **聚合展开**：后端按"名称 + 数量"聚合存储，这里把 count=N 展开为 N 个
+ * 2. **聚合展开**：后端按"名称 + 数量"聚合存储，这里把 quantity=N 展开为 N 个
  *    地块；对某一格执行收获 / 拆除即等于该名称数量 -1，与指令语义天然一致。
  * 3. **上限即地块数**：作物上限 cropLimit、建筑上限 buildingLimit 就是当前可用
  *    地块总数（原版由玩家等级与凭证决定），超额部分渲染为待开垦（locked）。
@@ -98,7 +98,8 @@ export interface HomeYardArea {
 /** 地面障碍（土堆/杂草等，需先清理） */
 export interface HomeYardObstacle {
   name: string;
-  count: number;
+  /** 剩余清理次数（规范键 quantity，即「还有几堆」） */
+  quantity: number;
   description: string;
   /** 清理该障碍的采集指令（如「挖土」「割草」） */
   clearCmd: string;
@@ -129,8 +130,8 @@ export interface HomeYardInfo {
   storage: HomeYardRate[];
   /** 复用既有只读总览（电力/产出速率等），前端无需再单独请求 */
   overview: HomeSettlement | null;
-  /** 服务端清障排队快照：[{ cmd: '挖土', count: 3 }]，刷新/换端不丢 */
-  clearQueue: Array<{ cmd: string; count: number }>;
+  /** 服务端清障排队快照：[{ cmd: '挖土', quantity: 3 }]，刷新/换端不丢 */
+  clearQueue: Array<{ cmd: string; quantity: number }>;
 }
 
 @Injectable()
@@ -199,7 +200,7 @@ export class HomeYardService {
     // ---- 作物与地面障碍：原版以「产出2 是否为空」区分 ----
     const cropSlots: Array<{
       name: string;
-      count: number;
+      quantity: number;
       plantedAt?: number;
       outputs: HomeYardRate[];
       harvest: HomeYardRate[];
@@ -209,7 +210,7 @@ export class HomeYardService {
     for (const resource of resources2) {
       const name = this.nameOf(resource);
       if (!name) continue;
-      const count = Math.max(1, Math.round(this.countOf(resource)) || 1);
+      const quantity = Math.max(1, Math.round(this.quantityOf(resource)) || 1);
       const outputs = this.toRates(resource?.outputs2 ?? resource?.['产出2'] ?? []);
       if (outputs.length > 0) {
         const def = this.findResourceDef(name);
@@ -218,7 +219,7 @@ export class HomeYardService {
         const harvestRate = plan.totalSeconds / plan.rewardScaleDivisor;
         cropSlots.push({
           name,
-          count,
+          quantity,
           // 每粒种子独立的种植时间戳；旧聚合存档没有该字段（buildCropStage 里按已成熟处理）
           plantedAt: Number(resource?.plantedAt ?? resource?.['种植时间'] ?? 0) || undefined,
           outputs: [],
@@ -235,24 +236,24 @@ export class HomeYardService {
       const def = this.findResourceDef(name);
       obstacles.push({
         name,
-        count,
+        quantity,
         description: String(def?.description ?? resource?.description ?? ''),
         clearCmd: String(def?.gatherCmd ?? resource?.gatherCmd ?? '').trim(),
       });
     }
 
     // ---- 建筑：只认建筑定义，兼容旧数据里误写入 buildings 的作物 ----
-    const buildingSlots: Array<{ name: string; count: number; outputs: HomeYardRate[]; harvest: HomeYardRate[]; description: string }> = [];
+    const buildingSlots: Array<{ name: string; quantity: number; outputs: HomeYardRate[]; harvest: HomeYardRate[]; description: string }> = [];
     for (const entry of buildingEntries) {
       const name = this.nameOf(entry);
       if (!name) continue;
       const def = this.staticData.getBuildingByName(name);
       if (!def) continue; // 非建筑（旧作物数据等）不占建筑地块
-      const count = Math.max(1, Math.round(this.countOf(entry)) || 1);
+      const quantity = Math.max(1, Math.round(this.quantityOf(entry)) || 1);
       const materials = this.toRates(def?.materials ?? def?.['材料'] ?? []);
       buildingSlots.push({
         name,
-        count,
+        quantity,
         outputs: materials,
         // 拆除返还：原版只对消耗项返还 50%（向下取整）
         harvest: materials
@@ -285,7 +286,7 @@ export class HomeYardService {
     for (const item of backpack) {
       const name = this.nameOf(item);
       if (!name) continue;
-      const quantity = this.countOf(item);
+      const quantity = this.quantityOf(item);
       if (quantity <= 0) continue;
 
       const itemType = String((item as any)?.type ?? (item as any)?.['类型'] ?? '').trim();
@@ -327,14 +328,14 @@ export class HomeYardService {
 
     // 服务端清障队列（挖土/割草连点排队）：刷新页面仍可见
     const clearQueueRaw = asJsonValue<any[]>(markers['清障队列'], []);
-    const clearQueue: Array<{ cmd: string; count: number }> = [];
+    const clearQueue: Array<{ cmd: string; quantity: number }> = [];
     if (Array.isArray(clearQueueRaw)) {
       for (const item of clearQueueRaw) {
         const cmd = String(item || '').trim();
         if (!cmd) continue;
         const last = clearQueue[clearQueue.length - 1];
-        if (last && last.cmd === cmd) last.count += 1;
-        else clearQueue.push({ cmd, count: 1 });
+        if (last && last.cmd === cmd) last.quantity += 1;
+        else clearQueue.push({ cmd, quantity: 1 });
       }
     }
 
@@ -372,7 +373,7 @@ export class HomeYardService {
     limit: number;
     slots: Array<{
       name: string;
-      count: number;
+      quantity: number;
       plantedAt?: number;
       outputs: HomeYardRate[];
       harvest: HomeYardRate[];
@@ -385,12 +386,12 @@ export class HomeYardService {
     };
 
     for (const slot of args.slots) {
-      for (let i = 0; i < slot.count; i += 1) {
+      for (let i = 0; i < slot.quantity; i += 1) {
         pushPlot({
           kind: args.kind,
           state: 'occupied',
           name: slot.name,
-          total: slot.count,
+          total: slot.quantity,
           outputs: slot.outputs.slice(0, HOME_YARD_CONFIG.outputsPerPlot),
           harvest: slot.harvest.slice(0, HOME_YARD_CONFIG.outputsPerPlot),
           // 作物格计算生长阶段；建筑格不参与
@@ -499,23 +500,26 @@ export class HomeYardService {
     return this.staticData.getAllResources().find((resource: any) => this.nameOf(resource) === name) ?? null;
   }
 
-  /** 归一化为 { name, quantity }；兼容 count / 数量 等历史键名 */
+  /** 归一化为 { name, quantity }（数量只读规范键 quantity，别名由持久化边界收敛） */
   private toRates(list: any): HomeYardRate[] {
     const parsed = typeof list === 'string' ? this.parseJson(list, []) : list;
     return (Array.isArray(parsed) ? parsed : [])
       .filter((item: any) => this.nameOf(item))
       .map((item: any) => ({
         name: this.nameOf(item),
-        quantity: Number(item?.quantity ?? item?.count ?? item?.['数量'] ?? 0) || 0,
+        quantity: Number(item?.quantity ?? 0) || 0,
       }));
   }
 
   private nameOf(item: any): string {
-    return String(item?.name ?? item?.['名称'] ?? '').trim();
+    // 只读规范键 name（中文别名 名称 已由 field-contract 在持久化边界收敛）
+    return String(item?.name ?? '').trim();
   }
 
-  private countOf(item: any): number {
-    return Number(item?.quantity ?? item?.count ?? item?.times ?? item?.['数量'] ?? item?.['次数'] ?? 0) || 0;
+  /** 取条目数量（规范键 quantity；地图资源条目另有 times=可采集次数） */
+  private quantityOf(item: any): number {
+    // 地图资源条目：数量为 quantity、可采集次数为 times（均已是规范键）
+    return Number(item?.quantity ?? item?.times ?? 0) || 0;
   }
 
   private parseJson<T>(value: any, fallback: T): T {

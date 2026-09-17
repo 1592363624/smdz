@@ -122,22 +122,22 @@ describe('任务系统闭环', () => {
       tasks: [
         {
           name: '任务A',
-          requirements: JSON.stringify([{ name: '行动A', count: 1 }]),
+          requirements: JSON.stringify([{ name: '行动A', quantity: 1 }]),
           rewards: JSON.stringify([
-            { name: '能量块', count: 10 },
-            { name: '测试装备', count: 100, type: '装备' },
+            { name: '能量块', quantity: 10 },
+            { name: '测试装备', quantity: 100, type: '装备' },
           ]),
           nextTasks: JSON.stringify(['任务B']),
         },
         {
           name: '任务B',
-          requirements: JSON.stringify([{ name: '完成任务', count: 1 }]),
-          rewards: JSON.stringify([{ name: '水晶', count: 1 }]),
+          requirements: JSON.stringify([{ name: '完成任务', quantity: 1 }]),
+          rewards: JSON.stringify([{ name: '水晶', quantity: 1 }]),
         },
         {
           name: '任务C',
-          requirements: JSON.stringify([{ name: '获得装备', count: 1 }]),
-          rewards: JSON.stringify([{ name: '木头', count: 1 }]),
+          requirements: JSON.stringify([{ name: '获得装备', quantity: 1 }]),
+          rewards: JSON.stringify([{ name: '木头', quantity: 1 }]),
         },
       ],
     });
@@ -161,9 +161,9 @@ describe('任务系统闭环', () => {
       quantity: 1,
       data: 'e!bx0',
     }));
-    expect(backpack.find((item: any) => item.name === '能量块').count).toBeGreaterThan(10);
-    expect(backpack.find((item: any) => item.name === '水晶').count).toBeGreaterThan(1);
-    expect(backpack.find((item: any) => item.name === '木头').count).toBeGreaterThan(1);
+    expect(backpack.find((item: any) => item.name === '能量块').quantity).toBeGreaterThan(10);
+    expect(backpack.find((item: any) => item.name === '水晶').quantity).toBeGreaterThan(1);
+    expect(backpack.find((item: any) => item.name === '木头').quantity).toBeGreaterThan(1);
     expect(parseJson(fixture.player.markers, {})['完成任务']).toBe(3);
     expect(parseJson(fixture.player.markers, {})['任务熟练度']).toBe(3);
     expect(fixture.itemSystem.generateRewardEquipment).toHaveBeenCalledWith('测试装备');
@@ -175,8 +175,8 @@ describe('任务系统闭环', () => {
     const fixture = makeFixture({
       tasks: [{
         name: '低概率装备',
-        requirements: JSON.stringify([{ name: '行动', count: 1 }]),
-        rewards: JSON.stringify([{ name: '测试装备', count: 1, type: '装备' }]),
+        requirements: JSON.stringify([{ name: '行动', quantity: 1 }]),
+        rewards: JSON.stringify([{ name: '测试装备', quantity: 1, type: '装备' }]),
       }],
     });
     fixture.addDefinition({ name: '测试装备', requirements: '[]', rewards: '[]' });
@@ -191,8 +191,8 @@ describe('任务系统闭环', () => {
     const fixture = makeFixture({
       tasks: [{
         name: '装备奖励',
-        requirements: JSON.stringify([{ name: '行动', count: 1 }]),
-        rewards: JSON.stringify([{ name: '隐形披风', count: 100 }]),
+        requirements: JSON.stringify([{ name: '行动', quantity: 1 }]),
+        rewards: JSON.stringify([{ name: '隐形披风', quantity: 100 }]),
       }],
     });
     fixture.equipmentNames.add('隐形披风');
@@ -203,7 +203,6 @@ describe('任务系统闭环', () => {
     const reward = parseJson(fixture.player.backpack, []).find((item: any) => item.name === '隐形披风');
     expect(reward).toEqual(expect.objectContaining({
       type: '装备',
-      count: 1,
       quantity: 1,
     }));
     expect(fixture.itemSystem.generateRewardEquipment).toHaveBeenCalledWith('隐形披风');
@@ -223,8 +222,8 @@ describe('任务系统闭环', () => {
     const fixture = makeFixture({
       tasks: [{
         name: '好感任务',
-        requirements: JSON.stringify([{ name: '行动', count: 1 }]),
-        rewards: JSON.stringify([{ name: '好感', count: 5 }]),
+        requirements: JSON.stringify([{ name: '行动', quantity: 1 }]),
+        rewards: JSON.stringify([{ name: '好感', quantity: 5 }]),
       }],
       maps,
     });
@@ -246,8 +245,8 @@ describe('任务系统闭环', () => {
     const fixture = makeFixture({
       tasks: [{
         name: '并发任务',
-        requirements: JSON.stringify([{ name: '行动', count: 2 }]),
-        rewards: JSON.stringify([{ name: '木头', count: 1 }]),
+        requirements: JSON.stringify([{ name: '行动', quantity: 2 }]),
+        rewards: JSON.stringify([{ name: '木头', quantity: 1 }]),
       }],
     });
 
@@ -259,7 +258,7 @@ describe('任务系统闭环', () => {
     expect(parseJson(fixture.player.tasks, [])).toEqual([]);
     const backpack = parseJson(fixture.player.backpack, []);
     expect(backpack.filter((item: any) => item.name === '木头')).toHaveLength(1);
-    expect(backpack[0].count).toBeGreaterThan(1);
+    expect(backpack[0].quantity).toBeGreaterThan(1);
     expect(parseJson(fixture.player.markers, {})['完成任务']).toBe(1);
   });
 });
@@ -271,7 +270,7 @@ describe('任务系统兼容入口', () => {
         name: '旧任务',
         status: '已完成',
         requirements: JSON.stringify([]),
-        rewards: JSON.stringify([{ name: '水晶', count: 2 }]),
+        rewards: JSON.stringify([{ name: '水晶', quantity: 2 }]),
       }],
     });
 
@@ -285,8 +284,8 @@ describe('任务系统兼容入口', () => {
     const fixture = makeFixture({ tasks: [] });
     fixture.addDefinition({
       name: '旧格式任务',
-      requirements: JSON.stringify([{ name: '击败怪物', count: 2 }]),
-      rewards: JSON.stringify([{ name: '水晶', count: 1 }]),
+      requirements: JSON.stringify([{ name: '击败怪物', quantity: 2 }]),
+      rewards: JSON.stringify([{ name: '水晶', quantity: 1 }]),
     });
     // 2026-09-08 起 enqueueUserWrite 走 Actor：cell 激活时 getPlayerData 会把无法
     // JSON 解析的旧格式任务串归一化为 []（两库实测均无旧格式存档，属正确读档收敛，
@@ -296,20 +295,20 @@ describe('任务系统兼容入口', () => {
     expect(parsed).toEqual([expect.objectContaining({
       name: '旧格式任务',
       publisher: 'npc-1',
-      requirements: [{ name: '击败怪物', count: 2 }],
+      requirements: [{ name: '击败怪物', quantity: 2 }],
     })]);
 
     fixture.player.tasks = JSON.stringify([{
       name: '旧格式任务',
       publisher: 'npc-1',
-      requirements: [{ name: '击败怪物', count: 2 }],
+      requirements: [{ name: '击败怪物', quantity: 2 }],
     }]);
 
     await fixture.service.advance(42, '击败怪物');
     expect(parseJson(fixture.player.tasks, [])[0]).toEqual(expect.objectContaining({
       name: '旧格式任务',
       publisher: 'npc-1',
-      requirements: [{ name: '击败怪物', count: 1 }],
+      requirements: [{ name: '击败怪物', quantity: 1 }],
     }));
 
     const result = await fixture.service.advance(42, '击败怪物');
@@ -321,8 +320,8 @@ describe('任务系统兼容入口', () => {
     const fixture = makeFixture({
       tasks: [{
         name: '自动任务',
-        requirements: JSON.stringify([{ name: '自动完成', count: -1 }]),
-        rewards: JSON.stringify([{ name: '水晶', count: 1 }]),
+        requirements: JSON.stringify([{ name: '自动完成', quantity: -1 }]),
+        rewards: JSON.stringify([{ name: '水晶', quantity: 1 }]),
       }],
     });
 
@@ -336,8 +335,8 @@ describe('任务系统兼容入口', () => {
     const fixture = makeFixture({ tasks: [] });
     fixture.addDefinition({
       name: '领取即完成',
-      requirements: JSON.stringify([{ name: '领取任务', count: 1 }]),
-      rewards: JSON.stringify([{ name: '水晶', count: 1 }]),
+      requirements: JSON.stringify([{ name: '领取任务', quantity: 1 }]),
+      rewards: JSON.stringify([{ name: '水晶', quantity: 1 }]),
     });
 
     const result = await fixture.service.acceptTask(42, '领取即完成', 'npc-1');
@@ -351,12 +350,12 @@ describe('任务系统兼容入口', () => {
       tasks: [
         {
           name: '任务一',
-          requirements: JSON.stringify([{ name: '行动一', count: 2 }]),
+          requirements: JSON.stringify([{ name: '行动一', quantity: 2 }]),
           rewards: '[]',
         },
         {
           name: '任务二',
-          requirements: JSON.stringify([{ name: '行动二', count: 1 }]),
+          requirements: JSON.stringify([{ name: '行动二', quantity: 1 }]),
           rewards: '[]',
         },
       ],
@@ -378,7 +377,7 @@ describe('任务系统兼容入口', () => {
         {
           name: '矿工',
           publisher: '召唤物1788327197207784',
-          requirements: JSON.stringify([{ name: '铁矿', count: 10 }]),
+          requirements: JSON.stringify([{ name: '铁矿', quantity: 10 }]),
           rewards: '[]',
         },
       ],
@@ -400,7 +399,7 @@ describe('任务系统兼容入口', () => {
         {
           name: '矿工',
           publisher: '召唤物999',
-          requirements: JSON.stringify([{ name: '铁矿', count: 10 }]),
+          requirements: JSON.stringify([{ name: '铁矿', quantity: 10 }]),
           rewards: '[]',
         },
       ],
@@ -416,14 +415,14 @@ describe('任务系统兼容入口', () => {
       tasks: [
         {
           name: '普通任务',
-          requirements: JSON.stringify([{ name: '行动', count: 1 }]),
+          requirements: JSON.stringify([{ name: '行动', quantity: 1 }]),
           rewards: '[]',
         },
         {
           name: '旧序号任务',
           status: '已完成',
           requirements: '[]',
-          rewards: JSON.stringify([{ name: '水晶', count: 2 }]),
+          rewards: JSON.stringify([{ name: '水晶', quantity: 2 }]),
         },
       ],
     });
@@ -441,17 +440,17 @@ describe('任务系统兼容入口', () => {
         {
           name: '配方一',
           level: 1,
-          unlockRequirements: JSON.stringify([{ name: '行动一', count: 1 }]),
+          unlockRequirements: JSON.stringify([{ name: '行动一', quantity: 1 }]),
         },
         {
           name: '配方二',
           level: 1,
-          unlockRequirements: JSON.stringify([{ name: '行动二', count: 1 }]),
+          unlockRequirements: JSON.stringify([{ name: '行动二', quantity: 1 }]),
         },
         {
           name: '配方三',
           level: 2,
-          unlockRequirements: JSON.stringify([{ name: '行动三', count: 1 }]),
+          unlockRequirements: JSON.stringify([{ name: '行动三', quantity: 1 }]),
         },
       ],
     });

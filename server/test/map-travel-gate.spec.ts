@@ -17,7 +17,8 @@ describe('地图通行门槛 checkCanTravel（原版复刻门禁）', () => {
     markers: JSON.stringify(markers),
     equipment: JSON.stringify(equipment),
   });
-  const vehicle = (walkMode: number) => ({ 名称: '测试载具', 列表编号: 1, 行走方式: walkMode });
+  // 载具条目走规范键 {name, vehicleId, moveType}（载具域，checkCanTravel 按 moveType 判定）
+  const vehicle = (walkMode: number) => ({ name: '测试载具', vehicleId: 1, moveType: walkMode });
 
   it('前往查出发地图的前往需求（原版 L6634）：徒步/步行载具拦截，跃迁载具放行', () => {
     const svc = makeService();

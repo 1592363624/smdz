@@ -232,7 +232,7 @@ export class FamiliarSkillsService {
     const parsedMarkers2 = asJsonValue<any>(player.markers2, []);
     const markers2: any[] = Array.isArray(parsedMarkers2) ? parsedMarkers2 : [];
     const now = Date.now();
-    const newMarkers2 = markers2.filter((m: any) => (m?.name ?? m?.名称) !== cooldownName);
+    const newMarkers2 = markers2.filter((m: any) => m?.name !== cooldownName);
     newMarkers2.push({
       name: cooldownName,
       expireAt: now + duration * 1000,
@@ -295,7 +295,7 @@ export class FamiliarSkillsService {
   private hasItem(player: any, itemName: string): boolean {
     const equipment = this.safeParse<any[]>(player.equipment, []);
     return equipment.some((item: any) =>
-      String(item?.name ?? item?.名称 ?? '').trim() === itemName,
+      String(item?.name ?? '').trim() === itemName,
     );
   }
 
@@ -404,7 +404,7 @@ export class FamiliarSkillsService {
     }
 
     const equipment = asJsonValue<any[]>(player.equipment, []);
-    if (equipment.some((item: any) => String(item?.name ?? item?.名称 ?? '').includes('创可贴'))) {
+    if (equipment.some((item: any) => String(item?.name ?? '').includes('创可贴'))) {
       multiplier *= 1.25;
     }
 
@@ -432,20 +432,20 @@ export class FamiliarSkillsService {
     const equipment = equipmentOverride || this.safeParse<any[]>(player.equipment, []);
     if (!this.hasEquipped(equipment, '急救包')) return;
 
-    const hp = Number(player.maxHp ?? player.生命 ?? 0) * 0.1;
-    const shield = Number(player.maxShield ?? player.护盾 ?? 0) * 0.1;
-    const armor = Number(player.maxArmor ?? player.装甲 ?? 0) * 0.1;
+    const hp = Number(player.maxHp ?? 0) * 0.1;
+    const shield = Number(player.maxShield ?? 0) * 0.1;
+    const armor = Number(player.maxArmor ?? 0) * 0.1;
     // 出口归一化：×0.1 会产生浮点尾（例 71.98×0.1=7.198…），统一两位小数后写入
-    player.hp = normalizePoolValue(Number(player.hp ?? player.当前生命 ?? 0) + hp);
-    player.shield = normalizePoolValue(Number(player.shield ?? player.当前护盾 ?? 0) + shield);
-    player.armor = normalizePoolValue(Number(player.armor ?? player.当前装甲 ?? 0) + armor);
+    player.hp = normalizePoolValue(Number(player.hp ?? 0) + hp);
+    player.shield = normalizePoolValue(Number(player.shield ?? 0) + shield);
+    player.armor = normalizePoolValue(Number(player.armor ?? 0) + armor);
     resultLines.push(`恢复了${this.formatSkillNumber(shield)}护盾、${this.formatSkillNumber(armor)}装甲、${this.formatSkillNumber(hp)}生命`);
   }
 
   private hasEquipped(equipment: any[], itemName: string): boolean {
     return equipment.some((item: any) =>
-      String(item?.name ?? item?.名称 ?? '').trim() === itemName
-      || String(item?.name ?? item?.名称 ?? '').includes(itemName),
+      String(item?.name ?? '').trim() === itemName
+      || String(item?.name ?? '').includes(itemName),
     );
   }
 
@@ -525,16 +525,17 @@ export class FamiliarSkillsService {
       m.bonus = bonus; // GameMonster Json 列直接写对象
 
       // 原版每次成功累加都记录麻醉者与攻击者，不只是在达到上限时记录。
+      // 标记条目统一为规范形态 { name, value }（字典形态的标记名是内容语义，转成条目时放进 name）
       const monsterMarkers: any[] = Array.isArray(this.safeParse<any>(m.markers, []))
         ? this.safeParse<any[]>(m.markers, [])
         : Object.entries(this.safeParse<Record<string, any>>(m.markers, {}))
-          .map(([name, value]) => ({ 名称: name, 数值: Number(value) || 0 }));
+          .map(([name, value]) => ({ name, value: Number(value) || 0 }));
       const writeMarker = (name: string, value: number): void => {
-        const marker = monsterMarkers.find((entry: any) => (entry?.名称 ?? entry?.name) === name);
+        const marker = monsterMarkers.find((entry: any) => entry?.name === name);
         if (marker) {
-          marker.数值 = Number(marker.数值 ?? marker.value ?? 0) + value;
+          marker.value = Number(marker.value ?? 0) + value;
         } else {
-          monsterMarkers.push({ 名称: name, 数值: value });
+          monsterMarkers.push({ name, value });
         }
       };
       if (anesthetistQQ !== undefined) {
@@ -546,8 +547,8 @@ export class FamiliarSkillsService {
         const markers2: any[] = Array.isArray(this.safeParse<any>(m.markers2, []))
           ? this.safeParse<any[]>(m.markers2, [])
           : [];
-        const filteredMarkers2 = markers2.filter((entry: any) => (entry?.名称 ?? entry?.name) !== '麻醉');
-        filteredMarkers2.push({ 名称: '麻醉', 强度: 0, 有效期至: Date.now() + 3600 * 1000 });
+        const filteredMarkers2 = markers2.filter((entry: any) => entry?.name !== '麻醉');
+        filteredMarkers2.push({ name: '麻醉', strength: 0, expireAt: Date.now() + 3600 * 1000 });
         m.markers2 = filteredMarkers2; // GameMonster Json 列直接写数组
         lines.push(`${m.name}麻醉+${add}（已满，被麻醉了，一小时内可以捕捉）`);
       } else {
@@ -572,7 +573,7 @@ export class FamiliarSkillsService {
     // 友方召唤物存于 GameMap.summons（tempMonsters 字段已废弃，怪物统一进 GameMonster 表）
     const summons: any[] = this.safeParse(map.summons, []);
     return summons
-      .filter((s: any) => (s.归属 === ownerId || s.owner === ownerId) && (s.基础?.生命 || s.base?.hp || s.hp || 0) > 0)
+      .filter((s: any) => (s.ownerQQ === ownerId || s.owner === ownerId) && (s.基础?.生命 || s.base?.hp || s.hp || 0) > 0)
       .map((s: any) => s.name);
   }
 
@@ -717,7 +718,7 @@ export class FamiliarSkillsService {
     const recordedCharm = Math.max(0, this.playerService.getMarkerValue(markers, '活力2') - 100);
     const cooldown = 600 / (1 + recordedCharm / 200);
     const nowSeconds = timestamp > 1e12 ? timestamp / 1000 : timestamp;
-    const markers2 = this.safeParse<any[]>(player.markers2 ?? player.标记2, []);
+    const markers2 = this.safeParse<any[]>(player.markers2, []);
     const activeCooldown = markers2.find((marker: any) => {
       if (this.markerName(marker) !== '宠搜') return false;
       return this.markerExpirySeconds(marker) > nowSeconds;
@@ -782,9 +783,7 @@ export class FamiliarSkillsService {
     const nextMarkers2 = markers2.filter((marker: any) => this.markerName(marker) !== '宠搜');
     nextMarkers2.push({ name: '宠搜', expireAt: nowSeconds + cooldown });
     player.markers2 = nextMarkers2; // Player markers2 为 Json 列，直接写数组
-    if (player.标记2 !== undefined) player.标记2 = player.markers2;
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
-    if (player.背包 !== undefined) player.背包 = player.backpack;
     await this.playerService.savePlayer(player);
 
     const petName = this.summonName(pet) || String(pet.type || '宠物');
@@ -840,12 +839,12 @@ export class FamiliarSkillsService {
   }
 
   private summonBelongsTo(summon: any, ownerIds: Set<string>): boolean {
-    const owner = summon?.归属 ?? summon?.ownerQQ ?? summon?.owner ?? summon?.masterQQ;
+    const owner = summon?.ownerQQ ?? summon?.owner ?? summon?.masterQQ;
     return owner !== undefined && owner !== null && ownerIds.has(String(owner));
   }
 
   private getSummonAffinity(summon: any, ownerIds: Set<string>, playerMarkers: any): number {
-    const summonMarkers = this.safeParse<any>(summon?.markers ?? summon?.标记, {});
+    const summonMarkers = this.safeParse<any>(summon?.markers, {});
     for (const ownerId of ownerIds) {
       const candidates = [`好感${ownerId}`, `${ownerId}好感`];
       for (const key of candidates) {
@@ -854,35 +853,35 @@ export class FamiliarSkillsService {
       }
     }
 
-    const direct = Number(summon?.affinity ?? summon?.好感);
+    const direct = Number(summon?.affinity);
     if (Number.isFinite(direct) && direct !== 0) return direct;
     const name = this.summonName(summon);
     return name ? this.playerService.getMarkerValue(playerMarkers, `${name}好感`) : 0;
   }
 
   private summonName(summon: any): string {
-    return String(summon?.name ?? summon?.名称 ?? summon?.image ?? summon?.类型 ?? '').trim();
+    return String(summon?.name ?? summon?.image ?? summon?.type ?? '').trim();
   }
 
   private isKirinSummon(summon: any): boolean {
-    const vitality = Number(summon?.vitality ?? summon?.活力 ?? summon?.specialSeq ?? summon?.特殊序号);
+    const vitality = Number(summon?.vitality ?? summon?.specialSeq);
     return vitality === -13 || this.summonName(summon) === '麒麟' || this.summonName(summon) === '神兽麒麟';
   }
 
   private summonHasEquipment(summon: any, itemName: string): boolean {
-    const sources = [summon?.equipment, summon?.装备, summon?.equipments];
+    const sources = [summon?.equipment, summon?.equipments];
     return sources.some((source) => {
       const list = Array.isArray(source) ? source : this.safeParse<any[]>(source, []);
-      return list.some((item: any) => (item?.name ?? item?.名称) === itemName);
+      return list.some((item: any) => item?.name === itemName);
     });
   }
 
   private markerName(marker: any): string {
-    return String(marker?.name ?? marker?.名称 ?? '').trim();
+    return String(marker?.name ?? '').trim();
   }
 
   private markerExpirySeconds(marker: any): number {
-    const value = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+    const value = Number(marker?.expireAt ?? 0);
     return value > 1e12 ? value / 1000 : value;
   }
 
@@ -1142,11 +1141,11 @@ export class FamiliarSkillsService {
 
     // 冥鱼腿环：按腿环品质提升刷出条数（原版 L1219-1235），无腿环固定5条
     const equipped = asJsonValue<any[]>(player.equipment, []);
-    const ringIdx = equipped.findIndex((eq: any) => String(eq?.type ?? eq?.类型 ?? '') === '腿环');
+    const ringIdx = equipped.findIndex((eq: any) => String(eq?.type ?? '') === '腿环');
     let rolls = 5;
     if (ringIdx >= 0) {
       // 品质码读取走统一实现（equipment-ref.util），不再各处自读首字符
-      const ringCode = qualityCodeFromData(equipped[ringIdx]?.data ?? equipped[ringIdx]?.数据);
+      const ringCode = qualityCodeFromData(equipped[ringIdx]?.data);
       rolls = ringCode === 'x' ? 11 : ringCode === 's' ? 8 : (ringCode === 'a' || ringCode === 'b') ? 7 : 6;
     }
 
@@ -1204,11 +1203,11 @@ export class FamiliarSkillsService {
       for (const cost of pendingCosts) {
         const idx = backpack.findIndex((bp: any) => bp?.name === cost.name && bp?.type !== '装备');
         if (idx >= 0) {
-          const left = Number(backpack[idx].quantity ?? backpack[idx].count ?? 0) - cost.quantity;
+          const left = Number(backpack[idx].quantity ?? 0) - cost.quantity;
           if (left <= 0) backpack.splice(idx, 1);
           else {
+            // 数量只写规范键 quantity：写 count 镜像正是「同一条目两个数量互相打架」的根源
             backpack[idx].quantity = left;
-            backpack[idx].count = left;
           }
         }
       }
@@ -1743,7 +1742,7 @@ export class FamiliarSkillsService {
       const map = await this.mapService.getMapById(player.mapId);
       const summons = asJsonValue<any[]>(map?.summons, []);
       for (const s of summons) {
-        const shield = Number(s?.护盾 ?? s?.maxShield ?? s?.shield ?? 0);
+        const shield = Number(s?.maxShield ?? s?.shield ?? 0);
         if (shield > 0) {
           shieldGain += shield;
           if (shieldGain > maxShield) break;
@@ -1817,29 +1816,28 @@ export class FamiliarSkillsService {
     const markers2List = asJsonValue<any[]>(player.markers2, []);
     // 原版 L1631-1638 获得增益（叠加时间/叠加强度均为真）：无活动压制 → 时长 19.5 秒、
     // 强度 28.5+1.9×技能等级；已活动 → 时长 +5 秒、强度 +15+技能等级。
-    let suppression = markers2List.find((m: any) => (m?.name ?? m?.名称) === '压制');
-    if (!suppression || Number(suppression?.有效期至 ?? suppression?.expireAt ?? 0) <= now) {
-      suppression = { 名称: '压制', 有效期至: now + 19.5 * 1000, 强度: 28.5 + skillLevel * 1.9 };
-      const idx = markers2List.findIndex((m: any) => (m?.name ?? m?.名称) === '压制');
+    let suppression = markers2List.find((m: any) => m?.name === '压制');
+    if (!suppression || Number(suppression?.expireAt ?? 0) <= now) {
+      suppression = { name: '压制', expireAt: now + 19.5 * 1000, strength: 28.5 + skillLevel * 1.9 };
+      const idx = markers2List.findIndex((m: any) => m?.name === '压制');
       if (idx >= 0) markers2List[idx] = suppression;
       else markers2List.push(suppression);
     } else {
-      suppression.有效期至 = Number(suppression.有效期至 ?? suppression.expireAt ?? 0) + 5 * 1000;
-      suppression.强度 = (Number(suppression.强度 ?? 0) || 0) + 15 + skillLevel;
+      suppression.expireAt = Number(suppression.expireAt ?? 0) + 5 * 1000;
+      suppression.strength = (Number(suppression.strength ?? 0) || 0) + 15 + skillLevel;
     }
     // 原版 L1639：读取压制强度（%）与剩余时间
-    const suppressionPct = Number(suppression.强度 ?? 0);
-    const remainSec = Math.max(0, Math.ceil((Number(suppression.有效期至 ?? 0) - now) / 1000));
+    const suppressionPct = Number(suppression.strength ?? 0);
+    const remainSec = Math.max(0, Math.ceil((Number(suppression.expireAt ?? 0) - now) / 1000));
 
     // 原版 L1641-1643：每把武器“名称+冷却”标记 -= a1 秒（负时长 = 有效期前移）
     const weapons = asJsonValue<any[]>(player.weapons, []);
     for (const w of weapons) {
-      const weaponName = String(w?.name ?? w?.名称 ?? '');
+      const weaponName = String(w?.name ?? '');
       if (!weaponName) continue;
-      const cdEntry = markers2List.find((m: any) => (m?.name ?? m?.名称) === `${weaponName}冷却`);
+      const cdEntry = markers2List.find((m: any) => m?.name === `${weaponName}冷却`);
       if (cdEntry) {
-        const key = cdEntry.有效期至 !== undefined ? '有效期至' : 'expireAt';
-        cdEntry[key] = Number(cdEntry[key] ?? 0) - reduction * 1000;
+        cdEntry.expireAt = Number(cdEntry.expireAt ?? 0) - reduction * 1000;
       }
     }
 
@@ -1897,9 +1895,9 @@ export class FamiliarSkillsService {
       await this.mapService.mutateMapFields(map.id, ['markers2'], (f) => {
         const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
         mapMarkers2.push({
-          名称: '啾啾猫猫',
-          有效期至: Date.now() + a3 * 30 * 1000,
-          强度: 50 + skillLevel * 5,
+          name: '啾啾猫猫',
+          expireAt: Date.now() + a3 * 30 * 1000,
+          strength: 50 + skillLevel * 5,
         });
         f.markers2 = mapMarkers2;
         return true;
@@ -1912,7 +1910,7 @@ export class FamiliarSkillsService {
     for (const s of summons) {
       const qq = String(s?.qq ?? s?.QQ ?? '');
       if (qq.endsWith('g')) {
-        s.当前生命 = Number(s?.当前生命 ?? s?.currentHp ?? 0) + 1;
+        s.hp = Number(s?.hp ?? s?.currentHp ?? 0) + 1;
         boosted.push(s);
       }
     }
@@ -1970,17 +1968,17 @@ export class FamiliarSkillsService {
     // 原版 L1698-1701：库洛牌 a3 → 玩家“银龙附体”增益：时长 a3*30 秒、强度=技能等级
     const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
     const skillLevel = this.getSkillLevel(markers, '古月娜');
-    this.addBuff(player, '银龙附体', a3 * 30, { 强度: skillLevel });
+    this.addBuff(player, '银龙附体', a3 * 30, { strength: skillLevel });
 
     // 原版 L1705-1712：同图第一个 类型==“银龙” 的召唤物：hp += 其最大生命×0.3 + 同名增益
     const map = await this.mapService.getMapById(player.mapId);
     let silverDragonText = '';
     if (map) {
       const summons = asJsonValue<any[]>(map.summons, []);
-      const dragon = summons.find((s: any) => String(s?.type ?? s?.类型 ?? '') === '银龙');
+      const dragon = summons.find((s: any) => String(s?.type ?? '') === '银龙');
       if (dragon) {
         const dragonMaxHp = Number(dragon?.maxHp ?? dragon?.属性?.生命 ?? 0);
-        dragon.当前生命 = Number(dragon?.当前生命 ?? dragon?.currentHp ?? 0) + dragonMaxHp * 0.3;
+        dragon.hp = Number(dragon?.hp ?? dragon?.currentHp ?? 0) + dragonMaxHp * 0.3;
         await this.mapService.mutateSummons(player.mapId, (fresh) => {
           const idx = fresh.findIndex((s: any) => (s?.qq ?? s?.QQ ?? '') === (dragon.qq ?? dragon.QQ ?? ''));
           if (idx >= 0) fresh[idx] = dragon;
@@ -2278,8 +2276,8 @@ export class FamiliarSkillsService {
       ? playerData.markers2
       : asJsonValue<any[]>(player.markers2, []);
     const now = Date.now();
-    const crownCd = markers2.find((m: any) => (m?.name ?? m?.名称) === '炮冠冷却');
-    const crownCdRemain = Number(crownCd?.expireAt ?? crownCd?.有效期至 ?? 0) - now;
+    const crownCd = markers2.find((m: any) => m?.name === '炮冠冷却');
+    const crownCdRemain = Number(crownCd?.expireAt ?? 0) - now;
     if (crownCdRemain > 0) {
       return `${player.name || '冒险者'}还需要${Math.ceil(crownCdRemain / 1000)}秒`;
     }
@@ -2287,12 +2285,11 @@ export class FamiliarSkillsService {
     // 原版 L1863-1868：炮冠增益 5 秒（准备状态）→ 光盾增益 -30 秒（叠加时间负值前移）→
     // hd 标记 60 秒 → 文本“N个羽毛进入了准备状态”
     this.addBuff(player, '炮冠', 5);
-    const lightShield = markers2.find((m: any) => (m?.name ?? m?.名称) === '光盾');
+    const lightShield = markers2.find((m: any) => m?.name === '光盾');
     if (lightShield) {
-      const key = lightShield.有效期至 !== undefined ? '有效期至' : 'expireAt';
-      lightShield[key] = Number(lightShield[key] ?? 0) - 30 * 1000;
+      lightShield.expireAt = Number(lightShield.expireAt ?? 0) - 30 * 1000;
     }
-    markers2.push({ 名称: 'hd', 有效期至: now + 60 * 1000 });
+    markers2.push({ name: 'hd', expireAt: now + 60 * 1000 });
     player.markers2 = markers2; // Json 列直接写数组
 
     const featherCount = this.combatSystem.getFeather(player, markers, Date.now());
@@ -2456,7 +2453,7 @@ export class FamiliarSkillsService {
     if (this.checkAffinity(markers, '安克雷奇', 60) && map) {
       await this.mapService.mutateMapFields(map.id, ['markers2'], (f) => {
         const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
-        mapMarkers2.push({ 名称: '烟雾弹', 有效期至: Date.now() + 15 * a3 * 1000 });
+        mapMarkers2.push({ name: '烟雾弹', expireAt: Date.now() + 15 * a3 * 1000 });
         f.markers2 = mapMarkers2;
         return true;
       });
@@ -2627,7 +2624,7 @@ ${result}`;
     // 原版 L2250-2257：库洛牌 a3 → “封印解除”增益：时长 a3*(技能等级+20) 秒、强度 1
     const a3 = this.hasItem(player, '库洛牌') ? 1.25 : 1;
     const skillLevel = this.getSkillLevel(markers, '小樱');
-    this.addBuff(player, '封印解除', a3 * (skillLevel + 20), { 强度: 1 });
+    this.addBuff(player, '封印解除', a3 * (skillLevel + 20), { strength: 1 });
 
     // 原版 L2258：小樱技能熟练度 +1
     this.playerService.setMarker(markers, '小樱技能熟练度', this.playerService.getMarkerValue(markers, '小樱技能熟练度') + 1);
@@ -2716,13 +2713,11 @@ ${result}`;
         qq: dragonQQ,
         QQ: dragonQQ,
         ownerQQ: ownerQQ,
-        归属: ownerQQ,
-        当前生命: 1,
         hp: 1,
         基础: {},
-        装备: [],
-        武器: [{ name: '爪子', type: '武器', quality: 's' }],
-        标记: [],
+        equipments: [],
+        weapons: [{ name: '爪子', type: '武器', quality: 's' }],
+        markers: [],
         buffs: [],
       };
       await this.mapService.mutateSummons(player.mapId, (fresh) => {
@@ -2780,7 +2775,7 @@ ${result}`;
       try {
         await this.applyMapBuff(player.mapId, {
           name: '风月入墨',
-          value: -expReduce,
+          strength: -expReduce,
           duration: a3,
           expireAt: Math.floor(Date.now() / 1000) + a3,
           source: 'familiarSkill',
@@ -2899,7 +2894,7 @@ ${result}`;
     try {
       await this.applyMapBuff(player.mapId, {
         name: '风月入墨',
-        value: -expReduce,
+        strength: -expReduce,
         duration: a3,
         expireAt: Math.floor(Date.now() / 1000) + a3,
         source: 'familiarSkill',
@@ -3210,7 +3205,7 @@ ${result}`;
   /** 原版失败后的新建延时(覅攻击pd地图, 5秒)：交由地图怪物攻击循环统一去重调度。 */
   private scheduleMapAttack(userId: number, map: any): void {
     if (typeof (this.combatSystem as any)?.scheduleMapMonsterRound !== 'function') return;
-    const mapId = Number(map?.id ?? map?.列表编号 ?? 0);
+    const mapId = Number(map?.id ?? 0);
     if (!Number.isFinite(mapId) || mapId <= 0) return;
     try {
       (this.combatSystem as any).scheduleMapMonsterRound(mapId, 5);
@@ -3239,7 +3234,7 @@ ${result}`;
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return `${player.name}附近没有${monsterName}`;
     const monsters: any[] = await this.mapService.getMapMonsters(map.id);
-    const targetMonster = monsters.find((m: any) => (m.name ?? m.名称) === monsterName);
+    const targetMonster = monsters.find((m: any) => m.name === monsterName);
     if (!targetMonster) {
       return `${player.name}附近没有${monsterName}`;
     }
@@ -3266,10 +3261,8 @@ ${result}`;
     const oldQQ = String(targetMonster.qq ?? targetMonster.QQ ?? `怪物${targetMonster.id}`);
     const { id: _removedId, ...summon } = targetMonster as any;
     summon.specialSeq = -2;
-    summon.特殊序号 = -2;
     summon.ownerQQ = owner;
     summon.owner = owner;
-    summon.归属 = owner;
     summon.isPet = true;
     summon.isTemp = true;
     summon.qq = `${oldQQ}xg`;
@@ -3319,7 +3312,7 @@ ${result}`;
     if (map) {
       await this.mapService.mutateMapFields(map.id, ['markers2'], (f) => {
         const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
-        mapMarkers2.push({ 名称: '幻时', 有效期至: Date.now() + 20 * 1000 });
+        mapMarkers2.push({ name: '幻时', expireAt: Date.now() + 20 * 1000 });
         f.markers2 = mapMarkers2;
         return true;
       });
@@ -3400,7 +3393,7 @@ ${result}`;
     // 原版 L2075-L2085：遍历全部使魔，好感>0 且非小樱2 → 技能熟练度提高当前等级点
     const lines: string[] = [];
     for (const familiar of this.staticData.getAllFamiliars()) {
-      const name = String(familiar?.name ?? familiar?.名称 ?? '').trim();
+      const name = String(familiar?.name ?? '').trim();
       if (!name || name === '小樱2') continue; // 原版 L2077：排除小樱2
       if (this.playerService.getMarkerValue(markers, `${name}好感`) <= 0) continue; // 原版 L2076：好感>0 才训练
       // 原版 L2078：b = 显示熟练度等级(标记, 名+"技能")，即 floor(√点数)+1
@@ -3452,9 +3445,9 @@ ${result}`;
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const nowMs = Date.now();
     const reduce = (name: string): void => {
-      const idx = markers2.findIndex((m: any) => (m?.name ?? m?.名称) === name);
+      const idx = markers2.findIndex((m: any) => m?.name === name);
       if (idx < 0) return;
-      const rawExpire = Number(markers2[idx]?.expireAt ?? markers2[idx]?.有效期至 ?? 0);
+      const rawExpire = Number(markers2[idx]?.expireAt ?? 0);
       const expireAtMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
       // 与 combat-system 棒棒糖/光棱同一约定：减到当前时刻以下即视为清空
       const reduced = Math.max(nowMs, expireAtMs - 60 * 1000);
@@ -3465,7 +3458,7 @@ ${result}`;
     reduce(`${player.type || '玩家'}技能冷却`);
     // setCooldown 打标（kind:'skill-cd'）的其余技能 CD 条目整段清空（跳过已递减的类型键）
     for (const m of [...markers2]) {
-      const entryName = m?.name ?? m?.名称;
+      const entryName = m?.name;
       if (m?.kind === 'skill-cd' && entryName !== `${player.type || '玩家'}技能冷却`) {
         reduce(entryName);
       }
@@ -3509,8 +3502,8 @@ ${result}`;
     for (const m of maps) {
       const summons = asJsonValue<any[]>(m.summons, []);
       const caelu = summons.find((s: any) =>
-        String(s?.name ?? s?.名称 ?? '') === '凯露'
-        && String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '') === ownerQQ);
+        String(s?.name ?? '') === '凯露'
+        && String(s?.ownerQQ ?? s?.owner ?? '') === ownerQQ);
       if (caelu && Number(m.id) !== Number(player.mapId)) {
         await this.mapService.mutateSummons(m.id, (fresh) => {
           const idx = fresh.findIndex((s: any) => s === caelu);
@@ -3540,11 +3533,9 @@ ${result}`;
         type: '凯露',
         qq: `召唤物${Date.now().toString(36)}x`,
         ownerQQ: ownerQQ,
-        归属: ownerQQ,
-        当前生命: level * 100,
         hp: level * 100,
         level,
-        装备: [{ name: '荆棘之翼', quality: 's', type: '装备' }],
+        equipments: [{ name: '荆棘之翼', quality: 's', type: '装备' }],
         基础: {
           生命: level * 100,
           攻击: Number(player.attack ?? 0) / 4,
@@ -3555,7 +3546,7 @@ ${result}`;
           闪避: Number(player.dodge ?? 0) / 2,
           命中: Number(player.hit ?? 0) / 2,
         },
-        标记: [],
+        markers: [],
         buffs: [],
       };
       await this.mapService.mutateSummons(player.mapId, (fresh) => {
@@ -3586,7 +3577,7 @@ ${result}`;
     // Web 端以当前装备表中名称含“纳米”的件数判定 6 件套
     const equipment = asJsonValue<any[]>(player.equipment, []);
     const nanoCount = equipment.filter((item: any) =>
-      String(item?.name ?? item?.名称 ?? '').includes('纳米')).length;
+      String(item?.name ?? '').includes('纳米')).length;
     if (nanoCount !== 6) {
       return `${player.name || '冒险者'}需要身上装备纳米头盔、臂甲、手套、装甲、裤子、鞋`;
     }
@@ -3736,8 +3727,8 @@ ${result}`;
     await this.mapService.mutateMapFields(player.mapId, ['markers2'], (fields) => {
       const markers2 = Array.isArray(fields.markers2) ? fields.markers2 : [];
       const nextMarkers2 = markers2.filter((entry: any) =>
-        (entry?.name ?? entry?.名称) !== '福音书'
-        && (entry?.name ?? entry?.名称) !== '启示录',
+        entry?.name !== '福音书'
+        && entry?.name !== '启示录',
       );
       nextMarkers2.push({ name: '福音书', expireAt: Date.now() + 120 * 1000 });
       fields.markers2 = nextMarkers2;
@@ -4001,7 +3992,7 @@ ${result}`;
     // 检查消耗资源（需要10张召唤券）
     const backpack = this.playerService.getBackpackItems(player);
     const ticketItem = backpack.find((item: any) => item.name === '召唤券');
-    const ticketCount = ticketItem ? (ticketItem.count || 0) : 0;
+    const ticketCount = ticketItem ? (Number(ticketItem.quantity ?? 0) || 0) : 0;
 
     if (ticketCount < 10) {
       return `大召唤术需要10张召唤券，你只有${ticketCount}张`;
@@ -4033,7 +4024,8 @@ ${result}`;
       const idx = backpack.findIndex((item: any) => item.name === '召唤券');
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
-      ticketItem!.count = newTicketCount;
+      // 数量只写规范键 quantity，不写 count 镜像
+      ticketItem!.quantity = newTicketCount;
     }
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象

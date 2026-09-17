@@ -121,8 +121,8 @@ describe('使魔技能第四批：召唤/召唤银龙/冻结傀儡/封印解除/
     const summons = parseJson(currentMap.summons, []);
     const caelu = summons.find((s: any) => s.name === '凯露');
     expect(caelu).toBeTruthy();
-    expect(Number(caelu.当前生命)).toBe(600); // 等级6 × 100
-    expect(caelu.装备[0].name).toBe('荆棘之翼');
+    expect(Number(caelu.hp)).toBe(600); // 等级6 × 100
+    expect(caelu.equipments[0].name).toBe('荆棘之翼');
     expect(caelu.qq.startsWith('召唤物')).toBe(true);
     expect(caelu.qq.endsWith('x')).toBe(true);
     const markers2 = parseJson(player.markers2, []);
@@ -143,8 +143,8 @@ describe('使魔技能第四批：召唤/召唤银龙/冻结傀儡/封印解除/
     const dragon = summons.find((s: any) => s.type === '银龙');
     expect(dragon).toBeTruthy();
     expect(dragon.qq).toBe('召唤物123x');
-    expect(Number(dragon.当前生命)).toBe(1);
-    expect(dragon.武器[0].name).toBe('爪子');
+    expect(Number(dragon.hp)).toBe(1);
+    expect(dragon.weapons[0].name).toBe('爪子');
     const markers2 = parseJson(player.markers2, []);
     expect(markers2.find((m: any) => m.name === '召唤冷却2')).toBeTruthy();
   });
@@ -154,7 +154,7 @@ describe('使魔技能第四批：召唤/召唤银龙/冻结傀儡/封印解除/
       player: makePlayer({ type: '古月娜', qqNumber: '123' }),
       otherMaps: [],
     });
-    otherMap.summons = JSON.stringify([{ type: '银龙', qq: '召唤物123x', 当前生命: 5 }]);
+    otherMap.summons = JSON.stringify([{ type: '银龙', qq: '召唤物123x', hp: 5 }]);
 
     const result = await service.executeSkill(42, '召唤银龙');
 

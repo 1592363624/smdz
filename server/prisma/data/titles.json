@@ -8,25 +8,25 @@
     "requirements": [
       {
         "name": "发送指令",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -39,25 +39,25 @@
     "requirements": [
       {
         "name": "发送指令",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -70,25 +70,25 @@
     "requirements": [
       {
         "name": "发送指令",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -101,25 +101,25 @@
     "requirements": [
       {
         "name": "发送指令",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -132,25 +132,25 @@
     "requirements": [
       {
         "name": "发送指令",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -163,25 +163,25 @@
     "requirements": [
       {
         "name": "发送指令",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -194,25 +194,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 60
+        "quantity": 60
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -225,25 +225,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 300
+        "quantity": 300
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -256,25 +256,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 1500
+        "quantity": 1500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -287,25 +287,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 7500
+        "quantity": 7500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -318,25 +318,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 37500
+        "quantity": 37500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -349,25 +349,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 187500
+        "quantity": 187500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -380,25 +380,25 @@
     "requirements": [
       {
         "name": "采集资源",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -411,25 +411,25 @@
     "requirements": [
       {
         "name": "采集资源",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -442,25 +442,25 @@
     "requirements": [
       {
         "name": "采集资源",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -473,25 +473,25 @@
     "requirements": [
       {
         "name": "采集资源",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -504,25 +504,25 @@
     "requirements": [
       {
         "name": "采集资源",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -535,25 +535,25 @@
     "requirements": [
       {
         "name": "采集资源",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -566,25 +566,25 @@
     "requirements": [
       {
         "name": "采集资源",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 64000
+        "quantity": 64000
       },
       {
         "name": "水晶",
-        "count": 640000
+        "quantity": 640000
       },
       {
         "name": "能量块",
-        "count": 400000
+        "quantity": 400000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -597,25 +597,25 @@
     "requirements": [
       {
         "name": "采集资源",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 128000
+        "quantity": 128000
       },
       {
         "name": "水晶",
-        "count": 1280000
+        "quantity": 1280000
       },
       {
         "name": "能量块",
-        "count": 800000
+        "quantity": 800000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -628,25 +628,25 @@
     "requirements": [
       {
         "name": "获得装备",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -659,25 +659,25 @@
     "requirements": [
       {
         "name": "获得装备",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -690,25 +690,25 @@
     "requirements": [
       {
         "name": "获得装备",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -721,25 +721,25 @@
     "requirements": [
       {
         "name": "获得装备",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -752,25 +752,25 @@
     "requirements": [
       {
         "name": "获得装备",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -783,25 +783,25 @@
     "requirements": [
       {
         "name": "获得装备",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -814,25 +814,25 @@
     "requirements": [
       {
         "name": "获得装备",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 64000
+        "quantity": 64000
       },
       {
         "name": "水晶",
-        "count": 640000
+        "quantity": 640000
       },
       {
         "name": "能量块",
-        "count": 400000
+        "quantity": 400000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -845,25 +845,25 @@
     "requirements": [
       {
         "name": "获得装备",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 128000
+        "quantity": 128000
       },
       {
         "name": "水晶",
-        "count": 1280000
+        "quantity": 1280000
       },
       {
         "name": "能量块",
-        "count": 800000
+        "quantity": 800000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -876,25 +876,25 @@
     "requirements": [
       {
         "name": "击败怪物",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -907,25 +907,25 @@
     "requirements": [
       {
         "name": "击败怪物",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -938,25 +938,25 @@
     "requirements": [
       {
         "name": "击败怪物",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -969,25 +969,25 @@
     "requirements": [
       {
         "name": "击败怪物",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1000,25 +1000,25 @@
     "requirements": [
       {
         "name": "击败怪物",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1031,25 +1031,25 @@
     "requirements": [
       {
         "name": "击败怪物",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1062,25 +1062,25 @@
     "requirements": [
       {
         "name": "击败怪物",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 64000
+        "quantity": 64000
       },
       {
         "name": "水晶",
-        "count": 640000
+        "quantity": 640000
       },
       {
         "name": "能量块",
-        "count": 400000
+        "quantity": 400000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1093,25 +1093,25 @@
     "requirements": [
       {
         "name": "更换使魔",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1124,25 +1124,25 @@
     "requirements": [
       {
         "name": "更换使魔",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1155,25 +1155,25 @@
     "requirements": [
       {
         "name": "更换使魔",
-        "count": 50
+        "quantity": 50
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1186,25 +1186,25 @@
     "requirements": [
       {
         "name": "更换使魔",
-        "count": 200
+        "quantity": 200
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1217,25 +1217,25 @@
     "requirements": [
       {
         "name": "补魔",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1248,25 +1248,25 @@
     "requirements": [
       {
         "name": "补魔",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1279,25 +1279,25 @@
     "requirements": [
       {
         "name": "补魔",
-        "count": 50
+        "quantity": 50
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1310,25 +1310,25 @@
     "requirements": [
       {
         "name": "补魔",
-        "count": 200
+        "quantity": 200
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1341,25 +1341,25 @@
     "requirements": [
       {
         "name": "捕捉",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1372,25 +1372,25 @@
     "requirements": [
       {
         "name": "捕捉",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1403,25 +1403,25 @@
     "requirements": [
       {
         "name": "捕捉",
-        "count": 30
+        "quantity": 30
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1434,25 +1434,25 @@
     "requirements": [
       {
         "name": "捕捉",
-        "count": 50
+        "quantity": 50
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1465,25 +1465,25 @@
     "requirements": [
       {
         "name": "闪避攻击",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1496,25 +1496,25 @@
     "requirements": [
       {
         "name": "闪避攻击",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1527,25 +1527,25 @@
     "requirements": [
       {
         "name": "闪避攻击",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1558,25 +1558,25 @@
     "requirements": [
       {
         "name": "闪避攻击",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1590,25 +1590,25 @@
     "requirements": [
       {
         "name": "稀有掉落",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1622,25 +1622,25 @@
     "requirements": [
       {
         "name": "稀有掉落",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1654,25 +1654,25 @@
     "requirements": [
       {
         "name": "稀有掉落",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1686,25 +1686,25 @@
     "requirements": [
       {
         "name": "稀有掉落",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1718,25 +1718,25 @@
     "requirements": [
       {
         "name": "稀有掉落",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1749,25 +1749,25 @@
     "requirements": [
       {
         "name": "满血秒杀",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1780,25 +1780,25 @@
     "requirements": [
       {
         "name": "满血秒杀",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1811,25 +1811,25 @@
     "requirements": [
       {
         "name": "满血秒杀",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1842,25 +1842,25 @@
     "requirements": [
       {
         "name": "满血秒杀",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1873,25 +1873,25 @@
     "requirements": [
       {
         "name": "满血秒杀",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -1905,25 +1905,25 @@
     "requirements": [
       {
         "name": "捡人头",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1937,25 +1937,25 @@
     "requirements": [
       {
         "name": "捡人头",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -1969,25 +1969,25 @@
     "requirements": [
       {
         "name": "捡人头",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2001,25 +2001,25 @@
     "requirements": [
       {
         "name": "捡人头",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2033,25 +2033,25 @@
     "requirements": [
       {
         "name": "捡人头",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2066,25 +2066,25 @@
     "requirements": [
       {
         "name": "挤奶",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2099,25 +2099,25 @@
     "requirements": [
       {
         "name": "挤奶",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2132,25 +2132,25 @@
     "requirements": [
       {
         "name": "挤奶",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2165,25 +2165,25 @@
     "requirements": [
       {
         "name": "挤奶",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2198,25 +2198,25 @@
     "requirements": [
       {
         "name": "挤奶",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2229,25 +2229,25 @@
     "requirements": [
       {
         "name": "奴役",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2260,25 +2260,25 @@
     "requirements": [
       {
         "name": "奴役",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2291,25 +2291,25 @@
     "requirements": [
       {
         "name": "奴役",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2322,25 +2322,25 @@
     "requirements": [
       {
         "name": "奴役",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2353,25 +2353,25 @@
     "requirements": [
       {
         "name": "奴役",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2384,25 +2384,25 @@
     "requirements": [
       {
         "name": "击败马",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2415,25 +2415,25 @@
     "requirements": [
       {
         "name": "击败马",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2446,25 +2446,25 @@
     "requirements": [
       {
         "name": "击败马",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2477,25 +2477,25 @@
     "requirements": [
       {
         "name": "击败马",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2508,25 +2508,25 @@
     "requirements": [
       {
         "name": "击败马",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2539,25 +2539,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2570,25 +2570,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2601,25 +2601,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2632,25 +2632,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2663,25 +2663,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2694,25 +2694,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2725,25 +2725,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 1000000000
+        "quantity": 1000000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 64000
+        "quantity": 64000
       },
       {
         "name": "水晶",
-        "count": 640000
+        "quantity": 640000
       },
       {
         "name": "能量块",
-        "count": 400000
+        "quantity": 400000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2756,25 +2756,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 10000000000
+        "quantity": 10000000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 128000
+        "quantity": 128000
       },
       {
         "name": "水晶",
-        "count": 1280000
+        "quantity": 1280000
       },
       {
         "name": "能量块",
-        "count": 800000
+        "quantity": 800000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2787,25 +2787,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 100000000000
+        "quantity": 100000000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 256000
+        "quantity": 256000
       },
       {
         "name": "水晶",
-        "count": 2560000
+        "quantity": 2560000
       },
       {
         "name": "能量块",
-        "count": 1600000
+        "quantity": 1600000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2818,25 +2818,25 @@
     "requirements": [
       {
         "name": "战斗力",
-        "count": 1000000000000
+        "quantity": 1000000000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 512000
+        "quantity": 512000
       },
       {
         "name": "水晶",
-        "count": 5120000
+        "quantity": 5120000
       },
       {
         "name": "能量块",
-        "count": 3200000
+        "quantity": 3200000
       },
       {
         "name": "发带",
-        "count": 5
+        "quantity": 5
       }
     ]
   },
@@ -2849,25 +2849,25 @@
     "requirements": [
       {
         "name": "*巨人",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2880,25 +2880,25 @@
     "requirements": [
       {
         "name": "*巨人",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2911,25 +2911,25 @@
     "requirements": [
       {
         "name": "*巨人",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -2942,25 +2942,25 @@
     "requirements": [
       {
         "name": "捕捉花园宝宝",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -2973,25 +2973,25 @@
     "requirements": [
       {
         "name": "捕捉花园宝宝",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3004,25 +3004,25 @@
     "requirements": [
       {
         "name": "捕捉花园宝宝",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3035,25 +3035,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 937500
+        "quantity": 937500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 64000
+        "quantity": 64000
       },
       {
         "name": "水晶",
-        "count": 640000
+        "quantity": 640000
       },
       {
         "name": "能量块",
-        "count": 400000
+        "quantity": 400000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3066,25 +3066,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 4687500
+        "quantity": 4687500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 128000
+        "quantity": 128000
       },
       {
         "name": "水晶",
-        "count": 1280000
+        "quantity": 1280000
       },
       {
         "name": "能量块",
-        "count": 800000
+        "quantity": 800000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3097,25 +3097,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 23437500
+        "quantity": 23437500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 256000
+        "quantity": 256000
       },
       {
         "name": "水晶",
-        "count": 2560000
+        "quantity": 2560000
       },
       {
         "name": "能量块",
-        "count": 1600000
+        "quantity": 1600000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3128,25 +3128,25 @@
     "requirements": [
       {
         "name": "在线时间",
-        "count": 117187500
+        "quantity": 117187500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 512000
+        "quantity": 512000
       },
       {
         "name": "水晶",
-        "count": 5120000
+        "quantity": 5120000
       },
       {
         "name": "能量块",
-        "count": 3200000
+        "quantity": 3200000
       },
       {
         "name": "发带",
-        "count": 5
+        "quantity": 5
       }
     ]
   },
@@ -3159,25 +3159,25 @@
     "requirements": [
       {
         "name": "消耗活力",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3190,25 +3190,25 @@
     "requirements": [
       {
         "name": "消耗活力",
-        "count": 50
+        "quantity": 50
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3221,25 +3221,25 @@
     "requirements": [
       {
         "name": "消耗活力",
-        "count": 250
+        "quantity": 250
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3252,25 +3252,25 @@
     "requirements": [
       {
         "name": "*巨人",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3283,25 +3283,25 @@
     "requirements": [
       {
         "name": "捕捉花园宝宝",
-        "count": 500
+        "quantity": 500
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3314,25 +3314,25 @@
     "requirements": [
       {
         "name": "消耗活力",
-        "count": 1250
+        "quantity": 1250
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3345,25 +3345,25 @@
     "requirements": [
       {
         "name": "*巨人",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3376,25 +3376,25 @@
     "requirements": [
       {
         "name": "消耗活力",
-        "count": 6250
+        "quantity": 6250
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3407,25 +3407,25 @@
     "requirements": [
       {
         "name": "捕捉花园宝宝",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3438,25 +3438,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3469,25 +3469,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3500,25 +3500,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3531,25 +3531,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3562,25 +3562,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3593,25 +3593,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3624,25 +3624,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 64000
+        "quantity": 64000
       },
       {
         "name": "水晶",
-        "count": 640000
+        "quantity": 640000
       },
       {
         "name": "能量块",
-        "count": 400000
+        "quantity": 400000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3655,25 +3655,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 1000000000
+        "quantity": 1000000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 128000
+        "quantity": 128000
       },
       {
         "name": "水晶",
-        "count": 1280000
+        "quantity": 1280000
       },
       {
         "name": "能量块",
-        "count": 800000
+        "quantity": 800000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3686,25 +3686,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 10000000000
+        "quantity": 10000000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 256000
+        "quantity": 256000
       },
       {
         "name": "水晶",
-        "count": 2560000
+        "quantity": 2560000
       },
       {
         "name": "能量块",
-        "count": 1600000
+        "quantity": 1600000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3717,25 +3717,25 @@
     "requirements": [
       {
         "name": "最高伤害",
-        "count": 100000000000
+        "quantity": 100000000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 512000
+        "quantity": 512000
       },
       {
         "name": "水晶",
-        "count": 5120000
+        "quantity": 5120000
       },
       {
         "name": "能量块",
-        "count": 3200000
+        "quantity": 3200000
       },
       {
         "name": "发带",
-        "count": 5
+        "quantity": 5
       }
     ]
   },
@@ -3748,25 +3748,25 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 25
+        "quantity": 25
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3779,25 +3779,25 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 125
+        "quantity": 125
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3810,25 +3810,25 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 625
+        "quantity": 625
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3841,25 +3841,25 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 3125
+        "quantity": 3125
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3872,25 +3872,25 @@
     "requirements": [
       {
         "name": "购物",
-        "count": 15625
+        "quantity": 15625
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3903,25 +3903,25 @@
     "requirements": [
       {
         "name": "生产",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10
+        "quantity": 10
       },
       {
         "name": "水晶",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "能量块",
-        "count": 60
+        "quantity": 60
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3934,25 +3934,25 @@
     "requirements": [
       {
         "name": "生产",
-        "count": 4000
+        "quantity": 4000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "水晶",
-        "count": 2000
+        "quantity": 2000
       },
       {
         "name": "能量块",
-        "count": 1200
+        "quantity": 1200
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -3965,25 +3965,25 @@
     "requirements": [
       {
         "name": "生产",
-        "count": 160000
+        "quantity": 160000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "水晶",
-        "count": 40000
+        "quantity": 40000
       },
       {
         "name": "能量块",
-        "count": 24000
+        "quantity": 24000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -3996,25 +3996,25 @@
     "requirements": [
       {
         "name": "生产",
-        "count": 6400000
+        "quantity": 6400000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "水晶",
-        "count": 80000
+        "quantity": 80000
       },
       {
         "name": "能量块",
-        "count": 48000
+        "quantity": 48000
       },
       {
         "name": "发带",
-        "count": 1
+        "quantity": 1
       }
     ]
   },
@@ -4027,25 +4027,25 @@
     "requirements": [
       {
         "name": "生产",
-        "count": 256000000
+        "quantity": 256000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "水晶",
-        "count": 160000
+        "quantity": 160000
       },
       {
         "name": "能量块",
-        "count": 96000
+        "quantity": 96000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -4058,25 +4058,25 @@
     "requirements": [
       {
         "name": "生产",
-        "count": 10240000000
+        "quantity": 10240000000
       }
     ],
     "rewards": [
       {
         "name": "经验胶囊",
-        "count": 32000
+        "quantity": 32000
       },
       {
         "name": "水晶",
-        "count": 320000
+        "quantity": 320000
       },
       {
         "name": "能量块",
-        "count": 200000
+        "quantity": 200000
       },
       {
         "name": "发带",
-        "count": 2
+        "quantity": 2
       }
     ]
   },
@@ -4089,17 +4089,17 @@
     "requirements": [
       {
         "name": "拾取载具",
-        "count": 1
+        "quantity": 1
       }
     ],
     "rewards": [
       {
         "name": "载具零件",
-        "count": 50
+        "quantity": 50
       },
       {
         "name": "资源箱",
-        "count": 500
+        "quantity": 500
       }
     ]
   },
@@ -4112,17 +4112,17 @@
     "requirements": [
       {
         "name": "拾取载具",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "载具零件",
-        "count": 500
+        "quantity": 500
       },
       {
         "name": "资源箱",
-        "count": 5000
+        "quantity": 5000
       }
     ]
   },
@@ -4135,17 +4135,17 @@
     "requirements": [
       {
         "name": "拾取载具",
-        "count": 30
+        "quantity": 30
       }
     ],
     "rewards": [
       {
         "name": "载具零件",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "资源箱",
-        "count": 50000
+        "quantity": 50000
       }
     ]
   },
@@ -4158,17 +4158,17 @@
     "requirements": [
       {
         "name": "拾取载具",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "载具零件",
-        "count": 50000
+        "quantity": 50000
       },
       {
         "name": "资源箱",
-        "count": 500000
+        "quantity": 500000
       }
     ]
   },
@@ -4181,13 +4181,13 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 10
+        "quantity": 10
       }
     ],
     "rewards": [
       {
         "name": "奶油蛋糕",
-        "count": 5
+        "quantity": 5
       }
     ]
   },
@@ -4200,13 +4200,13 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 30
+        "quantity": 30
       }
     ],
     "rewards": [
       {
         "name": "奶油蛋糕",
-        "count": 10
+        "quantity": 10
       }
     ]
   },
@@ -4219,13 +4219,13 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "奶油蛋糕",
-        "count": 15
+        "quantity": 15
       }
     ]
   },
@@ -4238,13 +4238,13 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 100
+        "quantity": 100
       }
     ],
     "rewards": [
       {
         "name": "奶油蛋糕",
-        "count": 30
+        "quantity": 30
       }
     ]
   },
@@ -4257,13 +4257,13 @@
     "requirements": [
       {
         "name": "卷土重来",
-        "count": 300
+        "quantity": 300
       }
     ],
     "rewards": [
       {
         "name": "奶油蛋糕",
-        "count": 100
+        "quantity": 100
       }
     ]
   }

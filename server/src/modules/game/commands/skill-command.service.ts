@@ -547,10 +547,10 @@ export class SkillCommandService {
       return `${target.name || targetKey}的背包只有${backpack.length}个成员`;
     }
     const item = backpack[index - 1];
-    const itemName = String(item?.name ?? item?.名称 ?? '');
-    const data = String(item?.data ?? item?.数据 ?? '').split('#换行').join('【换行2】');
+    const itemName = String(item?.name ?? '');
+    const data = String(item?.data ?? '').split('#换行').join('【换行2】');
     return [
-      `${itemName}${item?.type === '装备' || item?.类型 === '装备' ? '(装备)' : ''}`,
+      `${itemName}${item?.type === '装备' ? '(装备)' : ''}`,
       data,
     ].filter(Boolean).join('\n');
   }
@@ -782,14 +782,14 @@ export class SkillCommandService {
     const now = Date.now();
     const endOfDay = new Date();
     endOfDay.setHours(24, 0, 0, 0);
-    const active = markers2.find((m: any) => (m?.name ?? m?.名称) === cooldownName);
-    const activeExpire = Number(active?.expireAt ?? active?.有效期至 ?? 0) || 0;
+    const active = markers2.find((m: any) => m?.name === cooldownName);
+    const activeExpire = Number(active?.expireAt ?? 0) || 0;
     if (activeExpire > now) {
       const remainSec = Math.max(1, Math.ceil((activeExpire - now) / 1000));
       return `${player.name || '冒险者'}今天已经设置过了，还需${this.support.millisecondsToText(remainSec * 1000)}后才能再次修改`;
     }
     const marker = { name: cooldownName, expireAt: endOfDay.getTime() };
-    const idx = markers2.findIndex((m: any) => (m?.name ?? m?.名称) === cooldownName);
+    const idx = markers2.findIndex((m: any) => m?.name === cooldownName);
     if (idx >= 0) markers2[idx] = marker;
     else markers2.push(marker);
 

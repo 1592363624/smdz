@@ -32,13 +32,18 @@ function floorSec(ms: number): number {
 }
 
 /**
- * 取出条目到期时间并归一化为毫秒时间戳
- * @param it 增益/标记条目（中英文 key 均可：有效期至 / expireAt）
+ * 取出条目到期时间并归一化为毫秒时间戳。
+ *
+ * 只读**规范键** `expireAt`（规范名见 field-contract.util.ts，中文别名「有效期至」
+ * 已在读档/落库边界被收敛删除，业务层不再兜底中文键）。
+ * `expireTime` 是采集冷却（gather-panel）写入的另一英文键，保留兼容读取。
+ *
+ * @param it 增益/标记条目
  * @returns 毫秒时间戳；0 表示无期限（永久有效）
  */
 export function toExpireMs(it: any): number {
   if (!it) return 0;
-  const raw = Number(it.有效期至 ?? it.expireAt ?? it.expireTime ?? 0);
+  const raw = Number(it.expireAt ?? it.expireTime ?? 0);
   if (!Number.isFinite(raw) || raw <= 0) return 0;
   return raw < MS_THRESHOLD ? raw * SECOND_MS : raw;
 }
@@ -57,10 +62,10 @@ export function isActive(it: any, nowMs: number = Date.now()): boolean {
 }
 
 /**
- * 取条目名称（中英文 key 兼容）
+ * 取条目名称（只读规范键 name，规范名见 field-contract.util.ts）
  */
 export function itemName(it: any): string {
-  return String(it?.名称 ?? it?.name ?? '');
+  return String(it?.name ?? '');
 }
 
 /**
@@ -111,7 +116,7 @@ export function filterActive(list: any, nowMs: number = Date.now()): any[] {
 /**
  * 缩短容器中指定名称条目的有效期（原版 `获得增益(容器, name, -seconds, 真)` 语义）：
  * 把到期时间提前 seconds 秒，减后已到期的条目按原版直接删除（删除成员），
- * 尚有剩余的条目按**原字段口径**写回（`有效期至` 毫秒 / `expireAt` 保持原秒或毫秒）。
+ * 尚有剩余的条目按**原字段口径**写回 `expireAt`（保持原本的秒或毫秒）。
  * 就地修改传入数组；「卷土重来」击杀复活 -60 秒、救助/扶起 -30 秒等场景共用。
  * @returns 是否有条目被改动（删除或缩短）
  */
@@ -121,14 +126,13 @@ export function shortenBuff(list: any[], name: string, seconds: number, nowMs: n
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const it = list[i];
     if (itemName(it) !== name) continue;
-    const raw = Number(it?.expireAt ?? it?.有效期至 ?? 0);
+    // 只读规范键 expireAt（中文别名「有效期至」已由持久化边界收敛删除）
+    const raw = Number(it?.expireAt ?? 0);
     if (!raw) { list.splice(i, 1); changed = true; continue; } // 无到期时间的异常条目直接清掉
-    const isMs = raw >= MS_THRESHOLD || it?.有效期至 !== undefined;
+    const isMs = raw >= MS_THRESHOLD;
     const remainMs = (isMs ? raw : raw * SECOND_MS) - seconds * SECOND_MS;
     if (floorSec(remainMs) <= floorSec(nowMs)) {
       list.splice(i, 1); // 减后已过期 → 保护结束（原版 删除成员）
-    } else if (it?.有效期至 !== undefined) {
-      it.有效期至 = remainMs;
     } else {
       it.expireAt = isMs ? remainMs : remainMs / SECOND_MS;
     }

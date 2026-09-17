@@ -255,7 +255,7 @@ export class AdminController {
       'game.checkinBaseExp(签到基础经验) / game.checkinConsecutiveExpPerDay(每连续1天额外经验) / ' +
       'game.checkinConsecutiveExpMaxDays(连续加成封顶天数，0=不封顶) / ' +
       'game.checkinRewards(奖励表 JSON：{ dailyCycleDays, daily, consecutive, total }，' +
-      '奖励条目 { type: item|exp|vitality, name, count })。',
+      '奖励条目 { type: item|exp|vitality, name, quantity })。',
   })
   @ApiBody({
     type: UpdateConfigDto,
@@ -272,9 +272,9 @@ export class AdminController {
           key: 'game.checkinRewards',
           value: {
             dailyCycleDays: 7,
-            daily: [{ days: 1, rewards: [{ type: 'item', name: '签到礼包', count: 1 }] }],
-            consecutive: [{ days: 7, rewards: [{ type: 'item', name: '签到礼包', count: 1 }] }],
-            total: [{ days: 30, rewards: [{ type: 'item', name: '累计签到礼包', count: 1 }] }],
+            daily: [{ days: 1, rewards: [{ type: 'item', name: '签到礼包', quantity: 1 }] }],
+            consecutive: [{ days: 7, rewards: [{ type: 'item', name: '签到礼包', quantity: 1 }] }],
+            total: [{ days: 30, rewards: [{ type: 'item', name: '累计签到礼包', quantity: 1 }] }],
           },
         },
       },

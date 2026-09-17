@@ -23,7 +23,7 @@ const CARGO_DEF = {
   renewable: false,
   gatherText: '【名称】【载具】正在破解货舱',
   marker: '',
-  outputs: [{ name: '能量块', count: 1, chance: 50 }],
+  outputs: [{ name: '能量块', quantity: 1, chance: 50 }],
   outputs2: [],
 };
 
@@ -33,7 +33,7 @@ const ENERGY_DEF = {
   gatherCmd: '收集能量',
   timeScale: 6,
   renewable: false,
-  outputs: [{ name: '能量块', count: 1, chance: 50 }],
+  outputs: [{ name: '能量块', quantity: 1, chance: 50 }],
   outputs2: [],
 };
 
@@ -43,7 +43,7 @@ function createMapRow(overrides: Record<string, any> = {}) {
     name: '森林出口',
     // 地图固有资源非空 → getGatherResources 只会读 resources
     resources: [
-      { name: '大树', times: 60, gatherCmd: '收集木头', outputs: [{ name: '木头', count: 3, chance: 100 }], outputs2: [] },
+      { name: '大树', times: 60, gatherCmd: '收集木头', outputs: [{ name: '木头', quantity: 3, chance: 100 }], outputs2: [] },
     ],
     resources2: [],
     markers2: [],

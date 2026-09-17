@@ -1,0 +1,181 @@
+﻿[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m读取掉落归属玩家失败: Cannot read properties of undefined (reading 'backpack')[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m法宝加成计算失败: this.bonusService.calculateTreasureBonus is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m计算增益处理失败: this.bonusService.calculateGameBonus is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m最终加成计算失败: this.bonusService.calculateFinalBonus is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2023/11/15 06:13:26 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+[33m[Nest] 27504  - [39m2026/09/17 02:27:11 [33m   WARN[39m [38;5;3m[CombatSystemService] [39m[33m登记刷新怪物标记失败: this.mapService.addMonsterRespawnMarker is not a function[39m
+node.exe : FAIL test/battle-e2e.spec.ts (6.235 s)
+At line:1 char:1
++ & "D:\nodejs/node.exe" "D:\nodejs/node_modules/npm/bin/npx-cli.js" je ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (FAIL test/battle-e2e.spec.ts (6.235 s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  战斗系统端到端回归（五轮原汁原味修复）
+    轮次1 闪避生效（修复1：handleDodge 写入「闪避」buff 被怪物攻击消费）
+      √ 玩家有「闪避」buff 时，怪物攻击被 100% 免伤，玩家 hp 不变 (6 ms)
+    卷土重来死亡冷却
+      √ 第一次被击败进入卷土重来后，冷却未结束时再次被击败应免死且不重复进入卷土重来 (2 ms)
+    卷土重来击杀复活（原版 造成伤害 L3690-3697）
+      √ 倒地（卷土重来）击杀目标 → 回满三池 + 保护增益按 -60 秒结束（前端倒计时不再残留） (10 ms)
+      √ 保护时长超过 60 秒（高「卷土重来」属性）→ 复活后按 -60 秒缩短但仍保留 (2 ms)
+    轮次2 当前武器攻击（修复2：指令攻击用 player.currentWeapon）
+      √ 装备了武器(currentWeapon>0)时，写入「武器名+冷却」标记而非拳头 (3 ms)
+      √ 未装备武器(currentWeapon=0)时，退化为拳头，写入「拳头冷却」 (1 ms)
+    轮次3 战斗统计（修复3：攻击>1次附加「战斗统计」行）
+      √ 全体攻击多目标(total>1)时，result 含「战斗统计」行 (4 ms)
+      √ 单目标攻击(total=1)时，result 不出现「战斗统计」行 (3 ms)
+    轮次4 宠物真实结算（修复4：resolvePetVsMonster 走三层引擎而非概率）
+      √ 宠物攻击弱怪命中并击杀 → 怪物从地图移除 (2 ms)
+      √ 宠物攻击强怪未击杀 → 怪物扣血且宠物受 0.3×怪物攻击 反伤 (1 ms)
+      √ 宠物未命中（怪物闪避） → 不掉血、不反伤 (1 ms)
+    轮次5 连击/溅射（修复5：processWeaponSpecialEffects 触发 combo；splashCount 对额外目标）
+      √ 火神机枪(specialSeq=1002)触发 combo 标记 (1 ms)
+      √ 雷火剑(specialSeq=1001)冷却缩短为 1/3 (1 ms)
+      √ 机械触手(specialSeq=90)冷却固定为 6 秒
+      √ 普通武器不触发 combo，冷却保持基础值 (1 ms)
+      √ 溅射：splashCount 个额外目标受到真实伤害（result 含溅射文本） (2 ms)
+    综合 基础攻击减血闭环
+      × 真实 bonus.drops 掉落 → 背包在最终 savePlayer 后保留，资源/装备任务均推进 (5 ms)
+      √ 装备宝石缎带时，成功的1%以内掉落推进稀有掉落任务 (6 ms)
+      √ 必中攻击弱怪 → 怪物 hp 下降或被击杀，玩家获得经验 (2 ms)
+    防御方被动 幻时凝固/含光回防（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L1429-1547）
+      × 幻时凝固：花园猫(好感≥60)被攻击 → 怪物获得「幻时」增益，result 含"被幻时凝固" (1 ms)
+      √ 含光回防：装备含光(耐久>8)闪避成功 → 回复最高防御类型上限10% (1 ms)
+    载具承伤（玩家驾驶载具时怪物攻击先打载具）
+      √ 驾驶载具且载具耐久足够 → 伤害全被载具吸收，玩家 hp 不变、载具扣血 (1 ms)
+      √ 驾驶载具但耐久不足 → 载具破碎，普通伤害余量不会落到玩家三池
+      √ 未驾驶载具 → 伤害直接落玩家三池（无载具承伤分支）
+    光荣弹（gloryGrenade 复刻 战斗相关.ecode L4987-5018）
+      √ 玩家死亡且装备光荣弹(44) → 对怪物发起必中反击并造成真实伤害 (1 ms)
+      √ 玩家未死亡 → 光荣弹不触发（返回空文本）
+      √ 玩家死亡但无光荣弹装备 → 不触发反击 (1 ms)
+    套装特效（穿透/增幅器/超压 复刻）
+      √ 坚韧护盾(装备131)：护盾被打穿时终止后续伤害，15秒内不重复触发 (2 ms)
+      √ 神兽之力青龙(武器-31)：命中后给目标5秒麻痹并叠加武器冷却5秒 (1 ms)
+      √ 剑圣「苇名剑法」：近战命中后写入 60 秒冷却（毫秒口径，原版 L3124） (1 ms)
+      √ 两极反转(装备63) → 攻击时三层穿透+8，result 含「两极反转」 (2 ms)
+      √ 增幅器套装=2 且目标 s敏锐>=5 → 伤害被免疫（敏锐），怪物不死 (1 ms)
+      √ 增幅器套装=1 速射(s速射<5) → 伤害×0.9，result 含「速射」 (1 ms)
+      √ 创世纪(武器-18) → 清空目标三池与经验，result 含「创世纪」 (2 ms)
+      √ 安乐天使(防御方增益) → 伤害被免疫，怪物 hp 不变 (1 ms)
+      √ 短衬衫2(防御方标记2) → 伤害×0.1，result 含「短衬衫」
+      √ 负面类型=1(割裂) 累计4次 → 触发正式「割裂」增益 (1 ms)
+      √ 感电+星尘(好感≥60) → 超新星电伤，穿透+10 (1 ms)
+      √ 龙姬(特殊序号12) 携带龙姬增伤 → 驱魔加成攻击，result 含「驱魔」 (1 ms)
+      √ 恶毒(6) 攻击 → 防御方获得「恶毒之刃」增益，result 含文本 (1 ms)
+      √ 伊芙利特(11) 好感≥80 → 防御方获得「燃烧」增益，result 含(燃烧) (1 ms)
+      √ 军姬(16) 标记万象2=1 → 伤害×(2+技等/100)，怪物受更高伤 (1 ms)
+      √ 星尘(14) 标记dz>0 → 斗转星移追加电伤，result 含文本 (1 ms)
+      √ 防御方恶毒(6) 好感≥100 → 色欲免疫，怪物 hp 不变 (1 ms)
+      √ 防御方 saber(19) 好感≥40 且含 ex 增益 → 免疫，怪物 hp 不变 (2 ms)
+      √ 防御方四糸乃(15) 好感≥80 → 冰凯免疫，怪物 hp 不变 (1 ms)
+      √ 吸血姬(活力=-15) 命中 → 防御方获得「猩红」增益，result 含文本 (1 ms)
+      √ 防御方战斗女仆(8) 含守护1 → 免疫，怪物 hp 不变 (1 ms)
+      √ 防御方军姬(16) 好感≥40 → 获得「剑阵」增益并回血，result 含文本 (1 ms)
+      √ 防御方军姬2(24) 好感≥20 且标记jj2hg1>0 → 招架免疫，怪物 hp 不变
+      √ 防御方增益含「剑阵」 → 免疫，怪物 hp 不变 (1 ms)
+      √ 仿真尾巴(-36)：攻击方其他武器处于冷却 → 这些武器 CD-5，result 含「仿真尾巴」 (2 ms)
+      √ 火焰飞羽(-30)：防御方获得「飞羽」增益，buffs 含 name=飞羽 (1 ms)
+      √ 纵横(-13)：额外生命火伤 += 防御方生命*0.05，attackerBonus.火伤 被加成 (1 ms)
+      √ 矢量(-12)：额外装甲冰伤 += 防御方装甲*0.05，attackerBonus.冰伤 被加成 (1 ms)
+      √ 影光(-23)：防御方获得「影光」增益，buffs 含 name=影光 (1 ms)
+      √ 寒风(-10)：防御方未冷却 → 防御方所有武器 CD+30，result 含「寒风」 (1 ms)
+      √ 光棱(-29)：攻击方未冷却 → 「类型+技能冷却」-60 写入 markers2 (1 ms)
+      √ 格挡系统：防御方带圆盾(51) 冷却过期 → 触发格挡回满三池并免疫，怪物 hp 不变 (1 ms)
+      √ 格挡系统：防御方带防爆盾(9) 无圆盾 → 触发默认格挡×0.25 减伤，仍造成伤害 (1 ms)
+      √ 格挡系统：防御方无格挡来源 → 不触发格挡，正常造成伤害 (1 ms)
+      √ 激变星增益 → 伤害0 免疫，怪物 hp 不变 (1 ms)
+      武器特殊序号特效补全（原版 战斗相关.ecode L474/L621/L995/L1296-1316）
+        √ 星象仪(-39)：陨石cd未激活 → 暴击伤害+=目标闪避/自身命中×200，并设置30秒陨石cd (1 ms)
+        √ 星象仪(-39)：陨石cd冷却期内 → 不重复叠加暴伤
+        √ 神兽之力玄武(-27)：命中判定前生效 → 目标每件武器冷却+3秒、攻击冷却+3秒，显示【玄武】 (1 ms)
+        √ 赛加(-6)：30秒冷却标记设置，几率通过时(10%<33%)额外攻击并显示「赛加连击」 (1 ms)
+        √ 赛加(-6)：几率未通过时(90%>33%)仍设置冷却标记但不额外攻击 (1 ms)
+        √ 艾斯特拉斯(-25)：60秒冷却触发 → 伤害+390% + 「工作」硬直((1-韧性/100)×60秒)；冷却期内不重复 (1 ms)
+        √ 镰刀1(-37)：攻击方倒地且处于「卷土重来」增益 → 伤害×3（原版 hp>0 时卷土重来被移除，故须 hp=0）
+        √ 镰刀1(-37)：无「卷土重来」增益 → 不触发×3 (1 ms)
+        √ 木天蓼(-26)：攻击后自身被后坐力掀翻，加「工作」硬直10×(1-韧性/100)秒 (1 ms)
+        √ 风精灵(装备33)：物伤 += 自身闪避×额外伤害倍率，显示(风精灵X)
+        √ 雷精灵(装备132)：电伤 += 自身闪避×额外伤害倍率；与风精灵互斥时风精灵优先 (1 ms)
+        √ 长萌舰装(装备101)：60秒冷却标记「fp」→ 额外攻击+1并显示(副炮) (1 ms)
+        √ 弹药箱(装备19)：非近战武器时60秒冷却触发(弹药充沛)；近战武器不触发 (2 ms)
+        √ 弹药箱(装备19)：近战武器不触发(弹药充沛) (1 ms)
+
+  ● 战斗系统端到端回归（五轮原汁原味修复） › 综合 基础攻击减血闭环 › 真实 bonus.drops 掉落 → 背包在最终 savePlayer 后保留，资源/装备任务均推进
+
+    expect(received).toEqual(expected) // deep equality
+
+    Expected: ArrayContaining [ObjectContaining {"name": "铁矿", "quantity": 2, "type": "资源"}, ObjectContaining {"name": 
+"测试装备", "quantity": 1, "type": "装备"}]
+    Received: [{"chance": 100, "itemId": undefined, "name": "铁矿", "quantity": 1, "type": "资源"}, {"chance": 100, "itemId
+": undefined, "name": "测试装备", "quantity": 1, "type": "装备"}]
+
+    [0m [90m 654 |[39m
+     [90m 655 |[39m       expect(result[33m.[39mkilled)[33m.[39mtoContain([32m'史莱姆'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 656 |[39m       expect(result[33m.[39mdrops)[33m.[39mtoEqual(expect[33m.[39marrayC
+ontaining([
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 657 |[39m         expect[33m.[39mobjectContaining({ name[33m:[39m [32m'铁矿'[39m[33m,[39m type[33m:
+[39m [32m'资源'[39m[33m,[39m quantity[33m:[39m [35m2[39m })[33m,[39m
+     [90m 658 |[39m         expect[33m.[39mobjectContaining({ name[33m:[39m [32m'测试装备'[39m[33m,[39m type[33m
+:[39m [32m'装备'[39m[33m,[39m quantity[33m:[39m [35m1[39m })[33m,[39m
+     [90m 659 |[39m       ]))[33m;[39m[0m
+
+      at Object.<anonymous> (test/battle-e2e.spec.ts:656:28)
+
+  ● 战斗系统端到端回归（五轮原汁原味修复） › 防御方被动 幻时凝固/含光回防（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L1429-1547） › 幻时凝固：花园猫(好感≥60)被攻击 
+→ 怪物获得「幻时」增益，result 含"被幻时凝固"
+
+    expect(received).toBeDefined()
+
+    Received: undefined
+
+    [0m [90m 759 |[39m       [36mconst[39m monsterBuffs [33m=[39m parseJson(monster[33m.[39mbuffs[33m,[39m [
+])[33m;[39m
+     [90m 760 |[39m       [36mconst[39m phantom [33m=[39m monsterBuffs[33m.[39mfind((b[33m:[39m any) [33m=>
+[39m b[33m.[39m名称 [33m===[39m [32m'幻时'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 761 |[39m       expect(phantom)[33m.[39mtoBeDefined()[33m;[39m
+     [90m     |[39m                       [31m[1m^[22m[39m
+     [90m 762 |[39m       expect(phantom[33m.[39m有效期至)[33m.[39mtoBeGreaterThan([33mDate[39m[33m.[39mnow())[3
+3m;[39m
+     [90m 763 |[39m       [90m// 文本可见[39m
+     [90m 764 |[39m       expect(lines[33m.[39mjoin([32m'\n'[39m))[33m.[39mtoContain([32m'被幻时凝固'[39m)[33m;[
+39m[0m
+
+      at Object.<anonymous> (test/battle-e2e.spec.ts:761:23)
+
+Test Suites: 1 failed, 1 total
+Tests:       2 failed, 74 passed, 76 total
+Snapshots:   0 total
+Time:        6.53 s
+Ran all test suites matching /test\\battle-e2e.spec.ts/i.

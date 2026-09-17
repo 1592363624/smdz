@@ -471,7 +471,7 @@ export class ScheduleService implements OnApplicationBootstrap {
       const map = this.pickRandomMap(maps);
       // 快照预检（仅省库存构建开销；权威判定在下方锁内复查）
       const snapshot = this.parseJsonArray<any>(map.summons);
-      if (snapshot.some((n: any) => n?.name === '行商' || n?.名称 === '行商')) return;
+      if (snapshot.some((n: any) => n?.name === '行商')) return;
 
       // 生成行商物品库存（对齐原版 L1228 生成行商物品(g.背包)）
       const inventory = await this.gameService.buildMerchantInventory(1, 0);
@@ -483,16 +483,15 @@ export class ScheduleService implements OnApplicationBootstrap {
       const merchantQQ = `召唤物${Date.now()}`;
       const added = await this.mapService.mutateSummons(map.id, (summons) => {
         // 若地图已有行商则跳过，避免重复（原版也按 name 判断）
-        if (summons.some((n: any) => n?.name === '行商' || n?.名称 === '行商')) return false;
+        if (summons.some((n: any) => n?.name === '行商')) return false;
         summons.push({
-          归属: '1',
+          // 召唤物字段只写规范键：归属→ownerQQ、类型→type、标记→markers
+          ownerQQ: '1',
           name: '行商',
-          类型: '行商',
           type: '行商',
           backpack: inventory,
           qq: merchantQQ,
           markers: {},
-          标记: {},
         });
         return true;
       });
@@ -683,7 +682,7 @@ export class ScheduleService implements OnApplicationBootstrap {
 
       items.push({
         name: '小蓝',
-        count: 1,
+        // 数量只写规范键 quantity（count 是同义旧键，写了就是镜像脏数据）
         quantity: 1,
         type: '资源',
         data: 'a',
@@ -771,8 +770,8 @@ export class ScheduleService implements OnApplicationBootstrap {
       for (const map of allMaps) {
         const vehicles = asJsonValue<any[]>(map.vehicles, []);
         for (const v of vehicles) {
-          // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
-          if (String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主') {
+          // 无主判定：载具归属规范键为 owner（中文别名「归属」由持久化边界收敛删除）
+          if (String(v?.owner ?? '') === '无主') {
             ownerlessCount++;
           }
         }
@@ -859,7 +858,7 @@ export class ScheduleService implements OnApplicationBootstrap {
       const allResources = asJsonValue<any[]>(this.staticData.getAllResources(), []);
       // 原版 L380-388：产出2 非空且第一个产出名称不为空 = 作物
       const cropTemplates = allResources.filter((r: any) => {
-        const outputs2 = r?.outputs2 ?? r?.['产出2'] ?? [];
+        const outputs2 = r?.outputs2 ?? [];
         if (!Array.isArray(outputs2) || outputs2.length === 0) return false;
         return String(outputs2[0]?.name ?? '').trim() !== '';
       });

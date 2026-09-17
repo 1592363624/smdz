@@ -100,7 +100,7 @@ describe('打开箱子（使用物品）', () => {
           if (equipmentNames.includes(drop.name)) {
             const p = playerService.getBackpackItems(player);
             for (let i = 0; i < Math.max(1, Math.floor(drop.quantity)); i++) {
-              p.push({ name: drop.name, type: '装备', quantity: 1, count: 1, durability: 0, data: 'c' });
+              p.push({ name: drop.name, type: '装备', quantity: 1, durability: 0, data: 'c' });
               parts.push(`${drop.name}×1`);
             }
             player.backpack = JSON.stringify(p);
@@ -137,7 +137,7 @@ describe('打开箱子（使用物品）', () => {
 
   it('装备箱产出走品质链路：生成带品质数据的独立装备并按原版文本展示', async () => {
     const player = buildPlayer({
-      backpack: JSON.stringify([{ name: '普通装备箱', type: '资源', quantity: 2, count: 2 }]),
+      backpack: JSON.stringify([{ name: '普通装备箱', type: '资源', quantity: 2 }]),
     });
     const { service } = buildHarness(
       player,
@@ -163,7 +163,7 @@ describe('打开箱子（使用物品）', () => {
 
   it('碎数量（<1）不可使用：拒绝并保留原数量，不产生任何产出（2026-09-04 收紧）', async () => {
     const player = buildPlayer({
-      backpack: JSON.stringify([{ name: '优秀装备补给箱', type: '资源', quantity: 0.10624999999999996, count: 0.10624999999999996 }]),
+      backpack: JSON.stringify([{ name: '优秀装备补给箱', type: '资源', quantity: 0.10624999999999996 }]),
     });
     const { service } = buildHarness(
       player,
@@ -186,7 +186,7 @@ describe('打开箱子（使用物品）', () => {
 
   it('种子箱多候选池随机发放资源并消耗箱子（原 L2407-2410）', async () => {
     const player = buildPlayer({
-      backpack: JSON.stringify([{ name: '种子箱', type: '资源', quantity: 10, count: 10 }]),
+      backpack: JSON.stringify([{ name: '种子箱', type: '资源', quantity: 10 }]),
     });
     const { service } = buildHarness(
       player,
@@ -206,7 +206,7 @@ describe('打开箱子（使用物品）', () => {
 
   it('奶恢复三池并附带经验掉落；死亡状态受120秒复活冷却限制', async () => {
     const player = buildPlayer({
-      backpack: JSON.stringify([{ name: '奶', type: '资源', quantity: 5, count: 5 }]),
+      backpack: JSON.stringify([{ name: '奶', type: '资源', quantity: 5 }]),
     });
     const { service } = buildHarness(
       player,
@@ -241,7 +241,7 @@ describe('打开箱子（使用物品）', () => {
     const player = buildPlayer({
       level: 11,
       markers: { 家园进度: 4 },
-      backpack: JSON.stringify([{ name: '凭证', type: '资源', quantity: 5, count: 5 }]),
+      backpack: JSON.stringify([{ name: '凭证', type: '资源', quantity: 5 }]),
     });
     const { service } = buildHarness(
       player,
@@ -265,7 +265,7 @@ describe('打开箱子（使用物品）', () => {
 
   it('蛋糕授予掉落率+50%增益并显示剩余时间', async () => {
     const player = buildPlayer({
-      backpack: JSON.stringify([{ name: '蛋糕', type: '资源', quantity: 2, count: 2 }]),
+      backpack: JSON.stringify([{ name: '蛋糕', type: '资源', quantity: 2 }]),
     });
     const { service } = buildHarness(
       player,
@@ -275,14 +275,15 @@ describe('打开箱子（使用物品）', () => {
     const text = await service.useItem(42, '蛋糕', 2);
     expect(text).toContain('享用了2的蛋糕，掉落率+50%');
     expect(text).toMatch(/\(\d+分\d+秒\)/);
-    const cakeBuff = player.buffs.find((b: any) => b.名称 === '蛋糕');
+    // 增益条目写规范键 name/expireAt（旧别名 名称/有效期至 由边界归一化收敛）
+    const cakeBuff = player.buffs.find((b: any) => b.name === '蛋糕');
     expect(cakeBuff).toBeTruthy();
-    expect(cakeBuff.有效期至).toBeGreaterThan(Date.now());
+    expect(cakeBuff.expireAt).toBeGreaterThan(Date.now());
   });
 
   it('至纯圣水无家园时提前返回不消耗；有家园时加速观测时间', async () => {
     const playerNoHome = buildPlayer({
-      backpack: JSON.stringify([{ name: '至纯圣水', type: '资源', quantity: 3, count: 3 }]),
+      backpack: JSON.stringify([{ name: '至纯圣水', type: '资源', quantity: 3 }]),
     });
     const noHome = buildHarness(
       playerNoHome,
@@ -296,7 +297,7 @@ describe('打开箱子（使用物品）', () => {
     const homeMap: any = { id: 9, markers: JSON.stringify({ 观测时间: Date.now() / 1000 }) };
     const playerWithHome = buildPlayer({
       houseName: '测试屋',
-      backpack: JSON.stringify([{ name: '至纯圣水', type: '资源', quantity: 6, count: 6 }]),
+      backpack: JSON.stringify([{ name: '至纯圣水', type: '资源', quantity: 6 }]),
     });
     const prisma: any = {
       player: { findUnique: jest.fn(async () => playerWithHome), update: jest.fn() },
@@ -331,7 +332,7 @@ describe('打开箱子（使用物品）', () => {
   it('普通战利品：小数数量(0.03334)不显示，且无装备时不挂悬空「和」', async () => {
     // 复刻 items.json 的普通战利品：合金6.66666 + 普通武器补给箱0.03334
     const player = buildPlayer({
-      backpack: JSON.stringify([{ name: '普通战利品', type: '资源', quantity: 1, count: 1 }]),
+      backpack: JSON.stringify([{ name: '普通战利品', type: '资源', quantity: 1 }]),
     });
     const { service } = buildHarness(
       player,
@@ -357,10 +358,10 @@ describe('打开箱子（使用物品）', () => {
   it('使用全部箱：模糊匹配全部箱类物品倒序逐一开箱，种子被屏蔽，装备只显示件数（_主程序.ecode L4517-4540）', async () => {
     const player = buildPlayer({
       backpack: JSON.stringify([
-        { name: '精良装备补给箱', type: '资源', quantity: 2, count: 2 },
-        { name: '资源箱', type: '资源', quantity: 3, count: 3 },
-        { name: '苹果树种子', type: '资源', quantity: 5, count: 5 }, // 种子：使用可得单池命中资源 → 屏蔽
-        { name: '铁剑', type: '装备', quantity: 1, count: 1 },       // 名字含“剑”不含“箱”，不受影响
+        { name: '精良装备补给箱', type: '资源', quantity: 2 },
+        { name: '资源箱', type: '资源', quantity: 3 },
+        { name: '苹果树种子', type: '资源', quantity: 5 }, // 种子：使用可得单池命中资源 → 屏蔽
+        { name: '铁剑', type: '装备', quantity: 1 },       // 名字含“剑”不含“箱”，不受影响
       ]),
     });
     const { service } = buildHarness(
@@ -401,7 +402,7 @@ describe('打开箱子（使用物品）', () => {
 
   it('使用全部：无匹配时返回“没有匹配的物品”，无关键词时返回用法提示', async () => {
     const player = buildPlayer({
-      backpack: JSON.stringify([{ name: '苹果树种子', type: '资源', quantity: 5, count: 5 }]),
+      backpack: JSON.stringify([{ name: '苹果树种子', type: '资源', quantity: 5 }]),
     });
     const { service } = buildHarness(
       player,
@@ -419,9 +420,9 @@ describe('打开箱子（使用物品）', () => {
   it('使用全部：小数数量箱子只使用整数部分（原版 L2246 取整）；未定义物品 #错误 按原版覆盖已累积文本', async () => {
     const player = buildPlayer({
       backpack: JSON.stringify([
-        { name: '优秀武器补给箱', type: '资源', quantity: 1.0352999999999999, count: 1.0352999999999999 },
-        { name: '主线补给箱', type: '资源', quantity: 2, count: 2 }, // harness 的 mock 目录未定义该物品 → #错误（验证未定义物品分支）
-        { name: '挑战资源箱', type: '资源', quantity: 2, count: 2 },
+        { name: '优秀武器补给箱', type: '资源', quantity: 1.0352999999999999 },
+        { name: '主线补给箱', type: '资源', quantity: 2 }, // harness 的 mock 目录未定义该物品 → #错误（验证未定义物品分支）
+        { name: '挑战资源箱', type: '资源', quantity: 2 },
       ]),
     });
     const { service } = buildHarness(
@@ -461,7 +462,7 @@ describe('打开箱子（使用物品）', () => {
     const player = buildPlayer({
       type: '花园猫',
       markers: { '花园猫好感': 6 },
-      backpack: JSON.stringify([{ name: '巧克力', type: '资源', quantity: 20, count: 20 }]),
+      backpack: JSON.stringify([{ name: '巧克力', type: '资源', quantity: 20 }]),
     });
     const { service, playerService } = buildHarness(
       player,
@@ -506,7 +507,7 @@ describe('打开箱子（使用物品）', () => {
       type: '剑圣',
       // 快照里完全没有这两个键（历史旧快照覆盖把键删到归零后的形态）
       markers: { '使用巧克力': 0 },
-      backpack: JSON.stringify([{ name: '巧克力', type: '资源', quantity: 3, count: 3 }]),
+      backpack: JSON.stringify([{ name: '巧克力', type: '资源', quantity: 3 }]),
     });
     const { service, playerService } = buildHarness(
       player,
@@ -543,7 +544,7 @@ describe('打开箱子（使用物品）', () => {
     const player = buildPlayer({
       // 家园进度=4：凭证属家园写操作（开垦地块），要求房子已建成
       markers: { '凭证': 5, '改良建筑箱': 2, 家园进度: 4 },
-      backpack: JSON.stringify([{ name: '凭证', type: '资源', quantity: 1, count: 1 }]),
+      backpack: JSON.stringify([{ name: '凭证', type: '资源', quantity: 1 }]),
       level: 8,
     });
     const { service, playerService } = buildHarness(

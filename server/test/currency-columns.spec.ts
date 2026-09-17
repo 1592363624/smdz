@@ -64,7 +64,7 @@ describe('货币列化（P1）透明转换', () => {
     const snap = await service.getPlayerData(42);
     const bp = snap.backpack;
     expect(bp.find((i: any) => i.name === '钻石').quantity).toBeCloseTo(1053.6, 5);
-    expect(bp.find((i: any) => i.name === '召唤券').count).toBeCloseTo(0.012, 9);
+    expect(bp.find((i: any) => i.name === '召唤券').quantity).toBeCloseTo(0.012, 9);
     expect(bp.find((i: any) => i.name === '数据核心').quantity).toBe(7);
   });
 
@@ -81,7 +81,7 @@ describe('货币列化（P1）透明转换', () => {
     const snap = await service.getPlayerData(42);
     const bp = snap.backpack;
     bp.find((i: any) => i.name === '钻石').quantity -= 40;   // 扣 40 钻
-    bp.find((i: any) => i.name === '召唤券').count += 2;     // 加 2 券
+    bp.find((i: any) => i.name === '召唤券').quantity += 2;  // 加 2 券（货币条目只写规范键 quantity）
     snap.player.backpack = JSON.stringify(bp);
     await service.savePlayer(snap.player);
 

@@ -110,7 +110,7 @@ describe('采集结算在 Actor/mutate 链内的落库（线上读条残留回�
         markers['采集熟练度'] = Number(markers['采集熟练度'] ?? 0) + 60;
         pd.player.markers = markers;
         const backpack = asJsonValue<any[]>(pd.player.backpack, []);
-        backpack.push({ name: '石头', type: '物品', count: 190.8, quantity: 190.8 });
+        backpack.push({ name: '石头', type: '物品', quantity: 190.8 });
         pd.player.backpack = backpack;
         await playerService.savePlayer(pd.player);
       });
@@ -169,7 +169,7 @@ describe('「⚡完成」结算后复核：清理无任务行的残留采集标�
     const player: any = {
       userId: 501,
       markers: { 采集中: { cmd: '收集木头', target: '巨树', settleAt: Date.now() + 4620_000 } },
-      markers2: [{ 名称: '采集', 有效期至: Date.now() + 4620_000 }],
+      markers2: [{ name: '采集', expireAt: Date.now() + 4620_000 }],
     };
     const support: any = {
       mutatePlayer: jest.fn(async (_uid: number, fn: any) => fn({ player })),

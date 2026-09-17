@@ -14,6 +14,7 @@ import { MapService } from './map.service';
 import { CombatSystemService } from './combat-system.service';
 import { HomeService, renderHomeOverviewText } from './home.service';
 import { ItemSystemService } from './item-system.service';
+import { readMarkerValue, normalizeMarkers } from './field-contract.util';
 import { FamiliarSkillsService } from './familiar-skills.service';
 import { ShortcutService } from './shortcut.service';
 import { CombatStateService } from './combat-state.service';
@@ -61,28 +62,26 @@ export interface SummonUnit {
   /** 战斗力 */
   combatPower?: number;
   /** === 原版召唤物为"玩家2实例"，携带完整玩家级数组（对应 _主程序.ecode L9783 重定义数组） === */
-  /** 对召唤者好感（原版 添加成就("好感"+玩家.QQ, 30)） */
-  好感?: number;
   /** 剧情房子（原版 玩家2.房子 = 对话列表[1].任务） */
   房子?: string;
   /** 成就数组 */
-  成就?: any[];
+  achievements?: any[];
   /** 背包数组 */
-  背包?: any[];
+  backpack?: any[];
   /** 增益数组 */
-  增益?: any[];
+  buffs?: any[];
   /** 武器数组 */
-  武器?: any[];
+  weapons?: any[];
   /** 装备数组 */
-  装备?: any[];
+  equipments?: any[];
   /** 标记2数组 */
-  标记2?: any[];
+  markers2?: any[];
   /** 标记数组 */
-  标记?: any[];
+  markers?: any[];
   /** 任务数组 */
   任务?: any[];
   /** 装备预设数组 */
-  装备预设?: any[];
+  equipmentPresets?: any[];
 }
 
 /**
@@ -123,10 +122,11 @@ export interface Producer {
 
 /**
  * 产出物品
+ * 数量只用规范键 quantity（与物品域同口径；count 旧镜像已废弃）
  */
 export interface OutputItem {
   name: string;
-  count: number;
+  quantity: number;
 }
 
 @Injectable()
@@ -579,17 +579,16 @@ export class FamiliarSystemService {
       level: 1,
       hp: 100,
       combatPower: 0,
-      好感: 30,
       房子: '初始休眠仓', // 原版 玩家2.房子 = 对话列表[1].任务（剧情占位）
-      成就: [],
-      背包: [],
-      增益: [],
-      武器: [],
-      装备: [],
-      标记2: [],
-      标记: [],
+      achievements: [],
+      backpack: [],
+      buffs: [],
+      weapons: [],
+      equipments: [],
+      markers2: [],
+      markers: [],
       任务: [],
-      装备预设: [],
+      equipmentPresets: [],
     };
 
     // mutateSummons 锁内闭环：重读最新 summons → 移除旧"白" → push 新实例 → 差异写回
@@ -793,7 +792,7 @@ export class FamiliarSystemService {
       const weapons = playerData.weapons || [];
       if (Array.isArray(weapons) && weapons.length > 0) {
         const weaponNames = weapons.map((w: any, i: number) =>
-          `${w?.name || w?.名称 || '未知'}${w?.data ? `[${this.familiarQualityPrefix(w.data)}]` : ''}`
+          `${w?.name || '未知'}${w?.data ? `[${this.familiarQualityPrefix(w.data)}]` : ''}`
         );
         lines.push(`◆使用的武器: ${weaponNames.join('、')}`);
       }
@@ -802,14 +801,14 @@ export class FamiliarSystemService {
       const equipments = playerData.equipment || [];
       if (Array.isArray(equipments) && equipments.length > 0) {
         const equipNames = equipments.map((e: any) =>
-          `${e?.name || e?.名称 || '未知'}${e?.data ? `[${this.familiarQualityPrefix(e.data)}]` : ''}`
+          `${e?.name || '未知'}${e?.data ? `[${this.familiarQualityPrefix(e.data)}]` : ''}`
         );
         lines.push(`◆使用的装备: ${equipNames.join('、')}`);
       }
 
       // 增益（对齐原版 L956-963）
       if (buffs && Array.isArray(buffs) && buffs.length > 0) {
-        const buffNames = buffs.map((b: any) => b?.name || b?.名称 || '未知');
+        const buffNames = buffs.map((b: any) => b?.name || '未知');
         lines.push(`◆当前增益: ${buffNames.join('、')}`);
       }
     }
@@ -899,8 +898,8 @@ export class FamiliarSystemService {
     dataCore: ShopItem[];
   } {
     const config = this.staticData.getShopConfig();
-    const map = (items: Array<{ name: string; count: number }>, costType: ShopItem['costType']): ShopItem[] =>
-      items.map((item) => ({ name: item.name, cost: item.count, costType }));
+    const map = (items: Array<{ name: string; quantity: number }>, costType: ShopItem['costType']): ShopItem[] =>
+      items.map((item) => ({ name: item.name, cost: item.quantity, costType }));
     return {
       activity: map(config.activity, 'activity'),
       diamond: map(config.diamond, '钻石'),
@@ -909,7 +908,7 @@ export class FamiliarSystemService {
   }
 
   private getItemQuantity(item: any): number {
-    return Number(item?.quantity ?? item?.count ?? item?.数量 ?? item?.数量值 ?? 0) || 0;
+    return Number(item?.quantity ?? 0) || 0;
   }
 
   private addResourceToBackpack(backpack: any[], name: string, count: number, type = '资源'): void {
@@ -919,8 +918,8 @@ export class FamiliarSystemService {
     // 无品质码的裸装备（原版不存在这种装备）；出口对缺品质码的装备会前置补 E 兜底。
     const item: any =
       type === '装备'
-        ? { name, type: '装备', quantity: 1, count: 1, durability: 0 }
-        : { name, type, quantity: count, count };
+        ? { name, type: '装备', quantity: 1, durability: 0 }
+        : { name, type, quantity: count };
     mergeBackpackItem(backpack, item, lookupFromStaticData(this.staticData));
   }
 
@@ -1191,7 +1190,7 @@ export class FamiliarSystemService {
 
   /** 产出2（作物/建筑非空）条目数；土堆/杂草等障碍物在原版里产出2恒为空。 */
   private countOutputs2(resource: any): number {
-    const raw = resource?.outputs2 ?? resource?.['产出2'];
+    const raw = resource?.outputs2;
     if (Array.isArray(raw)) return raw.length;
     if (raw == null || raw === '') return 0;
     const parsed = asJsonValue<any[]>(raw, []);
@@ -1223,9 +1222,9 @@ export class FamiliarSystemService {
     if (!target) return 0;
     let total = 0;
     for (const item of backpack || []) {
-      const itemName = String(item?.name ?? item?.['名称'] ?? '').trim();
+      const itemName = String(item?.name ?? '').trim();
       if (itemName !== target) continue;
-      const qty = Number(item?.quantity ?? item?.count ?? item?.['数量'] ?? 0);
+      const qty = Number(item?.quantity ?? 0);
       if (Number.isFinite(qty) && qty > 0) total += qty;
     }
     return total;
@@ -1240,23 +1239,17 @@ export class FamiliarSystemService {
     let left = Math.max(0, need);
     for (let i = (backpack || []).length - 1; i >= 0 && left > 0; i -= 1) {
       const item = backpack[i];
-      const itemName = String(item?.name ?? item?.['名称'] ?? '').trim();
+      const itemName = String(item?.name ?? '').trim();
       if (itemName !== target) continue;
-      const raw = Number(item?.quantity ?? item?.count ?? item?.['数量'] ?? 0);
+      const raw = Number(item?.quantity ?? 0);
       const qty = Number.isFinite(raw) ? raw : 0;
       if (qty <= 0) continue;
       if (qty <= left + 1e-9) {
         left -= qty;
         backpack.splice(i, 1);
       } else {
-        const after = qty - left;
-        if (item.quantity !== undefined) item.quantity = after;
-        if (item.count !== undefined) item.count = after;
-        if (item['数量'] !== undefined) item['数量'] = after;
-        // 两字段都不存在时至少写 count，避免扣完后条目仍显示旧值
-        if (item.quantity === undefined && item.count === undefined && item['数量'] === undefined) {
-          item.count = after;
-        }
+        // 数量只写规范键 quantity（count/数量 别名由 field-contract 在读写边界收敛）
+        item.quantity = qty - left;
         left = 0;
       }
     }
@@ -1597,10 +1590,10 @@ export class FamiliarSystemService {
 
     // 检查所需材料（对应原版逐项提示：建造地基需要80木头，你只有X）
     const required = [
-      { name: '木头', count: 80 },
-      { name: '石头', count: 120 },
-      { name: '铁矿', count: 40 },
-      { name: '绳子', count: 40 },
+      { name: '木头', quantity: 80 },
+      { name: '石头', quantity: 120 },
+      { name: '铁矿', quantity: 40 },
+      { name: '绳子', quantity: 40 },
     ];
 
     const backpack = this.playerService.getBackpackItems(player);
@@ -1608,8 +1601,8 @@ export class FamiliarSystemService {
     // 与院子「已有 X」同口径：按名合计所有条目（多堆/小数物资），不能只 find 第一条
     for (const req of required) {
       const hasCount = this.sumBackpackByName(backpack, req.name);
-      if (hasCount < req.count) {
-        return `建造地基需要${req.count}${req.name}，你只有${Math.round(hasCount)}`;
+      if (hasCount < req.quantity) {
+        return `建造地基需要${req.quantity}${req.name}，你只有${Math.round(hasCount)}`;
       }
     }
 
@@ -1619,17 +1612,17 @@ export class FamiliarSystemService {
 
     // 扣除材料（跨条目扣减，保证与校验一致）
     for (const req of required) {
-      this.consumeBackpackByName(backpack, req.name, req.count);
+      this.consumeBackpackByName(backpack, req.name, req.quantity);
     }
 
     // 原版添加标记("工作", 60, 玩家.标记2, 原始时间戳)："正在工作"期间行动无限制拦截其他操作
     // 先摘掉残留的 homeBuild「工作」：addMarker 同名会**续时**而非覆盖，地基/房子连做会叠时长
     let markers2 = asJsonValue<any[]>(player.markers2, []);
-    markers2 = markers2.filter((m: any) => !(((m?.name ?? m?.名称) === '工作') && m?.homeBuild));
+    markers2 = markers2.filter((m: any) => !(m?.name === '工作' && m?.homeBuild));
     this.combatState?.addMarker('工作', 60, markers2, Date.now());
     // 打 homeBuild 溯源标签：结算时精准摘除（「工作」标记被维修/抢救/硬直等复用，不能按名盲删）
     // label 供 pendingActions 显示「建造地基中/建造房子中」，避免误标成下一步指令
-    const workEntry = markers2.find((m: any) => (m?.name ?? m?.名称) === '工作');
+    const workEntry = markers2.find((m: any) => m?.name === '工作');
     if (workEntry) {
       workEntry.homeBuild = true;
       workEntry.label = '建造地基';
@@ -1694,10 +1687,10 @@ export class FamiliarSystemService {
 
     // 检查所需材料（对应原版逐项提示格式）
     const required = [
-      { name: '木头', count: 300 },
-      { name: '石头', count: 500 },
-      { name: '铁矿', count: 160 },
-      { name: '绳子', count: 120 },
+      { name: '木头', quantity: 300 },
+      { name: '石头', quantity: 500 },
+      { name: '铁矿', quantity: 160 },
+      { name: '绳子', quantity: 120 },
     ];
 
     const backpack = this.playerService.getBackpackItems(player);
@@ -1705,8 +1698,8 @@ export class FamiliarSystemService {
     // 与院子「已有 X」同口径：按名合计所有条目（多堆/小数物资），不能只 find 第一条
     for (const req of required) {
       const hasCount = this.sumBackpackByName(backpack, req.name);
-      if (hasCount < req.count) {
-        return `建造房子需要${req.count}${req.name}，你只有${Math.round(hasCount)}`;
+      if (hasCount < req.quantity) {
+        return `建造房子需要${req.quantity}${req.name}，你只有${Math.round(hasCount)}`;
       }
     }
 
@@ -1716,16 +1709,16 @@ export class FamiliarSystemService {
 
     // 扣除材料（跨条目扣减，保证与校验一致）
     for (const req of required) {
-      this.consumeBackpackByName(backpack, req.name, req.count);
+      this.consumeBackpackByName(backpack, req.name, req.quantity);
     }
 
     // 原版添加标记("工作", 120, 玩家.标记2, 原始时间戳)
     // 先摘掉残留的 homeBuild「工作」：addMarker 同名会**续时**而非覆盖
     let markers2 = asJsonValue<any[]>(player.markers2, []);
-    markers2 = markers2.filter((m: any) => !(((m?.name ?? m?.名称) === '工作') && m?.homeBuild));
+    markers2 = markers2.filter((m: any) => !(m?.name === '工作' && m?.homeBuild));
     this.combatState?.addMarker('工作', 120, markers2, Date.now());
     // 打 homeBuild 溯源标签：结算时精准摘除（「工作」标记被维修/抢救/硬直等复用，不能按名盲删）
-    const workEntry = markers2.find((m: any) => (m?.name ?? m?.名称) === '工作');
+    const workEntry = markers2.find((m: any) => m?.name === '工作');
     if (workEntry) {
       workEntry.homeBuild = true;
       workEntry.label = '建造房子';
@@ -1803,7 +1796,7 @@ export class FamiliarSystemService {
     // 同步摘除家园建造的「工作」读条标记（开工时打了 homeBuild 溯源标签）：
     // 否则超管「⚡完成」提前结算后，标记仍挂原始到期时间，前端「工作中」读条会残留到自然到期
     const markers2 = asJsonValue<any[]>(player.markers2, []);
-    const kept = markers2.filter((m: any) => !(((m?.name ?? m?.名称) === '工作') && m?.homeBuild));
+    const kept = markers2.filter((m: any) => !(m?.name === '工作' && m?.homeBuild));
     if (kept.length !== markers2.length) player.markers2 = kept; // Player markers2 为 Json 列，直接写数组
     await this.playerService.savePlayer(player);
     return String(player.name || '冒险者');
@@ -1819,8 +1812,8 @@ export class FamiliarSystemService {
     if (!building) return null;
     // 剩余秒数从 markers2 的「工作」标记（有效期至，毫秒）反推，向上取整
     const markers2 = asJsonValue<any[]>(player?.markers2, []);
-    const work = markers2.find((m: any) => (m.name ?? m.名称) === '工作');
-    const remainMs = Number(work?.有效期至 ?? work?.expireAt ?? 0) - Date.now();
+    const work = markers2.find((m: any) => m.name === '工作');
+    const remainMs = Number(work?.expireAt ?? 0) - Date.now();
     if (remainMs > 0) return `家园正在建造中，还需要${Math.ceil(remainMs / 1000)}秒`;
     // 工作标记已过期但结算任务尚未执行（如延时任务失败重试间隙）
     return '家园正在建造收尾，请稍候';
@@ -1847,17 +1840,13 @@ export class FamiliarSystemService {
     return Math.round(Number(value) || 0);
   }
 
-  /** 背包数量兼容原版 quantity 与旧版 count，并保持原条目的字段风格。 */
+  /** 数量统一写入规范键 quantity（count/数量 等历史别名由 field-contract 在读写边界收敛）。 */
   private setItemQuantity(item: any, value: number): void {
     if (!item) return;
-    if (item.quantity !== undefined) {
-      item.quantity = value;
-      // 双字段条目（如地图建筑）同步 count，与 home.service 口径一致，
-      // 避免陈旧 count 被防御计数/上限/武器倍率等消费方误读。
-      if (item.count !== undefined) item.count = value;
-    } else {
-      item.count = value;
-    }
+    item.quantity = value;
+    // count 等历史镜像不再同步：写镜像正是「同一条目两个数量互相打架」的根源
+    if (item.count !== undefined) delete item.count;
+    if (item['数量'] !== undefined) delete item['数量'];
   }
 
   /** 兼容直接实例化服务的旧测试/工具夹具；正式运行时始终由任务服务推进。 */
@@ -1926,12 +1915,12 @@ export class FamiliarSystemService {
       const outputs = asJsonValue<any[]>(def.materials, []);
       if (outputs.length === 0) continue;
 
-      // 构建生产者
+      // 构建生产者（materials 来自静态 buildings.json，条目数量只读规范键 quantity）
       const producer: Producer = {
         name: b.name,
-        outputs: outputs.map((o: any) => ({ name: o.name, count: o.count || 0 })),
+        outputs: outputs.map((o: any) => ({ name: o.name, quantity: Number(o.quantity ?? 0) })),
         priority: 2, // 建筑默认优先级2
-        count: b.count || 1,
+        count: Number(b.quantity ?? 1),
       };
       producers.push(producer);
     }
@@ -1972,10 +1961,10 @@ export class FamiliarSystemService {
         const minTime = this.calcMinOutputTime(producer, timeDiff, backpack);
 
         for (const output of producer.outputs) {
-          let quantity = output.count * producer.count * minTime / 60;
+          let quantity = output.quantity * producer.count * minTime / 60;
 
           // 应用倍率
-          if (output.count > 0) {
+          if (output.quantity > 0) {
             // 正产出
             quantity = quantity * buildingOutputRate;
             if (output.name === '电力' || output.name === '燃料') {
@@ -1991,14 +1980,14 @@ export class FamiliarSystemService {
           }
 
           // 跳过电力消耗（电力消耗在整体计算中处理）
-          if (output.name === '电力' && output.count < 0) continue;
+          if (output.name === '电力' && output.quantity < 0) continue;
 
           // 添加到产出列表
           const existing = outputItems.find((o: any) => o.name === output.name);
           if (existing) {
-            existing.count += quantity;
+            existing.quantity += quantity;
           } else {
-            outputItems.push({ name: output.name, count: quantity });
+            outputItems.push({ name: output.name, quantity });
           }
         }
       }
@@ -2006,14 +1995,14 @@ export class FamiliarSystemService {
 
     // 处理电力总体平衡
     const powerOutput = outputItems.find((o: any) => o.name === '电力');
-    if (powerOutput && powerOutput.count < 0) {
+    if (powerOutput && powerOutput.quantity < 0) {
       // 电力不足，所有产出减半
       for (const item of outputItems) {
         if (item.name !== '电力') {
-          item.count = Math.floor(item.count * 0.5);
+          item.quantity = Math.floor(item.quantity * 0.5);
         }
       }
-      powerOutput.count = 0;
+      powerOutput.quantity = 0;
     }
 
     // 将产出添加到玩家背包
@@ -2023,7 +2012,7 @@ export class FamiliarSystemService {
 
     let hasOutput = false;
     for (const item of outputItems) {
-      const count = Math.round(item.count);
+      const count = Math.round(item.quantity);
       if (count === 0) continue;
 
       if (count > 0) {
@@ -2056,7 +2045,7 @@ export class FamiliarSystemService {
    */
   private calcMinOutputTime(producer: Producer, timeDiff: number, backpack: any[]): number {
     // 检查是否有消耗品（负产出）
-    const consumables = producer.outputs.filter(o => o.count < 0 && o.name !== '电力');
+    const consumables = producer.outputs.filter(o => o.quantity < 0 && o.name !== '电力');
     if (consumables.length === 0) {
       return timeDiff;
     }
@@ -2065,10 +2054,10 @@ export class FamiliarSystemService {
     const times: number[] = [];
     for (const cons of consumables) {
       const item = backpack.find((i: any) => i.name === cons.name);
-      const available = item ? (item.count || 1) : 0;
+      const available = item ? (Number(item.quantity ?? 0) || 1) : 0;
 
       // 消耗品数量 / (消耗率 / 60) = 可支撑秒数
-      const consumeRate = Math.abs(cons.count) / 60;
+      const consumeRate = Math.abs(cons.quantity) / 60;
       if (consumeRate > 0) {
         const supportTime = available / consumeRate;
         times.push(supportTime);
@@ -2112,7 +2101,7 @@ export class FamiliarSystemService {
     let total = 0;
     for (const b of buildings) {
       if (!noOccupancyNames.has(b.name)) {
-        total += b.count || 1;
+        total += Number(b.quantity ?? 1);
       }
     }
     return total;
@@ -2166,15 +2155,15 @@ export class FamiliarSystemService {
 
     // 检查是否有特殊宠物（特殊序号 > 0 的宠物）
     const specialPets = summons.filter((s: any) => {
-      const specialSeq = s.specialSeq ?? s.特殊序号 ?? 0;
-      const hp = s.hp ?? s.当前生命 ?? 0;
+      const specialSeq = s.specialSeq ?? 0;
+      const hp = s.hp ?? 0;
       return specialSeq > 0 && hp > 0;
     });
 
     // 原版直接累加前线地图建筑数量，用于显示防御上限。
     const totalBuildings = this.playerService
       .safeJsonParse<any[]>(map.buildings, [])
-      .reduce((sum: number, b: any) => sum + Number(b.count ?? b.数量 ?? 1), 0);
+      .reduce((sum: number, b: any) => sum + Number(b.quantity ?? 1), 0);
 
     // 获取地图上的建筑列表
     const mapBuildings = asJsonValue<any[]>(map.buildings, []);
@@ -2188,8 +2177,8 @@ export class FamiliarSystemService {
       `火力通道:`,
     ];
 
-    for (const weapon of frontline?.武器 || frontline?.weapons || []) {
-      const name = weapon.名称 ?? weapon.name ?? '';
+    for (const weapon of frontline?.weapons || []) {
+      const name = weapon.name ?? '';
       const physical = weapon.属性?.物 ?? weapon.attributes?.physical ?? 0;
       lines.push(`${name}（伤害${physical}%）`);
     }
@@ -2198,7 +2187,7 @@ export class FamiliarSystemService {
     if (specialPets.length > 0) {
       lines.push(`特殊存在:`);
       for (const pet of specialPets) {
-        lines.push(`  ${pet.name || pet.名称} (HP: ${pet.hp ?? pet.当前生命 ?? 0})`);
+        lines.push(`  ${pet.name} (HP: ${pet.hp ?? 0})`);
       }
     }
 
@@ -2206,7 +2195,7 @@ export class FamiliarSystemService {
     if (mapBuildings.length > 0) {
       lines.push(`建筑列表:`);
       for (const b of mapBuildings) {
-        lines.push(`  ${b.name || b.名称} x${b.count ?? b.数量 ?? 1}`);
+        lines.push(`  ${b.name} x${Number(b.quantity ?? 1)}`);
       }
     }
 
@@ -2533,7 +2522,7 @@ export class FamiliarSystemService {
     // 检查背包是否有糖心巧克力
     const backpack = this.playerService.getBackpackItems(player);
     const chocolateItem = backpack.find((item: any) => item.name === '糖心巧克力');
-    const chocolateCount = chocolateItem ? (chocolateItem.count || 0) : 0;
+    const chocolateCount = chocolateItem ? Number(chocolateItem.quantity ?? 0) : 0;
 
     if (chocolateCount < count) {
       return `需要${count}个糖心巧克力，你只有${chocolateCount}`;
@@ -2551,7 +2540,7 @@ export class FamiliarSystemService {
       const idx = backpack.findIndex((item: any) => item.name === '糖心巧克力');
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
-      chocolateItem!.count = chocolateCount - count;
+      this.setItemQuantity(chocolateItem, chocolateCount - count);
     }
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
@@ -2636,7 +2625,7 @@ export class FamiliarSystemService {
     // 检查生肉数量
     const backpack = this.playerService.getBackpackItems(player);
     const meatItem = backpack.find((item: any) => item.name === '生肉');
-    const meatCount = meatItem ? (meatItem.count || 0) : 0;
+    const meatCount = meatItem ? Number(meatItem.quantity ?? 0) : 0;
     const petLevel = pet.level || 1;
 
     if (meatCount < petLevel) {
@@ -2645,7 +2634,7 @@ export class FamiliarSystemService {
 
     // 检查怪物是否在当前地图存在；运行时实例统一读取 GameMonster 表。
     const monsters = await this.mapService.getMapMonsters(map);
-    const monsterExists = monsters.some((m: any) => m.name === monsterName || m.名称 === monsterName);
+    const monsterExists = monsters.some((m: any) => m.name === monsterName);
 
     if (!monsterExists) {
       return `在${map.name}无法找到「${monsterName}」这种怪物`;
@@ -2656,7 +2645,7 @@ export class FamiliarSystemService {
       const idx = backpack.findIndex((item: any) => item.name === '生肉');
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
-      meatItem!.count = meatCount - petLevel;
+      this.setItemQuantity(meatItem, meatCount - petLevel);
     }
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
@@ -2848,7 +2837,7 @@ export class FamiliarSystemService {
 
       // 返还觉醒丹到背包（统一规范化合并，type 以静态定义为准）
       const backpack = this.playerService.getBackpackItems(player);
-      mergeBackpackItem(backpack, { name: '觉醒丹', type: '资源', quantity: totalSpent, count: totalSpent },
+      mergeBackpackItem(backpack, { name: '觉醒丹', type: '资源', quantity: totalSpent },
         lookupFromStaticData(this.staticData));
       player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
       await this.playerService.savePlayer(player);
@@ -2859,7 +2848,7 @@ export class FamiliarSystemService {
     // 正向觉醒
     const backpack = this.playerService.getBackpackItems(player);
     const pillItem = backpack.find((item: any) => item.name === '觉醒丹');
-    let available = pillItem ? (pillItem.count || 0) : 0;
+    let available = pillItem ? Number(pillItem.quantity ?? 0) : 0;
 
     let d = currentAwaken;
     let used = 0;
@@ -2875,15 +2864,15 @@ export class FamiliarSystemService {
 
     if (done === 0) {
       const nextCost = d % 100 === 99 ? (d + 1) / 10 : 1;
-      return `${petName}，突破「${this.getAwakenStageName(d)}」需要${nextCost}颗觉醒丹，你只有${pillItem ? pillItem.count : 0}`;
+      return `${petName}，突破「${this.getAwakenStageName(d)}」需要${nextCost}颗觉醒丹，你只有${pillItem ? Number(pillItem.quantity ?? 0) : 0}`;
     }
 
     // 扣除觉醒丹
     if (pillItem && used > 0) {
-      if (pillItem.count === used) {
+      if (Number(pillItem.quantity ?? 0) === used) {
         backpack.splice(backpack.indexOf(pillItem), 1);
       } else {
-        pillItem.count -= used;
+        this.setItemQuantity(pillItem, Number(pillItem.quantity ?? 0) - used);
       }
     }
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
@@ -3292,23 +3281,16 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     const parseJson = <T>(value: any, fallback: T): T =>
       asJsonValue<T>(value, fallback);
-    const readEntryName = (entry: any): string => entry?.名称 ?? entry?.name ?? '';
+    const readEntryName = (entry: any): string => entry?.name ?? '';
     const readEntryTimeMs = (entry: any): number => {
-      const raw = Number(entry?.有效期至 ?? entry?.expireAt ?? 0);
+      const raw = Number(entry?.expireAt ?? 0);
       return raw > 0 && raw < 1e12 ? raw * 1000 : raw;
     };
     const activeEntry = (entries: any[], name: string): any | undefined => entries.find((entry: any) =>
       readEntryName(entry) === name && (!readEntryTimeMs(entry) || readEntryTimeMs(entry) > nowMs),
     );
-    const readMarkerValue = (entries: any, name: string): number => {
-      if (Array.isArray(entries)) {
-        const entry = entries.find((item: any) => readEntryName(item) === name);
-        return Number(entry?.数值 ?? entry?.value ?? entry?.count ?? 0);
-      }
-      return Number(entries?.[name] ?? 0);
-    };
     const getMonsterDefinition = (monster: any): any =>
-      this.staticData.getMonsterByName(monster?.name ?? monster?.名称 ?? target ?? '') || {};
+      this.staticData.getMonsterByName(monster?.name ?? target ?? '') || {};
     const getMonsterBonus = (monster: any, definition: any): any => ({
       ...parseJson<any>(definition?.bonus, {}),
       ...parseJson<any>(monster?.bonus, {}),
@@ -3324,8 +3306,8 @@ ${this.getAwakenStageName(d)}(${d})`;
     const getDescription = (monster: any, definition: any): string => String(
       monster?.description ?? monster?.说明 ?? definition?.description ?? definition?.说明 ?? '',
     );
-    const getMonsterBuffs = (monster: any): any[] => parseJson<any[]>(monster?.buffs ?? monster?.增益, []);
-    const getMonsterMarkers2 = (monster: any): any[] => parseJson<any[]>(monster?.markers2 ?? monster?.标记2, []);
+    const getMonsterBuffs = (monster: any): any[] => parseJson<any[]>(monster?.buffs, []);
+    const getMonsterMarkers2 = (monster: any): any[] => parseJson<any[]>(monster?.markers2, []);
     const saveMonsterState = async (monster: any, fields: { buffs?: any[]; markers2?: any[] }): Promise<void> => {
       if (fields.buffs) monster.buffs = fields.buffs; // Json 列/嵌套容器直接写数组
       if (fields.markers2) monster.markers2 = fields.markers2; // 同上
@@ -3376,7 +3358,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       }
 
       const captureBuffs = anesthesiaBuffs.filter((entry: any) => readEntryName(entry) !== '捕捉模式');
-      captureBuffs.push({ 名称: '捕捉模式', 强度: 0, 有效期至: nowMs + 600 * 1000, 是否叠加时间: false });
+      captureBuffs.push({ name: '捕捉模式', strength: 0, expireAt: nowMs + 600 * 1000, stackTime: false });
       await saveMonsterState(monsterData, { buffs: captureBuffs });
 
       return `${playerName},${target}被设置为捕捉模式\n“停止捕捉${target}”来取消`;
@@ -3432,14 +3414,14 @@ ${this.getAwakenStageName(d)}(${d})`;
       const description = getDescription(monsterData, definition);
 
       // 原版 L6169-6177：特殊麻醉目标走专属驯服流程，普通捕捉不处理。
-      if (baseAnesthesia < 0 && monsterData.vitality !== -15 && monsterData.活力 !== -15) {
+      if (baseAnesthesia < 0 && monsterData.vitality !== -15) {
         const detail = description.includes('【特殊驯服方式】')
           ? description.slice(description.indexOf('【特殊驯服方式】'))
           : '(不可捕捉)';
         return `${playerName}\n${target}\n特殊麻醉值${this.roundLikeOriginal(Number(bonus.当前麻醉 ?? 0))}/${this.roundLikeOriginal(Math.abs(baseAnesthesia))}${detail}`;
       }
 
-      const monsterMarkers = parseJson<any[]>(monsterData.markers ?? monsterData.标记, []);
+      const monsterMarkers = parseJson<any[]>(monsterData.markers, []);
       const anesthesiaOwnerValue = readMarkerValue(monsterMarkers, `麻醉者${playerQQ}`);
       const currentAnesthesia = Number(bonus.当前麻醉 ?? bonus.currentAnesthesia ?? 0);
       const anesthesiaLimit = Math.abs(baseAnesthesia);
@@ -3456,7 +3438,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       const feedRequired = Math.abs(baseAnesthesia) / 150;
       const backpack = this.playerService.getBackpackItems(player);
       const feedItem = backpack.find((item: any) => item.name === '饲料');
-      const feedCount = feedItem ? Number(feedItem.quantity ?? feedItem.count ?? 0) : 0;
+      const feedCount = feedItem ? Number(feedItem.quantity ?? 0) : 0;
 
       if (feedCount < feedRequired) {
         return `${playerName}捕捉${target}需要${this.roundLikeOriginal(feedRequired)}的饲料，你只有${this.roundLikeOriginal(feedCount)}`;
@@ -3562,7 +3544,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 检查饲料
     const backpack = this.playerService.getBackpackItems(player);
     const feedItem = backpack.find((item: any) => item.name === '饲料');
-    const feedCount = feedItem ? Number(feedItem.quantity ?? feedItem.count ?? 0) : 0;
+    const feedCount = feedItem ? Number(feedItem.quantity ?? 0) : 0;
 
     if (feedCount < 100) {
       return '需要100饲料';
@@ -3584,7 +3566,8 @@ ${this.getAwakenStageName(d)}(${d})`;
       // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 两位小数收敛）
       mergeBackpackItem(
         backpack,
-        { name: itemName, count, quantity: count },
+        // 数量只写规范键 quantity（count 镜像已废弃）
+        { name: itemName, quantity: count },
         lookupFromStaticData(this.staticData),
       );
     };
@@ -3662,10 +3645,10 @@ ${this.getAwakenStageName(d)}(${d})`;
       ? asJsonValue<any[]>(player.markers2, [])
       : player.markers2;
     const markers2 = Array.isArray(parsedMarkers2) ? parsedMarkers2 : [];
-    const cooldownMarker = markers2.find((m: any) => (m?.name ?? m?.名称) === '安乐');
+    const cooldownMarker = markers2.find((m: any) => m?.name === '安乐');
     const nowMs = Date.now();
     const now = nowMs / 1000;
-    const rawExpire = Number(cooldownMarker?.expireAt ?? cooldownMarker?.有效期至 ?? 0);
+    const rawExpire = Number(cooldownMarker?.expireAt ?? 0);
     const expireAtMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
     // 判断粒度=秒：两侧取整到秒再比较（用户约定，禁毫秒差判定）
     if (cooldownMarker && Math.floor(expireAtMs / 1000) > Math.floor(nowMs / 1000)) {
@@ -3674,7 +3657,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 设置冷却（300秒 = 5分钟）；markers2 新数据统一使用毫秒时间戳。
-    const newMarkers2 = markers2.filter((m: any) => (m?.name ?? m?.名称) !== '安乐');
+    const newMarkers2 = markers2.filter((m: any) => m?.name !== '安乐');
     newMarkers2.push({
       name: '安乐',
       expireAt: nowMs + 300 * 1000,
@@ -3695,7 +3678,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     if (map) {
       const summons = asJsonValue<any[]>(map.summons, []);
       const summonTarget = summons.find((s: any) =>
-        (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
+        s.name === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
       );
 
       if (summonTarget) {
@@ -3704,7 +3687,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         // mutateSummons 锁内闭环：重读最新 summons → 按名字/QQ 重定位目标 → 写回 buff → 差异落库
         await this.mapService.mutateSummons(map.id, (fresh) => {
           const idx = fresh.findIndex((s: any) =>
-            (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
+            s.name === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
           );
           if (idx === -1) return false;
           fresh[idx].buffs = buffed;
@@ -3712,7 +3695,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         });
 
         await this.playerService.savePlayer(player);
-        return `给${summonTarget.name || summonTarget.名称}套上了行星护盾`;
+        return `给${summonTarget.name}套上了行星护盾`;
       }
     }
 
@@ -3740,7 +3723,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     // 原版目标不存在时返回错误，不会把技能悄悄改成对自己使用。
-    player.markers2 = markers2.filter((m: any) => (m?.name ?? m?.名称) !== '安乐'); // Json 列直接写数组
+    player.markers2 = markers2.filter((m: any) => m?.name !== '安乐'); // Json 列直接写数组
     await this.playerService.savePlayer(player);
     return `${player.name || '冒险者'},${normalizedTarget}在玩家列表不存在`;
   }
@@ -3788,7 +3771,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     if (map) {
       const summons = asJsonValue<any[]>(map.summons, []);
       const summonTarget = summons.find((s: any) =>
-        (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
+        s.name === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
       );
 
       if (summonTarget) {
@@ -3797,7 +3780,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         // mutateSummons 锁内闭环：重读最新 summons → 按名字/QQ 重定位目标 → 写回 buff → 差异落库
         await this.mapService.mutateSummons(map.id, (fresh) => {
           const idx = fresh.findIndex((s: any) =>
-            (s.name || s.名称) === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
+            s.name === normalizedTarget || (s.qq || s.QQ) === normalizedTarget,
           );
           if (idx === -1) return false;
           fresh[idx].buffs = buffed;
@@ -3805,7 +3788,7 @@ ${this.getAwakenStageName(d)}(${d})`;
         });
 
         await this.playerService.savePlayer(player);
-        return `给${summonTarget.name || summonTarget.名称}使用了福音书`;
+        return `给${summonTarget.name}使用了福音书`;
       }
     }
 
@@ -3851,7 +3834,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       ? asJsonValue<any[]>(target.buffs, [])
       : target?.buffs;
     const buffs = Array.isArray(rawBuffs) ? rawBuffs : [];
-    const next = buffs.filter((buff: any) => (buff?.name ?? buff?.名称) !== buffName);
+    const next = buffs.filter((buff: any) => buff?.name !== buffName);
     next.push({
       name: buffName,
       expireAt: nowSeconds + durationSeconds,
@@ -3866,7 +3849,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       ? asJsonValue<any[]>(player.equipment, [])
       : player?.equipment;
     return Array.isArray(rawEquipment) && rawEquipment.some((item: any) =>
-      String(item?.name ?? item?.名称 ?? '').trim() === itemName,
+      String(item?.name ?? '').trim() === itemName,
     );
   }
 
@@ -3921,12 +3904,11 @@ ${this.getAwakenStageName(d)}(${d})`;
     // 原版“置成就熟练度(..., 0)”会删除幼崽和时间标记。
     delete markers['幼崽'];
     delete markers['时间2'];
-    const type = String(summon?.type ?? summon?.类型 ?? '');
+    const type = String(summon?.type ?? '');
     const definition = type ? this.staticData.getMonsterByName(type) : null;
-    const vitality = Number(definition?.vitality ?? definition?.活力 ?? definition?.specialSeq ?? definition?.特殊序号);
+    const vitality = Number(definition?.vitality ?? definition?.specialSeq);
     if (Number.isFinite(vitality)) {
       summon.vitality = vitality;
-      if (summon.活力 !== undefined) summon.活力 = vitality;
     }
     return false;
   }
@@ -3937,7 +3919,7 @@ ${this.getAwakenStageName(d)}(${d})`;
    * @returns true 表示仍是幼崽，false 表示已长大（标记已被清除）
    */
   checkAndUpdateGrowth(summon: any): boolean {
-    const markers = summon?.markers ?? summon?.标记 ?? {};
+    const markers = summon?.markers ?? {};
     return this.updateSummonGrowth(summon, markers);
   }
 
@@ -3988,7 +3970,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // 查找目标；先按名称/图片/QQ匹配，再按归属和好感决定是否允许控制。
     const petIndex = summons.findIndex((s: any) =>
-      [s.name, s.名称, s.image, s.图片, s.qq, s.QQ].some(
+      [s.name, s.image, s.qq, s.QQ].some(
         (value) => String(value ?? '') === String(targetName ?? ''),
       ),
     );
@@ -3998,47 +3980,43 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
 
     const pet = summons[petIndex];
-    const owner = String(pet.ownerQQ ?? pet.归属 ?? pet.owner ?? pet.ownerId ?? '');
+    const owner = String(pet.ownerQQ ?? pet.owner ?? pet.ownerId ?? '');
     const isOwner = ownerIds.has(owner);
     const rawPetMarkers = typeof pet.markers === 'string'
       ? asJsonValue<any>(pet.markers, {})
-      : (pet.markers ?? pet.标记 ?? {});
+      : (pet.markers ?? {});
     const petMarkers: Record<string, any> = Array.isArray(rawPetMarkers)
-      ? Object.fromEntries(rawPetMarkers.map((item: any) => [
-        item?.name ?? item?.名称,
-        item?.value ?? item?.数值 ?? item?.count ?? 0,
-      ]).filter(([name]) => Boolean(name)))
+      ? this.markersToRecord(rawPetMarkers)
       : (rawPetMarkers && typeof rawPetMarkers === 'object' ? { ...rawPetMarkers } : {});
     this.updateSummonGrowth(pet, petMarkers);
-    const affinity = pet.name === '白' || pet.名称 === '白'
+    const affinity = pet.name === '白'
       ? 100
       : Number(
         petMarkers[`好感${playerQQ}`]
         ?? petMarkers[`好感${userId}`]
         ?? pet.affinity
-        ?? pet.好感
         ?? 0,
       );
 
     if (!isOwner && affinity < 100) {
-      return `${pet.name || pet.名称 || targetName}，我不会跟你走的(好感不足100)`;
+      return `${pet.name || targetName}，我不会跟你走的(好感不足100)`;
     }
     if (Number(petMarkers['阵地'] ?? 0) !== 0) {
-      return `${pet.name || pet.名称 || targetName}不能行走`;
+      return `${pet.name || targetName}不能行走`;
     }
     if (Number(petMarkers['幼崽'] ?? 0) !== 0) {
-      return `${pet.name || pet.名称 || targetName}还不能行走`;
+      return `${pet.name || targetName}还不能行走`;
     }
 
     const currentFollow = Number(petMarkers['跟随'] ?? (pet.follow ? 0 : 1));
     const nextFollow = isFollow === undefined ? currentFollow === 1 : isFollow;
-    const petName = pet.name || pet.名称 || targetName;
+    const petName = pet.name || targetName;
 
     // mutateSummons 锁内闭环：重读最新 summons → 按名字重定位 → 应用跟随状态 → 差异写回
     // （生长更新/归属转换/qq 重写在锁内基于最新元素执行，避免快照整组写回覆盖并发变更）
     const applied = await this.mapService.mutateSummons(map.id, (fresh) => {
       const idx = fresh.findIndex((s: any) =>
-        [s.name, s.名称, s.image, s.图片, s.qq, s.QQ].some(
+        [s.name, s.image, s.qq, s.QQ].some(
           (value) => String(value ?? '') === String(targetName ?? ''),
         ),
       );
@@ -4046,12 +4024,9 @@ ${this.getAwakenStageName(d)}(${d})`;
       const target = fresh[idx];
       const freshMarkersRaw = typeof target.markers === 'string'
         ? asJsonValue<any>(target.markers, {})
-        : (target.markers ?? target.标记 ?? {});
+        : (target.markers ?? {});
       const freshMarkers: Record<string, any> = Array.isArray(freshMarkersRaw)
-        ? Object.fromEntries(freshMarkersRaw.map((item: any) => [
-          item?.name ?? item?.名称,
-          item?.value ?? item?.数值 ?? item?.count ?? 0,
-        ]).filter(([name]) => Boolean(name)))
+        ? this.markersToRecord(freshMarkersRaw)
         : (freshMarkersRaw && typeof freshMarkersRaw === 'object' ? { ...freshMarkersRaw } : {});
       this.updateSummonGrowth(target, freshMarkers);
       if (nextFollow) {
@@ -4061,7 +4036,6 @@ ${this.getAwakenStageName(d)}(${d})`;
         // 原版任务/NPC 通过好感获得跟随后会转为当前玩家归属。
         if (!isOwner) {
           target.ownerQQ = playerQQ;
-          if (target.归属 !== undefined) target.归属 = playerQQ;
           if (target.qq === 'npc2g' || target.QQ === 'npc2g') {
             target.qq = `怪物${Date.now()}g`;
             if (target.QQ !== undefined) target.QQ = target.qq;
@@ -4073,7 +4047,6 @@ ${this.getAwakenStageName(d)}(${d})`;
         freshMarkers['跟随'] = 1;
       }
       target.markers = freshMarkers; // summons 嵌套元素字段保持对象形态（读取方均容错）
-      if (target.标记 !== undefined) target.标记 = target.markers;
       return true;
     });
     if (!applied) {
@@ -4085,7 +4058,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     try {
       dialogue = this.staticData.getDialogue(
         player.name || '冒险者',
-        { type: pet.type ?? pet.类型, qq: pet.qq ?? pet.QQ },
+        { type: pet.type, qq: pet.qq ?? pet.QQ },
         petName,
         nextFollow ? 2 : 3,
       );
@@ -4096,6 +4069,25 @@ ${this.getAwakenStageName(d)}(${d})`;
     return nextFollow
       ? `${petName} 开始跟随你${dialogue ? `\n${dialogue}` : ''}`
       : `${petName} 停止跟随${dialogue ? `\n${dialogue}` : ''}`;
+  }
+
+  /**
+   * 把数组形态的标记容器转成字典形态（`[{name,value}]` → `{标记名: 数值}`）。
+   *
+   * 标记条目在库里/内存里有两种规范形态：字典（Player.markers）与数组（GameMonster/召唤物.markers）。
+   * 数组条目字段名统一为 `name`/`value`；历史 `{名称,数值}` 由共享归一化器收敛后再读，
+   * 保证不会出现「有的地方读 数值、有的地方读 value」的双口径。
+   *
+   * @param entries 数组形态的标记条目
+   * @returns 标记字典（无 name 的条目丢弃）
+   */
+  private markersToRecord(entries: any[]): Record<string, any> {
+    normalizeMarkers(entries);
+    return Object.fromEntries(
+      entries
+        .map((item: any) => [item?.name, Number(item?.value) || 0])
+        .filter(([name]) => Boolean(name)),
+    );
   }
 
   /**
@@ -4302,20 +4294,21 @@ ${this.getAwakenStageName(d)}(${d})`;
     if (!originalTitle) {
       return `${player.name || '冒险者'}${titleName}在称号列表不存在！`;
     }
-    const requirements = asJsonValue<Array<{ name?: string; count?: number }>>(originalTitle.requirements, []);
+    // 条件与奖励条目数量只读规范键 quantity（同义旧键 count 已废弃，titles.json 已改名）
+    const requirements = asJsonValue<Array<{ name?: string; quantity?: number }>>(originalTitle.requirements, []);
     // 逐条校验条件（原版通常单条件；多条件需全部满足），未满足时按原版文案播报第一条差距
     for (const req of requirements) {
       const reqName = String(req?.name || '').trim();
       if (!reqName) continue;
-      const need = Number(req?.count) || 0;
+      const need = Number(req?.quantity) || 0;
       const current = this.getTitleProgress(markers, reqName);
       if (current < need) {
         return `${player.name || '冒险者'}\n${titleName}需要${reqName}x${formatDamageText(need)},你只达到了${formatDamageText(current)}`;
       }
     }
-    const pendingRewards = asJsonValue<Array<{ name?: string; count?: number }>>(originalTitle.rewards, [])
-      .map((r) => ({ name: String(r?.name || '').trim(), count: roundItemQuantity(Number(r?.count) || 0) }))
-      .filter((r) => r.name && r.count > 0);
+    const pendingRewards = asJsonValue<Array<{ name?: string; quantity?: number }>>(originalTitle.rewards, [])
+      .map((r) => ({ name: String(r?.name || '').trim(), quantity: roundItemQuantity(Number(r?.quantity) || 0) }))
+      .filter((r) => r.name && r.quantity > 0);
 
     // ---------- 条件满足：发放奖励 + 写称号 + 单点落库 ----------
     const rewardLines: string[] = [];
@@ -4328,11 +4321,11 @@ ${this.getAwakenStageName(d)}(${d})`;
           const equipment = this.itemSystem
             ? await this.itemSystem.generateRewardEquipment(reward.name)
             : { name: reward.name, data: 'e' };
-          mergeBackpackItem(backpack, { ...equipment, name: reward.name, quantity: 1, count: 1 }, lookup);
+          mergeBackpackItem(backpack, { ...equipment, name: reward.name, quantity: 1 }, lookup);
         } else {
-          mergeBackpackItem(backpack, { name: reward.name, quantity: reward.count, count: reward.count }, lookup);
+          mergeBackpackItem(backpack, { name: reward.name, quantity: reward.quantity }, lookup);
         }
-        rewardLines.push(`${reward.name}x${formatDamageText(reward.count)}`);
+        rewardLines.push(`${reward.name}x${formatDamageText(reward.quantity)}`);
       }
       player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
     }
@@ -4472,7 +4465,7 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     for (const title of this.staticData.getAllTitles()) {
       if (ownedNames.has(title.name)) continue;
-      const requirements = asJsonValue<Array<{ name?: string; count?: number }>>(title.requirements, []);
+      const requirements = asJsonValue<Array<{ name?: string; quantity?: number }>>(title.requirements, []);
       if (requirements.length === 0) continue;
 
       const reqTexts: string[] = [];
@@ -4484,7 +4477,8 @@ ${this.getAwakenStageName(d)}(${d})`;
       for (const req of requirements) {
         const reqName = String(req?.name || '').trim();
         if (!reqName) continue;
-        const need = Number(req?.count) || 0;
+        // 条件数量只读规范键 quantity（同义旧键 count 已废弃）
+        const need = Number(req?.quantity) || 0;
         const current = this.getTitleProgress(markers, reqName);
         if (current < need) ready = false;
         if (!firstReqName) {

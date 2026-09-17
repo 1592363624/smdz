@@ -24,12 +24,12 @@
         "outputs": [
           {
             "name": "提卡x",
-            "count": 0,
+            "quantity": 0,
             "chance": 100
           },
           {
             "name": "奶",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           }
         ],
@@ -48,7 +48,7 @@
         "outputs": [
           {
             "name": "增幅器s",
-            "count": 0,
+            "quantity": 0,
             "chance": 100
           }
         ],
@@ -67,17 +67,17 @@
         "outputs": [
           {
             "name": "钻石",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "传说强化券",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           },
           {
             "name": "巧克力",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -136,12 +136,12 @@
         "outputs": [
           {
             "name": "钻石",
-            "count": 3,
+            "quantity": 3,
             "chance": 100
           },
           {
             "name": "优秀装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           }
         ],
@@ -221,27 +221,27 @@
         "outputs": [
           {
             "name": "经验胶囊",
-            "count": -100,
+            "quantity": -100,
             "chance": 100
           },
           {
             "name": "奶",
-            "count": -10,
+            "quantity": -10,
             "chance": 100
           },
           {
             "name": "巧克力",
-            "count": -20,
+            "quantity": -20,
             "chance": 100
           },
           {
             "name": "果实",
-            "count": -100,
+            "quantity": -100,
             "chance": 100
           },
           {
             "name": "生肉",
-            "count": -300,
+            "quantity": -300,
             "chance": 100
           }
         ],
@@ -260,17 +260,17 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 3,
+            "quantity": 3,
             "chance": 100
           },
           {
             "name": "绳子",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "巧克力",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 4
           }
         ],
@@ -289,17 +289,17 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 15
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -318,12 +318,12 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -342,12 +342,12 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "巧克力",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 2
           }
         ],
@@ -428,17 +428,17 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 4,
+            "quantity": 4,
             "chance": 100
           },
           {
             "name": "绳子",
-            "count": 2,
+            "quantity": 2,
             "chance": 50
           },
           {
             "name": "巧克力",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 6
           }
         ],
@@ -457,17 +457,17 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 3,
+            "quantity": 3,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -486,17 +486,17 @@
         "outputs": [
           {
             "name": "铁矿",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 2,
+            "quantity": 2,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -647,32 +647,32 @@
         "outputs": [
           {
             "name": "燃料",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "燃料",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "燃料",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "燃料",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -735,17 +735,17 @@
         "outputs": [
           {
             "name": "钻石",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "传说强化券",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           },
           {
             "name": "巧克力",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -820,17 +820,17 @@
         "outputs": [
           {
             "name": "钻石",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "传说强化券",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           },
           {
             "name": "巧克力",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -907,7 +907,7 @@
         "outputs": [
           {
             "name": "毁灭之爪s",
-            "count": 0,
+            "quantity": 0,
             "chance": 100
           }
         ],
@@ -995,12 +995,12 @@
         "outputs": [
           {
             "name": "绳子",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -1084,17 +1084,17 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 6,
+            "quantity": 6,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           }
         ],
@@ -1113,12 +1113,12 @@
         "outputs": [
           {
             "name": "绳子",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "果实",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -1177,17 +1177,17 @@
         "outputs": [
           {
             "name": "钻石",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "传说强化券",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           },
           {
             "name": "巧克力",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -1246,12 +1246,12 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "绳子",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -1318,12 +1318,12 @@
         "outputs": [
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           }
         ],
@@ -1395,12 +1395,12 @@
         "outputs": [
           {
             "name": "高斯狙击枪",
-            "count": 0,
+            "quantity": 0,
             "chance": 10
           },
           {
             "name": "史诗强化券",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           }
         ],
@@ -1544,12 +1544,12 @@
         "outputs": [
           {
             "name": "水晶",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "木头",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           }
         ],
@@ -1568,12 +1568,12 @@
         "outputs": [
           {
             "name": "水晶",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           }
         ],
@@ -1640,27 +1640,27 @@
         "outputs": [
           {
             "name": "水晶",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "水晶",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "水晶",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           }
         ],
@@ -1774,17 +1774,17 @@
         "outputs": [
           {
             "name": "能量块",
-            "count": 0.25,
+            "quantity": 0.25,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -1857,12 +1857,12 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -1921,17 +1921,17 @@
         "outputs": [
           {
             "name": "钻石",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "传说强化券",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           },
           {
             "name": "巧克力",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -2090,17 +2090,17 @@
         "outputs": [
           {
             "name": "能量块",
-            "count": 0.25,
+            "quantity": 0.25,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -2119,12 +2119,12 @@
         "outputs": [
           {
             "name": "寒风s",
-            "count": 0,
+            "quantity": 0,
             "chance": 100
           },
           {
             "name": "工业建筑箱",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           }
         ],
@@ -2195,22 +2195,22 @@
         "outputs": [
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           },
           {
             "name": "残骸",
-            "count": 0.006,
+            "quantity": 0.006,
             "chance": 100
           },
           {
             "name": "载具零件",
-            "count": 0.01,
+            "quantity": 0.01,
             "chance": 20
           }
         ],
@@ -2371,12 +2371,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 10,
+            "quantity": 10,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -2395,12 +2395,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 8,
+            "quantity": 8,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 8
           }
         ],
@@ -2419,12 +2419,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 6,
+            "quantity": 6,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -2581,12 +2581,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 8,
+            "quantity": 8,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 8
           }
         ],
@@ -2605,12 +2605,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 6,
+            "quantity": 6,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -2629,12 +2629,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 10,
+            "quantity": 10,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -2791,12 +2791,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 8,
+            "quantity": 8,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 8
           }
         ],
@@ -2815,12 +2815,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 6,
+            "quantity": 6,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -2839,12 +2839,12 @@
         "outputs": [
           {
             "name": "数据核心",
-            "count": 10,
+            "quantity": 10,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -2960,17 +2960,17 @@
         "outputs": [
           {
             "name": "能量块",
-            "count": 80,
+            "quantity": 80,
             "chance": 100
           },
           {
             "name": "经验胶囊",
-            "count": 40,
+            "quantity": 40,
             "chance": 100
           },
           {
             "name": "灭绝装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           }
         ],
@@ -3078,12 +3078,12 @@
         "outputs": [
           {
             "name": "巧克力",
-            "count": 10,
+            "quantity": 10,
             "chance": 100
           },
           {
             "name": "誓约装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           }
         ],
@@ -3245,12 +3245,12 @@
         "outputs": [
           {
             "name": "合金",
-            "count": 3,
+            "quantity": 3,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -3309,17 +3309,17 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 6,
+            "quantity": 6,
             "chance": 100
           },
           {
             "name": "绳子",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "巧克力",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 15
           }
         ],
@@ -3338,17 +3338,17 @@
         "outputs": [
           {
             "name": "钻石",
-            "count": 3,
+            "quantity": 3,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 15
           }
         ],
@@ -3367,22 +3367,22 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 6,
+            "quantity": 6,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "石头",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           }
         ],
@@ -3464,17 +3464,17 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 6,
+            "quantity": 6,
             "chance": 100
           },
           {
             "name": "绳子",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "巧克力",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 15
           }
         ],
@@ -3581,22 +3581,22 @@
         "outputs": [
           {
             "name": "能量块",
-            "count": 40,
+            "quantity": 40,
             "chance": 100
           },
           {
             "name": "水晶",
-            "count": 40,
+            "quantity": 40,
             "chance": 100
           },
           {
             "name": "经验胶囊",
-            "count": 1000,
+            "quantity": 1000,
             "chance": 100
           },
           {
             "name": "核战废墟补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           }
         ],
@@ -3659,12 +3659,12 @@
         "outputs": [
           {
             "name": "绳子",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "果实",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -3683,12 +3683,12 @@
         "outputs": [
           {
             "name": "合金",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 15
           }
         ],
@@ -3762,12 +3762,12 @@
         "outputs": [
           {
             "name": "钻石",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 15
           }
         ],
@@ -3786,17 +3786,17 @@
         "outputs": [
           {
             "name": "铁矿",
-            "count": 4,
+            "quantity": 4,
             "chance": 100
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           }
         ],
@@ -3815,12 +3815,12 @@
         "outputs": [
           {
             "name": "合金",
-            "count": 4,
+            "quantity": 4,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           }
         ],
@@ -3839,32 +3839,32 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 6,
+            "quantity": 6,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "石头",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "铀",
-            "count": 0.01,
+            "quantity": 0.01,
             "chance": 10
           },
           {
             "name": "电力",
-            "count": 10,
+            "quantity": 10,
             "chance": 100
           }
         ],
@@ -3936,47 +3936,47 @@
         "outputs": [
           {
             "name": "合金",
-            "count": 5,
+            "quantity": 5,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 50
           }
         ],
@@ -4136,12 +4136,12 @@
         "outputs": [
           {
             "name": "合金",
-            "count": 350,
+            "quantity": 350,
             "chance": 100
           },
           {
             "name": "纳米装备补给箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           }
         ],
@@ -4249,17 +4249,17 @@
         "outputs": [
           {
             "name": "灵石种子",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "小白狐",
-            "count": -5,
+            "quantity": -5,
             "chance": 100
           },
           {
             "name": "花园宝宝",
-            "count": -5,
+            "quantity": -5,
             "chance": 100
           }
         ],
@@ -4345,22 +4345,22 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 4,
+            "quantity": 4,
             "chance": 100
           },
           {
             "name": "绳子",
-            "count": 2,
+            "quantity": 2,
             "chance": 50
           },
           {
             "name": "巧克力",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 6
           },
           {
             "name": "电力",
-            "count": 60,
+            "quantity": 60,
             "chance": 100
           }
         ],
@@ -4435,22 +4435,22 @@
         "outputs": [
           {
             "name": "绳子",
-            "count": 4.5,
+            "quantity": 4.5,
             "chance": 100
           },
           {
             "name": "生肉",
-            "count": 0.5,
+            "quantity": 0.5,
             "chance": 50
           },
           {
             "name": "果实",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 30
           },
           {
             "name": "生物质",
-            "count": 0.02,
+            "quantity": 0.02,
             "chance": 15
           }
         ],
@@ -4566,12 +4566,12 @@
         "outputs": [
           {
             "name": "绳子",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "果实",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -4590,12 +4590,12 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 5
           }
         ],
@@ -4670,12 +4670,12 @@
         "outputs": [
           {
             "name": "绳子",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "果实",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -4917,12 +4917,12 @@
         "outputs": [
           {
             "name": "改良建筑箱",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "标准建筑箱",
-            "count": 0.5,
+            "quantity": 0.5,
             "chance": 20
           }
         ],
@@ -5001,12 +5001,12 @@
         "outputs": [
           {
             "name": "绳子",
-            "count": 1,
+            "quantity": 1,
             "chance": 100
           },
           {
             "name": "果实",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -5299,17 +5299,17 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 4,
+            "quantity": 4,
             "chance": 100
           },
           {
             "name": "绳子",
-            "count": 2,
+            "quantity": 2,
             "chance": 50
           },
           {
             "name": "巧克力",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 6
           }
         ],
@@ -5328,17 +5328,17 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 3,
+            "quantity": 3,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -5357,17 +5357,17 @@
         "outputs": [
           {
             "name": "铁矿",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 2,
+            "quantity": 2,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -5428,17 +5428,17 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 3,
+            "quantity": 3,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -5457,17 +5457,17 @@
         "outputs": [
           {
             "name": "铁矿",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 2,
+            "quantity": 2,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -5662,22 +5662,22 @@
         "outputs": [
           {
             "name": "专属装备补给箱",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "强化箱",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           },
           {
             "name": "凭证",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "灵石",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           }
         ],
@@ -5838,22 +5838,22 @@
         "outputs": [
           {
             "name": "专属装备补给箱",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "强化箱",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           },
           {
             "name": "凭证",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "灵石",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           }
         ],
@@ -5914,22 +5914,22 @@
         "outputs": [
           {
             "name": "专属装备补给箱",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "强化箱",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           },
           {
             "name": "凭证",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "灵石",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           }
         ],
@@ -5990,22 +5990,22 @@
         "outputs": [
           {
             "name": "专属装备补给箱",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "强化箱",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           },
           {
             "name": "凭证",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "灵石",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           }
         ],
@@ -6066,17 +6066,17 @@
         "outputs": [
           {
             "name": "向量a",
-            "count": 0,
+            "quantity": 0,
             "chance": 100
           },
           {
             "name": "驱逐舰核心",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "圣水",
-            "count": -20,
+            "quantity": -20,
             "chance": 100
           }
         ],
@@ -6357,22 +6357,22 @@
         "outputs": [
           {
             "name": "合金",
-            "count": 5,
+            "quantity": 5,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 5,
+            "quantity": 5,
             "chance": 25
           },
           {
             "name": "残骸",
-            "count": 0.03,
+            "quantity": 0.03,
             "chance": 100
           },
           {
             "name": "载具零件",
-            "count": 0.05,
+            "quantity": 0.05,
             "chance": 20
           }
         ],
@@ -6391,42 +6391,42 @@
         "outputs": [
           {
             "name": "福音书系统",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "具现装置",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "水晶",
-            "count": -50000,
+            "quantity": -50000,
             "chance": 100
           },
           {
             "name": "未知物品",
-            "count": -5,
+            "quantity": -5,
             "chance": 100
           },
           {
             "name": "线圈补给箱",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           },
           {
             "name": "要塞零件",
-            "count": -1,
+            "quantity": -1,
             "chance": 100
           },
           {
             "name": "灵石种子",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           },
           {
             "name": "星屑",
-            "count": -10,
+            "quantity": -10,
             "chance": 100
           }
         ],
@@ -6491,17 +6491,17 @@
         "outputs": [
           {
             "name": "糖心巧克力",
-            "count": -20,
+            "quantity": -20,
             "chance": 100
           },
           {
             "name": "神兽之血",
-            "count": -100,
+            "quantity": -100,
             "chance": 100
           },
           {
             "name": "灵石",
-            "count": -3,
+            "quantity": -3,
             "chance": 100
           }
         ],
@@ -6573,17 +6573,17 @@
         "outputs": [
           {
             "name": "木头",
-            "count": 4,
+            "quantity": 4,
             "chance": 100
           },
           {
             "name": "绳子",
-            "count": 2,
+            "quantity": 2,
             "chance": 50
           },
           {
             "name": "巧克力",
-            "count": 0.1,
+            "quantity": 0.1,
             "chance": 6
           }
         ],
@@ -6602,17 +6602,17 @@
         "outputs": [
           {
             "name": "石头",
-            "count": 3,
+            "quantity": 3,
             "chance": 100
           },
           {
             "name": "铁矿",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 10
           }
         ],
@@ -6631,17 +6631,17 @@
         "outputs": [
           {
             "name": "铁矿",
-            "count": 2,
+            "quantity": 2,
             "chance": 100
           },
           {
             "name": "石头",
-            "count": 2,
+            "quantity": 2,
             "chance": 50
           },
           {
             "name": "合金",
-            "count": 1,
+            "quantity": 1,
             "chance": 25
           }
         ],
@@ -6729,12 +6729,12 @@
         "outputs": [
           {
             "name": "残骸",
-            "count": 0.005,
+            "quantity": 0.005,
             "chance": 20
           },
           {
             "name": "电力",
-            "count": 100,
+            "quantity": 100,
             "chance": 100
           }
         ],
@@ -6753,7 +6753,7 @@
         "outputs": [
           {
             "name": "电力",
-            "count": 100,
+            "quantity": 100,
             "chance": 100
           }
         ],

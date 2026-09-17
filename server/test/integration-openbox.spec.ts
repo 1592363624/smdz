@@ -71,7 +71,7 @@ describe('打开箱子端到端（真实远程库）', () => {
   });
 
   it('装备箱开出带品质数据的独立装备并按原版文本展示', async () => {
-    const uid = await makePlayer([{ name: '普通装备补给箱', type: '资源', quantity: 3, count: 3 }]);
+    const uid = await makePlayer([{ name: '普通装备补给箱', type: '资源', quantity: 3 }]);
     const text = await game.handleUseItem(uid, '普通装备补给箱', 3);
     console.log('[装备箱]', text);
     expect(text).toContain('使用了3个普通装备补给箱');
@@ -94,7 +94,7 @@ describe('打开箱子端到端（真实远程库）', () => {
     // （175²+5=30630），避免经验归一化在此用例内触发升级/属性重算——
     // 升级行为已由 test/exp-normalize.spec.ts 单测覆盖，此处聚焦开箱与三池恢复本身。
     const uid = await makePlayer([
-      { name: '奶', type: '资源', quantity: 5, count: 5 },
+      { name: '奶', type: '资源', quantity: 5 },
     ], { level: 175, upgradeExp: 30630 });
     // 三池口径（2026-09-07 修正，原版 物品操作 L2289）：奶回复基数 =
     // buildAttackerBonus 计算护盾 ×10%，封顶 = 各池计算上限。不再用基础 maxShield。
@@ -127,7 +127,7 @@ describe('打开箱子端到端（真实远程库）', () => {
   it('凭证每日一次发放等级/2的改良建筑箱，同日再次使用进入冷却', async () => {
     // 凭证属家园写操作（开垦地块）：夹具给到「已建成」，否则会被建成门禁拦截
     const uid = await makePlayer(
-      [{ name: '凭证', type: '资源', quantity: 5, count: 5 }],
+      [{ name: '凭证', type: '资源', quantity: 5 }],
       { markers: JSON.stringify({ 家园进度: 4 }) },
     );
     const t1 = await game.handleUseItem(uid, '凭证', 3);
@@ -144,7 +144,7 @@ describe('打开箱子端到端（真实远程库）', () => {
   });
 
   it('蛋糕授予掉落率+50%增益写入buffs数组', async () => {
-    const uid = await makePlayer([{ name: '蛋糕', type: '资源', quantity: 2, count: 2 }]);
+    const uid = await makePlayer([{ name: '蛋糕', type: '资源', quantity: 2 }]);
     const text = await game.handleUseItem(uid, '蛋糕', 2);
     console.log('[蛋糕]', text);
     expect(text).toContain('享用了2的蛋糕，掉落率+50%');

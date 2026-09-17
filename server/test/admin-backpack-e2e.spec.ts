@@ -47,41 +47,41 @@ describe('AdminService 背包管理（真实库端到端）', () => {
     // 清空初始背包，构造可控起点
     await admin.gmSaveBackpack(TEST_USER_ID, []);
 
-    // 1) 新增 + 同名合并 + 数量0删除
+    // 1) 新增 + 同名合并 + 数量0删除（只允许规范键 quantity，不再接受 count）
     await admin.gmSaveBackpack(TEST_USER_ID, [
       { name: '水晶', quantity: 5 },
       { name: '水晶', quantity: 5 }, // 合并 → 10
-      { name: '木头', count: 3 },
+      { name: '木头', quantity: 3 },
       { name: '面包', quantity: 0 }, // 删除
       { name: '石制工具', quantity: 1, type: '装备', durability: 0, data: 'e' },
     ]);
 
-    // 2) 通过 GM 读回，应包含 3 种物品
+    // 2) 通过 GM 读回，应包含 3 种物品（规范键 quantity）
     const items = await admin.gmGetBackpack(TEST_USER_ID);
     expect(items).toHaveLength(3);
-    expect(items).toContainEqual(expect.objectContaining({ name: '水晶', count: 10 }));
-    expect(items).toContainEqual(expect.objectContaining({ name: '木头', count: 3 }));
+    expect(items).toContainEqual(expect.objectContaining({ name: '水晶', quantity: 10 }));
+    expect(items).toContainEqual(expect.objectContaining({ name: '木头', quantity: 3 }));
     expect(items).toContainEqual(
-      expect.objectContaining({ name: '石制工具', count: 1, type: '装备', durability: 0, data: 'e' }),
+      expect.objectContaining({ name: '石制工具', quantity: 1, type: '装备', durability: 0, data: 'e' }),
     );
 
     // 3) 玩家侧读取（业务读路径）与 GM 提交一致 → GM 改动真实生效
     const player = await prisma.player.findUnique({ where: { userId: TEST_USER_ID } });
     const readBack = playerService.getBackpackItems(player as any);
     expect(readBack).toHaveLength(3);
-    expect(readBack).toContainEqual(expect.objectContaining({ name: '水晶', count: 10 }));
-    // 无 quantity 歧义字段（统一为 count）
-    expect(readBack.some((i: any) => i.quantity !== undefined)).toBe(false);
+    expect(readBack).toContainEqual(expect.objectContaining({ name: '水晶', quantity: 10 }));
+    // 无 count 歧义字段（统一为规范键 quantity）
+    expect(readBack.some((i: any) => i.count !== undefined)).toBe(false);
 
     // 4) 编辑数量：把水晶改为 1，则背包只剩 3 种（数量保留）
     await admin.gmSaveBackpack(TEST_USER_ID, [
       { name: '水晶', quantity: 1 },
-      { name: '木头', count: 3 },
+      { name: '木头', quantity: 3 },
       { name: '石制工具', quantity: 1, type: '装备', durability: 0, data: 'e' },
     ]);
     const after = await admin.gmGetBackpack(TEST_USER_ID);
     const crystal = after.find((i: any) => i.name === '水晶');
-    expect(crystal.count).toBe(1);
+    expect(crystal.quantity).toBe(1);
   });
 
   it('对未创建角色的用户 gmGetBackpack / gmSaveBackpack 抛 NotFound', async () => {

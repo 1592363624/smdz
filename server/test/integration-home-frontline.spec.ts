@@ -121,7 +121,8 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
     let summons = parseJson(frontline.summons, []);
     const frontlineSummon = summons.find((item: any) => item.QQ?.startsWith('怪物前线'));
     expect(frontlineSummon).toBeDefined();
-    frontlineSummon.当前生命 = 0.5;
+    // 规范键 hp（中文「当前生命」已在边界收敛，见 field-contract SUMMON_ALIASES）
+    frontlineSummon.hp = 0.5;
     // Json 列写回原生数组（生产已禁止 JSON.stringify 字符串落库）
     await mapService.updateDynamicFields(frontline.id, { summons });
 
@@ -129,7 +130,7 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
     frontline = await mapService.getMapByName(`${houseName}前线`);
     summons = parseJson(frontline.summons, []);
     const retained = summons.find((item: any) => item.QQ?.startsWith('怪物前线'));
-    expect(retained.当前生命).toBe(0.5);
+    expect(retained.hp).toBe(0.5);
   });
 
   it.each([

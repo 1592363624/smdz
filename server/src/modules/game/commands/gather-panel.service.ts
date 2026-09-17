@@ -305,8 +305,8 @@ export class GatherPanelService {
     };
     for (const entry of list2) {
       if (!entry || typeof entry !== 'object') continue;
-      const name = String(entry?.name ?? entry?.名称 ?? '');
-      const endMs = toEndMs(entry?.expireAt ?? entry?.有效期至);
+      const name = String(entry?.name ?? '');
+      const endMs = toEndMs(entry?.expireAt);
       if (!endMs) continue;
       // 带 rescueType 的「复活/工作」= 救助链路（抢救使魔/维修载具/自救/救助玩家）
       const rescueType = String(entry?.rescueType ?? '');
@@ -365,8 +365,8 @@ export class GatherPanelService {
     let comebackEndMs = 0;
     for (const b of buffList) {
       if (!b || typeof b !== 'object') continue;
-      if (String(b?.name ?? b?.名称 ?? '') !== '卷土重来') continue;
-      const endMs = toEndMs(b?.expireAt ?? b?.有效期至);
+      if (String(b?.name ?? '') !== '卷土重来') continue;
+      const endMs = toEndMs(b?.expireAt);
       if (endMs > comebackEndMs) comebackEndMs = endMs;
     }
     if (comebackEndMs > 0) {
@@ -389,9 +389,9 @@ export class GatherPanelService {
    * 结构对齐 handleInfo 文本面板的任务段（字符串条目 / name|title 对象均兼容）。
    */
 
-  buildActiveTasks(rawTasks: any): Array<{ name: string; count?: number }> {
+  buildActiveTasks(rawTasks: any): Array<{ name: string; quantity?: number }> {
     const list = Array.isArray(rawTasks) ? rawTasks : [];
-    const result: Array<{ name: string; count?: number }> = [];
+    const result: Array<{ name: string; quantity?: number }> = [];
     for (const t of list) {
       if (typeof t === 'string') {
         if (t.trim()) result.push({ name: t });
@@ -401,8 +401,9 @@ export class GatherPanelService {
       if (!name) continue;
       // 已完成标记的不再展示（任务完成结算后会从列表移除，此处兜底）
       if (t.completed === true || t.status === '已完成' || t.status === '已提交') continue;
-      const count = Number(t.count ?? 0);
-      result.push(count > 0 ? { name, count } : { name });
+      // 数量只读规范键 quantity（同义旧键 count 已废弃，见 field-contract.util）
+      const quantity = Number(t.quantity ?? 0);
+      result.push(quantity > 0 ? { name, quantity } : { name });
     }
     return result;
   }
@@ -432,7 +433,7 @@ export class GatherPanelService {
     const entryOf = (slot: string, item: any, enhanceKey: string, no: number | null = null) => {
       const enhanceLv = this.combatState.getAchievementProficiency(markers, enhanceKey);
       if (!item) return { slot, name: null, quality: '', effect: 0, enhance: enhanceLv, enhanceRate: 0, attrs: '', no: null };
-      const rawData = String(item.data || item.数据 || '');
+      const rawData = String(item.data || '');
       let effectNum = Number(item.effect || item.特效 || 0);
       if (!effectNum && rawData) {
         const bxMatch = rawData.match(/!bx(\d+)/);
@@ -451,7 +452,7 @@ export class GatherPanelService {
       }
       return {
         slot,
-        name: String(item.name || item.名称 || '未知'),
+        name: String(item.name || '未知'),
         quality: equipmentQualityLabel(rawData),
         effect: effectNum,
         enhance: enhanceLv,
@@ -465,7 +466,7 @@ export class GatherPanelService {
 
     const getEquipType = (item: any): string => {
       const def = this.staticData.getEquipmentByName(item.name);
-      return String(def?.equipType ?? def?.type ?? def?.类型 ?? item.type ?? item.类型 ?? '');
+      return String(def?.equipType ?? def?.type ?? item.type ?? '');
     };
     const slotNames = ['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部'];
     const result = slotNames.map((slotName) => {
@@ -532,7 +533,7 @@ export class GatherPanelService {
   formatBuffList(rawBuffs: any): string[] {
     const now = Date.now();
     return filterActive(rawBuffs, now).map((buff: any) => {
-      const name = buff?.name || buff?.名称 || '未知';
+      const name = buff?.name || '未知';
       // 无到期时间 = 永久增益，不带倒计时，避免显示成误导性的 (0:00)
       return toExpireMs(buff) ? `${name}(${formatRemain(remainSeconds(buff, now))})` : name;
     });
@@ -549,9 +550,9 @@ export class GatherPanelService {
     // strength：可叠加增益的层数/强度（如 苦行、龙姬闪避），悬浮提示展示用
     const now = Date.now();
     return filterActive(rawBuffs, now).map((b: any) => ({
-      name: String(b?.name || b?.名称 || '未知'),
+      name: String(b?.name || '未知'),
       expireAt: toExpireMs(b),
-      strength: Number(b?.strength ?? b?.value ?? b?.强度) || 0,
+      strength: Number(b?.strength ?? b?.value) || 0,
     }));
   }
 
@@ -701,13 +702,14 @@ export class GatherPanelService {
         };
       });
 
-    // 资源列表：采集型资源携带产出物/数量/gatherCmd
+    // 资源列表：采集型资源携带产出物/剩余次数/gatherCmd
     const resourceList = resources.map((r: any) => ({
       name: r.name,
       type: r.type || '',
-      // 剩余可采集次数（原版 times/次数，-1 表示无限），前端据此显示 ×N
-      count: this.getResourceTimes(r),
-      times: r.times ?? -1,
+      // 剩余可采集次数（原版 times/次数，-1 表示无限），前端据此显示 ×N。
+      // 次数域的规范键是 times（见 field-contract.util 的 次数→times），
+      // 此前与 times 重复输出的旧键 count 已删除。
+      times: this.getResourceTimes(r),
       gatherCmd: r.gatherCmd || '采集',
       // 取首个产出物的名称作为可见掉落，便于玩家判断价值
       firstDrop: Array.isArray(r.outputs) && r.outputs.length ? r.outputs[0]?.name : '',
@@ -738,15 +740,15 @@ export class GatherPanelService {
           String(ownerRow?.user?.externalId ?? ''),
         ].filter(Boolean),
       );
-      const nameOf = (s: any): string => String(s?.name ?? s?.名称 ?? '') || '未知';
+      const nameOf = (s: any): string => String(s?.name ?? '') || '未知';
       const qqOf = (s: any): string => String(s?.qq ?? s?.QQ ?? '');
       const isMonsterSummon = (s: any): boolean => qqOf(s).startsWith('怪物');
       const markerVal = (unit: any, markerName: string): number => {
-        const raw = unit?.markers ?? unit?.标记 ?? {};
+        const raw = unit?.markers ?? {};
         const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
         if (Array.isArray(parsed)) {
-          const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
-          return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+          const item = parsed.find((x: any) => x?.name === markerName);
+          return Number(item?.value ?? 0);
         }
         return Number(parsed?.[markerName] ?? 0);
       };
@@ -759,7 +761,7 @@ export class GatherPanelService {
       for (const s of summons) {
         const name = nameOf(s);
         // 白只对主人显示（原版 L781-784）
-        if (name === '白' && !ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? ''))) {
+        if (name === '白' && !ownerIds.has(String(s?.ownerQQ ?? s?.owner ?? ''))) {
           continue;
         }
         const isSpecialNpc = isFixedSpecialNpc(s) || isDedupableSpecialNpc(s);
@@ -771,7 +773,7 @@ export class GatherPanelService {
         } else if (markerVal(s, '幼崽') !== 0) {
           title = '(幼崽)';
         } else if (isMonsterSummon(s)) {
-          title = Number(s?.currentHp ?? s?.当前生命 ?? s?.hp ?? 0) > 0 ? '召唤物' : '(倒地)';
+          title = Number(s?.currentHp ?? s?.hp ?? 0) > 0 ? '召唤物' : '(倒地)';
         }
         summonEntries.push({ name, title, type: 'summon' });
       }
@@ -925,7 +927,8 @@ export class GatherPanelService {
       lines.push(`📋 当前任务:`);
       for (const task of tasks) {
         const taskName = typeof task === 'string' ? task : task.name || task.title || '未知任务';
-        const taskProgress = task.count ? ` (${task.count})` : '';
+        // 数量只读规范键 quantity（同义旧键 count 已废弃）
+        const taskProgress = task.quantity ? ` (${task.quantity})` : '';
         lines.push(`  ${taskName}${taskProgress}`);
       }
     }
@@ -957,19 +960,19 @@ export class GatherPanelService {
     // 对齐原版 物品操作.ecode L1824 寻找装备（z=装备列表[b] 后取 z.类型）。
     const getEquipType = (item: any): string => {
       const def = this.staticData.getEquipmentByName(item.name);
-      return String(def?.equipType ?? def?.type ?? def?.类型 ?? item.type ?? item.类型 ?? '');
+      return String(def?.equipType ?? def?.type ?? item.type ?? '');
     };
 
     for (const slotName of slotNames) {
       const eqIdx = equipmentList.findIndex((e: any) => getEquipType(e) === slotName);
       if (eqIdx >= 0) {
         const eq = equipmentList[eqIdx];
-        const qName = equipmentQualityLabel(eq.data || eq.数据 || '');
+        const qName = equipmentQualityLabel(eq.data || '');
         const fx = eq.effect || eq.特效 || 0;
         const fxStr = fx > 0 ? `[特效${fx}]` : '';
         const enhanceLv = this.combatState.getAchievementProficiency(markers, slotName + '强化');
         const no = noOf('equip', slotName, eqIdx);
-        lines.push(`  ${no}.${slotName}: ${withQuality(qName, `${eq.name || eq.名称 || '未知'}${fxStr}`)}(+${enhanceLv})`);
+        lines.push(`  ${no}.${slotName}: ${withQuality(qName, `${eq.name || '未知'}${fxStr}`)}(+${enhanceLv})`);
       } else {
         const enhanceLv = this.combatState.getAchievementProficiency(markers, slotName + '强化');
         lines.push(`  ${slotName}: 无(+${enhanceLv})`);
@@ -979,12 +982,12 @@ export class GatherPanelService {
     // 武器栏（L2160-2168）
     if (currentWeaponIdx > 0 && weaponList[currentWeaponIdx - 1]) {
       const w = weaponList[currentWeaponIdx - 1];
-      const qName = equipmentQualityLabel(w.data || w.数据 || '');
+      const qName = equipmentQualityLabel(w.data || '');
       const fx = w.effect || w.特效 || 0;
       const fxStr = fx > 0 ? `[特效${fx}]` : '';
       const enhanceLv = this.combatState.getAchievementProficiency(markers, '武器强化');
       const no = noOf('weapon', '武器', currentWeaponIdx - 1);
-      lines.push(`  ${no}.武器: ${withQuality(qName, `${w.name || w.名称 || '拳头'}${fxStr}`)}(+${enhanceLv})`);
+      lines.push(`  ${no}.武器: ${withQuality(qName, `${w.name || '拳头'}${fxStr}`)}(+${enhanceLv})`);
     } else {
       // 空手占位：拳头不是一件有品质的装备，不带品质码前缀（前端以「拳头」判定为未装备）
       const enhanceLv = this.combatState.getAchievementProficiency(markers, '武器强化');
@@ -998,9 +1001,9 @@ export class GatherPanelService {
     const implantLv = this.combatState.getAchievementProficiency(markers, '植入体等级');
     if (implantIdx >= 0) {
       const im = equipmentList[implantIdx];
-      const qName = equipmentQualityLabel(im.data || im.数据 || '');
+      const qName = equipmentQualityLabel(im.data || '');
       const no = noOf('equip', '植入', implantIdx);
-      lines.push(`  ${no}.植入: ${withQuality(qName, im.name || im.名称 || '未知')}(+${implantLv})`);
+      lines.push(`  ${no}.植入: ${withQuality(qName, im.name || '未知')}(+${implantLv})`);
     } else {
       lines.push(`  植入: 无(+${implantLv})`);
     }
@@ -1011,9 +1014,9 @@ export class GatherPanelService {
     const ampLv = this.combatState.getAchievementProficiency(markers, '增幅器等级');
     if (ampIdx >= 0) {
       const am = equipmentList[ampIdx];
-      const qName = equipmentQualityLabel(am.data || am.数据 || '');
+      const qName = equipmentQualityLabel(am.data || '');
       const no = noOf('equip', '增幅', ampIdx);
-      lines.push(`  ${no}.增幅: ${withQuality(qName, am.name || am.名称 || '未知')}(+${ampLv})`);
+      lines.push(`  ${no}.增幅: ${withQuality(qName, am.name || '未知')}(+${ampLv})`);
     } else {
       lines.push(`  增幅: 无(+${ampLv})`);
     }
@@ -1023,11 +1026,11 @@ export class GatherPanelService {
     for (let i = 0; i < weaponList.length; i++) {
       if (i + 1 !== currentWeaponIdx) {
         const w = weaponList[i];
-        const qName = equipmentQualityLabel(w.data || w.数据 || '');
+        const qName = equipmentQualityLabel(w.data || '');
         const fx = w.effect || w.特效 || 0;
         const fxStr = fx > 0 ? `[特效${fx}]` : '';
         const no = noOf('weapon', '背上', i);
-        const label = withQuality(qName, `${w.name || w.名称 || '未知'}${fxStr}`);
+        const label = withQuality(qName, `${w.name || '未知'}${fxStr}`);
         if (backupIdx === 0) {
           lines.push(`  ${no}.背上: ${label}`);
         } else {
@@ -1141,7 +1144,7 @@ export class GatherPanelService {
     const weaponList = weapons || asJsonValue<any[]>(player.weapons, []);
     if (Array.isArray(weaponList) && weaponList.length > 0) {
       const cdParts: string[] = weaponList.map((w: any, i: number) =>
-        `${w.name || w.名称 || `武器${i + 1}`}:${num(w.cooldown ?? w.冷却 ?? 0)}`,
+        `${w.name || `武器${i + 1}`}:${num(w.cooldown ?? w.冷却 ?? 0)}`,
       );
       lines.push(`◆攻击冷却:`);
       lines.push(`  ${cdParts.join('  ')}`);
@@ -1201,7 +1204,7 @@ export class GatherPanelService {
       lines.push(`◆卷土重来持续时间: ${30 + num(b.卷土重来)}`);
     }
     // 每秒输出DPS（L893-920）
-    const currentWeaponIdx = num(player.currentWeapon ?? player.当前武器 ?? 0);
+    const currentWeaponIdx = num(player.currentWeapon ?? 0);
     if (currentWeaponIdx > 0 && Array.isArray(weaponList) && weaponList.length >= currentWeaponIdx) {
       const z = weaponList[currentWeaponIdx - 1];
       const zPhys = Number(z?.bonus?.物 ?? z?.属性?.物 ?? 0);
@@ -1236,7 +1239,7 @@ export class GatherPanelService {
         lines.push(`魅力: ${fmt(b.魅力)}`);
       }
       const vitality = Math.max(100, this.combatState.getAchievementProficiency(markers, '活力2'));
-      lines.push(`活力: ${num(player.vitality ?? player.活力 ?? 0)}/${vitality}`);
+      lines.push(`活力: ${num(player.vitality ?? 0)}/${vitality}`);
     }
     // 驾驶载具（L986-992）
     const map = await this.mapService.getMapById(player.mapId);
@@ -1245,13 +1248,13 @@ export class GatherPanelService {
       const playerVehicles = asJsonValue<any[]>(player.vehicles, []);
       const allVehicles = [...(vehicles || []), ...(playerVehicles || [])];
       const driven = allVehicles.find((v: any) =>
-        v.owner === String(userId) || v.归属 === String(userId) ||
+        v.owner === String(userId) ||
         v.driver === String(userId) || v.驾驶者 === String(userId),
       );
       if (driven) {
-        const vName = driven.name || driven.名称 || '载具';
-        const vHp = num(driven.currentHp ?? driven.当前生命 ?? 0);
-        const vMaxHp = num(driven.bonus?.生命 ?? driven.加成?.生命 ?? 0);
+        const vName = driven.name || '载具';
+        const vHp = num(driven.currentHp ?? 0);
+        const vMaxHp = num(driven.bonus?.生命 ?? 0);
         lines.push(`正在驾驶 ${vName}(${vHp}/${vMaxHp})`);
       }
     }
@@ -1402,7 +1405,7 @@ export class GatherPanelService {
       // resources2 中与采集可见集同名的条目不再重复编号，避免出现
       //「列表里有、点下去采不到」的僵尸条目（2026-09-06 货舱/能量元素事故）。
       .filter((r: any) => !hasStaticResources || !gatherPool.some((g: any) =>
-        String(g?.name ?? g?.名称 ?? '').trim() === String(r?.name ?? r?.名称 ?? '').trim()));
+        String(g?.name ?? '').trim() === String(r?.name ?? '').trim()));
     for (const r of groundResources) {
       // 同上：解析不出采集指令的资源不进编号菜单（对齐原版不可见不可采）
       if (!this.resolveGatherCmd(r)) continue;
@@ -1417,9 +1420,9 @@ export class GatherPanelService {
     // 场景里却看不见"的问题。原版 w2 是「查看+编号」，这里用「查看载具+编号」完全等价。
     const vehicles = asJsonValue<any[]>(map.vehicles, []);
     if (vehicles.length > 0) {
-      const isUnownedVehicle = (v: any): boolean => String(v?.归属 ?? v?.owner ?? '') === '无主';
-      const vehicleKeyOf = (v: any): string => String(v?.编号 ?? v?.vehicleId ?? v?.id ?? '');
-      const vehicleNameOf = (v: any): string => String(v?.名称 ?? v?.name ?? '未知载具');
+      const isUnownedVehicle = (v: any): boolean => String(v?.owner ?? '') === '无主';
+      const vehicleKeyOf = (v: any): string => String(v?.vehicleId ?? v?.id ?? '');
+      const vehicleNameOf = (v: any): string => String(v?.name ?? '未知载具');
       const vehicleCmd = (v: any): string => `查看载具 ${vehicleKeyOf(v) || vehicleNameOf(v)}`;
       if (vehicles.length > 2) {
         for (const v of vehicles) {
@@ -1467,16 +1470,16 @@ export class GatherPanelService {
         String(player.masterQQ || ''),
       ].filter(Boolean));
 
-      const nameOf = (s: any): string => String(s?.name ?? s?.名称 ?? '') || '未知';
+      const nameOf = (s: any): string => String(s?.name ?? '') || '未知';
       const qqOf = (s: any): string => String(s?.qq ?? s?.QQ ?? '');
-      const hpOf = (s: any): number => Number(s?.currentHp ?? s?.当前生命 ?? s?.hp ?? 0);
+      const hpOf = (s: any): number => Number(s?.currentHp ?? s?.hp ?? 0);
       const isMonsterSummon = (s: any): boolean => qqOf(s).startsWith('怪物');
       const markerVal = (unit: any, markerName: string): number => {
-        const raw = unit?.markers ?? unit?.标记 ?? {};
+        const raw = unit?.markers ?? {};
         const parsed = typeof raw === 'string' ? asJsonValue<any>(raw, {}) : raw;
         if (Array.isArray(parsed)) {
-          const item = parsed.find((x: any) => (x?.name ?? x?.名称) === markerName);
-          return Number(item?.value ?? item?.数值 ?? item?.count ?? 0);
+          const item = parsed.find((x: any) => x?.name === markerName);
+          return Number(item?.value ?? 0);
         }
         return Number(parsed?.[markerName] ?? 0);
       };
@@ -1498,7 +1501,7 @@ export class GatherPanelService {
         for (const s of summons) {
           const name = nameOf(s);
           // 原版 L781-784："白"只对主人显示
-          if (name === '白' && !ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? ''))) {
+          if (name === '白' && !ownerIds.has(String(s?.ownerQQ ?? s?.owner ?? ''))) {
             continue;
           }
           // 特殊NPC（固定[!]的神之工匠/小雫/露娜/行商 与 小白狐/花园宝宝类）同类项去重：
@@ -1550,8 +1553,8 @@ export class GatherPanelService {
     if (Number(playerMarkers['自动采集'] ?? 0) !== 0) {
       const autoTargets = asJsonValue<any[]>(map.resources, []).filter((r: any) =>
         this.getResourceTimes(r) > 0
-        && (String(r?.marker ?? r?.标记 ?? '') === ''
-          || Number(playerMarkers[String(r?.marker ?? r?.标记 ?? '')] ?? 0) < 1));
+        && (String(r?.marker ?? '') === ''
+          || Number(playerMarkers[String(r?.marker ?? '')] ?? 0) < 1));
       if (autoTargets.length > 0) {
         let gatherBonus = 0;
         try {
@@ -1560,10 +1563,11 @@ export class GatherPanelService {
         } catch { /* 加成缺失按0处理 */ }
         const perMinute = new Map<string, number>();
         for (const r of autoTargets) {
-          for (const out of asJsonValue<any[]>(r?.outputs ?? r?.产出, [])) {
-            const outName = String(out?.name ?? out?.名称 ?? '');
-            const qty = Number(out?.count ?? out?.数量 ?? 0);
-            const chance = Number(out?.chance ?? out?.几率 ?? 100);
+          for (const out of asJsonValue<any[]>(r?.outputs, [])) {
+            const outName = String(out?.name ?? '');
+            // 数量只读规范键 quantity（count 为历史遗留同义键，静态数据已统一为 quantity）
+            const qty = Number(out?.quantity ?? 0);
+            const chance = Number(out?.chance ?? 100);
             if (!outName || !(qty > 0)) continue;
             // 原版 L876-878：产出数量 × 属性.采集/2000 × 几率/100
             perMinute.set(outName, (perMinute.get(outName) || 0) + qty * gatherBonus / 2000 * chance / 100);
@@ -1572,7 +1576,7 @@ export class GatherPanelService {
         const yieldText = [...perMinute.entries()]
           .map(([itemName, qty]) => `${itemName}x${formatDisplayNumber(qty)}`)
           .join('、');
-        lines.push(`附近资源:${autoTargets.map((r: any) => String(r.name ?? r.名称 ?? '')).join('、')},自动采集每分钟:${yieldText}`);
+        lines.push(`附近资源:${autoTargets.map((r: any) => String(r.name ?? '')).join('、')},自动采集每分钟:${yieldText}`);
       }
     }
 
@@ -1596,8 +1600,8 @@ export class GatherPanelService {
       const lookNow = Date.now();
       const buffTexts = lookMarkers2
         .map((entry: any) => ({
-          name: String(entry?.name ?? entry?.名称 ?? ''),
-          expireAt: Number(entry?.expireAt ?? entry?.有效期至 ?? 0),
+          name: String(entry?.name ?? ''),
+          expireAt: Number(entry?.expireAt ?? 0),
         }))
         .filter((entry) => entry.name && !entry.name.startsWith('刷新资源') && entry.expireAt > lookNow)
         .map((entry) => `${entry.name}（${this.support.millisecondsToText(entry.expireAt - lookNow)}）`);
@@ -1620,7 +1624,7 @@ export class GatherPanelService {
         `你的经验加成:${this.support.round2Text(expBonus)}%`,
         `陪睡NPC/宠物:${lieCount}/2（+${lieCount * 50}%）`,
       ];
-      if (luo) lieLines.push(`${luo.name ?? luo.名称 ?? '洛'}:+10%`);
+      if (luo) lieLines.push(`${luo.name ?? '洛'}:+10%`);
       const finalPerSec = (1 + lieCount * 0.5) * level * (1 + expBonus / 100) / 100 * (1 + (luo ? 1 : 0) / 10);
       lieLines.push(`最终每秒获得:${this.support.round2Text(finalPerSec)}`);
       lines.push(...lieLines);
@@ -1757,9 +1761,9 @@ export class GatherPanelService {
       vehicleLines.push(
         `载具: ${vehicles
           .map((v: any) => {
-            const vName = String(v?.name ?? v?.名称 ?? '未知载具');
-            // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
-            const unowned = String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主';
+            const vName = String(v?.name ?? '未知载具');
+            // 无主判定：owner 为"无主"（owner 可能为空串，不能用 ?? 链短路）
+            const unowned = String(v?.owner ?? '') === '无主';
             return unowned ? `${vName}[!]` : vName;
           })
           .join(', ')}`,
@@ -1840,7 +1844,7 @@ export class GatherPanelService {
     text += `\n每秒获得经验:${this.support.round2Text(level / 100)}`;
     text += `\n你的经验加成:${this.support.round2Text(expBonus)}%`;
     text += `\n陪睡NPC/宠物:${sleepover}/2（+${sleepover * 50}%）`;
-    if (luoPet) text += `\n${luoPet.name ?? luoPet.名称 ?? '洛'}:+10%`;
+    if (luoPet) text += `\n${luoPet.name ?? '洛'}:+10%`;
     const finalPerSec = (1 + sleepover * 0.5) * level * (1 + expBonus / 100) / 100 * (1 + (hasLuo ? 1 : 0) / 10);
     text += `\n最终每秒获得:${Math.round(finalPerSec)}`;
     return text;
@@ -1914,8 +1918,8 @@ export class GatherPanelService {
       // 取载具（原版 L7494-7499）
       const vehicle = await this.movement.findTravelVehicle(player, map);
       if (!vehicle) return `${player.name ?? '冒险者'}需要驾驶载具`;
-      const vehicleName = String(vehicle.name ?? vehicle.名称 ?? '载具');
-      if (Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0) <= 0) {
+      const vehicleName = String(vehicle.name ?? '载具');
+      if (Number(vehicle.currentHp ?? 0) <= 0) {
         return `${player.name ?? '冒险者'}载具需要“维修”`;
       }
 
@@ -2008,7 +2012,7 @@ export class GatherPanelService {
 
     // 解析可采集资源
     const resources2 = asJsonValue<any[]>(map.resources2, []);
-    const availableResources = resources2.filter((r: any) => Number(r.amount ?? r.数量 ?? 0) > 0);
+    const availableResources = resources2.filter((r: any) => Number(r.amount ?? r.quantity ?? 0) > 0);
 
     if (availableResources.length === 0) {
       return '当前地图没有可开采的资源';
@@ -2018,7 +2022,7 @@ export class GatherPanelService {
     if (!resourceName) {
       const lines = [`⛏️ 【${map.name}】可开采资源:`];
       for (const r of availableResources) {
-        lines.push(`  ${r.name ?? r.名称} ×${r.amount ?? r.数量}`);
+        lines.push(`  ${r.name} ×${r.amount ?? r.quantity}`);
       }
       lines.push(``);
       lines.push(`使用「开采 资源名」进行开采`);
@@ -2027,7 +2031,7 @@ export class GatherPanelService {
 
     // 查找指定资源
     const targetResource = availableResources.find(
-      (r: any) => (r.name ?? r.名称) === resourceName,
+      (r: any) => r.name === resourceName,
     );
     if (!targetResource) {
       return `当前地图没有可开采的【${resourceName}】`;
@@ -2037,7 +2041,7 @@ export class GatherPanelService {
     const cooldownKey = `mine_${map.id}_${resourceName}`;
     const now = Date.now();
     const cooldownEntry = markers2.find((m: any) =>
-      (m.key ?? m.name ?? m.名称) === cooldownKey,
+      (m.key ?? m.name) === cooldownKey,
     );
     if (cooldownEntry) {
       const expireMs = toExpireMs(cooldownEntry);
@@ -2048,8 +2052,8 @@ export class GatherPanelService {
     }
 
     // 采集产出
-    const resourceDisplayName = targetResource.name ?? targetResource.名称 ?? resourceName;
-    const amount = Number(targetResource.amount ?? targetResource.数量 ?? 0);
+    const resourceDisplayName = targetResource.name ?? resourceName;
+    const amount = Number(targetResource.amount ?? targetResource.quantity ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       return `当前地图没有可开采的【${resourceName}】`;
     }
@@ -2070,7 +2074,7 @@ export class GatherPanelService {
 
     // 更新 markers2（移除旧冷却条目，添加新条目）
     const updatedMarkers2 = markers2.filter((m: any) =>
-      (m?.key ?? m?.name ?? m?.名称) !== cooldownKey,
+      (m?.key ?? m?.name) !== cooldownKey,
     );
     updatedMarkers2.push(newCooldown);
 
@@ -2078,11 +2082,11 @@ export class GatherPanelService {
     // 避免两名玩家并发开采同一资源时按各自快照重复结算/整组覆盖）
     const mined = await this.mapService.mutateMapFields(map.id, ['resources2'], (f) => {
       const fresh = f.resources2 as any[];
-      const idx = fresh.findIndex((r: any) => (r.name ?? r.名称) === resourceName);
+      const idx = fresh.findIndex((r: any) => r.name === resourceName);
       if (idx === -1) return false;
       const r = fresh[idx];
       r.amount = 0;
-      if (r.数量 !== undefined) r.数量 = 0;
+      if (r.quantity !== undefined) r.quantity = 0;
       return true;
     });
     if (!mined) {
@@ -2096,7 +2100,7 @@ export class GatherPanelService {
     // 手动开采的任务在服务层按真实产量结算，命令层不再重复推进。
     await this.support.advanceTask(userId, '开采');
     await this.support.advanceTask(userId, '采集资源', amount);
-    const gatherCommand = targetResource.gatherCmd ?? targetResource.采集指令 ?? '';
+    const gatherCommand = targetResource.gatherCmd ?? '';
     if (resourceName === '货舱' || gatherCommand === '打开货舱') {
       await this.support.advanceTask(userId, '打开货舱');
     } else {
@@ -2169,14 +2173,14 @@ export class GatherPanelService {
       const backpack = this.playerService.getBackpackItems(player);
       for (const resource of resources) {
         if (resource?.renewable === false || resource?.不可再生 === true) continue; // 不可再生
-        if (String(resource?.marker ?? resource?.标记 ?? '').trim()) continue;      // 一次性特殊资源
-        const outputs2 = resource?.outputs2 ?? resource?.['产出2'];
+        if (String(resource?.marker ?? '').trim()) continue;      // 一次性特殊资源
+        const outputs2 = resource?.outputs2;
         if (Array.isArray(outputs2) ? outputs2.length > 0 : asJsonValue<any[]>(outputs2, []).length > 0) continue; // 建筑/作物产出
         for (const out of this.parseResourceOutputs(resource?.outputs)) {
           if (!out.name || out.name === '电力') continue;
           for (let i = 0; i < followerFactor; i++) {
             if (Math.random() * 100 >= Number(out.chance ?? 100)) continue; // 几率判断
-            let amount = Number(out.count ?? 0) * 16 * multiplier;
+            let amount = Number(out.quantity ?? 0) * 16 * multiplier;
             if (collector === 2) {
               amount *= 1 + this.support.randomInt(2500, 5000) / 10000; // 原版 L7562 行星解裂器随机增幅
             }
@@ -2184,7 +2188,7 @@ export class GatherPanelService {
             const itemType = this.staticData.getEquipmentByName(out.name) ? '装备' : '资源';
             if (itemType === '装备') {
               const equipment = await this.itemSystemService.generateRewardEquipment(out.name, out.quality || '');
-              this.addBackpackItem(backpack, { ...equipment, type: '装备', quantity: 1, count: 1 });
+              this.addBackpackItem(backpack, { ...equipment, type: '装备', quantity: 1 });
               awardedEquipment.set(out.name, (awardedEquipment.get(out.name) || 0) + 1);
             } else {
               awarded.set(out.name, (awarded.get(out.name) || 0) + amount);
@@ -2192,8 +2196,8 @@ export class GatherPanelService {
           }
         }
         // 次数-6（原版 L7571-7575；次数 -1 = 无限）
-        const times = Number(resource?.times ?? resource?.次数 ?? -1);
-        if (times !== -1 && times > 0) emptied.push(resource.name ?? resource.名称);
+        const times = Number(resource?.times ?? -1);
+        if (times !== -1 && times > 0) emptied.push(resource.name);
       }
 
       // 背包写回（数值过 roundItemQuantity 三道闸）；awarded 现只含资源，装备已在生成时入包
@@ -2211,20 +2215,19 @@ export class GatherPanelService {
         for (let i = fresh.length - 1; i >= 0; i--) {
           const resource = fresh[i];
           if (resource?.renewable === false || resource?.不可再生 === true) continue;
-          if (String(resource?.marker ?? resource?.标记 ?? '').trim()) continue;
-          const outputs2 = resource?.outputs2 ?? resource?.['产出2'];
+          if (String(resource?.marker ?? '').trim()) continue;
+          const outputs2 = resource?.outputs2;
           if (Array.isArray(outputs2) ? outputs2.length > 0 : asJsonValue<any[]>(outputs2, []).length > 0) continue;
-          const times = Number(resource?.times ?? resource?.次数 ?? -1);
+          const times = Number(resource?.times ?? -1);
           if (times === -1) continue;
           const remaining = Math.max(0, times - 6);
           resource.times = remaining;
-          if (resource.次数 !== undefined) resource.次数 = remaining;
           changed = true;
           if (remaining <= 0) {
             fresh.splice(i, 1); // 枯竭移除
-            const name = String(resource.name ?? resource.名称 ?? '');
+            const name = String(resource.name ?? '');
             const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
-            const filtered = mapMarkers2.filter((entry: any) => (entry?.name ?? entry?.名称) !== `刷新资源${name}`);
+            const filtered = mapMarkers2.filter((entry: any) => entry?.name !== `刷新资源${name}`);
             filtered.push({ name: `刷新资源${name}`, expireAt: Date.now() + 1800 * 1000, resourceField: 'resources' });
             f.markers2 = filtered;
           }
@@ -2286,21 +2289,22 @@ export class GatherPanelService {
     const names: string[] = [];
     const visit = (part: any): void => {
       if (!part) return;
-      const name = String(part?.name ?? part?.名称 ?? '').trim();
+      const name = String(part?.name ?? '').trim();
       if (name) names.push(name);
+      // 嵌套零件（parts 内层元素）只按物品域归一化，内层 builtinParts 的行业别名保持原样
       for (const inner of (Array.isArray(part?.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置)
         ? (part.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置)
         : asJsonValue<any[]>(part?.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置, []))) {
         visit(inner);
       }
     };
-    const parts = Array.isArray(vehicle?.parts ?? vehicle?.零件)
-      ? (vehicle.parts ?? vehicle.零件)
-      : asJsonValue<any[]>(vehicle?.parts ?? vehicle?.零件, []);
+    const parts = Array.isArray(vehicle?.parts)
+      ? vehicle.parts
+      : asJsonValue<any[]>(vehicle?.parts, []);
     for (const part of parts) visit(part);
-    for (const part of (Array.isArray(vehicle?.builtinParts ?? vehicle?.内置零件)
-      ? (vehicle.builtinParts ?? vehicle.内置零件)
-      : asJsonValue<any[]>(vehicle?.builtinParts ?? vehicle?.内置零件, []))) {
+    for (const part of (Array.isArray(vehicle?.builtinParts)
+      ? vehicle.builtinParts
+      : asJsonValue<any[]>(vehicle?.builtinParts, []))) {
       visit(part);
     }
     return names;
@@ -2327,19 +2331,19 @@ export class GatherPanelService {
     const indexes: number[] = [];
     for (let i = 0; i < summons.length; i++) {
       const summon = summons[i];
-      const owner = String(summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? summon?.qq ?? '');
+      const owner = String(summon?.ownerQQ ?? summon?.owner ?? summon?.qq ?? '');
       if (!ownerKeys.has(owner)) continue;
       if (requireFollow) {
-        let summonMarkers: any = summon?.markers ?? summon?.标记 ?? {};
+        let summonMarkers: any = summon?.markers ?? {};
         if (!Array.isArray(summonMarkers) && typeof summonMarkers === 'string') {
           summonMarkers = asJsonValue<any>(summonMarkers, {});
         }
         const prof = Array.isArray(summonMarkers)
-          ? Number(summonMarkers.find((m: any) => (m?.name ?? m?.名称) === '跟随')?.value ?? 0)
+          ? Number(summonMarkers.find((m: any) => m?.name === '跟随')?.value ?? 0)
           : Number(summonMarkers?.['跟随'] ?? 0);
         if (prof >= 1) continue; // 熟练度>=1 为不跟随
       }
-      names.push(String(summon?.name ?? summon?.名称 ?? summon?.type ?? summon?.类型 ?? '宠物'));
+      names.push(String(summon?.name ?? summon?.type ?? '宠物'));
       indexes.push(i);
       if (countLimit > 0 && names.length >= countLimit) break;
     }
@@ -2383,7 +2387,7 @@ export class GatherPanelService {
       const markers2 = Array.isArray(player.markers2)
         ? player.markers2
         : asJsonValue<any[]>(player.markers2, []);
-      const entry = markers2.find((m: any) => (m?.name ?? m?.名称 ?? m?.key) === '开箱');
+      const entry = markers2.find((m: any) => (m?.name ?? m?.key) === '开箱');
       if (!entry) return '';
       const expireAt = toExpireMs(entry);
       const now = Date.now();
@@ -2499,7 +2503,7 @@ export class GatherPanelService {
       const equipments = Array.isArray(playerData.equipment) ? playerData.equipment
         : asJsonValue<any[]>(player.equipment, []);
       const hasCloak = this.combatState.equipRequire(equipments, weapons, currentWeaponIdx, 26, '隐形披风', false);
-      const isYoshino = Number(player.specialSeq ?? player.特殊序号 ?? 0) === 15;
+      const isYoshino = Number(player.specialSeq ?? 0) === 15;
       const stealthActive = hasActive(asJsonValue<any[]>(player.buffs, []), '隐匿模式');
       if (Number(player.level ?? 0) >= 15 && !hasCloak && !isYoshino && !stealthActive) {
         // triggerMapBattleLoop 内部含玩家活跃语义（活动窗口/战斗标记随本次 mutate 统一落库）
@@ -2539,7 +2543,7 @@ export class GatherPanelService {
 
     // ===== 原版 L11400-11416 回复文本：采集文本模板 + 预计耗时 =====
     // 模板占位符：【名称】=玩家名(+跟随宠物)、【载具】=载具名(此处无载具上下文，移除)、【武器】=当前武器名
-    const rawGatherText = String(target.gatherText ?? target.采集文本 ?? '')
+    const rawGatherText = String(target.gatherText ?? '')
       || `【名称】正在${gatherName}`;
     let startText = rawGatherText.replace('【载具】', '');
     startText = startText.replace('【名称】', String(player.name ?? '冒险者'));
@@ -2574,7 +2578,7 @@ export class GatherPanelService {
     // 结算即解锁：移除「采集」锁定标记（原版 获得增益 到期语义；定时器回调可能早于毫秒级过期）
     const lockedMarkers2 = asJsonValue<any[]>(player.markers2, []);
     const unlockedMarkers2 = lockedMarkers2.filter((m: any) =>
-      (m?.name ?? m?.名称 ?? m?.key) !== '采集');
+      (m?.name ?? m?.key) !== '采集');
     const markers2Changed = unlockedMarkers2.length !== lockedMarkers2.length;
 
     // 原子认领「采集中」状态：进程内定时器与每5秒兜底扫描是并发结算入口，
@@ -2676,7 +2680,7 @@ export class GatherPanelService {
       const chance = Number(out.chance);
       for (let i = 0; i < actualGatherCount; i++) {
         if (Number.isFinite(chance) && chance >= 0 && Math.random() * 100 >= chance * dropRate) continue;
-        const parsed = this.parseResourceOutputName(out.name, Number(out.count));
+        const parsed = this.parseResourceOutputName(out.name, Number(out.quantity));
         if (!parsed.name) continue;
         // 类型三分类（原版 地图操作.ecode L1583-1590）：装备生成词条；资源乘采集加成；
         // 其余（箱子等可使用功能物品，items.json 中带 useEffects 的条目）不乘加成——
@@ -2696,19 +2700,20 @@ export class GatherPanelService {
         if (itemType === '装备') {
           const quality = parsed.quality || '';
           const equipment = await this.itemSystemService.generateRewardEquipment(parsed.name, quality);
-          this.addBackpackItem(backpack, { ...equipment, type: '装备', quantity: 1, count: 1 });
+          // 数量只写规范键 quantity（count 镜像由持久化边界收敛删除）
+          this.addBackpackItem(backpack, { ...equipment, type: '装备', quantity: 1 });
           awardedEquipment.set(parsed.name, (awardedEquipment.get(parsed.name) || 0) + 1);
         } else {
-          const amount = parsed.count > 0
-            ? (itemType === '资源' ? parsed.count * this.getGatherMultiplier(playerData) : parsed.count)
-            : Math.abs(parsed.count);
+          const amount = parsed.quantity > 0
+            ? (itemType === '资源' ? parsed.quantity * this.getGatherMultiplier(playerData) : parsed.quantity)
+            : Math.abs(parsed.quantity);
           if (amount > 0) awarded.set(parsed.name, (awarded.get(parsed.name) || 0) + amount);
         }
       }
     }
     for (const [itemName, amount] of awarded) {
       // 统一规范化合并（type 以静态定义为准，非装备按名合并，Issue #11）
-      mergeBackpackItem(backpack, { name: itemName, type: '资源', count: amount, quantity: amount },
+      mergeBackpackItem(backpack, { name: itemName, type: '资源', quantity: amount },
         lookupFromStaticData(this.staticData));
       gained.push(`${itemName}×${this.support.formatGatherNumber(amount)}`);
     }
@@ -2717,7 +2722,7 @@ export class GatherPanelService {
 
     // 原版采集成功后会把资源自身的“标记”写入玩家永久标记，
     // 例如医疗箱、休眠仓和散落的物品每个玩家只能领取一次。
-    const resourceMarker = String(target.marker ?? target.标记 ?? '').trim();
+    const resourceMarker = String(target.marker ?? '').trim();
     if (resourceMarker && actualGatherCount > 0) {
       markers[resourceMarker] = Number(markers[resourceMarker] ?? 0) + 1;
       player.markers = markers; // Json 列直接写对象
@@ -2755,7 +2760,7 @@ export class GatherPanelService {
           if (freshTarget.renewable !== false) {
             const mapMarkers2 = Array.isArray(f.markers2) ? f.markers2 : [];
             const refreshedMarkers2 = mapMarkers2.filter((entry: any) =>
-              (entry?.name ?? entry?.名称) !== `刷新资源${freshTarget.name}`,
+              entry?.name !== `刷新资源${freshTarget.name}`,
             );
             refreshedMarkers2.push({
               name: `刷新资源${freshTarget.name}`,
@@ -2824,7 +2829,7 @@ export class GatherPanelService {
     // 采集引怪在开始采集阶段按原版 _主程序.ecode L11415-11426 处理（见 handleGatherResource），
     // 与代发言无关。召唤1白1 已在采集入口内联召唤，不走此排程。
     {
-      const proxySpeak = String(target.proxySpeak ?? target.代发言 ?? '');
+      const proxySpeak = String(target.proxySpeak ?? '');
       if (proxySpeak && proxySpeak !== '召唤1白1') {
         if (this.delayedTaskService) {
           await this.delayedTaskService.schedule({
@@ -3014,15 +3019,15 @@ export class GatherPanelService {
     }
   }
 
-  /** 读清障队列快照（yard / 面板用） */
-  getHomeClearQueueSnapshot(userId: number, markers: Record<string, any>): Array<{ cmd: string; count: number }> {
+  /** 读清障队列快照（yard / 面板用）：条数用规范键 quantity */
+  getHomeClearQueueSnapshot(userId: number, markers: Record<string, any>): Array<{ cmd: string; quantity: number }> {
     const queue = this.readClearQueue(markers || {});
     if (!queue.length) return [];
-    const grouped: Array<{ cmd: string; count: number }> = [];
+    const grouped: Array<{ cmd: string; quantity: number }> = [];
     for (const cmd of queue) {
       const last = grouped[grouped.length - 1];
-      if (last && last.cmd === cmd) last.count += 1;
-      else grouped.push({ cmd, count: 1 });
+      if (last && last.cmd === cmd) last.quantity += 1;
+      else grouped.push({ cmd, quantity: 1 });
     }
     void userId;
     return grouped;
@@ -3130,7 +3135,7 @@ export class GatherPanelService {
   clearStaleGatherLock(player: any, userId: number): void {
     try {
       const markers2 = asJsonValue<any[]>(player.markers2, []);
-      const filtered = markers2.filter((m: any) => (m?.name ?? m?.名称 ?? m?.key) !== '采集');
+      const filtered = markers2.filter((m: any) => (m?.name ?? m?.key) !== '采集');
       if (filtered.length !== markers2.length) {
         player.markers2 = filtered; // Json 列直接写数组
         void this.playerService.savePlayer(player).catch(() => undefined);
@@ -3150,16 +3155,16 @@ export class GatherPanelService {
       const summons = Array.isArray(raw) ? raw : asJsonValue<any[]>(raw, []);
       const playerKey = String(userId);
       return summons.filter((s: any) => {
-        const owner = String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? s?.qq ?? '');
+        const owner = String(s?.ownerQQ ?? s?.owner ?? s?.qq ?? '');
         if (owner !== playerKey) return false;
-        const hp = Number(s?.hp ?? s?.当前生命 ?? 1);
+        const hp = Number(s?.hp ?? 1);
         if (hp <= 0) return false;
-        let summonMarkers: any = s?.markers ?? s?.标记 ?? {};
+        let summonMarkers: any = s?.markers ?? {};
         if (!Array.isArray(summonMarkers) && typeof summonMarkers === 'string') {
           summonMarkers = asJsonValue<any>(summonMarkers, {});
         }
         const prof = Array.isArray(summonMarkers)
-          ? Number(summonMarkers.find((m: any) => (m?.name ?? m?.名称) === '跟随')?.value ?? 0)
+          ? Number(summonMarkers.find((m: any) => m?.name === '跟随')?.value ?? 0)
           : Number(summonMarkers?.['跟随'] ?? 0);
         return prof < 1;
       }).length;
@@ -3190,19 +3195,16 @@ export class GatherPanelService {
     return outputs.map((output: any) => {
       if (!output || typeof output !== 'object') return output;
 
-      // 早期导出把“木头3，100”写成 {name:"木头3", count:100}。
-      // 名称末尾数字是数量，旧 count 才是概率；没有紧凑数量时概率默认100%。
-      const rawName = String(output.name ?? output.名称 ?? '').trim();
-      const rawCount = Number(output.count ?? output.quantity ?? output.数量 ?? 0);
-      const hasChance = output.chance !== undefined || output.几率 !== undefined;
-      const compact = rawName.replace(/[edcbasx]$/i, '').match(/-?\d+(?:\.\d+)?$/);
+      // 产出条目只认规范键：quantity（数量）、chance（概率 0-100）。
+      // 名称末尾数字/品质后缀（如「木头3」「寒风s」「工业建筑箱-3」）由
+      // parseResourceOutputName 解析，与概率字段无关。历史「count=概率」编码已废弃。
+      const rawName = String(output.name ?? '').trim();
+      const rawQuantity = Number(output.quantity ?? 0);
       return {
         ...output,
         name: rawName,
-        count: Number.isFinite(rawCount) ? rawCount : 0,
-        chance: hasChance
-          ? Number(output.chance ?? output.几率 ?? 0)
-          : (compact ? rawCount : 100),
+        quantity: Number.isFinite(rawQuantity) ? rawQuantity : 0,
+        chance: output.chance === undefined ? 100 : Number(output.chance ?? 0),
       };
     });
   }
@@ -3235,7 +3237,7 @@ export class GatherPanelService {
 
 
   isGatherResourceAvailable(resource: any, markers: Record<string, any>): boolean {
-    const marker = String(resource?.marker ?? resource?.标记 ?? '').trim();
+    const marker = String(resource?.marker ?? '').trim();
     if (!marker) return true;
     return Number(markers[marker] ?? 0) < 1;
   }
@@ -3254,7 +3256,7 @@ export class GatherPanelService {
   /** 产出2（作物/建筑的生产产出）是否非空；产出2为空的资源2条目即地上的野生资源。 */
 
   hasOutputs2(resource: any): boolean {
-    const raw = resource?.outputs2 ?? resource?.['产出2'];
+    const raw = resource?.outputs2;
     if (Array.isArray(raw)) return raw.length > 0;
     if (raw == null || raw === '') return false;
     const parsed = asJsonValue<any[]>(raw, []);
@@ -3262,24 +3264,24 @@ export class GatherPanelService {
   }
 
 
-  parseResourceOutputName(rawName: any, rawCount: number): { name: string; count: number; quality: string } {
+  parseResourceOutputName(rawName: any, rawQuantity: number): { name: string; quantity: number; quality: string } {
     const source = String(rawName ?? '').trim();
     const qualityMatch = source.match(/^(.*?)([edcbasx])$/i);
     const quality = qualityMatch ? qualityMatch[2].toLowerCase() : '';
     const withoutQuality = qualityMatch ? qualityMatch[1] : source;
     const compact = withoutQuality.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
-    if (!compact) return { name: withoutQuality, count: quality ? 0 : Number(rawCount) || 0, quality };
+    if (!compact) return { name: withoutQuality, quantity: quality ? 0 : Number(rawQuantity) || 0, quality };
     return {
       name: compact[1].trim(),
-      // 旧 JSON 把概率写进 count；只要名称仍带紧凑数量，就以名称中的数量为准。
-      count: Number(compact[2]),
+      // 名称带紧凑数量时以名称为准（与 quantity 字段并存时优先名称，对齐原版编码习惯）
+      quantity: Number(compact[2]),
       quality,
     };
   }
 
 
   getResourceTimes(resource: any): number {
-    const value = Number(resource?.times ?? resource?.次数 ?? -1);
+    const value = Number(resource?.times ?? -1);
     return Number.isFinite(value) ? value : -1;
   }
 
@@ -3372,7 +3374,7 @@ export class GatherPanelService {
       lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`🎒 地上物品 (${items.length}种):`);
       for (const item of items) {
-        const count = item.count || item.quantity || 1;
+        const count = item.quantity ?? 1;
         lines.push(`  ${item.name} ×${formatDisplayNumber(count)}`);
       }
     }
@@ -3393,9 +3395,9 @@ export class GatherPanelService {
       lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`🚗 载具 (${vehicles.length}辆):`);
       for (const v of vehicles) {
-        const vName = String(v?.name ?? v?.名称 ?? '未知载具');
-        // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
-        const unowned = String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主';
+        const vName = String(v?.name ?? '未知载具');
+        // 无主判定：owner 为"无主"即废弃载具
+        const unowned = String(v?.owner ?? '') === '无主';
         lines.push(`  ${vName}${unowned ? '[!]' : ''}`);
       }
     }
@@ -3498,7 +3500,7 @@ export class GatherPanelService {
     for (const map of maps) {
       const summons = asJsonValue<any[]>(map.summons, []);
       for (const s of summons) {
-        const sName = String(s?.name ?? s?.名称 ?? '');
+        const sName = String(s?.name ?? '');
         if (sName === '行商') {
           merchantEntries.push({ name: level >= 5 ? map.name : near(map), count: 1 });
         } else if (sName === '花园宝宝') {
@@ -3511,7 +3513,7 @@ export class GatherPanelService {
       }
       const npcs = asJsonValue<any[]>(map.npcs, []);
       for (const n of npcs) {
-        if (String(n?.name ?? n?.名称 ?? '') === '神之工匠' || n?.qq === 'npc1g') {
+        if (String(n?.name ?? '') === '神之工匠' || n?.qq === 'npc1g') {
           artisanEntries.push({ name: near(map), count: 1 });
         }
       }
@@ -3554,8 +3556,8 @@ export class GatherPanelService {
     for (const map of maps) {
       const vehicles = asJsonValue<any[]>(map.vehicles, []);
       const wreckCount = vehicles.filter(
-        // 无主判定：归属/owner 双字段任一为"无主"（owner 可能为空串，不能用 ?? 链短路）
-        (v: any) => String(v?.归属 ?? '') === '无主' || String(v?.owner ?? '') === '无主',
+        // 无主判定：owner 为"无主"即废弃载具
+        (v: any) => String(v?.owner ?? '') === '无主',
       ).length;
       if (wreckCount > 0) wreckEntries.push({ name: near(map), count: wreckCount });
     }
@@ -3675,7 +3677,7 @@ export class GatherPanelService {
         const items = asJsonValue<any[]>(map.items, []);
         if (items.length > 0) {
           found = true;
-          lines.push(`${map.name}: ${items.map((it) => `${it.name}${it.count ? `x${it.count}` : ''}`).join('、')}`);
+          lines.push(`${map.name}: ${items.map((it) => `${it.name}${it.quantity ? `x${it.quantity}` : ''}`).join('、')}`);
         }
       }
       if (!found) lines.push('（世界上暂无可拾取物品）');
@@ -3688,7 +3690,7 @@ export class GatherPanelService {
       const items = asJsonValue<any[]>(map.items, []);
       for (const it of items) {
         if (it.name === keyword) {
-          itemMap[map.name] = (itemMap[map.name] || 0) + (it.count || 1);
+          itemMap[map.name] = (itemMap[map.name] || 0) + (it.quantity ?? 1);
         }
       }
     }
@@ -3724,13 +3726,13 @@ export class GatherPanelService {
       const res = asJsonValue<any[]>(map.resources, []);
       const cropList: { name: string; times: number }[] = [];
       for (const r of res2) {
-        if (this.parseResourceOutputs(r.outputs2 ?? r['产出2']).length > 0) {
-          cropList.push({ name: r.name, times: r.quantity || r.count || r.times || 1 });
+        if (this.parseResourceOutputs(r.outputs2).length > 0) {
+          cropList.push({ name: r.name, times: r.quantity || r.times || 1 });
         }
       }
       for (const r of res) {
-        if (this.parseResourceOutputs(r.outputs2 ?? r['产出2']).length > 0 && !cropList.some((c) => c.name === r.name)) {
-          cropList.push({ name: r.name, times: r.quantity || r.count || r.times || 1 });
+        if (this.parseResourceOutputs(r.outputs2).length > 0 && !cropList.some((c) => c.name === r.name)) {
+          cropList.push({ name: r.name, times: r.quantity || r.times || 1 });
         }
       }
       if (cropList.length > 0) {
@@ -3818,7 +3820,7 @@ export class GatherPanelService {
       // 对齐原版：无参数只展示地面物品，“拾取全部”才真正执行拾取。
       const lines = [`${player.name || '冒险者'}附近的地上有:`];
       lines.push(...mapItems.map((item: any) => {
-        const count = Number(item.count ?? item.quantity ?? 1);
+        const count = Number(item.quantity ?? 1);
         return `  ${item.name || '未知'}${count === 1 ? '' : ` ×${formatDisplayNumber(count)}`}`;
       }));
       return lines.join('\n');
@@ -3836,7 +3838,7 @@ export class GatherPanelService {
     // 花园猫/铃铛 +33%（原版 L3743：玩家特殊序号==花园猫(1) 或 装备铃铛(特殊序号64)）
     const equipments = playerData.equipment || asJsonValue<any[]>(player.equipment, []);
     const weapons = playerData.weapons || asJsonValue<any[]>(player.weapons, []);
-    const hasPickBonus = Number(player.specialSeq ?? player.特殊序号 ?? 0) === 1
+    const hasPickBonus = Number(player.specialSeq ?? 0) === 1
       || this.combatState.equipRequire(equipments, weapons, Number(player.currentWeapon ?? 0), 64, '铃铛', false);
 
     const pickAll = requestedName === '全部' || requestedName === '全部拾取';
@@ -3849,11 +3851,11 @@ export class GatherPanelService {
       pickedUp = await this.mapService.mutateMapFields(map.id, ['items'], (f) => {
         const taken = [...(f.items as any[])];
         for (const item of taken) {
-          const type = item.type ?? item.类型 ?? '资源';
+          const type = item.type ?? '资源';
           if (type === '装备' || String(item.data ?? '') === 'a') continue;
           if (hasPickBonus) {
             // 原版 L3744-3746：数量×1.33 并标记 data="a" 防止重复加成
-            item.quantity = Number(item.quantity ?? item.count ?? 1) * 1.33;
+            item.quantity = Number(item.quantity ?? 1) * 1.33;
             item.data = 'a';
             bonusApplied = true;
           }
@@ -3868,13 +3870,13 @@ export class GatherPanelService {
         const numericIndex = /^\d+$/.test(requestedName) ? Number(requestedName) - 1 : -1;
         const idx = numericIndex >= 0
           ? numericIndex
-          : fresh.findIndex((item: any) => (item.name || item.名称) === requestedName);
+          : fresh.findIndex((item: any) => item.name === requestedName);
         if (idx < 0 || idx >= fresh.length) return null;
         const item = fresh[idx];
-        const type = item.type ?? item.类型 ?? '资源';
+        const type = item.type ?? '资源';
         if (type === '装备' || String(item.data ?? '') === 'a') return fresh.splice(idx, 1)[0];
         if (hasPickBonus) {
-          item.quantity = Number(item.quantity ?? item.count ?? 1) * 1.33;
+          item.quantity = Number(item.quantity ?? 1) * 1.33;
           item.data = 'a';
           bonusApplied = true;
         }
@@ -3887,23 +3889,23 @@ export class GatherPanelService {
     }
 
     for (const item of pickedUp) {
-      const count = Number(item.count ?? item.quantity ?? 1);
-      await this.playerService.addToBackpack(userId, item.name || item.名称, count);
+      const count = Number(item.quantity ?? 1);
+      await this.playerService.addToBackpack(userId, item.name, count);
     }
 
     this.logger.log(`玩家 ${userId} 拾取了 ${pickedUp.length} 种物品`);
 
     const pickedText = pickedUp.map((item: any) => {
-      const count = Number(item.count ?? item.quantity ?? 1);
-      return `${item.name || item.名称} ×${formatDisplayNumber(count)}`;
+      const count = Number(item.quantity ?? 1);
+      return `${item.name} ×${formatDisplayNumber(count)}`;
     }).join('、');
 
     // 原版拾取顺序：先记录资源产出，再记录拾取条目数。
     // 资源数量是任务进度；“拾取”按地面条目数，不按堆叠数量计算。
     for (const item of pickedUp) {
-      const type = item.type ?? item.类型 ?? '资源';
-      const itemNameValue = item.name || item.名称 || '';
-      const count = Number(item.count ?? item.quantity ?? 1);
+      const type = item.type ?? '资源';
+      const itemNameValue = item.name || '';
+      const count = Number(item.quantity ?? 1);
       if (type !== '装备' && item.data !== 'a' && itemNameValue && count > 0) {
         await this.support.advanceTask(userId, '采集资源', count);
         await this.support.advanceTask(userId, `采集${itemNameValue}`, count);
@@ -3983,19 +3985,19 @@ export class GatherPanelService {
       if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= displayItems.length) {
         item = displayItems[idxNum - 1];
       } else {
-        item = items.find((i: any) => (i.name || i.名称) === arg);
+        item = items.find((i: any) => i.name === arg);
       }
       if (!item) {
         return `背包中没有找到【${arg}】\n使用「背包」查看物品列表`;
       }
-      if ((item.type || item.类型) === '装备') {
+      if (item.type === '装备') {
         // 传 markers：详情自带属性块按「装备强化及自带」强化后口径输出（单一实现）
         return this.itemSystemService.analyzeEquipmentItem(item, '背包', playerData.markers);
       }
-      const itemName = item.name || item.名称 || '未知物品';
+      const itemName = item.name || '未知物品';
       const count = Math.round(this.support.itemQuantity(item) * 100) / 100;
-      const type = item.type || item.类型 ? `\n类型: ${item.type || item.类型}` : '';
-      const desc = item.description || item.说明 ? `\n${item.description || item.说明}` : '';
+      const type = item.type ? `\n类型: ${item.type}` : '';
+      const desc = item.description ? `\n${item.description}` : '';
       return `🎒【${itemName}】×${count}${type}${desc}`;
     }
 
@@ -4006,10 +4008,10 @@ export class GatherPanelService {
     // 排序与行格式另由 server/test/inventory-display.spec.ts 契约测试
     // （'背包展示排序（资源在前、装备在后）'）锁定。改动此处输出必须同步前端正则与契约测试。
     const lines = displayItems.map((item: any, index: number) => {
-      if ((item.type || item.类型) === '装备') {
+      if (item.type === '装备') {
         return `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`;
       }
-      const itemName = item.name || item.名称 || '未知物品';
+      const itemName = item.name || '未知物品';
       const count = Math.round(this.support.itemQuantity(item) * 100) / 100;
       return `${index + 1}. ${itemName} ×${count}`;
     });
@@ -4041,14 +4043,14 @@ export class GatherPanelService {
     // 输出格式与「背包」列表完全同构（🎒 标题 + 「N. 名字 ×数量」行）：
     // 前端 RichSystemCard 的背包网格解析与 ChatView isRichCardContent 按同一文本约定复用，
     // 资源背包不设第二套解析分支（统一调用约定，禁止双重表示）。
-    // 数量口径与 handleInventory 一致走 itemQuantity（quantity/count 双字段兜底），
-    // 禁用旧的 count||quantity 读取（addToBackpack 历史路径只写 count 并 delete quantity）。
+    // 数量口径与 handleInventory 一致走 itemQuantity（只读规范键 quantity），
+    // 禁用旧的 count||quantity 双字段兜底（addToBackpack 历史路径不再写 count）。
     // 文本契约（RVW04 P2-8）：标题 `🎒 资源背包 (N种):` 与物品行 `N. 名字 ×数量` 的解析正则
     // 定义在 web/src/components/RichSystemCard.vue parseLayout 背包分支
     //（/^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/ 与 /^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/），
     // server/test/inventory-display.spec.ts 契约测试同步锁定；改动须服务端、前端正则、契约测试三处一起改。
     const lines = resourceItems.map((item: any, index: number) => {
-      const itemName = item.name || item.名称 || '未知物品';
+      const itemName = item.name || '未知物品';
       const count = Math.round(this.support.itemQuantity(item) * 100) / 100;
       return `${index + 1}. ${itemName} ×${count}`;
     });
@@ -4085,9 +4087,7 @@ export class GatherPanelService {
       if (item.type === '装备') {
         lines.push(`  ${item.name} [装备]`);
       } else {
-        // 数量读取必须走 quantity/count 双字段兜底（与 背包 列表的 itemQuantity 同口径）：
-        // addToBackpack 历史路径只写 count 并 delete quantity，直接读 item.quantity 会
-        // 得到 undefined → 显示 ×0（实证：能量块 ×486.55 搜索显示 ×0）
+        // 数量统一走 support.itemQuantity（只读规范键 quantity，历史 count 别名已由持久化边界收敛）
         lines.push(`  ${item.name} ×${formatDisplayNumber(this.support.itemQuantity(item))} [${item.type || '资源'}]`);
       }
     }
@@ -4126,7 +4126,7 @@ export class GatherPanelService {
       if (item.type === '装备') {
         lines.push(`  ${item.name} [装备]`);
       } else {
-        // 同 背包搜索：quantity/count 双字段兜底，防 addToBackpack 单 count 存量显示 ×0
+        // 同 背包搜索：数量统一走 support.itemQuantity（只读规范键 quantity）
         lines.push(`  ${item.name} ×${formatDisplayNumber(this.support.itemQuantity(item))} [${item.type || '资源'}]`);
       }
     }
@@ -4199,11 +4199,11 @@ export class GatherPanelService {
       .map((effect: string) => effect.trim())
       .filter(Boolean);
     const resource = this.staticData.getAllResources().find((candidate: any) => {
-      const name = String(candidate?.name ?? candidate?.名称 ?? '').trim();
+      const name = String(candidate?.name ?? '').trim();
       return candidates.includes(name)
-        && this.parseResourceOutputs(candidate?.outputs2 ?? candidate?.['产出2']).length > 0;
+        && this.parseResourceOutputs(candidate?.outputs2).length > 0;
     });
-    return String(resource?.name ?? resource?.名称 ?? '').trim();
+    return String(resource?.name ?? '').trim();
   }
 
 
@@ -4236,9 +4236,9 @@ export class GatherPanelService {
     if (!ownHouse) {
       const resources2 = asJsonValue<any[]>(map.resources2, []);
       const cropCount = resources2
-        .filter((resource: any) => this.parseResourceOutputs(resource?.outputs2 ?? resource?.['产出2']).length > 0)
+        .filter((resource: any) => this.parseResourceOutputs(resource?.outputs2).length > 0)
         .reduce((total: number, resource: any) => total + Number(
-          resource?.quantity ?? resource?.count ?? resource?.times ?? resource?.次数 ?? 1,
+          resource?.quantity ?? resource?.times ?? 1,
         ), 0);
       if (cropCount >= 2) return `${player.name || '冒险者'}当前地图无法种下更多了`;
     }
@@ -4337,8 +4337,8 @@ export class GatherPanelService {
   async backpackQuantity(backpack: any[], name: string): Promise<number> {
     let total = 0;
     for (const item of backpack) {
-      if ((item?.name ?? item?.名称) === name && item?.type !== '装备') {
-        total += Number(item.quantity ?? item.count ?? 0);
+      if (item?.name === name && item?.type !== '装备') {
+        total += Number(item.quantity ?? 0);
       }
     }
     return total;

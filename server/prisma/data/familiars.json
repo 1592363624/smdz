@@ -10,7 +10,7 @@
     "hairDrop": [
       {
         "name": "猫毛",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -32,7 +32,7 @@
     "hairDrop": [
       {
         "name": "神犬毛",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -54,7 +54,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": []
@@ -70,7 +70,7 @@
     "hairDrop": [
       {
         "name": "上等毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -92,7 +92,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -114,7 +114,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": []
@@ -130,7 +130,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -152,7 +152,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -174,7 +174,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": []
@@ -190,7 +190,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": []
@@ -206,7 +206,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -228,7 +228,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": []
@@ -244,7 +244,7 @@
     "hairDrop": [
       {
         "name": "上等毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -266,7 +266,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": []
@@ -282,7 +282,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -304,7 +304,7 @@
     "hairDrop": [
       {
         "name": "上等毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -326,7 +326,7 @@
     "hairDrop": [
       {
         "name": "龙须",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -348,7 +348,7 @@
     "hairDrop": [
       {
         "name": "人造毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -370,7 +370,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": []
@@ -386,7 +386,7 @@
     "hairDrop": [
       {
         "name": "上等毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -408,7 +408,7 @@
     "hairDrop": [
       {
         "name": "上等毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -430,7 +430,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -452,7 +452,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -474,7 +474,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -496,7 +496,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -518,7 +518,7 @@
     "hairDrop": [
       {
         "name": "上等毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -540,7 +540,7 @@
     "hairDrop": [
       {
         "name": "神犬毛",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -562,7 +562,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -584,7 +584,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -606,7 +606,7 @@
     "hairDrop": [
       {
         "name": "上等兔毛",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [
@@ -628,7 +628,7 @@
     "hairDrop": [
       {
         "name": "毛发",
-        "count": 1
+        "quantity": 1
       }
     ],
     "affinityDesc": [

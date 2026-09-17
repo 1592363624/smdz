@@ -31,8 +31,8 @@ export interface SummonUnit {
 export interface HairDropItem {
   /** 物品名称 */
   name: string;
-  /** 数量 */
-  count: number;
+  /** 数量（规范键为 quantity，同义旧键 count 已废弃） */
+  quantity: number;
   /** 概率（0~1） */
   chance?: number;
 }
@@ -137,16 +137,16 @@ export class FamiliarService {
     const hairDropData = asJsonValue<Record<string, unknown> | HairDropItem[]>(familiar.hairDrop, {});
 
     // 支持两种格式：
-    // 1. 数组格式：[{ name: "羊毛", count: 1, chance: 0.8 }]
+    // 1. 数组格式：[{ name: "羊毛", quantity: 1, chance: 0.8 }]
     // 2. 对象格式：{ "羊毛": 1, "线": 2 }
     if (Array.isArray(hairDropData)) {
       return hairDropData as HairDropItem[];
     }
 
     // 对象格式转换为数组
-    return Object.entries(hairDropData).map(([name, count]) => ({
+    return Object.entries(hairDropData).map(([name, quantity]) => ({
       name,
-      count: count as number,
+      quantity: quantity as number,
       chance: 1.0,
     }));
   }

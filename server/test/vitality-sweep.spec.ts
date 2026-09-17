@@ -63,7 +63,7 @@ describe('扫荡活力批量结算', () => {
         name: '史莱姆',
         level: 1,
         exp: 10,
-        bonus: JSON.stringify({ drops: [{ name: '木头', count: 2, chance: 100 }] }),
+        bonus: JSON.stringify({ drops: [{ name: '木头', quantity: 2, chance: 100 }] }),
       })),
     };
     const combatSystem: any = {

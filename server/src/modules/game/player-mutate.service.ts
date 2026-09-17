@@ -211,10 +211,10 @@ export class PlayerMutateService {
    * 整份 ctx 的字段签名：用于判定"本链是否改过 ctx 但没显式 savePlayer"。
    * 覆盖 player 上的标量/JSON 字段以及解析后的集合字段（backpack/markers/...），
    * 任意一侧被改签名都会变化，从而让外层统一落库——无需调用方记得 markDirty。
-   * 排除运行时副作用字段（__mutateDirty / auditReason / 货币物化基准）。
+   * 排除运行时副作用字段（__mutateDirty / auditReason / 货币物化标记）。
    */
   private fieldSignature(ctx: any): string {
-    const skip = new Set(['__mutateDirty', 'auditReason', '_currencyMirror']);
+    const skip = new Set(['__mutateDirty', 'auditReason', '_currencyMaterialized']);
     const keys = Object.keys(ctx).filter((k) => !skip.has(k)).sort();
     let sig = '';
     for (const k of keys) {

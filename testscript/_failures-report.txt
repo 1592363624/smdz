@@ -1,0 +1,2985 @@
+[]
+  架构门禁：玩家状态写入口收口 › 裸调 savePlayer 的处数不得增加（新代码一律走 PlayerMutateService.mutate）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:134:13)
+
+[]
+  架构门禁：玩家状态写入口收口 › 裸调 prisma.player.update 必须为 0（全量单写者，业务代码禁止绕过邮箱）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:155:13)
+
+[]
+  架构门禁：玩家状态写入口收口 › game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:502:13)
+
+[]
+  架构门禁：玩家状态写入口收口 › game.service.ts 的 handleXxx 方法数量只减不增（G6：新增指令不得挤进 god class）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:554:13)
+
+[]
+  架构门禁：玩家状态写入口收口 › 二期重点文件行数冻结（G9）：combat-system.service.ts 只减不增（基线 12468）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:588:15)
+
+[]
+  架构门禁：玩家状态写入口收口 › 二期重点文件行数冻结（G9）：familiar-system.service.ts 只减不增（基线 5006）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:588:15)
+
+[test/home-overview.spec.ts]
+  家园只读总览（preview 不结算） › 世界模拟器结构化投影：text 与结算文本同口径，核心名与概率快照一致
+      expect(received).toBeDefined()
+      Received: undefined
+      [0m [90m 141 |[39m     expect(overview[33m.[39mhasPower)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 142 |[39m     expect(overview[33m.[39mremainingFuelSeconds)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;
+      [31m[1m>[22m[39m[90m 143 |[39m     expect(overview[33m.[39mworldSimulation)[33m.[39mtoBeDefined()[33m;[
+      [90m 144 |[39m     expect(overview[33m.[39mworldSimulation[33m![39m[33m.[39mtext)[33m.[39mtoContain([32
+      [39mtoBeGreaterThan([35m0[39m)[33m;[39m
+      [33m=>[39m core[33m.[39mname [33m===[39m [32m'硅基核心阿尔法'[39m))[33m.[39mtoBe([36mtrue[39m)[33m;[39m[0m
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 土堆清空后建造地基通过：消耗材料、开工提示、挂60秒工作标记，延时到期结算经验与完工播报
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "开始了地基的建造，需要1分钟"
+      Received string:    "建造地基需要80木头，你只有0"
+      [31m[1m>[22m[39m[90m 141 |[39m     expect(result)[33m.[39mtoContain([32m'开始了地基的建造，需要1分钟'[39m)[33m;[39m
+      [90m 142 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'家园进度'[39m])[33m.[39mtoBe([
+      [90m 143 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'地基结算待发'[39m])[33m.[39mtoBe(
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:141:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 行动受限（采集中/工作中）时建造地基被拦截且不扣材料
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "采集中"
+      Received string:    "建造地基需要80木头，你只有0"
+      [31m[1m>[22m[39m[90m 183 |[39m     expect(result)[33m.[39mtoContain([32m'采集中'[39m)[33m;[39m
+      [90m 184 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'家园进度'[39m])[33m.[39mtoBe([
+      [33m=>[39m i[33m.[39mname [33m===[39m [32m'木头'[39m)[33m.[39mcount)[33m.[39mtoBe([35m80[39m)[33m;[39m
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:183:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 建造房子成功：消耗材料、开工提示、挂120秒工作标记、进度→4，延时到期结算经验与完工播报
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "开始了房子的建造，需要2分钟"
+      Received string:    "建造房子需要300木头，你只有0"
+      [31m[1m>[22m[39m[90m 203 |[39m     expect(result)[33m.[39mtoContain([32m'开始了房子的建造，需要2分钟'[39m)[33m;[39m
+      [90m 204 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'家园进度'[39m])[33m.[39mtoBe([
+      [90m 205 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'房子结算待发'[39m])[33m.[39mtoBe(
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:203:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 同名多堆/小数物资按合计校验与扣料（与院子「已有 X」同口径）
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "开始了地基的建造"
+      Received string:    "建造地基需要40铁矿，你只有0"
+      [31m[1m>[22m[39m[90m 243 |[39m     expect(result)[33m.[39mtoContain([32m'开始了地基的建造'[39m)[33m;[39m
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:243:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 材料不足时建造地基按原版逐项提示
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "建造地基需要80木头，你只有50"
+      Received string:    "建造地基需要80木头，你只有0"
+      [31m[1m>[22m[39m[90m 263 |[39m     expect(result)[33m.[39mtoContain([32m'建造地基需要80木头，你只有50'[39m)[33m;[39
+      [90m 264 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'家园进度'[39m])[33m.[39mtoBe([
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:263:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 建造地基倒计时期间重发指令提示剩余时间而非"已完成"
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "家园正在建造中"
+      Received string:    "建造地基需要80木头，你只有0"
+      [31m[1m>[22m[39m[90m 275 |[39m     expect(again)[33m.[39mtoContain([32m'家园正在建造中'[39m)[33m;[39m
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:275:19)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 建造房子倒计时期间重发指令提示剩余时间而非"已建好"
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "家园正在建造中"
+      Received string:    "建造房子需要300木头，你只有0"
+      [31m[1m>[22m[39m[90m 293 |[39m     expect(again)[33m.[39mtoContain([32m'家园正在建造中'[39m)[33m;[39m
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:293:19)
+
+[test/currency-columns.spec.ts]
+  货币列化（P1）透明转换 › 读取时把列物化为背包物品
+      expect(received).toBeCloseTo(expected, precision)
+      Received has value: undefined
+      钻石'[39m)[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1053.6[39m[33m,[39m [35m5[39m)[33m;[39m
+      [33m===[39m [32m'召唤券'[39m)[33m.[39mcount)[33m.[39mtoBeCloseTo([35m0.012[39m[33m,[39m [35m9[39m)[33m;[39m
+      数据核心'[39m)[33m.[39mquantity)[33m.[39mtoBe([35m7[39m)[33m;[39m
+      at Object.<anonymous> (test/currency-columns.spec.ts:67:57)
+
+[test/currency-columns.spec.ts]
+  货币列化（P1）透明转换 › 兑换式修改后保存：货币进列、JSON 中无货币条目
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 22
+      Received: 20
+      Expected precision:    5
+      Expected difference: < 0.000005
+      Received difference:   2
+      [90m 89 |[39m     expect(row[33m.[39mdiamonds)[33m.[39mtoBeCloseTo([35m60[39m[33m,[39m [35m5[39m)[33m
+      [31m[1m>[22m[39m[90m 90 |[39m     expect(row[33m.[39mtickets)[33m.[39mtoBeCloseTo([35m22[39m[33m,[39m
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 静态配置与核心分支 › 静态载具数据包含原版166个部件和95个配方，首次生产只写入读取时间
+      expect(received).toEqual(expected) // deep equality
+      Expected: [{"名称": "1", "数值": 123456}]
+      Received: undefined
+      [90m 108 |[39m     expect(result[33m.[39mproduced)[33m.[39mtoEqual([])[33m;[39m
+      [31m[1m>[22m[39m[90m 109 |[39m     expect(vehicle[33m.[39m配方)[33m.[39mtoEqual([{ 名称[33m:[39m [32m'1'[
+      at Object.<anonymous> (test/vehicle-production.spec.ts:109:24)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 静态配置与核心分支 › 生肉分解1按原版顺序结算，并保留耐久10%的副产物比例
+      TypeError: Cannot read properties of undefined (reading 'find')
+      [90m 128 |[39m     expect(result[33m.[39mproductionSpeed)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 129 |[39m     expect(produced[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m5.5[39m)[33m;[39
+      at Object.<anonymous> (test/vehicle-production.spec.ts:126:29)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 静态配置与核心分支 › 九尾狐核心、副产物、消耗降低和兰音幼崽按原版倍率叠加
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      [0m [90m 154 |[39m     expect(result[33m.[39mconsumptionMultiplier)[33m.[39mtoBeCloseTo([35m0.93[39m)[33m
+      [90m 155 |[39m     expect(result[33m.[39melapsedMs)[33m.[39mtoBeCloseTo([35m60[39m [33m*[39m [35m1000[
+      [33m.[39mname [33m===[39m [32m'产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1.05[39m)[33m
+      3m===[39m [32m'副产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m10[39m [33m*[39m [35m0.1[39m
+      9m名称 [33m===[39m [32m'材料'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m100[39m [33m-[39m [35m2[39m [33m*[39
+      at Object.<anonymous> (test/vehicle-production.spec.ts:156:76)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 调度、限制与顺序 › 生产调度系统、生产调度系统II和生产加速8按优先级叠加
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      [0m [90m 180 |[39m     expect(result[33m.[39mproductionSpeed)[33m.[39mtoBeCloseTo([35m1.58[39m)[33m;[39m
+      [90m 181 |[39m     expect(result[33m.[39mconsumedProductivity)[33m.[39mtoBe([35m2[39m)[33m;[39m
+      [33m.[39mname [33m===[39m [32m'产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1.58[39m)[33m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:182:76)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 调度、限制与顺序 › 生产力超限时按生产力比例降低效率
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      [0m [90m 195 |[39m     expect(result[33m.[39mconsumedProductivity)[33m.[39mtoBe([35m200[39m)[33m;[39m
+      [90m 196 |[39m     expect(result[33m.[39mefficiency)[33m.[39mtoBeCloseTo([35m0.5[39m)[33m;[39m
+      [33m.[39mname [33m===[39m [32m'产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m100[39m)[33m;
+      at Object.<anonymous> (test/vehicle-production.spec.ts:197:76)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 调度、限制与顺序 › 生产限制会在达到上限时停止后续实际产出
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      [33m.[39mname [33m===[39m [32m'产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m2[39m)[33m;[
+      9m名称 [33m===[39m [32m'产品'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m2[39m)[33m;[39m
+      9m名称 [33m===[39m [32m'材料'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m98[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:210:76)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 调度、限制与顺序 › 前置配方先生产时可立即为后置配方提供材料，反向排序则不能
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      m value[33m.[39mname [33m===[39m [32m'成品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1[39m)
+      ame [33m===[39m [32m'成品'[39m))[33m.[39mtoBeUndefined()[33m;[39m
+      9m名称 [33m===[39m [32m'中间材料'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m1[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:233:83)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 特殊状态和字段兼容 › 无生产力时具现装置按每天一个未知物品产生
+      TypeError: Cannot read properties of undefined (reading 'find')
+      [90m 250 |[39m     expect(result[33m.[39mproduced)[33m.[39mtoEqual([])[33m;[39m
+      [39m value[33m.[39m名称 [33m===[39m [32m'未知物品'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m1[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:251:23)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 特殊状态和字段兼容 › 功能部件超出核心上限时不生产，并写回读取时间
+      expect(received).toBeGreaterThan(expected)
+      Received has value: undefined
+      [90m 264 |[39m     expect(result[33m.[39mstopped)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 265 |[39m     expect(vehicle[33m.[39m上限)[33m.[39mtoBeGreaterThan([35m1[39m)[33m;
+      [90m 266 |[39m     expect(vehicle[33m.[39m配方[[35m0[39m][33m.[39m数值)[33m.[39mtoBe([35m60[39m [33m*[39
+      9m名称 [33m===[39m [32m'产品'[39m))[33m.[39mtoBeUndefined()[33m;[39m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:265:24)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 特殊状态和字段兼容 › 数据库载具和地图JSON载具可互转并按各自存储层持久化
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "数据库载具"
+      Received: undefined
+      [31m[1m>[22m[39m[90m 321 |[39m     expect(runtime[33m.[39m名称)[33m.[39mtoBe([32m'数据库载具'[39m)[33m;[39m
+      [90m 322 |[39m     expect(runtime[33m.[39m零件[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([32m'材料'[39m)[33m;[
+      [90m 323 |[39m     expect(runtime[33m.[39m零件[[35m0[39m][33m.[39m数量)[33m.[39mtoBe([35m3[39m)[33m;[39m
+      [90m 324 |[39m     expect(runtime[33m.[39m配方[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([32m'产出'[39m)[33m;[
+      at Object.<anonymous> (test/vehicle-production.spec.ts:321:24)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 特殊状态和字段兼容 › 查看载具详情渲染生产线可运行与驾驶员加成行
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "生产线可运行:1小时1分1秒"
+      Received string:    "未知载具
+      [31m[1m>[22m[39m[90m 390 |[39m     expect(detail)[33m.[39mtoContain([32m'生产线可运行:1小时1分1秒'[39m)[33m;[39m
+      [90m 391 |[39m     expect(detail)[33m.[39mtoContain([32m'驾驶员加成:'[39m)[33m;[39m
+      [90m 392 |[39m     expect(detail)[33m.[39mtoContain([32m'生命+100'[39m)[33m;[39m
+      [90m 393 |[39m     expect(detail)[33m.[39mtoContain([32m'攻击+8'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:390:20)
+
+[test/spawn-and-travel.spec.ts]
+  生成神之工匠/生成废弃载具 语义还原 + 耗时公式复核 + 掌控时间 › 生成神之工匠：双怪物型召唤物（神之工匠/小雫，npc1g/npc2g，特殊序号-2）
+      - Expected  - 2
+      + Received  + 0
+      at Object.<anonymous> (test/spawn-and-travel.spec.ts:85:37)
+
+[test/spawn-and-travel.spec.ts]
+  生成神之工匠/生成废弃载具 语义还原 + 耗时公式复核 + 掌控时间 › 生成废弃载具：随机地图随机载具实体（归属无主，按几率加权抽取）
+      TypeError: Cannot read properties of undefined (reading 'isEquipment')
+      at Object.<anonymous> (test/spawn-and-travel.spec.ts:104:20)
+
+[test/battle-e2e.spec.ts]
+  战斗系统端到端回归（五轮原汁原味修复） › 综合 基础攻击减血闭环 › 真实 bonus.drops 掉落 → 背包在最终 savePlayer 后保留，资源/装备任务均推进
+      expect(received).toEqual(expected) // deep equality
+      Expected: ArrayContaining [ObjectContaining {"name": "铁矿", "quantity": 2, "type": "资源"}, ObjectContaining {"name":
+      Received: [{"chance": 100, "itemId": undefined, "name": "铁矿", "quantity": 1, "type": "资源"}, {"chance": 100, "itemId
+      [90m 655 |[39m       expect(result[33m.[39mkilled)[33m.[39mtoContain([32m'史莱姆'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 656 |[39m       expect(result[33m.[39mdrops)[33m.[39mtoEqual(expect[33m.[39marrayC
+      at Object.<anonymous> (test/battle-e2e.spec.ts:656:28)
+
+[test/battle-e2e.spec.ts]
+  战斗系统端到端回归（五轮原汁原味修复） › 防御方被动 幻时凝固/含光回防（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L1429-1547） › 幻时凝固：花园猫(好感≥60)被攻击
+      expect(received).toBeDefined()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 761 |[39m       expect(phantom)[33m.[39mtoBeDefined()[33m;[39m
+      [90m 762 |[39m       expect(phantom[33m.[39m有效期至)[33m.[39mtoBeGreaterThan([33mDate[39m[33m.[39mnow())[3
+      [90m 764 |[39m       expect(lines[33m.[39mjoin([32m'\n'[39m))[33m.[39mtoContain([32m'被幻时凝固'[39m)[33m;[
+      at Object.<anonymous> (test/battle-e2e.spec.ts:761:23)
+
+[test/home-crop.spec.ts]
+  家园作物种植与收获 › 按种子useEffects映射资源，并写入resources2而不是buildings
+      Expected length: 1
+      Received length: 2
+      Received array:  [{"description": "一棵苹果树，随着时间流逝，它上面的苹果会掉到地上。", "gatherCmd": "砍掉苹果树", "gatherText": "【名称】【载具】开始用【武器】
+      [0m [90m 30 |[39m     expect(parseJson(map[33m.[39mbuildings[33m,[39m []))[33m.[39mtoEqual([])[33m;[39m
+      [90m 31 |[39m     expect(backpack)[33m.[39mtoEqual([])[33m;[39m
+      [90m 33 |[39m     expect(crops[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'苹果树'[39m)[33m;[39m
+      [90m 34 |[39m     expect(crops[[35m0[39m][33m.[39mcount)[33m.[39mtoBe([35m2[39m)[33m;[39m
+      at Object.<anonymous> (test/home-crop.spec.ts:32:19)
+
+[test/home-crop.spec.ts]
+  家园作物种植与收获 › 收获resources2作物时从资源定义outputs发放正向产出
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 51 |[39m     expect(result[33m.[39msuccess)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 52 |[39m     expect(parseJson(map[33m.[39mresources2[33m,[39m []))[33m.[39mtoEqual([])[33m;[39m
+      [39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBe([35m5[39m)[33m;[39m
+      [39m))[33m.[39mtoBeUndefined()[33m;[39m[0m
+      at Object.<anonymous> (test/home-crop.spec.ts:51:28)
+
+[test/vitality-sweep.spec.ts]
+  扫荡活力批量结算 › 扫荡10且当前活力为3时只结算3次，不触发普通击杀双倍或重复经验
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 0
+      Received: 3
+      [31m[1m>[22m[39m[90m 114 |[39m     expect(fixture[33m.[39mplayer[33m.[39mvitality)[33m.[39mtoBe([35m0
+      at Object.<anonymous> (test/vitality-sweep.spec.ts:114:37)
+
+[test/vitality-sweep.spec.ts]
+  扫荡活力批量结算 › 扫荡需求按地图怪物权重计算并限制在1到5次
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "史莱姆(5/5)"
+      Received string:    "
+      [31m[1m>[22m[39m[90m 156 |[39m     expect(text)[33m.[39mtoContain([32m'史莱姆(5/5)'[39m)[33m;[39m
+      [90m 157 |[39m     expect(text)[33m.[39mtoContain([32m'兔子(1/4)'[39m)[33m;[39m
+      at Object.<anonymous> (test/vitality-sweep.spec.ts:156:18)
+
+[test/familiar-ranking.spec.ts]
+  使魔排行十子榜复刻（原版 _主程序.ecode L9562-9745） › 宠物榜：死亡不入榜、复制品屏蔽、最高伤害0不入榜、名称带主人
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "1、白(主人)(500)"
+      Received string:    "主人
+      [90m 199 |[39m     expect(power)[33m.[39mtoContain([32m'宠物曾经达到的最高战斗力排行'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 200 |[39m     expect(power)[33m.[39mtoContain([32m'1、白(主人)(500)'[39m)[33m;[39m
+      [90m 201 |[39m     expect(power)[33m.[39mtoContain([32m'2、新手猫(主人)(60)'[39m)[33m;[39m
+      [90m 202 |[39m     expect(power)[33m.[39mnot[33m.[39mtoContain([32m'白复制品'[39m)[33m;[39m
+      [90m 203 |[39m     expect(power)[33m.[39mnot[33m.[39mtoContain([32m'亡灵猫'[39m)[33m;[39m[0m
+
+[test/excalibur-burn.spec.ts]
+  誓约胜利之剑（excalibur）复刻 › 灼烧结算：地图节拍对带sa标记的怪物按 物攻/10×经过秒数 扣血并可击杀
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "灼烧"
+      Received string:    ""
+      [31m[1m>[22m[39m[90m 329 |[39m     expect(out)[33m.[39mtoContain([32m'灼烧'[39m)[33m;[39m
+      [90m 331 |[39m     expect(burned[33m.[39mhp)[33m.[39mtoBeGreaterThan([35m50[39m)[33m;[39m
+      [90m 332 |[39m     expect(burned[33m.[39mhp)[33m.[39mtoBeLessThan([35m70[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/excalibur-burn.spec.ts:329:17)
+
+[test/repair-vehicle.spec.ts]
+  维修载具延时链（原版 L10397-10495 复刻） › 装齐小雫/小凰/小蓝/小粉：20-20=0 立即修好并推进维修载具成就
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 100
+      Received: NaN
+      at Object.<anonymous> (test/repair-vehicle.spec.ts:150:38)
+
+[test/vehicle-assembly.spec.ts]
+  多零件组装载具复刻 › 已有零件直接扣料，缺失零件自动制造并写入地图载具
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "甲的骑士"
+      Received: undefined
+      [31m[1m>[22m[39m[90m 220 |[39m     expect(vehicles[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([32m'甲的骑士'[39m
+      [90m 221 |[39m     expect(vehicles[[35m0[39m][33m.[39m归属)[33m.[39mtoBe([32m'qq10'[39m)[33m;[39m
+      [90m 222 |[39m     expect(vehicles[[35m0[39m][33m.[39m当前生命)[33m.[39mtoBe([35m5[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-assembly.spec.ts:220:28)
+
+[test/vehicle-assembly.spec.ts]
+  组装双向物流（原版 L10203-L10269） › 组装生肉100 把资源塞进载具零件
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 100
+      Received: undefined
+      [31m[1m>[22m[39m[90m 328 |[39m     expect(meat[33m?[39m[33m.[39m数量)[33m.[39mtoBe([35m100[39m)[33m;[
+      [90m 330 |[39m     expect(bag[33m?[39m[33m.[39mquantity)[33m.[39mtoBe([35m20[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-assembly.spec.ts:328:22)
+
+[test/vehicle-assembly.spec.ts]
+  组装双向物流（原版 L10203-L10269） › 组装生肉-40 从载具取出资源回背包
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 10
+      Received: undefined
+      [31m[1m>[22m[39m[90m 344 |[39m     expect(meat[33m?[39m[33m.[39m数量)[33m.[39mtoBe([35m10[39m)[33m;[3
+      [90m 346 |[39m     expect(bag[33m?[39m[33m.[39mquantity)[33m.[39mtoBe([35m40[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-assembly.spec.ts:344:22)
+
+[test/vehicle-assembly.spec.ts]
+  组装双向物流（原版 L10203-L10269） › 背包不足时按现有数量尽量装入
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 3
+      Received: undefined
+      [31m[1m>[22m[39m[90m 360 |[39m     expect(fuel[33m?[39m[33m.[39m数量)[33m.[39mtoBe([35m3[39m)[33m;[39
+      ])[33m.[39mfind((i[33m:[39m any) [33m=>[39m i[33m.[39mname [33m===[39m [32m'燃料'[39m))[33m.[39mtoBeUndefin
+      at Object.<anonymous> (test/vehicle-assembly.spec.ts:360:22)
+
+[test/vehicle-control.spec.ts]
+  载具驾驶/脱出复刻 › 驾驶只允许当前地图的本人或无主载具，并清除旧载具与接管状态
+      TypeError: this.systemConfigService.get is not a function
+      at Object.<anonymous> (test/vehicle-control.spec.ts:256:20)
+
+[test/vehicle-control.spec.ts]
+  载具驾驶/脱出复刻 › 脱出会清除地图载具驾驶员并清除玩家载具状态
+      expect(received).toBe(expected) // Object.is equality
+      Expected: ""
+      Received: undefined
+      [0m [90m 343 |[39m     expect(player[33m.[39mvehicle)[33m.[39mtoBe([32m''[39m)[33m;[39m
+      [90m 344 |[39m     expect(vehicles[[35m0[39m][33m.[39mdriver)[33m.[39mtoBe([32m''[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 345 |[39m     expect(vehicles[[35m0[39m][33m.[39m驾驶员)[33m.[39mtoBe([32m''[39m)[
+      [90m 346 |[39m     expect(achievements)[33m.[39mtoContain([32m'脱出'[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-control.spec.ts:345:29)
+
+[test/vehicle-control.spec.ts]
+  载具状态/命名/架炮（地图 JSON 双存储统一） › 载具命名按旧名+新名在当前地图改名
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "坦克"
+      Received: undefined
+      [0m [90m 388 |[39m     expect(result)[33m.[39mtoBe([32m'甲,骑士名称修改为坦克'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 390 |[39m     expect(vehicles[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([32m'坦克'[39m)
+      [90m 391 |[39m     expect(vehicles[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'坦克'[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-control.spec.ts:390:28)
+
+[test/vehicle-control.spec.ts]
+  载具状态/命名/架炮（地图 JSON 双存储统一） › findVehicleOverLimitPart 识别 partType 而不是 type
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "功能部件"
+      Received: ""
+      [31m[1m>[22m[39m[90m 436 |[39m     expect(over)[33m.[39mtoBe([32m'功能部件'[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-control.spec.ts:436:18)
+
+[test/vehicle-control.spec.ts]
+  牵引与载具模拟（原版对齐） › 牵引货舱：有牵引光束时从目标地图拉取资源
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "牵引了货舱"
+      Received string:    "甲测试车需要安装牵引光束或大型牵引光束
+      [31m[1m>[22m[39m[90m 489 |[39m     expect(result)[33m.[39mtoContain([32m'牵引了货舱'[39m)[33m;[39m
+      m'能量块'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-control.spec.ts:489:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：延时结算发放产出、经验和“还可以采集N次”提示
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "测试玩家收集到了木头×2"
+      Received string:    "测试玩家什么都没有收集到,得到了6经验
+      [31m[1m>[22m[39m[90m 269 |[39m     expect(result)[33m.[39mtoContain([32m'测试玩家收集到了木头×2'[39m)[33m;[39m
+      [90m 270 |[39m     expect(result)[33m.[39mtoContain([32m',得到了'[39m)[33m;[39m
+      [90m 271 |[39m     expect(result)[33m.[39mtoContain([32m'经验'[39m)[33m;[39m
+      [90m 272 |[39m     expect(result)[33m.[39mtoContain([32m'测试地图的老树还可以采集4次'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/gather-task.spec.ts:269:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：跟随宠物数量计入实际采集次数（原版 召唤物跟随显示+奴役成就）
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "带着1只宠物一起收集到了木头×2"
+      Received string:    "测试玩家带着2只宠物一起什么都没有收集到,得到了18经验
+      [31m[1m>[22m[39m[90m 379 |[39m     expect(result)[33m.[39mtoContain([32m'带着1只宠物一起收集到了木头×2'[39m)[33m;[39
+      at Object.<anonymous> (test/gather-task.spec.ts:379:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：家园院子里带数字指令按额外次数放大耗时与采集量
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "果实×3"
+      Received string:    "测试玩家什么都没有收集到,得到了18经验
+      [31m[1m>[22m[39m[90m 402 |[39m     expect(result)[33m.[39mtoContain([32m'果实×3'[39m)[33m;[39m
+      [90m 404 |[39m     expect(resources[[35m0[39m][33m.[39mtimes)[33m.[39mtoBe([35m96[39m)[33m;[39m
+      at Object.<anonymous> (test/gather-task.spec.ts:402:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：同名多堆资源（开挖地基后2个土堆）可连续清完，清完一堆会提示还有下一堆
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "钻石"
+      Received string:    "测试玩家什么都没有收集到,得到了240经验"
+      [31m[1m>[22m[39m[90m 455 |[39m       expect(clearAll)[33m.[39mtoContain([32m'钻石'[39m)[33m;[39m
+      at Object.<anonymous> (test/gather-task.spec.ts:455:24)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 超管特权：家园外带数字指令同样批量（普通玩家数字仍被忽略）
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "木头×5"
+      Received string:    "测试玩家什么都没有收集到,得到了30经验"
+      [0m [90m 477 |[39m     expect(adminSeconds)[33m.[39mtoBeLessThanOrEqual([35m30[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 479 |[39m     expect(adminResult)[33m.[39mtoContain([32m'木头×5'[39m)[33m;[39m
+      [90m 481 |[39m     expect(adminMarkers[[32m'采集中'[39m])[33m.[39mtoBeUndefined()[33m;[39m [90m// 已结算认领[39m
+      at Object.<anonymous> (test/gather-task.spec.ts:479:25)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › handleGatherResource 排程持久化延时任务，DelayedTaskService 到点分发结算恰好一次
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 5
+      + Received  + 1
+      [90m 552 |[39m     expect(dispatched)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      ))[33m.[39mtoEqual([
+      at Object.<anonymous> (test/gather-task.spec.ts:553:52)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 服务重启后启动迁移把存量「采集中」标记补建为延时任务
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 5
+      + Received  + 1
+      ))[33m.[39mtoEqual([
+      at Object.<anonymous> (test/gather-task.spec.ts:588:52)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 兼容旧 JSON：名称末尾数量、count 字段作为概率
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "木头×3"
+      Received string:    "测试玩家什么都没有收集到,得到了6经验"
+      [31m[1m>[22m[39m[90m 629 |[39m     expect(result)[33m.[39mtoContain([32m'木头×3'[39m)[33m;[39m
+      [90m 630 |[39m     expect(backpack)[33m.[39mtoEqual([expect[33m.[39mobjectContaining({ name[33m:[39m [32m
+      at Object.<anonymous> (test/gather-task.spec.ts:629:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 兼容数组形式旧 JSON，并按名称末尾数量发放
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "石头×2"
+      Received string:    "测试玩家什么都没有收集到,得到了6经验"
+      [31m[1m>[22m[39m[90m 653 |[39m     expect(result)[33m.[39mtoContain([32m'石头×2'[39m)[33m;[39m
+      at Object.<anonymous> (test/gather-task.spec.ts:653:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 装备品质后缀和负数产出按原版分别生成装备、获得绝对数量
+      expect(received).toEqual(expected) // deep equality
+      Expected: ArrayContaining [ObjectContaining {"name": "寒风", "type": "装备"}, ObjectContaining {"count": 3, "name": "工业
+      Received: [{"data": "e!bx0", "name": "寒风", "quality": "s", "quantity": 1, "type": "装备"}, {"name": "工业建筑箱", "quantit
+      [31m[1m>[22m[39m[90m 676 |[39m     expect(backpack)[33m.[39mtoEqual(expect[33m.[39marrayContaining([
+      at Object.<anonymous> (test/gather-task.spec.ts:676:22)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 采集引怪：隐形披风/隐匿模式/四糸乃豁免，不排怪物回合
+      Expected number of calls: 0
+      Received number of calls: 1
+      at Object.<anonymous> (test/gather-task.spec.ts:770:61)
+
+[test/launch-closure.spec.ts]
+  上线闭环补齐：取对话/反转童话/贯穿抵抗词条 › 反转童话 消费端（使魔技能.ecode L2631-2745） › fzth7 翻转三回复与三回复2；fzth10 翻转四伤
+      expect(received).toBe(expected) // Object.is equality
+      Expected: -100
+      Received: 100
+      [0m [90m 82 |[39m       expect(attrs[33m.[39m装甲回复2)[33m.[39mtoBe([33m-[39m[35m5[39m)[33m;[39m
+      [90m 83 |[39m       expect(attrs[33m.[39m生命回复2)[33m.[39mtoBe([33m-[39m[35m6[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 84 |[39m       expect(attrs[33m.[39m电伤)[33m.[39mtoBe([33m-[39m[35m100[39m)[33m;
+      [90m 85 |[39m       expect(attrs[33m.[39m物伤)[33m.[39mtoBe([33m-[39m[35m400[39m)[33m;[39m
+      at Object.<anonymous> (test/launch-closure.spec.ts:84:24)
+
+[test/mine-refill.spec.ts]
+  载具开采结算（原版 L7534「开采1c2c」） › 按 16 倍公式产出并扣减资源次数
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "用激光采集器开采出了"
+      Received string:    "测试玩家测试地图的资源已经枯竭了"
+      [31m[1m>[22m[39m[90m 287 |[39m     expect(text)[33m.[39mtoContain([32m'用激光采集器开采出了'[39m)[33m;[39m
+      [90m 288 |[39m     expect(text)[33m.[39mtoContain([32m'铁矿×192'[39m)[33m;[39m
+      at Object.<anonymous> (test/mine-refill.spec.ts:287:18)
+
+[test/mine-refill.spec.ts]
+  载具开采结算（原版 L7534「开采1c2c」） › 行星解裂器产出额外随机增幅（1.25~1.5 倍）
+      TypeError: Cannot read properties of null (reading '1')
+      [90m 319 |[39m     expect(amount)[33m.[39mtoBeGreaterThanOrEqual([35m40[39m)[33m;[39m
+      [90m 320 |[39m     expect(amount)[33m.[39mtoBeLessThanOrEqual([35m48[39m)[33m;[39m
+      at Object.<anonymous> (test/mine-refill.spec.ts:318:32)
+
+[test/mine-refill.spec.ts]
+  补魔结算（原版 L7158「覅b魔w成」） › 玩家与跟随召唤物获得兴奋增益，好感+3，补魔任务+2
+      expect(received).toBeLessThanOrEqual(expected)
+      Expected: <= 600000
+      Received:    NaN
+      [90m 444 |[39m     expect(excitement)[33m.[39mtoBeTruthy()[33m;[39m
+      ))[33m.[39mtoBeLessThanOrEqual([35m600[39m [33m*[39m [33mSECOND_MS[39m)[33m;[39m
+      at Object.<anonymous> (test/mine-refill.spec.ts:445:42)
+
+[test/mine-refill.spec.ts]
+  补魔结算（原版 L7158「覅b魔w成」） › 小恶魔在场 → 兴奋时长延长到3600秒
+      expect(received).toBeGreaterThan(expected)
+      Expected: > 3590
+      Received:   NaN
+      [31m[1m>[22m[39m[90m 475 |[39m     expect(remainSec)[33m.[39mtoBeGreaterThan([35m3590[39m)[33m;[39m
+      [90m 476 |[39m     expect(remainSec)[33m.[39mtoBeLessThanOrEqual([35m3600[39m)[33m;[39m
+      at Object.<anonymous> (test/mine-refill.spec.ts:475:23)
+
+[test/global-proficiency.spec.ts]
+  图鉴怪物等级展示（原版 数据显示 L3165-3166 / L3171） › 基础等级 = 物种熟练度等级，并带「(点数/下一档需求)」后缀
+      TypeError: this.shortcutService.setTempInput is not a function
+      at Object.<anonymous> (test/global-proficiency.spec.ts:283:12)
+
+[test/global-proficiency.spec.ts]
+  图鉴怪物等级展示（原版 数据显示 L3165-3166 / L3171） › 未注入熟练度服务时不抛错，基础等级按 1 兜底
+      TypeError: this.shortcutService.setTempInput is not a function
+      at Object.<anonymous> (test/global-proficiency.spec.ts:302:12)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 啾啾猫猫：花园猫门禁、地图标记3“啾啾猫猫”增益（库洛牌放大/强度50+等级×5）、怪物型召唤物
+      expect(received).toBeTruthy()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 134 |[39m     expect(meow)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 135 |[39m     expect(meow[33m.[39m强度)[33m.[39mtoBe([35m75[39m)[33m;[39m
+      [90m 136 |[39m     expect(meow[33m.[39m有效期至 [33m-[39m [33mDate[39m[33m.[39mnow())[33m.[39mtoBeGreaterT
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:134:18)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 银龙附体：古月娜门禁、回血 30% 最大生命、玩家与同图银龙同获增益
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 70
+      Received: 10
+      type [33m===[39m [32m'银龙'[39m)[33m.[39m当前生命)[33m.[39mtoBe([35m70[39m)[33m;[39m [90m// 10 + 200*0.3[39m
+      [32m'狼'[39m)[33m.[39m当前生命)[33m.[39mtoBe([35m10[39m)[33m;[39m
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:162:60)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 炮冠：绝灭天使门禁、好感80门槛、炮冠增益5秒+光盾-30秒+hd标记60秒
+      expect(received).toBeTruthy()
+      Received: undefined
+      m名称 [33m===[39m [32m'hd'[39m))[33m.[39mtoBeTruthy()[33m;[39m
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:219:54)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 安宝加油：安克雷奇门禁、好感分层（安宝乖乖/烟雾弹地图增益）、冷却键
+      expect(received).toBeTruthy()
+      Received: undefined
+      m [32m'安宝乖乖'[39m))[33m.[39mtoBeTruthy()[33m;[39m
+      [39m名称 [33m===[39m [32m'烟雾弹'[39m))[33m.[39mtoBeTruthy()[33m;[39m
+      [32m'安克雷奇技能冷却'[39m))[33m.[39mtoBeTruthy()[33m;[39m
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:258:58)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 砸瓦鲁多：女仆套装4件门禁、150秒冷却键、地图“幻时”增益20秒
+      expect(received).toBeTruthy()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 288 |[39m     expect(phantom)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 289 |[39m     expect(phantom[33m.[39m有效期至 [33m-[39m [33mDate[39m[33m.[39mnow())[33m.[39mtoBeLessT
+      [32m'女仆技能冷却'[39m))[33m.[39mtoBeTruthy()[33m;[39m[0m
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:288:21)
+
+[test/combat.spec.ts]
+  置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317) › L5251 掉落率!=0 → 写入怪物标记 "dl"+QQ（取最高值）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 50
+      Received: undefined
+      [90m 248 |[39m     expect(dl)[33m.[39mtoBeDefined()[33m;[39m
+      [31m[1m>[22m[39m[90m 249 |[39m     expect(dl[33m.[39m数值)[33m.[39mtoBe([35m50[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:249:19)
+
+[test/combat.spec.ts]
+  置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317) › L5269 掉落品质!=0 → 写入 "dp"+QQ；L5287 传说率!=0 → 写入 "xy"+QQ
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 20
+      Received: undefined
+      [39m 掉落品质[33m:[39m [35m20[39m }[33m,[39m 套装[33m:[39m { 传说率[33m:[39m [35m5[39m } })[33m;[39m
+      [33m===[39m [32m'dptestQQ'[39m)[33m.[39m数值)[33m.[39mtoBe([35m20[39m)[33m;[39m
+      'xytestQQ'[39m)[33m.[39m数值)[33m.[39mtoBe([35m5[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:263:59)
+
+[test/combat.spec.ts]
+  置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317) › L5305 宝石缎带(specialSeq=98) → 写入 "ds"+QQ=1
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: undefined
+      'dstestQQ'[39m))[33m.[39mtoBeDefined()[33m;[39m
+      [33m===[39m [32m'dstestQQ'[39m)[33m.[39m数值)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 274 |[39m   it([32m'无条件(掉落率/品质/传说率=0且无缎带) → 不写入任何记录'[39m[33m,[39m () [33m=>[39m {[0m
+      at Object.<anonymous> (test/combat.spec.ts:271:59)
+
+[test/combat.spec.ts]
+  掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L4947-4985) › L4954 各名称系数：地精=1 / 十夫长=1.5 / 百夫长=2 / 千夫长=2.5 / 将军=3
+      TypeError: Cannot read properties of undefined (reading '次数')
+      [39mfind((r[33m:[39m any) [33m=>[39m r[33m.[39m名称 [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([
+      :[39m any) [33m=>[39m r[33m.[39m名称 [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([35m1.5[39m)[33
+      :[39m any) [33m=>[39m r[33m.[39m名称 [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([35m2[39m)[33m;
+      :[39m any) [33m=>[39m r[33m.[39m名称 [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([35m2.5[39m)[33
+      at Object.<anonymous> (test/combat.spec.ts:355:76)
+
+[test/combat.spec.ts]
+  掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L4947-4985) › L4967 已存在载具残骸 → 累加次数
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 3
+      Received: 2
+      [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([35m3[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:364:54)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5336-5350 基础字段：名称/类型=前线、QQ=怪物前线+qq+sg、必中/生命/闪避/四伤=1、命中=等级+1、特殊序号=-2
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "前线"
+      Received: undefined
+      [31m[1m>[22m[39m[90m 754 |[39m     expect(g[33m.[39m名称)[33m.[39mtoBe([32m'前线'[39m)[33m;[39m
+      [90m 755 |[39m     expect(g[33m.[39m类型)[33m.[39mtoBe([32m'前线'[39m)[33m;[39m
+      [90m 756 |[39m     expect(g[33m.[39m[33mQQ[39m)[33m.[39mtoBe([32m'怪物前线12345sg'[39m)[33m;[39m
+      [90m 757 |[39m     expect(g[33m.[39m归属)[33m.[39mtoBe([32m'12345'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:754:18)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5372-5380 无建筑(加成.攻击均0) → 默认"火力"武器(属性26/25/25/25)，且攻击文本.名称清空
+      TypeError: Cannot read properties of undefined (reading 'length')
+      [31m[1m>[22m[39m[90m 772 |[39m     expect(res[33m.[39msummon[33m.[39m武器[33m.[39mlength)[33m.[39mtoBe(
+      [90m 774 |[39m     expect(z[33m.[39m名称)[33m.[39mtoBe([32m'火力'[39m)[33m;[39m
+      [90m 775 |[39m     expect(z[33m.[39m类型)[33m.[39mtoBe([32m'射弹武器'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:772:26)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5356-5368 战斗建筑(加成.攻击!=0) → 加武器(属性=26/25/25/25×攻击×数量)，c累加生命×数量
+      TypeError: Cannot read properties of undefined (reading 'length')
+      [31m[1m>[22m[39m[90m 792 |[39m     expect(res[33m.[39msummon[33m.[39m武器[33m.[39mlength)[33m.[39mtoBe(
+      [90m 794 |[39m     expect(z[33m.[39m名称)[33m.[39mtoBe([32m'防御炮台'[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:792:26)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5382-5399 阵地载具：零件=阵地核心×1 + 轻型装甲×(10+c+等级)，编号=g.QQ，载具生命由计算载具置0
+      expect(received).toBeDefined()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 811 |[39m     expect(v)[33m.[39mtoBeDefined()[33m;[39m
+      [90m 812 |[39m     expect(v[33m.[39m编号)[33m.[39mtoBe([32m'怪物前线12345sg'[39m)[33m;[39m
+      [90m 813 |[39m     expect(v[33m.[39m归属)[33m.[39mtoBe([32m'怪物前线12345sg'[39m)[33m;[39m
+      [90m 814 |[39m     expect(v[33m.[39m驾驶员)[33m.[39mtoBe([32m'怪物前线12345sg'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:811:15)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5403-5411 首次生成(g2.编号==0) → 新增召唤物到 summons，新增载具到 vehicles
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "阵地"
+      Received: undefined
+      [0m [90m 839 |[39m     expect(res[33m.[39msummons[[35m0[39m][33m.[39m[33mQQ[39m)[33m.[39mtoBe([32m'怪物
+      [90m 840 |[39m     expect(res[33m.[39mvehicles[33m.[39mlength)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 841 |[39m     expect(res[33m.[39mvehicles[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([
+      at Object.<anonymous> (test/combat.spec.ts:841:32)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5412-5419 已存在召唤物(g2.编号!=0) → 更新而非新增，summons长度不变
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 50
+      Received: undefined
+      [90m 854 |[39m     expect(res[33m.[39msummons[33m.[39mlength)[33m.[39mtoBe([35m2[39m)[33m;[39m [90m//
+      [31m[1m>[22m[39m[90m 855 |[39m     expect(res[33m.[39msummons[[35m1[39m][33m.[39m当前生命)[33m.[39mtoBe(
+      at Object.<anonymous> (test/combat.spec.ts:855:33)
+
+[test/combat.spec.ts]
+  计算载具 - 载具属性计算 (加成计算.ecode L3556-3912) › L3580/L3591/L3647 核心部件(骑士核心 partType=0, 内置能量剑) → 加成叠加, 上限取自核心
+      TypeError: Cannot read properties of undefined (reading '攻击')
+      [31m[1m>[22m[39m[90m 903 |[39m     expect(veh[33m.[39m加成[33m.[39m攻击)[33m.[39mtoBe([35m25[39m)[33m;[
+      [90m 904 |[39m     expect(veh[33m.[39m加成[33m.[39m生命)[33m.[39mtoBe([35m1[39m)[33m;[39m       [90m// bo
+      [90m 905 |[39m     expect(veh[33m.[39m加成[33m.[39m闪避)[33m.[39mtoBe([35m10[39m)[33m;[39m      [90m// bo
+      [90m 906 |[39m     expect(veh[33m.[39m行走上限)[33m.[39mtoBe([35m1[39m)[33m;[39m        [90m// 核心 walk=1[3
+      at Object.<anonymous> (test/combat.spec.ts:903:19)
+
+[test/combat.spec.ts]
+  计算载具 - 载具属性计算 (加成计算.ecode L3556-3912) › L3719 白的发丝 部件 → vehicle.发丝=true
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: undefined
+      [31m[1m>[22m[39m[90m 919 |[39m     expect(veh[33m.[39m发丝)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:919:20)
+
+[test/combat.spec.ts]
+  计算载具 - 载具属性计算 (加成计算.ecode L3556-3912) › L3752 逆转力场 + 攻击部件 → 攻击/攻击2/韧性 ×0.34
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: undefined
+      [31m[1m>[22m[39m[90m 933 |[39m     expect(veh[33m.[39m逆转力场)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      ) [35m/ 100).toBe(8.5);    /[39m[33m/[39m [35m25[39m[33m*[39m[35m0.34[39m
+      m) [35m/ 100).toBe(1.02);  /[39m[33m/[39m [35m3[39m[33m*[39m[35m0.34[39m
+      at Object.<anonymous> (test/combat.spec.ts:933:22)
+
+[test/combat.spec.ts]
+  计算载具 - 载具属性计算 (加成计算.ecode L3556-3912) › L3836 行走超限(负行走部件累加超上限) → 当前生命=0, 行走方式=0
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 5
+      Received: undefined
+      [31m[1m>[22m[39m[90m 949 |[39m     expect(veh[33m.[39m行走)[33m.[39mtoBe([35m5[39m)[33m;[39m   [90m//
+      [90m 950 |[39m     expect(veh[33m.[39m行走上限)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 951 |[39m     expect(veh[33m.[39m当前生命)[33m.[39mtoBe([35m0[39m)[33m;[39m   [90m// 超限 → 生命清零[39m
+      [90m 952 |[39m     expect(veh[33m.[39m行走方式)[33m.[39mtoBe([35m0[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:949:20)
+
+[test/combat.spec.ts]
+  免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096) › L5038-L5042 伊芙利特(specialSeq=11) 五番冷却未过 → 获得增益 五番a 5秒
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [90m 1002 |[39m     expect(ok)[33m.[39mtoBe([36mtrue[39m)[33m;[39m [90m// 五番a 增益已置 → L5072 b=3 免死返回真[39m
+      [33m.[39m名称 [33m===[39m [32m'五番a'[39m))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1003:54)
+
+[test/combat.spec.ts]
+  免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096) › L5050-L5063 吸血姬(活力=-15) 场上有分身(活力=-16, 当前生命>0) → 互换生命免死
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 1033 |[39m     expect(ok)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 1034 |[39m     expect(d[33m.[39mcurrentHp)[33m.[39mtoBe([35m200[39m)[33m;[39m     [90m// 本体获得分身生命
+      [90m 1035 |[39m     expect(clone[33m.[39mcurrentHp)[33m.[39mtoBe([35m0[39m)[33m;[39m   [90m// 分身生命清零[3
+      [90m 1036 |[39m     expect(txtRef[33m.[39mvalue)[33m.[39mtoContain([32m'与分身互换生命'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:1033:16)
+
+[test/combat.spec.ts]
+  免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096) › L5064-L5067 猫爪吊坠(specialSeq=23) 猫爪冷却未过 → 获得增益 猫爪 10秒
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [90m 1042 |[39m     expect(ok)[33m.[39mtoBe([36mtrue[39m)[33m;[39m [90m// 猫爪 增益已置 → L5072 b=4 免死返回真[39m
+      [33m.[39m名称 [33m===[39m [32m'猫爪'[39m))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1043:53)
+
+[test/combat.spec.ts]
+  计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873) › L4824 装备荆棘之翼(#18) → 倍率+0.15 产生反伤值
+      expect(received).toBeLessThan(expected)
+      Expected: < 0.01
+      Received:   0.84375
+      [90m 1126 |[39m     expect(r)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+      m.[39mtoBeLessThan([35m0.01[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1127:35)
+
+[test/combat.spec.ts]
+  计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873) › L4827 装备小鱼发饰(#35) 且 小鱼冷却(60s)未过 → 倍率+2
+      expect(received).toBeLessThan(expected)
+      Expected: < 0.01
+      Received:   11.25
+      m.[39mtoBeLessThan([35m0.01[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1135:35)
+
+[test/combat.spec.ts]
+  生成掉落 - 掉落表判定与兜底移除 › 100% 项必掉；几率项按 Math.random 判定
+      - Expected  - 1
+      + Received  + 1
+      at Object.<anonymous> (test/combat.spec.ts:1385:5)
+
+[test/combat.spec.ts]
+  生成掉落 - 掉落表判定与兜底移除 › 负数量保持原值（强化箱-1 的背包扣除语义不被改成 1）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: -1
+      Received: 1
+      9m][33m.[39mquantity)[33m.[39mtoBe([33m-[39m[35m1[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1406:52)
+
+[test/player-mutate.spec.ts]
+  mutate 管道与货币审计 › mutate 内的货币变动被记录到 CurrencyLog（delta 与余额正确）
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 22
+      Received: 20
+      Expected precision:    5
+      Expected difference: < 0.000005
+      Received difference:   2
+      [90m 90 |[39m     expect(row[33m.[39mdiamonds)[33m.[39mtoBeCloseTo([35m60[39m[33m,[39m [35m5[39m)[33m
+      [31m[1m>[22m[39m[90m 91 |[39m     expect(row[33m.[39mtickets)[33m.[39mtoBeCloseTo([35m22[39m[33m,[39m
+
+[test/item-use.spec.ts]
+  打开箱子（使用物品） › 蛋糕授予掉落率+50%增益并显示剩余时间
+      expect(received).toBeTruthy()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 279 |[39m     expect(cakeBuff)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 280 |[39m     expect(cakeBuff[33m.[39m有效期至)[33m.[39mtoBeGreaterThan([33mDate[39m[33m.[39mnow())[33
+      at Object.<anonymous> (test/item-use.spec.ts:279:22)
+
+[test/task.service.spec.ts]
+  任务系统闭环 › 自动结算、奖励概率、后续任务和完成任务级联一次完成
+      expect(received).toEqual(expected) // deep equality
+      Expected: ObjectContaining {"data": "e!bx0", "quantity": 1, "type": "装备"}
+      Received: undefined
+      [0m [90m 157 |[39m     expect(result)[33m.[39mtoContain([32m'任务C'[39m)[33m;[39m
+      [90m 158 |[39m     expect(tasks)[33m.[39mtoEqual([])[33m;[39m
+      m.[39mname [33m===[39m [32m'测试装备'[39m))[33m.[39mtoEqual(expect[33m.[39mobjectContaining({
+      at Object.<anonymous> (test/task.service.spec.ts:159:64)
+
+[test/task.service.spec.ts]
+  任务系统闭环 › 未标记装备类型的奖励命中装备表时按概率生成真装备（对齐原版判断物品2）
+      expect(received).toEqual(expected) // deep equality
+      Expected: ObjectContaining {"count": 1, "quantity": 1, "type": "装备"}
+      Received: undefined
+      [31m[1m>[22m[39m[90m 204 |[39m     expect(reward)[33m.[39mtoEqual(expect[33m.[39mobjectContaining({
+      at Object.<anonymous> (test/task.service.spec.ts:204:20)
+
+[test/task.service.spec.ts]
+  任务系统闭环 › 发布人好感写入召唤物，达到100时清空其他玩家好感并更新归属
+      expect(received).toBeGreaterThanOrEqual(expected)
+      Expected: >= 100
+      Received:    95
+      [31m[1m>[22m[39m[90m 239 |[39m     expect(markers[[32m'好感42'[39m])[33m.[39mtoBeGreaterThanOrEqual([35m10
+      [90m 240 |[39m     expect(markers[[32m'好感99'[39m])[33m.[39mtoBeUndefined()[33m;[39m
+      [90m 241 |[39m     expect(summon[33m.[39mownerQQ)[33m.[39mtoBe([32m'42'[39m)[33m;[39m
+      [90m 242 |[39m     expect(fixture[33m.[39mplayer[33m.[39maffinity)[33m.[39mtoBe([35m0[39m)[33m;[39m[0
+      at Object.<anonymous> (test/task.service.spec.ts:239:29)
+
+[test/task.service.spec.ts]
+  任务系统闭环 › 同一玩家并发推进串行化且只发放一次奖励
+      Expected length: 1
+      Received length: 0
+      Received array:  []
+      [90m 262 |[39m     expect(backpack[[35m0[39m][33m.[39mcount)[33m.[39mtoBeGreaterThan([35m1[39m)[33m;[3
+      [33m.[39mtoBe([35m1[39m)[33m;[39m
+      at Object.<anonymous> (test/task.service.spec.ts:261:64)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 旧的已完成任务可以通过提交入口结算，未完成任务不会提前发奖
+      TypeError: Cannot read properties of undefined (reading 'name')
+      [0m [90m 279 |[39m     expect(result)[33m.[39mtoContain([32m'旧任务'[39m)[33m;[39m
+      [90m 280 |[39m     expect(parseJson(fixture[33m.[39mplayer[33m.[39mtasks[33m,[39m []))[33m.[39mtoEqual([
+      )[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'水晶'[39m)[33m;[39m
+      at Object.<anonymous> (test/task.service.spec.ts:281:53)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 兼容原版反引号任务和#a#/#b#要求编码，并保留发布人
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 2
+      + Received  + 2
+      [31m[1m>[22m[39m[90m 296 |[39m     expect(parsed)[33m.[39mtoEqual([expect[33m.[39mobjectContaining({
+      at Object.<anonymous> (test/task.service.spec.ts:296:20)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 负数要求按原版语义自动完成，不需要额外行动
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [0m [90m 330 |[39m     expect(result)[33m.[39mtoContain([32m'自动任务'[39m)[33m;[39m
+      [90m 331 |[39m     expect(parseJson(fixture[33m.[39mplayer[33m.[39mtasks[33m,[39m []))[33m.[39mtoEqual([
+      )[33m.[39msome((item[33m:[39m any) [33m=>[39m item[33m.[39mname [33m===[39m [32m'水晶'[39m))[33m.[39mtoBe(
+      at Object.<anonymous> (test/task.service.spec.ts:332:92)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 查看任务和放弃任务支持1-based序号
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "行动一"
+      Received string:    "
+      [90m 366 |[39m     expect(details)[33m.[39mtoContain([32m'任务一'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 367 |[39m     expect(details)[33m.[39mtoContain([32m'行动一'[39m)[33m;[39m
+      [90m 368 |[39m     expect(details)[33m.[39mnot[33m.[39mtoContain([32m'任务二'[39m)[33m;[39m
+      at Object.<anonymous> (test/task.service.spec.ts:367:21)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 旧的已完成任务支持按序号提交并自动结算
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 3
+      + Received  + 1
+      [90m 432 |[39m     expect(result)[33m.[39mtoContain([32m'旧序号任务'[39m)[33m;[39m
+      33m.[39mmap((task[33m:[39m any) [33m=>[39m task[33m.[39mname))[33m.[39mtoEqual([[32m'普通任务'[39m])[33m;[39m
+      tem[33m:[39m any) [33m=>[39m item[33m.[39mname [33m===[39m [32m'水晶'[39m))[33m.[39mtoBe([36mtrue[39m)[33m
+      at Object.<anonymous> (test/task.service.spec.ts:433:79)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 动态配方任务按等级和同时领取上限闭环解锁
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "领取了"
+      Received string:    "配方「配方一」没有可用的解锁要求"
+      [31m[1m>[22m[39m[90m 460 |[39m     expect(first)[33m.[39mtoContain([32m'领取了'[39m)[33m;[39m
+      [90m 462 |[39m     expect(limited)[33m.[39mtoContain([32m'一次只能领取一个'[39m)[33m;[39m
+      at Object.<anonymous> (test/task.service.spec.ts:460:19)
+
+[test/capture.spec.ts]
+  GameMonster 捕捉闭环 › 开始捕捉将 GameMonster 写入十分钟捕捉模式
+      expect(received).toEqual(expected) // deep equality
+      Expected: ArrayContaining [ObjectContaining {"名称": "捕捉模式", "是否叠加时间": false}]
+      Received: [{"expireAt": 1789583002802, "name": "捕捉模式", "stackTime": false, "strength": 0}]
+      [0m [90m 141 |[39m     expect(result)[33m.[39mtoContain([32m'被设置为捕捉模式'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 143 |[39m     expect(buffs)[33m.[39mtoEqual(expect[33m.[39marrayContaining([
+      at Object.<anonymous> (test/capture.spec.ts:143:19)
+
+[test/capture.spec.ts]
+  GameMonster 捕捉闭环 › 捕捉成功兼容饲料 count 字段并保留小数余量
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "驯养了一只测试史莱姆"
+      Received string:    "捕捉测试者捕捉测试史莱姆需要2的饲料，你只有0"
+      [31m[1m>[22m[39m[90m 177 |[39m     expect(result)[33m.[39mtoContain([32m'驯养了一只测试史莱姆'[39m)[33m;[39m
+      [90m 178 |[39m     expect(fixture[33m.[39mremovedMonsterIds)[33m.[39mtoEqual([[35m501[39m])[33m;[39m
+
+[test/capture.spec.ts]
+  GameMonster 捕捉闭环 › 特殊宠物捕捉也兼容 count 字段，并在保存时保留捕捉物与奖励
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "紧紧跟着你"
+      Received string:    "需要100饲料"
+      [31m[1m>[22m[39m[90m 203 |[39m     expect(result)[33m.[39mtoContain([32m'紧紧跟着你'[39m)[33m;[39m
+      at Object.<anonymous> (test/capture.spec.ts:203:20)
+
+[test/capture.spec.ts]
+  捕捉模式战斗层 › 捕捉模式免疫生命池伤害，但护盾和装甲仍然承伤
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 100
+      Received: 90
+      [31m[1m>[22m[39m[90m 352 |[39m     expect(monster[33m.[39mhp)[33m.[39mtoBe([35m100[39m)[33m;[39m
+      [90m 353 |[39m     expect(monster[33m.[39mshield)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      [90m 354 |[39m     expect(monster[33m.[39marmor)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      [90m 355 |[39m     expect(result[33m.[39mresult)[33m.[39mtoContain([32m'捕捉中'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/capture.spec.ts:352:24)
+
+[test/handbook.spec.ts]
+  B. 分类条目数与模板行过滤 › 模板行（任务/增益/建筑/物品/对话/载具）被剔除，与原版基线一致
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 145
+      Received: 146
+      [0m [90m 84 |[39m     expect(c[[32m'物品'[39m])[33m.[39mtoBe([35m170[39m)[33m;[39m [90m// items.json 171
+      [90m 85 |[39m     expect(c[[32m'资源'[39m])[33m.[39mtoBe([35m119[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 86 |[39m     expect(c[[32m'怪物'[39m])[33m.[39mtoBe([35m145[39m)[33m;[39m
+      [90m 87 |[39m     expect(c[[32m'任务'[39m])[33m.[39mtoBe([35m86[39m)[33m;[39m [90m// tasks.json 87 - 「任务模
+      [90m 88 |[39m     expect(c[[32m'增益'[39m])[33m.[39mtoBe([35m18[39m)[33m;[39m [90m// buffs.json 19 - 「增益模
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › 秒级与毫秒级到期时间都归一化为毫秒
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1789582432983
+      Received: 0
+      [90m 14 |[39m     expect(toExpireMs({ expireAt[33m:[39m nowSec [33m+[39m [35m30[39m }))[33m.[39mtoBeGrea
+      39m [35m1000[39m }))[33m.[39mtoBe(nowMs [33m+[39m [35m30[39m [33m*[39m [35m1000[39m)[33m;[39m
+      [90m 16 |[39m     expect(toExpireMs({ expireAt[33m:[39m [35m0[39m }))[33m.[39mtoBe([35m0[39m)[33m;[39m
+      [90m 17 |[39m     expect(toExpireMs([36mnull[39m))[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/expire-time.spec.ts:15:53)
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › 过期条目失效、未过期条目生效，无到期时间视为永久
+      expect(received).toBe(expected) // Object.is equality
+      Expected: false
+      Received: true
+      [0m [90m 21 |[39m     expect(isActive({ expireAt[33m:[39m nowSec [33m-[39m [35m1[39m }))[33m.[39mtoBe([
+      [90m 22 |[39m     expect(isActive({ expireAt[33m:[39m nowSec [33m+[39m [35m10[39m }))[33m.[39mtoBe([36m
+      .[39mtoBe([36mfalse[39m)[33m;[39m      [90m// 毫秒级已过期[39m
+      [90m 24 |[39m     expect(isActive({ 有效期至[33m:[39m nowMs [33m+[39m [35m1000[39m }))[33m.[39mtoBe([36mtru
+      [90m 25 |[39m     expect(isActive({ name[33m:[39m [32m'常驻'[39m }))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › hasActive / findActive / filterActive 按名称与有效期筛选
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 2
+      Received: 3
+      [0m [90m 37 |[39m     expect(hasActive(list[33m,[39m [32m'永久'[39m))[33m.[39mtoBe([36mtrue[39m)[33m;[39
+      [31m[1m>[22m[39m[90m 39 |[39m     expect(filterActive(list)[33m.[39mlength)[33m.[39mtoBe([35m2[39m)[33
+      at Object.<anonymous> (test/expire-time.spec.ts:39:39)
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › shortenBuff：减后过期即删除、剩余按原口径写回（原版 获得增益 -N 真）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [39m[33m,[39m nowMs))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 68 |[39m     expect(msExpire[[35m0[39m][33m.[39m有效期至)[33m.[39mtoBe(nowMs [33m+[39m [35m60[39m [3
+      at Object.<anonymous> (test/expire-time.spec.ts:66:54)
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › tagMarkerKind：给指定条目补 kind 冷却类型标签（不存在时无操作）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "act-cd"
+      Received: undefined
+      [31m[1m>[22m[39m[90m 94 |[39m     expect(cn[[35m0[39m][33m.[39mkind)[33m.[39mtoBe([32m'act-cd'[39m)[
+      at Object.<anonymous> (test/expire-time.spec.ts:94:24)
+
+[test/expire-time.spec.ts]
+  玩家数据读取（getPlayerData） › 读取时剔除已过期增益，保留未过期与永久增益
+      expect(received).not.toContain(expected) // indexOf
+      Expected value: not "蛋糕"
+      Received array:     ["闪避", "蛋糕", "力量模式"]
+      [0m [90m 135 |[39m     expect(names)[33m.[39mtoContain([32m'力量模式'[39m)[33m;[39m
+      [90m 136 |[39m     expect(names)[33m.[39mnot[33m.[39mtoContain([32m'ex'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 137 |[39m     expect(names)[33m.[39mnot[33m.[39mtoContain([32m'蛋糕'[39m)[33m;[39m
+      at Object.<anonymous> (test/expire-time.spec.ts:137:23)
+
+[test/expire-time.spec.ts]
+  信息面板增益行（formatBuffList） › 过期增益不再显示，未过期增益显示正确倒计时
+      Expected pattern: /^闪避\(1:0[45]\)$/
+      Received string:  "闪避(1:03)"
+      at Object.<anonymous> (test/expire-time.spec.ts:157:21)
+
+[test/expire-time.spec.ts]
+  地图标记有效期归一化（toExpireMs，修复地图增益全部失效） › 秒级有效期至被归一成毫秒，毫秒级保持不变
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1789582462000
+      Received: 0
+      [31m[1m>[22m[39m[90m 198 |[39m     expect(secBuff)[33m.[39mtoBe((nowSec [33m+[39m [35m60[39m) [33m*[3
+      [90m 200 |[39m     expect(msBuff)[33m.[39mtoBe(nowMs [33m+[39m [35m60[39m [33m*[39m [35m1000[39m)[33m
+      at Object.<anonymous> (test/expire-time.spec.ts:198:21)
+
+[test/expire-time.spec.ts]
+  地图标记有效期归一化（toExpireMs，修复地图增益全部失效） › applyMapBuffs 风格数组：秒级标记归一化后不过期，未过期增益被 filterActive 保留
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: 2
+      [31m[1m>[22m[39m[90m 210 |[39m     expect(active[33m.[39mlength)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 211 |[39m     expect(active[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'湖边祝福'[39m)[33m;[39m
+      [90m 212 |[39m     expect(active[[35m0[39m][33m.[39mexpireAt)[33m.[39mtoBe((nowSec [33m+[39m [35m60[39
+      at Object.<anonymous> (test/expire-time.spec.ts:210:27)
+
+[test/tutorial-arrival.spec.ts]
+  教程到达与白NPC交互（原版对齐） › 任务完成消息为原版格式：得到了+并领取了新的任务
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "完成了任务:教程-苏醒，得到了:优秀武器补给箱x1.02"
+      Received string:    "完成了任务:教程-苏醒、教程-背包，
+      [31m[1m>[22m[39m[90m 254 |[39m     expect(message)[33m.[39mtoContain([32m'完成了任务:教程-苏醒，得到了:优秀武器补给箱x1.02'[3
+      [90m 255 |[39m     expect(message)[33m.[39mtoContain([32m'并领取了新的任务:教程-背包'[39m)[33m;[39m
+      at Object.<anonymous> (test/tutorial-arrival.spec.ts:254:21)
+
+[test/map-battle-loop.spec.ts]
+  MapBattleLoopService：原版 覅攻击pd 延时递归驱动 › triggerByPlayerAction：刷新地图"活动"120秒（玩家活跃）并延时拉起回合
+      expect(received).toBeGreaterThan(expected)
+      Received has value: undefined
+      [90m 131 |[39m     expect(active)[33m.[39mtoBeTruthy()[33m;[39m
+      [31m[1m>[22m[39m[90m 132 |[39m     expect(active[33m.[39m有效期至)[33m.[39mtoBeGreaterThan([33mDate[39m[33
+      at Object.<anonymous> (test/map-battle-loop.spec.ts:132:25)
+
+[test/map-battle-loop.spec.ts]
+  MapBattleLoopService：原版 覅攻击pd 延时递归驱动 › triggerByPlayerAction：隐匿模式玩家不惊动怪物（原版 L160 隐匿攻击豁免）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: false
+      Received: true
+      [31m[1m>[22m[39m[90m 152 |[39m     expect(loop[33m.[39mhasPendingRound([35m1[39m))[33m.[39mtoBe([36mfa
+      m.[39mmock[33m.[39mcalls[33m.[39mlength)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/map-battle-loop.spec.ts:152:37)
+
+[test/home-output.spec.ts]
+  家园产出复刻 › 具现装置按每天一个未知物品写入地图物品，不直接污染玩家背包
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      3m===[39m [32m'未知物品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1[39m)[33m;[39m
+      [90m 120 |[39m     expect(fixture[33m.[39mbackpack)[33m.[39mtoEqual([{ name[33m:[39m [32m'面包'[39m[33m,
+      at Object.<anonymous> (test/home-output.spec.ts:119:69)
+
+[test/home-output.spec.ts]
+  家园产出复刻 › 世界模拟器按建筑运行时间推进 AI，完成训练后产出带 a 数据的核心
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: undefined
+      [31m[1m>[22m[39m[90m 139 |[39m     expect(alpha[33m?[39m[33m.[39mquantity)[33m.[39mtoBe([35m1[39m)[3
+      [90m 140 |[39m     expect(alpha[33m?[39m[33m.[39mdata)[33m.[39mtoBe([32m'a'[39m)[33m;[39m
+      [90m 141 |[39m     expect(mapMarkers[33m.[39m[33mAI[39m)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      [90m 142 |[39m     expect(result)[33m.[39mtoContain([32m'正在训练硅基核心:0%'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/home-output.spec.ts:139:29)
+
+[test/auto-mine.spec.ts]
+  自动开采闭环 › 按每小时公式结算并推进采集任务
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "铁矿×1920"
+      Received string:    "测试玩家自动开采了1小时，炸出了暂无资源"
+      [31m[1m>[22m[39m[90m 105 |[39m     expect(result)[33m.[39mtoContain([32m'铁矿×1920'[39m)[33m;[39m
+      [33m.[39mtoBeUndefined()[33m;[39m[0m
+      at Object.<anonymous> (test/auto-mine.spec.ts:105:20)
+
+[test/auto-mine.spec.ts]
+  自动开采闭环 › 后台按分钟增量结算但保留进行中标记
+      Expected number of calls: 1
+      Received number of calls: 0
+      [33m.[39mtoBe([35m1060[39m)[33m;[39m
+      at Object.<anonymous> (test/auto-mine.spec.ts:117:47)
+
+[test/delayed-settle-dedupe.spec.ts]
+  延时结算去重（救援/采集恰好一次） › 采集结算并发进入同一次采集时，只产出并广播一次
+      Expected length: 1
+      Received length: 0
+      Received array:  []
+      [90m 283 |[39m     expect(backpack)[33m.[39mtoEqual([expect[33m.[39mobjectContaining({ name[33m:[39m [32m
+      at Object.<anonymous> (test/delayed-settle-dedupe.spec.ts:280:26)
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故复现） › 兑换召唤券52 后立即召唤使魔73 必须成功且按新余额扣减（修复前报「只有21.012」）
+      expect(received).resolves.toContain()
+      Received promise rejected instead of resolved
+      Rejected to value: [TypeError: this.mapService.getMapByName is not a function]
+      [90m 131 |[39m       [33m.[39mresolves[33m.[39mtoContain([32m'兑换了召唤券x52'[39m)[33m;[39m
+      at Object.<anonymous> (test/three-pillars-currency.spec.ts:130:11)
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故复现） › 召唤数量 ≤ 兑换前旧值时也不得吞券：扣减必须基于兑换后的新余额
+      TypeError: this.mapService.getMapByName is not a function
+      at Object.<anonymous> (test/three-pillars-currency.spec.ts:150:5)
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：统一货币读写入口语义 › 读侧与落库仲裁同口径：取偏离物化基准更大的字段，绝不读双字段镜像旧值
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 73.012
+      Received: 21.012
+      Expected precision:    6
+      Expected difference: < 0.0000005
+      Received difference:   52
+      召唤券'[39m))[33m.[39mtoBeCloseTo([35m73.012[39m[33m,[39m [35m6[39m)[33m;[39m
+      9mtoBe([35m5[39m)[33m;[39m[0m
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：统一货币读写入口语义 › 写侧双字段同步 + 刷新物化基准；<=0 视为花光移除条目并把基准清零
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 73.01
+      Received: 21.012
+      Expected precision:    6
+      Expected difference: < 0.0000005
+      Received difference:   51.998000000000005
+      [90m 193 |[39m     expect(entry[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m73.01[39m[33m,[39m [35m6[39m
+      [31m[1m>[22m[39m[90m 194 |[39m     expect(entry[33m.[39mcount)[33m.[39mtoBeCloseTo([35m73.01[39m[33m,
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：统一货币读写入口语义 › 任务发奖 addBackpackItem 用偏差感知读当存量：分裂条目上累加不吞余额
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 2101.22
+      Received: 4.02
+      Expected precision:    6
+      Expected difference: < 0.0000005
+      Received difference:   2097.2
+      [31m[1m>[22m[39m[90m 226 |[39m     expect(entry[33m.[39mcount)[33m.[39mtoBeCloseTo([35m2101.22[39m[33m
+      [90m 227 |[39m     expect(entry[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m2101.22[39m[33m,[39m [35m6[3
+
+[test/currency-task-wipe.spec.ts]
+  任务结算不误清货币（正式库「主线-继续询问」事故回归） › 非 mutate 上下文先后三次推进对话，完成任务后钻石/召唤券不被清零、奖励落包
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 12.64
+      Received: NaN
+      Expected precision:    5
+      Expected difference: < 0.000005
+      Received difference:   NaN
+      [90m 147 |[39m     expect(box)[33m.[39mtoBeDefined()[33m;[39m
+      [31m[1m>[22m[39m[90m 148 |[39m     expect([33mNumber[39m(box[33m.[39mcount))[33m.[39mtoBeCloseTo([35m1
+
+[test/familiar-combat-passives.spec.ts]
+  掉落率/品质接入普通击杀（原版 后台运作 L846-857） › 击杀被动：剑圣好感≥40叠苦行、≥80减技能/斩冷却
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: undefined
+      e [33m===[39m [32m'苦行'[39m)[33m?[39m[33m.[39mvalue)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 74 |[39m     expect(typeCd[33m.[39mexpireAt)[33m.[39mtoBeLessThanOrEqual(now [33m+[39m [35m21[39m 
+      at Object.<anonymous> (test/familiar-combat-passives.spec.ts:72:60)
+
+[test/map-travel-gate.spec.ts]
+  地图通行门槛 checkCanTravel（原版复刻门禁） › 前往查出发地图的前往需求（原版 L6634）：徒步/步行载具拦截，跃迁载具放行
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "当前驾驶的载具测试载具的移动方式未满足条件"
+      Received string:    "出口限制了需要跃迁才能到达，当前驾驶的载具的移动方式未满足条件(需要安装任意型号的跃迁引擎)"
+      [90m 35 |[39m     expect(ground[33m.[39mcanTravel)[33m.[39mtoBe([36mfalse[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 36 |[39m     expect(ground[33m.[39mreason)[33m.[39mtoContain([32m'当前驾驶的载具测试载具的移动方式未
+      at Object.<anonymous> (test/map-travel-gate.spec.ts:36:27)
+
+[test/map-travel-gate.spec.ts]
+  地图通行门槛 checkCanTravel（原版复刻门禁） › 传送级需求：徒步持天蓝吊坠放行，无吊坠拦截（原版 L1016-1023）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 75 |[39m     expect(warpVehicle[33m.[39mcanTravel)[33m.[39mtoBe([36mtrue[39m)[33m
+      at Object.<anonymous> (test/map-travel-gate.spec.ts:75:35)
+
+[test/map-travel-gate.spec.ts]
+  地图通行门槛 checkCanTravel（原版复刻门禁） › 飞行级需求：徒步放行，飞行(2)/跃迁(3)载具放行，步行载具拦截（原版 L1006-1014）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      m { mode[33m:[39m [32m'fly'[39m })[33m.[39mcanTravel)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      canTravel)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      9mtoBe([36mtrue[39m)[33m;[39m
+      at Object.<anonymous> (test/map-travel-gate.spec.ts:84:100)
+
+[test/item-system.spec.ts]
+  战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946) › L4922 资源类(怪物材料) → 加入背包 + 采集资源成就
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 2
+      Received: undefined
+      [0m [90m 301 |[39m     expect(txt)[33m.[39mtoContain([32m'怪物材料'[39m)[33m;[39m
+      [33m===[39m [32m'怪物材料'[39m)[33m.[39mcount)[33m.[39mtoBe([35m2[39m)[33m;[39m
+      toBe([35m2[39m)[33m;[39m
+      at Object.<anonymous> (test/item-system.spec.ts:303:58)
+
+[test/item-system.spec.ts]
+  战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946) › L4935/物品操作 L2964 负数资源 → 从背包扣除，归零删除，不写入负库存
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 2
+      + Received  + 3
+      3m.[39mtoEqual([
+      at Object.<anonymous> (test/item-system.spec.ts:313:47)
+
+[test/item-system.spec.ts]
+  物品要求 - 数量要求判定 (物品操作.ecode L1784-1811) › L1794-1796 不提供要求数量 → 存在即满足(found=true)，写回数组下标
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 352 |[39m     expect(r[33m.[39mfound)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 353 |[39m     expect(r[33m.[39mindex)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/item-system.spec.ts:352:21)
+
+[test/item-system.spec.ts]
+  物品要求 - 数量要求判定 (物品操作.ecode L1784-1811) › L1798-1800 提供要求数量且数量满足 → found=true
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 359 |[39m     expect(r[33m.[39mfound)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 360 |[39m     expect(r[33m.[39mindex)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/item-system.spec.ts:359:21)
+
+[test/item-system.spec.ts]
+  物品要求 - 数量要求判定 (物品操作.ecode L1784-1811) › L1802 数量不足 → found=false，提示"需要X的NAME，你只有Y"
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "需要0.1的导弹，你只有0"
+      Received: ""
+      [90m 366 |[39m     expect(r[33m.[39mfound)[33m.[39mtoBe([36mfalse[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 367 |[39m     expect(r[33m.[39mhint)[33m.[39mtoBe([32m'需要0.1的导弹，你只有0'[39m)[33m;[
+      at Object.<anonymous> (test/item-system.spec.ts:367:20)
+
+[test/item-system.spec.ts]
+  物品要求 - 数量要求判定 (物品操作.ecode L1784-1811) › 多个同名物品 → 返回第一个匹配下标
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 380 |[39m     expect(r[33m.[39mfound)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 381 |[39m     expect(r[33m.[39mindex)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/item-system.spec.ts:380:21)
+
+[test/familiar-search.spec.ts]
+  宠物搜索物品 › 兼容宠物和物品的中文旧字段，并保留原字段数量
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 4
+      + Received  + 1
+      [31m[1m>[22m[39m[90m 230 |[39m     expect(backpack)[33m.[39mtoEqual([
+      [90m 233 |[39m     expect(parse(p[33m.[39m标记2[33m,[39m []))[33m.[39mtoEqual([[0m
+      at Object.<anonymous> (test/familiar-search.spec.ts:230:22)
+
+[test/user-lock-regression.spec.ts]
+  兑换与后台结算的用户级锁互斥 › 兑换后启动的后台开采结算不得回滚兑换结果
+      TypeError: Cannot read properties of undefined (reading 'quantity')
+      [31m[1m>[22m[39m[90m 149 |[39m     expect(diamondAfter[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m960[39
+      [90m 150 |[39m     expect(ticketAfter[33m.[39mcount)[33m.[39mtoBeCloseTo([35m72[39m)[33m;[39m
+      at Object.<anonymous> (test/user-lock-regression.spec.ts:149:25)
+
+[test/user-lock-regression.spec.ts]
+  兑换与后台结算的用户级锁互斥 › 同一玩家的并发指令按锁排队串行执行
+      TypeError: Cannot read properties of undefined (reading 'quantity')
+      [31m[1m>[22m[39m[90m 219 |[39m     expect(diamonds[33m.[39mquantity)[33m.[39mtoBe([35m1960[39m)[33m;[
+      [90m 220 |[39m     expect(tickets[33m.[39mcount)[33m.[39mtoBeCloseTo([35m22[39m[33m,[39m [35m5[39m)[3
+      at Object.<anonymous> (test/user-lock-regression.spec.ts:219:21)
+
+[test/familiar-skills-batch2.spec.ts]
+  使魔技能第二批：歼灭模式/绝对守护/斗转星移/火力全开/斩/会心一击（原版 L1505-1790 复刻验证） › 火力全开：普拉娜门禁、压制增益（强度/时长）与武器冷却削减、熟练度置位
+      expect(received).toBeTruthy()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 177 |[39m     expect(suppression)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 179 |[39m     expect(gatling[33m.[39mexpireAt)[33m.[39mtoBeLessThanOrEqual([33mDate[39m[33m.[39mnow
+      [90m 180 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'火力全开'[39m])[33m.[39mtoBe([
+      at Object.<anonymous> (test/familiar-skills-batch2.spec.ts:177:25)
+
+[test/social-task.spec.ts]
+  贸易、购物、求助任务触发 › 行商购买成功后推进一次购物任务
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "购买了"
+      Received string:    "冒险者#换行需要木头x50，你只有1#换行需要石头x40，你只有1#换行需要绳子x30，你只有1#换行需要铁矿x30，你只有1"
+      [31m[1m>[22m[39m[90m  99 |[39m     expect(result)[33m.[39mtoContain([32m'购买了'[39m)[33m;[39m
+      at Object.<anonymous> (test/social-task.spec.ts:99:20)
+
+[test/familiar-skills-batch4.spec.ts]
+  使魔技能第四批：召唤/召唤银龙/冻结傀儡/封印解除/全弹发射/纳米模式（原版 L2100-2343 复刻验证） › 召唤：次元手环门禁、600秒冷却键、新建凯露（生命=等级×100、荆棘之翼）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 600
+      Received: NaN
+      [90m 123 |[39m     expect(caelu)[33m.[39mtoBeTruthy()[33m;[39m
+      [31m[1m>[22m[39m[90m 124 |[39m     expect([33mNumber[39m(caelu[33m.[39m当前生命))[33m.[39mtoBe([35m600[39
+      [90m 125 |[39m     expect(caelu[33m.[39m装备[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'荆棘之翼'[39m)[33m;
+      [90m 126 |[39m     expect(caelu[33m.[39mqq[33m.[39mstartsWith([32m'召唤物'[39m))[33m.[39mtoBe([36mtrue[39
+      [90m 127 |[39m     expect(caelu[33m.[39mqq[33m.[39mendsWith([32m'x'[39m))[33m.[39mtoBe([36mtrue[39m)[
+
+[test/familiar-skills-batch4.spec.ts]
+  使魔技能第四批：召唤/召唤银龙/冻结傀儡/封印解除/全弹发射/纳米模式（原版 L2100-2343 复刻验证） › 召唤银龙：古月娜门禁、60秒冷却键、新建银龙（QQ=召唤物+归属+x、爪子武器）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: NaN
+      [0m [90m 144 |[39m     expect(dragon)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 145 |[39m     expect(dragon[33m.[39mqq)[33m.[39mtoBe([32m'召唤物123x'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 146 |[39m     expect([33mNumber[39m(dragon[33m.[39m当前生命))[33m.[39mtoBe([35m1[39m
+      [90m 147 |[39m     expect(dragon[33m.[39m武器[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'爪子'[39m)[33m;
+      [32m'召唤冷却2'[39m))[33m.[39mtoBeTruthy()[33m;[39m[0m
+
+[test/equipment-quality-invariant.spec.ts]
+  装备品质码不变量（入包唯一出口） › 中文旧字段「数据」同步补齐（双字段镜像不分裂）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "e"
+      Received: ""
+      [90m 46 |[39m     expect(bp[[35m0[39m][33m.[39mdata)[33m.[39mtoBe([32m'e'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 47 |[39m     expect(bp[[35m0[39m][33m.[39m数据)[33m.[39mtoBe([32m'e'[39m)[33m;[3
+      at Object.<anonymous> (test/equipment-quality-invariant.spec.ts:47:22)
+
+[test/equipment-quality-invariant.spec.ts]
+  装备品质码不变量（入包唯一出口） › 非装备条目不受影响（仍按名称合并数量）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 5
+      Received: 2
+      [31m[1m>[22m[39m[90m 63 |[39m     expect(bp[[35m0[39m][33m.[39mcount)[33m.[39mtoBe([35m5[39m)[33m;[
+      at Object.<anonymous> (test/equipment-quality-invariant.spec.ts:63:25)
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 同一系列尚无阶位达成时，只展开第一阶，更高阶位不铺行不占号
+      expect(received).not.toContain(expected) // indexOf
+      Expected substring: not "肝帝II"
+      Received string:        "📜 可领取的称号（2/2）
+      [90m 77 |[39m     expect(out)[33m.[39mtoContain([32m'1、肝帝I'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 78 |[39m     expect(out)[33m.[39mnot[33m.[39mtoContain([32m'肝帝II'[39m)[33m;[39m
+      [90m 79 |[39m     expect(out)[33m.[39mtoContain([32m'发送编号即可快速领取'[39m)[33m;[39m
+      [90m 81 |[39m     expect(out)[33m.[39mtoContain([32m'可领取的称号（2/2）'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:78:21)
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 已达成待领取的阶位全部保留，再追加首个未达成的下一阶
+      expect(received).not.toContain(expected) // indexOf
+      Expected substring: not "肝帝III"
+      Received string:        "📜 可领取的称号（3/3）
+      [0m [90m 100 |[39m     expect(out)[33m.[39mtoContain([32m'1、肝帝I'[39m)[33m;[39m
+      [90m 101 |[39m     expect(out)[33m.[39mtoContain([32m'2、肝帝II'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 102 |[39m     expect(out)[33m.[39mnot[33m.[39mtoContain([32m'肝帝III'[39m)[33m;[39
+      [90m 104 |[39m     expect(out)[33m.[39mtoContain([32m'1 个条件已达成'[39m)[33m;[39m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:102:21)
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 原版称号显示进度行（普通成就/在线时间时间格式/*模糊匹配）
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "发送指令(40/100)"
+      Received string:    "📜 可领取的称号（3/3）
+      [90m 144 |[39m     expect(out)[33m.[39mtoContain([32m'1、肝帝II'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 145 |[39m     expect(out)[33m.[39mtoContain([32m'发送指令(40/100)'[39m)[33m;[39m
+      [90m 146 |[39m     expect(out)[33m.[39mtoContain([32m'2、住这了I'[39m)[33m;[39m
+      [90m 147 |[39m     expect(out)[33m.[39mtoContain([32m'在线时间(5分0秒/1小时0分)'[39m)[33m;[39m
+      [90m 148 |[39m     expect(out)[33m.[39mtoContain([32m'3、巨人猎手I'[39m)[33m;[39m[0m
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 可领取项置顶成独立区块：顶部点名 + 行首 ✅ + 编号优先发放
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "✅ 1 个条件已达成可领取：战神I"
+      Received string:    "📜 可领取的称号（2/2）
+      [31m[1m>[22m[39m[90m 183 |[39m     expect(out)[33m.[39mtoContain([32m'✅ 1 个条件已达成可领取：战神I'[39m)[33m;[39m
+      [90m 185 |[39m     expect(out)[33m.[39mtoContain([32m'✅ 现在就能领'[39m)[33m;[39m
+      [90m 186 |[39m     expect(out[33m.[39mindexOf([32m'✅ 1、战神I'[39m))[33m.[39mtoBeGreaterThan([33m-[39m[35m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:183:17)
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 暂无达成项时不出现「现在就能领」区块，仅展示下一阶进度
+      expect(received).not.toContain(expected) // indexOf
+      Expected substring: not "现在就能领"
+      Received string:        "📜 可领取的称号（1/1）
+      [31m[1m>[22m[39m[90m 226 |[39m     expect(out)[33m.[39mnot[33m.[39mtoContain([32m'现在就能领'[39m)[33m;[39
+      [90m 227 |[39m     expect(out)[33m.[39mtoContain([32m'暂无条件达成的称号'[39m)[33m;[39m
+      [90m 228 |[39m     expect(out)[33m.[39mtoContain([32m'⏳ 下一阶进度'[39m)[33m;[39m
+      [90m 229 |[39m     expect(out)[33m.[39mtoContain([32m' 1、肝帝I'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:226:21)
+
+[test/available-titles-numbering.spec.ts]
+  领取称号（对齐原版） › 原版称号：条件不足播报差距，不发奖励不写入称号
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "肝帝II需要发送指令x100,你只达到了40"
+      Received string:    "恭喜你获得了称号「肝帝II」！"
+      [31m[1m>[22m[39m[90m 248 |[39m     expect(out)[33m.[39mtoContain([32m'肝帝II需要发送指令x100,你只达到了40'[39m)[33m;
+      [90m 250 |[39m     expect(player[33m.[39mtitles)[33m.[39mtoEqual([32m'[]'[39m)[33m;[39m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:248:17)
+
+[test/available-titles-numbering.spec.ts]
+  领取称号（对齐原版） › 原版称号：条件满足发奖励物品进背包并写入称号
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "路人甲领取了称号肝帝I"
+      Received string:    "恭喜你获得了称号「肝帝I」！"
+      [31m[1m>[22m[39m[90m 270 |[39m     expect(out)[33m.[39mtoContain([32m'路人甲领取了称号肝帝I'[39m)[33m;[39m
+      [90m 271 |[39m     expect(out)[33m.[39mtoContain([32m'得到了经验胶囊x10、水晶x100、发带x1'[39m)[33m;[39m
+      [90m 273 |[39m     expect(player[33m.[39mtitles)[33m.[39mtoEqual([{ name[33m:[39m [32m'肝帝I'[39m[33m,[3
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:270:17)
+
+[test/item-primitives.spec.ts]
+  物品基础判定复刻 › 判断物品2：命中装备列表改为装备，否则资源
+      - Expected  - 2
+      + Received  + 1
+      at Object.<anonymous> (test/item-primitives.spec.ts:44:23)
+
+[test/item-primitives.spec.ts]
+  物品基础判定复刻 › 是否装备与寻找装备按原版首项命中
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: -1
+      [0m [90m 50 |[39m     expect(service[33m.[39misEquipment([32m'铁矿'[39m))[33m.[39mtoBe([36mfalse[39m)[33m
+      3m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 53 |[39m     expect(service[33m.[39mfindEquipment(items[33m,[39m [32m'武器'[39m))[33m.[39mtoBe([33m-
+      at Object.<anonymous> (test/item-primitives.spec.ts:52:48)
+
+[test/item-primitives.spec.ts]
+  物品基础判定复刻 › 取物品数量：装备返回1，普通资源返回数量，未命中返回空类型
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 1
+      + Received  + 1
+      mtoEqual({ quantity[33m:[39m [35m1[39m[33m,[39m type[33m:[39m [32m'装备'[39m })[33m;[39m
+      items))[33m.[39mtoEqual({ quantity[33m:[39m [35m2.5[39m[33m,[39m type[33m:[39m [32m'资源'[39m })[33m;[39m
+      at Object.<anonymous> (test/item-primitives.spec.ts:71:58)
+
+[test/admin-spawn.spec.ts]
+  管理指令：刷新怪物 / 生成人物（原版 L6829-6881 复刻） › 生成人物：npc 类型生成剧情实体并写入好感/宝宝标记
+      expect(received).toEqual(expected) // deep equality
+      Expected: [{"名称": "好感123", "数值": 30}, {"名称": "宝宝", "数值": 1}]
+      Received: undefined
+      [0m [90m 114 |[39m     expect(unit[33m.[39mname)[33m.[39mtoBe([32m'小白'[39m)[33m;[39m
+      [90m 115 |[39m     expect(unit[33m.[39mtype)[33m.[39mtoBe([32m'白'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 116 |[39m     expect(unit[33m.[39m标记)[33m.[39mtoEqual([
+      at Object.<anonymous> (test/admin-spawn.spec.ts:116:21)
+
+[test/admin-spawn.spec.ts]
+  管理指令：刷新怪物 / 生成人物（原版 L6829-6881 复刻） › 生成人物：宠物类型走完整怪物初始化并使用 怪物Ngg 编号
+      expect(received).toEqual(expected) // deep equality
+      Expected: [{"名称": "好感123", "数值": 10}]
+      Received: undefined
+      [90m 134 |[39m     expect(petSummons[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'小灰狼'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 135 |[39m     expect(petSummons[[35m0[39m][33m.[39m标记)[33m.[39mtoEqual([{ 名称[33m:
+      at Object.<anonymous> (test/admin-spawn.spec.ts:135:30)
+
+[test/look-around-segments.spec.ts]
+  观察附近五段展示（原版 地图操作.ecode L867-968 复刻） › 自动采集资源文本：开启自动采集时显示附近资源与每分钟产出预估
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "木材x"
+      Received string:    "👀 【森林】附近情况
+      [90m 134 |[39m     expect(result)[33m.[39mtoContain([32m'附近资源:木头,自动采集每分钟:'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 135 |[39m     expect(result)[33m.[39mtoContain([32m'木材x'[39m)[33m;[39m
+      at Object.<anonymous> (test/look-around-segments.spec.ts:135:20)
+
+[test/admin-backpack.spec.ts]
+  AdminService 背包管理 › gmSaveBackpack 同名合并、quantity/count 统一为 count、数量0删除
+      expect(received).toContainEqual(expected) // deep equality
+      Expected value: {"count": 10, "name": "水晶"}
+      Received array: [{"name": "水晶", "quantity": 10}, {"name": "木头", "quantity": 1}, {"data": "e", "durability": 0, "nam
+      [31m[1m>[22m[39m[90m 154 |[39m     expect(saved)[33m.[39mtoContainEqual({ name[33m:[39m [32m'水晶'[39m[3
+      [90m 155 |[39m     expect(saved)[33m.[39mtoContainEqual({ name[33m:[39m [32m'木头'[39m[33m,[39m count[33m
+      [90m 157 |[39m     expect(saved)[33m.[39mtoContainEqual(expect[33m.[39mobjectContaining({ name[33m:[39m [
+      at Object.<anonymous> (test/admin-backpack.spec.ts:154:19)
+
+[test/gather-settle-actor.spec.ts]
+  「⚡完成」结算后复核：清理无任务行的残留采集标记 › 无 gather 任务行 + 有残留「采集中」→ 复核补删（含 markers2 采集锁）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: false
+      Received: true
+      [0m [90m 190 |[39m     expect(res[33m.[39mok)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 191 |[39m     expect(player[33m.[39mmarkers[[32m'采集中'[39m])[33m.[39mtoBeUndefined()[33m;[39m
+      ))[33m.[39mtoBe([36mfalse[39m)[33m;[39m
+      at Object.<anonymous> (test/gather-settle-actor.spec.ts:192:81)
+
+[test/static-data-validator.spec.ts]
+  StaticDataService 启动校验 + findByKey 索引（RVW04 P2-7） › 内容校验 → 告警列表，不阻断启动 › 负数量（quantity/count/数量 任一为负）触发告警，不抛错
+      Expected: StringContaining "负数量"
+      at Object.<anonymous> (test/static-data-validator.spec.ts:128:20)
+
+[test/task-game-actions.spec.ts]
+  任务动作服务层闭环 › 单体挤奶按静态产奶量结算，并按对象设置当天冷却
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 2
+      + Received  + 3
+      at Object.<anonymous> (test/task-game-actions.spec.ts:408:44)
+
+[test/task-game-actions.spec.ts]
+  任务动作服务层闭环 › 全部挤奶合并产量，茸增加25%，青龙每天只奖励一次升级经验，任务按成功对象数推进
+      expect(received).toEqual(expected) // deep equality
+      Expected: ArrayContaining [ObjectContaining {"名称": "zq"}]
+      Received: [{"expireAt": 1789660800000, "name": "挤奶怪物茸1g"}, {"expireAt": 1789660800000, "name": "挤奶怪物斑点牛2g"}, {"expi
+      [0m [90m 481 |[39m     expect(player[33m.[39mexp)[33m.[39mtoBe([35m13[39m)[33m;[39m
+      at Object.<anonymous> (test/task-game-actions.spec.ts:483:44)
+
+[test/bonus.spec.ts]
+  Test suite failed to run
+
+[test/architecture-guard.spec.ts]
+  架构门禁：玩家状态写入口收口 › 裸调 savePlayer 的处数不得增加（新代码一律走 PlayerMutateService.mutate）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:134:13)
+
+[test/architecture-guard.spec.ts]
+  架构门禁：玩家状态写入口收口 › 裸调 prisma.player.update 必须为 0（全量单写者，业务代码禁止绕过邮箱）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:155:13)
+
+[test/architecture-guard.spec.ts]
+  架构门禁：玩家状态写入口收口 › game.service.ts 行数只减不增（新增指令 handler 一律新文件，禁止继续膨胀）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:502:13)
+
+[test/architecture-guard.spec.ts]
+  架构门禁：玩家状态写入口收口 › game.service.ts 的 handleXxx 方法数量只减不增（G6：新增指令不得挤进 god class）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:554:13)
+
+[test/architecture-guard.spec.ts]
+  架构门禁：玩家状态写入口收口 › 二期重点文件行数冻结（G9）：combat-system.service.ts 只减不增（基线 12468）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:588:15)
+
+[test/architecture-guard.spec.ts]
+  架构门禁：玩家状态写入口收口 › 二期重点文件行数冻结（G9）：familiar-system.service.ts 只减不增（基线 5006）
+      at Object.<anonymous> (test/architecture-guard.spec.ts:588:15)
+
+[test/home-overview.spec.ts]
+  家园只读总览（preview 不结算） › 世界模拟器结构化投影：text 与结算文本同口径，核心名与概率快照一致
+      expect(received).toBeDefined()
+      Received: undefined
+      [0m [90m 141 |[39m     expect(overview[33m.[39mhasPower)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 142 |[39m     expect(overview[33m.[39mremainingFuelSeconds)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;
+      [31m[1m>[22m[39m[90m 143 |[39m     expect(overview[33m.[39mworldSimulation)[33m.[39mtoBeDefined()[33m;[
+      [90m 144 |[39m     expect(overview[33m.[39mworldSimulation[33m![39m[33m.[39mtext)[33m.[39mtoContain([32
+      [39mtoBeGreaterThan([35m0[39m)[33m;[39m
+      [33m=>[39m core[33m.[39mname [33m===[39m [32m'硅基核心阿尔法'[39m))[33m.[39mtoBe([36mtrue[39m)[33m;[39m[0m
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 土堆清空后建造地基通过：消耗材料、开工提示、挂60秒工作标记，延时到期结算经验与完工播报
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "开始了地基的建造，需要1分钟"
+      Received string:    "建造地基需要80木头，你只有0"
+      [31m[1m>[22m[39m[90m 141 |[39m     expect(result)[33m.[39mtoContain([32m'开始了地基的建造，需要1分钟'[39m)[33m;[39m
+      [90m 142 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'家园进度'[39m])[33m.[39mtoBe([
+      [90m 143 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'地基结算待发'[39m])[33m.[39mtoBe(
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:141:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 行动受限（采集中/工作中）时建造地基被拦截且不扣材料
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "采集中"
+      Received string:    "建造地基需要80木头，你只有0"
+      [31m[1m>[22m[39m[90m 183 |[39m     expect(result)[33m.[39mtoContain([32m'采集中'[39m)[33m;[39m
+      [90m 184 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'家园进度'[39m])[33m.[39mtoBe([
+      [33m=>[39m i[33m.[39mname [33m===[39m [32m'木头'[39m)[33m.[39mcount)[33m.[39mtoBe([35m80[39m)[33m;[39m
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:183:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 建造房子成功：消耗材料、开工提示、挂120秒工作标记、进度→4，延时到期结算经验与完工播报
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "开始了房子的建造，需要2分钟"
+      Received string:    "建造房子需要300木头，你只有0"
+      [31m[1m>[22m[39m[90m 203 |[39m     expect(result)[33m.[39mtoContain([32m'开始了房子的建造，需要2分钟'[39m)[33m;[39m
+      [90m 204 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'家园进度'[39m])[33m.[39mtoBe([
+      [90m 205 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'房子结算待发'[39m])[33m.[39mtoBe(
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:203:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 同名多堆/小数物资按合计校验与扣料（与院子「已有 X」同口径）
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "开始了地基的建造"
+      Received string:    "建造地基需要40铁矿，你只有0"
+      [31m[1m>[22m[39m[90m 243 |[39m     expect(result)[33m.[39mtoContain([32m'开始了地基的建造'[39m)[33m;[39m
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:243:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 材料不足时建造地基按原版逐项提示
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "建造地基需要80木头，你只有50"
+      Received string:    "建造地基需要80木头，你只有0"
+      [31m[1m>[22m[39m[90m 263 |[39m     expect(result)[33m.[39mtoContain([32m'建造地基需要80木头，你只有50'[39m)[33m;[39
+      [90m 264 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'家园进度'[39m])[33m.[39mtoBe([
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:263:20)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 建造地基倒计时期间重发指令提示剩余时间而非"已完成"
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "家园正在建造中"
+      Received string:    "建造地基需要80木头，你只有0"
+      [31m[1m>[22m[39m[90m 275 |[39m     expect(again)[33m.[39mtoContain([32m'家园正在建造中'[39m)[33m;[39m
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:275:19)
+
+[test/home-ground-clear.spec.ts]
+  家园地面清理前置 › 建造房子倒计时期间重发指令提示剩余时间而非"已建好"
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "家园正在建造中"
+      Received string:    "建造房子需要300木头，你只有0"
+      [31m[1m>[22m[39m[90m 293 |[39m     expect(again)[33m.[39mtoContain([32m'家园正在建造中'[39m)[33m;[39m
+      at Object.<anonymous> (test/home-ground-clear.spec.ts:293:19)
+
+[test/currency-columns.spec.ts]
+  货币列化（P1）透明转换 › 读取时把列物化为背包物品
+      expect(received).toBeCloseTo(expected, precision)
+      Received has value: undefined
+      钻石'[39m)[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1053.6[39m[33m,[39m [35m5[39m)[33m;[39m
+      [33m===[39m [32m'召唤券'[39m)[33m.[39mcount)[33m.[39mtoBeCloseTo([35m0.012[39m[33m,[39m [35m9[39m)[33m;[39m
+      数据核心'[39m)[33m.[39mquantity)[33m.[39mtoBe([35m7[39m)[33m;[39m
+      at Object.<anonymous> (test/currency-columns.spec.ts:67:57)
+
+[test/currency-columns.spec.ts]
+  货币列化（P1）透明转换 › 兑换式修改后保存：货币进列、JSON 中无货币条目
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 22
+      Received: 20
+      Expected precision:    5
+      Expected difference: < 0.000005
+      Received difference:   2
+      [90m 89 |[39m     expect(row[33m.[39mdiamonds)[33m.[39mtoBeCloseTo([35m60[39m[33m,[39m [35m5[39m)[33m
+      [31m[1m>[22m[39m[90m 90 |[39m     expect(row[33m.[39mtickets)[33m.[39mtoBeCloseTo([35m22[39m[33m,[39m
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 静态配置与核心分支 › 静态载具数据包含原版166个部件和95个配方，首次生产只写入读取时间
+      expect(received).toEqual(expected) // deep equality
+      Expected: [{"名称": "1", "数值": 123456}]
+      Received: undefined
+      [90m 108 |[39m     expect(result[33m.[39mproduced)[33m.[39mtoEqual([])[33m;[39m
+      [31m[1m>[22m[39m[90m 109 |[39m     expect(vehicle[33m.[39m配方)[33m.[39mtoEqual([{ 名称[33m:[39m [32m'1'[
+      at Object.<anonymous> (test/vehicle-production.spec.ts:109:24)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 静态配置与核心分支 › 生肉分解1按原版顺序结算，并保留耐久10%的副产物比例
+      TypeError: Cannot read properties of undefined (reading 'find')
+      [90m 128 |[39m     expect(result[33m.[39mproductionSpeed)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 129 |[39m     expect(produced[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m5.5[39m)[33m;[39
+      at Object.<anonymous> (test/vehicle-production.spec.ts:126:29)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 静态配置与核心分支 › 九尾狐核心、副产物、消耗降低和兰音幼崽按原版倍率叠加
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      [0m [90m 154 |[39m     expect(result[33m.[39mconsumptionMultiplier)[33m.[39mtoBeCloseTo([35m0.93[39m)[33m
+      [90m 155 |[39m     expect(result[33m.[39melapsedMs)[33m.[39mtoBeCloseTo([35m60[39m [33m*[39m [35m1000[
+      [33m.[39mname [33m===[39m [32m'产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1.05[39m)[33m
+      3m===[39m [32m'副产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m10[39m [33m*[39m [35m0.1[39m
+      9m名称 [33m===[39m [32m'材料'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m100[39m [33m-[39m [35m2[39m [33m*[39
+      at Object.<anonymous> (test/vehicle-production.spec.ts:156:76)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 调度、限制与顺序 › 生产调度系统、生产调度系统II和生产加速8按优先级叠加
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      [0m [90m 180 |[39m     expect(result[33m.[39mproductionSpeed)[33m.[39mtoBeCloseTo([35m1.58[39m)[33m;[39m
+      [90m 181 |[39m     expect(result[33m.[39mconsumedProductivity)[33m.[39mtoBe([35m2[39m)[33m;[39m
+      [33m.[39mname [33m===[39m [32m'产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1.58[39m)[33m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:182:76)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 调度、限制与顺序 › 生产力超限时按生产力比例降低效率
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      [0m [90m 195 |[39m     expect(result[33m.[39mconsumedProductivity)[33m.[39mtoBe([35m200[39m)[33m;[39m
+      [90m 196 |[39m     expect(result[33m.[39mefficiency)[33m.[39mtoBeCloseTo([35m0.5[39m)[33m;[39m
+      [33m.[39mname [33m===[39m [32m'产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m100[39m)[33m;
+      at Object.<anonymous> (test/vehicle-production.spec.ts:197:76)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 调度、限制与顺序 › 生产限制会在达到上限时停止后续实际产出
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      [33m.[39mname [33m===[39m [32m'产品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m2[39m)[33m;[
+      9m名称 [33m===[39m [32m'产品'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m2[39m)[33m;[39m
+      9m名称 [33m===[39m [32m'材料'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m98[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:210:76)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 调度、限制与顺序 › 前置配方先生产时可立即为后置配方提供材料，反向排序则不能
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      m value[33m.[39mname [33m===[39m [32m'成品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1[39m)
+      ame [33m===[39m [32m'成品'[39m))[33m.[39mtoBeUndefined()[33m;[39m
+      9m名称 [33m===[39m [32m'中间材料'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m1[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:233:83)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 特殊状态和字段兼容 › 无生产力时具现装置按每天一个未知物品产生
+      TypeError: Cannot read properties of undefined (reading 'find')
+      [90m 250 |[39m     expect(result[33m.[39mproduced)[33m.[39mtoEqual([])[33m;[39m
+      [39m value[33m.[39m名称 [33m===[39m [32m'未知物品'[39m)[33m.[39m数量)[33m.[39mtoBeCloseTo([35m1[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:251:23)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 特殊状态和字段兼容 › 功能部件超出核心上限时不生产，并写回读取时间
+      expect(received).toBeGreaterThan(expected)
+      Received has value: undefined
+      [90m 264 |[39m     expect(result[33m.[39mstopped)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 265 |[39m     expect(vehicle[33m.[39m上限)[33m.[39mtoBeGreaterThan([35m1[39m)[33m;
+      [90m 266 |[39m     expect(vehicle[33m.[39m配方[[35m0[39m][33m.[39m数值)[33m.[39mtoBe([35m60[39m [33m*[39
+      9m名称 [33m===[39m [32m'产品'[39m))[33m.[39mtoBeUndefined()[33m;[39m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:265:24)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 特殊状态和字段兼容 › 数据库载具和地图JSON载具可互转并按各自存储层持久化
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "数据库载具"
+      Received: undefined
+      [31m[1m>[22m[39m[90m 321 |[39m     expect(runtime[33m.[39m名称)[33m.[39mtoBe([32m'数据库载具'[39m)[33m;[39m
+      [90m 322 |[39m     expect(runtime[33m.[39m零件[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([32m'材料'[39m)[33m;[
+      [90m 323 |[39m     expect(runtime[33m.[39m零件[[35m0[39m][33m.[39m数量)[33m.[39mtoBe([35m3[39m)[33m;[39m
+      [90m 324 |[39m     expect(runtime[33m.[39m配方[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([32m'产出'[39m)[33m;[
+      at Object.<anonymous> (test/vehicle-production.spec.ts:321:24)
+
+[test/vehicle-production.spec.ts]
+  载具生产复刻 - 特殊状态和字段兼容 › 查看载具详情渲染生产线可运行与驾驶员加成行
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "生产线可运行:1小时1分1秒"
+      Received string:    "未知载具
+      [31m[1m>[22m[39m[90m 390 |[39m     expect(detail)[33m.[39mtoContain([32m'生产线可运行:1小时1分1秒'[39m)[33m;[39m
+      [90m 391 |[39m     expect(detail)[33m.[39mtoContain([32m'驾驶员加成:'[39m)[33m;[39m
+      [90m 392 |[39m     expect(detail)[33m.[39mtoContain([32m'生命+100'[39m)[33m;[39m
+      [90m 393 |[39m     expect(detail)[33m.[39mtoContain([32m'攻击+8'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/vehicle-production.spec.ts:390:20)
+
+[test/spawn-and-travel.spec.ts]
+  生成神之工匠/生成废弃载具 语义还原 + 耗时公式复核 + 掌控时间 › 生成神之工匠：双怪物型召唤物（神之工匠/小雫，npc1g/npc2g，特殊序号-2）
+      - Expected  - 2
+      + Received  + 0
+      at Object.<anonymous> (test/spawn-and-travel.spec.ts:85:37)
+
+[test/spawn-and-travel.spec.ts]
+  生成神之工匠/生成废弃载具 语义还原 + 耗时公式复核 + 掌控时间 › 生成废弃载具：随机地图随机载具实体（归属无主，按几率加权抽取）
+      TypeError: Cannot read properties of undefined (reading 'isEquipment')
+      at Object.<anonymous> (test/spawn-and-travel.spec.ts:104:20)
+
+[test/battle-e2e.spec.ts]
+  战斗系统端到端回归（五轮原汁原味修复） › 综合 基础攻击减血闭环 › 真实 bonus.drops 掉落 → 背包在最终 savePlayer 后保留，资源/装备任务均推进
+      expect(received).toEqual(expected) // deep equality
+      Expected: ArrayContaining [ObjectContaining {"name": "铁矿", "quantity": 2, "type": "资源"}, ObjectContaining {"name":
+      Received: [{"chance": 100, "itemId": undefined, "name": "铁矿", "quantity": 1, "type": "资源"}, {"chance": 100, "itemId
+      [90m 655 |[39m       expect(result[33m.[39mkilled)[33m.[39mtoContain([32m'史莱姆'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 656 |[39m       expect(result[33m.[39mdrops)[33m.[39mtoEqual(expect[33m.[39marrayC
+      at Object.<anonymous> (test/battle-e2e.spec.ts:656:28)
+
+[test/battle-e2e.spec.ts]
+  战斗系统端到端回归（五轮原汁原味修复） › 防御方被动 幻时凝固/含光回防（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L1429-1547） › 幻时凝固：花园猫(好感≥60)被攻击
+      expect(received).toBeDefined()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 761 |[39m       expect(phantom)[33m.[39mtoBeDefined()[33m;[39m
+      [90m 762 |[39m       expect(phantom[33m.[39m有效期至)[33m.[39mtoBeGreaterThan([33mDate[39m[33m.[39mnow())[3
+      [90m 764 |[39m       expect(lines[33m.[39mjoin([32m'\n'[39m))[33m.[39mtoContain([32m'被幻时凝固'[39m)[33m;[
+      at Object.<anonymous> (test/battle-e2e.spec.ts:761:23)
+
+[test/home-crop.spec.ts]
+  家园作物种植与收获 › 按种子useEffects映射资源，并写入resources2而不是buildings
+      Expected length: 1
+      Received length: 2
+      Received array:  [{"description": "一棵苹果树，随着时间流逝，它上面的苹果会掉到地上。", "gatherCmd": "砍掉苹果树", "gatherText": "【名称】【载具】开始用【武器】
+      [0m [90m 30 |[39m     expect(parseJson(map[33m.[39mbuildings[33m,[39m []))[33m.[39mtoEqual([])[33m;[39m
+      [90m 31 |[39m     expect(backpack)[33m.[39mtoEqual([])[33m;[39m
+      [90m 33 |[39m     expect(crops[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'苹果树'[39m)[33m;[39m
+      [90m 34 |[39m     expect(crops[[35m0[39m][33m.[39mcount)[33m.[39mtoBe([35m2[39m)[33m;[39m
+      at Object.<anonymous> (test/home-crop.spec.ts:32:19)
+
+[test/home-crop.spec.ts]
+  家园作物种植与收获 › 收获resources2作物时从资源定义outputs发放正向产出
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 51 |[39m     expect(result[33m.[39msuccess)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 52 |[39m     expect(parseJson(map[33m.[39mresources2[33m,[39m []))[33m.[39mtoEqual([])[33m;[39m
+      [39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBe([35m5[39m)[33m;[39m
+      [39m))[33m.[39mtoBeUndefined()[33m;[39m[0m
+      at Object.<anonymous> (test/home-crop.spec.ts:51:28)
+
+[test/vitality-sweep.spec.ts]
+  扫荡活力批量结算 › 扫荡10且当前活力为3时只结算3次，不触发普通击杀双倍或重复经验
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 0
+      Received: 3
+      [31m[1m>[22m[39m[90m 114 |[39m     expect(fixture[33m.[39mplayer[33m.[39mvitality)[33m.[39mtoBe([35m0
+      at Object.<anonymous> (test/vitality-sweep.spec.ts:114:37)
+
+[test/vitality-sweep.spec.ts]
+  扫荡活力批量结算 › 扫荡需求按地图怪物权重计算并限制在1到5次
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "史莱姆(5/5)"
+      Received string:    "
+      [31m[1m>[22m[39m[90m 156 |[39m     expect(text)[33m.[39mtoContain([32m'史莱姆(5/5)'[39m)[33m;[39m
+      [90m 157 |[39m     expect(text)[33m.[39mtoContain([32m'兔子(1/4)'[39m)[33m;[39m
+      at Object.<anonymous> (test/vitality-sweep.spec.ts:156:18)
+
+[test/familiar-ranking.spec.ts]
+  使魔排行十子榜复刻（原版 _主程序.ecode L9562-9745） › 宠物榜：死亡不入榜、复制品屏蔽、最高伤害0不入榜、名称带主人
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "1、白(主人)(500)"
+      Received string:    "主人
+      [90m 199 |[39m     expect(power)[33m.[39mtoContain([32m'宠物曾经达到的最高战斗力排行'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 200 |[39m     expect(power)[33m.[39mtoContain([32m'1、白(主人)(500)'[39m)[33m;[39m
+      [90m 201 |[39m     expect(power)[33m.[39mtoContain([32m'2、新手猫(主人)(60)'[39m)[33m;[39m
+      [90m 202 |[39m     expect(power)[33m.[39mnot[33m.[39mtoContain([32m'白复制品'[39m)[33m;[39m
+      [90m 203 |[39m     expect(power)[33m.[39mnot[33m.[39mtoContain([32m'亡灵猫'[39m)[33m;[39m[0m
+
+[test/excalibur-burn.spec.ts]
+  誓约胜利之剑（excalibur）复刻 › 灼烧结算：地图节拍对带sa标记的怪物按 物攻/10×经过秒数 扣血并可击杀
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "灼烧"
+      Received string:    ""
+      [31m[1m>[22m[39m[90m 329 |[39m     expect(out)[33m.[39mtoContain([32m'灼烧'[39m)[33m;[39m
+      [90m 331 |[39m     expect(burned[33m.[39mhp)[33m.[39mtoBeGreaterThan([35m50[39m)[33m;[39m
+      [90m 332 |[39m     expect(burned[33m.[39mhp)[33m.[39mtoBeLessThan([35m70[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/excalibur-burn.spec.ts:329:17)
+
+[test/repair-vehicle.spec.ts]
+  维修载具延时链（原版 L10397-10495 复刻） › 装齐小雫/小凰/小蓝/小粉：20-20=0 立即修好并推进维修载具成就
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 100
+      Received: NaN
+      at Object.<anonymous> (test/repair-vehicle.spec.ts:150:38)
+
+[test/vehicle-assembly.spec.ts]
+  多零件组装载具复刻 › 已有零件直接扣料，缺失零件自动制造并写入地图载具
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "甲的骑士"
+      Received: undefined
+      [31m[1m>[22m[39m[90m 220 |[39m     expect(vehicles[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([32m'甲的骑士'[39m
+      [90m 221 |[39m     expect(vehicles[[35m0[39m][33m.[39m归属)[33m.[39mtoBe([32m'qq10'[39m)[33m;[39m
+      [90m 222 |[39m     expect(vehicles[[35m0[39m][33m.[39m当前生命)[33m.[39mtoBe([35m5[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-assembly.spec.ts:220:28)
+
+[test/vehicle-assembly.spec.ts]
+  组装双向物流（原版 L10203-L10269） › 组装生肉100 把资源塞进载具零件
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 100
+      Received: undefined
+      [31m[1m>[22m[39m[90m 328 |[39m     expect(meat[33m?[39m[33m.[39m数量)[33m.[39mtoBe([35m100[39m)[33m;[
+      [90m 330 |[39m     expect(bag[33m?[39m[33m.[39mquantity)[33m.[39mtoBe([35m20[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-assembly.spec.ts:328:22)
+
+[test/vehicle-assembly.spec.ts]
+  组装双向物流（原版 L10203-L10269） › 组装生肉-40 从载具取出资源回背包
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 10
+      Received: undefined
+      [31m[1m>[22m[39m[90m 344 |[39m     expect(meat[33m?[39m[33m.[39m数量)[33m.[39mtoBe([35m10[39m)[33m;[3
+      [90m 346 |[39m     expect(bag[33m?[39m[33m.[39mquantity)[33m.[39mtoBe([35m40[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-assembly.spec.ts:344:22)
+
+[test/vehicle-assembly.spec.ts]
+  组装双向物流（原版 L10203-L10269） › 背包不足时按现有数量尽量装入
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 3
+      Received: undefined
+      [31m[1m>[22m[39m[90m 360 |[39m     expect(fuel[33m?[39m[33m.[39m数量)[33m.[39mtoBe([35m3[39m)[33m;[39
+      ])[33m.[39mfind((i[33m:[39m any) [33m=>[39m i[33m.[39mname [33m===[39m [32m'燃料'[39m))[33m.[39mtoBeUndefin
+      at Object.<anonymous> (test/vehicle-assembly.spec.ts:360:22)
+
+[test/vehicle-control.spec.ts]
+  载具驾驶/脱出复刻 › 驾驶只允许当前地图的本人或无主载具，并清除旧载具与接管状态
+      TypeError: this.systemConfigService.get is not a function
+      at Object.<anonymous> (test/vehicle-control.spec.ts:256:20)
+
+[test/vehicle-control.spec.ts]
+  载具驾驶/脱出复刻 › 脱出会清除地图载具驾驶员并清除玩家载具状态
+      expect(received).toBe(expected) // Object.is equality
+      Expected: ""
+      Received: undefined
+      [0m [90m 343 |[39m     expect(player[33m.[39mvehicle)[33m.[39mtoBe([32m''[39m)[33m;[39m
+      [90m 344 |[39m     expect(vehicles[[35m0[39m][33m.[39mdriver)[33m.[39mtoBe([32m''[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 345 |[39m     expect(vehicles[[35m0[39m][33m.[39m驾驶员)[33m.[39mtoBe([32m''[39m)[
+      [90m 346 |[39m     expect(achievements)[33m.[39mtoContain([32m'脱出'[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-control.spec.ts:345:29)
+
+[test/vehicle-control.spec.ts]
+  载具状态/命名/架炮（地图 JSON 双存储统一） › 载具命名按旧名+新名在当前地图改名
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "坦克"
+      Received: undefined
+      [0m [90m 388 |[39m     expect(result)[33m.[39mtoBe([32m'甲,骑士名称修改为坦克'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 390 |[39m     expect(vehicles[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([32m'坦克'[39m)
+      [90m 391 |[39m     expect(vehicles[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'坦克'[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-control.spec.ts:390:28)
+
+[test/vehicle-control.spec.ts]
+  载具状态/命名/架炮（地图 JSON 双存储统一） › findVehicleOverLimitPart 识别 partType 而不是 type
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "功能部件"
+      Received: ""
+      [31m[1m>[22m[39m[90m 436 |[39m     expect(over)[33m.[39mtoBe([32m'功能部件'[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-control.spec.ts:436:18)
+
+[test/vehicle-control.spec.ts]
+  牵引与载具模拟（原版对齐） › 牵引货舱：有牵引光束时从目标地图拉取资源
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "牵引了货舱"
+      Received string:    "甲测试车需要安装牵引光束或大型牵引光束
+      [31m[1m>[22m[39m[90m 489 |[39m     expect(result)[33m.[39mtoContain([32m'牵引了货舱'[39m)[33m;[39m
+      m'能量块'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/vehicle-control.spec.ts:489:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：延时结算发放产出、经验和“还可以采集N次”提示
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "测试玩家收集到了木头×2"
+      Received string:    "测试玩家什么都没有收集到,得到了6经验
+      [31m[1m>[22m[39m[90m 269 |[39m     expect(result)[33m.[39mtoContain([32m'测试玩家收集到了木头×2'[39m)[33m;[39m
+      [90m 270 |[39m     expect(result)[33m.[39mtoContain([32m',得到了'[39m)[33m;[39m
+      [90m 271 |[39m     expect(result)[33m.[39mtoContain([32m'经验'[39m)[33m;[39m
+      [90m 272 |[39m     expect(result)[33m.[39mtoContain([32m'测试地图的老树还可以采集4次'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/gather-task.spec.ts:269:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：跟随宠物数量计入实际采集次数（原版 召唤物跟随显示+奴役成就）
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "带着1只宠物一起收集到了木头×2"
+      Received string:    "测试玩家带着2只宠物一起什么都没有收集到,得到了18经验
+      [31m[1m>[22m[39m[90m 379 |[39m     expect(result)[33m.[39mtoContain([32m'带着1只宠物一起收集到了木头×2'[39m)[33m;[39
+      at Object.<anonymous> (test/gather-task.spec.ts:379:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：家园院子里带数字指令按额外次数放大耗时与采集量
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "果实×3"
+      Received string:    "测试玩家什么都没有收集到,得到了18经验
+      [31m[1m>[22m[39m[90m 402 |[39m     expect(result)[33m.[39mtoContain([32m'果实×3'[39m)[33m;[39m
+      [90m 404 |[39m     expect(resources[[35m0[39m][33m.[39mtimes)[33m.[39mtoBe([35m96[39m)[33m;[39m
+      at Object.<anonymous> (test/gather-task.spec.ts:402:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 阶段2：同名多堆资源（开挖地基后2个土堆）可连续清完，清完一堆会提示还有下一堆
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "钻石"
+      Received string:    "测试玩家什么都没有收集到,得到了240经验"
+      [31m[1m>[22m[39m[90m 455 |[39m       expect(clearAll)[33m.[39mtoContain([32m'钻石'[39m)[33m;[39m
+      at Object.<anonymous> (test/gather-task.spec.ts:455:24)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 超管特权：家园外带数字指令同样批量（普通玩家数字仍被忽略）
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "木头×5"
+      Received string:    "测试玩家什么都没有收集到,得到了30经验"
+      [0m [90m 477 |[39m     expect(adminSeconds)[33m.[39mtoBeLessThanOrEqual([35m30[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 479 |[39m     expect(adminResult)[33m.[39mtoContain([32m'木头×5'[39m)[33m;[39m
+      [90m 481 |[39m     expect(adminMarkers[[32m'采集中'[39m])[33m.[39mtoBeUndefined()[33m;[39m [90m// 已结算认领[39m
+      at Object.<anonymous> (test/gather-task.spec.ts:479:25)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › handleGatherResource 排程持久化延时任务，DelayedTaskService 到点分发结算恰好一次
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 5
+      + Received  + 1
+      [90m 552 |[39m     expect(dispatched)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      ))[33m.[39mtoEqual([
+      at Object.<anonymous> (test/gather-task.spec.ts:553:52)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 服务重启后启动迁移把存量「采集中」标记补建为延时任务
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 5
+      + Received  + 1
+      ))[33m.[39mtoEqual([
+      at Object.<anonymous> (test/gather-task.spec.ts:588:52)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 兼容旧 JSON：名称末尾数量、count 字段作为概率
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "木头×3"
+      Received string:    "测试玩家什么都没有收集到,得到了6经验"
+      [31m[1m>[22m[39m[90m 629 |[39m     expect(result)[33m.[39mtoContain([32m'木头×3'[39m)[33m;[39m
+      [90m 630 |[39m     expect(backpack)[33m.[39mtoEqual([expect[33m.[39mobjectContaining({ name[33m:[39m [32m
+      at Object.<anonymous> (test/gather-task.spec.ts:629:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 兼容数组形式旧 JSON，并按名称末尾数量发放
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "石头×2"
+      Received string:    "测试玩家什么都没有收集到,得到了6经验"
+      [31m[1m>[22m[39m[90m 653 |[39m     expect(result)[33m.[39mtoContain([32m'石头×2'[39m)[33m;[39m
+      at Object.<anonymous> (test/gather-task.spec.ts:653:20)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 装备品质后缀和负数产出按原版分别生成装备、获得绝对数量
+      expect(received).toEqual(expected) // deep equality
+      Expected: ArrayContaining [ObjectContaining {"name": "寒风", "type": "装备"}, ObjectContaining {"count": 3, "name": "工业
+      Received: [{"data": "e!bx0", "name": "寒风", "quality": "s", "quantity": 1, "type": "装备"}, {"name": "工业建筑箱", "quantit
+      [31m[1m>[22m[39m[90m 676 |[39m     expect(backpack)[33m.[39mtoEqual(expect[33m.[39marrayContaining([
+      at Object.<anonymous> (test/gather-task.spec.ts:676:22)
+
+[test/gather-task.spec.ts]
+  手动采集两阶段流程（对齐原版采集耗时机制） › 采集引怪：隐形披风/隐匿模式/四糸乃豁免，不排怪物回合
+      Expected number of calls: 0
+      Received number of calls: 1
+      at Object.<anonymous> (test/gather-task.spec.ts:770:61)
+
+[test/launch-closure.spec.ts]
+  上线闭环补齐：取对话/反转童话/贯穿抵抗词条 › 反转童话 消费端（使魔技能.ecode L2631-2745） › fzth7 翻转三回复与三回复2；fzth10 翻转四伤
+      expect(received).toBe(expected) // Object.is equality
+      Expected: -100
+      Received: 100
+      [0m [90m 82 |[39m       expect(attrs[33m.[39m装甲回复2)[33m.[39mtoBe([33m-[39m[35m5[39m)[33m;[39m
+      [90m 83 |[39m       expect(attrs[33m.[39m生命回复2)[33m.[39mtoBe([33m-[39m[35m6[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 84 |[39m       expect(attrs[33m.[39m电伤)[33m.[39mtoBe([33m-[39m[35m100[39m)[33m;
+      [90m 85 |[39m       expect(attrs[33m.[39m物伤)[33m.[39mtoBe([33m-[39m[35m400[39m)[33m;[39m
+      at Object.<anonymous> (test/launch-closure.spec.ts:84:24)
+
+[test/mine-refill.spec.ts]
+  载具开采结算（原版 L7534「开采1c2c」） › 按 16 倍公式产出并扣减资源次数
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "用激光采集器开采出了"
+      Received string:    "测试玩家测试地图的资源已经枯竭了"
+      [31m[1m>[22m[39m[90m 287 |[39m     expect(text)[33m.[39mtoContain([32m'用激光采集器开采出了'[39m)[33m;[39m
+      [90m 288 |[39m     expect(text)[33m.[39mtoContain([32m'铁矿×192'[39m)[33m;[39m
+      at Object.<anonymous> (test/mine-refill.spec.ts:287:18)
+
+[test/mine-refill.spec.ts]
+  载具开采结算（原版 L7534「开采1c2c」） › 行星解裂器产出额外随机增幅（1.25~1.5 倍）
+      TypeError: Cannot read properties of null (reading '1')
+      [90m 319 |[39m     expect(amount)[33m.[39mtoBeGreaterThanOrEqual([35m40[39m)[33m;[39m
+      [90m 320 |[39m     expect(amount)[33m.[39mtoBeLessThanOrEqual([35m48[39m)[33m;[39m
+      at Object.<anonymous> (test/mine-refill.spec.ts:318:32)
+
+[test/mine-refill.spec.ts]
+  补魔结算（原版 L7158「覅b魔w成」） › 玩家与跟随召唤物获得兴奋增益，好感+3，补魔任务+2
+      expect(received).toBeLessThanOrEqual(expected)
+      Expected: <= 600000
+      Received:    NaN
+      [90m 444 |[39m     expect(excitement)[33m.[39mtoBeTruthy()[33m;[39m
+      ))[33m.[39mtoBeLessThanOrEqual([35m600[39m [33m*[39m [33mSECOND_MS[39m)[33m;[39m
+      at Object.<anonymous> (test/mine-refill.spec.ts:445:42)
+
+[test/mine-refill.spec.ts]
+  补魔结算（原版 L7158「覅b魔w成」） › 小恶魔在场 → 兴奋时长延长到3600秒
+      expect(received).toBeGreaterThan(expected)
+      Expected: > 3590
+      Received:   NaN
+      [31m[1m>[22m[39m[90m 475 |[39m     expect(remainSec)[33m.[39mtoBeGreaterThan([35m3590[39m)[33m;[39m
+      [90m 476 |[39m     expect(remainSec)[33m.[39mtoBeLessThanOrEqual([35m3600[39m)[33m;[39m
+      at Object.<anonymous> (test/mine-refill.spec.ts:475:23)
+
+[test/global-proficiency.spec.ts]
+  图鉴怪物等级展示（原版 数据显示 L3165-3166 / L3171） › 基础等级 = 物种熟练度等级，并带「(点数/下一档需求)」后缀
+      TypeError: this.shortcutService.setTempInput is not a function
+      at Object.<anonymous> (test/global-proficiency.spec.ts:283:12)
+
+[test/global-proficiency.spec.ts]
+  图鉴怪物等级展示（原版 数据显示 L3165-3166 / L3171） › 未注入熟练度服务时不抛错，基础等级按 1 兜底
+      TypeError: this.shortcutService.setTempInput is not a function
+      at Object.<anonymous> (test/global-proficiency.spec.ts:302:12)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 啾啾猫猫：花园猫门禁、地图标记3“啾啾猫猫”增益（库洛牌放大/强度50+等级×5）、怪物型召唤物
+      expect(received).toBeTruthy()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 134 |[39m     expect(meow)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 135 |[39m     expect(meow[33m.[39m强度)[33m.[39mtoBe([35m75[39m)[33m;[39m
+      [90m 136 |[39m     expect(meow[33m.[39m有效期至 [33m-[39m [33mDate[39m[33m.[39mnow())[33m.[39mtoBeGreaterT
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:134:18)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 银龙附体：古月娜门禁、回血 30% 最大生命、玩家与同图银龙同获增益
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 70
+      Received: 10
+      type [33m===[39m [32m'银龙'[39m)[33m.[39m当前生命)[33m.[39mtoBe([35m70[39m)[33m;[39m [90m// 10 + 200*0.3[39m
+      [32m'狼'[39m)[33m.[39m当前生命)[33m.[39mtoBe([35m10[39m)[33m;[39m
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:162:60)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 炮冠：绝灭天使门禁、好感80门槛、炮冠增益5秒+光盾-30秒+hd标记60秒
+      expect(received).toBeTruthy()
+      Received: undefined
+      m名称 [33m===[39m [32m'hd'[39m))[33m.[39mtoBeTruthy()[33m;[39m
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:219:54)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 安宝加油：安克雷奇门禁、好感分层（安宝乖乖/烟雾弹地图增益）、冷却键
+      expect(received).toBeTruthy()
+      Received: undefined
+      m [32m'安宝乖乖'[39m))[33m.[39mtoBeTruthy()[33m;[39m
+      [39m名称 [33m===[39m [32m'烟雾弹'[39m))[33m.[39mtoBeTruthy()[33m;[39m
+      [32m'安克雷奇技能冷却'[39m))[33m.[39mtoBeTruthy()[33m;[39m
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:258:58)
+
+[test/familiar-skills-batch3.spec.ts]
+  使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮/安宝加油/灼烂歼鬼/洗脑/砸瓦鲁多（原版 L1649-2070 复刻验证） › 砸瓦鲁多：女仆套装4件门禁、150秒冷却键、地图“幻时”增益20秒
+      expect(received).toBeTruthy()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 288 |[39m     expect(phantom)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 289 |[39m     expect(phantom[33m.[39m有效期至 [33m-[39m [33mDate[39m[33m.[39mnow())[33m.[39mtoBeLessT
+      [32m'女仆技能冷却'[39m))[33m.[39mtoBeTruthy()[33m;[39m[0m
+      at Object.<anonymous> (test/familiar-skills-batch3.spec.ts:288:21)
+
+[test/combat.spec.ts]
+  置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317) › L5251 掉落率!=0 → 写入怪物标记 "dl"+QQ（取最高值）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 50
+      Received: undefined
+      [90m 248 |[39m     expect(dl)[33m.[39mtoBeDefined()[33m;[39m
+      [31m[1m>[22m[39m[90m 249 |[39m     expect(dl[33m.[39m数值)[33m.[39mtoBe([35m50[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:249:19)
+
+[test/combat.spec.ts]
+  置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317) › L5269 掉落品质!=0 → 写入 "dp"+QQ；L5287 传说率!=0 → 写入 "xy"+QQ
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 20
+      Received: undefined
+      [39m 掉落品质[33m:[39m [35m20[39m }[33m,[39m 套装[33m:[39m { 传说率[33m:[39m [35m5[39m } })[33m;[39m
+      [33m===[39m [32m'dptestQQ'[39m)[33m.[39m数值)[33m.[39mtoBe([35m20[39m)[33m;[39m
+      'xytestQQ'[39m)[33m.[39m数值)[33m.[39mtoBe([35m5[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:263:59)
+
+[test/combat.spec.ts]
+  置掉落 - 怪物掉落记录 (战斗相关.ecode L5245-5317) › L5305 宝石缎带(specialSeq=98) → 写入 "ds"+QQ=1
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: undefined
+      'dstestQQ'[39m))[33m.[39mtoBeDefined()[33m;[39m
+      [33m===[39m [32m'dstestQQ'[39m)[33m.[39m数值)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 274 |[39m   it([32m'无条件(掉落率/品质/传说率=0且无缎带) → 不写入任何记录'[39m[33m,[39m () [33m=>[39m {[0m
+      at Object.<anonymous> (test/combat.spec.ts:271:59)
+
+[test/combat.spec.ts]
+  掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L4947-4985) › L4954 各名称系数：地精=1 / 十夫长=1.5 / 百夫长=2 / 千夫长=2.5 / 将军=3
+      TypeError: Cannot read properties of undefined (reading '次数')
+      [39mfind((r[33m:[39m any) [33m=>[39m r[33m.[39m名称 [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([
+      :[39m any) [33m=>[39m r[33m.[39m名称 [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([35m1.5[39m)[33
+      :[39m any) [33m=>[39m r[33m.[39m名称 [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([35m2[39m)[33m;
+      :[39m any) [33m=>[39m r[33m.[39m名称 [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([35m2.5[39m)[33
+      at Object.<anonymous> (test/combat.spec.ts:355:76)
+
+[test/combat.spec.ts]
+  掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L4947-4985) › L4967 已存在载具残骸 → 累加次数
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 3
+      Received: 2
+      [33m===[39m [32m'载具残骸'[39m)[33m.[39m次数)[33m.[39mtoBe([35m3[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:364:54)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5336-5350 基础字段：名称/类型=前线、QQ=怪物前线+qq+sg、必中/生命/闪避/四伤=1、命中=等级+1、特殊序号=-2
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "前线"
+      Received: undefined
+      [31m[1m>[22m[39m[90m 754 |[39m     expect(g[33m.[39m名称)[33m.[39mtoBe([32m'前线'[39m)[33m;[39m
+      [90m 755 |[39m     expect(g[33m.[39m类型)[33m.[39mtoBe([32m'前线'[39m)[33m;[39m
+      [90m 756 |[39m     expect(g[33m.[39m[33mQQ[39m)[33m.[39mtoBe([32m'怪物前线12345sg'[39m)[33m;[39m
+      [90m 757 |[39m     expect(g[33m.[39m归属)[33m.[39mtoBe([32m'12345'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:754:18)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5372-5380 无建筑(加成.攻击均0) → 默认"火力"武器(属性26/25/25/25)，且攻击文本.名称清空
+      TypeError: Cannot read properties of undefined (reading 'length')
+      [31m[1m>[22m[39m[90m 772 |[39m     expect(res[33m.[39msummon[33m.[39m武器[33m.[39mlength)[33m.[39mtoBe(
+      [90m 774 |[39m     expect(z[33m.[39m名称)[33m.[39mtoBe([32m'火力'[39m)[33m;[39m
+      [90m 775 |[39m     expect(z[33m.[39m类型)[33m.[39mtoBe([32m'射弹武器'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:772:26)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5356-5368 战斗建筑(加成.攻击!=0) → 加武器(属性=26/25/25/25×攻击×数量)，c累加生命×数量
+      TypeError: Cannot read properties of undefined (reading 'length')
+      [31m[1m>[22m[39m[90m 792 |[39m     expect(res[33m.[39msummon[33m.[39m武器[33m.[39mlength)[33m.[39mtoBe(
+      [90m 794 |[39m     expect(z[33m.[39m名称)[33m.[39mtoBe([32m'防御炮台'[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:792:26)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5382-5399 阵地载具：零件=阵地核心×1 + 轻型装甲×(10+c+等级)，编号=g.QQ，载具生命由计算载具置0
+      expect(received).toBeDefined()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 811 |[39m     expect(v)[33m.[39mtoBeDefined()[33m;[39m
+      [90m 812 |[39m     expect(v[33m.[39m编号)[33m.[39mtoBe([32m'怪物前线12345sg'[39m)[33m;[39m
+      [90m 813 |[39m     expect(v[33m.[39m归属)[33m.[39mtoBe([32m'怪物前线12345sg'[39m)[33m;[39m
+      [90m 814 |[39m     expect(v[33m.[39m驾驶员)[33m.[39mtoBe([32m'怪物前线12345sg'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:811:15)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5403-5411 首次生成(g2.编号==0) → 新增召唤物到 summons，新增载具到 vehicles
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "阵地"
+      Received: undefined
+      [0m [90m 839 |[39m     expect(res[33m.[39msummons[[35m0[39m][33m.[39m[33mQQ[39m)[33m.[39mtoBe([32m'怪物
+      [90m 840 |[39m     expect(res[33m.[39mvehicles[33m.[39mlength)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 841 |[39m     expect(res[33m.[39mvehicles[[35m0[39m][33m.[39m名称)[33m.[39mtoBe([
+      at Object.<anonymous> (test/combat.spec.ts:841:32)
+
+[test/combat.spec.ts]
+  生成前线 - 前线召唤物与阵地载具构造 (战斗相关.ecode L5319-5422) › L5412-5419 已存在召唤物(g2.编号!=0) → 更新而非新增，summons长度不变
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 50
+      Received: undefined
+      [90m 854 |[39m     expect(res[33m.[39msummons[33m.[39mlength)[33m.[39mtoBe([35m2[39m)[33m;[39m [90m//
+      [31m[1m>[22m[39m[90m 855 |[39m     expect(res[33m.[39msummons[[35m1[39m][33m.[39m当前生命)[33m.[39mtoBe(
+      at Object.<anonymous> (test/combat.spec.ts:855:33)
+
+[test/combat.spec.ts]
+  计算载具 - 载具属性计算 (加成计算.ecode L3556-3912) › L3580/L3591/L3647 核心部件(骑士核心 partType=0, 内置能量剑) → 加成叠加, 上限取自核心
+      TypeError: Cannot read properties of undefined (reading '攻击')
+      [31m[1m>[22m[39m[90m 903 |[39m     expect(veh[33m.[39m加成[33m.[39m攻击)[33m.[39mtoBe([35m25[39m)[33m;[
+      [90m 904 |[39m     expect(veh[33m.[39m加成[33m.[39m生命)[33m.[39mtoBe([35m1[39m)[33m;[39m       [90m// bo
+      [90m 905 |[39m     expect(veh[33m.[39m加成[33m.[39m闪避)[33m.[39mtoBe([35m10[39m)[33m;[39m      [90m// bo
+      [90m 906 |[39m     expect(veh[33m.[39m行走上限)[33m.[39mtoBe([35m1[39m)[33m;[39m        [90m// 核心 walk=1[3
+      at Object.<anonymous> (test/combat.spec.ts:903:19)
+
+[test/combat.spec.ts]
+  计算载具 - 载具属性计算 (加成计算.ecode L3556-3912) › L3719 白的发丝 部件 → vehicle.发丝=true
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: undefined
+      [31m[1m>[22m[39m[90m 919 |[39m     expect(veh[33m.[39m发丝)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:919:20)
+
+[test/combat.spec.ts]
+  计算载具 - 载具属性计算 (加成计算.ecode L3556-3912) › L3752 逆转力场 + 攻击部件 → 攻击/攻击2/韧性 ×0.34
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: undefined
+      [31m[1m>[22m[39m[90m 933 |[39m     expect(veh[33m.[39m逆转力场)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      ) [35m/ 100).toBe(8.5);    /[39m[33m/[39m [35m25[39m[33m*[39m[35m0.34[39m
+      m) [35m/ 100).toBe(1.02);  /[39m[33m/[39m [35m3[39m[33m*[39m[35m0.34[39m
+      at Object.<anonymous> (test/combat.spec.ts:933:22)
+
+[test/combat.spec.ts]
+  计算载具 - 载具属性计算 (加成计算.ecode L3556-3912) › L3836 行走超限(负行走部件累加超上限) → 当前生命=0, 行走方式=0
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 5
+      Received: undefined
+      [31m[1m>[22m[39m[90m 949 |[39m     expect(veh[33m.[39m行走)[33m.[39mtoBe([35m5[39m)[33m;[39m   [90m//
+      [90m 950 |[39m     expect(veh[33m.[39m行走上限)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 951 |[39m     expect(veh[33m.[39m当前生命)[33m.[39mtoBe([35m0[39m)[33m;[39m   [90m// 超限 → 生命清零[39m
+      [90m 952 |[39m     expect(veh[33m.[39m行走方式)[33m.[39mtoBe([35m0[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:949:20)
+
+[test/combat.spec.ts]
+  免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096) › L5038-L5042 伊芙利特(specialSeq=11) 五番冷却未过 → 获得增益 五番a 5秒
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [90m 1002 |[39m     expect(ok)[33m.[39mtoBe([36mtrue[39m)[33m;[39m [90m// 五番a 增益已置 → L5072 b=3 免死返回真[39m
+      [33m.[39m名称 [33m===[39m [32m'五番a'[39m))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1003:54)
+
+[test/combat.spec.ts]
+  免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096) › L5050-L5063 吸血姬(活力=-15) 场上有分身(活力=-16, 当前生命>0) → 互换生命免死
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 1033 |[39m     expect(ok)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 1034 |[39m     expect(d[33m.[39mcurrentHp)[33m.[39mtoBe([35m200[39m)[33m;[39m     [90m// 本体获得分身生命
+      [90m 1035 |[39m     expect(clone[33m.[39mcurrentHp)[33m.[39mtoBe([35m0[39m)[33m;[39m   [90m// 分身生命清零[3
+      [90m 1036 |[39m     expect(txtRef[33m.[39mvalue)[33m.[39mtoContain([32m'与分身互换生命'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/combat.spec.ts:1033:16)
+
+[test/combat.spec.ts]
+  免死 - 使魔/装备/增益分支 (战斗相关.ecode L5020-5096) › L5064-L5067 猫爪吊坠(specialSeq=23) 猫爪冷却未过 → 获得增益 猫爪 10秒
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [90m 1042 |[39m     expect(ok)[33m.[39mtoBe([36mtrue[39m)[33m;[39m [90m// 猫爪 增益已置 → L5072 b=4 免死返回真[39m
+      [33m.[39m名称 [33m===[39m [32m'猫爪'[39m))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1043:53)
+
+[test/combat.spec.ts]
+  计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873) › L4824 装备荆棘之翼(#18) → 倍率+0.15 产生反伤值
+      expect(received).toBeLessThan(expected)
+      Expected: < 0.01
+      Received:   0.84375
+      [90m 1126 |[39m     expect(r)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+      m.[39mtoBeLessThan([35m0.01[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1127:35)
+
+[test/combat.spec.ts]
+  计算反伤 - calcReflectDamage (战斗相关.ecode L4791-4873) › L4827 装备小鱼发饰(#35) 且 小鱼冷却(60s)未过 → 倍率+2
+      expect(received).toBeLessThan(expected)
+      Expected: < 0.01
+      Received:   11.25
+      m.[39mtoBeLessThan([35m0.01[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1135:35)
+
+[test/combat.spec.ts]
+  生成掉落 - 掉落表判定与兜底移除 › 100% 项必掉；几率项按 Math.random 判定
+      - Expected  - 1
+      + Received  + 1
+      at Object.<anonymous> (test/combat.spec.ts:1385:5)
+
+[test/combat.spec.ts]
+  生成掉落 - 掉落表判定与兜底移除 › 负数量保持原值（强化箱-1 的背包扣除语义不被改成 1）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: -1
+      Received: 1
+      9m][33m.[39mquantity)[33m.[39mtoBe([33m-[39m[35m1[39m)[33m;[39m
+      at Object.<anonymous> (test/combat.spec.ts:1406:52)
+
+[test/player-mutate.spec.ts]
+  mutate 管道与货币审计 › mutate 内的货币变动被记录到 CurrencyLog（delta 与余额正确）
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 22
+      Received: 20
+      Expected precision:    5
+      Expected difference: < 0.000005
+      Received difference:   2
+      [90m 90 |[39m     expect(row[33m.[39mdiamonds)[33m.[39mtoBeCloseTo([35m60[39m[33m,[39m [35m5[39m)[33m
+      [31m[1m>[22m[39m[90m 91 |[39m     expect(row[33m.[39mtickets)[33m.[39mtoBeCloseTo([35m22[39m[33m,[39m
+
+[test/item-use.spec.ts]
+  打开箱子（使用物品） › 蛋糕授予掉落率+50%增益并显示剩余时间
+      expect(received).toBeTruthy()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 279 |[39m     expect(cakeBuff)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 280 |[39m     expect(cakeBuff[33m.[39m有效期至)[33m.[39mtoBeGreaterThan([33mDate[39m[33m.[39mnow())[33
+      at Object.<anonymous> (test/item-use.spec.ts:279:22)
+
+[test/task.service.spec.ts]
+  任务系统闭环 › 自动结算、奖励概率、后续任务和完成任务级联一次完成
+      expect(received).toEqual(expected) // deep equality
+      Expected: ObjectContaining {"data": "e!bx0", "quantity": 1, "type": "装备"}
+      Received: undefined
+      [0m [90m 157 |[39m     expect(result)[33m.[39mtoContain([32m'任务C'[39m)[33m;[39m
+      [90m 158 |[39m     expect(tasks)[33m.[39mtoEqual([])[33m;[39m
+      m.[39mname [33m===[39m [32m'测试装备'[39m))[33m.[39mtoEqual(expect[33m.[39mobjectContaining({
+      at Object.<anonymous> (test/task.service.spec.ts:159:64)
+
+[test/task.service.spec.ts]
+  任务系统闭环 › 未标记装备类型的奖励命中装备表时按概率生成真装备（对齐原版判断物品2）
+      expect(received).toEqual(expected) // deep equality
+      Expected: ObjectContaining {"count": 1, "quantity": 1, "type": "装备"}
+      Received: undefined
+      [31m[1m>[22m[39m[90m 204 |[39m     expect(reward)[33m.[39mtoEqual(expect[33m.[39mobjectContaining({
+      at Object.<anonymous> (test/task.service.spec.ts:204:20)
+
+[test/task.service.spec.ts]
+  任务系统闭环 › 发布人好感写入召唤物，达到100时清空其他玩家好感并更新归属
+      expect(received).toBeGreaterThanOrEqual(expected)
+      Expected: >= 100
+      Received:    95
+      [31m[1m>[22m[39m[90m 239 |[39m     expect(markers[[32m'好感42'[39m])[33m.[39mtoBeGreaterThanOrEqual([35m10
+      [90m 240 |[39m     expect(markers[[32m'好感99'[39m])[33m.[39mtoBeUndefined()[33m;[39m
+      [90m 241 |[39m     expect(summon[33m.[39mownerQQ)[33m.[39mtoBe([32m'42'[39m)[33m;[39m
+      [90m 242 |[39m     expect(fixture[33m.[39mplayer[33m.[39maffinity)[33m.[39mtoBe([35m0[39m)[33m;[39m[0
+      at Object.<anonymous> (test/task.service.spec.ts:239:29)
+
+[test/task.service.spec.ts]
+  任务系统闭环 › 同一玩家并发推进串行化且只发放一次奖励
+      Expected length: 1
+      Received length: 0
+      Received array:  []
+      [90m 262 |[39m     expect(backpack[[35m0[39m][33m.[39mcount)[33m.[39mtoBeGreaterThan([35m1[39m)[33m;[3
+      [33m.[39mtoBe([35m1[39m)[33m;[39m
+      at Object.<anonymous> (test/task.service.spec.ts:261:64)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 旧的已完成任务可以通过提交入口结算，未完成任务不会提前发奖
+      TypeError: Cannot read properties of undefined (reading 'name')
+      [0m [90m 279 |[39m     expect(result)[33m.[39mtoContain([32m'旧任务'[39m)[33m;[39m
+      [90m 280 |[39m     expect(parseJson(fixture[33m.[39mplayer[33m.[39mtasks[33m,[39m []))[33m.[39mtoEqual([
+      )[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'水晶'[39m)[33m;[39m
+      at Object.<anonymous> (test/task.service.spec.ts:281:53)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 兼容原版反引号任务和#a#/#b#要求编码，并保留发布人
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 2
+      + Received  + 2
+      [31m[1m>[22m[39m[90m 296 |[39m     expect(parsed)[33m.[39mtoEqual([expect[33m.[39mobjectContaining({
+      at Object.<anonymous> (test/task.service.spec.ts:296:20)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 负数要求按原版语义自动完成，不需要额外行动
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [0m [90m 330 |[39m     expect(result)[33m.[39mtoContain([32m'自动任务'[39m)[33m;[39m
+      [90m 331 |[39m     expect(parseJson(fixture[33m.[39mplayer[33m.[39mtasks[33m,[39m []))[33m.[39mtoEqual([
+      )[33m.[39msome((item[33m:[39m any) [33m=>[39m item[33m.[39mname [33m===[39m [32m'水晶'[39m))[33m.[39mtoBe(
+      at Object.<anonymous> (test/task.service.spec.ts:332:92)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 查看任务和放弃任务支持1-based序号
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "行动一"
+      Received string:    "
+      [90m 366 |[39m     expect(details)[33m.[39mtoContain([32m'任务一'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 367 |[39m     expect(details)[33m.[39mtoContain([32m'行动一'[39m)[33m;[39m
+      [90m 368 |[39m     expect(details)[33m.[39mnot[33m.[39mtoContain([32m'任务二'[39m)[33m;[39m
+      at Object.<anonymous> (test/task.service.spec.ts:367:21)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 旧的已完成任务支持按序号提交并自动结算
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 3
+      + Received  + 1
+      [90m 432 |[39m     expect(result)[33m.[39mtoContain([32m'旧序号任务'[39m)[33m;[39m
+      33m.[39mmap((task[33m:[39m any) [33m=>[39m task[33m.[39mname))[33m.[39mtoEqual([[32m'普通任务'[39m])[33m;[39m
+      tem[33m:[39m any) [33m=>[39m item[33m.[39mname [33m===[39m [32m'水晶'[39m))[33m.[39mtoBe([36mtrue[39m)[33m
+      at Object.<anonymous> (test/task.service.spec.ts:433:79)
+
+[test/task.service.spec.ts]
+  任务系统兼容入口 › 动态配方任务按等级和同时领取上限闭环解锁
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "领取了"
+      Received string:    "配方「配方一」没有可用的解锁要求"
+      [31m[1m>[22m[39m[90m 460 |[39m     expect(first)[33m.[39mtoContain([32m'领取了'[39m)[33m;[39m
+      [90m 462 |[39m     expect(limited)[33m.[39mtoContain([32m'一次只能领取一个'[39m)[33m;[39m
+      at Object.<anonymous> (test/task.service.spec.ts:460:19)
+
+[test/capture.spec.ts]
+  GameMonster 捕捉闭环 › 开始捕捉将 GameMonster 写入十分钟捕捉模式
+      expect(received).toEqual(expected) // deep equality
+      Expected: ArrayContaining [ObjectContaining {"名称": "捕捉模式", "是否叠加时间": false}]
+      Received: [{"expireAt": 1789583002802, "name": "捕捉模式", "stackTime": false, "strength": 0}]
+      [0m [90m 141 |[39m     expect(result)[33m.[39mtoContain([32m'被设置为捕捉模式'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 143 |[39m     expect(buffs)[33m.[39mtoEqual(expect[33m.[39marrayContaining([
+      at Object.<anonymous> (test/capture.spec.ts:143:19)
+
+[test/capture.spec.ts]
+  GameMonster 捕捉闭环 › 捕捉成功兼容饲料 count 字段并保留小数余量
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "驯养了一只测试史莱姆"
+      Received string:    "捕捉测试者捕捉测试史莱姆需要2的饲料，你只有0"
+      [31m[1m>[22m[39m[90m 177 |[39m     expect(result)[33m.[39mtoContain([32m'驯养了一只测试史莱姆'[39m)[33m;[39m
+      [90m 178 |[39m     expect(fixture[33m.[39mremovedMonsterIds)[33m.[39mtoEqual([[35m501[39m])[33m;[39m
+
+[test/capture.spec.ts]
+  GameMonster 捕捉闭环 › 特殊宠物捕捉也兼容 count 字段，并在保存时保留捕捉物与奖励
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "紧紧跟着你"
+      Received string:    "需要100饲料"
+      [31m[1m>[22m[39m[90m 203 |[39m     expect(result)[33m.[39mtoContain([32m'紧紧跟着你'[39m)[33m;[39m
+      at Object.<anonymous> (test/capture.spec.ts:203:20)
+
+[test/capture.spec.ts]
+  捕捉模式战斗层 › 捕捉模式免疫生命池伤害，但护盾和装甲仍然承伤
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 100
+      Received: 90
+      [31m[1m>[22m[39m[90m 352 |[39m     expect(monster[33m.[39mhp)[33m.[39mtoBe([35m100[39m)[33m;[39m
+      [90m 353 |[39m     expect(monster[33m.[39mshield)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      [90m 354 |[39m     expect(monster[33m.[39marmor)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      [90m 355 |[39m     expect(result[33m.[39mresult)[33m.[39mtoContain([32m'捕捉中'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/capture.spec.ts:352:24)
+
+[test/handbook.spec.ts]
+  B. 分类条目数与模板行过滤 › 模板行（任务/增益/建筑/物品/对话/载具）被剔除，与原版基线一致
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 145
+      Received: 146
+      [0m [90m 84 |[39m     expect(c[[32m'物品'[39m])[33m.[39mtoBe([35m170[39m)[33m;[39m [90m// items.json 171
+      [90m 85 |[39m     expect(c[[32m'资源'[39m])[33m.[39mtoBe([35m119[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 86 |[39m     expect(c[[32m'怪物'[39m])[33m.[39mtoBe([35m145[39m)[33m;[39m
+      [90m 87 |[39m     expect(c[[32m'任务'[39m])[33m.[39mtoBe([35m86[39m)[33m;[39m [90m// tasks.json 87 - 「任务模
+      [90m 88 |[39m     expect(c[[32m'增益'[39m])[33m.[39mtoBe([35m18[39m)[33m;[39m [90m// buffs.json 19 - 「增益模
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › 秒级与毫秒级到期时间都归一化为毫秒
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1789582432983
+      Received: 0
+      [90m 14 |[39m     expect(toExpireMs({ expireAt[33m:[39m nowSec [33m+[39m [35m30[39m }))[33m.[39mtoBeGrea
+      39m [35m1000[39m }))[33m.[39mtoBe(nowMs [33m+[39m [35m30[39m [33m*[39m [35m1000[39m)[33m;[39m
+      [90m 16 |[39m     expect(toExpireMs({ expireAt[33m:[39m [35m0[39m }))[33m.[39mtoBe([35m0[39m)[33m;[39m
+      [90m 17 |[39m     expect(toExpireMs([36mnull[39m))[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/expire-time.spec.ts:15:53)
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › 过期条目失效、未过期条目生效，无到期时间视为永久
+      expect(received).toBe(expected) // Object.is equality
+      Expected: false
+      Received: true
+      [0m [90m 21 |[39m     expect(isActive({ expireAt[33m:[39m nowSec [33m-[39m [35m1[39m }))[33m.[39mtoBe([
+      [90m 22 |[39m     expect(isActive({ expireAt[33m:[39m nowSec [33m+[39m [35m10[39m }))[33m.[39mtoBe([36m
+      .[39mtoBe([36mfalse[39m)[33m;[39m      [90m// 毫秒级已过期[39m
+      [90m 24 |[39m     expect(isActive({ 有效期至[33m:[39m nowMs [33m+[39m [35m1000[39m }))[33m.[39mtoBe([36mtru
+      [90m 25 |[39m     expect(isActive({ name[33m:[39m [32m'常驻'[39m }))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › hasActive / findActive / filterActive 按名称与有效期筛选
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 2
+      Received: 3
+      [0m [90m 37 |[39m     expect(hasActive(list[33m,[39m [32m'永久'[39m))[33m.[39mtoBe([36mtrue[39m)[33m;[39
+      [31m[1m>[22m[39m[90m 39 |[39m     expect(filterActive(list)[33m.[39mlength)[33m.[39mtoBe([35m2[39m)[33
+      at Object.<anonymous> (test/expire-time.spec.ts:39:39)
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › shortenBuff：减后过期即删除、剩余按原口径写回（原版 获得增益 -N 真）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [39m[33m,[39m nowMs))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 68 |[39m     expect(msExpire[[35m0[39m][33m.[39m有效期至)[33m.[39mtoBe(nowMs [33m+[39m [35m60[39m [3
+      at Object.<anonymous> (test/expire-time.spec.ts:66:54)
+
+[test/expire-time.spec.ts]
+  过期时间统一工具（增益/标记） › tagMarkerKind：给指定条目补 kind 冷却类型标签（不存在时无操作）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "act-cd"
+      Received: undefined
+      [31m[1m>[22m[39m[90m 94 |[39m     expect(cn[[35m0[39m][33m.[39mkind)[33m.[39mtoBe([32m'act-cd'[39m)[
+      at Object.<anonymous> (test/expire-time.spec.ts:94:24)
+
+[test/expire-time.spec.ts]
+  玩家数据读取（getPlayerData） › 读取时剔除已过期增益，保留未过期与永久增益
+      expect(received).not.toContain(expected) // indexOf
+      Expected value: not "蛋糕"
+      Received array:     ["闪避", "蛋糕", "力量模式"]
+      [0m [90m 135 |[39m     expect(names)[33m.[39mtoContain([32m'力量模式'[39m)[33m;[39m
+      [90m 136 |[39m     expect(names)[33m.[39mnot[33m.[39mtoContain([32m'ex'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 137 |[39m     expect(names)[33m.[39mnot[33m.[39mtoContain([32m'蛋糕'[39m)[33m;[39m
+      at Object.<anonymous> (test/expire-time.spec.ts:137:23)
+
+[test/expire-time.spec.ts]
+  信息面板增益行（formatBuffList） › 过期增益不再显示，未过期增益显示正确倒计时
+      Expected pattern: /^闪避\(1:0[45]\)$/
+      Received string:  "闪避(1:03)"
+      at Object.<anonymous> (test/expire-time.spec.ts:157:21)
+
+[test/expire-time.spec.ts]
+  地图标记有效期归一化（toExpireMs，修复地图增益全部失效） › 秒级有效期至被归一成毫秒，毫秒级保持不变
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1789582462000
+      Received: 0
+      [31m[1m>[22m[39m[90m 198 |[39m     expect(secBuff)[33m.[39mtoBe((nowSec [33m+[39m [35m60[39m) [33m*[3
+      [90m 200 |[39m     expect(msBuff)[33m.[39mtoBe(nowMs [33m+[39m [35m60[39m [33m*[39m [35m1000[39m)[33m
+      at Object.<anonymous> (test/expire-time.spec.ts:198:21)
+
+[test/expire-time.spec.ts]
+  地图标记有效期归一化（toExpireMs，修复地图增益全部失效） › applyMapBuffs 风格数组：秒级标记归一化后不过期，未过期增益被 filterActive 保留
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: 2
+      [31m[1m>[22m[39m[90m 210 |[39m     expect(active[33m.[39mlength)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 211 |[39m     expect(active[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'湖边祝福'[39m)[33m;[39m
+      [90m 212 |[39m     expect(active[[35m0[39m][33m.[39mexpireAt)[33m.[39mtoBe((nowSec [33m+[39m [35m60[39
+      at Object.<anonymous> (test/expire-time.spec.ts:210:27)
+
+[test/tutorial-arrival.spec.ts]
+  教程到达与白NPC交互（原版对齐） › 任务完成消息为原版格式：得到了+并领取了新的任务
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "完成了任务:教程-苏醒，得到了:优秀武器补给箱x1.02"
+      Received string:    "完成了任务:教程-苏醒、教程-背包，
+      [31m[1m>[22m[39m[90m 254 |[39m     expect(message)[33m.[39mtoContain([32m'完成了任务:教程-苏醒，得到了:优秀武器补给箱x1.02'[3
+      [90m 255 |[39m     expect(message)[33m.[39mtoContain([32m'并领取了新的任务:教程-背包'[39m)[33m;[39m
+      at Object.<anonymous> (test/tutorial-arrival.spec.ts:254:21)
+
+[test/map-battle-loop.spec.ts]
+  MapBattleLoopService：原版 覅攻击pd 延时递归驱动 › triggerByPlayerAction：刷新地图"活动"120秒（玩家活跃）并延时拉起回合
+      expect(received).toBeGreaterThan(expected)
+      Received has value: undefined
+      [90m 131 |[39m     expect(active)[33m.[39mtoBeTruthy()[33m;[39m
+      [31m[1m>[22m[39m[90m 132 |[39m     expect(active[33m.[39m有效期至)[33m.[39mtoBeGreaterThan([33mDate[39m[33
+      at Object.<anonymous> (test/map-battle-loop.spec.ts:132:25)
+
+[test/map-battle-loop.spec.ts]
+  MapBattleLoopService：原版 覅攻击pd 延时递归驱动 › triggerByPlayerAction：隐匿模式玩家不惊动怪物（原版 L160 隐匿攻击豁免）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: false
+      Received: true
+      [31m[1m>[22m[39m[90m 152 |[39m     expect(loop[33m.[39mhasPendingRound([35m1[39m))[33m.[39mtoBe([36mfa
+      m.[39mmock[33m.[39mcalls[33m.[39mlength)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/map-battle-loop.spec.ts:152:37)
+
+[test/home-output.spec.ts]
+  家园产出复刻 › 具现装置按每天一个未知物品写入地图物品，不直接污染玩家背包
+      expect(received).toBeCloseTo(expected)
+      Received has value: undefined
+      3m===[39m [32m'未知物品'[39m)[33m?[39m[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m1[39m)[33m;[39m
+      [90m 120 |[39m     expect(fixture[33m.[39mbackpack)[33m.[39mtoEqual([{ name[33m:[39m [32m'面包'[39m[33m,
+      at Object.<anonymous> (test/home-output.spec.ts:119:69)
+
+[test/home-output.spec.ts]
+  家园产出复刻 › 世界模拟器按建筑运行时间推进 AI，完成训练后产出带 a 数据的核心
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: undefined
+      [31m[1m>[22m[39m[90m 139 |[39m     expect(alpha[33m?[39m[33m.[39mquantity)[33m.[39mtoBe([35m1[39m)[3
+      [90m 140 |[39m     expect(alpha[33m?[39m[33m.[39mdata)[33m.[39mtoBe([32m'a'[39m)[33m;[39m
+      [90m 141 |[39m     expect(mapMarkers[33m.[39m[33mAI[39m)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      [90m 142 |[39m     expect(result)[33m.[39mtoContain([32m'正在训练硅基核心:0%'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/home-output.spec.ts:139:29)
+
+[test/auto-mine.spec.ts]
+  自动开采闭环 › 按每小时公式结算并推进采集任务
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "铁矿×1920"
+      Received string:    "测试玩家自动开采了1小时，炸出了暂无资源"
+      [31m[1m>[22m[39m[90m 105 |[39m     expect(result)[33m.[39mtoContain([32m'铁矿×1920'[39m)[33m;[39m
+      [33m.[39mtoBeUndefined()[33m;[39m[0m
+      at Object.<anonymous> (test/auto-mine.spec.ts:105:20)
+
+[test/auto-mine.spec.ts]
+  自动开采闭环 › 后台按分钟增量结算但保留进行中标记
+      Expected number of calls: 1
+      Received number of calls: 0
+      [33m.[39mtoBe([35m1060[39m)[33m;[39m
+      at Object.<anonymous> (test/auto-mine.spec.ts:117:47)
+
+[test/delayed-settle-dedupe.spec.ts]
+  延时结算去重（救援/采集恰好一次） › 采集结算并发进入同一次采集时，只产出并广播一次
+      Expected length: 1
+      Received length: 0
+      Received array:  []
+      [90m 283 |[39m     expect(backpack)[33m.[39mtoEqual([expect[33m.[39mobjectContaining({ name[33m:[39m [32m
+      at Object.<anonymous> (test/delayed-settle-dedupe.spec.ts:280:26)
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故复现） › 兑换召唤券52 后立即召唤使魔73 必须成功且按新余额扣减（修复前报「只有21.012」）
+      expect(received).resolves.toContain()
+      Received promise rejected instead of resolved
+      Rejected to value: [TypeError: this.mapService.getMapByName is not a function]
+      [90m 131 |[39m       [33m.[39mresolves[33m.[39mtoContain([32m'兑换了召唤券x52'[39m)[33m;[39m
+      at Object.<anonymous> (test/three-pillars-currency.spec.ts:130:11)
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故复现） › 召唤数量 ≤ 兑换前旧值时也不得吞券：扣减必须基于兑换后的新余额
+      TypeError: this.mapService.getMapByName is not a function
+      at Object.<anonymous> (test/three-pillars-currency.spec.ts:150:5)
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：统一货币读写入口语义 › 读侧与落库仲裁同口径：取偏离物化基准更大的字段，绝不读双字段镜像旧值
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 73.012
+      Received: 21.012
+      Expected precision:    6
+      Expected difference: < 0.0000005
+      Received difference:   52
+      召唤券'[39m))[33m.[39mtoBeCloseTo([35m73.012[39m[33m,[39m [35m6[39m)[33m;[39m
+      9mtoBe([35m5[39m)[33m;[39m[0m
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：统一货币读写入口语义 › 写侧双字段同步 + 刷新物化基准；<=0 视为花光移除条目并把基准清零
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 73.01
+      Received: 21.012
+      Expected precision:    6
+      Expected difference: < 0.0000005
+      Received difference:   51.998000000000005
+      [90m 193 |[39m     expect(entry[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m73.01[39m[33m,[39m [35m6[39m
+      [31m[1m>[22m[39m[90m 194 |[39m     expect(entry[33m.[39mcount)[33m.[39mtoBeCloseTo([35m73.01[39m[33m,
+
+[test/three-pillars-currency.spec.ts]
+  支柱一：统一货币读写入口语义 › 任务发奖 addBackpackItem 用偏差感知读当存量：分裂条目上累加不吞余额
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 2101.22
+      Received: 4.02
+      Expected precision:    6
+      Expected difference: < 0.0000005
+      Received difference:   2097.2
+      [31m[1m>[22m[39m[90m 226 |[39m     expect(entry[33m.[39mcount)[33m.[39mtoBeCloseTo([35m2101.22[39m[33m
+      [90m 227 |[39m     expect(entry[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m2101.22[39m[33m,[39m [35m6[3
+
+[test/currency-task-wipe.spec.ts]
+  任务结算不误清货币（正式库「主线-继续询问」事故回归） › 非 mutate 上下文先后三次推进对话，完成任务后钻石/召唤券不被清零、奖励落包
+      expect(received).toBeCloseTo(expected, precision)
+      Expected: 12.64
+      Received: NaN
+      Expected precision:    5
+      Expected difference: < 0.000005
+      Received difference:   NaN
+      [90m 147 |[39m     expect(box)[33m.[39mtoBeDefined()[33m;[39m
+      [31m[1m>[22m[39m[90m 148 |[39m     expect([33mNumber[39m(box[33m.[39mcount))[33m.[39mtoBeCloseTo([35m1
+
+[test/familiar-combat-passives.spec.ts]
+  掉落率/品质接入普通击杀（原版 后台运作 L846-857） › 击杀被动：剑圣好感≥40叠苦行、≥80减技能/斩冷却
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: undefined
+      e [33m===[39m [32m'苦行'[39m)[33m?[39m[33m.[39mvalue)[33m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 74 |[39m     expect(typeCd[33m.[39mexpireAt)[33m.[39mtoBeLessThanOrEqual(now [33m+[39m [35m21[39m 
+      at Object.<anonymous> (test/familiar-combat-passives.spec.ts:72:60)
+
+[test/map-travel-gate.spec.ts]
+  地图通行门槛 checkCanTravel（原版复刻门禁） › 前往查出发地图的前往需求（原版 L6634）：徒步/步行载具拦截，跃迁载具放行
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "当前驾驶的载具测试载具的移动方式未满足条件"
+      Received string:    "出口限制了需要跃迁才能到达，当前驾驶的载具的移动方式未满足条件(需要安装任意型号的跃迁引擎)"
+      [90m 35 |[39m     expect(ground[33m.[39mcanTravel)[33m.[39mtoBe([36mfalse[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 36 |[39m     expect(ground[33m.[39mreason)[33m.[39mtoContain([32m'当前驾驶的载具测试载具的移动方式未
+      at Object.<anonymous> (test/map-travel-gate.spec.ts:36:27)
+
+[test/map-travel-gate.spec.ts]
+  地图通行门槛 checkCanTravel（原版复刻门禁） › 传送级需求：徒步持天蓝吊坠放行，无吊坠拦截（原版 L1016-1023）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 75 |[39m     expect(warpVehicle[33m.[39mcanTravel)[33m.[39mtoBe([36mtrue[39m)[33m
+      at Object.<anonymous> (test/map-travel-gate.spec.ts:75:35)
+
+[test/map-travel-gate.spec.ts]
+  地图通行门槛 checkCanTravel（原版复刻门禁） › 飞行级需求：徒步放行，飞行(2)/跃迁(3)载具放行，步行载具拦截（原版 L1006-1014）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      m { mode[33m:[39m [32m'fly'[39m })[33m.[39mcanTravel)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      canTravel)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      9mtoBe([36mtrue[39m)[33m;[39m
+      at Object.<anonymous> (test/map-travel-gate.spec.ts:84:100)
+
+[test/item-system.spec.ts]
+  战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946) › L4922 资源类(怪物材料) → 加入背包 + 采集资源成就
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 2
+      Received: undefined
+      [0m [90m 301 |[39m     expect(txt)[33m.[39mtoContain([32m'怪物材料'[39m)[33m;[39m
+      [33m===[39m [32m'怪物材料'[39m)[33m.[39mcount)[33m.[39mtoBe([35m2[39m)[33m;[39m
+      toBe([35m2[39m)[33m;[39m
+      at Object.<anonymous> (test/item-system.spec.ts:303:58)
+
+[test/item-system.spec.ts]
+  战利品 - 怪物死亡掉落发放 (战斗相关.ecode L4874-4946) › L4935/物品操作 L2964 负数资源 → 从背包扣除，归零删除，不写入负库存
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 2
+      + Received  + 3
+      3m.[39mtoEqual([
+      at Object.<anonymous> (test/item-system.spec.ts:313:47)
+
+[test/item-system.spec.ts]
+  物品要求 - 数量要求判定 (物品操作.ecode L1784-1811) › L1794-1796 不提供要求数量 → 存在即满足(found=true)，写回数组下标
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 352 |[39m     expect(r[33m.[39mfound)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 353 |[39m     expect(r[33m.[39mindex)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/item-system.spec.ts:352:21)
+
+[test/item-system.spec.ts]
+  物品要求 - 数量要求判定 (物品操作.ecode L1784-1811) › L1798-1800 提供要求数量且数量满足 → found=true
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 359 |[39m     expect(r[33m.[39mfound)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 360 |[39m     expect(r[33m.[39mindex)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/item-system.spec.ts:359:21)
+
+[test/item-system.spec.ts]
+  物品要求 - 数量要求判定 (物品操作.ecode L1784-1811) › L1802 数量不足 → found=false，提示"需要X的NAME，你只有Y"
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "需要0.1的导弹，你只有0"
+      Received: ""
+      [90m 366 |[39m     expect(r[33m.[39mfound)[33m.[39mtoBe([36mfalse[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 367 |[39m     expect(r[33m.[39mhint)[33m.[39mtoBe([32m'需要0.1的导弹，你只有0'[39m)[33m;[
+      at Object.<anonymous> (test/item-system.spec.ts:367:20)
+
+[test/item-system.spec.ts]
+  物品要求 - 数量要求判定 (物品操作.ecode L1784-1811) › 多个同名物品 → 返回第一个匹配下标
+      expect(received).toBe(expected) // Object.is equality
+      Expected: true
+      Received: false
+      [31m[1m>[22m[39m[90m 380 |[39m     expect(r[33m.[39mfound)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 381 |[39m     expect(r[33m.[39mindex)[33m.[39mtoBe([35m0[39m)[33m;[39m
+      at Object.<anonymous> (test/item-system.spec.ts:380:21)
+
+[test/familiar-search.spec.ts]
+  宠物搜索物品 › 兼容宠物和物品的中文旧字段，并保留原字段数量
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 4
+      + Received  + 1
+      [31m[1m>[22m[39m[90m 230 |[39m     expect(backpack)[33m.[39mtoEqual([
+      [90m 233 |[39m     expect(parse(p[33m.[39m标记2[33m,[39m []))[33m.[39mtoEqual([[0m
+      at Object.<anonymous> (test/familiar-search.spec.ts:230:22)
+
+[test/user-lock-regression.spec.ts]
+  兑换与后台结算的用户级锁互斥 › 兑换后启动的后台开采结算不得回滚兑换结果
+      TypeError: Cannot read properties of undefined (reading 'quantity')
+      [31m[1m>[22m[39m[90m 149 |[39m     expect(diamondAfter[33m.[39mquantity)[33m.[39mtoBeCloseTo([35m960[39
+      [90m 150 |[39m     expect(ticketAfter[33m.[39mcount)[33m.[39mtoBeCloseTo([35m72[39m)[33m;[39m
+      at Object.<anonymous> (test/user-lock-regression.spec.ts:149:25)
+
+[test/user-lock-regression.spec.ts]
+  兑换与后台结算的用户级锁互斥 › 同一玩家的并发指令按锁排队串行执行
+      TypeError: Cannot read properties of undefined (reading 'quantity')
+      [31m[1m>[22m[39m[90m 219 |[39m     expect(diamonds[33m.[39mquantity)[33m.[39mtoBe([35m1960[39m)[33m;[
+      [90m 220 |[39m     expect(tickets[33m.[39mcount)[33m.[39mtoBeCloseTo([35m22[39m[33m,[39m [35m5[39m)[3
+      at Object.<anonymous> (test/user-lock-regression.spec.ts:219:21)
+
+[test/familiar-skills-batch2.spec.ts]
+  使魔技能第二批：歼灭模式/绝对守护/斗转星移/火力全开/斩/会心一击（原版 L1505-1790 复刻验证） › 火力全开：普拉娜门禁、压制增益（强度/时长）与武器冷却削减、熟练度置位
+      expect(received).toBeTruthy()
+      Received: undefined
+      [31m[1m>[22m[39m[90m 177 |[39m     expect(suppression)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 179 |[39m     expect(gatling[33m.[39mexpireAt)[33m.[39mtoBeLessThanOrEqual([33mDate[39m[33m.[39mnow
+      [90m 180 |[39m     expect(parseJson(player[33m.[39mmarkers[33m,[39m {})[[32m'火力全开'[39m])[33m.[39mtoBe([
+      at Object.<anonymous> (test/familiar-skills-batch2.spec.ts:177:25)
+
+[test/social-task.spec.ts]
+  贸易、购物、求助任务触发 › 行商购买成功后推进一次购物任务
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "购买了"
+      Received string:    "冒险者#换行需要木头x50，你只有1#换行需要石头x40，你只有1#换行需要绳子x30，你只有1#换行需要铁矿x30，你只有1"
+      [31m[1m>[22m[39m[90m  99 |[39m     expect(result)[33m.[39mtoContain([32m'购买了'[39m)[33m;[39m
+      at Object.<anonymous> (test/social-task.spec.ts:99:20)
+
+[test/familiar-skills-batch4.spec.ts]
+  使魔技能第四批：召唤/召唤银龙/冻结傀儡/封印解除/全弹发射/纳米模式（原版 L2100-2343 复刻验证） › 召唤：次元手环门禁、600秒冷却键、新建凯露（生命=等级×100、荆棘之翼）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 600
+      Received: NaN
+      [90m 123 |[39m     expect(caelu)[33m.[39mtoBeTruthy()[33m;[39m
+      [31m[1m>[22m[39m[90m 124 |[39m     expect([33mNumber[39m(caelu[33m.[39m当前生命))[33m.[39mtoBe([35m600[39
+      [90m 125 |[39m     expect(caelu[33m.[39m装备[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'荆棘之翼'[39m)[33m;
+      [90m 126 |[39m     expect(caelu[33m.[39mqq[33m.[39mstartsWith([32m'召唤物'[39m))[33m.[39mtoBe([36mtrue[39
+      [90m 127 |[39m     expect(caelu[33m.[39mqq[33m.[39mendsWith([32m'x'[39m))[33m.[39mtoBe([36mtrue[39m)[
+
+[test/familiar-skills-batch4.spec.ts]
+  使魔技能第四批：召唤/召唤银龙/冻结傀儡/封印解除/全弹发射/纳米模式（原版 L2100-2343 复刻验证） › 召唤银龙：古月娜门禁、60秒冷却键、新建银龙（QQ=召唤物+归属+x、爪子武器）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: NaN
+      [0m [90m 144 |[39m     expect(dragon)[33m.[39mtoBeTruthy()[33m;[39m
+      [90m 145 |[39m     expect(dragon[33m.[39mqq)[33m.[39mtoBe([32m'召唤物123x'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 146 |[39m     expect([33mNumber[39m(dragon[33m.[39m当前生命))[33m.[39mtoBe([35m1[39m
+      [90m 147 |[39m     expect(dragon[33m.[39m武器[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'爪子'[39m)[33m;
+      [32m'召唤冷却2'[39m))[33m.[39mtoBeTruthy()[33m;[39m[0m
+
+[test/equipment-quality-invariant.spec.ts]
+  装备品质码不变量（入包唯一出口） › 中文旧字段「数据」同步补齐（双字段镜像不分裂）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: "e"
+      Received: ""
+      [90m 46 |[39m     expect(bp[[35m0[39m][33m.[39mdata)[33m.[39mtoBe([32m'e'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 47 |[39m     expect(bp[[35m0[39m][33m.[39m数据)[33m.[39mtoBe([32m'e'[39m)[33m;[3
+      at Object.<anonymous> (test/equipment-quality-invariant.spec.ts:47:22)
+
+[test/equipment-quality-invariant.spec.ts]
+  装备品质码不变量（入包唯一出口） › 非装备条目不受影响（仍按名称合并数量）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 5
+      Received: 2
+      [31m[1m>[22m[39m[90m 63 |[39m     expect(bp[[35m0[39m][33m.[39mcount)[33m.[39mtoBe([35m5[39m)[33m;[
+      at Object.<anonymous> (test/equipment-quality-invariant.spec.ts:63:25)
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 同一系列尚无阶位达成时，只展开第一阶，更高阶位不铺行不占号
+      expect(received).not.toContain(expected) // indexOf
+      Expected substring: not "肝帝II"
+      Received string:        "�� 可领取的称号（2/2）
+      [90m 77 |[39m     expect(out)[33m.[39mtoContain([32m'1、肝帝I'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 78 |[39m     expect(out)[33m.[39mnot[33m.[39mtoContain([32m'肝帝II'[39m)[33m;[39m
+      [90m 79 |[39m     expect(out)[33m.[39mtoContain([32m'发送编号即可快速领取'[39m)[33m;[39m
+      [90m 81 |[39m     expect(out)[33m.[39mtoContain([32m'可领取的称号（2/2）'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:78:21)
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 已达成待领取的阶位全部保留，再追加首个未达成的下一阶
+      expect(received).not.toContain(expected) // indexOf
+      Expected substring: not "肝帝III"
+      Received string:        "�� 可领取的称号（3/3）
+      [0m [90m 100 |[39m     expect(out)[33m.[39mtoContain([32m'1、肝帝I'[39m)[33m;[39m
+      [90m 101 |[39m     expect(out)[33m.[39mtoContain([32m'2、肝帝II'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 102 |[39m     expect(out)[33m.[39mnot[33m.[39mtoContain([32m'肝帝III'[39m)[33m;[39
+      [90m 104 |[39m     expect(out)[33m.[39mtoContain([32m'1 个条件已达成'[39m)[33m;[39m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:102:21)
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 原版称号显示进度行（普通成就/在线时间时间格式/*模糊匹配）
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "发送指令(40/100)"
+      Received string:    "�� 可领取的称号（3/3）
+      [90m 144 |[39m     expect(out)[33m.[39mtoContain([32m'1、肝帝II'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 145 |[39m     expect(out)[33m.[39mtoContain([32m'发送指令(40/100)'[39m)[33m;[39m
+      [90m 146 |[39m     expect(out)[33m.[39mtoContain([32m'2、住这了I'[39m)[33m;[39m
+      [90m 147 |[39m     expect(out)[33m.[39mtoContain([32m'在线时间(5分0秒/1小时0分)'[39m)[33m;[39m
+      [90m 148 |[39m     expect(out)[33m.[39mtoContain([32m'3、巨人猎手I'[39m)[33m;[39m[0m
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 可领取项置顶成独立区块：顶部点名 + 行首 ✅ + 编号优先发放
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "✅ 1 个条件已达成可领取：战神I"
+      Received string:    "�� 可领取的称号（2/2）
+      [31m[1m>[22m[39m[90m 183 |[39m     expect(out)[33m.[39mtoContain([32m'✅ 1 个条件已达成可领取：战神I'[39m)[33m;[39m
+      [90m 185 |[39m     expect(out)[33m.[39mtoContain([32m'✅ 现在就能领'[39m)[33m;[39m
+      [90m 186 |[39m     expect(out[33m.[39mindexOf([32m'✅ 1、战神I'[39m))[33m.[39mtoBeGreaterThan([33m-[39m[35m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:183:17)
+
+[test/available-titles-numbering.spec.ts]
+  查看可领取称号编号菜单 › 暂无达成项时不出现「现在就能领」区块，仅展示下一阶进度
+      expect(received).not.toContain(expected) // indexOf
+      Expected substring: not "现在就能领"
+      Received string:        "�� 可领取的称号（1/1）
+      [31m[1m>[22m[39m[90m 226 |[39m     expect(out)[33m.[39mnot[33m.[39mtoContain([32m'现在就能领'[39m)[33m;[39
+      [90m 227 |[39m     expect(out)[33m.[39mtoContain([32m'暂无条件达成的称号'[39m)[33m;[39m
+      [90m 228 |[39m     expect(out)[33m.[39mtoContain([32m'⏳ 下一阶进度'[39m)[33m;[39m
+      [90m 229 |[39m     expect(out)[33m.[39mtoContain([32m' 1、肝帝I'[39m)[33m;[39m[0m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:226:21)
+
+[test/available-titles-numbering.spec.ts]
+  领取称号（对齐原版） › 原版称号：条件不足播报差距，不发奖励不写入称号
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "肝帝II需要发送指令x100,你只达到了40"
+      Received string:    "恭喜你获得了称号「肝帝II」！"
+      [31m[1m>[22m[39m[90m 248 |[39m     expect(out)[33m.[39mtoContain([32m'肝帝II需要发送指令x100,你只达到了40'[39m)[33m;
+      [90m 250 |[39m     expect(player[33m.[39mtitles)[33m.[39mtoEqual([32m'[]'[39m)[33m;[39m
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:248:17)
+
+[test/available-titles-numbering.spec.ts]
+  领取称号（对齐原版） › 原版称号：条件满足发奖励物品进背包并写入称号
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "路人甲领取了称号肝帝I"
+      Received string:    "恭喜你获得了称号「肝帝I」！"
+      [31m[1m>[22m[39m[90m 270 |[39m     expect(out)[33m.[39mtoContain([32m'路人甲领取了称号肝帝I'[39m)[33m;[39m
+      [90m 271 |[39m     expect(out)[33m.[39mtoContain([32m'得到了经验胶囊x10、水晶x100、发带x1'[39m)[33m;[39m
+      [90m 273 |[39m     expect(player[33m.[39mtitles)[33m.[39mtoEqual([{ name[33m:[39m [32m'肝帝I'[39m[33m,[3
+      at Object.<anonymous> (test/available-titles-numbering.spec.ts:270:17)
+
+[test/item-primitives.spec.ts]
+  物品基础判定复刻 › 判断物品2：命中装备列表改为装备，否则资源
+      - Expected  - 2
+      + Received  + 1
+      at Object.<anonymous> (test/item-primitives.spec.ts:44:23)
+
+[test/item-primitives.spec.ts]
+  物品基础判定复刻 › 是否装备与寻找装备按原版首项命中
+      expect(received).toBe(expected) // Object.is equality
+      Expected: 1
+      Received: -1
+      [0m [90m 50 |[39m     expect(service[33m.[39misEquipment([32m'铁矿'[39m))[33m.[39mtoBe([36mfalse[39m)[33m
+      3m.[39mtoBe([35m1[39m)[33m;[39m
+      [90m 53 |[39m     expect(service[33m.[39mfindEquipment(items[33m,[39m [32m'武器'[39m))[33m.[39mtoBe([33m-
+      at Object.<anonymous> (test/item-primitives.spec.ts:52:48)
+
+[test/item-primitives.spec.ts]
+  物品基础判定复刻 › 取物品数量：装备返回1，普通资源返回数量，未命中返回空类型
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 1
+      + Received  + 1
+      mtoEqual({ quantity[33m:[39m [35m1[39m[33m,[39m type[33m:[39m [32m'装备'[39m })[33m;[39m
+      items))[33m.[39mtoEqual({ quantity[33m:[39m [35m2.5[39m[33m,[39m type[33m:[39m [32m'资源'[39m })[33m;[39m
+      at Object.<anonymous> (test/item-primitives.spec.ts:71:58)
+
+[test/admin-spawn.spec.ts]
+  管理指令：刷新怪物 / 生成人物（原版 L6829-6881 复刻） › 生成人物：npc 类型生成剧情实体并写入好感/宝宝标记
+      expect(received).toEqual(expected) // deep equality
+      Expected: [{"名称": "好感123", "数值": 30}, {"名称": "宝宝", "数值": 1}]
+      Received: undefined
+      [0m [90m 114 |[39m     expect(unit[33m.[39mname)[33m.[39mtoBe([32m'小白'[39m)[33m;[39m
+      [90m 115 |[39m     expect(unit[33m.[39mtype)[33m.[39mtoBe([32m'白'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 116 |[39m     expect(unit[33m.[39m标记)[33m.[39mtoEqual([
+      at Object.<anonymous> (test/admin-spawn.spec.ts:116:21)
+
+[test/admin-spawn.spec.ts]
+  管理指令：刷新怪物 / 生成人物（原版 L6829-6881 复刻） › 生成人物：宠物类型走完整怪物初始化并使用 怪物Ngg 编号
+      expect(received).toEqual(expected) // deep equality
+      Expected: [{"名称": "好感123", "数值": 10}]
+      Received: undefined
+      [90m 134 |[39m     expect(petSummons[[35m0[39m][33m.[39mname)[33m.[39mtoBe([32m'小灰狼'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 135 |[39m     expect(petSummons[[35m0[39m][33m.[39m标记)[33m.[39mtoEqual([{ 名称[33m:
+      at Object.<anonymous> (test/admin-spawn.spec.ts:135:30)
+
+[test/look-around-segments.spec.ts]
+  观察附近五段展示（原版 地图操作.ecode L867-968 复刻） › 自动采集资源文本：开启自动采集时显示附近资源与每分钟产出预估
+      expect(received).toContain(expected) // indexOf
+      Expected substring: "木材x"
+      Received string:    "�� 【森林】附近情况
+      [90m 134 |[39m     expect(result)[33m.[39mtoContain([32m'附近资源:木头,自动采集每分钟:'[39m)[33m;[39m
+      [31m[1m>[22m[39m[90m 135 |[39m     expect(result)[33m.[39mtoContain([32m'木材x'[39m)[33m;[39m
+      at Object.<anonymous> (test/look-around-segments.spec.ts:135:20)
+
+[test/admin-backpack.spec.ts]
+  AdminService 背包管理 › gmSaveBackpack 同名合并、quantity/count 统一为 count、数量0删除
+      expect(received).toContainEqual(expected) // deep equality
+      Expected value: {"count": 10, "name": "水晶"}
+      Received array: [{"name": "水晶", "quantity": 10}, {"name": "木头", "quantity": 1}, {"data": "e", "durability": 0, "nam
+      [31m[1m>[22m[39m[90m 154 |[39m     expect(saved)[33m.[39mtoContainEqual({ name[33m:[39m [32m'水晶'[39m[3
+      [90m 155 |[39m     expect(saved)[33m.[39mtoContainEqual({ name[33m:[39m [32m'木头'[39m[33m,[39m count[33m
+      [90m 157 |[39m     expect(saved)[33m.[39mtoContainEqual(expect[33m.[39mobjectContaining({ name[33m:[39m [
+      at Object.<anonymous> (test/admin-backpack.spec.ts:154:19)
+
+[test/gather-settle-actor.spec.ts]
+  「⚡完成」结算后复核：清理无任务行的残留采集标记 › 无 gather 任务行 + 有残留「采集中」→ 复核补删（含 markers2 采集锁）
+      expect(received).toBe(expected) // Object.is equality
+      Expected: false
+      Received: true
+      [0m [90m 190 |[39m     expect(res[33m.[39mok)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+      [90m 191 |[39m     expect(player[33m.[39mmarkers[[32m'采集中'[39m])[33m.[39mtoBeUndefined()[33m;[39m
+      ))[33m.[39mtoBe([36mfalse[39m)[33m;[39m
+      at Object.<anonymous> (test/gather-settle-actor.spec.ts:192:81)
+
+[test/static-data-validator.spec.ts]
+  StaticDataService 启动校验 + findByKey 索引（RVW04 P2-7） › 内容校验 → 告警列表，不阻断启动 › 负数量（quantity/count/数量 任一为负）触发告警，不抛错
+      Expected: StringContaining "负数量"
+      at Object.<anonymous> (test/static-data-validator.spec.ts:128:20)
+
+[test/task-game-actions.spec.ts]
+  任务动作服务层闭环 › 单体挤奶按静态产奶量结算，并按对象设置当天冷却
+      expect(received).toEqual(expected) // deep equality
+      - Expected  - 2
+      + Received  + 3
+      at Object.<anonymous> (test/task-game-actions.spec.ts:408:44)
+
+[test/task-game-actions.spec.ts]
+  任务动作服务层闭环 › 全部挤奶合并产量，茸增加25%，青龙每天只奖励一次升级经验，任务按成功对象数推进
+      expect(received).toEqual(expected) // deep equality
+      Expected: ArrayContaining [ObjectContaining {"名称": "zq"}]
+      Received: [{"expireAt": 1789660800000, "name": "挤奶怪物茸1g"}, {"expireAt": 1789660800000, "name": "挤奶怪物斑点牛2g"}, {"expi
+      [0m [90m 481 |[39m     expect(player[33m.[39mexp)[33m.[39mtoBe([35m13[39m)[33m;[39m
+      at Object.<anonymous> (test/task-game-actions.spec.ts:483:44)
+
+[test/bonus.spec.ts]
+  Test suite failed to run

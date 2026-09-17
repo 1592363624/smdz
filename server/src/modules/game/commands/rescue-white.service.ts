@@ -230,7 +230,7 @@ export class RescueWhiteService {
   getActiveRescueMarker(markers2: any[]): any | null {
     const now = Date.now() / 1000;
     return markers2.find((marker: any) => {
-      const name = marker?.name ?? marker?.名称;
+      const name = marker?.name;
       if (name !== '复活' && name !== '工作') return false;
       const expireAt = this.rescueExpireAtSeconds(marker);
       return expireAt > now;
@@ -239,7 +239,7 @@ export class RescueWhiteService {
 
 
   rescueExpireAtSeconds(marker: any): number {
-    const raw = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+    const raw = Number(marker?.expireAt ?? 0);
     if (!Number.isFinite(raw) || raw <= 0) return 0;
     return raw >= 1e12 ? raw / 1000 : raw;
   }
@@ -264,7 +264,7 @@ export class RescueWhiteService {
 
 
   rescueHp(unit: any): number {
-    return Number(unit?.hp ?? unit?.currentHp ?? unit?.当前生命 ?? 0) || 0;
+    return Number(unit?.hp ?? unit?.currentHp ?? 0) || 0;
   }
 
 
@@ -273,7 +273,6 @@ export class RescueWhiteService {
     return this.support.firstPositiveNumber(
       unit?.maxHp,
       unit?.maxHealth,
-      unit?.生命,
       attributes?.生命,
       attributes?.hp,
     );
@@ -290,27 +289,26 @@ export class RescueWhiteService {
     const value = Math.max(0, hp);
     if (unit?.hp !== undefined) unit.hp = value;
     if (unit?.currentHp !== undefined) unit.currentHp = value;
-    if (unit?.当前生命 !== undefined) unit.当前生命 = value;
-    if (unit?.hp === undefined && unit?.currentHp === undefined && unit?.当前生命 === undefined) {
+    if (unit?.hp === undefined && unit?.currentHp === undefined) {
       unit.hp = value;
     }
   }
 
 
   rescueUnitId(unit: any): string {
-    return String(unit?.qq ?? unit?.QQ ?? unit?.id ?? unit?.编号 ?? unit?.name ?? unit?.名称 ?? '');
+    return String(unit?.qq ?? unit?.QQ ?? unit?.id ?? unit?.vehicleId ?? unit?.name ?? '');
   }
 
 
   rescueUnitName(unit: any): string {
-    return String(unit?.name ?? unit?.名称 ?? unit?.type ?? unit?.类型 ?? '使魔');
+    return String(unit?.name ?? unit?.type ?? '使魔');
   }
 
 
   rescueVehicleKey(summon: any): string {
     const raw = summon?.vehicle ?? summon?.载具 ?? summon?.vehicleId ?? summon?.载具编号;
     if (raw && typeof raw === 'object') {
-      return String(raw?.id ?? raw?.编号 ?? raw?.vehicleId ?? raw?.name ?? raw?.名称 ?? '');
+      return String(raw?.id ?? raw?.vehicleId ?? raw?.name ?? '');
     }
     return String(raw ?? '');
   }
@@ -319,22 +317,20 @@ export class RescueWhiteService {
   rescueVehicleKeys(vehicle: any): Set<string> {
     return new Set([
       vehicle?.id,
-      vehicle?.编号,
       vehicle?.vehicleId,
       vehicle?.name,
-      vehicle?.名称,
     ].filter((value) => value !== undefined && value !== null && String(value) !== '').map(String));
   }
 
 
   rescueVehicleMaxHp(vehicle: any): number {
-    const bonus = this.parseRescueObject(vehicle?.bonus ?? vehicle?.加成);
-    return this.support.firstPositiveNumber(vehicle?.maxHp, vehicle?.生命, bonus?.生命);
+    const bonus = this.parseRescueObject(vehicle?.bonus);
+    return this.support.firstPositiveNumber(vehicle?.maxHp, bonus?.生命);
   }
 
 
   rescueVehicleHp(vehicle: any): number {
-    return Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? vehicle?.hp ?? 0) || 0;
+    return Number(vehicle?.currentHp ?? vehicle?.hp ?? 0) || 0;
   }
 
 
@@ -347,9 +343,8 @@ export class RescueWhiteService {
   setRescueVehicleHp(vehicle: any, hp: number): void {
     const value = Math.max(0, hp);
     if (vehicle?.currentHp !== undefined) vehicle.currentHp = value;
-    if (vehicle?.当前生命 !== undefined) vehicle.当前生命 = value;
     if (vehicle?.hp !== undefined) vehicle.hp = value;
-    if (vehicle?.currentHp === undefined && vehicle?.当前生命 === undefined && vehicle?.hp === undefined) {
+    if (vehicle?.currentHp === undefined && vehicle?.hp === undefined) {
       vehicle.currentHp = value;
     }
   }
@@ -359,8 +354,8 @@ export class RescueWhiteService {
     const buffs = this.parseRescueArray(value);
     const now = Date.now() / 1000;
     return buffs.some((buff: any) => {
-      if ((buff?.name ?? buff?.名称) !== '卷土重来') return false;
-      const raw = Number(buff?.expireAt ?? buff?.有效期至 ?? 0);
+      if (buff?.name !== '卷土重来') return false;
+      const raw = Number(buff?.expireAt ?? 0);
       const expireAt = raw >= 1e12 ? raw / 1000 : raw;
       return !expireAt || expireAt > now;
     });
@@ -372,21 +367,20 @@ export class RescueWhiteService {
     let changed = false;
     for (let index = buffs.length - 1; index >= 0; index--) {
       const buff = buffs[index];
-      if ((buff?.name ?? buff?.名称) !== name) continue;
-      const raw = Number(buff?.expireAt ?? buff?.有效期至 ?? 0);
+      if (buff?.name !== name) continue;
+      const raw = Number(buff?.expireAt ?? 0);
       if (!raw) {
         buffs.splice(index, 1);
         changed = true;
         continue;
       }
-      const isMs = raw >= 1e12 || buff?.有效期至 !== undefined;
+      const isMs = raw >= 1e12;
       const expireMs = isMs ? raw : raw * 1000;
       const nextMs = expireMs - seconds * 1000;
       if (nextMs <= nowMs) {
         buffs.splice(index, 1);
       } else if (isMs) {
-        if (buff?.有效期至 !== undefined) buff.有效期至 = nextMs;
-        else buff.expireAt = nextMs;
+        buff.expireAt = nextMs;
       } else {
         buff.expireAt = nextMs / 1000;
       }
@@ -447,7 +441,7 @@ export class RescueWhiteService {
     await this.delayedTaskService.schedule({
       type: 'rescue',
       userId,
-      dedupeKey: String(marker?.token ?? `${marker?.name ?? marker?.名称 ?? ''}`),
+      dedupeKey: String(marker?.token ?? `${marker?.name ?? ''}`),
       runAt: Math.max(Date.now(), this.rescueExpireAtSeconds(marker) * 1000),
       payload: { marker },
     });
@@ -560,7 +554,7 @@ export class RescueWhiteService {
       const vehicle = vehicles.find((candidate: any) => this.rescueVehicleKeys(candidate).has(vehicleKey));
       if (!vehicle || !this.isDamagedRescueVehicle(vehicle)) continue;
       this.setRescueVehicleHp(vehicle, this.rescueVehicleMaxHp(vehicle));
-      repairedNames.push(`${this.rescueUnitName(summon)}修好了${vehicle.name ?? vehicle.名称 ?? '载具'}`);
+      repairedNames.push(`${this.rescueUnitName(summon)}修好了${vehicle.name ?? '载具'}`);
     }
 
     await this.saveRescueMap(map, summons, vehicles);
@@ -589,8 +583,8 @@ export class RescueWhiteService {
 
       const allMaps = await this.mapService.getAllMaps();
       const isOwnWhite = (unit: any) =>
-        (unit?.name ?? unit?.名称) === '白'
-        && String(unit?.ownerQQ ?? unit?.归属 ?? '') === ownerQQ;
+        unit?.name === '白'
+        && String(unit?.ownerQQ ?? '') === ownerQQ;
       const parseSummons = (map: any): any[] =>
         Array.isArray(map?.summons) ? map.summons : asJsonValue<any[]>(map?.summons, []);
 
@@ -637,7 +631,6 @@ export class RescueWhiteService {
       type: '白',
       qq: `召唤物${Date.now()}${Math.floor(Math.random() * 1000)}`,
       ownerQQ: String(userId),
-      归属: String(userId),
       hp: 100,
       maxHp: 100,
       markers: { [`好感${userId}`]: 30, '跟随': 0 },
@@ -645,7 +638,7 @@ export class RescueWhiteService {
     // mutateSummons 锁内闭环：重读最新 summons → 锁内复查幂等（同地图已有自己的白则跳过）→ push → 差异落库
     await this.mapService.mutateSummons(map.id, (fresh) => {
       const exists = fresh.some((s: any) =>
-        String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
+        String(s?.name ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.owner ?? '')));
       if (exists) return;
       fresh.push(summon);
     });
@@ -676,7 +669,7 @@ export class RescueWhiteService {
     const parse = (value: any): any[] => asJsonValue<any[]>(value, []);
 
     const current = parse(map.summons).find((s: any) =>
-      String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
+      String(s?.name ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.owner ?? '')));
     if (current) {
       await this.syncWhiteAffinity(player, current, markers, Number(map.id));
       return current;
@@ -691,7 +684,7 @@ export class RescueWhiteService {
       if (Number(other?.id) === Number(map.id)) continue;
       const white = await this.mapService.mutateSummons(Number(other.id), (units) => {
         const idx = units.findIndex((s: any) =>
-          String(s?.name ?? s?.名称 ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.归属 ?? s?.owner ?? '')));
+          String(s?.name ?? '') === '白' && ownerIds.has(String(s?.ownerQQ ?? s?.owner ?? '')));
         return idx >= 0 ? units.splice(idx, 1)[0] : null;
       });
       if (!white) continue;
@@ -709,7 +702,6 @@ export class RescueWhiteService {
       type: '白',
       qq: `召唤物${Date.now()}${Math.floor(Math.random() * 1000)}`,
       ownerQQ: String(userId),
-      归属: String(userId),
       hp: 100,
       maxHp: 100,
       markers: { [`好感${userId}`]: Number(markers['白好感'] ?? 30), '跟随': 0 },
@@ -740,7 +732,7 @@ export class RescueWhiteService {
   ): Promise<void> {
     try {
       const userId = Number(player.userId);
-      const raw = white?.markers ?? white?.标记 ?? {};
+      const raw = white?.markers ?? {};
       const unitMarkers = typeof raw === 'string'
         ? asJsonValue<Record<string, any>>(raw, {})
         : (raw && typeof raw === 'object' ? { ...raw } : {});

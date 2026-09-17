@@ -26,7 +26,8 @@ import { FRONTLINE_VIEW_CONFIG } from './frontline-view.config';
 /** 前线地图上已安装的防御建筑（聚合条目） */
 export interface FrontlineBuilding {
   name: string;
-  count: number;
+  /** 已安装数量（规范键 quantity，与背包/地图条目同口径） */
+  quantity: number;
 }
 
 /** 火力通道中的一把武器（来自前线召唤物 武器 数组） */
@@ -161,11 +162,11 @@ export class FrontlineViewService {
     const defenseBuildings: FrontlineBuilding[] = [];
     let defenseUsed = 0;
     for (const entry of mapBuildings) {
-      const name = String(entry?.name ?? entry?.名称 ?? '');
+      const name = String(entry?.name ?? '');
       if (!name) continue;
-      const count = Math.max(1, Math.round(Number(entry?.count ?? entry?.数量 ?? 1)) || 1);
-      defenseUsed += count;
-      defenseBuildings.push({ name, count });
+      const quantity = Math.max(1, Math.round(Number(entry?.quantity ?? 1)) || 1);
+      defenseUsed += quantity;
+      defenseBuildings.push({ name, quantity });
     }
     const defenseLimit = frontLevel + 3;
 
@@ -175,9 +176,9 @@ export class FrontlineViewService {
     const frontlineQQ = `怪物前线${qq}sg`;
     const frontline = summons.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
     const firepower: FrontlineWeapon[] = [];
-    for (const weapon of frontline?.武器 || frontline?.weapons || []) {
+    for (const weapon of frontline?.weapons || []) {
       firepower.push({
-        name: String(weapon.名称 ?? weapon.name ?? ''),
+        name: String(weapon.name ?? ''),
         damagePct: Number(weapon.属性?.物 ?? weapon.attributes?.physical ?? 0) || 0,
       });
     }
@@ -185,10 +186,10 @@ export class FrontlineViewService {
     // ---- 特殊宠物（特殊序号>0 且存活）----
     const specialPets: FrontlineSpecialPet[] = [];
     for (const s of summons) {
-      const specialSeq = Number(s.specialSeq ?? s.特殊序号 ?? 0);
-      const hp = Number(s.hp ?? s.当前生命 ?? 0) || 0;
+      const specialSeq = Number(s.specialSeq ?? 0);
+      const hp = Number(s.hp ?? 0) || 0;
       if (specialSeq > 0 && hp > 0) {
-        specialPets.push({ name: String(s.name ?? s.名称 ?? ''), hp });
+        specialPets.push({ name: String(s.name ?? ''), hp });
       }
     }
 
@@ -209,8 +210,8 @@ export class FrontlineViewService {
 
     // ---- 活动增益（开始战斗后 120 秒自动回合）----
     const markers2 = asJsonValue<any[]>(frontlineMap.markers2, []);
-    const activity = markers2.find((g: any) => String(g.名称 ?? g.name ?? '') === '活动');
-    const expireMs = Number(activity?.有效期至 ?? activity?.expireAt ?? 0) || 0;
+    const activity = markers2.find((g: any) => String(g.name ?? '') === '活动');
+    const expireMs = Number(activity?.expireAt ?? 0) || 0;
     const remainMs = expireMs - Date.now();
     const active: FrontlineActive = {
       active: remainMs > 0,
@@ -221,13 +222,13 @@ export class FrontlineViewService {
     const backpack = this.playerService.getBackpackItems(player);
     const stock: FrontlineStock[] = [];
     for (const item of backpack) {
-      const name = String(item?.name ?? item?.名称 ?? '');
+      const name = String(item?.name ?? '');
       if (!name) continue;
-      const quantity = Math.floor(Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0)) || 0;
+      const quantity = Math.floor(Number(item?.quantity ?? 0)) || 0;
       if (quantity <= 0) continue;
       const def = this.staticData.getBuildingByName(name);
       if (!def) continue;
-      const bonus = asJsonValue<any>(def?.bonus ?? def?.加成 ?? {}, {});
+      const bonus = asJsonValue<any>(def?.bonus ?? {}, {});
       if (Number(bonus.攻击 ?? 0) === 0) continue; // 只列防御建筑
       stock.push({
         name,

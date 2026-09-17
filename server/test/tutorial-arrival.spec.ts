@@ -104,7 +104,7 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
           ? { name: '白对话', taskId: '聊天，套娃2' }
           : undefined),
         getTaskByName: jest.fn((name: string) => (['聊天', '套娃2'].includes(name)
-          ? { name, requirements: JSON.stringify([{ name: '对话', count: 3 }]) }
+          ? { name, requirements: JSON.stringify([{ name: '对话', quantity: 3 }]) }
           : undefined)),
         getAllTasks: jest.fn(() => []),
       },
@@ -204,18 +204,20 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
       savePlayer: jest.fn(async () => undefined),
     };
     const staticData: any = {
+      // 任务需求/奖励条目数量只读规范键 quantity（count 旧镜像已废弃：
+      // 需求数量读到 0 会被判定为已满足、任务立即自动完成，奖励会被跳过）
       getTaskByName: (name: string) => ({
         '教程-苏醒': {
           name: '教程-苏醒',
           description: '离开医疗室。',
-          requirements: '[{"name":"前往森林出口","count":1}]',
-          rewards: '[{"name":"优秀武器补给箱","count":1}]',
+          requirements: '[{"name":"前往森林出口","quantity":1}]',
+          rewards: '[{"name":"优秀武器补给箱","quantity":1}]',
           nextTasks: '["教程-背包"]',
         },
         '教程-背包': {
           name: '教程-背包',
           description: '查看背包。',
-          requirements: '[{"name":"发送“查看背包”","count":1}]',
+          requirements: '[{"name":"发送“查看背包”","quantity":1}]',
           rewards: '[]',
           nextTasks: '[]',
         },

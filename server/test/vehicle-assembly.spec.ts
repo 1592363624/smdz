@@ -10,8 +10,8 @@ jest.mock('../src/modules/game/static-data.service', () => {
       return [
         {
           name: '轻型足', noCraft: false, level: 1,
-          outputs: JSON.stringify([{ name: '轻型足', count: 1 }]),
-          requirements: JSON.stringify([{ name: '铁矿', count: 2 }]),
+          outputs: JSON.stringify([{ name: '轻型足', quantity: 1 }]),
+          requirements: JSON.stringify([{ name: '铁矿', quantity: 2 }]),
           gainMarkers: '[]',
         },
       ];
@@ -84,7 +84,7 @@ function makeService(options: {
     getCurrencyAmount: (player: any, name: string, backpack?: any[]) => {
       const items = backpack ?? parseValue<any[]>(player.backpack, []);
       const item = items.find((it: any) => it?.name === name);
-      return Number(item?.quantity ?? item?.count ?? 0) || 0;
+      return Number(item?.quantity ?? 0) || 0;
     },
     setCurrencyAmount: (player: any, name: string, value: number, backpack?: any[]) => {
       const items = backpack ?? parseValue<any[]>(player.backpack, []);
@@ -124,11 +124,11 @@ function makeService(options: {
   const combatSystem: any = {
     actionUnrestricted: jest.fn(() => ({ restricted: false, text: '' })),
     recalculateVehicle: options.recalculate || jest.fn((vehicle: any) => {
-      vehicle.加成 = { 生命: 5 };
+      vehicle.bonus = { 生命: 5 };
       return vehicle;
     }),
     produceVehicle: jest.fn((vehicle: any) => {
-      vehicle.加成 = { 生命: 5 };
+      vehicle.bonus = { 生命: 5 };
       return {
         productionDisplay: '0!0!0!100',
         productionSpeed: 1,
@@ -217,14 +217,14 @@ describe('多零件组装载具复刻', () => {
     expect(result).toContain('甲组装了一个载具：甲的骑士');
     const vehicles = parseValue<any[]>(map.vehicles, []);
     expect(vehicles).toHaveLength(1);
-    expect(vehicles[0].名称).toBe('甲的骑士');
-    expect(vehicles[0].归属).toBe('qq10');
-    expect(vehicles[0].当前生命).toBe(5);
-    expect(parseValue<any[]>(vehicles[0].零件, []).map((part: any) => part.名称))
+    expect(vehicles[0].name).toBe('甲的骑士');
+    expect(vehicles[0].owner).toBe('qq10');
+    expect(vehicles[0].currentHp).toBe(5);
+    expect(parseValue<any[]>(vehicles[0].parts, []).map((part: any) => part.name))
       .toEqual(['骑士核心', '轻型足']);
     // 生产写回的是原生数组（Json 列不再落 JSON 字符串），断言对象而非子串
     expect(parseValue<any[]>(updateCalls[0].vehicles, []))
-      .toEqual(expect.arrayContaining([expect.objectContaining({ 名称: '甲的骑士' })]));
+      .toEqual(expect.arrayContaining([expect.objectContaining({ name: '甲的骑士' })]));
 
     const backpack = parseValue<any[]>(player.backpack, []);
     expect(backpack.find((item: any) => item.name === '骑士核心')).toBeUndefined();
@@ -324,8 +324,8 @@ describe('组装双向物流（原版 L10203-L10269）', () => {
 
     expect(result).toContain('把生肉x100塞到了白天鹅里面');
     const stored = parseValue<any[]>(map.vehicles, [])[0];
-    const meat = parseValue<any[]>(stored.零件, []).find((p: any) => p.名称 === '生肉');
-    expect(meat?.数量).toBe(100);
+    const meat = parseValue<any[]>(stored.parts, []).find((p: any) => p.name === '生肉');
+    expect(meat?.quantity).toBe(100);
     const bag = parseValue<any[]>(player.backpack, []).find((i: any) => i.name === '生肉');
     expect(bag?.quantity).toBe(20);
   });
@@ -340,8 +340,8 @@ describe('组装双向物流（原版 L10203-L10269）', () => {
 
     expect(result).toContain('把生肉x40从白天鹅上取了出来');
     const stored = parseValue<any[]>(map.vehicles, [])[0];
-    const meat = parseValue<any[]>(stored.零件, []).find((p: any) => p.名称 === '生肉');
-    expect(meat?.数量).toBe(10);
+    const meat = parseValue<any[]>(stored.parts, []).find((p: any) => p.name === '生肉');
+    expect(meat?.quantity).toBe(10);
     const bag = parseValue<any[]>(player.backpack, []).find((i: any) => i.name === '生肉');
     expect(bag?.quantity).toBe(40);
   });
@@ -356,8 +356,8 @@ describe('组装双向物流（原版 L10203-L10269）', () => {
 
     expect(result).toContain('把燃料x3塞到了白天鹅里面');
     const stored = parseValue<any[]>(map.vehicles, [])[0];
-    const fuel = parseValue<any[]>(stored.零件, []).find((p: any) => p.名称 === '燃料');
-    expect(fuel?.数量).toBe(3);
+    const fuel = parseValue<any[]>(stored.parts, []).find((p: any) => p.name === '燃料');
+    expect(fuel?.quantity).toBe(3);
     expect(parseValue<any[]>(player.backpack, []).find((i: any) => i.name === '燃料')).toBeUndefined();
   });
 });

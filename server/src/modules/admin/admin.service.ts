@@ -479,7 +479,7 @@ export class AdminService {
         try {
           const removed = await this.mapService.mutateSummons(map.id, (units) => {
             const kept = units.filter((unit: any) =>
-              String(unit?.ownerQQ ?? unit?.归属 ?? unit?.owner ?? '') !== ownerKey);
+              String(unit?.ownerQQ ?? unit?.owner ?? '') !== ownerKey);
             return units.length - kept.length;
           });
           if (removed > 0) {
@@ -624,11 +624,12 @@ export class AdminService {
     const initialEquipment = [{ name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' }];
 
     // 初始任务：新手教程（从静态数据读取，避免硬编码，与 getOrCreatePlayer 一致）
-    let initialTasks: Array<{ name: string; requirements: Array<{ name: string; count: number }> }> = [];
+    // 任务需求条目数量规范键为 quantity（同义旧键 count 已废弃）
+    let initialTasks: Array<{ name: string; requirements: Array<{ name: string; quantity: number }> }> = [];
     const tutorialTask = this.staticData.getTaskByName('新手教程');
     if (tutorialTask) {
       // 静态数据 requirements 已是对象形态，asJsonValue 兼容对象与字符串两种来源
-      const reqs = asJsonValue<Array<{ name: string; count: number }>>(
+      const reqs = asJsonValue<Array<{ name: string; quantity: number }>>(
         tutorialTask.requirements, [],
       );
       if (reqs.length > 0) {
@@ -771,7 +772,7 @@ export class AdminService {
 
       const markers2 = asJsonValue<any[]>(p.markers2, []) || [];
       p.markers2 = markers2.filter((m: any) => {
-        const name = String(m?.name ?? m?.名称 ?? '');
+        const name = String(m?.name ?? '');
         return !(m?.homeBuild === true && name === '工作');
       });
 
@@ -1044,7 +1045,7 @@ export class AdminService {
    * 读取指定玩家的背包物品列表（解析 JSON 数组）
    * 供 GM 后台"背包管理"使用：把背包里所有物品完整解析出来，供前端编辑/增删。
    * @param userId 目标用户ID
-   * @returns 背包物品数组（每条含 name/count/quantity/type/durability/data 等原始字段）
+   * @returns 背包物品数组（每条含 name/quantity/type/durability/data 等原始字段）
    */
   async gmGetBackpack(userId: number): Promise<any[]> {
     const player = await this.prisma.player.findUnique({ where: { userId } });
@@ -1064,7 +1065,7 @@ export class AdminService {
    * 相同名称条目自动合并数量；数量为 0 的条目视为删除。
    * 写入走 per-user 串行邮箱，与玩家自身操作无并发冲突。
    * @param userId 目标用户ID
-   * @param items 背包物品数组（{ name, quantity/count, type?, durability?, data? }）
+   * @param items 背包物品数组（{ name, quantity, type?, durability?, data? }）
    * @returns 操作结果文本
    */
   async gmSaveBackpack(
@@ -1081,36 +1082,37 @@ export class AdminService {
       throw new BadRequestException('背包数据必须是数组');
     }
 
-    // 归一化：① 同名合并数量 ② 统一写入 count、清理量歧义字段 quantity
+    // 归一化：① 同名合并数量 ② 数量只写规范键 quantity（count 旧镜像已废弃）
     // ③ 保留首次出现的 type/durability/data 等原字段 ④ 数量<=0 视为删除
     const merged = new Map<string, any>();
     for (const raw of items) {
       if (!raw || typeof raw !== 'object') continue;
       const name = String(raw.name ?? '').trim();
       if (!name) continue;
-      // 数量允许小数（掉落经 rewardMultiplier 放大后可能产生小数），不做取整以免改数值
-      const qty = Number(raw.quantity ?? raw.count ?? 1);
+      // 数量允许小数（掉落经 rewardMultiplier 放大后可能产生小数），不做取整以免改数值。
+      // 只读规范键 quantity（历史别名 count 已废弃，调用方不得再传旧键）。
+      const qty = Number(raw.quantity ?? 1);
       if (!Number.isFinite(qty) || qty < 0) {
         throw new BadRequestException(`物品「${name}」的数量必须是非负数字`);
       }
       const existed = merged.get(name);
       if (existed) {
-        existed.count = Number(existed.count ?? 0) + qty;
+        existed.quantity = Number(existed.quantity ?? 0) + qty;
       } else {
-        // 构造标准条目：去 quantity 歧义字段，保留其余投影白名单字段与额外字段
-        const item: any = { name, count: qty };
+        // 构造标准条目：去 count 旧镜像字段，保留其余投影白名单字段与额外字段
+        const item: any = { name, quantity: qty };
         for (const k of ['type', 'durability', 'data', 'slot']) {
           if (raw[k] !== undefined && raw[k] !== null) item[k] = raw[k];
         }
         // 保留自定义/未知字段（如装备附魔等前端可能透传的字段）
         for (const [k, v] of Object.entries(raw)) {
-          if (!(k in item) && k !== 'quantity') item[k] = v;
+          if (!(k in item) && k !== 'count') item[k] = v;
         }
         merged.set(name, item);
       }
     }
     // 删除数量<=0 的条目（即前端删除操作的结果）
-    const backpack = [...merged.values()].filter((i) => (i.count ?? 0) > 0);
+    const backpack = [...merged.values()].filter((i) => (i.quantity ?? 0) > 0);
 
     // 装备条目规范化（2026-09-10 收敛，取代原「裸条目补生成 + 失败静默保留」补丁）：
     // 原版唯一的装备构造入口是「生成装备」（物品操作.ecode L1128-1261），数据串恒以
@@ -1145,7 +1147,7 @@ export class AdminService {
       }
       item.data = gear.data;
       item.durability = gear.durability ?? 0;
-      if (item.count === undefined) item.count = 1;
+      if (item.quantity === undefined) item.quantity = 1;
     }
 
     // 写入走用户串行邮箱，避免与玩家其他写操作并发覆盖

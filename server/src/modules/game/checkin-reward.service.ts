@@ -131,26 +131,27 @@ export class CheckinRewardService {
     if (!Array.isArray(entries) || entries.length === 0) return texts;
 
     for (const entry of entries) {
-      const count = Number(entry?.count);
+      // 数量只读规范键 quantity（旧键 count 已在 normalizeRewards 边界归一化）
+      const quantity = Number(entry?.quantity);
       // 数量非正数视为无效配置，静默跳过（配置写错不该让签到整体失败）
-      if (!Number.isFinite(count) || count <= 0) continue;
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
 
       if (entry.type === 'exp') {
-        await this.playerService.addExp(userId, count);
-        texts.push(`经验+${formatDisplayNumber(count)}`);
+        await this.playerService.addExp(userId, quantity);
+        texts.push(`经验+${formatDisplayNumber(quantity)}`);
         continue;
       }
       if (entry.type === 'vitality') {
         if (ctx.player) {
-          ctx.player.vitality = Number(ctx.player.vitality || 0) + count;
+          ctx.player.vitality = Number(ctx.player.vitality || 0) + quantity;
         }
-        texts.push(`活力+${formatDisplayNumber(count)}`);
+        texts.push(`活力+${formatDisplayNumber(quantity)}`);
         continue;
       }
       const name = String(entry?.name ?? '').trim();
       if (!name) continue;
-      await this.playerService.addToBackpack(userId, name, count);
-      texts.push(`${name}x${formatDisplayNumber(count)}`);
+      await this.playerService.addToBackpack(userId, name, quantity);
+      texts.push(`${name}x${formatDisplayNumber(quantity)}`);
     }
     return texts;
   }
@@ -204,6 +205,7 @@ export class CheckinRewardService {
   /**
    * 规范化奖励表：把数据库里可能被手改坏的结构洗成标准结构。
    * 兼容 item/exp/vitality 三种类型，未知类型按物品处理（name 为空会被发放时跳过）。
+   * 数量只认规范键 quantity（历史 count 已由 system-config 幂等升级收敛，业务侧不再兜底旧键）。
    */
   private normalizeRewards(raw: any): CheckinRewardsConfig {
     const source = typeof raw === 'string' ? this.safeJsonParse(raw) : raw;
@@ -230,10 +232,10 @@ export class CheckinRewardService {
       const rewards: CheckinRewardEntry[] = [];
       for (const r of Array.isArray(item.rewards) ? item.rewards : []) {
         if (!r) continue;
-        const count = Number(r.count);
-        if (!Number.isFinite(count) || count <= 0) continue;
+        const quantity = Number(r.quantity);
+        if (!Number.isFinite(quantity) || quantity <= 0) continue;
         const type = r.type === 'exp' || r.type === 'vitality' ? r.type : 'item';
-        rewards.push({ type, name: String(r.name ?? '').trim(), count });
+        rewards.push({ type, name: String(r.name ?? '').trim(), quantity });
       }
       // 整组奖励都无效时保留空组没有意义，直接丢弃
       if (rewards.length > 0) groups.push({ days: Math.floor(days), rewards });

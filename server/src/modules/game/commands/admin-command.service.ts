@@ -64,7 +64,7 @@ export class AdminCommandService {
         delete markers['采集中'];
         ctx.player.markers = markers;
         const mk2 = asJsonValue<any[]>(ctx.player.markers2, []);
-        const filtered = mk2.filter((m: any) => (m?.name ?? m?.名称 ?? m?.key) !== '采集');
+        const filtered = mk2.filter((m: any) => (m?.name ?? m?.key) !== '采集');
         if (filtered.length !== mk2.length) ctx.player.markers2 = filtered;
         this.logger.warn(`「⚡完成」复核清理残留「采集中」标记 userId=${userId}`);
       });

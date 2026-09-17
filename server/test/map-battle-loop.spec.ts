@@ -127,13 +127,13 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
     await loop.triggerByPlayerAction(2, 3, { player: makePlayer(), map });
 
     const markers2 = parseJson(map.markers2, []);
-    const active = markers2.find((item: any) => (item.名称 ?? item.name) === '活动');
+    const active = markers2.find((item: any) => item.name === '活动');
     expect(active).toBeTruthy();
-    expect(active.有效期至).toBeGreaterThan(Date.now() + 60_000);
+    expect(active.expireAt).toBeGreaterThan(Date.now() + 60_000);
     expect(mapService.mergeMapMarkers2).toHaveBeenCalledWith(1, expect.arrayContaining([
-      expect.objectContaining({ 名称: '活动' }),
+      expect.objectContaining({ name: '活动' }),
     ]));
-    expect(mapService.lastMergedMarkers2.some((item: any) => (item.名称 ?? item.name) === '活动')).toBe(true);
+    expect(mapService.lastMergedMarkers2.some((item: any) => item.name === '活动')).toBe(true);
     expect((combatSystem.adminAttackMap as jest.Mock).mock.calls.length).toBe(0);
     expect(loop.hasPendingRound(1)).toBe(true);
 
@@ -143,8 +143,9 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
 
   it('triggerByPlayerAction：隐匿模式玩家不惊动怪物（原版 L160 隐匿攻击豁免）', async () => {
     const { loop, combatSystem } = buildLoopService();
+    // 隐匿模式 buff 走规范键 {name, expireAt}（field-contract 增益域）
     const player = makePlayer({
-      buffs: JSON.stringify([{ 名称: '隐匿模式', 有效期至: Date.now() + 60_000 }]),
+      buffs: JSON.stringify([{ name: '隐匿模式', expireAt: Date.now() + 60_000 }]),
     });
     const map = { id: 1, mapIndex: 1, markers2: '[]' };
     await loop.triggerByPlayerAction(2, 3, { player, map });

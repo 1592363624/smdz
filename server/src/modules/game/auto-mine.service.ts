@@ -80,7 +80,7 @@ export class AutoMineService {
       const estimateText = this.formatDrops(estimates) || '暂无可产出资源';
       const vehicleName = String(player.name || '你');
       const prefix = alphaCore && context.vehicle
-        ? `${vehicleName}的${context.vehicle.name ?? context.vehicle.名称 ?? '载具'}`
+        ? `${vehicleName}的${context.vehicle.name ?? '载具'}`
         : vehicleName;
       return `${prefix}开始自动开采，预计每小时产出：${estimateText}`;
     });
@@ -111,7 +111,7 @@ export class AutoMineService {
 
       const settlement = await this.settle(userId, context, mode, startedAt, nowMs, true);
       const vehicleName = alphaCore && context.vehicle
-        ? `${player.name || '冒险者'}的${context.vehicle.name ?? context.vehicle.名称 ?? '载具'}`
+        ? `${player.name || '冒险者'}的${context.vehicle.name ?? '载具'}`
         : (player.name || '冒险者');
       return `${vehicleName}自动开采了${this.formatDuration(settlement.elapsedSeconds)}，炸出了${settlement.text || '暂无资源'}`;
     });
@@ -171,7 +171,7 @@ export class AutoMineService {
     const vehicles = this.parseArray(map.vehicles);
     const vehicleKey = String(player.vehicle ?? '');
     const vehicle = vehicleKey
-      ? vehicles.find((candidate: any) => [candidate?.id, candidate?.编号, candidate?.vehicleId]
+      ? vehicles.find((candidate: any) => [candidate?.id, candidate?.vehicleId]
         .some((value) => String(value ?? '') === vehicleKey))
       : undefined;
     const partNames = this.getVehiclePartNames(vehicle);
@@ -192,8 +192,8 @@ export class AutoMineService {
       .map((value) => String(value)));
     const summons = this.parseArray(map.summons);
     const followerCount = summons.filter((summon: any) => ownerIds.has(String(
-      summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? '',
-    )) && Number(summon?.hp ?? summon?.当前生命 ?? 1) > 0).length;
+      summon?.ownerQQ ?? summon?.owner ?? '',
+    )) && Number(summon?.hp ?? 1) > 0).length;
 
     return {
       playerData,
@@ -211,10 +211,10 @@ export class AutoMineService {
     if (!map) return `${player?.name || '冒险者'}不在任何地图上`;
     if (this.isInstanceMap(map)) return `${player?.name || '冒险者'}不能在副本里干这个`;
     if (!vehicle) return `${player?.name || '冒险者'}需要驾驶载具`;
-    const currentHp = Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0);
+    const currentHp = Number(vehicle.currentHp ?? 0);
     if (currentHp <= 0) return `${player?.name || '冒险者'}载具需要“维修”`;
     if (starting && collector === 0) {
-      return `${player?.name || '冒险者'}${vehicle.name ?? vehicle.名称 ?? '载具'}需要安装激光采集器、行星解裂器或者引力调频器`;
+      return `${player?.name || '冒险者'}${vehicle.name ?? '载具'}需要安装激光采集器、行星解裂器或者引力调频器`;
     }
     return '';
   }
@@ -293,9 +293,9 @@ export class AutoMineService {
     for (const resource of resources) {
       const marker = String(resource?.marker ?? resource?.标记 ?? '').trim();
       if (marker) continue;
-      for (const output of this.normalizeOutputs(resource?.outputs ?? resource?.产出)) {
+      for (const output of this.normalizeOutputs(resource?.outputs)) {
         if (!output.name || output.name === '电力') continue;
-        const quantity = output.count * 160 * multiplier * followerFactor
+        const quantity = output.quantity * 160 * multiplier * followerFactor
           * output.chance / 100 * elapsedSeconds / 3600;
         if (!Number.isFinite(quantity) || quantity === 0) continue;
         drops.push({
@@ -308,28 +308,29 @@ export class AutoMineService {
     return drops;
   }
 
-  private normalizeOutputs(value: any): Array<{ name: string; count: number; chance: number }> {
+  private normalizeOutputs(value: any): Array<{ name: string; quantity: number; chance: number }> {
     const raw = this.parseArray(value);
     return raw.map((entry: any) => {
-      const sourceName = String(entry?.name ?? entry?.名称 ?? '').trim();
-      const rawCount = Number(entry?.count ?? entry?.quantity ?? entry?.数量 ?? 0);
-      const hasChance = entry?.chance !== undefined || entry?.几率 !== undefined;
+      const sourceName = String(entry?.name ?? '').trim();
+      // 产出数量只读规范键 quantity（同义旧键 count 已废弃，静态数据与地图条目均已改名）
+      const rawQuantity = Number(entry?.quantity ?? 0);
+      const hasChance = entry?.chance !== undefined;
       const qualityMatch = sourceName.match(/^(.*?)([edcbasx])$/i);
       const qualityName = qualityMatch ? qualityMatch[1] : sourceName;
       const compact = qualityName.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
       if (!hasChance && compact) {
         return {
           name: compact[1].trim(),
-          count: Number(compact[2]),
-          chance: Number.isFinite(rawCount) ? rawCount : 100,
+          quantity: Number(compact[2]),
+          chance: Number.isFinite(rawQuantity) ? rawQuantity : 100,
         };
       }
       return {
         name: qualityName,
-        count: Number.isFinite(rawCount) ? rawCount : 0,
-        chance: hasChance ? Number(entry?.chance ?? entry?.几率 ?? 0) : 100,
+        quantity: Number.isFinite(rawQuantity) ? rawQuantity : 0,
+        chance: hasChance ? Number(entry?.chance ?? 0) : 100,
       };
-    }).filter((entry) => entry.name && Number.isFinite(entry.count) && Number.isFinite(entry.chance));
+    }).filter((entry) => entry.name && Number.isFinite(entry.quantity) && Number.isFinite(entry.chance));
   }
 
   private formatDrops(drops: any[]): string {
@@ -383,14 +384,14 @@ export class AutoMineService {
     const names: string[] = [];
     const visit = (part: any): void => {
       if (!part) return;
-      const name = String(part?.name ?? part?.名称 ?? '').trim();
+      const name = String(part?.name ?? '').trim();
       if (name) names.push(name);
-      for (const inner of this.parseArray(part?.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置)) {
+      for (const inner of this.parseArray(part?.builtinParts ?? part?.builtin ?? part?.内置)) {
         visit(inner);
       }
     };
-    for (const part of this.parseArray(vehicle.parts ?? vehicle.零件)) visit(part);
-    for (const part of this.parseArray(vehicle.builtinParts ?? vehicle.内置零件)) visit(part);
+    for (const part of this.parseArray(vehicle.parts)) visit(part);
+    for (const part of this.parseArray(vehicle.builtinParts)) visit(part);
     return names;
   }
 }

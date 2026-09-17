@@ -1,6 +1,7 @@
 import { FamiliarSystemService } from '../src/modules/game/familiar-system.service';
 import { CombatSystemService } from '../src/modules/game/combat-system.service';
 import { CombatStateService } from '../src/modules/game/combat-state.service';
+import { normalizeEntryList } from '../src/modules/game/field-contract.util';
 
 function parseJson<T>(value: any, fallback: T): T {
   if (value === undefined || value === null) return fallback;
@@ -64,7 +65,14 @@ function makeCaptureFixture(feed: { quantity?: number; count?: number } = { quan
       backpack: parseJson(player.backpack, []),
     })),
     safeJsonParse: jest.fn(parseJson),
-    getBackpackItems: jest.fn((p: any) => parseJson(p.backpack, [])),
+    // 模拟真实 PlayerService 读档边界：背包容器先过 field-contract 归一化器
+    // （旧存档 count/数量 → quantity），业务代码只读规范键。
+    getBackpackItems: jest.fn((p: any) => {
+      const items = parseJson(p.backpack, []);
+      normalizeEntryList(items, 'item');
+      p.backpack = items;
+      return items;
+    }),
     savePlayer: jest.fn(async () => undefined),
   };
   const mapService: any = {
@@ -141,13 +149,13 @@ describe('GameMonster 捕捉闭环', () => {
     expect(result).toContain('被设置为捕捉模式');
     const buffs = JSON.parse(fixture.monster.buffs);
     expect(buffs).toEqual(expect.arrayContaining([
-      expect.objectContaining({ 名称: '捕捉模式', 是否叠加时间: false }),
+      expect.objectContaining({ name: '捕捉模式', stackTime: false }),
     ]));
     expect(fixture.mapService.updateMonsterFields).toHaveBeenCalledWith(
       7,
       501,
       expect.objectContaining({ buffs: expect.arrayContaining([
-        expect.objectContaining({ 名称: '捕捉模式', 是否叠加时间: false }),
+        expect.objectContaining({ name: '捕捉模式', stackTime: false }),
       ]) }),
     );
   });
@@ -170,6 +178,7 @@ describe('GameMonster 捕捉闭环', () => {
     { field: 'quantity' as const, label: 'quantity' },
     { field: 'count' as const, label: 'count' },
   ])('捕捉成功兼容饲料 $label 字段并保留小数余量', async ({ field }) => {
+    // count 为旧存档写法：经 getBackpackItems 模拟的读档边界归一化为 quantity 后被正常读取
     const fixture = makeCaptureFixture({ [field]: 2 });
 
     const result = await fixture.service.capturePet(11, 'capture', '测试史莱姆');
@@ -187,13 +196,14 @@ describe('GameMonster 捕捉闭环', () => {
     }));
     expect(summons[0].qq).toMatch(/g$/);
     const backpack = parseJson(fixture.player.backpack, []);
-    expect(backpack).toEqual([{ name: '饲料', [field]: 0.5 }]);
+    // 写侧只写规范键 quantity（count/数量 镜像由 setItemQuantity 删除）
+    expect(backpack).toEqual([{ name: '饲料', quantity: 0.5 }]);
     expect(fixture.playerService.savePlayer).toHaveBeenCalled();
     expect(fixture.taskService.advance).toHaveBeenCalledWith(11, '捕捉', 1);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(11, '捕捉测试史莱姆', 1);
   });
 
-  it('特殊宠物捕捉也兼容 count 字段，并在保存时保留捕捉物与奖励', async () => {
+  it('特殊宠物捕捉也兼容 count 旧存档（读档边界归一化），并在保存时保留捕捉物与奖励', async () => {
     const fixture = makeCaptureFixture({ count: 100 });
     fixture.map.summons = JSON.stringify([{ name: '花园宝宝', type: '花园宝宝' }]);
     jest.spyOn(Math, 'random').mockReturnValue(0);
@@ -202,11 +212,10 @@ describe('GameMonster 捕捉闭环', () => {
 
     expect(result).toContain('紧紧跟着你');
     const backpack = parseJson(fixture.player.backpack, []);
-    // 入包统一走 item-normalize 出口（2026-09-10 收敛）：会额外写 type（静态定义/兜底资源）
-    // 与 quantity 双字段镜像，故此处用 objectContaining 断言关键字段
+    // 入包统一走 item-normalize 唯一出口：只写规范键 quantity（type 由静态定义收敛）
     expect(backpack).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: '花园宝宝', count: 1 }),
-      expect.objectContaining({ name: '木头', count: 1 }),
+      expect.objectContaining({ name: '花园宝宝', quantity: 1 }),
+      expect.objectContaining({ name: '木头', quantity: 1 }),
     ]));
     expect(backpack.some((item: any) => item.name === '饲料')).toBe(false);
     expect(JSON.parse(fixture.map.summons)).toHaveLength(0);
@@ -249,7 +258,8 @@ describe('捕捉模式战斗层', () => {
       maxArmor: 20,
       markers: '{}',
       markers2: '[]',
-      buffs: JSON.stringify([{ 名称: '捕捉模式', 有效期至: Date.now() + 600000 }]),
+      // 捕捉模式增益走规范键 {name, expireAt}（战斗层 hasActiveMonsterEntry 按规范键判定）
+      buffs: JSON.stringify([{ name: '捕捉模式', expireAt: Date.now() + 600000 }]),
       bonus: JSON.stringify({ 麻醉: 100, 当前麻醉: 0 }),
       baseBonus: JSON.stringify({ 麻醉: 100 }),
       weapons: '[]',

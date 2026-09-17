@@ -185,17 +185,17 @@ export class RankingCommandService {
     for (const map of maps) {
       for (const pet of asJsonValue<any[]>(map.summons, [])) {
         // 原版 L9681：属性.生命>0 才入榜
-        if (Number(pet?.hp ?? pet?.当前生命 ?? 0) <= 0) continue;
+        if (Number(pet?.hp ?? 0) <= 0) continue;
         const petKey = String(pet?.qq ?? pet?.QQ ?? '');
         if (!petKey || seen.has(petKey)) continue;
         seen.add(petKey);
-        const markers = asJsonValue<Record<string, number>>(pet?.markers ?? pet?.标记 ?? {}, {});
+        const markers = asJsonValue<Record<string, number>>(pet?.markers, {});
         const value = this.combatState.getAchievementProficiency(markers, kind);
         // 原版 L9704：宠物最高伤害为 0 不入榜
         if (kind === '最高伤害' && value === 0) continue;
         const ownerName =
-          nameByOwner.get(String(pet?.ownerId ?? pet?.归属 ?? pet?.ownerQQ ?? '')) || '未知';
-        entries.push({ name: `${String(pet?.name ?? pet?.名称 ?? '使魔')}(${ownerName})`, value });
+          nameByOwner.get(String(pet?.ownerId ?? pet?.ownerQQ ?? '')) || '未知';
+        entries.push({ name: `${String(pet?.name ?? '使魔')}(${ownerName})`, value });
       }
     }
     return this.formatRankingText(
@@ -284,7 +284,7 @@ export class RankingCommandService {
         for (const map of maps) {
           const summons = asJsonValue<any[]>(map.summons, []);
           for (const pet of summons) {
-            const owner = String(pet.ownerId ?? pet.归属 ?? '');
+            const owner = String(pet.ownerId ?? pet.ownerQQ ?? '');
             if (owner !== ownerKey) continue;
             const petPower = Number(
               pet.combatPower ?? pet.战斗力
@@ -305,7 +305,7 @@ export class RankingCommandService {
             // 非家园地图仅统计玩家载具零件
             const vehicles = asJsonValue<any[]>(map.vehicles, []);
             for (const v of vehicles) {
-              const owner = String(v.ownerId ?? v.归属 ?? '');
+              const owner = String(v.ownerId ?? v.owner ?? '');
               if (owner !== ownerKey) continue;
               this.support.pushVehicleParts(items, v);
             }
@@ -316,7 +316,7 @@ export class RankingCommandService {
           const vehicles = asJsonValue<any[]>(map.vehicles, []);
           items.push(...mapItems, ...buildings);
           for (const v of vehicles) {
-            const owner = String(v.ownerId ?? v.归属 ?? '');
+            const owner = String(v.ownerId ?? v.owner ?? '');
             if (owner !== ownerKey) continue;
             this.support.pushVehicleParts(items, v);
           }
@@ -373,14 +373,14 @@ export class RankingCommandService {
     for (const map of maps) {
       const vehicles = asJsonValue<any[]>(map.vehicles, []);
       for (const v of vehicles) {
-        const owner = String(v.ownerId ?? v.归属 ?? '');
+        const owner = String(v.ownerId ?? v.owner ?? '');
         // 原版 L9718：去数字(归属)=="" 才计入（排除怪物/NPC载具）
         if (owner.replace(/\D/g, '') === '') continue;
         if (!nameByOwner.has(owner)) continue;
         const parts: any[] = [];
         this.support.pushVehicleParts(parts, v);
         const value = await this.itemService.calculateValue(parts as any);
-        entries.push({ name: `${String(v.name ?? v.名称 ?? '载具')}(${nameByOwner.get(owner)})`, value });
+        entries.push({ name: `${String(v.name ?? '载具')}(${nameByOwner.get(owner)})`, value });
       }
     }
 

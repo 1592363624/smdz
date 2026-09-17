@@ -149,7 +149,7 @@ export class ShopTradeService {
           return `背包中没有【${itemName}】`;
         }
 
-        const count = item.count || item.quantity || 1;
+        const count = item.quantity ?? 1;
 
         // 从背包移除物品
         const removed = await this.playerService.removeFromBackpack(userId, itemName, 1);
@@ -295,8 +295,8 @@ export class ShopTradeService {
       const mapMarkers = asJsonValue<any>(observedMap.markers, {});
       const readMarker = (name: string): any => {
         if (Array.isArray(mapMarkers)) {
-          const marker = mapMarkers.find((item: any) => (item?.name ?? item?.名称) === name);
-          return marker?.value ?? marker?.数值 ?? marker?.count ?? 0;
+          const marker = mapMarkers.find((item: any) => item?.name === name);
+          return marker?.value ?? 0;
         }
         return mapMarkers?.[name];
       };
@@ -312,8 +312,8 @@ export class ShopTradeService {
       const markers2 = asJsonValue<any[]>(actor.markers2, []);
       let activeCooldown = 0;
       const validMarkers = markers2.filter((marker: any) => {
-        const markerName = marker?.name ?? marker?.名称 ?? marker?.key;
-        const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+        const markerName = marker?.name ?? marker?.key;
+        const rawExpire = Number(marker?.expireAt ?? 0);
         const expireSec = rawExpire > 1e12 ? rawExpire / 1000 : rawExpire;
         if (markerName === tradeKey && expireSec > nowSec) activeCooldown = expireSec;
         return !markerName || markerName !== tradeKey || expireSec <= nowSec;
@@ -330,12 +330,12 @@ export class ShopTradeService {
           : [];
       const summons = this.support.parseJsonArray(observedMap.summons);
       const hasSilver = summons.some((unit: any) =>
-        (unit?.name ?? unit?.名称 ?? unit?.type ?? unit?.类型) === '银',
+        (unit?.name ?? unit?.type) === '银',
       );
       const tradeItems = new Map<string, number>();
       for (const item of outputItems) {
-        const name = String(item?.name ?? item?.名称 ?? '');
-        const dailyQuantity = Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0);
+        const name = String(item?.name ?? '');
+        const dailyQuantity = Number(item?.quantity ?? 0);
         if (!name || name === '电力' || !Number.isFinite(dailyQuantity) || dailyQuantity <= 0) continue;
         let amount = dailyQuantity * 0.02;
         if (hasSilver && amount > 0 && amount < 1) amount = 1;
@@ -347,7 +347,7 @@ export class ShopTradeService {
         // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 两位小数收敛）
         mergeBackpackItem(
           backpack,
-          { name, count: amount, quantity: amount },
+          { name, quantity: amount },
           lookupFromStaticData(this.staticData),
         );
       };
@@ -411,7 +411,7 @@ export class ShopTradeService {
     const isDetail = /^(查看|detail|info)/i.test(requested);
     const isPurchase = /^(购买|buy)/i.test(requested);
     const indexByName = !numeric && (isPurchase || isDetail)
-      ? merchantBackpack.findIndex((item: any) => (item?.name || item?.名称) === requested.replace(/^(购买|查看|buy|detail|info)\s*/i, '').trim()) + 1
+      ? merchantBackpack.findIndex((item: any) => item?.name === requested.replace(/^(购买|查看|buy|detail|info)\s*/i, '').trim()) + 1
       : 0;
     const itemIndex = indexByName || requestedNumber;
     const numericPurchase = !isDetail && !isPurchase && requestedNumber > 0;
@@ -634,7 +634,7 @@ export class ShopTradeService {
       return `你的背包中没有【${itemName}】`;
     }
 
-    const actualCount = Math.min(count, senderItem.count || senderItem.quantity || 1);
+    const actualCount = Math.min(count, senderItem.quantity ?? 1);
     if (actualCount <= 0) {
       return `数量无效`;
     }
@@ -663,7 +663,7 @@ export class ShopTradeService {
     if (!map) return null;
     const summons = this.support.parseJsonArray(map.summons);
     const index = summons.findIndex((summon: any) =>
-      (summon?.name ?? summon?.名称) === '行商',
+      summon?.name === '行商',
     );
     return index < 0 ? null : { summons, index };
   }
@@ -695,7 +695,7 @@ export class ShopTradeService {
     let activeExpire = 0;
     for (let i = markers2.length - 1; i >= 0; i--) {
       const marker = markers2[i];
-      const name = marker?.名称 ?? marker?.name ?? '';
+      const name = marker?.name ?? '';
       const expireMs = toExpireMs(marker);
       if (expireMs <= now && !String(name).startsWith('刷新')) {
         markers2.splice(i, 1);
@@ -724,9 +724,9 @@ export class ShopTradeService {
 
 
   formatMerchantItem(item: any, includeQuantity = false, includeEffect = true): string {
-    const name = item?.name ?? item?.名称 ?? '';
+    const name = item?.name ?? '';
     let effect = '';
-    if ((item?.type ?? item?.类型) === '装备' && item?.data) {
+    if (item?.type === '装备' && item?.data) {
       const parsed = this.itemService.parseEquipment(item as any);
       if (parsed.specialEffect > 0) {
         const weapon = this.fusion.isFusionWeapon(item);
@@ -738,7 +738,7 @@ export class ShopTradeService {
         effect = effectRow?.name || effectRow?.description || `特效${parsed.specialEffect}`;
       }
     }
-    if ((item?.type ?? item?.类型) === '装备') {
+    if (item?.type === '装备') {
       return `${name}${includeEffect && effect ? `【${effect}】` : ''}`;
     }
     return `${name}${includeQuantity ? `x${this.support.round2Text(this.support.itemQuantity(item))}` : ''}`;
@@ -752,7 +752,7 @@ export class ShopTradeService {
 
   hasEnoughResources(backpack: any[], costs: any[]): boolean {
     return costs.every((cost) => {
-      const item = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === cost.name);
+      const item = backpack.find((entry: any) => entry?.name === cost.name);
       // 原版按双精度数值比较；容忍 JS 二进制浮点在 50*10/11*1.1 等边界上的极小误差。
       const epsilon = Math.max(1e-9, Math.abs(cost.quantity) * 1e-12);
       return item && this.support.itemQuantity(item) + epsilon >= cost.quantity;
@@ -826,11 +826,11 @@ export class ShopTradeService {
     if (!this.hasEnoughResources(backpack, costs)) {
       const missing = costs
         .filter((cost) => {
-          const item = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === cost.name);
+          const item = backpack.find((entry: any) => entry?.name === cost.name);
           return !item || this.support.itemQuantity(item) < cost.quantity;
         })
         .map((cost) => {
-          const item = backpack.find((entry: any) => (entry?.name ?? entry?.名称) === cost.name);
+          const item = backpack.find((entry: any) => entry?.name === cost.name);
           return `#换行需要${cost.name}x${this.support.round2Text(cost.quantity)}，你只有${this.support.round2Text(this.support.itemQuantity(item))}`;
         }).join('');
       return `${player.name}${missing}`;
@@ -861,7 +861,7 @@ export class ShopTradeService {
   }
 
   /**
-   * 从背包数组扣除指定数量物品（按 count 字段，不足则清零移除）
+   * 从背包数组扣除指定数量物品（数量只读规范键 quantity，不足则清零移除）
    * 对应原版：获得物品() 的消耗逻辑
    */
 
@@ -894,12 +894,13 @@ export class ShopTradeService {
       lines.push(``);
       lines.push(`📥 需求材料:`);
       for (const req of reqs) {
-        lines.push(`  ${req.name} ×${req.count || req.quantity || 1}`);
+        // 配方材料/产出数量只读规范键 quantity（同义旧键 count 已废弃）
+        lines.push(`  ${req.name} ×${req.quantity ?? 1}`);
       }
       lines.push(``);
       lines.push(`📤 产出物品:`);
       for (const out of outputs) {
-        lines.push(`  ${out.name} ×${out.count || out.quantity || 1}`);
+        lines.push(`  ${out.name} ×${out.quantity ?? 1}`);
       }
       if (recipe.expGain > 0) lines.push(`\n经验奖励: ${recipe.expGain}`);
       return lines.join('\n');
@@ -1003,17 +1004,17 @@ export class ShopTradeService {
     return this.formatReverseSingleResult(name, item, result, reverse);
   }
 
-  /** 解析玩家.reverse；条目结构对齐原版 技能={名称,数值}。 */
+  /** 解析玩家.reverse；条目结构对齐原版「技能」数组，字段名为规范英文 { name, value }。 */
 
   readReverseProficiencies(player: any): Array<{ name: string; value: number }> {
     const raw = typeof player.reverse === 'string'
       ? asJsonValue<any[]>(player.reverse, [])
       : (Array.isArray(player.reverse) ? player.reverse : []);
     return raw
-      .filter((entry: any) => entry && (entry.name ?? entry.名称))
+      .filter((entry: any) => entry && entry.name)
       .map((entry: any) => ({
-        name: String(entry.name ?? entry.名称),
-        value: Number(entry.value ?? entry.数值 ?? 0),
+        name: String(entry.name),
+        value: Number(entry.value ?? 0),
       }));
   }
 
@@ -1039,7 +1040,7 @@ export class ShopTradeService {
 
 
   reverseValue(item: any): number {
-    const prefix = String(item?.data ?? item?.数据 ?? '').charAt(0);
+    const prefix = String(item?.data ?? '').charAt(0);
     if (prefix === 'x') return 1;
     if (prefix === 's') return 0.2;
     if (prefix === 'a') return 0.1;
@@ -1057,7 +1058,7 @@ export class ShopTradeService {
   ): string {
     const itemName = this.support.itemName(item);
     const prefix = itemName.substring(0, 6);
-    if (Number(item?.durability ?? item?.耐久 ?? 0) === 1) {
+    if (Number(item?.durability ?? 0) === 1) {
       return playerName ? `${playerName}这个装备被锁定` : 'locked';
     }
     if (prefix === '植入体') return playerName ? `${playerName}植入体不可以` : 'implant';

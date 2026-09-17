@@ -315,7 +315,7 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
     const nowSec = Date.now() / 1000;
     const burned = makeMonster({
       hp: 100, shield: 0, armor: 0,
-      buffs: JSON.stringify([{ 名称: 'sa', 有效期至: nowSec + 20 }]),
+      buffs: JSON.stringify([{ name: 'sa', expireAt: nowSec + 20 }]),
       markers: JSON.stringify({ 'sa上次结算': Date.now() - 4000 }),
     });
     mocks.monstersByMap.set(1, [burned]);
@@ -334,7 +334,7 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
     // ---- 灼烧击杀路径：低血量怪物 ----
     const dying = makeMonster({
       id: 1002, hp: 30, shield: 0, armor: 0,
-      buffs: JSON.stringify([{ 名称: 'sa', 有效期至: nowSec + 20 }]),
+      buffs: JSON.stringify([{ name: 'sa', expireAt: nowSec + 20 }]),
       markers: JSON.stringify({ 'sa上次结算': Date.now() - 4000 }),
     });
     mocks.monstersByMap.set(1, [dying]);

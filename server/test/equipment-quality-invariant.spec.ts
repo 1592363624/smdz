@@ -25,7 +25,7 @@ function push(item: any): any[] {
 
 describe('装备品质码不变量（入包唯一出口）', () => {
   it('无 data 的装备条目 → 补最低档 E', () => {
-    const bp = push({ name: '冰雹', type: '装备', count: 1 });
+    const bp = push({ name: '冰雹', type: '装备', quantity: 1 });
     expect(bp).toHaveLength(1);
     expect(bp[0].data).toBe('e');
     expect(bp[0].type).toBe('装备');
@@ -41,10 +41,10 @@ describe('装备品质码不变量（入包唯一出口）', () => {
     expect(bp[0].data).toBe('e!bx3');
   });
 
-  it('中文旧字段「数据」同步补齐（双字段镜像不分裂）', () => {
-    const bp = push({ name: '冰雹', type: '装备', 数据: '' });
+  it('空 data 的装备条目 → 补最低档 E（不写中文镜像）', () => {
+    const bp = push({ name: '冰雹', type: '装备', data: '' });
     expect(bp[0].data).toBe('e');
-    expect(bp[0].数据).toBe('e');
+    expect(bp[0].数据).toBeUndefined();
   });
 
   it('装备不参与合并：同名两件各自入包（词条唯一）', () => {
@@ -55,11 +55,12 @@ describe('装备品质码不变量（入包唯一出口）', () => {
     expect(bp.map((i) => i.data)).toEqual(['e', 's']);
   });
 
-  it('非装备条目不受影响（仍按名称合并数量）', () => {
+  it('非装备条目不受影响（仍按名称合并数量，只写规范键 quantity）', () => {
     const bp: any[] = [];
-    mergeBackpackItem(bp, { name: '木头', count: 2 }, LOOKUP);
-    mergeBackpackItem(bp, { name: '木头', count: 3 }, LOOKUP);
+    mergeBackpackItem(bp, { name: '木头', quantity: 2 }, LOOKUP);
+    mergeBackpackItem(bp, { name: '木头', quantity: 3 }, LOOKUP);
     expect(bp).toHaveLength(1);
-    expect(bp[0].count).toBe(5);
+    expect(bp[0].quantity).toBe(5);
+    expect(bp[0].count).toBeUndefined();
   });
 });

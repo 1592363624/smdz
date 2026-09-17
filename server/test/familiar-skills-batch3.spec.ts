@@ -123,21 +123,21 @@ describe('使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮
         markers: JSON.stringify({ 花园猫技能熟练度: 16 }), // 技能等级 5
         equipment: JSON.stringify([{ name: '库洛牌' }]),
       }),
-      mapSummons: [{ qq: '怪物1g', 当前生命: 5 }, { qq: '召唤物2', 当前生命: 5 }],
+      mapSummons: [{ qq: '怪物1g', hp: 5 }, { qq: '召唤物2', hp: 5 }],
     });
     const result = await service.executeSkill(42, '啾啾猫猫');
 
     expect(result).toContain('猫猫，想让大家变得幸福');
     // 地图标记3：时长 1.25*30=37.5 秒、强度 50+5*5=75
     const mapMarkers2 = parseJson(map.markers2, []);
-    const meow = mapMarkers2.find((m: any) => m.名称 === '啾啾猫猫');
+    const meow = mapMarkers2.find((m: any) => m.name === '啾啾猫猫');
     expect(meow).toBeTruthy();
-    expect(meow.强度).toBe(75);
-    expect(meow.有效期至 - Date.now()).toBeGreaterThan(37 * 1000);
+    expect(meow.strength).toBe(75);
+    expect(meow.expireAt - Date.now()).toBeGreaterThan(37 * 1000);
     // 怪物型（QQ 以 g 结尾）召唤物 +1 生命，非 g 结尾不变
     const summons = parseJson(map.summons, []);
-    expect(summons.find((s: any) => s.qq === '怪物1g').当前生命).toBe(6);
-    expect(summons.find((s: any) => s.qq === '召唤物2').当前生命).toBe(5);
+    expect(summons.find((s: any) => s.qq === '怪物1g').hp).toBe(6);
+    expect(summons.find((s: any) => s.qq === '召唤物2').hp).toBe(5);
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '使用技能');
   });
 
@@ -147,7 +147,7 @@ describe('使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮
 
     const { service, player, map } = makeSkillsService({
       player: makePlayer({ type: '古月娜', hp: 50, maxHp: 100 }),
-      mapSummons: [{ type: '银龙', qq: '怪物9g', 当前生命: 10, maxHp: 200 }, { type: '狼', qq: '怪物8g', 当前生命: 10, maxHp: 200 }],
+      mapSummons: [{ type: '银龙', qq: '怪物9g', hp: 10, maxHp: 200 }, { type: '狼', qq: '怪物8g', hp: 10, maxHp: 200 }],
     });
     const result = await service.executeSkill(42, '银龙附体');
 
@@ -159,8 +159,8 @@ describe('使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮
     expect(dragon.expireAt - Date.now() / 1000).toBeLessThanOrEqual(30); // 无库洛牌 → 30 秒
     // 同图银龙召唤物回血 30%，非银龙不变
     const summons = parseJson(map.summons, []);
-    expect(summons.find((s: any) => s.type === '银龙').当前生命).toBe(70); // 10 + 200*0.3
-    expect(summons.find((s: any) => s.type === '狼').当前生命).toBe(10);
+    expect(summons.find((s: any) => s.type === '银龙').hp).toBe(70); // 10 + 200*0.3
+    expect(summons.find((s: any) => s.type === '狼').hp).toBe(10);
   });
 
   it('光翼：绝灭天使门禁、羽毛不足拦截、满 10 片时消耗并写 15 秒增益', async () => {
@@ -216,7 +216,7 @@ describe('使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮
     // 光盾有效期前移 30 秒
     const lightShield = markers2.find((m: any) => m.name === '光盾');
     expect(lightShield.expireAt - Date.now()).toBeLessThanOrEqual(70 * 1000);
-    expect(markers2.find((m: any) => m.名称 === 'hd')).toBeTruthy();
+    expect(markers2.find((m: any) => m.name === 'hd')).toBeTruthy();
   });
 
   it('日轮：绝灭天使门禁文本与冷却键=绝灭天使技能冷却', async () => {
@@ -255,7 +255,7 @@ describe('使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮
     const buffs = parseJson(player.buffs, []);
     expect(buffs.find((b: any) => b.name === '安宝乖乖')).toBeTruthy();
     const mapMarkers2 = parseJson(map.markers2, []);
-    expect(mapMarkers2.find((m: any) => m.名称 === '烟雾弹')).toBeTruthy();
+    expect(mapMarkers2.find((m: any) => m.name === '烟雾弹')).toBeTruthy();
     const markers2 = parseJson(player.markers2, []);
     expect(markers2.find((m: any) => m.name === '安克雷奇技能冷却')).toBeTruthy();
   });
@@ -284,9 +284,9 @@ describe('使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮
 
     expect(result).toBe('砸瓦鲁多！');
     const mapMarkers2 = parseJson(map.markers2, []);
-    const phantom = mapMarkers2.find((m: any) => m.名称 === '幻时');
+    const phantom = mapMarkers2.find((m: any) => m.name === '幻时');
     expect(phantom).toBeTruthy();
-    expect(phantom.有效期至 - Date.now()).toBeLessThanOrEqual(20 * 1000);
+    expect(phantom.expireAt - Date.now()).toBeLessThanOrEqual(20 * 1000);
     const markers2 = parseJson(player.markers2, []);
     expect(markers2.find((m: any) => m.name === '女仆技能冷却')).toBeTruthy();
     expect(service.taskService.advance).toHaveBeenCalledWith(42, '使用技能');

@@ -156,14 +156,14 @@ export class HomeBuildService {
 
     // 防御建筑（加成.攻击 != 0）：原版 _主程序.ecode L1975-2004 三分支之一。
     // 只能安装到「家园名前线」地图，上限 = 前线等级 + 3（与原版 显示熟练度等级(标记,"前线")+3 一致）。
-    const buildingBonus = asJsonValue<any>(building.bonus ?? building.加成 ?? {}, {});
+    const buildingBonus = asJsonValue<any>(building.bonus ?? {}, {});
     if (Number(buildingBonus.攻击 ?? 0) !== 0) {
       if (map.name !== `${houseName}前线`) {
         return `${player.name}防御类建筑只能安装${houseName}前线`;
       }
       const frontlineBuildings = asJsonValue<any[]>(map.buildings, []);
       const installed = frontlineBuildings.reduce(
-        (sum: number, item: any) => sum + Number(item?.count ?? item?.数量 ?? 1),
+        (sum: number, item: any) => sum + Number(item?.quantity ?? 1),
         0,
       );
       const frontLevel = Number(this.playerService.getMarkerValue(markers, '前线') ?? 0) || 0;
@@ -181,8 +181,9 @@ export class HomeBuildService {
     }
 
     const materials = asJsonValue<any[]>(building.materials, []);
+    // 注：materials 来自静态 buildings.json，条目数量只读规范键 quantity（同义旧键 count 已废弃）
     const isProductionBuilding = materials.some((item: any) =>
-      Number(item?.quantity ?? item?.count ?? item?.数量 ?? 0) !== 0,
+      Number(item?.quantity ?? 0) !== 0,
     );
     const isYard = map.name === houseName;
     const isIndoor = map.name === `${houseName}屋内`;
@@ -223,7 +224,7 @@ export class HomeBuildService {
 
     const backpack = this.playerService.getBackpackItems(player);
     const available = Math.floor(this.support.itemQuantity(
-      backpack.find((item: any) => (item?.name ?? item?.名称) === '燃料'),
+      backpack.find((item: any) => item?.name === '燃料'),
     ));
     const count = Math.min(Math.max(1, Math.floor(requestedCount)), available);
     if (count <= 0) return `${player.name || '冒险者'}你没有燃料`;
@@ -249,7 +250,7 @@ export class HomeBuildService {
 
     const available = this.playerService.getBackpackItems(player)
       .filter((item: any) => item.name === buildingName)
-      .reduce((sum: number, item: any) => sum + Number(item.count ?? item.quantity ?? 0), 0);
+      .reduce((sum: number, item: any) => sum + Number(item.quantity ?? 0), 0);
     const assembled = Math.min(Math.max(1, Math.floor(count)), Math.floor(available));
     if (assembled <= 0) return `背包中没有【${buildingName}】`;
     if (!await this.playerService.removeFromBackpack(userId, buildingName, assembled)) {
@@ -259,11 +260,10 @@ export class HomeBuildService {
     const parts = asJsonValue<any[]>(vehicle.parts, []);
     const existing = parts.find((part: any) => part.name === buildingName);
     if (existing) {
-      const next = Number(existing.quantity ?? existing.count ?? 0) + assembled;
-      existing.quantity = next;
-      existing.count = next;
+      // 数量只写规范键 quantity（count 等历史别名已由字段规范闸口收敛删除）
+      existing.quantity = Number(existing.quantity ?? 0) + assembled;
     } else {
-      parts.push({ name: buildingName, type: '资源', quantity: assembled, count: assembled, partType: -1 });
+      parts.push({ name: buildingName, type: '资源', quantity: assembled, partType: -1 });
     }
     await this.prisma.gameVehicle.update({
       where: { id: vehicle.id },
@@ -431,7 +431,7 @@ export class HomeBuildService {
     }
 
     const available = matching.reduce((sum: number, part: any) => {
-      const quantity = Number(part.quantity ?? part.count ?? 1);
+      const quantity = Number(part.quantity ?? 1);
       return sum + (Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0);
     }, 0);
     if (available <= 0) return `载具【${vehicle.name}】上没有安装【${partName}】`;
@@ -446,15 +446,13 @@ export class HomeBuildService {
         remainingParts.push(part);
         continue;
       }
-      const quantity = Number(part.quantity ?? part.count ?? 1);
+      const quantity = Number(part.quantity ?? 1);
       const storedQuantity = Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0;
       const take = Math.min(storedQuantity, remaining);
       remaining -= take;
       if (take < storedQuantity) {
         const next = { ...part };
-        if (next.quantity !== undefined) next.quantity = storedQuantity - take;
-        else if (next.count !== undefined) next.count = storedQuantity - take;
-        else next.count = storedQuantity - take;
+        next.quantity = storedQuantity - take;
         remainingParts.push(next);
       }
     }
@@ -514,15 +512,11 @@ export class HomeBuildService {
     const buildings = asJsonValue<any[]>(map.buildings, []);
     const items = asJsonValue<any[]>(map.items, []);
     let collection = buildings;
-    let index = collection.findIndex((item: any) =>
-      (item?.name ?? item?.名称) === name,
-    );
+    let index = collection.findIndex((item: any) => item?.name === name);
     // 燃料是原版“院子地面物品”，允许用拆卸快捷指令将其收回背包。
     if (index < 0 && name === '燃料') {
       collection = items;
-      index = collection.findIndex((item: any) =>
-        (item?.name ?? item?.名称) === name,
-      );
+      index = collection.findIndex((item: any) => item?.name === name);
     }
     if (index < 0) return `${player.name || '冒险者'}的${map.name}没有${name}`;
 
@@ -534,23 +528,16 @@ export class HomeBuildService {
     if (removeCount >= available) {
       collection.splice(index, 1);
     } else {
-      const remain = available - removeCount;
-      if (source.quantity !== undefined) {
-        source.quantity = remain;
-        // 地图建筑等双字段条目必须同步 count，避免防御计数/上限读到陈旧值
-        if (source.count !== undefined) source.count = remain;
-      } else {
-        source.count = remain;
-      }
+      // 数量只写规范键 quantity（count 等历史别名已由字段规范闸口收敛删除）
+      source.quantity = available - removeCount;
     }
 
     const backpack = this.playerService.getBackpackItems(player);
     this.support.addItemToCollection(backpack, {
       ...source,
       name,
-      type: source.type ?? source.类型 ?? '资源',
+      type: source.type ?? '资源',
       quantity: removeCount,
-      count: removeCount,
     });
     await this.mapService.updateDynamicFields(map.id, {
       buildings,
@@ -584,10 +571,10 @@ export class HomeBuildService {
     const installed: any[] = [];
     for (let i = backpack.length - 1; i >= 0; i--) {
       const item = backpack[i];
-      const name = item?.name ?? item?.名称 ?? '';
-      const type = item?.type ?? item?.类型 ?? '';
+      const name = item?.name ?? '';
+      const type = item?.type ?? '';
       const definition = this.staticData.getBuildingByName(name);
-      const noPosition = Boolean(definition?.noOccupy ?? definition?.不占 ??
+      const noPosition = Boolean(definition?.noOccupy ??
         (typeof definition?.description === 'string' && definition.description.includes('不占用建筑位置')));
       if (type !== '资源' || name.includes('硅基') || !definition || !noPosition) continue;
       const amount = Math.trunc(this.support.itemQuantity(item));
@@ -642,7 +629,7 @@ export class HomeBuildService {
     await this.playerService.savePlayer(player);
     for (const item of packed) {
       const count = Math.max(1, Math.floor(this.support.itemQuantity(item)));
-      const name = item?.name ?? item?.名称 ?? '';
+      const name = item?.name ?? '';
       await this.support.advanceTask(userId, '拆卸', count);
       if (name) await this.support.advanceTask(userId, `拆卸${name}`, count);
     }
@@ -663,7 +650,7 @@ export class HomeBuildService {
     const resources2 = asJsonValue<any[]>(map.resources2, []);
     // 原版只列出有"产出2"的作物（取数组成员数(产出2) != 0）
     const crops = resources2.filter((r: any) => {
-      const prod2 = this.panel.parseResourceOutputs(r.outputs2 ?? r.产出2 ?? r.production2 ?? r.output2);
+      const prod2 = this.panel.parseResourceOutputs(r.outputs2 ?? r.production2 ?? r.output2);
       return prod2.length > 0;
     });
 
@@ -675,7 +662,7 @@ export class HomeBuildService {
     } else {
       crops.forEach((r: any) => {
         const name = r.name || '未知作物';
-        const count = r.数量 ?? r.quantity ?? r.次数 ?? r.count ?? r.times ?? r.amount ?? '';
+        const count = r.quantity ?? r.times ?? r.amount ?? '';
         lines.push(`  ${name}${count !== '' ? ` ×${count}` : ''}`);
         options.push({ label: name, cmd: `查看 ${name}` });
       });
@@ -825,7 +812,7 @@ export class HomeBuildService {
     }
 
     const backpack = asJsonValue<any[]>(player.backpack, []);
-    const hasSignalGun = backpack.some((item: any) => String(item?.name ?? item?.名称 ?? '') === '信号枪' && this.support.itemQuantity(item) > 0);
+    const hasSignalGun = backpack.some((item: any) => String(item?.name ?? '') === '信号枪' && this.support.itemQuantity(item) > 0);
     if (!hasSignalGun) return `${name}背包中需要有信号枪`;
 
     const markers2 = Array.isArray(playerData.markers2)
@@ -879,7 +866,7 @@ export class HomeBuildService {
     // 扣除至多 count 把信号枪（原版 L6301-6312 逐个删除成员）
     const backpack = asJsonValue<any[]>(player.backpack, []);
     const owned = backpack
-      .filter((item: any) => String(item?.name ?? item?.名称 ?? '') === '信号枪')
+      .filter((item: any) => String(item?.name ?? '') === '信号枪')
       .reduce((sum, item: any) => sum + this.support.itemQuantity(item), 0);
     const removed = Math.min(owned, count);
     if (removed > 0) this.support.deductBackpackItem(backpack, '信号枪', removed);
@@ -896,11 +883,10 @@ export class HomeBuildService {
     await this.mapService.mutateMapFields(map.id, ['resources'], (f) => {
       const resources = f.resources as any[];
       if (!Array.isArray(resources)) return false;
-      const existing = resources.find((r: any) => String(r?.name ?? r?.名称 ?? '') === '货舱');
+      const existing = resources.find((r: any) => String(r?.name ?? '') === '货舱');
       if (existing) {
-        const times = Number(existing.times ?? existing.次数 ?? 0) + 3 * removed;
-        existing.times = times;
-        if (existing.次数 !== undefined) existing.次数 = times;
+        // 次数只写规范键 times（次数等历史别名已由字段规范闸口收敛删除）
+        existing.times = Number(existing.times ?? 0) + 3 * removed;
         return true;
       }
       const template = this.staticData.getAllResources().find((r: any) => String(r?.name ?? '') === '货舱');
@@ -908,7 +894,6 @@ export class HomeBuildService {
         ? JSON.parse(JSON.stringify(template))
         : { name: '货舱', type: '资源', times: 0, outputs: [] };
       cargo.times = 3 * removed;
-      if (cargo.次数 !== undefined) cargo.次数 = 3 * removed;
       resources.push(cargo);
       return true;
     });

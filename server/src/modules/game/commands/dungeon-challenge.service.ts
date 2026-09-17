@@ -123,7 +123,7 @@ export class DungeonChallengeService {
     await this.mapService.updateDynamicFields(frontlineMap.id, {
       summons: generated.summons,
       vehicles: generated.vehicles,
-      markers2: [{ 名称: '活动', 强度: 0, 有效期至: Date.now() + 120000 }],
+      markers2: [{ name: '活动', strength: 0, expireAt: Date.now() + 120000 }],
     });
 
     // 保留现有网页版的战斗模式标记，供自动攻击入口读取；前线波次才是本命令的实际效果。
@@ -170,7 +170,7 @@ export class DungeonChallengeService {
     if (!map) return '你不在任何地图上！';
 
     const liveMonsters: any[] = (await this.mapService.getMapMonsters(map))
-      .filter((monster: any) => Number(monster?.hp ?? monster?.当前生命 ?? 0) > 0);
+      .filter((monster: any) => Number(monster?.hp ?? 0) > 0);
     const configuredNames = this.parseSweepMonsterNames(map);
     // 无静态模板的临时/存量地图保留兼容：从当前存活实例取得类型，
     // 正式地图仍严格以静态地图怪物列表为扫荡池。
@@ -215,7 +215,7 @@ export class DungeonChallengeService {
     // 请求次数只消耗对应活力，实际奖励数量还要乘地图的怪物数量。
     const monstersPerSweep = String(map.name || '') === '四圣祭坛'
       ? 1
-      : Math.max(1, Math.floor(Number(map.monsterCount ?? map.怪物数量 ?? 1) || 1));
+      : Math.max(1, Math.floor(Number(map.monsterCount ?? 1) || 1));
     const totalMonsterCount = actualCount * monstersPerSweep;
 
     for (let i = 0; i < totalMonsterCount; i++) {
@@ -243,9 +243,9 @@ export class DungeonChallengeService {
         ? this.combatSystem.generateDrops(sweepMonster, dropRateMultiplier)
         : [];
       for (const drop of drops || []) {
-        const rawQuantity = Number(drop?.quantity ?? drop?.count ?? drop?.数量 ?? 0);
+        const rawQuantity = Number(drop?.quantity ?? 0);
         if (!Number.isFinite(rawQuantity)) continue;
-        const type = String(drop?.type ?? drop?.类型 ?? '').trim();
+        const type = String(drop?.type ?? '').trim();
         const quantity = type === '装备' || type === 'equipment'
           ? Math.max(1, Math.floor(rawQuantity))
           : rawQuantity >= 0
@@ -309,19 +309,19 @@ export class DungeonChallengeService {
   /** 读取原版地图怪物池，并合并有效的“嗅探怪物”临时标记。 */
 
   parseSweepMonsterNames(map: any): string[] {
-    const raw = map?.monsters ?? map?.怪物 ?? [];
+    const raw = map?.monsters ?? [];
     const names = Array.isArray(raw)
       ? raw
       : asJsonValue<any[]>(raw, []);
     const result = names
-      .map((value: any) => String(value?.name ?? value?.名称 ?? value ?? '').trim())
+      .map((value: any) => String(value?.name ?? value ?? '').trim())
       .filter(Boolean);
-    const rawMarkers = map?.markers3 ?? map?.标记3;
+    const rawMarkers = map?.markers3;
     const markers = Array.isArray(rawMarkers)
       ? rawMarkers
       : asJsonValue<any[]>(rawMarkers, []);
     for (const marker of markers) {
-      const markerName = String(marker?.name ?? marker?.名称 ?? '').trim();
+      const markerName = String(marker?.name ?? '').trim();
       if (markerName.startsWith('嗅探') && markerName.slice(2).trim()) {
         result.push(markerName.slice(2).trim());
       }
@@ -347,7 +347,9 @@ export class DungeonChallengeService {
       .sort((a, b) => b[1] - a[1])
       .map(([monsterName, weight]) => {
         let required = Math.round(weight / totalWeight * 25);
-        required = Math.max(5, Math.min(100, required));
+        // 原版 数据显示.ecode L3793-3799：需求 = 四舍五入(权重/总权重×25)，上限5、下限1；
+        // 此前误写成 max(5, min(100, …))，把任何怪物的需求都抬高到至少 5 次
+        required = Math.max(1, Math.min(5, required));
         const completed = typeof this.playerService.getMarkerValue === 'function'
           ? Number(this.playerService.getMarkerValue(markers, `击败${monsterName}`)) || 0
           : Number(markers?.[`击败${monsterName}`] || 0);
@@ -393,7 +395,7 @@ export class DungeonChallengeService {
     // 增益要求("飞羽", 玩家.增益, a2) 取飞羽套装强度 a2，封顶 10
     let a2 = 0;
     for (const m of markers2) {
-      if (m && (m.name === '飞羽')) a2 = Math.max(a2, Number(m.strength ?? m.强度 ?? 0));
+      if (m && (m.name === '飞羽')) a2 = Math.max(a2, Number(m.strength ?? 0));
     }
     if (a2 > 10) a2 = 10; // 原版 L1841-1842 封顶
     let w2 = '';
@@ -451,7 +453,7 @@ export class DungeonChallengeService {
     if (existingDodge) {
       existingDodge.expireAt = nowSec + a1; // 原版延长至 a1 秒
     } else {
-      playerBuffs.push({ name: '闪避', value: 100, expireAt: nowSec + a1, duration: a1 });
+      playerBuffs.push({ name: '闪避', strength: 100, expireAt: nowSec + a1, duration: a1 });
     }
     player.buffs = playerBuffs; // Json 列直接写数组
     // 写入冷却标记（原版 L1848：时间间隔要求 "闪避冷却" cooldownSec）
@@ -546,7 +548,7 @@ export class DungeonChallengeService {
     }
 
     const group = await this.dungeonService.findInstanceGroup(name);
-    const anchor = group?.maps.find((map) => map.name === name && (map.respawnPoint || map.复活点) === name);
+    const anchor = group?.maps.find((map) => map.name === name && map.respawnPoint === name);
     if (!group || !anchor) return `${player.name},${name}不是副本`;
       { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
@@ -557,8 +559,8 @@ export class DungeonChallengeService {
     }
 
     const backpack = this.playerService.getBackpackItems(player);
-    const ticket = backpack.find((item: any) => (item?.name || item?.名称) === '副本券');
-    const ticketCount = Number(ticket?.count ?? ticket?.quantity ?? ticket?.数量 ?? 0);
+    const ticket = backpack.find((item: any) => item?.name === '副本券');
+    const ticketCount = Number(ticket?.quantity ?? 0);
     if (!ticket || ticketCount < 1) {
       return `${player.name}需要副本券，去活跃度商店看看吧`;
     }
@@ -636,7 +638,7 @@ export class DungeonChallengeService {
     let name = dungeonName.trim();
     if (!name) {
       const currentMap = await this.mapService.getMapById(player.mapId);
-      name = String(currentMap?.respawnPoint || currentMap?.复活点 || '').trim();
+      name = String(currentMap?.respawnPoint || '').trim();
     }
     const group = await this.dungeonService.findInstanceGroup(name);
     if (!group) return name ? `${name}不是副本` : `${player.name}不在副本中`;
@@ -646,9 +648,9 @@ export class DungeonChallengeService {
     const markers2 = this.parseDungeonArray(markerMap.markers2);
     const now = Date.now();
     this.normalizeDungeonMarkers2(markers2);
-    const refreshMarker = markers2.find((marker: any) => marker?.名称 === `${group.name}刷新`);
-    if (refreshMarker && refreshMarker.有效期至 > now) return `${group.name}刷新冷却中`;
-    markers2.push({ 名称: `${group.name}刷新`, 有效期至: now + 120 * 1000 });
+    const refreshMarker = markers2.find((marker: any) => marker?.name === `${group.name}刷新`);
+    if (refreshMarker && refreshMarker.expireAt > now) return `${group.name}刷新冷却中`;
+    markers2.push({ name: `${group.name}刷新`, expireAt: now + 120 * 1000 });
     await this.mapService.updateDynamicFields(markerMap.id, { markers2 });
 
     // 30 秒后关闭副本：持久化延时任务（dedupeKey=地图组名），重启不丢。
@@ -753,8 +755,8 @@ export class DungeonChallengeService {
     // 原版 L6451：_初始化怪物 —— 读取怪物配置并构造实例
     const cfg = this.staticData.getMonsterByName(monsterName) || {};
     const baseHp = cfg.maxHp || cfg.hp || 100;
-    const baseAtk = cfg.attack || cfg.攻击 || 30;
-    const baseDef = cfg.defense || cfg.防御 || 10;
+    const baseAtk = cfg.attack || 30;
+    const baseDef = cfg.defense || 10;
     const monster = {
       name: monsterName,
       type: monsterName,
@@ -823,12 +825,11 @@ export class DungeonChallengeService {
         this.logger.warn(`生成神之工匠 ${spec.type} 无怪物定义，按基础实体生成: ${e?.message}`);
         summon = {
           specialSeq: -2, name: spec.name, type: spec.type, qq: spec.qq,
-          ownerQQ: '1', hp: 100, maxHp: 100, 标记: [], buffs: [],
+          ownerQQ: '1', hp: 100, maxHp: 100, markers: [], buffs: [],
         };
       }
       summon.specialSeq = -2;
-      summon.特殊序号 = -2;
-      summon.归属 = '1';
+      summon.ownerQQ = '1';
       await this.mapService.mutateSummons(player.mapId, (fresh) => {
         fresh.push(summon);
       });
@@ -904,21 +905,17 @@ export class DungeonChallengeService {
 
     const maps = await this.mapService.getAllMaps();
     const candidates = (maps as any[]).filter((m: any) =>
-      Number(m?.id ?? 0) >= 3 && !m.开拓地 && !m.isFrontier && !m.关卡 && !m.isInstance && !m.noSpecial);
+      Number(m?.id ?? 0) >= 3 && !m.isFrontier && !m.isInstance && !m.noSpecial);
     if (candidates.length === 0) return { ok: false, message: '没有可生成废弃载具的地图' };
     const targetMap = candidates[Math.floor(Math.random() * candidates.length)];
 
     const seq = `${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const runtime = this.movement.toRuntimeVehicle({});
-    runtime.名称 = String(wreck.name ?? '废弃载具').replace(/[0-9]/g, '');
-    runtime.name = runtime.名称;
-    runtime.编号 = `V${seq}`;
-    runtime.vehicleId = runtime.编号;
-    runtime.归属 = '无主';
-    // 双字段镜像（toStoredVehicle 对 归属/owner 成对存储）：必须同步写"无主"，
-    // 留空串会让 owner ?? 归属 一类的判读短路（2026-09-15 [!]标记缺失根因）
+    // 只写英文规范键：载具条目落库前统一过 normalizeVehicleEntry，别名（名称/编号/归属…）会被收敛删除
+    runtime.name = String(wreck.name ?? '废弃载具').replace(/[0-9]/g, '');
+    runtime.vehicleId = `V${seq}`;
+    // 无主载具必须显式写 owner 字符串，留空会让「归属/owner」判读短路（2026-09-15 [!]标记缺失根因）
     runtime.owner = '无主';
-    runtime.驾驶员 = '';
     runtime.driver = '';
     // 远古遗迹封印盖戳：requireLevel/guardWaves/sealCost 来自 wrecks.json，
     // 等级门槛可被 game.wreckLevelReqOffset 全局偏移；封印开启时写入封印态。
@@ -936,58 +933,45 @@ export class DungeonChallengeService {
       ? await this.systemConfigService.get<boolean>('game.wreckSealEnabled', true)
       : true;
     if (wreckRequireLevel > 0) {
-      runtime.需求等级 = Math.max(1, wreckRequireLevel + levelOffset);
-      runtime.requireLevel = runtime.需求等级;
-      runtime.封印等级 = runtime.需求等级;
-      runtime.sealLevel = runtime.需求等级;
-      runtime.守卫波数 = wreckGuardWaves;
+      runtime.requireLevel = Math.max(1, wreckRequireLevel + levelOffset);
+      runtime.sealLevel = runtime.requireLevel;
       runtime.guardWaves = wreckGuardWaves;
-      runtime.献祭凭证 = sealCost.vouchers;
       runtime.sacrificeVouchers = sealCost.vouchers;
-      runtime.献祭活力 = sealCost.vitality;
       runtime.sacrificeVitality = sealCost.vitality;
       if (sealEnabled) {
-        runtime.封印中 = true;
         runtime.sealed = true;
       }
     }
     // 随机载具零件清单（原版 后台运作.ecode L1450-L1456：逐件 判断物品2 分类，
     // 类型=="装备" 的零件整体替换为 生成装备(名称,"s",0) 的成品——品质"s"词条倍率9，
     // 词条/特效随机，耐久0；资源件保持 名称x数量）
-    runtime.零件 = [];
+    runtime.parts = [];
     for (const part of (wreck.parts ?? [])) {
       const partName = String(part?.name ?? '').trim();
       if (!partName) continue;
       if (this.itemSystemService.isEquipment(partName)) {
         const equip = await this.itemSystemService.generateEquipment(partName, 's', 0);
-        runtime.零件.push({
-          名称: equip.name,
+        runtime.parts.push({
           name: equip.name,
-          类型: '装备',
           type: '装备',
-          数量: 1,
           quantity: 1,
-          耐久: Number(equip.durability ?? 0),
           durability: Number(equip.durability ?? 0),
-          ...(equip.data ? { 数据: equip.data, data: equip.data } : {}),
+          ...(equip.data ? { data: equip.data } : {}),
         });
       } else {
-        const qty = Number(part?.count ?? 1) || 1;
-        runtime.零件.push({
-          名称: partName,
+        // 零件数量只读规范键 quantity（同义旧键 count 已废弃，wrecks.json 已改名）
+        const qty = Number(part?.quantity ?? 1) || 1;
+        runtime.parts.push({
           name: partName,
-          类型: '资源',
           type: '资源',
-          数量: qty,
           quantity: qty,
         });
       }
     }
     this.combatSystem.recalculateVehicle(runtime, Date.now());
-    const calculatedHp = Number(runtime.加成?.生命 || 0);
-    runtime.当前生命 = calculatedHp;
+    // 加成字典属性名（生命等）为内容语义，不改；载具自身血量只写 currentHp/maxHp
+    const calculatedHp = Number(runtime.bonus?.生命 || 0);
     runtime.currentHp = calculatedHp;
-    runtime.生命 = calculatedHp;
     runtime.maxHp = calculatedHp;
 
     await this.mapService.mutateMapFields(targetMap.id, ['vehicles'], (f) => {
@@ -1002,7 +986,7 @@ export class DungeonChallengeService {
     return {
       ok: true,
       message: `在${targetMap.name}生成了一个废弃载具`,
-      wreckName: runtime.名称,
+      wreckName: runtime.name,
       mapName: targetMap.name,
     };
   }
@@ -1069,8 +1053,8 @@ export class DungeonChallengeService {
     // 生成编号()：时间戳36进制+随机串，保证唯一且可读
     const seq = `${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     // 好感/宝宝写入召唤物标记（原版 添加成就("好感"+归属,…)/(“宝宝”,1, 玩家2.标记)）
-    const summonMarkers: any[] = [{ 名称: `好感${ownerQQ}`, 数值: affinity }];
-    if (String(babyRaw) === '1') summonMarkers.push({ 名称: '宝宝', 数值: 1 });
+    const summonMarkers: any[] = [{ name: `好感${ownerQQ}`, value: affinity }];
+    if (String(babyRaw) === '1') summonMarkers.push({ name: '宝宝', value: 1 });
 
     let summon: any;
     if (kind !== 'npc') {
@@ -1084,7 +1068,6 @@ export class DungeonChallengeService {
           ...data,
           name: summonName,
           markers: [...(Array.isArray(data.markers) ? data.markers : []), ...summonMarkers],
-          标记: [...(Array.isArray(data.标记) ? data.标记 : []), ...summonMarkers],
         };
       } catch (e: any) {
         this.logger.warn(`生成人物 宠物类型 ${type} 无怪物定义，按 npc 实体生成: ${e?.message}`);
@@ -1100,20 +1083,20 @@ export class DungeonChallengeService {
         qq: `召唤物${seq}`,
         ownerQQ,
         affinity,
-        好感: affinity,
         level: 1,
         hp: 100,
         maxHp: 100,
         combatPower: 0,
-        成就: [],
-        背包: [],
-        增益: [],
-        武器: [],
-        装备: [],
-        标记2: [],
-        标记: summonMarkers,
+        // 召唤物条目落库前过 normalizeSummonEntry，历史中文别名键不再写
+        achievements: [],
+        backpack: [],
+        buffs: [],
+        weapons: [],
+        equipments: [],
+        markers2: [],
+        markers: summonMarkers,
         任务: [],
-        装备预设: [],
+        equipmentPresets: [],
       };
     }
 

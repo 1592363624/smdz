@@ -188,10 +188,10 @@ describe('使魔排行十子榜复刻（原版 _主程序.ecode L9562-9745）', 
       players: [basePlayer({ userId: 9, name: '主人' })],
       maps: [
         { summons: [
-          { name: '白', qq: '100g', hp: 10, 归属: '9', markers: { 战斗力: 500, 最高伤害: 80 } },
-          { name: '白复制品', qq: '100g', hp: 10, 归属: '9', markers: { 战斗力: 9999 } },
-          { name: '亡灵猫', qq: '101g', hp: 0, 归属: '9', markers: { 战斗力: 800 } },
-          { name: '新手猫', qq: '102g', hp: 5, 归属: '9', markers: { 战斗力: 60, 最高伤害: 0 } },
+          { name: '白', qq: '100g', hp: 10, ownerQQ: '9', markers: { 战斗力: 500, 最高伤害: 80 } },
+          { name: '白复制品', qq: '100g', hp: 10, ownerQQ: '9', markers: { 战斗力: 9999 } },
+          { name: '亡灵猫', qq: '101g', hp: 0, ownerQQ: '9', markers: { 战斗力: 800 } },
+          { name: '新手猫', qq: '102g', hp: 5, ownerQQ: '9', markers: { 战斗力: 60, 最高伤害: 0 } },
         ] },
       ],
     });

@@ -124,7 +124,7 @@ describe('观察附近五段展示（原版 地图操作.ecode L867-968 复刻�
         monsters: '[]', resources2: '[]', items: '[]', npcs: '[]', summons: '[]', markers2: '[]',
         resources: JSON.stringify([{
           name: '木头', times: 10, marker: '',
-          outputs: [{ name: '木材', count: 4, chance: 100 }],
+          outputs: [{ name: '木材', quantity: 4, chance: 100 }],
         }]),
       },
     });

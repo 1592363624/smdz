@@ -83,7 +83,7 @@ describe('mutate 管道与货币审计', () => {
       // 业务视角：像兑换一样扣 40 钻、加 2 券
       const bp = ctx.backpack;
       bp.find((i: any) => i.name === '钻石').quantity -= 40;
-      bp.find((i: any) => i.name === '召唤券').count += 2;
+      bp.find((i: any) => i.name === '召唤券').quantity += 2;
       ctx.player.backpack = JSON.stringify(bp);
     });
 
@@ -184,7 +184,7 @@ describe('mutate 单一快照语义（嵌套复用，不重读不重存）', () 
 
     await mutateService.mutate(42, async (ctx) => {
       ctx.player.hp = 60;
-      ctx.backpack.push({ name: '石头', count: 1 });
+      ctx.backpack.push({ name: '石头', quantity: 1 });
       // 模拟指令处理里常见的「自行保存」
       await playerService.savePlayer(ctx.player);
     });

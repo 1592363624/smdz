@@ -623,9 +623,10 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
         exp: 10,
         dropTable: [],
         bonus: JSON.stringify({
+          // 数量走规范键 quantity（monsters.json 真实数据即此格式，旧键 count 已废弃）
           drops: [
-            { name: '铁矿', count: 2, chance: 100 },
-            { name: '测试装备', count: 1, chance: 100 },
+            { name: '铁矿', quantity: 2, chance: 100 },
+            { name: '测试装备', quantity: 1, chance: 100 },
           ],
         }),
       });
@@ -635,11 +636,12 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
         const backpack = parseJson(playerData.player.backpack, []);
         for (const drop of drops) {
           if (drop.type === '装备') {
-            backpack.push({ name: drop.name, type: '装备', quantity: 1, count: 1, data: 'e' });
+            // 入包只写规范键 quantity（对齐真实 itemSystem 的唯一出口）
+            backpack.push({ name: drop.name, type: '装备', quantity: 1, data: 'e' });
             opts?.onTaskProgress?.('获得装备', 1);
             opts?.onTaskProgress?.(`获得${drop.name}`, 1);
           } else {
-            backpack.push({ name: drop.name, type: '资源', quantity: drop.quantity, count: drop.quantity });
+            backpack.push({ name: drop.name, type: '资源', quantity: drop.quantity });
             opts?.onTaskProgress?.('采集资源', drop.quantity);
             opts?.onTaskProgress?.(`采集${drop.name}`, drop.quantity);
           }
@@ -659,8 +661,8 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       ]));
       const savedPlayer = mocks.saveLog[mocks.saveLog.length - 1];
       expect(parseJson(savedPlayer.backpack, [])).toEqual(expect.arrayContaining([
-        expect.objectContaining({ name: '铁矿', count: 2 }),
-        expect.objectContaining({ name: '测试装备', type: '装备', count: 1 }),
+        expect.objectContaining({ name: '铁矿', quantity: 2 }),
+        expect.objectContaining({ name: '测试装备', type: '装备', quantity: 1 }),
       ]));
       expect(mocks.taskService.advance).toHaveBeenCalledWith(2, '采集资源', 2);
       expect(mocks.taskService.advance).toHaveBeenCalledWith(2, '获得装备', 1);
@@ -755,11 +757,11 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       );
 
       // 怪物被加「幻时」增益（原版 获得增益(攻击方.增益,"幻时",30)）
-      // 注意：combatState.gainBuff 写入中文 key {名称,有效期至}（归一化约定）
+      // gainBuff 写规范键 {name, expireAt}（field-contract 增益域）
       const monsterBuffs = parseJson(monster.buffs, []);
-      const phantom = monsterBuffs.find((b: any) => b.名称 === '幻时');
+      const phantom = monsterBuffs.find((b: any) => b.name === '幻时');
       expect(phantom).toBeDefined();
-      expect(phantom.有效期至).toBeGreaterThan(Date.now());
+      expect(phantom.expireAt).toBeGreaterThan(Date.now());
       // 文本可见
       expect(lines.join('\n')).toContain('被幻时凝固');
     });

@@ -69,7 +69,7 @@ describe('掉落率/品质接入普通击杀（原版 后台运作 L846-857）',
     };
     combat.applyKillPassives(player, { markers: {}, markers2: player.markers2 });
     const buffs = player.buffs;
-    expect(buffs.find((b: any) => b.name === '苦行')?.value).toBe(1);
+    expect(buffs.find((b: any) => b.name === '苦行')?.strength).toBe(1);
     const typeCd = player.markers2.find((m: any) => m.name === '剑圣技能冷却');
     expect(typeCd.expireAt).toBeLessThanOrEqual(now + 21 * 1000);
     const slashCd = player.markers2.find((m: any) => m.name === '斩冷却');

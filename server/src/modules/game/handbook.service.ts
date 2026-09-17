@@ -770,7 +770,7 @@ export class HandbookService {
   /** 渲染使魔详情：对齐原版 数据显示.ecode L3045-3047 */
   renderFamiliarDetail(f: any, skillLevel: number, affinity: number, playerName?: string): string[] {
     const hairList = parseArr(f.hairDrop);
-    const hairText = hairList.map((h: any) => `${h.name}x${roundText(h.count)}`).join('、') || '-';
+    const hairText = hairList.map((h: any) => `${h.name}x${roundText(h.quantity)}`).join('、') || '-';
     const detail: string[] = [];
     if (playerName) detail.push(playerName);
     detail.push(`${f.name}${paren(`好感${roundText(affinity)}`)}`);
@@ -872,20 +872,21 @@ export class HandbookService {
 
   private renderResourceDetail(r: any): string[] {
     const detail: string[] = [];
-    const count = r.count ?? r.times ?? -1;
+    // 可采集次数以 times 为规范键（count 为物品数量键，语义不同）
+    const count = r.times ?? -1;
     detail.push(`${r.name},可采集次数${roundText(count)},消耗时间${roundText(3 * Number(r.timeScale ?? 1))}~${roundText(6 * Number(r.timeScale ?? 1))}`);
     if (r.description) detail.push(nl(r.description));
     const outputs = parseArr(r.outputs);
     if (outputs.length > 0) {
       const text = outputs.map((o, i) =>
-        `${i === 0 ? '采集产出:' : '、'}${o.name}x${roundText(Math.abs(Number(o.count ?? 0)))}${paren(pct(o.chance))}`
+        `${i === 0 ? '采集产出:' : '、'}${o.name}x${roundText(Math.abs(Number(o.quantity ?? 0)))}${paren(pct(o.chance))}`
       ).join('');
       detail.push(text);
     }
     if (outputs.length > 0) {
       const gather = 100;
       const text = outputs.map((o, i) => {
-        const cnt = Number(o.count ?? 0);
+        const cnt = Number(o.quantity ?? 0);
         if (cnt > 0) {
           return `${i === 0 ? '采集产出(你的倍率):' : '、'}${o.name}x${roundText(cnt * gather / 100)}${paren(pct(o.chance))}`;
         }
@@ -910,10 +911,10 @@ export class HandbookService {
     lines.push(`计算产出优先级:${priority}${isPower ? '(调试用,数值越小越先计算)' : '(数值越小越先计算)'}`);
     out2.forEach((o, i) => {
       if (o.name === '电力') {
-        if (i === 0) lines.push(`每小时有几率生成在随机地图\n发电:${roundText(Number(o.count ?? 0) / 10)}`);
-        else lines.push(`、发电:${roundText(Number(o.count ?? 0) / 10)}`);
+        if (i === 0) lines.push(`每小时有几率生成在随机地图\n发电:${roundText(Number(o.quantity ?? 0) / 10)}`);
+        else lines.push(`、发电:${roundText(Number(o.quantity ?? 0) / 10)}`);
       } else {
-        const daily = Math.abs(Number(o.count ?? 0) * 144);
+        const daily = Math.abs(Number(o.quantity ?? 0) * 144);
         const sci = daily.toExponential(2);
         if (i === 0) lines.push(`每小时有几率生成在随机地图\n每天额外生成资源:${o.name}x${sci}`);
         else lines.push(`、${o.name}x${sci}`);
@@ -978,7 +979,7 @@ export class HandbookService {
     out.push(`基础等级:${this.formatProficiencyLevel(m?.name)}`);
     // 原版取 怪物.好感 作产奶量；新版静态数据里该值落在 bonus.产奶量
     out.push(`产奶量:${roundText(bonus.产奶量 ?? 0)}`);
-    out.push(`毛发:${hair.map((h) => `${h.name}x${roundText(h.count)}`).join('、') || '-'}`);
+    out.push(`毛发:${hair.map((h) => `${h.name}x${roundText(h.quantity)}`).join('、') || '-'}`);
     out.push(`特效编号(调试用):${roundText(m.vitality ?? m.specialSeq ?? 0)}`);
     out.push('1、显示详细数据');
     return out;
@@ -1088,7 +1089,7 @@ export class HandbookService {
       const b = this.dropProficiencyLevel(m, ctx);
       const mul = 1 + b * 0.05;
       out.push(drops
-        .map((d, i) => `${i === 0 ? '◆掉落:' : '、'}${d.name}x${roundText(Math.abs(Number(d.count ?? 0)) * mul)}${paren(pct(d.chance))}`)
+        .map((d, i) => `${i === 0 ? '◆掉落:' : '、'}${d.name}x${roundText(Math.abs(Number(d.quantity ?? 0)) * mul)}${paren(pct(d.chance))}`)
         .join(''));
       // 玩家加成行：数量 ×(1+掉落品质/100)（仅正数量），几率 ×(1+掉落率/100)
       // 宝石缎带（原版 L3215-3226）额外把几率按 (1+(100-几率)/100*0.4) 提升
@@ -1097,7 +1098,7 @@ export class HandbookService {
       const gem = !!ctx?.hasGemRibbon;
       out.push(drops
         .map((d, i) => {
-          const cnt = Number(d.count ?? 0);
+          const cnt = Number(d.quantity ?? 0);
           let chance = Number(d.chance ?? 100);
           if (gem) chance = chance * (1 + ((100 - chance) / 100) * 0.4);
           const shownCnt = cnt > 0 ? Math.abs(cnt) * (1 + quality / 100) : Math.abs(cnt);
@@ -1158,11 +1159,11 @@ export class HandbookService {
     if (t.description) detail.push(nl(t.description));
     const reqs = parseArr(t.requirements);
     if (reqs.length > 0) {
-      detail.push(reqs.map((r, i) => `${i === 0 ? '需求:' : '、'}${r.name}x${roundText(r.count ?? 0)}`).join(''));
+      detail.push(reqs.map((r, i) => `${i === 0 ? '需求:' : '、'}${r.name}x${roundText(r.quantity ?? 0)}`).join(''));
     }
     const rewards = parseArr(t.rewards);
     if (rewards.length > 0) {
-      detail.push(rewards.map((r, i) => `${i === 0 ? '奖励:' : '、'}${r.name}x${roundText(r.count ?? 0)}${paren(pct(r.chance))}`).join(''));
+      detail.push(rewards.map((r, i) => `${i === 0 ? '奖励:' : '、'}${r.name}x${roundText(r.quantity ?? 0)}${paren(pct(r.chance))}`).join(''));
     }
     const followups: string[] = Array.isArray(t.followups) ? t.followups.filter(Boolean) : [];
     if (followups.length > 0) {
@@ -1292,24 +1293,24 @@ export class HandbookService {
       const main = outputs.filter((o) => Number(o.chance ?? 0) >= 100);
       const side = outputs.filter((o) => Number(o.chance ?? 0) < 100);
       if (main.length > 0) {
-        detail.push(`产物:${main.map((o) => `${o.name}x${sciText(o.count)}`).join('、')}`);
+        detail.push(`产物:${main.map((o) => `${o.name}x${sciText(o.quantity)}`).join('、')}`);
       }
       if (side.length > 0) {
         detail.push(`副产物:${side
-          .map((o) => `${o.name}x${sciText(Number(o.count ?? 0) * Number(o.chance ?? 0) / 100)}`)
+          .map((o) => `${o.name}x${sciText(Number(o.quantity ?? 0) * Number(o.chance ?? 0) / 100)}`)
           .join('、')}`);
       }
     }
     const inputs = parseArr(pf.inputs);
     if (inputs.length > 0) {
-      detail.push(`消耗:${inputs.map((o) => `${o.name}x${sciText(o.count)}`).join('、')}`);
+      detail.push(`消耗:${inputs.map((o) => `${o.name}x${sciText(o.quantity)}`).join('、')}`);
     }
 
     // 解锁需求（原版 L3522-3527）：等级>1 时追加"至少N个N-1级的已解锁配方"
     const unlock = parseArr(pf.unlockReq);
     const level = Number(pf.level ?? 1);
     if (unlock.length > 0) {
-      const items = unlock.map((u) => `${u.name}x${roundText(u.count)}`).join('、');
+      const items = unlock.map((u) => `${u.name}x${roundText(u.quantity)}`).join('、');
       detail.push(level <= 1
         ? `解锁需求:${items}`
         : `解锁需求:${items}、至少${level}个${level - 1}级的已解锁配方(你有0个)`);
@@ -1336,11 +1337,11 @@ export class HandbookService {
     detail.push(w.name);
     const parts = parseArr(w.parts);
     if (parts.length > 0) {
-      detail.push(`零件:${parts.map((p) => `${p.name}x${roundText(p.count ?? 1)}`).join('、')}`);
+      detail.push(`零件:${parts.map((p) => `${p.name}x${roundText(p.quantity ?? 1)}`).join('、')}`);
       // 载具价值（原版 取制造成本：零件按 craftings 配方折算成基础材料）
       const cost = this.calcManufactureCost(parts);
       if (cost.length > 0) {
-        detail.push(`载具价值:${cost.map((c) => `${c.name}x${roundText(c.count)}`).join('、')}`);
+        detail.push(`载具价值:${cost.map((c) => `${c.name}x${roundText(c.quantity)}`).join('、')}`);
       }
     }
     detail.push(`每小时刷新几率:${w.chance}%`);
@@ -1351,18 +1352,19 @@ export class HandbookService {
    * 取制造成本：把零件按 craftings 配方折算成基础材料。
    * 对应原版 数据分析.ecode L157-179：遍历制造列表，命中同名条目后取其需求 × 零件数量累加。
    */
-  private calcManufactureCost(parts: Array<{ name: string; count: number }>): Array<{ name: string; count: number }> {
+  private calcManufactureCost(parts: Array<{ name: string; quantity: number }>): Array<{ name: string; quantity: number }> {
     const craftings = this.staticData.getAllCraftings();
     const acc = new Map<string, number>();
     for (const p of parts) {
       const recipe = craftings.find((c) => c.name === p.name);
       if (!recipe) continue;
       for (const req of parseArr(recipe.requirements)) {
-        acc.set(req.name, (acc.get(req.name) ?? 0) + Number(req.count ?? 0) * Number(p.count ?? 1));
+        // 需求/零件数量只读规范键 quantity（同义旧键 count 已废弃）
+        acc.set(req.name, (acc.get(req.name) ?? 0) + Number(req.quantity ?? 0) * Number(p.quantity ?? 1));
       }
     }
-    return Array.from(acc, ([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
+    return Array.from(acc, ([name, quantity]) => ({ name, quantity }))
+      .sort((a, b) => b.quantity - a.quantity);
   }
 
   // ----- 19. 图片（原版 L2906-2913）-----

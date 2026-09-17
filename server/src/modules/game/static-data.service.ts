@@ -148,7 +148,7 @@ export class StaticDataService implements OnModuleInit {
   /**
    * 内容校验（P2-7）：对刚加载的表跑一轮静态规则检查，发现的问题**汇总为一条
    * 告警日志**（不抛错、不阻断启动——避免一条存量脏数据挡死整个服务）。
-   * 规则：空表（文件存在但为空数组）、重复名、明显数值异常（quantity/count/数量 为负）。
+   * 规则：空表（文件存在但为空数组）、重复名、明显数值异常（条目数量规范键 quantity 为负）。
    * 非数组顶层（如 seed-items.json 的单对象形状）不在通用规则范围内，跳过避免误报。
    */
   private validateLoadedRows(key: DataKey, rows: unknown, fileExisted: boolean): void {
@@ -170,7 +170,8 @@ export class StaticDataService implements OnModuleInit {
           issues.push(`重复名「${name}」（第 ${first + 1} 条与第 ${idx + 1} 条）`);
         }
       }
-      for (const field of ['quantity', 'count', '数量'] as const) {
+      // 条目数量只认规范键 quantity（同义旧键 count 已废弃，静态数据已全量改名）
+      for (const field of ['quantity'] as const) {
         const value = row?.[field];
         if (typeof value === 'number' && Number.isFinite(value) && value < 0) {
           issues.push(`负数量「${hasName ? name : `#${idx + 1}`}」 ${field}=${value}`);
@@ -264,9 +265,9 @@ export class StaticDataService implements OnModuleInit {
    * 特殊序号非0时，负数是武器、正数是装备；只有特殊序号为0时才按类型判断。
    */
   isWeapon(e: any): boolean {
-    const specialSeq = Number(e?.specialSeq ?? e?.特殊序号 ?? 0);
+    const specialSeq = Number(e?.specialSeq ?? 0);
     if (specialSeq !== 0) return specialSeq < 0;
-    const type = String(e?.equipType ?? e?.type ?? e?.类型 ?? '');
+    const type = String(e?.equipType ?? e?.type ?? '');
     return type.endsWith('武器') || type === '工具';
   }
 
@@ -351,7 +352,7 @@ export class StaticDataService implements OnModuleInit {
    * @param dialogueType 台词类别 0-12
    */
   getDialogue(playerName: string, object: any, objectName: string, dialogueType: number): string {
-    let objectType = String(object?.type ?? object?.类型 ?? '');
+    let objectType = String(object?.type ?? '');
     if (String(object?.qq ?? object?.QQ ?? '') === 'npc1g') objectType = '神之工匠';
     objectType = objectType.split('小樱2').join('小樱');
     // 物种前缀归一化（精英/神兽/深蓝/巨型）与 显示熟练度等级 的取熟练度共用同一实现：
@@ -462,9 +463,9 @@ export class StaticDataService implements OnModuleInit {
     const items = Array.isArray(shop?.travelingItem) ? shop.travelingItem : [];
     if (equipment.length || items.length) {
       return {
-        equipmentText: equipment.map((item) => item?.name || item?.名称 || '').filter(Boolean).join('，'),
+        equipmentText: equipment.map((item) => item?.name || '').filter(Boolean).join('，'),
         itemText: items
-          .map((item) => `${item?.name || item?.名称 || ''}${item?.count ?? item?.数量 ?? 1}`)
+          .map((item) => `${item?.name || ''}${item?.quantity ?? 1}`)
           .filter(Boolean)
           .join('，'),
       };
@@ -497,17 +498,18 @@ export class StaticDataService implements OnModuleInit {
    * 返回值保留配置顺序，兑换时必须先查活跃度再查钻石、数据核心。
    */
   getShopConfig(): {
-    activity: Array<{ name: string; count: number }>;
-    diamond: Array<{ name: string; count: number }>;
-    dataCore: Array<{ name: string; count: number }>;
+    activity: Array<{ name: string; quantity: number }>;
+    diamond: Array<{ name: string; quantity: number }>;
+    dataCore: Array<{ name: string; quantity: number }>;
   } {
     const row = this.loadRaw<any>('shops')[0] || {};
-    const normalize = (value: any): Array<{ name: string; count: number }> => (Array.isArray(value) ? value : [])
+    // 条目数量只读规范键 quantity（同义旧键 count 已废弃）
+    const normalize = (value: any): Array<{ name: string; quantity: number }> => (Array.isArray(value) ? value : [])
       .map((item: any) => ({
-        name: String(item?.name ?? item?.名称 ?? '').trim(),
-        count: Number(item?.count ?? item?.数量 ?? 0),
+        name: String(item?.name ?? '').trim(),
+        quantity: Number(item?.quantity ?? 0),
       }))
-      .filter((item) => item.name && Number.isFinite(item.count));
+      .filter((item) => item.name && Number.isFinite(item.quantity));
     return {
       activity: normalize(row.shopActivity),
       diamond: normalize(row.shopDiamond),

@@ -4,17 +4,10 @@
     "description": "1",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集",
-        "count": 1
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集",
-        "count": 1
+        "quantity": 1
       }
     ],
     "outputs": [
@@ -30,30 +23,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "1",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "1",
-        "quantity": 1,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "1",
-        "quantity": 1,
-        "durability": 50
-      },
-      {
-        "name": "1",
-        "quantity": 1,
-        "durability": 50
-      }
-    ],
-    "消耗": [
       {
         "name": "1",
         "quantity": 1,
@@ -71,17 +40,10 @@
     "description": "把钻石分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集钻石",
-        "count": 10000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集钻石",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "outputs": [
@@ -97,25 +59,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "钻石",
-        "quantity": 50,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "钻石",
         "quantity": 50,
@@ -128,17 +71,10 @@
     "description": "把生肉分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集生肉",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集生肉",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -154,25 +90,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生肉",
-        "quantity": 2.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生肉",
         "quantity": 2.5,
@@ -185,17 +102,10 @@
     "description": "把果实分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集果实",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集果实",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -211,25 +121,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "果实",
-        "quantity": 2,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "果实",
         "quantity": 2,
@@ -242,17 +133,10 @@
     "description": "把饲料分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "制造饲料",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "制造饲料",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -268,25 +152,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "饲料",
-        "quantity": 0.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "饲料",
         "quantity": 0.5,
@@ -299,17 +164,10 @@
     "description": "把木头分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集木头",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集木头",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -325,25 +183,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "木头",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "木头",
         "quantity": 10,
@@ -356,17 +195,10 @@
     "description": "提取石头中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 10,
-    "生产力": 10,
     "unlockRequirements": [
       {
         "name": "采集石头",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集石头",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -382,25 +214,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "石头",
-        "quantity": 9,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "石头",
         "quantity": 9,
@@ -413,17 +226,10 @@
     "description": "提取铁矿中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集铁矿",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集铁矿",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -439,25 +245,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铁矿",
-        "quantity": 4.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铁矿",
         "quantity": 4.5,
@@ -470,17 +257,10 @@
     "description": "把绳子分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集绳子",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集绳子",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -496,25 +276,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "绳子",
-        "quantity": 4.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "绳子",
         "quantity": 4.5,
@@ -527,17 +288,10 @@
     "description": "把生物质加工成肥料",
     "level": 2,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集肥料",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集肥料",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -553,25 +307,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "肥料",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "肥料",
-        "quantity": 1,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 10,
@@ -584,17 +319,10 @@
     "description": "把钻石分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -610,25 +338,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "钻石",
-        "quantity": 250,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "钻石",
         "quantity": 250,
@@ -641,17 +350,10 @@
     "description": "把生肉分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -667,25 +369,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生肉",
-        "quantity": 12.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生肉",
         "quantity": 12.5,
@@ -698,17 +381,10 @@
     "description": "把果实分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -724,25 +400,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "果实",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "果实",
         "quantity": 10,
@@ -755,17 +412,10 @@
     "description": "把饲料分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -781,25 +431,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "饲料",
-        "quantity": 2.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "饲料",
         "quantity": 2.5,
@@ -812,17 +443,10 @@
     "description": "把木头分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -838,25 +462,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "木头",
-        "quantity": 50,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "木头",
         "quantity": 50,
@@ -869,17 +474,10 @@
     "description": "提取石头中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 3,
     "production": 10,
-    "生产力": 10,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -895,25 +493,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "石头",
-        "quantity": 45,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "石头",
         "quantity": 45,
@@ -926,17 +505,10 @@
     "description": "提取铁矿中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -952,25 +524,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铁矿",
-        "quantity": 22.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铁矿",
         "quantity": 22.5,
@@ -983,17 +536,10 @@
     "description": "把绳子分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -1009,25 +555,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "绳子",
-        "quantity": 22.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 25,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "绳子",
         "quantity": 22.5,
@@ -1040,25 +567,14 @@
     "description": "把生物质通过特殊手段重新加工为生肉。这种肉一般用来做饲料，最好不要直接食用",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 500000
+        "quantity": 500000
       },
       {
         "name": "采集生肉",
-        "count": 5000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 500000
-      },
-      {
-        "name": "采集生肉",
-        "count": 5000
+        "quantity": 5000
       }
     ],
     "outputs": [
@@ -1074,25 +590,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 3,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生肉",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "生肉",
-        "quantity": 1,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 3,
@@ -1105,17 +602,10 @@
     "description": "把神兽的血液分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集神兽之血",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集神兽之血",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -1131,25 +621,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "神兽之血",
-        "quantity": 0.05,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "神兽之血",
         "quantity": 0.05,
@@ -1162,25 +633,14 @@
     "description": "制造导弹供应导弹垂直发射井使用",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集合金",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产燃料",
-        "count": 10000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集合金",
-        "count": 1000
-      },
-      {
-        "name": "生产燃料",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "outputs": [
@@ -1196,40 +656,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "燃料",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 50,
-        "durability": 100
-      },
-      {
-        "name": "木头",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "载具零件",
-        "quantity": 0.1,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "导弹",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "导弹",
-        "quantity": 0.01,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "燃料",
         "quantity": 10,
@@ -1257,41 +683,22 @@
     "description": "把资源重新装箱",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集木头",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集石头",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集绳子",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集铁矿",
-        "count": 1000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集木头",
-        "count": 1000
-      },
-      {
-        "name": "采集石头",
-        "count": 1000
-      },
-      {
-        "name": "采集绳子",
-        "count": 1000
-      },
-      {
-        "name": "采集铁矿",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "outputs": [
@@ -1302,20 +709,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 24,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "资源箱",
-        "quantity": 1,
-        "durability": 100
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 24,
@@ -1328,17 +721,10 @@
     "description": "把资源重新装箱",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产资源箱",
-        "count": 10000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产资源箱",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "outputs": [
@@ -1349,20 +735,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 24,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "资源箱",
-        "quantity": 1.2,
-        "durability": 100
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 24,
@@ -1375,17 +747,10 @@
     "description": "把资源重新装箱",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产资源箱",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产资源箱",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -1396,20 +761,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 24,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "资源箱",
-        "quantity": 1.5,
-        "durability": 100
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 24,
@@ -1422,17 +773,10 @@
     "description": "把巧克力转化为经验胶囊",
     "level": 2,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集巧克力",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集巧克力",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -1448,25 +792,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "巧克力",
-        "quantity": 0.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "经验胶囊",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "经验胶囊",
-        "quantity": 10,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "巧克力",
         "quantity": 0.5,
@@ -1479,25 +804,14 @@
     "description": "高效的燃料制造，你可以在各种分解配方中得到生物质",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集燃料",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "生产生物质",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集燃料",
-        "count": 100
-      },
-      {
-        "name": "生产生物质",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -1513,25 +827,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 8,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 10,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 8,
@@ -1544,25 +839,14 @@
     "description": "高效的燃料制造，你可以在各种分解配方中得到生物质",
     "level": 2,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产燃料",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产生物质",
-        "count": 10000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产燃料",
-        "count": 10000
-      },
-      {
-        "name": "生产生物质",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "outputs": [
@@ -1578,25 +862,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 8,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 12,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 12,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 8,
@@ -1609,25 +874,14 @@
     "description": "高效的燃料制造，你可以在各种分解配方中得到生物质",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产燃料",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产燃料",
-        "count": 100000
-      },
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -1643,25 +897,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 8,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 15,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 15,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 8,
@@ -1674,25 +909,14 @@
     "description": "超高效的燃料制造，但是相比3级燃料加工也只是加快了制造速度而已，你可以在各种分解配方中得到生物质",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产燃料",
-        "count": 1000000
+        "quantity": 1000000
       },
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产燃料",
-        "count": 1000000
-      },
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -1708,25 +932,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 16,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 30,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 30,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 16,
@@ -1739,25 +944,14 @@
     "description": "超高效的燃料制造，但是相比4级燃料加工也只是加快了制造速度而已，你可以在各种分解配方中得到生物质",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产燃料",
-        "count": 5000000
+        "quantity": 5000000
       },
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产燃料",
-        "count": 5000000
-      },
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -1773,25 +967,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 32,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 60,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 60,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 32,
@@ -1804,25 +979,14 @@
     "description": "超高效的燃料制造，但是相比5级燃料加工也只是加快了制造速度而已，你可以在各种分解配方中得到生物质",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产燃料",
-        "count": 50000000
+        "quantity": 50000000
       },
       {
         "name": "生产生物质",
-        "count": 50000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产燃料",
-        "count": 50000000
-      },
-      {
-        "name": "生产生物质",
-        "count": 50000000
+        "quantity": 50000000
       }
     ],
     "outputs": [
@@ -1838,25 +1002,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 64,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 120,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 120,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 64,
@@ -1869,25 +1014,14 @@
     "description": "使用油瓜这种特殊的植物来高效生产燃料",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集燃料",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "生产生物质",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集燃料",
-        "count": 100
-      },
-      {
-        "name": "生产生物质",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -1903,25 +1037,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "油瓜种子",
-        "quantity": 0.01,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 8,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 8,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "油瓜种子",
         "quantity": 0.01,
@@ -1934,25 +1049,14 @@
     "description": "使用油瓜这种特殊的植物来高效生产燃料",
     "level": 2,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集燃料",
-        "count": 5000
+        "quantity": 5000
       },
       {
         "name": "生产生物质",
-        "count": 10000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集燃料",
-        "count": 5000
-      },
-      {
-        "name": "生产生物质",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "outputs": [
@@ -1968,25 +1072,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "改良油瓜种子",
-        "quantity": 0.01,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 16,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 16,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "改良油瓜种子",
         "quantity": 0.01,
@@ -1999,25 +1084,14 @@
     "description": "使用油瓜这种特殊的植物来高效生产燃料",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集燃料",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集燃料",
-        "count": 10000
-      },
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -2033,25 +1107,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "强壮油瓜种子",
-        "quantity": 0.01,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "燃料",
-        "quantity": 32,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 32,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "强壮油瓜种子",
         "quantity": 0.01,
@@ -2064,25 +1119,14 @@
     "description": "合成水晶",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集水晶",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 100000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集水晶",
-        "count": 1000
-      },
-      {
-        "name": "生产生物质",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "outputs": [
@@ -2098,30 +1142,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 2,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "水晶",
-        "quantity": 0.2,
-        "durability": 100
-      },
-      {
-        "name": "水晶",
-        "quantity": 0.2,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 10,
@@ -2139,17 +1159,10 @@
     "description": "合成水晶",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产水晶",
-        "count": 100000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产水晶",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "outputs": [
@@ -2165,30 +1178,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 4,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "水晶",
-        "quantity": 0.4,
-        "durability": 100
-      },
-      {
-        "name": "水晶",
-        "quantity": 0.4,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 20,
@@ -2206,17 +1195,10 @@
     "description": "合成水晶",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产水晶",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产水晶",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -2232,30 +1214,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 40,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 8,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "水晶",
-        "quantity": 0.8,
-        "durability": 100
-      },
-      {
-        "name": "水晶",
-        "quantity": 0.8,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 40,
@@ -2273,25 +1231,14 @@
     "description": "合成能量块",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集能量块",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集能量块",
-        "count": 1000
-      },
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -2307,30 +1254,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 2,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "能量块",
-        "quantity": 0.1,
-        "durability": 100
-      },
-      {
-        "name": "能量块",
-        "quantity": 0.1,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 10,
@@ -2348,17 +1271,10 @@
     "description": "合成能量块",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产能量块",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产能量块",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -2374,30 +1290,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 4,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "能量块",
-        "quantity": 0.2,
-        "durability": 100
-      },
-      {
-        "name": "能量块",
-        "quantity": 0.2,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 20,
@@ -2415,17 +1307,10 @@
     "description": "合成能量块",
     "level": 8,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产能量块",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产能量块",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -2441,30 +1326,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 40,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 8,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "能量块",
-        "quantity": 0.4,
-        "durability": 100
-      },
-      {
-        "name": "能量块",
-        "quantity": 0.4,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 40,
@@ -2482,94 +1343,56 @@
     "description": "这个配方并不负责生产任何材料，但是当你为载具输入这个配方的时候(提供的生产力不小于0即可)，可以使这个载具的所有配方生产/消耗的速度+5%(不与其他生产加速配方叠加，但是可以与生产调度系统等部件叠加)#换行【当你解锁了这个配方的时候，便可以额外再接取一个配方解锁的任务了】",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [],
-    "inputs": [],
-    "产出": [],
-    "消耗": []
+    "inputs": []
   },
   {
     "name": "生产加速6",
     "description": "这个配方并不负责生产任何材料，但是当你为载具输入这个配方的时候(提供的生产力不小于0即可)，可以使这个载具的所有配方生产/消耗的速度+15%(不与其他生产加速配方叠加，但是可以与生产调度系统等部件叠加)",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [],
-    "inputs": [],
-    "产出": [],
-    "消耗": []
+    "inputs": []
   },
   {
     "name": "生产加速8",
     "description": "这个配方并不负责生产任何材料，但是当你为载具输入这个配方的时候(提供的生产力不小于0即可)，可以使这个载具的所有配方生产/消耗的速度+25%(不与其他生产加速配方叠加，但是可以与生产调度系统等部件叠加)",
     "level": 8,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产",
-        "count": 1000000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产",
-        "count": 1000000000
+        "quantity": 1000000000
       }
     ],
     "outputs": [],
-    "inputs": [],
-    "产出": [],
-    "消耗": []
+    "inputs": []
   },
   {
     "name": "金属精炼1",
     "description": "提炼金属",
     "level": 1,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集铁矿",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "采集木头",
-        "count": 100
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集铁矿",
-        "count": 100
-      },
-      {
-        "name": "采集木头",
-        "count": 100
+        "quantity": 100
       }
     ],
     "outputs": [
@@ -2585,30 +1408,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铁矿",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "木头",
-        "quantity": 20,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "合金",
-        "quantity": 2.5,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 2.5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铁矿",
         "quantity": 10,
@@ -2626,33 +1425,18 @@
     "description": "提炼金属",
     "level": 2,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集铁矿",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集木头",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产合金",
-        "count": 10000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集铁矿",
-        "count": 1000
-      },
-      {
-        "name": "采集木头",
-        "count": 1000
-      },
-      {
-        "name": "生产合金",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "outputs": [
@@ -2668,30 +1452,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铁矿",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "木头",
-        "quantity": 20,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "合金",
-        "quantity": 3,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 3,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铁矿",
         "quantity": 10,
@@ -2709,33 +1469,18 @@
     "description": "提炼金属",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集铁矿",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "采集木头",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产合金",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集铁矿",
-        "count": 10000
-      },
-      {
-        "name": "采集木头",
-        "count": 10000
-      },
-      {
-        "name": "生产合金",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -2751,30 +1496,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铁矿",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "木头",
-        "quantity": 20,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "合金",
-        "quantity": 3.5,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 3.5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铁矿",
         "quantity": 10,
@@ -2792,33 +1513,18 @@
     "description": "高效提炼金属，但是相比3级金属精炼也只是提高了生产速度而已",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集铁矿",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "采集木头",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产合金",
-        "count": 5000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集铁矿",
-        "count": 100000
-      },
-      {
-        "name": "采集木头",
-        "count": 100000
-      },
-      {
-        "name": "生产合金",
-        "count": 5000000
+        "quantity": 5000000
       }
     ],
     "outputs": [
@@ -2834,30 +1540,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铁矿",
-        "quantity": 50,
-        "durability": 100
-      },
-      {
-        "name": "木头",
-        "quantity": 100,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "合金",
-        "quantity": 17.5,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 17.5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铁矿",
         "quantity": 50,
@@ -2875,25 +1557,14 @@
     "description": "制造改良建筑箱",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集改良建筑箱",
-        "count": 500
+        "quantity": 500
       },
       {
         "name": "生产燃料",
-        "count": 10000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集改良建筑箱",
-        "count": 500
-      },
-      {
-        "name": "生产燃料",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "outputs": [
@@ -2909,30 +1580,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "载具零件",
-        "quantity": 0.1,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 2,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "改良建筑箱",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "改良建筑箱",
-        "quantity": 1,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "载具零件",
         "quantity": 0.1,
@@ -2950,25 +1597,14 @@
     "description": "制造改良建筑箱",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产改良建筑箱",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产燃料",
-        "count": 100000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产改良建筑箱",
-        "count": 1000
-      },
-      {
-        "name": "生产燃料",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "outputs": [
@@ -2984,30 +1620,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "载具零件",
-        "quantity": 0.1,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 1,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "改良建筑箱",
-        "quantity": 1.2,
-        "durability": 100
-      },
-      {
-        "name": "改良建筑箱",
-        "quantity": 1.2,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "载具零件",
         "quantity": 0.1,
@@ -3025,25 +1637,14 @@
     "description": "制造改良建筑箱",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产改良建筑箱",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产燃料",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产改良建筑箱",
-        "count": 10000
-      },
-      {
-        "name": "生产燃料",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -3059,30 +1660,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "载具零件",
-        "quantity": 0.1,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 1,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "改良建筑箱",
-        "quantity": 1.5,
-        "durability": 100
-      },
-      {
-        "name": "改良建筑箱",
-        "quantity": 1.5,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "载具零件",
         "quantity": 0.1,
@@ -3100,25 +1677,14 @@
     "description": "制造建筑箱",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集改良建筑箱",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "生产燃料",
-        "count": 100000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集改良建筑箱",
-        "count": 100
-      },
-      {
-        "name": "生产燃料",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "outputs": [
@@ -3134,30 +1700,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "改良建筑箱",
-        "quantity": 100,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 200,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "特装建筑箱",
-        "quantity": 0.4,
-        "durability": 100
-      },
-      {
-        "name": "特装建筑箱",
-        "quantity": 0.4,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "改良建筑箱",
         "quantity": 100,
@@ -3175,25 +1717,14 @@
     "description": "制造建筑箱",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产特装建筑箱",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产燃料",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产特装建筑箱",
-        "count": 1000
-      },
-      {
-        "name": "生产燃料",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -3209,30 +1740,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "改良建筑箱",
-        "quantity": 100,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 200,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "特装建筑箱",
-        "quantity": 0.48,
-        "durability": 100
-      },
-      {
-        "name": "特装建筑箱",
-        "quantity": 0.48,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "改良建筑箱",
         "quantity": 100,
@@ -3250,25 +1757,14 @@
     "description": "制造建筑箱",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产特装建筑箱",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产燃料",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产特装建筑箱",
-        "count": 100000
-      },
-      {
-        "name": "生产燃料",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -3284,30 +1780,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "改良建筑箱",
-        "quantity": 100,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 200,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "特装建筑箱",
-        "quantity": 0.65,
-        "durability": 100
-      },
-      {
-        "name": "特装建筑箱",
-        "quantity": 0.65,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "改良建筑箱",
         "quantity": 100,
@@ -3325,25 +1797,14 @@
     "description": "制造载具零件",
     "level": 3,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集载具零件",
-        "count": 500
+        "quantity": 500
       },
       {
         "name": "生产燃料",
-        "count": 10000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集载具零件",
-        "count": 500
-      },
-      {
-        "name": "生产燃料",
-        "count": 10000
+        "quantity": 10000
       }
     ],
     "outputs": [
@@ -3359,40 +1820,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "合金",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 2,
-        "durability": 100
-      },
-      {
-        "name": "能量块",
-        "quantity": 0.5,
-        "durability": 100
-      },
-      {
-        "name": "水晶",
-        "quantity": 1,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "载具零件",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "载具零件",
-        "quantity": 0.01,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "合金",
         "quantity": 1,
@@ -3420,25 +1847,14 @@
     "description": "制造载具零件",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产载具零件",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产燃料",
-        "count": 100000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产载具零件",
-        "count": 10000
-      },
-      {
-        "name": "生产燃料",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "outputs": [
@@ -3454,40 +1870,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "合金",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 2,
-        "durability": 100
-      },
-      {
-        "name": "能量块",
-        "quantity": 0.5,
-        "durability": 100
-      },
-      {
-        "name": "水晶",
-        "quantity": 1,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "载具零件",
-        "quantity": 0.012,
-        "durability": 100
-      },
-      {
-        "name": "载具零件",
-        "quantity": 0.012,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "合金",
         "quantity": 1,
@@ -3515,25 +1897,14 @@
     "description": "高效制造载具零件",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产载具零件",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产燃料",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产载具零件",
-        "count": 100000
-      },
-      {
-        "name": "生产燃料",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -3549,40 +1920,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "合金",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 2,
-        "durability": 100
-      },
-      {
-        "name": "能量块",
-        "quantity": 0.5,
-        "durability": 100
-      },
-      {
-        "name": "水晶",
-        "quantity": 1,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "载具零件",
-        "quantity": 0.015,
-        "durability": 100
-      },
-      {
-        "name": "载具零件",
-        "quantity": 0.015,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "合金",
         "quantity": 1,
@@ -3610,25 +1947,14 @@
     "description": "超高效制造载具零件，但是相比零件加工5也只是提高了效率而已",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产载具零件",
-        "count": 1000000
+        "quantity": 1000000
       },
       {
         "name": "生产燃料",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产载具零件",
-        "count": 1000000
-      },
-      {
-        "name": "生产燃料",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -3644,40 +1970,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "合金",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "能量块",
-        "quantity": 2.5,
-        "durability": 100
-      },
-      {
-        "name": "水晶",
-        "quantity": 5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "载具零件",
-        "quantity": 0.075,
-        "durability": 100
-      },
-      {
-        "name": "载具零件",
-        "quantity": 0.075,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "合金",
         "quantity": 5,
@@ -3705,33 +1997,18 @@
     "description": "制造要塞级的载具部件，你可以使用这个[要塞零件]在“制造”中制造为相应的部件",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产资源箱",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产载具零件",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产合金",
-        "count": 100000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产资源箱",
-        "count": 100000
-      },
-      {
-        "name": "生产载具零件",
-        "count": 100000
-      },
-      {
-        "name": "生产合金",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "outputs": [
@@ -3742,30 +2019,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "载具零件",
-        "quantity": 25,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 150,
-        "durability": 100
-      },
-      {
-        "name": "资源箱",
-        "quantity": 225,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "要塞零件",
-        "quantity": 0.001,
-        "durability": 100
-      }
-    ],
-    "消耗": [
       {
         "name": "载具零件",
         "quantity": 25,
@@ -3788,25 +2041,14 @@
     "description": "制造种子",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集资源",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集资源",
-        "count": 100000
-      },
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -3817,25 +2059,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "资源箱",
-        "quantity": 2.5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "种子箱",
-        "quantity": 0.25,
-        "durability": 100
-      }
-    ],
-    "消耗": [
       {
         "name": "资源箱",
         "quantity": 2.5,
@@ -3853,25 +2076,14 @@
     "description": "合成效率500%",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产种子箱",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产种子箱",
-        "count": 10000
-      },
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -3882,25 +2094,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "资源箱",
-        "quantity": 12.5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 50,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "种子箱",
-        "quantity": 1.25,
-        "durability": 100
-      }
-    ],
-    "消耗": [
       {
         "name": "资源箱",
         "quantity": 12.5,
@@ -3918,25 +2111,14 @@
     "description": "合成效率500%",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产种子箱",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "生产生物质",
-        "count": 500000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产种子箱",
-        "count": 100000
-      },
-      {
-        "name": "生产生物质",
-        "count": 500000000
+        "quantity": 500000000
       }
     ],
     "outputs": [
@@ -3947,25 +2129,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "资源箱",
-        "quantity": 62.5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 300,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "种子箱",
-        "quantity": 6.25,
-        "durability": 100
-      }
-    ],
-    "消耗": [
       {
         "name": "资源箱",
         "quantity": 62.5,
@@ -3983,25 +2146,14 @@
     "description": "流水线炼丹技术",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集神兽之血",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集神兽之血",
-        "count": 1000
-      },
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -4017,40 +2169,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铀",
-        "quantity": 0.1,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 2,
-        "durability": 100
-      },
-      {
-        "name": "神兽之血",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "灵石",
-        "quantity": 0.0001,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "觉醒丹",
-        "quantity": 0.001,
-        "durability": 100
-      },
-      {
-        "name": "觉醒丹",
-        "quantity": 0.001,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铀",
         "quantity": 0.1,
@@ -4078,25 +2196,14 @@
     "description": "流水线炼丹技术",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产觉醒丹",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产觉醒丹",
-        "count": 1000
-      },
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -4112,40 +2219,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铀",
-        "quantity": 0.1,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 2,
-        "durability": 100
-      },
-      {
-        "name": "神兽之血",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "灵石",
-        "quantity": 0.0001,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "觉醒丹",
-        "quantity": 0.0012,
-        "durability": 100
-      },
-      {
-        "name": "觉醒丹",
-        "quantity": 0.0012,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铀",
         "quantity": 0.1,
@@ -4173,25 +2246,14 @@
     "description": "流水线炼丹技术",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产觉醒丹",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产觉醒丹",
-        "count": 10000
-      },
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -4207,40 +2269,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铀",
-        "quantity": 0.1,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 2,
-        "durability": 100
-      },
-      {
-        "name": "神兽之血",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "灵石",
-        "quantity": 0.0001,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "觉醒丹",
-        "quantity": 0.0015,
-        "durability": 100
-      },
-      {
-        "name": "觉醒丹",
-        "quantity": 0.0015,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铀",
         "quantity": 0.1,
@@ -4268,25 +2296,14 @@
     "description": "组装核电站",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产铀",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产合金",
-        "count": 100000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产铀",
-        "count": 1000
-      },
-      {
-        "name": "生产合金",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "outputs": [
@@ -4302,35 +2319,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铀",
-        "quantity": 10,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 2000,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 1000,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "裂变电站",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "核废料",
-        "quantity": 0.1,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铀",
         "quantity": 10,
@@ -4353,25 +2341,14 @@
     "description": "组装核聚变发电站",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产灵石",
-        "count": 500
+        "quantity": 500
       },
       {
         "name": "生产合金",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产灵石",
-        "count": 500
-      },
-      {
-        "name": "生产合金",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -4382,30 +2359,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "灵石",
-        "quantity": 5,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 2000,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 5000,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "聚变电站",
-        "quantity": 0.01,
-        "durability": 100
-      }
-    ],
-    "消耗": [
       {
         "name": "灵石",
         "quantity": 5,
@@ -4428,25 +2381,14 @@
     "description": "消耗大量的能量来提取核燃料",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集铀",
-        "count": 20
+        "quantity": 20
       },
       {
         "name": "采集石头",
-        "count": 500000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集铀",
-        "count": 20
-      },
-      {
-        "name": "采集石头",
-        "count": 500000
+        "quantity": 500000
       }
     ],
     "outputs": [
@@ -4462,30 +2404,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "燃料",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "石头",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "铀",
-        "quantity": 0.1,
-        "durability": 100
-      },
-      {
-        "name": "铀",
-        "quantity": 0.1,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "燃料",
         "quantity": 20,
@@ -4503,25 +2421,14 @@
     "description": "消耗大量的能量来提取核燃料",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产铀",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "采集石头",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产铀",
-        "count": 1000
-      },
-      {
-        "name": "采集石头",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -4537,30 +2444,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "燃料",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "石头",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "铀",
-        "quantity": 0.12,
-        "durability": 100
-      },
-      {
-        "name": "铀",
-        "quantity": 0.12,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "燃料",
         "quantity": 20,
@@ -4578,25 +2461,14 @@
     "description": "消耗大量的能量来提取核燃料",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产铀",
-        "count": 100000
+        "quantity": 100000
       },
       {
         "name": "采集石头",
-        "count": 3000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产铀",
-        "count": 100000
-      },
-      {
-        "name": "采集石头",
-        "count": 3000000
+        "quantity": 3000000
       }
     ],
     "outputs": [
@@ -4612,30 +2484,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "燃料",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "石头",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "铀",
-        "quantity": 0.15,
-        "durability": 100
-      },
-      {
-        "name": "铀",
-        "quantity": 0.15,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "燃料",
         "quantity": 20,
@@ -4653,25 +2501,14 @@
     "description": "提纯圣水，建议在载具[九尾狐]上生产",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集圣水",
-        "count": 20
+        "quantity": 20
       },
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集圣水",
-        "count": 20
-      },
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -4687,30 +2524,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "圣水",
-        "quantity": 0.000107411385607,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 0.1,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "圣水",
-        "quantity": 0.0001,
-        "durability": 100
-      },
-      {
-        "name": "至纯圣水",
-        "quantity": 0.0001,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "圣水",
         "quantity": 0.000107411385607,
@@ -4728,25 +2541,14 @@
     "description": "合成灵石",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产铀",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产铀",
-        "count": 1000
-      },
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -4762,40 +2564,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铀",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "圣水",
-        "quantity": 0.001,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "灵石",
-        "quantity": 0.001,
-        "durability": 100
-      },
-      {
-        "name": "灵石",
-        "quantity": 0.001,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铀",
         "quantity": 1,
@@ -4823,25 +2591,14 @@
     "description": "合成灵石",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产灵石",
-        "count": 100
+        "quantity": 100
       },
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产灵石",
-        "count": 100
-      },
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -4857,35 +2614,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铀",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 20,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "灵石",
-        "quantity": 0.0012,
-        "durability": 100
-      },
-      {
-        "name": "灵石",
-        "quantity": 0.0012,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铀",
         "quantity": 1,
@@ -4908,25 +2636,14 @@
     "description": "合成灵石",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产灵石",
-        "count": 10000
+        "quantity": 10000
       },
       {
         "name": "生产铀",
-        "count": 100000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产灵石",
-        "count": 10000
-      },
-      {
-        "name": "生产铀",
-        "count": 100000
+        "quantity": 100000
       }
     ],
     "outputs": [
@@ -4942,35 +2659,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铀",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 20,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 20,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "灵石",
-        "quantity": 0.0015,
-        "durability": 100
-      },
-      {
-        "name": "灵石",
-        "quantity": 0.0015,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铀",
         "quantity": 1,
@@ -4993,25 +2681,14 @@
     "description": "这种合成奶的味道不太好，但是依旧可以当做奶来使用",
     "level": 6,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "挤奶",
-        "count": 20
+        "quantity": 20
       },
       {
         "name": "生产",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "挤奶",
-        "count": 20
-      },
-      {
-        "name": "生产",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -5027,30 +2704,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 10000,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 20,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "奶",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "奶",
-        "quantity": 1,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 10000,
@@ -5068,17 +2721,10 @@
     "description": "把钻石分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -5094,25 +2740,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "钻石",
-        "quantity": 1250,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "钻石",
         "quantity": 1250,
@@ -5125,17 +2752,10 @@
     "description": "把生肉分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -5151,25 +2771,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生肉",
-        "quantity": 62.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生肉",
         "quantity": 62.5,
@@ -5182,17 +2783,10 @@
     "description": "把果实分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -5208,25 +2802,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "果实",
-        "quantity": 50,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "果实",
         "quantity": 50,
@@ -5239,17 +2814,10 @@
     "description": "把饲料分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -5265,25 +2833,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "饲料",
-        "quantity": 12.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "饲料",
         "quantity": 12.5,
@@ -5296,17 +2845,10 @@
     "description": "把木头分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -5322,25 +2864,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "木头",
-        "quantity": 250,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "木头",
         "quantity": 250,
@@ -5353,17 +2876,10 @@
     "description": "提取石头中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 5,
     "production": 10,
-    "生产力": 10,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -5379,25 +2895,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "石头",
-        "quantity": 225,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "石头",
         "quantity": 225,
@@ -5410,17 +2907,10 @@
     "description": "提取铁矿中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 10000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 10000000
+        "quantity": 10000000
       }
     ],
     "outputs": [
@@ -5436,25 +2926,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铁矿",
-        "quantity": 112.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铁矿",
         "quantity": 112.5,
@@ -5467,17 +2938,10 @@
     "description": "把绳子分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 5,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -5493,25 +2957,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "绳子",
-        "quantity": 112.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 125,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "绳子",
         "quantity": 112.5,
@@ -5524,17 +2969,10 @@
     "description": "把钻石分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -5550,25 +2988,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "钻石",
-        "quantity": 6250,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "钻石",
         "quantity": 6250,
@@ -5581,17 +3000,10 @@
     "description": "把生肉分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -5607,25 +3019,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生肉",
-        "quantity": 312.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生肉",
         "quantity": 312.5,
@@ -5638,17 +3031,10 @@
     "description": "把果实分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -5664,25 +3050,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "果实",
-        "quantity": 250,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "果实",
         "quantity": 250,
@@ -5695,17 +3062,10 @@
     "description": "把饲料分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -5721,25 +3081,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "饲料",
-        "quantity": 62.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "饲料",
         "quantity": 62.5,
@@ -5752,17 +3093,10 @@
     "description": "把木头分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -5778,25 +3112,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "木头",
-        "quantity": 1250,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "木头",
         "quantity": 1250,
@@ -5809,17 +3124,10 @@
     "description": "提取石头中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 7,
     "production": 10,
-    "生产力": 10,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -5835,25 +3143,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "石头",
-        "quantity": 1125,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "石头",
         "quantity": 1125,
@@ -5866,17 +3155,10 @@
     "description": "提取铁矿中的生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -5892,25 +3174,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "铁矿",
-        "quantity": 562.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "铁矿",
         "quantity": 562.5,
@@ -5923,17 +3186,10 @@
     "description": "把绳子分解为生物质，然后就可以用生物质去制造其他东西，比如燃料",
     "level": 7,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -5949,25 +3205,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "绳子",
-        "quantity": 562.5,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 625,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "绳子",
         "quantity": 562.5,
@@ -5980,25 +3217,14 @@
     "description": "提纯圣水，效率提高了，但是消耗的圣水更多",
     "level": 4,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产至纯圣水",
-        "count": 1440
+        "quantity": 1440
       },
       {
         "name": "生产圣水",
-        "count": 14400
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产至纯圣水",
-        "count": 1440
-      },
-      {
-        "name": "生产圣水",
-        "count": 14400
+        "quantity": 14400
       }
     ],
     "outputs": [
@@ -6014,30 +3240,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "圣水",
-        "quantity": 0.0002013963480131,
-        "durability": 100
-      },
-      {
-        "name": "生物质",
-        "quantity": 0.18,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "圣水",
-        "quantity": 0.00015,
-        "durability": 100
-      },
-      {
-        "name": "至纯圣水",
-        "quantity": 0.00015,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "圣水",
         "quantity": 0.0002013963480131,
@@ -6055,25 +3257,14 @@
     "description": "把未充分反应的核废料提纯为高纯度的钚-239,可用来制造核聚变武器和戴森球",
     "level": 8,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集核废料",
-        "count": 1000
+        "quantity": 1000
       },
       {
         "name": "生产铀",
-        "count": 1000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集核废料",
-        "count": 1000
-      },
-      {
-        "name": "生产铀",
-        "count": 1000000
+        "quantity": 1000000
       }
     ],
     "outputs": [
@@ -6089,35 +3280,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "核废料",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "铀",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 200,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "钚",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "钚",
-        "quantity": 0.01,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "核废料",
         "quantity": 1,
@@ -6140,17 +3302,10 @@
     "description": "由具现装置产生的这种未知物品的性质令使魔着迷，似乎有无限的可能在它之中等着我们一探究竟",
     "level": 8,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "采集未知物品",
-        "count": 10
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "采集未知物品",
-        "count": 10
+        "quantity": 10
       }
     ],
     "outputs": [
@@ -6166,30 +3321,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "未知物品",
-        "quantity": 0.0001136363636364,
-        "durability": 100
-      },
-      {
-        "name": "燃料",
-        "quantity": 0.03472,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "未知物品",
-        "quantity": 0.0001,
-        "durability": 100
-      },
-      {
-        "name": "未知物品",
-        "quantity": 0.000005,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "未知物品",
         "quantity": 0.0001136363636364,
@@ -6207,17 +3338,10 @@
     "description": "制造戴森球的框架",
     "level": 9,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产钚",
-        "count": 1000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产钚",
-        "count": 1000
+        "quantity": 1000
       }
     ],
     "outputs": [
@@ -6233,30 +3357,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "钚",
-        "quantity": 1,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "高强度框架",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "高强度框架",
-        "quantity": 0.01,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "钚",
         "quantity": 1,
@@ -6274,17 +3374,10 @@
     "description": "制造戴森球的壳体",
     "level": 9,
     "production": 1,
-    "生产力": 1,
     "unlockRequirements": [
       {
         "name": "生产生物质",
-        "count": 100000000
-      }
-    ],
-    "解锁需求": [
-      {
-        "name": "生产生物质",
-        "count": 100000000
+        "quantity": 100000000
       }
     ],
     "outputs": [
@@ -6300,30 +3393,6 @@
       }
     ],
     "inputs": [
-      {
-        "name": "生物质",
-        "quantity": 100,
-        "durability": 100
-      },
-      {
-        "name": "合金",
-        "quantity": 10,
-        "durability": 100
-      }
-    ],
-    "产出": [
-      {
-        "name": "太阳帆",
-        "quantity": 0.01,
-        "durability": 100
-      },
-      {
-        "name": "太阳帆",
-        "quantity": 0.01,
-        "durability": 10
-      }
-    ],
-    "消耗": [
       {
         "name": "生物质",
         "quantity": 100,

@@ -41,6 +41,7 @@ import { asJsonValue } from '../../common/utils/json-value.util';
 import { formatDamageText, formatMsDurationText, roundItemQuantity } from '../../common/utils/game-text.util';
 // 背包写入唯一出口（按名合并 / type 以静态定义为唯一真源），禁各路径手写合并逻辑
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
+import { normalizeVehicleEntry } from './field-contract.util';
 
 import { resolvePoolDamage, subtractPoolValue, capPoolValue, round2 } from './player-pool.util';
 
@@ -148,9 +149,9 @@ export interface FamiliarEffectResult {
   /** 本次攻击即时暴击伤害加成（百分比，如战斗女仆"精准暴伤"） */
   critDmgBonus?: number;
   /** 本次攻击后需要给攻击方添加的增益（原版 获得增益 调用的简化表达） */
-  attackerBuffs?: Array<{ name: string; value: number; duration: number }>;
+  attackerBuffs?: Array<{ name: string; strength: number; duration: number }>;
   /** 本次攻击后需要给防御方添加的增益（如龙姬"点燃"） */
-  defenderBuffs?: Array<{ name: string; value: number; duration: number }>;
+  defenderBuffs?: Array<{ name: string; strength: number; duration: number }>;
   /** 本次攻击消耗/写入攻击方标记（如小樱"空间魔力"、战斗女仆"沉着"） */
   markerOps?: Array<{ key: string; delta: number }>;
   /** 是否命中后增加目标"被近战"标记（剑圣"时代变了"依赖） */
@@ -670,7 +671,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
       // 写入武器冷却标记（覆盖旧标记）；「攻击冷却」仅在公共冷却**写入适用**时清理，
       // 避免切到有锁定武器/拳头/管风琴时误删上一次留下的公共冷却
-      const newMarkers2 = markers2.filter((m: any) => (m?.name ?? m?.名称) !== cooldownName
+      const newMarkers2 = markers2.filter((m: any) => m?.name !== cooldownName
         && (!publicCdWrite || itemName(m) !== '攻击冷却'));
       newMarkers2.push({ name: cooldownName, expireAt: now + cooldownSec * 1000 });
 
@@ -690,8 +691,8 @@ export class CombatSystemService implements OnApplicationShutdown {
             : this.safeParseJson<any[]>(player.equipment, []);
           // 原版 L99 装备要求(攻击方, #机械触手)；@Constant.ecode:135 机械触手 = "110"
           const hasMechTentacle = equipsNow.some((e: any) =>
-            Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 110
-            || String(e?.name ?? e?.名称 ?? '') === '机械触手');
+            Number(e?.specialSeq ?? NaN) === 110
+            || String(e?.name ?? '') === '机械触手');
           if (hasMechTentacle) {
             publicCdSec = 6;
             resultLines.unshift(`[武器:${weapon.name}]`); // 原版 L100
@@ -740,7 +741,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         ? playerData.equipment
         : this.safeParseJson<any[]>(player.equipment, []);
       const hasEquipSeqFx = (seq: number): boolean =>
-        equipsFx.some((e: any) => this.safeNum(e?.specialSeq ?? e?.特殊序号) === seq);
+        equipsFx.some((e: any) => this.safeNum(e?.specialSeq) === seq);
 
       // 棒棒糖（原版 L448-453）
       if (hasEquipSeqFx(97) && Math.random() * 100 < 10) {
@@ -810,8 +811,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
       }
       // 长萌舰装（装备 specialSeq=101，原版 L490-496）：60秒冷却标记「fp」→ 额外攻击次数+1（副炮）
-      if (equipsFx.some((e: any) => Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 101
-        || String(e?.name ?? e?.名称 ?? '').includes('长萌舰装'))) {
+      if (equipsFx.some((e: any) => Number(e?.specialSeq ?? NaN) === 101
+        || String(e?.name ?? '').includes('长萌舰装'))) {
         const nowMsFp = Date.now();
         const mk2Fp = this.safeParseJson<any[]>(player.markers2 || '[]', []);
         const fpEntry = mk2Fp.find((m: any) => m?.name === 'fp');
@@ -827,8 +828,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 弹药箱（装备 specialSeq=19，原版 L497-506）：武器类型非"近战武器"时（原版按类型精确比较），
       // 60秒冷却标记「弹药」→ 额外攻击次数+1（弹药充沛）
       if (weapon.type !== '近战武器'
-        && equipsFx.some((e: any) => Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 19
-          || String(e?.name ?? e?.名称 ?? '').includes('弹药箱'))) {
+        && equipsFx.some((e: any) => Number(e?.specialSeq ?? NaN) === 19
+          || String(e?.name ?? '').includes('弹药箱'))) {
         const nowMsAm = Date.now();
         const mk2Am = this.safeParseJson<any[]>(player.markers2 || '[]', []);
         const amEntry = mk2Am.find((m: any) => m?.name === '弹药');
@@ -875,7 +876,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       if (bondSets['白']) {
         const bj1 = Number(this.safeParseJson<Record<string, any>>(player.markers, {})['bj1'] || 0);
         const bondWeaponTypes = ['', '近战武器', '射弹武器', '能量武器', '制导武器', '幽能武器'];
-        const weaponType = String((weapon as any)?.type ?? (weapon as any)?.类型 ?? '');
+        const weaponType = String((weapon as any)?.type ?? '');
         if (bj1 >= 1 && bj1 <= 5 && weaponType && weaponType === bondWeaponTypes[bj1]) {
           attackerBonus.攻击2 = (attackerBonus.攻击2 || 0) + 15;
           resultLines.push(`【${CombatSystemService.BOND_SKILL_A[bj1 - 1].name}】${weaponType}攻击+15%`);
@@ -909,8 +910,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     const hadComebackState = !isRuntimeActor
       && Array.isArray(playerData.buffs)
       && playerData.buffs.some((entry: any) => {
-        if ((entry?.name ?? entry?.名称) !== '卷土重来') return false;
-        const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+        if (entry?.name !== '卷土重来') return false;
+        const rawExpire = Number(entry?.expireAt ?? 0);
         const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
         return !expireAt || expireAt > comebackNowMs;
       });
@@ -927,7 +928,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 原版：当前生命>0 时获得增益(卷土重来, -30) 即移除卷土重来（卷土重来仅在死亡时生效）
     if ((player.hp || 0) > 0 && playerData.buffs && Array.isArray(playerData.buffs)) {
       const jtIdx = playerData.buffs.findIndex(
-        (b: any) => b && (b.name ?? b.名称) === '卷土重来',
+        (b: any) => b && b.name === '卷土重来',
       );
       if (jtIdx >= 0) {
         playerData.buffs.splice(jtIdx, 1);
@@ -961,11 +962,10 @@ export class CombatSystemService implements OnApplicationShutdown {
         const mapVehicles = this.playerService.safeJsonParse<any[]>(sourceMap.vehicles, []);
         const v = mapVehicles.find((x: any) => x && (
           String(x.id) === String(player.vehicle)
-          || String(x.编号) === String(player.vehicle)
           || String(x.vehicleId) === String(player.vehicle)
         ));
-        if (v && (v.currentHp ?? v.当前生命 ?? 1) > 0) {
-          const vBonus = v.bonus || v.加成 || {};
+        if (v && (v.currentHp ?? 1) > 0) {
+          const vBonus = v.bonus || {};
           const inc = 1; // 法宝3级+5% 的细节可后续补
           attackerBonus.攻击2 = (attackerBonus.攻击2 || 0) + (vBonus.攻击2 || 0) * inc;
           attackerBonus.闪避2 = (attackerBonus.闪避2 || 0) + (vBonus.闪避2 || 0) * inc;
@@ -977,7 +977,7 @@ export class CombatSystemService implements OnApplicationShutdown {
             }
           }
           // 发丝（白的发丝）：掉落率/品质固定
-          if (v.hair || v.发丝) {
+          if (v.hair) {
             attackerBonus.掉落率 = 0;
             attackerBonus.掉落品质 = 0;
           }
@@ -1005,7 +1005,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (familiarEffect.attackerBuffs && familiarEffect.attackerBuffs.length > 0) {
       const playerBuffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
       for (const b of familiarEffect.attackerBuffs) {
-        playerBuffs.push({ name: b.name, value: b.value, expireAt: Date.now() / 1000 + b.duration, duration: b.duration });
+        playerBuffs.push({ name: b.name, strength: b.strength, expireAt: Date.now() / 1000 + b.duration, duration: b.duration });
       }
       player.buffs = playerBuffs; // Json 列直接写数组
     }
@@ -1231,9 +1231,9 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 因此即使本次攻击未命中也会生效，此处与星象仪同放在命中判定前。
       if (weapon.specialSeq === -27 || weapon.name?.includes('神兽之力玄武')) {
         const xwDefMk2 = this.safeParseJson<any[]>(target.markers2 || '[]', []);
-        const xwTargetWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+        const xwTargetWeapons = this.safeParseJson<any[]>(target.weapons || '[]', []);
         for (const targetWeapon of xwTargetWeapons) {
-          const targetWeaponName = targetWeapon?.name || targetWeapon?.名称;
+          const targetWeaponName = targetWeapon?.name;
           if (targetWeaponName) {
             const cooldownKey = `${targetWeaponName}冷却`;
             const cooldownEntry = xwDefMk2.find((m: any) => m?.name === cooldownKey);
@@ -1290,7 +1290,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (familiarEffect.defenderBuffs && familiarEffect.defenderBuffs.length > 0) {
           const tBuffs = this.playerService.safeJsonParse<any[]>(target.buffs, []);
           for (const b of familiarEffect.defenderBuffs) {
-            tBuffs.push({ name: b.name, value: b.value, expireAt: Date.now() / 1000 + b.duration, duration: b.duration });
+            tBuffs.push({ name: b.name, strength: b.strength, expireAt: Date.now() / 1000 + b.duration, duration: b.duration });
           }
           target.buffs = tBuffs; // Json 列直接写数组
           resultLines.push(`${target.name} 受到【${familiarEffect.defenderBuffs.map((b) => b.name).join('、')}】效果`);
@@ -1315,7 +1315,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         if (targetType.includes('saber')) {
           // saber好感≥40：有"ex"增益时伤害=0（原版 战斗相关.ecode L2240-2246：防御方.好感>=40 && 增益要求("ex")）
-          const defAff2 = target.affinity ?? (target as any).好感 ?? 0;
+          const defAff2 = target.affinity ?? 0;
           const tBuffs2 = this.safeParseJson<any[]>(target.buffs, []);
           // 归一化过期判定：ex 是 15 秒窗口增益，过期后不再免伤（原版 增益要求 同样会剔除过期项）
           if (defAff2 >= 40 && hasActive(tBuffs2, 'ex')) {
@@ -1488,13 +1488,13 @@ export class CombatSystemService implements OnApplicationShutdown {
         // 影光：易伤 + 增益值×2.5（增益值封顶40）
         const shadow = findActive(tBuffs, '影光');
         if (shadow) {
-          const shadowVal = Math.min(40, Number(shadow.value) || 0);
+          const shadowVal = Math.min(40, Number(shadow.strength) || 0);
           vuln += shadowVal * 2.5;
         }
         // 重伤：易伤 + 增益值
         const heavy = findActive(tBuffs, '重伤');
         if (heavy) {
-          vuln += Number(heavy.value) || 0;
+          vuln += Number(heavy.strength) || 0;
         }
         // 裸体围裙/透明围裙 易伤（格挡判定中记录）
         vuln += apronVuln || 0;
@@ -1504,7 +1504,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         {
           const atkSeq4 = Number(player.specialSeq ?? 0);
           const isSwordSaint = atkSeq4 === 4 || player.type === '剑圣';
-          const wType4 = String(weapon.type ?? (weapon as any).类型 ?? '');
+          const wType4 = String(weapon.type ?? '');
           const isMeleeOrBio = wType4 === '近战武器' || wType4 === '生体武器'
             || weapon.name === '拳头';
           if (isSwordSaint && !isMeleeOrBio && (player.affinity ?? 0) >= 100) {
@@ -1685,7 +1685,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           resultLines.push(`【无双】+${Math.round(a2 * 4)}`);
         }
         // ---- 常春藤（原版 L2852-2867：攻击方活力==#常春藤(-14)，生体/近战武器命中时目标当前状态×5%物伤） ----
-        if (player.vitality === -14 || player.活力 === -14) {
+        if (player.vitality === -14) {
           const wtype = weapon.type || '';
           const isBioMelee = wtype.includes('生体') || wtype.includes('近战');
           if (isBioMelee) {
@@ -1738,12 +1738,12 @@ export class CombatSystemService implements OnApplicationShutdown {
           ? playerData.equipment
           : this.safeParseJson<any[]>(playerData.equipment || player.equipment || '[]', []);
         const hasWindSpirit = equipsSpirit.some(
-          (e: any) => Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 33
-            || String(e?.name ?? e?.名称 ?? '').includes('风精灵'),
+          (e: any) => Number(e?.specialSeq ?? NaN) === 33
+            || String(e?.name ?? '').includes('风精灵'),
         );
         const hasThunderSpirit = equipsSpirit.some(
-          (e: any) => Number(e?.specialSeq ?? e?.特殊序号 ?? NaN) === 132
-            || String(e?.name ?? e?.名称 ?? '').includes('雷精灵'),
+          (e: any) => Number(e?.specialSeq ?? NaN) === 132
+            || String(e?.name ?? '').includes('雷精灵'),
         );
         if (hasWindSpirit) {
           const a2Ws = (attackerBonus.闪避 || 0) * extraDamageMult;
@@ -1855,8 +1855,8 @@ export class CombatSystemService implements OnApplicationShutdown {
           delete playerMk[`${weapon.name}t`];
           // #普拉娜=22（@Constant.ecode L225 .常量 普拉娜,"22"），与 L5958/L6330 的判定保持一致
           const isPlana = (player.specialSeq ?? 0) === 22 || player.type === '普拉娜';
-          if (isPlana && (player.affinity ?? player.好感 ?? 0) >= 60) {
-            forcedMult *= 1.25 + (player.skillLevel ?? player.技能等级 ?? 0) * 0.01;
+          if (isPlana && (player.affinity ?? 0) >= 60) {
+            forcedMult *= 1.25 + (player.skillLevel ?? 0) * 0.01;
           } else {
             forcedMult *= 1.25;
           }
@@ -1865,9 +1865,9 @@ export class CombatSystemService implements OnApplicationShutdown {
 
         // ========== 第二批套装/武器/负面类型特效（原版 造成伤害 L1813-2160） ==========
         // 防御方增益集合（原版 防御方.增益）；此处从 target.buffs 读取（怪物/玩家统一）
-        const defenderBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+        const defenderBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
         const hasDefBuff = (name: string) =>
-          defenderBuffs.some((b: any) => b && (b.name || b.名称) === name);
+          defenderBuffs.some((b: any) => b && b.name === name);
 
         // ---- 创世纪（z1.特殊序号 == #创世纪(-18)：清空防御方三池+背包+经验，显示类型=1） ----
         // 原版 L1813-1821：防御方.当前护盾/当前装甲/当前生命=0；若为怪物则重定义背包、经验=0
@@ -1875,10 +1875,10 @@ export class CombatSystemService implements OnApplicationShutdown {
           target.hp = 0; (target as any).currentHp = 0;
           target.shield = 0; (target as any).currentShield = 0;
           target.armor = 0; (target as any).currentArmor = 0;
-          if ((target as any).backpack || (target as any).背包) {
-            (target as any).backpack = []; (target as any).背包 = [];
+          if ((target as any).backpack) {
+            (target as any).backpack = [];
           }
-          (target as any).exp = 0; (target as any).经验 = 0;
+          (target as any).exp = 0;
           resultLines.push('【创世纪】目标状态被清空');
         }
 
@@ -1894,7 +1894,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         // （如 saber 好感2「15秒内抵挡所有伤害」、安乐天使·护盾）。各技能只需写 invincible:true，
         // 不必各自造消费分支。已免疫则跳过，避免重复文本。
         if (!dmgImmune) {
-          const defBuffsInv = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const defBuffsInv = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (defBuffsInv.some((b: any) => b && b.invincible === true)) {
             forcedMult = 0;
             dmgImmune = true;
@@ -1919,10 +1919,10 @@ export class CombatSystemService implements OnApplicationShutdown {
 
         // ---- 仿真尾巴（z1.特殊序号==#仿真尾巴(-36)：遍历攻击方武器，非仿真尾巴且处于"名称+冷却"状态则 CD-5，原版 L1827-1841） ----
         if (weapon.specialSeq === -36 || weapon.name?.includes('仿真尾巴')) {
-          const atkWeapons = this.safeParseJson<any[]>(player.weapons || (player as any).武器 || '[]', []);
+          const atkWeapons = this.safeParseJson<any[]>(player.weapons || '[]', []);
           let b = 0;
           for (const w of atkWeapons) {
-            const wName = w.name || w.名称;
+            const wName = w.name;
             if (w.specialSeq === -36 || (wName || '').includes('仿真尾巴')) continue; // 跳过仿真尾巴自身
             const cdKey = `${wName}冷却`;
             // 增益要求(攻击方.标记2, "名称+冷却") 存在且未过期即处于冷却中；markers2.expireAt 为毫秒
@@ -1937,9 +1937,9 @@ export class CombatSystemService implements OnApplicationShutdown {
 
         // ---- 火焰飞羽（z1.特殊序号==#火焰飞羽(-30)：给防御方加"飞羽"增益60秒，原版 L1843-1844） ----
         if (weapon.specialSeq === -30 || weapon.name?.includes('火焰飞羽')) {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((x: any) => (x.name || x.名称) === '飞羽' && this.isActiveBeyond(x, 30, nowMs))) {
-            tBuffs.push({ name: '飞羽', expireAt: this.expireAfter(30, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"飞羽",30,假,s,1,真)
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+          if (!tBuffs.some((x: any) => x.name === '飞羽' && this.isActiveBeyond(x, 30, nowMs))) {
+            tBuffs.push({ name: '飞羽', expireAt: this.expireAfter(30, nowMs), strength: 1 }); // 原版 获得增益(防御方.增益,"飞羽",30,假,s,1,真)
           }
           target.buffs = tBuffs; // Json 列直接写数组
         }
@@ -1959,9 +1959,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         // ---- 影光（z1.特殊序号==#影光(-23)：给防御方加"影光"增益60秒，原版 L1849-1850；
         //      后续 L2263 读"影光"增益 → 易伤 += a1*2.5 已在 calcDamage 对应段实现） ----
         if (weapon.specialSeq === -23 || weapon.name?.includes('影光')) {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((x: any) => (x.name || x.名称) === '影光' && this.isActiveBeyond(x, 60, nowMs))) {
-            tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs), 强度: 1 }); // 原版 获得增益(防御方.增益,"影光",60,假,s,1,真)
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+          if (!tBuffs.some((x: any) => x.name === '影光' && this.isActiveBeyond(x, 60, nowMs))) {
+            tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs), strength: 1 }); // 原版 获得增益(防御方.增益,"影光",60,假,s,1,真)
           }
           target.buffs = tBuffs; // Json 列直接写数组
         }
@@ -1975,9 +1975,9 @@ export class CombatSystemService implements OnApplicationShutdown {
             const exist = defMk2.find((m: any) => m?.name === '被寒风冷却');
             if (exist) exist.expireAt = nowMs;
             else defMk2.push({ name: '被寒风冷却', expireAt: nowMs });
-            const defWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+            const defWeapons = this.safeParseJson<any[]>(target.weapons || '[]', []);
             for (const w of defWeapons) {
-              const wName = w.name || w.名称;
+              const wName = w.name;
               const tKey = `${wName}冷却`; // 获得增益(防御方.标记2,"名称+冷却",30,真,s)
               const te = defMk2.find((m: any) => m?.name === tKey);
               if (te) te.expireAt = Math.max(te.expireAt, (nowSec + 30) * 1000);
@@ -1995,7 +1995,7 @@ export class CombatSystemService implements OnApplicationShutdown {
             const gle = atkMk2.find((m: any) => m?.name === '光棱');
             if (gle) gle.expireAt = nowMs;
             else atkMk2.push({ name: '光棱', expireAt: nowMs });
-            const typeKey = `${player.type || (player as any).类型 || '玩家'}技能冷却`;
+            const typeKey = `${player.type || '玩家'}技能冷却`;
             const sk = atkMk2.find((m: any) => m?.name === typeKey);
             if (sk) sk.expireAt = Math.max(nowMs, sk.expireAt - 60 * 1000); // 获得增益(攻击方.标记2,"类型+技能冷却",-60,真,s)
             else atkMk2.push({ name: typeKey, expireAt: Math.max(nowMs, (nowSec - 60) * 1000) });
@@ -2016,10 +2016,10 @@ export class CombatSystemService implements OnApplicationShutdown {
         // ---- 神兽之力青龙（原版 L4500-4507：命中后给防御方5秒麻痹，并把每件武器冷却延长5秒） ----
         if (weapon.specialSeq === -31 || weapon.name?.includes('神兽之力青龙')) {
           // startedAt/totalMs 供前端「进行中操作」进度条算百分比（与采集/抢救同口径）
-          defMk2.push({ name: '麻痹', startedAt: nowMs, totalMs: 5 * 1000, expireAt: nowMs + 5 * 1000, 强度: 0 });
-          const targetWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+          defMk2.push({ name: '麻痹', startedAt: nowMs, totalMs: 5 * 1000, expireAt: nowMs + 5 * 1000, strength: 0 });
+          const targetWeapons = this.safeParseJson<any[]>(target.weapons || '[]', []);
           for (const targetWeapon of targetWeapons) {
-            const targetWeaponName = targetWeapon?.name || targetWeapon?.名称;
+            const targetWeaponName = targetWeapon?.name;
             if (targetWeaponName) {
               const cooldownKey = `${targetWeaponName}冷却`;
               const cooldownEntry = defMk2.find((m: any) => m?.name === cooldownKey);
@@ -2063,8 +2063,8 @@ export class CombatSystemService implements OnApplicationShutdown {
           if (cnt >= 4) {
             // 计数清零，并给防御方加正式增益（原版 获得增益(防御方.增益, formal, 30,...)）
             targetMk[cntKey] = 0;
-            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === formal && this.isActiveBeyond(b, 30, nowMs))) {
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+            if (!tBuffs.some((b: any) => b && b.name === formal && this.isActiveBeyond(b, 30, nowMs))) {
               tBuffs.push({ name: formal, expireAt: this.expireAfter(30, nowMs) });
             }
             target.buffs = tBuffs; // Json 列直接写数组
@@ -2075,9 +2075,9 @@ export class CombatSystemService implements OnApplicationShutdown {
             taskProgress.push({ actionName: `触发${formal}`, count: 1 });
             // 深寒额外：所有武器CD+3（原版 L2091-2093）
             if (effName === '深寒') {
-              const tWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+              const tWeapons = this.safeParseJson<any[]>(target.weapons || '[]', []);
               tWeapons.forEach((w: any) => {
-                targetMk[`${w.name || w.名称}冷却`] = nowSec;
+                targetMk[`${w.name}冷却`] = nowSec;
               });
             }
           } else {
@@ -2087,7 +2087,7 @@ export class CombatSystemService implements OnApplicationShutdown {
 
         // ---- 感电增益 + 星尘超新星（原版 L2109-2136） ----
         // 负面类型可能刚把"感电"写入防御方增益，此处重新解析以纳入本次生效
-        const defBuffs2 = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+        const defBuffs2 = this.safeParseJson<any[]>(target.buffs || '[]', []);
         if (hasActive(defBuffs2, '感电')) {
           resultLines.push('【感电】');
           // 增加全抗(防御方.属性, -5,-5,-5)：原版火/冰/电三系抗性各-5，本框架以三层全抗各-5 等效表达
@@ -2095,11 +2095,11 @@ export class CombatSystemService implements OnApplicationShutdown {
           defenderBonus.护盾全抗 = (defenderBonus.护盾全抗 || 0) - 5;
           defenderBonus.装甲全抗 = (defenderBonus.装甲全抗 || 0) - 5;
           // 星尘好感≥60 → 穿透+10、攻击+25+技等/2、超新星电伤
-          if ((player.affinity ?? (player as any).好感 ?? 0) >= 60 && (player.specialSeq ?? 0) === 14) { // #星尘=14
+          if ((player.affinity ?? 0) >= 60 && (player.specialSeq ?? 0) === 14) { // #星尘=14
             attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + 10;
             attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + 10;
             attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
-            attackerBonus.攻击 = (attackerBonus.攻击 || 0) + (25 + (player.skillLevel ?? (player as any).技能等级 ?? 0) / 2);
+            attackerBonus.攻击 = (attackerBonus.攻击 || 0) + (25 + (player.skillLevel ?? 0) / 2);
             const maxSh = target.maxShield || target.shield || 0;
             const curSh = target.currentShield || target.shield || 0;
             const a2 = maxSh > 0 ? 1 - curSh / maxSh : 0;
@@ -2129,25 +2129,25 @@ export class CombatSystemService implements OnApplicationShutdown {
         // ========== 第三批 使魔/装备专属特效（原版 造成伤害 L2161-2258 / L2439 / L2471-2586） ==========
         const atkSeq = player.specialSeq ?? 0;
         const defSeq = target.specialSeq ?? 0;
-        const atkVit = player.vitality ?? (player as any).活力 ?? 0;
-        const defVit = target.vitality ?? (target as any).活力 ?? 0;
-        const atkAff = player.affinity ?? (player as any).好感 ?? 0;
-        const defAff = target.affinity ?? (target as any).好感 ?? 0;
-        const atkSkill = player.skillLevel ?? (player as any).技能等级 ?? 0;
-        const defSkill = target.skillLevel ?? (target as any).技能等级 ?? 0;
-        const defWeapons = this.safeParseJson<any[]>(target.weapons || (target as any).武器 || '[]', []);
+        const atkVit = player.vitality ?? 0;
+        const defVit = target.vitality ?? 0;
+        const atkAff = player.affinity ?? 0;
+        const defAff = target.affinity ?? 0;
+        const atkSkill = player.skillLevel ?? 0;
+        const defSkill = target.skillLevel ?? 0;
+        const defWeapons = this.safeParseJson<any[]>(target.weapons || '[]', []);
 
         // ---- 攻击方使魔专属（原版 L2161-2218） ----
         // 古月娜(#古月娜=5) / 银龙：防御方所有武器 +"冷却"标记1秒（L2170-2173）
-        if (atkSeq === 5 || player.type === '银龙' || (player as any).类型 === '银龙') {
+        if (atkSeq === 5 || player.type === '银龙') {
           defWeapons.forEach((w: any) => {
-            targetMk[`${w.name || w.名称}冷却`] = nowSec;
+            targetMk[`${w.name}冷却`] = nowSec;
           });
         }
         // 恶毒(#恶毒=6)：防御方增益加"恶毒之刃" 15+技等（L2175-2177）
         if (atkSeq === 6) {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '恶毒之刃' && this.isActiveBeyond(b, 15 + atkSkill, nowMs))) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+          if (!tBuffs.some((b: any) => b && b.name === '恶毒之刃' && this.isActiveBeyond(b, 15 + atkSkill, nowMs))) {
             tBuffs.push({ name: '恶毒之刃', expireAt: this.expireAfter(15 + atkSkill, nowMs) });
           }
           target.buffs = tBuffs; // Json 列直接写数组
@@ -2156,8 +2156,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         // 伊芙利特(#伊芙利特=11) 好感≥80：防御方标记2加"燃烧" 15秒 强度10+技等/2（L2178-2182）
         if (atkSeq === 11 && atkAff >= 80) {
           targetMk['燃烧'] = nowSec; // 简化：冷却标记占位
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '燃烧' && this.isActiveBeyond(b, 15, nowMs))) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+          if (!tBuffs.some((b: any) => b && b.name === '燃烧' && this.isActiveBeyond(b, 15, nowMs))) {
             tBuffs.push({ name: '燃烧', expireAt: this.expireAfter(15, nowMs), strength: 10 + atkSkill / 2 });
           }
           target.buffs = tBuffs; // Json 列直接写数组
@@ -2165,7 +2165,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         // 绝灭天使(#绝灭天使=3) 增益含"炮冠"：炮冠冷却30 + 取羽毛特效（L2184-2190，简化为置冷却标记+文本）
         if (atkSeq === 3) {
-          const atkBuffs = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
+          const atkBuffs = this.safeParseJson<any[]>(player.buffs || '[]', []);
           if (hasActive(atkBuffs, '炮冠')) {
             playerMk['炮冠冷却'] = nowSec; // 30秒冷却（L2186 时间间隔要求 30）
             resultLines.push('【炮冠】');
@@ -2174,19 +2174,19 @@ export class CombatSystemService implements OnApplicationShutdown {
         // 军姬(#军姬=16)：好感≥100 → 防御方加"影光"60秒；增益含"万象"且近战/拳头 → 转轮增益（L2192-2205）
         if (atkSeq === 16) {
           if (atkAff >= 100) {
-            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '影光' && this.isActiveBeyond(b, 60, nowMs))) {
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+            if (!tBuffs.some((b: any) => b && b.name === '影光' && this.isActiveBeyond(b, 60, nowMs))) {
               tBuffs.push({ name: '影光', expireAt: this.expireAfter(60, nowMs) });
             }
             target.buffs = tBuffs; // Json 列直接写数组
           }
-          const atkBuffs2 = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
+          const atkBuffs2 = this.safeParseJson<any[]>(player.buffs || '[]', []);
           if (hasActive(atkBuffs2, '万象') &&
               (weapon.name === '拳头' || weapon.type === '近战武器')) {
             if (!targetMk['zllq'] || nowSec - (targetMk['zllq'] || 0) > 30) {
               targetMk['zllq'] = nowSec;
-              const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-              if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '转轮' && this.isActiveBeyond(b, 30, nowMs))) {
+              const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+              if (!tBuffs.some((b: any) => b && b.name === '转轮' && this.isActiveBeyond(b, 30, nowMs))) {
                 tBuffs.push({ name: '转轮', expireAt: this.expireAfter(30, nowMs), strength: (attackerBonus.物伤 || 0) / 10 });
               }
               target.buffs = tBuffs; // Json 列直接写数组
@@ -2223,7 +2223,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         // 龙姬(#龙姬=12)：防御方增益加"怒吼"（L2233-2234）
         if (defSeq === 12) {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (!hasActive(tBuffs, '怒吼')) {
             tBuffs.push({ name: '怒吼', expireAt: this.expireAfter(30, nowMs) });
           }
@@ -2231,15 +2231,15 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         // 长萌(#长萌=2) 好感≥40 → 防御方增益加"长萌承受"（L2235-2238）
         if (defSeq === 2 && defAff >= 40) {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '长萌承受' && this.isActiveBeyond(b, 30, nowMs))) {
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+          if (!tBuffs.some((b: any) => b && b.name === '长萌承受' && this.isActiveBeyond(b, 30, nowMs))) {
             tBuffs.push({ name: '长萌承受', expireAt: this.expireAfter(30, nowMs) });
           }
           target.buffs = tBuffs; // Json 列直接写数组
         }
         // saber(#saber=19) 好感≥40 增益含"ex" → 伤害0（L2240-2246）
         if (defSeq === 19 && defAff >= 40) {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (hasActive(tBuffs, 'ex')) {
             forcedMult = 0;
             dmgImmune = true;
@@ -2250,13 +2250,13 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (defSeq === 15) {
           if (defAff >= 80 && (!targetMk['冰凯'] || nowSec - (targetMk['冰凯'] || 0) > 20)) {
             targetMk['冰凯'] = nowSec;
-            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
             if (!hasActive(tBuffs, 'bk1')) {
               tBuffs.push({ name: 'bk1', expireAt: this.expireAfter(20, nowMs) });
             }
             target.buffs = tBuffs; // Json 列直接写数组
           }
-          const tBuffs2 = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const tBuffs2 = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (hasActive(tBuffs2, 'bk1')) {
             forcedMult = 0;
             dmgImmune = true;
@@ -2268,8 +2268,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (atkVit === -15) {
           if (!playerMk['xhcd'] || nowSec - (playerMk['xhcd'] || 0) > 180) {
             playerMk['xhcd'] = nowSec;
-            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '猩红' && this.isActiveBeyond(b, 10, nowMs))) {
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+            if (!tBuffs.some((b: any) => b && b.name === '猩红' && this.isActiveBeyond(b, 10, nowMs))) {
               tBuffs.push({ name: '猩红', expireAt: this.expireAfter(10, nowMs) });
             }
             target.buffs = tBuffs; // Json 列直接写数组
@@ -2282,14 +2282,14 @@ export class CombatSystemService implements OnApplicationShutdown {
         // ---- 战斗女仆(#战斗女仆=8) 守护/超频（原版 L2471-2497 / L2521-2531） ----
         if (atkSeq === 8) {
           // 攻击方守护1 → 进守护2、守护1-1（L2471-2481，回合消耗，本框架简化为文本）
-          const atkBuffs = this.safeParseJson<any[]>(player.buffs || (player as any).增益 || '[]', []);
+          const atkBuffs = this.safeParseJson<any[]>(player.buffs || '[]', []);
           if (hasActive(atkBuffs, '守护1')) {
             resultLines.push('【守护】');
           }
           // 好感≥60：与防御方交换武器冷却，并 战斗中增加攻击 5+技等/2（L2482-2497）
           if (atkAff >= 60) {
             for (const w of defWeapons) {
-              const wkey = `${w.name || w.名称}冷却`;
+              const wkey = `${w.name}冷却`;
               if (!targetMk[wkey]) {
                 if (!playerMk['超频'] || nowSec - (playerMk['超频'] || 0) > 30) {
                   playerMk['超频'] = nowSec;
@@ -2308,7 +2308,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         // 防御方战斗女仆 守护1 → 伤害0（L2521-2531）
         if (defSeq === 8) {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (hasActive(tBuffs, '守护1')) {
             forcedMult = 0;
             dmgImmune = true;
@@ -2319,7 +2319,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         // ---- 防御方套装/标记免疫（原版 L2533-2586） ----
         // 绝灭天使(#绝灭天使=3) 增益含"光盾" → 伤害0（L2533-2538）
         if (defSeq === 3) {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (hasActive(tBuffs, '光盾')) {
             forcedMult = 0;
             dmgImmune = true;
@@ -2330,8 +2330,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (defSeq === 16 && defAff >= 40) {
           if (!targetMk['jz'] || nowSec - (targetMk['jz'] || 0) > 60) {
             targetMk['jz'] = nowSec;
-            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-            if (!tBuffs.some((b: any) => b && (b.name || b.名称) === '剑阵' && this.isActiveBeyond(b, 12, nowMs))) {
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+            if (!tBuffs.some((b: any) => b && b.name === '剑阵' && this.isActiveBeyond(b, 12, nowMs))) {
               tBuffs.push({ name: '剑阵', expireAt: this.expireAfter(12, nowMs) });
             }
             target.buffs = tBuffs; // Json 列直接写数组
@@ -2355,7 +2355,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         // 防御方增益含"剑阵" → 伤害0（L2583-2586）
         {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (hasActive(tBuffs, '剑阵')) {
             forcedMult = 0;
             dmgImmune = true;
@@ -2376,19 +2376,19 @@ export class CombatSystemService implements OnApplicationShutdown {
           if ((targetMk['猫猫闪避'] || 0) > 0) {
             blockVal = 100;
             targetMk['猫猫闪避'] = 0;
-            const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+            const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
             if (!hasActive(tBuffs, '幻时')) {
               tBuffs.push({ name: '幻时', expireAt: this.expireAfter(30, nowMs) });
             }
             target.buffs = tBuffs; // Json 列直接写数组
-            targetMk[`${(target.type || (target as any).类型 || '')}技能冷却`] = nowSec;
+            targetMk[`${(target.type || '')}技能冷却`] = nowSec;
             resultLines.push('【幻时】');
           }
         }
         // 阿尔缇娜(specialSeq=7) 好感≥40 → 格挡 += 15+技等/2；增益"a技能2" → 再+15+技等/2（L2560-2568）
         if (defSeq === 7) {
           if (defAff >= 40) blockVal += 15 + defSkill / 2;
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (hasActive(tBuffs, 'a技能2')) blockVal += 15 + defSkill / 2;
         }
         // 防爆盾装备 → 格挡+10（L2587-2589）
@@ -2399,7 +2399,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (defEquip2?.some((e: any) => e.specialSeq === 51 || (e.name || '').includes('圆盾'))) blockVal += 5;
         // 烟雾弹增益 → 格挡+20（L2596-2599）
         {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
           if (hasActive(tBuffs, '烟雾弹')) blockVal += 20;
         }
         // 裸体围裙装备 → 易伤+5 + 格挡修正（L2600-2610）
@@ -2484,8 +2484,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         // 激变星增益 → 伤害0（L2724-2727）
         {
-          const tBuffs = this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []);
-          const jbx = tBuffs.find((b: any) => b && (b.name || b.名称) === '激变星');
+          const tBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
+          const jbx = tBuffs.find((b: any) => b && b.name === '激变星');
           if (jbx) {
             forcedMult = 0;
             dmgImmune = true;
@@ -2533,7 +2533,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           mastery,
           defenderEquipment: playerData.equipment,
           defenderMarkers: vtdDefMarkers,
-          defenderBuffs: this.safeParseJson<any[]>(target.buffs || (target as any).增益 || '[]', []),
+          defenderBuffs: this.safeParseJson<any[]>(target.buffs || '[]', []),
         },
       );
       // 真伤释放后熟练度被清零 → 写回防御方标记
@@ -2689,7 +2689,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const poolTotalBeforeDamage = Number(target.hp || 0) + shieldBeforeDamage + armorBeforeDamage;
       const defenderEquipment = ((target as any).equipment || []) as any[];
       const hasTenaciousShield = defenderEquipment.some((item: any) =>
-        item && (item.specialSeq === 131 || (item.name || item.名称) === '坚韧护盾'));
+        item && (item.specialSeq === 131 || item.name === '坚韧护盾'));
       const tenaciousShieldMarkers = this.safeParseJson<any[]>(target.markers2, []);
       let tenaciousShieldTriggered = false;
       const tenaciousShieldMax = (target as any).maxShield ?? defenderBonus.护盾 ?? 0;
@@ -2724,7 +2724,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 将对应回复逆转增益写入防御方，持续 10×(1-韧性/100) 秒。
       const reversePool = (poolBefore: number, maxPool: number, poolName: '盾逆' | '甲逆') => {
         if (poolBefore <= 0 || maxPool <= 0 || poolBefore / maxPool < 0.15) return;
-        const isWoodCat = weapon.specialSeq === -26 || (weapon.name || (weapon as any).名称) === '木天蓼';
+        const isWoodCat = weapon.specialSeq === -26 || weapon.name === '木天蓼';
         const isSolar = attackText === '日轮a' && (player.affinity || 0) >= 40;
         if (!isWoodCat && !isSolar) return;
         const reverseSeconds = 10 * (1 - (defenderBonus.韧性 || 0) / 100);
@@ -2901,7 +2901,7 @@ export class CombatSystemService implements OnApplicationShutdown {
               return n >= 1e12 ? n / 1000 : n;
             };
             const hasActiveJlqR = mk2R.some(
-              (m: any) => (m?.name ?? m?.名称) === 'jlq' && toSecR(m?.expireAt ?? m?.有效期至) > nowSecR,
+              (m: any) => m?.name === 'jlq' && toSecR(m?.expireAt) > nowSecR,
             );
             if (!hasActiveJlqR) {
               // 原版 L3686-3690：授予 卷土重来(30+卷土重来属性)，写入 jlq 60秒冷却
@@ -2910,7 +2910,7 @@ export class CombatSystemService implements OnApplicationShutdown {
               const buffsR = this.safeParseJson<any[]>(player.buffs, []);
               buffsR.push({ name: '卷土重来', expireAt: nowSecR + jtlSecR });
               player.buffs = buffsR; // Json 列直接写数组
-              const markersWithoutJlqR = mk2R.filter((m: any) => (m?.name ?? m?.名称) !== 'jlq');
+              const markersWithoutJlqR = mk2R.filter((m: any) => m?.name !== 'jlq');
               markersWithoutJlqR.push({ name: 'jlq', expireAt: nowSecR + 60 });
               player.markers2 = markersWithoutJlqR; // Json 列直接写数组
               resultLines.push(`你被反伤打倒，进入了卷土重来状态(${jtlSecR}秒)`);
@@ -3253,7 +3253,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         for (let i = 0; i < weaponsAshina.length; i++) {
           const w = weaponsAshina[i];
           if (!w) continue;
-          const wType = String(w.type ?? w.类型 ?? '');
+          const wType = String(w.type ?? '');
           const wLock = Number(w.lockTime ?? w.lock ?? w.锁定 ?? 0);
           if (wType === '近战武器' || wType.includes('近战') || w.name === '拳头') continue;
           if (wLock !== 0) continue;
@@ -3321,8 +3321,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       const mySummons = summons.filter(
         (s: any) =>
           s &&
-          (String(s.ownerQQ) === String(player.userId) || String(s.归属) === String(player.userId)) &&
-          (s.hp ?? s.当前生命 ?? 1) > 0,
+          String(s.ownerQQ) === String(player.userId) &&
+          (s.hp ?? 1) > 0,
       );
       if (mySummons.length === 0) return lines;
 
@@ -3432,7 +3432,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 语义一致，但额外覆盖没有 userId 的召唤物/怪物对象。
    */
   private isActorDefeated(actor: any): boolean {
-    return Number(actor?.hp ?? actor?.当前生命 ?? 0) <= 0;
+    return Number(actor?.hp ?? 0) <= 0;
   }
 
   private async monsterCounterAttackOnePlayer(
@@ -3525,7 +3525,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const dodgeBuff = findActive(victimBuffs, '闪避', nowMsDodge);
       let fixedDodge = 0;
       if (dodgeBuff) {
-        fixedDodge = dodgeBuff.value || 100;
+        fixedDodge = dodgeBuff.strength || 100;
         const remain = remainSeconds(dodgeBuff, nowMsDodge);
         if (remain > 0) lines.push(`${youText}处于闪避状态（剩余${remain}秒），闪开了攻击`);
       }
@@ -3562,7 +3562,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         {
           const equipList: any[] = this.safeParseJson(victimData.equipment, []);
           const hanGuang = equipList.find((e: any) => (e.name || '').includes('含光'));
-          if (hanGuang && (hanGuang.durability ?? hanGuang.耐久 ?? 0) > 8) {
+          if (hanGuang && (hanGuang.durability ?? 0) > 8) {
             if ((victim.maxShield || 0) >= (victim.maxArmor || 0) && (victim.maxShield || 0) >= (victim.maxHp || 0)) {
               const heal = Math.round((victim.maxShield || 0) * 0.1);
               victim.shield = Math.min((victim.maxShield || 0), (victim.shield || 0) + heal);
@@ -3591,9 +3591,9 @@ export class CombatSystemService implements OnApplicationShutdown {
 
       // 载具数据需要在伤害计算前读取：阿尔缇娜的贯穿加成发生在原版“贯穿判断”之前。
       const mapVehicles = this.playerService.safeJsonParse<any[]>(map.vehicles, []);
-      const vehicleIndex = mapVehicles.findIndex((x: any) => x && (x.id === victim.vehicle || x.编号 === victim.vehicle));
+      const vehicleIndex = mapVehicles.findIndex((x: any) => x && (x.id === victim.vehicle || x.vehicleId === victim.vehicle));
       const vehicle = vehicleIndex >= 0 ? mapVehicles[vehicleIndex] : undefined;
-      const vehicleCurrentHp = Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? 0);
+      const vehicleCurrentHp = Number(vehicle?.currentHp ?? 0);
       const altinaMultiplier = 1.25 + Number(monster.skillLevel ?? 0) / 200;
       const damageAttackerBonus: BonusData = { ...attackBonus };
       if (vehicleCurrentHp > 0 && (monster.specialSeq ?? 0) === 7) {
@@ -3700,8 +3700,8 @@ export class CombatSystemService implements OnApplicationShutdown {
           const nowMsScarlet = Date.now();
           const hasScarletBuffV = vBuffsScarlet.some((b: any) => {
             if (!b) return false;
-            if ((b.名称 ?? b.name) !== '猩红') return false;
-            const rawExpire = Number(b.有效期至 ?? b.expireAt ?? 0);
+            if (b.name !== '猩红') return false;
+            const rawExpire = Number(b.expireAt ?? 0);
             const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
             return expireMs > nowMsScarlet;
           });
@@ -3755,8 +3755,8 @@ export class CombatSystemService implements OnApplicationShutdown {
           // 兼容存量重复标记：不能只用 find() 检查第一条 jlq，
           // 否则前面的过期记录会遮蔽后面真正有效的冷却，导致重复触发卷土重来。
           const hasActiveJlq = vMk2.some((marker: any) => {
-            if ((marker?.name ?? marker?.名称) !== 'jlq') return false;
-            const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+            if (marker?.name !== 'jlq') return false;
+            const rawExpire = Number(marker?.expireAt ?? 0);
             const expireSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
             return expireSec > nowSecV;
           });
@@ -3770,7 +3770,7 @@ export class CombatSystemService implements OnApplicationShutdown {
             // 原版不在此处回血：卷土重来只是免死状态（闪避=1），生命保持 0。
             // 写入 jlq 冷却 60 秒（原版 时间间隔要求("jlq",60)）。
             // 新写入前清除同名旧项，避免历史重复标记再次遮蔽有效冷却。
-            const markersWithoutJlq = vMk2.filter((marker: any) => (marker?.name ?? marker?.名称) !== 'jlq');
+            const markersWithoutJlq = vMk2.filter((marker: any) => marker?.name !== 'jlq');
             markersWithoutJlq.push({ name: 'jlq', expireAt: nowSecV + 60 });
             victim.markers2 = markersWithoutJlq; // Json 列直接写数组
             lines.push(`${monster.name} 攻击${youText}，造成 ${dmgText}，${youText}进入了卷土重来状态(${jtlSec}秒)`);
@@ -3861,7 +3861,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       return lines;
     }
     const nowMs = timestamp >= 1e12 ? timestamp : timestamp * 1000;
-    const specialSeq = Number(attacker?.specialSeq ?? attacker?.特殊序号 ?? 0);
+    const specialSeq = Number(attacker?.specialSeq ?? 0);
     const attackerQQ = String(
       attacker?.qqNumber
       ?? attacker?.QQ
@@ -3874,9 +3874,9 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     const skillLevel = this.skillLevelFromMarkers(
       attackerData.markers,
-      String(attacker?.type ?? attacker?.类型 ?? ''),
+      String(attacker?.type ?? ''),
     );
-    const displayName = String(attacker?.name ?? attacker?.名称 ?? attacker?.type ?? attacker?.类型 ?? '攻击方');
+    const displayName = String(attacker?.name ?? attacker?.type ?? '攻击方');
 
     // 兰音：特殊序号23，友方宇航兔唯一存在于所有地图。
     if (specialSeq === 23 || attacker?.type === '兰音') {
@@ -3953,7 +3953,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           const summon = await this.mapService.createMapSummonByName(map.id, summonName, {
             level: forcedLevel,
             ownerQQ: isPet
-              ? String(attacker?.ownerQQ ?? attacker?.归属 ?? '')
+              ? String(attacker?.ownerQQ ?? '')
               : attackerQQ,
             qq: summonQQ,
           });
@@ -3989,70 +3989,64 @@ export class CombatSystemService implements OnApplicationShutdown {
     seconds: number,
     nowMs: number,
   ): boolean {
-    const raw = attacker?.markers2 ?? attacker?.标记2 ?? attackerData.markers2 ?? [];
+    const raw = attacker?.markers2 ?? attackerData.markers2 ?? [];
     const entries = this.safeParseJson<any[]>(raw, Array.isArray(raw) ? raw : []);
     const active = entries.some((entry: any) => {
-      const entryName = entry?.name ?? entry?.名称;
-      const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+      const entryName = entry?.name;
+      const rawExpire = Number(entry?.expireAt ?? 0);
       const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
       return entryName === name && expireAt > nowMs;
     });
     if (active) return false;
 
-    const next = entries.filter((entry: any) => (entry?.name ?? entry?.名称) !== name);
+    const next = entries.filter((entry: any) => entry?.name !== name);
     // kind=方案B 召唤类型：面板对「xx冷却」渲染「召唤冷却中」（`召yht`/`召2yht`/`xx冷却` 等别名共用）
     next.push({ name, kind: 'summon-cd', expireAt: nowMs + Math.max(0, seconds) * 1000 });
     attacker.markers2 = next; // Json 列直接写数组
     attackerData.markers2 = next;
-    if (attacker.标记2 !== undefined) attacker.标记2 = next;
     return true;
   }
 
   private forcedSummonLevel(attacker: any, isPet: boolean): number {
-    const level = Number(attacker?.level ?? attacker?.等级 ?? 1) || 1;
+    const level = Number(attacker?.level ?? 1) || 1;
     return Math.max(1, Math.floor(isPet ? level : level / 3));
   }
 
   private setForcedLevelMarker(summon: any, level: number): void {
-    const markers = this.normalizeMarkerObject(summon?.markers ?? summon?.标记 ?? {});
+    const markers = this.normalizeMarkerObject(summon?.markers ?? {});
     markers['强制等级'] = level;
     summon.markers = markers; // Json 列直接写对象
-    if (summon.标记 !== undefined) summon.标记 = markers;
   }
 
   private applyPetCloneState(summon: any, attacker: any): void {
-    const originalName = String(summon?.name ?? summon?.名称 ?? '');
+    const originalName = String(summon?.name ?? '');
     if (!originalName.includes('分身')) return;
 
-    const image = String(attacker?.image ?? attacker?.图片 ?? attacker?.name ?? attacker?.名称 ?? '');
+    const image = String(attacker?.image ?? attacker?.name ?? '');
     const cloneName = `${image}分身`;
     summon.name = cloneName;
-    summon.名称 = cloneName;
     summon.image = cloneName;
-    summon.图片 = cloneName;
 
     const presets = this.safeParseJson<any[]>(
-      attacker?.equipmentPresets ?? attacker?.装备预设 ?? [],
-      Array.isArray(attacker?.equipmentPresets ?? attacker?.装备预设)
-        ? (attacker?.equipmentPresets ?? attacker?.装备预设)
+      attacker?.equipmentPresets ?? [],
+      Array.isArray(attacker?.equipmentPresets)
+        ? attacker?.equipmentPresets
         : [],
     );
     summon.equipmentPresets = presets; // Json 列直接写数组
-    summon.装备预设 = presets;
 
-    const sourceMarkers = this.normalizeMarkerObject(attacker?.markers ?? attacker?.标记 ?? {});
-    const markers = this.normalizeMarkerObject(summon?.markers ?? summon?.标记 ?? {});
+    const sourceMarkers = this.normalizeMarkerObject(attacker?.markers ?? {});
+    const markers = this.normalizeMarkerObject(summon?.markers ?? {});
     for (const key of ['觉醒', '击杀', '宝宝']) {
       if (sourceMarkers[key] !== undefined) markers[key] = sourceMarkers[key];
     }
-    const owner = String(attacker?.ownerQQ ?? attacker?.归属 ?? '');
+    const owner = String(attacker?.ownerQQ ?? '');
     if (owner && sourceMarkers[`好感${owner}`] !== undefined) {
       markers[`好感${owner}`] = sourceMarkers[`好感${owner}`];
     }
     const attackerQQ = String(attacker?.qq ?? attacker?.QQ ?? '');
     if (attackerQQ) markers[attackerQQ] = 14.421425;
     summon.markers = markers; // Json 列直接写对象
-    summon.标记 = markers;
   }
 
   private async appendFriendlySummon(map: any, summon: any): Promise<boolean> {
@@ -4067,7 +4061,7 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   private getAttackSummonText(rawEquipment: any): string {
-    const name = String(rawEquipment?.name ?? rawEquipment?.名称 ?? rawEquipment ?? '');
+    const name = String(rawEquipment?.name ?? rawEquipment ?? '');
     if (!name) return '';
     const staticDefinition = typeof (this.staticData as any).getEquipmentByName === 'function'
       ? (this.staticData as any).getEquipmentByName(name)
@@ -4097,7 +4091,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
       }
       if (typeof value === 'object') {
-        return String(value.name ?? value.名称 ?? '').trim();
+        return String(value.name ?? '').trim();
       }
       return '';
     };
@@ -4115,36 +4109,36 @@ export class CombatSystemService implements OnApplicationShutdown {
       return this.playerService.safeJsonParse<any[]>(value, []);
     };
     const active = (value: any): boolean => parseArray(value).some((item: any) => {
-      const name = String(item?.name ?? item?.名称 ?? item ?? '');
+      const name = String(item?.name ?? item ?? '');
       if (name !== '重力井') return false;
-      const rawExpire = Number(item?.expireAt ?? item?.有效期至 ?? 0);
+      const rawExpire = Number(item?.expireAt ?? 0);
       const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
       return !expireAt || expireAt > timestamp;
     });
     if (active(map?.markers3 ?? map?.标记3) || active(map?.mapBuffs)) return true;
 
-    const markers = map?.markers ?? map?.标记;
+    const markers = map?.markers;
     if (active(markers)) return true;
     const markerObject = this.safeParseJson<Record<string, any>>(markers, {});
     if (markerObject && Number(markerObject['重力井'] ?? 0) > 0) return true;
 
-    const vehicles = parseArray(map?.vehicles ?? map?.载具);
+    const vehicles = parseArray(map?.vehicles);
     const collectPartNames = (value: any, names: string[]): void => {
       for (const part of parseArray(value)) {
-        const name = String(part?.name ?? part?.名称 ?? part ?? '');
+        const name = String(part?.name ?? part ?? '');
         if (name) names.push(name);
-        collectPartNames(part?.parts ?? part?.零件, names);
-        collectPartNames(part?.builtinParts ?? part?.内置零件, names);
+        collectPartNames(part?.parts, names);
+        collectPartNames(part?.builtinParts, names);
       }
     };
     return vehicles.some((vehicle: any) => {
-      const currentHp = Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? 0);
-      const driver = vehicle?.driver ?? vehicle?.驾驶员 ?? vehicle?.ownerDriver ?? '';
+      const currentHp = Number(vehicle?.currentHp ?? 0);
+      const driver = vehicle?.driver ?? vehicle?.ownerDriver ?? '';
       if (currentHp <= 0 || !String(driver)) return false;
       const names: string[] = [];
-      collectPartNames(vehicle?.parts ?? vehicle?.零件, names);
-      collectPartNames(vehicle?.builtinParts ?? vehicle?.内置零件, names);
-      return names.includes('重力井') || String(vehicle?.name ?? vehicle?.名称 ?? '') === '重力井';
+      collectPartNames(vehicle?.parts, names);
+      collectPartNames(vehicle?.builtinParts, names);
+      return names.includes('重力井') || String(vehicle?.name ?? '') === '重力井';
     });
   }
 
@@ -4212,9 +4206,9 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     const vehicleParts = this.getVehiclePartNames(vehicle);
     const hasPart = (name: string): boolean => vehicleParts.includes(name);
-    const currentHp = Number(vehicle?.currentHp ?? vehicle?.当前生命 ?? 0);
+    const currentHp = Number(vehicle?.currentHp ?? 0);
     const hasVehicle = !!vehicle && currentHp > 0;
-    const reverseField = !!(vehicle?.reverseField ?? vehicle?.逆转力场);
+    const reverseField = !!vehicle?.reverseField;
     const nowMs = Date.now();
     const status = Math.max(0, Number(victim.hp || 0) + Number(victim.armor || 0) + Number(victim.shield || 0));
     const attackerMarkers = this.playerService.safeJsonParse<any[]>(attacker?.markers2, []);
@@ -4315,7 +4309,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       remaining = { physical: 0.25, fire: 0.25, ice: 0.25, elec: 0.25 };
       this.combatState.gainBuff2(
         victimBuffs,
-        { 名称: '福音书', 持续时间: 300, 强度: 10 },
+        { name: '福音书', duration: 300, strength: 10 },
         nowMs,
       );
       extraPool = zeroPool();
@@ -4421,7 +4415,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       vehicleDamage = remainingDamage;
     } else if ((attacker.specialSeq ?? 0) === -9 && !rainbowOnCooldown) {
       const vehicleMaxHp = Number(
-        vehicle?.bonus?.生命 ?? vehicle?.加成?.生命 ?? vehicle?.maxHp ?? vehicle?.最大生命 ?? currentHp,
+        vehicle?.bonus?.生命 ?? vehicle?.maxHp ?? currentHp,
       );
       vehicleDamage = Math.max(0, vehicleMaxHp / 2);
       attackerMarkersChanged = true;
@@ -4522,9 +4516,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     vehicleDamage = Math.min(Math.max(0, vehicleDamage), currentHp);
     const afterVehicle = Math.max(0, currentHp - vehicleDamage);
     vehicle.currentHp = afterVehicle;
-    vehicle.当前生命 = afterVehicle;
+    vehicle.currentHp = afterVehicle;
     vehicleChanged = true;
-    lines.push(`${vehicle.name || vehicle.名称 || '载具'}生命-${Math.floor(vehicleDamage)}(${Math.floor(afterVehicle)})`);
+    lines.push(`${vehicle.name || '载具'}生命-${Math.floor(vehicleDamage)}(${Math.floor(afterVehicle)})`);
 
     // 载具承伤分支结束时清空普通剩余四属性；只把额外三池伤害交给驾驶员。
     const playerPool = copyPool(extraPool);
@@ -4543,18 +4537,18 @@ export class CombatSystemService implements OnApplicationShutdown {
     const names: string[] = [];
     const visit = (part: any): void => {
       if (!part) return;
-      const name = String(part.name ?? part.名称 ?? '');
+      const name = String(part.name ?? '');
       if (name) names.push(name);
-      for (const inner of parse(part.builtinParts ?? part.内置零件 ?? part.builtin ?? part.内置)) visit(inner);
+      for (const inner of parse(part.builtinParts ?? part.builtin ?? part.内置)) visit(inner);
     };
-    for (const part of parse(vehicle.parts ?? vehicle.零件)) visit(part);
-    for (const part of parse(vehicle.builtinParts ?? vehicle.内置零件)) visit(part);
+    for (const part of parse(vehicle.parts)) visit(part);
+    for (const part of parse(vehicle.builtinParts)) visit(part);
     return names;
   }
 
   /** 载具涂层类型：物理=1、火焰=2、冰冻=3、雷电=4（@Constant.ecode L277-L280）。 */
   private getVehicleCoating(vehicle: any, partNames: string[]): number {
-    const raw = Number(vehicle?.coating ?? vehicle?.涂层 ?? 0);
+    const raw = Number(vehicle?.coating ?? 0);
     if (raw >= 1 && raw <= 4) return raw;
     if (partNames.includes('坚固涂层')) return CombatSystemService.DMG_PHYS;
     if (partNames.includes('耐热涂层')) return CombatSystemService.DMG_FIRE;
@@ -4615,7 +4609,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       return `${player.name}需要切换为炮击模式，或者驾驶安装了舰炮的载具\n1、转换  2、架炮`;
     }
 
-    if (vehicle && Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0) === 0) {
+    if (vehicle && Number(vehicle.currentHp ?? 0) === 0) {
       return `${player.name}载具需要“维修”`;
     }
 
@@ -4624,8 +4618,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     const weapon = weaponIndex > 0
       ? (weapons[weaponIndex - 1] || weapons[weaponIndex] || {})
       : {};
-    const weaponName = String(weapon.name ?? weapon.名称 ?? '拳头');
-    const weaponType = String(weapon.type ?? weapon.类型 ?? '近战武器');
+    const weaponName = String(weapon.name ?? '拳头');
+    const weaponType = String(weapon.type ?? '近战武器');
 
     if (weaponIndex === 0) {
       return `${player.name}拳头无法射出去`;
@@ -4728,15 +4722,14 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     // 原版 L918-L923：若炮击载具带有脏弹，则消耗一枚并污染目标地图120秒。
     const dirtyBomb = this.findVehiclePart(vehicle, '脏弹', parse);
-    if (dirtyBomb && Number(dirtyBomb.quantity ?? dirtyBomb.数量 ?? 0) >= 1) {
-      const count = Number(dirtyBomb.quantity ?? dirtyBomb.数量) - 1;
-      if (dirtyBomb.quantity !== undefined) dirtyBomb.quantity = count;
-      if (dirtyBomb.数量 !== undefined) dirtyBomb.数量 = count;
+    if (dirtyBomb && Number(dirtyBomb.quantity ?? 0) >= 1) {
+      const count = Number(dirtyBomb.quantity) - 1;
+      dirtyBomb.quantity = count;
       await this.persistCannonVehicle(vehicleSource, parse);
       // 同样按名合并（原版为 push 追加；此处按名 upsert，重复污染只保留一条，
       // 消费方均以「是否存在且未过期」判定，语义等价）
       await this.mapService.mergeMapMarkers2(targetMap.id, [
-        { name: '脏弹', value: 120, expireAt: now + 120 * 1000 },
+        { name: '脏弹', strength: 120, expireAt: now + 120 * 1000 },
       ]);
       return `${prefix}${attack.result}\n脏弹里面装载的核废料污染了${targetMap.name}`;
     }
@@ -4752,7 +4745,7 @@ export class CombatSystemService implements OnApplicationShutdown {
   ): Promise<{ kind: 'map' | 'db'; map: any; index?: number; db?: any; vehicle: any } | null> {
     const key = String(player.vehicle ?? '');
     const vehicles = parse<any[]>(map.vehicles, []);
-    const index = vehicles.findIndex((item: any) => [item?.id, item?.编号, item?.vehicleId, item?.name, item?.名称]
+    const index = vehicles.findIndex((item: any) => [item?.id, item?.vehicleId, item?.name]
       .filter((value: any) => value !== undefined && value !== null)
       .map(String)
       .includes(key));
@@ -4778,15 +4771,14 @@ export class CombatSystemService implements OnApplicationShutdown {
     name: string,
     parse: <T>(value: any, fallback: T) => T,
   ): any | null {
-    const parts: any[] = parse<any[]>(vehicle?.parts ?? vehicle?.零件, []);
+    const parts: any[] = parse<any[]>(vehicle?.parts, []);
     // DB 载具的 parts 通常是字符串；把解析后的数组挂回运行时对象，
     // 使炮击后的脏弹消耗能够由 persistCannonVehicle 写回。
     if (vehicle && typeof vehicle.parts === 'string') vehicle.parts = parts;
-    if (vehicle && typeof vehicle.零件 === 'string') vehicle.零件 = parts;
     const visit = (part: any): any => {
       if (!part) return null;
-      if (String(part.name ?? part.名称 ?? '') === name) return part;
-      for (const nested of parse<any[]>(part.builtinParts ?? part.内置零件 ?? part.builtin ?? part.内置, [])) {
+      if (String(part.name ?? '') === name) return part;
+      for (const nested of parse<any[]>(part.builtinParts ?? part.builtin ?? part.内置, [])) {
         const found = visit(nested);
         if (found) return found;
       }
@@ -4809,7 +4801,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       await (this.prisma as any).gameVehicle.update({
         where: { id: source.db.id },
         data: {
-          parts: parse<any[]>(stored.parts ?? stored.零件, []), // GameVehicle.parts 为 Json 列，直接写数组
+          parts: parse<any[]>(stored.parts, []), // GameVehicle.parts 为 Json 列，直接写数组
         },
       });
       return;
@@ -4855,7 +4847,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       /** 三段评级熟练度值（可读写，用于累加熟练度并计算倍率加成） */
       mastery?: { 致命?: number; 强力?: number; 正中?: number; 擦过?: number; 描边?: number };
       /** 防御方装备列表；生命/装甲/护盾增强器按 L3166-L3172 顺序判断 */
-      defenderEquipment?: Array<{ specialSeq?: number; name?: string; 特殊序号?: number; 名称?: string }>;
+      defenderEquipment?: Array<{ specialSeq?: number; name?: string }>;
       /** 防御方标记对象（猩红熟练度读写，吸血姬真伤释放判定用） */
       defenderMarkers?: Record<string, any> | null;
       /** 防御方增益数组（判断猩红增益是否活跃） */
@@ -4985,24 +4977,21 @@ export class CombatSystemService implements OnApplicationShutdown {
     const defenderEquipment = opts?.defenderEquipment || [];
     if (defenderEquipment.some((item) =>
       item.specialSeq === 55
-      || item.特殊序号 === 55
-      || (item.name || item.名称) === '生命增强器')) {
+      || item.name === '生命增强器')) {
       enhancerEffectText = this.bonusService.enhancer(
         defBonus, 3, finalBreakdown.physical, finalBreakdown.fire,
         finalBreakdown.ice, finalBreakdown.elec, 20, enhancerEffectText,
       );
     } else if (defenderEquipment.some((item) =>
       item.specialSeq === 56
-      || item.特殊序号 === 56
-      || (item.name || item.名称) === '装甲增强器')) {
+      || item.name === '装甲增强器')) {
       enhancerEffectText = this.bonusService.enhancer(
         defBonus, 2, finalBreakdown.physical, finalBreakdown.fire,
         finalBreakdown.ice, finalBreakdown.elec, 20, enhancerEffectText,
       );
     } else if (defenderEquipment.some((item) =>
       item.specialSeq === 57
-      || item.特殊序号 === 57
-      || (item.name || item.名称) === '护盾增强器')) {
+      || item.name === '护盾增强器')) {
       enhancerEffectText = this.bonusService.enhancer(
         defBonus, 1, finalBreakdown.physical, finalBreakdown.fire,
         finalBreakdown.ice, finalBreakdown.elec, 20, enhancerEffectText,
@@ -5106,8 +5095,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         const nowMsVtd = Date.now();
         const hasScarletBuff = (opts?.defenderBuffs || []).some((b: any) => {
           if (!b) return false;
-          if ((b.名称 ?? b.name) !== '猩红') return false;
-          const rawExpire = Number(b.有效期至 ?? b.expireAt ?? 0);
+          if (b.name !== '猩红') return false;
+          const rawExpire = Number(b.expireAt ?? 0);
           const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
           return expireMs > nowMsVtd;
         });
@@ -5202,8 +5191,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         ? this.skillLevelFromMarkers(this.safeParseJson(defender.markers, {}), defender.type)
         : 0
     ));
-    const equipments: Array<{ 名称: string; 特殊序号?: number }> = this.safeParseJson(defender.equipments, []);
-    const weapons: Array<{ 名称: string; 特殊序号?: number }> = this.safeParseJson(defender.weapons, []);
+    const equipments: Array<{ name: string; specialSeq?: number }> = this.safeParseJson(defender.equipments, []);
+    const weapons: Array<{ name: string; specialSeq?: number }> = this.safeParseJson(defender.weapons, []);
     const currentWeapon = defender.currentWeapon || 0;
 
     // L4806 恶毒好感≥100：色欲(30s)冷却未过则反伤100%
@@ -5360,7 +5349,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     // （兼容两种形态：字符串名称或背包装备实例的 {name:"自动步枪"} 对象）
     if (weapon.attackText) {
       if (typeof weapon.attackText === 'string') return weapon.attackText;
-      return String((weapon.attackText as any)?.name ?? (weapon.attackText as any)?.名称 ?? '').trim();
+      return String((weapon.attackText as any)?.name ?? '').trim();
     }
 
     // 如果武器有攻击文本列表
@@ -5371,7 +5360,7 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     // 无攻击文本配置时按原版语义回落到 文本列表[1]（拳头模板），而不是拼"武器名+物理攻击"
     const fistName = typeof weapon.attackText === 'object'
-      ? String((weapon.attackText as any)?.name ?? (weapon.attackText as any)?.名称 ?? '').trim()
+      ? String((weapon.attackText as any)?.name ?? '').trim()
       : String(weapon.attackText ?? '').trim();
     const fistTexts = this.getAttackTextTemplates(fistName || '拳头', damageType);
     if (fistTexts.length > 0) {
@@ -5446,7 +5435,7 @@ export class CombatSystemService implements OnApplicationShutdown {
   private resolveAttackTextName(weapon: WeaponData): string {
     const raw: any = weapon?.attackText;
     if (raw && typeof raw === 'object') {
-      return String(raw.name ?? raw.名称 ?? '').trim();
+      return String(raw.name ?? '').trim();
     }
     const s = String(raw ?? '').trim();
     // 兼容历史存量：若写入的是整段展示文本（含【占位符】）则无法对应文本列表条目，回落拳头
@@ -5468,7 +5457,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    */
   private isActiveBeyond(buff: any, seconds: number, nowMs: number): boolean {
     if (!buff) return false;
-    const raw = Number(buff.expireAt ?? buff.有效期至 ?? 0);
+    const raw = Number(buff.expireAt ?? 0);
     if (!raw) return false;
     const expireSec = raw >= 1e12 ? raw / 1000 : raw;
     return expireSec > nowMs / 1000 + (Number(seconds) || 0);
@@ -5564,11 +5553,10 @@ export class CombatSystemService implements OnApplicationShutdown {
       const vehicles = this.playerService.safeJsonParse<any[]>(map?.vehicles, []);
       const v = vehicles.find((x: any) => x && (
         String(x.id) === String(vehicleKey)
-        || String(x.编号) === String(vehicleKey)
         || String(x.vehicleId) === String(vehicleKey)
       ));
-      if (!v || Number(v.currentHp ?? v.当前生命 ?? 1) <= 0) return undefined;
-      const name = String(v.name ?? v.名称 ?? '').trim();
+      if (!v || Number(v.currentHp ?? 1) <= 0) return undefined;
+      const name = String(v.name ?? '').trim();
       return name || undefined;
     } catch {
       return undefined;
@@ -5578,7 +5566,7 @@ export class CombatSystemService implements OnApplicationShutdown {
   /** 战斗来源标识：玩家=userId，召唤物/运行时攻击方=名称（对应原版 怪物.标记「攻击者+QQ」键）。 */
   private getCombatSourceKey(player: any, isRuntimeActor: boolean): string {
     if (isRuntimeActor) {
-      return String(player?.name ?? player?.名称 ?? player?.userId ?? '未知召唤物');
+      return String(player?.name ?? player?.userId ?? '未知召唤物');
     }
     return String(player?.userId ?? '');
   }
@@ -5754,9 +5742,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 掉落品质：资源数量 ×(1+品质/100)（原版 L849）
     if (dropQualityPct !== 0) {
       drops = drops.map((drop: any) => {
-        const type = String(drop?.type ?? drop?.类型 ?? '').trim();
+        const type = String(drop?.type ?? '').trim();
         if (type === '装备' || type === 'equipment') return { ...drop };
-        const quantity = Number(drop?.quantity ?? drop?.count ?? drop?.数量 ?? 0);
+        const quantity = Number(drop?.quantity ?? 0);
         if (!Number.isFinite(quantity)) return { ...drop };
         if (quantity < 0) return { ...drop, quantity: Math.abs(quantity) };
         return { ...drop, quantity: quantity * (1 + dropQualityPct / 100) };
@@ -5807,9 +5795,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (rewardMultiplier !== 1) {
           expGain *= rewardMultiplier;
           drops = drops.map((drop: any) => {
-            const type = String(drop?.type ?? drop?.类型 ?? '').trim();
+            const type = String(drop?.type ?? '').trim();
             if (type === '装备' || type === 'equipment') return { ...drop };
-            const quantity = Number(drop?.quantity ?? drop?.count ?? drop?.数量 ?? 0);
+            const quantity = Number(drop?.quantity ?? 0);
             return { ...drop, quantity: quantity * rewardMultiplier };
           });
         }
@@ -5852,8 +5840,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         // 原版“奖励玩家”只在装备宝石缎带时记录稀有掉落：每个已成功
         // 结算且原始几率 <= 1% 的掉落条目计一次，不按装备数量展开。
         const rareCount = drops.filter((drop: any) => {
-          const name = String(drop?.name ?? drop?.名称 ?? '').trim();
-          const chance = Number(drop?.chance ?? drop?.几率);
+          const name = String(drop?.name ?? '').trim();
+          const chance = Number(drop?.chance);
           return name && name !== '电力' && Number.isFinite(chance) && chance <= 1;
         }).length;
         if (rareCount > 0 && this.hasGemRibbon(playerData.player)) {
@@ -5921,28 +5909,27 @@ export class CombatSystemService implements OnApplicationShutdown {
     const lines: string[] = [];
     for (let i = 0; i < vehicles.length; i++) {
       const raw = vehicles[i] || {};
-      const sealed = raw.封印中 === true || raw.sealed === true;
-      const sealWave = Number(raw.当前守卫波 ?? raw.sealWave ?? 0) || 0;
-      const waker = String(raw.唤醒者 ?? raw.sealWaker ?? '');
+      const sealed = raw.sealed === true;
+      const sealWave = Number(raw.sealWave ?? 0) || 0;
+      const waker = String(raw.sealWaker ?? '');
       if (!sealed || sealWave <= 0 || !waker) continue;
-      const vehicleId = String(raw.编号 ?? raw.vehicleId ?? raw.id ?? '');
+      const vehicleId = String(raw.vehicleId ?? raw.id ?? '');
       if (!vehicleId) continue;
       const remaining = monsters.filter((m: any) =>
         (Number(m?.hp ?? 0) > 0) && String(m?.qq ?? '').startsWith(`sealguard_${vehicleId}_`),
       ).length;
       if (remaining > 0) continue;
-      const totalWaves = Math.max(1, Number(raw.守卫波数 ?? raw.guardWaves ?? 1) || 1);
+      const totalWaves = Math.max(1, Number(raw.guardWaves ?? 1) || 1);
       const wakerName = await this.prisma.player
         .findUnique({ where: { userId: Number(waker) }, select: { name: true } })
         .then((p) => p?.name || waker)
         .catch(() => waker);
       if (sealWave < totalWaves) {
         const nextWave = sealWave + 1;
-        raw.当前守卫波 = nextWave;
         raw.sealWave = nextWave;
         vehicles[i] = raw;
         changed = true;
-        const level = Math.max(1, Number(raw.需求等级 ?? raw.requireLevel ?? 100) || 100);
+        const level = Math.max(1, Number(raw.requireLevel ?? 100) || 100);
         try {
           await this.mapService.spawnSealGuard(mapId, {
             vehicleId,
@@ -5953,20 +5940,16 @@ export class CombatSystemService implements OnApplicationShutdown {
           this.logger.warn(`遗迹守卫下一波生成失败: ${e?.message ?? e}`);
         }
         lines.push(`${wakerName}击破了守卫！第${nextWave}波守卫从遗迹中苏醒……`);
-        this.logger.log(`${raw.名称 ?? '遗迹'}第${nextWave}波守卫苏醒 map=${mapId}`);
+        this.logger.log(`${raw.name ?? '遗迹'}第${nextWave}波守卫苏醒 map=${mapId}`);
       } else {
-        raw.封印中 = false;
         raw.sealed = false;
-        raw.当前守卫波 = 0;
         raw.sealWave = 0;
-        raw.归属 = waker;
         raw.owner = waker;
-        delete raw.唤醒者;
         delete raw.sealWaker;
         vehicles[i] = raw;
         changed = true;
-        lines.push(`${wakerName}击破了全部守卫，${raw.名称 ?? '遗迹'}的封印解除了！`);
-        this.logger.log(`${raw.名称 ?? '遗迹'}封印解除，归属=${waker} map=${mapId}`);
+        lines.push(`${wakerName}击破了全部守卫，${raw.name ?? '遗迹'}的封印解除了！`);
+        this.logger.log(`${raw.name ?? '遗迹'}封印解除，归属=${waker} map=${mapId}`);
       }
     }
     if (changed) {
@@ -6023,11 +6006,11 @@ export class CombatSystemService implements OnApplicationShutdown {
   ): void {
     if (!player) return;
     const seq = Number(player.specialSeq ?? 0);
-    const type = String(player.type ?? player.类型 ?? '');
-    const affinity = Number(player.affinity ?? (player as any).好感
+    const type = String(player.type ?? '');
+    const affinity = Number(player.affinity
       ?? this.playerService.getMarkerValue(playerData?.markers || asJsonValue<any>(player.markers, {}), `${type}好感`));
     const markers2 = this.safeParseJson<any[]>(player.markers2 || playerData?.markers2 || [], []);
-    const playerName = String(player.name ?? player.名称 ?? '冒险者');
+    const playerName = String(player.name ?? '冒险者');
     const nowMs = Date.now();
     let changed = false;
     const typeCdKey = `${type}技能冷却`;
@@ -6077,7 +6060,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         const weapons = this.safeParseJson<any[]>(player.weapons || playerData?.weapons || [], []);
         const curIdx = Math.max(0, (Number(player.currentWeapon) || 1) - 1);
         const curWeaponName = String(
-          killerWeapon || weapons[curIdx]?.name || weapons[curIdx]?.名称 || '',
+          killerWeapon || weapons[curIdx]?.name || '',
         );
         if (curWeaponName && this.reduceMarkers2Cooldown(markers2, `${curWeaponName}冷却`, 5)) changed = true;
         if (this.reduceMarkers2Cooldown(markers2, '攻击冷却', 3)) changed = true;
@@ -6123,12 +6106,12 @@ export class CombatSystemService implements OnApplicationShutdown {
     endOfDay.setHours(24, 0, 0, 0);
     // 秒级，对齐 addBuff / hasBuff
     const expireAt = Math.floor(endOfDay.getTime() / 1000);
-    const existing = buffs.find((b: any) => b && (b.name || b.名称) === name);
+    const existing = buffs.find((b: any) => b && b.name === name);
     if (existing) {
-      existing.value = Number(existing.value || 0) + stack;
+      existing.strength = Number(existing.strength || 0) + stack;
       existing.expireAt = expireAt;
     } else {
-      buffs.push({ name, value: stack, expireAt });
+      buffs.push({ name, strength: stack, expireAt });
     }
     player.buffs = buffs;
   }
@@ -6147,10 +6130,9 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     const backpack = this.playerService.getBackpackItems(player);
     const dart = backpack.find((item: any) => item?.name === '强效麻醉镖');
-    const dartCount = Number(dart?.quantity ?? dart?.count ?? 0);
+    const dartCount = Number(dart?.quantity ?? 0);
     if (dart && dartCount > 1) {
-      if (Object.prototype.hasOwnProperty.call(dart, 'quantity')) dart.quantity = dartCount - 1;
-      else dart.count = dartCount - 1;
+      dart.quantity = dartCount - 1;
       player.backpack = backpack; // Json 列直接写数组
       resultLines.push('【强效麻醉】');
       return 2;
@@ -6162,9 +6144,9 @@ export class CombatSystemService implements OnApplicationShutdown {
   private hasActiveMonsterEntry(value: any, name: string, nowMs = Date.now()): boolean {
     const entries = this.safeParseJson<any[]>(value, []);
     return entries.some((entry: any) => {
-      const entryName = entry?.名称 ?? entry?.name;
+      const entryName = entry?.name;
       if (entryName !== name) return false;
-      const rawExpire = Number(entry?.有效期至 ?? entry?.expireAt ?? 0);
+      const rawExpire = Number(entry?.expireAt ?? 0);
       const expireAt = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
       return !expireAt || expireAt > nowMs;
     });
@@ -6176,9 +6158,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (!Array.isArray(parsed)) return parsed && typeof parsed === 'object' ? parsed : {};
     const markers: Record<string, number> = {};
     for (const entry of parsed) {
-      const name = entry?.名称 ?? entry?.name;
+      const name = entry?.name;
       if (!name) continue;
-      markers[name] = Number(entry?.数值 ?? entry?.value ?? entry?.count ?? 0);
+      // entry 是**单个标记条目**而非标记容器：直接取条目 value（按容器读取恒为 0）
+      markers[name] = Number(entry?.value) || 0;
     }
     return markers;
   }
@@ -6222,8 +6205,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     const full = next >= maxAnesthesia;
     if (full) {
       const markers2 = this.safeParseJson<any[]>(target.markers2, []);
-      const retained = markers2.filter((entry: any) => (entry?.名称 ?? entry?.name) !== '麻醉');
-      retained.push({ 名称: '麻醉', 强度: 0, 有效期至: Date.now() + 3600 * 1000 });
+      const retained = markers2.filter((entry: any) => entry?.name !== '麻醉');
+      retained.push({ name: '麻醉', strength: 0, expireAt: Date.now() + 3600 * 1000 });
       target.markers2 = retained; // Json 列直接写数组
     }
 
@@ -6270,8 +6253,8 @@ export class CombatSystemService implements OnApplicationShutdown {
   ): Promise<string> {
     let text = '';
 
-    // 原版 L4998：死掉的.当前生命 <= 0 才触发（兼容 当前生命/currentHp/hp 三种写法）
-    const deadHp = deadOne.当前生命 ?? deadOne.currentHp ?? deadOne.hp ?? 0;
+    // 原版 L4998：死掉的.当前生命 <= 0 才触发（本框架当前生命规范键为 hp）
+    const deadHp = deadOne.hp ?? 0;
     if (deadHp > 0) return text;
 
     // 原版 L4999：装备要求(死掉的, #光荣弹) —— 玩家装备数组中 specialSeq===44
@@ -6353,13 +6336,13 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (!drops || drops.length === 0) return;
     const backpack = this.playerService.getBackpackItems(player);
     for (const drop of drops) {
-      const count = drop.quantity || drop.count || 1;
+      const count = drop.quantity || 1;
       if (count <= 0) continue;
-      // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 数量双字段镜像 + 两位小数收敛）
+      // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 数量只写规范键 quantity）
       const qty = roundItemQuantity(count);
       mergeBackpackItem(
         backpack,
-        { name: drop.name, count: qty, quantity: qty },
+        { name: drop.name, quantity: qty },
         lookupFromStaticData(this.staticData),
       );
     }
@@ -6396,10 +6379,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     for (const dropEntry of dropTable) {
       if (!dropEntry || typeof dropEntry !== 'object') continue;
 
-      const name = String(dropEntry.name ?? dropEntry.名称 ?? dropEntry.itemName ?? '').trim();
+      const name = String(dropEntry.name ?? dropEntry.itemName ?? '').trim();
       if (!name) continue;
 
-      const rawChance = dropEntry.chance ?? dropEntry.rate ?? dropEntry.几率;
+      const rawChance = dropEntry.chance ?? dropEntry.rate;
       const chance = rawChance === undefined || rawChance === null || rawChance === ''
         ? 100
         : Number(rawChance);
@@ -6407,13 +6390,14 @@ export class CombatSystemService implements OnApplicationShutdown {
       const dropRate = Math.max(0, Math.min(100, (Number.isFinite(chance) ? chance : 0) * multiplier));
       if (Math.random() * 100 >= dropRate) continue;
 
-      const rawQuantity = dropEntry.quantity ?? dropEntry.count ?? dropEntry.数量;
+      // 掉落数量只读规范键 quantity（同义旧键 count 已废弃）
+      const rawQuantity = dropEntry.quantity;
       const quantity = rawQuantity === undefined || rawQuantity === null || rawQuantity === ''
         ? 1
         : Number(rawQuantity);
       if (!Number.isFinite(quantity)) continue;
 
-      const explicitType = String(dropEntry.type ?? dropEntry.类型 ?? '').trim().toLowerCase();
+      const explicitType = String(dropEntry.type ?? '').trim().toLowerCase();
       const equipmentByDefinition = typeof this.staticData?.getEquipmentByName === 'function'
         && !!this.staticData.getEquipmentByName(name);
       const type = explicitType === '装备' || explicitType === 'equipment'
@@ -6584,7 +6568,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 静态装备的 bonus/properties 等现已是对象；字符串分支兼容存量 JSON 文本
       return asJsonValue(value, {});
     };
-    const rawBonus = parseObject(rawWeapon.bonus || rawWeapon.加成);
+    const rawBonus = parseObject(rawWeapon.bonus);
     const staticBonus = parseObject(staticWeapon.bonus);
     // 注意：staticWeapon.properties 是 StaticDataService 缓存对象，必须复制到新对象后再缩放，
     // 否则 37-41 号特效的伤害缩放会永久写回静态表。
@@ -6608,7 +6592,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     // ========== 装备特效（原版 物品操作.ecode L1438-1475） ==========
     // bx 段特效在此结算：缩放伤害属性、追加冷却、覆盖攻击文本、给出特效加成与语义标记。
     // 与展示路径共用 equipment-effect.util，杜绝“面板看得到、实战打不出”。
-    const effectId = parseEffectIdFromData(rawWeapon.data ?? rawWeapon.数据)
+    const effectId = parseEffectIdFromData(rawWeapon.data)
       || Number(rawWeapon.specialEffect ?? rawWeapon.特效 ?? staticWeapon.specialEffect ?? 0) || 0;
     let effectCooldown = 0;
     let effectProps = properties;
@@ -6647,8 +6631,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       damage: rawWeapon.damage ?? rawWeapon.伤害 ?? staticWeapon.damage ?? staticWeapon.伤害 ?? 0,
       damageType: this.resolveDamageType(rawWeapon.damageType || rawWeapon.伤害类型 || staticWeapon.damageType || staticWeapon.伤害类型 || '物理'),
       attackText: effectAttackText,
-      type: rawWeapon.type || rawWeapon.类型 || staticWeapon.equipType || staticWeapon.type || '近战武器',
-      specialSeq: rawWeapon.specialSeq ?? rawWeapon.特殊序号 ?? staticWeapon.specialSeq ?? 0,
+      type: rawWeapon.type || staticWeapon.equipType || staticWeapon.type || '近战武器',
+      specialSeq: rawWeapon.specialSeq ?? staticWeapon.specialSeq ?? 0,
       cooldown: rawCooldown || staticWeapon.cooldown || 5,
       lockTime: rawWeapon.lockTime ?? rawWeapon.锁定 ?? staticWeapon.lockTime ?? 0,
       forcedEffect: rawWeapon.forcedEffect ?? rawWeapon.必出特效 ?? staticWeapon.forcedEffect ?? false,
@@ -6660,15 +6644,15 @@ export class CombatSystemService implements OnApplicationShutdown {
         elec: effectProps.elec,
       },
       bonus: { ...staticBonus, ...rawBonus, ...effectAttackBonus },
-      baseBonus: parseObject(rawWeapon.baseBonus || rawWeapon.基础加成 || staticWeapon.baseBonus || staticWeapon.基础加成),
+      baseBonus: parseObject(rawWeapon.baseBonus || staticWeapon.baseBonus),
       // 特效加成单独暴露：buildAttackerBonus 并入总属性，不与 baseBonus 混叠
       effectBonus,
       effectFlags,
       attackTexts: parseObject(rawWeapon.attackTexts || rawWeapon.攻击文本列表 || staticWeapon.attackTexts || staticWeapon.攻击文本列表) || [],
-      buffs: parseObject(rawWeapon.buffs || rawWeapon.增益 || staticWeapon.buffs || staticWeapon.增益) || [],
+      buffs: parseObject(rawWeapon.buffs || staticWeapon.buffs) || [],
       negativeType: rawWeapon.negativeType ?? rawWeapon.负面类型 ?? staticWeapon.negativeType ?? 0,
       specialEffect: effectSpecial || Number(rawWeapon.specialEffect ?? rawWeapon.特效 ?? staticWeapon.specialEffect ?? 0) || 0,
-      self: { ...(rawWeapon.self || rawWeapon.自带 || {}), anesthesia },
+      self: { ...(rawWeapon.self || {}), anesthesia },
       anesthesia,
     };
   }
@@ -6693,14 +6677,14 @@ export class CombatSystemService implements OnApplicationShutdown {
       ? (this.staticData as any).getEquipmentByName(String(item?.name ?? '')) || {}
       : {};
     const baseBonus: Record<string, number> = {
-      ...parseObj(def?.baseBonus ?? def?.基础加成),
-      ...parseObj(item?.baseBonus ?? item?.基础加成 ?? item?.self ?? item?.自带),
+      ...parseObj(def?.baseBonus),
+      ...parseObj(item?.baseBonus ?? item?.self),
     };
     // 附加加成：先收已解析的对象字段（植入体/增幅器强化路径），再解析 data 编码串
     const bonus: Record<string, number> = {
-      ...parseObj(item?.bonus ?? item?.加成),
+      ...parseObj(item?.bonus),
     };
-    const rawData = String(item?.data ?? item?.数据 ?? '');
+    const rawData = String(item?.data ?? '');
     for (const segment of rawData.split('!')) {
       if (!segment || segment.length < 3) continue;
       const code = segment.substring(0, 2);
@@ -6742,9 +6726,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (def && Object.keys(def).length && typeof (this.staticData as any)?.isWeapon === 'function') {
       return Boolean((this.staticData as any).isWeapon(def));
     }
-    const seq = Number(item?.specialSeq ?? item?.特殊序号 ?? def?.specialSeq ?? def?.特殊序号 ?? 0) || 0;
+    const seq = Number(item?.specialSeq ?? def?.specialSeq ?? 0) || 0;
     if (seq !== 0) return seq < 0;
-    const type = String(item?.type ?? item?.类型 ?? def?.equipType ?? def?.type ?? '');
+    const type = String(item?.type ?? def?.equipType ?? def?.type ?? '');
     return type.endsWith('武器') || type === '工具';
   }
 
@@ -6834,14 +6818,14 @@ export class CombatSystemService implements OnApplicationShutdown {
     const buffs = this.playerService.safeJsonParse<any[]>(player.buffs, []);
     const nowForBuff = nowSec;
     const solar = buffs.some((b: any) => {
-      if ((b?.name ?? b?.名称) !== '日轮') return false;
-      const raw = Number(b?.expireAt ?? b?.有效期至 ?? 0);
+      if (b?.name !== '日轮') return false;
+      const raw = Number(b?.expireAt ?? 0);
       const expireSec = raw >= 1e12 ? raw / 1000 : raw;
       return !expireSec || expireSec > nowForBuff;
     });
     if (solar) {
       max *= 1.5;
-      if (Number(player.affinity ?? player.好感 ?? 0) >= 40) intervalFactor = 0.5;
+      if (Number(player.affinity ?? 0) >= 40) intervalFactor = 0.5;
     }
 
     const rawStamp = Number(markers.羽毛 ?? markers.feather ?? 0);
@@ -6893,10 +6877,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     const ready: number[] = [];
     for (let index = 0; index < weapons.length; index += 1) {
       const raw = weapons[index];
-      const name = String(raw?.name ?? raw?.名称 ?? raw ?? '');
+      const name = String(raw?.name ?? raw ?? '');
       if (!name) continue;
-      const marker = markers2.find((item: any) => (item?.name ?? item?.名称) === `${name}冷却`);
-      const rawExpire = Number(marker?.expireAt ?? marker?.有效期至 ?? 0);
+      const marker = markers2.find((item: any) => item?.name === `${name}冷却`);
+      const rawExpire = Number(marker?.expireAt ?? 0);
       const expireMs = rawExpire >= 1e12 ? rawExpire : rawExpire * 1000;
       if (!marker || !rawExpire || expireMs <= nowMs) ready.push(index + 1);
     }
@@ -6966,10 +6950,10 @@ export class CombatSystemService implements OnApplicationShutdown {
         weapons.forEach((weapon: any, index: number) => {
           if (!weapon || typeof weapon !== 'object') return;
           // 武器加成快照用对象浅拷贝保存（Json 列读取后已是对象），避免 JSON 字符串双重编码
-          if (!weapon.__originalBonus) weapon.__originalBonus = { ...(weapon.bonus ?? weapon.加成 ?? {}) };
+          if (!weapon.__originalBonus) weapon.__originalBonus = { ...(weapon.bonus ?? {}) };
           if (!weapon.__originalBaseBonus) {
             weapon.__originalBaseBonus = {
-              ...(weapon.baseBonus ?? weapon.基础加成 ?? weapon.self ?? weapon.自带 ?? {}),
+              ...(weapon.baseBonus ?? weapon.self ?? {}),
             };
           }
 
@@ -6981,9 +6965,9 @@ export class CombatSystemService implements OnApplicationShutdown {
           // 每次先展开成独立副本，保证同一武器对象反复构建时总能回到原始自带值。
           const snapshotBonus = asJsonValue<Record<string, number>>(weapon.__originalBonus, {});
           const snapshotBaseBonus = asJsonValue<Record<string, number>>(weapon.__originalBaseBonus, {});
-          weapon.bonus = weapon.加成 =
+          weapon.bonus =
             snapshotBonus && typeof snapshotBonus === 'object' ? { ...snapshotBonus } : snapshotBonus;
-          weapon.baseBonus = weapon.基础加成 = weapon.self = weapon.自带 =
+          weapon.baseBonus = weapon.self =
             snapshotBaseBonus && typeof snapshotBaseBonus === 'object'
               ? { ...snapshotBaseBonus }
               : snapshotBaseBonus;
@@ -7060,10 +7044,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 按需补充高频使魔的专属规则（数值均来自原版，不臆造）
     const seq = player.specialSeq ?? 0;
     const skillLevel = player.type ? this.skillLevelFromMarkers(markers, player.type) : 0;
-    // 原版玩家结构在计算属性时直接写入“技能等级”；保留英文/中文别名，
+    // 原版玩家结构在计算属性时直接写入“技能等级”（规范键 skillLevel），
     // 让后续战斗特效和载具分支读取到同一套平方阈值结果。
     player.skillLevel = skillLevel;
-    player.技能等级 = skillLevel;
 
     // 原版 L1681-1779：装备机械触手或使用普拉娜时，当前武器冷却中会
     // 从“随机未冷却武器”切换到可用武器；普拉娜高好感还会记录超压熟练。
@@ -7071,8 +7054,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     try {
       const equipment = playerData.equipment || this.playerService.safeJsonParse<any[]>(player.equipment, []);
       const hasMechanicalTentacle = equipment.some((item: any) =>
-        String(item?.name ?? item?.名称 ?? '').includes('机械触手')
-        || Number(item?.specialSeq ?? item?.特殊序号 ?? 0) === 110,
+        String(item?.name ?? '').includes('机械触手')
+        || Number(item?.specialSeq ?? 0) === 110,
       );
       const isPlana = Number(player.specialSeq ?? 0) === 22 || player.type === '普拉娜';
       let weaponMode = hasMechanicalTentacle ? -2 : (isPlana ? -1 : 0);
@@ -7080,8 +7063,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       const markers2 = playerData.markers2 || this.playerService.safeJsonParse<any[]>(player.markers2, []);
       const nowMs = Date.now();
       const isActive = (name: string): boolean => {
-        const item = markers2.find((entry: any) => (entry?.name ?? entry?.名称) === name);
-        const rawExpire = Number(item?.expireAt ?? item?.有效期至 ?? 0);
+        const item = markers2.find((entry: any) => entry?.name === name);
+        const rawExpire = Number(item?.expireAt ?? 0);
         if (!item || !rawExpire) return false;
         const expireMs = rawExpire >= 1e12 ? rawExpire : rawExpire * 1000;
         return expireMs > nowMs;
@@ -7090,12 +7073,11 @@ export class CombatSystemService implements OnApplicationShutdown {
       if (weaponMode === -1 && affinity >= 60) {
         weaponMode = -2;
         if (affinity >= 80 && !isActive('甩枪')) {
-          markers2.push({ name: '甩枪', expireAt: nowMs + 20 * 1000, value: 1 + skillLevel * 0.01 });
+          markers2.push({ name: '甩枪', expireAt: nowMs + 20 * 1000, strength: 1 + skillLevel * 0.01 });
         }
         if (affinity >= 100 && !isActive('pll')) {
           const currentName = Number(player.currentWeapon || 0) > 0
             ? String((playerData.weapons?.[Number(player.currentWeapon) - 1] as any)?.name
-              ?? (playerData.weapons?.[Number(player.currentWeapon) - 1] as any)?.名称
               ?? '拳头')
             : '拳头';
           markers[`${currentName}t`] = 1;
@@ -7106,7 +7088,6 @@ export class CombatSystemService implements OnApplicationShutdown {
       if (weaponMode === -2) {
         const currentName = Number(player.currentWeapon || 0) > 0
           ? String((playerData.weapons?.[Number(player.currentWeapon) - 1] as any)?.name
-            ?? (playerData.weapons?.[Number(player.currentWeapon) - 1] as any)?.名称
             ?? '拳头')
           : '拳头';
         if (isActive(`${currentName}冷却`)) {
@@ -7262,7 +7243,7 @@ export class CombatSystemService implements OnApplicationShutdown {
               const curW = weaponsIcarus[Number(player.currentWeapon) - 1];
               if (curW) {
                 curW.lockTime = 0;
-                weaponSplash2 = (curW.bonus?.splash2 ?? curW.加成?.溅射2 ?? 0) + (curW.baseBonus?.splash2 ?? curW.基础加成?.溅射2 ?? 0);
+                weaponSplash2 = (curW.bonus?.splash2 ?? 0) + (curW.baseBonus?.splash2 ?? 0);
               }
             }
           }
@@ -7271,7 +7252,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         // 好感≥80：攻击2 + 闪避增益值×10（原版 L1949-1952）
         if ((player.affinity || 0) >= 80) {
           const dodgeBuff = (playerData.buffs || []).find((b: any) => b && b.name === '闪避');
-          const dodgeVal = dodgeBuff?.value || 0;
+          const dodgeVal = dodgeBuff?.strength || 0;
           bonus.攻击2 = (bonus.攻击2 || 0) + dodgeVal * 10;
         }
         break;
@@ -7343,7 +7324,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         if ((player.affinity || 0) >= 20 && Number(player.currentWeapon || 0) !== 0) {
           const weaponsD = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
           const curW = weaponsD[Number(player.currentWeapon) - 1];
-          if (String(curW?.type ?? curW?.类型 ?? '') === '近战武器') {
+          if (String(curW?.type ?? '') === '近战武器') {
             bonus.攻击2 = (bonus.攻击2 || 0) + 15 + skillLevel;
             特效文本?.push('(剑道)');
           }
@@ -7483,16 +7464,16 @@ export class CombatSystemService implements OnApplicationShutdown {
         // 中子星增益：全抗 + 增益值×0.025（原版 L2147-2150）
         const neutronStar = (playerData.buffs || []).find((b: any) => b && b.name === '中子星');
         if (neutronStar) {
-          const a1 = Number(neutronStar.value) || 0;
+          const a1 = Number(neutronStar.strength) || 0;
           bonus.生命全抗 = (bonus.生命全抗 || 0) + a1 * 0.025;
           bonus.装甲全抗 = (bonus.装甲全抗 || 0) + a1 * 0.025;
           bonus.护盾全抗 = (bonus.护盾全抗 || 0) + a1 * 0.025;
         }
         // xta/xtb 增益：护盾回复/护盾回复2 + 增益值（原版 L2151-2156）
         const xta = (playerData.buffs || []).find((b: any) => b && b.name === 'xta');
-        if (xta) bonus.护盾回复 = (bonus.护盾回复 || 0) + (Number(xta.value) || 0);
+        if (xta) bonus.护盾回复 = (bonus.护盾回复 || 0) + (Number(xta.strength) || 0);
         const xtb = (playerData.buffs || []).find((b: any) => b && b.name === 'xtb');
-        if (xtb) bonus.护盾回复2 = (bonus.护盾回复2 || 0) + (Number(xtb.value) || 0);
+        if (xtb) bonus.护盾回复2 = (bonus.护盾回复2 || 0) + (Number(xtb.strength) || 0);
         break;
       }
       case '7': { // 阿尔缇娜（原版 L2158-2176）：冰伤2+25、攻击2+18；闪避2+25+技能；a格挡/a格挡2/a模式
@@ -7506,7 +7487,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         // a格挡增益：攻击2 + 增益值×5、暴伤 + 增益值×10（原版 L2165-2169）
         const aBlock = (playerData.buffs || []).find((b: any) => b && b.name === 'a格挡');
         if (aBlock) {
-          const a1 = Number(aBlock.value) || 0;
+          const a1 = Number(aBlock.strength) || 0;
           bonus.攻击2 = (bonus.攻击2 || 0) + a1 * 5;
           bonus.暴击伤害 = (bonus.暴击伤害 || 0) + a1 * 10;
         }
@@ -7651,9 +7632,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         const resolved = this.resolveItemBonus(equip);
         // 装备强化：熟练度键=部位类型+强化（写入侧 handleEquipEnhance）；植入体的
         // 植入体等级 键不匹配 植入体强化，熟练度=0 时 calcEquipReinforce 内部直接返回，无副作用
-        const equipName = String(equip?.name ?? equip?.名称 ?? '');
+        const equipName = String(equip?.name ?? '');
         const eqDef = equipDefOf(equipName);
-        const eqType = String(eqDef?.equipType ?? eqDef?.type ?? equip?.type ?? equip?.类型 ?? '');
+        const eqType = String(eqDef?.equipType ?? eqDef?.type ?? equip?.type ?? '');
         if (eqType) {
           // 熟练度键=部位类型+强化（写入侧 handleEquipEnhance）；增幅器由实现内部排除，
           // 植入体的 植入体等级 键不匹配 部位+强化 → 熟练度 0 → 内部直接返回，无副作用
@@ -7691,7 +7672,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         // 原版顺序是 重置→强化→成长；差异量级 = a1×成长值（+3 级≈1.5%），
         // 且手持第一把 index=0 成长为 0，影响可忽略）
         const heldWeapon = weaponList[cwIdx - 1];
-        const weaponName = String(heldWeapon?.name ?? heldWeapon?.名称 ?? '');
+        const weaponName = String(heldWeapon?.name ?? '');
         this.itemSystem.applyEquipReinforce(
           { type: '武器', name: weaponName, self: resolved.baseBonus, bonus: resolved.bonus },
           markers,
@@ -7841,7 +7822,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     } else {
       // 携带核废料且600秒间隔内无法回复生命（原版 L2368-2380）
       const backpack = this.playerService.safeJsonParse<any[]>(player.backpack, []);
-      if (backpack.some((it: any) => it && it.name === '核废料' && (it.count || 0) > 0)) {
+      if (backpack.some((it: any) => it && it.name === '核废料' && (it.quantity || 0) > 0)) {
         bonus.生命回复 = 0;
         bonus.生命回复2 = 0;
       }
@@ -7928,10 +7909,10 @@ export class CombatSystemService implements OnApplicationShutdown {
         for (const s of summons) {
           const isOwner =
             s &&
-            (String(s.ownerQQ) === String(player.userId) || String(s.归属) === String(player.userId)) &&
-            (s.hp ?? s.当前生命 ?? 1) > 0;
+            String(s.ownerQQ) === String(player.userId) &&
+            (s.hp ?? 1) > 0;
           if (!isOwner) continue;
-          const isWhite = s.name === '白' || s.名称 === '白';
+          const isWhite = s.name === '白';
           petCount += 1;
           if (isWhite) d += 1;
           else c += 1;
@@ -8194,13 +8175,13 @@ export class CombatSystemService implements OnApplicationShutdown {
     const monsterBuffs = asJsonValue<any[]>(monster.buffs, []);
     const mqtx = monsterBuffs.find(
       (b: any) =>
-        b && (b.name ?? b.名称) === 'mqtx' && Number(b.expireAt ?? b.有效期至 ?? 0) > Date.now() / 1000,
+        b && b.name === 'mqtx' && Number(b.expireAt ?? 0) > Date.now() / 1000,
     );
     if (mqtx) {
       const maxAnesthesia = Math.abs(Number(mb['麻醉'] ?? 0));
       const current = Math.max(0, Number(mb['当前麻醉'] ?? 0));
       if (maxAnesthesia > 0) {
-        this.scaleAllAttributes(bonus, 1 - (current / maxAnesthesia) * (Number(mqtx.value ?? mqtx.强度 ?? 0) / 100));
+        this.scaleAllAttributes(bonus, 1 - (current / maxAnesthesia) * (Number(mqtx.strength ?? 0) / 100));
       }
     }
     return bonus;
@@ -8467,8 +8448,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         const nowMs = Date.now();
         const hasScarletBuff = mBuffs.some((b: any) => {
           if (!b) return false;
-          if ((b.名称 ?? b.name) !== '猩红') return false;
-          const rawExpire = Number(b.有效期至 ?? b.expireAt ?? 0);
+          if (b.name !== '猩红') return false;
+          const rawExpire = Number(b.expireAt ?? 0);
           const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
           return expireMs > nowMs;
         });
@@ -8624,14 +8605,14 @@ export class CombatSystemService implements OnApplicationShutdown {
       return Array.isArray(parsed) ? parsed : [];
     };
 
-    const equipment = array(actor.equipment ?? actor.equipments ?? actor.装备);
-    const weapons = array(actor.weapons ?? actor.武器);
-    const backpack = array(actor.backpack ?? actor.背包);
-    const markers2 = array(actor.markers2 ?? actor.标记2);
-    const buffs = array(actor.buffs ?? actor.增益);
+    const equipment = array(actor.equipment ?? actor.equipments);
+    const weapons = array(actor.weapons);
+    const backpack = array(actor.backpack);
+    const markers2 = array(actor.markers2);
+    const buffs = array(actor.buffs);
     const tasks = array(actor.tasks ?? actor.任务);
     const safeBox = array(actor.safeBox ?? actor.保险柜);
-    const markers = this.normalizeMarkerObject(actor.markers ?? actor.标记 ?? {});
+    const markers = this.normalizeMarkerObject(actor.markers ?? {});
 
     // 后续通用结算代码读取英文存量字段；没有英文字段时补上 JSON 视图（Json 列/运行时对象直接写结构体）
     if (actor.equipment === undefined) actor.equipment = equipment;
@@ -8679,13 +8660,6 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     if (!map?.id) return;
     const actorQQ = String(actor.qq ?? actor.QQ ?? '');
-
-    // 同步原版中文别名，避免后续战斗循环只看到旧快照。
-    if (actor.当前生命 !== undefined || actor.hp !== undefined) actor.当前生命 = actor.hp;
-    if (actor.当前护盾 !== undefined || actor.shield !== undefined) actor.当前护盾 = actor.shield;
-    if (actor.当前装甲 !== undefined || actor.armor !== undefined) actor.当前装甲 = actor.armor;
-    if (actor.增益 !== undefined) actor.增益 = this.playerService.safeJsonParse<any[]>(actor.buffs, []);
-    if (actor.标记2 !== undefined) actor.标记2 = this.playerService.safeJsonParse<any[]>(actor.markers2, []);
 
     // 地图聚合串行化写入口：以 qq 在最新 summons 中定位替换（锁内闭环），
     // 消除战斗结算整组写回覆盖其他并发写（宠物召回/迁移等）的丢失更新。
@@ -8816,7 +8790,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (maxAnesthesia <= 0) return '';
     // 挂目标增益（后续回合由 buildMonsterBonus 统一应用缩放）
     const tBuffs = this.safeParseJson<any[]>(target.buffs, []);
-    tBuffs.push({ name: 'mqtx', value: percent, expireAt: Date.now() / 1000 + duration, duration });
+    tBuffs.push({ name: 'mqtx', strength: percent, expireAt: Date.now() / 1000 + duration, duration });
     target.buffs = tBuffs; // Json 列直接写数组
     // 本回合立即生效：按当前麻醉比例就地缩放防御方属性
     const current = Math.max(0, Number(tBonus.当前麻醉 ?? 0));
@@ -8888,14 +8862,14 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 库洛牌(specialSeq=99)：主动技能持续时间+25%（原版 L383-387）
     const equipment = this.safeParseJson<any[]>(attacker.equipment || '[]', []);
     const hasKulo = equipment.some(
-      (e: any) => e && (e.specialSeq === 99 || String(e.name ?? e.名称 ?? '') === '库洛牌'),
+      (e: any) => e && (e.specialSeq === 99 || String(e.name ?? '') === '库洛牌'),
     );
     const a1 = hasKulo ? 1.25 : 1;
     const a = Math.floor(Math.random() * 10) + 1;
     const buffName = `fzth${a}`;
     const tBuffs = this.safeParseJson<any[]>(target.buffs, []);
     const nowSec = Math.floor(Date.now() / 1000);
-    const existing = tBuffs.find((b: any) => b && (b.name ?? b.名称) === buffName);
+    const existing = tBuffs.find((b: any) => b && b.name === buffName);
     if (existing) {
       // 原版 获得增益(-86400, 真)：重复获得就移除
       const idx = tBuffs.indexOf(existing);
@@ -9017,7 +8991,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (affinity >= 100) {
       result.defenderBuffs = [
         ...(result.defenderBuffs || []),
-        { name: '影光', value: 60, duration: 1 },
+        { name: '影光', strength: 60, duration: 1 },
       ];
       result.effectText += '【影光】';
     }
@@ -9101,7 +9075,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       result.attackBonus = (result.attackBonus || 0) + (30 + skillLevel) * 0.5;
       result.attackerBuffs = [
         ...(result.attackerBuffs || []),
-        { name: '库洛魔力', value: 30 + skillLevel, duration: 2 },
+        { name: '库洛魔力', strength: 30 + skillLevel, duration: 2 },
       ];
       result.markerOps = [
         ...(result.markerOps || []),
@@ -9132,7 +9106,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const bufVal = 20;
       result.attackerBuffs = [
         ...(result.attackerBuffs || []),
-        { name: '五番', value: bufVal, duration: 1 },
+        { name: '五番', strength: bufVal, duration: 1 },
       ];
       result.damageMultiplier = (result.damageMultiplier || 100) + 20;
       result.effectText += `【五番+${bufVal}】`;
@@ -9158,7 +9132,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const skillLevel = this.skillLevelFromMarkers(markers, '龙姬');
       result.defenderBuffs = [
         ...(result.defenderBuffs || []),
-        { name: '点燃', value: 20, duration: Math.floor(5 + skillLevel / 2) },
+        { name: '点燃', strength: 20, duration: Math.floor(5 + skillLevel / 2) },
       ];
       result.effectText += '【点燃】';
     }
@@ -9345,7 +9319,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       result.attackBonus = (result.attackBonus || 0) + fireBonus;
       result.attackerBuffs = [
         ...(result.attackerBuffs || []),
-        { name: '压制', value: fireBonus, duration: 1 },
+        { name: '压制', strength: fireBonus, duration: 1 },
       ];
       result.effectText += `【火力+${fireBonus}】`;
     }
@@ -9673,9 +9647,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         const p = pd?.player;
         if (!p) return;
         const markers2 = asJsonValue<any[]>(p.markers2, []);
-        const cd = markers2.find((m: any) => (m?.name ?? m?.名称) === '训练冷却');
+        const cd = markers2.find((m: any) => m?.name === '训练冷却');
         if (!cd) return;
-        const raw = Number(cd.expireAt ?? cd.有效期至 ?? 0);
+        const raw = Number(cd.expireAt ?? 0);
         // 兼容秒/毫秒两种存量形态（秒 < 1e12）
         const expireAtMs = raw > 0 && raw < 1e12 ? raw * 1000 : raw;
         // 冷却未激活（已过期/无冷却）则无需缩减
@@ -9793,10 +9767,12 @@ export class CombatSystemService implements OnApplicationShutdown {
       // mapBuffs 是原版地图“标记3”的持久化载体；没有有效期的静态增益按配置时长初始化。
       const mapBuffs = parseArray(map.mapBuffs).map((raw: any) => {
         const buff = { ...(raw || {}) };
-        if (buff.name === undefined && buff.名称 !== undefined) buff.name = buff.名称;
-        if (buff.strength === undefined && buff.强度 !== undefined) buff.strength = buff.强度;
-        if (buff.strength === undefined && buff.value !== undefined) buff.strength = buff.value;
-        const rawExpire = Number(buff.expireAt ?? buff.有效期至 ?? 0);
+        // mapBuffs 列不在归一化中间件覆盖范围，存量数据可能残留英文旧别名 value，这里就地收敛为规范键 strength
+        if (buff.strength === undefined && buff.value !== undefined) {
+          buff.strength = buff.value;
+          delete buff.value;
+        }
+        const rawExpire = Number(buff.expireAt ?? 0);
         if (Number.isFinite(rawExpire) && rawExpire > 0) {
           buff.expireAt = rawExpire > 1e12 ? rawExpire / 1000 : rawExpire;
         } else {
@@ -9809,7 +9785,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 原版地图标记离开地图即失效；兼容之前没有 source 标记的存量同名增益。
       let playerBuffs: any[] = parseArray(player.buffs);
       const configuredMapNames = new Set(
-        mapBuffs.map((buff: any) => String(buff?.name ?? buff?.名称 ?? '')).filter(Boolean),
+        mapBuffs.map((buff: any) => String(buff?.name ?? '')).filter(Boolean),
       );
       playerBuffs = playerBuffs.filter((buff: any) =>
         buff?.source !== 'mapBuff' && buff?.source !== 'mapMarker' && !configuredMapNames.has(String(buff?.name ?? '')),
@@ -9878,11 +9854,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         child.qq = childQQ;
         child.QQ = childQQ;
         child.ownerQQ = request.ownerQQ;
-        child.归属 = request.ownerQQ;
         child.isPet = true;
         child.specialSeq = -2;
         child.affinity = 150;
-        child.好感 = 150;
         child.markers = {
           [`好感${request.ownerQQ}`]: 150,
           时间2: request.createdAt,
@@ -9890,14 +9864,13 @@ export class CombatSystemService implements OnApplicationShutdown {
           跟随: 1,
           宝宝: 1,
         };
-        child.标记 = child.markers;
         child.follow = false;
         child.mode = 'idle';
         summons.push(child);
       }
 
       const activeMapNames = new Set(
-        mapBuffs.map((buff: any) => String(buff?.name ?? buff?.名称 ?? '')).filter(Boolean),
+        mapBuffs.map((buff: any) => String(buff?.name ?? '')).filter(Boolean),
       );
       for (const buff of playerBuffs) {
         if (activeMapNames.has(String(buff?.name ?? ''))) {
@@ -9969,11 +9942,11 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     // 宠物觉醒装备（物品操作.ecode L2493-2517）：解析 装备预设[2].装备 并入宠物属性。
     // 武器并入 加成/自带；防具/饰品同样并入并做套装判断（原版 L2508-2510）。
-    const presetEquip = pet.equipmentPresets?.[2]?.equipment ?? pet.装备预设?.[2]?.装备 ?? [];
+    const presetEquip = pet.equipmentPresets?.[2]?.equipment ?? [];
     const toNum = (v: any): number => (typeof v === 'number' && isFinite(v) ? v : 0);
     const petSetData: SetData = {};
     for (const entry of (Array.isArray(presetEquip) ? presetEquip : [])) {
-      if (!entry || String(entry.type ?? entry.类型 ?? '') !== '装备') continue; // L2500
+      if (!entry || String(entry.type ?? '') !== '装备') continue; // L2500
       let parsed;
       try {
         parsed = this.petItemService?.parseEquipment(entry as any);
@@ -10158,8 +10131,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 标记要求(name, markers2, 返回文本, s)：存在且未过期则写入剩余时间文本并返回真
     const marker2Require = (name: string, reason: number): boolean => {
       if (ignoreReason === reason) return false;
-      const entry = markers2.find((m: any) => m && (m.name ?? m.名称) === name);
-      const rawExpire = Number(entry?.expireAt ?? entry?.有效期至 ?? 0);
+      const entry = markers2.find((m: any) => m && m.name === name);
+      const rawExpire = Number(entry?.expireAt ?? 0);
       const expireAtSec = rawExpire >= 1e12 ? rawExpire / 1000 : rawExpire;
       if (entry && expireAtSec > nowSec) {
         const remain = Math.ceil(expireAtSec - nowSec);
@@ -10287,21 +10260,21 @@ export class CombatSystemService implements OnApplicationShutdown {
     const nowSec = Math.floor(s / SEC);
     const rawSec = rawTimestamp !== undefined ? rawTimestamp : s;
     const specialSeq = defender.specialSeq;
-    const 活力 = defender.活力;
+    const 活力 = defender.vitality;
     // 取成就熟练度（原版 取成就熟练度(防御方.标记, name)）
     const achVal = (name: string): number =>
       this.playerService.getMarkerValue(defender.markers, name);
     // 装备要求（原版 装备要求(防御方, #猫爪吊坠, )）：遍历装备命中 specialSeq
     const hasEquip = (seq: number): boolean =>
       equipment.some((e: any) => e && e.specialSeq === seq);
-    // 兼容层：将运行时 buffs/markers2 原地归一化为「中文key+毫秒」，兼容 game 层英文 key+秒级写入
+    // 兼容层：将运行时 buffs/markers2 原地归一化为「英文规范键+毫秒」（combatState.normalizeBuffItem）
     for (let i = 0; i < buffs.length; i++) buffs[i] = this.combatState.normalizeBuffItem(buffs[i]);
     for (let i = 0; i < markers2.length; i++) markers2[i] = this.combatState.normalizeBuffItem(markers2[i]);
     // 增益要求（原版 增益要求(name, 防御方.增益, , s, a1)）：存在且未过期，返回剩余毫秒
     const buffRemain = (name: string): number => {
-      const b = buffs.find((x: any) => x && x.名称 === name && (!x.有效期至 || x.有效期至 > nowSec * SEC));
+      const b = buffs.find((x: any) => x && x.name === name && (!x.expireAt || x.expireAt > nowSec * SEC));
       if (!b) return 0;
-      return b.有效期至 ? Math.max(0, b.有效期至 - nowSec * SEC) : 0; // 毫秒剩余
+      return b.expireAt ? Math.max(0, b.expireAt - nowSec * SEC) : 0; // 毫秒剩余
     };
     const buffActive = (name: string): boolean => buffRemain(name) > 0;
     // 标记要求（原版 标记要求("怒吼", 防御方.增益, , s)）：buff 名存在且未过期
@@ -10342,14 +10315,14 @@ export class CombatSystemService implements OnApplicationShutdown {
     else if (活力 === -15) {
       if (Array.isArray(defenderGroup)) {
         for (const member of defenderGroup) {
-          if (member && member.活力 === -16 && (member.currentHp || member.当前生命 || 0) > 0) {
+          if (member && member.vitality === -16 && (member.currentHp || 0) > 0) {
             damageTextRef.value =
               damageTextRef.value +
               '\n' +
               '生命' +
               formatDamageText(-(defender.currentHp || 0)) +
               '(' + '0' + ')';
-            defender.currentHp = member.currentHp || member.当前生命 || 0;
+            defender.currentHp = member.currentHp || 0;
             member.currentHp = 0;
             damageTextRef.value =
               damageTextRef.value +
@@ -10440,7 +10413,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     const nowMs = Date.now();
 
     // 当前生命>0 → 不可能死（原版入口隐含 玩家.当前生命<=0 才进入；此处保守判定）
-    const curHp = Number(player.hp ?? player.currentHp ?? player.当前生命 ?? 0);
+    const curHp = Number(player.hp ?? 0);
     if (curHp > 0) return { dead: false, extraText: player.额外文本 ?? '', deathText: '' };
 
     // 免死（原版 造成伤害 入口）：返回真则仍存活（龙姬/伊芙利特/战斗女仆/吸血姬/猫爪/五番a）
@@ -10490,17 +10463,21 @@ export class CombatSystemService implements OnApplicationShutdown {
     const qq = attacker.qqNumber || attacker.QQ || attacker.userId || '';
 
     // 写入/更新怪物标记中某前缀+QQ 的成就条目（取最高值）
+    // 标记条目统一写规范形态 { name, value }（见 field-contract.util.ts 标记域）
     const writeMarker = (prefix: string, value: number): void => {
       const name = prefix + qq;
       const idx = markers.findIndex((m: any) => m && m.name === name);
       if (idx >= 0) {
         // 已存在：仅当新值更大才覆盖（原版 玩家.能力 > 怪物.标记[a].数值 才删除重写）
-        if (value > (markers[idx].数值 || 0)) {
-          markers[idx] = { name, 数值: value };
+        // 注意：markers[idx] 是**单个标记条目**而非标记容器，必须直接取条目自身 value
+        // （若按容器口径读会得到 0，导致高值被低值覆盖）
+        const prev = Number(markers[idx].value) || 0;
+        if (value > prev) {
+          markers[idx] = { name, value };
         }
       } else {
         // 无记录：新增（原版 b==-1 判定后 置成就熟练度 新增）
-        markers.push({ name, 数值: value });
+        markers.push({ name, value });
       }
     };
     // 仅记录存在（不比较大小，存在即写1）：宝石缎带段
@@ -10508,7 +10485,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const name = prefix + qq;
       const idx = markers.findIndex((m: any) => m && m.name === name);
       if (idx < 0) {
-        markers.push({ name, 数值: value });
+        markers.push({ name, value });
       }
     };
 
@@ -10523,8 +10500,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 宝石缎带（原版 L5305-5317：装备要求(#宝石缎带) 成立 → 写 "ds"=1）
     const equipment = this.safeParseJson<any[]>(attacker.equipment, []);
     const hasGemRibbon = equipment.some((e: any) => e && (
-      Number(e.specialSeq ?? e.特殊序号) === 98
-      || String(e.name ?? e.名称 ?? '').trim() === '宝石缎带'
+      Number(e.specialSeq) === 98
+      || String(e.name ?? '').trim() === '宝石缎带'
     )); // #宝石缎带 常量=98
     if (hasGemRibbon) {
       writeMarkerOnce('ds', 1);
@@ -10537,8 +10514,8 @@ export class CombatSystemService implements OnApplicationShutdown {
   private hasGemRibbon(player: any): boolean {
     const equipment = this.safeParseJson<any[]>(player?.equipment, []);
     return equipment.some((item: any) => item && (
-      Number(item.specialSeq ?? item.特殊序号) === 98
-      || String(item.name ?? item.名称 ?? '').trim() === '宝石缎带'
+      Number(item.specialSeq) === 98
+      || String(item.name ?? '').trim() === '宝石缎带'
     ));
   }
 
@@ -10623,15 +10600,15 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 已存在"载具残骸"则累加
     let found = false;
     for (let i = 0; i < res.length; i++) {
-      if (res[i] && res[i].名称 === '载具残骸') {
-        res[i] = { ...res[i], 次数: (res[i].次数 || 0) + b };
+      if (res[i] && res[i].name === '载具残骸') {
+        res[i] = { ...res[i], times: (res[i].times || 0) + b };
         found = true;
         break;
       }
     }
     // 不存在则新增（原版从 资源列表1 取模板，此处直接构造最小模板）
     if (!found) {
-      res.push({ 名称: '载具残骸', 次数: b });
+      res.push({ name: '载具残骸', times: b });
     }
     return res;
   }
@@ -10725,10 +10702,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (!Array.isArray(items)) return 0;
     let total = 0;
     for (const it of items) {
-      if (it && (it.名称 ?? it.name) === name) {
+      if (it && it.name === name) {
         // 装备按1计；资源/物品按 数量 计
-        const type = it.类型 ?? it.type;
-        total += type === '装备' ? 1 : Number(it.数量 ?? it.quantity ?? it.count ?? 0);
+        const type = it.type;
+        total += type === '装备' ? 1 : Number(it.quantity ?? 0);
       }
     }
     return total;
@@ -10745,33 +10722,28 @@ export class CombatSystemService implements OnApplicationShutdown {
     return qty >= requireQty;
   }
 
-  /** 统一读取载具 JSON 中的物品/零件，兼容中文原版字段和当前英文存量字段。 */
+  /** 统一读取载具 JSON 中的零件：一律走物品域规范键（field-contract.util.ts）。 */
   private normalizeVehicleItem(item: any): any {
-    const name = item?.名称 ?? item?.name ?? '';
-    const quantity = Number(item?.数量 ?? item?.quantity ?? item?.count ?? 1);
-    const durability = Number(item?.耐久 ?? item?.durability ?? 100);
+    const name = String(item?.name ?? '');
+    const quantity = Number(item?.quantity ?? 1);
+    const durability = Number(item?.durability ?? 100);
     return {
       ...(item || {}),
-      名称: String(name),
-      name: item?.name ?? String(name),
-      数量: Number.isFinite(quantity) ? quantity : 0,
-      quantity: item?.quantity ?? item?.count ?? (Number.isFinite(quantity) ? quantity : 0),
-      耐久: Number.isFinite(durability) ? durability : 100,
-      durability: item?.durability ?? (Number.isFinite(durability) ? durability : 100),
-      类型: item?.类型 ?? item?.type ?? '资源',
-      type: item?.type ?? item?.类型 ?? '资源',
+      name,
+      quantity: Number.isFinite(quantity) ? quantity : 0,
+      durability: Number.isFinite(durability) ? durability : 100,
+      type: item?.type ?? '资源',
     };
   }
 
+  /** 统一载具配方的字段口径（载具域规范键：name / value），兼容历史 `数值` 写法。 */
   private normalizeVehicleRecipe(recipe: any): any {
-    const name = recipe?.名称 ?? recipe?.name ?? '';
-    const value = Number(recipe?.数值 ?? recipe?.value ?? recipe?.production ?? recipe?.count ?? 0);
+    const name = String(recipe?.name ?? '');
+    const value = Number(recipe?.value ?? 0);
     return {
       ...(recipe || {}),
-      名称: String(name),
-      name: recipe?.name ?? String(name),
-      数值: Number.isFinite(value) ? value : 0,
-      value: recipe?.value ?? (Number.isFinite(value) ? value : 0),
+      name,
+      value: Number.isFinite(value) ? value : 0,
     };
   }
 
@@ -10787,41 +10759,32 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   private normalizeRuntimeVehicle(vehicle: any): void {
-    const parts = this.parseVehicleJson<any[]>(vehicle?.零件 ?? vehicle?.parts, []);
-    const recipes = this.parseVehicleJson<any[]>(vehicle?.配方 ?? vehicle?.recipes, []);
-    vehicle.零件 = Array.isArray(parts) ? parts.map((item) => this.normalizeVehicleItem(item)) : [];
-    vehicle.配方 = Array.isArray(recipes) ? recipes.map((item) => this.normalizeVehicleRecipe(item)) : [];
-    vehicle.标记2 = this.parseVehicleJson<any[]>(vehicle?.标记2 ?? vehicle?.markers2, []);
-    vehicle.加成 = this.parseVehicleJson<any>(vehicle?.加成 ?? vehicle?.bonus, {});
-    vehicle.名称 = String(vehicle?.名称 ?? vehicle?.name ?? '');
-    vehicle.name = vehicle?.name ?? vehicle.名称;
-    vehicle.类型 = String(vehicle?.类型 ?? vehicle?.type ?? '');
-    vehicle.type = vehicle?.type ?? vehicle.类型;
-    vehicle.编号 = String(vehicle?.编号 ?? vehicle?.vehicleId ?? vehicle?.id ?? '');
-    vehicle.vehicleId = vehicle?.vehicleId ?? vehicle.编号;
-    vehicle.归属 = String(vehicle?.归属 ?? vehicle?.owner ?? '');
-    vehicle.owner = vehicle?.owner ?? vehicle.归属;
-    vehicle.驾驶员 = String(vehicle?.驾驶员 ?? vehicle?.driver ?? '');
-    vehicle.driver = vehicle?.driver ?? vehicle.驾驶员;
-    const currentHp = Number(vehicle?.当前生命 ?? vehicle?.currentHp ?? vehicle?.hp ?? 0);
-    vehicle.当前生命 = Number.isFinite(currentHp) ? currentHp : 0;
-    vehicle.currentHp = vehicle.当前生命;
-    const maxHp = Number(vehicle?.生命 ?? vehicle?.maxHp ?? 0);
-    vehicle.生命 = Number.isFinite(maxHp) ? maxHp : 0;
-    vehicle.maxHp = vehicle.生命;
-    const slotStatus = Number(vehicle?.上限 ?? vehicle?.slotStatus ?? 0);
-    vehicle.上限 = Number.isFinite(slotStatus) ? slotStatus : 0;
-    vehicle.slotStatus = vehicle.上限;
-    const moveType = Number(vehicle?.行走方式 ?? vehicle?.moveType ?? 0);
-    vehicle.行走方式 = Number.isFinite(moveType) ? moveType : 0;
-    vehicle.moveType = vehicle.行走方式;
+    // 载具域统一闸口：先把历史中文别名（零件/配方/加成/标记2/当前生命…）收敛为规范键，
+    // 避免下游出现「读英文、写中文」的两套口径。recipes 的 数值→value 也在此收敛。
+    normalizeVehicleEntry(vehicle);
+    const parts = this.parseVehicleJson<any[]>(vehicle?.parts, []);
+    const recipes = this.parseVehicleJson<any[]>(vehicle?.recipes, []);
+    vehicle.parts = Array.isArray(parts) ? parts.map((item) => this.normalizeVehicleItem(item)) : [];
+    vehicle.recipes = Array.isArray(recipes) ? recipes.map((item) => this.normalizeVehicleRecipe(item)) : [];
+    vehicle.markers2 = this.parseVehicleJson<any[]>(vehicle?.markers2, []);
+    vehicle.bonus = this.parseVehicleJson<any>(vehicle?.bonus, {});
+    vehicle.name = String(vehicle?.name ?? '');
+    vehicle.type = String(vehicle?.type ?? '');
+    vehicle.vehicleId = String(vehicle?.vehicleId ?? vehicle?.id ?? '');
+    vehicle.owner = String(vehicle?.owner ?? '');
+    vehicle.driver = String(vehicle?.driver ?? '');
+    const currentHp = Number(vehicle?.currentHp ?? vehicle?.hp ?? 0);
+    vehicle.currentHp = Number.isFinite(currentHp) ? currentHp : 0;
+    const maxHp = Number(vehicle?.maxHp ?? 0);
+    vehicle.maxHp = Number.isFinite(maxHp) ? maxHp : 0;
+    const slotStatus = Number(vehicle?.slotStatus ?? 0);
+    vehicle.slotStatus = Number.isFinite(slotStatus) ? slotStatus : 0;
+    const moveType = Number(vehicle?.moveType ?? 0);
+    vehicle.moveType = Number.isFinite(moveType) ? moveType : 0;
   }
 
-  private vehicleRecipeItems(recipe: any, field: '产出' | '消耗'): any[] {
-    const raw = field === '产出'
-      ? (recipe?.产出 ?? recipe?.outputs)
-      : (recipe?.消耗 ?? recipe?.inputs);
-    const parsed = this.parseVehicleJson<any[]>(raw, []);
+  private vehicleRecipeItems(recipe: any, field: 'outputs' | 'inputs'): any[] {
+    const parsed = this.parseVehicleJson<any[]>(recipe?.[field], []);
     return Array.isArray(parsed) ? parsed.map((item) => this.normalizeVehicleItem(item)) : [];
   }
 
@@ -10830,43 +10793,39 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (!recipe) return undefined;
     return {
       ...recipe,
-      名称: recipe.名称 ?? recipe.name ?? name,
-      产出: this.vehicleRecipeItems(recipe, '产出'),
-      消耗: this.vehicleRecipeItems(recipe, '消耗'),
+      name: String(recipe.name ?? name),
+      outputs: this.vehicleRecipeItems(recipe, 'outputs'),
+      inputs: this.vehicleRecipeItems(recipe, 'inputs'),
     };
   }
 
   /** 原版 获得物品：同名资源叠加，默认不保留消耗后的非正数条目。 */
   private mergeVehicleItem(items: any[], item: any, allowNegative = false): void {
     const normalized = this.normalizeVehicleItem(item);
-    if (!normalized.名称 || !Number.isFinite(normalized.数量) || normalized.数量 === 0) return;
-    const existingIndex = items.findIndex((entry: any) =>
-      (entry?.名称 ?? entry?.name) === normalized.名称,
-    );
+    if (!normalized.name || !Number.isFinite(normalized.quantity) || normalized.quantity === 0) return;
+    const existingIndex = items.findIndex((entry: any) => entry?.name === normalized.name);
     if (existingIndex >= 0) {
       const existing = this.normalizeVehicleItem(items[existingIndex]);
-      const next = existing.数量 + normalized.数量;
+      const next = existing.quantity + normalized.quantity;
       if (!allowNegative && next <= 0) {
         items.splice(existingIndex, 1);
       } else {
-        existing.数量 = next;
         existing.quantity = next;
-        if (existing.count !== undefined) existing.count = next;
         items[existingIndex] = existing;
       }
       return;
     }
-    if (normalized.数量 > 0 || allowNegative) items.push(normalized);
+    if (normalized.quantity > 0 || allowNegative) items.push(normalized);
   }
 
   private addVehicleItemArray(items: any[], name: string, quantity: number, allowNegative = false): void {
-    this.mergeVehicleItem(items, { 名称: name, 数量: quantity, 类型: '资源', 耐久: 100 }, allowNegative);
+    this.mergeVehicleItem(items, { name, quantity, type: '资源', durability: 100 }, allowNegative);
   }
 
   private recipeAllocation(recipes: any[], name: string): number {
     return recipes
-      .filter((recipe: any) => recipe.名称 === name)
-      .reduce((sum: number, recipe: any) => sum + Number(recipe.数值 || 0), 0);
+      .filter((recipe: any) => recipe.name === name)
+      .reduce((sum: number, recipe: any) => sum + Number(recipe.value || 0), 0);
   }
 
   /**
@@ -10912,32 +10871,32 @@ export class CombatSystemService implements OnApplicationShutdown {
       ...overrides,
     });
 
-    const parts = vehicle.零件;
-    const recipes = vehicle.配方;
+    const parts = vehicle.parts;
+    const recipes = vehicle.recipes;
     const systemII = Math.min(5, Math.max(0, this.getItemQty('生产调度系统II', parts)));
     productionDisplay.productionSpeed += systemII * 0.09;
     if ((options.yongxing || 0) > 0) productionDisplay.productionSpeed += 0.25;
 
     // 原版先于时间戳处理判断载具是否因部件超限而失效。
-    if (Number(vehicle.上限 || 0) > 1) {
+    if (Number(vehicle.slotStatus || 0) > 1) {
       return emptyResult({ stopped: true, reason: 'vehicle-over-limit' });
     }
 
     if (recipes.length === 0) {
-      vehicle.配方 = [{ 名称: '1', 数值: now }];
+      vehicle.recipes = [{ name: '1', value: now }];
       return emptyResult();
     }
-    if (recipes[0].名称 !== '1') {
-      recipes.unshift({ 名称: '1', 数值: now });
+    if (recipes[0].name !== '1') {
+      recipes.unshift({ name: '1', value: now });
     }
 
-    const lastRead = Number(recipes[0].数值);
+    const lastRead = Number(recipes[0].value);
     const rawElapsedMs = Number.isFinite(lastRead) ? now - lastRead : 0;
     let elapsedMs = rawElapsedMs;
     if (options.lannBaby) elapsedMs *= 1.05;
-    recipes[0].数值 = now;
+    recipes[0].value = now;
 
-    const productionPower = Number(vehicle.加成?.生产 || 0);
+    const productionPower = Number(vehicle.bonus?.生产 || 0);
     if (productionPower === 0) {
       if (this.getItemQty('具现装置', parts) > 0) {
         this.addVehicleItemArray(parts, '未知物品', elapsedMs / 1000 / 86400);
@@ -10959,7 +10918,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     else if (acceleration4) productionDisplay.productionSpeed += 0.05;
     if (this.getItemQty('小蓝', parts) > 0) productionDisplay.productionSpeed += 0.05;
 
-    const type = String(vehicle.类型 || '');
+    const type = String(vehicle.type || '');
     if (type === '九尾狐') {
       productionDisplay.byproductMultiplier += 1;
       productionDisplay.consumptionMultiplier -= 0.05;
@@ -10981,32 +10940,32 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     // 第一遍只生成「每分钟」面板数据，同时按配方顺序计算总生产力。
     for (let index = 1; index < recipes.length; index++) {
-      const assignment = Number(recipes[index].数值 || 0);
+      const assignment = Number(recipes[index].value || 0);
       consumedProductivity += assignment;
-      const recipe = this.getRuntimeVehicleRecipe(recipes[index].名称);
+      const recipe = this.getRuntimeVehicleRecipe(recipes[index].name);
       if (!recipe) continue;
-      for (const output of recipe.产出) {
-        const ratio = Number(output.耐久 ?? 100) / 100;
-        const quantity = Number(output.数量 || 0)
+      for (const output of recipe.outputs) {
+        const ratio = Number(output.durability ?? 100) / 100;
+        const quantity = Number(output.quantity || 0)
           * (ratio < 1 ? ratio * productionDisplay.byproductMultiplier : 1)
           * assignment * productionDisplay.productionSpeed;
-        this.addVehicleItemArray(outputPerMinute, output.名称, quantity);
-        this.addVehicleItemArray(combinedPerMinute, output.名称, quantity, true);
+        this.addVehicleItemArray(outputPerMinute, output.name, quantity);
+        this.addVehicleItemArray(combinedPerMinute, output.name, quantity, true);
       }
-      for (const input of recipe.消耗) {
-        const ratio = Number(input.耐久 ?? 100) / 100;
-        const quantity = Number(input.数量 || 0)
+      for (const input of recipe.inputs) {
+        const ratio = Number(input.durability ?? 100) / 100;
+        const quantity = Number(input.quantity || 0)
           * productionDisplay.consumptionMultiplier * ratio
           * assignment * productionDisplay.productionSpeed;
-        this.addVehicleItemArray(consumptionPerMinute, input.名称, quantity);
-        this.addVehicleItemArray(combinedPerMinute, input.名称, -quantity, true);
+        this.addVehicleItemArray(consumptionPerMinute, input.name, quantity);
+        this.addVehicleItemArray(combinedPerMinute, input.name, -quantity, true);
       }
     }
 
     if (consumedProductivity > productionPower && consumedProductivity > 0) {
       productionDisplay.efficiency = productionPower / consumedProductivity;
       for (const item of [...outputPerMinute, ...consumptionPerMinute, ...combinedPerMinute]) {
-        item.数量 *= productionDisplay.efficiency;
+        item.quantity *= productionDisplay.efficiency;
       }
     }
 
@@ -11022,30 +10981,30 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 第二遍按原版顺序逐个配方结算。前一个配方的产出会立即进入零件，
     // 因而可以作为后一个配方的输入。
     for (let index = 1; index < recipes.length; index++) {
-      const assignment = Number(recipes[index].数值 || 0);
+      const assignment = Number(recipes[index].value || 0);
       if (assignment <= 0) continue;
-      const recipe = this.getRuntimeVehicleRecipe(recipes[index].名称);
-      if (!recipe || recipe.产出.length === 0) continue;
+      const recipe = this.getRuntimeVehicleRecipe(recipes[index].name);
+      if (!recipe || recipe.outputs.length === 0) continue;
 
       let maxMinutes: number | undefined;
-      for (const input of recipe.消耗) {
-        const rate = Number(input.数量 || 0)
+      for (const input of recipe.inputs) {
+        const rate = Number(input.quantity || 0)
           * productionDisplay.consumptionMultiplier
           * assignment * productionDisplay.productionSpeed
           * productionDisplay.efficiency;
         if (rate <= 0) continue;
-        const supportedMinutes = this.getItemQty(input.名称, parts) / rate;
+        const supportedMinutes = this.getItemQty(input.name, parts) / rate;
         maxMinutes = maxMinutes === undefined ? supportedMinutes : Math.min(maxMinutes, supportedMinutes);
       }
 
-      for (const output of recipe.产出) {
-        const ratio = Number(output.耐久 ?? 100) / 100;
-        const rate = Number(output.数量 || 0) * assignment * productionDisplay.productionSpeed
+      for (const output of recipe.outputs) {
+        const ratio = Number(output.durability ?? 100) / 100;
+        const rate = Number(output.quantity || 0) * assignment * productionDisplay.productionSpeed
           * productionDisplay.efficiency
           * (ratio < 1 ? ratio * productionDisplay.byproductMultiplier : 1);
-        const limit = this.getItemQty(`生产限制${output.名称}`, parts);
+        const limit = this.getItemQty(`生产限制${output.name}`, parts);
         if (limit > 0 && rate > 0) {
-          const remainingMinutes = (limit - this.getItemQty(output.名称, parts)) / rate;
+          const remainingMinutes = (limit - this.getItemQty(output.name, parts)) / rate;
           maxMinutes = maxMinutes === undefined ? remainingMinutes : Math.min(maxMinutes, remainingMinutes);
         }
       }
@@ -11054,29 +11013,29 @@ export class CombatSystemService implements OnApplicationShutdown {
       const minutes = Math.max(0, Math.min(maxMinutes ?? 0, elapsedMinutes));
       if (minutes <= 0 || !Number.isFinite(minutes)) continue;
 
-      for (const output of recipe.产出) {
-        const ratio = Number(output.耐久 ?? 100) / 100;
-        const quantity = minutes * Number(output.数量 || 0) * assignment
+      for (const output of recipe.outputs) {
+        const ratio = Number(output.durability ?? 100) / 100;
+        const quantity = minutes * Number(output.quantity || 0) * assignment
           * productionDisplay.productionSpeed * productionDisplay.efficiency
           * (ratio < 1 ? ratio * productionDisplay.byproductMultiplier : 1);
-        this.addVehicleItemArray(parts, output.名称, quantity);
-        this.addVehicleItemArray(produced, output.名称, quantity);
+        this.addVehicleItemArray(parts, output.name, quantity);
+        this.addVehicleItemArray(produced, output.name, quantity);
       }
-      for (const input of recipe.消耗) {
-        const ratio = Number(input.耐久 ?? 100) / 100;
-        const quantity = minutes * Number(input.数量 || 0)
+      for (const input of recipe.inputs) {
+        const ratio = Number(input.durability ?? 100) / 100;
+        const quantity = minutes * Number(input.quantity || 0)
           * productionDisplay.consumptionMultiplier * ratio * assignment
           * productionDisplay.productionSpeed * productionDisplay.efficiency;
-        this.addVehicleItemArray(parts, input.名称, -quantity);
-        this.addVehicleItemArray(consumed, input.名称, quantity);
+        this.addVehicleItemArray(parts, input.name, -quantity);
+        this.addVehicleItemArray(consumed, input.name, quantity);
       }
     }
 
     let availableTime = 0;
     for (const item of combinedPerMinute) {
-      const quantity = Number(item.数量 || 0);
+      const quantity = Number(item.quantity || 0);
       const supportedSeconds = quantity < 0
-        ? this.getItemQty(item.名称, parts) / -quantity * 60
+        ? this.getItemQty(item.name, parts) / -quantity * 60
         : 86400.12345678;
       availableTime = availableTime === 0
         ? supportedSeconds
@@ -11107,12 +11066,11 @@ export class CombatSystemService implements OnApplicationShutdown {
 
   /** 把可生产秒数写入载具标记（原版 载具.标记["生产时间"]），供查看详情展示。 */
   private writeVehicleProductionTime(vehicle: any, availableTime: number): void {
-    const marks = vehicle.标记 ?? vehicle.markers;
+    const marks = vehicle.markers;
     const bag: any = marks && typeof marks === 'object' && !Array.isArray(marks)
       ? marks
       : {};
     bag['生产时间'] = Number(availableTime) || 0;
-    vehicle.标记 = bag;
     vehicle.markers = bag;
   }
 
@@ -11199,45 +11157,43 @@ export class CombatSystemService implements OnApplicationShutdown {
     mapId?: number,
     options: VehicleRecalculationOptions = {},
   ): VehicleProductionResult | undefined {
-    // DB 载具和历史地图 JSON 使用英文/中文混合字段，先统一为原版中文运行时结构。
+    // DB 载具和历史地图 JSON 使用英文/中文混合字段，先统一为载具域英文规范键（field-contract.util）。
     this.normalizeRuntimeVehicle(vehicle);
     const 部件列表 = this.staticData.getAllVehiclePartSpecs() || [];
     const 部件限制: any[] = []; // 原版 部件限制 全局（商店-部件限制），当前无数据
     const j: any = {}; // 全新空加成
     let 生产类Flag = false; // 原版 生产类 标志（核心部件含生产加成时置真）
-    vehicle.加成 = j;
-    if (vehicle.名称 === '') {
+    vehicle.bonus = j;
+    if (vehicle.name === '') {
       return; // 原版 L3581-3583
     }
-    vehicle.防御 = 0;
-    vehicle.武器 = 0;
-    vehicle.行走 = 0;
-    vehicle.功能 = 0;
-    vehicle.加成.生命 = 0;
-    vehicle.行走方式 = 0;
-    if (Array.isArray(vehicle.零件) && vehicle.零件.length > 0) {
+    vehicle.defenseSlots = 0;
+    vehicle.weaponSlots = 0;
+    vehicle.moveSlots = 0;
+    vehicle.functionSlots = 0;
+    vehicle.bonus.生命 = 0;
+    vehicle.moveType = 0;
+    if (Array.isArray(vehicle.parts) && vehicle.parts.length > 0) {
       // 原版 L3591：载具.类型 = 子文本替换(零件[1].名称, "核心", ...)（仅取类型前缀）
-      vehicle.类型 = (vehicle.零件[0].名称 || '').replace('核心', '');
+      vehicle.type = (vehicle.parts[0].name || '').replace('核心', '');
     }
-    vehicle.发丝 = false;
-    vehicle.逆转力场 = false;
-    vehicle.上限 = 0;
-    vehicle.涂层 = 0;
+    vehicle.hair = false;
+    vehicle.reverseField = false;
+    vehicle.slotStatus = 0;
+    vehicle.coating = 0;
     const 计算用零件: any[] = [];
     // 原版 L3598-3612：遍历零件，展开内置零件 + 加入计算用零件
-    for (const p of vehicle.零件 || []) {
+    for (const p of vehicle.parts || []) {
       // 在 部件列表 中查找同名部件，展开其 内置零件
-      const spec = 部件列表.find((b: any) => b.name === p.名称);
+      const spec = 部件列表.find((b: any) => b.name === p.name);
       if (spec && Array.isArray(spec.builtinParts)) {
         for (const inner of spec.builtinParts) {
+          // 内置零件统一为物品域规范键；数量沿用静态部件数据的 quantity 配置键
           const innerItem = {
             ...inner,
-            名称: inner.名称 ?? inner.name ?? '',
-            name: inner.name ?? inner.名称 ?? '',
-            耐久: -11,
+            name: inner.name ?? '',
             durability: -11,
-            数量: inner.count ?? inner.数量 ?? inner.quantity ?? 0,
-            quantity: inner.count ?? inner.数量 ?? inner.quantity ?? 0,
+            quantity: Number(inner.quantity ?? 0),
           };
           计算用零件.push(innerItem);
         }
@@ -11250,137 +11206,133 @@ export class CombatSystemService implements OnApplicationShutdown {
     else if (this.getItemQty('硅基核心贝塔', 计算用零件) > 0) 硅基核心加成 = 1.025;
     // 原版 L3620-3718：遍历计算用零件，匹配 部件列表 套用加成/上限/超限
     for (const cp of 计算用零件) {
-      if (cp.名称 === '白的发丝') vehicle.发丝 = true;
-      else if (cp.名称 === '逆转力场') vehicle.逆转力场 = true;
-      const spec = 部件列表.find((b: any) => b.name === cp.名称);
+      if (cp.name === '白的发丝') vehicle.hair = true;
+      else if (cp.name === '逆转力场') vehicle.reverseField = true;
+      const spec = 部件列表.find((b: any) => b.name === cp.name);
       if (!spec) continue;
       // 原版限制2=“涂层”时把部件名称转换为通用伤害类型（加成计算.ecode L3596、
       // 战斗相关.ecode L3321-L3344）。静态部件数据缺少该派生字段时仍按名称补齐。
-      if (spec.limit2 === '涂层' || ['坚固涂层', '耐热涂层', '耐寒涂层', '电阻涂层'].includes(cp.名称)) {
+      if (spec.limit2 === '涂层' || ['坚固涂层', '耐热涂层', '耐寒涂层', '电阻涂层'].includes(cp.name)) {
         const coatingByName: Record<string, number> = {
           坚固涂层: CombatSystemService.DMG_PHYS,
           耐热涂层: CombatSystemService.DMG_FIRE,
           耐寒涂层: CombatSystemService.DMG_ICE,
           电阻涂层: CombatSystemService.DMG_ELEC,
         };
-        if (coatingByName[cp.名称]) vehicle.涂层 = coatingByName[cp.名称];
+        if (coatingByName[cp.name]) vehicle.coating = coatingByName[cp.name];
       }
       const 生产类 = (spec.bonus && spec.bonus.生产 > 0);
       // 核心必须是第一个（类型==0）
       if (spec.partType === 0) {
-        vehicle.行走上限 = spec.walk;
-        vehicle.防御上限 = spec.defense;
-        vehicle.武器上限 = spec.weapon;
-        vehicle.功能上限 = spec.function;
-        vehicle.行走方式 = spec.moveType;
+        vehicle.maxMove = spec.walk;
+        vehicle.maxDefense = spec.defense;
+        vehicle.maxWeapon = spec.weapon;
+        vehicle.maxFunction = spec.function;
+        vehicle.moveType = spec.moveType;
         if (spec.bonus && spec.bonus.生产 > 0) 生产类Flag = true;
       } else {
-        if (cp.耐久 !== -11) { // 内置零件不参与
+        if (cp.durability !== -11) { // 内置零件不参与
           if (spec.limit2) {
             // 原版通过“获得物品”加入物品3副本；不能复用同一个对象，
             // 且物品3的限制值字段是“数量”而不是“数值”。
             const limitItem = {
-              名称: spec.limit2,
               name: spec.limit2,
-              类型: '资源',
               type: '资源',
-              数量: Number(cp.数量 ?? 0),
-              quantity: Number(cp.数量 ?? 0),
-              耐久: 100,
+              quantity: Number(cp.quantity ?? 0),
               durability: 100,
             };
             部件限制.push(limitItem);
           }
           // 行走/防御/武器/功能 上限与超限（原版 L3647-3714 四段）
-          this.applyPartLimit(vehicle, spec, cp, '行走', 'walk');
-          this.applyPartLimit(vehicle, spec, cp, '防御', '防御');
-          this.applyPartLimit(vehicle, spec, cp, '武器', 'weapon');
-          this.applyPartLimit(vehicle, spec, cp, '功能', 'function');
+          this.applyPartLimit(vehicle, spec, cp, 'moveSlots', 'maxMove', 'walk');
+          this.applyPartLimit(vehicle, spec, cp, 'defenseSlots', 'maxDefense', 'defense');
+          this.applyPartLimit(vehicle, spec, cp, 'weaponSlots', 'maxWeapon', 'weapon');
+          this.applyPartLimit(vehicle, spec, cp, 'functionSlots', 'maxFunction', 'function');
         }
       }
       // 原版 L3718-3746：叠加载具加成（内置零件耐久==-11 时全量，否则按上限分段）
-      if (cp.耐久 === -11) {
-        this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, cp.数量 ?? 1, 生产类, 硅基核心加成);
+      if (cp.durability === -11) {
+        this.stackVehicleBonus(vehicle.bonus, spec.bonus || {}, cp.quantity ?? 1, 生产类, 硅基核心加成);
       } else if (spec.limit == null || spec.limit <= 0) { // 原版 L3648/L3735：上限<=0 为无上限，全量叠加
-        this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, cp.数量 ?? 1, 生产类, 硅基核心加成);
+        this.stackVehicleBonus(vehicle.bonus, spec.bonus || {}, cp.quantity ?? 1, 生产类, 硅基核心加成);
       } else {
-        const qty = cp.数量 ?? 1;
+        const qty = cp.quantity ?? 1;
         if (qty <= spec.limit) {
-          this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, qty, 生产类, 硅基核心加成);
+          this.stackVehicleBonus(vehicle.bonus, spec.bonus || {}, qty, 生产类, 硅基核心加成);
         } else {
-          this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, spec.limit, 生产类, 硅基核心加成);
-          this.stackVehicleBonus(vehicle.加成, spec.bonus || {}, (qty - spec.limit) / 2, 生产类, 硅基核心加成);
-          vehicle.上限 = 1;
+          this.stackVehicleBonus(vehicle.bonus, spec.bonus || {}, spec.limit, 生产类, 硅基核心加成);
+          this.stackVehicleBonus(vehicle.bonus, spec.bonus || {}, (qty - spec.limit) / 2, 生产类, 硅基核心加成);
+          vehicle.slotStatus = 1;
         }
       }
     }
     // 原版 L3752-3759：逆转力场 加成修正
-    if (vehicle.逆转力场) {
-      vehicle.加成.护盾全抗 = Number(vehicle.加成.护盾全抗 || 0)
-        + (1 - Number(vehicle.加成.护盾全抗 || 0) / 100) * Number(vehicle.加成.生命 || 0);
-      vehicle.加成.装甲全抗 = Number(vehicle.加成.装甲全抗 || 0)
-        + (1 - Number(vehicle.加成.装甲全抗 || 0) / 100) * Number(vehicle.加成.生命 || 0);
-      vehicle.加成.生命全抗 = Number(vehicle.加成.生命全抗 || 0)
-        + (1 - Number(vehicle.加成.生命全抗 || 0) / 100) * Number(vehicle.加成.生命 || 0);
-      vehicle.加成.攻击 = Number(vehicle.加成.攻击 || 0) * 0.34;
-      vehicle.加成.攻击2 = Number(vehicle.加成.攻击2 || 0) * 0.34;
-      vehicle.加成.韧性 = Number(vehicle.加成.韧性 || 0) * 0.34;
+    if (vehicle.reverseField) {
+      vehicle.bonus.护盾全抗 = Number(vehicle.bonus.护盾全抗 || 0)
+        + (1 - Number(vehicle.bonus.护盾全抗 || 0) / 100) * Number(vehicle.bonus.生命 || 0);
+      vehicle.bonus.装甲全抗 = Number(vehicle.bonus.装甲全抗 || 0)
+        + (1 - Number(vehicle.bonus.装甲全抗 || 0) / 100) * Number(vehicle.bonus.生命 || 0);
+      vehicle.bonus.生命全抗 = Number(vehicle.bonus.生命全抗 || 0)
+        + (1 - Number(vehicle.bonus.生命全抗 || 0) / 100) * Number(vehicle.bonus.生命 || 0);
+      vehicle.bonus.攻击 = Number(vehicle.bonus.攻击 || 0) * 0.34;
+      vehicle.bonus.攻击2 = Number(vehicle.bonus.攻击2 || 0) * 0.34;
+      vehicle.bonus.韧性 = Number(vehicle.bonus.韧性 || 0) * 0.34;
     }
     // 原版 L3760-3768：上限负值保护
-    if (vehicle.武器上限 < 0) vehicle.武器上限 = 0;
-    if (vehicle.防御上限 < 0) vehicle.防御上限 = 0;
-    if (vehicle.行走上限 < 0) vehicle.行走上限 = 0;
+    if (vehicle.maxWeapon < 0) vehicle.maxWeapon = 0;
+    if (vehicle.maxDefense < 0) vehicle.maxDefense = 0;
+    if (vehicle.maxMove < 0) vehicle.maxMove = 0;
     // 原版 L3769-3801：导弹类穿透（湮灭圣光/审判导弹/星爆导弹/炼狱导弹）
     let c = 0;
     if (this.reqItem('湮灭圣光', 计算用零件) &&
         this.reqItem('氢弹', 计算用零件, 0.1)) {
       c = 1;
-      vehicle.加成.贯穿 = Number(vehicle.加成.贯穿 || 0) + 20;
-      this.bonusService.addPenetration(vehicle.加成, 20);
+      vehicle.bonus.贯穿 = Number(vehicle.bonus.贯穿 || 0) + 20;
+      this.bonusService.addPenetration(vehicle.bonus, 20);
     }
     if (c === 0) {
       if (this.reqItem('审判导弹', 计算用零件) &&
           this.reqItem('导弹', 计算用零件, 0.1)) {
-        vehicle.加成.贯穿 = Number(vehicle.加成.贯穿 || 0) + 10;
-        this.bonusService.addPenetration(vehicle.加成, 10);
+        vehicle.bonus.贯穿 = Number(vehicle.bonus.贯穿 || 0) + 10;
+        this.bonusService.addPenetration(vehicle.bonus, 10);
       } else if (this.reqItem('星爆导弹', 计算用零件) &&
                  this.reqItem('导弹', 计算用零件, 0.05)) {
-        vehicle.加成.贯穿 = Number(vehicle.加成.贯穿 || 0) + 8;
-        this.bonusService.addPenetration(vehicle.加成, 8);
+        vehicle.bonus.贯穿 = Number(vehicle.bonus.贯穿 || 0) + 8;
+        this.bonusService.addPenetration(vehicle.bonus, 8);
       } else if (this.reqItem('炼狱导弹', 计算用零件) &&
                  this.reqItem('导弹', 计算用零件, 0.01)) {
-        vehicle.加成.贯穿 = Number(vehicle.加成.贯穿 || 0) + 5;
-        this.bonusService.addPenetration(vehicle.加成, 5);
+        vehicle.bonus.贯穿 = Number(vehicle.bonus.贯穿 || 0) + 5;
+        this.bonusService.addPenetration(vehicle.bonus, 5);
       }
     }
     // 原版 L3802-3834：小雫/小凰/小蓝/小粉 上限加成 与 生产加成
     c = 0;
     if (!生产类Flag) {
-      if (this.reqItem('小雫', 计算用零件)) vehicle.防御上限 += 1;
-      if (this.reqItem('小凰', 计算用零件)) vehicle.武器上限 += 1;
-      if (this.reqItem('小蓝', 计算用零件)) vehicle.功能上限 += 1;
-      if (this.reqItem('小粉', 计算用零件)) vehicle.行走上限 += 1;
-      vehicle.加成.生产 *= (1 + (productivity ?? 0) / 100);
+      if (this.reqItem('小雫', 计算用零件)) vehicle.maxDefense += 1;
+      if (this.reqItem('小凰', 计算用零件)) vehicle.maxWeapon += 1;
+      if (this.reqItem('小蓝', 计算用零件)) vehicle.maxFunction += 1;
+      if (this.reqItem('小粉', 计算用零件)) vehicle.maxMove += 1;
+      vehicle.bonus.生产 *= (1 + (productivity ?? 0) / 100);
     } else {
       // 生产类：咏星由 GameService 根据当前地图召唤物传入。
       const 咏星 = Number(options.yongxing || 0);
       if (this.reqItem('小粉', 计算用零件)) {
-        vehicle.加成.生产 *= (1 + 0.05 + (productivity ?? 0) / 100 + 咏星);
+        vehicle.bonus.生产 *= (1 + 0.05 + (productivity ?? 0) / 100 + 咏星);
       } else {
-        vehicle.加成.生产 *= (1 + (productivity ?? 0) / 100 + 咏星);
+        vehicle.bonus.生产 *= (1 + (productivity ?? 0) / 100 + 咏星);
       }
     }
-    vehicle.加成.生产 = roundItemQuantity(vehicle.加成.生产);
+    vehicle.bonus.生产 = roundItemQuantity(vehicle.bonus.生产);
     // 原版 L3836-3854：超限判定（行走/武器/防御/功能 超上限 → 当前生命=0）
-    if (vehicle.行走 > vehicle.行走上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
-    if (vehicle.武器 > vehicle.武器上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
-    if (vehicle.防御 > vehicle.防御上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
-    if (vehicle.功能 > vehicle.功能上限) { vehicle.当前生命 = 0; vehicle.行走方式 = 0; c = 1; }
+    if (vehicle.moveSlots > vehicle.maxMove) { vehicle.currentHp = 0; vehicle.moveType = 0; c = 1; }
+    if (vehicle.weaponSlots > vehicle.maxWeapon) { vehicle.currentHp = 0; vehicle.moveType = 0; c = 1; }
+    if (vehicle.defenseSlots > vehicle.maxDefense) { vehicle.currentHp = 0; vehicle.moveType = 0; c = 1; }
+    if (vehicle.functionSlots > vehicle.maxFunction) { vehicle.currentHp = 0; vehicle.moveType = 0; c = 1; }
     // 原版 L3855-3864：部件限制超出 → 当前生命=0
     if (部件限制.length > 0) {
       for (const pl of 部件限制) {
-        const limit = Number(pl.数量 ?? pl.quantity ?? pl.数值 ?? 0);
-        if (this.getItemQty(pl.名称, 部件限制) > limit) { c = 1; vehicle.当前生命 = 0; break; }
+        const limit = Number(pl.quantity ?? 0);
+        if (this.getItemQty(pl.name, 部件限制) > limit) { c = 1; vehicle.currentHp = 0; break; }
       }
     }
     // 原版 L3865-3897：生命回血（琪莎拉）/ 上限标志
@@ -11388,60 +11340,63 @@ export class CombatSystemService implements OnApplicationShutdown {
       if (s == null) {
         return; // 原版 L3866-3868
       }
-      if (vehicle.当前生命 < vehicle.加成.生命) {
+      if (vehicle.currentHp < vehicle.bonus.生命) {
         if (this.getItemQty('琪莎拉', 计算用零件) > 0) {
-          if (vehicle.当前生命 === 0) {
-            if (this.combatState.timeIntervalRequire('h1', 60, vehicle.标记2 || [], s, { value: '' }, s) === false) {
-              vehicle.当前生命 += 1;
+          if (vehicle.currentHp === 0) {
+            if (this.combatState.timeIntervalRequire('h1', 60, vehicle.markers2 || [], s, { value: '' }, s) === false) {
+              vehicle.currentHp += 1;
             }
           } else {
-            if (this.combatState.timeIntervalRequire('h1', 30, vehicle.标记2 || [], s, { value: '' }, s) === false) {
-              vehicle.当前生命 += 1;
+            if (this.combatState.timeIntervalRequire('h1', 30, vehicle.markers2 || [], s, { value: '' }, s) === false) {
+              vehicle.currentHp += 1;
             }
           }
         }
       }
     } else {
-      vehicle.上限 = vehicle.上限 === 1 ? 3 : 2;
+      vehicle.slotStatus = vehicle.slotStatus === 1 ? 3 : 2;
     }
     // 原版 L3895-3897：生命封顶
-    if (vehicle.当前生命 > vehicle.加成.生命) vehicle.当前生命 = vehicle.加成.生命;
-    // 同步英文字段，供 GameVehicle 持久化以及现有战斗代码读取。
-    vehicle.生命 = Number(vehicle.加成.生命 || 0);
-    vehicle.maxHp = vehicle.生命;
-    vehicle.currentHp = vehicle.当前生命;
-    vehicle.moveType = vehicle.行走方式;
-    vehicle.slotStatus = vehicle.上限;
+    if (vehicle.currentHp > vehicle.bonus.生命) vehicle.currentHp = vehicle.bonus.生命;
+    // 生命上限写回规范键 maxHp（currentHp/moveType/slotStatus 本已是规范键，无需镜像同步）
+    vehicle.maxHp = Number(vehicle.bonus.生命 || 0);
     // 原版 L3898-3911：产出分支（取生产产出）。
     if (calcOutput && s != null) {
-      if (vehicle.上限 < 2) {
+      if (vehicle.slotStatus < 2) {
         return this.calculateVehicleProduction(vehicle, s, {
           yongxing: options.yongxing,
           lannBaby: options.lannBaby,
         });
       }
       // 原版超限分支不调用取生产产出，但仍保存本次读取时间。
-      if (vehicle.配方.length > 0) vehicle.配方[0].数值 = s;
+      if (vehicle.recipes.length > 0) vehicle.recipes[0].value = s;
     }
     return undefined;
   }
 
-  /** 原版 L3647-3714 四段：按部件类型套用 行走/防御/武器/功能 上限与超限 */
-  private applyPartLimit(vehicle: any, spec: any, cp: any, field: string, specKey: string): void {
-    const cur = (vehicle as any)[field] ?? 0;
-    const limit = (vehicle as any)[field + '上限'] ?? 0;
+  /** 原版 L3647-3714 四段：按部件类型套用 行走/防御/武器/功能 上限与超限（字段均为载具域规范键） */
+  private applyPartLimit(
+    vehicle: any,
+    spec: any,
+    cp: any,
+    slotField: string,
+    maxField: string,
+    specKey: string,
+  ): void {
+    const cur = Number(vehicle[slotField] ?? 0);
+    const limit = Number(vehicle[maxField] ?? 0);
     const specVal = (spec as any)[specKey] ?? 0;
     if (specVal >= 0) {
       if ((spec.limit ?? 0) <= 0) {
-        (vehicle as any)[field + '上限'] = limit + (cp.数量 ?? 1) * specVal;
-      } else if ((cp.数量 ?? 1) <= spec.limit) {
-        (vehicle as any)[field + '上限'] = limit + (cp.数量 ?? 1) * specVal;
+        vehicle[maxField] = limit + (cp.quantity ?? 1) * specVal;
+      } else if ((cp.quantity ?? 1) <= spec.limit) {
+        vehicle[maxField] = limit + (cp.quantity ?? 1) * specVal;
       } else {
-        (vehicle as any)[field + '上限'] = limit + spec.limit * specVal + ((cp.数量 ?? 1) - spec.limit) / 2 * specVal;
-        vehicle.上限 = 1;
+        vehicle[maxField] = limit + spec.limit * specVal + ((cp.quantity ?? 1) - spec.limit) / 2 * specVal;
+        vehicle.slotStatus = 1;
       }
     } else {
-      (vehicle as any)[field] = cur + (cp.数量 ?? 1) * Math.abs(specVal);
+      vehicle[slotField] = cur + (cp.quantity ?? 1) * Math.abs(specVal);
     }
   }
 
@@ -11484,83 +11439,82 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     // 原版 L5336-5343：构造"前线"召唤物 g（玩家结构）
     const g: any = {
-      名称: '前线',
-      类型: '前线',
-      归属: qq,
+      name: '前线',
+      type: '前线',
+      ownerQQ: qq,
       QQ: '怪物前线' + qq + 'sg',
-      属性: {},
-      武器: [],
-      装备: [],
+      属性: {}, // 原版 属性 结构（字典键为属性名内容语义，不在字段合同收敛范围）
+      weapons: [],
+      equipments: [],
       套装: {},
-      标记: [],
+      markers: [],
     };
     g.属性.必中 = true;
     g.属性.生命 = 1;
-    g.当前生命 = 1; // 先置1，后续按 g2 是否存在覆盖
+    g.hp = 1; // 先置1，后续按 g2 是否存在覆盖
     g.属性.闪避 = 1;
     g.属性.物伤 = 1;
     g.属性.冰伤 = 1;
     g.属性.电伤 = 1;
     g.属性.火伤 = 1;
     g.属性.命中 = frontLineLevel + 1;
-    g.特殊序号 = -2;
+    g.specialSeq = -2;
 
-    // 原版 L5340：取已存在的召唤物（按 QQ）。原版 取召唤物 命中时会写回 编号=数组下标，此处等价模拟
+    // 原版 L5340：取已存在的召唤物（按 QQ）。原版 取召唤物 会写回 编号=数组下标，
+    // 该字段在网页版已无用（新增/更新一律以 findIndex 判定），故不再写入。
     const g2Idx = summons.findIndex((x: any) => x.QQ === g.QQ);
-    const g2 = g2Idx >= 0 ? summons[g2Idx] : {};
     if (g2Idx >= 0) {
-      g2.编号 = g2Idx; // 等价 取召唤物 L487：地图.召唤物[a].编号 = a
       // 原版 L5343：g.当前生命 = g2.当前生命（保留既有血量）
-      g.当前生命 = g2.当前生命 ?? 1;
+      g.hp = summons[g2Idx].hp ?? 1;
     }
 
     // 原版 L5351-5367：构造武器 z（射弹武器）
     let c = 0; // 轻型装甲数量累加（c += 加成.生命 × 数量）
     // 原版 L5354-5355：重定义数组 武器/装备 为0成员
-    g.武器 = [];
-    g.装备 = [];
+    g.weapons = [];
+    g.equipments = [];
     // 原版 L5356-5371：遍历地图建筑
     for (const b of buildings) {
       // 取建筑完整定义（含 加成.攻击/加成.生命/攻击文本），原版 取建筑(d.建筑[a].名称)
       const j = this.staticData.getBuildingByName(b.name) || b;
-      // 加成兼容两种 key：原版中文「加成」，网页版数据 JSON 用「bonus」
-      const jBonus = j.加成 || j.bonus || b.加成 || b.bonus || {};
+      // 建筑加成统一读英文规范键 bonus（静态配置与运行时地图建筑条目均为 bonus）
+      const jBonus = j.bonus || b.bonus || {};
       if (jBonus.攻击 !== 0 && jBonus.攻击 != null) {
         const z: any = {
-          类型: '射弹武器',
+          type: '射弹武器',
           载具强制伤害: true,
           冷却: 10,
-          名称: b.name,
-          加成: {},
+          name: b.name,
+          bonus: {},
           攻击文本: {},
           属性: {},
         };
-        z.加成 = z.加成 || {};
+        z.bonus = z.bonus || {};
         // 原版 L5361：z.攻击文本 = 取攻击文本(j.攻击文本)
         const atkText = this.getAttackTextByName(j.攻击文本 || b.攻击文本 || '');
         z.攻击文本 = { name: atkText?.name ?? '' };
         // 原版 L5362：叠加载具加成(z.加成, j.加成, 数量, 假, 1)
-        this.stackVehicleBonus(z.加成, jBonus, b.count ?? 1, false, 1);
+        this.stackVehicleBonus(z.bonus, jBonus, b.quantity ?? 1, false, 1);
         // 原版 L5363-5366：属性 = 26/25/25/25 × 攻击 × 数量
         const atkVal = jBonus.攻击 ?? 0;
-        const cnt = b.count ?? 1;
+        const cnt = b.quantity ?? 1;
         z.属性.物 = 26 * atkVal * cnt;
         z.属性.电 = 25 * atkVal * cnt;
         z.属性.冰 = 25 * atkVal * cnt;
         z.属性.火 = 25 * atkVal * cnt;
-        g.武器.push(z);
+        g.weapons.push(z);
         // 原版 L5368：c = c + j.加成.生命 × 数量
         c = c + (jBonus.生命 ?? 0) * cnt;
       }
     }
 
     // 原版 L5372-5380：无武器则默认"火力"自动步枪
-    if (g.武器.length === 0) {
+    if (g.weapons.length === 0) {
       const z: any = {
-        类型: '射弹武器',
+        type: '射弹武器',
         载具强制伤害: true,
         冷却: 10,
-        名称: '火力',
+        name: '火力',
         攻击文本: {},
         属性: {},
       };
@@ -11570,14 +11524,14 @@ export class CombatSystemService implements OnApplicationShutdown {
       z.属性.电 = 25;
       z.属性.冰 = 25;
       z.属性.火 = 25;
-      g.武器.push(z);
+      g.weapons.push(z);
     }
 
     // 原版 L5381：z.攻击文本.名称 = ""
     // 注意：原版此行把刚构造的 z（默认分支的火力武器）的攻击文本名称清空；逐行保留
-    if (g.武器.length > 0) {
-      g.武器[g.武器.length - 1].攻击文本 = g.武器[g.武器.length - 1].攻击文本 || {};
-      g.武器[g.武器.length - 1].攻击文本.name = '';
+    if (g.weapons.length > 0) {
+      g.weapons[g.weapons.length - 1].攻击文本 = g.weapons[g.weapons.length - 1].攻击文本 || {};
+      g.weapons[g.weapons.length - 1].攻击文本.name = '';
     }
 
     // 原版 L5382-5383
@@ -11586,28 +11540,28 @@ export class CombatSystemService implements OnApplicationShutdown {
     g.属性.攻击 = 1;
 
     // 原版 L5384-5399：构造"阵地"载具 zj
-    const zjIdx = vehicles.findIndex((x: any) => x.编号 === g.QQ);
-    const zj: any = { 名称: '阵地', 零件: [], 归属: g.QQ, 驾驶员: g.QQ, 编号: g.QQ, 加成: {}, 当前生命: 0, 列表编号: zjIdx };
+    const zjIdx = vehicles.findIndex((x: any) => x.vehicleId === g.QQ);
+    const zj: any = { name: '阵地', parts: [], owner: g.QQ, driver: g.QQ, vehicleId: g.QQ, bonus: {}, currentHp: 0 };
     // 原版 L5386：重定义数组 零件 为0成员
-    zj.零件 = [];
+    zj.parts = [];
     // 原版 L5387-5390：加入 阵地核心×1
-    zj.零件.push({ 名称: '阵地核心', 类型: '资源', 数量: 1 });
+    zj.parts.push({ name: '阵地核心', type: '资源', quantity: 1 });
     // 原版 L5391-5394：加入 轻型装甲×(10 + c + 前线等级)
-    zj.零件.push({ 名称: '轻型装甲', 类型: '资源', 数量: 10 + c + frontLineLevel });
+    zj.parts.push({ name: '轻型装甲', type: '资源', quantity: 10 + c + frontLineLevel });
     // 原版 L5398：计算载具(zj, s, , , , ) —— 完整 计算载具（本场景仅传 s，不进产出分支）
     this.computeVehicle(zj, s);
 
-    // 原版 L5399：g.载具 = zj.编号
-    g.载具 = zj.编号;
+    // 原版 L5399：g.载具 = zj.编号（本框架载具引用统一为 vehicle 键）
+    g.vehicle = zj.vehicleId;
 
     // 原版 L5400：g2 = 取召唤物(g.QQ, d) —— 重新取一次（判断编号）。等价以 findIndex 为准
     const g2Idx2 = summons.findIndex((x: any) => x.QQ === g.QQ);
 
     // 原版 L5401-5402：置成就熟练度("跟随"/"阵地", g.标记, 1)
-    const markerArr: any[] = Array.isArray(g.标记) ? g.标记 : [];
+    const markerArr: any[] = Array.isArray(g.markers) ? g.markers : [];
     this.combatState.setAchievementProficiency('跟随', markerArr, 1);
     this.combatState.setAchievementProficiency('阵地', markerArr, 1);
-    g.标记 = markerArr;
+    g.markers = markerArr;
 
     // 原版 L5403-5421：按 g2.编号 决定 新增/更新。
     // 原版以「编号==0」作未找到哨兵，但 取召唤物 找到时 编号=数组下标（0 起），
@@ -11617,13 +11571,13 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 改为以 findIndex（g2Idx2 ≥ 0 即存在）为准；下标>0 的正常场景语义与原版一致。
     if (g2Idx2 < 0) {
       // 原版 L5404：g.当前生命 = 1
-      g.当前生命 = 1;
+      g.hp = 1;
       // 原版 L5405-5410：载具 列表编号==0 → 新增，否则更新（同理，以下标 zjIdx 为准）
       if (zjIdx < 0) {
-        zj.当前生命 = zj.加成.生命;
+        zj.currentHp = zj.bonus.生命;
         vehicles.push(zj);
       } else {
-        zj.当前生命 = zj.加成.生命;
+        zj.currentHp = zj.bonus.生命;
         vehicles[zjIdx] = zj;
       }
       summons.push(g);
@@ -11632,10 +11586,10 @@ export class CombatSystemService implements OnApplicationShutdown {
       summons[g2Idx2] = g;
       // 原版 L5414-5419：载具 列表编号==0 → 新增，否则更新（同上）
       if (zjIdx < 0) {
-        zj.当前生命 = zj.加成.生命;
+        zj.currentHp = zj.bonus.生命;
         vehicles.push(zj);
       } else {
-        zj.当前生命 = zj.加成.生命;
+        zj.currentHp = zj.bonus.生命;
         vehicles[zjIdx] = zj;
       }
     }
@@ -11647,7 +11601,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (!Array.isArray(defenders) || defenders.length === 0) return 0;
     const list = defenders.map((d: any, idx: number) => ({
       idx,
-      total: (d.当前生命 ?? d.hp ?? 0) + (d.当前装甲 ?? d.armor ?? 0) + (d.当前护盾 ?? d.shield ?? 0),
+      total: (d.hp ?? 0) + (d.armor ?? 0) + (d.shield ?? 0),
     }));
     // 原版 物品数量排序 默认升序（从小到大），返回末位=总和最大
     list.sort((a: any, b: any) => a.total - b.total);
@@ -11808,19 +11762,18 @@ export class CombatSystemService implements OnApplicationShutdown {
     const actors = [...monsters, ...summons];
     let changed = false;
     for (const actor of actors) {
-      const vehicleRef = actor?.vehicle ?? actor?.载具;
+      const vehicleRef = actor?.vehicle;
       if (!vehicleRef) continue;
-      const vehicle = vehicles.find((item: any) => String(item?.id ?? item?.编号 ?? item?.name ?? item?.名称) === String(vehicleRef));
+      const vehicle = vehicles.find((item: any) => String(item?.id ?? item?.vehicleId ?? item?.name) === String(vehicleRef));
       if (!vehicle) continue;
-      const current = Number(vehicle.currentHp ?? vehicle.当前生命 ?? 0);
-      const maximum = Number(vehicle.maxHp ?? vehicle.生命 ?? vehicle.加成?.生命 ?? 0);
-      const listIndex = Number(vehicle.列表编号 ?? vehicle.listIndex ?? 1);
-      const upper = Number(vehicle.上限 ?? vehicle.limit ?? 0);
-      if (current !== maximum && listIndex !== 0 && upper < 2) {
+      const current = Number(vehicle.currentHp ?? 0);
+      const maximum = Number(vehicle.maxHp ?? vehicle.bonus?.生命 ?? 0);
+      // 载具已由上面的 find 命中（原版「列表编号==0」= 未找到，此处等价已判定）
+      const upper = Number(vehicle.slotStatus ?? 0);
+      if (current !== maximum && upper < 2) {
         vehicle.currentHp = maximum;
-        vehicle.当前生命 = maximum;
         changed = true;
-        lines.push(`${actor.name ?? actor.名称}修好了${vehicle.name ?? vehicle.名称}`);
+        lines.push(`${actor.name}修好了${vehicle.name}`);
       }
     }
     if (changed) map.vehicles = vehicles; // Json 列直接写数组
@@ -11836,7 +11789,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const cooldown = Number(monster.dodgeCooldown ?? monster.闪避冷却 ?? this.safeJsonObject(monster.bonus).闪避冷却 ?? 0);
       if (cooldown <= 0 || Math.random() * 100 >= 50) continue;
       const fly = findActive(buffs, '飞羽', nowMs);
-      const flyLevel = Math.min(10, Number(fly?.value ?? fly?.强度 ?? 0));
+      const flyLevel = Math.min(10, Number(fly?.strength ?? 0));
       let actualCooldown = cooldown * (1 + flyLevel * 0.05);
       const shock = this.hasActiveRuntimeBuff(monster.markers2, '空间震', nowMs);
       if (shock) actualCooldown *= 2;
@@ -11891,11 +11844,11 @@ export class CombatSystemService implements OnApplicationShutdown {
     for (const monster of monsters) {
       if ((monster.hp || 0) <= 0) continue;
       const buffs = this.playerService.safeJsonParse<any[]>(monster.buffs, []);
-      const saBuff = buffs.find((b: any) => b && (b.name ?? b.名称) === 'sa');
+      const saBuff = buffs.find((b: any) => b && b.name === 'sa');
       if (!saBuff) continue;
 
       // 归一化有效期至（兼容秒/毫秒存量），过期即清掉并跳过
-      const rawExpire = Number(saBuff.expireAt ?? saBuff.有效期至 ?? 0);
+      const rawExpire = Number(saBuff.expireAt ?? 0);
       const expireMs = rawExpire > 0 && rawExpire < 1e12 ? rawExpire * 1000 : rawExpire;
       if (!expireMs || expireMs <= nowMs) {
         monster.buffs = buffs.filter((b: any) => b !== saBuff); // Json 列直接写数组
@@ -11987,13 +11940,13 @@ export class CombatSystemService implements OnApplicationShutdown {
         const data = await this.playerService.getPlayerData(row.userId);
         if (this.playerService.isPlayerDead(data.player)) continue;
         const buffs = this.playerService.safeJsonParse<any[]>(data.player.buffs, []);
-        if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
+        if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name))) continue;
         victims.push({ actor: data.player, data, runtime: false, isSelf: row.userId === userId });
       }
 
       const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
       for (const summon of summons) {
-        if ((summon?.hp ?? summon?.当前生命 ?? 0) <= 0) continue;
+        if ((summon?.hp ?? 0) <= 0) continue;
         summon.mapId = map.id;
         victims.push({ actor: summon, data: this.createRuntimeActorData(summon), runtime: true, isSelf: false });
       }
@@ -12127,8 +12080,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     const mapMarkers3 = this.playerService.safeJsonParse<any[]>(map.markers3 ?? map.标记3 ?? '[]', []);
     const nowMs = Date.now();
     const frozen = mapMarkers3.some((item: any) => {
-      const name = item?.名称 ?? item?.name;
-      const expire = Number(item?.有效期至 ?? item?.expireAt ?? 0);
+      const name = item?.name;
+      const expire = Number(item?.expireAt ?? 0);
       const expireMs = expire > 0 && expire < 1e12 ? expire * 1000 : expire;
       return name === '幻时' && (!expireMs || expireMs > nowMs);
     });
@@ -12151,7 +12104,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     const victims: Array<{ actor: any; data: PlayerData; runtime: boolean; isSelf: boolean }> = [];
     const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
     for (const summon of summons) {
-      if ((summon?.hp ?? summon?.当前生命 ?? 0) <= 0) continue;
+      if ((summon?.hp ?? 0) <= 0) continue;
       summon.mapId = map.id;
       victims.push({ actor: summon, data: this.createRuntimeActorData(summon), runtime: true, isSelf: false });
     }
@@ -12160,7 +12113,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const victimData = await this.playerService.getPlayerData(row.userId);
       if (this.playerService.isPlayerDead(victimData.player)) continue;
       const buffs = this.playerService.safeJsonParse<any[]>(victimData.player.buffs, []);
-      if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
+      if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name))) continue;
       victims.push({
         actor: victimData.player,
         data: victimData,
@@ -12206,9 +12159,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
     // 原版 L321/326：标记"主动"==1（被动模式）与死亡召唤物不出手
     const candidates = summons.filter((summon: any) => {
-      if (!summon || (Number(summon?.hp ?? summon?.当前生命 ?? 0)) <= 0) return false;
+      if (!summon || (Number(summon?.hp ?? 0)) <= 0) return false;
       const active = this.playerService.getMarkerValue(
-        this.normalizeMarkerObject(summon.markers ?? summon.标记 ?? {}),
+        this.normalizeMarkerObject(summon.markers ?? {}),
         '主动',
       );
       return active !== 1;
@@ -12218,7 +12171,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 原版 L421：取成就熟练度("觉醒")>=100 的召唤物优先出手
     const awakened = candidates.filter((summon: any) =>
       this.playerService.getMarkerValue(
-        this.normalizeMarkerObject(summon.markers ?? summon.标记 ?? {}),
+        this.normalizeMarkerObject(summon.markers ?? {}),
         '觉醒',
       ) >= 100);
     const ordered = awakened.length > 0
@@ -12247,7 +12200,7 @@ export class CombatSystemService implements OnApplicationShutdown {
 
   /** 召唤物主人 userId 解析（ownerQQ 存 qqNumber 或 userId，原版击败结算跟随主人）；失败回退 fallback。 */
   private async resolveSummonOwnerUserId(summon: any, fallback: number): Promise<number> {
-    const owner = String(summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? '').trim();
+    const owner = String(summon?.ownerQQ ?? summon?.owner ?? '').trim();
     if (owner) {
       const cached = this.summonOwnerCache.get(owner);
       if (cached) return cached;
@@ -12308,14 +12261,14 @@ export class CombatSystemService implements OnApplicationShutdown {
         if (fallenUserIds.length === 0) break;
         // 原版 L322：标记"主动"==1 为被动模式，不参与扶人
         const active = this.playerService.getMarkerValue(
-          this.normalizeMarkerObject(summon.markers ?? summon.标记 ?? {}),
+          this.normalizeMarkerObject(summon.markers ?? {}),
           '主动',
         );
         if (active === 1) continue;
         // 原版 L328：死亡召唤物不扶人
-        if ((Number(summon?.hp ?? summon?.当前生命 ?? 0)) <= 0) continue;
+        if ((Number(summon?.hp ?? 0)) <= 0) continue;
 
-        const summonName = summon?.name ?? summon?.名称 ?? '宠物';
+        const summonName = summon?.name ?? '宠物';
         for (const victimUserId of [...fallenUserIds]) {
           // 关键：改动必须落在该玩家的【权威对象】上，不能用 findMany 拿到的裸行。
           // savePlayer 在 Actor / mutate 上下文内只做 merge 或 markDirty，传入的裸行
@@ -12333,7 +12286,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           // 原版 L342-344：缩短卷土重来30秒 + 恢复一半生命
           const buffs = this.playerService.safeJsonParse<any[]>(victim.buffs, []);
           // 只消费仍然有效的「卷土重来」（过期条目不参与扶人判定）
-          const jtIdx = buffs.findIndex((b: any) => b && (b.name ?? b.名称) === '卷土重来' && isActive(b));
+          const jtIdx = buffs.findIndex((b: any) => b && b.name === '卷土重来' && isActive(b));
           if (jtIdx < 0) continue;
           buffs.splice(jtIdx, 1);
           victim.buffs = buffs; // Json 列直接写数组
@@ -12366,8 +12319,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     const list = this.playerService.safeJsonParse<any[]>(value, Array.isArray(value) ? value : []);
     const nowSec = Math.floor(nowMs / 1000);
     return list.some((item: any) => {
-      if ((item?.name ?? item?.名称) !== name) return false;
-      const raw = Number(item?.expireAt ?? item?.有效期至 ?? 0);
+      if (item?.name !== name) return false;
+      const raw = Number(item?.expireAt ?? 0);
       if (!raw) return true;
       const expireMs = raw < 1e12 ? raw * 1000 : raw;
       return Math.floor(expireMs / 1000) > nowSec;
@@ -12414,7 +12367,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         const weapons = this.getRuntimeWeapons(summon);
         const weaponIndex = weapons.findIndex((item: any) => this.getRuntimeWeaponName(item) === weaponName);
         if (weaponIndex < 0) {
-          return `${summon.name ?? summon.名称 ?? targetQQ}的延时攻击武器${weaponName}不在身上`;
+          return `${summon.name ?? targetQQ}的延时攻击武器${weaponName}不在身上`;
         }
 
         summon.mapId = map.id;
@@ -12449,8 +12402,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         const mapMarkers = this.playerService.safeJsonParse<any[]>(map.markers3 ?? map.标记3 ?? '[]', []);
         const nowMs = Date.now();
         const isFrozen = mapMarkers.some((item: any) => {
-          const name = item?.名称 ?? item?.name;
-          const expire = Number(item?.有效期至 ?? item?.expireAt ?? 0);
+          const name = item?.name;
+          const expire = Number(item?.expireAt ?? 0);
           const expireMs = expire > 0 && expire < 1e12 ? expire * 1000 : expire;
           return name === '幻时' && (!expireMs || expireMs > nowMs);
         });
@@ -12463,7 +12416,7 @@ export class CombatSystemService implements OnApplicationShutdown {
 
         const summons = this.playerService.safeJsonParse<any[]>(map.summons, []);
         for (const summon of summons) {
-          if ((summon?.hp ?? summon?.当前生命 ?? 0) <= 0) continue;
+          if ((summon?.hp ?? 0) <= 0) continue;
           summon.mapId = map.id;
           victims.push({
             actor: summon,
@@ -12482,7 +12435,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           const victim = victimData.player;
           if (this.playerService.isPlayerDead(victim)) continue;
           const buffs = this.playerService.safeJsonParse<any[]>(victim.buffs, []);
-          if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name ?? item?.名称))) continue;
+          if (buffs.some((item: any) => isActive(item) && ['隐匿模式', '炮冠'].includes(item?.name))) continue;
           victims.push({
             actor: victim,
             data: victimData,
@@ -12538,13 +12491,13 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   private getRuntimeWeapons(actor: any): any[] {
-    const value = actor?.weapons ?? actor?.武器 ?? '[]';
+    const value = actor?.weapons ?? '[]';
     const weapons = this.playerService.safeJsonParse<any[]>(value, Array.isArray(value) ? value : []);
     return Array.isArray(weapons) ? weapons : [];
   }
 
   private getRuntimeWeaponName(weapon: any): string {
-    return String(weapon?.name ?? weapon?.名称 ?? weapon ?? '');
+    return String(weapon?.name ?? weapon ?? '');
   }
 
   private async findUserByDelayedTarget(targetQQ: string, player: any, userId: number): Promise<any | null> {

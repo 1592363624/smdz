@@ -95,7 +95,7 @@ export class GameSupportService {
    */
   hasEquip(player: any, name: string): boolean {
     const equips: any[] = asJsonValue<any[]>(player.equipment, []);
-    return equips.some((e: any) => e && (e.name === name || e.名称 === name));
+    return equips.some((e: any) => e && e.name === name);
   }
 
   /**
@@ -122,11 +122,11 @@ export class GameSupportService {
   }
 
   itemName(item: any): string {
-    return String(item?.name ?? item?.名称 ?? '');
+    return String(item?.name ?? '');
   }
 
   itemType(item: any): string {
-    return String(item?.type ?? item?.类型 ?? '');
+    return String(item?.type ?? '');
   }
 
   /**
@@ -211,13 +211,13 @@ export class GameSupportService {
    * 这里做兜底：只要资源名能在全局资源表里找到，编号就一定点得动。
    */
   resolveGatherCmd(resource: any): string {
-    const own = String(resource?.gatherCmd ?? resource?.采集指令 ?? '').trim();
+    const own = String(resource?.gatherCmd ?? '').trim();
     if (own) return own;
-    const name = String(resource?.name ?? resource?.名称 ?? '').trim();
+    const name = String(resource?.name ?? '').trim();
     if (!name) return '';
     const definition = this.staticData.getAllResources()
       .find((r: any) => String(r?.name ?? '').trim() === name);
-    return String(definition?.gatherCmd ?? definition?.采集指令 ?? '').trim();
+    return String(definition?.gatherCmd ?? '').trim();
   }
 
   /**
@@ -249,13 +249,13 @@ export class GameSupportService {
 
     const controllable = summons.filter((summon: any) => {
       const owner = String(
-        summon?.ownerQQ ?? summon?.归属 ?? summon?.owner ?? summon?.ownerId ?? '',
+        summon?.ownerQQ ?? summon?.owner ?? summon?.ownerId ?? '',
       );
       if (!ownerIds.has(owner)) return false;
 
       const rawMarkers = typeof summon?.markers === 'string'
         ? asJsonValue<any>(summon.markers, {})
-        : (summon?.markers ?? summon?.标记 ?? {});
+        : (summon?.markers ?? {});
       const markers = rawMarkers && typeof rawMarkers === 'object' ? rawMarkers : {};
       return Number(markers['幼崽'] ?? markers['阵地'] ?? 0) === 0;
     });
@@ -263,7 +263,7 @@ export class GameSupportService {
     for (const summon of controllable) {
       const rawMarkers = typeof summon?.markers === 'string'
         ? asJsonValue<any>(summon.markers, {})
-        : (summon?.markers ?? summon?.标记 ?? {});
+        : (summon?.markers ?? {});
       const markers = rawMarkers && typeof rawMarkers === 'object' ? { ...rawMarkers } : {};
       if (mode === 'follow') {
         summon.follow = true;
@@ -283,7 +283,6 @@ export class GameSupportService {
         markers['主动'] = 1;
       }
       summon.markers = markers; // Json 列直接写对象
-      if (summon.标记 !== undefined) summon.标记 = summon.markers;
     }
 
     if (controllable.length > 0) {
@@ -307,11 +306,11 @@ export class GameSupportService {
   }
 
   pushVehicleParts(target: any[], vehicle: any): void {
-    const parts = asJsonValue<any[]>(vehicle.parts ?? vehicle.零件 ?? [], []);
+    const parts = asJsonValue<any[]>(vehicle.parts ?? [], []);
     for (const part of parts) {
-      const name = String(part?.name ?? part?.['名称'] ?? '').trim();
+      const name = String(part?.name ?? '').trim();
       if (!name) continue;
-      target.push({ name, type: part.type ?? '资源', quantity: Number(part.quantity ?? part.count ?? 1), count: Number(part.quantity ?? part.count ?? 1) });
+      target.push({ name, type: part.type ?? '资源', quantity: Number(part.quantity ?? 1) });
     }
   }
 
@@ -351,21 +350,21 @@ export class GameSupportService {
 
   itemQuantity(item: any): number {
     if (item == null) return 0;
-    return Number(item.quantity ?? item.count ?? 1) || 0;
+    return Number(item.quantity ?? 1) || 0;
   }
 
   /** 任务推进的服务层适配点，避免任务服务不可用时影响核心玩法动作。 */
 
   deductBackpackItem(backpack: any[], name: string, quantity: number): void {
-    const item = backpack.find((i: any) => (i?.name ?? i?.名称) === name);
+    const item = backpack.find((i: any) => i?.name === name);
     if (!item) return;
     const current = this.itemQuantity(item);
     if (current <= quantity) {
       const idx = backpack.indexOf(item);
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
-      if (item.quantity !== undefined) item.quantity = current - quantity;
-      else item.count = current - quantity;
+      // 数量只写规范键 quantity（count 镜像已由持久化边界收敛，不再回写）
+      item.quantity = current - quantity;
     }
   }
 
@@ -381,9 +380,10 @@ export class GameSupportService {
     equipmentName: string,
     specialSeq: number,
   ): boolean {
+    // 装备条目沿用规范键 name/specialSeq（equipRequire 只按英文键检索）
     const equipment = (playerData.equipment || []).map((item: any) => ({
-      名称: this.itemName(item),
-      特殊序号: this.equipmentSpecialSeq(item),
+      name: this.itemName(item),
+      specialSeq: this.equipmentSpecialSeq(item),
     }));
     // 先按特殊序号查询，再保留名称查询作为静态数据中未写入特殊序号时的兼容映射。
     return this.combatState.equipRequire(equipment, [], 0, specialSeq, equipmentName, false)
@@ -393,10 +393,10 @@ export class GameSupportService {
 
   equipmentSpecialSeq(item: any): number {
     if (!item) return 0;
-    const explicit = Number(item.specialSeq ?? item.特殊序号 ?? 0);
+    const explicit = Number(item.specialSeq ?? 0);
     if (explicit !== 0) return explicit;
     const definition = this.staticData.getEquipmentByName(this.itemName(item));
-    return Number(definition?.specialSeq ?? definition?.特殊序号 ?? 0);
+    return Number(definition?.specialSeq ?? 0);
   }
 
 
@@ -417,8 +417,8 @@ export class GameSupportService {
   getBackpackDisplayItems(items: any[]): any[] {
     const list = items || [];
     return [
-      ...list.filter((item: any) => (item.type || item.类型) !== '装备'),
-      ...list.filter((item: any) => (item.type || item.类型) === '装备'),
+      ...list.filter((item: any) => item.type !== '装备'),
+      ...list.filter((item: any) => item.type === '装备'),
     ];
   }
 

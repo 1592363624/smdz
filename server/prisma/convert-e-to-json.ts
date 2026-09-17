@@ -120,14 +120,16 @@ function parseSemicolonString(str: string): string[] {
   return str.split(/[;；]/).map((s) => s.trim()).filter((s) => s);
 }
 
-function parseItemCountString(str: string): Array<{ name: string; count: number }> {
+// 输出键名统一为 quantity（物品域规范键，见 field-contract.util.ts 的 ITEM_MERGES）。
+// 原版源码里该字段叫「数量」（读配置项3 的“产出”），仅解析逻辑沿用原版格式，输出键名收敛为英文规范名。
+function parseItemCountString(str: string): Array<{ name: string; quantity: number }> {
   if (!str || !str.trim()) return [];
-  const result: Array<{ name: string; count: number }> = [];
+  const result: Array<{ name: string; quantity: number }> = [];
   for (const group of str.trim().split(/\s+/)) {
     if (!group.trim()) continue;
     const parts = group.split(/[,，、]/).map((s) => s.trim()).filter((s) => s);
     if (parts.length >= 2) {
-      result.push({ name: parts[0], count: parseFloat(parts[1]) || 0 });
+      result.push({ name: parts[0], quantity: parseFloat(parts[1]) || 0 });
     }
   }
   return result;
@@ -167,7 +169,7 @@ function parseVehicleRecipeItems(str: string): Array<{ name: string; quantity: n
  * 与产出/奖励字段的“名称,数量”格式不同，不能共用 parseItemCountString。
  * 对应数据存取.ecode L805-824 的 去数字/取数字。
  */
-function parseShopCostString(str: string): Array<{ name: string; count: number }> {
+function parseShopCostString(str: string): Array<{ name: string; quantity: number }> {
   if (!str || !str.trim()) return [];
   return str
     .trim()
@@ -175,13 +177,13 @@ function parseShopCostString(str: string): Array<{ name: string; count: number }
     .map((token) => {
       const match = token.match(/^(.+?)(\d+(?:\.\d+)?)$/);
       if (!match) return null;
-      return { name: match[1], count: Number(match[2]) };
+      return { name: match[1], quantity: Number(match[2]) };
     })
-    .filter((item): item is { name: string; count: number } => Boolean(item));
+    .filter((item): item is { name: string; quantity: number } => Boolean(item));
 }
 
 /** 行商池由逗号分隔，数字后缀是出售数量而不是名称的一部分。 */
-function parseTravelingPoolString(str: string): Array<{ name: string; count: number }> {
+function parseTravelingPoolString(str: string): Array<{ name: string; quantity: number }> {
   if (!str || !str.trim()) return [];
   return str
     .split(/[，,]/)
@@ -190,21 +192,21 @@ function parseTravelingPoolString(str: string): Array<{ name: string; count: num
     .map((token) => {
       const match = token.match(/^(.+?)(\d+(?:\.\d+)?)$/);
       return match
-        ? { name: match[1], count: Number(match[2]) || 1 }
-        : { name: token, count: 1 };
+        ? { name: match[1], quantity: Number(match[2]) || 1 }
+        : { name: token, quantity: 1 };
     });
 }
 
-function parseDropString(str: string): Array<{ name: string; count: number; chance: number }> {
+function parseDropString(str: string): Array<{ name: string; quantity: number; chance: number }> {
   if (!str || !str.trim()) return [];
-  const result: Array<{ name: string; count: number; chance: number }> = [];
+  const result: Array<{ name: string; quantity: number; chance: number }> = [];
   for (const group of str.trim().split(/\s+/)) {
     if (!group.trim()) continue;
     const parts = group.split(/[,，、]/).map((s) => s.trim()).filter((s) => s);
     if (parts.length >= 2) {
       result.push({
         name: parts[0],
-        count: parseFloat(parts[1]) || 0,
+        quantity: parseFloat(parts[1]) || 0,
         chance: parts.length >= 3 ? parseFloat(parts[2]) : -1,
       });
     }
@@ -224,9 +226,9 @@ function parseConnectionString(str: string): Array<{ name: string; distance: num
   return result;
 }
 
-function parseResourceOutput(str: string): Array<{ name: string; count: number; chance: number }> {
+function parseResourceOutput(str: string): Array<{ name: string; quantity: number; chance: number }> {
   if (!str || !str.trim()) return [];
-  const result: Array<{ name: string; count: number; chance: number }> = [];
+  const result: Array<{ name: string; quantity: number; chance: number }> = [];
   for (const group of str.trim().split(/\s+/)) {
     if (!group.trim()) continue;
     const parts = group.split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
@@ -236,12 +238,12 @@ function parseResourceOutput(str: string): Array<{ name: string; count: number; 
     // 没有数量时保留名称（末尾 e/d/c/b/a/s/x 表示装备品质）。
     const compact = parts[0].match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
     const name = (compact?.[1] || parts[0]).trim();
-    const count = compact ? Number.parseFloat(compact[2]) : 0;
+    const quantity = compact ? Number.parseFloat(compact[2]) : 0;
     const chance = Number.parseFloat(parts[1]);
     if (!name) continue;
     result.push({
       name,
-      count: Number.isFinite(count) ? count : 0,
+      quantity: Number.isFinite(quantity) ? quantity : 0,
       chance: Number.isFinite(chance) ? chance : 0,
     });
   }
@@ -249,12 +251,12 @@ function parseResourceOutput(str: string): Array<{ name: string; count: number; 
 }
 
 /** 原版“剪毛”字段使用物品名+数量格式，例如“上等毛发1”。 */
-function parseHairString(str: string): { name: string; count: number } {
+function parseHairString(str: string): { name: string; quantity: number } {
   const value = (str || '毛发1').trim() || '毛发1';
   const match = value.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
   return {
     name: (match?.[1] || value).trim() || '毛发',
-    count: match ? Number(match[2]) || 1 : 1,
+    quantity: match ? Number(match[2]) || 1 : 1,
   };
 }
 
@@ -639,12 +641,12 @@ function mapVehicleRecipeToRecipe(section: ConfigSection) {
 }
 
 /** 原版解锁需求使用“行为+名称+数量”紧凑格式，例如“采集钻石10000”。 */
-function parseUnlockRequirements(str: string): Array<{ name: string; count: number }> {
+function parseUnlockRequirements(str: string): Array<{ name: string; quantity: number }> {
   if (!str || !str.trim()) return [];
   return str.trim().split(/\s+/).map((token) => {
     const match = token.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
-    if (!match) return { name: token, count: 1 };
-    return { name: match[1], count: parseFloat(match[2]) || 0 };
+    if (!match) return { name: token, quantity: 1 };
+    return { name: match[1], quantity: parseFloat(match[2]) || 0 };
   });
 }
 
@@ -737,12 +739,12 @@ function mapVehiclePartSpec(section: ConfigSection) {
     const value = Number.parseFloat(fields[name] || '');
     return Number.isFinite(value) ? value : fallback;
   };
-  const compactItems = (value: string): Array<{ name: string; count: number }> => {
+  const compactItems = (value: string): Array<{ name: string; quantity: number }> => {
     if (!value) return [];
     return value.split(/[\s,，、]+/).filter(Boolean).map((token) => {
       const match = token.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
-      if (!match) return { name: token, count: 1 };
-      return { name: match[1], count: Number.parseFloat(match[2]) || 0 };
+      if (!match) return { name: token, quantity: 1 };
+      return { name: match[1], quantity: Number.parseFloat(match[2]) || 0 };
     });
   };
   const bonus: Record<string, number> = {};
@@ -836,12 +838,12 @@ function mapTaskToTask(section: ConfigSection) {
  *   j.名称 = 去数字(w1[b])   ' 去掉末尾数字后的文字
  *   j.数值 = 到数值(取数字(w1[b]))  ' 取末尾连续数字
  * 示例：
- *   "移动1 前往森林出口1"           -> [{name:"移动",count:1},{name:"前往森林出口",count:1}]
- *   "发送"观察附近"1 使用优秀装备补给箱1" -> [{name:'发送"观察附近"',count:1},{name:"使用优秀装备补给箱",count:1}]
+ *   "移动1 前往森林出口1"           -> [{name:"移动",quantity:1},{name:"前往森林出口",quantity:1}]
+ *   "发送"观察附近"1 使用优秀装备补给箱1" -> [{name:'发送"观察附近"',quantity:1},{name:"使用优秀装备补给箱",quantity:1}]
  */
-function parseNameCountString(str: string): Array<{ name: string; count: number; type?: string }> {
+function parseNameCountString(str: string): Array<{ name: string; quantity: number; type?: string }> {
   if (!str || !str.trim()) return [];
-  const result: Array<{ name: string; count: number; type?: string }> = [];
+  const result: Array<{ name: string; quantity: number; type?: string }> = [];
   // 原版任务奖励用括号标记装备奖励的特殊语义：数量不是堆叠数，
   // 而是命中概率（百分比）。先替换成无空格哨兵，避免括号内文字被拆成多个奖励。
   const normalized = str.trim().replace(
@@ -857,10 +859,10 @@ function parseNameCountString(str: string): Array<{ name: string; count: number;
     const name = match[1].trim();
     const countStr = match[2].trim();
     if (!name) continue;
-    const count = countStr ? parseInt(countStr, 10) : 1;
+    const quantity = countStr ? parseInt(countStr, 10) : 1;
     result.push({
       name,
-      count: Number.isNaN(count) ? 1 : count,
+      quantity: Number.isNaN(quantity) ? 1 : quantity,
       ...(isEquipmentReward ? { type: '装备' } : {}),
     });
   }
