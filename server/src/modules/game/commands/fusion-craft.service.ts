@@ -452,13 +452,18 @@ export class FusionCraftService {
       return `背包中没有【${targetName}】`;
     }
 
-    // 消耗种子
-    const count = seedItem.quantity || 1;
-    if (count <= 1) {
+    // 消耗种子：必须至少整颗 1；小数残余不得再育种、也不得被整条抹掉
+    // （与 plantSeed 同口径：旧逻辑 count<=1 就 splice，0.27 也会被当整颗吃掉）
+    const count = Number(seedItem.quantity ?? 0);
+    if (!(count >= 1)) {
+      return `「${targetName}」数量不足，还剩 ${count}，育种至少需要 1`;
+    }
+    const remaining = count - 1;
+    if (remaining > 0) {
+      seedItem.quantity = remaining;
+    } else {
       const idx = backpack.indexOf(seedItem);
       if (idx !== -1) backpack.splice(idx, 1);
-    } else {
-      seedItem.quantity = count - 1;
     }
 
     // 根据种子名称推断产出作物

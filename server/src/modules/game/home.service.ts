@@ -902,10 +902,18 @@ export class HomeService {
 
     const building = mapBuildings[buildingIndex];
 
-    // 减少数量
+    // 减少数量：至少 1 整栋才能拆；小数残余不得拆除、也不得被整条抹掉
+    // （与 plantSeed 同口径：旧逻辑 buildingQuantity>1 才减 1、否则 splice）
     const buildingQuantity = this.getItemQuantityValue(building);
-    if (buildingQuantity > 1) {
-      this.setItemQuantity(building, buildingQuantity - 1);
+    if (!(buildingQuantity >= 1)) {
+      return {
+        success: false,
+        message: `「${buildingName}」数量不足，还剩 ${buildingQuantity}，至少需要 1`,
+      };
+    }
+    const buildingRemaining = buildingQuantity - 1;
+    if (buildingRemaining > 0) {
+      this.setItemQuantity(building, buildingRemaining);
     } else {
       mapBuildings.splice(buildingIndex, 1);
     }
@@ -983,11 +991,19 @@ export class HomeService {
       }
     }
 
-    // 消耗种子
+    // 消耗种子：必须至少整颗 1 才能种；小数残余（如 0.27）不得再种、也不得被整条抹掉。
+    // 旧逻辑 seedQuantity > 1 才减 1、否则 splice 整条，导致 2.27 可连种 3 次（第 3 次把 0.27 当整颗）。
     const seedItem = backpack[seedIndex];
     const seedQuantity = this.getItemQuantityValue(seedItem);
-    if (seedQuantity > 1) {
-      this.setItemQuantity(seedItem, seedQuantity - 1);
+    if (!(seedQuantity >= 1)) {
+      return {
+        success: false,
+        message: `「${seedName}」数量不足，还剩 ${seedQuantity}，至少需要 1`,
+      };
+    }
+    const seedRemaining = seedQuantity - 1;
+    if (seedRemaining > 0) {
+      this.setItemQuantity(seedItem, seedRemaining);
     } else {
       backpack.splice(seedIndex, 1);
     }

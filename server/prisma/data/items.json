@@ -550,7 +550,7 @@
     "value": 20,
     "type": "物品",
     "useEffects": [
-      "经验10000"
+      "经验1000"
     ],
     "useMarkers": []
   },
@@ -742,7 +742,7 @@
     "value": 25,
     "type": "物品",
     "useEffects": [
-      "经验13300"
+      "经验2000"
     ],
     "useMarkers": []
   },
@@ -812,7 +812,7 @@
     "value": 5,
     "type": "物品",
     "useEffects": [
-      "经验3300"
+      "经验330"
     ],
     "useMarkers": []
   },
@@ -832,7 +832,7 @@
     "value": 25,
     "type": "物品",
     "useEffects": [
-      "经验20000"
+      "经验1500"
     ],
     "useMarkers": []
   },
@@ -842,7 +842,7 @@
     "value": 25,
     "type": "物品",
     "useEffects": [
-      "经验40000"
+      "经验4000"
     ],
     "useMarkers": []
   },
@@ -984,7 +984,7 @@
     "value": 25,
     "type": "物品",
     "useEffects": [
-      "经验60000"
+      "经验6000"
     ],
     "useMarkers": []
   },
@@ -1108,7 +1108,7 @@
     "value": 100,
     "type": "物品",
     "useEffects": [
-      "经验4000"
+      "经验400"
     ],
     "useMarkers": []
   },
@@ -1192,7 +1192,7 @@
     "value": 100,
     "type": "物品",
     "useEffects": [
-      "经验10000"
+      "经验1000"
     ],
     "useMarkers": []
   },

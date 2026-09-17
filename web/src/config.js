@@ -303,7 +303,9 @@ export const HOME_YARD_CONFIG = {
     harvest: (cropName) => `收获 ${cropName}`,
     install: (buildingName) => `安装 ${buildingName}`,
     remove: (buildingName) => `拆除 ${buildingName}`,
-    collect: () => '产出',
+    // 必须用已注册的完整指令「家园产出」（alias: home-output）。
+    // 裸「产出」未进指令表，command.service 会回落到「未找到指令」提示。
+    collect: () => '家园产出',
     goHome: (houseName) => `前往 ${houseName}`,
     // 凭证：使用后写入「凭证」标记，作物上限 +5、建筑上限 +1（原版每日限一次）
     useVoucher: () => '使用 凭证',

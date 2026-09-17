@@ -37,6 +37,29 @@ describe('家园作物种植与收获', () => {
     expect(Array.isArray(crops[0].outputs2)).toBe(true);
   });
 
+  it('小数残余种子不足 1 时不得再种，也不得被整条抹掉', async () => {
+    const map: any = { buildings: '[]', resources2: '[]' };
+    // 生产/交易可能产生 2.27 这类小数种子；第 3 次种植旧逻辑会把 0.27 当整颗 splice
+    const backpack: any[] = [{ name: '苹果树种子', quantity: 2.27 }];
+    const service = new HomeService(
+      {} as any,
+      {} as any,
+      {} as any,
+      new StaticDataService(),
+    );
+
+    const first = await service.plantSeed(map, '苹果树种子', backpack, []);
+    const second = await service.plantSeed(map, '苹果树种子', backpack, []);
+    const third = await service.plantSeed(map, '苹果树种子', backpack, []);
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(third.success).toBe(false);
+    expect(parseJson(map.resources2, [])).toHaveLength(2);
+    // 0.27 残余必须保留在背包，不能被当整颗扣掉
+    expect(backpack).toEqual([{ name: '苹果树种子', quantity: 0.27 }]);
+  });
+
   it('收获resources2作物时从资源定义outputs发放正向产出', async () => {
     const map: any = { buildings: '[]', resources2: '[]' };
     const staticData = new StaticDataService();

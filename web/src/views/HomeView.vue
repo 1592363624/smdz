@@ -68,13 +68,14 @@
         <!-- 左侧：院子地块 -->
         <section class="yd-yard">
           <div class="yd-stats">
-            <span class="yd-stat">⚡ 电力 <b>{{ overview?.overview?.powerNet ?? 0 }}</b></span>
+            <span class="yd-stat">⚡ 电力 <b>{{ overview?.overview?.powerNet ?? 0 }}</b><em v-if="fuelShortage" class="yd-theo">理论</em></span>
             <span class="yd-stat">⛽ 燃料 <b>{{ fmtQty(overview?.overview?.fuelStock ?? 0) }}</b>（{{ fuelText }}）</span>
             <span class="yd-stat">🌱 肥料 <b>{{ fmtQty(overview?.overview?.fertilizerStock ?? 0) }}</b></span>
             <span class="yd-stat">👷 岗位 <b>{{ fmtQty(overview?.overview?.jobSupply ?? 0) }}/{{ overview?.overview?.jobDemand ?? 0 }}</b></span>
             <span class="yd-stat">⏱ 距上次观测 <b>{{ fmtDuration(overview?.elapsedSeconds ?? 0) }}</b></span>
           </div>
           <div v-if="!hasPower" class="yd-alarm">电力不足，建筑生产停止——检查电站与燃料</div>
+          <div v-else-if="fuelShortage" class="yd-alarm fuel">燃料不足！发电机空转，建筑产出时长已归零——请补充燃料到院子</div>
 
           <!-- 农田 -->
           <div class="yd-block">
@@ -649,6 +650,8 @@ const fuelText = computed(() => {
   if (seconds === null || seconds === undefined) return '∞';
   return fmtDuration(seconds);
 });
+/** 燃料不足：有消耗但库存撑不过 6 小时（与后端 fuelShortage 同口径） */
+const fuelShortage = computed(() => Boolean(overview.value?.overview?.fuelShortage));
 const dailyList = computed(() => overview.value?.overview?.dailyDisplay || []);
 const claimList = computed(() => (overview.value?.gains || []).filter((g) => Number(g.quantity) > 0));
 const stockList = computed(() => (stockTab.value === 'seed' ? seeds.value : buildings.value));
@@ -1590,6 +1593,11 @@ function clearObstacle(obstacle) {
   background: rgba(248, 113, 113, 0.08);
   color: #f87171;
 }
+.yd-alarm.fuel {
+  border-color: rgba(251, 146, 60, 0.4);
+  background: rgba(251, 146, 60, 0.1);
+  color: #fb923c;
+}
 .yd-btn {
   padding: 6px 12px;
   border-radius: 8px;
@@ -1677,6 +1685,15 @@ function clearObstacle(obstacle) {
 }
 .yd-stat b {
   color: var(--text, #e5e7eb);
+}
+.yd-theo {
+  margin-left: 4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(251, 146, 60, 0.15);
+  color: #fb923c;
+  font-size: 10px;
+  font-style: normal;
 }
 .yd-block {
   margin-bottom: 16px;

@@ -2414,13 +2414,19 @@ export class ItemSystemService {
       return `${player.name}，【${itemName}】没有可用的使用效果。`;
     }
 
-    // 消耗物品
+    // 消耗物品：至少 1 整颗才能用；小数残余（如 0.27）不得使用、也不得被整条抹掉
     const actualCount = 1;
     if (item.type === '装备') {
       backpack.splice(bpIndex, 1);
     } else {
-      item.quantity -= actualCount;
-      if (item.quantity <= 0) {
+      const owned = Number(item.quantity ?? 0);
+      if (!(owned >= 1)) {
+        return `${player.name}，【${itemName}】数量不足，还剩 ${owned}，至少需要 1`;
+      }
+      const nextQty = owned - actualCount;
+      if (nextQty > 0) {
+        item.quantity = nextQty;
+      } else {
         backpack.splice(bpIndex, 1);
       }
     }
