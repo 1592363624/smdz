@@ -877,7 +877,7 @@
                     <div class="bk-toolbar">
                       <div class="bk-search">
                         <span class="bk-search-icon">⌕</span>
-                        <input v-model="bkSearchQuery" type="text" placeholder="搜索背包物品…" />
+                        <input v-model="bkSearchQuery" type="text" placeholder="搜索背包 / 目录…" />
                       </div>
                       <div class="bk-chips">
                         <button
@@ -936,10 +936,6 @@
                       <aside v-if="bkCatalogOpen" class="bk-catalog">
                         <div class="bk-catalog-head">
                           <h4>物品目录 <span>{{ bkCatalogList.length }} 项</span></h4>
-                          <div class="bk-catalog-search">
-                            <span class="bk-search-icon">⌕</span>
-                            <input v-model="bkCatalogQuery" type="text" placeholder="筛选目录…" />
-                          </div>
                         </div>
                         <div class="bk-catalog-list">
                           <div
@@ -2417,14 +2413,13 @@ async function loadBackpack() {
   }
 }
 
-// 添加物品：右侧常驻目录（复用物品目录数据）
-const bkCatalogQuery = ref('');
+// 添加物品：右侧常驻目录（复用物品目录数据）；顶部搜索同时过滤背包与目录
 const bkCatalogOpen = ref(true);
 const bkSearchQuery = ref('');
 const bkFilterType = ref('all');
 const bkTypeOptions = ['all', '物品', '装备', '资源'];
 
-/** 背包内搜索 + 类型筛选后的展示列表 */
+/** 背包内搜索 + 类型筛选后的展示列表（关键词与右侧目录共用） */
 const bkVisibleItems = computed(() => {
   const kw = bkSearchQuery.value.trim().toLowerCase();
   const t = bkFilterType.value;
@@ -2435,9 +2430,9 @@ const bkVisibleItems = computed(() => {
   });
 });
 
-/** 右侧目录列表（关键词筛选，不限 30 条，面板内滚动） */
+/** 右侧目录列表（与左侧背包共用同一关键词筛选，不限 30 条，面板内滚动） */
 const bkCatalogList = computed(() => {
-  const kw = bkCatalogQuery.value.trim().toLowerCase();
+  const kw = bkSearchQuery.value.trim().toLowerCase();
   if (!kw) return itemCatalog.value;
   return itemCatalog.value.filter((i) => i.name.toLowerCase().includes(kw));
 });
@@ -3195,7 +3190,7 @@ onMounted(async () => {
 .bk-catalog-head h4 {
   font-size: 12px;
   font-weight: 600;
-  margin: 0 0 6px;
+  margin: 0;
   color: var(--text, #e5e7eb);
   display: flex;
   justify-content: space-between;
@@ -3205,31 +3200,6 @@ onMounted(async () => {
   font-size: 10px;
   color: var(--muted-dark, #6b6b8a);
   font-weight: 400;
-}
-.bk-catalog-search {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(10, 8, 26, 0.8);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
-  border-radius: 6px;
-  padding: 4px 7px;
-}
-.bk-catalog-search:focus-within {
-  border-color: var(--accent, #8b5cf6);
-}
-.bk-catalog-search input {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text, #e5e7eb);
-  font-size: 11px;
-  padding: 0;
-}
-.bk-catalog-search input::placeholder {
-  color: var(--muted-dark, #6b6b8a);
 }
 .bk-catalog-list {
   overflow-y: auto;
