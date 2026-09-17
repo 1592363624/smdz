@@ -319,6 +319,29 @@ export class GameSupportService {
    * 在线时间子榜（原版 L9737-9741）数值用 数字到时间 格式，通过 valueText 定制。
    */
 
+  /**
+   * 编号 → 临时输入的注册（唯一入口）。
+   * items 的 index 由调用方显式给出——buildNumberedMenu 用 i+1，原版明细菜单用游戏内编号
+   * （如羁绊技能的 0=未指定 / 1..N=技能 id），从而保证「展示的编号」与「可发送的编号」同源。
+   * cmd 为空串的条目只展示、不注册。
+   */
+  private async registerNumberedShortcuts(
+    userId: number,
+    items: Array<{ index: number; cmd: string }>,
+    hint: string,
+    extraGroups: string[] = [],
+  ): Promise<string | null> {
+    const tempGroups: string[] = [];
+    for (const item of items) {
+      if (item.cmd) tempGroups.push(`${item.index}@${item.cmd}`);
+    }
+    tempGroups.push(...extraGroups.filter(Boolean));
+    if (tempGroups.length === 0) return null;
+    // 设置临时输入替换（2分钟有效，触发一次后清空；同时保留直接输入指令的方式）
+    await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
+    return hint;
+  }
+
   async buildNumberedMenu(
     userId: number,
     options: { label: string; cmd: string }[],
@@ -327,19 +350,34 @@ export class GameSupportService {
     // 额外的 临时输入 组（原文@目标指令），随编号组一并写入。
     extraGroups: string[] = [],
   ): Promise<string[]> {
+    const lines = options.map((opt, i) => `  ${i + 1}、${opt.label}`);
+    const hintLine = await this.registerNumberedShortcuts(
+      userId,
+      options.map((opt, i) => ({ index: i + 1, cmd: opt.cmd })),
+      hint,
+      extraGroups,
+    );
+    if (hintLine) lines.push(hintLine);
+    return lines;
+  }
+
+  /**
+   * 带说明的编号明细（原版「候选列表」样式，见 白的羁绊终端 _主程序.ecode L10751-10756）：
+   * 每项渲染为 `N、名称` + `  说明` + 分隔线，编号由调用方指定并同步注册。
+   */
+  async buildDetailedNumberedMenu(
+    userId: number,
+    entries: Array<{ index: number; label: string; desc?: string; cmd: string }>,
+    hint: string,
+  ): Promise<string[]> {
     const lines: string[] = [];
-    const tempGroups: string[] = [];
-    for (let i = 0; i < options.length; i++) {
-      const opt = options[i];
-      lines.push(`  ${i + 1}、${opt.label}`);
-      if (opt.cmd) tempGroups.push(`${i + 1}@${opt.cmd}`);
+    for (const entry of entries) {
+      lines.push(`${entry.index}、${entry.label}`);
+      if (entry.desc) lines.push(`  ${entry.desc}`);
+      lines.push('——————————');
     }
-    tempGroups.push(...extraGroups.filter(Boolean));
-    if (tempGroups.length > 0) {
-      // 设置临时输入替换（2分钟有效，触发一次后清空；同时保留直接输入指令的方式）
-      await this.shortcutService.setTempInput(userId, tempGroups.join('#'));
-      lines.push(`${hint}`);
-    }
+    const hintLine = await this.registerNumberedShortcuts(userId, entries, hint);
+    if (hintLine) lines.push(hintLine);
     return lines;
   }
 

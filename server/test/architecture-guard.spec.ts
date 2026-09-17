@@ -587,9 +587,15 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 12567 / 5024（前序提交未同步基线，干净工作树上即红）；「字段口径统一」重构
   // 删除旧别名兜底读取后净行数下降至 12520 / 5017，按重构后实际值定基线，
   // 只减不增语义不变。
+  // 2026-09-17 二次校准：
+  //   combat-system 12520 → 12573：新增功能「白的羁绊技能2·生存之道」接入攻击方伤害管线
+  //   与隐匿分支（对齐 战斗相关.ecode L2986-3005 / _主程序.ecode L146-161）。净 +53，
+  //   其中已含删除旧 {id,name} 技能表与武器类型局部数组的 -16 行。
+  //   familiar-system 5017 → 5018：该文件工作区无改动（git diff 为空），HEAD 实测 5018，
+  //   前序提交未同步基线，属上文所述「干净工作树上即红」情形，按实测值校准。
   const PHASE2_FILE_LINE_BASELINES: Array<[string, number]> = [
-    ['modules/game/combat-system.service.ts', 12520],
-    ['modules/game/familiar-system.service.ts', 5017],
+    ['modules/game/combat-system.service.ts', 12573],
+    ['modules/game/familiar-system.service.ts', 5018],
     ['modules/game/familiar-skills.service.ts', 4053],
     ['modules/game/item-system.service.ts', 3386],
   ];

@@ -35,7 +35,7 @@ function makeSvc(proto: object, fields: Record<string, any> = {}): any {
 }
 
 const nil = undefined as any;
-function makeSupport(): GameSupportService {
+function makeSupport(tempInputCapture?: string[]): GameSupportService {
   return new GameSupportService(
     { getPlayerData: async () => ({ player: { name: '测试员' } }) } as any,
     { player: { findUnique: async () => ({ userId: 1, mapId: 1 }) } } as any,
@@ -43,7 +43,12 @@ function makeSupport(): GameSupportService {
     { getAllResources: () => [], getEquipmentByName: () => null } as any,
     nil, // taskService（advanceTask 自带降级）
     { normalizeBuffItem: (e: any) => e } as any,
-    { setTempInput: async () => undefined } as any,
+    {
+      setTempInput: async (_userId: number, raw: string) => {
+        tempInputCapture?.push(raw);
+        return '';
+      },
+    } as any,
     nil, // playerMutate
   );
 }
@@ -92,6 +97,29 @@ describe('P4-5：各指令域子服务冒烟桩测试', () => {
   it('SkillCommandService：bondSkillLabel 文案', () => {
     const svc = makeSvc(SkillCommandService.prototype);
     expect(svc.bondSkillLabel('a', 1)).toBe('利器管理');
+  });
+
+  it('SkillCommandService：羁绊候选列表编号即快捷输入编号（不再重复渲染名称菜单）', async () => {
+    const captured: string[] = [];
+    const svc = makeSvc(SkillCommandService.prototype, { support: makeSupport(captured) });
+    const text = await svc.handleWhiteBondTerminal(1, { name: '测试员' } as any, {} as any, '技能a');
+    // 明细（0=未指定 / 1..5=技能 id）只渲染一次，且带说明
+    expect(text).toContain('0、未指定');
+    expect(text).toContain('1、利器管理');
+    expect(text).toContain('  羁绊者使用近战武器时攻击提高0.15倍');
+    expect(text).not.toContain('1、未指定');
+    // 展示编号与临时输入注册严格同源
+    expect(captured.join('#')).toBe(
+      '0@控制终端技能a0#1@控制终端技能a1#2@控制终端技能a2#3@控制终端技能a3#4@控制终端技能a4#5@控制终端技能a5',
+    );
+  });
+
+  it('SkillCommandService：编号 0 真正把羁绊技能置为未指定', async () => {
+    const svc = makeSvc(SkillCommandService.prototype, { support: makeSupport() });
+    const player: any = { name: '测试员', markers: { bj1: 2 }, markers2: [] };
+    const text = await svc.handleWhiteBondTerminal(1, player, player.markers, '技能a0');
+    expect(player.markers.bj1).toBe(0);
+    expect(text).toContain('白的技能1被设置为未指定');
   });
 
   it('ShopTradeService：行商物品含数量展示', () => {

@@ -1151,12 +1151,6 @@ export class GameService {
   async handleControlTerminal(userId: number, arg = ''): Promise<string>{
     return this.skillCommandService.handleControlTerminal(userId, arg);
   }
-  private bondSkillLabel(slot: 'a' | 'b', value: number): string{
-    return this.skillCommandService.bondSkillLabel(slot, value);
-  }
-  private async handleWhiteBondTerminal( userId: number, player: any, markers: Record<string, any>, arg: string, ): Promise<string>{
-    return this.skillCommandService.handleWhiteBondTerminal(userId, player, markers, arg);
-  }
   async handleVehicleOps(userId: number): Promise<string>{
     return this.movementVehicleService.handleVehicleOps(userId);
   }

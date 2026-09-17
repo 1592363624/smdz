@@ -42,6 +42,17 @@ import { formatDamageText, formatMsDurationText, roundItemQuantity } from '../..
 // 背包写入唯一出口（按名合并 / type 以静态定义为唯一真源），禁各路径手写合并逻辑
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import { normalizeVehicleEntry } from './field-contract.util';
+// 白的羁绊技能表（bj1 技能名 / 武器类型 / 加成值，bj2 技能 id 与生存之道数值）单一真相源，
+// 禁在本文件重建技能表
+import {
+  BOND_SKILL_A_ATTACK_BONUS,
+  BOND_SKILL_B_ID,
+  BOND_SILENCER_COOLDOWN_KEY,
+  BOND_SILENCER_COOLDOWN_SEC,
+  BOND_SILENCER_DAMAGE_RATIO,
+  bondSkillName,
+  bondWeaponType,
+} from './bond-skill.util';
 
 import { resolvePoolDamage, subtractPoolValue, capPoolValue, round2 } from './player-pool.util';
 
@@ -325,14 +336,8 @@ export interface WeaponData {
 export class CombatSystemService implements OnApplicationShutdown {
   private readonly logger = new Logger(CombatSystemService.name);
 
-  /** 白的羁绊技能1候选（bj1 值 → 对应武器类型攻击+15%，原版 控制终端技能a）。 */
-  static readonly BOND_SKILL_A = [
-    { id: 1, name: '利器管理' },
-    { id: 2, name: '弹道分析' },
-    { id: 3, name: '能量稳定' },
-    { id: 4, name: '燃料优化' },
-    { id: 5, name: '幽能亲和' },
-  ];
+  // 白的羁绊技能1候选表已收敛到 bond-skill.util（曾在此重复定义 {id,name} 一份）。
+  // 战斗加成判定所需的「技能名 → 武器类型」映射同样取自该表，禁止重建。
 
   // 伤害类型常量
   static readonly DMG_PHYS = 1;
@@ -875,11 +880,12 @@ export class CombatSystemService implements OnApplicationShutdown {
       const bondSets = this.safeParseJson<Record<string, any>>(player.sets, {});
       if (bondSets['白']) {
         const bj1 = Number(this.safeParseJson<Record<string, any>>(player.markers, {})['bj1'] || 0);
-        const bondWeaponTypes = ['', '近战武器', '射弹武器', '能量武器', '制导武器', '幽能武器'];
         const weaponType = String((weapon as any)?.type ?? '');
-        if (bj1 >= 1 && bj1 <= 5 && weaponType && weaponType === bondWeaponTypes[bj1]) {
-          attackerBonus.攻击2 = (attackerBonus.攻击2 || 0) + 15;
-          resultLines.push(`【${CombatSystemService.BOND_SKILL_A[bj1 - 1].name}】${weaponType}攻击+15%`);
+        // 技能名与武器类型同源于 bond-skill.util 的 BOND_SKILL_A（此处原为
+        // 「局部武器类型数组 + 类内 {id,name} 表」两份平行数据，靠顺序隐式对齐）。
+        if (weaponType && weaponType === bondWeaponType(bj1)) {
+          attackerBonus.攻击2 = (attackerBonus.攻击2 || 0) + BOND_SKILL_A_ATTACK_BONUS;
+          resultLines.push(`【${bondSkillName('a', bj1)}】${weaponType}攻击+${BOND_SKILL_A_ATTACK_BONUS}%`);
         }
       }
     } catch { /* 羁绊数据异常不影响攻击 */ }
@@ -1157,6 +1163,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 原版用成就计数 冰伤2(未命中)/火伤2(被闪避)/电伤2(命中零伤)/物伤2(有效伤) 记录每次攻击结果，
     // 并在攻击次数>1 时输出"攻击N次，命中X次，被闪避Y次，命中零伤Z次，有效伤W次"。
     const atkStats = { total: 0, hit: 0, dodged: 0, nullDmg: 0, effective: 0 };
+    // 白的羁绊技能2「生存之道」本回合是否触发（触发即视为隐匿攻击：不惊动怪物）。
+    // 对应原版 _主程序.ecode:146-161 的 a==1；用标志位跨目标循环传出，供末尾拉起怪物回合前判定。
+    let bondSilencerStealth = false;
 
     // 原版 战斗相关.ecode L1338-L1349：有麻醉效果的武器优先消耗一枚强效麻醉镖。
     // 原版判断是“数量>1”，因此恰好一枚时仍按普通麻醉处理并保留该物品。
@@ -2211,6 +2220,44 @@ export class CombatSystemService implements OnApplicationShutdown {
           }
         }
 
+        // ---- 白的羁绊技能2「生存之道」（bj2=2，原版 战斗相关.ecode L2986-3005）----
+        // 条件：套装.白 + bj2=生存之道 + xyq 未冷却 + 当前武器非近战。
+        // 效果：把当前剩余四属性伤害之和的 15% 随机追加到 物/火/冰/电 之一，文本「消音·X」；
+        // 触发同时由 时间间隔要求 写入 BOND_SILENCER_COOLDOWN_SEC 秒 xyq 冷却（查即写，与原版一致）。
+        // 位置：原版此处紧随攻击方额外伤害链之后、防御方效果链之前，故置于本段末尾。
+        // ⚠️ 与原版偏差（已确认修正）：原版 _主程序.ecode L146-161 另有一段「攻击后进入隐匿
+        // （不惊动怪物）」分支，其条件 增益要求("xyq")==假 会被本次写入的 xyq 冷却短路，导致该
+        // 分支在原版实际不可达（时序矛盾，技能描述「攻击为隐匿攻击」成为空承诺）。
+        // 此处按技能描述修正：置标志位供末尾跳过怪物回合，其余（30 秒冷却节流）与原版一致。
+        try {
+          const silencerSets = this.safeParseJson<Record<string, any>>(player.sets, {});
+          const silencerBj2 = Number(this.safeParseJson<Record<string, any>>(player.markers, {})['bj2'] || 0);
+          if (silencerSets['白'] && silencerBj2 === BOND_SKILL_B_ID.SILENCER && weapon.type !== '近战武器') {
+            const silencerMarkers = asJsonValue<any[]>(player.markers2, []);
+            const silencerOnCooldown = this.combatState.timeIntervalRequire(
+              BOND_SILENCER_COOLDOWN_KEY,
+              BOND_SILENCER_COOLDOWN_SEC,
+              silencerMarkers,
+              Date.now(),
+              { value: '' },
+            );
+            if (!silencerOnCooldown) {
+              const remainTotal = (attackerBonus.物伤 || 0) + (attackerBonus.火伤 || 0)
+                + (attackerBonus.冰伤 || 0) + (attackerBonus.电伤 || 0);
+              const silencerExtra = remainTotal * BOND_SILENCER_DAMAGE_RATIO;
+              // 原版 取随机数(0, 3)：四属性等概率追加
+              const silencerRoll = Math.floor(Math.random() * 4);
+              const silencerKey = (['物伤', '火伤', '冰伤', '电伤'] as const)[silencerRoll];
+              const silencerLabel = (['物', '火', '冰', '电'] as const)[silencerRoll];
+              attackerBonus[silencerKey] = (attackerBonus[silencerKey] || 0) + silencerExtra;
+              resultLines.push(`【消音·${silencerLabel}】+${Math.round(silencerExtra)}`);
+              bondSilencerStealth = true;
+            }
+            // 标记2 为 Json 列，直接写数组（冷却需随本次战斗落库，否则每击都会触发）
+            player.markers2 = silencerMarkers;
+          }
+        } catch { /* 羁绊数据异常不影响攻击 */ }
+
         // ---- 防御方使魔专属（原版 L2224-2258） ----
         // 恶毒(#恶毒=6) 好感≥100 色欲2冷却30 → 伤害0（L2224-2231）
         if (defSeq === 6 && defAff >= 100) {
@@ -3179,10 +3226,16 @@ export class CombatSystemService implements OnApplicationShutdown {
     //     注意：本版曾在此处同步内联一次"怪物反击"，导致玩家每次攻击额外多挨
     //     一次即时反击（原版无此行为），已按原版语义移除，怪物攻击统一由延时回合结算。
     if (!context.skipBattleDriver && !isRuntimeActor) {
-      try {
-        await this.triggerMapBattleLoop(player.userId, 3, { player, map });
-      } catch (e: any) {
-        this.logger.warn(`拉起怪物攻击循环失败: ${e.message}`);
+      if (bondSilencerStealth) {
+        // 生存之道本回合已触发 → 本次攻击视为隐匿：不惊动怪物、不拉起怪物回合。
+        // （原版 _主程序 L161-162：a==1 → 文本「隐匿攻击」且不新建 "覅攻击pd" 延时）
+        resultLines.push('【隐匿攻击】');
+      } else {
+        try {
+          await this.triggerMapBattleLoop(player.userId, 3, { player, map });
+        } catch (e: any) {
+          this.logger.warn(`拉起怪物攻击循环失败: ${e.message}`);
+        }
       }
     }
 

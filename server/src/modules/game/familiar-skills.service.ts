@@ -29,6 +29,8 @@ import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import { equipmentQualityName, qualityCodeFromData, affixMultiplier } from './equipment-ref.util';
 // 三池数值出口归一化（第四道闸）：百分比回复/固定量回复统一走 player-pool.util 单一实现。
 import { normalizePoolValue } from './player-pool.util';
+// 白的羁绊技能表（bj2 技能 id）：单一真相源，禁在消费点用裸数字比较
+import { BOND_SKILL_B_ID } from './bond-skill.util';
 // 时间口径唯一收敛点：冷却读取/剩余文本一律走这里（禁手写 <1e12 启发式与自造措辞）
 import { formatDurationText, isActive, itemName, remainMs, toExpireMs } from './expire-time.util';
 import { proficiencyLevelFromPoints } from './global-proficiency.service';
@@ -399,7 +401,7 @@ export class FamiliarSkillsService {
 
     const sets = asJsonValue<any>(player.sets, {});
     const whiteSet = Boolean(sets.白 ?? sets.white ?? sets.whiteSet);
-    if (whiteSet && this.playerService.getMarkerValue(markers, 'bj2') === 3) {
+    if (whiteSet && this.playerService.getMarkerValue(markers, 'bj2') === BOND_SKILL_B_ID.SKILL_EXP) {
       multiplier *= 1.25;
     }
 
@@ -735,7 +737,7 @@ export class FamiliarSkillsService {
 
     const sets = this.safeParse<any>(player.sets ?? player.套装, {});
     const isWhiteSet = Boolean(sets.白 ?? sets.white ?? sets.whiteSet);
-    if (isWhiteSet && Number(this.playerService.getMarkerValue(markers, 'bj2')) === 1) {
+    if (isWhiteSet && Number(this.playerService.getMarkerValue(markers, 'bj2')) === BOND_SKILL_B_ID.PET_SEARCH) {
       quantityMultiplier *= 1.2;
     }
 

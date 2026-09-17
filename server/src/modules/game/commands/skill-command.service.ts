@@ -24,6 +24,8 @@ import { CombatStateService } from '.././combat-state.service';
 import { GlobalProficiencyService } from '.././global-proficiency.service';
 import { GameSupportService } from '.././game-support.service';
 import { RescueWhiteService } from './rescue-white.service';
+// 白的羁绊技能表（bj1/bj2 技能名、候选列表、标记键）单一真相源
+import { BOND_COOLDOWN_KEY, bondMarkerKey, bondSkillList, bondSkillName } from '../bond-skill.util';
 
 @Injectable()
 export class SkillCommandService {
@@ -698,27 +700,13 @@ export class SkillCommandService {
     ].join('\n');
   }
 
-  /** 白的羁绊技能1（原版 控制终端技能a：按当前武器类型 +15 攻击2）。 */
-  static readonly BOND_SKILL_A: Array<{ id: number; name: string; desc: string }> = [
-    { id: 1, name: '利器管理', desc: '羁绊者使用近战武器时攻击提高0.15倍' },
-    { id: 2, name: '弹道分析', desc: '羁绊者使用射弹武器时攻击提高0.15倍' },
-    { id: 3, name: '能量稳定', desc: '羁绊者使用能量武器时攻击提高0.15倍' },
-    { id: 4, name: '燃料优化', desc: '羁绊者使用制导武器时攻击提高0.15倍' },
-    { id: 5, name: '幽能亲和', desc: '羁绊者使用幽能武器时攻击提高0.15倍' },
-  ];
-
-  /** 白的羁绊技能2（原版 控制终端技能b）。 */
-  static readonly BOND_SKILL_B: Array<{ id: number; name: string; desc: string }> = [
-    { id: 1, name: '宠物饲养', desc: '羁绊者的宠物搜索得到的物品+20%' },
-    { id: 2, name: '生存之道', desc: '为羁绊者的远程武器安装一个带特殊加速轨道的消音器，羁绊者使用远程武器攻击时附带攻击伤害的15%随机属性伤害，攻击为隐匿攻击，冷却30秒' },
-    { id: 3, name: '贴心助手', desc: '羁绊者使用技能得到的经验+25%' },
-  ];
-
-
+  /**
+   * 标记值 → 技能名（原版 控制终端技能a/b 展示口径）。
+   * 唯一真相源是 bond-skill.util 的 bondSkillName；本方法仅保留为实例出口
+   * （既有调用方与冒烟测试经此访问），不得在此重建技能表。
+   */
   bondSkillLabel(slot: 'a' | 'b', value: number): string {
-    if (!value) return '未指定';
-    const list = slot === 'a' ? SkillCommandService.BOND_SKILL_A : SkillCommandService.BOND_SKILL_B;
-    return list.find((skill) => skill.id === Number(value))?.name ?? '未指定';
+    return bondSkillName(slot, value);
   }
 
   /**
@@ -733,7 +721,10 @@ export class SkillCommandService {
     arg: string,
   ): Promise<string> {
     const sub = arg.replace(/\d+/g, '');
-    const choice = Number((arg.match(/\d+/) || ['0'])[0]) || 0;
+    // ⚠️ 与原版偏差（已确认修复）：原版用 b==0 兼作「打开候选列表」，导致 0 号「未指定」是死选项
+    // （点了只会重刷列表，技能无法取消）。此处改为「无数字=打开候选列表；0=真正置为未指定」，
+    // 并让 0 同样受每天一次的冷却约束（原版 0 不落库，故不受冷却限制）。
+    const digits = arg.match(/\d+/);
     const slot: 'a' | 'b' | '' = sub.includes('技能a') ? 'a' : sub.includes('技能b') ? 'b' : '';
 
     if (!slot) {
@@ -741,8 +732,8 @@ export class SkillCommandService {
       const lines = [
         `【白】`,
         `羁绊者:${player.name || ''}`,
-        `技能1:${this.bondSkillLabel('a', Number(markers['bj1'] || 0))}`,
-        `技能2:${this.bondSkillLabel('b', Number(markers['bj2'] || 0))}`,
+        `技能1:${this.bondSkillLabel('a', Number(markers[bondMarkerKey('a')] || 0))}`,
+        `技能2:${this.bondSkillLabel('b', Number(markers[bondMarkerKey('b')] || 0))}`,
       ];
       const menu = await this.support.buildNumberedMenu(userId, [
         { label: '选择技能1', cmd: '控制终端技能a' },
@@ -752,33 +743,39 @@ export class SkillCommandService {
       return lines.join('\n');
     }
 
-    const skillList = slot === 'a' ? SkillCommandService.BOND_SKILL_A : SkillCommandService.BOND_SKILL_B;
-    const skillLabel = () => this.bondSkillLabel(slot, Number(markers[slot === 'a' ? 'bj1' : 'bj2'] || 0));
+    const skillList = bondSkillList(slot);
+    const skillLabel = () => this.bondSkillLabel(slot, Number(markers[bondMarkerKey(slot)] || 0));
 
-    if (!choice) {
-      // 候选列表（原版 L10739-10762）：当前设置 + 0未指定 + 各技能说明
-      const lines = [`${player.name || '冒险者'}`, `当前:${skillLabel()}`, `0、未指定`, `——————————`];
-      for (const skill of skillList) {
-        lines.push(`${skill.id}、${skill.name}`);
-        lines.push(`  ${skill.desc}`);
-        lines.push(`——————————`);
-      }
-      const options = [
-        { label: '未指定', cmd: `控制终端技能${slot}0` },
-        ...skillList.map((skill) => ({ label: skill.name, cmd: `控制终端技能${slot}${skill.id}` })),
-      ];
-      const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可设置对应技能');
+    if (!digits) {
+      // 候选列表（原版 L10739-10762 / L10804-10807）：当前设置 + 0未指定 + 各技能说明。
+      // 编号（0=未指定、1..N=技能 id）由同一份 entries 驱动「渲染」与「临时输入注册」，
+      // 不再额外渲染一份只有名称的编号菜单（原先两半编号相差 1，照上半发号会失效）。
+      const lines = [`${player.name || '冒险者'}`, `当前:${skillLabel()}`];
+      const menu = await this.support.buildDetailedNumberedMenu(
+        userId,
+        [
+          { index: 0, label: '未指定', cmd: `控制终端技能${slot}0` },
+          ...skillList.map((skill) => ({
+            index: skill.id,
+            label: skill.name,
+            desc: skill.desc,
+            cmd: `控制终端技能${slot}${skill.id}`,
+          })),
+        ],
+        '💡 发送编号数字即可设置对应技能',
+      );
       lines.push(...menu);
       return lines.join('\n');
     }
 
+    const choice = Number(digits[0]);
     if (choice < 0 || choice > skillList.length) {
       return `${player.name || '冒险者'}不是被允许选择的项目`;
     }
 
     // 每天只能修改一次（原版 时间间隔要求("gbj1/gbj2", 有效期当天(), 标记2)）
     const markers2 = asJsonValue<any[]>(player.markers2, []);
-    const cooldownName = slot === 'a' ? 'gbj1' : 'gbj2';
+    const cooldownName = BOND_COOLDOWN_KEY[slot];
     const now = Date.now();
     const endOfDay = new Date();
     endOfDay.setHours(24, 0, 0, 0);
@@ -793,7 +790,7 @@ export class SkillCommandService {
     if (idx >= 0) markers2[idx] = marker;
     else markers2.push(marker);
 
-    markers[slot === 'a' ? 'bj1' : 'bj2'] = choice;
+    markers[bondMarkerKey(slot)] = choice;
     player.markers = markers; // Json 列直接写对象
     player.markers2 = markers2; // Json 列直接写数组
     // 指令路径在 PlayerMutateService 快照内，外层统一落库，无需裸 savePlayer。
