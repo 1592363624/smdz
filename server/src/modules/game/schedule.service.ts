@@ -8,7 +8,7 @@
  * 可配置项（副本名、宠物数量上限、几率等）统一从 SystemConfig 配置中心读取。
  */
 
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlayerService } from './player.service';
@@ -18,6 +18,7 @@ import { GameService } from './game.service';
 import { StaticDataService } from './static-data.service';
 import { DungeonService, DUNGEON_ENTRY_SOURCE } from './dungeon.service';
 import { DungeonChallengeService } from './commands/dungeon-challenge.service';
+import { WorldEventService } from './world-event.service';
 import { runSilent } from '../../game-sync/write-context';
 import { filterActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
@@ -69,6 +70,8 @@ export class ScheduleService implements OnApplicationBootstrap {
     private readonly dungeonService: DungeonService,
     // 废弃载具生成与管理员指令共用同一实现（DungeonChallengeService 由全局 GameModule 导出）
     private readonly dungeonChallengeService: DungeonChallengeService,
+    // 全服世界事件货舱 buff（额外整点货舱数）；@Optional 兼容手工测试桩
+    @Optional() private readonly worldEvent?: WorldEventService,
   ) {}
 
   /**
@@ -154,8 +157,9 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 自动保存 - 每3分钟执行一次
-   * 对应原版：自动保存线程（原版为3分钟一次，同时记录最高级玩家）
-   * 保存所有在线玩家的数据
+   * 对应原版：自动保存线程（原版为3分钟一次，同时将最高级玩家等级写入配置中心）。
+   * 本实现不写这一行：面板的「与最高级玩家等级差距」经验加成直接查 Player 表取实时值，
+   * 写进 SystemConfig 只会在管理后台「系统配置」里多出一个改了没用、每3分钟又被覆盖的输入框。
    */
   @Cron('0 */3 * * * *') // 每3分钟（秒 分 时 日 月 周）
   async autoSave() {
@@ -169,7 +173,7 @@ export class ScheduleService implements OnApplicationBootstrap {
     try {
       const players = await this.prisma.player.findMany({
         where: { userId: { gt: 0 } },
-        select: { userId: true, level: true, name: true, updatedAt: true },
+        select: { updatedAt: true },
       });
 
       let savedCount = 0;
@@ -183,52 +187,10 @@ export class ScheduleService implements OnApplicationBootstrap {
       }
 
       this.logger.log(`自动保存完成: ${savedCount} 个玩家`);
-
-      // 记录最高级玩家（对应原版：记录最高级玩家 子程序）
-      await this.recordHighestLevelPlayer(players);
     } catch (err: any) {
       this.logger.error(`自动保存失败: ${err.message}`);
     } finally {
       this.autoSaveRunning = false;
-    }
-  }
-
-  /**
-   * 记录最高级玩家
-   * 对应原版：记录最高级玩家()，将当前等级最高的玩家等级写入配置中心
-   * @param players 玩家列表（含 level / name / userId）
-   */
-  private async recordHighestLevelPlayer(players: any[]): Promise<void> {
-    try {
-      if (!players || players.length === 0) return;
-
-      // 找出等级最高的玩家
-      let top = players[0];
-      for (const p of players) {
-        if (p.level > top.level) top = p;
-      }
-
-      // 将最高等级写入 SystemConfig，方便管理与界面展示
-      await this.prisma.systemConfig.upsert({
-        where: { key: 'game.highestPlayerLevel' },
-        update: {
-          value: String(top.level),
-          type: 'number',
-          label: '最高级玩家等级',
-          group: 'game',
-          description: `最高级玩家: ${top.name || ''}(用户ID ${top.userId})`,
-        },
-        create: {
-          key: 'game.highestPlayerLevel',
-          value: String(top.level),
-          type: 'number',
-          label: '最高级玩家等级',
-          group: 'game',
-          description: `最高级玩家: ${top.name || ''}(用户ID ${top.userId})`,
-        },
-      });
-    } catch (err: any) {
-      this.logger.warn(`记录最高级玩家失败: ${err.message}`);
     }
   }
 
@@ -816,8 +778,10 @@ export class ScheduleService implements OnApplicationBootstrap {
         return;
       }
 
-      // 1. 生成3个货舱（原版 L324-348：随机地图；已存在则 次数+1，不存在则追加完整资源定义）
-      for (let i = 0; i < 3; i++) {
+      // 1. 生成货舱：基础 3 个 + 世界事件全服 buff 额外增量（原版 L324-348：随机地图；已存在则 次数+1，不存在则追加完整资源定义）
+      const extraPods = Math.max(0, Number(this.worldEvent?.getActiveBuffValues().cargoPods) || 0);
+      const podCount = 3 + extraPods;
+      for (let i = 0; i < podCount; i++) {
         const map = this.pickRandomMap(maps);
         await this.mapService.dropResourceToMap(map.id, '货舱', 1);
       }
@@ -831,7 +795,7 @@ export class ScheduleService implements OnApplicationBootstrap {
       // 3. 随机几率生成作物（在已有作物的地图上添加一个作物）
       await this.spawnCrop(maps);
 
-      this.logger.log('掉落货舱完成: 3个货舱 + 5个能量元素');
+      this.logger.log(`掉落货舱完成: ${podCount}个货舱${extraPods > 0 ? `（含世界事件+${extraPods}）` : ''} + 5个能量元素`);
     } catch (err: any) {
       this.logger.error(`掉落货舱失败: ${err.message}`);
     } finally {

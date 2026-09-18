@@ -74,13 +74,15 @@ export class CheckinRewardService {
    * 封顶天数为 0（或负数）时表示不封顶。
    * @param cfg 签到配置
    * @param consecutiveDays 本次签到后的连续天数
+   * @param expFactor 全服经验加成系数（默认 1；世界事件 checkinExp buff 达成时传入 1+百分比/100）
    */
-  calcExp(cfg: CheckinConfig, consecutiveDays: number): number {
+  calcExp(cfg: CheckinConfig, consecutiveDays: number, expFactor = 1): number {
     const days = Number(consecutiveDays) > 0 ? Number(consecutiveDays) : 1;
     const cap = Number(cfg.consecutiveExpMaxDays);
     const effectiveDays = cap > 0 ? Math.min(days, cap) : days;
     const exp = Number(cfg.baseExp || 0) + effectiveDays * Number(cfg.consecutiveExpPerDay || 0);
-    return Math.max(0, exp);
+    const factor = Number.isFinite(expFactor) && expFactor > 0 ? expFactor : 1;
+    return Math.max(0, Math.floor(exp * factor));
   }
 
   /**

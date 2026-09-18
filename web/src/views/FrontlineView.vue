@@ -3,6 +3,11 @@
     <!-- 顶栏：前线名 / 关键指标 / 状态与刷新 -->
     <header class="fl-top">
       <button class="fl-back" title="返回聊天" @click="router.push('/chat')">←</button>
+      <!-- 家园系统内面板切换：院子 ↔ 前线互相跳转（前线入口已从聊天侧栏移到这里） -->
+      <div class="fl-switch">
+        <button class="fl-switch-btn" title="返回家园院子" @click="router.push('/home')">🏡 家园</button>
+        <span class="fl-switch-btn on">🛡️ 前线</span>
+      </div>
       <div class="fl-head-main">
         <div class="fl-house">🛡️ {{ houseName }}前线</div>
         <div class="fl-meta">
@@ -320,6 +325,37 @@ function startBattle() {
 }
 .fl-back:hover {
   filter: brightness(1.2);
+}
+/* ---------- 家园 ↔ 前线 面板切换 ---------- */
+.fl-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg2, #0f1116);
+  flex-shrink: 0;
+}
+.fl-switch-btn {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+button.fl-switch-btn {
+  cursor: pointer;
+}
+button.fl-switch-btn:hover {
+  color: var(--text, #e5e7eb);
+  background: rgba(255, 255, 255, 0.06);
+}
+.fl-switch-btn.on {
+  color: var(--text, #e5e7eb);
+  background: rgba(139, 92, 246, 0.16);
 }
 .fl-head-main {
   min-width: 0;
@@ -749,6 +785,9 @@ function startBattle() {
 
 /* 窄屏适配 */
 @media (max-width: 560px) {
+  .fl-top {
+    flex-wrap: wrap;
+  }
   .fl-body {
     padding: 10px;
   }

@@ -25,6 +25,7 @@ import { VitalityService } from '.././vitality.service';
 import { PlayerMutateService } from '.././player-mutate.service';
 import { GameSupportService } from '.././game-support.service';
 import { CheckinRewardService } from '.././checkin-reward.service';
+import { WorldEventService } from '.././world-event.service';
 
 @Injectable()
 export class TimeSettleService {
@@ -41,6 +42,7 @@ export class TimeSettleService {
     private readonly checkinReward: CheckinRewardService,
     @Optional() private readonly vitalityService?: VitalityService,
     @Optional() private readonly playerMutate?: PlayerMutateService,
+    @Optional() private readonly worldEvent?: WorldEventService,
   ) {}
 
   async calculateTimeElapsed(
@@ -540,8 +542,9 @@ export class TimeSettleService {
     // 奖励规则（基础经验/连续加成/三张奖励表）全部读自系统配置中心，后台可在线调整
     const cfg = await this.checkinReward.getConfig();
 
-    // 经验奖励：基础经验 + 连续天数加成（封顶天数由配置控制）
-    const totalExp = this.checkinReward.calcExp(cfg, consecutiveDays);
+    // 经验奖励：基础经验 + 连续天数加成（封顶天数由配置控制）；叠加世界事件全服经验 buff
+    const checkinExpPct = Number(this.worldEvent?.getActiveBuffValues().checkinExpPct) || 0;
+    const totalExp = this.checkinReward.calcExp(cfg, consecutiveDays, 1 + checkinExpPct / 100);
     if (totalExp > 0) {
       await this.playerService.addExp(userId, totalExp);
     }

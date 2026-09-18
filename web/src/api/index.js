@@ -239,4 +239,9 @@ export const adminApi = {
   logTail: (params) => http.get('/admin/logs/tail', { params }),
 };
 
+/// 全服世界事件接口（只读）。领取/管理走统一发指令通道（与 QQ 端逐字相同），不新增写 API。
+export const worldApi = {
+  getCurrent: () => http.get('/game/world-event/current'),
+};
+
 export default http;

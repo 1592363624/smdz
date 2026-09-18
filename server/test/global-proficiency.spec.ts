@@ -127,6 +127,17 @@ describe('GlobalProficiencyService', () => {
     expect(prisma.rows.get(GLOBAL_MARKERS_KEY).value).toBe(JSON.stringify({ 世界熟练度: 9 }));
   });
 
+  it('熟练度表已存在时，旧键只被删除、不参与换算', async () => {
+    const prisma = makeSystemConfigStub([
+      { key: GLOBAL_MARKERS_KEY, value: JSON.stringify({ 世界熟练度: 262 }) },
+      { key: 'game.worldLevel', value: '1', type: 'number' },
+    ]);
+    const service = new GlobalProficiencyService(prisma);
+    expect(await service.worldLevel()).toBe(17);
+    expect(prisma.rows.has('game.worldLevel')).toBe(false);
+    expect(prisma.rows.get(GLOBAL_MARKERS_KEY).value).toBe(JSON.stringify({ 世界熟练度: 262 }));
+  });
+
   it('setWorldLevel 用逆运算 (等级-1)² 写回点数', async () => {
     const service = new GlobalProficiencyService(makeSystemConfigStub());
     await service.setWorldLevel(5);

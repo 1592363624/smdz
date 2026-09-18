@@ -57,21 +57,13 @@
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'me' }" @click="sidebarTab = 'me'">
           <span class="tab-icon">👤</span>我的
         </button>
-        <!-- 家园：跳转到独立全屏页面（侧栏空间不足以展示格子院落，改为 /home） -->
+        <!-- 家园：跳转到独立全屏页面（侧栏空间不足以展示格子院落，改为 /home）；前线面板从家园页顶栏切换进入 -->
         <button
           class="sidebar-tab"
           title="打开家园院子（独立页面）"
           @click="router.push('/home')"
         >
           <span class="tab-icon">🏠</span>家园
-        </button>
-        <!-- 前线：跳转到家园前线防守面板（独立全屏页面） -->
-        <button
-          class="sidebar-tab"
-          title="打开家园前线（独立页面）"
-          @click="router.push('/frontline')"
-        >
-          <span class="tab-icon">🛡️</span>前线
         </button>
       </div>
 
@@ -329,14 +321,6 @@
           @click="router.push('/home')"
         >
           <span class="tab-icon">🏠</span>家园
-        </button>
-        <!-- 前线：跳转到家园前线防守面板（独立全屏页面） -->
-        <button
-          class="sidebar-tab"
-          title="打开家园前线（独立页面）"
-          @click="router.push('/frontline')"
-        >
-          <span class="tab-icon">🛡️</span>前线
         </button>
       </div>
 
@@ -613,6 +597,14 @@
         </div>
       </header>
 
+      <!-- 全服世界事件：常驻细进度条（贴 header 下，不随消息流滚动）；点击展开完整面板，实时增量来自 socket worldEvent:progress -->
+      <WorldEventBar
+        :live="worldEventProgress"
+        :connected="connected"
+        @send="onWorldEventSend"
+        @notify="(p) => showToast(p?.message, p?.type || 'info')"
+      />
+
       <!-- 消息列表 -->
       <!-- 滚动意图：滚轮/触摸上翻/拖滚动条 → 解除贴底跟随；布局变化（图片/大卡片迟到渲染）
            引发的滚动不再被误判为"用户翻历史"，因此不会再聊着聊着停到中间 -->
@@ -762,8 +754,16 @@
       <div class="ip-block" v-if="mapOverview?.currentMap">
         <h4 class="ip-title">⛏️ 资源 ({{ mapOverview.currentMap.resources || 0 }})</h4>
         <div class="ip-list" v-if="mapOverview.currentMap.resourceList?.length">
-          <!-- 点击资源行 = 直接发送该资源的采集指令（gatherCmd 优先，如 打开货舱/收集能量；缺失时回退「采集 资源名」） -->
-          <div v-for="r in mapOverview.currentMap.resourceList" :key="'cur-res-' + r.name" class="ip-row npc-row" title="点击发送采集指令" @click="quickAction(r.gatherCmd || '采集 ' + r.name)">
+          <!-- 点击资源行 = 直接发送该资源的采集指令（gatherCmd 优先，如 打开货舱/收集能量；缺失时回退「采集 资源名」）
+               右键 = 超管批量采集（仅管理员绑定，以剩余最大次数发送） -->
+          <div
+            v-for="r in mapOverview.currentMap.resourceList"
+            :key="'cur-res-' + r.name"
+            class="ip-row npc-row"
+            :title="isAdmin ? '点击单次采集；右键批量采集' : '点击发送采集指令'"
+            @click="quickAction(r.gatherCmd || '采集 ' + r.name)"
+            @contextmenu.prevent="isAdmin && quickGatherMax(r)"
+          >
             <span class="ip-row-name">📦 {{ r.name }}</span>
             <span class="ip-row-meta" v-if="r.times >= 0">×{{ r.times }} · {{ r.gatherCmd || '采集' }}</span>
             <span class="ip-row-meta" v-else>{{ r.gatherCmd || '采集' }}</span>
@@ -1094,6 +1094,7 @@ import { useRouter } from 'vue-router';
 // 玩家状态面板（桌面侧栏 + 手机抽屉复用；战斗力/任务/装备/增益一屏展示）
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
 import PendingActionBar from '../components/PendingActionBar.vue';
+import WorldEventBar from '../components/WorldEventBar.vue';
 import FloatingChatWidget from '../components/FloatingChatWidget.vue';
 import { io } from 'socket.io-client';
 import { chatApi, userApi, gameApi, feedbackApi, systemApi } from '../api';
@@ -1149,6 +1150,18 @@ const messages = ref([]);
 const commands = computed(() => commandStore.commands);
 const input = ref('');
 const connected = computed(() => connectionStore.connected);
+// 全服世界事件：socket worldEvent:progress 最新进度（常驻细条实时增量，喂给 WorldEventBar）
+const worldEventProgress = ref(null);
+// 面板「领取已解锁奖励」按钮 → 走统一发指令通道（与 QQ 端逐字相同，不新增写接口）
+function onWorldEventSend(text) {
+  if (!connected.value) {
+    showToast('未连接服务器，请稍后再试', 'error');
+    return;
+  }
+  if (sendChatMessage(String(text || '')) === false) {
+    showToast('发送过于频繁，请稍后再试', 'error');
+  }
+}
 const msgList = ref(null);
 const inputEl = ref(null);
 
@@ -2233,6 +2246,18 @@ function quickSend(name) {
 function quickAction(action) {
   if (!socket) return;
   sendChatMessage(action);
+}
+
+/**
+ * 右键资源行 = 超管批量采集（以剩余最大次数发送）。
+ * 仅管理员可达（模板侧已用 isAdmin 短路）；times=-1（无限）时取大数，
+ * 后端有限资源夹到剩余次数、超管野外批量放开上限。
+ */
+function quickGatherMax(r) {
+  if (!socket || !isAdmin.value) return;
+  const base = r.gatherCmd || '采集 ' + r.name;
+  const max = r.times > 0 ? Math.floor(r.times) : 999;
+  quickAction(base + max);
 }
 
 // 命令面板（Cmd/Ctrl+K）选中回调：复用 quickSend 的「无参直发 / 有参填入」逻辑
@@ -3865,6 +3890,10 @@ onMounted(async () => {
     // 后端按 user:{id} 房间定向推送，只可能是自己的，无需再做归属判断
     socket.on(GAME_HIGHLIGHT_EVENT, (data) => {
       pushHighlight(data);
+    });
+    // 全服世界事件实时进度（后端每 10 分钟 tick 推一次；里程碑/跨台阶另有公屏播报）
+    socket.on('worldEvent:progress', (data) => {
+      worldEventProgress.value = data;
     });
     // 接收 GM 系统公告 → 强制弹窗展示（阅读 5 秒后才可关闭）
     socket.on('announcement:new', (data) => {

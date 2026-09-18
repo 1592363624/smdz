@@ -556,6 +556,62 @@ model RedPacketClaim {
   @@index([userId, createdAt])
 }
 
+// ========== 全服世界事件 ==========
+
+/// 世界事件周期：一个周期 = 一次全服共同目标。
+/// 进度不单独计数，取自「世界熟练度」点数差值（见 global-proficiency.service.ts），零新增埋点。
+model WorldEventCycle {
+  id Int @id @default(autoincrement())
+  /// 周期标识（唯一）：day→2026-09-17 / week→2026-W38 / month→2026-09；人工开启可带后缀
+  cycleId String @unique
+  /// 周期粒度快照：day / week / month（开周期时冻结，改配置只影响下一周期）
+  period   String @default("week")
+  /// 本周期抽到的任务池 key（如 kill_wave）；fixed 模式记 "fixed"
+  taskKey   String  @default("kill_wave")
+  /// 开周期时抽到的任务标题快照（运营改池后历史仍可读）
+  taskTitle String  @default("")
+  /// 进度指标：kill=击杀（Phase 1 唯一）；预留 gather / craft / challenge
+  metric   String  @default("kill")
+  /// 周期开始时「世界熟练度」点数快照（差值计数基准）
+  startPoints Float @default(0)
+  /// 本周期目标增量（管理员可校准；pool 模式取任务 goalHint）
+  goalPoints  Float @default(0)
+  startAt  DateTime
+  endAt    DateTime
+  /// ACTIVE=进行中；SETTLED=已结算（领取窗口仍开放至 graceEndAt）
+  status     String @default("ACTIVE")
+  /// 已解锁里程碑：{ "25": 达成ISO时刻, "50": ... }（键=百分比，值=达成时刻）
+  reached    Json?
+  /// 上次已播报到的进度台阶（跨 progressBroadcastStep 才推，防刷屏）
+  lastStep   Int    @default(0)
+  /// 结算时点数快照（复盘与下周期目标校准）
+  finalPoints Float?
+  /// 领取窗口截止（结算后仍可领 N 小时，见 graceHours 配置）
+  graceEndAt DateTime?
+  settledAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  claims WorldEventClaim[]
+
+  @@index([status, endAt])
+}
+
+/// 世界事件奖励领取记录：同一玩家同一周期同一档位只能领一次（唯一约束做幂等）
+model WorldEventClaim {
+  id        Int      @id @default(autoincrement())
+  cycleId   Int
+  cycle     WorldEventCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// 领取玩家（普通 Int，不加 User 关系以免改动 User 模型；查询走 userId 索引）
+  userId    Int
+  /// 领取的里程碑档位：25 / 50 / 75 / 100
+  percent   Int
+  createdAt DateTime @default(now())
+
+  @@unique([cycleId, userId, percent])
+  @@index([userId, createdAt])
+}
+
 // ========== 反馈系统 ==========
 
 /// 反馈工单表：一个用户可提交多条反馈，管理员可查看与回复

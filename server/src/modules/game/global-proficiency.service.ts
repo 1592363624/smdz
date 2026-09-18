@@ -129,6 +129,9 @@ export class GlobalProficiencyService implements OnModuleInit, OnModuleDestroy {
     const row = await this.prisma.systemConfig.findUnique({ where: { key: GLOBAL_MARKERS_KEY } });
     let raw: Record<string, any> = {};
     let migratedFromLegacy = false;
+    // 旧键无论走哪个分支都要清除：它已不再是任何代码的读取源，
+    // 留在库里只会在管理后台「系统配置」里显示成一个改了没用的「世界等级」输入框。
+    const legacyPoints = await this.takeLegacyWorldLevel();
     if (row?.value) {
       try {
         const parsed = JSON.parse(row.value);
@@ -136,9 +139,9 @@ export class GlobalProficiencyService implements OnModuleInit, OnModuleDestroy {
       } catch {
         this.logger.warn(`全局熟练度配置解析失败，按空表重建: ${row.value?.slice(0, 120)}`);
       }
-    } else {
-      raw = await this.migrateLegacyWorldLevel();
-      migratedFromLegacy = Object.keys(raw).length > 0;
+    } else if (legacyPoints > 0) {
+      raw = { [`${WORLD_PROFICIENCY_NAME}${PROFICIENCY_SUFFIX}`]: legacyPoints };
+      migratedFromLegacy = true;
     }
 
     this.points = new Map<string, number>();
@@ -158,27 +161,24 @@ export class GlobalProficiencyService implements OnModuleInit, OnModuleDestroy {
   /**
    * 一次性迁移：旧版把世界等级存成可直接设置的 `game.worldLevel`，
    * 原版语义下它是 `世界熟练度` 的换算结果。按 `显示熟练度等级` 的逆运算
-   * 取 `(等级-1)²` 作为点数（floor(√((L-1)²))+1 = L），迁移后删除旧键，
-   * 保证世界等级只有一个真相源。
+   * 取 `(等级-1)²` 作为点数（floor(√((L-1)²))+1 = L）。
+   * 无论是否用得上它的值，读取后都立刻删除旧键，保证世界等级只有一个真相源。
+   * @returns 迁移出的点数（无旧键或等级 ≤ 1 时为 0）
    */
-  private async migrateLegacyWorldLevel(): Promise<Record<string, any>> {
-    let legacyPoints = 0;
+  private async takeLegacyWorldLevel(): Promise<number> {
     try {
       const legacy = await this.prisma.systemConfig.findUnique({
         where: { key: LEGACY_WORLD_LEVEL_KEY },
       });
-      if (legacy) {
-        const level = Math.max(1, Math.floor(Number(legacy.value) || 1));
-        legacyPoints = (level - 1) ** 2;
-        await this.prisma.systemConfig.delete({ where: { key: LEGACY_WORLD_LEVEL_KEY } });
-        this.logger.log(
-          `已迁移旧配置 ${LEGACY_WORLD_LEVEL_KEY}=${level} → ${WORLD_PROFICIENCY_NAME}${PROFICIENCY_SUFFIX}=${legacyPoints}，并移除旧键`,
-        );
-      }
+      if (!legacy) return 0;
+      const level = Math.max(1, Math.floor(Number(legacy.value) || 1));
+      await this.prisma.systemConfig.delete({ where: { key: LEGACY_WORLD_LEVEL_KEY } });
+      this.logger.log(`已移除旧配置 ${LEGACY_WORLD_LEVEL_KEY}=${level}（世界等级改由世界熟练度换算）`);
+      return (level - 1) ** 2;
     } catch (err: any) {
       this.logger.warn(`旧世界等级配置迁移失败（忽略）: ${err?.message ?? err}`);
+      return 0;
     }
-    return legacyPoints > 0 ? { [`${WORLD_PROFICIENCY_NAME}${PROFICIENCY_SUFFIX}`]: legacyPoints } : {};
   }
 
   /**

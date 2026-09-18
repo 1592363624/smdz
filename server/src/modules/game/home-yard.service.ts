@@ -41,12 +41,14 @@ export interface HomeYardCropStage {
   names: string[];
   /** 生长进度 0~1（用于进度条） */
   progressPct: number;
-  /** 剩余成熟秒数（成熟为 0） */
+  /** 剩余成熟秒数（拉接口当刻的快照；前端有 plantedAt 时本地倒数，此字段作兜底） */
   remainSeconds: number;
   /** 是否已成熟（成熟后才能收获） */
   ripe: boolean;
   /** 总成熟秒数 */
   totalSeconds: number;
+  /** 播种时刻（秒级 Unix）。前端用 serverNow() 本地逐秒倒数，避免 remainSeconds 冻在刷新间隔里 */
+  plantedAt?: number;
 }
 
 /** 单个地块 */
@@ -483,8 +485,10 @@ export class HomeYardService {
     const plan = this.homeService.getCropGrowthPlan(cropName);
     const stageCount = Math.max(1, plan.stageNames.length);
     const now = Date.now() / 1000;
-    const elapsed = plantedAt ? Math.max(0, now - plantedAt) : plan.totalSeconds;
-    const ripe = elapsed >= plan.totalSeconds;
+    // 无 plantedAt（旧聚合存档）视为已成熟：elapsed 拉满，ripe=true
+    const plantedSec = plantedAt && plantedAt > 0 ? plantedAt : 0;
+    const elapsed = plantedSec ? Math.max(0, now - plantedSec) : plan.totalSeconds;
+    const ripe = !plantedSec || elapsed >= plan.totalSeconds;
     return {
       index: ripe ? stageCount - 1 : Math.min(stageCount - 1, Math.floor(elapsed / (plan.totalSeconds / stageCount))),
       total: stageCount,
@@ -493,6 +497,7 @@ export class HomeYardService {
       remainSeconds: ripe ? 0 : Math.max(1, Math.ceil(plan.totalSeconds - elapsed)),
       ripe,
       totalSeconds: plan.totalSeconds,
+      ...(plantedSec ? { plantedAt: plantedSec } : {}),
     };
   }
 

@@ -117,9 +117,10 @@ describe('家园院子格子视图', () => {
   });
 
   it('作物按数量展开成地块，地面障碍（产出2 为空）归入 obstacles', async () => {
+    const plantedAt = Math.floor(Date.now() / 1000) - 100;
     const fixture = makeYardFixture({
       resources2: [
-        { name: '椰树', quantity: 2, outputs2: [{ name: '奶', quantity: 0.0007 }] },
+        { name: '椰树', quantity: 2, plantedAt, outputs2: [{ name: '奶', quantity: 0.0007 }] },
         { name: '土堆', times: 3, outputs2: [] },
       ],
     });
@@ -130,6 +131,12 @@ describe('家园院子格子视图', () => {
     expect(yard.crop.plots.filter((p) => p.state === 'occupied').map((p) => p.name)).toEqual(['椰树', '椰树']);
     // 同名聚合：每格都知道同名总数，便于「收获全部 ×N」
     expect(yard.crop.plots[0].total).toBe(2);
+    // plantedAt 回传：前端本地逐秒倒数，不再冻在 remainSeconds 快照上
+    const stage = yard.crop.plots[0].stage!;
+    expect(stage.plantedAt).toBe(plantedAt);
+    expect(stage.ripe).toBe(false);
+    expect(stage.remainSeconds).toBeGreaterThan(0);
+    expect(stage.remainSeconds).toBeLessThanOrEqual(stage.totalSeconds);
     expect(yard.obstacles).toHaveLength(1);
     expect(yard.obstacles[0].name).toBe('土堆');
     expect(yard.obstacles[0].quantity).toBe(3);

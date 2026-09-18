@@ -858,6 +858,26 @@
         ]
       }
     },
+    "/api/game/world-event/current": {
+      "get": {
+        "operationId": "WorldEventController_getCurrent",
+        "summary": "当前世界事件周期 + 进度 + 里程碑 + 本人可领状态（只读）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "世界事件"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/admin/users": {
       "get": {
         "operationId": "AdminController_listUsers",

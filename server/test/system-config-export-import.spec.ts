@@ -249,3 +249,14 @@ describe('SystemConfigService 导出/导入', () => {
     expect(row.value).toBe('2');
   });
 });
+
+describe('SystemConfigService 启动清理废弃配置', () => {
+  it('删除无读取方的运行时统计键，不再显示成可编辑配置', async () => {
+    const prisma = makePrismaStub([
+      { key: 'game.highestPlayerLevel', value: '162', type: 'number', group: 'game', label: '最高级玩家等级' },
+    ]);
+    const svc = makeService(prisma);
+    await svc.onModuleInit();
+    expect(prisma._rows.has('game.highestPlayerLevel')).toBe(false);
+  });
+});

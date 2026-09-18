@@ -49,6 +49,8 @@ import { LotteryService } from './lottery.service';
 import { HandbookService } from './handbook.service';
 import { GameGlobalSettingService } from './game-global-setting.service';
 import { GlobalProficiencyService } from './global-proficiency.service';
+import { WorldEventService } from './world-event.service';
+import { WorldEventController } from './world-event.controller';
 import { TutorialService } from './tutorial.service';
 import { StaticDataService } from './static-data.service';
 import { GameHighlightService } from './highlight.service';
@@ -117,6 +119,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     HandbookService,
     GameGlobalSettingService,
     GlobalProficiencyService,
+    WorldEventService,
     TutorialService,
     StaticDataService,
     DelayedTaskService,
@@ -172,12 +175,13 @@ import { FeedbackModule } from '../feedback/feedback.module';
     HandbookService,
     GameGlobalSettingService,
     GlobalProficiencyService,
+    WorldEventService,
     TutorialService,
     GameHighlightService,
     // token 别名同样导出，供全局的 AdminService 等注入
     ITEM_SYSTEM_SERVICE,
     COMBAT_SYSTEM_SERVICE,
   ],
-  controllers: [GameController],
+  controllers: [GameController, WorldEventController],
 })
 export class GameModule {}

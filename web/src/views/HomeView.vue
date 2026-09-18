@@ -26,6 +26,11 @@
     <!-- 顶栏：家园名 / 关键指标 / 状态与刷新 -->
     <header class="yd-top">
       <button class="yd-back" title="返回聊天" @click="router.push('/chat')">←</button>
+      <!-- 家园系统内面板切换：院子 ↔ 前线互相跳转（前线入口已从聊天侧栏移到这里） -->
+      <div class="yd-switch">
+        <span class="yd-switch-btn on">🏡 家园</span>
+        <button class="yd-switch-btn" title="打开家园前线防守面板" @click="router.push('/frontline')">🛡️ 前线</button>
+      </div>
       <div class="yd-head-main">
         <div class="yd-house">🏡 {{ houseName }}</div>
         <div class="yd-meta">
@@ -111,9 +116,7 @@
                   <span class="yd-p-stages">
                     <i v-for="(sName, si) in p.stage.names" :key="'s' + si" :class="{ on: si <= p.stage.index, ripe: p.stage.ripe }"></i>
                   </span>
-                  <span class="yd-p-out" :class="p.stage.ripe ? 'gain' : ''">
-                    {{ p.stage.ripe ? '✓ 可收获' : `${p.stage.names[p.stage.index]} · ${fmtRemain(p.stage.remainSeconds)}` }}
-                  </span>
+                  <span class="yd-p-out" :class="p.stage.ripe ? 'gain' : ''">{{ cropStageText(p.stage) }}</span>
                 </template>
                 <template v-else-if="p.state === 'occupied'">
                   <span class="yd-p-out">
@@ -311,27 +314,31 @@
         <!-- 作物生长阶段详情：阶段点 + 剩余时间，未成熟禁用收获 -->
         <div v-if="selected.kind === 'crop' && selected.stage" class="yd-d-stage">
           <span
-            v-for="(sName, si) in selected.stage.names"
+            v-for="(sName, si) in liveCropStage(selected.stage).names"
             :key="'ds-' + si"
-            :class="{ on: si <= selected.stage.index, ripe: selected.stage.ripe }"
+            :class="{ on: si <= liveCropStage(selected.stage).index, ripe: liveCropStage(selected.stage).ripe }"
           >
             {{ sName }}
           </span>
-          <div class="yd-d-stage-tip" :class="selected.stage.ripe ? 'gain' : ''">
-            {{ selected.stage.ripe ? '✓ 已成熟，点击下方收获' : `🌱 生长中，还需 ${fmtRemain(selected.stage.remainSeconds)} 成熟` }}
+          <div class="yd-d-stage-tip" :class="liveCropStage(selected.stage).ripe ? 'gain' : ''">
+            {{ liveCropStage(selected.stage).ripe
+              ? '✓ 已成熟，点击下方收获'
+              : `🌱 生长中，还需 ${fmtRemain(liveCropStage(selected.stage).remainSeconds)} 成熟` }}
           </div>
         </div>
         <div class="yd-d-ops">
           <template v-if="selected.kind === 'crop'">
             <button
               class="yd-btn warn"
-              :disabled="running || (selected.stage && !selected.stage.ripe)"
+              :disabled="running || (selected.stage && !liveCropStage(selected.stage).ripe)"
               @click="run(C.commands.harvest(selected.name))"
             >
               🌾 收获全部（{{ selected.name }} ×{{ selected.total }}）
             </button>
             <span class="yd-dim">
-              {{ selected.stage && !selected.stage.ripe ? '未成熟的作物还不能收获，等它长完再收' : '收获会一次收走该作物全部已成熟的棵' }}
+              {{ selected.stage && !liveCropStage(selected.stage).ripe
+                ? '未成熟的作物还不能收获，等它长完再收'
+                : '收获会一次收走该作物全部已成熟的棵' }}
             </span>
           </template>
           <template v-else>
@@ -464,11 +471,14 @@ const homePendingAction = computed(() => {
  * - 到点后仍保留条目直到服务端推送清空，由主动拉取兜底
  */
 const pendingOp = computed(() => {
+  // 必须先无条件读一次时钟：放在下面两个提前 return 之后，computed 与 clockTick 的依赖
+  // 就不会稳定建立，250ms 心跳改值也通知不到渲染副作用——症状即倒计时只跟着轮询跳。
+  const now = clockTick.value;
   const a = homePendingAction.value;
   if (!a) return null;
   const endAt = Number(a.endAt || 0);
   if (!endAt) return null;
-  const remainMs = endAt - clockTick.value;
+  const remainMs = endAt - now;
   const finishing = remainMs <= 600;
   const remain = finishing ? 0 : Math.max(1, Math.ceil(remainMs / 1000));
   const totalMs = Number(a.totalMs || 0) || Math.max(remainMs, 1);
@@ -656,7 +666,9 @@ const dailyList = computed(() => overview.value?.overview?.dailyDisplay || []);
 const claimList = computed(() => (overview.value?.gains || []).filter((g) => Number(g.quantity) > 0));
 const stockList = computed(() => (stockTab.value === 'seed' ? seeds.value : buildings.value));
 // 地块可能成百上千（高等级 + 多凭证），只渲染前 N 块防止页面卡死
-const visibleCropPlots = computed(() => crop.value.plots.slice(0, C.plot.maxVisible));
+// 渲染上限内顺手换成 liveCropStage：stage 随 clockTick 逐秒推进，不必等 45s 轮询才跳
+const visibleCropPlots = computed(() => crop.value.plots.slice(0, C.plot.maxVisible)
+  .map((p) => (p.stage ? { ...p, stage: liveCropStage(p.stage) } : p)));
 const visibleBuildingPlots = computed(() => building.value.plots.slice(0, C.plot.maxVisible));
 const gridStyle = computed(() => ({
   '--yd-min': `${C.plot.minSize}px`,
@@ -664,19 +676,32 @@ const gridStyle = computed(() => ({
 }));
 /** 田里已成熟的作物名（去重），用于「一键收获」；未成熟的不参与，避免白跑一遍 */
 const cropNames = computed(() => {
+  // 依赖 clockTick：本地刚熟的格子也能立刻进一键收获，不必等 45s 轮询
+  void clockTick.value;
   const names = new Set();
   for (const p of crop.value.plots) {
-    if (p.state === 'occupied' && p.name && p.stage?.ripe) names.add(p.name);
+    if (p.state === 'occupied' && p.name && p.stage && liveCropStage(p.stage).ripe) names.add(p.name);
   }
   return Array.from(names);
 });
 /** 田里正在生长的作物格数量（顶栏统计用） */
 const growingCount = computed(() => {
+  void clockTick.value;
   let count = 0;
   for (const p of crop.value.plots) {
-    if (p.state === 'occupied' && p.stage && !p.stage.ripe) count += 1;
+    if (p.state === 'occupied' && p.stage && !liveCropStage(p.stage).ripe) count += 1;
   }
   return count;
+});
+
+/** 本地时钟首次把某块地算成熟时，拉一次院子同步服务端 ripe/收获态 */
+watch(cropNames, (now, prev) => {
+  if ((prev?.length || 0) > 0 && now.length > prev.length) {
+    void refresh();
+  } else if ((prev?.length || 0) === 0 && now.length > 0 && data.value) {
+    // 从全无成熟到有成熟（含首屏后本地到点）
+    void refresh();
+  }
 });
 
 // ---------- 刷选派生 ----------
@@ -839,7 +864,42 @@ function pullUntilSettled() {
   });
 }
 
-/** 本地时钟走到 endAt、或服务端列表变空时，都尝试推进一次 UI */
+/**
+ * 作物阶段本地实时视图：有 plantedAt 时用 clockTick（已对齐服务器）倒数，
+ * 否则退回接口快照 remainSeconds。模板里读 clockTick，250ms 心跳驱动重渲染。
+ */
+function liveCropStage(stage) {
+  if (!stage) return stage;
+  const plantedAt = Number(stage.plantedAt || 0);
+  const total = Number(stage.totalSeconds || 0);
+  if (!plantedAt || total <= 0) return stage;
+
+  const nowSec = clockTick.value / 1000;
+  const elapsed = Math.max(0, nowSec - plantedAt);
+  const ripe = elapsed >= total;
+  const remainSeconds = ripe ? 0 : Math.max(1, Math.ceil(total - elapsed));
+  const stageCount = Math.max(1, Number(stage.total) || stage.names?.length || 1);
+  const index = ripe
+    ? stageCount - 1
+    : Math.min(stageCount - 1, Math.floor(elapsed / (total / stageCount)));
+
+  return {
+    ...stage,
+    index,
+    progressPct: ripe ? 1 : Math.min(1, elapsed / total),
+    remainSeconds,
+    ripe,
+    plantedAt,
+  };
+}
+
+/** 格子/详情里的成熟文案（跟随本地心跳） */
+function cropStageText(stage) {
+  const live = liveCropStage(stage);
+  if (live.ripe) return '✓ 可收获';
+  const name = live.names?.[live.index] ?? '';
+  return `${name} · ${fmtRemain(live.remainSeconds)}`;
+}
 watch([pendingOp, homePendingAction], () => {
   syncPendingFlag();
 });
@@ -1364,7 +1424,12 @@ function harvestAllCrops() {
 /** 收获选中地块（按作物名去重；后端会拦截未成熟的，前端只收集已成熟的避免无效请求） */
 function harvestSelected() {
   const names = Array.from(
-    new Set(selectionList.value.filter((x) => x.plot.stage?.ripe).map((x) => x.plot.name).filter(Boolean)),
+    new Set(
+      selectionList.value
+        .filter((x) => x.plot.stage && liveCropStage(x.plot.stage).ripe)
+        .map((x) => x.plot.name)
+        .filter(Boolean),
+    ),
   );
   if (!names.length) {
     ui.pushToast({ type: 'info', message: '选中的作物都还没成熟，先等它们长完再收' });
@@ -1435,6 +1500,37 @@ function clearObstacle(obstacle) {
 }
 .yd-back:hover {
   filter: brightness(1.2);
+}
+/* ---------- 家园 ↔ 前线 面板切换 ---------- */
+.yd-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg2, #0f1116);
+  flex-shrink: 0;
+}
+.yd-switch-btn {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+button.yd-switch-btn {
+  cursor: pointer;
+}
+button.yd-switch-btn:hover {
+  color: var(--text, #e5e7eb);
+  background: rgba(255, 255, 255, 0.06);
+}
+.yd-switch-btn.on {
+  color: var(--text, #e5e7eb);
+  background: rgba(139, 92, 246, 0.16);
 }
 .yd-head-main {
   min-width: 0;

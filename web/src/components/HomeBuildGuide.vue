@@ -4,8 +4,8 @@
     展示层组件：只负责展示与发指令，不新增任何写接口——按钮发出的文本与 QQ 端逐字一致。
     两种形态：
     - 默认：聊天流内嵌的小卡片；
-    - fullscreen：家园页「房子未建成」时的全屏接管引导，附带随进度逐级"长出"房子的
-      纯 CSS 施工场景动画，帮助玩家直观理解建造阶段。
+    - fullscreen：家园页「房子未建成」时的全屏接管引导，附带随进度逐级"长出"
+      带前院别墅的纯 CSS 施工场景动画，帮助玩家直观理解建造阶段。
   -->
   <div ref="rootEl" class="hbg" :class="{ 'hbg-compact': compact, 'hbg-full': fullscreen, 'hbg-done': isDone, 'hbg-flash': flashing }">
     <!-- ========== 全屏接管：场景 + 浮层顶栏 + 底部指令面板 ========== -->
@@ -23,7 +23,7 @@
       <!-- 浮层：返回聊天（建造期其它家园功能全部隐藏） -->
       <div class="hbg-topbar">
         <button type="button" class="hbg-back" :disabled="busy" @click="emit('open-chat')">← 聊天</button>
-        <span v-if="hasPending" class="hbg-at-home-warn travelling">⏳ {{ pendingLabel }}<template v-if="!pending?.finishing"> · {{ pendingLeft }}s</template></span>
+        <span v-if="hasPending" class="hbg-at-home-warn travelling">⏳ {{ pendingLabel }}<template v-if="!pendingFinishing"> · {{ pendingLeft }}s</template></span>
         <span v-else-if="!atHome && stage > 0" class="hbg-at-home-warn">📍 需要先回家</span>
       </div>
 
@@ -35,10 +35,40 @@
           <div v-if="stage === 0" class="sb-stakes">
             <i v-for="n in 4" :key="'k' + n" :class="'sk' + n"></i>
           </div>
+          <!-- 前院景观（路径/花坛/树/灯）：落在别墅前，随落成层叠入场 -->
+          <div class="sb-yard">
+            <div class="sb-path"></div>
+            <div class="sb-bed bed-l"><i></i><i></i><i></i></div>
+            <div class="sb-bed bed-r"><i></i><i></i><i></i></div>
+            <div class="sb-tree"><i class="trunk"></i><i class="crown c1"></i><i class="crown c2"></i><i class="crown c3"></i></div>
+            <div class="sb-lamp"><i class="pole"></i><i class="glow"></i></div>
+            <div class="sb-mail"><i></i></div>
+            <div class="sb-picket"><i v-for="n in 7" :key="'pl' + n"></i></div>
+            <div class="sb-picket pr"><i v-for="n in 7" :key="'pr' + n"></i></div>
+            <div class="sb-gate">
+              <i class="gl"></i>
+              <i class="gr"></i>
+            </div>
+          </div>
+          <!-- 别墅主体：p2 轮廓 → p3 施工墙体 → p4 落成精装 -->
           <div class="sb-house">
             <div class="sb-chimney" v-if="stage >= 4"><i class="sb-smoke"></i><i class="sb-smoke s2"></i></div>
-            <div class="sb-roof"></div>
-            <div class="sb-wall"><i class="sb-door"></i><i class="sb-window"></i></div>
+            <div class="sb-roof-main"></div>
+            <div class="sb-wing">
+              <div class="sb-roof-wing"></div>
+              <div class="sb-wing-wall"><i class="sb-window w2"></i></div>
+            </div>
+            <div class="sb-wall">
+              <i class="sb-window w1"></i>
+              <i class="sb-window w3"></i>
+              <i class="sb-door">
+                <i class="sb-step"></i>
+                <i class="sb-porch"></i>
+              </i>
+            </div>
+            <div class="sb-scaffold" v-if="stage >= 2 && stage <= 3">
+              <i></i><i></i><i></i>
+            </div>
           </div>
           <div class="sb-hole"></div>
           <div class="sb-foundation"></div>
@@ -88,7 +118,8 @@
             </div>
           </div>
         </div>
-        <div class="sb-fence" aria-hidden="true"><i v-for="n in 15" :key="n"></i></div>
+        <!-- 施工期外沿木桩；落成后交给前院白栅栏，避免两套围栏叠在一起 -->
+        <div class="sb-fence" :class="{ hide: stage >= 4 }" aria-hidden="true"><i v-for="n in 15" :key="n"></i></div>
 
         <div ref="panelEl" class="hbg-panel">
         <div class="hbg-eyebrow">
@@ -143,7 +174,7 @@
                 @click="onSend(s.cmd)"
               >
                 <i v-if="s.busy" class="hbg-travel-ring"></i>
-                {{ s.busy ? (pending?.finishing ? `${s.cmd} …` : `${s.cmd} ${pendingLeft}s`) : s.cmd }}
+                {{ s.busy ? (pendingFinishing ? `${s.cmd} …` : `${s.cmd} ${pendingLeft}s`) : s.cmd }}
                 <span class="hbg-clear-left">
                   {{ s.left > 0
                     ? (s.available > 0 ? `还可排 ${s.available}` : '已排满')
@@ -188,7 +219,7 @@
           >
             <template v-if="hasPending && isPendingHome">
               <i class="hbg-travel-ring dark"></i>
-              {{ pending?.finishing ? '落地结算中…' : `赶路中 ${pendingLeft}s` }}
+              {{ pendingFinishing ? '落地结算中…' : `赶路中 ${pendingLeft}s` }}
             </template>
             <template v-else>🏠 先回家院子</template>
           </button>
@@ -204,7 +235,7 @@
           >
             <template v-if="isPendingCmd(nextCmd)">
               <i class="hbg-travel-ring dark"></i>
-              {{ pending?.finishing ? `${pendingLabel} …` : `${pendingLabel} ${pendingLeft}s` }}
+              {{ pendingFinishing ? `${pendingLabel} …` : `${pendingLabel} ${pendingLeft}s` }}
             </template>
             <template v-else>{{ primaryText }}</template>
             <span v-if="busy" class="hbg-btn-spin"></span>
@@ -223,7 +254,7 @@
           这一段结束后自动继续
           <template v-if="primaryArrangeText"> · {{ primaryArrangeText }}</template>
         </p>
-        <p v-else-if="hasPending && pending?.finishing" class="hbg-queue-hint">
+        <p v-else-if="hasPending && pendingFinishing" class="hbg-queue-hint">
           {{ pending?.kind === 'move' ? '即将落地，正在确认位置…' : '即将完成，界面马上更新…' }}
         </p>
         </div>
@@ -322,6 +353,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { HOME_BUILD_GUIDE_CONFIG as cfg } from '../config';
+import { serverNow } from '../utils/serverClock';
 
 const props = defineProps({
   /** 当前进度：0=未圈地，1-4=对应步骤 */
@@ -426,15 +458,39 @@ const stage = computed(() => {
   return Math.max(0, Math.min(4, props.step));
 });
 
+/**
+ * 读条倒计时：组件自持本地时钟。
+ * 秒数必须由「props.pending.endAt − 本地时钟」推导，不能依赖父组件把算好的
+ * remain 一路传下来——父组件那条 computed 链一旦没有按时钟失效，
+ * 顶栏徽标和按钮上的秒数就会冻住，只在 socket 推送/轮询重写快照时才跳一下。
+ */
+const now = ref(serverNow());
+let nowTimer = null;
+/** 剩余毫秒：优先本地时钟逐秒推进；父组件没给 endAt 时退回它的 remain 快照兜底 */
+const pendingRemainMs = computed(() => {
+  if (!props.pending) return 0;
+  const endAt = Number(props.pending.endAt || 0);
+  if (endAt) return endAt - now.value;
+  return Number(props.pending.remain || 0) * 1000;
+});
+/** 最后 ~0.6s 不再报秒数，改显示「即将完成」，避免卡在 1s 的观感 */
+const pendingFinishing = computed(() => {
+  if (!props.pending) return false;
+  if (props.pending.finishing) return true;
+  // ≤600ms 这条本地推导只在父组件给了 endAt 时成立：
+  // 没有 endAt 走的是 remain 快照兜底，remain 归零就该视为读条结束
+  return Number(props.pending.endAt || 0) > 0 && pendingRemainMs.value <= 600;
+});
 /** 是否有进行中的延时操作（挖土/割草/前往/建造…） */
-const hasPending = computed(() => Number(props.pending?.remain || 0) > 0 || Boolean(props.pending?.finishing));
-const pendingLeft = computed(() => Math.max(0, Math.ceil(Number(props.pending?.remain || 0))));
+const hasPending = computed(() =>
+  Boolean(props.pending) && (pendingRemainMs.value > 0 || pendingFinishing.value));
+const pendingLeft = computed(() => Math.max(0, Math.ceil(pendingRemainMs.value / 1000)));
 const pendingCmd = computed(() => String(props.pending?.cmd || '').trim());
 /** 短标签优先用父组件给的 label，其次截断 cmd；建造读条补「中」与旧文案一致 */
 const pendingLabel = computed(() => {
   let label = String(props.pending?.label || pendingCmd.value || '').trim();
   if (props.pending?.kind === 'work' && label && !label.endsWith('中')) label = `${label}中`;
-  if (props.pending?.finishing) return `${label || '进行中'} · 即将完成`;
+  if (pendingFinishing.value) return `${label || '进行中'} · 即将完成`;
   if (label.length <= 10) return label;
   return `${label.slice(0, 10)}…`;
 });
@@ -636,6 +692,8 @@ watch(
 onMounted(async () => {
   await nextTick();
   syncPanelHeight();
+  // 只有全屏引导渲染倒计时，聊天流小卡片不挂定时器（同屏可能有几十条引导消息）
+  if (props.fullscreen) nowTimer = setInterval(() => { now.value = serverNow(); }, 250);
   if (props.fullscreen && typeof ResizeObserver !== 'undefined') {
     panelRO = new ResizeObserver(() => syncPanelHeight());
     if (panelEl.value) panelRO.observe(panelEl.value);
@@ -645,6 +703,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearTimeout(flashTimer);
   clearTimeout(celebrateTimer);
+  if (nowTimer) clearInterval(nowTimer);
   if (panelRO) panelRO.disconnect();
 });
 </script>
@@ -872,6 +931,25 @@ onBeforeUnmount(() => {
   .hbg-confetti span,
   .hbg-scene i,
   .sb-house,
+  .sb-yard,
+  .sb-path,
+  .sb-bed,
+  .sb-bed i,
+  .sb-tree,
+  .sb-tree .trunk,
+  .sb-tree .crown,
+  .sb-lamp,
+  .sb-lamp .glow,
+  .sb-mail,
+  .sb-picket,
+  .sb-fence,
+  .sb-gate .gl,
+  .sb-gate .gr,
+  .sb-roof-main,
+  .sb-wing,
+  .sb-wall,
+  .sb-chimney,
+  .sb-scaffold,
   .sb-dust i,
   .sb-mote,
   .hbg-travel-ring,
@@ -887,6 +965,7 @@ onBeforeUnmount(() => {
   .sb-grass-cut i,
   .sb-dig-chips i {
     animation: none !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
@@ -896,7 +975,8 @@ onBeforeUnmount(() => {
    整页 = 施工场景 + 底部玻璃指令面板。不显示游戏顶栏 / 农田 /
    仓库等任何家园功能——房子没建成，其它系统一律不开放。
    房子随进度 stage 逐级"长出"：0=空地 → 1=地基坑 → 2=地基 →
-   3=墙体屋顶 → 4=建成（组件播撒花，父页面切完整家园）。
+   3=墙体屋顶施工 → 4=带前院别墅落成（路径/花坛/树/灯/栅栏门依次入场）。
+   动画规范：循环与入场只动 transform / opacity，避免每帧重绘。
    ============================================================ */
 .hbg-full {
   height: 100%;
@@ -1089,7 +1169,7 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 50%;
   bottom: 22%;
-  width: 36%;
+  width: 44%;
   height: 12px;
   transform: translateX(-50%) scaleX(0);
   transform-origin: 50% 100%;
@@ -1110,6 +1190,275 @@ onBeforeUnmount(() => {
 }
 .sb-lot.p1 .sb-hole { z-index: 0; }
 
+/* ---- 前院景观：路径 / 花坛 / 树 / 灯 / 栅栏门 ---- */
+/* 整组只在 p3 开始露出一角、p4 铺满；元素各自 stagger，全部走 transform/opacity */
+.sb-yard {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+.sb-lot.p4 .sb-yard {
+  opacity: 1;
+}
+
+/* 门前石板路：从门往下“铺开”——细缝石板，避免大块白砖抢戏 */
+.sb-path {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 36px;
+  height: 40%;
+  transform: translateX(-50%) scaleY(0);
+  transform-origin: 50% 0%;
+  border-radius: 0 0 6px 6px;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      #b7b1a4 0 7px,
+      #9e988c 7px 9px
+    );
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.1),
+    inset 8px 0 0 -7px rgba(255, 255, 255, 0.12),
+    inset -8px 0 0 -7px rgba(0, 0, 0, 0.08);
+  opacity: 0.95;
+  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) 0.05s;
+}
+.sb-lot.p4 .sb-path {
+  transform: translateX(-50%) scaleY(1);
+}
+
+/* 花坛：三朵小花错峰弹出 */
+.sb-bed {
+  position: absolute;
+  bottom: 8%;
+  width: 52px;
+  height: 18px;
+  border-radius: 50% 50% 40% 40%;
+  background: radial-gradient(circle at 40% 40%, #6b4a26, #4a2f16);
+  opacity: 0;
+  transform: translateY(10px) scale(0.7);
+  transition: transform 0.45s ease 0.2s, opacity 0.35s ease 0.2s;
+}
+.sb-bed.bed-l { left: 14%; }
+.sb-bed.bed-r { right: 16%; transition-delay: 0.32s; }
+.sb-lot.p4 .sb-bed {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.sb-bed i {
+  position: absolute;
+  bottom: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff7a9a;
+  box-shadow: 0 -6px 0 -2px #5a9a40;
+  transform: scale(0);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.sb-bed i:nth-child(1) { left: 8px; transition-delay: 0.4s; background: #ff7a9a; }
+.sb-bed i:nth-child(2) { left: 22px; transition-delay: 0.5s; background: #ffd76a; bottom: 12px; }
+.sb-bed i:nth-child(3) { left: 36px; transition-delay: 0.6s; background: #b48cff; }
+.sb-lot.p4 .sb-bed i { transform: scale(1); }
+
+/* 小树：树干先长，树冠三球错峰 */
+.sb-tree {
+  position: absolute;
+  left: 8%;
+  bottom: 22%;
+  width: 40px;
+  height: 56px;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: transform 0.5s ease 0.25s, opacity 0.4s ease 0.25s;
+}
+.sb-lot.p4 .sb-tree {
+  opacity: 1;
+  transform: translateY(0);
+}
+.sb-tree .trunk {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 8px;
+  height: 28px;
+  margin-left: -4px;
+  background: linear-gradient(90deg, #8b5a3a, #6b4224);
+  border-radius: 3px;
+  transform: scaleY(0);
+  transform-origin: 50% 100%;
+  transition: transform 0.4s ease 0.3s;
+}
+.sb-lot.p4 .sb-tree .trunk { transform: scaleY(1); }
+.sb-tree .crown {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #7ecf6a, #3f8f42);
+  opacity: 0;
+  transform: scale(0.3);
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+}
+.sb-tree .c1 { width: 34px; height: 34px; left: 3px; top: 0; transition-delay: 0.45s; }
+.sb-tree .c2 { width: 26px; height: 26px; left: 0; top: 14px; transition-delay: 0.55s; }
+.sb-tree .c3 { width: 24px; height: 24px; right: 0; top: 12px; transition-delay: 0.65s; }
+.sb-lot.p4 .sb-tree .crown {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* 门灯：灯柱升起 + 光晕淡入（光晕静态，只 opacity 一次到位） */
+.sb-lamp {
+  position: absolute;
+  right: 22%;
+  bottom: 14%;
+  width: 16px;
+  height: 48px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: transform 0.45s ease 0.4s, opacity 0.35s ease 0.4s;
+}
+.sb-lot.p4 .sb-lamp {
+  opacity: 1;
+  transform: translateY(0);
+}
+.sb-lamp .pole {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 4px;
+  height: 40px;
+  margin-left: -2px;
+  background: linear-gradient(180deg, #5a6470, #3a424c);
+  border-radius: 2px;
+}
+.sb-lamp .pole::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  width: 12px;
+  height: 10px;
+  margin-left: -6px;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, #fff0b0, #ffd76a);
+}
+.sb-lamp .glow {
+  position: absolute;
+  left: 50%;
+  top: -14px;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 220, 120, 0.55), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.5s ease 0.7s;
+}
+.sb-lot.p4 .sb-lamp .glow { opacity: 1; }
+
+/* 信箱：偏到路径左侧，避开门廊与花坛 */
+.sb-mail {
+  position: absolute;
+  left: 34%;
+  bottom: 30%;
+  width: 14px;
+  height: 22px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: transform 0.4s ease 0.5s, opacity 0.35s ease 0.5s;
+}
+.sb-lot.p4 .sb-mail {
+  opacity: 1;
+  transform: translateY(0);
+}
+.sb-mail i {
+  display: block;
+  width: 14px;
+  height: 10px;
+  border-radius: 4px;
+  background: #c4552e;
+  border: 1px solid #8b5a3a;
+}
+.sb-mail::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 3px;
+  height: 14px;
+  margin-left: -1.5px;
+  background: #8b5a3a;
+}
+
+/* 前院围栏（左右两段 + 中门）：沿地块下沿铺开 */
+.sb-picket {
+  position: absolute;
+  bottom: 0;
+  display: flex;
+  gap: 7px;
+  align-items: flex-end;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: transform 0.45s ease 0.15s, opacity 0.4s ease 0.15s;
+}
+.sb-picket:not(.pr) { left: 4%; }
+.sb-picket.pr { right: 4%; }
+.sb-lot.p4 .sb-picket {
+  opacity: 1;
+  transform: translateY(0);
+}
+.sb-picket i {
+  width: 7px;
+  height: 22px;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, #f5f0e6, #d8d0c0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  position: relative;
+}
+.sb-picket i::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 2px;
+  background: rgba(160, 150, 130, 0.55);
+}
+
+/* 中门：两扇对开，最后一点时间打开 */
+.sb-gate {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 36px;
+  height: 24px;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.35s ease 0.55s;
+  z-index: 1;
+}
+.sb-lot.p4 .sb-gate { opacity: 1; }
+.sb-gate .gl,
+.sb-gate .gr {
+  position: absolute;
+  bottom: 0;
+  width: 16px;
+  height: 24px;
+  background: linear-gradient(180deg, #f5f0e6, #d8d0c0);
+  border: 1px solid #c0b8a8;
+  border-radius: 3px 3px 1px 1px;
+  transform-origin: bottom center;
+  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) 0.7s;
+}
+.sb-gate .gl { left: 0; transform: rotateY(0deg); }
+.sb-gate .gr { right: 0; transform: rotateY(0deg); }
+.sb-lot.p4 .sb-gate .gl { transform: rotate(-28deg) translateX(-2px); }
+.sb-lot.p4 .sb-gate .gr { transform: rotate(28deg) translateX(2px); }
+
 /* 施工土堆 */
 .sb-piles i {
   position: absolute;
@@ -1119,6 +1468,7 @@ onBeforeUnmount(() => {
   background: radial-gradient(circle at 40% 30%, #8b6239, #5c3d1f);
   opacity: 0;
   transform: scale(0.4);
+  z-index: 2;
   transition: opacity 0.4s ease, transform 0.4s ease;
 }
 .sb-piles .sp1 { left: 16%; bottom: 30%; }
@@ -1129,16 +1479,16 @@ onBeforeUnmount(() => {
   transform: scale(1);
 }
 
-/* 施工中的房子：居中偏上，完整露出在面板上方 */
+/* 别墅主体：居中偏上，完整露出在面板上方 */
 .sb-house {
   position: absolute;
-  left: 50%;
+  left: 46%;
   bottom: 22%;
-  transform: translateX(-50%) translateY(8px);
-  width: 36%;
-  z-index: 2;
+  width: 42%;
+  z-index: 3;
   opacity: 0;
-  transition: all 0.55s ease;
+  transform: translateX(-50%) translateY(10px);
+  transition: transform 0.55s ease, opacity 0.45s ease;
 }
 .sb-lot.p2 .sb-house,
 .sb-lot.p3 .sb-house,
@@ -1147,10 +1497,12 @@ onBeforeUnmount(() => {
   transform: translateX(-50%) translateY(0);
 }
 
-.sb-roof {
-  width: 120%;
-  height: 52px;
-  margin-left: -10%;
+/* 主屋脊（略宽于墙身，带出檐） */
+.sb-roof-main {
+  position: relative;
+  width: 118%;
+  height: 54px;
+  margin-left: -9%;
   background: linear-gradient(180deg, #e07a48, #c4552e);
   clip-path: polygon(0% 100%, 50% 0%, 100% 100%);
   opacity: 0;
@@ -1158,75 +1510,221 @@ onBeforeUnmount(() => {
   transform-origin: 50% 100%;
   transition: transform 0.5s ease, opacity 0.4s ease;
 }
-.sb-lot.p2 .sb-roof { opacity: 0.85; transform: scaleY(0.2); } /* 地基阶段仅轮廓 */
-.sb-lot.p3 .sb-roof { opacity: 1; transform: scaleY(1); }
-.sb-lot.p4 .sb-roof { opacity: 1; transform: scaleY(1); background: linear-gradient(180deg, #e88950, #c95f32); }
+.sb-lot.p2 .sb-roof-main { opacity: 0.75; transform: scaleY(0.18); }
+.sb-lot.p3 .sb-roof-main { opacity: 1; transform: scaleY(1); }
+.sb-lot.p4 .sb-roof-main {
+  opacity: 1;
+  transform: scaleY(1);
+  background: linear-gradient(180deg, #f0a060, #d46838);
+}
 
+/* 侧翼：落成时长出小厢房，层次更像别墅 */
+.sb-wing {
+  position: absolute;
+  right: -18%;
+  bottom: 0;
+  width: 42%;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: transform 0.5s ease 0.1s, opacity 0.4s ease 0.1s;
+}
+.sb-lot.p4 .sb-wing {
+  opacity: 1;
+  transform: translateY(0);
+}
+.sb-roof-wing {
+  width: 120%;
+  height: 34px;
+  margin-left: -10%;
+  background: linear-gradient(180deg, #e88950, #c95f32);
+  clip-path: polygon(0% 100%, 50% 0%, 100% 100%);
+}
+.sb-wing-wall {
+  position: relative;
+  height: 40px;
+  background: linear-gradient(180deg, #e0c8a4, #b89870);
+  border-radius: 0 0 3px 3px;
+}
+.sb-wing-wall::after {
+  content: '';
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 40%;
+  height: 2px;
+  background: rgba(120, 90, 55, 0.2);
+}
+
+/* 主墙：高度用 scaleY + transform-origin 长出，避免每帧 layout */
 .sb-wall {
   position: relative;
-  height: 0;
   width: 100%;
+  height: 58px;
   background: linear-gradient(180deg, #c4a882, #9d845f);
-  transition: height 0.6s ease;
+  transform: scaleY(0.14);
+  transform-origin: 50% 100%;
+  opacity: 0.85;
   overflow: hidden;
+  transition: transform 0.6s ease, opacity 0.4s ease, background 0.45s ease;
 }
 .sb-wall::before {
   content: '';
   position: absolute;
   inset: 5px;
-  border: 2px dashed rgba(120, 90, 55, 0.4);
+  border: 2px dashed rgba(120, 90, 55, 0.35);
   border-radius: 6px;
+  opacity: 0.9;
+  transition: opacity 0.35s ease;
 }
-.sb-lot.p2 .sb-wall { height: 8px; }
-.sb-lot.p3 .sb-wall { height: 52px; }
-.sb-lot.p4 .sb-wall { height: 56px; background: linear-gradient(180deg, #e8d4b0, #c4a882); }
+.sb-lot.p2 .sb-wall { transform: scaleY(0.14); opacity: 0.9; }
+.sb-lot.p3 .sb-wall { transform: scaleY(0.92); opacity: 1; }
+.sb-lot.p4 .sb-wall {
+  transform: scaleY(1);
+  opacity: 1;
+  background: linear-gradient(180deg, #f2e0bc, #d4b888);
+}
+.sb-lot.p4 .sb-wall::before { opacity: 0; }
 .sb-wall::after {
   content: '';
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(90deg, transparent 48%, rgba(255, 255, 255, 0.12) 50%, transparent 52%);
-  background-size: 26px 100%;
+  background-image: linear-gradient(90deg, transparent 48%, rgba(255, 255, 255, 0.1) 50%, transparent 52%);
+  background-size: 28px 100%;
 }
 
+/* 门窗：仅 opacity 切换 */
 .sb-door {
   position: absolute;
   left: 50%;
   bottom: 0;
-  width: 16px;
-  height: 28px;
+  width: 18px;
+  height: 32px;
   transform: translateX(-50%);
-  border-radius: 5px 5px 0 0;
-  background: #6b4a26;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(180deg, #7a5230, #5c3a1c);
   opacity: 0;
-  transition: opacity 0.4s ease 0.35s;
+  transition: opacity 0.4s ease 0.3s;
+  z-index: 1;
+}
+.sb-door::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #f0d090;
 }
 .sb-lot.p3 .sb-door,
 .sb-lot.p4 .sb-door { opacity: 1; }
 
-.sb-window {
+.sb-step {
   position: absolute;
-  left: 18%;
-  top: 28%;
+  left: 50%;
+  bottom: -3px;
+  width: 24px;
+  height: 4px;
+  transform: translateX(-50%);
+  background: #9aa3ad;
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.35s ease 0.45s;
+}
+.sb-porch {
+  position: absolute;
+  left: 50%;
+  bottom: 32px;
+  width: 36px;
+  height: 6px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, #d46838, #a84e28);
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+  opacity: 0;
+  transition: opacity 0.35s ease 0.5s;
+}
+.sb-lot.p4 .sb-step,
+.sb-lot.p4 .sb-porch { opacity: 1; }
+
+.sb-window {
   width: 14px;
-  height: 14px;
+  height: 16px;
   border-radius: 3px;
-  background: rgba(180, 230, 255, 0.55);
+  background: rgba(186, 230, 255, 0.55);
   border: 1.5px solid rgba(80, 60, 40, 0.45);
   opacity: 0;
-  transition: opacity 0.4s ease 0.45s;
+  transition: opacity 0.4s ease 0.4s;
 }
+.sb-window.w1 { position: absolute; left: 16%; top: 28%; }
+.sb-window.w3 { position: absolute; right: 16%; top: 28%; }
+.sb-window.w2 { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); width: 12px; height: 14px; }
 .sb-lot.p4 .sb-window { opacity: 1; }
+.sb-lot.p4 .sb-window.w1,
+.sb-lot.p4 .sb-window.w3 {
+  background: linear-gradient(160deg, #fff4c8 0%, rgba(140, 200, 255, 0.65) 55%, rgba(90, 140, 200, 0.5) 100%);
+  box-shadow: 0 0 6px rgba(255, 220, 140, 0.35);
+}
 
-/* 烟囱 + 炊烟（建成后）：贴在屋顶右侧坡面上 */
+/* 脚手架：p2–p3 施工期装饰，仅 transform 入场 */
+.sb-scaffold {
+  position: absolute;
+  left: -6%;
+  right: -6%;
+  bottom: 0;
+  height: 70%;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: transform 0.4s ease, opacity 0.35s ease;
+  z-index: 4;
+}
+.sb-lot.p2 .sb-scaffold,
+.sb-lot.p3 .sb-scaffold {
+  opacity: 1;
+  transform: translateY(0);
+}
+.sb-scaffold i {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  height: 100%;
+  background: linear-gradient(180deg, #d4b07a, #9a6a3a);
+  border-radius: 1px;
+  opacity: 0.75;
+}
+.sb-scaffold i:nth-child(1) { left: 8%; }
+.sb-scaffold i:nth-child(2) { left: 50%; }
+.sb-scaffold i:nth-child(3) { right: 8%; }
+.sb-scaffold::before,
+.sb-scaffold::after {
+  content: '';
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  height: 3px;
+  background: rgba(212, 176, 122, 0.7);
+  border-radius: 1px;
+}
+.sb-scaffold::before { top: 28%; }
+.sb-scaffold::after { top: 62%; }
+
+/* 烟囱 + 炊烟（建成后）：贴在主脊右侧 */
 .sb-chimney {
   position: absolute;
-  right: 28%;
-  top: 10px;
+  right: 30%;
+  top: 12px;
   width: 14px;
-  height: 22px;
-  background: #8b5a3a;
+  height: 24px;
+  background: linear-gradient(90deg, #9a6240, #7a4828);
   border-radius: 2px 2px 0 0;
   z-index: 1;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: transform 0.4s ease, opacity 0.35s ease;
+}
+.sb-lot.p4 .sb-chimney {
+  opacity: 1;
+  transform: translateY(0);
 }
 .sb-smoke {
   position: absolute;
@@ -1241,16 +1739,17 @@ onBeforeUnmount(() => {
 }
 .sb-smoke.s2 { animation-delay: 1.2s; }
 
-/* 施工告示牌 */
+/* 施工告示牌：贴地块下沿，层级高于前院 */
 .sb-sign {
   position: absolute;
-  left: 50%;
-  bottom: 6%;
+  left: 78%;
+  bottom: 8%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  z-index: 6;
   animation: sb-sign-bob 1.8s ease-in-out infinite;
 }
 .sb-sign span {
@@ -1568,7 +2067,7 @@ onBeforeUnmount(() => {
   50% { transform: translateY(6px); opacity: 0.7; }
 }
 
-/* 院子栅栏：贴在 stage 内院子顶沿 */
+/* 院子栅栏：贴在 stage 内院子顶沿；p4 淡出交给前院白栅栏 */
 .sb-fence {
   position: absolute;
   left: 50%;
@@ -1583,6 +2082,11 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   z-index: 1;
   pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+.sb-fence.hide {
+  opacity: 0;
 }
 .sb-fence i {
   width: 6px;
@@ -1998,13 +2502,32 @@ onBeforeUnmount(() => {
   100% { transform: translateY(-28px) scale(1.6); opacity: 0; }
 }
 
-/* 移动端：场景压扁、面板更贴近底部 */
+/* 落成时天光更暖：只切 class 上的静态背景，不做每帧 filter */
+.sb-lot.p4 {
+  box-shadow:
+    inset 0 8px 22px rgba(0, 0, 0, 0.12),
+    0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+/* 移动端：场景压扁、面板更贴近底部；前院用独立 scale 属性，避免盖掉入场 transform */
 @media (max-width: 640px) {
   .sb-lot {
     width: 94vw;
     height: min(28vh, 220px);
     min-height: 150px;
   }
+  .sb-house { width: 48%; left: 44%; }
+  .sb-roof-main { height: 42px; }
+  .sb-wall { height: 48px; }
+  .sb-tree { left: 4%; scale: 0.85; transform-origin: 50% 100%; }
+  .sb-bed { scale: 0.9; transform-origin: 50% 100%; }
+  .sb-picket i { height: 16px; width: 5px; }
+  .sb-gate { width: 28px; height: 18px; }
+  .sb-gate .gl,
+  .sb-gate .gr { width: 12px; height: 18px; }
+  .sb-lamp { right: 18%; scale: 0.85; transform-origin: 50% 100%; }
+  .sb-mail { display: none; }
+  .sb-sign { left: 82%; }
   .hbg-panel {
     width: calc(100% - 20px);
     margin-bottom: 12px;

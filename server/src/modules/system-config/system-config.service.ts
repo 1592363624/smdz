@@ -40,6 +40,15 @@ import {
   RedPacketConfig,
   normalizeRedPacketConfig,
 } from '../../config/red-packet.config';
+// 全服世界事件默认配置（纯常量模块：周期/任务池/里程碑/奖励/buff，管理员可在线调整）
+import {
+  WORLD_EVENT_CONFIG_KEYS as WEK,
+  DEFAULT_WORLD_EVENT,
+  DEFAULT_WORLD_EVENT_MILESTONES_JSON,
+  DEFAULT_WORLD_EVENT_TASK_POOL_JSON,
+  DEFAULT_WORLD_EVENT_REWARDS_JSON,
+  DEFAULT_WORLD_EVENT_BUFFS_JSON,
+} from '../../config/world-event.config';
 
 /** 导出文件 format 标识，导入时严格校验，防止误传其他 JSON */
 export const SYSTEM_CONFIG_EXPORT_FORMAT = 'system-config-export';
@@ -303,7 +312,213 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
     type: 'json',
     group: 'command',
   },
+  // ==================== 全服世界事件（worldEvent.*）====================
+  {
+    key: WEK.enabled,
+    value: String(DEFAULT_WORLD_EVENT.enabled),
+    label: '世界事件开关',
+    description: '总开关。关闭后不再自动开启新周期，已激活周期照常结算',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: WEK.period,
+    value: DEFAULT_WORLD_EVENT.period,
+    label: '世界事件周期粒度',
+    description: 'day=自然日/week=周一对齐/month=1日对齐（北京时间）。改配置下一周期生效，当前周期按快照走完',
+    type: 'string',
+    group: 'game',
+  },
+  {
+    key: WEK.cycleDays,
+    value: String(DEFAULT_WORLD_EVENT.cycleDays),
+    label: '世界事件周期天数(兼容)',
+    description: '仅当 period 未配置时回退用天数；period 有值时以 period 为准',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: WEK.autoStart,
+    value: String(DEFAULT_WORLD_EVENT.autoStart),
+    label: '世界事件自动开启',
+    description: '是否由轮询自动开启新周期；关闭时仅管理员指令可开',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: WEK.graceHours,
+    value: String(DEFAULT_WORLD_EVENT.graceHours),
+    label: '世界奖励领取窗口(小时)',
+    description: '周期结算后仍可领奖的时长；过期未领视为放弃',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: WEK.taskSource,
+    value: DEFAULT_WORLD_EVENT.taskSource,
+    label: '世界事件任务来源',
+    description: 'fixed=固定用 metric+baseGoal；pool=从任务池按权重随机抽',
+    type: 'string',
+    group: 'game',
+  },
+  {
+    key: WEK.taskPool,
+    value: DEFAULT_WORLD_EVENT_TASK_POOL_JSON,
+    label: '世界事件任务池',
+    description:
+      '每周期随机抽取的任务池：{tasks:[{key,title,metric,goalHint,weight,desc}]}。metric 埋点未就绪的条目开周期时自动过滤回退 kill',
+    type: 'json',
+    group: 'game',
+  },
+  {
+    key: WEK.randomPick,
+    value: String(DEFAULT_WORLD_EVENT.randomPick),
+    label: '世界事件随机抽取',
+    description: '每开新周期是否重新随机抽任务；false=始终抽权重最高的一条（近似固定）',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: WEK.panelTitleOverride,
+    value: DEFAULT_WORLD_EVENT.panelTitleOverride,
+    label: '世界事件标题覆盖',
+    description: '非空时覆盖面板标题（优先于抽到的任务名，留给运营换皮）',
+    type: 'string',
+    group: 'game',
+  },
+  {
+    key: WEK.metric,
+    value: DEFAULT_WORLD_EVENT.metric,
+    label: '世界事件进度指标',
+    description: 'fixed 模式下的进度指标（本期仅 kill，复用世界熟练度差值）',
+    type: 'string',
+    group: 'game',
+  },
+  {
+    key: WEK.baseGoal,
+    value: String(DEFAULT_WORLD_EVENT.baseGoal),
+    label: '世界事件目标基准',
+    description: '本周期目标增量基准（点数），必须按实测校准；pool 模式取任务 goalHint 为提示',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: WEK.goalAutoAdjust,
+    value: String(DEFAULT_WORLD_EVENT.goalAutoAdjust),
+    label: '世界事件目标自动缩放',
+    description: '按上一周期实际完成度自动缩放下一周期目标',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: WEK.goalAdjustMin,
+    value: String(DEFAULT_WORLD_EVENT.goalAdjustMin),
+    label: '世界事件缩放下限系数',
+    description: '上期完成度偏低时，下期目标缩小的兜底系数',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: WEK.goalAdjustMax,
+    value: String(DEFAULT_WORLD_EVENT.goalAdjustMax),
+    label: '世界事件缩放上限系数',
+    description: '上期超额完成时，下期目标放大的上限（防通胀）',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: WEK.milestones,
+    value: DEFAULT_WORLD_EVENT_MILESTONES_JSON,
+    label: '世界事件里程碑档位',
+    description: '百分比档位数组，如 [25,50,75,100]',
+    type: 'json',
+    group: 'game',
+  },
+  {
+    key: WEK.startPointsFallback,
+    value: String(DEFAULT_WORLD_EVENT.startPointsFallback),
+    label: '世界事件起始点数兜底',
+    description: '取不到世界熟练度时的起始点数兜底（仅防炸，正常不发生）',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: WEK.rewards,
+    value: DEFAULT_WORLD_EVENT_REWARDS_JSON,
+    label: '世界事件奖励表',
+    description:
+      '里程碑奖励：{milestones:[{percent,rewards:[{type,name,quantity}]}]}。数量键必须是 quantity；type 支持 item/exp/vitality',
+    type: 'json',
+    group: 'game',
+  },
+  {
+    key: WEK.buffs,
+    value: DEFAULT_WORLD_EVENT_BUFFS_JSON,
+    label: '世界事件全服增益表',
+    description:
+      '里程碑达成即解锁的全服 buff：{buffs:[{percent,type,value,label}]}。type 支持 cargoPods/checkinExp/vitalityRegen/challengeBox',
+    type: 'json',
+    group: 'game',
+  },
+  {
+    key: WEK.announceOnMilestone,
+    value: String(DEFAULT_WORLD_EVENT.announceOnMilestone),
+    label: '世界事件里程碑播报',
+    description: '里程碑达成是否公屏播报',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: WEK.announceOnStart,
+    value: String(DEFAULT_WORLD_EVENT.announceOnStart),
+    label: '世界事件开启播报',
+    description: '新周期开启是否公屏播报',
+    type: 'boolean',
+    group: 'game',
+  },
+  {
+    key: WEK.progressBroadcastStep,
+    value: String(DEFAULT_WORLD_EVENT.progressBroadcastStep),
+    label: '世界事件进度播报步长(%)',
+    description: '进度每跨过 N% 推送一次 worldEvent:progress 并公屏播报；0=关闭',
+    type: 'number',
+    group: 'game',
+  },
+  {
+    key: WEK.panelTitle,
+    value: DEFAULT_WORLD_EVENT.panelTitle,
+    label: '世界事件活动名',
+    description: '面板/活动名（可每期更换制造新鲜感），任务标题为空时回退此名',
+    type: 'string',
+    group: 'game',
+  },
+  {
+    key: WEK.panelDesc,
+    value: DEFAULT_WORLD_EVENT.panelDesc,
+    label: '世界事件副标题/背景',
+    description: '面板副标题 / 背景故事',
+    type: 'string',
+    group: 'game',
+  },
+  {
+    key: WEK.history,
+    value: '[]',
+    label: '世界事件历史归档',
+    description: '每周期结算归档一条（cycleId/goal/actual/percent/领取数等），最多保留 20 条',
+    type: 'json',
+    group: 'game',
+  },
 ];
+
+/**
+ * 已废弃的配置键：启动时一次性删除，避免残留在「系统配置」界面里被当成可编辑项。
+ * 只放"代码不再读取"的键；值仍被别处惰性读取的键（如 game.worldLevel 由
+ * GlobalProficiencyService 首次加载时自行迁移并删除）不要放进来，否则会抢在读取前删掉。
+ *
+ * - game.highestPlayerLevel：原版自动保存线程写入的运行时统计，本实现的等级差距
+ *   经验加成直接查 Player 表，无人读取该键。
+ */
+const OBSOLETE_CONFIG_KEYS = ['game.highestPlayerLevel'];
 
 @Injectable()
 export class SystemConfigService implements OnModuleInit {
@@ -312,7 +527,23 @@ export class SystemConfigService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit(): Promise<void> {
+    await this.removeObsoleteConfigs();
     await this.ensureDefaultConfigs();
+  }
+
+  /** 删除 OBSOLETE_CONFIG_KEYS 中残留的行（老库未重跑 seed 时的兜底清理） */
+  private async removeObsoleteConfigs(): Promise<void> {
+    try {
+      const { count } = await this.prisma.systemConfig.deleteMany({
+        where: { key: { in: OBSOLETE_CONFIG_KEYS } },
+      });
+      if (count > 0) {
+        for (const key of OBSOLETE_CONFIG_KEYS) this.cache.delete(key);
+        this.logger.log(`已清理废弃配置 ${count} 项: ${OBSOLETE_CONFIG_KEYS.join(', ')}`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`废弃配置清理失败（忽略）: ${err?.message ?? err}`);
+    }
   }
 
   /**

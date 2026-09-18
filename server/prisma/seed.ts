@@ -348,6 +348,10 @@ async function main() {
     { name: '设置标记', alias: 'setting-marker', description: '设置自定义标记', handlerKey: 'game', minRole: 'USER', sortOrder: 359 },
     // 管理（统一 game 处理器）
     { name: '管理', alias: 'admin,管理员,gm', description: '管理员操作入口', handlerKey: 'game', minRole: 'ADMIN', sortOrder: 999 },
+    // 全服世界事件（独立 worldEvent 处理器）
+    { name: '世界事件', alias: 'world-event,事件,sj', description: '查看全服世界事件进度与奖励', handlerKey: 'worldEvent', minRole: 'USER', sortOrder: 360 },
+    { name: '领取世界奖励', alias: 'claim-world-reward,lqsjjl', description: '领取已解锁的世界事件奖励', handlerKey: 'worldEvent', minRole: 'USER', sortOrder: 361 },
+    { name: '世界事件管理', alias: 'world-event-admin', description: '开启/结算/重置/调目标世界事件(管理员)', handlerKey: 'worldEvent', minRole: 'ADMIN', sortOrder: 1000 },
   ];
 
   // 使魔技能/通用技能指令批量注册：使 /技能名 可直接施放（指令分发先查 Command 表，
@@ -436,7 +440,6 @@ async function main() {
     { key: 'game.autoSaveInterval', value: '300', label: '自动保存间隔(秒)', description: '后台自动保存玩家数据的间隔', type: 'number', group: 'game' },
     { key: 'game.respawnTime', value: '30', label: '怪物重生时间(秒)', description: '怪物被击杀后重生时间', type: 'number', group: 'game' },
     { key: 'game.spawnMonsterCooldown', value: '60', label: '怪物刷新时间(秒)', description: '地图怪物被清空后刷新时间', type: 'number', group: 'game' },
-    { key: 'game.worldLevel', value: '1', label: '世界等级', description: '当前世界等级，影响怪物强度和掉落', type: 'number', group: 'game' },
     { key: 'game.weaponPublicCdMinSec', value: '5', label: '武器公共攻击CD最低冷却(秒)', description: '所有武器公共「攻击冷却」的下限；特殊效果算出的公共CD若低于该值则抬高到该值。默认5秒，0=不限制下限', type: 'number', group: 'game' },
     { key: 'game.moveTimeEnabled', value: 'true', label: '移动真实耗时', description: '移动是否真实消耗时间(延时到达)。true=移动需等待耗时秒数后才到达，false=即时到达', type: 'boolean', group: 'game' },
     { key: 'game.wreckSpawnHour', value: '10', label: '废弃载具刷新时间', description: '每天在指定时间点自动刷新废弃载具。支持：10（整点）、10,22（多个整点）、10:00,20:22（精确到分）。默认 10。改后下次到点即生效，无需重启。设为 -1 可关闭自动刷新', type: 'string', group: 'game' },

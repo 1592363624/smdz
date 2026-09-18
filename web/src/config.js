@@ -23,7 +23,7 @@ export const COMMAND_PREFIXES = ['/', '！', '!'];
 
 // 版本号配置
 // 显示在界面右上角，用于标识当前前端版本，发布新版本时在此调整即可，无需改动视图代码。
-export const APP_VERSION = '0.8.0';
+export const APP_VERSION = '0.8.1';
 
 // GitHub Issue 反馈页地址
 // 头部「BUG 反馈」按钮的跳转目标；可通过环境变量 VITE_GITHUB_ISSUES_URL 覆盖，
@@ -215,7 +215,8 @@ export const UPDATE_SETTINGS = {
 export const HOME_YARD_CONFIG = {
   /** 地块网格：格子边长区间与间距（px），列数按容器宽度自适应 */
   plot: { minSize: 96, maxSize: 132, gap: 10, maxVisible: 150 },
-  /** 院子数据自动刷新间隔（毫秒）；操作后会立即再拉一次 */
+  /** 院子数据自动刷新间隔（毫秒）；操作后会立即再拉一次。
+   *  作物成熟倒计时由前端按 plantedAt 本地跳秒，轮询只兜底同步 ripe/障碍等 */
   refreshMs: 45000,
   /** 执行指令后重新拉取数据的延迟（毫秒），等后端写完再读 */
   refetchDelayMs: 400,
@@ -525,4 +526,38 @@ export const HOME_BUILD_GUIDE_CONFIG = {
     /** 家园写操作门禁提示（建成前点种植/收获/安装/拆除/凭证开垦时） */
     needBuilt: '需要先完成房屋的建造，才能在院子里种植 / 收获 / 安装 / 拆除',
   },
+};
+
+/**
+ * 全服世界事件前端展示配置（常驻细进度条 + 展开面板）。
+ * 文案/图标/颜色/刷新节奏集中于此，组件只做渲染、不硬编码。
+ * 领取/管理走发指令通道（与 QQ 端逐字相同的「领取世界奖励」「世界事件」），前端不新增写接口。
+ */
+export const WORLD_EVENT_UI = {
+  /** 首屏拉取 + 打开面板时刷新的节流间隔（毫秒）；实时增量走 socket worldEvent:progress，不依赖轮询 */
+  refreshMs: 60_000,
+  icon: '🌍',
+  /** 顶部细条右侧标题前缀 */
+  stripLabel: '世界事件',
+  /** 无进行中周期时的文案 */
+  empty: '暂无进行中的世界事件',
+  /** 周期粒度中文标签（映射后端 period 字段） */
+  periodLabel: { day: '每日', week: '每周', month: '每月' },
+  /** 里程碑状态图标 */
+  milestoneIcons: { reached: '✅', claimable: '🎁', pending: '⏳', claimed: '🎁' },
+  texts: {
+    panelTitle: '全服世界事件',
+    remaining: (s) => `还剩 ${s}`,
+    claimButton: '领取已解锁奖励',
+    claimCommand: '领取世界奖励', // 领取：发这条指令（与 QQ 同一路径）
+    viewCommand: '世界事件', // 面板指令名
+    refresh: '刷新',
+    close: '✕',
+    noCycle: '当前没有进行中的世界事件，下一周期即将开启',
+    stillNeed: (gap) => `还差 ${gap}`,
+    claimableHint: (n) => `${n} 项可领取`,
+    historyTitle: '近 3 期',
+  },
+  /** 里程碑刻度在进度条上的高亮色 */
+  tickColor: 'rgba(255, 255, 255, 0.55)',
 };
